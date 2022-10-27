@@ -3535,6 +3535,13 @@ func checkHtlcEvents(t *testing.T, events <-chan interface{},
 			t.Fatalf("expected event: %v", expected)
 		}
 	}
+
+	// Check that there are no unexpected events following.
+	select {
+	case event := <-events:
+		t.Fatalf("unexpected event: %v", event)
+	default:
+	}
 }
 
 // sendThreeHopPayment is a helper function which sends a payment over
@@ -3638,6 +3645,12 @@ func getThreeHopEvents(channels *clusterChannels, htlcID uint64,
 				Incoming:      false,
 				Timestamp:     ts,
 			},
+			&FinalHtlcEvent{
+				CircuitKey: bobKey.IncomingCircuit,
+				Settled:    false,
+				Offchain:   true,
+				Timestamp:  ts,
+			},
 		}
 
 		return aliceEvents, bobEvents, nil
@@ -3669,6 +3682,12 @@ func getThreeHopEvents(channels *clusterChannels, htlcID uint64,
 			HtlcEventType: HtlcEventTypeForward,
 			Timestamp:     ts,
 		},
+		&FinalHtlcEvent{
+			CircuitKey: bobKey.IncomingCircuit,
+			Settled:    true,
+			Offchain:   true,
+			Timestamp:  ts,
+		},
 	}
 
 	carolEvents := []interface{}{
@@ -3683,6 +3702,14 @@ func getThreeHopEvents(channels *clusterChannels, htlcID uint64,
 			Preimage:      *preimage,
 			HtlcEventType: HtlcEventTypeReceive,
 			Timestamp:     ts,
+		}, &FinalHtlcEvent{
+			CircuitKey: channeldb.CircuitKey{
+				ChanID: channels.carolToBob.ShortChanID(),
+				HtlcID: htlcID,
+			},
+			Settled:   true,
+			Offchain:  true,
+			Timestamp: ts,
 		},
 	}
 

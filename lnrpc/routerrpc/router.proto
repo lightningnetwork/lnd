@@ -618,6 +618,8 @@ message HtlcEvent {
         ForwardFailEvent forward_fail_event = 8;
         SettleEvent settle_event = 9;
         LinkFailEvent link_fail_event = 10;
+        SubscribedEvent subscribed_event = 11;
+        FinalHtlcEvent final_htlc_event = 12;
     }
 }
 
@@ -646,6 +648,14 @@ message ForwardFailEvent {
 message SettleEvent {
     // The revealed preimage.
     bytes preimage = 1;
+}
+
+message FinalHtlcEvent {
+    bool settled = 1;
+    bool offchain = 2;
+}
+
+message SubscribedEvent {
 }
 
 message LinkFailEvent {

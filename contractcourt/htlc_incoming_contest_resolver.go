@@ -50,6 +50,30 @@ func newIncomingContestResolver(
 	}
 }
 
+func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
+	// Mark the htlc as final failed.
+	err := h.ChainArbitratorConfig.PutFinalHtlcOutcome(
+		h.ChannelArbitratorConfig.ShortChanID, h.htlc.HtlcIndex, false,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Send notification.
+	h.ChainArbitratorConfig.HtlcNotifier.NotifyFinalHtlcEvent(
+		channeldb.CircuitKey{
+			ChanID: h.ShortChanID,
+			HtlcID: h.htlc.HtlcIndex,
+		},
+		channeldb.FinalHtlcInfo{
+			Settled:  false,
+			Offchain: false,
+		},
+	)
+
+	return nil
+}
+
 // Resolve attempts to resolve this contract. As we don't yet know of the
 // preimage for the contract, we'll wait for one of two things to happen:
 //
@@ -82,6 +106,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// present itself when we crash before processRemoteAdds in the
 		// link has ran.
 		h.resolved = true
+
+		if err := h.processFinalHtlcFail(); err != nil {
+			return nil, err
+		}
 
 		// We write a report to disk that indicates we could not decode
 		// the htlc.
@@ -128,6 +156,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			"abandoning", h, h.htlcResolution.ClaimOutpoint,
 			h.htlcExpiry, currentHeight)
 		h.resolved = true
+
+		if err := h.processFinalHtlcFail(); err != nil {
+			return nil, err
+		}
 
 		// Finally, get our report and checkpoint our resolver with a
 		// timeout outcome report.
@@ -200,6 +232,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				h.htlcExpiry, currentHeight)
 
 			h.resolved = true
+
+			if err := h.processFinalHtlcFail(); err != nil {
+				return nil, err
+			}
 
 			// Checkpoint our resolver with an abandoned outcome
 			// because we take no further action on this htlc.
@@ -342,6 +378,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 					h.htlcResolution.ClaimOutpoint,
 					h.htlcExpiry, currentHeight)
 				h.resolved = true
+
+				if err := h.processFinalHtlcFail(); err != nil {
+					return nil, err
+				}
 
 				report := h.report().resolverReport(
 					nil,

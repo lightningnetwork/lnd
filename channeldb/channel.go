@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -135,6 +136,26 @@ var (
 	// sent was a revocation and false when it was a commitment signature.
 	// This is nil in the case of new channels with no updates exchanged.
 	lastWasRevokeKey = []byte("last-was-revoke")
+
+	// finalHtlcsBucket contains the htlcs that have been resolved
+	// definitively. Within this bucket, there is a sub-bucket for each
+	// channel. In each channel bucket, the htlc indices are stored along
+	// with final outcome.
+	//
+	// final-htlcs -> chanID -> htlcIndex -> outcome
+	//
+	// 'outcome' is a byte value that encodes:
+	//
+	//       | true      false
+	// ------+------------------
+	// bit 0 | settled   failed
+	// bit 1 | offchain  onchain
+	//
+	// This bucket is positioned at the root level, because its contents
+	// will be kept independent of the channel lifecycle. This is to avoid
+	// the situation where a channel force-closes autonomously and the user
+	// not being able to query for htlc outcomes anymore.
+	finalHtlcsBucket = []byte("final-htlcs")
 )
 
 var (
@@ -618,6 +639,20 @@ func (c ChannelStatus) String() string {
 	return statusStr
 }
 
+// FinalHtlcByte defines a byte type that encodes information about the final
+// htlc resolution.
+type FinalHtlcByte byte
+
+const (
+	// FinalHtlcSettledBit is the bit that encodes whether the htlc was
+	// settled or failed.
+	FinalHtlcSettledBit FinalHtlcByte = 1 << 0
+
+	// FinalHtlcOffchainBit is the bit that encodes whether the htlc was
+	// resolved offchain or onchain.
+	FinalHtlcOffchainBit FinalHtlcByte = 1 << 1
+)
+
 // OpenChannel encapsulates the persistent and dynamic state of an open channel
 // with a remote node. An open channel supports several options for on-disk
 // serialization depending on the exact context. Full (upon channel creation)
@@ -1038,6 +1073,26 @@ func fetchChanBucketRw(tx kvdb.RwTx, nodeKey *btcec.PublicKey,
 	chanBucket := chainBucket.NestedReadWriteBucket(chanPointBuf.Bytes())
 	if chanBucket == nil {
 		return nil, ErrChannelNotFound
+	}
+
+	return chanBucket, nil
+}
+
+func fetchFinalHtlcsBucketRw(tx kvdb.RwTx,
+	chanID lnwire.ShortChannelID) (kvdb.RwBucket, error) {
+
+	finalHtlcsBucket, err := tx.CreateTopLevelBucket(finalHtlcsBucket)
+	if err != nil {
+		return nil, err
+	}
+
+	var chanIDBytes [8]byte
+	byteOrder.PutUint64(chanIDBytes[:], chanID.ToUint64())
+	chanBucket, err := finalHtlcsBucket.CreateBucketIfNotExists(
+		chanIDBytes[:],
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	return chanBucket, nil
@@ -1739,8 +1794,12 @@ func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr) error {
 // persisted to be able to produce a valid commit signature if a restart would
 // occur. This method its to be called when we revoke our prior commitment
 // state.
+//
+// A map is returned of all the htlc resolutions that were locked in in this
+// commitment. Keys correspond to htlc indices and values indicate whether the
+// htlc was settled or failed.
 func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
-	unsignedAckedUpdates []LogUpdate) error {
+	unsignedAckedUpdates []LogUpdate) (map[uint64]bool, error) {
 
 	c.Lock()
 	defer c.Unlock()
@@ -1749,8 +1808,10 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 	// state as all, as it's impossible to do so in a protocol compliant
 	// manner.
 	if c.hasChanStatus(ChanStatusRestored) {
-		return ErrNoRestoredChannelMutation
+		return nil, ErrNoRestoredChannelMutation
 	}
+
+	var finalHtlcs = make(map[uint64]bool)
 
 	err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
 		chanBucket, err := fetchChanBucketRw(
@@ -1822,17 +1883,35 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 			return err
 		}
 
-		var validUpdates []LogUpdate
+		// Get the bucket where settled htlcs are recorded.
+		finalHtlcsBucket, err := fetchFinalHtlcsBucketRw(
+			tx, c.ShortChannelID,
+		)
+		if err != nil {
+			return err
+		}
+
+		var unsignedUpdates []LogUpdate
 		for _, upd := range updates {
-			// Filter for updates that are not on our local
-			// commitment.
+			// Gather updates that are not on our local commitment.
 			if upd.LogIndex >= newCommitment.LocalLogIndex {
-				validUpdates = append(validUpdates, upd)
+				unsignedUpdates = append(unsignedUpdates, upd)
+
+				continue
+			}
+
+			// The update was locked in. If the update was a
+			// resolution, then store it in the database.
+			err := processFinalHtlc(
+				finalHtlcsBucket, upd, finalHtlcs,
+			)
+			if err != nil {
+				return err
 			}
 		}
 
 		var b3 bytes.Buffer
-		err = serializeLogUpdates(&b3, validUpdates)
+		err = serializeLogUpdates(&b3, unsignedUpdates)
 		if err != nil {
 			return fmt.Errorf("unable to serialize log updates: %v", err)
 		}
@@ -1843,12 +1922,57 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 		}
 
 		return nil
-	}, func() {})
+	}, func() {
+		finalHtlcs = make(map[uint64]bool)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	c.LocalCommitment = *newCommitment
+
+	return finalHtlcs, nil
+}
+
+// processFinalHtlc stores a final htlc outcome in the database if signaled via
+// the supplied log update. An in-memory htlcs map is updated too.
+func processFinalHtlc(finalHtlcsBucket walletdb.ReadWriteBucket, upd LogUpdate,
+	finalHtlcs map[uint64]bool) error {
+
+	var (
+		settled bool
+		id      uint64
+	)
+
+	switch msg := upd.UpdateMsg.(type) {
+	case *lnwire.UpdateFulfillHTLC:
+		settled = true
+		id = msg.ID
+
+	case *lnwire.UpdateFailHTLC:
+		settled = false
+		id = msg.ID
+
+	case *lnwire.UpdateFailMalformedHTLC:
+		settled = false
+		id = msg.ID
+
+	default:
+		return nil
+	}
+
+	err := putFinalHtlc(
+		finalHtlcsBucket, id,
+		FinalHtlcInfo{
+			Settled:  settled,
+			Offchain: true,
+		},
+	)
 	if err != nil {
 		return err
 	}
 
-	c.LocalCommitment = *newCommitment
+	finalHtlcs[id] = settled
 
 	return nil
 }
@@ -2679,6 +2803,36 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 	c.RemoteCommitment = *newRemoteCommit
 
 	return nil
+}
+
+// FinalHtlcInfo contains information about the final outcome of an htlc.
+type FinalHtlcInfo struct {
+	// Settled is true is the htlc was settled. If false, the htlc was
+	// failed.
+	Settled bool
+
+	// Offchain indicates whether the htlc was resolved off-chain or
+	// on-chain.
+	Offchain bool
+}
+
+// putFinalHtlc writes the final htlc outcome to the database. Additionally it
+// records whether the htlc was resolved off-chain or on-chain.
+func putFinalHtlc(finalHtlcsBucket kvdb.RwBucket, id uint64,
+	info FinalHtlcInfo) error {
+
+	var key [8]byte
+	byteOrder.PutUint64(key[:], id)
+
+	var finalHtlcByte FinalHtlcByte
+	if info.Settled {
+		finalHtlcByte |= FinalHtlcSettledBit
+	}
+	if info.Offchain {
+		finalHtlcByte |= FinalHtlcOffchainBit
+	}
+
+	return finalHtlcsBucket.Put(key[:], []byte{byte(finalHtlcByte)})
 }
 
 // NextLocalHtlcIndex returns the next unallocated local htlc index. To ensure

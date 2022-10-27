@@ -172,6 +172,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, aliceEvents)
 
 	bobEvents, err := net.Bob.RouterClient.SubscribeHtlcEvents(
 		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
@@ -179,6 +180,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, bobEvents)
 
 	carolEvents, err := carol.RouterClient.SubscribeHtlcEvents(
 		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
@@ -186,6 +188,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, carolEvents)
 
 	daveEvents, err := dave.RouterClient.SubscribeHtlcEvents(
 		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
@@ -193,6 +196,7 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, daveEvents)
 
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
@@ -344,13 +348,26 @@ func assertHtlcEvents(t *harnessTest, fwdCount, fwdFailCount, settleCount int,
 	userType routerrpc.HtlcEvent_EventType,
 	client routerrpc.Router_SubscribeHtlcEventsClient) {
 
-	var forwards, forwardFails, settles int
+	var forwards, forwardFails, settles, finalSettles, finalFails int
 
-	numEvents := fwdCount + fwdFailCount + settleCount
+	var finalFailCount, finalSettleCount int
+	if userType != routerrpc.HtlcEvent_SEND {
+		finalFailCount = fwdFailCount
+		finalSettleCount = settleCount
+	}
+
+	numEvents := fwdCount + fwdFailCount + settleCount +
+		finalFailCount + finalSettleCount
+
 	for i := 0; i < numEvents; i++ {
-		event := assertEventAndType(t, userType, client)
+		event, err := client.Recv()
+		if err != nil {
+			t.Fatalf("could not get event")
+		}
 
-		switch event.Event.(type) {
+		expectedEventType := userType
+
+		switch e := event.Event.(type) {
 		case *routerrpc.HtlcEvent_ForwardEvent:
 			forwards++
 
@@ -360,8 +377,22 @@ func assertHtlcEvents(t *harnessTest, fwdCount, fwdFailCount, settleCount int,
 		case *routerrpc.HtlcEvent_SettleEvent:
 			settles++
 
+		case *routerrpc.HtlcEvent_FinalHtlcEvent:
+			if e.FinalHtlcEvent.Settled {
+				finalSettles++
+			} else {
+				finalFails++
+			}
+
+			expectedEventType = routerrpc.HtlcEvent_UNKNOWN
+
 		default:
 			t.Fatalf("unexpected event: %T", event.Event)
+		}
+
+		if event.EventType != expectedEventType {
+			t.Fatalf("expected: %v, got: %v", expectedEventType,
+				event.EventType)
 		}
 	}
 
@@ -374,8 +405,18 @@ func assertHtlcEvents(t *harnessTest, fwdCount, fwdFailCount, settleCount int,
 			forwardFails)
 	}
 
+	if finalFails != finalFailCount {
+		t.Fatalf("expected: %v final fails, got: %v", finalFailCount,
+			finalFails)
+	}
+
 	if settles != settleCount {
 		t.Fatalf("expected: %v settles, got: %v", settleCount, settles)
+	}
+
+	if finalSettles != finalSettleCount {
+		t.Fatalf("expected: %v settles, got: %v", finalSettleCount,
+			finalSettles)
 	}
 }
 
@@ -397,6 +438,14 @@ func assertEventAndType(t *harnessTest, eventType routerrpc.HtlcEvent_EventType,
 	}
 
 	return event
+}
+
+func assertSubscribed(t *harnessTest,
+	client routerrpc.Router_SubscribeHtlcEventsClient) {
+
+	event, err := client.Recv()
+	require.NoError(t.t, err)
+	require.NotNil(t.t, event.GetSubscribedEvent())
 }
 
 // updateChannelPolicy updates the channel policy of node to the

@@ -168,6 +168,7 @@ out:
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, aliceEvents)
 
 	bobEvents, err := net.Bob.RouterClient.SubscribeHtlcEvents(
 		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
@@ -175,6 +176,7 @@ out:
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, bobEvents)
 
 	carolEvents, err := carol.RouterClient.SubscribeHtlcEvents(
 		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
@@ -182,6 +184,7 @@ out:
 	if err != nil {
 		t.Fatalf("could not subscribe events: %v", err)
 	}
+	assertSubscribed(t, carolEvents)
 
 	// For the first scenario, we'll test the cancellation of an HTLC with
 	// an unknown payment hash.
@@ -420,5 +423,15 @@ func assertLinkFailure(t *harnessTest,
 	if linkFail.LinkFailEvent.FailureDetail != failureDetail {
 		t.Fatalf("expected: %v, got: %v", failureDetail,
 			linkFail.LinkFailEvent.FailureDetail)
+	}
+
+	event = assertEventAndType(t, routerrpc.HtlcEvent_UNKNOWN, client)
+	finalHtlc, ok := event.Event.(*routerrpc.HtlcEvent_FinalHtlcEvent)
+	if !ok {
+		t.Fatalf("expected final htlc, got: %T", event.Event)
+	}
+
+	if finalHtlc.FinalHtlcEvent.Settled {
+		t.Fatalf("expected final fail")
 	}
 }

@@ -398,6 +398,7 @@ type LightningClient interface {
 	// their confirmed SCID (if it exists) and/or the base SCID (in the case of
 	// zero conf).
 	ListAliases(ctx context.Context, in *ListAliasesRequest, opts ...grpc.CallOption) (*ListAliasesResponse, error)
+	LookupHtlc(ctx context.Context, in *LookupHtlcRequest, opts ...grpc.CallOption) (*LookupHtlcResponse, error)
 }
 
 type lightningClient struct {
@@ -1299,6 +1300,15 @@ func (c *lightningClient) ListAliases(ctx context.Context, in *ListAliasesReques
 	return out, nil
 }
 
+func (c *lightningClient) LookupHtlc(ctx context.Context, in *LookupHtlcRequest, opts ...grpc.CallOption) (*LookupHtlcResponse, error) {
+	out := new(LookupHtlcResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/LookupHtlc", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LightningServer is the server API for Lightning service.
 // All implementations must embed UnimplementedLightningServer
 // for forward compatibility
@@ -1683,6 +1693,7 @@ type LightningServer interface {
 	// their confirmed SCID (if it exists) and/or the base SCID (in the case of
 	// zero conf).
 	ListAliases(context.Context, *ListAliasesRequest) (*ListAliasesResponse, error)
+	LookupHtlc(context.Context, *LookupHtlcRequest) (*LookupHtlcResponse, error)
 	mustEmbedUnimplementedLightningServer()
 }
 
@@ -1887,6 +1898,9 @@ func (UnimplementedLightningServer) SubscribeCustomMessages(*SubscribeCustomMess
 }
 func (UnimplementedLightningServer) ListAliases(context.Context, *ListAliasesRequest) (*ListAliasesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAliases not implemented")
+}
+func (UnimplementedLightningServer) LookupHtlc(context.Context, *LookupHtlcRequest) (*LookupHtlcResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LookupHtlc not implemented")
 }
 func (UnimplementedLightningServer) mustEmbedUnimplementedLightningServer() {}
 
@@ -3148,6 +3162,24 @@ func _Lightning_ListAliases_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_LookupHtlc_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LookupHtlcRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).LookupHtlc(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/LookupHtlc",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).LookupHtlc(ctx, req.(*LookupHtlcRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Lightning_ServiceDesc is the grpc.ServiceDesc for Lightning service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3366,6 +3398,10 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAliases",
 			Handler:    _Lightning_ListAliases_Handler,
+		},
+		{
+			MethodName: "LookupHtlc",
+			Handler:    _Lightning_LookupHtlc_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

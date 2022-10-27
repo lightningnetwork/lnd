@@ -1168,6 +1168,17 @@
       ],
       "default": "UNKNOWN"
     },
+    "routerrpcFinalHtlcEvent": {
+      "type": "object",
+      "properties": {
+        "settled": {
+          "type": "boolean"
+        },
+        "offchain": {
+          "type": "boolean"
+        }
+      }
+    },
     "routerrpcForwardEvent": {
       "type": "object",
       "properties": {
@@ -1317,6 +1328,12 @@
         },
         "link_fail_event": {
           "$ref": "#/definitions/routerrpcLinkFailEvent"
+        },
+        "subscribed_event": {
+          "$ref": "#/definitions/routerrpcSubscribedEvent"
+        },
+        "final_htlc_event": {
+          "$ref": "#/definitions/routerrpcFinalHtlcEvent"
         }
       },
       "title": "HtlcEvent contains the htlc event that was processed. These are served on a\nbest-effort basis; events are not persisted, delivery is not guaranteed\n(in the event of a crash in the switch, forward events may be lost) and\nsome events may be replayed upon restart. Events consumed from this package\nshould be de-duplicated by the htlc's unique combination of incoming and\noutgoing channel id and htlc id. [EXPERIMENTAL]"
@@ -1747,6 +1764,9 @@
           "description": "The revealed preimage."
         }
       }
+    },
+    "routerrpcSubscribedEvent": {
+      "type": "object"
     },
     "routerrpcUpdateChanStatusRequest": {
       "type": "object",

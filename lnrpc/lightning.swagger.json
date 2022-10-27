@@ -1593,6 +1593,44 @@
         ]
       }
     },
+    "/v1/htlc/{chan_id}/{htlc_index}": {
+      "get": {
+        "operationId": "Lightning_LookupHtlc",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcLookupHtlcResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "chan_id",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "htlc_index",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "uint64"
+          }
+        ],
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/invoice/{r_hash_str}": {
       "get": {
         "summary": "lncli: `lookupinvoice`\nLookupInvoice attempts to look up an invoice according to its payment hash.\nThe passed payment hash *must* be exactly 32 bytes, if not, an error is\nreturned.",
@@ -5348,6 +5386,17 @@
             "$ref": "#/definitions/lnrpcUtxo"
           },
           "title": "A list of utxos"
+        }
+      }
+    },
+    "lnrpcLookupHtlcResponse": {
+      "type": "object",
+      "properties": {
+        "settled": {
+          "type": "boolean"
+        },
+        "offchain": {
+          "type": "boolean"
         }
       }
     },

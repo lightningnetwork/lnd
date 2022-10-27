@@ -1920,12 +1920,28 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// As we've just accepted a new state, we'll now
 		// immediately send the remote peer a revocation for our prior
 		// state.
-		nextRevocation, currentHtlcs, err := l.channel.RevokeCurrentCommitment()
+		nextRevocation, currentHtlcs, finalHTLCs, err :=
+			l.channel.RevokeCurrentCommitment()
 		if err != nil {
 			l.log.Errorf("unable to revoke commitment: %v", err)
 			return
 		}
 		l.cfg.Peer.SendMessage(false, nextRevocation)
+
+		// Notify the incoming htlcs of which the resolutions were
+		// locked in.
+		for id, settled := range finalHTLCs {
+			l.cfg.HtlcNotifier.NotifyFinalHtlcEvent(
+				channeldb.CircuitKey{
+					ChanID: l.shortChanID,
+					HtlcID: id,
+				},
+				channeldb.FinalHtlcInfo{
+					Settled:  settled,
+					Offchain: true,
+				},
+			)
+		}
 
 		// Since we just revoked our commitment, we may have a new set
 		// of HTLC's on our commitment, so we'll send them using our

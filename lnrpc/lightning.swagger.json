@@ -4496,9 +4496,9 @@
           "format": "int64",
           "description": "The max number of events to return in the response to this query."
         },
-        "skip_peer_alias_lookup": {
+        "peer_alias_lookup": {
           "type": "boolean",
-          "description": "Informs the server if the peer alias lookup per forwarding event\nshould be skipped in order to improve performance."
+          "description": "Informs the server if the peer alias should be looked up for each\nforwarding event."
         }
       }
     },

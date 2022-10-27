@@ -4059,9 +4059,9 @@ message ForwardingHistoryRequest {
     // The max number of events to return in the response to this query.
     uint32 num_max_events = 4;
 
-    // Informs the server if the peer alias lookup per forwarding event
-    // should be skipped in order to improve performance.
-    bool skip_peer_alias_lookup = 5;
+    // Informs the server if the peer alias should be looked up for each
+    // forwarding event.
+    bool peer_alias_lookup = 5;
 }
 message ForwardingEvent {
     // Timestamp is the time (unix epoch offset) that this circuit was

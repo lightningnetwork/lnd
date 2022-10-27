@@ -277,10 +277,28 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 		ctxt, &lnrpc.ForwardingHistoryRequest{},
 	)
 	require.NoError(t.t, err)
-	require.EqualValues(
-		t.t, numPayments, len(fwdingHistory.ForwardingEvents),
-	)
+	require.Len(t.t, fwdingHistory.ForwardingEvents, numPayments)
 	expectedForwardingFee := uint64(expectedFeeDave / numPayments)
+	for _, event := range fwdingHistory.ForwardingEvents {
+		// Each event should show a fee of 170 satoshi.
+		require.Equal(t.t, expectedForwardingFee, event.Fee)
+
+		// Check that peer aliases are empty since the
+		// ForwardingHistoryRequest did not specify the PeerAliasLookup
+		// flag.
+		require.Empty(t.t, event.PeerAliasIn)
+		require.Empty(t.t, event.PeerAliasOut)
+	}
+
+	// Lookup the forwarding history again but this time also lookup the
+	// peers' alias names.
+	fwdingHistory, err = dave.ForwardingHistory(
+		ctxt, &lnrpc.ForwardingHistoryRequest{
+			PeerAliasLookup: true,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, fwdingHistory.ForwardingEvents, numPayments)
 	for _, event := range fwdingHistory.ForwardingEvents {
 		// Each event should show a fee of 170 satoshi.
 		require.Equal(t.t, expectedForwardingFee, event.Fee)

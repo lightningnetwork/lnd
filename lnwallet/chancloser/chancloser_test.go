@@ -212,6 +212,111 @@ func (m *mockCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
 	return m.targetFee
 }
 
+type mockFeeRangeEstimator struct{}
+
+func (m *mockFeeRangeEstimator) EstimateFee(chanType channeldb.ChannelType,
+	localTxOut, remoteTxOut *wire.TxOut,
+	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
+
+	// Use a weight of 2000 even though coop closing will never produce
+	// such a large transaction. This is needed so that the ChanCloser can
+	// create a realistic fee-range instead of a 1sat fee-range if the
+	// mockCoopFeeEstimator were to be used.
+	return idealFeeRate.FeeForWeight(2000)
+}
+
+type feeRangeHarness struct {
+	t            *testing.T
+	funderCloser *ChanCloser
+	fundeeCloser *ChanCloser
+}
+
+// newFeeRangeHarness returns a new testing harness for testing fee-range logic.
+// It returns two ChanCloser pointers that are set to the closeFeeNegotiation
+// state and are already in the clean state.
+func newFeeRangeHarness(t *testing.T, funderRate,
+	fundeeRate, maxFee chainfee.SatPerKWeight) (*feeRangeHarness,
+	*lnwire.ClosingSigned) {
+
+	broadcastStub := func(*wire.MsgTx, string) error { return nil }
+
+	funderCfg := ChanCloseCfg{
+		Channel: &mockChannel{
+			initiator: true,
+		},
+		FeeEstimator: &mockFeeRangeEstimator{},
+		BroadcastTx:  broadcastStub,
+		MaxFee:       maxFee,
+	}
+	funderCloser := NewChanCloser(
+		funderCfg, nil, funderRate, 0, nil, true, false,
+	)
+
+	fundeeCfg := ChanCloseCfg{
+		Channel:      &mockChannel{},
+		FeeEstimator: &mockFeeRangeEstimator{},
+		BroadcastTx:  broadcastStub,
+	}
+	fundeeCloser := NewChanCloser(
+		fundeeCfg, nil, fundeeRate, 0, nil, false, false,
+	)
+
+	// Set both sides' state to closeFeeNegotiation and call ChannelClean.
+	funderCloser.state = closeFeeNegotiation
+	fundeeCloser.state = closeFeeNegotiation
+
+	msg, done, err := funderCloser.ChannelClean()
+	require.NoError(t, err)
+	require.False(t, done)
+	require.Equal(t, 1, len(msg))
+
+	funderClosing, ok := msg[0].(*lnwire.ClosingSigned)
+	require.True(t, ok)
+
+	msg, done, err = fundeeCloser.ChannelClean()
+	require.NoError(t, err)
+	require.False(t, done)
+	require.Nil(t, msg)
+
+	harness := &feeRangeHarness{
+		t:            t,
+		funderCloser: funderCloser,
+		fundeeCloser: fundeeCloser,
+	}
+
+	return harness, funderClosing
+}
+
+// processCloseMsg allows the harness to process a close message and assert
+// various things like whether negotiation is complete or whether an error
+// should be returned from the ProcessCloseMsg call.
+func (f *feeRangeHarness) processCloseMsg(closeMsg lnwire.Message,
+	fundee, expectMsg, done bool, expectedErr error) lnwire.Message {
+
+	closer := f.funderCloser
+	if fundee {
+		closer = f.fundeeCloser
+	}
+
+	msg, finished, err := closer.ProcessCloseMsg(closeMsg, true)
+	require.Equal(f.t, finished, done)
+
+	if expectedErr != nil {
+		require.ErrorIs(f.t, err, expectedErr)
+	} else {
+		require.NoError(f.t, err)
+	}
+
+	if expectMsg {
+		require.NotNil(f.t, msg)
+		require.Equal(f.t, 1, len(msg))
+		return msg[0]
+	}
+
+	require.Nil(f.t, msg)
+	return nil
+}
+
 // TestMaxFeeClamp tests that if a max fee is specified, then it's used instead
 // of the default max fee multiplier.
 func TestMaxFeeClamp(t *testing.T) {
@@ -344,4 +449,290 @@ func TestMaxFeeBailOut(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestFeeRangeFundeeAgreesIdeal tests fee_range negotiation can end early if
+// the fundee immediately agrees with the funder's fee_satoshis.
+func TestFeeRangeFundeeAgreesIdeal(t *testing.T) {
+	t.Parallel()
+
+	idealFeeRate := chainfee.SatPerKWeight(500)
+	harness, funderClosing := newFeeRangeHarness(
+		t, idealFeeRate, idealFeeRate, chainfee.SatPerKWeight(0),
+	)
+
+	// The fundee will process the close message.
+	msg := harness.processCloseMsg(funderClosing, true, true, true, nil)
+
+	fundeeClosing, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+
+	// Assert that we are done with negotiation.
+	require.Equal(
+		t, fundeeClosing.FeeSatoshis, funderClosing.FeeSatoshis,
+	)
+
+	msg = harness.processCloseMsg(fundeeClosing, false, true, true, nil)
+
+	funderClosing, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	require.Equal(
+		t, fundeeClosing.FeeSatoshis, funderClosing.FeeSatoshis,
+	)
+}
+
+// TestFeeRangeFundeeAgreesOverlap tests that negotiation completes in two
+// messages if the overlap's MaxFeeSats for the fundee is equal to the fee
+// proposed by the funder.
+func TestFeeRangeFundeeAgreesOverlap(t *testing.T) {
+	t.Parallel()
+
+	// We use a fundee feerate of 250 so that it is out of the overlap and
+	// the fundee chooses the maximum overlap value. This happens to be the
+	// funder's MaxFee so negotiation completes early.
+	funderFeeRate := chainfee.SatPerKWeight(500)
+	fundeeFeeRate := chainfee.SatPerKWeight(250)
+
+	harness, funderClosing := newFeeRangeHarness(
+		t, funderFeeRate, fundeeFeeRate, funderFeeRate,
+	)
+
+	// The fundee will process the close message.
+	msg := harness.processCloseMsg(funderClosing, true, true, true, nil)
+
+	fundeeClosing, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+
+	// Assert that we are done with negotiation and that fundeeClosing uses
+	// a feerate of 500 at a weight of 2000.
+	expectedFee := funderFeeRate.FeeForWeight(2000)
+	require.Equal(
+		t, fundeeClosing.FeeSatoshis, funderClosing.FeeSatoshis,
+	)
+	require.Equal(t, expectedFee, fundeeClosing.FeeSatoshis)
+	require.Equal(t, expectedFee, funderClosing.FeeRange.MaxFeeSats)
+
+	msg = harness.processCloseMsg(fundeeClosing, false, true, true, nil)
+
+	funderClosing, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	require.Equal(t, expectedFee, funderClosing.FeeSatoshis)
+}
+
+// TestFeeRangeRegular tests fee_range negotiation completes in the happy path.
+func TestFeeRangeRegular(t *testing.T) {
+	t.Parallel()
+
+	funderFeeRate := chainfee.SatPerKWeight(500)
+	fundeeFeeRate := chainfee.SatPerKWeight(800)
+	harness, funderClosing := newFeeRangeHarness(
+		t, funderFeeRate, fundeeFeeRate, chainfee.SatPerKWeight(0),
+	)
+
+	// The fundee will process the close message.
+	msg := harness.processCloseMsg(funderClosing, true, true, false, nil)
+
+	fundeeClosing, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+
+	// Assert that the fundee replies with the fundeeFeeRate for 2000WU.
+	expectedFee := fundeeFeeRate.FeeForWeight(2000)
+	require.Equal(t, expectedFee, fundeeClosing.FeeSatoshis)
+
+	// The funder should consider negotiation done at this point.
+	msg = harness.processCloseMsg(fundeeClosing, false, true, true, nil)
+
+	funderClosing, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	require.Equal(t, expectedFee, funderClosing.FeeSatoshis)
+
+	// Now the fundee should also consider negotiation done.
+	msg = harness.processCloseMsg(funderClosing, true, true, true, nil)
+
+	fundeeClosing, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	require.Equal(t, expectedFee, fundeeClosing.FeeSatoshis)
+}
+
+// TestFeeRangeCloseTypeChangedLegacy verifies that negotiation fails if the
+// type of negotiation is changed in the middle of negotiation from legacy to
+// range-based. We only test the fundee logic.
+func TestFeeRangeCloseTypeChangedLegacy(t *testing.T) {
+	t.Parallel()
+
+	funderFeeRate := chainfee.SatPerKWeight(500)
+	fundeeFeeRate := chainfee.SatPerKWeight(800)
+
+	harness, funderClosing := newFeeRangeHarness(
+		t, funderFeeRate, fundeeFeeRate, chainfee.SatPerKWeight(0),
+	)
+
+	// Give the fundee a ClosingSigned message without a FeeRange.
+	funderClosing.FeeRange = nil
+	msg := harness.processCloseMsg(funderClosing, true, true, false, nil)
+
+	// Give the funder the message so that we can obtain a message to give
+	// the fundee.
+	fundeeClosing, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+
+	// The funder is technically done, but this does not matter since we are
+	// not testing the funder.
+	msg = harness.processCloseMsg(fundeeClosing, false, true, true, nil)
+
+	// We'll change the FeeSatoshis of funderClosing so that we can test the
+	// close type logic.
+	funderClosing, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	require.NotNil(t, funderClosing.FeeRange)
+	funderClosing.FeeSatoshis = btcutil.Amount(501)
+
+	// The fundee should fail with ErrCloseTypeChanged.
+	_ = harness.processCloseMsg(
+		funderClosing, true, false, false, ErrCloseTypeChanged,
+	)
+}
+
+// TestFeeRangeCloseTypeChangedRange verifies that negotiation fails if the type
+// of negotiation is changed from range-based to legacy. We only test the fundee
+// logic since it is not possible to test the funder as the funder would already
+// be finished negotiating.
+func TestFeeRangeCloseTypeChangedRange(t *testing.T) {
+	t.Parallel()
+
+	funderFeeRate := chainfee.SatPerKWeight(500)
+	fundeeFeeRate := chainfee.SatPerKWeight(800)
+
+	harness, funderClosing := newFeeRangeHarness(
+		t, funderFeeRate, fundeeFeeRate, chainfee.SatPerKWeight(0),
+	)
+
+	// Give the fundee the ClosingSigned message to start range-based
+	// negotiation.
+	msg := harness.processCloseMsg(funderClosing, true, true, false, nil)
+
+	fundeeClosing, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+
+	// Give the message to the funder so we can get another message to give
+	// to the fundee.
+	msg = harness.processCloseMsg(fundeeClosing, false, true, true, nil)
+
+	// We'll change FeeSatoshis so we can trigger the close-type-changed
+	// logic. We'll also un-set FeeRange.
+	funderClosing, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	funderClosing.FeeSatoshis = btcutil.Amount(501)
+	funderClosing.FeeRange = nil
+
+	// The fundee should fail with ErrCloseTypeChanged
+	_ = harness.processCloseMsg(
+		funderClosing, true, false, false, ErrCloseTypeChanged,
+	)
+}
+
+// TestFeeRangeNoOverlapFunder tests that the funder will fail if they receive a
+// ClosingSigned with no fee-range overlap.
+func TestFeeRangeNoOverlapFunder(t *testing.T) {
+	t.Parallel()
+
+	funderFeeRate := chainfee.SatPerKWeight(500)
+	fundeeFeeRate := chainfee.SatPerKWeight(800)
+
+	harness, funderClosing := newFeeRangeHarness(
+		t, funderFeeRate, fundeeFeeRate, chainfee.SatPerKWeight(0),
+	)
+
+	// Hand off the message to the fundee.
+	msg := harness.processCloseMsg(funderClosing, true, true, false, nil)
+
+	// We'll change the FeeRange to trigger the no overlap error for the
+	// funder.
+	fundeeClosing, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	fundeeClosing.FeeRange = &lnwire.FeeRange{}
+
+	_ = harness.processCloseMsg(
+		fundeeClosing, false, false, false, ErrNoRangeOverlap,
+	)
+}
+
+// TestFeeRangeNoOverlapFundee tests that the fundee will send a warning if it
+// receives a FeeRange that has no overlap with its own yet-to-be-sent FeeRange.
+func TestFeeRangeNoOverlapFundee(t *testing.T) {
+	t.Parallel()
+
+	funderFeeRate := chainfee.SatPerKWeight(500)
+	fundeeFeeRate := chainfee.SatPerKWeight(800)
+
+	harness, funderClosing := newFeeRangeHarness(
+		t, funderFeeRate, fundeeFeeRate, chainfee.SatPerKWeight(0),
+	)
+
+	// Modify funderClosing to have a FeeRange with no overlap.
+	funderClosing.FeeRange = &lnwire.FeeRange{}
+
+	// Hand off the message to the fundee and assert that we get back a
+	// warning.
+	msg := harness.processCloseMsg(funderClosing, true, true, false, nil)
+
+	_, ok := msg.(*lnwire.Warning)
+	require.True(t, ok)
+}
+
+// TestFeeNotInOverlap tests that ErrFeeNotInOverlap is returned when the fee
+// that the fundee proposes is not in the range overlap.
+func TestFeeNotInOverlap(t *testing.T) {
+	t.Parallel()
+
+	funderFeeRate := chainfee.SatPerKWeight(500)
+	fundeeFeeRate := chainfee.SatPerKWeight(800)
+
+	harness, funderClosing := newFeeRangeHarness(
+		t, funderFeeRate, fundeeFeeRate, chainfee.SatPerKWeight(0),
+	)
+
+	// Hand off the message to the fundee.
+	msg := harness.processCloseMsg(funderClosing, true, true, false, nil)
+
+	// We will change FeeSatoshis to zero so that it is out of the overlap.
+	fundeeClosing, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	fundeeClosing.FeeSatoshis = btcutil.Amount(0)
+
+	// The funder should error with ErrFeeNotInOverlap.
+	_ = harness.processCloseMsg(
+		fundeeClosing, false, false, false, ErrFeeNotInOverlap,
+	)
+}
+
+// TestErrFeeRangeViolation tests that ErrFeeRangeViolation is returned if the
+// funder does not follow the spec by agreeing with the fundee's FeeSatoshis.
+func TestErrFeeRangeViolation(t *testing.T) {
+	t.Parallel()
+
+	funderFeeRate := chainfee.SatPerKWeight(500)
+	fundeeFeeRate := chainfee.SatPerKWeight(800)
+
+	harness, funderClosing := newFeeRangeHarness(
+		t, funderFeeRate, fundeeFeeRate, chainfee.SatPerKWeight(0),
+	)
+
+	// Hand off the message to the fundee.
+	msg := harness.processCloseMsg(funderClosing, true, true, false, nil)
+
+	fundeeClosing, ok := msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+
+	msg = harness.processCloseMsg(fundeeClosing, false, true, true, nil)
+
+	// We'll modify FeeSatoshis to not match what the fundee sent. This will
+	// trigger ErrFeeRangeViolation.
+	funderClosing, ok = msg.(*lnwire.ClosingSigned)
+	require.True(t, ok)
+	funderClosing.FeeSatoshis = btcutil.Amount(501)
+
+	_ = harness.processCloseMsg(
+		funderClosing, true, false, false, ErrFeeRangeViolation,
+	)
 }

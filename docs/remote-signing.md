@@ -86,7 +86,7 @@ After successfully starting up "signer", the following command can be run to
 export the `xpub`s of the wallet:
 
 ```shell
-signer>  ⛰  lncli wallet accounts list > accounts-signer.json
+signer>  $  lncli wallet accounts list > accounts-signer.json
 ```
 
 That `accounts-signer.json` file has to be copied to the machine on which
@@ -97,7 +97,7 @@ A custom macaroon can be baked for the watch-only node so it only gets the
 minimum required permissions on the signer instance:
 
 ```shell
-signer>  ⛰ lncli bakemacaroon --save_to signer.custom.macaroon \
+signer>  $ lncli bakemacaroon --save_to signer.custom.macaroon \
                 message:write signer:generate address:read onchain:write
 ```
 
@@ -124,7 +124,7 @@ After starting "watch-only", the wallet can be created in watch-only mode by
 running:
 
 ```shell
-watch-only>  ⛰  lncli createwatchonly accounts-signer.json
+watch-only>  $  lncli createwatchonly accounts-signer.json
 
 Input wallet password: 
 Confirm password: 
@@ -186,7 +186,7 @@ using the command line. This can be done by using the new `x` option during the
 interactive `lncli create` command:
 
 ```bash
-signer>  ⛰ lncli create
+signer>  $ lncli create
 Input wallet password: 
 Confirm password:
 

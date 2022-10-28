@@ -11,7 +11,7 @@ already enabled by default. The default release binaries or docker images can
 be used. To build from source, simply run:
 
 ```shell
-⛰  make install
+$  make install
 ```
 
 ## Configuring Postgres for LND

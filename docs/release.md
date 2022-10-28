@@ -20,10 +20,10 @@ helper image.
 To build a release, run the following commands:
 
 ```shell
-⛰  git clone https://github.com/lightningnetwork/lnd.git
-⛰  cd lnd
-⛰  git checkout <TAG> # <TAG> is the name of the next release/tag
-⛰  make docker-release tag=<TAG>
+$  git clone https://github.com/lightningnetwork/lnd.git
+$  cd lnd
+$  git checkout <TAG> # <TAG> is the name of the next release/tag
+$  make docker-release tag=<TAG>
 ```
 
 Where `<TAG>` is the name of the next release of `lnd`.
@@ -36,10 +36,10 @@ binaries at the moment is by using the Windows Subsystem Linux. One can build
 the release binaries following these steps:
 
 ```shell
-⛰  git clone https://github.com/lightningnetwork/lnd.git
-⛰  cd lnd
-⛰  git checkout <TAG> # <TAG> is the name of the next release/tag
-⛰  make release tag=<TAG>
+$  git clone https://github.com/lightningnetwork/lnd.git
+$  cd lnd
+$  git checkout <TAG> # <TAG> is the name of the next release/tag
+$  make release tag=<TAG>
 ```
 
 This will then create a directory of the form `lnd-<TAG>` containing archives
@@ -99,10 +99,10 @@ script in the image that can be called (before starting the container for
 example):
 
 ```shell
-⛰  docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.1-beta /verify-install.sh v0.12.1-beta
-⛰  OK=$?
-⛰  if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
-⛰  docker run lightninglabs/lnd [command-line options]
+$  docker run --rm --entrypoint="" lightninglabs/lnd:v0.12.1-beta /verify-install.sh v0.12.1-beta
+$  OK=$?
+$  if [ "$OK" -ne "0" ]; then echo "Verification failed!"; exit 1; done
+$  docker run lightninglabs/lnd [command-line options]
 ```
 
 # Signing an Existing Manifest File
@@ -121,5 +121,5 @@ signature during signing.
 Assuming `USERNAME` is your current nick as a developer, then the following
 command will generate a proper signature:
 ```shell
-⛰  gpg --detach-sig --output manifest-USERNAME-TAG.sig manifest-TAG.txt
+$  gpg --detach-sig --output manifest-USERNAME-TAG.sig manifest-TAG.txt
 ```

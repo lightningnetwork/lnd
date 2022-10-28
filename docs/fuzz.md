@@ -7,14 +7,14 @@ This section will cover setup and installation of the fuzzing binaries.
 
 * The following is a command to build all fuzzing harnesses:
 ```shell
-⛰  make fuzz-build
+$  make fuzz-build
 ```
 
 * This may take a while since this will create zip files associated with each fuzzing target.
 
 * The following is a command to run all fuzzing harnesses for 30 seconds:
 ```shell
-⛰  make fuzz-run
+$  make fuzz-run
 ```
 
 `go-fuzz` will print out log lines every couple of seconds. Example output:

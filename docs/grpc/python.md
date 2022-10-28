@@ -11,31 +11,31 @@ file in Python before you can use it to communicate with lnd.
 
 1. Create a virtual environment for your project
     ```shell
-    ⛰  virtualenv lnd
+    $  virtualenv lnd
     ```
 2. Activate the virtual environment
     ```shell
-    ⛰  source lnd/bin/activate
+    $  source lnd/bin/activate
     ```
 3. Install dependencies (googleapis-common-protos is required due to the use of
   google/api/annotations.proto)
     ```shell
-    lnd ⛰  pip install grpcio grpcio-tools googleapis-common-protos
+    lnd $  pip install grpcio grpcio-tools googleapis-common-protos
     ```
 4. Clone the google api's repository (required due to the use of
   google/api/annotations.proto)
     ```shell
-    lnd ⛰  git clone https://github.com/googleapis/googleapis.git
+    lnd $  git clone https://github.com/googleapis/googleapis.git
     ```
 5. Copy the lnd lightning.proto file (you'll find this at
   [lnrpc/lightning.proto](https://github.com/lightningnetwork/lnd/blob/master/lnrpc/lightning.proto))
   or just download it
     ```shell
-    lnd ⛰  curl -o lightning.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/lightning.proto
+    lnd $  curl -o lightning.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/lightning.proto
     ```
 6. Compile the proto file
     ```shell
-    lnd ⛰  python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --grpc_python_out=. lightning.proto
+    lnd $  python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --grpc_python_out=. lightning.proto
     ```
 
 After following these steps, two files `lightning_pb2.py` and
@@ -53,8 +53,8 @@ extra steps (after completing all 6 step described above) to get the
 `router_pb2.py` and `router_pb2_grpc.py`:
 
 ```shell
-lnd ⛰  curl -o router.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/routerrpc/router.proto
-lnd ⛰  python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --grpc_python_out=. router.proto
+lnd $  curl -o router.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/routerrpc/router.proto
+lnd $  python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --grpc_python_out=. router.proto
 ```
 
 ### Imports and Client
@@ -108,12 +108,12 @@ for invoice in stub.SubscribeInvoices(request):
 Now, create an invoice for your node at `localhost:10009`and send a payment to
 it from another node.
 ```shell
-lnd ⛰  lncli addinvoice --amt=100
+lnd $  lncli addinvoice --amt=100
 {
 	"r_hash": <R_HASH>,
 	"pay_req": <PAY_REQ>
 }
-lnd ⛰  lncli sendpayment --pay_req=<PAY_REQ>
+lnd $  lncli sendpayment --pay_req=<PAY_REQ>
 ```
 
 Your Python console should now display the details of the recently satisfied

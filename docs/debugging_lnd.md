@@ -16,13 +16,13 @@ You can enable debug logging in `lnd` by passing the `--debuglevel` flag. For
 example, to increase the log level from `info` to `debug`:
 
 ```shell
-⛰  lnd --debuglevel=debug
+$  lnd --debuglevel=debug
 ```
 
 You may also specify logging per-subsystem, like this:
 
 ```shell
-⛰  lnd --debuglevel=<subsystem>=<level>,<subsystem2>=<level>,...
+$  lnd --debuglevel=<subsystem>=<level>,<subsystem2>=<level>,...
 ```
 
 ## Capturing pprof data with `lnd`
@@ -35,13 +35,13 @@ Go. The profiler has negligible performance overhead during normal operations
 To enable this ability, start `lnd` with the `--profile` option using a free port.
 
 ```shell
-⛰  lnd --profile=9736
+$  lnd --profile=9736
 ```
 
 Now, with `lnd` running, you can use the pprof endpoint on port 9736 to collect
 runtime profiling data. You can fetch this data using `curl` like so:
 
 ```shell
-⛰  curl http://localhost:9736/debug/pprof/goroutine?debug=1
+$  curl http://localhost:9736/debug/pprof/goroutine?debug=1
 ...
 ```

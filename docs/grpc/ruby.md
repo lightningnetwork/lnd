@@ -15,26 +15,26 @@ the `lnd` proto file in Ruby before you can use it to communicate with `lnd`.
 Install gRPC rubygems:
 
 ```shell
-⛰  gem install grpc
-⛰  gem install grpc-tools
+$  gem install grpc
+$  gem install grpc-tools
 ```
 
 Clone the Google APIs repository:
 
 ```shell
-⛰  git clone https://github.com/googleapis/googleapis.git
+$  git clone https://github.com/googleapis/googleapis.git
 ```
 
 Fetch the `lightning.proto` file (or copy it from your local source directory):
 
 ```shell
-⛰  curl -o lightning.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/lightning.proto
+$  curl -o lightning.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/lightning.proto
 ```
 
 Compile the proto file:
 
 ```shell
-⛰  grpc_tools_ruby_protoc --proto_path googleapis:. --ruby_out=. --grpc_out=. lightning.proto
+$  grpc_tools_ruby_protoc --proto_path googleapis:. --ruby_out=. --grpc_out=. lightning.proto
 ```
 
 Two files will be generated in the current directory: 
@@ -101,7 +101,7 @@ end
 Now, create an invoice on your node:
 
 ```shell
-⛰  lncli addinvoice --amt=590
+$  lncli addinvoice --amt=590
 {
 	"r_hash": <R_HASH>,
 	"pay_req": <PAY_REQ>
@@ -111,7 +111,7 @@ Now, create an invoice on your node:
 Next send a payment to it from another node:
 
 ```shell
-⛰  lncli sendpayment --pay_req=<PAY_REQ>
+$  lncli sendpayment --pay_req=<PAY_REQ>
 ```
 
 You should now see the details of the settled invoice appear.

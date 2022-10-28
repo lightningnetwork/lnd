@@ -350,7 +350,7 @@ Provide the `-S` flag (or `--gpg-sign`) to git commit when you commit
 your changes, for example
 
 ```shell
-⛰  git commit -m "Commit message" -S
+$  git commit -m "Commit message" -S
 ```
 
 Optionally you can provide a key id after the `-S` option to sign with a
@@ -369,7 +369,7 @@ To instruct `git` to auto-sign every commit, add the following lines to your
 You can retroactively sign your previous commit using `--amend`, for example
 
 ```shell
-⛰  git commit -S --amend
+$  git commit -S --amend
 ```
 
 If you need to go further back, you can use the interactive rebase
@@ -377,7 +377,7 @@ command with 'edit'. Replace `HEAD~3` with the base commit from which
 you want to start.
 
 ```shell
-⛰  git rebase -i HEAD~3
+$  git rebase -i HEAD~3
 ```
 
 Replace 'pick' by 'edit' for the commit that you want to sign and the
@@ -385,7 +385,7 @@ rebasing will stop after that commit. Then you can amend the commit as
 above. Afterwards, do
 
 ```shell
-⛰  git rebase --continue
+$  git rebase --continue
 ```
 
 As this will rewrite history, you cannot do this when your commit is
@@ -398,7 +398,7 @@ Multiple commits can also be re-signed with `git rebase`. For example, signing
 the last three commits can be done with:
 
 ```shell
-⛰  git rebase --exec 'git commit --amend --no-edit -n -S' -i HEAD~3
+$  git rebase --exec 'git commit --amend --no-edit -n -S' -i HEAD~3
 ```
 
 ### How to check if commits are signed?
@@ -406,7 +406,7 @@ the last three commits can be done with:
 Use `git log` with `--show-signature`,
 
 ```shell
-⛰  git log --show-signature
+$  git log --show-signature
 ```
 
 You can also pass the `--show-signature` option to `git show` to check a single
@@ -421,12 +421,12 @@ without any further work, the `go.mod` and `go.sum` files will need to be
 updated. Luckily, the `go mod` command has a handy tool to do this
 automatically so developers don't need to manually edit the `go.mod` file:
 ```shell
-⛰  go mod edit -replace=IMPORT-PATH-IN-LND@LND-VERSION=DEV-FORK-IMPORT-PATH@DEV-FORK-VERSION
+$  go mod edit -replace=IMPORT-PATH-IN-LND@LND-VERSION=DEV-FORK-IMPORT-PATH@DEV-FORK-VERSION
 ```
 
 Here's an example replacing the `lightning-onion` version checked into `lnd` with a version in roasbeef's fork:
 ```shell
-⛰  go mod edit -replace=github.com/lightningnetwork/lightning-onion@v0.0.0-20180605012408-ac4d9da8f1d6=github.com/roasbeef/lightning-onion@2e5ae87696046298365ab43bcd1cf3a7a1d69695
+$  go mod edit -replace=github.com/lightningnetwork/lightning-onion@v0.0.0-20180605012408-ac4d9da8f1d6=github.com/roasbeef/lightning-onion@2e5ae87696046298365ab43bcd1cf3a7a1d69695
 ```
 
 ## Use of Log Levels

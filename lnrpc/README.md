@@ -148,7 +148,7 @@ description):
 ## Installation and Updating
 
 ```shell
-⛰  go get -u github.com/lightningnetwork/lnd/lnrpc
+$  go get -u github.com/lightningnetwork/lnd/lnrpc
 ```
 
 ## Generate protobuf definitions

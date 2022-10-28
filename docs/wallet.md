@@ -21,7 +21,7 @@ through the command line](#unlocking-a-wallet) or (starting with `lnd` version
 
 If `lnd` is being run for the first time, create a new wallet with:
 ```shell
-⛰   lncli create
+$   lncli create
 ```
 This will prompt for a wallet password, and optionally a cipher seed
 passphrase.
@@ -48,7 +48,7 @@ This will be indicated in `lnd`'s log with a message like this:
 
 Unlocking the password manually is as simple as running the command
 ```shell
-⛰   lncli unlock
+$   lncli unlock
 ```
 and then typing the wallet password.
 
@@ -71,27 +71,27 @@ though where the secrets are mounted to a file anyway.
 
 - Start `lnd` without the flag:
   ```shell
-  ⛰   lnd --bitcoin.active --bitcoin.xxxx .....
+  $   lnd --bitcoin.active --bitcoin.xxxx .....
   ```
 - Create the wallet and write down the seed in a safe place:
   ```shell
-  ⛰   lncli create
+  $   lncli create
   ```
 - Stop `lnd` again:
   ```shell
-  ⛰   lncli stop
+  $   lncli stop
   ```
 - Write the password to a file:
   ```shell
-  ⛰   echo 'my-$up3r-Secret-Passw0rd' > /some/safe/location/password.txt
+  $   echo 'my-$up3r-Secret-Passw0rd' > /some/safe/location/password.txt
   ```
 - Make sure the password file can only be read by our user:
   ```shell
-  ⛰   chmod 0400 /some/safe/location/password.txt
+  $   chmod 0400 /some/safe/location/password.txt
   ```
 - Start `lnd` with the auto-unlock flag:
   ```shell
-  ⛰   lnd --bitcoin.active --bitcoin.xxxx ..... \
+  $   lnd --bitcoin.active --bitcoin.xxxx ..... \
          --wallet-unlock-password-file=/some/safe/location/password.txt
   ```
 
@@ -119,19 +119,19 @@ example here but it should work similarly with other password managers.
 
 - Start `lnd` without the flag:
   ```shell
-  ⛰   lnd --bitcoin.active --bitcoin.xxxx .....
+  $   lnd --bitcoin.active --bitcoin.xxxx .....
   ```
 - Create the wallet and write down the seed in a safe place:
   ```shell
-  ⛰   lncli create
+  $   lncli create
   ```
 - Stop `lnd` again:
   ```shell
-  ⛰   lncli stop
+  $   lncli stop
   ```
 - Store the password in `pass`:
   ```shell
-  ⛰   pass insert lnd/my-wallet-password
+  $   pass insert lnd/my-wallet-password
   ```
 - Create a startup script for starting `lnd`, for example `run-lnd.sh`:
   ```shell
@@ -155,7 +155,7 @@ example here but it should work similarly with other password managers.
   ```
 - Run the startup script instead of running `lnd` directly.
   ```shell
-  ⛰   ./run-lnd.sh
+  $   ./run-lnd.sh
   ```
 
 ## Changing the password
@@ -165,7 +165,7 @@ So after restarting `lnd`, instead of using the `unlock` command, the
 `changepassword` command can be used:
 
 ```shell
-⛰   lncli changepassword
+$   lncli changepassword
 ```
 
 This will ask for the old/existing password and a new one. If successful, the

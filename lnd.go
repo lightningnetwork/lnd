@@ -84,7 +84,7 @@ func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption,
 
 	// Get the admin macaroon if macaroons are active.
 	if !skipMacaroons && !cfg.NoMacaroons {
-		// Load the adming macaroon file.
+		// Load the admin macaroon file.
 		macBytes, err := ioutil.ReadFile(cfg.AdminMacPath)
 		if err != nil {
 			return nil, fmt.Errorf("unable to read macaroon "+

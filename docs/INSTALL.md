@@ -69,10 +69,10 @@ To build a specific git tag of `lnd`, simply run the following steps (assuming
 `v0.x.y-beta` is the tagged version to build):
 
 ```shell
-$  git clone https://github.com/lightningnetwork/lnd
-$  cd lnd
-$  git checkout v0.x.y-beta
-$  make docker-release tag=v0.x.y-beta
+git clone https://github.com/lightningnetwork/lnd
+cd lnd
+git checkout v0.x.y-beta
+make docker-release tag=v0.x.y-beta
 ```
 
 This will create a directory called `lnd-v0.x.y-beta` that contains the release
@@ -167,8 +167,8 @@ represents the path to your workspace. By default, `$GOPATH` is set to
 that your shell will be able to detect the binaries you install.
 
 ```shell
-$  export GOPATH=~/go
-$  export PATH=$PATH:$GOPATH/bin
+export GOPATH=~/go
+export PATH=$PATH:$GOPATH/bin
 ```
 
 --- 
@@ -198,9 +198,9 @@ documentation for [building mobile libraries](../mobile) to learn more.
 With the preliminary steps completed, to install `lnd`, `lncli`, and all
 related dependencies run the following commands:
 ```shell
-$  git clone https://github.com/lightningnetwork/lnd
-$  cd lnd
-$  make install
+git clone https://github.com/lightningnetwork/lnd
+cd lnd
+make install
 ```
 
 The command above will install the current _master_ branch of `lnd`. If you
@@ -210,10 +210,10 @@ release](https://github.com/lightningnetwork/lnd/releases). Assuming the name
 of the release is `v0.x.x`, then you can compile this release from source with
 a small modification to the above command: 
 ```shell
-$  git clone https://github.com/lightningnetwork/lnd
-$  cd lnd
-$  git checkout v0.x.x
-$  make install
+git clone https://github.com/lightningnetwork/lnd
+cd lnd
+git checkout v0.x.x
+make install
 ```
 
 **NOTE**: Our instructions still use the `$GOPATH` directory from prior
@@ -225,9 +225,9 @@ For Windows WSL users, make will need to be referenced directly via
 like so:
 
 ```shell
-$  /usr/bin/make && /usr/bin/make install
+/usr/bin/make && /usr/bin/make install
 
-$  "make" && "make" install
+"make" && "make" install
 ```
 
 On FreeBSD, use gmake instead of make.
@@ -235,7 +235,7 @@ On FreeBSD, use gmake instead of make.
 Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
 ```shell
-$  go install -v ./...
+go install -v ./...
 ```
 
 **Tags**
@@ -270,9 +270,9 @@ make install tags="signrpc walletrpc routerrpc invoicesrpc"
 To update your version of `lnd` to the latest version run the following
 commands:
 ```shell
-$  cd $GOPATH/src/github.com/lightningnetwork/lnd
-$  git pull
-$  make clean && make && make install
+cd $GOPATH/src/github.com/lightningnetwork/lnd
+git pull
+make clean && make && make install
 ```
 
 On FreeBSD, use gmake instead of make.
@@ -280,16 +280,16 @@ On FreeBSD, use gmake instead of make.
 Alternatively, if one doesn't wish to use `make`, then the `go` commands can be
 used directly:
 ```shell
-$  cd $GOPATH/src/github.com/lightningnetwork/lnd
-$  git pull
-$  go install -v ./...
+cd $GOPATH/src/github.com/lightningnetwork/lnd
+git pull
+go install -v ./...
 ```
 
 **Tests**
 
 To check that `lnd` was installed properly run the following command:
 ```shell
-$   make check
+ make check
 ```
 
 This command requires `bitcoind` (almost any version should do) to be available
@@ -360,7 +360,7 @@ To install btcd, run the following commands:
 
 Install **btcd**:
 ```shell
-$   make btcd
+ make btcd
 ```
 
 Alternatively, you can install [`btcd` directly from its
@@ -371,7 +371,7 @@ repo](https://github.com/btcsuite/btcd).
 Running the following command will create `rpc.cert` and default `btcd.conf`.
 
 ```shell
-$   btcd --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME
+ btcd --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME
 ```
 If you want to use `lnd` on testnet, `btcd` needs to first fully sync the
 testnet blockchain. Depending on your hardware, this may take up to a few
@@ -384,7 +384,7 @@ directly, rather than scanning blocks or BIP 158 filters for relevant items.
 While `btcd` is syncing you can check on its progress using btcd's `getinfo`
 RPC command:
 ```shell
-$   btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getinfo
+ btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getinfo
 {
   "version": 120000,
   "protocolversion": 70002,
@@ -404,7 +404,7 @@ time.
 
 You can test your `btcd` node's connectivity using the `getpeerinfo` command:
 ```shell
-$   btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getpeerinfo | more
+ btcctl --testnet --rpcuser=REPLACEME --rpcpass=REPLACEME getpeerinfo | more
 ```
 
 ### Running lnd using the btcd backend
@@ -414,7 +414,7 @@ Otherwise, replace `--bitcoin.testnet` with `--bitcoin.simnet`. If you are
 installing `lnd` in preparation for the
 [tutorial](https://dev.lightning.community/tutorial), you may skip this step.
 ```shell
-$   lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug \
+ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug \
        --btcd.rpcuser=kek --btcd.rpcpass=kek --externalip=X.X.X.X
 ```
 
@@ -430,7 +430,7 @@ mode.  A public instance of such a node can be found at
 To run lnd in neutrino mode, run `lnd` with the following arguments, (swapping
 in `--bitcoin.simnet` if needed), and also your own `btcd` node if available:
 ```shell
-$   lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug \
+ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug \
        --bitcoin.node=neutrino --neutrino.connect=faucet.lightning.community
 ```
 
@@ -481,7 +481,7 @@ updated with the latest blocks on testnet, run the command below to launch
 below):
 
 ```shell
-$   lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug \
+ lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug \
        --bitcoin.node=bitcoind --bitcoind.rpcuser=REPLACEME \
        --bitcoind.rpcpass=REPLACEME \
        --bitcoind.zmqpubrawblock=tcp://127.0.0.1:28332 \
@@ -522,7 +522,7 @@ $   lnd --bitcoin.active --bitcoin.testnet --debuglevel=debug \
 # Creating a wallet
 If `lnd` is being run for the first time, create a new wallet with:
 ```shell
-$   lncli create
+ lncli create
 ```
 This will prompt for a wallet password, and optionally a cipher seed
 passphrase.

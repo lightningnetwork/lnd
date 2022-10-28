@@ -123,7 +123,7 @@ invoice.
 
 This example has a few dependencies:
 ```shell
-⛰  npm install --save async lodash bytebuffer
+$  npm install --save async lodash bytebuffer
 ```
 
 You can run the following in your shell or put it in a program and run it like

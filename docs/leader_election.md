@@ -20,7 +20,7 @@ itself and for the replicated data store.
 To create a dev build of LND with leader election support use the following command:
 
 ```shell
-⛰  make tags="kvdb_etcd"
+$  make tags="kvdb_etcd"
 ```
 
 ## Running a local etcd instance for testing
@@ -28,7 +28,7 @@ To create a dev build of LND with leader election support use the following comm
 To start your local etcd instance for testing run:
 
 ```shell
-⛰  ./etcd \
+$  ./etcd \
     --auto-tls \
     --advertise-client-urls=https://127.0.0.1:2379 \
     --listen-client-urls=https://0.0.0.0:2379 \
@@ -47,7 +47,7 @@ through command line flags or in `lnd.conf`.
 Sample command line:
 
 ```shell
-⛰  ./lnd-debug \
+$  ./lnd-debug \
     --db.backend=etcd \
     --db.etcd.host=127.0.0.1:2379 \
     --db.etcd.certfile=/home/user/etcd/bin/default.etcd/fixtures/client/cert.pem \

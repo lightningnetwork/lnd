@@ -177,7 +177,7 @@ public class Main {
 #### Running the example
 Execute the following command in the directory where the **pom.xml** file is located.
 ```shell
-⛰  mvn compile exec:java -Dexec.mainClass="Main" -Dexec.cleanupDaemonThreads=false
+$  mvn compile exec:java -Dexec.mainClass="Main" -Dexec.cleanupDaemonThreads=false
 ```
 ##### Sample output
 ```text

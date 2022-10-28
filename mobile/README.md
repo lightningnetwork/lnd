@@ -19,9 +19,9 @@ Then, install [Go mobile](https://github.com/golang/go/wiki/Mobile) and
 initialize it:
 
 ```shell
-⛰  go install golang.org/x/mobile/cmd/gomobile@latest
-⛰  go mod download golang.org/x/mobile
-⛰  gomobile init
+go install golang.org/x/mobile/cmd/gomobile@latest
+go mod download golang.org/x/mobile
+gomobile init
 ```
 
 ### Docker
@@ -33,7 +33,7 @@ Install and run [Docker](https://www.docker.com/products/docker-desktop).
 Check that `make` is available by running the following command without errors:
 
 ```shell
-⛰  make --version
+make --version
 ```
 
 ## Building the libraries
@@ -46,29 +46,29 @@ To be able to do so, we must turn off module and using the now deprecated
 `go get` command before turning modules back on again.
 
 ```shell
-⛰  go env -w GO111MODULE="off"
-⛰  go get github.com/lightningnetwork/lnd
-⛰  go get golang.org/x/mobile/bind
-⛰  go env -w GO111MODULE="on"
+go env -w GO111MODULE="off"
+go get github.com/lightningnetwork/lnd
+go get golang.org/x/mobile/bind
+go env -w GO111MODULE="on"
 ```
 
 Finally, let’s change directory to the newly created lnd folder inside `$GOPATH`:
 
 ```shell
-⛰  cd $GOPATH/src/github.com/lightningnetwork/lnd
+cd $GOPATH/src/github.com/lightningnetwork/lnd
 ```
 
 It is not recommended building from the master branch for mainnet. To checkout
 the latest tagged release of lnd, run
 
 ```shell
-⛰  git checkout $(git describe --match "v[0-9]*" --abbrev=0)
+git checkout $(git describe --match "v[0-9]*" --abbrev=0)
 ```
 
 ### iOS
 
 ```shell
-⛰  make ios
+make ios
 ```
 
 The Xcode framework file will be found in `mobile/build/ios/Lndmobile.xcframework`.
@@ -76,7 +76,7 @@ The Xcode framework file will be found in `mobile/build/ios/Lndmobile.xcframewor
 ### Android
 
 ```shell
-⛰  make android
+make android
 ```
 
 The AAR library file will be found in `mobile/build/android/Lndmobile.aar`.
@@ -132,7 +132,7 @@ Tip: The generated Swift files will be found in various folders. If you’d like
 to move them to the same folder as the framework file, run
 
 ```shell
-⛰  find . -name "*.swift" -print0 | xargs -0 -I {} mv {} mobile/build/ios
+find . -name "*.swift" -print0 | xargs -0 -I {} mv {} mobile/build/ios
 ```
 
 `Lndmobile.xcframework` and all Swift files should now be added to your Xcode

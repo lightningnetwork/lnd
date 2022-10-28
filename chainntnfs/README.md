@@ -26,5 +26,5 @@ implementation of the `ChainNotifier` interface depends on `btcd`.
 ## Installation and Updating
 
 ```shell
-⛰  go get -u github.com/lightningnetwork/lnd/chainntnfs
+$  go get -u github.com/lightningnetwork/lnd/chainntnfs
 ```

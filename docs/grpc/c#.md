@@ -22,16 +22,16 @@ Create a new `.net core` console application called `lndclient` at your root dir
 Create a folder `Grpc` in the root of your project and fetch the lnd proto files
 
 ```shell
-⛰  mkdir Grpc
-⛰  curl -o Grpc/lightning.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/lightning.proto
+mkdir Grpc
+curl -o Grpc/lightning.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/lightning.proto
 ```
 
 Install `Grpc.Tools`, `Google.Protobuf`, `Grpc.Net.Client` using NuGet or manually with `dotnet add`:
 
 ```shell
-⛰  dotnet add package Grpc.Tools
-⛰  dotnet add package Google.Protobuf
-⛰  dotnet add package Grpc.Net.Client
+dotnet add package Grpc.Tools
+dotnet add package Google.Protobuf
+dotnet add package Grpc.Net.Client
 ```
 
 Add the `lightning.proto` file to the `.csproj` file in an ItemGroup. (In Visual Studio you can do this by unloading the project, editing the `.csproj` file and then reloading it)
@@ -122,12 +122,12 @@ using (var call = client.SubscribeInvoices(request))
 
 Now, create an invoice for your node at `localhost:10009` and send a payment to it from another node.
 ```shell
-⛰  lncli addinvoice --amt=100
+$  lncli addinvoice --amt=100
 {
     "r_hash": <R_HASH>,
     "pay_req": <PAY_REQ>
 }
-⛰  lncli sendpayment --pay_req=<PAY_REQ>
+$  lncli sendpayment --pay_req=<PAY_REQ>
 ```
 
 Your console should now display the details of the recently satisfied invoice.

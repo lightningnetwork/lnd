@@ -14,7 +14,7 @@ scrypt with modern parameters (n=32768, r=8, p=1). A set of benchmarks has
 been added, on my laptop I get about 100ms per attempt):
 
 ```shell
-⛰  go test -run=XXX -bench=.
+$  go test -run=XXX -bench=.
 
 goos: linux
 goarch: amd64

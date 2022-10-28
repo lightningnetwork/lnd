@@ -351,6 +351,7 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 		// Don't bother run the cleanups if the test is failed.
 		if st.Failed() {
 			st.Log("test failed, skipped cleanup")
+			st.shutdownAllNodes()
 			return
 		}
 
@@ -391,10 +392,21 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 
 // shutdownNonStandbyNodes will shutdown any non-standby nodes.
 func (h *HarnessTest) shutdownNonStandbyNodes() {
+	h.shutdownNodes(true)
+}
+
+// shutdownAllNodes will shutdown all running nodes.
+func (h *HarnessTest) shutdownAllNodes() {
+	h.shutdownNodes(false)
+}
+
+// shutdownNodes will shutdown any non-standby nodes. If skipStandby is false,
+// all the standby nodes will be shutdown too.
+func (h *HarnessTest) shutdownNodes(skipStandby bool) {
 	for nid, node := range h.manager.activeNodes {
 		// If it's a standby node, skip.
 		_, ok := h.manager.standbyNodes[nid]
-		if ok {
+		if ok && skipStandby {
 			continue
 		}
 

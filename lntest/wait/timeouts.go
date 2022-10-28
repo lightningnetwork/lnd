@@ -24,11 +24,11 @@ const (
 
 	// AsyncBenchmarkTimeout is the timeout used when running the async
 	// payments benchmark.
-	AsyncBenchmarkTimeout = 2 * time.Minute
+	AsyncBenchmarkTimeout = time.Minute * 2
 
 	// NodeStartTimeout is the timeout value when waiting for a node to
 	// become fully started.
-	NodeStartTimeout = time.Second * 120
+	NodeStartTimeout = time.Minute * 2
 
 	// SqliteBusyTimeout is the maximum time that a call to the sqlite db
 	// will wait for the connection to become available.

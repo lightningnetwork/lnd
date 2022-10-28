@@ -16,7 +16,7 @@ const (
 
 	// ChannelCloseTimeout is the max time we will wait before a channel is
 	// considered closed.
-	ChannelCloseTimeout = time.Second * 30
+	ChannelCloseTimeout = time.Second * 60
 
 	// DefaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.
@@ -29,7 +29,7 @@ const (
 
 	// NodeStartTimeout is the timeout value when waiting for a node to
 	// become fully started.
-	NodeStartTimeout = time.Second * 120
+	NodeStartTimeout = time.Minute * 2
 
 	// SqliteBusyTimeout is the maximum time that a call to the sqlite db
 	// will wait for the connection to become available.

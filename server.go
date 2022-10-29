@@ -1142,8 +1142,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		ChainHash:             *s.cfg.ActiveNetParams.GenesisHash,
 		Broadcast:             s.BroadcastMessage,
 		ChanSeries:            chanSeries,
-		NotifyWhenOnline:      s.NotifyWhenOnline,
-		NotifyWhenOffline:     s.NotifyWhenOffline,
+		NotifyWhenOnline:      s.pcm.NotifyWhenOnline,
+		NotifyWhenOffline:     s.pcm.NotifyWhenOffline,
 		FetchSelfAnnouncement: s.getNodeAnnouncement,
 		UpdateSelfAnnouncement: func() (lnwire.NodeAnnouncement,
 			error) {
@@ -1441,7 +1441,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return s.genNodeAnnouncement(nil)
 		},
 		SendAnnouncement:     s.authGossiper.ProcessLocalAnnouncement,
-		NotifyWhenOnline:     s.NotifyWhenOnline,
+		NotifyWhenOnline:     s.pcm.NotifyWhenOnline,
 		TempChanIDSeed:       chanIDSeed,
 		FindChannel:          s.findChannel,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
@@ -3465,20 +3465,20 @@ func (s *server) BroadcastMessage(skips map[route.Vertex]struct{},
 // particular peer comes online. The peer itself is sent across the peerChan.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) NotifyWhenOnline(peerKey [33]byte,
+func (p *PeerConnManager) NotifyWhenOnline(peerKey [33]byte,
 	peerChan chan<- lnpeer.Peer) {
 
-	s.pcm.mu.Lock()
+	p.mu.Lock()
 
 	// Compute the target peer's identifier.
 	pubStr := string(peerKey[:])
 
 	// Check if peer is connected.
-	peer, ok := s.pcm.peersByPub[pubStr]
+	peer, ok := p.peersByPub[pubStr]
 	if ok {
 		// Unlock here so that the mutex isn't held while we are
 		// waiting for the peer to become active.
-		s.pcm.mu.Unlock()
+		p.mu.Unlock()
 
 		// Wait until the peer signals that it is actually active
 		// rather than only in the server's maps.
@@ -3487,11 +3487,11 @@ func (s *server) NotifyWhenOnline(peerKey [33]byte,
 		case <-peer.QuitSignal():
 			// The peer quit, so we'll add the channel to the slice
 			// and return.
-			s.pcm.mu.Lock()
-			s.pcm.peerConnectedListeners[pubStr] = append(
-				s.pcm.peerConnectedListeners[pubStr], peerChan,
+			p.mu.Lock()
+			p.peerConnectedListeners[pubStr] = append(
+				p.peerConnectedListeners[pubStr], peerChan,
 			)
-			s.pcm.mu.Unlock()
+			p.mu.Unlock()
 			return
 		}
 
@@ -3500,7 +3500,7 @@ func (s *server) NotifyWhenOnline(peerKey [33]byte,
 
 		select {
 		case peerChan <- peer:
-		case <-s.quit:
+		case <-p.quit:
 		}
 
 		return
@@ -3508,25 +3508,27 @@ func (s *server) NotifyWhenOnline(peerKey [33]byte,
 
 	// Not connected, store this listener such that it can be notified when
 	// the peer comes online.
-	s.pcm.peerConnectedListeners[pubStr] = append(
-		s.pcm.peerConnectedListeners[pubStr], peerChan,
+	p.peerConnectedListeners[pubStr] = append(
+		p.peerConnectedListeners[pubStr], peerChan,
 	)
-	s.pcm.mu.Unlock()
+	p.mu.Unlock()
 }
 
 // NotifyWhenOffline delivers a notification to the caller of when the peer with
 // the given public key has been disconnected. The notification is signaled by
 // closing the channel returned.
-func (s *server) NotifyWhenOffline(peerPubKey [33]byte) <-chan struct{} {
-	s.pcm.mu.Lock()
-	defer s.pcm.mu.Unlock()
+func (p *PeerConnManager) NotifyWhenOffline(
+	peerPubKey [33]byte) <-chan struct{} {
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	c := make(chan struct{})
 
 	// If the peer is already offline, we can immediately trigger the
 	// notification.
 	peerPubKeyStr := string(peerPubKey[:])
-	if _, ok := s.pcm.peersByPub[peerPubKeyStr]; !ok {
+	if _, ok := p.peersByPub[peerPubKeyStr]; !ok {
 		srvrLog.Debugf("Notifying that peer %x is offline", peerPubKey)
 		close(c)
 		return c
@@ -3535,8 +3537,8 @@ func (s *server) NotifyWhenOffline(peerPubKey [33]byte) <-chan struct{} {
 	// Otherwise, the peer is online, so we'll keep track of the channel to
 	// trigger the notification once the server detects the peer
 	// disconnects.
-	s.pcm.peerDisconnectedListeners[peerPubKeyStr] = append(
-		s.pcm.peerDisconnectedListeners[peerPubKeyStr], c,
+	p.peerDisconnectedListeners[peerPubKeyStr] = append(
+		p.peerDisconnectedListeners[peerPubKeyStr], c,
 	)
 
 	return c

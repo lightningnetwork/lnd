@@ -146,6 +146,10 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   so that the user can specify fees during channel creation time in addition
   to the default configuration.
 
+* [Sleep for one second when funding locked message is not
+  received](https://github.com/lightningnetwork/lnd/pull/7095) to avoid CPU
+  spike.
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test

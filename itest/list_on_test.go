@@ -550,4 +550,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "update pending open channels",
 		TestFunc: testUpdateOnPendingOpenChannels,
 	},
+	{
+		Name:     "query blinded route",
+		TestFunc: testQueryBlindedRoutes,
+	},
 }

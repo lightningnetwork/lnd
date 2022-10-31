@@ -119,6 +119,9 @@ https://github.com/lightningnetwork/lnd/pull/6963/)
 
 * [Stop handling peer warning messages as errors](https://github.com/lightningnetwork/lnd/pull/6840)
 
+* [Stop sending a synchronizing error on the wire when out of
+  sync](https://github.com/lightningnetwork/lnd/pull/7039).
+
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
   flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the

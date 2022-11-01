@@ -3194,7 +3194,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 // a zero-conf channel. This will wait for the real confirmation, add the
 // confirmed SCID to the router graph, and then announce after six confs.
 func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
-	pendingID [32]byte) error {
+	_ [32]byte) error {
 
 	// First we'll check whether the channel is confirmed on-chain. If it
 	// is already confirmed, the chainntnfs subsystem will return with the

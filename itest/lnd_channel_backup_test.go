@@ -1112,22 +1112,20 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// directly from the miner.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
-	// timeTravel is a method that will make Carol open a channel to the
-	// passed node, settle a series of payments, then reset the node back
-	// to the state before the payments happened. When this method returns
-	// the node will be unaware of the new state updates. The returned
-	// function can be used to restart the node in this state.
-	timeTravel := func(node *node.HarnessNode) (func() error,
-		*lnrpc.ChannelPoint, int64) {
-
+	// timeTravelDave is a method that will make Carol open a channel to
+	// Dave, settle a series of payments, then Dave back to the state
+	// before the payments happened. When this method returns Dave will
+	// be unaware of the new state updates. The returned function can be
+	// used to restart Dave in this state.
+	timeTravelDave := func() (func() error, *lnrpc.ChannelPoint, int64) {
 		// We must let the node communicate with Carol before they are
 		// able to open channel, so we connect them.
-		ht.EnsureConnected(carol, node)
+		ht.EnsureConnected(carol, dave)
 
 		// We'll first open up a channel between them with a 0.5 BTC
 		// value.
 		chanPoint := ht.OpenChannel(
-			carol, node, lntest.OpenChannelParams{
+			carol, dave, lntest.OpenChannelParams{
 				Amt: chanAmt,
 			},
 		)
@@ -1137,17 +1135,17 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 		// the channel.
 		// TODO(halseth): have dangling HTLCs on the commitment, able to
 		// retrieve funds?
-		payReqs, _, _ := ht.CreatePayReqs(node, paymentAmt, numInvoices)
+		payReqs, _, _ := ht.CreatePayReqs(dave, paymentAmt, numInvoices)
 
 		// Send payments from Carol using 3 of the payment hashes
 		// generated above.
 		ht.CompletePaymentRequests(carol, payReqs[:numInvoices/2])
 
-		// Next query for the node's channel state, as we sent 3
-		// payments of 10k satoshis each, it should now see his balance
-		// as being 30k satoshis.
+		// Next query for Dave's channel state, as we sent 3 payments
+		// of 10k satoshis each, it should now see his balance as being
+		// 30k satoshis.
 		nodeChan := ht.AssertChannelLocalBalance(
-			node, chanPoint, 30_000,
+			dave, chanPoint, 30_000,
 		)
 
 		// Grab the current commitment height (update number), we'll
@@ -1158,39 +1156,46 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 		// With the temporary file created, copy the current state into
 		// the temporary file we created above. Later after more
 		// updates, we'll restore this state.
-		ht.BackupDB(node)
+		ht.BackupDB(dave)
 
 		// Reconnect the peers after the restart that was needed for
 		// the db backup.
-		ht.EnsureConnected(carol, node)
+		ht.EnsureConnected(carol, dave)
 
-		// Finally, send more payments from , using the remaining
+		// Finally, send more payments from Carol, using the remaining
 		// payment hashes.
 		ht.CompletePaymentRequests(carol, payReqs[numInvoices/2:])
 
-		// Now we shutdown the node, copying over the its temporary
+		// TODO(yy): remove the sleep once the following bug is fixed.
+		//
+		// While the payment is reported as settled, the commitment
+		// dance may not be finished, which leaves several HTLCs in the
+		// commitment. Later on, when Carol force closes this channel,
+		// she would have HTLCs there and the test won't pass.
+		time.Sleep(2 * time.Second)
+
+		// Now we shutdown Dave, copying over the its temporary
 		// database state which has the *prior* channel state over his
 		// current most up to date state. With this, we essentially
-		// force the node to travel back in time within the channel's
+		// force Dave to travel back in time within the channel's
 		// history.
-		ht.RestartNodeAndRestoreDB(node)
+		ht.RestartNodeAndRestoreDB(dave)
 
-		// Make sure the channel is still there from the PoV of the
-		// node.
-		ht.AssertNodeNumChannels(node, 1)
+		// Make sure the channel is still there from the PoV of Dave.
+		ht.AssertNodeNumChannels(dave, 1)
 
 		// Now query for the channel state, it should show that it's at
 		// a state number in the past, not the *latest* state.
-		ht.AssertChannelNumUpdates(node, stateNumPreCopy, chanPoint)
+		ht.AssertChannelNumUpdates(dave, stateNumPreCopy, chanPoint)
 
-		balResp := node.RPC.WalletBalance()
-		restart := ht.SuspendNode(node)
+		balResp := dave.RPC.WalletBalance()
+		restart := ht.SuspendNode(dave)
 
 		return restart, chanPoint, balResp.ConfirmedBalance
 	}
 
 	// Reset Dave to a state where he has an outdated channel state.
-	restartDave, _, daveStartingBalance := timeTravel(dave)
+	restartDave, _, daveStartingBalance := timeTravelDave()
 
 	// We make a note of the nodes' current on-chain balances, to make sure
 	// they are able to retrieve the channel funds eventually,
@@ -1214,7 +1219,7 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 	// closed channel, such that Dave can retrieve his funds.
 	//
 	// We start by letting Dave time travel back to an outdated state.
-	restartDave, chanPoint2, daveStartingBalance := timeTravel(dave)
+	restartDave, chanPoint2, daveStartingBalance := timeTravelDave()
 
 	carolBalResp = carol.RPC.WalletBalance()
 	carolStartingBalance = carolBalResp.ConfirmedBalance
@@ -1460,6 +1465,8 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 	carol *node.HarnessNode, carolStartingBalance int64,
 	dave *node.HarnessNode, daveStartingBalance int64,
 	commitType lnrpc.CommitmentType) {
+
+	ht.Helper()
 
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.

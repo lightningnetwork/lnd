@@ -1169,7 +1169,9 @@ func (h *HarnessTest) AssertActiveHtlcs(hn *node.HarnessNode,
 				h := hex.EncodeToString(htlc.HashLock)
 				_, ok := htlcHashes[h]
 				if ok {
-					return fmt.Errorf("duplicate HashLock")
+					return fmt.Errorf("duplicate HashLock "+
+						"in PendingHtlcs: %v",
+						ch.PendingHtlcs)
 				}
 				htlcHashes[h] = struct{}{}
 			}

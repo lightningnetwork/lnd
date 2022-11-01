@@ -1271,7 +1271,7 @@ func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
 	paymentRequests []string, status lnrpc.Payment_PaymentStatus) {
 
 	// Create a buffered chan to signal the results.
-	results := make(chan struct{}, len(paymentRequests))
+	results := make(chan rpc.PaymentClient, len(paymentRequests))
 
 	// send sends a payment and asserts if it doesn't succeeded.
 	send := func(payReq string) {
@@ -1281,10 +1281,9 @@ func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
 		stream := hn.RPC.SendPayment(req)
-		h.AssertPaymentStatusFromStream(stream, status)
 
-		// Signal success.
-		results <- struct{}{}
+		// Signal sent succeeded.
+		results <- stream
 	}
 
 	// Launch all payments simultaneously.
@@ -1293,16 +1292,12 @@ func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
 		go send(payReqCopy)
 	}
 
-	// Wait for all payments to report success.
+	// Wait for all payments to report the expected status.
 	timer := time.After(DefaultTimeout)
-	count := 0
 	select {
-	case <-results:
-		count++
-		// Exit if the expected number of results are received.
-		if count == len(paymentRequests) {
-			return
-		}
+	case stream := <-results:
+		h.AssertPaymentStatusFromStream(stream, status)
+
 	case <-timer:
 		require.Fail(h, "timeout", "waiting payment results timeout")
 	}

@@ -85,6 +85,9 @@ crash](https://github.com/lightningnetwork/lnd/pull/7019).
 [Use Go's `runtime/debug` package to get information about the build](
 https://github.com/lightningnetwork/lnd/pull/6963/)
 
+[A wire parsing bug has been fixed that would cause lnd to be unable _decode_
+certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
+
 ## Misc
 
 * [Fixed a bug where the Switch did not reforward settles or fails for

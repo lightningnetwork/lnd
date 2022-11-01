@@ -32,31 +32,15 @@ sudo: required
 
 jobs:
   include:
-    - stage: Sanity Check
-      name: Lint and compile
-      script:
-        # Step 1: Make sure no diff is produced when compiling with the correct
-        # version.
-        - make rpc-check
-
-        # Step 2: Make sure the unit tests compile, but don't run them. They run
-        # in a GitHub Workflow.
-        - make unit pkg=... case=_NONE_
-
-        # Step 3: Lint go code. Invoke GC more often to reduce memory usage.
-        - GOGC=30 make lint
-
     - stage: Integration Test
       name: Bitcoind Integration ARM
       script:
         - bash ./scripts/install_bitcoind.sh
-        - GOARM=7 GOARCH=arm GOOS=linux make itest-parallel backend=bitcoind tranches=3 parallel=3
+        - GOMEMLIMIT=500MiB GOARM=7 GOARCH=arm GOOS=linux travis_wait 30 make itest-parallel backend=bitcoind 
       arch: arm64
-      services:
-        - docker
 
 after_failure:
   - |-
-    LOG_FILES=$(find ./lntest/itest -name '*.log')
+    LOG_FILES=$(find ./itest -name '*.log')
     echo "Uploading to termbin.com..." && for f in $LOG_FILES; do echo -n $f; cat $f | nc termbin.com 9999 | xargs -r0 printf ' uploaded to %s'; done
     echo "Uploading to file.io..." && tar -zcvO $LOG_FILES | curl -s -F 'file=@-;filename=logs.tar.gz' https://file.io | xargs -r0 printf 'logs.tar.gz uploaded to %s\n'

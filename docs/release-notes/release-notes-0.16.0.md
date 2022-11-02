@@ -198,6 +198,10 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 * [`golangci-lint` will now check new code using additional
   linters.](https://github.com/lightningnetwork/lnd/pull/7064)
 
+* Update github actions to [check commits against the target base 
+  branch](https://github.com/lightningnetwork/lnd/pull/7103) rather than just 
+  using the master branch. 
+
 ### Integration test
 
 The `lntest` has been

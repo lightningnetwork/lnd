@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/keychain"
 )
 
 var (
@@ -134,12 +133,13 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 	}
 }
 
-// MuSig2CreateSession creates a new MuSig2 signing session using the local
-// key identified by the key locator. The complete list of all public keys of
-// all signing parties must be provided, including the public key of the local
-// signing key. If nonces of other parties are already known, they can be
-// submitted as well to reduce the number of method calls necessary later on.
-func (m *MockSigner) MuSig2CreateSession(keychain.KeyLocator,
+// MuSig2CreateSession creates a new MuSig2 signing session using the
+// local key identified by the key locator or with the provided external
+// key. The complete list of all public keys of all signing parties must
+// be provided, including the public key of the local signing key.
+// If nonces of other parties are already known, they can be submitted
+// as well to reduce the number of method calls necessary later on.
+func (m *MockSigner) MuSig2CreateSession(*Musig2Key,
 	[]*btcec.PublicKey, *MuSig2Tweaks,
 	[][musig2.PubNonceSize]byte) (*MuSig2SessionInfo, error) {
 

@@ -636,7 +636,7 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 // all signing parties must be provided, including the public key of the local
 // signing key. If nonces of other parties are already known, they can be
 // submitted as well to reduce the number of method calls necessary later on.
-func (r *RPCKeyRing) MuSig2CreateSession(keyLoc keychain.KeyLocator,
+func (r *RPCKeyRing) MuSig2CreateSession(key *input.Musig2Key,
 	pubKeys []*btcec.PublicKey, tweaks *input.MuSig2Tweaks,
 	otherNonces [][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo,
 	error) {
@@ -644,16 +644,27 @@ func (r *RPCKeyRing) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 	// We need to serialize all data for the RPC call. We can do that by
 	// putting everything directly into the request struct.
 	req := &signrpc.MuSig2SessionRequest{
-		KeyLoc: &signrpc.KeyLocator{
-			KeyFamily: int32(keyLoc.Family),
-			KeyIndex:  int32(keyLoc.Index),
-		},
+
 		AllSignerPubkeys: make([][]byte, len(pubKeys)),
 		Tweaks: make(
 			[]*signrpc.TweakDesc, len(tweaks.GenericTweaks),
 		),
 		OtherSignerPublicNonces: make([][]byte, len(otherNonces)),
 	}
+
+	switch {
+	case key.HasInternalKeylocator():
+		req.KeyLoc = &signrpc.KeyLocator{
+			KeyFamily: int32(key.KeyLoc.Family),
+			KeyIndex:  int32(key.KeyLoc.Index),
+		}
+
+	default:
+		// A key locator or external key is always mandatory.
+		return nil, errors.New("missing key_loc or " +
+			"external_raw_key_bytes")
+	}
+
 	for idx, pubKey := range pubKeys {
 		req.AllSignerPubkeys[idx] = schnorr.SerializePubKey(pubKey)
 	}

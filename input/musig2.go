@@ -26,12 +26,12 @@ type MuSig2SessionID [sha256.Size]byte
 // compatible signer needs to implement.
 type MuSig2Signer interface {
 	// MuSig2CreateSession creates a new MuSig2 signing session using the
-	// local key identified by the key locator. The complete list of all
-	// public keys of all signing parties must be provided, including the
-	// public key of the local signing key. If nonces of other parties are
-	// already known, they can be submitted as well to reduce the number of
-	// method calls necessary later on.
-	MuSig2CreateSession(keychain.KeyLocator, []*btcec.PublicKey,
+	// local key identified by the key locator or with the provided external
+	// key. The complete list of all public keys of all signing parties must
+	// be provided, including the public key of the local signing key.
+	// If nonces of other parties are already known, they can be submitted
+	// as well to reduce the number of method calls necessary later on.
+	MuSig2CreateSession(*Musig2Key, []*btcec.PublicKey,
 		*MuSig2Tweaks, [][musig2.PubNonceSize]byte) (*MuSig2SessionInfo,
 		error)
 
@@ -61,6 +61,25 @@ type MuSig2Signer interface {
 
 	// MuSig2Cleanup removes a session from memory to free up resources.
 	MuSig2Cleanup(MuSig2SessionID) error
+}
+
+// Musig2Key is a struct that is used to provide either the internal key locator
+// or external private key to the Musig2CreateSession Function.
+type Musig2Key struct {
+	KeyLoc      keychain.KeyLocator
+	ExternalKey *btcec.PrivateKey
+}
+
+// HasInternalKeylocator returns true if the Musig2Key struct contains an
+// internal key locator.
+func (m *Musig2Key) HasInternalKeylocator() bool {
+	return !m.KeyLoc.IsEmpty()
+}
+
+// HasExternalKey returns true if the Musig2Key struct contains an external
+// private key.
+func (m *Musig2Key) HasExternalKey() bool {
+	return m.ExternalKey != nil
 }
 
 // MuSig2SessionInfo is a struct for keeping track of a signing session

@@ -2,6 +2,7 @@ package btcwallet
 
 import (
 	"crypto/sha256"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -473,25 +474,40 @@ type muSig2State struct {
 	session *musig2.Session
 }
 
-// MuSig2CreateSession creates a new MuSig2 signing session using the local
-// key identified by the key locator. The complete list of all public keys of
-// all signing parties must be provided, including the public key of the local
-// signing key. If nonces of other parties are already known, they can be
-// submitted as well to reduce the number of method calls necessary later on.
-func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
+// MuSig2CreateSession creates a new MuSig2 signing session using a local key
+// identified by the key locator or an external provided key. The complete list
+// of all public keys of all signing parties must be provided, including the
+// public key of the local signing key. If nonces of other parties are already
+// known, they can be submitted as well to reduce the number of method calls
+// necessary later on.
+func (b *BtcWallet) MuSig2CreateSession(key *input.Musig2Key,
 	allSignerPubKeys []*btcec.PublicKey, tweaks *input.MuSig2Tweaks,
 	otherSignerNonces [][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo,
 	error) {
 
+	var privKey *btcec.PrivateKey
+	var err error
+
+	switch {
+	case key.HasInternalKeylocator():
+		privKey, err = b.fetchPrivKey(&keychain.KeyDescriptor{
+			KeyLocator: key.KeyLoc,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error deriving private key: "+
+				"%v", err)
+		}
+
+	case key.HasExternalKey():
+		privKey = key.ExternalKey
+
+	default:
+		return nil, errors.New("no Musig2 key provided")
+	}
+
 	// We need to derive the private key for signing. In the remote signing
 	// setup, this whole RPC call will be forwarded to the signing
 	// instance, which requires it to be stateful.
-	privKey, err := b.fetchPrivKey(&keychain.KeyDescriptor{
-		KeyLocator: keyLoc,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error deriving private key: %v", err)
-	}
 
 	// The context keeps track of all signing keys and our local key.
 	allOpts := append(

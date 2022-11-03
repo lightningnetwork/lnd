@@ -43,6 +43,9 @@ type WalletKitClient interface {
 	// DeriveKey attempts to derive an arbitrary key specified by the passed
 	// KeyLocator.
 	DeriveKey(ctx context.Context, in *signrpc.KeyLocator, opts ...grpc.CallOption) (*signrpc.KeyDescriptor, error)
+	// ExportPrivateKey attempts to exports a private key from the wallet with
+	// a key family higher than 512.
+	ExportPrivateKey(ctx context.Context, in *signrpc.KeyLocator, opts ...grpc.CallOption) (*ExportPrivateKeyResponse, error)
 	// NextAddr returns the next unused address within the wallet.
 	NextAddr(ctx context.Context, in *AddrRequest, opts ...grpc.CallOption) (*AddrResponse, error)
 	// ListAccounts retrieves all accounts belonging to the wallet by default. A
@@ -267,6 +270,15 @@ func (c *walletKitClient) DeriveKey(ctx context.Context, in *signrpc.KeyLocator,
 	return out, nil
 }
 
+func (c *walletKitClient) ExportPrivateKey(ctx context.Context, in *signrpc.KeyLocator, opts ...grpc.CallOption) (*ExportPrivateKeyResponse, error) {
+	out := new(ExportPrivateKeyResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/ExportPrivateKey", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) NextAddr(ctx context.Context, in *AddrRequest, opts ...grpc.CallOption) (*AddrResponse, error) {
 	out := new(AddrResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/NextAddr", in, out, opts...)
@@ -448,6 +460,9 @@ type WalletKitServer interface {
 	// DeriveKey attempts to derive an arbitrary key specified by the passed
 	// KeyLocator.
 	DeriveKey(context.Context, *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error)
+	// ExportPrivateKey attempts to exports a private key from the wallet with
+	// a key family higher than 512.
+	ExportPrivateKey(context.Context, *signrpc.KeyLocator) (*ExportPrivateKeyResponse, error)
 	// NextAddr returns the next unused address within the wallet.
 	NextAddr(context.Context, *AddrRequest) (*AddrResponse, error)
 	// ListAccounts retrieves all accounts belonging to the wallet by default. A
@@ -633,6 +648,9 @@ func (UnimplementedWalletKitServer) DeriveNextKey(context.Context, *KeyReq) (*si
 func (UnimplementedWalletKitServer) DeriveKey(context.Context, *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeriveKey not implemented")
 }
+func (UnimplementedWalletKitServer) ExportPrivateKey(context.Context, *signrpc.KeyLocator) (*ExportPrivateKeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExportPrivateKey not implemented")
+}
 func (UnimplementedWalletKitServer) NextAddr(context.Context, *AddrRequest) (*AddrResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NextAddr not implemented")
 }
@@ -801,6 +819,24 @@ func _WalletKit_DeriveKey_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WalletKitServer).DeriveKey(ctx, req.(*signrpc.KeyLocator))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletKit_ExportPrivateKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(signrpc.KeyLocator)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).ExportPrivateKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/ExportPrivateKey",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).ExportPrivateKey(ctx, req.(*signrpc.KeyLocator))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1141,6 +1177,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeriveKey",
 			Handler:    _WalletKit_DeriveKey_Handler,
+		},
+		{
+			MethodName: "ExportPrivateKey",
+			Handler:    _WalletKit_ExportPrivateKey_Handler,
 		},
 		{
 			MethodName: "NextAddr",

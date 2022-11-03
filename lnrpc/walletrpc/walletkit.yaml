@@ -20,6 +20,9 @@ http:
     - selector: walletrpc.WalletKit.DeriveKey
       post: "/v2/wallet/key"
       body: "*"
+    - selector: walletrpc.WalletKit.ExportPrivateKey
+      post: "/v2/wallet/key/export"
+      body: "*"
     - selector: walletrpc.WalletKit.ImportPublicKey
       post: "/v2/wallet/key/import"
       body: "*"

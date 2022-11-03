@@ -53,6 +53,13 @@ service WalletKit {
     rpc DeriveKey (signrpc.KeyLocator) returns (signrpc.KeyDescriptor);
 
     /*
+   ExportPrivateKey attempts to exports a private key from the wallet with
+   a key family higher than 512.
+   */
+    rpc ExportPrivateKey (signrpc.KeyLocator)
+        returns (ExportPrivateKeyResponse);
+
+    /*
     NextAddr returns the next unused address within the wallet.
     */
     rpc NextAddr (AddrRequest) returns (AddrResponse);
@@ -1068,4 +1075,9 @@ message ListLeasesRequest {
 message ListLeasesResponse {
     // The list of currently leased utxos.
     repeated UtxoLease locked_utxos = 1;
+}
+
+message ExportPrivateKeyResponse {
+    // The raw bytes of the private key in the key pair.
+    bytes raw_key_bytes = 1;
 }

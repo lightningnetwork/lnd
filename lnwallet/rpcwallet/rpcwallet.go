@@ -659,6 +659,9 @@ func (r *RPCKeyRing) MuSig2CreateSession(key *input.Musig2Key,
 			KeyIndex:  int32(key.KeyLoc.Index),
 		}
 
+	case key.HasExternalKey():
+		req.ExternalRawKeyBytes = key.ExternalKey.Serialize()
+
 	default:
 		// A key locator or external key is always mandatory.
 		return nil, errors.New("missing key_loc or " +

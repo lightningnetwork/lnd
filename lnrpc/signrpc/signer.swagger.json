@@ -624,6 +624,11 @@
         "taproot_tweak": {
           "$ref": "#/definitions/signrpcTaprootTweakDesc",
           "description": "An optional taproot specific tweak that must be specified if the MuSig2\ncombined key will be used as the main taproot key of a taproot output\non-chain."
+        },
+        "external_raw_key_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The external private key being used for signing."
         }
       }
     },

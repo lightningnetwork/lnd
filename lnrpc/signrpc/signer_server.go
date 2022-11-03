@@ -876,13 +876,23 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 func (s *Server) MuSig2CreateSession(_ context.Context,
 	in *MuSig2SessionRequest) (*MuSig2SessionResponse, error) {
 
-	// A key locator is always mandatory.
-	if in.KeyLoc == nil {
-		return nil, fmt.Errorf("missing key_loc")
-	}
-	keyLoc := keychain.KeyLocator{
-		Family: keychain.KeyFamily(in.KeyLoc.KeyFamily),
-		Index:  uint32(in.KeyLoc.KeyIndex),
+	// Deserialize the keylocator or external key.
+	key := &input.Musig2Key{}
+	switch {
+	case in.KeyLoc != nil:
+		key.KeyLoc = keychain.KeyLocator{
+			Family: keychain.KeyFamily(in.KeyLoc.KeyFamily),
+			Index:  uint32(in.KeyLoc.KeyIndex),
+		}
+
+	case in.ExternalRawKeyBytes != nil:
+		privKey, _ := btcec.PrivKeyFromBytes(in.ExternalRawKeyBytes)
+		key.ExternalKey = privKey
+
+	default:
+		// A key locator or external key is always mandatory.
+		return nil, fmt.Errorf("missing key_loc or " +
+			"external_raw_key_bytes")
 	}
 
 	// Parse the public keys of all signing participants. This must also
@@ -927,7 +937,7 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 
 	// Register the session with the internal wallet/signer now.
 	session, err := s.cfg.Signer.MuSig2CreateSession(
-		keyLoc, allSignerPubKeys, tweaks, otherSignerNonces,
+		key, allSignerPubKeys, tweaks, otherSignerNonces,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error registering session: %v", err)

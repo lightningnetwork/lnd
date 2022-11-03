@@ -516,6 +516,11 @@ message MuSig2SessionRequest {
     on-chain.
     */
     TaprootTweakDesc taproot_tweak = 5;
+
+    /*
+    The external private key being used for signing.
+    */
+    bytes external_raw_key_bytes = 6;
 }
 
 message MuSig2SessionResponse {

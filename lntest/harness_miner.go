@@ -372,9 +372,17 @@ func (h *HarnessMiner) AssertOutpointInMempool(op wire.OutPoint) *wire.MsgTx {
 		}
 
 		for _, txid := range mempool {
-			// We require the RPC call to be succeeded and won't
-			// wait for it as it's an unexpected behavior.
-			tx := h.GetRawTransaction(txid)
+			// We don't use `ht.Miner.GetRawTransaction` which
+			// asserts a txid must be found. While iterating here,
+			// the actual mempool state might have been changed,
+			// causing a given txid being removed and cannot be
+			// found. For instance, the aggregation logic used in
+			// sweeping HTLC outputs will update the mempool by
+			// replacing the HTLC spending txes with a single one.
+			tx, err := h.Client.GetRawTransaction(txid)
+			if err != nil {
+				return err
+			}
 
 			msgTx = tx.MsgTx()
 			for _, txIn := range msgTx.TxIn {

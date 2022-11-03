@@ -477,7 +477,14 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 		for _, txid := range mempool {
 			// Check that the justice tx has the appropriate number
 			// of inputs.
-			tx := ht.Miner.GetRawTransaction(txid)
+			//
+			// NOTE: We don't use `ht.Miner.GetRawTransaction`
+			// which asserts a txid must be found as the HTLC
+			// spending txes might be aggregated.
+			tx, err := ht.Miner.Client.GetRawTransaction(txid)
+			if err != nil {
+				return nil, err
+			}
 
 			exNumInputs := 2 + numInvoices
 			if len(tx.MsgTx().TxIn) == exNumInputs {

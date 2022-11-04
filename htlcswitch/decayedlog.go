@@ -219,7 +219,7 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 		var expiredCltv [][]byte
 		if err := sharedHashes.ForEach(func(k, v []byte) error {
 			// Deserialize the CLTV value for this entry.
-			cltv := uint32(binary.BigEndian.Uint32(v))
+			cltv := binary.BigEndian.Uint32(v)
 
 			if cltv < height {
 				// This CLTV is expired. We must add it to an
@@ -287,7 +287,7 @@ func (d *DecayedLog) Get(hash *sphinx.HashPrefix) (uint32, error) {
 		}
 
 		// The first 4 bytes represent the CLTV, store it in value.
-		value = uint32(binary.BigEndian.Uint32(valueBytes))
+		value = binary.BigEndian.Uint32(valueBytes)
 
 		return nil
 	}, func() {

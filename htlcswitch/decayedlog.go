@@ -1,7 +1,6 @@
 package htlcswitch
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -25,9 +24,8 @@ var (
 	// CLTV expiry as the value.
 	sharedHashBucket = []byte("shared-hash")
 
-	// batchReplayBucket is a bucket that maps batch identifiers to
-	// serialized ReplaySets. This is used to give idempotency in the event
-	// that a batch is processed more than once.
+	// batchReplayBucket was a bucket used for debugging purposes, it will
+	// be removed if it exists.
 	batchReplayBucket = []byte("batch-replay")
 )
 
@@ -109,8 +107,14 @@ func (d *DecayedLog) Start() error {
 		return nil
 	}
 
-	// Initialize the primary buckets used by the decayed log.
-	if err := d.initBuckets(); err != nil {
+	// Delete the batchReplayBucket (if it exists). Previously, this bucket
+	// was filled, but never read.
+	if err := d.deleteBatchReplayBucket(); err != nil {
+		return err
+	}
+
+	// Initialize the primary bucket used by the decayed log.
+	if err := d.initBucket(); err != nil {
 		return err
 	}
 
@@ -129,16 +133,24 @@ func (d *DecayedLog) Start() error {
 	return nil
 }
 
-// initBuckets initializes the primary buckets used by the decayed log, namely
-// the shared hash bucket, and batch replay
-func (d *DecayedLog) initBuckets() error {
+// deleteBatchReplayBucket deletes the batchReplayBucket, if it exists.
+func (d *DecayedLog) deleteBatchReplayBucket() error {
 	return kvdb.Update(d.db, func(tx kvdb.RwTx) error {
-		_, err := tx.CreateTopLevelBucket(sharedHashBucket)
+		err := tx.DeleteTopLevelBucket(batchReplayBucket)
 		if err != nil {
-			return ErrDecayedLogInit
+			// ignore non-existing bucket
+			return nil
 		}
 
-		_, err = tx.CreateTopLevelBucket(batchReplayBucket)
+		return nil
+	}, func() {})
+}
+
+// initBucket initializes the primary bucket used by the decayed log, namely
+// the shared hash bucket.
+func (d *DecayedLog) initBucket() error {
+	return kvdb.Update(d.db, func(tx kvdb.RwTx) error {
+		_, err := tx.CreateTopLevelBucket(sharedHashBucket)
 		if err != nil {
 			return ErrDecayedLogInit
 		}
@@ -326,11 +338,6 @@ func (d *DecayedLog) Put(hash *sphinx.HashPrefix, cltv uint32) error {
 // PutBatch accepts a pending batch of hashed secret entries to write to disk.
 // Each hashed secret is inserted with a corresponding time value, dictating
 // when the entry will be evicted from the log.
-// NOTE: This method enforces idempotency by writing the replay set obtained
-// from the first attempt for a particular batch ID, and decoding the return
-// value to subsequent calls. For the indices of the replay set to be aligned
-// properly, the batch MUST be constructed identically to the first attempt,
-// pruning will cause the indices to become invalid.
 func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 	// Since batched boltdb txns may be executed multiple times before
 	// succeeding, we will create a new replay set for each invocation to
@@ -343,25 +350,6 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 		sharedHashes := tx.ReadWriteBucket(sharedHashBucket)
 		if sharedHashes == nil {
 			return ErrDecayedLogCorrupted
-		}
-
-		// Load the batch replay bucket, which will be used to either
-		// retrieve the result of previously processing this batch, or
-		// to write the result of this operation.
-		batchReplayBkt := tx.ReadWriteBucket(batchReplayBucket)
-		if batchReplayBkt == nil {
-			return ErrDecayedLogCorrupted
-		}
-
-		// Check for the existence of this batch's id in the replay
-		// bucket. If a non-nil value is found, this indicates that we
-		// have already processed this batch before. We deserialize the
-		// resulting and return it to ensure calls to put batch are
-		// idempotent.
-		replayBytes := batchReplayBkt.Get(b.ID)
-		if replayBytes != nil {
-			replays = sphinx.NewReplaySet()
-			return replays.Decode(bytes.NewReader(replayBytes))
 		}
 
 		// The CLTV will be stored into scratch and then stored into the
@@ -391,17 +379,7 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 		// batch's construction.
 		replays.Merge(b.ReplaySet)
 
-		// Write the replay set under the batch identifier to the batch
-		// replays bucket. This can be used during recovery to test (1)
-		// that a particular batch was successfully processed and (2)
-		// recover the indexes of the adds that were rejected as
-		// replays.
-		var replayBuf bytes.Buffer
-		if err := replays.Encode(&replayBuf); err != nil {
-			return err
-		}
-
-		return batchReplayBkt.Put(b.ID, replayBuf.Bytes())
+		return nil
 	}); err != nil {
 		return nil, err
 	}

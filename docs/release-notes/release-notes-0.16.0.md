@@ -72,6 +72,14 @@
   to avoid scanning the whole
   chain](https://github.com/lightningnetwork/lnd/pull/7056).
 
+## Database
+
+* [Remove unused batch replay 
+  bucket.](https://github.com/lightningnetwork/lnd/pull/7116)
+  The "batch-replay" bucket in `sphinxreplay.db` was only used to provide
+  debugging information. This information is deleted to avoid endless database
+  growth. 
+
 ## Build
 
 [The project has updated to Go

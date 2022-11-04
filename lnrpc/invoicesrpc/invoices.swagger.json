@@ -514,7 +514,7 @@
         },
         "private": {
           "type": "boolean",
-          "description": "Whether this invoice should include routing hints for private channels."
+          "description": "Whether this invoice should include routing hints for private channels.\nNote: When enabled, if value and value_msat are zero, a large number of\nhints with these channels can be included, which might not be desirable."
         },
         "add_index": {
           "type": "string",

@@ -153,7 +153,7 @@ type ChannelLinkConfig struct {
 
 	// ExtractErrorEncrypter function is responsible for decoding HTLC
 	// Sphinx onion blob, and creating onion failure obfuscator.
-	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
+	ExtractErrorEncrypter hop.ErrorEncrypterExtractor
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel

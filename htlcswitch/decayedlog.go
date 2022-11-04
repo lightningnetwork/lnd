@@ -162,7 +162,7 @@ func (d *DecayedLog) Stop() error {
 }
 
 // garbageCollector deletes entries from sharedHashBucket whose expiry height
-// has already past. This function MUST be run as a goroutine.
+// has already passed. This function MUST be run as a goroutine.
 func (d *DecayedLog) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
 	defer d.wg.Done()
 	defer epochClient.Cancel()
@@ -302,7 +302,7 @@ func (d *DecayedLog) Get(hash *sphinx.HashPrefix) (uint32, error) {
 
 // Put stores a shared secret hash as the key and the CLTV as the value.
 func (d *DecayedLog) Put(hash *sphinx.HashPrefix, cltv uint32) error {
-	// Optimisitically serialize the cltv value into the scratch buffer.
+	// Optimistically serialize the cltv value into the scratch buffer.
 	var scratch [4]byte
 	binary.BigEndian.PutUint32(scratch[:], cltv)
 
@@ -334,7 +334,7 @@ func (d *DecayedLog) Put(hash *sphinx.HashPrefix, cltv uint32) error {
 func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 	// Since batched boltdb txns may be executed multiple times before
 	// succeeding, we will create a new replay set for each invocation to
-	// avoid any side-effects. If the txn is successful, this replay set
+	// avoid any side effects. If the txn is successful, this replay set
 	// will be merged with the replay set computed during batch construction
 	// to generate the complete replay set. If this batch was previously
 	// processed, the replay set will be deserialized from disk.
@@ -412,6 +412,6 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 	return replays, nil
 }
 
-// A compile time check to see if DecayedLog adheres to the PersistLog
+// A compile-time check to see if DecayedLog adheres to the PersistLog
 // interface.
 var _ sphinx.ReplayLog = (*DecayedLog)(nil)

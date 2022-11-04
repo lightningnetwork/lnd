@@ -27,9 +27,9 @@ const (
 	EncrypterTypeMock = 2
 )
 
-// ErrorEncrypterExtracter defines a function signature that extracts an
-// ErrorEncrypter from an sphinx OnionPacket.
-type ErrorEncrypterExtracter func(*btcec.PublicKey) (ErrorEncrypter,
+// ErrorEncrypterExtractor defines a function signature that extracts an
+// ErrorEncrypter from a sphinx OnionPacket.
+type ErrorEncrypterExtractor func(*btcec.PublicKey) (ErrorEncrypter,
 	lnwire.FailCode)
 
 // ErrorEncrypter is an interface that is used to encrypt HTLC related errors
@@ -66,12 +66,12 @@ type ErrorEncrypter interface {
 	// given io.Reader.
 	Decode(io.Reader) error
 
-	// Reextract rederives the encrypter using the extracter, performing an
+	// Reextract rederives the encrypter using the extractor, performing an
 	// ECDH with the sphinx router's key and the ephemeral public key.
 	//
 	// NOTE: This should be called shortly after Decode to properly
 	// reinitialize the error encrypter.
-	Reextract(ErrorEncrypterExtracter) error
+	Reextract(ErrorEncrypterExtractor) error
 }
 
 // SphinxErrorEncrypter is a concrete implementation of both the ErrorEncrypter
@@ -177,7 +177,7 @@ func (s *SphinxErrorEncrypter) Decode(r io.Reader) error {
 // This intended to be used shortly after Decode, to fully initialize a
 // SphinxErrorEncrypter.
 func (s *SphinxErrorEncrypter) Reextract(
-	extract ErrorEncrypterExtracter) error {
+	extract ErrorEncrypterExtractor) error {
 
 	obfuscator, failcode := extract(s.EphemeralKey)
 	if failcode != lnwire.CodeNone {
@@ -190,7 +190,7 @@ func (s *SphinxErrorEncrypter) Reextract(
 
 	sphinxEncrypter, ok := obfuscator.(*SphinxErrorEncrypter)
 	if !ok {
-		return fmt.Errorf("incorrect onion error extracter")
+		return fmt.Errorf("incorrect onion error extractor")
 	}
 
 	// Copy the freshly extracted encrypter.

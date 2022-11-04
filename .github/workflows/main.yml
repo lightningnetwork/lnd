@@ -92,6 +92,7 @@ jobs:
   # check commits
   ########################
   check-commits:
+    if: github.event_name == 'pull_request'
     name: check commits
     runs-on: ubuntu-latest
     steps:

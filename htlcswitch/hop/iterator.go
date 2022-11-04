@@ -31,13 +31,13 @@ type Iterator interface {
 
 	// ExtractErrorEncrypter returns the ErrorEncrypter needed for this hop,
 	// along with a failure code to signal if the decoding was successful.
-	ExtractErrorEncrypter(ErrorEncrypterExtracter) (ErrorEncrypter,
+	ExtractErrorEncrypter(ErrorEncrypterExtractor) (ErrorEncrypter,
 		lnwire.FailCode)
 }
 
 // sphinxHopIterator is the Sphinx implementation of hop iterator which uses
 // onion routing to encode the payment route  in such a way so that node might
-// see only the next hop in the route..
+// see only the next hop in the route.
 type sphinxHopIterator struct {
 	// ogPacket is the original packet from which the processed packet is
 	// derived.
@@ -50,7 +50,7 @@ type sphinxHopIterator struct {
 }
 
 // makeSphinxHopIterator converts a processed packet returned from a sphinx
-// router and converts it into an hop iterator for usage in the link.
+// router and converts it into a hop iterator for usage in the link.
 func makeSphinxHopIterator(ogPacket *sphinx.OnionPacket,
 	packet *sphinx.ProcessedPacket) *sphinxHopIterator {
 
@@ -60,7 +60,7 @@ func makeSphinxHopIterator(ogPacket *sphinx.OnionPacket,
 	}
 }
 
-// A compile time check to ensure sphinxHopIterator implements the HopIterator
+// A compile-time check to ensure sphinxHopIterator implements the HopIterator
 // interface.
 var _ Iterator = (*sphinxHopIterator)(nil)
 
@@ -107,9 +107,9 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 //
 // NOTE: Part of the HopIterator interface.
 func (r *sphinxHopIterator) ExtractErrorEncrypter(
-	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
+	extractor ErrorEncrypterExtractor) (ErrorEncrypter, lnwire.FailCode) {
 
-	return extracter(r.ogPacket.EphemeralKey)
+	return extractor(r.ogPacket.EphemeralKey)
 }
 
 // OnionProcessor is responsible for keeping all sphinx dependent parts inside
@@ -117,7 +117,7 @@ func (r *sphinxHopIterator) ExtractErrorEncrypter(
 // subsystems which wants to decode sphinx path to not be dependable from
 // sphinx at all.
 //
-// NOTE: The reason for keeping decoder separated from hop iterator is too
+// NOTE: The reason for keeping decoder separated from hop iterator is to
 // maintain the hop iterator abstraction. Without it the structures which using
 // the hop iterator should contain sphinx router which makes their creations in
 // tests dependent from the sphinx internal parts.
@@ -136,7 +136,7 @@ func (p *OnionProcessor) Start() error {
 	return p.router.Start()
 }
 
-// Stop shutsdown the onion processor's sphinx router.
+// Stop shuts down the onion processor's sphinx router.
 func (p *OnionProcessor) Stop() error {
 
 	log.Info("Onion processor shutting down")
@@ -315,7 +315,7 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 	wg.Wait()
 
 	// With that batch created, we will now attempt to write the shared
-	// secrets to disk. This operation will returns the set of indices that
+	// secrets to disk. This operation will return the set of indices that
 	// were detected as replays, and the computed sphinx packets for all
 	// indices that did not fail the above loop. Only indices that are not
 	// in the replay set should be considered valid, as they are

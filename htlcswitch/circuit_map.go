@@ -212,7 +212,7 @@ type CircuitMapConfig struct {
 
 	// ExtractErrorEncrypter derives the shared secret used to encrypt
 	// errors from the obfuscator's ephemeral public key.
-	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
+	ExtractErrorEncrypter hop.ErrorEncrypterExtractor
 
 	// CheckResolutionMsg checks whether a given resolution message exists
 	// for the passed CircuitKey.

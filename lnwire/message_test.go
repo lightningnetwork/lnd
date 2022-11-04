@@ -272,6 +272,7 @@ func makeAllMessages(t testing.TB, r *rand.Rand) []lnwire.Message {
 	msgAll = append(msgAll, newMsgShutdown(t, r))
 	msgAll = append(msgAll, newMsgClosingSigned(t, r))
 	msgAll = append(msgAll, newMsgOpenChannel2(t, r))
+	msgAll = append(msgAll, newMsgAcceptChannel2(t, r))
 	msgAll = append(msgAll, newMsgUpdateAddHTLC(t, r))
 	msgAll = append(msgAll, newMsgUpdateFulfillHTLC(t, r))
 	msgAll = append(msgAll, newMsgUpdateFailHTLC(t, r))
@@ -524,6 +525,37 @@ func newMsgOpenChannel2(tb testing.TB, r *rand.Rand) *lnwire.OpenChannel2 {
 
 	_, err = r.Read(msg.PendingChannelID[:])
 	require.NoError(tb, err, "unable to read bytes for PendingChannelID")
+
+	return msg
+}
+
+func newMsgAcceptChannel2(tb testing.TB, r *rand.Rand) *lnwire.AcceptChannel2 {
+	tb.Helper()
+
+	leaseExpiry := lnwire.LeaseExpiry(r.Uint32())
+	msg := &lnwire.AcceptChannel2{
+		FundingAmount:         btcutil.Amount(r.Int63()),
+		DustLimit:             btcutil.Amount(r.Int63()),
+		MaxValueInFlight:      lnwire.MilliSatoshi(r.Int63()),
+		HtlcMinimum:           lnwire.MilliSatoshi(r.Int63()),
+		MinAcceptDepth:        uint32(r.Int31()),
+		CsvDelay:              uint16(r.Intn(1 << 16)),
+		MaxAcceptedHTLCs:      uint16(r.Intn(1 << 16)),
+		FundingKey:            randPubKey(tb),
+		RevocationPoint:       randPubKey(tb),
+		PaymentPoint:          randPubKey(tb),
+		DelayedPaymentPoint:   randPubKey(tb),
+		HtlcPoint:             randPubKey(tb),
+		FirstCommitmentPoint:  randPubKey(tb),
+		UpfrontShutdownScript: randDeliveryAddress(tb, r),
+		ChannelType: (*lnwire.ChannelType)(
+			rawFeatureVector(),
+		),
+		LeaseExpiry: &leaseExpiry,
+		ExtraData:   make([]byte, 0),
+	}
+	_, err := r.Read(msg.PendingChannelID[:])
+	require.NoError(tb, err, "unable to generate pending chan id")
 
 	return msg
 }

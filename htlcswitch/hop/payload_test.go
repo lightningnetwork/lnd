@@ -36,6 +36,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Violation: hop.OmittedViolation,
 			FinalHop:  true,
 		},
+		isFinalHop: true,
 	},
 	{
 		name:    "final hop valid",
@@ -55,6 +56,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Violation: hop.OmittedViolation,
 			FinalHop:  true,
 		},
+		isFinalHop: true,
 	},
 	{
 		name: "intermediate hop no amount",
@@ -75,6 +77,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Violation: hop.OmittedViolation,
 			FinalHop:  true,
 		},
+		isFinalHop: true,
 	},
 	{
 		name: "intermediate hop no expiry",
@@ -97,6 +100,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Violation: hop.IncludedViolation,
 			FinalHop:  true,
 		},
+		isFinalHop: true,
 	},
 	{
 		name: "required type after omitted hop id",
@@ -109,6 +113,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Violation: hop.RequiredViolation,
 			FinalHop:  true,
 		},
+		isFinalHop: true,
 	},
 	{
 		name: "required type after included hop id",
@@ -131,6 +136,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Violation: hop.RequiredViolation,
 			FinalHop:  true,
 		},
+		isFinalHop: true,
 	},
 	{
 		name: "required type zero final hop zero sid",
@@ -142,6 +148,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Violation: hop.IncludedViolation,
 			FinalHop:  true,
 		},
+		isFinalHop: true,
 	},
 	{
 		name: "required type zero intermediate hop",
@@ -171,9 +178,10 @@ var decodePayloadTests = []decodePayloadTest{
 		expErr: nil,
 	},
 	{
-		name:    "valid final hop",
-		payload: []byte{0x02, 0x00, 0x04, 0x00},
-		expErr:  nil,
+		name:       "valid final hop",
+		payload:    []byte{0x02, 0x00, 0x04, 0x00},
+		expErr:     nil,
+		isFinalHop: true,
 	},
 	{
 		name: "intermediate hop with mpp",
@@ -247,6 +255,7 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 		expErr:        nil,
 		shouldHaveMPP: true,
+		isFinalHop:    true,
 	},
 	{
 		name: "final hop with amp",
@@ -271,6 +280,7 @@ var decodePayloadTests = []decodePayloadTest{
 			0x09,
 		},
 		shouldHaveAMP: true,
+		isFinalHop:    true,
 	},
 	{
 		name: "final hop with metadata",
@@ -488,6 +498,14 @@ var decodePayloadTests = []decodePayloadTest{
 			0x5a, 0xa3, 0x40, 0xed, 0xce, 0xa1, 0xf2, 0x83, 0x68, 0x66, 0x19,
 		},
 		shouldHaveRouteBlindingInfo: true,
+		// Expect validation for intermediate hop to complain about
+		// inclusion of first (lowest type ID #) missing type (amt).
+		// isFinalHop: true, // christmas-tree does not error for final hop.
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.AmtOnionType,
+			Violation: hop.IncludedViolation,
+			FinalHop:  false,
+		},
 	},
 }
 
@@ -528,7 +546,9 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		testChildIndex = uint32(9)
 	)
 
-	p, err := hop.NewPayloadFromReader(bytes.NewReader(test.payload))
+	p, err := hop.NewPayloadFromReader(
+		bytes.NewReader(test.payload), test.isFinalHop,
+	)
 	if !reflect.DeepEqual(test.expErr, err) {
 		t.Fatalf("expected error mismatch, want: %v, got: %v",
 			test.expErr, err)
@@ -612,4 +632,235 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 	if !reflect.DeepEqual(expCustomRecords, p.CustomRecords()) {
 		t.Fatalf("invalid custom records")
 	}
+}
+
+type decodeRouteBlindingPayloadTest struct {
+	name                 string
+	routeBlindingPayload []byte
+	expectedErr          error
+
+	// isFinalHop indicates that our sphinx implementation has encountered
+	// an all-zero 32 byte onion HMAC signaling we are the final hop.
+	isFinalHop bool
+}
+
+var decodeRouteBlindingPayloadTests = []decodeRouteBlindingPayloadTest{
+	{
+		name:                 "empty route blinding TLV payload",
+		routeBlindingPayload: []byte{},
+		expectedErr: hop.ErrInvalidPayload{
+			Type:      record.PaymentRelayOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name:                 "empty route blinding TLV payload for final hop",
+		routeBlindingPayload: []byte{},
+		expectedErr: hop.ErrInvalidPayload{
+			Type:      record.PathIDOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  true, // Needs to match what sphinx package says.
+		},
+		isFinalHop: true, // sphinx package says...
+	},
+	{
+		name: "introduction node blinded route",
+		routeBlindingPayload: []byte{
+			// START: route blinding TLV data
+			// padding
+			byte(int(record.PaddingOnionType)), 0x04, 0x00, 0x01, 0x00, 0x00,
+			// next hop
+			byte(int(record.BlindedNextHopOnionType)), 0x08,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// next node ID
+			byte(int(record.NextNodeIDOnionType)), 0x21,
+			0x02, 0xee, 0xc7, 0x24, 0x5d, 0x6b, 0x7d, 0x2c, 0xcb, 0x30, 0x38,
+			0x0b, 0xfb, 0xe2, 0xa3, 0x64, 0x8c, 0xd7, 0xa9, 0x42, 0x65, 0x3f,
+			0x5a, 0xa3, 0x40, 0xed, 0xce, 0xa1, 0xf2, 0x83, 0x68, 0x66, 0x19,
+			// path ID (ONLY set for final node)
+			// 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// blinding point override
+			byte(int(record.BlindingOverrideOnionType)), 0x21,
+			0x02, 0xee, 0xc7, 0x24, 0x5d, 0x6b, 0x7d, 0x2c, 0xcb, 0x30, 0x38,
+			0x0b, 0xfb, 0xe2, 0xa3, 0x64, 0x8c, 0xd7, 0xa9, 0x42, 0x65, 0x3f,
+			0x5a, 0xa3, 0x40, 0xed, 0xce, 0xa1, 0xf2, 0x83, 0x68, 0x66, 0x19,
+			// payment relay
+			byte(int(record.PaymentRelayOnionType)), 0x0a,
+			0x00, 0x00, 0x4e, 0x20, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x28,
+			// payment constraints
+			byte(int(record.PaymentConstraintsOnionType)), 0x0c,
+			0x00, 0x00, 0x03, 0xe8,
+			0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+			// END: route blinding TLV data
+		},
+	},
+	{
+		name: "intermediate hop blinded route w/ next hop",
+		routeBlindingPayload: []byte{
+			// START: route blinding TLV data
+			// padding
+			byte(int(record.PaddingOnionType)), 0x04, 0x00, 0x01, 0x00, 0x00,
+			// next hop
+			byte(int(record.BlindedNextHopOnionType)), 0x08,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// payment relay
+			byte(int(record.PaymentRelayOnionType)), 0x0a,
+			0x00, 0x00, 0x4e, 0x20, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x28,
+			// END: route blinding TLV data
+		},
+	},
+	{
+		name: "intermediate hop blinded route w/ next node ID",
+		routeBlindingPayload: []byte{
+			// START: route blinding TLV data
+			// padding
+			byte(int(record.PaddingOnionType)), 0x04, 0x00, 0x01, 0x00, 0x00,
+			// next node ID
+			byte(int(record.NextNodeIDOnionType)), 0x21,
+			0x02, 0xee, 0xc7, 0x24, 0x5d, 0x6b, 0x7d, 0x2c, 0xcb, 0x30, 0x38,
+			0x0b, 0xfb, 0xe2, 0xa3, 0x64, 0x8c, 0xd7, 0xa9, 0x42, 0x65, 0x3f,
+			0x5a, 0xa3, 0x40, 0xed, 0xce, 0xa1, 0xf2, 0x83, 0x68, 0x66, 0x19,
+			// payment relay
+			byte(int(record.PaymentRelayOnionType)), 0x0a,
+			0x00, 0x00, 0x4e, 0x20, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x28,
+			// END: route blinding TLV data
+		},
+	},
+	{
+		name: "intermediate hop blinded route missing both next_hop " + // error case
+			"and next_node_id",
+		routeBlindingPayload: []byte{
+			// START: route blinding TLV data
+			// padding
+			byte(int(record.PaddingOnionType)), 0x04, 0x00, 0x01, 0x00, 0x00,
+			// - no next hop
+			// - no next node ID
+			// payment relay
+			byte(int(record.PaymentRelayOnionType)), 0x0a,
+			0x00, 0x00, 0x4e, 0x20, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x28,
+			// END: route blinding TLV data
+		},
+		expectedErr: hop.ErrInvalidPayload{
+			Type:      record.BlindedNextHopOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name: "intermediate hop blinded route missing payment relay", // error case
+		routeBlindingPayload: []byte{
+			// START: route blinding TLV data
+			// padding
+			byte(int(record.PaddingOnionType)), 0x04, 0x00, 0x01, 0x00, 0x00,
+			// next hop
+			byte(int(record.BlindedNextHopOnionType)), 0x08,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			//  - no payment relay (MUST be set for blind hops)
+			// END: route blinding TLV data
+		},
+		expectedErr: hop.ErrInvalidPayload{
+			Type:      record.PaymentRelayOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name: "final hop blinded route",
+		routeBlindingPayload: []byte{
+			// START: route blinding TLV data
+			// padding
+			byte(int(record.PaddingOnionType)), 0x04, 0x00, 0x01, 0x00, 0x00,
+			// path ID (ONLY set for final node)
+			byte(int(record.PathIDOnionType)), 0x04, 0xff, 0x00, 0xff, 0x00,
+			// END: route blinding TLV data
+		},
+		isFinalHop: true,
+	},
+	{
+		name: "final hop blinded route missing path ID", // error case
+		routeBlindingPayload: []byte{
+			// START: route blinding TLV data
+			// padding
+			byte(int(record.PaddingOnionType)), 0x04, 0x00, 0x01, 0x00, 0x00,
+			// - no path ID (MUST be set for final node)
+			// END: route blinding TLV data
+		},
+		expectedErr: hop.ErrInvalidPayload{
+			Type:      record.PathIDOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  true,
+		},
+		isFinalHop: true,
+	},
+	{
+		name: "christmas tree route blinding payload (all lights on)",
+		routeBlindingPayload: []byte{
+			// START: route blinding TLV data
+			// padding
+			byte(int(record.PaddingOnionType)), 0x04, 0x00, 0x01, 0x00, 0x00,
+			// next hop
+			byte(int(record.BlindedNextHopOnionType)), 0x08,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// next node ID
+			byte(int(record.NextNodeIDOnionType)), 0x21,
+			0x02, 0xee, 0xc7, 0x24, 0x5d, 0x6b, 0x7d, 0x2c, 0xcb, 0x30, 0x38,
+			0x0b, 0xfb, 0xe2, 0xa3, 0x64, 0x8c, 0xd7, 0xa9, 0x42, 0x65, 0x3f,
+			0x5a, 0xa3, 0x40, 0xed, 0xce, 0xa1, 0xf2, 0x83, 0x68, 0x66, 0x19,
+			// path ID (ONLY set for final node)
+			byte(int(record.PathIDOnionType)), 0x04, 0xff, 0x00, 0xff, 0x00,
+			// blinding point override
+			byte(int(record.BlindingOverrideOnionType)), 0x21,
+			0x02, 0xee, 0xc7, 0x24, 0x5d, 0x6b, 0x7d, 0x2c, 0xcb, 0x30, 0x38,
+			0x0b, 0xfb, 0xe2, 0xa3, 0x64, 0x8c, 0xd7, 0xa9, 0x42, 0x65, 0x3f,
+			0x5a, 0xa3, 0x40, 0xed, 0xce, 0xa1, 0xf2, 0x83, 0x68, 0x66, 0x19,
+			// payment relay
+			byte(int(record.PaymentRelayOnionType)), 0x0a,
+			0x00, 0x00, 0x4e, 0x20, 0x00,
+			0x00, 0x00, 0x00, 0x00, 0x28,
+			// payment constraints
+			byte(int(record.PaymentConstraintsOnionType)), 0x0c,
+			0x00, 0x00, 0x03, 0xe8,
+			0x00, 0x00, 0x00, 0x00,
+			0x00, 0x00, 0x00, 0x00,
+			// END: route blinding TLV data
+		},
+	},
+}
+
+// TestDecodeBlindHopPayloadRecordValidation asserts that parsing the route
+// blinding TLV payloads in the tests yields the expected errors depending
+// on whether the proper fields were included or omitted.
+//
+// NOTE(9/16/22): This test isolates the parsing of the route blinding TLV
+// payload from the parsing of the top level onion TLV payload and excercises
+// the little validation logic we can at this stage.
+func TestDecodeBlindHopPayloadRecordValidation(t *testing.T) {
+	for _, test := range decodeRouteBlindingPayloadTests {
+		t.Run(test.name, func(t *testing.T) {
+			testDecodeBlindHopPayloadValidation(t, test)
+		})
+	}
+}
+
+func testDecodeBlindHopPayloadValidation(t *testing.T,
+	test decodeRouteBlindingPayloadTest) {
+
+	// Parse the route blinding TLV payload.
+	// NOTE: This test assumes the route blinding
+	// payload has already been decrypted.
+	_, err := hop.NewBlindHopPayloadFromReader(
+		bytes.NewReader(test.routeBlindingPayload), test.isFinalHop,
+	)
+
+	if !reflect.DeepEqual(test.expectedErr, err) {
+		t.Fatalf("expected error mismatch, want: %v, got: %v",
+			test.expectedErr, err)
+	}
+
 }

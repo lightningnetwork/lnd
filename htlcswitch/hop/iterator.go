@@ -33,6 +33,12 @@ type Iterator interface {
 	// along with a failure code to signal if the decoding was successful.
 	ExtractErrorEncrypter(ErrorEncrypterExtracter) (ErrorEncrypter,
 		lnwire.FailCode)
+
+	// IsFinalHop returns a boolean indicating whether we are the final hop.
+	IsFinalHop() bool
+
+	// NOTE(9/23/22): Could also use a NextHop() and keep check for hop.Exit?
+	// NextHop() lnwire.ShortChannelID
 }
 
 // sphinxHopIterator is the Sphinx implementation of hop iterator which uses
@@ -90,15 +96,32 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 	// Otherwise, if this is the TLV payload, then we'll make a new stream
 	// to decode only what we need to make routing decisions.
 	case sphinx.PayloadTLV:
-		return NewPayloadFromReader(bytes.NewReader(
-			r.processedPacket.Payload.Payload,
-		))
+		return NewPayloadFromReader(
+			bytes.NewReader(r.processedPacket.Payload.Payload),
+			r.IsFinalHop(),
+		)
 
 	default:
 		return nil, fmt.Errorf("unknown sphinx payload type: %v",
 			r.processedPacket.Payload.Type)
 	}
 }
+
+// IsFinalHop leverages the processed sphinx packet's
+// 'Action' to distinguish whether we are the final hop.
+func (r *sphinxHopIterator) IsFinalHop() bool {
+	return int(r.processedPacket.Action) == 0
+}
+
+// func (r *sphinxHopIterator) NextHop() lnwire.ShortChannelID {
+//     if r.processedPacket.Action == sphinx.ExitNode {
+//             return Exit
+//     }
+
+//     // NOTE: iterator doesn't have access to the next hop.
+//     // in the case we're not the exit hop
+//     return Exit
+// }
 
 // ExtractErrorEncrypter decodes and returns the ErrorEncrypter for this hop,
 // along with a failure code to signal if the decoding was successful. The

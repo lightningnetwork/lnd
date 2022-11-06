@@ -334,6 +334,11 @@ func (r *mockHopIterator) HopPayload() (*hop.Payload, error) {
 	return h, nil
 }
 
+func (r *mockHopIterator) IsFinalHop() bool {
+
+	return len(r.hops) == 0
+}
+
 func (r *mockHopIterator) ExtraOnionBlob() []byte {
 	return nil
 }

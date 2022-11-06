@@ -236,7 +236,7 @@ func NewBlindHopPayloadFromReader(r io.Reader,
 
 // NewPayloadFromReader builds a new Hop from the passed io.Reader. The reader
 // should correspond to the bytes encapsulated in a TLV onion payload.
-func NewPayloadFromReader(r io.Reader) (*Payload, error) {
+func NewPayloadFromReader(r io.Reader, isFinalHop bool) (*Payload, error) {
 	var (
 		cid         uint64
 		amt         uint64
@@ -276,7 +276,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 	// function can make the determination as to whether we are the
 	// final hop. We will replace this with all-zero onion HMAC.
 	nextHop := lnwire.NewShortChanIDFromInt(cid)
-	err = ValidateParsedPayloadTypes(parsedTypes, nextHop)
+	err = ValidateParsedPayloadTypes(parsedTypes, isFinalHop)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +287,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		return nil, ErrInvalidPayload{
 			Type:      *violatingType,
 			Violation: RequiredViolation,
-			FinalHop:  nextHop == Exit,
+			FinalHop:  isFinalHop,
 		}
 	}
 
@@ -410,7 +410,7 @@ func ValidateRouteBlindingPayloadTypes(parsedTypes tlv.TypeMap,
 // payload is decrypted. We would like to preserve the normal validation
 // in the case we are forwarding for a normal (not blinded) route.
 func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
-	nextHop lnwire.ShortChannelID) error {
+	isFinalHop bool) error {
 
 	// NOTE(9/15/22): This may not serve as a proper determination of
 	// whether this is the final hop. Processing nodes in a blinded
@@ -420,7 +420,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	// UPDATE(9/15/22): According to BOLT-04 this is supposed to be
 	// indicated by the sphinx implementation when it encounters
 	// an all-zero onion HMAC.
-	isFinalHop := nextHop == Exit
+	// isFinalHop := nextHop == Exit
 
 	_, hasAmt := parsedTypes[record.AmtOnionType]
 	_, hasLockTime := parsedTypes[record.LockTimeOnionType]

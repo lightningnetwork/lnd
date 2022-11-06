@@ -28,6 +28,16 @@ const (
 	// RequiredViolation indicates that an unknown even type was found in
 	// the payload that we could not process.
 	RequiredViolation
+
+	// OverloadedViolation indicates that an expected type was provided
+	// in more than one place. (used only for blinding point)
+	OverloadedViolation
+
+	// InsufficientViolation indicates that the provided type does
+	// not satisfy constraints.
+	// NOTE(10/5/22): Used for payment constraints. Does this belong here?
+	// Should payment constraints be handled separately?
+	InsufficientViolation
 )
 
 // String returns a human-readable description of the violation as a verb.
@@ -41,6 +51,12 @@ func (v PayloadViolation) String() string {
 
 	case RequiredViolation:
 		return "required"
+
+	case OverloadedViolation:
+		return "overloaded"
+
+	case InsufficientViolation:
+		return "insufficient"
 
 	default:
 		return "unknown violation"

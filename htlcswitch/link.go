@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/ticker"
 )
 
@@ -3263,6 +3264,215 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// Process the received resolution.
 	return l.processHtlcResolution(event, htlc)
+}
+
+// ValidateTopLevelPayloadAndAddMsg verifies that the top level onion TLV
+// payload and UpdateAddHTLC message are properly formed for blind hops
+// as described in BOLT-04.
+//
+// TODO(10/5/22): Decide whether to go with human readable error or
+// TLV type error (hop.ErrInvalidPayload) for validation errors.
+// Would we benefit from a human readable string? Who is consuming the error?
+// Is it weird to use another package's error type?
+func ValidateTopLevelPayloadAndAddMsg(p *hop.Payload, pd *lnwallet.PaymentDescriptor) error {
+
+	// Blind hops must contain an encrypted route blinding payload.
+	if p.RouteBlindingEncryptedData == nil {
+		return hop.ErrInvalidPayload{
+			Type:      record.RouteBlindingEncryptedDataOnionType,
+			Violation: hop.OmittedViolation,
+		}
+	}
+
+	// Do not accept HTLCs for which a blinding point has been set
+	// in both the onion TLV payload and the UpdateAddHTLC message.
+	if p.BlindingPoint != nil && pd.BlindingPoint != nil {
+		return hop.ErrInvalidPayload{
+			Type:      record.BlindingPointOnionType,
+			Violation: hop.OverloadedViolation,
+		}
+	}
+
+	// Do not accept HTLCs for which we have no blinding point in
+	// either the onion TLV payload or the UpdateAddHTLC message.
+	// The sender is trying to use route blinding, but we didn't receive
+	// the blinding point used to derive the key needed to decrypt the
+	// onion. The sender or the previous peer is buggy or malicious. (eclair)
+	if p.BlindingPoint == nil && pd.BlindingPoint == nil {
+		return hop.ErrInvalidPayload{
+			Type:      record.BlindingPointOnionType,
+			Violation: hop.OmittedViolation,
+		}
+	}
+
+	return nil
+}
+
+// ValidateTopLevelPayloadRouteBlinding, with knowledge of the contents
+// of the route blinding payload, validates that the top level onion TLV
+// payload is properly formed for blind hops as described in BOLT-04.
+//
+// NOTE: We now have validation to do across two levels of TLV payloads.
+// What is present in one payload effects our expectation of what is present
+// in the other payload. As a result, this stage of validation must wait
+// until after the route blinding payload is decrypted.
+func ValidateTopLevelPayloadRouteBlinding(pld *hop.Payload, isFinalHop bool) error {
+
+	// Validation for intermediate hops.
+	if !isFinalHop {
+		// We MUST not use ANY TLVs other than encrypted_recipient_data
+		// & current_blinding_point.
+		if pld.FwdInfo.AmountToForward != 0 {
+			return hop.ErrInvalidPayload{
+				Type:      record.AmtOnionType,
+				Violation: hop.IncludedViolation,
+			}
+		}
+		if pld.FwdInfo.OutgoingCTLV != 0 {
+			return hop.ErrInvalidPayload{
+				Type:      record.LockTimeOnionType,
+				Violation: hop.IncludedViolation,
+			}
+		}
+		// The top level onion payload should not list the next hop
+		// we should forward to. This will be found in the encrypted
+		// route blinding TLV payload.
+		if pld.FwdInfo.NextHop != hop.Exit {
+			return hop.ErrInvalidPayload{
+				Type:      record.NextHopOnionType,
+				Violation: hop.IncludedViolation,
+			}
+		}
+
+		if pld.TotalAmountMsat != 0 {
+			return hop.ErrInvalidPayload{
+				Type:      record.TotalAmountMsatOnionType,
+				Violation: hop.IncludedViolation,
+			}
+		}
+	}
+
+	// Validation for final hops.
+	if isFinalHop {
+		// We MUST use amt_to_forward & outgoing_cltv_value.
+		if pld.FwdInfo.AmountToForward == 0 {
+			return hop.ErrInvalidPayload{
+				Type:      record.AmtOnionType,
+				Violation: hop.OmittedViolation,
+				FinalHop:  true,
+			}
+		}
+		if pld.FwdInfo.OutgoingCTLV == 0 {
+			return hop.ErrInvalidPayload{
+				Type:      record.LockTimeOnionType,
+				Violation: hop.OmittedViolation,
+				FinalHop:  true,
+			}
+		}
+
+		// We MUST NOT use ANY TLVs other than encrypted_recipient_data,
+		// current_blinding_point, amt_to_forward, outgoing_cltv_value,
+		// & total_amount_msat.
+		if pld.FwdInfo.NextHop != hop.Exit {
+			return hop.ErrInvalidPayload{
+				Type:      record.NextHopOnionType,
+				Violation: hop.IncludedViolation,
+				FinalHop:  true,
+			}
+		}
+		// TODO(11/15/22): We MUST use total_amount_msat.
+		// if pld.TotalAmountMsat == 0 {
+		// 	return hop.ErrInvalidPayload{
+		// 		Type:      record.TotalAmountMsatOnionType,
+		// 		Violation: hop.OmittedViolation,
+		// 		FinalHop:  true,
+		// 	}
+		// }
+	}
+
+	// Validation common to both intermediate and final hops.
+	// Are we double dipping with validation testing done at
+	// payload parse time here?
+	if pld.MPP != nil { // checked at parse time!
+		return hop.ErrInvalidPayload{
+			Type:      record.MPPOnionType,
+			Violation: hop.IncludedViolation,
+		}
+	}
+	if pld.AMP != nil { // checked at parse time!
+		return hop.ErrInvalidPayload{
+			Type:      record.AMPOnionType,
+			Violation: hop.IncludedViolation,
+		}
+	}
+	if pld.Metadata() != nil {
+		return hop.ErrInvalidPayload{
+			Type:      record.MetadataOnionType,
+			Violation: hop.IncludedViolation,
+		}
+	}
+
+	return nil
+}
+
+// ValidateRouteBlindingPaymentConstraints verifies the incoming payment
+// satisfies the set of payment constraints specified by the creator of
+// the blinded route. The constraints are chosen by the route blinder in
+// order to limit an adversary's ability to unblind nodes within the route.
+//
+// NOTE: These are additional constraints on forwarded payments
+// above and beyond our usual forwarding policy.
+func ValidateRouteBlindingPaymentConstraints(p *hop.BlindHopPayload,
+	pd *lnwallet.PaymentDescriptor) error {
+
+	// Only validate payment constraints if included by the route blinder.
+	if p.PaymentConstraints == nil {
+		return nil
+	}
+
+	maxCltvExpiry := p.PaymentConstraints.MaxCltvExpiryDelta
+	minimumHtlcMsat := p.PaymentConstraints.HtlcMinimumMsat
+	// allowedFeatures := p.PaymentConstraints.AllowedFeatures
+
+	// If the builder of the blinded route included payment
+	// constraints then we should validate that our forwarding
+	// information satisfies them here.
+	// - MUST return an error if the expiry is greater than
+	// `encrypted_recipient_data.payment_constraints.max_cltv_expiry`.'
+	if pd.Timeout > maxCltvExpiry {
+		// TODO(10/5/22): Figure out if this error type
+		// works here. Would it not be better to provide info
+		// on how the value is insufficient?
+		return hop.ErrInvalidPayload{
+			Type:      record.LockTimeOnionType,
+			Violation: hop.InsufficientViolation,
+		}
+
+	}
+
+	// - MUST return an error if the amount is below
+	// `encrypted_recipient_data.payment_constraints.htlc_minimum_msat`.
+	if uint64(pd.Amount) < minimumHtlcMsat {
+		return hop.ErrInvalidPayload{
+			Type:      record.AmtOnionType,
+			Violation: hop.InsufficientViolation,
+		}
+	}
+
+	// TODO(8/14/22): at some point we may need to check
+	// that payments do not attempt to use features which
+	// have not been explicitly permitted.
+	// - MUST return an error if `encrypted_recipient_data.allowed_features.features` contains an unknown feature bit (even if it is odd)
+	// - MUST return an error if the payment uses a feature not included in `encrypted_recipient_data.payment_constraints.allowed_features`.
+	// UPDATE(8/24/22): This is being moved to its own TLV record.
+	// UPDATE(9/2/22): We need to make sure our node knows
+	// about ALL features, even the it's okay to be ODD ones.
+	// if allowedFeatures == nil {
+	// 	return fmt.Errorf("blind hop made use of " +
+	// 		"disallowed feature")
+	// }
+
+	return nil
 }
 
 // settleHTLC settles the HTLC on the channel.

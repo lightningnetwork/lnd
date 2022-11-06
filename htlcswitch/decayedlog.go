@@ -20,6 +20,10 @@ const (
 )
 
 var (
+	// metaBucket stores all the meta information concerning the state of
+	// the database.
+	metaBucket = []byte("metadata")
+
 	// sharedHashBucket is a bucket which houses the first HashPrefixSize
 	// bytes of a received HTLC's hashed shared secret as the key and the HTLC's
 	// CLTV expiry as the value.
@@ -29,6 +33,23 @@ var (
 	// serialized ReplaySets. This is used to give idempotency in the event
 	// that a batch is processed more than once.
 	batchReplayBucket = []byte("batch-replay")
+
+	// replaySetExpiryBucket is a bucket that maps each replay set (batch)
+	// ID to the maximum expiry height so that entries in batchReplayBucket
+	// can be garbage collected.
+	replaySetExpiryBucket = []byte("replay-set-expiry")
+
+	// allReplaySetsHaveExpiryKey is a boltdb key. The value is set to 1 if
+	// and only if all entries in batchReplayBucket also have a
+	// corresponding entry in replaySetExpiryBucket.
+	allReplaySetsHaveExpiryKey = []byte("all-replay-sets-have-expiry")
+
+	// MaxNumberOfSetsRemovedPerBlock the maximum number of replay sets
+	// removed in one GC run (which happens once per block). As larger nodes
+	// may have several hundred million sets that should be garbage
+	// collected, working on all of them at once would consume too many
+	// system resources.
+	MaxNumberOfSetsRemovedPerBlock = 500000
 )
 
 var (
@@ -130,15 +151,26 @@ func (d *DecayedLog) Start() error {
 }
 
 // initBuckets initializes the primary buckets used by the decayed log, namely
-// the shared hash bucket, and batch replay
+// the meta bucket, shared hash bucket, the batch replay bucket, and the replay
+// set expiry bucket.
 func (d *DecayedLog) initBuckets() error {
 	return kvdb.Update(d.db, func(tx kvdb.RwTx) error {
-		_, err := tx.CreateTopLevelBucket(sharedHashBucket)
+		_, err := tx.CreateTopLevelBucket(metaBucket)
+		if err != nil {
+			return ErrDecayedLogInit
+		}
+
+		_, err = tx.CreateTopLevelBucket(sharedHashBucket)
 		if err != nil {
 			return ErrDecayedLogInit
 		}
 
 		_, err = tx.CreateTopLevelBucket(batchReplayBucket)
+		if err != nil {
+			return ErrDecayedLogInit
+		}
+
+		_, err = tx.CreateTopLevelBucket(replaySetExpiryBucket)
 		if err != nil {
 			return ErrDecayedLogInit
 		}
@@ -180,16 +212,29 @@ func (d *DecayedLog) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
 			// Perform a bout of garbage collection using the
 			// epoch's block height.
 			height := uint32(epoch.Height)
-			numExpired, err := d.gcExpiredHashes(height)
+
+			numExpiredHashes, err := d.gcExpiredHashes(height)
 			if err != nil {
 				log.Errorf("unable to expire hashes at "+
 					"height=%d", height)
 			}
 
-			if numExpired > 0 {
+			if numExpiredHashes > 0 {
 				log.Infof("Garbage collected %v shared "+
 					"secret hashes at height=%v",
-					numExpired, height)
+					numExpiredHashes, height)
+			}
+
+			numExpiredReplaySets, err := d.gcExpiredSets(height)
+			if err != nil {
+				log.Errorf("unable to expire replay "+
+					"sets at height=%d", height)
+			}
+
+			if numExpiredReplaySets > 0 {
+				log.Infof("Garbage collected %v replay "+
+					"sets at height=%v",
+					numExpiredReplaySets, height)
 			}
 
 		case <-d.quit:
@@ -201,8 +246,8 @@ func (d *DecayedLog) garbageCollector(epochClient *chainntnfs.BlockEpochEvent) {
 	}
 }
 
-// gcExpiredHashes purges the decaying log of all entries whose CLTV expires
-// below the provided height.
+// gcExpiredHashes purges the sharedHashes bucket of all entries whose CLTV
+// expires below the provided height.
 func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 	var numExpiredHashes uint32
 
@@ -234,9 +279,8 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 			return err
 		}
 
-		// Delete every item in the array. This must
-		// be done explicitly outside of the ForEach
-		// function for safety reasons.
+		// Delete every item in the array. This must be done explicitly
+		// outside of the ForEach function for safety reasons.
 		for _, hash := range expiredCltv {
 			err := sharedHashes.Delete(hash)
 			if err != nil {
@@ -251,6 +295,191 @@ func (d *DecayedLog) gcExpiredHashes(height uint32) (uint32, error) {
 	}
 
 	return numExpiredHashes, nil
+}
+
+// gcExpiredSets purges the batchReplay bucket of all entries whose CLTV
+// expires below the provided height.
+func (d *DecayedLog) gcExpiredSets(height uint32) (int, error) {
+	breakForEach := errors.New("break out of ForEach")
+
+	numExpiredSets := 0
+	err := kvdb.Batch(d.db, func(tx kvdb.RwTx) error {
+		// There may be replay sets without expiry information.
+		if err := InitReplaySetExpiryForOldSets(tx); err != nil {
+			return err
+		}
+		setExpiries := tx.ReadWriteBucket(replaySetExpiryBucket)
+
+		var expiredSets [][]byte
+		err := setExpiries.ForEach(func(id, v []byte) error {
+			if numExpiredSets >= MaxNumberOfSetsRemovedPerBlock {
+				return breakForEach
+			}
+
+			expiryHeight := binary.BigEndian.Uint32(v)
+			if expiryHeight < height {
+				expiredSets = append(expiredSets, id)
+				numExpiredSets++
+			}
+
+			return nil
+		})
+		if err != nil && err.Error() != breakForEach.Error() {
+			return err
+		}
+
+		if numExpiredSets == 0 {
+			return nil
+		}
+
+		batchReplay := tx.ReadWriteBucket(batchReplayBucket)
+
+		// Delete every expired replay set and also delete the expiry
+		// height for the set. This must be done explicitly outside of
+		// the ForEach function for safety reasons.
+		for _, id := range expiredSets {
+			if err := batchReplay.Delete(id); err != nil {
+				return err
+			}
+			if err := setExpiries.Delete(id); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return 0, err
+	}
+
+	return numExpiredSets, nil
+}
+
+// InitReplaySetExpiryForOldSets initializes the expiry for replay sets where no
+// expiry is known. The maximum expiry height derived from all (possibly
+// unrelated) CLTVs persisted in sharedHashBucket is used as an
+// over-approximation of the expiry used for the replay sets. This way, the
+// garbage collector can remove (possibly very old) sets from batchReplayBucket
+// once all currently known CLTVs have timed out.
+// Larger nodes may have several hundred million sets without expiry
+// information. To avoid overloading these systems, we only work on up to
+// MaxNumberOfSetsRemovedPerBlock entries in one invocation of this function.
+func InitReplaySetExpiryForOldSets(tx kvdb.RwTx) error {
+	if AllReplaySetsHaveExpiry(tx) {
+		// There are no (old) replay sets without expiry, and we
+		// persist expiry information for all new sets. As such,
+		// there is no need to do anything!
+		return nil
+	}
+
+	// There might old replay set data for which no expiry is registered.
+	// Find them, so that we can prepare them for garbage collection.
+	batchReplay := tx.ReadBucket(batchReplayBucket)
+	setExpiry := tx.ReadBucket(replaySetExpiryBucket)
+	var setsWithoutExpiry [][]byte
+	numSetsWithoutExpiry := 0
+
+	// As the bucket may contain several hundred million entries, we cannot
+	// just load those IDs into memory at once. Instead, we scan
+	// sequentially and abort after MaxNumberOfSetsRemovedPerBlock entries
+	// without expiry have been found. This way at least a fraction of
+	// all old entries will be garbage collected while keeping resource
+	// usage limited.
+	breakForEachPseudoError := errors.New("break out of ForEach")
+	err := batchReplay.ForEach(func(id, v []byte) error {
+		if numSetsWithoutExpiry >= MaxNumberOfSetsRemovedPerBlock {
+			return breakForEachPseudoError
+		}
+		if expiry := setExpiry.Get(id); expiry == nil {
+			setsWithoutExpiry = append(setsWithoutExpiry, id)
+			numSetsWithoutExpiry++
+		}
+
+		return nil
+	})
+	if err != nil && err.Error() != breakForEachPseudoError.Error() {
+		return err
+	}
+
+	if numSetsWithoutExpiry == 0 {
+		log.Info("Expiry information for all replay sets already " +
+			"known")
+		// Remember that there are no replay sets without expiry. As we
+		// store the expiry for new sets, we can stop scanning for old
+		// sets.
+		meta := tx.ReadWriteBucket(metaBucket)
+		err := meta.Put(allReplaySetsHaveExpiryKey, []byte{1})
+		if err != nil {
+			log.Errorf("Unable to update bucket meta "+
+				"data: %v", err)
+			return err
+		}
+
+		return nil
+	}
+
+	// If we found at least one replay set without expiry, we
+	// compute the maximum CLTV of all entries in sharedHashBucket
+	// and use this value to over-approximate the expiry of the
+	// replay sets without expiry.
+	maximumCltv, err := GetMaxCltvForSharedHashes(tx, err)
+	if err != nil {
+		return err
+	}
+	log.Infof("Setting expiry=%d for %d sets without expiry",
+		maximumCltv, numSetsWithoutExpiry)
+
+	// Set the expiry for each of the collected sets to the maximum
+	// CLTV so that the garbage collector will remove them
+	// eventually.
+	var scratch [4]byte
+	binary.BigEndian.PutUint32(scratch[:], maximumCltv)
+
+	setExpiryReadWrite := tx.ReadWriteBucket(replaySetExpiryBucket)
+	for _, id := range setsWithoutExpiry {
+		if err := setExpiryReadWrite.Put(id, scratch[:]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// AllReplaySetsHaveExpiry returns true only if for all entries in
+// batchReplayBucket we have a corresponding expiry entry in
+// replaySetExpiryBucket.
+func AllReplaySetsHaveExpiry(tx kvdb.RwTx) bool {
+	meta := tx.ReadBucket(metaBucket)
+	data := meta.Get(allReplaySetsHaveExpiryKey)
+	if data == nil {
+		return false
+	}
+
+	return data[0] == 1
+}
+
+// GetMaxCltvForSharedHashes iterates over all entries in sharedHashBucket and
+// returns the maximum CLTV value.
+func GetMaxCltvForSharedHashes(tx kvdb.RwTx, err error) (uint32, error) {
+	var maximumCltv = uint32(0)
+	var sharedHashes = tx.ReadBucket(sharedHashBucket)
+	err = sharedHashes.ForEach(func(k, v []byte) error {
+		// Deserialize the CLTV value for this entry.
+		cltv := binary.BigEndian.Uint32(v)
+
+		if cltv > maximumCltv {
+			maximumCltv = cltv
+		}
+
+		return nil
+	})
+	if err != nil {
+		log.Errorf("Error reading shared hashes: %v", err)
+		return 0, err
+	}
+
+	return maximumCltv, nil
 }
 
 // Delete removes a <shared secret hash, CLTV> key-pair from the
@@ -367,9 +596,15 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 		// The CLTV will be stored into scratch and then stored into the
 		// sharedHashBucket.
 		var scratch [4]byte
+		var maximumExpiryHeight uint32
 
 		replays = sphinx.NewReplaySet()
 		err := b.ForEach(func(seqNum uint16, hashPrefix *sphinx.HashPrefix, cltv uint32) error {
+			// Compute the maximum expiry height for the set.
+			if cltv > maximumExpiryHeight {
+				maximumExpiryHeight = cltv
+			}
+
 			// Retrieve the bytes which represents the CLTV
 			valueBytes := sharedHashes.Get(hashPrefix[:])
 			if valueBytes != nil {
@@ -380,6 +615,7 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 			// Serialize the cltv value and write an entry keyed by
 			// the hash prefix.
 			binary.BigEndian.PutUint32(scratch[:], cltv)
+
 			return sharedHashes.Put(hashPrefix[:], scratch[:])
 		})
 		if err != nil {
@@ -390,6 +626,21 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 		// entries with the in-batch replays computed during this
 		// batch's construction.
 		replays.Merge(b.ReplaySet)
+
+		// Load the replay set expiry bucket, which will be used to
+		// write the expiry height for the replay set.
+		replaySetExpiryBkt := tx.ReadWriteBucket(replaySetExpiryBucket)
+		if replaySetExpiryBkt == nil {
+			return ErrDecayedLogCorrupted
+		}
+
+		// Write the maximum expiry height to the replay set expiry
+		// bucket so that batches can be removed once all entries are
+		// expired.
+		binary.BigEndian.PutUint32(scratch[:], maximumExpiryHeight)
+		if err := replaySetExpiryBkt.Put(b.ID, scratch[:]); err != nil {
+			return err
+		}
 
 		// Write the replay set under the batch identifier to the batch
 		// replays bucket. This can be used during recovery to test (1)

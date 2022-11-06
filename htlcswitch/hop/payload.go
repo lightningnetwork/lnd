@@ -152,6 +152,24 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 	}
 }
 
+// NOTE(10/26/22): This function is currently only used to get around
+// the fact that customRecords is unexported and is required to be set.
+// I don't think a function like this would have much utility otherwise.
+// Given that we use TLV en/decoding I am a bit unsure how this function
+// will behave/get access to the information it would need.
+// The data included in a TLV payload is highly variable. That is why it makes
+// sense to define a struct and then TLV encode each of the structs types
+// that the user sets.
+func NewTLVPayload() *Payload {
+
+	// Set the unexported customRecords field so that we can carry
+	// on with our Link testing.
+	return &Payload{
+		FwdInfo:       ForwardingInfo{},
+		customRecords: make(record.CustomSet),
+	}
+}
+
 // BlindHopPayload encapsulates all the route blinding information
 // which will be parsed by nodes in the blinded portion of a route.
 type BlindHopPayload struct {

@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -328,12 +329,30 @@ func newMockHopIterator(hops ...*hop.Payload) hop.Iterator {
 	return &mockHopIterator{hops: hops}
 }
 
+// HopPayload returns the set of fields that detail exactly _how_ this hop
+// should forward the HTLC to the next hop.  For normal (ie: non-blind)
+// hops, the information encoded within the returned ForwardingInfo is to
+// be used by each hop to authenticate the information given to it by the
+// prior hop. For blind hops, callers will find the necessary forwarding
+// information one layer deeper, inside the route blinding TLV payload.
+//
+// Every time this method is called we peel off a layer of the onion
+// and our hop iterator contains one less hop!
 func (r *mockHopIterator) HopPayload() (*hop.Payload, error) {
 	h := r.hops[0]
 	r.hops = r.hops[1:]
 	return h, nil
 }
 
+// IsFinalHop indicates whether a hop is the final hop in a payment route.
+// When the last hop parses its TLV payload via call to HopPayload(),
+// it will leave us with an empty hop iterator.
+//
+// NOTE: As this is a mock which does not use a real sphinx implementation
+// to signal the final hop via all-zero onion HMAC, we are relying on this
+// method being called AFTER HopPayload(). If this method is called BEFORE
+// parsing the TLV payload then it will NOT correctly report that we are
+// the final hop!
 func (r *mockHopIterator) IsFinalHop() bool {
 
 	return len(r.hops) == 0
@@ -350,6 +369,8 @@ func (r *mockHopIterator) ExtractErrorEncrypter(
 	return extracter(nil)
 }
 
+// NOTE: This function name implies it encodes a single hop,
+// but in actuality it encodes all hops in the route?
 func (r *mockHopIterator) EncodeNextHop(w io.Writer) error {
 	var hopLength [4]byte
 	binary.BigEndian.PutUint32(hopLength[:], uint32(len(r.hops)))
@@ -359,10 +380,33 @@ func (r *mockHopIterator) EncodeNextHop(w io.Writer) error {
 	}
 
 	for _, hop := range r.hops {
-		fwdInfo := hop.ForwardingInfo()
-		if err := encodeFwdInfo(w, &fwdInfo); err != nil {
+		if err := encodeHopPayload(w, hop); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func encodeHopPayload(w io.Writer, hop *hop.Payload) error {
+	fwdInfo := hop.ForwardingInfo()
+	if err := encodeFwdInfo(w, &fwdInfo); err != nil {
+		return err
+	}
+
+	// If this hop has a route blinding payload,
+	// we'll serialize that as well.
+	if hop.RouteBlindingEncryptedData != nil {
+		err := encodeBlindHop(w, hop)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Add a (few) sentinel byte(s) in order to mark the end
+	// of the serialization for each hop.
+	if err := encodeHopBoundaryMarker(w); err != nil {
+		return err
 	}
 
 	return nil
@@ -382,6 +426,60 @@ func encodeFwdInfo(w io.Writer, f *hop.ForwardingInfo) error {
 	}
 
 	if err := binary.Write(w, binary.BigEndian, f.OutgoingCTLV); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func encodeBlindHop(w io.Writer, p *hop.Payload) error {
+
+	// NOTE(10/25/22): We recreate the "LV" in TLV here!
+	// We write the length of the route blinding payload so
+	// that the variable length payload can be properly decoded.
+	var blindPayloadLength [4]byte
+	binary.BigEndian.PutUint32(blindPayloadLength[:], uint32(len(p.RouteBlindingEncryptedData)))
+
+	_, err := w.Write(blindPayloadLength[:])
+	if err != nil {
+		return err
+	}
+
+	if err := binary.Write(w, binary.BigEndian, p.RouteBlindingEncryptedData); err != nil {
+		return err
+	}
+
+	if p.BlindingPoint != nil {
+		var fieldLength [4]byte
+
+		pubKeyBytes := p.BlindingPoint.SerializeCompressed()
+		binary.BigEndian.PutUint32(fieldLength[:], uint32(len(pubKeyBytes)))
+		_, err = w.Write(fieldLength[:])
+		if err != nil {
+			return err
+		}
+
+		if err := binary.Write(w, binary.BigEndian, pubKeyBytes); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// sentinel is used to mark the boundary between serialized hops
+// in the onion blob in the absense of TLV.
+//
+// TODO(11/5/22): add TLV to mockHopIterator?
+var sentinel = [4]byte{0xff, 0xff, 0xff, 0xff}
+
+// encodeHopBoundaryMarker writes our sentinel value which delineates
+// the boundary between the hop currently being encoded and any subsequent
+// hops yet to be serialized. This allows us to handle variable length
+// payloads which is necessary to distinguish between normal and blind
+// hops (ie: those with a route blinding payload) during deserialization/decoding.
+func encodeHopBoundaryMarker(w io.Writer) error {
+	if _, err := w.Write(sentinel[:]); err != nil {
 		return err
 	}
 
@@ -482,7 +580,7 @@ func newMockIteratorDecoder() *mockIteratorDecoder {
 }
 
 func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
-	cltv uint32) (hop.Iterator, lnwire.FailCode) {
+	cltv uint32, blindingPoint *btcec.PublicKey) (hop.Iterator, lnwire.FailCode) {
 
 	var b [4]byte
 	_, err := r.Read(b[:])
@@ -493,25 +591,22 @@ func (p *mockIteratorDecoder) DecodeHopIterator(r io.Reader, rHash []byte,
 
 	hops := make([]*hop.Payload, hopLength)
 	for i := uint32(0); i < hopLength; i++ {
-		var f hop.ForwardingInfo
-		if err := decodeFwdInfo(r, &f); err != nil {
+		p := hop.NewTLVPayload()
+		if err := decodeHopPayload(r, p); err != nil {
 			return nil, lnwire.CodeTemporaryChannelFailure
 		}
 
-		var nextHopBytes [8]byte
-		binary.BigEndian.PutUint64(nextHopBytes[:], f.NextHop.ToUint64())
-
-		hops[i] = hop.NewLegacyPayload(&sphinx.HopData{
-			Realm:         [1]byte{}, // hop.BitcoinNetwork
-			NextAddress:   nextHopBytes,
-			ForwardAmount: uint64(f.AmountToForward),
-			OutgoingCltv:  f.OutgoingCTLV,
-		})
+		hops[i] = p
 	}
 
 	return newMockHopIterator(hops...), lnwire.CodeNone
 }
 
+// NOTE(10/22/22): DecodeHopIteratorRequest's will have a non-nil ephemeral
+// blinding point for blind hops. In a real implementation this will be used by
+// the underlying Sphinx library to decrypt the onion. For testing, it can
+// probably be ignored as we just pass the public key through to the Sphinx
+// implementation, but we are not dealing with encrypted data for Link testing.
 func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 	reqs []hop.DecodeHopIteratorRequest) (
 	[]hop.DecodeHopIteratorResponse, error) {
@@ -530,7 +625,7 @@ func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 	resps := make([]hop.DecodeHopIteratorResponse, 0, batchSize)
 	for _, req := range reqs {
 		iterator, failcode := p.DecodeHopIterator(
-			req.OnionReader, req.RHash, req.IncomingCltv,
+			req.OnionReader, req.RHash, req.IncomingCltv, req.BlindingPoint,
 		)
 
 		if p.decodeFail {
@@ -549,6 +644,18 @@ func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 	p.mu.Unlock()
 
 	return resps, nil
+}
+
+func decodeHopPayload(r io.Reader, p *hop.Payload) error {
+	if err := decodeFwdInfo(r, &p.FwdInfo); err != nil {
+		return err
+	}
+
+	if err := decodeBlindHop(r, p); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func decodeFwdInfo(r io.Reader, f *hop.ForwardingInfo) error {
@@ -571,6 +678,135 @@ func decodeFwdInfo(r io.Reader, f *hop.ForwardingInfo) error {
 	}
 
 	return nil
+}
+
+func decodeBlindHop(r io.Reader, p *hop.Payload) error {
+
+	// NOTE(10/26/22): If we read these 4 bytes to determine whether we
+	// should parse the route blinding payload and this is not a blind hop,
+	// then we are eating 4 bytes that ought to have been decoded/interpreted
+	// differently. This leads to mistakenly decoded/parsed payloads.
+	var b [4]byte
+	_, err := r.Read(b[:])
+	if err != nil {
+		return err
+	}
+
+	// Check for hop boundary sentinel. If we are at a hop boundary,
+	// then we should bail early without reading any more bytes.
+	// If this is not the hop boundary, then we should interpret the bytes
+	// just read as the length of the route blinding payload.
+	if ok := isHopBoundary(b[:]); ok {
+		return nil
+	}
+
+	// This hop as a route blinding payload, so we'll decode that now.
+	payloadLength := binary.BigEndian.Uint32(b[:])
+	buf := make([]byte, payloadLength)
+	n, err := io.ReadFull(r, buf)
+	if err != nil {
+		return err
+	}
+
+	// Only set the route blinding payload if it exists.
+	// Otherwise, leave the slice nil so we do not incorrectly
+	// believe the hop to be blind.
+	if n != 0 {
+		p.RouteBlindingEncryptedData = buf
+	}
+
+	// Similar procedure for blinding point.
+	_, err = r.Read(b[:])
+	if err != nil {
+		return err
+	}
+
+	// If this is not the hop boundary, then we should interpret
+	// the bytes just read as the length of the next field
+	// (I see the need for something like TLV).
+	if ok := isHopBoundary(b[:]); ok {
+		return nil
+	}
+
+	fieldLength := binary.BigEndian.Uint32(b[:])
+	pubKeyBytes := make([]byte, fieldLength)
+	n, err = io.ReadFull(r, pubKeyBytes)
+	if err != nil {
+		return err
+	}
+
+	p.BlindingPoint, _ = btcec.ParsePubKey(pubKeyBytes)
+
+	// Don't forget to trim off the sentinel, so that any hops
+	// after this one are parsed correctly.
+	return trimSentinel(r)
+
+}
+
+func isHopBoundary(b []byte) bool {
+	return bytes.Equal(sentinel[:], b)
+}
+
+func trimSentinel(r io.Reader) error {
+	var b [4]byte
+	_, err := r.Read(b[:])
+
+	return err
+}
+
+// A simplified implementation of the BlindHopProcessor interface.
+type mockBlindHopProcessor struct{}
+
+// For the sake of testing, we assume that the payload is already decrypted.
+// From the perspective of the link, we expect this function implementation
+// (sphinx, test, or otherwise) to deliver us a proper serialized route blinding
+// payload, which we can then parse into a BlindHopPayload{}.
+func (b *mockBlindHopProcessor) DecryptBlindedPayload(nodeID keychain.SingleKeyECDH,
+	blindingPoint *btcec.PublicKey, payload []byte) ([]byte, error) {
+
+	return payload, nil
+}
+
+// For simplicity's sake we just pass back the same blinding point.
+func (b *mockBlindHopProcessor) NextBlindingPoint(sessionKey keychain.SingleKeyECDH,
+	blindingPoint *btcec.PublicKey) (*btcec.PublicKey, error) {
+
+	return blindingPoint, nil
+}
+
+type brokenBlindHopProcessor struct {
+	// errOnDecrypt is a flag which informs the broken blind hop processor
+	// whether it should fail during an attempt to decrypt a route blinding
+	// payload or fail while computing the next blinding point.
+	// This provides control over how the blind hop processor will fail,
+	// allowing us to observe how the link handles either scenario.
+	errOnDecrypt bool
+}
+
+func (b *brokenBlindHopProcessor) DecryptBlindedPayload(
+	nodeID keychain.SingleKeyECDH, blindingPoint *btcec.PublicKey,
+	payload []byte) ([]byte, error) {
+
+	// Simulate an error during decryption of the route blinding TLV payload.
+	if b.errOnDecrypt {
+		return nil, errors.New("unable to decrypt route blinding TLV payload")
+	}
+
+	// Otherwise, return successfully and allow failure to occur later.
+	return payload, nil
+}
+
+func (b *brokenBlindHopProcessor) NextBlindingPoint(
+	sessionKey keychain.SingleKeyECDH, blindingPoint *btcec.PublicKey) (
+	*btcec.PublicKey, error) {
+
+	// Simulate an error during computation of the epemeral blinding point
+	// for the next hop in a blinded route.
+	if !b.errOnDecrypt {
+		return nil, errors.New("unable to compute next ephemeral blinding point")
+	}
+
+	return blindingPoint, nil
 }
 
 // messageInterceptor is function that handles the incoming peer messages and

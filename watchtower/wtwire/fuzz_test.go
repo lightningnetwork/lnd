@@ -13,6 +13,7 @@ func prefixWithMsgType(data []byte, prefix MessageType) []byte {
 	var prefixBytes [2]byte
 	binary.BigEndian.PutUint16(prefixBytes[:], uint16(prefix))
 	data = append(prefixBytes[:], data...)
+
 	return data
 }
 
@@ -22,6 +23,8 @@ func prefixWithMsgType(data []byte, prefix MessageType) []byte {
 // serialization and deserialization checks. Returns an int that determines
 // whether the input is unique or not.
 func harness(t *testing.T, data []byte, emptyMsg Message) {
+	t.Helper()
+
 	// Create a reader with the byte array.
 	r := bytes.NewReader(data)
 

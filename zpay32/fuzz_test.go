@@ -39,7 +39,7 @@ func FuzzEncode(f *testing.F) {
 
 		// Initialize the static key we will be using for this fuzz
 		// test.
-		testPrivKeyBytes, _ := hex.DecodeString("e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
+		testPrivKeyBytes, _ := hex.DecodeString("e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734") // nolint:lll
 		testPrivKey, _ := btcec.PrivKeyFromBytes(testPrivKeyBytes)
 
 		// Then, initialize the testMessageSigner so we can encode out
@@ -47,12 +47,14 @@ func FuzzEncode(f *testing.F) {
 		testMessageSigner := MessageSigner{
 			SignCompact: func(msg []byte) ([]byte, error) {
 				hash := chainhash.HashB(msg)
-				sig, err := ecdsa.SignCompact(testPrivKey, hash, true)
+				sig, err := ecdsa.SignCompact(testPrivKey, hash,
+					true)
 				if err != nil {
 					return nil,
 						fmt.Errorf("can't sign the "+
 							"message: %v", err)
 				}
+
 				return sig, nil
 			},
 		}

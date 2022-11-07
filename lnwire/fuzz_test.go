@@ -14,6 +14,7 @@ func prefixWithMsgType(data []byte, prefix MessageType) []byte {
 	var prefixBytes [2]byte
 	binary.BigEndian.PutUint16(prefixBytes[:], uint16(prefix))
 	data = append(prefixBytes[:], data...)
+
 	return data
 }
 
@@ -22,6 +23,8 @@ func prefixWithMsgType(data []byte, prefix MessageType) []byte {
 // checks, is a valid message once deserialized, and passes a sequence of
 // serialization and deserialization checks.
 func harness(t *testing.T, data []byte) {
+	t.Helper()
+
 	// Create a reader with the byte array.
 	r := bytes.NewReader(data)
 
@@ -55,7 +58,8 @@ func harness(t *testing.T, data []byte) {
 	if !reflect.DeepEqual(msg, newMsg) {
 		// Deserialized message and original message are not deeply
 		// equal.
-		t.Fatal("original message and deserialized message are not deeply equal")
+		t.Fatal("original message and deserialized message are not " +
+			"deeply equal")
 	}
 }
 
@@ -99,10 +103,18 @@ func FuzzAcceptChannel(f *testing.F) {
 		// probably takes up more branches than necessary, but that's
 		// fine for now.
 		var shouldPanic bool
-		first := msg.(*AcceptChannel)
-		second := newMsg.(*AcceptChannel)
+		first, ok := msg.(*AcceptChannel)
+		if !ok {
+			t.Fatal("message was not AcceptChannel")
+		}
+		second, ok := newMsg.(*AcceptChannel)
+		if !ok {
+			t.Fatal("new message was not AcceptChannel")
+		}
 
-		if !bytes.Equal(first.PendingChannelID[:], second.PendingChannelID[:]) {
+		if !bytes.Equal(first.PendingChannelID[:],
+			second.PendingChannelID[:]) {
+
 			shouldPanic = true
 		}
 
@@ -146,7 +158,9 @@ func FuzzAcceptChannel(f *testing.F) {
 			shouldPanic = true
 		}
 
-		if !first.DelayedPaymentPoint.IsEqual(second.DelayedPaymentPoint) {
+		if !first.DelayedPaymentPoint.IsEqual(
+			second.DelayedPaymentPoint) {
+
 			shouldPanic = true
 		}
 
@@ -154,16 +168,21 @@ func FuzzAcceptChannel(f *testing.F) {
 			shouldPanic = true
 		}
 
-		if !first.FirstCommitmentPoint.IsEqual(second.FirstCommitmentPoint) {
+		if !first.FirstCommitmentPoint.IsEqual(
+			second.FirstCommitmentPoint) {
+
 			shouldPanic = true
 		}
 
-		if !bytes.Equal(first.UpfrontShutdownScript, second.UpfrontShutdownScript) {
+		if !bytes.Equal(first.UpfrontShutdownScript,
+			second.UpfrontShutdownScript) {
+
 			shouldPanic = true
 		}
 
 		if shouldPanic {
-			t.Fatalf("original message and deseralized message are not equal")
+			t.Fatal("original message and deseralized message " +
+				"are not equal")
 		}
 	})
 }
@@ -344,8 +363,15 @@ func FuzzNodeAnnouncement(f *testing.F) {
 		// Now compare every field instead of using reflect.DeepEqual
 		// for the Addresses field.
 		var shouldPanic bool
-		first := msg.(*NodeAnnouncement)
-		second := newMsg.(*NodeAnnouncement)
+		first, ok := msg.(*NodeAnnouncement)
+		if !ok {
+			t.Fatal("message was not NodeAnnouncement")
+		}
+		second, ok := newMsg.(*NodeAnnouncement)
+		if !ok {
+			t.Fatal("new message was not NodeAnnouncement")
+		}
+
 		if !bytes.Equal(first.Signature[:], second.Signature[:]) {
 			shouldPanic = true
 		}
@@ -375,18 +401,23 @@ func FuzzNodeAnnouncement(f *testing.F) {
 		}
 
 		for i := range first.Addresses {
-			if first.Addresses[i].String() != second.Addresses[i].String() {
+			if first.Addresses[i].String() !=
+				second.Addresses[i].String() {
+
 				shouldPanic = true
 				break
 			}
 		}
 
-		if !reflect.DeepEqual(first.ExtraOpaqueData, second.ExtraOpaqueData) {
+		if !reflect.DeepEqual(first.ExtraOpaqueData,
+			second.ExtraOpaqueData) {
+
 			shouldPanic = true
 		}
 
 		if shouldPanic {
-			t.Fatal("original message and deserialized message are not equal")
+			t.Fatal("original message and deserialized message " +
+				"are not equal")
 		}
 	})
 }
@@ -439,14 +470,22 @@ func FuzzOpenChannel(f *testing.F) {
 		// probably takes up more branches than necessary, but that's
 		// fine for now.
 		var shouldPanic bool
-		first := msg.(*OpenChannel)
-		second := newMsg.(*OpenChannel)
+		first, ok := msg.(*OpenChannel)
+		if !ok {
+			t.Fatal("message was not OpenChannel")
+		}
+		second, ok := newMsg.(*OpenChannel)
+		if !ok {
+			t.Fatal("new message was not OpenChannel")
+		}
 
 		if !first.ChainHash.IsEqual(&second.ChainHash) {
 			shouldPanic = true
 		}
 
-		if !bytes.Equal(first.PendingChannelID[:], second.PendingChannelID[:]) {
+		if !bytes.Equal(first.PendingChannelID[:],
+			second.PendingChannelID[:]) {
+
 			shouldPanic = true
 		}
 
@@ -498,7 +537,9 @@ func FuzzOpenChannel(f *testing.F) {
 			shouldPanic = true
 		}
 
-		if !first.DelayedPaymentPoint.IsEqual(second.DelayedPaymentPoint) {
+		if !first.DelayedPaymentPoint.IsEqual(
+			second.DelayedPaymentPoint) {
+
 			shouldPanic = true
 		}
 
@@ -506,7 +547,9 @@ func FuzzOpenChannel(f *testing.F) {
 			shouldPanic = true
 		}
 
-		if !first.FirstCommitmentPoint.IsEqual(second.FirstCommitmentPoint) {
+		if !first.FirstCommitmentPoint.IsEqual(
+			second.FirstCommitmentPoint) {
+
 			shouldPanic = true
 		}
 
@@ -514,12 +557,15 @@ func FuzzOpenChannel(f *testing.F) {
 			shouldPanic = true
 		}
 
-		if !bytes.Equal(first.UpfrontShutdownScript, second.UpfrontShutdownScript) {
+		if !bytes.Equal(first.UpfrontShutdownScript,
+			second.UpfrontShutdownScript) {
+
 			shouldPanic = true
 		}
 
 		if shouldPanic {
-			t.Fatal("original message and deserialized message are not equal")
+			t.Fatal("original message and deserialized message " +
+				"are not equal")
 		}
 	})
 }

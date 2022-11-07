@@ -59,7 +59,7 @@ func harness(t *testing.T, data []byte) {
 	}
 }
 
-func Fuzz_accept_channel(f *testing.F) {
+func FuzzAcceptChannel(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		data = prefixWithMsgType(data, MsgAcceptChannel)
 		// Create a reader with the byte array.
@@ -168,7 +168,7 @@ func Fuzz_accept_channel(f *testing.F) {
 	})
 }
 
-func Fuzz_announce_signatures(f *testing.F) {
+func FuzzAnnounceSignatures(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgAnnounceSignatures.
 		data = prefixWithMsgType(data, MsgAnnounceSignatures)
@@ -179,7 +179,7 @@ func Fuzz_announce_signatures(f *testing.F) {
 	})
 }
 
-func Fuzz_channel_announcement(f *testing.F) {
+func FuzzChannelAnnouncement(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgChannelAnnouncement.
 		data = prefixWithMsgType(data, MsgChannelAnnouncement)
@@ -190,7 +190,7 @@ func Fuzz_channel_announcement(f *testing.F) {
 	})
 }
 
-func Fuzz_channel_reestablish(f *testing.F) {
+func FuzzChannelReestablish(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgChannelReestablish.
 		data = prefixWithMsgType(data, MsgChannelReestablish)
@@ -201,7 +201,7 @@ func Fuzz_channel_reestablish(f *testing.F) {
 	})
 }
 
-func Fuzz_channel_update(f *testing.F) {
+func FuzzChannelUpdate(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgChannelUpdate.
 		data = prefixWithMsgType(data, MsgChannelUpdate)
@@ -212,7 +212,7 @@ func Fuzz_channel_update(f *testing.F) {
 	})
 }
 
-func Fuzz_closing_signed(f *testing.F) {
+func FuzzClosingSigned(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgClosingSigned.
 		data = prefixWithMsgType(data, MsgClosingSigned)
@@ -223,7 +223,7 @@ func Fuzz_closing_signed(f *testing.F) {
 	})
 }
 
-func Fuzz_commit_sig(f *testing.F) {
+func FuzzCommitSig(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgCommitSig.
 		data = prefixWithMsgType(data, MsgCommitSig)
@@ -234,7 +234,7 @@ func Fuzz_commit_sig(f *testing.F) {
 	})
 }
 
-func Fuzz_error(f *testing.F) {
+func FuzzError(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgError.
 		data = prefixWithMsgType(data, MsgError)
@@ -245,7 +245,7 @@ func Fuzz_error(f *testing.F) {
 	})
 }
 
-func Fuzz_funding_created(f *testing.F) {
+func FuzzFundingCreated(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgFundingCreated.
 		data = prefixWithMsgType(data, MsgFundingCreated)
@@ -256,7 +256,7 @@ func Fuzz_funding_created(f *testing.F) {
 	})
 }
 
-func Fuzz_funding_locked(f *testing.F) {
+func FuzzFundingLocked(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgFundingLocked.
 		data = prefixWithMsgType(data, MsgFundingLocked)
@@ -267,7 +267,7 @@ func Fuzz_funding_locked(f *testing.F) {
 	})
 }
 
-func Fuzz_funding_signed(f *testing.F) {
+func FuzzFundingSigned(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgFundingSigned.
 		data = prefixWithMsgType(data, MsgFundingSigned)
@@ -278,7 +278,7 @@ func Fuzz_funding_signed(f *testing.F) {
 	})
 }
 
-func Fuzz_gossip_timestamp_range(f *testing.F) {
+func FuzzGossipTimestampRange(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgGossipTimestampRange.
 		data = prefixWithMsgType(data, MsgGossipTimestampRange)
@@ -289,7 +289,7 @@ func Fuzz_gossip_timestamp_range(f *testing.F) {
 	})
 }
 
-func Fuzz_init(f *testing.F) {
+func FuzzInit(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgInit.
 		data = prefixWithMsgType(data, MsgInit)
@@ -300,7 +300,7 @@ func Fuzz_init(f *testing.F) {
 	})
 }
 
-func Fuzz_node_announcement(f *testing.F) {
+func FuzzNodeAnnouncement(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgNodeAnnouncement.
 		data = prefixWithMsgType(data, MsgNodeAnnouncement)
@@ -391,7 +391,7 @@ func Fuzz_node_announcement(f *testing.F) {
 	})
 }
 
-func Fuzz_open_channel(f *testing.F) {
+func FuzzOpenChannel(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgOpenChannel.
 		data = prefixWithMsgType(data, MsgOpenChannel)
@@ -524,7 +524,7 @@ func Fuzz_open_channel(f *testing.F) {
 	})
 }
 
-func Fuzz_ping(f *testing.F) {
+func FuzzPing(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgPing.
 		data = prefixWithMsgType(data, MsgPing)
@@ -535,7 +535,7 @@ func Fuzz_ping(f *testing.F) {
 	})
 }
 
-func Fuzz_pong(f *testing.F) {
+func FuzzPong(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgPong.
 		data = prefixWithMsgType(data, MsgPong)
@@ -546,7 +546,7 @@ func Fuzz_pong(f *testing.F) {
 	})
 }
 
-func Fuzz_query_channel_range(f *testing.F) {
+func FuzzQueryChannelRange(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgQueryChannelRange.
 		data = prefixWithMsgType(data, MsgQueryChannelRange)
@@ -557,7 +557,7 @@ func Fuzz_query_channel_range(f *testing.F) {
 	})
 }
 
-func Fuzz_zlib_query_short_chan_ids(f *testing.F) {
+func FuzzZlibQueryShortChanIDs(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var buf bytes.Buffer
 		zlibWriter := zlib.NewWriter(&buf)
@@ -595,7 +595,7 @@ func Fuzz_zlib_query_short_chan_ids(f *testing.F) {
 	})
 }
 
-func Fuzz_query_short_chan_ids(f *testing.F) {
+func FuzzQueryShortChanIDs(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgQueryShortChanIDs.
 		data = prefixWithMsgType(data, MsgQueryShortChanIDs)
@@ -606,7 +606,7 @@ func Fuzz_query_short_chan_ids(f *testing.F) {
 	})
 }
 
-func Fuzz_zlib_reply_channel_range(f *testing.F) {
+func FuzzZlibReplyChannelRange(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var buf bytes.Buffer
 		zlibWriter := zlib.NewWriter(&buf)
@@ -652,7 +652,7 @@ func Fuzz_zlib_reply_channel_range(f *testing.F) {
 	})
 }
 
-func Fuzz_reply_channel_range(f *testing.F) {
+func FuzzReplyChannelRange(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgReplyChannelRange.
 		data = prefixWithMsgType(data, MsgReplyChannelRange)
@@ -663,7 +663,7 @@ func Fuzz_reply_channel_range(f *testing.F) {
 	})
 }
 
-func Fuzz_reply_short_chan_ids_end(f *testing.F) {
+func FuzzReplyShortChanIDsEnd(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgReplyShortChanIDsEnd.
 		data = prefixWithMsgType(data, MsgReplyShortChanIDsEnd)
@@ -674,7 +674,7 @@ func Fuzz_reply_short_chan_ids_end(f *testing.F) {
 	})
 }
 
-func Fuzz_revoke_and_ack(f *testing.F) {
+func FuzzRevokeAndAck(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgRevokeAndAck.
 		data = prefixWithMsgType(data, MsgRevokeAndAck)
@@ -685,7 +685,7 @@ func Fuzz_revoke_and_ack(f *testing.F) {
 	})
 }
 
-func Fuzz_shutdown(f *testing.F) {
+func FuzzShutdown(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgShutdown.
 		data = prefixWithMsgType(data, MsgShutdown)
@@ -696,7 +696,7 @@ func Fuzz_shutdown(f *testing.F) {
 	})
 }
 
-func Fuzz_update_add_htlc(f *testing.F) {
+func FuzzUpdateAddHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgUpdateAddHTLC.
 		data = prefixWithMsgType(data, MsgUpdateAddHTLC)
@@ -707,7 +707,7 @@ func Fuzz_update_add_htlc(f *testing.F) {
 	})
 }
 
-func Fuzz_update_fail_htlc(f *testing.F) {
+func FuzzUpdateFailHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgUpdateFailHTLC.
 		data = prefixWithMsgType(data, MsgUpdateFailHTLC)
@@ -718,7 +718,7 @@ func Fuzz_update_fail_htlc(f *testing.F) {
 	})
 }
 
-func Fuzz_update_fail_malformed_htlc(f *testing.F) {
+func FuzzUpdateFailMalformedHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgUpdateFailMalformedHTLC.
 		data = prefixWithMsgType(data, MsgUpdateFailMalformedHTLC)
@@ -729,7 +729,7 @@ func Fuzz_update_fail_malformed_htlc(f *testing.F) {
 	})
 }
 
-func Fuzz_update_fee(f *testing.F) {
+func FuzzUpdateFee(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgUpdateFee.
 		data = prefixWithMsgType(data, MsgUpdateFee)
@@ -740,7 +740,7 @@ func Fuzz_update_fee(f *testing.F) {
 	})
 }
 
-func Fuzz_update_fulfill_htlc(f *testing.F) {
+func FuzzUpdateFulfillHTLC(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgUpdateFulFillHTLC.
 		data = prefixWithMsgType(data, MsgUpdateFulfillHTLC)

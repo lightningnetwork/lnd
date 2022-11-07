@@ -62,7 +62,7 @@ func harness(t *testing.T, data []byte, emptyMsg Message) {
 	}
 }
 
-func Fuzz_create_session_reply(f *testing.F) {
+func FuzzCreateSessionReply(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgCreateSessionReply.
 		data = prefixWithMsgType(data, MsgCreateSessionReply)
@@ -77,7 +77,7 @@ func Fuzz_create_session_reply(f *testing.F) {
 	})
 }
 
-func Fuzz_create_session(f *testing.F) {
+func FuzzCreateSession(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgCreateSession.
 		data = prefixWithMsgType(data, MsgCreateSession)
@@ -92,7 +92,7 @@ func Fuzz_create_session(f *testing.F) {
 	})
 }
 
-func Fuzz_delete_session_reply(f *testing.F) {
+func FuzzDeleteSessionReply(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgDeleteSessionReply.
 		data = prefixWithMsgType(data, MsgDeleteSessionReply)
@@ -107,7 +107,7 @@ func Fuzz_delete_session_reply(f *testing.F) {
 	})
 }
 
-func Fuzz_delete_session(f *testing.F) {
+func FuzzDeleteSession(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgDeleteSession.
 		data = prefixWithMsgType(data, MsgDeleteSession)
@@ -122,7 +122,7 @@ func Fuzz_delete_session(f *testing.F) {
 	})
 }
 
-func Fuzz_error(f *testing.F) {
+func FuzzError(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgError.
 		data = prefixWithMsgType(data, MsgError)
@@ -137,7 +137,7 @@ func Fuzz_error(f *testing.F) {
 	})
 }
 
-func Fuzz_init(f *testing.F) {
+func FuzzInit(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgInit.
 		data = prefixWithMsgType(data, MsgInit)
@@ -152,7 +152,7 @@ func Fuzz_init(f *testing.F) {
 	})
 }
 
-func Fuzz_state_update_reply(f *testing.F) {
+func FuzzStateUpdateReply(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgStateUpdateReply.
 		data = prefixWithMsgType(data, MsgStateUpdateReply)
@@ -167,7 +167,7 @@ func Fuzz_state_update_reply(f *testing.F) {
 	})
 }
 
-func Fuzz_state_update(f *testing.F) {
+func FuzzStateUpdate(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgStateUpdate.
 		data = prefixWithMsgType(data, MsgStateUpdate)

@@ -11,7 +11,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
-func Fuzz_decode(f *testing.F) {
+func FuzzDecode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data string) {
 		inv, err := Decode(data, &chaincfg.TestNet3Params)
 		if err != nil {
@@ -25,7 +25,7 @@ func Fuzz_decode(f *testing.F) {
 	})
 }
 
-func Fuzz_encode(f *testing.F) {
+func FuzzEncode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data string) {
 		inv, err := Decode(data, &chaincfg.TestNet3Params)
 		if err != nil {

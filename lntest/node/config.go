@@ -224,7 +224,6 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		fmt.Sprintf("--invoicemacaroonpath=%v", cfg.InvoiceMacPath),
 		fmt.Sprintf("--trickledelay=%v", trickleDelay),
 		fmt.Sprintf("--profile=%d", cfg.ProfilePort),
-		fmt.Sprintf("--caches.rpc-graph-cache-duration=%d", 0),
 
 		// Use a small batch window so we can broadcast our sweep
 		// transactions faster.
@@ -233,7 +232,12 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		// Use a small batch delay so we can broadcast the
 		// announcements quickly in the tests.
 		"--gossip.sub-batch-delay=5ms",
+
+		// Use a small cache duration so the `DescribeGraph` can be
+		// updated quicker.
+		"--caches.rpc-graph-cache-duration=100ms",
 	}
+
 	args = append(args, nodeArgs...)
 
 	if cfg.Password == nil {

@@ -132,7 +132,7 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   never-ending retry loop](https://github.com/lightningnetwork/lnd/pull/6766)
 
 * [Migrated from go-fuzz to Go 1.18's new standard fuzz testing
-  library](https://github.com/lightningnetwork/lnd/pull/6784).
+  library](https://github.com/lightningnetwork/lnd/pull/7127).
 
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

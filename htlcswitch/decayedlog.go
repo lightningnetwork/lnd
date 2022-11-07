@@ -627,6 +627,11 @@ func (d *DecayedLog) PutBatch(b *sphinx.Batch) (*sphinx.ReplaySet, error) {
 		// batch's construction.
 		replays.Merge(b.ReplaySet)
 
+		// No need to persist information for empty batches.
+		if maximumExpiryHeight == 0 && replays.Size() == 0 {
+			return nil
+		}
+
 		// Load the replay set expiry bucket, which will be used to
 		// write the expiry height for the replay set.
 		replaySetExpiryBkt := tx.ReadWriteBucket(replaySetExpiryBucket)

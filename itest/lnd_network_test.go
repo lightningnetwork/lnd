@@ -3,6 +3,7 @@ package itest
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -218,6 +219,9 @@ func testAddPeerConfig(ht *lntest.HarnessTest) {
 	// Create a new node (Carol) with Alice as a peer.
 	args := []string{fmt.Sprintf("--addpeer=%v", alicePeerAddress)}
 	carol := ht.NewNode("Carol", args)
+
+	// TODO(yy): remove this once the peer conn race is fixed.
+	time.Sleep(1 * time.Second)
 
 	ht.EnsureConnected(alice, carol)
 

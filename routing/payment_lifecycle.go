@@ -34,9 +34,16 @@ type paymentLifecycle struct {
 // paymentState holds a number of key insights learned from a given MPPayment
 // that we use to determine what to do on each payment loop iteration.
 type paymentState struct {
+	// numShardsInFlight specifies the number of HTLCs the payment is
+	// waiting results for.
 	numShardsInFlight int
-	remainingAmt      lnwire.MilliSatoshi
-	remainingFees     lnwire.MilliSatoshi
+
+	// remainingAmt specifies how much more money to be sent.
+	remainingAmt lnwire.MilliSatoshi
+
+	// remainingFees specifies the remaining budget that can be used as
+	// fees.
+	remainingFees lnwire.MilliSatoshi
 
 	// terminate indicates the payment is in its final stage and no more
 	// shards should be launched. This value is true if we have an HTLC
@@ -65,9 +72,9 @@ func (ps paymentState) needWaitForShards() bool {
 	return ps.terminate || ps.remainingAmt == 0
 }
 
-// fetchPaymentState will query the db for the latest payment state
-// information we need to act on every iteration of the payment loop and update
-// the paymentState.
+// fetchPaymentState will query the db for the latest payment state information
+// we need to act on every iteration of the payment loop and update the
+// paymentState.
 func (p *paymentLifecycle) fetchPaymentState() (*channeldb.MPPayment,
 	*paymentState, error) {
 
@@ -84,8 +91,8 @@ func (p *paymentLifecycle) fetchPaymentState() (*channeldb.MPPayment,
 	// Sanity check we haven't sent a value larger than the payment amount.
 	totalAmt := payment.Info.Value
 	if sentAmt > totalAmt {
-		return nil, nil, fmt.Errorf("amount sent %v exceeds "+
-			"total amount %v", sentAmt, totalAmt)
+		return nil, nil, fmt.Errorf("amount sent %v exceeds total "+
+			"amount %v", sentAmt, totalAmt)
 	}
 
 	// We'll subtract the used fee from our fee budget, but allow the fees
@@ -635,8 +642,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 		attempt.AttemptID, &attempt.Route,
 	)
 	if err != nil {
-		log.Errorf("Error reporting payment success to mc: %v",
-			err)
+		log.Errorf("Error reporting payment success to mc: %v", err)
 	}
 
 	// In case of success we atomically store settle result to the DB move
@@ -649,7 +655,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 		},
 	)
 	if err != nil {
-		log.Errorf("Unable to succeed payment attempt: %v", err)
+		log.Errorf("Unable to settle payment attempt: %v", err)
 		return nil, err
 	}
 

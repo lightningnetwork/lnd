@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
@@ -3879,6 +3881,18 @@ func newInterceptableSwitchTestContext(t *testing.T, //nolint: thelper
 	return ctx
 }
 
+func (c *interceptableSwitchTestContext) signChannelUpdate(
+	u *lnwire.ChannelUpdate) (*ecdsa.Signature, error) {
+
+	data, err := u.DataToSign()
+	require.NoError(c.t, err)
+
+	key, _ := btcec.PrivKeyFromBytes(alicePrivKey)
+	sig := ecdsa.Sign(key, data)
+
+	return sig, nil
+}
+
 func (c *interceptableSwitchTestContext) instantiateInterceptableSwitch(
 	requireInterceptor bool) {
 
@@ -3896,6 +3910,7 @@ func (c *interceptableSwitchTestContext) instantiateInterceptableSwitch(
 			CltvInterceptDelta: cltvInterceptDelta,
 			Notifier:           c.notifier,
 			RequireInterceptor: requireInterceptor,
+			SignChannelUpdate:  c.signChannelUpdate,
 		},
 	)
 	require.NoError(c.t, err)
@@ -4276,7 +4291,10 @@ func TestInterceptableSwitchUnencryptedFailure(t *testing.T) {
 	intercepted := c.forwardInterceptor.getIntercepted()
 
 	// Fail the htlc with an unencrypted failure message.
-	msg := lnwire.NewFeeInsufficient(10, lnwire.ChannelUpdate{})
+	msg := lnwire.NewFeeInsufficient(10, lnwire.ChannelUpdate{
+		MessageFlags:    lnwire.ChanUpdateRequiredMaxHtlc,
+		HtlcMaximumMsat: 10000,
+	})
 	var msgBuffer bytes.Buffer
 	require.NoError(t, lnwire.EncodeFailureMessage(&msgBuffer, msg, 0))
 
@@ -4296,7 +4314,10 @@ func TestInterceptableSwitchUnencryptedFailure(t *testing.T) {
 		recvPkt.htlc.(*lnwire.UpdateFailHTLC).Reason,
 	)
 	require.NoError(t, err)
-	require.IsType(t, &lnwire.FailFeeInsufficient{}, fwdErr.msg)
+
+	feeInsufficientErr, ok := fwdErr.msg.(*lnwire.FailFeeInsufficient)
+	require.True(t, ok)
+	require.NotZero(t, feeInsufficientErr.Update.Signature)
 }
 
 // TestSwitchDustForwarding tests that the switch properly fails HTLC's which

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -83,6 +84,11 @@ type InterceptableSwitch struct {
 
 	// currentHeight is the currently best known height.
 	currentHeight int32
+
+	// signChannelUpdate is used when an intercepting application includes
+	// an unsigned channel update to be signed by us.
+	signChannelUpdate func(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
+		error)
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -165,6 +171,11 @@ type InterceptableSwitchConfig struct {
 	// RequireInterceptor indicates whether processing should block if no
 	// interceptor is connected.
 	RequireInterceptor bool
+
+	// SignChannelUpdate is used when an intercepting application includes
+	// an unsigned channel update to be signed by us.
+	SignChannelUpdate func(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
+		error)
 }
 
 // NewInterceptableSwitch returns an instance of InterceptableSwitch.
@@ -188,6 +199,7 @@ func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) (
 		cltvRejectDelta:         cfg.CltvRejectDelta,
 		cltvInterceptDelta:      cfg.CltvInterceptDelta,
 		notifier:                cfg.Notifier,
+		signChannelUpdate:       cfg.SignChannelUpdate,
 
 		quit: make(chan struct{}),
 	}, nil
@@ -394,9 +406,26 @@ func (s *InterceptableSwitch) resolve(res *FwdResolution) error {
 		// Fail with known failure message that is to be encoded and
 		// encrypted.
 		case res.FailureMessage != nil:
+			msg := res.FailureMessage
+
+			// Re-sign the channel update if present. Note that this
+			// changes the passed in FwdResolution.
+			update := getChannelUpdateRef(msg)
+			if update != nil {
+				err := s.validateChannelUpdate(update)
+				if err != nil {
+					return err
+				}
+
+				err = s.resignChannelUpdate(update)
+				if err != nil {
+					return err
+				}
+			}
+
 			var encodedMsg bytes.Buffer
 			err := lnwire.EncodeFailureMessage(
-				&encodedMsg, res.FailureMessage, 0,
+				&encodedMsg, msg, 0,
 			)
 			if err != nil {
 				return err
@@ -414,6 +443,66 @@ func (s *InterceptableSwitch) resolve(res *FwdResolution) error {
 	default:
 		return fmt.Errorf("unrecognized action %v", res.Action)
 	}
+}
+
+func (s *InterceptableSwitch) validateChannelUpdate(
+	update *lnwire.ChannelUpdate) error {
+
+	// The maxHTLC flag is mandatory.
+	if !update.MessageFlags.HasMaxHtlc() {
+		return errors.Errorf("max htlc flag not set for channel")
+	}
+
+	// Check that max htlc is at least min htlc.
+	maxHtlc := update.HtlcMaximumMsat
+	if maxHtlc == 0 || maxHtlc < update.HtlcMinimumMsat {
+		return errors.Errorf("invalid max htlc for channel update ")
+	}
+
+	return nil
+}
+
+// resignChannelUpdate signs the provided channel update with our node key.
+func (s *InterceptableSwitch) resignChannelUpdate(
+	update *lnwire.ChannelUpdate) error {
+
+	sig, err := s.signChannelUpdate(update)
+	if err != nil {
+		return err
+	}
+
+	update.Signature, err = lnwire.NewSigFromSignature(sig)
+	if err != nil {
+		return nil
+	}
+
+	return nil
+}
+
+// getChannelUpdateRef returns a reference to an embedded channel update if
+// present in the failure message.
+func getChannelUpdateRef(msg lnwire.FailureMessage) *lnwire.ChannelUpdate {
+	switch m := msg.(type) {
+	case *lnwire.FailFeeInsufficient:
+		return &m.Update
+
+	case *lnwire.FailIncorrectCltvExpiry:
+		return &m.Update
+
+	case *lnwire.FailTemporaryChannelFailure:
+		return m.Update
+
+	case *lnwire.FailAmountBelowMinimum:
+		return &m.Update
+
+	case *lnwire.FailExpiryTooSoon:
+		return &m.Update
+
+	case *lnwire.FailChannelDisabled:
+		return &m.Update
+	}
+
+	return nil
 }
 
 // Resolve resolves an intercepted packet.

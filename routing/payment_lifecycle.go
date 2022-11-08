@@ -330,7 +330,7 @@ lifecycle:
 			// We must inspect the error to know whether it was
 			// critical or not, to decide whether we should
 			// continue trying.
-			err := shardHandler.handleSendError(
+			err := shardHandler.handleSwitchErr(
 				attempt, outcome.err,
 			)
 			if err != nil {
@@ -531,7 +531,7 @@ func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
 			// Overwrite the param errToSend and return so that the
 			// defer function will use the param to proceed. Notice
 			// that the errToSend could be nil here.
-			errToSend = p.handleSendError(attempt, result.err)
+			errToSend = p.handleSwitchErr(attempt, result.err)
 			return
 		}
 	}()
@@ -766,7 +766,7 @@ func (p *shardHandler) sendAttempt(
 	return nil
 }
 
-// handleSendError inspects the given error from the Switch and determines
+// handleSwitchErr inspects the given error from the Switch and determines
 // whether we should make another payment attempt, or if it should be
 // considered a terminal error. Terminal errors will be recorded with the
 // control tower. It analyzes the sendErr for the payment attempt received from
@@ -774,7 +774,7 @@ func (p *shardHandler) sendAttempt(
 // the error type, the error is either the final outcome of the payment or we
 // need to continue with an alternative route. A final outcome is indicated by
 // a non-nil reason value.
-func (p *shardHandler) handleSendError(attempt *channeldb.HTLCAttemptInfo,
+func (p *shardHandler) handleSwitchErr(attempt *channeldb.HTLCAttemptInfo,
 	sendErr error) error {
 
 	internalErrorReason := channeldb.FailureReasonError

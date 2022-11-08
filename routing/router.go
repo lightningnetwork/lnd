@@ -101,20 +101,24 @@ type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
 	// database. If the node with this pubkey is not present in an existing
 	// channel, it will be ignored.
-	AddNode(node *channeldb.LightningNode, op ...batch.SchedulerOption) error
+	AddNode(node *channeldb.LightningNode,
+		op ...batch.SchedulerOption) error
 
 	// AddEdge is used to add edge/channel to the topology of the router,
 	// after all information about channel will be gathered this
 	// edge/channel might be used in construction of payment path.
-	AddEdge(edge *channeldb.ChannelEdgeInfo, op ...batch.SchedulerOption) error
+	AddEdge(edge *channeldb.ChannelEdgeInfo,
+		op ...batch.SchedulerOption) error
 
 	// AddProof updates the channel edge info with proof which is needed to
 	// properly announce the edge to the rest of the network.
-	AddProof(chanID lnwire.ShortChannelID, proof *channeldb.ChannelAuthProof) error
+	AddProof(chanID lnwire.ShortChannelID,
+		proof *channeldb.ChannelAuthProof) error
 
 	// UpdateEdge is used to update edge information, without this message
 	// edge considered as not fully constructed.
-	UpdateEdge(policy *channeldb.ChannelEdgePolicy, op ...batch.SchedulerOption) error
+	UpdateEdge(policy *channeldb.ChannelEdgePolicy,
+		op ...batch.SchedulerOption) error
 
 	// IsStaleNode returns true if the graph source has a node announcement
 	// for the target node with a more recent timestamp. This method will
@@ -152,8 +156,9 @@ type ChannelGraphSource interface {
 	CurrentBlockHeight() (uint32, error)
 
 	// GetChannelByID return the channel by the channel id.
-	GetChannelByID(chanID lnwire.ShortChannelID) (*channeldb.ChannelEdgeInfo,
-		*channeldb.ChannelEdgePolicy, *channeldb.ChannelEdgePolicy, error)
+	GetChannelByID(chanID lnwire.ShortChannelID) (
+		*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
+		*channeldb.ChannelEdgePolicy, error)
 
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
@@ -226,8 +231,8 @@ type MissionController interface {
 		failureSourceIdx *int, failure lnwire.FailureMessage) (
 		*channeldb.FailureReason, error)
 
-	// ReportPaymentSuccess reports a successful payment to mission control as input
-	// for future probability estimates.
+	// ReportPaymentSuccess reports a successful payment to mission control
+	// as input for future probability estimates.
 	ReportPaymentSuccess(attemptID uint64, rt *route.Route) error
 
 	// GetProbability is expected to return the success probability of a
@@ -410,8 +415,8 @@ type ChannelRouter struct {
 	// when doing any path finding.
 	selfNode *channeldb.LightningNode
 
-	// cachedGraph is an instance of routingGraph that caches the source node as
-	// well as the channel graph itself in memory.
+	// cachedGraph is an instance of routingGraph that caches the source
+	// node as well as the channel graph itself in memory.
 	cachedGraph routingGraph
 
 	// newBlocks is a channel in which new blocks connected to the end of
@@ -741,8 +746,8 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 		}
 	}
 
-	log.Infof("Prune tip for Channel Graph: height=%v, hash=%v", pruneHeight,
-		pruneHash)
+	log.Infof("Prune tip for Channel Graph: height=%v, hash=%v",
+		pruneHeight, pruneHash)
 
 	switch {
 
@@ -931,9 +936,9 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		return nil
 	}
 
-	// If AssumeChannelValid is present we'll look at the disabled bit for both
-	// edges. If they're both disabled, then we can interpret this as the
-	// channel being closed and can prune it from our graph.
+	// If AssumeChannelValid is present we'll look at the disabled bit for
+	// both edges. If they're both disabled, then we can interpret this as
+	// the channel being closed and can prune it from our graph.
 	if r.cfg.AssumeChannelValid {
 		disabledChanIDs, err := r.cfg.Graph.DisabledChannelIDs()
 		if err != nil {
@@ -1905,7 +1910,9 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 
 	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
 		paymentHash[:], newLogClosure(func() string {
-			path := make([]sphinx.OnionHop, sphinxPath.TrueRouteLength())
+			path := make(
+				[]sphinx.OnionHop, sphinxPath.TrueRouteLength(),
+			)
 			for i := range path {
 				hopCopy := sphinxPath[i]
 				path[i] = hopCopy
@@ -2390,10 +2397,6 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 // to reach the destination. Additionally, the payment preimage will also be
 // returned.
 //
-// The existing attempt argument should be set to nil if this is a payment that
-// haven't had any payment attempt sent to the switch yet. If it has had an
-// attempt already, it should be passed such that the result can be retrieved.
-//
 // This method relies on the ControlTower's internal payment state machine to
 // carry out its execution. After restarts it is safe, and assumed, that the
 // router will call this method for every payment still in-flight according to
@@ -2429,7 +2432,6 @@ func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
 	}
 
 	return p.resumePayment()
-
 }
 
 // extractChannelUpdate examines the error and extracts the channel update.
@@ -2627,10 +2629,13 @@ func (r *ChannelRouter) FetchLightningNode(
 // ForEachNode is used to iterate over every node in router topology.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) error {
-	return r.cfg.Graph.ForEachNode(func(_ kvdb.RTx, n *channeldb.LightningNode) error {
-		return cb(n)
-	})
+func (r *ChannelRouter) ForEachNode(
+	cb func(*channeldb.LightningNode) error) error {
+
+	return r.cfg.Graph.ForEachNode(
+		func(_ kvdb.RTx, n *channeldb.LightningNode) error {
+			return cb(n)
+		})
 }
 
 // ForAllOutgoingChannels is used to iterate over all outgoing channels owned by
@@ -2699,7 +2704,9 @@ func (r *ChannelRouter) IsPublicNode(node route.Vertex) (bool, error) {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
-	_, _, exists, isZombie, _ := r.cfg.Graph.HasChannelEdge(chanID.ToUint64())
+	_, _, exists, isZombie, _ := r.cfg.Graph.HasChannelEdge(
+		chanID.ToUint64(),
+	)
 	return exists || isZombie
 }
 

@@ -628,7 +628,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// satisfy our specific requirements.
 	processEdge := func(fromVertex route.Vertex,
 		fromFeatures *lnwire.FeatureVector,
-		edge *unifiedPolicyEdge, toNodeDist *nodeWithDist) {
+		edge *unifiedEdge, toNodeDist *nodeWithDist) {
 
 		edgesExpanded++
 
@@ -849,8 +849,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		pivot := partialPath.node
 
-		// Create unified policies for all incoming connections.
-		u := newUnifiedPolicies(self, pivot, outgoingChanMap)
+		// Create unified edges for all incoming connections.
+		u := newNodeEdgeUnifier(self, pivot, outgoingChanMap)
 
 		err := u.addGraphPolicies(g.graph)
 		if err != nil {
@@ -865,7 +865,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		// Expand all connections using the optimal policy for each
 		// connection.
-		for fromNode, unifiedPolicy := range u.policies {
+		for fromNode, edgeUnifier := range u.edgeUnifiers {
 			// The target node is not recorded in the distance map.
 			// Therefore we need to have this check to prevent
 			// creating a cycle. Only when we intend to route to
@@ -882,11 +882,11 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				continue
 			}
 
-			policy := unifiedPolicy.getPolicy(
+			edge := edgeUnifier.getEdge(
 				amtToSend, g.bandwidthHints,
 			)
 
-			if policy == nil {
+			if edge == nil {
 				continue
 			}
 
@@ -903,7 +903,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 			// Check if this candidate node is better than what we
 			// already have.
-			processEdge(fromNode, fromFeatures, policy, partialPath)
+			processEdge(fromNode, fromFeatures, edge, partialPath)
 		}
 
 		if nodeHeap.Len() == 0 {

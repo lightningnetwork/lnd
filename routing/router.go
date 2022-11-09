@@ -2765,9 +2765,8 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		return nil, err
 	}
 
-	// Allocate a list that will contain the unified policies for this
-	// route.
-	edges := make([]*unifiedPolicy, len(hops))
+	// Allocate a list that will contain the edge unifiers for this route.
+	unifiers := make([]*edgeUnifier, len(hops))
 
 	var runningAmt lnwire.MilliSatoshi
 	if useMinAmt {
@@ -2796,9 +2795,9 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		localChan := i == 0
 
-		// Build unified policies for this hop based on the channels
-		// known in the graph.
-		u := newUnifiedPolicies(source, toNode, outgoingChans)
+		// Build unified edges for this hop based on the channels known
+		// in the graph.
+		u := newNodeEdgeUnifier(source, toNode, outgoingChans)
 
 		err := u.addGraphPolicies(r.cachedGraph)
 		if err != nil {
@@ -2806,7 +2805,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		}
 
 		// Exit if there are no channels.
-		unifiedPolicy, ok := u.policies[fromNode]
+		edgeUnifier, ok := u.edgeUnifiers[fromNode]
 		if !ok {
 			log.Errorf("Cannot find policy for node %v", fromNode)
 			return nil, ErrNoChannel{
@@ -2817,18 +2816,18 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		// If using min amt, increase amt if needed.
 		if useMinAmt {
-			min := unifiedPolicy.minAmt()
+			min := edgeUnifier.minAmt()
 			if min > runningAmt {
 				runningAmt = min
 			}
 		}
 
-		// Get a forwarding policy for the specific amount that we want
-		// to forward.
-		policy := unifiedPolicy.getPolicy(runningAmt, bandwidthHints)
-		if policy == nil {
+		// Get an edge for the specific amount that we want to forward.
+		edge := edgeUnifier.getEdge(runningAmt, bandwidthHints)
+		if edge == nil {
 			log.Errorf("Cannot find policy with amt=%v for node %v",
 				runningAmt, fromNode)
+
 			return nil, ErrNoChannel{
 				fromNode: fromNode,
 				position: i,
@@ -2837,13 +2836,13 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		// Add fee for this hop.
 		if !localChan {
-			runningAmt += policy.policy.ComputeFee(runningAmt)
+			runningAmt += edge.policy.ComputeFee(runningAmt)
 		}
 
 		log.Tracef("Select channel %v at position %v",
-			policy.policy.ChannelID, i)
+			edge.policy.ChannelID, i)
 
-		edges[i] = unifiedPolicy
+		unifiers[i] = edgeUnifier
 	}
 
 	// Now that we arrived at the start of the route and found out the route
@@ -2852,9 +2851,9 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// amount ranges re-checked.
 	var pathEdges []*channeldb.CachedEdgePolicy
 	receiverAmt := runningAmt
-	for i, edge := range edges {
-		policy := edge.getPolicy(receiverAmt, bandwidthHints)
-		if policy == nil {
+	for i, unifier := range unifiers {
+		edge := unifier.getEdge(receiverAmt, bandwidthHints)
+		if edge == nil {
 			return nil, ErrNoChannel{
 				fromNode: hops[i-1],
 				position: i,
@@ -2863,12 +2862,12 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		if i > 0 {
 			// Decrease the amount to send while going forward.
-			receiverAmt -= policy.policy.ComputeFeeFromIncoming(
+			receiverAmt -= edge.policy.ComputeFeeFromIncoming(
 				receiverAmt,
 			)
 		}
 
-		pathEdges = append(pathEdges, policy.policy)
+		pathEdges = append(pathEdges, edge.policy)
 	}
 
 	// Build and return the final route.

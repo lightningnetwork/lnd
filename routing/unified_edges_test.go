@@ -8,16 +8,16 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// TestUnifiedPolicies tests the composition of unified policies for nodes that
+// TestNodeEdgeUnifier tests the composition of unified edges for nodes that
 // have multiple channels between them.
-func TestUnifiedPolicies(t *testing.T) {
+func TestNodeEdgeUnifier(t *testing.T) {
 	source := route.Vertex{1}
 	toNode := route.Vertex{2}
 	fromNode := route.Vertex{3}
 
 	bandwidthHints := &mockBandwidthHints{}
 
-	u := newUnifiedPolicies(source, toNode, nil)
+	u := newNodeEdgeUnifier(source, toNode, nil)
 
 	// Add two channels between the pair of nodes.
 	p1 := channeldb.CachedEdgePolicy{
@@ -39,13 +39,12 @@ func TestUnifiedPolicies(t *testing.T) {
 	u.addPolicy(fromNode, &p1, 7)
 	u.addPolicy(fromNode, &p2, 7)
 
-	checkPolicy := func(unifiedPolicy *unifiedPolicyEdge,
-		feeBase lnwire.MilliSatoshi, feeRate lnwire.MilliSatoshi,
-		timeLockDelta uint16) {
+	checkPolicy := func(edge *unifiedEdge, feeBase lnwire.MilliSatoshi,
+		feeRate lnwire.MilliSatoshi, timeLockDelta uint16) {
 
 		t.Helper()
 
-		policy := unifiedPolicy.policy
+		policy := edge.policy
 
 		if policy.FeeBaseMSat != feeBase {
 			t.Fatalf("expected fee base %v, got %v",
@@ -63,31 +62,31 @@ func TestUnifiedPolicies(t *testing.T) {
 		}
 	}
 
-	policy := u.policies[fromNode].getPolicy(50, bandwidthHints)
-	if policy != nil {
+	edge := u.edgeUnifiers[fromNode].getEdge(50, bandwidthHints)
+	if edge != nil {
 		t.Fatal("expected no policy for amt below min htlc")
 	}
 
-	policy = u.policies[fromNode].getPolicy(550, bandwidthHints)
-	if policy != nil {
+	edge = u.edgeUnifiers[fromNode].getEdge(550, bandwidthHints)
+	if edge != nil {
 		t.Fatal("expected no policy for amt above max htlc")
 	}
 
 	// For 200 sat, p1 yields the highest fee. Use that policy to forward,
 	// because it will also match p2 in case p1 does not have enough
 	// balance.
-	policy = u.policies[fromNode].getPolicy(200, bandwidthHints)
+	edge = u.edgeUnifiers[fromNode].getEdge(200, bandwidthHints)
 	checkPolicy(
-		policy, p1.FeeBaseMSat, p1.FeeProportionalMillionths,
+		edge, p1.FeeBaseMSat, p1.FeeProportionalMillionths,
 		p1.TimeLockDelta,
 	)
 
 	// For 400 sat, p2 yields the highest fee. Use that policy to forward,
 	// because it will also match p1 in case p2 does not have enough
 	// balance. In order to match p1, it needs to have p1's time lock delta.
-	policy = u.policies[fromNode].getPolicy(400, bandwidthHints)
+	edge = u.edgeUnifiers[fromNode].getEdge(400, bandwidthHints)
 	checkPolicy(
-		policy, p2.FeeBaseMSat, p2.FeeProportionalMillionths,
+		edge, p2.FeeBaseMSat, p2.FeeProportionalMillionths,
 		p1.TimeLockDelta,
 	)
 }

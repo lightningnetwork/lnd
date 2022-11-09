@@ -61,6 +61,10 @@
   Final resolution data will only be available for htlcs that are resolved
   after upgrading lnd.
 
+* Zero-amount private invoices [now provide hop
+  hints](https://github.com/lightningnetwork/lnd/pull/7082), up to `maxHopHints`
+  (20 currently).
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only
@@ -227,6 +231,7 @@ to refactor the itest for code health and maintenance.
 
 # Contributors (Alphabetical Order)
 
+* Alejandro Pedraza
 * andreihod
 * Carla Kirk-Cohen
 * Conner Babinchak

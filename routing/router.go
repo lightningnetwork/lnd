@@ -1775,7 +1775,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		return nil, errors.New("time preference out of range")
 	}
 
-	path, err := findPath(
+	route, err := findPath(
 		&graphParams{
 			additionalEdges: routeHints,
 			bandwidthHints:  bandwidthHints,
@@ -1784,20 +1784,6 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		restrictions,
 		&r.cfg.PathFindingConfig,
 		source, target, amt, timePref, finalHtlcExpiry,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create the route with absolute time lock values.
-	route, err := newRoute(
-		source, path, uint32(currentHeight),
-		finalHopParams{
-			amt:       amt,
-			totalAmt:  amt,
-			cltvDelta: finalExpiry,
-			records:   destCustomRecords,
-		},
 	)
 	if err != nil {
 		return nil, err
@@ -2745,11 +2731,16 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		return nil, err
 	}
 
-	// Allocate a list that will contain the unified policies for this
-	// route.
-	edges := make([]*unifiedPolicy, len(hops))
+	var (
+		routeHops []*route.Hop
 
-	var runningAmt lnwire.MilliSatoshi
+		// timeLock will accumulate the cumulative time lock across the
+		// entire route.
+		timeLock = height
+
+		runningAmt lnwire.MilliSatoshi
+	)
+
 	if useMinAmt {
 		// For minimum amount routes, aim to deliver at least 1 msat to
 		// the destination. There are nodes in the wild that have a
@@ -2774,7 +2765,12 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 			fromNode = hops[i-1]
 		}
 
-		localChan := i == 0
+		// Initialize a route hop for toNode.
+		currentHop := &route.Hop{
+			PubKeyBytes:      toNode,
+			AmtToForward:     runningAmt,
+			OutgoingTimeLock: uint32(timeLock),
+		}
 
 		// Build unified policies for this hop based on the channels
 		// known in the graph.
@@ -2812,50 +2808,54 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 			}
 		}
 
-		// Add fee for this hop.
-		if !localChan {
-			runningAmt += policy.ComputeFee(runningAmt)
-		}
-
 		log.Tracef("Select channel %v at position %v", policy.ChannelID, i)
 
-		edges[i] = unifiedPolicy
-	}
-
-	// Now that we arrived at the start of the route and found out the route
-	// total amount, we make a forward pass. Because the amount may have
-	// been increased in the backward pass, fees need to be recalculated and
-	// amount ranges re-checked.
-	var pathEdges []*channeldb.CachedEdgePolicy
-	receiverAmt := runningAmt
-	for i, edge := range edges {
-		policy := edge.getPolicy(receiverAmt, bandwidthHints)
-		if policy == nil {
-			return nil, ErrNoChannel{
-				fromNode: hops[i-1],
-				position: i,
+		// Define a helper function that checks this edge's feature
+		// vector for support for a given feature. We assume at this
+		// point that the feature vectors transitive dependencies have
+		// been validated.
+		supports := func(feature lnwire.FeatureBit) bool {
+			// If this edge comes from router hints, the features
+			// could be nil.
+			if policy.ToNodeFeatures == nil {
+				return false
 			}
+
+			return policy.ToNodeFeatures.HasFeature(feature)
 		}
 
-		if i > 0 {
-			// Decrease the amount to send while going forward.
-			receiverAmt -= policy.ComputeFeeFromIncoming(
-				receiverAmt,
-			)
+		// Store the ID for the selected channel.
+		currentHop.ChannelID = policy.ChannelID
+
+		// Store the payload type.
+		tlvPayload := supports(lnwire.TLVOnionPayloadOptional)
+		currentHop.LegacyPayload = !tlvPayload
+
+		// Store MPP record for final hop if requested and possible.
+		isFinalHop := i == len(hops)-1
+		if isFinalHop && payAddr != nil {
+			// If we're attaching a payment addr but the receiver
+			// doesn't support both TLV and payment addrs, fail.
+			if !supports(lnwire.PaymentAddrOptional) {
+				return nil, errors.New("cannot attach " +
+					"payment addr")
+			}
+
+			currentHop.MPP = record.NewMPP(runningAmt, *payAddr)
 		}
 
-		pathEdges = append(pathEdges, policy)
+		routeHops = append([]*route.Hop{currentHop}, routeHops...)
+
+		// Add fee for this hop and update time lock.
+		localChan := i == 0
+		if !localChan {
+			runningAmt += policy.ComputeFee(runningAmt)
+			timeLock += int32(policy.TimeLockDelta)
+		}
 	}
 
-	// Build and return the final route.
-	return newRoute(
-		source, pathEdges, uint32(height),
-		finalHopParams{
-			amt:         receiverAmt,
-			totalAmt:    receiverAmt,
-			cltvDelta:   uint16(finalCltvDelta),
-			records:     nil,
-			paymentAddr: payAddr,
-		},
+	// With the base routing data expressed as hops, build the full route
+	return route.NewRouteFromHops(
+		runningAmt, uint32(timeLock), source, routeHops,
 	)
 }

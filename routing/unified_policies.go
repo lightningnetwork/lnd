@@ -114,11 +114,6 @@ func (u *unifiedPolicyEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
 		return false
 	}
 
-	// Skip channels for which this htlc is too small.
-	if amt < u.policy.MinHTLC {
-		return false
-	}
-
 	return true
 }
 
@@ -148,13 +143,26 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
 
 	var (
-		bestPolicy   *channeldb.CachedEdgePolicy
-		maxBandwidth lnwire.MilliSatoshi
+		bestPolicy     *channeldb.CachedEdgePolicy
+		maxBandwidth   lnwire.MilliSatoshi
+		minOverPayment lnwire.MilliSatoshi = lnwire.MaxMilliSatoshi
 	)
 
 	for _, edge := range u.edges {
 		// Check valid amount range for the channel.
 		if !edge.amtInRange(amt) {
+			continue
+		}
+
+		// Determine overpayment because of a min htlc policy.
+		var overPayment lnwire.MilliSatoshi
+		if amt < edge.policy.MinHTLC {
+			overPayment = edge.policy.MinHTLC - amt
+		}
+
+		// Skip channels that require more overpayment than the current
+		// best channel.
+		if overPayment > minOverPayment {
 			continue
 		}
 
@@ -189,9 +197,11 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 		if bandwidth < maxBandwidth {
 			continue
 		}
-		maxBandwidth = bandwidth
 
 		// Update best policy.
+		maxBandwidth = bandwidth
+		minOverPayment = overPayment
+
 		bestPolicy = edge.policy
 	}
 
@@ -232,6 +242,14 @@ func (u *unifiedPolicy) getPolicyNetwork(
 		// Use the policy that results in the highest fee for this
 		// specific amount.
 		fee := edge.policy.ComputeFee(amt)
+
+		// Add overpayment if necessary to reach min htlc amount.
+		if amt < edge.policy.MinHTLC {
+			overPayment := edge.policy.MinHTLC - amt
+
+			fee += overPayment
+		}
+
 		if fee < maxFee {
 			continue
 		}

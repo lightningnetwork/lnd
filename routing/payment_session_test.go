@@ -213,7 +213,7 @@ func TestRequestRoute(t *testing.T) {
 		g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		source, target route.Vertex, amt lnwire.MilliSatoshi,
 		timePref float64,
-		finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
+		finalHtlcExpiry int32) (*route.Route, error) {
 
 		// We expect find path to receive a cltv limit excluding the
 		// final cltv delta (including the block padding).
@@ -221,18 +221,11 @@ func TestRequestRoute(t *testing.T) {
 			t.Fatal("wrong cltv limit")
 		}
 
-		path := []*channeldb.CachedEdgePolicy{
-			{
-				ToNodePubKey: func() route.Vertex {
-					return route.Vertex{}
-				},
-				ToNodeFeatures: lnwire.NewFeatureVector(
-					nil, nil,
-				),
-			},
+		route := &route.Route{
+			TotalTimeLock: uint32(finalHtlcExpiry),
 		}
 
-		return path, nil
+		return route, nil
 	}
 
 	route, err := session.RequestRoute(

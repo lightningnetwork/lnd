@@ -297,7 +297,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		sourceVertex := routingGraph.sourceNode()
 
 		// Find a route for the current amount.
-		path, err := p.pathFinder(
+		route, err := p.pathFinder(
 			&graphParams{
 				additionalEdges: p.additionalEdges,
 				bandwidthHints:  bandwidthHints,
@@ -305,7 +305,8 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			},
 			restrictions, &p.pathFindingConfig,
 			sourceVertex, p.payment.Target,
-			maxAmt, p.payment.TimePref, finalHtlcExpiry,
+			maxAmt, p.payment.TimePref,
+			finalHtlcExpiry,
 		)
 
 		// Close routing graph.
@@ -375,24 +376,6 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 			return nil, err
 
 		case err != nil:
-			return nil, err
-		}
-
-		// With the next candidate path found, we'll attempt to turn
-		// this into a route by applying the time-lock and fee
-		// requirements.
-		route, err := newRoute(
-			sourceVertex, path, height,
-			finalHopParams{
-				amt:         maxAmt,
-				totalAmt:    p.payment.Amount,
-				cltvDelta:   finalCltvDelta,
-				records:     p.payment.DestCustomRecords,
-				paymentAddr: p.payment.PaymentAddr,
-				metadata:    p.payment.Metadata,
-			},
-		)
-		if err != nil {
 			return nil, err
 		}
 

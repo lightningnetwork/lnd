@@ -877,9 +877,9 @@ func runFindPathWithMetadata(t *testing.T, useCache bool) {
 	ctx.restrictParams.Metadata = []byte{1, 2, 3}
 	ctx.restrictParams.DestFeatures = tlvFeatures
 
-	path, err := ctx.findPath(target, paymentAmt)
+	route, err := ctx.findPath(target, paymentAmt)
 	require.NoError(t, err)
-	require.Len(t, path, 1)
+	require.Len(t, route.Hops, 1)
 
 	// Assert that no path is found when metadata is too large.
 	ctx.restrictParams.Metadata = make([]byte, 2000)
@@ -945,17 +945,8 @@ func runFindLowestFeePath(t *testing.T, useCache bool) {
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.keyFromAlias("target")
-	path, err := ctx.findPath(target, paymentAmt)
+	route, err := ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
-	route, err := newRoute(
-		ctx.source, path, startingHeight,
-		finalHopParams{
-			amt:       paymentAmt,
-			cltvDelta: finalHopCLTV,
-			records:   nil,
-		},
-	)
-	require.NoError(t, err, "unable to create path")
 
 	// Assert that the lowest fee route is returned.
 	if route.Hops[1].PubKeyBytes != ctx.keyFromAlias("b") {
@@ -1061,7 +1052,6 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 
 	sourceNode, err := graphInstance.graph.SourceNode()
 	require.NoError(t, err, "unable to fetch source node")
-	sourceVertex := route.Vertex(sourceNode.PubKeyBytes)
 
 	const (
 		startingHeight = 100
@@ -1070,7 +1060,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 
 	paymentAmt := lnwire.NewMSatFromSatoshis(test.paymentAmt)
 	target := graphInstance.aliasMap[test.target]
-	path, err := dbFindPath(
+	route, err := dbFindPath(
 		graphInstance.graph, nil, &mockBandwidthHints{},
 		&RestrictParams{
 			FeeLimit:          test.feeLimit,
@@ -1088,16 +1078,6 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 		return
 	}
 	require.NoError(t, err, "unable to find path")
-
-	route, err := newRoute(
-		sourceVertex, path, startingHeight,
-		finalHopParams{
-			amt:       paymentAmt,
-			cltvDelta: finalHopCLTV,
-			records:   nil,
-		},
-	)
-	require.NoError(t, err, "unable to create path")
 
 	if len(route.Hops) != len(expectedHops) {
 		t.Fatalf("route is of incorrect length, expected %v got %v",
@@ -1135,6 +1115,8 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 			t.Fatalf("unable to make hop data: %v", err)
 		}
 
+		require.NotNil(t, hopData)
+
 		if !bytes.Equal(hopData.NextAddress[:], expectedHop[:]) {
 			t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
 				expectedHop[:], hopData.NextAddress[:])
@@ -1148,6 +1130,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 
 	hopData, err := sphinxPath[lastHopIndex].HopPayload.HopData()
 	require.NoError(t, err, "unable to create hop data")
+	require.NotNil(t, hopData)
 
 	if !bytes.Equal(hopData.NextAddress[:], exitHop[:]) {
 		t.Fatalf("first hop has incorrect next hop: expected %x, got %x",
@@ -1244,7 +1227,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	}
 
 	find := func(r *RestrictParams) (
-		[]*channeldb.CachedEdgePolicy, error) {
+		*route.Route, error) {
 
 		return dbFindPath(
 			graph.graph, additionalEdges, &mockBandwidthHints{},
@@ -1288,320 +1271,6 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	path, err = find(&restrictions)
 	require.NoError(t, err, "path should have been found")
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
-}
-
-// TestNewRoute tests whether the construction of hop payloads by newRoute
-// is executed correctly.
-func TestNewRoute(t *testing.T) {
-
-	var sourceKey [33]byte
-	sourceVertex := route.Vertex(sourceKey)
-
-	testPaymentAddr := [32]byte{0x01, 0x02, 0x03}
-
-	const (
-		startingHeight = 100
-		finalHopCLTV   = 1
-	)
-
-	createHop := func(baseFee lnwire.MilliSatoshi,
-		feeRate lnwire.MilliSatoshi,
-		bandwidth lnwire.MilliSatoshi,
-		timeLockDelta uint16) *channeldb.CachedEdgePolicy {
-
-		return &channeldb.CachedEdgePolicy{
-			ToNodePubKey: func() route.Vertex {
-				return route.Vertex{}
-			},
-			ToNodeFeatures:            lnwire.NewFeatureVector(nil, nil),
-			FeeProportionalMillionths: feeRate,
-			FeeBaseMSat:               baseFee,
-			TimeLockDelta:             timeLockDelta,
-		}
-	}
-
-	testCases := []struct {
-		// name identifies the test case in the test output.
-		name string
-
-		// hops is the list of hops (the route) that gets passed into
-		// the call to newRoute.
-		hops []*channeldb.CachedEdgePolicy
-
-		// paymentAmount is the amount that is send into the route
-		// indicated by hops.
-		paymentAmount lnwire.MilliSatoshi
-
-		// destFeatures is a feature vector, that if non-nil, will
-		// overwrite the final hop's feature vector in the graph.
-		destFeatures *lnwire.FeatureVector
-
-		paymentAddr *[32]byte
-
-		// metadata is the payment metadata to attach to the route.
-		metadata []byte
-
-		// expectedFees is a list of fees that every hop is expected
-		// to charge for forwarding.
-		expectedFees []lnwire.MilliSatoshi
-
-		// expectedTimeLocks is a list of time lock values that every
-		// hop is expected to specify in its outgoing HTLC. The time
-		// lock values in this list are relative to the current block
-		// height.
-		expectedTimeLocks []uint32
-
-		// expectedTotalAmount is the total amount that is expected to
-		// be returned from newRoute. This amount should include all
-		// the fees to be paid to intermediate hops.
-		expectedTotalAmount lnwire.MilliSatoshi
-
-		// expectedTotalTimeLock is the time lock that is expected to
-		// be returned from newRoute. This is the time lock that should
-		// be specified in the HTLC that is sent by the source node.
-		// expectedTotalTimeLock is relative to the current block height.
-		expectedTotalTimeLock uint32
-
-		// expectError indicates whether the newRoute call is expected
-		// to fail or succeed.
-		expectError bool
-
-		// expectedErrorCode indicates the expected error code when
-		// expectError is true.
-		expectedErrorCode errorCode
-
-		expectedTLVPayload bool
-
-		expectedMPP *record.MPP
-	}{
-		{
-			// For a single hop payment, no fees are expected to be paid.
-			name:          "single hop",
-			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
-				createHop(100, 1000, 1000000, 10),
-			},
-			metadata:              []byte{1, 2, 3},
-			expectedFees:          []lnwire.MilliSatoshi{0},
-			expectedTimeLocks:     []uint32{1},
-			expectedTotalAmount:   100000,
-			expectedTotalTimeLock: 1,
-		}, {
-			// For a two hop payment, only the fee for the first hop
-			// needs to be paid. The destination hop does not require
-			// a fee to receive the payment.
-			name:          "two hop",
-			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 1000, 1000000, 10),
-				createHop(30, 1000, 1000000, 5),
-			},
-			expectedFees:          []lnwire.MilliSatoshi{130, 0},
-			expectedTimeLocks:     []uint32{1, 1},
-			expectedTotalAmount:   100130,
-			expectedTotalTimeLock: 6,
-		}, {
-			// For a two hop payment, only the fee for the first hop
-			// needs to be paid. The destination hop does not require
-			// a fee to receive the payment.
-			name:          "two hop tlv onion feature",
-			destFeatures:  tlvFeatures,
-			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 1000, 1000000, 10),
-				createHop(30, 1000, 1000000, 5),
-			},
-			expectedFees:          []lnwire.MilliSatoshi{130, 0},
-			expectedTimeLocks:     []uint32{1, 1},
-			expectedTotalAmount:   100130,
-			expectedTotalTimeLock: 6,
-			expectedTLVPayload:    true,
-		}, {
-			// For a two hop payment, only the fee for the first hop
-			// needs to be paid. The destination hop does not require
-			// a fee to receive the payment.
-			name:          "two hop single shot mpp",
-			destFeatures:  tlvPayAddrFeatures,
-			paymentAddr:   &testPaymentAddr,
-			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 1000, 1000000, 10),
-				createHop(30, 1000, 1000000, 5),
-			},
-			expectedFees:          []lnwire.MilliSatoshi{130, 0},
-			expectedTimeLocks:     []uint32{1, 1},
-			expectedTotalAmount:   100130,
-			expectedTotalTimeLock: 6,
-			expectedTLVPayload:    true,
-			expectedMPP: record.NewMPP(
-				100000, testPaymentAddr,
-			),
-		}, {
-			// A three hop payment where the first and second hop
-			// will both charge 1 msat. The fee for the first hop
-			// is actually slightly higher than 1, because the amount
-			// to forward also includes the fee for the second hop. This
-			// gets rounded down to 1.
-			name:          "three hop",
-			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 10, 1000000, 10),
-				createHop(0, 10, 1000000, 5),
-				createHop(0, 10, 1000000, 3),
-			},
-			expectedFees:          []lnwire.MilliSatoshi{1, 1, 0},
-			expectedTotalAmount:   100002,
-			expectedTimeLocks:     []uint32{4, 1, 1},
-			expectedTotalTimeLock: 9,
-		}, {
-			// A three hop payment where the fee of the first hop
-			// is slightly higher (11) than the fee at the second hop,
-			// because of the increase amount to forward.
-			name:          "three hop with fee carry over",
-			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 10000, 1000000, 10),
-				createHop(0, 10000, 1000000, 5),
-				createHop(0, 10000, 1000000, 3),
-			},
-			expectedFees:          []lnwire.MilliSatoshi{1010, 1000, 0},
-			expectedTotalAmount:   102010,
-			expectedTimeLocks:     []uint32{4, 1, 1},
-			expectedTotalTimeLock: 9,
-		}, {
-			// A three hop payment where the fee policies of the first and
-			// second hop are just high enough to show the fee carry over
-			// effect.
-			name:          "three hop with minimal fees for carry over",
-			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 10000, 1000000, 10),
-
-				// First hop charges 0.1% so the second hop fee
-				// should show up in the first hop fee as 1 msat
-				// extra.
-				createHop(0, 1000, 1000000, 5),
-
-				// Second hop charges a fixed 1000 msat.
-				createHop(1000, 0, 1000000, 3),
-			},
-			expectedFees:          []lnwire.MilliSatoshi{101, 1000, 0},
-			expectedTotalAmount:   101101,
-			expectedTimeLocks:     []uint32{4, 1, 1},
-			expectedTotalTimeLock: 9,
-		}}
-
-	for _, testCase := range testCases {
-		testCase := testCase
-
-		// Overwrite the final hop's features if the test requires a
-		// custom feature vector.
-		if testCase.destFeatures != nil {
-			finalHop := testCase.hops[len(testCase.hops)-1]
-			finalHop.ToNodeFeatures = testCase.destFeatures
-		}
-
-		assertRoute := func(t *testing.T, route *route.Route) {
-			if route.TotalAmount != testCase.expectedTotalAmount {
-				t.Errorf("Expected total amount is be %v"+
-					", but got %v instead",
-					testCase.expectedTotalAmount,
-					route.TotalAmount)
-			}
-
-			for i := 0; i < len(testCase.expectedFees); i++ {
-				fee := route.HopFee(i)
-				if testCase.expectedFees[i] != fee {
-
-					t.Errorf("Expected fee for hop %v to "+
-						"be %v, but got %v instead",
-						i, testCase.expectedFees[i],
-						fee)
-				}
-			}
-
-			expectedTimeLockHeight := startingHeight +
-				testCase.expectedTotalTimeLock
-
-			if route.TotalTimeLock != expectedTimeLockHeight {
-
-				t.Errorf("Expected total time lock to be %v"+
-					", but got %v instead",
-					expectedTimeLockHeight,
-					route.TotalTimeLock)
-			}
-
-			for i := 0; i < len(testCase.expectedTimeLocks); i++ {
-				expectedTimeLockHeight := startingHeight +
-					testCase.expectedTimeLocks[i]
-
-				if expectedTimeLockHeight !=
-					route.Hops[i].OutgoingTimeLock {
-
-					t.Errorf("Expected time lock for hop "+
-						"%v to be %v, but got %v instead",
-						i, expectedTimeLockHeight,
-						route.Hops[i].OutgoingTimeLock)
-				}
-			}
-
-			finalHop := route.Hops[len(route.Hops)-1]
-			if !finalHop.LegacyPayload !=
-				testCase.expectedTLVPayload {
-
-				t.Errorf("Expected final hop tlv payload: %t, "+
-					"but got: %t instead",
-					testCase.expectedTLVPayload,
-					!finalHop.LegacyPayload)
-			}
-
-			if !reflect.DeepEqual(
-				finalHop.MPP, testCase.expectedMPP,
-			) {
-
-				t.Errorf("Expected final hop mpp field: %v, "+
-					" but got: %v instead",
-					testCase.expectedMPP, finalHop.MPP)
-			}
-
-			if !bytes.Equal(finalHop.Metadata, testCase.metadata) {
-				t.Errorf("Expected final metadata field: %v, "+
-					" but got: %v instead",
-					testCase.metadata, finalHop.Metadata)
-			}
-		}
-
-		t.Run(testCase.name, func(t *testing.T) {
-			route, err := newRoute(
-				sourceVertex, testCase.hops, startingHeight,
-				finalHopParams{
-					amt:         testCase.paymentAmount,
-					totalAmt:    testCase.paymentAmount,
-					cltvDelta:   finalHopCLTV,
-					records:     nil,
-					paymentAddr: testCase.paymentAddr,
-					metadata:    testCase.metadata,
-				},
-			)
-
-			if testCase.expectError {
-				expectedCode := testCase.expectedErrorCode
-				if err == nil || !IsError(err, expectedCode) {
-					t.Fatalf("expected newRoute to fail "+
-						"with error code %v but got "+
-						"%v instead",
-						expectedCode, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("unable to create path: %v", err)
-					return
-				}
-
-				assertRoute(t, route)
-			}
-		})
-	}
 }
 
 func runNewRoutePathTooLong(t *testing.T, useCache bool) {
@@ -1713,7 +1382,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 	require.NoError(t, err, "unable to fetch source node")
 
 	find := func(r *RestrictParams,
-		target route.Vertex) ([]*channeldb.CachedEdgePolicy, error) {
+		target route.Vertex) (*route.Route, error) {
 
 		return dbFindPath(
 			ctx.graph, nil, &mockBandwidthHints{},
@@ -2365,16 +2034,18 @@ func TestPathFindSpecExample(t *testing.T) {
 }
 
 func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
-	path []*channeldb.CachedEdgePolicy, nodeAliases ...string) {
+	route *route.Route, nodeAliases ...string) {
+
+	path := route.Hops
 
 	if len(path) != len(nodeAliases) {
 		t.Fatal("number of hops and number of aliases do not match")
 	}
 
 	for i, hop := range path {
-		if hop.ToNodePubKey() != aliasMap[nodeAliases[i]] {
+		if hop.PubKeyBytes != aliasMap[nodeAliases[i]] {
 			t.Fatalf("expected %v to be pos #%v in hop, instead "+
-				"%v was", nodeAliases[i], i, hop.ToNodePubKey())
+				"%v was", nodeAliases[i], i, hop.PubKeyBytes)
 		}
 	}
 }
@@ -2443,8 +2114,10 @@ func runRestrictOutgoingChannel(t *testing.T, useCache bool) {
 	// Find the best path given the restriction to only use channel 2 as the
 	// outgoing channel.
 	ctx.restrictParams.OutgoingChannelIDs = []uint64{outgoingChannelID}
-	path, err := ctx.findPath(target, paymentAmt)
+	route, err := ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
+
+	path := route.Hops
 
 	// Assert that the route starts with channel chanSourceB1, in line with
 	// the specified restriction.
@@ -2459,8 +2132,9 @@ func runRestrictOutgoingChannel(t *testing.T, useCache bool) {
 	ctx.restrictParams.OutgoingChannelIDs = []uint64{
 		chanSourceB1, chanSourceTarget,
 	}
-	path, err = ctx.findPath(target, paymentAmt)
+	route, err = ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
+	path = route.Hops
 	if path[0].ChannelID != chanSourceTarget {
 		t.Fatalf("expected route to pass through channel %v",
 			chanSourceTarget)
@@ -2498,8 +2172,9 @@ func runRestrictLastHop(t *testing.T, useCache bool) {
 	// Find the best path given the restriction to use b as the last hop.
 	// This should force pathfinding to not take the lowest cost option.
 	ctx.restrictParams.LastHop = &lastHop
-	path, err := ctx.findPath(target, paymentAmt)
+	route, err := ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
+	path := route.Hops
 	if path[0].ChannelID != 3 {
 		t.Fatalf("expected route to pass through channel 3, "+
 			"but channel %v was selected instead",
@@ -2563,7 +2238,7 @@ func testCltvLimit(t *testing.T, useCache bool, limit uint32,
 	target := ctx.keyFromAlias("target")
 
 	ctx.restrictParams.CltvLimit = limit
-	path, err := ctx.findPath(target, paymentAmt)
+	route, err := ctx.findPath(target, paymentAmt)
 	if expectedChannel == 0 {
 		// Finish test if we expect no route.
 		if err == errNoPathFound {
@@ -2577,15 +2252,6 @@ func testCltvLimit(t *testing.T, useCache bool, limit uint32,
 		startingHeight = 100
 		finalHopCLTV   = 1
 	)
-	route, err := newRoute(
-		ctx.source, path, startingHeight,
-		finalHopParams{
-			amt:       paymentAmt,
-			cltvDelta: finalHopCLTV,
-			records:   nil,
-		},
-	)
-	require.NoError(t, err, "unable to create path")
 
 	// Assert that the route starts with the expected channel.
 	if route.Hops[0].ChannelID != expectedChannel {
@@ -2768,7 +2434,7 @@ func testProbabilityRouting(t *testing.T, useCache bool,
 
 	ctx.timePref = timePref
 
-	path, err := ctx.findPath(
+	route, err := ctx.findPath(
 		target, lnwire.NewMSatFromSatoshis(paymentAmt),
 	)
 	if expectedChan == 0 {
@@ -2780,6 +2446,8 @@ func testProbabilityRouting(t *testing.T, useCache bool,
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	path := route.Hops
 
 	// Assert that the route passes through the expected channel.
 	if path[1].ChannelID != expectedChan {
@@ -2840,10 +2508,12 @@ func runEqualCostRouteSelection(t *testing.T, useCache bool) {
 		AttemptCost: lnwire.NewMSatFromSatoshis(1),
 	}
 
-	path, err := ctx.findPath(target, paymentAmt)
+	route, err := ctx.findPath(target, paymentAmt)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	path := route.Hops
 
 	if path[1].ChannelID != 2 {
 		t.Fatalf("expected route to pass through channel %v, "+
@@ -2896,17 +2566,8 @@ func runNoCycle(t *testing.T, useCache bool) {
 
 	// Find the best path given the restriction to only use channel 2 as the
 	// outgoing channel.
-	path, err := ctx.findPath(target, paymentAmt)
+	route, err := ctx.findPath(target, paymentAmt)
 	require.NoError(t, err, "unable to find path")
-	route, err := newRoute(
-		ctx.source, path, startingHeight,
-		finalHopParams{
-			amt:       paymentAmt,
-			cltvDelta: finalHopCLTV,
-			records:   nil,
-		},
-	)
-	require.NoError(t, err, "unable to create path")
 
 	if len(route.Hops) != 2 {
 		t.Fatalf("unexpected route")
@@ -3008,8 +2669,7 @@ func (c *pathFindingTestContext) aliasFromKey(pubKey route.Vertex) string {
 }
 
 func (c *pathFindingTestContext) findPath(target route.Vertex,
-	amt lnwire.MilliSatoshi) ([]*channeldb.CachedEdgePolicy,
-	error) {
+	amt lnwire.MilliSatoshi) (*route.Route, error) {
 
 	return dbFindPath(
 		c.graph, nil, c.bandwidthHints, &c.restrictParams,
@@ -3017,8 +2677,10 @@ func (c *pathFindingTestContext) findPath(target route.Vertex,
 	)
 }
 
-func (c *pathFindingTestContext) assertPath(path []*channeldb.CachedEdgePolicy,
+func (c *pathFindingTestContext) assertPath(route *route.Route,
 	expected []uint64) {
+
+	path := route.Hops
 
 	if len(path) != len(expected) {
 		c.t.Fatalf("expected path of length %v, but got %v",
@@ -3040,7 +2702,7 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
+	finalHtlcExpiry int32) (*route.Route, error) {
 
 	sourceNode, err := graph.SourceNode()
 	if err != nil {

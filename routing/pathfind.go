@@ -2,7 +2,6 @@ package routing
 
 import (
 	"container/heap"
-	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -42,7 +41,7 @@ const (
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
 	amt lnwire.MilliSatoshi, timePref float64, finalHtlcExpiry int32) (
-	[]*channeldb.CachedEdgePolicy, error)
+	*route.Route, error)
 
 var (
 	// DefaultAttemptCost is the default fixed virtual cost in path finding
@@ -77,189 +76,6 @@ var (
 type edgePolicyWithSource struct {
 	sourceNode route.Vertex
 	edge       *channeldb.CachedEdgePolicy
-}
-
-// finalHopParams encapsulates various parameters for route construction that
-// apply to the final hop in a route. These features include basic payment data
-// such as amounts and cltvs, as well as more complex features like destination
-// custom records and payment address.
-type finalHopParams struct {
-	amt         lnwire.MilliSatoshi
-	totalAmt    lnwire.MilliSatoshi
-	cltvDelta   uint16
-	records     record.CustomSet
-	paymentAddr *[32]byte
-
-	// metadata is additional data that is sent along with the payment to
-	// the payee.
-	metadata []byte
-}
-
-// newRoute constructs a route using the provided path and final hop constraints.
-// Any destination specific fields from the final hop params  will be attached
-// assuming the destination's feature vector signals support, otherwise this
-// method will fail.  If the route is too long, or the selected path cannot
-// support the fully payment including fees, then a non-nil error is returned.
-//
-// NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
-// the source to the target node of the path finding attempt. It is assumed that
-// any feature vectors on all hops have been validated for transitive
-// dependencies.
-func newRoute(sourceVertex route.Vertex,
-	pathEdges []*channeldb.CachedEdgePolicy, currentHeight uint32,
-	finalHop finalHopParams) (*route.Route, error) {
-
-	var (
-		hops []*route.Hop
-
-		// totalTimeLock will accumulate the cumulative time lock
-		// across the entire route. This value represents how long the
-		// sender will need to wait in the *worst* case.
-		totalTimeLock = currentHeight
-
-		// nextIncomingAmount is the amount that will need to flow into
-		// the *next* hop. Since we're going to be walking the route
-		// backwards below, this next hop gets closer and closer to the
-		// sender of the payment.
-		nextIncomingAmount lnwire.MilliSatoshi
-	)
-
-	pathLength := len(pathEdges)
-	for i := pathLength - 1; i >= 0; i-- {
-		// Now we'll start to calculate the items within the per-hop
-		// payload for the hop this edge is leading to.
-		edge := pathEdges[i]
-
-		// We'll calculate the amounts, timelocks, and fees for each hop
-		// in the route. The base case is the final hop which includes
-		// their amount and timelocks. These values will accumulate
-		// contributions from the preceding hops back to the sender as
-		// we compute the route in reverse.
-		var (
-			amtToForward     lnwire.MilliSatoshi
-			fee              lnwire.MilliSatoshi
-			outgoingTimeLock uint32
-			tlvPayload       bool
-			customRecords    record.CustomSet
-			mpp              *record.MPP
-			metadata         []byte
-		)
-
-		// Define a helper function that checks this edge's feature
-		// vector for support for a given feature. We assume at this
-		// point that the feature vectors transitive dependencies have
-		// been validated.
-		supports := func(feature lnwire.FeatureBit) bool {
-			// If this edge comes from router hints, the features
-			// could be nil.
-			if edge.ToNodeFeatures == nil {
-				return false
-			}
-			return edge.ToNodeFeatures.HasFeature(feature)
-		}
-
-		// We start by assuming the node doesn't support TLV. We'll now
-		// inspect the node's feature vector to see if we can promote
-		// the hop. We assume already that the feature vector's
-		// transitive dependencies have already been validated by path
-		// finding or some other means.
-		tlvPayload = supports(lnwire.TLVOnionPayloadOptional)
-
-		if i == len(pathEdges)-1 {
-			// If this is the last hop, then the hop payload will
-			// contain the exact amount. In BOLT #4: Onion Routing
-			// Protocol / "Payload for the Last Node", this is
-			// detailed.
-			amtToForward = finalHop.amt
-
-			// Fee is not part of the hop payload, but only used for
-			// reporting through RPC. Set to zero for the final hop.
-			fee = lnwire.MilliSatoshi(0)
-
-			// As this is the last hop, we'll use the specified
-			// final CLTV delta value instead of the value from the
-			// last link in the route.
-			totalTimeLock += uint32(finalHop.cltvDelta)
-			outgoingTimeLock = totalTimeLock
-
-			// Attach any custom records to the final hop if the
-			// receiver supports TLV.
-			if !tlvPayload && finalHop.records != nil {
-				return nil, errors.New("cannot attach " +
-					"custom records")
-			}
-			customRecords = finalHop.records
-
-			// If we're attaching a payment addr but the receiver
-			// doesn't support both TLV and payment addrs, fail.
-			payAddr := supports(lnwire.PaymentAddrOptional)
-			if !payAddr && finalHop.paymentAddr != nil {
-				return nil, errors.New("cannot attach " +
-					"payment addr")
-			}
-
-			// Otherwise attach the mpp record if it exists.
-			// TODO(halseth): move this to payment life cycle,
-			// where AMP options are set.
-			if finalHop.paymentAddr != nil {
-				mpp = record.NewMPP(
-					finalHop.totalAmt,
-					*finalHop.paymentAddr,
-				)
-			}
-
-			metadata = finalHop.metadata
-		} else {
-			// The amount that the current hop needs to forward is
-			// equal to the incoming amount of the next hop.
-			amtToForward = nextIncomingAmount
-
-			// The fee that needs to be paid to the current hop is
-			// based on the amount that this hop needs to forward
-			// and its policy for the outgoing channel. This policy
-			// is stored as part of the incoming channel of
-			// the next hop.
-			fee = pathEdges[i+1].ComputeFee(amtToForward)
-
-			// We'll take the total timelock of the preceding hop as
-			// the outgoing timelock or this hop. Then we'll
-			// increment the total timelock incurred by this hop.
-			outgoingTimeLock = totalTimeLock
-			totalTimeLock += uint32(pathEdges[i+1].TimeLockDelta)
-		}
-
-		// Since we're traversing the path backwards atm, we prepend
-		// each new hop such that, the final slice of hops will be in
-		// the forwards order.
-		currentHop := &route.Hop{
-			PubKeyBytes:      edge.ToNodePubKey(),
-			ChannelID:        edge.ChannelID,
-			AmtToForward:     amtToForward,
-			OutgoingTimeLock: outgoingTimeLock,
-			LegacyPayload:    !tlvPayload,
-			CustomRecords:    customRecords,
-			MPP:              mpp,
-			Metadata:         metadata,
-		}
-
-		hops = append([]*route.Hop{currentHop}, hops...)
-
-		// Finally, we update the amount that needs to flow into the
-		// *next* hop, which is the amount this hop needs to forward,
-		// accounting for the fee that it takes.
-		nextIncomingAmount = amtToForward + fee
-	}
-
-	// With the base routing data expressed as hops, build the full route
-	newRoute, err := route.NewRouteFromHops(
-		nextIncomingAmount, totalTimeLock, route.Vertex(sourceVertex),
-		hops,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return newRoute, nil
 }
 
 // edgeWeight computes the weight of an edge. This value is used when searching
@@ -426,7 +242,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
+	finalHtlcExpiry int32) (*route.Route, error) {
 
 	// Pathfinding can be a significant portion of the total payment
 	// latency, especially on low-powered devices. Log several metrics to
@@ -567,8 +383,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		LegacyPayload: !features.HasFeature(
 			lnwire.TLVOnionPayloadOptional,
 		),
-		MPP:      mpp,
-		Metadata: r.Metadata,
+		MPP:         mpp,
+		Metadata:    r.Metadata,
+		PubKeyBytes: target,
 	}
 
 	// We can't always assume that the end destination is publicly
@@ -916,7 +733,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// Use the distance map to unravel the forward path from source to
 	// target.
-	var pathEdges []*channeldb.CachedEdgePolicy
+	var pathEdges []*nodeWithDist
 	currentNode := source
 	for {
 		// Determine the next hop forward using the next map.
@@ -928,7 +745,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 
 		// Add the next hop to the list of path edges.
-		pathEdges = append(pathEdges, currentNodeWithDist.nextHop)
+		pathEdges = append(pathEdges, currentNodeWithDist)
 
 		// Advance current node.
 		currentNode = currentNodeWithDist.nextHop.ToNodePubKey()
@@ -941,24 +758,74 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 	}
 
-	// For the final hop, we'll set the node features to those determined
-	// above. These are either taken from the destination features, e.g.
-	// virtual or invoice features, or loaded as a fallback from the graph.
-	// The transitive dependencies were already validated above, so no need
-	// to do so now.
-	//
-	// NOTE: This may overwrite features loaded from the graph if
-	// destination features were provided. This is fine though, since our
-	// route construction does not care where the features are actually
-	// taken from. In the future we may wish to do route construction within
-	// findPath, and avoid using ChannelEdgePolicy altogether.
-	pathEdges[len(pathEdges)-1].ToNodeFeatures = features
-
 	log.Debugf("Found route: probability=%v, hops=%v, fee=%v",
 		distance[source].probability, len(pathEdges),
 		distance[source].amountToReceive-amt)
 
-	return pathEdges, nil
+	var (
+		hops = make([]*route.Hop, len(pathEdges))
+
+		totalTimeLock int32
+		totalAmt      lnwire.MilliSatoshi
+	)
+
+	for nodeIdx := len(pathEdges) - 1; nodeIdx >= 0; nodeIdx-- {
+		var (
+			currentNodeWithDist = pathEdges[nodeIdx]
+			edge                = currentNodeWithDist.nextHop
+			nextNode            = edge.ToNodePubKey()
+		)
+
+		// For the final hop, use the previously constructed hop
+		// instance.
+		if nextNode == target {
+			finalHop.ChannelID = edge.ChannelID
+
+			hops[nodeIdx] = &finalHop
+
+			// Set the amount and timelock for the hop paying to the
+			// final hop.
+			totalTimeLock = int32(finalHop.OutgoingTimeLock)
+			totalAmt = finalHop.AmtToForward
+
+			continue
+		}
+
+		// Determine tlv payload support.
+		tlvPayload := edge.ToNodeFeatures != nil &&
+			edge.ToNodeFeatures.HasFeature(
+				lnwire.TLVOnionPayloadOptional,
+			)
+
+		// Build hop structure for the intermediate hop.
+		intermediateHop := &route.Hop{
+			PubKeyBytes:      nextNode,
+			ChannelID:        edge.ChannelID,
+			AmtToForward:     totalAmt,
+			OutgoingTimeLock: uint32(totalTimeLock),
+			LegacyPayload:    !tlvPayload,
+		}
+
+		hops[nodeIdx] = intermediateHop
+
+		// Update the amount and timelock for the hop paying to this
+		// hop.
+		next := pathEdges[nodeIdx+1]
+
+		totalTimeLock = next.incomingCltv
+		totalAmt = next.amountToReceive
+	}
+
+	// Construct the full route structure.
+	route, err := route.NewRouteFromHops(
+		totalAmt, uint32(totalTimeLock), route.Vertex(source),
+		hops,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return route, nil
 }
 
 // getProbabilityBasedDist converts a weight into a distance that takes into

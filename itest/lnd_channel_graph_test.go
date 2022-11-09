@@ -335,16 +335,29 @@ func testGraphTopologyNtfns(ht *lntest.HarnessTest, pinned bool) {
 
 	// For the final portion of the test, we'll ensure that once a new node
 	// appears in the network, the proper notification is dispatched. Note
-	// that a node that does not have any channels open is ignored, so first
-	// we disconnect Alice and Bob, open a channel between Bob and Carol,
-	// and finally connect Alice to Bob again.
-	ht.DisconnectNodes(alice, bob)
+	// that a node that does not have any channels open is ignored, so
+	// first we disconnect Alice and Bob, open a channel between Bob and
+	// Carol, and finally connect Alice to Bob again.
+	ht.DisconnectNodes(bob, alice)
+
+	// Since Alice and Bob has a permanent connection, the above
+	// disconnection won't be enough as Alice will try to reconnect to Bob
+	// again. Atm, it seems nothing is stopping the reconnection. So we
+	// need to shutdown Alice here.
+	//
+	// TODO(yy): clearly define what `disconnectpeer` rpc is responsible
+	// for and its effect. If we disconnect a peer, we shouldn't allow the
+	// peer to connect to us again.
+	restartAlice := ht.SuspendNode(alice)
 
 	carol := ht.NewNode("Carol", nil)
 	ht.ConnectNodes(bob, carol)
 	chanPoint = ht.OpenChannel(
 		bob, carol, lntest.OpenChannelParams{Amt: chanAmt},
 	)
+
+	// Restart Alice so she can receive the channel updates from Bob.
+	require.NoError(ht, restartAlice(), "failed to restart Alice")
 
 	// Reconnect Alice and Bob. This should result in the nodes syncing up
 	// their respective graph state, with the new addition being the

@@ -103,7 +103,8 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 			runCPFP(net, tt, wo, carol)
 		},
 	}, {
-		name: "psbt",
+		name:       "psbt",
+		randomSeed: true,
 		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
 			runPsbtChanFunding(net, tt, carol, wo)
 			runSignPsbtSegWitV0P2WKH(tt, net, wo)
@@ -124,8 +125,9 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 			runSignVerifyMessage(tt, net, wo)
 		},
 	}, {
-		name:      "taproot",
-		sendCoins: true,
+		name:       "taproot",
+		sendCoins:  true,
+		randomSeed: true,
 		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
 			ctxt, cancel := context.WithTimeout(
 				ctxb, 3*defaultTimeout,

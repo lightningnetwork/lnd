@@ -13,6 +13,9 @@ const PollInterval = 200 * time.Millisecond
 // timing doesn't always line up well when running integration tests with
 // several running lnd nodes. This function gives callers a way to assert that
 // some property is upheld within a particular time frame.
+//
+// TODO(yy): build a counter here so we know how many times we've tried the
+// `pred`.
 func Predicate(pred func() bool, timeout time.Duration) error {
 	exitTimer := time.After(timeout)
 	result := make(chan bool, 1)

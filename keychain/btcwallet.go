@@ -473,7 +473,7 @@ func (b *BtcWalletKeyRing) SignMessageSchnorr(keyLoc KeyLocator,
 	}
 
 	if len(taprootTweak) > 0 {
-		privKey = txscript.TweakTaprootPrivKey(privKey, taprootTweak)
+		privKey = txscript.TweakTaprootPrivKey(*privKey, taprootTweak)
 	}
 
 	var digest []byte

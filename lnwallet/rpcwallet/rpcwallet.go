@@ -293,9 +293,10 @@ func (r *RPCKeyRing) FinalizePsbt(packet *psbt.Packet, _ string) error {
 				Value:    int64(utxo.Value),
 				PkScript: utxo.PkScript,
 			},
-			HashType:   in.SighashType,
-			SigHashes:  sigHashes,
-			InputIndex: idx,
+			HashType:          in.SighashType,
+			SigHashes:         sigHashes,
+			InputIndex:        idx,
+			PrevOutputFetcher: prevOutFetcher,
 		}
 
 		// Find out what UTXO we are signing. Wallets _should_ always

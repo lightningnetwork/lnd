@@ -1,9 +1,11 @@
 package htlcswitch
 
 import (
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -67,6 +69,25 @@ type dustHandler interface {
 	// getDustClosure returns a closure that can evaluate whether a passed
 	// HTLC is dust.
 	getDustClosure() dustClosure
+}
+
+// BlindHopProcessor provides the functionality necessary for
+// the channel link to process hops as part of a blinded route.
+type BlindHopProcessor interface {
+	// // DeriveBlindingFactor...
+	// // Note(8/8/22): This is not needed with Elle's current implementation.
+	// DeriveBlindingFactor(*btcec.PrivateKey, *btcec.PublicKey) (
+	// 	*btcec.PrivateKey, error)
+
+	// DecryptBlindedPayload decrypts the route blinding payload.
+	DecryptBlindedPayload(nodeID keychain.SingleKeyECDH, blindingPoint *btcec.PublicKey,
+		payload []byte) ([]byte, error)
+
+	// NextBlindingPoint computes the ephemeral blinding point
+	// that the next hop (our downstream peer) in a blinded route
+	// will need in order to decrypt the onion.
+	NextBlindingPoint(keychain.SingleKeyECDH, *btcec.PublicKey) (
+		*btcec.PublicKey, error)
 }
 
 // scidAliasHandler is an interface that the ChannelLink implements so it can

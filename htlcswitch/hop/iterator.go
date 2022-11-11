@@ -243,6 +243,10 @@ type DecodeHopIteratorRequest struct {
 	OnionReader  io.Reader
 	RHash        []byte
 	IncomingCltv uint32
+
+	// An ephemeral public key which is used to decrypt the onion
+	// when forwarding in the blinded portion of a route.
+	BlindingPoint *btcec.PublicKey
 }
 
 // DecodeHopIteratorResponse encapsulates the outcome of a batched sphinx onion
@@ -299,7 +303,7 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 		}
 
 		err = tx.ProcessOnionPacket(
-			seqNum, onionPkt, req.RHash, req.IncomingCltv, nil,
+			seqNum, onionPkt, req.RHash, req.IncomingCltv, req.BlindingPoint,
 		)
 		switch err {
 		case nil:

@@ -167,6 +167,98 @@ type BlindHopPayload struct {
 	// AllowedFeatures    *record.AllowedFeatures
 }
 
+const (
+	// feeRateParts is the total number of parts used to express fee rates.
+	feeRateParts = 1000000
+)
+
+// ForwardingInfo returns the basic parameters required for HTLC forwarding
+// in a blinded route, e.g. amount, cltv, and next hop.
+func (b *BlindHopPayload) ForwardingInfo(incomingAmt lnwire.MilliSatoshi,
+	incomingTimelock uint32) ForwardingInfo {
+
+	return ForwardingInfo{
+		Network: BitcoinNetwork,
+		NextHop: b.NextHop, // Assumes the next channel ID is given.
+		// TODO(11/15/22): Do not assume that the next hop will be
+		// specified by short_channel_id. Add support for forwarding to
+		// a node_id (convert node_id --> scid)
+		// NextHop: computeNextHop(b),
+		AmountToForward: computeAmountToForward(incomingAmt, b.PaymentRelay),
+		OutgoingCTLV:    computeOutgoingCltv(incomingTimelock, b.PaymentRelay),
+	}
+}
+
+// computeAmountToForward computes the amount to forward for HTLCs
+// processed as part of a blinded route.
+// QUESTION(10/17/22): Should there be something apart from the function
+// signature to indicate these are to be used for blinded hops?
+func computeAmountToForward(incomingAmt lnwire.MilliSatoshi,
+	paymentRelay *record.PaymentRelay) lnwire.MilliSatoshi {
+
+	var base, rate uint64
+	if paymentRelay != nil {
+		base = uint64(paymentRelay.BaseFee)
+		rate = uint64(paymentRelay.FeeRate) //* 1000 // ppm
+	}
+
+	amt := uint64(incomingAmt)
+
+	// NOTE(10/17/22): In normal routing, we are given the amount to
+	// forward directly in the onion payload. We need only verify that
+	// the difference between incoming and outgoing amounts satisfies
+	// our fee requirement.
+	//
+	// When forwarding a payment, the fee we take is calculated, not on
+	// the incoming amount, but rather on the amount we forward. We charge
+	// fees based on our own liquidity we are forwarding downstream.
+	// With route blinding, we are NOT given the amount to forward.
+	// This unintuitive looking formula comes from the fact that without
+	// the amount to forward, we cannot compute the fees taken directly.
+	//
+	// The amount to be forwarded can be computed as follows:
+	//
+	// 	amt_to_forward = incoming_amount - total_fees
+	// 	total_fees = base_fee + amt_to_forward*(fee_rate/1000000)
+	//
+	// After substitution and some massaging you will get:
+	//
+	// 	amt_to_forward = (incoming_amount - base_fee) /
+	//                       ( 1 + fee_rate / 1000000 )
+	//
+	// From there we use a ceiling formula for integer division so that
+	// we always round up, otherwise the sender may receive slightly
+	// less than intended:
+	//
+	// 	ceil(a/b) = (a + b - 1)/(b)
+	//
+	fwdAmount := ((amt-base)*feeRateParts + feeRateParts + rate - 1) /
+		(feeRateParts + rate)
+	// fwdAmount := divideCeil(
+	// 	feeRateParts*(amt-base),
+	// 	feeRateParts+rate,
+	// )
+
+	return lnwire.MilliSatoshi(fwdAmount)
+}
+
+// // divideCeil divides dividend by factor and rounds the result up.
+// func divideCeil(dividend, factor uint64) uint64 {
+// 	return (dividend + factor - 1) / factor
+// }
+
+// computeOutgoingCltv computes the outgoing timelock for HTLCs
+// processed as part of a blinded route.
+func computeOutgoingCltv(incomingTimelock uint32,
+	paymentRelay *record.PaymentRelay) uint32 {
+
+	if paymentRelay == nil {
+		return incomingTimelock
+	}
+
+	return incomingTimelock - uint32(paymentRelay.CltvExpiryDelta)
+}
+
 // NewBlindHopPayloadFromReader parses a route blinding payload from
 // the passed io.Reader. The reader should correspond to the bytes
 // encapsulated in the encrypted route blinding payload after they

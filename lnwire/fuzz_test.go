@@ -264,6 +264,17 @@ func FuzzError(f *testing.F) {
 	})
 }
 
+func FuzzWarning(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with MsgWarning.
+		data = prefixWithMsgType(data, MsgWarning)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}
+
 func FuzzFundingCreated(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgFundingCreated.

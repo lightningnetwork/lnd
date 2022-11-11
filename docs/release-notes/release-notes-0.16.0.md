@@ -148,6 +148,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   of using a comma separated list of
   values](https://github.com/lightningnetwork/lnd/pull/7207).
 
+* [Encoding/decoding support for OpenChannel2 and
+  AcceptChannel2](https://github.com/lightningnetwork/lnd/pull/7145).
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

@@ -148,7 +148,7 @@ var addHoldInvoiceCommand = cli.Command{
 	Add a new invoice, expressing intent for a future payment.
 
 	Invoices without an amount can be created by not supplying any
-	parameters or providing an amount of 0. These invoices allow the payee
+	parameters or providing an amount of 0. These invoices allow the payer
 	to specify the amount of satoshis they wish to send.`,
 	ArgsUsage: "hash [amt]",
 	Flags: []cli.Flag{

@@ -90,6 +90,13 @@ func openChannelAndAssert(t *harnessTest, net *lntest.NetworkHarness,
 		"unable to assert channel existence",
 	)
 
+	// They should also notice this channel from topology subscription.
+	err = alice.WaitForNetworkChannelOpen(fundingChanPoint)
+	require.NoError(t.t, err)
+
+	err = bob.WaitForNetworkChannelOpen(fundingChanPoint)
+	require.NoError(t.t, err)
+
 	return fundingChanPoint
 }
 

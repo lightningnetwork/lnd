@@ -39,6 +39,13 @@ var (
 	// byteOrder defines the endian-ness we use for encoding to and from
 	// buffers.
 	byteOrder = binary.BigEndian
+
+	// checkPeerFundingLockInterval is used when we are waiting for the
+	// peer to send us FundingLocked. We will check every 1 second to see
+	// if the message is received.
+	//
+	// NOTE: for itest, this value is changed to 10ms.
+	checkPeerFundingLockInterval = 1 * time.Second
 )
 
 // WriteOutpoint writes an outpoint to an io.Writer. This is not the same as
@@ -1022,9 +1029,9 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		if !received {
 			// We haven't received FundingLocked, so we'll continue
 			// to the next iteration of the loop after sleeping for
-			// one second.
+			// checkPeerFundingLockInterval.
 			select {
-			case <-time.After(1 * time.Second):
+			case <-time.After(checkPeerFundingLockInterval):
 			case <-f.quit:
 				return ErrFundingManagerShuttingDown
 			}

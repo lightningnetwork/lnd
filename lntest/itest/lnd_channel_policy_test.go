@@ -739,6 +739,10 @@ func testUpdateChannelPolicyForPrivateChannel(net *lntest.NetworkHarness,
 	)
 	defer closeChannelAndAssert(t, net, net.Bob, chanPointBobCarol, false)
 
+	// Carol should be aware of the channel between Alice and Bob.
+	err = carol.WaitForNetworkChannelOpen(chanPointAliceBob)
+	require.NoError(t.t, err)
+
 	// Get Bob's funding point.
 	bobChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointBobCarol)
 	require.NoError(t.t, err, "unable to get txid")

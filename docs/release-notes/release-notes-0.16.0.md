@@ -131,6 +131,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 * [Fixed a bug where paying an invoice with a malformed route hint triggers a
   never-ending retry loop](https://github.com/lightningnetwork/lnd/pull/6766)
 
+* [Migrated from go-fuzz to Go 1.18's new standard fuzz testing
+  library](https://github.com/lightningnetwork/lnd/pull/7127).
+
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
   flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the
@@ -226,6 +229,7 @@ to refactor the itest for code health and maintenance.
 
 * andreihod
 * Carla Kirk-Cohen
+* Conner Babinchak
 * cutiful
 * Daniel McNally
 * Elle Mouton

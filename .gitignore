@@ -49,12 +49,6 @@ cmd/lncli/lncli
 mobile/build
 mobile/*_generated.go
 
-# Files created for fuzzing.
-fuzz/**/*-fuzz.zip
-fuzz/**/corpus
-fuzz/**/crashers
-fuzz/**/suppressions
-
 # vim
 *.swp
 

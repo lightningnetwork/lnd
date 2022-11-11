@@ -82,18 +82,6 @@ $(GOIMPORTS_BIN):
 	@$(call print, "Installing goimports.")
 	cd $(TOOLS_DIR); go install -trimpath $(GOIMPORTS_PKG)
 
-$(GOFUZZ_BIN):
-	@$(call print, "Installing go-fuzz.")
-	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_PKG)
-
-$(GOFUZZ_BUILD_BIN):
-	@$(call print, "Installing go-fuzz-build.")
-	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_BUILD_PKG)
-
-$(GOFUZZ_DEP_BIN):
-	@$(call print, "Installing go-fuzz-dep.")
-	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_DEP_PKG)
-
 # ============
 # INSTALLATION
 # ============
@@ -228,9 +216,9 @@ flakehunter-parallel:
 # FUZZING
 # =============
 
-fuzz: $(GOFUZZ_BIN)
+fuzz:
 	@$(call print, "Fuzzing packages '$(FUZZPKG)'.")
-	scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_NUM_PROCESSES)" 
+	scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_NUM_PROCESSES)"
 
 # =========
 # UTILITIES

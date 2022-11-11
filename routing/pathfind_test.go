@@ -774,6 +774,9 @@ func TestPathFinding(t *testing.T) {
 		name: "path finding with additional edges",
 		fn:   runPathFindingWithAdditionalEdges,
 	}, {
+		name: "path finding with redundant additional edges",
+		fn:   runPathFindingWithRedundantAdditionalEdges,
+	}, {
 		name: "new route path too long",
 		fn:   runNewRoutePathTooLong,
 	}, {
@@ -1288,6 +1291,58 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	path, err = find(&restrictions)
 	require.NoError(t, err, "path should have been found")
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
+}
+
+// runPathFindingWithRedundantAdditionalEdges asserts that we are able to find
+// paths to nodes ignoring additional edges that are already known by self node.
+func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
+	t.Helper()
+
+	var realChannelID uint64 = 3145
+	var hintChannelID uint64 = 1618
+
+	testChannels := []*testChannel{
+		symmetricTestChannel("alice", "bob", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 400,
+			MinHTLC: 1,
+			MaxHTLC: 100000000,
+		}, realChannelID),
+	}
+
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "alice")
+
+	target := ctx.keyFromAlias("bob")
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+
+	// Create the channel edge going from alice to bob and include it in
+	// our map of additional edges.
+	aliceToBob := &channeldb.CachedEdgePolicy{
+		ToNodePubKey: func() route.Vertex {
+			return target
+		},
+		ToNodeFeatures:            lnwire.EmptyFeatureVector(),
+		ChannelID:                 hintChannelID,
+		FeeBaseMSat:               1,
+		FeeProportionalMillionths: 1000,
+		TimeLockDelta:             9,
+	}
+
+	additionalEdges := map[route.Vertex][]*channeldb.CachedEdgePolicy{
+		ctx.source: {aliceToBob},
+	}
+
+	path, err := dbFindPath(
+		ctx.graph, additionalEdges, ctx.bandwidthHints,
+		&ctx.restrictParams, &ctx.pathFindingConfig, ctx.source, target,
+		paymentAmt, ctx.timePref, 0,
+	)
+
+	require.NoError(t, err, "unable to find path to bob")
+	require.Len(t, path, 1)
+
+	require.Equal(t, realChannelID, path[0].ChannelID,
+		"additional edge for known edge wasn't ignored")
 }
 
 // TestNewRoute tests whether the construction of hop payloads by newRoute

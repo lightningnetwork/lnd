@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
 )
 
@@ -232,6 +234,34 @@ var mppTestCases = []mppSendTestCase{
 		maxParts:     1000,
 		maxShardSize: 10_000,
 	},
+}
+
+// TestBadFirstHopHint tests that a payment with a first hop hint with an
+// invalid channel id still works since the node already knows its channel and
+// doesn't need hints.
+func TestBadFirstHopHint(t *testing.T) {
+	t.Parallel()
+
+	ctx := newIntegratedRoutingContext(t)
+
+	onePathGraph(ctx.graph)
+
+	sourcePubKey, _ := btcec.ParsePubKey(ctx.source.pubkey[:])
+
+	hopHint := zpay32.HopHint{
+		NodeID:                    sourcePubKey,
+		ChannelID:                 66,
+		FeeBaseMSat:               0,
+		FeeProportionalMillionths: 0,
+		CLTVExpiryDelta:           100,
+	}
+
+	ctx.routeHints = [][]zpay32.HopHint{{hopHint}}
+
+	ctx.amt = lnwire.NewMSatFromSatoshis(100)
+	_, err := ctx.testPayment(1)
+
+	require.NoError(t, err, "payment failed")
 }
 
 // TestMppSend tests that a payment can be completed using multiple shards.

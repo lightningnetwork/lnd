@@ -1151,6 +1151,21 @@ func assertPsbtSpend(ctx context.Context, t *harnessTest,
 	finalTx, err := psbt.Extract(signedPacket)
 	require.NoError(t.t, err)
 
+	// Make sure we can also sign a second time. This makes sure any key
+	// tweaking that happened for the signing didn't affect any keys in the
+	// cache.
+	signResp2, err := alice.WalletKitClient.SignPsbt(
+		ctx, &walletrpc.SignPsbtRequest{
+			FundedPsbt: buf.Bytes(),
+		},
+	)
+	require.NoError(t.t, err)
+	signedPacket2, err := psbt.NewFromRawBytes(
+		bytes.NewReader(signResp2.SignedPsbt), false,
+	)
+	require.NoError(t.t, err)
+	verifySigned(signedPacket2)
+
 	buf.Reset()
 	err = finalTx.Serialize(&buf)
 	require.NoError(t.t, err)

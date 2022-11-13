@@ -28,5 +28,5 @@ const (
 
 	// NodeStartTimeout is the timeout value when waiting for a node to
 	// become fully started.
-	NodeStartTimeout = time.Second * 60
+	NodeStartTimeout = time.Second * 120
 )

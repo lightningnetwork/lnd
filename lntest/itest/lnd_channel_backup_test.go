@@ -39,6 +39,10 @@ type (
 		password []byte, mnemonic []string) nodeRestorer
 )
 
+// revocationWindow is used when we specify the revocation window used when
+// restoring node.
+const revocationWindow = 100
+
 // chanRestoreScenario represents a test case used by testing the channel
 // restore methods.
 type chanRestoreScenario struct {
@@ -309,7 +313,8 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 				return func() *node.HarnessNode {
 					return st.RestoreNodeWithSeed(
 						"dave", nil, password, mnemonic,
-						"", 1000, backupSnapshot,
+						"", revocationWindow,
+						backupSnapshot,
 						copyPorts(oldNode),
 					)
 				}
@@ -341,7 +346,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 				return func() *node.HarnessNode {
 					newNode := st.RestoreNodeWithSeed(
 						"dave", nil, password, mnemonic,
-						"", 1000, nil,
+						"", revocationWindow, nil,
 						copyPorts(oldNode),
 					)
 
@@ -377,7 +382,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 				return func() *node.HarnessNode {
 					newNode := st.RestoreNodeWithSeed(
 						"dave", nil, password, mnemonic,
-						"", 1000, nil,
+						"", revocationWindow, nil,
 						copyPorts(oldNode),
 					)
 
@@ -665,10 +670,15 @@ func testChannelBackupRestoreLegacy(ht *lntemp.HarnessTest) {
 func testChannelBackupRestoreForceClose(ht *lntemp.HarnessTest) {
 	// Restore a channel that was force closed by dave just before going
 	// offline.
-	ht.Run("from backup file anchors", func(t *testing.T) {
+	success := ht.Run("from backup file anchors", func(t *testing.T) {
 		st := ht.Subtest(t)
 		runChanRestoreScenarioForceClose(st, false)
 	})
+
+	// Only run the second test if the first passed.
+	if !success {
+		return
+	}
 
 	// Restore a zero-conf anchors channel that was force closed by dave
 	// just before going offline.
@@ -1344,8 +1354,8 @@ func chanRestoreViaRPC(ht *lntemp.HarnessTest, password []byte,
 
 	return func() *node.HarnessNode {
 		newNode := ht.RestoreNodeWithSeed(
-			"dave", nil, password, mnemonic, "", 1000, nil,
-			copyPorts(oldNode),
+			"dave", nil, password, mnemonic, "", revocationWindow,
+			nil, copyPorts(oldNode),
 		)
 		req := &lnrpc.RestoreChanBackupRequest{Backup: backup}
 		newNode.RPC.RestoreChanBackups(req)

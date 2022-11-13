@@ -146,6 +146,12 @@ func (h *HarnessTest) EnsureConnected(a, b *node.HarnessNode) {
 	// connected to the peer.
 	errConnectionRequested := "connection request in progress"
 
+	// windowsErr is an error we've seen from windows build where
+	// connecting to an already connected node gives such error from the
+	// receiver side.
+	windowsErr := "An established connection was aborted by the software " +
+		"in your host machine."
+
 	tryConnect := func(a, b *node.HarnessNode) error {
 		bInfo := b.RPC.GetInfo()
 
@@ -166,14 +172,18 @@ func (h *HarnessTest) EnsureConnected(a, b *node.HarnessNode) {
 			return nil
 		}
 
-		// If the connection is in process, we return no error.
-		if strings.Contains(err.Error(), errConnectionRequested) {
-			return nil
-		}
-
 		// If the two are already connected, we return early with no
 		// error.
 		if strings.Contains(err.Error(), "already connected to peer") {
+			return nil
+		}
+
+		// Otherwise we log the error to console.
+		h.Logf("EnsureConnected %s=>%s got err: %v", a.Name(),
+			b.Name(), err)
+
+		// If the connection is in process, we return no error.
+		if strings.Contains(err.Error(), errConnectionRequested) {
 			return nil
 		}
 
@@ -181,6 +191,16 @@ func (h *HarnessTest) EnsureConnected(a, b *node.HarnessNode) {
 		// the middle of a previous node disconnection, e.g., a restart
 		// from one of the nodes.
 		if strings.Contains(err.Error(), "connection refused") {
+			return nil
+		}
+
+		// Check for windows error. If Alice connects to Bob, Alice
+		// will throw "i/o timeout" and Bob will give windowsErr.
+		if strings.Contains(err.Error(), windowsErr) {
+			return nil
+		}
+
+		if strings.Contains(err.Error(), "i/o timeout") {
 			return nil
 		}
 

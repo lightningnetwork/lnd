@@ -186,11 +186,6 @@ func (h *HarnessTest) SetupStandbyNodes() {
 	h.Alice = h.NewNode("Alice", lndArgs)
 	h.Bob = h.NewNode("Bob", lndArgs)
 
-	// First, make a connection between the two nodes. This will wait until
-	// both nodes are fully started since the Connect RPC is guarded behind
-	// the server.Started() flag that waits for all subsystems to be ready.
-	h.ConnectNodes(h.Alice, h.Bob)
-
 	addrReq := &lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}

@@ -313,7 +313,7 @@ func (m *mppTestScenario) closeChannels() {
 	// active htlcs` or `link failed to shutdown` if we close the channel.
 	// We need to investigate the order of settling the payments and
 	// updating commitments to understand and fix .
-	time.Sleep(2 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	// Close all channels without mining the closing transactions.
 	m.ht.CloseChannelAssertPending(m.alice, m.channelPoints[0], false)

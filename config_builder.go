@@ -764,6 +764,9 @@ type DatabaseInstances struct {
 	// HeightHintDB is the database that stores height hints for spends.
 	HeightHintDB kvdb.Backend
 
+	// InvoicesDB is the database that stores invoices.
+	InvoicesDB channeldb.InvoicesDB
+
 	// MacaroonDB is the database that stores macaroon root keys.
 	MacaroonDB kvdb.Backend
 
@@ -914,6 +917,9 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	// channel state DB should be created here individually instead of just
 	// using the same struct (and DB backend) instance.
 	dbs.ChanStateDB = dbs.GraphDB
+
+	// InvoicesDB is implemented by channeldb.DB currently.
+	dbs.InvoicesDB = dbs.GraphDB
 
 	// Wrap the watchtower client DB and make sure we clean up.
 	if cfg.WtClient.Active {

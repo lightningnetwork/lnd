@@ -140,6 +140,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   and documentation to reflect
   this](https://github.com/lightningnetwork/lnd/pull/7142).
 
+* [Added missing wire tests for Warning
+  message](https://github.com/lightningnetwork/lnd/pull/7143).
+
 ## `lncli`
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
   flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the

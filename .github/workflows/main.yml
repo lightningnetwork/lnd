@@ -186,10 +186,10 @@ jobs:
           parallel: true
 
   ########################
-  # run integration tests
+  # run ubuntu integration tests
   ########################
-  integration-test:
-    name: run itests
+  ubuntu-integration-test:
+    name: run ubuntu itests
     runs-on: ubuntu-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     strategy:
@@ -230,16 +230,17 @@ jobs:
 
       - name: Zip log files on failure
         if: ${{ failure() }}
-        timeout-minutes: 1 # timeout after 1 minute
+        timeout-minutes: 5 # timeout after 5 minute
         run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v2.2.4
+        uses: actions/upload-artifact@v3
         if: ${{ failure() }}
         with:
           name: logs-itest-${{ matrix.name }}
           path: logs-itest-${{ matrix.name }}.zip
           retention-days: 5
+
 
   ########################
   # run windows integration test
@@ -258,15 +259,15 @@ jobs:
           go-version: '${{ env.GO_VERSION }}'
 
       - name: run itest
-        run: make itest-parallel windows=1 tranches=2 parallel=2
+        run: make itest-parallel windows=1 tranches=2 parallel=2 timeout=180m
 
       - name: Zip log files on failure
         if: ${{ failure() }}
-        timeout-minutes: 1 # timeout after 1 minute
+        timeout-minutes: 5 # timeout after 5 minute
         run: 7z a logs-itest-windows.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         if: ${{ failure() }}
         with:
           name: logs-itest-windows

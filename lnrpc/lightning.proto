@@ -3401,6 +3401,8 @@ message Invoice {
     repeated RouteHint route_hints = 14;
 
     // Whether this invoice should include routing hints for private channels.
+    // Note: When enabled, if value and value_msat are zero, a large number of
+    // hints with these channels can be included, which might not be desirable.
     bool private = 15;
 
     /*

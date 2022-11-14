@@ -11640,6 +11640,8 @@ type Invoice struct {
 	// invoice's destination.
 	RouteHints []*RouteHint `protobuf:"bytes,14,rep,name=route_hints,json=routeHints,proto3" json:"route_hints,omitempty"`
 	// Whether this invoice should include routing hints for private channels.
+	// Note: When enabled, if value and value_msat are zero, a large number of
+	// hints with these channels can be included, which might not be desirable.
 	Private bool `protobuf:"varint,15,opt,name=private,proto3" json:"private,omitempty"`
 	// The "add" index of this invoice. Each newly created invoice will increment
 	// this index making it monotonically increasing. Callers to the

@@ -64,7 +64,10 @@ var addInvoiceCommand = cli.Command{
 			Name: "private",
 			Usage: "encode routing hints in the invoice with " +
 				"private channels in order to assist the " +
-				"payer in reaching you",
+				"payer in reaching you. If amt and amt_msat " +
+				"are zero, a large number of hints with " +
+				"these channels can be included, which " +
+				"might not be desirable.",
 		},
 		cli.BoolFlag{
 			Name: "amp",

@@ -103,7 +103,7 @@ type InvoiceRegistry struct {
 
 	nextClientID uint32 // must be used atomically
 
-	cdb *channeldb.DB
+	db channeldb.InvoicesDB
 
 	// cfg contains the registry's configuration parameters.
 	cfg *RegistryConfig
@@ -151,11 +151,11 @@ type InvoiceRegistry struct {
 // wraps the persistent on-disk invoice storage with an additional in-memory
 // layer. The in-memory layer is in place such that debug invoices can be added
 // which are volatile yet available system wide within the daemon.
-func NewRegistry(cdb *channeldb.DB, expiryWatcher *InvoiceExpiryWatcher,
+func NewRegistry(db channeldb.InvoicesDB, expiryWatcher *InvoiceExpiryWatcher,
 	cfg *RegistryConfig) *InvoiceRegistry {
 
 	return &InvoiceRegistry{
-		cdb:                       cdb,
+		db:                        db,
 		notificationClients:       make(map[uint32]*InvoiceSubscription),
 		singleNotificationClients: make(map[uint32]*SingleInvoiceSubscription),
 		invoiceEvents:             make(chan *invoiceEvent, 100),
@@ -217,7 +217,7 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 		return nil
 	}
 
-	err := i.cdb.ScanInvoices(scanFunc, reset)
+	err := i.db.ScanInvoices(scanFunc, reset)
 	if err != nil {
 		return err
 	}
@@ -229,7 +229,7 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 	if len(removable) > 0 {
 		log.Infof("Attempting to delete %v canceled invoices",
 			len(removable))
-		if err := i.cdb.DeleteInvoice(removable); err != nil {
+		if err := i.db.DeleteInvoice(removable); err != nil {
 			log.Warnf("Deleting canceled invoices failed: %v", err)
 		} else {
 			log.Infof("Deleted %v canceled invoices",
@@ -476,12 +476,12 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 // deliverBacklogEvents will attempts to query the invoice database for any
 // notifications that the client has missed since it reconnected last.
 func (i *InvoiceRegistry) deliverBacklogEvents(client *InvoiceSubscription) error {
-	addEvents, err := i.cdb.InvoicesAddedSince(client.addIndex)
+	addEvents, err := i.db.InvoicesAddedSince(client.addIndex)
 	if err != nil {
 		return err
 	}
 
-	settleEvents, err := i.cdb.InvoicesSettledSince(client.settleIndex)
+	settleEvents, err := i.db.InvoicesSettledSince(client.settleIndex)
 	if err != nil {
 		return err
 	}
@@ -528,7 +528,7 @@ func (i *InvoiceRegistry) deliverBacklogEvents(client *InvoiceSubscription) erro
 func (i *InvoiceRegistry) deliverSingleBacklogEvents(
 	client *SingleInvoiceSubscription) error {
 
-	invoice, err := i.cdb.LookupInvoice(client.invoiceRef)
+	invoice, err := i.db.LookupInvoice(client.invoiceRef)
 
 	// It is possible that the invoice does not exist yet, but the client is
 	// already watching it in anticipation.
@@ -576,7 +576,7 @@ func (i *InvoiceRegistry) AddInvoice(invoice *channeldb.Invoice,
 	ref := channeldb.InvoiceRefByHash(paymentHash)
 	log.Debugf("Invoice%v: added with terms %v", ref, invoice.Terms)
 
-	addIndex, err := i.cdb.AddInvoice(invoice, paymentHash)
+	addIndex, err := i.db.AddInvoice(invoice, paymentHash)
 	if err != nil {
 		i.Unlock()
 		return 0, err
@@ -608,7 +608,7 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
 	// We'll check the database to see if there's an existing matching
 	// invoice.
 	ref := channeldb.InvoiceRefByHash(rHash)
-	return i.cdb.LookupInvoice(ref)
+	return i.db.LookupInvoice(ref)
 }
 
 // LookupInvoiceByRef looks up an invoice by the given reference, if found
@@ -616,7 +616,7 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (channeldb.Invoice,
 func (i *InvoiceRegistry) LookupInvoiceByRef(
 	ref channeldb.InvoiceRef) (channeldb.Invoice, error) {
 
-	return i.cdb.LookupInvoice(ref)
+	return i.db.LookupInvoice(ref)
 }
 
 // startHtlcTimer starts a new timer via the invoice registry main loop that
@@ -717,7 +717,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 	// no invoice update is performed, we can return early.
 	setID := (*channeldb.SetID)(invoiceRef.SetID())
 	var updated bool
-	invoice, err := i.cdb.UpdateInvoice(invoiceRef, setID,
+	invoice, err := i.db.UpdateInvoice(invoiceRef, setID,
 		func(invoice *channeldb.Invoice) (
 			*channeldb.InvoiceUpdateDesc, error) {
 
@@ -1020,7 +1020,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		resolution        HtlcResolution
 		updateSubscribers bool
 	)
-	invoice, err := i.cdb.UpdateInvoice(
+	invoice, err := i.db.UpdateInvoice(
 		ctx.invoiceRef(),
 		(*channeldb.SetID)(ctx.setID()),
 		func(inv *channeldb.Invoice) (
@@ -1248,7 +1248,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 
 	hash := preimage.Hash()
 	invoiceRef := channeldb.InvoiceRefByHash(hash)
-	invoice, err := i.cdb.UpdateInvoice(invoiceRef, nil, updateInvoice)
+	invoice, err := i.db.UpdateInvoice(invoiceRef, nil, updateInvoice)
 	if err != nil {
 		log.Errorf("SettleHodlInvoice with preimage %v: %v",
 			preimage, err)
@@ -1332,7 +1332,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 	}
 
 	invoiceRef := channeldb.InvoiceRefByHash(payHash)
-	invoice, err := i.cdb.UpdateInvoice(invoiceRef, nil, updateInvoice)
+	invoice, err := i.db.UpdateInvoice(invoiceRef, nil, updateInvoice)
 
 	// Implement idempotency by returning success if the invoice was already
 	// canceled.
@@ -1385,7 +1385,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 			deleteRef.PayAddr = &invoice.Terms.PaymentAddr
 		}
 
-		err = i.cdb.DeleteInvoice(
+		err = i.db.DeleteInvoice(
 			[]channeldb.InvoiceDeleteRef{deleteRef},
 		)
 		// If by any chance deletion failed, then log it instead of

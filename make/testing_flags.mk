@@ -9,11 +9,6 @@ NUM_ITEST_TRANCHES = 4
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
 POSTGRES_START_DELAY = 5
 
-# Build temp tests only. TODO(yy): remove.
-ifneq ($(temptest),)
-ITEST_FLAGS += -temptest=$(temptest)
-endif
-
 # If rpc option is set also add all extra RPC tags to DEV_TAGS
 ifneq ($(with-rpc),)
 DEV_TAGS += $(RPC_TAGS)

@@ -92,6 +92,11 @@ current gossip sync query status.
 * [Ensure that closing addresses match the node network for `OpenChannel` 
   requests](https://github.com/lightningnetwork/lnd/pull/7272)
 
+* The `SendCustomMessage` and `SubscribeCustomMessage` APIs can now be used to
+  send and receive custom messages below the custom range if lnd is built with
+  the `dev` tag, and configured to [opt into overriding a specific message 
+  type](https://github.com/lightningnetwork/lnd/pull/7153)
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

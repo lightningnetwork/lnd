@@ -993,7 +993,14 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 
 		if !received {
 			// We haven't received FundingLocked, so we'll continue
-			// to the next iteration of the loop.
+			// to the next iteration of the loop after sleeping for
+			// one second.
+			select {
+			case <-time.After(1 * time.Second):
+			case <-f.quit:
+				return ErrFundingManagerShuttingDown
+			}
+
 			return nil
 		}
 
@@ -2902,6 +2909,7 @@ func (f *Manager) receivedFundingLocked(node *btcec.PublicKey,
 
 	// Avoid a tight loop if peer is offline.
 	if _, err := f.waitForPeerOnline(node); err != nil {
+		log.Errorf("Wait for peer online failed: %v", err)
 		return false, err
 	}
 

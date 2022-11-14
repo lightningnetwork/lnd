@@ -247,6 +247,73 @@ const (
 	HtlcSetBlankModifier
 )
 
+// InvoicesDB defines the interface to for stores to implement for
+// invoice-related functionality.
+//
+// TODO(bitromortac): invert dependency relation between channeldb and invoices
+// and move to invoices.
+type InvoicesDB interface {
+	// ScanInvoices scans through all invoices and calls the passed scanFunc
+	// for for each invoice with its respective payment hash. Additionally a
+	// reset() closure is passed which is used to reset/initialize partial
+	// results.
+	ScanInvoices(scanFunc func(lntypes.Hash, *Invoice) error,
+		reset func()) error
+
+	// DeleteInvoice attempts to delete the passed invoices from the
+	// database.
+	DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error
+
+	// InvoicesAddedSince can be used by callers to seek into the event time
+	// series of all the invoices added in the database. The specified
+	// sinceAddIndex should be the highest add index that the caller knows
+	// of. This method will return all invoices with an add index greater
+	// than the specified sinceAddIndex.
+	//
+	// NOTE: The index starts from 1, as a result. We enforce that
+	// specifying a value below the starting index value is a noop.
+	InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error)
+
+	// InvoicesSettledSince can be used by callers to catch up any settled
+	// invoices they missed within the settled invoice time series. We'll
+	// return all known settled invoices that have a settle index higher
+	// than the passed sinceSettleIndex.
+	//
+	// NOTE: The index starts from 1, as a result. We enforce that
+	// specifying a value below the starting index value is a noop.
+	InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice,
+		error)
+
+	// LookupInvoice attempts to look up an invoice according to its 32 byte
+	// payment hash. If an invoice which can settle the HTLC identified by
+	// the passed payment hash isn't found, then an error is returned.
+	// Otherwise, the full invoice is returned. Before setting the incoming
+	// HTLC, the values SHOULD be checked to ensure the payer meets the
+	// agreed upon contractual terms of the payment.
+	LookupInvoice(ref InvoiceRef) (Invoice, error)
+
+	// AddInvoice inserts the targeted invoice into the database. If the
+	// invoice has *any* payment hashes which already exists within the
+	// database, then the insertion will be aborted and rejected due to the
+	// strict policy banning any duplicate payment hashes. A side effect of
+	// this function is that it sets AddIndex on newInvoice. The AddIndex is
+	// returned.
+	AddInvoice(newInvoice *Invoice,
+		paymentHash lntypes.Hash) (uint64, error)
+
+	// UpdateInvoice attempts to update an invoice corresponding to the
+	// passed payment hash. If an invoice matching the passed payment hash
+	// doesn't exist within the database, then the action will fail with a
+	// "not found" error. The fields to update are controlled by the
+	// supplied callback.
+	UpdateInvoice(ref InvoiceRef, setIDHint *SetID,
+		callback InvoiceUpdateCallback) (*Invoice,
+		error)
+}
+
+// Compile-time check that channeldb.DB implements InvoicesDB.
+var _ InvoicesDB = (*DB)(nil)
+
 // InvoiceRef is a composite identifier for invoices. Invoices can be referenced
 // by various combinations of payment hash and payment addr, in certain contexts
 // only some of these are known. An InvoiceRef and its constructors thus

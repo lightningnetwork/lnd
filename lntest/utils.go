@@ -27,10 +27,6 @@ const (
 	// noFeeLimitMsat is used to specify we will put no requirements on fee
 	// charged when choosing a route path.
 	noFeeLimitMsat = math.MaxInt64
-
-	// defaultPaymentTimeout specifies the default timeout in seconds when
-	// sending a payment.
-	defaultPaymentTimeout = 60
 )
 
 // CopyFile copies the file src to dest.

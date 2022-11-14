@@ -34,4 +34,7 @@ const (
 	// SqliteBusyTimeout is the maximum time that a call to the sqlite db
 	// will wait for the connection to become available.
 	SqliteBusyTimeout = time.Second * 10
+
+	// PaymentTimeout is the timeout used when sending payments.
+	PaymentTimeout = time.Second * 60
 )

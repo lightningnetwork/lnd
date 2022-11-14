@@ -1294,7 +1294,7 @@ func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
 	send := func(payReq string) {
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: payReq,
-			TimeoutSeconds: defaultPaymentTimeout,
+			TimeoutSeconds: int32(wait.PaymentTimeout.Seconds()),
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
 		stream := hn.RPC.SendPayment(req)
@@ -1310,7 +1310,7 @@ func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
 	}
 
 	// Wait for all payments to report the expected status.
-	timer := time.After(DefaultTimeout)
+	timer := time.After(wait.PaymentTimeout)
 	select {
 	case stream := <-results:
 		h.AssertPaymentStatusFromStream(stream, status)

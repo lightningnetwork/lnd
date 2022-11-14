@@ -948,7 +948,9 @@ func (h *HarnessTest) AssertNodesNumPendingOpenChannels(a, b *node.HarnessNode,
 func (h *HarnessTest) AssertPaymentStatusFromStream(stream rpc.PaymentClient,
 	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
 
-	return h.assertPaymentStatusWithTimeout(stream, status, DefaultTimeout)
+	return h.assertPaymentStatusWithTimeout(
+		stream, status, wait.PaymentTimeout,
+	)
 }
 
 // AssertPaymentSucceedWithTimeout asserts that a payment is succeeded within

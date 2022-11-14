@@ -714,6 +714,19 @@ func testUpdateChannelPolicyForPrivateChannel(ht *lntest.HarnessTest) {
 
 	// Alice pays the invoices. She will use the updated baseFeeMSat in the
 	// payment
+	//
+	// TODO(yy): we may get a flake saying the timeout checking the
+	// payment's state, which is due to slow round of HTLC settlement. An
+	// example log is shown below, where Alice sent RevokeAndAck to Bob,
+	// but it took Bob 7 seconds to reply back the final UpdateFulfillHTLC.
+	//
+	// 2022-11-14 06:23:59.774 PEER: Peer(Bob): Sending UpdateAddHTLC
+	// 2022-11-14 06:24:00.635 PEER: Peer(Bob): Sending CommitSig
+	// 2022-11-14 06:24:01.784 PEER: Peer(Bob): Sending RevokeAndAck
+	// 2022-11-14 06:24:08.464 PEER: Peer(Bob): Received UpdateFulfillHTLC
+	//
+	// 7 seconds is too long for a local test and this needs more
+	// investigation.
 	payReqs := []string{resp.PaymentRequest}
 	ht.CompletePaymentRequests(alice, payReqs)
 

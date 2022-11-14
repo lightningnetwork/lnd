@@ -106,6 +106,7 @@ func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 	ht.EnsureConnected(bob, alice)
 
 	// Here we wait for the channel to be active again.
+	ht.AssertChannelExists(alice, cpAB)
 	ht.AssertChannelExists(bob, cpAB)
 
 	// Now that the channel is active we make sure the test passes as
@@ -296,7 +297,8 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	restartAlice := ht.SuspendNode(alice)
 	require.NoError(ht, restartAlice(), "failed to restart alice")
 
-	// Make sure the channel is active from Bob's PoV.
+	// Make sure the channel is active from both Alice and Bob's PoV.
+	ht.AssertChannelExists(alice, cpAB)
 	ht.AssertChannelExists(bob, cpAB)
 
 	// Create a new interceptor as the old one has quit.

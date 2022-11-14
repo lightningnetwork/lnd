@@ -341,6 +341,9 @@ func runMultiHopSendToRoute(ht *lntest.HarnessTest, useGraphCache bool) {
 	)
 	defer ht.CloseChannel(carol, chanPointBob)
 
+	// Make sure Alice knows the channel between Bob and Carol.
+	ht.AssertTopologyChannelOpen(alice, chanPointBob)
+
 	// Create 5 invoices for Carol, which expect a payment from Alice for
 	// 1k satoshis with a different preimage each time.
 	const (

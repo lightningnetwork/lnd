@@ -223,6 +223,9 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
 	// backup.
 	ht.EnsureConnected(dave, carol)
 
+	// Once connected, give Dave some time to enable the channel again.
+	ht.AssertTopologyChannelOpen(dave, chanPoint)
+
 	// Finally, send payments from Dave to Carol, consuming Carol's
 	// remaining payment hashes.
 	ht.CompletePaymentRequestsNoWait(dave, carolPayReqs, chanPoint)
@@ -399,6 +402,9 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 	// Reconnect the peers after the restart that was needed for the db
 	// backup.
 	ht.EnsureConnected(dave, carol)
+
+	// Once connected, give Dave some time to enable the channel again.
+	ht.AssertTopologyChannelOpen(dave, chanPoint)
 
 	// Finally, send payments from Dave to Carol, consuming Carol's
 	// remaining payment hashes.
@@ -725,6 +731,9 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	// Reconnect the peers after the restart that was needed for the db
 	// backup.
 	ht.EnsureConnected(dave, carol)
+
+	// Once connected, give Dave some time to enable the channel again.
+	ht.AssertTopologyChannelOpen(dave, chanPoint)
 
 	// Finally, send payments from Dave to Carol, consuming Carol's
 	// remaining payment hashes.

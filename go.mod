@@ -16,7 +16,6 @@ require (
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.0
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f
 	github.com/davecgh/go-spew v1.1.1
-	github.com/dvyukov/go-fuzz v0.0.0-20210602112143-b1f3d6f4ef4e
 	github.com/go-errors/errors v1.0.1
 	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/websocket v1.4.2

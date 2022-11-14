@@ -6,17 +6,12 @@ TOOLS_DIR := tools
 BTCD_PKG := github.com/btcsuite/btcd
 GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
-GOFUZZ_BUILD_PKG := github.com/dvyukov/go-fuzz/go-fuzz-build
-GOFUZZ_PKG := github.com/dvyukov/go-fuzz/go-fuzz
-GOFUZZ_DEP_PKG := github.com/dvyukov/go-fuzz/go-fuzz-dep
 
 GO_BIN := ${GOPATH}/bin
 BTCD_BIN := $(GO_BIN)/btcd
 GOIMPORTS_BIN := $(GO_BIN)/gosimports
 GOMOBILE_BIN := GO111MODULE=off $(GO_BIN)/gomobile
 GOACC_BIN := $(GO_BIN)/go-acc
-GOFUZZ_BUILD_BIN := $(GO_BIN)/go-fuzz-build
-GOFUZZ_BIN := $(GO_BIN)/go-fuzz
 
 MOBILE_BUILD_DIR :=${GOPATH}/src/$(MOBILE_PKG)/build
 IOS_BUILD_DIR := $(MOBILE_BUILD_DIR)/ios
@@ -86,18 +81,6 @@ $(BTCD_BIN):
 $(GOIMPORTS_BIN):
 	@$(call print, "Installing goimports.")
 	cd $(TOOLS_DIR); go install -trimpath $(GOIMPORTS_PKG)
-
-$(GOFUZZ_BIN):
-	@$(call print, "Installing go-fuzz.")
-	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_PKG)
-
-$(GOFUZZ_BUILD_BIN):
-	@$(call print, "Installing go-fuzz-build.")
-	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_BUILD_PKG)
-
-$(GOFUZZ_DEP_BIN):
-	@$(call print, "Installing go-fuzz-dep.")
-	cd $(TOOLS_DIR); go install -trimpath $(GOFUZZ_DEP_PKG)
 
 # ============
 # INSTALLATION
@@ -232,13 +215,10 @@ flakehunter-parallel:
 # =============
 # FUZZING
 # =============
-fuzz-build: $(GOFUZZ_BUILD_BIN) $(GOFUZZ_DEP_BIN)
-	@$(call print, "Creating fuzz harnesses for packages '$(FUZZPKG)'.")
-	scripts/fuzz.sh build "$(FUZZPKG)"
 
-fuzz-run: $(GOFUZZ_BIN)
+fuzz:
 	@$(call print, "Fuzzing packages '$(FUZZPKG)'.")
-	scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_TEST_TIMEOUT)" "$(FUZZ_NUM_PROCESSES)" "$(FUZZ_BASE_WORKDIR)"
+	scripts/fuzz.sh run "$(FUZZPKG)" "$(FUZZ_TEST_RUN_TIME)" "$(FUZZ_NUM_PROCESSES)"
 
 # =========
 # UTILITIES

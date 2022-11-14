@@ -2815,12 +2815,12 @@ func (f *Manager) handleFundingConfirmation(
 			"%v", err)
 	}
 
+	// Update the confirmed funding transaction label.
+	f.makeLabelForTx(completeChan)
+
 	// Inform the ChannelNotifier that the channel has transitioned from
 	// pending open to open.
 	f.cfg.NotifyOpenChannelEvent(completeChan.FundingOutpoint)
-
-	// Update the confirmed funding transaction label.
-	f.makeLabelForTx(completeChan)
 
 	// Close the discoverySignal channel, indicating to a separate
 	// goroutine that the channel now is marked as open in the database

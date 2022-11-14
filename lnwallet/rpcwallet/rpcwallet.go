@@ -139,12 +139,15 @@ func (r *RPCKeyRing) SendOutputs(outputs []*wire.TxOut,
 	// We know at this point that we only have inputs from our own wallet.
 	// So we can just compute the input script using the remote signer.
 	outputFetcher := lnwallet.NewWalletPrevOutputFetcher(r.WalletController)
-	signDesc := input.SignDescriptor{
-		HashType:          txscript.SigHashAll,
-		SigHashes:         txscript.NewTxSigHashes(tx, outputFetcher),
-		PrevOutputFetcher: outputFetcher,
-	}
 	for i, txIn := range tx.TxIn {
+		signDesc := input.SignDescriptor{
+			HashType: txscript.SigHashAll,
+			SigHashes: txscript.NewTxSigHashes(
+				tx, outputFetcher,
+			),
+			PrevOutputFetcher: outputFetcher,
+		}
+
 		// We can only sign this input if it's ours, so we'll ask the
 		// watch-only wallet if it can map this outpoint into a coin we
 		// own. If not, then we can't continue because our wallet state
@@ -290,9 +293,10 @@ func (r *RPCKeyRing) FinalizePsbt(packet *psbt.Packet, _ string) error {
 				Value:    int64(utxo.Value),
 				PkScript: utxo.PkScript,
 			},
-			HashType:   in.SighashType,
-			SigHashes:  sigHashes,
-			InputIndex: idx,
+			HashType:          in.SighashType,
+			SigHashes:         sigHashes,
+			InputIndex:        idx,
+			PrevOutputFetcher: prevOutFetcher,
 		}
 
 		// Find out what UTXO we are signing. Wallets _should_ always

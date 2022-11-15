@@ -107,7 +107,7 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
 	// Create a rejection response which we can use for the cases where we
 	// reject the channel.
 	rejectChannel := NewChannelAcceptResponse(
-		false, errChannelRejected, nil, 0, 0, 0, 0, 0, 0, false,
+		false, errChannelRejected, nil, 0, 0, 0, 0, 0, 0, 0, false,
 	)
 
 	// Send the request to the newRequests channel.
@@ -426,6 +426,15 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 				uint16(resp.CsvDelay),
 				uint16(resp.MaxHtlcCount),
 				uint16(resp.MinAcceptDepth),
+
+				// For now we always return a funding amount of
+				// 0, since the RPC acceptor can't set a funding
+				// amount yet.
+				//
+				// TODO(morehouse): Add FundingAmount to
+				// lnrpc.ChannelAcceptResponse and use it here.
+				0,
+
 				btcutil.Amount(resp.ReserveSat),
 				lnwire.MilliSatoshi(resp.InFlightMaxMsat),
 				lnwire.MilliSatoshi(resp.MinHtlcIn),

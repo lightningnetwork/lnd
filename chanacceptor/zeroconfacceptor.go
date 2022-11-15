@@ -50,7 +50,7 @@ func (z *ZeroConfAcceptor) Accept(
 	if z.chainedAcceptor.numAcceptors() == 0 && zeroConfSet {
 		// Deny the channel open request.
 		rejectChannel := NewChannelAcceptResponse(
-			false, nil, nil, 0, 0, 0, 0, 0, 0, false,
+			false, nil, nil, 0, 0, 0, 0, 0, 0, 0, false,
 		)
 		return rejectChannel
 	}

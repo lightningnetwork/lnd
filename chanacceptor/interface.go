@@ -158,6 +158,11 @@ type ChannelAcceptResponse struct {
 	// channel was accepted, this value will be nil.
 	ChanAcceptError
 
+	// FundingAmount is the number of satoshis we will contribute to the
+	// channel. This is only used when responding to an OpenChannel2
+	// message.
+	FundingAmount btcutil.Amount
+
 	// UpfrontShutdown is the address that we will set as our upfront
 	// shutdown address.
 	UpfrontShutdown lnwire.DeliveryAddress
@@ -165,8 +170,9 @@ type ChannelAcceptResponse struct {
 	// CSVDelay is the csv delay we require for the remote peer.
 	CSVDelay uint16
 
-	// Reserve is the amount that require the remote peer hold in reserve
-	// on the channel.
+	// Reserve is the amount we require the remote peer to hold in reserve
+	// on the channel. This is only used when responding to an OpenChannel
+	// message.
 	Reserve btcutil.Amount
 
 	// InFlightTotal is the maximum amount that we allow the remote peer to
@@ -196,10 +202,11 @@ type ChannelAcceptResponse struct {
 // error.
 func NewChannelAcceptResponse(accept bool, acceptErr error,
 	upfrontShutdown lnwire.DeliveryAddress, csvDelay, htlcLimit,
-	minDepth uint16, reserve btcutil.Amount, inFlight,
+	minDepth uint16, fundingAmount, reserve btcutil.Amount, inFlight,
 	minHtlcIn lnwire.MilliSatoshi, zeroConf bool) *ChannelAcceptResponse {
 
 	resp := &ChannelAcceptResponse{
+		FundingAmount:   fundingAmount,
 		UpfrontShutdown: upfrontShutdown,
 		CSVDelay:        csvDelay,
 		Reserve:         reserve,

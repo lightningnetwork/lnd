@@ -14,6 +14,7 @@ const (
 	fieldCSV             = "csv delay"
 	fieldHtlcLimit       = "htlc limit"
 	fieldMinDep          = "min depth"
+	fieldFundAmt         = "funding amount"
 	fieldReserve         = "reserve"
 	fieldMinIn           = "min htlc in"
 	fieldInFlightTotal   = "in flight total"
@@ -134,6 +135,15 @@ func mergeResponse(current,
 	if current.ZeroConf && current.MinAcceptDepth != 0 {
 		return current, errZeroConf
 	}
+
+	fundAmt, err := mergeInt64(
+		fieldFundAmt, int64(current.FundingAmount),
+		int64(newValue.FundingAmount),
+	)
+	if err != nil {
+		return current, err
+	}
+	current.FundingAmount = btcutil.Amount(fundAmt)
 
 	reserve, err := mergeInt64(
 		fieldReserve, int64(current.Reserve), int64(newValue.Reserve),

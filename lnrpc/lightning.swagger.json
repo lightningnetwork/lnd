@@ -1719,6 +1719,22 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "creation_date_start",
+            "description": "If set, returns all invoices with a creation date greater than or euqal\nto it. Measured in seconds since the unix epoch.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "creation_date_end",
+            "description": "If set, returns all invoices with a creation date less than or euqal to\nit. Measured in seconds since the unix epoch.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
           }
         ],
         "tags": [

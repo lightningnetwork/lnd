@@ -168,6 +168,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   received](https://github.com/lightningnetwork/lnd/pull/7126) to avoid CPU
   spike.
 
+* [A new config option, `mailboxdeliverytimeout` has been added to
+  `htlcswitch`](https://github.com/lightningnetwork/lnd/pull/7066).
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test

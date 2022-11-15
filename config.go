@@ -444,6 +444,8 @@ type Config struct {
 
 	Sweeper *lncfg.Sweeper `group:"sweeper" namespace:"sweeper"`
 
+	Htlcswitch *lncfg.Htlcswitch `group:"htlcswitch" namespace:"htlcswitch"`
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
@@ -462,6 +464,8 @@ type Config struct {
 }
 
 // DefaultConfig returns all default values for the Config struct.
+//
+// nolint:lll
 func DefaultConfig() Config {
 	return Config{
 		LndDir:            DefaultLndDir,
@@ -642,6 +646,9 @@ func DefaultConfig() Config {
 		},
 		Sweeper: &lncfg.Sweeper{
 			BatchWindowDuration: sweep.DefaultBatchWindowDuration,
+		},
+		Htlcswitch: &lncfg.Htlcswitch{
+			MailboxDeliveryTimeout: htlcswitch.DefaultMailboxDeliveryTimeout,
 		},
 	}
 }
@@ -1660,6 +1667,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.RPCMiddleware,
 		cfg.RemoteSigner,
 		cfg.Sweeper,
+		cfg.Htlcswitch,
 	)
 	if err != nil {
 		return nil, err

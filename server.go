@@ -658,7 +658,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		AllowCircularRoute:     cfg.AllowCircularRoute,
 		RejectHTLC:             cfg.RejectHTLC,
 		Clock:                  clock.NewDefaultClock(),
-		HTLCExpiry:             htlcswitch.DefaultHTLCExpiry,
+		MailboxDeliveryTimeout: cfg.Htlcswitch.MailboxDeliveryTimeout,
 		DustThreshold:          thresholdMSats,
 		SignAliasUpdate:        s.signAliasUpdate,
 		IsAlias:                aliasmgr.IsAlias,
@@ -997,8 +997,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	srvrLog.Tracef("Sweeper batch window duration: %v",
-		sweep.DefaultBatchWindowDuration)
+	srvrLog.Debugf("Sweeper batch window duration: %v",
+		cfg.Sweeper.BatchWindowDuration)
 
 	sweeperStore, err := sweep.NewSweeperStore(
 		dbs.ChanStateDB, s.cfg.ActiveNetParams.GenesisHash,

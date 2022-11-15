@@ -6359,12 +6359,36 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 
 	rpcsLog.Debugf("[ListPayments]")
 
+	// If both dates are set, we check that the start date is less than the
+	// end date, otherwise we'll get an empty result.
+	if req.CreationDateStart != 0 && req.CreationDateEnd != 0 {
+		if req.CreationDateStart >= req.CreationDateEnd {
+			return nil, fmt.Errorf("start date(%v) must be before "+
+				"end date(%v)", req.CreationDateStart,
+				req.CreationDateEnd)
+		}
+	}
+
 	query := channeldb.PaymentsQuery{
 		IndexOffset:       req.IndexOffset,
 		MaxPayments:       req.MaxPayments,
 		Reversed:          req.Reversed,
 		IncludeIncomplete: req.IncludeIncomplete,
 		CountTotal:        req.CountTotalPayments,
+	}
+
+	// Attach the start date if set.
+	if req.CreationDateStart != 0 {
+		query.CreationDateStart = time.Unix(
+			int64(req.CreationDateStart), 0,
+		)
+	}
+
+	// Attach the end date if set.
+	if req.CreationDateEnd != 0 {
+		query.CreationDateEnd = time.Unix(
+			int64(req.CreationDateEnd), 0,
+		)
 	}
 
 	// If the maximum number of payments wasn't specified, then we'll

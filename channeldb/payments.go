@@ -536,6 +536,14 @@ type PaymentsQuery struct {
 	// CountTotal indicates that all payments currently present in the
 	// payment index (complete and incomplete) should be counted.
 	CountTotal bool
+
+	// CreationDateStart, if set, filters out all payments with a creation
+	// date greater than or euqal to it.
+	CreationDateStart time.Time
+
+	// CreationDateEnd, if set, filters out all payments with a creation
+	// date less than or euqal to it.
+	CreationDateEnd time.Time
 }
 
 // PaymentsResponse contains the result of a query to the payments database.
@@ -570,7 +578,11 @@ type PaymentsResponse struct {
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
 func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
-	var resp PaymentsResponse
+	var (
+		resp         PaymentsResponse
+		startDateSet = !query.CreationDateStart.IsZero()
+		endDateSet   = !query.CreationDateEnd.IsZero()
+	)
 
 	if err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// Get the root payments bucket.
@@ -613,6 +625,24 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 				!query.IncludeIncomplete {
 
 				return false, err
+			}
+
+			// Skip any payments that were created before the
+			// specified time.
+			if startDateSet && payment.Info.CreationTime.Before(
+				query.CreationDateStart,
+			) {
+
+				return false, nil
+			}
+
+			// Skip any payments that were created after the
+			// specified time.
+			if endDateSet && payment.Info.CreationTime.After(
+				query.CreationDateEnd,
+			) {
+
+				return false, nil
 			}
 
 			// At this point, we've exhausted the offset, so we'll

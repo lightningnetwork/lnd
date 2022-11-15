@@ -213,15 +213,31 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("error initializing DBs: %v", err)
 	}
 
-	// Only process macaroons if --no-macaroons isn't set.
-        tlsManager := NewTLSManager(cfg)
-	serverOpts, restDialOpts, restListen, cleanUp,
-		err := tlsManager.getConfig()
+	tlsManagerCfg := &TLSManagerCfg{
+		TLSCertPath:        cfg.TLSCertPath,
+		TLSKeyPath:         cfg.TLSKeyPath,
+		TLSEncryptKey:      cfg.TLSEncryptKey,
+		TLSExtraIPs:        cfg.TLSExtraIPs,
+		TLSExtraDomains:    cfg.TLSExtraDomains,
+		TLSAutoRefresh:     cfg.TLSAutoRefresh,
+		TLSDisableAutofill: cfg.TLSDisableAutofill,
+		TLSCertDuration:    cfg.TLSCertDuration,
 
-	if err != nil {
-		return mkErr("unable to load TLS credentials: %v", err)
+		LetsEncryptDir:    cfg.LetsEncryptDir,
+		LetsEncryptDomain: cfg.LetsEncryptDomain,
+		LetsEncryptListen: cfg.LetsEncryptListen,
+
+		DisableRestTLS: cfg.DisableRestTLS,
 	}
-	defer cleanUp()
+	tlsManager := NewTLSManager(tlsManagerCfg)
+	serverOpts, restDialOpts, restListen, cleanUp,
+		err := tlsManager.SetCertificateBeforeUnlock()
+	if err != nil {
+		return mkErr("error setting cert before unlock: %v", err)
+	}
+	if cleanUp != nil {
+		defer cleanUp()
+	}
 
 	// If we have chosen to start with a dedicated listener for the
 	// rpc server, we set it directly.
@@ -512,7 +528,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	server, err := newServer(
 		cfg, cfg.Listeners, dbs, activeChainControl, &idKeyDesc,
 		activeChainControl.Cfg.WalletUnlockParams.ChansToRestore,
-		multiAcceptor, torController,
+		multiAcceptor, torController, tlsManager,
 	)
 	if err != nil {
 		return mkErr("unable to create server: %v", err)
@@ -537,6 +553,12 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		return mkErr("unable to start autopilot manager: %v", err)
 	}
 	defer atplManager.Stop()
+
+	err = tlsManager.LoadPermanentCertificate(activeChainControl.KeyRing)
+	if err != nil {
+		return mkErr("unable to load permanent TLS certificate: %v",
+			err)
+	}
 
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
@@ -627,17 +649,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// the interrupt handler.
 	<-interceptor.ShutdownChannel()
 	return nil
-}
-
-// fileExists reports whether the named file or directory exists.
-// This function is taken from https://github.com/btcsuite/btcd
-func fileExists(name string) bool {
-	if _, err := os.Stat(name); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-	return true
 }
 
 // bakeMacaroon creates a new macaroon with newest version and the given

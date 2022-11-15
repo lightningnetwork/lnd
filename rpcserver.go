@@ -5516,6 +5516,16 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		req.NumMaxInvoices = 100
 	}
 
+	// If both dates are set, we check that the start date is less than the
+	// end date, otherwise we'll get an empty result.
+	if req.CreationDateStart != 0 && req.CreationDateEnd != 0 {
+		if req.CreationDateStart >= req.CreationDateEnd {
+			return nil, fmt.Errorf("start date(%v) must be before "+
+				"end date(%v)", req.CreationDateStart,
+				req.CreationDateEnd)
+		}
+	}
+
 	// Next, we'll map the proto request into a format that is understood by
 	// the database.
 	q := channeldb.InvoiceQuery{
@@ -5524,6 +5534,17 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		PendingOnly:    req.PendingOnly,
 		Reversed:       req.Reversed,
 	}
+
+	// Attach the start date if set.
+	if req.CreationDateStart != 0 {
+		q.CreationDateStart = time.Unix(int64(req.CreationDateStart), 0)
+	}
+
+	// Attach the end date if set.
+	if req.CreationDateEnd != 0 {
+		q.CreationDateEnd = time.Unix(int64(req.CreationDateEnd), 0)
+	}
+
 	invoiceSlice, err := r.server.miscDB.QueryInvoices(q)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query invoices: %v", err)

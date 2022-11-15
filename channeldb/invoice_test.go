@@ -1090,6 +1090,9 @@ func TestQueryInvoices(t *testing.T) {
 	for i := 1; i <= numInvoices; i++ {
 		amt := lnwire.MilliSatoshi(i)
 		invoice, err := randInvoice(amt)
+		invoice.CreationDate = invoice.CreationDate.Add(
+			time.Duration(i-1) * time.Second,
+		)
 		if err != nil {
 			t.Fatalf("unable to create invoice: %v", err)
 		}
@@ -1336,6 +1339,116 @@ func TestQueryInvoices(t *testing.T) {
 				NumMaxInvoices: numInvoices,
 			},
 			expected: invoices,
+		},
+		// Fetch invoices <= 25 by creation date.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices:  numInvoices,
+				CreationDateEnd: time.Unix(25, 0),
+			},
+			expected: invoices[:25],
+		},
+		// Fetch invoices >= 26 creation date.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(26, 0),
+			},
+			expected: invoices[25:],
+		},
+		// Fetch pending invoices <= 25 by creation date.
+		{
+			query: InvoiceQuery{
+				PendingOnly:     true,
+				NumMaxInvoices:  numInvoices,
+				CreationDateEnd: time.Unix(25, 0),
+			},
+			expected: pendingInvoices[:13],
+		},
+		// Fetch pending invoices >= 26 creation date.
+		{
+			query: InvoiceQuery{
+				PendingOnly:       true,
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(26, 0),
+			},
+			expected: pendingInvoices[13:],
+		},
+		// Fetch pending invoices with offset and end creation date.
+		{
+			query: InvoiceQuery{
+				IndexOffset:     20,
+				NumMaxInvoices:  numInvoices,
+				CreationDateEnd: time.Unix(30, 0),
+			},
+			// Since we're skipping to invoice 20 and iterating
+			// to invoice 30, we'll expect those invoices.
+			expected: invoices[20:30],
+		},
+		// Fetch pending invoices with offset and start creation date
+		// in reversed order.
+		{
+			query: InvoiceQuery{
+				IndexOffset:       21,
+				Reversed:          true,
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(11, 0),
+			},
+			// Since we're skipping to invoice 20 and iterating
+			// backward to invoice 10, we'll expect those invoices.
+			expected: invoices[10:20],
+		},
+		// Fetch invoices with start and end creation date.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(11, 0),
+				CreationDateEnd:   time.Unix(20, 0),
+			},
+			expected: invoices[10:20],
+		},
+		// Fetch pending invoices with start and end creation date.
+		{
+			query: InvoiceQuery{
+				PendingOnly:       true,
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(11, 0),
+				CreationDateEnd:   time.Unix(20, 0),
+			},
+			expected: pendingInvoices[5:10],
+		},
+		// Fetch invoices with start and end creation date in reverse
+		// order.
+		{
+			query: InvoiceQuery{
+				Reversed:          true,
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(11, 0),
+				CreationDateEnd:   time.Unix(20, 0),
+			},
+			expected: invoices[10:20],
+		},
+		// Fetch pending invoices with start and end creation date in
+		// reverse order.
+		{
+			query: InvoiceQuery{
+				PendingOnly:       true,
+				Reversed:          true,
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(11, 0),
+				CreationDateEnd:   time.Unix(20, 0),
+			},
+			expected: pendingInvoices[5:10],
+		},
+		// Fetch invoices with a start date greater than end date
+		// should result in an empty slice.
+		{
+			query: InvoiceQuery{
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(20, 0),
+				CreationDateEnd:   time.Unix(11, 0),
+			},
+			expected: nil,
 		},
 	}
 

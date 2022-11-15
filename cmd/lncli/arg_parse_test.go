@@ -3,6 +3,8 @@ package main
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 var now = time.Date(2017, 11, 10, 7, 8, 9, 1234, time.UTC)
@@ -84,5 +86,32 @@ func TestParseTime(t *testing.T) {
 				test.expected,
 			)
 		}
+	}
+}
+
+var stripPrefixTests = []struct {
+	in       string
+	expected string
+}{
+	{
+		"lightning:ln123",
+		"ln123",
+	},
+	{
+		"lightning: ln123",
+		"ln123",
+	},
+	{
+		"ln123",
+		"ln123",
+	},
+}
+
+func TestStripPrefix(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range stripPrefixTests {
+		actual := stripPrefix(test.in)
+		require.Equal(t, test.expected, actual)
 	}
 }

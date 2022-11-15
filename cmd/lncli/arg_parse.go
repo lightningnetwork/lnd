@@ -3,6 +3,7 @@ package main
 import (
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -37,4 +38,11 @@ func parseTime(s string, base time.Time) (uint64, error) {
 	}
 
 	return strconv.ParseUint(s, 10, 64)
+}
+
+var lightningPrefix = "lightning:"
+
+// stripPrefix removes accidentally copied 'lightning:' prefix.
+func stripPrefix(s string) string {
+	return strings.TrimSpace(strings.TrimPrefix(s, lightningPrefix))
 }

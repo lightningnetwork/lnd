@@ -284,7 +284,7 @@ func sendPayment(ctx *cli.Context) error {
 	// details of the payment are encoded within the request.
 	if ctx.IsSet("pay_req") {
 		req := &routerrpc.SendPaymentRequest{
-			PaymentRequest:    ctx.String("pay_req"),
+			PaymentRequest:    stripPrefix(ctx.String("pay_req")),
 			Amt:               ctx.Int64("amt"),
 			DestCustomRecords: make(map[uint64][]byte),
 		}
@@ -832,7 +832,7 @@ func payInvoice(ctx *cli.Context) error {
 	}
 
 	req := &routerrpc.SendPaymentRequest{
-		PaymentRequest:    payReq,
+		PaymentRequest:    stripPrefix(payReq),
 		Amt:               ctx.Int64("amt"),
 		DestCustomRecords: make(map[uint64][]byte),
 	}

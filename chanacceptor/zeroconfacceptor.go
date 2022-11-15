@@ -37,14 +37,11 @@ func (z *ZeroConfAcceptor) RemoveAcceptor(id uint64) {
 func (z *ZeroConfAcceptor) Accept(
 	req *ChannelAcceptRequest) *ChannelAcceptResponse {
 
-	// Alias for less verbosity.
-	channelType := req.OpenChanMsg.ChannelType
-
 	// Check if the channel type sets the zero-conf bit.
 	var zeroConfSet bool
 
-	if channelType != nil {
-		channelFeatures := lnwire.RawFeatureVector(*channelType)
+	if req.ChannelType() != nil {
+		channelFeatures := lnwire.RawFeatureVector(*req.ChannelType())
 		zeroConfSet = channelFeatures.IsSet(lnwire.ZeroConfRequired)
 	}
 

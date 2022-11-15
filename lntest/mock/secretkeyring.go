@@ -86,7 +86,7 @@ func (s *SecretKeyRing) SignMessageSchnorr(_ keychain.KeyLocator,
 
 	privKey := s.RootKey
 	if len(taprootTweak) > 0 {
-		privKey = txscript.TweakTaprootPrivKey(privKey, taprootTweak)
+		privKey = txscript.TweakTaprootPrivKey(*privKey, taprootTweak)
 	}
 
 	return schnorr.Sign(privKey, digest)

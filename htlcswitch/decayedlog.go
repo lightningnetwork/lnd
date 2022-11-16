@@ -304,6 +304,9 @@ func (d *DecayedLog) gcExpiredSets(height uint32) (int, error) {
 
 	numExpiredSets := 0
 	err := kvdb.Batch(d.db, func(tx kvdb.RwTx) error {
+		// reset in case of multiple Batch invocations
+		numExpiredSets = 0
+
 		// There may be replay sets without expiry information.
 		if err := InitReplaySetExpiryForOldSets(tx); err != nil {
 			return err

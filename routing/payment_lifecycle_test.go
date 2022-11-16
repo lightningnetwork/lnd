@@ -803,9 +803,9 @@ func TestPaymentState(t *testing.T) {
 		// Use the following three params, each is equivalent to a bool
 		// statement, to construct 8 test cases so that we can
 		// exhaustively catch all possible states.
-		numShardsInFlight int
-		remainingAmt      lnwire.MilliSatoshi
-		terminate         bool
+		numAttemptsInFlight int
+		remainingAmt        lnwire.MilliSatoshi
+		terminate           bool
 
 		expectedTerminated        bool
 		expectedNeedWaitForShards bool
@@ -816,7 +816,7 @@ func TestPaymentState(t *testing.T) {
 			// remaining amount is zero, we need to wait for shards
 			// to be finished and launch no more shards.
 			name:                      "state 100",
-			numShardsInFlight:         1,
+			numAttemptsInFlight:       1,
 			remainingAmt:              lnwire.MilliSatoshi(0),
 			terminate:                 false,
 			expectedTerminated:        false,
@@ -828,7 +828,7 @@ func TestPaymentState(t *testing.T) {
 			// wait for shards to be finished and launch no more
 			// shards.
 			name:                      "state 101",
-			numShardsInFlight:         1,
+			numAttemptsInFlight:       1,
 			remainingAmt:              lnwire.MilliSatoshi(0),
 			terminate:                 true,
 			expectedTerminated:        false,
@@ -841,7 +841,7 @@ func TestPaymentState(t *testing.T) {
 			// remaining amount is not zero, we don't need to wait
 			// for shards outcomes and should launch more shards.
 			name:                      "state 110",
-			numShardsInFlight:         1,
+			numAttemptsInFlight:       1,
 			remainingAmt:              lnwire.MilliSatoshi(1),
 			terminate:                 false,
 			expectedTerminated:        false,
@@ -853,7 +853,7 @@ func TestPaymentState(t *testing.T) {
 			// remaining amount is not zero, we need to wait for
 			// shards outcomes because state is terminated.
 			name:                      "state 111",
-			numShardsInFlight:         1,
+			numAttemptsInFlight:       1,
 			remainingAmt:              lnwire.MilliSatoshi(1),
 			terminate:                 true,
 			expectedTerminated:        false,
@@ -865,7 +865,7 @@ func TestPaymentState(t *testing.T) {
 			// need to wait for more shard outcomes because there
 			// are no active shards.
 			name:                      "state 000",
-			numShardsInFlight:         0,
+			numAttemptsInFlight:       0,
 			remainingAmt:              lnwire.MilliSatoshi(0),
 			terminate:                 false,
 			expectedTerminated:        false,
@@ -876,7 +876,7 @@ func TestPaymentState(t *testing.T) {
 			// true, the state is terminated, and we don't need to
 			// wait for shards to be finished.
 			name:                      "state 001",
-			numShardsInFlight:         0,
+			numAttemptsInFlight:       0,
 			remainingAmt:              lnwire.MilliSatoshi(0),
 			terminate:                 true,
 			expectedTerminated:        true,
@@ -888,7 +888,7 @@ func TestPaymentState(t *testing.T) {
 			// remaining amount is not zero, we don't need to wait
 			// for shards outcomes and should launch more shards.
 			name:                      "state 010",
-			numShardsInFlight:         0,
+			numAttemptsInFlight:       0,
 			remainingAmt:              lnwire.MilliSatoshi(1),
 			terminate:                 false,
 			expectedTerminated:        false,
@@ -899,7 +899,7 @@ func TestPaymentState(t *testing.T) {
 			// true, the state is terminated, and we don't need to
 			// wait for shards outcomes.
 			name:                      "state 011",
-			numShardsInFlight:         0,
+			numAttemptsInFlight:       0,
 			remainingAmt:              lnwire.MilliSatoshi(1),
 			terminate:                 true,
 			expectedTerminated:        true,
@@ -913,9 +913,9 @@ func TestPaymentState(t *testing.T) {
 			t.Parallel()
 
 			ps := &paymentState{
-				numShardsInFlight: tc.numShardsInFlight,
-				remainingAmt:      tc.remainingAmt,
-				terminate:         tc.terminate,
+				numAttemptsInFlight: tc.numAttemptsInFlight,
+				remainingAmt:        tc.remainingAmt,
+				terminate:           tc.terminate,
 			}
 
 			require.Equal(
@@ -994,10 +994,10 @@ func TestUpdatePaymentState(t *testing.T) {
 			totalAmt: 1000,
 			feeLimit: 1,
 			expectedState: &paymentState{
-				numShardsInFlight: 1,
-				remainingAmt:      1000 - 90,
-				remainingFees:     0,
-				terminate:         false,
+				numAttemptsInFlight: 1,
+				remainingAmt:        1000 - 90,
+				remainingFees:       0,
+				terminate:           false,
 			},
 		},
 		{
@@ -1015,10 +1015,10 @@ func TestUpdatePaymentState(t *testing.T) {
 			totalAmt: 1000,
 			feeLimit: 100,
 			expectedState: &paymentState{
-				numShardsInFlight: 0,
-				remainingAmt:      1000 - 90,
-				remainingFees:     100 - 10,
-				terminate:         true,
+				numAttemptsInFlight: 0,
+				remainingAmt:        1000 - 90,
+				remainingFees:       100 - 10,
+				terminate:           true,
 			},
 		},
 		{
@@ -1034,10 +1034,10 @@ func TestUpdatePaymentState(t *testing.T) {
 			totalAmt: 1000,
 			feeLimit: 100,
 			expectedState: &paymentState{
-				numShardsInFlight: 0,
-				remainingAmt:      1000,
-				remainingFees:     100,
-				terminate:         true,
+				numAttemptsInFlight: 0,
+				remainingAmt:        1000,
+				remainingFees:       100,
+				terminate:           true,
 			},
 		},
 	}

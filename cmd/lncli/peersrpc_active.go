@@ -126,7 +126,7 @@ func updateNodeAnnouncement(ctx *cli.Context) error {
 
 	if ctx.IsSet("feature_bit_add") {
 		change = true
-		for _, feature := range ctx.IntSlice("feature_bit_add") {
+		for _, feature := range ctx.Int64Slice("feature_bit_add") {
 			action := &peersrpc.UpdateFeatureAction{
 				Action:     peersrpc.UpdateAction_ADD,
 				FeatureBit: lnrpc.FeatureBit(feature),
@@ -137,7 +137,7 @@ func updateNodeAnnouncement(ctx *cli.Context) error {
 
 	if ctx.IsSet("feature_bit_remove") {
 		change = true
-		for _, feature := range ctx.IntSlice("feature_bit_remove") {
+		for _, feature := range ctx.Int64Slice("feature_bit_remove") {
 			action := &peersrpc.UpdateFeatureAction{
 				Action:     peersrpc.UpdateAction_REMOVE,
 				FeatureBit: lnrpc.FeatureBit(feature),

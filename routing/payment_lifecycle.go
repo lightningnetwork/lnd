@@ -34,9 +34,9 @@ type paymentLifecycle struct {
 // paymentState holds a number of key insights learned from a given MPPayment
 // that we use to determine what to do on each payment loop iteration.
 type paymentState struct {
-	// numShardsInFlight specifies the number of HTLCs the payment is
+	// numAttemptsInFlight specifies the number of HTLCs the payment is
 	// waiting results for.
-	numShardsInFlight int
+	numAttemptsInFlight int
 
 	// remainingAmt specifies how much more money to be sent.
 	remainingAmt lnwire.MilliSatoshi
@@ -57,7 +57,7 @@ type paymentState struct {
 func (ps paymentState) terminated() bool {
 	// If the payment is in final stage and we have no in flight shards to
 	// wait result for, we consider the whole action terminated.
-	return ps.terminate && ps.numShardsInFlight == 0
+	return ps.terminate && ps.numAttemptsInFlight == 0
 }
 
 // needWaitForShards returns a bool to specify whether we need to wait for the
@@ -66,7 +66,7 @@ func (ps paymentState) needWaitForShards() bool {
 	// If we have in flight shards and the payment is in final stage, we
 	// need to wait for the outcomes from the shards. Or if we have no more
 	// money to be sent, we need to wait for the already launched shards.
-	if ps.numShardsInFlight == 0 {
+	if ps.numAttemptsInFlight == 0 {
 		return false
 	}
 	return ps.terminate || ps.remainingAmt == 0
@@ -115,10 +115,10 @@ func (p *paymentLifecycle) fetchPaymentState() (*channeldb.MPPayment,
 
 	// Update the payment state.
 	state := &paymentState{
-		numShardsInFlight: len(payment.InFlightHTLCs()),
-		remainingAmt:      totalAmt - sentAmt,
-		remainingFees:     feeBudget,
-		terminate:         terminate,
+		numAttemptsInFlight: len(payment.InFlightHTLCs()),
+		remainingAmt:        totalAmt - sentAmt,
+		remainingFees:       feeBudget,
+		terminate:           terminate,
 	}
 
 	return payment, state, nil
@@ -179,7 +179,7 @@ lifecycle:
 
 		log.Debugf("Payment %v in state terminate=%v, "+
 			"active_shards=%v, rem_value=%v, fee_limit=%v",
-			p.identifier, ps.terminate, ps.numShardsInFlight,
+			p.identifier, ps.terminate, ps.numAttemptsInFlight,
 			ps.remainingAmt, ps.remainingFees,
 		)
 
@@ -258,7 +258,7 @@ lifecycle:
 		// Create a new payment attempt from the given payment session.
 		rt, err := p.paySession.RequestRoute(
 			ps.remainingAmt, ps.remainingFees,
-			uint32(ps.numShardsInFlight),
+			uint32(ps.numAttemptsInFlight),
 			uint32(p.currentHeight),
 		)
 		if err != nil {
@@ -273,7 +273,7 @@ lifecycle:
 			// There is no route to try, and we have no active
 			// shards. This means that there is no way for us to
 			// send the payment, so mark it failed with no route.
-			if ps.numShardsInFlight == 0 {
+			if ps.numAttemptsInFlight == 0 {
 				failureCode := routeErr.FailureReason()
 				log.Debugf("Marking payment %v permanently "+
 					"failed with no route: %v",

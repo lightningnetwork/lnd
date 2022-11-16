@@ -172,16 +172,15 @@ lifecycle:
 		// collectResultAsync), it is NOT guaranteed that we always
 		// have the latest state here. This is fine as long as the
 		// state is consistent as a whole.
-		payment, currentState, err := p.fetchPaymentState()
+		payment, ps, err := p.fetchPaymentState()
 		if err != nil {
 			return [32]byte{}, nil, err
 		}
 
 		log.Debugf("Payment %v in state terminate=%v, "+
 			"active_shards=%v, rem_value=%v, fee_limit=%v",
-			p.identifier, currentState.terminate,
-			currentState.numShardsInFlight,
-			currentState.remainingAmt, currentState.remainingFees,
+			p.identifier, ps.terminate, ps.numShardsInFlight,
+			ps.remainingAmt, ps.remainingFees,
 		)
 
 		// TODO(yy): sanity check all the states to make sure
@@ -189,7 +188,7 @@ lifecycle:
 		switch {
 		// We have a terminal condition and no active shards, we are
 		// ready to exit.
-		case currentState.terminated():
+		case ps.terminated():
 			// Find the first successful shard and return
 			// the preimage and route.
 			for _, a := range payment.HTLCs {
@@ -216,7 +215,7 @@ lifecycle:
 		// If we either reached a terminal error condition (but had
 		// active shards still) or there is no remaining value to send,
 		// we'll wait for a shard outcome.
-		case currentState.needWaitForShards():
+		case ps.needWaitForShards():
 			// We still have outstanding shards, so wait for a new
 			// outcome to be available before re-evaluating our
 			// state.
@@ -258,8 +257,8 @@ lifecycle:
 
 		// Create a new payment attempt from the given payment session.
 		rt, err := p.paySession.RequestRoute(
-			currentState.remainingAmt, currentState.remainingFees,
-			uint32(currentState.numShardsInFlight),
+			ps.remainingAmt, ps.remainingFees,
+			uint32(ps.numShardsInFlight),
 			uint32(p.currentHeight),
 		)
 		if err != nil {
@@ -274,7 +273,7 @@ lifecycle:
 			// There is no route to try, and we have no active
 			// shards. This means that there is no way for us to
 			// send the payment, so mark it failed with no route.
-			if currentState.numShardsInFlight == 0 {
+			if ps.numShardsInFlight == 0 {
 				failureCode := routeErr.FailureReason()
 				log.Debugf("Marking payment %v permanently "+
 					"failed with no route: %v",
@@ -302,7 +301,7 @@ lifecycle:
 
 		// If this route will consume the last remaining amount to send
 		// to the receiver, this will be our last shard (for now).
-		lastShard := rt.ReceiverAmt() == currentState.remainingAmt
+		lastShard := rt.ReceiverAmt() == ps.remainingAmt
 
 		// We found a route to try, launch a new shard.
 		attempt, outcome, err := shardHandler.launchShard(rt, lastShard)

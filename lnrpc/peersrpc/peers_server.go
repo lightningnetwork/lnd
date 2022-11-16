@@ -254,6 +254,12 @@ func (s *Server) updateFeatures(currentfeatures *lnwire.RawFeatureVector,
 	for _, update := range updates {
 		bit := lnwire.FeatureBit(update.FeatureBit)
 
+		if name, known := lnwire.Features[bit]; known {
+			return nil, nil, fmt.Errorf("can't modify feature "+
+				"bit: %d already used in LND for: %v", bit,
+				name)
+		}
+
 		switch update.Action {
 		case UpdateAction_ADD:
 			if raw.IsSet(bit) {

@@ -826,34 +826,26 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// Based on the disk representation of the node announcement generated
 	// above, we'll generate a node announcement that can go out on the
 	// network so we can properly sign it.
-	nodeAnn, err := selfNode.NodeAnnouncement(false)
+	s.currentNodeAnn, err = selfNode.NodeAnnouncement(false)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen self node ann: %v", err)
 	}
 
-	// With the announcement generated, we'll sign it to properly
-	// authenticate the message on the network.
-	authSig, err := netann.SignAnnouncement(
-		s.nodeSigner, nodeKeyDesc.KeyLocator, nodeAnn,
-	)
+	// With the announcement generated, we'll use our getNodeAnnouncement
+	// helper to sign our current announcement to properly authenticate
+	// with the network.
+	nodeAnn, err := s.genNodeAnnouncement(true)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate signature for "+
 			"self node announcement: %v", err)
 	}
-	selfNode.AuthSigBytes = authSig.Serialize()
-	nodeAnn.Signature, err = lnwire.NewSigFromRawSignature(
-		selfNode.AuthSigBytes,
-	)
-	if err != nil {
-		return nil, err
-	}
+	selfNode.AuthSigBytes = nodeAnn.Signature.ToSignatureBytes()
 
 	// Finally, we'll update the representation on disk, and update our
 	// cached in-memory version as well.
 	if err := chanGraph.SetSourceNode(selfNode); err != nil {
 		return nil, fmt.Errorf("can't set self node: %v", err)
 	}
-	s.currentNodeAnn = nodeAnn
 
 	// The router will get access to the payment ID sequencer, such that it
 	// can generate unique payment IDs.

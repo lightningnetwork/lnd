@@ -174,6 +174,13 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 * [Label the openchannel tx first before notifying the channel open
   event.](https://github.com/lightningnetwork/lnd/pull/7158) 
 
+* [Add check for `pay_req` argument in `sendpayment` and `decodepayreq`
+  commands to trim "lightning:" prefix before processing the request](
+  https://github.com/lightningnetwork/lnd/pull/7150). Invoices may be prefixed
+  with "lightning:" on mobile and web apps and it's likely for users to copy
+  the invoice payment request together with the prefix, which throws checksum
+  error when pasting it to the CLI.
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test

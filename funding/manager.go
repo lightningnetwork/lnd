@@ -1485,6 +1485,18 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		return
 	}
 
+	var scidAlias lnwire.ShortChannelID
+	if zeroConf {
+		// Store an alias for zero-conf channels. Other option-scid
+		// channels will do this at a later point.
+		scidAlias, err = f.cfg.AliasManager.RequestAlias()
+		if err != nil {
+			log.Errorf("Unable to request alias: %v", err)
+			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			return
+		}
+	}
+
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &msg.ChainHash,
 		PendingChanID:    msg.PendingChannelID,
@@ -1501,6 +1513,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		ZeroConf:         zeroConf,
 		OptionScidAlias:  scid,
 		ScidAliasFeature: scidFeatureVal,
+		ScidAlias:        scidAlias,
 
 		LocalShutdownScript: shutdown,
 	}
@@ -1510,19 +1523,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		log.Errorf("Unable to initialize reservation: %v", err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return
-	}
-
-	if zeroConf {
-		// Store an alias for zero-conf channels. Other option-scid
-		// channels will do this at a later point.
-		aliasScid, err := f.cfg.AliasManager.RequestAlias()
-		if err != nil {
-			log.Errorf("Unable to request alias: %v", err)
-			f.failFundingFlow(peer, msg.PendingChannelID, err)
-			return
-		}
-
-		reservation.AddAlias(aliasScid)
 	}
 
 	// As we're the responder, we get to specify the number of confirmations
@@ -4004,6 +4004,17 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		scidFeatureVal = true
 	}
 
+	var scidAlias lnwire.ShortChannelID
+	if zeroConf {
+		// Store the alias for zero-conf channels in the underlying
+		// partial channel state.
+		scidAlias, err = f.cfg.AliasManager.RequestAlias()
+		if err != nil {
+			msg.Err <- err
+			return
+		}
+	}
+
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:           &msg.ChainHash,
 		PendingChanID:       chanID,
@@ -4022,6 +4033,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		ZeroConf:            zeroConf,
 		OptionScidAlias:     scid,
 		ScidAliasFeature:    scidFeatureVal,
+		ScidAlias:           scidAlias,
 		LocalShutdownScript: shutdown,
 	}
 
@@ -4029,18 +4041,6 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	if err != nil {
 		msg.Err <- err
 		return
-	}
-
-	if zeroConf {
-		// Store the alias for zero-conf channels in the underlying
-		// partial channel state.
-		aliasScid, err := f.cfg.AliasManager.RequestAlias()
-		if err != nil {
-			msg.Err <- err
-			return
-		}
-
-		reservation.AddAlias(aliasScid)
 	}
 
 	// Now that we have successfully reserved funds for this channel in the

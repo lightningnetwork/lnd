@@ -395,12 +395,13 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			ChannelConfig: &channeldb.ChannelConfig{},
 		},
 		partialState: &channeldb.OpenChannel{
-			ChanType:     chanType,
-			ChainHash:    *chainHash,
-			IsPending:    true,
-			IsInitiator:  initiator,
-			ChannelFlags: req.Flags,
-			Capacity:     capacity,
+			ChanType:       chanType,
+			ChainHash:      *chainHash,
+			ShortChannelID: req.ScidAlias,
+			IsPending:      true,
+			IsInitiator:    initiator,
+			ChannelFlags:   req.Flags,
+			Capacity:       capacity,
 			LocalCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,
@@ -424,14 +425,6 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		wallet:        wallet,
 		chanFunder:    req.ChanFunder,
 	}, nil
-}
-
-// AddAlias stores the first alias for zero-conf channels.
-func (r *ChannelReservation) AddAlias(scid lnwire.ShortChannelID) {
-	r.Lock()
-	defer r.Unlock()
-
-	r.partialState.ShortChannelID = scid
 }
 
 // SetNumConfsRequired sets the number of confirmations that are required for

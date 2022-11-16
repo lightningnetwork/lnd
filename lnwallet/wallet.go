@@ -165,6 +165,9 @@ type InitFundingReserveMsg struct {
 	// negotiated.
 	ScidAliasFeature bool
 
+	// ScidAlias is the initial alias to use for this zero-conf channel.
+	ScidAlias lnwire.ShortChannelID
+
 	// LocalShutdownScript is an optional address to which our balance of
 	// the channel should be paid on cooperative close.
 	LocalShutdownScript lnwire.DeliveryAddress

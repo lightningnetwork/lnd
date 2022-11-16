@@ -165,6 +165,10 @@ type InitFundingReserveMsg struct {
 	// negotiated.
 	ScidAliasFeature bool
 
+	// LocalShutdownScript is an optional address to which our balance of
+	// the channel should be paid on cooperative close.
+	LocalShutdownScript lnwire.DeliveryAddress
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//

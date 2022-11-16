@@ -386,8 +386,9 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 
 	return &ChannelReservation{
 		ourContribution: &ChannelContribution{
-			FundingAmount: ourBalance.ToSatoshis(),
-			ChannelConfig: &channeldb.ChannelConfig{},
+			FundingAmount:   ourBalance.ToSatoshis(),
+			ChannelConfig:   &channeldb.ChannelConfig{},
+			UpfrontShutdown: req.LocalShutdownScript,
 		},
 		theirContribution: &ChannelContribution{
 			FundingAmount: theirBalance.ToSatoshis(),
@@ -720,14 +721,6 @@ func (r *ChannelReservation) FundingOutpoint() *wire.OutPoint {
 	r.RLock()
 	defer r.RUnlock()
 	return &r.partialState.FundingOutpoint
-}
-
-// SetOurUpfrontShutdown sets the upfront shutdown address on our contribution.
-func (r *ChannelReservation) SetOurUpfrontShutdown(shutdown lnwire.DeliveryAddress) {
-	r.Lock()
-	defer r.Unlock()
-
-	r.ourContribution.UpfrontShutdown = shutdown
 }
 
 // Capacity returns the channel capacity for this reservation.

@@ -1468,6 +1468,23 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		return
 	}
 
+	// Check whether the peer supports upfront shutdown, and get a new
+	// wallet address if our node is configured to set shutdown addresses by
+	// default. We use the upfront shutdown script provided by our channel
+	// acceptor (if any) in lieu of user input.
+	shutdown, err := getUpfrontShutdownScript(
+		f.cfg.EnableUpfrontShutdown, peer, acceptorResp.UpfrontShutdown,
+		f.selectShutdownScript,
+	)
+	if err != nil {
+		f.failFundingFlow(
+			peer, msg.PendingChannelID,
+			fmt.Errorf("getUpfrontShutdownScript error: %w", err),
+		)
+
+		return
+	}
+
 	req := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        &msg.ChainHash,
 		PendingChanID:    msg.PendingChannelID,
@@ -1484,6 +1501,8 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		ZeroConf:         zeroConf,
 		OptionScidAlias:  scid,
 		ScidAliasFeature: scidFeatureVal,
+
+		LocalShutdownScript: shutdown,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -1543,23 +1562,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return
 	}
-
-	// Check whether the peer supports upfront shutdown, and get a new wallet
-	// address if our node is configured to set shutdown addresses by default.
-	// We use the upfront shutdown script provided by our channel acceptor
-	// (if any) in lieu of user input.
-	shutdown, err := getUpfrontShutdownScript(
-		f.cfg.EnableUpfrontShutdown, peer, acceptorResp.UpfrontShutdown,
-		f.selectShutdownScript,
-	)
-	if err != nil {
-		f.failFundingFlow(
-			peer, msg.PendingChannelID,
-			fmt.Errorf("getUpfrontShutdownScript error: %v", err),
-		)
-		return
-	}
-	reservation.SetOurUpfrontShutdown(shutdown)
 
 	// If a script enforced channel lease is being proposed, we'll need to
 	// validate its custom TLV records.
@@ -1726,7 +1728,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		DelayedPaymentPoint:   ourContribution.DelayBasePoint.PubKey,
 		HtlcPoint:             ourContribution.HtlcBasePoint.PubKey,
 		FirstCommitmentPoint:  ourContribution.FirstCommitmentPoint,
-		UpfrontShutdownScript: ourContribution.UpfrontShutdown,
+		UpfrontShutdownScript: shutdown,
 		ChannelType:           chanType,
 		LeaseExpiry:           msg.LeaseExpiry,
 	}
@@ -4003,23 +4005,24 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	req := &lnwallet.InitFundingReserveMsg{
-		ChainHash:        &msg.ChainHash,
-		PendingChanID:    chanID,
-		NodeID:           peerKey,
-		NodeAddr:         msg.Peer.Address(),
-		SubtractFees:     msg.SubtractFees,
-		LocalFundingAmt:  localAmt,
-		RemoteFundingAmt: 0,
-		CommitFeePerKw:   commitFeePerKw,
-		FundingFeePerKw:  msg.FundingFeePerKw,
-		PushMSat:         msg.PushAmt,
-		Flags:            channelFlags,
-		MinConfs:         msg.MinConfs,
-		CommitType:       commitType,
-		ChanFunder:       msg.ChanFunder,
-		ZeroConf:         zeroConf,
-		OptionScidAlias:  scid,
-		ScidAliasFeature: scidFeatureVal,
+		ChainHash:           &msg.ChainHash,
+		PendingChanID:       chanID,
+		NodeID:              peerKey,
+		NodeAddr:            msg.Peer.Address(),
+		SubtractFees:        msg.SubtractFees,
+		LocalFundingAmt:     localAmt,
+		RemoteFundingAmt:    0,
+		CommitFeePerKw:      commitFeePerKw,
+		FundingFeePerKw:     msg.FundingFeePerKw,
+		PushMSat:            msg.PushAmt,
+		Flags:               channelFlags,
+		MinConfs:            msg.MinConfs,
+		CommitType:          commitType,
+		ChanFunder:          msg.ChanFunder,
+		ZeroConf:            zeroConf,
+		OptionScidAlias:     scid,
+		ScidAliasFeature:    scidFeatureVal,
+		LocalShutdownScript: shutdown,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -4039,9 +4042,6 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 
 		reservation.AddAlias(aliasScid)
 	}
-
-	// Set our upfront shutdown address in the existing reservation.
-	reservation.SetOurUpfrontShutdown(shutdown)
 
 	// Now that we have successfully reserved funds for this channel in the
 	// wallet, we can fetch the final channel capacity. This is done at

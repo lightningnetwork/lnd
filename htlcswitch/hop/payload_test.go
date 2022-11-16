@@ -410,6 +410,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Type:      record.PaymentRelayOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  false,
+			BlindHop:  true,
 		},
 	},
 	{
@@ -451,6 +452,7 @@ var decodePayloadTests = []decodePayloadTest{
 			Type:      record.PathIDOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  true,
+			BlindHop:  true,
 		},
 		isFinalHop: true,
 	},
@@ -652,6 +654,7 @@ var decodeRouteBlindingPayloadTests = []decodeRouteBlindingPayloadTest{
 			Type:      record.PaymentRelayOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  false,
+			BlindHop:  true,
 		},
 	},
 	{
@@ -661,6 +664,7 @@ var decodeRouteBlindingPayloadTests = []decodeRouteBlindingPayloadTest{
 			Type:      record.PathIDOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  true, // Needs to match what sphinx package says.
+			BlindHop:  true,
 		},
 		isFinalHop: true, // sphinx package says...
 	},
@@ -750,6 +754,7 @@ var decodeRouteBlindingPayloadTests = []decodeRouteBlindingPayloadTest{
 			Type:      record.BlindedNextHopOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  false,
+			BlindHop:  true,
 		},
 	},
 	{
@@ -768,6 +773,7 @@ var decodeRouteBlindingPayloadTests = []decodeRouteBlindingPayloadTest{
 			Type:      record.PaymentRelayOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  false,
+			BlindHop:  true,
 		},
 	},
 	{
@@ -795,6 +801,7 @@ var decodeRouteBlindingPayloadTests = []decodeRouteBlindingPayloadTest{
 			Type:      record.PathIDOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  true,
+			BlindHop:  true,
 		},
 		isFinalHop: true,
 	},

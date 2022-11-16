@@ -61,6 +61,10 @@ type ErrInvalidPayload struct {
 	// in the route (identified by next hop id), otherwise the violation is
 	// for an intermediate hop.
 	FinalHop bool
+
+	// BlindHop indicates that the violation occurred while our node was
+	// processing a hop for a blinded route, otherwise we are a hop in a normal route.
+	BlindHop bool
 }
 
 // Error returns a human-readable description of the invalid payload error.
@@ -70,8 +74,13 @@ func (e ErrInvalidPayload) Error() string {
 		hopType = "final"
 	}
 
-	return fmt.Sprintf("onion payload for %s hop %v record with type %d",
-		hopType, e.Violation, e.Type)
+	payloadType := "onion"
+	if e.BlindHop {
+		payloadType = "route blinding"
+	}
+
+	return fmt.Sprintf("%s payload for %s hop %v record with type %d",
+		payloadType, hopType, e.Violation, e.Type)
 }
 
 // Payload encapsulates all information delivered to a hop in an onion payload.
@@ -372,6 +381,7 @@ func ValidateRouteBlindingPayloadTypes(parsedTypes tlv.TypeMap,
 				Type:      record.PaymentRelayOnionType,
 				Violation: OmittedViolation,
 				FinalHop:  false,
+				BlindHop:  true,
 			}
 		}
 
@@ -381,6 +391,7 @@ func ValidateRouteBlindingPayloadTypes(parsedTypes tlv.TypeMap,
 				Type:      record.BlindedNextHopOnionType,
 				Violation: OmittedViolation,
 				FinalHop:  false,
+				BlindHop:  true,
 			}
 		}
 	} else {
@@ -391,6 +402,7 @@ func ValidateRouteBlindingPayloadTypes(parsedTypes tlv.TypeMap,
 				Type:      record.PathIDOnionType,
 				Violation: OmittedViolation,
 				FinalHop:  true,
+				BlindHop:  true,
 			}
 		}
 	}

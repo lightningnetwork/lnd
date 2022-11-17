@@ -3,6 +3,7 @@ package lnwire
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -10,6 +11,19 @@ var (
 	// ErrFeaturePairExists signals an error in feature vector construction
 	// where the opposing bit in a feature pair has already been set.
 	ErrFeaturePairExists = errors.New("feature pair exists")
+
+	// ErrFeatureStandard is returned when attempts to modify LND's known
+	// set of features are made.
+	ErrFeatureStandard = errors.New("feature is used in standard " +
+		"protocol set")
+
+	// ErrFeatureSet is returned when an attempt to set a feature bit that
+	// is already active is made.
+	ErrFeatureSet = errors.New("feature bit already set")
+
+	// ErrFeatureNotSet is returned when an attempt to un-set a feature bit
+	// this is not active is made.
+	ErrFeatureNotSet = errors.New("feature bit not set")
 )
 
 // FeatureBit represents a feature that can be enabled in either a local or
@@ -620,4 +634,47 @@ func (fv *FeatureVector) Features() map[FeatureBit]struct{} {
 func (fv *FeatureVector) Clone() *FeatureVector {
 	features := fv.RawFeatureVector.Clone()
 	return NewFeatureVector(features, fv.featureNames)
+}
+
+// MergeFeatureVector accepts a list of feature bits to add and remove,
+// validates that they may be modified (are not known to LND, set/unset actions
+// are logical for the current vector) and returns a merged vector.
+func MergeFeatureVector(current *RawFeatureVector, add, remove []FeatureBit) (
+	*RawFeatureVector, error) {
+
+	if current == nil {
+		return nil, errors.New("nil feature vector not allowed")
+	}
+
+	// Make a copy of the current vector so that we don't mutate it.
+	raw := current.Clone()
+	for _, bit := range add {
+		if name, known := Features[bit]; known {
+			return nil, fmt.Errorf("can't set feature "+
+				"bit %d (%v): %w", bit, name,
+				ErrFeatureStandard)
+		}
+
+		if raw.IsSet(bit) {
+			return nil, fmt.Errorf("invalid add action for bit "+
+				"%d: %w", bit, ErrFeatureSet)
+		}
+		raw.Set(bit)
+	}
+
+	for _, bit := range remove {
+		if name, known := Features[bit]; known {
+			return nil, fmt.Errorf("can't unset feature "+
+				"bit %d (%v): %w", bit, name,
+				ErrFeatureStandard)
+		}
+
+		if !raw.IsSet(bit) {
+			return nil, fmt.Errorf("invalid remove action for "+
+				"bit %d: %w", bit, ErrFeatureNotSet)
+		}
+		raw.Unset(bit)
+	}
+
+	return raw, nil
 }

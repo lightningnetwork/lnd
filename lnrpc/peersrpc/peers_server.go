@@ -248,42 +248,25 @@ func (s *Server) updateFeatures(currentfeatures *lnwire.RawFeatureVector,
 	updates []*UpdateFeatureAction) (*lnwire.RawFeatureVector,
 	*lnrpc.Op, error) {
 
-	ops := &lnrpc.Op{Entity: "features"}
-	raw := currentfeatures.Clone()
+	var (
+		ops    = &lnrpc.Op{Entity: "features"}
+		add    []lnwire.FeatureBit
+		remove []lnwire.FeatureBit
+	)
 
 	for _, update := range updates {
 		bit := lnwire.FeatureBit(update.FeatureBit)
 
-		if name, known := lnwire.Features[bit]; known {
-			return nil, nil, fmt.Errorf("can't modify feature "+
-				"bit: %d already used in LND for: %v", bit,
-				name)
-		}
-
 		switch update.Action {
 		case UpdateAction_ADD:
-			if raw.IsSet(bit) {
-				return nil, nil, fmt.Errorf(
-					"invalid add action for bit %v, "+
-						"bit is already set",
-					update.FeatureBit,
-				)
-			}
-			raw.Set(bit)
+			add = append(add, bit)
 			ops.Actions = append(
 				ops.Actions,
 				fmt.Sprintf("%s set", lnwire.Features[bit]),
 			)
 
 		case UpdateAction_REMOVE:
-			if !raw.IsSet(bit) {
-				return nil, nil, fmt.Errorf(
-					"invalid remove action for bit %v, "+
-						"bit is already unset",
-					update.FeatureBit,
-				)
-			}
-			raw.Unset(bit)
+			remove = append(remove, bit)
 			ops.Actions = append(
 				ops.Actions,
 				fmt.Sprintf("%s unset", lnwire.Features[bit]),
@@ -298,7 +281,11 @@ func (s *Server) updateFeatures(currentfeatures *lnwire.RawFeatureVector,
 		}
 	}
 
-	// Validate our new SetNodeAnn.
+	raw, err := lnwire.MergeFeatureVector(currentfeatures, add, remove)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	fv := lnwire.NewFeatureVector(raw, lnwire.Features)
 	if err := feature.ValidateDeps(fv); err != nil {
 		return nil, nil, fmt.Errorf(

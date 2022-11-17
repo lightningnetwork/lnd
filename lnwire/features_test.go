@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"errors"
 	"reflect"
 	"sort"
 	"testing"
@@ -395,4 +396,54 @@ func TestIsEmptyFeatureVector(t *testing.T) {
 
 	fv.Unset(StaticRemoteKeyOptional)
 	require.True(t, fv.IsEmpty())
+}
+
+// TestMergeFeatureVector tests addition and removal of feature bits from
+// a vector.
+func TestMergeFeatureVector(t *testing.T) {
+	t.Parallel()
+
+	features := []FeatureBit{
+		StaticRemoteKeyRequired,
+	}
+
+	// Create our initial feature vector, and clone it so that we can assert
+	// that it is unchanged.
+	fv := NewRawFeatureVector(features...)
+	fcv := fv.Clone()
+
+	// Now, try to add and remove features that are defined by lnd - both
+	// should fail.
+	knownFeatures := []FeatureBit{
+		ExplicitChannelTypeRequired,
+	}
+	_, err := MergeFeatureVector(fv, knownFeatures, nil)
+	require.True(t, errors.Is(err, ErrFeatureStandard),
+		"add known feature should fail")
+
+	_, err = MergeFeatureVector(fv, nil, knownFeatures)
+	require.True(t, errors.Is(err, ErrFeatureStandard),
+		"remove known features should fail")
+
+	// Now, set a custom feature bit.
+	customFeatures := []FeatureBit{
+		10001,
+	}
+	fv1, err := MergeFeatureVector(fv, customFeatures, nil)
+	require.NoError(t, err, "custom feature add ok")
+
+	require.True(t, fv1.IsSet(customFeatures[0]), "custom feature not set")
+	require.Equal(t, fv, fcv, "original vector mutated")
+
+	// Attempt to set the custom feature that we just added, this should
+	// fail because it's already set.
+	_, err = MergeFeatureVector(fv1, customFeatures, nil)
+	require.True(t, errors.Is(err, ErrFeatureSet),
+		"re-add custom should fail")
+
+	// Unset our custom feature and assert that it's actually removed.
+	fv2, err := MergeFeatureVector(fv1, nil, customFeatures)
+	require.NoError(t, err, "remove custom feature should succeed")
+
+	require.False(t, fv2.IsSet(customFeatures[0]))
 }

@@ -515,8 +515,8 @@ func HtlcSuccessFee(chanType channeldb.ChannelType,
 // CommitScriptAnchors return the scripts to use for the local and remote
 // anchor.
 func CommitScriptAnchors(chanType channeldb.ChannelType,
-	localChanCfg, remoteChanCfg *channeldb.ChannelConfig) (*ScriptInfo,
-	*ScriptInfo, error) {
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+	keyRing *CommitmentKeyRing) (*ScriptInfo, *ScriptInfo, error) {
 
 	var (
 		anchorScript func(key *btcec.PublicKey) (*ScriptInfo, error)
@@ -551,10 +551,10 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 			local bool) *btcec.PublicKey {
 
 			if local {
-				return cfg.DelayBasePoint.PubKey
+				return keyRing.ToLocalKey
 			}
 
-			return cfg.PaymentBasePoint.PubKey
+			return keyRing.ToRemoteKey
 		}
 
 	// For normal channels we'll use the multi-sig keys since those are
@@ -606,7 +606,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 // with, and abstracts the various ways of constructing commitment
 // transactions.
 type CommitmentBuilder struct {
-	// chanState is the underlying channels's state struct, used to
+	// chanState is the underlying channel's state struct, used to
 	// determine the type of channel we are dealing with, and relevant
 	// parameters.
 	chanState *channeldb.OpenChannel
@@ -923,7 +923,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	// If this channel type has anchors, we'll also add those.
 	if chanType.HasAnchors() {
 		localAnchor, remoteAnchor, err := CommitScriptAnchors(
-			chanType, localChanCfg, remoteChanCfg,
+			chanType, localChanCfg, remoteChanCfg, keyRing,
 		)
 		if err != nil {
 			return nil, err

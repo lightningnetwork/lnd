@@ -181,6 +181,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   the invoice payment request together with the prefix, which throws checksum
   error when pasting it to the CLI.
 
+* [Allow lncli to read binary PSBTs](https://github.com/lightningnetwork/lnd/pull/7122)
+  from a file during PSBT channel funding flow to comply with [BIP 174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki#specification)
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test
@@ -251,6 +254,7 @@ to refactor the itest for code health and maintenance.
 
 * Alejandro Pedraza
 * andreihod
+* Antoni Spaanderman
 * Carla Kirk-Cohen
 * Conner Babinchak
 * cutiful

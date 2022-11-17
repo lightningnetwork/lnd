@@ -44,14 +44,14 @@ Paste the funded PSBT here to continue the funding flow.
 If your PSBT is very long (specifically, more than 4096 characters), please save
 it to a file and paste the full file path here instead as some terminals will
 truncate the pasted text if it's too long.
-Base64 encoded PSBT (or path to text file): `
+Base64 encoded PSBT (or path to file): `
 
 	userMsgSign = `
 PSBT verified by lnd, please continue the funding flow by signing the PSBT by
 all required parties/devices. Once the transaction is fully signed, paste it
 again here either in base64 PSBT or hex encoded raw wire TX format.
 
-Signed base64 encoded PSBT or hex encoded raw wire TX (or path to text file): `
+Signed base64 encoded PSBT or hex encoded raw wire TX (or path to file): `
 
 	// psbtMaxFileSize is the maximum file size we allow a PSBT file to be
 	// in case we want to read a PSBT from a file. This is mainly to protect
@@ -595,7 +595,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 			// Read the user's response and send it to the server to
 			// verify everything's correct before anything is
 			// signed.
-			psbtBase64, err := readTerminalOrFile(quit)
+			inputPsbt, err := readTerminalOrFile(quit)
 			if err == io.EOF {
 				return nil
 			}
@@ -603,11 +603,9 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 				return fmt.Errorf("reading from terminal or "+
 					"file failed: %v", err)
 			}
-			fundedPsbt, err := base64.StdEncoding.DecodeString(
-				strings.TrimSpace(psbtBase64),
-			)
+			fundedPsbt, err := decodePsbt(inputPsbt)
 			if err != nil {
-				return fmt.Errorf("base64 decode failed: %v",
+				return fmt.Errorf("psbt decode failed: %v",
 					err)
 			}
 			verifyMsg := &lnrpc.FundingTransitionMsg{
@@ -995,39 +993,64 @@ func sendFundingState(cancelCtx context.Context, cliCtx *cli.Context,
 }
 
 // finalizeMsgFromString creates the final message for the PsbtFinalize step
-// from either a hex encoded raw wire transaction or a base64 encoded PSBT
-// packet.
+// from either a hex encoded raw wire transaction or a base64/binary encoded
+// PSBT packet.
 func finalizeMsgFromString(tx string,
 	pendingChanID []byte) (*lnrpc.FundingTransitionMsg_PsbtFinalize, error) {
 
-	rawTx, err := hex.DecodeString(strings.TrimSpace(tx))
+	psbtBytes, err := decodePsbt(tx)
 	if err == nil {
-		// Hex decoding succeeded so we assume we have a raw wire format
-		// transaction. Let's submit that instead of a PSBT packet.
-		tx := &wire.MsgTx{}
-		err := tx.Deserialize(bytes.NewReader(rawTx))
-		if err != nil {
-			return nil, fmt.Errorf("deserializing as raw wire "+
-				"transaction failed: %v", err)
-		}
 		return &lnrpc.FundingTransitionMsg_PsbtFinalize{
 			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
-				FinalRawTx:    rawTx,
+				SignedPsbt:    psbtBytes,
 				PendingChanId: pendingChanID,
 			},
 		}, nil
 	}
 
-	// If the string isn't a hex encoded transaction, we assume it must be
-	// a base64 encoded PSBT packet.
-	psbtBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(tx))
+	// PSBT decode failed, try to parse it as a hex encoded Bitcoin
+	// transaction
+	rawTx, err := hex.DecodeString(strings.TrimSpace(tx))
 	if err != nil {
-		return nil, fmt.Errorf("base64 decode failed: %v", err)
+		return nil, fmt.Errorf("hex decode failed: %w", err)
+	}
+	msgtx := &wire.MsgTx{}
+	err = msgtx.Deserialize(bytes.NewReader(rawTx))
+	if err != nil {
+		return nil, fmt.Errorf("deserializing as raw wire "+
+			"transaction failed: %v", err)
 	}
 	return &lnrpc.FundingTransitionMsg_PsbtFinalize{
 		PsbtFinalize: &lnrpc.FundingPsbtFinalize{
-			SignedPsbt:    psbtBytes,
+			FinalRawTx:    rawTx,
 			PendingChanId: pendingChanID,
 		},
 	}, nil
+}
+
+// decodePsbt tries to decode the input as a binary or base64 PSBT. If this
+// succeeded, the PSBT bytes are returned, an error otherwise.
+func decodePsbt(psbt string) ([]byte, error) {
+	switch {
+	case strings.HasPrefix(psbt, "psbt\xff"):
+		// A binary PSBT (read from a file) always starts with the PSBT
+		// magic "psbt\xff" according to BIP 174
+		return []byte(psbt), nil
+
+	case strings.HasPrefix(strings.TrimSpace(psbt), "cHNidP"):
+		// A base64 PSBT always starts with "cHNidP". This is the
+		// longest base64 representation of the PSBT magic that is not
+		// dependent on the byte after it.
+		psbtBytes, err := base64.StdEncoding.DecodeString(
+			strings.TrimSpace(psbt),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("base64 decode failed: %w", err)
+		}
+
+		return psbtBytes, nil
+
+	default:
+		return nil, fmt.Errorf("not a PSBT")
+	}
 }

@@ -845,9 +845,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// intent. Note that for the PSBT intent type we don't yet have the
 	// funding tx ready, so this will always pass.  We'll do another check
 	// when the PSBT has been verified.
-	isPublic := req.Flags&lnwire.FFAnnounceChannel != 0
-	hasAnchors := req.CommitType.HasAnchors()
 	if enforceNewReservedValue {
+		isPublic := req.Flags&lnwire.FFAnnounceChannel != 0
+		hasAnchors := req.CommitType.HasAnchors()
 		err = l.enforceNewReservedValue(fundingIntent, isPublic, hasAnchors)
 		if err != nil {
 			fundingIntent.Cancel()

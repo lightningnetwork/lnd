@@ -246,13 +246,10 @@ func NewChannelReservation(localFundingAmt, remoteFundingAmt btcutil.Amount,
 		theirBalance = remoteFundingMSat - feeMSat - req.PushMSat
 		initiator = false
 
-		// If the responder doesn't have enough funds to actually pay
-		// the fees, then we'll bail our early.
-		if int64(theirBalance) < 0 {
-			return nil, ErrFunderBalanceDust(
-				int64(commitFee), int64(theirBalance.ToSatoshis()),
-				int64(2*defaultDust),
-			)
+		err := validateInitiatorBalance(theirBalance, commitFee,
+			defaultDust)
+		if err != nil {
+			return nil, err
 		}
 	} else {
 		// TODO(roasbeef): need to rework fee structure in general and
@@ -276,37 +273,11 @@ func NewChannelReservation(localFundingAmt, remoteFundingAmt btcutil.Amount,
 
 		initiator = true
 
-		// If we, the initiator don't have enough funds to actually pay
-		// the fees, then we'll exit with an error.
-		if int64(ourBalance) < 0 {
-			return nil, ErrFunderBalanceDust(
-				int64(commitFee), int64(ourBalance),
-				int64(2*defaultDust),
-			)
+		err := validateInitiatorBalance(ourBalance, commitFee,
+			defaultDust)
+		if err != nil {
+			return nil, err
 		}
-	}
-
-	// If we're the initiator and our starting balance within the channel
-	// after we take account of fees is below 2x the dust limit, then we'll
-	// reject this channel creation request.
-	//
-	// TODO(roasbeef): reject if 30% goes to fees? dust channel
-	if initiator && ourBalance.ToSatoshis() <= 2*defaultDust {
-		return nil, ErrFunderBalanceDust(
-			int64(commitFee),
-			int64(ourBalance.ToSatoshis()),
-			int64(2*defaultDust),
-		)
-	}
-
-	// Similarly we ensure their balance is reasonable if we are not the
-	// initiator.
-	if !initiator && theirBalance.ToSatoshis() <= 2*defaultDust {
-		return nil, ErrFunderBalanceDust(
-			int64(commitFee),
-			int64(theirBalance.ToSatoshis()),
-			int64(2*defaultDust),
-		)
 	}
 
 	// Next we'll set the channel type based on what we can ascertain about
@@ -424,6 +395,27 @@ func NewChannelReservation(localFundingAmt, remoteFundingAmt btcutil.Amount,
 		wallet:        wallet,
 		chanFunder:    req.ChanFunder,
 	}, nil
+}
+
+// validateInitiatorBalance returns an error if the initiator has a balance
+// below 2x the dust limit.
+func validateInitiatorBalance(balance lnwire.MilliSatoshi,
+	commitFee, dustLimit btcutil.Amount) error {
+
+	doubleDustLimit := 2 * dustLimit //nolint:gomnd
+
+	// Since the initiator's balance may have been calculated by subtracting
+	// fees, we first check that unsigned overflow did not occur and then
+	// check against the dust limit.
+	if int64(balance) < 0 || balance.ToSatoshis() <= doubleDustLimit {
+		return ErrFunderBalanceDust(
+			int64(commitFee),
+			int64(balance.ToSatoshis()),
+			int64(doubleDustLimit),
+		)
+	}
+
+	return nil
 }
 
 // SetNumConfsRequired sets the number of confirmations that are required for

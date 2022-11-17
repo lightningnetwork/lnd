@@ -130,6 +130,14 @@ current gossip sync query status.
 * [A bug has been fixed which could cause `lnd` to crash when parsing a
   malformed HTLC intercept message](https://github.com/lightningnetwork/lnd/pull/7392).
 
+* The [UpdateNodeAnnouncement](https://github.com/lightningnetwork/lnd/pull/7168)
+  API can no longer be used to set/unset protocol features that are defined by 
+  LND. A bug in the `updatenodeannouncement` peers cli which did not allow 
+  setting/unsetting of feature bits also has been fixed. 
+
+  Custom node announcement feature bits can also be specified in config using 
+  the `dev` build tag and `--protocol.custom-nodeann-feature`  flag. 
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

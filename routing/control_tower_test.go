@@ -119,9 +119,9 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		subscriber1, subscriber2, subscriber3,
 	}
 
-	for _, s := range subscribers {
+	for i, s := range subscribers {
 		var result *channeldb.MPPayment
-		for result == nil || result.Status == channeldb.StatusInFlight {
+		for result == nil || !result.Terminated() {
 			select {
 			case item := <-s.Updates():
 				result = item.(*channeldb.MPPayment)
@@ -130,9 +130,10 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 			}
 		}
 
-		if result.Status != channeldb.StatusSucceeded {
-			t.Fatal("unexpected payment state")
-		}
+		require.Equalf(t, channeldb.StatusSucceeded, result.Status,
+			"subscriber %v failed, want %s, got %s", i,
+			channeldb.StatusSucceeded, result.Status)
+
 		settle, _ := result.TerminalInfo()
 		if settle.Preimage != preimg {
 			t.Fatal("unexpected preimage")
@@ -474,9 +475,9 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 		subscriber1, subscriber2,
 	}
 
-	for _, s := range subscribers {
+	for i, s := range subscribers {
 		var result *channeldb.MPPayment
-		for result == nil || result.Status == channeldb.StatusInFlight {
+		for result == nil || !result.Terminated() {
 			select {
 			case item := <-s.Updates():
 				result = item.(*channeldb.MPPayment)
@@ -509,6 +510,10 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 			t.Fatalf("expected 0 htlcs, got: %d",
 				len(result.HTLCs))
 		}
+
+		require.Equalf(t, channeldb.StatusFailed, result.Status,
+			"subscriber %v failed, want %s, got %s", i,
+			channeldb.StatusFailed, result.Status)
 
 		if *result.FailureReason != channeldb.FailureReasonTimeout {
 			t.Fatal("unexpected failure reason")

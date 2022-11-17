@@ -280,7 +280,7 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 	// updates. Otherwise this update is the final update and the incoming
 	// channel can be closed. This will close the queue's outgoing channel
 	// when all updates have been written.
-	if payment.Status == channeldb.StatusInFlight {
+	if !payment.Terminated() {
 		p.subscribersMtx.Lock()
 		p.subscribers[paymentHash] = append(
 			p.subscribers[paymentHash], subscriber,
@@ -344,7 +344,7 @@ func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
 
 	// If the payment reached a terminal state, the subscriber list can be
 	// cleared. There won't be any more updates.
-	terminal := event.Status != channeldb.StatusInFlight
+	terminal := event.Terminated()
 	if terminal {
 		delete(p.subscribers, paymentHash)
 	}

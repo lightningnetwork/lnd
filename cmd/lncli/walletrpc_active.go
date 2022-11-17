@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -320,7 +321,9 @@ func bumpCloseFee(ctx *cli.Context) error {
 	defer cleanUp()
 
 	// Fetch waiting close channel commitments.
-	commitments, err := getWaitingCloseCommitments(client, channelPoint)
+	commitments, err := getWaitingCloseCommitments(
+		ctxc, client, channelPoint,
+	)
 	if err != nil {
 		return err
 	}
@@ -379,11 +382,9 @@ func bumpCloseFee(ctx *cli.Context) error {
 	return nil
 }
 
-func getWaitingCloseCommitments(client lnrpc.LightningClient,
-	channelPoint string) (*lnrpc.PendingChannelsResponse_Commitments,
-	error) {
-
-	ctxc := getContext()
+func getWaitingCloseCommitments(ctxc context.Context,
+	client lnrpc.LightningClient, channelPoint string) (
+	*lnrpc.PendingChannelsResponse_Commitments, error) {
 
 	req := &lnrpc.PendingChannelsRequest{}
 	resp, err := client.PendingChannels(ctxc, req)

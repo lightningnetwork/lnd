@@ -130,6 +130,10 @@ current gossip sync query status.
 * [A bug has been fixed which could cause `lnd` to crash when parsing a
   malformed HTLC intercept message](https://github.com/lightningnetwork/lnd/pull/7392).
 
+* [A bug](https://github.com/lightningnetwork/lnd/pull/7408) in the 
+  `updatenodeannouncement` peers cli which did not allow setting/
+   unsetting of feature bits also has been fixed. 
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

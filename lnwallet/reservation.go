@@ -206,7 +206,7 @@ type ChannelReservation struct {
 // used only internally by lnwallet. In order to concurrent safety, the
 // creation of all channel reservations should be carried out via the
 // lnwallet.InitChannelReservation interface.
-func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
+func NewChannelReservation(localFundingAmt, remoteFundingAmt btcutil.Amount,
 	wallet *LightningWallet, id uint64, chainHash *chainhash.Hash,
 	thawHeight uint32, req *InitFundingReserveMsg) (*ChannelReservation,
 	error) {
@@ -226,9 +226,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	commitFee := req.CommitFeePerKw.FeeForWeight(commitWeight)
 
 	localFundingMSat := lnwire.NewMSatFromSatoshis(localFundingAmt)
-	// TODO(halseth): make method take remote funding amount directly
-	// instead of inferring it from capacity and local amt.
-	capacityMSat := lnwire.NewMSatFromSatoshis(capacity)
+	remoteFundingMSat := lnwire.NewMSatFromSatoshis(remoteFundingAmt)
 
 	// The total fee paid by the initiator will be the commitment fee in
 	// addition to the two anchor outputs.
@@ -245,7 +243,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	// some funds to us within the first commitment state.
 	if localFundingAmt == 0 {
 		ourBalance = req.PushMSat
-		theirBalance = capacityMSat - feeMSat - req.PushMSat
+		theirBalance = remoteFundingMSat - feeMSat - req.PushMSat
 		initiator = false
 
 		// If the responder doesn't have enough funds to actually pay
@@ -260,19 +258,21 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// TODO(roasbeef): need to rework fee structure in general and
 		// also when we "unlock" dual funder within the daemon
 
-		if capacity == localFundingAmt {
+		if remoteFundingAmt == 0 {
 			// If we're initiating a single funder workflow, then
 			// we pay all the initial fees within the commitment
 			// transaction. We also deduct our balance by the
 			// amount pushed as part of the initial state.
-			ourBalance = capacityMSat - feeMSat - req.PushMSat
+			ourBalance = localFundingMSat - feeMSat - req.PushMSat
 			theirBalance = req.PushMSat
 		} else {
 			// Otherwise, this is a dual funder workflow where both
 			// slides split the amount funded and the commitment
 			// fee.
-			ourBalance = localFundingMSat - (feeMSat / 2)
-			theirBalance = capacityMSat - localFundingMSat - (feeMSat / 2) + req.PushMSat
+			halfFeeMSat := feeMSat / 2 //nolint:gomnd
+			ourBalance = localFundingMSat - halfFeeMSat
+			theirBalance = remoteFundingMSat - halfFeeMSat +
+				req.PushMSat
 		}
 
 		initiator = true
@@ -401,7 +401,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 			IsPending:      true,
 			IsInitiator:    initiator,
 			ChannelFlags:   req.Flags,
-			Capacity:       capacity,
+			Capacity:       localFundingAmt + remoteFundingAmt,
 			LocalCommitment: channeldb.ChannelCommitment{
 				LocalBalance:  ourBalance,
 				RemoteBalance: theirBalance,

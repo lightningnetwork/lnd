@@ -858,13 +858,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		}
 	}
 
-	// The total channel capacity will be the size of the funding output we
-	// created plus the remote contribution.
-	capacity := actualLocalFundingAmt + req.RemoteFundingAmt
-
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(
-		capacity, actualLocalFundingAmt, l, id,
+		actualLocalFundingAmt, req.RemoteFundingAmt, l, id,
 		l.Cfg.NetParams.GenesisHash, thawHeight, req,
 	)
 	if err != nil {

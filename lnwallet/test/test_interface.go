@@ -722,6 +722,7 @@ func testFundingCancellationNotEnoughFunds(miner *rpctest.Harness,
 	}
 }
 
+//nolint:gomnd
 func testCancelNonExistentReservation(miner *rpctest.Harness,
 	alice, _ *lnwallet.LightningWallet, t *testing.T) {
 
@@ -738,7 +739,7 @@ func testCancelNonExistentReservation(miner *rpctest.Harness,
 
 	// Create our own reservation, give it some ID.
 	res, err := lnwallet.NewChannelReservation(
-		10000, 10000, alice, 22, &testHdSeed, 0, req,
+		10000, 0, alice, 22, &testHdSeed, 0, req,
 	)
 	require.NoError(t, err, "unable to create res")
 

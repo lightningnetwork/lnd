@@ -750,8 +750,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		enforceNewReservedValue = !isPsbtFunder
 	}
 
-	localFundingAmt := req.LocalFundingAmt
-	remoteFundingAmt := req.RemoteFundingAmt
+	actualLocalFundingAmt := req.LocalFundingAmt
 
 	var (
 		fundingIntent chanfunding.Intent
@@ -805,8 +804,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			return
 		}
 
-		localFundingAmt = fundingIntent.LocalFundingAmt()
-		remoteFundingAmt = fundingIntent.RemoteFundingAmt()
+		// The channel funder may have subtracted fees from our local
+		// funding amount.
+		actualLocalFundingAmt = fundingIntent.LocalFundingAmt()
 	}
 
 	// At this point there _has_ to be a funding intent, otherwise something
@@ -860,12 +860,12 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 
 	// The total channel capacity will be the size of the funding output we
 	// created plus the remote contribution.
-	capacity := localFundingAmt + remoteFundingAmt
+	capacity := actualLocalFundingAmt + req.RemoteFundingAmt
 
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(
-		capacity, localFundingAmt, l, id, l.Cfg.NetParams.GenesisHash,
-		thawHeight, req,
+		capacity, actualLocalFundingAmt, l, id,
+		l.Cfg.NetParams.GenesisHash, thawHeight, req,
 	)
 	if err != nil {
 		fundingIntent.Cancel()

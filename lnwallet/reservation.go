@@ -271,8 +271,7 @@ func NewChannelReservation(localFundingAmt, remoteFundingAmt btcutil.Amount,
 			// fee.
 			halfFeeMSat := feeMSat / 2 //nolint:gomnd
 			ourBalance = localFundingMSat - halfFeeMSat
-			theirBalance = remoteFundingMSat - halfFeeMSat +
-				req.PushMSat
+			theirBalance = remoteFundingMSat - halfFeeMSat
 		}
 
 		initiator = true

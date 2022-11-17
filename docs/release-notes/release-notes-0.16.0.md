@@ -219,7 +219,7 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 ### Tooling and documentation
 
 * [The `golangci-lint` tool was updated to
-  `v1.46.2`](https://github.com/lightningnetwork/lnd/pull/6731)
+  `v1.50.1`](https://github.com/lightningnetwork/lnd/pull/7173)
 
 * [Tests in `htlcswitch` will now clean up the temporary resources they create](https://github.com/lightningnetwork/lnd/pull/6832).
 

@@ -16,7 +16,7 @@ const (
 
 // RPCMiddleware holds the configuration for RPC interception middleware.
 //
-// nolint:lll
+//nolint:lll
 type RPCMiddleware struct {
 	Enable           bool          `long:"enable" description:"Enable the RPC middleware interceptor functionality."`
 	InterceptTimeout time.Duration `long:"intercepttimeout" description:"Time after which a RPC middleware intercept request will time out and return an error if it hasn't yet received a response."`

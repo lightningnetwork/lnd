@@ -1101,5 +1101,5 @@ func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
 }
 
 func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key channeldb.CircuitKey,
-	info channeldb.FinalHtlcInfo) { // nolint:whitespace
+	info channeldb.FinalHtlcInfo) { //nolint:whitespace
 }

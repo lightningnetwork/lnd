@@ -1795,7 +1795,7 @@ func syncNewChannel(tx kvdb.RwTx, c *OpenChannel, addrs []net.Addr) error {
 // occur. This method its to be called when we revoke our prior commitment
 // state.
 //
-// A map is returned of all the htlc resolutions that were locked in in this
+// A map is returned of all the htlc resolutions that were locked in this
 // commitment. Keys correspond to htlc indices and values indicate whether the
 // htlc was settled or failed.
 func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,

@@ -7,7 +7,7 @@ package lncfg
 // are mostly used for integration tests as most modern nodes should always run
 // with them on by default.
 //
-// nolint:lll
+//nolint:lll
 type LegacyProtocol struct {
 	// LegacyOnionFormat if set to true, then we won't signal
 	// TLVOnionPayloadOptional. As a result, nodes that include us in the

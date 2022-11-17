@@ -19,7 +19,7 @@ const (
 // Workers exposes CLI configuration for turning resources consumed by worker
 // pools.
 //
-// nolint:lll
+//nolint:lll
 type Workers struct {
 	// Read is the maximum number of concurrent read pool workers.
 	Read int `long:"read" description:"Maximum number of concurrent read pool workers. This number should be proportional to the number of peers."`

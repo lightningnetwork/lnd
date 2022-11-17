@@ -5,7 +5,7 @@ import "time"
 // Bitcoind holds the configuration options for the daemon's connection to
 // bitcoind.
 //
-// nolint:lll
+//nolint:lll
 type Bitcoind struct {
 	Dir                  string        `long:"dir" description:"The base directory that contains the node's data, logs, configuration file, etc."`
 	ConfigPath           string        `long:"config" description:"Configuration filepath. If not set, will default to the default filename under 'dir'."`

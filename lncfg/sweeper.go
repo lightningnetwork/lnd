@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// nolint:lll
+//nolint:lll
 type Sweeper struct {
 	BatchWindowDuration time.Duration `long:"batchwindowduration" description:"Duration of the sweep batch window. The sweep is held back during the batch window to allow more inputs to be added and thereby lower the fee per input."`
 }

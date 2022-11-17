@@ -1165,7 +1165,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
 		Clock:                         clock.NewDefaultClock(),
 		SubscribeBreachComplete:       s.breachArbiter.SubscribeBreachComplete,
-		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome, // nolint: lll
+		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome, //nolint: lll
 		HtlcNotifier:                  s.htlcNotifier,
 	}, dbs.ChanStateDB)
 

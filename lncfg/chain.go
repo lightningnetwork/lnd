@@ -8,7 +8,7 @@ import (
 
 // Chain holds the configuration options for the daemon's chain settings.
 //
-// nolint:lll
+//nolint:lll
 type Chain struct {
 	Active   bool   `long:"active" description:"If the chain should be active or not."`
 	ChainDir string `long:"chaindir" description:"The directory to store the chain's data within."`

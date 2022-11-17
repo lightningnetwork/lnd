@@ -1103,6 +1103,7 @@ func TaprootCommitScriptToSelf(csvTimeout uint32,
 	builder.AddData(schnorr.SerializePubKey(selfKey))
 	builder.AddOp(txscript.OP_CHECKSIG)
 	builder.AddInt64(int64(csvTimeout))
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
 	builder.AddOp(txscript.OP_DROP)
 
 	delayScript, err := builder.Script()
@@ -1358,7 +1359,7 @@ func TaprootCommitScriptToRemote(combinedFundingKey,
 	// outputs.
 	builder := txscript.NewScriptBuilder()
 	builder.AddData(schnorr.SerializePubKey(remoteKey))
-	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
+	builder.AddOp(txscript.OP_CHECKSIG)
 	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
 
 	delayScript, err := builder.Script()
@@ -1375,7 +1376,7 @@ func TaprootCommitScriptToRemote(combinedFundingKey,
 	// Now that we have our root, we can arrive at the final output script
 	// by tweaking the internal key with this root.
 	toRemoteOutputKey := txscript.ComputeTaprootOutputKey(
-		remoteKey, tapScriptRoot[:],
+		combinedFundingKey, tapScriptRoot[:],
 	)
 
 	return toRemoteOutputKey, nil

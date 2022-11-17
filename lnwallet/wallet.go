@@ -1135,23 +1135,21 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	reservation.Lock()
 	defer reservation.Unlock()
 
-	// At this point, if we have a funding intent, we'll use it to populate
-	// the existing reservation state entries for our coin selection.
-	if fundingIntent != nil {
-		if intent, ok := fundingIntent.(*chanfunding.FullIntent); ok {
-			for _, coin := range intent.InputCoins {
-				reservation.ourContribution.Inputs = append(
-					reservation.ourContribution.Inputs,
-					&wire.TxIn{
-						PreviousOutPoint: coin.OutPoint,
-					},
-				)
-			}
-			reservation.ourContribution.ChangeOutputs = intent.ChangeOutputs
+	// If we have a full funding intent, we'll use it to populate the
+	// existing reservation state entries for our coin selection.
+	if intent, ok := fundingIntent.(*chanfunding.FullIntent); ok {
+		for _, coin := range intent.InputCoins {
+			reservation.ourContribution.Inputs = append(
+				reservation.ourContribution.Inputs,
+				&wire.TxIn{
+					PreviousOutPoint: coin.OutPoint,
+				},
+			)
 		}
-
-		reservation.fundingIntent = fundingIntent
+		reservation.ourContribution.ChangeOutputs = intent.ChangeOutputs
 	}
+
+	reservation.fundingIntent = fundingIntent
 
 	var err error
 	reservation.ourContribution.MultiSigKey, err = keyRing.DeriveNextKey(

@@ -126,7 +126,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		amt lnwire.MilliSatoshi, _ float64,
 		restrictions *routing.RestrictParams, _ record.CustomSet,
 		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-		finalExpiry uint16) (*route.Route, error) {
+		finalExpiry uint16) (*route.Route, float64, error) {
 
 		if int64(amt) != amtSat*1000 {
 			t.Fatal("unexpected amount")
@@ -187,7 +187,9 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		}
 
 		hops := []*route.Hop{{}}
-		return route.NewRouteFromHops(amt, 144, source, hops)
+		route, err := route.NewRouteFromHops(amt, 144, source, hops)
+
+		return route, expectedProb, err
 	}
 
 	backend := &RouterBackend{

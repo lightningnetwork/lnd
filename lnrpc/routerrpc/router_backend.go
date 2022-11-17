@@ -57,7 +57,7 @@ type RouterBackend struct {
 		restrictions *routing.RestrictParams,
 		destCustomRecords record.CustomSet,
 		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-		finalExpiry uint16) (*route.Route, error)
+		finalExpiry uint16) (*route.Route, float64, error)
 
 	MissionControl MissionControl
 
@@ -325,7 +325,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	route, err := r.FindRoute(
+	route, _, err := r.FindRoute(
 		sourcePubKey, targetPubKey, amt, in.TimePref, restrictions,
 		customRecords, routeHintEdges, finalCLTVDelta,
 	)

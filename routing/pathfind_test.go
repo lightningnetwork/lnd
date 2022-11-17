@@ -2291,7 +2291,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
-	route, err := ctx.router.FindRoute(
+	route, _, err := ctx.router.FindRoute(
 		bobNode.PubKeyBytes, carol, amt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
@@ -2341,7 +2341,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	}
 
 	// We'll now request a route from A -> B -> C.
-	route, err = ctx.router.FindRoute(
+	route, _, err = ctx.router.FindRoute(
 		source.PubKeyBytes, carol, amt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
@@ -3117,7 +3117,7 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 		}
 	}()
 
-	return findPath(
+	route, _, err := findPath(
 		&graphParams{
 			additionalEdges: additionalEdges,
 			bandwidthHints:  bandwidthHints,
@@ -3125,4 +3125,6 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 		},
 		r, cfg, source, target, amt, timePref, finalHtlcExpiry,
 	)
+
+	return route, err
 }

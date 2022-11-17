@@ -1752,11 +1752,10 @@ type routingMsg struct {
 // particular target destination to which it is able to send `amt` after
 // factoring in channel capacities and cumulative fees along the route.
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
-	amt lnwire.MilliSatoshi, timePref float64,
-	restrictions *RestrictParams,
+	amt lnwire.MilliSatoshi, timePref float64, restrictions *RestrictParams,
 	destCustomRecords record.CustomSet,
 	routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-	finalExpiry uint16) (*route.Route, error) {
+	finalExpiry uint16) (*route.Route, float64, error) {
 
 	log.Debugf("Searching for path to %v, sending %v", target, amt)
 
@@ -1766,14 +1765,14 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// We'll fetch the current block height so we can properly calculate the
 	// required HTLC time locks within the route.
 	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Now that we know the destination is reachable within the graph, we'll
@@ -1782,10 +1781,10 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	// Validate time preference.
 	if timePref < -1 || timePref > 1 {
-		return nil, errors.New("time preference out of range")
+		return nil, 0, errors.New("time preference out of range")
 	}
 
-	path, err := findPath(
+	path, probability, err := findPath(
 		&graphParams{
 			additionalEdges: routeHints,
 			bandwidthHints:  bandwidthHints,
@@ -1796,7 +1795,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		source, target, amt, timePref, finalHtlcExpiry,
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Create the route with absolute time lock values.
@@ -1810,7 +1809,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	go log.Tracef("Obtained path to send %v to %x: %v",
@@ -1819,7 +1818,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		}),
 	)
 
-	return route, nil
+	return route, probability, nil
 }
 
 // generateNewSessionKey generates a new ephemeral private key to be used for a

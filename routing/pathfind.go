@@ -43,7 +43,7 @@ const (
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
 	amt lnwire.MilliSatoshi, timePref float64, finalHtlcExpiry int32) (
-	[]*channeldb.CachedEdgePolicy, error)
+	[]*channeldb.CachedEdgePolicy, float64, error)
 
 var (
 	// DefaultAttemptCost is the default fixed virtual cost in path finding
@@ -427,7 +427,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
+	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, float64, error) {
 
 	// Pathfinding can be a significant portion of the total payment
 	// latency, especially on low-powered devices. Log several metrics to
@@ -448,7 +448,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		var err error
 		features, err = g.graph.fetchNodeFeatures(target)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
@@ -457,14 +457,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	err := feature.ValidateRequired(features)
 	if err != nil {
 		log.Warnf("Pathfinding destination node features: %v", err)
-		return nil, errUnknownRequiredFeature
+		return nil, 0, errUnknownRequiredFeature
 	}
 
 	// Ensure that all transitive dependencies are set.
 	err = feature.ValidateDeps(features)
 	if err != nil {
 		log.Warnf("Pathfinding destination node features: %v", err)
-		return nil, errMissingDependentFeature
+		return nil, 0, errMissingDependentFeature
 	}
 
 	// Now that we know the feature vector is well formed, we'll proceed in
@@ -476,7 +476,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	if len(r.DestCustomRecords) > 0 &&
 		!features.HasFeature(lnwire.TLVOnionPayloadOptional) {
 
-		return nil, errNoTlvPayload
+		return nil, 0, errNoTlvPayload
 	}
 
 	// If the caller has a payment address to attach, check that our
@@ -484,7 +484,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	if r.PaymentAddr != nil &&
 		!features.HasFeature(lnwire.PaymentAddrOptional) {
 
-		return nil, errNoPaymentAddr
+		return nil, 0, errNoPaymentAddr
 	}
 
 	// If the caller needs to send custom records, check that our
@@ -492,7 +492,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	if r.Metadata != nil &&
 		!features.HasFeature(lnwire.TLVOnionPayloadOptional) {
 
-		return nil, errNoTlvPayload
+		return nil, 0, errNoTlvPayload
 	}
 
 	// Set up outgoing channel map for quicker access.
@@ -513,19 +513,19 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			self, outgoingChanMap, g.bandwidthHints, g.graph,
 		)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		// If the total outgoing balance isn't sufficient, it will be
 		// impossible to complete the payment.
 		if total < amt {
-			return nil, errInsufficientBalance
+			return nil, 0, errInsufficientBalance
 		}
 
 		// If there is only not enough capacity on a single route, it
 		// may still be possible to complete the payment by splitting.
 		if max < amt {
-			return nil, errNoPathFound
+			return nil, 0, errNoPathFound
 		}
 	}
 
@@ -611,8 +611,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// Validate time preference value.
 	if math.Abs(timePref) > 1 {
-		return nil, fmt.Errorf("time preference %v out of range [-1, 1]",
-			timePref)
+		return nil, 0, fmt.Errorf("time preference %v out of range "+
+			"[-1, 1]", timePref)
 	}
 
 	// Scale to avoid the extremes -1 and 1 which run into infinity issues.
@@ -856,7 +856,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		err := u.addGraphPolicies(g.graph)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		for _, reverseEdge := range additionalEdgesWithSrc[pivot] {
@@ -895,7 +895,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			// Get feature vector for fromNode.
 			fromFeatures, err := getGraphFeatures(fromNode)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 
 			// If there are no valid features, skip this node.
@@ -934,7 +934,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		if !ok {
 			// If the node doesn't have a next hop it means we
 			// didn't find a path.
-			return nil, errNoPathFound
+			return nil, 0, errNoPathFound
 		}
 
 		// Add the next hop to the list of path edges.
@@ -968,7 +968,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		distance[source].probability, len(pathEdges),
 		distance[source].amountToReceive-amt)
 
-	return pathEdges, nil
+	return pathEdges, distance[source].probability, nil
 }
 
 // getProbabilityBasedDist converts a weight into a distance that takes into

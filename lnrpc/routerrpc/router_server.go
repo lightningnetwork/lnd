@@ -366,7 +366,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	// restriction for the default CLTV limit, otherwise we can find a route
 	// that exceeds it and is useless to us.
 	mc := s.cfg.RouterBackend.MissionControl
-	route, err := s.cfg.Router.FindRoute(
+	route, _, err := s.cfg.Router.FindRoute(
 		s.cfg.RouterBackend.SelfNode, destNode, amtMsat, 0,
 		&routing.RestrictParams{
 			FeeLimit:          feeLimit,

@@ -268,7 +268,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 		CltvLimit:         math.MaxUint32,
 	}
 
-	route, err := ctx.router.FindRoute(
+	route, _, err := ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
 		target, paymentAmt, 0, restrictions, nil, nil,
 		MinCLTVDelta,
@@ -1554,7 +1554,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	targetNode := priv2.PubKey()
 	var targetPubKeyBytes route.Vertex
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
-	_, err = ctx.router.FindRoute(
+	_, _, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
 		targetPubKeyBytes, paymentAmt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
@@ -1595,7 +1595,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Should still be able to find the route, and the info should be
 	// updated.
-	_, err = ctx.router.FindRoute(
+	_, _, err = ctx.router.FindRoute(
 		ctx.router.selfNode.PubKeyBytes,
 		targetPubKeyBytes, paymentAmt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,

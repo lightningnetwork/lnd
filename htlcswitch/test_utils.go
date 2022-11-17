@@ -21,7 +21,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -36,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
@@ -481,12 +481,15 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 // getChanID retrieves the channel point from an lnnwire message.
 func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 	var chanID lnwire.ChannelID
+
 	switch msg := msg.(type) {
 	case *lnwire.UpdateAddHTLC:
 		chanID = msg.ChanID
 	case *lnwire.UpdateFulfillHTLC:
 		chanID = msg.ChanID
 	case *lnwire.UpdateFailHTLC:
+		chanID = msg.ChanID
+	case *lnwire.UpdateFailMalformedHTLC:
 		chanID = msg.ChanID
 	case *lnwire.RevokeAndAck:
 		chanID = msg.ChanID
@@ -549,27 +552,42 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	return invoice, htlc, paymentID, nil
 }
 
+func generatePaymentAddress() ([32]byte, error) {
+
+	var payAddr lntypes.Hash
+	r, err := generateRandomBytes(sha256.Size)
+	copy(payAddr[:], r)
+
+	return payAddr, err
+}
+
+func generatePaymentSecret() (lntypes.Preimage, [32]byte, error) {
+
+	var preimage lntypes.Preimage
+	var rHash lntypes.Hash
+	r, err := generateRandomBytes(lntypes.PreimageSize)
+	copy(preimage[:], r)
+
+	rHash = sha256.Sum256(r)
+
+	return preimage, rHash, err
+}
+
 // generatePayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
 func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
 	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice,
 	*lnwire.UpdateAddHTLC, uint64, error) {
 
-	var preimage lntypes.Preimage
-	r, err := generateRandomBytes(sha256.Size)
+	preimage, rhash, err := generatePaymentSecret()
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	copy(preimage[:], r)
 
-	rhash := sha256.Sum256(preimage[:])
-
-	var payAddr [sha256.Size]byte
-	r, err = generateRandomBytes(sha256.Size)
+	payAddr, err := generatePaymentAddress()
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	copy(payAddr[:], r)
 
 	return generatePaymentWithPreimage(
 		invoiceAmt, htlcAmt, timelock, blob, &preimage, rhash, payAddr,
@@ -662,15 +680,140 @@ func generateHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
 			amount = runningAmt - fee
 		}
 
+		// NOTE(10/22/22): We still only ever use legacy onion payloads.
+		// We should create a new version of this function or update
+		// this one to use the now required TLV onion hop payload!
+		hop := &hop.Payload{
+			FwdInfo: hop.ForwardingInfo{
+				Network:         hop.BitcoinNetwork,
+				NextHop:         nextHop,
+				AmountToForward: amount,
+				OutgoingCTLV:    timeLock,
+			},
+		}
+		hops[i] = hop
+	}
+
+	return runningAmt, totalTimelock, hops
+}
+
+// computePaymentRelay computes a the minimal set of information
+// necessary to forward a payment inside a blinded route.
+// This method does NOT take the perspective of a blinded
+// route builder looking to maximize privacy.
+func computePaymentRelay(link *channelLink) *record.PaymentRelay {
+	return &record.PaymentRelay{
+		// QUESTION(10/25/22): Why do all the route
+		// blinding spec types not match LND types?
+		BaseFee:         uint32(link.cfg.FwrdingPolicy.BaseFee),
+		FeeRate:         uint32(link.cfg.FwrdingPolicy.FeeRate),
+		CltvExpiryDelta: uint16(link.cfg.FwrdingPolicy.TimeLockDelta),
+	}
+}
+
+// generateBlindHops constructs the onion and route blinding payload
+// for each hop in a blind route. It also provideds the total amount to
+// be sent, and the time lock value needed to route an HTLC with the
+// target amount over the specified path.
+func generateBlindHops(payAmt lnwire.MilliSatoshi, startingHeight uint32,
+	pathID []byte, path ...*channelLink) (lnwire.MilliSatoshi, uint32, []*hop.Payload) {
+
+	totalTimelock := startingHeight
+	runningAmt := payAmt
+
+	hops := make([]*hop.Payload, len(path))
+	for i := len(path) - 1; i >= 0; i-- {
+
+		var finalHop bool = i == len(path)-1
+
+		// If this is the last hop, then the next hop is the special
+		// "exit node". Otherwise, we look to the "prior" hop.
+		// NOTE(10/28/22): The conditionals which handle next hop,
+		// amount and timelock could be combined, but the function
+		// might be more readable if they are handled separately.
+		// This is test code so performance is not as critical.
+		nextHop := hop.Exit
+		if !finalHop {
+			nextHop = path[i+1].channel.ShortChanID()
+		}
+
+		// If this is the last hop, then the time lock will be their
+		// specified delta policy plus our starting height.
+		var timeLock uint32
+		if finalHop {
+			totalTimelock += testInvoiceCltvExpiry
+			timeLock = totalTimelock
+		} else {
+			// Otherwise, the outgoing time lock should be the
+			// incoming timelock minus their specified delta.
+			delta := path[i+1].cfg.FwrdingPolicy.TimeLockDelta
+			totalTimelock += delta
+			timeLock = totalTimelock - delta
+		}
+
+		// Finally, we'll need to calculate the amount to forward. For
+		// the last hop, it's just the payment amount.
+		amount := payAmt
+		if !finalHop {
+			prevHop := hops[i+1]
+			prevAmount := prevHop.ForwardingInfo().AmountToForward
+
+			fee := ExpectedFee(path[i].cfg.FwrdingPolicy, prevAmount)
+			runningAmt += fee
+
+			// Otherwise, for a node to forward an HTLC, then
+			// following inequality most hold true:
+			//     * amt_in - fee >= amt_to_forward
+			amount = runningAmt - fee
+		}
+
 		var nextHopBytes [8]byte
 		binary.BigEndian.PutUint64(nextHopBytes[:], nextHop.ToUint64())
 
-		hops[i] = hop.NewLegacyPayload(&sphinx.HopData{
-			Realm:         [1]byte{}, // hop.BitcoinNetwork
-			NextAddress:   nextHopBytes,
-			ForwardAmount: uint64(amount),
-			OutgoingCltv:  timeLock,
-		})
+		// Construct the onion and route blinding payloads for this hop.
+		payload := &hop.Payload{}
+
+		blindPayload := hop.BlindHopPayload{
+			Padding: []byte{0x00, 0x01, 0x00, 0x00},
+			NextHop: nextHop,
+			// PaymentConstraints: &record.PaymentConstraints{},
+		}
+
+		// Configuration meant for the first blind hop only.
+		if i == 0 {
+			_, ephemeralBlindingPoint := btcec.PrivKeyFromBytes([]byte("test private key"))
+			payload.BlindingPoint = ephemeralBlindingPoint
+		}
+
+		// Configuration meant for all intermediate (non-final) hops.
+		if !finalHop {
+			// Each intermediate hop requires fee and timelock
+			// information in order to relay payment.
+			blindPayload.PaymentRelay = computePaymentRelay(path[i])
+		}
+
+		// Configuration meant for the final blind hop only.
+		if finalHop {
+			// The final hop in a blinded route must have a
+			// path ID and top level forwarding information set.
+			blindPayload.PathID = bytes.Repeat([]byte{1}, 32)
+			if pathID != nil {
+				blindPayload.PathID = pathID
+			}
+
+			payload.FwdInfo = hop.ForwardingInfo{
+				Network:         hop.BitcoinNetwork,
+				NextHop:         nextHop,
+				AmountToForward: amount,
+				OutgoingCTLV:    timeLock,
+			}
+		}
+
+		// Serialize the route blinding TLV payload
+		var b bytes.Buffer
+		hop.PackRouteBlindingPayload(&b, &blindPayload)
+		payload.RouteBlindingEncryptedData = b.Bytes()
+		hops[i] = payload
 	}
 
 	return runningAmt, totalTimelock, hops
@@ -850,6 +993,8 @@ func (n *threeHopNetwork) stop() {
 	}
 }
 
+// NOTE(10/22/22): this is a 3 (or less) node network proprietary structure.
+// Would need to be generalized to support N node networks.
 type clusterChannels struct {
 	aliceToBob *lnwallet.LightningChannel
 	bobToAlice *lnwallet.LightningChannel
@@ -859,6 +1004,8 @@ type clusterChannels struct {
 
 // createClusterChannels creates lightning channels which are needed for
 // network cluster to be initialized.
+// NOTE(10/22/22): this is a 3 (or less) node network proprietary function.
+// Would need to be generalized to support N node networks.
 func createClusterChannels(t *testing.T, aliceToBob, bobToCarol btcutil.Amount) (
 	*clusterChannels, func() (*clusterChannels, error), error) {
 
@@ -1017,6 +1164,7 @@ func newThreeHopNetwork(t testing.TB, aliceChannel, firstBobChannel,
 	}
 }
 
+// NOTE(10/22/22): this is a 3 (or less) node network proprietary type/function.
 // serverOption is a function which alters the three servers created for
 // a three hop network to allow custom settings on each server.
 type serverOption func(aliceServer, bobServer, carolServer *mockServer)
@@ -1160,9 +1308,11 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 			NotifyInactiveChannel:   func(wire.OutPoint) {},
 			HtlcNotifier:            server.htlcSwitch.cfg.HtlcNotifier,
 			GetAliases:              getAliases,
+			BlindHopProcessor:       &mockBlindHopProcessor{},
 		},
 		channel,
 	)
+
 	if err := server.htlcSwitch.AddLink(link); err != nil {
 		return nil, fmt.Errorf("unable to add channel link: %v", err)
 	}

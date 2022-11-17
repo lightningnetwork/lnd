@@ -277,6 +277,72 @@ func computeOutgoingCltv(incomingTimelock uint32,
 	return incomingTimelock - uint32(paymentRelay.CltvExpiryDelta)
 }
 
+// PackRouteBlindingPayload writes the series of bytes that can be placed
+// directly into the route blinding TLV payload for this hop. This will
+// include the required information for relaying payment, as well as any
+// constraints meant to be enforced by processing nodes in the blinded route.
+//
+// NOTE(10/26/22): This currently lives in the route package and is outside
+// the scope of our first PR for blind hop processing. However, it could be
+// that our testing code can be made cleaner if we bring something like this
+// in to our first PR as it provides a more general way of encoding a route
+// blinding TLV payload. Build the struct{}, then call this method.
+func PackRouteBlindingPayload(w io.Writer, b *BlindHopPayload) error {
+
+	// Encode route blinding payload as TLV stream.
+	var records = []tlv.Record{}
+
+	// NOTE(8/13/22): The following checks ensure that we do not waste
+	// bytes on the wire for empty TLV fields.
+	// As an example, if we encode a nil slice in our TLV stream we will
+	// waste 2 bytes on the type and length (0).
+	if b.Padding != nil {
+		records = append(records,
+			record.NewPaddingRecord(&b.Padding),
+		)
+	}
+
+	if b.NextHop != Exit {
+		nextChanID := b.NextHop.ToUint64()
+		records = append(records,
+			record.NewBlindedNextHopRecord(&nextChanID),
+		)
+	}
+
+	if b.NextNodeID != nil {
+		records = append(records,
+			record.NewNextNodeIDRecord(&b.NextNodeID),
+		)
+	}
+
+	if b.PathID != nil {
+		records = append(records, record.NewPathIDRecord(&b.PathID))
+	}
+
+	if b.BlindingPointOverride != nil {
+		records = append(records,
+			record.NewBlindingOverrideRecord(
+				&b.BlindingPointOverride,
+			),
+		)
+	}
+
+	if b.PaymentRelay != nil {
+		records = append(records, b.PaymentRelay.Record())
+	}
+
+	if b.PaymentConstraints != nil {
+		records = append(records, b.PaymentConstraints.Record())
+	}
+
+	tlvStream, err := tlv.NewStream(records...)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
 // NewBlindHopPayloadFromReader parses a route blinding payload from
 // the passed io.Reader. The reader should correspond to the bytes
 // encapsulated in the encrypted route blinding payload after they

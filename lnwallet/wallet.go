@@ -871,9 +871,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		return
 	}
 
-	err = l.initOurContribution(
-		reservation, fundingIntent, req.NodeAddr, req.NodeID, keyRing,
-	)
+	err = l.initOurContribution(reservation, fundingIntent, keyRing)
 	if err != nil {
 		fundingIntent.Cancel()
 
@@ -1131,8 +1129,7 @@ func (l *LightningWallet) CheckReservedValueTx(req CheckReservedValueTxReq) (
 // and change reserved for the channel, and derives the keys to use for this
 // channel.
 func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
-	fundingIntent chanfunding.Intent, nodeAddr net.Addr,
-	nodeID *btcec.PublicKey, keyRing keychain.KeyRing) error {
+	fundingIntent chanfunding.Intent, keyRing keychain.KeyRing) error {
 
 	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	reservation.Lock()
@@ -1155,9 +1152,6 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 
 		reservation.fundingIntent = fundingIntent
 	}
-
-	reservation.nodeAddr = nodeAddr
-	reservation.partialState.IdentityPub = nodeID
 
 	var err error
 	reservation.ourContribution.MultiSigKey, err = keyRing.DeriveNextKey(

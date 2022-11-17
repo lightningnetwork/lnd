@@ -177,6 +177,13 @@ type MPPayment struct {
 	Status PaymentStatus
 }
 
+// Terminated returns a bool to specify whether the payment is in a terminal
+// state.
+func (m *MPPayment) Terminated() bool {
+	// If the payment is in terminal state, it cannot be updated.
+	return m.Status.updatable() != nil
+}
+
 // TerminalInfo returns any HTLC settle info recorded. If no settle info is
 // recorded, any payment level failure will be returned. If neither a settle
 // nor a failure is recorded, both return values will be nil.

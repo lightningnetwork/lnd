@@ -722,19 +722,14 @@ func (p *PaymentControl) FetchInFlightPayments() ([]*MPPayment, error) {
 				return fmt.Errorf("non bucket element")
 			}
 
-			// If the status is not InFlight, we can return early.
-			paymentStatus, err := fetchPaymentStatus(bucket)
-			if err != nil {
-				return err
-			}
-
-			if paymentStatus != StatusInFlight {
-				return nil
-			}
-
 			p, err := fetchPayment(bucket)
 			if err != nil {
 				return err
+			}
+
+			// Skip the payment if it's terminated.
+			if p.Terminated() {
+				return nil
 			}
 
 			inFlights = append(inFlights, p)

@@ -3,8 +3,6 @@ package lnwire
 import (
 	"bytes"
 	"io"
-
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // OnionPacketSize is the size of the serialized Sphinx onion packet included
@@ -58,7 +56,7 @@ type UpdateAddHTLC struct {
 
 	// BlindingPoint is the ephemeral pubkey used to optionally blind the
 	// next hop for this htlc.
-	BlindingPoint BlindingPoint
+	BlindingPoint *blindingPoint
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -92,9 +90,14 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	_, err := c.ExtraData.ExtractRecords(
-		&c.BlindingPoint,
+	var blindingPoint blindingPoint
+	tlvMap, err := c.ExtraData.ExtractRecords(
+		&blindingPoint,
 	)
+
+	if _, ok := tlvMap[BlindingPointRecordType]; ok {
+		c.BlindingPoint = &blindingPoint
+	}
 
 	return err
 }
@@ -128,16 +131,12 @@ func (c *UpdateAddHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	var records []tlv.RecordProducer
-	if c.BlindingPoint.PublicKey != nil {
-		records = []tlv.RecordProducer{
-			&c.BlindingPoint,
+	// Only include blinding point in extra data if present.
+	if c.BlindingPoint != nil {
+		err := EncodeMessageExtraData(&c.ExtraData, c.BlindingPoint)
+		if err != nil {
+			return err
 		}
-	}
-
-	err := EncodeMessageExtraData(&c.ExtraData, records...)
-	if err != nil {
-		return err
 	}
 
 	return WriteBytes(w, c.ExtraData)

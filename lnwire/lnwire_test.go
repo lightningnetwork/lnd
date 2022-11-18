@@ -1079,9 +1079,8 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
-			req.BlindingPoint = BlindingPoint{
-				PublicKey: pubkey,
-			}
+			blinding := blindingPoint(*pubkey)
+			req.BlindingPoint = &blinding
 
 			v[0] = reflect.ValueOf(*req)
 		},

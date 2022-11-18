@@ -124,10 +124,12 @@ func (nw *nodeWatcher) WaitForNumChannelUpdates(op wire.OutPoint,
 // WaitForNumNodeUpdates will block until a given number of node updates has
 // been seen in the node's network topology.
 func (nw *nodeWatcher) WaitForNumNodeUpdates(pubkey string,
-	expected int) error {
+	expected int) ([]*lnrpc.NodeUpdate, error) {
 
+	updates := make([]*lnrpc.NodeUpdate, 0)
 	checkNumUpdates := func() error {
-		num := len(nw.GetNodeUpdates(pubkey))
+		updates = nw.GetNodeUpdates(pubkey)
+		num := len(updates)
 		if num >= expected {
 			return nil
 		}
@@ -136,7 +138,9 @@ func (nw *nodeWatcher) WaitForNumNodeUpdates(pubkey string,
 			"want %d, got %d", expected, num)
 	}
 
-	return wait.NoError(checkNumUpdates, DefaultTimeout)
+	err := wait.NoError(checkNumUpdates, DefaultTimeout)
+
+	return updates, err
 }
 
 // WaitForChannelOpen will block until a channel with the target outpoint is
@@ -559,7 +563,7 @@ func (nw *nodeWatcher) handlePolicyUpdateWatchRequest(req *chanWatchRequest) {
 
 	// Check if the latest policy is matched.
 	policy := policies[len(policies)-1]
-	if checkChannelPolicy(policy.RoutingPolicy, req.policy) == nil {
+	if CheckChannelPolicy(policy.RoutingPolicy, req.policy) == nil {
 		close(req.eventChan)
 		return
 	}
@@ -653,8 +657,8 @@ func (nw *nodeWatcher) getChannelPolicies(include bool) policyUpdateMap {
 	return policyUpdates
 }
 
-// checkChannelPolicy checks that the policy matches the expected one.
-func checkChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
+// CheckChannelPolicy checks that the policy matches the expected one.
+func CheckChannelPolicy(policy, expectedPolicy *lnrpc.RoutingPolicy) error {
 	if policy.FeeBaseMsat != expectedPolicy.FeeBaseMsat {
 		return fmt.Errorf("expected base fee %v, got %v",
 			expectedPolicy.FeeBaseMsat, policy.FeeBaseMsat)

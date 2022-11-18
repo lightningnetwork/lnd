@@ -5,7 +5,11 @@ import (
 	"io"
 	"math"
 	"os"
+	"strconv"
+	"strings"
 
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 )
 
@@ -52,4 +56,69 @@ func errNumNotMatched(name string, subject string,
 
 	return fmt.Errorf("%s: assert %s failed: want %d, got: %d, total: "+
 		"%d, previously had: %d", name, subject, want, got, total, old)
+}
+
+// parseDerivationPath parses a path in the form of m/x'/y'/z'/a/b into a slice
+// of [x, y, z, a, b], meaning that the apostrophe is ignored and 2^31 is _not_
+// added to the numbers.
+func ParseDerivationPath(path string) ([]uint32, error) {
+	path = strings.TrimSpace(path)
+	if len(path) == 0 {
+		return nil, fmt.Errorf("path cannot be empty")
+	}
+	if !strings.HasPrefix(path, "m/") {
+		return nil, fmt.Errorf("path must start with m/")
+	}
+
+	// Just the root key, no path was provided. This is valid but not useful
+	// in most cases.
+	rest := strings.ReplaceAll(path, "m/", "")
+	if rest == "" {
+		return []uint32{}, nil
+	}
+
+	parts := strings.Split(rest, "/")
+	indices := make([]uint32, len(parts))
+	for i := 0; i < len(parts); i++ {
+		part := parts[i]
+		if strings.Contains(parts[i], "'") {
+			part = strings.TrimRight(parts[i], "'")
+		}
+		parsed, err := strconv.ParseInt(part, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse part \"%s\": "+
+				"%v", part, err)
+		}
+		indices[i] = uint32(parsed)
+	}
+
+	return indices, nil
+}
+
+// ChanPointFromPendingUpdate constructs a channel point from a lnrpc pending
+// update.
+func ChanPointFromPendingUpdate(pu *lnrpc.PendingUpdate) *lnrpc.ChannelPoint {
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pu.Txid,
+		},
+		OutputIndex: pu.OutputIndex,
+	}
+
+	return chanPoint
+}
+
+// channelPointStr returns the string representation of the channel's
+// funding transaction.
+func channelPointStr(chanPoint *lnrpc.ChannelPoint) string {
+	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	if err != nil {
+		return ""
+	}
+	cp := wire.OutPoint{
+		Hash:  *fundingTxID,
+		Index: chanPoint.OutputIndex,
+	}
+
+	return cp.String()
 }

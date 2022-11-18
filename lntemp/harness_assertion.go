@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -73,6 +74,22 @@ func (h *HarnessTest) ConnectNodes(a, b *node.HarnessNode) {
 			Pubkey: bobInfo.IdentityPubkey,
 			Host:   b.Cfg.P2PAddr(),
 		},
+	}
+	a.RPC.ConnectPeer(req)
+	h.AssertPeerConnected(a, b)
+}
+
+// ConnectNodesPerm creates a persistent connection between the two nodes and
+// asserts the connection is succeeded.
+func (h *HarnessTest) ConnectNodesPerm(a, b *node.HarnessNode) {
+	bobInfo := b.RPC.GetInfo()
+
+	req := &lnrpc.ConnectPeerRequest{
+		Addr: &lnrpc.LightningAddress{
+			Pubkey: bobInfo.IdentityPubkey,
+			Host:   b.Cfg.P2PAddr(),
+		},
+		Perm: true,
 	}
 	a.RPC.ConnectPeer(req)
 	h.AssertPeerConnected(a, b)
@@ -199,6 +216,20 @@ func (h *HarnessTest) AssertNumEdges(hn *node.HarnessNode,
 func (h *HarnessTest) ReceiveOpenChannelUpdate(
 	stream rpc.OpenChanClient) *lnrpc.OpenStatusUpdate {
 
+	update, err := h.receiveOpenChannelUpdate(stream)
+	require.NoError(h, err, "received err from open channel stream")
+
+	return update
+}
+
+// receiveOpenChannelUpdate waits until a message or an error is received on
+// the stream or the timeout is reached.
+//
+// TODO(yy): use generics to unify all receiving stream update once go@1.18 is
+// used.
+func (h *HarnessTest) receiveOpenChannelUpdate(
+	stream rpc.OpenChanClient) (*lnrpc.OpenStatusUpdate, error) {
+
 	chanMsg := make(chan *lnrpc.OpenStatusUpdate)
 	errChan := make(chan error)
 	go func() {
@@ -216,16 +247,14 @@ func (h *HarnessTest) ReceiveOpenChannelUpdate(
 	case <-time.After(DefaultTimeout):
 		require.Fail(h, "timeout", "timeout waiting for open channel "+
 			"update sent")
+		return nil, nil
 
 	case err := <-errChan:
-		require.Failf(h, "open channel stream",
-			"received err from open channel stream: %v", err)
+		return nil, err
 
 	case updateMsg := <-chanMsg:
-		return updateMsg
+		return updateMsg, nil
 	}
-
-	return nil
 }
 
 // WaitForChannelOpenEvent waits for a notification that a channel is open by
@@ -1232,21 +1261,20 @@ func (h *HarnessTest) AssertNumHTLCsAndStage(hn *node.HarnessNode,
 // findPayment queries the payment from the node's ListPayments which matches
 // the specified preimage hash.
 func (h *HarnessTest) findPayment(hn *node.HarnessNode,
-	preimage lntypes.Preimage) *lnrpc.Payment {
+	paymentHash string) *lnrpc.Payment {
 
 	req := &lnrpc.ListPaymentsRequest{IncludeIncomplete: true}
 	paymentsResp := hn.RPC.ListPayments(req)
 
-	payHash := preimage.Hash()
 	for _, p := range paymentsResp.Payments {
-		if p.PaymentHash != payHash.String() {
+		if p.PaymentHash != paymentHash {
 			continue
 		}
 
 		return p
 	}
 
-	require.Fail(h, "payment: %v not found", payHash)
+	require.Fail(h, "payment: %v not found", paymentHash)
 
 	return nil
 }
@@ -1262,7 +1290,7 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 	var target *lnrpc.Payment
 
 	err := wait.NoError(func() error {
-		p := h.findPayment(hn, preimage)
+		p := h.findPayment(hn, preimage.Hash().String())
 		if status == p.Status {
 			target = p
 			return nil
@@ -1294,4 +1322,329 @@ func (h *HarnessTest) AssertActiveNodesSynced() {
 	for _, node := range h.manager.activeNodes {
 		h.WaitForBlockchainSync(node)
 	}
+}
+
+// AssertPeerNotConnected asserts that the given node b is not connected to a.
+func (h *HarnessTest) AssertPeerNotConnected(a, b *node.HarnessNode) {
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		resp := a.RPC.ListPeers()
+
+		// If node B is seen in the ListPeers response from node A,
+		// then we return false as the connection has been fully
+		// established.
+		for _, peer := range resp.Peers {
+			if peer.PubKey == b.PubKeyStr {
+				return fmt.Errorf("peers %s and %s still "+
+					"connected", a.Name(), b.Name())
+			}
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking peers not connected")
+}
+
+// AssertNotConnected asserts that two peers are not connected.
+func (h *HarnessTest) AssertNotConnected(a, b *node.HarnessNode) {
+	h.AssertPeerNotConnected(a, b)
+	h.AssertPeerNotConnected(b, a)
+}
+
+// AssertConnected asserts that two peers are connected.
+func (h *HarnessTest) AssertConnected(a, b *node.HarnessNode) {
+	h.AssertPeerConnected(a, b)
+	h.AssertPeerConnected(b, a)
+}
+
+// AssertAmountPaid checks that the ListChannels command of the provided
+// node list the total amount sent and received as expected for the
+// provided channel.
+func (h *HarnessTest) AssertAmountPaid(channelName string, hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, amountSent, amountReceived int64) {
+
+	checkAmountPaid := func() error {
+		// Find the targeted channel.
+		channel, err := h.findChannel(hn, chanPoint)
+		if err != nil {
+			return fmt.Errorf("assert amount failed: %w", err)
+		}
+
+		if channel.TotalSatoshisSent != amountSent {
+			return fmt.Errorf("%v: incorrect amount"+
+				" sent: %v != %v", channelName,
+				channel.TotalSatoshisSent,
+				amountSent)
+		}
+		if channel.TotalSatoshisReceived !=
+			amountReceived {
+
+			return fmt.Errorf("%v: incorrect amount"+
+				" received: %v != %v",
+				channelName,
+				channel.TotalSatoshisReceived,
+				amountReceived)
+		}
+
+		return nil
+	}
+
+	// As far as HTLC inclusion in commitment transaction might be
+	// postponed we will try to check the balance couple of times,
+	// and then if after some period of time we receive wrong
+	// balance return the error.
+	err := wait.NoError(checkAmountPaid, DefaultTimeout)
+	require.NoError(h, err, "timeout while checking amount paid")
+}
+
+// AssertLastHTLCError checks that the last sent HTLC of the last payment sent
+// by the given node failed with the expected failure code.
+func (h *HarnessTest) AssertLastHTLCError(hn *node.HarnessNode,
+	code lnrpc.Failure_FailureCode) {
+
+	// Use -1 to specify the last HTLC.
+	h.assertHTLCError(hn, code, -1)
+}
+
+// AssertFirstHTLCError checks that the first HTLC of the last payment sent
+// by the given node failed with the expected failure code.
+func (h *HarnessTest) AssertFirstHTLCError(hn *node.HarnessNode,
+	code lnrpc.Failure_FailureCode) {
+
+	// Use 0 to specify the first HTLC.
+	h.assertHTLCError(hn, code, 0)
+}
+
+// assertLastHTLCError checks that the HTLC at the specified index of the last
+// payment sent by the given node failed with the expected failure code.
+func (h *HarnessTest) assertHTLCError(hn *node.HarnessNode,
+	code lnrpc.Failure_FailureCode, index int) {
+
+	req := &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: true,
+	}
+
+	err := wait.NoError(func() error {
+		paymentsResp := hn.RPC.ListPayments(req)
+
+		payments := paymentsResp.Payments
+		if len(payments) == 0 {
+			return fmt.Errorf("no payments found")
+		}
+
+		payment := payments[len(payments)-1]
+		htlcs := payment.Htlcs
+		if len(htlcs) == 0 {
+			return fmt.Errorf("no htlcs found")
+		}
+
+		// If the index is greater than 0, check we have enough htlcs.
+		if index > 0 && len(htlcs) <= index {
+			return fmt.Errorf("not enough htlcs")
+		}
+
+		// If index is less than or equal to 0, we will read the last
+		// htlc.
+		if index <= 0 {
+			index = len(htlcs) - 1
+		}
+
+		htlc := htlcs[index]
+
+		// The htlc must have a status of failed.
+		if htlc.Status != lnrpc.HTLCAttempt_FAILED {
+			return fmt.Errorf("htlc should be failed")
+		}
+		// The failure field must not be empty.
+		if htlc.Failure == nil {
+			return fmt.Errorf("expected htlc failure")
+		}
+
+		// Exit if the expected code is found.
+		if htlc.Failure.Code == code {
+			return nil
+		}
+
+		return fmt.Errorf("unexpected failure code")
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout checking HTLC error")
+}
+
+// AssertZombieChannel asserts that a given channel found using the chanID is
+// marked as zombie.
+func (h *HarnessTest) AssertZombieChannel(hn *node.HarnessNode, chanID uint64) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	err := wait.NoError(func() error {
+		_, err := hn.RPC.LN.GetChanInfo(
+			ctxt, &lnrpc.ChanInfoRequest{ChanId: chanID},
+		)
+		if err == nil {
+			return fmt.Errorf("expected error but got nil")
+		}
+
+		if !strings.Contains(err.Error(), "marked as zombie") {
+			return fmt.Errorf("expected error to contain '%s' but "+
+				"was '%v'", "marked as zombie", err)
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout while checking zombie channel")
+}
+
+// AssertTxAtHeight gets all of the transactions that a node's wallet has a
+// record of at the target height, and finds and returns the tx with the target
+// txid, failing if it is not found.
+func (h *HarnessTest) AssertTxAtHeight(hn *node.HarnessNode, height int32,
+	txid *chainhash.Hash) *lnrpc.Transaction {
+
+	req := &lnrpc.GetTransactionsRequest{
+		StartHeight: height,
+		EndHeight:   height,
+	}
+	txns := hn.RPC.GetTransactions(req)
+
+	for _, tx := range txns.Transactions {
+		if tx.TxHash == txid.String() {
+			return tx
+		}
+	}
+
+	require.Failf(h, "fail to find tx", "tx:%v not found at height:%v",
+		txid, height)
+
+	return nil
+}
+
+// getChannelPolicies queries the channel graph and retrieves the current edge
+// policies for the provided channel point.
+func (h *HarnessTest) getChannelPolicies(hn *node.HarnessNode,
+	advertisingNode string,
+	cp *lnrpc.ChannelPoint) (*lnrpc.RoutingPolicy, error) {
+
+	req := &lnrpc.ChannelGraphRequest{IncludeUnannounced: true}
+	chanGraph := hn.RPC.DescribeGraph(req)
+
+	cpStr := channelPointStr(cp)
+	for _, e := range chanGraph.Edges {
+		if e.ChanPoint != cpStr {
+			continue
+		}
+
+		if e.Node1Pub == advertisingNode {
+			return e.Node1Policy, nil
+		}
+
+		return e.Node2Policy, nil
+	}
+
+	// If we've iterated over all the known edges and we weren't
+	// able to find this specific one, then we'll fail.
+	return nil, fmt.Errorf("did not find edge with advertisingNode: %s"+
+		", channel point: %s", advertisingNode, cpStr)
+}
+
+// AssertChannelPolicy asserts that the passed node's known channel policy for
+// the passed chanPoint is consistent with the expected policy values.
+func (h *HarnessTest) AssertChannelPolicy(hn *node.HarnessNode,
+	advertisingNode string, expectedPolicy *lnrpc.RoutingPolicy,
+	chanPoint *lnrpc.ChannelPoint) {
+
+	policy, err := h.getChannelPolicies(hn, advertisingNode, chanPoint)
+	require.NoErrorf(h, err, "%s: failed to find policy", hn.Name())
+
+	err = node.CheckChannelPolicy(policy, expectedPolicy)
+	require.NoErrorf(h, err, "%s: check policy failed", hn.Name())
+}
+
+// AssertNumPolicyUpdates asserts that a given number of channel policy updates
+// has been seen in the specified node.
+func (h *HarnessTest) AssertNumPolicyUpdates(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint,
+	advertisingNode *node.HarnessNode, num int) {
+
+	op := h.OutPointFromChannelPoint(chanPoint)
+
+	var policies []*node.PolicyUpdateInfo
+
+	err := wait.NoError(func() error {
+		policyMap := hn.Watcher.GetPolicyUpdates(op)
+		nodePolicy, ok := policyMap[advertisingNode.PubKeyStr]
+		if ok {
+			policies = nodePolicy
+		}
+
+		if len(policies) == num {
+			return nil
+		}
+
+		p, err := json.MarshalIndent(policies, "", "\t")
+		require.NoError(h, err, "encode policy err")
+
+		return fmt.Errorf("expected to find %d policy updates, "+
+			"instead got: %d, chanPoint: %v, "+
+			"advertisingNode: %s:%s, policy: %s", num,
+			len(policies), op, advertisingNode.Name(),
+			advertisingNode.PubKeyStr, p)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "%s: timeout waiting for num of policy updates",
+		hn.Name())
+}
+
+// AssertNumPayments asserts that the number of payments made within the test
+// scope is as expected, including the incomplete ones.
+func (h *HarnessTest) AssertNumPayments(hn *node.HarnessNode,
+	num int) []*lnrpc.Payment {
+
+	// Get the number of payments we already have from the previous test.
+	have := hn.State.Payment.Total
+
+	req := &lnrpc.ListPaymentsRequest{
+		IncludeIncomplete: true,
+		IndexOffset:       hn.State.Payment.LastIndexOffset,
+	}
+
+	var payments []*lnrpc.Payment
+	err := wait.NoError(func() error {
+		resp := hn.RPC.ListPayments(req)
+
+		payments = resp.Payments
+		if len(payments) == num {
+			return nil
+		}
+
+		return errNumNotMatched(hn.Name(), "num of payments",
+			num, len(payments), have+len(payments), have)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking num of payments")
+
+	return payments
+}
+
+// AssertNumNodeAnns asserts that a given number of node announcements has been
+// seen in the specified node.
+func (h *HarnessTest) AssertNumNodeAnns(hn *node.HarnessNode,
+	pubkey string, num int) []*lnrpc.NodeUpdate {
+
+	// We will get the current number of channel updates first and add it
+	// to our expected number of newly created channel updates.
+	anns, err := hn.Watcher.WaitForNumNodeUpdates(pubkey, num)
+	require.NoError(h, err, "failed to assert num of channel updates")
+
+	return anns
+}
+
+// AssertNumChannelUpdates asserts that a given number of channel updates has
+// been seen in the specified node's network topology.
+func (h *HarnessTest) AssertNumChannelUpdates(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, num int) {
+
+	op := h.OutPointFromChannelPoint(chanPoint)
+	err := hn.Watcher.WaitForNumChannelUpdates(op, num)
+	require.NoError(h, err, "failed to assert num of channel updates")
 }

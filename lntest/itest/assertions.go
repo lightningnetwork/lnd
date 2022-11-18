@@ -16,9 +16,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/peersrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -816,100 +814,6 @@ func checkPendingHtlcStageAndMaturity(
 	return nil
 }
 
-// assertReports checks that the count of resolutions we have present per
-// type matches a set of expected resolutions.
-func assertReports(t *harnessTest, node *lntest.HarnessNode,
-	channelPoint wire.OutPoint, expected map[string]*lnrpc.Resolution) {
-
-	// Get our node's closed channels.
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-
-	closed, err := node.ClosedChannels(
-		ctxt, &lnrpc.ClosedChannelsRequest{},
-	)
-	require.NoError(t.t, err)
-
-	var resolutions []*lnrpc.Resolution
-	for _, close := range closed.Channels {
-		if close.ChannelPoint == channelPoint.String() {
-			resolutions = close.Resolutions
-			break
-		}
-	}
-
-	require.NotNil(t.t, resolutions)
-	require.Equal(t.t, len(expected), len(resolutions))
-
-	for _, res := range resolutions {
-		outPointStr := fmt.Sprintf("%v:%v", res.Outpoint.TxidStr,
-			res.Outpoint.OutputIndex)
-
-		expected, ok := expected[outPointStr]
-		require.True(t.t, ok)
-		require.Equal(t.t, expected, res)
-	}
-}
-
-// assertSweepFound looks up a sweep in a nodes list of broadcast sweeps.
-func assertSweepFound(t *testing.T, node *lntest.HarnessNode,
-	sweep string, verbose bool) {
-
-	// List all sweeps that alice's node had broadcast.
-	ctxb := context.Background()
-	ctx, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-	sweepResp, err := node.WalletKitClient.ListSweeps(
-		ctx, &walletrpc.ListSweepsRequest{
-			Verbose: verbose,
-		},
-	)
-	require.NoError(t, err)
-
-	var found bool
-	if verbose {
-		found = findSweepInDetails(t, sweep, sweepResp)
-	} else {
-		found = findSweepInTxids(t, sweep, sweepResp)
-	}
-
-	require.True(t, found, "sweep: %v not found", sweep)
-}
-
-func findSweepInTxids(t *testing.T, sweepTxid string,
-	sweepResp *walletrpc.ListSweepsResponse) bool {
-
-	sweepTxIDs := sweepResp.GetTransactionIds()
-	require.NotNil(t, sweepTxIDs, "expected transaction ids")
-	require.Nil(t, sweepResp.GetTransactionDetails())
-
-	// Check that the sweep tx we have just produced is present.
-	for _, tx := range sweepTxIDs.TransactionIds {
-		if tx == sweepTxid {
-			return true
-		}
-	}
-
-	return false
-}
-
-func findSweepInDetails(t *testing.T, sweepTxid string,
-	sweepResp *walletrpc.ListSweepsResponse) bool {
-
-	sweepDetails := sweepResp.GetTransactionDetails()
-	require.NotNil(t, sweepDetails, "expected transaction details")
-	require.Nil(t, sweepResp.GetTransactionIds())
-
-	for _, tx := range sweepDetails.Transactions {
-		if tx.TxHash == sweepTxid {
-			return true
-		}
-	}
-
-	return false
-}
-
 // assertAmountSent generates a closure which queries listchannels for sndr and
 // rcvr, and asserts that sndr sent amt satoshis, and that rcvr received amt
 // satoshis.
@@ -975,34 +879,6 @@ func assertLastHTLCError(t *harnessTest, node *lntest.HarnessNode,
 	require.NotNil(t.t, htlc.Failure, "expected failure")
 
 	require.Equal(t.t, code, htlc.Failure.Code, "unexpected failure code")
-}
-
-func assertChannelConstraintsEqual(
-	t *harnessTest, want, got *lnrpc.ChannelConstraints) {
-
-	t.t.Helper()
-
-	require.Equal(t.t, want.CsvDelay, got.CsvDelay, "CsvDelay mismatched")
-	require.Equal(
-		t.t, want.ChanReserveSat, got.ChanReserveSat,
-		"ChanReserveSat mismatched",
-	)
-	require.Equal(
-		t.t, want.DustLimitSat, got.DustLimitSat,
-		"DustLimitSat mismatched",
-	)
-	require.Equal(
-		t.t, want.MaxPendingAmtMsat, got.MaxPendingAmtMsat,
-		"MaxPendingAmtMsat mismatched",
-	)
-	require.Equal(
-		t.t, want.MinHtlcMsat, got.MinHtlcMsat,
-		"MinHtlcMsat mismatched",
-	)
-	require.Equal(
-		t.t, want.MaxAcceptedHtlcs, got.MaxAcceptedHtlcs,
-		"MaxAcceptedHtlcs mismatched",
-	)
 }
 
 // assertAmountPaid checks that the ListChannels command of the provided
@@ -1197,28 +1073,6 @@ func assertNodeNumChannels(t *harnessTest, node *lntest.HarnessNode,
 		t.t, wait.Predicate(pred, defaultTimeout),
 		"node has incorrect number of channels: %v", predErr,
 	)
-}
-
-func assertSyncType(t *harnessTest, node *lntest.HarnessNode,
-	peer string, syncType lnrpc.Peer_SyncType) {
-
-	t.t.Helper()
-
-	ctxb := context.Background()
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	resp, err := node.ListPeers(ctxt, &lnrpc.ListPeersRequest{})
-	require.NoError(t.t, err)
-
-	for _, rpcPeer := range resp.Peers {
-		if rpcPeer.PubKey != peer {
-			continue
-		}
-
-		require.Equal(t.t, syncType, rpcPeer.SyncType)
-		return
-	}
-
-	t.t.Fatalf("unable to find peer: %s", peer)
 }
 
 // assertActiveHtlcs makes sure all the passed nodes have the _exact_ HTLCs
@@ -1611,30 +1465,6 @@ func assertNodeAnnouncement(t *harnessTest, n1, n2 *lnrpc.NodeUpdate) {
 		if _, ok := addrs[nodeAddr.Addr]; !ok {
 			t.Fatalf("address %v not found in node announcement",
 				nodeAddr.Addr)
-		}
-	}
-}
-
-// assertUpdateNodeAnnouncementResponse is a helper function to assert
-// the response expected values.
-func assertUpdateNodeAnnouncementResponse(t *harnessTest,
-	response *peersrpc.NodeAnnouncementUpdateResponse,
-	expectedOps map[string]int) {
-
-	require.Equal(
-		t.t, len(response.Ops), len(expectedOps),
-		"unexpected number of Ops updating dave's node announcement",
-	)
-
-	ops := make(map[string]int, len(response.Ops))
-	for _, op := range response.Ops {
-		ops[op.Entity] = len(op.Actions)
-	}
-
-	for k, v := range expectedOps {
-		if v != ops[k] {
-			t.Fatalf("unexpected number of actions for operation "+
-				"%s: got %d wanted %d", k, ops[k], v)
 		}
 	}
 }

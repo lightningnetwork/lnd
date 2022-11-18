@@ -71,4 +71,152 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "data loss protection",
 		TestFunc: testDataLossProtection,
 	},
+	{
+		Name:     "sweep coins",
+		TestFunc: testSweepAllCoins,
+	},
+	{
+		Name:     "disconnecting target peer",
+		TestFunc: testDisconnectingTargetPeer,
+	},
+	{
+		Name:     "sphinx replay persistence",
+		TestFunc: testSphinxReplayPersistence,
+	},
+	{
+		Name:     "list channels",
+		TestFunc: testListChannels,
+	},
+	{
+		Name:     "max pending channel",
+		TestFunc: testMaxPendingChannels,
+	},
+	{
+		Name:     "garbage collect link nodes",
+		TestFunc: testGarbageCollectLinkNodes,
+	},
+	{
+		Name:     "reject onward htlc",
+		TestFunc: testRejectHTLC,
+	},
+	{
+		Name:     "node sign verify",
+		TestFunc: testNodeSignVerify,
+	},
+	{
+		Name:     "list addresses",
+		TestFunc: testListAddresses,
+	},
+	{
+		Name:     "abandonchannel",
+		TestFunc: testAbandonChannel,
+	},
+	{
+		Name:     "recovery info",
+		TestFunc: testGetRecoveryInfo,
+	},
+	{
+		Name:     "onchain fund recovery",
+		TestFunc: testOnchainFundRecovery,
+	},
+	{
+		Name:     "basic funding flow with all input types",
+		TestFunc: testChannelFundingInputTypes,
+	},
+	{
+		Name:     "unconfirmed channel funding",
+		TestFunc: testUnconfirmedChannelFunding,
+	},
+	{
+		Name:     "funding flow persistence",
+		TestFunc: testChannelFundingPersistence,
+	},
+	{
+		Name:     "batch channel funding",
+		TestFunc: testBatchChanFunding,
+	},
+	{
+		Name:     "update channel policy",
+		TestFunc: testUpdateChannelPolicy,
+	},
+	{
+		Name:     "send update disable channel",
+		TestFunc: testSendUpdateDisableChannel,
+	},
+	{
+		Name:     "private channel update policy",
+		TestFunc: testUpdateChannelPolicyForPrivateChannel,
+	},
+	{
+		Name:     "update channel policy fee rate accuracy",
+		TestFunc: testUpdateChannelPolicyFeeRateAccuracy,
+	},
+	{
+		Name:     "connection timeout",
+		TestFunc: testNetworkConnectionTimeout,
+	},
+	{
+		Name:     "reconnect after ip change",
+		TestFunc: testReconnectAfterIPChange,
+	},
+	{
+		Name:     "addpeer config",
+		TestFunc: testAddPeerConfig,
+	},
+	{
+		Name:     "unannounced channels",
+		TestFunc: testUnannouncedChannels,
+	},
+	{
+		Name:     "graph topology notifications",
+		TestFunc: testGraphTopologyNotifications,
+	},
+	{
+		Name:     "node announcement",
+		TestFunc: testNodeAnnouncement,
+	},
+	{
+		Name:     "update node announcement rpc",
+		TestFunc: testUpdateNodeAnnouncement,
+	},
+	{
+		Name:     "list outgoing payments",
+		TestFunc: testListPayments,
+	},
+	{
+		Name:     "immediate payment after channel opened",
+		TestFunc: testPaymentFollowingChannelOpen,
+	},
+	{
+		Name:     "invoice update subscription",
+		TestFunc: testInvoiceSubscriptions,
+	},
+	{
+		Name:     "streaming channel backup update",
+		TestFunc: testChannelBackupUpdates,
+	},
+	{
+		Name:     "export channel backup",
+		TestFunc: testExportChannelBackup,
+	},
+	{
+		Name:     "channel balance",
+		TestFunc: testChannelBalance,
+	},
+	{
+		Name:     "channel unsettled balance",
+		TestFunc: testChannelUnsettledBalance,
+	},
+	{
+		Name:     "commitment deadline",
+		TestFunc: testCommitmentTransactionDeadline,
+	},
+	{
+		Name:     "channel force closure",
+		TestFunc: testChannelForceClosure,
+	},
+	{
+		Name:     "failing link",
+		TestFunc: testFailingChannel,
+	},
 }

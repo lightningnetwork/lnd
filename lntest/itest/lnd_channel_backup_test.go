@@ -20,7 +20,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
-	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -39,6 +38,10 @@ type (
 		oldNode *node.HarnessNode, backupFilePath string,
 		password []byte, mnemonic []string) nodeRestorer
 )
+
+// revocationWindow is used when we specify the revocation window used when
+// restoring node.
+const revocationWindow = 100
 
 // chanRestoreScenario represents a test case used by testing the channel
 // restore methods.
@@ -310,7 +313,8 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 				return func() *node.HarnessNode {
 					return st.RestoreNodeWithSeed(
 						"dave", nil, password, mnemonic,
-						"", 1000, backupSnapshot,
+						"", revocationWindow,
+						backupSnapshot,
 						copyPorts(oldNode),
 					)
 				}
@@ -342,7 +346,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 				return func() *node.HarnessNode {
 					newNode := st.RestoreNodeWithSeed(
 						"dave", nil, password, mnemonic,
-						"", 1000, nil,
+						"", revocationWindow, nil,
 						copyPorts(oldNode),
 					)
 
@@ -378,7 +382,7 @@ func testChannelBackupRestoreBasic(ht *lntemp.HarnessTest) {
 				return func() *node.HarnessNode {
 					newNode := st.RestoreNodeWithSeed(
 						"dave", nil, password, mnemonic,
-						"", 1000, nil,
+						"", revocationWindow, nil,
 						copyPorts(oldNode),
 					)
 
@@ -666,10 +670,15 @@ func testChannelBackupRestoreLegacy(ht *lntemp.HarnessTest) {
 func testChannelBackupRestoreForceClose(ht *lntemp.HarnessTest) {
 	// Restore a channel that was force closed by dave just before going
 	// offline.
-	ht.Run("from backup file anchors", func(t *testing.T) {
+	success := ht.Run("from backup file anchors", func(t *testing.T) {
 		st := ht.Subtest(t)
 		runChanRestoreScenarioForceClose(st, false)
 	})
+
+	// Only run the second test if the first passed.
+	if !success {
+		return
+	}
 
 	// Restore a zero-conf anchors channel that was force closed by dave
 	// just before going offline.
@@ -782,12 +791,12 @@ func runChanRestoreScenarioForceClose(ht *lntemp.HarnessTest, zeroConf bool) {
 // testChannelBackupUpdates tests that both the streaming channel update RPC,
 // and the on-disk channel.backup are updated each time a channel is
 // opened/closed.
-func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
+func testChannelBackupUpdates(ht *lntemp.HarnessTest) {
+	alice := ht.Alice
 
 	// First, we'll make a temp directory that we'll use to store our
 	// backup file, so we can check in on it during the test easily.
-	backupDir := t.t.TempDir()
+	backupDir := ht.T.TempDir()
 
 	// First, we'll create a new node, Carol. We'll also create a temporary
 	// file that Carol will use to store her channel backups.
@@ -795,17 +804,11 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 		backupDir, chanbackup.DefaultBackupFileName,
 	)
 	carolArgs := fmt.Sprintf("--backupfilepath=%v", backupFilePath)
-	carol := net.NewNode(t.t, "carol", []string{carolArgs})
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("carol", []string{carolArgs})
 
 	// Next, we'll register for streaming notifications for changes to the
 	// backup file.
-	backupStream, err := carol.SubscribeChannelBackups(
-		ctxb, &lnrpc.ChannelBackupSubscription{},
-	)
-	if err != nil {
-		t.Fatalf("unable to create backup stream: %v", err)
-	}
+	backupStream := carol.RPC.SubscribeChannelBackups()
 
 	// We'll use this goroutine to proxy any updates to a channel we can
 	// easily use below.
@@ -838,18 +841,16 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// With Carol up, we'll now connect her to Alice, and open a channel
 	// between them.
-	net.ConnectNodes(t.t, carol, net.Alice)
+	ht.ConnectNodes(carol, alice)
 
 	// Next, we'll open two channels between Alice and Carol back to back.
 	var chanPoints []*lnrpc.ChannelPoint
 	numChans := 2
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
-		chanPoint := openChannelAndAssert(
-			t, net, net.Alice, carol,
-			lntest.OpenChannelParams{Amt: chanAmt},
+		chanPoint := ht.OpenChannel(
+			alice, carol, lntemp.OpenChannelParams{Amt: chanAmt},
 		)
-
 		chanPoints = append(chanPoints, chanPoint)
 	}
 
@@ -860,12 +861,14 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 		for i := 0; i < numNtfns; i++ {
 			select {
 			case err := <-streamErr:
-				t.Fatalf("error with backup stream: %v", err)
+				require.Failf(ht, "stream err",
+					"error with backup stream: %v", err)
 
 			case currentBackup = <-backupUpdates:
 
 			case <-time.After(time.Second * 5):
-				t.Fatalf("didn't receive channel backup "+
+				require.Failf(ht, "timeout", "didn't "+
+					"receive channel backup "+
 					"notification %v", i+1)
 			}
 		}
@@ -885,32 +888,29 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 			// nonce, we can't compare them directly, so instead
 			// we'll compare the length which is a proxy for the
 			// number of channels that the multi-backup contains.
-			rawBackup := currentBackup.MultiChanBackup.MultiChanBackup
-			if len(rawBackup) != len(packedBackup) {
+			backup := currentBackup.MultiChanBackup.MultiChanBackup
+			if len(backup) != len(packedBackup) {
 				return fmt.Errorf("backup files don't match: "+
-					"expected %x got %x", rawBackup, packedBackup)
+					"expected %x got %x", backup,
+					packedBackup)
 			}
 
 			// Additionally, we'll assert that both backups up
 			// returned are valid.
-			for i, backup := range [][]byte{rawBackup, packedBackup} {
+			for _, backup := range [][]byte{backup, packedBackup} {
 				snapshot := &lnrpc.ChanBackupSnapshot{
 					MultiChanBackup: &lnrpc.MultiChanBackup{
 						MultiChanBackup: backup,
 					},
 				}
-				_, err := carol.VerifyChanBackup(ctxb, snapshot)
-				if err != nil {
-					return fmt.Errorf("unable to verify "+
-						"backup #%d: %v", i, err)
-				}
+
+				carol.RPC.VerifyChanBackup(snapshot)
 			}
 
 			return nil
 		}, defaultTimeout)
-		if err != nil {
-			t.Fatalf("backup state invalid: %v", err)
-		}
+		require.NoError(ht, err, "timeout while checking "+
+			"backup state: %v", err)
 	}
 
 	// As these two channels were just opened, we should've got two times
@@ -931,11 +931,11 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 
 		chanPoint := chanPoints[i]
 
-		closeChannelAndAssert(t, net, net.Alice, chanPoint, forceClose)
-
 		// If we force closed the channel, then we'll mine enough
 		// blocks to ensure all outputs have been swept.
 		if forceClose {
+			ht.ForceCloseChannel(alice, chanPoint)
+
 			// A local force closed channel will trigger a
 			// notification once the commitment TX confirms on
 			// chain. But that won't remove the channel from the
@@ -943,13 +943,12 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 			// locked contract was fully resolved on chain.
 			assertBackupNtfns(1)
 
-			cleanupForceClose(t, net, net.Alice, chanPoint)
-
-			// Now that the channel's been fully resolved, we expect
-			// another notification.
+			// Now that the channel's been fully resolved, we
+			// expect another notification.
 			assertBackupNtfns(1)
 			assertBackupFileState()
 		} else {
+			ht.CloseChannel(alice, chanPoint)
 			// We should get a single notification after closing,
 			// and the on-disk state should match this latest
 			// notifications.
@@ -962,73 +961,49 @@ func testChannelBackupUpdates(net *lntest.NetworkHarness, t *harnessTest) {
 // testExportChannelBackup tests that we're able to properly export either a
 // targeted channel's backup, or export backups of all the currents open
 // channels.
-func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testExportChannelBackup(ht *lntemp.HarnessTest) {
 	// First, we'll create our primary test node: Carol. We'll use Carol to
 	// open channels and also export backups that we'll examine throughout
 	// the test.
-	carol := net.NewNode(t.t, "carol", nil)
-	defer shutdownAndAssert(net, t, carol)
+	carol := ht.NewNode("carol", nil)
 
 	// With Carol up, we'll now connect her to Alice, and open a channel
 	// between them.
-	net.ConnectNodes(t.t, carol, net.Alice)
+	alice := ht.Alice
+	ht.ConnectNodes(carol, alice)
 
 	// Next, we'll open two channels between Alice and Carol back to back.
 	var chanPoints []*lnrpc.ChannelPoint
 	numChans := 2
 	chanAmt := btcutil.Amount(1000000)
 	for i := 0; i < numChans; i++ {
-		chanPoint := openChannelAndAssert(
-			t, net, net.Alice, carol,
-			lntest.OpenChannelParams{Amt: chanAmt},
+		chanPoint := ht.OpenChannel(
+			alice, carol, lntemp.OpenChannelParams{Amt: chanAmt},
 		)
-
 		chanPoints = append(chanPoints, chanPoint)
 	}
 
 	// Now that the channels are open, we should be able to fetch the
 	// backups of each of the channels.
 	for _, chanPoint := range chanPoints {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		req := &lnrpc.ExportChannelBackupRequest{
-			ChanPoint: chanPoint,
-		}
-		chanBackup, err := carol.ExportChannelBackup(ctxt, req)
-		if err != nil {
-			t.Fatalf("unable to fetch backup for channel %v: %v",
-				chanPoint, err)
-		}
+		chanBackup := carol.RPC.ExportChanBackup(chanPoint)
 
 		// The returned backup should be full populated. Since it's
 		// encrypted, we can't assert any more than that atm.
-		if len(chanBackup.ChanBackup) == 0 {
-			t.Fatalf("obtained empty backup for channel: %v", chanPoint)
-		}
+		require.NotEmptyf(ht, chanBackup.ChanBackup,
+			"obtained empty backup for channel: %v", chanPoint)
 
 		// The specified chanPoint in the response should match our
 		// requested chanPoint.
-		if chanBackup.ChanPoint.String() != chanPoint.String() {
-			t.Fatalf("chanPoint mismatched: expected %v, got %v",
-				chanPoint.String(),
-				chanBackup.ChanPoint.String())
-		}
+		require.Equal(ht, chanBackup.ChanPoint.String(),
+			chanPoint.String())
 	}
 
 	// Before we proceed, we'll make two utility methods we'll use below
 	// for our primary assertions.
 	assertNumSingleBackups := func(numSingles int) {
 		err := wait.NoError(func() error {
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			req := &lnrpc.ChanBackupExportRequest{}
-			chanSnapshot, err := carol.ExportAllChannelBackups(
-				ctxt, req,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to export channel "+
-					"backup: %v", err)
-			}
+			chanSnapshot := carol.RPC.ExportAllChanBackups()
 
 			if chanSnapshot.SingleChanBackups == nil {
 				return fmt.Errorf("single chan backups not " +
@@ -1043,29 +1018,23 @@ func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
 
 			return nil
 		}, defaultTimeout)
-		if err != nil {
-			t.Fatalf(err.Error())
-		}
+		require.NoError(ht, err, "timeout checking num single backup")
 	}
+
 	assertMultiBackupFound := func() func(bool, map[wire.OutPoint]struct{}) {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		req := &lnrpc.ChanBackupExportRequest{}
-		chanSnapshot, err := carol.ExportAllChannelBackups(ctxt, req)
-		if err != nil {
-			t.Fatalf("unable to export channel backup: %v", err)
-		}
+		chanSnapshot := carol.RPC.ExportAllChanBackups()
 
 		return func(found bool, chanPoints map[wire.OutPoint]struct{}) {
 			switch {
 			case found && chanSnapshot.MultiChanBackup == nil:
-				t.Fatalf("multi-backup not present")
+				require.Fail(ht, "multi-backup not present")
 
 			case !found && chanSnapshot.MultiChanBackup != nil &&
 				(len(chanSnapshot.MultiChanBackup.MultiChanBackup) !=
 					chanbackup.NilMultiSizePacked):
 
-				t.Fatalf("found multi-backup when non should " +
-					"be found")
+				require.Fail(ht, "found multi-backup when "+
+					"non should be found")
 			}
 
 			if !found {
@@ -1073,23 +1042,20 @@ func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
 			}
 
 			backedUpChans := chanSnapshot.MultiChanBackup.ChanPoints
-			if len(chanPoints) != len(backedUpChans) {
-				t.Fatalf("expected %v chans got %v", len(chanPoints),
-					len(backedUpChans))
-			}
+			require.Len(ht, backedUpChans, len(chanPoints))
 
 			for _, chanPoint := range backedUpChans {
-				wirePoint := rpcPointToWirePoint(t, chanPoint)
-				if _, ok := chanPoints[wirePoint]; !ok {
-					t.Fatalf("unexpected backup: %v", wirePoint)
-				}
+				wp := ht.OutPointFromChannelPoint(chanPoint)
+				_, ok := chanPoints[wp]
+				require.True(ht, ok, "unexpected "+
+					"backup: %v", wp)
 			}
 		}
 	}
 
 	chans := make(map[wire.OutPoint]struct{})
 	for _, chanPoint := range chanPoints {
-		chans[rpcPointToWirePoint(t, chanPoint)] = struct{}{}
+		chans[ht.OutPointFromChannelPoint(chanPoint)] = struct{}{}
 	}
 
 	// We should have exactly two single channel backups contained, and we
@@ -1101,11 +1067,11 @@ func testExportChannelBackup(net *lntest.NetworkHarness, t *harnessTest) {
 	// shouldn't be able to find that channel as a backup still. We should
 	// also have one less single written to disk.
 	for i, chanPoint := range chanPoints {
-		closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+		ht.CloseChannel(alice, chanPoint)
 
 		assertNumSingleBackups(len(chanPoints) - i - 1)
 
-		delete(chans, rpcPointToWirePoint(t, chanPoint))
+		delete(chans, ht.OutPointFromChannelPoint(chanPoint))
 		assertMultiBackupFound()(true, chans)
 	}
 
@@ -1388,8 +1354,8 @@ func chanRestoreViaRPC(ht *lntemp.HarnessTest, password []byte,
 
 	return func() *node.HarnessNode {
 		newNode := ht.RestoreNodeWithSeed(
-			"dave", nil, password, mnemonic, "", 1000, nil,
-			copyPorts(oldNode),
+			"dave", nil, password, mnemonic, "", revocationWindow,
+			nil, copyPorts(oldNode),
 		)
 		req := &lnrpc.RestoreChanBackupRequest{Backup: backup}
 		newNode.RPC.RestoreChanBackups(req)
@@ -1407,15 +1373,6 @@ func copyPorts(oldNode *node.HarnessNode) node.Option {
 		cfg.RESTPort = oldNode.Cfg.RESTPort
 		cfg.ProfilePort = oldNode.Cfg.ProfilePort
 	}
-}
-
-func rpcPointToWirePoint(t *harnessTest,
-	chanPoint *lnrpc.ChannelPoint) wire.OutPoint {
-
-	op, err := lntest.MakeOutpoint(chanPoint)
-	require.NoError(t.t, err, "unable to get txid")
-
-	return op
 }
 
 // assertTimeLockSwept when dave's outputs matures, he should claim them. This

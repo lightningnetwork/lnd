@@ -376,3 +376,10 @@ func (h *HarnessMiner) GetNumTxsFromMempool(n int) []*wire.MsgTx {
 
 	return txes
 }
+
+// NewMinerAddress creates a new address for the miner and asserts.
+func (h *HarnessMiner) NewMinerAddress() btcutil.Address {
+	addr, err := h.NewAddress()
+	require.NoError(h, err, "failed to create new miner address")
+	return addr
+}

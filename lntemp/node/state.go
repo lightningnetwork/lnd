@@ -103,20 +103,6 @@ type invoiceCount struct {
 	LastIndexOffset uint64
 }
 
-// balanceCount provides a summary over balances related to channels.
-type balanceCount struct {
-	LocalBalance             *lnrpc.Amount
-	RemoteBalance            *lnrpc.Amount
-	UnsettledLocalBalance    *lnrpc.Amount
-	UnsettledRemoteBalance   *lnrpc.Amount
-	PendingOpenLocalBalance  *lnrpc.Amount
-	PendingOpenRemoteBalance *lnrpc.Amount
-
-	// Deprecated fields.
-	Balance            int64
-	PendingOpenBalance int64
-}
-
 // walletBalance provides a summary over balances related the node's wallet.
 type walletBalance struct {
 	TotalBalance       int64
@@ -138,9 +124,6 @@ type State struct {
 
 	// CloseChannel gives the summary of close channel related counts.
 	CloseChannel closedChannelCount
-
-	// Balance gives the summary of the channel balance.
-	Balance balanceCount
 
 	// Wallet gives the summary of the wallet balance.
 	Wallet walletBalance
@@ -315,18 +298,6 @@ func (s *State) updateEdgeStats() {
 	s.Edge.Public = len(resp.Edges)
 }
 
-// updateChannelBalance creates stats for the node's channel balance.
-func (s *State) updateChannelBalance() {
-	resp := s.rpc.ChannelBalance()
-
-	s.Balance.LocalBalance = resp.LocalBalance
-	s.Balance.RemoteBalance = resp.RemoteBalance
-	s.Balance.UnsettledLocalBalance = resp.UnsettledLocalBalance
-	s.Balance.UnsettledRemoteBalance = resp.UnsettledRemoteBalance
-	s.Balance.PendingOpenLocalBalance = resp.PendingOpenLocalBalance
-	s.Balance.PendingOpenRemoteBalance = resp.PendingOpenRemoteBalance
-}
-
 // updateWalletBalance creates stats for the node's wallet balance.
 func (s *State) updateWalletBalance() {
 	resp := s.rpc.WalletBalance()
@@ -345,7 +316,6 @@ func (s *State) updateState() {
 	s.updateInvoiceStats()
 	s.updateUTXOStats()
 	s.updateEdgeStats()
-	s.updateChannelBalance()
 	s.updateWalletBalance()
 }
 

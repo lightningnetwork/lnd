@@ -5,92 +5,12 @@ package itest
 
 var allTestCases = []*testCase{
 	{
-		name: "sweep coins",
-		test: testSweepAllCoins,
-	},
-	{
-		name: "list addresses",
-		test: testListAddresses,
-	},
-	{
-		name: "recovery info",
-		test: testGetRecoveryInfo,
-	},
-	{
-		name: "onchain fund recovery",
-		test: testOnchainFundRecovery,
-	},
-	{
-		name: "basic funding flow with all input types",
-		test: testChannelFundingInputTypes,
-	},
-	{
-		name: "unconfirmed channel funding",
-		test: testUnconfirmedChannelFunding,
-	},
-	{
-		name: "update channel policy",
-		test: testUpdateChannelPolicy,
-	},
-	{
-		name: "update channel policy fee rate accuracy",
-		test: testUpdateChannelPolicyFeeRateAccuracy,
-	},
-	{
 		name: "open channel reorg test",
 		test: testOpenChannelAfterReorg,
 	},
 	{
-		name: "disconnecting target peer",
-		test: testDisconnectingTargetPeer,
-	},
-	{
-		name: "reconnect after ip change",
-		test: testReconnectAfterIPChange,
-	},
-	{
-		name: "graph topology notifications",
-		test: testGraphTopologyNotifications,
-	},
-	{
-		name: "funding flow persistence",
-		test: testChannelFundingPersistence,
-	},
-	{
-		name: "channel force closure",
-		test: testChannelForceClosure,
-	},
-	{
-		name: "channel balance",
-		test: testChannelBalance,
-	},
-	{
-		name: "channel unsettled balance",
-		test: testChannelUnsettledBalance,
-	},
-	{
 		name: "single hop invoice",
 		test: testSingleHopInvoice,
-	},
-	{
-		name: "sphinx replay persistence",
-		test: testSphinxReplayPersistence,
-	},
-	{
-		name: "list channels",
-		test: testListChannels,
-	},
-	{
-		name: "test update node announcement rpc",
-		test: testUpdateNodeAnnouncement,
-	},
-	{
-		name: "list outgoing payments",
-		test: testListPayments,
-	},
-	{
-		name: "max pending channel",
-		test: testMaxPendingChannels,
 	},
 	{
 		name: "multi-hop payments",
@@ -109,16 +29,8 @@ var allTestCases = []*testCase{
 		test: testSendToRouteErrorPropagation,
 	},
 	{
-		name: "unannounced channels",
-		test: testUnannouncedChannels,
-	},
-	{
 		name: "private channels",
 		test: testPrivateChannels,
-	},
-	{
-		name: "private channel update policy",
-		test: testUpdateChannelPolicyForPrivateChannel,
 	},
 	{
 		name: "invoice routing hints",
@@ -133,25 +45,8 @@ var allTestCases = []*testCase{
 		test: testBasicChannelCreationAndUpdates,
 	},
 	{
-		name: "invoice update subscription",
-		test: testInvoiceSubscriptions,
-	},
-	{
 		name: "multi-hop htlc error propagation",
 		test: testHtlcErrorPropagation,
-	},
-	{
-		name: "reject onward htlc",
-		test: testRejectHTLC,
-	},
-	// TODO(roasbeef): multi-path integration test
-	{
-		name: "node announcement",
-		test: testNodeAnnouncement,
-	},
-	{
-		name: "node sign verify",
-		test: testNodeSignVerify,
 	},
 	{
 		name: "derive shared key",
@@ -196,18 +91,6 @@ var allTestCases = []*testCase{
 		test: testRevokedCloseRetribution,
 	},
 	{
-		name: "failing link",
-		test: testFailingChannel,
-	},
-	{
-		name: "garbage collect link nodes",
-		test: testGarbageCollectLinkNodes,
-	},
-	{
-		name: "abandonchannel",
-		test: testAbandonChannel,
-	},
-	{
 		name: "revoked uncooperative close retribution zero value remote output",
 		test: testRevokedCloseRetributionZeroValueRemoteOutput,
 	},
@@ -228,28 +111,12 @@ var allTestCases = []*testCase{
 		test: testRouteFeeCutoff,
 	},
 	{
-		name: "send update disable channel",
-		test: testSendUpdateDisableChannel,
-	},
-	{
-		name: "streaming channel backup update",
-		test: testChannelBackupUpdates,
-	},
-	{
-		name: "export channel backup",
-		test: testExportChannelBackup,
-	},
-	{
 		name: "hold invoice sender persistence",
 		test: testHoldInvoicePersistence,
 	},
 	{
 		name: "hold invoice force close",
 		test: testHoldInvoiceForceClose,
-	},
-	{
-		name: "commitment deadline",
-		test: testCommitmentTransactionDeadline,
 	},
 	{
 		name: "cpfp",
@@ -272,10 +139,6 @@ var allTestCases = []*testCase{
 		test: testDeleteMacaroonID,
 	},
 	{
-		name: "immediate payment after channel opened",
-		test: testPaymentFollowingChannelOpen,
-	},
-	{
 		name: "psbt channel funding",
 		test: testPsbtChanFunding,
 	},
@@ -286,10 +149,6 @@ var allTestCases = []*testCase{
 	{
 		name: "sign psbt",
 		test: testSignPsbt,
-	},
-	{
-		name: "batch channel funding",
-		test: testBatchChanFunding,
 	},
 	{
 		name: "psbt channel funding single step",
@@ -340,10 +199,6 @@ var allTestCases = []*testCase{
 		test: testMaxChannelSize,
 	},
 	{
-		name: "connection timeout",
-		test: testNetworkConnectionTimeout,
-	},
-	{
 		name: "stateless init",
 		test: testStatelessInit,
 	},
@@ -382,10 +237,6 @@ var allTestCases = []*testCase{
 	{
 		name: "taproot",
 		test: testTaproot,
-	},
-	{
-		name: "addpeer config",
-		test: testAddPeerConfig,
 	},
 	{
 		name: "resolution handoff",

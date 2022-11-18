@@ -166,6 +166,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		"--debuglevel=debug",
 		"--bitcoin.defaultchanconfs=1",
 		"--accept-keysend",
+		"--keep-failed-payment-attempts",
 		fmt.Sprintf("--db.batch-commit-interval=%v", commitInterval),
 		fmt.Sprintf("--bitcoin.defaultremotedelay=%v",
 			lntest.DefaultCSV),

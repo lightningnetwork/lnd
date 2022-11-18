@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -14,6 +16,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -594,6 +597,14 @@ func (h *HarnessTest) SetFeeEstimate(fee chainfee.SatPerKWeight) {
 	h.feeService.SetFeeRate(fee, 1)
 }
 
+// SetFeeEstimateWithConf sets a fee rate of a specified conf target to be
+// returned from fee estimator.
+func (h *HarnessTest) SetFeeEstimateWithConf(
+	fee chainfee.SatPerKWeight, conf uint32) {
+
+	h.feeService.SetFeeRate(fee, conf)
+}
+
 // validateNodeState checks that the node doesn't have any uncleaned states
 // which will affect its following tests.
 func (h *HarnessTest) validateNodeState(hn *node.HarnessNode) {
@@ -693,12 +704,10 @@ type OpenChannelParams struct {
 	ScidAlias bool
 }
 
-// OpenChannelAssertPending attempts to open a channel between srcNode and
-// destNode with the passed channel funding parameters. Once the `OpenChannel`
-// is called, it will consume the first event it receives from the open channel
-// client and asserts it's a channel pending event.
-func (h *HarnessTest) OpenChannelAssertPending(srcNode,
-	destNode *node.HarnessNode, p OpenChannelParams) rpc.OpenChanClient {
+// prepareOpenChannel waits for both nodes to be synced to chain and returns an
+// OpenChannelRequest.
+func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
+	p OpenChannelParams) *lnrpc.OpenChannelRequest {
 
 	// Wait until srcNode and destNode have the latest chain synced.
 	// Otherwise, we may run into a check within the funding manager that
@@ -714,8 +723,8 @@ func (h *HarnessTest) OpenChannelAssertPending(srcNode,
 		minConfs = 0
 	}
 
-	// Prepare the request and open the channel.
-	openReq := &lnrpc.OpenChannelRequest{
+	// Prepare the request.
+	return &lnrpc.OpenChannelRequest{
 		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(p.Amt),
 		PushSat:            int64(p.PushAmt),
@@ -730,6 +739,18 @@ func (h *HarnessTest) OpenChannelAssertPending(srcNode,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
 	}
+}
+
+// OpenChannelAssertPending attempts to open a channel between srcNode and
+// destNode with the passed channel funding parameters. Once the `OpenChannel`
+// is called, it will consume the first event it receives from the open channel
+// client and asserts it's a channel pending event.
+func (h *HarnessTest) openChannelAssertPending(srcNode,
+	destNode *node.HarnessNode,
+	p OpenChannelParams) (*lnrpc.PendingUpdate, rpc.OpenChanClient) {
+
+	// Prepare the request and open the channel.
+	openReq := h.prepareOpenChannel(srcNode, destNode, p)
 	respStream := srcNode.RPC.OpenChannel(openReq)
 
 	// Consume the "channel pending" update. This waits until the node
@@ -738,11 +759,35 @@ func (h *HarnessTest) OpenChannelAssertPending(srcNode,
 	resp := h.ReceiveOpenChannelUpdate(respStream)
 
 	// Check that the update is channel pending.
-	_, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	update, ok := resp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
 	require.Truef(h, ok, "expected channel pending: update, instead got %v",
 		resp)
 
-	return respStream
+	return update.ChanPending, respStream
+}
+
+// OpenChannelAssertPending attempts to open a channel between srcNode and
+// destNode with the passed channel funding parameters. Once the `OpenChannel`
+// is called, it will consume the first event it receives from the open channel
+// client and asserts it's a channel pending event. It returns the
+// `PendingUpdate`.
+func (h *HarnessTest) OpenChannelAssertPending(srcNode,
+	destNode *node.HarnessNode, p OpenChannelParams) *lnrpc.PendingUpdate {
+
+	resp, _ := h.openChannelAssertPending(srcNode, destNode, p)
+	return resp
+}
+
+// OpenChannelAssertStream attempts to open a channel between srcNode and
+// destNode with the passed channel funding parameters. Once the `OpenChannel`
+// is called, it will consume the first event it receives from the open channel
+// client and asserts it's a channel pending event. It returns the open channel
+// stream.
+func (h *HarnessTest) OpenChannelAssertStream(srcNode,
+	destNode *node.HarnessNode, p OpenChannelParams) rpc.OpenChanClient {
+
+	_, stream := h.openChannelAssertPending(srcNode, destNode, p)
+	return stream
 }
 
 // OpenChannel attempts to open a channel with the specified parameters
@@ -754,7 +799,7 @@ func (h *HarnessTest) OpenChannelAssertPending(srcNode,
 func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	p OpenChannelParams) *lnrpc.ChannelPoint {
 
-	chanOpenUpdate := h.OpenChannelAssertPending(alice, bob, p)
+	chanOpenUpdate := h.OpenChannelAssertStream(alice, bob, p)
 
 	// Mine 6 blocks, then wait for Alice's node to notify us that the
 	// channel has been opened. The funding transaction should be found
@@ -783,6 +828,24 @@ func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	h.WaitForBlockchainSync(bob)
 
 	return fundingChanPoint
+}
+
+// OpenChannelAssertErr opens a channel between node srcNode and destNode,
+// asserts that the expected error is returned from the channel opening.
+func (h *HarnessTest) OpenChannelAssertErr(srcNode, destNode *node.HarnessNode,
+	p OpenChannelParams, expectedErr error) {
+
+	// Prepare the request and open the channel.
+	openReq := h.prepareOpenChannel(srcNode, destNode, p)
+	respStream := srcNode.RPC.OpenChannel(openReq)
+
+	// Receive an error to be sent from the stream.
+	_, err := h.receiveOpenChannelUpdate(respStream)
+
+	// Use string comparison here as we haven't codified all the RPC errors
+	// yet.
+	require.Containsf(h, err.Error(), expectedErr.Error(), "unexpected "+
+		"error returned, want %v, got %v", expectedErr, err)
 }
 
 // CloseChannelAssertPending attempts to close the channel indicated by the
@@ -969,6 +1032,22 @@ func (h *HarnessTest) FundCoinsUnconfirmed(amt btcutil.Amount,
 	hn *node.HarnessNode) {
 
 	h.fundCoins(amt, hn, lnrpc.AddressType_WITNESS_PUBKEY_HASH, false)
+}
+
+// FundCoinsNP2WKH attempts to send amt satoshis from the internal mining node
+// to the targeted lightning node using a NP2WKH address.
+func (h *HarnessTest) FundCoinsNP2WKH(amt btcutil.Amount,
+	target *node.HarnessNode) {
+
+	h.fundCoins(amt, target, lnrpc.AddressType_NESTED_PUBKEY_HASH, true)
+}
+
+// FundCoinsP2TR attempts to send amt satoshis from the internal mining node to
+// the targeted lightning node using a P2TR address.
+func (h *HarnessTest) FundCoinsP2TR(amt btcutil.Amount,
+	target *node.HarnessNode) {
+
+	h.fundCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
 }
 
 // CompletePaymentRequests sends payments from a node to complete all payment
@@ -1242,4 +1321,310 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	h.AssertActiveNodesSynced()
 
 	return blocks
+}
+
+// QueryChannelByChanPoint tries to find a channel matching the channel point
+// and asserts. It returns the channel found.
+func (h *HarnessTest) QueryChannelByChanPoint(hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint) *lnrpc.Channel {
+
+	channel, err := h.findChannel(hn, chanPoint)
+	require.NoError(h, err, "failed to query channel")
+	return channel
+}
+
+// SendPaymentAndAssertStatus sends a payment from the passed node and asserts
+// the desired status is reached.
+func (h *HarnessTest) SendPaymentAndAssertStatus(hn *node.HarnessNode,
+	req *routerrpc.SendPaymentRequest,
+	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
+
+	stream := hn.RPC.SendPayment(req)
+	return h.AssertPaymentStatusFromStream(stream, status)
+}
+
+// SendPaymentAssertFail sends a payment from the passed node and asserts the
+// payment is failed with the specified failure reason .
+func (h *HarnessTest) SendPaymentAssertFail(hn *node.HarnessNode,
+	req *routerrpc.SendPaymentRequest,
+	reason lnrpc.PaymentFailureReason) *lnrpc.Payment {
+
+	payment := h.SendPaymentAndAssertStatus(hn, req, lnrpc.Payment_FAILED)
+	require.Equal(h, reason, payment.FailureReason,
+		"payment failureReason not matched")
+
+	return payment
+}
+
+// OpenChannelRequest is used to open a channel using the method
+// OpenMultiChannelsAsync.
+type OpenChannelRequest struct {
+	// Local is the funding node.
+	Local *node.HarnessNode
+
+	// Remote is the receiving node.
+	Remote *node.HarnessNode
+
+	// Param is the open channel params.
+	Param OpenChannelParams
+
+	// stream is the client created after calling OpenChannel RPC.
+	stream rpc.OpenChanClient
+
+	// result is a channel used to send the channel point once the funding
+	// has succeeded.
+	result chan *lnrpc.ChannelPoint
+}
+
+// OpenMultiChannelsAsync takes a list of OpenChannelRequest and opens them in
+// batch. The channel points are returned in same the order of the requests
+// once all of the channel open succeeded.
+//
+// NOTE: compared to open multiple channel sequentially, this method will be
+// faster as it doesn't need to mine 6 blocks for each channel open. However,
+// it does make debugging the logs more difficult as messages are intertwined.
+func (h *HarnessTest) OpenMultiChannelsAsync(
+	reqs []*OpenChannelRequest) []*lnrpc.ChannelPoint {
+
+	// openChannel opens a channel based on the request.
+	openChannel := func(req *OpenChannelRequest) {
+		stream := h.OpenChannelAssertStream(
+			req.Local, req.Remote, req.Param,
+		)
+		req.stream = stream
+	}
+
+	// assertChannelOpen is a helper closure that asserts a channel is
+	// open.
+	assertChannelOpen := func(req *OpenChannelRequest) {
+		// Wait for the channel open event from the stream.
+		cp := h.WaitForChannelOpenEvent(req.stream)
+
+		// Check that both alice and bob have seen the channel
+		// from their channel watch request.
+		h.AssertTopologyChannelOpen(req.Local, cp)
+		h.AssertTopologyChannelOpen(req.Remote, cp)
+
+		// Finally, check that the channel can be seen in their
+		// ListChannels.
+		h.AssertChannelExists(req.Local, cp)
+		h.AssertChannelExists(req.Remote, cp)
+
+		req.result <- cp
+	}
+
+	// Go through the requests and make the OpenChannel RPC call.
+	for _, r := range reqs {
+		openChannel(r)
+	}
+
+	// Mine one block to confirm all the funding transactions.
+	h.MineBlocksAndAssertNumTxes(1, len(reqs))
+
+	// Mine 5 more blocks so all the public channels are announced to the
+	// network.
+	h.MineBlocks(numBlocksOpenChannel - 1)
+
+	// Once the blocks are mined, we fire goroutines for each of the
+	// request to watch for the channel openning.
+	for _, r := range reqs {
+		r.result = make(chan *lnrpc.ChannelPoint, 1)
+		go assertChannelOpen(r)
+	}
+
+	// Finally, collect the results.
+	channelPoints := make([]*lnrpc.ChannelPoint, 0)
+	for _, r := range reqs {
+		select {
+		case cp := <-r.result:
+			channelPoints = append(channelPoints, cp)
+
+		case <-time.After(lntest.ChannelOpenTimeout):
+			require.Failf(h, "timeout", "wait channel point "+
+				"timeout for channel %s=>%s", r.Local.Name(),
+				r.Remote.Name())
+		}
+	}
+
+	// Assert that we have the expected num of channel points.
+	require.Len(h, channelPoints, len(reqs),
+		"returned channel points not match")
+
+	return channelPoints
+}
+
+// ReceiveInvoiceUpdate waits until a message is received on the subscribe
+// invoice stream or the timeout is reached.
+func (h *HarnessTest) ReceiveInvoiceUpdate(
+	stream rpc.InvoiceUpdateClient) *lnrpc.Invoice {
+
+	chanMsg := make(chan *lnrpc.Invoice)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout receiving invoice update")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}
+
+// CalculateTxFee retrieves parent transactions and reconstructs the fee paid.
+func (h *HarnessTest) CalculateTxFee(tx *wire.MsgTx) btcutil.Amount {
+	var balance btcutil.Amount
+	for _, in := range tx.TxIn {
+		parentHash := in.PreviousOutPoint.Hash
+		rawTx := h.Miner.GetRawTransaction(&parentHash)
+		parent := rawTx.MsgTx()
+		balance += btcutil.Amount(
+			parent.TxOut[in.PreviousOutPoint.Index].Value,
+		)
+	}
+
+	for _, out := range tx.TxOut {
+		balance -= btcutil.Amount(out.Value)
+	}
+
+	return balance
+}
+
+// CalculateTxesFeeRate takes a list of transactions and estimates the fee rate
+// used to sweep them.
+//
+// NOTE: only used in current test file.
+func (h *HarnessTest) CalculateTxesFeeRate(txns []*wire.MsgTx) int64 {
+	const scale = 1000
+
+	var totalWeight, totalFee int64
+	for _, tx := range txns {
+		utx := btcutil.NewTx(tx)
+		totalWeight += blockchain.GetTransactionWeight(utx)
+
+		fee := h.CalculateTxFee(tx)
+		totalFee += int64(fee)
+	}
+	feeRate := totalFee * scale / totalWeight
+
+	return feeRate
+}
+
+type SweptOutput struct {
+	OutPoint wire.OutPoint
+	SweepTx  *wire.MsgTx
+}
+
+// FindCommitAndAnchor looks for a commitment sweep and anchor sweep in the
+// mempool. Our anchor output is identified by having multiple inputs in its
+// sweep transition, because we have to bring another input to add fees to the
+// anchor. Note that the anchor swept output may be nil if the channel did not
+// have anchors.
+func (h *HarnessTest) FindCommitAndAnchor(sweepTxns []*wire.MsgTx,
+	closeTx string) (*SweptOutput, *SweptOutput) {
+
+	var commitSweep, anchorSweep *SweptOutput
+
+	for _, tx := range sweepTxns {
+		txHash := tx.TxHash()
+		sweepTx := h.Miner.GetRawTransaction(&txHash)
+
+		// We expect our commitment sweep to have a single input, and,
+		// our anchor sweep to have more inputs (because the wallet
+		// needs to add balance to the anchor amount). We find their
+		// sweep txids here to setup appropriate resolutions. We also
+		// need to find the outpoint for our resolution, which we do by
+		// matching the inputs to the sweep to the close transaction.
+		inputs := sweepTx.MsgTx().TxIn
+		if len(inputs) == 1 {
+			commitSweep = &SweptOutput{
+				OutPoint: inputs[0].PreviousOutPoint,
+				SweepTx:  tx,
+			}
+		} else {
+			// Since we have more than one input, we run through
+			// them to find the one whose previous outpoint matches
+			// the closing txid, which means this input is spending
+			// the close tx. This will be our anchor output.
+			for _, txin := range inputs {
+				op := txin.PreviousOutPoint.Hash.String()
+				if op == closeTx {
+					anchorSweep = &SweptOutput{
+						OutPoint: txin.PreviousOutPoint,
+						SweepTx:  tx,
+					}
+				}
+			}
+		}
+	}
+
+	return commitSweep, anchorSweep
+}
+
+// AssertSweepFound looks up a sweep in a nodes list of broadcast sweeps and
+// asserts it's found.
+//
+// NOTE: Does not account for node's internal state.
+func (h *HarnessTest) AssertSweepFound(hn *node.HarnessNode,
+	sweep string, verbose bool) {
+
+	// List all sweeps that alice's node had broadcast.
+	sweepResp := hn.RPC.ListSweeps(verbose)
+
+	var found bool
+	if verbose {
+		found = findSweepInDetails(h, sweep, sweepResp)
+	} else {
+		found = findSweepInTxids(h, sweep, sweepResp)
+	}
+
+	require.Truef(h, found, "%s: sweep: %v not found", sweep, hn.Name())
+}
+
+func findSweepInTxids(ht *HarnessTest, sweepTxid string,
+	sweepResp *walletrpc.ListSweepsResponse) bool {
+
+	sweepTxIDs := sweepResp.GetTransactionIds()
+	require.NotNil(ht, sweepTxIDs, "expected transaction ids")
+	require.Nil(ht, sweepResp.GetTransactionDetails())
+
+	// Check that the sweep tx we have just produced is present.
+	for _, tx := range sweepTxIDs.TransactionIds {
+		if tx == sweepTxid {
+			return true
+		}
+	}
+
+	return false
+}
+
+func findSweepInDetails(ht *HarnessTest, sweepTxid string,
+	sweepResp *walletrpc.ListSweepsResponse) bool {
+
+	sweepDetails := sweepResp.GetTransactionDetails()
+	require.NotNil(ht, sweepDetails, "expected transaction details")
+	require.Nil(ht, sweepResp.GetTransactionIds())
+
+	for _, tx := range sweepDetails.Transactions {
+		if tx.TxHash == sweepTxid {
+			return true
+		}
+	}
+
+	return false
 }

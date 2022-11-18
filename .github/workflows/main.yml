@@ -401,7 +401,7 @@ jobs:
             args: backend=neutrino
     steps:
       - name: git checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: go cache
         uses: actions/cache@v1
@@ -415,7 +415,7 @@ jobs:
             lnd-${{ runner.os }}-go-
 
       - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: '${{ env.GO_VERSION }}'
 
@@ -449,7 +449,7 @@ jobs:
       GOPATH: ${{ github.workspace }}/go
     steps:
       - name: git checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: go cache
         uses: actions/cache@v1
@@ -463,7 +463,7 @@ jobs:
             lnd-${{ runner.os }}-go-
 
       - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
           go-version: '${{ env.GO_VERSION }}'
 
@@ -472,6 +472,7 @@ jobs:
 
       - name: Zip log files on failure
         if: ${{ failure() }}
+        timeout-minutes: 1 # timeout after 1 minute
         run: 7z a logs-itest-windows.zip lntest/itest/**/*.log
 
       - name: Upload log files on failure

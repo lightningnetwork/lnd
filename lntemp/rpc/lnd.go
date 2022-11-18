@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"strings"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
@@ -98,6 +99,18 @@ func (h *HarnessRPC) ConnectPeer(
 	return resp
 }
 
+// ConnectPeerAssertErr makes a RPC call to ConnectPeer and asserts an error
+// returned.
+func (h *HarnessRPC) ConnectPeerAssertErr(req *lnrpc.ConnectPeerRequest) error {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.ConnectPeer(ctxt, req)
+	require.Error(h, err, "expected an error from ConnectPeer")
+
+	return err
+}
+
 // ListChannels list the channels for the given node and asserts it's
 // successful.
 func (h *HarnessRPC) ListChannels(
@@ -120,6 +133,29 @@ func (h *HarnessRPC) PendingChannels() *lnrpc.PendingChannelsResponse {
 
 	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
 	resp, err := h.LN.PendingChannels(ctxt, pendingChansRequest)
+
+	// TODO(yy): We may get a `unable to find arbitrator` error from the
+	// rpc point, due to a timing issue in rpcserver,
+	// 1. `r.server.chanStateDB.FetchClosedChannels` fetches
+	//    the pending force close channel.
+	// 2. `r.arbitratorPopulateForceCloseResp` relies on the
+	//    channel arbitrator to get the report, and,
+	// 3. the arbitrator may be deleted due to the force close
+	//    channel being resolved.
+	// Somewhere along the line is missing a lock to keep the data
+	// consistent.
+	//
+	// Return if there's no error.
+	if err == nil {
+		return resp
+	}
+
+	// Otherwise, give it a second shot if it's the arbitrator error.
+	if strings.Contains(err.Error(), "unable to find arbitrator") {
+		resp, err = h.LN.PendingChannels(ctxt, pendingChansRequest)
+	}
+
+	// It's very unlikely we'd get the arbitrator not found error again.
 	h.NoError(err, "PendingChannels")
 
 	return resp
@@ -318,4 +354,216 @@ func (h *HarnessRPC) ChannelAcceptor() (AcceptorClient, context.CancelFunc) {
 	h.NoError(err, "ChannelAcceptor")
 
 	return resp, cancel
+}
+
+// SendCoins sends a given amount of money to the specified address from the
+// passed node.
+func (h *HarnessRPC) SendCoins(
+	req *lnrpc.SendCoinsRequest) *lnrpc.SendCoinsResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.SendCoins(ctxt, req)
+	h.NoError(err, "SendCoins")
+
+	return resp
+}
+
+// SendCoinsAssertErr sends a given amount of money to the specified address
+// from the passed node and asserts an error has returned.
+func (h *HarnessRPC) SendCoinsAssertErr(req *lnrpc.SendCoinsRequest) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.SendCoins(ctxt, req)
+	require.Error(h, err, "node %s didn't not return an error", h.Name)
+}
+
+// GetTransactions makes a RPC call to GetTransactions and asserts.
+func (h *HarnessRPC) GetTransactions(
+	req *lnrpc.GetTransactionsRequest) *lnrpc.TransactionDetails {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	if req == nil {
+		req = &lnrpc.GetTransactionsRequest{}
+	}
+
+	resp, err := h.LN.GetTransactions(ctxt, req)
+	h.NoError(err, "GetTransactions")
+
+	return resp
+}
+
+// SignMessage makes a RPC call to node's SignMessage and asserts.
+func (h *HarnessRPC) SignMessage(msg []byte) *lnrpc.SignMessageResponse {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.SignMessageRequest{Msg: msg}
+	resp, err := h.LN.SignMessage(ctxt, req)
+	h.NoError(err, "SignMessage")
+
+	return resp
+}
+
+// VerifyMessage makes a RPC call to node's VerifyMessage and asserts.
+func (h *HarnessRPC) VerifyMessage(msg []byte,
+	sig string) *lnrpc.VerifyMessageResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &lnrpc.VerifyMessageRequest{Msg: msg, Signature: sig}
+	resp, err := h.LN.VerifyMessage(ctxt, req)
+	h.NoError(err, "VerifyMessage")
+
+	return resp
+}
+
+// GetRecoveryInfo uses the specified node to make a RPC call to
+// GetRecoveryInfo and asserts.
+func (h *HarnessRPC) GetRecoveryInfo(
+	req *lnrpc.GetRecoveryInfoRequest) *lnrpc.GetRecoveryInfoResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	if req == nil {
+		req = &lnrpc.GetRecoveryInfoRequest{}
+	}
+
+	resp, err := h.LN.GetRecoveryInfo(ctxt, req)
+	h.NoError(err, "GetRecoveryInfo")
+
+	return resp
+}
+
+// BatchOpenChannel makes a RPC call to BatchOpenChannel and asserts.
+func (h *HarnessRPC) BatchOpenChannel(
+	req *lnrpc.BatchOpenChannelRequest) *lnrpc.BatchOpenChannelResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.BatchOpenChannel(ctxt, req)
+	h.NoError(err, "BatchOpenChannel")
+
+	return resp
+}
+
+// BatchOpenChannelAssertErr makes a RPC call to BatchOpenChannel and asserts
+// there's an error returned.
+func (h *HarnessRPC) BatchOpenChannelAssertErr(
+	req *lnrpc.BatchOpenChannelRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.BatchOpenChannel(ctxt, req)
+	require.Error(h, err, "expecte batch open channel fail")
+
+	return err
+}
+
+// QueryRoutes makes a RPC call to QueryRoutes and asserts.
+func (h *HarnessRPC) QueryRoutes(
+	req *lnrpc.QueryRoutesRequest) *lnrpc.QueryRoutesResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	routes, err := h.LN.QueryRoutes(ctxt, req)
+	h.NoError(err, "QueryRoutes")
+
+	return routes
+}
+
+// SendToRoute makes a RPC call to SendToRoute and asserts.
+func (h *HarnessRPC) SendToRoute() lnrpc.Lightning_SendToRouteClient {
+	// SendToRoute needs to have the context alive for the entire test case
+	// as the returned client will be used for send and receive payment
+	// stream. Thus we use runCtx here instead of a timeout context.
+	client, err := h.LN.SendToRoute(h.runCtx)
+	h.NoError(err, "SendToRoute")
+
+	return client
+}
+
+// SendToRouteSync makes a RPC call to SendToRouteSync and asserts.
+func (h *HarnessRPC) SendToRouteSync(
+	req *lnrpc.SendToRouteRequest) *lnrpc.SendResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.SendToRouteSync(ctxt, req)
+	h.NoError(err, "SendToRouteSync")
+
+	return resp
+}
+
+// UpdateChannelPolicy makes a RPC call to UpdateChannelPolicy and asserts.
+func (h *HarnessRPC) UpdateChannelPolicy(
+	req *lnrpc.PolicyUpdateRequest) *lnrpc.PolicyUpdateResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.UpdateChannelPolicy(ctxt, req)
+	h.NoError(err, "UpdateChannelPolicy")
+
+	return resp
+}
+
+type InvoiceUpdateClient lnrpc.Lightning_SubscribeInvoicesClient
+
+// SubscribeInvoices creates a subscription client for invoice events and
+// asserts its creation.
+//
+// NOTE: make sure to subscribe an invoice as early as possible as it takes
+// some time for the lnd to create the subscription client. If an invoice is
+// added right after the subscription, it may be missed. However, if AddIndex
+// or SettleIndex is used in the request, it will be fine as a backlog will
+// always be sent.
+func (h *HarnessRPC) SubscribeInvoices(
+	req *lnrpc.InvoiceSubscription) InvoiceUpdateClient {
+
+	// SubscribeInvoices needs to have the context alive for the
+	// entire test case as the returned client will be used for send and
+	// receive events stream. Thus we use runCtx here instead of a timeout
+	// context.
+	client, err := h.LN.SubscribeInvoices(h.runCtx, req)
+	h.NoError(err, "SubscribeInvoices")
+
+	return client
+}
+
+type BackupSubscriber lnrpc.Lightning_SubscribeChannelBackupsClient
+
+// SubscribeChannelBackups creates a client to listen to channel backup stream.
+func (h *HarnessRPC) SubscribeChannelBackups() BackupSubscriber {
+	// Use runCtx here instead of timeout context to keep the stream client
+	// alive.
+	backupStream, err := h.LN.SubscribeChannelBackups(
+		h.runCtx, &lnrpc.ChannelBackupSubscription{},
+	)
+	h.NoError(err, "SubscribeChannelBackups")
+
+	return backupStream
+}
+
+// VerifyChanBackup makes a RPC call to node's VerifyChanBackup and asserts.
+func (h *HarnessRPC) VerifyChanBackup(
+	ss *lnrpc.ChanBackupSnapshot) *lnrpc.VerifyChanBackupResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.VerifyChanBackup(ctxt, ss)
+	h.NoError(err, "VerifyChanBackup")
+
+	return resp
 }

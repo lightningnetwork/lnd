@@ -1,101 +1,69 @@
 package itest
 
 import (
-	"context"
+	"fmt"
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/lightningnetwork/lnd/aezeed"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
 // testGetRecoveryInfo checks whether lnd gives the right information about
 // the wallet recovery process.
-func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testGetRecoveryInfo(ht *lntemp.HarnessTest) {
 	// First, create a new node with strong passphrase and grab the mnemonic
 	// used for key derivation. This will bring up Carol with an empty
 	// wallet, and such that she is synced up.
 	password := []byte("The Magic Words are Squeamish Ossifrage")
-	carol, mnemonic, _, err := net.NewNodeWithSeed(
-		"Carol", nil, password, false,
-	)
-	if err != nil {
-		t.Fatalf("unable to create node with seed; %v", err)
-	}
-
-	shutdownAndAssert(net, t, carol)
+	carol, mnemonic, _ := ht.NewNodeWithSeed("Carol", nil, password, false)
 
 	checkInfo := func(expectedRecoveryMode, expectedRecoveryFinished bool,
 		expectedProgress float64, recoveryWindow int32) {
 
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
-		node, err := net.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, "", recoveryWindow,
-			nil,
+		node := ht.RestoreNodeWithSeed(
+			carol.Name(), nil, password, mnemonic, "",
+			recoveryWindow, nil,
 		)
-		if err != nil {
-			t.Fatalf("unable to restore node: %v", err)
-		}
-
-		// Wait for Carol to sync to the chain.
-		_, minerHeight, err := net.Miner.Client.GetBestBlock()
-		if err != nil {
-			t.Fatalf("unable to get current blockheight %v", err)
-		}
-		err = waitForNodeBlockHeight(node, minerHeight)
-		if err != nil {
-			t.Fatalf("unable to sync to chain: %v", err)
-		}
 
 		// Query carol for her current wallet recovery progress.
-		var (
-			recoveryMode     bool
-			recoveryFinished bool
-			progress         float64
-		)
-
-		err = wait.Predicate(func() bool {
+		err := wait.NoError(func() error {
 			// Verify that recovery info gives the right response.
-			req := &lnrpc.GetRecoveryInfoRequest{}
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := node.GetRecoveryInfo(ctxt, req)
-			if err != nil {
-				t.Fatalf("unable to query recovery info: %v", err)
+			resp := node.RPC.GetRecoveryInfo(nil)
+
+			mode := resp.RecoveryMode
+			finished := resp.RecoveryFinished
+			progress := resp.Progress
+
+			if mode != expectedRecoveryMode {
+				return fmt.Errorf("expected recovery mode %v "+
+					"got %v", expectedRecoveryMode, mode)
+			}
+			if finished != expectedRecoveryFinished {
+				return fmt.Errorf("expected finished %v "+
+					"got %v", expectedRecoveryFinished,
+					finished)
+			}
+			if progress != expectedProgress {
+				return fmt.Errorf("expected progress %v"+
+					"got %v", expectedProgress, progress)
 			}
 
-			recoveryMode = resp.RecoveryMode
-			recoveryFinished = resp.RecoveryFinished
-			progress = resp.Progress
-
-			if recoveryMode != expectedRecoveryMode ||
-				recoveryFinished != expectedRecoveryFinished ||
-				progress != expectedProgress {
-
-				return false
-			}
-
-			return true
+			return nil
 		}, defaultTimeout)
-		if err != nil {
-			t.Fatalf("expected recovery mode to be %v, got %v, "+
-				"expected recovery finished to be %v, got %v, "+
-				"expected progress %v, got %v",
-				expectedRecoveryMode, recoveryMode,
-				expectedRecoveryFinished, recoveryFinished,
-				expectedProgress, progress,
-			)
-		}
+		require.NoError(ht, err)
 
 		// Lastly, shutdown this Carol so we can move on to the next
 		// restoration.
-		shutdownAndAssert(net, t, node)
+		ht.Shutdown(node)
 	}
 
 	// Restore Carol with a recovery window of 0. Since it's not in recovery
@@ -103,15 +71,15 @@ func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
 	// recoveryFinished=false, and progress=0
 	checkInfo(false, false, 0, 0)
 
-	// Change the recovery windown to be 1 to turn on recovery mode. Since the
-	// current chain height is the same as the birthday height, it should
-	// indicate the recovery process is finished.
+	// Change the recovery windown to be 1 to turn on recovery mode. Since
+	// the current chain height is the same as the birthday height, it
+	// should indicate the recovery process is finished.
 	checkInfo(true, true, 1, 1)
 
 	// We now go ahead 5 blocks. Because the wallet's syncing process is
-	// controlled by a goroutine in the background, it will catch up quickly.
-	// This makes the recovery progress back to 1.
-	mineBlocks(t, net, 5, 0)
+	// controlled by a goroutine in the background, it will catch up
+	// quickly. This makes the recovery progress back to 1.
+	ht.MineBlocks(5)
 	checkInfo(true, true, 1, 1)
 }
 
@@ -119,18 +87,12 @@ func testGetRecoveryInfo(net *lntest.NetworkHarness, t *harnessTest) {
 // when providing a valid aezeed that owns outputs on the chain. This test
 // performs multiple restorations using the same seed and various recovery
 // windows to ensure we detect funds properly.
-func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testOnchainFundRecovery(ht *lntemp.HarnessTest) {
 	// First, create a new node with strong passphrase and grab the mnemonic
 	// used for key derivation. This will bring up Carol with an empty
 	// wallet, and such that she is synced up.
 	password := []byte("The Magic Words are Squeamish Ossifrage")
-	carol, mnemonic, _, err := net.NewNodeWithSeed(
-		"Carol", nil, password, false,
-	)
-	require.NoError(t.t, err)
-	shutdownAndAssert(net, t, carol)
+	carol, mnemonic, _ := ht.NewNodeWithSeed("Carol", nil, password, false)
 
 	// As long as the mnemonic is non-nil and the extended key is empty, the
 	// closure below will always restore the node from the seed. The tests
@@ -142,17 +104,16 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	// given recovery window. Additionally, the caller can specify an action
 	// to perform on the restored node before the node is shutdown.
 	restoreCheckBalance := func(expAmount int64, expectedNumUTXOs uint32,
-		recoveryWindow int32, fn func(*lntest.HarnessNode)) {
+		recoveryWindow int32, fn func(*node.HarnessNode)) {
 
-		t.t.Helper()
+		ht.Helper()
 
 		// Restore Carol, passing in the password, mnemonic, and
 		// desired recovery window.
-		node, err := net.RestoreNodeWithSeed(
-			"Carol", nil, password, mnemonic, rootKey,
+		node := ht.RestoreNodeWithSeed(
+			carol.Name(), nil, password, mnemonic, rootKey,
 			recoveryWindow, nil,
 		)
-		require.NoError(t.t, err)
 
 		// Query carol for her current wallet balance, and also that we
 		// gain the expected number of UTXOs.
@@ -160,38 +121,33 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			currBalance  int64
 			currNumUTXOs uint32
 		)
-		err = wait.Predicate(func() bool {
-			req := &lnrpc.WalletBalanceRequest{}
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := node.WalletBalance(ctxt, req)
-			require.NoError(t.t, err)
+		err := wait.NoError(func() error {
+			resp := node.RPC.WalletBalance()
 			currBalance = resp.ConfirmedBalance
 
-			utxoReq := &lnrpc.ListUnspentRequest{
+			req := &walletrpc.ListUnspentRequest{
+				Account:  "",
 				MaxConfs: math.MaxInt32,
+				MinConfs: 0,
 			}
-			ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-			utxoResp, err := node.ListUnspent(ctxt, utxoReq)
-			require.NoError(t.t, err)
+			utxoResp := node.RPC.ListUnspent(req)
 			currNumUTXOs = uint32(len(utxoResp.Utxos))
 
 			// Verify that Carol's balance and number of UTXOs
 			// matches what's expected.
 			if expAmount != currBalance {
-				return false
+				return fmt.Errorf("balance not matched, want "+
+					"%d, got %d", expAmount, currBalance)
 			}
 			if currNumUTXOs != expectedNumUTXOs {
-				return false
+				return fmt.Errorf("num of UTXOs not matched, "+
+					"want %d, got %d", expectedNumUTXOs,
+					currNumUTXOs)
 			}
 
-			return true
+			return nil
 		}, defaultTimeout)
-		if err != nil {
-			t.Fatalf("expected restored node to have %d satoshis, "+
-				"instead has %d satoshis, expected %d utxos "+
-				"instead has %d", expAmount, currBalance,
-				expectedNumUTXOs, currNumUTXOs)
-		}
+		require.NoError(ht, err, "timeout checking Carol")
 
 		// If the user provided a callback, execute the commands against
 		// the restored Carol.
@@ -199,71 +155,41 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 			fn(node)
 		}
 
-		// Check if the previous outpoints are set correctly.
-		req := &lnrpc.GetTransactionsRequest{
-			StartHeight: 0,
-			EndHeight:   -1,
-		}
-		txDetails, err := node.GetTransactions(ctxb, req)
-		require.NoError(t.t, err)
-
-		for _, tx := range txDetails.Transactions {
-			require.Greater(t.t, len(tx.PreviousOutpoints), 0)
-		}
-
 		// Lastly, shutdown this Carol so we can move on to the next
 		// restoration.
-		shutdownAndAssert(net, t, node)
+		ht.Shutdown(node)
 	}
 
 	// Create a closure-factory for building closures that can generate and
 	// skip a configurable number of addresses, before finally sending coins
 	// to a next generated address. The returned closure will apply the same
 	// behavior to both default P2WKH and NP2WKH scopes.
-	skipAndSend := func(nskip int) func(*lntest.HarnessNode) {
-		return func(node *lntest.HarnessNode) {
-			t.t.Helper()
-
-			newP2WKHAddrReq := &lnrpc.NewAddressRequest{
-				Type: AddrTypeWitnessPubkeyHash,
-			}
-
-			newNP2WKHAddrReq := &lnrpc.NewAddressRequest{
-				Type: AddrTypeNestedPubkeyHash,
-			}
-
-			newP2TRAddrReq := &lnrpc.NewAddressRequest{
-				Type: AddrTypeTaprootPubkey,
-			}
+	skipAndSend := func(nskip int) func(*node.HarnessNode) {
+		return func(node *node.HarnessNode) {
+			ht.Helper()
 
 			// Generate and skip the number of addresses requested.
-			ctxt, cancel := context.WithTimeout(
-				ctxb, defaultTimeout,
-			)
-			defer cancel()
 			for i := 0; i < nskip; i++ {
-				_, err = node.NewAddress(ctxt, newP2WKHAddrReq)
-				require.NoError(t.t, err)
+				req := &lnrpc.NewAddressRequest{}
 
-				_, err = node.NewAddress(ctxt, newNP2WKHAddrReq)
-				require.NoError(t.t, err)
+				req.Type = AddrTypeWitnessPubkeyHash
+				node.RPC.NewAddress(req)
 
-				_, err = node.NewAddress(ctxt, newP2TRAddrReq)
-				require.NoError(t.t, err)
+				req.Type = AddrTypeNestedPubkeyHash
+				node.RPC.NewAddress(req)
+
+				req.Type = AddrTypeTaprootPubkey
+				node.RPC.NewAddress(req)
 			}
 
 			// Send one BTC to the next P2WKH address.
-			net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, node)
+			ht.FundCoins(btcutil.SatoshiPerBitcoin, node)
 
 			// And another to the next NP2WKH address.
-			net.SendCoinsNP2WKH(
-				t.t, btcutil.SatoshiPerBitcoin, node,
-			)
+			ht.FundCoinsNP2WKH(btcutil.SatoshiPerBitcoin, node)
 
 			// Add another whole coin to the P2TR address.
-			net.SendCoinsP2TR(
-				t.t, btcutil.SatoshiPerBitcoin, node,
-			)
+			ht.FundCoinsP2TR(btcutil.SatoshiPerBitcoin, node)
 		}
 	}
 
@@ -316,25 +242,21 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	// avoid fee discrepancies and a change output is formed.
 	const minerAmt = 8 * btcutil.SatoshiPerBitcoin
 	const finalBalance = 9 * btcutil.SatoshiPerBitcoin
-	promptChangeAddr := func(node *lntest.HarnessNode) {
-		t.t.Helper()
+	promptChangeAddr := func(node *node.HarnessNode) {
+		ht.Helper()
 
-		minerAddr, err := net.Miner.NewAddress()
-		require.NoError(t.t, err)
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		resp, err := node.SendCoins(ctxt, &lnrpc.SendCoinsRequest{
+		minerAddr := ht.Miner.NewMinerAddress()
+		req := &lnrpc.SendCoinsRequest{
 			Addr:   minerAddr.String(),
 			Amount: minerAmt,
-		})
-		require.NoError(t.t, err)
-		txid, err := waitForTxInMempool(
-			net.Miner.Client, minerMempoolTimeout,
-		)
-		require.NoError(t.t, err)
-		require.Equal(t.t, txid.String(), resp.Txid)
+		}
+		resp := node.RPC.SendCoins(req)
 
-		block := mineBlocks(t, net, 1, 1)[0]
-		assertTxInBlock(t, block, txid)
+		txid := ht.Miner.AssertNumTxsInMempool(1)[0]
+		require.Equal(ht, txid.String(), resp.Txid)
+
+		block := ht.MineBlocks(1)[0]
+		ht.Miner.AssertTxInBlock(block, txid)
 	}
 	restoreCheckBalance(finalBalance, 9, 20, promptChangeAddr)
 
@@ -350,11 +272,11 @@ func testOnchainFundRecovery(net *lntest.NetworkHarness, t *harnessTest) {
 	var seedMnemonic aezeed.Mnemonic
 	copy(seedMnemonic[:], mnemonic)
 	cipherSeed, err := seedMnemonic.ToCipherSeed(password)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	extendedRootKey, err := hdkeychain.NewMaster(
 		cipherSeed.Entropy[:], harnessNetParams,
 	)
-	require.NoError(t.t, err)
+	require.NoError(ht, err)
 	rootKey = extendedRootKey.String()
 	mnemonic = nil
 

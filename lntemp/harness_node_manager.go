@@ -156,7 +156,7 @@ func (nm *nodeManager) restartNode(ctxt context.Context, node *node.HarnessNode,
 	}
 	if len(chanBackups) != 0 {
 		unlockReq.ChannelBackups = chanBackups[0]
-		unlockReq.RecoveryWindow = 1000
+		unlockReq.RecoveryWindow = 100
 	}
 
 	err = wait.NoError(func() error {

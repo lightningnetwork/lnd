@@ -72,10 +72,70 @@ func testListPayments(ht *lntemp.HarnessTest) {
 	require.Zero(ht, p.FeeSat, "fee should be 0")
 	require.Zero(ht, p.FeeMsat, "fee should be 0")
 
-	// Finally, verify that the payment request returned by the rpc matches
-	// the invoice that we paid.
+	// Now verify that the payment request returned by the rpc matches the
+	// invoice that we paid.
 	require.Equal(ht, invoiceResp.PaymentRequest, p.PaymentRequest,
 		"incorrect payreq")
+
+	// We now check the timestamp filters in `ListPayments`.
+	//
+	// Use a start date long time ago should return us the payment.
+	req := &lnrpc.ListPaymentsRequest{
+		CreationDateStart: 1227035905,
+	}
+	resp := alice.RPC.ListPayments(req)
+	require.Len(ht, resp.Payments, 1)
+
+	// Use an end date long time ago should return us nothing.
+	req = &lnrpc.ListPaymentsRequest{
+		CreationDateEnd: 1227035905,
+	}
+	resp = alice.RPC.ListPayments(req)
+	require.Empty(ht, resp.Payments)
+
+	// Use a start date far in the future should return us nothing.
+	req = &lnrpc.ListPaymentsRequest{
+		CreationDateStart: 5392552705,
+	}
+	resp = alice.RPC.ListPayments(req)
+	require.Empty(ht, resp.Payments)
+
+	// Use an end date far in the future should return us the payment.
+	req = &lnrpc.ListPaymentsRequest{
+		CreationDateEnd: 5392552705,
+	}
+	resp = alice.RPC.ListPayments(req)
+	require.Len(ht, resp.Payments, 1)
+
+	// We now do the same check for `ListInvoices`
+	//
+	// Use a start date long time ago should return us the invoice.
+	invReq := &lnrpc.ListInvoiceRequest{
+		CreationDateStart: 1227035905,
+	}
+	invResp := bob.RPC.ListInvoices(invReq)
+	require.Len(ht, invResp.Invoices, 1)
+
+	// Use an end date long time ago should return us nothing.
+	invReq = &lnrpc.ListInvoiceRequest{
+		CreationDateEnd: 1227035905,
+	}
+	invResp = bob.RPC.ListInvoices(invReq)
+	require.Empty(ht, invResp.Invoices)
+
+	// Use a start date far in the future should return us nothing.
+	invReq = &lnrpc.ListInvoiceRequest{
+		CreationDateStart: 5392552705,
+	}
+	invResp = bob.RPC.ListInvoices(invReq)
+	require.Empty(ht, invResp.Invoices)
+
+	// Use an end date far in the future should return us the invoice.
+	invReq = &lnrpc.ListInvoiceRequest{
+		CreationDateEnd: 5392552705,
+	}
+	invResp = bob.RPC.ListInvoices(invReq)
+	require.Len(ht, invResp.Invoices, 1)
 
 	// Delete all payments from Alice. DB should have no payments.
 	alice.RPC.DeleteAllPayments()

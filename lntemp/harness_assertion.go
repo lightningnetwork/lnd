@@ -1273,7 +1273,8 @@ func (h *HarnessTest) findPayment(hn *node.HarnessNode,
 		return p
 	}
 
-	require.Fail(h, "payment: %v not found", paymentHash)
+	require.Failf(h, "payment not found", "payment %v cannot be found",
+		paymentHash)
 
 	return nil
 }

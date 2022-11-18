@@ -284,7 +284,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	// We only include the amount in the invoice if it is greater than 0.
 	// By not including the amount, we enable the creation of invoices that
-	// allow the payee to specify the amount of satoshis they wish to send.
+	// allow the payer to specify the amount of satoshis they wish to send.
 	if amtMSat > 0 {
 		options = append(options, zpay32.Amount(amtMSat))
 	}

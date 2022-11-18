@@ -27,6 +27,11 @@
 # Improvements
 ## Functional Updates
 ## RPC Updates
+
+* [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
+  `StatusUnknown` from the payment's rpc response in its status and replaced it
+  with `StatusInitiated` to explicitly report its current state.
+
 ## lncli Updates
 ## Code Health
 ## Breaking Changes
@@ -40,3 +45,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+
+* Yong Yu

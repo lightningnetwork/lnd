@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -227,8 +228,8 @@ func newTestContext(t *testing.T) *testContext {
 	return &ctx
 }
 
-func getCircuitKey(htlcID uint64) channeldb.CircuitKey {
-	return channeldb.CircuitKey{
+func getCircuitKey(htlcID uint64) models.CircuitKey {
+	return models.CircuitKey{
 		ChanID: lnwire.ShortChannelID{
 			BlockHeight: 1, TxIndex: 2, TxPosition: 3,
 		},
@@ -453,11 +454,11 @@ func setupHodlExpiry(t *testing.T, creationDate time.Time,
 	invoice := newTestInvoice(t, preimage, creationDate, expiry)
 	invoice.State = startState
 	invoice.HodlInvoice = true
-	invoice.Htlcs = make(map[channeldb.CircuitKey]*channeldb.InvoiceHTLC)
+	invoice.Htlcs = make(map[models.CircuitKey]*channeldb.InvoiceHTLC)
 
 	// If we have any htlcs, add them with unique circult keys.
 	for i, htlc := range startHtlcs {
-		key := channeldb.CircuitKey{
+		key := models.CircuitKey{
 			HtlcID: uint64(i),
 		}
 

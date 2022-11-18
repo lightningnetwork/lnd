@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -2230,7 +2231,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 			for _, htlc := range htlcs {
 				htlc := htlc
 
-				key := channeldb.CircuitKey{
+				key := models.CircuitKey{
 					ChanID: c.cfg.ShortChanID,
 					HtlcID: htlc.HtlcIndex,
 				}

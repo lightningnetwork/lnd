@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -61,7 +62,7 @@ func (h *htlcIncomingContestResolver) processFinalHtlcFail() error {
 
 	// Send notification.
 	h.ChainArbitratorConfig.HtlcNotifier.NotifyFinalHtlcEvent(
-		channeldb.CircuitKey{
+		models.CircuitKey{
 			ChanID: h.ShortChanID,
 			HtlcID: h.htlc.HtlcIndex,
 		},
@@ -265,7 +266,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// hop on-chain. If this HTLC indeed pays to an existing
 		// invoice, the invoice registry will tell us what to do with
 		// the HTLC. This is identical to HTLC resolution in the link.
-		circuitKey := channeldb.CircuitKey{
+		circuitKey := models.CircuitKey{
 			ChanID: h.ShortChanID,
 			HtlcID: h.htlc.HtlcIndex,
 		}

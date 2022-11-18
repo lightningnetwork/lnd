@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -51,7 +52,7 @@ func randInvoice(value lnwire.MilliSatoshi) (*Invoice, error) {
 			Value:           value,
 			Features:        emptyFeatures,
 		},
-		Htlcs:    map[CircuitKey]*InvoiceHTLC{},
+		Htlcs:    map[models.CircuitKey]*InvoiceHTLC{},
 		AMPState: map[SetID]InvoiceStateAMP{},
 	}
 	i.Memo = []byte("memo")
@@ -77,7 +78,7 @@ func settleTestInvoice(invoice *Invoice, settleIndex uint64) {
 	invoice.SettleDate = testNow
 	invoice.AmtPaid = invoice.Terms.Value
 	invoice.State = ContractSettled
-	invoice.Htlcs[CircuitKey{}] = &InvoiceHTLC{
+	invoice.Htlcs[models.CircuitKey{}] = &InvoiceHTLC{
 		Amt:           invoice.Terms.Value,
 		AcceptTime:    testNow,
 		ResolveTime:   testNow,
@@ -433,7 +434,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	paymentHash := preimage.Hash()
 
 	testInvoice := &Invoice{
-		Htlcs: map[CircuitKey]*InvoiceHTLC{},
+		Htlcs: map[models.CircuitKey]*InvoiceHTLC{},
 		Terms: ContractTerm{
 			Value:           lnwire.NewMSatFromSatoshis(10000),
 			Features:        emptyFeatures,
@@ -446,7 +447,10 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	}
 
 	// Accept an htlc on this invoice.
-	key := CircuitKey{ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 4}
+	key := models.CircuitKey{
+		ChanID: lnwire.NewShortChanIDFromInt(1),
+		HtlcID: 4,
+	}
 	htlc := HtlcAcceptDesc{
 		Amt:           500,
 		CustomRecords: make(record.CustomSet),
@@ -456,7 +460,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	invoice, err := db.UpdateInvoice(ref, nil,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
-				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
+				AddHtlcs: map[models.CircuitKey]*HtlcAcceptDesc{
 					key: &htlc,
 				},
 			}, nil
@@ -473,7 +477,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	invoice, err = db.UpdateInvoice(ref, nil,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
-				CancelHtlcs: map[CircuitKey]struct{}{
+				CancelHtlcs: map[models.CircuitKey]struct{}{
 					key: {},
 				},
 			}, nil
@@ -542,7 +546,7 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	_, err = db.UpdateInvoice(ref, (*SetID)(setID1),
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
-				CancelHtlcs: map[CircuitKey]struct{}{
+				CancelHtlcs: map[models.CircuitKey]struct{}{
 					{HtlcID: 0}: {},
 				},
 				SetID: (*SetID)(setID1),
@@ -562,28 +566,29 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	invoice.State = ContractOpen
 	invoice.AmtPaid = 2 * amt
 	invoice.SettleDate = dbInvoice.SettleDate
-	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
+	invoice.Htlcs = map[models.CircuitKey]*InvoiceHTLC{
 		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID1, payHash, &preimage),
 		{HtlcID: 1}: makeAMPInvoiceHTLC(amt, *setID2, payHash, &preimage),
 		{HtlcID: 2}: makeAMPInvoiceHTLC(amt, *setID2, payHash, &preimage),
 	}
 	invoice.AMPState[*setID1] = InvoiceStateAMP{
 		State: HtlcStateCanceled,
-		InvoiceKeys: map[CircuitKey]struct{}{
+		InvoiceKeys: map[models.CircuitKey]struct{}{
 			{HtlcID: 0}: {},
 		},
 	}
 	invoice.AMPState[*setID2] = InvoiceStateAMP{
 		State:   HtlcStateAccepted,
 		AmtPaid: amt * 2,
-		InvoiceKeys: map[CircuitKey]struct{}{
+		InvoiceKeys: map[models.CircuitKey]struct{}{
 			{HtlcID: 1}: {},
 			{HtlcID: 2}: {},
 		},
 	}
 
-	invoice.Htlcs[CircuitKey{HtlcID: 0}].State = HtlcStateCanceled
-	invoice.Htlcs[CircuitKey{HtlcID: 0}].ResolveTime = time.Unix(1, 0)
+	htlc0 := models.CircuitKey{HtlcID: 0}
+	invoice.Htlcs[htlc0].State = HtlcStateCanceled
+	invoice.Htlcs[htlc0].ResolveTime = time.Unix(1, 0)
 
 	require.Equal(t, invoice, dbInvoice)
 
@@ -592,7 +597,7 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	_, err = db.UpdateInvoice(ref, (*SetID)(setID2),
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
-				CancelHtlcs: map[CircuitKey]struct{}{
+				CancelHtlcs: map[models.CircuitKey]struct{}{
 					{HtlcID: 1}: {},
 				},
 				SetID: (*SetID)(setID2),
@@ -604,8 +609,9 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	require.Nil(t, err)
 	dbInvoice = &freshInvoice
 
-	invoice.Htlcs[CircuitKey{HtlcID: 1}].State = HtlcStateCanceled
-	invoice.Htlcs[CircuitKey{HtlcID: 1}].ResolveTime = time.Unix(1, 0)
+	htlc1 := models.CircuitKey{HtlcID: 1}
+	invoice.Htlcs[htlc1].State = HtlcStateCanceled
+	invoice.Htlcs[htlc1].ResolveTime = time.Unix(1, 0)
 	invoice.AmtPaid = amt
 
 	ampState := invoice.AMPState[*setID2]
@@ -620,7 +626,7 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	_, err = db.UpdateInvoice(ref, (*SetID)(setID2),
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 			return &InvoiceUpdateDesc{
-				CancelHtlcs: map[CircuitKey]struct{}{
+				CancelHtlcs: map[models.CircuitKey]struct{}{
 					{HtlcID: 2}: {},
 				},
 				SetID: (*SetID)(setID2),
@@ -636,8 +642,9 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	ampState.AmtPaid = 0
 	invoice.AMPState[*setID2] = ampState
 
-	invoice.Htlcs[CircuitKey{HtlcID: 2}].State = HtlcStateCanceled
-	invoice.Htlcs[CircuitKey{HtlcID: 2}].ResolveTime = time.Unix(1, 0)
+	htlc2 := models.CircuitKey{HtlcID: 2}
+	invoice.Htlcs[htlc2].State = HtlcStateCanceled
+	invoice.Htlcs[htlc2].ResolveTime = time.Unix(1, 0)
 	invoice.AmtPaid = 0
 
 	require.Equal(t, invoice, dbInvoice)
@@ -865,7 +872,7 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 		require.Equal(t, 1, len(invoiceFiltered.Htlcs))
 
 		// The set ID for the HTLC should match the queried set ID.
-		key := CircuitKey{HtlcID: uint64(i + 1)}
+		key := models.CircuitKey{HtlcID: uint64(i + 1)}
 		htlc := invoiceFiltered.Htlcs[key]
 		require.Equal(t, *setID, htlc.AMP.Record.SetID())
 
@@ -878,21 +885,21 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 	_, err = db.UpdateInvoice(
 		ref, (*SetID)(setID1),
 		getUpdateInvoiceAMPSettle(
-			setID1, preimage, CircuitKey{HtlcID: 1},
+			setID1, preimage, models.CircuitKey{HtlcID: 1},
 		),
 	)
 	require.Nil(t, err)
 	_, err = db.UpdateInvoice(
 		ref, (*SetID)(setID2),
 		getUpdateInvoiceAMPSettle(
-			setID2, preimage, CircuitKey{HtlcID: 2},
+			setID2, preimage, models.CircuitKey{HtlcID: 2},
 		),
 	)
 	require.Nil(t, err)
 	_, err = db.UpdateInvoice(
 		ref, (*SetID)(setID3),
 		getUpdateInvoiceAMPSettle(
-			setID3, preimage, CircuitKey{HtlcID: 3},
+			setID3, preimage, models.CircuitKey{HtlcID: 3},
 		),
 	)
 	require.Nil(t, err)
@@ -931,7 +938,7 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 		require.Equal(t, subInvoiceState.State, HtlcStateSettled)
 		require.Equal(t, int(subInvoiceState.SettleIndex), i+1)
 
-		invoiceKey := CircuitKey{HtlcID: uint64(i + 1)}
+		invoiceKey := models.CircuitKey{HtlcID: uint64(i + 1)}
 		_, keyFound := subInvoiceState.InvoiceKeys[invoiceKey]
 		require.True(t, keyFound)
 	}
@@ -1043,7 +1050,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	invoice.State = ContractSettled
 	invoice.AmtPaid = amt
 	invoice.SettleDate = dbInvoice.SettleDate
-	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
+	invoice.Htlcs = map[models.CircuitKey]*InvoiceHTLC{
 		{}: {
 			Amt:           amt,
 			AcceptTime:    time.Unix(1, 0),
@@ -1484,7 +1491,7 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) InvoiceUpdateCallback {
 				Preimage: invoice.Terms.PaymentPreimage,
 				NewState: ContractSettled,
 			},
-			AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
+			AddHtlcs: map[models.CircuitKey]*HtlcAcceptDesc{
 				{}: {
 					Amt:           amt,
 					CustomRecords: noRecords,
@@ -1508,7 +1515,7 @@ func TestCustomRecords(t *testing.T) {
 	paymentHash := preimage.Hash()
 
 	testInvoice := &Invoice{
-		Htlcs: map[CircuitKey]*InvoiceHTLC{},
+		Htlcs: map[models.CircuitKey]*InvoiceHTLC{},
 		Terms: ContractTerm{
 			Value:           lnwire.NewMSatFromSatoshis(10000),
 			Features:        emptyFeatures,
@@ -1521,7 +1528,10 @@ func TestCustomRecords(t *testing.T) {
 	}
 
 	// Accept an htlc with custom records on this invoice.
-	key := CircuitKey{ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 4}
+	key := models.CircuitKey{
+		ChanID: lnwire.NewShortChanIDFromInt(1),
+		HtlcID: 4,
+	}
 
 	records := record.CustomSet{
 		100000: []byte{},
@@ -1531,14 +1541,14 @@ func TestCustomRecords(t *testing.T) {
 	ref := InvoiceRefByHash(paymentHash)
 	_, err = db.UpdateInvoice(ref, nil,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
-			return &InvoiceUpdateDesc{
-				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
-					key: {
-						Amt:           500,
-						CustomRecords: records,
-					},
+			htlcs := map[models.CircuitKey]*HtlcAcceptDesc{
+				key: {
+					Amt:           500,
+					CustomRecords: records,
 				},
-			}, nil
+			}
+
+			return &InvoiceUpdateDesc{AddHtlcs: htlcs}, nil
 		},
 	)
 	require.NoError(t, err, "unable to add invoice htlc")
@@ -1585,7 +1595,10 @@ func testInvoiceHtlcAMPFields(t *testing.T, isAMP bool) {
 	require.Nil(t, err)
 
 	// Accept an htlc with custom records on this invoice.
-	key := CircuitKey{ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 4}
+	key := models.CircuitKey{
+		ChanID: lnwire.NewShortChanIDFromInt(1),
+		HtlcID: 4,
+	}
 	records := make(map[uint64][]byte)
 
 	var ampData *InvoiceHtlcAMPData
@@ -1603,15 +1616,14 @@ func testInvoiceHtlcAMPFields(t *testing.T, isAMP bool) {
 	ref := InvoiceRefByHash(payHash)
 	_, err = db.UpdateInvoice(ref, nil,
 		func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
-			return &InvoiceUpdateDesc{
-				AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
-					key: {
-						Amt:           500,
-						AMP:           ampData,
-						CustomRecords: records,
-					},
+			htlcs := map[models.CircuitKey]*HtlcAcceptDesc{
+				key: {
+					Amt:           500,
+					AMP:           ampData,
+					CustomRecords: records,
 				},
-			}, nil
+			}
+			return &InvoiceUpdateDesc{AddHtlcs: htlcs}, nil
 		},
 	)
 	require.Nil(t, err)
@@ -1667,7 +1679,7 @@ func TestInvoiceRef(t *testing.T) {
 // sets.
 func TestHTLCSet(t *testing.T) {
 	inv := &Invoice{
-		Htlcs: make(map[CircuitKey]*InvoiceHTLC),
+		Htlcs: make(map[models.CircuitKey]*InvoiceHTLC),
 	}
 
 	// Construct two distinct set id's, in this test we'll also track the
@@ -1677,9 +1689,9 @@ func TestHTLCSet(t *testing.T) {
 
 	// Create the expected htlc sets for each group, these will be updated
 	// as the invoice is modified.
-	expSetNil := make(map[CircuitKey]*InvoiceHTLC)
-	expSet1 := make(map[CircuitKey]*InvoiceHTLC)
-	expSet2 := make(map[CircuitKey]*InvoiceHTLC)
+	expSetNil := make(map[models.CircuitKey]*InvoiceHTLC)
+	expSet1 := make(map[models.CircuitKey]*InvoiceHTLC)
+	expSet2 := make(map[models.CircuitKey]*InvoiceHTLC)
 
 	checkHTLCSets := func() {
 		require.Equal(t, expSetNil, inv.HTLCSet(nil, HtlcStateAccepted))
@@ -1722,7 +1734,7 @@ func TestHTLCSet(t *testing.T) {
 		}
 
 		// Add the HTLC to the invoice's set of HTLCs.
-		key := CircuitKey{HtlcID: uint64(i)}
+		key := models.CircuitKey{HtlcID: uint64(i)}
 		htlc := &InvoiceHTLC{
 			AMP:   ampData,
 			State: h.state,
@@ -1757,7 +1769,7 @@ func TestAddInvoiceWithHTLCs(t *testing.T) {
 	testInvoice, err := randInvoice(1000)
 	require.Nil(t, err)
 
-	key := CircuitKey{HtlcID: 1}
+	key := models.CircuitKey{HtlcID: 1}
 	testInvoice.Htlcs[key] = &InvoiceHTLC{}
 
 	payHash := testInvoice.Terms.PaymentPreimage.Hash()
@@ -1802,14 +1814,14 @@ func TestSetIDIndex(t *testing.T) {
 	invoice.State = ContractOpen
 	invoice.AmtPaid = amt
 	invoice.SettleDate = dbInvoice.SettleDate
-	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
+	invoice.Htlcs = map[models.CircuitKey]*InvoiceHTLC{
 		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID, payHash, &preimage),
 	}
 	invoice.AMPState = map[SetID]InvoiceStateAMP{}
 	invoice.AMPState[*setID] = InvoiceStateAMP{
 		State:   HtlcStateAccepted,
 		AmtPaid: amt,
-		InvoiceKeys: map[CircuitKey]struct{}{
+		InvoiceKeys: map[models.CircuitKey]struct{}{
 			{HtlcID: 0}: {},
 		},
 	}
@@ -1860,7 +1872,7 @@ func TestSetIDIndex(t *testing.T) {
 	invoice.State = ContractOpen
 	invoice.AmtPaid += 2 * amt
 	invoice.SettleDate = dbInvoice.SettleDate
-	invoice.Htlcs = map[CircuitKey]*InvoiceHTLC{
+	invoice.Htlcs = map[models.CircuitKey]*InvoiceHTLC{
 		{HtlcID: 0}: makeAMPInvoiceHTLC(amt, *setID, payHash, &preimage),
 		{HtlcID: 1}: makeAMPInvoiceHTLC(amt, *setID2, payHash, nil),
 		{HtlcID: 2}: makeAMPInvoiceHTLC(amt, *setID2, payHash, nil),
@@ -1868,14 +1880,14 @@ func TestSetIDIndex(t *testing.T) {
 	invoice.AMPState[*setID] = InvoiceStateAMP{
 		State:   HtlcStateAccepted,
 		AmtPaid: amt,
-		InvoiceKeys: map[CircuitKey]struct{}{
+		InvoiceKeys: map[models.CircuitKey]struct{}{
 			{HtlcID: 0}: {},
 		},
 	}
 	invoice.AMPState[*setID2] = InvoiceStateAMP{
 		State:   HtlcStateAccepted,
 		AmtPaid: amt * 2,
-		InvoiceKeys: map[CircuitKey]struct{}{
+		InvoiceKeys: map[models.CircuitKey]struct{}{
 			{HtlcID: 1}: {},
 			{HtlcID: 2}: {},
 		},
@@ -1901,7 +1913,10 @@ func TestSetIDIndex(t *testing.T) {
 	// zero setID so it isn't used for anything internally.
 	_, err = db.UpdateInvoice(
 		ref, nil,
-		getUpdateInvoiceAMPSettle(&[32]byte{}, [32]byte{}, CircuitKey{HtlcID: 99}),
+		getUpdateInvoiceAMPSettle(
+			&[32]byte{}, [32]byte{},
+			models.CircuitKey{HtlcID: 99},
+		),
 	)
 	require.Equal(t, ErrEmptyHTLCSet, err)
 
@@ -1910,7 +1925,9 @@ func TestSetIDIndex(t *testing.T) {
 	// invoice to be settled multiple times.
 	_, err = db.UpdateInvoice(
 		ref, (*SetID)(setID),
-		getUpdateInvoiceAMPSettle(setID, preimage, CircuitKey{HtlcID: 0}),
+		getUpdateInvoiceAMPSettle(
+			setID, preimage, models.CircuitKey{HtlcID: 0},
+		),
 	)
 	require.Nil(t, err)
 
@@ -1931,8 +1948,9 @@ func TestSetIDIndex(t *testing.T) {
 
 	invoice.AMPState[*setID] = ampState
 
-	invoice.Htlcs[CircuitKey{HtlcID: 0}].State = HtlcStateSettled
-	invoice.Htlcs[CircuitKey{HtlcID: 0}].ResolveTime = time.Unix(1, 0)
+	htlc0 := models.CircuitKey{HtlcID: 0}
+	invoice.Htlcs[htlc0].State = HtlcStateSettled
+	invoice.Htlcs[htlc0].ResolveTime = time.Unix(1, 0)
 
 	require.Equal(t, invoice, dbInvoice)
 
@@ -1940,7 +1958,9 @@ func TestSetIDIndex(t *testing.T) {
 	// error, as it's already been settled.
 	_, err = db.UpdateInvoice(
 		ref, (*SetID)(setID),
-		getUpdateInvoiceAMPSettle(setID, preimage, CircuitKey{HtlcID: 0}),
+		getUpdateInvoiceAMPSettle(
+			setID, preimage, models.CircuitKey{HtlcID: 0},
+		),
 	)
 	require.Equal(t, ErrEmptyHTLCSet, err)
 
@@ -1951,7 +1971,8 @@ func TestSetIDIndex(t *testing.T) {
 	_, err = db.UpdateInvoice(
 		ref, (*SetID)(setID2),
 		getUpdateInvoiceAMPSettle(
-			setID2, preimage, CircuitKey{HtlcID: 1}, CircuitKey{HtlcID: 2},
+			setID2, preimage, models.CircuitKey{HtlcID: 1},
+			models.CircuitKey{HtlcID: 2},
 		),
 	)
 	require.Nil(t, err)
@@ -1968,13 +1989,15 @@ func TestSetIDIndex(t *testing.T) {
 
 	invoice.AMPState[*setID2] = ampState
 
-	invoice.Htlcs[CircuitKey{HtlcID: 1}].State = HtlcStateSettled
-	invoice.Htlcs[CircuitKey{HtlcID: 1}].ResolveTime = time.Unix(1, 0)
-	invoice.Htlcs[CircuitKey{HtlcID: 1}].AMP.Preimage = &preimage
+	htlc1 := models.CircuitKey{HtlcID: 1}
+	htlc2 := models.CircuitKey{HtlcID: 2}
+	invoice.Htlcs[htlc1].State = HtlcStateSettled
+	invoice.Htlcs[htlc1].ResolveTime = time.Unix(1, 0)
+	invoice.Htlcs[htlc1].AMP.Preimage = &preimage
 
-	invoice.Htlcs[CircuitKey{HtlcID: 2}].State = HtlcStateSettled
-	invoice.Htlcs[CircuitKey{HtlcID: 2}].ResolveTime = time.Unix(1, 0)
-	invoice.Htlcs[CircuitKey{HtlcID: 2}].AMP.Preimage = &preimage
+	invoice.Htlcs[htlc2].State = HtlcStateSettled
+	invoice.Htlcs[htlc2].ResolveTime = time.Unix(1, 0)
+	invoice.Htlcs[htlc2].AMP.Preimage = &preimage
 
 	require.Equal(t, invoice, dbInvoice)
 
@@ -2033,7 +2056,7 @@ func updateAcceptAMPHtlc(id uint64, amt lnwire.MilliSatoshi,
 		}
 		update := &InvoiceUpdateDesc{
 			State: state,
-			AddHtlcs: map[CircuitKey]*HtlcAcceptDesc{
+			AddHtlcs: map[models.CircuitKey]*HtlcAcceptDesc{
 				{HtlcID: id}: {
 					Amt:           amt,
 					CustomRecords: noRecords,
@@ -2046,15 +2069,15 @@ func updateAcceptAMPHtlc(id uint64, amt lnwire.MilliSatoshi,
 	}
 }
 
-func getUpdateInvoiceAMPSettle(setID *[32]byte,
-	preimage [32]byte, circuitKeys ...CircuitKey) InvoiceUpdateCallback {
+func getUpdateInvoiceAMPSettle(setID *[32]byte, preimage [32]byte,
+	circuitKeys ...models.CircuitKey) InvoiceUpdateCallback {
 
 	return func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 		if invoice.State == ContractSettled {
 			return nil, ErrInvoiceAlreadySettled
 		}
 
-		preImageSet := make(map[CircuitKey]lntypes.Preimage)
+		preImageSet := make(map[models.CircuitKey]lntypes.Preimage)
 		for _, key := range circuitKeys {
 			preImageSet[key] = preimage
 		}
@@ -2164,7 +2187,7 @@ func testUpdateHTLCPreimages(t *testing.T, test updateHTLCPreimageTestCase) {
 	)
 	require.Nil(t, err)
 
-	htlcPreimages := make(map[CircuitKey]lntypes.Preimage)
+	htlcPreimages := make(map[models.CircuitKey]lntypes.Preimage)
 	for key := range dbInvoice.Htlcs {
 		// Set the either the same preimage used to accept above, or a
 		// blank preimage depending on the test case.
@@ -2980,13 +3003,13 @@ func TestEncodeDecodeAmpInvoiceState(t *testing.T) {
 	setID2 := [32]byte{2}
 	setID3 := [32]byte{3}
 
-	circuitKey1 := CircuitKey{
+	circuitKey1 := models.CircuitKey{
 		ChanID: lnwire.NewShortChanIDFromInt(1), HtlcID: 1,
 	}
-	circuitKey2 := CircuitKey{
+	circuitKey2 := models.CircuitKey{
 		ChanID: lnwire.NewShortChanIDFromInt(2), HtlcID: 2,
 	}
-	circuitKey3 := CircuitKey{
+	circuitKey3 := models.CircuitKey{
 		ChanID: lnwire.NewShortChanIDFromInt(2), HtlcID: 3,
 	}
 
@@ -2997,7 +3020,7 @@ func TestEncodeDecodeAmpInvoiceState(t *testing.T) {
 			State:       HtlcStateSettled,
 			SettleDate:  testNow,
 			SettleIndex: 1,
-			InvoiceKeys: map[CircuitKey]struct{}{
+			InvoiceKeys: map[models.CircuitKey]struct{}{
 				circuitKey1: {},
 				circuitKey2: {},
 			},
@@ -3007,7 +3030,7 @@ func TestEncodeDecodeAmpInvoiceState(t *testing.T) {
 			State:       HtlcStateCanceled,
 			SettleDate:  testNow,
 			SettleIndex: 2,
-			InvoiceKeys: map[CircuitKey]struct{}{
+			InvoiceKeys: map[models.CircuitKey]struct{}{
 				circuitKey1: {},
 			},
 			AmtPaid: 6,
@@ -3016,7 +3039,7 @@ func TestEncodeDecodeAmpInvoiceState(t *testing.T) {
 			State:       HtlcStateAccepted,
 			SettleDate:  testNow,
 			SettleIndex: 3,
-			InvoiceKeys: map[CircuitKey]struct{}{
+			InvoiceKeys: map[models.CircuitKey]struct{}{
 				circuitKey1: {},
 				circuitKey2: {},
 				circuitKey3: {},

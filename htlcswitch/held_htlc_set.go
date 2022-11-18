@@ -4,19 +4,19 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 )
 
 // heldHtlcSet keeps track of outstanding intercepted forwards. It exposes
 // several methods to manipulate the underlying map structure in a consistent
 // way.
 type heldHtlcSet struct {
-	set map[channeldb.CircuitKey]InterceptedForward
+	set map[models.CircuitKey]InterceptedForward
 }
 
 func newHeldHtlcSet() *heldHtlcSet {
 	return &heldHtlcSet{
-		set: make(map[channeldb.CircuitKey]InterceptedForward),
+		set: make(map[models.CircuitKey]InterceptedForward),
 	}
 }
 
@@ -34,7 +34,7 @@ func (h *heldHtlcSet) popAll(cb func(InterceptedForward)) {
 		cb(fwd)
 	}
 
-	h.set = make(map[channeldb.CircuitKey]InterceptedForward)
+	h.set = make(map[models.CircuitKey]InterceptedForward)
 }
 
 // popAutoFails calls the callback for each forward that has an auto-fail height
@@ -52,7 +52,7 @@ func (h *heldHtlcSet) popAutoFails(height uint32, cb func(InterceptedForward)) {
 }
 
 // pop returns the specified forward and removes it from the set.
-func (h *heldHtlcSet) pop(key channeldb.CircuitKey) (InterceptedForward, error) {
+func (h *heldHtlcSet) pop(key models.CircuitKey) (InterceptedForward, error) {
 	intercepted, ok := h.set[key]
 	if !ok {
 		return nil, fmt.Errorf("fwd %v not found", key)
@@ -64,7 +64,7 @@ func (h *heldHtlcSet) pop(key channeldb.CircuitKey) (InterceptedForward, error) 
 }
 
 // exists tests whether the specified forward is part of the set.
-func (h *heldHtlcSet) exists(key channeldb.CircuitKey) bool {
+func (h *heldHtlcSet) exists(key models.CircuitKey) bool {
 	_, ok := h.set[key]
 
 	return ok
@@ -72,7 +72,7 @@ func (h *heldHtlcSet) exists(key channeldb.CircuitKey) bool {
 
 // push adds the specified forward to the set. An error is returned if the
 // forward exists already.
-func (h *heldHtlcSet) push(key channeldb.CircuitKey,
+func (h *heldHtlcSet) push(key models.CircuitKey,
 	fwd InterceptedForward) error {
 
 	if fwd == nil {

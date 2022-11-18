@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -95,7 +96,7 @@ func (p *preimageBeacon) SubscribeUpdates(
 		Hash:           htlc.RHash,
 		IncomingExpiry: htlc.RefundTimeout,
 		IncomingAmount: htlc.Amt,
-		IncomingCircuit: channeldb.CircuitKey{
+		IncomingCircuit: models.CircuitKey{
 			ChanID: chanID,
 			HtlcID: htlc.HtlcIndex,
 		},

@@ -3,6 +3,7 @@ package htlcswitch
 import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -28,7 +29,7 @@ type InvoiceDatabase interface {
 	// for decoding purposes.
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
-		circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
+		circuitKey models.CircuitKey, hodlChan chan<- interface{},
 		payload invoices.Payload) (invoices.HtlcResolution, error)
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
@@ -284,7 +285,7 @@ type ForwardInterceptor func(InterceptedPacket) error
 type InterceptedPacket struct {
 	// IncomingCircuit contains the incoming channel and htlc id of the
 	// packet.
-	IncomingCircuit channeldb.CircuitKey
+	IncomingCircuit models.CircuitKey
 
 	// OutgoingChanID is the destination channel for this packet.
 	OutgoingChanID lnwire.ShortChannelID
@@ -373,6 +374,6 @@ type htlcNotifier interface {
 
 	// NotifyFinalHtlcEvent notifies the HtlcNotifier that the final outcome
 	// for an htlc has been determined.
-	NotifyFinalHtlcEvent(key channeldb.CircuitKey,
+	NotifyFinalHtlcEvent(key models.CircuitKey,
 		info channeldb.FinalHtlcInfo)
 }

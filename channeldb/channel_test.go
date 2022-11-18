@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -716,8 +717,8 @@ func TestChannelStateTransition(t *testing.T) {
 				},
 			},
 		},
-		OpenedCircuitKeys: []CircuitKey{},
-		ClosedCircuitKeys: []CircuitKey{},
+		OpenedCircuitKeys: []models.CircuitKey{},
+		ClosedCircuitKeys: []models.CircuitKey{},
 	}
 	copy(commitDiff.LogUpdates[0].UpdateMsg.(*lnwire.UpdateAddHTLC).PaymentHash[:],
 		bytes.Repeat([]byte{1}, 32))

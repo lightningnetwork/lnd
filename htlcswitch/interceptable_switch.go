@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -110,7 +110,7 @@ const (
 // FwdResolution defines the action to be taken on an intercepted packet.
 type FwdResolution struct {
 	// Key is the incoming circuit key of the htlc.
-	Key channeldb.CircuitKey
+	Key models.CircuitKey
 
 	// Action is the action to take on the intercepted htlc.
 	Action FwdAction
@@ -592,7 +592,7 @@ type interceptedForward struct {
 // Packet returns the intercepted htlc packet.
 func (f *interceptedForward) Packet() InterceptedPacket {
 	return InterceptedPacket{
-		IncomingCircuit: channeldb.CircuitKey{
+		IncomingCircuit: models.CircuitKey{
 			ChanID: f.packet.incomingChanID,
 			HtlcID: f.packet.incomingHTLCID,
 		},

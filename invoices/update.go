@@ -6,6 +6,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/amp"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -15,7 +16,7 @@ import (
 // update to be carried out.
 type invoiceUpdateCtx struct {
 	hash                 lntypes.Hash
-	circuitKey           channeldb.CircuitKey
+	circuitKey           models.CircuitKey
 	amtPaid              lnwire.MilliSatoshi
 	expiry               uint32
 	currentHeight        int32
@@ -233,7 +234,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	}
 
 	// Record HTLC in the invoice database.
-	newHtlcs := map[channeldb.CircuitKey]*channeldb.HtlcAcceptDesc{
+	newHtlcs := map[models.CircuitKey]*channeldb.HtlcAcceptDesc{
 		ctx.circuitKey: acceptDesc,
 	}
 
@@ -258,7 +259,7 @@ func updateMpp(ctx *invoiceUpdateCtx,
 	}
 
 	var (
-		htlcPreimages map[channeldb.CircuitKey]lntypes.Preimage
+		htlcPreimages map[models.CircuitKey]lntypes.Preimage
 		htlcPreimage  lntypes.Preimage
 	)
 	if ctx.amp != nil {
@@ -290,10 +291,10 @@ func updateMpp(ctx *invoiceUpdateCtx,
 }
 
 // HTLCSet is a map of CircuitKey to InvoiceHTLC.
-type HTLCSet = map[channeldb.CircuitKey]*channeldb.InvoiceHTLC
+type HTLCSet = map[models.CircuitKey]*channeldb.InvoiceHTLC
 
 // HTLCPreimages is a map of CircuitKey to preimage.
-type HTLCPreimages = map[channeldb.CircuitKey]lntypes.Preimage
+type HTLCPreimages = map[models.CircuitKey]lntypes.Preimage
 
 // reconstructAMPPreimages reconstructs the root seed for an AMP HTLC set and
 // verifies that all derived child hashes match the payment hashes of the HTLCs
@@ -316,7 +317,7 @@ func reconstructAMPPreimages(ctx *invoiceUpdateCtx,
 
 	// Next, construct an index mapping the position in childDescs to a
 	// circuit key for all preexisting HTLCs.
-	indexToCircuitKey := make(map[int]channeldb.CircuitKey)
+	indexToCircuitKey := make(map[int]models.CircuitKey)
 
 	// Add the child descriptor for each HTLC in the HTLC set, recording
 	// it's position within the slice.
@@ -350,7 +351,7 @@ func reconstructAMPPreimages(ctx *invoiceUpdateCtx,
 	// Finally, construct the map of learned preimages indexed by circuit
 	// key, so that they can be persisted along with each HTLC when updating
 	// the invoice.
-	htlcPreimages := make(map[channeldb.CircuitKey]lntypes.Preimage)
+	htlcPreimages := make(map[models.CircuitKey]lntypes.Preimage)
 	htlcPreimages[ctx.circuitKey] = children[0].Preimage
 	for idx, child := range children[1:] {
 		circuitKey := indexToCircuitKey[idx]
@@ -417,7 +418,7 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	}
 
 	// Record HTLC in the invoice database.
-	newHtlcs := map[channeldb.CircuitKey]*channeldb.HtlcAcceptDesc{
+	newHtlcs := map[models.CircuitKey]*channeldb.HtlcAcceptDesc{
 		ctx.circuitKey: {
 			Amt:           ctx.amtPaid,
 			Expiry:        ctx.expiry,

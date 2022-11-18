@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -81,7 +82,7 @@ type htlcReleaseEvent struct {
 	invoiceRef channeldb.InvoiceRef
 
 	// key is the circuit key of the htlc to release.
-	key channeldb.CircuitKey
+	key models.CircuitKey
 
 	// releaseTime is the time at which to release the htlc.
 	releaseTime time.Time
@@ -131,11 +132,11 @@ type InvoiceRegistry struct {
 	hodlSubscriptionsMux sync.RWMutex
 	// subscriptions is a map from a circuit key to a list of subscribers.
 	// It is used for efficient notification of links.
-	hodlSubscriptions map[channeldb.CircuitKey]map[chan<- interface{}]struct{}
+	hodlSubscriptions map[models.CircuitKey]map[chan<- interface{}]struct{}
 
 	// reverseSubscriptions tracks circuit keys subscribed to per
 	// subscriber. This is used to unsubscribe from all hashes efficiently.
-	hodlReverseSubscriptions map[chan<- interface{}]map[channeldb.CircuitKey]struct{}
+	hodlReverseSubscriptions map[chan<- interface{}]map[models.CircuitKey]struct{}
 
 	// htlcAutoReleaseChan contains the new htlcs that need to be
 	// auto-released.
@@ -159,12 +160,16 @@ func NewRegistry(cdb *channeldb.DB, expiryWatcher *InvoiceExpiryWatcher,
 		notificationClients:       make(map[uint32]*InvoiceSubscription),
 		singleNotificationClients: make(map[uint32]*SingleInvoiceSubscription),
 		invoiceEvents:             make(chan *invoiceEvent, 100),
-		hodlSubscriptions:         make(map[channeldb.CircuitKey]map[chan<- interface{}]struct{}),
-		hodlReverseSubscriptions:  make(map[chan<- interface{}]map[channeldb.CircuitKey]struct{}),
-		cfg:                       cfg,
-		htlcAutoReleaseChan:       make(chan *htlcReleaseEvent),
-		expiryWatcher:             expiryWatcher,
-		quit:                      make(chan struct{}),
+		hodlSubscriptions: make(
+			map[models.CircuitKey]map[chan<- interface{}]struct{},
+		),
+		hodlReverseSubscriptions: make(
+			map[chan<- interface{}]map[models.CircuitKey]struct{},
+		),
+		cfg:                 cfg,
+		htlcAutoReleaseChan: make(chan *htlcReleaseEvent),
+		expiryWatcher:       expiryWatcher,
+		quit:                make(chan struct{}),
 	}
 }
 
@@ -622,7 +627,7 @@ func (i *InvoiceRegistry) LookupInvoiceByRef(
 // startHtlcTimer starts a new timer via the invoice registry main loop that
 // cancels a single htlc on an invoice when the htlc hold duration has passed.
 func (i *InvoiceRegistry) startHtlcTimer(invoiceRef channeldb.InvoiceRef,
-	key channeldb.CircuitKey, acceptTime time.Time) error {
+	key models.CircuitKey, acceptTime time.Time) error {
 
 	releaseTime := acceptTime.Add(i.cfg.HtlcHoldDuration)
 	event := &htlcReleaseEvent{
@@ -644,7 +649,7 @@ func (i *InvoiceRegistry) startHtlcTimer(invoiceRef channeldb.InvoiceRef,
 // a resolution result which will be used to notify subscribed links and
 // resolvers of the details of the htlc cancellation.
 func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
-	key channeldb.CircuitKey, result FailResolutionResult) error {
+	key models.CircuitKey, result FailResolutionResult) error {
 
 	updateInvoice := func(invoice *channeldb.Invoice) (
 		*channeldb.InvoiceUpdateDesc, error) {
@@ -702,7 +707,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef channeldb.InvoiceRef,
 
 		// Return an update descriptor that cancels htlc and keeps
 		// invoice open.
-		canceledHtlcs := map[channeldb.CircuitKey]struct{}{
+		canceledHtlcs := map[models.CircuitKey]struct{}{
 			key: {},
 		}
 
@@ -910,7 +915,7 @@ func (i *InvoiceRegistry) processAMP(ctx invoiceUpdateCtx) error {
 // held htlc.
 func (i *InvoiceRegistry) NotifyExitHopHtlc(rHash lntypes.Hash,
 	amtPaid lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
+	circuitKey models.CircuitKey, hodlChan chan<- interface{},
 	payload Payload) (HtlcResolution, error) {
 
 	// Create the update context containing the relevant details of the
@@ -1715,7 +1720,7 @@ func (i *InvoiceRegistry) notifyHodlSubscribers(htlcResolution HtlcResolution) {
 
 // hodlSubscribe adds a new invoice subscription.
 func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
-	circuitKey channeldb.CircuitKey) {
+	circuitKey models.CircuitKey) {
 
 	i.hodlSubscriptionsMux.Lock()
 	defer i.hodlSubscriptionsMux.Unlock()
@@ -1731,7 +1736,7 @@ func (i *InvoiceRegistry) hodlSubscribe(subscriber chan<- interface{},
 
 	reverseSubscriptions, ok := i.hodlReverseSubscriptions[subscriber]
 	if !ok {
-		reverseSubscriptions = make(map[channeldb.CircuitKey]struct{})
+		reverseSubscriptions = make(map[models.CircuitKey]struct{})
 		i.hodlReverseSubscriptions[subscriber] = reverseSubscriptions
 	}
 	reverseSubscriptions[circuitKey] = struct{}{}

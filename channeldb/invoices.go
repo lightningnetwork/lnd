@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -485,7 +486,7 @@ type InvoiceStateAMP struct {
 
 	// InvoiceKeys is the set of circuit keys that can be used to locate
 	// the invoices for a given set ID.
-	InvoiceKeys map[CircuitKey]struct{}
+	InvoiceKeys map[models.CircuitKey]struct{}
 
 	// AmtPaid is the total amount that was paid in the AMP sub-invoice.
 	// Fetching the full HTLC/invoice state allows one to extract the
@@ -499,7 +500,7 @@ func (i *InvoiceStateAMP) copy() (InvoiceStateAMP, error) {
 	result := *i
 
 	// Make a copy of the InvoiceKeys map.
-	result.InvoiceKeys = make(map[CircuitKey]struct{})
+	result.InvoiceKeys = make(map[models.CircuitKey]struct{})
 	for k := range i.InvoiceKeys {
 		result.InvoiceKeys[k] = struct{}{}
 	}
@@ -608,7 +609,7 @@ type Invoice struct {
 
 	// Htlcs records all htlcs that paid to this invoice. Some of these
 	// htlcs may have been marked as canceled.
-	Htlcs map[CircuitKey]*InvoiceHTLC
+	Htlcs map[models.CircuitKey]*InvoiceHTLC
 
 	// AMPState describes the state of any related sub-invoices AMP to this
 	// greater invoice. A sub-invoice is defined by a set of HTLCs with the
@@ -627,8 +628,10 @@ type Invoice struct {
 // case of legacy or MPP, and no HTLCs in the case of AMP.  Otherwise, the
 // returned set will be filtered by the populated setID which is used to
 // retrieve AMP HTLC sets.
-func (i *Invoice) HTLCSet(setID *[32]byte, state HtlcState) map[CircuitKey]*InvoiceHTLC {
-	htlcSet := make(map[CircuitKey]*InvoiceHTLC)
+func (i *Invoice) HTLCSet(setID *[32]byte,
+	state HtlcState) map[models.CircuitKey]*InvoiceHTLC {
+
+	htlcSet := make(map[models.CircuitKey]*InvoiceHTLC)
 	for key, htlc := range i.Htlcs {
 		// Only add HTLCs that are in the requested HtlcState.
 		if htlc.State != state {
@@ -649,9 +652,9 @@ func (i *Invoice) HTLCSet(setID *[32]byte, state HtlcState) map[CircuitKey]*Invo
 // are in the target state. Passing a nil setID will return no invoices, since
 // all MPP HTLCs are part of the same HTLC set.
 func (i *Invoice) HTLCSetCompliment(setID *[32]byte,
-	state HtlcState) map[CircuitKey]*InvoiceHTLC {
+	state HtlcState) map[models.CircuitKey]*InvoiceHTLC {
 
-	htlcSet := make(map[CircuitKey]*InvoiceHTLC)
+	htlcSet := make(map[models.CircuitKey]*InvoiceHTLC)
 	for key, htlc := range i.Htlcs {
 		// Only add HTLCs that are in the requested HtlcState.
 		if htlc.State != state {
@@ -845,11 +848,11 @@ type InvoiceUpdateDesc struct {
 	State *InvoiceStateUpdateDesc
 
 	// CancelHtlcs describes the htlcs that need to be canceled.
-	CancelHtlcs map[CircuitKey]struct{}
+	CancelHtlcs map[models.CircuitKey]struct{}
 
 	// AddHtlcs describes the newly accepted htlcs that need to be added to
 	// the invoice.
-	AddHtlcs map[CircuitKey]*HtlcAcceptDesc
+	AddHtlcs map[models.CircuitKey]*HtlcAcceptDesc
 
 	// SetID is an optional set ID for AMP invoices that allows operations
 	// to be more efficient by ensuring we don't need to read out the
@@ -868,7 +871,7 @@ type InvoiceStateUpdateDesc struct {
 	// HTLCPreimages set the HTLC-level preimages stored for AMP HTLCs.
 	// These are only learned when settling the invoice as a whole. Must be
 	// set when settling an invoice with non-nil SetID.
-	HTLCPreimages map[CircuitKey]lntypes.Preimage
+	HTLCPreimages map[models.CircuitKey]lntypes.Preimage
 
 	// SetID identifies a specific set of HTLCs destined for the same
 	// invoice as part of a larger AMP payment. This value will be nil for
@@ -1729,7 +1732,9 @@ func serializeInvoice(w io.Writer, i *Invoice) error {
 
 // serializeHtlcs serializes a map containing circuit keys and invoice htlcs to
 // a writer.
-func serializeHtlcs(w io.Writer, htlcs map[CircuitKey]*InvoiceHTLC) error {
+func serializeHtlcs(w io.Writer,
+	htlcs map[models.CircuitKey]*InvoiceHTLC) error {
+
 	for key, htlc := range htlcs {
 		// Encode the htlc in a tlv stream.
 		chanID := key.ChanID.ToUint64()
@@ -1831,10 +1836,10 @@ func getNanoTime(ns uint64) time.Time {
 
 // fetchFilteredAmpInvoices retrieves only a select set of AMP invoices
 // identified by the setID value.
-func fetchFilteredAmpInvoices(invoiceBucket kvdb.RBucket,
-	invoiceNum []byte, setIDs ...*SetID) (map[CircuitKey]*InvoiceHTLC, error) {
+func fetchFilteredAmpInvoices(invoiceBucket kvdb.RBucket, invoiceNum []byte,
+	setIDs ...*SetID) (map[models.CircuitKey]*InvoiceHTLC, error) {
 
-	htlcs := make(map[CircuitKey]*InvoiceHTLC)
+	htlcs := make(map[models.CircuitKey]*InvoiceHTLC)
 	for _, setID := range setIDs {
 		invoiceSetIDKey := makeInvoiceSetIDKey(invoiceNum, setID[:])
 
@@ -1899,8 +1904,8 @@ func forEachAMPInvoice(invoiceBucket kvdb.RBucket, invoiceNum []byte,
 // AMP bucket to find all the individual HTLCs (by setID) associated with a
 // given invoice. If a list of set IDs are specified, then only HTLCs
 // associated with that setID will be retrieved.
-func fetchAmpSubInvoices(invoiceBucket kvdb.RBucket,
-	invoiceNum []byte, setIDs ...*SetID) (map[CircuitKey]*InvoiceHTLC, error) {
+func fetchAmpSubInvoices(invoiceBucket kvdb.RBucket, invoiceNum []byte,
+	setIDs ...*SetID) (map[models.CircuitKey]*InvoiceHTLC, error) {
 
 	// If a set of setIDs was specified, then we can skip the cursor and
 	// just read out exactly what we need.
@@ -1912,20 +1917,21 @@ func fetchAmpSubInvoices(invoiceBucket kvdb.RBucket,
 
 	// Otherwise, iterate over all the htlc sets that are prefixed beside
 	// this invoice in the main invoice bucket.
-	htlcs := make(map[CircuitKey]*InvoiceHTLC)
-	err := forEachAMPInvoice(invoiceBucket, invoiceNum, func(key, htlcSet []byte) error {
-		htlcSetReader := bytes.NewReader(htlcSet)
-		htlcsBySetID, err := deserializeHtlcs(htlcSetReader)
-		if err != nil {
-			return err
-		}
+	htlcs := make(map[models.CircuitKey]*InvoiceHTLC)
+	err := forEachAMPInvoice(invoiceBucket, invoiceNum,
+		func(key, htlcSet []byte) error {
+			htlcSetReader := bytes.NewReader(htlcSet)
+			htlcsBySetID, err := deserializeHtlcs(htlcSetReader)
+			if err != nil {
+				return err
+			}
 
-		for key, htlc := range htlcsBySetID {
-			htlcs[key] = htlc
-		}
+			for key, htlc := range htlcsBySetID {
+				htlcs[key] = htlc
+			}
 
-		return nil
-	})
+			return nil
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -2130,7 +2136,7 @@ func deserializeInvoice(r io.Reader) (Invoice, error) {
 }
 
 func encodeCircuitKeys(w io.Writer, val interface{}, buf *[8]byte) error {
-	if v, ok := val.(*map[CircuitKey]struct{}); ok {
+	if v, ok := val.(*map[models.CircuitKey]struct{}); ok {
 		// We encode the set of circuit keys as a varint length prefix.
 		// followed by a series of fixed sized uint8 integers.
 		numKeys := uint64(len(*v))
@@ -2156,8 +2162,10 @@ func encodeCircuitKeys(w io.Writer, val interface{}, buf *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "*map[CircuitKey]struct{}")
 }
 
-func decodeCircuitKeys(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
-	if v, ok := val.(*map[CircuitKey]struct{}); ok {
+func decodeCircuitKeys(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	if v, ok := val.(*map[models.CircuitKey]struct{}); ok {
 		// First, we'll read out the varint that encodes the number of
 		// circuit keys encoded.
 		numKeys, err := tlv.ReadVarInt(r, buf)
@@ -2169,7 +2177,7 @@ func decodeCircuitKeys(r io.Reader, val interface{}, buf *[8]byte, l uint64) err
 		// one until we're done.
 		for i := uint64(0); i < numKeys; i++ {
 			var (
-				key  CircuitKey
+				key  models.CircuitKey
 				scid uint64
 			)
 
@@ -2309,8 +2317,10 @@ func ampStateDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error
 				htlcState       uint8
 				settleIndex     uint64
 				settleDateBytes []byte
-				invoiceKeys     = make(map[CircuitKey]struct{})
-				amtPaid         uint64
+				invoiceKeys     = make(
+					map[models.CircuitKey]struct{},
+				)
+				amtPaid uint64
 			)
 			tlvStream, err := tlv.NewStream(
 				tlv.MakePrimitiveRecord(
@@ -2367,8 +2377,8 @@ func ampStateDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error
 
 // deserializeHtlcs reads a list of invoice htlcs from a reader and returns it
 // as a map.
-func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
-	htlcs := make(map[CircuitKey]*InvoiceHTLC)
+func deserializeHtlcs(r io.Reader) (map[models.CircuitKey]*InvoiceHTLC, error) {
+	htlcs := make(map[models.CircuitKey]*InvoiceHTLC)
 
 	for {
 		// Read the length of the tlv stream for this htlc.
@@ -2388,7 +2398,7 @@ func deserializeHtlcs(r io.Reader) (map[CircuitKey]*InvoiceHTLC, error) {
 		// Decode the contents into the htlc fields.
 		var (
 			htlc                    InvoiceHTLC
-			key                     CircuitKey
+			key                     models.CircuitKey
 			chanID                  uint64
 			state                   uint8
 			acceptTime, resolveTime uint64
@@ -2485,7 +2495,7 @@ func copyInvoice(src *Invoice) (*Invoice, error) {
 		State:          src.State,
 		AmtPaid:        src.AmtPaid,
 		Htlcs: make(
-			map[CircuitKey]*InvoiceHTLC, len(src.Htlcs),
+			map[models.CircuitKey]*InvoiceHTLC, len(src.Htlcs),
 		),
 		AMPState:    make(map[SetID]InvoiceStateAMP),
 		HodlInvoice: src.HodlInvoice,
@@ -2540,7 +2550,7 @@ func makeInvoiceSetIDKey(invoiceNum, setID []byte) [invoiceSetIDKeyLen]byte {
 // potentially massive HTLC set, and also allows us to quickly find the HLTCs
 // associated with a particular HTLC set.
 func updateAMPInvoices(invoiceBucket kvdb.RwBucket, invoiceNum []byte,
-	htlcsToUpdate map[SetID]map[CircuitKey]*InvoiceHTLC) error {
+	htlcsToUpdate map[SetID]map[models.CircuitKey]*InvoiceHTLC) error {
 
 	for setID, htlcSet := range htlcsToUpdate {
 		// First write out the set of HTLCs including all the relevant TLV
@@ -2567,8 +2577,8 @@ func updateAMPInvoices(invoiceBucket kvdb.RwBucket, invoiceNum []byte,
 // set ID), and update sthe internal AMP state of an invoice, and also tallies
 // the set of HTLCs to be updated on disk.
 func updateHtlcsAmp(invoice *Invoice,
-	updateMap map[SetID]map[CircuitKey]*InvoiceHTLC, htlc *InvoiceHTLC,
-	setID SetID, circuitKey CircuitKey) {
+	updateMap map[SetID]map[models.CircuitKey]*InvoiceHTLC,
+	htlc *InvoiceHTLC, setID SetID, circuitKey models.CircuitKey) {
 
 	ampState, ok := invoice.AMPState[setID]
 	if !ok {
@@ -2576,7 +2586,7 @@ func updateHtlcsAmp(invoice *Invoice,
 		// we'll need to create it.
 		ampState = InvoiceStateAMP{
 			State:       HtlcStateAccepted,
-			InvoiceKeys: make(map[CircuitKey]struct{}),
+			InvoiceKeys: make(map[models.CircuitKey]struct{}),
 		}
 	}
 
@@ -2605,8 +2615,8 @@ func updateHtlcsAmp(invoice *Invoice,
 // apply the new update to the update MAP, since all the HTLCs for a given HTLC
 // set need to be written in-line with each other.
 func cancelHtlcsAmp(invoice *Invoice,
-	updateMap map[SetID]map[CircuitKey]*InvoiceHTLC, htlc *InvoiceHTLC,
-	circuitKey CircuitKey) {
+	updateMap map[SetID]map[models.CircuitKey]*InvoiceHTLC,
+	htlc *InvoiceHTLC, circuitKey models.CircuitKey) {
 
 	setID := htlc.AMP.Record.SetID()
 
@@ -2649,8 +2659,8 @@ func cancelHtlcsAmp(invoice *Invoice,
 // that this HTLC set needs to be re-written back to disk.
 func settleHtlcsAmp(invoice *Invoice,
 	settledSetIDs map[SetID]struct{},
-	updateMap map[SetID]map[CircuitKey]*InvoiceHTLC, htlc *InvoiceHTLC,
-	circuitKey CircuitKey) {
+	updateMap map[SetID]map[models.CircuitKey]*InvoiceHTLC,
+	htlc *InvoiceHTLC, circuitKey models.CircuitKey) {
 
 	// First, add the set ID to the set that was settled in this invoice
 	// update. We'll use this later to update the settle index.
@@ -2668,7 +2678,7 @@ func settleHtlcsAmp(invoice *Invoice,
 
 	// Finally, we'll add this to the set of HTLCs that need to be updated.
 	if _, ok := updateMap[setID]; !ok {
-		updateMap[setID] = make(map[CircuitKey]*InvoiceHTLC)
+		updateMap[setID] = make(map[models.CircuitKey]*InvoiceHTLC)
 	}
 	updateMap[setID][circuitKey] = htlc
 }
@@ -2735,7 +2745,7 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *SetID, invoices,
 	)
 
 	// Process add actions from update descriptor.
-	htlcsAmpUpdate := make(map[SetID]map[CircuitKey]*InvoiceHTLC)
+	htlcsAmpUpdate := make(map[SetID]map[models.CircuitKey]*InvoiceHTLC)
 	for key, htlcUpdate := range update.AddHtlcs {
 		if _, exists := invoice.Htlcs[key]; exists {
 			return nil, fmt.Errorf("duplicate add of htlc %v", key)

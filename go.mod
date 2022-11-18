@@ -5,11 +5,11 @@ require (
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
 	github.com/btcsuite/btcd v0.23.4
 	github.com/btcsuite/btcd/btcec/v2 v2.2.2
-	github.com/btcsuite/btcd/btcutil v1.1.2
+	github.com/btcsuite/btcd/btcutil v1.1.3
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.5
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcwallet v0.16.2-0.20221109224534-84bf4e34c816
+	github.com/btcsuite/btcwallet v0.16.4
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.2
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.0
 	github.com/btcsuite/btcwallet/walletdb v1.4.0
@@ -171,3 +171,5 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 go 1.18
 
 retract v0.0.2
+
+replace github.com/btcsuite/btcwallet => github.com/roasbeef/btcwallet v0.11.1-0.20221119205231-85dadcaf909c

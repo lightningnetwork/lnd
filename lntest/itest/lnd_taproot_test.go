@@ -46,23 +46,29 @@ var (
 // outputs.
 func testTaproot(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, 2*defaultTimeout)
-	defer cancel()
 
+	longTimeout := 2 * defaultTimeout
+	ctxt, cancel := context.WithTimeout(ctxb, longTimeout)
 	testTaprootSendCoinsKeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootComputeInputScriptKeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawScriptSpend(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawKeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootSignOutputRawKeySpendRootHash(ctxt, t, net.Alice, net)
+	cancel()
+
+	ctxt, cancel = context.WithTimeout(ctxb, longTimeout)
 	testTaprootMuSig2KeySpendBip86(ctxt, t, net.Alice, net)
 	testTaprootMuSig2KeySpendRootHash(ctxt, t, net.Alice, net)
 	testTaprootMuSig2ScriptSpend(ctxt, t, net.Alice, net)
 	testTaprootMuSig2CombinedLeafKeySpend(ctxt, t, net.Alice, net)
+	cancel()
 
+	ctxt, cancel = context.WithTimeout(ctxb, longTimeout)
 	testTaprootImportTapscriptFullTree(ctxt, t, net.Alice, net)
 	testTaprootImportTapscriptPartialReveal(ctxt, t, net.Alice, net)
 	testTaprootImportTapscriptRootHashOnly(ctxt, t, net.Alice, net)
 	testTaprootImportTapscriptFullKey(ctxt, t, net.Alice, net)
+	cancel()
 }
 
 // testTaprootSendCoinsKeySpendBip86 tests sending to and spending from

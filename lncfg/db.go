@@ -51,7 +51,7 @@ const (
 
 // DB holds database configuration for LND.
 //
-// nolint:lll
+//nolint:lll
 type DB struct {
 	Backend string `long:"backend" description:"The selected database backend."`
 

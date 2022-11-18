@@ -133,6 +133,7 @@ linters:
     - ifshort
     - varcheck
     - deadcode
+    - nosnakecase
 
     # Disable gofumpt as it has weird behavior regarding formatting multiple
     # lines for a function which is in conflict with our contribution

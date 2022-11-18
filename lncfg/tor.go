@@ -2,7 +2,7 @@ package lncfg
 
 // Tor holds the configuration options for the daemon's connection to tor.
 //
-// nolint:lll
+//nolint:lll
 type Tor struct {
 	Active                      bool   `long:"active" description:"Allow outbound and inbound connections to be routed through Tor"`
 	SOCKS                       string `long:"socks" description:"The host:port that Tor's exposed SOCKS5 proxy is listening on"`

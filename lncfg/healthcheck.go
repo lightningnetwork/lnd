@@ -23,7 +23,7 @@ var (
 // HealthCheckConfig contains the configuration for the different health checks
 // the lnd runs.
 //
-// nolint:lll
+//nolint:lll
 type HealthCheckConfig struct {
 	ChainCheck *CheckConfig `group:"chainbackend" namespace:"chainbackend"`
 

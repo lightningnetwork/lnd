@@ -5,7 +5,7 @@ import "time"
 // Neutrino holds the configuration options for the daemon's connection to
 // neutrino.
 //
-// nolint:lll
+//nolint:lll
 type Neutrino struct {
 	AddPeers           []string      `short:"a" long:"addpeer" description:"Add a peer to connect with at startup"`
 	ConnectPeers       []string      `long:"connect" description:"Connect only to the specified peers at startup"`

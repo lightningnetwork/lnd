@@ -1164,7 +1164,6 @@ func (h *HarnessTest) AssertAllTxesSpendFrom(txes []*wire.MsgTx,
 }
 
 // AssertTxSpendFrom asserts that a given tx is spent from a previous tx.
-// tx.
 func (h *HarnessTest) AssertTxSpendFrom(tx *wire.MsgTx,
 	prevTxid chainhash.Hash) {
 

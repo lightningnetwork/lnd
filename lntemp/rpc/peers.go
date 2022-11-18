@@ -16,8 +16,8 @@ type (
 	AnnResp *peersrpc.NodeAnnouncementUpdateResponse
 )
 
-// UpdateNodeAnnouncement makes an UpdateNodeAnnouncement RPC call the the
-// peersrpc client and asserts.
+// UpdateNodeAnnouncement makes an UpdateNodeAnnouncement RPC call the peersrpc
+// client and asserts.
 func (h *HarnessRPC) UpdateNodeAnnouncement(req AnnReq) AnnResp {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
@@ -28,7 +28,7 @@ func (h *HarnessRPC) UpdateNodeAnnouncement(req AnnReq) AnnResp {
 	return resp
 }
 
-// UpdateNodeAnnouncementErr makes an UpdateNodeAnnouncement RPC call the the
+// UpdateNodeAnnouncementErr makes an UpdateNodeAnnouncement RPC call the
 // peersrpc client and asserts an error is returned.
 func (h *HarnessRPC) UpdateNodeAnnouncementErr(req AnnReq) {
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)

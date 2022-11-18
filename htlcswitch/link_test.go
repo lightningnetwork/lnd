@@ -5249,7 +5249,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.cfg.Peer.(*mockPeer).disconnected = true
 			},
 			func(*testing.T, *channelLink,
-				*lnwallet.LightningChannel) { // nolint:whitespace,lll
+				*lnwallet.LightningChannel) { //nolint:whitespace,lll
 
 				// Should fail at startup.
 			},
@@ -5269,7 +5269,7 @@ func TestChannelLinkFail(t *testing.T) {
 				c.channel.State().Packager = pkg
 			},
 			func(*testing.T, *channelLink,
-				*lnwallet.LightningChannel) { // nolint:whitespace,lll
+				*lnwallet.LightningChannel) { //nolint:whitespace,lll
 
 				// Should fail at startup.
 			},

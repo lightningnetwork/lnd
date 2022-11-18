@@ -7,5 +7,5 @@ type mockHTLCNotifier struct {
 }
 
 func (m *mockHTLCNotifier) NotifyFinalHtlcEvent(key channeldb.CircuitKey,
-	info channeldb.FinalHtlcInfo) { // nolint:whitespace
+	info channeldb.FinalHtlcInfo) { //nolint:whitespace
 }

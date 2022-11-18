@@ -13,7 +13,7 @@ var (
 	MaxMailboxDeliveryTimeout = 2 * time.Minute
 )
 
-// nolint:lll
+//nolint:lll
 type Htlcswitch struct {
 	MailboxDeliveryTimeout time.Duration `long:"mailboxdeliverytimeout" description:"The timeout value when delivering HTLCs to a channel link. Setting this value too small will result in local payment failures if large number of payments are sent over a short period."`
 }

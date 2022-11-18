@@ -169,7 +169,7 @@ var bumpFeeCommand = cli.Command{
 	rely on bumping the fee on a specific transaction, since transactions
 	can change at any point with the addition of new inputs. The list of
 	inputs that currently exist within lnd's central batching engine can be
-	retrieved through lncli pendingsweeps.
+	retrieved through lncli wallet pendingsweeps.
 
 	When bumping the fee of an input that currently exists within lnd's
 	central batching engine, a higher fee transaction will be created that

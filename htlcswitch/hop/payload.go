@@ -2,6 +2,7 @@ package hop
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -177,7 +178,9 @@ func NewPayloadFromReader(r io.Reader, blindingKit *BlindingKit) (
 	// Validate whether the sender properly included or omitted tlv records
 	// in accordance with BOLT 04.
 	nextHop := lnwire.NewShortChanIDFromInt(cid)
-	err = ValidateParsedPayloadTypes(parsedTypes, nextHop)
+	_, err = ValidateParsedPayloadTypes(
+		parsedTypes, nextHop, blindingKit, blindingPoint,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -257,9 +260,24 @@ func NewCustomRecords(parsedTypes tlv.TypeMap) record.CustomSet {
 // ValidateParsedPayloadTypes checks the types parsed from a hop payload to
 // ensure that the proper fields are either included or omitted. The finalHop
 // boolean should be true if the payload was parsed for an exit hop. The
-// requirements for this method are described in BOLT 04.
+// requirements for this method are described in BOLT 04. If the payload is for
+// a blinded route, it also returns the blinding point that should be used for
+// further payload processing.
 func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
-	nextHop lnwire.ShortChannelID) error {
+	nextHop lnwire.ShortChannelID,
+	blindingKit *BlindingKit,
+	onionBlinding *btcec.PublicKey) (*btcec.PublicKey, error) {
+
+	// If encrypted data is present in our payload, validate fields for
+	// a blinded route - this validation is different to regular payload
+	// validation because some fields are contained in encrypted data
+	// instead of the onion TLVs.
+	_, dataPresent := parsedTypes[record.EncryptedDataOnionType]
+	if dataPresent {
+		return validateBlindedRouteTypes(
+			parsedTypes, blindingKit, onionBlinding,
+		)
+	}
 
 	isFinalHop := nextHop == Exit
 
@@ -273,7 +291,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 
 	// All hops must include an amount to forward.
 	case !hasAmt:
-		return ErrInvalidPayload{
+		return nil, ErrInvalidPayload{
 			Type:      record.AmtOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
@@ -281,7 +299,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 
 	// All hops must include a cltv expiry.
 	case !hasLockTime:
-		return ErrInvalidPayload{
+		return nil, ErrInvalidPayload{
 			Type:      record.LockTimeOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
@@ -291,7 +309,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	// sender must have included a record, so we don't need to test for its
 	// inclusion at intermediate hops directly.
 	case isFinalHop && hasNextHop:
-		return ErrInvalidPayload{
+		return nil, ErrInvalidPayload{
 			Type:      record.NextHopOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  true,
@@ -299,7 +317,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 
 	// Intermediate nodes should never receive MPP fields.
 	case !isFinalHop && hasMPP:
-		return ErrInvalidPayload{
+		return nil, ErrInvalidPayload{
 			Type:      record.MPPOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
@@ -307,14 +325,85 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 
 	// Intermediate nodes should never receive AMP fields.
 	case !isFinalHop && hasAMP:
-		return ErrInvalidPayload{
+		return nil, ErrInvalidPayload{
 			Type:      record.AMPOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
 		}
 	}
 
-	return nil
+	return nil, nil
+}
+
+// validateBlindedRouteTypes performs the validation required for payloads
+// that are part of a blinded route, returning the blinding point that is in
+// use for that payload.
+func validateBlindedRouteTypes(parsedTypes tlv.TypeMap,
+	blindingKit *BlindingKit,
+	onionBlinding *btcec.PublicKey) (*btcec.PublicKey, error) {
+
+	if blindingKit == nil {
+		return nil, errors.New("blinding kit required")
+	}
+
+	var (
+		blindingPoint        *btcec.PublicKey
+		updateAddBlindingSet = blindingKit.BlindingPoint != nil
+		onionBlindingSet     = onionBlinding != nil
+	)
+
+	switch {
+	// We should have a blinding key either in update_add_htlc or in the
+	// onion, but not both.
+	case updateAddBlindingSet && onionBlindingSet:
+		return nil, ErrInvalidPayload{
+			Type:      record.BlindingPointOnionType,
+			Violation: IncludedViolation,
+			FinalHop:  false,
+		}
+
+	case updateAddBlindingSet:
+		blindingPoint = blindingKit.BlindingPoint
+
+	case onionBlindingSet:
+		blindingPoint = onionBlinding
+	}
+
+	if _, ok := parsedTypes[record.EncryptedDataOnionType]; !ok {
+		return nil, ErrInvalidPayload{
+			Type:      record.EncryptedDataOnionType,
+			Violation: RequiredViolation,
+			FinalHop:  false,
+		}
+	}
+
+	// We have restrictions on the types of TLVs that we allow in
+	// intermediate and final hops. Set a map of allowed TLVs and run a
+	// check for any other non-nil values in our parsed map.
+	allowedTLVs := map[tlv.Type]struct{}{
+		record.EncryptedDataOnionType: {},
+		record.BlindingPointOnionType: {},
+	}
+
+	// The last hop is allowed some additional TLVs.
+	if blindingKit.lastHop {
+		allowedTLVs[record.AmtOnionType] = struct{}{}
+		allowedTLVs[record.LockTimeOnionType] = struct{}{}
+	}
+
+	for tlvType := range parsedTypes {
+		if _, ok := allowedTLVs[tlvType]; ok {
+			continue
+		}
+
+		return nil, ErrInvalidPayload{
+			Type:      tlvType,
+			Violation: IncludedViolation,
+			FinalHop:  false,
+		}
+	}
+
+	return blindingPoint, nil
 }
 
 // MultiPath returns the record corresponding the option_mpp parsed from the

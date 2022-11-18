@@ -129,11 +129,8 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 		sendCoins:  true,
 		randomSeed: true,
 		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-			ctxt, cancel := context.WithTimeout(
-				ctxb, 3*defaultTimeout,
-			)
-			defer cancel()
-
+			longTimeout := 3 * defaultTimeout
+			ctxt, cancel := context.WithTimeout(ctxb, longTimeout)
 			testTaprootSendCoinsKeySpendBip86(ctxt, tt, wo, net)
 			testTaprootComputeInputScriptKeySpendBip86(
 				ctxt, tt, wo, net,
@@ -143,10 +140,14 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 			testTaprootSignOutputRawKeySpendRootHash(
 				ctxt, tt, wo, net,
 			)
+			cancel()
+
+			ctxt, cancel = context.WithTimeout(ctxb, longTimeout)
 			testTaprootMuSig2KeySpendRootHash(ctxt, tt, wo, net)
 			testTaprootMuSig2ScriptSpend(ctxt, tt, wo, net)
 			testTaprootMuSig2KeySpendBip86(ctxt, tt, wo, net)
 			testTaprootMuSig2CombinedLeafKeySpend(ctxt, tt, wo, net)
+			cancel()
 		},
 	}}
 

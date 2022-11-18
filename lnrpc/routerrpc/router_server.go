@@ -472,7 +472,7 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 	error) {
 
 	cfg := &routing.MissionControlConfig{
-		ProbabilityEstimatorCfg: routing.ProbabilityEstimatorCfg{
+		AprioriConfig: routing.AprioriConfig{
 			PenaltyHalfLife: time.Duration(
 				req.Config.HalfLifeSeconds,
 			) * time.Second,

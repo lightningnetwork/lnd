@@ -93,7 +93,7 @@ func (ctx *mcTestContext) restartMc() {
 	mc, err := NewMissionControl(
 		ctx.db, mcTestSelf,
 		&MissionControlConfig{
-			ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
+			AprioriConfig: AprioriConfig{
 				PenaltyHalfLife:       testPenaltyHalfLife,
 				AprioriHopProbability: testAprioriHopProbability,
 				AprioriWeight:         testAprioriWeight,

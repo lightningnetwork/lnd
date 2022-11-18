@@ -53,15 +53,16 @@ var (
 
 	// ErrInvalidHopProbability is returned when we get an invalid hop
 	// probability.
-	ErrInvalidHopProbability = errors.New("hop probability must be in [0;1]")
+	ErrInvalidHopProbability = errors.New("hop probability must be in " +
+		"[0, 1]")
 
 	// ErrInvalidAprioriWeight is returned when we get an apriori weight
 	// that is out of range.
-	ErrInvalidAprioriWeight = errors.New("apriori weight must be in [0;1]")
+	ErrInvalidAprioriWeight = errors.New("apriori weight must be in [0, 1]")
 )
 
-// ProbabilityEstimatorCfg contains configuration for our probability estimator.
-type ProbabilityEstimatorCfg struct {
+// AprioriConfig contains configuration for our probability estimator.
+type AprioriConfig struct {
 	// PenaltyHalfLife defines after how much time a penalized node or
 	// channel is back at 50% probability.
 	PenaltyHalfLife time.Duration
@@ -80,7 +81,7 @@ type ProbabilityEstimatorCfg struct {
 	AprioriWeight float64
 }
 
-func (p ProbabilityEstimatorCfg) validate() error {
+func (p AprioriConfig) validate() error {
 	if p.PenaltyHalfLife < 0 {
 		return ErrInvalidHalflife
 	}
@@ -96,12 +97,11 @@ func (p ProbabilityEstimatorCfg) validate() error {
 	return nil
 }
 
-// probabilityEstimator returns node and pair probabilities based on historical
+// AprioriEstimator returns node and pair probabilities based on historical
 // payment results.
-type probabilityEstimator struct {
-	// ProbabilityEstimatorCfg contains configuration options for our
-	// estimator.
-	ProbabilityEstimatorCfg
+type AprioriEstimator struct {
+	// AprioriConfig contains configuration options for our estimator.
+	AprioriConfig
 
 	// prevSuccessProbability is the assumed probability for node pairs that
 	// successfully relayed the previous attempt.
@@ -111,7 +111,7 @@ type probabilityEstimator struct {
 // getNodeProbability calculates the probability for connections from a node
 // that have not been tried before. The results parameter is a list of last
 // payment results for that node.
-func (p *probabilityEstimator) getNodeProbability(now time.Time,
+func (p *AprioriEstimator) getNodeProbability(now time.Time,
 	results NodeResults, amt lnwire.MilliSatoshi,
 	capacity btcutil.Amount) float64 {
 
@@ -184,7 +184,7 @@ func (p *probabilityEstimator) getNodeProbability(now time.Time,
 // a payment result. Weight follows an exponential curve that starts at 1 when
 // the result is fresh and asymptotically approaches zero over time. The rate at
 // which this happens is controlled by the penaltyHalfLife parameter.
-func (p *probabilityEstimator) getWeight(age time.Duration) float64 {
+func (p *AprioriEstimator) getWeight(age time.Duration) float64 {
 	exp := -age.Hours() / p.PenaltyHalfLife.Hours()
 	return math.Pow(2, exp)
 }
@@ -219,12 +219,12 @@ func capacityFactor(amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 	return 1 - 1/denominator
 }
 
-// getPairProbability estimates the probability of successfully traversing to
+// PairProbability estimates the probability of successfully traversing to
 // toNode based on historical payment outcomes for the from node. Those outcomes
 // are passed in via the results parameter.
-func (p *probabilityEstimator) getPairProbability(
-	now time.Time, results NodeResults, toNode route.Vertex,
-	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
+func (p *AprioriEstimator) PairProbability(now time.Time,
+	results NodeResults, toNode route.Vertex, amt lnwire.MilliSatoshi,
+	capacity btcutil.Amount) float64 {
 
 	nodeProbability := p.getNodeProbability(now, results, amt, capacity)
 
@@ -233,9 +233,9 @@ func (p *probabilityEstimator) getPairProbability(
 	)
 }
 
-// getLocalPairProbability estimates the probability of successfully traversing
+// LocalPairProbability estimates the probability of successfully traversing
 // our own local channels to toNode.
-func (p *probabilityEstimator) getLocalPairProbability(
+func (p *AprioriEstimator) LocalPairProbability(
 	now time.Time, results NodeResults, toNode route.Vertex) float64 {
 
 	// For local channels that have never been tried before, we assume them
@@ -251,7 +251,7 @@ func (p *probabilityEstimator) getLocalPairProbability(
 
 // calculateProbability estimates the probability of successfully traversing to
 // toNode based on historical payment outcomes and a fall-back node probability.
-func (p *probabilityEstimator) calculateProbability(
+func (p *AprioriEstimator) calculateProbability(
 	now time.Time, results NodeResults,
 	nodeProbability float64, toNode route.Vertex,
 	amt lnwire.MilliSatoshi) float64 {

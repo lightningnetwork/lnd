@@ -36,7 +36,7 @@ const (
 
 type estimatorTestContext struct {
 	t         *testing.T
-	estimator *probabilityEstimator
+	estimator *AprioriEstimator
 
 	// results contains a list of last results. Every element in the list
 	// corresponds to the last result towards a node. The list index equals
@@ -48,8 +48,8 @@ type estimatorTestContext struct {
 func newEstimatorTestContext(t *testing.T) *estimatorTestContext {
 	return &estimatorTestContext{
 		t: t,
-		estimator: &probabilityEstimator{
-			ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
+		estimator: &AprioriEstimator{
+			AprioriConfig: AprioriConfig{
 				AprioriHopProbability: aprioriHopProb,
 				AprioriWeight:         aprioriWeight,
 				PenaltyHalfLife:       time.Hour,
@@ -74,7 +74,7 @@ func (c *estimatorTestContext) assertPairProbability(now time.Time,
 
 	const tolerance = 0.01
 
-	p := c.estimator.getPairProbability(
+	p := c.estimator.PairProbability(
 		now, results, route.Vertex{toNode}, amt, capacity,
 	)
 	diff := p - expectedProb

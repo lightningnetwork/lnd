@@ -103,7 +103,7 @@ type MissionControl struct {
 
 	// estimator is the probability estimator that is used with the payment
 	// results that mission control collects.
-	estimator *probabilityEstimator
+	estimator *AprioriEstimator
 
 	sync.Mutex
 
@@ -116,9 +116,8 @@ type MissionControl struct {
 // MissionControlConfig defines parameters that control mission control
 // behaviour.
 type MissionControlConfig struct {
-	// ProbabilityEstimatorConfig is the config we will use for probability
-	// calculations.
-	ProbabilityEstimatorCfg
+	// AprioriConfig is the config we will use for probability calculations.
+	AprioriConfig
 
 	// MaxMcHistory defines the maximum number of payment results that are
 	// held on disk.
@@ -135,7 +134,7 @@ type MissionControlConfig struct {
 }
 
 func (c *MissionControlConfig) validate() error {
-	if err := c.ProbabilityEstimatorCfg.validate(); err != nil {
+	if err := c.AprioriConfig.validate(); err != nil {
 		return err
 	}
 
@@ -225,9 +224,9 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 		return nil, err
 	}
 
-	estimator := &probabilityEstimator{
-		ProbabilityEstimatorCfg: cfg.ProbabilityEstimatorCfg,
-		prevSuccessProbability:  prevSuccessProbability,
+	estimator := &AprioriEstimator{
+		AprioriConfig:          cfg.AprioriConfig,
+		prevSuccessProbability: prevSuccessProbability,
 	}
 
 	mc := &MissionControl{
@@ -284,7 +283,7 @@ func (m *MissionControl) GetConfig() *MissionControlConfig {
 	defer m.Unlock()
 
 	return &MissionControlConfig{
-		ProbabilityEstimatorCfg: m.estimator.ProbabilityEstimatorCfg,
+		AprioriConfig:           m.estimator.AprioriConfig,
 		MaxMcHistory:            m.store.maxRecords,
 		McFlushInterval:         m.store.flushInterval,
 		MinFailureRelaxInterval: m.state.minFailureRelaxInterval,
@@ -309,7 +308,7 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 
 	m.store.maxRecords = cfg.MaxMcHistory
 	m.state.minFailureRelaxInterval = cfg.MinFailureRelaxInterval
-	m.estimator.ProbabilityEstimatorCfg = cfg.ProbabilityEstimatorCfg
+	m.estimator.AprioriConfig = cfg.AprioriConfig
 
 	return nil
 }
@@ -344,10 +343,10 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 
 	// Use a distinct probability estimation function for local channels.
 	if fromNode == m.selfNode {
-		return m.estimator.getLocalPairProbability(now, results, toNode)
+		return m.estimator.LocalPairProbability(now, results, toNode)
 	}
 
-	return m.estimator.getPairProbability(
+	return m.estimator.PairProbability(
 		now, results, toNode, amt, capacity,
 	)
 }

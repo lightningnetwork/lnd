@@ -868,7 +868,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// servers, the mission control instance itself can be moved there too.
 	routingConfig := routerrpc.GetRoutingConfig(cfg.SubRPCServers.RouterRPC)
 
-	estimatorCfg := routing.ProbabilityEstimatorCfg{
+	estimatorCfg := routing.AprioriConfig{
 		AprioriHopProbability: routingConfig.AprioriHopProbability,
 		PenaltyHalfLife:       routingConfig.PenaltyHalfLife,
 		AprioriWeight:         routingConfig.AprioriWeight,
@@ -877,7 +877,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	s.missionControl, err = routing.NewMissionControl(
 		dbs.ChanStateDB, selfNode.PubKeyBytes,
 		&routing.MissionControlConfig{
-			ProbabilityEstimatorCfg: estimatorCfg,
+			AprioriConfig:           estimatorCfg,
 			MaxMcHistory:            routingConfig.MaxMcHistory,
 			McFlushInterval:         routingConfig.McFlushInterval,
 			MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,

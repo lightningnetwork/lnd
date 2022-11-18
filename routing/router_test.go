@@ -120,7 +120,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 	}
 
 	mcConfig := &MissionControlConfig{
-		ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
+		AprioriConfig: AprioriConfig{
 			PenaltyHalfLife:       time.Hour,
 			AprioriHopProbability: 0.9,
 			AprioriWeight:         0.5,

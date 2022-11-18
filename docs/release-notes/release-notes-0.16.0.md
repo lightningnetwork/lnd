@@ -248,7 +248,8 @@ implemented, please refer to
 [README](https://github.com/lightningnetwork/lnd/tree/master/lntemp) for more
 details. Along the way, several
 PRs([6776](https://github.com/lightningnetwork/lnd/pull/6776),
-[6822](https://github.com/lightningnetwork/lnd/pull/6822)) have been made to
+[6822](https://github.com/lightningnetwork/lnd/pull/6822),
+[7172](https://github.com/lightningnetwork/lnd/pull/7172)) have been made to
 refactor the itest for code health and maintenance.
 
 # Contributors (Alphabetical Order)

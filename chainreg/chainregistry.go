@@ -292,7 +292,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	}
 
 	var err error
-	heightHintCacheConfig := chainntnfs.CacheConfig{
+	heightHintCacheConfig := channeldb.CacheConfig{
 		QueryDisable: cfg.HeightHintCacheQueryDisable,
 	}
 	if cfg.HeightHintCacheQueryDisable {
@@ -300,7 +300,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	}
 
 	// Initialize the height hint cache within the chain directory.
-	hintCache, err := chainntnfs.NewHeightHintCache(
+	hintCache, err := channeldb.NewHeightHintCache(
 		heightHintCacheConfig, cfg.HeightHintDB,
 	)
 	if err != nil {

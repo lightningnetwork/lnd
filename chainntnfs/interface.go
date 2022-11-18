@@ -773,3 +773,38 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 	return nil, TxNotFoundIndex, fmt.Errorf("unable to locate "+
 		"tx %v in block %v", r.TxID, blockHash)
 }
+
+// SpendHintCache is an interface whose duty is to cache spend hints for
+// outpoints. A spend hint is defined as the earliest height in the chain at
+// which an outpoint could have been spent within.
+type SpendHintCache interface {
+	// CommitSpendHint commits a spend hint for the outpoints to the cache.
+	CommitSpendHint(height uint32, spendRequests ...SpendRequest) error
+
+	// QuerySpendHint returns the latest spend hint for an outpoint.
+	// ErrSpendHintNotFound is returned if a spend hint does not exist
+	// within the cache for the outpoint.
+	QuerySpendHint(spendRequest SpendRequest) (uint32, error)
+
+	// PurgeSpendHint removes the spend hint for the outpoints from the
+	// cache.
+	PurgeSpendHint(spendRequests ...SpendRequest) error
+}
+
+// ConfirmHintCache is an interface whose duty is to cache confirm hints for
+// transactions. A confirm hint is defined as the earliest height in the chain
+// at which a transaction could have been included in a block.
+type ConfirmHintCache interface {
+	// CommitConfirmHint commits a confirm hint for the transactions to the
+	// cache.
+	CommitConfirmHint(height uint32, confRequests ...ConfRequest) error
+
+	// QueryConfirmHint returns the latest confirm hint for a transaction
+	// hash. ErrConfirmHintNotFound is returned if a confirm hint does not
+	// exist within the cache for the transaction hash.
+	QueryConfirmHint(confRequest ConfRequest) (uint32, error)
+
+	// PurgeConfirmHint removes the confirm hint for the transactions from
+	// the cache.
+	PurgeConfirmHint(confRequests ...ConfRequest) error
+}

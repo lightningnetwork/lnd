@@ -2,6 +2,7 @@ package routing
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -45,6 +46,10 @@ const (
 	// capacityCutoffFraction, but a smooth smearing such that some residual
 	// probability is left when spending the whole amount, see above.
 	capacitySmearingFraction = 0.1
+
+	// AprioriEstimatorName is used to identify the apriori probability
+	// estimator.
+	AprioriEstimatorName = "apriori"
 )
 
 var (
@@ -81,6 +86,7 @@ type AprioriConfig struct {
 	AprioriWeight float64
 }
 
+// validate checks the configuration of the estimator for allowed values.
 func (p AprioriConfig) validate() error {
 	if p.PenaltyHalfLife < 0 {
 		return ErrInvalidHalflife
@@ -97,8 +103,24 @@ func (p AprioriConfig) validate() error {
 	return nil
 }
 
+// DefaultAprioriConfig returns the default configuration for the estimator.
+func DefaultAprioriConfig() AprioriConfig {
+	return AprioriConfig{
+		PenaltyHalfLife:       DefaultPenaltyHalfLife,
+		AprioriHopProbability: DefaultAprioriHopProbability,
+		AprioriWeight:         DefaultAprioriWeight,
+	}
+}
+
 // AprioriEstimator returns node and pair probabilities based on historical
-// payment results.
+// payment results. It uses a preconfigured success probability value for
+// untried hops (AprioriHopProbability) and returns a high success probability
+// for hops that could previously conduct a payment (prevSuccessProbability).
+// Successful edges are retried until proven otherwise. Recently failed hops are
+// penalized by an exponential time decay (PenaltyHalfLife), after which they
+// are reconsidered for routing. If information was learned about a forwarding
+// node, the information is taken into account to estimate a per node
+// probability that mixes with the a priori probability (AprioriWeight).
 type AprioriEstimator struct {
 	// AprioriConfig contains configuration options for our estimator.
 	AprioriConfig
@@ -106,6 +128,36 @@ type AprioriEstimator struct {
 	// prevSuccessProbability is the assumed probability for node pairs that
 	// successfully relayed the previous attempt.
 	prevSuccessProbability float64
+}
+
+// NewAprioriEstimator creates a new AprioriEstimator.
+func NewAprioriEstimator(cfg AprioriConfig) (*AprioriEstimator, error) {
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+
+	return &AprioriEstimator{
+		AprioriConfig:          cfg,
+		prevSuccessProbability: prevSuccessProbability,
+	}, nil
+}
+
+// Compile-time checks that interfaces are implemented.
+var _ Estimator = (*AprioriEstimator)(nil)
+var _ estimatorConfig = (*AprioriConfig)(nil)
+
+// Config returns the estimator's configuration.
+func (p *AprioriEstimator) Config() estimatorConfig {
+	return p.AprioriConfig
+}
+
+// String returns the estimator's configuration as a string representation.
+func (p *AprioriEstimator) String() string {
+	return fmt.Sprintf("estimator type: %v, penalty halflife time: %v, "+
+		"apriori hop probability: %v, apriori weight: %v, previous "+
+		"success probability: %v", AprioriEstimatorName,
+		p.PenaltyHalfLife, p.AprioriHopProbability, p.AprioriWeight,
+		p.prevSuccessProbability)
 }
 
 // getNodeProbability calculates the probability for connections from a node

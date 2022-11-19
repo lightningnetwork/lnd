@@ -1099,6 +1099,8 @@ func (r *ChannelRouter) networkHandler() {
 					update.msg, allowDependents,
 				)
 				if err != nil {
+					log.Debugf("process network updates "+
+						"got: %v", err)
 					return
 				}
 
@@ -1439,6 +1441,9 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		r.stats.incNumNodeUpdates()
 
 	case *channeldb.ChannelEdgeInfo:
+		log.Debugf("Received ChannelEdgeInfo for channel %v",
+			msg.ChannelID)
+
 		// Prior to processing the announcement we first check if we
 		// already know of this channel, if so, then we can exit early.
 		_, _, exists, isZombie, err := r.cfg.Graph.HasChannelEdge(
@@ -1584,7 +1589,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			return errors.Errorf("unable to add edge: %v", err)
 		}
 
-		log.Tracef("New channel discovered! Link "+
+		log.Debugf("New channel discovered! Link "+
 			"connects %x and %x with ChannelPoint(%v): "+
 			"chan_id=%v, capacity=%v",
 			msg.NodeKey1Bytes, msg.NodeKey2Bytes,
@@ -1610,6 +1615,9 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		}
 
 	case *channeldb.ChannelEdgePolicy:
+		log.Debugf("Received ChannelEdgePolicy for channel %v",
+			msg.ChannelID)
+
 		// We make sure to hold the mutex for this channel ID,
 		// such that no other goroutine is concurrently doing
 		// database accesses for the same channel ID.
@@ -1685,7 +1693,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			return err
 		}
 
-		log.Tracef("New channel update applied: %v",
+		log.Debugf("New channel update applied: %v",
 			newLogClosure(func() string { return spew.Sdump(msg) }))
 		r.stats.incNumChannelUpdates()
 
@@ -2608,10 +2616,18 @@ func (r *ChannelRouter) AddProof(chanID lnwire.ShortChannelID,
 // target node with a more recent timestamp.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) IsStaleNode(node route.Vertex, timestamp time.Time) bool {
+func (r *ChannelRouter) IsStaleNode(node route.Vertex,
+	timestamp time.Time) bool {
+
 	// If our attempt to assert that the node announcement is fresh fails,
 	// then we know that this is actually a stale announcement.
-	return r.assertNodeAnnFreshness(node, timestamp) != nil
+	err := r.assertNodeAnnFreshness(node, timestamp)
+	if err != nil {
+		log.Debugf("Checking stale node %x got %v", node, err)
+		return true
+	}
+
+	return false
 }
 
 // IsPublicNode determines whether the given vertex is seen as a public node in
@@ -2641,6 +2657,7 @@ func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
 		r.cfg.Graph.HasChannelEdge(chanID.ToUint64())
 	if err != nil {
+		log.Debugf("Check stale edge policy got error: %v", err)
 		return false
 
 	}
@@ -2788,6 +2805,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		// Exit if there are no channels.
 		unifiedPolicy, ok := u.policies[fromNode]
 		if !ok {
+			log.Errorf("Cannot find policy for node %v", fromNode)
 			return nil, ErrNoChannel{
 				fromNode: fromNode,
 				position: i,
@@ -2806,6 +2824,8 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		// to forward.
 		policy := unifiedPolicy.getPolicy(runningAmt, bandwidthHints)
 		if policy == nil {
+			log.Errorf("Cannot find policy with amt=%v for node %v",
+				runningAmt, fromNode)
 			return nil, ErrNoChannel{
 				fromNode: fromNode,
 				position: i,

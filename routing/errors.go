@@ -37,6 +37,10 @@ const (
 	// ErrParentValidationFailed signals that the validation of a
 	// dependent's parent failed, so the dependent must not be processed.
 	ErrParentValidationFailed
+
+	// ErrTimeoutWaitingParentSignal is used when the dependant job fails
+	// to receive its parent's signal within the timeout.
+	ErrTimeoutWaitingParentSignal
 )
 
 // routerError is a structure that represent the error inside the routing package,

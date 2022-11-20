@@ -3,11 +3,16 @@ package routing
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
+
+// waitingParentSignalTimeout defines the time to wait before the dependant
+// gives up waiting for its parent's signal to either allow or deny.
+const waitingParentSignalTimeout = 60 * time.Second
 
 // validationSignals contains two signals which allows the ValidationBarrier to
 // communicate back to the caller whether a dependent should be processed or not
@@ -244,6 +249,11 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 		log.Debugf("Signal deny for %s", jobDesc)
 		return newErrf(ErrParentValidationFailed,
 			"parent validation failed")
+
+	case <-time.After(waitingParentSignalTimeout):
+		log.Errorf("Timeout waiting for parent signal on %s", jobDesc)
+		return newErrf(ErrTimeoutWaitingParentSignal,
+			"timeout waiting for parent's signal")
 
 	case <-signals.allow:
 		log.Tracef("Signal allow for %s", jobDesc)

@@ -658,6 +658,7 @@ func (d *AuthenticatedGossiper) Stop() error {
 
 func (d *AuthenticatedGossiper) stop() {
 	log.Info("Authenticated Gossiper is stopping")
+	defer log.Info("Authenticated Gossiper stopped")
 
 	d.blockEpochs.Cancel()
 

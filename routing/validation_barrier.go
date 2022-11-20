@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -177,56 +178,77 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	var (
 		signals *validationSignals
 		ok      bool
+		jobDesc string
 	)
 
+	// Acquire a lock to read ValidationBarrier.
 	v.Lock()
-	switch msg := job.(type) {
 
+	switch msg := job.(type) {
 	// Any ChannelUpdate or NodeAnnouncement jobs will need to wait on the
 	// completion of any active ChannelAnnouncement jobs related to them.
 	case *channeldb.ChannelEdgePolicy:
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		signals, ok = v.chanEdgeDependencies[shortID]
+
+		jobDesc = fmt.Sprintf("job=lnwire.ChannelEdgePolicy, scid=%v",
+			msg.ChannelID)
+
 	case *channeldb.LightningNode:
 		vertex := route.Vertex(msg.PubKeyBytes)
 		signals, ok = v.nodeAnnDependencies[vertex]
+
+		jobDesc = fmt.Sprintf("job=channeldb.LightningNode, pub=%x",
+			vertex)
+
 	case *lnwire.ChannelUpdate:
 		signals, ok = v.chanEdgeDependencies[msg.ShortChannelID]
+
+		jobDesc = fmt.Sprintf("job=lnwire.ChannelUpdate, scid=%v",
+			msg.ShortChannelID.ToUint64())
+
 	case *lnwire.NodeAnnouncement:
 		vertex := route.Vertex(msg.NodeID)
 		signals, ok = v.nodeAnnDependencies[vertex]
+		jobDesc = fmt.Sprintf("job=lnwire.NodeAnnouncement, pub=%x",
+			vertex)
 
 	// Other types of jobs can be executed immediately, so we'll just
 	// return directly.
 	case *lnwire.AnnounceSignatures:
 		// TODO(roasbeef): need to wait on chan ann?
-		v.Unlock()
-		return nil
 	case *channeldb.ChannelEdgeInfo:
-		v.Unlock()
-		return nil
 	case *lnwire.ChannelAnnouncement:
-		v.Unlock()
+	}
+
+	// Release the lock once the above read is finished.
+	v.Unlock()
+
+	// If it's not ok, it means either the job is not a dependent type, or
+	// it doesn't have a dependency signal. Either way, we can return
+	// early.
+	if !ok {
 		return nil
 	}
-	v.Unlock()
+
+	log.Debugf("Waiting for dependent on %s", jobDesc)
 
 	// If we do have an active job, then we'll wait until either the signal
 	// is closed, or the set of jobs exits.
-	if ok {
-		select {
-		case <-v.quit:
-			return newErrf(ErrVBarrierShuttingDown,
-				"validation barrier shutting down")
-		case <-signals.deny:
-			return newErrf(ErrParentValidationFailed,
-				"parent validation failed")
-		case <-signals.allow:
-			return nil
-		}
-	}
+	select {
+	case <-v.quit:
+		return newErrf(ErrVBarrierShuttingDown,
+			"validation barrier shutting down")
 
-	return nil
+	case <-signals.deny:
+		log.Debugf("Signal deny for %s", jobDesc)
+		return newErrf(ErrParentValidationFailed,
+			"parent validation failed")
+
+	case <-signals.allow:
+		log.Tracef("Signal allow for %s", jobDesc)
+		return nil
+	}
 }
 
 // SignalDependants will allow/deny any jobs that are dependent on this job that

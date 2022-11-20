@@ -1187,12 +1187,6 @@ func (d *AuthenticatedGossiper) networkHandler() {
 				announcement.msg.MsgType(),
 				announcement.isRemote)
 
-			// We should only broadcast this message forward if it
-			// originated from us or it wasn't received as part of
-			// our initial historical sync.
-			shouldBroadcast := !announcement.isRemote ||
-				d.syncMgr.IsGraphSynced()
-
 			switch announcement.msg.(type) {
 			// Channel announcement signatures are amongst the only
 			// messages that we'll process serially.
@@ -1232,8 +1226,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 			d.wg.Add(1)
 			go d.handleNetworkMessages(
-				announcement, &announcements,
-				validationBarrier, shouldBroadcast,
+				announcement, &announcements, validationBarrier,
 			)
 
 		// The trickle timer has ticked, which indicates we should
@@ -1305,11 +1298,14 @@ func (d *AuthenticatedGossiper) networkHandler() {
 //
 // NOTE: must be run as a goroutine.
 func (d *AuthenticatedGossiper) handleNetworkMessages(nMsg *networkMsg,
-	deDuped *deDupedAnnouncements, vb *routing.ValidationBarrier,
-	shouldBroadcast bool) {
+	deDuped *deDupedAnnouncements, vb *routing.ValidationBarrier) {
 
 	defer d.wg.Done()
 	defer vb.CompleteJob()
+
+	// We should only broadcast this message forward if it originated from
+	// us or it wasn't received as part of our initial historical sync.
+	shouldBroadcast := !nMsg.isRemote || d.syncMgr.IsGraphSynced()
 
 	// If this message has an existing dependency, then we'll wait until
 	// that has been fully validated before we proceed.

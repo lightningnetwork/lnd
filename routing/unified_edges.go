@@ -105,6 +105,8 @@ func (u *unifiedEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
 	if u.capacity > 0 &&
 		amt > lnwire.NewMSatFromSatoshis(u.capacity) {
 
+		log.Tracef("Not enough capacity: amt=%v, capacity=%v",
+			amt, u.capacity)
 		return false
 	}
 
@@ -112,11 +114,15 @@ func (u *unifiedEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
 	if u.policy.MessageFlags.HasMaxHtlc() &&
 		amt > u.policy.MaxHTLC {
 
+		log.Tracef("Exceeds policy's MaxHTLC: amt=%v, MaxHTLC=%v",
+			amt, u.policy.MaxHTLC)
 		return false
 	}
 
 	// Skip channels for which this htlc is too small.
 	if amt < u.policy.MinHTLC {
+		log.Tracef("below policy's MinHTLC: amt=%v, MinHTLC=%v",
+			amt, u.policy.MinHTLC)
 		return false
 	}
 
@@ -155,6 +161,8 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 	for _, edge := range u.edges {
 		// Check valid amount range for the channel.
 		if !edge.amtInRange(amt) {
+			log.Debugf("Amount %v not in range for edge %v",
+				amt, edge.policy.ChannelID)
 			continue
 		}
 
@@ -173,11 +181,26 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 			edge.policy.ChannelID, amt,
 		)
 		if !ok {
+			log.Debugf("Cannot get bandwidth for edge %v, use max "+
+				"instead", edge.policy.ChannelID)
 			bandwidth = lnwire.MaxMilliSatoshi
 		}
 
+		// TODO(yy): if the above `!ok` is chosen, we'd have
+		// `bandwidth` to be the max value, which will end up having
+		// the `maxBandwidth` to be have the largest value and this
+		// edge will be the chosen one. This is wrong in two ways,
+		// 1. we need to understand why `availableChanBandwidth` cannot
+		// find bandwidth for this edge as something is wrong with this
+		// channel, and,
+		// 2. this edge is likely NOT the local channel with the
+		// highest available bandwidth.
+		//
 		// Skip channels that can't carry the payment.
 		if amt > bandwidth {
+			log.Debugf("Skipped edge %v: not enough bandwidth, "+
+				"bandwidth=%v, amt=%v", edge.policy.ChannelID,
+				bandwidth, amt)
 			continue
 		}
 
@@ -187,6 +210,9 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 		// querying the bandwidth hints and sending out the
 		// htlc.
 		if bandwidth < maxBandwidth {
+			log.Debugf("Skipped edge %v: not max bandwidth, "+
+				"bandwidth=%v, maxBandwidth=%v",
+				bandwidth, maxBandwidth)
 			continue
 		}
 		maxBandwidth = bandwidth
@@ -213,6 +239,8 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 	for _, edge := range u.edges {
 		// Check valid amount range for the channel.
 		if !edge.amtInRange(amt) {
+			log.Debugf("Amount %v not in range for edge %v",
+				amt, edge.policy.ChannelID)
 			continue
 		}
 
@@ -220,6 +248,8 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 		edgeFlags := edge.policy.ChannelFlags
 		isDisabled := edgeFlags&lnwire.ChanUpdateDisabled != 0
 		if isDisabled {
+			log.Debugf("Skipped edge %v due to it being disabled",
+				edge.policy.ChannelID)
 			continue
 		}
 
@@ -245,6 +275,9 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 		// specific amount.
 		fee := edge.policy.ComputeFee(amt)
 		if fee < maxFee {
+			log.Debugf("Skipped edge %v due to it produces less "+
+				"fee: fee=%v, maxFee=%v",
+				edge.policy.ChannelID, fee, maxFee)
 			continue
 		}
 		maxFee = fee

@@ -198,7 +198,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 		vertex := route.Vertex(msg.PubKeyBytes)
 		signals, ok = v.nodeAnnDependencies[vertex]
 
-		jobDesc = fmt.Sprintf("job=channeldb.LightningNode, pub=%x",
+		jobDesc = fmt.Sprintf("job=channeldb.LightningNode, pub=%s",
 			vertex)
 
 	case *lnwire.ChannelUpdate:
@@ -210,7 +210,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	case *lnwire.NodeAnnouncement:
 		vertex := route.Vertex(msg.NodeID)
 		signals, ok = v.nodeAnnDependencies[vertex]
-		jobDesc = fmt.Sprintf("job=lnwire.NodeAnnouncement, pub=%x",
+		jobDesc = fmt.Sprintf("job=lnwire.NodeAnnouncement, pub=%s",
 			vertex)
 
 	// Other types of jobs can be executed immediately, so we'll just

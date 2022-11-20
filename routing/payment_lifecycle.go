@@ -291,6 +291,8 @@ lifecycle:
 			continue lifecycle
 		}
 
+		log.Tracef("Found route: %s", spew.Sdump(rt.Hops))
+
 		// If this route will consume the last remaining amount to send
 		// to the receiver, this will be our last shard (for now).
 		lastShard := rt.ReceiverAmt() == currentState.remainingAmt

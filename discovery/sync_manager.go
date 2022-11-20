@@ -183,6 +183,9 @@ func (m *SyncManager) Start() {
 // Stop stops the SyncManager from performing its duties.
 func (m *SyncManager) Stop() {
 	m.stop.Do(func() {
+		log.Debugf("SyncManager is stopping")
+		defer log.Debugf("SyncManager stopped")
+
 		close(m.quit)
 		m.wg.Wait()
 

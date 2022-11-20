@@ -450,6 +450,9 @@ func (g *GossipSyncer) Start() {
 // exited.
 func (g *GossipSyncer) Stop() {
 	g.stopped.Do(func() {
+		log.Debugf("Stopping GossipSyncer(%x)", g.cfg.peerPub[:])
+		defer log.Debugf("GossipSyncer(%x) stopped", g.cfg.peerPub[:])
+
 		close(g.quit)
 		g.wg.Wait()
 	})

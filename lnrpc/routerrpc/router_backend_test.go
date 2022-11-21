@@ -160,9 +160,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 			t.Fatal("expecting 0% probability for ignored pair")
 		}
 
-		if *restrictions.LastHop != lastHop {
-			t.Fatal("unexpected last hop")
-		}
+		require.Equal(t, []route.Vertex{lastHop}, restrictions.LastHops)
 
 		if restrictions.OutgoingChannelIDs[0] != outgoingChan {
 			t.Fatal("unexpected outgoing channel id")

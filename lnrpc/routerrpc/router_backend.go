@@ -298,7 +298,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
-		restrictions.LastHop = &lastHop
+		restrictions.LastHops = []route.Vertex{lastHop}
 	}
 
 	// If we have any TLV records destined for the final hop, then we'll

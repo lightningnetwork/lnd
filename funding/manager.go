@@ -143,8 +143,6 @@ type reservationWithCtx struct {
 	reservation *lnwallet.ChannelReservation
 	peer        lnpeer.Peer
 
-	chanAmt btcutil.Amount
-
 	// forwardingPolicy is the policy provided by the initFundingMsg.
 	forwardingPolicy htlcswitch.ForwardingPolicy
 
@@ -1648,7 +1646,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 	resCtx := &reservationWithCtx{
 		reservation:       reservation,
-		chanAmt:           amt,
 		forwardingPolicy:  forwardingPolicy,
 		remoteCsvDelay:    remoteCsvDelay,
 		remoteMinHtlc:     minHtlc,
@@ -4117,7 +4114,6 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	resCtx := &reservationWithCtx{
-		chanAmt:           capacity,
 		forwardingPolicy:  forwardingPolicy,
 		remoteCsvDelay:    remoteCsvDelay,
 		remoteMinHtlc:     minHtlcIn,

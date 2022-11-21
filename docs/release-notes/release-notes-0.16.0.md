@@ -215,6 +215,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   `getblockhash`, and `getbestblock`. These commands provide access to chain
   block data.
 
+* [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/7186) that might
+  lead to channel updates being missed, causing channel graph being incomplete.
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test

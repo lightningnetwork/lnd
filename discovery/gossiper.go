@@ -2372,11 +2372,12 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 			// If while processing this rejected edge, we realized
 			// there's a set of announcements we could extract,
 			// then we'll return those directly.
-			if len(anns) != 0 {
-				nMsg.err <- nil
-				return anns, true
-			}
+			//
+			// NOTE: since this is an ErrIgnored, we can return
+			// true here to signal "allow" to its dependants.
+			nMsg.err <- nil
 
+			return anns, true
 		} else {
 			// Otherwise, this is just a regular rejected edge.
 			key := newRejectCacheKey(

@@ -5214,7 +5214,7 @@ sendLoop:
 			// payment so we can continue to serve requests while
 			// this payment is being dispatched.
 			wg.Add(1)
-			go func() {
+			go func(payIntent *rpcPaymentIntent) {
 				defer wg.Done()
 
 				// Attempt to grab a free semaphore slot, using
@@ -5292,7 +5292,7 @@ sendLoop:
 					}
 					return
 				}
-			}()
+			}(payIntent)
 		}
 	}
 

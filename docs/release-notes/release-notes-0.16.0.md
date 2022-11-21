@@ -198,6 +198,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 
 * [test: fix loop variables being accessed in
   closures](https://github.com/lightningnetwork/lnd/pull/7032).
+
+* [Fix loop and other temporary variables being accessed in
+  goroutines](https://github.com/lightningnetwork/lnd/pull/7188).
  
 ## Watchtowers
 

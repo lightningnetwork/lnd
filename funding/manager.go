@@ -1666,7 +1666,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// With our parameters set, we'll now process their contribution so we
 	// can move the funding workflow ahead.
 	remoteContribution := &lnwallet.ChannelContribution{
-		FundingAmount:        amt,
 		FirstCommitmentPoint: msg.FirstCommitmentPoint,
 		ChannelConfig: &channeldb.ChannelConfig{
 			ChannelConstraints: channeldb.ChannelConstraints{

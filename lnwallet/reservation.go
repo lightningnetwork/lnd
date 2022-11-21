@@ -91,10 +91,6 @@ func (c CommitmentType) String() string {
 // for all their inputs to the funding transactions, and finally a signature
 // for the other party's version of the commitment transaction.
 type ChannelContribution struct {
-	// FundingOutpoint is the amount of funds contributed to the funding
-	// transaction.
-	FundingAmount btcutil.Amount
-
 	// Inputs to the funding transaction.
 	Inputs []*wire.TxIn
 
@@ -356,12 +352,10 @@ func NewChannelReservation(localFundingAmt, remoteFundingAmt btcutil.Amount,
 
 	return &ChannelReservation{
 		ourContribution: &ChannelContribution{
-			FundingAmount:   ourBalance.ToSatoshis(),
 			ChannelConfig:   &channeldb.ChannelConfig{},
 			UpfrontShutdown: req.LocalShutdownScript,
 		},
 		theirContribution: &ChannelContribution{
-			FundingAmount: theirBalance.ToSatoshis(),
 			ChannelConfig: &channeldb.ChannelConfig{},
 		},
 		partialState: &channeldb.OpenChannel{

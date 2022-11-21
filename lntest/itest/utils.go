@@ -405,6 +405,7 @@ func subscribeChannelNotifications(ctxb context.Context, t *harnessTest,
 	chanUpdates := make(chan *lnrpc.ChannelEventUpdate, 20)
 	go func() {
 		defer cancelFunc()
+
 		for {
 			select {
 			case <-quit:

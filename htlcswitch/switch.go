@@ -1742,6 +1742,7 @@ func (s *Switch) htlcForwarder() {
 			wg.Add(1)
 			go func(l ChannelLink) {
 				defer wg.Done()
+
 				l.Stop()
 			}(link)
 		}

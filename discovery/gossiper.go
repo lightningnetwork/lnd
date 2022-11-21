@@ -1325,6 +1325,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			d.wg.Add(1)
 			go func() {
 				defer d.wg.Done()
+
 				log.Infof("Broadcasting %v new announcements in %d sub batches",
 					len(announcementBatch), len(splitAnnouncementBatch))
 
@@ -2947,6 +2948,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 			d.wg.Add(1)
 			go func() {
 				defer d.wg.Done()
+
 				log.Debugf("Received half proof for channel "+
 					"%v with existing full proof. Sending"+
 					" full proof to peer=%x",

@@ -180,8 +180,9 @@ func (h *MiddlewareHandler) Run() error {
 	// request to the client).
 	h.wg.Add(1)
 	go func() {
+		defer h.wg.Done()
+
 		h.receiveResponses(errChan, responses)
-		h.wg.Done()
 	}()
 
 	return h.sendInterceptRequests(errChan, responses)

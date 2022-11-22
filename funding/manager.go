@@ -146,13 +146,9 @@ type reservationWithCtx struct {
 	// forwardingPolicy is the policy provided by the initFundingMsg.
 	forwardingPolicy htlcswitch.ForwardingPolicy
 
-	// Constraints we require for the remote.
-	remoteDustLimit   btcutil.Amount
-	remoteCsvDelay    uint16
-	remoteMinHtlc     lnwire.MilliSatoshi
-	remoteMaxValue    lnwire.MilliSatoshi
-	remoteMaxHtlcs    uint16
-	remoteChanReserve btcutil.Amount
+	// remoteConstraints are the channel constraints required for our peer.
+	// This is only used for flows where we are the initiator.
+	remoteConstraints *channeldb.ChannelConstraints
 
 	// maxLocalCsv is the maximum csv we will accept from the remote.
 	maxLocalCsv uint16
@@ -1660,17 +1656,12 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		f.activeReservations[peerIDKey] = make(pendingChannels)
 	}
 	resCtx := &reservationWithCtx{
-		reservation:       reservation,
-		forwardingPolicy:  forwardingPolicy,
-		remoteCsvDelay:    remoteCsvDelay,
-		remoteMinHtlc:     minHtlc,
-		remoteMaxValue:    remoteMaxValue,
-		remoteMaxHtlcs:    maxHtlcs,
-		remoteChanReserve: chanReserve,
-		maxLocalCsv:       f.cfg.MaxLocalCSVDelay,
-		channelType:       chanType,
-		err:               make(chan error, 1),
-		peer:              peer,
+		reservation:      reservation,
+		forwardingPolicy: forwardingPolicy,
+		maxLocalCsv:      f.cfg.MaxLocalCSVDelay,
+		channelType:      chanType,
+		err:              make(chan error, 1),
+		peer:             peer,
 	}
 	f.activeReservations[peerIDKey][msg.PendingChannelID] = resCtx
 	f.resMtx.Unlock()
@@ -1867,16 +1858,8 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 		CsvDelay:         msg.CsvDelay,
 	}
-	remoteConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        resCtx.remoteDustLimit,
-		MaxPendingAmount: resCtx.remoteMaxValue,
-		ChanReserve:      resCtx.remoteChanReserve,
-		MinHTLC:          resCtx.remoteMinHtlc,
-		MaxAcceptedHtlcs: resCtx.remoteMaxHtlcs,
-		CsvDelay:         resCtx.remoteCsvDelay,
-	}
 	err = resCtx.reservation.CommitConstraints(
-		localConstraints, remoteConstraints, resCtx.maxLocalCsv,
+		localConstraints, resCtx.remoteConstraints, resCtx.maxLocalCsv,
 	)
 	if err != nil {
 		log.Warnf("Unacceptable channel constraints: %v", err)
@@ -4117,19 +4100,21 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	resCtx := &reservationWithCtx{
-		forwardingPolicy:  forwardingPolicy,
-		remoteDustLimit:   dustLimit,
-		remoteCsvDelay:    remoteCsvDelay,
-		remoteMinHtlc:     minHtlcIn,
-		remoteMaxValue:    maxValue,
-		remoteMaxHtlcs:    maxHtlcs,
-		remoteChanReserve: chanReserve,
-		maxLocalCsv:       maxCSV,
-		channelType:       chanType,
-		reservation:       reservation,
-		peer:              msg.Peer,
-		updates:           msg.Updates,
-		err:               msg.Err,
+		forwardingPolicy: forwardingPolicy,
+		remoteConstraints: &channeldb.ChannelConstraints{
+			DustLimit:        dustLimit,
+			ChanReserve:      chanReserve,
+			MaxPendingAmount: maxValue,
+			MinHTLC:          minHtlcIn,
+			MaxAcceptedHtlcs: maxHtlcs,
+			CsvDelay:         remoteCsvDelay,
+		},
+		maxLocalCsv: maxCSV,
+		channelType: chanType,
+		reservation: reservation,
+		peer:        msg.Peer,
+		updates:     msg.Updates,
+		err:         msg.Err,
 	}
 	f.activeReservations[peerIDKey][chanID] = resCtx
 	f.resMtx.Unlock()

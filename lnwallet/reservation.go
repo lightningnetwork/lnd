@@ -436,34 +436,34 @@ func (r *ChannelReservation) IsZeroConf() bool {
 }
 
 // CommitConstraints takes the constraints that the remote party specifies for
-// the type of commitments that we can generate for them. These constraints
-// include several parameters that serve as flow control restricting the amount
-// of satoshis that can be transferred in a single commitment. This function
-// will also attempt to verify the constraints for sanity, returning an error
-// if the parameters are seemed unsound.
-func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
-	maxLocalCSVDelay uint16, responder bool) error {
+// the type of commitments that we can generate for them, as well as the
+// constraints we specify for them. These constraints include several parameters
+// that serve as flow control restricting the amount of satoshis that can be
+// transferred in a single commitment. This function will also attempt to verify
+// the constraints for sanity, returning an error if the parameters are deemed
+// unsound.
+func (r *ChannelReservation) CommitConstraints(local,
+	remote *channeldb.ChannelConstraints, maxLocalCSVDelay uint16) error {
 
 	r.Lock()
 	defer r.Unlock()
 
-	// First, verify the sanity of the channel constraints.
-	err := VerifyConstraints(c, maxLocalCSVDelay, r.partialState.Capacity)
+	// First, verify the sanity of the local channel constraints.
+	err := VerifyConstraints(local, maxLocalCSVDelay,
+		r.partialState.Capacity)
 	if err != nil {
 		return err
 	}
 
-	// Our dust limit should always be less than or equal to our proposed
-	// channel reserve.
-	if responder && r.ourContribution.DustLimit > c.ChanReserve {
-		r.ourContribution.DustLimit = c.ChanReserve
-	}
+	r.ourContribution.ChannelConstraints = *local
+	r.theirContribution.ChannelConstraints = *remote
 
-	r.ourContribution.ChanReserve = c.ChanReserve
-	r.ourContribution.MaxPendingAmount = c.MaxPendingAmount
-	r.ourContribution.MinHTLC = c.MinHTLC
-	r.ourContribution.MaxAcceptedHtlcs = c.MaxAcceptedHtlcs
-	r.ourContribution.CsvDelay = c.CsvDelay
+	// The dust limits are set in the opposite way to the other constraints.
+	// i.e. our local dust limit is the value we choose and send to the
+	// remote peer. Likewise, the remote dust limit is the value chosen by
+	// the peer and sent to us.
+	r.ourContribution.DustLimit = remote.DustLimit
+	r.theirContribution.DustLimit = local.DustLimit
 
 	return nil
 }

@@ -459,7 +459,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		CsvDelay:         csvDelay,
 	}
 	err = aliceChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay, false,
+		channelConstraints, channelConstraints, defaultMaxLocalCsvDelay,
 	)
 	require.NoError(t, err, "unable to verify constraints")
 
@@ -491,7 +491,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	bobChanReservation, err := bob.InitChannelReservation(bobReq)
 	require.NoError(t, err, "bob unable to init channel reservation")
 	err = bobChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay, true,
+		channelConstraints, channelConstraints, defaultMaxLocalCsvDelay,
 	)
 	require.NoError(t, err, "unable to verify constraints")
 	bobChanReservation.SetNumConfsRequired(numReqConfs)
@@ -864,7 +864,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		CsvDelay:         csvDelay,
 	}
 	err = aliceChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay, false,
+		channelConstraints, channelConstraints, defaultMaxLocalCsvDelay,
 	)
 	require.NoError(t, err, "unable to verify constraints")
 
@@ -903,7 +903,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	bobChanReservation, err := bob.InitChannelReservation(bobReq)
 	require.NoError(t, err, "unable to create bob reservation")
 	err = bobChanReservation.CommitConstraints(
-		channelConstraints, defaultMaxLocalCsvDelay, true,
+		channelConstraints, channelConstraints, defaultMaxLocalCsvDelay,
 	)
 	require.NoError(t, err, "unable to verify constraints")
 	bobChanReservation.SetNumConfsRequired(numReqConfs)

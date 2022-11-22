@@ -1199,7 +1199,6 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	)
 
 	reservation.partialState.RevocationProducer = producer
-	reservation.ourContribution.DustLimit = l.Cfg.DefaultDustLimit
 
 	return nil
 }
@@ -1330,10 +1329,17 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		}
 	}
 
-	// Some temporary variables to cut down on the resolution verbosity.
+	// Don't overwrite previously committed constraints.
+	// TODO(morehouse): extract the constraints from ChannelContribution.
+	theirConstraints :=
+		pendingReservation.theirContribution.ChannelConstraints
 	pendingReservation.theirContribution = req.contribution
-	theirContribution := req.contribution
+	pendingReservation.theirContribution.ChannelConstraints =
+		theirConstraints
+
+	// Some temporary variables to cut down on the resolution verbosity.
 	ourContribution := pendingReservation.ourContribution
+	theirContribution := pendingReservation.theirContribution
 
 	// Perform bounds-checking on both ChannelReserve and DustLimit
 	// parameters.
@@ -1663,7 +1669,15 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 
 	// Simply record the counterparty's contribution into the pending
 	// reservation data as they'll be solely funding the channel entirely.
+	// Don't overwrite previously committed constraints.
+	//
+	// TODO(morehouse): extract the constraints from ChannelContribution.
+	theirConstraints :=
+		pendingReservation.theirContribution.ChannelConstraints
 	pendingReservation.theirContribution = req.contribution
+	pendingReservation.theirContribution.ChannelConstraints =
+		theirConstraints
+
 	theirContribution := pendingReservation.theirContribution
 	chanState := pendingReservation.partialState
 

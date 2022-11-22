@@ -1634,6 +1634,30 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		htlc.ChanID = l.ChanID()
 		htlc.ID = pkt.incomingHTLCID
 
+		//  According to the spec, when failing an incoming HTLC:
+		//   - If `current_blinding_point` is set in the onion payload:
+		//     - MUST send an `update_fail_htlc` error using the
+		//       `invalid_onion_blinding` failure code with the `sha256_of_onion`
+		//       of the onion it received, for any local or downstream errors.
+		//     - SHOULD add a random delay before sending `update_fail_htlc`.
+
+		//   - If `blinding_point` is set in the incoming `update_add_htlc`:
+		//     - MUST send an `update_fail_malformed_htlc` error using the
+		//       `invalid_onion_blinding` failure code with the `sha256_of_onion`
+		//       of the onion it received, for any local or downstream errors.
+		//
+		// NOTE(11/20/22): All downstream and local errors which do not occur
+		// in the incoming link (ie: switch/outgoing link) must flow through
+		// this path of execution by the incoming link in order to be sent
+		// back towards the sender. This might prove a natural catch-all point
+		// to convert any error to InvalidOnionBlinding or add delay if we're
+		// the introduction node, however we do not have access to the
+		// information we would need to make such a decision at the moment.
+		// Also, the incoming link routinely responds directly (ie: not via
+		// this code path) to peers for local errors. Will we need a way to
+		// intercept and convert these?
+		// pkt.SomethingWhichIndicatesIntroductionNode
+
 		// We send the HTLC message to the peer which initially created
 		// the HTLC.
 		l.cfg.Peer.SendMessage(false, htlc)
@@ -1867,6 +1891,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 	case *lnwire.UpdateFailHTLC:
+		// NOTE(11/18/22): We just received a FAIL from our peer.
+		// The FAIL could be for an HTLC ADD which is part of a blinded
+		// route, but we have no way of knowing whether this is the case here!
+		// If the FAIL does correspond to an ADD which is part of a blinded
+		// route, then there is a chance that the failure reason risks
+		// leaking information about which node failed. We will need to
+		// protect against this somewhere.
 		idx := msg.ID
 		err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
 		if err != nil {
@@ -2977,6 +3008,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// If we're unable to process the onion blob than we
 			// should send the malformed htlc error to payment
 			// sender.
+			// NOTE(11/18/22): If this is a blind hop, then this
+			// error might need to be converted to InvalidOnionBlinding.
 			l.sendMalformedHTLCError(pd.HtlcIndex, failureCode,
 				onionBlob[:], pd.SourceRef)
 
@@ -2994,6 +3027,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// If we're unable to process the onion blob than we
 			// should send the malformed htlc error to payment
 			// sender.
+			// NOTE(11/18/22): If this is a blind hop, then this
+			// error might need to be converted to InvalidOnionBlinding.
 			l.sendMalformedHTLCError(
 				pd.HtlcIndex, failureCode, onionBlob[:], pd.SourceRef,
 			)
@@ -3022,6 +3057,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// for TLV payloads that also supports injecting invalid
 			// payloads. Deferring this non-trival effort till a
 			// later date
+			// NOTE(11/18/22): If this is a blind hop, then this
+			// error might need to be converted to InvalidOnionBlinding.
 			failure := lnwire.NewInvalidOnionPayload(failedType, 0)
 			l.sendHTLCError(
 				pd, NewLinkError(failure), obfuscator, false,
@@ -3168,9 +3205,20 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// create the outgoing HTLC using the parameters as
 			// specified in the forwarding info.
 			addMsg := &lnwire.UpdateAddHTLC{
-				Expiry:        fwdInfo.OutgoingCTLV,
-				Amount:        fwdInfo.AmountToForward,
-				PaymentHash:   pd.RHash,
+				Expiry:      fwdInfo.OutgoingCTLV,
+				Amount:      fwdInfo.AmountToForward,
+				PaymentHash: pd.RHash,
+				// NOTE(11/18/22): Whether our node is the introduction
+				// node or an intermediate node in the blinded route,
+				// we set a (route) blinding point on the UpdateAddHTLC
+				// for the next hop in the incoming link. This means,
+				// as is, the outgoing link will not be able to determine
+				// whether we were the introduction node or intermediate
+				// node when processing errors from downstream in a blinded
+				// route. This doesn't matter if we don't handle errors there.
+				// According to spec, introduction vs. intermediate nodes
+				// are supposed to handle errors a bit differently. Do we
+				// need to persist whether we are intro/intermediate?
 				BlindingPoint: nextBlindingPoint,
 			}
 
@@ -3191,6 +3239,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					true, hop.Source, cb,
 				)
 
+				// NOTE(11/18/22): If this is a blind hop, then this
+				// error might need to be converted to InvalidOnionBlinding.
 				l.sendHTLCError(
 					pd, NewLinkError(failure), obfuscator, false,
 				)
@@ -3282,6 +3332,10 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectHtlcAmount(pd.Amount),
 		)
+		// NOTE(11/18/22): If this is a blind hop, then this
+		// error might need to be converted to InvalidOnionBlinding.
+		// Unless we received the (route) blinding point in the
+		// onion payload, in which case we can send errors like normal!
 		l.sendHTLCError(pd, failure, obfuscator, true)
 
 		return nil
@@ -3297,6 +3351,10 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		failure := NewLinkError(
 			lnwire.NewFinalIncorrectCltvExpiry(pd.Timeout),
 		)
+		// NOTE(11/18/22): If this is a blind hop, then this
+		// error might need to be converted to InvalidOnionBlinding.
+		// Unless we received the (route) blinding point in the
+		// onion payload, in which case we can send errors like normal!
 		l.sendHTLCError(pd, failure, obfuscator, true)
 
 		return nil

@@ -430,6 +430,8 @@ func testGetRecoveryInfo(miner *rpctest.Harness,
 func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	alice, bob *lnwallet.LightningWallet, t *testing.T) {
 
+	t.Skipf("dual funding isn't exposed on the p2p layer")
+
 	fundingAmount, err := btcutil.NewAmount(5)
 	require.NoError(t, err, "unable to create amt")
 

@@ -261,10 +261,10 @@ func testOnchainFundRecovery(ht *lntemp.HarnessTest) {
 	restoreCheckBalance(finalBalance, 9, 20, promptChangeAddr)
 
 	// We should expect a static fee of 36400 satoshis for spending 9
-	// inputs (3 P2WPKH, 3 NP2WPKH, 3 P2TR) to two P2WPKH outputs. Carol
+	// inputs (3 P2WPKH, 3 NP2WPKH, 3 P2TR) to two P2TR outputs. Carol
 	// should therefore only have one UTXO present (the change output) of
 	// 9 - 8 - fee BTC.
-	const fee = 36400
+	const fee = 37000
 	restoreCheckBalance(finalBalance-minerAmt-fee, 1, 21, nil)
 
 	// Last of all, make sure we can also restore a node from the extended

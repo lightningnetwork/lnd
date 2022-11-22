@@ -430,6 +430,8 @@ func testGetRecoveryInfo(miner *rpctest.Harness,
 func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	alice, bob *lnwallet.LightningWallet, t *testing.T) {
 
+	t.Skipf("dual funding isn't exposed on the p2p layer")
+
 	fundingAmount, err := btcutil.NewAmount(5)
 	require.NoError(t, err, "unable to create amt")
 
@@ -2194,9 +2196,9 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 	// TODO(wilmer): replace this once SendOutputs easily supports sending
 	// all funds in one transaction.
 	txFeeRate := chainfee.SatPerKWeight(2500)
-	txFee := btcutil.Amount(14380)
+	const txFee = int64(14500)
 	output := &wire.TxOut{
-		Value:    int64(aliceBalance - txFee),
+		Value:    int64(aliceBalance) - txFee,
 		PkScript: bobPkScript,
 	}
 	tx := sendCoins(t, r, alice, bob, output, txFeeRate, true, 1)
@@ -2562,7 +2564,9 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		// _very_ similar to the one we just created being sent. The
 		// only difference is that the dry run tx is not signed, and
 		// that the change output position might be different.
-		tx, sendErr := w.SendOutputs(outputs, feeRate, minConfs, labels.External)
+		tx, sendErr := w.SendOutputs(
+			outputs, feeRate, minConfs, labels.External,
+		)
 		switch {
 		case test.valid && sendErr != nil:
 			t.Fatalf("got unexpected error when sending tx: %v",
@@ -2647,6 +2651,16 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		if err := assertSimilarTx(createTx.Tx, tx); err != nil {
 			t.Fatalf("transactions not similar: %v", err)
 		}
+
+		// Now that we know both transactions were essentially
+		// identical, we'll make sure that a P2TR addr was used as the
+		// change output, which is the current default.
+		changeTxOut := createTx.Tx.TxOut[createTx.ChangeIndex]
+		changeScriptType, _, _, err := txscript.ExtractPkScriptAddrs(
+			changeTxOut.PkScript, &w.Cfg.NetParams,
+		)
+		require.NoError(t, err)
+		require.Equal(t, changeScriptType, txscript.WitnessV1TaprootTy)
 	}
 }
 

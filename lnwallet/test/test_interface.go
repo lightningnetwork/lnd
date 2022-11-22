@@ -2562,7 +2562,9 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		// _very_ similar to the one we just created being sent. The
 		// only difference is that the dry run tx is not signed, and
 		// that the change output position might be different.
-		tx, sendErr := w.SendOutputs(outputs, feeRate, minConfs, labels.External)
+		tx, sendErr := w.SendOutputs(
+			outputs, feeRate, minConfs, labels.External,
+		)
 		switch {
 		case test.valid && sendErr != nil:
 			t.Fatalf("got unexpected error when sending tx: %v",
@@ -2647,6 +2649,16 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		if err := assertSimilarTx(createTx.Tx, tx); err != nil {
 			t.Fatalf("transactions not similar: %v", err)
 		}
+
+		// Now that we know both transactions were essentially
+		// identical, we'll make sure that a P2TR addr was used as the
+		// change output, which is the current default.
+		changeTxOut := createTx.Tx.TxOut[createTx.ChangeIndex]
+		changeScriptType, _, _, err := txscript.ExtractPkScriptAddrs(
+			changeTxOut.PkScript, &w.Cfg.NetParams,
+		)
+		require.NoError(t, err)
+		require.Equal(t, changeScriptType, txscript.WitnessV1TaprootTy)
 	}
 }
 

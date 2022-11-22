@@ -2194,9 +2194,9 @@ func testChangeOutputSpendConfirmation(r *rpctest.Harness,
 	// TODO(wilmer): replace this once SendOutputs easily supports sending
 	// all funds in one transaction.
 	txFeeRate := chainfee.SatPerKWeight(2500)
-	txFee := btcutil.Amount(14380)
+	const txFee = int64(14500)
 	output := &wire.TxOut{
-		Value:    int64(aliceBalance - txFee),
+		Value:    int64(aliceBalance) - txFee,
 		PkScript: bobPkScript,
 	}
 	tx := sendCoins(t, r, alice, bob, output, txFeeRate, true, 1)

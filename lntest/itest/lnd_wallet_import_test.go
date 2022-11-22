@@ -265,8 +265,14 @@ func psbtSendFromImportedAccount(t *harnessTest, srcNode, destNode,
 	)
 	switch accountAddrType {
 	case walletrpc.AddressType_WITNESS_PUBKEY_HASH:
-		expTxFee = 141
-		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
+		if account != defaultImportedAccount {
+			expTxFee = 141
+			expChangeScriptType = txscript.WitnessV0PubKeyHashTy
+			break
+		}
+
+		expTxFee = 153
+		expChangeScriptType = txscript.WitnessV1TaprootTy
 
 	case walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH:
 		if account != defaultImportedAccount {
@@ -275,14 +281,16 @@ func psbtSendFromImportedAccount(t *harnessTest, srcNode, destNode,
 			break
 		}
 
-		// Spends from the default NP2WKH imported account have the same
-		// fee rate as the hybrid address type since a NP2WKH input is
-		// spent and a P2WKH change output is created.
-		fallthrough
+		expTxFee = 176
+		expChangeScriptType = txscript.WitnessV1TaprootTy
 
 	case walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 		expTxFee = 164
 		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
+
+	case walletrpc.AddressType_TAPROOT_PUBKEY:
+		expTxFee = 143
+		expChangeScriptType = txscript.WitnessV1TaprootTy
 
 	default:
 		t.Fatalf("unsupported addr type %v", accountAddrType)
@@ -418,8 +426,14 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 	)
 	switch accountAddrType {
 	case walletrpc.AddressType_WITNESS_PUBKEY_HASH:
-		expChanTxFee = 153
-		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
+		if account != defaultImportedAccount {
+			expChanTxFee = 153
+			expChangeScriptType = txscript.WitnessV0PubKeyHashTy
+			break
+		}
+
+		expChanTxFee = 165
+		expChangeScriptType = txscript.WitnessV1TaprootTy
 
 	case walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH:
 		if account != defaultImportedAccount {
@@ -428,14 +442,16 @@ func fundChanAndCloseFromImportedAccount(t *harnessTest, srcNode, destNode,
 			break
 		}
 
-		// Spends from the default NP2WKH imported account have the same
-		// fee rate as the hybrid address type since a NP2WKH input is
-		// spent and a P2WKH change output is created.
-		fallthrough
+		expChanTxFee = 188
+		expChangeScriptType = txscript.WitnessV1TaprootTy
 
 	case walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 		expChanTxFee = 176
 		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
+
+	case walletrpc.AddressType_TAPROOT_PUBKEY:
+		expChanTxFee = 155
+		expChangeScriptType = txscript.WitnessV1TaprootTy
 
 	default:
 		t.Fatalf("unsupported addr type %v", accountAddrType)

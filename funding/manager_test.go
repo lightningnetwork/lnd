@@ -328,15 +328,15 @@ func createTestWallet(cdb *channeldb.ChannelStateDB, netParams *chaincfg.Params,
 	estimator chainfee.Estimator) (*lnwallet.LightningWallet, error) {
 
 	wallet, err := lnwallet.NewLightningWallet(lnwallet.Config{
-		Database:           cdb,
-		Notifier:           notifier,
-		SecretKeyRing:      keyRing,
-		WalletController:   wc,
-		Signer:             signer,
-		ChainIO:            bio,
-		FeeEstimator:       estimator,
-		NetParams:          *netParams,
-		DefaultConstraints: chainreg.GenDefaultBtcConstraints(),
+		Database:         cdb,
+		Notifier:         notifier,
+		SecretKeyRing:    keyRing,
+		WalletController: wc,
+		Signer:           signer,
+		ChainIO:          bio,
+		FeeEstimator:     estimator,
+		NetParams:        *netParams,
+		DefaultDustLimit: chainreg.GenDefaultBtcDustLimit(),
 	})
 	if err != nil {
 		return nil, err

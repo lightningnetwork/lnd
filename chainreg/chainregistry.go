@@ -154,13 +154,6 @@ const (
 	BtcToLtcConversionRate = 60
 )
 
-// DefaultLtcChannelConstraints is the default set of channel constraints that
-// are meant to be used when initially funding a Litecoin channel.
-var DefaultLtcChannelConstraints = channeldb.ChannelConstraints{
-	DustLimit:        DefaultLitecoinDustLimit,
-	MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-}
-
 // PartialChainControl contains all the primary interfaces of the chain control
 // that can be purely constructed from the global configuration. No wallet
 // instance is required for constructing this partial state.
@@ -196,9 +189,9 @@ type PartialChainControl struct {
 	// MinHtlcIn is the minimum HTLC we will accept.
 	MinHtlcIn lnwire.MilliSatoshi
 
-	// ChannelConstraints is the set of default constraints that will be
-	// used for any incoming or outgoing channel reservation requests.
-	ChannelConstraints channeldb.ChannelConstraints
+	// DefaultDustLimit is the default dust limit that will be used for any
+	// incoming or outgoing channel reservation requests.
+	DefaultDustLimit btcutil.Amount
 }
 
 // ChainControl couples the three primary interfaces lnd utilizes for a
@@ -233,17 +226,12 @@ type ChainControl struct {
 	Wallet *lnwallet.LightningWallet
 }
 
-// GenDefaultBtcConstraints generates the default set of channel constraints
-// that are to be used when funding a Bitcoin channel.
-func GenDefaultBtcConstraints() channeldb.ChannelConstraints {
+// GenDefaultBtcDustLimit generates the default dust limit to be used when
+// funding a Bitcoin channel.
+func GenDefaultBtcDustLimit() btcutil.Amount {
 	// We use the dust limit for the maximally sized witness program with
 	// a 40-byte data push.
-	dustLimit := lnwallet.DustLimitForSize(input.UnknownWitnessSize)
-
-	return channeldb.ChannelConstraints{
-		DustLimit:        dustLimit,
-		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-	}
+	return lnwallet.DustLimitForSize(input.UnknownWitnessSize)
 }
 
 // NewPartialChainControl creates a new partial chain control that contains all
@@ -788,9 +776,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	}
 
 	// Select the default channel constraints for the primary chain.
-	cc.ChannelConstraints = GenDefaultBtcConstraints()
+	cc.DefaultDustLimit = GenDefaultBtcDustLimit()
 	if cfg.PrimaryChain() == LitecoinChain {
-		cc.ChannelConstraints = DefaultLtcChannelConstraints
+		cc.DefaultDustLimit = DefaultLitecoinDustLimit
 	}
 
 	return cc, ccCleanup, nil

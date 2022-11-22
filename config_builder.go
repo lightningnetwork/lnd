@@ -629,15 +629,15 @@ func (d *DefaultWalletImpl) BuildChainControl(
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	lnWalletConfig := lnwallet.Config{
-		Database:           partialChainControl.Cfg.ChanStateDB,
-		Notifier:           partialChainControl.ChainNotifier,
-		WalletController:   walletController,
-		Signer:             walletController,
-		FeeEstimator:       partialChainControl.FeeEstimator,
-		SecretKeyRing:      keyRing,
-		ChainIO:            walletController,
-		DefaultConstraints: partialChainControl.ChannelConstraints,
-		NetParams:          *walletConfig.NetParams,
+		Database:         partialChainControl.Cfg.ChanStateDB,
+		Notifier:         partialChainControl.ChainNotifier,
+		WalletController: walletController,
+		Signer:           walletController,
+		FeeEstimator:     partialChainControl.FeeEstimator,
+		SecretKeyRing:    keyRing,
+		ChainIO:          walletController,
+		DefaultDustLimit: partialChainControl.DefaultDustLimit,
+		NetParams:        *walletConfig.NetParams,
 	}
 
 	// We've created the wallet configuration now, so we can finish
@@ -717,15 +717,15 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	lnWalletConfig := lnwallet.Config{
-		Database:           partialChainControl.Cfg.ChanStateDB,
-		Notifier:           partialChainControl.ChainNotifier,
-		WalletController:   rpcKeyRing,
-		Signer:             rpcKeyRing,
-		FeeEstimator:       partialChainControl.FeeEstimator,
-		SecretKeyRing:      rpcKeyRing,
-		ChainIO:            walletController,
-		DefaultConstraints: partialChainControl.ChannelConstraints,
-		NetParams:          *walletConfig.NetParams,
+		Database:         partialChainControl.Cfg.ChanStateDB,
+		Notifier:         partialChainControl.ChainNotifier,
+		WalletController: rpcKeyRing,
+		Signer:           rpcKeyRing,
+		FeeEstimator:     partialChainControl.FeeEstimator,
+		SecretKeyRing:    rpcKeyRing,
+		ChainIO:          walletController,
+		DefaultDustLimit: partialChainControl.DefaultDustLimit,
+		NetParams:        *walletConfig.NetParams,
 	}
 
 	// We've created the wallet configuration now, so we can finish

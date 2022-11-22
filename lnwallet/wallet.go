@@ -1199,7 +1199,7 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	)
 
 	reservation.partialState.RevocationProducer = producer
-	reservation.ourContribution.ChannelConstraints = l.Cfg.DefaultConstraints
+	reservation.ourContribution.DustLimit = l.Cfg.DefaultDustLimit
 
 	return nil
 }

@@ -355,14 +355,8 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 		Signer:           signer,
 		ChainIO:          bio,
 		FeeEstimator:     chainfee.NewStaticEstimator(2500, 0),
-		DefaultConstraints: channeldb.ChannelConstraints{
-			DustLimit:        500,
-			MaxPendingAmount: lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) * 100,
-			ChanReserve:      100,
-			MinHTLC:          400,
-			MaxAcceptedHtlcs: 900,
-		},
-		NetParams: *netParams,
+		DefaultDustLimit: 500, //nolint:gomnd
+		NetParams:        *netParams,
 	}
 
 	wallet, err := lnwallet.NewLightningWallet(cfg)
@@ -457,7 +451,7 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	require.NoError(t, err, "unable to initialize funding reservation")
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
 	channelConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        alice.Cfg.DefaultConstraints.DustLimit,
+		DustLimit:        alice.Cfg.DefaultDustLimit,
 		ChanReserve:      fundingAmount / 100,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmount),
 		MinHTLC:          1,
@@ -862,7 +856,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	require.NoError(t, err, "unable to init channel reservation")
 	aliceChanReservation.SetNumConfsRequired(numReqConfs)
 	channelConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        alice.Cfg.DefaultConstraints.DustLimit,
+		DustLimit:        alice.Cfg.DefaultDustLimit,
 		ChanReserve:      fundingAmt / 100,
 		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmt),
 		MinHTLC:          1,

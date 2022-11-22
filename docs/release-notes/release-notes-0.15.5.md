@@ -16,6 +16,9 @@
   to avoid scanning the whole
   chain](https://github.com/lightningnetwork/lnd/pull/7056).
 
+* Taproot outputs are now correctly shown as `SCRIPT_TYPE_WITNESS_V1_TAPROOT` in
+  the output of `GetTransactions` (`lncli listchaintxns`).
+
 # Contributors (Alphabetical Order)
 
 * Olaoluwa Osuntokun

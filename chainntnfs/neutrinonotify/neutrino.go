@@ -432,7 +432,9 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 				// chain asynchronously to prevent blocking
 				// potentially long rescans.
 				n.wg.Add(1)
-				go func() {
+
+				//nolint:lll
+				go func(msg *chainntnfs.HistoricalConfDispatch) {
 					defer n.wg.Done()
 
 					confDetails, err := n.historicalConfDetails(
@@ -457,7 +459,7 @@ func (n *NeutrinoNotifier) notificationDispatcher() {
 					if err != nil {
 						chainntnfs.Log.Error(err)
 					}
-				}()
+				}(msg)
 
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")

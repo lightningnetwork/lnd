@@ -39,6 +39,7 @@ func NewForce(interval time.Duration) *Force {
 	m.wg.Add(1)
 	go func() {
 		defer m.wg.Done()
+
 		for {
 			select {
 			case t := <-m.ticker:

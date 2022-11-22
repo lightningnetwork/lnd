@@ -1969,6 +1969,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		f.wg.Add(1)
 		go func() {
 			defer f.wg.Done()
+
 			f.waitForPsbt(psbtIntent, resCtx, pendingChanID)
 		}()
 

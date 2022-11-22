@@ -689,6 +689,7 @@ func (s *sessionQueueSet) ApplyAndWait(getApply func(*sessionQueue) func()) {
 		wg.Add(1)
 		go func(sq *sessionQueue) {
 			defer wg.Done()
+
 			getApply(sq)()
 		}(sessionq)
 	}

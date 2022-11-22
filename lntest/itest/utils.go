@@ -78,13 +78,12 @@ func completePaymentRequests(client lnrpc.LightningClient,
 	// Launch all payments simultaneously.
 	results := make(chan error)
 	for _, payReq := range paymentRequests {
-		payReqCopy := payReq
-		go func() {
-			err := send(payReqCopy)
+		go func(payReq string) {
+			err := send(payReq)
 			if awaitResponse {
 				results <- err
 			}
-		}()
+		}(payReq)
 	}
 
 	// If awaiting a response, verify that all payments succeeded.
@@ -406,6 +405,7 @@ func subscribeChannelNotifications(ctxb context.Context, t *harnessTest,
 	chanUpdates := make(chan *lnrpc.ChannelEventUpdate, 20)
 	go func() {
 		defer cancelFunc()
+
 		for {
 			select {
 			case <-quit:

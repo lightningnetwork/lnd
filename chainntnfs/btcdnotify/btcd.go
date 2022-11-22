@@ -347,7 +347,9 @@ out:
 				//
 				// TODO(wilmer): add retry logic if rescan fails?
 				b.wg.Add(1)
-				go func() {
+
+				//nolint:lll
+				go func(msg *chainntnfs.HistoricalConfDispatch) {
 					defer b.wg.Done()
 
 					confDetails, _, err := b.historicalConfDetails(
@@ -372,7 +374,7 @@ out:
 					if err != nil {
 						chainntnfs.Log.Error(err)
 					}
-				}()
+				}(msg)
 
 			case *blockEpochRegistration:
 				chainntnfs.Log.Infof("New block epoch subscription")

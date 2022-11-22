@@ -1483,9 +1483,13 @@ out:
 
 			// Launch a goroutine to re-package and send
 			// notifications for any newly confirmed transactions.
-			go func() {
+			//nolint:lll
+			go func(txNtfn *wallet.TransactionNotifications) {
 				for _, block := range txNtfn.AttachedBlocks {
-					details, err := minedTransactionsToDetails(currentHeight, block, t.w.ChainParams())
+					details, err := minedTransactionsToDetails(
+						currentHeight, block,
+						t.w.ChainParams(),
+					)
 					if err != nil {
 						continue
 					}
@@ -1499,11 +1503,11 @@ out:
 					}
 				}
 
-			}()
+			}(txNtfn)
 
 			// Launch a goroutine to re-package and send
 			// notifications for any newly unconfirmed transactions.
-			go func() {
+			go func(txNtfn *wallet.TransactionNotifications) {
 				for _, tx := range txNtfn.UnminedTransactions {
 					detail, err := unminedTransactionsToDetail(
 						tx, t.w.ChainParams(),
@@ -1518,7 +1522,7 @@ out:
 						return
 					}
 				}
-			}()
+			}(txNtfn)
 		case <-t.quit:
 			break out
 		}

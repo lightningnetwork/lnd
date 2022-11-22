@@ -1415,6 +1415,7 @@ func (s *UtxoSweeper) waitForSpend(outpoint wire.OutPoint,
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+
 		select {
 		case spend, ok := <-spendEvent.Spend:
 			if !ok {

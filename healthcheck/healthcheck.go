@@ -71,10 +71,11 @@ func (m *Monitor) Start() error {
 		}
 
 		m.wg.Add(1)
-		go func() {
+		go func(check *Observation) {
 			defer m.wg.Done()
+
 			check.monitor(m.cfg.Shutdown, m.quit)
-		}()
+		}(check)
 	}
 
 	return nil

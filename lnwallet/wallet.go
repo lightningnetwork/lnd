@@ -1341,13 +1341,6 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	ourContribution := pendingReservation.ourContribution
 	theirContribution := pendingReservation.theirContribution
 
-	// Perform bounds-checking on both ChannelReserve and DustLimit
-	// parameters.
-	if !pendingReservation.validateReserveBounds() {
-		req.err <- fmt.Errorf("invalid reserve and dust bounds")
-		return
-	}
-
 	var (
 		chanPoint *wire.OutPoint
 		err       error
@@ -1680,14 +1673,6 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 
 	theirContribution := pendingReservation.theirContribution
 	chanState := pendingReservation.partialState
-
-	// Perform bounds checking on both ChannelReserve and DustLimit
-	// parameters. The ChannelReserve may have been changed by the
-	// ChannelAcceptor RPC, so this is necessary.
-	if !pendingReservation.validateReserveBounds() {
-		req.err <- fmt.Errorf("invalid reserve and dust bounds")
-		return
-	}
 
 	// Initialize an empty sha-chain for them, tracking the current pending
 	// revocation hash (we don't yet know the preimage so we can't add it

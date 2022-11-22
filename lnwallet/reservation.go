@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 
@@ -464,6 +465,10 @@ func (r *ChannelReservation) CommitConstraints(local,
 	// the peer and sent to us.
 	r.ourContribution.DustLimit = remote.DustLimit
 	r.theirContribution.DustLimit = local.DustLimit
+
+	if !r.validateReserveBounds() {
+		return fmt.Errorf("invalid reserve and dust bounds")
+	}
 
 	return nil
 }

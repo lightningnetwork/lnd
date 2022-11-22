@@ -1003,25 +1003,85 @@ func testQueryRoutes(ht *lntemp.HarnessTest) {
 func testMissionControlCfg(t *testing.T, hn *node.HarnessNode) {
 	t.Helper()
 
-	startCfg := hn.RPC.GetMissionControlConfig()
+	// Getting and setting does not alter the configuration.
+	startCfg := hn.RPC.GetMissionControlConfig().Config
+	hn.RPC.SetMissionControlConfig(startCfg)
+	resp := hn.RPC.GetMissionControlConfig()
+	require.True(t, proto.Equal(startCfg, resp.Config))
 
+	// We test that setting and getting leads to the same config if all
+	// fields are set.
 	cfg := &routerrpc.MissionControlConfig{
-		HalfLifeSeconds:             8000,
-		HopProbability:              0.8,
-		Weight:                      0.3,
 		MaximumPaymentResults:       30,
 		MinimumFailureRelaxInterval: 60,
+		Model: routerrpc.
+			MissionControlConfig_APRIORI,
+		EstimatorConfig: &routerrpc.MissionControlConfig_Apriori{
+			Apriori: &routerrpc.AprioriParameters{
+				HalfLifeSeconds: 8000,
+				HopProbability:  0.8,
+				Weight:          0.3,
+			},
+		},
 	}
-
 	hn.RPC.SetMissionControlConfig(cfg)
 
-	resp := hn.RPC.GetMissionControlConfig()
-	require.True(t, proto.Equal(cfg, resp.Config))
+	// The deprecated fields should be populated.
+	cfg.HalfLifeSeconds = 8000
+	cfg.HopProbability = 0.8
+	cfg.Weight = 0.3
+	respCfg := hn.RPC.GetMissionControlConfig().Config
+	require.True(t, proto.Equal(cfg, respCfg))
 
-	hn.RPC.SetMissionControlConfig(startCfg.Config)
+	// Switching to another estimator is possible.
+	cfg = &routerrpc.MissionControlConfig{
+		Model: routerrpc.
+			MissionControlConfig_BIMODAL,
+		EstimatorConfig: &routerrpc.MissionControlConfig_Bimodal{
+			Bimodal: &routerrpc.BimodalParameters{
+				ScaleMsat: 1_000,
+				DecayTime: 500,
+			},
+		},
+	}
+	hn.RPC.SetMissionControlConfig(cfg)
+	respCfg = hn.RPC.GetMissionControlConfig().Config
+	require.NotNil(t, respCfg.GetBimodal())
 
+	// If parameters are not set in the request, they will have zero values
+	// after.
+	require.Zero(t, respCfg.MaximumPaymentResults)
+	require.Zero(t, respCfg.MinimumFailureRelaxInterval)
+	require.Zero(t, respCfg.GetBimodal().NodeWeight)
+
+	// Setting deprecated values will initialize the apriori estimator.
+	cfg = &routerrpc.MissionControlConfig{
+		MaximumPaymentResults:       30,
+		MinimumFailureRelaxInterval: 60,
+		HopProbability:              0.8,
+		Weight:                      0.3,
+		HalfLifeSeconds:             8000,
+	}
+	hn.RPC.SetMissionControlConfig(cfg)
+	respCfg = hn.RPC.GetMissionControlConfig().Config
+	require.NotNil(t, respCfg.GetApriori())
+
+	// Setting the wrong config results in an error.
+	cfg = &routerrpc.MissionControlConfig{
+		Model: routerrpc.
+			MissionControlConfig_APRIORI,
+		EstimatorConfig: &routerrpc.MissionControlConfig_Bimodal{
+			Bimodal: &routerrpc.BimodalParameters{
+				ScaleMsat: 1_000,
+			},
+		},
+	}
+	hn.RPC.SetMissionControlConfigAssertErr(cfg)
+
+	// Undo any changes.
+	hn.RPC.SetMissionControlConfig(startCfg)
 	resp = hn.RPC.GetMissionControlConfig()
-	require.True(t, proto.Equal(startCfg.Config, resp.Config))
+	require.True(t, proto.Equal(startCfg, resp.Config))
 }
 
 // testMissionControlImport tests import of mission control results from an

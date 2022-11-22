@@ -593,6 +593,14 @@
       ],
       "default": "IN_FLIGHT"
     },
+    "MissionControlConfigProbabilityModel": {
+      "type": "string",
+      "enum": [
+        "APRIORI",
+        "BIMODAL"
+      ],
+      "default": "APRIORI"
+    },
     "lnrpcAMPRecord": {
       "type": "object",
       "properties": {
@@ -1073,6 +1081,46 @@
         }
       }
     },
+    "routerrpcAprioriParameters": {
+      "type": "object",
+      "properties": {
+        "half_life_seconds": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of time mission control will take to restore a penalized node\nor channel back to 50% success probability, expressed in seconds. Setting\nthis value to a higher value will penalize failures for longer, making\nmission control less likely to route through nodes and channels that we\nhave previously recorded failures for."
+        },
+        "hop_probability": {
+          "type": "number",
+          "format": "double",
+          "description": "The probability of success mission control should assign to hop in a route\nwhere it has no other information available. Higher values will make mission\ncontrol more willing to try hops that we have no information about, lower\nvalues will discourage trying these hops."
+        },
+        "weight": {
+          "type": "number",
+          "format": "double",
+          "description": "The importance that mission control should place on historical results,\nexpressed as a value in [0;1]. Setting this value to 1 will ignore all\nhistorical payments and just use the hop probability to assess the\nprobability of success for each hop. A zero value ignores hop probability\ncompletely and relies entirely on historical results, unless none are\navailable."
+        }
+      }
+    },
+    "routerrpcBimodalParameters": {
+      "type": "object",
+      "properties": {
+        "node_weight": {
+          "type": "number",
+          "format": "double",
+          "description": "NodeWeight defines how strongly other previous forwardings on channels of a\nrouter should be taken into account when computing a channel's probability\nto route. The allowed values are in the range [0, 1], where a value of 0\nmeans that only direct information about a channel is taken into account."
+        },
+        "scale_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "ScaleMsat describes the scale over which channels statistically have some\nliquidity left. The value determines how quickly the bimodal distribution\ndrops off from the edges of a channel. A larger value (compared to typical\nchannel capacities) means that the drop off is slow and that channel\nbalances are distributed more uniformly. A small value leads to the\nassumption of very unbalanced channels."
+        },
+        "decay_time": {
+          "type": "string",
+          "format": "uint64",
+          "description": "DecayTime describes the information decay of knowledge about previous\nsuccesses and failures in channels. The smaller the decay time, the quicker\nwe forget about past forwardings."
+        }
+      }
+    },
     "routerrpcBuildRouteRequest": {
       "type": "object",
       "properties": {
@@ -1400,17 +1448,17 @@
         "half_life_seconds": {
           "type": "string",
           "format": "uint64",
-          "description": "The amount of time mission control will take to restore a penalized node\nor channel back to 50% success probability, expressed in seconds. Setting\nthis value to a higher value will penalize failures for longer, making\nmission control less likely to route through nodes and channels that we\nhave previously recorded failures for."
+          "description": "Deprecated, use AprioriParameters. The amount of time mission control will\ntake to restore a penalized node or channel back to 50% success probability,\nexpressed in seconds. Setting this value to a higher value will penalize\nfailures for longer, making mission control less likely to route through\nnodes and channels that we have previously recorded failures for."
         },
         "hop_probability": {
           "type": "number",
           "format": "float",
-          "description": "The probability of success mission control should assign to hop in a route\nwhere it has no other information available. Higher values will make mission\ncontrol more willing to try hops that we have no information about, lower\nvalues will discourage trying these hops."
+          "description": "Deprecated, use AprioriParameters. The probability of success mission\ncontrol should assign to hop in a route where it has no other information\navailable. Higher values will make mission control more willing to try hops\nthat we have no information about, lower values will discourage trying these\nhops."
         },
         "weight": {
           "type": "number",
           "format": "float",
-          "description": "The importance that mission control should place on historical results,\nexpressed as a value in [0;1]. Setting this value to 1 will ignore all\nhistorical payments and just use the hop probability to assess the\nprobability of success for each hop. A zero value ignores hop probability\ncompletely and relies entirely on historical results, unless none are\navailable."
+          "description": "Deprecated, use AprioriParameters. The importance that mission control\nshould place on historical results, expressed as a value in [0;1]. Setting\nthis value to 1 will ignore all historical payments and just use the hop\nprobability to assess the probability of success for each hop. A zero value\nignores hop probability completely and relies entirely on historical\nresults, unless none are available."
         },
         "maximum_payment_results": {
           "type": "integer",
@@ -1421,6 +1469,16 @@
           "type": "string",
           "format": "uint64",
           "description": "The minimum time that must have passed since the previously recorded failure\nbefore we raise the failure amount."
+        },
+        "Model": {
+          "$ref": "#/definitions/MissionControlConfigProbabilityModel",
+          "description": "ProbabilityModel defines which probability estimator should be used in\npathfinding."
+        },
+        "apriori": {
+          "$ref": "#/definitions/routerrpcAprioriParameters"
+        },
+        "bimodal": {
+          "$ref": "#/definitions/routerrpcBimodalParameters"
         }
       }
     },

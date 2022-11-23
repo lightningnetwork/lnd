@@ -298,6 +298,10 @@ type ChannelLinkConfig struct {
 	// when channels become inactive.
 	NotifyInactiveChannel func(wire.OutPoint)
 
+	// NotifyInactiveLinkEvent allows the switch to tell the
+	// ChannelNotifier when a channel link become inactive.
+	NotifyInactiveLinkEvent func(wire.OutPoint)
+
 	// HtlcNotifier is an instance of a htlcNotifier which we will pipe htlc
 	// events through.
 	HtlcNotifier htlcNotifier
@@ -3370,8 +3374,11 @@ func (l *channelLink) fail(linkErr LinkFailureError,
 // reestablishment is successful or not.
 func (l *channelLink) reestablish() bool {
 	// Notify any clients that the link is now in the switch via an
-	// ActiveLinkEvent.
+	// ActiveLinkEvent. We'll also defer an inactive link notification for
+	// when the link exits to ensure that every active notification is
+	// matched by an inactive one.
 	l.cfg.NotifyActiveLink(*l.ChannelPoint())
+	defer l.cfg.NotifyInactiveLinkEvent(*l.ChannelPoint())
 
 	// Exit early if there's no need to re-synchronize.
 	if !l.cfg.SyncStates {

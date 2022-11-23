@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -1035,6 +1036,14 @@ func TestPeerCustomMessage(t *testing.T) {
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 
+	// TODO(yy): change ChannelNotifier to be an interface.
+	channelNotifier := channelnotifier.New(dbAlice.ChannelStateDB())
+	require.NoError(t, channelNotifier.Start())
+	t.Cleanup(func() {
+		require.NoError(t, channelNotifier.Stop(),
+			"stop channel notifier failed")
+	})
+
 	alicePeer := NewBrontide(Config{
 		PubKeyBytes: remoteKey,
 		ChannelDB:   dbAlice.ChannelStateDB(),
@@ -1057,7 +1066,8 @@ func TestPeerCustomMessage(t *testing.T) {
 			}
 			return nil
 		},
-		PongBuf: make([]byte, lnwire.MaxPongBytes),
+		PongBuf:         make([]byte, lnwire.MaxPongBytes),
+		ChannelNotifier: channelNotifier,
 	})
 
 	// Set up the init sequence.

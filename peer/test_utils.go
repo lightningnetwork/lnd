@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -377,6 +378,14 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		return nil, nil, err
 	}
 
+	// TODO(yy): change ChannelNotifier to be an interface.
+	channelNotifier := channelnotifier.New(dbAlice.ChannelStateDB())
+	require.NoError(t, channelNotifier.Start())
+	t.Cleanup(func() {
+		require.NoError(t, channelNotifier.Stop(),
+			"stop channel notifier failed")
+	})
+
 	cfg := &Config{
 		Addr:              cfgAddr,
 		PubKeyBytes:       pubKey,
@@ -392,6 +401,7 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		ChanStatusMgr:     chanStatusMgr,
 		Features:          lnwire.NewFeatureVector(nil, lnwire.Features),
 		DisconnectPeer:    func(b *btcec.PublicKey) error { return nil },
+		ChannelNotifier:   channelNotifier,
 	}
 
 	alicePeer := NewBrontide(*cfg)
@@ -400,8 +410,11 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 	chanID := lnwire.NewChanIDFromOutPoint(channelAlice.ChannelPoint())
 	alicePeer.activeChannels[chanID] = channelAlice
 
+	sub, err := cfg.ChannelNotifier.SubscribeChannelEvents()
+	require.NoError(t, err)
+
 	alicePeer.wg.Add(1)
-	go alicePeer.channelManager()
+	go alicePeer.channelManager(sub)
 
 	return alicePeer, channelBob, nil
 }

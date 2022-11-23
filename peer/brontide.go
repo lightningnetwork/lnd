@@ -2508,34 +2508,7 @@ out:
 func (p *Brontide) reenableActiveChannels() {
 	// First, filter all known channels with this peer for ones that are
 	// both public and not pending.
-	var activePublicChans []wire.OutPoint
-	p.activeChanMtx.RLock()
-	for chanID, lnChan := range p.activeChannels {
-		// If the lnChan is nil, continue as this is a pending channel.
-		if lnChan == nil {
-			continue
-		}
-
-		dbChan := lnChan.State()
-		isPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
-		if !isPublic || dbChan.IsPending {
-			continue
-		}
-
-		// We'll also skip any channels added during this peer's
-		// lifecycle since they haven't waited out the timeout. Their
-		// first announcement will be enabled, and the chan status
-		// manager will begin monitoring them passively since they exist
-		// in the database.
-		if _, ok := p.addedChannels[chanID]; ok {
-			continue
-		}
-
-		activePublicChans = append(
-			activePublicChans, dbChan.FundingOutpoint,
-		)
-	}
-	p.activeChanMtx.RUnlock()
+	activePublicChans := p.filterChannelsToEnable()
 
 	// For each of the public, non-pending channels, set the channel
 	// disabled bit to false and send out a new ChannelUpdate. If this
@@ -2626,6 +2599,44 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 	p.activeChanCloses[chanID] = chanCloser
 
 	return chanCloser, nil
+}
+
+// filterChannelsToEnable filters a list of channels to be enabled upon start.
+// The filtered channels are active channels that's neither private nor
+// pending.
+func (p *Brontide) filterChannelsToEnable() []wire.OutPoint {
+	var activePublicChans []wire.OutPoint
+
+	p.activeChanMtx.RLock()
+	defer p.activeChanMtx.RUnlock()
+
+	for chanID, lnChan := range p.activeChannels {
+		// If the lnChan is nil, continue as this is a pending channel.
+		if lnChan == nil {
+			continue
+		}
+
+		dbChan := lnChan.State()
+		isPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
+		if !isPublic || dbChan.IsPending {
+			continue
+		}
+
+		// We'll also skip any channels added during this peer's
+		// lifecycle since they haven't waited out the timeout. Their
+		// first announcement will be enabled, and the chan status
+		// manager will begin monitoring them passively since they exist
+		// in the database.
+		if _, ok := p.addedChannels[chanID]; ok {
+			continue
+		}
+
+		activePublicChans = append(
+			activePublicChans, dbChan.FundingOutpoint,
+		)
+	}
+
+	return activePublicChans
 }
 
 // chooseDeliveryScript takes two optionally set shutdown scripts and returns

@@ -293,6 +293,10 @@ type ChannelLinkConfig struct {
 	// when channels become inactive.
 	NotifyInactiveChannel func(wire.OutPoint)
 
+	// NotifyInactiveLinkEvent allows the switch to tell the
+	// ChannelNotifier when a channel link become inactive.
+	NotifyInactiveLinkEvent func(wire.OutPoint)
+
 	// HtlcNotifier is an instance of a htlcNotifier which we will pipe htlc
 	// events through.
 	HtlcNotifier htlcNotifier
@@ -979,8 +983,11 @@ func (l *channelLink) htlcManager() {
 	l.log.Infof("HTLC manager started, bandwidth=%v", l.Bandwidth())
 
 	// Notify any clients that the link is now in the switch via an
-	// ActiveLinkEvent.
+	// ActiveLinkEvent. We'll also defer an inactive link notification for
+	// when the link exits to ensure that every active notification is
+	// matched by an inactive one.
 	l.cfg.NotifyActiveLink(*l.ChannelPoint())
+	defer l.cfg.NotifyInactiveLinkEvent(*l.ChannelPoint())
 
 	// TODO(roasbeef): need to call wipe chan whenever D/C?
 

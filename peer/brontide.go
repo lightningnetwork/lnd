@@ -941,6 +941,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		towerClient = p.cfg.TowerClient
 	}
 
+	//nolint:lll
 	linkCfg := htlcswitch.ChannelLinkConfig{
 		Peer:                   p,
 		DecodeHopIterators:     p.cfg.Sphinx.DecodeHopIterators,
@@ -976,6 +977,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		NotifyActiveLink:        p.cfg.ChannelNotifier.NotifyActiveLinkEvent,
 		NotifyActiveChannel:     p.cfg.ChannelNotifier.NotifyActiveChannelEvent,
 		NotifyInactiveChannel:   p.cfg.ChannelNotifier.NotifyInactiveChannelEvent,
+		NotifyInactiveLinkEvent: p.cfg.ChannelNotifier.NotifyInactiveLinkEvent,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
 		GetAliases:              p.cfg.GetAliases,
 	}

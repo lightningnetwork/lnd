@@ -4601,9 +4601,12 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 					},
 				}
 
-			// Completely ignore ActiveLinkEvent as this is explicitly not
-			// exposed to the RPC.
-			case channelnotifier.ActiveLinkEvent:
+			// Completely ignore ActiveLinkEvent and
+			// InactiveLinkEvent as this is explicitly not exposed
+			// to the RPC.
+			case channelnotifier.ActiveLinkEvent,
+				channelnotifier.InactiveLinkEvent:
+
 				continue
 
 			case channelnotifier.FullyResolvedChannelEvent:
@@ -7299,6 +7302,8 @@ func (r *rpcServer) SubscribeChannelBackups(req *lnrpc.ChannelBackupSubscription
 			case channelnotifier.InactiveChannelEvent:
 				continue
 			case channelnotifier.ActiveLinkEvent:
+				continue
+			case channelnotifier.InactiveLinkEvent:
 				continue
 			}
 

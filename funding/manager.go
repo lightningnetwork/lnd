@@ -1615,27 +1615,28 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// We'll also validate and apply all the constraints the initiating
 	// party is attempting to dictate for our commitment transaction, as
 	// well as the constraints we are dictating for them.
-	localConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        msg.DustLimit,
-		ChanReserve:      msg.ChannelReserve,
-		MaxPendingAmount: msg.MaxValueInFlight,
-		MinHTLC:          msg.HtlcMinimum,
-		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
-		CsvDelay:         msg.CsvDelay,
+	chanParams := &lnwallet.ChannelParams{
+		LocalConstraints: &channeldb.ChannelConstraints{
+			DustLimit:        msg.DustLimit,
+			ChanReserve:      msg.ChannelReserve,
+			MaxPendingAmount: msg.MaxValueInFlight,
+			MinHTLC:          msg.HtlcMinimum,
+			MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
+			CsvDelay:         msg.CsvDelay,
+		},
+		RemoteConstraints: &channeldb.ChannelConstraints{
+			DustLimit:        dustLimit,
+			MaxPendingAmount: remoteMaxValue,
+			ChanReserve:      chanReserve,
+			MinHTLC:          minHtlc,
+			MaxAcceptedHtlcs: maxHtlcs,
+			CsvDelay:         remoteCsvDelay,
+		},
+		MaxLocalCSVDelay: f.cfg.MaxLocalCSVDelay,
 	}
-	remoteConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        dustLimit,
-		MaxPendingAmount: remoteMaxValue,
-		ChanReserve:      chanReserve,
-		MinHTLC:          minHtlc,
-		MaxAcceptedHtlcs: maxHtlcs,
-		CsvDelay:         remoteCsvDelay,
-	}
-	err = reservation.CommitConstraints(
-		localConstraints, remoteConstraints, f.cfg.MaxLocalCSVDelay,
-	)
+	err = reservation.ProcessChannelParams(chanParams)
 	if err != nil {
-		log.Errorf("Unacceptable channel constraints: %v", err)
+		log.Errorf("Unacceptable channel parameters: %v", err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return
 	}
@@ -1850,19 +1851,21 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	// they've specified for commitment states we can create and our
 	// constraints for them.
 	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
-	localConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        msg.DustLimit,
-		ChanReserve:      msg.ChannelReserve,
-		MaxPendingAmount: msg.MaxValueInFlight,
-		MinHTLC:          msg.HtlcMinimum,
-		MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
-		CsvDelay:         msg.CsvDelay,
+	chanParams := &lnwallet.ChannelParams{
+		LocalConstraints: &channeldb.ChannelConstraints{
+			DustLimit:        msg.DustLimit,
+			ChanReserve:      msg.ChannelReserve,
+			MaxPendingAmount: msg.MaxValueInFlight,
+			MinHTLC:          msg.HtlcMinimum,
+			MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
+			CsvDelay:         msg.CsvDelay,
+		},
+		RemoteConstraints: resCtx.remoteConstraints,
+		MaxLocalCSVDelay:  resCtx.maxLocalCsv,
 	}
-	err = resCtx.reservation.CommitConstraints(
-		localConstraints, resCtx.remoteConstraints, resCtx.maxLocalCsv,
-	)
+	err = resCtx.reservation.ProcessChannelParams(chanParams)
 	if err != nil {
-		log.Warnf("Unacceptable channel constraints: %v", err)
+		log.Warnf("Unacceptable channel parameters: %v", err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return
 	}

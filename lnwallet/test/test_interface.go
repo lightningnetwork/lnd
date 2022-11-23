@@ -458,10 +458,13 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		CsvDelay:         csvDelay,
 	}
-	err = aliceChanReservation.CommitConstraints(
-		channelConstraints, channelConstraints, defaultMaxLocalCsvDelay,
-	)
-	require.NoError(t, err, "unable to verify constraints")
+	channelParams := &lnwallet.ChannelParams{
+		LocalConstraints:  channelConstraints,
+		RemoteConstraints: channelConstraints,
+		MaxLocalCSVDelay:  defaultMaxLocalCsvDelay,
+	}
+	err = aliceChanReservation.ProcessChannelParams(channelParams)
+	require.NoError(t, err, "unable to verify parameters")
 
 	// The channel reservation should now be populated with a multi-sig key
 	// from our HD chain, a change output with 3 BTC, and 2 outputs
@@ -490,10 +493,8 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	}
 	bobChanReservation, err := bob.InitChannelReservation(bobReq)
 	require.NoError(t, err, "bob unable to init channel reservation")
-	err = bobChanReservation.CommitConstraints(
-		channelConstraints, channelConstraints, defaultMaxLocalCsvDelay,
-	)
-	require.NoError(t, err, "unable to verify constraints")
+	err = bobChanReservation.ProcessChannelParams(channelParams)
+	require.NoError(t, err, "unable to verify parameters")
 	bobChanReservation.SetNumConfsRequired(numReqConfs)
 
 	assertContributionInitPopulated(t, bobChanReservation.OurContribution())
@@ -863,10 +864,13 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
 		CsvDelay:         csvDelay,
 	}
-	err = aliceChanReservation.CommitConstraints(
-		channelConstraints, channelConstraints, defaultMaxLocalCsvDelay,
-	)
-	require.NoError(t, err, "unable to verify constraints")
+	channelParams := &lnwallet.ChannelParams{
+		LocalConstraints:  channelConstraints,
+		RemoteConstraints: channelConstraints,
+		MaxLocalCSVDelay:  defaultMaxLocalCsvDelay,
+	}
+	err = aliceChanReservation.ProcessChannelParams(channelParams)
+	require.NoError(t, err, "unable to verify parameters")
 
 	// Verify all contribution fields have been set properly, but only if
 	// Alice is the funder herself.
@@ -902,10 +906,8 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	}
 	bobChanReservation, err := bob.InitChannelReservation(bobReq)
 	require.NoError(t, err, "unable to create bob reservation")
-	err = bobChanReservation.CommitConstraints(
-		channelConstraints, channelConstraints, defaultMaxLocalCsvDelay,
-	)
-	require.NoError(t, err, "unable to verify constraints")
+	err = bobChanReservation.ProcessChannelParams(channelParams)
+	require.NoError(t, err, "unable to verify parameters")
 	bobChanReservation.SetNumConfsRequired(numReqConfs)
 
 	// We'll ensure that Bob's contribution also gets generated properly.

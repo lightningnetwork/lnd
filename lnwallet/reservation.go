@@ -436,18 +436,49 @@ func (r *ChannelReservation) IsZeroConf() bool {
 	return r.partialState.IsZeroConf()
 }
 
-// CommitConstraints takes the constraints that the remote party specifies for
+// ChannelParams encapsulates the various channel parameters negotiated during
+// the initial open/accept phase of channel creation.
+type ChannelParams struct {
+	// LocalConstraints are the channel constraints given to us by the
+	// remote node, which we must satisfy when generating commitment
+	// transactions.
+	LocalConstraints *channeldb.ChannelConstraints
+
+	// RemoteConstraints are the channel constraints we are giving to the
+	// remote node, which they must satisfy when generating commitment
+	// transactions.
+	RemoteConstraints *channeldb.ChannelConstraints
+
+	// MaxLocalCSVDelay is the maximum to_self CSV delay we will accept.
+	MaxLocalCSVDelay uint16
+}
+
+// ProcessChannelParams validates and saves the various channel parameters
+// negotiated during the initial open/accept phase of channel creation.
+func (r *ChannelReservation) ProcessChannelParams(p *ChannelParams) error {
+	r.Lock()
+	defer r.Unlock()
+
+	err := r.commitConstraints(p.LocalConstraints, p.RemoteConstraints,
+		p.MaxLocalCSVDelay)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// commitConstraints takes the constraints that the remote party specifies for
 // the type of commitments that we can generate for them, as well as the
 // constraints we specify for them. These constraints include several parameters
 // that serve as flow control restricting the amount of satoshis that can be
 // transferred in a single commitment. This function will also attempt to verify
 // the constraints for sanity, returning an error if the parameters are deemed
 // unsound.
-func (r *ChannelReservation) CommitConstraints(local,
+//
+// This function should be called with the reservation lock held.
+func (r *ChannelReservation) commitConstraints(local,
 	remote *channeldb.ChannelConstraints, maxLocalCSVDelay uint16) error {
-
-	r.Lock()
-	defer r.Unlock()
 
 	// First, verify the sanity of the local channel constraints.
 	err := VerifyConstraints(local, maxLocalCSVDelay,

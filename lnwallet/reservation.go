@@ -415,18 +415,6 @@ func validateInitiatorBalance(balance lnwire.MilliSatoshi,
 	return nil
 }
 
-// SetNumConfsRequired sets the number of confirmations that are required for
-// the ultimate funding transaction before the channel can be considered open.
-// This is distinct from the main reservation workflow as it allows
-// implementations a bit more flexibility w.r.t to if the responder of the
-// initiator sets decides the number of confirmations needed.
-func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
-	r.Lock()
-	defer r.Unlock()
-
-	r.partialState.NumConfsRequired = numConfs
-}
-
 // IsZeroConf returns if the reservation's underlying partial channel state is
 // a zero-conf channel.
 func (r *ChannelReservation) IsZeroConf() bool {
@@ -451,6 +439,11 @@ type ChannelParams struct {
 
 	// MaxLocalCSVDelay is the maximum to_self CSV delay we will accept.
 	MaxLocalCSVDelay uint16
+
+	// NumConfsRequired is the number of confirmations that are required for
+	// the ultimate funding transaction before the channel can be considered
+	// open.
+	NumConfsRequired uint16
 }
 
 // ProcessChannelParams validates and saves the various channel parameters
@@ -464,6 +457,8 @@ func (r *ChannelReservation) ProcessChannelParams(p *ChannelParams) error {
 	if err != nil {
 		return err
 	}
+
+	r.partialState.NumConfsRequired = p.NumConfsRequired
 
 	return nil
 }

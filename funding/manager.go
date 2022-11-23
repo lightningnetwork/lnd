@@ -1537,8 +1537,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		numConfsReq = 0
 	}
 
-	reservation.SetNumConfsRequired(numConfsReq)
-
 	// If a script enforced channel lease is being proposed, we'll need to
 	// validate its custom TLV records.
 	if commitType == lnwallet.CommitmentTypeScriptEnforcedLease {
@@ -1633,6 +1631,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 			CsvDelay:         remoteCsvDelay,
 		},
 		MaxLocalCSVDelay: f.cfg.MaxLocalCSVDelay,
+		NumConfsRequired: numConfsReq,
 	}
 	err = reservation.ProcessChannelParams(chanParams)
 	if err != nil {
@@ -1850,7 +1849,6 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	// required confirmations, and also the set of channel constraints
 	// they've specified for commitment states we can create and our
 	// constraints for them.
-	resCtx.reservation.SetNumConfsRequired(uint16(msg.MinAcceptDepth))
 	chanParams := &lnwallet.ChannelParams{
 		LocalConstraints: &channeldb.ChannelConstraints{
 			DustLimit:        msg.DustLimit,
@@ -1862,6 +1860,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		},
 		RemoteConstraints: resCtx.remoteConstraints,
 		MaxLocalCSVDelay:  resCtx.maxLocalCsv,
+		NumConfsRequired:  uint16(msg.MinAcceptDepth),
 	}
 	err = resCtx.reservation.ProcessChannelParams(chanParams)
 	if err != nil {

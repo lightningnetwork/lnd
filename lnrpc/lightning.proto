@@ -3903,10 +3903,20 @@ message Payment {
     string payment_request = 9;
 
     enum PaymentStatus {
-        UNKNOWN = 0;
+        // Deprecated. This status will never be returned.
+        UNKNOWN = 0 [deprecated = true];
+
+        // Payment has inflight HTLCs.
         IN_FLIGHT = 1;
+
+        // Payment is settled.
         SUCCEEDED = 2;
+
+        // Payment is failed.
         FAILED = 3;
+
+        // Payment is created and has not attempted any HTLCs.
+        INITIATED = 4;
     }
 
     // The status of the payment.

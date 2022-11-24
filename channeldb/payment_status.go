@@ -26,6 +26,9 @@ const (
 	StatusFailed PaymentStatus = 4
 )
 
+// errPaymentStatusUnknown is returned when a payment has an unknown status.
+var errPaymentStatusUnknown = fmt.Errorf("unknown payment status")
+
 // String returns readable representation of payment status.
 func (ps PaymentStatus) String() string {
 	switch ps {
@@ -125,5 +128,125 @@ func (ps PaymentStatus) updatable() error {
 
 	default:
 		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
+	}
+}
+
+// decidePaymentStatus uses the payment's DB state to determine a memory status
+// that's used by the payment router to decide following actions.
+// Together, we use four variables to determine the payment's status,
+//   - inflight: whether there are any pending HTLCs.
+//   - settled: whether any of the HTLCs has been settled.
+//   - htlc failed: whether any of the HTLCs has been failed.
+//   - payment failed: whether the payment has been marked as failed.
+//
+// Based on the above variables, we derive the status using the following
+// table,
+// | inflight | settled | htlc failed | payment failed |         status       |
+// |:--------:|:-------:|:-----------:|:--------------:|:--------------------:|
+// |   true   |   true  |     true    |      true      |    StatusInFlight    |
+// |   true   |   true  |     true    |      false     |    StatusInFlight    |
+// |   true   |   true  |     false   |      true      |    StatusInFlight    |
+// |   true   |   true  |     false   |      false     |    StatusInFlight    |
+// |   true   |   false |     true    |      true      |    StatusInFlight    |
+// |   true   |   false |     true    |      false     |    StatusInFlight    |
+// |   true   |   false |     false   |      true      |    StatusInFlight    |
+// |   true   |   false |     false   |      false     |    StatusInFlight    |
+// |   false  |   true  |     true    |      true      |    StatusSucceeded   |
+// |   false  |   true  |     true    |      false     |    StatusSucceeded   |
+// |   false  |   true  |     false   |      true      |    StatusSucceeded   |
+// |   false  |   true  |     false   |      false     |    StatusSucceeded   |
+// |   false  |   false |     true    |      true      |      StatusFailed    |
+// |   false  |   false |     true    |      false     |    StatusInFlight    |
+// |   false  |   false |     false   |      true      |      StatusFailed    |
+// |   false  |   false |     false   |      false     |    StatusInitiated   |
+//
+// When `inflight`, `settled`, `htlc failed`, and `payment failed` are false,
+// this indicates the payment is newly created and hasn't made any HTLCs yet.
+// When `inflight` and `settled` are false, `htlc failed` is true yet `payment
+// failed` is false, this indicates all the payment's HTLCs have occurred a
+// temporarily failure and the payment is still in-flight.
+func decidePaymentStatus(htlcs []HTLCAttempt,
+	reason *FailureReason) (PaymentStatus, error) {
+
+	var (
+		inflight      bool
+		htlcSettled   bool
+		htlcFailed    bool
+		paymentFailed bool
+	)
+
+	// If we have a failure reason, the payment is failed.
+	if reason != nil {
+		paymentFailed = true
+	}
+
+	// Go through all HTLCs for this payment, check whether we have any
+	// settled HTLC, and any still in-flight.
+	for _, h := range htlcs {
+		if h.Failure != nil {
+			htlcFailed = true
+			continue
+		}
+
+		if h.Settle != nil {
+			htlcSettled = true
+			continue
+		}
+
+		// If any of the HTLCs are not failed nor settled, we
+		// still have inflight HTLCs.
+		inflight = true
+	}
+
+	// Use the DB state to determine the status of the payment.
+	switch {
+	// If we have inflight HTLCs, no matter we have settled or failed
+	// HTLCs, or the payment failed, we still consider it inflight so we
+	// inform upper systems to wait for the results.
+	case inflight:
+		return StatusInFlight, nil
+
+	// If we have no in-flight HTLCs, and at least one of the HTLCs is
+	// settled, the payment succeeded.
+	//
+	// NOTE: when reaching this case, paymentFailed could be true, which
+	// means we have a conflicting state for this payment. We choose to
+	// mark the payment as succeeded because it's the receiver's
+	// responsibility to only settle the payment iff all HTLCs are
+	// received.
+	case htlcSettled:
+		return StatusSucceeded, nil
+
+	// If we have no in-flight HTLCs, and the payment failure is set, the
+	// payment is considered failed.
+	//
+	// NOTE: when reaching this case, settled must be false.
+	case paymentFailed:
+		return StatusFailed, nil
+
+	// If we have no in-flight HTLCs, yet the payment is NOT failed, it
+	// means all the HTLCs are failed. In this case we can attempt more
+	// HTLCs.
+	//
+	// NOTE: when reaching this case, both settled and paymentFailed must
+	// be false.
+	case htlcFailed:
+		return StatusInFlight, nil
+
+	// If none of the HTLCs is either settled or failed, and we have no
+	// inflight HTLCs, this means the payment has no HTLCs created yet.
+	//
+	// NOTE: when reaching this case, both settled and paymentFailed must
+	// be false.
+	case !htlcFailed:
+		return StatusInitiated, nil
+
+	// Otherwise an impossible state is reached.
+	//
+	// NOTE: we should never end up here.
+	default:
+		log.Error("Impossible payment state reached")
+		return 0, fmt.Errorf("%w: payment is corrupted",
+			errPaymentStatusUnknown)
 	}
 }

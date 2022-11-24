@@ -177,6 +177,13 @@ type MPPayment struct {
 	Status PaymentStatus
 }
 
+// Terminated returns a bool to specify whether the payment is in a terminal
+// state.
+func (m *MPPayment) Terminated() bool {
+	// If the payment is in terminal state, it cannot be updated.
+	return m.Status.updatable() != nil
+}
+
 // TerminalInfo returns any HTLC settle info recorded. If no settle info is
 // recorded, any payment level failure will be returned. If neither a settle
 // nor a failure is recorded, both return values will be nil.
@@ -233,6 +240,44 @@ func (m *MPPayment) GetAttempt(id uint64) (*HTLCAttempt, error) {
 	}
 
 	return nil, errors.New("htlc attempt not found on payment")
+}
+
+// Registrable returns an error to specify whether adding more HTLCs to the
+// payment with its current status is allowed. A payment can accept new HTLC
+// registration when it's newly created, or none of its HTLCs is in a terminal
+// state.
+func (m *MPPayment) Registrable() error {
+	// Get the terminal info.
+	settle, reason := m.TerminalInfo()
+	settled := settle != nil
+	failed := reason != nil
+
+	// If updating the payment is not allowed, we can't register new HTLCs.
+	// Otherwise, the status must be either `StatusInitiated` or
+	// `StatusInFlight`.
+	if err := m.Status.updatable(); err != nil {
+		return err
+	}
+
+	// Exit early if this is not inflight.
+	if m.Status != StatusInFlight {
+		return nil
+	}
+
+	// There are still inflight HTLCs and we need to check whether there
+	// are settled HTLCs or the payment is failed. If we already have
+	// settled HTLCs, we won't allow adding more HTLCs.
+	if settled {
+		return ErrPaymentPendingSettled
+	}
+
+	// If the payment is already failed, we won't allow adding more HTLCs.
+	if failed {
+		return ErrPaymentPendingFailed
+	}
+
+	// Otherwise we can add more HTLCs.
+	return nil
 }
 
 // serializeHTLCSettleInfo serializes the details of a settled htlc.

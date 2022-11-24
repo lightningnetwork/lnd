@@ -2276,7 +2276,8 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	switch {
 	// If this is an MPP attempt and the hash is already registered with
 	// the database, we can go on to launch the shard.
-	case err == channeldb.ErrPaymentInFlight && mpp != nil:
+	case mpp != nil && errors.Is(err, channeldb.ErrPaymentInFlight):
+	case mpp != nil && errors.Is(err, channeldb.ErrPaymentExists):
 
 	// Any other error is not tolerated.
 	case err != nil:

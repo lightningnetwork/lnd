@@ -446,10 +446,17 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	}
 
 	// Transform user errors to grpc code.
-	if err == channeldb.ErrPaymentInFlight ||
-		err == channeldb.ErrAlreadyPaid {
+	switch {
+	case errors.Is(err, channeldb.ErrPaymentExists):
+		fallthrough
 
-		return nil, status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, channeldb.ErrPaymentInFlight):
+		fallthrough
+
+	case errors.Is(err, channeldb.ErrAlreadyPaid):
+		return nil, status.Error(
+			codes.AlreadyExists, err.Error(),
+		)
 	}
 
 	return nil, err

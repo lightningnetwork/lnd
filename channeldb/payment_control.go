@@ -141,34 +141,38 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 
 		// Get the existing status of this payment, if any.
 		paymentStatus, err := fetchPaymentStatus(bucket)
-		if err != nil {
+
+		switch {
+		// If no error is returned, it means we already have this
+		// payment. We'll check the status to decide whether we allow
+		// retrying the payment or return a specific error.
+		case err == nil:
+			switch paymentStatus {
+
+			// We allow retrying failed payments.
+			case StatusFailed:
+
+			// We already have an InFlight payment on the network.
+			// We will disallow any new payments.
+			case StatusInFlight:
+				updateErr = ErrPaymentInFlight
+				return nil
+
+			// We've already succeeded a payment to this payment
+			// hash, forbid the switch from sending another.
+			case StatusSucceeded:
+				updateErr = ErrAlreadyPaid
+				return nil
+
+			default:
+				updateErr = ErrUnknownPaymentStatus
+				return nil
+			}
+
+		// Otherwise, if the error is not `ErrPaymentNotInitiated`,
+		// we'll return the error.
+		case !errors.Is(err, ErrPaymentNotInitiated):
 			return err
-		}
-
-		switch paymentStatus {
-
-		// We allow retrying failed payments.
-		case StatusFailed:
-
-		// This is a new payment that is being initialized for the
-		// first time.
-		case StatusUnknown:
-
-		// We already have an InFlight payment on the network. We will
-		// disallow any new payments.
-		case StatusInFlight:
-			updateErr = ErrPaymentInFlight
-			return nil
-
-		// We've already succeeded a payment to this payment hash,
-		// forbid the switch from sending another.
-		case StatusSucceeded:
-			updateErr = ErrAlreadyPaid
-			return nil
-
-		default:
-			updateErr = ErrUnknownPaymentStatus
-			return nil
 		}
 
 		// Before we set our new sequence number, we check whether this
@@ -530,14 +534,12 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 		// lets the last attempt to fail with a terminal write its
 		// failure to the PaymentControl without synchronizing with
 		// other attempts.
-		paymentStatus, err := fetchPaymentStatus(bucket)
-		if err != nil {
-			return err
-		}
-
-		if paymentStatus == StatusUnknown {
+		_, err = fetchPaymentStatus(bucket)
+		if errors.Is(err, ErrPaymentNotInitiated) {
 			updateErr = ErrPaymentNotInitiated
 			return nil
+		} else if err != nil {
+			return err
 		}
 
 		// Put the failure reason in the bucket for record keeping.
@@ -702,12 +704,12 @@ func (p *PaymentControl) nextPaymentSequence() ([]byte, error) {
 }
 
 // fetchPaymentStatus fetches the payment status of the payment. If the payment
-// isn't found, it will default to "StatusUnknown".
+// isn't found, it will return error `ErrPaymentNotInitiated`.
 func fetchPaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 	// Creation info should be set for all payments, regardless of state.
 	// If not, it is unknown.
 	if bucket.Get(paymentCreationInfoKey) == nil {
-		return StatusUnknown, nil
+		return 0, ErrPaymentNotInitiated
 	}
 
 	payment, err := fetchPayment(bucket)
@@ -729,11 +731,6 @@ func ensureInFlight(payment *MPPayment) error {
 	// The payment was indeed InFlight.
 	case paymentStatus == StatusInFlight:
 		return nil
-
-	// Our records show the payment as unknown, meaning it never
-	// should have left the switch.
-	case paymentStatus == StatusUnknown:
-		return ErrPaymentNotInitiated
 
 	// The payment succeeded previously.
 	case paymentStatus == StatusSucceeded:

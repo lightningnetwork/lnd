@@ -662,7 +662,9 @@ func printLivePayment(ctxc context.Context,
 		}
 
 		// Terminate loop if payments state is final.
-		if payment.Status != lnrpc.Payment_IN_FLIGHT {
+		if payment.Status != lnrpc.Payment_IN_FLIGHT &&
+			payment.Status != lnrpc.Payment_INITIATED {
+
 			return payment, nil
 		}
 	}

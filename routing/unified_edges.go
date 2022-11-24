@@ -3,6 +3,7 @@ package routing
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -223,9 +224,9 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 
 		// Track the maximum time lock of all channels that are
 		// candidate for non-strict forwarding at the routing node.
-		if edge.policy.TimeLockDelta > maxTimelock {
-			maxTimelock = edge.policy.TimeLockDelta
-		}
+		maxTimelock = lntypes.Max(
+			maxTimelock, edge.policy.TimeLockDelta,
+		)
 
 		// Use the policy that results in the highest fee for this
 		// specific amount.
@@ -264,9 +265,7 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 func (u *edgeUnifier) minAmt() lnwire.MilliSatoshi {
 	min := lnwire.MaxMilliSatoshi
 	for _, edge := range u.edges {
-		if edge.policy.MinHTLC < min {
-			min = edge.policy.MinHTLC
-		}
+		min = lntypes.Min(min, edge.policy.MinHTLC)
 	}
 
 	return min

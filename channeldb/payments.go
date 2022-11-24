@@ -783,12 +783,12 @@ func (d *DB) DeletePayment(paymentHash lntypes.Hash,
 			return err
 		}
 
-		// If the status is InFlight, we cannot safely delete
+		// If the payment has inflight HTLCs, we cannot safely delete
 		// the payment information, so we return an error.
-		if paymentStatus == StatusInFlight {
-			return fmt.Errorf("payment '%v' has status InFlight "+
-				"and therefore cannot be deleted",
-				paymentHash.String())
+		if err := paymentStatus.removable(); err != nil {
+			return fmt.Errorf("payment '%v' has inflight HTLCs"+
+				"and therefore cannot be deleted: %w",
+				paymentHash.String(), err)
 		}
 
 		// Delete the failed HTLC attempts we found.
@@ -888,9 +888,10 @@ func (d *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
 				return err
 			}
 
-			// If the status is InFlight, we cannot safely delete
-			// the payment information, so we return early.
-			if paymentStatus == StatusInFlight {
+			// If the payment has inflight HTLCs, we cannot safely
+			// delete the payment information, so we return an nil
+			// to skip it.
+			if err := paymentStatus.removable(); err != nil {
 				return nil
 			}
 

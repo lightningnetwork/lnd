@@ -30,6 +30,10 @@ var (
 	// existed payment that is not failed.
 	ErrPaymentExists = errors.New("payment already exists")
 
+	// ErrPaymentInternal is returned when performing an action on a
+	// payment with status StatusError.
+	ErrPaymentInternal = errors.New("internal error")
+
 	// ErrPaymentNotInitiated is returned if the payment wasn't initiated.
 	ErrPaymentNotInitiated = errors.New("payment isn't initiated")
 

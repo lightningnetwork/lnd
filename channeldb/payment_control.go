@@ -26,6 +26,10 @@ var (
 	// already "in flight" on the network.
 	ErrPaymentInFlight = errors.New("payment is in transition")
 
+	// ErrPaymentExists is returned when we try to initialize an already
+	// existing payment that is not failed.
+	ErrPaymentExists = errors.New("payment already exists")
+
 	// ErrPaymentNotInitiated is returned if the payment wasn't initiated.
 	ErrPaymentNotInitiated = errors.New("payment isn't initiated")
 
@@ -148,9 +152,14 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		// retrying the payment or return a specific error.
 		case err == nil:
 			switch paymentStatus {
-
 			// We allow retrying failed payments.
 			case StatusFailed:
+
+			// We already have payment creation info for this
+			// payment so we won't allow creating a duplicate one.
+			case StatusInitiated:
+				updateErr = ErrPaymentExists
+				return nil
 
 			// We already have an InFlight payment on the network.
 			// We will disallow any new payments.
@@ -727,6 +736,9 @@ func ensureInFlight(payment *MPPayment) error {
 	paymentStatus := payment.Status
 
 	switch {
+	// Newly created payment is also inflight.
+	case paymentStatus == StatusInitiated:
+		return nil
 
 	// The payment was indeed InFlight.
 	case paymentStatus == StatusInFlight:

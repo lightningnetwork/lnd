@@ -94,8 +94,8 @@ service Router {
         returns (SetMissionControlConfigResponse);
 
     /*
-    QueryProbability returns the current success probability estimate for a
-    given node pair and amount.
+    Deprecated. QueryProbability returns the current success probability
+    estimate for a given node pair and amount.
     */
     rpc QueryProbability (QueryProbabilityRequest)
         returns (QueryProbabilityResponse);

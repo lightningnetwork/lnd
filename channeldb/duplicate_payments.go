@@ -59,22 +59,22 @@ type duplicateHTLCAttemptInfo struct {
 	route route.Route
 }
 
-// fetchDuplicatePaymentStatus fetches the payment status of the payment. If the
-// payment isn't found, it will default to "StatusUnknown".
-func fetchDuplicatePaymentStatus(bucket kvdb.RBucket) PaymentStatus {
+// fetchDuplicatePaymentStatus fetches the payment status of the payment. If
+// the payment isn't found, it will return error `ErrPaymentNotInitiated`.
+func fetchDuplicatePaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 	if bucket.Get(duplicatePaymentSettleInfoKey) != nil {
-		return StatusSucceeded
+		return StatusSucceeded, nil
 	}
 
 	if bucket.Get(duplicatePaymentFailInfoKey) != nil {
-		return StatusFailed
+		return StatusFailed, nil
 	}
 
 	if bucket.Get(duplicatePaymentCreationInfoKey) != nil {
-		return StatusInFlight
+		return StatusInFlight, nil
 	}
 
-	return StatusUnknown
+	return 0, ErrPaymentNotInitiated
 }
 
 func deserializeDuplicateHTLCAttemptInfo(r io.Reader) (
@@ -138,7 +138,10 @@ func fetchDuplicatePayment(bucket kvdb.RBucket) (*MPPayment, error) {
 	sequenceNum := binary.BigEndian.Uint64(seqBytes)
 
 	// Get the payment status.
-	paymentStatus := fetchDuplicatePaymentStatus(bucket)
+	paymentStatus, err := fetchDuplicatePaymentStatus(bucket)
+	if err != nil {
+		return nil, err
+	}
 
 	// Get the PaymentCreationInfo.
 	b := bucket.Get(duplicatePaymentCreationInfoKey)

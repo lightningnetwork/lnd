@@ -4,9 +4,8 @@ package channeldb
 type PaymentStatus byte
 
 const (
-	// StatusUnknown is the status where a payment has never been initiated
-	// and hence is unknown.
-	StatusUnknown PaymentStatus = 0
+	// NOTE: PaymentStatus = 0 was previously used for status unknown and
+	// is now deprecated.
 
 	// StatusInFlight is the status where a payment has been initiated, but
 	// a response has not been received.
@@ -24,9 +23,6 @@ const (
 // String returns readable representation of payment status.
 func (ps PaymentStatus) String() string {
 	switch ps {
-	case StatusUnknown:
-		return "Unknown"
-
 	case StatusInFlight:
 		return "In Flight"
 

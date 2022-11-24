@@ -103,3 +103,27 @@ func (ps PaymentStatus) removable() error {
 		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
 	}
 }
+
+// updatable returns an error to specify whether the payment's HTLCs can be
+// updated. A payment can update its HTLCs when it has inflight HTLCs.
+func (ps PaymentStatus) updatable() error {
+	switch ps {
+	// Newly created payments can be updated.
+	case StatusInitiated:
+		return nil
+
+	// Inflight payments can be updated.
+	case StatusInFlight:
+		return nil
+
+	// If the payment has a terminal condition, we won't allow any updates.
+	case StatusSucceeded:
+		return ErrPaymentAlreadySucceeded
+
+	case StatusFailed:
+		return ErrPaymentAlreadyFailed
+
+	default:
+		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
+	}
+}

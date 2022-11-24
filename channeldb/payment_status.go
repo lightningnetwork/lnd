@@ -75,3 +75,31 @@ func (ps PaymentStatus) initializable() error {
 		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
 	}
 }
+
+// removable returns an error to specify whether deleting the payment with its
+// current status is allowed. A payment cannot be safely deleted if it has
+// inflight HTLCs.
+func (ps PaymentStatus) removable() error {
+	switch ps {
+	// The payment has been created but has no HTLCs and can be removed.
+	case StatusInitiated:
+		return nil
+
+	// There are still inflight HTLCs and the payment needs to wait for the
+	// final outcomes.
+	case StatusInFlight:
+		return ErrPaymentInFlight
+
+	// The payment has been attempted and is succeeded and is allowed to be
+	// removed.
+	case StatusSucceeded:
+		return nil
+
+	// Failed payments are allowed to be removed.
+	case StatusFailed:
+		return nil
+
+	default:
+		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
+	}
+}

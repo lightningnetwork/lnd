@@ -1015,9 +1015,11 @@
         "UNKNOWN",
         "IN_FLIGHT",
         "SUCCEEDED",
-        "FAILED"
+        "FAILED",
+        "INITIATED"
       ],
-      "default": "UNKNOWN"
+      "default": "UNKNOWN",
+      "description": " - UNKNOWN: Deprecated. This status will never be returned.\n - IN_FLIGHT: Payment has inflight HTLCs.\n - SUCCEEDED: Payment is settled.\n - FAILED: Payment is failed.\n - INITIATED: Payment is created and has not attempted any HTLCs."
     },
     "lnrpcRoute": {
       "type": "object",

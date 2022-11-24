@@ -321,11 +321,13 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 	err = s.cfg.Router.SendPaymentAsync(payment)
 	if err != nil {
 		// Transform user errors to grpc code.
-		if err == channeldb.ErrPaymentInFlight ||
-			err == channeldb.ErrAlreadyPaid {
+		switch {
+		case errors.Is(err, channeldb.ErrPaymentExists),
+			errors.Is(err, channeldb.ErrPaymentInFlight),
+			errors.Is(err, channeldb.ErrAlreadyPaid):
 
-			log.Debugf("SendPayment async result for payment %x: %v",
-				payment.Identifier(), err)
+			log.Debugf("SendPayment async result for payment %x: "+
+				"%v", payment.Identifier(), err)
 
 			return status.Error(
 				codes.AlreadyExists, err.Error(),
@@ -427,10 +429,17 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	}
 
 	// Transform user errors to grpc code.
-	if err == channeldb.ErrPaymentInFlight ||
-		err == channeldb.ErrAlreadyPaid {
+	switch {
+	case errors.Is(err, channeldb.ErrPaymentExists):
+		fallthrough
 
-		return nil, status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, channeldb.ErrPaymentInFlight):
+		fallthrough
+
+	case errors.Is(err, channeldb.ErrAlreadyPaid):
+		return nil, status.Error(
+			codes.AlreadyExists, err.Error(),
+		)
 	}
 
 	return nil, err

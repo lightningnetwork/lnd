@@ -7,22 +7,29 @@ const (
 	// NOTE: PaymentStatus = 0 was previously used for status unknown and
 	// is now deprecated.
 
+	// StatusInitiated is the status where a payment has just been
+	// initiated.
+	StatusInitiated PaymentStatus = 1
+
 	// StatusInFlight is the status where a payment has been initiated, but
 	// a response has not been received.
-	StatusInFlight PaymentStatus = 1
+	StatusInFlight PaymentStatus = 2
 
 	// StatusSucceeded is the status where a payment has been initiated and
 	// the payment was completed successfully.
-	StatusSucceeded PaymentStatus = 2
+	StatusSucceeded PaymentStatus = 3
 
 	// StatusFailed is the status where a payment has been initiated and a
 	// failure result has come back.
-	StatusFailed PaymentStatus = 3
+	StatusFailed PaymentStatus = 4
 )
 
 // String returns readable representation of payment status.
 func (ps PaymentStatus) String() string {
 	switch ps {
+	case StatusInitiated:
+		return "Initiated"
+
 	case StatusInFlight:
 		return "In Flight"
 

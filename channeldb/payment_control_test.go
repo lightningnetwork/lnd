@@ -273,8 +273,6 @@ func TestPaymentControlSuccessesWithoutInFlight(t *testing.T) {
 	if err != ErrPaymentNotInitiated {
 		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
 	}
-
-	assertPaymentStatus(t, pControl, info.PaymentIdentifier, StatusUnknown)
 }
 
 // TestPaymentControlFailsWithoutInFlight checks that a strict payment
@@ -295,8 +293,6 @@ func TestPaymentControlFailsWithoutInFlight(t *testing.T) {
 	if err != ErrPaymentNotInitiated {
 		t.Fatalf("expected ErrPaymentNotInitiated, got %v", err)
 	}
-
-	assertPaymentStatus(t, pControl, info.PaymentIdentifier, StatusUnknown)
 }
 
 // TestPaymentControlDeleteNonInFlight checks that calling DeletePayments only
@@ -1085,7 +1081,7 @@ func assertPaymentStatus(t *testing.T, p *PaymentControl,
 	t.Helper()
 
 	payment, err := p.FetchPayment(hash)
-	if expStatus == StatusUnknown && err == ErrPaymentNotInitiated {
+	if err == ErrPaymentNotInitiated {
 		return
 	}
 	if err != nil {

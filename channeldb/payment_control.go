@@ -151,30 +151,8 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		// payment. We'll check the status to decide whether we allow
 		// retrying the payment or return a specific error.
 		case err == nil:
-			switch paymentStatus {
-			// We allow retrying failed payments.
-			case StatusFailed:
-
-			// We already have payment creation info for this
-			// payment so we won't allow creating a duplicate one.
-			case StatusInitiated:
-				updateErr = ErrPaymentExists
-				return nil
-
-			// We already have an InFlight payment on the network.
-			// We will disallow any new payments.
-			case StatusInFlight:
-				updateErr = ErrPaymentInFlight
-				return nil
-
-			// We've already succeeded a payment to this payment
-			// hash, forbid the switch from sending another.
-			case StatusSucceeded:
-				updateErr = ErrAlreadyPaid
-				return nil
-
-			default:
-				updateErr = ErrUnknownPaymentStatus
+			if err := paymentStatus.initializable(); err != nil {
+				updateErr = err
 				return nil
 			}
 

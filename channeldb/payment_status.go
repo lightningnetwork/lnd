@@ -1,5 +1,7 @@
 package channeldb
 
+import "fmt"
+
 // PaymentStatus represent current status of payment.
 type PaymentStatus byte
 
@@ -41,5 +43,35 @@ func (ps PaymentStatus) String() string {
 
 	default:
 		return "Unknown"
+	}
+}
+
+// initializable returns an error to specify whether initiating the payment
+// with its current status is allowed. A payment can only be initialized if it
+// hasn't been created yet or already failed.
+func (ps PaymentStatus) initializable() error {
+	switch ps {
+	// The payment has been created already. We will disallow creating it
+	// again in case other goroutines have already been creating HTLCs for
+	// it.
+	case StatusInitiated:
+		return ErrPaymentExists
+
+	// We already have an InFlight payment on the network. We will disallow
+	// any new payments.
+	case StatusInFlight:
+		return ErrPaymentInFlight
+
+	// The payment has been attempted and is succeeded so we won't allow
+	// creating it again.
+	case StatusSucceeded:
+		return ErrAlreadyPaid
+
+	// We allow retrying failed payments.
+	case StatusFailed:
+		return nil
+
+	default:
+		return fmt.Errorf("%w: %v", ErrUnknownPaymentStatus, ps)
 	}
 }

@@ -451,7 +451,7 @@ func (p *PaymentControl) updateHtlcKey(paymentHash lntypes.Hash,
 		// We can only update keys of in-flight payments. We allow
 		// updating keys even if the payment has reached a terminal
 		// condition, since the HTLC outcomes must still be updated.
-		if err := ensureInFlight(p); err != nil {
+		if err := p.Status.updatable(); err != nil {
 			return err
 		}
 

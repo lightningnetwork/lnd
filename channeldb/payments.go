@@ -298,41 +298,10 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 		failureReason = &reason
 	}
 
-	// Go through all HTLCs for this payment, noting whether we have any
-	// settled HTLC, and any still in-flight.
-	var inflight, settled bool
-	for _, h := range htlcs {
-		if h.Failure != nil {
-			continue
-		}
-
-		if h.Settle != nil {
-			settled = true
-			continue
-		}
-
-		// If any of the HTLCs are not failed nor settled, we
-		// still have inflight HTLCs.
-		inflight = true
-	}
-
-	// Use the DB state to determine the status of the payment.
-	var paymentStatus PaymentStatus
-
-	switch {
-	// If any of the the HTLCs did succeed and there are no HTLCs in
-	// flight, the payment succeeded.
-	case !inflight && settled:
-		paymentStatus = StatusSucceeded
-
-	// If we have no in-flight HTLCs, and the payment failure is set, the
-	// payment is considered failed.
-	case !inflight && failureReason != nil:
-		paymentStatus = StatusFailed
-
-	// Otherwise it is still in flight.
-	default:
-		paymentStatus = StatusInFlight
+	// Now determine the payment's status.
+	paymentStatus, err := decidePaymentStatus(htlcs, failureReason)
+	if err != nil {
+		return nil, err
 	}
 
 	return &MPPayment{

@@ -136,7 +136,7 @@ func acceptHoldInvoice(ht *lntest.HarnessTest, idx int, sender,
 	// the payer to get one update for the creation of the payment, and
 	// another when a htlc is dispatched.
 	payment := ht.AssertPaymentStatusFromStream(
-		payStream, lnrpc.Payment_IN_FLIGHT,
+		payStream, lnrpc.Payment_INITIATED,
 	)
 	require.Empty(ht, payment.Htlcs)
 

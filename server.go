@@ -318,8 +318,8 @@ type server struct {
 
 	hostAnn *netann.HostAnnouncer
 
-	// livelinessMonitor monitors that lnd has access to critical resources.
-	livelinessMonitor *healthcheck.Monitor
+	// livenessMonitor monitors that lnd has access to critical resources.
+	livenessMonitor *healthcheck.Monitor
 
 	customMessageServer *subscribe.Server
 
@@ -1545,7 +1545,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		})
 	}
 
-	// Create liveliness monitor.
+	// Create liveness monitor.
 	s.createLivenessMonitor(cfg, cc)
 
 	// Create the connection manager which will be responsible for
@@ -1584,7 +1584,7 @@ func (s *server) signAliasUpdate(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
 }
 
 // createLivenessMonitor creates a set of health checks using our configured
-// values and uses these checks to create a liveliness monitor. Available
+// values and uses these checks to create a liveness monitor. Available
 // health checks,
 //   - chainHealthCheck (will be disabled for --nochainbackend mode)
 //   - diskCheck
@@ -1713,8 +1713,8 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {
 	}
 
 	// If we have not disabled all of our health checks, we create a
-	// liveliness monitor with our configured checks.
-	s.livelinessMonitor = healthcheck.NewMonitor(
+	// liveness monitor with our configured checks.
+	s.livenessMonitor = healthcheck.NewMonitor(
 		&healthcheck.Config{
 			Checks:   checks,
 			Shutdown: srvrLog.Criticalf,
@@ -1775,12 +1775,12 @@ func (s *server) Start() error {
 			cleanup = cleanup.add(s.hostAnn.Stop)
 		}
 
-		if s.livelinessMonitor != nil {
-			if err := s.livelinessMonitor.Start(); err != nil {
+		if s.livenessMonitor != nil {
+			if err := s.livenessMonitor.Start(); err != nil {
 				startErr = err
 				return
 			}
-			cleanup = cleanup.add(s.livelinessMonitor.Stop)
+			cleanup = cleanup.add(s.livenessMonitor.Stop)
 		}
 
 		// Start the notification server. This is used so channel
@@ -2239,9 +2239,9 @@ func (s *server) Stop() error {
 			}
 		}
 
-		if s.livelinessMonitor != nil {
-			if err := s.livelinessMonitor.Stop(); err != nil {
-				srvrLog.Warnf("unable to shutdown liveliness "+
+		if s.livenessMonitor != nil {
+			if err := s.livenessMonitor.Stop(); err != nil {
+				srvrLog.Warnf("unable to shutdown liveness "+
 					"monitor: %v", err)
 			}
 		}

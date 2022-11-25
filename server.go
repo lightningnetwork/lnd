@@ -1140,7 +1140,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Router:                s.chanRouter,
 		Notifier:              s.cc.ChainNotifier,
 		ChainHash:             *s.cfg.ActiveNetParams.GenesisHash,
-		Broadcast:             s.BroadcastMessage,
+		Broadcast:             s.pcm.BroadcastMessage,
 		ChanSeries:            chanSeries,
 		NotifyWhenOnline:      s.pcm.NotifyWhenOnline,
 		NotifyWhenOffline:     s.pcm.NotifyWhenOffline,
@@ -2655,7 +2655,7 @@ out:
 				continue
 			}
 
-			err = s.BroadcastMessage(nil, &newNodeAnn)
+			err = s.pcm.BroadcastMessage(nil, &newNodeAnn)
 			if err != nil {
 				srvrLog.Debugf("Unable to broadcast new node "+
 					"announcement to peers: %v", err)
@@ -3181,7 +3181,7 @@ func (s *server) updateAndBrodcastSelfNode(features *lnwire.RawFeatureVector,
 	}
 
 	// Finally, propagate it to the nodes in the network.
-	err = s.BroadcastMessage(nil, &newNodeAnn)
+	err = s.pcm.BroadcastMessage(nil, &newNodeAnn)
 	if err != nil {
 		rpcsLog.Debugf("Unable to broadcast new node "+
 			"announcement to peers: %v", err)
@@ -3415,15 +3415,15 @@ func (p *PeerConnManager) PrunePersistentPeerConnection(
 // the target peers.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) BroadcastMessage(skips map[route.Vertex]struct{},
+func (p *PeerConnManager) BroadcastMessage(skips map[route.Vertex]struct{},
 	msgs ...lnwire.Message) error {
 
 	// Filter out peers found in the skips map. We synchronize access to
 	// peersByPub throughout this process to ensure we deliver messages to
 	// exact set of peers present at the time of invocation.
-	s.pcm.mu.RLock()
-	peers := make([]*peer.Brontide, 0, len(s.pcm.peersByPub))
-	for pubStr, sPeer := range s.pcm.peersByPub {
+	p.mu.RLock()
+	peers := make([]*peer.Brontide, 0, len(p.peersByPub))
+	for pubStr, sPeer := range p.peersByPub {
 		if skips != nil {
 			if _, ok := skips[sPeer.PubKey()]; ok {
 				srvrLog.Tracef("Skipping %x in broadcast with "+
@@ -3434,7 +3434,7 @@ func (s *server) BroadcastMessage(skips map[route.Vertex]struct{},
 
 		peers = append(peers, sPeer)
 	}
-	s.pcm.mu.RUnlock()
+	p.mu.RUnlock()
 
 	// Iterate over all known peers, dispatching a go routine to enqueue
 	// all messages to each of peers.
@@ -3445,12 +3445,12 @@ func (s *server) BroadcastMessage(skips map[route.Vertex]struct{},
 
 		// Dispatch a go routine to enqueue all messages to this peer.
 		wg.Add(1)
-		s.wg.Add(1)
-		go func(p lnpeer.Peer) {
-			defer s.wg.Done()
+		p.wg.Add(1)
+		go func(peer lnpeer.Peer) {
+			defer p.wg.Done()
 			defer wg.Done()
 
-			p.SendMessageLazy(false, msgs...)
+			peer.SendMessageLazy(false, msgs...)
 		}(sPeer)
 	}
 

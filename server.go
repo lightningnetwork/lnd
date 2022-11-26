@@ -3668,7 +3668,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 		s.pcm.cancelConnReqs(pubStr, nil)
-		s.peerConnected(conn, nil, true)
+		s.pcm.peerConnected(conn, nil, true)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -3700,7 +3700,7 @@ func (s *server) InboundPeerConnected(conn net.Conn) {
 		s.pcm.removePeer(connectedPeer)
 		s.pcm.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.pcm.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, nil, true)
+			s.pcm.peerConnected(conn, nil, true)
 		}
 	}
 }
@@ -3779,7 +3779,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 	case ErrPeerNotConnected:
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
-		s.peerConnected(conn, connReq, false)
+		s.pcm.peerConnected(conn, connReq, false)
 
 	case nil:
 		// We already have a connection with the incoming peer. If the
@@ -3813,7 +3813,7 @@ func (s *server) OutboundPeerConnected(connReq *connmgr.ConnReq, conn net.Conn) 
 		s.pcm.removePeer(connectedPeer)
 		s.pcm.ignorePeerTermination[connectedPeer] = struct{}{}
 		s.pcm.scheduledPeerConnection[pubStr] = func() {
-			s.peerConnected(conn, connReq, false)
+			s.pcm.peerConnected(conn, connReq, false)
 		}
 	}
 }
@@ -3894,30 +3894,34 @@ func (s *server) createPartialPeerConfig() peer.Config {
 		OutgoingCltvRejectDelta: lncfg.DefaultOutgoingCltvRejectDelta,
 		ChanActiveTimeout:       s.cfg.ChanEnableTimeout,
 
-		WritePool:           s.writePool,
-		ReadPool:            s.readPool,
-		Switch:              s.htlcSwitch,
-		InterceptSwitch:     s.interceptableSwitch,
-		ChannelDB:           s.chanStateDB,
-		ChannelGraph:        s.graphDB,
-		ChainArb:            s.chainArb,
-		AuthGossiper:        s.authGossiper,
-		ChanStatusMgr:       s.chanStatusMgr,
-		ChainIO:             s.cc.ChainIO,
-		FeeEstimator:        s.cc.FeeEstimator,
-		Signer:              s.cc.Wallet.Cfg.Signer,
-		SigPool:             s.sigPool,
-		Wallet:              s.cc.Wallet,
-		ChainNotifier:       s.cc.ChainNotifier,
-		RoutingPolicy:       s.cc.RoutingPolicy,
-		Sphinx:              s.sphinx,
-		WitnessBeacon:       s.witnessBeacon,
-		Invoices:            s.invoices,
-		ChannelNotifier:     s.channelNotifier,
-		HtlcNotifier:        s.htlcNotifier,
-		TowerClient:         s.towerClient,
-		AnchorTowerClient:   s.anchorTowerClient,
-		GenNodeAnnouncement: s.genNodeAnnouncement,
+		WritePool:         s.writePool,
+		ReadPool:          s.readPool,
+		Switch:            s.htlcSwitch,
+		InterceptSwitch:   s.interceptableSwitch,
+		ChannelDB:         s.chanStateDB,
+		ChannelGraph:      s.graphDB,
+		ChainArb:          s.chainArb,
+		AuthGossiper:      s.authGossiper,
+		ChanStatusMgr:     s.chanStatusMgr,
+		ChainIO:           s.cc.ChainIO,
+		FeeEstimator:      s.cc.FeeEstimator,
+		Signer:            s.cc.Wallet.Cfg.Signer,
+		SigPool:           s.sigPool,
+		Wallet:            s.cc.Wallet,
+		ChainNotifier:     s.cc.ChainNotifier,
+		RoutingPolicy:     s.cc.RoutingPolicy,
+		Sphinx:            s.sphinx,
+		WitnessBeacon:     s.witnessBeacon,
+		Invoices:          s.invoices,
+		ChannelNotifier:   s.channelNotifier,
+		HtlcNotifier:      s.htlcNotifier,
+		TowerClient:       s.towerClient,
+		AnchorTowerClient: s.anchorTowerClient,
+		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
+			lnwire.NodeAnnouncement, error) {
+
+			return s.genNodeAnnouncement(nil)
+		},
 
 		PongBuf: s.pongBuf,
 
@@ -3953,7 +3957,7 @@ func (s *server) createPartialPeerConfig() peer.Config {
 // peer by adding it to the server's global list of all active peers, and
 // starting all the goroutines the peer needs to function properly. The inbound
 // boolean should be true if the peer initiated the connection to us.
-func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
+func (p *PeerConnManager) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	inbound bool) {
 
 	brontideConn := conn.(*brontide.Conn)
@@ -3966,18 +3970,18 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	peerAddr := &lnwire.NetAddress{
 		IdentityKey: pubKey,
 		Address:     addr,
-		ChainNet:    s.cfg.ActiveNetParams.Net,
+		ChainNet:    p.NetParams,
 	}
 
 	// With the brontide connection established, we'll now craft the feature
 	// vectors to advertise to the remote node.
-	initFeatures := s.featureMgr.Get(feature.SetInit)
-	legacyFeatures := s.featureMgr.Get(feature.SetLegacyGlobal)
+	initFeatures := p.Config.FeatureMgr.Get(feature.SetInit)
+	legacyFeatures := p.Config.FeatureMgr.Get(feature.SetLegacyGlobal)
 
 	// Lookup past error caches for the peer in the server. If no buffer is
 	// found, create a fresh buffer.
 	pkStr := string(peerAddr.IdentityKey.SerializeCompressed())
-	errBuffer, ok := s.pcm.peerErrors[pkStr]
+	errBuffer, ok := p.peerErrors[pkStr]
 	if !ok {
 		var err error
 		errBuffer, err = queue.NewCircularBuffer(peer.ErrorBufferSize)
@@ -3993,92 +3997,38 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// offered that would trigger channel closure. In case of outgoing
 	// htlcs, an extra block is added to prevent the channel from being
 	// closed when the htlc is outstanding and a new block comes in.
-	pCfg := peer.Config{
-		Conn:                    brontideConn,
-		ConnReq:                 connReq,
-		Addr:                    peerAddr,
-		Inbound:                 inbound,
-		Features:                initFeatures,
-		LegacyFeatures:          legacyFeatures,
-		OutgoingCltvRejectDelta: lncfg.DefaultOutgoingCltvRejectDelta,
-		ChanActiveTimeout:       s.cfg.ChanEnableTimeout,
-		ErrorBuffer:             errBuffer,
-		WritePool:               s.writePool,
-		ReadPool:                s.readPool,
-		Switch:                  s.htlcSwitch,
-		InterceptSwitch:         s.interceptableSwitch,
-		ChannelDB:               s.chanStateDB,
-		ChannelGraph:            s.graphDB,
-		ChainArb:                s.chainArb,
-		AuthGossiper:            s.authGossiper,
-		ChanStatusMgr:           s.chanStatusMgr,
-		ChainIO:                 s.cc.ChainIO,
-		FeeEstimator:            s.cc.FeeEstimator,
-		Signer:                  s.cc.Wallet.Cfg.Signer,
-		SigPool:                 s.sigPool,
-		Wallet:                  s.cc.Wallet,
-		ChainNotifier:           s.cc.ChainNotifier,
-		RoutingPolicy:           s.cc.RoutingPolicy,
-		Sphinx:                  s.sphinx,
-		WitnessBeacon:           s.witnessBeacon,
-		Invoices:                s.invoices,
-		ChannelNotifier:         s.channelNotifier,
-		HtlcNotifier:            s.htlcNotifier,
-		TowerClient:             s.towerClient,
-		AnchorTowerClient:       s.anchorTowerClient,
-		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
-			lnwire.NodeAnnouncement, error) {
+	pCfg := p.Config.PartialPeerConfig
 
-			return s.genNodeAnnouncement(nil)
-		},
-
-		PongBuf: s.pongBuf,
-
-		DisconnectPeer: s.pcm.DisconnectPeer,
-		PrunePersistentPeerConnection: s.pcm.
-			PrunePersistentPeerConnection,
-
-		FetchLastChanUpdate: s.fetchLastChanUpdate(),
-
-		FundingManager: s.fundingMgr,
-
-		Hodl:                    s.cfg.Hodl,
-		UnsafeReplay:            s.cfg.UnsafeReplay,
-		MaxOutgoingCltvExpiry:   s.cfg.MaxOutgoingCltvExpiry,
-		MaxChannelFeeAllocation: s.cfg.MaxChannelFeeAllocation,
-		CoopCloseTargetConfs:    s.cfg.CoopCloseTargetConfs,
-		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
-			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
-		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,
-		PendingCommitInterval:  s.cfg.PendingCommitInterval,
-		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
-		HandleCustomMessage:    s.handleCustomMessage,
-		GetAliases:             s.aliasMgr.GetAliases,
-		RequestAlias:           s.aliasMgr.RequestAlias,
-		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
-		Quit:                   s.quit,
-	}
+	// Finish the partial peer config.
+	pCfg.Conn = brontideConn
+	pCfg.ConnReq = connReq
+	pCfg.Addr = peerAddr
+	pCfg.Inbound = inbound
+	pCfg.Features = initFeatures
+	pCfg.LegacyFeatures = legacyFeatures
+	pCfg.ErrorBuffer = errBuffer
+	pCfg.Quit = p.quit
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())
-	copy(pCfg.ServerPubKey[:], s.identityECDH.PubKey().SerializeCompressed())
+	copy(pCfg.ServerPubKey[:], p.PubKey.SerializeCompressed())
 
 	peer := peer.NewBrontide(pCfg)
 
 	// TODO(roasbeef): update IP address for link-node
 	//  * also mark last-seen, do it one single transaction?
 
-	s.pcm.addPeer(peer)
+	p.addPeer(peer)
 
 	// Once we have successfully added the peer to the server, we can
 	// delete the previous error buffer from the server's map of error
 	// buffers.
-	delete(s.pcm.peerErrors, pkStr)
+	delete(p.peerErrors, pkStr)
 
 	// Dispatch a goroutine to asynchronously start the peer. This process
 	// includes sending and receiving Init messages, which would be a DOS
 	// vector if we held the server's mutex throughout the procedure.
-	s.wg.Add(1)
-	go s.pcm.peerInitializer(peer)
+	p.wg.Add(1)
+	go p.peerInitializer(peer)
 }
 
 // addPeer adds the passed peer to the server's global state of all active

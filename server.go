@@ -291,7 +291,7 @@ func (p *PeerConnManager) Start() error {
 	p.connMgr = cmgr
 
 	p.start.Do(func() {
-		srvrLog.Info("PeerConnManager starting...")
+		connLog.Info("PeerConnManager starting...")
 
 		p.connMgr.Start()
 
@@ -312,7 +312,7 @@ func (p *PeerConnManager) Stop() error {
 	for _, peer := range p.Peers() {
 		err := p.DisconnectPeer(peer.IdentityKey())
 		if err != nil {
-			srvrLog.Warnf("could not disconnect peer: %v"+
+			connLog.Warnf("could not disconnect peer: %v"+
 				"received error: %v", peer.IdentityKey(),
 				err,
 			)
@@ -321,7 +321,7 @@ func (p *PeerConnManager) Stop() error {
 
 	var err error
 	p.stop.Do(func() {
-		srvrLog.Info("PeerConnManager shutting down")
+		connLog.Info("PeerConnManager shutting down")
 
 		// Shutdown the connMgr.
 		p.connMgr.Stop()
@@ -2813,7 +2813,7 @@ func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 					backOff = bootstrapBackOffCeiling
 				}
 
-				srvrLog.Debugf("Backing off peer bootstrapper to "+
+				connLog.Debugf("Backing off peer bootstrapper to "+
 					"%v", backOff)
 				sampleTicker = time.NewTicker(backOff)
 				continue
@@ -2826,7 +2826,7 @@ func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 			// exact number we need to reach our threshold.
 			numNeeded := numTargetPeers - numActivePeers
 
-			srvrLog.Debugf("Attempting to obtain %v more network "+
+			connLog.Debugf("Attempting to obtain %v more network "+
 				"peers", numNeeded)
 
 			// With the number of peers we need calculated, we'll
@@ -2841,7 +2841,7 @@ func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 				ignoreList, numNeeded*2, bootstrappers...,
 			)
 			if err != nil {
-				srvrLog.Errorf("Unable to retrieve bootstrap "+
+				connLog.Errorf("Unable to retrieve bootstrap "+
 					"peers: %v", err)
 				continue
 			}
@@ -2865,7 +2865,7 @@ func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 							return
 						}
 
-						srvrLog.Errorf("Unable to "+
+						connLog.Errorf("Unable to "+
 							"connect to %v: %v",
 							a, err)
 						atomic.AddUint32(&epochErrors, 1)
@@ -2891,7 +2891,7 @@ func (p *PeerConnManager) initialPeerBootstrap(ignore map[autopilot.NodeID]struc
 	numTargetPeers uint32,
 	bootstrappers []discovery.NetworkPeerBootstrapper) {
 
-	srvrLog.Debugf("Init bootstrap with targetPeers=%v, bootstrappers=%v, "+
+	connLog.Debugf("Init bootstrap with targetPeers=%v, bootstrappers=%v, "+
 		"ignore=%v", numTargetPeers, len(bootstrappers), len(ignore))
 
 	// We'll start off by waiting 2 seconds between failed attempts, then
@@ -2921,7 +2921,7 @@ func (p *PeerConnManager) initialPeerBootstrap(ignore map[autopilot.NodeID]struc
 		}
 
 		if attempts > 0 {
-			srvrLog.Debugf("Waiting %v before trying to locate "+
+			connLog.Debugf("Waiting %v before trying to locate "+
 				"bootstrap peers (attempt #%v)", delayTime,
 				attempts)
 
@@ -2950,7 +2950,7 @@ func (p *PeerConnManager) initialPeerBootstrap(ignore map[autopilot.NodeID]struc
 			ignore, peersNeeded, bootstrappers...,
 		)
 		if err != nil {
-			srvrLog.Errorf("Unable to retrieve initial bootstrap "+
+			connLog.Errorf("Unable to retrieve initial bootstrap "+
 				"peers: %v", err)
 			continue
 		}
@@ -2978,12 +2978,12 @@ func (p *PeerConnManager) initialPeerBootstrap(ignore map[autopilot.NodeID]struc
 					if err == nil {
 						return
 					}
-					srvrLog.Errorf("Unable to connect to "+
+					connLog.Errorf("Unable to connect to "+
 						"%v: %v", addr, err)
 				// TODO: tune timeout? 3 seconds might be *too*
 				// aggressive but works well.
 				case <-time.After(3 * time.Second):
-					srvrLog.Tracef("Skipping peer %v due "+
+					connLog.Tracef("Skipping peer %v due "+
 						"to not establishing a "+
 						"connection within 3 seconds",
 						addr)
@@ -3244,7 +3244,7 @@ func (p *PeerConnManager) EstablishPersistentConnections() error {
 		// haven't yet, then we won't have a policy. However, we don't
 		// need this to connect to the peer, so we'll log it and move on.
 		if policy == nil {
-			srvrLog.Warnf("No channel policy found for "+
+			connLog.Warnf("No channel policy found for "+
 				"ChannelPoint(%v): ", chanInfo.ChannelPoint)
 		}
 
@@ -3317,7 +3317,7 @@ func (p *PeerConnManager) EstablishPersistentConnections() error {
 		return err
 	}
 
-	srvrLog.Debugf("Establishing %v persistent connections on start",
+	connLog.Debugf("Establishing %v persistent connections on start",
 		len(nodeAddrsMap))
 
 	// Acquire and hold server lock until all persistent connection requests
@@ -3402,7 +3402,7 @@ func (p *PeerConnManager) PrunePersistentPeerConnection(
 		p.cancelConnReqs(pubKeyStr, nil)
 		p.mu.Unlock()
 
-		srvrLog.Infof("Pruned peer %x from persistent connections, "+
+		connLog.Infof("Pruned peer %x from persistent connections, "+
 			"peer has no open channels", compressedPubKey)
 
 		return
@@ -3419,16 +3419,18 @@ func (p *PeerConnManager) PrunePersistentPeerConnection(
 func (p *PeerConnManager) BroadcastMessage(skips map[route.Vertex]struct{},
 	msgs ...lnwire.Message) error {
 
+	connLog.Debugf("Broadcasting %v messages", len(msgs))
+
 	// Filter out peers found in the skips map. We synchronize access to
 	// peersByPub throughout this process to ensure we deliver messages to
 	// exact set of peers present at the time of invocation.
 	p.mu.RLock()
 	peers := make([]*peer.Brontide, 0, len(p.peersByPub))
-	for pubStr, sPeer := range p.peersByPub {
+	for _, sPeer := range p.peersByPub {
 		if skips != nil {
 			if _, ok := skips[sPeer.PubKey()]; ok {
-				srvrLog.Tracef("Skipping %x in broadcast with "+
-					"pubStr=%x", sPeer.PubKey(), pubStr)
+				connLog.Tracef("Skipping %x in broadcast",
+					sPeer.PubKey())
 				continue
 			}
 		}
@@ -3497,7 +3499,7 @@ func (p *PeerConnManager) NotifyWhenOnline(peerKey [33]byte,
 		}
 
 		// Connected, can return early.
-		srvrLog.Debugf("Notifying that peer %x is online", peerKey)
+		connLog.Debugf("Notifying that peer %x is online", peerKey)
 
 		select {
 		case peerChan <- peer:
@@ -3530,7 +3532,7 @@ func (p *PeerConnManager) NotifyWhenOffline(
 	// notification.
 	peerPubKeyStr := string(peerPubKey[:])
 	if _, ok := p.peersByPub[peerPubKeyStr]; !ok {
-		srvrLog.Debugf("Notifying that peer %x is offline", peerPubKey)
+		connLog.Debugf("Notifying that peer %x is offline", peerPubKey)
 		close(c)
 		return c
 	}
@@ -3668,7 +3670,7 @@ func (p *PeerConnManager) InboundPeerConnected(conn net.Conn) {
 	// If we already have an outbound connection to this peer, then ignore
 	// this new connection.
 	if p, ok := p.outboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have outbound connection for %v, "+
+		connLog.Debugf("Already have outbound connection for %v, "+
 			"ignoring inbound connection from local=%v, remote=%v",
 			p, conn.LocalAddr(), conn.RemoteAddr())
 
@@ -3680,13 +3682,13 @@ func (p *PeerConnManager) InboundPeerConnected(conn net.Conn) {
 	// precedence once the prior peer has finished disconnecting, we'll
 	// ignore this connection.
 	if p, ok := p.scheduledPeerConnection[pubStr]; ok {
-		srvrLog.Debugf("Ignoring connection from %v, peer %v already "+
+		connLog.Debugf("Ignoring connection from %v, peer %v already "+
 			"scheduled", conn.RemoteAddr(), p)
 		conn.Close()
 		return
 	}
 
-	srvrLog.Infof("New inbound connection from %v", conn.RemoteAddr())
+	connLog.Infof("New inbound connection from %v", conn.RemoteAddr())
 
 	// Check to see if we already have a connection with this peer. If so,
 	// we may need to drop our existing connection. This prevents us from
@@ -3711,7 +3713,7 @@ func (p *PeerConnManager) InboundPeerConnected(conn net.Conn) {
 		if !connectedPeer.Inbound() &&
 			!shouldDropLocalConnection(localPub, nodePub) {
 
-			srvrLog.Warnf("Received inbound connection from "+
+			connLog.Warnf("Received inbound connection from "+
 				"peer %v, but already have outbound "+
 				"connection, dropping conn", connectedPeer)
 			conn.Close()
@@ -3720,7 +3722,7 @@ func (p *PeerConnManager) InboundPeerConnected(conn net.Conn) {
 
 		// Otherwise, if we should drop the connection, then we'll
 		// disconnect our already connected peer.
-		srvrLog.Debugf("Disconnecting stale connection to %v",
+		connLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
 
 		p.cancelConnReqs(pubStr, nil)
@@ -3757,7 +3759,7 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 	// If we already have an inbound connection to this peer, then ignore
 	// this new connection.
 	if peer, ok := p.inboundPeers[pubStr]; ok {
-		srvrLog.Debugf("Already have inbound connection for %v, "+
+		connLog.Debugf("Already have inbound connection for %v, "+
 			"ignoring outbound connection from local=%v, remote=%v",
 			peer, conn.LocalAddr(), conn.RemoteAddr())
 
@@ -3768,7 +3770,7 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 		return
 	}
 	if _, ok := p.persistentConnReqs[pubStr]; !ok && connReq != nil {
-		srvrLog.Debugf("Ignoring canceled outbound connection")
+		connLog.Debugf("Ignoring canceled outbound connection")
 		p.connMgr.Remove(connReq.ID())
 		conn.Close()
 		return
@@ -3778,7 +3780,7 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 	// precedence once the prior peer has finished disconnecting, we'll
 	// ignore this connection.
 	if _, ok := p.scheduledPeerConnection[pubStr]; ok {
-		srvrLog.Debugf("Ignoring connection, peer already scheduled")
+		connLog.Debugf("Ignoring connection, peer already scheduled")
 
 		if connReq != nil {
 			p.connMgr.Remove(connReq.ID())
@@ -3788,7 +3790,7 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 		return
 	}
 
-	srvrLog.Infof("Established connection to: %x@%v", pubStr,
+	connLog.Infof("Established connection to: %x@%v", pubStr,
 		conn.RemoteAddr())
 
 	if connReq != nil {
@@ -3824,7 +3826,7 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 		if connectedPeer.Inbound() &&
 			shouldDropLocalConnection(localPub, nodePub) {
 
-			srvrLog.Warnf("Established outbound connection to "+
+			connLog.Warnf("Established outbound connection to "+
 				"peer %v, but already have inbound "+
 				"connection, dropping conn", connectedPeer)
 			if connReq != nil {
@@ -3837,7 +3839,7 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 		// Otherwise, _their_ connection should be dropped. So we'll
 		// disconnect the peer and send the now obsolete peer to the
 		// server for garbage collection.
-		srvrLog.Debugf("Disconnecting stale connection to %v",
+		connLog.Debugf("Disconnecting stale connection to %v",
 			connectedPeer)
 
 		// Remove the current peer from the server's internal state and
@@ -3880,7 +3882,7 @@ func (p *PeerConnManager) cancelConnReqs(pubStr string, skip *uint64) {
 	}
 
 	for _, connReq := range connReqs {
-		srvrLog.Tracef("Canceling %s:", connReqs)
+		connLog.Tracef("Canceling %s:", connReqs)
 
 		// Atomically capture the current request identifier.
 		connID := connReq.ID()
@@ -3997,7 +3999,7 @@ func (p *PeerConnManager) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
 
-	srvrLog.Infof("Finalizing connection to %x@%s, inbound=%v",
+	connLog.Infof("Finalizing connection to %x@%s, inbound=%v",
 		pubKey.SerializeCompressed(), addr, inbound)
 
 	peerAddr := &lnwire.NetAddress{
@@ -4019,7 +4021,7 @@ func (p *PeerConnManager) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		var err error
 		errBuffer, err = queue.NewCircularBuffer(peer.ErrorBufferSize)
 		if err != nil {
-			srvrLog.Errorf("unable to create peer %v", err)
+			connLog.Errorf("unable to create peer %v", err)
 			return
 		}
 	}
@@ -4153,7 +4155,7 @@ func (p *PeerConnManager) peerInitializer(peer *peer.Brontide) {
 	defer p.mu.Unlock()
 
 	// Check if there are listeners waiting for this peer to come online.
-	srvrLog.Debugf("Notifying that peer %v is online", peer)
+	connLog.Debugf("Notifying that peer %v is online", peer)
 	for _, peerChan := range p.peerConnectedListeners[pubStr] {
 		select {
 		case peerChan <- peer:
@@ -4182,7 +4184,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 
 	peer.WaitForDisconnect(ready)
 
-	srvrLog.Debugf("Peer %v has been disconnected", peer)
+	connLog.Debugf("Peer %v has been disconnected", peer)
 
 	// If the server is exiting then we can bail out early ourselves as all
 	// the other sub-systems will already be shutting down.
@@ -4210,7 +4212,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 	// TODO(roasbeef): instead add a PurgeInterfaceLinks function?
 	links, err := p.htlcSwitch.GetLinksByInterface(peer.PubKey())
 	if err != nil && err != htlcswitch.ErrNoLinksFound {
-		srvrLog.Errorf("Unable to get channel links for %v: %v", peer, err)
+		connLog.Errorf("Unable to get channel links for %v: %v", peer, err)
 	}
 
 	for _, link := range links {
@@ -4222,7 +4224,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 
 	// If there were any notification requests for when this peer
 	// disconnected, we can trigger them now.
-	srvrLog.Debugf("Notifying that peer %v is offline", peer)
+	connLog.Debugf("Notifying that peer %v is offline", peer)
 	pubStr := string(pubKey.SerializeCompressed())
 	for _, offlineChan := range p.peerDisconnectedListeners[pubStr] {
 		close(offlineChan)
@@ -4291,7 +4293,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 		// the address used by our onion service to dial
 		// to lnd), so we don't have enough information
 		// to attempt a reconnect.
-		srvrLog.Debugf("Ignoring reconnection attempt "+
+		connLog.Debugf("Ignoring reconnection attempt "+
 			"to inbound peer %v without "+
 			"advertised address", peer)
 		return
@@ -4300,7 +4302,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 	// address, log it, and fall back to the existing peer
 	// address.
 	default:
-		srvrLog.Errorf("Unable to retrieve advertised "+
+		connLog.Errorf("Unable to retrieve advertised "+
 			"address for node %x: %v", peer.PubKey(),
 			err)
 	}
@@ -4344,7 +4346,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 	// call can stall for arbitrarily long if we shutdown while an
 	// outbound connection attempt is being made.
 	go func() {
-		srvrLog.Debugf("Scheduling connection re-establishment to "+
+		connLog.Debugf("Scheduling connection re-establishment to "+
 			"persistent peer %x in %s",
 			peer.IdentityKey().SerializeCompressed(), backoff)
 
@@ -4356,7 +4358,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 			return
 		}
 
-		srvrLog.Debugf("Attempting to re-establish persistent "+
+		connLog.Debugf("Attempting to re-establish persistent "+
 			"connection to peer %x",
 			peer.IdentityKey().SerializeCompressed())
 
@@ -4407,7 +4409,7 @@ func (p *PeerConnManager) connectToPersistentPeer(pubKeyStr string) {
 		// then we remove the connecting request from the connection
 		// manager.
 		case false:
-			srvrLog.Info(
+			connLog.Info(
 				"Removing conn req:", connReq.Addr.String(),
 			)
 			p.connMgr.Remove(connReq.ID())
@@ -4445,7 +4447,7 @@ func (p *PeerConnManager) connectToPersistentPeer(pubKeyStr string) {
 			)
 			p.mu.Unlock()
 
-			srvrLog.Debugf("Attempting persistent connection to "+
+			connLog.Debugf("Attempting persistent connection to "+
 				"channel peer %v", addr)
 
 			go p.connMgr.Connect(connReq)
@@ -4468,7 +4470,7 @@ func (p *PeerConnManager) removePeer(peer *peer.Brontide) {
 		return
 	}
 
-	srvrLog.Debugf("removing peer %v", peer)
+	connLog.Debugf("removing peer %v", peer)
 
 	// As the peer is now finished, ensure that the TCP connection is
 	// closed and all of its related goroutines have exited.
@@ -4539,14 +4541,14 @@ func (p *PeerConnManager) ConnectToPeer(addr *lnwire.NetAddress,
 	// then we ignore this request to ensure we don't create a redundant
 	// connection.
 	if reqs, ok := p.persistentConnReqs[targetPub]; ok {
-		srvrLog.Warnf("Already have %d persistent connection "+
+		connLog.Warnf("Already have %d persistent connection "+
 			"requests for %v, connecting anyway.", len(reqs), addr)
 	}
 
 	// If there's not already a pending or active connection to this node,
 	// then instruct the connection manager to attempt to establish a
 	// persistent connection to the peer.
-	srvrLog.Debugf("Connecting to %v", addr)
+	connLog.Debugf("Connecting to %v", addr)
 	if perm {
 		connReq := &connmgr.ConnReq{
 			Addr:      addr,
@@ -4597,7 +4599,7 @@ func (p *PeerConnManager) connectToPeer(addr *lnwire.NetAddress,
 		p.IdentityECDH, addr, timeout, p.Config.Net.Dial,
 	)
 	if err != nil {
-		srvrLog.Errorf("Unable to connect to %v: %v", addr, err)
+		connLog.Errorf("Unable to connect to %v: %v", addr, err)
 		select {
 		case errChan <- err:
 		case <-p.quit:
@@ -4607,7 +4609,7 @@ func (p *PeerConnManager) connectToPeer(addr *lnwire.NetAddress,
 
 	close(errChan)
 
-	srvrLog.Tracef("Brontide dialer made local=%v, remote=%v",
+	connLog.Tracef("Brontide dialer made local=%v, remote=%v",
 		conn.LocalAddr(), conn.RemoteAddr())
 
 	p.OutboundPeerConnected(nil, conn)
@@ -4632,7 +4634,7 @@ func (p *PeerConnManager) DisconnectPeer(pubKey *btcec.PublicKey) error {
 		return fmt.Errorf("peer %x is not connected", pubBytes)
 	}
 
-	srvrLog.Infof("Disconnecting from %v", peer)
+	connLog.Infof("Disconnecting from %v", peer)
 
 	p.cancelConnReqs(pubStr, nil)
 

@@ -87,6 +87,7 @@ var (
 	rpcsLog = addLndPkgLogger("RPCS")
 	srvrLog = addLndPkgLogger("SRVR")
 	atplLog = addLndPkgLogger("ATPL")
+	connLog = addLndPkgLogger("PCMN")
 )
 
 // genSubLogger creates a logger for a subsystem. We provide an instance of

@@ -64,6 +64,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/peer"
+	"github.com/lightningnetwork/lnd/peerconn"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
@@ -8052,7 +8053,7 @@ func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustom
 		peer, lnwire.MessageType(req.Type), req.Data,
 	)
 	switch {
-	case err == ErrPeerNotConnected:
+	case err == peerconn.ErrPeerNotConnected:
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err

@@ -13,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/peerconn"
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
@@ -330,7 +331,7 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 
 		// If we're already connected to this peer, then we don't
 		// consider this an error, so we'll exit here.
-		if _, ok := err.(*ErrPeerAlreadyConnected); ok {
+		if _, ok := err.(*peerconn.ErrPeerAlreadyConnected); ok {
 			return nil
 
 		} else if err != nil {

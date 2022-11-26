@@ -141,8 +141,21 @@ func (e *errPeerAlreadyConnected) Error() string {
 	return fmt.Sprintf("already connected to peer: %v", e.peer)
 }
 
+// PeerConnManagerConfig holds config info for the peer conn manager.
+type PeerConnManagerConfig struct {
+	// PartialPeerConfig holds a peer config that's not yet completed and
+	// will be finished by the peer conn manager when making a new peer.
+	PartialPeerConfig peer.Config
+
+	// featureMgr dispatches feature vectors for various contexts within
+	// the daemon.
+	FeatureMgr *feature.Manager
+}
+
 // PeerConnManager is responsible for managing peer connections.
 type PeerConnManager struct {
+	Config *PeerConnManagerConfig
+
 	mu sync.RWMutex
 
 	// PubKey is our public key.
@@ -1764,6 +1777,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 	s.pcm.connMgr = cmgr
+	s.pcm.Config = &PeerConnManagerConfig{
+		PartialPeerConfig: s.createPartialPeerConfig(),
+		FeatureMgr:        s.featureMgr,
+	}
 
 	return s, nil
 }
@@ -3868,6 +3885,68 @@ func (s *server) handleCustomMessage(peer [33]byte, msg *lnwire.Custom) error {
 // messages.
 func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
 	return s.customMessageServer.Subscribe()
+}
+
+// createPartialPeerConfig creates a partially filled peer config that will be
+// used by peer conn manager when making new peers.
+func (s *server) createPartialPeerConfig() peer.Config {
+	return peer.Config{
+		OutgoingCltvRejectDelta: lncfg.DefaultOutgoingCltvRejectDelta,
+		ChanActiveTimeout:       s.cfg.ChanEnableTimeout,
+
+		WritePool:           s.writePool,
+		ReadPool:            s.readPool,
+		Switch:              s.htlcSwitch,
+		InterceptSwitch:     s.interceptableSwitch,
+		ChannelDB:           s.chanStateDB,
+		ChannelGraph:        s.graphDB,
+		ChainArb:            s.chainArb,
+		AuthGossiper:        s.authGossiper,
+		ChanStatusMgr:       s.chanStatusMgr,
+		ChainIO:             s.cc.ChainIO,
+		FeeEstimator:        s.cc.FeeEstimator,
+		Signer:              s.cc.Wallet.Cfg.Signer,
+		SigPool:             s.sigPool,
+		Wallet:              s.cc.Wallet,
+		ChainNotifier:       s.cc.ChainNotifier,
+		RoutingPolicy:       s.cc.RoutingPolicy,
+		Sphinx:              s.sphinx,
+		WitnessBeacon:       s.witnessBeacon,
+		Invoices:            s.invoices,
+		ChannelNotifier:     s.channelNotifier,
+		HtlcNotifier:        s.htlcNotifier,
+		TowerClient:         s.towerClient,
+		AnchorTowerClient:   s.anchorTowerClient,
+		GenNodeAnnouncement: s.genNodeAnnouncement,
+
+		PongBuf: s.pongBuf,
+
+		DisconnectPeer: s.pcm.DisconnectPeer,
+		PrunePersistentPeerConnection: s.pcm.
+			PrunePersistentPeerConnection,
+
+		FetchLastChanUpdate: s.fetchLastChanUpdate(),
+
+		FundingManager: s.fundingMgr,
+
+		Hodl:                    s.cfg.Hodl,
+		UnsafeReplay:            s.cfg.UnsafeReplay,
+		MaxOutgoingCltvExpiry:   s.cfg.MaxOutgoingCltvExpiry,
+		MaxChannelFeeAllocation: s.cfg.MaxChannelFeeAllocation,
+		CoopCloseTargetConfs:    s.cfg.CoopCloseTargetConfs,
+		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
+			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
+		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,
+		PendingCommitInterval:  s.cfg.PendingCommitInterval,
+		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
+
+		HandleCustomMessage: s.handleCustomMessage,
+
+		// TODO(yy): interface alias manager.
+		GetAliases:    s.aliasMgr.GetAliases,
+		RequestAlias:  s.aliasMgr.RequestAlias,
+		AddLocalAlias: s.aliasMgr.AddLocalAlias,
+	}
 }
 
 // peerConnected is a function that handles initialization a newly connected

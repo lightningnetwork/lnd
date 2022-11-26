@@ -169,6 +169,27 @@ type PeerConnManagerConfig struct {
 	// Listeners is a list of addresses that's specified during the startup
 	// of lnd.
 	Listeners []net.Listener
+
+	// NetParams specifies the bitcoin network used.
+	NetParams wire.BitcoinNet
+
+	// MinBackoff defines the initial backoff applied to connections with
+	// watchtowers. Subsequent backoff durations will grow exponentially up
+	// until MaxBackoff.
+	MinBackoff time.Duration
+
+	// MaxBackoff defines the maximum backoff applied to connections with
+	// watchtowers. If the exponential backoff produces a timeout greater
+	// than this value, the backoff will be clamped to MaxBackoff.
+	MaxBackoff time.Duration
+
+	// SubscribeTopology is used to get a subscription for topology changes
+	// on the network.
+	SubscribeTopology func() (*routing.TopologyClient, error)
+
+	// CancelPeerReservations mounts the method from funding manager which
+	// cancels all active reservations associated with the passed node.
+	CancelPeerReservations func(nodePub [33]byte)
 }
 
 // PeerConnManager is responsible for managing peer connections.
@@ -232,14 +253,6 @@ type PeerConnManager struct {
 
 	wg sync.WaitGroup
 
-	// SubscribeTopology is used to get a subscription for topology changes
-	// on the network.
-	SubscribeTopology func() (*routing.TopologyClient, error)
-
-	// CancelPeerReservations mounts the method from funding manager which
-	// cancels all active reservations associated with the passed node.
-	CancelPeerReservations func(nodePub [33]byte)
-
 	// PruneSyncState mounts the method from auth gossiper and is called
 	// once a peer that we were previously connected to has been
 	// disconnected. In this case we can stop the existing GossipSyncer
@@ -256,18 +269,6 @@ type PeerConnManager struct {
 	// authenticating the connection to the Tor server, automatically
 	// creating and setting up onion services, etc.
 	torController *tor.Controller
-
-	// TODO(yy): make a config to hold these info.
-	NetParams wire.BitcoinNet
-	// MinBackoff defines the initial backoff applied to connections with
-	// watchtowers. Subsequent backoff durations will grow exponentially up
-	// until MaxBackoff.
-	MinBackoff time.Duration
-
-	// MaxBackoff defines the maximum backoff applied to connections with
-	// watchtowers. If the exponential backoff produces a timeout greater
-	// than this value, the backoff will be clamped to MaxBackoff.
-	MaxBackoff time.Duration
 }
 
 // Start will start the peer conn manager.
@@ -342,6 +343,38 @@ func (p *PeerConnManager) Stop() error {
 // shutdown.
 func (p *PeerConnManager) Stopped() bool {
 	return atomic.LoadInt32(&p.stopping) != 0
+}
+
+// NewPeerConnManager creates and returns a new peer conn manager.
+func NewPeerConnManager(nodeKey keychain.SingleKeyECDH,
+	tc *tor.Controller) *PeerConnManager {
+
+	return &PeerConnManager{
+		IdentityECDH: nodeKey,
+
+		// Assemble a peer notifier which will provide clients with
+		// subscriptions to peer online and offline events.
+		PeerNotifier: peernotifier.New(),
+
+		persistentPeers:         make(map[string]bool),
+		persistentPeersBackoff:  make(map[string]time.Duration),
+		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
+		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
+		persistentRetryCancels:  make(map[string]chan struct{}),
+		peerErrors:              make(map[string]*queue.CircularBuffer),
+		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
+		scheduledPeerConnection: make(map[string]func()),
+
+		peersByPub:    make(map[string]*peer.Brontide),
+		inboundPeers:  make(map[string]*peer.Brontide),
+		outboundPeers: make(map[string]*peer.Brontide),
+		peerConnectedListeners: make(
+			map[string][]chan<- lnpeer.Peer,
+		),
+		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
+
+		torController: tc,
+	}
 }
 
 // server is the main server of the Lightning Network Daemon. The server houses
@@ -497,7 +530,7 @@ type server struct {
 // UpdatePersistentPeerAddrs subscribes to topology changes and stores
 // advertised addresses for any NodeAnnouncements from our persisted peers.
 func (p *PeerConnManager) UpdatePersistentPeerAddrs() error {
-	graphSub, err := p.SubscribeTopology()
+	graphSub, err := p.Config.SubscribeTopology()
 	if err != nil {
 		return err
 	}
@@ -544,7 +577,7 @@ func (p *PeerConnManager) UpdatePersistentPeerAddrs() error {
 							&lnwire.NetAddress{
 								IdentityKey: update.IdentityKey,
 								Address:     addr,
-								ChainNet:    p.NetParams,
+								ChainNet:    p.Config.NetParams,
 							},
 						)
 					}
@@ -1146,33 +1179,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	s.pcm = &PeerConnManager{
-		IdentityECDH:            nodeKeyECDH,
-		persistentPeers:         make(map[string]bool),
-		persistentPeersBackoff:  make(map[string]time.Duration),
-		persistentConnReqs:      make(map[string][]*connmgr.ConnReq),
-		persistentPeerAddrs:     make(map[string][]*lnwire.NetAddress),
-		persistentRetryCancels:  make(map[string]chan struct{}),
-		peerErrors:              make(map[string]*queue.CircularBuffer),
-		ignorePeerTermination:   make(map[*peer.Brontide]struct{}),
-		scheduledPeerConnection: make(map[string]func()),
-
-		peersByPub:                make(map[string]*peer.Brontide),
-		inboundPeers:              make(map[string]*peer.Brontide),
-		outboundPeers:             make(map[string]*peer.Brontide),
-		peerConnectedListeners:    make(map[string][]chan<- lnpeer.Peer),
-		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
-
-		// Assemble a peer notifier which will provide clients with
-		// subscriptions to peer online and offline events.
-		PeerNotifier:      peernotifier.New(),
-		SubscribeTopology: s.chanRouter.SubscribeTopology,
-		NetParams:         s.cfg.ActiveNetParams.Net,
-		MinBackoff:        s.cfg.MinBackoff,
-		MaxBackoff:        s.cfg.MaxBackoff,
-
-		torController: s.torController,
-	}
+	// Create peer conn manager.
+	s.pcm = NewPeerConnManager(nodeKeyECDH, s.torController)
 
 	s.authGossiper = discovery.New(discovery.Config{
 		Router:                s.chanRouter,
@@ -1817,6 +1825,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		StaggerInitialReconnect: s.cfg.StaggerInitialReconnect,
 		ConnectionTimeout:       s.cfg.ConnectionTimeout,
 		Listeners:               listeners,
+		NetParams:               s.cfg.ActiveNetParams.Net,
+		MinBackoff:              s.cfg.MinBackoff,
+		MaxBackoff:              s.cfg.MaxBackoff,
+
+		SubscribeTopology:      s.chanRouter.SubscribeTopology,
+		CancelPeerReservations: s.fundingMgr.CancelPeerReservations,
 	}
 
 	return s, nil
@@ -3336,7 +3350,7 @@ func (p *PeerConnManager) EstablishPersistentConnections() error {
 		// been requested as perm by the user.
 		p.persistentPeers[pubStr] = false
 		if _, ok := p.persistentPeersBackoff[pubStr]; !ok {
-			p.persistentPeersBackoff[pubStr] = p.MinBackoff
+			p.persistentPeersBackoff[pubStr] = p.Config.MinBackoff
 		}
 
 		for _, address := range nodeAddr.addresses {
@@ -3598,14 +3612,14 @@ func (p *PeerConnManager) nextPeerBackoff(pubStr string,
 	backoff, ok := p.persistentPeersBackoff[pubStr]
 	if !ok {
 		// If an existing backoff was unknown, use the default.
-		return p.MinBackoff
+		return p.Config.MinBackoff
 	}
 
 	// If the peer failed to start properly, we'll just use the previous
 	// backoff to compute the subsequent randomized exponential backoff
 	// duration. This will roughly double on average.
 	if startTime.IsZero() {
-		return computeNextBackoff(backoff, p.MaxBackoff)
+		return computeNextBackoff(backoff, p.Config.MaxBackoff)
 	}
 
 	// The peer succeeded in starting. If the connection didn't last long
@@ -3613,7 +3627,7 @@ func (p *PeerConnManager) nextPeerBackoff(pubStr string,
 	// with this peer.
 	connDuration := time.Since(startTime)
 	if connDuration < defaultStableConnDuration {
-		return computeNextBackoff(backoff, p.MaxBackoff)
+		return computeNextBackoff(backoff, p.Config.MaxBackoff)
 	}
 
 	// The peer succeed in starting and this was stable peer, so we'll
@@ -3621,9 +3635,9 @@ func (p *PeerConnManager) nextPeerBackoff(pubStr string,
 	// applying randomized exponential backoff. We'll only apply this in the
 	// case that:
 	//   reb(curBackoff) - connDuration > cfg.MinBackoff
-	relaxedBackoff := computeNextBackoff(backoff, p.MaxBackoff) -
+	relaxedBackoff := computeNextBackoff(backoff, p.Config.MaxBackoff) -
 		connDuration
-	if relaxedBackoff > p.MinBackoff {
+	if relaxedBackoff > p.Config.MinBackoff {
 		return relaxedBackoff
 	}
 
@@ -3631,7 +3645,7 @@ func (p *PeerConnManager) nextPeerBackoff(pubStr string,
 	// the stable connection lasted much longer than our previous backoff.
 	// To reward such good behavior, we'll reconnect after the default
 	// timeout.
-	return p.MinBackoff
+	return p.Config.MinBackoff
 }
 
 // shouldDropConnection determines if our local connection to a remote peer
@@ -4005,7 +4019,7 @@ func (p *PeerConnManager) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	peerAddr := &lnwire.NetAddress{
 		IdentityKey: pubKey,
 		Address:     addr,
-		ChainNet:    p.NetParams,
+		ChainNet:    p.Config.NetParams,
 	}
 
 	// With the brontide connection established, we'll now craft the feature
@@ -4197,7 +4211,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 	// If we tried to initiate any funding flows that haven't yet finished,
 	// then we need to unlock those committed outputs so they're still
 	// available for use.
-	p.CancelPeerReservations(peer.PubKey())
+	p.Config.CancelPeerReservations(peer.PubKey())
 
 	pubKey := peer.IdentityKey()
 
@@ -4561,7 +4575,7 @@ func (p *PeerConnManager) ConnectToPeer(addr *lnwire.NetAddress,
 		// zero.
 		p.persistentPeers[targetPub] = true
 		if _, ok := p.persistentPeersBackoff[targetPub]; !ok {
-			p.persistentPeersBackoff[targetPub] = p.MinBackoff
+			p.persistentPeersBackoff[targetPub] = p.Config.MinBackoff
 		}
 		p.persistentConnReqs[targetPub] = append(
 			p.persistentConnReqs[targetPub], connReq,

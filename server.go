@@ -1531,12 +1531,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// we'll set false to prevent the server from continuing
 			// to connect to this peer even if the number of
 			// channels with this peer is zero.
-			s.pcm.mu.Lock()
-			pubStr := string(peerKey.SerializeCompressed())
-			if _, ok := s.pcm.persistentPeers[pubStr]; !ok {
-				s.pcm.persistentPeers[pubStr] = false
-			}
-			s.pcm.mu.Unlock()
+			s.pcm.AddPersistentPeer(peerKey)
 
 			// With that taken care of, we'll send this channel to
 			// the chain arb so it can react to on-chain events.
@@ -4664,16 +4659,12 @@ func (s *server) OpenChannel(
 	// First attempt to locate the target peer to open a channel with, if
 	// we're unable to locate the peer then this request will fail.
 	pubKeyBytes := req.TargetPubkey.SerializeCompressed()
-	s.pcm.mu.RLock()
-	peer, ok := s.pcm.peersByPub[string(pubKeyBytes)]
-	if !ok {
-		s.pcm.mu.RUnlock()
-
+	peer, err := s.pcm.FindPeer(req.TargetPubkey)
+	if err != nil {
 		req.Err <- fmt.Errorf("peer %x is not online", pubKeyBytes)
 		return req.Updates, req.Err
 	}
 	req.Peer = peer
-	s.pcm.mu.RUnlock()
 
 	// We'll wait until the peer is active before beginning the channel
 	// opening process.
@@ -4855,6 +4846,17 @@ func (p *PeerConnManager) SendCustomMessage(peerPub [33]byte,
 	// Send the message as low-priority. For now we assume that all
 	// application-defined message are low priority.
 	return peer.SendMessageLazy(true, msg)
+}
+
+// AddPersistentPeer adds a peer's public key to the persistentPeers map.
+func (p *PeerConnManager) AddPersistentPeer(peerKey *btcec.PublicKey) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	pubStr := string(peerKey.SerializeCompressed())
+	if _, ok := p.persistentPeers[pubStr]; !ok {
+		p.persistentPeers[pubStr] = false
+	}
 }
 
 // newSweepPkScriptGen creates closure that generates a new public key script

@@ -755,7 +755,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		LocalChannelClose: func(pubKey []byte,
 			request *htlcswitch.ChanClose) {
 
-			peer, err := s.FindPeerByPubStr(string(pubKey))
+			peer, err := s.pcm.FindPeerByPubStr(string(pubKey))
 			if err != nil {
 				srvrLog.Errorf("unable to close channel, peer"+
 					" with %v id can't be found: %v",
@@ -2433,7 +2433,7 @@ func (s *server) Stop() error {
 
 		// Disconnect from each active peers to ensure that
 		// peerTerminationWatchers signal completion to each peer.
-		for _, peer := range s.Peers() {
+		for _, peer := range s.pcm.Peers() {
 			err := s.pcm.DisconnectPeer(peer.IdentityKey())
 			if err != nil {
 				srvrLog.Warnf("could not disconnect peer: %v"+
@@ -3549,13 +3549,15 @@ func (p *PeerConnManager) NotifyWhenOffline(
 // daemon's local representation of the remote peer.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) FindPeer(peerKey *btcec.PublicKey) (*peer.Brontide, error) {
-	s.pcm.mu.RLock()
-	defer s.pcm.mu.RUnlock()
+func (p *PeerConnManager) FindPeer(
+	peerKey *btcec.PublicKey) (*peer.Brontide, error) {
+
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
 	pubStr := string(peerKey.SerializeCompressed())
 
-	return s.pcm.findPeerByPubStr(pubStr)
+	return p.findPeerByPubStr(pubStr)
 }
 
 // FindPeerByPubStr will return the peer that corresponds to the passed peerID,
@@ -3563,11 +3565,13 @@ func (s *server) FindPeer(peerKey *btcec.PublicKey) (*peer.Brontide, error) {
 // public key.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) FindPeerByPubStr(pubStr string) (*peer.Brontide, error) {
-	s.pcm.mu.RLock()
-	defer s.pcm.mu.RUnlock()
+func (p *PeerConnManager) FindPeerByPubStr(
+	pubStr string) (*peer.Brontide, error) {
 
-	return s.pcm.findPeerByPubStr(pubStr)
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.findPeerByPubStr(pubStr)
 }
 
 // findPeerByPubStr is an internal method that retrieves the specified peer from
@@ -4707,12 +4711,12 @@ func (s *server) OpenChannel(
 // Peers returns a slice of all active peers.
 //
 // NOTE: This function is safe for concurrent access.
-func (s *server) Peers() []*peer.Brontide {
-	s.pcm.mu.RLock()
-	defer s.pcm.mu.RUnlock()
+func (p *PeerConnManager) Peers() []*peer.Brontide {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
-	peers := make([]*peer.Brontide, 0, len(s.pcm.peersByPub))
-	for _, peer := range s.pcm.peersByPub {
+	peers := make([]*peer.Brontide, 0, len(p.peersByPub))
+	for _, peer := range p.peersByPub {
 		peers = append(peers, peer)
 	}
 
@@ -4826,10 +4830,10 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate,
 
 // SendCustomMessage sends a custom message to the peer with the specified
 // pubkey.
-func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
-	data []byte) error {
+func (p *PeerConnManager) SendCustomMessage(peerPub [33]byte,
+	msgType lnwire.MessageType, data []byte) error {
 
-	peer, err := s.FindPeerByPubStr(string(peerPub[:]))
+	peer, err := p.FindPeerByPubStr(string(peerPub[:]))
 	if err != nil {
 		return err
 	}
@@ -4839,7 +4843,7 @@ func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
 	case <-peer.ActiveSignal():
 	case <-peer.QuitSignal():
 		return fmt.Errorf("peer %x disconnected", peerPub)
-	case <-s.quit:
+	case <-p.quit:
 		return ErrServerShuttingDown
 	}
 

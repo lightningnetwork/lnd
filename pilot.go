@@ -191,7 +191,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			// First, we'll check if we're already connected to the
 			// target peer. If we are, we can exit early. Otherwise,
 			// we'll need to establish a connection.
-			if _, err := svr.FindPeer(target); err == nil {
+			if _, err := svr.pcm.FindPeer(target); err == nil {
 				return true, nil
 			}
 

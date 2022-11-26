@@ -165,6 +165,10 @@ type PeerConnManagerConfig struct {
 
 	//The timeout value for network connections.
 	ConnectionTimeout time.Duration
+
+	// Listeners is a list of addresses that's specified during the startup
+	// of lnd.
+	Listeners []net.Listener
 }
 
 // PeerConnManager is responsible for managing peer connections.
@@ -268,9 +272,28 @@ type PeerConnManager struct {
 
 // Start will start the peer conn manager.
 func (p *PeerConnManager) Start() error {
-	var err error
+	// Create the connection manager which will be responsible for
+	// maintaining persistent outbound connections and also accepting new
+	// incoming connections
+	cmgr, err := connmgr.New(&connmgr.Config{
+		Listeners:      p.Config.Listeners,
+		OnAccept:       p.InboundPeerConnected,
+		RetryDuration:  time.Second * 5,
+		TargetOutbound: 100,
+		Dial: noiseDial(
+			p.IdentityECDH, p.Config.Net, p.Config.ConnectionTimeout,
+		),
+		OnConnection: p.OutboundPeerConnected,
+	})
+	if err != nil {
+		return fmt.Errorf("Creating conn manager failed: %w", err)
+	}
+	p.connMgr = cmgr
+
 	p.start.Do(func() {
 		srvrLog.Info("PeerConnManager starting...")
+
+		p.connMgr.Start()
 
 		if err := p.PeerNotifier.Start(); err != nil {
 			err = fmt.Errorf("PeerNotifier failed to start %w", err)
@@ -1771,23 +1794,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// Create liveness monitor.
 	s.createLivenessMonitor(cfg, cc)
 
-	// Create the connection manager which will be responsible for
-	// maintaining persistent outbound connections and also accepting new
-	// incoming connections
-	cmgr, err := connmgr.New(&connmgr.Config{
-		Listeners:      listeners,
-		OnAccept:       s.pcm.InboundPeerConnected,
-		RetryDuration:  time.Second * 5,
-		TargetOutbound: 100,
-		Dial: noiseDial(
-			nodeKeyECDH, s.cfg.net, s.cfg.ConnectionTimeout,
-		),
-		OnConnection: s.pcm.OutboundPeerConnected,
-	})
-	if err != nil {
-		return nil, err
-	}
-	s.pcm.connMgr = cmgr
 	s.pcm.Config = &PeerConnManagerConfig{
 		PartialPeerConfig:       s.createPartialPeerConfig(),
 		FeatureMgr:              s.featureMgr,
@@ -1795,6 +1801,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		TorActive:               s.cfg.Tor.Active,
 		StaggerInitialReconnect: s.cfg.StaggerInitialReconnect,
 		ConnectionTimeout:       s.cfg.ConnectionTimeout,
+		Listeners:               listeners,
 	}
 
 	return s, nil
@@ -2046,13 +2053,6 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.channelNotifier.Stop)
 
-		if err := s.pcm.Start(); err != nil {
-			startErr = err
-			return
-		}
-		cleanup = cleanup.add(func() error {
-			return s.pcm.Stop()
-		})
 		if err := s.htlcNotifier.Start(); err != nil {
 			startErr = err
 			return
@@ -2149,6 +2149,16 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.chanStatusMgr.Stop)
 
+		// Start peer conn manager last to prevent connections before
+		// init.
+		if err := s.pcm.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(func() error {
+			return s.pcm.Stop()
+		})
+
 		if err := s.chanEventStore.Start(); err != nil {
 			startErr = err
 			return
@@ -2214,13 +2224,6 @@ func (s *server) Start() error {
 			s.wg.Add(1)
 			go s.watchExternalIP()
 		}
-
-		// Start connmgr last to prevent connections before init.
-		s.pcm.connMgr.Start()
-		cleanup = cleanup.add(func() error {
-			s.pcm.connMgr.Stop()
-			return nil
-		})
 
 		// If peers are specified as a config option, we'll add those
 		// peers first.

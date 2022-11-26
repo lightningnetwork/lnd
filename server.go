@@ -307,9 +307,24 @@ func (p *PeerConnManager) Start() error {
 
 // Stop will stop the peer conn manager.
 func (p *PeerConnManager) Stop() error {
+	// Before we shutdown the manager, disconnect from each active peers to
+	// ensure that peerTerminationWatchers signal completion to each peer.
+	for _, peer := range p.Peers() {
+		err := p.DisconnectPeer(peer.IdentityKey())
+		if err != nil {
+			srvrLog.Warnf("could not disconnect peer: %v"+
+				"received error: %v", peer.IdentityKey(),
+				err,
+			)
+		}
+	}
+
 	var err error
 	p.stop.Do(func() {
 		srvrLog.Info("PeerConnManager shutting down")
+
+		// Shutdown the connMgr.
+		p.connMgr.Stop()
 
 		atomic.StoreInt32(&p.stopping, 1)
 		close(p.quit)
@@ -2374,8 +2389,11 @@ func (s *server) Stop() error {
 
 		close(s.quit)
 
-		// Shutdown connMgr first to prevent conns during shutdown.
-		s.pcm.connMgr.Stop()
+		// Shutdown peer conn manager first to prevent conns during
+		// shutdown.
+		if err := s.pcm.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop PeerConnManager: %v", err)
+		}
 
 		// Shutdown the wallet, funding manager, and the rpc server.
 		if err := s.chanStatusMgr.Stop(); err != nil {
@@ -2414,9 +2432,6 @@ func (s *server) Stop() error {
 		if err := s.channelNotifier.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop channelNotifier: %v", err)
 		}
-		if err := s.pcm.Stop(); err != nil {
-			srvrLog.Warnf("failed to stop PeerConnManager: %v", err)
-		}
 		if err := s.htlcNotifier.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop htlcNotifier: %v", err)
 		}
@@ -2428,18 +2443,6 @@ func (s *server) Stop() error {
 		}
 		s.chanEventStore.Stop()
 		s.missionControl.StopStoreTicker()
-
-		// Disconnect from each active peers to ensure that
-		// peerTerminationWatchers signal completion to each peer.
-		for _, peer := range s.pcm.Peers() {
-			err := s.pcm.DisconnectPeer(peer.IdentityKey())
-			if err != nil {
-				srvrLog.Warnf("could not disconnect peer: %v"+
-					"received error: %v", peer.IdentityKey(),
-					err,
-				)
-			}
-		}
 
 		// Now that all connections have been torn down, stop the tower
 		// client which will reliably flush all queued states to the

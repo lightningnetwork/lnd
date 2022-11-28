@@ -143,7 +143,13 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 * [Added missing wire tests for Warning
   message](https://github.com/lightningnetwork/lnd/pull/7143).
 
+* [The description for the `--gossip.pinned-syncers` flag was fixed to explain
+  that multiple peers can be specified by using the flag multiple times instead
+  of using a comma separated list of
+  values](https://github.com/lightningnetwork/lnd/pull/7207).
+
 ## `lncli`
+
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
   flag](https://github.com/lightningnetwork/lnd/pull/6818) that allows the
   caller to specify key-value string pairs that should be appended to the

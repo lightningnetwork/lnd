@@ -80,6 +80,10 @@
   to avoid scanning the whole
   chain](https://github.com/lightningnetwork/lnd/pull/7056).
 
+* [The PSBT output information for change outputs is now properly added when
+  funding a PSBT through
+  `FundPsbt`](https://github.com/lightningnetwork/lnd/pull/7209).
+
 ## Build
 
 [The project has updated to Go

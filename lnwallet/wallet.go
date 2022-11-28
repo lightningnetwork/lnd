@@ -1319,16 +1319,6 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.Lock()
 	defer pendingReservation.Unlock()
 
-	// If UpfrontShutdownScript is set, validate that it is a valid script.
-	shutdown := req.contribution.UpfrontShutdown
-	if len(shutdown) > 0 {
-		// Validate the shutdown script.
-		if !ValidateUpfrontShutdown(shutdown, &l.Cfg.NetParams) {
-			req.err <- fmt.Errorf("invalid shutdown script")
-			return
-		}
-	}
-
 	// Don't overwrite previously committed constraints.
 	// TODO(morehouse): extract the constraints from ChannelContribution.
 	theirConstraints :=
@@ -1649,17 +1639,6 @@ func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg
 	pendingReservation.Lock()
 	defer pendingReservation.Unlock()
 
-	// Validate that the remote's UpfrontShutdownScript is a valid script
-	// if it's set.
-	shutdown := req.contribution.UpfrontShutdown
-	if len(shutdown) > 0 {
-		// Validate the shutdown script.
-		if !ValidateUpfrontShutdown(shutdown, &l.Cfg.NetParams) {
-			req.err <- fmt.Errorf("invalid shutdown script")
-			return
-		}
-	}
-
 	// Simply record the counterparty's contribution into the pending
 	// reservation data as they'll be solely funding the channel entirely.
 	// Don't overwrite previously committed constraints.
@@ -1866,13 +1845,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// rebroadcast on startup in case we fail.
 	res.partialState.FundingTxn = fundingTx
 
-	// Set optional upfront shutdown scripts on the channel state so that they
-	// are persisted. These values may be nil.
-	res.partialState.LocalShutdownScript =
-		res.ourContribution.UpfrontShutdown
-	res.partialState.RemoteShutdownScript =
-		res.theirContribution.UpfrontShutdown
-
 	res.partialState.RevocationKeyLocator = res.nextRevocationKeyLoc
 
 	// Add the complete funding transaction to the DB, in its open bucket
@@ -2032,13 +2004,6 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		req.completeChan <- nil
 		return
 	}
-
-	// Set optional upfront shutdown scripts on the channel state so that they
-	// are persisted. These values may be nil.
-	chanState.LocalShutdownScript =
-		pendingReservation.ourContribution.UpfrontShutdown
-	chanState.RemoteShutdownScript =
-		pendingReservation.theirContribution.UpfrontShutdown
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.

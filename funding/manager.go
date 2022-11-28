@@ -1630,8 +1630,9 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 			MaxAcceptedHtlcs: maxHtlcs,
 			CsvDelay:         remoteCsvDelay,
 		},
-		MaxLocalCSVDelay: f.cfg.MaxLocalCSVDelay,
-		NumConfsRequired: numConfsReq,
+		MaxLocalCSVDelay:     f.cfg.MaxLocalCSVDelay,
+		NumConfsRequired:     numConfsReq,
+		RemoteShutdownScript: msg.UpfrontShutdownScript,
 	}
 	err = reservation.ProcessChannelParams(chanParams)
 	if err != nil {
@@ -1690,7 +1691,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 				PubKey: copyPubKey(msg.HtlcPoint),
 			},
 		},
-		UpfrontShutdown: msg.UpfrontShutdownScript,
 	}
 	err = reservation.ProcessSingleContribution(remoteContribution)
 	if err != nil {
@@ -1858,9 +1858,10 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 			CsvDelay:         msg.CsvDelay,
 		},
-		RemoteConstraints: resCtx.remoteConstraints,
-		MaxLocalCSVDelay:  resCtx.maxLocalCsv,
-		NumConfsRequired:  uint16(msg.MinAcceptDepth),
+		RemoteConstraints:    resCtx.remoteConstraints,
+		MaxLocalCSVDelay:     resCtx.maxLocalCsv,
+		NumConfsRequired:     uint16(msg.MinAcceptDepth),
+		RemoteShutdownScript: msg.UpfrontShutdownScript,
 	}
 	err = resCtx.reservation.ProcessChannelParams(chanParams)
 	if err != nil {
@@ -1892,7 +1893,6 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 				PubKey: copyPubKey(msg.HtlcPoint),
 			},
 		},
-		UpfrontShutdown: msg.UpfrontShutdownScript,
 	}
 	err = resCtx.reservation.ProcessContribution(remoteContribution)
 

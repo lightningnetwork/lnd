@@ -210,6 +210,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 
 * [Fix loop and other temporary variables being accessed in
   goroutines](https://github.com/lightningnetwork/lnd/pull/7188).
+
+* [Simplify intial funding flow
+  logic](https://github.com/lightningnetwork/lnd/pull/7210).
  
 ## Watchtowers
 

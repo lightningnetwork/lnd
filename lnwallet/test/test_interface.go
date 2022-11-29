@@ -511,7 +511,8 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	assertContributionInitPopulated(t, aliceContribution)
 
 	// Bob processes the inputs and outputs contributed by Alice.
-	err = bobChanReservation.ProcessContribution(aliceContribution)
+	err = bobChanReservation.ProcessContribution(aliceContribution.Inputs,
+		aliceContribution.ChangeOutputs)
 	require.NoError(t, err, "bob unable to process alice's contribution")
 	assertContributionInitPopulated(t, bobChanReservation.TheirContribution())
 
@@ -519,7 +520,8 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	// Alice. After this phase, Alice should have all the necessary
 	// material required to craft the funding transaction and commitment
 	// transactions.
-	err = aliceChanReservation.ProcessContribution(bobContribution)
+	err = aliceChanReservation.ProcessContribution(bobContribution.Inputs,
+		bobContribution.ChangeOutputs)
 	require.NoError(t, err, "alice unable to process bob's contribution")
 	assertContributionInitPopulated(t, aliceChanReservation.TheirContribution())
 
@@ -935,8 +937,11 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	assertContributionInitPopulated(t, aliceContribution)
 
 	// Bob will next send over his contribution to Alice, we simulate this
-	// by having Alice immediately process his contribution.
-	err = aliceChanReservation.ProcessContribution(bobContribution)
+	// by having Alice immediately process his contribution. Since this is a
+	// single-funder flow, Bob's contribution should be empty.
+	require.Nil(t, bobContribution.Inputs)
+	require.Nil(t, bobContribution.ChangeOutputs)
+	err = aliceChanReservation.ProcessContribution(nil, nil)
 	if err != nil {
 		t.Fatalf("alice unable to process bob's contribution")
 	}

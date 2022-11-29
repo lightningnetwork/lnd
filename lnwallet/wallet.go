@@ -197,17 +197,21 @@ type fundingReserveCancelMsg struct {
 }
 
 // addContributionMsg represents a message executing the second phase of the
-// channel reservation workflow. This message carries the counterparty's
-// "contribution" to the payment channel. In the case that this message is
-// processed without generating any errors, then channel reservation will then
-// be able to construct the funding tx, both commitment transactions, and
-// finally generate signatures for all our inputs to the funding transaction,
-// and for the remote node's version of the commitment transaction.
+// channel reservation workflow. This message carries the counterparty's inputs
+// and outputs contributed to the payment channel. In the case that this
+// message is processed without generating any errors, then channel reservation
+// will then be able to construct the funding tx, both commitment transactions,
+// and finally generate signatures for all our inputs to the funding
+// transaction, and for the remote node's version of the commitment transaction.
 type addContributionMsg struct {
 	pendingFundingID uint64
 
-	// TODO(roasbeef): Should also carry SPV proofs in we're in SPV mode
-	contribution *ChannelContribution
+	// inputs are the remote node's inputs to the funding transaction.
+	inputs []*wire.TxIn
+
+	// changeOutputs are the remote node's outputs to the funding
+	// transaction.
+	changeOutputs []*wire.TxOut
 
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
@@ -1308,8 +1312,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 
 	// Only record the inputs and outputs for their contribution, since all
 	// other contribution fields are handled in ProcessChannelParams.
-	theirContribution.Inputs = req.contribution.Inputs
-	theirContribution.ChangeOutputs = req.contribution.ChangeOutputs
+	theirContribution.Inputs = req.inputs
+	theirContribution.ChangeOutputs = req.changeOutputs
 
 	var (
 		chanPoint *wire.OutPoint

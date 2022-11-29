@@ -1877,9 +1877,8 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 
 	// At this point, we can construct and sign both the commitment
 	// transaction and the funding transaction. Since the remote node is not
-	// contributing any inputs, we pass an empty contribution.
-	remoteContribution := &lnwallet.ChannelContribution{}
-	err = resCtx.reservation.ProcessContribution(remoteContribution)
+	// contributing any inputs or outputs, we pass nil slices.
+	err = resCtx.reservation.ProcessContribution(nil, nil)
 
 	// The wallet has detected that a PSBT funding process was requested by
 	// the user and has halted the funding process after negotiating the

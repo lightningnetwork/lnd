@@ -572,19 +572,22 @@ func (r *ChannelReservation) OurContribution() *ChannelContribution {
 	return r.ourContribution
 }
 
-// ProcessContribution verifies the counterparty's contribution to the pending
-// payment channel. As a result of this incoming message, lnwallet is able to
-// build the funding transaction, and both commitment transactions. Once this
-// message has been processed, all signatures to inputs to the funding
-// transaction belonging to the wallet are available. Additionally, the wallet
-// will generate a signature to the counterparty's version of the commitment
-// transaction.
-func (r *ChannelReservation) ProcessContribution(theirContribution *ChannelContribution) error {
+// ProcessContribution verifies the counterparty's inputs and outputs
+// contributed to the pending payment channel. As a result of this incoming
+// message, lnwallet is able to build the funding transaction and both
+// commitment transactions. Once this message has been processed, all signatures
+// to inputs to the funding transaction belonging to the wallet are available.
+// Additionally, the wallet will generate a signature to the counterparty's
+// version of the commitment transaction.
+func (r *ChannelReservation) ProcessContribution(inputs []*wire.TxIn,
+	changeOutputs []*wire.TxOut) error {
+
 	errChan := make(chan error, 1)
 
 	r.wallet.msgChan <- &addContributionMsg{
 		pendingFundingID: r.reservationID,
-		contribution:     theirContribution,
+		inputs:           inputs,
+		changeOutputs:    changeOutputs,
 		err:              errChan,
 	}
 

@@ -120,15 +120,15 @@ func (c *ChannelContribution) toChanConfig() channeldb.ChannelConfig {
 }
 
 // ChannelReservation represents an intent to open a lightning payment channel
-// with a counterparty. The funding processes from reservation to channel opening
-// is a 3-step process. In order to allow for full concurrency during the
-// reservation workflow, resources consumed by a contribution are "locked"
+// with a counterparty. The funding progresses from reservation to channel
+// opening in a 4-step process. In order to allow for full concurrency during
+// the reservation workflow, resources consumed by a contribution are "locked"
 // themselves. This prevents a number of race conditions such as two funding
 // transactions double-spending the same input. A reservation can also be
 // canceled, which removes the resources from limbo, allowing another
 // reservation to claim them.
 //
-// The reservation workflow consists of the following three steps:
+// The reservation workflow consists of the following steps:
 //  1. lnwallet.InitChannelReservation
 //     * One requests the wallet to allocate the necessary resources for a
 //     channel reservation. These resources are put in limbo for the lifetime
@@ -136,15 +136,19 @@ func (c *ChannelContribution) toChanConfig() channeldb.ChannelConfig {
 //     * Once completed the reservation will have the wallet's contribution
 //     accessible via the .OurContribution() method. This contribution
 //     contains the necessary items to allow the remote party to build both
-//     the funding, and commitment transactions.
-//  2. ChannelReservation.ProcessContribution/ChannelReservation.ProcessSingleContribution
-//     * The counterparty presents their contribution to the payment channel.
-//     This allows us to build the funding, and commitment transactions
-//     ourselves.
+//     the funding and commitment transactions.
+//  2. ChannelReservation.ProcessChannelParams
+//     * After negotiating channel parameters with the counterparty, we validate
+//     and save them.
+//  3. ChannelReservation.ProcessContribution
+//     * The counterparty presents their inputs and outputs to contribute to the
+//     funding transaction. This allows us to build the funding and commitment
+//     transactions ourselves.
 //     * We're now able to sign our inputs to the funding transactions, and
 //     the counterparty's version of the commitment transaction.
 //     * All signatures crafted by us, are now available via .OurSignatures().
-//  3. ChannelReservation.CompleteReservation/ChannelReservation.CompleteReservationSingle
+//     * This step is omitted for the single-funder non-initiator workflow.
+//  4. ChannelReservation.CompleteReservation/CompleteReservationSingle
 //     * The final step in the workflow. The counterparty presents the
 //     signatures for all their inputs to the funding transaction, as well
 //     as a signature to our version of the commitment transaction.
@@ -635,7 +639,7 @@ func (r *ChannelReservation) RemoteCanceled() {
 // TheirContribution returns the counterparty's pending contribution to the
 // payment channel. See 'ChannelContribution' for further details regarding the
 // contents of a contribution. This attribute will ONLY be available after a
-// call to .ProcessContribution().
+// call to .ProcessChannelParams().
 //
 // NOTE: This SHOULD NOT be modified.
 func (r *ChannelReservation) TheirContribution() *ChannelContribution {
@@ -651,7 +655,7 @@ func (r *ChannelReservation) TheirContribution() *ChannelContribution {
 // BIP-69: https://github.com/bitcoin/bips/blob/master/bip-0069.mediawiki.
 //
 // NOTE: These signatures will only be populated after a call to
-// .ProcessContribution()
+// .ProcessContribution() or .CompleteReservationSingle().
 func (r *ChannelReservation) OurSignatures() ([]*input.Script,
 	input.Signature) {
 

@@ -27,7 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/shachain"
 )
 
 const (
@@ -219,20 +218,6 @@ type addContributionMsg struct {
 // finalized transaction is now available.
 type continueContributionMsg struct {
 	pendingFundingID uint64
-
-	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	err chan error
-}
-
-// addSingleContributionMsg represents a message executing the second phase of
-// a single funder channel reservation workflow. This messages carries the
-// counterparty's "contribution" to the payment channel. As this message is
-// sent when on the responding side to a single funder workflow, no further
-// action apart from storing the provided contribution is carried out.
-type addSingleContributionMsg struct {
-	pendingFundingID uint64
-
-	contribution *ChannelContribution
 
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
@@ -517,8 +502,6 @@ out:
 				l.handleFundingReserveRequest(msg)
 			case *fundingReserveCancelMsg:
 				l.handleFundingCancelRequest(msg)
-			case *addSingleContributionMsg:
-				l.handleSingleContribution(msg)
 			case *addContributionMsg:
 				l.handleContributionMsg(msg)
 			case *continueContributionMsg:
@@ -1319,17 +1302,14 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.Lock()
 	defer pendingReservation.Unlock()
 
-	// Don't overwrite previously committed constraints.
-	// TODO(morehouse): extract the constraints from ChannelContribution.
-	theirConstraints :=
-		pendingReservation.theirContribution.ChannelConstraints
-	pendingReservation.theirContribution = req.contribution
-	pendingReservation.theirContribution.ChannelConstraints =
-		theirConstraints
-
 	// Some temporary variables to cut down on the resolution verbosity.
 	ourContribution := pendingReservation.ourContribution
 	theirContribution := pendingReservation.theirContribution
+
+	// Only record the inputs and outputs for their contribution, since all
+	// other contribution fields are handled in ProcessChannelParams.
+	theirContribution.Inputs = req.contribution.Inputs
+	theirContribution.ChangeOutputs = req.contribution.ChangeOutputs
 
 	var (
 		chanPoint *wire.OutPoint
@@ -1506,17 +1486,7 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		}
 	}
 
-	// Initialize an empty sha-chain for them, tracking the current pending
-	// revocation hash (we don't yet know the preimage so we can't add it
-	// to the chain).
-	s := shachain.NewRevocationStore()
-	pendingReservation.partialState.RevocationStore = s
-
-	// Store their current commitment point. We'll need this after the
-	// first state transition in order to verify the authenticity of the
-	// revocation.
 	chanState := pendingReservation.partialState
-	chanState.RemoteCurrentRevocation = theirContribution.FirstCommitmentPoint
 
 	// Create the txin to our commitment transaction; required to construct
 	// the commitment transactions.
@@ -1618,51 +1588,6 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		return
 	}
 	pendingReservation.ourCommitmentSig = sigTheirCommit
-
-	req.err <- nil
-}
-
-// handleSingleContribution is called as the second step to a single funder
-// workflow to which we are the responder. It simply saves the remote peer's
-// contribution to the channel, as solely the remote peer will contribute any
-// funds to the channel.
-func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg) {
-	l.limboMtx.Lock()
-	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
-	l.limboMtx.Unlock()
-	if !ok {
-		req.err <- fmt.Errorf("attempted to update non-existent funding state")
-		return
-	}
-
-	// Grab the mutex on the channelReservation to ensure thread-safety.
-	pendingReservation.Lock()
-	defer pendingReservation.Unlock()
-
-	// Simply record the counterparty's contribution into the pending
-	// reservation data as they'll be solely funding the channel entirely.
-	// Don't overwrite previously committed constraints.
-	//
-	// TODO(morehouse): extract the constraints from ChannelContribution.
-	theirConstraints :=
-		pendingReservation.theirContribution.ChannelConstraints
-	pendingReservation.theirContribution = req.contribution
-	pendingReservation.theirContribution.ChannelConstraints =
-		theirConstraints
-
-	theirContribution := pendingReservation.theirContribution
-	chanState := pendingReservation.partialState
-
-	// Initialize an empty sha-chain for them, tracking the current pending
-	// revocation hash (we don't yet know the preimage so we can't add it
-	// to the chain).
-	remotePreimageStore := shachain.NewRevocationStore()
-	chanState.RevocationStore = remotePreimageStore
-
-	// Now that we've received their first commitment point, we'll store it
-	// within the channel state so we can sync it to disk once the funding
-	// process is complete.
-	chanState.RemoteCurrentRevocation = theirContribution.FirstCommitmentPoint
 
 	req.err <- nil
 }

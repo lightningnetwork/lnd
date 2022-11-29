@@ -421,6 +421,7 @@ func testGetRecoveryInfo(miner *rpctest.Harness,
 	require.Equal(t, expectedProgress, progress, "progress incorrect")
 }
 
+//nolint:gomnd
 func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	alice, bob *lnwallet.LightningWallet, t *testing.T) {
 
@@ -430,10 +431,10 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	require.NoError(t, err, "unable to create amt")
 
 	// In this scenario, we'll test a dual funder reservation, with each
-	// side putting in 10 BTC.
+	// side putting in 5 BTC.
 
 	// Alice initiates a channel funded with 5 BTC for each side, so 10 BTC
-	// total. She also generates 2 BTC in change.
+	// total. She also generates 3 BTC in change.
 	feePerKw, err := alice.Cfg.FeeEstimator.EstimateFeePerKW(1)
 	require.NoError(t, err, "unable to query fee estimator")
 	aliceReq := &lnwallet.InitFundingReserveMsg{
@@ -449,37 +450,19 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	}
 	aliceChanReservation, err := alice.InitChannelReservation(aliceReq)
 	require.NoError(t, err, "unable to initialize funding reservation")
-	channelConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        alice.Cfg.DefaultDustLimit,
-		ChanReserve:      fundingAmount / 100,
-		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmount),
-		MinHTLC:          1,
-		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-		CsvDelay:         csvDelay,
-	}
-	channelParams := &lnwallet.ChannelParams{
-		LocalConstraints:  channelConstraints,
-		RemoteConstraints: channelConstraints,
-		MaxLocalCSVDelay:  defaultMaxLocalCsvDelay,
-		NumConfsRequired:  numReqConfs,
-	}
-	err = aliceChanReservation.ProcessChannelParams(channelParams)
-	require.NoError(t, err, "unable to verify parameters")
 
 	// The channel reservation should now be populated with a multi-sig key
 	// from our HD chain, a change output with 3 BTC, and 2 outputs
-	// selected of 4 BTC each. Additionally, the rest of the items needed
-	// to fulfill a funding contribution should also have been filled in.
+	// selected of 4 BTC each.
 	aliceContribution := aliceChanReservation.OurContribution()
 	if len(aliceContribution.Inputs) != 2 {
 		t.Fatalf("outputs for funding tx not properly selected, have %v "+
 			"outputs should have 2", len(aliceContribution.Inputs))
 	}
-	assertContributionInitPopulated(t, aliceContribution)
 
 	// Bob does the same, generating his own contribution. He then also
-	// receives' Alice's contribution, and consumes that so we can continue
-	// the funding process.
+	// receives Alice's channel parameters, and consumes that so we can
+	// continue the funding process.
 	bobReq := &lnwallet.InitFundingReserveMsg{
 		ChainHash:        chainHash,
 		NodeID:           alicePub,
@@ -493,16 +476,44 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	}
 	bobChanReservation, err := bob.InitChannelReservation(bobReq)
 	require.NoError(t, err, "bob unable to init channel reservation")
+
+	channelConstraints := &channeldb.ChannelConstraints{
+		DustLimit:        alice.Cfg.DefaultDustLimit,
+		ChanReserve:      fundingAmount / 100,
+		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmount),
+		MinHTLC:          1,
+		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+		CsvDelay:         csvDelay,
+	}
+	channelParams := &lnwallet.ChannelParams{
+		LocalConstraints:       channelConstraints,
+		RemoteConstraints:      channelConstraints,
+		MaxLocalCSVDelay:       defaultMaxLocalCsvDelay,
+		NumConfsRequired:       numReqConfs,
+		RemoteFirstCommitPoint: aliceContribution.FirstCommitmentPoint,
+		RemoteChannelConfig:    aliceContribution.ChannelConfig,
+	}
 	err = bobChanReservation.ProcessChannelParams(channelParams)
 	require.NoError(t, err, "unable to verify parameters")
 
-	assertContributionInitPopulated(t, bobChanReservation.OurContribution())
+	bobContribution := bobChanReservation.OurContribution()
+	assertContributionInitPopulated(t, bobContribution)
 
+	// Alice receives Bob's channel parameters and processes them.
+	channelParams.RemoteFirstCommitPoint =
+		bobContribution.FirstCommitmentPoint
+	channelParams.RemoteChannelConfig = bobContribution.ChannelConfig
+	err = aliceChanReservation.ProcessChannelParams(channelParams)
+	require.NoError(t, err, "unable to verify parameters")
+
+	// Now that Alice has processed Bob's channel parameters, her
+	// contribution should be filled in.
+	assertContributionInitPopulated(t, aliceContribution)
+
+	// Bob processes the inputs and outputs contributed by Alice.
 	err = bobChanReservation.ProcessContribution(aliceContribution)
 	require.NoError(t, err, "bob unable to process alice's contribution")
 	assertContributionInitPopulated(t, bobChanReservation.TheirContribution())
-
-	bobContribution := bobChanReservation.OurContribution()
 
 	// Bob then sends over his contribution, which will be consumed by
 	// Alice. After this phase, Alice should have all the necessary
@@ -821,6 +832,7 @@ func assertContributionInitPopulated(t *testing.T, c *lnwallet.ChannelContributi
 	}
 }
 
+//nolint:gomnd
 func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	alice, bob *lnwallet.LightningWallet, t *testing.T,
 	commitType lnwallet.CommitmentType,
@@ -854,25 +866,9 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	}
 	aliceChanReservation, err := alice.InitChannelReservation(aliceReq)
 	require.NoError(t, err, "unable to init channel reservation")
-	channelConstraints := &channeldb.ChannelConstraints{
-		DustLimit:        alice.Cfg.DefaultDustLimit,
-		ChanReserve:      fundingAmt / 100,
-		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmt),
-		MinHTLC:          1,
-		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-		CsvDelay:         csvDelay,
-	}
-	channelParams := &lnwallet.ChannelParams{
-		LocalConstraints:  channelConstraints,
-		RemoteConstraints: channelConstraints,
-		MaxLocalCSVDelay:  defaultMaxLocalCsvDelay,
-		NumConfsRequired:  numReqConfs,
-	}
-	err = aliceChanReservation.ProcessChannelParams(channelParams)
-	require.NoError(t, err, "unable to verify parameters")
 
-	// Verify all contribution fields have been set properly, but only if
-	// Alice is the funder herself.
+	// Verify the contribution inputs and outputs have been set properly,
+	// but only if Alice is the funder herself.
 	aliceContribution := aliceChanReservation.OurContribution()
 	if fetchFundingTx == nil {
 		if len(aliceContribution.Inputs) < 1 {
@@ -886,7 +882,6 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 				len(aliceContribution.ChangeOutputs))
 		}
 	}
-	assertContributionInitPopulated(t, aliceContribution)
 
 	// Next, Bob receives the initial request, generates a corresponding
 	// reservation initiation, then consume Alice's contribution.
@@ -905,18 +900,39 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	}
 	bobChanReservation, err := bob.InitChannelReservation(bobReq)
 	require.NoError(t, err, "unable to create bob reservation")
+
+	// Bob receives and processes Alice's channel parameters.
+	channelConstraints := &channeldb.ChannelConstraints{
+		DustLimit:        alice.Cfg.DefaultDustLimit,
+		ChanReserve:      fundingAmt / 100,
+		MaxPendingAmount: lnwire.NewMSatFromSatoshis(fundingAmt),
+		MinHTLC:          1,
+		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
+		CsvDelay:         csvDelay,
+	}
+	channelParams := &lnwallet.ChannelParams{
+		LocalConstraints:       channelConstraints,
+		RemoteConstraints:      channelConstraints,
+		MaxLocalCSVDelay:       defaultMaxLocalCsvDelay,
+		NumConfsRequired:       numReqConfs,
+		RemoteFirstCommitPoint: aliceContribution.FirstCommitmentPoint,
+		RemoteChannelConfig:    aliceContribution.ChannelConfig,
+	}
 	err = bobChanReservation.ProcessChannelParams(channelParams)
 	require.NoError(t, err, "unable to verify parameters")
 
 	// We'll ensure that Bob's contribution also gets generated properly.
 	bobContribution := bobChanReservation.OurContribution()
 	assertContributionInitPopulated(t, bobContribution)
-
-	// With his contribution generated, he can now process Alice's
-	// contribution.
-	err = bobChanReservation.ProcessSingleContribution(aliceContribution)
-	require.NoError(t, err, "bob unable to process alice's contribution")
 	assertContributionInitPopulated(t, bobChanReservation.TheirContribution())
+
+	// Alice receives and processes Bob's channel parameters.
+	channelParams.RemoteFirstCommitPoint =
+		bobContribution.FirstCommitmentPoint
+	channelParams.RemoteChannelConfig = bobContribution.ChannelConfig
+	err = aliceChanReservation.ProcessChannelParams(channelParams)
+	require.NoError(t, err, "unable to verify parameters")
+	assertContributionInitPopulated(t, aliceContribution)
 
 	// Bob will next send over his contribution to Alice, we simulate this
 	// by having Alice immediately process his contribution.
@@ -924,7 +940,8 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	if err != nil {
 		t.Fatalf("alice unable to process bob's contribution")
 	}
-	assertContributionInitPopulated(t, bobChanReservation.TheirContribution())
+	assertContributionInitPopulated(t,
+		aliceChanReservation.TheirContribution())
 
 	// At this point, Alice should have generated all the signatures
 	// required for the funding transaction, as well as Alice's commitment

@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 )
 
 // CommitmentType is an enum indicating the commitment type we should use for
@@ -444,6 +445,17 @@ type ChannelParams struct {
 	// RemoteShutdownScript is an optional address to which the peer's
 	// balance of the channel should be paid on cooperative close.
 	RemoteShutdownScript lnwire.DeliveryAddress
+
+	// RemoteFirstCommitPoint is the peer's per-commitment point that will
+	// be used to create the revocation key for the first commitment
+	// transaction.
+	RemoteFirstCommitPoint *btcec.PublicKey
+
+	// RemoteChannelConfig contains all the peer's keys to be used for the
+	// duration of this channel. Any channel constraints specified here are
+	// ignored - the remote channel constraints should instead be specified
+	// in RemoteConstraints.
+	RemoteChannelConfig *channeldb.ChannelConfig
 }
 
 // ProcessChannelParams validates and saves the various channel parameters
@@ -451,6 +463,10 @@ type ChannelParams struct {
 func (r *ChannelReservation) ProcessChannelParams(p *ChannelParams) error {
 	r.Lock()
 	defer r.Unlock()
+
+	// Save ChannelConfig before calling commitConstraints, so we don't
+	// overwrite the channel constraints set by commitConstraints.
+	r.theirContribution.ChannelConfig = p.RemoteChannelConfig
 
 	err := r.commitConstraints(p.LocalConstraints, p.RemoteConstraints,
 		p.MaxLocalCSVDelay)
@@ -468,6 +484,16 @@ func (r *ChannelReservation) ProcessChannelParams(p *ChannelParams) error {
 		}
 	}
 	r.partialState.RemoteShutdownScript = shutdown
+
+	// Save their first commitment point. We'll need this after the first
+	// state transition to verify the authenticity of the revocation.
+	r.theirContribution.FirstCommitmentPoint = p.RemoteFirstCommitPoint
+	r.partialState.RemoteCurrentRevocation = p.RemoteFirstCommitPoint
+
+	// Initialize an empty sha-chain for them, tracking the current pending
+	// revocation hash (we don't yet know the preimage so we can't add it
+	// to the chain).
+	r.partialState.RevocationStore = shachain.NewRevocationStore()
 
 	return nil
 }
@@ -601,22 +627,6 @@ func (r *ChannelReservation) RemoteCanceled() {
 		return
 	}
 	psbtIntent.RemoteCanceled()
-}
-
-// ProcessSingleContribution verifies, and records the initiator's contribution
-// to this pending single funder channel. Internally, no further action is
-// taken other than recording the initiator's contribution to the single funder
-// channel.
-func (r *ChannelReservation) ProcessSingleContribution(theirContribution *ChannelContribution) error {
-	errChan := make(chan error, 1)
-
-	r.wallet.msgChan <- &addSingleContributionMsg{
-		pendingFundingID: r.reservationID,
-		contribution:     theirContribution,
-		err:              errChan,
-	}
-
-	return <-errChan
 }
 
 // TheirContribution returns the counterparty's pending contribution to the

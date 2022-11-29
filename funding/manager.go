@@ -1610,9 +1610,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		minHtlc = acceptorResp.MinHtlcIn
 	}
 
-	// We'll also validate and apply all the constraints the initiating
-	// party is attempting to dictate for our commitment transaction, as
-	// well as the constraints we are dictating for them.
+	// Process all the channel parameters we now have available.
 	chanParams := &lnwallet.ChannelParams{
 		LocalConstraints: &channeldb.ChannelConstraints{
 			DustLimit:        msg.DustLimit,
@@ -1630,9 +1628,27 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 			MaxAcceptedHtlcs: maxHtlcs,
 			CsvDelay:         remoteCsvDelay,
 		},
-		MaxLocalCSVDelay:     f.cfg.MaxLocalCSVDelay,
-		NumConfsRequired:     numConfsReq,
-		RemoteShutdownScript: msg.UpfrontShutdownScript,
+		MaxLocalCSVDelay:       f.cfg.MaxLocalCSVDelay,
+		NumConfsRequired:       numConfsReq,
+		RemoteShutdownScript:   msg.UpfrontShutdownScript,
+		RemoteFirstCommitPoint: msg.FirstCommitmentPoint,
+		RemoteChannelConfig: &channeldb.ChannelConfig{
+			MultiSigKey: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.FundingKey),
+			},
+			RevocationBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.RevocationPoint),
+			},
+			PaymentBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.PaymentPoint),
+			},
+			DelayBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.DelayedPaymentPoint),
+			},
+			HtlcBasePoint: keychain.KeyDescriptor{
+				PubKey: copyPubKey(msg.HtlcPoint),
+			},
+		},
 	}
 	err = reservation.ProcessChannelParams(chanParams)
 	if err != nil {
@@ -1670,39 +1686,10 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// Update the timestamp once the fundingOpenMsg has been handled.
 	defer resCtx.updateTimestamp()
 
-	// With our parameters set, we'll now process their contribution so we
-	// can move the funding workflow ahead.
-	remoteContribution := &lnwallet.ChannelContribution{
-		FirstCommitmentPoint: msg.FirstCommitmentPoint,
-		ChannelConfig: &channeldb.ChannelConfig{
-			MultiSigKey: keychain.KeyDescriptor{
-				PubKey: copyPubKey(msg.FundingKey),
-			},
-			RevocationBasePoint: keychain.KeyDescriptor{
-				PubKey: copyPubKey(msg.RevocationPoint),
-			},
-			PaymentBasePoint: keychain.KeyDescriptor{
-				PubKey: copyPubKey(msg.PaymentPoint),
-			},
-			DelayBasePoint: keychain.KeyDescriptor{
-				PubKey: copyPubKey(msg.DelayedPaymentPoint),
-			},
-			HtlcBasePoint: keychain.KeyDescriptor{
-				PubKey: copyPubKey(msg.HtlcPoint),
-			},
-		},
-	}
-	err = reservation.ProcessSingleContribution(remoteContribution)
-	if err != nil {
-		log.Errorf("unable to add contribution reservation: %v", err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
-		return
-	}
-
 	log.Infof("Sending fundingResp for pending_id(%x)",
 		msg.PendingChannelID)
 	log.Debugf("Remote party accepted commitment constraints: %v",
-		spew.Sdump(remoteContribution.ChannelConfig.ChannelConstraints))
+		spew.Sdump(chanParams.RemoteConstraints))
 
 	// With the initiator's contribution recorded, respond with our
 	// contribution in the next message of the workflow.
@@ -1845,10 +1832,10 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		return
 	}
 
-	// We'll also specify the responder's preference for the number of
-	// required confirmations, and also the set of channel constraints
-	// they've specified for commitment states we can create and our
-	// constraints for them.
+	// Process all channel parameters we now have available, including the
+	// responder's preference for the number of required confirmations, the
+	// sets of local and remote channel constraints, and the responder's
+	// keys and shutdown script.
 	chanParams := &lnwallet.ChannelParams{
 		LocalConstraints: &channeldb.ChannelConstraints{
 			DustLimit:        msg.DustLimit,
@@ -1858,25 +1845,12 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			MaxAcceptedHtlcs: msg.MaxAcceptedHTLCs,
 			CsvDelay:         msg.CsvDelay,
 		},
-		RemoteConstraints:    resCtx.remoteConstraints,
-		MaxLocalCSVDelay:     resCtx.maxLocalCsv,
-		NumConfsRequired:     uint16(msg.MinAcceptDepth),
-		RemoteShutdownScript: msg.UpfrontShutdownScript,
-	}
-	err = resCtx.reservation.ProcessChannelParams(chanParams)
-	if err != nil {
-		log.Warnf("Unacceptable channel parameters: %v", err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
-		return
-	}
-
-	// The remote node has responded with their portion of the channel
-	// contribution. At this point, we can process their contribution which
-	// allows us to construct and sign both the commitment transaction, and
-	// the funding transaction.
-	remoteContribution := &lnwallet.ChannelContribution{
-		FirstCommitmentPoint: msg.FirstCommitmentPoint,
-		ChannelConfig: &channeldb.ChannelConfig{
+		RemoteConstraints:      resCtx.remoteConstraints,
+		MaxLocalCSVDelay:       resCtx.maxLocalCsv,
+		NumConfsRequired:       uint16(msg.MinAcceptDepth),
+		RemoteShutdownScript:   msg.UpfrontShutdownScript,
+		RemoteFirstCommitPoint: msg.FirstCommitmentPoint,
+		RemoteChannelConfig: &channeldb.ChannelConfig{
 			MultiSigKey: keychain.KeyDescriptor{
 				PubKey: copyPubKey(msg.FundingKey),
 			},
@@ -1894,6 +1868,17 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			},
 		},
 	}
+	err = resCtx.reservation.ProcessChannelParams(chanParams)
+	if err != nil {
+		log.Warnf("Unacceptable channel parameters: %v", err)
+		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		return
+	}
+
+	// At this point, we can construct and sign both the commitment
+	// transaction and the funding transaction. Since the remote node is not
+	// contributing any inputs, we pass an empty contribution.
+	remoteContribution := &lnwallet.ChannelContribution{}
 	err = resCtx.reservation.ProcessContribution(remoteContribution)
 
 	// The wallet has detected that a PSBT funding process was requested by
@@ -1940,7 +1925,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	log.Infof("pendingChan(%x): remote party proposes num_confs=%v, "+
 		"csv_delay=%v", pendingChanID[:], msg.MinAcceptDepth, msg.CsvDelay)
 	log.Debugf("Remote party accepted commitment constraints: %v",
-		spew.Sdump(remoteContribution.ChannelConfig.ChannelConstraints))
+		spew.Sdump(chanParams.RemoteConstraints))
 
 	// If the user requested funding through a PSBT, we cannot directly
 	// continue now and need to wait for the fully funded and signed PSBT

@@ -151,6 +151,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 * [Encoding/decoding support for OpenChannel2 and
   AcceptChannel2](https://github.com/lightningnetwork/lnd/pull/7145).
 
+* [Add dual funding support to internal ChannelAcceptor
+  interface](https://github.com/lightningnetwork/lnd/pull/7216).
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

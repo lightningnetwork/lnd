@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
@@ -46,7 +47,7 @@ const (
 // AddInvoiceConfig contains dependencies for invoice creation.
 type AddInvoiceConfig struct {
 	// AddInvoice is called to add the invoice to the registry.
-	AddInvoice func(invoice *channeldb.Invoice, paymentHash lntypes.Hash) (
+	AddInvoice func(invoice *invoices.Invoice, paymentHash lntypes.Hash) (
 		uint64, error)
 
 	// IsChannelActive is used to generate valid hop hints.
@@ -234,7 +235,7 @@ func (d *AddInvoiceData) mppPaymentHashAndPreimage() (*lntypes.Preimage,
 // duplicated invoices are rejected, therefore all invoices *must* have a
 // unique payment preimage.
 func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
-	invoice *AddInvoiceData) (*lntypes.Hash, *channeldb.Invoice, error) {
+	invoice *AddInvoiceData) (*lntypes.Hash, *invoices.Invoice, error) {
 
 	paymentPreimage, paymentHash, err := invoice.paymentHashAndPreimage()
 	if err != nil {
@@ -243,10 +244,10 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	// The size of the memo, receipt and description hash attached must not
 	// exceed the maximum values for either of the fields.
-	if len(invoice.Memo) > channeldb.MaxMemoSize {
+	if len(invoice.Memo) > invoices.MaxMemoSize {
 		return nil, nil, fmt.Errorf("memo too large: %v bytes "+
 			"(maxsize=%v)", len(invoice.Memo),
-			channeldb.MaxMemoSize)
+			invoices.MaxMemoSize)
 	}
 	if len(invoice.DescriptionHash) > 0 &&
 		len(invoice.DescriptionHash) != 32 {
@@ -448,11 +449,11 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		return nil, nil, err
 	}
 
-	newInvoice := &channeldb.Invoice{
+	newInvoice := &invoices.Invoice{
 		CreationDate:   creationDate,
 		Memo:           []byte(invoice.Memo),
 		PaymentRequest: []byte(payReqString),
-		Terms: channeldb.ContractTerm{
+		Terms: invoices.ContractTerm{
 			FinalCltvDelta:  int32(payReq.MinFinalCLTVExpiry()),
 			Expiry:          payReq.Expiry(),
 			Value:           amtMSat,

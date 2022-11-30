@@ -5,13 +5,14 @@ package invoicesrpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -287,7 +288,7 @@ func (s *Server) SettleInvoice(ctx context.Context,
 	}
 
 	err = s.cfg.InvoiceRegistry.SettleHodlInvoice(preimage)
-	if err != nil && err != channeldb.ErrInvoiceAlreadySettled {
+	if err != nil && !errors.Is(err, invoices.ErrInvoiceAlreadySettled) {
 		return nil, err
 	}
 
@@ -380,7 +381,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 func (s *Server) LookupInvoiceV2(ctx context.Context,
 	req *LookupInvoiceMsg) (*lnrpc.Invoice, error) {
 
-	var invoiceRef channeldb.InvoiceRef
+	var invoiceRef invoices.InvoiceRef
 
 	// First, we'll attempt to parse out the invoice ref from the proto
 	// oneof.  If none of the three currently supported types was
@@ -395,7 +396,7 @@ func (s *Server) LookupInvoiceV2(ctx context.Context,
 			)
 		}
 
-		invoiceRef = channeldb.InvoiceRefByHash(payHash)
+		invoiceRef = invoices.InvoiceRefByHash(payHash)
 
 	case req.GetPaymentAddr() != nil &&
 		req.LookupModifier == LookupModifier_HTLC_SET_BLANK:
@@ -403,13 +404,13 @@ func (s *Server) LookupInvoiceV2(ctx context.Context,
 		var payAddr [32]byte
 		copy(payAddr[:], req.GetPaymentAddr())
 
-		invoiceRef = channeldb.InvoiceRefByAddrBlankHtlc(payAddr)
+		invoiceRef = invoices.InvoiceRefByAddrBlankHtlc(payAddr)
 
 	case req.GetPaymentAddr() != nil:
 		var payAddr [32]byte
 		copy(payAddr[:], req.GetPaymentAddr())
 
-		invoiceRef = channeldb.InvoiceRefByAddr(payAddr)
+		invoiceRef = invoices.InvoiceRefByAddr(payAddr)
 
 	case req.GetSetId() != nil &&
 		req.LookupModifier == LookupModifier_HTLC_SET_ONLY:
@@ -417,13 +418,13 @@ func (s *Server) LookupInvoiceV2(ctx context.Context,
 		var setID [32]byte
 		copy(setID[:], req.GetSetId())
 
-		invoiceRef = channeldb.InvoiceRefBySetIDFiltered(setID)
+		invoiceRef = invoices.InvoiceRefBySetIDFiltered(setID)
 
 	case req.GetSetId() != nil:
 		var setID [32]byte
 		copy(setID[:], req.GetSetId())
 
-		invoiceRef = channeldb.InvoiceRefBySetID(setID)
+		invoiceRef = invoices.InvoiceRefBySetID(setID)
 
 	default:
 		return nil, status.Error(codes.InvalidArgument,
@@ -434,7 +435,7 @@ func (s *Server) LookupInvoiceV2(ctx context.Context,
 	// we can't find it in the database.
 	invoice, err := s.cfg.InvoiceRegistry.LookupInvoiceByRef(invoiceRef)
 	switch {
-	case err == channeldb.ErrInvoiceNotFound:
+	case errors.Is(err, invoices.ErrInvoiceNotFound):
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err

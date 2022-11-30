@@ -5507,7 +5507,7 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 
 	invoice, err := r.server.invoices.LookupInvoice(payHash)
 	switch {
-	case err == channeldb.ErrInvoiceNotFound:
+	case errors.Is(err, invoices.ErrInvoiceNotFound):
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err
@@ -5551,7 +5551,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 
 	// Next, we'll map the proto request into a format that is understood by
 	// the database.
-	q := channeldb.InvoiceQuery{
+	q := invoices.InvoiceQuery{
 		IndexOffset:    req.IndexOffset,
 		NumMaxInvoices: req.NumMaxInvoices,
 		PendingOnly:    req.PendingOnly,

@@ -980,7 +980,7 @@ func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 }
 
 func (i *mockInvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (
-	channeldb.Invoice, error) {
+	invoices.Invoice, error) {
 
 	return i.registry.LookupInvoice(rHash)
 }
@@ -1014,7 +1014,7 @@ func (i *mockInvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 	return i.registry.CancelInvoice(payHash)
 }
 
-func (i *mockInvoiceRegistry) AddInvoice(invoice channeldb.Invoice,
+func (i *mockInvoiceRegistry) AddInvoice(invoice invoices.Invoice,
 	paymentHash lntypes.Hash) error {
 
 	_, err := i.registry.AddInvoice(&invoice, paymentHash)

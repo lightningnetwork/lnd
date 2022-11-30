@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
+	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -479,7 +480,7 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 	// links was changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	require.NoError(t, err, "unable to get invoice")
-	if invoice.State != channeldb.ContractSettled {
+	if invoice.State != invpkg.ContractSettled {
 		t.Fatal("alice invoice wasn't settled")
 	}
 
@@ -597,7 +598,7 @@ func testChannelLinkMultiHopPayment(t *testing.T,
 	// links were changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	require.NoError(t, err, "unable to get invoice")
-	if invoice.State != channeldb.ContractSettled {
+	if invoice.State != invpkg.ContractSettled {
 		t.Fatal("carol invoice haven't been settled")
 	}
 
@@ -1080,7 +1081,7 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 	// succeeded.
 	invoice, err := n.carolServer.registry.LookupInvoice(payResp)
 	require.NoError(t, err, "unable to get invoice")
-	if invoice.State != channeldb.ContractSettled {
+	if invoice.State != invpkg.ContractSettled {
 		t.Fatal("carol invoice haven't been settled")
 	}
 
@@ -1234,7 +1235,7 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	require.NoError(t, err, "unable to get invoice")
-	if invoice.State == channeldb.ContractSettled {
+	if invoice.State == invpkg.ContractSettled {
 		t.Fatal("carol invoice have been settled")
 	}
 
@@ -1412,7 +1413,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	require.NoError(t, err, "unable to get invoice")
-	if invoice.State == channeldb.ContractSettled {
+	if invoice.State == invpkg.ContractSettled {
 		t.Fatal("carol invoice have been settled")
 	}
 
@@ -1520,7 +1521,7 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	// links hasn't been changed.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	require.NoError(t, err, "unable to get invoice")
-	if invoice.State == channeldb.ContractSettled {
+	if invoice.State == invpkg.ContractSettled {
 		t.Fatal("carol invoice have been settled")
 	}
 
@@ -3498,7 +3499,7 @@ func TestChannelRetransmission(t *testing.T) {
 		// TODO(andrew.shvv) Will be removed if we move the notification center
 		// to the channel link itself.
 
-		var invoice channeldb.Invoice
+		var invoice invpkg.Invoice
 		for i := 0; i < 20; i++ {
 			select {
 			case <-time.After(time.Millisecond * 200):
@@ -3513,7 +3514,7 @@ func TestChannelRetransmission(t *testing.T) {
 				err = errors.Errorf("unable to get invoice: %v", err)
 				continue
 			}
-			if invoice.State != channeldb.ContractSettled {
+			if invoice.State != invpkg.ContractSettled {
 				err = errors.Errorf("alice invoice haven't been settled")
 				continue
 			}
@@ -4059,7 +4060,7 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 	// accepted the payment and marked it as settled.
 	invoice, err := receiver.registry.LookupInvoice(rhash)
 	require.NoError(t, err, "unable to get invoice")
-	if invoice.State != channeldb.ContractSettled {
+	if invoice.State != invpkg.ContractSettled {
 		t.Fatal("carol invoice haven't been settled")
 	}
 
@@ -4383,7 +4384,7 @@ func generateHtlc(t *testing.T, coreLink *channelLink,
 // generateHtlcAndInvoice generates an invoice and a single hop htlc to send to
 // the receiver.
 func generateHtlcAndInvoice(t *testing.T,
-	id uint64) (*lnwire.UpdateAddHTLC, *channeldb.Invoice) {
+	id uint64) (*lnwire.UpdateAddHTLC, *invpkg.Invoice) {
 
 	t.Helper()
 
@@ -4778,7 +4779,7 @@ func testChannelLinkBatchPreimageWrite(t *testing.T, disconnect bool) {
 	// We will send 10 HTLCs in total, from Bob to Alice.
 	numHtlcs := 10
 	var htlcs []*lnwire.UpdateAddHTLC
-	var invoices []*channeldb.Invoice
+	var invoices []*invpkg.Invoice
 	for i := 0; i < numHtlcs; i++ {
 		htlc, invoice := generateHtlcAndInvoice(t, uint64(i))
 		htlcs = append(htlcs, htlc)

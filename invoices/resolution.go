@@ -3,7 +3,6 @@ package invoices
 import (
 	"time"
 
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
 
@@ -11,14 +10,14 @@ import (
 type HtlcResolution interface {
 	// CircuitKey returns the circuit key for the htlc that we have a
 	// resolution for.
-	CircuitKey() models.CircuitKey
+	CircuitKey() CircuitKey
 }
 
 // HtlcFailResolution is an implementation of the HtlcResolution interface
 // which is returned when a htlc is failed.
 type HtlcFailResolution struct {
 	// circuitKey is the key of the htlc for which we have a resolution.
-	circuitKey models.CircuitKey
+	circuitKey CircuitKey
 
 	// AcceptHeight is the original height at which the htlc was accepted.
 	AcceptHeight int32
@@ -28,7 +27,7 @@ type HtlcFailResolution struct {
 }
 
 // NewFailResolution returns a htlc failure resolution.
-func NewFailResolution(key models.CircuitKey, acceptHeight int32,
+func NewFailResolution(key CircuitKey, acceptHeight int32,
 	outcome FailResolutionResult) *HtlcFailResolution {
 
 	return &HtlcFailResolution{
@@ -42,7 +41,7 @@ func NewFailResolution(key models.CircuitKey, acceptHeight int32,
 // resolution for.
 //
 // Note: it is part of the HtlcResolution interface.
-func (f *HtlcFailResolution) CircuitKey() models.CircuitKey {
+func (f *HtlcFailResolution) CircuitKey() CircuitKey {
 	return f.circuitKey
 }
 
@@ -53,7 +52,7 @@ type HtlcSettleResolution struct {
 	Preimage lntypes.Preimage
 
 	// circuitKey is the key of the htlc for which we have a resolution.
-	circuitKey models.CircuitKey
+	circuitKey CircuitKey
 
 	// acceptHeight is the original height at which the htlc was accepted.
 	AcceptHeight int32
@@ -64,8 +63,8 @@ type HtlcSettleResolution struct {
 
 // NewSettleResolution returns a htlc resolution which is associated with a
 // settle.
-func NewSettleResolution(preimage lntypes.Preimage,
-	key models.CircuitKey, acceptHeight int32,
+func NewSettleResolution(preimage lntypes.Preimage, key CircuitKey,
+	acceptHeight int32,
 	outcome SettleResolutionResult) *HtlcSettleResolution {
 
 	return &HtlcSettleResolution{
@@ -80,7 +79,7 @@ func NewSettleResolution(preimage lntypes.Preimage,
 // resolution for.
 //
 // Note: it is part of the HtlcResolution interface.
-func (s *HtlcSettleResolution) CircuitKey() models.CircuitKey {
+func (s *HtlcSettleResolution) CircuitKey() CircuitKey {
 	return s.circuitKey
 }
 
@@ -92,7 +91,7 @@ func (s *HtlcSettleResolution) CircuitKey() models.CircuitKey {
 // acceptResolution, a nil resolution should be surfaced.
 type htlcAcceptResolution struct {
 	// circuitKey is the key of the htlc for which we have a resolution.
-	circuitKey models.CircuitKey
+	circuitKey CircuitKey
 
 	// autoRelease signals that the htlc should be automatically released
 	// after a timeout.
@@ -107,7 +106,7 @@ type htlcAcceptResolution struct {
 
 // newAcceptResolution returns a htlc resolution which is associated with a
 // htlc accept.
-func newAcceptResolution(key models.CircuitKey,
+func newAcceptResolution(key CircuitKey,
 	outcome acceptResolutionResult) *htlcAcceptResolution {
 
 	return &htlcAcceptResolution{
@@ -120,6 +119,6 @@ func newAcceptResolution(key models.CircuitKey,
 // resolution for.
 //
 // Note: it is part of the HtlcResolution interface.
-func (a *htlcAcceptResolution) CircuitKey() models.CircuitKey {
+func (a *htlcAcceptResolution) CircuitKey() CircuitKey {
 	return a.circuitKey
 }

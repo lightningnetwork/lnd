@@ -31,30 +31,6 @@ var (
 	// created.
 	ErrNoPastDeltas = fmt.Errorf("channel has no recorded deltas")
 
-	// ErrInvoiceNotFound is returned when a targeted invoice can't be
-	// found.
-	ErrInvoiceNotFound = fmt.Errorf("unable to locate invoice")
-
-	// ErrNoInvoicesCreated is returned when we don't have invoices in
-	// our database to return.
-	ErrNoInvoicesCreated = fmt.Errorf("there are no existing invoices")
-
-	// ErrDuplicateInvoice is returned when an invoice with the target
-	// payment hash already exists.
-	ErrDuplicateInvoice = fmt.Errorf("invoice with payment hash already exists")
-
-	// ErrDuplicatePayAddr is returned when an invoice with the target
-	// payment addr already exists.
-	ErrDuplicatePayAddr = fmt.Errorf("invoice with payemnt addr already exists")
-
-	// ErrInvRefEquivocation is returned when an InvoiceRef targets
-	// multiple, distinct invoices.
-	ErrInvRefEquivocation = errors.New("inv ref matches multiple invoices")
-
-	// ErrNoPaymentsCreated is returned when bucket of payments hasn't been
-	// created.
-	ErrNoPaymentsCreated = fmt.Errorf("there are no existing payments")
-
 	// ErrNodeNotFound is returned when node bucket exists, but node with
 	// specific identity can't be found.
 	ErrNodeNotFound = fmt.Errorf("link node with target identity not found")

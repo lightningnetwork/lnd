@@ -19,7 +19,7 @@ import (
 type Registry interface {
 	// LookupInvoice attempts to look up an invoice according to its 32
 	// byte payment hash.
-	LookupInvoice(lntypes.Hash) (channeldb.Invoice, error)
+	LookupInvoice(lntypes.Hash) (invoices.Invoice, error)
 
 	// NotifyExitHopHtlc attempts to mark an invoice as settled. If the
 	// invoice is a debug invoice, then this method is a noop as debug

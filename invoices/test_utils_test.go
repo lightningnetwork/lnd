@@ -1,4 +1,4 @@
-package invoices
+package invoices_test
 
 import (
 	"crypto/rand"
@@ -17,8 +17,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
+	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -53,6 +53,29 @@ func (p *mockPayload) CustomRecords() record.CustomSet {
 
 func (p *mockPayload) Metadata() []byte {
 	return p.metadata
+}
+
+type mockChainNotifier struct {
+	chainntnfs.ChainNotifier
+
+	blockChan chan *chainntnfs.BlockEpoch
+}
+
+func newMockNotifier() *mockChainNotifier {
+	return &mockChainNotifier{
+		blockChan: make(chan *chainntnfs.BlockEpoch),
+	}
+}
+
+// RegisterBlockEpochNtfn mocks a block epoch notification, using the mock's
+// block channel to deliver blocks to the client.
+func (m *mockChainNotifier) RegisterBlockEpochNtfn(*chainntnfs.BlockEpoch) (
+	*chainntnfs.BlockEpochEvent, error) {
+
+	return &chainntnfs.BlockEpochEvent{
+		Epochs: m.blockChan,
+		Cancel: func() {},
+	}, nil
 }
 
 const (
@@ -92,7 +115,8 @@ var (
 			hash := chainhash.HashB(msg)
 			sig, err := ecdsa.SignCompact(testPrivKey, hash, true)
 			if err != nil {
-				return nil, fmt.Errorf("can't sign the message: %v", err)
+				return nil, fmt.Errorf("can't sign the "+
+					"message: %v", err)
 			}
 			return sig, nil
 		},
@@ -109,8 +133,8 @@ var (
 
 var (
 	testInvoiceAmt = lnwire.MilliSatoshi(100000)
-	testInvoice    = &channeldb.Invoice{
-		Terms: channeldb.ContractTerm{
+	testInvoice    = &invpkg.Invoice{
+		Terms: invpkg.ContractTerm{
 			PaymentPreimage: &testInvoicePreimage,
 			Value:           testInvoiceAmt,
 			Expiry:          time.Hour,
@@ -119,8 +143,8 @@ var (
 		CreationDate: testInvoiceCreationDate,
 	}
 
-	testPayAddrReqInvoice = &channeldb.Invoice{
-		Terms: channeldb.ContractTerm{
+	testPayAddrReqInvoice = &invpkg.Invoice{
+		Terms: invpkg.ContractTerm{
 			PaymentPreimage: &testInvoicePreimage,
 			Value:           testInvoiceAmt,
 			Expiry:          time.Hour,
@@ -135,8 +159,8 @@ var (
 		CreationDate: testInvoiceCreationDate,
 	}
 
-	testPayAddrOptionalInvoice = &channeldb.Invoice{
-		Terms: channeldb.ContractTerm{
+	testPayAddrOptionalInvoice = &invpkg.Invoice{
+		Terms: invpkg.ContractTerm{
 			PaymentPreimage: &testInvoicePreimage,
 			Value:           testInvoiceAmt,
 			Expiry:          time.Hour,
@@ -151,8 +175,8 @@ var (
 		CreationDate: testInvoiceCreationDate,
 	}
 
-	testHodlInvoice = &channeldb.Invoice{
-		Terms: channeldb.ContractTerm{
+	testHodlInvoice = &invpkg.Invoice{
+		Terms: invpkg.ContractTerm{
 			Value:    testInvoiceAmt,
 			Expiry:   time.Hour,
 			Features: testFeatures,
@@ -163,6 +187,8 @@ var (
 )
 
 func newTestChannelDB(t *testing.T, clock clock.Clock) (*channeldb.DB, error) {
+	t.Helper()
+
 	// Create channeldb for the first time.
 	cdb, err := channeldb.Open(
 		t.TempDir(), channeldb.OptionClock(clock),
@@ -179,35 +205,47 @@ func newTestChannelDB(t *testing.T, clock clock.Clock) (*channeldb.DB, error) {
 }
 
 type testContext struct {
-	cdb      *channeldb.DB
-	registry *InvoiceRegistry
+	idb      *channeldb.DB
+	registry *invpkg.InvoiceRegistry
 	notifier *mockChainNotifier
 	clock    *clock.TestClock
 
 	t *testing.T
 }
 
-func newTestContext(t *testing.T) *testContext {
+func defaultRegistryConfig() invpkg.RegistryConfig {
+	return invpkg.RegistryConfig{
+		FinalCltvRejectDelta: testFinalCltvRejectDelta,
+		HtlcHoldDuration:     30 * time.Second,
+	}
+}
+
+func newTestContext(t *testing.T,
+	registryCfg *invpkg.RegistryConfig) *testContext {
+
+	t.Helper()
+
 	clock := clock.NewTestClock(testTime)
 
-	cdb, err := newTestChannelDB(t, clock)
+	idb, err := newTestChannelDB(t, clock)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	notifier := newMockNotifier()
 
-	expiryWatcher := NewInvoiceExpiryWatcher(
+	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
 		clock, 0, uint32(testCurrentHeight), nil, notifier,
 	)
 
-	// Instantiate and start the invoice ctx.registry.
-	cfg := RegistryConfig{
-		FinalCltvRejectDelta: testFinalCltvRejectDelta,
-		HtlcHoldDuration:     30 * time.Second,
-		Clock:                clock,
+	cfg := defaultRegistryConfig()
+	if registryCfg != nil {
+		cfg = *registryCfg
 	}
-	registry := NewRegistry(cdb, expiryWatcher, &cfg)
+	cfg.Clock = clock
+
+	// Instantiate and start the invoice ctx.registry.
+	registry := invpkg.NewRegistry(idb, expiryWatcher, &cfg)
 
 	err = registry.Start()
 	if err != nil {
@@ -218,7 +256,7 @@ func newTestContext(t *testing.T) *testContext {
 	})
 
 	ctx := testContext{
-		cdb:      cdb,
+		idb:      idb,
 		registry: registry,
 		notifier: notifier,
 		clock:    clock,
@@ -228,8 +266,8 @@ func newTestContext(t *testing.T) *testContext {
 	return &ctx
 }
 
-func getCircuitKey(htlcID uint64) models.CircuitKey {
-	return models.CircuitKey{
+func getCircuitKey(htlcID uint64) invpkg.CircuitKey {
+	return invpkg.CircuitKey{
 		ChanID: lnwire.ShortChannelID{
 			BlockHeight: 1, TxIndex: 2, TxPosition: 3,
 		},
@@ -238,7 +276,7 @@ func getCircuitKey(htlcID uint64) models.CircuitKey {
 }
 
 func newTestInvoice(t *testing.T, preimage lntypes.Preimage,
-	timestamp time.Time, expiry time.Duration) *channeldb.Invoice {
+	timestamp time.Time, expiry time.Duration) *invpkg.Invoice {
 
 	if expiry == 0 {
 		expiry = time.Hour
@@ -264,8 +302,8 @@ func newTestInvoice(t *testing.T, preimage lntypes.Preimage,
 
 	require.NoError(t, err, "Error while encoding payment request")
 
-	return &channeldb.Invoice{
-		Terms: channeldb.ContractTerm{
+	return &invpkg.Invoice{
+		Terms: invpkg.ContractTerm{
 			PaymentPreimage: &preimage,
 			PaymentAddr:     payAddr,
 			Value:           testInvoiceAmount,
@@ -286,7 +324,8 @@ func timeout() func() {
 		case <-time.After(5 * time.Second):
 			err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 			if err != nil {
-				panic(fmt.Sprintf("error writing to std out after timeout: %v", err))
+				panic(fmt.Sprintf("error writing to std out "+
+					"after timeout: %v", err))
 			}
 			panic("timeout")
 		case <-done:
@@ -300,8 +339,8 @@ func timeout() func() {
 
 // invoiceExpiryTestData simply holds generated expired and pending invoices.
 type invoiceExpiryTestData struct {
-	expiredInvoices map[lntypes.Hash]*channeldb.Invoice
-	pendingInvoices map[lntypes.Hash]*channeldb.Invoice
+	expiredInvoices map[lntypes.Hash]*invpkg.Invoice
+	pendingInvoices map[lntypes.Hash]*invpkg.Invoice
 }
 
 // generateInvoiceExpiryTestData generates the specified number of fake expired
@@ -312,8 +351,8 @@ func generateInvoiceExpiryTestData(
 
 	var testData invoiceExpiryTestData
 
-	testData.expiredInvoices = make(map[lntypes.Hash]*channeldb.Invoice)
-	testData.pendingInvoices = make(map[lntypes.Hash]*channeldb.Invoice)
+	testData.expiredInvoices = make(map[lntypes.Hash]*invpkg.Invoice)
+	testData.pendingInvoices = make(map[lntypes.Hash]*invpkg.Invoice)
 
 	expiredCreationDate := now.Add(-24 * time.Hour)
 
@@ -321,7 +360,9 @@ func generateInvoiceExpiryTestData(
 		var preimage lntypes.Preimage
 		binary.BigEndian.PutUint32(preimage[:4], uint32(offset+i))
 		expiry := time.Duration((i+offset)%24) * time.Hour
-		invoice := newTestInvoice(t, preimage, expiredCreationDate, expiry)
+		invoice := newTestInvoice(
+			t, preimage, expiredCreationDate, expiry,
+		)
 		testData.expiredInvoices[preimage.Hash()] = invoice
 	}
 
@@ -339,12 +380,12 @@ func generateInvoiceExpiryTestData(
 // checkSettleResolution asserts the resolution is a settle with the correct
 // preimage. If successful, the HtlcSettleResolution is returned in case further
 // checks are desired.
-func checkSettleResolution(t *testing.T, res HtlcResolution,
-	expPreimage lntypes.Preimage) *HtlcSettleResolution {
+func checkSettleResolution(t *testing.T, res invpkg.HtlcResolution,
+	expPreimage lntypes.Preimage) *invpkg.HtlcSettleResolution {
 
 	t.Helper()
 
-	settleResolution, ok := res.(*HtlcSettleResolution)
+	settleResolution, ok := res.(*invpkg.HtlcSettleResolution)
 	require.True(t, ok)
 	require.Equal(t, expPreimage, settleResolution.Preimage)
 
@@ -354,11 +395,11 @@ func checkSettleResolution(t *testing.T, res HtlcResolution,
 // checkFailResolution asserts the resolution is a fail with the correct reason.
 // If successful, the HtlcFailResolution is returned in case further checks are
 // desired.
-func checkFailResolution(t *testing.T, res HtlcResolution,
-	expOutcome FailResolutionResult) *HtlcFailResolution {
+func checkFailResolution(t *testing.T, res invpkg.HtlcResolution,
+	expOutcome invpkg.FailResolutionResult) *invpkg.HtlcFailResolution {
 
 	t.Helper()
-	failResolution, ok := res.(*HtlcFailResolution)
+	failResolution, ok := res.(*invpkg.HtlcFailResolution)
 	require.True(t, ok)
 	require.Equal(t, expOutcome, failResolution.Outcome)
 
@@ -367,22 +408,17 @@ func checkFailResolution(t *testing.T, res HtlcResolution,
 
 type hodlExpiryTest struct {
 	hash         lntypes.Hash
-	state        channeldb.ContractState
+	state        invpkg.ContractState
 	stateLock    sync.Mutex
 	mockNotifier *mockChainNotifier
 	mockClock    *clock.TestClock
 	cancelChan   chan lntypes.Hash
-	watcher      *InvoiceExpiryWatcher
-}
-
-func (h *hodlExpiryTest) setState(state channeldb.ContractState) {
-	h.stateLock.Lock()
-	defer h.stateLock.Unlock()
-
-	h.state = state
+	watcher      *invpkg.InvoiceExpiryWatcher
 }
 
 func (h *hodlExpiryTest) announceBlock(t *testing.T, height uint32) {
+	t.Helper()
+
 	select {
 	case h.mockNotifier.blockChan <- &chainntnfs.BlockEpoch{
 		Height: int32(height),
@@ -401,74 +437,4 @@ func (h *hodlExpiryTest) assertCanceled(t *testing.T, expected lntypes.Hash) {
 	case <-time.After(testTimeout):
 		t.Fatalf("invoice: %v not canceled", h.hash)
 	}
-}
-
-// setupHodlExpiry creates a hodl invoice in our expiry watcher and runs an
-// arbitrary update function which advances the invoices's state.
-func setupHodlExpiry(t *testing.T, creationDate time.Time,
-	expiry time.Duration, heightDelta uint32,
-	startState channeldb.ContractState,
-	startHtlcs []*channeldb.InvoiceHTLC) *hodlExpiryTest {
-
-	mockNotifier := newMockNotifier()
-	mockClock := clock.NewTestClock(testTime)
-
-	test := &hodlExpiryTest{
-		state: startState,
-		watcher: NewInvoiceExpiryWatcher(
-			mockClock, heightDelta, uint32(testCurrentHeight), nil,
-			mockNotifier,
-		),
-		cancelChan:   make(chan lntypes.Hash),
-		mockNotifier: mockNotifier,
-		mockClock:    mockClock,
-	}
-
-	// Use an unbuffered channel to block on cancel calls so that the test
-	// does not exit before we've processed all the invoices we expect.
-	cancelImpl := func(paymentHash lntypes.Hash, force bool) error {
-		test.stateLock.Lock()
-		currentState := test.state
-		test.stateLock.Unlock()
-
-		if currentState != channeldb.ContractOpen && !force {
-			return nil
-		}
-
-		select {
-		case test.cancelChan <- paymentHash:
-		case <-time.After(testTimeout):
-		}
-
-		return nil
-	}
-
-	require.NoError(t, test.watcher.Start(cancelImpl))
-
-	// We set preimage and hash so that we can use our existing test
-	// helpers. In practice we would only have the hash, but this does not
-	// affect what we're testing at all.
-	preimage := lntypes.Preimage{1}
-	test.hash = preimage.Hash()
-
-	invoice := newTestInvoice(t, preimage, creationDate, expiry)
-	invoice.State = startState
-	invoice.HodlInvoice = true
-	invoice.Htlcs = make(map[models.CircuitKey]*channeldb.InvoiceHTLC)
-
-	// If we have any htlcs, add them with unique circult keys.
-	for i, htlc := range startHtlcs {
-		key := models.CircuitKey{
-			HtlcID: uint64(i),
-		}
-
-		invoice.Htlcs[key] = htlc
-	}
-
-	// Create an expiry entry for our invoice in its starting state. This
-	// mimics adding invoices to the watcher on start.
-	entry := makeInvoiceExpiry(test.hash, invoice)
-	test.watcher.AddInvoices(entry)
-
-	return test
 }

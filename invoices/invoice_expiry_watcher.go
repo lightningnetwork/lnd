@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/queue"
@@ -178,18 +177,18 @@ func (ew *InvoiceExpiryWatcher) Stop() {
 // makeInvoiceExpiry checks if the passed invoice may be canceled and calculates
 // the expiry time and creates a slimmer invoiceExpiry implementation.
 func makeInvoiceExpiry(paymentHash lntypes.Hash,
-	invoice *channeldb.Invoice) invoiceExpiry {
+	invoice *Invoice) invoiceExpiry {
 
 	switch invoice.State {
 	// If we have an open invoice with no htlcs, we want to expire the
 	// invoice based on timestamp
-	case channeldb.ContractOpen:
+	case ContractOpen:
 		return makeTimestampExpiry(paymentHash, invoice)
 
 	// If an invoice has active htlcs, we want to expire it based on block
 	// height. We only do this for hodl invoices, since regular invoices
 	// should resolve themselves automatically.
-	case channeldb.ContractAccepted:
+	case ContractAccepted:
 		if !invoice.HodlInvoice {
 			log.Debugf("Invoice in accepted state not added to "+
 				"expiry watcher: %v", paymentHash)
@@ -201,7 +200,7 @@ func makeInvoiceExpiry(paymentHash lntypes.Hash,
 		for _, htlc := range invoice.Htlcs {
 			// We only care about accepted htlcs, since they will
 			// trigger force-closes.
-			if htlc.State != channeldb.HtlcStateAccepted {
+			if htlc.State != HtlcStateAccepted {
 				continue
 			}
 
@@ -222,9 +221,9 @@ func makeInvoiceExpiry(paymentHash lntypes.Hash,
 
 // makeTimestampExpiry creates a timestamp-based expiry entry.
 func makeTimestampExpiry(paymentHash lntypes.Hash,
-	invoice *channeldb.Invoice) *invoiceExpiryTs {
+	invoice *Invoice) *invoiceExpiryTs {
 
-	if invoice.State != channeldb.ContractOpen {
+	if invoice.State != ContractOpen {
 		return nil
 	}
 
@@ -349,11 +348,11 @@ func (ew *InvoiceExpiryWatcher) expireInvoice(hash lntypes.Hash, force bool) {
 	switch err {
 	case nil:
 
-	case channeldb.ErrInvoiceAlreadyCanceled:
+	case ErrInvoiceAlreadyCanceled:
 
-	case channeldb.ErrInvoiceAlreadySettled:
+	case ErrInvoiceAlreadySettled:
 
-	case channeldb.ErrInvoiceNotFound:
+	case ErrInvoiceNotFound:
 		// It's possible that the user has manually canceled the invoice
 		// which will then be deleted by the garbage collector resulting
 		// in an ErrInvoiceNotFound error.

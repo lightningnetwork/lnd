@@ -45,8 +45,13 @@ func createNewSubServer(configRegistry lnrpc.SubServerConfigDispatcher) (
 	case config.MacService != nil && config.NetworkDir == "":
 		return nil, nil, fmt.Errorf("NetworkDir must be set to create " +
 			"chainrpc")
+
 	case config.ChainNotifier == nil:
 		return nil, nil, fmt.Errorf("ChainNotifier must be set to " +
+			"create chainrpc")
+
+	case config.Chain == nil:
+		return nil, nil, fmt.Errorf("field Chain must be set to " +
 			"create chainrpc")
 	}
 

@@ -1,0 +1,177 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "chainrpc/chainkit.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "ChainKit"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v2/chainkit/bestblock": {
+      "get": {
+        "summary": "lncli: `chain getbestblock`\nGetBestBlock returns the block hash and current height from the valid\nmost-work chain.",
+        "operationId": "ChainKit_GetBestBlock",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/chainrpcGetBestBlockResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "ChainKit"
+        ]
+      }
+    },
+    "/v2/chainkit/block": {
+      "get": {
+        "summary": "lncli: `chain getblock`\nGetBlock returns a block given the corresponding block hash.",
+        "operationId": "ChainKit_GetBlock",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/chainrpcGetBlockResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "block_hash",
+            "description": "The hash of the requested block.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "ChainKit"
+        ]
+      }
+    },
+    "/v2/chainkit/blockhash": {
+      "get": {
+        "summary": "lncli: `chain getblockhash`\nGetBlockHash returns the hash of the block in the best blockchain\nat the given height.",
+        "operationId": "ChainKit_GetBlockHash",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/chainrpcGetBlockHashResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "block_height",
+            "description": "Block height of the target best chain block.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "ChainKit"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "chainrpcGetBestBlockResponse": {
+      "type": "object",
+      "properties": {
+        "block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the best block."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The height of the best block."
+        }
+      }
+    },
+    "chainrpcGetBlockHashResponse": {
+      "type": "object",
+      "properties": {
+        "block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the best block at the specified height."
+        }
+      }
+    },
+    "chainrpcGetBlockResponse": {
+      "type": "object",
+      "properties": {
+        "raw_block": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the requested block."
+        }
+      },
+      "description": "TODO(ffranr): The neutrino GetBlock response includes many\nadditional helpful fields. Consider adding them here also."
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "type_url": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
+        }
+      }
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

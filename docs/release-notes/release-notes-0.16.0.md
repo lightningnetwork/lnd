@@ -201,6 +201,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 
 * [Fix loop and other temporary variables being accessed in
   goroutines](https://github.com/lightningnetwork/lnd/pull/7188).
+
+* [CI: update test coverage library
+  go-acc](https://github.com/lightningnetwork/lnd/pull/7221) v0.2.6 -> v0.2.8
  
 ## Watchtowers
 
@@ -279,5 +282,6 @@ refactor the itest for code health and maintenance.
 * Olaoluwa Osuntokun
 * Oliver Gugger
 * Priyansh Rastogi
+* Robyn Ffrancon
 * Roei Erez
 * Yong Yu

@@ -4,8 +4,6 @@
 package main
 
 import (
-	"strconv"
-
 	"github.com/lightningnetwork/lnd/lnrpc/neutrinorpc"
 	"github.com/urfave/cli"
 )
@@ -193,42 +191,6 @@ func getBlockHeader(ctx *cli.Context) error {
 	return nil
 }
 
-var getBlockCommand = cli.Command{
-	Name:        "getblock",
-	Usage:       "Get a block.",
-	Category:    "Neutrino",
-	Description: "Returns a block with a particular block hash.",
-	ArgsUsage:   "hash",
-	Action:      actionDecorator(getBlock),
-}
-
-func getBlock(ctx *cli.Context) error {
-	ctxc := getContext()
-	args := ctx.Args()
-
-	// Display the command's help message if we do not have the expected
-	// number of arguments/flags.
-	if !args.Present() {
-		return cli.ShowCommandHelp(ctx, "getblock")
-	}
-
-	client, cleanUp := getNeutrinoKitClient(ctx)
-	defer cleanUp()
-
-	req := &neutrinorpc.GetBlockRequest{
-		Hash: args.First(),
-	}
-
-	resp, err := client.GetBlock(ctxc, req)
-	if err != nil {
-		return err
-	}
-
-	printRespJSON(resp)
-
-	return nil
-}
-
 var getCFilterCommand = cli.Command{
 	Name:        "getcfilter",
 	Usage:       "Get a compact filter.",
@@ -263,47 +225,6 @@ func getCFilter(ctx *cli.Context) error {
 	return nil
 }
 
-var getBlockHashCommand = cli.Command{
-	Name:        "getblockhash",
-	Usage:       "Get a block hash.",
-	Category:    "Neutrino",
-	Description: "Returns the header hash of a block at a given height.",
-	ArgsUsage:   "height",
-	Action:      actionDecorator(getBlockHash),
-}
-
-func getBlockHash(ctx *cli.Context) error {
-	ctxc := getContext()
-	args := ctx.Args()
-
-	// Display the command's help message if we do not have the expected
-	// number of arguments/flags.
-	if !args.Present() {
-		return cli.ShowCommandHelp(ctx, "getblockhash")
-	}
-
-	client, cleanUp := getNeutrinoKitClient(ctx)
-	defer cleanUp()
-
-	height, err := strconv.ParseInt(args.First(), 10, 32)
-	if err != nil {
-		return err
-	}
-
-	req := &neutrinorpc.GetBlockHashRequest{
-		Height: int32(height),
-	}
-
-	resp, err := client.GetBlockHash(ctxc, req)
-	if err != nil {
-		return err
-	}
-
-	printRespJSON(resp)
-
-	return nil
-}
-
 // neutrinoCommands will return the set of commands to enable for neutrinorpc
 // builds.
 func neutrinoCommands() []cli.Command {
@@ -318,10 +239,8 @@ func neutrinoCommands() []cli.Command {
 				addPeerCommand,
 				disconnectPeerCommand,
 				isBannedCommand,
-				getBlockCommand,
 				getBlockHeaderCommand,
 				getCFilterCommand,
-				getBlockHashCommand,
 			},
 		},
 	}

@@ -229,7 +229,6 @@ jobs:
       fail-fast: false
       matrix:
         unit_type:
-          - btcd unit-cover
           - unit tags="kvdb_etcd"
           - unit tags="kvdb_postgres"
           - btcd unit-race
@@ -258,13 +257,6 @@ jobs:
 
       - name: run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }}
-
-      - name: Send coverage
-        uses: shogo82148/actions-goveralls@v1
-        if: matrix.unit_type == 'btcd unit-cover'
-        with:
-          path-to-profile: coverage.txt
-          parallel: true
 
   ########################
   # run integration tests

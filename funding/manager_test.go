@@ -203,13 +203,21 @@ func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 }
 
 type mockChanWatcher struct {
-	watchEvent chan *channeldb.OpenChannel
+	watchEvent  chan *channeldb.OpenChannel
+	cancelEvent chan *channeldb.OpenChannel
 }
 
 func (m *mockChanWatcher) WatchNewChannel(channel *channeldb.OpenChannel,
 	_ *btcec.PublicKey) error {
 
 	m.watchEvent <- channel
+	return nil
+}
+
+func (m *mockChanWatcher) CancelWatchChannel(
+	channel *channeldb.OpenChannel) error {
+
+	m.cancelEvent <- channel
 	return nil
 }
 
@@ -400,7 +408,8 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	// The mock channel watcher receives WatchNewChannel calls that would
 	// normally go to the ChainArbitrator.
 	watcher := &mockChanWatcher{
-		watchEvent: make(chan *channeldb.OpenChannel, maxPending),
+		watchEvent:  make(chan *channeldb.OpenChannel, maxPending),
+		cancelEvent: make(chan *channeldb.OpenChannel, maxPending),
 	}
 
 	// The mock channel event notifier will receive events for each pending
@@ -512,7 +521,8 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
 			return uint16(input.MaxHTLCNumber / 2)
 		},
-		WatchNewChannel: watcher.WatchNewChannel,
+		WatchNewChannel:    watcher.WatchNewChannel,
+		CancelWatchChannel: watcher.CancelWatchChannel,
 		ReportShortChanID: func(wire.OutPoint) error {
 			reportScidChan <- struct{}{}
 			return nil
@@ -1072,14 +1082,26 @@ func assertNotifiedClosed(t *testing.T, node *testNode,
 
 	t.Helper()
 
+	checkOutPoint := func(op *wire.OutPoint) bool {
+		return fundingOutPoint.Hash.IsEqual(&op.Hash) &&
+			fundingOutPoint.Index == op.Index
+	}
+
+	// Make sure the ChannelNotifier was notified about this closed channel.
 	select {
 	case op := <-node.mockChanEvent.closedEvent:
-		require.True(t, fundingOutPoint.Hash.IsEqual(&op.Hash),
-			"wrong outpoint closed")
-		require.Equal(t, fundingOutPoint.Index, op.Index,
-			"wrong outpoint closed")
+		require.True(t, checkOutPoint(&op), "wrong outpoint closed")
 	case <-time.After(time.Second * 5):
 		t.Fatal("closed channel notification not sent")
+	}
+
+	// Make sure the ChainArbitrator was notified about the closed channel.
+	select {
+	case ch := <-node.mockChanWatcher.cancelEvent:
+		require.True(t, checkOutPoint(&ch.FundingOutpoint),
+			"wrong channel watcher canceled")
+	case <-time.After(time.Second * 5):
+		t.Fatal("channel watcher not canceled")
 	}
 }
 

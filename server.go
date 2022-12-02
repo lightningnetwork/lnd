@@ -1362,6 +1362,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// the chain arb so it can react to on-chain events.
 			return s.chainArb.WatchNewChannel(channel)
 		},
+		CancelWatchChannel: func(
+			channel *channeldb.OpenChannel) error {
+
+			return s.chainArb.ResolveContract(
+				channel.FundingOutpoint)
+		},
 		ReportShortChanID: func(chanPoint wire.OutPoint) error {
 			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
 			return s.htlcSwitch.UpdateShortChanID(cid)

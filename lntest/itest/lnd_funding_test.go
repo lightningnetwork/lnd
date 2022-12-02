@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"crypto/rand"
 	"fmt"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -674,6 +676,105 @@ func testChannelFundingPersistence(ht *lntemp.HarnessTest) {
 	// block until the channel is closed and will additionally assert the
 	// relevant channel closing post conditions.
 	ht.CloseChannel(alice, chanPoint)
+}
+
+// testChannelFundingTimeout tests that the non-initiating node forgets the
+// pending channel after a timeout, while the initiating node does not.
+func testChannelFundingTimeout(ht *lntemp.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
+	chanAmt := funding.MaxBtcFundingAmount
+
+	// We will force a timeout by using the PSBT flow to fund the channel
+	// and then not publishing the funding transaction for >2016 blocks.
+
+	var pendingChanID [32]byte
+	_, err := rand.Read(pendingChanID[:])
+	require.NoError(ht, err)
+
+	// Have Alice initiate the PSBT funding flow.
+	shim := &lnrpc.FundingShim{
+		Shim: &lnrpc.FundingShim_PsbtShim{
+			PsbtShim: &lnrpc.PsbtShim{
+				PendingChanId: pendingChanID[:],
+				NoPublish:     true,
+			},
+		},
+	}
+	openReq := lntemp.OpenChannelParams{
+		Amt:         chanAmt,
+		FundingShim: shim,
+	}
+	chanUpdates, unfundedPsbt := ht.OpenChannelPsbt(alice, bob, openReq)
+
+	// Fund the PSBT from Alice's wallet.
+	fundReq := &walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_Psbt{
+			Psbt: unfundedPsbt,
+		},
+		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: 2,
+		},
+	}
+	fundResp := alice.RPC.FundPsbt(fundReq)
+
+	// Verify the funded PSBT.
+	msg := &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtVerify{
+			PsbtVerify: &lnrpc.FundingPsbtVerify{
+				PendingChanId: pendingChanID[:],
+				FundedPsbt:    fundResp.FundedPsbt,
+			},
+		},
+	}
+	alice.RPC.FundingStateStep(msg)
+
+	// Sign and finalize the PSBT.
+	finalizeReq := &walletrpc.FinalizePsbtRequest{
+		FundedPsbt: fundResp.FundedPsbt,
+	}
+	finalizeRes := alice.RPC.FinalizePsbt(finalizeReq)
+	msg = &lnrpc.FundingTransitionMsg{
+		Trigger: &lnrpc.FundingTransitionMsg_PsbtFinalize{
+			PsbtFinalize: &lnrpc.FundingPsbtFinalize{
+				PendingChanId: pendingChanID[:],
+				SignedPsbt:    finalizeRes.SignedPsbt,
+			},
+		},
+	}
+	alice.RPC.FundingStateStep(msg)
+
+	// Consume the "channel pending" update to ensure Alice has finished
+	// constructing the funding transaction and saved the pending channel.
+	updateResp := ht.ReceiveOpenChannelUpdate(chanUpdates)
+	upd, ok := updateResp.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	require.True(ht, ok)
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: upd.ChanPending.Txid,
+		},
+		OutputIndex: upd.ChanPending.OutputIndex,
+	}
+
+	// Alice and Bob should both have the channel pending.
+	numPending := len(alice.RPC.PendingChannels().PendingOpenChannels)
+	require.Equal(ht, 1, numPending, "Alice is missing pending channel")
+	numPending = len(bob.RPC.PendingChannels().PendingOpenChannels)
+	require.Equal(ht, 1, numPending, "Bob is missing pending channel")
+
+	// After more than 2016 blocks without the funding transaction appearing
+	// onchain, Bob should forget the pending channel as non-initiator while
+	// Alice remembers it as initiator.
+	ht.MineBlocksAndAssertNumTxes(2100, 0)
+	numPending = len(alice.RPC.PendingChannels().PendingOpenChannels)
+	require.Equal(ht, 1, numPending, "Alice forgot pending channel")
+	numPending = len(bob.RPC.PendingChannels().PendingOpenChannels)
+	require.Zero(ht, numPending, "Bob failed to clean up timed-out channel")
+
+	// Clean up Alice's state.
+	abandonReq := &lnrpc.AbandonChannelRequest{
+		ChannelPoint: chanPoint,
+	}
+	alice.RPC.AbandonChannel(abandonReq)
 }
 
 // testBatchChanFunding makes sure multiple channels can be opened in one batch

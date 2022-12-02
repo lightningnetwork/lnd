@@ -16,6 +16,10 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		TestFunc: testBasicChannelFunding,
 	},
 	{
+		Name:     "funding timeout",
+		TestFunc: testChannelFundingTimeout,
+	},
+	{
 		Name:     "multi hop htlc local timeout",
 		TestFunc: testMultiHopHtlcLocalTimeout,
 	},

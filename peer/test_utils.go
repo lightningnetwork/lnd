@@ -366,12 +366,17 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		Height: 1,
 	}
 
+	const interceptMargin = 3
+
+	interceptableSwitchCfg := &htlcswitch.InterceptableSwitchConfig{
+		CltvRejectDelta:    testCltvRejectDelta,
+		CltvInterceptDelta: testCltvRejectDelta + interceptMargin,
+		Notifier:           interceptableSwitchNotifier,
+		Mode:               htlcswitch.HtlcInterceptorModeOptional,
+	}
+
 	interceptableSwitch, err := htlcswitch.NewInterceptableSwitch(
-		&htlcswitch.InterceptableSwitchConfig{
-			CltvRejectDelta:    testCltvRejectDelta,
-			CltvInterceptDelta: testCltvRejectDelta + 3,
-			Notifier:           interceptableSwitchNotifier,
-		},
+		interceptableSwitchCfg,
 	)
 	if err != nil {
 		return nil, nil, err

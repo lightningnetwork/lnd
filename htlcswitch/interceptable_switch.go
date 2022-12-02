@@ -25,6 +25,37 @@ var (
 	errBlockStreamStopped = errors.New("block epoch stream stopped")
 )
 
+type HtlcInterceptorMode int
+
+const (
+	// HtlcInterceptorModeOptional auto-resumes htlcs if no interceptor is
+	// connected.
+	HtlcInterceptorModeOptional HtlcInterceptorMode = iota
+
+	// HtlcInterceptorModeRequired holds htlcs until a client connects,
+	// unless the htlc is new.
+	HtlcInterceptorModeRequired
+
+	// HtlcInterceptorModeAlwaysRequired holds htlcs until a client connects
+	// regardless of whether the htlc is new or a replay or.
+	HtlcInterceptorModeAlwaysRequired
+)
+
+func (h HtlcInterceptorMode) String() string {
+	switch h {
+	case HtlcInterceptorModeOptional:
+		return "optional"
+
+	case HtlcInterceptorModeRequired:
+		return "required"
+
+	case HtlcInterceptorModeAlwaysRequired:
+		return "always-required"
+	}
+
+	return "unknown"
+}
+
 // InterceptableSwitch is an implementation of ForwardingSwitch interface.
 // This implementation is used like a proxy that wraps the switch and
 // intercepts forward requests. A reference to the Switch is held in order
@@ -50,9 +81,8 @@ type InterceptableSwitch struct {
 	// client connect and disconnect.
 	interceptorRegistration chan ForwardInterceptor
 
-	// requireInterceptor indicates whether processing should block if no
-	// interceptor is connected.
-	requireInterceptor bool
+	// mode indicates the mode the interceptor is running in.
+	mode HtlcInterceptorMode
 
 	// interceptor is the handler for intercepted packets.
 	interceptor ForwardInterceptor
@@ -155,9 +185,8 @@ type InterceptableSwitchConfig struct {
 	// anymore.
 	CltvInterceptDelta uint32
 
-	// RequireInterceptor indicates whether processing should block if no
-	// interceptor is connected.
-	RequireInterceptor bool
+	// Mode is the mode in which to serve htlc interceptor clients.
+	Mode HtlcInterceptorMode
 }
 
 // NewInterceptableSwitch returns an instance of InterceptableSwitch.
@@ -177,13 +206,18 @@ func NewInterceptableSwitch(cfg *InterceptableSwitchConfig) (
 		interceptorRegistration: make(chan ForwardInterceptor),
 		heldHtlcSet:             newHeldHtlcSet(),
 		resolutionChan:          make(chan *fwdResolution),
-		requireInterceptor:      cfg.RequireInterceptor,
+		mode:                    cfg.Mode,
 		cltvRejectDelta:         cfg.CltvRejectDelta,
 		cltvInterceptDelta:      cfg.CltvInterceptDelta,
 		notifier:                cfg.Notifier,
 
 		quit: make(chan struct{}),
 	}, nil
+}
+
+// Mode returns the mode that the interceptor is currently running in.
+func (s *InterceptableSwitch) Mode() HtlcInterceptorMode {
+	return s.mode
 }
 
 // SetInterceptor sets the ForwardInterceptor to be used. A nil argument
@@ -244,7 +278,7 @@ func (s *InterceptableSwitch) run() error {
 	}
 
 	log.Debugf("InterceptableSwitch running: height=%v, "+
-		"requireInterceptor=%v", s.currentHeight, s.requireInterceptor)
+		"mode=%v", s.currentHeight, s.mode)
 
 	for {
 		select {
@@ -346,7 +380,7 @@ func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
 
 	// The interceptor disconnects. If an interceptor is required, keep the
 	// held htlcs.
-	if s.requireInterceptor {
+	if s.mode != HtlcInterceptorModeOptional {
 		log.Infof("Interceptor disconnected, retaining held packets")
 
 		return
@@ -514,14 +548,14 @@ func (s *InterceptableSwitch) forward(
 	// replay status determine how the packet is handled.
 	if s.interceptor == nil {
 		// Process normally if an interceptor is not required.
-		if !s.requireInterceptor {
+		if s.mode == HtlcInterceptorModeOptional {
 			return false, nil
 		}
 
 		// We are in interceptor-required mode. If this is a new packet, it is
 		// still safe to fail back. The interceptor has never seen this packet
 		// yet. This limits the backlog of htlcs when the interceptor is down.
-		if !isReplay {
+		if !isReplay && s.mode == HtlcInterceptorModeRequired {
 			err := fwd.FailWithCode(
 				lnwire.CodeTemporaryChannelFailure,
 			)
@@ -532,9 +566,10 @@ func (s *InterceptableSwitch) forward(
 			return true, nil
 		}
 
-		// This packet is a replay. It is not safe to fail back, because the
-		// interceptor may still signal otherwise upon reconnect. Keep the
-		// packet in the queue until then.
+		// This packet is a replay or we are in 'always required' mode.
+		// It is not safe to fail back, because the interceptor may
+		// still signal otherwise upon reconnect. Keep the packet in the
+		// queue until then.
 		if err := s.heldHtlcSet.push(inKey, fwd); err != nil {
 			return false, err
 		}

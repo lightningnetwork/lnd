@@ -202,6 +202,17 @@ func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	}, nil
 }
 
+type mockChanWatcher struct {
+	watchEvent chan *channeldb.OpenChannel
+}
+
+func (m *mockChanWatcher) WatchNewChannel(channel *channeldb.OpenChannel,
+	_ *btcec.PublicKey) error {
+
+	m.watchEvent <- channel
+	return nil
+}
+
 type mockChanEvent struct {
 	openEvent        chan wire.OutPoint
 	pendingOpenEvent chan channelnotifier.PendingOpenChannelEvent
@@ -252,6 +263,7 @@ type testNode struct {
 	fundingMgr      *Manager
 	newChannels     chan *newChannelMsg
 	mockNotifier    *mockNotifier
+	mockChanWatcher *mockChanWatcher
 	mockChanEvent   *mockChanEvent
 	testDir         string
 	shutdownChannel chan struct{}
@@ -385,6 +397,12 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		BestHeight: fundingBroadcastHeight,
 	}
 
+	// The mock channel watcher receives WatchNewChannel calls that would
+	// normally go to the ChainArbitrator.
+	watcher := &mockChanWatcher{
+		watchEvent: make(chan *channeldb.OpenChannel, maxPending),
+	}
+
 	// The mock channel event notifier will receive events for each pending
 	// open and open channel. Because some tests will create multiple
 	// channels in a row before advancing to the next step, these channels
@@ -494,9 +512,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
 			return uint16(input.MaxHTLCNumber / 2)
 		},
-		WatchNewChannel: func(*channeldb.OpenChannel, *btcec.PublicKey) error {
-			return nil
-		},
+		WatchNewChannel: watcher.WatchNewChannel,
 		ReportShortChanID: func(wire.OutPoint) error {
 			reportScidChan <- struct{}{}
 			return nil
@@ -544,6 +560,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		publTxChan:      publTxChan,
 		fundingMgr:      f,
 		mockNotifier:    chainNotifier,
+		mockChanWatcher: watcher,
 		mockChanEvent:   evt,
 		testDir:         tempTestDir,
 		shutdownChannel: shutdownChan,
@@ -838,6 +855,18 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	case <-bob.mockChanEvent.pendingOpenEvent:
 	case <-time.After(time.Second * 5):
 		t.Fatalf("bob did not send pending channel event")
+	}
+
+	// Make sure the ChainArbitrator was informed about the pending channel.
+	select {
+	case <-alice.mockChanWatcher.watchEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send pending channel event")
+	}
+	select {
+	case <-bob.mockChanWatcher.watchEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send pending channel event")
 	}
 
 	// Finally, make sure neither have active reservation for the channel

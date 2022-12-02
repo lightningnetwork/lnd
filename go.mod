@@ -31,7 +31,7 @@ require (
 	github.com/kkdai/bstream v1.0.0
 	github.com/lightninglabs/neutrino v0.14.2
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
-	github.com/lightningnetwork/lightning-onion v1.0.2-0.20220211021909-bb84a1ccb0c5
+	github.com/lightningnetwork/lightning-onion v1.2.1-0.20221202012345-ca23184850a1
 	github.com/lightningnetwork/lnd/cert v1.1.1
 	github.com/lightningnetwork/lnd/clock v1.1.0
 	github.com/lightningnetwork/lnd/healthcheck v1.2.2

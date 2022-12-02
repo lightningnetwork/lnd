@@ -5,6 +5,10 @@
 * Warning messages from peers are now recognized and
   [logged](https://github.com/lightningnetwork/lnd/pull/6546) by lnd.
 
+* Decrypt onion failure messages with a [length greater than 256
+  bytes](https://github.com/lightningnetwork/lnd/pull/6913). This moves LND
+  closer to being spec compliant.
+
 ## RPC
 
 * The `RegisterConfirmationsNtfn` call of the `chainnotifier` RPC sub-server 

@@ -419,12 +419,16 @@ func (o *mockObfuscator) Reextract(
 	return nil
 }
 
+var fakeHmac = []byte("hmachmachmachmachmachmachmachmac")
+
 func (o *mockObfuscator) EncryptFirstHop(failure lnwire.FailureMessage) (
 	lnwire.OpaqueReason, error) {
 
 	o.failure = failure
 
 	var b bytes.Buffer
+	b.Write(fakeHmac)
+
 	if err := lnwire.EncodeFailure(&b, failure, 0); err != nil {
 		return nil, err
 	}
@@ -436,7 +440,12 @@ func (o *mockObfuscator) IntermediateEncrypt(reason lnwire.OpaqueReason) lnwire.
 }
 
 func (o *mockObfuscator) EncryptMalformedError(reason lnwire.OpaqueReason) lnwire.OpaqueReason {
-	return reason
+	var b bytes.Buffer
+	b.Write(fakeHmac)
+
+	b.Write(reason)
+
+	return b.Bytes()
 }
 
 // mockDeobfuscator mock implementation of the failure deobfuscator which
@@ -447,7 +456,13 @@ func newMockDeobfuscator() ErrorDecrypter {
 	return &mockDeobfuscator{}
 }
 
-func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (*ForwardingError, error) {
+func (o *mockDeobfuscator) DecryptError(reason lnwire.OpaqueReason) (
+	*ForwardingError, error) {
+
+	if !bytes.Equal(reason[:32], fakeHmac) {
+		return nil, errors.New("fake decryption error")
+	}
+	reason = reason[32:]
 
 	r := bytes.NewReader(reason)
 	failure, err := lnwire.DecodeFailure(r, 0)

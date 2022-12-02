@@ -1,7 +1,6 @@
 package htlcswitch
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
@@ -23,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/ticker"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -4088,10 +4086,10 @@ func TestSwitchHoldForward(t *testing.T) {
 	expectedFailure := &lnwire.FailInvalidOnionKey{
 		OnionSHA256: shaOnionBlob,
 	}
-	var b bytes.Buffer
-	require.NoError(t, lnwire.EncodeFailure(&b, expectedFailure, 0))
 
-	assert.Equal(t, lnwire.OpaqueReason(b.Bytes()), failPacket.Reason)
+	fwdErr, err := newMockDeobfuscator().DecryptError(failPacket.Reason)
+	require.NoError(t, err)
+	require.Equal(t, expectedFailure, fwdErr.WireMessage())
 
 	assertNumCircuits(t, c.s, 0, 0)
 
@@ -5515,9 +5513,12 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 		failHtlc, ok := failPacket.htlc.(*lnwire.UpdateFailHTLC)
 		require.True(t, ok)
 
-		r := bytes.NewReader(failHtlc.Reason)
-		failure, err := lnwire.DecodeFailure(r, 0)
+		fwdErr, err := newMockDeobfuscator().DecryptError(
+			failHtlc.Reason,
+		)
 		require.NoError(t, err)
+
+		failure := fwdErr.WireMessage()
 
 		failureMsg, ok := failure.(*lnwire.FailTemporaryChannelFailure)
 		require.True(t, ok)

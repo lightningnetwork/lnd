@@ -1,4 +1,4 @@
-// Package healthcheck contains a monitor which takes a set of liveliness checks
+// Package healthcheck contains a monitor which takes a set of liveness checks
 // which it periodically checks. If a check fails after its configured number
 // of allowed call attempts, the monitor will send a request to shutdown using
 // the function is is provided in its config. Checks are dispatched in their own
@@ -30,7 +30,7 @@ type Config struct {
 // to print our reason for shutdown.
 type shutdownFunc func(format string, params ...interface{})
 
-// Monitor periodically checks a series of configured liveliness checks to
+// Monitor periodically checks a series of configured liveness checks to
 // ensure that lnd has access to all critical resources.
 type Monitor struct {
 	started int32 // To be used atomically.
@@ -112,7 +112,7 @@ func CreateCheck(checkFunc func() error) func() chan error {
 	}
 }
 
-// Observation represents a liveliness check that we periodically check.
+// Observation represents a liveness check that we periodically check.
 type Observation struct {
 	// Name describes the health check.
 	Name string

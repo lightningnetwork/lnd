@@ -479,6 +479,10 @@ type Config struct {
 	// enter a pending state.
 	NotifyPendingOpenChannelEvent func(wire.OutPoint, *channeldb.OpenChannel)
 
+	// NotifyClosedChannelEvent informs the ChannelNotifier when a pending
+	// channel is abandoned and marked closed (e.g., due to timeout).
+	NotifyClosedChannelEvent func(wire.OutPoint)
+
 	// EnableUpfrontShutdown specifies whether the upfront shutdown script
 	// is enabled.
 	EnableUpfrontShutdown bool
@@ -2471,6 +2475,10 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 		return fmt.Errorf("failed closing channel %v: %v",
 			c.FundingOutpoint, err)
 	}
+
+	// Since we've previously notified that this channel was pending open,
+	// we also need to notify now that it's closed.
+	f.cfg.NotifyClosedChannelEvent(c.FundingOutpoint)
 
 	timeoutErr := fmt.Errorf("timeout waiting for funding tx (%v) to "+
 		"confirm", c.FundingOutpoint)

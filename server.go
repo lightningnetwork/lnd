@@ -1407,8 +1407,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NotifyOpenChannelEvent:        s.channelNotifier.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chanPredicate,
 		NotifyPendingOpenChannelEvent: s.channelNotifier.NotifyPendingOpenChannelEvent,
-		EnableUpfrontShutdown:         cfg.EnableUpfrontShutdown,
-		RegisteredChains:              cfg.registeredChains,
+		NotifyClosedChannelEvent: s.channelNotifier.
+			NotifyClosedChannelEvent,
+		EnableUpfrontShutdown: cfg.EnableUpfrontShutdown,
+		RegisteredChains:      cfg.registeredChains,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		DeleteAliasEdge: deleteAliasEdge,

@@ -12,13 +12,81 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/stretchr/testify/require"
 )
+
+// testChainKit tests ChainKit RPC endpoints.
+func testChainKit(ht *lntemp.HarnessTest) {
+	ctx := context.Background()
+
+	// Test functions registered as test cases spin up separate nodes during
+	// execution. By calling sub-test functions as seen below we avoid the
+	// need to start separate nodes.
+	testChainKitGetBlock(ctx, ht)
+	testChainKitGetBlockHash(ctx, ht)
+}
+
+// testChainKitGetBlock ensures that given a block hash, the RPC endpoint
+// returns the correct target block.
+func testChainKitGetBlock(ctx context.Context, ht *lntemp.HarnessTest) {
+	// Get best block hash.
+	bestBlockRes, err := ht.Alice.RPC.ChainKit.GetBestBlock(
+		ctx, &chainrpc.GetBestBlockRequest{},
+	)
+	require.NoError(ht, err)
+	var bestBlockHash chainhash.Hash
+	err = bestBlockHash.SetBytes(bestBlockRes.BlockHash)
+	require.NoError(ht, err)
+
+	// Retrieve the best block by hash.
+	getBlockRes, err := ht.Alice.RPC.ChainKit.GetBlock(
+		ctx, &chainrpc.GetBlockRequest{
+			BlockHash: bestBlockHash.CloneBytes(),
+		},
+	)
+	require.NoError(ht, err)
+
+	// Deserialize the block which was retrieved by hash.
+	msgBlock := &wire.MsgBlock{}
+	blockReader := bytes.NewReader(getBlockRes.RawBlock)
+	err = msgBlock.Deserialize(blockReader)
+	require.NoError(ht, err)
+
+	// Ensure best block hash is the same as retrieved block hash.
+	expected := bestBlockHash
+	actual := msgBlock.BlockHash()
+	require.Equal(ht, expected, actual)
+}
+
+// testChainKitGetBlockHash ensures that given a block height, the RPC endpoint
+// returns the correct target block hash.
+func testChainKitGetBlockHash(ctx context.Context, ht *lntemp.HarnessTest) {
+	// Get best block hash.
+	bestBlockRes, err := ht.Alice.RPC.ChainKit.GetBestBlock(
+		ctx, &chainrpc.GetBestBlockRequest{},
+	)
+	require.NoError(ht, err)
+
+	// Retrieve the block hash at best block height.
+	getBlockHashRes, err := ht.Alice.RPC.ChainKit.GetBlockHash(
+		ctx, &chainrpc.GetBlockHashRequest{
+			BlockHeight: int64(bestBlockRes.BlockHeight),
+		},
+	)
+	require.NoError(ht, err)
+
+	// Ensure best block hash is the same as retrieved block hash.
+	expected := bestBlockRes.BlockHash
+	actual := getBlockHashRes.BlockHash
+	require.Equal(ht, expected, actual)
+}
 
 // testCPFP ensures that the daemon can bump an unconfirmed  transaction's fee
 // rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.

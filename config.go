@@ -700,7 +700,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 	// User did specify an explicit --configfile, so we check that it does
 	// exist under that path to avoid surprises.
 	case configFilePath != DefaultConfigFile:
-		if !fileExists(configFilePath) {
+		if !lnrpc.FileExists(configFilePath) {
 			return nil, fmt.Errorf("specified config file does "+
 				"not exist in %s", configFilePath)
 		}

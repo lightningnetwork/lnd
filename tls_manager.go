@@ -210,7 +210,9 @@ func (t *TLSManager) generateOrRenewCert() (*tls.Config, func(), error) {
 // the encrypted form.
 func (t *TLSManager) generateCertPair(keyRing keychain.SecretKeyRing) error {
 	// Ensure we create TLS key and certificate if they don't exist.
-	if fileExists(t.cfg.TLSCertPath) || fileExists(t.cfg.TLSKeyPath) {
+	if lnrpc.FileExists(t.cfg.TLSCertPath) ||
+		lnrpc.FileExists(t.cfg.TLSKeyPath) {
+
 		// Handle discrepencies related to the TLSEncryptKey setting.
 		return t.ensureEncryption(keyRing)
 	}
@@ -595,18 +597,6 @@ func (t *TLSManager) deleteEphemeralSettings() {
 	t.ephemeralKey = nil
 	t.ephemeralCert = nil
 	t.ephemeralCertPath = ""
-}
-
-// fileExists reports whether the named file or directory exists.
-// This function is taken from https://github.com/btcsuite/btcd
-func fileExists(name string) bool {
-	if _, err := os.Stat(name); err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-	}
-
-	return true
 }
 
 // IsCertExpired checks if the current TLS certificate is expired.

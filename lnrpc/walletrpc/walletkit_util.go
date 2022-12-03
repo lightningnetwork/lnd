@@ -1,10 +1,13 @@
 package walletrpc
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
@@ -73,4 +76,23 @@ func parseDerivationPath(path string) ([]uint32, error) {
 		indices[i] = uint32(parsed)
 	}
 	return indices, nil
+}
+
+// doubleHashMessage creates the double hash (sha256) of a message
+// prepended with a specified prefix.
+func doubleHashMessage(prefix string, msg string) ([]byte, error) {
+	var buf bytes.Buffer
+	err := wire.WriteVarString(&buf, 0, prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	err = wire.WriteVarString(&buf, 0, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	digest := chainhash.DoubleHashB(buf.Bytes())
+
+	return digest, nil
 }

@@ -80,6 +80,47 @@ service WalletKit {
     rpc ListAddresses (ListAddressesRequest) returns (ListAddressesResponse);
 
     /*
+    SignMessageWithAddr returns the compact signature (base64 encoded) created
+    with the private key of the provided address. This requires the address
+    to be solely based on a public key lock (no scripts). Obviously the internal
+    lnd wallet has to possess the private key of the address otherwise
+    an error is returned.
+
+    This method aims to provide full compatibility with the bitcoin-core and
+    btcd implementation. Bitcoin-core's algorithm is not specified in a
+    BIP and only applicable for legacy addresses. This method enhances the
+    signing for additional address types: P2WKH, NP2WKH, P2TR.
+    For P2TR addresses this represents a special case. ECDSA is used to create
+    a compact signature which makes the public key of the signature recoverable.
+    */
+    rpc SignMessageWithAddr (SignMessageWithAddrRequest)
+        returns (SignMessageWithAddrResponse);
+
+    /*
+    VerifyMessageWithAddr returns the validity and the recovered public key of
+    the provided compact signature (base64 encoded). The verification is
+    twofold. First the validity of the signature itself is checked and then
+    it is verified that the recovered public key of the signature equals
+    the public key of the provided address. There is no dependence on the
+    private key of the address therefore also external addresses are allowed
+    to verify signatures.
+    Supported address types are P2PKH, P2WKH, NP2WKH, P2TR.
+
+    This method is the counterpart of the related signing method
+    (SignMessageWithAddr) and aims to provide full compatibility to
+    bitcoin-core's implementation. Although bitcoin-core/btcd only provide
+    this functionality for legacy addresses this function enhances it to
+    the address types: P2PKH, P2WKH, NP2WKH, P2TR.
+
+    The verification for P2TR addresses is a special case and requires the
+    ECDSA compact signature to compare the reovered public key to the internal
+    taproot key. The compact ECDSA signature format was used because there
+    are still no known compact signature schemes for schnorr signatures.
+    */
+    rpc VerifyMessageWithAddr (VerifyMessageWithAddrRequest)
+        returns (VerifyMessageWithAddrResponse);
+
+    /*
     ImportAccount imports an account backed by an account extended public key.
     The master key fingerprint denotes the fingerprint of the root key
     corresponding to the account public key (also known as the key with
@@ -495,6 +536,43 @@ message ListAddressesRequest {
 message ListAddressesResponse {
     // A list of all the accounts and their addresses.
     repeated AccountWithAddresses account_with_addresses = 1;
+}
+
+message SignMessageWithAddrRequest {
+    // The message to be signed. When using REST, this field must be encoded as
+    // base64.
+    bytes msg = 1;
+
+    // The address which will be used to look up the private key and sign the
+    // corresponding message.
+    string addr = 2;
+}
+
+message SignMessageWithAddrResponse {
+    // The compact ECDSA signature for the given message encoded in base64.
+    string signature = 1;
+}
+
+message VerifyMessageWithAddrRequest {
+    // The message to be signed. When using REST, this field must be encoded as
+    // base64.
+    bytes msg = 1;
+
+    // The compact ECDSA signature to be verified over the given message
+    // ecoded in base64.
+    string signature = 2;
+
+    // The address which will be used to look up the public key and verify the
+    // the signature.
+    string addr = 3;
+}
+
+message VerifyMessageWithAddrResponse {
+    // Whether the signature was valid over the given message.
+    bool valid = 1;
+
+    // The pubkey recovered from the signature.
+    bytes pubkey = 2;
 }
 
 message ImportAccountRequest {

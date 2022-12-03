@@ -130,6 +130,74 @@
         ]
       }
     },
+    "/v2/wallet/address/signmessage": {
+      "post": {
+        "summary": "SignMessageWithAddr returns the compact signature (base64 encoded) created\nwith the private key of the provided address. This requires the address\nto be solely based on a public key lock (no scripts). Obviously the internal\nlnd wallet has to possess the private key of the address otherwise\nan error is returned.",
+        "description": "This method aims to provide full compatibility with the bitcoin-core and\nbtcd implementation. Bitcoin-core's algorithm is not specified in a\nBIP and only applicable for legacy addresses. This method enhances the\nsigning for additional address types: P2WKH, NP2WKH, P2TR.\nFor P2TR addresses this represents a special case. ECDSA is used to create\na compact signature which makes the public key of the signature recoverable.",
+        "operationId": "WalletKit_SignMessageWithAddr",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcSignMessageWithAddrResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcSignMessageWithAddrRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
+    "/v2/wallet/address/verifymessage": {
+      "post": {
+        "summary": "VerifyMessageWithAddr returns the validity and the recovered public key of\nthe provided compact signature (base64 encoded). The verification is\ntwofold. First the validity of the signature itself is checked and then\nit is verified that the recovered public key of the signature equals\nthe public key of the provided address. There is no dependence on the\nprivate key of the address therefore also external addresses are allowed\nto verify signatures.\nSupported address types are P2PKH, P2WKH, NP2WKH, P2TR.",
+        "description": "This method is the counterpart of the related signing method\n(SignMessageWithAddr) and aims to provide full compatibility to\nbitcoin-core's implementation. Although bitcoin-core/btcd only provide\nthis functionality for legacy addresses this function enhances it to\nthe address types: P2PKH, P2WKH, NP2WKH, P2TR.\n\nThe verification for P2TR addresses is a special case and requires the\nECDSA compact signature to compare the reovered public key to the internal\ntaproot key. The compact ECDSA signature format was used because there\nare still no known compact signature schemes for schnorr signatures.",
+        "operationId": "WalletKit_VerifyMessageWithAddr",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcVerifyMessageWithAddrResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcVerifyMessageWithAddrRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/addresses": {
       "get": {
         "summary": "ListAddresses retrieves all the addresses along with their balance. An\naccount name filter can be provided to filter through all of the\nwallet accounts and return the addresses of only those matching.",
@@ -1714,6 +1782,29 @@
         }
       }
     },
+    "walletrpcSignMessageWithAddrRequest": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte",
+          "description": "The message to be signed. When using REST, this field must be encoded as\nbase64."
+        },
+        "addr": {
+          "type": "string",
+          "description": "The address which will be used to look up the private key and sign the\ncorresponding message."
+        }
+      }
+    },
+    "walletrpcSignMessageWithAddrResponse": {
+      "type": "object",
+      "properties": {
+        "signature": {
+          "type": "string",
+          "description": "The compact ECDSA signature for the given message encoded in base64."
+        }
+      }
+    },
     "walletrpcSignPsbtRequest": {
       "type": "object",
       "properties": {
@@ -1843,6 +1934,38 @@
           "type": "string",
           "format": "uint64",
           "description": "The value of the leased output in satoshis."
+        }
+      }
+    },
+    "walletrpcVerifyMessageWithAddrRequest": {
+      "type": "object",
+      "properties": {
+        "msg": {
+          "type": "string",
+          "format": "byte",
+          "description": "The message to be signed. When using REST, this field must be encoded as\nbase64."
+        },
+        "signature": {
+          "type": "string",
+          "description": "The compact ECDSA signature to be verified over the given message\necoded in base64."
+        },
+        "addr": {
+          "type": "string",
+          "description": "The address which will be used to look up the public key and verify the\nthe signature."
+        }
+      }
+    },
+    "walletrpcVerifyMessageWithAddrResponse": {
+      "type": "object",
+      "properties": {
+        "valid": {
+          "type": "boolean",
+          "description": "Whether the signature was valid over the given message."
+        },
+        "pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The pubkey recovered from the signature."
         }
       }
     },

@@ -12,6 +12,11 @@ import (
 // WalletKitClient related RPCs.
 // =====================
 
+type (
+	SignReq    *walletrpc.SignMessageWithAddrResponse
+	VerifyResp *walletrpc.VerifyMessageWithAddrResponse
+)
+
 // FinalizePsbt makes a RPC call to node's ListUnspent and asserts.
 func (h *HarnessRPC) ListUnspent(
 	req *walletrpc.ListUnspentRequest) *walletrpc.ListUnspentResponse {
@@ -121,6 +126,33 @@ func (h *HarnessRPC) ListAddresses(
 
 	key, err := h.WalletKit.ListAddresses(ctxt, req)
 	h.NoError(err, "ListAddresses")
+
+	return key
+}
+
+// SignMessageWithAddr makes a RPC call to the SignMessageWithAddr and asserts.
+func (h *HarnessRPC) SignMessageWithAddr(
+	req *walletrpc.SignMessageWithAddrRequest) SignReq {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	key, err := h.WalletKit.SignMessageWithAddr(ctxt, req)
+	h.NoError(err, "SignMessageWithAddr")
+
+	return key
+}
+
+// VerifyMessageWithAddr makes a RPC call to
+// the VerifyMessageWithAddr and asserts.
+func (h *HarnessRPC) VerifyMessageWithAddr(
+	req *walletrpc.VerifyMessageWithAddrRequest) VerifyResp {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	key, err := h.WalletKit.VerifyMessageWithAddr(ctxt, req)
+	h.NoError(err, "VerifyMessageWithAddr")
 
 	return key
 }

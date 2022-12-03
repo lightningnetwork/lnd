@@ -501,4 +501,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "custom message",
 		TestFunc: testCustomMessage,
 	},
+	{
+		Name:     "sign verify message with addr",
+		TestFunc: testSignVerifyMessageWithAddr,
+	},
 }

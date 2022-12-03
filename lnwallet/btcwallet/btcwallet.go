@@ -55,7 +55,7 @@ const (
 
 var (
 	// waddrmgrNamespaceKey is the namespace key that the waddrmgr state is
-	// stored within the top-level waleltdb buckets of btcwallet.
+	// stored within the top-level walletdb buckets of btcwallet.
 	waddrmgrNamespaceKey = []byte("waddrmgr")
 
 	// wtxmgrNamespaceKey is the namespace key that the wtxmgr state is

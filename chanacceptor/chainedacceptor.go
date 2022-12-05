@@ -88,11 +88,11 @@ func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptRespon
 		finalResp, err = mergeResponse(finalResp, *acceptorResponse)
 		if err != nil {
 			log.Errorf("response for: %x has inconsistent values: %v",
-				req.OpenChanMsg.PendingChannelID, err)
+				req.PendingChannelID(), err)
 
 			return NewChannelAcceptResponse(
-				false, errChannelRejected, nil, 0, 0,
-				0, 0, 0, 0, false,
+				false, errChannelRejected, nil, 0, 0, 0, 0, 0,
+				0, 0, false,
 			)
 		}
 	}

@@ -120,28 +120,20 @@ func (c *channelAcceptorCtx) stop() {
 	}
 }
 
-// queryAndAssert takes a map of open channel requests which we want to call
+// queryAndAssert takes a map of channel accept requests which we want to call
 // Accept for to the outcome we expect from the acceptor, dispatches each
 // request in a goroutine and then asserts that we get the outcome we expect.
-func (c *channelAcceptorCtx) queryAndAssert(queries map[*lnwire.OpenChannel]*ChannelAcceptResponse) {
-	var (
-		node = btcec.NewPublicKey(
-			new(btcec.FieldVal).SetInt(1),
-			new(btcec.FieldVal).SetInt(1),
-		)
+func (c *channelAcceptorCtx) queryAndAssert(
+	queries map[*ChannelAcceptRequest]*ChannelAcceptResponse) {
 
-		responses = make(chan struct{})
-	)
+	responses := make(chan struct{})
 
 	for request, expected := range queries {
 		request := request
 		expected := expected
 
 		go func() {
-			resp := c.acceptor.Accept(&ChannelAcceptRequest{
-				Node:        node,
-				OpenChanMsg: request,
-			})
+			resp := c.acceptor.Accept(request)
 			assert.Equal(c.t, expected, resp)
 			responses <- struct{}{}
 		}()
@@ -157,6 +149,37 @@ func (c *channelAcceptorCtx) queryAndAssert(queries map[*lnwire.OpenChannel]*Cha
 	}
 }
 
+// newChannelAcceptRequest creates a new ChannelAcceptRequest from the given
+// OpenChannel or OpenChannel2 message.
+func newChannelAcceptRequest(t *testing.T,
+	openChanMsg lnwire.Message) *ChannelAcceptRequest {
+
+	t.Helper()
+
+	defaultNode := btcec.NewPublicKey(
+		new(btcec.FieldVal).SetInt(1), new(btcec.FieldVal).SetInt(1),
+	)
+
+	switch msg := openChanMsg.(type) {
+	case *lnwire.OpenChannel:
+		return &ChannelAcceptRequest{
+			Node:        defaultNode,
+			OpenChanMsg: msg,
+		}
+
+	case *lnwire.OpenChannel2:
+		return &ChannelAcceptRequest{
+			Node:         defaultNode,
+			OpenChan2Msg: msg,
+		}
+
+	default:
+		t.Fatal("openChanMsg is not OpenChannel or OpenChannel2")
+	}
+
+	return nil
+}
+
 // TestMultipleAcceptClients tests that the RPC acceptor is capable of handling
 // multiple requests to its Accept function and responding to them correctly.
 func TestMultipleAcceptClients(t *testing.T) {
@@ -167,31 +190,43 @@ func TestMultipleAcceptClients(t *testing.T) {
 	require.NoError(t, err)
 
 	var (
-		chan1 = &lnwire.OpenChannel{
-			PendingChannelID: [32]byte{1},
-		}
-		chan2 = &lnwire.OpenChannel{
-			PendingChannelID: [32]byte{2},
-		}
-		chan3 = &lnwire.OpenChannel{
-			PendingChannelID: [32]byte{3},
-		}
+		chan1 = [32]byte{1}
+		chan2 = [32]byte{2}
+		chan3 = [32]byte{3}
+		chan4 = [32]byte{4}
+
+		req1 = newChannelAcceptRequest(t, &lnwire.OpenChannel{
+			PendingChannelID: chan1,
+		})
+		req2 = newChannelAcceptRequest(t, &lnwire.OpenChannel{
+			PendingChannelID: chan2,
+		})
+		req3 = newChannelAcceptRequest(t, &lnwire.OpenChannel{
+			PendingChannelID: chan3,
+		})
+		req4 = newChannelAcceptRequest(t, &lnwire.OpenChannel2{
+			PendingChannelID: chan4,
+		})
 
 		customError = errors.New("go away")
 
 		// Queries is a map of the channel IDs we will query Accept
 		// with, and the set of outcomes we expect.
-		queries = map[*lnwire.OpenChannel]*ChannelAcceptResponse{
-			chan1: NewChannelAcceptResponse(
-				true, nil, testUpfront, 1, 2, 3, 4, 5, 6,
+		queries = map[*ChannelAcceptRequest]*ChannelAcceptResponse{
+			req1: NewChannelAcceptResponse(
+				true, nil, testUpfront, 1, 2, 3, 0, 4, 5, 6,
 				false,
 			),
-			chan2: NewChannelAcceptResponse(
-				false, errChannelRejected, nil, 0, 0, 0,
-				0, 0, 0, false,
+			req2: NewChannelAcceptResponse(
+				false, errChannelRejected, nil, 0, 0, 0, 0, 0,
+				0, 0, false,
 			),
-			chan3: NewChannelAcceptResponse(
-				false, customError, nil, 0, 0, 0, 0, 0, 0,
+			req3: NewChannelAcceptResponse(
+				false, customError, nil, 0, 0, 0, 0, 0, 0, 0,
+				false,
+			),
+			req4: NewChannelAcceptResponse(
+				true, nil, testUpfront, 1, 2, 3, 0, 4, 5, 6,
 				false,
 			),
 		}
@@ -199,8 +234,8 @@ func TestMultipleAcceptClients(t *testing.T) {
 		// Responses is a mocked set of responses from the remote
 		// channel acceptor.
 		responses = map[[32]byte]*lnrpc.ChannelAcceptResponse{
-			chan1.PendingChannelID: {
-				PendingChanId:   chan1.PendingChannelID[:],
+			chan1: {
+				PendingChanId:   chan1[:],
 				Accept:          true,
 				UpfrontShutdown: testAddr,
 				CsvDelay:        1,
@@ -210,14 +245,25 @@ func TestMultipleAcceptClients(t *testing.T) {
 				InFlightMaxMsat: 5,
 				MinHtlcIn:       6,
 			},
-			chan2.PendingChannelID: {
-				PendingChanId: chan2.PendingChannelID[:],
+			chan2: {
+				PendingChanId: chan2[:],
 				Accept:        false,
 			},
-			chan3.PendingChannelID: {
-				PendingChanId: chan3.PendingChannelID[:],
+			chan3: {
+				PendingChanId: chan3[:],
 				Accept:        false,
 				Error:         customError.Error(),
+			},
+			chan4: {
+				PendingChanId:   chan4[:],
+				Accept:          true,
+				UpfrontShutdown: testAddr,
+				CsvDelay:        1,
+				MaxHtlcCount:    2,
+				MinAcceptDepth:  3,
+				ReserveSat:      4,
+				InFlightMaxMsat: 5,
+				MinHtlcIn:       6,
 			},
 		}
 	)
@@ -240,14 +286,16 @@ func TestInvalidResponse(t *testing.T) {
 	var (
 		chan1 = [32]byte{1}
 
+		req1 = newChannelAcceptRequest(t, &lnwire.OpenChannel{
+			PendingChannelID: chan1,
+		})
+
 		// We make a single query, and expect it to fail with our
 		// generic error because our response is invalid.
-		queries = map[*lnwire.OpenChannel]*ChannelAcceptResponse{
-			{
-				PendingChannelID: chan1,
-			}: NewChannelAcceptResponse(
-				false, errChannelRejected, nil, 0, 0,
-				0, 0, 0, 0, false,
+		queries = map[*ChannelAcceptRequest]*ChannelAcceptResponse{
+			req1: NewChannelAcceptResponse(
+				false, errChannelRejected, nil, 0, 0, 0, 0, 0,
+				0, 0, false,
 			),
 		}
 
@@ -277,20 +325,22 @@ func TestInvalidResponse(t *testing.T) {
 // acceptor against the dust limit that was proposed by the remote peer.
 func TestInvalidReserve(t *testing.T) {
 	var (
-		chan1 = [32]byte{1}
-
 		dustLimit = btcutil.Amount(1000)
 		reserve   = dustLimit / 2
 
+		chan1 = [32]byte{1}
+
+		req1 = newChannelAcceptRequest(t, &lnwire.OpenChannel{
+			PendingChannelID: chan1,
+			DustLimit:        dustLimit,
+		})
+
 		// We make a single query, and expect it to fail with our
 		// generic error because channel reserve is too low.
-		queries = map[*lnwire.OpenChannel]*ChannelAcceptResponse{
-			{
-				PendingChannelID: chan1,
-				DustLimit:        dustLimit,
-			}: NewChannelAcceptResponse(
-				false, errChannelRejected, nil, 0, 0,
-				0, reserve, 0, 0, false,
+		queries = map[*ChannelAcceptRequest]*ChannelAcceptResponse{
+			req1: NewChannelAcceptResponse(
+				false, errChannelRejected, nil, 0, 0, 0, 0,
+				reserve, 0, 0, false,
 			),
 		}
 

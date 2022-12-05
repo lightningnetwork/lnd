@@ -271,6 +271,8 @@ func makeAllMessages(t testing.TB, r *rand.Rand) []lnwire.Message {
 	msgAll = append(msgAll, newMsgFundingLocked(t, r))
 	msgAll = append(msgAll, newMsgShutdown(t, r))
 	msgAll = append(msgAll, newMsgClosingSigned(t, r))
+	msgAll = append(msgAll, newMsgOpenChannel2(t, r))
+	msgAll = append(msgAll, newMsgAcceptChannel2(t, r))
 	msgAll = append(msgAll, newMsgUpdateAddHTLC(t, r))
 	msgAll = append(msgAll, newMsgUpdateFulfillHTLC(t, r))
 	msgAll = append(msgAll, newMsgUpdateFailHTLC(t, r))
@@ -483,6 +485,64 @@ func newMsgClosingSigned(t testing.TB, r *rand.Rand) *lnwire.ClosingSigned {
 
 	_, err := r.Read(msg.ChannelID[:])
 	require.NoError(t, err, "unable to generate chan id")
+
+	return msg
+}
+
+func newMsgOpenChannel2(tb testing.TB, r *rand.Rand) *lnwire.OpenChannel2 {
+	tb.Helper()
+
+	msg := &lnwire.OpenChannel2{
+		FundingFeePerKWeight: uint32(r.Int31()),
+		CommitFeePerKWeight:  uint32(r.Int31()),
+		FundingAmount:        btcutil.Amount(r.Int63()),
+		DustLimit:            btcutil.Amount(r.Int63()),
+		MaxValueInFlight:     lnwire.MilliSatoshi(r.Int63()),
+		HtlcMinimum:          lnwire.MilliSatoshi(r.Int63()),
+		CsvDelay:             uint16(r.Intn(1 << 16)),
+		MaxAcceptedHTLCs:     uint16(r.Intn(1 << 16)),
+		LockTime:             uint32(r.Int31()),
+		FundingKey:           randPubKey(tb),
+		RevocationPoint:      randPubKey(tb),
+		PaymentPoint:         randPubKey(tb),
+		DelayedPaymentPoint:  randPubKey(tb),
+		HtlcPoint:            randPubKey(tb),
+		FirstCommitmentPoint: randPubKey(tb),
+		ChannelFlags:         lnwire.FundingFlag(uint8(r.Intn(1 << 8))),
+		ExtraData:            createExtraData(tb, r),
+	}
+
+	_, err := r.Read(msg.ChainHash[:])
+	require.NoError(tb, err, "unable to read bytes for ChainHash")
+
+	_, err = r.Read(msg.PendingChannelID[:])
+	require.NoError(tb, err, "unable to read bytes for PendingChannelID")
+
+	return msg
+}
+
+func newMsgAcceptChannel2(tb testing.TB, r *rand.Rand) *lnwire.AcceptChannel2 {
+	tb.Helper()
+
+	msg := &lnwire.AcceptChannel2{
+		FundingAmount:         btcutil.Amount(r.Int63()),
+		DustLimit:             btcutil.Amount(r.Int63()),
+		MaxValueInFlight:      lnwire.MilliSatoshi(r.Int63()),
+		HtlcMinimum:           lnwire.MilliSatoshi(r.Int63()),
+		MinAcceptDepth:        uint32(r.Int31()),
+		CsvDelay:              uint16(r.Intn(1 << 16)),
+		MaxAcceptedHTLCs:      uint16(r.Intn(1 << 16)),
+		FundingKey:            randPubKey(tb),
+		RevocationPoint:       randPubKey(tb),
+		PaymentPoint:          randPubKey(tb),
+		DelayedPaymentPoint:   randPubKey(tb),
+		HtlcPoint:             randPubKey(tb),
+		FirstCommitmentPoint:  randPubKey(tb),
+		UpfrontShutdownScript: randDeliveryAddress(tb, r),
+		ExtraData:             createExtraData(tb, r),
+	}
+	_, err := r.Read(msg.PendingChannelID[:])
+	require.NoError(tb, err, "unable to generate pending chan id")
 
 	return msg
 }

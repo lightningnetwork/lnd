@@ -107,7 +107,7 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
 	// Create a rejection response which we can use for the cases where we
 	// reject the channel.
 	rejectChannel := NewChannelAcceptResponse(
-		false, errChannelRejected, nil, 0, 0, 0, 0, 0, 0, false,
+		false, errChannelRejected, nil, 0, 0, 0, 0, 0, 0, 0, false,
 	)
 
 	// Send the request to the newRequests channel.
@@ -255,7 +255,8 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 		case newRequest := <-r.requests:
 
 			req := newRequest.request
-			pendingChanID := req.OpenChanMsg.PendingChannelID
+			pendingChanID := req.PendingChannelID()
+			chainHash := req.ChainHash()
 
 			// Map the channel commitment type to its RPC
 			// counterpart. Also determine whether the zero-conf or
@@ -266,9 +267,9 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 				wantsScidAlias bool
 			)
 
-			if req.OpenChanMsg.ChannelType != nil {
+			if req.ChannelType() != nil {
 				channelFeatures := lnwire.RawFeatureVector(
-					*req.OpenChanMsg.ChannelType,
+					*req.ChannelType(),
 				)
 				switch {
 				case channelFeatures.OnlyContains(
@@ -342,7 +343,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 				default:
 					log.Warnf("Unhandled commitment type "+
 						"in channel acceptor request: %v",
-						req.OpenChanMsg.ChannelType)
+						req.ChannelType())
 				}
 
 				if channelFeatures.IsSet(
@@ -362,24 +363,34 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 
 			acceptRequests[pendingChanID] = newRequest
 
-			// A ChannelAcceptRequest has been received, send it to the client.
+			// A ChannelAcceptRequest has been received, send it to
+			// the client.
+			//
+			// TODO(morehouse): Also send locktime and funding fee
+			// rate for OpenChannel2.
 			chanAcceptReq := &lnrpc.ChannelAcceptRequest{
-				NodePubkey:       req.Node.SerializeCompressed(),
-				ChainHash:        req.OpenChanMsg.ChainHash[:],
-				PendingChanId:    req.OpenChanMsg.PendingChannelID[:],
-				FundingAmt:       uint64(req.OpenChanMsg.FundingAmount),
-				PushAmt:          uint64(req.OpenChanMsg.PushAmount),
-				DustLimit:        uint64(req.OpenChanMsg.DustLimit),
-				MaxValueInFlight: uint64(req.OpenChanMsg.MaxValueInFlight),
-				ChannelReserve:   uint64(req.OpenChanMsg.ChannelReserve),
-				MinHtlc:          uint64(req.OpenChanMsg.HtlcMinimum),
-				FeePerKw:         uint64(req.OpenChanMsg.FeePerKiloWeight),
-				CsvDelay:         uint32(req.OpenChanMsg.CsvDelay),
-				MaxAcceptedHtlcs: uint32(req.OpenChanMsg.MaxAcceptedHTLCs),
-				ChannelFlags:     uint32(req.OpenChanMsg.ChannelFlags),
-				CommitmentType:   commitmentType,
-				WantsZeroConf:    wantsZeroConf,
-				WantsScidAlias:   wantsScidAlias,
+				NodePubkey:    req.Node.SerializeCompressed(),
+				ChainHash:     chainHash[:],
+				PendingChanId: pendingChanID[:],
+				FundingAmt:    uint64(req.FundingAmount()),
+				PushAmt:       uint64(req.PushAmount()),
+				DustLimit:     uint64(req.DustLimit()),
+				MaxValueInFlight: uint64(
+					req.MaxValueInFlight(),
+				),
+				ChannelReserve: uint64(req.ChannelReserve()),
+				MinHtlc:        uint64(req.HtlcMinimum()),
+				FeePerKw: uint64(
+					req.FeePerKiloWeight(),
+				),
+				CsvDelay: uint32(req.CsvDelay()),
+				MaxAcceptedHtlcs: uint32(
+					req.MaxAcceptedHTLCs(),
+				),
+				ChannelFlags:   uint32(req.ChannelFlags()),
+				CommitmentType: commitmentType,
+				WantsZeroConf:  wantsZeroConf,
+				WantsScidAlias: wantsScidAlias,
 			}
 
 			if err := r.send(chanAcceptReq); err != nil {
@@ -404,7 +415,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 			// valid, we log our error and proceed to deliver the
 			// rejection.
 			accept, acceptErr, shutdown, err := r.validateAcceptorResponse(
-				requestInfo.request.OpenChanMsg.DustLimit, resp,
+				requestInfo.request.DustLimit(), resp,
 			)
 			if err != nil {
 				log.Errorf("Invalid acceptor response: %v", err)
@@ -415,6 +426,15 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 				uint16(resp.CsvDelay),
 				uint16(resp.MaxHtlcCount),
 				uint16(resp.MinAcceptDepth),
+
+				// For now we always return a funding amount of
+				// 0, since the RPC acceptor can't set a funding
+				// amount yet.
+				//
+				// TODO(morehouse): Add FundingAmount to
+				// lnrpc.ChannelAcceptResponse and use it here.
+				0,
+
 				btcutil.Amount(resp.ReserveSat),
 				lnwire.MilliSatoshi(resp.InFlightMaxMsat),
 				lnwire.MilliSatoshi(resp.MinHtlcIn),

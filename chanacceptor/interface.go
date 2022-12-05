@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -16,16 +17,136 @@ var (
 )
 
 // ChannelAcceptRequest is a struct containing the requesting node's public key
-// along with the lnwire.OpenChannel message that they sent when requesting an
-// inbound channel. This information is provided to each acceptor so that they
-// can each leverage their own decision-making with this information.
+// along with the lnwire.OpenChannel or lnwire.OpenChannel2 message that they
+// sent when requesting an inbound channel. This information is provided to each
+// acceptor so that they can each leverage their own decision-making with this
+// information.
 type ChannelAcceptRequest struct {
 	// Node is the public key of the node requesting to open a channel.
 	Node *btcec.PublicKey
 
 	// OpenChanMsg is the actual OpenChannel protocol message that the peer
-	// sent to us.
+	// sent to us. Must be nil if OpenChan2Msg is set.
 	OpenChanMsg *lnwire.OpenChannel
+
+	// OpenChan2Msg is the actual OpenChannel2 protocol message that the
+	// peer sent to us. Must be nil if OpenChanMsg is set.
+	OpenChan2Msg *lnwire.OpenChannel2
+}
+
+func (c *ChannelAcceptRequest) PendingChannelID() [32]byte {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.PendingChannelID
+	}
+
+	return c.OpenChan2Msg.PendingChannelID
+}
+
+func (c *ChannelAcceptRequest) ChannelType() *lnwire.ChannelType {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.ChannelType
+	}
+
+	return c.OpenChan2Msg.ChannelType
+}
+
+func (c *ChannelAcceptRequest) ChainHash() chainhash.Hash {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.ChainHash
+	}
+
+	return c.OpenChan2Msg.ChainHash
+}
+
+func (c *ChannelAcceptRequest) FundingAmount() btcutil.Amount {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.FundingAmount
+	}
+
+	return c.OpenChan2Msg.FundingAmount
+}
+
+func (c *ChannelAcceptRequest) PushAmount() lnwire.MilliSatoshi {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.PushAmount
+	}
+
+	return 0
+}
+
+func (c *ChannelAcceptRequest) DustLimit() btcutil.Amount {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.DustLimit
+	}
+
+	return c.OpenChan2Msg.DustLimit
+}
+
+func (c *ChannelAcceptRequest) MaxValueInFlight() lnwire.MilliSatoshi {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.MaxValueInFlight
+	}
+
+	return c.OpenChan2Msg.MaxValueInFlight
+}
+
+func (c *ChannelAcceptRequest) ChannelReserve() btcutil.Amount {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.ChannelReserve
+	}
+
+	// The dual funding protocol fixes the channel reserve at 1% of the
+	// total funding amount contributed by both parties. We don't have the
+	// local contribution amount yet, so we return the channel reserve
+	// required for the remote amount only.
+	var chanReserveDivisor btcutil.Amount = 100
+
+	return c.OpenChan2Msg.FundingAmount / chanReserveDivisor
+}
+
+func (c *ChannelAcceptRequest) HtlcMinimum() lnwire.MilliSatoshi {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.HtlcMinimum
+	}
+
+	return c.OpenChan2Msg.HtlcMinimum
+}
+
+func (c *ChannelAcceptRequest) FeePerKiloWeight() uint32 {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.FeePerKiloWeight
+	}
+
+	// OpenChannel2 has a separate fee rate for the funding and commitment
+	// transactions. The commitment fee rate is analogous to OpenChannel's
+	// only fee rate, so we return it here.
+	//
+	// TODO(morehouse): Add the funding fee rate to the RPC API.
+	return c.OpenChan2Msg.CommitFeePerKWeight
+}
+
+func (c *ChannelAcceptRequest) CsvDelay() uint16 {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.CsvDelay
+	}
+
+	return c.OpenChan2Msg.CsvDelay
+}
+
+func (c *ChannelAcceptRequest) MaxAcceptedHTLCs() uint16 {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.MaxAcceptedHTLCs
+	}
+
+	return c.OpenChan2Msg.MaxAcceptedHTLCs
+}
+
+func (c *ChannelAcceptRequest) ChannelFlags() lnwire.FundingFlag {
+	if c.OpenChanMsg != nil {
+		return c.OpenChanMsg.ChannelFlags
+	}
+
+	return c.OpenChan2Msg.ChannelFlags
 }
 
 // ChannelAcceptResponse is a struct containing the response to a request to
@@ -37,6 +158,11 @@ type ChannelAcceptResponse struct {
 	// channel was accepted, this value will be nil.
 	ChanAcceptError
 
+	// FundingAmount is the number of satoshis we will contribute to the
+	// channel. This is only used when responding to an OpenChannel2
+	// message.
+	FundingAmount btcutil.Amount
+
 	// UpfrontShutdown is the address that we will set as our upfront
 	// shutdown address.
 	UpfrontShutdown lnwire.DeliveryAddress
@@ -44,8 +170,9 @@ type ChannelAcceptResponse struct {
 	// CSVDelay is the csv delay we require for the remote peer.
 	CSVDelay uint16
 
-	// Reserve is the amount that require the remote peer hold in reserve
-	// on the channel.
+	// Reserve is the amount we require the remote peer to hold in reserve
+	// on the channel. This is only used when responding to an OpenChannel
+	// message.
 	Reserve btcutil.Amount
 
 	// InFlightTotal is the maximum amount that we allow the remote peer to
@@ -75,10 +202,11 @@ type ChannelAcceptResponse struct {
 // error.
 func NewChannelAcceptResponse(accept bool, acceptErr error,
 	upfrontShutdown lnwire.DeliveryAddress, csvDelay, htlcLimit,
-	minDepth uint16, reserve btcutil.Amount, inFlight,
+	minDepth uint16, fundingAmount, reserve btcutil.Amount, inFlight,
 	minHtlcIn lnwire.MilliSatoshi, zeroConf bool) *ChannelAcceptResponse {
 
 	resp := &ChannelAcceptResponse{
+		FundingAmount:   fundingAmount,
 		UpfrontShutdown: upfrontShutdown,
 		CSVDelay:        csvDelay,
 		Reserve:         reserve,

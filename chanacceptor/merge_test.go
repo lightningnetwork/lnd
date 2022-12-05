@@ -21,6 +21,7 @@ func TestMergeResponse(t *testing.T) {
 			HtlcLimit:       5,
 			MinHtlcIn:       6,
 			MinAcceptDepth:  7,
+			FundingAmount:   8,
 		}
 	)
 
@@ -67,6 +68,16 @@ func TestMergeResponse(t *testing.T) {
 				Reserve: 2,
 			},
 			err: fieldMismatchError(fieldReserve, 1, 2),
+		},
+		{
+			name: "different funding amount",
+			current: ChannelAcceptResponse{
+				FundingAmount: 1,
+			},
+			new: ChannelAcceptResponse{
+				FundingAmount: 2,
+			},
+			err: fieldMismatchError(fieldFundAmt, 1, 2),
 		},
 		{
 			name: "different in flight",
@@ -124,6 +135,7 @@ func TestMergeResponse(t *testing.T) {
 				HtlcLimit:       0,
 				MinHtlcIn:       5,
 				MinAcceptDepth:  0,
+				FundingAmount:   7,
 			},
 			new: ChannelAcceptResponse{
 				UpfrontShutdown: nil,
@@ -133,6 +145,7 @@ func TestMergeResponse(t *testing.T) {
 				HtlcLimit:       4,
 				MinHtlcIn:       0,
 				MinAcceptDepth:  6,
+				FundingAmount:   0,
 			},
 			merged: ChannelAcceptResponse{
 				UpfrontShutdown: lnwire.DeliveryAddress{1},
@@ -142,6 +155,7 @@ func TestMergeResponse(t *testing.T) {
 				HtlcLimit:       4,
 				MinHtlcIn:       5,
 				MinAcceptDepth:  6,
+				FundingAmount:   7,
 			},
 			err: nil,
 		},

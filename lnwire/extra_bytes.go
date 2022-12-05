@@ -97,7 +97,9 @@ func (e *ExtraOpaqueData) ExtractRecords(recordProducers ...tlv.RecordProducer) 
 		return nil, err
 	}
 
-	return tlvStream.DecodeWithParsedTypes(extraBytesReader)
+	// Since ExtraOpaqueData is provided by a potentially malicious peer,
+	// pass it into the P2P decoding variant.
+	return tlvStream.DecodeWithParsedTypesP2P(extraBytesReader)
 }
 
 // EncodeMessageExtraData encodes the given recordProducers into the given

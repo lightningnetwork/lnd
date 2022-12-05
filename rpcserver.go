@@ -5781,7 +5781,9 @@ func marshalExtraOpaqueData(data []byte) map[uint64][]byte {
 		return nil
 	}
 
-	parsedTypes, err := tlvStream.DecodeWithParsedTypes(r)
+	// Since ExtraOpaqueData is provided by a potentially malicious peer,
+	// pass it into the P2P decoding variant.
+	parsedTypes, err := tlvStream.DecodeWithParsedTypesP2P(r)
 	if err != nil || len(parsedTypes) == 0 {
 		return nil
 	}

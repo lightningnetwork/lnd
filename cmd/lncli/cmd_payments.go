@@ -1229,6 +1229,18 @@ var listPaymentsCommand = cli.Command{
 				"be counted; can take a long time on systems " +
 				"with many payments",
 		},
+		cli.Uint64Flag{
+			Name: "creation_date_start",
+			Usage: "timestamp in seconds, if set, filter " +
+				"payments with creation date greater than or " +
+				"equal to it",
+		},
+		cli.Uint64Flag{
+			Name: "creation_date_end",
+			Usage: "timestamp in seconds, if set, filter " +
+				"payments with creation date less than or " +
+				"equal to it",
+		},
 	},
 	Action: actionDecorator(listPayments),
 }
@@ -1244,6 +1256,8 @@ func listPayments(ctx *cli.Context) error {
 		MaxPayments:        uint64(ctx.Uint("max_payments")),
 		Reversed:           !ctx.Bool("paginate_forwards"),
 		CountTotalPayments: ctx.Bool("count_total_payments"),
+		CreationDateStart:  ctx.Uint64("creation_date_start"),
+		CreationDateEnd:    ctx.Uint64("creation_date_end"),
 	}
 
 	payments, err := client.ListPayments(ctxc, req)

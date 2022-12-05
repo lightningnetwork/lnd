@@ -234,6 +234,18 @@ var listInvoicesCommand = cli.Command{
 			Usage: "if set, invoices succeeding the " +
 				"index_offset will be returned",
 		},
+		cli.Uint64Flag{
+			Name: "creation_date_start",
+			Usage: "timestamp in seconds, if set, filter " +
+				"invoices with creation date greater than or " +
+				"equal to it",
+		},
+		cli.Uint64Flag{
+			Name: "creation_date_end",
+			Usage: "timestamp in seconds, if set, filter " +
+				"invoices with creation date less than or " +
+				"equal to it",
+		},
 	},
 	Action: actionDecorator(listInvoices),
 }
@@ -244,10 +256,12 @@ func listInvoices(ctx *cli.Context) error {
 	defer cleanUp()
 
 	req := &lnrpc.ListInvoiceRequest{
-		PendingOnly:    ctx.Bool("pending_only"),
-		IndexOffset:    ctx.Uint64("index_offset"),
-		NumMaxInvoices: ctx.Uint64("max_invoices"),
-		Reversed:       !ctx.Bool("paginate-forwards"),
+		PendingOnly:       ctx.Bool("pending_only"),
+		IndexOffset:       ctx.Uint64("index_offset"),
+		NumMaxInvoices:    ctx.Uint64("max_invoices"),
+		Reversed:          !ctx.Bool("paginate-forwards"),
+		CreationDateStart: ctx.Uint64("creation_date_start"),
+		CreationDateEnd:   ctx.Uint64("creation_date_end"),
 	}
 
 	invoices, err := client.ListInvoices(ctxc, req)

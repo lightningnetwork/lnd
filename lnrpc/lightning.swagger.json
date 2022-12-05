@@ -1719,6 +1719,22 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "creation_date_start",
+            "description": "If set, returns all invoices with a creation date greater than or euqal\nto it. Measured in seconds since the unix epoch.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "creation_date_end",
+            "description": "If set, returns all invoices with a creation date less than or euqal to\nit. Measured in seconds since the unix epoch.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
           }
         ],
         "tags": [
@@ -2127,6 +2143,22 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "creation_date_start",
+            "description": "If set, returns all invoices with a creation date greater than or euqal\nto it. Measured in seconds since the unix epoch.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "creation_date_end",
+            "description": "If set, returns all invoices with a creation date less than or euqal to\nit. Measured in seconds since the unix epoch.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
           }
         ],
         "tags": [
@@ -5003,18 +5035,17 @@
         },
         "settled": {
           "type": "boolean",
-          "description": "The field is deprecated. Use the state field instead (compare to SETTLED).",
-          "title": "Whether this invoice has been fulfilled"
+          "description": "Whether this invoice has been fulfilled.\n\nThe field is deprecated. Use the state field instead (compare to SETTLED)."
         },
         "creation_date": {
           "type": "string",
           "format": "int64",
-          "description": "When this invoice was created.\nNote: Output only, don't specify for creating an invoice."
+          "description": "When this invoice was created.\nMeasured in seconds since the unix epoch.\nNote: Output only, don't specify for creating an invoice."
         },
         "settle_date": {
           "type": "string",
           "format": "int64",
-          "description": "When this invoice was settled.\nNote: Output only, don't specify for creating an invoice."
+          "description": "When this invoice was settled.\nMeasured in seconds since the unix epoch.\nNote: Output only, don't specify for creating an invoice."
         },
         "payment_request": {
           "type": "string",

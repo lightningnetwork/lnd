@@ -152,6 +152,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   of using a comma separated list of
   values](https://github.com/lightningnetwork/lnd/pull/7207).
 
+* [Updated several tlv stream-decoding callsites to use tlv/v1.1.0 P2P variants
+  for untrusted input.](https://github.com/lightningnetwork/lnd/pull/7227)
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

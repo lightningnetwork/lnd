@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -49,9 +50,9 @@ type Config struct {
 	// used to lookup the existence of outputs within the UTXO set.
 	ChainIO BlockChainIO
 
-	// DefaultConstraints is the set of default constraints that will be
-	// used for any incoming or outgoing channel reservation requests.
-	DefaultConstraints channeldb.ChannelConstraints
+	// DefaultDustLimit is the default dust limit that will be used for any
+	// incoming or outgoing channel reservation requests.
+	DefaultDustLimit btcutil.Amount
 
 	// NetParams is the set of parameters that tells the wallet which chain
 	// it will be operating on.

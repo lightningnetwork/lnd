@@ -152,6 +152,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   of using a comma separated list of
   values](https://github.com/lightningnetwork/lnd/pull/7207).
 
+* [Fixed a validation bug in `channel_type`
+  negotiation](https://github.com/lightningnetwork/lnd/pull/7177).
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
@@ -211,6 +214,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 
 * [Fix loop and other temporary variables being accessed in
   goroutines](https://github.com/lightningnetwork/lnd/pull/7188).
+
+* [Simplify intial funding flow
+  logic](https://github.com/lightningnetwork/lnd/pull/7210).
  
 ## Watchtowers
 

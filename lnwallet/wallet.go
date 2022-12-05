@@ -27,7 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/shachain"
 )
 
 const (
@@ -165,6 +164,13 @@ type InitFundingReserveMsg struct {
 	// negotiated.
 	ScidAliasFeature bool
 
+	// ScidAlias is the initial alias to use for this zero-conf channel.
+	ScidAlias lnwire.ShortChannelID
+
+	// LocalShutdownScript is an optional address to which our balance of
+	// the channel should be paid on cooperative close.
+	LocalShutdownScript lnwire.DeliveryAddress
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//
@@ -191,17 +197,21 @@ type fundingReserveCancelMsg struct {
 }
 
 // addContributionMsg represents a message executing the second phase of the
-// channel reservation workflow. This message carries the counterparty's
-// "contribution" to the payment channel. In the case that this message is
-// processed without generating any errors, then channel reservation will then
-// be able to construct the funding tx, both commitment transactions, and
-// finally generate signatures for all our inputs to the funding transaction,
-// and for the remote node's version of the commitment transaction.
+// channel reservation workflow. This message carries the counterparty's inputs
+// and outputs contributed to the payment channel. In the case that this
+// message is processed without generating any errors, then channel reservation
+// will then be able to construct the funding tx, both commitment transactions,
+// and finally generate signatures for all our inputs to the funding
+// transaction, and for the remote node's version of the commitment transaction.
 type addContributionMsg struct {
 	pendingFundingID uint64
 
-	// TODO(roasbeef): Should also carry SPV proofs in we're in SPV mode
-	contribution *ChannelContribution
+	// inputs are the remote node's inputs to the funding transaction.
+	inputs []*wire.TxIn
+
+	// changeOutputs are the remote node's outputs to the funding
+	// transaction.
+	changeOutputs []*wire.TxOut
 
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
@@ -212,20 +222,6 @@ type addContributionMsg struct {
 // finalized transaction is now available.
 type continueContributionMsg struct {
 	pendingFundingID uint64
-
-	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
-	err chan error
-}
-
-// addSingleContributionMsg represents a message executing the second phase of
-// a single funder channel reservation workflow. This messages carries the
-// counterparty's "contribution" to the payment channel. As this message is
-// sent when on the responding side to a single funder workflow, no further
-// action apart from storing the provided contribution is carried out.
-type addSingleContributionMsg struct {
-	pendingFundingID uint64
-
-	contribution *ChannelContribution
 
 	// NOTE: In order to avoid deadlocks, this channel MUST be buffered.
 	err chan error
@@ -510,8 +506,6 @@ out:
 				l.handleFundingReserveRequest(msg)
 			case *fundingReserveCancelMsg:
 				l.handleFundingCancelRequest(msg)
-			case *addSingleContributionMsg:
-				l.handleSingleContribution(msg)
 			case *addContributionMsg:
 				l.handleContributionMsg(msg)
 			case *continueContributionMsg:
@@ -743,8 +737,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		enforceNewReservedValue = !isPsbtFunder
 	}
 
-	localFundingAmt := req.LocalFundingAmt
-	remoteFundingAmt := req.RemoteFundingAmt
+	actualLocalFundingAmt := req.LocalFundingAmt
 
 	var (
 		fundingIntent chanfunding.Intent
@@ -798,8 +791,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			return
 		}
 
-		localFundingAmt = fundingIntent.LocalFundingAmt()
-		remoteFundingAmt = fundingIntent.RemoteFundingAmt()
+		// The channel funder may have subtracted fees from our local
+		// funding amount.
+		actualLocalFundingAmt = fundingIntent.LocalFundingAmt()
 	}
 
 	// At this point there _has_ to be a funding intent, otherwise something
@@ -838,9 +832,9 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// intent. Note that for the PSBT intent type we don't yet have the
 	// funding tx ready, so this will always pass.  We'll do another check
 	// when the PSBT has been verified.
-	isPublic := req.Flags&lnwire.FFAnnounceChannel != 0
-	hasAnchors := req.CommitType.HasAnchors()
 	if enforceNewReservedValue {
+		isPublic := req.Flags&lnwire.FFAnnounceChannel != 0
+		hasAnchors := req.CommitType.HasAnchors()
 		err = l.enforceNewReservedValue(fundingIntent, isPublic, hasAnchors)
 		if err != nil {
 			fundingIntent.Cancel()
@@ -851,14 +845,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		}
 	}
 
-	// The total channel capacity will be the size of the funding output we
-	// created plus the remote contribution.
-	capacity := localFundingAmt + remoteFundingAmt
-
 	id := atomic.AddUint64(&l.nextFundingID, 1)
 	reservation, err := NewChannelReservation(
-		capacity, localFundingAmt, l, id, l.Cfg.NetParams.GenesisHash,
-		thawHeight, req,
+		actualLocalFundingAmt, req.RemoteFundingAmt, l, id,
+		l.Cfg.NetParams.GenesisHash, thawHeight, req,
 	)
 	if err != nil {
 		fundingIntent.Cancel()
@@ -868,9 +858,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		return
 	}
 
-	err = l.initOurContribution(
-		reservation, fundingIntent, req.NodeAddr, req.NodeID, keyRing,
-	)
+	err = l.initOurContribution(reservation, fundingIntent, keyRing)
 	if err != nil {
 		fundingIntent.Cancel()
 
@@ -1128,33 +1116,27 @@ func (l *LightningWallet) CheckReservedValueTx(req CheckReservedValueTxReq) (
 // and change reserved for the channel, and derives the keys to use for this
 // channel.
 func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
-	fundingIntent chanfunding.Intent, nodeAddr net.Addr,
-	nodeID *btcec.PublicKey, keyRing keychain.KeyRing) error {
+	fundingIntent chanfunding.Intent, keyRing keychain.KeyRing) error {
 
 	// Grab the mutex on the ChannelReservation to ensure thread-safety
 	reservation.Lock()
 	defer reservation.Unlock()
 
-	// At this point, if we have a funding intent, we'll use it to populate
-	// the existing reservation state entries for our coin selection.
-	if fundingIntent != nil {
-		if intent, ok := fundingIntent.(*chanfunding.FullIntent); ok {
-			for _, coin := range intent.InputCoins {
-				reservation.ourContribution.Inputs = append(
-					reservation.ourContribution.Inputs,
-					&wire.TxIn{
-						PreviousOutPoint: coin.OutPoint,
-					},
-				)
-			}
-			reservation.ourContribution.ChangeOutputs = intent.ChangeOutputs
+	// If we have a full funding intent, we'll use it to populate the
+	// existing reservation state entries for our coin selection.
+	if intent, ok := fundingIntent.(*chanfunding.FullIntent); ok {
+		for _, coin := range intent.InputCoins {
+			reservation.ourContribution.Inputs = append(
+				reservation.ourContribution.Inputs,
+				&wire.TxIn{
+					PreviousOutPoint: coin.OutPoint,
+				},
+			)
 		}
-
-		reservation.fundingIntent = fundingIntent
+		reservation.ourContribution.ChangeOutputs = intent.ChangeOutputs
 	}
 
-	reservation.nodeAddr = nodeAddr
-	reservation.partialState.IdentityPub = nodeID
+	reservation.fundingIntent = fundingIntent
 
 	var err error
 	reservation.ourContribution.MultiSigKey, err = keyRing.DeriveNextKey(
@@ -1204,7 +1186,6 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	)
 
 	reservation.partialState.RevocationProducer = producer
-	reservation.ourContribution.ChannelConstraints = l.Cfg.DefaultConstraints
 
 	return nil
 }
@@ -1325,27 +1306,14 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	pendingReservation.Lock()
 	defer pendingReservation.Unlock()
 
-	// If UpfrontShutdownScript is set, validate that it is a valid script.
-	shutdown := req.contribution.UpfrontShutdown
-	if len(shutdown) > 0 {
-		// Validate the shutdown script.
-		if !ValidateUpfrontShutdown(shutdown, &l.Cfg.NetParams) {
-			req.err <- fmt.Errorf("invalid shutdown script")
-			return
-		}
-	}
-
 	// Some temporary variables to cut down on the resolution verbosity.
-	pendingReservation.theirContribution = req.contribution
-	theirContribution := req.contribution
 	ourContribution := pendingReservation.ourContribution
+	theirContribution := pendingReservation.theirContribution
 
-	// Perform bounds-checking on both ChannelReserve and DustLimit
-	// parameters.
-	if !pendingReservation.validateReserveBounds() {
-		req.err <- fmt.Errorf("invalid reserve and dust bounds")
-		return
-	}
+	// Only record the inputs and outputs for their contribution, since all
+	// other contribution fields are handled in ProcessChannelParams.
+	theirContribution.Inputs = req.inputs
+	theirContribution.ChangeOutputs = req.changeOutputs
 
 	var (
 		chanPoint *wire.OutPoint
@@ -1522,17 +1490,7 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		}
 	}
 
-	// Initialize an empty sha-chain for them, tracking the current pending
-	// revocation hash (we don't yet know the preimage so we can't add it
-	// to the chain).
-	s := shachain.NewRevocationStore()
-	pendingReservation.partialState.RevocationStore = s
-
-	// Store their current commitment point. We'll need this after the
-	// first state transition in order to verify the authenticity of the
-	// revocation.
 	chanState := pendingReservation.partialState
-	chanState.RemoteCurrentRevocation = theirContribution.FirstCommitmentPoint
 
 	// Create the txin to our commitment transaction; required to construct
 	// the commitment transactions.
@@ -1634,62 +1592,6 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 		return
 	}
 	pendingReservation.ourCommitmentSig = sigTheirCommit
-
-	req.err <- nil
-}
-
-// handleSingleContribution is called as the second step to a single funder
-// workflow to which we are the responder. It simply saves the remote peer's
-// contribution to the channel, as solely the remote peer will contribute any
-// funds to the channel.
-func (l *LightningWallet) handleSingleContribution(req *addSingleContributionMsg) {
-	l.limboMtx.Lock()
-	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
-	l.limboMtx.Unlock()
-	if !ok {
-		req.err <- fmt.Errorf("attempted to update non-existent funding state")
-		return
-	}
-
-	// Grab the mutex on the channelReservation to ensure thread-safety.
-	pendingReservation.Lock()
-	defer pendingReservation.Unlock()
-
-	// Validate that the remote's UpfrontShutdownScript is a valid script
-	// if it's set.
-	shutdown := req.contribution.UpfrontShutdown
-	if len(shutdown) > 0 {
-		// Validate the shutdown script.
-		if !ValidateUpfrontShutdown(shutdown, &l.Cfg.NetParams) {
-			req.err <- fmt.Errorf("invalid shutdown script")
-			return
-		}
-	}
-
-	// Simply record the counterparty's contribution into the pending
-	// reservation data as they'll be solely funding the channel entirely.
-	pendingReservation.theirContribution = req.contribution
-	theirContribution := pendingReservation.theirContribution
-	chanState := pendingReservation.partialState
-
-	// Perform bounds checking on both ChannelReserve and DustLimit
-	// parameters. The ChannelReserve may have been changed by the
-	// ChannelAcceptor RPC, so this is necessary.
-	if !pendingReservation.validateReserveBounds() {
-		req.err <- fmt.Errorf("invalid reserve and dust bounds")
-		return
-	}
-
-	// Initialize an empty sha-chain for them, tracking the current pending
-	// revocation hash (we don't yet know the preimage so we can't add it
-	// to the chain).
-	remotePreimageStore := shachain.NewRevocationStore()
-	chanState.RevocationStore = remotePreimageStore
-
-	// Now that we've received their first commitment point, we'll store it
-	// within the channel state so we can sync it to disk once the funding
-	// process is complete.
-	chanState.RemoteCurrentRevocation = theirContribution.FirstCommitmentPoint
 
 	req.err <- nil
 }
@@ -1872,13 +1774,6 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// rebroadcast on startup in case we fail.
 	res.partialState.FundingTxn = fundingTx
 
-	// Set optional upfront shutdown scripts on the channel state so that they
-	// are persisted. These values may be nil.
-	res.partialState.LocalShutdownScript =
-		res.ourContribution.UpfrontShutdown
-	res.partialState.RemoteShutdownScript =
-		res.theirContribution.UpfrontShutdown
-
 	res.partialState.RevocationKeyLocator = res.nextRevocationKeyLoc
 
 	// Add the complete funding transaction to the DB, in its open bucket
@@ -2038,13 +1933,6 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		req.completeChan <- nil
 		return
 	}
-
-	// Set optional upfront shutdown scripts on the channel state so that they
-	// are persisted. These values may be nil.
-	chanState.LocalShutdownScript =
-		pendingReservation.ourContribution.UpfrontShutdown
-	chanState.RemoteShutdownScript =
-		pendingReservation.theirContribution.UpfrontShutdown
 
 	// Add the complete funding transaction to the DB, in it's open bucket
 	// which will be used for the lifetime of this channel.

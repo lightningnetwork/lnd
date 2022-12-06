@@ -128,16 +128,16 @@ var (
 	MaxFundingAmount = funding.MaxBtcFundingAmount
 )
 
-// errPeerAlreadyConnected is an error returned by the server when we're
+// ErrPeerAlreadyConnected is an error returned by the server when we're
 // commanded to connect to a peer, but they're already connected.
-type errPeerAlreadyConnected struct {
+type ErrPeerAlreadyConnected struct {
 	peer *peer.Brontide
 }
 
 // Error returns the human readable version of this error type.
 //
 // NOTE: Part of the error interface.
-func (e *errPeerAlreadyConnected) Error() string {
+func (e *ErrPeerAlreadyConnected) Error() string {
 	return fmt.Sprintf("already connected to peer: %v", e.peer)
 }
 
@@ -4546,7 +4546,7 @@ func (p *PeerConnManager) ConnectToPeer(addr *lnwire.NetAddress,
 	peer, err := p.findPeerByPubStr(targetPub)
 	if err == nil {
 		p.mu.Unlock()
-		return &errPeerAlreadyConnected{peer: peer}
+		return &ErrPeerAlreadyConnected{peer: peer}
 	}
 
 	// Peer was not found, continue to pursue connection with peer.

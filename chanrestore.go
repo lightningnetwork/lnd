@@ -330,7 +330,7 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 
 		// If we're already connected to this peer, then we don't
 		// consider this an error, so we'll exit here.
-		if _, ok := err.(*errPeerAlreadyConnected); ok {
+		if _, ok := err.(*ErrPeerAlreadyConnected); ok {
 			return nil
 
 		} else if err != nil {

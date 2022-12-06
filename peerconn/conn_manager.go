@@ -6,12 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	prand "math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	prand "math/rand"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/connmgr"
@@ -139,7 +138,7 @@ type PeerConnManagerConfig struct {
 	// regardless of the flag's value
 	StaggerInitialReconnect bool
 
-	//The timeout value for network connections.
+	// The timeout value for network connections.
 	ConnectionTimeout time.Duration
 
 	// Listeners is a list of addresses that's specified during the startup
@@ -253,12 +252,13 @@ func (p *PeerConnManager) Start() error {
 		RetryDuration:  connRetryDuration,
 		TargetOutbound: outboundNum,
 		Dial: noiseDial(
-			p.IdentityECDH, p.Config.Net, p.Config.ConnectionTimeout,
+			p.IdentityECDH, p.Config.Net,
+			p.Config.ConnectionTimeout,
 		),
 		OnConnection: p.OutboundPeerConnected,
 	})
 	if err != nil {
-		return fmt.Errorf("Creating conn manager failed: %w", err)
+		return fmt.Errorf("creating conn manager failed: %w", err)
 	}
 	p.connMgr = cmgr
 
@@ -267,8 +267,10 @@ func (p *PeerConnManager) Start() error {
 
 		p.connMgr.Start()
 
-		if err := p.PeerNotifier.Start(); err != nil {
+		err = p.PeerNotifier.Start()
+		if err != nil {
 			err = fmt.Errorf("PeerNotifier failed to start %w", err)
+			return
 		}
 
 		atomic.StoreInt32(&p.active, 1)
@@ -302,8 +304,10 @@ func (p *PeerConnManager) Stop() error {
 		close(p.quit)
 		p.wg.Wait()
 
-		if err := p.PeerNotifier.Stop(); err != nil {
+		err = p.PeerNotifier.Stop()
+		if err != nil {
 			err = fmt.Errorf("PeerNotifier failed to stop: %w", err)
+			return
 		}
 	})
 
@@ -351,6 +355,8 @@ func NewPeerConnManager(nodeKey keychain.SingleKeyECDH,
 
 // UpdatePersistentPeerAddrs subscribes to topology changes and stores
 // advertised addresses for any NodeAnnouncements from our persisted peers.
+//
+//nolint:lll
 func (p *PeerConnManager) UpdatePersistentPeerAddrs() error {
 	graphSub, err := p.Config.SubscribeTopology()
 	if err != nil {
@@ -524,9 +530,8 @@ func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 			//
 			// TODO(roasbeef): add reverse policy too?
 
-			if epochAttempts > 0 &&
-				atomic.LoadUint32(&epochErrors) >= epochAttempts {
-
+			numErr := atomic.LoadUint32(&epochErrors)
+			if epochAttempts > 0 && numErr >= epochAttempts {
 				sampleTicker.Stop()
 
 				backOff *= 2
@@ -534,9 +539,10 @@ func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 					backOff = bootstrapBackOffCeiling
 				}
 
-				connLog.Debugf("Backing off peer bootstrapper to "+
-					"%v", backOff)
+				connLog.Debugf("Backing off peer "+
+					"bootstrapper to %v", backOff)
 				sampleTicker = time.NewTicker(backOff)
+
 				continue
 			}
 
@@ -589,7 +595,9 @@ func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 						connLog.Errorf("Unable to "+
 							"connect to %v: %v",
 							a, err)
-						atomic.AddUint32(&epochErrors, 1)
+						atomic.AddUint32(
+							&epochErrors, 1,
+						)
 					case <-p.quit:
 					}
 				}(addr)
@@ -603,8 +611,8 @@ func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 // initialPeerBootstrap attempts to continuously connect to peers on startup
 // until the target number of peers has been reached. This ensures that nodes
 // receive an up to date network view as soon as possible.
-func (p *PeerConnManager) initialPeerBootstrap(ignore map[autopilot.NodeID]struct{},
-	numTargetPeers uint32,
+func (p *PeerConnManager) initialPeerBootstrap(
+	ignore map[autopilot.NodeID]struct{}, numTargetPeers uint32,
 	bootstrappers []discovery.NetworkPeerBootstrapper) {
 
 	connLog.Debugf("Init bootstrap with targetPeers=%v, bootstrappers=%v, "+
@@ -761,7 +769,8 @@ func (p *PeerConnManager) EstablishPersistentConnections() error {
 
 		// If the remote party has announced the channel to us, but we
 		// haven't yet, then we won't have a policy. However, we don't
-		// need this to connect to the peer, so we'll log it and move on.
+		// need this to connect to the peer, so we'll log it and move
+		// on.
 		if policy == nil {
 			connLog.Warnf("No channel policy found for "+
 				"ChannelPoint(%v): ", chanInfo.ChannelPoint)
@@ -809,7 +818,8 @@ func (p *PeerConnManager) EstablishPersistentConnections() error {
 				// addresses if Tor outbound support is enabled.
 				case *tor.OnionAddr:
 					if p.Config.TorActive {
-						addrSet[lnAddress.String()] = lnAddress
+						addrSet[lnAddress.String()] =
+							lnAddress
 					}
 				}
 			}
@@ -830,6 +840,7 @@ func (p *PeerConnManager) EstablishPersistentConnections() error {
 		}
 
 		nodeAddrsMap[pubStr] = n
+
 		return nil
 	})
 	if err != nil && !errors.Is(err, channeldb.ErrGraphNoEdgesFound) {
@@ -969,6 +980,9 @@ func (p *PeerConnManager) BroadcastMessage(skips map[route.Vertex]struct{},
 			defer p.wg.Done()
 			defer wg.Done()
 
+			//nolint: errcheck
+			//
+			// TODO(yy): check the error returned?
 			peer.SendMessageLazy(false, msgs...)
 		}(sPeer)
 	}
@@ -1011,6 +1025,7 @@ func (p *PeerConnManager) NotifyWhenOnline(peerKey [33]byte,
 				p.peerConnectedListeners[pubStr], peerChan,
 			)
 			p.mu.Unlock()
+
 			return
 		}
 
@@ -1095,7 +1110,9 @@ func (p *PeerConnManager) FindPeerByPubStr(
 
 // findPeerByPubStr is an internal method that retrieves the specified peer from
 // the server's internal state using.
-func (p *PeerConnManager) findPeerByPubStr(pubStr string) (*peer.Brontide, error) {
+func (p *PeerConnManager) findPeerByPubStr(
+	pubStr string) (*peer.Brontide, error) {
+
 	peer, ok := p.peersByPub[pubStr]
 	if !ok {
 		return nil, ErrPeerNotConnected
@@ -1198,6 +1215,7 @@ func (p *PeerConnManager) InboundPeerConnected(conn net.Conn) {
 			p, conn.LocalAddr(), conn.RemoteAddr())
 
 		conn.Close()
+
 		return
 	}
 
@@ -1208,6 +1226,7 @@ func (p *PeerConnManager) InboundPeerConnected(conn net.Conn) {
 		connLog.Debugf("Ignoring connection from %v, peer %v already "+
 			"scheduled", conn.RemoteAddr(), p)
 		conn.Close()
+
 		return
 	}
 
@@ -1240,6 +1259,7 @@ func (p *PeerConnManager) InboundPeerConnected(conn net.Conn) {
 				"peer %v, but already have outbound "+
 				"connection, dropping conn", connectedPeer)
 			conn.Close()
+
 			return
 		}
 
@@ -1297,12 +1317,14 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 			p.connMgr.Remove(connReq.ID())
 		}
 		conn.Close()
+
 		return
 	}
 	if _, ok := p.persistentConnReqs[pubStr]; !ok && connReq != nil {
 		connLog.Debugf("Ignoring canceled outbound connection")
 		p.connMgr.Remove(connReq.ID())
 		conn.Close()
+
 		return
 	}
 
@@ -1315,8 +1337,8 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 		if connReq != nil {
 			p.connMgr.Remove(connReq.ID())
 		}
-
 		conn.Close()
+
 		return
 	}
 
@@ -1363,6 +1385,7 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 				p.connMgr.Remove(connReq.ID())
 			}
 			conn.Close()
+
 			return
 		}
 
@@ -1386,7 +1409,7 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 // UnassignedConnID is the default connection ID that a request can have before
 // it actually is submitted to the connmgr.
 // TODO(conner): move into connmgr package, or better, add connmgr method for
-// generating atomic IDs
+// generating atomic IDs.
 const UnassignedConnID uint64 = 0
 
 // cancelConnReqs stops all persistent connection requests for a given pubkey.
@@ -1700,6 +1723,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 			delete(p.scheduledPeerConnection, pubStr)
 			connCallback()
 		}
+
 		return
 	}
 
@@ -1747,6 +1771,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 		connLog.Debugf("Ignoring reconnection attempt "+
 			"to inbound peer %v without "+
 			"advertised address", peer)
+
 		return
 
 	// We came across an error retrieving an advertised
@@ -2018,7 +2043,8 @@ func (p *PeerConnManager) ConnectToPeer(addr *lnwire.NetAddress,
 		// zero.
 		p.persistentPeers[targetPub] = true
 		if _, ok := p.persistentPeersBackoff[targetPub]; !ok {
-			p.persistentPeersBackoff[targetPub] = p.Config.MinBackoff
+			p.persistentPeersBackoff[targetPub] =
+				p.Config.MinBackoff
 		}
 		p.persistentConnReqs[targetPub] = append(
 			p.persistentConnReqs[targetPub], connReq,
@@ -2061,6 +2087,7 @@ func (p *PeerConnManager) connectToPeer(addr *lnwire.NetAddress,
 		case errChan <- err:
 		case <-p.quit:
 		}
+
 		return
 	}
 
@@ -2180,7 +2207,7 @@ func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 
 	var wiggle big.Int
 	wiggle.SetUint64(uint64(margin))
-	if _, err := rand.Int(rand.Reader, &wiggle); err != nil {
+	if _, err := rand.Int(rand.Reader, &wiggle); err != nil { //nolint:gosec
 		// Randomizing is not mission critical, so we'll just return the
 		// current backoff.
 		return nextBackoff
@@ -2222,12 +2249,13 @@ func (p *PeerConnManager) fetchNodeAdvertisedAddrs(
 // noiseDial is a factory function which creates a connmgr compliant dialing
 // function by returning a closure which includes the server's identity key.
 func noiseDial(idKey keychain.SingleKeyECDH,
-	netCfg tor.Net, timeout time.Duration) func(net.Addr) (net.Conn, error) {
+	netCfg tor.Net,
+	timeout time.Duration) func(net.Addr) (net.Conn, error) {
 
 	return func(a net.Addr) (net.Conn, error) {
 		lnAddr, ok := a.(*lnwire.NetAddress)
 		if !ok {
-			return nil, fmt.Errorf("Unexpected network address "+
+			return nil, fmt.Errorf("unexpected network address "+
 				"type %v", a)
 		}
 

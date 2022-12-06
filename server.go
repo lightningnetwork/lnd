@@ -2636,7 +2636,8 @@ func (s *server) createPartialPeerConfig() peer.Config {
 //
 // NOTE: This function is safe for concurrent access.
 func (s *server) OpenChannel(
-	req *funding.InitFundingMsg) (chan *lnrpc.OpenStatusUpdate, chan error) {
+	req *funding.InitFundingMsg) (chan *lnrpc.OpenStatusUpdate,
+	chan error) {
 
 	// The updateChan will have a buffer of 2, since we expect a ChanPending
 	// + a ChanOpen update, and we want to make sure the funding process is

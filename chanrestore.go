@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -331,9 +332,9 @@ func (s *server) ConnectPeer(nodePub *btcec.PublicKey, addrs []net.Addr) error {
 
 		// If we're already connected to this peer, then we don't
 		// consider this an error, so we'll exit here.
-		if _, ok := err.(*peerconn.ErrPeerAlreadyConnected); ok {
+		targetErr := &peerconn.ErrPeerAlreadyConnected{}
+		if errors.As(err, &targetErr) {
 			return nil
-
 		} else if err != nil {
 			// Otherwise, something else happened, so we'll try the
 			// next address.

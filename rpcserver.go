@@ -8053,7 +8053,7 @@ func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustom
 		peer, lnwire.MessageType(req.Type), req.Data,
 	)
 	switch {
-	case err == peerconn.ErrPeerNotConnected:
+	case errors.Is(err, peerconn.ErrPeerNotConnected):
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err

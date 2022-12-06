@@ -701,7 +701,7 @@ func (p *PeerConnManager) EstablishPersistentConnections() error {
 	// the reconnection port to the default peer port.
 	linkNodes, err := p.Config.PartialPeerConfig.ChannelDB.LinkNodeDB().
 		FetchAllLinkNodes()
-	if err != nil && err != channeldb.ErrLinkNodesNotFound {
+	if err != nil && !errors.Is(err, channeldb.ErrLinkNodesNotFound) {
 		return err
 	}
 	for _, node := range linkNodes {
@@ -802,7 +802,7 @@ func (p *PeerConnManager) EstablishPersistentConnections() error {
 		nodeAddrsMap[pubStr] = n
 		return nil
 	})
-	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
+	if err != nil && !errors.Is(err, channeldb.ErrGraphNoEdgesFound) {
 		return err
 	}
 
@@ -1182,14 +1182,14 @@ func (p *PeerConnManager) InboundPeerConnected(conn net.Conn) {
 	// default case as we expect these to be the only error values returned
 	// from findPeerByPubStr.
 	connectedPeer, err := p.findPeerByPubStr(pubStr)
-	switch err {
-	case ErrPeerNotConnected:
+	switch {
+	case errors.Is(err, ErrPeerNotConnected):
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 		p.cancelConnReqs(pubStr, nil)
 		p.peerConnected(conn, nil, true)
 
-	case nil:
+	case err == nil:
 		// We already have a connection with the incoming peer. If the
 		// connection we've already established should be kept and is
 		// not of the same type of the new connection (inbound), then
@@ -1296,13 +1296,13 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 	// as we expect these to be the only error values returned from
 	// findPeerByPubStr.
 	connectedPeer, err := p.findPeerByPubStr(pubStr)
-	switch err {
-	case ErrPeerNotConnected:
+	switch {
+	case errors.Is(err, ErrPeerNotConnected):
 		// We were unable to locate an existing connection with the
 		// target peer, proceed to connect.
 		p.peerConnected(conn, connReq, false)
 
-	case nil:
+	case err == nil:
 		// We already have a connection with the incoming peer. If the
 		// connection we've already established should be kept and is
 		// not of the same type of the new connection (outbound), then
@@ -1540,7 +1540,7 @@ func (p *PeerConnManager) peerInitializer(peer *peer.Brontide) {
 	// Start the peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
 	if err := peer.Start(); err != nil {
-		peer.Disconnect(fmt.Errorf("unable to start peer: %v", err))
+		peer.Disconnect(fmt.Errorf("unable to start peer: %w", err))
 		return
 	}
 
@@ -1676,7 +1676,7 @@ func (p *PeerConnManager) peerTerminationWatcher(peer *peer.Brontide,
 		addrs = advertisedAddrs
 
 	// The peer doesn't have an advertised address.
-	case err == errNoAdvertisedAddr:
+	case errors.Is(err, errNoAdvertisedAddr):
 		// If it is an outbound peer then we fall back to the existing
 		// peer address.
 		if !peer.Inbound() {
@@ -2031,7 +2031,7 @@ func (p *PeerConnManager) DisconnectPeer(pubKey *btcec.PublicKey) error {
 	// exit in an error as we can't disconnect from a peer that we're not
 	// currently connected to.
 	peer, err := p.findPeerByPubStr(pubStr)
-	if err == ErrPeerNotConnected {
+	if errors.Is(err, ErrPeerNotConnected) {
 		return fmt.Errorf("peer %x is not connected", pubBytes)
 	}
 

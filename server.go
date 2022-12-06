@@ -2565,6 +2565,8 @@ func (s *server) SubscribeCustomMessages() (*subscribe.Client, error) {
 // createPartialPeerConfig creates a partially filled peer config that will be
 // used by peer conn manager when making new peers.
 func (s *server) createPartialPeerConfig() peer.Config {
+	const feeFactor = 1000
+
 	return peer.Config{
 		OutgoingCltvRejectDelta: lncfg.DefaultOutgoingCltvRejectDelta,
 		ChanActiveTimeout:       s.cfg.ChanEnableTimeout,
@@ -2614,7 +2616,8 @@ func (s *server) createPartialPeerConfig() peer.Config {
 		MaxChannelFeeAllocation: s.cfg.MaxChannelFeeAllocation,
 		CoopCloseTargetConfs:    s.cfg.CoopCloseTargetConfs,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
-			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
+			s.cfg.MaxCommitFeeRateAnchors * feeFactor).
+			FeePerKWeight(),
 		ChannelCommitInterval:  s.cfg.ChannelCommitInterval,
 		PendingCommitInterval:  s.cfg.PendingCommitInterval,
 		ChannelCommitBatchSize: s.cfg.ChannelCommitBatchSize,
@@ -2665,9 +2668,10 @@ func (s *server) OpenChannel(
 
 	// If the fee rate wasn't specified, then we'll use a default
 	// confirmation target.
+	const defaultConfTarget = 6
 	if req.FundingFeePerKw == 0 {
 		estimator := s.cc.FeeEstimator
-		feeRate, err := estimator.EstimateFeePerKW(6)
+		feeRate, err := estimator.EstimateFeePerKW(defaultConfTarget)
 		if err != nil {
 			req.Err <- err
 			return req.Updates, req.Err

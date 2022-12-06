@@ -90,6 +90,7 @@ linters-settings:
     ignored-numbers:
       - '0666'
       - '0755'
+      - "2" # ignore two as we want to easily double things.
 
     # List of function patterns to exclude from analysis.
     # Values always ignored: `time.Date`

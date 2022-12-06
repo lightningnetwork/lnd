@@ -56,6 +56,42 @@ const (
 	// multiAddrConnectionStagger is the number of seconds to wait between
 	// attempting to a peer with each of its advertised addresses.
 	multiAddrConnectionStagger = 10 * time.Second
+
+	// bootstrapConnTimeout defines the timeout used when connecting to
+	// peers during bootstrapping.
+	//
+	// TODO: tune timeout? 3 seconds might be *too* aggressive but works
+	// well.
+	bootstrapConnTimeout = 3 * time.Second
+
+	// We'll use a 15 second backoff, and double the time every time an
+	// epoch fails up to a ceiling.
+	bootstrapBackoff = 15 * time.Second
+
+	// We'll start off by waiting 2 seconds between failed attempts, then
+	// double each time we fail until we hit the bootstrapBackOffCeiling.
+	bootstrapDelayTime = 2 * time.Second
+
+	// bootstrapBackOffCeiling is the maximum amount of time we'll wait
+	// between failed attempts to locate a set of bootstrap peers. We'll
+	// slowly double our query back off each time we encounter a failure.
+	bootstrapBackOffCeiling = time.Minute * 5
+
+	// As want to be more aggressive, we'll use a lower back off celling
+	// then the main peer bootstrap logic.
+	initalBootstrapBackoffCeiling = time.Minute
+
+	// Using 1/10 of our duration as a margin, compute a random offset to
+	// avoid the nodes entering connection cycles.
+	nextBackoffMargin = 10
+
+	// connRetryDuration is the duration to wait before retrying connection
+	// requests.
+	connRetryDuration = 5 * time.Second
+
+	// outboundNum is the number of outbound network connections to
+	// maintain.
+	outboundNum = 100
 )
 
 var (
@@ -214,8 +250,8 @@ func (p *PeerConnManager) Start() error {
 	cmgr, err := connmgr.New(&connmgr.Config{
 		Listeners:      p.Config.Listeners,
 		OnAccept:       p.InboundPeerConnected,
-		RetryDuration:  time.Second * 5,
-		TargetOutbound: 100,
+		RetryDuration:  connRetryDuration,
+		TargetOutbound: outboundNum,
 		Dial: noiseDial(
 			p.IdentityECDH, p.Config.Net, p.Config.ConnectionTimeout,
 		),
@@ -452,7 +488,7 @@ func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 	//
 	// We'll use a 15 second backoff, and double the time every time an
 	// epoch fails up to a ceiling.
-	backOff := time.Second * 15
+	backOff := bootstrapBackoff
 
 	// We'll create a new ticker to wake us up every 15 seconds so we can
 	// see if we've reached our minimum number of peers.
@@ -564,11 +600,6 @@ func (p *PeerConnManager) PeerBootstrapper(numTargetPeers uint32,
 	}
 }
 
-// bootstrapBackOffCeiling is the maximum amount of time we'll wait between
-// failed attempts to locate a set of bootstrap peers. We'll slowly double our
-// query back off each time we encounter a failure.
-const bootstrapBackOffCeiling = time.Minute * 5
-
 // initialPeerBootstrap attempts to continuously connect to peers on startup
 // until the target number of peers has been reached. This ensures that nodes
 // receive an up to date network view as soon as possible.
@@ -582,11 +613,11 @@ func (p *PeerConnManager) initialPeerBootstrap(ignore map[autopilot.NodeID]struc
 	// We'll start off by waiting 2 seconds between failed attempts, then
 	// double each time we fail until we hit the bootstrapBackOffCeiling.
 	var delaySignal <-chan time.Time
-	delayTime := time.Second * 2
+	delayTime := bootstrapDelayTime
 
 	// As want to be more aggressive, we'll use a lower back off celling
 	// then the main peer bootstrap logic.
-	backOffCeiling := bootstrapBackOffCeiling / 5
+	backOffCeiling := initalBootstrapBackoffCeiling
 
 	for attempts := 0; ; attempts++ {
 		// Check if the server has been requested to shut down in order
@@ -665,9 +696,8 @@ func (p *PeerConnManager) initialPeerBootstrap(ignore map[autopilot.NodeID]struc
 					}
 					connLog.Errorf("Unable to connect to "+
 						"%v: %v", addr, err)
-				// TODO: tune timeout? 3 seconds might be *too*
-				// aggressive but works well.
-				case <-time.After(3 * time.Second):
+
+				case <-time.After(bootstrapConnTimeout):
 					connLog.Tracef("Skipping peer %v due "+
 						"to not establishing a "+
 						"connection within 3 seconds",
@@ -2146,7 +2176,7 @@ func computeNextBackoff(currBackoff, maxBackoff time.Duration) time.Duration {
 
 	// Using 1/10 of our duration as a margin, compute a random offset to
 	// avoid the nodes entering connection cycles.
-	margin := nextBackoff / 10
+	margin := nextBackoff / nextBackoffMargin
 
 	var wiggle big.Int
 	wiggle.SetUint64(uint64(margin))

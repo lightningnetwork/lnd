@@ -1497,6 +1497,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			policy.SweepFeeRate = sweepRateSatPerVByte.FeePerKWeight()
 		}
 
+		if cfg.WtClient.MaxUpdates != 0 {
+			policy.MaxUpdates = cfg.WtClient.MaxUpdates
+		}
+
 		sessionCloseRange := uint32(wtclient.DefaultSessionCloseRange)
 		if cfg.WtClient.SessionCloseRange != 0 {
 			sessionCloseRange = cfg.WtClient.SessionCloseRange

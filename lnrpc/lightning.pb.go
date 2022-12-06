@@ -12319,10 +12319,10 @@ type ListInvoiceRequest struct {
 	// If set, the invoices returned will result from seeking backwards from the
 	// specified index offset. This can be used to paginate backwards.
 	Reversed bool `protobuf:"varint,6,opt,name=reversed,proto3" json:"reversed,omitempty"`
-	// If set, returns all invoices with a creation date greater than or euqal
+	// If set, returns all invoices with a creation date greater than or equal
 	// to it. Measured in seconds since the unix epoch.
 	CreationDateStart uint64 `protobuf:"varint,7,opt,name=creation_date_start,json=creationDateStart,proto3" json:"creation_date_start,omitempty"`
-	// If set, returns all invoices with a creation date less than or euqal to
+	// If set, returns all invoices with a creation date less than or equal to
 	// it. Measured in seconds since the unix epoch.
 	CreationDateEnd uint64 `protobuf:"varint,8,opt,name=creation_date_end,json=creationDateEnd,proto3" json:"creation_date_end,omitempty"`
 }
@@ -12847,10 +12847,10 @@ type ListPaymentsRequest struct {
 	// increase the run time of the call significantly on systems that have a lot
 	// of payments, as all of them have to be iterated through to be counted.
 	CountTotalPayments bool `protobuf:"varint,5,opt,name=count_total_payments,json=countTotalPayments,proto3" json:"count_total_payments,omitempty"`
-	// If set, returns all invoices with a creation date greater than or euqal
+	// If set, returns all invoices with a creation date greater than or equal
 	// to it. Measured in seconds since the unix epoch.
 	CreationDateStart uint64 `protobuf:"varint,6,opt,name=creation_date_start,json=creationDateStart,proto3" json:"creation_date_start,omitempty"`
-	// If set, returns all invoices with a creation date less than or euqal to
+	// If set, returns all invoices with a creation date less than or equal to
 	// it. Measured in seconds since the unix epoch.
 	CreationDateEnd uint64 `protobuf:"varint,7,opt,name=creation_date_end,json=creationDateEnd,proto3" json:"creation_date_end,omitempty"`
 }

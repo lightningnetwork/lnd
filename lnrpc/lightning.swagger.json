@@ -1722,7 +1722,7 @@
           },
           {
             "name": "creation_date_start",
-            "description": "If set, returns all invoices with a creation date greater than or euqal\nto it. Measured in seconds since the unix epoch.",
+            "description": "If set, returns all invoices with a creation date greater than or equal\nto it. Measured in seconds since the unix epoch.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -1730,7 +1730,7 @@
           },
           {
             "name": "creation_date_end",
-            "description": "If set, returns all invoices with a creation date less than or euqal to\nit. Measured in seconds since the unix epoch.",
+            "description": "If set, returns all invoices with a creation date less than or equal to\nit. Measured in seconds since the unix epoch.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -2146,7 +2146,7 @@
           },
           {
             "name": "creation_date_start",
-            "description": "If set, returns all invoices with a creation date greater than or euqal\nto it. Measured in seconds since the unix epoch.",
+            "description": "If set, returns all invoices with a creation date greater than or equal\nto it. Measured in seconds since the unix epoch.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -2154,7 +2154,7 @@
           },
           {
             "name": "creation_date_end",
-            "description": "If set, returns all invoices with a creation date less than or euqal to\nit. Measured in seconds since the unix epoch.",
+            "description": "If set, returns all invoices with a creation date less than or equal to\nit. Measured in seconds since the unix epoch.",
             "in": "query",
             "required": false,
             "type": "string",

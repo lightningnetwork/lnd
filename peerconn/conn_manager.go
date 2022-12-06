@@ -1147,7 +1147,14 @@ func (p *PeerConnManager) InboundPeerConnected(conn net.Conn) {
 		return
 	}
 
-	nodePub := conn.(*brontide.Conn).RemotePub()
+	brontideConn, ok := conn.(*brontide.Conn)
+	if !ok {
+		connLog.Errorf("Unexpected conn type found in "+
+			"InboundPeerConnected: %v", conn)
+		return
+	}
+
+	nodePub := brontideConn.RemotePub()
 	pubStr := string(nodePub.SerializeCompressed())
 
 	p.mu.Lock()
@@ -1236,7 +1243,14 @@ func (p *PeerConnManager) OutboundPeerConnected(connReq *connmgr.ConnReq,
 		return
 	}
 
-	nodePub := conn.(*brontide.Conn).RemotePub()
+	brontideConn, ok := conn.(*brontide.Conn)
+	if !ok {
+		connLog.Errorf("Unexpected conn type found in "+
+			"OutboundPeerConnected: %v", conn)
+		return
+	}
+
+	nodePub := brontideConn.RemotePub()
 	pubStr := string(nodePub.SerializeCompressed())
 
 	p.mu.Lock()
@@ -1397,7 +1411,13 @@ func (p *PeerConnManager) cancelConnReqs(pubStr string, skip *uint64) {
 func (p *PeerConnManager) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	inbound bool) {
 
-	brontideConn := conn.(*brontide.Conn)
+	brontideConn, ok := conn.(*brontide.Conn)
+	if !ok {
+		connLog.Errorf("Unexpected conn type found in peerConnected: "+
+			"%v", conn)
+		return
+	}
+
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
 
@@ -1792,7 +1812,13 @@ func (p *PeerConnManager) connectToPersistentPeer(pubKeyStr string) {
 	// advertised addresses then remove that connection request.
 	var updatedConnReqs []*connmgr.ConnReq
 	for _, connReq := range p.persistentConnReqs[pubKeyStr] {
-		lnAddr := connReq.Addr.(*lnwire.NetAddress).Address.String()
+		wireAddr, ok := connReq.Addr.(*lnwire.NetAddress)
+		if !ok {
+			connLog.Errorf("Unexpected network address type %v",
+				connReq.Addr)
+		}
+
+		lnAddr := wireAddr.Address.String()
 
 		switch _, ok := addrMap[lnAddr]; ok {
 		// If the existing connection request is using one of the
@@ -2169,7 +2195,12 @@ func noiseDial(idKey keychain.SingleKeyECDH,
 	netCfg tor.Net, timeout time.Duration) func(net.Addr) (net.Conn, error) {
 
 	return func(a net.Addr) (net.Conn, error) {
-		lnAddr := a.(*lnwire.NetAddress)
+		lnAddr, ok := a.(*lnwire.NetAddress)
+		if !ok {
+			return nil, fmt.Errorf("Unexpected network address "+
+				"type %v", a)
+		}
+
 		return brontide.Dial(idKey, lnAddr, timeout, netCfg.Dial)
 	}
 }

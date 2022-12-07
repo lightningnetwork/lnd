@@ -39,6 +39,29 @@ func (h *HarnessTest) WaitForBlockchainSync(hn *node.HarnessNode) {
 	require.NoError(h, err, "timeout waiting for blockchain sync")
 }
 
+// WaitForBlockchainSyncTo waits until the node is synced to bestBlock.
+func (h *HarnessTest) WaitForBlockchainSyncTo(hn *node.HarnessNode,
+	bestBlock *wire.MsgBlock) {
+
+	bestBlockHash := bestBlock.BlockHash().String()
+	err := wait.NoError(func() error {
+		resp := hn.RPC.GetInfo()
+		if resp.SyncedToChain {
+			if resp.BlockHash == bestBlockHash {
+				return nil
+			}
+
+			return fmt.Errorf("%s's backend is synced to the "+
+				"wrong block (expected=%s, actual=%s)",
+				hn.Name(), bestBlockHash, resp.BlockHash)
+		}
+
+		return fmt.Errorf("%s is not synced to chain", hn.Name())
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout waiting for blockchain sync")
+}
+
 // AssertPeerConnected asserts that the given node b is connected to a.
 func (h *HarnessTest) AssertPeerConnected(a, b *node.HarnessNode) {
 	err := wait.NoError(func() error {
@@ -1321,6 +1344,14 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 func (h *HarnessTest) AssertActiveNodesSynced() {
 	for _, node := range h.manager.activeNodes {
 		h.WaitForBlockchainSync(node)
+	}
+}
+
+// AssertActiveNodesSyncedTo asserts all active nodes have synced to the
+// provided bestBlock.
+func (h *HarnessTest) AssertActiveNodesSyncedTo(bestBlock *wire.MsgBlock) {
+	for _, node := range h.manager.activeNodes {
+		h.WaitForBlockchainSyncTo(node, bestBlock)
 	}
 }
 

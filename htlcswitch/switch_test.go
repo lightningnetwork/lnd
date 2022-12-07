@@ -3253,7 +3253,7 @@ func TestInvalidFailure(t *testing.T) {
 	// Get payment result from switch. We expect an unreadable failure
 	// message error.
 	deobfuscator := SphinxErrorDecrypter{
-		OnionErrorDecrypter: &mockOnionErrorDecryptor{
+		decrypter: &mockOnionErrorDecryptor{
 			err: ErrUnreadableFailureMessage,
 		},
 	}
@@ -3278,7 +3278,7 @@ func TestInvalidFailure(t *testing.T) {
 	// Modify the decryption to simulate that decryption went alright, but
 	// the failure cannot be decoded.
 	deobfuscator = SphinxErrorDecrypter{
-		OnionErrorDecrypter: &mockOnionErrorDecryptor{
+		decrypter: &mockOnionErrorDecryptor{
 			sourceIdx: 2,
 			message:   []byte{200},
 		},

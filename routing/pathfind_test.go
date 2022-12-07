@@ -959,6 +959,7 @@ func runFindLowestFeePath(t *testing.T, useCache bool) {
 			cltvDelta: finalHopCLTV,
 			records:   nil,
 		},
+		false,
 	)
 	require.NoError(t, err, "unable to create path")
 
@@ -1101,6 +1102,7 @@ func testBasicGraphPathFindingCase(t *testing.T, graphInstance *testGraphInstanc
 			cltvDelta: finalHopCLTV,
 			records:   nil,
 		},
+		false,
 	)
 	require.NoError(t, err, "unable to create path")
 
@@ -1639,6 +1641,7 @@ func TestNewRoute(t *testing.T) {
 					paymentAddr: testCase.paymentAddr,
 					metadata:    testCase.metadata,
 				},
+				false,
 			)
 
 			if testCase.expectError {
@@ -2641,6 +2644,7 @@ func testCltvLimit(t *testing.T, useCache bool, limit uint32,
 			cltvDelta: finalHopCLTV,
 			records:   nil,
 		},
+		false,
 	)
 	require.NoError(t, err, "unable to create path")
 
@@ -2964,6 +2968,7 @@ func runNoCycle(t *testing.T, useCache bool) {
 			cltvDelta: finalHopCLTV,
 			records:   nil,
 		},
+		false,
 	)
 	require.NoError(t, err, "unable to create path")
 

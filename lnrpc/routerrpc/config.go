@@ -87,5 +87,6 @@ func GetRoutingConfig(cfg *Config) *RoutingConfig {
 			NodeWeight: cfg.BimodalConfig.NodeWeight,
 			DecayTime:  cfg.BimodalConfig.DecayTime,
 		},
+		AttrErrors: cfg.AttrErrors,
 	}
 }

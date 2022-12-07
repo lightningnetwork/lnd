@@ -1805,6 +1805,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 			cltvDelta: finalExpiry,
 			records:   destCustomRecords,
 		},
+		r.cfg.PathFindingConfig.AttrErrors,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -2798,6 +2799,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 			records:     nil,
 			paymentAddr: payAddr,
 		},
+		r.cfg.PathFindingConfig.AttrErrors,
 	)
 }
 

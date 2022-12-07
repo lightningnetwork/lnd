@@ -826,6 +826,11 @@ type msgWithSenders struct {
 	// msg is the wire message itself.
 	msg lnwire.Message
 
+	// isLocal is true if this was a message that originated locally. We'll
+	// use this to bypass our normal checks to ensure we prioritize sending
+	// out our own updates.
+	isLocal bool
+
 	// sender is the set of peers that sent us this message.
 	senders map[route.Vertex]struct{}
 }
@@ -903,6 +908,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		if !ok {
 			mws = msgWithSenders{
 				msg:     msg,
+				isLocal: !message.isRemote,
 				senders: make(map[route.Vertex]struct{}),
 			}
 			mws.senders[sender] = struct{}{}
@@ -949,6 +955,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		if oldTimestamp < msg.Timestamp {
 			mws = msgWithSenders{
 				msg:     msg,
+				isLocal: !message.isRemote,
 				senders: make(map[route.Vertex]struct{}),
 			}
 
@@ -992,6 +999,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		if oldTimestamp < msg.Timestamp {
 			mws = msgWithSenders{
 				msg:     msg,
+				isLocal: !message.isRemote,
 				senders: make(map[route.Vertex]struct{}),
 			}
 
@@ -2949,6 +2957,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 		} else {
 			remotePubKey = chanInfo.NodeKey1Bytes
 		}
+
 		// Since the remote peer might not be online we'll call a
 		// method that will attempt to deliver the proof when it comes
 		// online.

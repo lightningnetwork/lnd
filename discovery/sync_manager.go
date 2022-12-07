@@ -763,13 +763,19 @@ func (m *SyncManager) GossipSyncers() map[route.Vertex]*GossipSyncer {
 
 // gossipSyncers returns all of the currently initialized gossip syncers.
 func (m *SyncManager) gossipSyncers() map[route.Vertex]*GossipSyncer {
-	numSyncers := len(m.inactiveSyncers) + len(m.activeSyncers)
+	numSyncers := len(m.inactiveSyncers) + len(m.activeSyncers) +
+		len(m.pinnedActiveSyncers)
 	syncers := make(map[route.Vertex]*GossipSyncer, numSyncers)
 
 	for _, syncer := range m.inactiveSyncers {
 		syncers[syncer.cfg.peerPub] = syncer
 	}
+
 	for _, syncer := range m.activeSyncers {
+		syncers[syncer.cfg.peerPub] = syncer
+	}
+
+	for _, syncer := range m.pinnedActiveSyncers {
 		syncers[syncer.cfg.peerPub] = syncer
 	}
 

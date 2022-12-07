@@ -1028,6 +1028,31 @@ func (d *deDupedAnnouncements) AddMsgs(msgs ...networkMsg) {
 	}
 }
 
+// msgsToBroadcast is returned by Emit() and partitions the messages we'd like
+// to broadcast next into messages that are locally sourced and those that are
+// sourced remotely.
+type msgsToBroadcast struct {
+	// localMsgs is the set of messages we created locally.
+	localMsgs []msgWithSenders
+
+	// remoteMsgs is the set of messages that we received from a remote party.
+	remoteMsgs []msgWithSenders
+}
+
+// addMsg adds a new message to the appropriate sub-slice.
+func (m *msgsToBroadcast) addMsg(msg msgWithSenders) {
+	if msg.isLocal {
+		m.localMsgs = append(m.localMsgs, msg)
+	} else {
+		m.remoteMsgs = append(m.remoteMsgs, msg)
+	}
+}
+
+// isEmpty returns true if the batch is empty.
+func (m *msgsToBroadcast) isEmpty() bool {
+	return len(m.localMsgs) == 0 && len(m.remoteMsgs) == 0
+}
+
 // Emit returns the set of de-duplicated announcements to be sent out during
 // the next announcement epoch, in the order of channel announcements, channel
 // updates, and node announcements. Each message emitted, contains the set of

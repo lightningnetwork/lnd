@@ -1244,18 +1244,23 @@ func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 // FilterGossipMsgs takes a set of gossip messages, and only send it to a peer
 // iff the message is within the bounds of their set gossip filter. If the peer
 // doesn't have a gossip filter set, then no messages will be forwarded.
-func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
+// Returns true if there are messages sent, otherwise false.
+func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) bool {
 	// If the peer doesn't have an update horizon set, then we won't send
 	// it any new update messages.
 	if g.remoteUpdateHorizon == nil {
-		return
+		log.Debugf("GossipSyncer(%x): skipped sending %v messages "+
+			"due to nil remoteUpdateHorizon", g.cfg.peerPub[:],
+			len(msgs))
+
+		return false
 	}
 
 	// If we've been signaled to exit, or are exiting, then we'll stop
 	// short.
 	select {
 	case <-g.quit:
-		return
+		return false
 	default:
 	}
 
@@ -1357,11 +1362,19 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 	log.Tracef("GossipSyncer(%x): filtered gossip msgs: set=%v, sent=%v",
 		g.cfg.peerPub[:], len(msgs), len(msgsToSend))
 
+	// If no message is sent, return false.
+	//
+	// NOTE: returning false may cause sending duplicate messages to the
+	// peer in `sendBatch`. However, it's possible that the remote update
+	// horizon's first timestamp is greater than an unannounced message's
+	// timestamp, so we prefer sending it than letting the peer miss it.
 	if len(msgsToSend) == 0 {
-		return
+		return false
 	}
 
 	g.cfg.sendToPeer(msgsToSend...)
+
+	return true
 }
 
 // ProcessQueryMsg is used by outside callers to pass new channel time series

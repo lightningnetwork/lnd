@@ -1099,19 +1099,28 @@ func splitAnnouncementBatches(subBatchSize int,
 func (d *AuthenticatedGossiper) sendBatch(announcementBatch []msgWithSenders) {
 	syncerPeers := d.syncMgr.GossipSyncers()
 
+	// announcedPeers is a map of peers that have successful sent messages.
+	// We will ignore these peers when broadcasting the announcementBatch.
+	announcedPeers := make(map[route.Vertex]*GossipSyncer, len(syncerPeers))
+
 	// We'll first attempt to filter out this new message for all peers
 	// that have active gossip syncers active.
 	for _, syncer := range syncerPeers {
-		syncer.FilterGossipMsgs(announcementBatch...)
+		announced := syncer.FilterGossipMsgs(announcementBatch...)
+
+		// If the peer is announced, add it to the map.
+		if announced {
+			announcedPeers[syncer.cfg.peerPub] = syncer
+		}
 	}
 
 	for _, msgChunk := range announcementBatch {
 		msgChunk := msgChunk
 
 		// With the syncers taken care of, we'll merge the sender map
-		// with the set of syncers, so we don't send out duplicate
-		// messages.
-		msgChunk.mergeSyncerMap(syncerPeers)
+		// with the set of syncers that have successfully sent the
+		// messages, so we don't send out duplicate messages.
+		msgChunk.mergeSyncerMap(announcedPeers)
 
 		err := d.cfg.Broadcast(
 			msgChunk.senders, msgChunk.msg,

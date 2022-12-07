@@ -500,6 +500,7 @@ func main() {
 	app.Commands = append(app.Commands, wtclientCommands()...)
 	app.Commands = append(app.Commands, devCommands()...)
 	app.Commands = append(app.Commands, peersCommands()...)
+	app.Commands = append(app.Commands, chainCommands()...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)

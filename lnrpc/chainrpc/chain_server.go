@@ -42,6 +42,18 @@ var (
 
 	// macPermissions maps RPC calls to the permissions they require.
 	macPermissions = map[string][]bakery.Op{
+		"/chainrpc.ChainKit/GetBlock": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/chainrpc.ChainKit/GetBestBlock": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
+		"/chainrpc.ChainKit/GetBlockHash": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
 		"/chainrpc.ChainNotifier/RegisterConfirmationsNtfn": {{
 			Entity: "onchain",
 			Action: "read",
@@ -77,17 +89,19 @@ var (
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
 type ServerShell struct {
+	ChainKitServer
 	ChainNotifierServer
 }
 
-// Server is a sub-server of the main RPC server: the chain notifier RPC. This
-// RPC sub-server allows external callers to access the full chain notifier
-// capabilities of lnd. This allows callers to create custom protocols, external
-// to lnd, even backed by multiple distinct lnd across independent failure
-// domains.
+// Server is a sub-server of the main RPC server. It serves the chainkit RPC
+// and chain notifier RPC. This RPC sub-server allows external callers to access
+// the full chainkit and chain notifier capabilities of lnd. This allows callers
+// to create custom protocols, external to lnd, even backed by multiple distinct
+// lnd across independent failure domains.
 type Server struct {
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	UnimplementedChainNotifierServer
+	UnimplementedChainKitServer
 
 	started sync.Once
 	stopped sync.Once
@@ -149,8 +163,10 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 }
 
 // Compile-time checks to ensure that Server fully implements the
-// ChainNotifierServer gRPC service and lnrpc.SubServer interface.
+// ChainNotifierServer gRPC service, ChainKitServer gRPC service, and
+// lnrpc.SubServer interface.
 var _ ChainNotifierServer = (*Server)(nil)
+var _ ChainKitServer = (*Server)(nil)
 var _ lnrpc.SubServer = (*Server)(nil)
 
 // Start launches any helper goroutines required for the server to function.
@@ -188,9 +204,12 @@ func (r *ServerShell) RegisterWithRootServer(grpcServer *grpc.Server) error {
 	// We make sure that we register it with the main gRPC server to ensure
 	// all our methods are routed properly.
 	RegisterChainNotifierServer(grpcServer, r)
-
 	log.Debug("ChainNotifier RPC server successfully register with root " +
 		"gRPC server")
+
+	RegisterChainKitServer(grpcServer, r)
+	log.Debug("ChainKit RPC server successfully register with root gRPC " +
+		"server")
 
 	return nil
 }
@@ -214,6 +233,18 @@ func (r *ServerShell) RegisterWithRestServer(ctx context.Context,
 
 	log.Debugf("ChainNotifier REST server successfully registered with " +
 		"root REST server")
+
+	// Register chainkit with the main REST server to ensure all our methods
+	// are routed properly.
+	err = RegisterChainKitHandlerFromEndpoint(ctx, mux, dest, opts)
+	if err != nil {
+		log.Errorf("Could not register ChainKit REST server with root "+
+			"REST server: %v", err)
+		return err
+	}
+	log.Debugf("ChainKit REST server successfully registered with root " +
+		"REST server")
+
 	return nil
 }
 
@@ -233,7 +264,64 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 	}
 
 	r.ChainNotifierServer = subServer
+	r.ChainKitServer = subServer
 	return subServer, macPermissions, nil
+}
+
+// GetBlock returns a block given the corresponding block hash.
+func (s *Server) GetBlock(ctx context.Context,
+	in *GetBlockRequest) (*GetBlockResponse, error) {
+
+	// We'll start by reconstructing the RPC request into what the
+	// underlying chain functionality expects.
+	var blockHash chainhash.Hash
+	copy(blockHash[:], in.BlockHash)
+
+	block, err := s.cfg.Chain.GetBlock(&blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Serialize block for RPC response.
+	var blockBuf bytes.Buffer
+	err = block.Serialize(&blockBuf)
+	if err != nil {
+		return nil, err
+	}
+	rawBlock := blockBuf.Bytes()
+
+	return &GetBlockResponse{RawBlock: rawBlock}, nil
+}
+
+// GetBestBlock returns the latest block hash and current height of the valid
+// most-work chain.
+func (s *Server) GetBestBlock(ctx context.Context,
+	req *GetBestBlockRequest) (*GetBestBlockResponse, error) {
+
+	blockHash, blockHeight, err := s.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return nil, err
+	}
+
+	return &GetBestBlockResponse{
+		BlockHash:   blockHash[:],
+		BlockHeight: blockHeight,
+	}, nil
+}
+
+// GetBlockHash returns the hash of the block in the best blockchain
+// at the given height.
+func (s *Server) GetBlockHash(ctx context.Context,
+	req *GetBlockHashRequest) (*GetBlockHashResponse, error) {
+
+	blockHash, err := s.cfg.Chain.GetBlockHash(req.BlockHeight)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GetBlockHashResponse{
+		BlockHash: blockHash[:],
+	}, nil
 }
 
 // RegisterConfirmationsNtfn is a synchronous response-streaming RPC that

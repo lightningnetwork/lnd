@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package chainrpc;
+
+option go_package = "github.com/lightningnetwork/lnd/lnrpc/chainrpc";
+
+// ChainKit is a service that can be used to get information from the
+// chain backend.
+service ChainKit {
+    /* lncli: `chain getblock`
+    GetBlock returns a block given the corresponding block hash.
+    */
+    rpc GetBlock (GetBlockRequest) returns (GetBlockResponse);
+
+    /* lncli: `chain getbestblock`
+    GetBestBlock returns the block hash and current height from the valid
+    most-work chain.
+    */
+    rpc GetBestBlock (GetBestBlockRequest) returns (GetBestBlockResponse);
+
+    /* lncli: `chain getblockhash`
+    GetBlockHash returns the hash of the block in the best blockchain
+    at the given height.
+    */
+    rpc GetBlockHash (GetBlockHashRequest) returns (GetBlockHashResponse);
+}
+
+message GetBlockRequest {
+    // The hash of the requested block.
+    bytes block_hash = 1;
+}
+
+// TODO(ffranr): The neutrino GetBlock response includes many
+// additional helpful fields. Consider adding them here also.
+message GetBlockResponse {
+    // The raw bytes of the requested block.
+    bytes raw_block = 1;
+}
+
+message GetBestBlockRequest {
+}
+
+message GetBestBlockResponse {
+    // The hash of the best block.
+    bytes block_hash = 1;
+
+    // The height of the best block.
+    int32 block_height = 2;
+}
+
+message GetBlockHashRequest {
+    // Block height of the target best chain block.
+    int64 block_height = 1;
+}
+
+message GetBlockHashResponse {
+    // The hash of the best block at the specified height.
+    bytes block_hash = 1;
+}

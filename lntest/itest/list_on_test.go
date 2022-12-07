@@ -219,4 +219,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "failing link",
 		TestFunc: testFailingChannel,
 	},
+	{
+		Name:     "chain kit",
+		TestFunc: testChainKit,
+	},
 }

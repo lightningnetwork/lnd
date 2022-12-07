@@ -73,6 +73,11 @@
   `ListInvoiceRequest` and
   `ListPaymentsRequest`](https://github.com/lightningnetwork/lnd/pull/7159).
 
+* [Add chainkit RPC endpoints](https://github.com/lightningnetwork/lnd/pull/7197):
+  GetBlock, GetBestBlock, GetBlockHash. These endpoints provide access to chain
+  block data.
+
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only
@@ -204,6 +209,11 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 
 * [Allow lncli to read binary PSBTs](https://github.com/lightningnetwork/lnd/pull/7122)
   from a file during PSBT channel funding flow to comply with [BIP 174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki#specification)
+
+* [Add interface to chainkit RPC](https://github.com/lightningnetwork/lnd/pull/7197).
+  This addition consists of the `chain` subcommand group: `getblock`,
+  `getblockhash`, and `getbestblock`. These commands provide access to chain
+  block data.
 
 ## Code Health
 

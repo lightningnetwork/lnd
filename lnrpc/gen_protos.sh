@@ -67,7 +67,7 @@ function generate() {
       --plugin=protoc-gen-custom=$falafel\
       --custom_out=. \
       --custom_opt="$opts" \
-      "$(find . -name '*.proto')"
+      $(find . -name '*.proto')
     popd
   done
 }

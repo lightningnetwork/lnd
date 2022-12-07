@@ -39,6 +39,7 @@ type HarnessRPC struct {
 	WatchtowerClient wtclientrpc.WatchtowerClientClient
 	State            lnrpc.StateClient
 	ChainClient      chainrpc.ChainNotifierClient
+	ChainKit         chainrpc.ChainKitClient
 	Peer             peersrpc.PeersClient
 
 	// Name is the HarnessNode's name.
@@ -68,6 +69,7 @@ func NewHarnessRPC(ctxt context.Context, t *testing.T, c *grpc.ClientConn,
 		Signer:           signrpc.NewSignerClient(c),
 		State:            lnrpc.NewStateClient(c),
 		ChainClient:      chainrpc.NewChainNotifierClient(c),
+		ChainKit:         chainrpc.NewChainKitClient(c),
 		Peer:             peersrpc.NewPeersClient(c),
 		Name:             name,
 	}

@@ -367,6 +367,7 @@ type HarnessNode struct {
 	WatchtowerClient wtclientrpc.WatchtowerClientClient
 	StateClient      lnrpc.StateClient
 	ChainClient      chainrpc.ChainNotifierClient
+	ChainKit         chainrpc.ChainKitClient
 }
 
 // RPCClients wraps a list of RPC clients into a single struct for easier
@@ -385,6 +386,7 @@ type RPCClients struct {
 	WatchtowerClient wtclientrpc.WatchtowerClientClient
 	State            lnrpc.StateClient
 	ChainClient      chainrpc.ChainNotifierClient
+	ChainKit         chainrpc.ChainKitClient
 }
 
 // Assert *HarnessNode implements the lnrpc.LightningClient interface.
@@ -938,6 +940,7 @@ func (hn *HarnessNode) InitRPCClients(c *grpc.ClientConn) {
 		Signer:           signrpc.NewSignerClient(c),
 		State:            lnrpc.NewStateClient(c),
 		ChainClient:      chainrpc.NewChainNotifierClient(c),
+		ChainKit:         chainrpc.NewChainKitClient(c),
 	}
 }
 
@@ -960,6 +963,7 @@ func (hn *HarnessNode) initLightningClient() error {
 	hn.PeersClient = peersrpc.NewPeersClient(conn)
 	hn.StateClient = lnrpc.NewStateClient(conn)
 	hn.ChainClient = chainrpc.NewChainNotifierClient(conn)
+	hn.ChainKit = chainrpc.NewChainKitClient(conn)
 
 	// Wait until the server is fully started.
 	if err := hn.WaitUntilServerActive(); err != nil {

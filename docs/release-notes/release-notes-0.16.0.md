@@ -205,6 +205,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 * [Allow lncli to read binary PSBTs](https://github.com/lightningnetwork/lnd/pull/7122)
   from a file during PSBT channel funding flow to comply with [BIP 174](https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki#specification)
 
+* [Fixed case where channel announcements might not be sent to some of the
+  peers.](https://github.com/lightningnetwork/lnd/pull/7240)
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test

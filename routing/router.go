@@ -169,7 +169,7 @@ type PaymentAttemptDispatcher interface {
 		attemptID uint64,
 		htlcAdd *lnwire.UpdateAddHTLC) error
 
-	// GetPaymentResult returns the result of the payment attempt with
+	// GetAttemptResult returns the result of the payment attempt with
 	// the given attemptID. The paymentHash should be set to the payment's
 	// overall hash, or in case of AMP payments the payment's unique
 	// identifier.
@@ -180,7 +180,7 @@ type PaymentAttemptDispatcher interface {
 	// longer be in flight.  The switch shutting down is signaled by
 	// closing the channel. If the attemptID is unknown,
 	// ErrPaymentIDNotFound will be returned.
-	GetPaymentResult(attemptID uint64, paymentHash lntypes.Hash,
+	GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 		deobfuscator htlcswitch.ErrorDecrypter) (
 		<-chan *htlcswitch.PaymentResult, error)
 
@@ -667,9 +667,8 @@ func (r *ChannelRouter) Start() error {
 			// also set a zero fee limit, as no more routes should
 			// be tried.
 			_, _, err := r.sendPayment(
-				payment.Info.Value, 0,
-				payment.Info.PaymentIdentifier, 0, paySession,
-				shardTracker,
+				0, payment.Info.PaymentIdentifier, 0,
+				paySession, shardTracker,
 			)
 			if err != nil {
 				log.Errorf("Resuming payment %v failed: %v.",
@@ -2048,7 +2047,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
 	return r.sendPayment(
-		payment.Amount, payment.FeeLimit, payment.Identifier(),
+		payment.FeeLimit, payment.Identifier(),
 		payment.PayAttemptTimeout, paySession, shardTracker,
 	)
 }
@@ -2071,7 +2070,7 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
 			spewPayment(payment))
 
 		_, _, err := r.sendPayment(
-			payment.Amount, payment.FeeLimit, payment.Identifier(),
+			payment.FeeLimit, payment.Identifier(),
 			payment.PayAttemptTimeout, paySession, shardTracker,
 		)
 		if err != nil {
@@ -2253,7 +2252,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		log.Debugf("Invalid route provided for payment %x: %v",
 			paymentIdentifier, err)
 
-		controlErr := r.cfg.Control.Fail(
+		controlErr := r.cfg.Control.FailPayment(
 			paymentIdentifier, channeldb.FailureReasonError,
 		)
 		if controlErr != nil {
@@ -2301,14 +2300,16 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// If a non-terminal error is returned and `skipTempErr` is false, then
 	// we'll use the normal no route error.
 	case err == nil && !skipTempErr:
-		err = r.cfg.Control.Fail(
+		err = r.cfg.Control.FailPayment(
 			paymentIdentifier, channeldb.FailureReasonNoRoute,
 		)
 
 	// If this is a failure reason, then we'll apply the failure directly
 	// to the control tower, and return the normal response to the caller.
 	case goErrors.As(err, &failureReason):
-		err = r.cfg.Control.Fail(paymentIdentifier, *failureReason)
+		err = r.cfg.Control.FailPayment(
+			paymentIdentifier, *failureReason,
+		)
 	}
 	if err != nil {
 		return nil, err
@@ -2333,9 +2334,9 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 // carry out its execution. After restarts it is safe, and assumed, that the
 // router will call this method for every payment still in-flight according to
 // the ControlTower.
-func (r *ChannelRouter) sendPayment(
-	totalAmt, feeLimit lnwire.MilliSatoshi, identifier lntypes.Hash,
-	timeout time.Duration, paySession PaymentSession,
+func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
+	identifier lntypes.Hash, timeout time.Duration,
+	paySession PaymentSession,
 	shardTracker shards.ShardTracker) ([32]byte, *route.Route, error) {
 
 	// We'll also fetch the current block height so we can properly
@@ -2349,7 +2350,6 @@ func (r *ChannelRouter) sendPayment(
 	// can resume the payment from the current state.
 	p := &paymentLifecycle{
 		router:        r,
-		totalAmount:   totalAmt,
 		feeLimit:      feeLimit,
 		identifier:    identifier,
 		paySession:    paySession,

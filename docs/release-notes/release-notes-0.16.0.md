@@ -225,6 +225,10 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 
 * [CI: update test coverage library
   go-acc](https://github.com/lightningnetwork/lnd/pull/7221) v0.2.6 -> v0.2.8
+
+* Payment related code [has been
+  refactored](https://github.com/lightningnetwork/lnd/pull/7174) to allow the
+  usage of new payment statuses.
  
 ## Watchtowers
 

@@ -43,7 +43,8 @@ var (
 
 	// ErrPaymentTerminal is returned if we attempt to alter a payment that
 	// already has reached a terminal condition.
-	ErrPaymentTerminal = errors.New("payment has reached terminal condition")
+	ErrPaymentTerminal = errors.New("payment has reached terminal " +
+		"condition")
 
 	// ErrAttemptAlreadySettled is returned if we try to alter an already
 	// settled HTLC attempt.
@@ -77,7 +78,8 @@ var (
 
 	// ErrMPPTotalAmountMismatch is returned if we try to register an MPP
 	// shard where the total amount doesn't match existing shards.
-	ErrMPPTotalAmountMismatch = errors.New("mp payment total amount mismatch")
+	ErrMPPTotalAmountMismatch = errors.New("mp payment total amount " +
+		"mismatch")
 
 	// errNoAttemptInfo is returned when no attempt info is stored yet.
 	errNoAttemptInfo = errors.New("unable to find attempt info for " +

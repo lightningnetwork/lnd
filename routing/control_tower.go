@@ -46,13 +46,13 @@ type ControlTower interface {
 	// hash.
 	FetchPayment(paymentHash lntypes.Hash) (*channeldb.MPPayment, error)
 
-	// Fail transitions a payment into the Failed state, and records the
-	// ultimate reason the payment failed. Note that this should only be
-	// called when all active active attempts are already failed. After
+	// FailPayment transitions a payment into the Failed state, and records
+	// the ultimate reason the payment failed. Note that this should only
+	// be called when all active attempts are already failed. After
 	// invoking this method, InitPayment should return nil on its next call
 	// for this payment hash, allowing the user to make a subsequent
 	// payment.
-	Fail(lntypes.Hash, channeldb.FailureReason) error
+	FailPayment(lntypes.Hash, channeldb.FailureReason) error
 
 	// FetchInFlightPayments returns all payments with status InFlight.
 	FetchInFlightPayments() ([]*channeldb.MPPayment, error)
@@ -229,11 +229,11 @@ func (p *controlTower) FetchPayment(paymentHash lntypes.Hash) (
 	return p.db.FetchPayment(paymentHash)
 }
 
-// Fail transitions a payment into the Failed state, and records the reason the
-// payment failed. After invoking this method, InitPayment should return nil on
-// its next call for this payment hash, allowing the switch to make a
-// subsequent payment.
-func (p *controlTower) Fail(paymentHash lntypes.Hash,
+// FailPayment transitions a payment into the Failed state, and records the
+// reason the payment failed. After invoking this method, InitPayment should
+// return nil on its next call for this payment hash, allowing the switch to
+// make a subsequent payment.
+func (p *controlTower) FailPayment(paymentHash lntypes.Hash,
 	reason channeldb.FailureReason) error {
 
 	p.paymentsMtx.Lock(paymentHash)

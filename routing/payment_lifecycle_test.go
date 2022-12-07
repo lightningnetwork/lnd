@@ -107,20 +107,20 @@ const (
 	sendToSwitchResultFailure = "SendToSwitch:failure"
 
 	// getPaymentResultSuccess is a test step where we expect the
-	// router to call the GetPaymentResult method, and we will
+	// router to call the GetAttemptResult method, and we will
 	// respond with a successful payment result.
-	getPaymentResultSuccess = "GetPaymentResult:success"
+	getPaymentResultSuccess = "GetAttemptResult:success"
 
 	// getPaymentResultTempFailure is a test step where we expect the
-	// router to call the GetPaymentResult method, and we will
+	// router to call the GetAttemptResult method, and we will
 	// respond with a forwarding error, expecting the router to retry.
-	getPaymentResultTempFailure = "GetPaymentResult:temp-failure"
+	getPaymentResultTempFailure = "GetAttemptResult:temp-failure"
 
 	// getPaymentResultTerminalFailure is a test step where we
-	// expect the router to call the GetPaymentResult method, and
+	// expect the router to call the GetAttemptResult method, and
 	// we will respond with a terminal error, expecting the router
 	// to stop making payment attempts.
-	getPaymentResultTerminalFailure = "GetPaymentResult:terminal-failure"
+	getPaymentResultTerminalFailure = "GetAttemptResult:terminal-failure"
 
 	// resendPayment is a test step where we manually try to resend
 	// the same payment, making sure the router responds with an
@@ -652,7 +652,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				fatal("unable to send result")
 			}
 
-		// In this step we expect the GetPaymentResult method
+		// In this step we expect the GetAttemptResult method
 		// to be called, and we respond with the preimage to
 		// complete the payment.
 		case getPaymentResultSuccess:
@@ -664,7 +664,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 				fatal("unable to send result")
 			}
 
-		// In this state we expect the GetPaymentResult method
+		// In this state we expect the GetAttemptResult method
 		// to be called, and we respond with a forwarding
 		// error, indicating that the router should retry.
 		case getPaymentResultTempFailure:
@@ -682,7 +682,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 			}
 
 		// In this state we expect the router to call the
-		// GetPaymentResult method, and we will respond with a
+		// GetAttemptResult method, and we will respond with a
 		// terminal error, indicating the router should stop
 		// making payment attempts.
 		case getPaymentResultTerminalFailure:
@@ -1052,10 +1052,9 @@ func TestUpdatePaymentState(t *testing.T) {
 			ct := &mockControlTower{}
 			rt := &ChannelRouter{cfg: &Config{Control: ct}}
 			pl := &paymentLifecycle{
-				router:      rt,
-				identifier:  paymentHash,
-				totalAmount: lnwire.MilliSatoshi(tc.totalAmt),
-				feeLimit:    lnwire.MilliSatoshi(tc.feeLimit),
+				router:     rt,
+				identifier: paymentHash,
+				feeLimit:   lnwire.MilliSatoshi(tc.feeLimit),
 			}
 
 			if tc.payment == nil {
@@ -1066,6 +1065,12 @@ func TestUpdatePaymentState(t *testing.T) {
 					nil, dummyErr,
 				)
 			} else {
+				// Attach the payment info.
+				info := &channeldb.PaymentCreationInfo{
+					Value: lnwire.MilliSatoshi(tc.totalAmt),
+				}
+				tc.payment.Info = info
+
 				// Otherwise we will return the payment.
 				ct.On("FetchPayment", paymentHash).Return(
 					tc.payment, nil,

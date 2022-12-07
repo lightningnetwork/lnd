@@ -2699,7 +2699,7 @@ func TestSwitchSendPayment(t *testing.T) {
 
 	// First check that the switch will correctly respond that this payment
 	// ID is unknown.
-	_, err = s.GetPaymentResult(
+	_, err = s.GetAttemptResult(
 		paymentID, rhash, newMockDeobfuscator(),
 	)
 	if err != ErrPaymentIDNotFound {
@@ -2717,7 +2717,7 @@ func TestSwitchSendPayment(t *testing.T) {
 			return
 		}
 
-		resultChan, err := s.GetPaymentResult(
+		resultChan, err := s.GetAttemptResult(
 			paymentID, rhash, newMockDeobfuscator(),
 		)
 		if err != nil {
@@ -3072,11 +3072,11 @@ func TestUpdateFailMalformedHTLCErrorConversion(t *testing.T) {
 	})
 }
 
-// TestSwitchGetPaymentResult tests that the switch interacts as expected with
+// TestSwitchGetAttemptResult tests that the switch interacts as expected with
 // the circuit map and network result store when looking up the result of a
 // payment ID. This is important for not to lose results under concurrent
 // lookup and receiving results.
-func TestSwitchGetPaymentResult(t *testing.T) {
+func TestSwitchGetAttemptResult(t *testing.T) {
 	t.Parallel()
 
 	const paymentID = 123
@@ -3100,7 +3100,7 @@ func TestSwitchGetPaymentResult(t *testing.T) {
 	// added anything to the store yet, ErrPaymentIDNotFound should be
 	// returned.
 	lookup <- nil
-	_, err = s.GetPaymentResult(
+	_, err = s.GetAttemptResult(
 		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
 	)
 	if err != ErrPaymentIDNotFound {
@@ -3110,7 +3110,7 @@ func TestSwitchGetPaymentResult(t *testing.T) {
 	// Next let the lookup find the circuit in the circuit map. It should
 	// subscribe to payment results, and return the result when available.
 	lookup <- &PaymentCircuit{}
-	resultChan, err := s.GetPaymentResult(
+	resultChan, err := s.GetAttemptResult(
 		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
 	)
 	require.NoError(t, err, "unable to get payment result")
@@ -3151,7 +3151,7 @@ func TestSwitchGetPaymentResult(t *testing.T) {
 	// in the circuit map, it should be immediately available from the
 	// store.
 	lookup <- nil
-	resultChan, err = s.GetPaymentResult(
+	resultChan, err = s.GetAttemptResult(
 		paymentID, lntypes.Hash{}, newMockDeobfuscator(),
 	)
 	require.NoError(t, err, "unable to get payment result")
@@ -3257,7 +3257,7 @@ func TestInvalidFailure(t *testing.T) {
 		},
 	}
 
-	resultChan, err := s.GetPaymentResult(
+	resultChan, err := s.GetAttemptResult(
 		paymentID, rhash, &deobfuscator,
 	)
 	if err != nil {
@@ -3283,7 +3283,7 @@ func TestInvalidFailure(t *testing.T) {
 		},
 	}
 
-	resultChan, err = s.GetPaymentResult(
+	resultChan, err = s.GetAttemptResult(
 		paymentID, rhash, &deobfuscator,
 	)
 	if err != nil {
@@ -4415,7 +4415,7 @@ func TestSwitchDustForwarding(t *testing.T) {
 	require.NoError(t, err)
 	carolAttemptID++
 
-	carolResultChan, err := n.carolServer.htlcSwitch.GetPaymentResult(
+	carolResultChan, err := n.carolServer.htlcSwitch.GetAttemptResult(
 		uint64(carolAttemptID-1), carolHash, newMockDeobfuscator(),
 	)
 	require.NoError(t, err)

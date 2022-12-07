@@ -56,7 +56,7 @@ func (m *mockPaymentAttemptDispatcherOld) SendHTLC(
 	return nil
 }
 
-func (m *mockPaymentAttemptDispatcherOld) GetPaymentResult(paymentID uint64,
+func (m *mockPaymentAttemptDispatcherOld) GetAttemptResult(paymentID uint64,
 	_ lntypes.Hash, _ htlcswitch.ErrorDecrypter) (
 	<-chan *htlcswitch.PaymentResult, error) {
 
@@ -205,7 +205,7 @@ func (m *mockPayerOld) SendHTLC(_ lnwire.ShortChannelID,
 
 }
 
-func (m *mockPayerOld) GetPaymentResult(paymentID uint64, _ lntypes.Hash,
+func (m *mockPayerOld) GetAttemptResult(paymentID uint64, _ lntypes.Hash,
 	_ htlcswitch.ErrorDecrypter) (<-chan *htlcswitch.PaymentResult, error) {
 
 	select {
@@ -469,7 +469,7 @@ func (m *mockControlTowerOld) FailAttempt(phash lntypes.Hash, pid uint64,
 	return nil, fmt.Errorf("pid not found")
 }
 
-func (m *mockControlTowerOld) Fail(phash lntypes.Hash,
+func (m *mockControlTowerOld) FailPayment(phash lntypes.Hash,
 	reason channeldb.FailureReason) error {
 
 	m.Lock()
@@ -578,7 +578,7 @@ func (m *mockPaymentAttemptDispatcher) SendHTLC(firstHop lnwire.ShortChannelID,
 	return args.Error(0)
 }
 
-func (m *mockPaymentAttemptDispatcher) GetPaymentResult(attemptID uint64,
+func (m *mockPaymentAttemptDispatcher) GetAttemptResult(attemptID uint64,
 	paymentHash lntypes.Hash, deobfuscator htlcswitch.ErrorDecrypter) (
 	<-chan *htlcswitch.PaymentResult, error) {
 
@@ -733,7 +733,7 @@ func (m *mockControlTower) FailAttempt(phash lntypes.Hash, pid uint64,
 	return args.Get(0).(*channeldb.HTLCAttempt), args.Error(1)
 }
 
-func (m *mockControlTower) Fail(phash lntypes.Hash,
+func (m *mockControlTower) FailPayment(phash lntypes.Hash,
 	reason channeldb.FailureReason) error {
 
 	m.Lock()
@@ -758,6 +758,7 @@ func (m *mockControlTower) FetchPayment(phash lntypes.Hash) (
 	// Make a copy of the payment here to avoid data race.
 	p := args.Get(0).(*channeldb.MPPayment)
 	payment := &channeldb.MPPayment{
+		Info:          p.Info,
 		FailureReason: p.FailureReason,
 	}
 	payment.HTLCs = make([]channeldb.HTLCAttempt, len(p.HTLCs))

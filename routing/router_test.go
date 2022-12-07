@@ -3421,7 +3421,9 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 	// The following mocked methods are called inside resumePayment. Note
 	// that the payment object below will determine the state of the
 	// paymentLifecycle.
-	payment := &channeldb.MPPayment{}
+	payment := &channeldb.MPPayment{
+		Info: &channeldb.PaymentCreationInfo{Value: paymentAmt},
+	}
 	controlTower.On("FetchPayment", identifier).Return(payment, nil)
 
 	// Create a route that can send 1/4 of the total amount. This value
@@ -3441,9 +3443,9 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 		payment.HTLCs = append(payment.HTLCs, activeAttempt)
 	})
 
-	// Create a buffered chan and it will be returned by GetPaymentResult.
+	// Create a buffered chan and it will be returned by GetAttemptResult.
 	payer.resultChan = make(chan *htlcswitch.PaymentResult, 10)
-	payer.On("GetPaymentResult",
+	payer.On("GetAttemptResult",
 		mock.Anything, identifier, mock.Anything,
 	).Run(func(args mock.Arguments) {
 		// Before the mock method is returned, we send the result to
@@ -3588,7 +3590,9 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 	// The following mocked methods are called inside resumePayment. Note
 	// that the payment object below will determine the state of the
 	// paymentLifecycle.
-	payment := &channeldb.MPPayment{}
+	payment := &channeldb.MPPayment{
+		Info: &channeldb.PaymentCreationInfo{Value: paymentAmt},
+	}
 	controlTower.On("FetchPayment", identifier).Return(payment, nil)
 
 	// Create a route that can send 1/4 of the total amount. This value
@@ -3608,14 +3612,14 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 		payment.HTLCs = append(payment.HTLCs, activeAttempt)
 	})
 
-	// Create a buffered chan and it will be returned by GetPaymentResult.
+	// Create a buffered chan and it will be returned by GetAttemptResult.
 	payer.resultChan = make(chan *htlcswitch.PaymentResult, 10)
 
 	// We use the failAttemptCount to track how many attempts we want to
 	// fail. Each time the following mock method is called, the count gets
 	// updated.
 	failAttemptCount := 0
-	payer.On("GetPaymentResult",
+	payer.On("GetAttemptResult",
 		mock.Anything, identifier, mock.Anything,
 	).Run(func(args mock.Arguments) {
 		// Before the mock method is returned, we send the result to
@@ -3800,7 +3804,9 @@ func TestSendMPPaymentFailed(t *testing.T) {
 	// The following mocked methods are called inside resumePayment. Note
 	// that the payment object below will determine the state of the
 	// paymentLifecycle.
-	payment := &channeldb.MPPayment{}
+	payment := &channeldb.MPPayment{
+		Info: &channeldb.PaymentCreationInfo{Value: paymentAmt},
+	}
 	controlTower.On("FetchPayment", identifier).Return(payment, nil)
 
 	// Create a route that can send 1/4 of the total amount. This value
@@ -3820,14 +3826,14 @@ func TestSendMPPaymentFailed(t *testing.T) {
 		payment.HTLCs = append(payment.HTLCs, activeAttempt)
 	})
 
-	// Create a buffered chan and it will be returned by GetPaymentResult.
+	// Create a buffered chan and it will be returned by GetAttemptResult.
 	payer.resultChan = make(chan *htlcswitch.PaymentResult, 10)
 
 	// We use the failAttemptCount to track how many attempts we want to
 	// fail. Each time the following mock method is called, the count gets
 	// updated.
 	failAttemptCount := 0
-	payer.On("GetPaymentResult",
+	payer.On("GetAttemptResult",
 		mock.Anything, identifier, mock.Anything,
 	).Run(func(args mock.Arguments) {
 		// Before the mock method is returned, we send the result to
@@ -3896,7 +3902,7 @@ func TestSendMPPaymentFailed(t *testing.T) {
 	})
 
 	// Simple mocking the rest.
-	controlTower.On("Fail", identifier, failureReason).Return(nil)
+	controlTower.On("FailPayment", identifier, failureReason).Return(nil)
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil)
@@ -4004,7 +4010,9 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 	// The following mocked methods are called inside resumePayment. Note
 	// that the payment object below will determine the state of the
 	// paymentLifecycle.
-	payment := &channeldb.MPPayment{}
+	payment := &channeldb.MPPayment{
+		Info: &channeldb.PaymentCreationInfo{Value: paymentAmt},
+	}
 	controlTower.On("FetchPayment", identifier).Return(payment, nil)
 
 	// Create a route that can send 1/4 of the total amount. This value
@@ -4024,18 +4032,18 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 		payment.HTLCs = append(payment.HTLCs, activeAttempt)
 	})
 
-	// Create a buffered chan and it will be returned by GetPaymentResult.
+	// Create a buffered chan and it will be returned by GetAttemptResult.
 	payer.resultChan = make(chan *htlcswitch.PaymentResult, 10)
 
 	// We use the getPaymentResultCnt to track how many times we called
-	// GetPaymentResult. As shard launch is sequential, and we fail the
-	// first shard that calls GetPaymentResult, we may end up with different
+	// GetAttemptResult. As shard launch is sequential, and we fail the
+	// first shard that calls GetAttemptResult, we may end up with different
 	// counts since the lifecycle itself is asynchronous. To avoid flakes
 	// due to this undeterminsitic behavior, we'll compare the final
 	// getPaymentResultCnt with other counters to create a final test
 	// expectation.
 	getPaymentResultCnt := 0
-	payer.On("GetPaymentResult",
+	payer.On("GetAttemptResult",
 		mock.Anything, identifier, mock.Anything,
 	).Run(func(args mock.Arguments) {
 		// Before the mock method is returned, we send the result to
@@ -4091,7 +4099,7 @@ func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
 
 	// Simple mocking the rest.
 	cntFail := 0
-	controlTower.On("Fail", identifier, failureReason).Return(nil)
+	controlTower.On("FailPayment", identifier, failureReason).Return(nil)
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil).Run(func(args mock.Arguments) {
@@ -4254,9 +4262,9 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil)
 
-	// Create a buffered chan and it will be returned by GetPaymentResult.
+	// Create a buffered chan and it will be returned by GetAttemptResult.
 	payer.resultChan = make(chan *htlcswitch.PaymentResult, 1)
-	payer.On("GetPaymentResult",
+	payer.On("GetAttemptResult",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Run(func(_ mock.Arguments) {
 		// Send a successful payment result.
@@ -4329,7 +4337,7 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil)
 
-	// Create a buffered chan and it will be returned by GetPaymentResult.
+	// Create a buffered chan and it will be returned by GetAttemptResult.
 	payer.resultChan = make(chan *htlcswitch.PaymentResult, 1)
 
 	// Create the error to be returned.
@@ -4338,8 +4346,8 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 		1,
 	)
 
-	// Mock GetPaymentResult to return a failure.
-	payer.On("GetPaymentResult",
+	// Mock GetAttemptResult to return a failure.
+	payer.On("GetAttemptResult",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Run(func(_ mock.Arguments) {
 		// Send an attempt failure.
@@ -4412,13 +4420,13 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	).Return(testAttempt, nil)
 
 	// Expect the payment to be failed.
-	controlTower.On("Fail", payHash, mock.Anything).Return(nil)
+	controlTower.On("FailPayment", payHash, mock.Anything).Return(nil)
 
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil)
 
-	// Create a buffered chan and it will be returned by GetPaymentResult.
+	// Create a buffered chan and it will be returned by GetAttemptResult.
 	payer.resultChan = make(chan *htlcswitch.PaymentResult, 1)
 
 	// Create the error to be returned.
@@ -4426,8 +4434,8 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 		&lnwire.FailIncorrectDetails{}, 1,
 	)
 
-	// Mock GetPaymentResult to return a failure.
-	payer.On("GetPaymentResult",
+	// Mock GetAttemptResult to return a failure.
+	payer.On("GetAttemptResult",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Run(func(_ mock.Arguments) {
 		// Send a permanent failure.
@@ -4501,13 +4509,13 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	).Return(testAttempt, nil)
 
 	// Expect the payment to be failed.
-	controlTower.On("Fail", payHash, mock.Anything).Return(nil)
+	controlTower.On("FailPayment", payHash, mock.Anything).Return(nil)
 
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil)
 
-	// Create a buffered chan and it will be returned by GetPaymentResult.
+	// Create a buffered chan and it will be returned by GetAttemptResult.
 	payer.resultChan = make(chan *htlcswitch.PaymentResult, 1)
 
 	// Create the error to be returned.
@@ -4516,8 +4524,8 @@ func TestSendToRouteTempFailure(t *testing.T) {
 		1,
 	)
 
-	// Mock GetPaymentResult to return a failure.
-	payer.On("GetPaymentResult",
+	// Mock GetAttemptResult to return a failure.
+	payer.On("GetAttemptResult",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Run(func(_ mock.Arguments) {
 		// Send an attempt failure.

@@ -457,7 +457,10 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt,
 	}
 
 	// Mark the payment as failed.
-	if err := pControl.Fail(info.PaymentIdentifier, channeldb.FailureReasonTimeout); err != nil {
+	err = pControl.FailPayment(
+		info.PaymentIdentifier, channeldb.FailureReasonTimeout,
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
 

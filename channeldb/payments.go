@@ -1176,6 +1176,12 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 		records = append(records, record.NewMetadataRecord(&h.Metadata))
 	}
 
+	// Signal attributable errors.
+	if h.AttrError {
+		attrError := record.NewAttributableError()
+		records = append(records, attrError.Record())
+	}
+
 	// Final sanity check to absolutely rule out custom records that are not
 	// custom and write into the standard range.
 	if err := h.CustomRecords.Validate(); err != nil {
@@ -1295,6 +1301,13 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 		delete(tlvMap, metadataType)
 
 		h.Metadata = metadata
+	}
+
+	attributableErrorType := uint64(record.AttributableErrorOnionType)
+	if _, ok := tlvMap[attributableErrorType]; ok {
+		delete(tlvMap, attributableErrorType)
+
+		h.AttrError = true
 	}
 
 	h.CustomRecords = tlvMap

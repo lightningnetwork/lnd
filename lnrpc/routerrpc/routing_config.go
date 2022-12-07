@@ -41,6 +41,10 @@ type RoutingConfig struct {
 
 	// BimodalConfig defines parameters for the bimodal probability.
 	BimodalConfig *BimodalConfig `group:"bimodal" namespace:"bimodal" description:"configuration for the bimodal pathfinding probability estimator"`
+
+	// AttrErrors indicates whether attributable errors should be requested
+	// if the whole route supports it.
+	AttrErrors bool `long:"attrerrors" description:"request attributable errors if the whole route supports it"`
 }
 
 // AprioriConfig defines parameters for the apriori probability.

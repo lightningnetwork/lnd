@@ -131,6 +131,9 @@ type Hop struct {
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// AttrError signals that the sender wants to use attributable errors.
+	AttrError bool
 }
 
 // Copy returns a deep copy of the Hop.
@@ -175,6 +178,12 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 		record.NewAmtToFwdRecord(&amt),
 		record.NewLockTimeRecord(&h.OutgoingTimeLock),
 	)
+
+	// Add attributable error structure if used.
+	if h.AttrError {
+		attrErrorRecord := record.NewAttributableError()
+		records = append(records, attrErrorRecord.Record())
+	}
 
 	// BOLT 04 says the next_hop_id should be omitted for the final hop,
 	// but present for all others.
@@ -254,6 +263,11 @@ func (h *Hop) PayloadSize(nextChanID uint64) uint64 {
 		record.LockTimeOnionType,
 		tlv.SizeTUint64(uint64(h.OutgoingTimeLock)),
 	)
+
+	// Add attributable error structure.
+	if h.AttrError {
+		addRecord(record.AttributableErrorOnionType, 0)
+	}
 
 	// Add next hop if present.
 	if nextChanID != 0 {

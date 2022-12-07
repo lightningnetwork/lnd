@@ -391,6 +391,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 				paymentAddr: p.payment.PaymentAddr,
 				metadata:    p.payment.Metadata,
 			},
+			p.pathFindingConfig.AttrErrors,
 		)
 		if err != nil {
 			return nil, err

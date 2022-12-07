@@ -11,6 +11,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -105,6 +106,36 @@ type finalHopParams struct {
 	metadata []byte
 }
 
+// useAttrErrors returns true if the path can use attributable errors.
+func useAttrErrors(pathEdges []*channeldb.CachedEdgePolicy) bool {
+	// Use legacy errors if the route length exceeds the maximum number of
+	// hops for attributable errors.
+	if len(pathEdges) > hop.AttrErrorStruct.HopCount() {
+		return false
+	}
+
+	// Every node along the path must signal support for attributable
+	// errors.
+	for _, edge := range pathEdges {
+		// Get the node features.
+		toFeat := edge.ToNodeFeatures
+
+		// If there are no features known, assume the node cannot handle
+		// attributable errors.
+		if toFeat == nil {
+			return false
+		}
+
+		// If the node does not signal support for attributable errors,
+		// do not use them.
+		if !toFeat.HasFeature(lnwire.AttributableErrorsOptional) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // newRoute constructs a route using the provided path and final hop constraints.
 // Any destination specific fields from the final hop params  will be attached
 // assuming the destination's feature vector signals support, otherwise this
@@ -117,7 +148,7 @@ type finalHopParams struct {
 // dependencies.
 func newRoute(sourceVertex route.Vertex,
 	pathEdges []*channeldb.CachedEdgePolicy, currentHeight uint32,
-	finalHop finalHopParams) (*route.Route, error) {
+	finalHop finalHopParams, attrErrors bool) (*route.Route, error) {
 
 	var (
 		hops []*route.Hop
@@ -133,6 +164,9 @@ func newRoute(sourceVertex route.Vertex,
 		// sender of the payment.
 		nextIncomingAmount lnwire.MilliSatoshi
 	)
+
+	// Use attributable errors if enabled and supported by the route.
+	attributableErrors := attrErrors && useAttrErrors(pathEdges)
 
 	pathLength := len(pathEdges)
 	for i := pathLength - 1; i >= 0; i-- {
@@ -250,6 +284,7 @@ func newRoute(sourceVertex route.Vertex,
 			CustomRecords:    customRecords,
 			MPP:              mpp,
 			Metadata:         metadata,
+			AttrError:        attributableErrors,
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)
@@ -371,6 +406,10 @@ type PathFindingConfig struct {
 	// MinProbability defines the minimum success probability of the
 	// returned route.
 	MinProbability float64
+
+	// AttrErrors indicates whether we should use the new attributable
+	// errors if the nodes on the route allow it.
+	AttrErrors bool
 }
 
 // getOutgoingBalance returns the maximum available balance in any of the

@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
-	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -556,11 +555,14 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	}
 
 	// Using the created circuit, initialize the error decrypter so we can
-	// parse+decode any failures incurred by this payment within the
-	// switch.
-	errorDecryptor := &htlcswitch.SphinxErrorDecrypter{
-		OnionErrorDecrypter: sphinx.NewOnionErrorDecrypter(circuit),
-	}
+	// parse+decode any failures incurred by this payment within the switch.
+	//
+	// The resolution format to use for the decryption is based on the
+	// instruction that we gave to the first hop.
+	attrError := attempt.Route.Hops[0].AttrError
+	errorDecryptor := htlcswitch.NewSphinxErrorDecrypter(
+		circuit, attrError,
+	)
 
 	// Now ask the switch to return the result of the payment when
 	// available.

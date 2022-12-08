@@ -294,6 +294,9 @@ func (h *HarnessTest) resetStandbyNodes(t *testing.T) {
 		// config for the coming test. This will also inherit the
 		// test's running context.
 		h.RestartNodeWithExtraArgs(hn, hn.Cfg.OriginalExtraArgs)
+
+		// Update the node's internal state.
+		hn.UpdateState()
 	}
 }
 
@@ -404,9 +407,6 @@ func (h *HarnessTest) cleanupStandbyNode(hn *node.HarnessNode) {
 
 	// Delete all payments made from this test.
 	hn.RPC.DeleteAllPayments()
-
-	// Update the node's internal state.
-	hn.UpdateState()
 
 	// Finally, check the node is in a clean state for the following tests.
 	h.validateNodeState(hn)

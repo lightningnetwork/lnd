@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -31,17 +30,28 @@ func testListPayments(ht *lntemp.HarnessTest) {
 		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
 
+	// Get the number of invoices Bob already has.
+	//
+	// TODO(yy): we can remove this check once the `DeleteAllInvoices` rpc
+	// is added.
+	invResp := bob.RPC.ListInvoices(nil)
+	numOldInvoices := len(invResp.Invoices)
+
 	// Now that the channel is open, create an invoice for Bob which
 	// expects a payment of 1000 satoshis from Alice paid via a particular
 	// preimage.
 	const paymentAmt = 1000
-	preimage := bytes.Repeat([]byte("B"), 32)
+	preimage := ht.Random32Bytes()
 	invoice := &lnrpc.Invoice{
 		Memo:      "testing",
 		RPreimage: preimage,
 		Value:     paymentAmt,
 	}
 	invoiceResp := bob.RPC.AddInvoice(invoice)
+
+	// Check that Bob has added the invoice.
+	numInvoices := numOldInvoices + 1
+	ht.AssertNumInvoices(bob, 1)
 
 	// With the invoice for Bob added, send a payment towards Alice paying
 	// to the above generated invoice.
@@ -113,8 +123,8 @@ func testListPayments(ht *lntemp.HarnessTest) {
 	invReq := &lnrpc.ListInvoiceRequest{
 		CreationDateStart: 1227035905,
 	}
-	invResp := bob.RPC.ListInvoices(invReq)
-	require.Len(ht, invResp.Invoices, 1)
+	invResp = bob.RPC.ListInvoices(invReq)
+	require.Len(ht, invResp.Invoices, numInvoices)
 
 	// Use an end date long time ago should return us nothing.
 	invReq = &lnrpc.ListInvoiceRequest{
@@ -135,7 +145,7 @@ func testListPayments(ht *lntemp.HarnessTest) {
 		CreationDateEnd: 5392552705,
 	}
 	invResp = bob.RPC.ListInvoices(invReq)
-	require.Len(ht, invResp.Invoices, 1)
+	require.Len(ht, invResp.Invoices, numInvoices)
 
 	// Delete all payments from Alice. DB should have no payments.
 	alice.RPC.DeleteAllPayments()
@@ -152,7 +162,7 @@ func testListPayments(ht *lntemp.HarnessTest) {
 	time.Sleep(2 * time.Second)
 
 	// Close the channel.
-	defer ht.CloseChannel(alice, chanPoint)
+	ht.CloseChannel(alice, chanPoint)
 }
 
 // testPaymentFollowingChannelOpen tests that the channel transition from

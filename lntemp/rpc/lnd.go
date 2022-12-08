@@ -194,6 +194,10 @@ func (h *HarnessRPC) ListInvoices(
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
+	if req == nil {
+		req = &lnrpc.ListInvoiceRequest{}
+	}
+
 	resp, err := h.LN.ListInvoices(ctxt, req)
 	h.NoError(err, "ListInvoice")
 

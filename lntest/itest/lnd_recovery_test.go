@@ -355,18 +355,15 @@ func testRescanAddressDetection(ht *lntemp.HarnessTest) {
 	// Make sure we see the change output in our list of unspent outputs.
 	// We _don't_ expect to see the ghost UTXO here as in this step it's
 	// ignored as an internal address correctly.
-	// TODO(guggero): This is incorrect, should only be 1 UTXO.
-	ht.AssertNumUTXOsConfirmed(carol, 2)
+	ht.AssertNumUTXOsConfirmed(carol, 1)
 	unspent := carol.RPC.ListUnspent(&walletrpc.ListUnspentRequest{
 		MinConfs: 1,
 	})
 
 	// Which one was the change output and which one the ghost UTXO output?
 	var ghostUtxoIndex uint32
-	if unspent.Utxos[0].Address == ghostUtxoAddr.String() {
-		ghostUtxoIndex = unspent.Utxos[0].Outpoint.OutputIndex
-	} else {
-		ghostUtxoIndex = unspent.Utxos[1].Outpoint.OutputIndex
+	if unspent.Utxos[0].Outpoint.OutputIndex == 0 {
+		ghostUtxoIndex = 1
 	}
 
 	ghostUtxoHash, err := chainhash.NewHash(
@@ -442,6 +439,5 @@ func testRescanAddressDetection(ht *lntemp.HarnessTest) {
 
 	// There should now still only be a single UTXO from the change output
 	// instead of two (the ghost UTXO should be missing if the fix works).
-	// TODO(guggero): This is incorrect, should only be 1 UTXO.
-	ht.AssertNumUTXOsConfirmed(carol, 2)
+	ht.AssertNumUTXOsConfirmed(carol, 1)
 }

@@ -215,6 +215,11 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   `getblockhash`, and `getbestblock`. These commands provide access to chain
   block data.
 
+* [Move channel link reestablishment from `htlcManager` to its `Start`
+  method.](https://github.com/lightningnetwork/lnd/pull/7244) This way when a
+  link is started, the caller can expect a working link to be ready for
+  forwarding htlcs.
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test

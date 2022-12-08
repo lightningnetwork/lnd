@@ -3373,98 +3373,94 @@ func (l *channelLink) reestablish() bool {
 	// ActiveLinkEvent.
 	l.cfg.NotifyActiveLink(*l.ChannelPoint())
 
+	// Exit early if there's no need to re-synchronize.
+	if !l.cfg.SyncStates {
+		return true
+	}
+
 	// If this isn't the first time that this channel link has been
 	// created, then we'll need to check to see if we need to
 	// re-synchronize state with the remote peer. settledHtlcs is a map of
 	// HTLC's that we re-settled as part of the channel state sync.
-	if l.cfg.SyncStates {
-		err := l.syncChanStates()
-		if err != nil {
-			l.log.Warnf("error when syncing channel states: %v", err)
+	err := l.syncChanStates()
 
-			errDataLoss, localDataLoss :=
-				err.(*lnwallet.ErrCommitSyncLocalDataLoss)
-
-			switch {
-			case err == ErrLinkShuttingDown:
-				l.log.Debugf("unable to sync channel states, " +
-					"link is shutting down")
-				return false
-
-			// We failed syncing the commit chains, probably
-			// because the remote has lost state. We should force
-			// close the channel.
-			case err == lnwallet.ErrCommitSyncRemoteDataLoss:
-				fallthrough
-
-			// The remote sent us an invalid last commit secret, we
-			// should force close the channel.
-			// TODO(halseth): and permanently ban the peer?
-			case err == lnwallet.ErrInvalidLastCommitSecret:
-				fallthrough
-
-			// The remote sent us a commit point different from
-			// what they sent us before.
-			// TODO(halseth): ban peer?
-			case err == lnwallet.ErrInvalidLocalUnrevokedCommitPoint:
-				// We'll fail the link and tell the peer to
-				// force close the channel. Note that the
-				// database state is not updated here, but will
-				// be updated when the close transaction is
-				// ready to avoid that we go down before
-				// storing the transaction in the db.
-				l.fail(
-					LinkFailureError{
-						code:       ErrSyncError,
-						ForceClose: true,
-					},
-					"unable to synchronize channel "+
-						"states: %v", err,
-				)
-				return false
-
-			// We have lost state and cannot safely force close the
-			// channel. Fail the channel and wait for the remote to
-			// hopefully force close it. The remote has sent us its
-			// latest unrevoked commitment point, and we'll store
-			// it in the database, such that we can attempt to
-			// recover the funds if the remote force closes the
-			// channel.
-			case localDataLoss:
-				err := l.channel.MarkDataLoss(
-					errDataLoss.CommitPoint,
-				)
-				if err != nil {
-					l.log.Errorf("unable to mark channel "+
-						"data loss: %v", err)
-				}
-
-			// We determined the commit chains were not possible to
-			// sync. We cautiously fail the channel, but don't
-			// force close.
-			// TODO(halseth): can we safely force close in any
-			// cases where this error is returned?
-			case err == lnwallet.ErrCannotSyncCommitChains:
-				if err := l.channel.MarkBorked(); err != nil {
-					l.log.Errorf("unable to mark channel "+
-						"borked: %v", err)
-				}
-
-			// Other, unspecified error.
-			default:
-			}
-
-			l.fail(
-				LinkFailureError{
-					code:       ErrRecoveryError,
-					ForceClose: false,
-				},
-				"unable to synchronize channel "+
-					"states: %v", err,
-			)
-			return false
-		}
+	// Exit early if there's no error.
+	if err == nil {
+		return true
 	}
 
-	return true
+	l.log.Warnf("error when syncing channel states: %v", err)
+
+	errDataLoss, localDataLoss := err.(*lnwallet.ErrCommitSyncLocalDataLoss)
+
+	switch {
+	case errors.Is(err, ErrLinkShuttingDown):
+		l.log.Debugf("unable to sync channel states, link is " +
+			"shutting down")
+		return false
+
+	// We failed syncing the commit chains, probably because the remote has
+	// lost state. We should force close the channel.
+	case errors.Is(err, lnwallet.ErrCommitSyncRemoteDataLoss):
+		fallthrough
+
+	// The remote sent us an invalid last commit secret, we should force
+	// close the channel.
+	// TODO(halseth): and permanently ban the peer?
+	case errors.Is(err, lnwallet.ErrInvalidLastCommitSecret):
+		fallthrough
+
+	// The remote sent us a commit point different from what they sent us
+	// before.
+	// TODO(halseth): ban peer?
+	case errors.Is(err, lnwallet.ErrInvalidLocalUnrevokedCommitPoint):
+		// We'll fail the link and tell the peer to force close the
+		// channel. Note that the database state is not updated here,
+		// but will be updated when the close transaction is ready to
+		// avoid that we go down before storing the transaction in the
+		// db.
+		l.fail(
+			LinkFailureError{
+				code:       ErrSyncError,
+				ForceClose: true,
+			},
+			"unable to synchronize channel states: %v", err,
+		)
+		return false
+
+	// We have lost state and cannot safely force close the channel. Fail
+	// the channel and wait for the remote to hopefully force close it. The
+	// remote has sent us its latest unrevoked commitment point, and we'll
+	// store it in the database, such that we can attempt to recover the
+	// funds if the remote force closes the channel.
+	case localDataLoss:
+		err := l.channel.MarkDataLoss(errDataLoss.CommitPoint)
+		if err != nil {
+			l.log.Errorf("unable to mark channel data loss: %v",
+				err)
+		}
+
+	// We determined the commit chains were not possible to sync. We
+	// cautiously fail the channel, but don't force close.
+	// TODO(halseth): can we safely force close in any cases where this
+	// error is returned?
+	case errors.Is(err, lnwallet.ErrCannotSyncCommitChains):
+		if err := l.channel.MarkBorked(); err != nil {
+			l.log.Errorf("unable to mark channel borked: %v", err)
+		}
+
+	// Other, unspecified error.
+	default:
+		l.log.Errorf("Unexpected error from syncing state: %v", err)
+	}
+
+	l.fail(
+		LinkFailureError{
+			code:       ErrRecoveryError,
+			ForceClose: false,
+		},
+		"unable to synchronize channel states: %v", err,
+	)
+
+	return false
 }

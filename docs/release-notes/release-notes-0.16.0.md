@@ -290,7 +290,8 @@ implemented, please refer to
 details. Along the way, several
 PRs([6776](https://github.com/lightningnetwork/lnd/pull/6776),
 [6822](https://github.com/lightningnetwork/lnd/pull/6822),
-[7172](https://github.com/lightningnetwork/lnd/pull/7172)) have been made to
+[7172](https://github.com/lightningnetwork/lnd/pull/7172),
+[7245](https://github.com/lightningnetwork/lnd/pull/7245)) have been made to
 refactor the itest for code health and maintenance.
 
 # Contributors (Alphabetical Order)

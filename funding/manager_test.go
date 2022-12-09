@@ -202,9 +202,29 @@ func (m *mockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint, _ []byte,
 	}, nil
 }
 
+type mockChanWatcher struct {
+	watchEvent  chan *channeldb.OpenChannel
+	cancelEvent chan *channeldb.OpenChannel
+}
+
+func (m *mockChanWatcher) WatchNewChannel(channel *channeldb.OpenChannel,
+	_ *btcec.PublicKey) error {
+
+	m.watchEvent <- channel
+	return nil
+}
+
+func (m *mockChanWatcher) CancelWatchChannel(
+	channel *channeldb.OpenChannel) error {
+
+	m.cancelEvent <- channel
+	return nil
+}
+
 type mockChanEvent struct {
 	openEvent        chan wire.OutPoint
 	pendingOpenEvent chan channelnotifier.PendingOpenChannelEvent
+	closedEvent      chan wire.OutPoint
 }
 
 func (m *mockChanEvent) NotifyOpenChannelEvent(outpoint wire.OutPoint) {
@@ -218,6 +238,10 @@ func (m *mockChanEvent) NotifyPendingOpenChannelEvent(outpoint wire.OutPoint,
 		ChannelPoint:   &outpoint,
 		PendingChannel: pendingChannel,
 	}
+}
+
+func (m *mockChanEvent) NotifyClosedChannelEvent(outpoint wire.OutPoint) {
+	m.closedEvent <- outpoint
 }
 
 // mockZeroConfAcceptor always accepts the channel open request for zero-conf
@@ -247,6 +271,7 @@ type testNode struct {
 	fundingMgr      *Manager
 	newChannels     chan *newChannelMsg
 	mockNotifier    *mockNotifier
+	mockChanWatcher *mockChanWatcher
 	mockChanEvent   *mockChanEvent
 	testDir         string
 	shutdownChannel chan struct{}
@@ -380,6 +405,13 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		BestHeight: fundingBroadcastHeight,
 	}
 
+	// The mock channel watcher receives WatchNewChannel calls that would
+	// normally go to the ChainArbitrator.
+	watcher := &mockChanWatcher{
+		watchEvent:  make(chan *channeldb.OpenChannel, maxPending),
+		cancelEvent: make(chan *channeldb.OpenChannel, maxPending),
+	}
+
 	// The mock channel event notifier will receive events for each pending
 	// open and open channel. Because some tests will create multiple
 	// channels in a row before advancing to the next step, these channels
@@ -389,6 +421,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		pendingOpenEvent: make(
 			chan channelnotifier.PendingOpenChannelEvent, maxPending,
 		),
+		closedEvent: make(chan wire.OutPoint, maxPending),
 	}
 
 	dbDir := filepath.Join(tempTestDir, "cdb")
@@ -488,9 +521,8 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
 			return uint16(input.MaxHTLCNumber / 2)
 		},
-		WatchNewChannel: func(*channeldb.OpenChannel, *btcec.PublicKey) error {
-			return nil
-		},
+		WatchNewChannel:    watcher.WatchNewChannel,
+		CancelWatchChannel: watcher.CancelWatchChannel,
 		ReportShortChanID: func(wire.OutPoint) error {
 			reportScidChan <- struct{}{}
 			return nil
@@ -510,6 +542,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		NotifyOpenChannelEvent:        evt.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
+		NotifyClosedChannelEvent:      evt.NotifyClosedChannelEvent,
 		RegisteredChains:              chainreg.NewChainRegistry(),
 		DeleteAliasEdge: func(scid lnwire.ShortChannelID) (
 			*channeldb.ChannelEdgePolicy, error) {
@@ -537,6 +570,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		publTxChan:      publTxChan,
 		fundingMgr:      f,
 		mockNotifier:    chainNotifier,
+		mockChanWatcher: watcher,
 		mockChanEvent:   evt,
 		testDir:         tempTestDir,
 		shutdownChannel: shutdownChan,
@@ -833,6 +867,18 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		t.Fatalf("bob did not send pending channel event")
 	}
 
+	// Make sure the ChainArbitrator was informed about the pending channel.
+	select {
+	case <-alice.mockChanWatcher.watchEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send pending channel event")
+	}
+	select {
+	case <-bob.mockChanWatcher.watchEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send pending channel event")
+	}
+
 	// Finally, make sure neither have active reservation for the channel
 	// now pending open in the database.
 	assertNumPendingReservations(t, alice, bobPubKey, 0)
@@ -1029,6 +1075,34 @@ func assertMarkedOpen(t *testing.T, alice, bob *testNode,
 
 	assertDatabaseState(t, alice, fundingOutPoint, markedOpen)
 	assertDatabaseState(t, bob, fundingOutPoint, markedOpen)
+}
+
+func assertNotifiedClosed(t *testing.T, node *testNode,
+	fundingOutPoint *wire.OutPoint) {
+
+	t.Helper()
+
+	checkOutPoint := func(op *wire.OutPoint) bool {
+		return fundingOutPoint.Hash.IsEqual(&op.Hash) &&
+			fundingOutPoint.Index == op.Index
+	}
+
+	// Make sure the ChannelNotifier was notified about this closed channel.
+	select {
+	case op := <-node.mockChanEvent.closedEvent:
+		require.True(t, checkOutPoint(&op), "wrong outpoint closed")
+	case <-time.After(time.Second * 5):
+		t.Fatal("closed channel notification not sent")
+	}
+
+	// Make sure the ChainArbitrator was notified about the closed channel.
+	select {
+	case ch := <-node.mockChanWatcher.cancelEvent:
+		require.True(t, checkOutPoint(&ch.FundingOutpoint),
+			"wrong channel watcher canceled")
+	case <-time.After(time.Second * 5):
+		t.Fatal("channel watcher not canceled")
+	}
 }
 
 func assertFundingLockedSent(t *testing.T, alice, bob *testNode,
@@ -2137,7 +2211,8 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true)
+	fundingOutPoint, _ := openChannel(t, alice, bob, 500000, 0, 1,
+		updateChan, true)
 
 	// Bob will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
@@ -2166,6 +2241,9 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 
 	// Should not be pending anymore.
 	assertNumPendingChannelsBecomes(t, bob, 0)
+
+	// Bob should have notified that the pending channel is now closed.
+	assertNotifiedClosed(t, bob, fundingOutPoint)
 }
 
 // TestFundingManagerFundingNotTimeoutInitiator checks that if the user was
@@ -2183,7 +2261,8 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true)
+	fundingOutPoint, _ := openChannel(t, alice, bob, 500000, 0, 1,
+		updateChan, true)
 
 	// Alice will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
@@ -2234,6 +2313,9 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 
 	// Since Bob was not the initiator, the channel should timeout.
 	assertNumPendingChannelsBecomes(t, bob, 0)
+
+	// Bob should have notified that the pending channel is now closed.
+	assertNotifiedClosed(t, bob, fundingOutPoint)
 }
 
 // TestFundingManagerReceiveFundingLockedTwice checks that the fundingManager

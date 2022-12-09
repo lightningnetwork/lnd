@@ -430,6 +430,12 @@ type Config struct {
 	// node we're establishing a channel with for reconnection purposes.
 	WatchNewChannel func(*channeldb.OpenChannel, *btcec.PublicKey) error
 
+	// CancelWatchChannel is to be called when a pending channel is
+	// abandoned and marked closed (e.g., due to timeout). This method
+	// informs the ChainArbitrator, so it can stop watching for on-chain
+	// events related to the channel.
+	CancelWatchChannel func(*channeldb.OpenChannel) error
+
 	// ReportShortChanID allows the funding manager to report the confirmed
 	// short channel ID of a formerly pending zero-conf channel to outside
 	// sub-systems.
@@ -478,6 +484,10 @@ type Config struct {
 	// NotifyPendingOpenChannelEvent informs the ChannelNotifier when channels
 	// enter a pending state.
 	NotifyPendingOpenChannelEvent func(wire.OutPoint, *channeldb.OpenChannel)
+
+	// NotifyClosedChannelEvent informs the ChannelNotifier when a pending
+	// channel is abandoned and marked closed (e.g., due to timeout).
+	NotifyClosedChannelEvent func(wire.OutPoint)
 
 	// EnableUpfrontShutdown specifies whether the upfront shutdown script
 	// is enabled.
@@ -2470,6 +2480,16 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 	); err != nil {
 		return fmt.Errorf("failed closing channel %v: %v",
 			c.FundingOutpoint, err)
+	}
+
+	// Since we've previously notified that this channel was pending open,
+	// we also need to notify now that it's closed.
+	f.cfg.NotifyClosedChannelEvent(c.FundingOutpoint)
+
+	// Likewise, we also need to tell the ChainArbitrator it doesn't need to
+	// watch events for this channel anymore.
+	if err := f.cfg.CancelWatchChannel(c); err != nil {
+		log.Errorf("failed to cancel watching channel: %v", err)
 	}
 
 	timeoutErr := fmt.Errorf("timeout waiting for funding tx (%v) to "+

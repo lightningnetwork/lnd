@@ -1362,6 +1362,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// the chain arb so it can react to on-chain events.
 			return s.chainArb.WatchNewChannel(channel)
 		},
+		CancelWatchChannel: func(
+			channel *channeldb.OpenChannel) error {
+
+			return s.chainArb.ResolveContract(
+				channel.FundingOutpoint)
+		},
 		ReportShortChanID: func(chanPoint wire.OutPoint) error {
 			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
 			return s.htlcSwitch.UpdateShortChanID(cid)
@@ -1407,8 +1413,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NotifyOpenChannelEvent:        s.channelNotifier.NotifyOpenChannelEvent,
 		OpenChannelPredicate:          chanPredicate,
 		NotifyPendingOpenChannelEvent: s.channelNotifier.NotifyPendingOpenChannelEvent,
-		EnableUpfrontShutdown:         cfg.EnableUpfrontShutdown,
-		RegisteredChains:              cfg.registeredChains,
+		NotifyClosedChannelEvent: s.channelNotifier.
+			NotifyClosedChannelEvent,
+		EnableUpfrontShutdown: cfg.EnableUpfrontShutdown,
+		RegisteredChains:      cfg.registeredChains,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		DeleteAliasEdge: deleteAliasEdge,

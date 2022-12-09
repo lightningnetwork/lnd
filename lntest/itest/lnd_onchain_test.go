@@ -24,34 +24,28 @@ import (
 
 // testChainKit tests ChainKit RPC endpoints.
 func testChainKit(ht *lntemp.HarnessTest) {
-	ctx := context.Background()
-
-	// Test functions registered as test cases spin up separate nodes during
-	// execution. By calling sub-test functions as seen below we avoid the
-	// need to start separate nodes.
-	testChainKitGetBlock(ctx, ht)
-	testChainKitGetBlockHash(ctx, ht)
+	// Test functions registered as test cases spin up separate nodes
+	// during execution. By calling sub-test functions as seen below we
+	// avoid the need to start separate nodes.
+	testChainKitGetBlock(ht)
+	testChainKitGetBlockHash(ht)
 }
 
 // testChainKitGetBlock ensures that given a block hash, the RPC endpoint
 // returns the correct target block.
-func testChainKitGetBlock(ctx context.Context, ht *lntemp.HarnessTest) {
+func testChainKitGetBlock(ht *lntemp.HarnessTest) {
 	// Get best block hash.
-	bestBlockRes, err := ht.Alice.RPC.ChainKit.GetBestBlock(
-		ctx, &chainrpc.GetBestBlockRequest{},
-	)
-	require.NoError(ht, err)
+	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
+
 	var bestBlockHash chainhash.Hash
-	err = bestBlockHash.SetBytes(bestBlockRes.BlockHash)
+	err := bestBlockHash.SetBytes(bestBlockRes.BlockHash)
 	require.NoError(ht, err)
 
 	// Retrieve the best block by hash.
-	getBlockRes, err := ht.Alice.RPC.ChainKit.GetBlock(
-		ctx, &chainrpc.GetBlockRequest{
-			BlockHash: bestBlockHash.CloneBytes(),
-		},
-	)
-	require.NoError(ht, err)
+	getBlockReq := &chainrpc.GetBlockRequest{
+		BlockHash: bestBlockHash[:],
+	}
+	getBlockRes := ht.Alice.RPC.GetBlock(getBlockReq)
 
 	// Deserialize the block which was retrieved by hash.
 	msgBlock := &wire.MsgBlock{}
@@ -67,20 +61,15 @@ func testChainKitGetBlock(ctx context.Context, ht *lntemp.HarnessTest) {
 
 // testChainKitGetBlockHash ensures that given a block height, the RPC endpoint
 // returns the correct target block hash.
-func testChainKitGetBlockHash(ctx context.Context, ht *lntemp.HarnessTest) {
+func testChainKitGetBlockHash(ht *lntemp.HarnessTest) {
 	// Get best block hash.
-	bestBlockRes, err := ht.Alice.RPC.ChainKit.GetBestBlock(
-		ctx, &chainrpc.GetBestBlockRequest{},
-	)
-	require.NoError(ht, err)
+	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
 
 	// Retrieve the block hash at best block height.
-	getBlockHashRes, err := ht.Alice.RPC.ChainKit.GetBlockHash(
-		ctx, &chainrpc.GetBlockHashRequest{
-			BlockHeight: int64(bestBlockRes.BlockHeight),
-		},
-	)
-	require.NoError(ht, err)
+	req := &chainrpc.GetBlockHashRequest{
+		BlockHeight: int64(bestBlockRes.BlockHeight),
+	}
+	getBlockHashRes := ht.Alice.RPC.GetBlockHash(req)
 
 	// Ensure best block hash is the same as retrieved block hash.
 	expected := bestBlockRes.BlockHash

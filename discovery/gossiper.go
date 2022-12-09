@@ -1182,7 +1182,7 @@ func (d *AuthenticatedGossiper) sendBatch(annBatch []msgWithSenders,
 	isLocal bool) {
 
 	// If this is a batch of announcements created locally, then we can
-	// skip the filter and deup logic below, and just send the
+	// skip the filter and dedup logic below, and just send the
 	// announcements out to all our coonnected peers.
 	if isLocal {
 		msgsToSend := fn.Map(
@@ -1695,8 +1695,9 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 		// We set ourselves as the source of this message to indicate
 		// that we shouldn't skip any peers when sending this message.
 		chanUpdates = append(chanUpdates, networkMsg{
-			source: d.selfKey,
-			msg:    chanUpdate,
+			source:   d.selfKey,
+			isRemote: false,
+			msg:      chanUpdate,
 		})
 	}
 
@@ -2266,9 +2267,10 @@ func (d *AuthenticatedGossiper) handleNodeAnnouncement(nMsg *networkMsg,
 	// be broadcast to the rest of our peers.
 	if isPublic {
 		announcements = append(announcements, networkMsg{
-			peer:   nMsg.peer,
-			source: nMsg.source,
-			msg:    nodeAnn,
+			peer:     nMsg.peer,
+			isRemote: nMsg.isRemote,
+			source:   nMsg.source,
+			msg:      nodeAnn,
 		})
 	} else {
 		log.Tracef("Skipping broadcasting node announcement for %x "+
@@ -2544,9 +2546,10 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 
 	if proof != nil {
 		announcements = append(announcements, networkMsg{
-			peer:   nMsg.peer,
-			source: nMsg.source,
-			msg:    ann,
+			peer:     nMsg.peer,
+			isRemote: nMsg.isRemote,
+			source:   nMsg.source,
+			msg:      ann,
 		})
 	}
 
@@ -2932,9 +2935,10 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	var announcements []networkMsg
 	if chanInfo.AuthProof != nil && !d.cfg.IsAlias(upd.ShortChannelID) {
 		announcements = append(announcements, networkMsg{
-			peer:   nMsg.peer,
-			source: nMsg.source,
-			msg:    upd,
+			peer:     nMsg.peer,
+			source:   nMsg.source,
+			isRemote: nMsg.isRemote,
+			msg:      upd,
 		})
 	}
 

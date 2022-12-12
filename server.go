@@ -834,12 +834,42 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// With the announcement generated, we'll use our getNodeAnnouncement
 	// helper to sign our current announcement to properly authenticate
 	// with the network.
-	nodeAnn, err := s.genNodeAnnouncement(true)
+	var (
+		mods           []netann.NodeAnnModifier
+		customFeatures = s.cfg.ProtocolOptions.CustomAnnFeatures()
+	)
+
+	raw, err := lnwire.MergeFeatureVector(
+		s.currentNodeAnn.Features, customFeatures, nil,
+		// Set the currently configured feature bit set to
+		// nil because we're adding our config-set features for
+		// the first time.
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to set feature bits: "+
+			"%w", err)
+	}
+
+	// Sanity check dependencies for our feature vector, although
+	// setting of custom features shouldn't affect dependencies.
+	fv := lnwire.NewFeatureVector(raw, lnwire.Features)
+	if err := feature.ValidateDeps(fv); err != nil {
+		return nil, fmt.Errorf("invalid feature vector: %w",
+			err)
+	}
+
+	mods = append(mods, netann.NodeAnnSetFeatures(raw))
+
+	nodeAnn, err := s.genNodeAnnouncement(true, mods...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate signature for "+
 			"self node announcement: %v", err)
 	}
 	selfNode.AuthSigBytes = nodeAnn.Signature.ToSignatureBytes()
+
+	// Update the feature bits for the SetNodeAnn in case they changed.
+	s.featureMgr.SetRaw(feature.SetNodeAnn, nodeAnn.Features)
 
 	// Finally, we'll update the representation on disk, and update our
 	// cached in-memory version as well.

@@ -427,7 +427,7 @@ func testUpdateNodeAnnouncement(ht *lntemp.HarnessTest) {
 
 	var lndArgs []string
 
-	// Add some exta addresses to the default ones.
+	// Add some extra addresses to the default ones.
 	extraAddrs := []string{
 		"192.168.1.1:8333",
 		"[2001:db8:85a3:8d3:1319:8a2e:370:7348]:8337",
@@ -438,6 +438,13 @@ func testUpdateNodeAnnouncement(ht *lntemp.HarnessTest) {
 	for _, addr := range extraAddrs {
 		lndArgs = append(lndArgs, "--externalip="+addr)
 	}
+
+	// Advertise a custom feature bit in our args at startup.
+	customFeature := lnwire.FeatureBit(1000)
+	lndArgs = append(lndArgs, fmt.Sprintf(
+		"--protocol.custom-nodeann-feature=%v", customFeature,
+	))
+
 	dave := ht.NewNode("Dave", lndArgs)
 
 	// assertNodeAnn is a helper closure that checks a given node update
@@ -479,12 +486,28 @@ func testUpdateNodeAnnouncement(ht *lntemp.HarnessTest) {
 		)
 	}
 
+	// Assert that the custom feature bit set in our config args is set.
+	_, haveCustom := resp.Features[uint32(customFeature)]
+	require.True(ht, haveCustom, "configured feature bit not "+
+		"advertised: %v", resp.Features)
+
+	// Test that we can't modify features bits that are set in our config.
+	nodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: []*peersrpc.UpdateFeatureAction{
+			{
+				Action:     peersrpc.UpdateAction_ADD,
+				FeatureBit: lnrpc.FeatureBit(customFeature),
+			},
+		},
+	}
+	dave.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
+
 	// Test that we can't modify a feature bit that is known to LND.
 	reservedFeatureBit := lnrpc.FeatureBit_WUMBO_CHANNELS_REQ
 	_, known := lnwire.Features[lnwire.FeatureBit(reservedFeatureBit)]
 	require.True(ht, known, "feature bit should be known to lnd")
 
-	nodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
+	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
 		FeatureUpdates: []*peersrpc.UpdateFeatureAction{
 			{
 				Action:     peersrpc.UpdateAction_ADD,

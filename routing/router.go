@@ -991,6 +991,78 @@ func (r *ChannelRouter) pruneZombieChans() error {
 	return nil
 }
 
+// handleNetworkUpdate is responsible for processing the update message and
+// notifies topology changes, if any.
+//
+// NOTE: must be run inside goroutine.
+func (r *ChannelRouter) handleNetworkUpdate(vb *ValidationBarrier,
+	update *routingMsg) {
+
+	defer r.wg.Done()
+	defer vb.CompleteJob()
+
+	// If this message has an existing dependency, then we'll wait until
+	// that has been fully validated before we proceed.
+	err := vb.WaitForDependants(update.msg)
+	if err != nil {
+		switch {
+		case IsError(err, ErrVBarrierShuttingDown):
+			update.err <- err
+
+		case IsError(err, ErrParentValidationFailed):
+			update.err <- newErrf(ErrIgnored, err.Error())
+
+		default:
+			log.Warnf("unexpected error during validation "+
+				"barrier shutdown: %v", err)
+			update.err <- err
+		}
+
+		return
+	}
+
+	// Process the routing update to determine if this is either a new
+	// update from our PoV or an update to a prior vertex/edge we
+	// previously accepted.
+	err = r.processUpdate(update.msg, update.op...)
+	update.err <- err
+
+	// If this message had any dependencies, then we can now signal them to
+	// continue.
+	allowDependents := err == nil || IsError(err, ErrIgnored, ErrOutdated)
+	vb.SignalDependants(update.msg, allowDependents)
+
+	// If the error is not nil here, there's no need to send topology
+	// change.
+	if err != nil {
+		// We now decide to log an error or not. If allowDependents is
+		// false, it means there is an error and the error is neither
+		// ErrIgnored or ErrOutdated. In this case, we'll log an error.
+		// Otherwise, we'll add debug log only.
+		if allowDependents {
+			log.Debugf("process network updates got: %v", err)
+		} else {
+			log.Errorf("process network updates got: %v", err)
+		}
+
+		return
+	}
+
+	// Otherwise, we'll send off a new notification for the newly accepted
+	// update, if any.
+	topChange := &TopologyChange{}
+	err = addToTopologyChange(r.cfg.Graph, topChange, update.msg)
+	if err != nil {
+		log.Errorf("unable to update topology change notification: %v",
+			err)
+		return
+	}
+
+	if !topChange.isEmpty() {
+		r.notifyTopologyChange(topChange)
+	}
+}
+
 // networkHandler is the primary goroutine for the ChannelRouter. The roles of
 // this goroutine include answering queries related to the state of the
 // network, pruning the graph on new block notification, applying network
@@ -1050,74 +1122,7 @@ func (r *ChannelRouter) networkHandler() {
 			validationBarrier.InitJobDependencies(update.msg)
 
 			r.wg.Add(1)
-			go func() {
-				defer r.wg.Done()
-				defer validationBarrier.CompleteJob()
-
-				// If this message has an existing dependency,
-				// then we'll wait until that has been fully
-				// validated before we proceed.
-				err := validationBarrier.WaitForDependants(
-					update.msg,
-				)
-				if err != nil {
-					switch {
-					case IsError(
-						err, ErrVBarrierShuttingDown,
-					):
-						update.err <- err
-
-					case IsError(
-						err, ErrParentValidationFailed,
-					):
-						update.err <- newErrf(
-							ErrIgnored, err.Error(),
-						)
-
-					default:
-						log.Warnf("unexpected error "+
-							"during validation "+
-							"barrier shutdown: %v",
-							err)
-						update.err <- err
-					}
-					return
-				}
-
-				// Process the routing update to determine if
-				// this is either a new update from our PoV or
-				// an update to a prior vertex/edge we
-				// previously accepted.
-				err = r.processUpdate(update.msg, update.op...)
-				update.err <- err
-
-				// If this message had any dependencies, then
-				// we can now signal them to continue.
-				allowDependents := err == nil ||
-					IsError(err, ErrIgnored, ErrOutdated)
-				validationBarrier.SignalDependants(
-					update.msg, allowDependents,
-				)
-				if err != nil {
-					return
-				}
-
-				// Send off a new notification for the newly
-				// accepted update.
-				topChange := &TopologyChange{}
-				err = addToTopologyChange(
-					r.cfg.Graph, topChange, update.msg,
-				)
-				if err != nil {
-					log.Errorf("unable to update topology "+
-						"change notification: %v", err)
-					return
-				}
-
-				if !topChange.isEmpty() {
-					r.notifyTopologyChange(topChange)
-				}
-			}()
+			go r.handleNetworkUpdate(validationBarrier, update)
 
 			// TODO(roasbeef): remove all unconnected vertexes
 			// after N blocks pass with no corresponding
@@ -1439,6 +1444,9 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		r.stats.incNumNodeUpdates()
 
 	case *channeldb.ChannelEdgeInfo:
+		log.Debugf("Received ChannelEdgeInfo for channel %v",
+			msg.ChannelID)
+
 		// Prior to processing the announcement we first check if we
 		// already know of this channel, if so, then we can exit early.
 		_, _, exists, isZombie, err := r.cfg.Graph.HasChannelEdge(
@@ -1584,7 +1592,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			return errors.Errorf("unable to add edge: %v", err)
 		}
 
-		log.Tracef("New channel discovered! Link "+
+		log.Debugf("New channel discovered! Link "+
 			"connects %x and %x with ChannelPoint(%v): "+
 			"chan_id=%v, capacity=%v",
 			msg.NodeKey1Bytes, msg.NodeKey2Bytes,
@@ -1610,6 +1618,9 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		}
 
 	case *channeldb.ChannelEdgePolicy:
+		log.Debugf("Received ChannelEdgePolicy for channel %v",
+			msg.ChannelID)
+
 		// We make sure to hold the mutex for this channel ID,
 		// such that no other goroutine is concurrently doing
 		// database accesses for the same channel ID.
@@ -1685,7 +1696,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			return err
 		}
 
-		log.Tracef("New channel update applied: %v",
+		log.Debugf("New channel update applied: %v",
 			newLogClosure(func() string { return spew.Sdump(msg) }))
 		r.stats.incNumChannelUpdates()
 
@@ -2608,10 +2619,18 @@ func (r *ChannelRouter) AddProof(chanID lnwire.ShortChannelID,
 // target node with a more recent timestamp.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) IsStaleNode(node route.Vertex, timestamp time.Time) bool {
+func (r *ChannelRouter) IsStaleNode(node route.Vertex,
+	timestamp time.Time) bool {
+
 	// If our attempt to assert that the node announcement is fresh fails,
 	// then we know that this is actually a stale announcement.
-	return r.assertNodeAnnFreshness(node, timestamp) != nil
+	err := r.assertNodeAnnFreshness(node, timestamp)
+	if err != nil {
+		log.Debugf("Checking stale node %x got %v", node, err)
+		return true
+	}
+
+	return false
 }
 
 // IsPublicNode determines whether the given vertex is seen as a public node in
@@ -2641,6 +2660,7 @@ func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
 		r.cfg.Graph.HasChannelEdge(chanID.ToUint64())
 	if err != nil {
+		log.Debugf("Check stale edge policy got error: %v", err)
 		return false
 
 	}
@@ -2788,6 +2808,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		// Exit if there are no channels.
 		unifiedPolicy, ok := u.policies[fromNode]
 		if !ok {
+			log.Errorf("Cannot find policy for node %v", fromNode)
 			return nil, ErrNoChannel{
 				fromNode: fromNode,
 				position: i,
@@ -2806,6 +2827,8 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		// to forward.
 		policy := unifiedPolicy.getPolicy(runningAmt, bandwidthHints)
 		if policy == nil {
+			log.Errorf("Cannot find policy with amt=%v for node %v",
+				runningAmt, fromNode)
 			return nil, ErrNoChannel{
 				fromNode: fromNode,
 				position: i,

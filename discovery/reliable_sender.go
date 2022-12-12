@@ -84,6 +84,9 @@ func (s *reliableSender) Start() error {
 // Stop halts the reliable sender from sending messages to peers.
 func (s *reliableSender) Stop() {
 	s.stop.Do(func() {
+		log.Debugf("reliableSender is stopping")
+		defer log.Debugf("reliableSender stopped")
+
 		close(s.quit)
 		s.wg.Wait()
 	})

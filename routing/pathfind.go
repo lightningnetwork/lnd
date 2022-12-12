@@ -507,6 +507,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// balance available.
 	self := g.graph.sourceNode()
 
+	var splitNeeded bool
+
 	if source == self {
 		max, total, err := getOutgoingBalance(
 			self, outgoingChanMap, g.bandwidthHints, g.graph,
@@ -524,7 +526,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// If there is only not enough capacity on a single route, it
 		// may still be possible to complete the payment by splitting.
 		if max < amt {
-			return nil, errNoPathFound
+			splitNeeded = true
+			amt = max
 		}
 	}
 
@@ -882,8 +885,12 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 				continue
 			}
 
+			var amtForPolicy lnwire.MilliSatoshi
+			if !splitNeeded || fromNode != source {
+				amtForPolicy = amtToSend
+			}
 			policy := unifiedPolicy.getPolicy(
-				amtToSend, g.bandwidthHints,
+				amtForPolicy, g.bandwidthHints,
 			)
 
 			if policy == nil {
@@ -926,6 +933,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// target.
 	var pathEdges []*channeldb.CachedEdgePolicy
 	currentNode := source
+	if n, ok := distance[source]; ok && splitNeeded {
+		n.amountToReceive = amt
+	}
 	for {
 		// Determine the next hop forward using the next map.
 		currentNodeWithDist, ok := distance[currentNode]
@@ -946,6 +956,8 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// to source.
 		if currentNode == target {
 			break
+		} else if splitNeeded {
+			amt -= (currentNodeWithDist.nextHop).ComputeFeeFromIncoming(amt)
 		}
 	}
 
@@ -965,8 +977,11 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	log.Debugf("Found route: probability=%v, hops=%v, fee=%v",
 		distance[source].probability, len(pathEdges),
 		distance[source].amountToReceive-amt)
-
-	return pathEdges, nil
+	var e error
+	if splitNeeded {
+		e = extendedNoRouteError{err: errNoPathFound, amt: amt}
+	}
+	return pathEdges, e
 }
 
 // getProbabilityBasedDist converts a weight into a distance that takes into

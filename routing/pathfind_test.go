@@ -1359,12 +1359,21 @@ func TestNewRoute(t *testing.T) {
 		finalHopCLTV   = 1
 	)
 
+	type createOpt func(*channeldb.CachedEdgePolicy)
+
+	withHtlcAmtRange := func(min, max lnwire.MilliSatoshi) createOpt {
+		return func(o *channeldb.CachedEdgePolicy) {
+			o.MinHTLC = min
+			o.MaxHTLC = max
+			o.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
+		}
+	}
+
 	createHop := func(baseFee lnwire.MilliSatoshi,
 		feeRate lnwire.MilliSatoshi,
-		bandwidth lnwire.MilliSatoshi,
-		timeLockDelta uint16) *channeldb.CachedEdgePolicy {
+		timeLockDelta uint16, opts ...createOpt) *channeldb.CachedEdgePolicy {
 
-		return &channeldb.CachedEdgePolicy{
+		policy := &channeldb.CachedEdgePolicy{
 			ToNodePubKey: func() route.Vertex {
 				return route.Vertex{}
 			},
@@ -1373,6 +1382,12 @@ func TestNewRoute(t *testing.T) {
 			FeeBaseMSat:               baseFee,
 			TimeLockDelta:             timeLockDelta,
 		}
+
+		for _, o := range opts {
+			o(policy)
+		}
+
+		return policy
 	}
 
 	testCases := []struct {
@@ -1417,13 +1432,9 @@ func TestNewRoute(t *testing.T) {
 		// expectedTotalTimeLock is relative to the current block height.
 		expectedTotalTimeLock uint32
 
-		// expectError indicates whether the newRoute call is expected
+		// expectedError indicates whether the newRoute call is expected
 		// to fail or succeed.
-		expectError bool
-
-		// expectedErrorCode indicates the expected error code when
-		// expectError is true.
-		expectedErrorCode errorCode
+		expectedError error
 
 		expectedTLVPayload bool
 
@@ -1434,7 +1445,7 @@ func TestNewRoute(t *testing.T) {
 			name:          "single hop",
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(100, 1000, 1000000, 10),
+				createHop(100, 1000, 10),
 			},
 			metadata:              []byte{1, 2, 3},
 			expectedFees:          []lnwire.MilliSatoshi{0},
@@ -1448,8 +1459,8 @@ func TestNewRoute(t *testing.T) {
 			name:          "two hop",
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 1000, 1000000, 10),
-				createHop(30, 1000, 1000000, 5),
+				createHop(0, 1000, 10),
+				createHop(30, 1000, 5),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{130, 0},
 			expectedTimeLocks:     []uint32{1, 1},
@@ -1463,8 +1474,8 @@ func TestNewRoute(t *testing.T) {
 			destFeatures:  tlvFeatures,
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 1000, 1000000, 10),
-				createHop(30, 1000, 1000000, 5),
+				createHop(0, 1000, 10),
+				createHop(30, 1000, 5),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{130, 0},
 			expectedTimeLocks:     []uint32{1, 1},
@@ -1480,8 +1491,8 @@ func TestNewRoute(t *testing.T) {
 			paymentAddr:   &testPaymentAddr,
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 1000, 1000000, 10),
-				createHop(30, 1000, 1000000, 5),
+				createHop(0, 1000, 10),
+				createHop(30, 1000, 5),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{130, 0},
 			expectedTimeLocks:     []uint32{1, 1},
@@ -1500,9 +1511,9 @@ func TestNewRoute(t *testing.T) {
 			name:          "three hop",
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 10, 1000000, 10),
-				createHop(0, 10, 1000000, 5),
-				createHop(0, 10, 1000000, 3),
+				createHop(0, 10, 10),
+				createHop(0, 10, 5),
+				createHop(0, 10, 3),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{1, 1, 0},
 			expectedTotalAmount:   100002,
@@ -1515,9 +1526,9 @@ func TestNewRoute(t *testing.T) {
 			name:          "three hop with fee carry over",
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 10000, 1000000, 10),
-				createHop(0, 10000, 1000000, 5),
-				createHop(0, 10000, 1000000, 3),
+				createHop(0, 10000, 10),
+				createHop(0, 10000, 5),
+				createHop(0, 10000, 3),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{1010, 1000, 0},
 			expectedTotalAmount:   102010,
@@ -1530,21 +1541,69 @@ func TestNewRoute(t *testing.T) {
 			name:          "three hop with minimal fees for carry over",
 			paymentAmount: 100000,
 			hops: []*channeldb.CachedEdgePolicy{
-				createHop(0, 10000, 1000000, 10),
+				createHop(0, 10000, 10),
 
 				// First hop charges 0.1% so the second hop fee
 				// should show up in the first hop fee as 1 msat
 				// extra.
-				createHop(0, 1000, 1000000, 5),
+				createHop(0, 1000, 5),
 
 				// Second hop charges a fixed 1000 msat.
-				createHop(1000, 0, 1000000, 3),
+				createHop(1000, 0, 3),
 			},
 			expectedFees:          []lnwire.MilliSatoshi{101, 1000, 0},
 			expectedTotalAmount:   101101,
 			expectedTimeLocks:     []uint32{4, 1, 1},
 			expectedTotalTimeLock: 9,
-		}}
+		},
+		{
+			name:          "min htlc",
+			paymentAmount: 4000,
+			hops: []*channeldb.CachedEdgePolicy{
+				createHop(
+					0, 0, 10,
+				),
+				createHop(
+					4000, 20000, 10,
+					withHtlcAmtRange(10000, 50000),
+				),
+				createHop(
+					3000, 10000, 10,
+					withHtlcAmtRange(5000, 50000),
+				),
+			},
+			expectedTotalAmount:   14200,
+			expectedTotalTimeLock: 21,
+			expectedFees: []lnwire.MilliSatoshi{
+				// First hop fee is based on min htlc of
+				// outgoing channel.
+				4200,
+
+				// Second hop gets overpaid fee because of min
+				// htlc.
+				5000,
+
+				// Final hop gets paid no fee, but is overpaid
+				// the payment.
+				0,
+			},
+		},
+		{
+			name:          "max htlc",
+			paymentAmount: 4000,
+			hops: []*channeldb.CachedEdgePolicy{
+				createHop(
+					0, 0, 10,
+					withHtlcAmtRange(0, 8000),
+				),
+				createHop(
+					3000, 10000, 10,
+					withHtlcAmtRange(5000, 10000),
+				),
+			},
+			expectedError: route.ErrMaxHtlcExceeded,
+		},
+	}
 
 	for _, testCase := range testCases {
 		testCase := testCase
@@ -1639,20 +1698,9 @@ func TestNewRoute(t *testing.T) {
 				},
 			)
 
-			if testCase.expectError {
-				expectedCode := testCase.expectedErrorCode
-				if err == nil || !IsError(err, expectedCode) {
-					t.Fatalf("expected newRoute to fail "+
-						"with error code %v but got "+
-						"%v instead",
-						expectedCode, err)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("unable to create path: %v", err)
-					return
-				}
+			require.ErrorIs(t, err, testCase.expectedError)
 
+			if testCase.expectedError == nil {
 				assertRoute(t, route)
 			}
 		})

@@ -237,9 +237,16 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	case MsgGossipTimestampRange:
 		msg = &GossipTimestampRange{}
 	default:
-		if msgType < CustomTypeStart {
+		// If the message is not within our custom range and has not
+		// specifically been overridden, return an unknown message.
+		//
+		// Note that we do not allow custom message overrides to replace
+		// known message types, only protocol messages that are not yet
+		// known to lnd.
+		if msgType < CustomTypeStart && !IsCustomOverride(msgType) {
 			return nil, &UnknownMessage{msgType}
 		}
+
 		msg = &Custom{
 			Type: msgType,
 		}

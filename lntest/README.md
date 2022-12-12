@@ -93,3 +93,24 @@ making a new test case using `Subtest`, there’s a cleanup function which
 further validates the current test case has no dangling uncleaned states, such
 as transactions left in mempool, open channels, etc.
 
+### Different Code Used in `lntest`
+
+Since the miner in `lntest` uses regtest, it has a very fast block production
+rate, which is the greatest difference between the conditions it simulates and
+the real-world has. Aside from that, `lnd` has several places that use
+different code, which is triggered by the build flag `integration`, to speed up
+the tests. They are summarized as followings,
+
+1. `funding.checkPeerFundingLockInterval`, which is used when we wait for the
+   peer to send us `FundingLocked`. This value is 1 second in `lnd`, and 10
+   milliseconds in `lntest`.
+2. `lncfg.ProtocolOptions`, which is used to specify protocol flags. In `lnd`,
+   anchor and script enforced lease are enabled by default, while in `lntest`,
+   they are disabled by default.
+3. Reduced scrypt parameters are used in `lntest`. In `lnd`, the parameters N,
+   R, and P are imported from `snacl`, while in `lntest` they are replaced with
+   `waddrmgr.FastScryptOptions`. Both `macaroon` and `aezeed` are affected.
+4. The method, `nextRevocationProducer`, defined in `LightningWallet` is
+   slightly different. For `lnwallet`, it will check a special pre-defined
+   channel ID to test restoring channel backups created with the old revocation
+   root derivation method.

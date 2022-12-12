@@ -8,7 +8,8 @@ import (
 
 // CustomTypeStart is the start of the custom type range for peer messages as
 // defined in BOLT 01.
-var CustomTypeStart MessageType = 32768
+const CustomTypeStart MessageType = 32768
+
 
 // Custom represents an application-defined wire message.
 type Custom struct {

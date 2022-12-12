@@ -1291,7 +1291,8 @@ func (h *HarnessTest) MineBlocks(num uint32) []*wire.MsgBlock {
 	blocks := h.Miner.MineBlocksSlow(num)
 
 	// Make sure all the active nodes are synced.
-	h.AssertActiveNodesSynced()
+	bestBlock := blocks[len(blocks)-1]
+	h.AssertActiveNodesSyncedTo(bestBlock)
 
 	return blocks
 }
@@ -1318,7 +1319,8 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	}
 
 	// Finally, make sure all the active nodes are synced.
-	h.AssertActiveNodesSynced()
+	bestBlock := blocks[len(blocks)-1]
+	h.AssertActiveNodesSyncedTo(bestBlock)
 
 	return blocks
 }

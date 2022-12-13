@@ -281,7 +281,9 @@ func (s *Server) updateFeatures(currentfeatures *lnwire.RawFeatureVector,
 		}
 	}
 
-	raw, err := lnwire.MergeFeatureVector(currentfeatures, add, remove)
+	raw, err := lnwire.MergeFeatureVector(
+		currentfeatures, add, remove, nil,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

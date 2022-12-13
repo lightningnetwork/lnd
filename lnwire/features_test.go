@@ -417,11 +417,12 @@ func TestMergeFeatureVector(t *testing.T) {
 	knownFeatures := []FeatureBit{
 		ExplicitChannelTypeRequired,
 	}
-	_, err := MergeFeatureVector(fv, knownFeatures, nil)
+
+	_, err := MergeFeatureVector(fv, knownFeatures, nil, nil)
 	require.True(t, errors.Is(err, ErrFeatureStandard),
 		"add known feature should fail")
 
-	_, err = MergeFeatureVector(fv, nil, knownFeatures)
+	_, err = MergeFeatureVector(fv, nil, knownFeatures, nil)
 	require.True(t, errors.Is(err, ErrFeatureStandard),
 		"remove known features should fail")
 
@@ -429,7 +430,7 @@ func TestMergeFeatureVector(t *testing.T) {
 	customFeatures := []FeatureBit{
 		10001,
 	}
-	fv1, err := MergeFeatureVector(fv, customFeatures, nil)
+	fv1, err := MergeFeatureVector(fv, customFeatures, nil, nil)
 	require.NoError(t, err, "custom feature add ok")
 
 	require.True(t, fv1.IsSet(customFeatures[0]), "custom feature not set")
@@ -437,13 +438,37 @@ func TestMergeFeatureVector(t *testing.T) {
 
 	// Attempt to set the custom feature that we just added, this should
 	// fail because it's already set.
-	_, err = MergeFeatureVector(fv1, customFeatures, nil)
+	_, err = MergeFeatureVector(fv1, customFeatures, nil, nil)
 	require.True(t, errors.Is(err, ErrFeatureSet),
 		"re-add custom should fail")
 
 	// Unset our custom feature and assert that it's actually removed.
-	fv2, err := MergeFeatureVector(fv1, nil, customFeatures)
+	fv2, err := MergeFeatureVector(fv1, nil, customFeatures, nil)
 	require.NoError(t, err, "remove custom feature should succeed")
 
 	require.False(t, fv2.IsSet(customFeatures[0]))
+
+	// Test that we can't add or remove features that are included in lnd's
+	// config.
+	configFeatures := []FeatureBit{
+		10001,
+	}
+
+	_, err = MergeFeatureVector(fv1, customFeatures, nil, configFeatures)
+	require.True(t, errors.Is(err, ErrFeatureConfigured),
+		"add configured feature should fail")
+
+	_, err = MergeFeatureVector(fv1, nil, customFeatures, configFeatures)
+	require.True(t, errors.Is(err, ErrFeatureConfigured),
+		"remove configured feature should fail")
+
+	// For sanity, check that we can set a feature when we do have some
+	// config features, but there's no overlap.
+	addFeature := []FeatureBit{
+		10002,
+	}
+	fv3, err := MergeFeatureVector(fv1, addFeature, nil, configFeatures)
+	require.NoError(t, err, "set distinct to config fails")
+
+	require.True(t, fv3.IsSet(addFeature[0]), "feature not set")
 }

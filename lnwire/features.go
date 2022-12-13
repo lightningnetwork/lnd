@@ -24,6 +24,10 @@ var (
 	// ErrFeatureNotSet is returned when an attempt to un-set a feature bit
 	// this is not active is made.
 	ErrFeatureNotSet = errors.New("feature bit not set")
+
+	// ErrFeatureConfigured is returned when an attempt to un-set a feature
+	// that was set in lnd's config is made.
+	ErrFeatureConfigured = errors.New("feature bit set in config")
 )
 
 // FeatureBit represents a feature that can be enabled in either a local or
@@ -638,17 +642,30 @@ func (fv *FeatureVector) Clone() *FeatureVector {
 
 // MergeFeatureVector accepts a list of feature bits to add and remove,
 // validates that they may be modified (are not known to LND, set/unset actions
-// are logical for the current vector) and returns a merged vector.
-func MergeFeatureVector(current *RawFeatureVector, add, remove []FeatureBit) (
-	*RawFeatureVector, error) {
+// are logical for the current vector) and returns a merged vector. The merge
+// function also accepts a map of feature bits that were set at a config level.
+// These features are considered "hard-set", so will also trigger an error if
+// we attempt to modify them.
+func MergeFeatureVector(current *RawFeatureVector, add, remove []FeatureBit,
+	configured []FeatureBit) (*RawFeatureVector, error) {
 
 	if current == nil {
 		return nil, errors.New("nil feature vector not allowed")
 	}
 
+	configuredBits := make(map[FeatureBit]struct{}, len(configured))
+	for _, bit := range configured {
+		configuredBits[bit] = struct{}{}
+	}
+
 	// Make a copy of the current vector so that we don't mutate it.
 	raw := current.Clone()
 	for _, bit := range add {
+		if _, set := configuredBits[bit]; set {
+			return nil, fmt.Errorf("can't add feature bit %d: %w",
+				bit, ErrFeatureConfigured)
+		}
+
 		if name, known := Features[bit]; known {
 			return nil, fmt.Errorf("can't set feature "+
 				"bit %d (%v): %w", bit, name,
@@ -663,6 +680,11 @@ func MergeFeatureVector(current *RawFeatureVector, add, remove []FeatureBit) (
 	}
 
 	for _, bit := range remove {
+		if _, set := configuredBits[bit]; set {
+			return nil, fmt.Errorf("can't remove feature bit %d: "+
+				"%w", bit, ErrFeatureConfigured)
+		}
+
 		if name, known := Features[bit]; known {
 			return nil, fmt.Errorf("can't unset feature "+
 				"bit %d (%v): %w", bit, name,

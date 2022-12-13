@@ -216,7 +216,8 @@ func (h *HarnessTest) SetupStandbyNodes() {
 
 	// We generate several blocks in order to give the outputs created
 	// above a good number of confirmations.
-	h.MineBlocks(numBlocksSendOutput)
+	const totalTxes = 20
+	h.MineBlocksAndAssertNumTxes(numBlocksSendOutput, totalTxes)
 
 	// Now we want to wait for the nodes to catch up.
 	h.WaitForBlockchainSync(h.Alice)

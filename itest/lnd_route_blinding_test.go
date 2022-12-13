@@ -6,11 +6,15 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -395,6 +399,145 @@ func setupFourHopNetwork(ht *lntest.HarnessTest,
 		chanPointBob,
 		chanPointCarol,
 	}
+}
+
+// createBlindedRoute creates a blinded route to the recipient node provided.
+// The set of hops is expected to start at the introduction node and end at
+// the recipient.
+func (b *blindedForwardTest) createBlindedRoute(hops []*forwardingEdge,
+	dest *btcec.PublicKey, finalCLTV uint16) *routing.BlindedPayment {
+
+	// Create a path with space for each of our hops + the destination
+	// node. We include our passed final cltv delta here because blinded
+	// paths include the delta in the blinded portion (not the invoice).
+	blindedPayment := &routing.BlindedPayment{
+		CltvExpiryDelta: finalCLTV,
+	}
+
+	pathLength := len(hops) + 1
+	blindedPath := make([]*sphinx.HopInfo, pathLength)
+
+	// Run forwards through our hops to create blinded route data for each
+	// node with the next node's short channel id and our payment
+	// constraints.
+	for i := 0; i < len(hops); i++ {
+		node := hops[i]
+		scid := node.channelID
+
+		// Set the relay information for this edge based on its policy.
+		delta := uint16(node.edge.TimeLockDelta)
+		relayInfo := &record.PaymentRelayInfo{
+			BaseFee:         uint32(node.edge.FeeBaseMsat),
+			FeeRate:         uint32(node.edge.FeeRateMilliMsat),
+			CltvExpiryDelta: delta,
+		}
+
+		// We set our constraints with our edge's actual htlc min, and
+		// an arbitrary maximum expiry (since it's just an anti-probing
+		// mechanism).
+		constraints := &record.PaymentConstraints{
+			HtlcMinimumMsat: lnwire.MilliSatoshi(node.edge.MinHtlc),
+			MaxCltvExpiry:   100000,
+		}
+
+		// Add CLTV delta of each hop to the blinded payment.
+		blindedPayment.CltvExpiryDelta += delta
+
+		// Encode the route's blinded data and include it in the
+		// blinded hop.
+		payload := record.NewBlindedRouteData(
+			scid, nil, *relayInfo, constraints, nil,
+		)
+		payloadBytes, err := record.EncodeBlindedRouteData(payload)
+		require.NoError(b.ht, err)
+
+		blindedPath[i] = &sphinx.HopInfo{
+			NodePub:   node.pubkey,
+			PlainText: payloadBytes,
+		}
+	}
+
+	// Next, we'll run backwards through our route to build up the aggregate
+	// fees for the blinded payment as a whole. This is done in a separate
+	// loop for the sake of readability.
+	//
+	// For blinded path aggregated fees, we start at the receiving node
+	// and add up base an proportional fees *including* the fees that we'll
+	// charge on accumulated fees. We use the int ceiling to round up so
+	// that the sender will always over-pay, ensuring that we don't round
+	// down along the route leaving one forwarding node short of what
+	// they're expecting.
+	var (
+		hopCount                = len(hops) - 1
+		currentHopBaseFee       = hops[hopCount].edge.FeeBaseMsat
+		currentHopPropFee       = hops[hopCount].edge.FeeRateMilliMsat
+		feeParts          int64 = 1e6
+	)
+
+	// Note: the spec says to iterate backwards, but then uses n / n +1 to
+	// express the "next" hop in the route going backwards. This works for
+	// languages where we can iterate backwards and get an increasing
+	// index, but since we're counting backwards we use n-1 instead.
+	//
+	// Specification reference:
+	//nolint:lll
+	// https://github.com/lightning/bolts/blob/60de4a09727c20dea330f9ee8313034de6e50594/proposals/route-blinding.md?plain=1#L253-L254
+	for i := hopCount; i > 0; i-- {
+		preceedingBase := hops[i-1].edge.FeeBaseMsat
+		preceedingProp := hops[i-1].edge.FeeBaseMsat
+
+		// Separate numerator from ceiling division to break up large
+		// lines.
+		baseFeeNumerator := preceedingBase*feeParts +
+			currentHopBaseFee*(feeParts+preceedingProp)
+		currentHopBaseFee = (baseFeeNumerator + feeParts - 1) / feeParts
+
+		propFeeNumerator := (currentHopPropFee+preceedingProp)*
+			feeParts + currentHopPropFee*preceedingProp
+		currentHopPropFee = (propFeeNumerator + feeParts - 1) / feeParts
+	}
+
+	blindedPayment.BaseFee = uint32(currentHopBaseFee)
+	blindedPayment.ProportionalFeeRate = uint32(currentHopPropFee)
+
+	// Add our destination node at the end of the path. We don't need to
+	// add any forwarding parameters because we're at the final hop.
+	payloadBytes, err := record.EncodeBlindedRouteData(
+		// TODO: we don't have support for the final hop fields,
+		// because only forwarding is supported. We add a next
+		// node ID here so that it _looks like_ a valid
+		// forwarding hop (though in reality it's the last
+		// hop).
+		record.NewBlindedRouteData(
+			lnwire.NewShortChanIDFromInt(100), nil,
+			record.PaymentRelayInfo{}, nil, nil,
+		),
+	)
+	require.NoError(b.ht, err, "final payload")
+
+	blindedPath[pathLength-1] = &sphinx.HopInfo{
+		NodePub:   dest,
+		PlainText: payloadBytes,
+	}
+
+	// Blind the path.
+	blindingKey, err := btcec.NewPrivateKey()
+	require.NoError(b.ht, err)
+
+	blindedPayment.BlindedPath, err = sphinx.BuildBlindedPath(
+		blindingKey, blindedPath,
+	)
+	require.NoError(b.ht, err, "build blinded path")
+
+	return blindedPayment
+}
+
+// forwardingEdge contains the channel id/source public key for a forwarding
+// edge and the policy associated with the channel in that direction.
+type forwardingEdge struct {
+	pubkey    *btcec.PublicKey
+	channelID lnwire.ShortChannelID
+	edge      *lnrpc.RoutingPolicy
 }
 
 // testForwardBlindedRoute tests lnd's ability to forward payments in a blinded

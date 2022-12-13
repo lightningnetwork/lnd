@@ -1,6 +1,9 @@
 package routing
 
 import (
+	"fmt"
+
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -20,6 +23,11 @@ type routingGraph interface {
 
 	// fetchNodeFeatures returns the features of the given node.
 	fetchNodeFeatures(nodePub route.Vertex) (*lnwire.FeatureVector, error)
+
+	// FetchAmountPairCapacity determines the maximal capacity between two
+	// pairs of nodes.
+	FetchAmountPairCapacity(nodeFrom, nodeTo route.Vertex,
+		amount lnwire.MilliSatoshi) (btcutil.Amount, error)
 }
 
 // CachedGraph is a routingGraph implementation that retrieves from the
@@ -51,9 +59,9 @@ func NewCachedGraph(sourceNode *channeldb.LightningNode,
 	}, nil
 }
 
-// close attempts to close the underlying db transaction. This is a no-op in
+// Close attempts to close the underlying db transaction. This is a no-op in
 // case the underlying graph uses an in-memory cache.
-func (g *CachedGraph) close() error {
+func (g *CachedGraph) Close() error {
 	if g.tx == nil {
 		return nil
 	}
@@ -85,4 +93,34 @@ func (g *CachedGraph) fetchNodeFeatures(nodePub route.Vertex) (
 	*lnwire.FeatureVector, error) {
 
 	return g.graph.FetchNodeFeatures(nodePub)
+}
+
+// FetchAmountPairCapacity determines the maximal public capacity between two
+// nodes depending on the amount we try to send.
+//
+// NOTE: Part of the routingGraph interface.
+func (g *CachedGraph) FetchAmountPairCapacity(nodeFrom, nodeTo route.Vertex,
+	amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
+
+	// Create unified edges for all incoming connections.
+	u := newNodeEdgeUnifier(g.sourceNode(), nodeTo, nil)
+
+	err := u.addGraphPolicies(g)
+	if err != nil {
+		return 0, err
+	}
+
+	edgeUnifier, ok := u.edgeUnifiers[nodeFrom]
+	if !ok {
+		return 0, fmt.Errorf("no edge info for node pair %v -> %v",
+			nodeFrom, nodeTo)
+	}
+
+	edge := edgeUnifier.getEdgeNetwork(amount)
+	if edge == nil {
+		return 0, fmt.Errorf("no edge for node pair %v -> %v "+
+			"(amount %v)", nodeFrom, nodeTo, amount)
+	}
+
+	return edge.capacity, nil
 }

@@ -163,9 +163,10 @@ func queryMissionControl(ctx *cli.Context) error {
 var queryProbCommand = cli.Command{
 	Name:      "queryprob",
 	Category:  "Mission Control",
-	Usage:     "Estimate a success probability.",
+	Usage:     "Deprecated. Estimate a success probability.",
 	ArgsUsage: "from-node to-node amt",
 	Action:    actionDecorator(queryProb),
+	Hidden:    true,
 }
 
 func queryProb(ctx *cli.Context) error {

@@ -45,6 +45,11 @@ type RouterBackend struct {
 	// capacity of a channel to populate in responses.
 	FetchChannelCapacity func(chanID uint64) (btcutil.Amount, error)
 
+	// FetchAmountPairCapacity determines the maximal channel capacity
+	// between two nodes given a certain amount.
+	FetchAmountPairCapacity func(nodeFrom, nodeTo route.Vertex,
+		amount lnwire.MilliSatoshi) (btcutil.Amount, error)
+
 	// FetchChannelEndpoints returns the pubkeys of both endpoints of the
 	// given channel id.
 	FetchChannelEndpoints func(chanID uint64) (route.Vertex,
@@ -57,7 +62,7 @@ type RouterBackend struct {
 		restrictions *routing.RestrictParams,
 		destCustomRecords record.CustomSet,
 		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-		finalExpiry uint16) (*route.Route, error)
+		finalExpiry uint16) (*route.Route, float64, error)
 
 	MissionControl MissionControl
 
@@ -103,7 +108,7 @@ type MissionControl interface {
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode to toNode.
 	GetProbability(fromNode, toNode route.Vertex,
-		amt lnwire.MilliSatoshi) float64
+		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
 
 	// ResetHistory resets the history of MissionControl returning it to a
 	// state as if no payment attempts have been made.
@@ -258,7 +263,8 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	restrictions := &routing.RestrictParams{
 		FeeLimit: feeLimit,
 		ProbabilitySource: func(fromNode, toNode route.Vertex,
-			amt lnwire.MilliSatoshi) float64 {
+			amt lnwire.MilliSatoshi,
+			capacity btcutil.Amount) float64 {
 
 			if _, ok := ignoredNodes[fromNode]; ok {
 				return 0
@@ -277,7 +283,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 			}
 
 			return r.MissionControl.GetProbability(
-				fromNode, toNode, amt,
+				fromNode, toNode, amt, capacity,
 			)
 		},
 		DestCustomRecords: record.CustomSet(in.DestCustomRecords),
@@ -324,7 +330,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	route, err := r.FindRoute(
+	route, successProb, err := r.FindRoute(
 		sourcePubKey, targetPubKey, amt, in.TimePref, restrictions,
 		customRecords, routeHintEdges, finalCLTVDelta,
 	)
@@ -339,39 +345,12 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
-	// Calculate route success probability. Do not rely on a probability
-	// that could have been returned from path finding, because mission
-	// control may have been disabled in the provided ProbabilitySource.
-	successProb := r.getSuccessProbability(route)
-
 	routeResp := &lnrpc.QueryRoutesResponse{
 		Routes:      []*lnrpc.Route{rpcRoute},
 		SuccessProb: successProb,
 	}
 
 	return routeResp, nil
-}
-
-// getSuccessProbability returns the success probability for the given route
-// based on the current state of mission control.
-func (r *RouterBackend) getSuccessProbability(rt *route.Route) float64 {
-	fromNode := rt.SourcePubKey
-	amtToFwd := rt.TotalAmount
-	successProb := 1.0
-	for _, hop := range rt.Hops {
-		toNode := hop.PubKeyBytes
-
-		probability := r.MissionControl.GetProbability(
-			fromNode, toNode, amtToFwd,
-		)
-
-		successProb *= probability
-
-		amtToFwd = hop.AmtToForward
-		fromNode = toNode
-	}
-
-	return successProb
 }
 
 // rpcEdgeToPair looks up the provided channel and returns the channel endpoints

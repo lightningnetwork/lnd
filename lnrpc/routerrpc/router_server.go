@@ -366,7 +366,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	// restriction for the default CLTV limit, otherwise we can find a route
 	// that exceeds it and is useless to us.
 	mc := s.cfg.RouterBackend.MissionControl
-	route, err := s.cfg.Router.FindRoute(
+	route, _, err := s.cfg.Router.FindRoute(
 		s.cfg.RouterBackend.SelfNode, destNode, amtMsat, 0,
 		&routing.RestrictParams{
 			FeeLimit:          feeLimit,
@@ -690,33 +690,6 @@ func getMsatPairValue(msatValue lnwire.MilliSatoshi,
 	// set, so we fail.
 	return 0, fmt.Errorf("msat: %v and sat: %v values not equal", msatValue,
 		satValue)
-}
-
-// QueryProbability returns the current success probability estimate for a
-// given node pair and amount.
-func (s *Server) QueryProbability(ctx context.Context,
-	req *QueryProbabilityRequest) (*QueryProbabilityResponse, error) {
-
-	fromNode, err := route.NewVertexFromBytes(req.FromNode)
-	if err != nil {
-		return nil, err
-	}
-
-	toNode, err := route.NewVertexFromBytes(req.ToNode)
-	if err != nil {
-		return nil, err
-	}
-
-	amt := lnwire.MilliSatoshi(req.AmtMsat)
-
-	mc := s.cfg.RouterBackend.MissionControl
-	prob := mc.GetProbability(fromNode, toNode, amt)
-	history := mc.GetPairHistorySnapshot(fromNode, toNode)
-
-	return &QueryProbabilityResponse{
-		Probability: prob,
-		History:     toRPCPairData(&history),
-	}, nil
 }
 
 // TrackPaymentV2 returns a stream of payment state updates. The stream is

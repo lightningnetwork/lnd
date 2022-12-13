@@ -3,20 +3,21 @@ package routing
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
-// unifiedPolicies holds all unified policies for connections towards a node.
-type unifiedPolicies struct {
-	// policies contains a unified policy for every from node.
-	policies map[route.Vertex]*unifiedPolicy
+// nodeEdgeUnifier holds all edge unifiers for connections towards a node.
+type nodeEdgeUnifier struct {
+	// edgeUnifiers contains an edge unifier for every from node.
+	edgeUnifiers map[route.Vertex]*edgeUnifier
 
 	// sourceNode is the sender of a payment. The rules to pick the final
 	// policy are different for local channels.
 	sourceNode route.Vertex
 
-	// toNode is the node for which the unified policies are instantiated.
+	// toNode is the node for which the edge unifiers are instantiated.
 	toNode route.Vertex
 
 	// outChanRestr is an optional outgoing channel restriction for the
@@ -24,13 +25,13 @@ type unifiedPolicies struct {
 	outChanRestr map[uint64]struct{}
 }
 
-// newUnifiedPolicies instantiates a new unifiedPolicies object. Channel
+// newNodeEdgeUnifier instantiates a new nodeEdgeUnifier object. Channel
 // policies can be added to this object.
-func newUnifiedPolicies(sourceNode, toNode route.Vertex,
-	outChanRestr map[uint64]struct{}) *unifiedPolicies {
+func newNodeEdgeUnifier(sourceNode, toNode route.Vertex,
+	outChanRestr map[uint64]struct{}) *nodeEdgeUnifier {
 
-	return &unifiedPolicies{
-		policies:     make(map[route.Vertex]*unifiedPolicy),
+	return &nodeEdgeUnifier{
+		edgeUnifiers: make(map[route.Vertex]*edgeUnifier),
 		toNode:       toNode,
 		sourceNode:   sourceNode,
 		outChanRestr: outChanRestr,
@@ -39,7 +40,7 @@ func newUnifiedPolicies(sourceNode, toNode route.Vertex,
 
 // addPolicy adds a single channel policy. Capacity may be zero if unknown
 // (light clients).
-func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
+func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
 	edge *channeldb.CachedEdgePolicy, capacity btcutil.Amount) {
 
 	localChan := fromNode == u.sourceNode
@@ -51,16 +52,16 @@ func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
 		}
 	}
 
-	// Update the policies map.
-	policy, ok := u.policies[fromNode]
+	// Update the edgeUnifiers map.
+	unifier, ok := u.edgeUnifiers[fromNode]
 	if !ok {
-		policy = &unifiedPolicy{
+		unifier = &edgeUnifier{
 			localChan: localChan,
 		}
-		u.policies[fromNode] = policy
+		u.edgeUnifiers[fromNode] = unifier
 	}
 
-	policy.edges = append(policy.edges, &unifiedPolicyEdge{
+	unifier.edges = append(unifier.edges, &unifiedEdge{
 		policy:   edge,
 		capacity: capacity,
 	})
@@ -68,7 +69,7 @@ func (u *unifiedPolicies) addPolicy(fromNode route.Vertex,
 
 // addGraphPolicies adds all policies that are known for the toNode in the
 // graph.
-func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
+func (u *nodeEdgeUnifier) addGraphPolicies(g routingGraph) error {
 	cb := func(channel *channeldb.DirectedChannel) error {
 		// If there is no edge policy for this candidate node, skip.
 		// Note that we are searching backwards so this node would have
@@ -77,7 +78,7 @@ func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
 			return nil
 		}
 
-		// Add this policy to the unified policies map.
+		// Add this policy to the corresponding edgeUnifier.
 		u.addPolicy(
 			channel.OtherNode, channel.InPolicy, channel.Capacity,
 		)
@@ -89,16 +90,16 @@ func (u *unifiedPolicies) addGraphPolicies(g routingGraph) error {
 	return g.forEachNodeChannel(u.toNode, cb)
 }
 
-// unifiedPolicyEdge is the individual channel data that is kept inside an
-// unifiedPolicy object.
-type unifiedPolicyEdge struct {
+// unifiedEdge is the individual channel data that is kept inside an edgeUnifier
+// object.
+type unifiedEdge struct {
 	policy   *channeldb.CachedEdgePolicy
 	capacity btcutil.Amount
 }
 
 // amtInRange checks whether an amount falls within the valid range for a
 // channel.
-func (u *unifiedPolicyEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
+func (u *unifiedEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
 	// If the capacity is available (non-light clients), skip channels that
 	// are too small.
 	if u.capacity > 0 &&
@@ -122,33 +123,32 @@ func (u *unifiedPolicyEdge) amtInRange(amt lnwire.MilliSatoshi) bool {
 	return true
 }
 
-// unifiedPolicy is the unified policy that covers all channels between a pair
-// of nodes.
-type unifiedPolicy struct {
-	edges     []*unifiedPolicyEdge
+// edgeUnifier is an object that covers all channels between a pair of nodes.
+type edgeUnifier struct {
+	edges     []*unifiedEdge
 	localChan bool
 }
 
-// getPolicy returns the optimal policy to use for this connection given a
+// getEdge returns the optimal unified edge to use for this connection given a
 // specific amount to send. It differentiates between local and network
 // channels.
-func (u *unifiedPolicy) getPolicy(amt lnwire.MilliSatoshi,
-	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
+func (u *edgeUnifier) getEdge(amt lnwire.MilliSatoshi,
+	bandwidthHints bandwidthHints) *unifiedEdge {
 
 	if u.localChan {
-		return u.getPolicyLocal(amt, bandwidthHints)
+		return u.getEdgeLocal(amt, bandwidthHints)
 	}
 
-	return u.getPolicyNetwork(amt)
+	return u.getEdgeNetwork(amt)
 }
 
-// getPolicyLocal returns the optimal policy to use for this local connection
-// given a specific amount to send.
-func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
-	bandwidthHints bandwidthHints) *channeldb.CachedEdgePolicy {
+// getEdgeLocal returns the optimal unified edge to use for this local
+// connection given a specific amount to send.
+func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
+	bandwidthHints bandwidthHints) *unifiedEdge {
 
 	var (
-		bestPolicy   *channeldb.CachedEdgePolicy
+		bestEdge     *unifiedEdge
 		maxBandwidth lnwire.MilliSatoshi
 	)
 
@@ -191,23 +191,23 @@ func (u *unifiedPolicy) getPolicyLocal(amt lnwire.MilliSatoshi,
 		}
 		maxBandwidth = bandwidth
 
-		// Update best policy.
-		bestPolicy = edge.policy
+		// Update best edge.
+		bestEdge = &unifiedEdge{policy: edge.policy}
 	}
 
-	return bestPolicy
+	return bestEdge
 }
 
-// getPolicyNetwork returns the optimal policy to use for this connection given
-// a specific amount to send. The goal is to return a policy that maximizes the
-// probability of a successful forward in a non-strict forwarding context.
-func (u *unifiedPolicy) getPolicyNetwork(
-	amt lnwire.MilliSatoshi) *channeldb.CachedEdgePolicy {
-
+// getEdgeNetwork returns the optimal unified edge to use for this connection
+// given a specific amount to send. The goal is to return a unified edge with a
+// policy that maximizes the probability of a successful forward in a non-strict
+// forwarding context.
+func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 	var (
 		bestPolicy  *channeldb.CachedEdgePolicy
 		maxFee      lnwire.MilliSatoshi
 		maxTimelock uint16
+		maxCapMsat  lnwire.MilliSatoshi
 	)
 
 	for _, edge := range u.edges {
@@ -223,11 +223,23 @@ func (u *unifiedPolicy) getPolicyNetwork(
 			continue
 		}
 
+		// Track the maximal capacity for usable channels. If we don't
+		// know the capacity, we fall back to MaxHTLC.
+		capMsat := lnwire.NewMSatFromSatoshis(edge.capacity)
+		if capMsat == 0 && edge.policy.MessageFlags.HasMaxHtlc() {
+			log.Tracef("No capacity available for channel %v, "+
+				"using MaxHtlcMsat (%v) as a fallback.",
+				edge.policy.ChannelID, edge.policy.MaxHTLC)
+
+			capMsat = edge.policy.MaxHTLC
+		}
+		maxCapMsat = lntypes.Max(capMsat, maxCapMsat)
+
 		// Track the maximum time lock of all channels that are
 		// candidate for non-strict forwarding at the routing node.
-		if edge.policy.TimeLockDelta > maxTimelock {
-			maxTimelock = edge.policy.TimeLockDelta
-		}
+		maxTimelock = lntypes.Max(
+			maxTimelock, edge.policy.TimeLockDelta,
+		)
 
 		// Use the policy that results in the highest fee for this
 		// specific amount.
@@ -255,19 +267,19 @@ func (u *unifiedPolicy) getPolicyNetwork(
 	// get forwarded. Because we penalize pair-wise, there won't be a second
 	// chance for this node pair. But this is all only needed for nodes that
 	// have distinct policies for channels to the same peer.
-	modifiedPolicy := *bestPolicy
-	modifiedPolicy.TimeLockDelta = maxTimelock
+	policyCopy := *bestPolicy
+	modifiedEdge := unifiedEdge{policy: &policyCopy}
+	modifiedEdge.policy.TimeLockDelta = maxTimelock
+	modifiedEdge.capacity = maxCapMsat.ToSatoshis()
 
-	return &modifiedPolicy
+	return &modifiedEdge
 }
 
 // minAmt returns the minimum amount that can be forwarded on this connection.
-func (u *unifiedPolicy) minAmt() lnwire.MilliSatoshi {
+func (u *edgeUnifier) minAmt() lnwire.MilliSatoshi {
 	min := lnwire.MaxMilliSatoshi
 	for _, edge := range u.edges {
-		if edge.policy.MinHTLC < min {
-			min = edge.policy.MinHTLC
-		}
+		min = lntypes.Min(min, edge.policy.MinHTLC)
 	}
 
 	return min

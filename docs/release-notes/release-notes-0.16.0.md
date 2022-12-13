@@ -77,6 +77,9 @@
   GetBlock, GetBestBlock, GetBlockHash. These endpoints provide access to chain
   block data.
 
+* [`QueryProbabiltiy` is deprecated. Internal mission control state can be 
+  obtained via `QueryMissionControl`.](
+  https://github.com/lightningnetwork/lnd/pull/6857)
 
 ## Wallet
 
@@ -259,6 +262,11 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   the removal of a tower address if the current session negotiation is not
   using the address in question](
   https://github.com/lightningnetwork/lnd/pull/7025)
+
+## Pathfinding
+
+* [Pathfinding takes capacity of edges into account to improve success
+  probability estimation.](https://github.com/lightningnetwork/lnd/pull/6857)
 
 ### Tooling and documentation
 

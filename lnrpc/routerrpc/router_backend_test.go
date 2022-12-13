@@ -126,7 +126,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		amt lnwire.MilliSatoshi, _ float64,
 		restrictions *routing.RestrictParams, _ record.CustomSet,
 		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-		finalExpiry uint16) (*route.Route, error) {
+		finalExpiry uint16) (*route.Route, float64, error) {
 
 		if int64(amt) != amtSat*1000 {
 			t.Fatal("unexpected amount")
@@ -145,18 +145,18 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		}
 
 		if restrictions.ProbabilitySource(route.Vertex{2},
-			route.Vertex{1}, 0,
+			route.Vertex{1}, 0, 0,
 		) != 0 {
 			t.Fatal("expecting 0% probability for ignored edge")
 		}
 
 		if restrictions.ProbabilitySource(ignoreNodeVertex,
-			route.Vertex{6}, 0,
+			route.Vertex{6}, 0, 0,
 		) != 0 {
 			t.Fatal("expecting 0% probability for ignored node")
 		}
 
-		if restrictions.ProbabilitySource(node1, node2, 0) != 0 {
+		if restrictions.ProbabilitySource(node1, node2, 0, 0) != 0 {
 			t.Fatal("expecting 0% probability for ignored pair")
 		}
 
@@ -181,13 +181,15 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 			expectedProb = testMissionControlProb
 		}
 		if restrictions.ProbabilitySource(route.Vertex{4},
-			route.Vertex{5}, 0,
+			route.Vertex{5}, 0, 0,
 		) != expectedProb {
 			t.Fatal("expecting 100% probability")
 		}
 
 		hops := []*route.Hop{{}}
-		return route.NewRouteFromHops(amt, 144, source, hops)
+		route, err := route.NewRouteFromHops(amt, 144, source, hops)
+
+		return route, expectedProb, err
 	}
 
 	backend := &RouterBackend{
@@ -195,6 +197,11 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		SelfNode:  route.Vertex{1, 2, 3},
 		FetchChannelCapacity: func(chanID uint64) (
 			btcutil.Amount, error) {
+
+			return 1, nil
+		},
+		FetchAmountPairCapacity: func(nodeFrom, nodeTo route.Vertex,
+			amount lnwire.MilliSatoshi) (btcutil.Amount, error) {
 
 			return 1, nil
 		},
@@ -239,7 +246,7 @@ type mockMissionControl struct {
 }
 
 func (m *mockMissionControl) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi) float64 {
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 
 	return testMissionControlProb
 }

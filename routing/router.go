@@ -227,7 +227,7 @@ type MissionController interface {
 	// GetProbability is expected to return the success probability of a
 	// payment from fromNode along edge.
 	GetProbability(fromNode, toNode route.Vertex,
-		amt lnwire.MilliSatoshi) float64
+		amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64
 }
 
 // FeeSchema is the set fee configuration for a Lightning Node on the network.
@@ -1752,11 +1752,10 @@ type routingMsg struct {
 // particular target destination to which it is able to send `amt` after
 // factoring in channel capacities and cumulative fees along the route.
 func (r *ChannelRouter) FindRoute(source, target route.Vertex,
-	amt lnwire.MilliSatoshi, timePref float64,
-	restrictions *RestrictParams,
+	amt lnwire.MilliSatoshi, timePref float64, restrictions *RestrictParams,
 	destCustomRecords record.CustomSet,
 	routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-	finalExpiry uint16) (*route.Route, error) {
+	finalExpiry uint16) (*route.Route, float64, error) {
 
 	log.Debugf("Searching for path to %v, sending %v", target, amt)
 
@@ -1766,14 +1765,14 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		r.cachedGraph, r.selfNode.PubKeyBytes, r.cfg.GetLink,
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// We'll fetch the current block height so we can properly calculate the
 	// required HTLC time locks within the route.
 	_, currentHeight, err := r.cfg.Chain.GetBestBlock()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Now that we know the destination is reachable within the graph, we'll
@@ -1782,10 +1781,10 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	// Validate time preference.
 	if timePref < -1 || timePref > 1 {
-		return nil, errors.New("time preference out of range")
+		return nil, 0, errors.New("time preference out of range")
 	}
 
-	path, err := findPath(
+	path, probability, err := findPath(
 		&graphParams{
 			additionalEdges: routeHints,
 			bandwidthHints:  bandwidthHints,
@@ -1796,7 +1795,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		source, target, amt, timePref, finalHtlcExpiry,
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Create the route with absolute time lock values.
@@ -1810,7 +1809,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	go log.Tracef("Obtained path to send %v to %x: %v",
@@ -1819,7 +1818,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 		}),
 	)
 
-	return route, nil
+	return route, probability, nil
 }
 
 // generateNewSessionKey generates a new ephemeral private key to be used for a
@@ -2765,9 +2764,8 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		return nil, err
 	}
 
-	// Allocate a list that will contain the unified policies for this
-	// route.
-	edges := make([]*unifiedPolicy, len(hops))
+	// Allocate a list that will contain the edge unifiers for this route.
+	unifiers := make([]*edgeUnifier, len(hops))
 
 	var runningAmt lnwire.MilliSatoshi
 	if useMinAmt {
@@ -2796,9 +2794,9 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		localChan := i == 0
 
-		// Build unified policies for this hop based on the channels
-		// known in the graph.
-		u := newUnifiedPolicies(source, toNode, outgoingChans)
+		// Build unified edges for this hop based on the channels known
+		// in the graph.
+		u := newNodeEdgeUnifier(source, toNode, outgoingChans)
 
 		err := u.addGraphPolicies(r.cachedGraph)
 		if err != nil {
@@ -2806,7 +2804,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		}
 
 		// Exit if there are no channels.
-		unifiedPolicy, ok := u.policies[fromNode]
+		edgeUnifier, ok := u.edgeUnifiers[fromNode]
 		if !ok {
 			log.Errorf("Cannot find policy for node %v", fromNode)
 			return nil, ErrNoChannel{
@@ -2817,18 +2815,18 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		// If using min amt, increase amt if needed.
 		if useMinAmt {
-			min := unifiedPolicy.minAmt()
+			min := edgeUnifier.minAmt()
 			if min > runningAmt {
 				runningAmt = min
 			}
 		}
 
-		// Get a forwarding policy for the specific amount that we want
-		// to forward.
-		policy := unifiedPolicy.getPolicy(runningAmt, bandwidthHints)
-		if policy == nil {
+		// Get an edge for the specific amount that we want to forward.
+		edge := edgeUnifier.getEdge(runningAmt, bandwidthHints)
+		if edge == nil {
 			log.Errorf("Cannot find policy with amt=%v for node %v",
 				runningAmt, fromNode)
+
 			return nil, ErrNoChannel{
 				fromNode: fromNode,
 				position: i,
@@ -2837,12 +2835,13 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		// Add fee for this hop.
 		if !localChan {
-			runningAmt += policy.ComputeFee(runningAmt)
+			runningAmt += edge.policy.ComputeFee(runningAmt)
 		}
 
-		log.Tracef("Select channel %v at position %v", policy.ChannelID, i)
+		log.Tracef("Select channel %v at position %v",
+			edge.policy.ChannelID, i)
 
-		edges[i] = unifiedPolicy
+		unifiers[i] = edgeUnifier
 	}
 
 	// Now that we arrived at the start of the route and found out the route
@@ -2851,9 +2850,9 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// amount ranges re-checked.
 	var pathEdges []*channeldb.CachedEdgePolicy
 	receiverAmt := runningAmt
-	for i, edge := range edges {
-		policy := edge.getPolicy(receiverAmt, bandwidthHints)
-		if policy == nil {
+	for i, unifier := range unifiers {
+		edge := unifier.getEdge(receiverAmt, bandwidthHints)
+		if edge == nil {
 			return nil, ErrNoChannel{
 				fromNode: hops[i-1],
 				position: i,
@@ -2862,12 +2861,12 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 
 		if i > 0 {
 			// Decrease the amount to send while going forward.
-			receiverAmt -= policy.ComputeFeeFromIncoming(
+			receiverAmt -= edge.policy.ComputeFeeFromIncoming(
 				receiverAmt,
 			)
 		}
 
-		pathEdges = append(pathEdges, policy)
+		pathEdges = append(pathEdges, edge.policy)
 	}
 
 	// Build and return the final route.

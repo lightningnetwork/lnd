@@ -116,7 +116,7 @@
     },
     "/v2/router/mc/probability/{from_node}/{to_node}/{amt_msat}": {
       "get": {
-        "summary": "QueryProbability returns the current success probability estimate for a\ngiven node pair and amount.",
+        "summary": "Deprecated. QueryProbability returns the current success probability\nestimate for a given node pair and amount.",
         "operationId": "Router_QueryProbability",
         "responses": {
           "200": {

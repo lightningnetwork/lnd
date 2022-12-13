@@ -65,8 +65,8 @@ type RouterClient interface {
 	// SetMissionControlConfig will set mission control's config, if the config
 	// provided is valid.
 	SetMissionControlConfig(ctx context.Context, in *SetMissionControlConfigRequest, opts ...grpc.CallOption) (*SetMissionControlConfigResponse, error)
-	// QueryProbability returns the current success probability estimate for a
-	// given node pair and amount.
+	// Deprecated. QueryProbability returns the current success probability
+	// estimate for a given node pair and amount.
 	QueryProbability(ctx context.Context, in *QueryProbabilityRequest, opts ...grpc.CallOption) (*QueryProbabilityResponse, error)
 	// BuildRoute builds a fully specified route based on a list of hop public
 	// keys. It retrieves the relevant channel policies from the graph in order to
@@ -483,8 +483,8 @@ type RouterServer interface {
 	// SetMissionControlConfig will set mission control's config, if the config
 	// provided is valid.
 	SetMissionControlConfig(context.Context, *SetMissionControlConfigRequest) (*SetMissionControlConfigResponse, error)
-	// QueryProbability returns the current success probability estimate for a
-	// given node pair and amount.
+	// Deprecated. QueryProbability returns the current success probability
+	// estimate for a given node pair and amount.
 	QueryProbability(context.Context, *QueryProbabilityRequest) (*QueryProbabilityResponse, error)
 	// BuildRoute builds a fully specified route based on a list of hop public
 	// keys. It retrieves the relevant channel policies from the graph in order to

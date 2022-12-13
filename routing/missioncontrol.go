@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -333,7 +334,7 @@ func (m *MissionControl) ResetHistory() error {
 // GetProbability is expected to return the success probability of a payment
 // from fromNode along edge.
 func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
-	amt lnwire.MilliSatoshi) float64 {
+	amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 
 	m.Lock()
 	defer m.Unlock()
@@ -346,7 +347,9 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 		return m.estimator.getLocalPairProbability(now, results, toNode)
 	}
 
-	return m.estimator.getPairProbability(now, results, toNode, amt)
+	return m.estimator.getPairProbability(
+		now, results, toNode, amt, capacity,
+	)
 }
 
 // GetHistorySnapshot takes a snapshot from the current mission control state

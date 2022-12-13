@@ -105,7 +105,9 @@ var (
 
 // noProbabilitySource is used in testing to return the same probability 1 for
 // all edges.
-func noProbabilitySource(route.Vertex, route.Vertex, lnwire.MilliSatoshi) float64 {
+func noProbabilitySource(route.Vertex, route.Vertex, lnwire.MilliSatoshi,
+	btcutil.Amount) float64 {
+
 	return 1
 }
 
@@ -2289,7 +2291,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
-	route, err := ctx.router.FindRoute(
+	route, _, err := ctx.router.FindRoute(
 		bobNode.PubKeyBytes, carol, amt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
@@ -2339,7 +2341,7 @@ func TestPathFindSpecExample(t *testing.T) {
 	}
 
 	// We'll now request a route from A -> B -> C.
-	route, err = ctx.router.FindRoute(
+	route, _, err = ctx.router.FindRoute(
 		source.PubKeyBytes, carol, amt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
@@ -2796,8 +2798,9 @@ func testProbabilityRouting(t *testing.T, useCache bool,
 	target := ctx.testGraphInstance.aliasMap["target"]
 
 	// Configure a probability source with the test parameters.
-	ctx.restrictParams.ProbabilitySource = func(fromNode, toNode route.Vertex,
-		amt lnwire.MilliSatoshi) float64 {
+	ctx.restrictParams.ProbabilitySource = func(fromNode,
+		toNode route.Vertex, amt lnwire.MilliSatoshi,
+		capacity btcutil.Amount) float64 {
 
 		if amt == 0 {
 			t.Fatal("expected non-zero amount")
@@ -2878,8 +2881,9 @@ func runEqualCostRouteSelection(t *testing.T, useCache bool) {
 	paymentAmt := lnwire.NewMSatFromSatoshis(100)
 	target := ctx.testGraphInstance.aliasMap["target"]
 
-	ctx.restrictParams.ProbabilitySource = func(fromNode, toNode route.Vertex,
-		amt lnwire.MilliSatoshi) float64 {
+	ctx.restrictParams.ProbabilitySource = func(fromNode,
+		toNode route.Vertex, amt lnwire.MilliSatoshi,
+		capacity btcutil.Amount) float64 {
 
 		switch {
 		case fromNode == alias["source"] && toNode == alias["a"]:
@@ -3108,12 +3112,12 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 	}
 
 	defer func() {
-		if err := routingGraph.close(); err != nil {
+		if err := routingGraph.Close(); err != nil {
 			log.Errorf("Error closing db tx: %v", err)
 		}
 	}()
 
-	return findPath(
+	route, _, err := findPath(
 		&graphParams{
 			additionalEdges: additionalEdges,
 			bandwidthHints:  bandwidthHints,
@@ -3121,4 +3125,6 @@ func dbFindPath(graph *channeldb.ChannelGraph,
 		},
 		r, cfg, source, target, amt, timePref, finalHtlcExpiry,
 	)
+
+	return route, err
 }

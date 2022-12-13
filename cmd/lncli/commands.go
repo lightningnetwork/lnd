@@ -292,6 +292,11 @@ var sendCoinsCommand = cli.Command{
 				"must satisfy",
 			Value: defaultUtxoMinConf,
 		},
+		cli.BoolFlag{
+                        Name: "skip_confirmation",
+                        Usage: "if set, the transaction will be broadcasted without " +
+                                "asking for confirmation",
+                },
 		txLabelFlag,
 	},
 	Action: actionDecorator(sendCoins),
@@ -352,6 +357,16 @@ func sendCoins(ctx *cli.Context) error {
 	if amt != 0 && ctx.Bool("sweepall") {
 		return fmt.Errorf("amount cannot be set if attempting to " +
 			"sweep all coins out of the wallet")
+	}
+
+	// Ask for confirmation
+	if !ctx.Bool("skip_confirmation") {
+		msg := fmt.Sprintf("Sending %d sats to address %s\n\n" +
+					"Please confirm (yes/no): ", amt, addr)
+		confirmed := promptForConfirmation(msg)
+		if !confirmed {
+			return nil
+		}
 	}
 
 	client, cleanUp := getClient(ctx)

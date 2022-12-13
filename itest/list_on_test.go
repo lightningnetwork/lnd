@@ -546,4 +546,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "query blinded route",
 		TestFunc: testQueryBlindedRoutes,
 	},
+	{
+		Name:     "forward blinded",
+		TestFunc: testForwardBlindedRoute,
+	},
 }

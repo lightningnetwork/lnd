@@ -320,28 +320,118 @@ type blindedForwardTest struct {
 	carol    *node.HarnessNode
 	dave     *node.HarnessNode
 	channels []*lnrpc.ChannelPoint
+
+	// ctx is a context to be used by the test.
+	ctx context.Context //nolint:containedctx
+
+	// cancel will cancel the test's top level context.
+	cancel func()
 }
 
 func newBlindedForwardTest(ht *lntest.HarnessTest) *blindedForwardTest {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &blindedForwardTest{
-		ht: ht,
+		ht:     ht,
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
 // setup spins up additional nodes needed for our test and creates a four hop
-// network for testing blinded forwarding.
-func (b *blindedForwardTest) setup() {
+// network for testing blinded forwarding and returns a blinded route from
+// Bob -> Carol -> Dave, with Bob acting as the introduction point.
+func (b *blindedForwardTest) setup() *routing.BlindedPayment {
 	b.carol = b.ht.NewNode("Carol", nil)
 	b.dave = b.ht.NewNode("Dave", nil)
 
 	b.channels = setupFourHopNetwork(b.ht, b.carol, b.dave)
+
+	// Create a blinded route to Dave via Bob --- Carol --- Dave:
+	bobChan := b.ht.GetChannelByChanPoint(b.ht.Bob, b.channels[1])
+	carolChan := b.ht.GetChannelByChanPoint(b.carol, b.channels[2])
+
+	edges := []*forwardingEdge{
+		getForwardingEdge(b.ctx, b.ht, b.ht.Bob, bobChan.ChanId),
+		getForwardingEdge(b.ctx, b.ht, b.carol, carolChan.ChanId),
+	}
+
+	davePk, err := btcec.ParsePubKey(b.dave.PubKey[:])
+	require.NoError(b.ht, err, "dave pubkey")
+
+	return b.createBlindedRoute(edges, davePk)
 }
 
-// cleanup tears down all channels created by the test.
+// cleanup tears down all channels created by the test and cancels the top
+// level context used in the test.
 func (b *blindedForwardTest) cleanup() {
 	b.ht.CloseChannel(b.ht.Alice, b.channels[0])
 	b.ht.CloseChannel(b.ht.Bob, b.channels[1])
 	b.ht.CloseChannel(b.carol, b.channels[2])
+
+	b.cancel()
+}
+
+// createRouteToBlinded queries for a route from alice to the blinded path
+// provided.
+//
+//nolint:gomnd
+func (b *blindedForwardTest) createRouteToBlinded(paymentAmt int64,
+	route *routing.BlindedPayment) *lnrpc.Route {
+
+	intro := route.BlindedPath.IntroductionPoint.SerializeCompressed()
+	blinding := route.BlindedPath.BlindingPoint.SerializeCompressed()
+
+	blindedRoute := &lnrpc.BlindedPath{
+		IntroductionNode: intro,
+		BlindingPoint:    blinding,
+		BlindedHops: make(
+			[]*lnrpc.BlindedHop,
+			len(route.BlindedPath.BlindedHops),
+		),
+	}
+
+	for i, hop := range route.BlindedPath.BlindedHops {
+		blindedRoute.BlindedHops[i] = &lnrpc.BlindedHop{
+			BlindedNode:   hop.NodePub.SerializeCompressed(),
+			EncryptedData: hop.Payload,
+		}
+	}
+	blindedPath := &lnrpc.BlindedPaymentPath{
+		BlindedPath: blindedRoute,
+		BaseFeeMsat: uint64(
+			route.BaseFee,
+		),
+		ProportionalFeeMsat: uint64(
+			route.ProportionalFee,
+		),
+		TotalCltvDelta: uint32(
+			route.CltvExpiryDelta,
+		),
+	}
+
+	ctxt, cancel := context.WithTimeout(b.ctx, defaultTimeout)
+	req := &lnrpc.QueryRoutesRequest{
+		AmtMsat: paymentAmt,
+		// Our fee limit doesn't really matter, we just want to
+		// be able to make the payment.
+		FeeLimit: &lnrpc.FeeLimit{
+			Limit: &lnrpc.FeeLimit_Percent{
+				Percent: 50,
+			},
+		},
+		BlindedPaymentPaths: []*lnrpc.BlindedPaymentPath{
+			blindedPath,
+		},
+	}
+
+	resp, err := b.ht.Alice.RPC.LN.QueryRoutes(ctxt, req)
+	cancel()
+	require.NoError(b.ht, err, "query routes")
+	require.Greater(b.ht, len(resp.Routes), 0, "no routes")
+	require.Len(b.ht, resp.Routes[0].Hops, 3, "unexpected route length")
+
+	return resp.Routes[0]
 }
 
 // setupFourHopNetwork creates a network with the following topology and
@@ -498,8 +588,42 @@ type forwardingEdge struct {
 	edge      *lnrpc.RoutingPolicy
 }
 
+func getForwardingEdge(ctxb context.Context, ht *lntest.HarnessTest,
+	node *node.HarnessNode, chanID uint64) *forwardingEdge {
+
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	chanInfo, err := node.RPC.LN.GetChanInfo(ctxt, &lnrpc.ChanInfoRequest{
+		ChanId: chanID,
+	})
+	cancel()
+	require.NoError(ht, err, "%v chan info", node.Cfg.Name)
+
+	pubkey, err := btcec.ParsePubKey(node.PubKey[:])
+	require.NoError(ht, err, "%v pubkey", node.Cfg.Name)
+
+	fwdEdge := &forwardingEdge{
+		pubkey:    pubkey,
+		channelID: lnwire.NewShortChanIDFromInt(chanID),
+	}
+
+	if chanInfo.Node1Pub == node.PubKeyStr {
+		fwdEdge.edge = chanInfo.Node1Policy
+	} else {
+		require.Equal(ht, node.PubKeyStr, chanInfo.Node2Pub,
+			"policy edge sanity check")
+
+		fwdEdge.edge = chanInfo.Node2Policy
+	}
+
+	return fwdEdge
+}
+
 // testForwardBlindedRoute tests lnd's ability to forward payments in a blinded
 // route.
 func testForwardBlindedRoute(ht *lntest.HarnessTest) {
-	newBlindedForwardTest(ht)
+	testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+
+	route := testCase.setup()
+	testCase.createRouteToBlinded(100_000, route)
 }

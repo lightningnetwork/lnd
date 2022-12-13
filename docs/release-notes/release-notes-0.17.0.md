@@ -115,6 +115,13 @@ unlock or create.
 
 * Added ability to use [ENV variables to override `lncli` global flags](https://github.com/lightningnetwork/lnd/pull/7693). Flags will have preference over ENVs.
 
+* The `lncli sendcoins` command now asks for manual confirmation when invoked
+  on the command line. This can be skipped by adding the `--force` (or `-f`)
+  flag, similar to how `lncli payinvoice` works. To not break any existing
+  scripts the confirmation is also skipped if `stdout` is not a terminal/tty
+  (e.g. when capturing the output in a shell script variable or piping the
+  output to another program).
+
 ## Bug Fix
 
 * Make sure payment stream returns all the events by [subscribing it before

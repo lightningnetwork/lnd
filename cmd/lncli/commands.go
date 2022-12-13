@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
+	"golang.org/x/term"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -302,6 +303,14 @@ var sendCoinsCommand = cli.Command{
 				"must satisfy",
 			Value: defaultUtxoMinConf,
 		},
+		cli.BoolFlag{
+			Name: "force, f",
+			Usage: "if set, the transaction will be broadcast " +
+				"without asking for confirmation; this is " +
+				"set to true by default if stdout is not a " +
+				"terminal avoid breaking existing shell " +
+				"scripts",
+		},
 		txLabelFlag,
 	},
 	Action: actionDecorator(sendCoins),
@@ -362,6 +371,19 @@ func sendCoins(ctx *cli.Context) error {
 	if amt != 0 && ctx.Bool("sweepall") {
 		return fmt.Errorf("amount cannot be set if attempting to " +
 			"sweep all coins out of the wallet")
+	}
+
+	// Ask for confirmation if we're on an actual terminal and the output is
+	// not being redirected to another command. This prevents existing shell
+	// scripts from breaking.
+	if !ctx.Bool("force") && term.IsTerminal(int(os.Stdout.Fd())) {
+		fmt.Printf("Amount: %d\n", amt)
+		fmt.Printf("Destination address: %v\n", addr)
+
+		confirm := promptForConfirmation("Confirm payment (yes/no): ")
+		if !confirm {
+			return nil
+		}
 	}
 
 	client, cleanUp := getClient(ctx)

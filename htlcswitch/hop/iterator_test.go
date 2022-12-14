@@ -100,3 +100,56 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 		}
 	}
 }
+
+// TestForwardingAmountCalc tests calculation of forwarding amounts from the
+// hop's forwarding parameters.
+func TestForwardingAmountCalc(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		incomingAmount lnwire.MilliSatoshi
+		baseFee        uint32
+		proportional   uint32
+		forwardAmount  lnwire.MilliSatoshi
+		expectErr      bool
+	}{
+		{
+			name:           "overflow",
+			incomingAmount: 10,
+			baseFee:        100,
+			expectErr:      true,
+		},
+		{
+			name:           "trivial proportional",
+			incomingAmount: 100_000,
+			baseFee:        1000,
+			proportional:   10,
+			forwardAmount:  99000,
+		},
+		{
+			name:           "both fees charged",
+			incomingAmount: 10_002_020,
+			baseFee:        1000,
+			proportional:   1,
+			forwardAmount:  10_001_010,
+		},
+	}
+
+	for _, testCase := range tests {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			actual, err := calculateForwardingAmount(
+				testCase.incomingAmount, testCase.baseFee,
+				testCase.proportional,
+			)
+
+			require.Equal(t, testCase.expectErr, err != nil)
+			require.Equal(t, testCase.forwardAmount.ToSatoshis(),
+				actual.ToSatoshis())
+		})
+	}
+}

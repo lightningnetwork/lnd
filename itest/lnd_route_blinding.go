@@ -1,8 +1,11 @@
 package itest
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -460,6 +463,52 @@ func (b *blindedForwardTest) sendBlindedPayment(route *lnrpc.Route) (
 	return sendClient, cancel
 }
 
+// interceptFinalHop sets up a htlc interceptor on carol's incoming link to
+// intercept incoming htlcs.
+func (b *blindedForwardTest) interceptFinalHop() chan error {
+	interceptor, err := b.carol.RPC.Router.HtlcInterceptor(b.ctx)
+	require.NoError(b.ht, err, "interceptor")
+
+	hash := sha256.Sum256(b.preimage[:])
+
+	// Create an error channel to deliver any interceptor errors.
+	errChan := make(chan error)
+	go func() {
+		forward, err := interceptor.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		if !bytes.Equal(forward.PaymentHash, hash[:]) {
+			errChan <- fmt.Errorf("unexpected payment hash: %v",
+				hash)
+			return
+		}
+
+		//nolint:lll
+		resp := &routerrpc.ForwardHtlcInterceptResponse{
+			IncomingCircuitKey: forward.IncomingCircuitKey,
+			Action:             routerrpc.ResolveHoldForwardAction_SETTLE,
+			Preimage:           b.preimage[:],
+		}
+
+		errChan <- interceptor.Send(resp)
+	}()
+
+	return errChan
+}
+
+func (b *blindedForwardTest) assertIntercepted(errChan chan error) {
+	select {
+	case err := <-errChan:
+		require.NoError(b.ht, err, "interceptor error")
+
+	case <-time.After(defaultTimeout):
+		b.ht.Fatalf("interceptor did not exit")
+	}
+}
+
 // setupFourHopNetwork creates a network with the following topology and
 // liquidity:
 // Alice (100k)----- Bob (100k) ----- Carol (100k) ----- Dave
@@ -653,9 +702,29 @@ func testForwardBlindedRoute(ht *lntest.HarnessTest) {
 	route := testCase.setup()
 	blindedRoute := testCase.createRouteToBlinded(100_000, route)
 
+	// Receiving via blinded routes is not yet supported, so Dave won't be
+	// able to process the payment.
+	//
+	// We have an interceptor at our disposal that will catch htlcs as they
+	// are forwarded (ie, it won't intercept a HTLC that dave is receiving,
+	// since no forwarding occurs). We initiate this interceptor with
+	// Carol, so that we can catch it and settle on the outgoing link to
+	// Dave. Once we hit the outgoing link, we know that we successfully
+	// parsed the htlc, so this is an acceptable compromise.
+	// Assert that our interceptor has exited without an error.
+	errChan := testCase.interceptFinalHop()
+	// TODO: interceptor is racing w/ payment, make sure interceptor is
+	// used
 	testCase.sendBlindedPayment(blindedRoute)
 
 	// Wait for the HTLC to be active on Alice's channel.
 	hash := sha256.Sum256(testCase.preimage[:])
-	ht.AssertHLTCNotActive(ht.Alice, testCase.channels[0], hash)
+	ht.AssertHLTCNotActive(ht.Alice, testCase.channels[0], hash[:])
+
+	// Intercept and settle the HTLC.
+	testCase.assertIntercepted(errChan)
+
+	// Assert that the HTLC has settled before test cleanup runs so that
+	// we can cooperatively close all channels.
+	ht.AssertHLTCNotActive(ht.Alice, testCase.channels[0], hash[:])
 }

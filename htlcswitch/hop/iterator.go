@@ -2,6 +2,7 @@ package hop
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -9,7 +10,13 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/tlv"
+)
+
+var (
+	// ErrDecodeFailed is returned when we can't decode blinded data.
+	ErrDecodeFailed = errors.New("could not decode blinded data")
 )
 
 // Iterator is an interface that abstracts away the routing information
@@ -112,6 +119,135 @@ func (r *sphinxHopIterator) ExtractErrorEncrypter(
 	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
 
 	return extracter(r.ogPacket.EphemeralKey)
+}
+
+// BlindingProcessor is an interface that provides the cryptographic operations
+// required for processing blinded hops.
+//
+// This interface is extracted to allow more granular testing of blinded
+// forwarding calculations.
+type BlindingProcessor interface {
+	// DecryptBlindedHopData decrypts a blinded blob of data using the
+	// ephemeral key provided.
+	DecryptBlindedHopData(ephemPub *btcec.PublicKey,
+		encryptedData []byte) ([]byte, error)
+}
+
+// BlindingKit contains the components required to extract forwarding
+// information for hops in a blinded route.
+type BlindingKit struct {
+	// Processor provides the low-level cryptographic operations to
+	// handle an encrypted blob of data in a blinded forward.
+	Processor BlindingProcessor
+
+	// UpdateAddBlinding holds a blinding point that was passed to the
+	// node via update_add_htlc's TLVs.
+	UpdateAddBlinding lnwire.BlindingPointRecord
+
+	// IncomingCltv is the expiry of the incoming HTLC.
+	IncomingCltv uint32
+
+	// IncomingAmount is the amount of the incoming HTLC.
+	IncomingAmount lnwire.MilliSatoshi
+}
+
+// validateBlindingPoint validates that only one blinding point is present for
+// the hop and returns the relevant one.
+func (b *BlindingKit) validateBlindingPoint(payloadBlinding *btcec.PublicKey,
+	isFinalHop bool) (*btcec.PublicKey, error) {
+
+	// Bolt 04: if encrypted_recipient_data is present:
+	// - if blinding_point (in update add) is set:
+	//   - MUST error if current_blinding_point is set (in payload)
+	// - otherwise:
+	//   - MUST return an error if current_blinding_point is not present
+	//     (in payload)
+	payloadBlindingSet := payloadBlinding != nil
+	updateBlindingSet := b.UpdateAddBlinding.IsSome()
+
+	switch {
+	case !(payloadBlindingSet || updateBlindingSet):
+		return nil, ErrInvalidPayload{
+			Type:      record.BlindingPointOnionType,
+			Violation: OmittedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	case payloadBlindingSet && updateBlindingSet:
+		return nil, ErrInvalidPayload{
+			Type:      record.BlindingPointOnionType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	case payloadBlindingSet:
+		return payloadBlinding, nil
+
+	case updateBlindingSet:
+		pk, err := b.UpdateAddBlinding.UnwrapOrErr(
+			fmt.Errorf("expected update add blinding"),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return pk.Val, nil
+	}
+
+	return nil, fmt.Errorf("expected blinded point set")
+}
+
+// DecryptAndValidateFwdInfo performs all operations required to decrypt and
+// validate a blinded route.
+func (b *BlindingKit) DecryptAndValidateFwdInfo(payload *Payload,
+	isFinalHop bool) (*ForwardingInfo, error) {
+
+	// We expect this function to be called when we have encrypted data
+	// present, and a blinding key is set either in the payload or the
+	// update_add_htlc message.
+	blindingPoint, err := b.validateBlindingPoint(
+		payload.blindingPoint, isFinalHop,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	decrypted, err := b.Processor.DecryptBlindedHopData(
+		blindingPoint, payload.encryptedData,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt blinded "+
+			"data: %w", err)
+	}
+
+	buf := bytes.NewBuffer(decrypted)
+	routeData, err := record.DecodeBlindedRouteData(buf)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w",
+			ErrDecodeFailed, err)
+	}
+
+	if err := ValidateBlindedRouteData(
+		routeData, b.IncomingAmount, b.IncomingCltv,
+	); err != nil {
+		return nil, err
+	}
+
+	fwdAmt, err := calculateForwardingAmount(
+		b.IncomingAmount, routeData.RelayInfo.Val.BaseFee,
+		routeData.RelayInfo.Val.FeeRate,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ForwardingInfo{
+		NextHop:         routeData.ShortChannelID.Val,
+		AmountToForward: fwdAmt,
+		OutgoingCTLV: b.IncomingCltv - uint32(
+			routeData.RelayInfo.Val.CltvExpiryDelta,
+		),
+	}, nil
 }
 
 // calculateForwardingAmount calculates the amount to forward for a blinded

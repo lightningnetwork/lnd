@@ -247,12 +247,17 @@ func updateLastCompactionDate(dbFile string) error {
 func GetTestBackend(path, name string) (Backend, func(), error) {
 	empty := func() {}
 
+	// Note that for tests, we expect only one db backend build flag
+	// (or none) to be set at a time and thus one of the following switch
+	// cases should ever be true
 	switch {
 	case PostgresBackend:
 		key := filepath.Join(path, name)
 		keyHash := sha256.Sum256([]byte(key))
 
-		f, err := NewPostgresFixture("test_" + hex.EncodeToString(keyHash[:]))
+		f, err := NewPostgresFixture("test_" + hex.EncodeToString(
+			keyHash[:]),
+		)
 		if err != nil {
 			return nil, func() {}, err
 		}
@@ -260,7 +265,17 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 			_ = f.DB().Close()
 		}, nil
 
-	case TestBackend == BoltBackendName:
+	case EtcdBackend:
+		etcdConfig, cancel, err := StartEtcdTestBackend(path, 0, 0, "")
+		if err != nil {
+			return nil, empty, err
+		}
+		backend, err := Open(
+			EtcdBackendName, context.TODO(), etcdConfig,
+		)
+		return backend, cancel, err
+
+	default:
 		db, err := GetBoltBackend(&BoltBackendConfig{
 			DBPath:         path,
 			DBFileName:     name,
@@ -271,17 +286,6 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 			return nil, nil, err
 		}
 		return db, empty, nil
-
-	case TestBackend == EtcdBackendName:
-		etcdConfig, cancel, err := StartEtcdTestBackend(path, 0, 0, "")
-		if err != nil {
-			return nil, empty, err
-		}
-		backend, err := Open(
-			EtcdBackendName, context.TODO(), etcdConfig,
-		)
-		return backend, cancel, err
-
 	}
 
 	return nil, nil, fmt.Errorf("unknown backend")

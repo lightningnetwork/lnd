@@ -3,8 +3,10 @@ package hop
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -150,6 +152,105 @@ func TestForwardingAmountCalc(t *testing.T) {
 			require.Equal(t, testCase.expectErr, err != nil)
 			require.Equal(t, testCase.forwardAmount.ToSatoshis(),
 				actual.ToSatoshis())
+		})
+	}
+}
+
+// mockProcessor is a mocked blinding point processor that just returns the
+// data that it is called with when "decrypting".
+type mockProcessor struct {
+	decryptErr error
+}
+
+// DecryptBlindedHopData mocks blob decryption, returning the same data that
+// it was called with and an optionally configured error.
+func (m *mockProcessor) DecryptBlindedHopData(_ *btcec.PublicKey,
+	data []byte) ([]byte, error) {
+
+	return data, m.decryptErr
+}
+
+// TestBlindingKitForwardingInfo tests deriving forwarding info using a
+// blinding kit. This test does not cover assertions on the calculations of
+// forwarding information, because this is covered in a test dedicated to those
+// calculations.
+func TestBlindingKitForwardingInfo(t *testing.T) {
+	t.Parallel()
+
+	// Encode valid blinding data that we'll fake decrypting for our test.
+	maxCltv := 1000
+	blindedData := record.NewBlindedRouteData(
+		lnwire.NewShortChanIDFromInt(1500), nil,
+		record.PaymentRelayInfo{
+			CltvExpiryDelta: 10,
+			BaseFee:         100,
+			FeeRate:         0,
+		},
+		&record.PaymentConstraints{
+			MaxCltvExpiry:   1000,
+			HtlcMinimumMsat: lnwire.MilliSatoshi(1),
+		},
+		nil,
+	)
+
+	validData, err := record.EncodeBlindedRouteData(blindedData)
+	require.NoError(t, err)
+
+	// Mocked error.
+	errDecryptFailed := errors.New("could not decrypt")
+
+	tests := []struct {
+		name         string
+		data         []byte
+		incomingCLTV uint32
+		processor    *mockProcessor
+		expectedErr  error
+	}{
+		{
+			name:         "decryption failed",
+			data:         validData,
+			incomingCLTV: 500,
+			processor: &mockProcessor{
+				decryptErr: errDecryptFailed,
+			},
+			expectedErr: errDecryptFailed,
+		},
+		{
+			name:         "decode fails",
+			data:         []byte{1, 2, 3},
+			incomingCLTV: 500,
+			processor:    &mockProcessor{},
+			expectedErr:  ErrDecodeFailed,
+		},
+		{
+			name:         "validation fails",
+			data:         validData,
+			incomingCLTV: uint32(maxCltv) + 10,
+			processor:    &mockProcessor{},
+			expectedErr: ErrInvalidPayload{
+				Type:      record.LockTimeOnionType,
+				Violation: InsufficientViolation,
+			},
+		},
+		{
+			name:        "valid",
+			data:        validData,
+			processor:   &mockProcessor{},
+			expectedErr: nil,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			// We don't actually use blinding keys due to our
+			// mocking so they can be nil.
+			kit := MakeBlindingKit(
+				testCase.processor, nil, 10000,
+				testCase.incomingCLTV, false,
+			)
+
+			_, err := kit.ForwardingInfo(nil, testCase.data)
+			require.ErrorIs(t, err, testCase.expectedErr)
 		})
 	}
 }

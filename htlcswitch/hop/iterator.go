@@ -2,6 +2,7 @@ package hop
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -9,6 +10,12 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
+)
+
+var (
+	// ErrDecodeFailed is returned when we can't decode blinded data.
+	ErrDecodeFailed = errors.New("could not decode blinded data")
 )
 
 // Iterator is an interface that abstracts away the routing information
@@ -111,6 +118,98 @@ func (r *sphinxHopIterator) ExtractErrorEncrypter(
 	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
 
 	return extracter(r.ogPacket.EphemeralKey)
+}
+
+// BlindingProcessor is an interface that provides the cryptographic operations
+// required for processing blinded hops.
+type BlindingProcessor interface {
+	// DecryptBlindedHopData decrypts a blinded blob of data using the
+	// ephemeral key provided.
+	DecryptBlindedHopData(ephemPub *btcec.PublicKey,
+		encryptedData []byte) ([]byte, error)
+}
+
+// BlindingKit contains the components required to extract forwarding
+// information for hops in a blinded route.
+type BlindingKit struct {
+	// BlindingPoint holds a blinding point that was passed to the node via
+	// update_add_htlc's TLVs.
+	BlindingPoint *btcec.PublicKey
+
+	// ForwardingInfo uses the ephemeral blinding key provided to decrypt
+	// a blob of encrypted data provided in the onion and obtain the
+	// forwarding information for the blinded hop.
+	ForwardingInfo func(*btcec.PublicKey, []byte) (*ForwardingInfo,
+		error)
+
+	// DisableBlindedFwd provides the ability to optionally disable blinded
+	// route forwarding. Payloads will simply be rejected as invalid if
+	// they contain blinding points, as our node does not want to forward
+	// them.
+	DisableBlindedFwd bool
+}
+
+// MakeBlindingKit produces a kit that is used to decrypt and decode
+// forwarding information for hops in blinded routes.
+func MakeBlindingKit(processor BlindingProcessor,
+	blindingPoint *btcec.PublicKey, incomingAmount lnwire.MilliSatoshi,
+	incomingCltv uint32, disableBlinding bool) *BlindingKit {
+
+	return &BlindingKit{
+		BlindingPoint: blindingPoint,
+		ForwardingInfo: func(blinding *btcec.PublicKey,
+			data []byte) (*ForwardingInfo, error) {
+
+			decrypted, err := processor.DecryptBlindedHopData(
+				blinding, data,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt blinded "+
+					"data: %w", err)
+			}
+
+			b := bytes.NewBuffer(decrypted)
+			routeData, err := record.DecodeBlindedRouteData(b)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %w",
+					ErrDecodeFailed, err)
+			}
+
+			if err := ValidateBlindedRouteData(
+				routeData, incomingAmount, incomingCltv,
+			); err != nil {
+				return nil, err
+			}
+
+			return deriveForwardingInfo(
+				routeData, incomingAmount, incomingCltv,
+			)
+		},
+		DisableBlindedFwd: disableBlinding,
+	}
+}
+
+// deriveForwardingInfo calculates forwarding information from the (valid)
+// blinded route data provided and the incoming htlc's information.
+func deriveForwardingInfo(data *record.BlindedRouteData,
+	incomingAmt lnwire.MilliSatoshi, incomingCltv uint32) (*ForwardingInfo,
+	error) {
+
+	fwdAmt, err := calculateForwardingAmount(
+		incomingAmt, data.RelayInfo.Val.BaseFee,
+		data.RelayInfo.Val.FeeRate,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ForwardingInfo{
+		NextHop:         data.ShortChannelID.Val,
+		AmountToForward: fwdAmt,
+		OutgoingCTLV: incomingCltv - uint32(
+			data.RelayInfo.Val.CltvExpiryDelta,
+		),
+	}, nil
 }
 
 // calculateForwardingAmount calculates the amount to forward for a blinded

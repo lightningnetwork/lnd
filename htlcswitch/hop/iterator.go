@@ -112,6 +112,51 @@ func (r *sphinxHopIterator) ExtractErrorEncrypter(
 	return extracter(r.ogPacket.EphemeralKey)
 }
 
+// calculateForwardingAmount calculates the amount to forward for a blinded
+// hop based on the incoming amount and forwarding parameters.
+//
+// When forwarding a payment, the fee we take is calculated, not on the
+// incoming amount, but rather on the amount we forward. We charge fees based
+// on our own liquidity we are forwarding downstream.
+//
+// With route blinding, we are NOT given the amount to forward.  This
+// unintuitive looking formula comes from the fact that without the amount to
+// forward, we cannot compute the fees taken directly.
+//
+// The amount to be forwarded can be computed as follows:
+//
+//	amt_to_forward = incoming_amount - total_fees //nolint:dupword
+//	total_fees = base_fee + amt_to_forward*(fee_rate/1000000)
+//
+// After substitution and some massaging you will get:
+//
+//		amt_to_forward = (incoming_amount - base_fee) /
+//	                      ( 1 + fee_rate / 1000000 )
+//
+// From there we use a ceiling formula for integer division so that we always
+// round up, otherwise the sender may receive slightly less than intended:
+//
+//	ceil(a/b) = (a + b - 1)/(b)
+func calculateForwardingAmount(incomingAmount lnwire.MilliSatoshi, baseFee,
+	proportionalFee uint32) (lnwire.MilliSatoshi, error) {
+
+	// proportionalParts is the number of parts that our proportional fee
+	// is expressed per.
+	var proportionalParts uint64 = 1_000_000
+
+	// Sanity check to prevent overflow.
+	if incomingAmount < lnwire.MilliSatoshi(baseFee) {
+		return 0, fmt.Errorf("incoming amount: %v < base fee: %v",
+			incomingAmount, baseFee)
+	}
+
+	ceiling := ((uint64(incomingAmount) - uint64(baseFee)) +
+		(1 + uint64(proportionalFee)/proportionalParts) - 1) /
+		(1 + uint64(proportionalFee)/proportionalParts)
+
+	return lnwire.MilliSatoshi(ceiling), nil
+}
+
 // OnionProcessor is responsible for keeping all sphinx dependent parts inside
 // and expose only decoding function. With such approach we give freedom for
 // subsystems which wants to decode sphinx path to not be dependable from

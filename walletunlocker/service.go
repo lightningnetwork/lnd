@@ -677,7 +677,13 @@ func (u *UnlockerService) LoadAndUnlock(password []byte,
 			return nil, nil, dropErr
 		}
 
-		// All looks good, let's now open the wallet again.
+		// All looks good, let's now open the wallet again. The loader
+		// was unloaded and might have removed its remote DB connection,
+		// so let's re-create it as well.
+		loader, err = u.newLoader(recoveryWindow)
+		if err != nil {
+			return nil, nil, err
+		}
 		unlockedWallet, err = loader.OpenExistingWallet(password, false)
 		if err != nil {
 			return nil, nil, err

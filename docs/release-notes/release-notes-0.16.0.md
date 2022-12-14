@@ -96,6 +96,9 @@
   funding a PSBT through
   `FundPsbt`](https://github.com/lightningnetwork/lnd/pull/7209).
 
+* [Fix the issue of ghost UTXOs not being detected as spent if they were created
+  with an external tool](https://github.com/lightningnetwork/lnd/pull/7243).
+
 ## Build
 
 [The project has updated to Go

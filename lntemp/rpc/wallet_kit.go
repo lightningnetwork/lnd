@@ -149,3 +149,17 @@ func (h *HarnessRPC) PendingSweeps() *walletrpc.PendingSweepsResponse {
 
 	return resp
 }
+
+// PublishTransaction makes an RPC call to the node's WalletKitClient and
+// asserts.
+func (h *HarnessRPC) PublishTransaction(
+	req *walletrpc.Transaction) *walletrpc.PublishResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.PublishTransaction(ctxt, req)
+	h.NoError(err, "PublishTransaction")
+
+	return resp
+}

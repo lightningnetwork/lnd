@@ -120,6 +120,10 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		TestFunc: testOnchainFundRecovery,
 	},
 	{
+		Name:     "wallet rescan address detection",
+		TestFunc: testRescanAddressDetection,
+	},
+	{
 		Name:     "basic funding flow with all input types",
 		TestFunc: testChannelFundingInputTypes,
 	},

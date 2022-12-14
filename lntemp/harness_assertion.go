@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -1678,4 +1680,47 @@ func (h *HarnessTest) AssertNumChannelUpdates(hn *node.HarnessNode,
 	op := h.OutPointFromChannelPoint(chanPoint)
 	err := hn.Watcher.WaitForNumChannelUpdates(op, num)
 	require.NoError(h, err, "failed to assert num of channel updates")
+}
+
+// CreateBurnAddr creates a random burn address of the given type.
+func (h *HarnessTest) CreateBurnAddr(addrType lnrpc.AddressType) ([]byte,
+	btcutil.Address) {
+
+	randomPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(h, err)
+
+	randomKeyBytes := randomPrivKey.PubKey().SerializeCompressed()
+
+	var addr btcutil.Address
+	switch addrType {
+	case lnrpc.AddressType_WITNESS_PUBKEY_HASH:
+		addr, err = btcutil.NewAddressWitnessPubKeyHash(
+			btcutil.Hash160(randomKeyBytes), harnessNetParams,
+		)
+
+	case lnrpc.AddressType_TAPROOT_PUBKEY:
+		taprootKey := txscript.ComputeTaprootKeyNoScript(
+			randomPrivKey.PubKey(),
+		)
+		addr, err = btcutil.NewAddressPubKey(
+			schnorr.SerializePubKey(taprootKey), harnessNetParams,
+		)
+
+	case lnrpc.AddressType_NESTED_PUBKEY_HASH:
+		var witnessAddr btcutil.Address
+		witnessAddr, err = btcutil.NewAddressWitnessPubKeyHash(
+			btcutil.Hash160(randomKeyBytes), harnessNetParams,
+		)
+		require.NoError(h, err)
+
+		addr, err = btcutil.NewAddressScriptHash(
+			h.PayToAddrScript(witnessAddr), harnessNetParams,
+		)
+
+	default:
+		h.Fatalf("Unsupported burn address type: %v", addrType)
+	}
+	require.NoError(h, err)
+
+	return h.PayToAddrScript(addr), addr
 }

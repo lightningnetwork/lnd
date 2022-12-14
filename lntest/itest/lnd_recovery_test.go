@@ -1,17 +1,24 @@
 package itest
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/aezeed"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
 
@@ -281,4 +288,156 @@ func testOnchainFundRecovery(ht *lntemp.HarnessTest) {
 	mnemonic = nil
 
 	restoreCheckBalance(finalBalance-minerAmt-fee, 1, 21, nil)
+}
+
+// testRescanAddressDetection makes sure that addresses created from internal
+// (m/1017' scope) keys aren't detected as UTXOs when re-scanning the wallet
+// with --reset-wallet-transactions to avoid showing them as un-spent ghost
+// UTXOs even if they are being spent. This is to test a fix in the wallet that
+// addresses the following scenario:
+//  1. A key is derived from the internal 1017' scope with a custom key family
+//     and a p2wkh address is derived from that key.
+//  2. Funds are sent to the address created above in a way that also creates a
+//     change output. The change output is recognized as belonging to the
+//     wallet, which is correct.
+//  3. The funds on the address created in step 1 are fully spent (without
+//     creating a change output) into an output that doesn't belong to the
+//     wallet (e.g. a channel funding output).
+//  4. At some point the user re-scans their wallet by using the
+//     --reset-wallet-transactions flag.
+//  5. The wallet re-scan detects the change output created in step 2 and flags
+//     the transaction as relevant.
+//  6. While adding the relevant TX to the wallet DB, the wallet also detects
+//     the address from step 1 as belonging to the wallet (because the internal
+//     key scope is defined as having the address type p2wkh) and adds that
+//     output as an UTXO as well (<- this is the bug). The wallet now has two
+//     UTXOs in its database.
+//  7. The transaction that spends the UTXO of the address from step 1 is not
+//     detected by the wallet as belonging to it (because the output is a
+//     channel output and the input (correctly) isn't recognized as belonging to
+//     the wallet in that part of the code, it is never marked as spent and
+//     stays in the wallet as a ghost UTXO forever.
+//
+// The fix in the wallet is simple: In step 6, don't detect addresses from
+// internal scopes while re-scanning to be in line with the logic in other areas
+// of the wallet code.
+func testRescanAddressDetection(ht *lntemp.HarnessTest) {
+	// We start off by creating a new node with the wallet re-scan flag
+	// enabled. This won't have any effect on the first startup but will
+	// come into effect after we re-start the node.
+	walletPassword := []byte("some-password")
+	carol, _, _ := ht.NewNodeWithSeed(
+		"carol", []string{"--reset-wallet-transactions"},
+		walletPassword, false,
+	)
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	// Create an address generated from internal keys.
+	keyDesc := carol.RPC.DeriveNextKey(&walletrpc.KeyReq{KeyFamily: 123})
+	pubKeyHash := btcutil.Hash160(keyDesc.RawKeyBytes)
+	ghostUtxoAddr, err := btcutil.NewAddressWitnessPubKeyHash(
+		pubKeyHash, harnessNetParams,
+	)
+	require.NoError(ht, err)
+
+	// Send funds to the (p2wkh!) address generated from the internal
+	// (m/1017') key scope. Because the internal key scope is defined as
+	// p2wkh address type, this might be incorrectly detected by the wallet
+	// in some situations (which this test makes sure is fixed).
+	const ghostUtxoAmount = 456_000
+	carol.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+		Addr:        ghostUtxoAddr.String(),
+		Amount:      ghostUtxoAmount,
+		SatPerVbyte: 1,
+	})
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Make sure we see the change output in our list of unspent outputs.
+	// We _don't_ expect to see the ghost UTXO here as in this step it's
+	// ignored as an internal address correctly.
+	ht.AssertNumUTXOsConfirmed(carol, 1)
+	unspent := carol.RPC.ListUnspent(&walletrpc.ListUnspentRequest{
+		MinConfs: 1,
+	})
+
+	// Which one was the change output and which one the ghost UTXO output?
+	var ghostUtxoIndex uint32
+	if unspent.Utxos[0].Outpoint.OutputIndex == 0 {
+		ghostUtxoIndex = 1
+	}
+
+	ghostUtxoHash, err := chainhash.NewHash(
+		unspent.Utxos[0].Outpoint.TxidBytes,
+	)
+	require.NoError(ht, err)
+
+	burnScript, _ := ht.CreateBurnAddr(AddrTypeWitnessPubkeyHash)
+
+	// Create fee estimation for a p2wkh input and p2wkh output.
+	feeRate := chainfee.SatPerKWeight(12500)
+	estimator := input.TxWeightEstimator{}
+	estimator.AddP2WKHInput()
+	estimator.AddP2WKHOutput()
+	estimatedWeight := int64(estimator.Weight())
+	requiredFee := feeRate.FeeForWeight(estimatedWeight)
+
+	tx := wire.NewMsgTx(2)
+	tx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: wire.OutPoint{
+			Hash:  *ghostUtxoHash,
+			Index: ghostUtxoIndex,
+		},
+	}}
+	value := int64(ghostUtxoAmount - requiredFee)
+	tx.TxOut = []*wire.TxOut{{
+		PkScript: burnScript,
+		Value:    value,
+	}}
+
+	var buf bytes.Buffer
+	require.NoError(ht, tx.Serialize(&buf))
+
+	ghostUtxoScript := ht.PayToAddrScript(ghostUtxoAddr)
+	utxoInfo := []*signrpc.TxOut{{
+		PkScript: ghostUtxoScript,
+		Value:    ghostUtxoAmount,
+	}}
+
+	// Let's sign the input now.
+	signResp := carol.RPC.SignOutputRaw(&signrpc.SignReq{
+		RawTxBytes: buf.Bytes(),
+		SignDescs: []*signrpc.SignDescriptor{{
+			Output:        utxoInfo[0],
+			InputIndex:    0,
+			KeyDesc:       keyDesc,
+			Sighash:       uint32(txscript.SigHashAll),
+			WitnessScript: utxoInfo[0].PkScript,
+		}},
+	})
+
+	// Add the witness to the input and publish the tx.
+	tx.TxIn[0].Witness = wire.TxWitness{
+		append(signResp.RawSigs[0], byte(txscript.SigHashAll)),
+		keyDesc.RawKeyBytes,
+	}
+	buf.Reset()
+	require.NoError(ht, tx.Serialize(&buf))
+	carol.RPC.PublishTransaction(&walletrpc.Transaction{
+		TxHex: buf.Bytes(),
+	})
+
+	// Wait until the spending tx is found and mine a block to confirm it.
+	ht.Miner.AssertNumTxsInMempool(1)
+	ht.MineBlocks(1)
+
+	// The wallet should still just see a single UTXO of the change output
+	// created earlier.
+	ht.AssertNumUTXOsConfirmed(carol, 1)
+
+	// Let's now re-start the node, causing it to do the wallet re-scan.
+	ht.RestartNode(carol)
+
+	// There should now still only be a single UTXO from the change output
+	// instead of two (the ghost UTXO should be missing if the fix works).
+	ht.AssertNumUTXOsConfirmed(carol, 1)
 }

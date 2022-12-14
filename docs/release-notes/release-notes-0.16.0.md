@@ -330,6 +330,12 @@ Keysend](https://github.com/lightningnetwork/lnd/pull/7334).
 * [Store AckedUpdates in a more compact
   way](https://github.com/lightningnetwork/lnd/pull/7055)
 
+## DB
+
+* [Add a sqlite backend 
+  option](https://github.com/lightningnetwork/lnd/pull/7251) to the kvdb 
+  package.
+ 
 ## Pathfinding
 
 * [Pathfinding takes capacity of edges into account to improve success
@@ -389,6 +395,7 @@ refactor the itest for code health and maintenance.
 * Antoni Spaanderman
 * Carla Kirk-Cohen
 * Carsten Otto
+* Chris Geihsler
 * Conner Babinchak
 * cutiful
 * Daniel McNally

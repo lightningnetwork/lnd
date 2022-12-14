@@ -254,6 +254,7 @@ will have the following tags:
 - [monitoring](/monitoring) (for Prometheus integration)
 - [peersrpc](/lnrpc/peersrpc/peers.proto)
 - [kvdb_postrgres](/docs/postgres.md)
+- [kvdb_sqlite](/docs/sqlite.md)
 - [kvdb_etcd](/docs/etcd.md)
 
 The `dev` tag is used for development builds, and is not included in the

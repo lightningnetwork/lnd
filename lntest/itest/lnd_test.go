@@ -131,6 +131,9 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	case "postgres":
 		dbBackend = lntest.BackendPostgres
 
+	case "sqlite":
+		dbBackend = lntest.BackendSqlite
+
 	default:
 		require.Fail(t, "unknown db backend")
 	}

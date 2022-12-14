@@ -94,7 +94,7 @@ jobs:
 
             Our release binaries are fully reproducible. Third parties are able to verify that the release binaries were produced properly without having to trust the release manager(s). See our [reproducible builds guide](https://github.com/lightningnetwork/lnd/tree/master/build/release) for how this can be achieved.
             The release binaries are compiled with `go${{ env.GO_VERSION }}`, which is required by verifiers to arrive at the same ones.
-            They include the following build tags: `autopilotrpc`, `signrpc`, `walletrpc`, `chainrpc`, `invoicesrpc`, `neutrinorpc`, `routerrpc`, `watchtowerrpc`, `monitoring`, `peersrpc`, `kvdb_postrgres`, and `kvdb_etcd`. Note that these are already included in the release script, so they do not need to be provided.
+            They include the following build tags: `autopilotrpc`, `signrpc`, `walletrpc`, `chainrpc`, `invoicesrpc`, `neutrinorpc`, `routerrpc`, `watchtowerrpc`, `monitoring`, `peersrpc`, `kvdb_postrgres`, `kvdb_etcd` and `kvdb_sqlite`. Note that these are already included in the release script, so they do not need to be provided.
 
             The `make release` command can be used to ensure one rebuilds with all the same flags used for the release. If one wishes to build for only a single platform, then `make release sys=<OS-ARCH> tag=<tag>` can be used. 
 

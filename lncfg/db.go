@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/kvdb/postgres"
 	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
+	"github.com/lightningnetwork/lnd/kvdb/sqlite"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 )
 
@@ -20,12 +21,21 @@ const (
 	TowerServerDBName = "watchtower.db"
 	WalletDBName      = "wallet.db"
 
+	SqliteChannelDBName  = "channel.sqlite"
+	SqliteChainDBName    = "chain.sqlite"
+	SqliteNeutrinoDBName = "neutrino.sqlite"
+	SqliteTowerDBName    = "watchtower.sqlite"
+
 	BoltBackend                = "bolt"
 	EtcdBackend                = "etcd"
 	PostgresBackend            = "postgres"
+	SqliteBackend              = "sqlite"
 	DefaultBatchCommitInterval = 500 * time.Millisecond
 
 	defaultPostgresMaxConnections = 50
+	defaultSqliteMaxConnections   = 2
+
+	defaultSqliteBusyTimeout = 5 * time.Second
 
 	// NSChannelDB is the namespace name that we use for the combined graph
 	// and channel state DB.
@@ -48,6 +58,9 @@ const (
 
 	// NSWalletDB is the namespace name that we use for the wallet DB.
 	NSWalletDB = "walletdb"
+
+	// NSNeutrinoDB is the namespace name that we use for the neutrino DB.
+	NSNeutrinoDB = "neutrinodb"
 )
 
 // DB holds database configuration for LND.
@@ -63,6 +76,8 @@ type DB struct {
 	Bolt *kvdb.BoltConfig `group:"bolt" namespace:"bolt" description:"Bolt settings."`
 
 	Postgres *postgres.Config `group:"postgres" namespace:"postgres" description:"Postgres settings."`
+
+	Sqlite *sqlite.Config `group:"sqlite" namespace:"sqlite" description:"Sqlite settings."`
 
 	NoGraphCache bool `long:"no-graph-cache" description:"Don't use the in-memory graph cache for path finding. Much slower but uses less RAM. Can only be used with a bolt database backend."`
 
@@ -86,13 +101,17 @@ func DefaultDB() *DB {
 		Postgres: &postgres.Config{
 			MaxConnections: defaultPostgresMaxConnections,
 		},
+		Sqlite: &sqlite.Config{
+			MaxConnections: defaultSqliteMaxConnections,
+			BusyTimeout:    defaultSqliteBusyTimeout,
+		},
 	}
 }
 
 // Validate validates the DB config.
 func (db *DB) Validate() error {
 	switch db.Backend {
-	case BoltBackend:
+	case BoltBackend, SqliteBackend:
 	case PostgresBackend:
 		if db.Postgres.Dsn == "" {
 			return fmt.Errorf("postgres dsn must be set")
@@ -104,8 +123,9 @@ func (db *DB) Validate() error {
 		}
 
 	default:
-		return fmt.Errorf("unknown backend, must be either '%v' or "+
-			"'%v'", BoltBackend, EtcdBackend)
+		return fmt.Errorf("unknown backend, must be either '%v', "+
+			"'%v', '%v' or '%v'", BoltBackend, EtcdBackend,
+			PostgresBackend, SqliteBackend)
 	}
 
 	// The path finding uses a manual read transaction that's open for a
@@ -144,6 +164,9 @@ func (db *DB) Init(ctx context.Context, dbPath string) error {
 
 	case db.Backend == PostgresBackend:
 		sqlbase.Init(db.Postgres.MaxConnections)
+
+	case db.Backend == SqliteBackend:
+		sqlbase.Init(db.Sqlite.MaxConnections)
 	}
 
 	return nil
@@ -187,7 +210,7 @@ type DatabaseBackends struct {
 	WalletDB btcwallet.LoaderOption
 
 	// Remote indicates whether the database backends are remote, possibly
-	// replicated instances or local bbolt backed databases.
+	// replicated instances or local bbolt or sqlite backed databases.
 	Remote bool
 
 	// CloseFuncs is a map of close functions for each of the initialized
@@ -291,6 +314,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		closeFuncs[NSWalletDB] = etcdWalletBackend.Close
 
 		returnEarly = false
+
 		return &DatabaseBackends{
 			GraphDB:       etcdBackend,
 			ChanStateDB:   etcdBackend,
@@ -373,6 +397,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		closeFuncs[NSWalletDB] = postgresWalletBackend.Close
 
 		returnEarly = false
+
 		return &DatabaseBackends{
 			GraphDB:       postgresBackend,
 			ChanStateDB:   postgresBackend,
@@ -390,6 +415,98 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 				postgresWalletBackend,
 			),
 			Remote:     true,
+			CloseFuncs: closeFuncs,
+		}, nil
+
+	case SqliteBackend:
+		// Note that for sqlite, we put kv tables for the channel.db,
+		// wtclient.db and sphinxreplay.db all in the channel.sqlite db.
+		// The tables for wallet.db and macaroon.db are in the
+		// chain.sqlite db and watchtower.db tables are in the
+		// watchtower.sqlite db. The reason for the multiple sqlite dbs
+		// is twofold. The first reason is that it maintains the file
+		// structure that users are used to. The second reason is the
+		// fact that sqlite only supports one writer at a time which
+		// would cause deadlocks in the code due to the wallet db often
+		// being accessed during a write to another db.
+		sqliteBackend, err := kvdb.Open(
+			kvdb.SqliteBackendName, ctx, db.Sqlite, chanDBPath,
+			SqliteChannelDBName, NSChannelDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening sqlite graph "+
+				"DB: %v", err)
+		}
+		closeFuncs[NSChannelDB] = sqliteBackend.Close
+
+		sqliteMacaroonBackend, err := kvdb.Open(
+			kvdb.SqliteBackendName, ctx, db.Sqlite, walletDBPath,
+			SqliteChainDBName, NSMacaroonDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening sqlite "+
+				"macaroon DB: %v", err)
+		}
+		closeFuncs[NSMacaroonDB] = sqliteMacaroonBackend.Close
+
+		sqliteDecayedLogBackend, err := kvdb.Open(
+			kvdb.SqliteBackendName, ctx, db.Sqlite, chanDBPath,
+			SqliteChannelDBName, NSDecayedLogDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening sqlite decayed "+
+				"log DB: %v", err)
+		}
+		closeFuncs[NSDecayedLogDB] = sqliteDecayedLogBackend.Close
+
+		sqliteTowerClientBackend, err := kvdb.Open(
+			kvdb.SqliteBackendName, ctx, db.Sqlite, chanDBPath,
+			SqliteChannelDBName, NSTowerClientDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening sqlite tower "+
+				"client DB: %v", err)
+		}
+		closeFuncs[NSTowerClientDB] = sqliteTowerClientBackend.Close
+
+		sqliteTowerServerBackend, err := kvdb.Open(
+			kvdb.SqliteBackendName, ctx, db.Sqlite,
+			towerServerDBPath, SqliteTowerDBName, NSTowerServerDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening sqlite tower "+
+				"server DB: %v", err)
+		}
+		closeFuncs[NSTowerServerDB] = sqliteTowerServerBackend.Close
+
+		sqliteWalletBackend, err := kvdb.Open(
+			kvdb.SqliteBackendName, ctx, db.Sqlite, walletDBPath,
+			SqliteChainDBName, NSWalletDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening sqlite macaroon "+
+				"DB: %v", err)
+		}
+		closeFuncs[NSWalletDB] = sqliteWalletBackend.Close
+
+		returnEarly = false
+
+		return &DatabaseBackends{
+			GraphDB:       sqliteBackend,
+			ChanStateDB:   sqliteBackend,
+			HeightHintDB:  sqliteBackend,
+			MacaroonDB:    sqliteMacaroonBackend,
+			DecayedLogDB:  sqliteDecayedLogBackend,
+			TowerClientDB: sqliteTowerClientBackend,
+			TowerServerDB: sqliteTowerServerBackend,
+			// The wallet loader will attempt to use/create the
+			// wallet in the replicated remote DB if we're running
+			// in a clustered environment. This will ensure that all
+			// members of the cluster have access to the same wallet
+			// state.
+			WalletDB: btcwallet.LoaderWithExternalWalletDB(
+				sqliteWalletBackend,
+			),
 			CloseFuncs: closeFuncs,
 		}, nil
 	}
@@ -477,6 +594,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 	}
 
 	returnEarly = false
+
 	return &DatabaseBackends{
 		GraphDB:       boltBackend,
 		ChanStateDB:   boltBackend,

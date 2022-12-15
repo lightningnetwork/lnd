@@ -275,6 +275,20 @@ func GetTestBackend(path, name string) (Backend, func(), error) {
 		)
 		return backend, cancel, err
 
+	case SqliteBackend:
+		dbPath := filepath.Join(path, name)
+		keyHash := sha256.Sum256([]byte(dbPath))
+		sqliteDb, err := StartSqliteTestBackend(
+			path, name, "test_"+hex.EncodeToString(keyHash[:]),
+		)
+		if err != nil {
+			return nil, empty, err
+		}
+
+		return sqliteDb, func() {
+			_ = sqliteDb.Close()
+		}, nil
+
 	default:
 		db, err := GetBoltBackend(&BoltBackendConfig{
 			DBPath:         path,

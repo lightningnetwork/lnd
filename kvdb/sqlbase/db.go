@@ -1,4 +1,4 @@
-//go:build kvdb_postgres
+//go:build kvdb_postgres || (kvdb_sqlite && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)))
 
 package sqlbase
 
@@ -235,7 +235,7 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 
 // PrintStats returns all collected stats pretty printed into a string.
 func (db *db) PrintStats() string {
-	return "stats not supported by Postgres driver"
+	return "stats not supported by SQL driver"
 }
 
 // BeginReadWriteTx opens a database read+write transaction.

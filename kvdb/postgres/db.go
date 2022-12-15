@@ -57,11 +57,21 @@ type db struct {
 // Enforce db implements the walletdb.DB interface.
 var _ walletdb.DB = (*db)(nil)
 
-// Global set of database connections.
-var dbConns *dbConnSet
+var (
+	// dbConns is a global set of database connections.
+	dbConns   *dbConnSet
+	dbConnsMu sync.Mutex
+)
 
 // Init initializes the global set of database connections.
 func Init(maxConnections int) {
+	dbConnsMu.Lock()
+	defer dbConnsMu.Unlock()
+
+	if dbConns != nil {
+		return
+	}
+
 	dbConns = newDbConnSet(maxConnections)
 }
 
@@ -69,6 +79,9 @@ func Init(maxConnections int) {
 // config. If postgres connection cannot be estabished, then returns error.
 func newPostgresBackend(ctx context.Context, config *Config, prefix string) (
 	*db, error) {
+
+	dbConnsMu.Lock()
+	defer dbConnsMu.Unlock()
 
 	if prefix == "" {
 		return nil, errors.New("empty postgres prefix")
@@ -256,6 +269,9 @@ func (db *db) Copy(w io.Writer) error {
 // Close cleanly shuts down the database and syncs all data.
 // This function is part of the walletdb.Db interface implementation.
 func (db *db) Close() error {
+	dbConnsMu.Lock()
+	defer dbConnsMu.Unlock()
+
 	log.Infof("Closing database %v", db.prefix)
 
 	return dbConns.Close(db.cfg.Dsn)

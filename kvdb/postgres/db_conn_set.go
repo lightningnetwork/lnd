@@ -19,7 +19,8 @@ type dbConnSet struct {
 	dbConn         map[string]*dbConn
 	maxConnections int
 
-	sync.Mutex
+	// mu is used to guard access to the dbConn map.
+	mu sync.Mutex
 }
 
 // newDbConnSet initializes a new set of connections.
@@ -33,8 +34,8 @@ func newDbConnSet(maxConnections int) *dbConnSet {
 // Open opens a new database connection. If a connection already exists for the
 // given dsn, the existing connection is returned.
 func (d *dbConnSet) Open(dsn string) (*sql.DB, error) {
-	d.Lock()
-	defer d.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
 	if dbConn, ok := d.dbConn[dsn]; ok {
 		dbConn.count++
@@ -66,8 +67,8 @@ func (d *dbConnSet) Open(dsn string) (*sql.DB, error) {
 // Close closes the connection with the given dsn. If there are still other
 // users of the same connection, this function does nothing.
 func (d *dbConnSet) Close(dsn string) error {
-	d.Lock()
-	defer d.Unlock()
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
 	dbConn, ok := d.dbConn[dsn]
 	if !ok {

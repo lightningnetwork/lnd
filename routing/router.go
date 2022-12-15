@@ -91,6 +91,34 @@ var (
 	// ErrRouterShuttingDown is returned if the router is in the process of
 	// shutting down.
 	ErrRouterShuttingDown = fmt.Errorf("router shutting down")
+
+	// ErrSelfIntro is a failure returned when the source node of a
+	// route request is also the introduction node. This is not yet
+	// supported because LND does not support blinded forwardingg.
+	ErrSelfIntro = errors.New("introduction point as own node not " +
+		"supported")
+
+	// ErrHintsAndBlinded is returned if a route request has both
+	// bolt 11 route hints and a blinded path set.
+	ErrHintsAndBlinded = errors.New("bolt 11 route hints and blinded " +
+		"paths are mutually exclusive")
+
+	// ErrExpiryAndBlinded is returned if a final cltv and a blinded path
+	// are provided, as the cltv should be provided within the blinded
+	// path.
+	ErrExpiryAndBlinded = errors.New("final cltv delta and blinded " +
+		"paths are mutually exclusive")
+
+	// ErrTargetAndBlinded is returned is a target destination and a
+	// blinded path are both set (as the target is inferred from the
+	// blinded path).
+	ErrTargetAndBlinded = errors.New("target node and blinded paths " +
+		"are mutually exclusive")
+
+	// ErrNoTarget is returned when the target node for a route is not
+	// provided by either a blinded route or a cleartext pubkey.
+	ErrNoTarget = errors.New("destination not set in target or blinded " +
+		"path")
 )
 
 // ChannelGraphSource represents the source of information about the topology
@@ -1809,12 +1837,16 @@ type routingMsg struct {
 	err chan error
 }
 
-// RouteRequest contains the parameters for a pathfinding request.
+// RouteRequest contains the parameters for a pathfinding request. It may
+// describe a request to make a regular payment or one to a blinded path
+// (incdicated by a non-nil BlindedPayment field).
 type RouteRequest struct {
 	// Source is the node that the path originates from.
 	Source route.Vertex
 
-	// Target is the node that the path terminates at.
+	// Target is the node that the path terminates at. If the route
+	// includes a blinded path, target will be the blinded node id of the
+	// final hop in the blinded route.
 	Target route.Vertex
 
 	// Amount is the Amount in millisatoshis to be delivered to the target
@@ -1834,37 +1866,129 @@ type RouteRequest struct {
 	CustomRecords record.CustomSet
 
 	// RouteHints contains an additional set of edges to include in our
-	// view of the graph.
+	// view of the graph. This may either be a set of hints for private
+	// channels or a "virtual" hop hint that represents a blinded route.
 	RouteHints RouteHints
 
-	// FinalExpiry is the cltv delta for the final hop.
+	// FinalExpiry is the cltv delta for the final hop. If paying to a
+	// blinded path, this value is a duplicate of the delta provided
+	// in blinded payment.
 	FinalExpiry uint16
+
+	// BlindedPayment contains an optional blinded path and parameters
+	// used to reach a target node via a blinded path. This field is
+	// mutually exclusive with the Target field.
+	BlindedPayment *BlindedPayment
 }
 
 // RouteHints is an alias type for a set of route hints, with the source node
 // as the map's key and the details of the hint(s) in the edge policy.
 type RouteHints map[route.Vertex][]*channeldb.CachedEdgePolicy
 
-// NewRouteRequest produces a new route request.
+// NewRouteRequest produces a new route request for a regular payment or one
+// to a blinded route, validating that the target, routeHints and finalExpiry
+// parameters are mutually exclusive with the blindedPayment parameter (which
+// contains these values for blinded payments).
 func NewRouteRequest(source route.Vertex, target *route.Vertex,
 	amount lnwire.MilliSatoshi, timePref float64,
 	restrictions *RestrictParams, customRecords record.CustomSet,
-	routeHints RouteHints, finalExpiry uint16) (*RouteRequest, error) {
+	routeHints RouteHints, blindedPayment *BlindedPayment,
+	finalExpiry uint16) (*RouteRequest, error) {
 
-	if target == nil {
-		return nil, errors.New("target node required")
+	var (
+		// Assume that we're starting off with a regular payment.
+		requestHints  = routeHints
+		requestExpiry = finalExpiry
+	)
+
+	if blindedPayment != nil {
+		if err := blindedPayment.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid blinded payment: %w",
+				err)
+		}
+
+		introVertex := route.NewVertex(
+			blindedPayment.BlindedPath.IntroductionPoint,
+		)
+		if source == introVertex {
+			return nil, ErrSelfIntro
+		}
+
+		// Check that the values for a clear path have not been set,
+		// as this is an ambiguous signal from the caller.
+		if routeHints != nil {
+			return nil, ErrHintsAndBlinded
+		}
+
+		if finalExpiry != 0 {
+			return nil, ErrExpiryAndBlinded
+		}
+
+		// If we have a blinded path with 1 hop, the cltv expiry
+		// will not be included in any hop hints (since we're just
+		// sending to the introduction node and need no blinded hints).
+		// In this case, we include it to make sure that the final
+		// cltv delta is accounted for (since it's part of the blinded
+		// delta). In the case of a multi-hop route, we set our final
+		// cltv to zero, since it's going to be accounted for in the
+		// delta for our hints.
+		if len(blindedPayment.BlindedPath.BlindedHops) == 1 {
+			requestExpiry = blindedPayment.CltvExpiryDelta
+		}
+
+		requestHints = blindedPayment.toRouteHints()
+	}
+
+	requestTarget, err := getTargetNode(target, blindedPayment)
+	if err != nil {
+		return nil, err
 	}
 
 	return &RouteRequest{
 		Source:         source,
-		Target:         *target,
+		Target:         requestTarget,
 		Amount:         amount,
 		TimePreference: timePref,
 		Restrictions:   restrictions,
 		CustomRecords:  customRecords,
-		RouteHints:     routeHints,
-		FinalExpiry:    finalExpiry,
+		RouteHints:     requestHints,
+		FinalExpiry:    requestExpiry,
+		BlindedPayment: blindedPayment,
 	}, nil
+}
+
+func getTargetNode(target *route.Vertex, blindedPayment *BlindedPayment) (
+	route.Vertex, error) {
+
+	var (
+		blinded   = blindedPayment != nil
+		targetSet = target != nil
+	)
+
+	switch {
+	case blinded && targetSet:
+		return route.Vertex{}, ErrTargetAndBlinded
+
+	case blinded:
+		// If we're dealing with an edge-case blinded path that just
+		// has an introduction node (first hop expected to be the intro
+		// hop), then we return the unblinded introduction node as our
+		// target.
+		hops := blindedPayment.BlindedPath.BlindedHops
+		if len(hops) == 1 {
+			return route.NewVertex(
+				blindedPayment.BlindedPath.IntroductionPoint,
+			), nil
+		}
+
+		return route.NewVertex(hops[len(hops)-1].BlindedNodePub), nil
+
+	case targetSet:
+		return *target, nil
+
+	default:
+		return route.Vertex{}, ErrNoTarget
+	}
 }
 
 // FindRoute attempts to query the ChannelRouter for the optimum path to a

@@ -5,7 +5,9 @@ import (
 	"fmt"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 var (
@@ -76,4 +78,95 @@ func (b *BlindedPayment) Validate() error {
 	}
 
 	return nil
+}
+
+// toRouteHints produces a set of chained route hints that represent a blinded
+// path. In the case of a single hop blinded route (which is paying directly
+// to the introduction point), no hints will be returned. In this case callers
+// *must* account for the blinded route's CLTV delta elsewhere (as this is
+// effectively the final_cltv_delta for the receiving introduction node). In
+// the case of multiple blinded hops, CLTV delta is fully accounted for in the
+// hints (both for intermediate hops and the final_cltv_delta for the receiving
+// node).
+func (b *BlindedPayment) toRouteHints() RouteHints {
+	// If we just have a single hop in our blinded route, it just contains
+	// an introduction node (this is a valid path according to the spec).
+	// Since we have the un-blinded node ID for the introduction node, we
+	// don't need to add any route hints.
+	if len(b.BlindedPath.BlindedHops) == 1 {
+		return nil
+	}
+
+	hintCount := len(b.BlindedPath.BlindedHops) - 1
+	hints := make(
+		map[route.Vertex][]*channeldb.CachedEdgePolicy, hintCount,
+	)
+
+	// Start at the unblinded introduction node, because our pathfinding
+	// will be able to locate this point in the graph.
+	fromNode := route.NewVertex(b.BlindedPath.IntroductionPoint)
+
+	features := lnwire.EmptyFeatureVector()
+	if b.Features != nil {
+		features = b.Features.Clone()
+	}
+
+	// Use the total aggregate relay parameters for the entire blinded
+	// route as the policy for the hint from our introduction node. This
+	// will ensure that pathfinding provides sufficient fees/delay for the
+	// blinded portion to the introduction node.
+	firstBlindedHop := b.BlindedPath.BlindedHops[1].BlindedNodePub
+	hints[fromNode] = []*channeldb.CachedEdgePolicy{
+		{
+			TimeLockDelta: b.CltvExpiryDelta,
+			MinHTLC:       lnwire.MilliSatoshi(b.HtlcMinimum),
+			MaxHTLC:       lnwire.MilliSatoshi(b.HtlcMaximum),
+			FeeBaseMSat:   lnwire.MilliSatoshi(b.BaseFee),
+			FeeProportionalMillionths: lnwire.MilliSatoshi(
+				b.ProportionalFee,
+			),
+			ToNodePubKey: func() route.Vertex {
+				return route.NewVertex(
+					// The first node in this slice is
+					// the introduction node, so we start
+					// at index 1 to get the first blinded
+					// relaying node.
+					firstBlindedHop,
+				)
+			},
+			ToNodeFeatures: features,
+		},
+	}
+
+	// Start at an offset of 1 because the first node in our blinded hops
+	// is the introduction node and terminate at the second-last node
+	// because we're dealing with hops as pairs.
+	for i := 1; i < hintCount; i++ {
+		// Set our origin node to the current
+		fromNode = route.NewVertex(
+			b.BlindedPath.BlindedHops[i].BlindedNodePub,
+		)
+
+		// Create a hint which has no fee or cltv delta. We
+		// specifically want zero values here because our relay
+		// parameters are expressed in encrypted blobs rather than the
+		// route itself for blinded routes.
+		nextHopIdx := i + 1
+		nextNode := route.NewVertex(
+			b.BlindedPath.BlindedHops[nextHopIdx].BlindedNodePub,
+		)
+
+		hint := &channeldb.CachedEdgePolicy{
+			ToNodePubKey: func() route.Vertex {
+				return nextNode
+			},
+			ToNodeFeatures: features,
+		}
+
+		hints[fromNode] = []*channeldb.CachedEdgePolicy{
+			hint,
+		}
+	}
+
+	return hints
 }

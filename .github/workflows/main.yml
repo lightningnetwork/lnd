@@ -42,10 +42,9 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v3
 
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v3
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: fmt
         run: make fmt-check
@@ -60,21 +59,9 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: run check
         run: make rpc-check
@@ -101,21 +88,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: fetch and rebase on ${{ github.base_ref }}
         run: |
@@ -141,21 +116,9 @@ jobs:
       - name: Fetch all history for linter
         run: git fetch --prune --unshallow
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: lint
         run: GOGC=50 make lint
@@ -170,21 +133,9 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: build release for all architectures
         run: make release
@@ -199,21 +150,9 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: check all command line flags exist in sample-lnd.conf file
         run: make sample-conf-check
@@ -237,21 +176,9 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: install bitcoind
         run: ./scripts/install_bitcoind.sh
@@ -295,21 +222,9 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: install bitcoind
         run: ./scripts/install_bitcoind.sh
@@ -343,21 +258,9 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v2
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: ${{ env.GOPATH }}
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v2
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: run itest
         run: make itest-parallel windows=1 tranches=2 parallel=2
@@ -403,21 +306,9 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v3
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: /home/runner/work/go
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v3
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: install bitcoind
         run: ./scripts/install_bitcoind.sh
@@ -451,21 +342,9 @@ jobs:
       - name: git checkout
         uses: actions/checkout@v3
 
-      - name: go cache
-        uses: actions/cache@v1
-        with:
-          path: ${{ env.GOPATH }}
-          key: lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-${{ github.job }}-
-            lnd-${{ runner.os }}-go-${{ env.GO_VERSION }}-
-            lnd-${{ runner.os }}-go-
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: actions/setup-go@v3
-        with:
-          go-version: '${{ env.GO_VERSION }}'
+      - id: setup
+        name: Setup go env
+        uses: ./.github/actions/setup-go
 
       - name: run new itest
         run: make itest-parallel temptest=true windows=1 tranches=2 parallel=2

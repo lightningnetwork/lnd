@@ -294,6 +294,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   check](https://github.com/lightningnetwork/lnd/pull/7114) for all non-PR 
   events.
 
+* Fixed docker image version used in
+  [`tools`](https://github.com/lightningnetwork/lnd/pull/7254).
+
 ### Integration test
 
 The `lntest` has been

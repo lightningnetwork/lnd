@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
@@ -273,7 +274,7 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 
 	req, err := NewRouteRequest(
 		ctx.router.selfNode.PubKeyBytes, &target, paymentAmt, 0,
-		restrictions, nil, nil, MinCLTVDelta,
+		restrictions, nil, nil, nil, MinCLTVDelta,
 	)
 	require.NoError(t, err, "invalid route request")
 
@@ -1563,7 +1564,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	req, err := NewRouteRequest(
 		ctx.router.selfNode.PubKeyBytes, &targetPubKeyBytes,
-		paymentAmt, 0, noRestrictions, nil, nil, MinCLTVDelta,
+		paymentAmt, 0, noRestrictions, nil, nil, nil, MinCLTVDelta,
 	)
 	require.NoError(t, err, "invalid route request")
 	_, _, err = ctx.router.FindRoute(req)
@@ -1605,7 +1606,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	// updated.
 	req, err = NewRouteRequest(
 		ctx.router.selfNode.PubKeyBytes, &targetPubKeyBytes,
-		paymentAmt, 0, noRestrictions, nil, nil, MinCLTVDelta,
+		paymentAmt, 0, noRestrictions, nil, nil, nil, MinCLTVDelta,
 	)
 	require.NoError(t, err, "invalid route request")
 
@@ -4611,4 +4612,156 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	controlTower.AssertExpectations(t)
 	payer.AssertExpectations(t)
 	missionControl.AssertExpectations(t)
+}
+
+// TestNewRouteRequest tests creation of route requests for blinded and
+// unblinded routes.
+func TestNewRouteRequest(t *testing.T) {
+	t.Parallel()
+
+	//nolint:lll
+	source, err := route.NewVertexFromStr("0367cec75158a4129177bfb8b269cb586efe93d751b43800d456485e81c2620ca6")
+	require.NoError(t, err)
+	sourcePubkey, err := btcec.ParsePubKey(source[:])
+	require.NoError(t, err)
+
+	//nolint:lll
+	v1, err := route.NewVertexFromStr("026c43a8ac1cd8519985766e90748e1e06871dab0ff6b8af27e8c1a61640481318")
+	require.NoError(t, err)
+	pubkey1, err := btcec.ParsePubKey(v1[:])
+	require.NoError(t, err)
+
+	//nolint:lll
+	v2, err := route.NewVertexFromStr("03c19f0027ffbb0ae0e14a4d958788793f9d74e107462473ec0c3891e4feb12e99")
+	require.NoError(t, err)
+	pubkey2, err := btcec.ParsePubKey(v2[:])
+	require.NoError(t, err)
+
+	var (
+		unblindedCltv uint16 = 500
+		blindedCltv   uint16 = 1000
+	)
+
+	blindedSelfIntro := &BlindedPayment{
+		CltvExpiryDelta: blindedCltv,
+		BlindedPath: &sphinx.BlindedPath{
+			IntroductionPoint: sourcePubkey,
+			BlindedHops:       []*sphinx.BlindedHopInfo{{}},
+		},
+	}
+
+	blindedOtherIntro := &BlindedPayment{
+		CltvExpiryDelta: blindedCltv,
+		BlindedPath: &sphinx.BlindedPath{
+			IntroductionPoint: pubkey1,
+			BlindedHops: []*sphinx.BlindedHopInfo{
+				{},
+			},
+		},
+	}
+
+	blindedMultiHop := &BlindedPayment{
+		CltvExpiryDelta: blindedCltv,
+		BlindedPath: &sphinx.BlindedPath{
+			IntroductionPoint: pubkey1,
+			BlindedHops: []*sphinx.BlindedHopInfo{
+				{},
+				{
+					BlindedNodePub: pubkey2,
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		name           string
+		target         *route.Vertex
+		routeHints     RouteHints
+		blindedPayment *BlindedPayment
+		finalExpiry    uint16
+
+		expectedTarget route.Vertex
+		expectedCltv   uint16
+		err            error
+	}{
+		{
+			name:           "blinded and target",
+			target:         &v1,
+			blindedPayment: blindedOtherIntro,
+			err:            ErrTargetAndBlinded,
+		},
+		{
+			// For single-hop blinded we have a final cltv.
+			name:           "blinded intro node only",
+			blindedPayment: blindedOtherIntro,
+			expectedTarget: v1,
+			expectedCltv:   blindedCltv,
+			err:            nil,
+		},
+		{
+			// For multi-hop blinded, we have no final cltv.
+			name:           "blinded multi-hop",
+			blindedPayment: blindedMultiHop,
+			expectedTarget: v2,
+			expectedCltv:   0,
+			err:            nil,
+		},
+		{
+			name:           "unblinded",
+			target:         &v2,
+			finalExpiry:    unblindedCltv,
+			expectedTarget: v2,
+			expectedCltv:   unblindedCltv,
+			err:            nil,
+		},
+		{
+			name:           "source node intro",
+			blindedPayment: blindedSelfIntro,
+			err:            ErrSelfIntro,
+		},
+		{
+			name:           "hints and blinded",
+			blindedPayment: blindedMultiHop,
+			routeHints: make(
+				map[route.Vertex][]*channeldb.CachedEdgePolicy,
+			),
+			err: ErrHintsAndBlinded,
+		},
+		{
+			name:           "expiry and blinded",
+			blindedPayment: blindedMultiHop,
+			finalExpiry:    unblindedCltv,
+			err:            ErrExpiryAndBlinded,
+		},
+		{
+			name:           "invalid blinded payment",
+			blindedPayment: &BlindedPayment{},
+			err:            ErrNoBlindedPath,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			req, err := NewRouteRequest(
+				source, testCase.target, 1000, 0, nil, nil,
+				testCase.routeHints, testCase.blindedPayment,
+				testCase.finalExpiry,
+			)
+			require.ErrorIs(t, err, testCase.err)
+
+			// Skip request validation if we got a non-nil error.
+			if err != nil {
+				return
+			}
+
+			require.Equal(t, req.Target, testCase.expectedTarget)
+			require.Equal(
+				t, req.FinalExpiry, testCase.expectedCltv,
+			)
+		})
+	}
 }

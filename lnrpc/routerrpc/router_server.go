@@ -391,7 +391,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 			FeeLimit:          feeLimit,
 			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
 			ProbabilitySource: mc.GetProbability,
-		}, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
+		}, nil, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
 	)
 
 	route, _, err := s.cfg.Router.FindRoute(routeReq)

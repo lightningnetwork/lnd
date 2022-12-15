@@ -1808,7 +1808,8 @@ type RouteRequest struct {
 	// Source is the node that the path originates from.
 	Source route.Vertex
 
-	// Target is the node that the path terminates at.
+	// Target is the node that a (non-blinded) path terminates at. This
+	// value is mutually exclusive with the BlindedPayment field.
 	Target *route.Vertex
 
 	// Amount is the amount in millisatoshis to be delivered to the target
@@ -1831,6 +1832,11 @@ type RouteRequest struct {
 	// view of the graph.
 	RouteHints RouteHints
 
+	// BlindedPayment contains an optional blinded path and parameters
+	// used to reach a target node via a blinded path. This field is
+	// mutually exclusive with the Target field.
+	BlindedPayment *BlindedPayment
+
 	// FinalExpiry is the cltv delta for the final hop.
 	FinalExpiry uint16
 }
@@ -1843,7 +1849,8 @@ type RouteHints map[route.Vertex][]*channeldb.CachedEdgePolicy
 func NewRouteRequest(source route.Vertex, target *route.Vertex,
 	amount lnwire.MilliSatoshi, timePref float64,
 	restrictions *RestrictParams, customRecords record.CustomSet,
-	routeHints RouteHints, finalExpiry uint16) *RouteRequest {
+	routeHints RouteHints, blindedPayment *BlindedPayment,
+	finalExpiry uint16) *RouteRequest {
 
 	return &RouteRequest{
 		Source:         source,
@@ -1853,30 +1860,107 @@ func NewRouteRequest(source route.Vertex, target *route.Vertex,
 		Restrictions:   restrictions,
 		CustomRecords:  customRecords,
 		RouteHints:     routeHints,
+		BlindedPayment: blindedPayment,
 		FinalExpiry:    finalExpiry,
 	}
 }
 
 // validate ensures that a route request is logically sane.
 func (r *RouteRequest) validate() error {
-	if r.Target == nil {
+	var (
+		blinded    = r.BlindedPayment != nil
+		routeHints = len(r.RouteHints) != 0
+		targetSet  = r.Target != nil
+	)
+
+	// Perform some additional validation for blinded paths.
+	if blinded {
+		if targetSet {
+			return errors.New("target node can't be set " +
+				"with blinded path")
+		}
+
+		if routeHints {
+			return errors.New("route hints can't be set " +
+				"with blinded path")
+		}
+
+		if err := r.BlindedPayment.Validate(); err != nil {
+			return fmt.Errorf("invalid blinded payment: %w", err)
+		}
+
+		introVertex := route.NewVertex(
+			r.BlindedPayment.BlindedPath.IntroductionPoint,
+		)
+		if r.Source == introVertex {
+			return fmt.Errorf("introduction point as own node " +
+				"is not currently supported")
+		}
+
+		return nil
+	}
+
+	// If we're not sending to a blinded path, a target node is required.
+	if !targetSet {
 		return errors.New("target node required")
 	}
 
 	return nil
 }
 
+// target returns the destination node. In the case where we have a blinded
+// payment, this will be the *blinded* node ID of the final node in the blinded
+// path.
 func (r *RouteRequest) target() route.Vertex {
+	if r.BlindedPayment != nil {
+		hops := r.BlindedPayment.BlindedPath.BlindedHops
+
+		// If we're dealing with an edge-case blinded path that just
+		// has an introduction node (first hop expected to be the intro
+		// hop), then we return the unblinded introduction node as our
+		// target.
+		if len(r.BlindedPayment.BlindedPath.BlindedHops) == 1 {
+			return route.NewVertex(
+				r.BlindedPayment.BlindedPath.IntroductionPoint,
+			)
+		}
+
+		return route.NewVertex(hops[len(hops)-1].BlindedNodePub)
+	}
+
 	return *r.Target
 }
 
+// hints returns a set of additional edges for pathfinding. This may either
+// be a set of hints for private channels or a "virtual" hop hint that
+// represents a blinded route. Our validation ensures that only one of these
+// fields is populated, so we can handle them simply here.
 func (r *RouteRequest) hints() RouteHints {
+	if r.BlindedPayment != nil {
+		return r.BlindedPayment.toRouteHints()
+	}
+
 	return r.RouteHints
 }
 
-// finalCLTVDelta returns the final cltv delta for the receiving hop.
+// finalCLTVDelta returns the final cltv delta for the receiving hop. If paying
+// to an unblinded route, the final expiry value as provided is used. In the
+// case of a blinded route, the value depends on the length of the route:
+//   - 1 hop: paying directly to the introduction node, this is effectively a
+//     regular payment so we just use the blinded route delta as our final
+//     delta.
+//   - Multi hop: paying to a proper blinded route, our hop hints representing
+//     the route will include the delta.
 func (r *RouteRequest) finalCLTVDelta() uint16 {
-	return r.FinalExpiry
+	if r.BlindedPayment == nil {
+		return r.FinalExpiry
+	}
+
+	if len(r.BlindedPayment.BlindedPath.BlindedHops) == 1 {
+		return r.BlindedPayment.CltvExpiryDelta
+	}
+
+	return 0
 }
 
 // FindRoute attempts to query the ChannelRouter for the optimum path to a

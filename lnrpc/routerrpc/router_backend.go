@@ -327,7 +327,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// the route.
 	routeReq := routing.NewRouteRequest(
 		sourcePubKey, &targetPubKey, amt, in.TimePref, restrictions,
-		customRecords, routeHintEdges, finalCLTVDelta,
+		customRecords, routeHintEdges, nil, finalCLTVDelta,
 	)
 	route, successProb, err := r.FindRoute(routeReq)
 	if err != nil {

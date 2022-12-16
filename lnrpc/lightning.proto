@@ -2932,6 +2932,9 @@ message QueryRoutesRequest {
     not add any additional block padding on top of final_ctlv_delta. This
     padding of a few blocks needs to be added manually or otherwise failures may
     happen when a block comes in while the payment is in flight.
+
+    Note: must not be set if making a payment to a blinded path (delta is
+    set by the aggregate parameters provided by blinded_payment_paths)
     */
     int32 final_cltv_delta = 4;
 
@@ -3006,11 +3009,20 @@ message QueryRoutesRequest {
     repeated lnrpc.RouteHint route_hints = 16;
 
     /*
+    An optional blinded path(s) to reach the destination. Note that the
+    introduction node must be provided as the first hop in the route.
+    */
+    repeated BlindedPaymentPath blinded_payment_paths = 19;
+
+    /*
     Features assumed to be supported by the final node. All transitive feature
     dependencies must also be set properly. For a given feature bit pair, either
     optional or remote may be set, but not both. If this field is nil or empty,
     the router will try to load destination features from the graph as a
     fallback.
+
+    Note: must not be set if making a payment to a blinded route (features
+    are provided in blinded_payment_paths).
     */
     repeated lnrpc.FeatureBit dest_features = 17;
 
@@ -3485,6 +3497,61 @@ message RouteHint {
     specific destination.
     */
     repeated HopHint hop_hints = 1;
+}
+
+message BlindedPaymentPath {
+    // The blinded path to send the payment to.
+    BlindedPath blinded_path = 1;
+
+    // The base fee for the blinded path provided, expressed in msat.
+    uint64 base_fee_msat = 2;
+
+    // The proportional fee for the blinded path provided, expressed in msat.
+    uint64 proportional_fee_msat = 3;
+
+    /*
+    The total CLTV delta for the blinded path provided, including the
+    final CLTV delta for the receiving node.
+    */
+    uint32 total_cltv_delta = 4;
+
+    /*
+    The minimum hltc size that may be sent over the blinded path, expressed
+    in msat.
+    */
+    uint64 htlc_min_msat = 5;
+
+    /*
+    The maximum htlc size that may be sent over the blinded path, expressed
+    in msat.
+    */
+    uint64 htlc_max_msat = 6;
+
+    // The feature bits for the route.
+    repeated FeatureBit features = 7;
+}
+
+message BlindedPath {
+    // The unblinded pubkey of the introduction node for the route.
+    bytes introduction_node = 1;
+
+    // The ephemeral pubkey used by nodes in the blinded route.
+    bytes blinding_point = 2;
+
+    /*
+    A set of blinded node keys and data blobs for the blinded portion of the
+    route. Note that the first hop is expected to be the introduction node,
+    so the route is always expected to have at least one hop.
+    */
+    repeated BlindedHop blinded_hops = 3;
+}
+
+message BlindedHop {
+    // The blinded public key of the node.
+    bytes blinded_node = 1;
+
+    // An encrypted blob of data provided to the blinded node.
+    bytes encrypted_data = 2;
 }
 
 message AMPInvoiceState {

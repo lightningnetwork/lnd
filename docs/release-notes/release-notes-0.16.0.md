@@ -1,5 +1,13 @@
 # Release Notes
 
+## Peer to Peer Behavior
+
+`lnd` will now [properly prioritize sending out gossip updates generated
+locally to all connected
+peers](https://github.com/lightningnetwork/lnd/pull/7239), regardless of their
+current gossip sync query status.
+
+
 ## BOLT Specs
 
 * Warning messages from peers are now recognized and

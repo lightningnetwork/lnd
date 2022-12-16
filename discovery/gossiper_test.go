@@ -824,6 +824,8 @@ func TestProcessAnnouncement(t *testing.T) {
 	require.NoError(t, err, "can't create context")
 
 	assertSenderExistence := func(sender *btcec.PublicKey, msg msgWithSenders) {
+		t.Helper()
+
 		if _, ok := msg.senders[route.NewVertex(sender)]; !ok {
 			t.Fatalf("sender=%x not present in %v",
 				sender.SerializeCompressed(), spew.Sdump(msg))
@@ -1910,31 +1912,37 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	// Ensure that announcement batch delivers channel announcements,
 	// channel updates, and node announcements in proper order.
 	batch := announcements.Emit()
-	if len(batch) != 4 {
+	if batch.length() != 4 {
 		t.Fatal("announcement batch incorrect length")
 	}
 
-	if !reflect.DeepEqual(batch[0].msg, ca2) {
+	if !reflect.DeepEqual(batch.localMsgs[0].msg, ca2) {
 		t.Fatalf("channel announcement not first in batch: got %v, "+
-			"expected %v", spew.Sdump(batch[0].msg), spew.Sdump(ca2))
+			"expected %v", spew.Sdump(batch.localMsgs[0].msg),
+			spew.Sdump(ca2))
 	}
 
-	if !reflect.DeepEqual(batch[1].msg, ua3) {
+	if !reflect.DeepEqual(batch.localMsgs[1].msg, ua3) {
 		t.Fatalf("channel update not next in batch: got %v, "+
-			"expected %v", spew.Sdump(batch[1].msg), spew.Sdump(ua2))
+			"expected %v", spew.Sdump(batch.localMsgs[1].msg),
+			spew.Sdump(ua2))
 	}
 
 	// We'll ensure that both node announcements are present. We check both
 	// indexes as due to the randomized order of map iteration they may be
 	// in either place.
-	if !reflect.DeepEqual(batch[2].msg, na) && !reflect.DeepEqual(batch[3].msg, na) {
+	if !reflect.DeepEqual(batch.localMsgs[2].msg, na) &&
+		!reflect.DeepEqual(batch.localMsgs[3].msg, na) {
+
 		t.Fatalf("first node announcement not in last part of batch: "+
-			"got %v, expected %v", batch[2].msg,
+			"got %v, expected %v", batch.localMsgs[2].msg,
 			na)
 	}
-	if !reflect.DeepEqual(batch[2].msg, na5) && !reflect.DeepEqual(batch[3].msg, na5) {
+	if !reflect.DeepEqual(batch.localMsgs[2].msg, na5) &&
+		!reflect.DeepEqual(batch.localMsgs[3].msg, na5) {
+
 		t.Fatalf("second node announcement not in last part of batch: "+
-			"got %v, expected %v", batch[3].msg,
+			"got %v, expected %v", batch.localMsgs[3].msg,
 			na5)
 	}
 

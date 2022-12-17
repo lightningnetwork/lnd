@@ -56,10 +56,6 @@ var (
 			Entity: "onchain",
 			Action: "read",
 		}},
-		"/neutrinorpc.NeutrinoKit/GetBlockHash": {{
-			Entity: "onchain",
-			Action: "read",
-		}},
 	}
 
 	// ErrNeutrinoNotActive is an error returned when there is no running
@@ -422,22 +418,4 @@ func (s *Server) getBlock(hash chainhash.Hash) (*GetBlockResponse, error) {
 		PreviousBlockHash: header.PrevBlock.String(),
 		RawHex:            blockData,
 	}, nil
-}
-
-// GetBlockHash returns the header hash of a block at a given height.
-//
-// NOTE: Part of the NeutrinoKitServer interface.
-func (s *Server) GetBlockHash(ctx context.Context,
-	in *GetBlockHashRequest) (*GetBlockHashResponse, error) {
-
-	if s.cfg.NeutrinoCS == nil {
-		return nil, ErrNeutrinoNotActive
-	}
-
-	hash, err := s.cfg.NeutrinoCS.GetBlockHash(int64(in.Height))
-	if err != nil {
-		return nil, err
-	}
-
-	return &GetBlockHashResponse{Hash: hash.String()}, nil
 }

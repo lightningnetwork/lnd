@@ -7,11 +7,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sync"
 
+	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -277,20 +280,73 @@ func (s *Server) GetBlock(ctx context.Context,
 	var blockHash chainhash.Hash
 	copy(blockHash[:], in.BlockHash)
 
-	block, err := s.cfg.Chain.GetBlock(&blockHash)
+	msgBlock, err := s.cfg.Chain.GetBlock(&blockHash)
 	if err != nil {
 		return nil, err
 	}
 
-	// Serialize block for RPC response.
+	// Serialize msgBlock for RPC response.
 	var blockBuf bytes.Buffer
-	err = block.Serialize(&blockBuf)
+	err = msgBlock.Serialize(&blockBuf)
 	if err != nil {
 		return nil, err
 	}
 	rawBlock := blockBuf.Bytes()
 
-	return &GetBlockResponse{RawBlock: rawBlock}, nil
+	block := btcutil.NewBlock(msgBlock)
+	// TODO: set block height
+
+	confirmations, err := s.getBlockConfirmations(block)
+	if err != nil {
+		return nil, err
+	}
+
+	blockData, err := block.Bytes()
+	if err != nil {
+		return nil, err
+	}
+
+	strippedData, err := block.BytesNoWitness()
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert txids to a string array.
+	tx := make([]string, len(msgBlock.Transactions))
+	for i := range msgBlock.Transactions {
+		tx[i] = msgBlock.Transactions[i].TxHash().String()
+	}
+
+	return &GetBlockResponse{
+		RawBlock:      rawBlock,
+		Hash:          msgBlock.BlockHash().String(),
+		Confirmations: confirmations,
+		StrippedSize:  int64(len(strippedData)),
+		Size:          int64(len(blockData)),
+		Weight:        blockchain.GetBlockWeight(block),
+		Height:        block.Height(),
+		Version:       msgBlock.Header.Version,
+		VersionHex:    fmt.Sprintf("%0x", msgBlock.Header.Version),
+		Merkleroot:    msgBlock.Header.MerkleRoot.String(),
+		Tx:            tx,
+		Time:          msgBlock.Header.Timestamp.Unix(),
+		Nonce:         msgBlock.Header.Nonce,
+		// Format bits as a hex.
+		Bits:              fmt.Sprintf("%0x", msgBlock.Header.Bits),
+		Ntx:               int32(len(msgBlock.Transactions)),
+		PreviousBlockHash: msgBlock.Header.PrevBlock.String(),
+	}, nil
+}
+
+// getBlockConfirmations returns the number of confirmations for a given block.
+func (s *Server) getBlockConfirmations(block *btcutil.Block) (int64, error) {
+	// Get best block to calculate relative height.
+	_, bestBlockHeight, err := s.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return 0, err
+	}
+
+	return int64(1 + bestBlockHeight - block.Height()), nil
 }
 
 // GetBestBlock returns the latest block hash and current height of the valid

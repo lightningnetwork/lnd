@@ -139,6 +139,78 @@
           "type": "string",
           "format": "byte",
           "description": "The raw bytes of the requested block."
+        },
+        "hash": {
+          "type": "string",
+          "description": "The block hash (same as provided)."
+        },
+        "confirmations": {
+          "type": "string",
+          "format": "int64",
+          "description": "The number of confirmations."
+        },
+        "stripped_size": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block size excluding witness data."
+        },
+        "size": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block size (bytes)."
+        },
+        "weight": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block weight as defined in BIP 141."
+        },
+        "height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The block height or index."
+        },
+        "version": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The block version."
+        },
+        "version_hex": {
+          "type": "string",
+          "description": "The block version."
+        },
+        "merkleroot": {
+          "type": "string",
+          "description": "The merkle root."
+        },
+        "tx": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of transaction ids."
+        },
+        "time": {
+          "type": "string",
+          "format": "int64",
+          "description": "The block time in seconds since epoch (Jan 1 1970 GMT)."
+        },
+        "nonce": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The nonce."
+        },
+        "bits": {
+          "type": "string",
+          "description": "The bits in hex notation."
+        },
+        "ntx": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of transactions in the block."
+        },
+        "previous_block_hash": {
+          "type": "string",
+          "description": "The hash of the previous block."
         }
       },
       "description": "TODO(ffranr): The neutrino GetBlock response includes many\nadditional helpful fields. Consider adding them here also."

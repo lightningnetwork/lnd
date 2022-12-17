@@ -30,11 +30,54 @@ message GetBlockRequest {
     bytes block_hash = 1;
 }
 
-// TODO(ffranr): The neutrino GetBlock response includes many
-// additional helpful fields. Consider adding them here also.
 message GetBlockResponse {
     // The raw bytes of the requested block.
     bytes raw_block = 1;
+
+    // The block hash (same as provided).
+    string hash = 2;
+
+    // The number of confirmations.
+    int64 confirmations = 3;
+
+    // The block size excluding witness data.
+    int64 stripped_size = 4;
+
+    // The block size (bytes).
+    int64 size = 5;
+
+    // The block weight as defined in BIP 141.
+    int64 weight = 6;
+
+    // The block height or index.
+    int32 height = 7;
+
+    // The block version.
+    int32 version = 8;
+
+    // The block version.
+    string version_hex = 9;
+
+    // The merkle root.
+    string merkleroot = 10;
+
+    // List of transaction ids.
+    repeated string tx = 11;
+
+    // The block time in seconds since epoch (Jan 1 1970 GMT).
+    int64 time = 12;
+
+    // The nonce.
+    uint32 nonce = 13;
+
+    // The bits in hex notation.
+    string bits = 14;
+
+    // The number of transactions in the block.
+    int32 ntx = 15;
+
+    // The hash of the previous block.
+    string previous_block_hash = 16;
 }
 
 message GetBestBlockRequest {

@@ -424,6 +424,13 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			TlvPayload:    !hop.LegacyPayload,
 			MppRecord:     mpp,
 			Metadata:      hop.Metadata,
+			EncryptedData: hop.EncryptedData,
+			TotalAmtMsat:  uint64(hop.TotalAmtMsat),
+		}
+
+		if hop.BlindingPoint != nil {
+			blinding := hop.BlindingPoint.SerializeCompressed()
+			resp.Hops[i].BlindingPoint = blinding
 		}
 		incomingAmt = hop.AmtToForward
 	}
@@ -451,7 +458,7 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		return nil, err
 	}
 
-	return &route.Hop{
+	hop := &route.Hop{
 		OutgoingTimeLock: rpcHop.Expiry,
 		AmtToForward:     lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
 		PubKeyBytes:      pubkey,
@@ -460,7 +467,26 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		LegacyPayload:    false,
 		MPP:              mpp,
 		AMP:              amp,
-	}, nil
+		EncryptedData:    rpcHop.EncryptedData,
+		TotalAmtMsat:     lnwire.MilliSatoshi(rpcHop.TotalAmtMsat),
+	}
+
+	haveBlindingPoint := len(rpcHop.BlindingPoint) != 0
+	if haveBlindingPoint {
+		hop.BlindingPoint, err = btcec.ParsePubKey(
+			rpcHop.BlindingPoint,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("blinding point: %w", err)
+		}
+	}
+
+	if haveBlindingPoint && len(rpcHop.EncryptedData) == 0 {
+		return nil, errors.New("encrypted data should be present if " +
+			"blinding point is provided")
+	}
+
+	return hop, nil
 }
 
 // UnmarshallHop unmarshalls an rpc hop that may or may not contain a node

@@ -1803,16 +1803,94 @@ type routingMsg struct {
 	err chan error
 }
 
+// RouteRequest contains the parameters for a pathfinding request.
+type RouteRequest struct {
+	// Source is the node that the path originates from.
+	Source route.Vertex
+
+	// Target is the node that the path terminates at.
+	Target *route.Vertex
+
+	// Amount is the amount in millisatoshis to be delivered to the target
+	// node.
+	Amount lnwire.MilliSatoshi
+
+	// TimePreference expresses the caller's time preference for
+	// pathfinding.
+	TimePreference float64
+
+	// Restrictions provides a set of additional restrictions that the
+	// route must adhere to.
+	Restrictions *RestrictParams
+
+	// CustomRecords is a set of custom tlv records to include for the
+	// final hop.
+	CustomRecords record.CustomSet
+
+	// RouteHints contains an additional set of edges to include in our
+	// view of the graph.
+	RouteHints RouteHints
+
+	// FinalExpiry is the cltv delta for the final hop.
+	FinalExpiry uint16
+}
+
+// RouteHints is an alias type for a set of route hints, with the source node
+// as the map's key and the details of the hint(s) in the edge policy.
+type RouteHints map[route.Vertex][]*channeldb.CachedEdgePolicy
+
+// NewRouteRequest produces a new route request.
+func NewRouteRequest(source route.Vertex, target *route.Vertex,
+	amount lnwire.MilliSatoshi, timePref float64,
+	restrictions *RestrictParams, customRecords record.CustomSet,
+	routeHints RouteHints, finalExpiry uint16) *RouteRequest {
+
+	return &RouteRequest{
+		Source:         source,
+		Target:         target,
+		Amount:         amount,
+		TimePreference: timePref,
+		Restrictions:   restrictions,
+		CustomRecords:  customRecords,
+		RouteHints:     routeHints,
+		FinalExpiry:    finalExpiry,
+	}
+}
+
+// validate ensures that a route request is logically sane.
+func (r *RouteRequest) validate() error {
+	if r.Target == nil {
+		return errors.New("target node required")
+	}
+
+	return nil
+}
+
+func (r *RouteRequest) target() route.Vertex {
+	return *r.Target
+}
+
+func (r *RouteRequest) hints() RouteHints {
+	return r.RouteHints
+}
+
+// finalCLTVDelta returns the final cltv delta for the receiving hop.
+func (r *RouteRequest) finalCLTVDelta() uint16 {
+	return r.FinalExpiry
+}
+
 // FindRoute attempts to query the ChannelRouter for the optimum path to a
 // particular target destination to which it is able to send `amt` after
 // factoring in channel capacities and cumulative fees along the route.
-func (r *ChannelRouter) FindRoute(source, target route.Vertex,
-	amt lnwire.MilliSatoshi, timePref float64, restrictions *RestrictParams,
-	destCustomRecords record.CustomSet,
-	routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-	finalExpiry uint16) (*route.Route, float64, error) {
+func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
+	error) {
 
-	log.Debugf("Searching for path to %v, sending %v", target, amt)
+	if err := req.validate(); err != nil {
+		return nil, 0, err
+	}
+
+	log.Debugf("Searching for path to %v, sending %v", req.target(),
+		req.Amount)
 
 	// We'll attempt to obtain a set of bandwidth hints that can help us
 	// eliminate certain routes early on in the path finding process.
@@ -1832,22 +1910,22 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	// Now that we know the destination is reachable within the graph, we'll
 	// execute our path finding algorithm.
-	finalHtlcExpiry := currentHeight + int32(finalExpiry)
+	finalHtlcExpiry := currentHeight + int32(req.finalCLTVDelta())
 
 	// Validate time preference.
+	timePref := req.TimePreference
 	if timePref < -1 || timePref > 1 {
 		return nil, 0, errors.New("time preference out of range")
 	}
 
 	path, probability, err := findPath(
 		&graphParams{
-			additionalEdges: routeHints,
+			additionalEdges: req.hints(),
 			bandwidthHints:  bandwidthHints,
 			graph:           r.cachedGraph,
 		},
-		restrictions,
-		&r.cfg.PathFindingConfig,
-		source, target, amt, timePref, finalHtlcExpiry,
+		req.Restrictions, &r.cfg.PathFindingConfig, req.Source,
+		req.target(), req.Amount, req.TimePreference, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -1855,12 +1933,12 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	// Create the route with absolute time lock values.
 	route, err := newRoute(
-		source, path, uint32(currentHeight),
+		req.Source, path, uint32(currentHeight),
 		finalHopParams{
-			amt:       amt,
-			totalAmt:  amt,
-			cltvDelta: finalExpiry,
-			records:   destCustomRecords,
+			amt:       req.Amount,
+			totalAmt:  req.Amount,
+			cltvDelta: req.finalCLTVDelta(),
+			records:   req.CustomRecords,
 		},
 	)
 	if err != nil {
@@ -1868,7 +1946,7 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 	}
 
 	go log.Tracef("Obtained path to send %v to %x: %v",
-		amt, target, newLogClosure(func() string {
+		req.Amount, req.target(), newLogClosure(func() string {
 			return spew.Sdump(route)
 		}),
 	)

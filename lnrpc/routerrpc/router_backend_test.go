@@ -7,10 +7,8 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -122,24 +120,22 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		}
 	}
 
-	findRoute := func(source, target route.Vertex,
-		amt lnwire.MilliSatoshi, _ float64,
-		restrictions *routing.RestrictParams, _ record.CustomSet,
-		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-		finalExpiry uint16) (*route.Route, float64, error) {
+	findRoute := func(req *routing.RouteRequest) (*route.Route, float64,
+		error) {
 
-		if int64(amt) != amtSat*1000 {
+		if int64(req.Amount) != amtSat*1000 {
 			t.Fatal("unexpected amount")
 		}
 
-		if source != sourceKey {
+		if req.Source != sourceKey {
 			t.Fatal("unexpected source key")
 		}
 
-		if !bytes.Equal(target[:], destNodeBytes) {
+		if !bytes.Equal(req.Target[:], destNodeBytes) {
 			t.Fatal("unexpected target key")
 		}
 
+		restrictions := req.Restrictions
 		if restrictions.FeeLimit != 250*1000 {
 			t.Fatal("unexpected fee limit")
 		}
@@ -172,7 +168,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 			t.Fatal("unexpected dest features")
 		}
 
-		if _, ok := routeHints[hintNode]; !ok {
+		if _, ok := req.RouteHints[hintNode]; !ok {
 			t.Fatal("expected route hint")
 		}
 
@@ -187,7 +183,9 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		}
 
 		hops := []*route.Hop{{}}
-		route, err := route.NewRouteFromHops(amt, 144, source, hops)
+		route, err := route.NewRouteFromHops(
+			req.Amount, 144, req.Source, hops,
+		)
 
 		return route, expectedProb, err
 	}

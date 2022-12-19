@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -764,6 +765,9 @@ type DatabaseInstances struct {
 	// HeightHintDB is the database that stores height hints for spends.
 	HeightHintDB kvdb.Backend
 
+	// InvoiceDB is the database that stores information about invoices.
+	InvoiceDB invoices.InvoiceDB
+
 	// MacaroonDB is the database that stores macaroon root keys.
 	MacaroonDB kvdb.Backend
 
@@ -914,6 +918,12 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	// channel state DB should be created here individually instead of just
 	// using the same struct (and DB backend) instance.
 	dbs.ChanStateDB = dbs.GraphDB
+
+	// For now the only InvoiceDB implementation is the *channeldb.DB.
+	//
+	// TODO(positiveblue): use a sql first implementation for this
+	// interface.
+	dbs.InvoiceDB = dbs.GraphDB
 
 	// Wrap the watchtower client DB and make sure we clean up.
 	if cfg.WtClient.Active {

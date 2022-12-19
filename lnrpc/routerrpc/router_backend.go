@@ -55,14 +55,9 @@ type RouterBackend struct {
 	FetchChannelEndpoints func(chanID uint64) (route.Vertex,
 		route.Vertex, error)
 
-	// FindRoutes is a closure that abstracts away how we locate/query for
+	// FindRoute is a closure that abstracts away how we locate/query for
 	// routes.
-	FindRoute func(source, target route.Vertex,
-		amt lnwire.MilliSatoshi, timePref float64,
-		restrictions *routing.RestrictParams,
-		destCustomRecords record.CustomSet,
-		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-		finalExpiry uint16) (*route.Route, float64, error)
+	FindRoute func(*routing.RouteRequest) (*route.Route, float64, error)
 
 	MissionControl MissionControl
 
@@ -330,10 +325,15 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Query the channel router for a possible path to the destination that
 	// can carry `in.Amt` satoshis _including_ the total fee required on
 	// the route.
-	route, successProb, err := r.FindRoute(
-		sourcePubKey, targetPubKey, amt, in.TimePref, restrictions,
+	routeReq, err := routing.NewRouteRequest(
+		sourcePubKey, &targetPubKey, amt, in.TimePref, restrictions,
 		customRecords, routeHintEdges, finalCLTVDelta,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	route, successProb, err := r.FindRoute(routeReq)
 	if err != nil {
 		return nil, err
 	}

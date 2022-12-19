@@ -271,11 +271,13 @@ func TestFindRoutesWithFeeLimit(t *testing.T) {
 		CltvLimit:         math.MaxUint32,
 	}
 
-	route, _, err := ctx.router.FindRoute(
-		ctx.router.selfNode.PubKeyBytes,
-		target, paymentAmt, 0, restrictions, nil, nil,
-		MinCLTVDelta,
+	req, err := NewRouteRequest(
+		ctx.router.selfNode.PubKeyBytes, &target, paymentAmt, 0,
+		restrictions, nil, nil, MinCLTVDelta,
 	)
+	require.NoError(t, err, "invalid route request")
+
+	route, _, err := ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find any routes")
 
 	require.Falsef(t,
@@ -1558,11 +1560,13 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	targetNode := priv2.PubKey()
 	var targetPubKeyBytes route.Vertex
 	copy(targetPubKeyBytes[:], targetNode.SerializeCompressed())
-	_, _, err = ctx.router.FindRoute(
-		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, 0, noRestrictions, nil, nil,
-		MinCLTVDelta,
+
+	req, err := NewRouteRequest(
+		ctx.router.selfNode.PubKeyBytes, &targetPubKeyBytes,
+		paymentAmt, 0, noRestrictions, nil, nil, MinCLTVDelta,
 	)
+	require.NoError(t, err, "invalid route request")
+	_, _, err = ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find any routes")
 
 	// Now check that we can update the node info for the partial node
@@ -1599,11 +1603,13 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// Should still be able to find the route, and the info should be
 	// updated.
-	_, _, err = ctx.router.FindRoute(
-		ctx.router.selfNode.PubKeyBytes,
-		targetPubKeyBytes, paymentAmt, 0, noRestrictions, nil, nil,
-		MinCLTVDelta,
+	req, err = NewRouteRequest(
+		ctx.router.selfNode.PubKeyBytes, &targetPubKeyBytes,
+		paymentAmt, 0, noRestrictions, nil, nil, MinCLTVDelta,
 	)
+	require.NoError(t, err, "invalid route request")
+
+	_, _, err = ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find any routes")
 
 	copy1, err := ctx.graph.FetchLightningNode(pub1)

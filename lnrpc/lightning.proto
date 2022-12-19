@@ -3116,6 +3116,32 @@ message Hop {
 
     // The payment metadata to send along with the payment to the payee.
     bytes metadata = 13;
+
+    /*
+    Blinding point is an optional blinding point included for introduction
+    nodes in blinded paths. This field is mandatory for hops that represents
+    the introduction point in a blinded path.
+    */
+    bytes blinding_point = 14;
+
+    /*
+    Encrypted data is a receiver-produced blob of data that provides hops
+    in a blinded route with forwarding data. As this data is encrypted by
+    the recipient, we will not be able to parse it - it is essentially an
+    arbitrary blob of data from our node's perspective. This field is
+    mandatory for all hops in a blinded path, including the introduction
+    node.
+    */
+    bytes encrypted_data = 15;
+
+    /*
+    The total amount that is sent to the recipient (possibly across multiple
+    HTLCs), as specified by the sender when making a payment to a blinded path.
+    This value is only set in the final hop payload of a blinded payment. This
+    value is analogous to the MPPRecord that is used for regular (non-blinded)
+    MPP payments.
+    */
+    uint64 total_amt_msat = 16;
 }
 
 message MPPRecord {

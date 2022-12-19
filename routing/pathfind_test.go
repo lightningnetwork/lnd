@@ -2291,10 +2291,13 @@ func TestPathFindSpecExample(t *testing.T) {
 	// Query for a route of 4,999,999 mSAT to carol.
 	carol := ctx.aliases["C"]
 	const amt lnwire.MilliSatoshi = 4999999
-	route, _, err := ctx.router.FindRoute(
-		bobNode.PubKeyBytes, carol, amt, 0, noRestrictions, nil, nil,
+	req, err := NewRouteRequest(
+		bobNode.PubKeyBytes, &carol, amt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
+	require.NoError(t, err, "invalid route request")
+
+	route, _, err := ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find route")
 
 	// Now we'll examine the route returned for correctness.
@@ -2341,10 +2344,13 @@ func TestPathFindSpecExample(t *testing.T) {
 	}
 
 	// We'll now request a route from A -> B -> C.
-	route, _, err = ctx.router.FindRoute(
-		source.PubKeyBytes, carol, amt, 0, noRestrictions, nil, nil,
+	req, err = NewRouteRequest(
+		source.PubKeyBytes, &carol, amt, 0, noRestrictions, nil, nil,
 		MinCLTVDelta,
 	)
+	require.NoError(t, err, "invalid route request")
+
+	route, _, err = ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find routes")
 
 	// The route should be two hops.

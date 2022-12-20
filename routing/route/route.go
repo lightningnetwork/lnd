@@ -408,6 +408,42 @@ func (r *Route) Copy() *Route {
 }
 
 // HopFee returns the fee charged by the route hop indicated by hopIndex.
+//
+// This calculation takes into account the possibility that the route contains
+// some blinded hops, that will not have the amount to forward set. We take
+// note of various points in the blinded route.
+//
+// Given the following route where Carol is the introduction node and B2 is
+// the recipient, Carol and B1's hops will not have an amount to forward set:
+// Alice --- Bob ---- Carol (introduction) ----- B1 ----- B2
+//
+// We locate ourselves in the route as follows:
+// * Regular Hop (eg Alice - Bob):
+//
+//	incomingAmt !=0
+//	outgoingAmt !=0
+//	->  Fee = incomingAmt - outgoingAmt
+//
+// * Introduction Hop (eg Bob - Carol):
+//
+//	incomingAmt !=0
+//	outgoingAmt = 0
+//	-> Fee = incomingAmt - receiverAmt
+//
+// This has the impact of attributing the full fees for the blinded route to
+// the introduction node.
+//
+// * Blinded Intermediate Hop (eg Carol - B1):
+//
+//	incomingAmt = 0
+//	outgoingAmt = 0
+//	-> Fee = 0
+//
+// * Final Blinded Hop (B1 - B2):
+//
+//	incomingAmt = 0
+//	outgoingAmt !=0
+//	-> Fee = 0
 func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
 	var incomingAmt lnwire.MilliSatoshi
 	if hopIndex == 0 {
@@ -416,8 +452,25 @@ func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
 		incomingAmt = r.Hops[hopIndex-1].AmtToForward
 	}
 
-	// Fee is calculated as difference between incoming and outgoing amount.
-	return incomingAmt - r.Hops[hopIndex].AmtToForward
+	outgoingAmt := r.Hops[hopIndex].AmtToForward
+
+	switch {
+	// If both incoming and outgoing amounts are set, we're in a normal
+	// hop
+	case incomingAmt != 0 && outgoingAmt != 0:
+		return incomingAmt - outgoingAmt
+
+	// If the incoming amount is zero, we're at an intermediate hop in
+	// a blinded route, so the fee is zero.
+	case incomingAmt == 0:
+		return 0
+
+	// If we have a non-zero incoming amount and a zero outgoing amount,
+	// we're at the introduction hop so we express the fees for the full
+	// blinded route at this hop.
+	default:
+		return incomingAmt - r.ReceiverAmt()
+	}
 }
 
 // TotalFees is the sum of the fees paid at each hop within the final route. In

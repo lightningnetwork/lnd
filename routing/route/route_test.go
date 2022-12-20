@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -157,6 +158,20 @@ func TestAMPHop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected err: %v, got: %v", nil, err)
 	}
+}
+
+// TestNoForwardingParams tests packing of a hop payload without an amount or
+// expiry height.
+func TestNoForwardingParams(t *testing.T) {
+	t.Parallel()
+
+	hop := Hop{
+		EncryptedData: []byte{1, 2, 3},
+	}
+
+	var b bytes.Buffer
+	err := hop.PackHopPayload(&b, 2)
+	require.NoError(t, err)
 }
 
 // TestPayloadSize tests the payload size calculation that is provided by Hop

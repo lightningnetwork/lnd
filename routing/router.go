@@ -1991,6 +1991,16 @@ func getTargetNode(target *route.Vertex, blindedPayment *BlindedPayment) (
 	}
 }
 
+// blindedPath returns the request's blinded path, which is set if the payment
+// is to a blinded route.
+func (r *RouteRequest) blindedPath() *sphinx.BlindedPath {
+	if r.BlindedPayment == nil {
+		return nil
+	}
+
+	return r.BlindedPayment.BlindedPath
+}
+
 // FindRoute attempts to query the ChannelRouter for the optimum path to a
 // particular target destination to which it is able to send `amt` after
 // factoring in channel capacities and cumulative fees along the route.
@@ -2047,7 +2057,7 @@ func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
 			totalAmt:  req.Amount,
 			cltvDelta: req.FinalExpiry,
 			records:   req.CustomRecords,
-		},
+		}, req.blindedPath(),
 	)
 	if err != nil {
 		return nil, 0, err
@@ -3032,7 +3042,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 			cltvDelta:   uint16(finalCltvDelta),
 			records:     nil,
 			paymentAddr: payAddr,
-		},
+		}, nil,
 	)
 }
 

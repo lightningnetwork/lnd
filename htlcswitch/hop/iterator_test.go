@@ -170,6 +170,13 @@ func (m *mockProcessor) DecryptBlindedHopData(_ *btcec.PublicKey,
 	return data, m.decryptErr
 }
 
+// NextEphemeral mocks getting our next ephemeral key.
+func (m *mockProcessor) NextEphemeral(*btcec.PublicKey) (*btcec.PublicKey,
+	error) {
+
+	return nil, nil
+}
+
 // TestBlindingKitForwardingInfo tests deriving forwarding info using a
 // blinding kit. This test does not cover assertions on the calculations of
 // forwarding information, because this is covered in a test dedicated to those

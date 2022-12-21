@@ -3094,8 +3094,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// Otherwise, it was already processed, we can
 				// can collect it and continue.
 				addMsg := &lnwire.UpdateAddHTLC{
-					Expiry:      fwdInfo.OutgoingCTLV,
-					Amount:      fwdInfo.AmountToForward,
+					Expiry: fwdInfo.OutgoingCTLV,
+					Amount: fwdInfo.AmountToForward,
+					BlindingPoint: lnwire.NewBlindingPoint(
+						fwdInfo.NextBlinding,
+					),
 					PaymentHash: pd.RHash,
 				}
 
@@ -3136,8 +3139,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// create the outgoing HTLC using the parameters as
 			// specified in the forwarding info.
 			addMsg := &lnwire.UpdateAddHTLC{
-				Expiry:      fwdInfo.OutgoingCTLV,
-				Amount:      fwdInfo.AmountToForward,
+				Expiry: fwdInfo.OutgoingCTLV,
+				Amount: fwdInfo.AmountToForward,
+				BlindingPoint: lnwire.NewBlindingPoint(
+					fwdInfo.NextBlinding,
+				),
 				PaymentHash: pd.RHash,
 			}
 

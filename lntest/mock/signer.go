@@ -50,12 +50,13 @@ func (d *DummySigner) ComputeInputScript(tx *wire.MsgTx,
 	return &input.Script{}, nil
 }
 
-// MuSig2CreateSession creates a new MuSig2 signing session using the local
-// key identified by the key locator. The complete list of all public keys of
-// all signing parties must be provided, including the public key of the local
-// signing key. If nonces of other parties are already known, they can be
-// submitted as well to reduce the number of method calls necessary later on.
-func (d *DummySigner) MuSig2CreateSession(keychain.KeyLocator,
+// MuSig2CreateSession creates a new MuSig2 signing session using the
+// local key identified by the key locator or with the provided external
+// key. The complete list of all public keys of all signing parties must
+// be provided, including the public key of the local signing key.
+// If nonces of other parties are already known, they can be submitted
+// as well to reduce the number of method calls necessary later on.
+func (d *DummySigner) MuSig2CreateSession(*input.Musig2Key,
 	[]*btcec.PublicKey, *input.MuSig2Tweaks,
 	[][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo, error) {
 
@@ -189,12 +190,13 @@ func (s *SingleSigner) SignMessage(keyLoc keychain.KeyLocator,
 	return ecdsa.Sign(s.Privkey, digest), nil
 }
 
-// MuSig2CreateSession creates a new MuSig2 signing session using the local
-// key identified by the key locator. The complete list of all public keys of
-// all signing parties must be provided, including the public key of the local
-// signing key. If nonces of other parties are already known, they can be
-// submitted as well to reduce the number of method calls necessary later on.
-func (s *SingleSigner) MuSig2CreateSession(keychain.KeyLocator,
+// MuSig2CreateSession creates a new MuSig2 signing session using the
+// local key identified by the key locator or with the provided external
+// key. The complete list of all public keys of all signing parties must
+// be provided, including the public key of the local signing key.
+// If nonces of other parties are already known, they can be submitted
+// as well to reduce the number of method calls necessary later on.
+func (s *SingleSigner) MuSig2CreateSession(*input.Musig2Key,
 	[]*btcec.PublicKey, *input.MuSig2Tweaks,
 	[][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo, error) {
 

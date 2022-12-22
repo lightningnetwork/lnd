@@ -3082,15 +3082,17 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// After the funding is sigend and before the channel announcement
 	// we expect Alice and Bob to store their respective fees in the database.
-	forwardingPolicy, _ := alice.fundingMgr.getInitialFwdingPolicy(fundingSigned.ChanID)
-	if err := assertFees(forwardingPolicy, 42, 1337); err != nil {
-		t.Fatal(err)
-	}
+	forwardingPolicy, err := alice.fundingMgr.getInitialFwdingPolicy(
+		fundingSigned.ChanID,
+	)
+	require.NoError(t, err)
+	require.NoError(t, assertFees(forwardingPolicy, 42, 1337))
 
-	forwardingPolicy, _ = bob.fundingMgr.getInitialFwdingPolicy(fundingSigned.ChanID)
-	if err := assertFees(forwardingPolicy, 100, 1000); err != nil {
-		t.Fatal(err)
-	}
+	forwardingPolicy, err = bob.fundingMgr.getInitialFwdingPolicy(
+		fundingSigned.ChanID,
+	)
+	require.NoError(t, err)
+	require.NoError(t, assertFees(forwardingPolicy, 100, 1000))
 
 	// Wait for Alice to published the funding tx to the network.
 	var fundingTx *wire.MsgTx

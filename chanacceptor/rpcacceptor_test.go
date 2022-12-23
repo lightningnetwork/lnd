@@ -20,7 +20,7 @@ func TestValidateAcceptorResponse(t *testing.T) {
 		customError = errors.New("custom error")
 		validAddr   = "bcrt1qwrmq9uca0t3dy9t9wtuq5tm4405r7tfzyqn9pp"
 		addr, _     = chancloser.ParseUpfrontShutdownAddress(
-			validAddr, &chaincfg.TestNet3Params,
+			validAddr, &chaincfg.RegressionNetParams,
 		)
 	)
 
@@ -124,7 +124,7 @@ func TestValidateAcceptorResponse(t *testing.T) {
 			// Create an acceptor, everything can be nil because
 			// we just need the params.
 			acceptor := NewRPCAcceptor(
-				nil, nil, 0, &chaincfg.TestNet3Params, nil,
+				nil, nil, 0, &chaincfg.RegressionNetParams, nil,
 			)
 
 			accept, acceptErr, shutdown, err := acceptor.validateAcceptorResponse(

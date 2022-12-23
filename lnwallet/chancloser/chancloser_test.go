@@ -322,3 +322,58 @@ func TestMaxFeeBailOut(t *testing.T) {
 		})
 	}
 }
+
+// TestParseUpfrontShutdownAddress tests the we are able to parse the upfront
+// shutdown address properly.
+func TestParseUpfrontShutdownAddress(t *testing.T) {
+	t.Parallel()
+
+	var (
+		testnetAddress = "tb1qdfkmwwgdaa5dnezrlhtftvmj5qn2kwgp7n0z6r"
+		regtestAddress = "bcrt1q09crvvuj95x5nk64wsxf5n6ky0kr8358vpx4d8"
+	)
+
+	tests := []struct {
+		name        string
+		address     string
+		params      chaincfg.Params
+		expectedErr string
+	}{
+		{
+			name:        "invalid closing address",
+			address:     "non-valid-address",
+			params:      chaincfg.RegressionNetParams,
+			expectedErr: "invalid address",
+		},
+		{
+			name:        "closing address from another net",
+			address:     testnetAddress,
+			params:      chaincfg.RegressionNetParams,
+			expectedErr: "not a regtest address",
+		},
+		{
+			name:    "valid p2wkh closing address",
+			address: regtestAddress,
+			params:  chaincfg.RegressionNetParams,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := ParseUpfrontShutdownAddress(
+				tc.address, &tc.params,
+			)
+
+			if tc.expectedErr != "" {
+				require.ErrorContains(t, err, tc.expectedErr)
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

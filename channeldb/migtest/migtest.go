@@ -90,7 +90,7 @@ func ApplyMigration(t *testing.T,
 // supplied migration functions to take a db instance and construct their own
 // database transactions.
 func ApplyMigrationWithDb(t testing.TB, beforeMigration, afterMigration,
-	migrationFunc func(db kvdb.Backend) error) {
+	migrationFunc func(db kvdb.Backend) error, shouldFail bool) {
 
 	t.Helper()
 
@@ -106,8 +106,11 @@ func ApplyMigrationWithDb(t testing.TB, beforeMigration, afterMigration,
 	}
 
 	// Apply migration.
-	if err := migrationFunc(cdb); err != nil {
-		t.Fatalf("migrationFunc error: %v", err)
+	err = migrationFunc(cdb)
+	if shouldFail {
+		require.Error(t, err)
+	} else {
+		require.NoError(t, err)
 	}
 
 	// If there's no afterMigration, exit here.

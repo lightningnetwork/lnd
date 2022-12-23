@@ -108,6 +108,7 @@ func TestMigrateRevocationLog(t *testing.T) {
 				beforeMigration,
 				afterMigration,
 				MigrateRevocationLog,
+				false,
 			)
 		})
 		if !success {
@@ -569,5 +570,6 @@ func BenchmarkMigration(b *testing.B) {
 
 			return MigrateRevocationLog(db)
 		},
+		false,
 	)
 }

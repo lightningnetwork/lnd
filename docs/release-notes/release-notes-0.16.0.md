@@ -89,6 +89,9 @@ current gossip sync query status.
   obtained via `QueryMissionControl`.](
   https://github.com/lightningnetwork/lnd/pull/6857)
 
+* [Ensure that closing addresses match the node network for `OpenChannel` 
+  requests](https://github.com/lightningnetwork/lnd/pull/7272)
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

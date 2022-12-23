@@ -1,6 +1,8 @@
 package wtdb
 
 import (
+	"fmt"
+
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration1"
@@ -8,15 +10,25 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration3"
 )
 
-// migration is a function which takes a prior outdated version of the database
-// instances and mutates the key/bucket structure to arrive at a more
-// up-to-date version of the database.
-type migration func(tx kvdb.RwTx) error
+// txMigration is a function which takes a prior outdated version of the
+// database instances and mutates the key/bucket structure to arrive at a more
+// up-to-date version of the database. It uses an existing database transaction
+// to do so.
+type txMigration func(tx kvdb.RwTx) error
+
+// dbMigration is a function which takes a prior outdated version of the
+// database instances and mutates the key/bucket structure to arrive at a more
+// up-to-date version of the database. If such a migration is defined, the
+// migration is responsible for starting any database transactions. This
+// migration type is useful in the case where it would be beneficial (in terms
+// of RAM usage) to split the migration between multiple db transactions.
+type dbMigration func(db kvdb.Backend) error
 
 // version pairs a version number with the migration that would need to be
 // applied from the prior version to upgrade.
 type version struct {
-	migration migration
+	txMigration txMigration
+	dbMigration dbMigration
 }
 
 // towerDBVersions stores all versions and migrations of the tower database.
@@ -29,13 +41,13 @@ var towerDBVersions = []version{}
 // migrations must be applied.
 var clientDBVersions = []version{
 	{
-		migration: migration1.MigrateTowerToSessionIndex,
+		txMigration: migration1.MigrateTowerToSessionIndex,
 	},
 	{
-		migration: migration2.MigrateClientChannelDetails,
+		txMigration: migration2.MigrateClientChannelDetails,
 	},
 	{
-		migration: migration3.MigrateChannelIDIndex,
+		txMigration: migration3.MigrateChannelIDIndex,
 	},
 }
 
@@ -154,23 +166,57 @@ func syncVersions(db versionedDB, versions []version) error {
 	// Otherwise, apply any migrations in order to bring the database
 	// version up to the highest known version.
 	updates := getMigrations(versions, curVersion)
-	return kvdb.Update(db.bdb(), func(tx kvdb.RwTx) error {
-		for i, update := range updates {
-			if update.migration == nil {
-				continue
-			}
+	for i, update := range updates {
+		if update.dbMigration != nil && update.txMigration != nil {
+			return fmt.Errorf("cannot specify both a " +
+				"tx-migration and a db-migration for a " +
+				"single version")
+		}
 
-			version := curVersion + uint32(i) + 1
-			log.Infof("Applying migration #%d", version)
+		version := curVersion + uint32(i) + 1
+		log.Infof("Applying migration #%d", version)
 
-			err := update.migration(tx)
+		if update.dbMigration != nil {
+			err = update.dbMigration(db.bdb())
 			if err != nil {
 				log.Errorf("Unable to apply migration #%d: %v",
 					version, err)
 				return err
 			}
+
+			// Note that unlike a txMigration, here we update the
+			// db version in a transaction that is separate to the
+			// transaction in which the db migration took place.
+			// This means that the db migration function must be
+			// idempotent.
+			err = kvdb.Update(db.bdb(), func(tx kvdb.RwTx) error {
+				return putDBVersion(tx, version)
+			}, func() {})
+			if err != nil {
+				return err
+			}
+
+			continue
 		}
 
-		return putDBVersion(tx, latestVersion)
-	}, func() {})
+		if update.txMigration == nil {
+			continue
+		}
+
+		err = kvdb.Update(db.bdb(), func(tx kvdb.RwTx) error {
+			err := update.txMigration(tx)
+			if err != nil {
+				log.Errorf("Unable to apply migration #%d: %v",
+					version, err)
+				return err
+			}
+
+			return putDBVersion(tx, version)
+		}, func() {})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

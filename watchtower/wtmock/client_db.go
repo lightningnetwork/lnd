@@ -1,6 +1,7 @@
 package wtmock
 
 import (
+	"encoding/binary"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -11,6 +12,8 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
+var byteOrder = binary.BigEndian
+
 type towerPK [33]byte
 
 type keyIndexKey struct {
@@ -18,18 +21,23 @@ type keyIndexKey struct {
 	blobType blob.Type
 }
 
+type rangeIndexArrayMap map[wtdb.SessionID]map[lnwire.ChannelID]*wtdb.RangeIndex
+
+type rangeIndexKVStore map[wtdb.SessionID]map[lnwire.ChannelID]*mockKVStore
+
 // ClientDB is a mock, in-memory database or testing the watchtower client
 // behavior.
 type ClientDB struct {
 	nextTowerID uint64 // to be used atomically
 
-	mu               sync.Mutex
-	summaries        map[lnwire.ChannelID]wtdb.ClientChanSummary
-	activeSessions   map[wtdb.SessionID]wtdb.ClientSession
-	ackedUpdates     map[wtdb.SessionID]map[uint16]wtdb.BackupID
-	committedUpdates map[wtdb.SessionID][]wtdb.CommittedUpdate
-	towerIndex       map[towerPK]wtdb.TowerID
-	towers           map[wtdb.TowerID]*wtdb.Tower
+	mu                    sync.Mutex
+	summaries             map[lnwire.ChannelID]wtdb.ClientChanSummary
+	activeSessions        map[wtdb.SessionID]wtdb.ClientSession
+	ackedUpdates          rangeIndexArrayMap
+	persistedAckedUpdates rangeIndexKVStore
+	committedUpdates      map[wtdb.SessionID][]wtdb.CommittedUpdate
+	towerIndex            map[towerPK]wtdb.TowerID
+	towers                map[wtdb.TowerID]*wtdb.Tower
 
 	nextIndex     uint32
 	indexes       map[keyIndexKey]uint32
@@ -39,14 +47,21 @@ type ClientDB struct {
 // NewClientDB initializes a new mock ClientDB.
 func NewClientDB() *ClientDB {
 	return &ClientDB{
-		summaries:        make(map[lnwire.ChannelID]wtdb.ClientChanSummary),
-		activeSessions:   make(map[wtdb.SessionID]wtdb.ClientSession),
-		ackedUpdates:     make(map[wtdb.SessionID]map[uint16]wtdb.BackupID),
-		committedUpdates: make(map[wtdb.SessionID][]wtdb.CommittedUpdate),
-		towerIndex:       make(map[towerPK]wtdb.TowerID),
-		towers:           make(map[wtdb.TowerID]*wtdb.Tower),
-		indexes:          make(map[keyIndexKey]uint32),
-		legacyIndexes:    make(map[wtdb.TowerID]uint32),
+		summaries: make(
+			map[lnwire.ChannelID]wtdb.ClientChanSummary,
+		),
+		activeSessions: make(
+			map[wtdb.SessionID]wtdb.ClientSession,
+		),
+		ackedUpdates:          make(rangeIndexArrayMap),
+		persistedAckedUpdates: make(rangeIndexKVStore),
+		committedUpdates: make(
+			map[wtdb.SessionID][]wtdb.CommittedUpdate,
+		),
+		towerIndex:    make(map[towerPK]wtdb.TowerID),
+		towers:        make(map[wtdb.TowerID]*wtdb.Tower),
+		indexes:       make(map[keyIndexKey]uint32),
+		legacyIndexes: make(map[wtdb.TowerID]uint32),
 	}
 }
 
@@ -233,9 +248,20 @@ func (m *ClientDB) listClientSessions(tower *wtdb.TowerID,
 		}
 		sessions[session.ID] = &session
 
-		if cfg.PerAckedUpdate != nil {
-			for seq, id := range m.ackedUpdates[session.ID] {
-				cfg.PerAckedUpdate(&session, seq, id)
+		if cfg.PerMaxHeight != nil {
+			for chanID, index := range m.ackedUpdates[session.ID] {
+				cfg.PerMaxHeight(
+					&session, chanID, index.MaxHeight(),
+				)
+			}
+		}
+
+		if cfg.PerNumAckedUpdates != nil {
+			for chanID, index := range m.ackedUpdates[session.ID] {
+				cfg.PerNumAckedUpdates(
+					&session, chanID,
+					uint16(index.NumInSet()),
+				)
 			}
 		}
 
@@ -264,6 +290,37 @@ func (m *ClientDB) FetchSessionCommittedUpdates(id *wtdb.SessionID) (
 	}
 
 	return updates, nil
+}
+
+// IsAcked returns true if the given backup has been backed up using the given
+// session.
+func (m *ClientDB) IsAcked(id *wtdb.SessionID, backupID *wtdb.BackupID) (bool,
+	error) {
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	index, ok := m.ackedUpdates[*id][backupID.ChanID]
+	if !ok {
+		return false, nil
+	}
+
+	return index.IsInIndex(backupID.CommitHeight), nil
+}
+
+// NumAckedUpdates returns the number of backups that have been successfully
+// backed up using the given session.
+func (m *ClientDB) NumAckedUpdates(id *wtdb.SessionID) (uint64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var numAcked uint64
+
+	for _, index := range m.ackedUpdates[*id] {
+		numAcked += index.NumInSet()
+	}
+
+	return numAcked, nil
 }
 
 // CreateClientSession records a newly negotiated client session in the set of
@@ -311,7 +368,10 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 			RewardPkScript:   cloneBytes(session.RewardPkScript),
 		},
 	}
-	m.ackedUpdates[session.ID] = make(map[uint16]wtdb.BackupID)
+	m.ackedUpdates[session.ID] = make(map[lnwire.ChannelID]*wtdb.RangeIndex)
+	m.persistedAckedUpdates[session.ID] = make(
+		map[lnwire.ChannelID]*mockKVStore,
+	)
 	m.committedUpdates[session.ID] = make([]wtdb.CommittedUpdate, 0)
 
 	return nil
@@ -443,7 +503,25 @@ func (m *ClientDB) AckUpdate(id *wtdb.SessionID, seqNum,
 		updates[len(updates)-1] = wtdb.CommittedUpdate{}
 		m.committedUpdates[session.ID] = updates[:len(updates)-1]
 
-		m.ackedUpdates[*id][seqNum] = update.BackupID
+		chanID := update.BackupID.ChanID
+		if _, ok := m.ackedUpdates[*id][update.BackupID.ChanID]; !ok {
+			index, err := wtdb.NewRangeIndex(nil)
+			if err != nil {
+				return err
+			}
+
+			m.ackedUpdates[*id][chanID] = index
+			m.persistedAckedUpdates[*id][chanID] = newMockKVStore()
+		}
+
+		err := m.ackedUpdates[*id][chanID].Add(
+			update.BackupID.CommitHeight,
+			m.persistedAckedUpdates[*id][chanID],
+		)
+		if err != nil {
+			return err
+		}
+
 		session.TowerLastApplied = lastApplied
 
 		m.activeSessions[*id] = session
@@ -511,4 +589,40 @@ func copyTower(tower *wtdb.Tower) *wtdb.Tower {
 	copy(t.Addresses, tower.Addresses)
 
 	return t
+}
+
+type mockKVStore struct {
+	kv map[uint64]uint64
+
+	err error
+}
+
+func newMockKVStore() *mockKVStore {
+	return &mockKVStore{
+		kv: make(map[uint64]uint64),
+	}
+}
+
+func (m *mockKVStore) Put(key, value []byte) error {
+	if m.err != nil {
+		return m.err
+	}
+
+	k := byteOrder.Uint64(key)
+	v := byteOrder.Uint64(value)
+
+	m.kv[k] = v
+
+	return nil
+}
+
+func (m *mockKVStore) Delete(key []byte) error {
+	if m.err != nil {
+		return m.err
+	}
+
+	k := byteOrder.Uint64(key)
+	delete(m.kv, k)
+
+	return nil
 }

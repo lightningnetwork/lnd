@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -502,6 +503,17 @@ type Manager struct {
 	nonceMtx    sync.RWMutex
 	chanIDNonce uint64
 
+	// pendingMusigNonces is used to store the musig2 nonce we generate to
+	// send funding locked until we receive a funding locked message from
+	// the remote party. We'll use this to keep track of the nonce we
+	// generated, so we send the local+remote nonces to the peer state
+	// machine.
+	//
+	// NOTE: This map is protected by the nonceMtx above.
+	//
+	// TODO(roasbeef): replace w/ generic concurrent map
+	pendingMusigNonces map[lnwire.ChannelID]*lnwallet.MusigNoncePair
+
 	// activeReservations is a map which houses the state of all pending
 	// funding workflows.
 	activeReservations map[serializedPubKey]pendingChannels
@@ -591,6 +603,7 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 		fundingRequests:             make(chan *InitFundingMsg, msgBufferSize),
 		localDiscoverySignals:       make(map[lnwire.ChannelID]chan struct{}),
 		handleFundingLockedBarriers: make(map[lnwire.ChannelID]struct{}),
+		pendingMusigNonces:          make(map[lnwire.ChannelID]*lnwallet.MusigNoncePair),
 		quit:                        make(chan struct{}),
 	}, nil
 }
@@ -2848,6 +2861,41 @@ func (f *Manager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 	}
 	fundingLockedMsg := lnwire.NewFundingLocked(chanID, nextRevocation)
 
+	// If this is a taproot channel, then we also need to send along our
+	// set of musig2 nonces as well.
+	if completeChan.ChanType.IsTaproot() {
+		log.Infof("ChanID(%v): generating musig2 nonces...",
+			chanID)
+
+		f.nonceMtx.Lock()
+		localNoncePair, ok := f.pendingMusigNonces[chanID]
+		if !ok {
+			// If we don't have any nonces generated yet for this
+			// first state, then we'll generate them now and stow
+			// them away.  When we receive the funding locked
+			// message, we'll then pass along this same set of
+			// nonces.
+			newNonces, err := channel.GenMusigNonces()
+			if err != nil {
+				f.nonceMtx.Unlock()
+				return err
+			}
+
+			// Now that we've generated the nonce for this channel,
+			// we'll store it in the set of pending nonces.
+			localNoncePair = newNonces
+			f.pendingMusigNonces[chanID] = localNoncePair
+		}
+		f.nonceMtx.Unlock()
+
+		fundingLockedMsg.LocalNonce = &lnwire.LocalMusig2Nonce{
+			Musig2Nonce: localNoncePair.LocalNonce.PubNonce,
+		}
+		fundingLockedMsg.RemoteNonce = &lnwire.RemoteMusig2Nonce{
+			Musig2Nonce: localNoncePair.RemoteNonce.PubNonce,
+		}
+	}
+
 	// If the channel negotiated the option-scid-alias feature bit, we'll
 	// send a TLV segment that includes an alias the peer can use in their
 	// invoice hop hints. We'll send the first alias we find for the
@@ -3037,6 +3085,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 		&completeChan.LocalChanCfg.MultiSigKey,
 		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
 		chanID, fwdMinHTLC, fwdMaxHTLC, ourPolicy,
+		completeChan.ChanType,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel "+
@@ -3237,7 +3286,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			f.cfg.IDKey, completeChan.IdentityPub,
 			&completeChan.LocalChanCfg.MultiSigKey,
 			completeChan.RemoteChanCfg.MultiSigKey.PubKey,
-			*shortChanID, chanID,
+			*shortChanID, chanID, completeChan.ChanType,
 		)
 		if err != nil {
 			return fmt.Errorf("channel announcement failed: %v", err)
@@ -3507,6 +3556,52 @@ func (f *Manager) handleFundingLocked(peer lnpeer.Peer,
 		return
 	}
 
+	// If this is a taproot channel, then we'll need to map the received
+	// nonces to a nonce pair, and also fetch our pending nonces, which are
+	// required in order to make the channel whole.
+	var chanOpts []lnwallet.ChannelOpt
+	if channel.ChanType.IsTaproot() {
+		f.nonceMtx.Lock()
+		localNonces, ok := f.pendingMusigNonces[chanID]
+		if !ok {
+			// If there's no pending nonce for this channel ID,
+			// then we'll generate one now.
+			noncePair, err := lnwallet.NewMusigChannelNonces(
+				channel.LocalChanCfg.MultiSigKey.PubKey,
+			)
+			if err != nil {
+				f.nonceMtx.Unlock()
+				log.Error("unable to generate musig channel "+
+					"nonces: %v", err)
+				return
+			}
+
+			localNonces = noncePair
+			f.pendingMusigNonces[chanID] = localNonces
+		}
+		f.nonceMtx.Unlock()
+
+		remoteNonces := &lnwallet.MusigNoncePair{
+			LocalNonce: &musig2.Nonces{
+				PubNonce: msg.LocalNonce.Musig2Nonce,
+			},
+			RemoteNonce: &musig2.Nonces{
+				PubNonce: msg.RemoteNonce.Musig2Nonce,
+			},
+		}
+
+		log.Infof("ChanID(%v): applying local+remote musig2 nonces",
+			chanID)
+
+		chanOpts = append(
+			chanOpts,
+			lnwallet.WithLocalMusigNonces(localNonces),
+			lnwallet.WithRemoteMusigNonces(remoteNonces),
+		)
+
+		// TODO(roasbeef): case of taproot chan w/ nonces not sent
+	}
+
 	// Launch a defer so we _ensure_ that the channel barrier is properly
 	// closed even if the target peer is no longer online at this point.
 	defer func() {
@@ -3524,7 +3619,11 @@ func (f *Manager) handleFundingLocked(peer lnpeer.Peer,
 		f.barrierMtx.Unlock()
 	}()
 
-	if err := peer.AddNewChannel(channel, f.quit); err != nil {
+	err = peer.AddNewChannel(&lnpeer.NewChannel{
+		OpenChannel: channel,
+		ChanOpts:    chanOpts,
+	}, f.quit)
+	if err != nil {
 		log.Errorf("Unable to add new channel %v with peer %x: %v",
 			channel.FundingOutpoint,
 			peer.IdentityKey().SerializeCompressed(), err,
@@ -3551,9 +3650,9 @@ type chanAnnouncement struct {
 func (f *Manager) newChanAnnouncement(localPubKey,
 	remotePubKey *btcec.PublicKey, localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID, fwdMinHTLC,
-	fwdMaxHTLC lnwire.MilliSatoshi,
-	ourPolicy *channeldb.ChannelEdgePolicy) (*chanAnnouncement, error) {
+	chanID lnwire.ChannelID, fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi,
+	ourPolicy *channeldb.ChannelEdgePolicy,
+	chanType channeldb.ChannelType) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -3712,7 +3811,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID) error {
+	chanID lnwire.ChannelID, chanType channeldb.ChannelType) error {
 
 	// First, we'll create the batch of announcements to be sent upon
 	// initial channel creation. This includes the channel announcement
@@ -3723,7 +3822,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	// only use the channel announcement message from the returned struct.
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
 		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		0, 0, nil,
+		0, 0, nil, chanType,
 	)
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)
@@ -4101,7 +4200,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		localNonce  *lnwire.LocalMusig2Nonce
 		remoteNonce *lnwire.RemoteMusig2Nonce
 	)
-	if commitType == lnwallet.CommitmentTypeSimpleTaproot {
+	if commitType.IsTaproot() {
 		localNonce = &lnwire.LocalMusig2Nonce{
 			Musig2Nonce: ourContribution.LocalNonce.PubNonce,
 		}

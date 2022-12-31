@@ -1,9 +1,11 @@
 package lnwallet
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"io/ioutil"
 	prand "math/rand"
@@ -11,13 +13,18 @@ import (
 	"os"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/musession"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -348,8 +355,8 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	aliceSigner := &input.MockSigner{Privkeys: aliceKeys}
-	bobSigner := &input.MockSigner{Privkeys: bobKeys}
+	aliceSigner := NewMockSigner(aliceKeys, nil)
+	bobSigner := NewMockSigner(bobKeys, nil)
 
 	// TODO(roasbeef): make mock version of pre-image store
 
@@ -425,6 +432,27 @@ func CreateTestChannels(chanType channeldb.ChannelType) (
 // network by populating the initial revocation windows of the passed
 // commitment state machines.
 func initRevocationWindows(chanA, chanB *LightningChannel) error {
+	// If these are taproot chanenls, then we need to also simulate sending
+	// either FundingLocked or ChannelReestablish by calling
+	// InitRemoteMusigNonces for both sides.
+	if chanA.channelState.ChanType.IsTaproot() {
+		chanANonces, err := chanA.GenMusigNonces()
+		if err != nil {
+			return err
+		}
+		chanBNonces, err := chanB.GenMusigNonces()
+		if err != nil {
+			return err
+		}
+
+		if err := chanA.InitRemoteMusigNonces(chanBNonces); err != nil {
+			return err
+		}
+		if err := chanB.InitRemoteMusigNonces(chanANonces); err != nil {
+			return err
+		}
+	}
+
 	aliceNextRevoke, err := chanA.NextRevocationKey()
 	if err != nil {
 		return err
@@ -536,4 +564,212 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 	}
 
 	return nil
+}
+
+// MockSigner is a simple implementation of the Signer interface. Each one has
+// a set of private keys in a slice and can sign messages using the appropriate
+// one.
+type MockSigner struct {
+	Privkeys  []*btcec.PrivateKey
+	NetParams *chaincfg.Params
+
+	*musession.Manager
+}
+
+var _ input.Signer = (*MockSigner)(nil)
+
+func NewMockSigner(privKeys []*btcec.PrivateKey, netParams *chaincfg.Params) *MockSigner {
+	signer := &MockSigner{
+		Privkeys:  privKeys,
+		NetParams: netParams,
+	}
+
+	keyFetcher := func(*keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+		return signer.Privkeys[0], nil
+	}
+	signer.Manager = musession.NewManager(keyFetcher)
+
+	return signer
+}
+
+// SignOutputRaw generates a signature for the passed transaction according to
+// the data within the passed SignDescriptor.
+func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
+	signDesc *input.SignDescriptor) (input.Signature, error) {
+
+	pubkey := signDesc.KeyDesc.PubKey
+	switch {
+	case signDesc.SingleTweak != nil:
+		pubkey = input.TweakPubKeyWithTweak(pubkey, signDesc.SingleTweak)
+	case signDesc.DoubleTweak != nil:
+		pubkey = input.DeriveRevocationPubkey(pubkey, signDesc.DoubleTweak.PubKey())
+	}
+
+	hash160 := btcutil.Hash160(pubkey.SerializeCompressed())
+	privKey := m.findKey(hash160, signDesc.SingleTweak, signDesc.DoubleTweak)
+	if privKey == nil {
+		return nil, fmt.Errorf("mock signer does not have key")
+	}
+
+	// In case of a taproot output any signature is always a Schnorr
+	// signature, based on the new tapscript sighash algorithm.
+	if txscript.IsPayToTaproot(signDesc.Output.PkScript) {
+		sigHashes := txscript.NewTxSigHashes(
+			tx, signDesc.PrevOutputFetcher,
+		)
+
+		// Are we spending a script path or the key path? The API is
+		// slightly different, so we need to account for that to get
+		// the raw signature.
+		var (
+			rawSig []byte
+			err    error
+		)
+		switch signDesc.SignMethod {
+		case input.TaprootKeySpendBIP0086SignMethod,
+			input.TaprootKeySpendSignMethod:
+
+			// This function tweaks the private key using the tap
+			// root key supplied as the tweak.
+			rawSig, err = txscript.RawTxInTaprootSignature(
+				tx, sigHashes, signDesc.InputIndex,
+				signDesc.Output.Value, signDesc.Output.PkScript,
+				signDesc.TapTweak, signDesc.HashType,
+				privKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		case input.TaprootScriptSpendSignMethod:
+			leaf := txscript.TapLeaf{
+				LeafVersion: txscript.BaseLeafVersion,
+				Script:      signDesc.WitnessScript,
+			}
+			rawSig, err = txscript.RawTxInTapscriptSignature(
+				tx, sigHashes, signDesc.InputIndex,
+				signDesc.Output.Value, signDesc.Output.PkScript,
+				leaf, signDesc.HashType, privKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// The signature returned above might have a sighash flag
+		// attached if a non-default type was used. We'll slice this
+		// off if it exists to ensure we can properly parse the raw
+		// signature.
+		sig, err := schnorr.ParseSignature(
+			rawSig[:schnorr.SignatureSize],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return sig, nil
+	}
+
+	sig, err := txscript.RawTxInWitnessSignature(
+		tx, signDesc.SigHashes, signDesc.InputIndex, signDesc.Output.Value,
+		signDesc.WitnessScript, signDesc.HashType, privKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return ecdsa.ParseDERSignature(sig[:len(sig)-1])
+}
+
+// ComputeInputScript generates a complete InputIndex for the passed transaction
+// with the signature as defined within the passed SignDescriptor. This method
+// should be capable of generating the proper input script for both regular
+// p2wkh output and p2wkh outputs nested within a regular p2sh output.
+func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *input.SignDescriptor) (*input.Script, error) {
+	scriptType, addresses, _, err := txscript.ExtractPkScriptAddrs(
+		signDesc.Output.PkScript, m.NetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	switch scriptType {
+	case txscript.PubKeyHashTy:
+		privKey := m.findKey(addresses[0].ScriptAddress(), signDesc.SingleTweak,
+			signDesc.DoubleTweak)
+		if privKey == nil {
+			return nil, fmt.Errorf("mock signer does not have key for "+
+				"address %v", addresses[0])
+		}
+
+		sigScript, err := txscript.SignatureScript(
+			tx, signDesc.InputIndex, signDesc.Output.PkScript,
+			txscript.SigHashAll, privKey, true,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &input.Script{SigScript: sigScript}, nil
+
+	case txscript.WitnessV0PubKeyHashTy:
+		privKey := m.findKey(addresses[0].ScriptAddress(), signDesc.SingleTweak,
+			signDesc.DoubleTweak)
+		if privKey == nil {
+			return nil, fmt.Errorf("mock signer does not have key for "+
+				"address %v", addresses[0])
+		}
+
+		witnessScript, err := txscript.WitnessSignature(tx, signDesc.SigHashes,
+			signDesc.InputIndex, signDesc.Output.Value,
+			signDesc.Output.PkScript, txscript.SigHashAll, privKey, true)
+		if err != nil {
+			return nil, err
+		}
+
+		return &input.Script{Witness: witnessScript}, nil
+
+	default:
+		return nil, fmt.Errorf("unexpected script type: %v", scriptType)
+	}
+}
+
+// findKey searches through all stored private keys and returns one
+// corresponding to the hashed pubkey if it can be found. The public key may
+// either correspond directly to the private key or to the private key with a
+// tweak applied.
+func (m *MockSigner) findKey(needleHash160 []byte, singleTweak []byte,
+	doubleTweak *btcec.PrivateKey) *btcec.PrivateKey {
+
+	for _, privkey := range m.Privkeys {
+		// First check whether public key is directly derived from private key.
+		hash160 := btcutil.Hash160(privkey.PubKey().SerializeCompressed())
+		if bytes.Equal(hash160, needleHash160) {
+			return privkey
+		}
+
+		// Otherwise check if public key is derived from tweaked private key.
+		switch {
+		case singleTweak != nil:
+			privkey = input.TweakPrivKey(privkey, singleTweak)
+		case doubleTweak != nil:
+			privkey = input.DeriveRevocationPrivKey(privkey, doubleTweak)
+		default:
+			continue
+		}
+		hash160 = btcutil.Hash160(privkey.PubKey().SerializeCompressed())
+		if bytes.Equal(hash160, needleHash160) {
+			return privkey
+		}
+	}
+	return nil
+}
+
+// pubkeyToHex serializes a Bitcoin public key to a hex encoded string.
+func pubkeyToHex(key *btcec.PublicKey) string {
+	return hex.EncodeToString(key.SerializeCompressed())
+}
+
+// privkeyFromHex serializes a Bitcoin private key to a hex encoded string.
+func privkeyToHex(key *btcec.PrivateKey) string {
+	return hex.EncodeToString(key.Serialize())
 }

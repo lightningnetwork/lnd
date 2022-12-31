@@ -1560,7 +1560,7 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 				"commitment: %w", err)
 		}
 
-		sigTheirCommit = partialSig
+		sigTheirCommit = partialSig.ToSchnorrShell()
 
 	// For regular channels, we can just send over a normal ECDSA signature
 	// w/o any extra steps.
@@ -1948,7 +1948,17 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 		// actually be a wrapped musig2 signature, so we'll do a type
 		// asset to the get the signature we actually need.
 		switch partialSig := commitSig.(type) {
-		case *MusigPartialSig:
+		/*case *MusigPartialSig:
+		_, err := localSession.VerifyCommitSig(
+			commitTx, partialSig.sig,
+		)
+		return err*/
+
+		// TODO(roasbeef): delete and go w/ sig in nonce, temp
+		case *schnorr.Signature:
+			remoteSig := new(MusigPartialSig)
+			remoteSig.FromSchnorrShell(partialSig)
+
 			_, err := localSession.VerifyCommitSig(
 				commitTx, partialSig.sig,
 			)

@@ -62,7 +62,31 @@ func (p *MusigPartialSig) Serialize() []byte {
 	nonceX.PutBytesUnchecked(rawSig[:])
 	p.sig.S.PutBytesUnchecked(rawSig[32:])
 
+	// TODO(roasbeef): update to 98 byte serialization?
+
 	return rawSig[:]
+}
+
+// ToSchnorrShell...
+func (p *MusigPartialSig) ToSchnorrShell() *schnorr.Signature {
+	var zeroVal btcec.FieldVal
+	return schnorr.NewSignature(&zeroVal, p.sig.S)
+}
+
+// FromSchnorrShell...
+//
+// TODO(roasbeef): remove this and the above, pkg w/ nonce instead
+func (p *MusigPartialSig) FromSchnorrShell(sig *schnorr.Signature) {
+	var (
+		partialS      btcec.ModNScalar
+		partialSBytes [32]byte
+	)
+	copy(partialSBytes[:], sig.Serialize()[32:])
+	partialS.SetBytes(&partialSBytes)
+
+	p.sig = &musig2.PartialSignature{
+		S: &partialS,
+	}
 }
 
 // TODO(roasbeef): parse method, can recompute the nonce like above?
@@ -90,6 +114,13 @@ type MusigNoncePair struct {
 
 	// RemoteNonce...
 	RemoteNonce *musig2.Nonces
+}
+
+// String...
+func (n *MusigNoncePair) String() string {
+	return fmt.Sprintf("NoncePair(verification_nonce=%x, "+
+		"signing_nonce=%x)", n.LocalNonce.PubNonce[:],
+		n.RemoteNonce.PubNonce[:])
 }
 
 // MusigSession...

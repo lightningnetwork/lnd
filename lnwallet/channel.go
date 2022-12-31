@@ -7852,22 +7852,40 @@ func (lc *LightningChannel) GenMusigNonces() (*MusigNoncePair, error) {
 	lc.RLock()
 	defer lc.RUnlock()
 
-	verificationNonce, err := musig2.GenNonces()
+	var err error
+	lc.nextNoncePair, err = NewMusigChannelNonces(
+		lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
+	)
 	if err != nil {
 		return nil, err
-	}
-
-	signingNonce, err := musig2.GenNonces()
-	if err != nil {
-		return nil, err
-	}
-
-	lc.nextNoncePair = &MusigNoncePair{
-		LocalNonce:  verificationNonce,
-		RemoteNonce: signingNonce,
 	}
 
 	return lc.nextNoncePair, nil
+}
+
+// NewMusigChannelNonces...
+func NewMusigChannelNonces(pubKey *btcec.PublicKey) (*MusigNoncePair, error) {
+	pubKeyOpt := musig2.WithPublicKey(pubKey)
+
+	verificationNonce, err := musig2.GenNonces(pubKeyOpt)
+	if err != nil {
+		return nil, err
+	}
+
+	signingNonce, err := musig2.GenNonces(pubKeyOpt)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MusigNoncePair{
+		LocalNonce:  verificationNonce,
+		RemoteNonce: signingNonce,
+	}, nil
+}
+
+// HasRemoteNonces returns true if the channel has a remote nonce pair.
+func (lc *LightningChannel) HasRemoteNonces() bool {
+	return lc.musigSessions != nil
 }
 
 // InitRemoteMusigNonces processes the remote musig nonces sent by the remote
@@ -7914,4 +7932,29 @@ func (lc *LightningChannel) InitRemoteMusigNonces(nonces *MusigNoncePair) error 
 	lc.nextNoncePair = nil
 
 	return nil
+}
+
+// ChanType...
+func (lc *LightningChannel) ChanType() channeldb.ChannelType {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.ChanType
+}
+
+// FundingTxOut...
+func (lc *LightningChannel) FundingTxOut() *wire.TxOut {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return &lc.fundingOutput
+}
+
+// MultiSigKeys...
+func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor, keychain.KeyDescriptor) {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.LocalChanCfg.MultiSigKey,
+		lc.channelState.RemoteChanCfg.MultiSigKey
 }

@@ -391,6 +391,21 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 	return &nextVerificationNonce.PubNonce, nil
 }
 
+// CombineSigs...
+func (m *MusigSession) CombineSigs(sigs ...*musig2.PartialSignature,
+) (*schnorr.Signature, error) {
+
+	sig, _, err := m.signer.MuSig2CombineSig(
+		m.session.SessionID,
+		sigs,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return sig, nil
+}
+
 // MusigSessionCfg...
 type MusigSessionCfg struct {
 	// LocalKey...

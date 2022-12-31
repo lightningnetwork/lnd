@@ -1,13 +1,11 @@
 package btcwallet
 
 import (
-	"crypto/sha256"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -403,7 +401,13 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 			}
 		}
 
-		sig, err := schnorr.ParseSignature(rawSig)
+		// The signature returned above might have a sighash flag
+		// attached if a non-default type was used. We'll slice this
+		// off if it exists to ensure we can properly parse the raw
+		// signature.
+		sig, err := schnorr.ParseSignature(
+			rawSig[:schnorr.SignatureSize],
+		)
 		if err != nil {
 			return nil, err
 		}

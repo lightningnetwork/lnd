@@ -383,8 +383,8 @@ func (r *RPCKeyRing) DeriveKey(
 // sha256 of the resulting shared point serialized in compressed format. If k is
 // our private key, and P is the public key, we perform the following operation:
 //
-//  sx := k*P
-//  s := sha256(sx.SerializeCompressed())
+//	sx := k*P
+//	s := sha256(sx.SerializeCompressed())
 //
 // NOTE: This method is part of the keychain.ECDHRing interface.
 func (r *RPCKeyRing) ECDH(keyDesc keychain.KeyDescriptor,
@@ -445,11 +445,16 @@ func (r *RPCKeyRing) SignMessage(keyLoc keychain.KeyLocator,
 			"signer instance: %v", err)
 	}
 
-	wireSig, err := lnwire.NewSigFromRawSignature(resp.Signature)
+	wireSig, err := lnwire.NewSigFromECDSARawSignature(resp.Signature)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing raw signature: %v", err)
 	}
-	return wireSig.ToSignature()
+	ecdsaSig, err := wireSig.ToSignature()
+	if err != nil {
+		return nil, err
+	}
+
+	return ecdsaSig.(*ecdsa.Signature), nil
 }
 
 // SignMessageCompact signs the given message, single or double SHA256 hashing
@@ -638,8 +643,8 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 // submitted as well to reduce the number of method calls necessary later on.
 func (r *RPCKeyRing) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 	pubKeys []*btcec.PublicKey, tweaks *input.MuSig2Tweaks,
-	otherNonces [][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo,
-	error) {
+	otherNonces [][musig2.PubNonceSize]byte,
+	sessionOpts ...musig2.SessionOption) (*input.MuSig2SessionInfo, error) {
 
 	// We need to serialize all data for the RPC call. We can do that by
 	// putting everything directly into the request struct.
@@ -673,6 +678,9 @@ func (r *RPCKeyRing) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 			ScriptRoot:   tweaks.TaprootTweak,
 		}
 	}
+
+	// TODO(roasbeef): extend RPC call w/ extra options needed for taproot
+	// musig2 session creation
 
 	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
 	defer cancel()

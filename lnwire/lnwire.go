@@ -171,7 +171,7 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 		}
 	case Sig:
 		// Write buffer
-		if _, err := w.Write(e[:]); err != nil {
+		if _, err := w.Write(e.bytes[:]); err != nil {
 			return err
 		}
 	case PingPayload:
@@ -575,7 +575,7 @@ func ReadElement(r io.Reader, element interface{}) error {
 		*e = sigs
 
 	case *Sig:
-		if _, err := io.ReadFull(r, e[:]); err != nil {
+		if _, err := io.ReadFull(r, e.bytes[:]); err != nil {
 			return err
 		}
 	case *OpaqueReason:

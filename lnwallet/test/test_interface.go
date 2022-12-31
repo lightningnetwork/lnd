@@ -927,7 +927,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	// by having Alice immediately process his contribution.
 	err = aliceChanReservation.ProcessContribution(bobContribution)
 	if err != nil {
-		t.Fatalf("alice unable to process bob's contribution")
+		t.Fatalf("alice unable to process bob's contribution: %v", err)
 	}
 	assertContributionInitPopulated(t, bobChanReservation.TheirContribution())
 

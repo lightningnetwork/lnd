@@ -154,7 +154,7 @@ func WriteShortChannelID(buf *bytes.Buffer, shortChanID ShortChannelID) error {
 
 // WriteSig appends the signature to the provided buffer.
 func WriteSig(buf *bytes.Buffer, sig Sig) error {
-	return WriteBytes(buf, sig[:])
+	return WriteBytes(buf, sig.bytes[:])
 }
 
 // WriteSigs appends the slice of signatures to the provided buffer with its

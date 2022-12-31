@@ -1646,6 +1646,12 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 			},
 		},
 		UpfrontShutdown: msg.UpfrontShutdownScript,
+		LocalNonce: &musig2.Nonces{
+			PubNonce: msg.LocalNonce.Musig2Nonce,
+		},
+		RemoteNonce: &musig2.Nonces{
+			PubNonce: msg.RemoteNonce.Musig2Nonce,
+		},
 	}
 	err = reservation.ProcessSingleContribution(remoteContribution)
 	if err != nil {
@@ -1665,7 +1671,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		localNonce  *lnwire.LocalMusig2Nonce
 		remoteNonce *lnwire.RemoteMusig2Nonce
 	)
-	if commitType == lnwallet.CommitmentTypeSimpleTaproot {
+	if commitType.IsTaproot() {
 		localNonce = &lnwire.LocalMusig2Nonce{
 			Musig2Nonce: ourContribution.LocalNonce.PubNonce,
 		}
@@ -1676,7 +1682,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 
 	// With the initiator's contribution recorded, respond with our
 	// contribution in the next message of the workflow.
-	ourContribution := reservation.OurContribution()
 	fundingAccept := lnwire.AcceptChannel{
 		PendingChannelID:      msg.PendingChannelID,
 		DustLimit:             ourContribution.DustLimit,
@@ -1884,6 +1889,12 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			},
 		},
 		UpfrontShutdown: msg.UpfrontShutdownScript,
+		LocalNonce: &musig2.Nonces{
+			PubNonce: msg.LocalNonce.Musig2Nonce,
+		},
+		RemoteNonce: &musig2.Nonces{
+			PubNonce: msg.RemoteNonce.Musig2Nonce,
+		},
 	}
 	err = resCtx.reservation.ProcessContribution(remoteContribution)
 
@@ -2059,6 +2070,8 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	log.Infof("Generated ChannelPoint(%v) for pending_id(%x)", outPoint,
 		pendingChanID[:])
 
+	// TODO(roasbeef): convert signature for taproot stuff
+
 	var err error
 	fundingCreated := &lnwire.FundingCreated{
 		PendingChannelID: pendingChanID,
@@ -2102,6 +2115,14 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	fundingOut := msg.FundingPoint
 	log.Infof("completing pending_id(%x) with ChannelPoint(%v)",
 		pendingChanID[:], fundingOut)
+
+	// If this is a taproot channel, then we'll need to force the
+	// schnorr encoding.
+	//
+	// TODO(roasbeef): remove after nonce ting
+	if resCtx.reservation.IsTaproot() {
+		msg.CommitSig.ForceSchnorr()
+	}
 
 	commitSig, err := msg.CommitSig.ToSignature()
 	if err != nil {
@@ -2271,6 +2292,14 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 	f.localDiscoveryMtx.Lock()
 	f.localDiscoverySignals[permChanID] = make(chan struct{})
 	f.localDiscoveryMtx.Unlock()
+
+	// If this is a taproot channel, then we'll need to force the
+	// schnorr encoding.
+	//
+	// TODO(roasbeef): remove after nonce ting
+	if resCtx.reservation.IsTaproot() {
+		msg.CommitSig.ForceSchnorr()
+	}
 
 	// The remote peer has responded with a signature for our commitment
 	// transaction. We'll verify the signature for validity, then commit

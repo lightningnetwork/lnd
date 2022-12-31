@@ -1212,11 +1212,18 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	// nonces: one for our local commitment, and one for their remote
 	// commitment.
 	if reservation.partialState.ChanType.IsTaproot() {
-		reservation.ourContribution.LocalNonce, err = musig2.GenNonces()
+		pubKeyOpt := musig2.WithPublicKey(
+			reservation.ourContribution.MultiSigKey.PubKey,
+		)
+		reservation.ourContribution.LocalNonce, err = musig2.GenNonces(
+			pubKeyOpt,
+		)
 		if err != nil {
 			return err
 		}
-		reservation.ourContribution.RemoteNonce, err = musig2.GenNonces()
+		reservation.ourContribution.RemoteNonce, err = musig2.GenNonces(
+			pubKeyOpt,
+		)
 		if err != nil {
 			return err
 		}

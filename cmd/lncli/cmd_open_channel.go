@@ -59,8 +59,9 @@ Signed base64 encoded PSBT or hex encoded raw wire TX (or path to text file): `
 	// of memory issues or other weird errors.
 	psbtMaxFileSize = 1024 * 1024
 
-	channelTypeTweakless = "tweakless"
-	channelTypeAnchors   = "anchors"
+	channelTypeTweakless     = "tweakless"
+	channelTypeAnchors       = "anchors"
+	channelTypeSimpleTaproot = "taproot"
 )
 
 // TODO(roasbeef): change default number of confirmations.
@@ -207,8 +208,9 @@ var openChannelCommand = cli.Command{
 		cli.StringFlag{
 			Name: "channel_type",
 			Usage: fmt.Sprintf("(optional) the type of channel to "+
-				"propose to the remote peer (%q, %q)",
-				channelTypeTweakless, channelTypeAnchors),
+				"propose to the remote peer (%q, %q, %q)",
+				channelTypeTweakless, channelTypeAnchors,
+				channelTypeSimpleTaproot),
 		},
 		cli.BoolFlag{
 			Name: "zero_conf",
@@ -339,6 +341,8 @@ func openChannel(ctx *cli.Context) error {
 		req.CommitmentType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
 	case channelTypeAnchors:
 		req.CommitmentType = lnrpc.CommitmentType_ANCHORS
+	case channelTypeSimpleTaproot:
+		req.CommitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
 	default:
 		return fmt.Errorf("unsupported channel type %v", channelType)
 	}
@@ -388,15 +392,16 @@ func openChannel(ctx *cli.Context) error {
 // protocol involves several steps between the RPC server and the CLI client:
 //
 // RPC server                           CLI client
-//     |                                    |
-//     |  |<------open channel (stream)-----|
-//     |  |-------ready for funding----->|  |
-//     |  |<------PSBT verify------------|  |
-//     |  |-------ready for signing----->|  |
-//     |  |<------PSBT finalize----------|  |
-//     |  |-------channel pending------->|  |
-//     |  |-------channel open------------->|
-//     |                                    |
+//
+//	|                                    |
+//	|  |<------open channel (stream)-----|
+//	|  |-------ready for funding----->|  |
+//	|  |<------PSBT verify------------|  |
+//	|  |-------ready for signing----->|  |
+//	|  |<------PSBT finalize----------|  |
+//	|  |-------channel pending------->|  |
+//	|  |-------channel open------------->|
+//	|                                    |
 func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 	client lnrpc.LightningClient,
 	req *lnrpc.OpenChannelRequest) error {

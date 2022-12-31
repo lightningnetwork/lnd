@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -1298,6 +1299,7 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 		remoteCommitPoint, false, chanType, ourChanCfg, theirChanCfg,
 	)
 
+	// TODO(roasbeef): pass in taproot or not here, use to generate outputs
 	ourCommitTx, err := CreateCommitTx(
 		chanType, fundingTxIn, localCommitmentKeys, ourChanCfg,
 		theirChanCfg, localBalance, remoteBalance, 0, initiator,
@@ -1430,6 +1432,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 			&pendingReservation.ourContribution.MultiSigKey,
 			theirContribution.MultiSigKey.PubKey,
 		)
+
+		// TODO(roasbeef): bind nonces as well?
 
 		// With our keys bound, we can now construct+sign the final
 		// funding transaction and also obtain the chanPoint that
@@ -1960,7 +1964,7 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 			remoteSig.FromSchnorrShell(partialSig)
 
 			_, err := localSession.VerifyCommitSig(
-				commitTx, partialSig.sig,
+				commitTx, remoteSig.sig,
 			)
 			return err
 
@@ -2306,33 +2310,65 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 
 	// First, we'll obtain a fully signed commitment transaction so we can
 	// pass into it on the chanvalidate package for verification.
+	//
+	// TODO(roasbeef): need to pass in nonce state? or already should have
+	// own sig on disk
 	channel, err := NewLightningChannel(l.Cfg.Signer, channelState, nil)
 	if err != nil {
 		return err
 	}
-	signedCommitTx, err := channel.getSignedCommitTx()
-	if err != nil {
-		return err
-	}
+
+	// TODO(roasbeef): need to update getSignedCommitTx for taproot, need
+	// to go w/ the deterministic nonces so can sign own version
+
+	localKey := channelState.LocalChanCfg.MultiSigKey.PubKey
+	remoteKey := channelState.RemoteChanCfg.MultiSigKey.PubKey
 
 	// We'll also need the multi-sig witness script itself so the
 	// chanvalidate package can check it for correctness against the
 	// funding transaction, and also commitment validity.
-	localKey := channelState.LocalChanCfg.MultiSigKey.PubKey
-	remoteKey := channelState.RemoteChanCfg.MultiSigKey.PubKey
-	witnessScript, err := input.GenMultiSigScript(
-		localKey.SerializeCompressed(),
-		remoteKey.SerializeCompressed(),
+	var (
+		fundingScript []byte
+		commitCtx     *chanvalidate.CommitmentContext
 	)
-	if err != nil {
-		return err
-	}
-	pkScript, err := input.WitnessScriptHash(witnessScript)
-	if err != nil {
-		return err
-	}
+	if channelState.ChanType.IsTaproot() {
+		walletLog.Debugf("validating taproot channel: ChannelPoint(%v)",
+			channelState.FundingOutpoint)
 
-	// TODO(roasbeef): update to understand taproot
+		fundingScript, _, err = input.GenTaprootFundingScript(
+			localKey, remoteKey, int64(channel.Capacity),
+		)
+		if err != nil {
+			return err
+		}
+
+		// TODO(roasbeef): remove temp
+		commitCtx = nil
+	} else {
+		walletLog.Debugf("validating p2wsh channel: ChannelPoint(%v)",
+			channelState.FundingOutpoint)
+
+		witnessScript, err := input.GenMultiSigScript(
+			localKey.SerializeCompressed(),
+			remoteKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return err
+		}
+		fundingScript, err = input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return err
+		}
+
+		signedCommitTx, err := channel.getSignedCommitTx()
+		if err != nil {
+			return err
+		}
+		commitCtx = &chanvalidate.CommitmentContext{
+			Value:               channel.Capacity,
+			FullySignedCommitTx: signedCommitTx,
+		}
+	}
 
 	// Finally, we'll pass in all the necessary context needed to fully
 	// validate that this channel is indeed what we expect, and can be
@@ -2341,12 +2377,9 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 		Locator: &chanvalidate.OutPointChanLocator{
 			ChanPoint: channelState.FundingOutpoint,
 		},
-		MultiSigPkScript: pkScript,
+		MultiSigPkScript: fundingScript,
 		FundingTx:        fundingTx,
-		CommitCtx: &chanvalidate.CommitmentContext{
-			Value:               channel.Capacity,
-			FullySignedCommitTx: signedCommitTx,
-		},
+		CommitCtx:        commitCtx,
 	})
 	if err != nil {
 		return err

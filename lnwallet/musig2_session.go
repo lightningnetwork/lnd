@@ -129,8 +129,12 @@ type MusigSession struct {
 
 	combinedNonce [musig2.PubNonceSize]byte
 
+	// nonces is the set of nonces that'll be used to generate/verify the
+	// next commitment.
 	nonces MusigNoncePair
 
+	// nextNonces is the next set of nonces to start using once a
+	// revocation or new state occurs.
 	nextNonces *MusigNoncePair
 
 	// inputTxOut...
@@ -148,6 +152,7 @@ type MusigSession struct {
 	// signer...
 	signer input.MuSig2Signer
 
+	// remoteCommit tracks if this session is for the remote commitment.
 	remoteCommit bool
 }
 
@@ -229,7 +234,9 @@ func taprootKeyspendSighash(tx *wire.MsgTx, pkScript []byte,
 // SignCommit signs the passed commitment w/ the current signing (relative
 // remote) nonce. Given nonces should only ever be used once, once the method
 // returns a new nonce is returned, w/ the existing nonce blanked out.
-func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, *[musig2.PubNonceSize]byte, error) {
+func (m *MusigSession) SignCommit(tx *wire.MsgTx,
+) (*MusigPartialSig, *[musig2.PubNonceSize]byte, error) {
+
 	// Before we can sign, we'll need to generate the sighash for their
 	// commitment transaction.
 	sigHash, err := taprootKeyspendSighash(
@@ -244,6 +251,9 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, *[musig2.Pu
 	var sigHashMsg [32]byte
 	copy(sigHashMsg[:], sigHash)
 
+	walletLog.Infof("Generating new musig2 sig for session=%x, nonces=%s",
+		m.session.SessionID[:], m.nonces.String())
+
 	sig, err := m.signer.MuSig2Sign(
 		m.session.SessionID, sigHashMsg, false,
 	)
@@ -255,7 +265,9 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, *[musig2.Pu
 	// another nonce for the _next_ commitment. This'll go in the set of
 	// nonces for the next state, as we still need the remote party's
 	// verification nonce (their relative local nonce).
-	nextSigningNonce, err := musig2.GenNonces()
+	nextSigningNonce, err := musig2.GenNonces(
+		musig2.WithPublicKey(m.localKey.PubKey),
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to gen new nonce: %w", err)
 	}

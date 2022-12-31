@@ -1431,12 +1431,21 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		}
 	}
 
+	public := msg.ChannelFlags&lnwire.FFAnnounceChannel != 0
+	switch {
 	// Sending the option-scid-alias channel type for a public channel is
 	// disallowed.
-	public := msg.ChannelFlags&lnwire.FFAnnounceChannel != 0
-	if public && scid {
+	case public && scid:
 		err = fmt.Errorf("option-scid-alias chantype for public " +
 			"channel")
+		log.Error(err)
+		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		return
+
+	// The current variant of taproot channels can only be should only be
+	// used with unadvertised channels for now.
+	case commitType == lnwallet.CommitmentTypeSimpleTaproot && public:
+		err = fmt.Errorf("taproot channel type for public channel")
 		log.Error(err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return

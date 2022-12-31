@@ -2533,15 +2533,29 @@ func (f *Manager) waitForFundingWithTimeout(
 // makeFundingScript re-creates the funding script for the funding transaction
 // of the target channel.
 func makeFundingScript(channel *channeldb.OpenChannel) ([]byte, error) {
-	localKey := channel.LocalChanCfg.MultiSigKey.PubKey.SerializeCompressed()
-	remoteKey := channel.RemoteChanCfg.MultiSigKey.PubKey.SerializeCompressed()
+	localKey := channel.LocalChanCfg.MultiSigKey.PubKey
+	remoteKey := channel.RemoteChanCfg.MultiSigKey.PubKey
 
-	multiSigScript, err := input.GenMultiSigScript(localKey, remoteKey)
-	if err != nil {
-		return nil, err
+	if channel.ChanType.IsTaproot() {
+		pkScript, _, err := input.GenTaprootFundingScript(
+			localKey, remoteKey, int64(channel.Capacity),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return pkScript, nil
+	} else {
+		multiSigScript, err := input.GenMultiSigScript(
+			localKey.SerializeCompressed(),
+			remoteKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return input.WitnessScriptHash(multiSigScript)
 	}
-
-	return input.WitnessScriptHash(multiSigScript)
 }
 
 // waitForFundingConfirmation handles the final stages of the channel funding

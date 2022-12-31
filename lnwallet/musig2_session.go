@@ -365,6 +365,9 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 		return nil, err
 	}
 
+	walletLog.Infof("Verfiying new musig2 sig for session=%x, nonce=%s",
+		m.session.SessionID[:], m.nonces.String())
+
 	if !partialSig.Verify(sigHash, m.remoteKey.PubKey) {
 		return nil, fmt.Errorf("invalid partial commit sig")
 	}
@@ -374,13 +377,15 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 	// new state transition.
 	//
 	// TODO(roasbeef): do this conditionally?
-	nextVerificationNonce, err := musig2.GenNonces()
+	nextVerificationNonce, err := musig2.GenNonces(
+		musig2.WithPublicKey(m.localKey.PubKey),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen new nonce: %w", err)
 	}
 
 	m.nextNonces = &MusigNoncePair{
-		RemoteNonce: nextVerificationNonce,
+		LocalNonce: nextVerificationNonce,
 	}
 
 	return &nextVerificationNonce.PubNonce, nil

@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
@@ -25,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -1325,6 +1327,34 @@ type LightningChannel struct {
 	sync.RWMutex
 }
 
+// ChannelOpt...
+type ChannelOpt func(*channelOpts)
+
+// WithLocalMusigNonces...
+func WithLocalMusigNonces(nonces *MusigNoncePair) ChannelOpt {
+	return func(o *channelOpts) {
+		o.localNonces = nonces
+	}
+}
+
+// WithRemoteMusigNonces...
+func WithRemoteMusigNonces(nonces *MusigNoncePair) ChannelOpt {
+	return func(o *channelOpts) {
+		o.remoteNonces = nonces
+	}
+}
+
+// channelOpts...
+type channelOpts struct {
+	localNonces  *MusigNoncePair
+	remoteNonces *MusigNoncePair
+}
+
+// defaultChannelOpts...
+func defaultChannelOpts() *channelOpts {
+	return &channelOpts{}
+}
+
 // NewLightningChannel creates a new, active payment channel given an
 // implementation of the chain notifier, channel database, and the current
 // settled channel state. Throughout state transitions, then channel will
@@ -1332,7 +1362,12 @@ type LightningChannel struct {
 // manner.
 func NewLightningChannel(signer input.Signer,
 	state *channeldb.OpenChannel,
-	sigPool *SigPool) (*LightningChannel, error) {
+	sigPool *SigPool, chanOpts ...ChannelOpt) (*LightningChannel, error) {
+
+	opts := defaultChannelOpts()
+	for _, optFunc := range chanOpts {
+		optFunc(opts)
+	}
 
 	localCommit := state.LocalCommitment
 	remoteCommit := state.RemoteCommitment
@@ -1365,6 +1400,18 @@ func NewLightningChannel(signer input.Signer,
 		log:               build.NewPrefixLog(logPrefix, walletLog),
 	}
 
+	// At this point, we mwy already have of nonces that were passed in, so
+	// we'll check that now as this lets us skip some steps later.
+	if opts.localNonces != nil {
+		lc.nextNoncePair = opts.localNonces
+	}
+	if lc.nextNoncePair != nil && opts.remoteNonces != nil {
+		err := lc.InitRemoteMusigNonces(opts.remoteNonces)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// With the main channel struct reconstructed, we'll now restore the
 	// commitment state in memory and also the update logs themselves.
 	err := lc.restoreCommitState(&localCommit, &remoteCommit)
@@ -1385,20 +1432,38 @@ func NewLightningChannel(signer input.Signer,
 // createSignDesc derives the SignDescriptor for commitment transactions from
 // other fields on the LightningChannel.
 func (lc *LightningChannel) createSignDesc() error {
-	localKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-	remoteKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
 
-	multiSigScript, err := input.GenMultiSigScript(localKey, remoteKey)
-	if err != nil {
-		return err
+	var (
+		fundingPkScript, multiSigScript []byte
+		err                             error
+	)
+	chanState := lc.channelState
+	if chanState.ChanType.IsTaproot() {
+		fundingPkScript, _, err = input.GenTaprootFundingScript(
+			chanState.LocalChanCfg.MultiSigKey.PubKey,
+			chanState.RemoteChanCfg.MultiSigKey.PubKey,
+			int64(lc.channelState.Capacity),
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		localKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed()
+		remoteKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed()
+
+		multiSigScript, err := input.GenMultiSigScript(localKey, remoteKey)
+		if err != nil {
+			return err
+		}
+
+		fundingPkScript, err = input.WitnessScriptHash(multiSigScript)
+		if err != nil {
+			return err
+		}
 	}
 
-	fundingPkScript, err := input.WitnessScriptHash(multiSigScript)
-	if err != nil {
-		return err
-	}
 	lc.fundingOutput = wire.TxOut{
 		PkScript: fundingPkScript,
 		Value:    int64(lc.channelState.Capacity),

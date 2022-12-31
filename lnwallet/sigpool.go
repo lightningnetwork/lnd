@@ -36,7 +36,7 @@ type VerifyJob struct {
 
 	// Sig is the raw signature generated using the above public key.  This
 	// is the signature to be verified.
-	Sig *ecdsa.Signature
+	Sig input.Signature
 
 	// SigHash is a function closure generates the sighashes that the
 	// passed signature is known to have signed.

@@ -3249,7 +3249,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 
 		// If the HTLC isn't dust, then we'll create an empty sign job
 		// to add to the batch momentarily.
-		sigJob := SignJob{}
+		var sigJob SignJob
 		sigJob.Cancel = cancelChan
 		sigJob.Resp = make(chan SignJobResp, 1)
 
@@ -3276,20 +3276,37 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			return nil, nil, err
 		}
 
+		// Construct a full hash cache as we may be signing a segwit v1
+		// sighash.
+		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
+		prevFetcher := txscript.NewCannedPrevOutputFetcher(
+			txOut.PkScript, int64(htlc.Amount.ToSatoshis()),
+		)
+		hashCache := txscript.NewTxSigHashes(sigJob.Tx, prevFetcher)
+
 		// Finally, we'll generate a sign descriptor to generate a
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
 		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
 		sigJob.SignDesc = input.SignDescriptor{
-			KeyDesc:       localChanCfg.HtlcBasePoint,
-			SingleTweak:   keyRing.LocalHtlcKeyTweak,
-			WitnessScript: htlc.theirWitnessScript,
-			Output:        txOut,
-			HashType:      sigHashType,
-			SigHashes:     input.NewTxSigHashesV0Only(sigJob.Tx),
-			InputIndex:    0,
+			KeyDesc:           localChanCfg.HtlcBasePoint,
+			SingleTweak:       keyRing.LocalHtlcKeyTweak,
+			WitnessScript:     htlc.theirWitnessScript,
+			Output:            txOut,
+			PrevOutputFetcher: prevFetcher,
+			HashType:          sigHashType,
+			SigHashes:         hashCache,
+			InputIndex:        0,
 		}
 		sigJob.OutputIndex = htlc.remoteOutputIndex
+
+		// If this is a taproot channel, then we'll need to set the
+		// method type to ensure we generate a valid signature.
+		if chanType.IsTaproot() {
+			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		}
+
+		walletLog.Infof("sign desc second level: %v", spew.Sdump(sigJob.SignDesc))
 
 		sigBatch = append(sigBatch, sigJob)
 	}
@@ -3330,20 +3347,34 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			return nil, nil, err
 		}
 
+		// Construct a full hash cache as we may be signing a segwit v1
+		// sighash.
+		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
+		prevFetcher := txscript.NewCannedPrevOutputFetcher(
+			txOut.PkScript, int64(htlc.Amount.ToSatoshis()),
+		)
+		hashCache := txscript.NewTxSigHashes(sigJob.Tx, prevFetcher)
+
 		// Finally, we'll generate a sign descriptor to generate a
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
-		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
 		sigJob.SignDesc = input.SignDescriptor{
-			KeyDesc:       localChanCfg.HtlcBasePoint,
-			SingleTweak:   keyRing.LocalHtlcKeyTweak,
-			WitnessScript: htlc.theirWitnessScript,
-			Output:        txOut,
-			HashType:      sigHashType,
-			SigHashes:     input.NewTxSigHashesV0Only(sigJob.Tx),
-			InputIndex:    0,
+			KeyDesc:           localChanCfg.HtlcBasePoint,
+			SingleTweak:       keyRing.LocalHtlcKeyTweak,
+			WitnessScript:     htlc.theirWitnessScript,
+			Output:            txOut,
+			PrevOutputFetcher: prevFetcher,
+			HashType:          sigHashType,
+			SigHashes:         hashCache,
+			InputIndex:        0,
 		}
 		sigJob.OutputIndex = htlc.remoteOutputIndex
+
+		// If this is a taproot channel, then we'll need to set the
+		// method type to ensure we generate a valid signature.
+		if chanType.IsTaproot() {
+			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		}
 
 		sigBatch = append(sigBatch, sigJob)
 	}
@@ -3772,8 +3803,6 @@ type NewCommitState struct {
 // for the remote party's commitment are also returned.
 func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 
-	// TODO(roasbeef): make return val into struct w/ all the new args
-
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -3853,8 +3882,6 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 			return spew.Sdump(newCommitView.txn)
 		}),
 	)
-
-	// TODO(roasbeef): update HLTC batch jobs
 
 	// With the commitment view constructed, if there are any HTLC's, we'll
 	// need to generate signatures of each of them for the remote party's
@@ -4444,11 +4471,30 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 					return nil, err
 				}
 
+				htlcAmt := int64(htlc.Amount.ToSatoshis())
+
+				if chanType.IsTaproot() {
+					// TODO(roasbeef): add abstraction in front
+					prevFetcher := txscript.NewCannedPrevOutputFetcher(
+						htlc.ourPkScript, htlcAmt,
+					)
+					hashCache := txscript.NewTxSigHashes(
+						successTx, prevFetcher,
+					)
+					tapLeaf := txscript.NewBaseTapLeaf(
+						htlc.ourWitnessScript,
+					)
+					return txscript.CalcTapscriptSignaturehash(
+						hashCache, sigHashType, successTx, 0,
+						prevFetcher, tapLeaf,
+					)
+				}
+
 				hashCache := input.NewTxSigHashesV0Only(successTx)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
 					sigHashType, successTx, 0,
-					int64(htlc.Amount.ToSatoshis()),
+					htlcAmt,
 				)
 				if err != nil {
 					return nil, err
@@ -4463,6 +4509,15 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 					"signatures")
 			}
 
+			if chanType.IsTaproot() {
+				// TODO(roasbeef): remove, temp hack
+				//  * when sigs get encoded on the wire, they
+				//  default back to sigTypeECDSA, so we need to
+				//  force schnorr here to get the proper sig
+				//  below for validation
+				htlcSigs[i].ForceSchnorr()
+			}
+
 			// With the sighash generated, we'll also store the
 			// signature so it can be written to disk if this state
 			// is valid.
@@ -4470,6 +4525,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 			if err != nil {
 				return nil, err
 			}
+
 			htlc.sig = sig
 
 		// Otherwise, if this is an outgoing HTLC, then we'll need to
@@ -4499,11 +4555,30 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 					return nil, err
 				}
 
+				htlcAmt := int64(htlc.Amount.ToSatoshis())
+
+				if chanType.IsTaproot() {
+					// TODO(roasbeef): add abstraction in front
+					prevFetcher := txscript.NewCannedPrevOutputFetcher(
+						htlc.ourPkScript, htlcAmt,
+					)
+					hashCache := txscript.NewTxSigHashes(
+						timeoutTx, prevFetcher,
+					)
+					tapLeaf := txscript.NewBaseTapLeaf(
+						htlc.ourWitnessScript,
+					)
+					return txscript.CalcTapscriptSignaturehash(
+						hashCache, sigHashType, timeoutTx, 0,
+						prevFetcher, tapLeaf,
+					)
+				}
+
 				hashCache := input.NewTxSigHashesV0Only(timeoutTx)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
 					sigHashType, timeoutTx, 0,
-					int64(htlc.Amount.ToSatoshis()),
+					htlcAmt,
 				)
 				if err != nil {
 					return nil, err
@@ -4518,6 +4593,11 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 					"signatures")
 			}
 
+			if chanType.IsTaproot() {
+				// TODO(roasbeef): remove, temp hack
+				htlcSigs[i].ForceSchnorr()
+			}
+
 			// With the sighash generated, we'll also store the
 			// signature so it can be written to disk if this state
 			// is valid.
@@ -4525,6 +4605,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 			if err != nil {
 				return nil, err
 			}
+
 			htlc.sig = sig
 
 		default:

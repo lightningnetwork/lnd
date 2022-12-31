@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
@@ -693,6 +694,22 @@ func (l *channelLink) syncChanStates() error {
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
 	}
 
+	// If this is a tarpoot channel, then in addition to the normal reest
+	// message, we'll also send our local+remote nonces as well.
+	if chanState.ChanType.IsTaproot() {
+		noncePair, err := l.channel.GenMusigNonces()
+		if err != nil {
+			return fmt.Errorf("unable to generate nonce "+
+				"pair for chan: %w", err)
+		}
+		localChanSyncMsg.LocalNonce = &lnwire.LocalMusig2Nonce{
+			Musig2Nonce: noncePair.LocalNonce.PubNonce,
+		}
+		localChanSyncMsg.RemoteNonce = &lnwire.RemoteMusig2Nonce{
+			Musig2Nonce: noncePair.RemoteNonce.PubNonce,
+		}
+	}
+
 	if err := l.cfg.Peer.SendMessage(true, localChanSyncMsg); err != nil {
 		return fmt.Errorf("unable to send chan sync message for "+
 			"ChannelPoint(%v): %v", l.channel.ChannelPoint(), err)
@@ -757,6 +774,27 @@ func (l *channelLink) syncChanStates() error {
 			if err != nil {
 				return fmt.Errorf("unable to re-send "+
 					"FundingLocked: %v", err)
+			}
+		}
+
+		// Before we process the ChanSync message, if this is a taproot
+		// channel, then we'll init our musig2 nonces state.
+		if chanState.ChanType.IsTaproot() {
+			l.log.Infof("initializing musig2 nonces")
+
+			syncMsg := remoteChanSyncMsg
+			remoteNonces := &lnwallet.MusigNoncePair{
+				LocalNonce: &musig2.Nonces{
+					PubNonce: syncMsg.LocalNonce.Musig2Nonce,
+				},
+				RemoteNonce: &musig2.Nonces{
+					PubNonce: syncMsg.RemoteNonce.Musig2Nonce,
+				},
+			}
+			err := l.channel.InitRemoteMusigNonces(remoteNonces)
+			if err != nil {
+				return fmt.Errorf("unable to init musig2 "+
+					"nonces: %w", err)
 			}
 		}
 

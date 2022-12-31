@@ -485,6 +485,14 @@ func (r *ChannelReservation) IsZeroConf() bool {
 	return r.partialState.IsZeroConf()
 }
 
+// IsTaproot...
+func (r *ChannelReservation) IsTaproot() bool {
+	r.RLock()
+	defer r.RUnlock()
+
+	return r.partialState.ChanType.IsTaproot()
+}
+
 // CommitConstraints takes the constraints that the remote party specifies for
 // the type of commitments that we can generate for them. These constraints
 // include several parameters that serve as flow control restricting the amount

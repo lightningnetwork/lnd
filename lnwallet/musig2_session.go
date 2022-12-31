@@ -290,12 +290,12 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx,
 }
 
 // Refresh...
-func (m *MusigSession) Refresh(nextNonce [musig2.PubNonceSize]byte) error {
+func (m *MusigSession) Refresh(nextNonce [musig2.PubNonceSize]byte) (*MusigSession, error) {
 	// At this point we should have a next nonce, otherwise this operation
 	// is undefined as we haven't yet used our current nonce.
 	if m.nextNonces == nil {
 		// TODO(roasbeef): proper error
-		return fmt.Errorf("no next nonce")
+		return nil, fmt.Errorf("no next nonce")
 	}
 
 	// Now that we know we have the nonce we need, we can complete the
@@ -316,18 +316,13 @@ func (m *MusigSession) Refresh(nextNonce [musig2.PubNonceSize]byte) error {
 	//
 	// TODO(roasbeef): can't actually clean up here? but need the stateless
 	// signer thing?
-	defer m.signer.MuSig2Cleanup(m.session.SessionID)
+	oldSessionID := m.session.SessionID
+	defer m.signer.MuSig2Cleanup(oldSessionID)
 
-	var err error
-	m, err = NewMusigSession(
+	return NewMusigSession(
 		*m.nextNonces, m.localKey, m.remoteKey, m.signer, m.inputTxOut,
 		m.remoteCommit,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // VerificationNonce...

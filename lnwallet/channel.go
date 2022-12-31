@@ -3287,7 +3287,6 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// Finally, we'll generate a sign descriptor to generate a
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
-		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
 		sigJob.SignDesc = input.SignDescriptor{
 			KeyDesc:           localChanCfg.HtlcBasePoint,
 			SingleTweak:       keyRing.LocalHtlcKeyTweak,
@@ -6901,6 +6900,26 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	}, nil
 }
 
+// chanCloseOpt...
+type chanCloseOpt struct {
+	musigSession *MusigSession
+}
+
+// ChanCloseOpt..
+type ChanCloseOpt func(*chanCloseOpt)
+
+// defaultCloseOpts...
+func defaultCloseOpts() *chanCloseOpt {
+	return &chanCloseOpt{}
+}
+
+// WithCoopCloseMusigSession...
+func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.musigSession = session
+	}
+}
+
 // CreateCloseProposal is used by both parties in a cooperative channel close
 // workflow to generate proposed close transactions and signatures. This method
 // should only be executed once all pending HTLCs (if any) on the channel have
@@ -6912,8 +6931,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 // TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
 // settle any in flight.
 func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
-	localDeliveryScript []byte,
-	remoteDeliveryScript []byte) (input.Signature, *chainhash.Hash,
+	localDeliveryScript []byte, remoteDeliveryScript []byte,
+	closeOpts ...ChanCloseOpt) (input.Signature, *chainhash.Hash,
 	btcutil.Amount, error) {
 
 	lc.Lock()
@@ -6923,6 +6942,11 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, nil, 0, ErrChanClosing
+	}
+
+	opts := defaultCloseOpts()
+	for _, optFunc := range closeOpts {
+		optFunc(opts)
 	}
 
 	// Get the final balances after subtracting the proposed fee, taking
@@ -6950,14 +6974,25 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		return nil, nil, 0, err
 	}
 
-	// Finally, sign the completed cooperative closure transaction. As the
-	// initiator we'll simply send our signature over to the remote party,
-	// using the generated txid to be notified once the closure transaction
-	// has been confirmed.
-	lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(closeTx)
-	sig, err := lc.Signer.SignOutputRaw(closeTx, lc.signDesc)
-	if err != nil {
-		return nil, nil, 0, err
+	// If we have a co-op close musig session, then this is a taproot
+	// channel, so we'll generate a _partial_ signature.
+	var sig input.Signature
+	if opts.musigSession != nil {
+		sig, _, err = opts.musigSession.SignCommit(closeTx)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+	} else {
+		// For regular channels we'll, sign the completed cooperative
+		// closure transaction. As the initiator we'll simply send our
+		// signature over to the remote party, using the generated txid
+		// to be notified once the closure transaction has been
+		// confirmed.
+		lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(closeTx)
+		sig, err = lc.Signer.SignOutputRaw(closeTx, lc.signDesc)
+		if err != nil {
+			return nil, nil, 0, err
+		}
 	}
 
 	// As everything checks out, indicate in the channel status that a
@@ -6978,7 +7013,8 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 func (lc *LightningChannel) CompleteCooperativeClose(
 	localSig, remoteSig input.Signature,
 	localDeliveryScript, remoteDeliveryScript []byte,
-	proposedFee btcutil.Amount) (*wire.MsgTx, btcutil.Amount, error) {
+	proposedFee btcutil.Amount,
+	closeOpts ...ChanCloseOpt) (*wire.MsgTx, btcutil.Amount, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -6987,6 +7023,11 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, 0, ErrChanClosing
+	}
+
+	opts := defaultCloseOpts()
+	for _, optFunc := range closeOpts {
+		optFunc(opts)
 	}
 
 	// Get the final balances after subtracting the proposed fee.
@@ -7011,31 +7052,65 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	// consensus rules such as being too big, or having any value with a
 	// negative output.
 	tx := btcutil.NewTx(closeTx)
+	prevOut := lc.signDesc.Output
 	if err := blockchain.CheckTransactionSanity(tx); err != nil {
 		return nil, 0, err
 	}
-	hashCache := input.NewTxSigHashesV0Only(closeTx)
 
-	// Finally, construct the witness stack minding the order of the
-	// pubkeys+sigs on the stack.
-	ourKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-	theirKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-	witness := input.SpendMultiSig(
-		lc.signDesc.WitnessScript, ourKey, localSig, theirKey,
-		remoteSig,
+	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(
+		prevOut.PkScript, prevOut.Value,
 	)
-	closeTx.TxIn[0].Witness = witness
+	hashCache := txscript.NewTxSigHashes(closeTx, prevOutputFetcher)
+
+	// Next, we'll complete the co-op close transaction. Depending on the
+	// set of options, we'll either do a regular p2wsh spend, or construct
+	// the final schnorr signature from a set of partial sigs.
+	if opts.musigSession != nil {
+		// For taproot channels, we'll use the attached session to
+		// combine the two partial signatures into a proper schnorr
+		// signature.
+		remoteSchnorrSig, _ := remoteSig.(*schnorr.Signature)
+
+		var remotePartialSig MusigPartialSig
+		remotePartialSig.FromSchnorrShell(remoteSchnorrSig)
+
+		// TODO(roasbeef): only need one sig combined?
+		//finalSchnorrSig, err := opts.musigSession.CombineSigs(
+		//localPartialSig.sig, remotePartialSig.sig,
+		//)
+		finalSchnorrSig, err := opts.musigSession.CombineSigs(
+			remotePartialSig.sig,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("unable to combine "+
+				"final co-op close sig: %w", err)
+		}
+
+		// The witness for a keyspend is just the signature itself.
+		closeTx.TxIn[0].Witness = wire.TxWitness{
+			finalSchnorrSig.Serialize(),
+		}
+	} else {
+
+		// For regular channels, we'll need to , construct the witness
+		// stack minding the order of the pubkeys+sigs on the stack.
+		ourKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed()
+		theirKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed()
+		witness := input.SpendMultiSig(
+			lc.signDesc.WitnessScript, ourKey, localSig, theirKey,
+			remoteSig,
+		)
+		closeTx.TxIn[0].Witness = witness
+
+	}
 
 	// Validate the finalized transaction to ensure the output script is
 	// properly met, and that the remote peer supplied a valid signature.
-	prevOut := lc.signDesc.Output
 	vm, err := txscript.NewEngine(
 		prevOut.PkScript, closeTx, 0, txscript.StandardVerifyFlags, nil,
-		hashCache, prevOut.Value, txscript.NewCannedPrevOutputFetcher(
-			prevOut.PkScript, prevOut.Value,
-		),
+		hashCache, prevOut.Value, prevOutputFetcher,
 	)
 	if err != nil {
 		return nil, 0, err

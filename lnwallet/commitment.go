@@ -332,24 +332,6 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 			WitnessScript: script,
 		}, 1, nil
 
-	// If this channel type has anchors, we derive the delayed to_remote
-	// script.
-	case chanType.HasAnchors():
-		script, err := input.CommitScriptToRemoteConfirmed(remoteKey)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		p2wsh, err := input.WitnessScriptHash(script)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		return &ScriptInfo{
-			PkScript:      p2wsh,
-			WitnessScript: script,
-		}, 1, nil
-
 	// For taproot channels, we'll use a slightly different format, where
 	// the top-level key is the combined funding key (w/o the bip 86
 	// tweak), with the sole tap leaf enforcing the 1 CSV delay.
@@ -368,6 +350,24 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 
 		return &ScriptInfo{
 			PkScript: toRemotePkScript,
+		}, 1, nil
+
+	// If this channel type has anchors, we derive the delayed to_remote
+	// script.
+	case chanType.HasAnchors():
+		script, err := input.CommitScriptToRemoteConfirmed(remoteKey)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		p2wsh, err := input.WitnessScriptHash(script)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		return &ScriptInfo{
+			PkScript:      p2wsh,
+			WitnessScript: script,
 		}, 1, nil
 
 	default:
@@ -506,9 +506,12 @@ func HtlcSuccessFee(chanType channeldb.ChannelType,
 		return 0
 	}
 
+	// TODO(roasbeef): fee is still off here?
+
 	if chanType.HasAnchors() {
 		return feePerKw.FeeForWeight(input.HtlcSuccessWeightConfirmed)
 	}
+
 	return feePerKw.FeeForWeight(input.HtlcSuccessWeight)
 }
 

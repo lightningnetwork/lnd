@@ -639,7 +639,7 @@ func (s *mockServer) Address() net.Addr {
 	return nil
 }
 
-func (s *mockServer) AddNewChannel(channel *channeldb.OpenChannel,
+func (s *mockServer) AddNewChannel(channel *lnpeer.NewChannel,
 	cancel <-chan struct{}) error {
 
 	return nil

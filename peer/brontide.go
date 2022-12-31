@@ -86,7 +86,7 @@ type outgoingMsg struct {
 // the receiver of the request to report when the channel creation process has
 // completed.
 type newChannelMsg struct {
-	channel *channeldb.OpenChannel
+	channel *lnpeer.NewChannel
 	err     chan error
 }
 
@@ -2294,9 +2294,10 @@ out:
 			chanPoint := &newChan.FundingOutpoint
 			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
-			// Only update RemoteNextRevocation if the channel is in the
-			// activeChannels map and if we added the link to the switch.
-			// Only active channels will be added to the switch.
+			// Only update RemoteNextRevocation if the channel is
+			// in the activeChannels map and if we added the link
+			// to the switch.  Only active channels will be added
+			// to the switch.
 			p.activeChanMtx.Lock()
 			currentChan, ok := p.activeChannels[chanID]
 			if ok && currentChan != nil {
@@ -2326,6 +2327,8 @@ out:
 					continue
 				}
 
+				// TODO(roasbeef): don't also need to apply
+				// nonces here? get from chan reest
 				continue
 			}
 
@@ -2333,7 +2336,8 @@ out:
 			// set of active channels, so we can look it up later
 			// easily according to its channel ID.
 			lnChan, err := lnwallet.NewLightningChannel(
-				p.cfg.Signer, newChan, p.cfg.SigPool,
+				p.cfg.Signer, newChan.OpenChannel,
+				p.cfg.SigPool, newChan.ChanOpts...,
 			)
 			if err != nil {
 				p.activeChanMtx.Unlock()
@@ -2720,6 +2724,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 	chanCloser := chancloser.NewChanCloser(
 		chancloser.ChanCloseCfg{
 			Channel:     channel,
+			Signer:      p.cfg.Signer,
 			BroadcastTx: p.cfg.Wallet.PublishTransaction,
 			DisableChannel: func(op wire.OutPoint) error {
 				return p.cfg.ChanStatusMgr.RequestDisable(
@@ -3322,12 +3327,12 @@ func (p *Brontide) Address() net.Addr {
 // added if the cancel channel is closed.
 //
 // NOTE: Part of the lnpeer.Peer interface.
-func (p *Brontide) AddNewChannel(channel *channeldb.OpenChannel,
+func (p *Brontide) AddNewChannel(newChan *lnpeer.NewChannel,
 	cancel <-chan struct{}) error {
 
 	errChan := make(chan error, 1)
 	newChanMsg := &newChannelMsg{
-		channel: channel,
+		channel: newChan,
 		err:     errChan,
 	}
 

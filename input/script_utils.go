@@ -1321,6 +1321,163 @@ func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	return builder.Script()
 }
 
+// TODO(roasbeef): move all taproot stuff to new file?
+
+// TaprootSecondLevelTapLeaf constructs the tap leaf used as the sole script
+// path for a second level HTLC spend.
+//
+// The final script used is:
+//
+//	<local_delay_key> OP_CHECKSIG
+//	<to_self_delay> OP_CHECKSEQUENCEVERIFY OP_DROP
+func TaprootSecondLevelTapLeaf(delayKey *btcec.PublicKey,
+	csvDelay uint32) (txscript.TapLeaf, error) {
+
+	builder := txscript.NewScriptBuilder()
+
+	// Ensure the proper party can sign for this output.
+	builder.AddData(schnorr.SerializePubKey(delayKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	// Assuming the above passes, then we'll now ensure that the CSV delay
+	// has been upheld, dropping the int we pushed on. If the sig above is
+	// valid, then a 1 will be left on the stack.
+	builder.AddInt64(int64(csvDelay))
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	secondLevelLeafScript, err := builder.Script()
+	if err != nil {
+		return txscript.TapLeaf{}, err
+	}
+
+	return txscript.NewBaseTapLeaf(secondLevelLeafScript), nil
+}
+
+// SecondLevelHtlcTapscriptTree construct the indexed tapscript tree needed to
+// generate the taptweak to create the final output and also control block.
+func SecondLevelHtlcTapscriptTree(delayKey *btcec.PublicKey,
+	csvDelay uint32) (*txscript.IndexedTapScriptTree, error) {
+
+	// First grab the second level leaf script we need to create the top level
+	// output.
+	secondLevelTapLeaf, err := TaprootSecondLevelTapLeaf(delayKey, csvDelay)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that we have the sole second level script, we can create the
+	// tapscript tree that commits to both the leaves.
+	return txscript.AssembleTaprootScriptTree(secondLevelTapLeaf), nil
+}
+
+// TaprootSecondLevelHtlcScript is the uniform script that's used as the output
+// for the second-level HTLC transaction. The second level transaction acts as
+// an off-chain 2-of-2 covenant that can only be spent a particular way and to
+// a particular output.
+//
+// Possible Input Scripts:
+//   - Claiming the HTLC output with a pre-image or a timeout:
+//   - <local_delay_sig>
+//
+// The script main script lets the broadcaster spend after a delay the script
+// path:
+//
+//	<local_delay_key> OP_CHECKSIG
+//	<to_self_delay> OP_CHECKSEQUENCEVERIFY OP_DROP
+//
+// The keyspend path require knowledge of the top level revocation private key.
+func TaprootSecondLevelHtlcScript(revokeKey, delayKey *btcec.PublicKey,
+	csvDelay uint32) (*btcec.PublicKey, error) {
+
+	// First, we'll make the tapscript tree that commits to the redemption
+	// path.
+	tapScriptTree, err := SecondLevelHtlcTapscriptTree(
+		delayKey, csvDelay,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tapScriptRoot := tapScriptTree.RootNode.TapHash()
+
+	// With the tapscript root obtained, we'll tweak the revocation key
+	// with this value to obtain the key that the second level spend will
+	// create.
+	redemptionKey := txscript.ComputeTaprootOutputKey(
+		revokeKey, tapScriptRoot[:],
+	)
+
+	return redemptionKey, nil
+}
+
+// TaprootHtlcSpendRevoke spends a second-level HTLC output via the revocation
+// path. This uses the top level keyspend path to redeem the contested output.
+//
+// The passed SignDescriptor MUST have the proper witness script and also the
+// proper top-level tweak derived from the tapscript tree for the second level
+// output.
+func TaprootHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
+	revokeTx *wire.MsgTx) (wire.TxWitness, error) {
+
+	// We don't need any spacial modifications to the transaction as this
+	// is just sweeping a revoked HTLC output. So we'll generate a regular
+	// schnorr signature.
+	sweepSig, err := signer.SignOutputRaw(revokeTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// The witness stack in this case is pretty simple: we only need to
+	// specify the signature generated.
+	witnessStack := make(wire.TxWitness, 1)
+	witnessStack[0] = append(sweepSig.Serialize(), byte(signDesc.HashType))
+
+	return witnessStack, nil
+}
+
+// TaprootHtlcSpendSuccess spends a second-level HTLC output via the redemption
+// path. This should be used to sweep funds after the pre-image is known or the
+// timeout has elapsed on the commitment transaction of the broadcaster.
+//
+// NOTE: The caller MUST set the txn version, sequence number, and sign
+// descriptor's sig hash cache before invocation.
+func TaprootHtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
+	revokeKey *btcec.PublicKey, sweepTx *wire.MsgTx,
+	tapscriptTree *txscript.IndexedTapScriptTree) (wire.TxWitness, error) {
+
+	// First, we'll generate the sweep signature based on the populated
+	// sign desc. This should give us a valid schnorr signature for the
+	// sole script path leaf.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that we have the sweep signature, we'll construct the control
+	// block needed to spend the script path.
+	redeemTapLeafHash := txscript.NewBaseTapLeaf(
+		signDesc.WitnessScript,
+	).TapHash()
+	redeemIdx := tapscriptTree.LeafProofIndex[redeemTapLeafHash]
+	redeemMerkleProof := tapscriptTree.LeafMerkleProofs[redeemIdx]
+	redeemControlBlock := redeemMerkleProof.ToControlBlock(revokeKey)
+
+	// Now that we have the redeem control block, we can construct the
+	// final witness needed to spend the script:
+	//
+	//  <success sig> <success script> <control_block>
+	witnessStack := make(wire.TxWitness, 3)
+	witnessStack[1] = append(sweepSig.Serialize(), byte(signDesc.HashType))
+	witnessStack[2] = signDesc.WitnessScript
+	witnessStack[3], err = redeemControlBlock.ToBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	return witnessStack, nil
+}
+
 // LeaseSecondLevelHtlcScript is the uniform script that's used as the output for
 // the second-level HTLC transactions. The second level transaction acts as a
 // sort of covenant, ensuring that a 2-of-2 multi-sig output can only be

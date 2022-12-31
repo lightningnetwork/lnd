@@ -176,7 +176,7 @@ func NewMusigSession(noncePair MusigNoncePair,
 		inputTxOut:    inputTxOut,
 		signerKeys:    signerKeys,
 		signer:        signer,
-		remoteCommit:  true,
+		remoteCommit:  remoteCommit,
 	}, nil
 }
 

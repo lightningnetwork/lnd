@@ -342,9 +342,9 @@ Keysend](https://github.com/lightningnetwork/lnd/pull/7334).
   option](https://github.com/lightningnetwork/lnd/pull/7251) to the kvdb 
   package.
 
-* [Bumped etcd dependencies to
-  3.5.7](https://github.com/lightningnetwork/lnd/pull/7353) to resolve linking
-  issues with outdated dependencies.
+* Bumped [kvdb](https://github.com/lightningnetwork/lnd/pull/7353) and
+  [lnd](https://github.com/lightningnetwork/lnd/pull/7280) etcd dependencies to
+  3.5.7 to resolve linking issues with outdated dependencies.
 
 ## Pathfinding
 

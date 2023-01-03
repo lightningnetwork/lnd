@@ -247,6 +247,10 @@ type PaymentDescriptor struct {
 	// Amount is the HTLC amount in milli-satoshis.
 	Amount lnwire.MilliSatoshi
 
+	// UpfrontFee is an upfront fee paid to add an incoming htlc to the
+	// remote peer's commitment.
+	UpfrontFee *lnwire.UpfrontFee
+
 	// LogIndex is the log entry number that his HTLC update has within the
 	// log. Depending on if IsIncoming is true, this is either an entry the
 	// remote party added, or one that we added locally.
@@ -407,12 +411,13 @@ func PayDescsFromRemoteLogUpdates(chanID lnwire.ShortChannelID, height uint64,
 
 		case *lnwire.UpdateAddHTLC:
 			pd = PaymentDescriptor{
-				RHash:     wireMsg.PaymentHash,
-				Timeout:   wireMsg.Expiry,
-				Amount:    wireMsg.Amount,
-				EntryType: Add,
-				HtlcIndex: wireMsg.ID,
-				LogIndex:  logUpdate.LogIndex,
+				RHash:      wireMsg.PaymentHash,
+				Timeout:    wireMsg.Expiry,
+				Amount:     wireMsg.Amount,
+				UpfrontFee: wireMsg.UpfrontFee,
+				EntryType:  Add,
+				HtlcIndex:  wireMsg.ID,
+				LogIndex:   logUpdate.LogIndex,
 				SourceRef: &channeldb.AddRef{
 					Height: height,
 					Index:  uint16(i),
@@ -862,6 +867,8 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		ourWitnessScript:   ourWitnessScript,
 		theirPkScript:      theirP2WSH,
 		theirWitnessScript: theirWitnessScript,
+		// NOTE: We will not be able to restore our upfront fee from
+		// disk, because channeldb.HTLC does not store extra add data.
 	}
 
 	return pd, nil
@@ -1447,6 +1454,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			EntryType:             Add,
 			HtlcIndex:             wireMsg.ID,
 			LogIndex:              logUpdate.LogIndex,
+			UpfrontFee:            wireMsg.UpfrontFee,
 			addCommitHeightRemote: commitHeight,
 		}
 		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
@@ -1644,6 +1652,7 @@ func (lc *LightningChannel) remoteLogUpdateToPayDesc(logUpdate *channeldb.LogUpd
 			EntryType:            Add,
 			HtlcIndex:            wireMsg.ID,
 			LogIndex:             logUpdate.LogIndex,
+			UpfrontFee:           wireMsg.UpfrontFee,
 			addCommitHeightLocal: commitHeight,
 		}
 		pd.OnionBlob = make([]byte, len(wireMsg.OnionBlob))
@@ -3041,10 +3050,22 @@ func processAddEntry(htlc *PaymentDescriptor, ourBalance, theirBalance *lnwire.M
 		// to update their balance accordingly by subtracting the
 		// amount of the HTLC that are funds pending.
 		*theirBalance -= htlc.Amount
+
+		// We also need to update our balance to include the upfront
+		// fee for adding an incoming htlc to our commitment if it is
+		// present.
+		value, _ := htlc.UpfrontFee.Value()
+		*ourBalance += value
 	} else {
 		// Similarly, we need to debit our balance if this is an out
 		// going HTLC to reflect the pending balance.
 		*ourBalance -= htlc.Amount
+
+		// We also need to update their balance to include the upfront
+		// fee for adding an incoming htlc to their commitment (no-op
+		// if note set).
+		value, _ := htlc.UpfrontFee.Value()
+		*theirBalance += value
 	}
 
 	if mutateState {
@@ -4995,6 +5016,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 				Amount:      pd.Amount,
 				Expiry:      pd.Timeout,
 				PaymentHash: pd.RHash,
+				UpfrontFee:  pd.UpfrontFee,
 			}
 			copy(htlc.OnionBlob[:], pd.OnionBlob)
 			logUpdate.UpdateMsg = htlc
@@ -5301,6 +5323,7 @@ func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
 		HtlcIndex:      lc.localUpdateLog.htlcCounter,
 		OnionBlob:      htlc.OnionBlob[:],
 		OpenCircuitKey: openKey,
+		UpfrontFee:     htlc.UpfrontFee,
 	}
 }
 
@@ -5349,13 +5372,14 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 	}
 
 	pd := &PaymentDescriptor{
-		EntryType: Add,
-		RHash:     PaymentHash(htlc.PaymentHash),
-		Timeout:   htlc.Expiry,
-		Amount:    htlc.Amount,
-		LogIndex:  lc.remoteUpdateLog.logIndex,
-		HtlcIndex: lc.remoteUpdateLog.htlcCounter,
-		OnionBlob: htlc.OnionBlob[:],
+		EntryType:  Add,
+		RHash:      PaymentHash(htlc.PaymentHash),
+		Timeout:    htlc.Expiry,
+		Amount:     htlc.Amount,
+		LogIndex:   lc.remoteUpdateLog.logIndex,
+		HtlcIndex:  lc.remoteUpdateLog.htlcCounter,
+		OnionBlob:  htlc.OnionBlob[:],
+		UpfrontFee: htlc.UpfrontFee,
 	}
 
 	localACKedIndex := lc.remoteCommitChain.tail().ourMessageIndex

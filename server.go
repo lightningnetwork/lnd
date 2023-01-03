@@ -241,7 +241,7 @@ type server struct {
 
 	wg sync.WaitGroup
 
-	pcm *peerconn.PeerConnManager
+	pcm *peerconn.Manager
 }
 
 // CustomMessage is a custom message that is received from a peer.
@@ -1441,7 +1441,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// Create liveness monitor.
 	s.createLivenessMonitor(cfg, cc)
 
-	s.pcm.Config = &peerconn.PeerConnManagerConfig{
+	s.pcm.Config = &peerconn.ManagerConfig{
 		PartialPeerConfig:       s.createPartialPeerConfig(),
 		FeatureMgr:              s.featureMgr,
 		Net:                     s.cfg.net,

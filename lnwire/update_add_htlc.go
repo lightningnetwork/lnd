@@ -3,6 +3,8 @@ package lnwire
 import (
 	"bytes"
 	"io"
+
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // OnionPacketSize is the size of the serialized Sphinx onion packet included
@@ -54,6 +56,13 @@ type UpdateAddHTLC struct {
 	// used in the subsequent UpdateAddHTLC message.
 	OnionBlob [OnionPacketSize]byte
 
+	// UpfrontFee is the amount that will be directly pushed with the
+	// addition of the HTLC to the node's commitment.
+	//
+	// Note: this field is extracted from/stored in our extra data blob's
+	// TLVs and will be nil if it is not set.
+	UpfrontFee *UpfrontFee
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -62,7 +71,11 @@ type UpdateAddHTLC struct {
 
 // NewUpdateAddHTLC returns a new empty UpdateAddHTLC message.
 func NewUpdateAddHTLC() *UpdateAddHTLC {
-	return &UpdateAddHTLC{}
+	var upfront UpfrontFee
+
+	return &UpdateAddHTLC{
+		UpfrontFee: &upfront,
+	}
 }
 
 // A compile time check to ensure UpdateAddHTLC implements the lnwire.Message
@@ -74,7 +87,7 @@ var _ Message = (*UpdateAddHTLC)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	if err := ReadElements(r,
 		&c.ChanID,
 		&c.ID,
 		&c.Amount,
@@ -82,7 +95,21 @@ func (c *UpdateAddHTLC) Decode(r io.Reader, pver uint32) error {
 		&c.Expiry,
 		c.OnionBlob[:],
 		&c.ExtraData,
-	)
+	); err != nil {
+		return err
+	}
+
+	parsed, err := c.ExtraData.ExtractRecords(c.UpfrontFee)
+	if err != nil {
+		return err
+	}
+
+	// If we didn't have an upfront fee record present, set it to nil.
+	if _, ok := parsed[UpfrontFeeMsatRecordType]; !ok {
+		c.UpfrontFee = nil
+	}
+
+	return nil
 }
 
 // Encode serializes the target UpdateAddHTLC into the passed io.Writer
@@ -111,6 +138,18 @@ func (c *UpdateAddHTLC) Encode(w *bytes.Buffer, pver uint32) error {
 	}
 
 	if err := WriteBytes(w, c.OnionBlob[:]); err != nil {
+		return err
+	}
+
+	var records []tlv.RecordProducer
+	if c.UpfrontFee != nil {
+		records = []tlv.RecordProducer{
+			c.UpfrontFee,
+		}
+	}
+
+	err := EncodeMessageExtraData(&c.ExtraData, records...)
+	if err != nil {
 		return err
 	}
 

@@ -197,7 +197,7 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	case MsgClosingSigned:
 		msg = &ClosingSigned{}
 	case MsgUpdateAddHTLC:
-		msg = &UpdateAddHTLC{}
+		msg = NewUpdateAddHTLC()
 	case MsgUpdateFailHTLC:
 		msg = &UpdateFailHTLC{}
 	case MsgUpdateFulfillHTLC:

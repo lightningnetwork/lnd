@@ -4439,10 +4439,7 @@ func (f *Manager) getInitialFwdingPolicy(permChanID lnwire.ChannelID) (
 	chanID := make([]byte, 32)
 	copy(chanID, permChanID[:])
 
-	value, err := f.cfg.Wallet.Cfg.Database.GetInitialFwdingPolicy(
-		chanID,
-	)
-
+	value, err := f.cfg.Wallet.Cfg.Database.GetInitialFwdingPolicy(chanID)
 	if err != nil {
 		return nil, err
 	}

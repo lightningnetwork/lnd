@@ -182,6 +182,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 * [Updated several tlv stream-decoding callsites to use tlv/v1.1.0 P2P variants
   for untrusted input.](https://github.com/lightningnetwork/lnd/pull/7227)
 
+* [Prevent nil pointer dereference during funding manager 
+  test](https://github.com/lightningnetwork/lnd/pull/7268)
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

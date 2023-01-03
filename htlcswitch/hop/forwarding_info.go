@@ -23,6 +23,10 @@ type ForwardingInfo struct {
 	// node should forward to the next hop.
 	AmountToForward lnwire.MilliSatoshi
 
+	// UpfrontFeeToForward is the amount that should be pushed to the
+	// receiving node to add the incoming htlc to their commitment.
+	UpfrontFeeToForward *lnwire.UpfrontFee
+
 	// OutgoingCTLV is the specified value of the CTLV timelock to be used
 	// in the outgoing HTLC.
 	OutgoingCTLV uint32

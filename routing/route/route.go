@@ -131,6 +131,10 @@ type Hop struct {
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// UpfrontFeeToForward is the upfront fee to be paid to the next node
+	// to add the incoming htlc to their commitment.
+	UpfrontFeeToForward *lnwire.UpfrontFee
 }
 
 // Copy returns a deep copy of the Hop.
@@ -214,6 +218,14 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 		records = append(records,
 			record.NewMetadataRecord(&h.Metadata),
 		)
+	}
+
+	// Include upfront fees for the hop if specified.
+	upfrontFee, set := h.UpfrontFeeToForward.Value()
+	if set {
+		u64fee := uint64(upfrontFee)
+		record := record.NewUpfrontFeeToForwardRecord(&u64fee)
+		records = append(records, record)
 	}
 
 	// Append any custom types destined for this hop.

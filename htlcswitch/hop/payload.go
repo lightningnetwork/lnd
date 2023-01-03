@@ -125,6 +125,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		mpp      = &record.MPP{}
 		amp      = &record.AMP{}
 		metadata []byte
+		fee      uint64
 	)
 
 	tlvStream, err := tlv.NewStream(
@@ -134,6 +135,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		mpp.Record(),
 		amp.Record(),
 		record.NewMetadataRecord(&metadata),
+		record.NewUpfrontFeeToForwardRecord(&fee),
 	)
 	if err != nil {
 		return nil, err
@@ -182,15 +184,21 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		metadata = nil
 	}
 
+	upfront := lnwire.NewUpfrontFee(fee)
+	if _, ok := parsedTypes[record.UpfrontFeeToForwardType]; !ok {
+		upfront = nil
+	}
+
 	// Filter out the custom records.
 	customRecords := NewCustomRecords(parsedTypes)
 
 	return &Payload{
 		FwdInfo: ForwardingInfo{
-			Network:         BitcoinNetwork,
-			NextHop:         nextHop,
-			AmountToForward: lnwire.MilliSatoshi(amt),
-			OutgoingCTLV:    cltv,
+			Network:             BitcoinNetwork,
+			NextHop:             nextHop,
+			AmountToForward:     lnwire.MilliSatoshi(amt),
+			UpfrontFeeToForward: upfront,
+			OutgoingCTLV:        cltv,
 		},
 		MPP:           mpp,
 		AMP:           amp,

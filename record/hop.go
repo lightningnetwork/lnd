@@ -20,6 +20,10 @@ const (
 	// MetadataOnionType is the type used in the onion for the payment
 	// metadata.
 	MetadataOnionType tlv.Type = 16
+
+	// UpfrontFeeToForwardType is the type used in the onion to reference
+	// the upfront fee to push to the next hop.
+	UpfrontFeeToForwardType tlv.Type = 18
 )
 
 // NewAmtToFwdRecord creates a tlv.Record that encodes the amount_to_forward
@@ -59,5 +63,15 @@ func NewMetadataRecord(metadata *[]byte) tlv.Record {
 			return uint64(len(*metadata))
 		},
 		tlv.EVarBytes, tlv.DVarBytes,
+	)
+}
+
+// NewUpfrontFeeToForwardRecord creates a tlv.Record that encodes the
+// unconditional fee for an onion payload.
+func NewUpfrontFeeToForwardRecord(fee *uint64) tlv.Record {
+	return tlv.MakeDynamicRecord(
+		UpfrontFeeToForwardType, fee, func() uint64 {
+			return tlv.SizeTUint64(*fee)
+		}, tlv.ETUint64, tlv.DTUint64,
 	)
 }

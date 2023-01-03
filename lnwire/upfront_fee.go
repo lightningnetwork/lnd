@@ -18,6 +18,13 @@ type UpfrontFee struct {
 	uint64
 }
 
+// NewUpfrontFee creates a new upfront fee field.
+func NewUpfrontFee(value uint64) *UpfrontFee {
+	return &UpfrontFee{
+		uint64: value,
+	}
+}
+
 // Value returns the value contained in an upfront fee field, and a boolean
 // indicating whether the upfront fee is set (which allows us distinguish
 // between populated, zero-value fees and nil values).

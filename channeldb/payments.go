@@ -1176,6 +1176,13 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 		records = append(records, record.NewMetadataRecord(&h.Metadata))
 	}
 
+	upfrontFee, set := h.UpfrontFeeToForward.Value()
+	if set {
+		u64Fee := uint64(upfrontFee)
+		record := record.NewUpfrontFeeToForwardRecord(&u64Fee)
+		records = append(records, record)
+	}
+
 	// Final sanity check to absolutely rule out custom records that are not
 	// custom and write into the standard range.
 	if err := h.CustomRecords.Validate(); err != nil {

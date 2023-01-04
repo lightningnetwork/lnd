@@ -43,7 +43,7 @@ type BtcdFilteredChainView struct {
 	// attached to this instance are sent over.
 	filterUpdates chan filterUpdate
 
-	// chainFilter is the set of utox's that we're currently watching
+	// chainFilter is the set of utxos that we're currently watching
 	// spends for within the chain.
 	filterMtx   sync.RWMutex
 	chainFilter map[wire.OutPoint]struct{}
@@ -228,7 +228,7 @@ type filterBlockReq struct {
 
 // FilterBlock takes a block hash, and returns a FilteredBlocks which is the
 // result of applying the current registered UTXO sub-set on the block
-// corresponding to that block hash. If any watched UTOX's are spent by the
+// corresponding to that block hash. If any watched UTXOs are spent by the
 // selected lock, then the internal chainFilter will also be updated.
 //
 // NOTE: This is part of the FilteredChainView interface.
@@ -250,7 +250,7 @@ func (b *BtcdFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*Filtere
 
 // chainFilterer is the primary goroutine which: listens for new blocks coming
 // and dispatches the relevant FilteredBlock notifications, updates the filter
-// due to requests by callers, and finally is able to preform targeted block
+// due to requests by callers, and finally is able to perform targeted block
 // filtration.
 //
 // TODO(roasbeef): change to use loadfilter RPC's
@@ -326,10 +326,10 @@ func (b *BtcdFilteredChainView) chainFilterer() {
 		// state partially.
 		case update := <-b.filterUpdates:
 
-			// First, we'll add all the new UTXO's to the set of
-			// watched UTXO's, eliminating any duplicates in the
+			// First, we'll add all the new UTXOs to the set of
+			// watched UTXOs, eliminating any duplicates in the
 			// process.
-			log.Tracef("Updating chain filter with new UTXO's: %v",
+			log.Tracef("Updating chain filter with new UTXOs: %v",
 				update.newUtxos)
 
 			b.filterMtx.Lock()

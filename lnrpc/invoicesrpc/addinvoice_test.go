@@ -621,7 +621,7 @@ var populateHopHintsTestCases = []struct {
 	},
 }, {
 	name: "populate hop hints tries to use the channels with higher " +
-		"remote balance frist",
+		"remote balance first",
 	setupMock: func(h *hopHintsConfigMock) {
 		fundingOutpoint := wire.OutPoint{Index: 9}
 		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)

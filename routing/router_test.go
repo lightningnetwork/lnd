@@ -3198,7 +3198,7 @@ const (
 	edgeCreationNoUTXO
 
 	// edgeCreationBadScript is used to create the edge, but use the wrong
-	// scrip which should cause it to fail output validation.
+	// script which should cause it to fail output validation.
 	edgeCreationBadScript
 )
 

@@ -124,7 +124,7 @@ func testBucketDeletion(t *testing.T, db walletdb.DB) {
 			require.NoError(t, cherry.Put([]byte(kv.key), []byte(kv.val)))
 		}
 
-		// Read back values in "apple/pear/cherry" trough a read bucket.
+		// Read back values in "apple/pear/cherry" through a read bucket.
 		cherryReadBucket := pear.NestedReadBucket([]byte("cherry"))
 		for _, kv := range kvs {
 			require.Equal(
@@ -151,7 +151,7 @@ func testBucketDeletion(t *testing.T, db walletdb.DB) {
 		// "apple/pear" deleted
 		require.Nil(t, apple.NestedReadWriteBucket([]byte("pear")))
 
-		// "aple/banana" exists
+		// "apple/banana" exists
 		require.NotNil(t, apple.NestedReadWriteBucket([]byte("banana")))
 		return nil
 	}, func() {})
@@ -276,7 +276,7 @@ func testBucketForEachWithError(t *testing.T, db walletdb.DB) {
 
 		got = make(map[string]string)
 		i = 0
-		// Erro while iterating buckets.
+		// Error while iterating buckets.
 		err = apple.ForEach(func(key, val []byte) error {
 			if i == 3 {
 				return fmt.Errorf("error")
@@ -380,7 +380,7 @@ func testKeyClash(t *testing.T, db walletdb.DB) {
 }
 
 // TestBucketCreateDelete tests that creating then deleting then creating a
-// bucket suceeds.
+// bucket succeeds.
 func testBucketCreateDelete(t *testing.T, db walletdb.DB) {
 	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))

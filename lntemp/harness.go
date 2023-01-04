@@ -169,7 +169,7 @@ func (h *HarnessTest) Context() context.Context {
 // node's wallets will be funded wallets with 10x10 BTC outputs each.
 func (h *HarnessTest) SetupStandbyNodes() {
 	h.Log("Setting up standby nodes Alice and Bob...")
-	defer h.Log("Finshed the setup, now running tests...")
+	defer h.Log("Finished the setup, now running tests...")
 
 	lndArgs := []string{
 		"--default-remote-max-htlcs=483",
@@ -747,7 +747,7 @@ func (h *HarnessTest) validateNodeState(hn *node.HarnessNode) {
 	require.Zerof(h, hn.State.CloseChannel.WaitingClose,
 		errStr("waiting close"))
 
-	// Ths number of payments should be zero.
+	// The number of payments should be zero.
 	// TODO(yy): no need to check since it's deleted in the cleanup? Or
 	// check it in a wait?
 	require.Zerof(h, hn.State.Payment.Total, "%s: found "+
@@ -1673,7 +1673,7 @@ func (h *HarnessTest) OpenMultiChannelsAsync(
 	h.MineBlocks(numBlocksOpenChannel - 1)
 
 	// Once the blocks are mined, we fire goroutines for each of the
-	// request to watch for the channel openning.
+	// request to watch for the channel opening.
 	for _, r := range reqs {
 		r.result = make(chan *lnrpc.ChannelPoint, 1)
 		go assertChannelOpen(r)

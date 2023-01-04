@@ -19,8 +19,8 @@ current gossip sync query status.
 
 ## RPC
 
-* The `RegisterConfirmationsNtfn` call of the `chainnotifier` RPC sub-server 
- [now optionally supports returning the entire block that confirmed the 
+* The `RegisterConfirmationsNtfn` call of the `chainnotifier` RPC sub-server
+ [now optionally supports returning the entire block that confirmed the
  transaction](https://github.com/lightningnetwork/lnd/pull/6730).
 
 * [Add `macaroon_root_key` field to
@@ -49,7 +49,7 @@ current gossip sync query status.
   receiver will lose it. Therefore the receiver can just as well fail off-chain
   a few blocks before so that the channel is saved.
 
-* [Make remote channel reserve amount configurable for 
+* [Make remote channel reserve amount configurable for
   `openchannel`](https://github.com/lightningnetwork/lnd/pull/6956)
 
 * [`ForwardingHistory` ](https://github.com/lightningnetwork/lnd/pull/7001) now
@@ -85,7 +85,7 @@ current gossip sync query status.
   GetBlock, GetBestBlock, GetBlockHash. These endpoints provide access to chain
   block data.
 
-* [`QueryProbabiltiy` is deprecated. Internal mission control state can be 
+* [`QueryProbabiltiy` is deprecated. Internal mission control state can be
   obtained via `QueryMissionControl`.](
   https://github.com/lightningnetwork/lnd/pull/6857)
 
@@ -161,7 +161,7 @@ data.
   [With the module updated](https://github.com/lightningnetwork/lnd/pull/6836),
   `lnd` now parses Tor control port messages correctly.
 
-* [Add option to encrypt Tor private 
+* [Add option to encrypt Tor private
   key](https://github.com/lightningnetwork/lnd/pull/6500), and [update the Tor
   module](https://github.com/lightningnetwork/lnd/pull/6526) to pave the way for
   this functionality.
@@ -202,9 +202,11 @@ data.
 * [Updated several tlv stream-decoding callsites to use tlv/v1.1.0 P2P variants
   for untrusted input.](https://github.com/lightningnetwork/lnd/pull/7227)
 
-* [Prevent nil pointer dereference during funding manager 
+* [Prevent nil pointer dereference during funding manager
   test](https://github.com/lightningnetwork/lnd/pull/7268)
   
+* [Fix typos](https://github.com/lightningnetwork/lnd/pull/7287)
+
 * Fixed a [failure message parsing bug](https://github.com/lightningnetwork/lnd/pull/7262)
   that caused additional failure message data to be interpreted as being part of
   a channel update.
@@ -232,7 +234,7 @@ data.
 * [Fix](https://github.com/lightningnetwork/lnd/pull/6858) command line argument
   parsing for `lncli sendpayment`.
 
-* [Fix](https://github.com/lightningnetwork/lnd/pull/6875) mapslice cap out of 
+* [Fix](https://github.com/lightningnetwork/lnd/pull/6875) mapslice cap out of
   range error that occurs if the number of profiles is zero.
 
 * [A new config option, `batchwindowduration` has been added to
@@ -240,7 +242,7 @@ data.
   customize sweeper batch duration.
 
 * [Add `base_fee_msat` and `fee_rate_ppm` flags to
-  `openchannel`](https://github.com/lightningnetwork/lnd/pull/6753) requests 
+  `openchannel`](https://github.com/lightningnetwork/lnd/pull/6753) requests
   so that the user can specify fees during channel creation time in addition
   to the default configuration.
 
@@ -252,7 +254,7 @@ data.
   `htlcswitch`](https://github.com/lightningnetwork/lnd/pull/7066).
 
 * [Label the openchannel tx first before notifying the channel open
-  event.](https://github.com/lightningnetwork/lnd/pull/7158) 
+  event.](https://github.com/lightningnetwork/lnd/pull/7158)
 
 * [Add check for `pay_req` argument in `sendpayment` and `decodepayreq`
   commands to trim "lightning:" prefix before processing the request](
@@ -303,9 +305,9 @@ data.
  
 ## Watchtowers
 
-* [Create a towerID-to-sessionID index in the wtclient DB to improve the 
+* [Create a towerID-to-sessionID index in the wtclient DB to improve the
   speed of listing sessions for a particular tower ID](
-  https://github.com/lightningnetwork/lnd/pull/6972). This PR also ensures a 
+  https://github.com/lightningnetwork/lnd/pull/6972). This PR also ensures a
   closer coupling of Towers and Sessions and ensures that a session cannot be
   added if the tower it is referring to does not exist.
 
@@ -346,10 +348,10 @@ data.
   code style or to [disable annoying new
   linters](https://github.com/lightningnetwork/lnd/pull/7335).
 
-* Update github actions to [check commits against the target base 
-  branch](https://github.com/lightningnetwork/lnd/pull/7103) rather than just 
-  using the master branch. And [skip the commit 
-  check](https://github.com/lightningnetwork/lnd/pull/7114) for all non-PR 
+* Update github actions to [check commits against the target base
+  branch](https://github.com/lightningnetwork/lnd/pull/7103) rather than just
+  using the master branch. And [skip the commit
+  check](https://github.com/lightningnetwork/lnd/pull/7114) for all non-PR
   events. The Golang build cache [was also optimized to speed up tests and
   builds](https://github.com/lightningnetwork/lnd/pull/7295).
 
@@ -383,6 +385,7 @@ refactor the itest for code health and maintenance.
 * Conner Babinchak
 * cutiful
 * Daniel McNally
+* Dimitris Apostolou
 * Elle Mouton
 * ErikEk
 * Eugene Siegel

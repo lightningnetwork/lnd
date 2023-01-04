@@ -186,7 +186,7 @@ func (bc *BetweennessCentrality) Refresh(graph ChannelGraph) error {
 		partial := make([]float64, len(cache.Nodes))
 
 		// Consume the next node, update centrality
-		// parital to avoid unnecessary synchronization.
+		// partial to avoid unnecessary synchronization.
 		for node := range work {
 			betweennessCentrality(cache, node, partial)
 		}

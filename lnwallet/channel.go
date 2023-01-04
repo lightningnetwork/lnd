@@ -6330,7 +6330,7 @@ func (r *OutgoingHtlcResolution) HtlcPoint() wire.OutPoint {
 }
 
 // extractHtlcResolutions creates a series of outgoing HTLC resolutions, and
-// the local key used when generating the HTLC scrips. This function is to be
+// the local key used when generating the HTLC scripts. This function is to be
 // used in two cases: force close, or a unilateral close.
 func extractHtlcResolutions(feePerKw chainfee.SatPerKWeight, ourCommit bool,
 	signer input.Signer, htlcs []channeldb.HTLC, keyRing *CommitmentKeyRing,

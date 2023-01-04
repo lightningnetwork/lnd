@@ -393,7 +393,7 @@ func (r SpendRequest) MatchesTx(tx *wire.MsgTx) (bool, uint32, error) {
 // outpoint/output script has been spent on-chain. The client is asynchronously
 // notified via the SpendEvent channels.
 type SpendNtfn struct {
-	// SpendID uniquely identies the spend notification request for the
+	// SpendID uniquely identifies the spend notification request for the
 	// specified outpoint/output script.
 	SpendID uint64
 

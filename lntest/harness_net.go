@@ -305,7 +305,7 @@ func extraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool,
 }
 
 // NewNodeWithSeedEtcd starts a new node with seed that'll use an external
-// etcd database as its (remote) channel and wallet DB. The passsed cluster
+// etcd database as its (remote) channel and wallet DB. The passed cluster
 // flag indicates that we'd like the node to join the cluster leader election.
 func (n *NetworkHarness) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 	password []byte, entropy []byte, statelessInit, cluster bool,
@@ -321,7 +321,7 @@ func (n *NetworkHarness) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 }
 
 // NewNodeWithSeedEtcd starts a new node with seed that'll use an external
-// etcd database as its (remote) channel and wallet DB. The passsed cluster
+// etcd database as its (remote) channel and wallet DB. The passed cluster
 // flag indicates that we'd like the node to join the cluster leader election.
 // If the wait flag is false then we won't wait until RPC is available (this is
 // useful when the node is not expected to become the leader right away).

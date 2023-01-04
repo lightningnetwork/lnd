@@ -2886,8 +2886,8 @@ func (s *server) updateAndBrodcastSelfNode(
 	}
 
 	// Update the on-disk version of our announcement.
-	// Load and modify self node istead of creating anew instance so we
-	// don't risk overwriting any existing values.
+	// Load and modify self node instead of creating a new instance
+	// so we don't risk overwriting any existing values.
 	selfNode, err := s.graphDB.SourceNode()
 	if err != nil {
 		return fmt.Errorf("unable to get current source node: %v", err)

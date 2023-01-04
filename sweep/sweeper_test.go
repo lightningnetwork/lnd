@@ -1028,7 +1028,7 @@ func TestGiveUp(t *testing.T) {
 	// We expect a sweep to be published at height 100 (mockChainIOHeight).
 	ctx.receiveTx()
 
-	// Because of MaxSweepAttemps, two more sweeps will be attempted. We
+	// Because of MaxSweepAttempts, two more sweeps will be attempted. We
 	// configured exponential back-off without randomness for the test. The
 	// second attempt, we expect to happen at 101. The third attempt at 103.
 	// At that point, the input is expected to be failed.
@@ -1674,7 +1674,7 @@ func assertSignedIndex(t *testing.T, tx *wire.MsgTx,
 			t.Fatalf("input already used")
 		}
 
-		// Check it was signes spending the correct outpoint, and at
+		// Check it was signed spending the correct outpoint, and at
 		// the expected tx input index.
 		require.Equal(t, txIn.Witness[0], op.Hash[:])
 		require.Equal(t, txIn.Witness[1], []byte{byte(op.Index)})
@@ -1695,7 +1695,7 @@ func TestLockTimes(t *testing.T) {
 	ctx.sweeper.cfg.MaxInputsPerTx = 100
 
 	// We will set up the lock times in such a way that we expect the
-	// sweeper to divide the inputs into 4 diffeerent transactions.
+	// sweeper to divide the inputs into 4 different transactions.
 	const numSweeps = 4
 
 	// Sweep 8 inputs, using 4 different lock times.
@@ -1778,7 +1778,7 @@ func TestLockTimes(t *testing.T) {
 		}
 	}
 
-	// The should be no inputs not foud in any of the sweeps.
+	// The should be no inputs not found in any of the sweeps.
 	if len(inputs) != 0 {
 		t.Fatalf("had unsweeped inputs")
 	}

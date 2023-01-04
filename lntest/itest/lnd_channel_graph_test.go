@@ -100,7 +100,7 @@ func testUpdateChanStatus(ht *lntemp.HarnessTest) {
 
 	// Initially, the channel between Alice and Bob should not be disabled.
 	//
-	// NOTE: This check should happen right after the channel openning as
+	// NOTE: This check should happen right after the channel opening as
 	// we've used a short timeout value for `--chan-disable-timeout`. If we
 	// wait longer than that we might get a flake saying the channel is
 	// disabled.

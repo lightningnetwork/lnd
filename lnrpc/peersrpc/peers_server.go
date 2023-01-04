@@ -45,7 +45,7 @@ type ServerShell struct {
 }
 
 // Server is a sub-server of the main RPC server: the peers RPC. This sub
-// RPC server allows to intereact with our Peers in the Lightning Network.
+// RPC server allows to interact with our Peers in the Lightning Network.
 type Server struct {
 	started  int32 // To be used atomically.
 	shutdown int32 // To be used atomically.
@@ -228,7 +228,7 @@ func (s *Server) updateAddresses(currentAddresses []net.Addr,
 		newAddrs = append(newAddrs, addr)
 	}
 
-	// Add new adresses if needed.
+	// Add new addresses if needed.
 	for _, addr := range addAddr {
 		if !findAddr(addr, newAddrs) {
 			ops.Actions = append(

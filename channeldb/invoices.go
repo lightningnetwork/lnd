@@ -102,7 +102,7 @@ const (
 	htlcHashType     tlv.Type = 21
 	htlcPreimageType tlv.Type = 23
 
-	// A set of tlv type definitions used to serialize invoice bodiees.
+	// A set of tlv type definitions used to serialize invoice bodies.
 	//
 	// NOTE: A migration should be added whenever this list changes. This
 	// prevents against the database being rolled back to an older

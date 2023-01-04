@@ -31,7 +31,7 @@ type Iterator interface {
 
 	// ExtractErrorEncrypter returns the ErrorEncrypter needed for this hop,
 	// along with a failure code to signal if the decoding was successful.
-	ExtractErrorEncrypter(ErrorEncrypterExtracter) (ErrorEncrypter,
+	ExtractErrorEncrypter(ErrorEncrypterExtractor) (ErrorEncrypter,
 		lnwire.FailCode)
 }
 
@@ -107,9 +107,9 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 //
 // NOTE: Part of the HopIterator interface.
 func (r *sphinxHopIterator) ExtractErrorEncrypter(
-	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
+	extractor ErrorEncrypterExtractor) (ErrorEncrypter, lnwire.FailCode) {
 
-	return extracter(r.ogPacket.EphemeralKey)
+	return extractor(r.ogPacket.EphemeralKey)
 }
 
 // OnionProcessor is responsible for keeping all sphinx dependent parts inside
@@ -136,7 +136,7 @@ func (p *OnionProcessor) Start() error {
 	return p.router.Start()
 }
 
-// Stop shutsdown the onion processor's sphinx router.
+// Stop shutdown of the onion processor's sphinx router.
 func (p *OnionProcessor) Stop() error {
 
 	log.Info("Onion processor shutting down")

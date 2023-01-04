@@ -143,7 +143,7 @@ type stmPut struct {
 	op  v3.Op
 }
 
-// writeSet stroes all writes done in an STM.
+// writeSet stores all writes done in an STM.
 type writeSet map[string]stmPut
 
 // stm implements repeatable-read software transactional memory
@@ -705,7 +705,7 @@ func (s *stm) Get(key string) ([]byte, error) {
 		return []byte(put.val), nil
 	}
 
-	// Return value if alread in read set.
+	// Return value if already in read set.
 	if getValue, ok := s.rset.getItem(key); ok {
 		// Return the value if the rset contains an existing key.
 		if getValue.rev != 0 {
@@ -858,7 +858,7 @@ func (s *stm) Prev(prefix, startKey string) (*KV, error) {
 		return result.key <= key && key < startKey
 	}
 
-	// Now go trough the write set and check
+	// Now go through the write set and check
 	// if there's an even better match.
 	for k, put := range s.wset {
 		if !put.op.IsDelete() && matches(k) {
@@ -984,7 +984,7 @@ func (s *stm) next(prefix, startKey string, includeStartKey bool) (*KV, error) {
 		return startKey < k && k <= result.key
 	}
 
-	// Now go trough the write set and check
+	// Now go through the write set and check
 	// if there's an even better match.
 	for k, put := range s.wset {
 		if !put.op.IsDelete() && matches(k) {

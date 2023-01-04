@@ -722,7 +722,7 @@ func (b *BtcWallet) ListAddresses(name string,
 	addresses := make(lnwallet.AccountAddressMap)
 	addressBalance := make(map[string]btcutil.Amount)
 
-	// Retrieve all the unspent ouputs.
+	// Retrieve all the unspent outputs.
 	outputs, err := b.wallet.ListUnspent(0, math.MaxInt32, "")
 	if err != nil {
 		return nil, err

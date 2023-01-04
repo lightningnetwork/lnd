@@ -407,7 +407,7 @@ func buildTwoChannelCases(c1, c2 *mig26.OpenChannel,
 
 	testCases := make([]*testCase, 0)
 
-	// buildCase is a helper closure that contructs a test case based on
+	// buildCase is a helper closure that constructs a test case based on
 	// the two smaller test cases.
 	buildCase := func(tc1, tc2 *channelTestCase) {
 		setups := make([]beforeMigrationFunc, 0)

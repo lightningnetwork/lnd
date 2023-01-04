@@ -153,7 +153,7 @@ func (c *MissionControlConfig) validate() error {
 // String returns a string representation of a mission control config.
 func (c *MissionControlConfig) String() string {
 	return fmt.Sprintf("Penalty Half Life: %v, Apriori Hop "+
-		"Probablity: %v, Maximum History: %v, Apriori Weight: %v, "+
+		"Probability: %v, Maximum History: %v, Apriori Weight: %v, "+
 		"Minimum Failure Relax Interval: %v", c.PenaltyHalfLife,
 		c.AprioriHopProbability, c.MaxMcHistory, c.AprioriWeight,
 		c.MinFailureRelaxInterval)

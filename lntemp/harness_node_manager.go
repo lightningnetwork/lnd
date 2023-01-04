@@ -13,7 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 )
 
-// nodeManager is responsible for hanlding the start and stop of a given node.
+// nodeManager is responsible for handling the start and stop of a given node.
 // It also keeps track of the running nodes.
 type nodeManager struct {
 	sync.Mutex

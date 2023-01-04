@@ -54,7 +54,7 @@ type HarnessRPC struct {
 	cancel context.CancelFunc
 }
 
-// NewHarnessRPC creates a new HarnessRPC with its own context inherted from
+// NewHarnessRPC creates a new HarnessRPC with its own context inherited from
 // the pass context.
 func NewHarnessRPC(ctxt context.Context, t *testing.T, c *grpc.ClientConn,
 	name string) *HarnessRPC {

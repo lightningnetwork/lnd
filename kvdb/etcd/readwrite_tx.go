@@ -63,7 +63,7 @@ func (tx *readWriteTx) ForEachBucket(fn func(key []byte) error) error {
 	return root.ForEach(func(key []byte, val []byte) error {
 		if val != nil {
 			// A non-nil value would mean that we have a non
-			// walletdb/kvdb compatibel database containing
+			// walletdb/kvdb compatible database containing
 			// arbitrary key/values.
 			return walletdb.ErrInvalid
 		}
@@ -75,7 +75,7 @@ func (tx *readWriteTx) ForEachBucket(fn func(key []byte) error) error {
 // Rollback closes the transaction, discarding changes (if any) if the
 // database was modified by a write transaction.
 func (tx *readWriteTx) Rollback() error {
-	// If the transaction has been closed roolback will fail.
+	// If the transaction has been closed rollback will fail.
 	if !tx.active {
 		return walletdb.ErrTxClosed
 	}

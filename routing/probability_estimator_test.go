@@ -18,7 +18,7 @@ const (
 
 	// untriedNode is a node id for which we don't record any results in
 	// this test. This can be used to assert the probability for untried
-	// ndoes.
+	// nodes.
 	untriedNode = 255
 
 	// Define test estimator parameters.

@@ -1821,7 +1821,7 @@ func (c *ChannelGraph) HighestChanID() (uint64, error) {
 		lastChanID, _ := cidCursor.Last()
 
 		// If there's no key, then this means that we don't actually
-		// know of any channels, so we'll return a predicable error.
+		// know of any channels, so we'll return a predictable error.
 		if lastChanID == nil {
 			return ErrGraphNoEdgesFound
 		}

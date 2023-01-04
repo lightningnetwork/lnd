@@ -815,7 +815,7 @@ func channelForceClosureTest(ht *lntemp.HarnessTest,
 	ht.RestartNode(alice)
 
 	// Advance the chain until just before the 2nd-layer CSV delays expire.
-	// For anchor channels thhis is one block earlier.
+	// For anchor channels this is one block earlier.
 	numBlocks := uint32(defaultCSV - 1)
 	if channelType == lnrpc.CommitmentType_ANCHORS {
 		numBlocks = defaultCSV - 2

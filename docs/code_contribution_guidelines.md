@@ -57,7 +57,7 @@ they follow the guidelines set forth on this page.  That said, if you don't have
 the following basic qualifications you will likely find it quite difficult to
 contribute to the core layers of Lightning. However, there are still a number
 of low hanging fruit which can be tackled without having full competency in the
-areas mentioned below. 
+areas mentioned below.
 
 - A reasonable understanding of bitcoin at a high level (see the
   [Required Reading](#required-reading) section for the original white paper)
@@ -77,16 +77,16 @@ security and performance implications.
 
 # Required Reading
 
-- [Effective Go](http://golang.org/doc/effective_go.html) - The entire `lnd` 
+- [Effective Go](http://golang.org/doc/effective_go.html) - The entire `lnd`
   project follows the guidelines in this document.  For your code to be accepted,
   it must follow the guidelines therein.
 - [Original Satoshi Whitepaper](https://bitcoin.org/bitcoin.pdf) - This is the white paper that started it all.  Having a solid
   foundation to build on will make the code much more comprehensible.
-- [Lightning Network Whitepaper](https://lightning.network/lightning-network-paper.pdf) - This is the white paper that kicked off the Layer 2 revolution. Having a good grasp of the concepts of Lightning will make the core logic within the daemon much more comprehensible: Bitcoin Script, off-chain blockchain protocols, payment channels, bi-directional payment channels, relative and absolute time-locks, commitment state revocations, and Segregated Witness. 
-    - The original LN was written for a rather narrow audience, the paper may be a bit unapproachable to many. Thanks to the Bitcoin community, there exist many easily accessible supplemental resources which can help one see how all the pieces fit together from double-spend protection all the way up to commitment state transitions and Hash Time Locked Contracts (HTLCs): 
+- [Lightning Network Whitepaper](https://lightning.network/lightning-network-paper.pdf) - This is the white paper that kicked off the Layer 2 revolution. Having a good grasp of the concepts of Lightning will make the core logic within the daemon much more comprehensible: Bitcoin Script, off-chain blockchain protocols, payment channels, bi-directional payment channels, relative and absolute time-locks, commitment state revocations, and Segregated Witness.
+    - The original LN was written for a rather narrow audience, the paper may be a bit unapproachable to many. Thanks to the Bitcoin community, there exist many easily accessible supplemental resources which can help one see how all the pieces fit together from double-spend protection all the way up to commitment state transitions and Hash Time Locked Contracts (HTLCs):
         - [Lightning Network Summary](https://lightning.network/lightning-network-summary.pdf)
-        - [Understanding the Lightning Network 3-Part series](https://bitcoinmagazine.com/articles/understanding-the-lightning-network-part-building-a-bidirectional-payment-channel-1464710791) 
-        - [Deployable Lightning](https://github.com/ElementsProject/lightning/blob/master/doc/deployable-lightning.pdf) 
+        - [Understanding the Lightning Network 3-Part series](https://bitcoinmagazine.com/articles/understanding-the-lightning-network-part-building-a-bidirectional-payment-channel-1464710791)
+        - [Deployable Lightning](https://github.com/ElementsProject/lightning/blob/master/doc/deployable-lightning.pdf)
 
 
 Note that the core design of the Lightning Network has shifted over time as
@@ -96,7 +96,7 @@ above may be a bit out of date. Many implementers are currently working on an
 initial [Lightning Network Specifications](https://github.com/lightningnetwork/lightning-rfc).
 Once the specification is finalized, it will be the most up-to-date
 comprehensive document explaining the Lightning Network. As a result, it will
-be recommended for newcomers to read first in order to get up to speed. 
+be recommended for newcomers to read first in order to get up to speed.
 
 # Development Practices
 
@@ -299,7 +299,7 @@ commits should begin with the subsystem or package primarily affected by the
 change. In the case of a widespread change, the packages are to be delimited by
 either a '+' or a ','. This prefix seems minor but can be extremely helpful in
 determining the scope of a commit at a glance, or when bug hunting to find a
-commit which introduced a bug or regression. 
+commit which introduced a bug or regression.
 
 ## Ideal Git Commit Structure
 
@@ -309,7 +309,7 @@ their own, in order to facilitate easy usage of tools like `git bisect` to `git
 cherry-pick`. It's preferred that commits contain an isolated change in a
 single package. In this case, the commit header message should begin with the
 prefix of the modified package. For example, if a commit was made to modify the
-`lnwallet` package, it should start with `lnwallet: `. 
+`lnwallet` package, it should start with `lnwallet: `.
 
 In the case of changes that only build in tandem with changes made in other
 packages, it is permitted for a single commit to be made which contains several
@@ -323,7 +323,7 @@ Examples of common patterns w.r.t commit structures within the project:
 
   * It is common that during the work on a PR, existing bugs are found and
     fixed. If they can be fixed in isolation, they should have their own
-    commit. 
+    commit.
   * File restructuring like moving a function to another file or changing order
     of functions: with a separate commit because it is much easier to review
     the real changes that go on top of the restructuring.
@@ -331,7 +331,7 @@ Examples of common patterns w.r.t commit structures within the project:
   * Project or package wide file renamings should be in their own commit.
   * Ideally if a new package/struct/sub-system is added in a PR, there should
     be a single commit which adds the new functionality, with follow up
-    induvidual commits that begin to intergrate the functionality within the
+    individual commits that begin to integrate the functionality within the
     codebase.
   * If a PR only fixes a trivial issue, such as updating documentation on a
     small scale, fix typos, or any changes that do not modify the code, the
@@ -505,7 +505,7 @@ you rework the code, but generally you will simply be given feedback for you to
 make the necessary changes.
 
 During the process of responding to review comments, we prefer that changes be
-made with [fixup commits](https://robots.thoughtbot.com/autosquashing-git-commits). 
+made with [fixup commits](https://robots.thoughtbot.com/autosquashing-git-commits).
 The reason for this is two fold: it makes it easier for the reviewer to see
 what changes have been made between versions (since Github doesn't easily show
 prior versions like Critique) and it makes it easier on the PR author as they
@@ -519,13 +519,13 @@ Before your code is accepted, the [release notes we keep in-tree for the next
 upcoming milestone should be extended to describe the changes contained in your
 PR](https://github.com/lightningnetwork/lnd/tree/master/docs/release-notes).
 Unless otherwise mentioned by the reviewers of your PR, the description of your
-changes should live in the document set for the _next_ major release. 
+changes should live in the document set for the _next_ major release.
 
 Once your code is accepted, it will be integrated with the master branch. After
 2+ (sometimes 1) LGTM's (approvals) are given on a PR, it's eligible to land in
 master. At this final phase, it may be necessary to rebase the PR in order to
 resolve any conflicts and also squash fix up commits. Ideally, the set of
-[commits by new contributors are PGP signed](https://git-scm.com/book/en/v2/Git-Tools-Signing-Your-Work), 
+[commits by new contributors are PGP signed](https://git-scm.com/book/en/v2/Git-Tools-Signing-Your-Work),
 although this isn't a strong requirement (but we prefer it!). In order to keep
 these signatures intact, we prefer using merge commits. PR proposers can use
 `git rebase --signoff` to sign and rebase at the same time as a final step.
@@ -534,37 +534,37 @@ Rejoice as you will now be listed as a [contributor](https://github.com/lightnin
 
 ## Review Bot
 
-In order to keep the review flow going, Lightning Labs uses a bot to remind 
-PR reviewers about their outstanding reviews or to remind authors to address 
-recent reviews. Here are some important things to know about the bot and some 
+In order to keep the review flow going, Lightning Labs uses a bot to remind
+PR reviewers about their outstanding reviews or to remind authors to address
+recent reviews. Here are some important things to know about the bot and some
 controls for adjusting its behaviour:
 
 ####🤖 Expected Behaviour:
 - The bot will not do anything if your PR is in draft mode.
-- It will ping a pending reviewer if they have not reviewed or commented on the 
-PR in x days since the last update or the last time the bot pinged them. 
+- It will ping a pending reviewer if they have not reviewed or commented on the
+PR in x days since the last update or the last time the bot pinged them.
 (default x = 3)
-- It will ping the author of the PR if they have not addressed a review on a PR 
-after x days since last review or the last time the bot pinged them. It will 
+- It will ping the author of the PR if they have not addressed a review on a PR
+after x days since last review or the last time the bot pinged them. It will
 also ping them to remind them to re-request review if needed. (default x = 3)
 
 ####🤖 Controls:
-To control the bot, you need to add a comment on the PR starting with 
-`!lightninglabs-deploy` followed by the command. There are 2 control types: 
-mute/unmute & cadence. Only the latest comment for each control type will be 
-used. This also means you dont need to keep adding new control comments, just 
+To control the bot, you need to add a comment on the PR starting with
+`!lightninglabs-deploy` followed by the command. There are 2 control types:
+mute/unmute & cadence. Only the latest comment for each control type will be
+used. This also means you don't need to keep adding new control comments, just
 edit the latest comment for that control type.
 
 - `!lightninglabs-deploy mute` will mute the bot on the PR completely.
 - `!lightninglabs-deploy mute 72h30m` will mute the bot for the given duration.
-- `!lightninglabs-deploy mute 2022-Feb-02` will mute the bot until the given 
+- `!lightninglabs-deploy mute 2022-Feb-02` will mute the bot until the given
 date (must be in this format!).
-- `!lightninglabs-deploy mute #4` will mute the bot until the given PR of the 
+- `!lightninglabs-deploy mute #4` will mute the bot until the given PR of the
 same repo has been merged.
 - `!lightninglabs-deploy unmute` will unmute the bot (or just delete the comment
 that was muting it)
-- `!lightninglabs-deploy cadence 60h` change the cadence of the bot from the 
-default of 3 days to the given duration. 
+- `!lightninglabs-deploy cadence 60h` change the cadence of the bot from the
+default of 3 days to the given duration.
 - it will auto-mute if the PR is in Draft mode
 
 # Contribution Standards
@@ -583,4 +583,4 @@ the same license as all of the code found within lnd.
 # Acknowledgements
 This document was heavily inspired by a [similar document outlining the code
 contribution](https://github.com/btcsuite/btcd/blob/master/docs/code_contribution_guidelines.md)
-guidelines for btcd. 
+guidelines for btcd.

@@ -78,7 +78,7 @@ func (c *commitStatsCollector) PrintStats() string {
 	return s
 }
 
-// updateStatsMap updatess commit stats map for a caller.
+// updateStatsMap updates commit stats map for a caller.
 func updateStatMap(
 	caller string, stats CommitStats, m map[string]*callerStats) {
 

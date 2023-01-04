@@ -4,7 +4,7 @@ The following runs all fuzz tests on default settings:
 ```shell
 $  make fuzz
 ```
-The following runs all fuzz tests inside the lnwire package, each for a total of 1 minute, using 4 procs. 
+The following runs all fuzz tests inside the lnwire package, each for a total of 1 minute, using 4 procs.
 It is recommended that processes be set to the number of processor cores in the system:
 ```shell
 $  make fuzz pkg=lnwire fuzztime=1m parallel=4
@@ -37,4 +37,4 @@ Several parameters can be appended to the end of the make commands to tune the b
 Fuzzing generally works best with a corpus that is of minimal size while achieving the maximum coverage.
 
 ## Disclosure ##
-If you find any crashers that affect LND security, please disclose with the information found [here](https://github.com/lightningnetwork/lnd/#security).
+If you find any crashes that affect LND security, please disclose with the information found [here](https://github.com/lightningnetwork/lnd/#security).

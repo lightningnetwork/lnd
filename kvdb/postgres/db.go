@@ -66,7 +66,7 @@ func Init(maxConnections int) {
 }
 
 // newPostgresBackend returns a db object initialized with the passed backend
-// config. If postgres connection cannot be estabished, then returns error.
+// config. If postgres connection cannot be established, then returns error.
 func newPostgresBackend(ctx context.Context, config *Config, prefix string) (
 	*db, error) {
 

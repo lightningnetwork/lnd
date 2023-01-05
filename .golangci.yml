@@ -179,6 +179,11 @@ linters:
 
     # Disable nil check to allow returning multiple nil values.
     - nilnil
+    
+    # We often split tests into separate test functions. If we are forced to
+    # call t.Helper() within those functions, we lose the information where
+    # exactly a test failed in the generated failure stack trace.
+    - thelper
 
 
 issues:

@@ -918,5 +918,10 @@ func ParseUpfrontShutdownAddress(address string,
 		return nil, fmt.Errorf("invalid address: %v", err)
 	}
 
+	if !addr.IsForNet(params) {
+		return nil, fmt.Errorf("invalid address: %v is not a %s "+
+			"address", addr, params.Name)
+	}
+
 	return txscript.PayToAddrScript(addr)
 }

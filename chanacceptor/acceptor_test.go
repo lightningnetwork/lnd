@@ -55,7 +55,7 @@ func newChanAcceptorCtx(t *testing.T, acceptCallCount int,
 
 	testCtx.acceptor = NewRPCAcceptor(
 		testCtx.receiveResponse, testCtx.sendRequest, testTimeout*5,
-		&chaincfg.TestNet3Params, testCtx.quit,
+		&chaincfg.RegressionNetParams, testCtx.quit,
 	)
 
 	return testCtx
@@ -162,7 +162,7 @@ func (c *channelAcceptorCtx) queryAndAssert(queries map[*lnwire.OpenChannel]*Cha
 func TestMultipleAcceptClients(t *testing.T) {
 	testAddr := "bcrt1qwrmq9uca0t3dy9t9wtuq5tm4405r7tfzyqn9pp"
 	testUpfront, err := chancloser.ParseUpfrontShutdownAddress(
-		testAddr, &chaincfg.TestNet3Params,
+		testAddr, &chaincfg.RegressionNetParams,
 	)
 	require.NoError(t, err)
 

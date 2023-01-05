@@ -53,10 +53,10 @@ var (
 	// endBlockHeight is the ending block height of the alias range.
 	endBlockHeight = 16_250_000
 
-	// startingAlias is the first alias ShortChannelID that will get
+	// StartingAlias is the first alias ShortChannelID that will get
 	// assigned by RequestAlias. The starting BlockHeight is chosen so that
 	// legitimate SCIDs in integration tests aren't mistaken for an alias.
-	startingAlias = lnwire.ShortChannelID{
+	StartingAlias = lnwire.ShortChannelID{
 		BlockHeight: uint32(startingBlockHeight),
 		TxIndex:     0,
 		TxPosition:  0,
@@ -401,8 +401,8 @@ func (m *Manager) RequestAlias() (lnwire.ShortChannelID, error) {
 		lastBytes := bucket.Get(lastAliasKey)
 		if lastBytes == nil {
 			// If the key does not exist, then we can write the
-			// startingAlias to it.
-			nextAlias = startingAlias
+			// StartingAlias to it.
+			nextAlias = StartingAlias
 
 			var scratch [8]byte
 			byteOrder.PutUint64(scratch[:], nextAlias.ToUint64())

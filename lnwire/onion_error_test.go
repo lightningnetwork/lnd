@@ -101,7 +101,7 @@ func TestEncodeDecodeTlv(t *testing.T) {
 
 var testTlv, _ = hex.DecodeString("fd023104deadbeef")
 
-func testEncodeDecodeTlv(t *testing.T, testFailure FailureMessage) { //nolint: lll,thelper
+func testEncodeDecodeTlv(t *testing.T, testFailure FailureMessage) {
 	var failureMessageBuffer bytes.Buffer
 
 	err := EncodeFailureMessage(&failureMessageBuffer, testFailure, 0)

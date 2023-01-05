@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1525,12 +1526,10 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 		BlockHeight: height,
 	}
 
-	// Delete everything after this height from the db.
-	endShortChanID := lnwire.ShortChannelID{
-		BlockHeight: math.MaxUint32 & 0x00ffffff,
-		TxIndex:     math.MaxUint32 & 0x00ffffff,
-		TxPosition:  math.MaxUint16,
-	}
+	// Delete everything after this height from the db up until the
+	// SCID alias range.
+	endShortChanID := aliasmgr.StartingAlias
+
 	// The block height will be the 3 first bytes of the channel IDs.
 	var chanIDStart [8]byte
 	byteOrder.PutUint64(chanIDStart[:], startShortChanID.ToUint64())
@@ -1569,11 +1568,14 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 		// found edge.
 		// NOTE: we must delete the edges after the cursor loop, since
 		// modifying the bucket while traversing is not safe.
+		// NOTE: We use a < comparison in bytes.Compare instead of <=
+		// so that the StartingAlias itself isn't deleted.
 		var keys [][]byte
 		cursor := edgeIndex.ReadWriteCursor()
-		for k, v := cursor.Seek(chanIDStart[:]); k != nil &&
-			bytes.Compare(k, chanIDEnd[:]) <= 0; k, v = cursor.Next() {
 
+		//nolint:lll
+		for k, v := cursor.Seek(chanIDStart[:]); k != nil &&
+			bytes.Compare(k, chanIDEnd[:]) < 0; k, v = cursor.Next() {
 			edgeInfoReader := bytes.NewReader(v)
 			edgeInfo, err := deserializeChanEdgeInfo(edgeInfoReader)
 			if err != nil {

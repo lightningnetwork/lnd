@@ -184,6 +184,10 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 
 * [Prevent nil pointer dereference during funding manager 
   test](https://github.com/lightningnetwork/lnd/pull/7268)
+  
+* Fixed a [failure message parsing bug](https://github.com/lightningnetwork/lnd/pull/7262)
+  that caused additional failure message data to be interpreted as being part of
+  a channel update.
 
 ## `lncli`
 

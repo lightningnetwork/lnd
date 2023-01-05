@@ -1,9 +1,9 @@
 package lnwire
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"io"
 	"reflect"
 	"testing"
@@ -82,6 +82,44 @@ func TestEncodeDecodeCode(t *testing.T) {
 	}
 }
 
+// TestEncodeDecodeTlv tests the ability of onion errors to be properly encoded
+// and decoded with tlv data present.
+func TestEncodeDecodeTlv(t *testing.T) {
+	t.Parallel()
+
+	for _, testFailure := range onionFailures {
+		testFailure := testFailure
+		code := testFailure.Code().String()
+
+		t.Run(code, func(t *testing.T) {
+			t.Parallel()
+
+			testEncodeDecodeTlv(t, testFailure)
+		})
+	}
+}
+
+var testTlv, _ = hex.DecodeString("fd023104deadbeef")
+
+func testEncodeDecodeTlv(t *testing.T, testFailure FailureMessage) { //nolint: lll,thelper
+	var failureMessageBuffer bytes.Buffer
+
+	err := EncodeFailureMessage(&failureMessageBuffer, testFailure, 0)
+	require.NoError(t, err)
+
+	failureMessageBuffer.Write(testTlv)
+
+	failure, err := DecodeFailureMessage(&failureMessageBuffer, 0)
+	require.NoError(t, err)
+
+	// FailIncorrectDetails already reads tlv data. Adapt the expected data.
+	if incorrectDetails, ok := testFailure.(*FailIncorrectDetails); ok {
+		incorrectDetails.extraOpaqueData = testTlv
+	}
+
+	require.Equal(t, testFailure, failure)
+}
+
 // TestChannelUpdateCompatabilityParsing tests that we're able to properly read
 // out channel update messages encoded in an onion error payload that was
 // written in the legacy (type prefixed) format.
@@ -100,7 +138,7 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 	// encoded channel update message.
 	var newChanUpdate ChannelUpdate
 	err := parseChannelUpdateCompatabilityMode(
-		bufio.NewReader(&b), &newChanUpdate, 0,
+		&b, uint16(b.Len()), &newChanUpdate, 0,
 	)
 	require.NoError(t, err, "unable to parse channel update")
 
@@ -127,7 +165,7 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 	// message even with the extra two bytes.
 	var newChanUpdate2 ChannelUpdate
 	err = parseChannelUpdateCompatabilityMode(
-		bufio.NewReader(&b), &newChanUpdate2, 0,
+		&b, uint16(b.Len()), &newChanUpdate2, 0,
 	)
 	require.NoError(t, err, "unable to parse channel update")
 

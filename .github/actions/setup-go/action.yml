@@ -27,8 +27,9 @@ runs:
           ~/.cache/go-build
           ~/Library/Caches/go-build
           ~\AppData\Local\go-build
-        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ inputs.go-version }}-${{ github.job }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
+          ${{ runner.os }}-go-${{ inputs.go-version }}-${{ github.job }}-
           ${{ runner.os }}-go-${{ inputs.go-version }}-
 
     - name: set GOPATH

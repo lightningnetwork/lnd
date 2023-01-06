@@ -312,7 +312,8 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   branch](https://github.com/lightningnetwork/lnd/pull/7103) rather than just 
   using the master branch. And [skip the commit 
   check](https://github.com/lightningnetwork/lnd/pull/7114) for all non-PR 
-  events.
+  events. The Golang build cache [was also optimized to speed up tests and
+  builds](https://github.com/lightningnetwork/lnd/pull/7295).
 
 * Fixed docker image version used in
   [`tools`](https://github.com/lightningnetwork/lnd/pull/7254).

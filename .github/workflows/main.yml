@@ -18,9 +18,6 @@ defaults:
     shell: bash
 
 env:
-  # go needs absolute directories, using the $HOME variable doesn't work here.
-  GOCACHE: /home/runner/work/go/pkg/build
-  GOPATH: /home/runner/work/go
   BITCOIN_VERSION: "23.0"
 
   # If you change this value, please change it in the following files as well:
@@ -236,9 +233,6 @@ jobs:
   windows-integration-test:
     name: run windows itest
     runs-on: windows-latest
-    env:
-      GOCACHE: ${{ github.workspace }}/go/pkg/build
-      GOPATH: ${{ github.workspace }}/go
     steps:
       - name: git checkout
         uses: actions/checkout@v3
@@ -320,9 +314,6 @@ jobs:
   new-windows-integration-test:
     name: run new windows itest
     runs-on: windows-latest
-    env:
-      GOCACHE: ${{ github.workspace }}/go/pkg/build
-      GOPATH: ${{ github.workspace }}/go
     steps:
       - name: git checkout
         uses: actions/checkout@v3

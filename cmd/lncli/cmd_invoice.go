@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/urfave/cli"
 )
@@ -74,6 +75,14 @@ var addInvoiceCommand = cli.Command{
 			Usage: "creates an AMP invoice. If true, preimage " +
 				"should not be set.",
 		},
+		cli.Uint64Flag{
+			Name: "final_cltv_delta",
+			Usage: "number of blocks the last hop has to reveal " +
+				"the preimage. The default value can be " +
+				"different when the timelockdelta in the " +
+				"lnd.conf is set.",
+			Value: chainreg.DefaultBitcoinTimeLockDelta,
+		},
 	},
 	Action: actionDecorator(addInvoice),
 }
@@ -128,6 +137,7 @@ func addInvoice(ctx *cli.Context) error {
 		Expiry:          ctx.Int64("expiry"),
 		Private:         ctx.Bool("private"),
 		IsAmp:           ctx.Bool("amp"),
+		CltvExpiry:      ctx.Uint64("final_cltv_delta"),
 	}
 
 	resp, err := client.AddInvoice(ctxc, invoice)

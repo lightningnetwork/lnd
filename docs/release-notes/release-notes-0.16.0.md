@@ -225,6 +225,9 @@ data.
 * [Decreased the mutex lock
   scope](https://github.com/lightningnetwork/lnd/pull/7330) inside `ChannelRouter`.
 
+* [Add Custom Message to the fuzz testsuite
+in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
@@ -411,3 +414,4 @@ refactor the itest for code health and maintenance.
 * Tommy Volk
 * Yong Yu
 * Yusuke Shimizu
+* ziggie1984

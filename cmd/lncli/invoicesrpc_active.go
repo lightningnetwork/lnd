@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/urfave/cli"
 )
@@ -190,6 +191,14 @@ var addHoldInvoiceCommand = cli.Command{
 				"private channels in order to assist the " +
 				"payer in reaching you",
 		},
+		cli.Uint64Flag{
+			Name: "final_cltv_delta",
+			Usage: "number of blocks the last hop has to reveal " +
+				"the preimage. The default value can be " +
+				"different when the timelockdelta in the " +
+				"lnd.conf is set.",
+			Value: chainreg.DefaultBitcoinTimeLockDelta,
+		},
 	},
 	Action: actionDecorator(addHoldInvoice),
 }
@@ -241,6 +250,7 @@ func addHoldInvoice(ctx *cli.Context) error {
 		FallbackAddr:    ctx.String("fallback_addr"),
 		Expiry:          ctx.Int64("expiry"),
 		Private:         ctx.Bool("private"),
+		CltvExpiry:      ctx.Uint64("final_cltv_delta"),
 	}
 
 	resp, err := client.AddHoldInvoice(ctxc, invoice)

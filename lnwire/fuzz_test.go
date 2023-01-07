@@ -807,3 +807,18 @@ func FuzzUpdateFulfillHTLC(f *testing.F) {
 		harness(t, data)
 	})
 }
+
+func FuzzCustomMessage(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte, customMessageType uint16) {
+		if customMessageType < uint16(CustomTypeStart) {
+			customMessageType += uint16(CustomTypeStart)
+		}
+
+		// Prefix with CustomMessage.
+		data = prefixWithMsgType(data, MessageType(customMessageType))
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}

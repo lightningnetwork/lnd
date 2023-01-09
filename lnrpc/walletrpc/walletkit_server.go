@@ -42,6 +42,10 @@ import (
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
+const (
+	minKeyFamily = 512
+)
+
 var (
 	// macaroonOps are the set of capabilities that our minted macaroon (if
 	// it doesn't already exist) will have.
@@ -73,6 +77,10 @@ var (
 		"/walletrpc.WalletKit/DeriveKey": {{
 			Entity: "address",
 			Action: "read",
+		}},
+		"/walletrpc.WalletKit/ExportPrivateKey": {{
+			Entity: "address",
+			Action: "write",
 		}},
 		"/walletrpc.WalletKit/NextAddr": {{
 			Entity: "address",
@@ -537,6 +545,31 @@ func (w *WalletKit) DeriveKey(ctx context.Context,
 			KeyIndex:  int32(keyDesc.Index),
 		},
 		RawKeyBytes: keyDesc.PubKey.SerializeCompressed(),
+	}, nil
+}
+
+// DeriveKey attempts to derive an arbitrary key specified by the passed
+// KeyLocator.
+func (w *WalletKit) ExportPrivateKey(ctx context.Context,
+	req *signrpc.KeyLocator) (*ExportPrivateKeyResponse, error) {
+
+	if req.KeyFamily < minKeyFamily {
+		return nil, fmt.Errorf("expected key familiy greater than %v",
+			minKeyFamily-1)
+	}
+
+	privKey, err := w.cfg.KeyRing.DerivePrivKey(
+		keychain.KeyDescriptor{
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamily(req.KeyFamily),
+				Index:  uint32(req.KeyIndex),
+			}})
+	if err != nil {
+		return nil, err
+	}
+
+	return &ExportPrivateKeyResponse{
+		RawKeyBytes: privKey.Serialize(),
 	}, nil
 }
 

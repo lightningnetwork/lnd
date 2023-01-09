@@ -269,6 +269,39 @@
         ]
       }
     },
+    "/v2/wallet/key/export": {
+      "post": {
+        "summary": "ExportPrivateKey attempts to exports a private key from the wallet with\na key family higher than 512.",
+        "operationId": "WalletKit_ExportPrivateKey",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcExportPrivateKeyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/signrpcKeyLocator"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/key/import": {
       "post": {
         "summary": "ImportPublicKey imports a public key as watch-only into the wallet. The\npublic key is converted into a simple address of the given type and that\naddress script is watched on chain. For Taproot keys, this will only watch\nthe BIP-0086 style output script. Use ImportTapscript for more advanced key\nspend or script spend outputs.",
@@ -1230,6 +1263,16 @@
           "type": "string",
           "format": "int64",
           "description": "The amount of satoshis per kw that should be used in order to reach the\nconfirmation target in the request."
+        }
+      }
+    },
+    "walletrpcExportPrivateKeyResponse": {
+      "type": "object",
+      "properties": {
+        "raw_key_bytes": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the private key in the key pair."
         }
       }
     },

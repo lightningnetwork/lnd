@@ -2885,6 +2885,8 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		channeldb.ChanStatusLocalCloseInitiator,
 	)
 
+	// We set the CleanOnReceive flag so the ChanCloser immediately calls
+	// ChannelClean on receipt of the peer's Shutdown message.
 	chanCloser, err := p.createChanCloser(
 		lnChan, deliveryScript, feePerKw, nil, locallyInitiated,
 	)
@@ -2899,10 +2901,12 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	chanID := lnwire.NewChanIDFromOutPoint(&c.FundingOutpoint)
 	p.activeChanCloses[chanID] = chanCloser
 
-	// Create the Shutdown message.
-	shutdownMsg, err := chanCloser.ShutdownChan()
+	// Recreate the Shutdown message and give it to the ChanCloser.
+	shutdownMsg := lnwire.NewShutdown(chanID, deliveryScript)
+
+	_, _, err = chanCloser.ProcessCloseMsg(shutdownMsg, false)
 	if err != nil {
-		p.log.Errorf("unable to create shutdown message: %v", err)
+		peerLog.Errorf("unable to process shutdown message: %v", err)
 		delete(p.activeChanCloses, chanID)
 		return nil, err
 	}

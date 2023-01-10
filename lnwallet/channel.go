@@ -7467,6 +7467,17 @@ func (lc *LightningChannel) MarkDataLoss(commitPoint *btcec.PublicKey) error {
 	return lc.channelState.MarkDataLoss(commitPoint)
 }
 
+// HasChanStatus returns whether or not the underlying channelState has a
+// certain status.
+func (lc *LightningChannel) HasChanStatus(
+	status channeldb.ChannelStatus) bool {
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.channelState.HasChanStatus(status)
+}
+
 // ActiveHtlcs returns a slice of HTLC's which are currently active on *both*
 // commitment transactions.
 func (lc *LightningChannel) ActiveHtlcs() []channeldb.HTLC {

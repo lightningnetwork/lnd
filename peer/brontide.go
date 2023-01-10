@@ -3592,9 +3592,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 
 	// Next, we'll process the next message using the target state machine.
 	// We'll either continue negotiation, or halt.
-	msgs, closeFin, err := chanCloser.ProcessCloseMsg(
-		msg.msg,
-	)
+	msgs, closeFin, err := chanCloser.ProcessCloseMsg(msg.msg, true)
 	if err != nil {
 		err := fmt.Errorf("unable to process close msg: %v", err)
 		p.log.Error(err)

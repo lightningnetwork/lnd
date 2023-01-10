@@ -1049,6 +1049,13 @@ func (l *channelLink) htlcManager() {
 						"data loss: %v", err)
 				}
 
+				// Before we fail the link, we'll send an error
+				// to the other party so they know we can't
+				// continue.
+				//
+				// TODO(roasbeef): use reliable sender here?
+				l.sendFatalError()
+
 			// We determined the commit chains were not possible to
 			// sync. We cautiously fail the channel, but don't
 			// force close.
@@ -3451,4 +3458,15 @@ func (l *channelLink) fail(linkErr LinkFailureError,
 	// the peer about the failure.
 	l.failed = true
 	l.cfg.OnChannelFailure(l.ChanID(), l.ShortChanID(), linkErr)
+}
+
+// sendFatalError sends an Error message to the remote peer, in order to prompt
+// either a force close, or to signal that the channel can no longer continue.
+func (l *channelLink) sendFatalError() {
+	// For fatal errors, we'll set sync=true so we ensure that this is sent
+	// out before we go to mark the channel as borked.
+	l.cfg.Peer.SendMessage(true, &lnwire.Error{
+		ChanID: l.ChanID(),
+		Data:   []byte("fatal error"),
+	})
 }

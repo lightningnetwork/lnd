@@ -121,6 +121,20 @@ type InitFundingReserveMsg struct {
 	// to this channel.
 	RemoteFundingAmt btcutil.Amount
 
+	// FundUpToMaxAmt defines if channel funding should try to add as many
+	// funds to the channel opening as possible up to this amount. If used,
+	// then MinFundAmt is treated as the minimum amount of funds that must
+	// be available to open the channel. If set to zero it is ignored.
+	FundUpToMaxAmt btcutil.Amount
+
+	// MinFundAmt denotes the minimum channel capacity that has to be
+	// allocated iff the FundUpToMaxAmt is set.
+	MinFundAmt btcutil.Amount
+
+	// RemoteChanReserve is the channel reserve we required for the remote
+	// peer.
+	RemoteChanReserve btcutil.Amount
+
 	// CommitFeePerKw is the starting accepted satoshis/Kw fee for the set
 	// of initial commitment transactions. In order to ensure timely
 	// confirmation, it is recommended that this fee should be generous,
@@ -772,8 +786,12 @@ func (l *LightningWallet) CancelFundingIntent(pid [32]byte) error {
 // handleFundingReserveRequest processes a message intending to create, and
 // validate a funding reservation request.
 func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg) {
+
+	noFundsCommitted := req.LocalFundingAmt == 0 &&
+		req.RemoteFundingAmt == 0 && req.FundUpToMaxAmt == 0
+
 	// It isn't possible to create a channel with zero funds committed.
-	if req.LocalFundingAmt+req.RemoteFundingAmt == 0 {
+	if noFundsCommitted {
 		err := ErrZeroCapacity()
 		req.err <- err
 		req.resp <- nil
@@ -841,8 +859,14 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 		// the fee rate passed in to perform coin selection.
 		var err error
 		fundingReq := &chanfunding.Request{
-			RemoteAmt:    req.RemoteFundingAmt,
-			LocalAmt:     req.LocalFundingAmt,
+			RemoteAmt:         req.RemoteFundingAmt,
+			LocalAmt:          req.LocalFundingAmt,
+			FundUpToMaxAmt:    req.FundUpToMaxAmt,
+			MinFundAmt:        req.MinFundAmt,
+			RemoteChanReserve: req.RemoteChanReserve,
+			PushAmt: lnwire.MilliSatoshi.ToSatoshis(
+				req.PushMSat,
+			),
 			MinConfs:     req.MinConfs,
 			SubtractFees: req.SubtractFees,
 			FeeRate:      req.FundingFeePerKw,

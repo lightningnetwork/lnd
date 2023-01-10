@@ -5663,10 +5663,11 @@ func (lc *LightningChannel) ShortChanID() lnwire.ShortChannelID {
 	return lc.channelState.ShortChanID()
 }
 
-// LocalUpfrontShutdownScript returns the local upfront shutdown script for the
-// channel. If it was not set, an empty byte array is returned.
+// LocalUpfrontShutdownScript returns the local shutdown script for the
+// channel. It may or may not be the upfront shutdown script sent during the
+// funding flow. If it was not set, an empty byte array is returned.
 func (lc *LightningChannel) LocalUpfrontShutdownScript() lnwire.DeliveryAddress {
-	return lc.channelState.LocalShutdownScript
+	return lc.channelState.GetLocalShutdownScript()
 }
 
 // RemoteUpfrontShutdownScript returns the remote upfront shutdown script for the

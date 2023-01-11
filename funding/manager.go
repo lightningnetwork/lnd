@@ -71,12 +71,12 @@ const (
 	// to use for its commitment transaction.
 	MaxBtcRemoteDelay uint16 = 2016
 
-	// MinLtcRemoteDelay is the minimum Litecoin CSV delay we will require the
-	// remote to use for its commitment transaction.
+	// MinLtcRemoteDelay is the minimum Litecoin CSV delay we will require
+	// the remote to use for its commitment transaction.
 	MinLtcRemoteDelay uint16 = 576
 
-	// MaxLtcRemoteDelay is the maximum Litecoin CSV delay we will require the
-	// remote to use for its commitment transaction.
+	// MaxLtcRemoteDelay is the maximum Litecoin CSV delay we will require
+	// the remote to use for its commitment transaction.
 	MaxLtcRemoteDelay uint16 = 8064
 
 	// MinChanFundingSize is the smallest channel that we'll allow to be
@@ -98,7 +98,8 @@ const (
 	// MaxLtcFundingAmount is a soft-limit of the maximum channel size
 	// currently accepted on the Litecoin chain within the Lightning
 	// Protocol.
-	MaxLtcFundingAmount = MaxBtcFundingAmount * chainreg.BtcToLtcConversionRate
+	MaxLtcFundingAmount = MaxBtcFundingAmount *
+		chainreg.BtcToLtcConversionRate
 
 	// TODO(roasbeef): tune.
 	msgBufferSize = 50
@@ -122,10 +123,11 @@ var (
 	ErrConfirmationTimeout = errors.New("timeout waiting for funding " +
 		"confirmation")
 
-	// errUpfrontShutdownScriptNotSupported is returned if an upfront shutdown
-	// script is set for a peer that does not support the feature bit.
-	errUpfrontShutdownScriptNotSupported = errors.New("peer does not support" +
-		"option upfront shutdown script")
+	// errUpfrontShutdownScriptNotSupported is returned if an upfront
+	// shutdown script is set for a peer that does not support the feature
+	// bit.
+	errUpfrontShutdownScriptNotSupported = errors.New("peer does not " +
+		"support option upfront shutdown script")
 
 	zeroID [32]byte
 )
@@ -169,7 +171,8 @@ type reservationWithCtx struct {
 	err     chan error
 }
 
-// isLocked checks the reservation's timestamp to determine whether it is locked.
+// isLocked checks the reservation's timestamp to determine whether it is
+// locked.
 func (r *reservationWithCtx) isLocked() bool {
 	r.updateMtx.RLock()
 	defer r.updateMtx.RUnlock()
@@ -411,7 +414,8 @@ type Config struct {
 	// channel capacity and dust limit, will return an appropriate amount
 	// for the remote peer's required channel reserve that is to be adhered
 	// to at all times.
-	RequiredRemoteChanReserve func(capacity, dustLimit btcutil.Amount) btcutil.Amount
+	RequiredRemoteChanReserve func(capacity,
+		dustLimit btcutil.Amount) btcutil.Amount
 
 	// RequiredRemoteMaxValue is a function closure that, given the channel
 	// capacity, returns the amount of MilliSatoshis that our remote peer
@@ -471,13 +475,14 @@ type Config struct {
 	NotifyOpenChannelEvent func(wire.OutPoint)
 
 	// OpenChannelPredicate is a predicate on the lnwire.OpenChannel message
-	// and on the requesting node's public key that returns a bool which tells
-	// the funding manager whether or not to accept the channel.
+	// and on the requesting node's public key that returns a bool which
+	// tells the funding manager whether or not to accept the channel.
 	OpenChannelPredicate chanacceptor.ChannelAcceptor
 
-	// NotifyPendingOpenChannelEvent informs the ChannelNotifier when channels
-	// enter a pending state.
-	NotifyPendingOpenChannelEvent func(wire.OutPoint, *channeldb.OpenChannel)
+	// NotifyPendingOpenChannelEvent informs the ChannelNotifier when
+	// channels enter a pending state.
+	NotifyPendingOpenChannelEvent func(wire.OutPoint,
+		*channeldb.OpenChannel)
 
 	// EnableUpfrontShutdown specifies whether the upfront shutdown script
 	// is enabled.
@@ -667,7 +672,8 @@ func (f *Manager) start() error {
 			// channel that we initiated. No error will be returned
 			// if the transaction already has been broadcast.
 			chanType := channel.ChanType
-			if chanType.IsSingleFunder() && chanType.HasFundingTx() &&
+			if chanType.IsSingleFunder() &&
+				chanType.HasFundingTx() &&
 				channel.IsInitiator {
 
 				f.rebroadcastFundingTx(channel)
@@ -809,7 +815,9 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	log.Debugf("Failing funding flow for pending_id=%x: %v",
 		tempChanID, fundingErr)
 
-	ctx, err := f.cancelReservationCtx(peer.IdentityKey(), tempChanID, false)
+	ctx, err := f.cancelReservationCtx(
+		peer.IdentityKey(), tempChanID, false,
+	)
 	if err != nil {
 		log.Errorf("unable to cancel reservation: %v", err)
 	}
@@ -1357,8 +1365,8 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		return
 	}
 
-	// Send the OpenChannel request to the ChannelAcceptor to determine whether
-	// this node will accept the channel.
+	// Send the OpenChannel request to the ChannelAcceptor to determine
+	// whether this node will accept the channel.
 	chanReq := &chanacceptor.ChannelAcceptRequest{
 		Node:        peer.IdentityKey(),
 		OpenChanMsg: msg,
@@ -1418,8 +1426,8 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	)
 
 	if wasExplicit {
-		// Only echo back a channel type in AcceptChannel if we
-		// actually used explicit negotiation above.
+		// Only echo back a channel type in AcceptChannel if we actually
+		// used explicit negotiation above.
 		chanTypeFeatureBits = msg.ChannelType
 
 		// Check if the channel type includes the zero-conf or
@@ -1548,10 +1556,10 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		return
 	}
 
-	// Check whether the peer supports upfront shutdown, and get a new wallet
-	// address if our node is configured to set shutdown addresses by default.
-	// We use the upfront shutdown script provided by our channel acceptor
-	// (if any) in lieu of user input.
+	// Check whether the peer supports upfront shutdown, and get a new
+	// wallet address if our node is configured to set shutdown addresses by
+	// default. We use the upfront shutdown script provided by our channel
+	// acceptor (if any) in lieu of user input.
 	shutdown, err := getUpfrontShutdownScript(
 		f.cfg.EnableUpfrontShutdown, peer, acceptorResp.UpfrontShutdown,
 		f.selectShutdownScript,
@@ -1579,17 +1587,21 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		// validate the proposed LeaseExpiry against what was registered
 		// in our shim.
 		if reservation.LeaseExpiry() != 0 {
-			if uint32(*msg.LeaseExpiry) != reservation.LeaseExpiry() {
+			if uint32(*msg.LeaseExpiry) !=
+				reservation.LeaseExpiry() {
+
 				err := errors.New("lease expiry mismatch")
-				f.failFundingFlow(peer, msg.PendingChannelID, err)
+				f.failFundingFlow(
+					peer, msg.PendingChannelID, err,
+				)
 				return
 			}
 		}
 	}
 
 	log.Infof("Requiring %v confirmations for pendingChan(%x): "+
-		"amt=%v, push_amt=%v, committype=%v, upfrontShutdown=%x", numConfsReq,
-		msg.PendingChannelID, amt, msg.PushAmount,
+		"amt=%v, push_amt=%v, committype=%v, upfrontShutdown=%x",
+		numConfsReq, msg.PendingChannelID, amt, msg.PushAmount,
 		commitType, msg.UpfrontShutdownScript)
 
 	// Generate our required constraints for the remote party, using the
@@ -1771,7 +1783,8 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		// We'll want to quickly check that the ChannelType echoed by
 		// the channel request recipient matches what we proposed.
 		if msg.ChannelType == nil {
-			err := errors.New("explicit channel type not echoed back")
+			err := errors.New("explicit channel type not echoed " +
+				"back")
 			f.failFundingFlow(peer, msg.PendingChannelID, err)
 			return
 		}
@@ -1787,13 +1800,20 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		// be set.
 		if resCtx.reservation.LeaseExpiry() != 0 {
 			if msg.LeaseExpiry == nil {
-				err := errors.New("lease expiry not echoed back")
-				f.failFundingFlow(peer, msg.PendingChannelID, err)
+				err := errors.New("lease expiry not echoed " +
+					"back")
+				f.failFundingFlow(
+					peer, msg.PendingChannelID, err,
+				)
 				return
 			}
-			if uint32(*msg.LeaseExpiry) != resCtx.reservation.LeaseExpiry() {
+			if uint32(*msg.LeaseExpiry) !=
+				resCtx.reservation.LeaseExpiry() {
+
 				err := errors.New("lease expiry mismatch")
-				f.failFundingFlow(peer, msg.PendingChannelID, err)
+				f.failFundingFlow(
+					peer, msg.PendingChannelID, err,
+				)
 				return
 			}
 		}
@@ -1957,7 +1977,8 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	}
 
 	log.Infof("pendingChan(%x): remote party proposes num_confs=%v, "+
-		"csv_delay=%v", pendingChanID[:], msg.MinAcceptDepth, msg.CsvDelay)
+		"csv_delay=%v", pendingChanID[:], msg.MinAcceptDepth,
+		msg.CsvDelay)
 	log.Debugf("Remote party accepted commitment constraints: %v",
 		spew.Sdump(remoteContribution.ChannelConfig.ChannelConstraints))
 
@@ -2804,16 +2825,16 @@ func (f *Manager) handleFundingConfirmation(
 		&fundingPoint, markedOpen, &confChannel.shortChanID,
 	)
 	if err != nil {
-		return fmt.Errorf("error setting channel state to markedOpen: %v",
-			err)
+		return fmt.Errorf("error setting channel state to "+
+			"markedOpen: %v", err)
 	}
 
 	// Now that the channel has been fully confirmed and we successfully
 	// saved the opening state, we'll mark it as open within the database.
 	err = completeChan.MarkAsOpen(confChannel.shortChanID)
 	if err != nil {
-		return fmt.Errorf("error setting channel pending flag to false: "+
-			"%v", err)
+		return fmt.Errorf("error setting channel pending flag to "+
+			"false:	%v", err)
 	}
 
 	// Update the confirmed funding transaction label.
@@ -3151,8 +3172,8 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 
 		fundingScript, err := makeFundingScript(completeChan)
 		if err != nil {
-			return fmt.Errorf("unable to create funding script for "+
-				"ChannelPoint(%v): %v",
+			return fmt.Errorf("unable to create funding script "+
+				"for ChannelPoint(%v): %v",
 				completeChan.FundingOutpoint, err)
 		}
 
@@ -3236,7 +3257,8 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			*shortChanID, chanID,
 		)
 		if err != nil {
-			return fmt.Errorf("channel announcement failed: %v", err)
+			return fmt.Errorf("channel announcement failed: %w",
+				err)
 		}
 
 		log.Debugf("Channel with ChannelPoint(%v), short_chan_id=%v "+

@@ -1185,11 +1185,23 @@
         "info": {
           "$ref": "#/definitions/routerrpcHtlcInfo",
           "description": "Info contains details about the htlc that was forwarded."
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "Payment hash of the htlc."
         }
       }
     },
     "routerrpcForwardFailEvent": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "Payment hash of the htlc."
+        }
+      }
     },
     "routerrpcForwardHtlcInterceptRequest": {
       "type": "object",
@@ -1391,6 +1403,11 @@
         "failure_string": {
           "type": "string",
           "description": "A string representation of the link failure."
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "Payment hash of the htlc we failed."
         }
       }
     },
@@ -1761,7 +1778,12 @@
         "preimage": {
           "type": "string",
           "format": "byte",
-          "description": "The revealed preimage."
+          "description": "Preimage of the htlc."
+        },
+        "payment_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "Payment hash of the htlc."
         }
       }
     },

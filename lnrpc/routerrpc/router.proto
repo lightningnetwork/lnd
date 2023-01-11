@@ -642,14 +642,20 @@ message HtlcInfo {
 message ForwardEvent {
     // Info contains details about the htlc that was forwarded.
     HtlcInfo info = 1;
+    // Payment hash of the htlc.
+    bytes payment_hash = 2;
 }
 
 message ForwardFailEvent {
+    // Payment hash of the htlc.
+    bytes payment_hash = 13;
 }
 
 message SettleEvent {
-    // The revealed preimage.
+    // Preimage of the htlc.
     bytes preimage = 1;
+    // Payment hash of the htlc.
+    bytes payment_hash = 2;
 }
 
 message FinalHtlcEvent {
@@ -676,6 +682,9 @@ message LinkFailEvent {
 
     // A string representation of the link failure.
     string failure_string = 4;
+
+    // Payment hash of the htlc we failed.
+    bytes payment_hash = 5;
 }
 
 enum FailureDetail {

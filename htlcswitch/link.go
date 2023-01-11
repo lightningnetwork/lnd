@@ -3320,6 +3320,30 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 		return nil
 	}
 
+	// We also check that the upfront fee we have received is at least
+	// equal to the upfront fee that the sender intended, if both are set.
+	// We do not enforce strict equality here to prevent forwarding nodes
+	// from probing our node to check whether we are the receiving hop.
+	incomingFee, incomingSet := pd.UpfrontFee.Value()
+	onionFee, onionSet := fwdInfo.UpfrontFeeToForward.Value()
+
+	if incomingSet && onionSet {
+		if incomingFee < onionFee {
+			l.log.Errorf("onion payload of incoming htlc(%x) has "+
+				"incorrect unconditional fee: expected %v, "+
+				"got %v", pd.RHash, incomingFee, onionFee)
+
+			badFee := lnwire.NewFailFinalIncorrectUpfrontFee(
+				incomingFee,
+			)
+			failure := NewLinkError(badFee)
+
+			l.sendHTLCError(pd, failure, obfuscator, true)
+
+			return nil
+		}
+	}
+
 	// Notify the invoiceRegistry of the exit hop htlc. If we crash right
 	// after this, this code will be re-executed after restart. We will
 	// receive back a resolution event.

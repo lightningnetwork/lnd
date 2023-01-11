@@ -648,3 +648,37 @@ func (h *HarnessRPC) SubscribeChannelEvents() ChannelEventsClient {
 
 	return client
 }
+
+type CustomMessageClient lnrpc.Lightning_SubscribeCustomMessagesClient
+
+// SubscribeCustomMessages creates a subscription client for custom messages.
+func (h *HarnessRPC) SubscribeCustomMessages() (CustomMessageClient,
+	context.CancelFunc) {
+
+	ctxt, cancel := context.WithCancel(h.runCtx)
+
+	req := &lnrpc.SubscribeCustomMessagesRequest{}
+
+	// SubscribeCustomMessages needs to have the context alive for the
+	// entire test case as the returned client will be used for send and
+	// receive events stream. Thus we use runCtx here instead of a timeout
+	// context.
+	stream, err := h.LN.SubscribeCustomMessages(ctxt, req)
+	h.NoError(err, "SubscribeCustomMessages")
+
+	return stream, cancel
+}
+
+// SendCustomMessage makes a RPC call to the node's SendCustomMessage and
+// returns the response.
+func (h *HarnessRPC) SendCustomMessage(
+	req *lnrpc.SendCustomMessageRequest) *lnrpc.SendCustomMessageResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.SendCustomMessage(ctxt, req)
+	h.NoError(err, "SendCustomMessage")
+
+	return resp
+}

@@ -497,4 +497,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "open channel fee policy",
 		TestFunc: testOpenChannelUpdateFeePolicy,
 	},
+	{
+		Name:     "custom message",
+		TestFunc: testCustomMessage,
+	},
 }

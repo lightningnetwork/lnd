@@ -81,6 +81,7 @@ const (
 	CodeExpiryTooFar                     FailCode = 21
 	CodeInvalidOnionPayload                       = FlagPerm | 22
 	CodeMPPTimeout                       FailCode = 23
+	CodeFailInsufficientUpfrontFee                = FlagUpdate | 25
 )
 
 // String returns the string representation of the failure code.
@@ -157,6 +158,9 @@ func (c FailCode) String() string {
 
 	case CodeMPPTimeout:
 		return "MPPTimeout"
+
+	case CodeFailInsufficientUpfrontFee:
+		return "InsufficientUpfrontFee"
 
 	default:
 		return "<unknown>"
@@ -1136,6 +1140,77 @@ func (f *FailFinalIncorrectHtlcAmount) Encode(w *bytes.Buffer,
 	return WriteMilliSatoshi(w, f.IncomingHTLCAmount)
 }
 
+// FailInsufficientUpfrontFee is returned is the next_upfront_fee does not
+// meet the outgoing channel's requirements.
+type FailInsufficientUpfrontFee struct {
+	// UpfrontFee is the upfront fee on the outgoing channel that is
+	// insufficient.
+	UpfrontFee MilliSatoshi
+
+	// Update is used to update information about state of the channel
+	// which caused the failure.
+	Update ChannelUpdate
+}
+
+// Returns a human readable string describing the target FailureMessage.
+//
+// NOTE: Implements the error interface.
+func (f *FailInsufficientUpfrontFee) Error() string {
+	return fmt.Sprintf("InsufficientUpfrontFee(outgoing upfront=%v, "+
+		"update=%v)", f.UpfrontFee, spew.Sdump(f.Update))
+}
+
+// NewFailInsufficientUpfrontFee creates new instance of
+// FailInsufficientUpfrontFee.
+func NewFailInsufficientUpfrontFee(fee MilliSatoshi,
+	update ChannelUpdate) *FailInsufficientUpfrontFee {
+
+	return &FailInsufficientUpfrontFee{
+		UpfrontFee: fee,
+		Update:     update,
+	}
+}
+
+// Code returns the failure unique code.
+//
+// NOTE: Part of the FailureMessage interface.
+func (f *FailInsufficientUpfrontFee) Code() FailCode {
+	return CodeFailInsufficientUpfrontFee
+}
+
+// Decode decodes the failure from bytes stream.
+//
+// NOTE: Part of the Serializable interface.
+func (f *FailInsufficientUpfrontFee) Decode(r io.Reader, pver uint32) error {
+	if err := ReadElement(r, &f.UpfrontFee); err != nil {
+		return err
+	}
+
+	var length uint16
+	if err := ReadElement(r, &length); err != nil {
+		return err
+	}
+
+	f.Update = ChannelUpdate{}
+
+	return parseChannelUpdateCompatabilityMode(
+		r, length, &f.Update, pver,
+	)
+}
+
+// Encode writes the failure in bytes stream.
+//
+// NOTE: Part of the Serializable interface.
+func (f *FailInsufficientUpfrontFee) Encode(w *bytes.Buffer,
+	pver uint32) error {
+
+	if err := WriteMilliSatoshi(w, f.UpfrontFee); err != nil {
+		return err
+	}
+
+	return writeOnionErrorChanUpdate(w, &f.Update, pver)
+}
+
 // FailExpiryTooFar is returned if the CLTV expiry in the HTLC is too far in the
 // future.
 //
@@ -1453,6 +1528,9 @@ func makeEmptyOnionError(code FailCode) (FailureMessage, error) {
 
 	case CodeMPPTimeout:
 		return &FailMPPTimeout{}, nil
+
+	case CodeFailInsufficientUpfrontFee:
+		return &FailInsufficientUpfrontFee{}, nil
 
 	default:
 		return nil, errors.Errorf("unknown error code: %v", code)

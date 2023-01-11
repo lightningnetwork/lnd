@@ -87,6 +87,9 @@ type ForwardingPolicy struct {
 	// used to compute the required fee for a given HTLC.
 	FeeRate lnwire.MilliSatoshi
 
+	// InboundFee is the fee that must be paid for incoming HTLCs.
+	InboundFee InboundFee
+
 	// TimeLockDelta is the absolute time-lock value, expressed in blocks,
 	// that will be subtracted from an incoming HTLC's timelock value to
 	// create the time-lock value for the forwarded outgoing HTLC. The
@@ -675,6 +678,52 @@ func (l *channelLink) createFailureWithUpdate(incoming bool,
 	}
 
 	return cb(update)
+}
+
+// creteFeeInsufficientFailure creates a ChannelUpdate when failing a forward
+// because the attached fee is insufficient. If incomingScid is not nil, a
+// channel update for the incoming channel is also attached. This requires the
+// sender of the payment to understand the new failure message format.
+func (l *channelLink) creteFeeInsufficientFailure(
+	amtToForward lnwire.MilliSatoshi,
+	incomingScid *lnwire.ShortChannelID,
+	outgoingScid lnwire.ShortChannelID) lnwire.FailureMessage {
+
+	// Try using the FailAliasUpdate function. If it returns nil, fallback
+	// to the non-alias behavior.
+	var incomingUpdate *lnwire.ChannelUpdate
+	if incomingScid != nil {
+		incomingUpdate = l.cfg.FailAliasUpdate(
+			*incomingScid, true,
+		)
+		if incomingUpdate == nil {
+			// Fallback to the non-alias behavior.
+			var err error
+			incomingUpdate, err = l.cfg.FetchLastChannelUpdate(
+				*incomingScid,
+			)
+			if err != nil {
+				return &lnwire.FailTemporaryNodeFailure{}
+			}
+		}
+
+	}
+
+	// Try using the FailAliasUpdate function. If it returns nil, fallback
+	// to the non-alias behavior.
+	outgoingUpdate := l.cfg.FailAliasUpdate(outgoingScid, false)
+	if outgoingUpdate == nil {
+		// Fallback to the non-alias behavior.
+		var err error
+		outgoingUpdate, err = l.cfg.FetchLastChannelUpdate(l.ShortChanID())
+		if err != nil {
+			return &lnwire.FailTemporaryNodeFailure{}
+		}
+	}
+
+	return lnwire.NewFeeInsufficient(
+		amtToForward, *outgoingUpdate, incomingUpdate,
+	)
 }
 
 // syncChanState attempts to synchronize channel states with the remote party.
@@ -1853,7 +1902,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	case *lnwire.UpdateFailHTLC:
 		// Verify that the failure reason is at least 256 bytes plus
 		// overhead.
-		const minimumFailReasonLength = lnwire.FailureMessageLength +
+		const minimumFailReasonLength = lnwire.MinFailureMessageLength +
 			2 + 2 + 32
 
 		if len(msg.Reason) < minimumFailReasonLength {
@@ -2537,6 +2586,8 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
 	incomingTimeout, outgoingTimeout uint32,
+	incomingScid lnwire.ShortChannelID, inboundFee InboundFee,
+	senderFailureMessageVersion byte,
 	heightNow uint32, originalScid lnwire.ShortChannelID) *LinkError {
 
 	l.RLock()
@@ -2552,28 +2603,50 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 		return err
 	}
 
-	// Next, using the amount of the incoming HTLC, we'll calculate the
-	// expected fee this incoming HTLC must carry in order to satisfy the
-	// constraints of the outgoing link.
-	expectedFee := ExpectedFee(policy, amtToForward)
+	// Next, using the outgoing HTLC amount, we'll calculate the outgoing
+	// fee this incoming HTLC must carry in order to satisfy the constraints
+	// of the outgoing link.
+	outFee := ExpectedFee(policy, amtToForward)
+
+	// Then calculate the inbound fee that we charge based on the sum of
+	// outgoing HTLC amount and outgoing fee.
+	inFee := inboundFee.CalcFee(amtToForward + outFee)
+
+	// Add up both fee components. It is important to calculate both fees
+	// separately. An alternative way of calculating is to first determine
+	// an aggregate fee and apply that to the outgoing HTLC amount. However,
+	// rounding may cause the result to be slightly higher than in the case
+	// of separately rounded fee components. This potentially causes failed
+	// forwards for senders and is something to be avoided.
+	expectedFee := inFee + int64(outFee)
 
 	// If the actual fee is less than our expected fee, then we'll reject
 	// this HTLC as it didn't provide a sufficient amount of fees, or the
 	// values have been tampered with, or the send used incorrect/dated
 	// information to construct the forwarding information for this hop. In
 	// any case, we'll cancel this HTLC.
-	actualFee := incomingHtlcAmt - amtToForward
-	if incomingHtlcAmt < amtToForward || actualFee < expectedFee {
+	actualFee := int64(incomingHtlcAmt) - int64(amtToForward)
+	if actualFee < expectedFee {
 		l.log.Warnf("outgoing htlc(%x) has insufficient fee: "+
-			"expected %v, got %v",
-			payHash[:], int64(expectedFee), int64(actualFee))
+			"expected %v, got %v: incoming=%v, outgoing=%v, "+
+			"inboundFee=%v",
+			payHash[:], expectedFee, actualFee,
+			incomingHtlcAmt, amtToForward, inboundFee,
+		)
 
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
-		cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
-			return lnwire.NewFeeInsufficient(amtToForward, *upd)
+		//
+		// If the sending node supports the new failure message format,
+		// we'll also return an update of the incoming channel.
+		var incomingUpdateScid *lnwire.ShortChannelID
+		if senderFailureMessageVersion == 1 {
+			incomingUpdateScid = &incomingScid
 		}
-		failure := l.createFailureWithUpdate(false, originalScid, cb)
+
+		failure := l.creteFeeInsufficientFailure(
+			amtToForward, incomingUpdateScid, originalScid,
+		)
 		return NewLinkError(failure)
 	}
 
@@ -2882,7 +2955,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 			// that we need to convert this error within the switch
 			// to an actual error, by encrypting it as if we were
 			// the originating hop.
-			convertedErrorSize := lnwire.FailureMessageLength + 4
+			convertedErrorSize := lnwire.MinFailureMessageLength + 4
 			if len(pd.FailReason) == convertedErrorSize {
 				failPacket.convertedError = true
 			}
@@ -3095,18 +3168,22 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				// round of processing.
 				chanIterator.EncodeNextHop(buf)
 
+				inboundFee := l.cfg.FwrdingPolicy.InboundFee
+
 				updatePacket := &htlcPacket{
-					incomingChanID:  l.ShortChanID(),
-					incomingHTLCID:  pd.HtlcIndex,
-					outgoingChanID:  fwdInfo.NextHop,
-					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
-					htlc:            addMsg,
-					obfuscator:      obfuscator,
-					incomingTimeout: pd.Timeout,
-					outgoingTimeout: fwdInfo.OutgoingCTLV,
-					customRecords:   pld.CustomRecords(),
+					incomingChanID:              l.ShortChanID(),
+					incomingHTLCID:              pd.HtlcIndex,
+					outgoingChanID:              fwdInfo.NextHop,
+					sourceRef:                   pd.SourceRef,
+					incomingAmount:              pd.Amount,
+					amount:                      addMsg.Amount,
+					htlc:                        addMsg,
+					obfuscator:                  obfuscator,
+					incomingTimeout:             pd.Timeout,
+					outgoingTimeout:             fwdInfo.OutgoingCTLV,
+					customRecords:               pld.CustomRecords(),
+					inboundFee:                  inboundFee,
+					senderFailureMessageVersion: pld.FailureMessageVersion,
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -3159,18 +3236,22 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// have been added to switchPackets at the top of this
 			// section.
 			if fwdPkg.State == channeldb.FwdStateLockedIn {
+				inboundFee := l.cfg.FwrdingPolicy.InboundFee
+
 				updatePacket := &htlcPacket{
-					incomingChanID:  l.ShortChanID(),
-					incomingHTLCID:  pd.HtlcIndex,
-					outgoingChanID:  fwdInfo.NextHop,
-					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
-					htlc:            addMsg,
-					obfuscator:      obfuscator,
-					incomingTimeout: pd.Timeout,
-					outgoingTimeout: fwdInfo.OutgoingCTLV,
-					customRecords:   pld.CustomRecords(),
+					incomingChanID:              l.ShortChanID(),
+					incomingHTLCID:              pd.HtlcIndex,
+					outgoingChanID:              fwdInfo.NextHop,
+					sourceRef:                   pd.SourceRef,
+					incomingAmount:              pd.Amount,
+					amount:                      addMsg.Amount,
+					htlc:                        addMsg,
+					obfuscator:                  obfuscator,
+					incomingTimeout:             pd.Timeout,
+					outgoingTimeout:             fwdInfo.OutgoingCTLV,
+					customRecords:               pld.CustomRecords(),
+					inboundFee:                  inboundFee,
+					senderFailureMessageVersion: pld.FailureMessageVersion,
 				}
 
 				fwdPkg.FwdFilter.Set(idx)

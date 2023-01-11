@@ -49,7 +49,7 @@ var onionFailures = []FailureMessage{
 	NewTemporaryChannelFailure(&testChannelUpdate),
 	NewTemporaryChannelFailure(nil),
 	NewAmountBelowMinimum(testAmount, testChannelUpdate),
-	NewFeeInsufficient(testAmount, testChannelUpdate),
+	NewFeeInsufficient(testAmount, testChannelUpdate, &testChannelUpdate),
 	NewIncorrectCltvExpiry(testCtlvExpiry, testChannelUpdate),
 	NewExpiryTooSoon(testChannelUpdate),
 	NewChannelDisabled(testFlags, testChannelUpdate),
@@ -107,15 +107,22 @@ func testEncodeDecodeTlv(t *testing.T, testFailure FailureMessage) {
 	err := EncodeFailureMessage(&failureMessageBuffer, testFailure, 0)
 	require.NoError(t, err)
 
-	failureMessageBuffer.Write(testTlv)
+	extraTlv := testTlv
+	switch tlvFailure := testFailure.(type) {
+	// FailIncorrectDetails already reads tlv data. Adapt the expected data.
+	case *FailIncorrectDetails:
+		tlvFailure.extraOpaqueData = testTlv
+
+	// FailFeeInsufficient already encodes tlv data. Don't add another
+	// block.
+	case *FailFeeInsufficient:
+		extraTlv = nil
+	}
+
+	failureMessageBuffer.Write(extraTlv)
 
 	failure, err := DecodeFailureMessage(&failureMessageBuffer, 0)
 	require.NoError(t, err)
-
-	// FailIncorrectDetails already reads tlv data. Adapt the expected data.
-	if incorrectDetails, ok := testFailure.(*FailIncorrectDetails); ok {
-		incorrectDetails.extraOpaqueData = testTlv
-	}
 
 	require.Equal(t, testFailure, failure)
 }

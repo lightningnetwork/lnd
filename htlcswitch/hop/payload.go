@@ -97,6 +97,10 @@ type Payload struct {
 	// metadata is additional data that is sent along with the payment to
 	// the payee.
 	metadata []byte
+
+	// FailureMessageVersion is the version of the failure message format
+	// that the sender supports.
+	FailureMessageVersion byte
 }
 
 // NewLegacyPayload builds a Payload from the amount, cltv, and next hop
@@ -119,12 +123,13 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 // should correspond to the bytes encapsulated in a TLV onion payload.
 func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 	var (
-		cid      uint64
-		amt      uint64
-		cltv     uint32
-		mpp      = &record.MPP{}
-		amp      = &record.AMP{}
-		metadata []byte
+		cid                   uint64
+		amt                   uint64
+		cltv                  uint32
+		mpp                   = &record.MPP{}
+		amp                   = &record.AMP{}
+		metadata              []byte
+		failureMessageVersion byte
 	)
 
 	tlvStream, err := tlv.NewStream(
@@ -134,6 +139,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		mpp.Record(),
 		amp.Record(),
 		record.NewMetadataRecord(&metadata),
+		record.NewOnionFailureMessageVersion(&failureMessageVersion),
 	)
 	if err != nil {
 		return nil, err
@@ -192,10 +198,11 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 			AmountToForward: lnwire.MilliSatoshi(amt),
 			OutgoingCTLV:    cltv,
 		},
-		MPP:           mpp,
-		AMP:           amp,
-		metadata:      metadata,
-		customRecords: customRecords,
+		MPP:                   mpp,
+		AMP:                   amp,
+		metadata:              metadata,
+		customRecords:         customRecords,
+		FailureMessageVersion: failureMessageVersion,
 	}, nil
 }
 

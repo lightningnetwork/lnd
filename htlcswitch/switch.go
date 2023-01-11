@@ -1174,7 +1174,10 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				failure = link.CheckHtlcForward(
 					htlc.PaymentHash, packet.incomingAmount,
 					packet.amount, packet.incomingTimeout,
-					packet.outgoingTimeout, currentHeight,
+					packet.outgoingTimeout,
+					packet.incomingChanID, packet.inboundFee,
+					packet.senderFailureMessageVersion,
+					currentHeight,
 					packet.originalOutgoingChanID,
 				)
 			}

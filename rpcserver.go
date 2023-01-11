@@ -5819,6 +5819,23 @@ func marshalExtraOpaqueData(data []byte) map[uint64][]byte {
 	return records
 }
 
+// extractInboundFeeSafe tries to extract the inbound fee from the given extra
+// opaque data tlv block. If parsing fails, a zero inbound fee is returned. This
+// function is typically used on unvalidated data coming stored in the database.
+// There is not much we can do other than ignoring errors here.
+func extractInboundFeeSafe(data lnwire.ExtraOpaqueData) lnwire.Fee {
+	var inboundFee lnwire.Fee
+
+	_, err := data.ExtractRecords(&inboundFee)
+	if err != nil {
+		// Return zero fee. Do not return the inboundFee variable
+		// because it may be undefined.
+		return lnwire.Fee{}
+	}
+
+	return inboundFee
+}
+
 func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 	c1, c2 *channeldb.ChannelEdgePolicy) *lnrpc.ChannelEdge {
 
@@ -5868,6 +5885,7 @@ func marshalDBRoutingPolicy(
 	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
 
 	customRecords := marshalExtraOpaqueData(policy.ExtraOpaqueData)
+	inboundFee := extractInboundFeeSafe(policy.ExtraOpaqueData)
 
 	return &lnrpc.RoutingPolicy{
 		TimeLockDelta:    uint32(policy.TimeLockDelta),
@@ -5878,6 +5896,9 @@ func marshalDBRoutingPolicy(
 		Disabled:         disabled,
 		LastUpdate:       uint32(policy.LastUpdate.Unix()),
 		CustomRecords:    customRecords,
+
+		InboundFeeBaseMsat:      inboundFee.BaseFee,
+		InboundFeeRateMilliMsat: inboundFee.FeeRate,
 	}
 }
 
@@ -6628,13 +6649,18 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		feeRateFixedPoint := edgePolicy.FeeProportionalMillionths
 		feeRate := float64(feeRateFixedPoint) / feeBase
 
+		// Decode inbound fee from extra data.
+		inboundFee := extractInboundFeeSafe(edgePolicy.ExtraOpaqueData)
+
 		// TODO(roasbeef): also add stats for revenue for each channel
 		feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
-			ChanId:       chanInfo.ChannelID,
-			ChannelPoint: chanInfo.ChannelPoint.String(),
-			BaseFeeMsat:  int64(edgePolicy.FeeBaseMSat),
-			FeePerMil:    int64(feeRateFixedPoint),
-			FeeRate:      feeRate,
+			ChanId:             chanInfo.ChannelID,
+			ChannelPoint:       chanInfo.ChannelPoint.String(),
+			BaseFeeMsat:        int64(edgePolicy.FeeBaseMSat),
+			FeePerMil:          int64(feeRateFixedPoint),
+			FeeRate:            feeRate,
+			InboundBaseFeeMsat: inboundFee.BaseFee,
+			InboundFeePerMil:   inboundFee.FeeRate,
 		})
 
 		return nil
@@ -6647,9 +6673,10 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 
 	// computeFeeSum is a helper function that computes the total fees for
 	// a particular time slice described by a forwarding event query.
-	computeFeeSum := func(query channeldb.ForwardingEventQuery) (lnwire.MilliSatoshi, error) {
+	computeFeeSum := func(query channeldb.ForwardingEventQuery) (int64,
+		error) {
 
-		var totalFees lnwire.MilliSatoshi
+		var totalFeesMsat int64
 
 		// We'll continue to fetch the next query and accumulate the
 		// fees until the next query returns no events.
@@ -6668,8 +6695,8 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 			// Otherwise, we'll tally up an accumulate the total
 			// fees for this time slice.
 			for _, event := range timeSlice.ForwardingEvents {
-				fee := event.AmtIn - event.AmtOut
-				totalFees += fee
+				fee := int64(event.AmtIn) - int64(event.AmtOut)
+				totalFeesMsat += fee
 			}
 
 			// We'll now take the last offset index returned as
@@ -6680,7 +6707,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 			query.IndexOffset = timeSlice.LastIndexOffset
 		}
 
-		return totalFees, nil
+		return totalFeesMsat, nil
 	}
 
 	now := time.Now()
@@ -6726,11 +6753,26 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
 	}
 
+	// Get unsigned representations of the fees. Report zero if negative.
+	var unsignedDayFees, unsignedWeekFees, unsignedMonthFees btcutil.Amount
+	if dayFees > 0 {
+		unsignedDayFees = lnwire.MilliSatoshi(dayFees).ToSatoshis()
+	}
+	if weekFees > 0 {
+		unsignedWeekFees = lnwire.MilliSatoshi(weekFees).ToSatoshis()
+	}
+	if monthFees > 0 {
+		unsignedMonthFees = lnwire.MilliSatoshi(monthFees).ToSatoshis()
+	}
+
 	return &lnrpc.FeeReportResponse{
-		ChannelFees: feeReports,
-		DayFeeSum:   uint64(dayFees.ToSatoshis()),
-		WeekFeeSum:  uint64(weekFees.ToSatoshis()),
-		MonthFeeSum: uint64(monthFees.ToSatoshis()),
+		ChannelFees:     feeReports,
+		DayFeeSum:       uint64(unsignedDayFees),
+		WeekFeeSum:      uint64(unsignedWeekFees),
+		MonthFeeSum:     uint64(unsignedMonthFees),
+		DayFeeSumMsat:   dayFees,
+		WeekFeeSumMsat:  weekFees,
+		MonthFeeSumMsat: monthFees,
 	}, nil
 }
 
@@ -6816,6 +6858,10 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 	feeSchema := routing.FeeSchema{
 		BaseFee: baseFeeMsat,
 		FeeRate: feeRateFixed,
+		InboundFee: htlcswitch.InboundFee{
+			Base: req.InboundBaseFeeMsat,
+			Rate: req.InboundFeeRatePpm,
+		},
 	}
 
 	maxHtlc := lnwire.MilliSatoshi(req.MaxHtlcMsat)
@@ -6973,19 +7019,27 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 	for i, event := range timeSlice.ForwardingEvents {
 		amtInMsat := event.AmtIn
 		amtOutMsat := event.AmtOut
-		feeMsat := event.AmtIn - event.AmtOut
+		feeMsat := int64(event.AmtIn) - int64(event.AmtOut)
+
+		// Get unsigned representation of the fee. Report zero if
+		// negative.
+		var unsignedFeeMsat lnwire.MilliSatoshi
+		if feeMsat > 0 {
+			unsignedFeeMsat = lnwire.MilliSatoshi(feeMsat)
+		}
 
 		resp.ForwardingEvents[i] = &lnrpc.ForwardingEvent{
-			Timestamp:   uint64(event.Timestamp.Unix()),
-			TimestampNs: uint64(event.Timestamp.UnixNano()),
-			ChanIdIn:    event.IncomingChanID.ToUint64(),
-			ChanIdOut:   event.OutgoingChanID.ToUint64(),
-			AmtIn:       uint64(amtInMsat.ToSatoshis()),
-			AmtOut:      uint64(amtOutMsat.ToSatoshis()),
-			Fee:         uint64(feeMsat.ToSatoshis()),
-			FeeMsat:     uint64(feeMsat),
-			AmtInMsat:   uint64(amtInMsat),
-			AmtOutMsat:  uint64(amtOutMsat),
+			Timestamp:     uint64(event.Timestamp.Unix()),
+			TimestampNs:   uint64(event.Timestamp.UnixNano()),
+			ChanIdIn:      event.IncomingChanID.ToUint64(),
+			ChanIdOut:     event.OutgoingChanID.ToUint64(),
+			AmtIn:         uint64(amtInMsat.ToSatoshis()),
+			AmtOut:        uint64(amtOutMsat.ToSatoshis()),
+			Fee:           uint64(unsignedFeeMsat.ToSatoshis()),
+			FeeMsat:       uint64(unsignedFeeMsat),
+			FeeSignedMsat: feeMsat,
+			AmtInMsat:     uint64(amtInMsat),
+			AmtOutMsat:    uint64(amtOutMsat),
 		}
 
 		if req.PeerAliasLookup {

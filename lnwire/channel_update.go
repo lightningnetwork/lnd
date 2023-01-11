@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ChanUpdateMsgFlags is a bitfield that signals whether optional fields are
@@ -16,6 +17,8 @@ const (
 	// ChanUpdateOptionMaxHtlc is a bit that indicates whether the
 	// optional htlc_maximum_msat field is present in this ChannelUpdate.
 	ChanUpdateOptionMaxHtlc ChanUpdateMsgFlags = 1 << iota
+
+	ChannelUpdateTlvType tlv.Type = 1 << 16
 )
 
 // String returns the bitfield flags as a string.
@@ -278,4 +281,51 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+func (a *ChannelUpdate) Record() tlv.Record {
+	return tlv.MakeDynamicRecord(
+		ChannelUpdateTlvType, a, a.serializedSize,
+		channelUpdateEncoder, channelUpdateDecoder,
+	)
+}
+
+func (a *ChannelUpdate) serializedSize() uint64 {
+	var b bytes.Buffer
+	err := a.Encode(&b, 0)
+	if err != nil {
+		panic(err)
+	}
+
+	return uint64(b.Len())
+}
+
+// channelUpdateEncoder is a custom TLV encoder for the channel update record.
+func channelUpdateEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
+	v, ok := val.(*ChannelUpdate)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "lnwire.ChannelUpdate")
+	}
+
+	var b bytes.Buffer
+	err := v.Encode(&b, 0)
+	if err != nil {
+		return err
+	}
+
+	_, err = b.WriteTo(w)
+
+	return err
+}
+
+// channelUpdateDecoder is a custom TLV decoder for the channel update record.
+func channelUpdateDecoder(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
+	v, ok := val.(*ChannelUpdate)
+	if !ok {
+		return tlv.NewTypeForDecodingErr(
+			val, "lnwire.ChannelUpdate", l, l,
+		)
+	}
+
+	return v.Decode(r, 0)
 }

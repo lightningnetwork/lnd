@@ -20,7 +20,19 @@ const (
 	// MetadataOnionType is the type used in the onion for the payment
 	// metadata.
 	MetadataOnionType tlv.Type = 16
+
+	// OnionFailureMessageVersion is the type used in the onion for the
+	// failure message format version.
+	OnionFailureMessageVersion tlv.Type = 333
 )
+
+// NewOnionFailureMessageVersion creates a tlv.Record that encodes the failure
+// message format that the sender supports.
+func NewOnionFailureMessageVersion(version *byte) tlv.Record {
+	return tlv.MakePrimitiveRecord(
+		OnionFailureMessageVersion, version,
+	)
+}
 
 // NewAmtToFwdRecord creates a tlv.Record that encodes the amount_to_forward
 // (type 2) for an onion payload.

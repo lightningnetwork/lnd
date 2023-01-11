@@ -29,7 +29,7 @@ type FailureMessage interface {
 
 // FailureMessageLength is the size of the failure message plus the size of
 // padding. The FailureMessage message should always be EXACTLY this size.
-const FailureMessageLength = 256
+const MinFailureMessageLength = 256
 
 const (
 	// FlagBadOnion error flag describes an unparsable, encrypted by
@@ -795,14 +795,22 @@ type FailFeeInsufficient struct {
 	// Update is used to update information about state of the channel
 	// which caused the failure.
 	Update ChannelUpdate
+
+	// IncomingUpdate is used to update information about state of the
+	// incoming channel which was part of the failure. This field is
+	// optional and should only be returned in case the sender supports the
+	// new failure message format.
+	IncomingUpdate *ChannelUpdate
 }
 
 // NewFeeInsufficient creates new instance of the FailFeeInsufficient.
 func NewFeeInsufficient(htlcMsat MilliSatoshi,
-	update ChannelUpdate) *FailFeeInsufficient {
+	update ChannelUpdate, incomingUpdate *ChannelUpdate) *FailFeeInsufficient {
+
 	return &FailFeeInsufficient{
-		HtlcMsat: htlcMsat,
-		Update:   update,
+		HtlcMsat:       htlcMsat,
+		Update:         update,
+		IncomingUpdate: incomingUpdate,
 	}
 }
 
@@ -817,8 +825,8 @@ func (f *FailFeeInsufficient) Code() FailCode {
 //
 // NOTE: Implements the error interface.
 func (f *FailFeeInsufficient) Error() string {
-	return fmt.Sprintf("FeeInsufficient(htlc_amt==%v, update=%v", f.HtlcMsat,
-		spew.Sdump(f.Update))
+	return fmt.Sprintf("FeeInsufficient(htlc_amt==%v, update=%v, in_update=%v", f.HtlcMsat,
+		spew.Sdump(f.Update), spew.Sdump(f.IncomingUpdate))
 }
 
 // Decode decodes the failure from bytes stream.
@@ -835,9 +843,33 @@ func (f *FailFeeInsufficient) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return parseChannelUpdateCompatabilityMode(
+	err := parseChannelUpdateCompatabilityMode(
 		r, length, &f.Update, pver,
 	)
+	if err != nil {
+		return err
+	}
+
+	// Decode tlv extension and set incoming update if present and valid.
+	var incomingUpdate ChannelUpdate
+	incomingUpdateRecord := incomingUpdate.Record()
+
+	tlvStream, err := tlv.NewStream(incomingUpdateRecord)
+	if err != nil {
+		return err
+	}
+
+	types, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	value, ok := types[ChannelUpdateTlvType]
+	if ok && value == nil {
+		f.IncomingUpdate = &incomingUpdate
+	}
+
+	return nil
 }
 
 // Encode writes the failure in bytes stream.
@@ -848,7 +880,29 @@ func (f *FailFeeInsufficient) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	return writeOnionErrorChanUpdate(w, &f.Update, pver)
+	if err := writeOnionErrorChanUpdate(w, &f.Update, pver); err != nil {
+		return err
+	}
+
+	// If there is no incoming update, we can exit here. There is no need to
+	// add a tlv extension.
+	if f.IncomingUpdate == nil {
+		return nil
+	}
+
+	var b bytes.Buffer
+	if err := f.IncomingUpdate.Encode(&b, pver); err != nil {
+		return err
+	}
+
+	incomingUpdateRecord := f.IncomingUpdate.Record()
+
+	tlvStream, err := tlv.NewStream(incomingUpdateRecord)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
 }
 
 // FailIncorrectCltvExpiry is returned if outgoing cltv value does not match
@@ -1271,7 +1325,7 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 
 	// Check the total length. Convert to 32 bits to prevent overflow.
 	totalLength := uint32(padLength) + uint32(failureLength)
-	if totalLength < FailureMessageLength {
+	if totalLength < MinFailureMessageLength {
 		return nil, fmt.Errorf("failure message too short: "+
 			"msg=%v, pad=%v, total=%v",
 			failureLength, padLength, totalLength)
@@ -1324,17 +1378,16 @@ func EncodeFailure(w *bytes.Buffer, failure FailureMessage, pver uint32) error {
 		return err
 	}
 
-	// The combined size of this message must be below the max allowed
-	// failure message length.
 	failureMessage := failureMessageBuffer.Bytes()
-	if len(failureMessage) > FailureMessageLength {
-		return fmt.Errorf("failure message exceed max "+
-			"available size: %v", len(failureMessage))
+
+	// Add padding if the size of this message falls below the minimum
+	// failure message length.
+	var padLen int
+	if len(failureMessage) < MinFailureMessageLength {
+		padLen = MinFailureMessageLength - len(failureMessage)
 	}
 
-	// Finally, we'll add some padding in order to ensure that all failure
-	// messages are fixed size.
-	pad := make([]byte, FailureMessageLength-len(failureMessage))
+	pad := make([]byte, padLen)
 
 	if err := WriteUint16(w, uint16(len(failureMessage))); err != nil {
 		return err

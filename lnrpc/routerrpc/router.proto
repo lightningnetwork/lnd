@@ -95,7 +95,9 @@ service Router {
 
     /*
     Deprecated. QueryProbability returns the current success probability
-    estimate for a given node pair and amount.
+    estimate for a given node pair and amount. The call returns a zero success
+    probability if no channel is available or if the amount violates min/max
+    HTLC constraints.
     */
     rpc QueryProbability (QueryProbabilityRequest)
         returns (QueryProbabilityResponse);

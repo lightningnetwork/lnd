@@ -1490,6 +1490,7 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 			OutgoingAmt:      htlc.Amount,
 		},
 		getEventType(pkt),
+		htlc.PaymentHash,
 	)
 
 	l.tryBatchUpdateCommitTx()
@@ -1572,6 +1573,7 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 			newHtlcKey(pkt),
 			htlc.PaymentPreimage,
 			getEventType(pkt),
+			newPayHash(pkt),
 		)
 
 		// Immediately update the commitment tx to minimize latency.
@@ -1645,10 +1647,13 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 				getEventType(pkt),
 				pkt.linkFailure,
 				false,
+				newPayHash(pkt),
 			)
 		} else {
 			l.cfg.HtlcNotifier.NotifyForwardingFailEvent(
-				newHtlcKey(pkt), getEventType(pkt),
+				newHtlcKey(pkt),
+				getEventType(pkt),
+				newPayHash(pkt),
 			)
 		}
 
@@ -3339,6 +3344,7 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
 		},
 		preimage,
 		HtlcEventTypeReceive,
+		lntypes.Hash(pd.RHash),
 	)
 
 	return nil
@@ -3414,6 +3420,7 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		eventType,
 		failure,
 		true,
+		lntypes.Hash(pd.RHash),
 	)
 }
 

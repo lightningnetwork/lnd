@@ -108,7 +108,7 @@ func (h *HtlcNotifier) SubscribeHtlcEvents() (*subscribe.Client, error) {
 
 // HtlcKey uniquely identifies the htlc.
 type HtlcKey struct {
-	// IncomingCircuit is the channel an htlc id of the incoming htlc.
+	// IncomingCircuit is the channel and htlc id of the incoming htlc.
 	IncomingCircuit models.CircuitKey
 
 	// OutgoingCircuit is the channel and htlc id of the outgoing htlc.
@@ -226,6 +226,9 @@ type ForwardingEvent struct {
 
 	// Timestamp is the time when this htlc was forwarded.
 	Timestamp time.Time
+
+	// Payment hash this htlc locks funds to.
+	PaymentHash lntypes.Hash
 }
 
 // LinkFailEvent describes a htlc that failed on our incoming or outgoing
@@ -254,6 +257,9 @@ type LinkFailEvent struct {
 
 	// Timestamp is the time when the link failure occurred.
 	Timestamp time.Time
+
+	// Payment hash this htlc locks funds to.
+	PaymentHash lntypes.Hash
 }
 
 // ForwardingFailEvent represents a htlc failure which occurred down the line
@@ -273,6 +279,9 @@ type ForwardingFailEvent struct {
 
 	// Timestamp is the time when the forwarding failure was received.
 	Timestamp time.Time
+
+	// Payment hash this htlc locks funds to.
+	PaymentHash lntypes.Hash
 }
 
 // SettleEvent represents a htlc that was settled. HtlcInfo is not reliably
@@ -293,6 +302,9 @@ type SettleEvent struct {
 
 	// Timestamp is the time when this htlc was settled.
 	Timestamp time.Time
+
+	// Payment hash this htlc locks funds to.
+	PaymentHash lntypes.Hash
 }
 
 type FinalHtlcEvent struct {
@@ -312,13 +324,14 @@ type FinalHtlcEvent struct {
 //
 // Note this is part of the htlcNotifier interface.
 func (h *HtlcNotifier) NotifyForwardingEvent(key HtlcKey, info HtlcInfo,
-	eventType HtlcEventType) {
+	eventType HtlcEventType, paymentHash lntypes.Hash) {
 
 	event := &ForwardingEvent{
 		HtlcKey:       key,
 		HtlcInfo:      info,
 		HtlcEventType: eventType,
 		Timestamp:     h.now(),
+		PaymentHash:   paymentHash,
 	}
 
 	log.Tracef("Notifying forward event: %v over %v, %v", eventType, key,
@@ -334,7 +347,8 @@ func (h *HtlcNotifier) NotifyForwardingEvent(key HtlcKey, info HtlcInfo,
 //
 // Note this is part of the htlcNotifier interface.
 func (h *HtlcNotifier) NotifyLinkFailEvent(key HtlcKey, info HtlcInfo,
-	eventType HtlcEventType, linkErr *LinkError, incoming bool) {
+	eventType HtlcEventType, linkErr *LinkError,
+	incoming bool, paymentHash lntypes.Hash) {
 
 	event := &LinkFailEvent{
 		HtlcKey:       key,
@@ -343,6 +357,7 @@ func (h *HtlcNotifier) NotifyLinkFailEvent(key HtlcKey, info HtlcInfo,
 		LinkError:     linkErr,
 		Incoming:      incoming,
 		Timestamp:     h.now(),
+		PaymentHash:   paymentHash,
 	}
 
 	log.Tracef("Notifying link failure event: %v over %v, %v", eventType,
@@ -358,12 +373,13 @@ func (h *HtlcNotifier) NotifyLinkFailEvent(key HtlcKey, info HtlcInfo,
 //
 // Note this is part of the htlcNotifier interface.
 func (h *HtlcNotifier) NotifyForwardingFailEvent(key HtlcKey,
-	eventType HtlcEventType) {
+	eventType HtlcEventType, paymentHash lntypes.Hash) {
 
 	event := &ForwardingFailEvent{
 		HtlcKey:       key,
 		HtlcEventType: eventType,
 		Timestamp:     h.now(),
+		PaymentHash:   paymentHash,
 	}
 
 	log.Tracef("Notifying forwarding failure event: %v over %v", eventType,
@@ -379,13 +395,15 @@ func (h *HtlcNotifier) NotifyForwardingFailEvent(key HtlcKey,
 //
 // Note this is part of the htlcNotifier interface.
 func (h *HtlcNotifier) NotifySettleEvent(key HtlcKey,
-	preimage lntypes.Preimage, eventType HtlcEventType) {
+	preimage lntypes.Preimage, eventType HtlcEventType,
+	paymentHash lntypes.Hash) {
 
 	event := &SettleEvent{
 		HtlcKey:       key,
 		Preimage:      preimage,
 		HtlcEventType: eventType,
 		Timestamp:     h.now(),
+		PaymentHash:   paymentHash,
 	}
 
 	log.Tracef("Notifying settle event: %v over %v", eventType, key)
@@ -470,4 +488,15 @@ func getEventType(pkt *htlcPacket) HtlcEventType {
 	default:
 		return HtlcEventTypeForward
 	}
+}
+
+// newPayHash returns the payment hash for the package provided.
+func newPayHash(pkt *htlcPacket) lntypes.Hash {
+	// In case the circuit is nil a zero payment hash is returned to satisfy
+	// the htlc notifier api.
+	if pkt.circuit == nil {
+		return lntypes.Hash{}
+	}
+
+	return pkt.circuit.PaymentHash
 }

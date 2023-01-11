@@ -1106,20 +1106,21 @@ type mockHTLCNotifier struct {
 }
 
 func (h *mockHTLCNotifier) NotifyForwardingEvent(key HtlcKey, info HtlcInfo,
-	eventType HtlcEventType) { //nolint:whitespace
+	eventType HtlcEventType, paymentHash lntypes.Hash) { //nolint:whitespace
 }
 
 func (h *mockHTLCNotifier) NotifyLinkFailEvent(key HtlcKey, info HtlcInfo,
 	eventType HtlcEventType, linkErr *LinkError,
-	incoming bool) { //nolint:whitespace
+	incoming bool, paymentHash lntypes.Hash) { //nolint:whitespace
 }
 
 func (h *mockHTLCNotifier) NotifyForwardingFailEvent(key HtlcKey,
-	eventType HtlcEventType) { //nolint:whitespace
+	eventType HtlcEventType, paymentHash lntypes.Hash) { //nolint:whitespace
 }
 
 func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
-	preimage lntypes.Preimage, eventType HtlcEventType) { //nolint:whitespace,lll
+	preimage lntypes.Preimage, eventType HtlcEventType,
+	paymentHash lntypes.Hash) { //nolint:whitespace
 }
 
 func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,

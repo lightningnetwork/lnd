@@ -918,6 +918,7 @@
     "/v1/custommessage/subscribe": {
       "get": {
         "summary": "lncli: `subscribecustom`\nSubscribeCustomMessages subscribes to a stream of incoming custom peer\nmessages.",
+        "description": "To include messages with type outside of the custom range (\u003e= 32768) lnd\nneeds to be compiled with  the `dev` build tag, and the message type to\noverride should be specified in lnd's experimental protocol configuration.",
         "operationId": "Lightning_SubscribeCustomMessages",
         "responses": {
           "200": {
@@ -6616,7 +6617,7 @@
         "type": {
           "type": "integer",
           "format": "int64",
-          "description": "Message type. This value needs to be in the custom range (\u003e= 32768)."
+          "description": "Message type. This value needs to be in the custom range (\u003e= 32768).\nTo send a type \u003c custom range, lnd needs to be compiled with the `dev`\nbuild tag, and the message type to override should be specified in lnd's\nexperimental protocol configuration."
         },
         "data": {
           "type": "string",

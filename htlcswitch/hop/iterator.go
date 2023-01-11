@@ -90,9 +90,18 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 	// Otherwise, if this is the TLV payload, then we'll make a new stream
 	// to decode only what we need to make routing decisions.
 	case sphinx.PayloadTLV:
-		return NewPayloadFromReader(bytes.NewReader(
+		payload, parsed, err := NewPayloadFromReader(bytes.NewReader(
 			r.processedPacket.Payload.Payload,
 		))
+		if err != nil {
+			return nil, err
+		}
+
+		if err := ValidateTLVPayload(payload, parsed); err != nil {
+			return nil, err
+		}
+
+		return payload, nil
 
 	default:
 		return nil, fmt.Errorf("unknown sphinx payload type: %v",

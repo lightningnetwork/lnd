@@ -117,7 +117,7 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 
 // NewPayloadFromReader builds a new Hop from the passed io.Reader. The reader
 // should correspond to the bytes encapsulated in a TLV onion payload.
-func NewPayloadFromReader(r io.Reader) (*Payload, error) {
+func NewPayloadFromReader(r io.Reader) (*Payload, map[tlv.Type][]byte, error) {
 	var (
 		cid      uint64
 		amt      uint64
@@ -138,32 +138,14 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		record.NewUpfrontFeeToForwardRecord(&fee),
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Since this data is provided by a potentially malicious peer, pass it
 	// into the P2P decoding variant.
 	parsedTypes, err := tlvStream.DecodeWithParsedTypesP2P(r)
 	if err != nil {
-		return nil, err
-	}
-
-	// Validate whether the sender properly included or omitted tlv records
-	// in accordance with BOLT 04.
-	nextHop := lnwire.NewShortChanIDFromInt(cid)
-	err = ValidateParsedPayloadTypes(parsedTypes, nextHop)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check for violation of the rules for mandatory fields.
-	violatingType := getMinRequiredViolation(parsedTypes)
-	if violatingType != nil {
-		return nil, ErrInvalidPayload{
-			Type:      *violatingType,
-			Violation: RequiredViolation,
-			FinalHop:  nextHop == Exit,
-		}
+		return nil, nil, err
 	}
 
 	// If no MPP field was parsed, set the MPP field on the resulting
@@ -195,7 +177,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 	return &Payload{
 		FwdInfo: ForwardingInfo{
 			Network:             BitcoinNetwork,
-			NextHop:             nextHop,
+			NextHop:             lnwire.NewShortChanIDFromInt(cid),
 			AmountToForward:     lnwire.MilliSatoshi(amt),
 			UpfrontFeeToForward: upfront,
 			OutgoingCTLV:        cltv,
@@ -204,7 +186,35 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		AMP:           amp,
 		metadata:      metadata,
 		customRecords: customRecords,
-	}, nil
+	}, parsedTypes, nil
+}
+
+// ValidateTLVPayload performs validation on our tlv format hop payload. It
+// accepts a map of tlv types that were parsed when the payload was read so
+// that it can validate the presence/absence of fields is as we expect them for
+// the hop.
+func ValidateTLVPayload(payload *Payload,
+	parsedTypes map[tlv.Type][]byte) error {
+
+	// Validate whether the sender properly included or omitted tlv records
+	// in accordance with BOLT 04.
+	nextHop := payload.FwdInfo.NextHop
+	err := ValidateParsedPayloadTypes(parsedTypes, nextHop)
+	if err != nil {
+		return err
+	}
+
+	// Check for violation of the rules for mandatory fields.
+	violatingType := getMinRequiredViolation(parsedTypes)
+	if violatingType != nil {
+		return &ErrInvalidPayload{
+			Type:      *violatingType,
+			Violation: RequiredViolation,
+			FinalHop:  nextHop == Exit,
+		}
+	}
+
+	return nil
 }
 
 // ForwardingInfo returns the basic parameters required for HTLC forwarding,
@@ -231,7 +241,7 @@ func NewCustomRecords(parsedTypes tlv.TypeMap) record.CustomSet {
 // boolean should be true if the payload was parsed for an exit hop. The
 // requirements for this method are described in BOLT 04.
 func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
-	nextHop lnwire.ShortChannelID) error {
+	nextHop lnwire.ShortChannelID) *ErrInvalidPayload {
 
 	isFinalHop := nextHop == Exit
 
@@ -245,7 +255,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 
 	// All hops must include an amount to forward.
 	case !hasAmt:
-		return ErrInvalidPayload{
+		return &ErrInvalidPayload{
 			Type:      record.AmtOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
@@ -253,7 +263,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 
 	// All hops must include a cltv expiry.
 	case !hasLockTime:
-		return ErrInvalidPayload{
+		return &ErrInvalidPayload{
 			Type:      record.LockTimeOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
@@ -263,7 +273,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	// sender must have included a record, so we don't need to test for its
 	// inclusion at intermediate hops directly.
 	case isFinalHop && hasNextHop:
-		return ErrInvalidPayload{
+		return &ErrInvalidPayload{
 			Type:      record.NextHopOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  true,
@@ -271,7 +281,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 
 	// Intermediate nodes should never receive MPP fields.
 	case !isFinalHop && hasMPP:
-		return ErrInvalidPayload{
+		return &ErrInvalidPayload{
 			Type:      record.MPPOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,
@@ -279,7 +289,7 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 
 	// Intermediate nodes should never receive AMP fields.
 	case !isFinalHop && hasAMP:
-		return ErrInvalidPayload{
+		return &ErrInvalidPayload{
 			Type:      record.AMPOnionType,
 			Violation: IncludedViolation,
 			FinalHop:  isFinalHop,

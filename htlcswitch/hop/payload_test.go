@@ -16,7 +16,7 @@ const testUnknownRequiredType = 0x80
 type decodePayloadTest struct {
 	name               string
 	payload            []byte
-	expErr             error
+	expErr             *hop.ErrInvalidPayload
 	expCustomRecords   map[uint64][]byte
 	shouldHaveMPP      bool
 	shouldHaveAMP      bool
@@ -37,7 +37,7 @@ var decodePayloadTests = []decodePayloadTest{
 	{
 		name:    "final hop no amount",
 		payload: []byte{0x04, 0x00},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      record.AmtOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  true,
@@ -48,7 +48,7 @@ var decodePayloadTests = []decodePayloadTest{
 		payload: []byte{0x04, 0x00, 0x06, 0x08, 0x01, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x00,
 		},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      record.AmtOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  false,
@@ -57,7 +57,7 @@ var decodePayloadTests = []decodePayloadTest{
 	{
 		name:    "final hop no expiry",
 		payload: []byte{0x02, 0x00},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      record.LockTimeOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  true,
@@ -68,7 +68,7 @@ var decodePayloadTests = []decodePayloadTest{
 		payload: []byte{0x02, 0x00, 0x06, 0x08, 0x01, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x00,
 		},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      record.LockTimeOnionType,
 			Violation: hop.OmittedViolation,
 			FinalHop:  false,
@@ -79,7 +79,7 @@ var decodePayloadTests = []decodePayloadTest{
 		payload: []byte{0x02, 0x00, 0x04, 0x00, 0x06, 0x08, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      record.NextHopOnionType,
 			Violation: hop.IncludedViolation,
 			FinalHop:  true,
@@ -91,7 +91,7 @@ var decodePayloadTests = []decodePayloadTest{
 			0x02, 0x00, 0x04, 0x00,
 			testUnknownRequiredType, 0x00,
 		},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      testUnknownRequiredType,
 			Violation: hop.RequiredViolation,
 			FinalHop:  true,
@@ -104,7 +104,7 @@ var decodePayloadTests = []decodePayloadTest{
 			0x00, 0x00, 0x00, 0x00, 0x00,
 			testUnknownRequiredType, 0x00,
 		},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      testUnknownRequiredType,
 			Violation: hop.RequiredViolation,
 			FinalHop:  false,
@@ -113,7 +113,7 @@ var decodePayloadTests = []decodePayloadTest{
 	{
 		name:    "required type zero final hop",
 		payload: []byte{0x00, 0x00, 0x02, 0x00, 0x04, 0x00},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      0,
 			Violation: hop.RequiredViolation,
 			FinalHop:  true,
@@ -124,7 +124,7 @@ var decodePayloadTests = []decodePayloadTest{
 		payload: []byte{0x00, 0x00, 0x02, 0x00, 0x04, 0x00, 0x06, 0x08,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      record.NextHopOnionType,
 			Violation: hop.IncludedViolation,
 			FinalHop:  true,
@@ -135,7 +135,7 @@ var decodePayloadTests = []decodePayloadTest{
 		payload: []byte{0x00, 0x00, 0x02, 0x00, 0x04, 0x00, 0x06, 0x08,
 			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      0,
 			Violation: hop.RequiredViolation,
 			FinalHop:  false,
@@ -180,7 +180,7 @@ var decodePayloadTests = []decodePayloadTest{
 			0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
 			0x08,
 		},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      record.MPPOnionType,
 			Violation: hop.IncludedViolation,
 			FinalHop:  false,
@@ -211,7 +211,7 @@ var decodePayloadTests = []decodePayloadTest{
 			// amp.child_index
 			0x09,
 		},
-		expErr: hop.ErrInvalidPayload{
+		expErr: &hop.ErrInvalidPayload{
 			Type:      record.AMPOnionType,
 			Violation: hop.IncludedViolation,
 			FinalHop:  false,
@@ -310,7 +310,10 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		testChildIndex = uint32(9)
 	)
 
-	p, err := hop.NewPayloadFromReader(bytes.NewReader(test.payload))
+	p, m, err := hop.NewPayloadFromReader(bytes.NewReader(test.payload))
+	require.NoError(t, err)
+
+	err = hop.ValidateTLVPayload(p, m)
 	if !reflect.DeepEqual(test.expErr, err) {
 		t.Fatalf("expected error mismatch, want: %v, got: %v",
 			test.expErr, err)

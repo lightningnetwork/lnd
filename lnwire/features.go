@@ -203,6 +203,14 @@ const (
 	// able and willing to accept keysend payments.
 	KeysendOptional = 55
 
+	// UpfrontFeeRequired is a required bit that indicates that the node
+	// requires understanding of upfront fees.
+	UpfrontFeeRequired = 56
+
+	// UpfrontFeeOptional is an optional bit that indicates that the node
+	// understands the use of upfront fees.
+	UpfrontFeeOptional = 57
+
 	// ScriptEnforcedLeaseOptional is an optional feature bit that signals
 	// that the node requires channels having zero-fee second-level HTLC
 	// transactions, which also imply anchor commitments, along with an
@@ -280,6 +288,8 @@ var Features = map[FeatureBit]string{
 	ZeroConfOptional:              "zero-conf",
 	ShutdownAnySegwitRequired:     "shutdown-any-segwit",
 	ShutdownAnySegwitOptional:     "shutdown-any-segwit",
+	UpfrontFeeRequired:            "upfront-fee",
+	UpfrontFeeOptional:            "upfront-fee",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

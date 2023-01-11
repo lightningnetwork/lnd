@@ -88,6 +88,9 @@ type htlcPacket struct {
 	// is the timeout of the HTLC applied to the incoming link.
 	incomingTimeout uint32
 
+	// incomingUpfront is the upfront fee paid on the incoming link.
+	incomingUpfront *lnwire.UpfrontFee
+
 	// outgoingTimeout is the timeout of the proposed outgoing HTLC. This
 	// will be extracted from the hop payload received by the incoming
 	// link.

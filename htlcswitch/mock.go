@@ -837,7 +837,8 @@ func (f *mockChannelLink) UpdateForwardingPolicy(_ ForwardingPolicy) {
 }
 func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
 	lnwire.MilliSatoshi, uint32, uint32, uint32,
-	lnwire.ShortChannelID) *LinkError {
+	lnwire.ShortChannelID,
+	*lnwire.UpfrontFee, *lnwire.UpfrontFee) *LinkError {
 
 	return f.checkHtlcForwardResult
 }

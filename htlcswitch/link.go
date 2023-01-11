@@ -62,6 +62,10 @@ const (
 	// a channel's commitment fee to be of its balance. This only applies to
 	// the initiator of the channel.
 	DefaultMaxLinkFeeAllocation float64 = 0.5
+
+	// DefaultUpfrontFeePPM is the default parts per million of the success
+	// case fee base and rate that is used to calculate upfront fees.
+	DefaultUpfrontFeePPM = 10000
 )
 
 // ForwardingPolicy describes the set of constraints that a given ChannelLink
@@ -113,6 +117,22 @@ func ExpectedFee(f ForwardingPolicy,
 	htlcAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
 	return f.BaseFee + (htlcAmt*f.FeeRate)/1000000
+}
+
+// ExpectedUpfrontFee calculates the expected upfront fee for a payment using
+// the default ppm of its success case fees.
+func ExpectedUpfrontFee(f ForwardingPolicy,
+	htlcAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
+	// Create a forwarding policy expressing our upfront fees as a
+	// percentage of our success-case fees so that we can re-use our
+	// expected fee function.
+	upfrontPolicy := ForwardingPolicy{
+		BaseFee: (f.BaseFee * DefaultUpfrontFeePPM) / 1000000,
+		FeeRate: (f.FeeRate * DefaultUpfrontFeePPM) / 1000000,
+	}
+
+	return ExpectedFee(upfrontPolicy, htlcAmt)
 }
 
 // ChannelLinkConfig defines the configuration for the channel link. ALL
@@ -2545,7 +2565,8 @@ func (l *channelLink) UpdateForwardingPolicy(newPolicy ForwardingPolicy) {
 func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 	incomingHtlcAmt, amtToForward lnwire.MilliSatoshi,
 	incomingTimeout, outgoingTimeout uint32,
-	heightNow uint32, originalScid lnwire.ShortChannelID) *LinkError {
+	heightNow uint32, originalScid lnwire.ShortChannelID,
+	incomingUpfront, outgoingUpfront *lnwire.UpfrontFee) *LinkError {
 
 	l.RLock()
 	policy := l.cfg.FwrdingPolicy
@@ -2602,6 +2623,35 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 				incomingTimeout, *upd,
 			)
 		}
+		failure := l.createFailureWithUpdate(false, originalScid, cb)
+		return NewLinkError(failure)
+	}
+
+	// Validate our upfront fees for this hop, we require that our incoming
+	// amount is at least equal to our outgoing amount + expected fee. We
+	// also check incoming > outgoing to safeguard against overflow in our
+	// other check.
+	upfrontIn, _ := incomingUpfront.Value()
+	upfrontOut, _ := outgoingUpfront.Value()
+
+	insufficientUpfront := upfrontIn < upfrontOut
+	expectedUpfront := ExpectedUpfrontFee(policy, amtToForward)
+	actualUpfront := upfrontIn - upfrontOut
+
+	if insufficientUpfront || actualUpfront < expectedUpfront {
+		l.log.Warnf("incoming htlc(%x) has insufficient upfront fee: "+
+			"expected at least %v, got %v",
+			payHash[:], expectedUpfront, actualUpfront)
+
+		// Grab the latest routing policy so the sending node is up to
+		// date with our current policy.
+		cb := func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+
+			return lnwire.NewFailInsufficientUpfrontFee(
+				actualUpfront, *upd,
+			)
+		}
+
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
 		return NewLinkError(failure)
 	}
@@ -3089,9 +3139,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 				// Otherwise, it was already processed, we can
 				// can collect it and continue.
+				upfrontFee := fwdInfo.UpfrontFeeToForward
 				addMsg := &lnwire.UpdateAddHTLC{
 					Expiry:      fwdInfo.OutgoingCTLV,
 					Amount:      fwdInfo.AmountToForward,
+					UpfrontFee:  upfrontFee,
 					PaymentHash: pd.RHash,
 				}
 
@@ -3116,6 +3168,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					obfuscator:      obfuscator,
 					incomingTimeout: pd.Timeout,
 					outgoingTimeout: fwdInfo.OutgoingCTLV,
+					incomingUpfront: pd.UpfrontFee,
 					customRecords:   pld.CustomRecords(),
 				}
 				switchPackets = append(
@@ -3135,6 +3188,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				Expiry:      fwdInfo.OutgoingCTLV,
 				Amount:      fwdInfo.AmountToForward,
 				PaymentHash: pd.RHash,
+				UpfrontFee:  fwdInfo.UpfrontFeeToForward,
 			}
 
 			// Finally, we'll encode the onion packet for the
@@ -3180,6 +3234,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					obfuscator:      obfuscator,
 					incomingTimeout: pd.Timeout,
 					outgoingTimeout: fwdInfo.OutgoingCTLV,
+					incomingUpfront: pd.UpfrontFee,
 					customRecords:   pld.CustomRecords(),
 				}
 

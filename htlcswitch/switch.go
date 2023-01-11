@@ -1177,6 +1177,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					packet.amount, packet.incomingTimeout,
 					packet.outgoingTimeout, currentHeight,
 					packet.originalOutgoingChanID,
+					packet.incomingUpfront, htlc.UpfrontFee,
 				)
 			}
 

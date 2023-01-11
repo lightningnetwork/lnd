@@ -82,6 +82,7 @@ const (
 	CodeInvalidOnionPayload                       = FlagPerm | 22
 	CodeMPPTimeout                       FailCode = 23
 	CodeFailInsufficientUpfrontFee                = FlagUpdate | 25
+	CodeFinalIncorrectUpfrontFee         FailCode = 27
 )
 
 // String returns the string representation of the failure code.
@@ -161,6 +162,9 @@ func (c FailCode) String() string {
 
 	case CodeFailInsufficientUpfrontFee:
 		return "InsufficientUpfrontFee"
+
+	case CodeFinalIncorrectUpfrontFee:
+		return "FinalIncorrectUpfrontFee"
 
 	default:
 		return "<unknown>"
@@ -1138,6 +1142,56 @@ func (f *FailFinalIncorrectHtlcAmount) Encode(w *bytes.Buffer,
 	pver uint32) error {
 
 	return WriteMilliSatoshi(w, f.IncomingHTLCAmount)
+}
+
+// FailFinalIncorrectUpfrontFee is returned if the upfront_fee_to_forward is
+// higher than the incoming upfront_fee of the HTLC at the final hop.
+//
+// NOTE: May only be returned by the final node.
+type FailFinalIncorrectUpfrontFee struct {
+	// IncomingUpfrontFee is the wrong upfront fee.
+	IncomingUpfrontFee MilliSatoshi
+}
+
+// Returns a human readable string describing the target FailureMessage.
+//
+// NOTE: Implements the error interface.
+func (f *FailFinalIncorrectUpfrontFee) Error() string {
+	return fmt.Sprintf("FinalIncorrectUpfronFee(upfront fee=%v)",
+		f.IncomingUpfrontFee)
+}
+
+// NewFailFinalIncorrectUpfrontFee creates new instance of the
+// FailFinalIncorrectUpfrontFee.
+//
+//nolint:lll
+func NewFailFinalIncorrectUpfrontFee(fee MilliSatoshi) *FailFinalIncorrectUpfrontFee {
+	return &FailFinalIncorrectUpfrontFee{
+		IncomingUpfrontFee: fee,
+	}
+}
+
+// Code returns the failure unique code.
+//
+// NOTE: Part of the FailureMessage interface.
+func (f *FailFinalIncorrectUpfrontFee) Code() FailCode {
+	return CodeFinalIncorrectUpfrontFee
+}
+
+// Decode decodes the failure from bytes stream.
+//
+// NOTE: Part of the Serializable interface.
+func (f *FailFinalIncorrectUpfrontFee) Decode(r io.Reader, pver uint32) error {
+	return ReadElement(r, &f.IncomingUpfrontFee)
+}
+
+// Encode writes the failure in bytes stream.
+//
+// NOTE: Part of the Serializable interface.
+func (f *FailFinalIncorrectUpfrontFee) Encode(w *bytes.Buffer,
+	pver uint32) error {
+
+	return WriteMilliSatoshi(w, f.IncomingUpfrontFee)
 }
 
 // FailInsufficientUpfrontFee is returned is the next_upfront_fee does not

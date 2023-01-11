@@ -492,7 +492,9 @@ func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload,
 		return nil, nil, err
 	}
 
-	payload, err := iterator.HopPayload()
+	// TODO - we need to be able to recover the update_add_htlc
+	// (specifically its extra data) here.
+	payload, err := iterator.HopPayload(nil)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -329,9 +329,12 @@ func newMockHopIterator(hops ...*hop.Payload) hop.Iterator {
 	return &mockHopIterator{hops: hops}
 }
 
-func (r *mockHopIterator) HopPayload() (*hop.Payload, error) {
+func (r *mockHopIterator) HopPayload(*hop.ExtraAddData) (*hop.Payload,
+	error) {
+
 	h := r.hops[0]
 	r.hops = r.hops[1:]
+
 	return h, nil
 }
 

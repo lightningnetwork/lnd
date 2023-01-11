@@ -193,13 +193,13 @@ func NewPayloadFromReader(r io.Reader) (*Payload, map[tlv.Type][]byte, error) {
 // accepts a map of tlv types that were parsed when the payload was read so
 // that it can validate the presence/absence of fields is as we expect them for
 // the hop.
-func ValidateTLVPayload(payload *Payload,
-	parsedTypes map[tlv.Type][]byte) error {
+func ValidateTLVPayload(payload *Payload, parsedTypes map[tlv.Type][]byte,
+	data *ExtraAddData) error {
 
 	// Validate whether the sender properly included or omitted tlv records
 	// in accordance with BOLT 04.
 	nextHop := payload.FwdInfo.NextHop
-	err := ValidateParsedPayloadTypes(parsedTypes, nextHop)
+	err := ValidateParsedPayloadTypes(parsedTypes, nextHop, data)
 	if err != nil {
 		return err
 	}
@@ -241,15 +241,17 @@ func NewCustomRecords(parsedTypes tlv.TypeMap) record.CustomSet {
 // boolean should be true if the payload was parsed for an exit hop. The
 // requirements for this method are described in BOLT 04.
 func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
-	nextHop lnwire.ShortChannelID) *ErrInvalidPayload {
+	nextHop lnwire.ShortChannelID, data *ExtraAddData) *ErrInvalidPayload {
 
 	isFinalHop := nextHop == Exit
+	incomingUpfront := data.UpfrontFee != nil
 
 	_, hasAmt := parsedTypes[record.AmtOnionType]
 	_, hasLockTime := parsedTypes[record.LockTimeOnionType]
 	_, hasNextHop := parsedTypes[record.NextHopOnionType]
 	_, hasMPP := parsedTypes[record.MPPOnionType]
 	_, hasAMP := parsedTypes[record.AMPOnionType]
+	_, hasUpfront := parsedTypes[record.UpfrontFeeToForwardType]
 
 	switch {
 
@@ -292,6 +294,24 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 		return &ErrInvalidPayload{
 			Type:      record.AMPOnionType,
 			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	// Fail if we have an upfront fee in our TLV but not in the incoming
+	// htlc add.
+	case hasUpfront && !incomingUpfront:
+		return &ErrInvalidPayload{
+			Type:      record.UpfrontFeeToForwardType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	// Fail if we have an upfront fee in our incoming htlc add but not
+	// in our TLV.
+	case !hasUpfront && incomingUpfront:
+		return &ErrInvalidPayload{
+			Type:      record.UpfrontFeeToForwardType,
+			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
 		}
 	}

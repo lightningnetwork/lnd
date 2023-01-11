@@ -22,8 +22,11 @@ type Iterator interface {
 	// information encoded within the returned ForwardingInfo is to be used
 	// by each hop to authenticate the information given to it by the prior
 	// hop. The payload will also contain any additional TLV fields provided
-	// by the sender.
-	HopPayload() (*Payload, error)
+	//
+	// The extra data that was transmitted with the update_add_htlc message
+	// that provided the payload is passed in to allow validation to
+	// compare the payload to extra information provided in the add.
+	HopPayload(*ExtraAddData) (*Payload, error)
 
 	// EncodeNextHop encodes the onion packet destined for the next hop
 	// into the passed io.Writer.
@@ -33,6 +36,13 @@ type Iterator interface {
 	// along with a failure code to signal if the decoding was successful.
 	ExtractErrorEncrypter(ErrorEncrypterExtracter) (ErrorEncrypter,
 		lnwire.FailCode)
+}
+
+// ExtraAddData contains the additional data that was attached to a
+// update_add_htlc that is relevant to validation.
+type ExtraAddData struct {
+	// UpfrontFee is an optional upfront fee set in the update_add_htlc.
+	UpfrontFee *lnwire.UpfrontFee
 }
 
 // sphinxHopIterator is the Sphinx implementation of hop iterator which uses
@@ -78,7 +88,9 @@ func (r *sphinxHopIterator) EncodeNextHop(w io.Writer) error {
 // also contain any additional TLV fields provided by the sender.
 //
 // NOTE: Part of the HopIterator interface.
-func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
+func (r *sphinxHopIterator) HopPayload(data *ExtraAddData) (*Payload,
+	error) {
+
 	switch r.processedPacket.Payload.Type {
 
 	// If this is the legacy payload, then we'll extract the information
@@ -97,7 +109,8 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 			return nil, err
 		}
 
-		if err := ValidateTLVPayload(payload, parsed); err != nil {
+		err = ValidateTLVPayload(payload, parsed, data)
+		if err != nil {
 			return nil, err
 		}
 

@@ -38,13 +38,12 @@ type CommitSig struct {
 	// transaction should be signed.
 	HtlcSigs []Sig
 
-	// RemoteNnoce is the "remote" nonce of the sending party, which the
-	// sender will use to generate a new commitment party after a
-	// revocation message has been sent.
+	// PartialSig is used to transmit a musig2 extended partial signature
+	// that also carries along the public nonce of the signer.
 	//
-	// NOTE: This field is only populated if simple taproot channels are in
-	// use.
-	RemoteNonce *RemoteMusig2Nonce
+	// NOTE: This field is only populated if a musig2 taproot channel is
+	// being signed for. In this case, the above Sig type MUST be blank.
+	PartialSig *PartialSig
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -83,16 +82,16 @@ func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 	}
 
 	var (
-		musigNonce RemoteMusig2Nonce
+		partialSig PartialSig
 	)
-	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
+	typeMap, err := tlvRecords.ExtractRecords(&partialSig)
 	if err != nil {
 		return err
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[RemoteNonceRecordType]; ok && val == nil {
-		c.RemoteNonce = &musigNonce
+	if val, ok := typeMap[PartialSigRecordType]; ok && val == nil {
+		c.PartialSig = &partialSig
 	}
 
 	if len(tlvRecords) != 0 {
@@ -108,8 +107,8 @@ func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) Encode(w *bytes.Buffer, pver uint32) error {
 	recordProducers := make([]tlv.RecordProducer, 0, 1)
-	if c.RemoteNonce != nil {
-		recordProducers = append(recordProducers, c.RemoteNonce)
+	if c.PartialSig != nil {
+		recordProducers = append(recordProducers, c.PartialSig)
 	}
 	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
 	if err != nil {

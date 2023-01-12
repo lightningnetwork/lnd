@@ -36,7 +36,7 @@ type RevokeAndAck struct {
 	// LocalNonce is the next _local_ nonce for the sending party. This
 	// allows the receiving party to propose a new commitment using their
 	// remote nonce and the sender's local nonce.
-	LocalNonce *LocalMusig2Nonce
+	LocalNonce *Musig2Nonce
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -74,16 +74,14 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	var (
-		musigNonce LocalMusig2Nonce
-	)
+	var musigNonce Musig2Nonce
 	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
 	if err != nil {
 		return err
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[LocalNonceRecordType]; ok && val == nil {
+	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
 		c.LocalNonce = &musigNonce
 	}
 

@@ -66,12 +66,9 @@ type ChannelReestablish struct {
 	// LocalNonce is an optional field that stores a local musig2 nonce.
 	// This will only be populated if the simple taproot channels type was
 	// negotiated.
-	LocalNonce *LocalMusig2Nonce
-
-	// RemoteNonce is an optional field that stores a remote musig2 nonce.
-	// This will only be populated if the simple taproot channels type was
-	// negotiated.
-	RemoteNonce *RemoteMusig2Nonce
+	//
+	// TODO(roasbeef): rename to verification nonce
+	LocalNonce *Musig2Nonce
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -123,9 +120,6 @@ func (a *ChannelReestablish) Encode(w *bytes.Buffer, pver uint32) error {
 	var recordProducers []tlv.RecordProducer
 	if a.LocalNonce != nil {
 		recordProducers = append(recordProducers, a.LocalNonce)
-	}
-	if a.RemoteNonce != nil {
-		recordProducers = append(recordProducers, a.RemoteNonce)
 	}
 	err := EncodeMessageExtraData(&a.ExtraData, recordProducers...)
 	if err != nil {
@@ -185,22 +179,16 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	var (
-		localNonce  LocalMusig2Nonce
-		remoteNonce RemoteMusig2Nonce
-	)
+	var localNonce Musig2Nonce
 	typeMap, err := tlvRecords.ExtractRecords(
-		&localNonce, &remoteNonce,
+		&localNonce,
 	)
 	if err != nil {
 		return err
 	}
 
-	if val, ok := typeMap[LocalNonceRecordType]; ok && val == nil {
+	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
 		a.LocalNonce = &localNonce
-	}
-	if val, ok := typeMap[RemoteNonceRecordType]; ok && val == nil {
-		a.RemoteNonce = &remoteNonce
 	}
 
 	if len(tlvRecords) != 0 {

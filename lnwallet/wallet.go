@@ -12,7 +12,6 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -1222,12 +1221,6 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 		if err != nil {
 			return err
 		}
-		reservation.ourContribution.RemoteNonce, err = musig2.GenNonces(
-			pubKeyOpt,
-		)
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -1492,30 +1485,16 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 // genMusigSession...
 func genMusigSession(ourContribution, theirContribution *ChannelContribution,
 	signer input.MuSig2Signer,
-	fundingOutput *wire.TxOut) (*MusigPairSession, error) {
+	fundingOutput *wire.TxOut) *MusigPairSession {
 
-	sessionCfg := &MusigSessionCfg{
-		LocalKey:  ourContribution.MultiSigKey,
-		RemoteKey: theirContribution.MultiSigKey,
-		LocalCommitNonces: MusigNoncePair{
-			LocalNonce:  ourContribution.LocalNonce,
-			RemoteNonce: theirContribution.RemoteNonce,
-		},
-		RemoteCommitNonces: MusigNoncePair{
-			LocalNonce:  theirContribution.LocalNonce,
-			RemoteNonce: ourContribution.RemoteNonce,
-		},
-		Signer:     signer,
-		InputTxOut: fundingOutput,
-	}
-	musigSessions, err := NewMusigPairSession(
-		sessionCfg,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to gen musig session: %w", err)
-	}
-
-	return musigSessions, nil
+	return NewMusigPairSession(&MusigSessionCfg{
+		LocalKey:    ourContribution.MultiSigKey,
+		RemoteKey:   theirContribution.MultiSigKey,
+		LocalNonce:  *ourContribution.LocalNonce,
+		RemoteNonce: *theirContribution.LocalNonce,
+		Signer:      signer,
+		InputTxOut:  fundingOutput,
+	})
 }
 
 // signCommitTx...
@@ -1537,14 +1516,10 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 		// We're now ready to sign the first commitment. However, we'll
 		// only create the session if that hasn't been done already.
 		if pendingReservation.musigSessions == nil {
-			musigSessions, err := genMusigSession(
-				ourContribution, theirContribution, l.Cfg.Signer,
-				fundingOutput,
+			musigSessions := genMusigSession(
+				ourContribution, theirContribution,
+				l.Cfg.Signer, fundingOutput,
 			)
-			if err != nil {
-				return nil, err
-			}
-
 			pendingReservation.musigSessions = musigSessions
 		}
 
@@ -1556,7 +1531,7 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 		// TODO(roasbeef): keep the signing nonce here? or just always
 		// regen for funding_locked?
 		musigSessions := pendingReservation.musigSessions
-		partialSig, _, err := musigSessions.RemoteSession.SignCommit(
+		partialSig, err := musigSessions.RemoteSession.SignCommit(
 			commitTx,
 		)
 		if err != nil {
@@ -1564,7 +1539,7 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 				"commitment: %w", err)
 		}
 
-		sigTheirCommit = partialSig.ToSchnorrShell()
+		sigTheirCommit = partialSig
 
 	// For regular channels, we can just send over a normal ECDSA signature
 	// w/o any extra steps.
@@ -1894,7 +1869,6 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 	// p2wsh sighash.
 	switch {
 	case !res.partialState.ChanType.IsTaproot():
-
 		hashCache := input.NewTxSigHashesV0Only(commitTx)
 		witnessScript, _, err := input.GenFundingPkScript(
 			localKey.SerializeCompressed(),
@@ -1935,13 +1909,10 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 				return err
 			}
 
-			res.musigSessions, err = genMusigSession(
+			res.musigSessions = genMusigSession(
 				res.ourContribution, res.theirContribution,
 				l.Cfg.Signer, fundingOutput,
 			)
-			if err != nil {
-				return err
-			}
 		}
 
 		// For the musig2 based channels, we'll use the generated local
@@ -1951,27 +1922,16 @@ func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
 		// At this point, the commitment signature passed in should
 		// actually be a wrapped musig2 signature, so we'll do a type
 		// asset to the get the signature we actually need.
-		switch partialSig := commitSig.(type) {
-		/*case *MusigPartialSig:
-		_, err := localSession.VerifyCommitSig(
-			commitTx, partialSig.sig,
-		)
-		return err*/
-
-		// TODO(roasbeef): delete and go w/ sig in nonce, temp
-		case *schnorr.Signature:
-			remoteSig := new(MusigPartialSig)
-			remoteSig.FromSchnorrShell(partialSig)
-
-			_, err := localSession.VerifyCommitSig(
-				commitTx, remoteSig.sig,
-			)
-			return err
-
-		default:
+		partialSig, ok := commitSig.(*MusigPartialSig)
+		if !ok {
 			return fmt.Errorf("expected *musig2.PartialSignature, "+
 				"got: %T", commitSig)
 		}
+
+		_, err := localSession.VerifyCommitSig(
+			commitTx, partialSig.ToWireSig(),
+		)
+		return err
 	}
 }
 

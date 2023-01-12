@@ -697,17 +697,14 @@ func (l *channelLink) syncChanStates() error {
 	// If this is a tarpoot channel, then in addition to the normal reest
 	// message, we'll also send our local+remote nonces as well.
 	if chanState.ChanType.IsTaproot() {
-		noncePair, err := l.channel.GenMusigNonces()
+		localNonce, err := l.channel.GenMusigNonces()
 		if err != nil {
 			return fmt.Errorf("unable to generate nonce "+
 				"pair for chan: %w", err)
 		}
-		localChanSyncMsg.LocalNonce = &lnwire.LocalMusig2Nonce{
-			Musig2Nonce: noncePair.LocalNonce.PubNonce,
-		}
-		localChanSyncMsg.RemoteNonce = &lnwire.RemoteMusig2Nonce{
-			Musig2Nonce: noncePair.RemoteNonce.PubNonce,
-		}
+		localChanSyncMsg.LocalNonce = (*lnwire.Musig2Nonce)(
+			&localNonce.PubNonce,
+		)
 	}
 
 	if err := l.cfg.Peer.SendMessage(true, localChanSyncMsg); err != nil {
@@ -783,15 +780,10 @@ func (l *channelLink) syncChanStates() error {
 			l.log.Infof("initializing musig2 nonces")
 
 			syncMsg := remoteChanSyncMsg
-			remoteNonces := &lnwallet.MusigNoncePair{
-				LocalNonce: &musig2.Nonces{
-					PubNonce: syncMsg.LocalNonce.Musig2Nonce,
-				},
-				RemoteNonce: &musig2.Nonces{
-					PubNonce: syncMsg.RemoteNonce.Musig2Nonce,
-				},
+			remoteNonce := &musig2.Nonces{
+				PubNonce: *syncMsg.LocalNonce,
 			}
-			err := l.channel.InitRemoteMusigNonces(remoteNonces)
+			err := l.channel.InitRemoteMusigNonces(remoteNonce)
 			if err != nil {
 				return fmt.Errorf("unable to init musig2 "+
 					"nonces: %w", err)
@@ -1930,9 +1922,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// chain, validate this new commitment, closing the link if
 		// invalid.
 		err = l.channel.ReceiveNewCommitment(&lnwallet.CommitSigs{
-			CommitSig:       msg.CommitSig,
-			HtlcSigs:        msg.HtlcSigs,
-			NextSignerNonce: &msg.RemoteNonce.Musig2Nonce,
+			CommitSig:  msg.CommitSig,
+			HtlcSigs:   msg.HtlcSigs,
+			PartialSig: msg.PartialSig,
 		})
 		if err != nil {
 			// If we were unable to reconstruct their proposed
@@ -2294,12 +2286,10 @@ func (l *channelLink) updateCommitTx() error {
 	}
 
 	commitSig := &lnwire.CommitSig{
-		ChanID:    l.ChanID(),
-		CommitSig: newCommit.CommitSig,
-		HtlcSigs:  newCommit.HtlcSigs,
-		RemoteNonce: &lnwire.RemoteMusig2Nonce{
-			Musig2Nonce: *newCommit.NextSignerNonce,
-		},
+		ChanID:     l.ChanID(),
+		CommitSig:  newCommit.CommitSig,
+		HtlcSigs:   newCommit.HtlcSigs,
+		PartialSig: newCommit.PartialSig,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
 

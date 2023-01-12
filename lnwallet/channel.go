@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
@@ -1318,8 +1317,8 @@ type LightningChannel struct {
 	// musigSessions...
 	musigSessions *MusigPairSession
 
-	// nextNoncePair...
-	nextNoncePair *MusigNoncePair
+	// pendingVerificationNonce...
+	pendingVerificationNonce *musig2.Nonces
 
 	// fundingOutput...
 	fundingOutput wire.TxOut
@@ -1331,23 +1330,23 @@ type LightningChannel struct {
 type ChannelOpt func(*channelOpts)
 
 // WithLocalMusigNonces...
-func WithLocalMusigNonces(nonces *MusigNoncePair) ChannelOpt {
+func WithLocalMusigNonces(nonce *musig2.Nonces) ChannelOpt {
 	return func(o *channelOpts) {
-		o.localNonces = nonces
+		o.localNonce = nonce
 	}
 }
 
 // WithRemoteMusigNonces...
-func WithRemoteMusigNonces(nonces *MusigNoncePair) ChannelOpt {
+func WithRemoteMusigNonces(nonces *musig2.Nonces) ChannelOpt {
 	return func(o *channelOpts) {
-		o.remoteNonces = nonces
+		o.remoteNonce = nonces
 	}
 }
 
 // channelOpts...
 type channelOpts struct {
-	localNonces  *MusigNoncePair
-	remoteNonces *MusigNoncePair
+	localNonce  *musig2.Nonces
+	remoteNonce *musig2.Nonces
 }
 
 // defaultChannelOpts...
@@ -1402,11 +1401,11 @@ func NewLightningChannel(signer input.Signer,
 
 	// At this point, we mwy already have of nonces that were passed in, so
 	// we'll check that now as this lets us skip some steps later.
-	if opts.localNonces != nil {
-		lc.nextNoncePair = opts.localNonces
+	if opts.localNonce != nil {
+		lc.pendingVerificationNonce = opts.localNonce
 	}
-	if lc.nextNoncePair != nil && opts.remoteNonces != nil {
-		err := lc.InitRemoteMusigNonces(opts.remoteNonces)
+	if lc.pendingVerificationNonce != nil && opts.remoteNonce != nil {
+		err := lc.InitRemoteMusigNonces(opts.remoteNonce)
 		if err != nil {
 			return nil, err
 		}
@@ -3775,8 +3774,8 @@ type CommitSigs struct {
 	// HtlcSigs...
 	HtlcSigs []lnwire.Sig
 
-	// NextSignerNonce...
-	NextSignerNonce *lnwire.Musig2Nonce
+	// PartialSig...
+	PartialSig *lnwire.PartialSig
 }
 
 // NewCommitState wraps the various signatures needed to properly
@@ -3814,8 +3813,9 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	}
 
 	var (
-		sig      lnwire.Sig
-		htlcSigs []lnwire.Sig
+		sig        lnwire.Sig
+		partialSig *lnwire.PartialSig
+		htlcSigs   []lnwire.Sig
 	)
 
 	// If we're awaiting for an ACK to a commitment signature, or if we
@@ -3905,10 +3905,12 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	// the HTLC signatures to be processed.
 	//
 	// TODO(roasbeef): abstract into CommitSigner interface?
-	var nextSigningNonce *lnwire.Musig2Nonce
 	if lc.channelState.ChanType.IsTaproot() {
+		// In this case, we'll send out a partial signature as this is
+		// a musig2 channel. The encoded normal ECDSA signature will be
+		// just blank.
 		remoteSession := lc.musigSessions.RemoteSession
-		partialSig, nextNonce, err := remoteSession.SignCommit(
+		musig, err := remoteSession.SignCommit(
 			newCommitView.txn,
 		)
 		if err != nil {
@@ -3916,15 +3918,7 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 			return nil, err
 		}
 
-		nextSigningNonce = (*lnwire.Musig2Nonce)(nextNonce)
-
-		// TODO(roasbeef): to just carry nonce w/?
-		sig, err = lnwire.NewSigFromSchnorrRawSignature(
-			partialSig.Serialize(),
-		)
-		if err != nil {
-			return nil, err
-		}
+		partialSig = musig.ToWireSig()
 	} else {
 		lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(
 			newCommitView.txn,
@@ -3988,9 +3982,9 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 
 	return &NewCommitState{
 		CommitSigs: &CommitSigs{
-			CommitSig:       sig,
-			HtlcSigs:        htlcSigs,
-			NextSignerNonce: nextSigningNonce,
+			CommitSig:  sig,
+			HtlcSigs:   htlcSigs,
+			PartialSig: partialSig,
 		},
 		PendingHTLCs: commitDiff.Commitment.Htlcs,
 	}, nil
@@ -4163,13 +4157,9 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 					ChanID: lnwire.NewChanIDFromOutPoint(
 						&lc.channelState.FundingOutpoint,
 					),
-					CommitSig: newCommit.CommitSig,
-					HtlcSigs:  newCommit.HtlcSigs,
-				}
-				if newCommit.NextSignerNonce != nil {
-					commitSig.RemoteNonce = &lnwire.RemoteMusig2Nonce{
-						Musig2Nonce: *newCommit.NextSignerNonce,
-					}
+					CommitSig:  newCommit.CommitSig,
+					HtlcSigs:   newCommit.HtlcSigs,
+					PartialSig: newCommit.PartialSig,
 				}
 
 				updates = append(updates, commitSig)
@@ -4818,25 +4808,25 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	if lc.channelState.ChanType.IsTaproot() {
 		localSession := lc.musigSessions.LocalSession
 
-		// In order to verify the commitment sig, we'll need to craeate
-		// a proper musig partial sig.
-		var (
-			partialS      btcec.ModNScalar
-			partialSBytes [32]byte
+		nextVerificationNonce, err := localSession.VerifyCommitSig(
+			localCommitTx, commitSigs.PartialSig,
 		)
-		copy(partialSBytes[:], commitSigs.CommitSig.RawBytes()[32:])
-		partialS.SetBytes(&partialSBytes)
-
-		partialSig := musig2.PartialSignature{
-			S: &partialS,
+		if err != nil {
+			// TODO(roasbeef): new InvalidPartialCommitSigError
+			return err
 		}
 
-		_, err := localSession.VerifyCommitSig(
-			localCommitTx, &partialSig,
+		// Now that we have the next verification nonce for our local
+		// session, we'll refresh it to yield a new session we'll use
+		// for the next incoming signature.
+		newLocalSession, err := lc.musigSessions.LocalSession.Refresh(
+			nextVerificationNonce,
 		)
 		if err != nil {
 			return err
 		}
+		lc.musigSessions.LocalSession = newLocalSession
+
 	} else {
 		sigHash, err := txscript.CalcWitnessSigHash(
 			multiSigScript, hashCache, txscript.SigHashAll,
@@ -4910,22 +4900,6 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	localCommitmentView.sig = commitSigs.CommitSig.ToSignatureBytes()
 	lc.localCommitChain.addCommitment(localCommitmentView)
 
-	if !lc.channelState.ChanType.IsTaproot() {
-		return nil
-	}
-
-	// At this point, we now have their next signing nonce, so we can
-	// refresh our local session which allows us to verify more incoming
-	// commitments.
-	//
-	// TODO(roasbef): should isolate here re signer nonce, existing panic
-	newLocalSession, err := lc.musigSessions.LocalSession.Refresh(
-		*commitSigs.NextSignerNonce,
-	)
-	if err != nil {
-		return err
-	}
-	lc.musigSessions.LocalSession = newLocalSession
 	return nil
 }
 
@@ -5104,12 +5078,11 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck, []c
 	// commitment, so we'll send the remote party another verification
 	// nonce they can use to generate new commitments.
 	if lc.channelState.ChanType.IsTaproot() {
-		musigSession := lc.musigSessions
-		nextVerificationNonce := musigSession.LocalSession.VerificationNonce()
-		// TODO(roasbeef): need new method here for verification nonce, in recv sig
-		revocationMsg.LocalNonce = &lnwire.LocalMusig2Nonce{
-			Musig2Nonce: nextVerificationNonce,
-		}
+		localSession := lc.musigSessions.LocalSession
+		nextVerificationNonce := localSession.VerificationNonce()
+		revocationMsg.LocalNonce = (*lnwire.Musig2Nonce)(
+			&nextVerificationNonce.PubNonce,
+		)
 	}
 
 	return revocationMsg, newCommitment.Htlcs, nil
@@ -5344,7 +5317,9 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// our remote musig2 session which allows us to create another state.
 	if lc.channelState.ChanType.IsTaproot() {
 		newRemoteSession, err := lc.musigSessions.RemoteSession.Refresh(
-			revMsg.LocalNonce.Musig2Nonce,
+			&musig2.Nonces{
+				PubNonce: *revMsg.LocalNonce,
+			},
 		)
 		if err != nil {
 			return nil, nil, nil, nil, err
@@ -6978,7 +6953,7 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	// channel, so we'll generate a _partial_ signature.
 	var sig input.Signature
 	if opts.musigSession != nil {
-		sig, _, err = opts.musigSession.SignCommit(closeTx)
+		sig, err = opts.musigSession.SignCommit(closeTx)
 		if err != nil {
 			return nil, nil, 0, err
 		}
@@ -7069,15 +7044,12 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 		// For taproot channels, we'll use the attached session to
 		// combine the two partial signatures into a proper schnorr
 		// signature.
-		remoteSchnorrSig, _ := remoteSig.(*schnorr.Signature)
+		remotePartialSig, ok := remoteSig.(*MusigPartialSig)
+		if !ok {
+			return nil, 0, fmt.Errorf("expected MusigPartialSig, "+
+				"got %T", remoteSig)
+		}
 
-		var remotePartialSig MusigPartialSig
-		remotePartialSig.FromSchnorrShell(remoteSchnorrSig)
-
-		// TODO(roasbeef): only need one sig combined?
-		//finalSchnorrSig, err := opts.musigSession.CombineSigs(
-		//localPartialSig.sig, remotePartialSig.sig,
-		//)
 		finalSchnorrSig, err := opts.musigSession.CombineSigs(
 			remotePartialSig.sig,
 		)
@@ -7921,41 +7893,30 @@ func (lc *LightningChannel) unsignedLocalUpdates(remoteMessageIndex,
 	return localPeerUpdates
 }
 
-// GenMusigNonces generates the signing and verification nonces to start off a
-// new musig2 channel session.
-func (lc *LightningChannel) GenMusigNonces() (*MusigNoncePair, error) {
+// GenMusigNonces generates the verification nonce to start off a new musig2
+// channel session.
+func (lc *LightningChannel) GenMusigNonces() (*musig2.Nonces, error) {
 	lc.RLock()
 	defer lc.RUnlock()
 
 	var err error
-	lc.nextNoncePair, err = NewMusigChannelNonces(
+	lc.pendingVerificationNonce, err = NewMusigVerificationNonce(
 		lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return lc.nextNoncePair, nil
+	return lc.pendingVerificationNonce, nil
 }
 
-// NewMusigChannelNonces...
-func NewMusigChannelNonces(pubKey *btcec.PublicKey) (*MusigNoncePair, error) {
+// NewMusigVerificationNonce...
+func NewMusigVerificationNonce(pubKey *btcec.PublicKey,
+) (*musig2.Nonces, error) {
+
 	pubKeyOpt := musig2.WithPublicKey(pubKey)
 
-	verificationNonce, err := musig2.GenNonces(pubKeyOpt)
-	if err != nil {
-		return nil, err
-	}
-
-	signingNonce, err := musig2.GenNonces(pubKeyOpt)
-	if err != nil {
-		return nil, err
-	}
-
-	return &MusigNoncePair{
-		LocalNonce:  verificationNonce,
-		RemoteNonce: signingNonce,
-	}, nil
+	return musig2.GenNonces(pubKeyOpt)
 }
 
 // HasRemoteNonces returns true if the channel has a remote nonce pair.
@@ -7967,44 +7928,35 @@ func (lc *LightningChannel) HasRemoteNonces() bool {
 // party. This should be called upon connection re-establishment, after we've
 // generated our own nonces. Once this method returns a nil error, then the
 // channel can be used to sign commitment states.
-func (lc *LightningChannel) InitRemoteMusigNonces(nonces *MusigNoncePair) error {
+func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
+) error {
+
 	lc.RLock()
 	defer lc.RUnlock()
 
 	// Now that we have the set of local and remote nonces, we can generate
 	// a new pair of musig sessions for our local commitment and the
 	// commitment of the remote party.
-	remoteNonces := nonces
-	localNonces := lc.nextNoncePair
+	localNonce := lc.pendingVerificationNonce
 
 	localChanCfg := lc.channelState.LocalChanCfg
 	remoteChanCfg := lc.channelState.RemoteChanCfg
 
 	// TODO(roasbeef): propagate rename of signing and verification nonces
 
-	var err error
 	sessionCfg := &MusigSessionCfg{
-		LocalKey:  localChanCfg.MultiSigKey,
-		RemoteKey: remoteChanCfg.MultiSigKey,
-		LocalCommitNonces: MusigNoncePair{
-			LocalNonce:  localNonces.LocalNonce,
-			RemoteNonce: remoteNonces.RemoteNonce,
-		},
-		RemoteCommitNonces: MusigNoncePair{
-			LocalNonce:  remoteNonces.LocalNonce,
-			RemoteNonce: localNonces.RemoteNonce,
-		},
-		Signer:     lc.Signer,
-		InputTxOut: &lc.fundingOutput,
+		LocalKey:    localChanCfg.MultiSigKey,
+		RemoteKey:   remoteChanCfg.MultiSigKey,
+		LocalNonce:  *localNonce,
+		RemoteNonce: *remoteNonce,
+		Signer:      lc.Signer,
+		InputTxOut:  &lc.fundingOutput,
 	}
-	lc.musigSessions, err = NewMusigPairSession(
+	lc.musigSessions = NewMusigPairSession(
 		sessionCfg,
 	)
-	if err != nil {
-		return fmt.Errorf("unable to gen musig session: %w", err)
-	}
 
-	lc.nextNoncePair = nil
+	lc.pendingVerificationNonce = nil
 
 	return nil
 }

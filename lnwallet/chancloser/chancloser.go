@@ -316,15 +316,15 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 		if err != nil {
 			return nil, err
 		}
-		shutdown.Musig2Nonce = &lnwire.LocalMusig2Nonce{
-			Musig2Nonce: firstClosingNonce.PubNonce,
-		}
+		shutdown.Musig2Nonce = (*lnwire.Musig2Nonce)(
+			&firstClosingNonce.PubNonce,
+		)
 
 		chancloserLog.Infof("Initiating shutdown w/ nonce: %v",
 			spew.Sdump(firstClosingNonce.PubNonce))
 
 		c.musigNoncePair = &lnwallet.MusigNoncePair{
-			LocalNonce: firstClosingNonce,
+			VerificationNonce: *firstClosingNonce,
 		}
 	}
 
@@ -534,8 +534,8 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// remote nonces so we can properly create a new musig
 		// session for signing.
 		if c.cfg.Channel.ChanType().IsTaproot() {
-			c.musigNoncePair.RemoteNonce = &musig2.Nonces{
-				PubNonce: shutdownMsg.Musig2Nonce.Musig2Nonce,
+			c.musigNoncePair.SigningNonce = musig2.Nonces{
+				PubNonce: *shutdownMsg.Musig2Nonce,
 			}
 		}
 
@@ -601,8 +601,8 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// local+remote nonces so we can properly create a new musig
 		// session for signing.
 		if c.cfg.Channel.ChanType().IsTaproot() {
-			c.musigNoncePair.RemoteNonce = &musig2.Nonces{
-				PubNonce: shutdownMsg.Musig2Nonce.Musig2Nonce,
+			c.musigNoncePair.SigningNonce = musig2.Nonces{
+				PubNonce: *shutdownMsg.Musig2Nonce,
 			}
 		}
 
@@ -636,18 +636,10 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 				"instead have %v", spew.Sdump(msg))
 		}
 
-		// If this is a taproot channel, then the sig will come along
-		// with a nonce to use for the _next_ proposed state, so we'll
-		// stash that now.
-		/*if c.cfg.Channel.ChanType().IsTaproot() {
-			c.musigNoncePair.RemoteNonce = &musig2.Nonces{
-				PubNonce: closeSignedMsg.Musig2Nonce.Musig2Nonce,
-			}
-		}*/
-
-		// We'll compare the proposed total fee, to what we've proposed during
-		// the negotiations. If it doesn't match any of our prior offers, then
-		// we'll attempt to ratchet the fee closer to
+		// We'll compare the proposed total fee, to what we've proposed
+		// during the negotiations. If it doesn't match any of our
+		// prior offers, then we'll attempt to ratchet the fee closer
+		// to
 		remoteProposedFee := closeSignedMsg.FeeSatoshis
 
 		// For taproot channels, since nonces are involved, we can't do
@@ -710,38 +702,45 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		chancloserLog.Infof("ChannelPoint(%v) fee of %v accepted, ending "+
 			"negotiation", c.chanPoint, remoteProposedFee)
 
-		// Otherwise, we've agreed on a fee for the closing transaction! We'll
-		// craft the final closing transaction so we can broadcast it to the
-		// network.
-		matchingSig := c.priorFeeOffers[remoteProposedFee].Signature
-
-		// At this point, we can complete the final co-op close
-		// signature. For taproot channels, we'll need to interpret the
-		// 64 byte signatures as an actual schnorr sig.
+		// Otherwise, we've agreed on a fee for the closing
+		// transaction! We'll craft the final closing transaction so we
+		// can broadcast it to the network.
+		var (
+			localSig, remoteSig input.Signature
+			closeOpts           []lnwallet.ChanCloseOpt
+			err                 error
+		)
+		matchingSig := c.priorFeeOffers[remoteProposedFee]
 		if c.cfg.Channel.ChanType().IsTaproot() {
-			// TODO(roasbeef): tempt ting, need either sig w/ nonce
-			// or diff type
-			matchingSig.ForceSchnorr()
-			closeSignedMsg.Signature.ForceSchnorr()
-		}
+			// We'll convert the wire partial signatures into an
+			// input.Signature compliant struct so we can pass it
+			// into the final combination function.
+			localPartialSig := matchingSig.PartialSig
+			remotePartialSig := closeSignedMsg.PartialSig
 
-		localSig, err := matchingSig.ToSignature()
-		if err != nil {
-			return nil, false, err
-		}
-		remoteSig, err := closeSignedMsg.Signature.ToSignature()
-		if err != nil {
-			return nil, false, err
-		}
+			localSig = new(lnwallet.MusigPartialSig).FromWireSig(
+				localPartialSig,
+			)
+			remoteSig = new(lnwallet.MusigPartialSig).FromWireSig(
+				remotePartialSig,
+			)
 
-		// For taproot channels, we'll need to pass along the session
-		// so the final combined signature can be created.
-		var closeOpts []lnwallet.ChanCloseOpt
-		if c.cfg.Channel.ChanType().IsTaproot() {
+			// For taproot channels, we'll need to pass along the
+			// session so the final combined signature can be
+			// created.
 			closeOpts = append(
 				closeOpts,
 				lnwallet.WithCoopCloseMusigSession(c.musigSession),
 			)
+		} else {
+			localSig, err = matchingSig.Signature.ToSignature()
+			if err != nil {
+				return nil, false, err
+			}
+			remoteSig, err = closeSignedMsg.Signature.ToSignature()
+			if err != nil {
+				return nil, false, err
+			}
 		}
 
 		closeTx, _, err := c.cfg.Channel.CompleteCooperativeClose(
@@ -753,9 +752,12 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		}
 		c.closingTx = closeTx
 
-		// Before publishing the closing tx, we persist it to the database,
-		// such that it can be republished if something goes wrong.
-		err = c.cfg.Channel.MarkCoopBroadcasted(closeTx, c.locallyInitiated)
+		// Before publishing the closing tx, we persist it to the
+		// database, such that it can be republished if something goes
+		// wrong.
+		err = c.cfg.Channel.MarkCoopBroadcasted(
+			closeTx, c.locallyInitiated,
+		)
 		if err != nil {
 			return nil, false, err
 		}
@@ -818,10 +820,16 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 	// generated for the next co-op close negotiation round.
 	if c.cfg.Channel.ChanType().IsTaproot() {
 		localKey, remoteKey := c.cfg.Channel.MultiSigKeys()
-		c.musigSession, err = lnwallet.NewMusigSession(
-			*c.musigNoncePair, localKey, remoteKey, c.cfg.Signer,
-			c.cfg.Channel.FundingTxOut(), false,
+		c.musigSession = lnwallet.NewPartialMusigSession(
+			c.musigNoncePair.VerificationNonce, localKey, remoteKey,
+			c.cfg.Signer, c.cfg.Channel.FundingTxOut(), false,
 		)
+		err := c.musigSession.FinalizeSession(
+			c.musigNoncePair.SigningNonce,
+		)
+		if err != nil {
+			return nil, err
+		}
 
 		closeOpts = append(
 			closeOpts,
@@ -830,7 +838,8 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 	}
 
 	rawSig, _, _, err := c.cfg.Channel.CreateCloseProposal(
-		fee, c.localDeliveryScript, c.remoteDeliveryScript, closeOpts...,
+		fee, c.localDeliveryScript, c.remoteDeliveryScript,
+		closeOpts...,
 	)
 	if err != nil {
 		return nil, err
@@ -841,14 +850,18 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 	// We'll note our last signature and proposed fee so when the remote
 	// party responds we'll be able to decide if we've agreed on fees or
 	// not.
-	var parsedSig lnwire.Sig
+	var (
+		parsedSig  lnwire.Sig
+		partialSig *lnwire.PartialSig
+	)
 	if c.cfg.Channel.ChanType().IsTaproot() {
-		parsedSig, err = lnwire.NewSigFromSchnorrRawSignature(
-			rawSig.Serialize(),
-		)
-		if err != nil {
-			return nil, err
+		musig, ok := rawSig.(*lnwallet.MusigPartialSig)
+		if !ok {
+			return nil, fmt.Errorf("expected MusigPartialSig, "+
+				"got %T", rawSig)
 		}
+
+		partialSig = musig.ToWireSig()
 	} else {
 		parsedSig, err = lnwire.NewSigFromSignature(rawSig)
 		if err != nil {
@@ -856,33 +869,24 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 		}
 	}
 
-	chancloserLog.Infof("ChannelPoint(%v): proposing fee of %v sat to close "+
-		"chan", c.chanPoint, int64(fee))
+	chancloserLog.Infof("ChannelPoint(%v): proposing fee of %v sat to "+
+		"close chan", c.chanPoint, int64(fee))
 
-	// We'll assemble a ClosingSigned message using this information and return
-	// it to the caller so we can kick off the final stage of the channel
-	// closure process.
+	// We'll assemble a ClosingSigned message using this information and
+	// return it to the caller so we can kick off the final stage of the
+	// channel closure process.
 	closeSignedMsg := lnwire.NewClosingSigned(c.cid, fee, parsedSig)
+
+	// For musig2 channels, the main sig is blank, and instead we'll send
+	// over a partial signature which'll be combine donce our offer is
+	// accepted.
+	if partialSig != nil {
+		closeSignedMsg.PartialSig = partialSig
+	}
 
 	// We'll also save this close signed, in the case that the remote party
 	// accepts our offer. This way, we don't have to re-sign.
 	c.priorFeeOffers[fee] = closeSignedMsg
-
-	// Finally, before give the final co-op signed message, we'll generate
-	// a new local musig nonce.
-	if c.cfg.Channel.ChanType().IsTaproot() {
-		localKey, _ := c.cfg.Channel.MultiSigKeys()
-		c.musigNoncePair.LocalNonce, err = musig2.GenNonces(
-			musig2.WithPublicKey(localKey.PubKey),
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		closeSignedMsg.Musig2Nonce = &lnwire.LocalMusig2Nonce{
-			Musig2Nonce: c.musigNoncePair.LocalNonce.PubNonce,
-		}
-	}
 
 	return closeSignedMsg, nil
 }

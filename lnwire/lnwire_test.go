@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"image/color"
 	"io"
 	"math"
@@ -40,18 +41,26 @@ var (
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-func randLocalNonce(r *rand.Rand) *LocalMusig2Nonce {
-	var nonce LocalMusig2Nonce
-	_, _ = io.ReadFull(r, nonce.Musig2Nonce[:])
+func randLocalNonce(r *rand.Rand) *Musig2Nonce {
+	var nonce Musig2Nonce
+	_, _ = io.ReadFull(r, nonce[:])
 
 	return &nonce
 }
 
-func randRemoteNonce(r *rand.Rand) *RemoteMusig2Nonce {
-	var nonce RemoteMusig2Nonce
-	_, _ = io.ReadFull(r, nonce.Musig2Nonce[:])
+func randPartialSig(r *rand.Rand) (*PartialSig, error) {
+	var sigBytes [32]byte
+	if _, err := r.Read(sigBytes[:]); err != nil {
+		return nil, fmt.Errorf("unable to generate sig: %v", err)
+	}
 
-	return &nonce
+	var s btcec.ModNScalar
+	s.SetByteSlice(sigBytes[:])
+
+	return &PartialSig{
+		Sig:   s,
+		Nonce: *randLocalNonce(r),
+	}, nil
 }
 
 func randAlias(r *rand.Rand) NodeAlias {
@@ -455,7 +464,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				*req.LeaseExpiry = LeaseExpiry(1337)
 
 				req.LocalNonce = randLocalNonce(r)
-				req.RemoteNonce = randRemoteNonce(r)
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}
@@ -530,7 +538,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				*req.LeaseExpiry = LeaseExpiry(1337)
 
 				req.LocalNonce = randLocalNonce(r)
-				req.RemoteNonce = randRemoteNonce(r)
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}
@@ -565,6 +572,15 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
+			// 1/2 chance to attach a partial sig.
+			if r.Intn(2) == 0 {
+				req.PartialSig, err = randPartialSig(r)
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v", err)
+					return
+				}
+			}
+
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgFundingSigned: func(v []reflect.Value, r *rand.Rand) {
@@ -583,6 +599,15 @@ func TestLightningWireProtocol(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to parse sig: %v", err)
 				return
+			}
+
+			// 1/2 chance to attach a partial sig.
+			if r.Intn(2) == 0 {
+				req.PartialSig, err = randPartialSig(r)
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v", err)
+					return
+				}
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -607,7 +632,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				scid := NewShortChanIDFromInt(uint64(r.Int63()))
 				req.AliasScid = &scid
 				req.LocalNonce = randLocalNonce(r)
-				req.RemoteNonce = randRemoteNonce(r)
 			}
 
 			v[0] = reflect.ValueOf(*req)
@@ -656,7 +680,11 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			if r.Int31()%2 == 0 {
-				req.Musig2Nonce = randLocalNonce(r)
+				req.PartialSig, err = randPartialSig(r)
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v", err)
+					return
+				}
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -691,9 +719,13 @@ func TestLightningWireProtocol(t *testing.T) {
 				}
 			}
 
-			// 50/50 chance to attach a remote nonce.
+			// 50/50 chance to attach a partial sig.
 			if r.Int31()%2 == 0 {
-				req.RemoteNonce = randRemoteNonce(r)
+				req.PartialSig, err = randPartialSig(r)
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v", err)
+					return
+				}
 			}
 
 			v[0] = reflect.ValueOf(*req)
@@ -942,7 +974,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				}
 
 				req.LocalNonce = randLocalNonce(r)
-				req.RemoteNonce = randRemoteNonce(r)
 			}
 
 			v[0] = reflect.ValueOf(req)

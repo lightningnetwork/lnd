@@ -1,6 +1,7 @@
 package lnwallet
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -8,8 +9,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // MusigPartialSig...
@@ -40,31 +43,33 @@ func NewMusigPartialSig(sig *musig2.PartialSignature,
 	}
 }
 
+// FromWireSig...
+func (p *MusigPartialSig) FromWireSig(sig *lnwire.PartialSig) *MusigPartialSig {
+	p.sig = &musig2.PartialSignature{
+		S: &sig.Sig,
+	}
+	p.signerNonce = sig.Nonce
+
+	return p
+}
+
+// ToWireSig...
+func (p *MusigPartialSig) ToWireSig() *lnwire.PartialSig {
+	return &lnwire.PartialSig{
+		Nonce: p.signerNonce,
+		Sig:   *p.sig.S,
+	}
+}
+
 // Serialize serializes the musig2 partial signature. The serializing includes
-// the combined nonce _and_ the partial signature. The final signature is
-// always 64 bytes in length.
+// the signer's public nonce _and_ the partial signature. The final signature
+// is always 98 bytes in length.
 func (p *MusigPartialSig) Serialize() []byte {
-	var rawSig [schnorr.SignatureSize]byte
+	var b bytes.Buffer
 
-	// For the signature, we'll encode only the x-coordinate of the
-	// combined nonce point. To do this we'll need to convert the R point
-	// in the sig to jacobian coordinate, and then extract the x-coord from
-	// that.
-	//
-	// TODO(roasbeef): test, or can recompute b, then arrive at the
-	// combined nonce, given: combinedNonce, combinedKey, msg
-	var nonceJ btcec.JacobianPoint
-	p.sig.R.AsJacobian(&nonceJ)
-	nonceJ.ToAffine()
+	p.ToWireSig().Encode(&b)
 
-	nonceX := &nonceJ.X
-
-	nonceX.PutBytesUnchecked(rawSig[:])
-	p.sig.S.PutBytesUnchecked(rawSig[32:])
-
-	// TODO(roasbeef): update to 98 byte serialization?
-
-	return rawSig[:]
+	return b.Bytes()
 }
 
 // ToSchnorrShell...
@@ -96,8 +101,6 @@ func (p *MusigPartialSig) Verify(msg []byte, pub *btcec.PublicKey) bool {
 	var m [32]byte
 	copy(m[:], msg)
 
-	// TODO(roasbeef): need diff nonce here??
-
 	return p.sig.Verify(
 		p.signerNonce, p.combinedNonce, p.signerKeys, pub, m,
 		musig2.WithSortedKeys(), musig2.WithBip86SignTweak(),
@@ -105,22 +108,19 @@ func (p *MusigPartialSig) Verify(msg []byte, pub *btcec.PublicKey) bool {
 }
 
 // MusigNoncePair...
-//
-// TODO(roasbeef): rename to nonce1 and nonce2?
-//   - or signing nonce and verification nonce
 type MusigNoncePair struct {
-	// LocalNonce...
-	LocalNonce *musig2.Nonces
+	// SigningNonce...
+	SigningNonce musig2.Nonces
 
-	// RemoteNonce...
-	RemoteNonce *musig2.Nonces
+	// VerificationNonce...
+	VerificationNonce musig2.Nonces
 }
 
 // String...
 func (n *MusigNoncePair) String() string {
 	return fmt.Sprintf("NoncePair(verification_nonce=%x, "+
-		"signing_nonce=%x)", n.LocalNonce.PubNonce[:],
-		n.RemoteNonce.PubNonce[:])
+		"signing_nonce=%x)", n.VerificationNonce.PubNonce[:],
+		n.SigningNonce.PubNonce[:])
 }
 
 // MusigSession...
@@ -132,10 +132,6 @@ type MusigSession struct {
 	// nonces is the set of nonces that'll be used to generate/verify the
 	// next commitment.
 	nonces MusigNoncePair
-
-	// nextNonces is the next set of nonces to start using once a
-	// revocation or new state occurs.
-	nextNonces *MusigNoncePair
 
 	// inputTxOut...
 	inputTxOut *wire.TxOut
@@ -156,64 +152,86 @@ type MusigSession struct {
 	remoteCommit bool
 }
 
-// NewMusigSession...
-func NewMusigSession(noncePair MusigNoncePair,
+// NewPartialMusigSession...
+func NewPartialMusigSession(verificationNonce musig2.Nonces,
 	localKey, remoteKey keychain.KeyDescriptor,
 	signer input.MuSig2Signer, inputTxOut *wire.TxOut,
-	remoteCommit bool) (*MusigSession, error) {
-
-	var localNonce, remoteNonce *musig2.Nonces
-
-	// If we're making a session for the remote commitment, then the nonce
-	// we use to sign is actually our _remote_ nonce, and their
-	// verification nonce is the local nonce.
-	switch {
-	case remoteCommit:
-		localNonce = noncePair.RemoteNonce
-		remoteNonce = noncePair.LocalNonce
-
-	// Otherwise, we're generating a signature for our local commitment (to
-	// broadcast), so we'll use our normal local nonce for signing.
-	default:
-		localNonce = noncePair.LocalNonce
-		remoteNonce = noncePair.RemoteNonce
-	}
+	remoteCommit bool) *MusigSession {
 
 	signerKeys := []*btcec.PublicKey{localKey.PubKey, remoteKey.PubKey}
+
+	nonces := MusigNoncePair{
+		VerificationNonce: verificationNonce,
+	}
+
+	return &MusigSession{
+		nonces:       nonces,
+		remoteKey:    remoteKey,
+		localKey:     localKey,
+		inputTxOut:   inputTxOut,
+		signerKeys:   signerKeys,
+		signer:       signer,
+		remoteCommit: remoteCommit,
+	}
+}
+
+// finalizeSession...
+//
+// TODO(roasbeef): make private again, add NewMusigSessionthat calls above then
+// calls thisd
+func (m *MusigSession) FinalizeSession(signingNonce musig2.Nonces) error {
+	var (
+		localNonce, remoteNonce musig2.Nonces
+		err                     error
+	)
+
+	// First, we'll stash the freshly generated signing nonce. Depending on
+	// who's commitment we're handling, this'll either be our generated
+	// nonce, or the one we just got from the remote party.
+	m.nonces.SigningNonce = signingNonce
+
+	switch {
+
+	// If we're making a session for the remote commitment, then the nonce
+	// we use to sign is actually will be the signing nonce for the
+	// session, and their nonce the verification nonce.
+	case m.remoteCommit:
+		localNonce = m.nonces.SigningNonce
+		remoteNonce = m.nonces.VerificationNonce
+
+	// Otherwise, we're generating/receiving a signature for our local
+	// commitment (to broadcast), so now our verification nonce is the one
+	// we've already generated, and we want to bind their new signing
+	// nonce.
+	default:
+		localNonce = m.nonces.VerificationNonce
+		remoteNonce = m.nonces.SigningNonce
+	}
+
 	tweakDesc := input.MuSig2Tweaks{
 		TaprootBIP0086Tweak: true,
 	}
-	session, err := signer.MuSig2CreateSession(
-		localKey.KeyLocator, signerKeys, &tweakDesc,
+	m.session, err = m.signer.MuSig2CreateSession(
+		m.localKey.KeyLocator, m.signerKeys, &tweakDesc,
 		[][musig2.PubNonceSize]byte{remoteNonce.PubNonce},
-		musig2.WithPreGeneratedNonce(localNonce),
+		musig2.WithPreGeneratedNonce(&localNonce),
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// We'll need the raw combined nonces later to be able to verify
 	// partial signatures, and also combine partial signatures, so we'll
 	// generate it now ourselves.
-	combinedNonce, err := musig2.AggregateNonces([][musig2.PubNonceSize]byte{
-		noncePair.LocalNonce.PubNonce,
-		noncePair.RemoteNonce.PubNonce,
+	m.combinedNonce, err = musig2.AggregateNonces([][musig2.PubNonceSize]byte{
+		m.nonces.SigningNonce.PubNonce,
+		m.nonces.VerificationNonce.PubNonce,
 	})
 	if err != nil {
-		return nil, err
+		return nil
 	}
 
-	return &MusigSession{
-		nonces:        noncePair,
-		remoteKey:     remoteKey,
-		localKey:      localKey,
-		session:       session,
-		combinedNonce: combinedNonce,
-		inputTxOut:    inputTxOut,
-		signerKeys:    signerKeys,
-		signer:        signer,
-		remoteCommit:  remoteCommit,
-	}, nil
+	return nil
 }
 
 // taprootKeyspendSighash...
@@ -234,16 +252,40 @@ func taprootKeyspendSighash(tx *wire.MsgTx, pkScript []byte,
 // SignCommit signs the passed commitment w/ the current signing (relative
 // remote) nonce. Given nonces should only ever be used once, once the method
 // returns a new nonce is returned, w/ the existing nonce blanked out.
-func (m *MusigSession) SignCommit(tx *wire.MsgTx,
-) (*MusigPartialSig, *[musig2.PubNonceSize]byte, error) {
+func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, error) {
+	// If we already have a session, then we don't need to finalize as this
+	// was done up front (symmetric nonce case, like for co-op close).
+	if m.session == nil {
+		// Before we can sign a new commitment, we'll need to generate
+		// a fresh nonce that'll be sent along side our signature. With
+		// the nonce in hand, we can finalize the session.
+		//
+		// TODO(roasbeef): can also pass in stuff like the sighash to
+		// further bind context, etc, etc.
+		signingNonce, err := musig2.GenNonces(
+			musig2.WithPublicKey(m.localKey.PubKey),
+		)
+		if err != nil {
+			return nil, err
+		}
+		if err := m.FinalizeSession(*signingNonce); err != nil {
+			return nil, err
+		}
+	}
 
-	// Before we can sign, we'll need to generate the sighash for their
+	// Once we sign with a nonce, we'll never use it again, so it's safe to
+	// go ahead and clean up the session right here.
+	// defer m.signer.MuSig2Cleanup(m.session.SessionID)
+	//
+	// TODO(roasbeef): can't clean up here as need to combine sig
+
+	// Next we can sign, we'll need to generate the sighash for their
 	// commitment transaction.
 	sigHash, err := taprootKeyspendSighash(
 		tx, m.inputTxOut.PkScript, m.inputTxOut.Value,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Now that we have our session created, we'll use it to generate the
@@ -258,80 +300,33 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx,
 		m.session.SessionID, sigHashMsg, false,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	// Now that we've generated a signature with this nonce, we'll generate
-	// another nonce for the _next_ commitment. This'll go in the set of
-	// nonces for the next state, as we still need the remote party's
-	// verification nonce (their relative local nonce).
-	nextSigningNonce, err := musig2.GenNonces(
-		musig2.WithPublicKey(m.localKey.PubKey),
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to gen new nonce: %w", err)
-	}
-
-	var nextNonces MusigNoncePair
-	switch {
-	case m.remoteCommit:
-		nextNonces.RemoteNonce = nextSigningNonce
-	default:
-		nextNonces.LocalNonce = nextSigningNonce
-	}
-
-	m.nextNonces = &nextNonces
-
-	// TODO(roasbeef): clean up prior session once new created?
 
 	return NewMusigPartialSig(
 		sig, m.session.PublicNonce, m.combinedNonce, m.signerKeys,
-	), &nextSigningNonce.PubNonce, nil
+	), nil
 }
 
-// Refresh...
-func (m *MusigSession) Refresh(nextNonce [musig2.PubNonceSize]byte) (*MusigSession, error) {
-	// At this point we should have a next nonce, otherwise this operation
-	// is undefined as we haven't yet used our current nonce.
-	if m.nextNonces == nil {
-		// TODO(roasbeef): proper error
-		return nil, fmt.Errorf("no next nonce")
-	}
+// Refresh is called once we receive a new verification nonce from the remote
+// party after sending a signature. This nonce will be coupled within the
+// revoke-and-ack message of the remote party.
+func (m *MusigSession) Refresh(verificationNonce *musig2.Nonces,
+) (*MusigSession, error) {
 
-	// Now that we know we have the nonce we need, we can complete the
-	// nonce pair.
-	if m.remoteCommit {
-		m.nextNonces.LocalNonce = &musig2.Nonces{
-			PubNonce: nextNonce,
-		}
-	} else {
-		m.nextNonces.RemoteNonce = &musig2.Nonces{
-			PubNonce: nextNonce,
-		}
-	}
+	// TODO(roasbeef): need to also pass along verification nonce
+	//  * local commit: called after recv'ing a sig
+	//  * remote commit: called when get revoke-and-ack
 
-	// Now we'll just re-create ourselves entirely given this new
-	// information. We'll also clean up the old session since we don't need
-	// it any longer.
-	//
-	// TODO(roasbeef): can't actually clean up here? but need the stateless
-	// signer thing?
-	oldSessionID := m.session.SessionID
-	defer m.signer.MuSig2Cleanup(oldSessionID)
-
-	return NewMusigSession(
-		*m.nextNonces, m.localKey, m.remoteKey, m.signer, m.inputTxOut,
-		m.remoteCommit,
-	)
+	return NewPartialMusigSession(
+		*verificationNonce, m.localKey, m.remoteKey, m.signer,
+		m.inputTxOut, m.remoteCommit,
+	), nil
 }
 
-// VerificationNonce...
-func (m *MusigSession) VerificationNonce() [musig2.PubNonceSize]byte {
-	if m.remoteCommit {
-		return m.nonces.RemoteNonce.PubNonce
-	} else {
-		return m.nonces.LocalNonce.PubNonce
-	}
+// VerificationNonce returns the current verification nonce for the session.
+func (m *MusigSession) VerificationNonce() *musig2.Nonces {
+	return &m.nonces.VerificationNonce
 }
 
 // TODO(roasbeef): re hot signatures, maybe would re-use the state less signing
@@ -346,15 +341,25 @@ func (m *MusigSession) VerificationNonce() [musig2.PubNonceSize]byte {
 // relative local nonce) returned to transmit to the remote party, which allows
 // them to generate another signature.
 func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
-	sig *musig2.PartialSignature) (*[musig2.PubNonceSize]byte, error) {
+	sig *lnwire.PartialSig) (*musig2.Nonces, error) {
+
+	// Before we can verify the signature, we'll need to finalize the
+	// session by binding the remote party's provided signing nonce.
+	if err := m.FinalizeSession(musig2.Nonces{
+		PubNonce: sig.Nonce,
+	}); err != nil {
+		return nil, err
+	}
 
 	// When we verify a commitment signature, we always assume that we're
 	// verifying a signature on our local commitment. Therefore, we'll use:
 	// their remote nonce, and also public key.
 	partialSig := NewMusigPartialSig(
-		sig, m.nonces.RemoteNonce.PubNonce, m.combinedNonce,
-		m.signerKeys,
+		&musig2.PartialSignature{S: &sig.Sig},
+		m.nonces.SigningNonce.PubNonce, m.combinedNonce, m.signerKeys,
 	)
+
+	walletLog.Infof("verify partial sig: %v", spew.Sdump(partialSig))
 
 	// With the partial sig loaded with the proper context, we'll now
 	// generate the sighash that the remote party should have signed.
@@ -375,8 +380,6 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 	// At this point, we know that their signature is valid, so we'll
 	// generate another verification nonce for them, so they can generate a
 	// new state transition.
-	//
-	// TODO(roasbeef): do this conditionally?
 	nextVerificationNonce, err := musig2.GenNonces(
 		musig2.WithPublicKey(m.localKey.PubKey),
 	)
@@ -384,11 +387,7 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 		return nil, fmt.Errorf("unable to gen new nonce: %w", err)
 	}
 
-	m.nextNonces = &MusigNoncePair{
-		LocalNonce: nextVerificationNonce,
-	}
-
-	return &nextVerificationNonce.PubNonce, nil
+	return nextVerificationNonce, nil
 }
 
 // CombineSigs...
@@ -414,11 +413,11 @@ type MusigSessionCfg struct {
 	// RemoteKey...
 	RemoteKey keychain.KeyDescriptor
 
-	// LocalCommitNonces...
-	LocalCommitNonces MusigNoncePair
+	// LocalNonce...
+	LocalNonce musig2.Nonces
 
-	// RemoteCommitNonces...
-	RemoteCommitNonces MusigNoncePair
+	// RemoteNonce...
+	RemoteNonce musig2.Nonces
 
 	// Signer...
 	Signer input.MuSig2Signer
@@ -447,33 +446,26 @@ type MusigPairSession struct {
 // TODO(roasbeef): move sig here?
 
 // NewMusigPairSession....
-func NewMusigPairSession(cfg *MusigSessionCfg) (*MusigPairSession, error) {
+func NewMusigPairSession(cfg *MusigSessionCfg) *MusigPairSession {
 	// Given the config passed in, we'll now create our two sessions: one
 	// for the local commit, and one for the remote commit.
 	//
-	// The session for the local commit uses our local nonce and the remote
-	// party's remote nonce. The session for the remote commit uses our
-	// remote nonces, and the remote party's local nonce.
-	localSession, err := NewMusigSession(
-		cfg.LocalCommitNonces, cfg.LocalKey, cfg.RemoteKey,
+	// Both sessions will be created using only the verification nonce for
+	// the local+remote party.
+	localSession := NewPartialMusigSession(
+		cfg.LocalNonce, cfg.LocalKey, cfg.RemoteKey,
 		cfg.Signer, cfg.InputTxOut, false,
 	)
-	if err != nil {
-		return nil, err
-	}
-	remoteSession, err := NewMusigSession(
-		cfg.RemoteCommitNonces, cfg.LocalKey, cfg.RemoteKey,
+	remoteSession := NewPartialMusigSession(
+		cfg.RemoteNonce, cfg.LocalKey, cfg.RemoteKey,
 		cfg.Signer, cfg.InputTxOut, true,
 	)
-	if err != nil {
-		return nil, err
-	}
 
 	return &MusigPairSession{
 		LocalSession:  localSession,
 		RemoteSession: remoteSession,
 		signer:        cfg.Signer,
-	}, nil
+	}
 }
 
 // TODO(roasbeef): chan reest has a late nonce binding

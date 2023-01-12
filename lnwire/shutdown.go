@@ -21,7 +21,7 @@ type Shutdown struct {
 
 	// Musig2Nonce is the nonce the sender will use to sign the first co-op
 	// sign offer.
-	Musig2Nonce *LocalMusig2Nonce
+	Musig2Nonce *Musig2Nonce
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -56,16 +56,14 @@ func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	var (
-		musigNonce LocalMusig2Nonce
-	)
+	var musigNonce Musig2Nonce
 	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
 	if err != nil {
 		return err
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[LocalNonceRecordType]; ok && val == nil {
+	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
 		s.Musig2Nonce = &musigNonce
 	}
 

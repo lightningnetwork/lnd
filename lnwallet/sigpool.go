@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -114,8 +113,6 @@ type SignJobResp struct {
 	Err error
 }
 
-// TODO(roasbeef); fix description
-
 // SigPool is a struct that is meant to allow the current channel state
 // machine to parallelize all signature generation and verification. This
 // struct is needed as _each_ HTLC when creating a commitment transaction
@@ -207,7 +204,11 @@ func (s *SigPool) poolWorker() {
 				}
 			}
 
+			// Use the sig mapper to go from the input.Signature
+			// into the serialized lnwire.Sig that we'll send
+			// across the wire.
 			sig, err := lnwire.NewSigFromSignature(rawSig)
+
 			select {
 			case sigMsg.Resp <- SignJobResp{
 				Sig: sig,

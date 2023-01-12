@@ -512,7 +512,7 @@ type Manager struct {
 	// NOTE: This map is protected by the nonceMtx above.
 	//
 	// TODO(roasbeef): replace w/ generic concurrent map
-	pendingMusigNonces map[lnwire.ChannelID]*lnwallet.MusigNoncePair
+	pendingMusigNonces map[lnwire.ChannelID]*musig2.Nonces
 
 	// activeReservations is a map which houses the state of all pending
 	// funding workflows.
@@ -603,7 +603,7 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 		fundingRequests:             make(chan *InitFundingMsg, msgBufferSize),
 		localDiscoverySignals:       make(map[lnwire.ChannelID]chan struct{}),
 		handleFundingLockedBarriers: make(map[lnwire.ChannelID]struct{}),
-		pendingMusigNonces:          make(map[lnwire.ChannelID]*lnwallet.MusigNoncePair),
+		pendingMusigNonces:          make(map[lnwire.ChannelID]*musig2.Nonces),
 		quit:                        make(chan struct{}),
 	}, nil
 }
@@ -1669,10 +1669,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		},
 		UpfrontShutdown: msg.UpfrontShutdownScript,
 		LocalNonce: &musig2.Nonces{
-			PubNonce: msg.LocalNonce.Musig2Nonce,
-		},
-		RemoteNonce: &musig2.Nonces{
-			PubNonce: msg.RemoteNonce.Musig2Nonce,
+			PubNonce: *msg.LocalNonce,
 		},
 	}
 	err = reservation.ProcessSingleContribution(remoteContribution)
@@ -1689,17 +1686,11 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 
 	ourContribution := reservation.OurContribution()
 
-	var (
-		localNonce  *lnwire.LocalMusig2Nonce
-		remoteNonce *lnwire.RemoteMusig2Nonce
-	)
+	var localNonce *lnwire.Musig2Nonce
 	if commitType.IsTaproot() {
-		localNonce = &lnwire.LocalMusig2Nonce{
-			Musig2Nonce: ourContribution.LocalNonce.PubNonce,
-		}
-		remoteNonce = &lnwire.RemoteMusig2Nonce{
-			Musig2Nonce: ourContribution.RemoteNonce.PubNonce,
-		}
+		localNonce = (*lnwire.Musig2Nonce)(
+			&ourContribution.LocalNonce.PubNonce,
+		)
 	}
 
 	// With the initiator's contribution recorded, respond with our
@@ -1723,7 +1714,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		ChannelType:           chanTypeFeatureBits,
 		LeaseExpiry:           msg.LeaseExpiry,
 		LocalNonce:            localNonce,
-		RemoteNonce:           remoteNonce,
 	}
 
 	if err := peer.SendMessage(true, &fundingAccept); err != nil {
@@ -1912,10 +1902,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		},
 		UpfrontShutdown: msg.UpfrontShutdownScript,
 		LocalNonce: &musig2.Nonces{
-			PubNonce: msg.LocalNonce.Musig2Nonce,
-		},
-		RemoteNonce: &musig2.Nonces{
-			PubNonce: msg.RemoteNonce.Musig2Nonce,
+			PubNonce: *msg.LocalNonce,
 		},
 	}
 	err = resCtx.reservation.ProcessContribution(remoteContribution)
@@ -2092,19 +2079,32 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	log.Infof("Generated ChannelPoint(%v) for pending_id(%x)", outPoint,
 		pendingChanID[:])
 
-	// TODO(roasbeef): convert signature for taproot stuff
-
 	var err error
 	fundingCreated := &lnwire.FundingCreated{
 		PendingChannelID: pendingChanID,
 		FundingPoint:     *outPoint,
 	}
-	fundingCreated.CommitSig, err = lnwire.NewSigFromSignature(sig)
-	if err != nil {
-		log.Errorf("Unable to parse signature: %v", err)
-		f.failFundingFlow(resCtx.peer, pendingChanID, err)
-		return
+
+	// If this is a taproot channel, then we'll need to populate the musig2
+	// partial sig field instead of the regaulr commit sig field.
+	if resCtx.reservation.IsTaproot() {
+		partialSig, ok := sig.(*lnwallet.MusigPartialSig)
+		if !ok {
+			log.Errorf("expected musig partial sig, got %T", sig)
+			f.failFundingFlow(resCtx.peer, pendingChanID, err)
+			return
+		}
+
+		fundingCreated.PartialSig = partialSig.ToWireSig()
+	} else {
+		fundingCreated.CommitSig, err = lnwire.NewSigFromSignature(sig)
+		if err != nil {
+			log.Errorf("Unable to parse signature: %v", err)
+			f.failFundingFlow(resCtx.peer, pendingChanID, err)
+			return
+		}
 	}
+
 	if err := resCtx.peer.SendMessage(true, fundingCreated); err != nil {
 		log.Errorf("Unable to send funding complete message: %v", err)
 		f.failFundingFlow(resCtx.peer, pendingChanID, err)
@@ -2138,19 +2138,21 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	log.Infof("completing pending_id(%x) with ChannelPoint(%v)",
 		pendingChanID[:], fundingOut)
 
-	// If this is a taproot channel, then we'll need to force the
-	// schnorr encoding.
-	//
-	// TODO(roasbeef): remove after nonce ting
+	// For taproot channels, the commit signature is actually the partial
+	// signature. Otherwise, we can convert the ECDSA commit signature into
+	// our internal input.Signature type.
+	var commitSig input.Signature
 	if resCtx.reservation.IsTaproot() {
-		msg.CommitSig.ForceSchnorr()
-	}
-
-	commitSig, err := msg.CommitSig.ToSignature()
-	if err != nil {
-		log.Errorf("unable to parse signature: %v", err)
-		f.failFundingFlow(peer, pendingChanID, err)
-		return
+		commitSig = new(lnwallet.MusigPartialSig).FromWireSig(
+			msg.PartialSig,
+		)
+	} else {
+		commitSig, err = msg.CommitSig.ToSignature()
+		if err != nil {
+			log.Errorf("unable to parse signature: %v", err)
+			f.failFundingFlow(peer, pendingChanID, err)
+			return
+		}
 	}
 
 	// With all the necessary data available, attempt to advance the
@@ -2212,21 +2214,34 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	log.Infof("sending FundingSigned for pending_id(%x) over "+
 		"ChannelPoint(%v)", pendingChanID[:], fundingOut)
 
-	// With their signature for our version of the commitment transaction
-	// verified, we can now send over our signature to the remote peer.
-	_, sig := resCtx.reservation.OurSignatures()
-	ourCommitSig, err := lnwire.NewSigFromSignature(sig)
-	if err != nil {
-		log.Errorf("unable to parse signature: %v", err)
-		f.failFundingFlow(peer, pendingChanID, err)
-		deleteFromDatabase()
-		return
+	fundingSigned := &lnwire.FundingSigned{
+		ChanID: channelID,
 	}
 
-	fundingSigned := &lnwire.FundingSigned{
-		ChanID:    channelID,
-		CommitSig: ourCommitSig,
+	// For taproot channels, we'll need to send over a partial signature
+	// that includes the nonce along sidethe signature.
+	_, sig := resCtx.reservation.OurSignatures()
+	if resCtx.reservation.IsTaproot() {
+		partialSig, ok := sig.(*lnwallet.MusigPartialSig)
+		if !ok {
+			log.Errorf("expected musig partial sig, got %T", sig)
+			f.failFundingFlow(resCtx.peer, pendingChanID, err)
+			return
+		}
+
+		fundingSigned.PartialSig = partialSig.ToWireSig()
+	} else {
+		fundingSigned.CommitSig, err = lnwire.NewSigFromSignature(sig)
+		if err != nil {
+			log.Errorf("unable to parse signature: %v", err)
+			f.failFundingFlow(peer, pendingChanID, err)
+			deleteFromDatabase()
+			return
+		}
 	}
+
+	// With their signature for our version of the commitment transaction
+	// verified, we can now send over our signature to the remote peer.
 	if err := peer.SendMessage(true, fundingSigned); err != nil {
 		log.Errorf("unable to send FundingSigned message: %v", err)
 		f.failFundingFlow(peer, pendingChanID, err)
@@ -2323,14 +2338,21 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 		msg.CommitSig.ForceSchnorr()
 	}
 
-	// The remote peer has responded with a signature for our commitment
-	// transaction. We'll verify the signature for validity, then commit
-	// the state to disk as we can now open the channel.
-	commitSig, err := msg.CommitSig.ToSignature()
-	if err != nil {
-		log.Errorf("Unable to parse signature: %v", err)
-		f.failFundingFlow(peer, pendingChanID, err)
-		return
+	// For taproot channels, the commit signature is actually the partial
+	// signature. Otherwise, we can convert the ECDSA commit signature into
+	// our internal input.Signature type.
+	var commitSig input.Signature
+	if resCtx.reservation.IsTaproot() {
+		commitSig = new(lnwallet.MusigPartialSig).FromWireSig(
+			msg.PartialSig,
+		)
+	} else {
+		commitSig, err = msg.CommitSig.ToSignature()
+		if err != nil {
+			log.Errorf("unable to parse signature: %v", err)
+			f.failFundingFlow(peer, pendingChanID, err)
+			return
+		}
 	}
 
 	completeChan, err := resCtx.reservation.CompleteReservation(
@@ -2785,6 +2807,7 @@ func (f *Manager) handleFundingConfirmation(
 	// Now that that the channel has been fully confirmed, we'll request
 	// that the wallet fully verify this channel to ensure that it can be
 	// used.
+	log.Infof("taproot: %v", completeChan.ChanType.IsTaproot())
 	err := f.cfg.Wallet.ValidateChannel(completeChan, confChannel.fundingTx)
 	if err != nil {
 		// TODO(roasbeef): delete chan state?
@@ -2877,14 +2900,14 @@ func (f *Manager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 			chanID)
 
 		f.nonceMtx.Lock()
-		localNoncePair, ok := f.pendingMusigNonces[chanID]
+		localNonce, ok := f.pendingMusigNonces[chanID]
 		if !ok {
 			// If we don't have any nonces generated yet for this
 			// first state, then we'll generate them now and stow
 			// them away.  When we receive the funding locked
 			// message, we'll then pass along this same set of
 			// nonces.
-			newNonces, err := channel.GenMusigNonces()
+			newNonce, err := channel.GenMusigNonces()
 			if err != nil {
 				f.nonceMtx.Unlock()
 				return err
@@ -2892,17 +2915,14 @@ func (f *Manager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 
 			// Now that we've generated the nonce for this channel,
 			// we'll store it in the set of pending nonces.
-			localNoncePair = newNonces
-			f.pendingMusigNonces[chanID] = localNoncePair
+			localNonce = newNonce
+			f.pendingMusigNonces[chanID] = localNonce
 		}
 		f.nonceMtx.Unlock()
 
-		fundingLockedMsg.LocalNonce = &lnwire.LocalMusig2Nonce{
-			Musig2Nonce: localNoncePair.LocalNonce.PubNonce,
-		}
-		fundingLockedMsg.RemoteNonce = &lnwire.RemoteMusig2Nonce{
-			Musig2Nonce: localNoncePair.RemoteNonce.PubNonce,
-		}
+		fundingLockedMsg.LocalNonce = (*lnwire.Musig2Nonce)(
+			&localNonce.PubNonce,
+		)
 	}
 
 	// If the channel negotiated the option-scid-alias feature bit, we'll
@@ -3571,11 +3591,11 @@ func (f *Manager) handleFundingLocked(peer lnpeer.Peer,
 	var chanOpts []lnwallet.ChannelOpt
 	if channel.ChanType.IsTaproot() {
 		f.nonceMtx.Lock()
-		localNonces, ok := f.pendingMusigNonces[chanID]
+		localNonce, ok := f.pendingMusigNonces[chanID]
 		if !ok {
 			// If there's no pending nonce for this channel ID,
 			// then we'll generate one now.
-			noncePair, err := lnwallet.NewMusigChannelNonces(
+			verNonce, err := lnwallet.NewMusigVerificationNonce(
 				channel.LocalChanCfg.MultiSigKey.PubKey,
 			)
 			if err != nil {
@@ -3585,30 +3605,21 @@ func (f *Manager) handleFundingLocked(peer lnpeer.Peer,
 				return
 			}
 
-			localNonces = noncePair
-			f.pendingMusigNonces[chanID] = localNonces
+			localNonce = verNonce
+			f.pendingMusigNonces[chanID] = localNonce
 		}
 		f.nonceMtx.Unlock()
-
-		remoteNonces := &lnwallet.MusigNoncePair{
-			LocalNonce: &musig2.Nonces{
-				PubNonce: msg.LocalNonce.Musig2Nonce,
-			},
-			RemoteNonce: &musig2.Nonces{
-				PubNonce: msg.RemoteNonce.Musig2Nonce,
-			},
-		}
 
 		log.Infof("ChanID(%v): applying local+remote musig2 nonces",
 			chanID)
 
 		chanOpts = append(
 			chanOpts,
-			lnwallet.WithLocalMusigNonces(localNonces),
-			lnwallet.WithRemoteMusigNonces(remoteNonces),
+			lnwallet.WithLocalMusigNonces(localNonce),
+			lnwallet.WithRemoteMusigNonces(&musig2.Nonces{
+				PubNonce: *msg.LocalNonce,
+			}),
 		)
-
-		// TODO(roasbeef): case of taproot chan w/ nonces not sent
 	}
 
 	// Launch a defer so we _ensure_ that the channel barrier is properly
@@ -4217,17 +4228,11 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	log.Infof("Starting funding workflow with %v for pending_id(%x), "+
 		"committype=%v", msg.Peer.Address(), chanID, commitType)
 
-	var (
-		localNonce  *lnwire.LocalMusig2Nonce
-		remoteNonce *lnwire.RemoteMusig2Nonce
-	)
+	var localNonce *lnwire.Musig2Nonce
 	if commitType.IsTaproot() {
-		localNonce = &lnwire.LocalMusig2Nonce{
-			Musig2Nonce: ourContribution.LocalNonce.PubNonce,
-		}
-		remoteNonce = &lnwire.RemoteMusig2Nonce{
-			Musig2Nonce: ourContribution.RemoteNonce.PubNonce,
-		}
+		localNonce = (*lnwire.Musig2Nonce)(
+			&ourContribution.LocalNonce.PubNonce,
+		)
 	}
 
 	fundingOpen := lnwire.OpenChannel{
@@ -4253,7 +4258,6 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		ChannelType:           chanType,
 		LeaseExpiry:           leaseExpiry,
 		LocalNonce:            localNonce,
-		RemoteNonce:           remoteNonce,
 	}
 	if err := msg.Peer.SendMessage(true, &fundingOpen); err != nil {
 		e := fmt.Errorf("unable to send funding request message: %v",

@@ -634,6 +634,8 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 		targetChan = msg.ChanID
 	case *lnwire.UpdateFee:
 		targetChan = msg.ChanID
+	case *lnwire.Shutdown:
+		targetChan = msg.ChannelID
 	default:
 		return fmt.Errorf("unknown message type: %T", msg)
 	}

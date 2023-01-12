@@ -255,6 +255,36 @@ func (l *linkTestContext) receiveFailAliceToBob() {
 	}
 }
 
+// sendShutdownBobToAlice makes Bob generate a Shutdown and give it to Alice.
+func (l *linkTestContext) sendShutdownBobToAlice() {
+	l.t.Helper()
+
+	bobDelivery := genScript(l.t, p2wshAddress)
+
+	shutdownMsg := lnwire.NewShutdown(l.aliceLink.ChanID(), bobDelivery)
+	l.aliceLink.HandleChannelUpdate(shutdownMsg)
+}
+
+// receiveShutdownAliceToBob waits for Alice to send a Shutdown to Bob and
+// returns it.
+func (l *linkTestContext) receiveShutdownAlice() *lnwire.Shutdown {
+	l.t.Helper()
+
+	var msg lnwire.Message
+	select {
+	case msg = <-l.aliceMsgs:
+	case <-time.After(15 * time.Second):
+		l.t.Fatalf("did not receive message")
+	}
+
+	shutdown, ok := msg.(*lnwire.Shutdown)
+	if !ok {
+		l.t.Fatalf("expected Shutdown, got %T", msg)
+	}
+
+	return shutdown
+}
+
 // assertNoMsgFromAlice asserts that Alice hasn't sent a message. Before
 // calling, make sure that Alice has had the opportunity to send the message.
 func (l *linkTestContext) assertNoMsgFromAlice(timeout time.Duration) {

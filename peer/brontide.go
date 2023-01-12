@@ -1012,6 +1012,8 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
 		GetAliases:              p.cfg.GetAliases,
 		DeliveryAddr:            deliveryAddr,
+		NotifySendingShutdown:   p.HandleLocalCloseChanReqs,
+		NotifyCoopReady:         p.HandleCoopReady,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live

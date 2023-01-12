@@ -6342,6 +6342,387 @@ func TestPendingCommitTicker(t *testing.T) {
 	}
 }
 
+// TestCustomShutdownScript tests that it's possible to set a custom shutdown
+// script when using the NotifyShouldShutdown call.
+func TestCustomShutdownScript(t *testing.T) {
+	t.Parallel()
+
+	script := genScript(t, p2wshAddress)
+
+	tests := []struct {
+		name            string
+		setShutdown     bool
+		userCloseScript lnwire.DeliveryAddress
+		expectedScript  lnwire.DeliveryAddress
+		expectedError   error
+	}{
+		{
+			name:            "User set script",
+			userCloseScript: script,
+			expectedScript:  script,
+		},
+		{
+			name: "No user set script",
+		},
+		{
+			name:           "Shutdown set, no user script",
+			setShutdown:    true,
+			expectedScript: script,
+		},
+		{
+			name:            "Shutdown set, user script matches",
+			setShutdown:     true,
+			userCloseScript: script,
+			expectedScript:  script,
+		},
+		{
+			name:            "Shutdown set, user script different",
+			setShutdown:     true,
+			userCloseScript: []byte("different addr"),
+			expectedError:   ErrUpfrontShutdownScriptMismatch,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			customShutdownScriptInternal(
+				t, test.setShutdown, test.userCloseScript,
+				test.expectedScript, test.expectedError,
+			)
+		})
+	}
+}
+
+// customShutdownScriptInternal is the internal test function of
+// TestCustomShutdownScript.
+func customShutdownScriptInternal(t *testing.T, setShutdown bool,
+	userCloseScript, expectedScript lnwire.DeliveryAddress,
+	expectedError error) {
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, _, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
+	require.NoError(t, err)
+
+	var (
+		coreLink  = aliceLink.(*channelLink)
+		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+	)
+
+	// Start Alice's switch.
+	err = coreLink.cfg.Switch.Start()
+	require.NoError(t, err)
+
+	closeReqChan := make(chan *ChanClose)
+	coreLink.cfg.NotifySendingShutdown = func(req *ChanClose,
+		quit chan struct{}) {
+
+		select {
+		case closeReqChan <- req:
+		case <-quit:
+		}
+	}
+
+	// Set the shutdown script to the p2wshAddress if setShutdown is true.
+	if setShutdown {
+		script := genScript(t, p2wshAddress)
+		coreLink.channel.State().LocalShutdownScript = script
+	}
+
+	err = start()
+	require.NoError(t, err)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	closeReq := &ChanClose{
+		CloseType:      contractcourt.CloseRegular,
+		ChanPoint:      bobChannel.ChannelPoint(),
+		TargetFeePerKw: 300,
+		Updates:        make(chan interface{}, 2),
+		Err:            make(chan error, 1),
+	}
+
+	// Set the user's close script if one was provided.
+	if len(userCloseScript) != 0 {
+		closeReq.DeliveryScript = userCloseScript
+	}
+
+	// If there is no expectedScript and the user-close script doesn't
+	// exist, set the script to a random one.
+	if len(expectedScript) == 0 && len(userCloseScript) == 0 {
+		closeReq.DeliveryScript = genScript(t, p2wshAddress)
+	}
+
+	err = aliceLink.NotifyShouldShutdown(closeReq)
+	if expectedError != nil {
+		require.Equal(t, expectedError, err)
+		return
+	}
+	require.NoError(t, err)
+
+	// Ensure we receive the NotifySendingShutdown event.
+	select {
+	case req := <-closeReqChan:
+		// Only check if the expectedScript was set.
+		if len(expectedScript) != 0 {
+			isEqual := bytes.Equal(
+				req.DeliveryScript, expectedScript,
+			)
+			require.True(t, isEqual)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("listening for close req failed")
+	}
+
+	// ----shutdown---->
+	aliceShutdown := ctx.receiveShutdownAlice()
+	// Only check if the expectedScript was set.
+	if len(expectedScript) != 0 {
+		require.True(
+			t, bytes.Equal(aliceShutdown.Address, expectedScript),
+		)
+	}
+}
+
+// TestSuccessfulShutdownResp tests that the link can properly handle the happy
+// path when being on the responding side of Shutdown.
+func TestSuccessfulShutdownResp(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, batchTicker, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
+	require.NoError(t, err)
+
+	coreLink, isLinkType := aliceLink.(*channelLink)
+	require.True(t, isLinkType)
+
+	alicePeer, isMockPeer := coreLink.cfg.Peer.(*mockPeer)
+	require.True(t, isMockPeer)
+
+	aliceEst, isFeeEst := coreLink.cfg.FeeEstimator.(*mockFeeEstimator)
+	require.True(t, isFeeEst)
+
+	aliceMsgs := alicePeer.sentMsgs
+
+	// Start Alice's switch.
+	err = coreLink.cfg.Switch.Start()
+	require.NoError(t, err)
+
+	closeReqChan := make(chan *ChanClose)
+	coreLink.cfg.NotifySendingShutdown = func(req *ChanClose,
+		quit chan struct{}) {
+
+		select {
+		case closeReqChan <- req:
+		case <-quit:
+		}
+	}
+
+	coopReadyChan := make(chan struct{})
+	coreLink.cfg.NotifyCoopReady = func(chanPoint *wire.OutPoint,
+		quit chan struct{}) {
+
+		select {
+		case coopReadyChan <- struct{}{}:
+		case <-quit:
+		}
+	}
+
+	err = start()
+	require.NoError(t, err)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	// Alice will send an HTLC to Bob before he sends Shutdown.
+	aliceHtlc1, _ := generateHtlcAndInvoice(t, 0)
+	// ----add---->
+	ctx.sendHtlcAliceToBob(0, aliceHtlc1)
+	ctx.receiveHtlcAliceToBob()
+
+	// <----shutdown----
+	ctx.sendShutdownBobToAlice()
+
+	// ----sig---->
+	select {
+	case batchTicker <- time.Now():
+	case <-time.After(5 * time.Second):
+		t.Fatalf("batch ticker should have ticked")
+	}
+	ctx.receiveCommitSigAliceToBob(1)
+
+	// Give Alice a fee estimate.
+	select {
+	case aliceEst.byteFeeIn <- 400:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice didn't query for the new network fee")
+	}
+
+	var ok bool
+	select {
+	case req := <-closeReqChan:
+		ok = bytes.Equal(req.DeliveryScript, coreLink.cfg.DeliveryAddr)
+		require.True(t, ok)
+	case <-time.After(5 * time.Second):
+		t.Fatalf("listening on close req failed")
+	}
+
+	// Wait to receive Alice's Shutdown.
+	aliceShutdown := ctx.receiveShutdownAlice()
+	ok = bytes.Equal(aliceShutdown.Address, coreLink.cfg.DeliveryAddr)
+	require.True(t, ok)
+
+	// <----rev----
+	ctx.sendRevAndAckBobToAlice()
+	// <----sig----
+	ctx.sendCommitSigBobToAlice(1)
+	// ----rev---->
+	ctx.receiveRevAndAckAliceToBob()
+
+	// Bob will now fail the HTLC backwards and once the channel state is
+	// clean, Alice will issue the NotifyCoopReady event.
+	err = bobChannel.FailHTLC(0, []byte("nop"), nil, nil, nil)
+	require.NoError(t, err)
+	failMsg := &lnwire.UpdateFailHTLC{
+		ID:     0,
+		Reason: lnwire.OpaqueReason([]byte("nop")),
+	}
+
+	// <----fail----
+	aliceLink.HandleChannelUpdate(failMsg)
+
+	// <----sig----
+	ctx.sendCommitSigBobToAlice(0)
+	// ----rev---->
+	ctx.receiveRevAndAckAliceToBob()
+	// ----sig---->
+	ctx.receiveCommitSigAliceToBob(0)
+	// <----rev----
+	ctx.sendRevAndAckBobToAlice()
+
+	// Ensure we receive the NotifyCoopReady event.
+	select {
+	case <-coopReadyChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("listening for close req failed")
+	}
+
+	// It should not be possible to tick the BatchTicker anymore.
+	select {
+	case batchTicker <- time.Now():
+		t.Fatalf("expected batch ticker to be inactive")
+	case <-time.After(5 * time.Second):
+	}
+}
+
+// TestDuplicateShutdown tests that the link will fail if it receives a second
+// Shutdown from the remote peer.
+func TestDuplicateShutdown(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, _, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
+	require.NoError(t, err)
+
+	coreLink, isLink := aliceLink.(*channelLink)
+	require.True(t, isLink)
+
+	alicePeer, isPeer := coreLink.cfg.Peer.(*mockPeer)
+	require.True(t, isPeer)
+
+	aliceEst, isFeeEst := coreLink.cfg.FeeEstimator.(*mockFeeEstimator)
+	require.True(t, isFeeEst)
+
+	aliceMsgs := alicePeer.sentMsgs
+
+	// Start Alice's switch.
+	err = coreLink.cfg.Switch.Start()
+	require.NoError(t, err)
+
+	closeReqChan := make(chan *ChanClose)
+	coreLink.cfg.NotifySendingShutdown = func(req *ChanClose,
+		quit chan struct{}) {
+
+		select {
+		case closeReqChan <- req:
+		case <-quit:
+		}
+	}
+
+	err = start()
+	require.NoError(t, err)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	linkErrors := make(chan LinkFailureError, 1)
+
+	// Modify OnChannelFailure so we are notified when the link fails.
+	coreLink.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
+		_ lnwire.ShortChannelID, linkErr LinkFailureError) {
+
+		linkErrors <- linkErr
+	}
+
+	// Bob will send an HTLC so that Alice's link doesn't immediately close
+	// the link after sending Shutdown.
+	bobHtlc := generateHtlc(t, coreLink, 0)
+	// <----add----
+	ctx.sendHtlcBobToAlice(bobHtlc)
+	// <----shutdown----
+	ctx.sendShutdownBobToAlice()
+
+	// Give Alice a fee estimate.
+	select {
+	case aliceEst.byteFeeIn <- 400:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice didn't query for the new network fee")
+	}
+
+	select {
+	case <-closeReqChan:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("expected to receive NotifySendingShutdown event")
+	}
+
+	// Wait to receive the Shutdown from Alice.
+	// ----shutdown---->
+	_ = ctx.receiveShutdownAlice()
+
+	// Bob sends a duplicate Shutdown
+	// <----shutdown----
+	ctx.sendShutdownBobToAlice()
+
+	select {
+	case linkErr := <-linkErrors:
+		require.Equal(t, linkErr.code, ErrRemoteError)
+	case <-time.After(time.Second * 5):
+		t.Fatalf("expected to receive a link error")
+	}
+}
+
 // genScript creates a script paying out to the address provided, which must
 // be a valid address.
 func genScript(t *testing.T, address string) lnwire.DeliveryAddress {

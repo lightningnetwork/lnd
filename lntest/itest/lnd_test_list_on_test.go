@@ -140,4 +140,8 @@ var allTestCases = []*testCase{
 		name: "custom messaging",
 		test: testCustomMessage,
 	},
+	{
+		name: "upfront fees",
+		test: testUpfrontFees,
+	},
 }

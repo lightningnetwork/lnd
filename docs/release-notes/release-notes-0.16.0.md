@@ -192,6 +192,8 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
   that caused additional failure message data to be interpreted as being part of
   a channel update.
 
+* [Fix addinvoice expiry flag comment](https://github.com/lightningnetwork/lnd/pull/7306).
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
@@ -361,3 +363,4 @@ refactor the itest for code health and maintenance.
 * Roei Erez
 * Tommy Volk
 * Yong Yu
+* Yusuke Shimizu

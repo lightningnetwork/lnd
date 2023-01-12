@@ -34,7 +34,10 @@ func negotiateCommitmentType(channelType *lnwire.ChannelType, local,
 	if channelType != nil {
 		// If the peer does know explicit negotiation, let's attempt
 		// that now.
-		if hasFeatures(local, remote, lnwire.ExplicitChannelTypeOptional) {
+		if hasFeatures(
+			local, remote, lnwire.ExplicitChannelTypeOptional,
+		) {
+
 			chanType, err := explicitNegotiateCommitmentType(
 				*channelType, local, remote,
 			)
@@ -233,7 +236,8 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 // implicitly by choosing the latest type supported by the local and remote
 // features.
 func implicitNegotiateCommitmentType(local,
-	remote *lnwire.FeatureVector) (*lnwire.ChannelType, lnwallet.CommitmentType) {
+	remote *lnwire.FeatureVector) (*lnwire.ChannelType,
+	lnwallet.CommitmentType) {
 
 	// If both peers are signalling support for anchor commitments with
 	// zero-fee HTLC transactions, we'll use this type.

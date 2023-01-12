@@ -134,7 +134,8 @@ type Wallet interface {
 	PsbtFundingFinalize([32]byte, *psbt.Packet, *wire.MsgTx) error
 
 	// PublishTransaction performs cursory validation (dust checks, etc),
-	// then finally broadcasts the passed transaction to the Bitcoin network.
+	// then finally broadcasts the passed transaction to the Bitcoin
+	// network.
 	PublishTransaction(*wire.MsgTx, string) error
 
 	// CancelFundingIntent allows a caller to cancel a previously registered

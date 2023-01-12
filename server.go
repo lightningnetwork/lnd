@@ -648,7 +648,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				return
 			}
 
-			peer.HandleLocalCloseChanReqs(request)
+			serverQuit := make(chan struct{})
+			peer.HandleLocalCloseChanReqs(request, serverQuit)
 		},
 		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),

@@ -443,6 +443,10 @@ type Brontide struct {
 	// a particular channel are sent over.
 	localCloseChanReqs chan *htlcswitch.ChanClose
 
+	// coopCloseReady is a channel that is used by a ChannelLink to notify
+	// the peer.Brontide that the ClosingSigned phase can begin.
+	coopCloseReady chan *wire.OutPoint
+
 	// linkFailures receives all reported channel failures from the switch,
 	// and instructs the channelManager to clean remaining channel state.
 	linkFailures chan linkFailureReport
@@ -498,6 +502,7 @@ func NewBrontide(cfg Config) *Brontide {
 		activeMsgStreams:   make(map[lnwire.ChannelID]*msgStream),
 		activeChanCloses:   make(map[lnwire.ChannelID]*chancloser.ChanCloser),
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
+		coopCloseReady:     make(chan *wire.OutPoint),
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
@@ -2473,6 +2478,11 @@ out:
 		case req := <-p.localCloseChanReqs:
 			p.handleLocalCloseReq(req)
 
+		// We've just been notified that the channel identified by
+		// chanPoint is ready to begin the next phase of coop close.
+		case chanPoint := <-p.coopCloseReady:
+			p.beginClosingSigned(chanPoint)
+
 		// We've received a link failure from a link that was added to
 		// the switch. This will initiate the teardown of the link, and
 		// initiate any on-chain closures if necessary.
@@ -3058,6 +3068,61 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	}
 }
 
+// beginClosingSigned begins the next phase of coop close for the channel
+// identified by chanPoint. This will stop the link, retrieve the associated
+// ChanCloser if it exists, and call ChannelClean, which will advance the
+// underlying coop close state.
+func (p *Brontide) beginClosingSigned(chanPoint *wire.OutPoint) {
+	// First, stop the link. It can't process updates at this point, but
+	// this completely stops it and removes it from the Switch's internal
+	// maps.
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	p.cfg.Switch.RemoveLink(chanID)
+
+	// Next, we'll retrieve the ChanCloser for this particular outpoint. If
+	// it doesn't exist, we'll return early. This can happen if an error
+	// occurred while processing the peer's Shutdown, but it was still sent
+	// to the link.
+	chanCloser, ok := p.activeChanCloses[chanID]
+	if !ok {
+		peerLog.Errorf("chan closer for ChanID(%v) does not exist, "+
+			"stopping coop close", chanID)
+		return
+	}
+
+	// Now we'll let the ChanCloser know that the ClosingSigned phase can
+	// start. If an error is returned here, we'll return. One way this can
+	// happen is if an error occurred while processing the peer's Shutdown,
+	// but it was still sent to the link.
+	msgs, closeFin, err := chanCloser.MarkChannelClean()
+	if err != nil {
+		peerLog.Errorf("channel clean call failed for ChanID(%v), "+
+			"stopping coop close: %v", chanID, err)
+
+		if chanCloser.CloseRequest() != nil {
+			chanCloser.CloseRequest().Err <- err
+		}
+		delete(p.activeChanCloses, chanID)
+
+		return
+	}
+
+	// We'll send out the single ClosingSigned message. We're either
+	// sending the first ClosingSigned or responding to our peer's
+	// ClosingSigned if they've sent it already.
+	for _, msg := range msgs {
+		p.queueMsg(msg, nil)
+	}
+
+	// Return if the closing negotiation is still ongoing.
+	if !closeFin {
+		return
+	}
+
+	// Otherwise, we've agreed on a closing fee after two signatures.
+	p.finalizeChanClosure(chanCloser)
+}
+
 // linkFailureReport is sent to the channelManager whenever a link reports a
 // link failure, and is forced to exit. The report houses the necessary
 // information to clean up the channel state, send back the error message, and
@@ -3632,15 +3697,43 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 
 // HandleLocalCloseChanReqs accepts a *htlcswitch.ChanClose and passes it onto
 // the channelManager goroutine, which will shut down the link and possibly
-// close the channel.
-func (p *Brontide) HandleLocalCloseChanReqs(req *htlcswitch.ChanClose) {
+// close the channel. It takes an additional quit chan as a precaution to avoid
+// potential deadlocks.
+func (p *Brontide) HandleLocalCloseChanReqs(req *htlcswitch.ChanClose,
+	quit chan struct{}) {
+
 	select {
 	case p.localCloseChanReqs <- req:
 		p.log.Info("Local close channel request delivered to " +
 			"peer")
 	case <-p.quit:
-		p.log.Info("Unable to deliver local close channel request " +
-			"to peer")
+		peerLog.Infof("Unable to deliver local close channel request "+
+			"to peer %x", p.PubKey())
+
+	case <-quit:
+		peerLog.Infof("Unable to process local close channel request "+
+			"to peer %x", p.PubKey())
+	}
+}
+
+// HandleCoopReady is called by a ChannelLink to let this subsystem know that
+// the channel is ready to be cooperatively closed. We'll also stop the link.
+// It takes an additional quit chan as a precaution to avoid potential
+// deadlocks.
+func (p *Brontide) HandleCoopReady(chanPoint *wire.OutPoint,
+	quit chan struct{}) {
+
+	select {
+	case p.coopCloseReady <- chanPoint:
+		peerLog.Infof("channel %v is ready to begin next phase of "+
+			"coop close", chanPoint)
+	case <-p.quit:
+		peerLog.Infof("unable to begin next phase of coop close for "+
+			"channel %v", chanPoint)
+
+	case <-quit:
+		peerLog.Infof("unable to begin signing phase of coop close "+
+			"for channel %v", chanPoint)
 	}
 }
 

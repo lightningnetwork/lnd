@@ -57,31 +57,34 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	dummyDeliveryScript := genScript(t, p2wshAddress)
 
 	// We send a shutdown request to Alice. She will now be the responding
-	// node in this shutdown procedure. We first expect Alice to answer
-	// this shutdown request with a Shutdown message.
+	// node in this shutdown procedure.
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: lnwire.NewShutdown(chanID, dummyDeliveryScript),
 	}
 
-	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown message")
+	// Alice calls HandleLocalCloseChanReqs to notify us that the link has
+	// sent Shutdown.
+	aliceDelivery := genScript(t, p2wshAddress)
+	aliceClose := &htlcswitch.ChanClose{
+		CloseType:      contractcourt.CloseRegular,
+		ChanPoint:      bobChan.ChannelPoint(),
+		TargetFeePerKw: 300,
+		DeliveryScript: aliceDelivery,
+		Updates:        make(chan interface{}, 2),
+		Err:            make(chan error, 1),
 	}
+	aliceQuit := make(chan struct{})
+	alicePeer.HandleLocalCloseChanReqs(aliceClose, aliceQuit)
 
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
-
-	respDeliveryScript := shutdownMsg.Address
+	// Alice calls HandleCoopReady which marks the coop close flow as
+	// ready.
+	alicePeer.HandleCoopReady(bobChan.ChannelPoint(), aliceQuit)
 
 	// Alice will then send a ClosingSigned message, indicating her proposed
 	// closing transaction fee. Alice sends the ClosingSigned message as she is
 	// the initiator of the channel.
+	var msg lnwire.Message
 	select {
 	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
@@ -98,7 +101,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	// so she knows we agreed.
 	aliceFee := respClosingSigned.FeeSatoshis
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
-		aliceFee, dummyDeliveryScript, respDeliveryScript,
+		aliceFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -159,32 +162,19 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	dummyDeliveryScript := genScript(t, p2wshAddress)
 
 	// We make Alice send a shutdown request.
+	aliceDelivery := genScript(t, p2wshAddress)
 	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      contractcourt.CloseRegular,
 		ChanPoint:      bobChan.ChannelPoint(),
 		Updates:        updateChan,
+		DeliveryScript: aliceDelivery,
 		TargetFeePerKw: 12500,
 		Err:            errChan,
 	}
-	alicePeer.localCloseChanReqs <- closeCommand
-
-	// We can now pull a Shutdown message off of Alice's outgoingQueue.
-	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown request")
-	}
-
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
-
-	aliceDeliveryScript := shutdownMsg.Address
+	aliceQuit := make(chan struct{})
+	alicePeer.HandleLocalCloseChanReqs(closeCommand, aliceQuit)
 
 	// Bob will respond with his own Shutdown message.
 	alicePeer.chanCloseMsgs <- &closeMsg{
@@ -193,7 +183,11 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 			dummyDeliveryScript),
 	}
 
+	// Alice calls HandleCoopReady and will send ClosingSigned.
+	alicePeer.HandleCoopReady(bobChan.ChannelPoint(), aliceQuit)
+
 	// Alice will reply with a ClosingSigned here.
+	var msg lnwire.Message
 	select {
 	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
@@ -209,13 +203,13 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	// message.
 	bobFee := closingSignedMsg.FeeSatoshis
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
-		bobFee, dummyDeliveryScript, aliceDeliveryScript,
+		bobFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "unable to create close proposal")
 	parsedSig, err := lnwire.NewSigFromSignature(bobSig)
 	require.NoError(t, err, "unable to parse signature")
 
-	closingSigned := lnwire.NewClosingSigned(shutdownMsg.ChannelID,
+	closingSigned := lnwire.NewClosingSigned(chanID,
 		bobFee, parsedSig)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
@@ -289,23 +283,24 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 			dummyDeliveryScript),
 	}
 
+	// Alice calls HandleLocalCloseChanReqs to notify that she sent
+	// Shutdown.
+	aliceDelivery := genScript(t, p2wshAddress)
+	aliceClose := &htlcswitch.ChanClose{
+		CloseType:      contractcourt.CloseRegular,
+		ChanPoint:      bobChan.ChannelPoint(),
+		TargetFeePerKw: 300,
+		DeliveryScript: aliceDelivery,
+		Updates:        make(chan interface{}, 2),
+		Err:            make(chan error, 1),
+	}
+	aliceQuit := make(chan struct{})
+	alicePeer.HandleLocalCloseChanReqs(aliceClose, aliceQuit)
+
+	// Alice will now call HandleCoopReady and send ClosingSigned.
+	alicePeer.HandleCoopReady(bobChan.ChannelPoint(), aliceQuit)
+
 	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown message")
-	}
-
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
-
-	aliceDeliveryScript := shutdownMsg.Address
-
-	// As Alice is the channel initiator, she will send her ClosingSigned
-	// message.
 	select {
 	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
@@ -322,7 +317,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	preferredRespFee := aliceClosingSigned.FeeSatoshis
 	increasedFee := btcutil.Amount(float64(preferredRespFee) * 2.5)
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
+		increasedFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -362,7 +357,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	// We try negotiating a 2.1x fee, which should also be rejected.
 	increasedFee = btcutil.Amount(float64(preferredRespFee) * 2.1)
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
+		increasedFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -404,7 +399,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	// Finally, Bob will accept the fee by echoing back the same fee that Alice
 	// just sent over.
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
-		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
+		aliceFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -466,31 +461,17 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	// We make the initiator send a shutdown request.
 	updateChan := make(chan interface{}, 1)
 	errChan := make(chan error, 1)
+	aliceDelivery := genScript(t, p2wshAddress)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      contractcourt.CloseRegular,
 		ChanPoint:      bobChan.ChannelPoint(),
 		Updates:        updateChan,
+		DeliveryScript: aliceDelivery,
 		TargetFeePerKw: 12500,
 		Err:            errChan,
 	}
-
-	alicePeer.localCloseChanReqs <- closeCommand
-
-	// Alice should now send a Shutdown request to Bob.
-	var msg lnwire.Message
-	select {
-	case outMsg := <-alicePeer.outgoingQueue:
-		msg = outMsg.msg
-	case <-time.After(timeout):
-		t.Fatalf("did not receive shutdown request")
-	}
-
-	shutdownMsg, ok := msg.(*lnwire.Shutdown)
-	if !ok {
-		t.Fatalf("expected Shutdown message, got %T", msg)
-	}
-
-	aliceDeliveryScript := shutdownMsg.Address
+	aliceQuit := make(chan struct{})
+	alicePeer.HandleLocalCloseChanReqs(closeCommand, aliceQuit)
 
 	// Bob will answer the Shutdown message with his own Shutdown.
 	dummyDeliveryScript := genScript(t, p2wshAddress)
@@ -500,8 +481,12 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 		msg: respShutdown,
 	}
 
+	// Alice will now mark the channel clean and send ClosingSigned.
+	alicePeer.HandleCoopReady(bobChan.ChannelPoint(), aliceQuit)
+
 	// Alice should now respond with a ClosingSigned message with her ideal
 	// fee rate.
+	var msg lnwire.Message
 	select {
 	case outMsg := <-alicePeer.outgoingQueue:
 		msg = outMsg.msg
@@ -520,7 +505,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	lastSentFee := increasedFee
 
 	bobSig, _, _, err := bobChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
+		increasedFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -563,7 +548,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	lastSentFee = increasedFee
 
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
-		increasedFee, dummyDeliveryScript, aliceDeliveryScript,
+		increasedFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 
@@ -603,7 +588,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	// Bob will now accept their fee by sending back a ClosingSigned message
 	// with an identical fee.
 	bobSig, _, _, err = bobChan.CreateCloseProposal(
-		aliceFee, dummyDeliveryScript, aliceDeliveryScript,
+		aliceFee, dummyDeliveryScript, aliceDelivery,
 	)
 	require.NoError(t, err, "error creating close proposal")
 

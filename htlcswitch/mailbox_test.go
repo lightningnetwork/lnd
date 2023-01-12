@@ -294,7 +294,7 @@ func (c *mailboxContext) checkFails(adds []*htlcPacket) {
 
 	select {
 	case pkt := <-c.forwards:
-		c.t.Fatalf("unexpected forward: %v", pkt)
+		c.t.Fatalf("unexpected forward: %v", pkt.keystone())
 	case <-time.After(50 * time.Millisecond):
 	}
 }

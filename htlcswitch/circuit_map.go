@@ -935,7 +935,7 @@ type Keystone struct {
 }
 
 // String returns a human readable description of the Keystone.
-func (k *Keystone) String() string {
+func (k Keystone) String() string {
 	return fmt.Sprintf("%s --> %s", k.InKey, k.OutKey)
 }
 

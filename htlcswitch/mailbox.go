@@ -548,6 +548,8 @@ func (m *memoryMailBox) mailCourier(cType courierType) {
 				m.pktCond.L.Unlock()
 
 			case <-deadline:
+				log.Debugf("Expiring add htlc with "+
+					"keystone=%v", add.keystone())
 				m.FailAdd(add)
 
 			case pktDone := <-m.pktReset:

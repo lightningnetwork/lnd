@@ -205,6 +205,9 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 * [Code style cleanup](https://github.com/lightningnetwork/lnd/pull/7308) in the
   funding package.
 
+* [Fixed a flake in the TestMailBoxAddExpiry unit
+  test](https://github.com/lightningnetwork/lnd/pull/7314).
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

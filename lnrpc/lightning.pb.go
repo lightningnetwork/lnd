@@ -11632,7 +11632,7 @@ type Invoice struct {
 	// of an encoded payment request. When using REST, this field must be encoded
 	// as base64.
 	DescriptionHash []byte `protobuf:"bytes,10,opt,name=description_hash,json=descriptionHash,proto3" json:"description_hash,omitempty"`
-	// Payment request expiry time in seconds. Default is 3600 (1 hour).
+	// Payment request expiry time in seconds. Default is 86400 (24 hours).
 	Expiry int64 `protobuf:"varint,11,opt,name=expiry,proto3" json:"expiry,omitempty"`
 	// Fallback on-chain address.
 	FallbackAddr string `protobuf:"bytes,12,opt,name=fallback_addr,json=fallbackAddr,proto3" json:"fallback_addr,omitempty"`

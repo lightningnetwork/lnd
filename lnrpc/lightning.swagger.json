@@ -5059,7 +5059,7 @@
         "expiry": {
           "type": "string",
           "format": "int64",
-          "description": "Payment request expiry time in seconds. Default is 3600 (1 hour)."
+          "description": "Payment request expiry time in seconds. Default is 86400 (24 hours)."
         },
         "fallback_addr": {
           "type": "string",

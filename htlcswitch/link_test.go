@@ -16,7 +16,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
@@ -6340,91 +6342,110 @@ func TestPendingCommitTicker(t *testing.T) {
 	}
 }
 
-// TestShutdownIfChannelClean tests that a link will exit the htlcManager loop
-// if and only if the underlying channel state is clean.
-func TestShutdownIfChannelClean(t *testing.T) {
+// genScript creates a script paying out to the address provided, which must
+// be a valid address.
+func genScript(t *testing.T, address string) lnwire.DeliveryAddress {
+	// Generate an address which can be used for testing.
+	deliveryAddr, err := btcutil.DecodeAddress(
+		address,
+		&chaincfg.TestNet3Params,
+	)
+	require.NoError(t, err, "invalid delivery address")
+
+	script, err := txscript.PayToAddrScript(deliveryAddr)
+	require.NoError(t, err, "cannot create script")
+
+	return script
+}
+
+var (
+	// p2SHAddress is a valid pay to script hash address.
+	p2SHAddress = "2NBFNJTktNa7GZusGbDbGKRZTxdK9VVez3n"
+
+	// p2wshAddress is a valid pay to witness script hash address.
+	//
+	//nolint:lll
+	p2wshAddress = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
+)
+
+// TestChooseDeliveryScript tests that chooseDeliveryScript correctly errors
+// when upfront and user set scripts that do not match are provided, allows
+// matching values and returns appropriate values in the case where one or none
+// are set.
+func TestChooseDeliveryScript(t *testing.T) {
 	t.Parallel()
 
-	const chanAmt = btcutil.SatoshiPerBitcoin * 5
-	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTicker, start, _, err :=
-		newSingleLinkTestHarness(t, chanAmt, chanReserve)
-	require.NoError(t, err)
+	// generate non-zero scripts for testing.
+	script1 := genScript(t, p2SHAddress)
+	script2 := genScript(t, p2wshAddress)
 
-	var (
-		coreLink  = aliceLink.(*channelLink)
-		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
-	)
-
-	shutdownAssert := func(expectedErr error) {
-		err = aliceLink.ShutdownIfChannelClean()
-		if expectedErr != nil {
-			require.Error(t, err, expectedErr)
-		} else {
-			require.NoError(t, err)
-		}
+	tests := []struct {
+		name           string
+		userScript     lnwire.DeliveryAddress
+		shutdownScript lnwire.DeliveryAddress
+		expectedScript lnwire.DeliveryAddress
+		expectedError  error
+	}{
+		{
+			name:           "Neither set",
+			userScript:     nil,
+			shutdownScript: nil,
+			expectedScript: nil,
+			expectedError:  nil,
+		},
+		{
+			name:           "Both set and equal",
+			userScript:     script1,
+			shutdownScript: script1,
+			expectedScript: script1,
+			expectedError:  nil,
+		},
+		{
+			name:           "Both set and not equal",
+			userScript:     script1,
+			shutdownScript: script2,
+			expectedScript: nil,
+			expectedError:  ErrUpfrontShutdownScriptMismatch,
+		},
+		{
+			name:           "Only upfront script",
+			userScript:     nil,
+			shutdownScript: script1,
+			expectedScript: script1,
+			expectedError:  nil,
+		},
+		{
+			name:           "Only user script",
+			userScript:     script2,
+			shutdownScript: nil,
+			expectedScript: script2,
+			expectedError:  nil,
+		},
 	}
 
-	err = start()
-	require.NoError(t, err)
+	for _, test := range tests {
+		test := test
 
-	ctx := linkTestContext{
-		t:          t,
-		aliceLink:  aliceLink,
-		bobChannel: bobChannel,
-		aliceMsgs:  aliceMsgs,
-	}
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 
-	// First send an HTLC from Bob to Alice and assert that the link can't
-	// be shutdown while the update is outstanding.
-	htlc := generateHtlc(t, coreLink, 0)
+			script, err := chooseDeliveryScript(
+				test.shutdownScript, test.userScript,
+			)
+			if !errors.Is(err, test.expectedError) {
+				t.Fatalf(
+					"Expected: %v, got: %v",
+					test.expectedError, err,
+				)
+			}
 
-	// <---add-----
-	ctx.sendHtlcBobToAlice(htlc)
-	// <---sig-----
-	ctx.sendCommitSigBobToAlice(1)
-	// ----rev---->
-	ctx.receiveRevAndAckAliceToBob()
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// ----sig---->
-	ctx.receiveCommitSigAliceToBob(1)
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// <---rev-----
-	ctx.sendRevAndAckBobToAlice()
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// ---settle-->
-	ctx.receiveSettleAliceToBob()
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// ----sig---->
-	ctx.receiveCommitSigAliceToBob(0)
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// <---rev-----
-	ctx.sendRevAndAckBobToAlice()
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// There is currently no controllable breakpoint between Alice
-	// receiving the CommitSig and her sending out the RevokeAndAck. As
-	// soon as the RevokeAndAck is generated, the channel becomes clean.
-	// This can happen right after the CommitSig is received, so there is
-	// no shutdown assertion here.
-	// <---sig-----
-	ctx.sendCommitSigBobToAlice(0)
-
-	// ----rev---->
-	ctx.receiveRevAndAckAliceToBob()
-	shutdownAssert(nil)
-
-	// Now that the link has exited the htlcManager loop, attempt to
-	// trigger the batch ticker. It should not be possible.
-	select {
-	case batchTicker <- time.Now():
-		t.Fatalf("expected batch ticker to be inactive")
-	case <-time.After(5 * time.Second):
+			if !bytes.Equal(script, test.expectedScript) {
+				t.Fatalf(
+					"Expected: %x, got: %x",
+					test.expectedScript, script,
+				)
+			}
+		})
 	}
 }
 

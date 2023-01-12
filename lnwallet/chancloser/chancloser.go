@@ -34,12 +34,6 @@ var (
 	// message while it is in an unknown state.
 	ErrInvalidState = fmt.Errorf("invalid state")
 
-	// ErrUpfrontShutdownScriptMismatch is returned when a peer or end user
-	// provides a cooperative close script which does not match the upfront
-	// shutdown script previously set for that party.
-	ErrUpfrontShutdownScriptMismatch = fmt.Errorf("shutdown script does not " +
-		"match upfront shutdown script")
-
 	// ErrProposalExeceedsMaxFee is returned when as the initiator, the
 	// latest fee proposal sent by the responder exceed our max fee.
 	// responder.
@@ -375,64 +369,10 @@ func (c *ChanCloser) initFeeBaseline() {
 		int64(c.idealFeeSat), int64(c.maxFee))
 }
 
-// initChanShutdown begins the shutdown process by un-registering the channel,
-// and creating a valid shutdown message to our target delivery address.
-func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
-	// With both items constructed we'll now send the shutdown message for this
-	// particular channel, advertising a shutdown request to our desired
-	// closing script.
-	shutdown := lnwire.NewShutdown(c.cid, c.localDeliveryScript)
-
-	// Before closing, we'll attempt to send a disable update for the channel.
-	// We do so before closing the channel as otherwise the current edge policy
-	// won't be retrievable from the graph.
-	if err := c.cfg.DisableChannel(c.chanPoint); err != nil {
-		chancloserLog.Warnf("Unable to disable channel %v on close: %v",
-			c.chanPoint, err)
-	}
-
-	// Before continuing, mark the channel as cooperatively closed with a nil
-	// txn. Even though we haven't negotiated the final txn, this guarantees
-	// that our listchannels rpc will be externally consistent, and reflect
-	// that the channel is being shutdown by the time the closing request
-	// returns.
-	err := c.cfg.Channel.MarkCoopBroadcasted(nil, c.locallyInitiated)
-	if err != nil {
-		return nil, err
-	}
-
-	chancloserLog.Infof("ChannelPoint(%v): sending shutdown message",
-		c.chanPoint)
-
-	return shutdown, nil
-}
-
-// ShutdownChan is the first method that's to be called by the initiator of the
-// cooperative channel closure. This message returns the shutdown message to
-// send to the remote party. Upon completion, we enter the
-// closeShutdownInitiated phase as we await a response.
-func (c *ChanCloser) ShutdownChan() (*lnwire.Shutdown, error) {
-	// If we attempt to shutdown the channel for the first time, and we're not
-	// in the closeIdle state, then the caller made an error.
-	if c.state != closeIdle {
-		return nil, ErrChanAlreadyClosing
-	}
-
-	chancloserLog.Infof("ChannelPoint(%v): initiating shutdown", c.chanPoint)
-
-	shutdownMsg, err := c.initChanShutdown()
-	if err != nil {
-		return nil, err
-	}
-
-	// With the opening steps complete, we'll transition into the
-	// closeShutdownInitiated state. In this state, we'll wait until the other
-	// party sends their version of the shutdown message.
-	c.state = closeShutdownInitiated
-
-	// Finally, we'll return the shutdown message to the caller so it can send
-	// it to the remote peer.
-	return shutdownMsg, nil
+// SetLocalScript sets the localDeliveryScript. This doesn't need a mutex since
+// operations usually run in the same calling thread.
+func (c *ChanCloser) SetLocalScript(local lnwire.DeliveryAddress) {
+	c.localDeliveryScript = local
 }
 
 // MarkChannelClean is used by the caller to notify the ChanCloser that the
@@ -565,7 +505,7 @@ func validateShutdownScript(disconnect func() error, upfrontScript,
 			return err
 		}
 
-		return ErrUpfrontShutdownScriptMismatch
+		return htlcswitch.ErrUpfrontShutdownScriptMismatch
 	}
 
 	return nil

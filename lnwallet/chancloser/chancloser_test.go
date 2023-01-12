@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -20,6 +21,8 @@ import (
 // TestMaybeMatchScript tests that the maybeMatchScript errors appropriately
 // when an upfront shutdown script is set and the script provided does not
 // match, and does not error in any other case.
+//
+//nolint:lll
 func TestMaybeMatchScript(t *testing.T) {
 	t.Parallel()
 
@@ -69,7 +72,7 @@ func TestMaybeMatchScript(t *testing.T) {
 			name:           "upfront shutdown set, script not ok",
 			shutdownScript: p2wkh,
 			upfrontScript:  p2wsh,
-			expectedErr:    ErrUpfrontShutdownScriptMismatch,
+			expectedErr:    htlcswitch.ErrUpfrontShutdownScriptMismatch,
 		},
 		{
 			name:           "nil shutdown and empty upfront",

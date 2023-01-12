@@ -181,8 +181,8 @@ var addHoldInvoiceCommand = cli.Command{
 		cli.Int64Flag{
 			Name: "expiry",
 			Usage: "the invoice's expiry time in seconds. If not " +
-				"specified, an expiry of 3600 seconds (1 hour) " +
-				"is implied.",
+				"specified, an expiry of " +
+				"86400 seconds (24 hours) is implied.",
 		},
 		cli.BoolFlag{
 			Name: "private",

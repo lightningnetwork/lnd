@@ -1560,6 +1560,18 @@ out:
 			case <-p.quit:
 				break out
 			}
+
+			// Send the Shutdown to the link. If ProcessCloseMsg
+			// later fails validating the Shutdown and this message
+			// is sent to the link, the coop close process won't
+			// happen but the link will be unaware. This is fine as
+			// the link should eventually send a Shutdown and stop
+			// when the channel has no htlc's or updates. It will
+			// notify us that coop close is ready, and gracefully
+			// exit.
+			targetChan = msg.ChannelID
+			isLinkUpdate = p.isActiveChannel(msg.ChannelID)
+
 		case *lnwire.ClosingSigned:
 			select {
 			case p.chanCloseMsgs <- &closeMsg{msg.ChannelID, msg}:

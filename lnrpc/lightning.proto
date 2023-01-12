@@ -3394,7 +3394,7 @@ message Invoice {
     */
     bytes description_hash = 10;
 
-    // Payment request expiry time in seconds. Default is 3600 (1 hour).
+    // Payment request expiry time in seconds. Default is 86400 (24 hours).
     int64 expiry = 11;
 
     // Fallback on-chain address.

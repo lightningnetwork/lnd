@@ -188,7 +188,7 @@ type AddHoldInvoiceRequest struct {
 	// payment (memo) is too long to naturally fit within the description field
 	// of an encoded payment request.
 	DescriptionHash []byte `protobuf:"bytes,4,opt,name=description_hash,json=descriptionHash,proto3" json:"description_hash,omitempty"`
-	// Payment request expiry time in seconds. Default is 3600 (1 hour).
+	// Payment request expiry time in seconds. Default is 86400 (24 hours).
 	Expiry int64 `protobuf:"varint,5,opt,name=expiry,proto3" json:"expiry,omitempty"`
 	// Fallback on-chain address.
 	FallbackAddr string `protobuf:"bytes,6,opt,name=fallback_addr,json=fallbackAddr,proto3" json:"fallback_addr,omitempty"`

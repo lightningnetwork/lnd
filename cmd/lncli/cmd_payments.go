@@ -762,9 +762,9 @@ func formatPayment(ctxc context.Context, payment *lnrpc.Payment,
 		state := htlc.Status.String()
 		if htlc.Failure != nil {
 			state = fmt.Sprintf(
-				"%v @ %v",
+				"%v @ %s hop",
 				htlc.Failure.Code,
-				htlc.Failure.FailureSourceIndex,
+				ordinalNumber(htlc.Failure.FailureSourceIndex),
 			)
 		}
 
@@ -1649,4 +1649,18 @@ var clearCode = fmt.Sprintf("%c[%dA%c[2K", ESC, 1, ESC)
 // clearLines erases the last count lines in the terminal window.
 func clearLines(count int) {
 	_, _ = fmt.Print(strings.Repeat(clearCode, count))
+}
+
+// ordinalNumber returns the ordinal number as a string of a number.
+func ordinalNumber(num uint32) string {
+	switch num {
+	case 1:
+		return "1st"
+	case 2:
+		return "2nd"
+	case 3:
+		return "3rd"
+	default:
+		return fmt.Sprintf("%dth", num)
+	}
 }

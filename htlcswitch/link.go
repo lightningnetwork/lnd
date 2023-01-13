@@ -2014,6 +2014,16 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	switch msg := msg.(type) {
 
 	case *lnwire.UpdateAddHTLC:
+		// If the peer has already sent Shutdown, fail the link.
+		if l.shutdownReceived.Load() {
+			l.fail(
+				LinkFailureError{code: ErrInvalidUpdate},
+				"peer sent add after shutdown",
+			)
+
+			return
+		}
+
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
 		// "settle" list in the event that we know the preimage.

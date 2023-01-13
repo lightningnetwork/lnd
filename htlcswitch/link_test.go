@@ -6698,6 +6698,131 @@ func TestSuccessfulShutdownResp(t *testing.T) {
 	}
 }
 
+// TestAddAfterShutdown tests that the link will fail if it receives an HTLC
+// from the peer after receiving Shutdown.
+func TestAddAfterShutdown(t *testing.T) {
+	t.Parallel()
+
+	const chanAmt = btcutil.SatoshiPerBitcoin * 5
+	const chanReserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, _, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, chanReserve)
+	require.NoError(t, err)
+
+	coreLink, isLink := aliceLink.(*channelLink)
+	require.True(t, isLink)
+
+	alicePeer, isPeer := coreLink.cfg.Peer.(*mockPeer)
+	require.True(t, isPeer)
+
+	aliceMsgs := alicePeer.sentMsgs
+
+	// Start Alice's switch.
+	err = coreLink.cfg.Switch.Start()
+	require.NoError(t, err)
+
+	closeReqChan := make(chan *ChanClose)
+	coreLink.cfg.NotifySendingShutdown = func(req *ChanClose,
+		quit chan struct{}) {
+
+		select {
+		case closeReqChan <- req:
+		case <-quit:
+		}
+	}
+
+	err = start()
+	require.NoError(t, err)
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	linkErrors := make(chan LinkFailureError, 1)
+
+	// Modify OnChannelFailure so we are notified when the link fails.
+	coreLink.cfg.OnChannelFailure = func(_ lnwire.ChannelID,
+		_ lnwire.ShortChannelID, linkErr LinkFailureError) {
+
+		linkErrors <- linkErr
+	}
+
+	// Alice will send Bob an HTLC so she doesn't close the link after
+	// sending Shutdown
+	aliceHtlc1, _ := generateHtlcAndInvoice(t, 0)
+	// ----add---->
+	ctx.sendHtlcAliceToBob(0, aliceHtlc1)
+	ctx.receiveHtlcAliceToBob()
+	// <----shutdown----
+	ctx.sendShutdownBobToAlice()
+
+	// Wait until Alice receives the Shutdown message in the link.
+	err = wait.NoError(func() error {
+		if coreLink.hasReceivedShutdown() {
+			return nil
+		}
+
+		return fmt.Errorf("alice hasn't received Shutdown")
+	}, time.Second*5)
+	require.NoError(t, err)
+
+	// If Alice receives an HTLC from the switch, she will simply fail it
+	// backwards.
+	amount := lnwire.NewMSatFromSatoshis(100_000)
+
+	htlcAmt, totalTimelock, hops := generateHops(
+		amount, testStartingHeight, coreLink,
+	)
+	blob, err := generateRoute(hops...)
+	require.NoError(t, err)
+
+	_, switchHtlc, pid, err := generatePayment(
+		amount, htlcAmt, totalTimelock, blob,
+	)
+	require.NoError(t, err)
+
+	err = coreLink.cfg.Switch.SendHTLC(
+		aliceLink.ShortChanID(), pid, switchHtlc,
+	)
+	require.NoError(t, err)
+
+	resultChan, err := coreLink.cfg.Switch.GetAttemptResult(
+		pid, switchHtlc.PaymentHash, newMockDeobfuscator(),
+	)
+	require.NoError(t, err)
+
+	var (
+		result *PaymentResult
+		ok     bool
+	)
+
+	select {
+	case result, ok = <-resultChan:
+		require.True(t, ok)
+	case <-time.After(10 * time.Second):
+		t.Fatalf("no result arrived")
+	}
+
+	assertFailureCode(
+		t, result.Error, lnwire.CodeTemporaryChannelFailure,
+	)
+
+	// If Alice receives an HTLC from Bob, the link will be failed.
+	bobHtlc := generateHtlc(t, coreLink, 0)
+	// <----add----
+	ctx.sendHtlcBobToAlice(bobHtlc)
+
+	select {
+	case linkErr := <-linkErrors:
+		require.Equal(t, linkErr.code, ErrInvalidUpdate)
+	case <-time.After(time.Second * 5):
+		t.Fatalf("expected to receive a link error")
+	}
+}
+
 // TestDuplicateShutdown tests that the link will fail if it receives a second
 // Shutdown from the remote peer.
 func TestDuplicateShutdown(t *testing.T) {

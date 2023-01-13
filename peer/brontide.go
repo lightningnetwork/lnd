@@ -972,6 +972,47 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		return err
 	}
 
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+
+	// If we need to retransmit Shutdown, create a ChanCloser and give it
+	// the Shutdown message.
+	retransmitShutdown := lnChan.State().HasSentShutdown()
+	if retransmitShutdown {
+		feePerKw, err := p.cfg.FeeEstimator.EstimateFeePerKW(
+			p.cfg.CoopCloseTargetConfs,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Since we've sent Shutdown, the delivery script is already
+		// persisted. We won't know if it's locally initiated or not.
+		// At this stage, this is fine so we set it to true.
+		chanCloser, err := p.createChanCloser(
+			lnChan, lnChan.LocalUpfrontShutdownScript(), feePerKw,
+			nil, true,
+		)
+		if err != nil {
+			peerLog.Errorf("unable to create chan closer: %v", err)
+			return err
+		}
+
+		p.activeChanCloses[chanID] = chanCloser
+
+		shutdownMsg := lnwire.NewShutdown(
+			chanID, lnChan.LocalUpfrontShutdownScript(),
+		)
+
+		// Give the Shutdown message to the ChanCloser without sending
+		// it. The link will send it during retransmission.
+		_, _, err = chanCloser.ProcessCloseMsg(shutdownMsg, false)
+		if err != nil {
+			peerLog.Errorf("unable to process shutdown: %v", err)
+			delete(p.activeChanCloses, chanID)
+			return err
+		}
+	}
+
 	//nolint:lll
 	linkCfg := htlcswitch.ChannelLinkConfig{
 		Peer:                   p,
@@ -1014,13 +1055,13 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		DeliveryAddr:            deliveryAddr,
 		NotifySendingShutdown:   p.HandleLocalCloseChanReqs,
 		NotifyCoopReady:         p.HandleCoopReady,
+		RetransmitShutdown:      retransmitShutdown,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live
 	// links going by the same channel id. If one is found, we'll shut it
 	// down to ensure that the mailboxes are only ever under the control of
 	// one link.
-	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 	p.cfg.Switch.RemoveLink(chanID)
 
 	// With the channel link created, we'll now notify the htlc switch so

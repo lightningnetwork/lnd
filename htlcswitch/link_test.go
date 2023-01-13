@@ -6342,6 +6342,73 @@ func TestPendingCommitTicker(t *testing.T) {
 	}
 }
 
+// TestShutdownRetransmit tests that the link is able to properly retransmit a
+// Shutdown message if it restarts.
+func TestShutdownRetransmit(t *testing.T) {
+	t.Parallel()
+
+	// Create the three hop network even though we'll only be using Alice
+	// and Bob.
+	const aliceInitialBalance = btcutil.SatoshiPerBitcoin * 3
+	channels, _, err := createClusterChannels(
+		t, aliceInitialBalance, btcutil.SatoshiPerBitcoin*5,
+	)
+	require.NoError(t, err)
+
+	n := newThreeHopNetwork(t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob, testStartingHeight)
+
+	// Set up the message interceptors to ensure the proper messages are
+	// sent and received in the correct order.
+	chanID := n.aliceChannelLink.ChanID()
+	messages := []expectedMessage{
+		{"alice", "bob", &lnwire.ChannelReestablish{}, false},
+		{"bob", "alice", &lnwire.ChannelReestablish{}, false},
+
+		{"alice", "bob", &lnwire.FundingLocked{}, false},
+		{"bob", "alice", &lnwire.FundingLocked{}, false},
+
+		{"alice", "bob", &lnwire.Shutdown{}, false},
+		{"bob", "alice", &lnwire.Shutdown{}, false},
+	}
+	n.aliceServer.intersect(createInterceptorFunc("[alice] <-- [bob]",
+		"alice", messages, chanID, false))
+	n.bobServer.intersect(createInterceptorFunc("[alice] --> [bob]", "bob",
+		messages, chanID, false))
+
+	closeReqChan := make(chan *ChanClose, 2)
+	notifyShutdown := func(req *ChanClose, quit chan struct{}) {
+		select {
+		case closeReqChan <- req:
+		default:
+		}
+	}
+
+	coopReadyChan := make(chan struct{}, 2)
+	notifyCoopReady := func(chanPoint *wire.OutPoint, quit chan struct{}) {
+		select {
+		case coopReadyChan <- struct{}{}:
+		default:
+		}
+	}
+
+	// Set the closure functions for Alice and Bob.
+	n.aliceChannelLink.cfg.NotifySendingShutdown = notifyShutdown
+	n.aliceChannelLink.cfg.NotifyCoopReady = notifyCoopReady
+	n.firstBobChannelLink.cfg.NotifySendingShutdown = notifyShutdown
+	n.firstBobChannelLink.cfg.NotifyCoopReady = notifyCoopReady
+
+	// Set the RetransmitShutdown config option for Alice.
+	n.aliceChannelLink.cfg.RetransmitShutdown = true
+
+	err = n.start()
+	require.NoError(t, err)
+	defer n.stop()
+	defer func() {
+		_ = n.feeEstimator.Stop()
+	}()
+}
+
 // TestCustomShutdownScript tests that it's possible to set a custom shutdown
 // script when using the NotifyShouldShutdown call.
 func TestCustomShutdownScript(t *testing.T) {

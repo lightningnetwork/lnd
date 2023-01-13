@@ -1697,6 +1697,19 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 		return nil
 	}
 
+	// If the remote peer has sent a Shutdown or we have initiated the
+	// shutdown process (but may not have sent Shutdown yet), we'll fail
+	// the Add as we're either waiting for a window to send a Shutdown
+	// message or have sent Shutdown and are attempting to clear the
+	// channel state completely.
+	if l.shutdownInit || l.shutdownReceived.Load() {
+		l.log.Debugf("Failing downstream add HTLC since we're in " +
+			"the shutdown phase of coop close")
+		l.mailBox.FailAdd(pkt)
+
+		return ErrLinkCoopClosing
+	}
+
 	// A new payment has been initiated via the downstream channel,
 	// so we add the new HTLC to our local log, then update the
 	// commitment chains.

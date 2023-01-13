@@ -31,13 +31,12 @@ type ClosingSigned struct {
 	Signature Sig
 
 	// PartialSig is used to transmit a musig2 extended partial signature
-	// that also carries along the public nonce of the signer.
+	// that signs the latest fee offer. The nonce isn't sent along side, as
+	// that has already been sent in the initial shutdown message.
 	//
 	// NOTE: This field is only populated if a musig2 taproot channel is
 	// being signed for. In this case, the above Sig type MUST be blank.
 	PartialSig *PartialSig
-
-	// TODO(roasbef): ^ make into diff type
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can

@@ -3775,7 +3775,7 @@ type CommitSigs struct {
 	HtlcSigs []lnwire.Sig
 
 	// PartialSig...
-	PartialSig *lnwire.PartialSig
+	PartialSig *lnwire.PartialSigWithNonce
 }
 
 // NewCommitState wraps the various signatures needed to properly
@@ -3814,7 +3814,7 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 
 	var (
 		sig        lnwire.Sig
-		partialSig *lnwire.PartialSig
+		partialSig *lnwire.PartialSigWithNonce
 		htlcSigs   []lnwire.Sig
 	)
 

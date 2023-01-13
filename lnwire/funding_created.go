@@ -32,7 +32,7 @@ type FundingCreated struct {
 	//
 	// NOTE: This field is only populated if a musig2 taproot channel is
 	// being signed for. In this case, the above Sig type MUST be blank.
-	PartialSig *PartialSig
+	PartialSig *PartialSigWithNonce
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -93,7 +93,7 @@ func (f *FundingCreated) Decode(r io.Reader, pver uint32) error {
 	}
 
 	var (
-		partialSig PartialSig
+		partialSig PartialSigWithNonce
 	)
 	typeMap, err := tlvRecords.ExtractRecords(&partialSig)
 	if err != nil {
@@ -101,7 +101,7 @@ func (f *FundingCreated) Decode(r io.Reader, pver uint32) error {
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[PartialSigRecordType]; ok && val == nil {
+	if val, ok := typeMap[PartialSigWithNonceRecordType]; ok && val == nil {
 		f.PartialSig = &partialSig
 	}
 

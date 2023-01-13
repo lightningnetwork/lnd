@@ -316,7 +316,7 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 		if err != nil {
 			return nil, err
 		}
-		shutdown.Musig2Nonce = (*lnwire.Musig2Nonce)(
+		shutdown.ShutdownNonce = (*lnwire.ShutdownNonce)(
 			&firstClosingNonce.PubNonce,
 		)
 
@@ -535,7 +535,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// session for signing.
 		if c.cfg.Channel.ChanType().IsTaproot() {
 			c.musigNoncePair.SigningNonce = musig2.Nonces{
-				PubNonce: *shutdownMsg.Musig2Nonce,
+				PubNonce: *shutdownMsg.ShutdownNonce,
 			}
 		}
 
@@ -602,7 +602,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// session for signing.
 		if c.cfg.Channel.ChanType().IsTaproot() {
 			c.musigNoncePair.SigningNonce = musig2.Nonces{
-				PubNonce: *shutdownMsg.Musig2Nonce,
+				PubNonce: *shutdownMsg.ShutdownNonce,
 			}
 		}
 
@@ -715,8 +715,14 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			// We'll convert the wire partial signatures into an
 			// input.Signature compliant struct so we can pass it
 			// into the final combination function.
-			localPartialSig := matchingSig.PartialSig
-			remotePartialSig := closeSignedMsg.PartialSig
+			localPartialSig := &lnwire.PartialSigWithNonce{
+				PartialSig: *matchingSig.PartialSig,
+				Nonce:      c.musigNoncePair.VerificationNonce.PubNonce,
+			}
+			remotePartialSig := &lnwire.PartialSigWithNonce{
+				PartialSig: *closeSignedMsg.PartialSig,
+				Nonce:      c.musigNoncePair.SigningNonce.PubNonce,
+			}
 
 			localSig = new(lnwallet.MusigPartialSig).FromWireSig(
 				localPartialSig,
@@ -852,7 +858,7 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 	// not.
 	var (
 		parsedSig  lnwire.Sig
-		partialSig *lnwire.PartialSig
+		partialSig *lnwire.PartialSigWithNonce
 	)
 	if c.cfg.Channel.ChanType().IsTaproot() {
 		musig, ok := rawSig.(*lnwallet.MusigPartialSig)
@@ -881,7 +887,7 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 	// over a partial signature which'll be combine donce our offer is
 	// accepted.
 	if partialSig != nil {
-		closeSignedMsg.PartialSig = partialSig
+		closeSignedMsg.PartialSig = &partialSig.PartialSig
 	}
 
 	// We'll also save this close signed, in the case that the remote party

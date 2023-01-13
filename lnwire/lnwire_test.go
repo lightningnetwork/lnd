@@ -58,8 +58,22 @@ func randPartialSig(r *rand.Rand) (*PartialSig, error) {
 	s.SetByteSlice(sigBytes[:])
 
 	return &PartialSig{
-		Sig:   s,
-		Nonce: *randLocalNonce(r),
+		Sig: s,
+	}, nil
+}
+
+func randPartialSigWithNonce(r *rand.Rand) (*PartialSigWithNonce, error) {
+	var sigBytes [32]byte
+	if _, err := r.Read(sigBytes[:]); err != nil {
+		return nil, fmt.Errorf("unable to generate sig: %v", err)
+	}
+
+	var s btcec.ModNScalar
+	s.SetByteSlice(sigBytes[:])
+
+	return &PartialSigWithNonce{
+		PartialSig: NewPartialSig(s),
+		Nonce:      *randLocalNonce(r),
 	}, nil
 }
 
@@ -574,7 +588,7 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			// 1/2 chance to attach a partial sig.
 			if r.Intn(2) == 0 {
-				req.PartialSig, err = randPartialSig(r)
+				req.PartialSig, err = randPartialSigWithNonce(r)
 				if err != nil {
 					t.Fatalf("unable to generate sig: %v", err)
 					return
@@ -603,7 +617,7 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			// 1/2 chance to attach a partial sig.
 			if r.Intn(2) == 0 {
-				req.PartialSig, err = randPartialSig(r)
+				req.PartialSig, err = randPartialSigWithNonce(r)
 				if err != nil {
 					t.Fatalf("unable to generate sig: %v", err)
 					return
@@ -657,7 +671,9 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			if r.Int31()%2 == 0 {
-				req.Musig2Nonce = randLocalNonce(r)
+				req.ShutdownNonce = (*ShutdownNonce)(
+					randLocalNonce(r),
+				)
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -721,7 +737,7 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			// 50/50 chance to attach a partial sig.
 			if r.Int31()%2 == 0 {
-				req.PartialSig, err = randPartialSig(r)
+				req.PartialSig, err = randPartialSigWithNonce(r)
 				if err != nil {
 					t.Fatalf("unable to generate sig: %v", err)
 					return

@@ -44,7 +44,9 @@ func NewMusigPartialSig(sig *musig2.PartialSignature,
 }
 
 // FromWireSig...
-func (p *MusigPartialSig) FromWireSig(sig *lnwire.PartialSig) *MusigPartialSig {
+func (p *MusigPartialSig) FromWireSig(sig *lnwire.PartialSigWithNonce,
+) *MusigPartialSig {
+
 	p.sig = &musig2.PartialSignature{
 		S: &sig.Sig,
 	}
@@ -54,10 +56,10 @@ func (p *MusigPartialSig) FromWireSig(sig *lnwire.PartialSig) *MusigPartialSig {
 }
 
 // ToWireSig...
-func (p *MusigPartialSig) ToWireSig() *lnwire.PartialSig {
-	return &lnwire.PartialSig{
-		Nonce: p.signerNonce,
-		Sig:   *p.sig.S,
+func (p *MusigPartialSig) ToWireSig() *lnwire.PartialSigWithNonce {
+	return &lnwire.PartialSigWithNonce{
+		PartialSig: lnwire.NewPartialSig(*p.sig.S),
+		Nonce:      p.signerNonce,
 	}
 }
 
@@ -341,7 +343,7 @@ func (m *MusigSession) VerificationNonce() *musig2.Nonces {
 // relative local nonce) returned to transmit to the remote party, which allows
 // them to generate another signature.
 func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
-	sig *lnwire.PartialSig) (*musig2.Nonces, error) {
+	sig *lnwire.PartialSigWithNonce) (*musig2.Nonces, error) {
 
 	// Before we can verify the signature, we'll need to finalize the
 	// session by binding the remote party's provided signing nonce.

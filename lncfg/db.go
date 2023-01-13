@@ -3,13 +3,16 @@ package lncfg
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 
+	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/kvdb/postgres"
 	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
 	"github.com/lightningnetwork/lnd/kvdb/sqlite"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 )
 
@@ -221,7 +224,8 @@ type DatabaseBackends struct {
 // GetBackends returns a set of kvdb.Backends as set in the DB config.
 func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 	walletDBPath, towerServerDBPath string, towerClientEnabled,
-	towerServerEnabled bool) (*DatabaseBackends, error) {
+	towerServerEnabled bool, logger btclog.Logger) (*DatabaseBackends,
+	error) {
 
 	// We keep track of all the kvdb backends we actually open and return a
 	// reference to their close function so they can be cleaned up properly
@@ -396,6 +400,15 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 		closeFuncs[NSWalletDB] = postgresWalletBackend.Close
 
+		// Warn if the user is trying to switch over to a Postgres DB
+		// while there is a wallet or channel bbolt DB still present.
+		warnExistingBoltDBs(
+			logger, "postgres", walletDBPath, WalletDBName,
+		)
+		warnExistingBoltDBs(
+			logger, "postgres", chanDBPath, ChannelDBName,
+		)
+
 		returnEarly = false
 
 		return &DatabaseBackends{
@@ -488,6 +501,15 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 				"DB: %v", err)
 		}
 		closeFuncs[NSWalletDB] = sqliteWalletBackend.Close
+
+		// Warn if the user is trying to switch over to a sqlite DB
+		// while there is a wallet or channel bbolt DB still present.
+		warnExistingBoltDBs(
+			logger, "sqlite", walletDBPath, WalletDBName,
+		)
+		warnExistingBoltDBs(
+			logger, "sqlite", chanDBPath, ChannelDBName,
+		)
 
 		returnEarly = false
 
@@ -613,6 +635,17 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		),
 		CloseFuncs: closeFuncs,
 	}, nil
+}
+
+// warnExistingBoltDBs checks if there is an existing bbolt database in the
+// given location and logs a warning if so.
+func warnExistingBoltDBs(log btclog.Logger, dbType, dir, fileName string) {
+	if lnrpc.FileExists(filepath.Join(dir, fileName)) {
+		log.Warnf("Found existing bbolt database file in %s/%s while "+
+			"using database type %s. Existing data will NOT be "+
+			"migrated to %s automatically!", dir, fileName, dbType,
+			dbType)
+	}
 }
 
 // Compile-time constraint to ensure Workers implements the Validator interface.

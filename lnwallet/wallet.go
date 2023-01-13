@@ -1212,11 +1212,18 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	// nonces: one for our local commitment, and one for their remote
 	// commitment.
 	if reservation.partialState.ChanType.IsTaproot() {
+		// As we'd like the local nonce we send over to be generated
+		// determinstically, we'll provide a custom reader that
+		// actually just uses our sha-chain pre-image as the primary
+		// randomness source.
+		shaChainRand := musig2.WithCustomRand(
+			bytes.NewBuffer(firstPreimage[:]),
+		)
 		pubKeyOpt := musig2.WithPublicKey(
 			reservation.ourContribution.MultiSigKey.PubKey,
 		)
 		reservation.ourContribution.LocalNonce, err = musig2.GenNonces(
-			pubKeyOpt,
+			pubKeyOpt, shaChainRand,
 		)
 		if err != nil {
 			return err

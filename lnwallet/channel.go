@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 )
 
 var (
@@ -7550,7 +7551,8 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 
 	revocationMsg.NextRevocationKey = input.ComputeCommitmentPoint(nextCommitSecret[:])
 	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(
-		&lc.channelState.FundingOutpoint)
+		&lc.channelState.FundingOutpoint,
+	)
 
 	return revocationMsg, nil
 }
@@ -7902,6 +7904,7 @@ func (lc *LightningChannel) GenMusigNonces() (*musig2.Nonces, error) {
 	var err error
 	lc.pendingVerificationNonce, err = NewMusigVerificationNonce(
 		lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
+		lc.currentHeight, lc.channelState.RevocationProducer,
 	)
 	if err != nil {
 		return nil, err
@@ -7910,13 +7913,27 @@ func (lc *LightningChannel) GenMusigNonces() (*musig2.Nonces, error) {
 	return lc.pendingVerificationNonce, nil
 }
 
-// NewMusigVerificationNonce...
-func NewMusigVerificationNonce(pubKey *btcec.PublicKey,
-) (*musig2.Nonces, error) {
+// NewMusigVerificationNonce generates the local or verification nonce for
+// another musig2 session. In order to permit our implementation to not have to
+// write any secret nonce state to disk, we'll use the _next_ shachain
+// pre-image as our primary randomness source.
+func NewMusigVerificationNonce(pubKey *btcec.PublicKey, currentHeight uint64,
+	shaGen shachain.Producer) (*musig2.Nonces, error) {
 
+	// At this point, we're on currentHeight and need to generate a nonce
+	// to be used for the next commitment from the remote party, so we use
+	// a +1 here.
+	//
+	// TODO(roasbeef): unit tests
+	nextPreimage, err := shaGen.AtIndex(currentHeight + 1)
+	if err != nil {
+		return nil, err
+	}
+
+	shaChainRand := musig2.WithCustomRand(bytes.NewBuffer(nextPreimage[:]))
 	pubKeyOpt := musig2.WithPublicKey(pubKey)
 
-	return musig2.GenNonces(pubKeyOpt)
+	return musig2.GenNonces(pubKeyOpt, shaChainRand)
 }
 
 // HasRemoteNonces returns true if the channel has a remote nonce pair.

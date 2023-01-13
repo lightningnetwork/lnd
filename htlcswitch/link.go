@@ -696,6 +696,8 @@ func (l *channelLink) syncChanStates() error {
 
 	// If this is a tarpoot channel, then in addition to the normal reest
 	// message, we'll also send our local+remote nonces as well.
+	//
+	// TODO(roasbeef): move into ChanSyncMsg
 	if chanState.ChanType.IsTaproot() {
 		localNonce, err := l.channel.GenMusigNonces()
 		if err != nil {

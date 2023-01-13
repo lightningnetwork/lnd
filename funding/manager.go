@@ -3597,6 +3597,8 @@ func (f *Manager) handleFundingLocked(peer lnpeer.Peer,
 			// then we'll generate one now.
 			verNonce, err := lnwallet.NewMusigVerificationNonce(
 				channel.LocalChanCfg.MultiSigKey.PubKey,
+				channel.LocalCommitment.CommitHeight,
+				channel.RevocationProducer,
 			)
 			if err != nil {
 				f.nonceMtx.Unlock()

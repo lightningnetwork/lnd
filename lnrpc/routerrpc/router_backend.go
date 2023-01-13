@@ -747,6 +747,7 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 		payIntent.PaymentAddr = payAddr
 		payIntent.PaymentRequest = []byte(rpcPayReq.PaymentRequest)
 		payIntent.Metadata = payReq.Metadata
+		payIntent.UpfrontFeePolicy = payReq.UpfrontFeePolicy
 	} else {
 		// Otherwise, If the payment request field was not specified
 		// (and a custom route wasn't specified), construct the payment

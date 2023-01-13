@@ -8,6 +8,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -381,6 +382,14 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		// With the next candidate path found, we'll attempt to turn
 		// this into a route by applying the time-lock and fee
 		// requirements.
+		var policy htlcswitch.ForwardingPolicy
+		if p.payment.UpfrontFeePolicy != nil {
+			policy.BaseFee = p.payment.UpfrontFeePolicy.BaseFee
+			policy.FeeRate = lnwire.MilliSatoshi(
+				p.payment.UpfrontFeePolicy.FeeRate,
+			)
+		}
+
 		route, err := newRoute(
 			sourceVertex, path, height,
 			finalHopParams{
@@ -390,6 +399,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 				records:     p.payment.DestCustomRecords,
 				paymentAddr: p.payment.PaymentAddr,
 				metadata:    p.payment.Metadata,
+				upfrontFee:  policy,
 			},
 		)
 		if err != nil {

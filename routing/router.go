@@ -1994,6 +1994,10 @@ type LightningPayment struct {
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// UpfrontFeePolicy is the upfront fee policy for the final hop in the
+	// route.
+	UpfrontFeePolicy *zpay32.UpfrontFeePolicy
 }
 
 // AMPOptions houses information that must be known in order to send an AMP

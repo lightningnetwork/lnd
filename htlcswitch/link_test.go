@@ -7292,7 +7292,9 @@ func TestPipelineSettle(t *testing.T) {
 	preimage1 := invoice1.Terms.PaymentPreimage
 
 	// Add the invoice to Alice's registry so she expects it.
-	aliceReg := alice.coreLink.cfg.Registry.(*mockInvoiceRegistry)
+	aliceReg, isReg := alice.coreLink.cfg.Registry.(*mockInvoiceRegistry)
+	require.True(t, isReg)
+
 	err = aliceReg.AddInvoice(*invoice1, htlc1.PaymentHash)
 	require.NoError(t, err)
 

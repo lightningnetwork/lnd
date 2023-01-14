@@ -24,7 +24,7 @@ var (
 	serialNumberLimit = new(big.Int).Lsh(big.NewInt(1), 128)
 )
 
-// ipAddresses returns the parserd IP addresses to use when creating the TLS
+// ipAddresses returns the parsed IP addresses to use when creating the TLS
 // certificate. If tlsDisableAutofill is true, we don't include interface
 // addresses to protect users privacy.
 func ipAddresses(tlsExtraIPs []string, tlsDisableAutofill bool) ([]net.IP,
@@ -72,7 +72,7 @@ func ipAddresses(tlsExtraIPs []string, tlsDisableAutofill bool) ([]net.IP,
 }
 
 // dnsNames returns the host and DNS names to use when creating the TLS
-// ceftificate.
+// certificate.
 func dnsNames(tlsExtraDomains []string, tlsDisableAutofill bool) (string,
 	[]string) {
 

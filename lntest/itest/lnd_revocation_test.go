@@ -849,6 +849,11 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntemp.HarnessTest,
 
 	ht.AssertNumPendingForceClose(dave, 0)
 
+	// If this is an anchor channel, Dave would sweep the anchor.
+	if anchors {
+		ht.MineBlocksAndAssertNumTxes(1, 1)
+	}
+
 	// Check that Dave's wallet balance is increased.
 	err = wait.NoError(func() error {
 		daveBalResp := dave.RPC.WalletBalance()

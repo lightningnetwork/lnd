@@ -349,10 +349,6 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 			return
 		}
 
-		// We require the mempool to be cleaned from the test.
-		require.Empty(st, st.Miner.GetRawMempool(), "mempool not "+
-			"cleaned, please mine blocks to clean them all.")
-
 		// When we finish the test, reset the nodes' configs and take a
 		// snapshot of each of the nodes' internal states.
 		for _, node := range st.manager.standbyNodes {
@@ -362,8 +358,9 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 		// If found running nodes, shut them down.
 		st.shutdownNonStandbyNodes()
 
-		// Assert that mempool is cleaned
-		st.Miner.AssertNumTxsInMempool(0)
+		// We require the mempool to be cleaned from the test.
+		require.Empty(st, st.Miner.GetRawMempool(), "mempool not "+
+			"cleaned, please mine blocks to clean them all.")
 
 		// Finally, cancel the run context. We have to do it here
 		// because we need to keep the context alive for the above

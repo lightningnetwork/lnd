@@ -7031,7 +7031,14 @@ func (lc *LightningChannel) availableCommitmentBalance(view *htlcView,
 	// report our available balance just below the non-dust amount, to
 	// avoid attempting HTLCs larger than this size.
 	if theirBalance < htlcCommitFee && ourBalance >= nonDustHtlcAmt {
-		ourBalance = nonDustHtlcAmt - 1
+		// see https://github.com/lightning/bolts/issues/728
+		ourReportedBalance := nonDustHtlcAmt - 1
+		lc.log.Infof("Reducing local balance (from %v to %v): "+
+			"remote side does not have enough funds (%v < %v) to "+
+			"pay for non-dust HTLC in case of unilateral close.",
+			ourBalance, ourReportedBalance, theirBalance,
+			htlcCommitFee)
+		ourBalance = ourReportedBalance
 	}
 
 	return ourBalance, commitWeight

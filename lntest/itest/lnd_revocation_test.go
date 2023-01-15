@@ -688,6 +688,11 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntemp.HarnessTest,
 	// directly from the miner.
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
 
+	// Send one more UTXOs if this is a neutrino backend.
+	if ht.IsNeutrinoBackend() {
+		ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
+	}
+
 	// In order to test Dave's response to an uncooperative channel
 	// closure by Carol, we'll first open up a channel between them with a
 	// 0.5 BTC value.

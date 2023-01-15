@@ -611,3 +611,19 @@ func (h *HarnessRPC) ForwardingHistory(
 
 	return resp
 }
+
+type MiddlewareClient lnrpc.Lightning_RegisterRPCMiddlewareClient
+
+// RegisterRPCMiddleware makes a RPC call to the node's RegisterRPCMiddleware
+// and asserts. It also returns a cancel context which can cancel the context
+// used by the client.
+func (h *HarnessRPC) RegisterRPCMiddleware() (MiddlewareClient,
+	context.CancelFunc) {
+
+	ctxt, cancel := context.WithCancel(h.runCtx)
+
+	stream, err := h.LN.RegisterRPCMiddleware(ctxt)
+	h.NoError(err, "RegisterRPCMiddleware")
+
+	return stream, cancel
+}

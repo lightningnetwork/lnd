@@ -12,6 +12,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/assert"
@@ -58,7 +59,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 				[]byte("dummy_root_key"), []byte("0"), "itest",
 				macaroon.LatestVersion,
 			)
-			cleanup, client := macaroonClient(
+			cleanup, client := macaroonClientOld(
 				t, testNode, invalidMac,
 			)
 			defer cleanup()
@@ -75,7 +76,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 				testNode.ReadMacPath(), defaultTimeout,
 			)
 			require.NoError(t, err)
-			cleanup, client := macaroonClient(
+			cleanup, client := macaroonClientOld(
 				t, testNode, readonlyMac,
 			)
 			defer cleanup()
@@ -96,7 +97,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 				readonlyMac, macaroons.TimeoutConstraint(-30),
 			)
 			require.NoError(t, err)
-			cleanup, client := macaroonClient(
+			cleanup, client := macaroonClientOld(
 				t, testNode, timeoutMac,
 			)
 			defer cleanup()
@@ -118,7 +119,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 				),
 			)
 			require.NoError(t, err)
-			cleanup, client := macaroonClient(
+			cleanup, client := macaroonClientOld(
 				t, testNode, invalidIPAddrMac,
 			)
 			defer cleanup()
@@ -141,7 +142,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 				macaroons.IPLockConstraint("127.0.0.1"),
 			)
 			require.NoError(t, err)
-			cleanup, client := macaroonClient(t, testNode, adminMac)
+			cleanup, client := macaroonClientOld(t, testNode, adminMac)
 			defer cleanup()
 			res, err := client.NewAddress(ctxt, newAddrReq)
 			require.NoError(t, err, "get new address")
@@ -174,7 +175,7 @@ func testMacaroonAuthentication(net *lntest.NetworkHarness, ht *harnessTest) {
 			customMac := &macaroon.Macaroon{}
 			err = customMac.UnmarshalBinary(customMacBytes)
 			require.NoError(t, err)
-			cleanup, client := macaroonClient(
+			cleanup, client := macaroonClientOld(
 				t, testNode, customMac,
 			)
 			defer cleanup()
@@ -426,7 +427,7 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 
 			newMac, err := readMacaroonFromHex(bakeResp.Macaroon)
 			require.NoError(t, err)
-			cleanup, readOnlyClient := macaroonClient(
+			cleanup, readOnlyClient := macaroonClientOld(
 				t, testNode, newMac,
 			)
 			defer cleanup()
@@ -505,7 +506,7 @@ func testBakeMacaroon(net *lntest.NetworkHarness, t *harnessTest) {
 				testNode.AdminMacPath(), defaultTimeout,
 			)
 			require.NoError(tt, err)
-			cleanup, client := macaroonClient(tt, testNode, adminMac)
+			cleanup, client := macaroonClientOld(tt, testNode, adminMac)
 			defer cleanup()
 
 			tc.run(ctxt, tt, client)
@@ -530,7 +531,7 @@ func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
 		testNode.AdminMacPath(), defaultTimeout,
 	)
 	require.NoError(t.t, err)
-	cleanup, client := macaroonClient(t.t, testNode, adminMac)
+	cleanup, client := macaroonClientOld(t.t, testNode, adminMac)
 	defer cleanup()
 
 	// Record the number of macaroon IDs before creation.
@@ -595,7 +596,7 @@ func testDeleteMacaroonID(net *lntest.NetworkHarness, t *harnessTest) {
 	// Check that the deleted macaroon can no longer access macaroon:read.
 	deletedMac, err := readMacaroonFromHex(macList[0])
 	require.NoError(t.t, err)
-	cleanup, client = macaroonClient(t.t, testNode, deletedMac)
+	cleanup, client = macaroonClientOld(t.t, testNode, deletedMac)
 	defer cleanup()
 
 	// Because the macaroon is deleted, it will be treated as an invalid one.
@@ -717,8 +718,24 @@ func readMacaroonFromHex(macHex string) (*macaroon.Macaroon, error) {
 	return mac, nil
 }
 
-func macaroonClient(t *testing.T, testNode *lntest.HarnessNode,
+// TODO(yy): remove.
+func macaroonClientOld(t *testing.T, testNode *lntest.HarnessNode,
 	mac *macaroon.Macaroon) (func(), lnrpc.LightningClient) {
+
+	conn, err := testNode.ConnectRPCWithMacaroon(mac)
+	require.NoError(t, err, "connect to alice")
+
+	cleanup := func() {
+		err := conn.Close()
+		require.NoError(t, err, "close")
+	}
+	return cleanup, lnrpc.NewLightningClient(conn)
+}
+
+func macaroonClient(t *testing.T, testNode *node.HarnessNode,
+	mac *macaroon.Macaroon) (func(), lnrpc.LightningClient) {
+
+	t.Helper()
 
 	conn, err := testNode.ConnectRPCWithMacaroon(mac)
 	require.NoError(t, err, "connect to alice")

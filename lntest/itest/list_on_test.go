@@ -341,4 +341,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "route fee cutoff",
 		TestFunc: testRouteFeeCutoff,
 	},
+	{
+		Name:     "rpc middleware interceptor",
+		TestFunc: testRPCMiddlewareInterceptor,
+	},
 }

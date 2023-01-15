@@ -117,10 +117,6 @@ var allTestCases = []*testCase{
 		test: testWalletImportPubKey,
 	},
 	{
-		name: "rpc middleware interceptor",
-		test: testRPCMiddlewareInterceptor,
-	},
-	{
 		name: "wipe forwarding packages",
 		test: testWipeForwardingPackages,
 	},

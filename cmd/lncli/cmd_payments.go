@@ -1653,6 +1653,7 @@ func clearLines(count int) {
 
 // ordinalNumber returns the ordinal number as a string of a number.
 func ordinalNumber(num uint32) string {
+	//nolint:gomnd
 	switch num {
 	case 1:
 		return "1st"

@@ -1322,16 +1322,24 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					packet.incomingChanID, packet.incomingHTLCID,
 					packet.outgoingChanID, packet.outgoingHTLCID)
 
-				fail.Reason = circuit.ErrorEncrypter.EncryptMalformedError(
-					fail.Reason,
-				)
+				fail.Reason, err = circuit.ErrorEncrypter.
+					EncryptMalformedError(fail.Reason)
+				if err != nil {
+					err = fmt.Errorf("unable to obfuscate "+
+						"malformed error: %v", err)
+					log.Error(err)
+				}
 
 			default:
 				// Otherwise, it's a forwarded error, so we'll perform a
 				// wrapper encryption as normal.
-				fail.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
-					fail.Reason,
-				)
+				fail.Reason, err = circuit.ErrorEncrypter.
+					IntermediateEncrypt(fail.Reason)
+				if err != nil {
+					err = fmt.Errorf("unable to obfuscate "+
+						"intermediate error: %v", err)
+					log.Error(err)
+				}
 			}
 		} else if !isFail && circuit.Outgoing != nil {
 			// If this is an HTLC settle, and it wasn't from a

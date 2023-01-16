@@ -4493,3 +4493,62 @@ func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
 		}
 	}
 }
+
+// TestFundingManagerNoEchoChanType tests that the funding flow is aborted if
+// the peer fails to echo back the channel type in AcceptChannel.
+func TestFundingManagerNoEchoChanType(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Alice and Bob will have the same set of feature bits in our test.
+	featureBits := []lnwire.FeatureBit{
+		lnwire.ExplicitChannelTypeOptional,
+		lnwire.StaticRemoteKeyOptional,
+		lnwire.AnchorsZeroFeeHtlcTxOptional,
+	}
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	expectedChanType := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+	))
+
+	// Create a funding request and start the workflow.
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+	initReq := &InitFundingMsg{
+		Peer:            bob,
+		TargetPubkey:    bob.privKey.PubKey(),
+		ChainHash:       *fundingNetParams.GenesisHash,
+		LocalFundingAmt: 500000,
+		Updates:         updateChan,
+		Err:             errChan,
+	}
+
+	alice.fundingMgr.InitFundingWorkflow(initReq)
+
+	// Alice should have sent the OpenChannel message to Bob.
+	openChanMsg := expectOpenChannelMsg(t, alice.msgChan)
+
+	require.Equal(t, expectedChanType, openChanMsg.ChannelType)
+
+	// Let Bob handle the OpenChannel message.
+	bob.fundingMgr.ProcessFundingMsg(openChanMsg, alice)
+
+	acceptChanMsg, _ := assertFundingMsgSent(t, bob.msgChan,
+		"AcceptChannel").(*lnwire.AcceptChannel)
+
+	require.Equal(t, expectedChanType, acceptChanMsg.ChannelType)
+
+	// Drop the channel type and ensure Alice responds with an error.
+	acceptChanMsg.ChannelType = nil
+	alice.fundingMgr.ProcessFundingMsg(acceptChanMsg, bob)
+	assertFundingMsgSent(t, alice.msgChan, "Error")
+}

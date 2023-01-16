@@ -8,12 +8,6 @@ import (
 )
 
 var (
-	// errUnsupportedExplicitNegotiation is an error returned when explicit
-	// channel commitment negotiation is attempted but either peer of the
-	// channel does not support it.
-	errUnsupportedExplicitNegotiation = errors.New("explicit channel " +
-		"type negotiation not supported")
-
 	// errUnsupportedCommitmentType is an error returned when a specific
 	// channel commitment type is being explicitly negotiated but either
 	// peer of the channel does not support it.
@@ -24,38 +18,47 @@ var (
 // negotiateCommitmentType negotiates the commitment type of a newly opened
 // channel. If a desiredChanType is provided, explicit negotiation for said type
 // will be attempted if the set of both local and remote features support it.
-// Otherwise, implicit negotiation will be attempted. Two booleans are
-// returned letting the caller know if the option-scid-alias or zero-conf
-// channel types were negotiated.
+// Otherwise, implicit negotiation will be attempted.
+//
+// The returned ChannelType is nil when implicit negotiation is used. An error
+// is only returned if desiredChanType is not supported.
 func negotiateCommitmentType(desiredChanType *lnwire.ChannelType, local,
-	remote *lnwire.FeatureVector, mustBeExplicit bool) (bool,
-	*lnwire.ChannelType, lnwallet.CommitmentType, error) {
+	remote *lnwire.FeatureVector) (*lnwire.ChannelType,
+	lnwallet.CommitmentType, error) {
 
-	if desiredChanType != nil {
-		// If the peer does know explicit negotiation, let's attempt
-		// that now.
-		if hasFeatures(
-			local, remote, lnwire.ExplicitChannelTypeOptional,
-		) {
-
+	// BOLT#2 specifies we MUST use explicit negotiation if both peers
+	// signal for it.
+	if hasFeatures(local, remote, lnwire.ExplicitChannelTypeOptional) {
+		if desiredChanType != nil {
 			commitType, err := explicitNegotiateCommitmentType(
 				*desiredChanType, local, remote,
 			)
-			return true, desiredChanType, commitType, err
+
+			return desiredChanType, commitType, err
 		}
 
-		// If we're the funder, and we are attempting to use an
-		// explicit channel type, but the remote party doesn't signal
-		// the bit, then we actually want to exit here, to ensure the
-		// user doesn't end up with an unexpected channel type via
-		// implicit negotiation.
-		if mustBeExplicit {
-			return false, nil, 0, errUnsupportedExplicitNegotiation
+		// Explicitly signal the "implicit" negotiation commitment type
+		// as default when a desired channel type isn't specified.
+		chanType, commitType := implicitNegotiateCommitmentType(local,
+			remote)
+
+		return chanType, commitType, nil
+	}
+
+	// Otherwise, we'll use implicit negotiation. In this case, we are
+	// restricted to the newest channel type advertised. If the passed-in
+	// channelType doesn't match what was advertised, we fail.
+	chanType, commitType := implicitNegotiateCommitmentType(local, remote)
+
+	if desiredChanType != nil {
+		expected := lnwire.RawFeatureVector(*desiredChanType)
+		actual := lnwire.RawFeatureVector(*chanType)
+		if !expected.Equals(&actual) {
+			return nil, 0, errUnsupportedChannelType
 		}
 	}
 
-	chanType, commitType := implicitNegotiateCommitmentType(local, remote)
-	return false, chanType, commitType, nil
+	return nil, commitType, nil
 }
 
 // explicitNegotiateCommitmentType attempts to explicitly negotiate for a

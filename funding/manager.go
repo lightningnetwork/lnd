@@ -1452,9 +1452,8 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// the remote peer are signaling the proper feature bit if we're using
 	// implicit negotiation, and simply the channel type sent over if we're
 	// using explicit negotiation.
-	wasExplicit, _, commitType, err := negotiateCommitmentType(
+	chanType, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, peer.LocalFeatures(), peer.RemoteFeatures(),
-		false,
 	)
 	if err != nil {
 		// TODO(roasbeef): should be using soft errors
@@ -1473,19 +1472,16 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 
 	var (
-		chanTypeFeatureBits *lnwire.ChannelType
-		zeroConf            bool
-		scid                bool
+		zeroConf bool
+		scid     bool
 	)
 
-	if wasExplicit {
-		// Only echo back a channel type in AcceptChannel if we actually
-		// used explicit negotiation above.
-		chanTypeFeatureBits = msg.ChannelType
-
+	// Only echo back a channel type in AcceptChannel if we actually used
+	// explicit negotiation above.
+	if chanType != nil {
 		// Check if the channel type includes the zero-conf or
 		// scid-alias bits.
-		featureVec := lnwire.RawFeatureVector(*chanTypeFeatureBits)
+		featureVec := lnwire.RawFeatureVector(*chanType)
 		zeroConf = featureVec.IsSet(lnwire.ZeroConfRequired)
 		scid = featureVec.IsSet(lnwire.ScidAliasRequired)
 
@@ -1727,7 +1723,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		remoteMaxHtlcs:    maxHtlcs,
 		remoteChanReserve: chanReserve,
 		maxLocalCsv:       f.cfg.MaxLocalCSVDelay,
-		channelType:       msg.ChannelType,
+		channelType:       chanType,
 		err:               make(chan error, 1),
 		peer:              peer,
 	}
@@ -1800,7 +1796,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		HtlcPoint:             ourContribution.HtlcBasePoint.PubKey,
 		FirstCommitmentPoint:  ourContribution.FirstCommitmentPoint,
 		UpfrontShutdownScript: ourContribution.UpfrontShutdown,
-		ChannelType:           chanTypeFeatureBits,
+		ChannelType:           chanType,
 		LeaseExpiry:           msg.LeaseExpiry,
 	}
 
@@ -1888,12 +1884,9 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			peer.LocalFeatures(), peer.RemoteFeatures(),
 		)
 
-		// We pass in false here as the funder since at this point, we
-		// didn't set a chan type ourselves, so falling back to
-		// implicit funding is acceptable.
-		_, _, negotiatedCommitType, err := negotiateCommitmentType(
+		_, negotiatedCommitType, err := negotiateCommitmentType(
 			msg.ChannelType, peer.LocalFeatures(),
-			peer.RemoteFeatures(), false,
+			peer.RemoteFeatures(),
 		)
 		if err != nil {
 			err := errors.New("received unexpected channel type")
@@ -4055,9 +4048,9 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	// Before we init the channel, we'll also check to see what commitment
 	// format we can use with this peer. This is dependent on *both* us and
 	// the remote peer are signaling the proper feature bit.
-	_, chanType, commitType, err := negotiateCommitmentType(
+	chanType, commitType, err := negotiateCommitmentType(
 		msg.ChannelType, msg.Peer.LocalFeatures(),
-		msg.Peer.RemoteFeatures(), true,
+		msg.Peer.RemoteFeatures(),
 	)
 	if err != nil {
 		log.Errorf("channel type negotiation failed: %v", err)
@@ -4070,20 +4063,23 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		scid     bool
 	)
 
-	// Check if the returned chanType includes either the zero-conf or
-	// scid-alias bits.
-	featureVec := lnwire.RawFeatureVector(*chanType)
-	zeroConf = featureVec.IsSet(lnwire.ZeroConfRequired)
-	scid = featureVec.IsSet(lnwire.ScidAliasRequired)
+	if chanType != nil {
+		// Check if the returned chanType includes either the zero-conf
+		// or scid-alias bits.
+		featureVec := lnwire.RawFeatureVector(*chanType)
+		zeroConf = featureVec.IsSet(lnwire.ZeroConfRequired)
+		scid = featureVec.IsSet(lnwire.ScidAliasRequired)
 
-	// The option-scid-alias channel type for a public channel is
-	// disallowed.
-	if scid && !msg.Private {
-		err = fmt.Errorf("option-scid-alias chantype for public " +
-			"channel")
-		log.Error(err)
-		msg.Err <- err
-		return
+		// The option-scid-alias channel type for a public channel is
+		// disallowed.
+		if scid && !msg.Private {
+			err = fmt.Errorf("option-scid-alias chantype for " +
+				"public channel")
+			log.Error(err)
+			msg.Err <- err
+
+			return
+		}
 	}
 
 	// First, we'll query the fee estimator for a fee that should get the
@@ -4239,7 +4235,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		remoteMaxHtlcs:    maxHtlcs,
 		remoteChanReserve: chanReserve,
 		maxLocalCsv:       maxCSV,
-		channelType:       msg.ChannelType,
+		channelType:       chanType,
 		reservation:       reservation,
 		peer:              msg.Peer,
 		updates:           msg.Updates,

@@ -199,7 +199,7 @@ func testUpdateChannelPolicy(ht *lntemp.HarnessTest) {
 
 	// We expect this payment to fail, and that the min_htlc value is
 	// communicated back to us, since the attempted HTLC value was too low.
-	sendResp, err := alicePayStream.Recv()
+	sendResp, err := ht.ReceiveSendToRouteUpdate(alicePayStream)
 	require.NoError(ht, err, "unable to receive payment stream")
 
 	// Expected as part of the error message.
@@ -238,7 +238,7 @@ func testUpdateChannelPolicy(ht *lntemp.HarnessTest) {
 	err = alicePayStream.Send(sendReq)
 	require.NoError(ht, err, "unable to send payment")
 
-	sendResp, err = alicePayStream.Recv()
+	sendResp, err = ht.ReceiveSendToRouteUpdate(alicePayStream)
 	require.NoError(ht, err, "unable to receive payment stream")
 	require.Empty(ht, sendResp.PaymentError, "expected payment to succeed")
 

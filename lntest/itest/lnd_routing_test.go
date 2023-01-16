@@ -173,7 +173,7 @@ func testSingleHopSendToRouteCase(ht *lntemp.HarnessTest,
 			err := alicePayStream.Send(sendReq)
 			require.NoError(ht, err, "unable to send payment")
 
-			resp, err := alicePayStream.Recv()
+			resp, err := ht.ReceiveSendToRouteUpdate(alicePayStream)
 			require.NoError(ht, err, "unable to receive stream")
 			require.Emptyf(ht, resp.PaymentError,
 				"received payment error from %s: %v",

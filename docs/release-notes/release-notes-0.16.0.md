@@ -208,6 +208,8 @@ certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 * [Fixed a flake in the TestMailBoxAddExpiry unit
   test](https://github.com/lightningnetwork/lnd/pull/7314).
 
+* [Fix gomnd linter error](https://github.com/lightningnetwork/lnd/pull/7325)
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

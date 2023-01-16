@@ -22,16 +22,16 @@ var (
 )
 
 // negotiateCommitmentType negotiates the commitment type of a newly opened
-// channel. If a channelType is provided, explicit negotiation for said type
+// channel. If a desiredChanType is provided, explicit negotiation for said type
 // will be attempted if the set of both local and remote features support it.
 // Otherwise, implicit negotiation will be attempted. Two booleans are
 // returned letting the caller know if the option-scid-alias or zero-conf
 // channel types were negotiated.
-func negotiateCommitmentType(channelType *lnwire.ChannelType, local,
+func negotiateCommitmentType(desiredChanType *lnwire.ChannelType, local,
 	remote *lnwire.FeatureVector, mustBeExplicit bool) (bool,
 	*lnwire.ChannelType, lnwallet.CommitmentType, error) {
 
-	if channelType != nil {
+	if desiredChanType != nil {
 		// If the peer does know explicit negotiation, let's attempt
 		// that now.
 		if hasFeatures(
@@ -39,9 +39,9 @@ func negotiateCommitmentType(channelType *lnwire.ChannelType, local,
 		) {
 
 			chanType, err := explicitNegotiateCommitmentType(
-				*channelType, local, remote,
+				*desiredChanType, local, remote,
 			)
-			return true, channelType, chanType, err
+			return true, desiredChanType, chanType, err
 		}
 
 		// If we're the funder, and we are attempting to use an

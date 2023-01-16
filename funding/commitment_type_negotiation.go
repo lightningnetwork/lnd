@@ -38,10 +38,10 @@ func negotiateCommitmentType(desiredChanType *lnwire.ChannelType, local,
 			local, remote, lnwire.ExplicitChannelTypeOptional,
 		) {
 
-			chanType, err := explicitNegotiateCommitmentType(
+			commitType, err := explicitNegotiateCommitmentType(
 				*desiredChanType, local, remote,
 			)
-			return true, desiredChanType, chanType, err
+			return true, desiredChanType, commitType, err
 		}
 
 		// If we're the funder, and we are attempting to use an

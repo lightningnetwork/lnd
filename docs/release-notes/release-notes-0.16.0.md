@@ -306,6 +306,9 @@ data.
 
 * [Fixed a test closure](https://github.com/lightningnetwork/lnd/pull/7337)
   issue found in `bitcoindnotify/bitcoind_test.go`.
+
+* Add methods to easily check if an invoice [is AMP or 
+Keysend](https://github.com/lightningnetwork/lnd/pull/7334).
  
 ## Watchtowers
 

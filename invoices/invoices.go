@@ -471,6 +471,24 @@ func (i *Invoice) HTLCSetCompliment(setID *[32]byte,
 	return htlcSet
 }
 
+// IsKeysend returns true if the invoice is a Keysend invoice.
+func (i *Invoice) IsKeysend() bool {
+	// TODO(positiveblue): look for a more reliable way to tests if
+	// an invoice is keysend.
+	return len(i.PaymentRequest) == 0 && !i.IsAMP()
+}
+
+// IsAMP returns true if the invoice is an AMP invoice.
+func (i *Invoice) IsAMP() bool {
+	if i.Terms.Features == nil {
+		return false
+	}
+
+	return i.Terms.Features.HasFeature(
+		lnwire.AMPRequired,
+	)
+}
+
 // HtlcState defines the states an htlc paying to an invoice can be in.
 type HtlcState uint8
 
@@ -681,6 +699,8 @@ type InvoiceStateUpdateDesc struct {
 // invoice.
 type InvoiceUpdateCallback = func(invoice *Invoice) (*InvoiceUpdateDesc, error)
 
+// ValidateInvoice assures the invoice passes the checks for all the relevant
+// constraints.
 func ValidateInvoice(i *Invoice, paymentHash lntypes.Hash) error {
 	// Avoid conflicts with all-zeroes magic value in the database.
 	if paymentHash == UnknownPreimage.Hash() {
@@ -705,13 +725,8 @@ func ValidateInvoice(i *Invoice, paymentHash lntypes.Hash) error {
 		return err
 	}
 
-	// AMP invoices and hodl invoices are allowed to have no preimage
-	// specified.
-	isAMP := i.Terms.Features.HasFeature(
-		lnwire.AMPOptional,
-	)
-	if i.Terms.PaymentPreimage == nil && !(i.HodlInvoice || isAMP) {
-		return errors.New("non-hodl invoices must have a preimage")
+	if i.requiresPreimage() && i.Terms.PaymentPreimage == nil {
+		return errors.New("this invoice must have a preimage")
 	}
 
 	if len(i.Htlcs) > 0 {
@@ -719,6 +734,17 @@ func ValidateInvoice(i *Invoice, paymentHash lntypes.Hash) error {
 	}
 
 	return nil
+}
+
+// requiresPreimage returns true if the invoice requires a preimage to be valid.
+func (i *Invoice) requiresPreimage() bool {
+	// AMP invoices and hodl invoices are allowed to have no preimage
+	// specified.
+	if i.HodlInvoice || i.IsAMP() {
+		return false
+	}
+
+	return true
 }
 
 // IsPending returns true if the invoice is in ContractOpen state.

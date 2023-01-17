@@ -907,10 +907,7 @@ func serializeInvoice(w io.Writer, i *invpkg.Invoice) error {
 
 	// Only if this is a _non_ AMP invoice do we serialize the HTLCs
 	// in-line with the rest of the invoice.
-	ampInvoice := i.Terms.Features.HasFeature(
-		lnwire.AMPOptional,
-	)
-	if ampInvoice {
+	if i.IsAMP() {
 		return nil
 	}
 
@@ -1148,38 +1145,49 @@ func fetchInvoice(invoiceNum []byte, invoices kvdb.RBucket,
 		return invpkg.Invoice{}, err
 	}
 
-	// If this is an AMP invoice, then we'll also attempt to read out the
-	// set of HTLCs that were paid to prior set IDs. However, we'll only do
-	// this is the invoice didn't already have HTLCs stored in-line.
-	invoiceIsAMP := invoice.Terms.Features.HasFeature(
-		lnwire.AMPOptional,
-	)
-	switch {
-	case !invoiceIsAMP:
-		return invoice, nil
-
-	// For AMP invoice that already have HTLCs populated (created before
-	// recurring invoices), then we don't need to read from the prefix
-	// keyed section of the bucket.
-	case invoiceIsAMP && len(invoice.Htlcs) != 0:
-		return invoice, nil
-
-	// If the "zero" setID was specified, then this means that no HTLC data
-	// should be returned alongside of it.
-	case invoiceIsAMP && len(setIDs) != 0 && setIDs[0] != nil &&
-		*setIDs[0] == invpkg.BlankPayAddr:
-
+	// If this is an AMP invoice we'll also attempt to read out the set of
+	// HTLCs that were paid to prior set IDs, if needed.
+	if !invoice.IsAMP() {
 		return invoice, nil
 	}
 
-	invoice.Htlcs, err = fetchAmpSubInvoices(
-		invoices, invoiceNum, setIDs...,
-	)
-	if err != nil {
-		return invoice, nil
+	if shouldFetchAMPHTLCs(invoice, setIDs) {
+		invoice.Htlcs, err = fetchAmpSubInvoices(
+			invoices, invoiceNum, setIDs...,
+		)
+		// TODO(positiveblue): we should fail when we are not able to
+		// fetch all the HTLCs for an AMP invoice. Multiple tests in
+		// the invoice and channeldb package break if we return this
+		// error. We need to update them when we migrate this logic to
+		// the sql implementation.
+		if err != nil {
+			log.Errorf("unable to fetch amp htlcs for inv "+
+				"%v and setIDs %v: %w", invoiceNum, setIDs, err)
+		}
 	}
 
 	return invoice, nil
+}
+
+// shouldFetchAMPHTLCs returns true if we need to fetch the set of HTLCs that
+// were paid to the relevant set IDs.
+func shouldFetchAMPHTLCs(invoice invpkg.Invoice, setIDs []*invpkg.SetID) bool {
+	// For AMP invoice that already have HTLCs populated (created before
+	// recurring invoices), then we don't need to read from the prefix
+	// keyed section of the bucket.
+	if len(invoice.Htlcs) != 0 {
+		return false
+	}
+
+	// If the "zero" setID was specified, then this means that no HTLC data
+	// should be returned alongside of it.
+	if len(setIDs) != 0 && setIDs[0] != nil &&
+		*setIDs[0] == invpkg.BlankPayAddr {
+
+		return false
+	}
+
+	return true
 }
 
 // fetchInvoiceStateAMP retrieves the state of all the relevant sub-invoice for
@@ -1905,9 +1913,7 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 
 	now := d.clock.Now()
 
-	invoiceIsAMP := invoiceCopy.Terms.Features.HasFeature(
-		lnwire.AMPOptional,
-	)
+	invoiceIsAMP := invoiceCopy.IsAMP()
 
 	// Process add actions from update descriptor.
 	htlcsAmpUpdate := make(map[invpkg.SetID]map[models.CircuitKey]*invpkg.InvoiceHTLC) //nolint:lll

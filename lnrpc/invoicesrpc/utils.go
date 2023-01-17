@@ -150,8 +150,6 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 		rpcHtlcs = append(rpcHtlcs, &rpcHtlc)
 	}
 
-	isAmp := invoice.Terms.Features.HasFeature(lnwire.AMPOptional)
-
 	rpcInvoice := &lnrpc.Invoice{
 		Memo:            string(invoice.Memo),
 		RHash:           rHash,
@@ -175,9 +173,9 @@ func CreateRPCInvoice(invoice *invoices.Invoice,
 		State:           state,
 		Htlcs:           rpcHtlcs,
 		Features:        CreateRPCFeatures(invoice.Terms.Features),
-		IsKeysend:       len(invoice.PaymentRequest) == 0 && !isAmp,
+		IsKeysend:       invoice.IsKeysend(),
 		PaymentAddr:     invoice.Terms.PaymentAddr[:],
-		IsAmp:           isAmp,
+		IsAmp:           invoice.IsAMP(),
 	}
 
 	rpcInvoice.AmpInvoiceState = make(map[string]*lnrpc.AMPInvoiceState)

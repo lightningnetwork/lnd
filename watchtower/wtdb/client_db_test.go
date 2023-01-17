@@ -221,6 +221,26 @@ func (h *clientDBHarness) fetchSessionCommittedUpdates(id *wtdb.SessionID,
 	return updates
 }
 
+func (h *clientDBHarness) isAcked(id *wtdb.SessionID, backupID *wtdb.BackupID,
+	expErr error) bool {
+
+	h.t.Helper()
+
+	isAcked, err := h.db.IsAcked(id, backupID)
+	require.ErrorIs(h.t, err, expErr)
+
+	return isAcked
+}
+
+func (h *clientDBHarness) numAcked(id *wtdb.SessionID, expErr error) uint64 {
+	h.t.Helper()
+
+	numAcked, err := h.db.NumAckedUpdates(id)
+	require.ErrorIs(h.t, err, expErr)
+
+	return numAcked
+}
+
 // testCreateClientSession asserts various conditions regarding the creation of
 // a new ClientSession. The test asserts:
 //   - client sessions can only be created if a session key index is reserved.
@@ -453,6 +473,7 @@ func testRemoveTower(h *clientDBHarness) {
 	}
 	h.insertSession(session, nil)
 	update := randCommittedUpdate(h.t, 1)
+	h.registerChan(update.BackupID.ChanID, nil, nil)
 	h.commitUpdate(&session.ID, update, nil)
 
 	// We should not be able to fully remove it from the database since
@@ -583,16 +604,6 @@ func testCommitUpdate(h *clientDBHarness) {
 	}, nil)
 }
 
-func perAckedUpdate(updates map[uint16]wtdb.BackupID) func(
-	_ *wtdb.ClientSession, seq uint16, id wtdb.BackupID) {
-
-	return func(_ *wtdb.ClientSession, seq uint16,
-		id wtdb.BackupID) {
-
-		updates[seq] = id
-	}
-}
-
 // testAckUpdate asserts the behavior of AckUpdate.
 func testAckUpdate(h *clientDBHarness) {
 	const blobType = blob.TypeAltruistCommit
@@ -628,6 +639,8 @@ func testAckUpdate(h *clientDBHarness) {
 
 	// Commit to a random update at seqnum 1.
 	update1 := randCommittedUpdate(h.t, 1)
+
+	h.registerChan(update1.BackupID.ChanID, nil, nil)
 	lastApplied := h.commitUpdate(&session.ID, update1, nil)
 	require.Zero(h.t, lastApplied)
 
@@ -654,6 +667,7 @@ func testAckUpdate(h *clientDBHarness) {
 	// value is 1, since this was what was provided in the last successful
 	// ack.
 	update2 := randCommittedUpdate(h.t, 2)
+	h.registerChan(update2.BackupID.ChanID, nil, nil)
 	lastApplied = h.commitUpdate(&session.ID, update2, nil)
 	require.EqualValues(h.t, 1, lastApplied)
 
@@ -681,13 +695,16 @@ func (h *clientDBHarness) assertUpdates(id wtdb.SessionID,
 	expectedPending []wtdb.CommittedUpdate,
 	expectedAcked map[uint16]wtdb.BackupID) {
 
-	ackedUpdates := make(map[uint16]wtdb.BackupID)
-	_ = h.listSessions(
-		nil, wtdb.WithPerAckedUpdate(perAckedUpdate(ackedUpdates)),
-	)
-	committedUpates := h.fetchSessionCommittedUpdates(&id, nil)
-	checkCommittedUpdates(h.t, committedUpates, expectedPending)
-	checkAckedUpdates(h.t, ackedUpdates, expectedAcked)
+	committedUpdates := h.fetchSessionCommittedUpdates(&id, nil)
+	checkCommittedUpdates(h.t, committedUpdates, expectedPending)
+
+	// Check acked updates.
+	numAcked := h.numAcked(&id, nil)
+	require.EqualValues(h.t, len(expectedAcked), numAcked)
+	for _, backupID := range expectedAcked {
+		isAcked := h.isAcked(&id, &backupID, nil)
+		require.True(h.t, isAcked)
+	}
 }
 
 // checkCommittedUpdates asserts that the CommittedUpdates on session match the
@@ -702,21 +719,6 @@ func checkCommittedUpdates(t *testing.T, actualUpdates,
 	// convenience for the testing framework.
 	if expUpdates == nil {
 		expUpdates = make([]wtdb.CommittedUpdate, 0)
-	}
-
-	require.Equal(t, expUpdates, actualUpdates)
-}
-
-// checkAckedUpdates asserts that the AckedUpdates on a session match the
-// expUpdates provided.
-func checkAckedUpdates(t *testing.T, actualUpdates,
-	expUpdates map[uint16]wtdb.BackupID) {
-
-	// We promote nil expUpdates to an initialized map since the database
-	// should never return a nil map. This promotion is done purely out of
-	// convenience for the testing framework.
-	if expUpdates == nil {
-		expUpdates = make(map[uint16]wtdb.BackupID)
 	}
 
 	require.Equal(t, expUpdates, actualUpdates)

@@ -314,7 +314,9 @@ func New(config *Config) (*TowerClient, error) {
 	// determine the highest known commit height for each channel. This
 	// allows the client to reject backups that it has already processed for
 	// its active policy.
-	perUpdate := func(policy wtpolicy.Policy, id wtdb.BackupID) {
+	perUpdate := func(policy wtpolicy.Policy, chanID lnwire.ChannelID,
+		commitHeight uint64) {
+
 		// We only want to consider accepted updates that have been
 		// accepted under an identical policy to the client's current
 		// policy.
@@ -324,22 +326,22 @@ func New(config *Config) (*TowerClient, error) {
 
 		// Take the highest commit height found in the session's acked
 		// updates.
-		height, ok := c.chanCommitHeights[id.ChanID]
-		if !ok || id.CommitHeight > height {
-			c.chanCommitHeights[id.ChanID] = id.CommitHeight
+		height, ok := c.chanCommitHeights[chanID]
+		if !ok || commitHeight > height {
+			c.chanCommitHeights[chanID] = commitHeight
 		}
 	}
 
-	perAckedUpdate := func(s *wtdb.ClientSession, _ uint16,
-		id wtdb.BackupID) {
+	perMaxHeight := func(s *wtdb.ClientSession, chanID lnwire.ChannelID,
+		height uint64) {
 
-		perUpdate(s.Policy, id)
+		perUpdate(s.Policy, chanID, height)
 	}
 
 	perCommittedUpdate := func(s *wtdb.ClientSession,
 		u *wtdb.CommittedUpdate) {
 
-		perUpdate(s.Policy, u.BackupID)
+		perUpdate(s.Policy, u.BackupID.ChanID, u.BackupID.CommitHeight)
 	}
 
 	// Load all candidate sessions and towers from the database into the
@@ -366,7 +368,7 @@ func New(config *Config) (*TowerClient, error) {
 
 	candidateSessions, err := getTowerAndSessionCandidates(
 		cfg.DB, cfg.SecretKeyRing, activeSessionFilter, perActiveTower,
-		wtdb.WithPerAckedUpdate(perAckedUpdate),
+		wtdb.WithPerMaxHeight(perMaxHeight),
 		wtdb.WithPerCommittedUpdate(perCommittedUpdate),
 	)
 	if err != nil {

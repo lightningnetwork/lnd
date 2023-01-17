@@ -4,6 +4,8 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
+	"github.com/lightningnetwork/lnd/watchtower/wtclient"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 )
 
@@ -30,4 +32,6 @@ func UseLogger(logger btclog.Logger) {
 	log = logger
 	lookout.UseLogger(logger)
 	wtserver.UseLogger(logger)
+	wtclient.UseLogger(logger)
+	wtdb.UseLogger(logger)
 }

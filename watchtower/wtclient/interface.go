@@ -68,6 +68,14 @@ type DB interface {
 	FetchSessionCommittedUpdates(id *wtdb.SessionID) (
 		[]wtdb.CommittedUpdate, error)
 
+	// IsAcked returns true if the given backup has been backed up using
+	// the given session.
+	IsAcked(id *wtdb.SessionID, backupID *wtdb.BackupID) (bool, error)
+
+	// NumAckedUpdates returns the number of backups that have been
+	// successfully backed up using the given session.
+	NumAckedUpdates(id *wtdb.SessionID) (uint64, error)
+
 	// FetchChanSummaries loads a mapping from all registered channels to
 	// their channel summaries.
 	FetchChanSummaries() (wtdb.ChannelSummaries, error)

@@ -401,9 +401,19 @@ func (b *BtcWallet) SignOutputRaw(tx *wire.MsgTx,
 			if err != nil {
 				return nil, err
 			}
+
+		default:
+			return nil, fmt.Errorf("unknown sign method: %v",
+				signDesc.SignMethod)
 		}
 
-		sig, err := schnorr.ParseSignature(rawSig)
+		// The signature returned above might have a sighash flag
+		// attached if a non-default type was used. We'll slice this
+		// off if it exists to ensure we can properly parse the raw
+		// signature.
+		sig, err := schnorr.ParseSignature(
+			rawSig[:schnorr.SignatureSize],
+		)
 		if err != nil {
 			return nil, err
 		}

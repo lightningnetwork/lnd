@@ -5494,9 +5494,15 @@ func TestChannelLinkFail(t *testing.T) {
 
 				// Flip a bit on the signature, rendering it
 				// invalid.
-				sig[19] ^= 1
+				sigCopy := sig.Copy()
+				copyBytes := sigCopy.RawBytes()
+				copyBytes[19] ^= 1
+				modifiedSig, err := lnwire.NewSigFromWireECDSA(
+					copyBytes,
+				)
+				require.NoError(t, err)
 				commitSig := &lnwire.CommitSig{
-					CommitSig: sig,
+					CommitSig: modifiedSig,
 					HtlcSigs:  htlcSigs,
 				}
 

@@ -36,25 +36,25 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	chanAnn.BitcoinSig1, err = lnwire.NewSigFromRawSignature(
+	chanAnn.BitcoinSig1, err = lnwire.NewSigFromECDSARawSignature(
 		chanProof.BitcoinSig1Bytes,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	chanAnn.BitcoinSig2, err = lnwire.NewSigFromRawSignature(
+	chanAnn.BitcoinSig2, err = lnwire.NewSigFromECDSARawSignature(
 		chanProof.BitcoinSig2Bytes,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	chanAnn.NodeSig1, err = lnwire.NewSigFromRawSignature(
+	chanAnn.NodeSig1, err = lnwire.NewSigFromECDSARawSignature(
 		chanProof.NodeSig1Bytes,
 	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	chanAnn.NodeSig2, err = lnwire.NewSigFromRawSignature(
+	chanAnn.NodeSig2, err = lnwire.NewSigFromECDSARawSignature(
 		chanProof.NodeSig2Bytes,
 	)
 	if err != nil {

@@ -2199,25 +2199,25 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 			BitcoinKey2:     info.BitcoinKey2Bytes,
 			ExtraOpaqueData: edge.ExtraOpaqueData,
 		}
-		chanAnn.NodeSig1, err = lnwire.NewSigFromRawSignature(
+		chanAnn.NodeSig1, err = lnwire.NewSigFromECDSARawSignature(
 			info.AuthProof.NodeSig1Bytes,
 		)
 		if err != nil {
 			return nil, nil, err
 		}
-		chanAnn.NodeSig2, err = lnwire.NewSigFromRawSignature(
+		chanAnn.NodeSig2, err = lnwire.NewSigFromECDSARawSignature(
 			info.AuthProof.NodeSig2Bytes,
 		)
 		if err != nil {
 			return nil, nil, err
 		}
-		chanAnn.BitcoinSig1, err = lnwire.NewSigFromRawSignature(
+		chanAnn.BitcoinSig1, err = lnwire.NewSigFromECDSARawSignature(
 			info.AuthProof.BitcoinSig1Bytes,
 		)
 		if err != nil {
 			return nil, nil, err
 		}
-		chanAnn.BitcoinSig2, err = lnwire.NewSigFromRawSignature(
+		chanAnn.BitcoinSig2, err = lnwire.NewSigFromECDSARawSignature(
 			info.AuthProof.BitcoinSig2Bytes,
 		)
 		if err != nil {

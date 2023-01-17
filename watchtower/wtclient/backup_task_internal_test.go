@@ -618,8 +618,9 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	// moment, it is tested indirectly by other packages and integration
 	// tests.
 	// TODO(conner): include signature validation checks
-
-	emptyToLocalSig := bytes.Equal(jKit.CommitToLocalSig[:], zeroSig[:])
+	emptyToLocalSig := bytes.Equal(
+		jKit.CommitToLocalSig.RawBytes(), zeroSig[:],
+	)
 	if hasToLocal {
 		require.False(t, emptyToLocalSig, "to-local signature should "+
 			"not be empty")
@@ -628,7 +629,9 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 			"be empty")
 	}
 
-	emptyToRemoteSig := bytes.Equal(jKit.CommitToRemoteSig[:], zeroSig[:])
+	emptyToRemoteSig := bytes.Equal(
+		jKit.CommitToRemoteSig.RawBytes(), zeroSig[:],
+	)
 	if hasToRemote {
 		require.False(t, emptyToRemoteSig, "to-remote signature "+
 			"should not be empty")

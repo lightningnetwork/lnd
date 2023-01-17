@@ -454,11 +454,20 @@ func (r *RPCKeyRing) SignMessage(keyLoc keychain.KeyLocator,
 			"signer instance: %v", err)
 	}
 
-	wireSig, err := lnwire.NewSigFromRawSignature(resp.Signature)
+	wireSig, err := lnwire.NewSigFromECDSARawSignature(resp.Signature)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing raw signature: %v", err)
+		return nil, fmt.Errorf("unable to create sig: %w", err)
 	}
-	return wireSig.ToSignature()
+	sig, err := wireSig.ToSignature()
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse sig: %w", err)
+	}
+	ecdsaSig, ok := sig.(*ecdsa.Signature)
+	if !ok {
+		return nil, fmt.Errorf("unexpected signature type: %T", sig)
+	}
+
+	return ecdsaSig, nil
 }
 
 // SignMessageCompact signs the given message, single or double SHA256 hashing

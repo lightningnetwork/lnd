@@ -91,8 +91,10 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 	// From the header byte we can extract the recovery ID, and the last 64
 	// bytes encode the signature.
 	recoveryID := sign[0] - 27 - 4
-	var sig lnwire.Sig
-	copy(sig[:], sign[1:])
+	sig, err := lnwire.NewSigFromWireECDSA(sign[1:])
+	if err != nil {
+		return "", err
+	}
 
 	// If the pubkey field was explicitly set, it must be set to the pubkey
 	// used to create the signature.
@@ -112,7 +114,10 @@ func (invoice *Invoice) Encode(signer MessageSigner) (string, error) {
 	}
 
 	// Convert the signature to base32 before writing it to the buffer.
-	signBase32, err := bech32.ConvertBits(append(sig[:], recoveryID), 8, 5, true)
+	signBase32, err := bech32.ConvertBits(
+		append(sig.RawBytes(), recoveryID),
+		8, 5, true,
+	)
 	if err != nil {
 		return "", err
 	}

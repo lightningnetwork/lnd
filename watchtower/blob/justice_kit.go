@@ -398,7 +398,7 @@ func (b *JusticeKit) encodeV0(w io.Writer) error {
 	}
 
 	// Write 64-byte revocation signature for commit to-local output.
-	_, err = w.Write(b.CommitToLocalSig[:])
+	_, err = w.Write(b.CommitToLocalSig.RawBytes())
 	if err != nil {
 		return err
 	}
@@ -410,7 +410,7 @@ func (b *JusticeKit) encodeV0(w io.Writer) error {
 	}
 
 	// Write 64-byte commit to-remote signature, which may be blank.
-	_, err = w.Write(b.CommitToRemoteSig[:])
+	_, err = w.Write(b.CommitToRemoteSig.RawBytes())
 	return err
 }
 
@@ -472,14 +472,20 @@ func (b *JusticeKit) decodeV0(r io.Reader) error {
 	}
 
 	// Read 64-byte revocation signature for commit to-local output.
-	_, err = io.ReadFull(r, b.CommitToLocalSig[:])
+	var localSig [64]byte
+	_, err = io.ReadFull(r, localSig[:])
+	if err != nil {
+		return err
+	}
+
+	b.CommitToLocalSig, err = lnwire.NewSigFromWireECDSA(localSig[:])
 	if err != nil {
 		return err
 	}
 
 	var (
 		commitToRemotePubkey PubKey
-		commitToRemoteSig    lnwire.Sig
+		commitToRemoteSig    [64]byte
 	)
 
 	// Read 33-byte commit to-remote public key, which may be discarded.
@@ -498,7 +504,12 @@ func (b *JusticeKit) decodeV0(r io.Reader) error {
 	// valid compressed public key was read from the reader.
 	if btcec.IsCompressedPubKey(commitToRemotePubkey[:]) {
 		b.CommitToRemotePubKey = commitToRemotePubkey
-		b.CommitToRemoteSig = commitToRemoteSig
+		b.CommitToRemoteSig, err = lnwire.NewSigFromWireECDSA(
+			commitToRemoteSig[:],
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

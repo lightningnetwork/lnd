@@ -2727,7 +2727,7 @@ func (l *LightningNode) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
 		return nodeAnn, nil
 	}
 
-	sig, err := lnwire.NewSigFromRawSignature(l.AuthSigBytes)
+	sig, err := lnwire.NewSigFromECDSARawSignature(l.AuthSigBytes)
 	if err != nil {
 		return nil, err
 	}

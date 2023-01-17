@@ -1170,6 +1170,97 @@ func ReceiverHTLCScriptTaproot(cltvExpiry uint32,
 	)
 }
 
+// ReceiverHTLCScriptTaprootRedeem creates a valid witness needed to redeem a
+// receiver taproot HTLC with the pre-image. The returned witness is valid and
+// includes the control block required to spend the output.
+func ReceiverHTLCScriptTaprootRedeem(senderSig Signature,
+	senderSigHash txscript.SigHashType, paymentPreimage []byte,
+	signer Signer, signDesc *SignDescriptor,
+	htlcSuccessTx *wire.MsgTx, revokeKey *btcec.PublicKey,
+	tapscriptTree *txscript.IndexedTapScriptTree) (wire.TxWitness, error) {
+
+	// First, we'll generate a signature for the HTLC success transaction.
+	// The signDesc should be signing with the public key used as the
+	// receiver's public key and also the correct single tweak.
+	sweepSig, err := signer.SignOutputRaw(htlcSuccessTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// In addition to the signature and the witness/leaf script, we also
+	// need to make a control block proof using the tapscript tree.
+	successTapLeafHash := txscript.NewBaseTapLeaf(
+		signDesc.WitnessScript,
+	).TapHash()
+	successIdx := tapscriptTree.LeafProofIndex[successTapLeafHash]
+	successMerkleProof := tapscriptTree.LeafMerkleProofs[successIdx]
+	successControlBlock := successMerkleProof.ToControlBlock(revokeKey)
+
+	// The final witness stack is:
+	//  * <sender sig> <receiver sig> <preimage> <success_script> <control_block>
+	witnessStack := wire.TxWitness(make([][]byte, 5))
+	witnessStack[0] = append(senderSig.Serialize(), byte(senderSigHash))
+	witnessStack[1] = append(sweepSig.Serialize(), byte(signDesc.HashType))
+	witnessStack[2] = paymentPreimage
+	witnessStack[3] = signDesc.WitnessScript
+	witnessStack[4], err = successControlBlock.ToBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	return witnessStack, nil
+}
+
+// ReceiverHtlcTapLeafTimeout creates a valid witness needed to timeout an HTLC
+// on the receiver's commitment transaction after the timeout has elapsed
+func ReceiverHTLCScriptTaprootTimeout(signer Signer, signDesc *SignDescriptor,
+	sweepTx *wire.MsgTx, cltvExpiry int32, revokeKey *btcec.PublicKey,
+	tapscriptTree *txscript.IndexedTapScriptTree) (wire.TxWitness, error) {
+
+	// If the caller set a proper timeout value, then we'll apply it
+	// directly to the transaction.
+	//
+	// TODO(roasbeef): helper func
+	if cltvExpiry != -1 {
+		// The HTLC output has an absolute time period before we are
+		// permitted to recover the pending funds. Therefore we need to
+		// set the locktime on this sweeping transaction in order to
+		// pass Script verification.
+		sweepTx.LockTime = uint32(cltvExpiry)
+	}
+
+	// With the lock time on the transaction set, we'll now generate a
+	// signature for the sweep transaction. The passed sign descriptor
+	// should be created using the raw public key of the sender (w/o the
+	// single tweak applied), and the single tweak set to the proper value
+	// taking into account the current state's point.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	// In addition to the signature and the witness/leaf script, we also
+	// need to make a control block proof using the tapscript tree.
+	successTapLeafHash := txscript.NewBaseTapLeaf(
+		signDesc.WitnessScript,
+	).TapHash()
+	successIdx := tapscriptTree.LeafProofIndex[successTapLeafHash]
+	successMerkleProof := tapscriptTree.LeafMerkleProofs[successIdx]
+	successControlBlock := successMerkleProof.ToControlBlock(revokeKey)
+
+	// The final witness is pretty simple, we just need to present a valid
+	// signature for the script, and then provide the control block.
+	witnessStack := make(wire.TxWitness, 3)
+	witnessStack[0] = append(sweepSig.Serialize(), byte(signDesc.HashType))
+	witnessStack[1] = signDesc.WitnessScript
+	witnessStack[2], err = successControlBlock.ToBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	return witnessStack, nil
+}
+
 // SecondLevelHtlcScript is the uniform script that's used as the output for
 // the second-level HTLC transactions. The second level transaction act as a
 // sort of covenant, ensuring that a 2-of-2 multi-sig output can only be

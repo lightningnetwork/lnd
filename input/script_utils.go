@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -150,6 +151,40 @@ func GenFundingPkScript(aPub, bPub []byte, amt int64) ([]byte, *wire.TxOut, erro
 	}
 
 	return witnessScript, wire.NewTxOut(amt, pkScript), nil
+}
+
+// GenTaprootFundingScript constructs the taproot-native funding output that
+// uses musig2 to create a single aggregated key to anchor the channel.
+func GenTaprootFundingScript(aPub, bPub *btcec.PublicKey,
+	amt int64) ([]byte, *wire.TxOut, error) {
+
+	// Similar to the existing p2wsh funding script, we'll always make sure
+	// we sort the keys before any major operations. In order to ensure
+	// that there's no other way this output can be spent, we'll use a BIP
+	// 86 tweak here during aggregation.
+	//
+	// TODO(roasbeef): revisit if BIP 86 is needed here?
+	combinedKey, _, _, err := musig2.AggregateKeys(
+		[]*btcec.PublicKey{aPub, bPub}, true,
+		musig2.WithBIP86KeyTweak(),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to combine keys: %w", err)
+	}
+
+	// Now that we have the combined key, we can create a taproot pkScript
+	// from this, and then make the txout given the amount.
+	pkScript, err := PayToTaprootScript(combinedKey.FinalKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to make taproot "+
+			"pkscript: %w", err)
+	}
+
+	txOut := wire.NewTxOut(amt, pkScript)
+
+	// For the "witness program" we just return the raw pkScript since the
+	// output we create can _only_ be spent with a musig2 signature.
+	return pkScript, txOut, nil
 }
 
 // SpendMultiSig generates the witness stack required to redeem the 2-of-2 p2wsh

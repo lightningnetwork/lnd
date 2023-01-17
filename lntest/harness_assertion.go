@@ -1759,7 +1759,8 @@ func (h *HarnessTest) AssertNumPayments(hn *node.HarnessNode,
 		return errNumNotMatched(hn.Name(), "num of payments",
 			num, len(payments), have+len(payments), have)
 	}, DefaultTimeout)
-	require.NoError(h, err, "timeout checking num of payments")
+	require.NoError(h, err, "%s: timeout checking num of payments",
+		hn.Name())
 
 	return payments
 }
@@ -1772,7 +1773,8 @@ func (h *HarnessTest) AssertNumNodeAnns(hn *node.HarnessNode,
 	// We will get the current number of channel updates first and add it
 	// to our expected number of newly created channel updates.
 	anns, err := hn.Watcher.WaitForNumNodeUpdates(pubkey, num)
-	require.NoError(h, err, "failed to assert num of channel updates")
+	require.NoError(h, err, "%s: failed to assert num of node anns",
+		hn.Name())
 
 	return anns
 }
@@ -1784,7 +1786,8 @@ func (h *HarnessTest) AssertNumChannelUpdates(hn *node.HarnessNode,
 
 	op := h.OutPointFromChannelPoint(chanPoint)
 	err := hn.Watcher.WaitForNumChannelUpdates(op, num)
-	require.NoError(h, err, "failed to assert num of channel updates")
+	require.NoError(h, err, "%s: failed to assert num of channel updates",
+		hn.Name())
 }
 
 // CreateBurnAddr creates a random burn address of the given type.

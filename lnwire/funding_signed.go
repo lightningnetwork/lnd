@@ -3,6 +3,8 @@ package lnwire
 import (
 	"bytes"
 	"io"
+
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // FundingSigned is sent from Bob (the responder) to Alice (the initiator)
@@ -16,6 +18,13 @@ type FundingSigned struct {
 	// CommitSig is Bob's signature for Alice's version of the commitment
 	// transaction.
 	CommitSig Sig
+
+	// PartialSig is used to transmit a musig2 extended partial signature
+	// that also carries along the public nonce of the signer.
+	//
+	// NOTE: This field is only populated if a musig2 taproot channel is
+	// being signed for. In this case, the above Sig type MUST be blank.
+	PartialSig *PartialSigWithNonce
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -33,6 +42,15 @@ var _ Message = (*FundingSigned)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingSigned) Encode(w *bytes.Buffer, pver uint32) error {
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	if f.PartialSig != nil {
+		recordProducers = append(recordProducers, f.PartialSig)
+	}
+	err := EncodeMessageExtraData(&f.ExtraData, recordProducers...)
+	if err != nil {
+		return err
+	}
+
 	if err := WriteChannelID(w, f.ChanID); err != nil {
 		return err
 	}
@@ -50,7 +68,34 @@ func (f *FundingSigned) Encode(w *bytes.Buffer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (f *FundingSigned) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r, &f.ChanID, &f.CommitSig, &f.ExtraData)
+	err := ReadElements(r, &f.ChanID, &f.CommitSig)
+	if err != nil {
+		return err
+	}
+
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	var (
+		partialSig PartialSigWithNonce
+	)
+	typeMap, err := tlvRecords.ExtractRecords(&partialSig)
+	if err != nil {
+		return err
+	}
+
+	// Set the corresponding TLV types if they were included in the stream.
+	if val, ok := typeMap[PartialSigWithNonceRecordType]; ok && val == nil {
+		f.PartialSig = &partialSig
+	}
+
+	if len(tlvRecords) != 0 {
+		f.ExtraData = tlvRecords
+	}
+
+	return nil
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a

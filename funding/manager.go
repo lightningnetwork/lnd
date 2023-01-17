@@ -1505,6 +1505,10 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		return
 	}
 
+	log.Debugf("Initialized channel reservation: zeroConf=%v, psbt=%v, "+
+		"cannedShim=%v", reservation.IsZeroConf(),
+		reservation.IsPsbt(), reservation.IsCannedShim())
+
 	if zeroConf {
 		// Store an alias for zero-conf channels. Other option-scid
 		// channels will do this at a later point.

@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -20,112 +20,83 @@ import (
 // testOpenChannelAfterReorg tests that in the case where we have an open
 // channel where the funding tx gets reorged out, the channel will no
 // longer be present in the node's routing table.
-func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
+func testOpenChannelAfterReorg(ht *lntemp.HarnessTest) {
 	// Skip test for neutrino, as we cannot disconnect the miner at will.
 	// TODO(halseth): remove when either can disconnect at will, or restart
 	// node with connection to new miner.
-	if net.BackendCfg.Name() == lntest.NeutrinoBackendName {
-		t.Skipf("skipping reorg test for neutrino backend")
+	if ht.IsNeutrinoBackend() {
+		ht.Skipf("skipping reorg test for neutrino backend")
 	}
 
-	var (
-		ctxb = context.Background()
-		temp = "temp"
-	)
+	temp := "temp"
 
 	// Set up a new miner that we can use to cause a reorg.
 	tempLogDir := ".tempminerlogs"
 	logFilename := "output-open_channel_reorg-temp_miner.log"
-	tempMiner, err := lntest.NewTempMiner(tempLogDir, logFilename)
-	require.NoError(t.t, err, "failed to create temp miner")
-	defer func() {
-		require.NoError(
-			t.t, tempMiner.Stop(),
-			"failed to clean up temp miner",
-		)
-	}()
+	tempMiner := lntemp.NewTempMiner(
+		ht.Context(), ht.T, tempLogDir, logFilename,
+	)
+	defer tempMiner.Stop()
 
 	// Setup the temp miner
-	require.NoError(
-		t.t, tempMiner.SetUp(false, 0), "unable to set up mining node",
-	)
+	require.NoError(ht, tempMiner.SetUp(false, 0),
+		"unable to set up mining node")
+
+	miner := ht.Miner
+	alice, bob := ht.Alice, ht.Bob
 
 	// We start by connecting the new miner to our original miner,
 	// such that it will sync to our original chain.
-	err = net.Miner.Client.Node(
+	err := miner.Client.Node(
 		btcjson.NConnect, tempMiner.P2PAddress(), &temp,
 	)
-	if err != nil {
-		t.Fatalf("unable to remove node: %v", err)
-	}
-	nodeSlice := []*rpctest.Harness{net.Miner.Harness, tempMiner.Harness}
-	if err := rpctest.JoinNodes(nodeSlice, rpctest.Blocks); err != nil {
-		t.Fatalf("unable to join node on blocks: %v", err)
-	}
+	require.NoError(ht, err, "unable to connect miners")
+
+	nodeSlice := []*rpctest.Harness{miner.Harness, tempMiner.Harness}
+	err = rpctest.JoinNodes(nodeSlice, rpctest.Blocks)
+	require.NoError(ht, err, "unable to join node on blocks")
 
 	// The two miners should be on the same blockheight.
-	assertMinerBlockHeightDelta(t, net.Miner, tempMiner, 0)
+	assertMinerBlockHeightDelta(ht, miner, tempMiner, 0)
 
 	// We disconnect the two miners, such that we can mine two different
 	// chains and can cause a reorg later.
-	err = net.Miner.Client.Node(
+	err = miner.Client.Node(
 		btcjson.NDisconnect, tempMiner.P2PAddress(), &temp,
 	)
-	if err != nil {
-		t.Fatalf("unable to remove node: %v", err)
-	}
+	require.NoError(ht, err, "unable to disconnect miners")
 
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction
-	chanAmt := funding.MaxBtcFundingAmount
-	pushAmt := btcutil.Amount(0)
-	pendingUpdate, err := net.OpenPendingChannel(
-		net.Alice, net.Bob, chanAmt, pushAmt,
-	)
-	if err != nil {
-		t.Fatalf("unable to open channel: %v", err)
+	params := lntemp.OpenChannelParams{
+		Amt:     funding.MaxBtcFundingAmount,
+		Private: true,
 	}
+	pendingUpdate := ht.OpenChannelAssertPending(alice, bob, params)
 
 	// Wait for miner to have seen the funding tx. The temporary miner is
 	// disconnected, and won't see the transaction.
-	_, err = waitForTxInMempool(net.Miner.Client, minerMempoolTimeout)
-	if err != nil {
-		t.Fatalf("failed to find funding tx in mempool: %v", err)
-	}
+	ht.Miner.AssertNumTxsInMempool(1)
 
 	// At this point, the channel's funding transaction will have been
 	// broadcast, but not confirmed, and the channel should be pending.
-	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 1)
+	ht.AssertNodesNumPendingOpenChannels(alice, bob, 1)
 
 	fundingTxID, err := chainhash.NewHash(pendingUpdate.Txid)
-	if err != nil {
-		t.Fatalf("unable to convert funding txid into chainhash.Hash:"+
-			" %v", err)
-	}
+	require.NoError(ht, err, "convert funding txid into chainhash failed")
 
 	// We now cause a fork, by letting our original miner mine 10 blocks,
 	// and our new miner mine 15. This will also confirm our pending
 	// channel on the original miner's chain, which should be considered
 	// open.
-	block := mineBlocks(t, net, 10, 1)[0]
-	assertTxInBlock(t, block, fundingTxID)
-	if _, err := tempMiner.Client.Generate(15); err != nil {
-		t.Fatalf("unable to generate blocks: %v", err)
-	}
+	block := ht.MineBlocks(10)[0]
+	ht.Miner.AssertTxInBlock(block, fundingTxID)
+	_, err = tempMiner.Client.Generate(15)
+	require.NoError(ht, err, "unable to generate blocks")
 
 	// Ensure the chain lengths are what we expect, with the temp miner
 	// being 5 blocks ahead.
-	assertMinerBlockHeightDelta(t, net.Miner, tempMiner, 5)
-
-	// Wait for Alice to sync to the original miner's chain.
-	_, minerHeight, err := net.Miner.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current blockheight %v", err)
-	}
-	err = waitForNodeBlockHeight(net.Alice, minerHeight)
-	if err != nil {
-		t.Fatalf("unable to sync to chain: %v", err)
-	}
+	assertMinerBlockHeightDelta(ht, miner, tempMiner, 5)
 
 	chanPoint := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
@@ -135,121 +106,57 @@ func testOpenChannelAfterReorg(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	// Ensure channel is no longer pending.
-	assertNumOpenChannelsPending(t, net.Alice, net.Bob, 0)
+	ht.AssertNodesNumPendingOpenChannels(alice, bob, 0)
 
 	// Wait for Alice and Bob to recognize and advertise the new channel
 	// generated above.
-	err = net.Alice.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("alice didn't advertise channel before "+
-			"timeout: %v", err)
-	}
-	err = net.Bob.WaitForNetworkChannelOpen(chanPoint)
-	if err != nil {
-		t.Fatalf("bob didn't advertise channel before "+
-			"timeout: %v", err)
-	}
+	ht.AssertTopologyChannelOpen(alice, chanPoint)
+	ht.AssertTopologyChannelOpen(bob, chanPoint)
 
 	// Alice should now have 1 edge in her graph.
-	req := &lnrpc.ChannelGraphRequest{
-		IncludeUnannounced: true,
-	}
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	chanGraph, err := net.Alice.DescribeGraph(ctxt, req)
-	if err != nil {
-		t.Fatalf("unable to query for alice's routing table: %v", err)
-	}
-
-	numEdges := len(chanGraph.Edges)
-	if numEdges != 1 {
-		t.Fatalf("expected to find one edge in the graph, found %d",
-			numEdges)
-	}
+	ht.AssertNumEdges(alice, 1, true)
 
 	// Now we disconnect Alice's chain backend from the original miner, and
 	// connect the two miners together. Since the temporary miner knows
 	// about a longer chain, both miners should sync to that chain.
-	err = net.BackendCfg.DisconnectMiner()
-	if err != nil {
-		t.Fatalf("unable to remove node: %v", err)
-	}
+	ht.DisconnectMiner()
 
 	// Connecting to the temporary miner should now cause our original
 	// chain to be re-orged out.
-	err = net.Miner.Client.Node(
-		btcjson.NConnect, tempMiner.P2PAddress(), &temp,
-	)
-	if err != nil {
-		t.Fatalf("unable to remove node: %v", err)
-	}
+	err = miner.Client.Node(btcjson.NConnect, tempMiner.P2PAddress(), &temp)
+	require.NoError(ht, err, "unable to connect temp miner")
 
-	nodes := []*rpctest.Harness{tempMiner.Harness, net.Miner.Harness}
-	if err := rpctest.JoinNodes(nodes, rpctest.Blocks); err != nil {
-		t.Fatalf("unable to join node on blocks: %v", err)
-	}
+	nodes := []*rpctest.Harness{tempMiner.Harness, miner.Harness}
+	err = rpctest.JoinNodes(nodes, rpctest.Blocks)
+	require.NoError(ht, err, "unable to join node on blocks")
 
 	// Once again they should be on the same chain.
-	assertMinerBlockHeightDelta(t, net.Miner, tempMiner, 0)
+	assertMinerBlockHeightDelta(ht, miner, tempMiner, 0)
 
 	// Now we disconnect the two miners, and connect our original miner to
 	// our chain backend once again.
-	err = net.Miner.Client.Node(
+	err = miner.Client.Node(
 		btcjson.NDisconnect, tempMiner.P2PAddress(), &temp,
 	)
-	if err != nil {
-		t.Fatalf("unable to remove node: %v", err)
-	}
+	require.NoError(ht, err, "unable to disconnect temp miner")
 
-	err = net.BackendCfg.ConnectMiner()
-	if err != nil {
-		t.Fatalf("unable to remove node: %v", err)
-	}
+	ht.ConnectMiner()
 
 	// This should have caused a reorg, and Alice should sync to the longer
 	// chain, where the funding transaction is not confirmed.
 	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-	if err != nil {
-		t.Fatalf("unable to get current blockheight %v", err)
-	}
-	err = waitForNodeBlockHeight(net.Alice, tempMinerHeight)
-	if err != nil {
-		t.Fatalf("unable to sync to chain: %v", err)
-	}
+	require.NoError(ht, err, "unable to get current blockheight")
+	ht.WaitForNodeBlockHeight(alice, tempMinerHeight)
 
 	// Since the fundingtx was reorged out, Alice should now have no edges
 	// in her graph.
-	req = &lnrpc.ChannelGraphRequest{
-		IncludeUnannounced: true,
-	}
-
-	var predErr error
-	err = wait.Predicate(func() bool {
-		ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-		chanGraph, err = net.Alice.DescribeGraph(ctxt, req)
-		if err != nil {
-			predErr = fmt.Errorf("unable to query for "+
-				"alice's routing table: %v", err)
-			return false
-		}
-
-		numEdges = len(chanGraph.Edges)
-		if numEdges != 0 {
-			predErr = fmt.Errorf("expected to find "+
-				"no edge in the graph, found %d",
-				numEdges)
-			return false
-		}
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf(predErr.Error())
-	}
+	ht.AssertNumEdges(alice, 0, true)
 
 	// Cleanup by mining the funding tx again, then closing the channel.
-	block = mineBlocks(t, net, 1, 1)[0]
-	assertTxInBlock(t, block, fundingTxID)
+	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	ht.Miner.AssertTxInBlock(block, fundingTxID)
 
-	closeReorgedChannelAndAssert(t, net, net.Alice, chanPoint, false)
+	ht.CloseChannel(alice, chanPoint)
 }
 
 // testOpenChannelFeePolicy checks if different channel fee scenarios
@@ -578,4 +485,34 @@ func runBasicChannelCreationAndUpdates(net *lntest.NetworkHarness,
 			lnrpc.Initiator_INITIATOR_LOCAL,
 		), "verifying alice close updates",
 	)
+}
+
+// assertMinerBlockHeightDelta ensures that tempMiner is 'delta' blocks ahead
+// of miner.
+func assertMinerBlockHeightDelta(ht *lntemp.HarnessTest,
+	miner, tempMiner *lntemp.HarnessMiner, delta int32) {
+
+	// Ensure the chain lengths are what we expect.
+	err := wait.NoError(func() error {
+		_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
+		if err != nil {
+			return fmt.Errorf("unable to get current "+
+				"blockheight %v", err)
+		}
+
+		_, minerHeight, err := miner.Client.GetBestBlock()
+		if err != nil {
+			return fmt.Errorf("unable to get current "+
+				"blockheight %v", err)
+		}
+
+		if tempMinerHeight != minerHeight+delta {
+			return fmt.Errorf("expected new miner(%d) to be %d "+
+				"blocks ahead of original miner(%d)",
+				tempMinerHeight, delta, minerHeight)
+		}
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(ht, err, "failed to assert block height delta")
 }

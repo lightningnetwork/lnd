@@ -690,41 +690,6 @@ func assertChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 	}
 }
 
-// assertMinerBlockHeightDelta ensures that tempMiner is 'delta' blocks ahead
-// of miner.
-func assertMinerBlockHeightDelta(t *harnessTest,
-	miner, tempMiner *lntest.HarnessMiner, delta int32) {
-
-	// Ensure the chain lengths are what we expect.
-	var predErr error
-	err := wait.Predicate(func() bool {
-		_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-		if err != nil {
-			predErr = fmt.Errorf("unable to get current "+
-				"blockheight %v", err)
-			return false
-		}
-
-		_, minerHeight, err := miner.Client.GetBestBlock()
-		if err != nil {
-			predErr = fmt.Errorf("unable to get current "+
-				"blockheight %v", err)
-			return false
-		}
-
-		if tempMinerHeight != minerHeight+delta {
-			predErr = fmt.Errorf("expected new miner(%d) to be %d "+
-				"blocks ahead of original miner(%d)",
-				tempMinerHeight, delta, minerHeight)
-			return false
-		}
-		return true
-	}, defaultTimeout)
-	if err != nil {
-		t.Fatalf(predErr.Error())
-	}
-}
-
 func checkCommitmentMaturity(
 	forceClose *lnrpc.PendingChannelsResponse_ForceClosedChannel,
 	maturityHeight uint32, blocksTilMaturity int32) error {
@@ -1416,30 +1381,6 @@ func assertTransactionNotInWallet(t *testing.T, node *lntest.HarnessNode,
 	require.NoError(
 		t, err, fmt.Sprintf("transaction %v found in wallet", txID),
 	)
-}
-
-func assertAnchorOutputLost(t *harnessTest, node *lntest.HarnessNode,
-	chanPoint wire.OutPoint) {
-
-	pendingChansRequest := &lnrpc.PendingChannelsRequest{}
-	err := wait.Predicate(func() bool {
-		resp, pErr := node.PendingChannels(
-			context.Background(), pendingChansRequest,
-		)
-		if pErr != nil {
-			return false
-		}
-
-		for _, pendingChan := range resp.PendingForceClosingChannels {
-			if pendingChan.Channel.ChannelPoint == chanPoint.String() {
-				return (pendingChan.Anchor ==
-					lnrpc.PendingChannelsResponse_ForceClosedChannel_LOST)
-			}
-		}
-
-		return false
-	}, defaultTimeout)
-	require.NoError(t.t, err, "anchor doesn't show as being lost")
 }
 
 // assertNodeAnnouncement compares that two node announcements match.

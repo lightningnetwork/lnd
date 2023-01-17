@@ -77,6 +77,7 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 	if err != nil {
 		// If the link isn't online, then we'll report that it has
 		// zero bandwidth.
+		log.Warnf("ShortChannelID=%v: link not found: %v", cid, err)
 		return 0
 	}
 
@@ -84,12 +85,15 @@ func (b *bandwidthManager) getBandwidth(cid lnwire.ShortChannelID,
 	// to forward any HTLCs, then we'll treat it as if it isn't online in
 	// the first place.
 	if !link.EligibleToForward() {
+		log.Warnf("ShortChannelID=%v: not eligible to forward", cid)
 		return 0
 	}
 
 	// If our link isn't currently in a state where it can  add another
 	// outgoing htlc, treat the link as unusable.
 	if err := link.MayAddOutgoingHtlc(amount); err != nil {
+		log.Warnf("ShortChannelID=%v: cannot add outgoing htlc: %v",
+			cid, err)
 		return 0
 	}
 

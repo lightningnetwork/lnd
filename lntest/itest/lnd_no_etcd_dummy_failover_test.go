@@ -3,10 +3,8 @@
 
 package itest
 
-import (
-	"github.com/lightningnetwork/lnd/lntest"
-)
+import "github.com/lightningnetwork/lnd/lntemp"
 
 // testEtcdFailover is an empty itest when LND is not compiled with etcd
 // support.
-func testEtcdFailover(net *lntest.NetworkHarness, ht *harnessTest) {}
+func testEtcdFailover(ht *lntemp.HarnessTest) {}

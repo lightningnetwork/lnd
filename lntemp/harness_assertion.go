@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
@@ -564,8 +565,10 @@ func (h *HarnessTest) AssertStreamChannelCoopClosed(hn *node.HarnessNode,
 	h.AssertNumWaitingClose(hn, 0)
 
 	// Finally, check that the node's topology graph has seen this channel
-	// closed.
-	h.AssertTopologyChannelClosed(hn, cp)
+	// closed if it's a public channel.
+	if !resp.Channel.Private {
+		h.AssertTopologyChannelClosed(hn, cp)
+	}
 
 	return closingTxid
 }
@@ -610,8 +613,10 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 	h.AssertNumPendingForceClose(hn, 1)
 
 	// Finally, check that the node's topology graph has seen this channel
-	// closed.
-	h.AssertTopologyChannelClosed(hn, cp)
+	// closed if it's a public channel.
+	if !resp.Channel.Private {
+		h.AssertTopologyChannelClosed(hn, cp)
+	}
 
 	return closingTxid
 }
@@ -884,7 +889,11 @@ func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
 	err := wait.NoError(func() error {
 		// Consume one message. This will raise an error if the message
 		// is not received within DefaultTimeout.
-		payment := h.ReceivePaymentUpdate(stream)
+		payment, err := h.ReceivePaymentUpdate(stream)
+		if err != nil {
+			return fmt.Errorf("received error from payment "+
+				"stream: %s", err)
+		}
 
 		// Return if the desired payment state is reached.
 		if payment.Status == status {
@@ -895,8 +904,8 @@ func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
 
 		// Return the err so that it can be used for debugging when
 		// timeout is reached.
-		return fmt.Errorf("payment status, got %v, want %v",
-			payment.Status, status)
+		return fmt.Errorf("payment %v status, got %v, want %v",
+			payment.PaymentHash, payment.Status, status)
 	}, timeout)
 
 	require.NoError(h, err, "timeout while waiting payment")
@@ -907,7 +916,7 @@ func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
 // ReceivePaymentUpdate waits until a message is received on the payment client
 // stream or the timeout is reached.
 func (h *HarnessTest) ReceivePaymentUpdate(
-	stream rpc.PaymentClient) *lnrpc.Payment {
+	stream rpc.PaymentClient) (*lnrpc.Payment, error) {
 
 	chanMsg := make(chan *lnrpc.Payment, 1)
 	errChan := make(chan error, 1)
@@ -926,16 +935,14 @@ func (h *HarnessTest) ReceivePaymentUpdate(
 	select {
 	case <-time.After(DefaultTimeout):
 		require.Fail(h, "timeout", "timeout waiting for payment update")
+		return nil, nil
 
 	case err := <-errChan:
-		require.Failf(h, "payment stream",
-			"received err from payment stream: %v", err)
+		return nil, err
 
 	case updateMsg := <-chanMsg:
-		return updateMsg
+		return updateMsg, nil
 	}
-
-	return nil
 }
 
 // AssertInvoiceSettled asserts a given invoice specified by its payment
@@ -1723,4 +1730,347 @@ func (h *HarnessTest) CreateBurnAddr(addrType lnrpc.AddressType) ([]byte,
 	require.NoError(h, err)
 
 	return h.PayToAddrScript(addr), addr
+}
+
+// ReceiveTrackPayment waits until a message is received on the track payment
+// stream or the timeout is reached.
+func (h *HarnessTest) ReceiveTrackPayment(
+	stream rpc.TrackPaymentClient) *lnrpc.Payment {
+
+	chanMsg := make(chan *lnrpc.Payment)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout trakcing payment")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}
+
+// ReceiveHtlcEvent waits until a message is received on the subscribe
+// htlc event stream or the timeout is reached.
+func (h *HarnessTest) ReceiveHtlcEvent(
+	stream rpc.HtlcEventsClient) *routerrpc.HtlcEvent {
+
+	chanMsg := make(chan *routerrpc.HtlcEvent)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout receiving htlc "+
+			"event update")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}
+
+// AssertHtlcEventType consumes one event from a client and asserts the event
+// type is matched.
+func (h *HarnessTest) AssertHtlcEventType(client rpc.HtlcEventsClient,
+	userType routerrpc.HtlcEvent_EventType) *routerrpc.HtlcEvent {
+
+	event := h.ReceiveHtlcEvent(client)
+	require.Equalf(h, userType, event.EventType, "wrong event type, "+
+		"want %v got %v", userType, event.EventType)
+
+	return event
+}
+
+// HtlcEvent maps the series of event types used in `*routerrpc.HtlcEvent_*`.
+type HtlcEvent int
+
+const (
+	HtlcEventForward HtlcEvent = iota
+	HtlcEventForwardFail
+	HtlcEventSettle
+	HtlcEventLinkFail
+	HtlcEventFinal
+)
+
+// AssertHtlcEventType consumes one event from a client and asserts both the
+// user event type the event.Event type is matched.
+func (h *HarnessTest) AssertHtlcEventTypes(client rpc.HtlcEventsClient,
+	userType routerrpc.HtlcEvent_EventType,
+	eventType HtlcEvent) *routerrpc.HtlcEvent {
+
+	event := h.ReceiveHtlcEvent(client)
+	require.Equalf(h, userType, event.EventType, "wrong event type, "+
+		"want %v got %v", userType, event.EventType)
+
+	var ok bool
+
+	switch eventType {
+	case HtlcEventForward:
+		_, ok = event.Event.(*routerrpc.HtlcEvent_ForwardEvent)
+
+	case HtlcEventForwardFail:
+		_, ok = event.Event.(*routerrpc.HtlcEvent_ForwardFailEvent)
+
+	case HtlcEventSettle:
+		_, ok = event.Event.(*routerrpc.HtlcEvent_SettleEvent)
+
+	case HtlcEventLinkFail:
+		_, ok = event.Event.(*routerrpc.HtlcEvent_LinkFailEvent)
+
+	case HtlcEventFinal:
+		_, ok = event.Event.(*routerrpc.HtlcEvent_FinalHtlcEvent)
+	}
+
+	require.Truef(h, ok, "wrong event type: %T, want %T", event.Event,
+		eventType)
+
+	return event
+}
+
+// AssertFeeReport checks that the fee report from the given node has the
+// desired day, week, and month sum values.
+func (h *HarnessTest) AssertFeeReport(hn *node.HarnessNode,
+	day, week, month int) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	feeReport, err := hn.RPC.LN.FeeReport(ctxt, &lnrpc.FeeReportRequest{})
+	require.NoError(h, err, "unable to query for fee report")
+
+	require.EqualValues(h, day, feeReport.DayFeeSum, "day fee mismatch")
+	require.EqualValues(h, week, feeReport.WeekFeeSum, "day week mismatch")
+	require.EqualValues(h, month, feeReport.MonthFeeSum,
+		"day month mismatch")
+}
+
+// AssertHtlcEvents consumes events from a client and ensures that they are of
+// the expected type and contain the expected number of forwards, forward
+// failures and settles.
+//
+// TODO(yy): needs refactor to reduce its complexity.
+func (h *HarnessTest) AssertHtlcEvents(client rpc.HtlcEventsClient,
+	fwdCount, fwdFailCount, settleCount int,
+	userType routerrpc.HtlcEvent_EventType) []*routerrpc.HtlcEvent {
+
+	var forwards, forwardFails, settles int
+
+	numEvents := fwdCount + fwdFailCount + settleCount
+	events := make([]*routerrpc.HtlcEvent, 0)
+
+	// It's either the userType or the unknown type.
+	//
+	// TODO(yy): maybe the FinalHtlcEvent shouldn't be in UNKNOWN type?
+	eventTypes := []routerrpc.HtlcEvent_EventType{
+		userType, routerrpc.HtlcEvent_UNKNOWN,
+	}
+
+	for i := 0; i < numEvents; i++ {
+		event := h.ReceiveHtlcEvent(client)
+
+		require.Containsf(h, eventTypes, event.EventType,
+			"wrong event type, got %v", userType, event.EventType)
+
+		events = append(events, event)
+
+		switch e := event.Event.(type) {
+		case *routerrpc.HtlcEvent_ForwardEvent:
+			forwards++
+
+		case *routerrpc.HtlcEvent_ForwardFailEvent:
+			forwardFails++
+
+		case *routerrpc.HtlcEvent_SettleEvent:
+			settles++
+
+		case *routerrpc.HtlcEvent_FinalHtlcEvent:
+			if e.FinalHtlcEvent.Settled {
+				settles++
+			}
+
+		default:
+			require.Fail(h, "assert event fail",
+				"unexpected event: %T", event.Event)
+		}
+	}
+
+	require.Equal(h, fwdCount, forwards, "num of forwards mismatch")
+	require.Equal(h, fwdFailCount, forwardFails,
+		"num of forward fails mismatch")
+	require.Equal(h, settleCount, settles, "num of settles mismatch")
+
+	return events
+}
+
+// AssertTransactionInWallet asserts a given txid can be found in the node's
+// wallet.
+func (h *HarnessTest) AssertTransactionInWallet(hn *node.HarnessNode,
+	txid chainhash.Hash) {
+
+	req := &lnrpc.GetTransactionsRequest{}
+	err := wait.NoError(func() error {
+		txResp := hn.RPC.GetTransactions(req)
+		for _, txn := range txResp.Transactions {
+			if txn.TxHash == txid.String() {
+				return nil
+			}
+		}
+
+		return fmt.Errorf("%s: expected txid=%v not found in wallet",
+			hn.Name(), txid)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "failed to find tx")
+}
+
+// AssertTransactionNotInWallet asserts a given txid can NOT be found in the
+// node's wallet.
+func (h *HarnessTest) AssertTransactionNotInWallet(hn *node.HarnessNode,
+	txid chainhash.Hash) {
+
+	req := &lnrpc.GetTransactionsRequest{}
+	err := wait.NoError(func() error {
+		txResp := hn.RPC.GetTransactions(req)
+		for _, txn := range txResp.Transactions {
+			if txn.TxHash == txid.String() {
+				return fmt.Errorf("expected txid=%v to be "+
+					"not found", txid)
+			}
+		}
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "%s: failed to assert tx not found", hn.Name())
+}
+
+// WaitForNodeBlockHeight queries the node for its current block height until
+// it reaches the passed height.
+func (h *HarnessTest) WaitForNodeBlockHeight(hn *node.HarnessNode,
+	height int32) {
+
+	err := wait.NoError(func() error {
+		info := hn.RPC.GetInfo()
+		if int32(info.BlockHeight) != height {
+			return fmt.Errorf("expected block height to "+
+				"be %v, was %v", height, info.BlockHeight)
+		}
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "%s: timeout while waiting for height",
+		hn.Name())
+}
+
+// AssertChannelCommitHeight asserts the given channel for the node has the
+// expected commit height(`NumUpdates`).
+func (h *HarnessTest) AssertChannelCommitHeight(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, height int) {
+
+	err := wait.NoError(func() error {
+		c, err := h.findChannel(hn, cp)
+		if err != nil {
+			return err
+		}
+
+		if int(c.NumUpdates) == height {
+			return nil
+		}
+
+		return fmt.Errorf("expected commit height to be %v, was %v",
+			height, c.NumUpdates)
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout while waiting for commit height")
+}
+
+// AssertNumInvoices asserts that the number of invoices made within the test
+// scope is as expected.
+func (h *HarnessTest) AssertNumInvoices(hn *node.HarnessNode,
+	num int) []*lnrpc.Invoice {
+
+	have := hn.State.Invoice.Total
+	req := &lnrpc.ListInvoiceRequest{
+		NumMaxInvoices: math.MaxUint64,
+		IndexOffset:    hn.State.Invoice.LastIndexOffset,
+	}
+
+	var invoices []*lnrpc.Invoice
+	err := wait.NoError(func() error {
+		resp := hn.RPC.ListInvoices(req)
+
+		invoices = resp.Invoices
+		if len(invoices) == num {
+			return nil
+		}
+
+		return errNumNotMatched(hn.Name(), "num of invoices",
+			num, len(invoices), have+len(invoices), have)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking num of invoices")
+
+	return invoices
+}
+
+// ReceiveSendToRouteUpdate waits until a message is received on the
+// SendToRoute client stream or the timeout is reached.
+func (h *HarnessTest) ReceiveSendToRouteUpdate(
+	stream rpc.SendToRouteClient) (*lnrpc.SendResponse, error) {
+
+	chanMsg := make(chan *lnrpc.SendResponse, 1)
+	errChan := make(chan error, 1)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout waiting for send resp")
+		return nil, nil
+
+	case err := <-errChan:
+		return nil, err
+
+	case updateMsg := <-chanMsg:
+		return updateMsg, nil
+	}
 }

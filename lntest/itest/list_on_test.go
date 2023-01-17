@@ -231,4 +231,142 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "neutrino kit",
 		TestFunc: testNeutrino,
 	},
+	{
+		Name:     "etcd failover",
+		TestFunc: testEtcdFailover,
+	},
+	{
+		Name:     "hold invoice force close",
+		TestFunc: testHoldInvoiceForceClose,
+	},
+	{
+		Name:     "hold invoice sender persistence",
+		TestFunc: testHoldInvoicePersistence,
+	},
+	{
+		Name:     "maximum channel size",
+		TestFunc: testMaxChannelSize,
+	},
+	{
+		Name:     "wumbo channels",
+		TestFunc: testWumboChannels,
+	},
+	{
+		Name:     "max htlc pathfind",
+		TestFunc: testMaxHtlcPathfind,
+	},
+	{
+		Name:     "multi-hop htlc error propagation",
+		TestFunc: testHtlcErrorPropagation,
+	},
+	{
+		Name:     "multi-hop payments",
+		TestFunc: testMultiHopPayments,
+	},
+	{
+		Name:     "anchors reserved value",
+		TestFunc: testAnchorReservedValue,
+	},
+	{
+		Name:     "3rd party anchor spend",
+		TestFunc: testAnchorThirdPartySpend,
+	},
+	{
+		Name:     "open channel reorg test",
+		TestFunc: testOpenChannelAfterReorg,
+	},
+	{
+		Name:     "psbt channel funding external",
+		TestFunc: testPsbtChanFundingExternal,
+	},
+	{
+		Name:     "psbt channel funding single step",
+		TestFunc: testPsbtChanFundingSingleStep,
+	},
+	{
+		Name:     "resolution handoff",
+		TestFunc: testResHandoff,
+	},
+	{
+		Name:     "REST API",
+		TestFunc: testRestAPI,
+	},
+	{
+		Name:     "revoked uncooperative close retribution",
+		TestFunc: testRevokedCloseRetribution,
+	},
+	{
+		Name: "revoked uncooperative close retribution zero value " +
+			"remote output",
+		TestFunc: testRevokedCloseRetributionZeroValueRemoteOutput,
+	},
+	{
+		Name:     "revoked uncooperative close retribution remote hodl",
+		TestFunc: testRevokedCloseRetributionRemoteHodl,
+	},
+	{
+		Name: "revoked uncooperative close retribution altruist " +
+			"watchtower",
+		TestFunc: testRevokedCloseRetributionAltruistWatchtower,
+	},
+	{
+		Name:     "single-hop send to route",
+		TestFunc: testSingleHopSendToRoute,
+	},
+	{
+		Name:     "multi-hop send to route",
+		TestFunc: testMultiHopSendToRoute,
+	},
+	{
+		Name:     "send to route error propagation",
+		TestFunc: testSendToRouteErrorPropagation,
+	},
+	{
+		Name:     "private channels",
+		TestFunc: testPrivateChannels,
+	},
+	{
+		Name:     "invoice routing hints",
+		TestFunc: testInvoiceRoutingHints,
+	},
+	{
+		Name:     "multi-hop payments over private channels",
+		TestFunc: testMultiHopOverPrivateChannels,
+	},
+	{
+		Name:     "query routes",
+		TestFunc: testQueryRoutes,
+	},
+	{
+		Name:     "route fee cutoff",
+		TestFunc: testRouteFeeCutoff,
+	},
+	{
+		Name:     "rpc middleware interceptor",
+		TestFunc: testRPCMiddlewareInterceptor,
+	},
+	{
+		Name:     "macaroon authentication",
+		TestFunc: testMacaroonAuthentication,
+	},
+	{
+		Name:     "bake macaroon",
+		TestFunc: testBakeMacaroon,
+	},
+	{
+		Name:     "delete macaroon id",
+		TestFunc: testDeleteMacaroonID,
+	},
+	{
+		Name:     "stateless init",
+		TestFunc: testStatelessInit,
+	},
+	{
+		Name:     "single hop invoice",
+		TestFunc: testSingleHopInvoice,
+	},
+	{
+		Name:     "wipe forwarding packages",
+		TestFunc: testWipeForwardingPackages,
+	},
 }

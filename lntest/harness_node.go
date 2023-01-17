@@ -487,7 +487,7 @@ func executePgQuery(query string) error {
 		postgresDatabaseDsn("postgres"),
 	)
 	if err != nil {
-		return fmt.Errorf("unable to connect to database: %v", err)
+		return fmt.Errorf("unable to connect to database: %w", err)
 	}
 	defer pool.Close()
 

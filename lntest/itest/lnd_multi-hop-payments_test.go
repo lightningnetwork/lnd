@@ -1,146 +1,70 @@
 package itest
 
 import (
-	"context"
-	"time"
-
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/stretchr/testify/require"
 )
 
-func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
+func testMultiHopPayments(ht *lntemp.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
-	var networkChans []*lnrpc.ChannelPoint
-
-	// Open a channel with 100k satoshis between Alice and Bob with Alice
-	// being the sole funder of the channel.
-	chanPointAlice := openChannelAndAssert(
-		t, net, net.Alice, net.Bob,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
-	)
-	networkChans = append(networkChans, chanPointAlice)
-
-	aliceChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointAlice)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	aliceFundPoint := wire.OutPoint{
-		Hash:  *aliceChanTXID,
-		Index: chanPointAlice.OutputIndex,
-	}
 
 	// As preliminary setup, we'll create two new nodes: Carol and Dave,
 	// such that we now have a 4 node, 3 channel topology. Dave will make a
 	// channel with Alice, and Carol with Dave. After this setup, the
 	// network topology should now look like:
 	//     Carol -> Dave -> Alice -> Bob
-	//
-	// First, we'll create Dave and establish a channel to Alice. Dave will
-	// be running an older node that requires the legacy onion payload.
+	alice, bob := ht.Alice, ht.Bob
+
 	daveArgs := []string{"--protocol.legacy.onion"}
-	dave := net.NewNode(t.t, "Dave", daveArgs)
-	defer shutdownAndAssert(net, t, dave)
+	dave := ht.NewNode("Dave", daveArgs)
+	carol := ht.NewNode("Carol", nil)
 
-	net.ConnectNodes(t.t, dave, net.Alice)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, dave)
+	// Subscribe events early so we don't miss it out.
+	aliceEvents := alice.RPC.SubscribeHtlcEvents()
+	bobEvents := bob.RPC.SubscribeHtlcEvents()
+	carolEvents := carol.RPC.SubscribeHtlcEvents()
+	daveEvents := dave.RPC.SubscribeHtlcEvents()
 
-	chanPointDave := openChannelAndAssert(
-		t, net, dave, net.Alice,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	// Once subscribed, the first event will be UNKNOWN.
+	ht.AssertHtlcEventType(aliceEvents, routerrpc.HtlcEvent_UNKNOWN)
+	ht.AssertHtlcEventType(bobEvents, routerrpc.HtlcEvent_UNKNOWN)
+	ht.AssertHtlcEventType(carolEvents, routerrpc.HtlcEvent_UNKNOWN)
+	ht.AssertHtlcEventType(daveEvents, routerrpc.HtlcEvent_UNKNOWN)
+
+	// Connect the nodes.
+	ht.ConnectNodes(dave, alice)
+	ht.ConnectNodes(carol, dave)
+
+	// Open a channel with 100k satoshis between Alice and Bob with Alice
+	// being the sole funder of the channel.
+	chanPointAlice := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
-	networkChans = append(networkChans, chanPointDave)
-	daveChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointDave)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	daveFundPoint := wire.OutPoint{
-		Hash:  *daveChanTXID,
-		Index: chanPointDave.OutputIndex,
-	}
+
+	// We'll create Dave and establish a channel to Alice. Dave will be
+	// running an older node that requires the legacy onion payload.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
+	chanPointDave := ht.OpenChannel(
+		dave, alice, lntemp.OpenChannelParams{Amt: chanAmt},
+	)
 
 	// Next, we'll create Carol and establish a channel to from her to
 	// Dave.
-	carol := net.NewNode(t.t, "Carol", nil)
-	defer shutdownAndAssert(net, t, carol)
-
-	net.ConnectNodes(t.t, carol, dave)
-	net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, carol)
-
-	chanPointCarol := openChannelAndAssert(
-		t, net, carol, dave,
-		lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+	chanPointCarol := ht.OpenChannel(
+		carol, dave, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
-	networkChans = append(networkChans, chanPointCarol)
-
-	carolChanTXID, err := lnrpc.GetChanPointFundingTxid(chanPointCarol)
-	if err != nil {
-		t.Fatalf("unable to get txid: %v", err)
-	}
-	carolFundPoint := wire.OutPoint{
-		Hash:  *carolChanTXID,
-		Index: chanPointCarol.OutputIndex,
-	}
-
-	// Wait for all nodes to have seen all channels.
-	nodes := []*lntest.HarnessNode{net.Alice, net.Bob, carol, dave}
-	nodeNames := []string{"Alice", "Bob", "Carol", "Dave"}
-	for _, chanPoint := range networkChans {
-		for i, node := range nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-			if err != nil {
-				t.Fatalf("unable to get txid: %v", err)
-			}
-			point := wire.OutPoint{
-				Hash:  *txid,
-				Index: chanPoint.OutputIndex,
-			}
-
-			err = node.WaitForNetworkChannelOpen(chanPoint)
-			if err != nil {
-				t.Fatalf("%s(%d): timeout waiting for "+
-					"channel(%s) open: %v", nodeNames[i],
-					node.NodeID, point, err)
-			}
-		}
-	}
 
 	// Create 5 invoices for Bob, which expect a payment from Carol for 1k
 	// satoshis with a different preimage each time.
 	const numPayments = 5
 	const paymentAmt = 1000
-	payReqs, _, _, err := createPayReqs(
-		net.Bob, paymentAmt, numPayments,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
-
-	// We'll wait for all parties to recognize the new channels within the
-	// network.
-	err = dave.WaitForNetworkChannelOpen(chanPointDave)
-	if err != nil {
-		t.Fatalf("dave didn't advertise his channel: %v", err)
-	}
-	err = carol.WaitForNetworkChannelOpen(chanPointCarol)
-	if err != nil {
-		t.Fatalf("carol didn't advertise her channel in time: %v",
-			err)
-	}
-
-	time.Sleep(time.Millisecond * 50)
+	payReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, numPayments)
 
 	// Set the fee policies of the Alice -> Bob and the Dave -> Alice
 	// channel edges to relatively large non default values. This makes it
@@ -149,61 +73,21 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	const aliceBaseFeeSat = 1
 	const aliceFeeRatePPM = 100000
 	updateChannelPolicy(
-		t, net.Alice, chanPointAlice, aliceBaseFeeSat*1000,
-		aliceFeeRatePPM, chainreg.DefaultBitcoinTimeLockDelta, maxHtlc,
-		carol,
+		ht, alice, chanPointAlice, aliceBaseFeeSat*1000,
+		aliceFeeRatePPM, chainreg.DefaultBitcoinTimeLockDelta,
+		maxHtlc, carol,
 	)
 
 	const daveBaseFeeSat = 5
 	const daveFeeRatePPM = 150000
 	updateChannelPolicy(
-		t, dave, chanPointDave, daveBaseFeeSat*1000, daveFeeRatePPM,
+		ht, dave, chanPointDave, daveBaseFeeSat*1000, daveFeeRatePPM,
 		chainreg.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
 	)
 
-	// Before we start sending payments, subscribe to htlc events for each
-	// node.
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
-
-	aliceEvents, err := net.Alice.RouterClient.SubscribeHtlcEvents(
-		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
-	)
-	if err != nil {
-		t.Fatalf("could not subscribe events: %v", err)
-	}
-	assertSubscribed(t, aliceEvents)
-
-	bobEvents, err := net.Bob.RouterClient.SubscribeHtlcEvents(
-		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
-	)
-	if err != nil {
-		t.Fatalf("could not subscribe events: %v", err)
-	}
-	assertSubscribed(t, bobEvents)
-
-	carolEvents, err := carol.RouterClient.SubscribeHtlcEvents(
-		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
-	)
-	if err != nil {
-		t.Fatalf("could not subscribe events: %v", err)
-	}
-	assertSubscribed(t, carolEvents)
-
-	daveEvents, err := dave.RouterClient.SubscribeHtlcEvents(
-		ctxt, &routerrpc.SubscribeHtlcEventsRequest{},
-	)
-	if err != nil {
-		t.Fatalf("could not subscribe events: %v", err)
-	}
-	assertSubscribed(t, daveEvents)
-
 	// Using Carol as the source, pay to the 5 invoices from Bob created
 	// above.
-	err = completePaymentRequests(carol, carol.RouterClient, payReqs, true)
-	if err != nil {
-		t.Fatalf("unable to send payments: %v", err)
-	}
+	ht.CompletePaymentRequests(carol, payReqs)
 
 	// At this point all the channels within our proto network should be
 	// shifted by 5k satoshis in the direction of Bob, the sink within the
@@ -215,10 +99,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// The final node bob expects to get paid five times 1000 sat.
 	expectedAmountPaidAtoB := int64(numPayments * paymentAmt)
 
-	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Bob,
-		aliceFundPoint, int64(0), expectedAmountPaidAtoB)
-	assertAmountPaid(t, "Alice(local) => Bob(remote)", net.Alice,
-		aliceFundPoint, expectedAmountPaidAtoB, int64(0))
+	ht.AssertAmountPaid("Alice(local) => Bob(remote)", bob,
+		chanPointAlice, int64(0), expectedAmountPaidAtoB)
+	ht.AssertAmountPaid("Alice(local) => Bob(remote)", alice,
+		chanPointAlice, expectedAmountPaidAtoB, int64(0))
 
 	// To forward a payment of 1000 sat, Alice is charging a fee of
 	// 1 sat + 10% = 101 sat.
@@ -229,10 +113,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Dave needs to pay what Alice pays plus Alice's fee.
 	expectedAmountPaidDtoA := expectedAmountPaidAtoB + expectedFeeAlice
 
-	assertAmountPaid(t, "Dave(local) => Alice(remote)", net.Alice,
-		daveFundPoint, int64(0), expectedAmountPaidDtoA)
-	assertAmountPaid(t, "Dave(local) => Alice(remote)", dave,
-		daveFundPoint, expectedAmountPaidDtoA, int64(0))
+	ht.AssertAmountPaid("Dave(local) => Alice(remote)", alice,
+		chanPointDave, int64(0), expectedAmountPaidDtoA)
+	ht.AssertAmountPaid("Dave(local) => Alice(remote)", dave,
+		chanPointDave, expectedAmountPaidDtoA, int64(0))
 
 	// To forward a payment of 1101 sat, Dave is charging a fee of
 	// 5 sat + 15% = 170.15 sat. This is rounded down in rpcserver to 170.
@@ -244,10 +128,10 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// Carol needs to pay what Dave pays plus Dave's fee.
 	expectedAmountPaidCtoD := expectedAmountPaidDtoA + expectedFeeDave
 
-	assertAmountPaid(t, "Carol(local) => Dave(remote)", dave,
-		carolFundPoint, int64(0), expectedAmountPaidCtoD)
-	assertAmountPaid(t, "Carol(local) => Dave(remote)", carol,
-		carolFundPoint, expectedAmountPaidCtoD, int64(0))
+	ht.AssertAmountPaid("Carol(local) => Dave(remote)", dave,
+		chanPointCarol, int64(0), expectedAmountPaidCtoD)
+	ht.AssertAmountPaid("Carol(local) => Dave(remote)", carol,
+		chanPointCarol, expectedAmountPaidCtoD, int64(0))
 
 	// Now that we know all the balances have been settled out properly,
 	// we'll ensure that our internal record keeping for completed circuits
@@ -256,206 +140,92 @@ func testMultiHopPayments(net *lntest.NetworkHarness, t *harnessTest) {
 	// First, check that the FeeReport response shows the proper fees
 	// accrued over each time range. Dave should've earned 170 satoshi for
 	// each of the forwarded payments.
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	feeReport, err := dave.FeeReport(ctxt, &lnrpc.FeeReportRequest{})
-	require.NoError(t.t, err)
-	require.EqualValues(t.t, expectedFeeDave, feeReport.DayFeeSum)
-	require.EqualValues(t.t, expectedFeeDave, feeReport.WeekFeeSum)
-	require.EqualValues(t.t, expectedFeeDave, feeReport.MonthFeeSum)
+	ht.AssertFeeReport(
+		dave, expectedFeeDave, expectedFeeDave, expectedFeeDave,
+	)
 
 	// Next, ensure that if we issue the vanilla query for the forwarding
 	// history, it returns 5 values, and each entry is formatted properly.
 	// From David's perspective he receives a payement from Carol and
 	// forwards it to Alice. So let's ensure that the forwarding history
 	// returns Carol's peer alias as inbound and Alice's alias as outbound.
-	info, err := carol.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	require.NoError(t.t, err)
+	info := carol.RPC.GetInfo()
 	carolAlias := info.Alias
 
-	info, err = net.Alice.GetInfo(ctxt, &lnrpc.GetInfoRequest{})
-	require.NoError(t.t, err)
+	info = alice.RPC.GetInfo()
 	aliceAlias := info.Alias
 
-	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	fwdingHistory, err := dave.ForwardingHistory(
-		ctxt, &lnrpc.ForwardingHistoryRequest{},
-	)
-	require.NoError(t.t, err)
-	require.Len(t.t, fwdingHistory.ForwardingEvents, numPayments)
+	fwdingHistory := dave.RPC.ForwardingHistory(nil)
+	require.Len(ht, fwdingHistory.ForwardingEvents, numPayments)
+
 	expectedForwardingFee := uint64(expectedFeeDave / numPayments)
 	for _, event := range fwdingHistory.ForwardingEvents {
 		// Each event should show a fee of 170 satoshi.
-		require.Equal(t.t, expectedForwardingFee, event.Fee)
+		require.Equal(ht, expectedForwardingFee, event.Fee)
 
 		// Check that peer aliases are empty since the
 		// ForwardingHistoryRequest did not specify the PeerAliasLookup
 		// flag.
-		require.Empty(t.t, event.PeerAliasIn)
-		require.Empty(t.t, event.PeerAliasOut)
+		require.Empty(ht, event.PeerAliasIn)
+		require.Empty(ht, event.PeerAliasOut)
 	}
 
 	// Lookup the forwarding history again but this time also lookup the
 	// peers' alias names.
-	fwdingHistory, err = dave.ForwardingHistory(
-		ctxt, &lnrpc.ForwardingHistoryRequest{
+	fwdingHistory = dave.RPC.ForwardingHistory(
+		&lnrpc.ForwardingHistoryRequest{
 			PeerAliasLookup: true,
 		},
 	)
-	require.NoError(t.t, err)
-	require.Len(t.t, fwdingHistory.ForwardingEvents, numPayments)
+	require.Len(ht, fwdingHistory.ForwardingEvents, numPayments)
 	for _, event := range fwdingHistory.ForwardingEvents {
 		// Each event should show a fee of 170 satoshi.
-		require.Equal(t.t, expectedForwardingFee, event.Fee)
+		require.Equal(ht, expectedForwardingFee, event.Fee)
 
 		// Check that peer aliases adhere to payment flow, namely
 		// Carol->Dave->Alice.
-		require.Equal(t.t, carolAlias, event.PeerAliasIn)
-		require.Equal(t.t, aliceAlias, event.PeerAliasOut)
+		require.Equal(ht, carolAlias, event.PeerAliasIn)
+		require.Equal(ht, aliceAlias, event.PeerAliasOut)
 	}
 
 	// We expect Carol to have successful forwards and settles for
 	// her sends.
-	assertHtlcEvents(
-		t, numPayments, 0, numPayments, routerrpc.HtlcEvent_SEND,
-		carolEvents,
+	ht.AssertHtlcEvents(
+		carolEvents, numPayments, 0, numPayments,
+		routerrpc.HtlcEvent_SEND,
 	)
 
 	// Dave and Alice should both have forwards and settles for
 	// their role as forwarding nodes.
-	assertHtlcEvents(
-		t, numPayments, 0, numPayments, routerrpc.HtlcEvent_FORWARD,
-		daveEvents,
+	ht.AssertHtlcEvents(
+		daveEvents, numPayments, 0, numPayments,
+		routerrpc.HtlcEvent_FORWARD,
 	)
-	assertHtlcEvents(
-		t, numPayments, 0, numPayments, routerrpc.HtlcEvent_FORWARD,
-		aliceEvents,
+	ht.AssertHtlcEvents(
+		aliceEvents, numPayments, 0, numPayments,
+		routerrpc.HtlcEvent_FORWARD,
 	)
 
 	// Bob should only have settle events for his receives.
-	assertHtlcEvents(
-		t, 0, 0, numPayments, routerrpc.HtlcEvent_RECEIVE, bobEvents,
+	ht.AssertHtlcEvents(
+		bobEvents, 0, 0, numPayments, routerrpc.HtlcEvent_RECEIVE,
 	)
 
-	closeChannelAndAssert(t, net, net.Alice, chanPointAlice, false)
-	closeChannelAndAssert(t, net, dave, chanPointDave, false)
-	closeChannelAndAssert(t, net, carol, chanPointCarol, false)
+	// Finally, close all channels.
+	ht.CloseChannel(alice, chanPointAlice)
+	ht.CloseChannel(dave, chanPointDave)
+	ht.CloseChannel(carol, chanPointCarol)
 }
 
-// assertHtlcEvents consumes events from a client and ensures that they are of
-// the expected type and contain the expected number of forwards, forward
-// failures and settles.
-func assertHtlcEvents(t *harnessTest, fwdCount, fwdFailCount, settleCount int,
-	userType routerrpc.HtlcEvent_EventType,
-	client routerrpc.Router_SubscribeHtlcEventsClient) {
-
-	var forwards, forwardFails, settles, finalSettles, finalFails int
-
-	var finalFailCount, finalSettleCount int
-	if userType != routerrpc.HtlcEvent_SEND {
-		finalFailCount = fwdFailCount
-		finalSettleCount = settleCount
-	}
-
-	numEvents := fwdCount + fwdFailCount + settleCount +
-		finalFailCount + finalSettleCount
-
-	for i := 0; i < numEvents; i++ {
-		event, err := client.Recv()
-		if err != nil {
-			t.Fatalf("could not get event")
-		}
-
-		expectedEventType := userType
-
-		switch e := event.Event.(type) {
-		case *routerrpc.HtlcEvent_ForwardEvent:
-			forwards++
-
-		case *routerrpc.HtlcEvent_ForwardFailEvent:
-			forwardFails++
-
-		case *routerrpc.HtlcEvent_SettleEvent:
-			settles++
-
-		case *routerrpc.HtlcEvent_FinalHtlcEvent:
-			if e.FinalHtlcEvent.Settled {
-				finalSettles++
-			} else {
-				finalFails++
-			}
-
-			expectedEventType = routerrpc.HtlcEvent_UNKNOWN
-
-		default:
-			t.Fatalf("unexpected event: %T", event.Event)
-		}
-
-		if event.EventType != expectedEventType {
-			t.Fatalf("expected: %v, got: %v", expectedEventType,
-				event.EventType)
-		}
-	}
-
-	if forwards != fwdCount {
-		t.Fatalf("expected: %v forwards, got: %v", fwdCount, forwards)
-	}
-
-	if forwardFails != fwdFailCount {
-		t.Fatalf("expected: %v forward fails, got: %v", fwdFailCount,
-			forwardFails)
-	}
-
-	if finalFails != finalFailCount {
-		t.Fatalf("expected: %v final fails, got: %v", finalFailCount,
-			finalFails)
-	}
-
-	if settles != settleCount {
-		t.Fatalf("expected: %v settles, got: %v", settleCount, settles)
-	}
-
-	if finalSettles != finalSettleCount {
-		t.Fatalf("expected: %v settles, got: %v", finalSettleCount,
-			finalSettles)
-	}
-}
-
-// assertEventAndType reads an event from the stream provided and ensures that
-// it is associated with the correct user related type - a user initiated send,
-// a receive to our node or a forward through our node. Note that this event
-// type is different from the htlc event type (forward, link failure etc).
-func assertEventAndType(t *harnessTest, eventType routerrpc.HtlcEvent_EventType,
-	client routerrpc.Router_SubscribeHtlcEventsClient) *routerrpc.HtlcEvent {
-
-	event, err := client.Recv()
-	if err != nil {
-		t.Fatalf("could not get event")
-	}
-
-	if event.EventType != eventType {
-		t.Fatalf("expected: %v, got: %v", eventType,
-			event.EventType)
-	}
-
-	return event
-}
-
-func assertSubscribed(t *harnessTest,
-	client routerrpc.Router_SubscribeHtlcEventsClient) {
-
-	event, err := client.Recv()
-	require.NoError(t.t, err)
-	require.NotNil(t.t, event.GetSubscribedEvent())
-}
-
-// updateChannelPolicy updates the channel policy of node to the
-// given fees and timelock delta. This function blocks until
-// listenerNode has received the policy update.
-func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
-	chanPoint *lnrpc.ChannelPoint, baseFee int64, feeRate int64,
-	timeLockDelta uint32, maxHtlc uint64, listenerNode *lntest.HarnessNode) {
-
-	ctxb := context.Background()
+// updateChannelPolicy updates the channel policy of node to the given fees and
+// timelock delta. This function blocks until listenerNode has received the
+// policy update.
+//
+// NOTE: only used in current test.
+func updateChannelPolicy(ht *lntemp.HarnessTest, hn *node.HarnessNode,
+	chanPoint *lnrpc.ChannelPoint, baseFee int64,
+	feeRate int64, timeLockDelta uint32,
+	maxHtlc uint64, listenerNode *node.HarnessNode) {
 
 	expectedPolicy := &lnrpc.RoutingPolicy{
 		FeeBaseMsat:      baseFee,
@@ -475,14 +245,10 @@ func updateChannelPolicy(t *harnessTest, node *lntest.HarnessNode,
 		MaxHtlcMsat: maxHtlc,
 	}
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	if _, err := node.UpdateChannelPolicy(ctxt, updateFeeReq); err != nil {
-		t.Fatalf("unable to update chan policy: %v", err)
-	}
+	hn.RPC.UpdateChannelPolicy(updateFeeReq)
 
 	// Wait for listener node to receive the channel update from node.
-	assertChannelPolicyUpdate(
-		t.t, listenerNode, node.PubKeyStr,
-		expectedPolicy, chanPoint, false,
+	ht.AssertChannelPolicyUpdate(
+		listenerNode, hn, expectedPolicy, chanPoint, false,
 	)
 }

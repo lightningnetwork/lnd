@@ -48,3 +48,17 @@ func (h *HarnessRPC) GenSeed(req *lnrpc.GenSeedRequest) *lnrpc.GenSeedResponse {
 
 	return resp
 }
+
+// ChangePassword makes a RPC request to WalletUnlocker and asserts there's no
+// error.
+func (h *HarnessRPC) ChangePassword(
+	req *lnrpc.ChangePasswordRequest) *lnrpc.ChangePasswordResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletUnlocker.ChangePassword(ctxt, req)
+	h.NoError(err, "ChangePassword")
+
+	return resp
+}

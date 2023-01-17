@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/chanbackup"
+	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lntest"
 )
 
@@ -62,8 +63,8 @@ type BaseNodeConfig struct {
 	ReadMacPath    string
 	InvoiceMacPath string
 
-	HasSeed  bool
-	Password []byte
+	SkipUnlock bool
+	Password   []byte
 
 	P2PPort     int
 	RPCPort     int
@@ -189,7 +190,7 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	}
 	args = append(args, nodeArgs...)
 
-	if !cfg.HasSeed {
+	if cfg.Password == nil {
 		args = append(args, "--noseedbackup")
 	}
 
@@ -231,4 +232,34 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	}
 
 	return args
+}
+
+// ExtraArgsEtcd returns extra args for configuring LND to use an external etcd
+// database (for remote channel DB and wallet DB).
+func ExtraArgsEtcd(etcdCfg *etcd.Config, name string, cluster bool,
+	leaderSessionTTL int) []string {
+
+	extraArgs := []string{
+		"--db.backend=etcd",
+		fmt.Sprintf("--db.etcd.host=%v", etcdCfg.Host),
+		fmt.Sprintf("--db.etcd.user=%v", etcdCfg.User),
+		fmt.Sprintf("--db.etcd.pass=%v", etcdCfg.Pass),
+		fmt.Sprintf("--db.etcd.namespace=%v", etcdCfg.Namespace),
+	}
+
+	if etcdCfg.InsecureSkipVerify {
+		extraArgs = append(extraArgs, "--db.etcd.insecure_skip_verify")
+	}
+
+	if cluster {
+		clusterArgs := []string{
+			"--cluster.enable-leader-election",
+			fmt.Sprintf("--cluster.id=%v", name),
+			fmt.Sprintf("--cluster.leader-session-ttl=%v",
+				leaderSessionTTL),
+		}
+		extraArgs = append(extraArgs, clusterArgs...)
+	}
+
+	return extraArgs
 }

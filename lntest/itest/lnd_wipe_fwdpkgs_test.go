@@ -1,14 +1,11 @@
 package itest
 
 import (
-	"context"
-	"testing"
 	"time"
 
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,91 +19,9 @@ type pendingChan *lnrpc.PendingChannelsResponse_PendingChannel
 //   - Bob force closes the channel Alice->Bob, and checks from both Bob's
 //     PoV(local force close) and Alice's Pov(remote close) that the forwarding
 //     packages are wiped.
-//   - Bob coop closes the channel Bob->Carol, and checks from both Bob PoVs that
-//     the forwarding packages are wiped.
-func testWipeForwardingPackages(net *lntest.NetworkHarness,
-	t *harnessTest) {
-
-	// Setup the test and get the channel points.
-	pointAB, pointBC, carol, cleanUp := setupFwdPkgTest(net, t)
-	defer cleanUp()
-
-	// Firstly, Bob force closes the channel.
-	_, _, err := net.CloseChannel(net.Bob, pointAB, true)
-	require.NoError(t.t, err, "unable to force close channel")
-
-	// Now that the channel has been force closed, it should show up in
-	// bob's PendingChannels RPC under the waiting close section.
-	pendingChan := assertWaitingCloseChannel(t.t, net.Bob)
-
-	// Check that Bob has created forwarding packages. We don't care the
-	// exact number here as long as these packages are deleted when the
-	// channel is closed.
-	require.NotZero(t.t, pendingChan.NumForwardingPackages)
-
-	// Mine 1 block to get the closing transaction confirmed.
-	_, err = net.Miner.Client.Generate(1)
-	require.NoError(t.t, err, "unable to mine blocks")
-
-	// Now that the closing transaction is confirmed, the above waiting
-	// close channel should now become pending force closed channel.
-	pendingChan = assertPendingForceClosedChannel(t.t, net.Bob)
-
-	// Check the forwarding packages are deleted.
-	require.Zero(t.t, pendingChan.NumForwardingPackages)
-
-	// For Alice, the forwarding packages should have been wiped too.
-	pendingChanAlice := assertPendingForceClosedChannel(t.t, net.Alice)
-	require.Zero(t.t, pendingChanAlice.NumForwardingPackages)
-
-	// Secondly, Bob coop closes the channel.
-	_, _, err = net.CloseChannel(net.Bob, pointBC, false)
-	require.NoError(t.t, err, "unable to coop close channel")
-
-	// Now that the channel has been coop closed, it should show up in
-	// bob's PendingChannels RPC under the waiting close section.
-	pendingChan = assertWaitingCloseChannel(t.t, net.Bob)
-
-	// Check that Bob has created forwarding packages. We don't care the
-	// exact number here as long as these packages are deleted when the
-	// channel is closed.
-	require.NotZero(t.t, pendingChan.NumForwardingPackages)
-
-	// Since it's a coop close, Carol should see the waiting close channel
-	// too.
-	pendingChanCarol := assertWaitingCloseChannel(t.t, carol)
-	require.NotZero(t.t, pendingChanCarol.NumForwardingPackages)
-
-	// Mine 1 block to get the closing transaction confirmed.
-	_, err = net.Miner.Client.Generate(1)
-	require.NoError(t.t, err, "unable to mine blocks")
-
-	// Now that the closing transaction is confirmed, the above waiting
-	// close channel should now become pending closed channel. Note that
-	// the name PendingForceClosingChannels is a bit confusing, what it
-	// really contains is channels whose closing tx has been broadcast.
-	pendingChan = assertPendingForceClosedChannel(t.t, net.Bob)
-
-	// Check the forwarding packages are deleted.
-	require.Zero(t.t, pendingChan.NumForwardingPackages)
-
-	// Mine a block to confirm sweep transactions such that they
-	// don't remain in the mempool for any subsequent tests.
-	_, err = net.Miner.Client.Generate(1)
-	require.NoError(t.t, err, "unable to mine blocks")
-}
-
-// setupFwdPkgTest prepares the wipe forwarding packages tests. It creates a
-// network topology that has a channel direction: Alice -> Bob -> Carol, sends
-// several payments from Alice to Carol, and returns the two channel points(one
-// for Alice and Bob, the other for Bob and Carol), the node Carol, and a
-// cleanup function to be used when the test finishes.
-func setupFwdPkgTest(net *lntest.NetworkHarness,
-	t *harnessTest) (*lnrpc.ChannelPoint, *lnrpc.ChannelPoint,
-	*lntest.HarnessNode, func()) {
-
-	ctxb := context.Background()
-
+//   - Bob coop closes the channel Bob->Carol, and checks from both Bob PoVs
+//     that the forwarding packages are wiped.
+func testWipeForwardingPackages(ht *lntemp.HarnessTest) {
 	const (
 		chanAmt        = 10e6
 		paymentAmt     = 10e4
@@ -114,114 +29,96 @@ func setupFwdPkgTest(net *lntest.NetworkHarness,
 		numInvoices    = 3
 	)
 
-	// Grab Alice and Bob from harness net.
-	alice, bob := net.Alice, net.Bob
+	// Grab Alice and Bob from HarnessTest.
+	alice, bob := ht.Alice, ht.Bob
 
 	// Create a new node Carol, which will create invoices that require
 	// Alice to pay.
-	carol := net.NewNode(t.t, "Carol", nil)
+	carol := ht.NewNode("Carol", nil)
 
 	// Connect Bob to Carol.
-	net.ConnectNodes(t.t, bob, carol)
+	ht.ConnectNodes(bob, carol)
 
 	// Open a channel between Alice and Bob.
-	chanPointAB := openChannelAndAssert(
-		t, net, alice, bob, lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPointAB := ht.OpenChannel(
+		alice, bob, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
 
 	// Open a channel between Bob and Carol.
-	chanPointBC := openChannelAndAssert(
-		t, net, bob, carol, lntest.OpenChannelParams{
-			Amt: chanAmt,
-		},
+	chanPointBC := ht.OpenChannel(
+		bob, carol, lntemp.OpenChannelParams{Amt: chanAmt},
 	)
 
-	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-	defer cancel()
+	// Before we continue, make sure Alice has seen the channel between Bob
+	// and Carol.
+	ht.AssertTopologyChannelOpen(alice, chanPointBC)
 
 	// Alice sends several payments to Carol through Bob, which triggers
 	// Bob to create forwarding packages.
 	for i := 0; i < numInvoices; i++ {
 		// Add an invoice for Carol.
 		invoice := &lnrpc.Invoice{Memo: "testing", Value: paymentAmt}
-		invoiceResp, err := carol.AddInvoice(ctxt, invoice)
-		require.NoError(t.t, err, "unable to add invoice")
+		resp := carol.RPC.AddInvoice(invoice)
 
 		// Alice sends a payment to Carol through Bob.
-		sendAndAssertSuccess(
-			t, net.Alice, &routerrpc.SendPaymentRequest{
-				PaymentRequest: invoiceResp.PaymentRequest,
-				TimeoutSeconds: 60,
-				FeeLimitSat:    noFeeLimitMsat,
-			},
-		)
+		ht.CompletePaymentRequests(alice, []string{resp.PaymentRequest})
 	}
 
-	return chanPointAB, chanPointBC, carol, func() {
-		shutdownAndAssert(net, t, alice)
-		shutdownAndAssert(net, t, bob)
-		shutdownAndAssert(net, t, carol)
-	}
-}
+	// TODO(yy): remove the sleep once the following bug is fixed.
+	// When the invoice is reported settled, the commitment dance is not
+	// yet finished, which can cause an error when closing the channel,
+	// saying there's active HTLCs. We need to investigate this issue and
+	// reverse the order to, first finish the commitment dance, then report
+	// the invoice as settled.
+	time.Sleep(2 * time.Second)
 
-// assertWaitingCloseChannel checks there is a single channel that is waiting
-// for close and returns the channel found.
-func assertWaitingCloseChannel(t *testing.T,
-	node *lntest.HarnessNode) pendingChan {
+	// Firstly, Bob force closes the channel.
+	ht.CloseChannelAssertPending(bob, chanPointAB, true)
 
-	ctxb := context.Background()
+	// Now that the channel has been force closed, it should show up in
+	// bob's PendingChannels RPC under the waiting close section.
+	pendingAB := ht.AssertChannelWaitingClose(bob, chanPointAB).Channel
 
-	var channel pendingChan
-	require.Eventually(t, func() bool {
-		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
+	// Check that Bob has created forwarding packages. We don't care the
+	// exact number here as long as these packages are deleted when the
+	// channel is closed.
+	require.NotZero(ht, pendingAB.NumForwardingPackages)
 
-		req := &lnrpc.PendingChannelsRequest{}
-		resp, err := node.PendingChannels(ctxt, req)
+	// Secondly, Bob coop closes the channel.
+	ht.CloseChannelAssertPending(bob, chanPointBC, false)
 
-		// We require the RPC call to be succeeded and won't retry upon
-		// an error.
-		require.NoError(t, err, "unable to query for pending channels")
+	// Now that the channel has been coop closed, it should show up in
+	// bob's PendingChannels RPC under the waiting close section.
+	pendingBC := ht.AssertChannelWaitingClose(bob, chanPointBC).Channel
 
-		if err := checkNumWaitingCloseChannels(resp, 1); err != nil {
-			return false
-		}
+	// Check that Bob has created forwarding packages. We don't care the
+	// exact number here as long as these packages are deleted when the
+	// channel is closed.
+	require.NotZero(ht, pendingBC.NumForwardingPackages)
 
-		channel = resp.WaitingCloseChannels[0].Channel
-		return true
-	}, defaultTimeout, 200*time.Millisecond)
+	// Since it's a coop close, Carol should see the waiting close channel
+	// too.
+	pendingBC = ht.AssertChannelWaitingClose(carol, chanPointBC).Channel
+	require.NotZero(ht, pendingBC.NumForwardingPackages)
 
-	return channel
-}
+	// Mine 1 block to get the two closing transactions confirmed.
+	ht.MineBlocksAndAssertNumTxes(1, 2)
 
-// assertForceClosedChannel checks there is a single channel that is pending
-// force closed and returns the channel found.
-func assertPendingForceClosedChannel(t *testing.T,
-	node *lntest.HarnessNode) pendingChan {
+	// Now that the closing transaction is confirmed, the above waiting
+	// close channel should now become pending force closed channel.
+	pendingAB = ht.AssertChannelPendingForceClose(bob, chanPointAB).Channel
 
-	ctxb := context.Background()
+	// Check the forwarding pacakges are deleted.
+	require.Zero(ht, pendingAB.NumForwardingPackages)
 
-	var channel pendingChan
-	require.Eventually(t, func() bool {
-		ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
-		defer cancel()
+	// For Alice, the forwarding packages should have been wiped too.
+	pending := ht.AssertChannelPendingForceClose(alice, chanPointAB)
+	pendingAB = pending.Channel
+	require.Zero(ht, pendingAB.NumForwardingPackages)
 
-		req := &lnrpc.PendingChannelsRequest{}
-		resp, err := node.PendingChannels(ctxt, req)
+	// Mine 1 block to get Alice's sweeping tx confirmed.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
-		// We require the RPC call to be succeeded and won't retry upon
-		// an error.
-		require.NoError(t, err, "unable to query for pending channels")
-
-		if err := checkNumForceClosedChannels(resp, 1); err != nil {
-			return false
-		}
-
-		channel = resp.PendingForceClosingChannels[0].Channel
-		return true
-	}, defaultTimeout, 200*time.Millisecond)
-
-	return channel
+	// Clean up the force closed channel.
+	ht.CleanupForceClose(bob, chanPointAB)
 }

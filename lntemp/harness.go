@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -155,6 +156,16 @@ func (h *HarnessTest) ChainBackendName() string {
 	return h.manager.chainBackend.Name()
 }
 
+// Context returns the run context used in this test. Usaually it should be
+// managed by the test itself otherwise undefined behaviors will occur. It can
+// be used, however, when a test needs to have its own context being managed
+// differently. In that case, instead of using a background context, the run
+// context should be used such that the test context scope can be fully
+// controlled.
+func (h *HarnessTest) Context() context.Context {
+	return h.runCtx
+}
+
 // SetUp starts the initial seeder nodes within the test harness. The initial
 // node's wallets will be funded wallets with 10x10 BTC outputs each.
 func (h *HarnessTest) SetupStandbyNodes() {
@@ -205,7 +216,8 @@ func (h *HarnessTest) SetupStandbyNodes() {
 
 	// We generate several blocks in order to give the outputs created
 	// above a good number of confirmations.
-	h.MineBlocks(numBlocksSendOutput)
+	const totalTxes = 20
+	h.MineBlocksAndAssertNumTxes(numBlocksSendOutput, totalTxes)
 
 	// Now we want to wait for the nodes to catch up.
 	h.WaitForBlockchainSync(h.Alice)
@@ -283,6 +295,9 @@ func (h *HarnessTest) resetStandbyNodes(t *testing.T) {
 		// config for the coming test. This will also inherit the
 		// test's running context.
 		h.RestartNodeWithExtraArgs(hn, hn.Cfg.OriginalExtraArgs)
+
+		// Update the node's internal state.
+		hn.UpdateState()
 	}
 }
 
@@ -338,10 +353,6 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 			return
 		}
 
-		// We require the mempool to be cleaned from the test.
-		require.Empty(st, st.Miner.GetRawMempool(), "mempool not "+
-			"cleaned, please mine blocks to clean them all.")
-
 		// When we finish the test, reset the nodes' configs and take a
 		// snapshot of each of the nodes' internal states.
 		for _, node := range st.manager.standbyNodes {
@@ -351,8 +362,9 @@ func (h *HarnessTest) Subtest(t *testing.T) *HarnessTest {
 		// If found running nodes, shut them down.
 		st.shutdownNonStandbyNodes()
 
-		// Assert that mempool is cleaned
-		st.Miner.AssertNumTxsInMempool(0)
+		// We require the mempool to be cleaned from the test.
+		require.Empty(st, st.Miner.GetRawMempool(), "mempool not "+
+			"cleaned, please mine blocks to clean them all.")
 
 		// Finally, cancel the run context. We have to do it here
 		// because we need to keep the context alive for the above
@@ -396,9 +408,6 @@ func (h *HarnessTest) cleanupStandbyNode(hn *node.HarnessNode) {
 
 	// Delete all payments made from this test.
 	hn.RPC.DeleteAllPayments()
-
-	// Update the node's internal state.
-	hn.UpdateState()
 
 	// Finally, check the node is in a clean state for the following tests.
 	h.validateNodeState(hn)
@@ -469,16 +478,47 @@ func (h *HarnessTest) SuspendNode(node *node.HarnessNode) func() error {
 	return func() error {
 		h.manager.registerNode(node)
 
-		return node.Start(h.runCtx)
+		if err := node.Start(h.runCtx); err != nil {
+			return err
+		}
+		h.WaitForBlockchainSync(node)
+
+		return nil
 	}
 }
 
-// RestartNode restarts a given node and asserts.
-func (h *HarnessTest) RestartNode(hn *node.HarnessNode,
+// RestartNode restarts a given node, unlocks it and asserts it's successfully
+// started.
+func (h *HarnessTest) RestartNode(hn *node.HarnessNode) {
+	err := h.manager.restartNode(h.runCtx, hn, nil)
+	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+
+	err = h.manager.unlockNode(hn)
+	require.NoErrorf(h, err, "failed to unlock node %s", hn.Name())
+
+	if !hn.Cfg.SkipUnlock {
+		// Give the node some time to catch up with the chain before we
+		// continue with the tests.
+		h.WaitForBlockchainSync(hn)
+	}
+}
+
+// RestartNodeNoUnlock restarts a given node without unlocking its wallet.
+func (h *HarnessTest) RestartNodeNoUnlock(hn *node.HarnessNode) {
+	err := h.manager.restartNode(h.runCtx, hn, nil)
+	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+}
+
+// RestartNodeWithChanBackups restarts a given node with the specified channel
+// backups.
+func (h *HarnessTest) RestartNodeWithChanBackups(hn *node.HarnessNode,
 	chanBackups ...*lnrpc.ChanBackupSnapshot) {
 
-	err := h.manager.restartNode(h.runCtx, hn, nil, chanBackups...)
+	err := h.manager.restartNode(h.runCtx, hn, nil)
 	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
+
+	err = h.manager.unlockNode(hn, chanBackups...)
+	require.NoErrorf(h, err, "failed to unlock node %s", hn.Name())
 
 	// Give the node some time to catch up with the chain before we
 	// continue with the tests.
@@ -490,7 +530,7 @@ func (h *HarnessTest) RestartNodeWithExtraArgs(hn *node.HarnessNode,
 	extraArgs []string) {
 
 	hn.SetExtraArgs(extraArgs)
-	h.RestartNode(hn, nil)
+	h.RestartNode(hn)
 }
 
 // NewNodeWithSeed fully initializes a new HarnessNode after creating a fresh
@@ -525,7 +565,7 @@ func (h *HarnessTest) newNodeWithSeed(name string,
 
 	// Start the node with seed only, which will only create the `State`
 	// and `WalletUnlocker` clients.
-	err = node.StartWithSeed(h.runCtx)
+	err = node.StartWithNoAuth(h.runCtx)
 	require.NoErrorf(h, err, "failed to start node %s", node.Name())
 
 	// Generate a new seed.
@@ -568,7 +608,7 @@ func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 
 	// Start the node with seed only, which will only create the `State`
 	// and `WalletUnlocker` clients.
-	err = node.StartWithSeed(h.runCtx)
+	err = node.StartWithNoAuth(h.runCtx)
 	require.NoErrorf(h, err, "failed to start node %s", node.Name())
 
 	// Create the wallet.
@@ -585,6 +625,61 @@ func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 		node.Name())
 
 	return node
+}
+
+// NewNodeEtcd starts a new node with seed that'll use an external etcd
+// database as its storage. The passed cluster flag indicates that we'd like
+// the node to join the cluster leader election. We won't wait until RPC is
+// available (this is useful when the node is not expected to become the leader
+// right away).
+func (h *HarnessTest) NewNodeEtcd(name string, etcdCfg *etcd.Config,
+	password []byte, cluster bool,
+	leaderSessionTTL int) *node.HarnessNode {
+
+	// We don't want to use the embedded etcd instance.
+	h.manager.dbBackend = lntest.BackendBbolt
+
+	extraArgs := node.ExtraArgsEtcd(
+		etcdCfg, name, cluster, leaderSessionTTL,
+	)
+	node, err := h.manager.newNode(h.T, name, extraArgs, password, true)
+	require.NoError(h, err, "failed to create new node with etcd")
+
+	// Start the node daemon only.
+	err = node.StartLndCmd(h.runCtx)
+	require.NoError(h, err, "failed to start node %s", node.Name())
+
+	return node
+}
+
+// NewNodeWithSeedEtcd starts a new node with seed that'll use an external etcd
+// database as its storage. The passed cluster flag indicates that we'd like
+// the node to join the cluster leader election.
+func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
+	password []byte, entropy []byte, statelessInit, cluster bool,
+	leaderSessionTTL int) (*node.HarnessNode, []string, []byte) {
+
+	// We don't want to use the embedded etcd instance.
+	h.manager.dbBackend = lntest.BackendBbolt
+
+	// Create a request to generate a new aezeed. The new seed will have
+	// the same password as the internal wallet.
+	req := &lnrpc.GenSeedRequest{
+		AezeedPassphrase: password,
+		SeedEntropy:      nil,
+	}
+
+	extraArgs := node.ExtraArgsEtcd(
+		etcdCfg, name, cluster, leaderSessionTTL,
+	)
+
+	return h.newNodeWithSeed(name, extraArgs, req, statelessInit)
+}
+
+// KillNode kills the node (but won't wait for the node process to stop).
+func (h *HarnessTest) KillNode(hn *node.HarnessNode) {
+	require.NoErrorf(h, hn.Kill(), "%s: kill got error", hn.Name())
+	delete(h.manager.activeNodes, hn.Cfg.NodeID)
 }
 
 // SetFeeEstimate sets a fee rate to be returned from fee estimator.
@@ -1276,6 +1371,9 @@ func (h *HarnessTest) RestartNodeAndRestoreDB(hn *node.HarnessNode) {
 	err := h.manager.restartNode(h.runCtx, hn, cb)
 	require.NoErrorf(h, err, "failed to restart node %s", hn.Name())
 
+	err = h.manager.unlockNode(hn)
+	require.NoErrorf(h, err, "failed to unlock node %s", hn.Name())
+
 	// Give the node some time to catch up with the chain before we
 	// continue with the tests.
 	h.WaitForBlockchainSync(hn)
@@ -1325,6 +1423,19 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	return blocks
 }
 
+// MineEmptyBlocks mines a given number of empty blocks.
+//
+// NOTE: this differs from miner's `MineEmptyBlocks` as it requires the nodes
+// to be synced.
+func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
+	blocks := h.Miner.MineEmptyBlocks(num)
+
+	// Finally, make sure all the active nodes are synced.
+	h.AssertActiveNodesSynced()
+
+	return blocks
+}
+
 // QueryChannelByChanPoint tries to find a channel matching the channel point
 // and asserts. It returns the channel found.
 func (h *HarnessTest) QueryChannelByChanPoint(hn *node.HarnessNode,
@@ -1356,6 +1467,14 @@ func (h *HarnessTest) SendPaymentAssertFail(hn *node.HarnessNode,
 		"payment failureReason not matched")
 
 	return payment
+}
+
+// SendPaymentAssertSettled sends a payment from the passed node and asserts the
+// payment is settled.
+func (h *HarnessTest) SendPaymentAssertSettled(hn *node.HarnessNode,
+	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
+
+	return h.SendPaymentAndAssertStatus(hn, req, lnrpc.Payment_SUCCEEDED)
 }
 
 // OpenChannelRequest is used to open a channel using the method
@@ -1629,4 +1748,52 @@ func findSweepInDetails(ht *HarnessTest, sweepTxid string,
 	}
 
 	return false
+}
+
+// ConnectMiner connects the miner with the chain backend in the network.
+func (h *HarnessTest) ConnectMiner() {
+	err := h.manager.chainBackend.ConnectMiner()
+	require.NoError(h, err, "failed to connect miner")
+}
+
+// DisconnectMiner removes the connection between the miner and the chain
+// backend in the network.
+func (h *HarnessTest) DisconnectMiner() {
+	err := h.manager.chainBackend.DisconnectMiner()
+	require.NoError(h, err, "failed to disconnect miner")
+}
+
+// QueryRoutesAndRetry attempts to keep querying a route until timeout is
+// reached.
+//
+// NOTE: when a channel is opened, we may need to query multiple times to get
+// it in our QueryRoutes RPC. This happens even after we check the channel is
+// heard by the node using ht.AssertChannelOpen. Deep down, this is because our
+// GraphTopologySubscription and QueryRoutes give different results regarding a
+// specific channel, with the formal reporting it being open while the latter
+// not, resulting GraphTopologySubscription acting "faster" than QueryRoutes.
+// TODO(yy): make sure related subsystems share the same view on a given
+// channel.
+func (h *HarnessTest) QueryRoutesAndRetry(hn *node.HarnessNode,
+	req *lnrpc.QueryRoutesRequest) *lnrpc.QueryRoutesResponse {
+
+	var routes *lnrpc.QueryRoutesResponse
+	err := wait.NoError(func() error {
+		ctxt, cancel := context.WithCancel(h.runCtx)
+		defer cancel()
+
+		resp, err := hn.RPC.LN.QueryRoutes(ctxt, req)
+		if err != nil {
+			return fmt.Errorf("%s: failed to query route: %w",
+				hn.Name(), err)
+		}
+
+		routes = resp
+
+		return nil
+	}, DefaultTimeout)
+
+	require.NoError(h, err, "timeout querying routes")
+
+	return routes
 }

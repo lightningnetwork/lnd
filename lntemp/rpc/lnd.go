@@ -194,6 +194,10 @@ func (h *HarnessRPC) ListInvoices(
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
+	if req == nil {
+		req = &lnrpc.ListInvoiceRequest{}
+	}
+
 	resp, err := h.LN.ListInvoices(ctxt, req)
 	h.NoError(err, "ListInvoice")
 
@@ -481,8 +485,10 @@ func (h *HarnessRPC) QueryRoutes(
 	return routes
 }
 
+type SendToRouteClient lnrpc.Lightning_SendToRouteClient
+
 // SendToRoute makes a RPC call to SendToRoute and asserts.
-func (h *HarnessRPC) SendToRoute() lnrpc.Lightning_SendToRouteClient {
+func (h *HarnessRPC) SendToRoute() SendToRouteClient {
 	// SendToRoute needs to have the context alive for the entire test case
 	// as the returned client will be used for send and receive payment
 	// stream. Thus we use runCtx here instead of a timeout context.
@@ -566,4 +572,62 @@ func (h *HarnessRPC) VerifyChanBackup(
 	h.NoError(err, "VerifyChanBackup")
 
 	return resp
+}
+
+// LookupInvoice queries the node's invoices using the specified rHash.
+func (h *HarnessRPC) LookupInvoice(rHash []byte) *lnrpc.Invoice {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	payHash := &lnrpc.PaymentHash{RHash: rHash}
+	resp, err := h.LN.LookupInvoice(ctxt, payHash)
+	h.NoError(err, "LookupInvoice")
+
+	return resp
+}
+
+// DecodePayReq makes a RPC call to node's DecodePayReq and asserts.
+func (h *HarnessRPC) DecodePayReq(req string) *lnrpc.PayReq {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	payReq := &lnrpc.PayReqString{PayReq: req}
+	resp, err := h.LN.DecodePayReq(ctxt, payReq)
+	h.NoError(err, "DecodePayReq")
+
+	return resp
+}
+
+// ForwardingHistory makes a RPC call to the node's ForwardingHistory and
+// asserts.
+func (h *HarnessRPC) ForwardingHistory(
+	req *lnrpc.ForwardingHistoryRequest) *lnrpc.ForwardingHistoryResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	if req == nil {
+		req = &lnrpc.ForwardingHistoryRequest{}
+	}
+
+	resp, err := h.LN.ForwardingHistory(ctxt, req)
+	h.NoError(err, "ForwardingHistory")
+
+	return resp
+}
+
+type MiddlewareClient lnrpc.Lightning_RegisterRPCMiddlewareClient
+
+// RegisterRPCMiddleware makes a RPC call to the node's RegisterRPCMiddleware
+// and asserts. It also returns a cancel context which can cancel the context
+// used by the client.
+func (h *HarnessRPC) RegisterRPCMiddleware() (MiddlewareClient,
+	context.CancelFunc) {
+
+	ctxt, cancel := context.WithCancel(h.runCtx)
+
+	stream, err := h.LN.RegisterRPCMiddleware(ctxt)
+	h.NoError(err, "RegisterRPCMiddleware")
+
+	return stream, cancel
 }

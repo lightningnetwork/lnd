@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
@@ -1078,6 +1079,62 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	builder.AddOp(txscript.OP_CHECKSIG)
 
 	return builder.Script()
+}
+
+// TaprootCommitScriptToSelf creates the taproot witness program that commits
+// to the revocation (keyspend) and delay path (script path) in a single
+// taproot output key.
+//
+// For the delay path we have the following tapscript leaf script:
+//
+//	<local_delayedpubkey> OP_CHECKSIG
+//	<to_self_delay> OP_CHECKSEQUENCEVERIFY OP_DROP
+//
+// This can then be spent with just:
+//
+//	<local_delayedsig> <to_delay_script> <delay_control_block>
+//
+// Where the to_delay_script is listed above, and the delay_control_block
+// computed as:
+//
+//	delay_control_block = (output_key_y_parity | 0xc0) || revocationpubkey
+//
+// The revocation key spend path will simply present a valid signature with the
+// witness being just:
+//
+//	<revocation_sig>
+func TaprootCommitScriptToSelf(csvTimeout uint32,
+	selfKey, revokeKey *btcec.PublicKey) (*btcec.PublicKey, error) {
+
+	// First, we'll need to construct the tapLeaf that'll be our delay CSV
+	// clause.
+	//
+	// TODO(roasbeef): extract into diff func
+	builder := txscript.NewScriptBuilder()
+	builder.AddData(schnorr.SerializePubKey(selfKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+	builder.AddInt64(int64(csvTimeout))
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	delayScript, err := builder.Script()
+	if err != nil {
+		return nil, err
+	}
+
+	// With the delay script computed, we'll now create a tapscript tree
+	// with a single leaf, and then obtain a root from that.
+	tapLeaf := txscript.NewBaseTapLeaf(delayScript)
+	tapScriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
+	tapScriptRoot := tapScriptTree.RootNode.TapHash()
+
+	// Now that we have our root, we can arrive at the final output script
+	// by tweaking the internal key with this root.
+	toLocalOutputKey := txscript.ComputeTaprootOutputKey(
+		revokeKey, tapScriptRoot[:],
+	)
+
+	return toLocalOutputKey, nil
 }
 
 // LeaseCommitScriptToSelf constructs the public key script for the output on the

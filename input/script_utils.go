@@ -1497,6 +1497,41 @@ func CommitScriptAnchor(key *btcec.PublicKey) ([]byte, error) {
 	return builder.Script()
 }
 
+// TaprootOutputKeyAnchor returns the segwit v1 (taproot) witness program that
+// encodes the anchor output spending conditions: the passed key can be used
+// for keyspend, with the OP_CSV 16 clause living within an internal tapscript
+// leaf.
+//
+// Spend paths:
+//   - Key spend: <key_signature>
+//   - Script spend: OP_16 CSV <control_block>
+func TaprootOutputKeyAnchor(key *btcec.PublicKey) (*btcec.PublicKey, error) {
+	// The main script used is just a OP_16 CSV (anyone can sweep after 16
+	// blocks).
+	builder := txscript.NewScriptBuilder()
+	builder.AddOp(txscript.OP_16)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+
+	anchorScript, err := builder.Script()
+	if err != nil {
+		return nil, err
+	}
+
+	// With the script, we can make our sole leaf, then derive the root
+	// from that.
+	tapLeaf := txscript.NewBaseTapLeaf(anchorScript)
+	tapScriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
+	tapScriptRoot := tapScriptTree.RootNode.TapHash()
+
+	// Now that we have our root, we can arrive at the final output script
+	// by tweaking the internal key with this root.
+	anchorKey := txscript.ComputeTaprootOutputKey(
+		key, tapScriptRoot[:],
+	)
+
+	return anchorKey, nil
+}
+
 // CommitSpendAnchor constructs a valid witness allowing a node to spend their
 // anchor output on the commitment transaction using their funding key. This is
 // used for the anchor channel type.

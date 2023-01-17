@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -510,7 +511,7 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	timelock uint32, blob [lnwire.OnionPacketSize]byte,
 	preimage *lntypes.Preimage, rhash, payAddr [32]byte) (
-	*channeldb.Invoice, *lnwire.UpdateAddHTLC, uint64, error) {
+	*invoices.Invoice, *lnwire.UpdateAddHTLC, uint64, error) {
 
 	// Create the db invoice. Normally the payment requests needs to be set,
 	// because it is decoded in InvoiceRegistry to obtain the cltv expiry.
@@ -519,9 +520,9 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 	// don't need to bother here with creating and signing a payment
 	// request.
 
-	invoice := &channeldb.Invoice{
+	invoice := &invoices.Invoice{
 		CreationDate: time.Now(),
-		Terms: channeldb.ContractTerm{
+		Terms: invoices.ContractTerm{
 			FinalCltvDelta:  testInvoiceCltvExpiry,
 			Value:           invoiceAmt,
 			PaymentPreimage: preimage,
@@ -552,7 +553,7 @@ func generatePaymentWithPreimage(invoiceAmt, htlcAmt lnwire.MilliSatoshi,
 // generatePayment generates the htlc add request by given path blob and
 // invoice which should be added by destination peer.
 func generatePayment(invoiceAmt, htlcAmt lnwire.MilliSatoshi, timelock uint32,
-	blob [lnwire.OnionPacketSize]byte) (*channeldb.Invoice,
+	blob [lnwire.OnionPacketSize]byte) (*invoices.Invoice,
 	*lnwire.UpdateAddHTLC, uint64, error) {
 
 	var preimage lntypes.Preimage
@@ -753,7 +754,7 @@ func makePayment(sendingPeer, receivingPeer lnpeer.Peer,
 func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 	firstHop lnwire.ShortChannelID, hops []*hop.Payload,
 	invoiceAmt, htlcAmt lnwire.MilliSatoshi,
-	timelock uint32) (*channeldb.Invoice, func() error, error) {
+	timelock uint32) (*invoices.Invoice, func() error, error) {
 
 	sender := sendingPeer.(*mockServer)
 	receiver := receivingPeer.(*mockServer)

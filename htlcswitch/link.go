@@ -17,6 +17,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -395,7 +396,7 @@ type channelLink struct {
 
 	// hodlMap stores related htlc data for a circuit key. It allows
 	// resolving those htlcs when we receive a message on hodlQueue.
-	hodlMap map[channeldb.CircuitKey]hodlHtlc
+	hodlMap map[models.CircuitKey]hodlHtlc
 
 	// log is a link-specific logging instance.
 	log btclog.Logger
@@ -422,7 +423,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		channel:         channel,
 		shortChanID:     channel.ShortChanID(),
 		shutdownRequest: make(chan *shutdownReq),
-		hodlMap:         make(map[channeldb.CircuitKey]hodlHtlc),
+		hodlMap:         make(map[models.CircuitKey]hodlHtlc),
 		hodlQueue:       queue.NewConcurrentQueue(10),
 		log:             build.NewPrefixLog(logPrefix, log),
 		quit:            make(chan struct{}),
@@ -1962,7 +1963,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// locked in.
 		for id, settled := range finalHTLCs {
 			l.cfg.HtlcNotifier.NotifyFinalHtlcEvent(
-				channeldb.CircuitKey{
+				models.CircuitKey{
 					ChanID: l.shortChanID,
 					HtlcID: id,
 				},
@@ -3260,7 +3261,7 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 	// receive back a resolution event.
 	invoiceHash := lntypes.Hash(pd.RHash)
 
-	circuitKey := channeldb.CircuitKey{
+	circuitKey := models.CircuitKey{
 		ChanID: l.ShortChanID(),
 		HtlcID: pd.HtlcIndex,
 	}
@@ -3324,7 +3325,7 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
 	// Once we have successfully settled the htlc, notify a settle event.
 	l.cfg.HtlcNotifier.NotifySettleEvent(
 		HtlcKey{
-			IncomingCircuit: channeldb.CircuitKey{
+			IncomingCircuit: models.CircuitKey{
 				ChanID: l.ShortChanID(),
 				HtlcID: pd.HtlcIndex,
 			},
@@ -3394,7 +3395,7 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 
 	l.cfg.HtlcNotifier.NotifyLinkFailEvent(
 		HtlcKey{
-			IncomingCircuit: channeldb.CircuitKey{
+			IncomingCircuit: models.CircuitKey{
 				ChanID: l.ShortChanID(),
 				HtlcID: pd.HtlcIndex,
 			},

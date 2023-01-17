@@ -15,6 +15,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -25,7 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var zeroCircuit = channeldb.CircuitKey{}
+var zeroCircuit = models.CircuitKey{}
 var emptyScid = lnwire.ShortChannelID{}
 
 func genPreimage() ([32]byte, error) {
@@ -3585,7 +3586,7 @@ func getThreeHopEvents(channels *clusterChannels, htlcID uint64,
 
 	aliceKey := HtlcKey{
 		IncomingCircuit: zeroCircuit,
-		OutgoingCircuit: channeldb.CircuitKey{
+		OutgoingCircuit: models.CircuitKey{
 			ChanID: channels.aliceToBob.ShortChanID(),
 			HtlcID: htlcID,
 		},
@@ -3606,11 +3607,11 @@ func getThreeHopEvents(channels *clusterChannels, htlcID uint64,
 	}
 
 	bobKey := HtlcKey{
-		IncomingCircuit: channeldb.CircuitKey{
+		IncomingCircuit: models.CircuitKey{
 			ChanID: channels.bobToAlice.ShortChanID(),
 			HtlcID: htlcID,
 		},
-		OutgoingCircuit: channeldb.CircuitKey{
+		OutgoingCircuit: models.CircuitKey{
 			ChanID: channels.bobToCarol.ShortChanID(),
 			HtlcID: htlcID,
 		},
@@ -3691,7 +3692,7 @@ func getThreeHopEvents(channels *clusterChannels, htlcID uint64,
 	carolEvents := []interface{}{
 		&SettleEvent{
 			HtlcKey: HtlcKey{
-				IncomingCircuit: channeldb.CircuitKey{
+				IncomingCircuit: models.CircuitKey{
 					ChanID: channels.carolToBob.ShortChanID(),
 					HtlcID: htlcID,
 				},
@@ -3701,7 +3702,7 @@ func getThreeHopEvents(channels *clusterChannels, htlcID uint64,
 			HtlcEventType: HtlcEventTypeReceive,
 			Timestamp:     ts,
 		}, &FinalHtlcEvent{
-			CircuitKey: channeldb.CircuitKey{
+			CircuitKey: models.CircuitKey{
 				ChanID: channels.carolToBob.ShortChanID(),
 				HtlcID: htlcID,
 			},

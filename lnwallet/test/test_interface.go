@@ -3055,10 +3055,10 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 	tempDir := t.TempDir()
 	db, err := channeldb.Open(tempDir)
 	require.NoError(t, err, "unable to create db")
-	testCfg := chainntnfs.CacheConfig{
+	testCfg := channeldb.CacheConfig{
 		QueryDisable: false,
 	}
-	hintCache, err := chainntnfs.NewHeightHintCache(testCfg, db.Backend)
+	hintCache, err := channeldb.NewHeightHintCache(testCfg, db.Backend)
 	require.NoError(t, err, "unable to create height hint cache")
 	blockCache := blockcache.NewBlockCache(10000)
 	chainNotifier, err := btcdnotify.New(

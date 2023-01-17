@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -18,7 +19,7 @@ import (
 type Registry interface {
 	// LookupInvoice attempts to look up an invoice according to its 32
 	// byte payment hash.
-	LookupInvoice(lntypes.Hash) (channeldb.Invoice, error)
+	LookupInvoice(lntypes.Hash) (invoices.Invoice, error)
 
 	// NotifyExitHopHtlc attempts to mark an invoice as settled. If the
 	// invoice is a debug invoice, then this method is a noop as debug
@@ -27,7 +28,7 @@ type Registry interface {
 	// the resolution is sent on the passed in hodlChan later.
 	NotifyExitHopHtlc(payHash lntypes.Hash, paidAmount lnwire.MilliSatoshi,
 		expiry uint32, currentHeight int32,
-		circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
+		circuitKey models.CircuitKey, hodlChan chan<- interface{},
 		payload invoices.Payload) (invoices.HtlcResolution, error)
 
 	// HodlUnsubscribeAll unsubscribes from all htlc resolutions.
@@ -70,6 +71,6 @@ type UtxoSweeper interface {
 type HtlcNotifier interface {
 	// NotifyFinalHtlcEvent notifies the HtlcNotifier that the final outcome
 	// for an htlc has been determined.
-	NotifyFinalHtlcEvent(key channeldb.CircuitKey,
+	NotifyFinalHtlcEvent(key models.CircuitKey,
 		info channeldb.FinalHtlcInfo)
 }

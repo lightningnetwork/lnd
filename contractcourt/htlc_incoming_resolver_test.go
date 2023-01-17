@@ -9,6 +9,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -27,7 +28,7 @@ const (
 var (
 	testResPreimage         = lntypes.Preimage{1, 2, 3}
 	testResHash             = testResPreimage.Hash()
-	testResCircuitKey       = channeldb.CircuitKey{}
+	testResCircuitKey       = models.CircuitKey{}
 	testOnionBlob           = []byte{4, 5, 6}
 	testAcceptHeight  int32 = 1234
 	testHtlcAmount          = 2300

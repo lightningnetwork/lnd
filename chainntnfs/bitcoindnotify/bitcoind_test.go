@@ -31,7 +31,7 @@ var (
 	}
 )
 
-func initHintCache(t *testing.T) *chainntnfs.HeightHintCache {
+func initHintCache(t *testing.T) *channeldb.HeightHintCache {
 	t.Helper()
 
 	db, err := channeldb.Open(t.TempDir())
@@ -40,10 +40,10 @@ func initHintCache(t *testing.T) *chainntnfs.HeightHintCache {
 		require.NoError(t, db.Close())
 	})
 
-	testCfg := chainntnfs.CacheConfig{
+	testCfg := channeldb.CacheConfig{
 		QueryDisable: false,
 	}
-	hintCache, err := chainntnfs.NewHeightHintCache(testCfg, db.Backend)
+	hintCache, err := channeldb.NewHeightHintCache(testCfg, db.Backend)
 	require.NoError(t, err, "unable to create hint cache")
 
 	return hintCache

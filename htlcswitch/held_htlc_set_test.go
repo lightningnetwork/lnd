@@ -3,7 +3,7 @@ package htlcswitch
 import (
 	"testing"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -12,9 +12,9 @@ func TestHeldHtlcSetEmpty(t *testing.T) {
 	set := newHeldHtlcSet()
 
 	// Test operations on an empty set.
-	require.False(t, set.exists(channeldb.CircuitKey{}))
+	require.False(t, set.exists(models.CircuitKey{}))
 
-	_, err := set.pop(channeldb.CircuitKey{})
+	_, err := set.pop(models.CircuitKey{})
 	require.Error(t, err)
 
 	set.popAll(
@@ -27,7 +27,7 @@ func TestHeldHtlcSetEmpty(t *testing.T) {
 func TestHeldHtlcSet(t *testing.T) {
 	set := newHeldHtlcSet()
 
-	key := channeldb.CircuitKey{
+	key := models.CircuitKey{
 		ChanID: lnwire.NewShortChanIDFromInt(1),
 		HtlcID: 2,
 	}
@@ -82,7 +82,7 @@ func TestHeldHtlcSet(t *testing.T) {
 func TestHeldHtlcSetAutoFails(t *testing.T) {
 	set := newHeldHtlcSet()
 
-	key := channeldb.CircuitKey{
+	key := models.CircuitKey{
 		ChanID: lnwire.NewShortChanIDFromInt(1),
 		HtlcID: 2,
 	}

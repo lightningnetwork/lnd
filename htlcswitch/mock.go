@@ -23,6 +23,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -845,7 +846,9 @@ func (f *mockChannelLink) CheckHtlcTransit(payHash [32]byte,
 	return f.checkHtlcTransitResult
 }
 
-func (f *mockChannelLink) Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
+func (f *mockChannelLink) Stats() (
+	uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
+
 	return 0, 0, 0
 }
 
@@ -977,18 +980,20 @@ func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 }
 
 func (i *mockInvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (
-	channeldb.Invoice, error) {
+	invoices.Invoice, error) {
 
 	return i.registry.LookupInvoice(rHash)
 }
 
-func (i *mockInvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
+func (i *mockInvoiceRegistry) SettleHodlInvoice(
+	preimage lntypes.Preimage) error {
+
 	return i.registry.SettleHodlInvoice(preimage)
 }
 
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
 	amt lnwire.MilliSatoshi, expiry uint32, currentHeight int32,
-	circuitKey channeldb.CircuitKey, hodlChan chan<- interface{},
+	circuitKey models.CircuitKey, hodlChan chan<- interface{},
 	payload invoices.Payload) (invoices.HtlcResolution, error) {
 
 	event, err := i.registry.NotifyExitHopHtlc(
@@ -1009,14 +1014,16 @@ func (i *mockInvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 	return i.registry.CancelInvoice(payHash)
 }
 
-func (i *mockInvoiceRegistry) AddInvoice(invoice channeldb.Invoice,
+func (i *mockInvoiceRegistry) AddInvoice(invoice invoices.Invoice,
 	paymentHash lntypes.Hash) error {
 
 	_, err := i.registry.AddInvoice(&invoice, paymentHash)
 	return err
 }
 
-func (i *mockInvoiceRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {
+func (i *mockInvoiceRegistry) HodlUnsubscribeAll(
+	subscriber chan<- interface{}) {
+
 	i.registry.HodlUnsubscribeAll(subscriber)
 }
 
@@ -1099,22 +1106,22 @@ type mockHTLCNotifier struct {
 }
 
 func (h *mockHTLCNotifier) NotifyForwardingEvent(key HtlcKey, info HtlcInfo,
-	eventType HtlcEventType) { // nolint:whitespace
+	eventType HtlcEventType) { //nolint:whitespace
 }
 
 func (h *mockHTLCNotifier) NotifyLinkFailEvent(key HtlcKey, info HtlcInfo,
 	eventType HtlcEventType, linkErr *LinkError,
-	incoming bool) { // nolint:whitespace
+	incoming bool) { //nolint:whitespace
 }
 
 func (h *mockHTLCNotifier) NotifyForwardingFailEvent(key HtlcKey,
-	eventType HtlcEventType) { // nolint:whitespace
+	eventType HtlcEventType) { //nolint:whitespace
 }
 
 func (h *mockHTLCNotifier) NotifySettleEvent(key HtlcKey,
-	preimage lntypes.Preimage, eventType HtlcEventType) { // nolint:whitespace
+	preimage lntypes.Preimage, eventType HtlcEventType) { //nolint:whitespace,lll
 }
 
-func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key channeldb.CircuitKey,
+func (h *mockHTLCNotifier) NotifyFinalHtlcEvent(key models.CircuitKey,
 	info channeldb.FinalHtlcInfo) { //nolint:whitespace
 }

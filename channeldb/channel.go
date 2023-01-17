@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -176,11 +177,6 @@ var (
 	// each time we write a new state in order to be properly fault
 	// tolerant.
 	ErrNoPendingCommit = fmt.Errorf("no pending commits found")
-
-	// ErrInvalidCircuitKeyLen signals that a circuit key could not be
-	// decoded because the byte slice is of an invalid length.
-	ErrInvalidCircuitKeyLen = fmt.Errorf(
-		"length of serialized circuit key must be 16 bytes")
 
 	// ErrNoCommitPoint is returned when no data loss commit point is found
 	// in the database.
@@ -2156,74 +2152,6 @@ func deserializeLogUpdate(r io.Reader) (*LogUpdate, error) {
 	return l, nil
 }
 
-// CircuitKey is used by a channel to uniquely identify the HTLCs it receives
-// from the switch, and is used to purge our in-memory state of HTLCs that have
-// already been processed by a link. Two list of CircuitKeys are included in
-// each CommitDiff to allow a link to determine which in-memory htlcs directed
-// the opening and closing of circuits in the switch's circuit map.
-type CircuitKey struct {
-	// ChanID is the short chanid indicating the HTLC's origin.
-	//
-	// NOTE: It is fine for this value to be blank, as this indicates a
-	// locally-sourced payment.
-	ChanID lnwire.ShortChannelID
-
-	// HtlcID is the unique htlc index predominately assigned by links,
-	// though can also be assigned by switch in the case of locally-sourced
-	// payments.
-	HtlcID uint64
-}
-
-// SetBytes deserializes the given bytes into this CircuitKey.
-func (k *CircuitKey) SetBytes(bs []byte) error {
-	if len(bs) != 16 {
-		return ErrInvalidCircuitKeyLen
-	}
-
-	k.ChanID = lnwire.NewShortChanIDFromInt(
-		binary.BigEndian.Uint64(bs[:8]))
-	k.HtlcID = binary.BigEndian.Uint64(bs[8:])
-
-	return nil
-}
-
-// Bytes returns the serialized bytes for this circuit key.
-func (k CircuitKey) Bytes() []byte {
-	bs := make([]byte, 16)
-	binary.BigEndian.PutUint64(bs[:8], k.ChanID.ToUint64())
-	binary.BigEndian.PutUint64(bs[8:], k.HtlcID)
-	return bs
-}
-
-// Encode writes a CircuitKey to the provided io.Writer.
-func (k *CircuitKey) Encode(w io.Writer) error {
-	var scratch [16]byte
-	binary.BigEndian.PutUint64(scratch[:8], k.ChanID.ToUint64())
-	binary.BigEndian.PutUint64(scratch[8:], k.HtlcID)
-
-	_, err := w.Write(scratch[:])
-	return err
-}
-
-// Decode reads a CircuitKey from the provided io.Reader.
-func (k *CircuitKey) Decode(r io.Reader) error {
-	var scratch [16]byte
-
-	if _, err := io.ReadFull(r, scratch[:]); err != nil {
-		return err
-	}
-	k.ChanID = lnwire.NewShortChanIDFromInt(
-		binary.BigEndian.Uint64(scratch[:8]))
-	k.HtlcID = binary.BigEndian.Uint64(scratch[8:])
-
-	return nil
-}
-
-// String returns a string representation of the CircuitKey.
-func (k CircuitKey) String() string {
-	return fmt.Sprintf("(Chan ID=%s, HTLC ID=%d)", k.ChanID, k.HtlcID)
-}
-
 // CommitDiff represents the delta needed to apply the state transition between
 // two subsequent commitment states. Given state N and state N+1, one is able
 // to apply the set of messages contained within the CommitDiff to N to arrive
@@ -2252,13 +2180,13 @@ type CommitDiff struct {
 	// Add packets included in this commitment txn. After a restart, this
 	// set of htlcs is acked from the link's incoming mailbox to ensure
 	// there isn't an attempt to re-add them to this commitment txn.
-	OpenedCircuitKeys []CircuitKey
+	OpenedCircuitKeys []models.CircuitKey
 
 	// ClosedCircuitKeys records the unique identifiers for any settle/fail
 	// packets that were resolved by this commitment txn. After a restart,
 	// this is used to ensure those circuits are removed from the circuit
 	// map, and the downstream packets in the link's mailbox are removed.
-	ClosedCircuitKeys []CircuitKey
+	ClosedCircuitKeys []models.CircuitKey
 
 	// AddAcks specifies the locations (commit height, pkg index) of any
 	// Adds that were failed/settled in this commit diff. This will ack
@@ -2387,7 +2315,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 		return nil, err
 	}
 
-	d.OpenedCircuitKeys = make([]CircuitKey, numOpenRefs)
+	d.OpenedCircuitKeys = make([]models.CircuitKey, numOpenRefs)
 	for i := 0; i < int(numOpenRefs); i++ {
 		err := ReadElements(r,
 			&d.OpenedCircuitKeys[i].ChanID,
@@ -2402,7 +2330,7 @@ func deserializeCommitDiff(r io.Reader) (*CommitDiff, error) {
 		return nil, err
 	}
 
-	d.ClosedCircuitKeys = make([]CircuitKey, numClosedRefs)
+	d.ClosedCircuitKeys = make([]models.CircuitKey, numClosedRefs)
 	for i := 0; i < int(numClosedRefs); i++ {
 		err := ReadElements(r,
 			&d.ClosedCircuitKeys[i].ChanID,

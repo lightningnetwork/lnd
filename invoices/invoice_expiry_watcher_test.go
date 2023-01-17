@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
@@ -20,29 +18,6 @@ type invoiceExpiryWatcherTest struct {
 	watcher          *InvoiceExpiryWatcher
 	testData         invoiceExpiryTestData
 	canceledInvoices []lntypes.Hash
-}
-
-type mockChainNotifier struct {
-	chainntnfs.ChainNotifier
-
-	blockChan chan *chainntnfs.BlockEpoch
-}
-
-func newMockNotifier() *mockChainNotifier {
-	return &mockChainNotifier{
-		blockChan: make(chan *chainntnfs.BlockEpoch),
-	}
-}
-
-// RegisterBlockEpochNtfn mocks a block epoch notification, using the mock's
-// block channel to deliver blocks to the client.
-func (m *mockChainNotifier) RegisterBlockEpochNtfn(*chainntnfs.BlockEpoch) (
-	*chainntnfs.BlockEpochEvent, error) {
-
-	return &chainntnfs.BlockEpochEvent{
-		Epochs: m.blockChan,
-		Cancel: func() {},
-	}, nil
 }
 
 // newInvoiceExpiryWatcherTest creates a new InvoiceExpiryWatcher test fixture
@@ -213,7 +188,7 @@ func TestExpiredHodlInv(t *testing.T) {
 	expiry := time.Hour
 
 	test := setupHodlExpiry(
-		t, creationDate, expiry, 0, channeldb.ContractOpen, nil,
+		t, creationDate, expiry, 0, ContractOpen, nil,
 	)
 
 	test.assertCanceled(t, test.hash)
@@ -231,7 +206,7 @@ func TestAcceptedHodlNotExpired(t *testing.T) {
 	expiry := time.Hour
 
 	test := setupHodlExpiry(
-		t, creationDate, expiry, 0, channeldb.ContractAccepted, nil,
+		t, creationDate, expiry, 0, ContractAccepted, nil,
 	)
 	defer test.watcher.Stop()
 
@@ -255,15 +230,15 @@ func TestAcceptedHodlNotExpired(t *testing.T) {
 func TestHeightAlreadyExpired(t *testing.T) {
 	t.Parallel()
 
-	expiredHtlc := []*channeldb.InvoiceHTLC{
+	expiredHtlc := []*InvoiceHTLC{
 		{
-			State:  channeldb.HtlcStateAccepted,
+			State:  HtlcStateAccepted,
 			Expiry: uint32(testCurrentHeight),
 		},
 	}
 
 	test := setupHodlExpiry(
-		t, testTime, time.Hour, 0, channeldb.ContractAccepted,
+		t, testTime, time.Hour, 0, ContractAccepted,
 		expiredHtlc,
 	)
 	defer test.watcher.Stop()
@@ -284,7 +259,7 @@ func TestExpiryHeightArrives(t *testing.T) {
 
 	// Start out with a hodl invoice that is open, and has no htlcs.
 	test := setupHodlExpiry(
-		t, creationDate, expiry, delta, channeldb.ContractOpen, nil,
+		t, creationDate, expiry, delta, ContractOpen, nil,
 	)
 	defer test.watcher.Stop()
 
@@ -293,7 +268,7 @@ func TestExpiryHeightArrives(t *testing.T) {
 
 	// Add htlcs to our invoice and progress its state to accepted.
 	test.watcher.AddInvoices(expiry1)
-	test.setState(channeldb.ContractAccepted)
+	test.setState(ContractAccepted)
 
 	// Progress time so that our expiry has elapsed. We no longer expect
 	// this invoice to be canceled because it has been accepted.

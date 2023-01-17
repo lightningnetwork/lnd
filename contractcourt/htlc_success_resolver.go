@@ -11,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -479,7 +480,7 @@ func (h *htlcSuccessResolver) checkpointClaim(spendTx *chainhash.Hash,
 
 	// Send notification.
 	h.ChainArbitratorConfig.HtlcNotifier.NotifyFinalHtlcEvent(
-		channeldb.CircuitKey{
+		models.CircuitKey{
 			ChanID: h.ShortChanID,
 			HtlcID: h.htlc.HtlcIndex,
 		},

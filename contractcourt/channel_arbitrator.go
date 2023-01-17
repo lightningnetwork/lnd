@@ -14,8 +14,10 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1747,7 +1749,7 @@ func (c *ChannelArbitrator) isPreimageAvailable(hash lntypes.Hash) (bool,
 	invoice, err := c.cfg.Registry.LookupInvoice(hash)
 	switch err {
 	case nil:
-	case channeldb.ErrInvoiceNotFound, channeldb.ErrNoInvoicesCreated:
+	case invoices.ErrInvoiceNotFound, invoices.ErrNoInvoicesCreated:
 		return false, nil
 	default:
 		return false, err
@@ -2230,7 +2232,7 @@ func (c *ChannelArbitrator) prepContractResolutions(
 			for _, htlc := range htlcs {
 				htlc := htlc
 
-				key := channeldb.CircuitKey{
+				key := models.CircuitKey{
 					ChanID: c.cfg.ShortChanID,
 					HtlcID: htlc.HtlcIndex,
 				}

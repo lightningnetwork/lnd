@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -286,7 +287,7 @@ type PaymentDescriptor struct {
 	// NOTE: This field is only populated for payment descriptors in the
 	// *local* update log, and if the Add packet was delivered by the
 	// switch.
-	OpenCircuitKey *channeldb.CircuitKey
+	OpenCircuitKey *models.CircuitKey
 
 	// ClosedCircuitKey references the incoming Chan/HTLC ID of the Add HTLC
 	// that opened the circuit.
@@ -294,7 +295,7 @@ type PaymentDescriptor struct {
 	// NOTE: This field is only populated for payment descriptors in the
 	// *local* update log, and if settle/fails have a committed circuit in
 	// the circuit map.
-	ClosedCircuitKey *channeldb.CircuitKey
+	ClosedCircuitKey *models.CircuitKey
 
 	// localOutputIndex is the output index of this HTLc output in the
 	// commitment transaction of the local node.
@@ -3294,8 +3295,8 @@ func (lc *LightningChannel) createCommitDiff(
 		logUpdates        []channeldb.LogUpdate
 		ackAddRefs        []channeldb.AddRef
 		settleFailRefs    []channeldb.SettleFailRef
-		openCircuitKeys   []channeldb.CircuitKey
-		closedCircuitKeys []channeldb.CircuitKey
+		openCircuitKeys   []models.CircuitKey
+		closedCircuitKeys []models.CircuitKey
 	)
 
 	// We'll now run through our local update log to locate the items which
@@ -3850,14 +3851,14 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 //     not received
 //
 // If we detect a scenario where we need to send a CommitSig+Updates, this
-// method also returns two sets channeldb.CircuitKeys identifying the circuits
+// method also returns two sets models.CircuitKeys identifying the circuits
 // that were opened and closed, respectively, as a result of signing the
 // previous commitment txn. This allows the link to clear its mailbox of those
 // circuits in case they are still in memory, and ensure the switch's circuit
 // map has been updated by deleting the closed circuits.
 func (lc *LightningChannel) ProcessChanSyncMsg(
-	msg *lnwire.ChannelReestablish) ([]lnwire.Message, []channeldb.CircuitKey,
-	[]channeldb.CircuitKey, error) {
+	msg *lnwire.ChannelReestablish) ([]lnwire.Message, []models.CircuitKey,
+	[]models.CircuitKey, error) {
 
 	// Now we'll examine the state we have, vs what was contained in the
 	// chain sync message. If we're de-synchronized, then we'll send a
@@ -3865,8 +3866,8 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	// resync.
 	var (
 		updates        []lnwire.Message
-		openedCircuits []channeldb.CircuitKey
-		closedCircuits []channeldb.CircuitKey
+		openedCircuits []models.CircuitKey
+		closedCircuits []models.CircuitKey
 	)
 
 	// If the remote party included the optional fields, then we'll verify
@@ -5162,7 +5163,7 @@ func (lc *LightningChannel) InitNextRevocation(revKey *btcec.PublicKey) error {
 //
 // NOTE: It is okay for sourceRef to be nil when unit testing the wallet.
 func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
-	openKey *channeldb.CircuitKey) (uint64, error) {
+	openKey *models.CircuitKey) (uint64, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -5275,7 +5276,7 @@ func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 		&lnwire.UpdateAddHTLC{
 			Amount: mockHtlcAmt,
 		},
-		&channeldb.CircuitKey{},
+		&models.CircuitKey{},
 	)
 
 	if err := lc.validateAddHtlc(pd); err != nil {
@@ -5289,7 +5290,7 @@ func (lc *LightningChannel) MayAddOutgoingHtlc(amt lnwire.MilliSatoshi) error {
 // htlcAddDescriptor returns a payment descriptor for the htlc and open key
 // provided to add to our local update log.
 func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
-	openKey *channeldb.CircuitKey) *PaymentDescriptor {
+	openKey *models.CircuitKey) *PaymentDescriptor {
 
 	return &PaymentDescriptor{
 		EntryType:      Add,
@@ -5399,7 +5400,7 @@ func (lc *LightningChannel) ReceiveHTLC(htlc *lnwire.UpdateAddHTLC) (uint64, err
 // testing the wallet.
 func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 	htlcIndex uint64, sourceRef *channeldb.AddRef,
-	destRef *channeldb.SettleFailRef, closeKey *channeldb.CircuitKey) error {
+	destRef *channeldb.SettleFailRef, closeKey *models.CircuitKey) error {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -5510,7 +5511,7 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 // testing the wallet.
 func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 	sourceRef *channeldb.AddRef, destRef *channeldb.SettleFailRef,
-	closeKey *channeldb.CircuitKey) error {
+	closeKey *models.CircuitKey) error {
 
 	lc.Lock()
 	defer lc.Unlock()

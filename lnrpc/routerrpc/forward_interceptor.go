@@ -3,7 +3,7 @@ package routerrpc
 import (
 	"errors"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -102,7 +102,7 @@ func (r *forwardInterceptor) resolveFromClient(
 
 	log.Tracef("Resolving intercepted packet %v", in)
 
-	circuitKey := channeldb.CircuitKey{
+	circuitKey := models.CircuitKey{
 		ChanID: lnwire.NewShortChanIDFromInt(in.IncomingCircuitKey.ChanId),
 		HtlcID: in.IncomingCircuitKey.HtlcId,
 	}

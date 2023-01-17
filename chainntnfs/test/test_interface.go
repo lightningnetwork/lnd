@@ -1836,10 +1836,10 @@ func TestInterfaces(t *testing.T, targetBackEnd string) {
 		if err != nil {
 			t.Fatalf("unable to create db: %v", err)
 		}
-		testCfg := chainntnfs.CacheConfig{
+		testCfg := channeldb.CacheConfig{
 			QueryDisable: false,
 		}
-		hintCache, err := chainntnfs.NewHeightHintCache(
+		hintCache, err := channeldb.NewHeightHintCache(
 			testCfg, db.Backend,
 		)
 		if err != nil {

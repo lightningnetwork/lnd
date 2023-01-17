@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -640,7 +641,7 @@ func (s *Switch) UpdateForwardingPolicies(
 func (s *Switch) IsForwardedHTLC(chanID lnwire.ShortChannelID,
 	htlcIndex uint64) bool {
 
-	circuit := s.circuits.LookupOpenCircuit(channeldb.CircuitKey{
+	circuit := s.circuits.LookupOpenCircuit(models.CircuitKey{
 		ChanID: chanID,
 		HtlcID: htlcIndex,
 	})

@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 const (
@@ -201,21 +200,6 @@ func (r ConfRequest) String() string {
 	return fmt.Sprintf("script=%v", r.PkScript)
 }
 
-// ConfHintKey returns the key that will be used to index the confirmation
-// request's hint within the height hint cache.
-func (r ConfRequest) ConfHintKey() ([]byte, error) {
-	if r.TxID == ZeroHash {
-		return r.PkScript.Script(), nil
-	}
-
-	var txid bytes.Buffer
-	if err := channeldb.WriteElement(&txid, r.TxID); err != nil {
-		return nil, err
-	}
-
-	return txid.Bytes(), nil
-}
-
 // MatchesTx determines whether the given transaction satisfies the confirmation
 // request. If the confirmation request is for a script, then we'll check all of
 // the outputs of the transaction to determine if it matches. Otherwise, we'll
@@ -367,22 +351,6 @@ func (r SpendRequest) String() string {
 			r.PkScript)
 	}
 	return fmt.Sprintf("outpoint=<zero>, script=%v", r.PkScript)
-}
-
-// SpendHintKey returns the key that will be used to index the spend request's
-// hint within the height hint cache.
-func (r SpendRequest) SpendHintKey() ([]byte, error) {
-	if r.OutPoint == ZeroOutPoint {
-		return r.PkScript.Script(), nil
-	}
-
-	var outpoint bytes.Buffer
-	err := channeldb.WriteElement(&outpoint, r.OutPoint)
-	if err != nil {
-		return nil, err
-	}
-
-	return outpoint.Bytes(), nil
 }
 
 // MatchesTx determines whether the given transaction satisfies the spend

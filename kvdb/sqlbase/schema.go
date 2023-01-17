@@ -1,6 +1,6 @@
 //go:build kvdb_postgres
 
-package postgres
+package sqlbase
 
 import (
 	"fmt"

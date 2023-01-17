@@ -1,6 +1,6 @@
 //go:build kvdb_postgres
 
-package postgres
+package sqlbase
 
 import (
 	"context"
@@ -110,7 +110,9 @@ func (tx *readWriteTx) ReadWriteBucket(key []byte) walletdb.ReadWriteBucket {
 
 // CreateTopLevelBucket creates the top level bucket for a key if it
 // does not exist.  The newly-created bucket it returned.
-func (tx *readWriteTx) CreateTopLevelBucket(key []byte) (walletdb.ReadWriteBucket, error) {
+func (tx *readWriteTx) CreateTopLevelBucket(key []byte) (
+	walletdb.ReadWriteBucket, error) {
+
 	if len(key) == 0 {
 		return nil, walletdb.ErrBucketNameRequired
 	}

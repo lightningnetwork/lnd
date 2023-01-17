@@ -1380,7 +1380,7 @@ func decodeCircuitKeys(r io.Reader, val interface{}, buf *[8]byte,
 
 			key.ChanID = lnwire.NewShortChanIDFromInt(scid)
 
-			err := tlv.DUint64(r, &key.HtlcID, buf, 8) //nolint:gomnd,lll
+			err := tlv.DUint64(r, &key.HtlcID, buf, 8)
 			if err != nil {
 				return err
 			}
@@ -1450,7 +1450,7 @@ func ampStateEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
 						keys := ampState.InvoiceKeys
 						numKeys := uint64(len(keys))
 						size := tlv.VarIntSize(numKeys)
-						dataSize := (numKeys * 16) //nolint:gomnd,lll
+						dataSize := (numKeys * 16)
 
 						return size + dataSize
 					},

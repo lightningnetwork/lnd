@@ -47,6 +47,13 @@ type ActiveLinkEvent struct {
 	ChannelPoint *wire.OutPoint
 }
 
+// InactiveLinkEvent represents a new event where the link becomes inactive in
+// the switch.
+type InactiveLinkEvent struct {
+	// ChannelPoint is the channel point for the inactive channel.
+	ChannelPoint *wire.OutPoint
+}
+
 // ActiveChannelEvent represents a new event where a channel becomes active.
 type ActiveChannelEvent struct {
 	// ChannelPoint is the channelpoint for the newly active channel.
@@ -190,6 +197,15 @@ func (c *ChannelNotifier) NotifyActiveChannelEvent(chanPoint wire.OutPoint) {
 	event := ActiveChannelEvent{ChannelPoint: &chanPoint}
 	if err := c.ntfnServer.SendUpdate(event); err != nil {
 		log.Warnf("Unable to send active channel update: %v", err)
+	}
+}
+
+// NotifyInactiveLinkEvent notifies the channelEventNotifier goroutine that a
+// link has been removed from the switch.
+func (c *ChannelNotifier) NotifyInactiveLinkEvent(chanPoint wire.OutPoint) {
+	event := InactiveLinkEvent{ChannelPoint: &chanPoint}
+	if err := c.ntfnServer.SendUpdate(event); err != nil {
+		log.Warnf("Unable to send inactive link update: %v", err)
 	}
 }
 

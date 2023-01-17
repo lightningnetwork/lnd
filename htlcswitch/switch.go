@@ -2293,6 +2293,8 @@ func (s *Switch) AddLink(link ChannelLink) error {
 	link.attachFailAliasUpdate(s.failAliasUpdate)
 
 	if err := link.Start(); err != nil {
+		log.Errorf("AddLink failed to start link with chanID=%v: %v",
+			chanID, err)
 		s.removeLink(chanID)
 		return err
 	}

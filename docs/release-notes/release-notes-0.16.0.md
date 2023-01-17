@@ -269,6 +269,10 @@ data.
 * [Fixed a bug](https://github.com/lightningnetwork/lnd/pull/7186) that might
   lead to channel updates being missed, causing channel graph being incomplete.
 
+* During reconnection, enabling channels might be failed due to the startup of
+  link is falling behind, which is now fixed by [retrying the enable
+  request](https://github.com/lightningnetwork/lnd/pull/7157). 
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test

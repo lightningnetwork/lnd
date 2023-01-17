@@ -39,6 +39,7 @@ import (
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/pool"
 	"github.com/lightningnetwork/lnd/queue"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 )
@@ -461,6 +462,15 @@ type Brontide struct {
 	// peer's chansync message with its own over and over again.
 	resentChanSyncMsg map[lnwire.ChannelID]struct{}
 
+	// channelEventClient is the channel event subscription client that's
+	// used to assist retry enabling the channels. This client is only
+	// created when the reenableTimeout is no greater than 1 minute. Once
+	// created, it is canceled once the reenabling has been finished.
+	//
+	// NOTE: we choose to create the client conditionally to avoid
+	// potentially holding lots of un-consumed events.
+	channelEventClient *subscribe.Client
+
 	queueQuit chan struct{}
 	quit      chan struct{}
 	wg        sync.WaitGroup
@@ -591,6 +601,17 @@ func (p *Brontide) Start() error {
 	// goroutines required to operate them.
 	p.log.Debugf("Loaded %v active channels from database",
 		len(activeChans))
+
+	// Conditionally subscribe to channel events before loading channels so
+	// we won't miss events. This subscription is used to listen to active
+	// channel event when reenabling channels. Once the reenabling process
+	// is finished, this subscription will be canceled.
+	//
+	// NOTE: ChannelNotifier must be started before subscribing events
+	// otherwise we'd panic here.
+	if err := p.attachChannelEventSubscription(); err != nil {
+		return err
+	}
 
 	msgs, err := p.loadActiveChannels(activeChans)
 	if err != nil {
@@ -941,6 +962,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		towerClient = p.cfg.TowerClient
 	}
 
+	//nolint:lll
 	linkCfg := htlcswitch.ChannelLinkConfig{
 		Peer:                   p,
 		DecodeHopIterators:     p.cfg.Sphinx.DecodeHopIterators,
@@ -976,6 +998,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		NotifyActiveLink:        p.cfg.ChannelNotifier.NotifyActiveLinkEvent,
 		NotifyActiveChannel:     p.cfg.ChannelNotifier.NotifyActiveChannelEvent,
 		NotifyInactiveChannel:   p.cfg.ChannelNotifier.NotifyInactiveChannelEvent,
+		NotifyInactiveLinkEvent: p.cfg.ChannelNotifier.NotifyInactiveLinkEvent,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
 		GetAliases:              p.cfg.GetAliases,
 	}
@@ -2480,6 +2503,16 @@ out:
 			// select will ignore this case entirely.
 			reenableTimeout = nil
 
+			// Once the reenabling is attempted, we also cancel the
+			// channel event subscription to free up the overflow
+			// queue used in channel notifier.
+			//
+			// NOTE: channelEventClient will be nil if the
+			// reenableTimeout is greater than 1 minute.
+			if p.channelEventClient != nil {
+				p.channelEventClient.Cancel()
+			}
+
 		case <-p.quit:
 			// As, we've been signalled to exit, we'll reset all
 			// our active channel back to their default state.
@@ -2506,47 +2539,61 @@ out:
 func (p *Brontide) reenableActiveChannels() {
 	// First, filter all known channels with this peer for ones that are
 	// both public and not pending.
-	var activePublicChans []wire.OutPoint
-	p.activeChanMtx.RLock()
-	for chanID, lnChan := range p.activeChannels {
-		// If the lnChan is nil, continue as this is a pending channel.
-		if lnChan == nil {
-			continue
-		}
+	activePublicChans := p.filterChannelsToEnable()
 
-		dbChan := lnChan.State()
-		isPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
-		if !isPublic || dbChan.IsPending {
-			continue
-		}
-
-		// We'll also skip any channels added during this peer's
-		// lifecycle since they haven't waited out the timeout. Their
-		// first announcement will be enabled, and the chan status
-		// manager will begin monitoring them passively since they exist
-		// in the database.
-		if _, ok := p.addedChannels[chanID]; ok {
-			continue
-		}
-
-		activePublicChans = append(
-			activePublicChans, dbChan.FundingOutpoint,
-		)
-	}
-	p.activeChanMtx.RUnlock()
+	// Create a map to hold channels that needs to be retried.
+	retryChans := make(map[wire.OutPoint]struct{}, len(activePublicChans))
 
 	// For each of the public, non-pending channels, set the channel
 	// disabled bit to false and send out a new ChannelUpdate. If this
 	// channel is already active, the update won't be sent.
 	for _, chanPoint := range activePublicChans {
 		err := p.cfg.ChanStatusMgr.RequestEnable(chanPoint, false)
-		if err == netann.ErrEnableManuallyDisabledChan {
-			p.log.Debugf("Channel(%v) was manually disabled, ignoring "+
-				"automatic enable request", chanPoint)
-		} else if err != nil {
-			p.log.Errorf("Unable to enable channel %v: %v",
-				chanPoint, err)
+
+		switch {
+		// No error occurred, continue to request the next channel.
+		case err == nil:
+			continue
+
+		// Cannot auto enable a manually disabled channel so we do
+		// nothing but proceed to the next channel.
+		case errors.Is(err, netann.ErrEnableManuallyDisabledChan):
+			p.log.Debugf("Channel(%v) was manually disabled, "+
+				"ignoring automatic enable request", chanPoint)
+
+			continue
+
+		// If the channel is reported as inactive, we will give it
+		// another chance. When handling the request, ChanStatusManager
+		// will check whether the link is active or not. One of the
+		// conditions is whether the link has been marked as
+		// reestablished, which happens inside a goroutine(htlcManager)
+		// after the link is started. And we may get a false negative
+		// saying the link is not active because that goroutine hasn't
+		// reached the line to mark the reestablishment. Thus we give
+		// it a second chance to send the request.
+		case errors.Is(err, netann.ErrEnableInactiveChan):
+			// If we don't have a client created, it means we
+			// shouldn't retry enabling the channel.
+			if p.channelEventClient == nil {
+				p.log.Errorf("Channel(%v) request enabling "+
+					"failed due to inactive link",
+					chanPoint)
+
+				continue
+			}
+
+			p.log.Warnf("Channel(%v) cannot be enabled as " +
+				"ChanStatusManager reported inactive, retrying")
+
+			// Add the channel to the retry map.
+			retryChans[chanPoint] = struct{}{}
 		}
+	}
+
+	// Retry the channels if we have any.
+	if len(retryChans) != 0 {
+		p.retryRequestEnable(retryChans)
 	}
 }
 
@@ -2624,6 +2671,136 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 	p.activeChanCloses[chanID] = chanCloser
 
 	return chanCloser, nil
+}
+
+// filterChannelsToEnable filters a list of channels to be enabled upon start.
+// The filtered channels are active channels that's neither private nor
+// pending.
+func (p *Brontide) filterChannelsToEnable() []wire.OutPoint {
+	var activePublicChans []wire.OutPoint
+
+	p.activeChanMtx.RLock()
+	defer p.activeChanMtx.RUnlock()
+
+	for chanID, lnChan := range p.activeChannels {
+		// If the lnChan is nil, continue as this is a pending channel.
+		if lnChan == nil {
+			continue
+		}
+
+		dbChan := lnChan.State()
+		isPublic := dbChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
+		if !isPublic || dbChan.IsPending {
+			continue
+		}
+
+		// We'll also skip any channels added during this peer's
+		// lifecycle since they haven't waited out the timeout. Their
+		// first announcement will be enabled, and the chan status
+		// manager will begin monitoring them passively since they exist
+		// in the database.
+		if _, ok := p.addedChannels[chanID]; ok {
+			continue
+		}
+
+		activePublicChans = append(
+			activePublicChans, dbChan.FundingOutpoint,
+		)
+	}
+
+	return activePublicChans
+}
+
+// retryRequestEnable takes a map of channel outpoints and a channel event
+// client. It listens to the channel events and removes a channel from the map
+// if it's matched to the event. Upon receiving an active channel event, it
+// will send the enabling request again.
+func (p *Brontide) retryRequestEnable(activeChans map[wire.OutPoint]struct{}) {
+	p.log.Debugf("Retry enabling %v channels", len(activeChans))
+
+	// retryEnable is a helper closure that sends an enable request and
+	// removes the channel from the map if it's matched.
+	retryEnable := func(chanPoint wire.OutPoint) error {
+		// If this is an active channel event, check whether it's in
+		// our targeted channels map.
+		_, found := activeChans[chanPoint]
+
+		// If this channel is irrelevant, return nil so the loop can
+		// jump to next iteration.
+		if !found {
+			return nil
+		}
+
+		// Otherwise we've just received an active signal for a channel
+		// that's previously failed to be enabled, we send the request
+		// again.
+		//
+		// We only give the channel one more shot, so we delete it from
+		// our map first to keep it from being attempted again.
+		delete(activeChans, chanPoint)
+
+		// Send the request.
+		err := p.cfg.ChanStatusMgr.RequestEnable(chanPoint, false)
+		if err != nil {
+			return fmt.Errorf("request enabling channel %v "+
+				"failed: %w", chanPoint, err)
+		}
+
+		return nil
+	}
+
+	for {
+		// If activeChans is empty, we've done processing all the
+		// channels.
+		if len(activeChans) == 0 {
+			p.log.Debug("Finished retry enabling channels")
+			return
+		}
+
+		select {
+		// A new event has been sent by the ChannelNotifier. We now
+		// check whether it's an active or inactive channel event.
+		case e := <-p.channelEventClient.Updates():
+			// If this is an active channel event, try enable the
+			// channel then jump to the next iteration.
+			active, ok := e.(channelnotifier.ActiveChannelEvent)
+			if ok {
+				chanPoint := *active.ChannelPoint
+
+				// If we received an error for this particular
+				// channel, we log an error and won't quit as
+				// we still want to retry other channels.
+				if err := retryEnable(chanPoint); err != nil {
+					p.log.Errorf("Retry failed: %v", err)
+				}
+
+				continue
+			}
+
+			// Otherwise check for inactive link event, and jump to
+			// next iteration if it's not.
+			inactive, ok := e.(channelnotifier.InactiveLinkEvent)
+			if !ok {
+				continue
+			}
+
+			// Found an inactive link event, if this is our
+			// targeted channel, remove it from our map.
+			chanPoint := *inactive.ChannelPoint
+			_, found := activeChans[chanPoint]
+			if !found {
+				continue
+			}
+
+			delete(activeChans, chanPoint)
+			p.log.Warnf("Re-enable channel %v failed, received "+
+				"inactive link event", chanPoint)
+
+		case <-p.quit:
+			p.log.Debugf("Peer shutdown during retry enabling")
+			return
+		}
+	}
 }
 
 // chooseDeliveryScript takes two optionally set shutdown scripts and returns
@@ -3523,4 +3700,30 @@ func (p *Brontide) LastRemotePingPayload() []byte {
 	}
 
 	return pingBytes
+}
+
+// attachChannelEventSubscription creates a channel event subscription and
+// attaches to client to Brontide if the reenableTimeout is no greater than 1
+// minute.
+func (p *Brontide) attachChannelEventSubscription() error {
+	// If the timeout is greater than 1 minute, it's unlikely that the link
+	// hasn't yet finished its reestablishment. Return a nil without
+	// creating the client to specify that we don't want to retry.
+	if p.cfg.ChanActiveTimeout > 1*time.Minute {
+		return nil
+	}
+
+	// When the reenable timeout is less than 1 minute, it's likely the
+	// channel link hasn't finished its reestablishment yet. In that case,
+	// we'll give it a second chance by subscribing to the channel update
+	// events. Upon receiving the `ActiveLinkEvent`, we'll then request
+	// enabling the channel again.
+	sub, err := p.cfg.ChannelNotifier.SubscribeChannelEvents()
+	if err != nil {
+		return fmt.Errorf("SubscribeChannelEvents failed: %w", err)
+	}
+
+	p.channelEventClient = sub
+
+	return nil
 }

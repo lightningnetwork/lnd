@@ -1015,6 +1015,161 @@ func ReceiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
+// ReceiverHtlcTapLeafTimeout returns the full tapscript leaf for the timeout
+// path of the sender HTLC. This is a small script that allows the sender
+// timeout the HTLC after expiry:
+//
+//	<remote_htlcpubkey> OP_CHECKSIG
+//	OP_CHECKSEQUENCEVERIFY
+//	<cltv_expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
+func ReceiverHtlcTapLeafTimeout(receiverHtlcKey *btcec.PublicKey,
+	cltvExpiry uint32) (txscript.TapLeaf, error) {
+
+	builder := txscript.NewScriptBuilder()
+
+	// The first part of the script will verify a signature from the
+	// receiver authorizing the spend.
+	builder.AddData(schnorr.SerializePubKey(receiverHtlcKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+
+	// The second portion will ensure that the CLTV expiry on the spending
+	// transaction is correct.
+	builder.AddInt64(int64(cltvExpiry))
+	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	timeoutLeafScript, err := builder.Script()
+	if err != nil {
+		return txscript.TapLeaf{}, nil
+	}
+
+	return txscript.NewBaseTapLeaf(timeoutLeafScript), nil
+}
+
+// ReceiverHtlcTapLeafSuccess returns the full tapscript leaf for the success
+// path for an HTLC on the receiver's commitment transaction. This script
+// allows the receiver to redeem an HTLC with knowledge of the preimage:
+//
+// OP_SIZE 32 OP_EQUALVERIFY OP_HASH160
+// <RIPEMD160(payment_hash)> OP_EQUALVERIFY
+// <local_htlcpubkey> OP_CHECKSIGVERIFY
+// <remote_htlcpubkey> OP_CHECKSIG
+func ReceiverHtlcTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
+	senderHtlcKey *btcec.PublicKey,
+	paymentHash []byte) (txscript.TapLeaf, error) {
+
+	builder := txscript.NewScriptBuilder()
+
+	// Check that the pre-image is 32 bytes as required.
+	builder.AddOp(txscript.OP_SIZE)
+	builder.AddInt64(32)
+	builder.AddOp(txscript.OP_EQUALVERIFY)
+
+	// Check that the specified pre-images matches what we hard code into
+	// the script.
+	builder.AddOp(txscript.OP_HASH160)
+	builder.AddData(Ripemd160H(paymentHash))
+	builder.AddOp(txscript.OP_EQUALVERIFY)
+
+	// Verify the "2-of-2" multi-sig that requires both parties to sign
+	// off.
+	builder.AddData(schnorr.SerializePubKey(senderHtlcKey))
+	builder.AddOp(txscript.OP_CHECKSIGVERIFY)
+	builder.AddData(schnorr.SerializePubKey(receiverHtlcKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	successLeafScript, err := builder.Script()
+	if err != nil {
+		return txscript.TapLeaf{}, err
+	}
+
+	return txscript.NewBaseTapLeaf(successLeafScript), nil
+}
+
+// receiverHtlcTapScriptTree builds the tapscript tree which is used to anchor
+// the HTLC key for HTLCs on the receiver's commitment.
+func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
+	revokeKey *btcec.PublicKey, payHash []byte,
+	cltvExpiry uint32) (*HtlcScriptTree, error) {
+
+	// First, we'll obtain the tap leaves for both the success and timeout
+	// path.
+	successTapLeaf, err := ReceiverHtlcTapLeafSuccess(
+		receiverHtlcKey, senderHtlcKey, payHash,
+	)
+	if err != nil {
+		return nil, err
+	}
+	timeoutTapLeaf, err := ReceiverHtlcTapLeafTimeout(
+		receiverHtlcKey, cltvExpiry,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the two leaves obtained, we'll now make the tapscript tree,
+	// then obtain the root from that
+	tapscriptTree := txscript.AssembleTaprootScriptTree(
+		successTapLeaf, timeoutTapLeaf,
+	)
+
+	tapScriptRoot := tapscriptTree.RootNode.TapHash()
+
+	// With the tapscript root obtained, we'll tweak the revocation key
+	// with this value to obtain the key that HTLCs will be sent to.
+	htlcKey := txscript.ComputeTaprootOutputKey(
+		revokeKey, tapScriptRoot[:],
+	)
+
+	return &HtlcScriptTree{
+		TaprootKey:     htlcKey,
+		SuccessTapLeaf: successTapLeaf,
+		TimeoutTapLeaf: timeoutTapLeaf,
+		TapscriptTree:  tapscriptTree,
+	}, nil
+}
+
+// ReceiverHTLCScriptTaproot cosntructs the taproot witness program (schnor
+// key) for an outgoing HTLC on the receiver's version of the commitment
+// transaction. This method returns the top level tweaked public key that
+// commits to both the script paths.
+//
+// The returned key commits to a tapscript tree with two possible paths:
+//
+//   - The timeout path:
+//     <remote_htlcpubkey> OP_CHECKSIG
+//     OP_CHECKSEQUENCEVERIFY
+//     <cltv_expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
+//
+//   - Success path:
+//     OP_SIZE 32 OP_EQUALVERIFY
+//     OP_HASH160 <RIPEMD160(payment_hash)> OP_EQUALVERIFY
+//     <local_htlcpubkey> OP_CHECKSIGVERIFY
+//     <remote_htlcpubkey> OP_CHECKSIG
+//
+// The timeout path can be be spent with a witness of:
+//   - <sender sig>
+//
+// The success path can be spent with a witness of:
+//   - <sender sig> <receiver sig> <preimage> <sucess_script> <control_block>
+//
+// The top level keyspend key is the revocation key, which allows a defender to
+// unilaterally spend the created output. Both the final output key as well as
+// the tap leaf are returned.
+func ReceiverHTLCScriptTaproot(cltvExpiry uint32,
+	senderHtlcKey, receiverHtlcKey, revocationKey *btcec.PublicKey,
+	payHash []byte) (*HtlcScriptTree, error) {
+
+	// Given all the necessary parameters, we'll return the HTLC script
+	// tree that includes the top level output script, as well as the two
+	// tap leaf paths.
+	return receiverHtlcTapScriptTree(
+		senderHtlcKey, receiverHtlcKey, revocationKey, payHash,
+		cltvExpiry,
+	)
+}
+
 // SecondLevelHtlcScript is the uniform script that's used as the output for
 // the second-level HTLC transactions. The second level transaction act as a
 // sort of covenant, ensuring that a 2-of-2 multi-sig output can only be

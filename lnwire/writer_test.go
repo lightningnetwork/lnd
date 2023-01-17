@@ -160,7 +160,9 @@ func TestWriteSig(t *testing.T) {
 
 func TestWriteSigs(t *testing.T) {
 	buf := new(bytes.Buffer)
-	sig1, sig2, sig3 := Sig{bytes: [64]byte{1}}, Sig{bytes: [64]byte{2}}, Sig{bytes: [64]byte{3}}
+	sig1 := Sig{bytes: [64]byte{1}}
+	sig2 := Sig{bytes: [64]byte{2}}
+	sig3 := Sig{bytes: [64]byte{3}}
 	data := []Sig{sig1, sig2, sig3}
 
 	// First two bytes encode the length of the slice.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
@@ -134,4 +135,16 @@ func TapscriptFullKeyOnly(taprootKey *btcec.PublicKey) *waddrmgr.Tapscript {
 		Type:          waddrmgr.TaprootFullKeyOnly,
 		FullOutputKey: taprootKey,
 	}
+}
+
+// PayToTaprootScript creates a new script to pay to a version 1 (taproot)
+// witness program. The passed public key will be serialized as an x-only key
+// to create the witness program.
+func PayToTaprootScript(taprootKey *btcec.PublicKey) ([]byte, error) {
+	builder := txscript.NewScriptBuilder()
+
+	builder.AddOp(txscript.OP_1)
+	builder.AddData(schnorr.SerializePubKey(taprootKey))
+
+	return builder.Script()
 }

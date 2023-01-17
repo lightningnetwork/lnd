@@ -1,5 +1,4 @@
 //go:build kvdb_postgres
-// +build kvdb_postgres
 
 package postgres
 
@@ -21,13 +20,7 @@ const (
 	kvTableName = "kv"
 )
 
-// KV stores a key/value pair.
-type KV struct {
-	key string
-	val string
-}
-
-// db holds a reference to the postgres connection connection.
+// db holds a reference to the postgres connection.
 type db struct {
 	// cfg is the postgres connection config.
 	cfg *Config
@@ -76,7 +69,7 @@ func Init(maxConnections int) {
 }
 
 // newPostgresBackend returns a db object initialized with the passed backend
-// config. If postgres connection cannot be estabished, then returns error.
+// config. If postgres connection cannot be established, then returns error.
 func newPostgresBackend(ctx context.Context, config *Config, prefix string) (
 	*db, error) {
 

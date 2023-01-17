@@ -1332,6 +1332,96 @@ func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	return builder.Script()
 }
 
+// TODO(roasbeef): move all taproot stuff to new file?
+
+// TaprootSecondLevelTapLeaf constructs the tap leaf used as the sole script
+// path for a second level HTLC spend.
+//
+// The final script used is:
+//
+//	<local_delay_key> OP_CHECKSIG
+//	<to_self_delay> OP_CHECKSEQUENCEVERIFY OP_DROP
+func TaprootSecondLevelTapLeaf(delayKey *btcec.PublicKey,
+	csvDelay uint32) (txscript.TapLeaf, error) {
+
+	builder := txscript.NewScriptBuilder()
+
+	// Ensure the proper party can sign for this output.
+	builder.AddData(schnorr.SerializePubKey(delayKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	// Assuming the above passes, then we'll now ensure that the CSV delay
+	// has been upheld, dropping the int we pushed on. If the sig above is
+	// valid, then a 1 will be left on the stack.
+	builder.AddInt64(int64(csvDelay))
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	secondLevelLeafScript, err := builder.Script()
+	if err != nil {
+		return txscript.TapLeaf{}, err
+	}
+
+	return txscript.NewBaseTapLeaf(secondLevelLeafScript), nil
+}
+
+// SecondLevelHtlcTapscriptTree construct the indexed tapscript tree needed to
+// generate the taptweak to create the final output and also control block.
+func SecondLevelHtlcTapscriptTree(delayKey *btcec.PublicKey,
+	csvDelay uint32) (*txscript.IndexedTapScriptTree, error) {
+
+	// First grab the second level leaf script we need to create the top level
+	// output.
+	secondLevelTapLeaf, err := TaprootSecondLevelTapLeaf(delayKey, csvDelay)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that we have the sole second level script, we can create the
+	// tapscript tree that commits to both the leaves.
+	return txscript.AssembleTaprootScriptTree(secondLevelTapLeaf), nil
+}
+
+// TaprootSecondLevelHtlcScript is the uniform script that's used as the output
+// for the second-level HTLC transaction. The second level transaction acts as
+// an off-chain 2-of-2 covenant that can only be spent a particular way and to
+// a particular output.
+//
+// Possible Input Scripts:
+//   - revocation sig
+//   - <local_delay_sig>
+//
+// The script main script lets the broadcaster spend after a delay the script
+// path:
+//
+//	<local_delay_key> OP_CHECKSIG
+//	<to_self_delay> OP_CHECKSEQUENCEVERIFY OP_DROP
+//
+// The keyspend path require knowledge of the top level revocation private key.
+func TaprootSecondLevelHtlcScript(revokeKey, delayKey *btcec.PublicKey,
+	csvDelay uint32) (*btcec.PublicKey, error) {
+
+	// First, we'll make the tapscript tree that commits to the redemption
+	// path.
+	tapScriptTree, err := SecondLevelHtlcTapscriptTree(
+		delayKey, csvDelay,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tapScriptRoot := tapScriptTree.RootNode.TapHash()
+
+	// With the tapscript root obtained, we'll tweak the revocation key
+	// with this value to obtain the key that the second level spend will
+	// create.
+	redemptionKey := txscript.ComputeTaprootOutputKey(
+		revokeKey, tapScriptRoot[:],
+	)
+
+	return redemptionKey, nil
+}
+
 // LeaseSecondLevelHtlcScript is the uniform script that's used as the output for
 // the second-level HTLC transactions. The second level transaction acts as a
 // sort of covenant, ensuring that a 2-of-2 multi-sig output can only be

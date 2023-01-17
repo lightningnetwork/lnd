@@ -387,6 +387,7 @@ func FuzzNodeAnnouncement(f *testing.F) {
 			first.Signature.RawBytes(),
 			second.Signature.RawBytes(),
 		) {
+
 			shouldPanic = true
 		}
 

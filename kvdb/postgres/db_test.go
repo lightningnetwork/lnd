@@ -41,7 +41,7 @@ func TestPanic(t *testing.T) {
 	f, err := NewFixture("")
 	require.NoError(t, err)
 
-	err = f.Db.(*db).Update(func(tx walletdb.ReadWriteTx) error {
+	err = f.Db.Update(func(tx walletdb.ReadWriteTx) error {
 		bucket, err := tx.CreateTopLevelBucket([]byte("test"))
 		require.NoError(t, err)
 

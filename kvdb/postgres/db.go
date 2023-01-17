@@ -20,10 +20,44 @@ const (
 	kvTableName = "kv"
 )
 
+// SqlConfig holds a set of configuration options of a sql database connection.
+type SqlConfig struct {
+	// DriverName is the string that defines the registered sql driver that
+	// is to be used.
+	DriverName string
+
+	// Dsn is the database connection string that will be used to connect
+	// to the db.
+	Dsn string
+
+	// Timeout is the time after which a query to the db will be canceled if
+	// it has not yet completed.
+	Timeout time.Duration
+
+	// Schema is the name of the schema under which the sql tables should be
+	// created. It should be left empty for backends like sqlite that do not
+	// support having more than one schema.
+	Schema string
+
+	// TableNamePrefix is the name that should be used as a table name
+	// prefix when constructing the KV style table.
+	TableNamePrefix string
+
+	// SQLiteCmdReplacements define a one-to-one string mapping of sql
+	// keywords to the strings that should replace those keywords in any
+	// commands. Note that the sqlite keywords to be replaced are
+	// case-sensitive.
+	SQLiteCmdReplacements SQLiteCmdReplacements
+
+	// WithTxLevelLock when set will ensure that there is a transaction
+	// level lock.
+	WithTxLevelLock bool
+}
+
 // db holds a reference to the postgres connection.
 type db struct {
-	// cfg is the postgres connection config.
-	cfg *Config
+	// cfg is the sql db connection config.
+	cfg *SqlConfig
 
 	// prefix is the table name prefix that is used to simulate namespaces.
 	// We don't use schemas because at least sqlite does not support that.
@@ -38,7 +72,8 @@ type db struct {
 	// db is the underlying database connection instance.
 	db *sql.DB
 
-	// lock is the global write lock that ensures single writer.
+	// lock is the global write lock that ensures single writer. This is
+	// only used if cfg.WithTxLevelLock is set.
 	lock sync.RWMutex
 
 	// table is the name of the table that contains the data for all
@@ -68,86 +103,45 @@ func Init(maxConnections int) {
 	dbConns = newDbConnSet(maxConnections)
 }
 
-// newPostgresBackend returns a db object initialized with the passed backend
-// config. If postgres connection cannot be established, then returns error.
-func newPostgresBackend(ctx context.Context, config *Config, prefix string) (
-	*db, error) {
-
+// NewSqlBackend returns a db object initialized with the passed backend
+// config. If database connection cannot be established, then returns error.
+func NewSqlBackend(ctx context.Context, cfg *SqlConfig) (*db, error) {
 	dbConnsMu.Lock()
 	defer dbConnsMu.Unlock()
-
-	if prefix == "" {
-		return nil, errors.New("empty postgres prefix")
-	}
 
 	if dbConns == nil {
 		return nil, errors.New("db connection set not initialized")
 	}
 
-	dbConn, err := dbConns.Open(config.Dsn)
+	if cfg.TableNamePrefix == "" {
+		return nil, errors.New("empty table name prefix")
+	}
+
+	table := fmt.Sprintf("%s_%s", cfg.TableNamePrefix, kvTableName)
+
+	query := newKVSchemaCreationCmd(
+		table, cfg.Schema, cfg.SQLiteCmdReplacements,
+	)
+
+	dbConn, err := dbConns.Open(cfg.DriverName, cfg.Dsn)
 	if err != nil {
 		return nil, err
 	}
 
-	// Compose system table names.
-	table := fmt.Sprintf(
-		"%s_%s", prefix, kvTableName,
-	)
-
-	// Execute the create statements to set up a kv table in postgres. Every
-	// row points to the bucket that it is one via its parent_id field. A
-	// NULL parent_id means that the key belongs to the upper-most bucket in
-	// this table. A constraint on parent_id is enforcing referential
-	// integrity.
-	//
-	// Furthermore there is a <table>_p index on parent_id that is required
-	// for the foreign key constraint.
-	//
-	// Finally there are unique indices on (parent_id, key) to prevent the
-	// same key being present in a bucket more than once (<table>_up and
-	// <table>_unp). In postgres, a single index wouldn't enforce the unique
-	// constraint on rows with a NULL parent_id. Therefore two indices are
-	// defined.
-	_, err = dbConn.ExecContext(ctx, `
-CREATE SCHEMA IF NOT EXISTS public;
-CREATE TABLE IF NOT EXISTS public.`+table+`
-(
-    key bytea NOT NULL,
-    value bytea,
-    parent_id bigint,
-    id bigserial PRIMARY KEY,
-    sequence bigint,
-    CONSTRAINT `+table+`_parent FOREIGN KEY (parent_id)
-        REFERENCES public.`+table+` (id)
-        ON UPDATE NO ACTION
-        ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS `+table+`_p
-    ON public.`+table+` (parent_id);
-
-CREATE UNIQUE INDEX IF NOT EXISTS `+table+`_up
-    ON public.`+table+`
-    (parent_id, key) WHERE parent_id IS NOT NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS `+table+`_unp 
-    ON public.`+table+` (key) WHERE parent_id IS NULL;
-`)
+	_, err = dbConn.ExecContext(ctx, query)
 	if err != nil {
 		_ = dbConn.Close()
 
 		return nil, err
 	}
 
-	backend := &db{
-		cfg:    config,
-		prefix: prefix,
+	return &db{
+		cfg:    cfg,
 		ctx:    ctx,
 		db:     dbConn,
 		table:  table,
-	}
-
-	return backend, nil
+		prefix: cfg.TableNamePrefix,
+	}, nil
 }
 
 // getTimeoutCtx gets a timeout context for database requests.
@@ -268,4 +262,29 @@ func (db *db) Close() error {
 	log.Infof("Closing database %v", db.prefix)
 
 	return dbConns.Close(db.cfg.Dsn)
+}
+
+// sqliteCmdReplacements defines a mapping from some SQLite keywords and phrases
+// to their postgres counterparts.
+var sqliteCmdReplacements = SQLiteCmdReplacements{
+	"BLOB":                "BYTEA",
+	"INTEGER PRIMARY KEY": "BIGSERIAL PRIMARY KEY",
+}
+
+// newPostgresBackend returns a db object initialized with the passed backend
+// config. If postgres connection cannot be established, then returns error.
+func newPostgresBackend(ctx context.Context, config *Config, prefix string) (
+	walletdb.DB, error) {
+
+	cfg := &SqlConfig{
+		DriverName:            "pgx",
+		Dsn:                   config.Dsn,
+		Timeout:               config.Timeout,
+		Schema:                "public",
+		TableNamePrefix:       prefix,
+		SQLiteCmdReplacements: sqliteCmdReplacements,
+		WithTxLevelLock:       true,
+	}
+
+	return NewSqlBackend(ctx, cfg)
 }

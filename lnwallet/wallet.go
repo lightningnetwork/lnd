@@ -2277,16 +2277,10 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 
 	// First, we'll obtain a fully signed commitment transaction so we can
 	// pass into it on the chanvalidate package for verification.
-	//
-	// TODO(roasbeef): need to pass in nonce state? or already should have
-	// own sig on disk
 	channel, err := NewLightningChannel(l.Cfg.Signer, channelState, nil)
 	if err != nil {
 		return err
 	}
-
-	// TODO(roasbeef): need to update getSignedCommitTx for taproot, need
-	// to go w/ the deterministic nonces so can sign own version
 
 	localKey := channelState.LocalChanCfg.MultiSigKey.PubKey
 	remoteKey := channelState.RemoteChanCfg.MultiSigKey.PubKey
@@ -2294,10 +2288,7 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	// We'll also need the multi-sig witness script itself so the
 	// chanvalidate package can check it for correctness against the
 	// funding transaction, and also commitment validity.
-	var (
-		fundingScript []byte
-		commitCtx     *chanvalidate.CommitmentContext
-	)
+	var fundingScript []byte
 	if channelState.ChanType.IsTaproot() {
 		walletLog.Debugf("validating taproot channel: ChannelPoint(%v)",
 			channelState.FundingOutpoint)
@@ -2309,8 +2300,6 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 			return err
 		}
 
-		// TODO(roasbeef): remove temp
-		commitCtx = nil
 	} else {
 		walletLog.Debugf("validating p2wsh channel: ChannelPoint(%v)",
 			channelState.FundingOutpoint)
@@ -2326,15 +2315,15 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 		if err != nil {
 			return err
 		}
+	}
 
-		signedCommitTx, err := channel.getSignedCommitTx()
-		if err != nil {
-			return err
-		}
-		commitCtx = &chanvalidate.CommitmentContext{
-			Value:               channel.Capacity,
-			FullySignedCommitTx: signedCommitTx,
-		}
+	signedCommitTx, err := channel.getSignedCommitTx()
+	if err != nil {
+		return err
+	}
+	commitCtx := &chanvalidate.CommitmentContext{
+		Value:               channel.Capacity,
+		FullySignedCommitTx: signedCommitTx,
 	}
 
 	// Finally, we'll pass in all the necessary context needed to fully

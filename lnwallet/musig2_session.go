@@ -3,6 +3,7 @@ package lnwallet
 import (
 	"bytes"
 	"fmt"
+	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -13,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 )
 
 // MusigPartialSig...
@@ -316,10 +318,6 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, error) {
 func (m *MusigSession) Refresh(verificationNonce *musig2.Nonces,
 ) (*MusigSession, error) {
 
-	// TODO(roasbeef): need to also pass along verification nonce
-	//  * local commit: called after recv'ing a sig
-	//  * remote commit: called when get revoke-and-ack
-
 	return NewPartialMusigSession(
 		*verificationNonce, m.localKey, m.remoteKey, m.signer,
 		m.inputTxOut, m.remoteCommit,
@@ -331,11 +329,29 @@ func (m *MusigSession) VerificationNonce() *musig2.Nonces {
 	return &m.nonces.VerificationNonce
 }
 
-// TODO(roasbeef): re hot signatures, maybe would re-use the state less signing
-// thing after all?
-//
-//   * then able to safely generate nonce deterministically when it comes to
-//   signing?
+// musigSessionOpts...
+type musigSessionOpts struct {
+	customRand io.Reader
+}
+
+// defaultMusigSessionOpts...
+func defaultMusigSessionOpts() *musigSessionOpts {
+	return &musigSessionOpts{}
+}
+
+// MusigSessionOpt...
+type MusigSessionOpt func(*musigSessionOpts)
+
+// WithLocalCounterNonce...
+func WithLocalCounterNonce(targetHeight uint64,
+	shaGen shachain.Producer) MusigSessionOpt {
+
+	return func(opt *musigSessionOpts) {
+		nextPreimage, _ := shaGen.AtIndex(targetHeight)
+
+		opt.customRand = bytes.NewBuffer(nextPreimage[:])
+	}
+}
 
 // VerifyCommitSig attempts to verify the passed partial signature against the
 // passed commitment transaction. A keyspend sighash is assumed to generate the
@@ -343,7 +359,13 @@ func (m *MusigSession) VerificationNonce() *musig2.Nonces {
 // relative local nonce) returned to transmit to the remote party, which allows
 // them to generate another signature.
 func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
-	sig *lnwire.PartialSigWithNonce) (*musig2.Nonces, error) {
+	sig *lnwire.PartialSigWithNonce,
+	musigOpts ...MusigSessionOpt) (*musig2.Nonces, error) {
+
+	opts := defaultMusigSessionOpts()
+	for _, optFunc := range musigOpts {
+		optFunc(opts)
+	}
 
 	// Before we can verify the signature, we'll need to finalize the
 	// session by binding the remote party's provided signing nonce.
@@ -379,12 +401,19 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 		return nil, fmt.Errorf("invalid partial commit sig")
 	}
 
+	nonceOpts := []musig2.NonceGenOption{
+		musig2.WithPublicKey(m.localKey.PubKey),
+	}
+	if opts.customRand != nil {
+		nonceOpts = append(
+			nonceOpts, musig2.WithCustomRand(opts.customRand),
+		)
+	}
+
 	// At this point, we know that their signature is valid, so we'll
 	// generate another verification nonce for them, so they can generate a
 	// new state transition.
-	nextVerificationNonce, err := musig2.GenNonces(
-		musig2.WithPublicKey(m.localKey.PubKey),
-	)
+	nextVerificationNonce, err := musig2.GenNonces(nonceOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to gen new nonce: %w", err)
 	}

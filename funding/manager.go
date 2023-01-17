@@ -2807,7 +2807,6 @@ func (f *Manager) handleFundingConfirmation(
 	// Now that that the channel has been fully confirmed, we'll request
 	// that the wallet fully verify this channel to ensure that it can be
 	// used.
-	log.Infof("taproot: %v", completeChan.ChanType.IsTaproot())
 	err := f.cfg.Wallet.ValidateChannel(completeChan, confChannel.fundingTx)
 	if err != nil {
 		// TODO(roasbeef): delete chan state?
@@ -3598,7 +3597,7 @@ func (f *Manager) handleFundingLocked(peer lnpeer.Peer,
 			verNonce, err := lnwallet.NewMusigVerificationNonce(
 				channel.LocalChanCfg.MultiSigKey.PubKey,
 				channel.LocalCommitment.CommitHeight,
-				channel.RevocationProducer,
+				channel.RevocationProducer, false,
 			)
 			if err != nil {
 				f.nonceMtx.Unlock()

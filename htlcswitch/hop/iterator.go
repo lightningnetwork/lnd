@@ -383,9 +383,7 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 func (p *OnionProcessor) ExtractErrorEncrypter(ephemeralKey *btcec.PublicKey) (
 	ErrorEncrypter, lnwire.FailCode) {
 
-	onionObfuscator, err := sphinx.NewOnionErrorEncrypter(
-		p.router, ephemeralKey,
-	)
+	sharedSecret, err := p.router.GenerateSharedSecret(ephemeralKey)
 	if err != nil {
 		switch err {
 		case sphinx.ErrInvalidOnionVersion:
@@ -399,6 +397,8 @@ func (p *OnionProcessor) ExtractErrorEncrypter(ephemeralKey *btcec.PublicKey) (
 			return nil, lnwire.CodeInvalidOnionKey
 		}
 	}
+
+	onionObfuscator := sphinx.NewOnionErrorEncrypter(sharedSecret)
 
 	return &SphinxErrorEncrypter{
 		OnionErrorEncrypter: onionObfuscator,

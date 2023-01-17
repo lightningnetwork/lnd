@@ -219,6 +219,9 @@ data.
 
 * [Fix gomnd linter error](https://github.com/lightningnetwork/lnd/pull/7325)
 
+* [Fix race condition in 
+`TestUpdatePaymentState`](https://github.com/lightningnetwork/lnd/pull/7336)
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

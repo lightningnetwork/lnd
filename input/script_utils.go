@@ -1351,6 +1351,54 @@ func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
 	return builder.Script()
 }
 
+// TaprootCommitScriptToRemote constructs a taproot witness program for the
+// output on the commitment transaction for the remote party. For the top level
+// key spend, we'll use the combined funding key (musig2.KeyAgg(k1, k2)), as a
+// sort of practical NUMs point (the local party would never sign for this). We
+// then commit to a single tapscript leaf that holds the normal CSV 1 delay
+// script.
+//
+// Our single tapleaf will use the following script:
+//
+//	<remotepubkey> OP_CHECKSIG
+//	OP_CHECKSEQUENCEVERIFY
+//
+// The CSV clause is a bit subtle, but OP_CHECKSIG will return true if it
+// succeeds, which then enforces our 1 CSV. The true will remain on the stack,
+// causing the script to pass. If the CHECKSIG fails, then a 0 will remain on
+// the stack.
+//
+// TODO(roasbeef): double check here can't pass additional stack elements?
+func TaprootCommitScriptToRemote(combinedFundingKey,
+	remoteKey *btcec.PublicKey) (*btcec.PublicKey, error) {
+
+	// First, construct the remote party's tapscript they'll use to sweep their
+	// outputs.
+	builder := txscript.NewScriptBuilder()
+	builder.AddData(schnorr.SerializePubKey(remoteKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+
+	delayScript, err := builder.Script()
+	if err != nil {
+		return nil, err
+	}
+
+	// With this script constructed, we'll map that into a tapLeaf, then
+	// make a new tapscript root from that.
+	tapLeaf := txscript.NewBaseTapLeaf(delayScript)
+	tapScriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
+	tapScriptRoot := tapScriptTree.RootNode.TapHash()
+
+	// Now that we have our root, we can arrive at the final output script
+	// by tweaking the internal key with this root.
+	toRemoteOutputKey := txscript.ComputeTaprootOutputKey(
+		combinedFundingKey, tapScriptRoot[:],
+	)
+
+	return toRemoteOutputKey, nil
+}
+
 // LeaseCommitScriptToRemoteConfirmed constructs the script for the output on
 // the commitment transaction paying to the remote party of said commitment
 // transaction. The money can only be spend after one confirmation.

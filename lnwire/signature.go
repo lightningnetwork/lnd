@@ -250,7 +250,7 @@ func (s *Sig) ToSignatureBytes() []byte {
 	// For schnorr signatures, we can use the same internal 64 bytes.
 	case sigTypeSchnorr:
 		// We'll make a copy of the signature so we don't return a
-		// refrence into the raw slice.
+		// reference into the raw slice.
 		var sig [64]byte
 		copy(sig[:], s.bytes[:])
 		return sig[:]

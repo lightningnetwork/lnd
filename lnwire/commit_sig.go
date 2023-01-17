@@ -3,6 +3,8 @@ package lnwire
 import (
 	"bytes"
 	"io"
+
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // CommitSig is sent by either side to stage any pending HTLC's in the
@@ -36,6 +38,13 @@ type CommitSig struct {
 	// transaction should be signed.
 	HtlcSigs []Sig
 
+	// PartialSig is used to transmit a musig2 extended partial signature
+	// that also carries along the public nonce of the signer.
+	//
+	// NOTE: This field is only populated if a musig2 taproot channel is
+	// being signed for. In this case, the above Sig type MUST be blank.
+	PartialSig *PartialSigWithNonce
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -58,12 +67,38 @@ var _ Message = (*CommitSig)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	err := ReadElements(r,
 		&c.ChanID,
 		&c.CommitSig,
 		&c.HtlcSigs,
-		&c.ExtraData,
 	)
+	if err != nil {
+		return err
+	}
+
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	var (
+		partialSig PartialSigWithNonce
+	)
+	typeMap, err := tlvRecords.ExtractRecords(&partialSig)
+	if err != nil {
+		return err
+	}
+
+	// Set the corresponding TLV types if they were included in the stream.
+	if val, ok := typeMap[PartialSigWithNonceRecordType]; ok && val == nil {
+		c.PartialSig = &partialSig
+	}
+
+	if len(tlvRecords) != 0 {
+		c.ExtraData = tlvRecords
+	}
+
+	return nil
 }
 
 // Encode serializes the target CommitSig into the passed io.Writer
@@ -71,6 +106,15 @@ func (c *CommitSig) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *CommitSig) Encode(w *bytes.Buffer, pver uint32) error {
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	if c.PartialSig != nil {
+		recordProducers = append(recordProducers, c.PartialSig)
+	}
+	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+	if err != nil {
+		return err
+	}
+
 	if err := WriteChannelID(w, c.ChanID); err != nil {
 		return err
 	}

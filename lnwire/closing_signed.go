@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ClosingSigned is sent by both parties to a channel once the channel is clear
@@ -28,6 +29,14 @@ type ClosingSigned struct {
 
 	// Signature is for the proposed channel close transaction.
 	Signature Sig
+
+	// PartialSig is used to transmit a musig2 extended partial signature
+	// that signs the latest fee offer. The nonce isn't sent along side, as
+	// that has already been sent in the initial shutdown message.
+	//
+	// NOTE: This field is only populated if a musig2 taproot channel is
+	// being signed for. In this case, the above Sig type MUST be blank.
+	PartialSig *PartialSig
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -55,9 +64,36 @@ var _ Message = (*ClosingSigned)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(
-		r, &c.ChannelID, &c.FeeSatoshis, &c.Signature, &c.ExtraData,
+	err := ReadElements(
+		r, &c.ChannelID, &c.FeeSatoshis, &c.Signature,
 	)
+	if err != nil {
+		return err
+	}
+
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	var (
+		partialSig PartialSig
+	)
+	typeMap, err := tlvRecords.ExtractRecords(&partialSig)
+	if err != nil {
+		return err
+	}
+
+	// Set the corresponding TLV types if they were included in the stream.
+	if val, ok := typeMap[PartialSigRecordType]; ok && val == nil {
+		c.PartialSig = &partialSig
+	}
+
+	if len(tlvRecords) != 0 {
+		c.ExtraData = tlvRecords
+	}
+
+	return nil
 }
 
 // Encode serializes the target ClosingSigned into the passed io.Writer
@@ -65,6 +101,15 @@ func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ClosingSigned) Encode(w *bytes.Buffer, pver uint32) error {
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	if c.PartialSig != nil {
+		recordProducers = append(recordProducers, c.PartialSig)
+	}
+	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+	if err != nil {
+		return err
+	}
+
 	if err := WriteChannelID(w, c.ChannelID); err != nil {
 		return err
 	}

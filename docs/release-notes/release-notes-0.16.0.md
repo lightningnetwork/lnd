@@ -336,7 +336,8 @@ data.
 * [`golangci-lint` will now check new code using additional
   linters](https://github.com/lightningnetwork/lnd/pull/7064) and was
   [fine-tuned](https://github.com/lightningnetwork/lnd/pull/7289) to fit our
-  code style.
+  code style or to [disable annoying new
+  linters](https://github.com/lightningnetwork/lnd/pull/7335).
 
 * Update github actions to [check commits against the target base 
   branch](https://github.com/lightningnetwork/lnd/pull/7103) rather than just 

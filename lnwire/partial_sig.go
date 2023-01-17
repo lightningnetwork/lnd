@@ -143,7 +143,7 @@ func partialSigWithNonceTypeEncoder(w io.Writer, val interface{},
 
 // Encode...
 func (p *PartialSigWithNonce) Encode(w io.Writer) error {
-	return partialSigTypeEncoder(w, p, nil)
+	return partialSigWithNonceTypeEncoder(w, p, nil)
 }
 
 // partialSigWithNonceTypeDecoder decodes a 98-byte musig2 extended partial
@@ -178,5 +178,7 @@ func partialSigWithNonceTypeDecoder(r io.Reader, val interface{}, buf *[8]byte,
 
 // Decode...
 func (p *PartialSigWithNonce) Decode(r io.Reader) error {
-	return partialSigTypeDecoder(r, p, nil, PartialSigWithNonceLen)
+	return partialSigWithNonceTypeDecoder(
+		r, p, nil, PartialSigWithNonceLen,
+	)
 }

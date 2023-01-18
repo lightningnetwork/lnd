@@ -5,6 +5,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
 
@@ -104,6 +105,9 @@ type Payload interface {
 	// Metadata returns the additional data that is sent along with the
 	// payment to the payee.
 	Metadata() []byte
+
+	// UpfrontFee returns the upfront fee associated with the final hop.
+	UpfrontFee() lnwire.MilliSatoshi
 }
 
 // InvoiceQuery represents a query to the invoice database. The query allows a

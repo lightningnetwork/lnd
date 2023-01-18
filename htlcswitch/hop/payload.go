@@ -343,6 +343,13 @@ func (h *Payload) Metadata() []byte {
 	return h.metadata
 }
 
+// UpfrontFee returns the upfront fee for the payload.
+func (h *Payload) UpfrontFee() lnwire.MilliSatoshi {
+	fee, _ := h.FwdInfo.UpfrontFeeToForward.Value()
+
+	return fee
+}
+
 // getMinRequiredViolation checks for unrecognized required (even) fields in the
 // standard range and returns the lowest required type. Always returning the
 // lowest required type allows a failure message to be deterministic.

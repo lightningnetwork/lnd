@@ -101,6 +101,7 @@ const (
 	htlcAMPType      tlv.Type = 19
 	htlcHashType     tlv.Type = 21
 	htlcPreimageType tlv.Type = 23
+	upfrontFeeType   tlv.Type = 25
 
 	// A set of tlv type definitions used to serialize invoice bodiees.
 	//
@@ -969,6 +970,13 @@ func serializeHtlcs(w io.Writer,
 			}
 		}
 
+		if htlc.UpfrontFee != 0 {
+			fee := uint64(htlc.UpfrontFee)
+			record := tlv.MakePrimitiveRecord(upfrontFeeType, &fee)
+
+			records = append(records, record)
+		}
+
 		// Convert the custom records to tlv.Record types that are ready
 		// for serialization.
 		customRecords := tlv.MapToRecords(htlc.CustomRecords)
@@ -1606,15 +1614,15 @@ func deserializeHtlcs(r io.Reader) (map[models.CircuitKey]*invpkg.InvoiceHTLC,
 
 		// Decode the contents into the htlc fields.
 		var (
-			htlc                    invpkg.InvoiceHTLC
-			key                     models.CircuitKey
-			chanID                  uint64
-			state                   uint8
-			acceptTime, resolveTime uint64
-			amt, mppTotalAmt        uint64
-			amp                     = &record.AMP{}
-			hash32                  = &[32]byte{}
-			preimage32              = &[32]byte{}
+			htlc                         invpkg.InvoiceHTLC
+			key                          models.CircuitKey
+			chanID                       uint64
+			state                        uint8
+			acceptTime, resolveTime      uint64
+			amt, mppTotalAmt, upfrontFee uint64
+			amp                          = &record.AMP{}
+			hash32                       = &[32]byte{}
+			preimage32                   = &[32]byte{}
 		)
 		tlvStream, err := tlv.NewStream(
 			tlv.MakePrimitiveRecord(chanIDType, &chanID),
@@ -1634,6 +1642,7 @@ func deserializeHtlcs(r io.Reader) (map[models.CircuitKey]*invpkg.InvoiceHTLC,
 			),
 			tlv.MakePrimitiveRecord(htlcHashType, hash32),
 			tlv.MakePrimitiveRecord(htlcPreimageType, preimage32),
+			tlv.MakePrimitiveRecord(upfrontFeeType, &upfrontFee),
 		)
 		if err != nil {
 			return nil, err
@@ -1665,6 +1674,7 @@ func deserializeHtlcs(r io.Reader) (map[models.CircuitKey]*invpkg.InvoiceHTLC,
 		htlc.ResolveTime = getNanoTime(resolveTime)
 		htlc.State = invpkg.HtlcState(state)
 		htlc.Amt = lnwire.MilliSatoshi(amt)
+		htlc.UpfrontFee = lnwire.MilliSatoshi(upfrontFee)
 		htlc.MppTotalAmt = lnwire.MilliSatoshi(mppTotalAmt)
 		if amp != nil && hash != nil {
 			htlc.AMP = &invpkg.InvoiceHtlcAMPData{
@@ -1750,7 +1760,12 @@ func updateHtlcsAmp(invoice *invpkg.Invoice,
 		}
 	}
 
+	// Update state with the amount paid. We include our upfront fee in
+	// the amount paid because the sender has pushed this amount to us with
+	// the HTLC.
 	ampState.AmtPaid += htlc.Amt
+	ampState.AmtPaid += htlc.UpfrontFee
+
 	ampState.InvoiceKeys[circuitKey] = struct{}{}
 
 	// Due to the way maps work, we need to read out the value, update it,
@@ -1942,6 +1957,7 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 
 		htlc := &invpkg.InvoiceHTLC{
 			Amt:           htlcUpdate.Amt,
+			UpfrontFee:    htlcUpdate.UpfrontFee,
 			MppTotalAmt:   htlcUpdate.MppTotalAmt,
 			Expiry:        htlcUpdate.Expiry,
 			AcceptHeight:  uint32(htlcUpdate.AcceptHeight),
@@ -2116,6 +2132,11 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 
 				amtPaid += htlc.Amt
 			}
+
+			// We do however include the amount pushed to us in the
+			// htlc's upfront fee, since we have received this
+			// amount unconditionally on receipt of the htlc.
+			amtPaid += htlc.UpfrontFee
 		} else {
 			// For AMP invoices, since we won't always be reading
 			// out the total invoice set each time, we'll instead
@@ -2132,6 +2153,7 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 				invoiceStateReady {
 
 				amtPaid += htlc.Amt
+				amtPaid += htlc.UpfrontFee
 			}
 		}
 	}

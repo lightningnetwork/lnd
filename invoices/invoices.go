@@ -491,6 +491,9 @@ type InvoiceHTLC struct {
 	// Amt is the amount that is carried by this htlc.
 	Amt lnwire.MilliSatoshi
 
+	// UpfrontFee is the upfront fee paid by a htlc.
+	UpfrontFee lnwire.MilliSatoshi
+
 	// MppTotalAmt is a field for mpp that indicates the expected total
 	// amount.
 	MppTotalAmt lnwire.MilliSatoshi
@@ -617,6 +620,9 @@ type HtlcAcceptDesc struct {
 
 	// Amt is the amount that is carried by this htlc.
 	Amt lnwire.MilliSatoshi
+
+	// UpfrontFee is the upfront fee attached to the HTLC.
+	UpfrontFee lnwire.MilliSatoshi
 
 	// MppTotalAmt is a field for mpp that indicates the expected total
 	// amount.

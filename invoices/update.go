@@ -23,6 +23,7 @@ type invoiceUpdateCtx struct {
 	mpp                  *record.MPP
 	amp                  *record.AMP
 	metadata             []byte
+	upfrontFee           lnwire.MilliSatoshi
 }
 
 // invoiceRef returns an identifier that can be used to lookup or update the
@@ -63,8 +64,9 @@ func (i *invoiceUpdateCtx) log(s string) {
 	}
 
 	log.Debugf("Invoice%v: %v, amt=%v, expiry=%v, circuit=%v, mpp=%v, "+
-		"amp=%v, metadata=%v", i.invoiceRef(), s, i.amtPaid, i.expiry,
-		i.circuitKey, i.mpp, i.amp, metadata)
+		"amp=%v, metadata=%v, upfront fee=%v", i.invoiceRef(), s,
+		i.amtPaid, i.expiry, i.circuitKey, i.mpp, i.amp, metadata,
+		i.upfrontFee)
 }
 
 // failRes is a helper function which creates a failure resolution with
@@ -161,6 +163,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	// Start building the accept descriptor.
 	acceptDesc := &HtlcAcceptDesc{
 		Amt:           ctx.amtPaid,
+		UpfrontFee:    ctx.upfrontFee,
 		Expiry:        ctx.expiry,
 		AcceptHeight:  ctx.currentHeight,
 		MppTotalAmt:   ctx.mpp.TotalMsat(),
@@ -209,6 +212,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 		}
 
 		newSetTotal += htlc.Amt
+		newSetTotal += htlc.UpfrontFee
 	}
 
 	// Add amount of new htlc.
@@ -420,6 +424,7 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	newHtlcs := map[CircuitKey]*HtlcAcceptDesc{
 		ctx.circuitKey: {
 			Amt:           ctx.amtPaid,
+			UpfrontFee:    ctx.upfrontFee,
 			Expiry:        ctx.expiry,
 			AcceptHeight:  ctx.currentHeight,
 			CustomRecords: ctx.customRecords,

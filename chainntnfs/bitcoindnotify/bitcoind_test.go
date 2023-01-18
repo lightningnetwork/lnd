@@ -105,8 +105,15 @@ func syncNotifierWithMiner(t *testing.T, notifier *BitcoindNotifier,
 // TestHistoricalConfDetailsTxIndex ensures that we correctly retrieve
 // historical confirmation details using the backend node's txindex.
 func TestHistoricalConfDetailsTxIndex(t *testing.T) {
-	testHistoricalConfDetailsTxIndex(t, true)
-	testHistoricalConfDetailsTxIndex(t, false)
+	t.Run("txindex enabled", func(st *testing.T) {
+		st.Parallel()
+		testHistoricalConfDetailsTxIndex(st, true)
+	})
+
+	t.Run("txindex disabled", func(st *testing.T) {
+		st.Parallel()
+		testHistoricalConfDetailsTxIndex(st, false)
+	})
 }
 
 func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
@@ -193,8 +200,15 @@ func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 // historical confirmation details using the set of fallback methods when the
 // backend node's txindex is disabled.
 func TestHistoricalConfDetailsNoTxIndex(t *testing.T) {
-	testHistoricalConfDetailsNoTxIndex(t, true)
-	testHistoricalConfDetailsNoTxIndex(t, false)
+	t.Run("txindex enabled", func(st *testing.T) {
+		st.Parallel()
+		testHistoricalConfDetailsNoTxIndex(st, true)
+	})
+
+	t.Run("txindex disabled", func(st *testing.T) {
+		st.Parallel()
+		testHistoricalConfDetailsNoTxIndex(st, false)
+	})
 }
 
 func testHistoricalConfDetailsNoTxIndex(t *testing.T, rpcpolling bool) {

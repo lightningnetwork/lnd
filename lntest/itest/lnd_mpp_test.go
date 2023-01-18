@@ -1,27 +1,23 @@
 package itest
 
 import (
-	"bytes"
-	"context"
-	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/stretchr/testify/require"
 )
 
 // testSendToRouteMultiPath tests that we are able to successfully route a
 // payment using multiple shards across different paths, by using SendToRoute.
-func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	ctx := newMppTestContext(t, net)
-	defer ctx.shutdownNodes()
+func testSendToRouteMultiPath(ht *lntemp.HarnessTest) {
+	mts := newMppTestScenario(ht)
 
 	// To ensure the payment goes through separate paths, we'll set a
 	// channel size that can only carry one shard at a time. We'll divide
@@ -39,55 +35,41 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 	//      \              /
 	//       \__ Dave ____/
 	//
-	ctx.openChannel(ctx.carol, ctx.bob, chanAmt)
-	ctx.openChannel(ctx.dave, ctx.bob, chanAmt)
-	ctx.openChannel(ctx.alice, ctx.dave, chanAmt)
-	ctx.openChannel(ctx.eve, ctx.bob, chanAmt)
-	ctx.openChannel(ctx.carol, ctx.eve, chanAmt)
-
-	// Since the channel Alice-> Carol will have to carry two
-	// shards, we make it larger.
-	ctx.openChannel(ctx.alice, ctx.carol, chanAmt+shardAmt)
-
-	defer ctx.closeChannels()
-
-	ctx.waitForChannels()
+	req := &mppOpenChannelRequest{
+		// Since the channel Alice-> Carol will have to carry two
+		// shards, we make it larger.
+		amtAliceCarol: chanAmt + shardAmt,
+		amtAliceDave:  chanAmt,
+		amtCarolBob:   chanAmt,
+		amtCarolEve:   chanAmt,
+		amtDaveBob:    chanAmt,
+		amtEveBob:     chanAmt,
+	}
+	mts.openChannels(req)
 
 	// Make Bob create an invoice for Alice to pay.
-	payReqs, rHashes, invoices, err := createPayReqs(
-		ctx.bob, paymentAmt, 1,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
+	payReqs, rHashes, invoices := ht.CreatePayReqs(mts.bob, paymentAmt, 1)
 
 	rHash := rHashes[0]
 	payReq := payReqs[0]
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	decodeResp, err := ctx.bob.DecodePayReq(
-		ctxt, &lnrpc.PayReqString{PayReq: payReq},
-	)
-	if err != nil {
-		t.Fatalf("decode pay req: %v", err)
-	}
-
+	decodeResp := mts.bob.RPC.DecodePayReq(payReq)
 	payAddr := decodeResp.PaymentAddr
 
+	// Subscribe the invoice.
+	stream := mts.bob.RPC.SubscribeSingleInvoice(rHash)
+
 	// We'll send shards along three routes from Alice.
-	sendRoutes := [][]*lntest.HarnessNode{
-		{ctx.carol, ctx.bob},
-		{ctx.dave, ctx.bob},
-		{ctx.carol, ctx.eve, ctx.bob},
+	sendRoutes := [][]*node.HarnessNode{
+		{mts.carol, mts.bob},
+		{mts.dave, mts.bob},
+		{mts.carol, mts.eve, mts.bob},
 	}
 
 	responses := make(chan *lnrpc.HTLCAttempt, len(sendRoutes))
 	for _, hops := range sendRoutes {
 		// Build a route for the specified hops.
-		r, err := ctx.buildRoute(ctxb, shardAmt, ctx.alice, hops)
-		if err != nil {
-			t.Fatalf("unable to build route: %v", err)
-		}
+		r := mts.buildRoute(shardAmt, mts.alice, hops)
 
 		// Set the MPP records to indicate this is a payment shard.
 		hop := r.Hops[len(r.Hops)-1]
@@ -103,62 +85,44 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 			Route:       r,
 		}
 
-		// We'll send all shards in their own goroutine, since SendToRoute will
-		// block as long as the payment is in flight.
+		// We'll send all shards in their own goroutine, since
+		// SendToRoute will block as long as the payment is in flight.
 		go func() {
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			resp, err := ctx.alice.RouterClient.SendToRouteV2(ctxt, sendReq)
-			if err != nil {
-				t.Fatalf("unable to send payment: %v", err)
-			}
-
+			resp := mts.alice.RPC.SendToRouteV2(sendReq)
 			responses <- resp
 		}()
 	}
 
 	// Wait for all responses to be back, and check that they all
 	// succeeded.
+	timer := time.After(defaultTimeout)
 	for range sendRoutes {
 		var resp *lnrpc.HTLCAttempt
 		select {
 		case resp = <-responses:
-		case <-time.After(defaultTimeout):
-			t.Fatalf("response not received")
+		case <-timer:
+			require.Fail(ht, "response not received")
 		}
 
-		if resp.Failure != nil {
-			t.Fatalf("received payment failure : %v", resp.Failure)
-		}
+		require.Nil(ht, resp.Failure, "received payment failure")
 
 		// All shards should come back with the preimage.
-		if !bytes.Equal(resp.Preimage, invoices[0].RPreimage) {
-			t.Fatalf("preimage doesn't match")
-		}
+		require.Equal(ht, resp.Preimage, invoices[0].RPreimage,
+			"preimage doesn't match")
 	}
 
 	// assertNumHtlcs is a helper that checks the node's latest payment,
 	// and asserts it was split into num shards.
-	assertNumHtlcs := func(node *lntest.HarnessNode, num int) {
-		req := &lnrpc.ListPaymentsRequest{
-			IncludeIncomplete: true,
-		}
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-		paymentsResp, err := node.ListPayments(ctxt, req)
-		if err != nil {
-			t.Fatalf("error when obtaining payments: %v",
-				err)
-		}
+	assertNumHtlcs := func(hn *node.HarnessNode, num int) {
+		var preimage lntypes.Preimage
+		copy(preimage[:], invoices[0].RPreimage)
 
-		payments := paymentsResp.Payments
-		if len(payments) == 0 {
-			t.Fatalf("no payments found")
-		}
+		payment := ht.AssertPaymentStatus(
+			hn, preimage, lnrpc.Payment_SUCCEEDED,
+		)
 
-		payment := payments[len(payments)-1]
 		htlcs := payment.Htlcs
-		if len(htlcs) == 0 {
-			t.Fatalf("no htlcs")
-		}
+		require.NotEmpty(ht, htlcs, "no htlcs")
 
 		succeeded := 0
 		for _, htlc := range htlcs {
@@ -166,194 +130,217 @@ func testSendToRouteMultiPath(net *lntest.NetworkHarness, t *harnessTest) {
 				succeeded++
 			}
 		}
-
-		if succeeded != num {
-			t.Fatalf("expected %v succussful HTLCs, got %v", num,
-				succeeded)
-		}
+		require.Equal(ht, num, succeeded, "HTLCs not matched")
 	}
 
 	// assertSettledInvoice checks that the invoice for the given payment
 	// hash is settled, and has been paid using num HTLCs.
-	assertSettledInvoice := func(node *lntest.HarnessNode, rhash []byte,
-		num int) {
+	assertSettledInvoice := func(rhash []byte, num int) {
+		var payHash lntypes.Hash
+		copy(payHash[:], rhash)
+		inv := ht.AssertInvoiceState(stream, lnrpc.Invoice_SETTLED)
 
-		found := false
-		offset := uint64(0)
-		for !found {
-			ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-			invoicesResp, err := node.ListInvoices(
-				ctxt, &lnrpc.ListInvoiceRequest{
-					IndexOffset: offset,
-				},
-			)
-			if err != nil {
-				t.Fatalf("error when obtaining payments: %v",
-					err)
-			}
+		// Assert that the amount paid to the invoice is correct.
+		require.EqualValues(ht, paymentAmt, inv.AmtPaidSat,
+			"incorrect payment amt")
 
-			if len(invoicesResp.Invoices) == 0 {
-				break
-			}
-
-			for _, inv := range invoicesResp.Invoices {
-				if !bytes.Equal(inv.RHash, rhash) {
-					continue
-				}
-
-				// Assert that the amount paid to the invoice is
-				// correct.
-				if inv.AmtPaidSat != int64(paymentAmt) {
-					t.Fatalf("incorrect payment amt for "+
-						"invoicewant: %d, got %d",
-						paymentAmt, inv.AmtPaidSat)
-				}
-
-				if inv.State != lnrpc.Invoice_SETTLED {
-					t.Fatalf("Invoice not settled: %v",
-						inv.State)
-				}
-
-				if len(inv.Htlcs) != num {
-					t.Fatalf("expected invoice to be "+
-						"settled with %v HTLCs, had %v",
-						num, len(inv.Htlcs))
-				}
-
-				found = true
-				break
-			}
-
-			offset = invoicesResp.LastIndexOffset
-		}
-
-		if !found {
-			t.Fatalf("invoice not found")
-		}
+		require.Len(ht, inv.Htlcs, num, "wrong num of HTLCs")
 	}
 
 	// Finally check that the payment shows up with three settled HTLCs in
 	// Alice's list of payments...
-	assertNumHtlcs(ctx.alice, 3)
+	assertNumHtlcs(mts.alice, 3)
 
 	// ...and in Bob's list of paid invoices.
-	assertSettledInvoice(ctx.bob, rHash, 3)
+	assertSettledInvoice(rHash, 3)
+
+	// Finally, close all channels.
+	mts.closeChannels()
 }
 
-type mppTestContext struct {
-	t   *harnessTest
-	net *lntest.NetworkHarness
+// mppTestScenario defines a test scenario used for testing MPP-related tests.
+// It has two standby nodes, alice and bob, and three new nodes, carol, dave,
+// and eve.
+type mppTestScenario struct {
+	ht *lntemp.HarnessTest
+
+	alice, bob, carol, dave, eve *node.HarnessNode
+	nodes                        []*node.HarnessNode
 
 	// Keep a list of all our active channels.
-	networkChans      []*lnrpc.ChannelPoint
-	closeChannelFuncs []func()
-
-	alice, bob, carol, dave, eve *lntest.HarnessNode
-	nodes                        []*lntest.HarnessNode
+	channelPoints []*lnrpc.ChannelPoint
 }
 
-func newMppTestContext(t *harnessTest,
-	net *lntest.NetworkHarness) *mppTestContext {
-
-	alice := net.NewNode(t.t, "alice", nil)
-	bob := net.NewNode(t.t, "bob", []string{"--accept-amp"})
+// newMppTestScenario initializes a new mpp test scenario with five funded
+// nodes and connects them to have the following topology,
+//
+//	            _ Eve _
+//	           /       \
+//	Alice -- Carol ---- Bob
+//	    \              /
+//	     \__ Dave ____/
+func newMppTestScenario(ht *lntemp.HarnessTest) *mppTestScenario {
+	alice, bob := ht.Alice, ht.Bob
+	ht.RestartNodeWithExtraArgs(bob, []string{
+		"--maxpendingchannels=2",
+		"--accept-amp",
+	})
 
 	// Create a five-node context consisting of Alice, Bob and three new
 	// nodes.
-	carol := net.NewNode(t.t, "carol", nil)
-	dave := net.NewNode(t.t, "dave", nil)
-	eve := net.NewNode(t.t, "eve", nil)
+	carol := ht.NewNode("carol", []string{
+		"--maxpendingchannels=2",
+		"--accept-amp",
+	})
+	dave := ht.NewNode("dave", nil)
+	eve := ht.NewNode("eve", nil)
 
 	// Connect nodes to ensure propagation of channels.
-	nodes := []*lntest.HarnessNode{alice, bob, carol, dave, eve}
-	for i := 0; i < len(nodes); i++ {
-		for j := i + 1; j < len(nodes); j++ {
-			net.EnsureConnected(t.t, nodes[i], nodes[j])
-		}
+	ht.EnsureConnected(alice, carol)
+	ht.EnsureConnected(alice, dave)
+	ht.EnsureConnected(carol, bob)
+	ht.EnsureConnected(carol, eve)
+	ht.EnsureConnected(dave, bob)
+	ht.EnsureConnected(eve, bob)
+
+	// Send coins to the nodes and mine 1 blocks to confirm them.
+	for i := 0; i < 2; i++ {
+		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, carol)
+		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, dave)
+		ht.FundCoinsUnconfirmed(btcutil.SatoshiPerBitcoin, eve)
+		ht.MineBlocks(1)
 	}
 
-	ctx := mppTestContext{
-		t:     t,
-		net:   net,
+	mts := &mppTestScenario{
+		ht:    ht,
 		alice: alice,
 		bob:   bob,
 		carol: carol,
 		dave:  dave,
 		eve:   eve,
-		nodes: nodes,
+		nodes: []*node.HarnessNode{alice, bob, carol, dave, eve},
 	}
 
-	return &ctx
+	return mts
 }
 
-// openChannel is a helper to open a channel from->to.
-func (c *mppTestContext) openChannel(from, to *lntest.HarnessNode,
-	chanSize btcutil.Amount) {
+// mppOpenChannelRequest defines the amounts used for each channel opening.
+type mppOpenChannelRequest struct {
+	// Channel Alice=>Carol.
+	amtAliceCarol btcutil.Amount
 
-	c.net.SendCoins(c.t.t, btcutil.SatoshiPerBitcoin, from)
+	// Channel Alice=>Dave.
+	amtAliceDave btcutil.Amount
 
-	chanPoint := openChannelAndAssert(
-		c.t, c.net, from, to,
-		lntest.OpenChannelParams{Amt: chanSize},
-	)
+	// Channel Carol=>Bob.
+	amtCarolBob btcutil.Amount
 
-	c.closeChannelFuncs = append(c.closeChannelFuncs, func() {
-		closeChannelAndAssert(c.t, c.net, from, chanPoint, false)
-	})
+	// Channel Carol=>Eve.
+	amtCarolEve btcutil.Amount
 
-	c.networkChans = append(c.networkChans, chanPoint)
+	// Channel Dave=>Bob.
+	amtDaveBob btcutil.Amount
+
+	// Channel Eve=>Bob.
+	amtEveBob btcutil.Amount
 }
 
-func (c *mppTestContext) closeChannels() {
-	for _, f := range c.closeChannelFuncs {
-		f()
+// openChannels is a helper to open channels that sets up a network topology
+// with three different paths Alice <-> Bob as following,
+//
+//		 _ Eve _
+//		/       \
+//	 Alice -- Carol ---- Bob
+//		\              /
+//		 \__ Dave ____/
+//
+// NOTE: all the channels are open together to save blocks mined.
+func (m *mppTestScenario) openChannels(r *mppOpenChannelRequest) {
+	reqs := []*lntemp.OpenChannelRequest{
+		{
+			Local:  m.alice,
+			Remote: m.carol,
+			Param:  lntemp.OpenChannelParams{Amt: r.amtAliceCarol},
+		},
+		{
+			Local:  m.alice,
+			Remote: m.dave,
+			Param:  lntemp.OpenChannelParams{Amt: r.amtAliceDave},
+		},
+		{
+			Local:  m.carol,
+			Remote: m.bob,
+			Param:  lntemp.OpenChannelParams{Amt: r.amtCarolBob},
+		},
+		{
+			Local:  m.carol,
+			Remote: m.eve,
+			Param:  lntemp.OpenChannelParams{Amt: r.amtCarolEve},
+		},
+		{
+			Local:  m.dave,
+			Remote: m.bob,
+			Param:  lntemp.OpenChannelParams{Amt: r.amtDaveBob},
+		},
+		{
+			Local:  m.eve,
+			Remote: m.bob,
+			Param:  lntemp.OpenChannelParams{Amt: r.amtEveBob},
+		},
 	}
-}
 
-func (c *mppTestContext) shutdownNodes() {
-	shutdownAndAssert(c.net, c.t, c.alice)
-	shutdownAndAssert(c.net, c.t, c.bob)
-	shutdownAndAssert(c.net, c.t, c.carol)
-	shutdownAndAssert(c.net, c.t, c.dave)
-	shutdownAndAssert(c.net, c.t, c.eve)
-}
+	m.channelPoints = m.ht.OpenMultiChannelsAsync(reqs)
 
-func (c *mppTestContext) waitForChannels() {
-	// Wait for all nodes to have seen all channels.
-	for _, chanPoint := range c.networkChans {
-		for _, node := range c.nodes {
-			txid, err := lnrpc.GetChanPointFundingTxid(chanPoint)
-			if err != nil {
-				c.t.Fatalf("unable to get txid: %v", err)
-			}
-			point := wire.OutPoint{
-				Hash:  *txid,
-				Index: chanPoint.OutputIndex,
-			}
-
-			err = node.WaitForNetworkChannelOpen(chanPoint)
-			if err != nil {
-				c.t.Fatalf("(%v:%d): timeout waiting for "+
-					"channel(%s) open: %v",
-					node.Cfg.Name, node.NodeID, point, err)
-			}
+	// Make sure every node has heard every channel.
+	for _, hn := range m.nodes {
+		for _, cp := range m.channelPoints {
+			m.ht.AssertTopologyChannelOpen(hn, cp)
 		}
 	}
 }
 
+// closeChannels closes all the open channels from `openChannels`.
+func (m *mppTestScenario) closeChannels() {
+	if m.ht.Failed() {
+		m.ht.Log("Skipped closing channels for failed test")
+		return
+	}
+
+	// TODO(yy): remove the sleep once the following bug is fixed. When the
+	// payment is reported as settled by Alice, it's expected the
+	// commitment dance is finished and all subsequent states have been
+	// updated. Yet we'd receive the error `cannot co-op close channel with
+	// active htlcs` or `link failed to shutdown` if we close the channel.
+	// We need to investigate the order of settling the payments and
+	// updating commitments to understand and fix .
+	time.Sleep(2 * time.Second)
+
+	// Close all channels without mining the closing transactions.
+	m.ht.CloseChannelAssertPending(m.alice, m.channelPoints[0], false)
+	m.ht.CloseChannelAssertPending(m.alice, m.channelPoints[1], false)
+	m.ht.CloseChannelAssertPending(m.carol, m.channelPoints[2], false)
+	m.ht.CloseChannelAssertPending(m.carol, m.channelPoints[3], false)
+	m.ht.CloseChannelAssertPending(m.dave, m.channelPoints[4], false)
+	m.ht.CloseChannelAssertPending(m.eve, m.channelPoints[5], false)
+
+	// Now mine a block to include all the closing transactions.
+	m.ht.MineBlocks(1)
+
+	// Assert that the channels are closed.
+	for _, hn := range m.nodes {
+		m.ht.AssertNumWaitingClose(hn, 0)
+	}
+}
+
 // Helper function for Alice to build a route from pubkeys.
-func (c *mppTestContext) buildRoute(ctxb context.Context, amt btcutil.Amount,
-	sender *lntest.HarnessNode, hops []*lntest.HarnessNode) (*lnrpc.Route,
-	error) {
+func (m *mppTestScenario) buildRoute(amt btcutil.Amount,
+	sender *node.HarnessNode, hops []*node.HarnessNode) *lnrpc.Route {
 
 	rpcHops := make([][]byte, 0, len(hops))
 	for _, hop := range hops {
 		k := hop.PubKeyStr
 		pubkey, err := route.NewVertexFromStr(k)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing %v: %v",
-				k, err)
-		}
+		require.NoErrorf(m.ht, err, "error parsing %v: %v", k, err)
 		rpcHops = append(rpcHops, pubkey[:])
 	}
 
@@ -362,12 +349,37 @@ func (c *mppTestContext) buildRoute(ctxb context.Context, amt btcutil.Amount,
 		FinalCltvDelta: chainreg.DefaultBitcoinTimeLockDelta,
 		HopPubkeys:     rpcHops,
 	}
+	routeResp := sender.RPC.BuildRoute(req)
 
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	routeResp, err := sender.RouterClient.BuildRoute(ctxt, req)
-	if err != nil {
-		return nil, err
+	return routeResp.Route
+}
+
+// updatePolicy updates a Dave's global channel policy and returns the expected
+// policy for further check. It changes Dave's `FeeBaseMsat` from 1000 msat to
+// 500,000 msat, and `FeeProportionalMillonths` from 1 msat to 1000 msat.
+func (m *mppTestScenario) updateDaveGlobalPolicy() *lnrpc.RoutingPolicy {
+	const (
+		baseFeeMsat = 500_000
+		feeRate     = 0.001
+		maxHtlcMsat = 133_650_000
+	)
+
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      baseFeeMsat,
+		FeeRateMilliMsat: feeRate * testFeeBase,
+		TimeLockDelta:    40,
+		MinHtlc:          1000, // default value
+		MaxHtlcMsat:      maxHtlcMsat,
 	}
 
-	return routeResp.Route, nil
+	updateFeeReq := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   baseFeeMsat,
+		FeeRate:       feeRate,
+		TimeLockDelta: 40,
+		Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
+		MaxHtlcMsat:   maxHtlcMsat,
+	}
+	m.dave.RPC.UpdateChannelPolicy(updateFeeReq)
+
+	return expectedPolicy
 }

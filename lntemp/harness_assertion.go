@@ -1,12 +1,14 @@
 package lntemp
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -127,6 +129,9 @@ func (h *HarnessTest) ConnectNodesPerm(a, b *node.HarnessNode) {
 func (h *HarnessTest) DisconnectNodes(a, b *node.HarnessNode) {
 	bobInfo := b.RPC.GetInfo()
 	a.RPC.DisconnectPeer(bobInfo.IdentityPubkey)
+
+	// Assert disconnected.
+	h.AssertPeerNotConnected(a, b)
 }
 
 // EnsureConnected will try to connect to two nodes, returning no error if they
@@ -729,6 +734,51 @@ func (h *HarnessTest) AssertNumUTXOs(hn *node.HarnessNode,
 	return h.AssertNumUTXOsWithConf(hn, num, math.MaxInt32, 0)
 }
 
+// getUTXOs gets the number of newly created UTOXs within the current test
+// scope.
+func (h *HarnessTest) getUTXOs(hn *node.HarnessNode, account string,
+	max, min int32) []*lnrpc.Utxo {
+
+	var unconfirmed bool
+
+	if max == 0 {
+		unconfirmed = true
+	}
+
+	req := &walletrpc.ListUnspentRequest{
+		Account:         account,
+		MaxConfs:        max,
+		MinConfs:        min,
+		UnconfirmedOnly: unconfirmed,
+	}
+	resp := hn.RPC.ListUnspent(req)
+
+	return resp.Utxos
+}
+
+// GetUTXOs returns all the UTXOs for the given node's account, including
+// confirmed and unconfirmed.
+func (h *HarnessTest) GetUTXOs(hn *node.HarnessNode,
+	account string) []*lnrpc.Utxo {
+
+	return h.getUTXOs(hn, account, math.MaxInt32, 0)
+}
+
+// GetUTXOsConfirmed returns the confirmed UTXOs for the given node's account.
+func (h *HarnessTest) GetUTXOsConfirmed(hn *node.HarnessNode,
+	account string) []*lnrpc.Utxo {
+
+	return h.getUTXOs(hn, account, math.MaxInt32, 1)
+}
+
+// GetUTXOsUnconfirmed returns the unconfirmed UTXOs for the given node's
+// account.
+func (h *HarnessTest) GetUTXOsUnconfirmed(hn *node.HarnessNode,
+	account string) []*lnrpc.Utxo {
+
+	return h.getUTXOs(hn, account, 0, 0)
+}
+
 // WaitForBalanceConfirmed waits until the node sees the expected confirmed
 // balance in its wallet.
 func (h *HarnessTest) WaitForBalanceConfirmed(hn *node.HarnessNode,
@@ -878,6 +928,16 @@ func (h *HarnessTest) AssertPaymentStatusFromStream(stream rpc.PaymentClient,
 	return h.assertPaymentStatusWithTimeout(stream, status, DefaultTimeout)
 }
 
+// AssertPaymentSucceedWithTimeout asserts that a payment is succeeded within
+// the specified timeout.
+func (h *HarnessTest) AssertPaymentSucceedWithTimeout(stream rpc.PaymentClient,
+	timeout time.Duration) *lnrpc.Payment {
+
+	return h.assertPaymentStatusWithTimeout(
+		stream, lnrpc.Payment_SUCCEEDED, timeout,
+	)
+}
+
 // assertPaymentStatusWithTimeout takes a client stream and asserts the payment
 // is in desired status before the specified timeout. The payment found is
 // returned once succeeded.
@@ -889,7 +949,9 @@ func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
 	err := wait.NoError(func() error {
 		// Consume one message. This will raise an error if the message
 		// is not received within DefaultTimeout.
-		payment, err := h.ReceivePaymentUpdate(stream)
+		payment, err := h.receivePaymentUpdateWithTimeout(
+			stream, timeout,
+		)
 		if err != nil {
 			return fmt.Errorf("received error from payment "+
 				"stream: %s", err)
@@ -918,8 +980,17 @@ func (h *HarnessTest) assertPaymentStatusWithTimeout(stream rpc.PaymentClient,
 func (h *HarnessTest) ReceivePaymentUpdate(
 	stream rpc.PaymentClient) (*lnrpc.Payment, error) {
 
+	return h.receivePaymentUpdateWithTimeout(stream, DefaultTimeout)
+}
+
+// receivePaymentUpdateWithTimeout waits until a message is received on the
+// payment client stream or the timeout is reached.
+func (h *HarnessTest) receivePaymentUpdateWithTimeout(stream rpc.PaymentClient,
+	timeout time.Duration) (*lnrpc.Payment, error) {
+
 	chanMsg := make(chan *lnrpc.Payment, 1)
 	errChan := make(chan error, 1)
+
 	go func() {
 		// Consume one message. This will block until the message is
 		// received.
@@ -933,7 +1004,7 @@ func (h *HarnessTest) ReceivePaymentUpdate(
 	}()
 
 	select {
-	case <-time.After(DefaultTimeout):
+	case <-time.After(timeout):
 		require.Fail(h, "timeout", "timeout waiting for payment update")
 		return nil, nil
 
@@ -2073,4 +2144,146 @@ func (h *HarnessTest) ReceiveSendToRouteUpdate(
 	case updateMsg := <-chanMsg:
 		return updateMsg, nil
 	}
+}
+
+// AssertInvoiceEqual asserts that two lnrpc.Invoices are equivalent. A custom
+// comparison function is defined for these tests, since proto message returned
+// from unary and streaming RPCs (as of protobuf 1.23.0 and grpc 1.29.1) aren't
+// consistent with the private fields set on the messages. As a result, we
+// avoid using require.Equal and test only the actual data members.
+func (h *HarnessTest) AssertInvoiceEqual(a, b *lnrpc.Invoice) {
+	// Ensure the HTLCs are sorted properly before attempting to compare.
+	sort.Slice(a.Htlcs, func(i, j int) bool {
+		return a.Htlcs[i].ChanId < a.Htlcs[j].ChanId
+	})
+	sort.Slice(b.Htlcs, func(i, j int) bool {
+		return b.Htlcs[i].ChanId < b.Htlcs[j].ChanId
+	})
+
+	require.Equal(h, a.Memo, b.Memo)
+	require.Equal(h, a.RPreimage, b.RPreimage)
+	require.Equal(h, a.RHash, b.RHash)
+	require.Equal(h, a.Value, b.Value)
+	require.Equal(h, a.ValueMsat, b.ValueMsat)
+	require.Equal(h, a.CreationDate, b.CreationDate)
+	require.Equal(h, a.SettleDate, b.SettleDate)
+	require.Equal(h, a.PaymentRequest, b.PaymentRequest)
+	require.Equal(h, a.DescriptionHash, b.DescriptionHash)
+	require.Equal(h, a.Expiry, b.Expiry)
+	require.Equal(h, a.FallbackAddr, b.FallbackAddr)
+	require.Equal(h, a.CltvExpiry, b.CltvExpiry)
+	require.Equal(h, a.RouteHints, b.RouteHints)
+	require.Equal(h, a.Private, b.Private)
+	require.Equal(h, a.AddIndex, b.AddIndex)
+	require.Equal(h, a.SettleIndex, b.SettleIndex)
+	require.Equal(h, a.AmtPaidSat, b.AmtPaidSat)
+	require.Equal(h, a.AmtPaidMsat, b.AmtPaidMsat)
+	require.Equal(h, a.State, b.State)
+	require.Equal(h, a.Features, b.Features)
+	require.Equal(h, a.IsKeysend, b.IsKeysend)
+	require.Equal(h, a.PaymentAddr, b.PaymentAddr)
+	require.Equal(h, a.IsAmp, b.IsAmp)
+
+	require.Equal(h, len(a.Htlcs), len(b.Htlcs))
+	for i := range a.Htlcs {
+		htlcA, htlcB := a.Htlcs[i], b.Htlcs[i]
+		require.Equal(h, htlcA.ChanId, htlcB.ChanId)
+		require.Equal(h, htlcA.HtlcIndex, htlcB.HtlcIndex)
+		require.Equal(h, htlcA.AmtMsat, htlcB.AmtMsat)
+		require.Equal(h, htlcA.AcceptHeight, htlcB.AcceptHeight)
+		require.Equal(h, htlcA.AcceptTime, htlcB.AcceptTime)
+		require.Equal(h, htlcA.ResolveTime, htlcB.ResolveTime)
+		require.Equal(h, htlcA.ExpiryHeight, htlcB.ExpiryHeight)
+		require.Equal(h, htlcA.State, htlcB.State)
+		require.Equal(h, htlcA.CustomRecords, htlcB.CustomRecords)
+		require.Equal(h, htlcA.MppTotalAmtMsat, htlcB.MppTotalAmtMsat)
+		require.Equal(h, htlcA.Amp, htlcB.Amp)
+	}
+}
+
+// AssertUTXOInWallet asserts that a given UTXO can be found in the node's
+// wallet.
+func (h *HarnessTest) AssertUTXOInWallet(hn *node.HarnessNode,
+	op *lnrpc.OutPoint, account string) {
+
+	err := wait.NoError(func() error {
+		utxos := h.GetUTXOs(hn, account)
+
+		err := fmt.Errorf("tx with hash %x not found", op.TxidBytes)
+		for _, utxo := range utxos {
+			if !bytes.Equal(utxo.Outpoint.TxidBytes, op.TxidBytes) {
+				continue
+			}
+
+			err = fmt.Errorf("tx with output index %v not found",
+				op.OutputIndex)
+			if utxo.Outpoint.OutputIndex != op.OutputIndex {
+				continue
+			}
+
+			return nil
+		}
+
+		return err
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "outpoint %v not found in %s's wallet",
+		op, hn.Name())
+}
+
+// AssertWalletAccountBalance asserts that the unconfirmed and confirmed
+// balance for the given account is satisfied by the WalletBalance and
+// ListUnspent RPCs. The unconfirmed balance is not checked for neutrino nodes.
+func (h *HarnessTest) AssertWalletAccountBalance(hn *node.HarnessNode,
+	account string, confirmedBalance, unconfirmedBalance int64) {
+
+	err := wait.NoError(func() error {
+		balanceResp := hn.RPC.WalletBalance()
+		require.Contains(h, balanceResp.AccountBalance, account)
+		accountBalance := balanceResp.AccountBalance[account]
+
+		// Check confirmed balance.
+		if accountBalance.ConfirmedBalance != confirmedBalance {
+			return fmt.Errorf("expected confirmed balance %v, "+
+				"got %v", confirmedBalance,
+				accountBalance.ConfirmedBalance)
+		}
+
+		utxos := h.GetUTXOsConfirmed(hn, account)
+		var totalConfirmedVal int64
+		for _, utxo := range utxos {
+			totalConfirmedVal += utxo.AmountSat
+		}
+		if totalConfirmedVal != confirmedBalance {
+			return fmt.Errorf("expected total confirmed utxo "+
+				"balance %v, got %v", confirmedBalance,
+				totalConfirmedVal)
+		}
+
+		// Skip unconfirmed balance checks for neutrino nodes.
+		if h.IsNeutrinoBackend() {
+			return nil
+		}
+
+		// Check unconfirmed balance.
+		if accountBalance.UnconfirmedBalance != unconfirmedBalance {
+			return fmt.Errorf("expected unconfirmed balance %v, "+
+				"got %v", unconfirmedBalance,
+				accountBalance.UnconfirmedBalance)
+		}
+
+		utxos = h.GetUTXOsUnconfirmed(hn, account)
+		var totalUnconfirmedVal int64
+		for _, utxo := range utxos {
+			totalUnconfirmedVal += utxo.AmountSat
+		}
+		if totalUnconfirmedVal != unconfirmedBalance {
+			return fmt.Errorf("expected total unconfirmed utxo "+
+				"balance %v, got %v", unconfirmedBalance,
+				totalUnconfirmedVal)
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking wallet account balance")
 }

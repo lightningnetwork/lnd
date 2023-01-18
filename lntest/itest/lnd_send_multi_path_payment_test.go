@@ -1,22 +1,19 @@
 package itest
 
 import (
-	"context"
 	"encoding/hex"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/stretchr/testify/require"
 )
 
 // testSendMultiPathPayment tests that we are able to successfully route a
 // payment using multiple shards across different paths.
-func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	ctx := newMppTestContext(t, net)
-	defer ctx.shutdownNodes()
+func testSendMultiPathPayment(ht *lntemp.HarnessTest) {
+	mts := newMppTestScenario(ht)
 
 	const paymentAmt = btcutil.Amount(300000)
 
@@ -30,57 +27,45 @@ func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 	//      \              /
 	//       \__ Dave ____/
 	//
-	ctx.openChannel(ctx.carol, ctx.bob, 135000)
-	ctx.openChannel(ctx.alice, ctx.carol, 235000)
-	ctx.openChannel(ctx.dave, ctx.bob, 135000)
-	ctx.openChannel(ctx.alice, ctx.dave, 135000)
-	ctx.openChannel(ctx.eve, ctx.bob, 135000)
-	ctx.openChannel(ctx.carol, ctx.eve, 135000)
-
-	defer ctx.closeChannels()
-
-	ctx.waitForChannels()
+	req := &mppOpenChannelRequest{
+		amtAliceCarol: 235000,
+		amtAliceDave:  135000,
+		amtCarolBob:   135000,
+		amtCarolEve:   135000,
+		amtDaveBob:    135000,
+		amtEveBob:     135000,
+	}
+	mts.openChannels(req)
+	chanPointAliceDave := mts.channelPoints[1]
 
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	_, err := ctx.dave.UpdateChannelPolicy(
-		context.Background(),
-		&lnrpc.PolicyUpdateRequest{
-			Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
-			BaseFeeMsat:   500000,
-			FeeRate:       0.001,
-			TimeLockDelta: 40,
-		},
+	expectedPolicy := mts.updateDaveGlobalPolicy()
+
+	// Make sure Alice has heard it.
+	ht.AssertChannelPolicyUpdate(
+		mts.alice, mts.dave, expectedPolicy, chanPointAliceDave, false,
 	)
-	if err != nil {
-		t.Fatalf("dave policy update: %v", err)
-	}
+
 	// Our first test will be Alice paying Bob using a SendPayment call.
 	// Let Bob create an invoice for Alice to pay.
-	payReqs, rHashes, invoices, err := createPayReqs(
-		ctx.bob, paymentAmt, 1,
-	)
-	if err != nil {
-		t.Fatalf("unable to create pay reqs: %v", err)
-	}
+	payReqs, rHashes, invoices := ht.CreatePayReqs(mts.bob, paymentAmt, 1)
 
 	rHash := rHashes[0]
 	payReq := payReqs[0]
 
-	payment := sendAndAssertSuccess(
-		t, ctx.alice, &routerrpc.SendPaymentRequest{
-			PaymentRequest: payReq,
-			MaxParts:       10,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		},
-	)
+	sendReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: payReq,
+		MaxParts:       10,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	payment := ht.SendPaymentAssertSettled(mts.alice, sendReq)
 
 	// Make sure we got the preimage.
-	if payment.PaymentPreimage != hex.EncodeToString(invoices[0].RPreimage) {
-		t.Fatalf("preimage doesn't match")
-	}
+	require.Equal(ht, hex.EncodeToString(invoices[0].RPreimage),
+		payment.PaymentPreimage, "preimage doesn't match")
 
 	// Check that Alice split the payment in at least three shards. Because
 	// the hand-off of the htlc to the link is asynchronous (via a mailbox),
@@ -97,32 +82,17 @@ func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 	}
 
 	const minExpectedShards = 3
-	if succeeded < minExpectedShards {
-		t.Fatalf("expected at least %v shards, but got %v",
-			minExpectedShards, succeeded)
-	}
+	require.GreaterOrEqual(ht, succeeded, minExpectedShards,
+		"expected shards not reached")
 
-	// Make sure Bob show the invoice as settled for the full
-	// amount.
-	ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-	inv, err := ctx.bob.LookupInvoice(
-		ctxt, &lnrpc.PaymentHash{
-			RHash: rHash,
-		},
-	)
-	if err != nil {
-		t.Fatalf("error when obtaining invoice: %v", err)
-	}
+	// Make sure Bob show the invoice as settled for the full amount.
+	inv := mts.bob.RPC.LookupInvoice(rHash)
 
-	if inv.AmtPaidSat != int64(paymentAmt) {
-		t.Fatalf("incorrect payment amt for invoice"+
-			"want: %d, got %d",
-			paymentAmt, inv.AmtPaidSat)
-	}
+	require.EqualValues(ht, paymentAmt, inv.AmtPaidSat,
+		"incorrect payment amt")
 
-	if inv.State != lnrpc.Invoice_SETTLED {
-		t.Fatalf("Invoice not settled: %v", inv.State)
-	}
+	require.Equal(ht, lnrpc.Invoice_SETTLED, inv.State,
+		"Invoice not settled")
 
 	settled := 0
 	for _, htlc := range inv.Htlcs {
@@ -130,8 +100,9 @@ func testSendMultiPathPayment(net *lntest.NetworkHarness, t *harnessTest) {
 			settled++
 		}
 	}
-	if settled != succeeded {
-		t.Fatalf("expected invoice to be settled "+
-			"with %v HTLCs, had %v", succeeded, settled)
-	}
+	require.Equal(ht, succeeded, settled,
+		"num of HTLCs wrong")
+
+	// Finally, close all channels.
+	mts.closeChannels()
 }

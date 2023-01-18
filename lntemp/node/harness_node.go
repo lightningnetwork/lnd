@@ -135,15 +135,24 @@ func NewHarnessNode(t *testing.T, cfg *BaseNodeConfig) (*HarnessNode, error) {
 	}, nil
 }
 
-// InitRPCClients initializes a list of RPC clients for the node.
-func (hn *HarnessNode) InitRPCClients(c *grpc.ClientConn) {
+// Initialize creates a list of new RPC clients using the passed connection,
+// initializes the node's internal state and creates a topology watcher.
+func (hn *HarnessNode) Initialize(c *grpc.ClientConn) {
 	hn.conn = c
 
 	// Init all the rpc clients.
 	hn.RPC = rpc.NewHarnessRPC(hn.runCtx, hn.T, c, hn.Name())
 
-	// Init the node's internal state.
-	hn.State = newState(hn.RPC)
+	// Init the node's state.
+	//
+	// If we already have a state, it means we are restarting the node and
+	// we will only reset its internal states. Otherwise we'll create a new
+	// state.
+	if hn.State != nil {
+		hn.State.resetEphermalStates(hn.RPC)
+	} else {
+		hn.State = newState(hn.RPC)
+	}
 
 	// Init the topology watcher.
 	hn.Watcher = newNodeWatcher(hn.RPC, hn.State)
@@ -164,11 +173,11 @@ func (hn *HarnessNode) String() string {
 	type nodeCfg struct {
 		LogFilenamePrefix string
 		ExtraArgs         []string
-		HasSeed           bool
+		SkipUnlock        bool
+		Password          []byte
 		P2PPort           int
 		RPCPort           int
 		RESTPort          int
-		ProfilePort       int
 		AcceptKeySend     bool
 		FeeURL            string
 	}
@@ -185,6 +194,8 @@ func (hn *HarnessNode) String() string {
 		PubKey: hn.PubKeyStr,
 		State:  hn.State,
 		NodeCfg: nodeCfg{
+			SkipUnlock:        hn.Cfg.SkipUnlock,
+			Password:          hn.Cfg.Password,
 			LogFilenamePrefix: hn.Cfg.LogFilenamePrefix,
 			ExtraArgs:         hn.Cfg.ExtraArgs,
 			P2PPort:           hn.Cfg.P2PPort,
@@ -434,8 +445,9 @@ func (hn *HarnessNode) Start(ctxt context.Context) error {
 		return err
 	}
 
-	// Init all the RPC clients.
-	hn.InitRPCClients(conn)
+	// Init the node by creating the RPC clients, initializing node's
+	// internal state and watcher.
+	hn.Initialize(conn)
 
 	// Wait till the server is starting.
 	if err := hn.WaitUntilStarted(); err != nil {
@@ -477,8 +489,9 @@ func (hn *HarnessNode) InitNode(macBytes []byte) error {
 		}
 	}
 
-	// Init all the RPC clients.
-	hn.InitRPCClients(conn)
+	// Init the node by creating the RPC clients, initializing node's
+	// internal state and watcher.
+	hn.Initialize(conn)
 
 	// Wait till the server is starting.
 	if err := hn.WaitUntilStarted(); err != nil {

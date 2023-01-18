@@ -1,9 +1,8 @@
 package itest
 
 import (
-	"context"
 	"fmt"
-	"time"
+	"testing"
 
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -12,7 +11,8 @@ import (
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp/node"
+	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -172,9 +172,7 @@ func testOpenChannelAfterReorg(ht *lntemp.HarnessTest) {
 // ChannelUpdate --> defaultBaseFee, provided FeeRate
 // 4.) baseFee and feeRate provided to OpenChannelRequest
 // ChannelUpdate --> provided baseFee, provided feeRate.
-func testOpenChannelUpdateFeePolicy(net *lntest.NetworkHarness,
-	t *harnessTest) {
-
+func testOpenChannelUpdateFeePolicy(ht *lntemp.HarnessTest) {
 	const (
 		defaultBaseFee       = 1000
 		defaultFeeRate       = 1
@@ -189,7 +187,7 @@ func testOpenChannelUpdateFeePolicy(net *lntest.NetworkHarness,
 	chanAmt := funding.MaxBtcFundingAmount
 	pushAmt := chanAmt / 2
 
-	feeScenarios := []lntest.OpenChannelParams{
+	feeScenarios := []lntemp.OpenChannelParams{
 		{
 			Amt:        chanAmt,
 			PushAmt:    pushAmt,
@@ -259,89 +257,79 @@ func testOpenChannelUpdateFeePolicy(net *lntest.NetworkHarness,
 		MaxHtlcMsat:      defaultMaxHtlc,
 	}
 
-	for i, feeScenario := range feeScenarios {
+	alice, bob := ht.Alice, ht.Bob
+
+	runTestCase := func(ht *lntemp.HarnessTest,
+		fs lntemp.OpenChannelParams,
+		alicePolicy, bobPolicy *lnrpc.RoutingPolicy) {
+
 		// Create a channel Alice->Bob.
-		chanPoint := openChannelAndAssert(
-			t, net, net.Alice, net.Bob,
-			feeScenario,
-		)
+		chanPoint := ht.OpenChannel(alice, bob, fs)
+		defer ht.CloseChannel(alice, chanPoint)
 
-		defer closeChannelAndAssert(t, net, net.Alice, chanPoint, false)
+		// We add all the nodes' update channels to a slice, such that
+		// we can make sure they all receive the expected updates.
+		nodes := []*node.HarnessNode{alice, bob}
 
-		// We add all the nodes' update channels to a slice, such that we can
-		// make sure they all receive the expected updates.
-		nodes := []*lntest.HarnessNode{net.Alice, net.Bob}
-
-		// Alice and Bob should see each other's ChannelUpdates, advertising
-		// the preferred routing policies.
-		assertPolicyUpdate(
-			t, nodes, net.Alice.PubKeyStr,
-			&expectedPolicies[i], chanPoint,
+		// Alice and Bob should see each other's ChannelUpdates,
+		// advertising the preferred routing policies.
+		assertNodesPolicyUpdate(
+			ht, nodes, alice, alicePolicy, chanPoint,
 		)
-		assertPolicyUpdate(
-			t, nodes, net.Bob.PubKeyStr,
-			&bobExpectedPolicy, chanPoint,
-		)
+		assertNodesPolicyUpdate(ht, nodes, bob, bobPolicy, chanPoint)
 
 		// They should now know about the default policies.
 		for _, node := range nodes {
-			assertChannelPolicy(
-				t, node, net.Alice.PubKeyStr,
-				&expectedPolicies[i], chanPoint,
+			ht.AssertChannelPolicy(
+				node, alice.PubKeyStr, alicePolicy, chanPoint,
 			)
-			assertChannelPolicy(
-				t, node, net.Bob.PubKeyStr,
-				&bobExpectedPolicy, chanPoint,
+			ht.AssertChannelPolicy(
+				node, bob.PubKeyStr, bobPolicy, chanPoint,
 			)
 		}
+	}
 
-		require.NoError(
-			t.t, net.Alice.WaitForNetworkChannelOpen(chanPoint),
-			"alice reports channel opening",
-		)
+	for i, feeScenario := range feeScenarios {
+		ht.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
+			st := ht.Subtest(t)
+			ht.EnsureConnected(alice, bob)
 
-		require.NoError(
-			t.t, net.Bob.WaitForNetworkChannelOpen(chanPoint),
-			"bob reports channel opening",
-		)
+			runTestCase(
+				st, feeScenario,
+				&expectedPolicies[i], &bobExpectedPolicy,
+			)
+		})
 	}
 }
 
 // testBasicChannelCreationAndUpdates tests multiple channel opening and
-// closing, and ensures that if a node is subscribed to channel updates
-// they will be received correctly for both cooperative and force closed
-// channels.
-func testBasicChannelCreationAndUpdates(net *lntest.NetworkHarness,
-	t *harnessTest) {
-
-	runBasicChannelCreationAndUpdates(net, t, net.Alice, net.Bob)
+// closing, and ensures that if a node is subscribed to channel updates they
+// will be received correctly for both cooperative and force closed channels.
+func testBasicChannelCreationAndUpdates(ht *lntemp.HarnessTest) {
+	runBasicChannelCreationAndUpdates(ht, ht.Alice, ht.Bob)
 }
 
 // runBasicChannelCreationAndUpdates tests multiple channel opening and closing,
 // and ensures that if a node is subscribed to channel updates they will be
 // received correctly for both cooperative and force closed channels.
-func runBasicChannelCreationAndUpdates(net *lntest.NetworkHarness,
-	t *harnessTest, alice, bob *lntest.HarnessNode) {
+func runBasicChannelCreationAndUpdates(ht *lntemp.HarnessTest,
+	alice, bob *node.HarnessNode) {
 
-	ctxb := context.Background()
 	const (
 		numChannels = 2
 		amount      = funding.MaxBtcFundingAmount
 	)
 
 	// Subscribe Bob and Alice to channel event notifications.
-	bobChanSub := subscribeChannelNotifications(ctxb, t, bob)
-	defer close(bobChanSub.quit)
-
-	aliceChanSub := subscribeChannelNotifications(ctxb, t, alice)
-	defer close(aliceChanSub.quit)
+	bobChanSub := bob.RPC.SubscribeChannelEvents()
+	aliceChanSub := alice.RPC.SubscribeChannelEvents()
 
 	// Open the channels between Alice and Bob, asserting that the channels
 	// have been properly opened on-chain.
 	chanPoints := make([]*lnrpc.ChannelPoint, numChannels)
 	for i := 0; i < numChannels; i++ {
-		chanPoints[i] = openChannelAndAssert(
-			t, net, alice, bob, lntest.OpenChannelParams{
+		chanPoints[i] = ht.OpenChannel(
+			alice, bob, lntemp.OpenChannelParams{
 				Amt: amount,
 			},
 		)
@@ -350,112 +338,93 @@ func runBasicChannelCreationAndUpdates(net *lntest.NetworkHarness,
 	// Since each of the channels just became open, Bob and Alice should
 	// each receive an open and an active notification for each channel.
 	const numExpectedOpenUpdates = 3 * numChannels
-	verifyOpenUpdatesReceived := func(sub channelSubscription) error {
-		numChannelUpds := 0
-		for numChannelUpds < numExpectedOpenUpdates {
-			select {
-			case update := <-sub.updateChan:
-				switch update.Type {
-				case lnrpc.ChannelEventUpdate_PENDING_OPEN_CHANNEL:
-					if numChannelUpds%3 != 0 {
-						return fmt.Errorf("expected " +
-							"open or active" +
-							"channel ntfn, got pending open " +
-							"channel ntfn instead")
-					}
-				case lnrpc.ChannelEventUpdate_OPEN_CHANNEL:
-					if numChannelUpds%3 != 1 {
-						return fmt.Errorf("expected " +
-							"pending open or active" +
-							"channel ntfn, got open" +
-							"channel ntfn instead")
-					}
-				case lnrpc.ChannelEventUpdate_ACTIVE_CHANNEL:
-					if numChannelUpds%3 != 2 {
-						return fmt.Errorf("expected " +
-							"pending open or open" +
-							"channel ntfn, got active " +
-							"channel ntfn instead")
-					}
-				default:
-					return fmt.Errorf("update type mismatch: "+
-						"expected open or active channel "+
-						"notification, got: %v",
-						update.Type)
-				}
-				numChannelUpds++
+	verifyOpenUpdatesReceived := func(sub rpc.ChannelEventsClient) error {
+		for i := 0; i < numExpectedOpenUpdates; i++ {
+			update := ht.ReceiveChannelEvent(sub)
 
-			case <-time.After(time.Second * 10):
-				return fmt.Errorf("timeout waiting for channel "+
-					"notifications, only received %d/%d "+
-					"chanupds", numChannelUpds,
-					numExpectedOpenUpdates)
+			switch update.Type {
+			case lnrpc.ChannelEventUpdate_PENDING_OPEN_CHANNEL:
+				if i%3 == 0 {
+					continue
+				}
+
+				return fmt.Errorf("expected open or active" +
+					"channel ntfn, got pending open " +
+					"channel ntfn instead")
+
+			case lnrpc.ChannelEventUpdate_OPEN_CHANNEL:
+				if i%3 == 1 {
+					continue
+				}
+
+				return fmt.Errorf("expected pending open or " +
+					"active channel ntfn, got open" +
+					"channel ntfn instead")
+
+			case lnrpc.ChannelEventUpdate_ACTIVE_CHANNEL:
+				if i%3 == 2 {
+					continue
+				}
+
+				return fmt.Errorf("expected pending open or " +
+					"open channel ntfn, got active " +
+					"channel ntfn instead")
+
+			default:
+				return fmt.Errorf("update type mismatch: "+
+					"expected open or active channel "+
+					"notification, got: %v", update.Type)
 			}
 		}
 
 		return nil
 	}
 
-	require.NoError(
-		t.t, verifyOpenUpdatesReceived(bobChanSub), "bob open channels",
-	)
-	require.NoError(
-		t.t, verifyOpenUpdatesReceived(aliceChanSub), "alice open "+
-			"channels",
-	)
+	require.NoError(ht, verifyOpenUpdatesReceived(bobChanSub),
+		"bob open channels")
+	require.NoError(ht, verifyOpenUpdatesReceived(aliceChanSub),
+		"alice open channels")
 
-	// Close the channels between Alice and Bob, asserting that the channels
-	// have been properly closed on-chain.
+	// Close the channels between Alice and Bob, asserting that the
+	// channels have been properly closed on-chain.
 	for i, chanPoint := range chanPoints {
 		// Force close the first of the two channels.
 		force := i%2 == 0
-		closeChannelAndAssert(t, net, alice, chanPoint, force)
 		if force {
-			cleanupForceClose(t, net, alice, chanPoint)
+			ht.ForceCloseChannel(alice, chanPoint)
+		} else {
+			ht.CloseChannel(alice, chanPoint)
 		}
 	}
 
 	// verifyCloseUpdatesReceived is used to verify that Alice and Bob
 	// receive the correct channel updates in order.
 	const numExpectedCloseUpdates = 3 * numChannels
-	verifyCloseUpdatesReceived := func(sub channelSubscription,
+	verifyCloseUpdatesReceived := func(sub rpc.ChannelEventsClient,
 		forceType lnrpc.ChannelCloseSummary_ClosureType,
 		closeInitiator lnrpc.Initiator) error {
 
 		// Ensure one inactive and one closed notification is received
 		// for each closed channel.
-		numChannelUpds := 0
-		for numChannelUpds < numExpectedCloseUpdates {
-			expectedCloseType := lnrpc.ChannelCloseSummary_COOPERATIVE_CLOSE
+		for i := 0; i < numExpectedCloseUpdates; i++ {
+			expectedCloseType := lnrpc.
+				ChannelCloseSummary_COOPERATIVE_CLOSE
 
 			// Every other channel should be force closed. If this
 			// channel was force closed, set the expected close type
 			// to the type passed in.
-			force := (numChannelUpds/3)%2 == 0
+			force := (i/3)%2 == 0
 			if force {
 				expectedCloseType = forceType
 			}
 
-			select {
-			case chanUpdate := <-sub.updateChan:
-				err := verifyCloseUpdate(
-					chanUpdate, expectedCloseType,
-					closeInitiator,
-				)
-				if err != nil {
-					return err
-				}
-
-				numChannelUpds++
-
-			case err := <-sub.errChan:
+			chanUpdate := ht.ReceiveChannelEvent(sub)
+			err := verifyCloseUpdate(
+				chanUpdate, expectedCloseType,
+				closeInitiator,
+			)
+			if err != nil {
 				return err
-
-			case <-time.After(time.Second * 10):
-				return fmt.Errorf("timeout waiting "+
-					"for channel notifications, only "+
-					"received %d/%d chanupds",
-					numChannelUpds, numChannelUpds)
 			}
 		}
 
@@ -467,7 +436,7 @@ func runBasicChannelCreationAndUpdates(net *lntest.NetworkHarness,
 	// All channels (cooperatively and force closed) should have a remote
 	// close initiator because Alice closed the channels.
 	require.NoError(
-		t.t, verifyCloseUpdatesReceived(
+		ht, verifyCloseUpdatesReceived(
 			bobChanSub,
 			lnrpc.ChannelCloseSummary_REMOTE_FORCE_CLOSE,
 			lnrpc.Initiator_INITIATOR_REMOTE,
@@ -479,7 +448,7 @@ func runBasicChannelCreationAndUpdates(net *lntest.NetworkHarness,
 	// All channels (cooperatively and force closed) should have a local
 	// close initiator because Alice closed the channels.
 	require.NoError(
-		t.t, verifyCloseUpdatesReceived(
+		ht, verifyCloseUpdatesReceived(
 			aliceChanSub,
 			lnrpc.ChannelCloseSummary_LOCAL_FORCE_CLOSE,
 			lnrpc.Initiator_INITIATOR_LOCAL,
@@ -515,4 +484,65 @@ func assertMinerBlockHeightDelta(ht *lntemp.HarnessTest,
 		return nil
 	}, defaultTimeout)
 	require.NoError(ht, err, "failed to assert block height delta")
+}
+
+// verifyCloseUpdate is used to verify that a closed channel update is of the
+// expected type.
+func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
+	closeType lnrpc.ChannelCloseSummary_ClosureType,
+	closeInitiator lnrpc.Initiator) error {
+
+	// We should receive one inactive and one closed notification
+	// for each channel.
+	switch update := chanUpdate.Channel.(type) {
+	case *lnrpc.ChannelEventUpdate_InactiveChannel:
+		if chanUpdate.Type !=
+			lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL {
+
+			return fmt.Errorf("update type mismatch: "+
+				"expected %v, got %v",
+				lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL,
+				chanUpdate.Type)
+		}
+
+	case *lnrpc.ChannelEventUpdate_ClosedChannel:
+		if chanUpdate.Type !=
+			lnrpc.ChannelEventUpdate_CLOSED_CHANNEL {
+
+			return fmt.Errorf("update type mismatch: "+
+				"expected %v, got %v",
+				lnrpc.ChannelEventUpdate_CLOSED_CHANNEL,
+				chanUpdate.Type)
+		}
+
+		if update.ClosedChannel.CloseType != closeType {
+			return fmt.Errorf("channel closure type "+
+				"mismatch: expected %v, got %v",
+				closeType,
+				update.ClosedChannel.CloseType)
+		}
+
+		if update.ClosedChannel.CloseInitiator != closeInitiator {
+			return fmt.Errorf("expected close intiator: %v, "+
+				"got: %v", closeInitiator,
+				update.ClosedChannel.CloseInitiator)
+		}
+
+	case *lnrpc.ChannelEventUpdate_FullyResolvedChannel:
+		if chanUpdate.Type !=
+			lnrpc.ChannelEventUpdate_FULLY_RESOLVED_CHANNEL {
+
+			return fmt.Errorf("update type mismatch: "+
+				"expected %v, got %v",
+				lnrpc.ChannelEventUpdate_FULLY_RESOLVED_CHANNEL,
+				chanUpdate.Type)
+		}
+
+	default:
+		return fmt.Errorf("channel update channel of wrong type, "+
+			"expected closed channel, got %T",
+			update)
+	}
+
+	return nil
 }

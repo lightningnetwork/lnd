@@ -949,60 +949,6 @@ func assertNumPendingChannels(t *harnessTest, node *lntest.HarnessNode,
 	require.NoErrorf(t.t, err, "got err: %v", predErr)
 }
 
-// verifyCloseUpdate is used to verify that a closed channel update is of the
-// expected type.
-func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
-	closeType lnrpc.ChannelCloseSummary_ClosureType,
-	closeInitiator lnrpc.Initiator) error {
-
-	// We should receive one inactive and one closed notification
-	// for each channel.
-	switch update := chanUpdate.Channel.(type) {
-	case *lnrpc.ChannelEventUpdate_InactiveChannel:
-		if chanUpdate.Type != lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL {
-			return fmt.Errorf("update type mismatch: expected %v, got %v",
-				lnrpc.ChannelEventUpdate_INACTIVE_CHANNEL,
-				chanUpdate.Type)
-		}
-
-	case *lnrpc.ChannelEventUpdate_ClosedChannel:
-		if chanUpdate.Type !=
-			lnrpc.ChannelEventUpdate_CLOSED_CHANNEL {
-
-			return fmt.Errorf("update type mismatch: expected %v, got %v",
-				lnrpc.ChannelEventUpdate_CLOSED_CHANNEL,
-				chanUpdate.Type)
-		}
-
-		if update.ClosedChannel.CloseType != closeType {
-			return fmt.Errorf("channel closure type "+
-				"mismatch: expected %v, got %v",
-				closeType,
-				update.ClosedChannel.CloseType)
-		}
-
-		if update.ClosedChannel.CloseInitiator != closeInitiator {
-			return fmt.Errorf("expected close intiator: %v, got: %v",
-				closeInitiator,
-				update.ClosedChannel.CloseInitiator)
-		}
-
-	case *lnrpc.ChannelEventUpdate_FullyResolvedChannel:
-		if chanUpdate.Type != lnrpc.ChannelEventUpdate_FULLY_RESOLVED_CHANNEL {
-			return fmt.Errorf("update type mismatch: expected %v, got %v",
-				lnrpc.ChannelEventUpdate_FULLY_RESOLVED_CHANNEL,
-				chanUpdate.Type)
-		}
-
-	default:
-		return fmt.Errorf("channel update channel of wrong type, "+
-			"expected closed channel, got %T",
-			update)
-	}
-
-	return nil
-}
-
 // assertNodeNumChannels polls the provided node's list channels rpc until it
 // reaches the desired number of total channels.
 func assertNodeNumChannels(t *harnessTest, node *lntest.HarnessNode,

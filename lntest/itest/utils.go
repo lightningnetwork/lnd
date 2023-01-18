@@ -5,20 +5,16 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
-	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
-	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -469,50 +465,4 @@ func findTxAtHeight(t *harnessTest, height int32,
 	}
 
 	return nil
-}
-
-// getOutputIndex returns the output index of the given address in the given
-// transaction.
-func getOutputIndex(t *harnessTest, miner *lntest.HarnessMiner,
-	txid *chainhash.Hash, addr string) int {
-
-	t.t.Helper()
-
-	// We'll then extract the raw transaction from the mempool in order to
-	// determine the index of the p2tr output.
-	tx, err := miner.Client.GetRawTransaction(txid)
-	require.NoError(t.t, err)
-
-	p2trOutputIndex := -1
-	for i, txOut := range tx.MsgTx().TxOut {
-		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, miner.ActiveNet,
-		)
-		require.NoError(t.t, err)
-
-		if addrs[0].String() == addr {
-			p2trOutputIndex = i
-		}
-	}
-	require.Greater(t.t, p2trOutputIndex, -1)
-
-	return p2trOutputIndex
-}
-
-// acceptChannel is used to accept a single channel that comes across. This
-// should be run in a goroutine and is used to test nodes with the zero-conf
-// feature bit.
-func acceptChannel(t *testing.T, zeroConf bool, stream rpc.AcceptorClient) {
-	t.Helper()
-
-	req, err := stream.Recv()
-	require.NoError(t, err)
-
-	resp := &lnrpc.ChannelAcceptResponse{
-		Accept:        true,
-		PendingChanId: req.PendingChanId,
-		ZeroConf:      zeroConf,
-	}
-	err = stream.Send(resp)
-	require.NoError(t, err)
 }

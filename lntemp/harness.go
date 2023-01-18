@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -676,6 +675,32 @@ func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
 	return h.newNodeWithSeed(name, extraArgs, req, statelessInit)
 }
 
+// NewNodeRemoteSigner creates a new remote signer node and asserts its
+// creation.
+func (h *HarnessTest) NewNodeRemoteSigner(name string, extraArgs []string,
+	password []byte, watchOnly *lnrpc.WatchOnly) *node.HarnessNode {
+
+	hn, err := h.manager.newNode(h.T, name, extraArgs, password, true)
+	require.NoErrorf(h, err, "unable to create new node for %s", name)
+
+	err = hn.StartWithNoAuth(h.runCtx)
+	require.NoError(h, err, "failed to start node %s", name)
+
+	// With the seed created, construct the init request to the node,
+	// including the newly generated seed.
+	initReq := &lnrpc.InitWalletRequest{
+		WalletPassword: password,
+		WatchOnly:      watchOnly,
+	}
+
+	// Pass the init request via rpc to finish unlocking the node. This
+	// will also initialize the macaroon-authenticated LightningClient.
+	_, err = h.manager.initWalletAndNode(hn, initReq)
+	require.NoErrorf(h, err, "failed to init node %s", name)
+
+	return hn
+}
+
 // KillNode kills the node (but won't wait for the node process to stop).
 func (h *HarnessTest) KillNode(hn *node.HarnessNode) {
 	require.NoErrorf(h, hn.Kill(), "%s: kill got error", hn.Name())
@@ -797,6 +822,26 @@ type OpenChannelParams struct {
 	// ScidAlias denotes whether the channel will be an option-scid-alias
 	// channel type negotiation.
 	ScidAlias bool
+
+	// BaseFee is the channel base fee applied during the channel
+	// announcement phase.
+	BaseFee uint64
+
+	// FeeRate is the channel fee rate in ppm applied during the channel
+	// announcement phase.
+	FeeRate uint64
+
+	// UseBaseFee, if set, instructs the downstream logic to apply the
+	// user-specified channel base fee to the channel update announcement.
+	// If set to false it avoids applying a base fee of 0 and instead
+	// activates the default configured base fee.
+	UseBaseFee bool
+
+	// UseFeeRate, if set, instructs the downstream logic to apply the
+	// user-specified channel fee rate to the channel update announcement.
+	// If set to false it avoids applying a fee rate of 0 and instead
+	// activates the default configured fee rate.
+	UseFeeRate bool
 }
 
 // prepareOpenChannel waits for both nodes to be synced to chain and returns an
@@ -833,6 +878,10 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		CommitmentType:     p.CommitmentType,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
+		BaseFee:            p.BaseFee,
+		FeeRate:            p.FeeRate,
+		UseBaseFee:         p.UseBaseFee,
+		UseFeeRate:         p.UseFeeRate,
 	}
 }
 
@@ -886,24 +935,76 @@ func (h *HarnessTest) OpenChannelAssertStream(srcNode,
 }
 
 // OpenChannel attempts to open a channel with the specified parameters
-// extended from Alice to Bob. Additionally, the following items are asserted,
-//   - 6 blocks will be mined so the channel will be announced if it's public.
-//   - the funding transaction should be found in the first block.
+// extended from Alice to Bob. Additionally, for public channels, it will mine
+// extra blocks so they are announced to the network. In specific, the
+// following items are asserted,
+//   - for non-zero conf channel, 1 blocks will be mined to confirm the funding
+//     tx.
 //   - both nodes should see the channel edge update in their network graph.
 //   - both nodes can report the status of the new channel from ListChannels.
+//   - extra blocks are mined if it's a public channel.
 func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
+	p OpenChannelParams) *lnrpc.ChannelPoint {
+
+	// First, open the channel without announcing it.
+	cp := h.OpenChannelNoAnnounce(alice, bob, p)
+
+	// If this is a private channel, there's no need to mine extra blocks
+	// since it will never be announced to the network.
+	if p.Private {
+		return cp
+	}
+
+	// Mine extra blocks to announce the channel.
+	if p.ZeroConf {
+		// For a zero-conf channel, no blocks have been mined so we
+		// need to mine 6 blocks.
+		//
+		// Mine 1 block to confirm the funding transaction.
+		h.MineBlocksAndAssertNumTxes(numBlocksOpenChannel, 1)
+	} else {
+		// For a regular channel, 1 block has already been mined to
+		// confirm the funding transaction, so we mine 5 blocks.
+		h.MineBlocks(numBlocksOpenChannel - 1)
+	}
+
+	return cp
+}
+
+// OpenChannelNoAnnounce attempts to open a channel with the specified
+// parameters extended from Alice to Bob without mining the necessary blocks to
+// announce the channel. Additionally, the following items are asserted,
+//   - for non-zero conf channel, 1 blocks will be mined to confirm the funding
+//     tx.
+//   - both nodes should see the channel edge update in their network graph.
+//   - both nodes can report the status of the new channel from ListChannels.
+func (h *HarnessTest) OpenChannelNoAnnounce(alice, bob *node.HarnessNode,
 	p OpenChannelParams) *lnrpc.ChannelPoint {
 
 	chanOpenUpdate := h.OpenChannelAssertStream(alice, bob, p)
 
-	// Mine 6 blocks, then wait for Alice's node to notify us that the
-	// channel has been opened. The funding transaction should be found
-	// within the first newly mined block. We mine 6 blocks so that in the
-	// case that the channel is public, it is announced to the network.
-	block := h.MineBlocksAndAssertNumTxes(numBlocksOpenChannel, 1)[0]
+	// Open a zero conf channel.
+	if p.ZeroConf {
+		return h.openChannelZeroConf(alice, bob, chanOpenUpdate)
+	}
+
+	// Open a non-zero conf channel.
+	return h.openChannel(alice, bob, chanOpenUpdate)
+}
+
+// openChannel attempts to open a channel with the specified parameters
+// extended from Alice to Bob. Additionally, the following items are asserted,
+//   - 1 block is mined and the funding transaction should be found in it.
+//   - both nodes should see the channel edge update in their network graph.
+//   - both nodes can report the status of the new channel from ListChannels.
+func (h *HarnessTest) openChannel(alice, bob *node.HarnessNode,
+	stream rpc.OpenChanClient) *lnrpc.ChannelPoint {
+
+	// Mine 1 block to confirm the funding transaction.
+	block := h.MineBlocksAndAssertNumTxes(1, 1)[0]
 
 	// Wait for the channel open event.
-	fundingChanPoint := h.WaitForChannelOpenEvent(chanOpenUpdate)
+	fundingChanPoint := h.WaitForChannelOpenEvent(stream)
 
 	// Check that the funding tx is found in the first block.
 	fundingTxID := h.GetChanPointFundingTxid(fundingChanPoint)
@@ -918,9 +1019,27 @@ func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	h.AssertChannelExists(alice, fundingChanPoint)
 	h.AssertChannelExists(bob, fundingChanPoint)
 
-	// Finally, check the blocks are synced.
-	h.WaitForBlockchainSync(alice)
-	h.WaitForBlockchainSync(bob)
+	return fundingChanPoint
+}
+
+// openChannelZeroConf attempts to open a channel with the specified parameters
+// extended from Alice to Bob. Additionally, the following items are asserted,
+//   - both nodes should see the channel edge update in their network graph.
+//   - both nodes can report the status of the new channel from ListChannels.
+func (h *HarnessTest) openChannelZeroConf(alice, bob *node.HarnessNode,
+	stream rpc.OpenChanClient) *lnrpc.ChannelPoint {
+
+	// Wait for the channel open event.
+	fundingChanPoint := h.WaitForChannelOpenEvent(stream)
+
+	// Check that both alice and bob have seen the channel from their
+	// network topology.
+	h.AssertTopologyChannelOpen(alice, fundingChanPoint)
+	h.AssertTopologyChannelOpen(bob, fundingChanPoint)
+
+	// Finally, check that the channel can be seen in their ListChannels.
+	h.AssertChannelExists(alice, fundingChanPoint)
+	h.AssertChannelExists(bob, fundingChanPoint)
 
 	return fundingChanPoint
 }
@@ -1145,36 +1264,54 @@ func (h *HarnessTest) FundCoinsP2TR(amt btcutil.Amount,
 	h.fundCoins(amt, target, lnrpc.AddressType_TAPROOT_PUBKEY, true)
 }
 
-// CompletePaymentRequests sends payments from a node to complete all payment
-// requests. This function does not return until all payments successfully
-// complete without errors.
-func (h *HarnessTest) CompletePaymentRequests(hn *node.HarnessNode,
-	paymentRequests []string) {
+// completePaymentRequestsAssertStatus sends payments from a node to complete
+// all payment requests. This function does not return until all payments
+// have reached the specified status.
+func (h *HarnessTest) completePaymentRequestsAssertStatus(hn *node.HarnessNode,
+	paymentRequests []string, status lnrpc.Payment_PaymentStatus) {
 
-	var wg sync.WaitGroup
+	// Create a buffered chan to signal the results.
+	results := make(chan rpc.PaymentClient, len(paymentRequests))
 
 	// send sends a payment and asserts if it doesn't succeeded.
 	send := func(payReq string) {
-		defer wg.Done()
-
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: payReq,
 			TimeoutSeconds: defaultPaymentTimeout,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
 		stream := hn.RPC.SendPayment(req)
-		h.AssertPaymentStatusFromStream(stream, lnrpc.Payment_SUCCEEDED)
+
+		// Signal sent succeeded.
+		results <- stream
 	}
 
 	// Launch all payments simultaneously.
 	for _, payReq := range paymentRequests {
 		payReqCopy := payReq
-		wg.Add(1)
 		go send(payReqCopy)
 	}
 
-	// Wait for all payments to report success.
-	wg.Wait()
+	// Wait for all payments to report the expected status.
+	timer := time.After(DefaultTimeout)
+	select {
+	case stream := <-results:
+		h.AssertPaymentStatusFromStream(stream, status)
+
+	case <-timer:
+		require.Fail(h, "timeout", "waiting payment results timeout")
+	}
+}
+
+// CompletePaymentRequests sends payments from a node to complete all payment
+// requests. This function does not return until all payments successfully
+// complete without errors.
+func (h *HarnessTest) CompletePaymentRequests(hn *node.HarnessNode,
+	paymentRequests []string) {
+
+	h.completePaymentRequestsAssertStatus(
+		hn, paymentRequests, lnrpc.Payment_SUCCEEDED,
+	)
 }
 
 // CompletePaymentRequestsNoWait sends payments from a node to complete all
@@ -1188,21 +1325,10 @@ func (h *HarnessTest) CompletePaymentRequestsNoWait(hn *node.HarnessNode,
 	// we return.
 	oldResp := h.GetChannelByChanPoint(hn, chanPoint)
 
-	// send sends a payment and asserts if it doesn't succeeded.
-	send := func(payReq string) {
-		req := &routerrpc.SendPaymentRequest{
-			PaymentRequest: payReq,
-			TimeoutSeconds: defaultPaymentTimeout,
-			FeeLimitMsat:   noFeeLimitMsat,
-		}
-		hn.RPC.SendPayment(req)
-	}
-
-	// Launch all payments simultaneously.
-	for _, payReq := range paymentRequests {
-		payReqCopy := payReq
-		go send(payReqCopy)
-	}
+	// Send payments and assert they are in-flight.
+	h.completePaymentRequestsAssertStatus(
+		hn, paymentRequests, lnrpc.Payment_IN_FLIGHT,
+	)
 
 	// We are not waiting for feedback in the form of a response, but we
 	// should still wait long enough for the server to receive and handle
@@ -1796,4 +1922,93 @@ func (h *HarnessTest) QueryRoutesAndRetry(hn *node.HarnessNode,
 	require.NoError(h, err, "timeout querying routes")
 
 	return routes
+}
+
+// ReceiveHtlcInterceptor waits until a message is received on the htlc
+// interceptor stream or the timeout is reached.
+func (h *HarnessTest) ReceiveHtlcInterceptor(
+	stream rpc.InterceptorClient) *routerrpc.ForwardHtlcInterceptRequest {
+
+	chanMsg := make(chan *routerrpc.ForwardHtlcInterceptRequest)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout intercepting htlc")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}
+
+// ReceiveChannelEvent waits until a message is received from the
+// ChannelEventsClient stream or the timeout is reached.
+func (h *HarnessTest) ReceiveChannelEvent(
+	stream rpc.ChannelEventsClient) *lnrpc.ChannelEventUpdate {
+
+	chanMsg := make(chan *lnrpc.ChannelEventUpdate)
+	errChan := make(chan error)
+	go func() {
+		// Consume one message. This will block until the message is
+		// received.
+		resp, err := stream.Recv()
+		if err != nil {
+			errChan <- err
+			return
+		}
+		chanMsg <- resp
+	}()
+
+	select {
+	case <-time.After(DefaultTimeout):
+		require.Fail(h, "timeout", "timeout intercepting htlc")
+
+	case err := <-errChan:
+		require.Failf(h, "err from stream",
+			"received err from stream: %v", err)
+
+	case updateMsg := <-chanMsg:
+		return updateMsg
+	}
+
+	return nil
+}
+
+// GetOutputIndex returns the output index of the given address in the given
+// transaction.
+func (h *HarnessTest) GetOutputIndex(txid *chainhash.Hash, addr string) int {
+	// We'll then extract the raw transaction from the mempool in order to
+	// determine the index of the p2tr output.
+	tx := h.Miner.GetRawTransaction(txid)
+
+	p2trOutputIndex := -1
+	for i, txOut := range tx.MsgTx().TxOut {
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			txOut.PkScript, h.Miner.ActiveNet,
+		)
+		require.NoError(h, err)
+
+		if addrs[0].String() == addr {
+			p2trOutputIndex = i
+		}
+	}
+	require.Greater(h, p2trOutputIndex, -1)
+
+	return p2trOutputIndex
 }

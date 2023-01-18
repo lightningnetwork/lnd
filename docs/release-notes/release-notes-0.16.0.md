@@ -369,7 +369,8 @@ PRs([6776](https://github.com/lightningnetwork/lnd/pull/6776),
 [7172](https://github.com/lightningnetwork/lnd/pull/7172),
 [7242](https://github.com/lightningnetwork/lnd/pull/7242),
 [7245](https://github.com/lightningnetwork/lnd/pull/7245)),
-[6823](https://github.com/lightningnetwork/lnd/pull/6823)) have been made to
+[6823](https://github.com/lightningnetwork/lnd/pull/6823),
+[6824](https://github.com/lightningnetwork/lnd/pull/6824),) have been made to
 refactor the itest for code health and maintenance.
 
 # Contributors (Alphabetical Order)

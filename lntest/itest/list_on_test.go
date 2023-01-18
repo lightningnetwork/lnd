@@ -276,12 +276,20 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		TestFunc: testOpenChannelAfterReorg,
 	},
 	{
+		Name:     "psbt channel funding",
+		TestFunc: testPsbtChanFunding,
+	},
+	{
 		Name:     "psbt channel funding external",
 		TestFunc: testPsbtChanFundingExternal,
 	},
 	{
 		Name:     "psbt channel funding single step",
 		TestFunc: testPsbtChanFundingSingleStep,
+	},
+	{
+		Name:     "sign psbt",
+		TestFunc: testSignPsbt,
 	},
 	{
 		Name:     "resolution handoff",
@@ -368,5 +376,129 @@ var allTestCasesTemp = []*lntemp.TestCase{
 	{
 		Name:     "wipe forwarding packages",
 		TestFunc: testWipeForwardingPackages,
+	},
+	{
+		Name:     "switch circuit persistence",
+		TestFunc: testSwitchCircuitPersistence,
+	},
+	{
+		Name:     "switch offline delivery",
+		TestFunc: testSwitchOfflineDelivery,
+	},
+	{
+		Name:     "switch offline delivery persistence",
+		TestFunc: testSwitchOfflineDeliveryPersistence,
+	},
+	{
+		Name:     "switch offline delivery outgoing offline",
+		TestFunc: testSwitchOfflineDeliveryOutgoingOffline,
+	},
+	{
+		Name:     "sendtoroute multi path payment",
+		TestFunc: testSendToRouteMultiPath,
+	},
+	{
+		Name:     "send multi path payment",
+		TestFunc: testSendMultiPathPayment,
+	},
+	{
+		Name:     "sendpayment amp invoice",
+		TestFunc: testSendPaymentAMPInvoice,
+	},
+	{
+		Name:     "sendpayment amp invoice repeat",
+		TestFunc: testSendPaymentAMPInvoiceRepeat,
+	},
+	{
+		Name:     "send payment amp",
+		TestFunc: testSendPaymentAMP,
+	},
+	{
+		Name:     "sendtoroute amp",
+		TestFunc: testSendToRouteAMP,
+	},
+	{
+		Name:     "forward interceptor dedup htlcs",
+		TestFunc: testForwardInterceptorDedupHtlc,
+	},
+	{
+		Name:     "forward interceptor",
+		TestFunc: testForwardInterceptorBasic,
+	},
+	{
+		Name:     "zero conf channel open",
+		TestFunc: testZeroConfChannelOpen,
+	},
+	{
+		Name:     "option scid alias",
+		TestFunc: testOptionScidAlias,
+	},
+	{
+		Name:     "scid alias channel update",
+		TestFunc: testUpdateChannelPolicyScidAlias,
+	},
+	{
+		Name:     "scid alias upgrade",
+		TestFunc: testOptionScidUpgrade,
+	},
+	{
+		Name:     "nonstd sweep",
+		TestFunc: testNonstdSweep,
+	},
+	{
+		Name:     "multiple channel creation and update subscription",
+		TestFunc: testBasicChannelCreationAndUpdates,
+	},
+	{
+		Name:     "derive shared key",
+		TestFunc: testDeriveSharedKey,
+	},
+	{
+		Name:     "sign output raw",
+		TestFunc: testSignOutputRaw,
+	},
+	{
+		Name:     "sign verify message",
+		TestFunc: testSignVerifyMessage,
+	},
+	{
+		Name:     "cpfp",
+		TestFunc: testCPFP,
+	},
+	{
+		Name:     "taproot",
+		TestFunc: testTaproot,
+	},
+	{
+		Name:     "wallet import account",
+		TestFunc: testWalletImportAccount,
+	},
+	{
+		Name:     "wallet import pubkey",
+		TestFunc: testWalletImportPubKey,
+	},
+	{
+		Name:     "async payments benchmark",
+		TestFunc: testAsyncPayments,
+	},
+	{
+		Name:     "remote signer",
+		TestFunc: testRemoteSigner,
+	},
+	{
+		Name:     "taproot coop close",
+		TestFunc: testTaprootCoopClose,
+	},
+	{
+		Name:     "trackpayments",
+		TestFunc: testTrackPayments,
+	},
+	{
+		Name:     "open channel fee policy",
+		TestFunc: testOpenChannelUpdateFeePolicy,
+	},
+	{
+		Name:     "custom message",
+		TestFunc: testCustomMessage,
 	},
 }

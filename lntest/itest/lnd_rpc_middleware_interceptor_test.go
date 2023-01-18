@@ -560,7 +560,7 @@ func middlewareMandatoryTest(ht *lntemp.HarnessTest, node *node.HarnessNode) {
 	// test case. So we need to do the wait and client setup manually here.
 	conn, err := node.ConnectRPC()
 	require.NoError(ht, err)
-	node.InitRPCClients(conn)
+	node.Initialize(conn)
 	err = node.WaitUntilServerActive()
 	require.NoError(ht, err)
 

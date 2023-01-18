@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -11,7 +10,8 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
-	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntemp"
+	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,105 +54,94 @@ var (
 
 // testRemoteSigner tests that a watch-only wallet can use a remote signing
 // wallet to perform any signing or ECDH operations.
-func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
-	ctxb := context.Background()
-
-	subTests := []struct {
+func testRemoteSigner(ht *lntemp.HarnessTest) {
+	type testCase struct {
 		name       string
 		randomSeed bool
 		sendCoins  bool
-		fn         func(tt *harnessTest, wo, carol *lntest.HarnessNode)
-	}{{
+		fn         func(tt *lntemp.HarnessTest,
+			wo, carol *node.HarnessNode)
+	}
+
+	subTests := []testCase{{
 		name:       "random seed",
 		randomSeed: true,
-		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
 			// Nothing more to test here.
 		},
 	}, {
 		name: "account import",
-		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
 			runWalletImportAccountScenario(
-				net, tt,
-				walletrpc.AddressType_WITNESS_PUBKEY_HASH,
+				tt, walletrpc.AddressType_WITNESS_PUBKEY_HASH,
 				carol, wo,
 			)
 		},
 	}, {
 		name:      "basic channel open close",
 		sendCoins: true,
-		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-			runBasicChannelCreationAndUpdates(
-				net, tt, wo, carol,
-			)
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runBasicChannelCreationAndUpdates(tt, wo, carol)
 		},
 	}, {
 		name:      "async payments",
 		sendCoins: true,
-		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-			runAsyncPayments(net, tt, wo, carol)
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runAsyncPayments(tt, wo, carol)
 		},
 	}, {
 		name: "shared key",
-		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
 			runDeriveSharedKey(tt, wo)
 		},
 	}, {
 		name:      "cpfp",
 		sendCoins: true,
-		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-			runCPFP(net, tt, wo, carol)
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runCPFP(tt, wo, carol)
 		},
 	}, {
 		name:       "psbt",
 		randomSeed: true,
-		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-			runPsbtChanFunding(net, tt, carol, wo)
-			runSignPsbtSegWitV0P2WKH(tt, net, wo)
-			runSignPsbtSegWitV1KeySpendBip86(tt, net, wo)
-			runSignPsbtSegWitV1KeySpendRootHash(tt, net, wo)
-			runSignPsbtSegWitV1ScriptSpend(tt, net, wo)
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runPsbtChanFunding(tt, carol, wo)
+			runSignPsbtSegWitV0P2WKH(tt, wo)
+			runSignPsbtSegWitV1KeySpendBip86(tt, wo)
+			runSignPsbtSegWitV1KeySpendRootHash(tt, wo)
+			runSignPsbtSegWitV1ScriptSpend(tt, wo)
 		},
 	}, {
 		name:      "sign output raw",
 		sendCoins: true,
-		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-			runSignOutputRaw(tt, net, wo)
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runSignOutputRaw(tt, wo)
 		},
 	}, {
 		name:      "sign verify msg",
 		sendCoins: true,
-		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-			runSignVerifyMessage(tt, net, wo)
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runSignVerifyMessage(tt, wo)
 		},
 	}, {
 		name:       "taproot",
 		sendCoins:  true,
 		randomSeed: true,
-		fn: func(tt *harnessTest, wo, carol *lntest.HarnessNode) {
-			longTimeout := 3 * defaultTimeout
-			ctxt, cancel := context.WithTimeout(ctxb, longTimeout)
-			testTaprootSendCoinsKeySpendBip86(ctxt, tt, wo, net)
-			testTaprootComputeInputScriptKeySpendBip86(
-				ctxt, tt, wo, net,
-			)
-			testTaprootSignOutputRawScriptSpend(ctxt, tt, wo, net)
-			testTaprootSignOutputRawKeySpendBip86(ctxt, tt, wo, net)
-			testTaprootSignOutputRawKeySpendRootHash(
-				ctxt, tt, wo, net,
-			)
-			cancel()
-
-			ctxt, cancel = context.WithTimeout(ctxb, longTimeout)
-			testTaprootMuSig2KeySpendRootHash(ctxt, tt, wo, net)
-			testTaprootMuSig2ScriptSpend(ctxt, tt, wo, net)
-			testTaprootMuSig2KeySpendBip86(ctxt, tt, wo, net)
-			testTaprootMuSig2CombinedLeafKeySpend(ctxt, tt, wo, net)
-			cancel()
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			testTaprootSendCoinsKeySpendBip86(tt, wo)
+			testTaprootComputeInputScriptKeySpendBip86(tt, wo)
+			testTaprootSignOutputRawScriptSpend(tt, wo)
+			testTaprootSignOutputRawKeySpendBip86(tt, wo)
+			testTaprootSignOutputRawKeySpendRootHash(tt, wo)
+			testTaprootMuSig2KeySpendRootHash(tt, wo)
+			testTaprootMuSig2ScriptSpend(tt, wo)
+			testTaprootMuSig2KeySpendBip86(tt, wo)
+			testTaprootMuSig2CombinedLeafKeySpend(tt, wo)
 		},
 	}}
 
-	for _, st := range subTests {
-		subTest := st
+	prepareTest := func(st *lntemp.HarnessTest,
+		subTest testCase) (*node.HarnessNode,
+		*node.HarnessNode, *node.HarnessNode) {
 
 		// Signer is our signing node and has the wallet with the full
 		// master private key. We test that we can create the watch-only
@@ -162,34 +151,32 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 		password := []byte("itestpassword")
 		var (
 			signerNodePubKey  = nodePubKey
-			watchOnlyAccounts = deriveCustomScopeAccounts(t.t)
-			signer            *lntest.HarnessNode
+			watchOnlyAccounts = deriveCustomScopeAccounts(ht.T)
+			signer            *node.HarnessNode
 			err               error
 		)
 		if !subTest.randomSeed {
-			signer, err = net.RestoreNodeWithSeed(
+			signer = st.RestoreNodeWithSeed(
 				"Signer", nil, password, nil, rootKey, 0, nil,
 			)
-			require.NoError(t.t, err)
 		} else {
-			signer = net.NewNode(t.t, "Signer", nil)
+			signer = st.NewNode("Signer", nil)
 			signerNodePubKey = signer.PubKeyStr
 
-			rpcAccts, err := signer.WalletKitClient.ListAccounts(
-				ctxb, &walletrpc.ListAccountsRequest{},
+			rpcAccts := signer.RPC.ListAccounts(
+				&walletrpc.ListAccountsRequest{},
 			)
-			require.NoError(t.t, err)
 
 			watchOnlyAccounts, err = walletrpc.AccountsToWatchOnly(
 				rpcAccts.Accounts,
 			)
-			require.NoError(t.t, err)
+			require.NoError(st, err)
 		}
 
 		// WatchOnly is the node that has a watch-only wallet and uses
 		// the Signer node for any operation that requires access to
 		// private keys.
-		watchOnly, err := net.NewNodeRemoteSigner(
+		watchOnly := st.NewNodeRemoteSigner(
 			"WatchOnly", []string{
 				"--remotesigner.enable",
 				fmt.Sprintf(
@@ -210,32 +197,34 @@ func testRemoteSigner(net *lntest.NetworkHarness, t *harnessTest) {
 				Accounts:                   watchOnlyAccounts,
 			},
 		)
-		require.NoError(t.t, err)
 
-		resp, err := watchOnly.GetInfo(ctxb, &lnrpc.GetInfoRequest{})
-		require.NoError(t.t, err)
-
-		require.Equal(t.t, signerNodePubKey, resp.IdentityPubkey)
+		resp := watchOnly.RPC.GetInfo()
+		require.Equal(st, signerNodePubKey, resp.IdentityPubkey)
 
 		if subTest.sendCoins {
-			net.SendCoins(t.t, btcutil.SatoshiPerBitcoin, watchOnly)
-			assertAccountBalance(
-				t.t, watchOnly, "default",
+			st.FundCoins(btcutil.SatoshiPerBitcoin, watchOnly)
+			ht.AssertWalletAccountBalance(
+				watchOnly, "default",
 				btcutil.SatoshiPerBitcoin, 0,
 			)
 		}
 
-		carol := net.NewNode(t.t, "carol", nil)
-		net.EnsureConnected(t.t, watchOnly, carol)
+		carol := st.NewNode("carol", nil)
+		st.EnsureConnected(watchOnly, carol)
 
-		success := t.t.Run(subTest.name, func(tt *testing.T) {
-			ht := newHarnessTest(tt, net)
-			subTest.fn(ht, watchOnly, carol)
+		return signer, watchOnly, carol
+	}
+
+	for _, testCase := range subTests {
+		subTest := testCase
+
+		success := ht.Run(subTest.name, func(tt *testing.T) {
+			// Skip the cleanup here as no standby node is used.
+			st := ht.Subtest(tt)
+
+			_, watchOnly, carol := prepareTest(st, subTest)
+			subTest.fn(st, watchOnly, carol)
 		})
-
-		shutdownAndAssert(net, t, carol)
-		shutdownAndAssert(net, t, watchOnly)
-		shutdownAndAssert(net, t, signer)
 
 		if !success {
 			return

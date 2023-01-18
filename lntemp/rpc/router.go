@@ -150,3 +150,43 @@ func (h *HarnessRPC) XImportMissionControlAssertErr(
 	_, err := h.Router.XImportMissionControl(ctxt, req)
 	require.Error(h, err, "expect an error from x import mission control")
 }
+
+// BuildRoute makes a RPC call to the node's RouterClient and asserts.
+func (h *HarnessRPC) BuildRoute(
+	req *routerrpc.BuildRouteRequest) *routerrpc.BuildRouteResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.Router.BuildRoute(ctxt, req)
+	h.NoError(err, "BuildRoute")
+
+	return resp
+}
+
+type InterceptorClient routerrpc.Router_HtlcInterceptorClient
+
+// HtlcInterceptor makes a RPC call to the node's RouterClient and asserts.
+func (h *HarnessRPC) HtlcInterceptor() (InterceptorClient, context.CancelFunc) {
+	// HtlcInterceptor needs to have the context alive for the entire test
+	// case as the returned client will be used for send and receive events
+	// stream. Thus we use cancel context here instead of a timeout
+	// context.
+	ctxt, cancel := context.WithCancel(h.runCtx)
+	resp, err := h.Router.HtlcInterceptor(ctxt)
+	h.NoError(err, "HtlcInterceptor")
+
+	return resp, cancel
+}
+
+type TrackPaymentsClient routerrpc.Router_TrackPaymentsClient
+
+// TrackPayments makes a RPC call to the node's RouterClient and asserts.
+func (h *HarnessRPC) TrackPayments(
+	req *routerrpc.TrackPaymentsRequest) TrackPaymentsClient {
+
+	resp, err := h.Router.TrackPayments(h.runCtx, req)
+	h.NoError(err, "TrackPayments")
+
+	return resp
+}

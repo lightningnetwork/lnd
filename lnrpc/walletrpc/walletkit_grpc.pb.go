@@ -4,6 +4,7 @@ package walletrpc
 
 import (
 	context "context"
+	lnrpc "github.com/lightningnetwork/lnd/lnrpc"
 	signrpc "github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -48,6 +49,9 @@ type WalletKitClient interface {
 	DeriveKey(ctx context.Context, in *signrpc.KeyLocator, opts ...grpc.CallOption) (*signrpc.KeyDescriptor, error)
 	// NextAddr returns the next unused address within the wallet.
 	NextAddr(ctx context.Context, in *AddrRequest, opts ...grpc.CallOption) (*AddrResponse, error)
+	// lncli: `wallet gettx`
+	// GetTransaction returns details for a transaction found in the wallet.
+	GetTransaction(ctx context.Context, in *GetTransactionRequest, opts ...grpc.CallOption) (*lnrpc.Transaction, error)
 	// lncli: `wallet accounts list`
 	// ListAccounts retrieves all accounts belonging to the wallet by default. A
 	// name and key scope filter can be provided to filter through all of the
@@ -326,6 +330,15 @@ func (c *walletKitClient) NextAddr(ctx context.Context, in *AddrRequest, opts ..
 	return out, nil
 }
 
+func (c *walletKitClient) GetTransaction(ctx context.Context, in *GetTransactionRequest, opts ...grpc.CallOption) (*lnrpc.Transaction, error) {
+	out := new(lnrpc.Transaction)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/GetTransaction", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error) {
 	out := new(ListAccountsResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/ListAccounts", in, out, opts...)
@@ -521,6 +534,9 @@ type WalletKitServer interface {
 	DeriveKey(context.Context, *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error)
 	// NextAddr returns the next unused address within the wallet.
 	NextAddr(context.Context, *AddrRequest) (*AddrResponse, error)
+	// lncli: `wallet gettx`
+	// GetTransaction returns details for a transaction found in the wallet.
+	GetTransaction(context.Context, *GetTransactionRequest) (*lnrpc.Transaction, error)
 	// lncli: `wallet accounts list`
 	// ListAccounts retrieves all accounts belonging to the wallet by default. A
 	// name and key scope filter can be provided to filter through all of the
@@ -754,6 +770,9 @@ func (UnimplementedWalletKitServer) DeriveKey(context.Context, *signrpc.KeyLocat
 func (UnimplementedWalletKitServer) NextAddr(context.Context, *AddrRequest) (*AddrResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NextAddr not implemented")
 }
+func (UnimplementedWalletKitServer) GetTransaction(context.Context, *GetTransactionRequest) (*lnrpc.Transaction, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTransaction not implemented")
+}
 func (UnimplementedWalletKitServer) ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAccounts not implemented")
 }
@@ -943,6 +962,24 @@ func _WalletKit_NextAddr_Handler(srv interface{}, ctx context.Context, dec func(
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WalletKitServer).NextAddr(ctx, req.(*AddrRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletKit_GetTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTransactionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).GetTransaction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/GetTransaction",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).GetTransaction(ctx, req.(*GetTransactionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1305,6 +1342,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "NextAddr",
 			Handler:    _WalletKit_NextAddr_Handler,
+		},
+		{
+			MethodName: "GetTransaction",
+			Handler:    _WalletKit_GetTransaction_Handler,
 		},
 		{
 			MethodName: "ListAccounts",

@@ -75,6 +75,11 @@ service WalletKit {
     */
     rpc NextAddr (AddrRequest) returns (AddrResponse);
 
+    /* lncli: `wallet gettx`
+    GetTransaction returns details for a transaction found in the wallet.
+    */
+    rpc GetTransaction (GetTransactionRequest) returns (lnrpc.Transaction);
+
     /* lncli: `wallet accounts list`
     ListAccounts retrieves all accounts belonging to the wallet by default. A
     name and key scope filter can be provided to filter through all of the
@@ -554,6 +559,11 @@ message ListAddressesRequest {
 message ListAddressesResponse {
     // A list of all the accounts and their addresses.
     repeated AccountWithAddresses account_with_addresses = 1;
+}
+
+message GetTransactionRequest {
+    // The txid of the transaction.
+    string txid = 1;
 }
 
 message SignMessageWithAddrRequest {

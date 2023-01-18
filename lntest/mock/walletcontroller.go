@@ -233,6 +233,13 @@ func (w *WalletController) PublishTransaction(tx *wire.MsgTx, _ string) error {
 	return nil
 }
 
+// GetTransactionDetails currently does nothing.
+func (w *WalletController) GetTransactionDetails(
+	txHash *chainhash.Hash) (*lnwallet.TransactionDetail, error) {
+
+	return nil, nil
+}
+
 // LabelTransaction currently does nothing.
 func (w *WalletController) LabelTransaction(chainhash.Hash, string,
 	bool) error {

@@ -80,6 +80,10 @@ var (
 			Entity: "address",
 			Action: "read",
 		}},
+		"/walletrpc.WalletKit/GetTransaction": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
 		"/walletrpc.WalletKit/PublishTransaction": {{
 			Entity: "onchain",
 			Action: "write",
@@ -610,6 +614,29 @@ func (w *WalletKit) NextAddr(ctx context.Context,
 	return &AddrResponse{
 		Addr: addr.String(),
 	}, nil
+}
+
+// GetTransaction returns a transaction from the wallet given its hash.
+func (w *WalletKit) GetTransaction(_ context.Context,
+	req *GetTransactionRequest) (*lnrpc.Transaction, error) {
+
+	// If the client doesn't specify a hash, then there's nothing to
+	// return.
+	if req.Txid == "" {
+		return nil, fmt.Errorf("must provide a transaction hash")
+	}
+
+	txHash, err := chainhash.NewHashFromStr(req.Txid)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := w.cfg.Wallet.GetTransactionDetails(txHash)
+	if err != nil {
+		return nil, err
+	}
+
+	return lnrpc.RPCTransaction(res), nil
 }
 
 // Attempts to publish the passed transaction to the network. Once this returns

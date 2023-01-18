@@ -663,6 +663,36 @@
       }
     },
     "/v2/wallet/tx": {
+      "get": {
+        "summary": "lncli: `wallet gettx`\nGetTransaction returns details for a transaction found in the wallet.",
+        "operationId": "WalletKit_GetTransaction",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcTransaction"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "txid",
+            "description": "The txid of the transaction.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      },
       "post": {
         "summary": "lncli: `wallet publishtx`\nPublishTransaction attempts to publish the passed transaction to the\nnetwork. Once this returns without an error, the wallet will continually\nattempt to re-broadcast the transaction on start up, until it enters the\nchain.",
         "operationId": "WalletKit_PublishTransaction",

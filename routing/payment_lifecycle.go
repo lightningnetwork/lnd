@@ -711,6 +711,7 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route, lastShard bool) 
 		Amount:      rt.TotalAmount,
 		Expiry:      rt.TotalTimeLock,
 		PaymentHash: hash,
+		UpfrontFee:  rt.TotalUpfrontFee,
 	}
 	copy(htlcAdd.OnionBlob[:], onionBlob)
 

@@ -520,7 +520,7 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 	}
 
 	route, err := route.NewRouteFromHops(
-		lnwire.MilliSatoshi(rpcroute.TotalAmtMsat),
+		lnwire.MilliSatoshi(rpcroute.TotalAmtMsat), 0,
 		rpcroute.TotalTimeLock,
 		r.SelfNode,
 		hops,

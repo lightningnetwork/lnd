@@ -187,7 +187,7 @@ func testQueryRoutes(t *testing.T, useMissionControl bool, useMsat bool,
 		}
 
 		hops := []*route.Hop{{}}
-		route, err := route.NewRouteFromHops(amt, 144, source, hops)
+		route, err := route.NewRouteFromHops(amt, 0, 144, source, hops)
 
 		return route, expectedProb, err
 	}

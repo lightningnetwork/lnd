@@ -11,6 +11,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -90,6 +91,7 @@ type finalHopParams struct {
 	cltvDelta   uint16
 	records     record.CustomSet
 	paymentAddr *[32]byte
+	upfrontFee  htlcswitch.ForwardingPolicy
 
 	// metadata is additional data that is sent along with the payment to
 	// the payee.
@@ -123,6 +125,10 @@ func newRoute(sourceVertex route.Vertex,
 		// backwards below, this next hop gets closer and closer to the
 		// sender of the payment.
 		nextIncomingAmount lnwire.MilliSatoshi
+
+		// pathSupportsUpfront tracks whether the full path understands
+		// upfront fees.
+		pathSupportsUpfront = true
 	)
 
 	pathLength := len(pathEdges)
@@ -165,6 +171,10 @@ func newRoute(sourceVertex route.Vertex,
 		// transitive dependencies have already been validated by path
 		// finding or some other means.
 		tlvPayload = supports(lnwire.TLVOnionPayloadOptional)
+
+		// Track whether the full path supports upfront fees.
+		pathSupportsUpfront = pathSupportsUpfront &&
+			supports(lnwire.UpfrontFeeOptional)
 
 		if i == len(pathEdges)-1 {
 			// If this is the last hop, then the hop payload will
@@ -251,10 +261,49 @@ func newRoute(sourceVertex route.Vertex,
 		nextIncomingAmount = amtToForward + fee
 	}
 
+	var totalFees lnwire.MilliSatoshi
+	if pathSupportsUpfront {
+
+		for i := pathLength - 1; i >= 0; i-- {
+			var hopUpfront lnwire.MilliSatoshi
+			// If we're on the final hop, we just calculate the
+			// upfront fee using our policy provided.
+			if i == pathLength-1 {
+				totalFees = htlcswitch.ExpectedFee(
+					finalHop.upfrontFee,
+					hops[i].AmtToForward,
+				)
+			} else {
+				// For intermediate hops, we use our outgoing
+				// edge to calculate the upfront fees. We
+				// accumulate backwards so that all funds are
+				// pulled from the sender.
+				edge := pathEdges[i+1]
+
+				// TODO(carla): get advertised fee policy if
+				// present.
+				hopUpfront = htlcswitch.ExpectedUpfrontFee(
+					htlcswitch.ForwardingPolicy{
+						BaseFee: edge.FeeBaseMSat,
+						FeeRate: edge.FeeProportionalMillionths,
+					},
+					hops[i].AmtToForward,
+				)
+
+			}
+
+			hops[i].UpfrontFeeToForward = lnwire.NewUpfrontFee(
+				uint64(totalFees),
+			)
+
+			totalFees += hopUpfront
+		}
+	}
+
 	// With the base routing data expressed as hops, build the full route
 	newRoute, err := route.NewRouteFromHops(
-		nextIncomingAmount, totalTimeLock, route.Vertex(sourceVertex),
-		hops,
+		nextIncomingAmount, totalFees, totalTimeLock,
+		route.Vertex(sourceVertex), hops,
 	)
 	if err != nil {
 		return nil, err

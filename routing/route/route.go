@@ -323,6 +323,10 @@ type Route struct {
 	// amount of fees.
 	TotalAmount lnwire.MilliSatoshi
 
+	// TotalUpfrontFee is the total amount of upfront fees to be pushed
+	// along the route.
+	TotalUpfrontFee *lnwire.UpfrontFee
+
 	// SourcePubKey is the pubkey of the node where this route originates
 	// from.
 	SourcePubKey Vertex
@@ -389,8 +393,8 @@ func (r *Route) FinalHop() *Hop {
 // NewRouteFromHops creates a new Route structure from the minimally required
 // information to perform the payment. It infers fee amounts and populates the
 // node, chan and prev/next hop maps.
-func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
-	sourceVertex Vertex, hops []*Hop) (*Route, error) {
+func NewRouteFromHops(amtToSend, totalUpfrontFee lnwire.MilliSatoshi,
+	timeLock uint32, sourceVertex Vertex, hops []*Hop) (*Route, error) {
 
 	if len(hops) == 0 {
 		return nil, ErrNoRouteHopsProvided
@@ -406,6 +410,12 @@ func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 		Hops:          hops,
 		TotalTimeLock: timeLock,
 		TotalAmount:   amtToSend,
+	}
+
+	if totalUpfrontFee != 0 {
+		route.TotalUpfrontFee = lnwire.NewUpfrontFee(uint64(
+			totalUpfrontFee,
+		))
 	}
 
 	return route, nil
@@ -512,7 +522,7 @@ func (r *Route) String() string {
 		amt = hop.AmtToForward
 	}
 
-	return fmt.Sprintf("%v, cltv %v",
-		b.String(), r.TotalTimeLock,
+	return fmt.Sprintf("%v, cltv %v, upfront fee: %v",
+		b.String(), r.TotalTimeLock, r.TotalUpfrontFee,
 	)
 }

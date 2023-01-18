@@ -294,6 +294,30 @@ func writeTaggedFields(bufferBase32 *bytes.Buffer, invoice *Invoice) error {
 		}
 	}
 
+	if invoice.UpfrontFeePolicy != nil {
+		var scratch [8]byte
+
+		binary.BigEndian.PutUint32(
+			scratch[:4], uint32(invoice.UpfrontFeePolicy.BaseFee),
+		)
+
+		binary.BigEndian.PutUint32(
+			scratch[4:], invoice.UpfrontFeePolicy.FeeRate,
+		)
+
+		upfrontBase32, err := bech32.ConvertBits(
+			scratch[:], 8, 5, true, //nolint:gomnd
+		)
+		if err != nil {
+			return err
+		}
+
+		err = writeTaggedField(bufferBase32, fieldTypeU, upfrontBase32)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

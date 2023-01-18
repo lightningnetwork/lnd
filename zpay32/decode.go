@@ -296,6 +296,15 @@ func parseTaggedFields(invoice *Invoice, fields []byte, net *chaincfg.Params) er
 			}
 
 			invoice.Features, err = parseFeatures(base32Data)
+
+		case fieldTypeU:
+			invoice.UpfrontFeePolicy, err = parseUpfrontFee(
+				base32Data,
+			)
+			if err != nil {
+				return err
+			}
+
 		default:
 			// Ignore unknown type.
 		}
@@ -503,6 +512,22 @@ func parseFeatures(data []byte) (*lnwire.FeatureVector, error) {
 	}
 
 	return lnwire.NewFeatureVector(rawFeatures, lnwire.Features), nil
+}
+
+// parseUpfrontFee converts the data (encoded in base32) into an upfront fee
+// policy.
+func parseUpfrontFee(data []byte) (*UpfrontFeePolicy, error) {
+	base256Data, err := bech32.ConvertBits(data, 5, 8, false) //nolint:gomnd
+	if err != nil {
+		return nil, err
+	}
+
+	return &UpfrontFeePolicy{
+		BaseFee: lnwire.MilliSatoshi(
+			binary.BigEndian.Uint32(base256Data[:4]),
+		),
+		FeeRate: binary.BigEndian.Uint32(base256Data[4:]),
+	}, nil
 }
 
 // base32ToUint64 converts a base32 encoded number to uint64.

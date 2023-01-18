@@ -76,6 +76,9 @@ const (
 	// probing the recipient.
 	fieldTypeS = 16
 
+	// fieldTypeU contains the upfront fee policy for the final hop.
+	fieldTypeU = 17
+
 	// maxInvoiceLength is the maximum total length an invoice can have.
 	// This is chosen to be the maximum number of bytes that can fit into a
 	// single QR code: https://en.wikipedia.org/wiki/QR_code#Storage
@@ -108,6 +111,17 @@ type MessageSigner struct {
 	// compact signature, and the first one is a header byte. This is the
 	// format returned by ecdsa.SignCompact.
 	SignCompact func(msg []byte) ([]byte, error)
+}
+
+// UpfrontFeePolicy expresses the upfront fee policy for the final hop of a
+// payment.
+type UpfrontFeePolicy struct {
+	// BaseMee is the base upfront fee charged per htlc.
+	BaseFee lnwire.MilliSatoshi
+
+	// FeeRate is the upfront proportional fee (expressed in parts per
+	// millionth) that is charged per satoshi.
+	FeeRate uint32
 }
 
 // Invoice represents a decoded invoice, or to-be-encoded invoice. Some of the
@@ -190,6 +204,10 @@ type Invoice struct {
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// UpfrontFeePolicy is an optional upfront fee policy for the final hop.
+	// This field *must* be set iff features advertises option_upfront_fee.
+	UpfrontFeePolicy *UpfrontFeePolicy
 }
 
 // Amount is a functional option that allows callers of NewInvoice to set the
@@ -385,5 +403,21 @@ func validateInvoice(invoice *Invoice) error {
 		return fmt.Errorf("missing feature vector")
 	}
 
-	return nil
+	// Check that upfront fee policies are sensibly set.
+	upfrontPolicy := invoice.UpfrontFeePolicy != nil
+	upfrontFeature := invoice.Features.IsSet(lnwire.UpfrontFeeOptional) ||
+		invoice.Features.IsSet(lnwire.UpfrontFeeRequired)
+
+	switch {
+	case upfrontPolicy && !upfrontFeature:
+		return fmt.Errorf("upfront fee policy set without upfront " +
+			"fee feature set")
+
+	case !upfrontPolicy && upfrontFeature:
+		return fmt.Errorf("upfront fee feature set without " +
+			"providing upfront policy")
+
+	default:
+		return nil
+	}
 }

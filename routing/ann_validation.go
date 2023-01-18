@@ -12,6 +12,14 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+// MaxSaneUpfrontFeePPM is the maximum upfront fee ppm allowed in the network.
+const MaxSaneUpfrontFeePPM = 100000
+
+// ErrUpfrontFeeSanity is returned when an upfront fee fails our protocol-
+// defined sanity check.
+var ErrUpfrontFeeSanity = fmt.Errorf("upfront fee above sane threshold: %v",
+	MaxSaneUpfrontFeePPM)
+
 // ValidateChannelAnn validates the channel announcement message and checks
 // that node signatures covers the announcement message, and that the bitcoin
 // signatures covers the node keys.
@@ -161,7 +169,7 @@ func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate,
 }
 
 // validateOptionalFields validates a channel update's message flags and
-// corresponding update fields.
+// corresponding update fields and optional tlv fields.
 func validateOptionalFields(capacity btcutil.Amount,
 	msg *lnwire.ChannelUpdate) error {
 
@@ -180,6 +188,18 @@ func validateOptionalFields(capacity btcutil.Amount,
 			return errors.Errorf("max_htlc(%v) for channel "+
 				"update greater than capacity(%v)", maxHtlc,
 				capacityMsat)
+		}
+	}
+
+	if msg.UpfrontFeePolicy != nil {
+		if msg.UpfrontFeePolicy.BasePPM > MaxSaneUpfrontFeePPM {
+			return fmt.Errorf("upfront base ppm: %w",
+				ErrUpfrontFeeSanity)
+		}
+
+		if msg.UpfrontFeePolicy.ProportionalPPM > MaxSaneUpfrontFeePPM {
+			return fmt.Errorf("upfront proportional fee: %w",
+				ErrUpfrontFeeSanity)
 		}
 	}
 

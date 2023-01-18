@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ChanUpdateMsgFlags is a bitfield that signals whether optional fields are
@@ -114,6 +115,12 @@ type ChannelUpdate struct {
 	// HtlcMaximumMsat is the maximum HTLC value which will be accepted.
 	HtlcMaximumMsat MilliSatoshi
 
+	// UpfrontFeePolicy is an optional upfront fee policy charged for adding
+	// htlcs to the channel.
+	//
+	// Note: this value is extracted from ExtraOpaqueData.
+	UpfrontFeePolicy *UpfrontFeePolicy
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -152,7 +159,15 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 		}
 	}
 
-	return a.ExtraOpaqueData.Decode(r)
+	if err := a.ExtraOpaqueData.Decode(r); err != nil {
+		return err
+	}
+
+	_, err = a.ExtraOpaqueData.ExtractRecords(
+		a.UpfrontFeePolicy,
+	)
+
+	return err
 }
 
 // Encode serializes the target ChannelUpdate into the passed io.Writer
@@ -207,6 +222,19 @@ func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	// Pack upfront fee record, if present.
+	var records []tlv.RecordProducer
+	if a.UpfrontFeePolicy != nil {
+		records = []tlv.RecordProducer{
+			a.UpfrontFeePolicy,
+		}
+	}
+
+	err := EncodeMessageExtraData(&a.ExtraOpaqueData, records...)
+	if err != nil {
+		return err
 	}
 
 	// Finally, append any extra opaque data.

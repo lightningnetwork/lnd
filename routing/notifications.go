@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -117,22 +116,18 @@ type topologyClient struct {
 // notifyTopologyChange notifies all registered clients of a new change in
 // graph topology in a non-blocking.
 func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
-	r.RLock()
-	defer r.RUnlock()
 
-	numClients := len(r.topologyClients)
-	if numClients == 0 {
-		return
-	}
-
-	log.Tracef("Sending topology notification to %v clients %v",
-		numClients, newLogClosure(func() string {
-			return spew.Sdump(topologyDiff)
-		}),
-	)
-
-	for _, client := range r.topologyClients {
+	// notifyClient is a helper closure that will send topology updates to
+	// the given client.
+	notifyClient := func(clientID uint64, client *topologyClient) bool {
 		client.wg.Add(1)
+
+		log.Tracef("Sending topology notification to client=%v, "+
+			"NodeUpdates=%v, ChannelEdgeUpdates=%v, "+
+			"ClosedChannels=%v", clientID,
+			len(topologyDiff.NodeUpdates),
+			len(topologyDiff.ChannelEdgeUpdates),
+			len(topologyDiff.ClosedChannels))
 
 		go func(c *topologyClient) {
 			defer c.wg.Done()
@@ -153,7 +148,15 @@ func (r *ChannelRouter) notifyTopologyChange(topologyDiff *TopologyChange) {
 
 			}
 		}(client)
+
+		// Always return true here so the following Range will iterate
+		// all clients.
+		return true
 	}
+
+	// Range over the set of active clients, and attempt to send the
+	// topology updates.
+	r.topologyClients.Range(notifyClient)
 }
 
 // TopologyChange represents a new set of modifications to the channel graph.

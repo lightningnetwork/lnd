@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 type chanWatchType uint8
@@ -68,8 +69,8 @@ type nodeWatcher struct {
 	// of edges seen for that channel within the network. When this number
 	// reaches 2, then it means that both edge advertisements has
 	// propagated through the network.
-	openChanWatchers  *SyncMap[wire.OutPoint, []chan struct{}]
-	closeChanWatchers *SyncMap[wire.OutPoint, []chan struct{}]
+	openChanWatchers  *lnutils.SyncMap[wire.OutPoint, []chan struct{}]
+	closeChanWatchers *lnutils.SyncMap[wire.OutPoint, []chan struct{}]
 
 	wg sync.WaitGroup
 }
@@ -79,8 +80,12 @@ func newNodeWatcher(rpc *rpc.HarnessRPC, state *State) *nodeWatcher {
 		rpc:               rpc,
 		state:             state,
 		chanWatchRequests: make(chan *chanWatchRequest, 100),
-		openChanWatchers:  &SyncMap[wire.OutPoint, []chan struct{}]{},
-		closeChanWatchers: &SyncMap[wire.OutPoint, []chan struct{}]{},
+		openChanWatchers: &lnutils.SyncMap[
+			wire.OutPoint, []chan struct{},
+		]{},
+		closeChanWatchers: &lnutils.SyncMap[
+			wire.OutPoint, []chan struct{},
+		]{},
 	}
 }
 

@@ -306,6 +306,14 @@ func Metadata(metadata []byte) func(*Invoice) {
 	}
 }
 
+// UpfrontFeePolicyOpt is a functional option that allows callers of NewInvoice
+// to set an upfront fee policy for the invoice.
+func UpfrontFeePolicyOpt(u *UpfrontFeePolicy) func(*Invoice) {
+	return func(i *Invoice) {
+		i.UpfrontFeePolicy = u
+	}
+}
+
 // NewInvoice creates a new Invoice object. The last parameter is a set of
 // variadic arguments for setting optional fields of the invoice.
 //

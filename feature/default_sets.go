@@ -84,7 +84,9 @@ var defaultSetDesc = setDesc{
 		SetNodeAnn: {}, // N
 	},
 	lnwire.UpfrontFeeOptional: {
-		SetInit:    {}, // I
-		SetNodeAnn: {}, // N
+		SetInit:       {}, // I
+		SetNodeAnn:    {}, // N
+		SetInvoice:    {}, // 9
+		SetInvoiceAmp: {}, // 9A,
 	},
 }

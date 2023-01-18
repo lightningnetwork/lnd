@@ -136,6 +136,12 @@ type AddInvoiceData struct {
 	// RouteHints are optional route hints that can each be individually
 	// used to assist in reaching the invoice's destination.
 	RouteHints [][]zpay32.HopHint
+
+	// UpfrontFeePolicy is the upfront fee policy that should be paid to
+	// the creator of the invoice (as the final hop). This value should be
+	// padded to sufficiently obfuscate the recipient's location in the
+	// route.
+	UpfrontFeePolicy *zpay32.UpfrontFeePolicy
 }
 
 // paymentHashAndPreimage returns the payment hash and preimage for this invoice
@@ -413,6 +419,14 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		}
 	}
 
+	if invoice.UpfrontFeePolicy != nil {
+		options = append(
+			options, zpay32.UpfrontFeePolicyOpt(
+				invoice.UpfrontFeePolicy,
+			),
+		)
+	}
+
 	// Set our desired invoice features and add them to our list of options.
 	var invoiceFeatures *lnwire.FeatureVector
 	if invoice.Amp {
@@ -430,6 +444,14 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		return nil, nil, err
 	}
 	options = append(options, zpay32.PaymentAddr(paymentAddr))
+
+	if invoice.UpfrontFeePolicy != nil {
+		options = append(
+			options, zpay32.UpfrontFeePolicyOpt(
+				invoice.UpfrontFeePolicy,
+			),
+		)
+	}
 
 	// Create and encode the payment request as a bech32 (zpay32) string.
 	creationDate := time.Now()

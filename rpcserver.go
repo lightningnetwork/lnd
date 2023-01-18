@@ -5451,6 +5451,11 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		Private:         invoice.Private,
 		RouteHints:      routeHints,
 		Amp:             invoice.IsAmp,
+		// TODO(carla): use privacy-preserving values that obfuscate
+		// how many hops remaining (+ randomized).
+		UpfrontFeePolicy: &zpay32.UpfrontFeePolicy{
+			BaseFee: 1000, //nolint:gomnd
+		},
 	}
 
 	if invoice.RPreimage != nil {

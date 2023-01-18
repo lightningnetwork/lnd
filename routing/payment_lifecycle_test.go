@@ -938,39 +938,13 @@ func TestUpdatePaymentState(t *testing.T) {
 
 	// paymentHash is the identifier on paymentLifecycle.
 	paymentHash := lntypes.Hash{}
+	preimage := lntypes.Preimage{}
+	failureReasonError := channeldb.FailureReasonError
 
 	// TODO(yy): make MPPayment into an interface so we can mock it. The
 	// current design implicitly tests the methods SendAmt, TerminalInfo,
 	// and InFlightHTLCs on channeldb.MPPayment, which is not good. Once
 	// MPPayment becomes an interface, we can then mock these methods here.
-
-	// SentAmt returns 90, 10
-	// TerminalInfo returns non-nil, nil
-	// InFlightHTLCs returns 0
-	var preimage lntypes.Preimage
-	paymentSettled := &channeldb.MPPayment{
-		HTLCs: []channeldb.HTLCAttempt{
-			makeSettledAttempt(100, 10, preimage),
-		},
-	}
-
-	// SentAmt returns 0, 0
-	// TerminalInfo returns nil, non-nil
-	// InFlightHTLCs returns 0
-	reason := channeldb.FailureReasonError
-	paymentFailed := &channeldb.MPPayment{
-		FailureReason: &reason,
-	}
-
-	// SentAmt returns 90, 10
-	// TerminalInfo returns nil, nil
-	// InFlightHTLCs returns 1
-	paymentActive := &channeldb.MPPayment{
-		HTLCs: []channeldb.HTLCAttempt{
-			makeActiveAttempt(100, 10),
-			makeFailedAttempt(100, 10),
-		},
-	}
 
 	testCases := []struct {
 		name     string
@@ -992,16 +966,31 @@ func TestUpdatePaymentState(t *testing.T) {
 		{
 			// Test that when the sentAmt exceeds totalAmount, the
 			// error is returned.
-			name:              "amount exceeded error",
-			payment:           paymentSettled,
+			name: "amount exceeded error",
+			// SentAmt returns 90, 10
+			// TerminalInfo returns non-nil, nil
+			// InFlightHTLCs returns 0
+			payment: &channeldb.MPPayment{
+				HTLCs: []channeldb.HTLCAttempt{
+					makeSettledAttempt(100, 10, preimage),
+				},
+			},
 			totalAmt:          1,
 			shouldReturnError: true,
 		},
 		{
 			// Test that when the fee budget is reached, the
 			// remaining fee should be zero.
-			name:     "fee budget reached",
-			payment:  paymentActive,
+			name: "fee budget reached",
+			payment: &channeldb.MPPayment{
+				// SentAmt returns 90, 10
+				// TerminalInfo returns nil, nil
+				// InFlightHTLCs returns 1
+				HTLCs: []channeldb.HTLCAttempt{
+					makeActiveAttempt(100, 10),
+					makeFailedAttempt(100, 10),
+				},
+			},
 			totalAmt: 1000,
 			feeLimit: 1,
 			expectedState: &paymentState{
@@ -1014,8 +1003,15 @@ func TestUpdatePaymentState(t *testing.T) {
 		{
 			// Test when the payment is settled, the state should
 			// be marked as terminated.
-			name:     "payment settled",
-			payment:  paymentSettled,
+			name: "payment settled",
+			// SentAmt returns 90, 10
+			// TerminalInfo returns non-nil, nil
+			// InFlightHTLCs returns 0
+			payment: &channeldb.MPPayment{
+				HTLCs: []channeldb.HTLCAttempt{
+					makeSettledAttempt(100, 10, preimage),
+				},
+			},
 			totalAmt: 1000,
 			feeLimit: 100,
 			expectedState: &paymentState{
@@ -1028,8 +1024,13 @@ func TestUpdatePaymentState(t *testing.T) {
 		{
 			// Test when the payment is failed, the state should be
 			// marked as terminated.
-			name:     "payment failed",
-			payment:  paymentFailed,
+			name: "payment failed",
+			// SentAmt returns 0, 0
+			// TerminalInfo returns nil, non-nil
+			// InFlightHTLCs returns 0
+			payment: &channeldb.MPPayment{
+				FailureReason: &failureReasonError,
+			},
 			totalAmt: 1000,
 			feeLimit: 100,
 			expectedState: &paymentState{

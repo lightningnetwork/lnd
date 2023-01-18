@@ -1,4 +1,4 @@
-package fn
+package lnutils
 
 // Map takes an input slice, and applies the function f to each element,
 // yielding a new slice.

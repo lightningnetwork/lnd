@@ -738,6 +738,9 @@ message GetTransactionsRequest {
 
     // An optional filter to only include transactions relevant to an account.
     string account = 3;
+
+    // The transaction hash. When using REST, this field must be encoded as base64.
+    bytes tx_hash = 4;
 }
 
 message TransactionDetails {

@@ -1384,12 +1384,122 @@ func unminedTransactionsToDetail(
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
-	accountFilter string) ([]*lnwallet.TransactionDetail, error) {
+	txHash []byte, accountFilter string,
+) ([]*lnwallet.TransactionDetail, error) {
 
 	// Grab the best block the wallet knows of, we'll use this to calculate
 	// # of confirmations shortly below.
 	bestBlock := b.wallet.Manager.SyncedTo()
 	currentHeight := bestBlock.Height
+
+	var dbTx *wtxmgr.TxDetails
+	var hash *chainhash.Hash
+	strHash := hex.EncodeToString(txHash) // Fix this conversion.
+	hash, err := chainhash.NewHashFromStr(strHash)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if txHash != nil {
+		// Check that the transaction is known to the wallet, and fail if it is
+		// unknown.
+		err = walletdb.View(b.wallet.Database(), func(tx walletdb.ReadTx) error {
+			txmgrNs := tx.ReadBucket(wtxmgrNamespaceKey)
+			// Might need this...
+			//addrmgrNs := tx.ReadBucket(waddrmgrNamespaceKey)
+			//_, outputAcct, err := b.wallet.Manager.AddrAccount(addrmgrNs, )
+
+			dbTx, err = b.wallet.TxStore.TxDetails(txmgrNs, hash)
+			if err != nil {
+				return err
+			}
+
+			if dbTx == nil {
+				return nil
+				//return errors.New("transaction not found")
+			}
+
+			return err
+		})
+
+		if err != nil {
+			return nil, err
+		}
+		// Temp, need to fix.
+		myInputs := base.TransactionSummaryInput{
+			Index: 0,
+		}
+
+		previousOutpoints := getPreviousOutpoints(&dbTx.MsgTx, []base.TransactionSummaryInput{myInputs})
+
+		var outputDetails []lnwallet.OutputDetail
+		for i, txOut := range dbTx.MsgTx.TxOut {
+			var addresses []btcutil.Address
+			sc, outAddresses, _, err := txscript.ExtractPkScriptAddrs(
+				txOut.PkScript, b.netParams,
+			)
+			if err == nil {
+				// Add supported addresses.
+				addresses = outAddresses
+			}
+
+			outputDetails = append(outputDetails, lnwallet.OutputDetail{
+				OutputType:   sc,
+				Addresses:    addresses,
+				PkScript:     txOut.PkScript,
+				OutputIndex:  i,
+				Value:        btcutil.Amount(txOut.Value),
+				IsOurAddress: true, // <- fix this
+			})
+		}
+
+		/*summary := base.TransactionSummary{
+			Index: 0,
+		}
+		balanceDelta, err := extractBalanceDelta(summary, wireTx)
+		if err != nil {
+			return nil, err
+		}
+		txDetail.Value = balanceDelta
+		*/
+
+		var fee btcutil.Amount
+		if len(dbTx.Debits) == len(dbTx.MsgTx.TxIn) {
+			for _, deb := range dbTx.Debits {
+				fee += deb.Amount
+			}
+			for _, txOut := range dbTx.MsgTx.TxOut {
+				fee -= btcutil.Amount(txOut.Value)
+			}
+		}
+
+		serializedTx := dbTx.SerializedTx
+		if serializedTx == nil {
+			var buf bytes.Buffer
+			err := dbTx.MsgTx.Serialize(&buf)
+			if err != nil {
+				return nil, err
+			}
+			serializedTx = buf.Bytes()
+		}
+
+		txDetail := &lnwallet.TransactionDetail{
+			Hash: dbTx.Hash,
+			//Value:             dbTx.Credits[0].Amount,                // wrong, fix this
+			NumConfirmations:  currentHeight - dbTx.Block.Height + 1, // check this
+			BlockHash:         &dbTx.Block.Hash,
+			BlockHeight:       dbTx.Block.Height,
+			Timestamp:         dbTx.Block.Time.Unix(),
+			TotalFees:         int64(fee),
+			OutputDetails:     outputDetails,
+			RawTx:             serializedTx,
+			Label:             dbTx.Label,
+			PreviousOutpoints: previousOutpoints,
+		}
+
+		return []*lnwallet.TransactionDetail{txDetail}, err
+	}
 
 	// We'll attempt to find all transactions from start to end height.
 	start := base.NewBlockIdentifierFromHeight(startHeight)

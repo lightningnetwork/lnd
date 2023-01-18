@@ -2504,6 +2504,14 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "tx_hash",
+            "description": "Transaction hash. When using REST, this field must be encoded as base64.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
           }
         ],
         "tags": [
@@ -2674,6 +2682,14 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "tx_hash",
+            "description": "Transaction hash. When using REST, this field must be encoded as base64.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
           }
         ],
         "tags": [

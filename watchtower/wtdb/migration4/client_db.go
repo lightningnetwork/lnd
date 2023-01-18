@@ -148,9 +148,8 @@ func migrateAckedUpdates(db kvdb.Backend, sessionsPerTx int) error {
 
 		// Calculate and log the progress if the progress is less than
 		// one hundred percent.
-		//nolint:gomnd
 		progress := float64(migrated) / float64(total) * 100
-		if progress >= 100 { //nolint:gomnd
+		if progress >= 100 {
 			break
 		}
 

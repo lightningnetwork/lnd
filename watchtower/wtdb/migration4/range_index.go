@@ -208,7 +208,7 @@ func (a *RangeIndex) lowerBoundIndex(n uint64) (int, bool) {
 		rangeIndex = -1
 	)
 	for {
-		mid := (low + high) / 2 //nolint: gomnd
+		mid := (low + high) / 2
 		currentRange := a.set[mid]
 
 		switch {

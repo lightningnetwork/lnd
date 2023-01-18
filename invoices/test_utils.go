@@ -64,7 +64,7 @@ var (
 
 	testInvoiceDescription = "coffee"
 
-	testInvoiceAmount = lnwire.MilliSatoshi(100000) //nolint:gomnd
+	testInvoiceAmount = lnwire.MilliSatoshi(100000)
 
 	testNetParams = &chaincfg.MainNetParams
 
@@ -152,7 +152,7 @@ func generateInvoiceExpiryTestData(
 	for i := 1; i <= numExpired; i++ {
 		var preimage lntypes.Preimage
 		binary.BigEndian.PutUint32(preimage[:4], uint32(offset+i))
-		duration := (i + offset) % 24 //nolint:gomnd
+		duration := (i + offset) % 24
 		expiry := time.Duration(duration) * time.Hour
 		invoice := newTestInvoice(
 			t, preimage, expiredCreationDate, expiry,
@@ -163,7 +163,7 @@ func generateInvoiceExpiryTestData(
 	for i := 1; i <= numPending; i++ {
 		var preimage lntypes.Preimage
 		binary.BigEndian.PutUint32(preimage[4:], uint32(offset+i))
-		duration := (i + offset) % 24 //nolint:gomnd
+		duration := (i + offset) % 24
 		expiry := time.Duration(duration) * time.Hour
 		invoice := newTestInvoice(t, preimage, now, expiry)
 		testData.pendingInvoices[preimage.Hash()] = invoice

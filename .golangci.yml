@@ -184,6 +184,10 @@ linters:
     # call t.Helper() within those functions, we lose the information where
     # exactly a test failed in the generated failure stack trace.
     - thelper
+    
+    # The linter is too aggressive and doesn't add much value since reviewers
+    # will also catch magic numbers that make sense to extract.
+    - gomnd
 
 
 issues:

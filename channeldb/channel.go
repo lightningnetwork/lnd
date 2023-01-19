@@ -1879,12 +1879,18 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 			return err
 		}
 
-		// Get the bucket where settled htlcs are recorded.
-		finalHtlcsBucket, err := fetchFinalHtlcsBucketRw(
-			tx, c.ShortChannelID,
-		)
-		if err != nil {
-			return err
+		// Get the bucket where settled htlcs are recorded if the user
+		// opted in to storing this information.
+		var finalHtlcsBucket kvdb.RwBucket
+		if c.Db.parent.storeFinalHtlcResolutions {
+			bucket, err := fetchFinalHtlcsBucketRw(
+				tx, c.ShortChannelID,
+			)
+			if err != nil {
+				return err
+			}
+
+			finalHtlcsBucket = bucket
 		}
 
 		var unsignedUpdates []LogUpdate
@@ -1957,15 +1963,18 @@ func processFinalHtlc(finalHtlcsBucket walletdb.ReadWriteBucket, upd LogUpdate,
 		return nil
 	}
 
-	err := putFinalHtlc(
-		finalHtlcsBucket, id,
-		FinalHtlcInfo{
-			Settled:  settled,
-			Offchain: true,
-		},
-	)
-	if err != nil {
-		return err
+	// Store the final resolution in the database if a bucket is provided.
+	if finalHtlcsBucket != nil {
+		err := putFinalHtlc(
+			finalHtlcsBucket, id,
+			FinalHtlcInfo{
+				Settled:  settled,
+				Offchain: true,
+			},
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	finalHtlcs[id] = settled

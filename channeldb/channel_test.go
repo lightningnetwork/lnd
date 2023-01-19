@@ -1463,7 +1463,7 @@ func TestKeyLocatorEncoding(t *testing.T) {
 func TestFinalHtlcs(t *testing.T) {
 	t.Parallel()
 
-	fullDB, err := MakeTestDB(t)
+	fullDB, err := MakeTestDB(t, OptionStoreFinalHtlcResolutions(true))
 	require.NoError(t, err, "unable to make test database")
 
 	cdb := fullDB.ChannelStateDB()

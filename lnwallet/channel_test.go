@@ -59,7 +59,9 @@ func assertOutputExistsByValue(t *testing.T, commitTx *wire.MsgTx,
 
 // testAddSettleWorkflow tests a simple channel scenario where Alice and Bob
 // add, the settle an HTLC between themselves.
-func testAddSettleWorkflow(t *testing.T, tweakless bool) {
+func testAddSettleWorkflow(t *testing.T, tweakless,
+	storeFinalHtlcResolutions bool) {
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -68,7 +70,12 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 		chanType = channeldb.SingleFunderBit
 	}
 
-	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, chanType,
+		channeldb.OptionStoreFinalHtlcResolutions(
+			storeFinalHtlcResolutions,
+		),
+	)
 	require.NoError(t, err, "unable to create test channels")
 
 	paymentPreimage := bytes.Repeat([]byte{1}, 32)
@@ -248,13 +255,18 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 	for htlcID, settled := range finalHtlcs {
 		require.True(t, settled, "final settle expected")
 
-		// Assert that final resolution was stored in Bob's database.
+		// Assert that final resolution was stored in Bob's database if
+		// storage is enabled.
 		finalInfo, err := bobChannel.channelState.Db.LookupFinalHtlc(
 			bobChannel.ShortChanID(), htlcID,
 		)
-		require.NoError(t, err)
-		require.True(t, finalInfo.Offchain)
-		require.True(t, finalInfo.Settled)
+		if storeFinalHtlcResolutions {
+			require.NoError(t, err)
+			require.True(t, finalInfo.Offchain)
+			require.True(t, finalInfo.Settled)
+		} else {
+			require.ErrorIs(t, err, channeldb.ErrHtlcUnknown)
+		}
 	}
 
 	fwdPkg, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation2)
@@ -339,9 +351,13 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 	for _, tweakless := range []bool{true, false} {
 		tweakless := tweakless
 		t.Run(fmt.Sprintf("tweakless=%v", tweakless), func(t *testing.T) {
-			testAddSettleWorkflow(t, tweakless)
+			testAddSettleWorkflow(t, tweakless, false)
 		})
 	}
+
+	t.Run("storeFinalHtlcResolutions=true", func(t *testing.T) {
+		testAddSettleWorkflow(t, false, true)
+	})
 }
 
 // TestChannelZeroAddLocalHeight tests that we properly set the addCommitHeightLocal

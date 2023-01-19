@@ -74,6 +74,10 @@ type Options struct {
 	// keepFailedPaymentAttempts determines whether failed htlc attempts
 	// are kept on disk or removed to save space.
 	keepFailedPaymentAttempts bool
+
+	// storeFinalHtlcResolutions determines whether to persistently store
+	// the final resolution of incoming htlcs.
+	storeFinalHtlcResolutions bool
 }
 
 // DefaultOptions returns an Options populated with default values.
@@ -184,6 +188,16 @@ func OptionDryRunMigration(dryRun bool) OptionModifier {
 func OptionKeepFailedPaymentAttempts(keepFailedPaymentAttempts bool) OptionModifier {
 	return func(o *Options) {
 		o.keepFailedPaymentAttempts = keepFailedPaymentAttempts
+	}
+}
+
+// OptionStoreFinalHtlcResolutions controls whether to persistently store the
+// final resolution of incoming htlcs.
+func OptionStoreFinalHtlcResolutions(
+	storeFinalHtlcResolutions bool) OptionModifier {
+
+	return func(o *Options) {
+		o.storeFinalHtlcResolutions = storeFinalHtlcResolutions
 	}
 }
 

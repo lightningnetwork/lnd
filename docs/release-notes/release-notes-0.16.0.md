@@ -222,6 +222,9 @@ data.
 * [Fix race condition in 
 `TestUpdatePaymentState`](https://github.com/lightningnetwork/lnd/pull/7336)
 
+* [Decreased the mutex lock
+  scope](https://github.com/lightningnetwork/lnd/pull/7330) inside `ChannelRouter`.
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

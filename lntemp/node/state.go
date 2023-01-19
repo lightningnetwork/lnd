@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
+	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 type (
@@ -153,18 +154,18 @@ type State struct {
 
 	// openChans records each opened channel and how many times it has
 	// heard the announcements from its graph subscription.
-	openChans *SyncMap[wire.OutPoint, []*OpenChannelUpdate]
+	openChans *lnutils.SyncMap[wire.OutPoint, []*OpenChannelUpdate]
 
 	// closedChans records each closed channel and its close channel update
 	// message received from its graph subscription.
-	closedChans *SyncMap[wire.OutPoint, *lnrpc.ClosedChannelUpdate]
+	closedChans *lnutils.SyncMap[wire.OutPoint, *lnrpc.ClosedChannelUpdate]
 
 	// numChanUpdates records the number of channel updates seen by each
 	// channel.
-	numChanUpdates *SyncMap[wire.OutPoint, int]
+	numChanUpdates *lnutils.SyncMap[wire.OutPoint, int]
 
 	// nodeUpdates records the node announcements seen by each node.
-	nodeUpdates *SyncMap[string, []*lnrpc.NodeUpdate]
+	nodeUpdates *lnutils.SyncMap[string, []*lnrpc.NodeUpdate]
 
 	// policyUpdates defines a type to store channel policy updates. It has
 	// the format,
@@ -179,21 +180,23 @@ type State struct {
 	//  },
 	//  "chanPoint2": ...
 	// }
-	policyUpdates *SyncMap[wire.OutPoint, PolicyUpdate]
+	policyUpdates *lnutils.SyncMap[wire.OutPoint, PolicyUpdate]
 }
 
 // newState initialize a new state with every field being set to its zero
 // value.
 func newState(rpc *rpc.HarnessRPC) *State {
 	return &State{
-		rpc:       rpc,
-		openChans: &SyncMap[wire.OutPoint, []*OpenChannelUpdate]{},
-		closedChans: &SyncMap[
+		rpc: rpc,
+		openChans: &lnutils.SyncMap[
+			wire.OutPoint, []*OpenChannelUpdate,
+		]{},
+		closedChans: &lnutils.SyncMap[
 			wire.OutPoint, *lnrpc.ClosedChannelUpdate,
 		]{},
-		numChanUpdates: &SyncMap[wire.OutPoint, int]{},
-		nodeUpdates:    &SyncMap[string, []*lnrpc.NodeUpdate]{},
-		policyUpdates:  &SyncMap[wire.OutPoint, PolicyUpdate]{},
+		numChanUpdates: &lnutils.SyncMap[wire.OutPoint, int]{},
+		nodeUpdates:    &lnutils.SyncMap[string, []*lnrpc.NodeUpdate]{},
+		policyUpdates:  &lnutils.SyncMap[wire.OutPoint, PolicyUpdate]{},
 	}
 }
 
@@ -352,9 +355,11 @@ func (s *State) resetEphermalStates(rpc *rpc.HarnessRPC) {
 
 	// Reset ephermal states which are used to record info from finished
 	// tests.
-	s.openChans = &SyncMap[wire.OutPoint, []*OpenChannelUpdate]{}
-	s.closedChans = &SyncMap[wire.OutPoint, *lnrpc.ClosedChannelUpdate]{}
-	s.numChanUpdates = &SyncMap[wire.OutPoint, int]{}
-	s.nodeUpdates = &SyncMap[string, []*lnrpc.NodeUpdate]{}
-	s.policyUpdates = &SyncMap[wire.OutPoint, PolicyUpdate]{}
+	s.openChans = &lnutils.SyncMap[wire.OutPoint, []*OpenChannelUpdate]{}
+	s.closedChans = &lnutils.SyncMap[
+		wire.OutPoint, *lnrpc.ClosedChannelUpdate,
+	]{}
+	s.numChanUpdates = &lnutils.SyncMap[wire.OutPoint, int]{}
+	s.nodeUpdates = &lnutils.SyncMap[string, []*lnrpc.NodeUpdate]{}
+	s.policyUpdates = &lnutils.SyncMap[wire.OutPoint, PolicyUpdate]{}
 }

@@ -18,10 +18,10 @@ import (
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnpeer"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
@@ -1185,7 +1185,7 @@ func (d *AuthenticatedGossiper) sendBatch(annBatch []msgWithSenders,
 	// skip the filter and dedup logic below, and just send the
 	// announcements out to all our coonnected peers.
 	if isLocal {
-		msgsToSend := fn.Map(
+		msgsToSend := lnutils.Map(
 			annBatch, func(m msgWithSenders) lnwire.Message {
 				return m.msg
 			},

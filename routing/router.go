@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
@@ -425,7 +426,7 @@ type ChannelRouter struct {
 	// topologyClients maps a client's unique notification ID to a
 	// topologyClient client that contains its notification dispatch
 	// channel.
-	topologyClients map[uint64]*topologyClient
+	topologyClients *lnutils.SyncMap[uint64, *topologyClient]
 
 	// ntfnClientUpdates is a channel that's used to send new updates to
 	// topology notification clients to the ChannelRouter. Updates either
@@ -445,8 +446,6 @@ type ChannelRouter struct {
 	// stats tracks newly processed channels, updates, and node
 	// announcements over a window of defaultStatInterval.
 	stats *routerStats
-
-	sync.RWMutex
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -474,7 +473,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 			source: selfNode.PubKeyBytes,
 		},
 		networkUpdates:    make(chan *routingMsg),
-		topologyClients:   make(map[uint64]*topologyClient),
+		topologyClients:   &lnutils.SyncMap[uint64, *topologyClient]{},
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
 		channelEdgeMtx:    multimutex.NewMutex(),
 		selfNode:          selfNode,
@@ -1203,14 +1202,10 @@ func (r *ChannelRouter) networkHandler() {
 			clientID := ntfnUpdate.clientID
 
 			if ntfnUpdate.cancel {
-				r.RLock()
-				client, ok := r.topologyClients[ntfnUpdate.clientID]
-				r.RUnlock()
+				client, ok := r.topologyClients.LoadAndDelete(
+					clientID,
+				)
 				if ok {
-					r.Lock()
-					delete(r.topologyClients, clientID)
-					r.Unlock()
-
 					close(client.exit)
 					client.wg.Wait()
 
@@ -1220,12 +1215,10 @@ func (r *ChannelRouter) networkHandler() {
 				continue
 			}
 
-			r.Lock()
-			r.topologyClients[ntfnUpdate.clientID] = &topologyClient{
+			r.topologyClients.Store(clientID, &topologyClient{
 				ntfnChan: ntfnUpdate.ntfnChan,
 				exit:     make(chan struct{}),
-			}
-			r.Unlock()
+			})
 
 		// The graph prune ticker has ticked, so we'll examine the
 		// state of the known graph to filter out any zombie channels

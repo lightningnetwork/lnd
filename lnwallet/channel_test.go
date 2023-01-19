@@ -241,13 +241,20 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool) {
 
 	bobRevocation2, _, finalHtlcs, err := bobChannel.
 		RevokeCurrentCommitment()
-
 	require.NoError(t, err, "bob unable to revoke commitment")
 
 	// Check finalHtlcs for the expected final resolution.
 	require.Len(t, finalHtlcs, 1, "final htlc expected")
-	for _, settled := range finalHtlcs {
+	for htlcID, settled := range finalHtlcs {
 		require.True(t, settled, "final settle expected")
+
+		// Assert that final resolution was stored in Bob's database.
+		finalInfo, err := bobChannel.channelState.Db.LookupFinalHtlc(
+			bobChannel.ShortChanID(), htlcID,
+		)
+		require.NoError(t, err)
+		require.True(t, finalInfo.Offchain)
+		require.True(t, finalInfo.Settled)
 	}
 
 	fwdPkg, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation2)

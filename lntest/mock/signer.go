@@ -57,7 +57,8 @@ func (d *DummySigner) ComputeInputScript(tx *wire.MsgTx,
 // submitted as well to reduce the number of method calls necessary later on.
 func (d *DummySigner) MuSig2CreateSession(input.MuSig2Version,
 	keychain.KeyLocator, []*btcec.PublicKey, *input.MuSig2Tweaks,
-	[][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo, error) {
+	[][musig2.PubNonceSize]byte,
+	...musig2.SessionOption) (*input.MuSig2SessionInfo, error) {
 
 	return nil, nil
 }
@@ -196,7 +197,8 @@ func (s *SingleSigner) SignMessage(keyLoc keychain.KeyLocator,
 // submitted as well to reduce the number of method calls necessary later on.
 func (s *SingleSigner) MuSig2CreateSession(input.MuSig2Version,
 	keychain.KeyLocator, []*btcec.PublicKey, *input.MuSig2Tweaks,
-	[][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo, error) {
+	[][musig2.PubNonceSize]byte,
+	...musig2.SessionOption) (*input.MuSig2SessionInfo, error) {
 
 	return nil, nil
 }

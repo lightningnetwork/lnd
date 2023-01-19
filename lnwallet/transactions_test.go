@@ -587,9 +587,9 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	remoteCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
 	localCommitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
 
-	aliceSelfOutputSigner := &input.MockSigner{
-		Privkeys: []*btcec.PrivateKey{aliceKeyPriv},
-	}
+	aliceSelfOutputSigner := input.NewMockSigner(
+		[]*btcec.PrivateKey{aliceKeyPriv}, nil,
+	)
 
 	// Calculate the dust limit we'll use for the test.
 	dustLimit := DustLimitForSize(input.UnknownWitnessSize)
@@ -679,7 +679,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		t.Fatalf("spend from delay output is invalid: %v", err)
 	}
 
-	localSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	localSigner := input.NewMockSigner([]*btcec.PrivateKey{bobKeyPriv}, nil)
 
 	// Next, we'll test bob spending with the derived revocation key to
 	// simulate the scenario when Alice broadcasts this commitment
@@ -994,15 +994,15 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	}
 
 	// Create mock signers that can sign for the keys that are used.
-	localSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{
+	localSigner := input.NewMockSigner([]*btcec.PrivateKey{
 		tc.localPaymentBasepointSecret, tc.localDelayedPaymentBasepointSecret,
 		tc.localFundingPrivkey, localDummy1, localDummy2,
-	}}
+	}, nil)
 
-	remoteSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{
+	remoteSigner := input.NewMockSigner([]*btcec.PrivateKey{
 		tc.remoteFundingPrivkey, tc.remoteRevocationBasepointSecret,
 		tc.remotePaymentBasepointSecret, remoteDummy1, remoteDummy2,
-	}}
+	}, nil)
 
 	remotePool := NewSigPool(1, remoteSigner)
 	channelRemote, err := NewLightningChannel(

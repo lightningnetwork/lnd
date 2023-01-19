@@ -534,7 +534,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	remoteCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
 	localCommitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
 
-	aliceSelfOutputSigner := &input.MockSigner{
+	aliceSelfOutputSigner := &MockSigner{
 		Privkeys: []*btcec.PrivateKey{aliceKeyPriv},
 	}
 
@@ -626,7 +626,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		t.Fatalf("spend from delay output is invalid: %v", err)
 	}
 
-	localSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	localSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
 
 	// Next, we'll test bob spending with the derived revocation key to
 	// simulate the scenario when Alice broadcasts this commitment
@@ -941,12 +941,12 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	}
 
 	// Create mock signers that can sign for the keys that are used.
-	localSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{
+	localSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{
 		tc.localPaymentBasepointSecret, tc.localDelayedPaymentBasepointSecret,
 		tc.localFundingPrivkey, localDummy1, localDummy2,
 	}}
 
-	remoteSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{
+	remoteSigner := &MockSigner{Privkeys: []*btcec.PrivateKey{
 		tc.remoteFundingPrivkey, tc.remoteRevocationBasepointSecret,
 		tc.remotePaymentBasepointSecret, remoteDummy1, remoteDummy2,
 	}}

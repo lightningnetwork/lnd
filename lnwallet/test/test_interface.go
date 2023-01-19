@@ -2974,11 +2974,11 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 	thawHeight := uint32(200)
 	aliceExternalFunder := chanfunding.NewCannedAssembler(
 		thawHeight, *chanPoint, btcutil.Amount(chanAmt), &aliceFundingKey,
-		bobFundingKey.PubKey, true,
+		bobFundingKey.PubKey, true, false,
 	)
 	bobShimIntent, err := chanfunding.NewCannedAssembler(
 		thawHeight, *chanPoint, btcutil.Amount(chanAmt), &bobFundingKey,
-		aliceFundingKey.PubKey, false,
+		aliceFundingKey.PubKey, false, false,
 	).ProvisionChannel(&chanfunding.Request{
 		LocalAmt: btcutil.Amount(chanAmt),
 		MinConfs: 1,

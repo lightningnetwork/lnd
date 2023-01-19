@@ -18,7 +18,8 @@ import (
 // it sets up a nework of Alice - Bob - Carol and creates a mock blinded route
 // that uses Carol as the introduction node (plus dummy hops to cover multiple
 // hops). The test simply asserts that the structure of the route is as
-// expected.
+// expected. It also includes the edge case of a single-hop blinded route,
+// which indicates that the introduction node is the recipient.
 func testQueryBlindedRoutes(ht *lntest.HarnessTest) {
 	var (
 		// Convenience aliases.
@@ -267,6 +268,44 @@ func testQueryBlindedRoutes(ht *lntest.HarnessTest) {
 	// forward).
 	require.NotNil(ht, htlcAttempt.Failure)
 	require.Equal(ht, uint32(2), htlcAttempt.Failure.FailureSourceIndex)
+
+	// Next, we test an edge case where just an introduction node is
+	// included as a "single hop blinded route".
+	sendToIntroCLTVFinal := uint32(15)
+	sendToIntroTimelock := info.BlockHeight + bobCarolDelta +
+		sendToIntroCLTVFinal
+
+	introNodeBlinded := &lnrpc.BlindedPaymentPath{
+		BlindedPath: &lnrpc.BlindedPath{
+			IntroductionNode: carol.PubKey[:],
+			BlindingPoint:    blindingBytes,
+			BlindedHops: []*lnrpc.BlindedHop{
+				{
+					// The first hop in the blinded route is
+					// expected to be the introduction node.
+					BlindedNode:   carolBlindedBytes,
+					EncryptedData: encryptedDataCarol,
+				},
+			},
+		},
+		// Fees should be zero for a single hop blinded path, and the
+		// total cltv expiry is just expected to cover the final cltv
+		// delta of the receiving node (ie, the introduction node).
+		BaseFeeMsat:    0,
+		TotalCltvDelta: sendToIntroCLTVFinal,
+	}
+	req = &lnrpc.QueryRoutesRequest{
+		AmtMsat: paymentAmt,
+		BlindedPaymentPaths: []*lnrpc.BlindedPaymentPath{
+			introNodeBlinded,
+		},
+	}
+
+	// Assert that we have one route, and two hops: Alice/Bob and Bob/Carol.
+	resp = alice.RPC.QueryRoutes(req)
+	require.Len(ht, resp.Routes, 1)
+	require.Len(ht, resp.Routes[0].Hops, 2)
+	require.Equal(ht, resp.Routes[0].TotalTimeLock, sendToIntroTimelock)
 
 	ht.CloseChannel(alice, chanPointAliceBob)
 	ht.CloseChannel(bob, chanPointBobCarol)

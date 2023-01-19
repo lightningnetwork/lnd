@@ -2112,7 +2112,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	})
 
 	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(channels.AlicesPrivKey)
-	signer := &mock.SingleSigner{Privkey: aliceKeyPriv}
+	signer := input.NewMockSigner([]*btcec.PrivateKey{aliceKeyPriv}, nil)
 
 	// Assemble our test arbiter.
 	notifier := mock.MakeMockSpendNotifier()
@@ -2339,8 +2339,10 @@ func createInitChannels(t *testing.T, revocationWindow int) (
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	aliceSigner := &mock.SingleSigner{Privkey: aliceKeyPriv}
-	bobSigner := &mock.SingleSigner{Privkey: bobKeyPriv}
+	aliceSigner := input.NewMockSigner(
+		[]*btcec.PrivateKey{aliceKeyPriv}, nil,
+	)
+	bobSigner := input.NewMockSigner([]*btcec.PrivateKey{bobKeyPriv}, nil)
 
 	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(

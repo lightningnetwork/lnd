@@ -1819,10 +1819,12 @@ func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim, initiator bool,
 
 	// With all the parts assembled, we can now make the canned assembler
 	// to pass into the wallet.
+	//
+	// TODO(roasbeef): update to support musig2
 	return chanfunding.NewCannedAssembler(
 		chanPointShim.ThawHeight, *chanPoint,
 		btcutil.Amount(chanPointShim.Amt), &localKeyDesc,
-		remoteKey, initiator,
+		remoteKey, initiator, false,
 	), nil
 }
 

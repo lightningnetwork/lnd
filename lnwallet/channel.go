@@ -5174,7 +5174,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 		)
 	}
 
-	return revocationMsg, newCommitment.Htlcs, nil
+	return revocationMsg, newCommitment.Htlcs, finalHtlcs, nil
 }
 
 // ReceiveRevocation processes a revocation sent by the remote party for the

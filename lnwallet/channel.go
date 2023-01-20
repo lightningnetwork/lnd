@@ -8198,3 +8198,28 @@ func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
 
 	return nil
 }
+
+// ChanType returns the channel type.
+func (lc *LightningChannel) ChanType() channeldb.ChannelType {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.ChanType
+}
+
+// FundingTxOut returns the funding output of the channel.
+func (lc *LightningChannel) FundingTxOut() *wire.TxOut {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return &lc.fundingOutput
+}
+
+// MultiSigKeys returns the set of multi-sig keys for an channel.
+func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor, keychain.KeyDescriptor) {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.LocalChanCfg.MultiSigKey,
+		lc.channelState.RemoteChanCfg.MultiSigKey
+}

@@ -606,7 +606,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 // with, and abstracts the various ways of constructing commitment
 // transactions.
 type CommitmentBuilder struct {
-	// chanState is the underlying channels's state struct, used to
+	// chanState is the underlying channel's state struct, used to
 	// determine the type of channel we are dealing with, and relevant
 	// parameters.
 	chanState *channeldb.OpenChannel
@@ -891,6 +891,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	// Next, we create the script paying to the remote.
 	toRemoteScript, _, err := CommitScriptToRemote(
 		chanType, initiator, keyRing.ToRemoteKey, leaseExpiry,
+		keyRing.CombinedFundingKey,
 	)
 	if err != nil {
 		return nil, err
@@ -922,7 +923,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	// If this channel type has anchors, we'll also add those.
 	if chanType.HasAnchors() {
 		localAnchor, remoteAnchor, err := CommitScriptAnchors(
-			localChanCfg, remoteChanCfg,
+			chanType, localChanCfg, remoteChanCfg, keyRing,
 		)
 		if err != nil {
 			return nil, err
@@ -1155,7 +1156,7 @@ func findOutputIndexesFromRemote(revocationPreimage *chainhash.Hash,
 	// commitment, the to remote output belongs to us.
 	ourScript, _, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry,
+		leaseExpiry, keyRing.CombinedFundingKey,
 	)
 	if err != nil {
 		return ourIndex, theirIndex, err

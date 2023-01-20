@@ -2346,7 +2346,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	isRemoteInitiator := !chanState.IsInitiator
 	ourScript, ourDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry,
+		leaseExpiry, keyRing.CombinedFundingKey,
 	)
 	if err != nil {
 		return nil, err
@@ -4393,6 +4393,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 			if err != nil {
 				return nil, err
 			}
+
 			htlc.sig = sig
 
 		// Otherwise, if this is an outgoing HTLC, then we'll need to
@@ -5874,7 +5875,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	// transaction.
 	selfScript, maturityDelay, err := CommitScriptToRemote(
 		chanState.ChanType, isRemoteInitiator, keyRing.ToRemoteKey,
-		leaseExpiry,
+		leaseExpiry, keyRing.CombinedFundingKey,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create self commit "+

@@ -5331,10 +5331,13 @@ func TestInvalidCommitSigError(t *testing.T) {
 
 	// Before the signature gets to Bob, we'll mutate it, such that the
 	// signature is now actually invalid.
-	aliceSigCopy := aliceSig.Copy()
-	aliceSigCopyBytes := aliceSigCopy.RawBytes()
-	aliceSigCopyBytes[0] ^= 88
-	aliceSig, err = lnwire.NewSigFromWireECDSA(aliceSigCopyBytes)
+	sigCopy := aliceSig.Copy()
+	copyBytes := sigCopy.RawBytes()
+	copyBytes[0] ^= 80
+
+	aliceSig, err = lnwire.NewSigFromSchnorrRawSignature(
+		copyBytes,
+	)
 	require.NoError(t, err)
 
 	// Bob should reject this new state, and return the proper error.

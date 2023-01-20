@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/input"
 )
 
 const (
@@ -41,9 +42,13 @@ var (
 // state transition to create another output which actually allows redemption
 // or revocation of an HTLC.
 //
-// In order to spend the HTLC output, the witness for the passed transaction
-// should be:
+// In order to spend the segwit v0 HTLC output, the witness for the passed
+// transaction should be:
 //   - <0> <sender sig> <recvr sig> <preimage>
+//
+// In order to spend the segwit v1 (taproot) HTLC output, the witness for the
+// passed transaction should be:
+//   - <sender sig> <receiver sig> <preimage> <sucess_script> <control_block>
 func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount, csvDelay,
 	leaseExpiry uint32, revocationKey, delayKey *btcec.PublicKey) (
@@ -62,10 +67,12 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 	}
 	successTx.AddTxIn(txin)
 
+	var pkScript []byte
+
 	// Next, we'll generate the script used as the output for all second
 	// level HTLC which forces a covenant w.r.t what can be done with all
 	// HTLC outputs.
-	script, err := SecondLevelHtlcScript(
+	scriptInfo, err := SecondLevelHtlcScript(
 		chanType, initiator, revocationKey, delayKey, csvDelay,
 		leaseExpiry,
 	)
@@ -73,11 +80,13 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 		return nil, err
 	}
 
+	pkScript = scriptInfo.PkScript
+
 	// Finally, the output is simply the amount of the HTLC (minus the
 	// required fees), paying to the timeout script.
 	successTx.AddTxOut(&wire.TxOut{
 		Value:    int64(htlcAmt),
-		PkScript: script.PkScript,
+		PkScript: pkScript,
 	})
 
 	return successTx, nil
@@ -92,9 +101,13 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 // transaction is locked with an absolute lock-time so the sender can only
 // attempt to claim the output using it after the lock time has passed.
 //
-// In order to spend the HTLC output, the witness for the passed transaction
-// should be:
-// * <0> <sender sig> <receiver sig> <0>
+// In order to spend the HTLC output for segwit v0, the witness for the passed
+// transaction should be:
+//   - <0> <sender sig> <receiver sig> <0>
+//
+// In order to spend the HTLC output for segwit v1, then witness for the passed
+// transaction should be:
+//   - <sender sig> <receiver sig> <timeout_script> <control_block>
 //
 // NOTE: The passed amount for the HTLC should take into account the required
 // fee rate at the time the HTLC was created. The fee should be able to
@@ -121,22 +134,43 @@ func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 	}
 	timeoutTx.AddTxIn(txin)
 
-	// Next, we'll generate the script used as the output for all second
-	// level HTLC which forces a covenant w.r.t what can be done with all
-	// HTLC outputs.
-	script, err := SecondLevelHtlcScript(
-		chanType, initiator, revocationKey, delayKey, csvDelay,
-		leaseExpiry,
-	)
-	if err != nil {
-		return nil, err
+	var pkScript []byte
+
+	// Depending on if this is a taproot channel or not, we'll create a v0
+	// vs v1 segwit script.
+	if chanType.IsTaproot() {
+		taprootOutputKey, err := input.TaprootSecondLevelHtlcScript(
+			revocationKey, delayKey, csvDelay,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		pkScript, err = input.PayToTaprootScript(taprootOutputKey)
+		if err != nil {
+			return nil, err
+		}
+
+	} else {
+		// Next, we'll generate the script used as the output for all second
+		// level HTLC which forces a covenant w.r.t what can be done with all
+		// HTLC outputs.
+		scriptInfo, err := SecondLevelHtlcScript(
+			chanType, initiator, revocationKey, delayKey, csvDelay,
+			leaseExpiry,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		pkScript = scriptInfo.PkScript
 	}
 
 	// Finally, the output is simply the amount of the HTLC (minus the
 	// required fees), paying to the regular second level HTLC script.
 	timeoutTx.AddTxOut(&wire.TxOut{
 		Value:    int64(htlcAmt),
-		PkScript: script.PkScript,
+		PkScript: pkScript,
 	})
 
 	return timeoutTx, nil

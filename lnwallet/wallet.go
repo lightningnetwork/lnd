@@ -2433,26 +2433,43 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	if err != nil {
 		return err
 	}
-	signedCommitTx, err := channel.getSignedCommitTx()
-	if err != nil {
-		return err
-	}
+
+	localKey := channelState.LocalChanCfg.MultiSigKey.PubKey
+	remoteKey := channelState.RemoteChanCfg.MultiSigKey.PubKey
 
 	// We'll also need the multi-sig witness script itself so the
 	// chanvalidate package can check it for correctness against the
 	// funding transaction, and also commitment validity.
-	localKey := channelState.LocalChanCfg.MultiSigKey.PubKey
-	remoteKey := channelState.RemoteChanCfg.MultiSigKey.PubKey
-	witnessScript, err := input.GenMultiSigScript(
-		localKey.SerializeCompressed(),
-		remoteKey.SerializeCompressed(),
-	)
+	var fundingScript []byte
+	if channelState.ChanType.IsTaproot() {
+		fundingScript, _, err = input.GenTaprootFundingScript(
+			localKey, remoteKey, int64(channel.Capacity),
+		)
+		if err != nil {
+			return err
+		}
+
+	} else {
+		witnessScript, err := input.GenMultiSigScript(
+			localKey.SerializeCompressed(),
+			remoteKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return err
+		}
+		fundingScript, err = input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return err
+		}
+	}
+
+	signedCommitTx, err := channel.getSignedCommitTx()
 	if err != nil {
 		return err
 	}
-	pkScript, err := input.WitnessScriptHash(witnessScript)
-	if err != nil {
-		return err
+	commitCtx := &chanvalidate.CommitmentContext{
+		Value:               channel.Capacity,
+		FullySignedCommitTx: signedCommitTx,
 	}
 
 	// Finally, we'll pass in all the necessary context needed to fully
@@ -2462,12 +2479,9 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 		Locator: &chanvalidate.OutPointChanLocator{
 			ChanPoint: channelState.FundingOutpoint,
 		},
-		MultiSigPkScript: pkScript,
+		MultiSigPkScript: fundingScript,
 		FundingTx:        fundingTx,
-		CommitCtx: &chanvalidate.CommitmentContext{
-			Value:               channel.Capacity,
-			FullySignedCommitTx: signedCommitTx,
-		},
+		CommitCtx:        commitCtx,
 	})
 	if err != nil {
 		return err

@@ -3626,7 +3626,7 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	require.NoError(t, err, "alice unable to recv revocation")
 	err = aliceChannel.ReceiveNewCommitment(bobNewCommit.CommitSigs)
 	require.NoError(t, err, "alice unable to recv bob's commitment")
-	aliceRevocation, _, err := aliceChannel.RevokeCurrentCommitment()
+	aliceRevocation, _, _, err := aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "alice unable to revoke commitment")
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to recv revocation")

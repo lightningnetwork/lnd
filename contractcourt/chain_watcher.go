@@ -405,6 +405,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 	remoteScript, _, err := lnwallet.CommitScriptToRemote(
 		c.cfg.chanState.ChanType, c.cfg.chanState.IsInitiator,
 		commitKeyRing.ToRemoteKey, leaseExpiry,
+		commitKeyRing.CombinedFundingKey,
 	)
 	if err != nil {
 		return false, err

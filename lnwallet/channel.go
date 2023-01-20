@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -27,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 )
 
 var (
@@ -1315,7 +1317,50 @@ type LightningChannel struct {
 	// log is a channel-specific logging instance.
 	log btclog.Logger
 
+	// musigSessions holds the current musig2 pair session for the channel.
+	musigSessions *MusigPairSession
+
+	// pendingVerificationNonce is the initial verification nonce generated
+	// for musig2 channels when the state machine is intiated. Once we know
+	// the verification nonce of the remote party, then we can star tto use
+	// the channel as normal.
+	pendingVerificationNonce *musig2.Nonces
+
+	// fundingOutput is the funding output (script+value).
+	fundingOutput wire.TxOut
+
 	sync.RWMutex
+}
+
+// ChannelOpt is a functional option that lets callers modify how a new channel
+// is created.
+type ChannelOpt func(*channelOpts)
+
+// WithLocalMusigNonces is used to bind an existing verification/local nonce to
+// a new channel.
+func WithLocalMusigNonces(nonce *musig2.Nonces) ChannelOpt {
+	return func(o *channelOpts) {
+		o.localNonce = nonce
+	}
+}
+
+// WithRemoteMusigNonces is used to bind the remote party's local/verification
+// nonce to a new channel.
+func WithRemoteMusigNonces(nonces *musig2.Nonces) ChannelOpt {
+	return func(o *channelOpts) {
+		o.remoteNonce = nonces
+	}
+}
+
+// channelOpts is the set of options used to create a new channel.
+type channelOpts struct {
+	localNonce  *musig2.Nonces
+	remoteNonce *musig2.Nonces
+}
+
+// defaultChannelOpts returns the set of default options for a new channel.
+func defaultChannelOpts() *channelOpts {
+	return &channelOpts{}
 }
 
 // NewLightningChannel creates a new, active payment channel given an
@@ -1325,7 +1370,12 @@ type LightningChannel struct {
 // manner.
 func NewLightningChannel(signer input.Signer,
 	state *channeldb.OpenChannel,
-	sigPool *SigPool) (*LightningChannel, error) {
+	sigPool *SigPool, chanOpts ...ChannelOpt) (*LightningChannel, error) {
+
+	opts := defaultChannelOpts()
+	for _, optFunc := range chanOpts {
+		optFunc(opts)
+	}
 
 	localCommit := state.LocalCommitment
 	remoteCommit := state.RemoteCommitment
@@ -1358,6 +1408,18 @@ func NewLightningChannel(signer input.Signer,
 		log:               build.NewPrefixLog(logPrefix, walletLog),
 	}
 
+	// At this point, we mwy already have of nonces that were passed in, so
+	// we'll check that now as this lets us skip some steps later.
+	if opts.localNonce != nil {
+		lc.pendingVerificationNonce = opts.localNonce
+	}
+	if lc.pendingVerificationNonce != nil && opts.remoteNonce != nil {
+		err := lc.InitRemoteMusigNonces(opts.remoteNonce)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// With the main channel struct reconstructed, we'll now restore the
 	// commitment state in memory and also the update logs themselves.
 	err := lc.restoreCommitState(&localCommit, &remoteCommit)
@@ -1378,29 +1440,47 @@ func NewLightningChannel(signer input.Signer,
 // createSignDesc derives the SignDescriptor for commitment transactions from
 // other fields on the LightningChannel.
 func (lc *LightningChannel) createSignDesc() error {
-	localKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-	remoteKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
 
-	multiSigScript, err := input.GenMultiSigScript(localKey, remoteKey)
-	if err != nil {
-		return err
+	var (
+		fundingPkScript, multiSigScript []byte
+		err                             error
+	)
+
+	chanState := lc.channelState
+	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey
+	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey
+
+	if chanState.ChanType.IsTaproot() {
+		fundingPkScript, _, err = input.GenTaprootFundingScript(
+			localKey, remoteKey, int64(lc.channelState.Capacity),
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		multiSigScript, err = input.GenMultiSigScript(
+			localKey.SerializeCompressed(), remoteKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return err
+		}
+
+		fundingPkScript, err = input.WitnessScriptHash(multiSigScript)
+		if err != nil {
+			return err
+		}
 	}
 
-	fundingPkScript, err := input.WitnessScriptHash(multiSigScript)
-	if err != nil {
-		return err
+	lc.fundingOutput = wire.TxOut{
+		PkScript: fundingPkScript,
+		Value:    int64(lc.channelState.Capacity),
 	}
 	lc.signDesc = &input.SignDescriptor{
 		KeyDesc:       lc.channelState.LocalChanCfg.MultiSigKey,
 		WitnessScript: multiSigScript,
-		Output: &wire.TxOut{
-			PkScript: fundingPkScript,
-			Value:    int64(lc.channelState.Capacity),
-		},
-		HashType:   txscript.SigHashAll,
-		InputIndex: 0,
+		Output:        &lc.fundingOutput,
+		HashType:      txscript.SigHashAll,
+		InputIndex:    0,
 	}
 
 	return nil
@@ -7662,4 +7742,96 @@ func (lc *LightningChannel) unsignedLocalUpdates(remoteMessageIndex,
 	}
 
 	return localPeerUpdates
+}
+
+// GenMusigNonces generates the verification nonce to start off a new musig2
+// channel session.
+func (lc *LightningChannel) GenMusigNonces() (*musig2.Nonces, error) {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	var err error
+	lc.pendingVerificationNonce, err = NewMusigVerificationNonce(
+		lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
+		lc.currentHeight, lc.channelState.RevocationProducer,
+		false,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return lc.pendingVerificationNonce, nil
+}
+
+// NewMusigVerificationNonce generates the local or verification nonce for
+// another musig2 session. In order to permit our implementation to not have to
+// write any secret nonce state to disk, we'll use the _next_ shachain
+// pre-image as our primary randomness source.
+func NewMusigVerificationNonce(pubKey *btcec.PublicKey, currentHeight uint64,
+	shaGen shachain.Producer, forBroadcast bool) (*musig2.Nonces, error) {
+
+	// If we're broadcasting this commitment, then we need to get the nonce
+	// for the current height. Otherwise, we'll add one, as we're
+	// generating a local nonce for the _next_ height.
+	targetHeight := func() uint64 {
+		if forBroadcast {
+			return currentHeight
+		}
+
+		return currentHeight + 1
+	}()
+
+	// Now that we know what height we need, we'll grab the shachain
+	// pre-image at the target destination.
+	nextPreimage, err := shaGen.AtIndex(targetHeight)
+	if err != nil {
+		return nil, err
+	}
+
+	shaChainRand := musig2.WithCustomRand(bytes.NewBuffer(nextPreimage[:]))
+	pubKeyOpt := musig2.WithPublicKey(pubKey)
+
+	return musig2.GenNonces(pubKeyOpt, shaChainRand)
+}
+
+// HasRemoteNonces returns true if the channel has a remote nonce pair.
+func (lc *LightningChannel) HasRemoteNonces() bool {
+	return lc.musigSessions != nil
+}
+
+// InitRemoteMusigNonces processes the remote musig nonces sent by the remote
+// party. This should be called upon connection re-establishment, after we've
+// generated our own nonces. Once this method returns a nil error, then the
+// channel can be used to sign commitment states.
+func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
+) error {
+
+	lc.RLock()
+	defer lc.RUnlock()
+
+	// Now that we have the set of local and remote nonces, we can generate
+	// a new pair of musig sessions for our local commitment and the
+	// commitment of the remote party.
+	localNonce := lc.pendingVerificationNonce
+
+	localChanCfg := lc.channelState.LocalChanCfg
+	remoteChanCfg := lc.channelState.RemoteChanCfg
+
+	// TODO(roasbeef): propagate rename of signing and verification nonces
+
+	sessionCfg := &MusigSessionCfg{
+		LocalKey:    localChanCfg.MultiSigKey,
+		RemoteKey:   remoteChanCfg.MultiSigKey,
+		LocalNonce:  *localNonce,
+		RemoteNonce: *remoteNonce,
+		Signer:      lc.Signer,
+		InputTxOut:  &lc.fundingOutput,
+	}
+	lc.musigSessions = NewMusigPairSession(
+		sessionCfg,
+	)
+
+	lc.pendingVerificationNonce = nil
+
+	return nil
 }

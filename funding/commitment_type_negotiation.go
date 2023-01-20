@@ -240,6 +240,52 @@ func explicitNegotiateCommitmentType(channelType lnwire.ChannelType, local,
 		}
 		return lnwallet.CommitmentTypeTweakless, nil
 
+	// Simple taproot channels only.
+	case channelFeatures.OnlyContains(lnwire.SimpleTaprootChannelsRequired):
+
+		if !hasFeatures(
+			local, remote, lnwire.SimpleTaprootChannelsOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeSimpleTaproot, nil
+
+	// Simple taproot channels with scid only.
+	case channelFeatures.OnlyContains(
+		lnwire.SimpleTaprootChannelsRequired,
+		lnwire.ScidAliasRequired,
+	):
+
+		if !hasFeatures(
+			local, remote,
+			lnwire.SimpleTaprootChannelsOptional,
+			lnwire.ScidAliasOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeSimpleTaproot, nil
+
+	// Simple taproot channels with zero conf only.
+	case channelFeatures.OnlyContains(
+		lnwire.SimpleTaprootChannelsRequired,
+		lnwire.ZeroConfRequired,
+	):
+
+		if !hasFeatures(
+			local, remote,
+			lnwire.SimpleTaprootChannelsOptional,
+			lnwire.ZeroConfOptional,
+		) {
+
+			return 0, errUnsupportedChannelType
+		}
+
+		return lnwallet.CommitmentTypeSimpleTaproot, nil
+
 	// No features, use legacy commitment type.
 	case channelFeatures.IsEmpty():
 		return lnwallet.CommitmentTypeLegacy, nil

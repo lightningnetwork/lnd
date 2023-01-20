@@ -1416,6 +1416,67 @@ func (r *ChannelRouter) addZombieEdge(chanID uint64) error {
 	return nil
 }
 
+// makeFundingScript is used to make the funding script for both segwit v0 and
+// segwit v1 (taproot) channels.
+//
+// TODO(roasbeef: export and use elsewhere?
+func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
+	chanFeatures []byte) ([]byte, error) {
+
+	legacyFundingScript := func() ([]byte, error) {
+		witnessScript, err := input.GenMultiSigScript(
+			bitcoinKey1, bitcoinKey2,
+		)
+		if err != nil {
+			return nil, err
+		}
+		pkScript, err := input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return nil, err
+		}
+
+		return pkScript, nil
+	}
+
+	if len(chanFeatures) == 0 {
+		return legacyFundingScript()
+	}
+
+	// In order to make the correct funding script, we'll need to parse the
+	// chanFeatures bytes into a feature vector we can interact with.
+	rawFeatures := lnwire.NewRawFeatureVector()
+	err := rawFeatures.Decode(bytes.NewReader(chanFeatures))
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse chan feature "+
+			"bits: %w", err)
+	}
+
+	chanFeatureBits := lnwire.NewFeatureVector(
+		rawFeatures, lnwire.Features,
+	)
+	if chanFeatureBits.HasFeature(lnwire.SimpleTaprootChannelsOptional) {
+		pubKey1, err := btcec.ParsePubKey(bitcoinKey1)
+		if err != nil {
+			return nil, err
+		}
+		pubKey2, err := btcec.ParsePubKey(bitcoinKey2)
+		if err != nil {
+			return nil, err
+		}
+
+		fundingScript, _, err := input.GenTaprootFundingScript(
+			pubKey1, pubKey2, 0,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return fundingScript, nil
+	}
+
+	return legacyFundingScript()
+}
+
 // processUpdate processes a new relate authenticated channel/edge, node or
 // channel/edge update network update. If the update didn't affect the internal
 // state of the draft due to either being out of date, invalid, or redundant,
@@ -1525,13 +1586,10 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		// Recreate witness output to be sure that declared in channel
 		// edge bitcoin keys and channel value corresponds to the
 		// reality.
-		witnessScript, err := input.GenMultiSigScript(
+		fundingPkScript, err := makeFundingScript(
 			msg.BitcoinKey1Bytes[:], msg.BitcoinKey2Bytes[:],
+			msg.Features,
 		)
-		if err != nil {
-			return err
-		}
-		pkScript, err := input.WitnessScriptHash(witnessScript)
 		if err != nil {
 			return err
 		}
@@ -1544,7 +1602,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			Locator: &chanvalidate.ShortChanIDChanLocator{
 				ID: channelID,
 			},
-			MultiSigPkScript: pkScript,
+			MultiSigPkScript: fundingPkScript,
 			FundingTx:        fundingTx,
 		})
 		if err != nil {
@@ -1561,10 +1619,6 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		// Now that we have the funding outpoint of the channel, ensure
 		// that it hasn't yet been spent. If so, then this channel has
 		// been closed so we'll ignore it.
-		fundingPkScript, err := input.WitnessScriptHash(witnessScript)
-		if err != nil {
-			return err
-		}
 		chanUtxo, err := r.cfg.Chain.GetUtxo(
 			fundingPoint, fundingPkScript, channelID.BlockHeight,
 			r.quit,

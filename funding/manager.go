@@ -4068,6 +4068,18 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		ChainHash:      chainHash,
 	}
 
+	// If this is a taproot channel, then we'll set a special bit in the
+	// feature vector to indicate to the routing layer that this needs a
+	// slightly different type of validation.
+	//
+	// TODO(roasbeef): temp, remove after gossip 1.5
+	if chanType.IsTaproot() {
+		log.Debugf("Applying taproot feature bit to "+
+			"ChannelAnnouncement for %v", chanID)
+
+		chanAnn.Features.Set(lnwire.SimpleTaprootChannelsRequired)
+	}
+
 	// The chanFlags field indicates which directed edge of the channel is
 	// being updated within the ChannelUpdateAnnouncement announcement
 	// below. A value of zero means it's the edge of the "first" node and 1

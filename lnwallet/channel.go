@@ -2586,7 +2586,6 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 
 			// Read the amounts from the breach transaction.
 			theirAmt = spendTx.TxOut[theirOutpoint.Index].Value
-
 		} else {
 			// Otherwise, we check to see if the revocation log
 			// contains remote parties' output amount. Due to a

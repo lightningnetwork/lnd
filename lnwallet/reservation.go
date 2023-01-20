@@ -46,7 +46,7 @@ const (
 
 	// CommitmentTypeSimpleTaproot is the base commitment type for the
 	// channels that use a musig2 funding output and the tapscript tree
-	// where relevant for the commitment transaciton pk scripts.
+	// where relevant for the commitment transaction pk scripts.
 	CommitmentTypeSimpleTaproot
 )
 

@@ -2142,6 +2142,32 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 		*channelType = lnwire.ChannelType(*fv)
 
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+		// If the taproot channel type is being set, then the channel
+		// MUST be private (unadvertised) for now.
+		if !in.Private {
+			return nil, fmt.Errorf("taproot channels must be " +
+				"private")
+		}
+
+		channelType = new(lnwire.ChannelType)
+		fv := lnwire.NewRawFeatureVector(
+			lnwire.SimpleTaprootChannelsRequired,
+		)
+
+		// TODO(roasbeef): no need for the rest as they're now
+		// implicit?
+
+		if in.ZeroConf {
+			fv.Set(lnwire.ZeroConfRequired)
+		}
+
+		if in.ScidAlias {
+			fv.Set(lnwire.ScidAliasRequired)
+		}
+
+		*channelType = lnwire.ChannelType(*fv)
+
 	default:
 		return nil, fmt.Errorf("unhandled request channel type %v",
 			in.CommitmentType)
@@ -4146,19 +4172,22 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 	// Extract the commitment type from the channel type flags. We must
 	// first check whether it has anchors, since in that case it would also
 	// be tweakless.
-	if chanType.HasLeaseExpiration() {
+	switch {
+	case chanType.IsTaproot():
+		return lnrpc.CommitmentType_SIMPLE_TAPROOT
+
+	case chanType.HasLeaseExpiration():
 		return lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
-	}
 
-	if chanType.HasAnchors() {
+	case chanType.HasAnchors():
 		return lnrpc.CommitmentType_ANCHORS
-	}
 
-	if chanType.IsTweakless() {
+	case chanType.IsTweakless():
 		return lnrpc.CommitmentType_STATIC_REMOTE_KEY
-	}
+	default:
 
-	return lnrpc.CommitmentType_LEGACY
+		return lnrpc.CommitmentType_LEGACY
+	}
 }
 
 // createChannelConstraint creates a *lnrpc.ChannelConstraints using the

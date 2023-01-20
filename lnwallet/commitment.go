@@ -490,37 +490,89 @@ func HtlcSuccessFee(chanType channeldb.ChannelType,
 
 // CommitScriptAnchors return the scripts to use for the local and remote
 // anchor.
-func CommitScriptAnchors(localChanCfg,
-	remoteChanCfg *channeldb.ChannelConfig) (*ScriptInfo,
-	*ScriptInfo, error) {
+func CommitScriptAnchors(chanType channeldb.ChannelType,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+	keyRing *CommitmentKeyRing) (*ScriptInfo, *ScriptInfo, error) {
 
-	// Helper to create anchor ScriptInfo from key.
-	anchorScript := func(key *btcec.PublicKey) (*ScriptInfo, error) {
-		script, err := input.CommitScriptAnchor(key)
-		if err != nil {
-			return nil, err
+	var (
+		anchorScript func(key *btcec.PublicKey) (*ScriptInfo, error)
+		keySelector  func(*channeldb.ChannelConfig,
+			bool) *btcec.PublicKey
+	)
+
+	switch {
+	// For taproot channels, the anchor is slightly different: the top
+	// level key is now the (relative) local delay and remote public key,
+	// since these are fully revealed once the commitment hits the chain.
+	case chanType.IsTaproot():
+		anchorScript = func(key *btcec.PublicKey) (*ScriptInfo, error) {
+			anchorKey, err := input.TaprootOutputKeyAnchor(key)
+			if err != nil {
+				return nil, err
+			}
+
+			anchorPkScript, err := input.PayToTaprootScript(
+				anchorKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &ScriptInfo{
+				PkScript: anchorPkScript,
+			}, nil
 		}
 
-		scriptHash, err := input.WitnessScriptHash(script)
-		if err != nil {
-			return nil, err
+		keySelector = func(cfg *channeldb.ChannelConfig,
+			local bool) *btcec.PublicKey {
+
+			if local {
+				return keyRing.ToLocalKey
+			}
+
+			return keyRing.ToRemoteKey
 		}
 
-		return &ScriptInfo{
-			PkScript:      scriptHash,
-			WitnessScript: script,
-		}, nil
+	// For normal channels we'll use the multi-sig keys since those are
+	// revealed when the channel closes
+	default:
+		// For normal channels, we'll create a p2wsh script based on
+		// the target key.
+		anchorScript = func(key *btcec.PublicKey) (*ScriptInfo, error) {
+			script, err := input.CommitScriptAnchor(key)
+			if err != nil {
+				return nil, err
+			}
+
+			scriptHash, err := input.WitnessScriptHash(script)
+			if err != nil {
+				return nil, err
+			}
+
+			return &ScriptInfo{
+				PkScript:      scriptHash,
+				WitnessScript: script,
+			}, nil
+		}
+
+		// For the existing channels, we'll always select the multi-sig
+		// key from the party's channel config.
+		keySelector = func(cfg *channeldb.ChannelConfig,
+			_ bool) *btcec.PublicKey {
+
+			return cfg.MultiSigKey.PubKey
+		}
 	}
 
 	// Get the script used for the anchor output spendable by the local
 	// node.
-	localAnchor, err := anchorScript(localChanCfg.MultiSigKey.PubKey)
+	localAnchor, err := anchorScript(keySelector(localChanCfg, true))
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// And the anchor spendable by the remote node.
-	remoteAnchor, err := anchorScript(remoteChanCfg.MultiSigKey.PubKey)
+	remoteAnchor, err := anchorScript(keySelector(remoteChanCfg, false))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -848,7 +900,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	// If this channel type has anchors, we'll also add those.
 	if chanType.HasAnchors() {
 		localAnchor, remoteAnchor, err := CommitScriptAnchors(
-			localChanCfg, remoteChanCfg,
+			chanType, localChanCfg, remoteChanCfg, keyRing,
 		)
 		if err != nil {
 			return nil, err

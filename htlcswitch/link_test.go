@@ -1770,7 +1770,7 @@ func (m *mockPeer) SendMessage(sync bool, msgs ...lnwire.Message) error {
 func (m *mockPeer) SendMessageLazy(sync bool, msgs ...lnwire.Message) error {
 	return m.SendMessage(sync, msgs...)
 }
-func (m *mockPeer) AddNewChannel(_ *channeldb.OpenChannel,
+func (m *mockPeer) AddNewChannel(_ *lnpeer.NewChannel,
 	_ <-chan struct{}) error {
 	return nil
 }

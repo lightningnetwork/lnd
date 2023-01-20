@@ -927,7 +927,7 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	// by having Alice immediately process his contribution.
 	err = aliceChanReservation.ProcessContribution(bobContribution)
 	if err != nil {
-		t.Fatalf("alice unable to process bob's contribution")
+		t.Fatalf("alice unable to process bob's contribution: %v", err)
 	}
 	assertContributionInitPopulated(t, bobChanReservation.TheirContribution())
 
@@ -2760,6 +2760,19 @@ var walletTests = []walletTestCase{
 			)
 		},
 	},
+	{
+		name: "single funding workflow musig2",
+		test: func(miner *rpctest.Harness, alice,
+			bob *lnwallet.LightningWallet, t *testing.T) {
+
+			testSingleFunderReservationWorkflow(
+				miner, alice, bob, t,
+				lnwallet.CommitmentTypeSimpleTaproot, nil,
+				nil, [32]byte{}, 0,
+			)
+		},
+	},
+	// TODO(roasbeef): add musig2 external funding
 	{
 		name: "single funding workflow external funding tx",
 		test: testSingleFunderExternalFundingTx,

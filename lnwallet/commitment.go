@@ -280,7 +280,8 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 // script for. The second return value is the CSV delay of the output script,
 // what must be satisfied in order to spend the output.
 func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
-	key *btcec.PublicKey, leaseExpiry uint32) (*ScriptInfo, uint32, error) {
+	remoteKey *btcec.PublicKey,
+	leaseExpiry uint32) (*ScriptInfo, uint32, error) {
 
 	switch {
 	// If we are not the initiator of a leased channel, then the remote
@@ -288,7 +289,7 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 	// CSV requirement.
 	case chanType.HasLeaseExpiration() && !initiator:
 		script, err := input.LeaseCommitScriptToRemoteConfirmed(
-			key, leaseExpiry,
+			remoteKey, leaseExpiry,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -304,10 +305,30 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 			WitnessScript: script,
 		}, 1, nil
 
+	// For taproot channels, we'll use a slightly different format, where
+	// we use a NUMS key to force the remote party to take a script path,
+	// with the sole tap leaf enforcing the 1 CSV delay.
+	case chanType.IsTaproot():
+		toRemoteKey, err := input.TaprootCommitScriptToRemote(
+			remoteKey,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		toRemotePkScript, err := input.PayToTaprootScript(toRemoteKey)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		return &ScriptInfo{
+			PkScript: toRemotePkScript,
+		}, 1, nil
+
 	// If this channel type has anchors, we derive the delayed to_remote
 	// script.
 	case chanType.HasAnchors():
-		script, err := input.CommitScriptToRemoteConfirmed(key)
+		script, err := input.CommitScriptToRemoteConfirmed(remoteKey)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -324,7 +345,7 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 
 	default:
 		// Otherwise the to_remote will be a simple p2wkh.
-		p2wkh, err := input.CommitScriptUnencumbered(key)
+		p2wkh, err := input.CommitScriptUnencumbered(remoteKey)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -458,9 +479,12 @@ func HtlcSuccessFee(chanType channeldb.ChannelType,
 		return 0
 	}
 
+	// TODO(roasbeef): fee is still off here?
+
 	if chanType.HasAnchors() {
 		return feePerKw.FeeForWeight(input.HtlcSuccessWeightConfirmed)
 	}
+
 	return feePerKw.FeeForWeight(input.HtlcSuccessWeight)
 }
 

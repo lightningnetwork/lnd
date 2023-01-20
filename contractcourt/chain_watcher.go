@@ -834,7 +834,7 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 
 	// Create an AnchorResolution for the breached state.
 	anchorRes, err := lnwallet.NewAnchorResolution(
-		c.cfg.chanState, commitSpend.SpendingTx,
+		c.cfg.chanState, commitSpend.SpendingTx, nil,
 	)
 	if err != nil {
 		return false, fmt.Errorf("unable to create anchor "+

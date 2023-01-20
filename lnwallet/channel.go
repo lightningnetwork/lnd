@@ -5945,7 +5945,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	}
 
 	anchorResolution, err := NewAnchorResolution(
-		chanState, commitTxBroadcast,
+		chanState, commitTxBroadcast, keyRing,
 	)
 	if err != nil {
 		return nil, err
@@ -6642,7 +6642,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	}
 
 	anchorResolution, err := NewAnchorResolution(
-		chanState, commitTx,
+		chanState, commitTx, keyRing,
 	)
 	if err != nil {
 		return nil, err
@@ -6826,7 +6826,7 @@ type AnchorResolutions struct {
 
 // NewAnchorResolutions returns a set of anchor resolutions wrapped in the
 // struct AnchorResolutions. Because we have no view on the mempool, we can
-// only blindly anchor all of these txes down. Caller needs to check the
+// only blindly anchor all of these txes down. The caller needs to check the
 // returned values against nil to decide whether there exists an anchor
 // resolution for local/remote/pending remote commitment txes.
 func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
@@ -6835,11 +6835,23 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	lc.Lock()
 	defer lc.Unlock()
 
-	resolutions := &AnchorResolutions{}
+	var resolutions AnchorResolutions
 
 	// Add anchor for local commitment tx, if any.
+	revocation, err := lc.channelState.RevocationProducer.AtIndex(
+		lc.currentHeight,
+	)
+	if err != nil {
+		return nil, err
+	}
+	localCommitPoint := input.ComputeCommitmentPoint(revocation[:])
+	localKeyRing := DeriveCommitmentKeys(
+		localCommitPoint, true, lc.channelState.ChanType,
+		&lc.channelState.LocalChanCfg, &lc.channelState.RemoteChanCfg,
+	)
 	localRes, err := NewAnchorResolution(
 		lc.channelState, lc.channelState.LocalCommitment.CommitTx,
+		localKeyRing,
 	)
 	if err != nil {
 		return nil, err
@@ -6847,8 +6859,14 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	resolutions.Local = localRes
 
 	// Add anchor for remote commitment tx, if any.
+	remoteKeyRing := DeriveCommitmentKeys(
+		lc.channelState.RemoteCurrentRevocation, false,
+		lc.channelState.ChanType, &lc.channelState.LocalChanCfg,
+		&lc.channelState.RemoteChanCfg,
+	)
 	remoteRes, err := NewAnchorResolution(
 		lc.channelState, lc.channelState.RemoteCommitment.CommitTx,
+		remoteKeyRing,
 	)
 	if err != nil {
 		return nil, err
@@ -6862,9 +6880,15 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	}
 
 	if remotePendingCommit != nil {
+		pendingRemoteKeyRing := DeriveCommitmentKeys(
+			lc.channelState.RemoteNextRevocation, false,
+			lc.channelState.ChanType, &lc.channelState.LocalChanCfg,
+			&lc.channelState.RemoteChanCfg,
+		)
 		remotePendingRes, err := NewAnchorResolution(
 			lc.channelState,
 			remotePendingCommit.Commitment.CommitTx,
+			pendingRemoteKeyRing,
 		)
 		if err != nil {
 			return nil, err
@@ -6872,13 +6896,14 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 		resolutions.RemotePending = remotePendingRes
 	}
 
-	return resolutions, nil
+	return &resolutions, nil
 }
 
 // NewAnchorResolution returns the information that is required to sweep the
 // local anchor.
 func NewAnchorResolution(chanState *channeldb.OpenChannel,
-	commitTx *wire.MsgTx) (*AnchorResolution, error) {
+	commitTx *wire.MsgTx,
+	keyRing *CommitmentKeyRing) (*AnchorResolution, error) {
 
 	// Return nil resolution if the channel has no anchors.
 	if !chanState.ChanType.HasAnchors() {
@@ -6887,7 +6912,8 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 
 	// Derive our local anchor script.
 	localAnchor, _, err := CommitScriptAnchors(
-		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
+		chanState.ChanType, &chanState.LocalChanCfg,
+		&chanState.RemoteChanCfg, keyRing,
 	)
 	if err != nil {
 		return nil, err
@@ -7239,7 +7265,8 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 
 	revocationMsg.NextRevocationKey = input.ComputeCommitmentPoint(nextCommitSecret[:])
 	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(
-		&lc.channelState.FundingOutpoint)
+		&lc.channelState.FundingOutpoint,
+	)
 
 	return revocationMsg, nil
 }

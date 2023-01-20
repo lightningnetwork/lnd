@@ -978,7 +978,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 	if _, err := bob.ReceiveHTLC(htlc); err != nil {
 		t.Fatalf("bob unable to recv add htlc: %v", err)
 	}
-	if err := forceStateTransition(alice, bob); err != nil {
+	if err := lnwallet.ForceStateTransition(alice, bob); err != nil {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
@@ -996,7 +996,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 	if _, err := bob.ReceiveHTLC(htlc2); err != nil {
 		t.Fatalf("bob unable to recv add htlc: %v", err)
 	}
-	if err := forceStateTransition(alice, bob); err != nil {
+	if err := lnwallet.ForceStateTransition(alice, bob); err != nil {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
@@ -2435,46 +2435,4 @@ func createHTLC(data int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [3
 		Amount:      amount,
 		Expiry:      uint32(5),
 	}, returnPreimage
-}
-
-// forceStateTransition executes the necessary interaction between the two
-// commitment state machines to transition to a new state locking in any
-// pending updates.
-// TODO(conner) remove code duplication
-func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
-	aliceSig, aliceHtlcSigs, _, err := chanA.SignNextCommitment()
-	if err != nil {
-		return err
-	}
-	if err = chanB.ReceiveNewCommitment(aliceSig, aliceHtlcSigs); err != nil {
-		return err
-	}
-
-	bobRevocation, _, _, err := chanB.RevokeCurrentCommitment()
-	if err != nil {
-		return err
-	}
-	bobSig, bobHtlcSigs, _, err := chanB.SignNextCommitment()
-	if err != nil {
-		return err
-	}
-
-	_, _, _, _, err = chanA.ReceiveRevocation(bobRevocation)
-	if err != nil {
-		return err
-	}
-	if err := chanA.ReceiveNewCommitment(bobSig, bobHtlcSigs); err != nil {
-		return err
-	}
-
-	aliceRevocation, _, _, err := chanA.RevokeCurrentCommitment()
-	if err != nil {
-		return err
-	}
-	_, _, _, _, err = chanB.ReceiveRevocation(aliceRevocation)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }

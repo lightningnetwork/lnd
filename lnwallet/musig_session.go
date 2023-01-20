@@ -408,6 +408,23 @@ func WithLocalCounterNonce(targetHeight uint64,
 	}
 }
 
+// invalidPartialSigError is used to return additional debug information to a
+// caller that encounters an invalid partial sig.
+type invalidPartialSigError struct {
+	partialSig        []byte
+	sigHash           []byte
+	signingNonce      [musig2.PubNonceSize]byte
+	verificationNonce [musig2.PubNonceSize]byte
+}
+
+// Error returns the error string for the partial sig error.
+func (i invalidPartialSigError) Error() string {
+	return fmt.Sprintf("invalid partial sig: partial_sig=%x, "+
+		"sig_hash=%x, signing_nonce=%x, verification_nonce=%x",
+		i.partialSig, i.sigHash, i.signingNonce[:],
+		i.verificationNonce[:])
+}
+
 // VerifyCommitSig attempts to verify the passed partial signature against the
 // passed commitment transaction. A keyspend sighash is assumed to generate the
 // signed message. As we never re-use nonces, a new verification nonce (our

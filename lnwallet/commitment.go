@@ -202,36 +202,76 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 	selfKey, revokeKey *btcec.PublicKey, csvDelay, leaseExpiry uint32) (
 	*ScriptInfo, error) {
 
-	var (
-		toLocalRedeemScript []byte
-		err                 error
-	)
 	switch {
-	// If we are the initiator of a leased channel, then we have an
-	// additional CLTV requirement in addition to the usual CSV requirement.
-	case initiator && chanType.HasLeaseExpiration():
-		toLocalRedeemScript, err = input.LeaseCommitScriptToSelf(
-			selfKey, revokeKey, csvDelay, leaseExpiry,
-		)
-
-	default:
-		toLocalRedeemScript, err = input.CommitScriptToSelf(
+	// For taproot scripts, we'll need to make a slightly modified script
+	// where a NUMS key is used to force a script path reveal of either the
+	// revocation or the CSV timeout.
+	//
+	// Our "redeem" script here is just the taproot witness program.
+	case chanType.IsTaproot():
+		toLocalOutputKey, err := input.TaprootCommitScriptToSelf(
 			csvDelay, selfKey, revokeKey,
 		)
-	}
-	if err != nil {
-		return nil, err
-	}
+		if err != nil {
+			return nil, fmt.Errorf("unable to generate taproot "+
+				"key: %w", err)
+		}
 
-	toLocalScriptHash, err := input.WitnessScriptHash(toLocalRedeemScript)
-	if err != nil {
-		return nil, err
-	}
+		toLocalPkScript, err := input.PayToTaprootScript(
+			toLocalOutputKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to gen taproot "+
+				"pkscript: %w", err)
+		}
 
-	return &ScriptInfo{
-		PkScript:      toLocalScriptHash,
-		WitnessScript: toLocalRedeemScript,
-	}, nil
+		return &ScriptInfo{
+			PkScript: toLocalPkScript,
+		}, nil
+
+	// If we are the initiator of a leased channel, then we have an
+	// additional CLTV requirement in addition to the usual CSV
+	// requirement.
+	case initiator && chanType.HasLeaseExpiration():
+		toLocalRedeemScript, err := input.LeaseCommitScriptToSelf(
+			selfKey, revokeKey, csvDelay, leaseExpiry,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		toLocalScriptHash, err := input.WitnessScriptHash(
+			toLocalRedeemScript,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &ScriptInfo{
+			PkScript:      toLocalScriptHash,
+			WitnessScript: toLocalRedeemScript,
+		}, nil
+
+	default:
+		toLocalRedeemScript, err := input.CommitScriptToSelf(
+			csvDelay, selfKey, revokeKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		toLocalScriptHash, err := input.WitnessScriptHash(
+			toLocalRedeemScript,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &ScriptInfo{
+			PkScript:      toLocalScriptHash,
+			WitnessScript: toLocalRedeemScript,
+		}, nil
+	}
 }
 
 // CommitScriptToRemote derives the appropriate to_remote script based on the

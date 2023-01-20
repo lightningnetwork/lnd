@@ -356,10 +356,10 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 
 	// Execute commit dance to arrive at the point where the local node has
 	// received the test commitment and the remote signature.
-	localSig, localHtlcSigs, _, err := localChannel.SignNextCommitment()
+	localNewCommit, err := localChannel.SignNextCommitment()
 	require.NoError(t, err, "local unable to sign commitment")
 
-	err = remoteChannel.ReceiveNewCommitment(localSig, localHtlcSigs)
+	err = remoteChannel.ReceiveNewCommitment(localNewCommit.CommitSigs)
 	require.NoError(t, err)
 
 	revMsg, _, _, err := remoteChannel.RevokeCurrentCommitment()
@@ -368,18 +368,22 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	_, _, _, _, err = localChannel.ReceiveRevocation(revMsg)
 	require.NoError(t, err)
 
-	remoteSig, remoteHtlcSigs, _, err := remoteChannel.SignNextCommitment()
+	remoteNewCommit, err := remoteChannel.SignNextCommitment()
 	require.NoError(t, err)
 
-	require.Equal(t, test.RemoteSigHex,
-		hex.EncodeToString(remoteSig.ToSignatureBytes()))
+	require.Equal(
+		t, test.RemoteSigHex,
+		hex.EncodeToString(remoteNewCommit.CommitSig.ToSignatureBytes()),
+	)
 
-	for i, sig := range remoteHtlcSigs {
-		require.Equal(t, test.HtlcDescs[i].RemoteSigHex,
-			hex.EncodeToString(sig.ToSignatureBytes()))
+	for i, sig := range remoteNewCommit.HtlcSigs {
+		require.Equal(
+			t, test.HtlcDescs[i].RemoteSigHex,
+			hex.EncodeToString(sig.ToSignatureBytes()),
+		)
 	}
 
-	err = localChannel.ReceiveNewCommitment(remoteSig, remoteHtlcSigs)
+	err = localChannel.ReceiveNewCommitment(remoteNewCommit.CommitSigs)
 	require.NoError(t, err)
 
 	_, _, _, err = localChannel.RevokeCurrentCommitment()

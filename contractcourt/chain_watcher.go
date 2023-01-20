@@ -287,17 +287,32 @@ func (c *chainWatcher) Start() error {
 		}
 	}
 
-	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey.SerializeCompressed()
-	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey.SerializeCompressed()
-	multiSigScript, err := input.GenMultiSigScript(
-		localKey, remoteKey,
+	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey
+	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey
+
+	var (
+		pkScript []byte
+		err      error
 	)
-	if err != nil {
-		return err
-	}
-	pkScript, err := input.WitnessScriptHash(multiSigScript)
-	if err != nil {
-		return err
+	if chanState.ChanType.IsTaproot() {
+		pkScript, _, err = input.GenTaprootFundingScript(
+			localKey, remoteKey, 0,
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		multiSigScript, err := input.GenMultiSigScript(
+			localKey.SerializeCompressed(),
+			remoteKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return err
+		}
+		pkScript, err = input.WitnessScriptHash(multiSigScript)
+		if err != nil {
+			return err
+		}
 	}
 
 	spendNtfn, err := c.cfg.notifier.RegisterSpendNtfn(
@@ -833,6 +848,9 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 	}
 
 	// Create an AnchorResolution for the breached state.
+	//
+	// TODO(roasbeef): make keyring for taproot chans to pass in instead of
+	// nil
 	anchorRes, err := lnwallet.NewAnchorResolution(
 		c.cfg.chanState, commitSpend.SpendingTx, nil,
 	)

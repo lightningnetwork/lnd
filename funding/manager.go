@@ -1507,6 +1507,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 
 	public := msg.ChannelFlags&lnwire.FFAnnounceChannel != 0
+	switch {
 	// Sending the option-scid-alias channel type for a public channel is
 	// disallowed.
 	case public && scid:
@@ -3786,6 +3787,18 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		ShortChannelID: shortChanID,
 		Features:       lnwire.NewRawFeatureVector(),
 		ChainHash:      chainHash,
+	}
+
+	// If this is a taproot channel, then we'll set a special bit in the
+	// feature vector to indicate to the routing layer that this needs a
+	// slightly different type of validation.
+	//
+	// TODO(roasbeef): temp, remove after gossip 1.5
+	if chanType.IsTaproot() {
+		log.Debugf("Applying taproot feature bit to "+
+			"ChannelAnnouncement for %v", chanID)
+
+		chanAnn.Features.Set(lnwire.SimpleTaprootChannelsRequired)
 	}
 
 	// The chanFlags field indicates which directed edge of the channel is

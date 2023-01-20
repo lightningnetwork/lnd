@@ -2,12 +2,15 @@ package lnwallet
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
@@ -544,4 +547,28 @@ func NewMusigPairSession(cfg *MusigSessionCfg) *MusigPairSession {
 		RemoteSession: remoteSession,
 		signer:        cfg.Signer,
 	}
+}
+
+var (
+	// taprootRevRootKey is the key used to derive the revocation root for
+	// the taproot nonces. This is done via HMAC of the existing revocation
+	// root.
+	taprootRevRootKey = []byte("taproot-rev-root")
+)
+
+// deriveMusig2Shachain derives a shachain producer for the taproot channel
+// from normal shachain revocation root.
+func deriveMusig2Shachain(revRoot chainhash.Hash) (shachain.Producer, error) {
+	// For taproot channel types, we'll also generate a distinct shachain
+	// root using the same seed information. We'll use this to generate
+	// verification nonces for the channel. We'll bind with this a simple
+	// hmac.
+	taprootRevHmac := hmac.New(sha256.New, taprootRevRootKey)
+	taprootRevRoot := taprootRevHmac.Sum(nil)
+
+	// Once we have the root, we can then generate our shachain producer
+	// and from that generate the per-commitment point.
+	return shachain.NewRevocationProducerFromBytes(
+		taprootRevRoot,
+	)
 }

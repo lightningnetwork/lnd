@@ -3297,7 +3297,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 
 		// If the HTLC isn't dust, then we'll create an empty sign job
 		// to add to the batch momentarily.
-		sigJob := SignJob{}
+		var sigJob SignJob
 		sigJob.Cancel = cancelChan
 		sigJob.Resp = make(chan SignJobResp, 1)
 
@@ -3324,20 +3324,34 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			return nil, nil, err
 		}
 
+		// Construct a full hash cache as we may be signing a segwit v1
+		// sighash.
+		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
+		prevFetcher := txscript.NewCannedPrevOutputFetcher(
+			txOut.PkScript, int64(htlc.Amount.ToSatoshis()),
+		)
+		hashCache := txscript.NewTxSigHashes(sigJob.Tx, prevFetcher)
+
 		// Finally, we'll generate a sign descriptor to generate a
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
-		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
 		sigJob.SignDesc = input.SignDescriptor{
-			KeyDesc:       localChanCfg.HtlcBasePoint,
-			SingleTweak:   keyRing.LocalHtlcKeyTweak,
-			WitnessScript: htlc.theirWitnessScript,
-			Output:        txOut,
-			HashType:      sigHashType,
-			SigHashes:     input.NewTxSigHashesV0Only(sigJob.Tx),
-			InputIndex:    0,
+			KeyDesc:           localChanCfg.HtlcBasePoint,
+			SingleTweak:       keyRing.LocalHtlcKeyTweak,
+			WitnessScript:     htlc.theirWitnessScript,
+			Output:            txOut,
+			PrevOutputFetcher: prevFetcher,
+			HashType:          sigHashType,
+			SigHashes:         hashCache,
+			InputIndex:        0,
 		}
 		sigJob.OutputIndex = htlc.remoteOutputIndex
+
+		// If this is a taproot channel, then we'll need to set the
+		// method type to ensure we generate a valid signature.
+		if chanType.IsTaproot() {
+			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		}
 
 		sigBatch = append(sigBatch, sigJob)
 	}
@@ -3378,20 +3392,34 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			return nil, nil, err
 		}
 
+		// Construct a full hash cache as we may be signing a segwit v1
+		// sighash.
+		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
+		prevFetcher := txscript.NewCannedPrevOutputFetcher(
+			txOut.PkScript, int64(htlc.Amount.ToSatoshis()),
+		)
+		hashCache := txscript.NewTxSigHashes(sigJob.Tx, prevFetcher)
+
 		// Finally, we'll generate a sign descriptor to generate a
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
-		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
 		sigJob.SignDesc = input.SignDescriptor{
-			KeyDesc:       localChanCfg.HtlcBasePoint,
-			SingleTweak:   keyRing.LocalHtlcKeyTweak,
-			WitnessScript: htlc.theirWitnessScript,
-			Output:        txOut,
-			HashType:      sigHashType,
-			SigHashes:     input.NewTxSigHashesV0Only(sigJob.Tx),
-			InputIndex:    0,
+			KeyDesc:           localChanCfg.HtlcBasePoint,
+			SingleTweak:       keyRing.LocalHtlcKeyTweak,
+			WitnessScript:     htlc.theirWitnessScript,
+			Output:            txOut,
+			PrevOutputFetcher: prevFetcher,
+			HashType:          sigHashType,
+			SigHashes:         hashCache,
+			InputIndex:        0,
 		}
 		sigJob.OutputIndex = htlc.remoteOutputIndex
+
+		// If this is a taproot channel, then we'll need to set the
+		// method type to ensure we generate a valid signature.
+		if chanType.IsTaproot() {
+			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		}
 
 		sigBatch = append(sigBatch, sigJob)
 	}

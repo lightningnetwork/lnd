@@ -465,6 +465,9 @@ type Config struct {
 
 	// ActiveNetParams contains parameters of the target chain.
 	ActiveNetParams chainreg.BitcoinNetParams
+
+	// Estimator is used to estimate routing probabilities.
+	Estimator routing.Estimator
 }
 
 // DefaultConfig returns all default values for the Config struct.

@@ -868,20 +868,31 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// servers, the mission control instance itself can be moved there too.
 	routingConfig := routerrpc.GetRoutingConfig(cfg.SubRPCServers.RouterRPC)
 
-	estimatorCfg := routing.AprioriConfig{
-		AprioriHopProbability: routingConfig.AprioriHopProbability,
-		PenaltyHalfLife:       routingConfig.PenaltyHalfLife,
-		AprioriWeight:         routingConfig.AprioriWeight,
+	// We only initialize a probability estimator if there's no custom one.
+	var estimator routing.Estimator
+	if cfg.Estimator != nil {
+		estimator = cfg.Estimator
+	} else {
+		aCfg := routing.AprioriConfig{
+			AprioriHopProbability: routingConfig.
+				AprioriHopProbability,
+			PenaltyHalfLife: routingConfig.PenaltyHalfLife,
+			AprioriWeight:   routingConfig.AprioriWeight,
+		}
+		estimator, err = routing.NewAprioriEstimator(aCfg)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	mcCfg := &routing.MissionControlConfig{
+		Estimator:               estimator,
+		MaxMcHistory:            routingConfig.MaxMcHistory,
+		McFlushInterval:         routingConfig.McFlushInterval,
+		MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
+	}
 	s.missionControl, err = routing.NewMissionControl(
-		dbs.ChanStateDB, selfNode.PubKeyBytes,
-		&routing.MissionControlConfig{
-			AprioriConfig:           estimatorCfg,
-			MaxMcHistory:            routingConfig.MaxMcHistory,
-			McFlushInterval:         routingConfig.McFlushInterval,
-			MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
-		},
+		dbs.ChanStateDB, selfNode.PubKeyBytes, mcCfg,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("can't create mission control: %v", err)

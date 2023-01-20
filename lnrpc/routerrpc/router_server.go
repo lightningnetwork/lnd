@@ -455,13 +455,23 @@ func (s *Server) GetMissionControlConfig(ctx context.Context,
 	error) {
 
 	cfg := s.cfg.RouterBackend.MissionControl.GetConfig()
+	eCfg, ok := cfg.Estimator.Config().(*routing.AprioriConfig)
+	if !ok {
+		return nil, fmt.Errorf("unknown estimator config type")
+	}
+
 	return &GetMissionControlConfigResponse{
 		Config: &MissionControlConfig{
-			HalfLifeSeconds:             uint64(cfg.PenaltyHalfLife.Seconds()),
-			HopProbability:              float32(cfg.AprioriHopProbability),
-			Weight:                      float32(cfg.AprioriWeight),
-			MaximumPaymentResults:       uint32(cfg.MaxMcHistory),
-			MinimumFailureRelaxInterval: uint64(cfg.MinFailureRelaxInterval.Seconds()),
+			HalfLifeSeconds: uint64(
+				eCfg.PenaltyHalfLife.Seconds()),
+			HopProbability: float32(
+				eCfg.AprioriHopProbability,
+			),
+			Weight:                float32(eCfg.AprioriWeight),
+			MaximumPaymentResults: uint32(cfg.MaxMcHistory),
+			MinimumFailureRelaxInterval: uint64(
+				cfg.MinFailureRelaxInterval.Seconds(),
+			),
 		},
 	}, nil
 }
@@ -471,14 +481,20 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 	req *SetMissionControlConfigRequest) (*SetMissionControlConfigResponse,
 	error) {
 
+	aCfg := routing.AprioriConfig{
+		PenaltyHalfLife: time.Duration(
+			req.Config.HalfLifeSeconds,
+		) * time.Second,
+		AprioriHopProbability: float64(req.Config.HopProbability),
+		AprioriWeight:         float64(req.Config.Weight),
+	}
+	estimator, err := routing.NewAprioriEstimator(aCfg)
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &routing.MissionControlConfig{
-		AprioriConfig: routing.AprioriConfig{
-			PenaltyHalfLife: time.Duration(
-				req.Config.HalfLifeSeconds,
-			) * time.Second,
-			AprioriHopProbability: float64(req.Config.HopProbability),
-			AprioriWeight:         float64(req.Config.Weight),
-		},
+		Estimator:    estimator,
 		MaxMcHistory: int(req.Config.MaximumPaymentResults),
 		MinFailureRelaxInterval: time.Duration(
 			req.Config.MinimumFailureRelaxInterval,

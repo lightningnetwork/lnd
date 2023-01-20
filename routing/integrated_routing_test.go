@@ -67,7 +67,10 @@ func TestProbabilityExtrapolation(t *testing.T) {
 	// If we use a static value for the node probability (no extrapolation
 	// of data from other channels), all ten bad channels will be tried
 	// first before switching to the paid channel.
-	ctx.mcCfg.AprioriWeight = 1
+	estimator, ok := ctx.mcCfg.Estimator.(*AprioriEstimator)
+	if ok {
+		estimator.AprioriWeight = 1
+	}
 	attempts, err = ctx.testPayment(1)
 	require.NoError(t, err, "payment failed")
 	if len(attempts) != 11 {

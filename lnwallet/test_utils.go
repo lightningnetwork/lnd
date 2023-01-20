@@ -418,6 +418,27 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 // network by populating the initial revocation windows of the passed
 // commitment state machines.
 func initRevocationWindows(chanA, chanB *LightningChannel) error {
+	// If these are taproot chanenls, then we need to also simulate sending
+	// either FundingLocked or ChannelReestablish by calling
+	// InitRemoteMusigNonces for both sides.
+	if chanA.channelState.ChanType.IsTaproot() {
+		chanANonces, err := chanA.GenMusigNonces()
+		if err != nil {
+			return err
+		}
+		chanBNonces, err := chanB.GenMusigNonces()
+		if err != nil {
+			return err
+		}
+
+		if err := chanA.InitRemoteMusigNonces(chanBNonces); err != nil {
+			return err
+		}
+		if err := chanB.InitRemoteMusigNonces(chanANonces); err != nil {
+			return err
+		}
+	}
+
 	aliceNextRevoke, err := chanA.NextRevocationKey()
 	if err != nil {
 		return err

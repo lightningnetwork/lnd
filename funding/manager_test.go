@@ -235,7 +235,7 @@ func (m *mockZeroConfAcceptor) Accept(
 }
 
 type newChannelMsg struct {
-	channel *channeldb.OpenChannel
+	channel *lnpeer.NewChannel
 	err     chan error
 }
 
@@ -299,7 +299,7 @@ func (n *testNode) RemoteFeatures() *lnwire.FeatureVector {
 	)
 }
 
-func (n *testNode) AddNewChannel(channel *channeldb.OpenChannel,
+func (n *testNode) AddNewChannel(channel *lnpeer.NewChannel,
 	quit <-chan struct{}) error {
 
 	errChan := make(chan error)

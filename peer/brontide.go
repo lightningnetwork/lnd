@@ -90,7 +90,7 @@ type outgoingMsg struct {
 // completed.
 type newChannelMsg struct {
 	// channel is used when the pending channel becomes active.
-	channel *channeldb.OpenChannel
+	channel *lnpeer.NewChannel
 
 	// channelID is used when there's a new pending channel.
 	channelID lnwire.ChannelID
@@ -3506,12 +3506,12 @@ func (p *Brontide) Address() net.Addr {
 // added if the cancel channel is closed.
 //
 // NOTE: Part of the lnpeer.Peer interface.
-func (p *Brontide) AddNewChannel(channel *channeldb.OpenChannel,
+func (p *Brontide) AddNewChannel(newChan *lnpeer.NewChannel,
 	cancel <-chan struct{}) error {
 
 	errChan := make(chan error, 1)
 	newChanMsg := &newChannelMsg{
-		channel: channel,
+		channel: newChan,
 		err:     errChan,
 	}
 
@@ -3813,7 +3813,7 @@ func (p *Brontide) updateNextRevocation(c *channeldb.OpenChannel) error {
 // addActiveChannel adds a new active channel to the `activeChannels` map. It
 // takes a `channeldb.OpenChannel`, creates a `lnwallet.LightningChannel` from
 // it and assembles it with a channel link.
-func (p *Brontide) addActiveChannel(c *channeldb.OpenChannel) error {
+func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 	chanPoint := &c.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
@@ -3821,7 +3821,8 @@ func (p *Brontide) addActiveChannel(c *channeldb.OpenChannel) error {
 	// channels, so we can look it up later easily according to its channel
 	// ID.
 	lnChan, err := lnwallet.NewLightningChannel(
-		p.cfg.Signer, c, p.cfg.SigPool,
+		p.cfg.Signer, c.OpenChannel,
+		p.cfg.SigPool, c.ChanOpts...,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to create LightningChannel: %w", err)
@@ -3887,7 +3888,8 @@ func (p *Brontide) handleNewActiveChannel(req *newChannelMsg) {
 		close(req.err)
 
 		// Update the next revocation point.
-		if err := p.updateNextRevocation(newChan); err != nil {
+		err := p.updateNextRevocation(newChan.OpenChannel)
+		if err != nil {
 			p.log.Errorf(err.Error())
 		}
 

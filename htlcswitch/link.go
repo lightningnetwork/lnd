@@ -706,7 +706,8 @@ func (l *channelLink) syncChanStates() error {
 			// very same nonce that we sent above, as they should
 			// take the latest verification nonce we send.
 			if chanState.ChanType.IsTaproot() {
-				fundingLockedMsg.NextLocalNonce = localChanSyncMsg.LocalNonce //nolint:lll
+				//nolint:lll
+				channelReadyMsg.NextLocalNonce = localChanSyncMsg.LocalNonce
 			}
 
 			// For channels that negotiated the option-scid-alias

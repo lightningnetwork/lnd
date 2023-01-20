@@ -3863,8 +3863,6 @@ func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) erro
 		return err
 	}
 
-	// TODO(roasbeef): don't keep producer on disk
-
 	// If the next revocation is present, which is only the case after the
 	// ChannelReady message has been sent, then we'll write it to disk.
 	if channel.RemoteNextRevocation != nil {

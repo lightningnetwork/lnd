@@ -990,12 +990,11 @@ func CoopCloseBalance(chanType channeldb.ChannelType, isInitiator bool,
 	return ourBalance, theirBalance, nil
 }
 
-// genHtlcScript generates the proper P2WSH public key scripts for the HTLC
-// output modified by two-bits denoting if this is an incoming HTLC, and if the
-// HTLC is being applied to their commitment transaction or ours.
-func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
-	timeout uint32, rHash [32]byte,
-	keyRing *CommitmentKeyRing) ([]byte, []byte, error) {
+// genSegwitV0HtlcScript generates the HTLC scripts for a normal segwit v0
+// channel.
+func genSegwitV0HtlcScript(chanType channeldb.ChannelType,
+	isIncoming, ourCommit bool, timeout uint32, rHash [32]byte,
+	keyRing *CommitmentKeyRing) (*ScriptInfo, error) {
 
 	var (
 		witnessScript []byte
@@ -1049,17 +1048,156 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
 		)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Now that we have the redeem scripts, create the P2WSH public key
 	// script for the output itself.
 	htlcP2WSH, err := input.WitnessScriptHash(witnessScript)
 	if err != nil {
+		return nil, err
+	}
+
+	return &ScriptInfo{
+		PkScript:      htlcP2WSH,
+		WitnessScript: witnessScript,
+	}, nil
+}
+
+// genTaprootHtlcScript generates the HTLC scripts for a taproot+musig2
+// channel.
+func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
+	rHash [32]byte, keyRing *CommitmentKeyRing) (*ScriptInfo, error) {
+
+	var (
+		taprootKey        *btcec.PublicKey
+		secondLevelScript []byte
+	)
+
+	// Generate the proper redeem scripts for the HTLC output modified by
+	// two-bits denoting if this is an incoming HTLC, and if the HTLC is
+	// being applied to their commitment transaction or ours.
+	switch {
+	// The HTLC is paying to us, and being applied to our commitment
+	// transaction. So we need to use the receiver's version of HTLC the
+	// script.
+	case isIncoming && ourCommit:
+		scriptTree, err := input.ReceiverHTLCScriptTaproot(
+			timeout, keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
+			keyRing.RevocationKey, rHash[:],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		taprootKey = scriptTree.TaprootKey
+
+		// As this is an HTLC on our commitment transaction, the second
+		// level path we care about here is the success path.
+		// Therefore, we'll grab the tapLeaf corresponding to the
+		// success path.
+		secondLevelScript = scriptTree.SuccessTapLeaf.Script
+
+	// We're being paid via an HTLC by the remote party, and the HTLC is
+	// being added to their commitment transaction, so we use the sender's
+	// version of the HTLC script.
+	case isIncoming && !ourCommit:
+		scriptTree, err := input.SenderHTLCScriptTaproot(
+			keyRing.RemoteHtlcKey, keyRing.LocalHtlcKey,
+			keyRing.RevocationKey, rHash[:],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		taprootKey = scriptTree.TaprootKey
+
+		// In this case, this is an incoming HTLC on the commitment
+		// transaction of the remote party, so we'll return the timeout
+		// tapleaf since that's the second level spend they need in the
+		// case of a broadcast.
+		secondLevelScript = scriptTree.TimeoutTapLeaf.Script
+
+	// We're sending an HTLC which is being added to our commitment
+	// transaction. Therefore, we need to use the sender's version of the
+	// HTLC script.
+	case !isIncoming && ourCommit:
+		scriptTree, err := input.SenderHTLCScriptTaproot(
+			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
+			keyRing.RevocationKey, rHash[:],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		taprootKey = scriptTree.TaprootKey
+
+		// This is an outgoing HTLC on our commitment transaction, so
+		// we need to be able to generate/verify signatures for the
+		// timeout path.
+		secondLevelScript = scriptTree.TimeoutTapLeaf.Script
+
+	// Finally, we're paying the remote party via an HTLC, which is being
+	// added to their commitment transaction. Therefore, we use the
+	// receiver's version of the HTLC script.
+	case !isIncoming && !ourCommit:
+		scriptTree, err := input.ReceiverHTLCScriptTaproot(
+			timeout, keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
+			keyRing.RevocationKey, rHash[:],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		taprootKey = scriptTree.TaprootKey
+
+		// This is an outgoing HTLC on the remote party's commitment
+		// transaction. In this case if they go on chain, they'll need
+		// the second level success spend, so we grab that tapscript
+		// path.
+		secondLevelScript = scriptTree.SuccessTapLeaf.Script
+	}
+
+	// Now that we have the redeem scripts, create the P2TR public key
+	// script for the output itself.
+	p2trOutput, err := input.PayToTaprootScript(taprootKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ScriptInfo{
+		PkScript:      p2trOutput,
+		WitnessScript: secondLevelScript,
+	}, nil
+}
+
+// genHtlcScript generates the proper P2WSH public key scripts for the HTLC
+// output modified by two-bits denoting if this is an incoming HTLC, and if the
+// HTLC is being applied to their commitment transaction or ours.
+func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
+	timeout uint32, rHash [32]byte,
+	keyRing *CommitmentKeyRing) ([]byte, []byte, error) {
+
+	var (
+		scriptInfo *ScriptInfo
+		err        error
+	)
+
+	if !chanType.IsTaproot() {
+		scriptInfo, err = genSegwitV0HtlcScript(
+			chanType, isIncoming, ourCommit, timeout, rHash,
+			keyRing,
+		)
+	} else {
+		scriptInfo, err = genTaprootHtlcScript(
+			isIncoming, ourCommit, timeout, rHash, keyRing,
+		)
+	}
+	if err != nil {
 		return nil, nil, err
 	}
 
-	return htlcP2WSH, witnessScript, nil
+	return scriptInfo.PkScript, scriptInfo.WitnessScript, nil
 }
 
 // addHTLC adds a new HTLC to the passed commitment transaction. One of four
@@ -1076,7 +1214,7 @@ func addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
 
-	p2wsh, witnessScript, err := genHtlcScript(
+	witnessProgram, witnessScript, err := genHtlcScript(
 		chanType, isIncoming, ourCommit, timeout, rHash, keyRing,
 	)
 	if err != nil {
@@ -1085,15 +1223,15 @@ func addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 
 	// Add the new HTLC outputs to the respective commitment transactions.
 	amountPending := int64(paymentDesc.Amount.ToSatoshis())
-	commitTx.AddTxOut(wire.NewTxOut(amountPending, p2wsh))
+	commitTx.AddTxOut(wire.NewTxOut(amountPending, witnessProgram))
 
 	// Store the pkScript of this particular PaymentDescriptor so we can
 	// quickly locate it within the commitment transaction later.
 	if ourCommit {
-		paymentDesc.ourPkScript = p2wsh
+		paymentDesc.ourPkScript = witnessProgram
 		paymentDesc.ourWitnessScript = witnessScript
 	} else {
-		paymentDesc.theirPkScript = p2wsh
+		paymentDesc.theirPkScript = witnessProgram
 		paymentDesc.theirWitnessScript = witnessScript
 	}
 

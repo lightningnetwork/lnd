@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -7091,6 +7092,30 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	}, nil
 }
 
+// chanCloseOpt is a functional option that can be used to modify the co-op
+// close process.
+type chanCloseOpt struct {
+	musigSession *MusigSession
+}
+
+// ChanCloseOpt is a closure type that cen be used to modify the set of default
+// options.
+type ChanCloseOpt func(*chanCloseOpt)
+
+// defaultCloseOpts is the default set of close options.
+func defaultCloseOpts() *chanCloseOpt {
+	return &chanCloseOpt{}
+}
+
+// WithCoopCloseMusigSession can be used to apply an existing musig2 session to
+// the cooperative close process. If specified, then a musig2 co-op close
+// (single sig keyspend) will be used.
+func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.musigSession = session
+	}
+}
+
 // CreateCloseProposal is used by both parties in a cooperative channel close
 // workflow to generate proposed close transactions and signatures. This method
 // should only be executed once all pending HTLCs (if any) on the channel have
@@ -7102,8 +7127,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 // TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
 // settle any in flight.
 func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
-	localDeliveryScript []byte,
-	remoteDeliveryScript []byte) (input.Signature, *chainhash.Hash,
+	localDeliveryScript []byte, remoteDeliveryScript []byte,
+	closeOpts ...ChanCloseOpt) (input.Signature, *chainhash.Hash,
 	btcutil.Amount, error) {
 
 	lc.Lock()
@@ -7113,6 +7138,11 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, nil, 0, ErrChanClosing
+	}
+
+	opts := defaultCloseOpts()
+	for _, optFunc := range closeOpts {
+		optFunc(opts)
 	}
 
 	// Get the final balances after subtracting the proposed fee, taking
@@ -7140,14 +7170,25 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		return nil, nil, 0, err
 	}
 
-	// Finally, sign the completed cooperative closure transaction. As the
-	// initiator we'll simply send our signature over to the remote party,
-	// using the generated txid to be notified once the closure transaction
-	// has been confirmed.
-	lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(closeTx)
-	sig, err := lc.Signer.SignOutputRaw(closeTx, lc.signDesc)
-	if err != nil {
-		return nil, nil, 0, err
+	// If we have a co-op close musig session, then this is a taproot
+	// channel, so we'll generate a _partial_ signature.
+	var sig input.Signature
+	if opts.musigSession != nil {
+		sig, err = opts.musigSession.SignCommit(closeTx)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+	} else {
+		// For regular channels we'll, sign the completed cooperative
+		// closure transaction. As the initiator we'll simply send our
+		// signature over to the remote party, using the generated txid
+		// to be notified once the closure transaction has been
+		// confirmed.
+		lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(closeTx)
+		sig, err = lc.Signer.SignOutputRaw(closeTx, lc.signDesc)
+		if err != nil {
+			return nil, nil, 0, err
+		}
 	}
 
 	// As everything checks out, indicate in the channel status that a
@@ -7168,7 +7209,8 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 func (lc *LightningChannel) CompleteCooperativeClose(
 	localSig, remoteSig input.Signature,
 	localDeliveryScript, remoteDeliveryScript []byte,
-	proposedFee btcutil.Amount) (*wire.MsgTx, btcutil.Amount, error) {
+	proposedFee btcutil.Amount,
+	closeOpts ...ChanCloseOpt) (*wire.MsgTx, btcutil.Amount, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -7177,6 +7219,11 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, 0, ErrChanClosing
+	}
+
+	opts := defaultCloseOpts()
+	for _, optFunc := range closeOpts {
+		optFunc(opts)
 	}
 
 	// Get the final balances after subtracting the proposed fee.
@@ -7201,31 +7248,62 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	// consensus rules such as being too big, or having any value with a
 	// negative output.
 	tx := btcutil.NewTx(closeTx)
+	prevOut := lc.signDesc.Output
 	if err := blockchain.CheckTransactionSanity(tx); err != nil {
 		return nil, 0, err
 	}
-	hashCache := input.NewTxSigHashesV0Only(closeTx)
 
-	// Finally, construct the witness stack minding the order of the
-	// pubkeys+sigs on the stack.
-	ourKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-	theirKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-	witness := input.SpendMultiSig(
-		lc.signDesc.WitnessScript, ourKey, localSig, theirKey,
-		remoteSig,
+	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(
+		prevOut.PkScript, prevOut.Value,
 	)
-	closeTx.TxIn[0].Witness = witness
+	hashCache := txscript.NewTxSigHashes(closeTx, prevOutputFetcher)
+
+	// Next, we'll complete the co-op close transaction. Depending on the
+	// set of options, we'll either do a regular p2wsh spend, or construct
+	// the final schnorr signature from a set of partial sigs.
+	if opts.musigSession != nil {
+		// For taproot channels, we'll use the attached session to
+		// combine the two partial signatures into a proper schnorr
+		// signature.
+		remotePartialSig, ok := remoteSig.(*MusigPartialSig)
+		if !ok {
+			return nil, 0, fmt.Errorf("expected MusigPartialSig, "+
+				"got %T", remoteSig)
+		}
+
+		finalSchnorrSig, err := opts.musigSession.CombineSigs(
+			remotePartialSig.sig,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("unable to combine "+
+				"final co-op close sig: %w", err)
+		}
+
+		// The witness for a keyspend is just the signature itself.
+		closeTx.TxIn[0].Witness = wire.TxWitness{
+			finalSchnorrSig.Serialize(),
+		}
+	} else {
+
+		// For regular channels, we'll need to , construct the witness
+		// stack minding the order of the pubkeys+sigs on the stack.
+		ourKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed()
+		theirKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed()
+		witness := input.SpendMultiSig(
+			lc.signDesc.WitnessScript, ourKey, localSig, theirKey,
+			remoteSig,
+		)
+		closeTx.TxIn[0].Witness = witness
+
+	}
 
 	// Validate the finalized transaction to ensure the output script is
 	// properly met, and that the remote peer supplied a valid signature.
-	prevOut := lc.signDesc.Output
 	vm, err := txscript.NewEngine(
 		prevOut.PkScript, closeTx, 0, txscript.StandardVerifyFlags, nil,
-		hashCache, prevOut.Value, txscript.NewCannedPrevOutputFetcher(
-			prevOut.PkScript, prevOut.Value,
-		),
+		hashCache, prevOut.Value, prevOutputFetcher,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -7885,10 +7963,22 @@ func (lc *LightningChannel) IdealCommitFeeRate(netFeeRate, minRelayFeeRate,
 	return absoluteMaxFee
 }
 
-// RemoteNextRevocation returns the channelState's RemoteNextRevocation.
+// RemoteNextRevocation returns the channelState's RemoteNextRevocation. For
+// musig2 channels, until a nonce pair is processed by the remote party, a nil
+// public key is returned.
+//
+// TODO(roasbeef): revisit, maybe just make a more general method instead?
 func (lc *LightningChannel) RemoteNextRevocation() *btcec.PublicKey {
 	lc.RLock()
 	defer lc.RUnlock()
+
+	if !lc.channelState.ChanType.IsTaproot() {
+		return lc.channelState.RemoteNextRevocation
+	}
+
+	if lc.musigSessions == nil {
+		return nil
+	}
 
 	return lc.channelState.RemoteNextRevocation
 }
@@ -8157,4 +8247,29 @@ func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
 	lc.pendingVerificationNonce = nil
 
 	return nil
+}
+
+// ChanType returns the channel type.
+func (lc *LightningChannel) ChanType() channeldb.ChannelType {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.ChanType
+}
+
+// FundingTxOut returns the funding output of the channel.
+func (lc *LightningChannel) FundingTxOut() *wire.TxOut {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return &lc.fundingOutput
+}
+
+// MultiSigKeys returns the set of multi-sig keys for an channel.
+func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor, keychain.KeyDescriptor) {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.LocalChanCfg.MultiSigKey,
+		lc.channelState.RemoteChanCfg.MultiSigKey
 }

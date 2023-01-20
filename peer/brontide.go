@@ -2903,6 +2903,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 	chanCloser := chancloser.NewChanCloser(
 		chancloser.ChanCloseCfg{
 			Channel:      channel,
+			MusigSession: NewMusigChanCloser(channel),
 			FeeEstimator: &chancloser.SimpleCoopFeeEstimator{},
 			BroadcastTx:  p.cfg.Wallet.PublishTransaction,
 			DisableChannel: func(op wire.OutPoint) error {

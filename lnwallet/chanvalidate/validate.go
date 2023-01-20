@@ -186,10 +186,14 @@ func Validate(ctx *Context) (*wire.OutPoint, error) {
 	// If we reach this point, then all other checks have succeeded, so
 	// we'll now attempt a full Script VM execution to ensure that we're
 	// able to close the channel using this initial state.
+	prevFetcher := txscript.NewCannedPrevOutputFetcher(
+		ctx.MultiSigPkScript, fundingValue,
+	)
+	commitTx := ctx.CommitCtx.FullySignedCommitTx
+	hashCache := txscript.NewTxSigHashes(commitTx, prevFetcher)
 	vm, err := txscript.NewEngine(
-		ctx.MultiSigPkScript, ctx.CommitCtx.FullySignedCommitTx,
-		0, txscript.StandardVerifyFlags, nil, nil, fundingValue,
-		txscript.NewCannedPrevOutputFetcher(ctx.MultiSigPkScript, 0),
+		ctx.MultiSigPkScript, commitTx, 0, txscript.StandardVerifyFlags,
+		nil, hashCache, fundingValue, prevFetcher,
 	)
 	if err != nil {
 		return nil, err

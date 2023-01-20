@@ -410,26 +410,47 @@ func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
 
 	var (
 		witnessScript []byte
+		pkScript      []byte
 		err           error
 	)
 	switch {
+	// For taproot channels, the pkScript is a segwit v1 p2tr output.
+	case chanType.IsTaproot():
+		taprootOutputKey, err := input.TaprootSecondLevelHtlcScript(
+			revocationKey, delayKey, csvDelay,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		pkScript, err = input.PayToTaprootScript(taprootOutputKey)
+		if err != nil {
+			return nil, err
+		}
+
 	// If we are the initiator of a leased channel, then we have an
-	// additional CLTV requirement in addition to the usual CSV requirement.
+	// additional CLTV requirement in addition to the usual CSV
+	// requirement.
 	case initiator && chanType.HasLeaseExpiration():
 		witnessScript, err = input.LeaseSecondLevelHtlcScript(
 			revocationKey, delayKey, csvDelay, leaseExpiry,
 		)
 
+		pkScript, err = input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return nil, err
+		}
+
 	default:
 		witnessScript, err = input.SecondLevelHtlcScript(
 			revocationKey, delayKey, csvDelay,
 		)
-	}
-	if err != nil {
-		return nil, err
-	}
 
-	pkScript, err := input.WitnessScriptHash(witnessScript)
+		pkScript, err = input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err != nil {
 		return nil, err
 	}

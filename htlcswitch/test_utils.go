@@ -1131,9 +1131,15 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 				return server.htlcSwitch.ForwardPackets(linkQuit, packets...)
 			},
 			DecodeHopIterators: decoder.DecodeHopIterators,
-			ExtractErrorEncrypter: func(*btcec.PublicKey) (
-				hop.ErrorEncrypter, lnwire.FailCode) {
-				return h.obfuscator, lnwire.CodeNone
+			ExtractSharedSecret: func(*btcec.PublicKey) (
+				sphinx.Hash256, lnwire.FailCode) {
+
+				return sphinx.Hash256{}, lnwire.CodeNone
+			},
+			CreateErrorEncrypter: func(*btcec.PublicKey,
+				sphinx.Hash256) hop.ErrorEncrypter {
+
+				return h.obfuscator
 			},
 			FetchLastChannelUpdate: mockGetChanUpdateMessage,
 			Registry:               server.registry,

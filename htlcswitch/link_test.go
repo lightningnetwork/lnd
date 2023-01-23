@@ -1576,9 +1576,10 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	t.Cleanup(n.stop)
 
 	// Replace decode function with another which throws an error.
-	n.carolChannelLink.cfg.ExtractErrorEncrypter = func(
-		*btcec.PublicKey) (hop.ErrorEncrypter, lnwire.FailCode) {
-		return nil, lnwire.CodeInvalidOnionVersion
+	n.carolChannelLink.cfg.ExtractSharedSecret = func(
+		*btcec.PublicKey) (sphinx.Hash256, lnwire.FailCode) {
+
+		return sphinx.Hash256{}, lnwire.CodeInvalidOnionVersion
 	}
 
 	carolBandwidthBefore := n.carolChannelLink.Bandwidth()
@@ -1962,9 +1963,15 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt, chanReserve btcutil.Amount)
 			return aliceSwitch.ForwardPackets(linkQuit, packets...)
 		},
 		DecodeHopIterators: decoder.DecodeHopIterators,
-		ExtractErrorEncrypter: func(*btcec.PublicKey) (
-			hop.ErrorEncrypter, lnwire.FailCode) {
-			return obfuscator, lnwire.CodeNone
+		ExtractSharedSecret: func(*btcec.PublicKey) (
+			sphinx.Hash256, lnwire.FailCode) {
+
+			return sphinx.Hash256{}, lnwire.CodeNone
+		},
+		CreateErrorEncrypter: func(*btcec.PublicKey,
+			sphinx.Hash256) hop.ErrorEncrypter {
+
+			return obfuscator
 		},
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
 		PreimageCache:          pCache,
@@ -4413,10 +4420,15 @@ func (h *persistentLinkHarness) restartLink(
 			return aliceSwitch.ForwardPackets(linkQuit, packets...)
 		},
 		DecodeHopIterators: decoder.DecodeHopIterators,
-		ExtractErrorEncrypter: func(*btcec.PublicKey) (
-			hop.ErrorEncrypter, lnwire.FailCode) {
+		ExtractSharedSecret: func(*btcec.PublicKey) (
+			sphinx.Hash256, lnwire.FailCode) {
 
-			return obfuscator, lnwire.CodeNone
+			return sphinx.Hash256{}, lnwire.CodeNone
+		},
+		CreateErrorEncrypter: func(*btcec.PublicKey,
+			sphinx.Hash256) hop.ErrorEncrypter {
+
+			return obfuscator
 		},
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
 		PreimageCache:          pCache,

@@ -29,10 +29,11 @@ type Iterator interface {
 	// into the passed io.Writer.
 	EncodeNextHop(w io.Writer) error
 
-	// ExtractErrorEncrypter returns the ErrorEncrypter needed for this hop,
-	// along with a failure code to signal if the decoding was successful.
-	ExtractErrorEncrypter(ErrorEncrypterExtracter) (ErrorEncrypter,
-		lnwire.FailCode)
+	// ExtractEncrypterParams extracts the ephemeral key and shared secret
+	// from the onion packet and returns them to the caller along with a
+	// failure code to signal if the decoding was successful.
+	ExtractEncrypterParams(SharedSecretGenerator) (
+		*btcec.PublicKey, sphinx.Hash256, lnwire.FailCode)
 }
 
 // sphinxHopIterator is the Sphinx implementation of hop iterator which uses
@@ -100,16 +101,21 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 	}
 }
 
-// ExtractErrorEncrypter decodes and returns the ErrorEncrypter for this hop,
-// along with a failure code to signal if the decoding was successful. The
-// ErrorEncrypter is used to encrypt errors back to the sender in the event that
-// a payment fails.
+// ExtractEncrypterParams extracts the ephemeral key and shared secret from the
+// onion packet and returns them to the caller along with a failure code to
+// signal if the decoding was successful.
 //
 // NOTE: Part of the HopIterator interface.
-func (r *sphinxHopIterator) ExtractErrorEncrypter(
-	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
+func (r *sphinxHopIterator) ExtractEncrypterParams(
+	extracter SharedSecretGenerator) (*btcec.PublicKey, sphinx.Hash256,
+	lnwire.FailCode) {
 
-	return extracter(r.ogPacket.EphemeralKey)
+	sharedSecret, failCode := extracter(r.ogPacket.EphemeralKey)
+	if failCode != lnwire.CodeNone {
+		return nil, sphinx.Hash256{}, failCode
+	}
+
+	return r.ogPacket.EphemeralKey, sharedSecret, lnwire.CodeNone
 }
 
 // OnionProcessor is responsible for keeping all sphinx dependent parts inside
@@ -375,33 +381,26 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 	return resps, nil
 }
 
-// ExtractErrorEncrypter takes an io.Reader which should contain the onion
-// packet as original received by a forwarding node and creates an
-// ErrorEncrypter instance using the derived shared secret. In the case that en
-// error occurs, a lnwire failure code detailing the parsing failure will be
-// returned.
-func (p *OnionProcessor) ExtractErrorEncrypter(ephemeralKey *btcec.PublicKey) (
-	ErrorEncrypter, lnwire.FailCode) {
+// ExtractSharedSecret takes an ephemeral session key as original received by a
+// forwarding node and generates the shared secret. In the case that en error
+// occurs, a lnwire failure code detailing the parsing failure will be returned.
+func (p *OnionProcessor) ExtractSharedSecret(ephemeralKey *btcec.PublicKey) (
+	sphinx.Hash256, lnwire.FailCode) {
 
 	sharedSecret, err := p.router.GenerateSharedSecret(ephemeralKey)
 	if err != nil {
 		switch err {
 		case sphinx.ErrInvalidOnionVersion:
-			return nil, lnwire.CodeInvalidOnionVersion
+			return sphinx.Hash256{}, lnwire.CodeInvalidOnionVersion
 		case sphinx.ErrInvalidOnionHMAC:
-			return nil, lnwire.CodeInvalidOnionHmac
+			return sphinx.Hash256{}, lnwire.CodeInvalidOnionHmac
 		case sphinx.ErrInvalidOnionKey:
-			return nil, lnwire.CodeInvalidOnionKey
+			return sphinx.Hash256{}, lnwire.CodeInvalidOnionKey
 		default:
 			log.Errorf("unable to process onion packet: %v", err)
-			return nil, lnwire.CodeInvalidOnionKey
+			return sphinx.Hash256{}, lnwire.CodeInvalidOnionKey
 		}
 	}
 
-	onionObfuscator := sphinx.NewOnionErrorEncrypter(sharedSecret)
-
-	return &SphinxErrorEncrypter{
-		OnionErrorEncrypter: onionObfuscator,
-		EphemeralKey:        ephemeralKey,
-	}, lnwire.CodeNone
+	return sharedSecret, lnwire.CodeNone
 }

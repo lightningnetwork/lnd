@@ -971,10 +971,11 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		DecodeHopIterators:  p.cfg.Sphinx.DecodeHopIterators,
 		ExtractSharedSecret: p.cfg.Sphinx.ExtractSharedSecret,
 		CreateErrorEncrypter: func(ephemeralKey *btcec.PublicKey,
-			sharedSecret sphinx.Hash256) hop.ErrorEncrypter {
+			sharedSecret sphinx.Hash256,
+			attrError bool) hop.ErrorEncrypter {
 
 			return hop.NewSphinxErrorEncrypter(
-				ephemeralKey, sharedSecret,
+				ephemeralKey, sharedSecret, attrError,
 			)
 		},
 		FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,

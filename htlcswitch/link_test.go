@@ -1969,7 +1969,8 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt, chanReserve btcutil.Amount)
 			return sphinx.Hash256{}, lnwire.CodeNone
 		},
 		CreateErrorEncrypter: func(*btcec.PublicKey,
-			sphinx.Hash256) hop.ErrorEncrypter {
+			sphinx.Hash256,
+			bool) hop.ErrorEncrypter {
 
 			return obfuscator
 		},
@@ -4426,7 +4427,7 @@ func (h *persistentLinkHarness) restartLink(
 			return sphinx.Hash256{}, lnwire.CodeNone
 		},
 		CreateErrorEncrypter: func(*btcec.PublicKey,
-			sphinx.Hash256) hop.ErrorEncrypter {
+			sphinx.Hash256, bool) hop.ErrorEncrypter {
 
 			return obfuscator
 		},

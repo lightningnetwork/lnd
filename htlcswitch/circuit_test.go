@@ -34,6 +34,10 @@ var (
 	// testExtracter is a precomputed extraction of testEphemeralKey, using
 	// the sphinxPrivKey.
 	testExtracter *hop.SphinxErrorEncrypter
+
+	// testAttributableExtracter is a precomputed extraction of
+	// testEphemeralKey, using the sphinxPrivKey.
+	testAttributableExtracter *hop.SphinxErrorEncrypter
 )
 
 func init() {
@@ -74,12 +78,17 @@ func initTestExtracter() {
 	}
 
 	testExtracter = hop.NewSphinxErrorEncrypter(
-		testEphemeralKey, sharedSecret,
+		testEphemeralKey, sharedSecret, false,
+	)
+
+	testAttributableExtracter = hop.NewSphinxErrorEncrypter(
+		testEphemeralKey, sharedSecret, true,
 	)
 
 	// We also set this error extracter on startup, otherwise it will be nil
 	// at compile-time.
 	halfCircuitTests[2].encrypter = testExtracter
+	halfCircuitTests[3].encrypter = testAttributableExtracter
 }
 
 // newOnionProcessor creates starts a new htlcswitch.OnionProcessor using a temp
@@ -174,6 +183,14 @@ var halfCircuitTests = []struct {
 		// is fully-initialized in initTestExtracter, which should
 		// repopulate this encrypter.
 		encrypter: testExtracter,
+	},
+	{
+		hash:      hash3,
+		inValue:   10000,
+		outValue:  9000,
+		chanID:    lnwire.NewShortChanIDFromInt(3),
+		htlcID:    3,
+		encrypter: testAttributableExtracter,
 	},
 }
 

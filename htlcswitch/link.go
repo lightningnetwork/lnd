@@ -162,7 +162,7 @@ type ChannelLinkConfig struct {
 	// CreateErrorEncrypter instantiates an error encrypter based on the
 	// provided encryption parameters.
 	CreateErrorEncrypter func(*btcec.PublicKey,
-		sphinx.Hash256) hop.ErrorEncrypter
+		sphinx.Hash256, bool) hop.ErrorEncrypter
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel
@@ -3029,9 +3029,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		}
 
 		// Instantiate an error encrypter based on the extracted
-		// encryption parameters.
+		// encryption parameters. Don't assume attributable errors,
+		// because first the resolution format needs to be decoded from
+		// the onion payload.
 		obfuscator := l.cfg.CreateErrorEncrypter(
-			ephemeralKey, sharedSecret,
+			ephemeralKey, sharedSecret, false,
 		)
 
 		heightNow := l.cfg.BestHeight()
@@ -3061,6 +3063,14 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			l.log.Errorf("unable to decode forwarding "+
 				"instructions: %v", err)
 			continue
+		}
+
+		// Now that we've successfully decoded the tlv, we can upgrade
+		// to the failure message version that the sender supports.
+		if pld.AttributableError {
+			obfuscator = l.cfg.CreateErrorEncrypter(
+				ephemeralKey, sharedSecret, true,
+			)
 		}
 
 		fwdInfo := pld.ForwardingInfo()

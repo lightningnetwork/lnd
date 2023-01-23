@@ -234,6 +234,9 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 * [Remove non-existent Cleanup calls from etcd test code in the `kvdb` 
   package](https://github.com/lightningnetwork/lnd/pull/7352)
 
+* [A bug has been fixed where a reorg would cause zero-conf channels to be deleted
+  from the graph.](https://github.com/lightningnetwork/lnd/pull/7292)
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

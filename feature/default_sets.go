@@ -83,4 +83,9 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
+	lnwire.AttributableErrorsOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+		SetInvoice: {}, // 9
+	},
 }

@@ -1137,7 +1137,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 				return sphinx.Hash256{}, lnwire.CodeNone
 			},
 			CreateErrorEncrypter: func(*btcec.PublicKey,
-				sphinx.Hash256) hop.ErrorEncrypter {
+				sphinx.Hash256, bool) hop.ErrorEncrypter {
 
 				return h.obfuscator
 			},

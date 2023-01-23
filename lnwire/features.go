@@ -151,6 +151,14 @@ const (
 	// addresses for cooperative closure addresses.
 	ShutdownAnySegwitOptional FeatureBit = 27
 
+	// AttributableErrorsRequired is a required feature bit that signals
+	// that the node is able to generate and relay attributable errors.
+	AttributableErrorsRequired FeatureBit = 28
+
+	// AttributableErrorsOptional is an optional feature bit that signals
+	// that the node is able to generate and relay attributable errors.
+	AttributableErrorsOptional FeatureBit = 29
+
 	// AMPRequired is a required feature bit that signals that the receiver
 	// of a payment supports accepts spontaneous payments, i.e.
 	// sender-generated preimages according to BOLT XX.
@@ -291,6 +299,8 @@ var Features = map[FeatureBit]string{
 	ZeroConfOptional:              "zero-conf",
 	ShutdownAnySegwitRequired:     "shutdown-any-segwit",
 	ShutdownAnySegwitOptional:     "shutdown-any-segwit",
+	AttributableErrorsRequired:    "attributable-errors",
+	AttributableErrorsOptional:    "attributable-errors",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

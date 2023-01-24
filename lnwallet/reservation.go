@@ -281,7 +281,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// the fees, then we'll exit with an error.
 		if int64(ourBalance) < 0 {
 			return nil, ErrFunderBalanceDust(
-				int64(commitFee), int64(ourBalance),
+				int64(commitFee), int64(-(-ourBalance).ToSatoshis()),
 				int64(2*defaultDust),
 			)
 		}

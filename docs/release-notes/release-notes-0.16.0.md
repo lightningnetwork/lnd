@@ -282,6 +282,9 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
   link is falling behind, which is now fixed by [retrying the enable
   request](https://github.com/lightningnetwork/lnd/pull/7157). 
 
+* [Fix wallet reservatoion](https://github.com/lightningnetwork/lnd/pull/7351)
+  error message.
+
 ## Code Health
 
 * [test: use `T.TempDir` to create temporary test

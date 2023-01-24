@@ -452,8 +452,20 @@ func newMsgChannelReady(t testing.TB, r io.Reader) *lnwire.ChannelReady {
 
 	pubKey := randPubKey(t)
 
-	msg := lnwire.NewChannelReady(lnwire.ChannelID(c), pubKey)
-	msg.ExtraData = createExtraData(t, r)
+	// When testing the ChannelReady msg type in the WriteMessage
+	// function we need to populate the alias here to test the encoding
+	// of the TLV stream.
+	aliasScid := lnwire.NewShortChanIDFromInt(rand.Uint64())
+	msg := &lnwire.ChannelReady{
+		ChanID:                 lnwire.ChannelID(c),
+		NextPerCommitmentPoint: pubKey,
+		AliasScid:              &aliasScid,
+		ExtraData:              make([]byte, 0),
+	}
+
+	// We do not include the TLV record (aliasScid) into the ExtraData
+	// because when the msg is encoded the ExtraData is overwritten
+	// with the current aliasScid value.
 
 	return msg
 }

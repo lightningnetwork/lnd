@@ -2,7 +2,7 @@ package kvdb
 
 import (
 	"github.com/btcsuite/btclog"
-	"github.com/lightningnetwork/lnd/kvdb/postgres"
+	"github.com/lightningnetwork/lnd/kvdb/sqlbase"
 )
 
 // log is a logger that is initialized as disabled.  This means the package will
@@ -13,5 +13,5 @@ var log = btclog.Disabled
 func UseLogger(logger btclog.Logger) {
 	log = logger
 
-	postgres.UseLogger(log)
+	sqlbase.UseLogger(log)
 }

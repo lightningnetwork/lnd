@@ -1,4 +1,4 @@
-package postgres
+package sqlbase
 
 import "github.com/btcsuite/btclog"
 

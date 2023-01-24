@@ -18,6 +18,11 @@ const (
 	// by a live instance of postgres.
 	PostgresBackendName = "postgres"
 
+	// SqliteBackendName is the name of the backend that should be passed
+	// into kvdb.Create to initialize a new instance of kvdb.Backend backed
+	// by a live instance of sqlite.
+	SqliteBackendName = "sqlite"
+
 	// DefaultBoltAutoCompactMinAge is the default minimum time that must
 	// have passed since a bolt database file was last compacted for the
 	// compaction to be considered again.

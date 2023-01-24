@@ -1,7 +1,6 @@
-//go:build kvdb_postgres
-// +build kvdb_postgres
+//go:build kvdb_postgres || (kvdb_sqlite && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)))
 
-package postgres
+package sqlbase
 
 import (
 	"database/sql"
@@ -88,6 +87,15 @@ func (b *readWriteBucket) Get(key []byte) []byte {
 
 	case err != nil:
 		panic(err)
+	}
+
+	// When an empty byte array is stored as the value, Sqlite will decode
+	// that into nil whereas postgres will decode that as an empty byte
+	// array. Since returning nil is taken to mean that no value has ever
+	// been written, we ensure here that we at least return an empty array
+	// so that nil checks will fail.
+	if len(*value) == 0 {
+		return []byte{}
 	}
 
 	return *value

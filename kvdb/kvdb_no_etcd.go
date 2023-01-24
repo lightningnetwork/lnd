@@ -9,9 +9,9 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 )
 
-// TestBackend is conditionally set to bdb when the kvdb_etcd build tag is
-// not defined, allowing testing our database code with bolt backend.
-const TestBackend = BoltBackendName
+// EtcdBackend is conditionally set to false when the kvdb_etcd build tag is not
+// defined. This will allow testing of other database backends.
+const EtcdBackend = false
 
 var errEtcdNotAvailable = fmt.Errorf("etcd backend not available")
 

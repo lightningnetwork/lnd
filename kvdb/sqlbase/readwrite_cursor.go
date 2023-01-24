@@ -1,7 +1,6 @@
-//go:build kvdb_postgres
-// +build kvdb_postgres
+//go:build kvdb_postgres || (kvdb_sqlite && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)))
 
-package postgres
+package sqlbase
 
 import (
 	"database/sql"

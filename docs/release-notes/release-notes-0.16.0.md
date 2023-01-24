@@ -97,6 +97,9 @@ current gossip sync query status.
   the `dev` tag, and configured to [opt into overriding a specific message 
   type](https://github.com/lightningnetwork/lnd/pull/7153)
 
+* [Sign/Verify messages and signatures for single
+  addresses](https://github.com/lightningnetwork/lnd/pull/7231).
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only
@@ -284,6 +287,9 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 * During reconnection, enabling channels might be failed due to the startup of
   link is falling behind, which is now fixed by [retrying the enable
   request](https://github.com/lightningnetwork/lnd/pull/7157). 
+
+* [Sign/Verify messages and signatures for single
+  addresses](https://github.com/lightningnetwork/lnd/pull/7231).
 
 ## Code Health
 

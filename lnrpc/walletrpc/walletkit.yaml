@@ -59,9 +59,15 @@ http:
     - selector: walletrpc.WalletKit.ListAccounts
       get: "/v2/wallet/accounts"
     - selector: walletrpc.WalletKit.RequiredReserve
-      get: "/v2/wallet/reserve"  
+      get: "/v2/wallet/reserve"
     - selector: walletrpc.WalletKit.ListAddresses
       get: "/v2/wallet/addresses"
     - selector: walletrpc.WalletKit.ImportAccount
       post: "/v2/wallet/accounts/import"
+      body: "*"
+    - selector: walletrpc.WalletKit.SignMessageWithAddr
+      post: "/v2/wallet/address/signmessage"
+      body: "*"
+    - selector: walletrpc.WalletKit.VerifyMessageWithAddr
+      post: "/v2/wallet/address/verifymessage"
       body: "*"

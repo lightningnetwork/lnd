@@ -6,6 +6,7 @@ package walletrpc
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
@@ -125,6 +127,14 @@ var (
 		"/walletrpc.WalletKit/ListAddresses": {{
 			Entity: "onchain",
 			Action: "read",
+		}},
+		"/walletrpc.WalletKit/SignMessageWithAddr": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
+		"/walletrpc.WalletKit/VerifyMessageWithAddr": {{
+			Entity: "onchain",
+			Action: "write",
 		}},
 		"/walletrpc.WalletKit/FundPsbt": {{
 			Entity: "onchain",
@@ -1623,6 +1633,182 @@ func parseAddrType(addrType AddressType,
 	default:
 		return nil, fmt.Errorf("unhandled address type %v", addrType)
 	}
+}
+
+// msgSignaturePrefix is a prefix used to prevent inadvertently signing a
+// transaction or a signature. It is prepended in front of the message and
+// follows the same standard as bitcoin core and btcd.
+const msgSignaturePrefix = "Bitcoin Signed Message:\n"
+
+// SignMessageWithAddr signs a message with the private key of the provided
+// address. The address needs to belong to the lnd wallet.
+func (w *WalletKit) SignMessageWithAddr(ctx context.Context,
+	req *SignMessageWithAddrRequest) (*SignMessageWithAddrResponse, error) {
+
+	addr, err := btcutil.DecodeAddress(req.Addr, w.cfg.ChainParams)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode address: %w", err)
+	}
+
+	if !addr.IsForNet(w.cfg.ChainParams) {
+		return nil, fmt.Errorf("encoded address is for "+
+			"the wrong network %s", req.Addr)
+	}
+
+	// Fetch address infos from own wallet and check whether it belongs
+	// to the lnd wallet.
+	managedAddr, err := w.cfg.Wallet.AddressInfo(addr)
+	if err != nil {
+		return nil, fmt.Errorf("address could not be found in the "+
+			"wallet database: %w", err)
+	}
+
+	// Verifying by checking the interface type that the wallet knows about
+	// the public and private keys so it can sign the message with the
+	// private key of this address.
+	pubKey, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
+	if !ok {
+		return nil, fmt.Errorf("private key to address is unknown")
+	}
+
+	digest, err := doubleHashMessage(msgSignaturePrefix, string(req.Msg))
+	if err != nil {
+		return nil, err
+	}
+
+	// For all address types (P2WKH, NP2WKH,P2TR) the ECDSA compact signing
+	// algorithm is used. For P2TR addresses this represents a special case.
+	// ECDSA is used to create a compact signature which makes the public
+	// key of the signature recoverable. For Schnorr no known compact
+	// signing algorithm exists yet.
+	privKey, err := pubKey.PrivKey()
+	if err != nil {
+		return nil, fmt.Errorf("no private key could be "+
+			"fetched from wallet database: %w", err)
+	}
+
+	sigBytes, err := ecdsa.SignCompact(privKey, digest, pubKey.Compressed())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create signature: %w", err)
+	}
+
+	// Bitcoin signatures are base64 encoded (being compatible with
+	// bitcoin-core and btcd).
+	sig := base64.StdEncoding.EncodeToString(sigBytes)
+
+	return &SignMessageWithAddrResponse{
+		Signature: sig,
+	}, nil
+}
+
+// VerifyMessageWithAddr verifies a signature on a message with a provided
+// address, it checks both the validity of the signature itself and then
+// verifies whether the signature corresponds to the public key of the
+// provided address. There is no dependence on the private key of the address
+// therefore also external addresses are allowed to verify signatures.
+// Supported address types are P2PKH, P2WKH, NP2WKH, P2TR.
+func (w *WalletKit) VerifyMessageWithAddr(ctx context.Context,
+	req *VerifyMessageWithAddrRequest) (*VerifyMessageWithAddrResponse,
+	error) {
+
+	sig, err := base64.StdEncoding.DecodeString(req.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("malformed base64 encoding of "+
+			"the signature: %w", err)
+	}
+
+	digest, err := doubleHashMessage(msgSignaturePrefix, string(req.Msg))
+	if err != nil {
+		return nil, err
+	}
+
+	pk, wasCompressed, err := ecdsa.RecoverCompact(sig, digest)
+	if err != nil {
+		return nil, fmt.Errorf("unable to recover public key "+
+			"from compact signature: %w", err)
+	}
+
+	var serializedPubkey []byte
+	if wasCompressed {
+		serializedPubkey = pk.SerializeCompressed()
+	} else {
+		serializedPubkey = pk.SerializeUncompressed()
+	}
+
+	addr, err := btcutil.DecodeAddress(req.Addr, w.cfg.ChainParams)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode address: %w", err)
+	}
+
+	if !addr.IsForNet(w.cfg.ChainParams) {
+		return nil, fmt.Errorf("encoded address is for"+
+			"the wrong network %s", req.Addr)
+	}
+
+	var (
+		address    btcutil.Address
+		pubKeyHash = btcutil.Hash160(serializedPubkey)
+	)
+
+	// Ensure the address is one of the supported types.
+	switch addr.(type) {
+	case *btcutil.AddressPubKeyHash:
+		address, err = btcutil.NewAddressPubKeyHash(
+			pubKeyHash, w.cfg.ChainParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case *btcutil.AddressWitnessPubKeyHash:
+		address, err = btcutil.NewAddressWitnessPubKeyHash(
+			pubKeyHash, w.cfg.ChainParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case *btcutil.AddressScriptHash:
+		// Check if address is a Nested P2WKH (NP2WKH).
+		address, err = btcutil.NewAddressWitnessPubKeyHash(
+			pubKeyHash, w.cfg.ChainParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		witnessScript, err := txscript.PayToAddrScript(address)
+		if err != nil {
+			return nil, err
+		}
+
+		address, err = btcutil.NewAddressScriptHashFromHash(
+			btcutil.Hash160(witnessScript), w.cfg.ChainParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	case *btcutil.AddressTaproot:
+		// Only addresses without a tapscript are allowed because
+		// the verification is using the internal key.
+		tapKey := txscript.ComputeTaprootKeyNoScript(pk)
+		address, err = btcutil.NewAddressTaproot(
+			schnorr.SerializePubKey(tapKey),
+			w.cfg.ChainParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported address type")
+	}
+
+	return &VerifyMessageWithAddrResponse{
+		Valid:  req.Addr == address.EncodeAddress(),
+		Pubkey: serializedPubkey,
+	}, nil
 }
 
 // ImportAccount imports an account backed by an account extended public key.

@@ -57,6 +57,39 @@ type WalletKitClient interface {
 	// account name filter can be provided to filter through all of the
 	// wallet accounts and return the addresses of only those matching.
 	ListAddresses(ctx context.Context, in *ListAddressesRequest, opts ...grpc.CallOption) (*ListAddressesResponse, error)
+	// SignMessageWithAddr returns the compact signature (base64 encoded) created
+	// with the private key of the provided address. This requires the address
+	// to be solely based on a public key lock (no scripts). Obviously the internal
+	// lnd wallet has to possess the private key of the address otherwise
+	// an error is returned.
+	//
+	// This method aims to provide full compatibility with the bitcoin-core and
+	// btcd implementation. Bitcoin-core's algorithm is not specified in a
+	// BIP and only applicable for legacy addresses. This method enhances the
+	// signing for additional address types: P2WKH, NP2WKH, P2TR.
+	// For P2TR addresses this represents a special case. ECDSA is used to create
+	// a compact signature which makes the public key of the signature recoverable.
+	SignMessageWithAddr(ctx context.Context, in *SignMessageWithAddrRequest, opts ...grpc.CallOption) (*SignMessageWithAddrResponse, error)
+	// VerifyMessageWithAddr returns the validity and the recovered public key of
+	// the provided compact signature (base64 encoded). The verification is
+	// twofold. First the validity of the signature itself is checked and then
+	// it is verified that the recovered public key of the signature equals
+	// the public key of the provided address. There is no dependence on the
+	// private key of the address therefore also external addresses are allowed
+	// to verify signatures.
+	// Supported address types are P2PKH, P2WKH, NP2WKH, P2TR.
+	//
+	// This method is the counterpart of the related signing method
+	// (SignMessageWithAddr) and aims to provide full compatibility to
+	// bitcoin-core's implementation. Although bitcoin-core/btcd only provide
+	// this functionality for legacy addresses this function enhances it to
+	// the address types: P2PKH, P2WKH, NP2WKH, P2TR.
+	//
+	// The verification for P2TR addresses is a special case and requires the
+	// ECDSA compact signature to compare the reovered public key to the internal
+	// taproot key. The compact ECDSA signature format was used because there
+	// are still no known compact signature schemes for schnorr signatures.
+	VerifyMessageWithAddr(ctx context.Context, in *VerifyMessageWithAddrRequest, opts ...grpc.CallOption) (*VerifyMessageWithAddrResponse, error)
 	// ImportAccount imports an account backed by an account extended public key.
 	// The master key fingerprint denotes the fingerprint of the root key
 	// corresponding to the account public key (also known as the key with
@@ -303,6 +336,24 @@ func (c *walletKitClient) ListAddresses(ctx context.Context, in *ListAddressesRe
 	return out, nil
 }
 
+func (c *walletKitClient) SignMessageWithAddr(ctx context.Context, in *SignMessageWithAddrRequest, opts ...grpc.CallOption) (*SignMessageWithAddrResponse, error) {
+	out := new(SignMessageWithAddrResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/SignMessageWithAddr", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *walletKitClient) VerifyMessageWithAddr(ctx context.Context, in *VerifyMessageWithAddrRequest, opts ...grpc.CallOption) (*VerifyMessageWithAddrResponse, error) {
+	out := new(VerifyMessageWithAddrResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/VerifyMessageWithAddr", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) ImportAccount(ctx context.Context, in *ImportAccountRequest, opts ...grpc.CallOption) (*ImportAccountResponse, error) {
 	out := new(ImportAccountResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/ImportAccount", in, out, opts...)
@@ -462,6 +513,39 @@ type WalletKitServer interface {
 	// account name filter can be provided to filter through all of the
 	// wallet accounts and return the addresses of only those matching.
 	ListAddresses(context.Context, *ListAddressesRequest) (*ListAddressesResponse, error)
+	// SignMessageWithAddr returns the compact signature (base64 encoded) created
+	// with the private key of the provided address. This requires the address
+	// to be solely based on a public key lock (no scripts). Obviously the internal
+	// lnd wallet has to possess the private key of the address otherwise
+	// an error is returned.
+	//
+	// This method aims to provide full compatibility with the bitcoin-core and
+	// btcd implementation. Bitcoin-core's algorithm is not specified in a
+	// BIP and only applicable for legacy addresses. This method enhances the
+	// signing for additional address types: P2WKH, NP2WKH, P2TR.
+	// For P2TR addresses this represents a special case. ECDSA is used to create
+	// a compact signature which makes the public key of the signature recoverable.
+	SignMessageWithAddr(context.Context, *SignMessageWithAddrRequest) (*SignMessageWithAddrResponse, error)
+	// VerifyMessageWithAddr returns the validity and the recovered public key of
+	// the provided compact signature (base64 encoded). The verification is
+	// twofold. First the validity of the signature itself is checked and then
+	// it is verified that the recovered public key of the signature equals
+	// the public key of the provided address. There is no dependence on the
+	// private key of the address therefore also external addresses are allowed
+	// to verify signatures.
+	// Supported address types are P2PKH, P2WKH, NP2WKH, P2TR.
+	//
+	// This method is the counterpart of the related signing method
+	// (SignMessageWithAddr) and aims to provide full compatibility to
+	// bitcoin-core's implementation. Although bitcoin-core/btcd only provide
+	// this functionality for legacy addresses this function enhances it to
+	// the address types: P2PKH, P2WKH, NP2WKH, P2TR.
+	//
+	// The verification for P2TR addresses is a special case and requires the
+	// ECDSA compact signature to compare the reovered public key to the internal
+	// taproot key. The compact ECDSA signature format was used because there
+	// are still no known compact signature schemes for schnorr signatures.
+	VerifyMessageWithAddr(context.Context, *VerifyMessageWithAddrRequest) (*VerifyMessageWithAddrResponse, error)
 	// ImportAccount imports an account backed by an account extended public key.
 	// The master key fingerprint denotes the fingerprint of the root key
 	// corresponding to the account public key (also known as the key with
@@ -644,6 +728,12 @@ func (UnimplementedWalletKitServer) RequiredReserve(context.Context, *RequiredRe
 }
 func (UnimplementedWalletKitServer) ListAddresses(context.Context, *ListAddressesRequest) (*ListAddressesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAddresses not implemented")
+}
+func (UnimplementedWalletKitServer) SignMessageWithAddr(context.Context, *SignMessageWithAddrRequest) (*SignMessageWithAddrResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SignMessageWithAddr not implemented")
+}
+func (UnimplementedWalletKitServer) VerifyMessageWithAddr(context.Context, *VerifyMessageWithAddrRequest) (*VerifyMessageWithAddrResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyMessageWithAddr not implemented")
 }
 func (UnimplementedWalletKitServer) ImportAccount(context.Context, *ImportAccountRequest) (*ImportAccountResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ImportAccount not implemented")
@@ -873,6 +963,42 @@ func _WalletKit_ListAddresses_Handler(srv interface{}, ctx context.Context, dec 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WalletKitServer).ListAddresses(ctx, req.(*ListAddressesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletKit_SignMessageWithAddr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SignMessageWithAddrRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).SignMessageWithAddr(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/SignMessageWithAddr",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).SignMessageWithAddr(ctx, req.(*SignMessageWithAddrRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WalletKit_VerifyMessageWithAddr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyMessageWithAddrRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).VerifyMessageWithAddr(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/VerifyMessageWithAddr",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).VerifyMessageWithAddr(ctx, req.(*VerifyMessageWithAddrRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1157,6 +1283,14 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListAddresses",
 			Handler:    _WalletKit_ListAddresses_Handler,
+		},
+		{
+			MethodName: "SignMessageWithAddr",
+			Handler:    _WalletKit_SignMessageWithAddr_Handler,
+		},
+		{
+			MethodName: "VerifyMessageWithAddr",
+			Handler:    _WalletKit_VerifyMessageWithAddr_Handler,
 		},
 		{
 			MethodName: "ImportAccount",

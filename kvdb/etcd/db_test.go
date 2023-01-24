@@ -81,7 +81,6 @@ func TestNewEtcdClient(t *testing.T) {
 	t.Parallel()
 
 	f := NewEtcdTestFixture(t)
-	defer f.Cleanup()
 
 	client, ctx, cancel, err := NewEtcdClient(
 		context.Background(), f.BackendConfig(),

@@ -40,6 +40,9 @@
   added to `lnrpc` so the node operator can know whether a certain request has
   happened or not.
 
+## Tor
+* [Make connecting to tor over unix sockets possible](https://github.com/lightningnetwork/lnd/pull/7355)
+
 # Contributors (Alphabetical Order)
 
 * ardevd

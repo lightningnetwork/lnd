@@ -1506,6 +1506,8 @@ func publishTxAndConfirmSweep(ht *lntemp.HarnessTest, node *node.HarnessNode,
 	tx *wire.MsgTx, estimatedWeight int64,
 	spendRequest *chainrpc.SpendRequest, sweepAddr string) {
 
+	ht.Helper()
+
 	// Before we publish the tx that spends the p2tr transaction, we want to
 	// register a spend listener that we expect to fire after mining the
 	// block.

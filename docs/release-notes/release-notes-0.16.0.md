@@ -228,6 +228,9 @@ data.
 * [Add Custom Message to the fuzz testsuite
 in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 
+* [Remove non-existent Cleanup calls from etcd test code in the `kvdb` 
+  package](https://github.com/lightningnetwork/lnd/pull/7352)
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

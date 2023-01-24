@@ -158,7 +158,6 @@ func TestEtcd(t *testing.T) {
 				t.Parallel()
 
 				f := etcd.NewEtcdTestFixture(t)
-				defer f.Cleanup()
 
 				test.test(t, f.NewBackend(doRwLock))
 

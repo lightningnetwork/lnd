@@ -200,6 +200,9 @@ https://github.com/lightningnetwork/lnd/pull/6963/)
 * [A wire parsing bug has been fixed that would cause lnd to be unable _decode_
 certain large transactions](https://github.com/lightningnetwork/lnd/pull/7100).
 
+* [ldflags were being incorrectly passed](
+https://github.com/lightningnetwork/lnd/pull/7359)
+
 ## Invoices
 
 * Define a new [InvoiceDB](https://github.com/lightningnetwork/lnd/pull/7215) 

@@ -49,6 +49,13 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
+	// Note: we set route blinding optionally in our init and announcement,
+	// but not yet in invoices (9) as the spec instructs because we do not
+	// yet support receiving payments to blinded routes, only relaying them.
+	lnwire.RouteBlindingOptional: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 	lnwire.WumboChannelsOptional: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N

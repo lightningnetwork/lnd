@@ -141,6 +141,15 @@ const (
 	// transactions, which also imply anchor commitments.
 	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
 
+	// RouteBlindingRequired is a required bit that indicates that the
+	// receiving peer must understand forwarding of blinded payments.
+	RouteBlindingRequired = 24
+
+	// RouteBlindingOptional is an optional bit that indicates that this
+	// node understands forwarding of blinded payments, but the remote
+	// peer is not required to.
+	RouteBlindingOptional = 25
+
 	// ShutdownAnySegwitRequired is an required feature bit that signals
 	// that the sender is able to properly handle/parse segwit witness
 	// programs up to version 16. This enables utilization of Taproot
@@ -299,6 +308,8 @@ var Features = map[FeatureBit]string{
 	AnchorsOptional:                      "anchor-commitments",
 	AnchorsZeroFeeHtlcTxRequired:         "anchors-zero-fee-htlc-tx",
 	AnchorsZeroFeeHtlcTxOptional:         "anchors-zero-fee-htlc-tx",
+	RouteBlindingRequired:                "route-blinding",
+	RouteBlindingOptional:                "route-blinding",
 	WumboChannelsRequired:                "wumbo-channels",
 	WumboChannelsOptional:                "wumbo-channels",
 	AMPRequired:                          "amp",

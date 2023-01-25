@@ -47,4 +47,8 @@ type RoutingConfig struct {
 	// McFlushInterval defines the timer interval to use to flush mission
 	// control state to the DB.
 	McFlushInterval time.Duration `long:"mcflushinterval" description:"the timer interval to use to flush mission control state to the DB"`
+
+	// LocalOpportunityCost defines whether to consider the local
+	// channel balance when evaluating routes.
+	LocalOpportunityCost bool `bool:"localopportunitycost" description:"whether to consider the local channel balance when evaluating routes"`
 }

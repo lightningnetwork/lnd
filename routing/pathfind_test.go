@@ -835,6 +835,9 @@ func TestPathFinding(t *testing.T) {
 	}, {
 		name: "with metadata",
 		fn:   runFindPathWithMetadata,
+	}, {
+		name: "with opportunity cost",
+		fn:   runFindPathWithOpportunityCost,
 	}}
 
 	// Run with graph cache enabled.
@@ -967,6 +970,94 @@ func runFindLowestFeePath(t *testing.T, useCache bool) {
 		t.Fatalf("expected route to pass through b, "+
 			"but got a route through %v",
 			ctx.aliasFromKey(route.Hops[1].PubKeyBytes))
+	}
+}
+
+func runFindPathWithOpportunityCost(t *testing.T, useCache bool) {
+	// Set up a test graph with two paths from deezy to target. A normal
+	// pathfinder should choose the path through peer-b, but when the
+	// LocalOpportunityCost flag is set, it should select a path through
+	// peer-a in order to account for the opportunity cost of using the
+	// deezy -> peer-b channel liquidity.
+	testChannels := []*testChannel{
+		symmetricTestChannel("deezy", "peer-a", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 0,
+			MinHTLC: 1,
+			MaxHTLC: 100000000,
+		}),
+		symmetricTestChannel("peer-a", "target", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 50,
+			MinHTLC: 1,
+			MaxHTLC: 100000000,
+		}),
+		symmetricTestChannel("deezy", "peer-b", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 100,
+			MinHTLC: 1,
+			MaxHTLC: 100000000,
+		}),
+
+		symmetricTestChannel("peer-b", "target", 100000, &testChannelPolicy{
+			Expiry:  144,
+			FeeRate: 0,
+			MinHTLC: 1,
+			MaxHTLC: 100000000,
+		}),
+	}
+
+	ctx := newPathFindingTestContext(t, useCache, testChannels, "deezy")
+	ctx.pathFindingConfig = PathFindingConfig{
+		LocalOpportunityCost: true,
+	}
+	const (
+		startingHeight = 100
+		finalHopCLTV   = 1
+	)
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+	target := ctx.keyFromAlias("target")
+	path, err := ctx.findPath(target, paymentAmt)
+	require.NoError(t, err, "unable to find path")
+	route, err := newRoute(
+		ctx.source, path, startingHeight,
+		finalHopParams{
+			amt:       paymentAmt,
+			cltvDelta: finalHopCLTV,
+			records:   nil,
+		},
+	)
+	require.NoError(t, err, "unable to create path")
+
+	if route.Hops[0].PubKeyBytes != ctx.keyFromAlias("peer-a") {
+		t.Fatalf("expected route to pass through peer-a, "+
+			"but got a route through %v",
+			ctx.aliasFromKey(route.Hops[0].PubKeyBytes))
+	}
+
+	// We can then set LocalOpportunityCost to false, and we'll see that
+	// the peer-b will be chosen for the first hop.
+	ctx.pathFindingConfig = PathFindingConfig{
+		LocalOpportunityCost: false,
+	}
+
+	path, err = ctx.findPath(target, paymentAmt)
+	require.NoError(t, err, "unable to find path")
+	route, err = newRoute(
+		ctx.source, path, startingHeight,
+		finalHopParams{
+			amt:       paymentAmt,
+			cltvDelta: finalHopCLTV,
+			records:   nil,
+		},
+	)
+	require.NoError(t, err, "unable to create path")
+
+	if route.Hops[0].PubKeyBytes != ctx.keyFromAlias("peer-b") {
+		t.Fatalf("expected route to pass through peer-b, "+
+			"but got a route through %v",
+			ctx.aliasFromKey(route.Hops[0].PubKeyBytes))
 	}
 }
 

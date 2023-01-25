@@ -70,6 +70,11 @@ var (
 	// DefaultAprioriHopProbability is the default a priori probability for
 	// a hop.
 	DefaultAprioriHopProbability = float64(0.6)
+
+	// DefaultLocalOpportunityCost determines whether the pathfinder
+	// should consider the fee rates set on its local channels when selecting
+	// a path.
+	DefaultLocalOpportunityCost = bool(false)
 )
 
 // edgePolicyWithSource is a helper struct to keep track of the source node
@@ -362,6 +367,10 @@ type PathFindingConfig struct {
 	// MinProbability defines the minimum success probability of the
 	// returned route.
 	MinProbability float64
+
+	// Whether the fee rate on local channels is considered when calculating
+	// the total fee for a route.
+	LocalOpportunityCost bool
 }
 
 // getOutgoingBalance returns the maximum available balance in any of the
@@ -660,7 +669,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		//
 		// Source node has no predecessor to pay a fee. Therefore set
 		// fee to zero, because it should not be included in the fee
-		// limit check and edge weight.
+		// limit check and edge weight. 
 		//
 		// Also determine the time lock delta that will be added to the
 		// route if fromVertex is selected. If fromVertex is the source
@@ -705,11 +714,19 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			return
 		}
 
+		// If this is one of our own channels and 
+		// LocalOpportunityCost is true, then we account for the
+		// fee on this channel.
+		var opportunityCostFee lnwire.MilliSatoshi
+		if cfg.LocalOpportunityCost && fromVertex == source {
+			opportunityCostFee = edge.policy.ComputeFee(amountToSend)
+		}
+
 		// By adding fromVertex in the route, there will be an extra
 		// weight composed of the fee that this node will charge and
 		// the amount that will be locked for timeLockDelta blocks in
 		// the HTLC that is handed out to fromVertex.
-		weight := edgeWeight(amountToReceive, fee, timeLockDelta)
+		weight := edgeWeight(amountToReceive, fee + opportunityCostFee, timeLockDelta)
 
 		// Compute the tentative weight to this new channel/edge
 		// which is the weight from our toNode to the target node

@@ -895,6 +895,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		),
 		AttemptCostPPM: routingConfig.AttemptCostPPM,
 		MinProbability: routingConfig.MinRouteProbability,
+		LocalOpportunityCost: routingConfig.LocalOpportunityCost,
 	}
 
 	sourceNode, err := chanGraph.SourceNode()

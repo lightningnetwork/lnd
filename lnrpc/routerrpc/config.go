@@ -42,14 +42,15 @@ type Config struct {
 // DefaultConfig defines the config defaults.
 func DefaultConfig() *Config {
 	defaultRoutingConfig := RoutingConfig{
-		AprioriHopProbability: routing.DefaultAprioriHopProbability,
-		AprioriWeight:         routing.DefaultAprioriWeight,
-		MinRouteProbability:   routing.DefaultMinRouteProbability,
-		PenaltyHalfLife:       routing.DefaultPenaltyHalfLife,
-		AttemptCost:           routing.DefaultAttemptCost.ToSatoshis(),
-		AttemptCostPPM:        routing.DefaultAttemptCostPPM,
-		MaxMcHistory:          routing.DefaultMaxMcHistory,
-		McFlushInterval:       routing.DefaultMcFlushInterval,
+		AprioriHopProbability: 	routing.DefaultAprioriHopProbability,
+		AprioriWeight:        	routing.DefaultAprioriWeight,
+		MinRouteProbability:  	routing.DefaultMinRouteProbability,
+		LocalOpportunityCost: 	routing.DefaultLocalOpportunityCost,
+		PenaltyHalfLife:       	routing.DefaultPenaltyHalfLife,
+		AttemptCost:           	routing.DefaultAttemptCost.ToSatoshis(),
+		AttemptCostPPM:        	routing.DefaultAttemptCostPPM,
+		MaxMcHistory:          	routing.DefaultMaxMcHistory,
+		McFlushInterval:       	routing.DefaultMcFlushInterval,
 	}
 
 	return &Config{
@@ -60,13 +61,14 @@ func DefaultConfig() *Config {
 // GetRoutingConfig returns the routing config based on this sub server config.
 func GetRoutingConfig(cfg *Config) *RoutingConfig {
 	return &RoutingConfig{
-		AprioriHopProbability: cfg.AprioriHopProbability,
-		AprioriWeight:         cfg.AprioriWeight,
-		MinRouteProbability:   cfg.MinRouteProbability,
-		AttemptCost:           cfg.AttemptCost,
-		AttemptCostPPM:        cfg.AttemptCostPPM,
-		PenaltyHalfLife:       cfg.PenaltyHalfLife,
-		MaxMcHistory:          cfg.MaxMcHistory,
-		McFlushInterval:       cfg.McFlushInterval,
+		AprioriHopProbability: 	cfg.AprioriHopProbability,
+		AprioriWeight:         	cfg.AprioriWeight,
+		MinRouteProbability:   	cfg.MinRouteProbability,
+		LocalOpportunityCost: 	cfg.LocalOpportunityCost,
+		AttemptCost:           		cfg.AttemptCost,
+		AttemptCostPPM:       		cfg.AttemptCostPPM,
+		PenaltyHalfLife:       		cfg.PenaltyHalfLife,
+		MaxMcHistory:          		cfg.MaxMcHistory,
+		McFlushInterval:       		cfg.McFlushInterval,
 	}
 }

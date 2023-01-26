@@ -2,7 +2,9 @@ DEV_TAGS = dev
 RPC_TAGS = autopilotrpc chainrpc invoicesrpc neutrinorpc peersrpc routerrpc signrpc verrpc walletrpc watchtowerrpc wtclientrpc
 LOG_TAGS =
 TEST_FLAGS =
-ITEST_FLAGS = 
+ITEST_FLAGS =
+ITEST_COVERAGE =
+COLLECT_ITEST_COVERAGE =
 EXEC_SUFFIX =
 COVER_PKG = $$(go list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v lnrpc)
 NUM_ITEST_TRANCHES = 4
@@ -75,6 +77,12 @@ endif
 
 ifneq ($(tags),)
 DEV_TAGS += ${tags}
+endif
+
+# Enable integration test coverage (requires Go >= 1.20.0).
+ifneq ($(cover),)
+ITEST_COVERAGE = -cover
+COLLECT_ITEST_COVERAGE = go tool covdata textfmt -i=itest/cover -o coverage.txt
 endif
 
 # Define the log tags that will be applied only when running unit tests. If none

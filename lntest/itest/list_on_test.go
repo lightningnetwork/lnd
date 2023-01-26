@@ -505,4 +505,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "sign verify message with addr",
 		TestFunc: testSignVerifyMessageWithAddr,
 	},
+	{
+		Name:     "zero conf reorg edge existence",
+		TestFunc: testZeroConfReorg,
+	},
 }

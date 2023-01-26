@@ -1,17 +1,22 @@
 package itest
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
 	"github.com/lightningnetwork/lnd/lntemp/rpc"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -882,4 +887,170 @@ func acceptChannel(t *testing.T, zeroConf bool, stream rpc.AcceptorClient) {
 	}
 	err = stream.Send(resp)
 	require.NoError(t, err)
+}
+
+// testZeroConfReorg tests that a reorg does not cause a zero-conf channel to
+// be deleted from the channel graph. This was previously the case due to logic
+// in the function DisconnectBlockAtHeight.
+func testZeroConfReorg(ht *lntemp.HarnessTest) {
+	if ht.ChainBackendName() == lntest.NeutrinoBackendName {
+		ht.Skipf("skipping zero-conf reorg test for neutrino backend")
+	}
+
+	var (
+		ctxb = context.Background()
+		temp = "temp"
+	)
+
+	// Since zero-conf is opt in, the harness nodes provided won't be able
+	// to open zero-conf channels. In that case, we just spin up new nodes.
+	zeroConfArgs := []string{
+		"--protocol.option-scid-alias",
+		"--protocol.zero-conf",
+		"--protocol.anchors",
+	}
+
+	carol := ht.NewNode("Carol", zeroConfArgs)
+
+	// Spin-up Dave so Carol can open a zero-conf channel to him.
+	dave := ht.NewNode("Dave", zeroConfArgs)
+
+	// We'll give Carol some coins in order to fund the channel.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	// Ensure that both Carol and Dave are connected.
+	ht.EnsureConnected(carol, dave)
+
+	// Setup a ChannelAcceptor for Dave.
+	acceptStream, cancel := dave.RPC.ChannelAcceptor()
+	go acceptChannel(ht.T, true, acceptStream)
+
+	// Open a private zero-conf anchors channel of 1M satoshis.
+	params := lntemp.OpenChannelParams{
+		Amt:            btcutil.Amount(1_000_000),
+		CommitmentType: lnrpc.CommitmentType_ANCHORS,
+		ZeroConf:       true,
+	}
+	_ = ht.OpenChannelNoAnnounce(carol, dave, params)
+
+	// Remove the ChannelAcceptor.
+	cancel()
+
+	// Attempt to send a 10K satoshi payment from Carol to Dave. This
+	// requires that the edge exists in the graph.
+	daveInvoiceParams := &lnrpc.Invoice{
+		Value: int64(10_000),
+	}
+	daveInvoiceResp := dave.RPC.AddInvoice(daveInvoiceParams)
+
+	payReqs := []string{daveInvoiceResp.PaymentRequest}
+	ht.CompletePaymentRequests(carol, payReqs)
+
+	// We will now attempt to query for the alias SCID in Carol's graph.
+	// We will query for the starting alias, which is exported by the
+	// aliasmgr package.
+	_, err := carol.RPC.LN.GetChanInfo(ctxb, &lnrpc.ChanInfoRequest{
+		ChanId: aliasmgr.StartingAlias.ToUint64(),
+	})
+	require.NoError(ht.T, err)
+
+	// Now we will trigger a reorg and we'll assert that the edge still
+	// exists in the graph.
+	//
+	// First, we'll setup a new miner that we can use to cause a reorg.
+	tempLogDir := ".tempminerlogs"
+	logFilename := "output-open_channel_reorg-temp_miner.log"
+	tempMiner := lntemp.NewTempMiner(
+		ht.Context(), ht.T, tempLogDir, logFilename,
+	)
+	defer tempMiner.Stop()
+
+	require.NoError(
+		ht.T, tempMiner.SetUp(false, 0), "unable to setup mining node",
+	)
+
+	// We start by connecting the new miner to our original miner, such
+	// that it will sync to our original chain.
+	err = ht.Miner.Client.Node(
+		btcjson.NConnect, tempMiner.P2PAddress(), &temp,
+	)
+	require.NoError(ht.T, err, "unable to connect node")
+
+	nodeSlice := []*rpctest.Harness{ht.Miner.Harness, tempMiner.Harness}
+	err = rpctest.JoinNodes(nodeSlice, rpctest.Blocks)
+	require.NoError(ht.T, err, "unable to join node on blocks")
+
+	// The two miners should be on the same block height.
+	assertMinerBlockHeightDelta(ht, ht.Miner, tempMiner, 0)
+
+	// We disconnect the two miners, such that we can mine two chains and
+	// cause a reorg later.
+	err = ht.Miner.Client.Node(
+		btcjson.NDisconnect, tempMiner.P2PAddress(), &temp,
+	)
+	require.NoError(ht.T, err, "unable to remove node")
+
+	// We now cause a fork, by letting our original miner mine 1 block and
+	// our new miner will mine 2.
+	ht.MineBlocks(1)
+	_, err = tempMiner.Client.Generate(2)
+	require.NoError(ht.T, err, "unable to generate blocks")
+
+	// Ensure the temp miner is one block ahead.
+	assertMinerBlockHeightDelta(ht, ht.Miner, tempMiner, 1)
+
+	// Wait for Carol to sync to the original miner's chain.
+	_, minerHeight, err := ht.Miner.Client.GetBestBlock()
+	require.NoError(ht.T, err, "unable to get current blockheight")
+
+	ht.WaitForNodeBlockHeight(carol, minerHeight)
+
+	// Now we'll disconnect Carol's chain backend from the original miner
+	// so that we can connect the two miners together and let the original
+	// miner sync to the temp miner's chain.
+	ht.DisconnectMiner()
+
+	// Connecting to the temporary miner should cause the original miner to
+	// reorg to the longer chain.
+	err = ht.Miner.Client.Node(
+		btcjson.NConnect, tempMiner.P2PAddress(), &temp,
+	)
+	require.NoError(ht.T, err, "unable to remove node")
+
+	nodes := []*rpctest.Harness{tempMiner.Harness, ht.Miner.Harness}
+	err = rpctest.JoinNodes(nodes, rpctest.Blocks)
+	require.NoError(ht.T, err, "unable to join node on blocks")
+
+	// They should now be on the same chain.
+	assertMinerBlockHeightDelta(ht, ht.Miner, tempMiner, 0)
+
+	// Now we disconnect the two miners and reconnect our original chain
+	// backend.
+	err = ht.Miner.Client.Node(
+		btcjson.NDisconnect, tempMiner.P2PAddress(), &temp,
+	)
+	require.NoError(ht.T, err, "unable to remove node")
+
+	ht.ConnectMiner()
+
+	// This should have caused a reorg and Alice should sync to the new
+	// chain.
+	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
+	require.NoError(ht.T, err, "unable to get current blockheight")
+
+	ht.WaitForNodeBlockHeight(carol, tempMinerHeight)
+
+	err = wait.Predicate(func() bool {
+		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
+
+		_, err = carol.RPC.LN.GetChanInfo(ctxt, &lnrpc.ChanInfoRequest{
+			ChanId: aliasmgr.StartingAlias.ToUint64(),
+		})
+
+		return err == nil
+	}, defaultTimeout)
+	require.NoError(ht.T, err, "carol doesn't have zero-conf edge")
+
+	// Mine the zero-conf funding transaction so the test doesn't fail.
+	ht.MineBlocks(1)
 }

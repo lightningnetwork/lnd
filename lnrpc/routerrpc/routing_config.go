@@ -50,5 +50,5 @@ type RoutingConfig struct {
 
 	// LocalOpportunityCost defines whether to consider the local
 	// channel balance when evaluating routes.
-	LocalOpportunityCost bool `bool:"localopportunitycost" description:"whether to consider the local channel balance when evaluating routes"`
+	LocalOpportunityCost bool `long:"localopportunitycost" description:"whether to consider the opportunity cost of using local channel liquidity when evaluating routes"`
 }

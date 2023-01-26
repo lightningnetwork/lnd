@@ -893,8 +893,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		AttemptCost: lnwire.NewMSatFromSatoshis(
 			routingConfig.AttemptCost,
 		),
-		AttemptCostPPM: routingConfig.AttemptCostPPM,
-		MinProbability: routingConfig.MinRouteProbability,
+		AttemptCostPPM:       routingConfig.AttemptCostPPM,
+		MinProbability:       routingConfig.MinRouteProbability,
 		LocalOpportunityCost: routingConfig.LocalOpportunityCost,
 	}
 

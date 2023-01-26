@@ -18,10 +18,15 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	source := route.Vertex{1}
 	toNode := route.Vertex{2}
 	fromNode := route.Vertex{3}
-	bandwidthHints := &mockBandwidthHints{}
+	bandwidthHints := &mockBandwidthHints{
+		hints: map[uint64]lnwire.MilliSatoshi{
+			100: 150,
+		},
+	}
 
 	// Add two channels between the pair of nodes.
 	p1 := models.CachedEdgePolicy{
+		ChannelID:                 100,
 		FeeProportionalMillionths: 100000,
 		FeeBaseMSat:               30,
 		TimeLockDelta:             60,
@@ -30,6 +35,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		MinHTLC:                   100,
 	}
 	p2 := models.CachedEdgePolicy{
+		ChannelID:                 101,
 		FeeProportionalMillionths: 190000,
 		FeeBaseMSat:               10,
 		TimeLockDelta:             40,
@@ -52,6 +58,9 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	unifierNoInfo.addPolicy(
 		fromNode, &models.CachedEdgePolicy{}, 0, defaultHopPayloadSize,
 	)
+
+	unifierLocal := newNodeEdgeUnifier(fromNode, toNode, nil)
+	unifierLocal.addPolicy(fromNode, &p1, c1, defaultHopPayloadSize)
 
 	tests := []struct {
 		name             string
@@ -115,6 +124,21 @@ func TestNodeEdgeUnifier(t *testing.T) {
 			name:             "no info",
 			unifier:          unifierNoInfo,
 			expectedCapacity: 0,
+		},
+		{
+			name:           "local insufficient bandwidth",
+			unifier:        unifierLocal,
+			amount:         200,
+			expectNoPolicy: true,
+		},
+		{
+			name:             "local",
+			unifier:          unifierLocal,
+			amount:           100,
+			expectedFeeBase:  p1.FeeBaseMSat,
+			expectedFeeRate:  p1.FeeProportionalMillionths,
+			expectedTimeLock: p1.TimeLockDelta,
+			expectedCapacity: c1,
 		},
 	}
 

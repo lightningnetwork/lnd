@@ -38,6 +38,7 @@ itest/.minerlogs
 itest/lnd-itest
 itest/btcd-itest
 itest/.logs-*
+itest/cover
 
 cmd/cmd
 *.key

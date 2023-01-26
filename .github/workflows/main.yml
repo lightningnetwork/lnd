@@ -274,7 +274,13 @@ jobs:
         run: ./scripts/install_bitcoind.sh $BITCOIN_VERSION
 
       - name: run ${{ matrix.name }}
-        run: make itest-parallel ${{ matrix.args }}
+        run: make itest-parallel ${{ matrix.args }} cover=1
+
+      - name: Send coverage
+        uses: shogo82148/actions-goveralls@v1
+        with:
+          path-to-profile: coverage.txt
+          parallel: true
 
       - name: Zip log files on failure
         if: ${{ failure() }}

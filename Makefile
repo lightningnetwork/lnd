@@ -196,6 +196,10 @@ unit-race:
 	@$(call print, "Running unit race tests.")
 	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 
+unit-bench: $(BTCD_BIN)
+	@$(call print, "Running benchmark tests.")
+	$(UNIT_BENCH)
+
 # =============
 # FLAKE HUNTING
 # =============

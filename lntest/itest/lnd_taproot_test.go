@@ -48,7 +48,13 @@ func testTaproot(ht *lntemp.HarnessTest) {
 	testTaprootSendCoinsKeySpendBip86(ht, ht.Alice)
 	testTaprootComputeInputScriptKeySpendBip86(ht, ht.Alice)
 	testTaprootSignOutputRawScriptSpend(ht, ht.Alice)
+	testTaprootSignOutputRawScriptSpend(
+		ht, ht.Alice, txscript.SigHashSingle,
+	)
 	testTaprootSignOutputRawKeySpendBip86(ht, ht.Alice)
+	testTaprootSignOutputRawKeySpendBip86(
+		ht, ht.Alice, txscript.SigHashSingle,
+	)
 	testTaprootSignOutputRawKeySpendRootHash(ht, ht.Alice)
 
 	testTaprootMuSig2KeySpendBip86(ht, ht.Alice)
@@ -219,7 +225,7 @@ func testTaprootComputeInputScriptKeySpendBip86(ht *lntemp.HarnessTest,
 // testTaprootSignOutputRawScriptSpend tests sending to and spending from p2tr
 // script addresses using the script path with the SignOutputRaw RPC.
 func testTaprootSignOutputRawScriptSpend(ht *lntemp.HarnessTest,
-	alice *node.HarnessNode) {
+	alice *node.HarnessNode, sigHashType ...txscript.SigHashType) {
 
 	// For the next step, we need a public key. Let's use a special family
 	// for this.
@@ -260,7 +266,18 @@ func testTaprootSignOutputRawScriptSpend(ht *lntemp.HarnessTest,
 		input.TaprootSignatureWitnessSize, tapscript,
 	)
 	estimator.AddP2WKHOutput()
+
 	estimatedWeight := int64(estimator.Weight())
+	sigHash := txscript.SigHashDefault
+	if len(sigHashType) != 0 {
+		sigHash = sigHashType[0]
+
+		// If a non-default sighash is used, then we'll need to add an
+		// extra byte to account for the sighash that doesn't exist in
+		// the default case.
+		estimatedWeight++
+	}
+
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
 
 	tx := wire.NewMsgTx(2)
@@ -290,7 +307,7 @@ func testTaprootSignOutputRawScriptSpend(ht *lntemp.HarnessTest,
 			Output:        utxoInfo[0],
 			InputIndex:    0,
 			KeyDesc:       keyDesc,
-			Sighash:       uint32(txscript.SigHashDefault),
+			Sighash:       uint32(sigHash),
 			WitnessScript: leaf2.Script,
 			SignMethod:    signMethodTapscript,
 		}},
@@ -309,7 +326,7 @@ func testTaprootSignOutputRawScriptSpend(ht *lntemp.HarnessTest,
 			Output:        utxoInfo[0],
 			InputIndex:    0,
 			KeyDesc:       keyDesc,
-			Sighash:       uint32(txscript.SigHashDefault),
+			Sighash:       uint32(sigHash),
 			WitnessScript: leaf2.Script,
 		}},
 		PrevOutputs: utxoInfo,
@@ -327,7 +344,7 @@ func testTaprootSignOutputRawScriptSpend(ht *lntemp.HarnessTest,
 			Output:        utxoInfo[0],
 			InputIndex:    0,
 			KeyDesc:       keyDesc,
-			Sighash:       uint32(txscript.SigHashDefault),
+			Sighash:       uint32(sigHash),
 			WitnessScript: leaf2.Script,
 			SignMethod:    signMethodTapscript,
 		}},
@@ -339,10 +356,12 @@ func testTaprootSignOutputRawScriptSpend(ht *lntemp.HarnessTest,
 	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
 	require.NoError(ht, err)
 
+	sig := signResp.RawSigs[0]
+	if len(sigHashType) != 0 {
+		sig = append(sig, byte(sigHashType[0]))
+	}
 	tx.TxIn[0].Witness = wire.TxWitness{
-		signResp.RawSigs[0],
-		leaf2.Script,
-		controlBlockBytes,
+		sig, leaf2.Script, controlBlockBytes,
 	}
 
 	// Serialize, weigh and publish the TX now, then make sure the
@@ -364,7 +383,7 @@ func testTaprootSignOutputRawScriptSpend(ht *lntemp.HarnessTest,
 // also be spent using the key spend path through the SignOutputRaw RPC using a
 // BIP0086 key spend only commitment.
 func testTaprootSignOutputRawKeySpendBip86(ht *lntemp.HarnessTest,
-	alice *node.HarnessNode) {
+	alice *node.HarnessNode, sigHashType ...txscript.SigHashType) {
 
 	// For the next step, we need a public key. Let's use a special family
 	// for this.
@@ -393,10 +412,15 @@ func testTaprootSignOutputRawKeySpendBip86(ht *lntemp.HarnessTest,
 		ht, alice, lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	)
 
+	sigHash := txscript.SigHashDefault
+	if len(sigHashType) != 0 {
+		sigHash = sigHashType[0]
+	}
+
 	// Create fee estimation for a p2tr input and p2wkh output.
 	feeRate := chainfee.SatPerKWeight(12500)
 	estimator := input.TxWeightEstimator{}
-	estimator.AddTaprootKeySpendInput(txscript.SigHashDefault)
+	estimator.AddTaprootKeySpendInput(sigHash)
 	estimator.AddP2WKHOutput()
 	estimatedWeight := int64(estimator.Weight())
 	requiredFee := feeRate.FeeForWeight(estimatedWeight)
@@ -425,16 +449,18 @@ func testTaprootSignOutputRawKeySpendBip86(ht *lntemp.HarnessTest,
 			InputIndex:  0,
 			KeyDesc:     keyDesc,
 			SingleTweak: dummyKeyTweak[:],
-			Sighash:     uint32(txscript.SigHashDefault),
+			Sighash:     uint32(sigHash),
 			SignMethod:  signMethodBip86,
 		}},
 		PrevOutputs: utxoInfo,
 	}
 	signResp := alice.RPC.SignOutputRaw(signReq)
 
-	tx.TxIn[0].Witness = wire.TxWitness{
-		signResp.RawSigs[0],
+	sig := signResp.RawSigs[0]
+	if len(sigHashType) != 0 {
+		sig = append(sig, byte(sigHash))
 	}
+	tx.TxIn[0].Witness = wire.TxWitness{sig}
 
 	// Serialize, weigh and publish the TX now, then make sure the
 	// coins are sent and confirmed to the final sweep destination address.
@@ -1505,6 +1531,8 @@ func sendToTaprootOutput(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 func publishTxAndConfirmSweep(ht *lntemp.HarnessTest, node *node.HarnessNode,
 	tx *wire.MsgTx, estimatedWeight int64,
 	spendRequest *chainrpc.SpendRequest, sweepAddr string) {
+
+	ht.Helper()
 
 	// Before we publish the tx that spends the p2tr transaction, we want to
 	// register a spend listener that we expect to fire after mining the

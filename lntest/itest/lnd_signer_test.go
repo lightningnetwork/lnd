@@ -217,7 +217,7 @@ func runSignOutputRaw(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 	assertSignOutputRaw(
 		ht, alice, targetPubKey, &signrpc.KeyDescriptor{
 			RawKeyBytes: keyDesc.RawKeyBytes,
-		},
+		}, txscript.SigHashAll,
 	)
 
 	// Now try again, this time only with the (0 index!) key locator.
@@ -227,7 +227,7 @@ func runSignOutputRaw(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 				KeyFamily: keyDesc.KeyLoc.KeyFamily,
 				KeyIndex:  keyDesc.KeyLoc.KeyIndex,
 			},
-		},
+		}, txscript.SigHashAll,
 	)
 
 	// And now test everything again with a new key where we know the index
@@ -245,7 +245,7 @@ func runSignOutputRaw(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 	assertSignOutputRaw(
 		ht, alice, targetPubKey, &signrpc.KeyDescriptor{
 			RawKeyBytes: keyDesc.RawKeyBytes,
-		},
+		}, txscript.SigHashAll,
 	)
 
 	// Now try again, this time only with the key locator.
@@ -255,7 +255,17 @@ func runSignOutputRaw(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 				KeyFamily: keyDesc.KeyLoc.KeyFamily,
 				KeyIndex:  keyDesc.KeyLoc.KeyIndex,
 			},
-		},
+		}, txscript.SigHashAll,
+	)
+
+	// Finally, we'll try again, but this time with a non-default sighash.
+	assertSignOutputRaw(
+		ht, alice, targetPubKey, &signrpc.KeyDescriptor{
+			KeyLoc: &signrpc.KeyLocator{
+				KeyFamily: keyDesc.KeyLoc.KeyFamily,
+				KeyIndex:  keyDesc.KeyLoc.KeyIndex,
+			},
+		}, txscript.SigHashSingle,
 	)
 }
 
@@ -264,7 +274,8 @@ func runSignOutputRaw(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 // SignOutputRaw RPC with the key descriptor provided.
 func assertSignOutputRaw(ht *lntemp.HarnessTest,
 	alice *node.HarnessNode, targetPubKey *btcec.PublicKey,
-	keyDesc *signrpc.KeyDescriptor) {
+	keyDesc *signrpc.KeyDescriptor,
+	sigHash txscript.SigHashType) {
 
 	pubKeyHash := btcutil.Hash160(targetPubKey.SerializeCompressed())
 	targetAddr, err := btcutil.NewAddressWitnessPubKeyHash(
@@ -326,14 +337,14 @@ func assertSignOutputRaw(ht *lntemp.HarnessTest,
 			},
 			InputIndex:    0,
 			KeyDesc:       keyDesc,
-			Sighash:       uint32(txscript.SigHashAll),
+			Sighash:       uint32(sigHash),
 			WitnessScript: targetScript,
 		}},
 	}
 	signResp := alice.RPC.SignOutputRaw(signReq)
 
 	tx.TxIn[0].Witness = wire.TxWitness{
-		append(signResp.RawSigs[0], byte(txscript.SigHashAll)),
+		append(signResp.RawSigs[0], byte(sigHash)),
 		targetPubKey.SerializeCompressed(),
 	}
 

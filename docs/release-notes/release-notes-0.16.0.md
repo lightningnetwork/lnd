@@ -100,6 +100,11 @@ current gossip sync query status.
 * [Sign/Verify messages and signatures for single
   addresses](https://github.com/lightningnetwork/lnd/pull/7231).
 
+* [A bug has been fixed within the `SignOutputRaw` call for taproot
+  signatures](https://github.com/lightningnetwork/lnd/pull/7332).  The
+  `SignOutputRaw` call will now properly work for taproot signatures with a
+  non-default sighash.
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

@@ -134,8 +134,12 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 }
 
 // NewPayloadFromReader builds a new Hop from the passed io.Reader. The reader
-// should correspond to the bytes encapsulated in a TLV onion payload.
-func NewPayloadFromReader(r io.Reader) (*Payload, error) {
+// should correspond to the bytes encapsulated in a TLV onion payload. A
+// blinding kit is passed in to help handle payloads that are part of a blinded
+// route.
+func NewPayloadFromReader(r io.Reader, blindingKit *BlindingKit) (
+	*Payload, error) {
+
 	var (
 		cid           uint64
 		amt           uint64

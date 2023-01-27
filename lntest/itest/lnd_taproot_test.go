@@ -35,11 +35,14 @@ const (
 )
 
 var (
-	dummyInternalKeyBytes, _ = hex.DecodeString(
+	hexDecode = func(keyStr string) []byte {
+		keyBytes, _ := hex.DecodeString(keyStr)
+		return keyBytes
+	}
+	dummyInternalKey, _ = btcec.ParsePubKey(hexDecode(
 		"03464805f5468e294d88cf15a3f06aef6c89d63ef1bd7b42db2e0c74c1ac" +
 			"eb90fe",
-	)
-	dummyInternalKey, _ = btcec.ParsePubKey(dummyInternalKeyBytes)
+	))
 )
 
 // testTaproot ensures that the daemon can send to and spend from taproot (p2tr)
@@ -61,6 +64,7 @@ func testTaproot(ht *lntemp.HarnessTest) {
 	testTaprootMuSig2KeySpendRootHash(ht, ht.Alice)
 	testTaprootMuSig2ScriptSpend(ht, ht.Alice)
 	testTaprootMuSig2CombinedLeafKeySpend(ht, ht.Alice)
+	testMuSig2CombineKey(ht, ht.Alice)
 
 	testTaprootImportTapscriptFullTree(ht, ht.Alice)
 	testTaprootImportTapscriptPartialReveal(ht, ht.Alice)
@@ -1855,4 +1859,42 @@ func testTaprootCoopClose(ht *lntemp.HarnessTest) {
 	closingTxid = ht.CloseChannel(carol, chanPoint)
 	require.False(ht, assertTaprootDeliveryUsed(closingTxid),
 		"taproot addr shouldn't be used!")
+}
+
+// testMuSig2CombineKey makes sure that combining a key with MuSig2 returns the
+// correct result according to the MuSig2 version specified.
+func testMuSig2CombineKey(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
+	testVector040Key1 := hexDecode(
+		"F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE0" +
+			"36F9",
+	)
+	testVector040Key2 := hexDecode(
+		"DFF1D77F2A671C5F36183726DB2341BE58FEAE1DA2DECED843240F7B502B" +
+			"A659",
+	)
+	testVector040Key3 := hexDecode(
+		"3590A94E768F8E1815C2F24B4D80A8E3149316C3518CE7B7AD338368D038" +
+			"CA66",
+	)
+
+	resp := alice.RPC.MuSig2CombineKeys(&signrpc.MuSig2CombineKeysRequest{
+		AllSignerPubkeys: [][]byte{
+			testVector040Key1, testVector040Key2,
+			testVector040Key3,
+		},
+		TaprootTweak: &signrpc.TaprootTweakDesc{
+			KeySpendOnly: true,
+		},
+	})
+
+	expectedFinalKey := hexDecode(
+		"5b257b4e785d61157ef5303051f45184bd5cb47bc4b4069ed4dd453645" +
+			"9cb83b",
+	)
+	expectedPreTweakKey := hexDecode(
+		"d70cd69a2647f7390973df48cbfa2ccc407b8b2d60b08c5f1641185c79" +
+			"98a290",
+	)
+	require.Equal(ht, expectedFinalKey, resp.CombinedKey)
+	require.Equal(ht, expectedPreTweakKey, resp.TaprootInternalKey)
 }

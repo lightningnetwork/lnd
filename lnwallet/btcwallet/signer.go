@@ -26,7 +26,9 @@ import (
 // of ErrNotMine should be returned instead.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, error) {
+func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo,
+	error) {
+
 	prevTx, txOut, bip32, confirmations, err := b.wallet.FetchInputInfo(
 		prevOut,
 	)
@@ -501,7 +503,7 @@ func (b *BtcWallet) MuSig2CreateSession(bipVersion input.MuSig2Version,
 		KeyLocator: keyLoc,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error deriving private key: %v", err)
+		return nil, fmt.Errorf("error deriving private key: %w", err)
 	}
 
 	// Create a signing context and session with the given private key and
@@ -510,7 +512,7 @@ func (b *BtcWallet) MuSig2CreateSession(bipVersion input.MuSig2Version,
 		bipVersion, privKey, allSignerPubKeys, tweaks,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error creating signing context: %v",
+		return nil, fmt.Errorf("error creating signing context: %w",
 			err)
 	}
 
@@ -522,14 +524,14 @@ func (b *BtcWallet) MuSig2CreateSession(bipVersion input.MuSig2Version,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error registering other "+
-				"signer public nonce: %v", err)
+				"signer public nonce: %w", err)
 		}
 	}
 
 	// Register the new session.
 	combinedKey, err := muSigContext.CombinedKey()
 	if err != nil {
-		return nil, fmt.Errorf("error getting combined key: %v", err)
+		return nil, fmt.Errorf("error getting combined key: %w", err)
 	}
 	session := &muSig2State{
 		MuSig2SessionInfo: input.MuSig2SessionInfo{
@@ -551,7 +553,7 @@ func (b *BtcWallet) MuSig2CreateSession(bipVersion input.MuSig2Version,
 	if tweaks.HasTaprootTweak() {
 		internalKey, err := muSigContext.TaprootInternalKey()
 		if err != nil {
-			return nil, fmt.Errorf("error getting internal key: %v",
+			return nil, fmt.Errorf("error getting internal key: %w",
 				err)
 		}
 		session.TaprootInternalKey = internalKey
@@ -607,7 +609,7 @@ func (b *BtcWallet) MuSig2RegisterNonces(sessionID input.MuSig2SessionID,
 		)
 		if err != nil {
 			return false, fmt.Errorf("error registering other "+
-				"signer public nonce: %v", err)
+				"signer public nonce: %w", err)
 		}
 	}
 
@@ -646,7 +648,7 @@ func (b *BtcWallet) MuSig2Sign(sessionID input.MuSig2SessionID,
 	// Create our own partial signature with the local signing key.
 	partialSig, err := input.MuSig2Sign(session.session, msg, true)
 	if err != nil {
-		return nil, fmt.Errorf("error signing with local key: %v", err)
+		return nil, fmt.Errorf("error signing with local key: %w", err)
 	}
 
 	// Clean up our local state if requested.
@@ -695,7 +697,7 @@ func (b *BtcWallet) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 		)
 		if err != nil {
 			return nil, false, fmt.Errorf("error combining "+
-				"partial signature: %v", err)
+				"partial signature: %w", err)
 		}
 	}
 

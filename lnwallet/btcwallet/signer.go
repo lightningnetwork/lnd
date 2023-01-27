@@ -476,11 +476,11 @@ type muSig2State struct {
 
 	// context is the signing context responsible for keeping track of the
 	// public keys involved in the signing process.
-	context *musig2.Context
+	context input.MuSig2Context
 
 	// session is the signing session responsible for keeping track of the
 	// nonces and partial signatures involved in the signing process.
-	session *musig2.Session
+	session input.MuSig2Session
 }
 
 // MuSig2CreateSession creates a new MuSig2 signing session using the local

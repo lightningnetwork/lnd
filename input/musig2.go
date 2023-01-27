@@ -63,6 +63,53 @@ type MuSig2Signer interface {
 	MuSig2Cleanup(MuSig2SessionID) error
 }
 
+// MuSig2Context is an interface that is an abstraction over the MuSig2 signing
+// context. This interface does not contain all of the methods the underlying
+// implementations have because those use package specific types which cannot
+// easily be made compatible. Those calls (such as NewSession) are implemented
+// in this package instead and do the necessary type switch (see
+// MuSig2CreateContext).
+type MuSig2Context interface {
+	// SigningKeys returns the set of keys used for signing.
+	SigningKeys() []*btcec.PublicKey
+
+	// CombinedKey returns the combined public key that will be used to
+	// generate multi-signatures  against.
+	CombinedKey() (*btcec.PublicKey, error)
+
+	// TaprootInternalKey returns the internal taproot key, which is the
+	// aggregated key _before_ the tweak is applied. If a taproot tweak was
+	// specified, then CombinedKey() will return the fully tweaked output
+	// key, with this method returning the internal key. If a taproot tweak
+	// wasn't specified, then this method will return an error.
+	TaprootInternalKey() (*btcec.PublicKey, error)
+}
+
+// MuSig2Session is an interface that is an abstraction over the MuSig2 signing
+// session. This interface does not contain all of the methods the underlying
+// implementations have because those use package specific types which cannot
+// easily be made compatible. Those calls (such as CombineSig or Sign) are
+// implemented in this package instead and do the necessary type switch (see
+// MuSig2CombineSig or MuSig2Sign).
+type MuSig2Session interface {
+	// FinalSig returns the final combined multi-signature, if present.
+	FinalSig() *schnorr.Signature
+
+	// PublicNonce returns the public nonce for a signer. This should be
+	// sent to other parties before signing begins, so they can compute the
+	// aggregated public nonce.
+	PublicNonce() [musig2.PubNonceSize]byte
+
+	// NumRegisteredNonces returns the total number of nonces that have been
+	// registered so far.
+	NumRegisteredNonces() int
+
+	// RegisterPubNonce should be called for each public nonce from the set
+	// of signers. This method returns true once all the public nonces have
+	// been accounted for.
+	RegisterPubNonce(nonce [musig2.PubNonceSize]byte) (bool, error)
+}
+
 // MuSig2SessionInfo is a struct for keeping track of a signing session
 // information in memory.
 type MuSig2SessionInfo struct {
@@ -222,33 +269,46 @@ func MuSig2CreateContext(privKey *btcec.PrivateKey,
 
 // MuSig2Sign calls the Sign() method on the given versioned signing session and
 // returns the result in the most recent version of the MuSig2 API.
-func MuSig2Sign(session *musig2.Session, msg [32]byte,
+func MuSig2Sign(session MuSig2Session, msg [32]byte,
 	withSortedKeys bool) (*musig2.PartialSignature, error) {
 
-	var opts []musig2.SignOption
-	if withSortedKeys {
-		opts = append(opts, musig2.WithSortedKeys())
-	}
-	partialSig, err := session.Sign(msg, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("error signing with local key: %v", err)
-	}
+	switch s := session.(type) {
+	case *musig2.Session:
+		var opts []musig2.SignOption
+		if withSortedKeys {
+			opts = append(opts, musig2.WithSortedKeys())
+		}
+		partialSig, err := s.Sign(msg, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("error signing with local key: "+
+				"%v", err)
+		}
 
-	return partialSig, nil
+		return partialSig, nil
+
+	default:
+		return nil, fmt.Errorf("invalid session type <%T>", s)
+	}
 }
 
 // MuSig2CombineSig calls the CombineSig() method on the given versioned signing
 // session and returns the result in the most recent version of the MuSig2 API.
-func MuSig2CombineSig(session *musig2.Session,
+func MuSig2CombineSig(session MuSig2Session,
 	otherPartialSig *musig2.PartialSignature) (bool, error) {
 
-	haveAllSigs, err := session.CombineSig(otherPartialSig)
-	if err != nil {
-		return false, fmt.Errorf("error combining partial signature: "+
-			"%v", err)
-	}
+	switch s := session.(type) {
+	case *musig2.Session:
+		haveAllSigs, err := s.CombineSig(otherPartialSig)
+		if err != nil {
+			return false, fmt.Errorf("error combining partial "+
+				"signature: %v", err)
+		}
 
-	return haveAllSigs, nil
+		return haveAllSigs, nil
+
+	default:
+		return false, fmt.Errorf("invalid session type <%T>", s)
+	}
 }
 
 // NewMuSig2SessionID returns the unique ID of a MuSig2 session by using the

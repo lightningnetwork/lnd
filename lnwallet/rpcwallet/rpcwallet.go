@@ -640,8 +640,9 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 // all signing parties must be provided, including the public key of the local
 // signing key. If nonces of other parties are already known, they can be
 // submitted as well to reduce the number of method calls necessary later on.
-func (r *RPCKeyRing) MuSig2CreateSession(keyLoc keychain.KeyLocator,
-	pubKeys []*btcec.PublicKey, tweaks *input.MuSig2Tweaks,
+func (r *RPCKeyRing) MuSig2CreateSession(bipVersion input.MuSig2Version,
+	keyLoc keychain.KeyLocator, pubKeys []*btcec.PublicKey,
+	tweaks *input.MuSig2Tweaks,
 	otherNonces [][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo,
 	error) {
 
@@ -690,6 +691,7 @@ func (r *RPCKeyRing) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 
 	// De-Serialize all the info back into our native struct.
 	info := &input.MuSig2SessionInfo{
+		Version:       bipVersion,
 		TaprootTweak:  tweaks.HasTaprootTweak(),
 		HaveAllNonces: resp.HaveAllNonces,
 	}

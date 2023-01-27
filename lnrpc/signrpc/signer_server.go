@@ -826,7 +826,9 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 
 	// Parse the public keys of all signing participants. This must also
 	// include our own, local key.
-	allSignerPubKeys, err := input.MuSig2ParsePubKeys(in.AllSignerPubkeys)
+	allSignerPubKeys, err := input.MuSig2ParsePubKeys(
+		input.MuSig2Version040, in.AllSignerPubkeys,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing all signer public "+
 			"keys: %w", err)
@@ -841,7 +843,7 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 
 	// Combine the keys now without creating a session in memory.
 	combinedKey, err := input.MuSig2CombineKeys(
-		allSignerPubKeys, true, tweaks,
+		input.MuSig2Version040, allSignerPubKeys, true, tweaks,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error combining keys: %v", err)
@@ -881,7 +883,9 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 
 	// Parse the public keys of all signing participants. This must also
 	// include our own, local key.
-	allSignerPubKeys, err := input.MuSig2ParsePubKeys(in.AllSignerPubkeys)
+	allSignerPubKeys, err := input.MuSig2ParsePubKeys(
+		input.MuSig2Version040, in.AllSignerPubkeys,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing all signer public "+
 			"keys: %w", err)
@@ -913,7 +917,8 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 
 	// Register the session with the internal wallet/signer now.
 	session, err := s.cfg.Signer.MuSig2CreateSession(
-		keyLoc, allSignerPubKeys, tweaks, otherSignerNonces,
+		input.MuSig2Version040, keyLoc, allSignerPubKeys, tweaks,
+		otherSignerNonces,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error registering session: %v", err)

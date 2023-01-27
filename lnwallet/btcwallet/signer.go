@@ -488,8 +488,9 @@ type muSig2State struct {
 // all signing parties must be provided, including the public key of the local
 // signing key. If nonces of other parties are already known, they can be
 // submitted as well to reduce the number of method calls necessary later on.
-func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
-	allSignerPubKeys []*btcec.PublicKey, tweaks *input.MuSig2Tweaks,
+func (b *BtcWallet) MuSig2CreateSession(bipVersion input.MuSig2Version,
+	keyLoc keychain.KeyLocator, allSignerPubKeys []*btcec.PublicKey,
+	tweaks *input.MuSig2Tweaks,
 	otherSignerNonces [][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo,
 	error) {
 
@@ -503,10 +504,10 @@ func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 		return nil, fmt.Errorf("error deriving private key: %v", err)
 	}
 
-	// Create a signing context with the given private key and list of all
-	// known signer public keys.
+	// Create a signing context and session with the given private key and
+	// list of all known signer public keys.
 	muSigContext, muSigSession, err := input.MuSig2CreateContext(
-		privKey, allSignerPubKeys, tweaks,
+		bipVersion, privKey, allSignerPubKeys, tweaks,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating signing context: %v",
@@ -535,6 +536,7 @@ func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 			SessionID: input.NewMuSig2SessionID(
 				combinedKey, muSigSession.PublicNonce(),
 			),
+			Version:       bipVersion,
 			PublicNonce:   muSigSession.PublicNonce(),
 			CombinedKey:   combinedKey,
 			TaprootTweak:  tweaks.HasTaprootTweak(),

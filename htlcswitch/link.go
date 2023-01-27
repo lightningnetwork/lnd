@@ -3160,10 +3160,11 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			onionReader := bytes.NewReader(pd.OnionBlob)
 
 			req := hop.DecodeHopIteratorRequest{
-				OnionReader:   onionReader,
-				RHash:         pd.RHash[:],
-				IncomingCltv:  pd.Timeout,
-				BlindingPoint: pd.BlindingPoint,
+				OnionReader:    onionReader,
+				RHash:          pd.RHash[:],
+				IncomingCltv:   pd.Timeout,
+				IncomingAmount: pd.Amount,
+				BlindingPoint:  pd.BlindingPoint,
 			}
 
 			decodeReqs = append(decodeReqs, req)

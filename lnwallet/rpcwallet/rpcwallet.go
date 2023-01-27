@@ -646,6 +646,11 @@ func (r *RPCKeyRing) MuSig2CreateSession(bipVersion input.MuSig2Version,
 	otherNonces [][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo,
 	error) {
 
+	apiVersion, err := signrpc.MarshalMuSig2Version(bipVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	// We need to serialize all data for the RPC call. We can do that by
 	// putting everything directly into the request struct.
 	req := &signrpc.MuSig2SessionRequest{
@@ -658,9 +663,18 @@ func (r *RPCKeyRing) MuSig2CreateSession(bipVersion input.MuSig2Version,
 			[]*signrpc.TweakDesc, len(tweaks.GenericTweaks),
 		),
 		OtherSignerPublicNonces: make([][]byte, len(otherNonces)),
+		Version:                 apiVersion,
 	}
 	for idx, pubKey := range pubKeys {
-		req.AllSignerPubkeys[idx] = schnorr.SerializePubKey(pubKey)
+		switch bipVersion {
+		case input.MuSig2Version040:
+			req.AllSignerPubkeys[idx] = schnorr.SerializePubKey(
+				pubKey,
+			)
+
+		case input.MuSig2Version100RC2:
+			req.AllSignerPubkeys[idx] = pubKey.SerializeCompressed()
+		}
 	}
 	for idx, genericTweak := range tweaks.GenericTweaks {
 		req.Tweaks[idx] = &signrpc.TweakDesc{

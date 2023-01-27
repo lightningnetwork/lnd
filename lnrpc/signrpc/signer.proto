@@ -444,12 +444,33 @@ message TaprootTweakDesc {
     bool key_spend_only = 2;
 }
 
+enum MuSig2Version {
+    /*
+    The default value on the RPC is zero for enums so we need to represent an
+    invalid/undefined version by default to make sure clients upgrade their
+    software to set the version explicitly.
+    */
+    MUSIG2_VERSION_UNDEFINED = 0;
+
+    /*
+    The version of MuSig2 that lnd 0.15.x shipped with, which corresponds to the
+    version v0.4.0 of the MuSig2 BIP draft.
+    */
+    MUSIG2_VERSION_V040 = 1;
+
+    /*
+    The current version of MuSig2 which corresponds to the version v1.0.0rc2 of
+    the MuSig2 BIP draft.
+    */
+    MUSIG2_VERSION_V100RC2 = 2;
+}
+
 message MuSig2CombineKeysRequest {
     /*
-    A list of all public keys (serialized in 32-byte x-only format!)
-    participating in the signing session. The list will always be sorted
-    lexicographically internally. This must include the local key which is
-    described by the above key_loc.
+    A list of all public keys (serialized in 32-byte x-only format for v0.4.0
+    and 33-byte compressed format for v1.0.0rc2!) participating in the signing
+    session. The list will always be sorted lexicographically internally. This
+    must include the local key which is described by the above key_loc.
     */
     repeated bytes all_signer_pubkeys = 1;
 
@@ -465,6 +486,14 @@ message MuSig2CombineKeysRequest {
     on-chain.
     */
     TaprootTweakDesc taproot_tweak = 3;
+
+    /*
+    The mandatory version of the MuSig2 BIP draft to use. This is necessary to
+    differentiate between the changes that were made to the BIP while this
+    experimental RPC was already released. Some of those changes affect how the
+    combined key and nonces are created.
+    */
+    MuSig2Version version = 4;
 }
 
 message MuSig2CombineKeysResponse {
@@ -482,6 +511,11 @@ message MuSig2CombineKeysResponse {
     is used.
     */
     bytes taproot_internal_key = 2;
+
+    /*
+    The version of the MuSig2 BIP that was used to combine the keys.
+    */
+    MuSig2Version version = 4;
 }
 
 message MuSig2SessionRequest {
@@ -491,10 +525,10 @@ message MuSig2SessionRequest {
     KeyLocator key_loc = 1;
 
     /*
-    A list of all public keys (serialized in 32-byte x-only format!)
-    participating in the signing session. The list will always be sorted
-    lexicographically internally. This must include the local key which is
-    described by the above key_loc.
+    A list of all public keys (serialized in 32-byte x-only format for v0.4.0
+    and 33-byte compressed format for v1.0.0rc2!) participating in the signing
+    session. The list will always be sorted lexicographically internally. This
+    must include the local key which is described by the above key_loc.
     */
     repeated bytes all_signer_pubkeys = 2;
 
@@ -516,6 +550,14 @@ message MuSig2SessionRequest {
     on-chain.
     */
     TaprootTweakDesc taproot_tweak = 5;
+
+    /*
+    The mandatory version of the MuSig2 BIP draft to use. This is necessary to
+    differentiate between the changes that were made to the BIP while this
+    experimental RPC was already released. Some of those changes affect how the
+    combined key and nonces are created.
+    */
+    MuSig2Version version = 6;
 }
 
 message MuSig2SessionResponse {
@@ -553,6 +595,11 @@ message MuSig2SessionResponse {
     now.
     */
     bool have_all_nonces = 5;
+
+    /*
+    The version of the MuSig2 BIP that was used to create the session.
+    */
+    MuSig2Version version = 6;
 }
 
 message MuSig2RegisterNoncesRequest {

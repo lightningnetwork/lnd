@@ -502,7 +502,7 @@
             "type": "string",
             "format": "byte"
           },
-          "description": "A list of all public keys (serialized in 32-byte x-only format!)\nparticipating in the signing session. The list will always be sorted\nlexicographically internally. This must include the local key which is\ndescribed by the above key_loc."
+          "description": "A list of all public keys (serialized in 32-byte x-only format for v0.4.0\nand 33-byte compressed format for v1.0.0rc2!) participating in the signing\nsession. The list will always be sorted lexicographically internally. This\nmust include the local key which is described by the above key_loc."
         },
         "tweaks": {
           "type": "array",
@@ -514,6 +514,10 @@
         "taproot_tweak": {
           "$ref": "#/definitions/signrpcTaprootTweakDesc",
           "description": "An optional taproot specific tweak that must be specified if the MuSig2\ncombined key will be used as the main taproot key of a taproot output\non-chain."
+        },
+        "version": {
+          "$ref": "#/definitions/signrpcMuSig2Version",
+          "description": "The mandatory version of the MuSig2 BIP draft to use. This is necessary to\ndifferentiate between the changes that were made to the BIP while this\nexperimental RPC was already released. Some of those changes affect how the\ncombined key and nonces are created."
         }
       }
     },
@@ -529,6 +533,10 @@
           "type": "string",
           "format": "byte",
           "description": "The raw combined public key (in the 32-byte x-only format) before any tweaks\nare applied to it. If a taproot tweak is specified, this corresponds to the\ninternal key that needs to be put into the witness if the script spend path\nis used."
+        },
+        "version": {
+          "$ref": "#/definitions/signrpcMuSig2Version",
+          "description": "The version of the MuSig2 BIP that was used to combine the keys."
         }
       }
     },
@@ -604,7 +612,7 @@
             "type": "string",
             "format": "byte"
           },
-          "description": "A list of all public keys (serialized in 32-byte x-only format!)\nparticipating in the signing session. The list will always be sorted\nlexicographically internally. This must include the local key which is\ndescribed by the above key_loc."
+          "description": "A list of all public keys (serialized in 32-byte x-only format for v0.4.0\nand 33-byte compressed format for v1.0.0rc2!) participating in the signing\nsession. The list will always be sorted lexicographically internally. This\nmust include the local key which is described by the above key_loc."
         },
         "other_signer_public_nonces": {
           "type": "array",
@@ -624,6 +632,10 @@
         "taproot_tweak": {
           "$ref": "#/definitions/signrpcTaprootTweakDesc",
           "description": "An optional taproot specific tweak that must be specified if the MuSig2\ncombined key will be used as the main taproot key of a taproot output\non-chain."
+        },
+        "version": {
+          "$ref": "#/definitions/signrpcMuSig2Version",
+          "description": "The mandatory version of the MuSig2 BIP draft to use. This is necessary to\ndifferentiate between the changes that were made to the BIP while this\nexperimental RPC was already released. Some of those changes affect how the\ncombined key and nonces are created."
         }
       }
     },
@@ -653,6 +665,10 @@
         "have_all_nonces": {
           "type": "boolean",
           "description": "Indicates whether all nonces required to start the signing process are known\nnow."
+        },
+        "version": {
+          "$ref": "#/definitions/signrpcMuSig2Version",
+          "description": "The version of the MuSig2 BIP that was used to create the session."
         }
       }
     },
@@ -684,6 +700,16 @@
           "description": "The partial signature created by the local signer."
         }
       }
+    },
+    "signrpcMuSig2Version": {
+      "type": "string",
+      "enum": [
+        "MUSIG2_VERSION_UNDEFINED",
+        "MUSIG2_VERSION_V040",
+        "MUSIG2_VERSION_V100RC2"
+      ],
+      "default": "MUSIG2_VERSION_UNDEFINED",
+      "description": " - MUSIG2_VERSION_UNDEFINED: The default value on the RPC is zero for enums so we need to represent an\ninvalid/undefined version by default to make sure clients upgrade their\nsoftware to set the version explicitly.\n - MUSIG2_VERSION_V040: The version of MuSig2 that lnd 0.15.x shipped with, which corresponds to the\nversion v0.4.0 of the MuSig2 BIP draft.\n - MUSIG2_VERSION_V100RC2: The current version of MuSig2 which corresponds to the version v1.0.0rc2 of\nthe MuSig2 BIP draft."
     },
     "signrpcSharedKeyRequest": {
       "type": "object",

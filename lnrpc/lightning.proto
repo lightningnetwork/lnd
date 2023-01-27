@@ -1542,6 +1542,9 @@ message Channel {
 
     // The configured alias name of our peer.
     string peer_alias = 34;
+
+    // This is the peer SCID alias.
+    uint64 peer_scid_alias = 35 [jstype = JS_STRING];
 }
 
 message ListChannelsRequest {

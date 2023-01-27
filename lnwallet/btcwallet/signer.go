@@ -510,14 +510,14 @@ func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 		},
 		tweaks.ToContextOptions()...,
 	)
-	musigContext, err := musig2.NewContext(privKey, true, allOpts...)
+	muSigContext, err := musig2.NewContext(privKey, true, allOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("error creating MuSig2 signing "+
 			"context: %v", err)
 	}
 
 	// The session keeps track of the own and other nonces.
-	musigSession, err := musigContext.NewSession()
+	muSigSession, err := muSigContext.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("error creating MuSig2 signing "+
 			"session: %v", err)
@@ -526,7 +526,7 @@ func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 	// Add all nonces we might've learned so far.
 	haveAllNonces := false
 	for _, otherSignerNonce := range otherSignerNonces {
-		haveAllNonces, err = musigSession.RegisterPubNonce(
+		haveAllNonces, err = muSigSession.RegisterPubNonce(
 			otherSignerNonce,
 		)
 		if err != nil {
@@ -536,28 +536,28 @@ func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 	}
 
 	// Register the new session.
-	combinedKey, err := musigContext.CombinedKey()
+	combinedKey, err := muSigContext.CombinedKey()
 	if err != nil {
 		return nil, fmt.Errorf("error getting combined key: %v", err)
 	}
 	session := &muSig2State{
 		MuSig2SessionInfo: input.MuSig2SessionInfo{
 			SessionID: input.NewMuSig2SessionID(
-				combinedKey, musigSession.PublicNonce(),
+				combinedKey, muSigSession.PublicNonce(),
 			),
-			PublicNonce:   musigSession.PublicNonce(),
+			PublicNonce:   muSigSession.PublicNonce(),
 			CombinedKey:   combinedKey,
 			TaprootTweak:  tweaks.HasTaprootTweak(),
 			HaveAllNonces: haveAllNonces,
 		},
-		context: musigContext,
-		session: musigSession,
+		context: muSigContext,
+		session: muSigSession,
 	}
 
 	// The internal key is only calculated if we are using a taproot tweak
 	// and need to know it for a potential script spend.
 	if tweaks.HasTaprootTweak() {
-		internalKey, err := musigContext.TaprootInternalKey()
+		internalKey, err := muSigContext.TaprootInternalKey()
 		if err != nil {
 			return nil, fmt.Errorf("error getting internal key: %v",
 				err)

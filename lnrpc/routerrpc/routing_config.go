@@ -48,7 +48,9 @@ type RoutingConfig struct {
 	// control state to the DB.
 	McFlushInterval time.Duration `long:"mcflushinterval" description:"the timer interval to use to flush mission control state to the DB"`
 
-	// LocalOpportunityCost defines whether to consider the local
-	// channel balance when evaluating routes.
+	// LocalOpportunityCost defines whether to consider the local fee rate 
+	// of the first hop channel when evaluating routes. While you do not
+	// pay this fee since it is your channel, you might want to consider
+	// it in order to preserve valuale liquidity.
 	LocalOpportunityCost bool `long:"localopportunitycost" description:"whether to consider the opportunity cost of using local channel liquidity when evaluating routes"`
 }

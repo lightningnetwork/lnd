@@ -24,6 +24,10 @@
   `exclude_exhausted_sessions` boolean flag to the relevant lncli wtclient
   commands.
 
+## Build
+* [ldflags were being incorrectly passed](
+https://github.com/lightningnetwork/lnd/pull/7359)
+
 ## Misc
 
 * [Return `FEE_INSUFFICIENT` before checking balance for incoming low-fee

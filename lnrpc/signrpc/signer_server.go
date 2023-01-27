@@ -840,7 +840,9 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 	}
 
 	// Combine the keys now without creating a session in memory.
-	combinedKey, err := input.MuSig2CombineKeys(allSignerPubKeys, tweaks)
+	combinedKey, err := input.MuSig2CombineKeys(
+		allSignerPubKeys, true, tweaks,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error combining keys: %v", err)
 	}

@@ -167,7 +167,7 @@ func MuSig2ParsePubKeys(rawPubKeys [][]byte) ([]*btcec.PublicKey, error) {
 
 // MuSig2CombineKeys combines the given set of public keys into a single
 // combined MuSig2 combined public key, applying the given tweaks.
-func MuSig2CombineKeys(allSignerPubKeys []*btcec.PublicKey,
+func MuSig2CombineKeys(allSignerPubKeys []*btcec.PublicKey, sortKeys bool,
 	tweaks *MuSig2Tweaks) (*musig2.AggregateKey, error) {
 
 	// Convert the tweak options into the appropriate MuSig2 API functional
@@ -188,7 +188,7 @@ func MuSig2CombineKeys(allSignerPubKeys []*btcec.PublicKey,
 
 	// Then we'll use this information to compute the aggregated public key.
 	combinedKey, _, _, err := musig2.AggregateKeys(
-		allSignerPubKeys, true, keyAggOpts...,
+		allSignerPubKeys, sortKeys, keyAggOpts...,
 	)
 	return combinedKey, err
 }

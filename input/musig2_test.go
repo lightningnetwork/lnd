@@ -49,14 +49,16 @@ func TestMuSig2CombineKeys(t *testing.T) {
 	testCases := []struct {
 		name                string
 		keys                []*btcec.PublicKey
+		sortKeys            bool
 		tweak               *MuSig2Tweaks
 		expectedErr         string
 		expectedFinalKey    string
 		expectedPreTweakKey string
 	}{{
-		name:  "v0.4.0 two dummy keys BIP86",
-		keys:  []*btcec.PublicKey{dummyPubKey1, dummyPubKey2},
-		tweak: bip86Tweak,
+		name:     "v0.4.0 two dummy keys BIP86",
+		keys:     []*btcec.PublicKey{dummyPubKey1, dummyPubKey2},
+		sortKeys: true,
+		tweak:    bip86Tweak,
 		expectedFinalKey: "03b54fb320a8fc3589e86a1559c6aaa774fbab4e4d" +
 			"9fbf31e2fd836b661ac6a132",
 		expectedPreTweakKey: "0279c76a15dcf6786058a571e4022b78633e1bf" +
@@ -66,7 +68,8 @@ func TestMuSig2CombineKeys(t *testing.T) {
 		keys: []*btcec.PublicKey{
 			dummyPubKey1, dummyPubKey2, dummyPubKey3,
 		},
-		tweak: bip86Tweak,
+		sortKeys: true,
+		tweak:    bip86Tweak,
 		expectedFinalKey: "03fa8195d584b195476f20e2fe978fd7312f4b08f2" +
 			"777f080bcdfc9350603cd6e7",
 		expectedPreTweakKey: "03e615b8aad4ed10544537bc48b1d6600e15773" +
@@ -76,7 +79,8 @@ func TestMuSig2CombineKeys(t *testing.T) {
 		keys: []*btcec.PublicKey{
 			testVector040Key1, testVector040Key2, testVector040Key3,
 		},
-		tweak: bip86Tweak,
+		sortKeys: true,
+		tweak:    bip86Tweak,
 		expectedFinalKey: "025b257b4e785d61157ef5303051f45184bd5cb47b" +
 			"c4b4069ed4dd4536459cb83b",
 		expectedPreTweakKey: "02d70cd69a2647f7390973df48cbfa2ccc407b8" +
@@ -86,11 +90,23 @@ func TestMuSig2CombineKeys(t *testing.T) {
 		keys: []*btcec.PublicKey{
 			testVector040Key3, testVector040Key2, testVector040Key1,
 		},
-		tweak: bip86Tweak,
+		sortKeys: true,
+		tweak:    bip86Tweak,
 		expectedFinalKey: "025b257b4e785d61157ef5303051f45184bd5cb47b" +
 			"c4b4069ed4dd4536459cb83b",
 		expectedPreTweakKey: "02d70cd69a2647f7390973df48cbfa2ccc407b8" +
 			"b2d60b08c5f1641185c7998a290",
+	}, {
+		name: "v0.4.0 three test vector keys BIP86 no sort",
+		keys: []*btcec.PublicKey{
+			testVector040Key1, testVector040Key2, testVector040Key3,
+		},
+		sortKeys: false,
+		tweak:    bip86Tweak,
+		expectedFinalKey: "0223e0c640e96000e8e92699ec3802e5c39edf47db" +
+			"dfdb788b3735b76a55538179",
+		expectedPreTweakKey: "03e5830140512195d74c8307e39637cbe5fb730" +
+			"ebeab80ec514cf88a877ceeee0b",
 	}}
 
 	for _, tc := range testCases {
@@ -98,7 +114,9 @@ func TestMuSig2CombineKeys(t *testing.T) {
 		t.Run(tc.name, func(tt *testing.T) {
 			tt.Parallel()
 
-			res, err := MuSig2CombineKeys(tc.keys, tc.tweak)
+			res, err := MuSig2CombineKeys(
+				tc.keys, tc.sortKeys, tc.tweak,
+			)
 
 			if tc.expectedErr != "" {
 				require.ErrorContains(tt, err, tc.expectedErr)

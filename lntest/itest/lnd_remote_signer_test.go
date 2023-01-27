@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntemp"
 	"github.com/lightningnetwork/lnd/lntemp/node"
@@ -132,10 +133,21 @@ func testRemoteSigner(ht *lntemp.HarnessTest) {
 			testTaprootSignOutputRawScriptSpend(tt, wo)
 			testTaprootSignOutputRawKeySpendBip86(tt, wo)
 			testTaprootSignOutputRawKeySpendRootHash(tt, wo)
-			testTaprootMuSig2KeySpendRootHash(tt, wo)
-			testTaprootMuSig2ScriptSpend(tt, wo)
-			testTaprootMuSig2KeySpendBip86(tt, wo)
-			testTaprootMuSig2CombinedLeafKeySpend(tt, wo)
+
+			muSig2Versions := []signrpc.MuSig2Version{
+				signrpc.MuSig2Version_MUSIG2_VERSION_V040,
+				signrpc.MuSig2Version_MUSIG2_VERSION_V100RC2,
+			}
+			for _, version := range muSig2Versions {
+				testTaprootMuSig2KeySpendRootHash(
+					tt, wo, version,
+				)
+				testTaprootMuSig2ScriptSpend(tt, wo, version)
+				testTaprootMuSig2KeySpendBip86(tt, wo, version)
+				testTaprootMuSig2CombinedLeafKeySpend(
+					tt, wo, version,
+				)
+			}
 		},
 	}}
 

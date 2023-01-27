@@ -466,9 +466,9 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		// If the user requested a stateless initialization, no macaroon
 		// files should be created.
 		if !walletInitParams.StatelessInit &&
-			!fileExists(d.cfg.AdminMacPath) &&
-			!fileExists(d.cfg.ReadMacPath) &&
-			!fileExists(d.cfg.InvoiceMacPath) {
+			!lnrpc.FileExists(d.cfg.AdminMacPath) &&
+			!lnrpc.FileExists(d.cfg.ReadMacPath) &&
+			!lnrpc.FileExists(d.cfg.InvoiceMacPath) {
 
 			// Create macaroon files for lncli to use if they don't
 			// exist.
@@ -495,13 +495,13 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 				"--new_mac_root_key with --stateless_init to " +
 				"clean up and invalidate old macaroons."
 
-			if fileExists(d.cfg.AdminMacPath) {
+			if lnrpc.FileExists(d.cfg.AdminMacPath) {
 				d.logger.Warnf(msg, "admin", d.cfg.AdminMacPath)
 			}
-			if fileExists(d.cfg.ReadMacPath) {
+			if lnrpc.FileExists(d.cfg.ReadMacPath) {
 				d.logger.Warnf(msg, "readonly", d.cfg.ReadMacPath)
 			}
-			if fileExists(d.cfg.InvoiceMacPath) {
+			if lnrpc.FileExists(d.cfg.InvoiceMacPath) {
 				d.logger.Warnf(msg, "invoice", d.cfg.InvoiceMacPath)
 			}
 		}

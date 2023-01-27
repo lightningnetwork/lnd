@@ -242,6 +242,9 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 * [A bug has been fixed where a reorg would cause zero-conf channels to be deleted
   from the graph.](https://github.com/lightningnetwork/lnd/pull/7292)
 
+* [Add a flag](https://github.com/lightningnetwork/lnd/pull/6527) to allow for
+  the option to encrypt the tls key.
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
@@ -415,6 +418,7 @@ refactor the itest for code health and maintenance.
 # Contributors (Alphabetical Order)
 
 * Alejandro Pedraza
+* Alyssa Hertig
 * andreihod
 * Antoni Spaanderman
 * Carla Kirk-Cohen

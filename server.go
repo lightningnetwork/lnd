@@ -27,7 +27,6 @@ import (
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/brontide"
-	"github.com/lightningnetwork/lnd/cert"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/chanbackup"
@@ -294,6 +293,8 @@ type server struct {
 
 	readPool *pool.Read
 
+	tlsManager *TLSManager
+
 	// featureMgr dispatches feature vectors for various contexts within the
 	// daemon.
 	featureMgr *feature.Manager
@@ -473,7 +474,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	nodeKeyDesc *keychain.KeyDescriptor,
 	chansToRestore walletunlocker.ChannelsToRecover,
 	chanPredicate chanacceptor.ChannelAcceptor,
-	torController *tor.Controller) (*server, error) {
+	torController *tor.Controller, tlsManager *TLSManager) (*server,
+	error) {
 
 	var (
 		err         error
@@ -599,6 +601,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		peerDisconnectedListeners: make(map[string][]chan<- struct{}),
 
 		customMessageServer: subscribe.NewServer(),
+
+		tlsManager: tlsManager,
 
 		featureMgr: featureMgr,
 		quit:       make(chan struct{}),
@@ -1640,18 +1644,15 @@ func (s *server) createLivenessMonitor(cfg *Config, cc *chainreg.ChainControl) {
 	tlsHealthCheck := healthcheck.NewObservation(
 		"tls",
 		func() error {
-			_, parsedCert, err := cert.LoadCert(
-				cfg.TLSCertPath, cfg.TLSKeyPath,
+			expired, expTime, err := s.tlsManager.IsCertExpired(
+				s.cc.KeyRing,
 			)
 			if err != nil {
 				return err
 			}
-
-			// If the current time is passed the certificate's
-			// expiry time, then it is considered expired
-			if time.Now().After(parsedCert.NotAfter) {
+			if expired {
 				return fmt.Errorf("TLS certificate is "+
-					"expired as of %v", parsedCert.NotAfter)
+					"expired as of %v", expTime)
 			}
 
 			// If the certificate is not outdated, no error needs

@@ -826,18 +826,10 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 
 	// Parse the public keys of all signing participants. This must also
 	// include our own, local key.
-	allSignerPubKeys := make([]*btcec.PublicKey, len(in.AllSignerPubkeys))
-	if len(in.AllSignerPubkeys) < 2 {
-		return nil, fmt.Errorf("need at least two signing public keys")
-	}
-
-	for idx, pubKeyBytes := range in.AllSignerPubkeys {
-		pubKey, err := schnorr.ParsePubKey(pubKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing signer public "+
-				"key %d: %v", idx, err)
-		}
-		allSignerPubKeys[idx] = pubKey
+	allSignerPubKeys, err := input.MuSig2ParsePubKeys(in.AllSignerPubkeys)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing all signer public "+
+			"keys: %w", err)
 	}
 
 	// Are there any tweaks to apply to the combined public key?
@@ -887,18 +879,10 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 
 	// Parse the public keys of all signing participants. This must also
 	// include our own, local key.
-	allSignerPubKeys := make([]*btcec.PublicKey, len(in.AllSignerPubkeys))
-	if len(in.AllSignerPubkeys) < 2 {
-		return nil, fmt.Errorf("need at least two signing public keys")
-	}
-
-	for idx, pubKeyBytes := range in.AllSignerPubkeys {
-		pubKey, err := schnorr.ParsePubKey(pubKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing signer public "+
-				"key %d: %v", idx, err)
-		}
-		allSignerPubKeys[idx] = pubKey
+	allSignerPubKeys, err := input.MuSig2ParsePubKeys(in.AllSignerPubkeys)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing all signer public "+
+			"keys: %w", err)
 	}
 
 	// We participate a nonce ourselves, so we can't have more nonces than

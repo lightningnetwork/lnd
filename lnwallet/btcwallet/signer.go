@@ -503,24 +503,14 @@ func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 		return nil, fmt.Errorf("error deriving private key: %v", err)
 	}
 
-	// The context keeps track of all signing keys and our local key.
-	allOpts := append(
-		[]musig2.ContextOption{
-			musig2.WithKnownSigners(allSignerPubKeys),
-		},
-		tweaks.ToContextOptions()...,
+	// Create a signing context with the given private key and list of all
+	// known signer public keys.
+	muSigContext, muSigSession, err := input.MuSig2CreateContext(
+		privKey, allSignerPubKeys, tweaks,
 	)
-	muSigContext, err := musig2.NewContext(privKey, true, allOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("error creating MuSig2 signing "+
-			"context: %v", err)
-	}
-
-	// The session keeps track of the own and other nonces.
-	muSigSession, err := muSigContext.NewSession()
-	if err != nil {
-		return nil, fmt.Errorf("error creating MuSig2 signing "+
-			"session: %v", err)
+		return nil, fmt.Errorf("error creating signing context: %v",
+			err)
 	}
 
 	// Add all nonces we might've learned so far.
@@ -652,7 +642,7 @@ func (b *BtcWallet) MuSig2Sign(sessionID input.MuSig2SessionID,
 	}
 
 	// Create our own partial signature with the local signing key.
-	partialSig, err := session.session.Sign(msg, musig2.WithSortedKeys())
+	partialSig, err := input.MuSig2Sign(session.session, msg, true)
 	if err != nil {
 		return nil, fmt.Errorf("error signing with local key: %v", err)
 	}
@@ -698,8 +688,8 @@ func (b *BtcWallet) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 		err      error
 	)
 	for _, otherPartialSig := range partialSigs {
-		session.HaveAllSigs, err = session.session.CombineSig(
-			otherPartialSig,
+		session.HaveAllSigs, err = input.MuSig2CombineSig(
+			session.session, otherPartialSig,
 		)
 		if err != nil {
 			return nil, false, fmt.Errorf("error combining "+

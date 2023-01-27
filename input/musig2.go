@@ -145,6 +145,26 @@ func (t *MuSig2Tweaks) ToContextOptions() []musig2.ContextOption {
 	return tweakOpts
 }
 
+// MuSig2ParsePubKeys parses a list of raw public keys as the signing keys of a
+// MuSig2 signing session.
+func MuSig2ParsePubKeys(rawPubKeys [][]byte) ([]*btcec.PublicKey, error) {
+	allSignerPubKeys := make([]*btcec.PublicKey, len(rawPubKeys))
+	if len(rawPubKeys) < 2 {
+		return nil, fmt.Errorf("need at least two signing public keys")
+	}
+
+	for idx, pubKeyBytes := range rawPubKeys {
+		pubKey, err := schnorr.ParsePubKey(pubKeyBytes)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing signer public "+
+				"key %d: %v", idx, err)
+		}
+		allSignerPubKeys[idx] = pubKey
+	}
+
+	return allSignerPubKeys, nil
+}
+
 // MuSig2CombineKeys combines the given set of public keys into a single
 // combined MuSig2 combined public key, applying the given tweaks.
 func MuSig2CombineKeys(allSignerPubKeys []*btcec.PublicKey,
@@ -171,6 +191,64 @@ func MuSig2CombineKeys(allSignerPubKeys []*btcec.PublicKey,
 		allSignerPubKeys, true, keyAggOpts...,
 	)
 	return combinedKey, err
+}
+
+// MuSig2CreateContext creates a new MuSig2 signing context.
+func MuSig2CreateContext(privKey *btcec.PrivateKey,
+	allSignerPubKeys []*btcec.PublicKey,
+	tweaks *MuSig2Tweaks) (*musig2.Context, *musig2.Session, error) {
+
+	// The context keeps track of all signing keys and our local key.
+	allOpts := append(
+		[]musig2.ContextOption{
+			musig2.WithKnownSigners(allSignerPubKeys),
+		},
+		tweaks.ToContextOptions()...,
+	)
+	muSigContext, err := musig2.NewContext(privKey, true, allOpts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating MuSig2 signing "+
+			"context: %v", err)
+	}
+
+	muSigSession, err := muSigContext.NewSession()
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating MuSig2 signing "+
+			"session: %v", err)
+	}
+
+	return muSigContext, muSigSession, nil
+}
+
+// MuSig2Sign calls the Sign() method on the given versioned signing session and
+// returns the result in the most recent version of the MuSig2 API.
+func MuSig2Sign(session *musig2.Session, msg [32]byte,
+	withSortedKeys bool) (*musig2.PartialSignature, error) {
+
+	var opts []musig2.SignOption
+	if withSortedKeys {
+		opts = append(opts, musig2.WithSortedKeys())
+	}
+	partialSig, err := session.Sign(msg, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("error signing with local key: %v", err)
+	}
+
+	return partialSig, nil
+}
+
+// MuSig2CombineSig calls the CombineSig() method on the given versioned signing
+// session and returns the result in the most recent version of the MuSig2 API.
+func MuSig2CombineSig(session *musig2.Session,
+	otherPartialSig *musig2.PartialSignature) (bool, error) {
+
+	haveAllSigs, err := session.CombineSig(otherPartialSig)
+	if err != nil {
+		return false, fmt.Errorf("error combining partial signature: "+
+			"%v", err)
+	}
+
+	return haveAllSigs, nil
 }
 
 // NewMuSig2SessionID returns the unique ID of a MuSig2 session by using the

@@ -1,6 +1,6 @@
 // Copyright (c) 2013-2022 The btcsuite developers
 
-package musig2
+package musig2v040
 
 import (
 	"fmt"

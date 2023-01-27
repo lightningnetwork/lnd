@@ -2,7 +2,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package musig2
+package musig2v040
 
 import (
 	"encoding/hex"

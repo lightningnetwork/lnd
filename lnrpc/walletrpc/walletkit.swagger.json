@@ -597,6 +597,14 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "start_height",
+            "description": "The start height to use when fetching sweeps. If not specified (0), the\nresult will start from the earliest sweep. If set to -1 the result will\nonly include unconfirmed sweeps (at the time of the call).",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
           }
         ],
         "tags": [

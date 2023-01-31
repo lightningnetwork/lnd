@@ -412,6 +412,14 @@ var listSweepsCommand = cli.Command{
 			Name:  "verbose",
 			Usage: "lookup full transaction",
 		},
+		cli.IntFlag{
+			Name: "startheight",
+			Usage: "The start height to use when fetching " +
+				"sweeps. If not specified (0), the result " +
+				"will start from the earliest sweep. If set " +
+				"to -1 the result will only include " +
+				"unconfirmed sweeps (at the time of the call).",
+		},
 	},
 	Description: `
 	Get a list of the hex-encoded transaction ids of every sweep that our
@@ -431,7 +439,8 @@ func listSweeps(ctx *cli.Context) error {
 
 	resp, err := client.ListSweeps(
 		ctxc, &walletrpc.ListSweepsRequest{
-			Verbose: ctx.IsSet("verbose"),
+			Verbose:     ctx.IsSet("verbose"),
+			StartHeight: int32(ctx.Int("startheight")),
 		},
 	)
 	if err != nil {

@@ -80,7 +80,7 @@ type HarnessNode struct {
 	// runCtx is a context with cancel method. It's used to signal when the
 	// node needs to quit, and used as the parent context when spawning
 	// children contexts for RPC requests.
-	runCtx context.Context
+	runCtx context.Context //nolint:containedctx
 	cancel context.CancelFunc
 
 	// filename is the log file's name.
@@ -118,7 +118,7 @@ func NewHarnessNode(t *testing.T, cfg *BaseNodeConfig) (*HarnessNode, error) {
 	var dbName string
 	if cfg.DBBackend == BackendPostgres {
 		var err error
-		dbName, err = createTempPgDb()
+		dbName, err = createTempPgDB()
 		if err != nil {
 			return nil, err
 		}
@@ -126,7 +126,7 @@ func NewHarnessNode(t *testing.T, cfg *BaseNodeConfig) (*HarnessNode, error) {
 	}
 
 	cfg.OriginalExtraArgs = cfg.ExtraArgs
-	cfg.postgresDbName = dbName
+	cfg.postgresDBName = dbName
 
 	return &HarnessNode{
 		T:   t,
@@ -614,8 +614,8 @@ func (hn *HarnessNode) attachPubKey() error {
 
 // cleanup cleans up all the temporary files created by the node's process.
 func (hn *HarnessNode) cleanup() error {
-	if hn.Cfg.backupDbDir != "" {
-		err := os.RemoveAll(hn.Cfg.backupDbDir)
+	if hn.Cfg.backupDBDir != "" {
+		err := os.RemoveAll(hn.Cfg.backupDBDir)
 		if err != nil {
 			return fmt.Errorf("unable to remove backup dir: %v",
 				err)
@@ -791,16 +791,16 @@ func (hn *HarnessNode) printErrf(format string, a ...interface{}) {
 
 // BackupDB creates a backup of the current database.
 func (hn *HarnessNode) BackupDB() error {
-	if hn.Cfg.backupDbDir != "" {
+	if hn.Cfg.backupDBDir != "" {
 		return fmt.Errorf("backup already created")
 	}
 
-	if hn.Cfg.postgresDbName != "" {
+	if hn.Cfg.postgresDBName != "" {
 		// Backup database.
-		backupDBName := hn.Cfg.postgresDbName + "_backup"
+		backupDBName := hn.Cfg.postgresDBName + "_backup"
 		err := executePgQuery(
 			"CREATE DATABASE " + backupDBName + " WITH TEMPLATE " +
-				hn.Cfg.postgresDbName,
+				hn.Cfg.postgresDBName,
 		)
 		if err != nil {
 			return err
@@ -818,7 +818,7 @@ func (hn *HarnessNode) BackupDB() error {
 				err)
 		}
 
-		hn.Cfg.backupDbDir = tempDir
+		hn.Cfg.backupDBDir = tempDir
 	}
 
 	return nil
@@ -826,39 +826,39 @@ func (hn *HarnessNode) BackupDB() error {
 
 // RestoreDB restores a database backup.
 func (hn *HarnessNode) RestoreDB() error {
-	if hn.Cfg.postgresDbName != "" {
+	if hn.Cfg.postgresDBName != "" {
 		// Restore database.
-		backupDBName := hn.Cfg.postgresDbName + "_backup"
+		backupDBName := hn.Cfg.postgresDBName + "_backup"
 		err := executePgQuery(
-			"DROP DATABASE " + hn.Cfg.postgresDbName,
+			"DROP DATABASE " + hn.Cfg.postgresDBName,
 		)
 		if err != nil {
 			return err
 		}
 		err = executePgQuery(
 			"ALTER DATABASE " + backupDBName + " RENAME TO " +
-				hn.Cfg.postgresDbName,
+				hn.Cfg.postgresDBName,
 		)
 		if err != nil {
 			return err
 		}
 	} else {
 		// Restore files.
-		if hn.Cfg.backupDbDir == "" {
+		if hn.Cfg.backupDBDir == "" {
 			return fmt.Errorf("no database backup created")
 		}
 
-		err := copyAll(hn.Cfg.DBDir(), hn.Cfg.backupDbDir)
+		err := copyAll(hn.Cfg.DBDir(), hn.Cfg.backupDBDir)
 		if err != nil {
 			return fmt.Errorf("unable to copy database files: %w",
 				err)
 		}
 
-		if err := os.RemoveAll(hn.Cfg.backupDbDir); err != nil {
+		if err := os.RemoveAll(hn.Cfg.backupDBDir); err != nil {
 			return fmt.Errorf("unable to remove backup dir: %w",
 				err)
 		}
-		hn.Cfg.backupDbDir = ""
+		hn.Cfg.backupDBDir = ""
 	}
 
 	return nil
@@ -868,8 +868,8 @@ func postgresDatabaseDsn(dbName string) string {
 	return fmt.Sprintf(postgresDsn, dbName)
 }
 
-// createTempPgDb creates a temp postgres database.
-func createTempPgDb() (string, error) {
+// createTempPgDB creates a temp postgres database.
+func createTempPgDB() (string, error) {
 	// Create random database name.
 	randBytes := make([]byte, 8)
 	_, err := rand.Read(randBytes)

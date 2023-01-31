@@ -27,7 +27,7 @@ func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
 	require.NoError(t, os.MkdirAll(logDir, 0700), "create log dir failed")
 
 	// Parse database backend
-	dbBackend := prepareDbBackend(t, dbBackendName)
+	dbBackend := prepareDBBackend(t, dbBackendName)
 
 	// Create a new HarnessTest.
 	ht := NewHarnessTest(t, binaryPath, feeService, dbBackend)
@@ -94,8 +94,8 @@ func prepareChainBackend(t *testing.T,
 	}
 }
 
-// prepareDbBackend parses a DatabaseBackend based on the name given.
-func prepareDbBackend(t *testing.T,
+// prepareDBBackend parses a DatabaseBackend based on the name given.
+func prepareDBBackend(t *testing.T,
 	dbBackendName string) node.DatabaseBackend {
 
 	var dbBackend node.DatabaseBackend

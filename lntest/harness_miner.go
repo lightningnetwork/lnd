@@ -42,7 +42,8 @@ type HarnessMiner struct {
 
 	// runCtx is a context with cancel method. It's used to signal when the
 	// node needs to quit, and used as the parent context when spawning
-	runCtx context.Context
+	// children contexts for RPC requests.
+	runCtx context.Context //nolint:containedctx
 	cancel context.CancelFunc
 
 	// logPath is the directory path of the miner's logs.

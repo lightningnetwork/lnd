@@ -49,7 +49,7 @@ type HarnessRPC struct {
 	// runCtx is a context with cancel method. It's used to signal when the
 	// node needs to quit, and used as the parent context when spawning
 	// children contexts for RPC requests.
-	runCtx context.Context
+	runCtx context.Context //nolint:containedctx
 	cancel context.CancelFunc
 }
 

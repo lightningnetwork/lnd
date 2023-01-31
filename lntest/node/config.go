@@ -126,12 +126,12 @@ type BaseNodeConfig struct {
 	// compiled with all required itest flags.
 	LndBinary string
 
-	// backupDbDir is the path where a database backup is stored, if any.
-	backupDbDir string
+	// backupDBDir is the path where a database backup is stored, if any.
+	backupDBDir string
 
-	// postgresDbName is the name of the postgres database where lnd data
+	// postgresDBName is the name of the postgres database where lnd data
 	// is stored in.
-	postgresDbName string
+	postgresDBName string
 }
 
 func (cfg BaseNodeConfig) P2PAddr() string {

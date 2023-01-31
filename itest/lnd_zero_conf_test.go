@@ -1,7 +1,6 @@
 package itest
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -897,10 +896,7 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 		ht.Skipf("skipping zero-conf reorg test for neutrino backend")
 	}
 
-	var (
-		ctxb = context.Background()
-		temp = "temp"
-	)
+	var temp = "temp"
 
 	// Since zero-conf is opt in, the harness nodes provided won't be able
 	// to open zero-conf channels. In that case, we just spin up new nodes.
@@ -949,10 +945,9 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 	// We will now attempt to query for the alias SCID in Carol's graph.
 	// We will query for the starting alias, which is exported by the
 	// aliasmgr package.
-	_, err := carol.RPC.LN.GetChanInfo(ctxb, &lnrpc.ChanInfoRequest{
+	carol.RPC.GetChanInfo(&lnrpc.ChanInfoRequest{
 		ChanId: aliasmgr.StartingAlias.ToUint64(),
 	})
-	require.NoError(ht.T, err)
 
 	// Now we will trigger a reorg and we'll assert that the edge still
 	// exists in the graph.
@@ -971,7 +966,7 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 
 	// We start by connecting the new miner to our original miner, such
 	// that it will sync to our original chain.
-	err = ht.Miner.Client.Node(
+	err := ht.Miner.Client.Node(
 		btcjson.NConnect, tempMiner.P2PAddress(), &temp,
 	)
 	require.NoError(ht.T, err, "unable to connect node")
@@ -991,18 +986,16 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 	require.NoError(ht.T, err, "unable to remove node")
 
 	// We now cause a fork, by letting our original miner mine 1 block and
-	// our new miner will mine 2.
-	ht.MineBlocks(1)
-	_, err = tempMiner.Client.Generate(2)
-	require.NoError(ht.T, err, "unable to generate blocks")
+	// our new miner will mine 2. We also expect the funding transition to
+	// be mined.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+	tempMiner.MineEmptyBlocks(2)
 
 	// Ensure the temp miner is one block ahead.
 	assertMinerBlockHeightDelta(ht, ht.Miner, tempMiner, 1)
 
 	// Wait for Carol to sync to the original miner's chain.
-	_, minerHeight, err := ht.Miner.Client.GetBestBlock()
-	require.NoError(ht.T, err, "unable to get current blockheight")
-
+	_, minerHeight := ht.Miner.GetBestBlock()
 	ht.WaitForNodeBlockHeight(carol, minerHeight)
 
 	// Now we'll disconnect Carol's chain backend from the original miner
@@ -1033,23 +1026,19 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 
 	ht.ConnectMiner()
 
-	// This should have caused a reorg and Alice should sync to the new
+	// This should have caused a reorg and Carol should sync to the new
 	// chain.
-	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-	require.NoError(ht.T, err, "unable to get current blockheight")
-
+	_, tempMinerHeight := tempMiner.GetBestBlock()
 	ht.WaitForNodeBlockHeight(carol, tempMinerHeight)
 
-	err = wait.Predicate(func() bool {
-		_, err = carol.RPC.LN.GetChanInfo(
-			ht.Context(), &lnrpc.ChanInfoRequest{
-				ChanId: aliasmgr.StartingAlias.ToUint64(),
-			})
+	// Make sure all active nodes are synced.
+	ht.AssertActiveNodesSynced()
 
-		return err == nil
-	}, defaultTimeout)
-	require.NoError(ht.T, err, "carol doesn't have zero-conf edge")
+	// Carol should have the channel once synced.
+	carol.RPC.GetChanInfo(&lnrpc.ChanInfoRequest{
+		ChanId: aliasmgr.StartingAlias.ToUint64(),
+	})
 
 	// Mine the zero-conf funding transaction so the test doesn't fail.
-	ht.MineBlocks(1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 }

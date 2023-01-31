@@ -682,3 +682,17 @@ func (h *HarnessRPC) SendCustomMessage(
 
 	return resp
 }
+
+// GetChanInfo makes a RPC call to the node's GetChanInfo and returns the
+// response.
+func (h *HarnessRPC) GetChanInfo(
+	req *lnrpc.ChanInfoRequest) *lnrpc.ChannelEdge {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.GetChanInfo(ctxt, req)
+	h.NoError(err, "GetChanInfo")
+
+	return resp
+}

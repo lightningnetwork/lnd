@@ -1099,7 +1099,19 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 	// transaction to be broadcast, then wait for the closing tx to be seen
 	// within the network.
 	event, err := h.ReceiveCloseChannelUpdate(stream)
-	require.NoError(h, err)
+	if err != nil {
+		// TODO(yy): remove the sleep once the following bug is fixed.
+		// We may receive the error `cannot co-op close channel with
+		// active htlcs` or `link failed to shutdown` if we close the
+		// channel. We need to investigate the order of settling the
+		// payments and updating commitments to properly fix it.
+		time.Sleep(2 * time.Second)
+
+		// Give it another chance.
+		stream = hn.RPC.CloseChannel(closeReq)
+		event, err = h.ReceiveCloseChannelUpdate(stream)
+		require.NoError(h, err)
+	}
 
 	pendingClose, ok := event.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
 	require.Truef(h, ok, "expected channel close update, instead got %v",

@@ -1041,11 +1041,10 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 	ht.WaitForNodeBlockHeight(carol, tempMinerHeight)
 
 	err = wait.Predicate(func() bool {
-		ctxt, _ := context.WithTimeout(ctxb, defaultTimeout)
-
-		_, err = carol.RPC.LN.GetChanInfo(ctxt, &lnrpc.ChanInfoRequest{
-			ChanId: aliasmgr.StartingAlias.ToUint64(),
-		})
+		_, err = carol.RPC.LN.GetChanInfo(
+			ht.Context(), &lnrpc.ChanInfoRequest{
+				ChanId: aliasmgr.StartingAlias.ToUint64(),
+			})
 
 		return err == nil
 	}, defaultTimeout)

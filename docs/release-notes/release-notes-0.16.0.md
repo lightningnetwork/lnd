@@ -396,7 +396,9 @@ Keysend](https://github.com/lightningnetwork/lnd/pull/7334).
   builds](https://github.com/lightningnetwork/lnd/pull/7295).
 
 * Fixed docker image version used in
-  [`tools`](https://github.com/lightningnetwork/lnd/pull/7254).
+  [`tools`](https://github.com/lightningnetwork/lnd/pull/7254) and golangci
+  issue where [it cannot fetch
+  commits](https://github.com/lightningnetwork/lnd/pull/7374).
 
 ### Integration test
 

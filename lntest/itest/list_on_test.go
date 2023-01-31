@@ -509,4 +509,8 @@ var allTestCasesTemp = []*lntemp.TestCase{
 		Name:     "zero conf reorg edge existence",
 		TestFunc: testZeroConfReorg,
 	},
+	{
+		Name:     "gossip isolated graphs",
+		TestFunc: testGossipIsolatedGraphs,
+	},
 }

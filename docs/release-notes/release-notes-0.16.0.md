@@ -7,6 +7,9 @@ locally to all connected
 peers](https://github.com/lightningnetwork/lnd/pull/7239), regardless of their
 current gossip sync query status.
 
+It will also [attempt historical sync with all active
+nodes](https://github.com/lightningnetwork/lnd/pull/7373) to fetch the complete
+graph.
 
 ## BOLT Specs
 

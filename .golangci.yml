@@ -97,6 +97,7 @@ linters-settings:
     ignored-functions:
       - 'math.*'
       - 'strconv.ParseInt'
+      - 'errors.Wrap'
 
 
 linters:
@@ -238,14 +239,9 @@ issues:
       linters:
         - forbidigo
 
-    # Fix false positives because of build flags in itest directory.
-    - path: lntest/itest/.*
+    - path: itest/.*
       linters:
-        - unused
-        - unparam
-        - govet
-        # itest case can be very long so we disable long function check.
-        - funlen
+        - paralleltest
 
     - path: lnmock/*
       linters:

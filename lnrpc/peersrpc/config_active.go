@@ -26,4 +26,8 @@ type Config struct {
 	// UpdateNodeAnnouncement updates our node announcement applying the
 	// given NodeAnnModifiers and broadcasts the new version to the network.
 	UpdateNodeAnnouncement func(...netann.NodeAnnModifier) error
+
+	// ConfigFeatures holds a set of features that are set in lnd's top
+	// level config.
+	ConfigFeatures []lnwire.FeatureBit
 }

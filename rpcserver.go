@@ -787,7 +787,9 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		s.sweeper, tower, s.towerClient, s.anchorTowerClient,
 		r.cfg.net.ResolveTCPAddr, genInvoiceFeatures,
 		genAmpInvoiceFeatures, getNodeAnnouncement,
-		s.updateAndBrodcastSelfNode, parseAddr, rpcsLog,
+		s.updateAndBrodcastSelfNode,
+		s.cfg.ProtocolOptions.ExperimentalProtocol.CustomAnnFeatures(),
+		parseAddr, rpcsLog,
 		s.aliasMgr.GetPeerAlias,
 	)
 	if err != nil {

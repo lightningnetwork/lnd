@@ -120,6 +120,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	genAmpInvoiceFeatures func() *lnwire.FeatureVector,
 	getNodeAnnouncement func() (lnwire.NodeAnnouncement, error),
 	updateNodeAnnouncement func(modifiers ...netann.NodeAnnModifier) error,
+	configFeatures []lnwire.FeatureBit,
 	parseAddr func(addr string) (net.Addr, error),
 	rpcLogger btclog.Logger,
 	getAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)) error {
@@ -331,6 +332,10 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 
 			subCfgValue.FieldByName("UpdateNodeAnnouncement").Set(
 				reflect.ValueOf(updateNodeAnnouncement),
+			)
+
+			subCfgValue.FieldByName("ConfigFeatures").Set(
+				reflect.ValueOf(configFeatures),
 			)
 
 		default:

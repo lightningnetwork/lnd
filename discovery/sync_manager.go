@@ -262,14 +262,13 @@ func (m *SyncManager) syncerHandler() {
 			// attemptHistoricalSync determines whether we should
 			// attempt an initial historical sync when a new peer
 			// connects.
-			attemptHistoricalSync := false
+			attemptHistoricalSync := true
 
 			m.syncersMu.Lock()
 			switch {
 			// For pinned syncers, we will immediately transition
 			// the peer into an active (pinned) sync state.
 			case isPinnedSyncer:
-				attemptHistoricalSync = true
 				s.setSyncType(PinnedSync)
 				s.setSyncState(syncerIdle)
 				m.pinnedActiveSyncers[s.cfg.peerPub] = s
@@ -302,6 +301,12 @@ func (m *SyncManager) syncerHandler() {
 			// The initial historical sync has completed, so we can
 			// immediately start the GossipSyncer as active.
 			default:
+				// Skip historical sync if we already have
+				// finished historical sync for at least one
+				// peer. This means we'd only attempt multiple
+				// historical sync if none of the ongoing sync
+				// is finished.
+				// attemptHistoricalSync = false
 				s.setSyncType(ActiveSync)
 				m.activeSyncers[s.cfg.peerPub] = s
 			}

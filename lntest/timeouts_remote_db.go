@@ -29,4 +29,8 @@ const (
 	// NodeStartTimeout is the timeout value when waiting for a node to
 	// become fully started.
 	NodeStartTimeout = time.Second * 120
+
+	// SqliteBusyTimeout is the maximum time that a call to the sqlite db
+	// will wait for the connection to become available.
+	SqliteBusyTimeout = time.Second * 10
 )

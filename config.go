@@ -1405,12 +1405,18 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		)
 	}
 
+	towerDir := filepath.Join(
+		cfg.Watchtower.TowerDir,
+		cfg.registeredChains.PrimaryChain().String(),
+		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
+	)
+
 	// Create the lnd directory and all other sub-directories if they don't
 	// already exist. This makes sure that directory trees are also created
 	// for files that point to outside the lnddir.
 	dirs := []string{
 		lndDir, cfg.DataDir, cfg.networkDir,
-		cfg.LetsEncryptDir, cfg.Watchtower.TowerDir,
+		cfg.LetsEncryptDir, towerDir, cfg.graphDatabaseDir(),
 		filepath.Dir(cfg.TLSCertPath), filepath.Dir(cfg.TLSKeyPath),
 		filepath.Dir(cfg.AdminMacPath), filepath.Dir(cfg.ReadMacPath),
 		filepath.Dir(cfg.InvoiceMacPath),
@@ -1615,6 +1621,47 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	}
 	if flagSet {
 		cfg.DB.Bolt.NoFreelistSync = !cfg.SyncFreelist
+	}
+
+	// Parse any extra sqlite pragma options that may have been provided
+	// to determine if they override any of the defaults that we will
+	// otherwise add.
+	var (
+		defaultSynchronous = true
+		defaultAutoVacuum  = true
+		defaultFullfsync   = true
+	)
+	for _, option := range cfg.DB.Sqlite.PragmaOptions {
+		switch {
+		case strings.HasPrefix(option, "synchronous="):
+			defaultSynchronous = false
+
+		case strings.HasPrefix(option, "auto_vacuum="):
+			defaultAutoVacuum = false
+
+		case strings.HasPrefix(option, "fullfsync="):
+			defaultFullfsync = false
+
+		default:
+		}
+	}
+
+	if defaultSynchronous {
+		cfg.DB.Sqlite.PragmaOptions = append(
+			cfg.DB.Sqlite.PragmaOptions, "synchronous=full",
+		)
+	}
+
+	if defaultAutoVacuum {
+		cfg.DB.Sqlite.PragmaOptions = append(
+			cfg.DB.Sqlite.PragmaOptions, "auto_vacuum=incremental",
+		)
+	}
+
+	if defaultFullfsync {
+		cfg.DB.Sqlite.PragmaOptions = append(
+			cfg.DB.Sqlite.PragmaOptions, "fullfsync=true",
+		)
 	}
 
 	// Ensure that the user hasn't chosen a remote-max-htlc value greater

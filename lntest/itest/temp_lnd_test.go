@@ -49,7 +49,7 @@ var (
 
 	// dbBackendFlag specifies the backend to use.
 	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend "+
-		"(bbolt, etcd, postgres)")
+		"(bbolt, etcd, postgres, sqlite)")
 )
 
 // TestLightningNetworkDaemonTemp performs a series of integration tests

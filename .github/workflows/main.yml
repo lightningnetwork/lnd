@@ -158,6 +158,7 @@ jobs:
           - btcd unit-cover
           - unit tags="kvdb_etcd"
           - unit tags="kvdb_postgres"
+          - unit tags="kvdb_sqlite"
           - btcd unit-race
     steps:
       - name: git checkout
@@ -204,6 +205,8 @@ jobs:
             args: backend=bitcoind dbbackend=etcd
           - name: bitcoind-postgres
             args: backend=bitcoind dbbackend=postgres
+          - name: bitcoind-sqlite
+            args: backend=bitcoind dbbackend=sqlite
           - name: neutrino
             args: backend=neutrino
     steps:
@@ -287,6 +290,8 @@ jobs:
             args: backend=bitcoind dbbackend=etcd
           - name: bitcoind-postgres
             args: backend=bitcoind dbbackend=postgres
+          - name: bitcoind-sqlite
+            args: backend=bitcoind dbbackend=sqlite
           - name: neutrino
             args: backend=neutrino
     steps:
@@ -360,7 +365,7 @@ jobs:
       fail-fast: false
       matrix:
         pinned_dep:
-          - google.golang.org/grpc v1.38.0
+          - google.golang.org/grpc v1.41.0
           - github.com/golang/protobuf v1.5.2
 
     steps:

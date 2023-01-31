@@ -220,6 +220,11 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	case lntest.BackendPostgres:
 		args = append(args, "--db.backend=postgres")
 		args = append(args, "--db.postgres.dsn="+cfg.PostgresDsn)
+
+	case lntest.BackendSqlite:
+		args = append(args, "--db.backend=sqlite")
+		args = append(args, fmt.Sprintf("--db.sqlite.busytimeout=%v",
+			lntest.SqliteBusyTimeout))
 	}
 
 	if cfg.FeeURL != "" {

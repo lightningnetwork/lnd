@@ -68,6 +68,10 @@ ifeq ($(dbbackend),postgres)
 DEV_TAGS += kvdb_postgres
 endif
 
+ifeq ($(dbbackend),sqlite)
+DEV_TAGS += kvdb_sqlite
+endif
+
 ifneq ($(tags),)
 DEV_TAGS += ${tags}
 endif

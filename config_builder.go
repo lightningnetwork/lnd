@@ -257,7 +257,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	var neutrinoCS *neutrino.ChainService
 	if mainChain.Node == "neutrino" {
 		neutrinoBackend, neutrinoCleanUp, err := initNeutrinoBackend(
-			d.cfg, mainChain.ChainDir, blockCache,
+			ctx, d.cfg, mainChain.ChainDir, blockCache,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to initialize neutrino "+
@@ -830,7 +830,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			cfg.Watchtower.TowerDir,
 			cfg.registeredChains.PrimaryChain().String(),
 			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
-		), cfg.WtClient.Active, cfg.Watchtower.Active,
+		), cfg.WtClient.Active, cfg.Watchtower.Active, d.logger,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to obtain database "+
@@ -1173,7 +1173,7 @@ func importWatchOnlyAccounts(wallet *wallet.Wallet,
 
 // initNeutrinoBackend inits a new instance of the neutrino light client
 // backend given a target chain directory to store the chain state.
-func initNeutrinoBackend(cfg *Config, chainDir string,
+func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 	blockCache *blockcache.BlockCache) (*neutrino.ChainService,
 	func(), error) {
 
@@ -1200,13 +1200,26 @@ func initNeutrinoBackend(cfg *Config, chainDir string,
 		return nil, nil, err
 	}
 
-	dbName := filepath.Join(dbPath, "neutrino.db")
-	db, err := walletdb.Create(
-		"bdb", dbName, !cfg.SyncFreelist, cfg.DB.Bolt.DBTimeout,
+	var (
+		db  walletdb.DB
+		err error
 	)
+	switch {
+	case cfg.DB.Backend == kvdb.SqliteBackendName:
+		db, err = kvdb.Open(
+			kvdb.SqliteBackendName, ctx, cfg.DB.Sqlite, dbPath,
+			lncfg.SqliteNeutrinoDBName, lncfg.NSNeutrinoDB,
+		)
+
+	default:
+		dbName := filepath.Join(dbPath, "neutrino.db")
+		db, err = walletdb.Create(
+			"bdb", dbName, !cfg.SyncFreelist, cfg.DB.Bolt.DBTimeout,
+		)
+	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to create neutrino "+
-			"database: %v", err)
+		return nil, nil, fmt.Errorf("unable to create "+
+			"neutrino database: %v", err)
 	}
 
 	headerStateAssertion, err := parseHeaderStateAssertion(

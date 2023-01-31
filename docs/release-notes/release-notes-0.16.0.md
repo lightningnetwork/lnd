@@ -356,8 +356,11 @@ Keysend](https://github.com/lightningnetwork/lnd/pull/7334).
 ## DB
 
 * [Add a sqlite backend 
-  option](https://github.com/lightningnetwork/lnd/pull/7251) to the kvdb 
-  package.
+  option](https://github.com/lightningnetwork/lnd/pull/7251) to the kvdb
+  package, and add it as a [backend option to
+  LND](https://github.com/lightningnetwork/lnd/pull/7252). Note that with this
+  upgrade, support for the `dragonfly-amd64`, `netbsd-386`, `netbsd-arm64` and
+  `openbsd-386` platforms has been dropped.
 
 * [Bumped etcd dependencies to
   3.5.7](https://github.com/lightningnetwork/lnd/pull/7353) to resolve linking

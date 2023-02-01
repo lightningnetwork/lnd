@@ -1896,6 +1896,12 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 	switch update.UpdateType {
 	case invpkg.CancelHTLCsUpdate:
 		return d.cancelHTLCs(invoices, invoiceNum, &invoice, update)
+
+	case invpkg.SettleHodlInvoiceUpdate:
+		return d.settleHodlInvoice(
+			invoices, settleIndex, invoiceNum, &invoice, hash,
+			update.State,
+		)
 	}
 
 	var (
@@ -2214,6 +2220,84 @@ func (d *DB) cancelHTLCs(invoices kvdb.RwBucket, invoiceNum []byte,
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	return invoice, nil
+}
+
+// settleHodlInvoice marks a hodl invoice as settled.
+//
+// NOTE: Currently it is not possible to have HODL AMP invoices.
+func (d *DB) settleHodlInvoice(invoices, settleIndex kvdb.RwBucket,
+	invoiceNum []byte, invoice *invpkg.Invoice, hash *lntypes.Hash,
+	update *invpkg.InvoiceStateUpdateDesc) (*invpkg.Invoice, error) {
+
+	if !invoice.HodlInvoice {
+		return nil, fmt.Errorf("unable to settle hodl invoice: %v is "+
+			"not a hodl invoice", invoice.AddIndex)
+	}
+
+	// TODO(positiveblue): because NewState can only be ContractSettled we
+	// can remove it from the API and set it here directly.
+	switch {
+	case update == nil:
+		fallthrough
+
+	case update.NewState != invpkg.ContractSettled:
+		return nil, fmt.Errorf("unable to settle hodl invoice: "+
+			"not valid InvoiceUpdateDesc.State: %v", update)
+
+	case update.Preimage == nil:
+		return nil, fmt.Errorf("unable to settle hodl invoice: " +
+			"preimage is nil")
+	}
+
+	// TODO(positiveblue): create a invoice.CanSettleHodlInvoice func.
+	newState, err := updateInvoiceState(invoice, hash, *update)
+	if err != nil {
+		return nil, err
+	}
+
+	if newState == nil || *newState != invpkg.ContractSettled {
+		return nil, fmt.Errorf("unable to settle hodl invoice: "+
+			"new computed state is not settled: %s", newState)
+	}
+
+	invoice.State = invpkg.ContractSettled
+	timestamp := d.clock.Now()
+
+	err = setSettleMetaFields(
+		settleIndex, invoiceNum, invoice, timestamp, nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(positiveblue): this logic can be further simplified.
+	var amtPaid lnwire.MilliSatoshi
+	for _, htlc := range invoice.Htlcs {
+		_, err := updateHtlc(
+			timestamp, htlc, invpkg.ContractSettled, nil,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if htlc.State == invpkg.HtlcStateSettled {
+			amtPaid += htlc.Amt
+		}
+	}
+
+	invoice.AmtPaid = amtPaid
+
+	// Reserialize and update invoice.
+	var buf bytes.Buffer
+	if err := serializeInvoice(&buf, invoice); err != nil {
+		return nil, err
+	}
+
+	if err := invoices.Put(invoiceNum, buf.Bytes()); err != nil {
+		return nil, err
 	}
 
 	return invoice, nil

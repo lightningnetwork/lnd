@@ -1231,9 +1231,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 	i.Lock()
 	defer i.Unlock()
 
-	updateInvoice := func(invoice *Invoice) (
-		*InvoiceUpdateDesc, error) {
-
+	updateInvoice := func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 		switch invoice.State {
 		case ContractOpen:
 			return nil, ErrInvoiceStillOpen
@@ -1246,6 +1244,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 		}
 
 		return &InvoiceUpdateDesc{
+			UpdateType: SettleHodlInvoiceUpdate,
 			State: &InvoiceStateUpdateDesc{
 				NewState: ContractSettled,
 				Preimage: &preimage,

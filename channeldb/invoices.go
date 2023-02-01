@@ -1902,6 +1902,11 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 			invoices, settleIndex, invoiceNum, &invoice, hash,
 			update.State,
 		)
+
+	case invpkg.CancelInvoiceUpdate:
+		return d.cancelInvoice(
+			invoices, invoiceNum, &invoice, hash, update.State,
+		)
 	}
 
 	var (
@@ -1913,11 +1918,6 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 	// call back.
 	if update.State != nil {
 		setID = update.State.SetID
-	} else if update.SetID != nil {
-		// When we go to cancel HTLCs, there's no new state, but the
-		// set of HTLCs to be cancelled along with the setID affected
-		// will be passed in.
-		setID = (*[32]byte)(update.SetID)
 	}
 
 	now := d.clock.Now()
@@ -2289,6 +2289,68 @@ func (d *DB) settleHodlInvoice(invoices, settleIndex kvdb.RwBucket,
 	}
 
 	invoice.AmtPaid = amtPaid
+
+	// Reserialize and update invoice.
+	var buf bytes.Buffer
+	if err := serializeInvoice(&buf, invoice); err != nil {
+		return nil, err
+	}
+
+	if err := invoices.Put(invoiceNum, buf.Bytes()); err != nil {
+		return nil, err
+	}
+
+	return invoice, nil
+}
+
+// cancelInvoice attempts to cancel the given invoice. That includes changing
+// the invoice state and the state of any relevant HTLC.
+func (d *DB) cancelInvoice(invoices kvdb.RwBucket, invoiceNum []byte,
+	invoice *invpkg.Invoice, hash *lntypes.Hash,
+	update *invpkg.InvoiceStateUpdateDesc) (*invpkg.Invoice, error) {
+
+	switch {
+	case update == nil:
+		fallthrough
+
+	case update.NewState != invpkg.ContractCanceled:
+		return nil, fmt.Errorf("unable to cancel invoice: "+
+			"InvoiceUpdateDesc.State not valid: %v", update)
+	}
+
+	var (
+		setID        *[32]byte
+		invoiceIsAMP bool
+	)
+
+	invoiceIsAMP = invoice.IsAMP()
+	if invoiceIsAMP {
+		setID = update.SetID
+	}
+
+	newState, err := updateInvoiceState(invoice, hash, *update)
+	if err != nil {
+		return nil, err
+	}
+
+	if newState == nil || *newState != invpkg.ContractCanceled {
+		return nil, fmt.Errorf("unable to cancel invoice(%v): new "+
+			"computed state is not canceled: %s", invoice.AddIndex,
+			newState)
+	}
+
+	invoice.State = invpkg.ContractCanceled
+	timestamp := d.clock.Now()
+
+	// TODO(positiveblue): this logic can be simplified.
+	for _, htlc := range invoice.Htlcs {
+		_, err := updateHtlc(
+			timestamp, htlc, invpkg.ContractCanceled, setID,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// Reserialize and update invoice.
 	var buf bytes.Buffer

@@ -265,6 +265,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 		var failRes *HtlcFailResolution
 		htlcPreimages, failRes = reconstructAMPPreimages(ctx, htlcSet)
 		if failRes != nil {
+			update.UpdateType = CancelInvoiceUpdate
 			update.State = &InvoiceStateUpdateDesc{
 				NewState: ContractCanceled,
 				SetID:    setID,

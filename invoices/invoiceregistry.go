@@ -1329,6 +1329,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 		// channeldb to return an error if the invoice is already
 		// settled or canceled.
 		return &InvoiceUpdateDesc{
+			UpdateType: CancelInvoiceUpdate,
 			State: &InvoiceStateUpdateDesc{
 				NewState: ContractCanceled,
 			},

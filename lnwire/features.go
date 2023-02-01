@@ -759,6 +759,18 @@ func (fv *FeatureVector) UnknownRequiredFeatures() []FeatureBit {
 	return unknown
 }
 
+// UnknownFeatures returns a boolean if a feature vector contains *any*
+// unknown features (even if they are odd).
+func (fv *FeatureVector) UnknownFeatures() bool {
+	for feature := range fv.features {
+		if !fv.IsKnown(feature) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // Name returns a string identifier for the feature represented by this bit. If
 // the bit does not represent a known feature, this returns a string indicating
 // as such.

@@ -479,6 +479,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 		invoice *invpkg.Invoice) (*invpkg.InvoiceUpdateDesc, error) {
 
 		return &invpkg.InvoiceUpdateDesc{
+			UpdateType: invpkg.CancelHTLCsUpdate,
 			CancelHtlcs: map[models.CircuitKey]struct{}{
 				key: {},
 			},
@@ -554,6 +555,7 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 		invoice *invpkg.Invoice) (*invpkg.InvoiceUpdateDesc, error) {
 
 		return &invpkg.InvoiceUpdateDesc{
+			UpdateType: invpkg.CancelHTLCsUpdate,
 			CancelHtlcs: map[models.CircuitKey]struct{}{
 				{HtlcID: 0}: {},
 			},
@@ -616,6 +618,7 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 			error) {
 
 			return &invpkg.InvoiceUpdateDesc{
+				UpdateType: invpkg.CancelHTLCsUpdate,
 				CancelHtlcs: map[models.CircuitKey]struct{}{
 					{HtlcID: 1}: {},
 				},
@@ -643,6 +646,7 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 		invoice *invpkg.Invoice) (*invpkg.InvoiceUpdateDesc, error) {
 
 		return &invpkg.InvoiceUpdateDesc{
+			UpdateType: invpkg.CancelHTLCsUpdate,
 			CancelHtlcs: map[models.CircuitKey]struct{}{
 				{HtlcID: 2}: {},
 			},

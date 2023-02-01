@@ -711,6 +711,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef InvoiceRef,
 		}
 
 		return &InvoiceUpdateDesc{
+			UpdateType:  CancelHTLCsUpdate,
 			CancelHtlcs: canceledHtlcs,
 			SetID:       setID,
 		}, nil

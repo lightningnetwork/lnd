@@ -1893,9 +1893,13 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 		return &invoice, nil
 	}
 
+	switch update.UpdateType {
+	case invpkg.CancelHTLCsUpdate:
+		return d.cancelHTLCs(invoices, invoiceNum, &invoice, update)
+	}
+
 	var (
-		newState = invoice.State
-		setID    *[32]byte
+		setID *[32]byte
 	)
 
 	// We can either get the set ID from the main state update (if the
@@ -1903,7 +1907,6 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 	// call back.
 	if update.State != nil {
 		setID = update.State.SetID
-		newState = update.State.NewState
 	} else if update.SetID != nil {
 		// When we go to cancel HTLCs, there's no new state, but the
 		// set of HTLCs to be cancelled along with the setID affected
@@ -1966,48 +1969,6 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 				&invoice, htlcsAmpUpdate, htlc, setID, key,
 			)
 		}
-	}
-
-	// Process cancel actions from update descriptor.
-	cancelHtlcs := update.CancelHtlcs
-	for key, htlc := range invoice.Htlcs {
-		htlc := htlc
-
-		// Check whether this htlc needs to be canceled. If it does,
-		// update the htlc state to Canceled.
-		_, cancel := cancelHtlcs[key]
-		if !cancel {
-			continue
-		}
-
-		// Consistency check to verify that there is no overlap between
-		// the add and cancel sets.
-		if _, added := update.AddHtlcs[key]; added {
-			return nil, fmt.Errorf("added htlc %v canceled", key)
-		}
-
-		err := cancelSingleHtlc(now, htlc, newState)
-		if err != nil {
-			return nil, err
-		}
-
-		// Delete processed cancel action, so that we can check later
-		// that there are no actions left.
-		delete(cancelHtlcs, key)
-
-		// Tally this into the set of HTLCs that need to be updated on
-		// disk, but once again, only if this is an AMP invoice.
-		if invoiceIsAMP {
-			cancelHtlcsAmp(
-				&invoice, htlcsAmpUpdate, htlc, key,
-			)
-		}
-	}
-
-	// Verify that we didn't get an action for htlcs that are not present on
-	// the invoice.
-	if len(cancelHtlcs) > 0 {
-		return nil, errors.New("cancel action on non-existent htlc(s)")
 	}
 
 	// At this point, the set of accepted HTLCs should be fully
@@ -2184,6 +2145,78 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 	}
 
 	return &invoice, nil
+}
+
+// cancelHTLCs tries to cancel the htlcs in the given InvoiceUpdateDesc.
+//
+// NOTE: cancelHTLCs updates will only use the `CancelHtlcs` field in the
+// InvoiceUpdateDesc.
+func (d *DB) cancelHTLCs(invoices kvdb.RwBucket, invoiceNum []byte,
+	invoice *invpkg.Invoice,
+	update *invpkg.InvoiceUpdateDesc) (*invpkg.Invoice, error) {
+
+	timestamp := d.clock.Now()
+
+	// Process add actions from update descriptor.
+	htlcsAmpUpdate := make(map[invpkg.SetID]map[models.CircuitKey]*invpkg.InvoiceHTLC) //nolint:lll
+
+	// Process cancel actions from update descriptor.
+	cancelHtlcs := update.CancelHtlcs
+	for key, htlc := range invoice.Htlcs {
+		htlc := htlc
+
+		// Check whether this htlc needs to be canceled. If it does,
+		// update the htlc state to Canceled.
+		_, cancel := cancelHtlcs[key]
+		if !cancel {
+			continue
+		}
+
+		err := cancelSingleHtlc(timestamp, htlc, invoice.State)
+		if err != nil {
+			return nil, err
+		}
+
+		// Delete processed cancel action, so that we can check later
+		// that there are no actions left.
+		delete(cancelHtlcs, key)
+
+		// Tally this into the set of HTLCs that need to be updated on
+		// disk, but once again, only if this is an AMP invoice.
+		if invoice.IsAMP() {
+			cancelHtlcsAmp(
+				invoice, htlcsAmpUpdate, htlc, key,
+			)
+		}
+	}
+
+	// Verify that we didn't get an action for htlcs that are not present on
+	// the invoice.
+	if len(cancelHtlcs) > 0 {
+		return nil, errors.New("cancel action on non-existent htlc(s)")
+	}
+
+	// Reserialize and update invoice.
+	var buf bytes.Buffer
+	if err := serializeInvoice(&buf, invoice); err != nil {
+		return nil, err
+	}
+
+	if err := invoices.Put(invoiceNum, buf.Bytes()); err != nil {
+		return nil, err
+	}
+
+	// If this is an AMP invoice, then we'll actually store the rest of the
+	// HTLCs in-line with the invoice, using the invoice ID as a prefix,
+	// and the AMP key as a suffix: invoiceNum || setID.
+	if invoice.IsAMP() {
+		err := updateAMPInvoices(invoices, invoiceNum, htlcsAmpUpdate)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return invoice, nil
 }
 
 // updateInvoiceState validates and processes an invoice state update. The new

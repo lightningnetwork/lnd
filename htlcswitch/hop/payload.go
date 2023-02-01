@@ -28,6 +28,10 @@ const (
 	// RequiredViolation indicates that an unknown even type was found in
 	// the payload that we could not process.
 	RequiredViolation
+
+	// InsufficientViolation indicates that the provided type does
+	// not satisfy constraints.
+	InsufficientViolation
 )
 
 // String returns a human-readable description of the violation as a verb.
@@ -41,6 +45,9 @@ func (v PayloadViolation) String() string {
 
 	case RequiredViolation:
 		return "required"
+
+	case InsufficientViolation:
+		return "insufficient"
 
 	default:
 		return "unknown violation"
@@ -376,6 +383,42 @@ func getMinRequiredViolation(set tlv.TypeMap) *tlv.Type {
 
 	if requiredViolation {
 		return &minRequiredViolationType
+	}
+
+	return nil
+}
+
+// validateBlindedRouteData performs the additional validation that is
+// required for payments that rely on data provided in an encrypted blob to
+// be forwarded. We enforce additional constraints here to prevent malicious
+// parties from probing portions of the blinded route to "un-blind" them.
+func validateBlindedRouteData(blindedData *record.BlindedRouteData,
+	incomingAmount lnwire.MilliSatoshi, incomingTimelock uint32) error {
+
+	if blindedData.Constraints != nil {
+		maxCLTV := blindedData.Constraints.MaxCltvExpiry
+		if maxCLTV != 0 && incomingTimelock > maxCLTV {
+			return ErrInvalidPayload{
+				Type:      record.LockTimeOnionType,
+				Violation: InsufficientViolation,
+			}
+		}
+
+		if incomingAmount < blindedData.Constraints.HtlcMinimumMsat {
+			return ErrInvalidPayload{
+				Type:      record.AmtOnionType,
+				Violation: InsufficientViolation,
+			}
+		}
+	}
+
+	// Fail if we don't understand any features (even or odd), because we
+	// expect the features to have been set from our announcement.
+	if blindedData.Features.UnknownFeatures() {
+		return ErrInvalidPayload{
+			Type:      record.FeatureVectorType,
+			Violation: InsufficientViolation,
+		}
 	}
 
 	return nil

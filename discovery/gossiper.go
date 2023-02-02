@@ -944,9 +944,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		// timestamp, then we'll just discard the message we got.
 		if oldTimestamp > msg.Timestamp {
 			log.Debugf("Ignored outdated network message: "+
-				"peer=%v, source=%x, msg=%s, ", message.peer,
-				message.source.SerializeCompressed(),
-				msg.MsgType())
+				"peer=%v, msg=%s", message.peer, msg.MsgType())
 			return
 		}
 
@@ -1282,10 +1280,8 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 		case announcement := <-d.networkMsgs:
 			log.Tracef("Received network message: "+
-				"peer=%v, source=%x, msg=%s, is_remote=%v",
-				announcement.peer,
-				announcement.source.SerializeCompressed(),
-				announcement.msg.MsgType(),
+				"peer=%v, msg=%s, is_remote=%v",
+				announcement.peer, announcement.msg.MsgType(),
 				announcement.isRemote)
 
 			switch announcement.msg.(type) {
@@ -2629,9 +2625,8 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	) {
 
 		log.Debugf("Ignored stale edge policy for short_chan_id(%v): "+
-			"peer=%v, source=%x, msg=%s, is_remote=%v", shortChanID,
-			nMsg.peer, nMsg.source.SerializeCompressed(),
-			nMsg.msg.MsgType(), nMsg.isRemote,
+			"peer=%v, msg=%s, is_remote=%v", shortChanID,
+			nMsg.peer, nMsg.msg.MsgType(), nMsg.isRemote,
 		)
 
 		nMsg.err <- nil

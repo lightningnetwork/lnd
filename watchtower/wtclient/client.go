@@ -136,11 +136,8 @@ type Client interface {
 	// state. If the method returns nil, the backup is guaranteed to be
 	// successful unless the client is force quit, or the justice
 	// transaction would create dust outputs when trying to abide by the
-	// negotiated policy. If the channel we're trying to back up doesn't
-	// have a tweak for the remote party's output, then isTweakless should
-	// be true.
-	BackupState(*lnwire.ChannelID, *lnwallet.BreachRetribution,
-		channeldb.ChannelType) error
+	// negotiated policy.
+	BackupState(chanID *lnwire.ChannelID, stateNum uint64) error
 
 	// Start initializes the watchtower client, allowing it process requests
 	// to backup revoked channel states.
@@ -805,31 +802,40 @@ func (c *TowerClient) RegisterChannel(chanID lnwire.ChannelID) error {
 //   - breached outputs contain too little value to sweep at the target sweep
 //     fee rate.
 func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
-	breachInfo *lnwallet.BreachRetribution,
-	chanType channeldb.ChannelType) error {
+	stateNum uint64) error {
 
 	// Retrieve the cached sweep pkscript used for this channel.
 	c.backupMu.Lock()
 	summary, ok := c.summaries[*chanID]
 	if !ok {
 		c.backupMu.Unlock()
+
 		return ErrUnregisteredChannel
 	}
 
 	// Ignore backups that have already been presented to the client.
 	height, ok := c.chanCommitHeights[*chanID]
-	if ok && breachInfo.RevokedStateNum <= height {
+	if ok && stateNum <= height {
 		c.backupMu.Unlock()
 		c.log.Debugf("Ignoring duplicate backup for chanid=%v at "+
-			"height=%d", chanID, breachInfo.RevokedStateNum)
+			"height=%d", chanID, stateNum)
+
 		return nil
 	}
 
 	// This backup has a higher commit height than any known backup for this
 	// channel. We'll update our tip so that we won't accept it again if the
 	// link flaps.
-	c.chanCommitHeights[*chanID] = breachInfo.RevokedStateNum
+	c.chanCommitHeights[*chanID] = stateNum
 	c.backupMu.Unlock()
+
+	// Fetch the breach retribution info and channel type.
+	breachInfo, chanType, err := c.cfg.BuildBreachRetribution(
+		*chanID, stateNum,
+	)
+	if err != nil {
+		return err
+	}
 
 	task := newBackupTask(
 		chanID, breachInfo, summary.SweepPkScript, chanType,

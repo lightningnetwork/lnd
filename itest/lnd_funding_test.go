@@ -690,6 +690,11 @@ func testChannelFundingPersistence(ht *lntest.HarnessTest) {
 	chanAlice := ht.AssertChannelExists(alice, chanPoint)
 	ht.AssertChannelExists(carol, chanPoint)
 
+	// Make sure Alice and Carol have seen the channel in their network
+	// topology.
+	ht.AssertTopologyChannelOpen(alice, chanPoint)
+	ht.AssertTopologyChannelOpen(carol, chanPoint)
+
 	// Create an additional check for our channel assertion that will
 	// check that our label is as expected.
 	shortChanID := lnwire.NewShortChanIDFromInt(chanAlice.ChanId)

@@ -301,7 +301,7 @@ type TowerClient struct {
 	activeSessions    sessionQueueSet
 
 	sessionQueue *sessionQueue
-	prevTask     *backupTask
+	prevTask     *wtdb.BackupID
 
 	closableSessionQueue *sessionCloseMinHeap
 
@@ -804,10 +804,9 @@ func (c *TowerClient) RegisterChannel(chanID lnwire.ChannelID) error {
 func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	stateNum uint64) error {
 
-	// Retrieve the cached sweep pkscript used for this channel.
+	// Make sure that this channel is registered with the tower client.
 	c.backupMu.Lock()
-	summary, ok := c.summaries[*chanID]
-	if !ok {
+	if _, ok := c.summaries[*chanID]; !ok {
 		c.backupMu.Unlock()
 
 		return ErrUnregisteredChannel
@@ -829,14 +828,12 @@ func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	c.chanCommitHeights[*chanID] = stateNum
 	c.backupMu.Unlock()
 
-	id := wtdb.BackupID{
+	id := &wtdb.BackupID{
 		ChanID:       *chanID,
 		CommitHeight: stateNum,
 	}
 
-	task := newBackupTask(id, summary.SweepPkScript)
-
-	return c.pipeline.QueueBackupTask(task)
+	return c.pipeline.QueueBackupTask(id)
 }
 
 // nextSessionQueue attempts to fetch an active session from our set of
@@ -1330,7 +1327,7 @@ func (c *TowerClient) backupDispatcher() {
 					return
 				}
 
-				c.log.Debugf("Processing %v", task.id)
+				c.log.Debugf("Processing %v", task)
 
 				c.stats.taskReceived()
 				c.processTask(task)
@@ -1360,8 +1357,22 @@ func (c *TowerClient) backupDispatcher() {
 // sessionQueue hasn't been exhausted before proceeding to the next task. Tasks
 // that are rejected because the active sessionQueue is full will be cached as
 // the prevTask, and should be reprocessed after obtaining a new sessionQueue.
-func (c *TowerClient) processTask(task *backupTask) {
-	status, accepted := c.sessionQueue.AcceptTask(task)
+func (c *TowerClient) processTask(task *wtdb.BackupID) {
+	c.backupMu.Lock()
+	summary, ok := c.summaries[task.ChanID]
+	if !ok {
+		c.backupMu.Unlock()
+
+		log.Infof("not processing task for unregistered channel: %s",
+			task.ChanID)
+
+		return
+	}
+	c.backupMu.Unlock()
+
+	backupTask := newBackupTask(*task, summary.SweepPkScript)
+
+	status, accepted := c.sessionQueue.AcceptTask(backupTask)
 	if accepted {
 		c.taskAccepted(task, status)
 	} else {
@@ -1374,9 +1385,11 @@ func (c *TowerClient) processTask(task *backupTask) {
 // prevTask is always removed as a result of this call. The client's
 // sessionQueue will be removed if accepting the task left the sessionQueue in
 // an exhausted state.
-func (c *TowerClient) taskAccepted(task *backupTask, newStatus reserveStatus) {
-	c.log.Infof("Queued %v successfully for session %v",
-		task.id, c.sessionQueue.ID())
+func (c *TowerClient) taskAccepted(task *wtdb.BackupID,
+	newStatus reserveStatus) {
+
+	c.log.Infof("Queued %v successfully for session %v", task,
+		c.sessionQueue.ID())
 
 	c.stats.taskAccepted()
 
@@ -1409,7 +1422,9 @@ func (c *TowerClient) taskAccepted(task *backupTask, newStatus reserveStatus) {
 // the sessionQueue to find a new session. If the sessionQueue was not
 // exhausted, the client marks the task as ineligible, as this implies we
 // couldn't construct a valid justice transaction given the session's policy.
-func (c *TowerClient) taskRejected(task *backupTask, curStatus reserveStatus) {
+func (c *TowerClient) taskRejected(task *wtdb.BackupID,
+	curStatus reserveStatus) {
+
 	switch curStatus {
 
 	// The sessionQueue has available capacity but the task was rejected,
@@ -1417,14 +1432,14 @@ func (c *TowerClient) taskRejected(task *backupTask, curStatus reserveStatus) {
 	case reserveAvailable:
 		c.stats.taskIneligible()
 
-		c.log.Infof("Ignoring ineligible %v", task.id)
+		c.log.Infof("Ignoring ineligible %v", task)
 
 		err := c.cfg.DB.MarkBackupIneligible(
-			task.id.ChanID, task.id.CommitHeight,
+			task.ChanID, task.CommitHeight,
 		)
 		if err != nil {
 			c.log.Errorf("Unable to mark %v ineligible: %v",
-				task.id, err)
+				task, err)
 
 			// It is safe to not handle this error, even if we could
 			// not persist the result. At worst, this task may be
@@ -1444,7 +1459,7 @@ func (c *TowerClient) taskRejected(task *backupTask, curStatus reserveStatus) {
 		c.stats.sessionExhausted()
 
 		c.log.Debugf("Session %v exhausted, %v queued for next session",
-			c.sessionQueue.ID(), task.id)
+			c.sessionQueue.ID(), task)
 
 		// Cache the task that we pulled off, so that we can process it
 		// once a new session queue is available.

@@ -2037,7 +2037,7 @@ var clientTests = []clientTest{
 		},
 	},
 	{
-		// Demonstrate that the client is unable to recover after
+		// Demonstrate that the client is able to recover after
 		// deleting its database by skipping through key indices until
 		// it gets to one that does not result in the
 		// CreateSessionCodeAlreadyExists error code being returned from
@@ -2086,6 +2086,62 @@ var clientTests = []clientTest{
 
 			// Show that the server does get the remaining updates.
 			h.waitServerUpdates(hints[numUpdates/2:], waitTime)
+		},
+	},
+	{
+		// This test demonstrates that if there is no active session,
+		// the updates are queued in memory and then lost on restart.
+		// This behaviour will be fixed in upcoming commits.
+		name: "lose updates in task pipeline on restart",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+			// noServerStart ensures that the server does not
+			// automatically start on creation of the test harness.
+			// This ensures that the client does not initially have
+			// any active sessions.
+			noServerStart: true,
+		},
+		fn: func(h *testHarness) {
+			const (
+				chanID     = 0
+				numUpdates = 5
+			)
+
+			// Advance the channel to create all states.
+			hints := h.advanceChannelN(chanID, numUpdates)
+			firstBatch := hints[:numUpdates/2]
+			secondBatch := hints[numUpdates/2 : numUpdates]
+
+			// Attempt to back up the first batch of states of the
+			// client's channel. Since the server has not yet
+			// started, the client should have no active session
+			// yet and so these updates will just be kept in an
+			// in-memory queue.
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+
+			// Restart the Client (force quit). And also now start
+			// the server. The client should now be able to create
+			// a session with the server.
+			h.client.ForceQuit()
+			h.startServer()
+			h.startClient()
+
+			// Attempt to now back up the second batch of states.
+			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
+
+			// Assert that the server does receive the updates.
+			h.waitServerUpdates(secondBatch, waitTime)
+
+			// Assert that the server definitely still has not
+			// received the initial set of updates.
+			matches, err := h.serverDB.QueryMatches(firstBatch)
+			require.NoError(h.t, err)
+			require.Empty(h.t, matches)
 		},
 	},
 }

@@ -187,6 +187,10 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		// Use a small batch window so we can broadcast our sweep
 		// transactions faster.
 		"--sweeper.batchwindowduration=5s",
+
+		// Use a small batch delay so we can broadcast the
+		// announcements quickly in the tests.
+		"--gossip.sub-batch-delay=5ms",
 	}
 	args = append(args, nodeArgs...)
 

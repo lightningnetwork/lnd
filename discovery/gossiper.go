@@ -47,6 +47,10 @@ const (
 	// updates that we'll hold onto.
 	maxPrematureUpdates = 100
 
+	// DefaultSubBatchDelay is the default delay we'll use when
+	// broadcasting the next announcement batch.
+	DefaultSubBatchDelay = 5 * time.Second
+
 	// maxRejectedUpdates tracks the max amount of rejected channel updates
 	// we'll maintain. This is the global size across all peers. We'll
 	// allocate ~3 MB max to the cache.

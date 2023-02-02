@@ -16,6 +16,8 @@ type Gossip struct {
 	MaxChannelUpdateBurst int `long:"max-channel-update-burst" description:"The maximum number of updates for a specific channel and direction that lnd will accept over the channel update interval."`
 
 	ChannelUpdateInterval time.Duration `long:"channel-update-interval" description:"The interval used to determine how often lnd should allow a burst of new updates for a specific channel and direction."`
+
+	SubBatchDelay time.Duration `long:"sub-batch-delay" description:"The duration to wait before sending the next announcement batch if there are multiple. Use a small value if there are a lot announcements and they need to be broadcast quickly."`
 }
 
 // Parse the pubkeys for the pinned syncers.

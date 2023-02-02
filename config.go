@@ -629,6 +629,7 @@ func DefaultConfig() Config {
 		Gossip: &lncfg.Gossip{
 			MaxChannelUpdateBurst: discovery.DefaultMaxChannelUpdateBurst,
 			ChannelUpdateInterval: discovery.DefaultChannelUpdateInterval,
+			SubBatchDelay:         discovery.DefaultSubBatchDelay,
 		},
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,

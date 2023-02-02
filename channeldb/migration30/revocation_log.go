@@ -7,6 +7,7 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil"
+	lnwire "github.com/lightningnetwork/lnd/channeldb/migration/lnwire21"
 	mig24 "github.com/lightningnetwork/lnd/channeldb/migration24"
 	mig25 "github.com/lightningnetwork/lnd/channeldb/migration25"
 	mig26 "github.com/lightningnetwork/lnd/channeldb/migration26"
@@ -27,6 +28,8 @@ const (
 	revLogOurOutputIndexType   tlv.Type = 0
 	revLogTheirOutputIndexType tlv.Type = 1
 	revLogCommitTxHashType     tlv.Type = 2
+	revLogOurBalanceType       tlv.Type = 3
+	revLogTheirBalanceType     tlv.Type = 4
 )
 
 var (
@@ -197,9 +200,6 @@ func (h *HTLCEntry) toTlvStream() (*tlv.Stream, error) {
 // fields can be viewed as a subset of a ChannelCommitment's. In the database,
 // all historical versions of the RevocationLog are saved using the
 // CommitHeight as the key.
-//
-// NOTE: all the fields use the primitive go types so they can be made into tlv
-// records without further conversion.
 type RevocationLog struct {
 	// OurOutputIndex specifies our output index in this commitment. In a
 	// remote commitment transaction, this is the to remote output index.
@@ -216,6 +216,26 @@ type RevocationLog struct {
 	// HTLCEntries is the set of HTLCEntry's that are pending at this
 	// particular commitment height.
 	HTLCEntries []*HTLCEntry
+
+	// OurBalance is the current available balance within the channel
+	// directly spendable by us. In other words, it is the value of the
+	// to_remote output on the remote parties' commitment transaction.
+	//
+	// NOTE: this is a pointer so that it is clear if the value is zero or
+	// nil. Since migration 30 of the channeldb initially did not include
+	// this field, it could be the case that the field is not present for
+	// all revocation logs.
+	OurBalance *lnwire.MilliSatoshi
+
+	// TheirBalance is the current available balance within the channel
+	// directly spendable by the remote node. In other words, it is the
+	// value of the to_local output on the remote parties' commitment.
+	//
+	// NOTE: this is a pointer so that it is clear if the value is zero or
+	// nil. Since migration 30 of the channeldb initially did not include
+	// this field, it could be the case that the field is not present for
+	// all revocation logs.
+	TheirBalance *lnwire.MilliSatoshi
 }
 
 // putRevocationLog uses the fields `CommitTx` and `Htlcs` from a
@@ -238,6 +258,11 @@ func putRevocationLog(bucket kvdb.RwBucket, commit *mig.ChannelCommitment,
 		TheirOutputIndex: uint16(theirOutputIndex),
 		CommitTxHash:     commit.CommitTx.TxHash(),
 		HTLCEntries:      make([]*HTLCEntry, 0, len(commit.Htlcs)),
+	}
+
+	if !noAmtData {
+		rl.OurBalance = &commit.LocalBalance
+		rl.TheirBalance = &commit.RemoteBalance
 	}
 
 	for _, htlc := range commit.Htlcs {
@@ -304,6 +329,21 @@ func serializeRevocationLog(w io.Writer, rl *RevocationLog) error {
 		),
 	}
 
+	// Now we add any optional fields that are non-nil.
+	if rl.OurBalance != nil {
+		lb := uint64(*rl.OurBalance)
+		records = append(records, tlv.MakeBigSizeRecord(
+			revLogOurBalanceType, &lb,
+		))
+	}
+
+	if rl.TheirBalance != nil {
+		rb := uint64(*rl.TheirBalance)
+		records = append(records, tlv.MakeBigSizeRecord(
+			revLogTheirBalanceType, &rb,
+		))
+	}
+
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(records...)
 	if err != nil {
@@ -348,7 +388,11 @@ func serializeHTLCEntries(w io.Writer, htlcs []*HTLCEntry) error {
 
 // deserializeRevocationLog deserializes a RevocationLog based on tlv format.
 func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
-	var rl RevocationLog
+	var (
+		rl            RevocationLog
+		localBalance  uint64
+		remoteBalance uint64
+	)
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
@@ -361,11 +405,29 @@ func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
 		tlv.MakePrimitiveRecord(
 			revLogCommitTxHashType, &rl.CommitTxHash,
 		),
+		tlv.MakeBigSizeRecord(revLogOurBalanceType, &localBalance),
+		tlv.MakeBigSizeRecord(
+			revLogTheirBalanceType, &remoteBalance,
+		),
 	)
+	if err != nil {
+		return rl, err
+	}
 
 	// Read the tlv stream.
-	if _, err := readTlvStream(r, tlvStream); err != nil {
+	parsedTypes, err := readTlvStream(r, tlvStream)
+	if err != nil {
 		return rl, err
+	}
+
+	if t, ok := parsedTypes[revLogOurBalanceType]; ok && t == nil {
+		lb := lnwire.MilliSatoshi(localBalance)
+		rl.OurBalance = &lb
+	}
+
+	if t, ok := parsedTypes[revLogTheirBalanceType]; ok && t == nil {
+		rb := lnwire.MilliSatoshi(remoteBalance)
+		rl.TheirBalance = &rb
 	}
 
 	// Read the HTLC entries.

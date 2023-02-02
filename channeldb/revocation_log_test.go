@@ -56,10 +56,13 @@ var (
 		0x4, 0x5, 0xfe, 0x0, 0xf, 0x42, 0x40,
 	}
 
+	localBalance  = lnwire.MilliSatoshi(9000)
+	remoteBalance = lnwire.MilliSatoshi(3000)
+
 	testChannelCommit = ChannelCommitment{
 		CommitHeight:  999,
-		LocalBalance:  lnwire.MilliSatoshi(9000),
-		RemoteBalance: lnwire.MilliSatoshi(3000),
+		LocalBalance:  localBalance,
+		RemoteBalance: remoteBalance,
 		CommitFee:     btcutil.Amount(rand.Int63()),
 		FeePerKw:      btcutil.Amount(5000),
 		CommitTx:      channels.TestFundingTx,
@@ -74,13 +77,13 @@ var (
 		}},
 	}
 
-	testRevocationLog = RevocationLog{
+	testRevocationLogNoAmts = RevocationLog{
 		OurOutputIndex:   0,
 		TheirOutputIndex: 1,
 		CommitTxHash:     testChannelCommit.CommitTx.TxHash(),
 		HTLCEntries:      []*HTLCEntry{&testHTLCEntry},
 	}
-	testRevocationLogBytes = []byte{
+	testRevocationLogNoAmtsBytes = []byte{
 		// Body length 42.
 		0x2a,
 		// OurOutputIndex tlv.
@@ -93,6 +96,33 @@ var (
 		0x6e, 0x60, 0x29, 0x23, 0x1d, 0x5e, 0xc5, 0xe6,
 		0xbd, 0xf7, 0xd3, 0x9b, 0x16, 0x7d, 0x0, 0xff,
 		0xc8, 0x22, 0x51, 0xb1, 0x5b, 0xa0, 0xbf, 0xd,
+	}
+
+	testRevocationLogWithAmts = RevocationLog{
+		OurOutputIndex:   0,
+		TheirOutputIndex: 1,
+		CommitTxHash:     testChannelCommit.CommitTx.TxHash(),
+		HTLCEntries:      []*HTLCEntry{&testHTLCEntry},
+		OurBalance:       &localBalance,
+		TheirBalance:     &remoteBalance,
+	}
+	testRevocationLogWithAmtsBytes = []byte{
+		// Body length 52.
+		0x34,
+		// OurOutputIndex tlv.
+		0x0, 0x2, 0x0, 0x0,
+		// TheirOutputIndex tlv.
+		0x1, 0x2, 0x0, 0x1,
+		// CommitTxHash tlv.
+		0x2, 0x20,
+		0x28, 0x76, 0x2, 0x59, 0x1d, 0x9d, 0x64, 0x86,
+		0x6e, 0x60, 0x29, 0x23, 0x1d, 0x5e, 0xc5, 0xe6,
+		0xbd, 0xf7, 0xd3, 0x9b, 0x16, 0x7d, 0x0, 0xff,
+		0xc8, 0x22, 0x51, 0xb1, 0x5b, 0xa0, 0xbf, 0xd,
+		// OurBalance.
+		0x3, 0x3, 0xfd, 0x23, 0x28,
+		// Remote Balance.
+		0x4, 0x3, 0xfd, 0x0b, 0xb8,
 	}
 )
 
@@ -208,22 +238,75 @@ func TestSerializeHTLCEntries(t *testing.T) {
 	require.Equal(t, expectedBytes, buf.Bytes())
 }
 
-func TestSerializeRevocationLog(t *testing.T) {
+// TestSerializeAndDeserializeRevLog tests the serialization and deserialization
+// of various forms of the revocation log.
+func TestSerializeAndDeserializeRevLog(t *testing.T) {
 	t.Parallel()
 
-	// Copy the testRevocationLog and testHTLCEntry.
-	rl := testRevocationLog
+	tests := []struct {
+		name        string
+		revLog      RevocationLog
+		revLogBytes []byte
+	}{
+		{
+			name:        "with no amount fields",
+			revLog:      testRevocationLogNoAmts,
+			revLogBytes: testRevocationLogNoAmtsBytes,
+		},
+		{
+			name:        "with amount fields",
+			revLog:      testRevocationLogWithAmts,
+			revLogBytes: testRevocationLogWithAmtsBytes,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			testSerializeRevocationLog(
+				t, &test.revLog, test.revLogBytes,
+			)
+
+			testDerializeRevocationLog(
+				t, &test.revLog, test.revLogBytes,
+			)
+		})
+	}
+}
+
+func testSerializeRevocationLog(t *testing.T, rl *RevocationLog,
+	revLogBytes []byte) {
+
+	// Copy the testRevocationLogWithAmts and testHTLCEntry.
 	htlc := testHTLCEntry
 	rl.HTLCEntries = []*HTLCEntry{&htlc}
 
 	// Write the tlv stream.
 	buf := bytes.NewBuffer([]byte{})
-	err := serializeRevocationLog(buf, &rl)
+	err := serializeRevocationLog(buf, rl)
 	require.NoError(t, err)
 
 	// Check the expected bytes on the body of the revocation log.
 	bodyIndex := buf.Len() - len(testHTLCEntryBytes)
-	require.Equal(t, testRevocationLogBytes, buf.Bytes()[:bodyIndex])
+	require.Equal(t, revLogBytes, buf.Bytes()[:bodyIndex])
+}
+
+func testDerializeRevocationLog(t *testing.T, revLog *RevocationLog,
+	revLogBytes []byte) {
+
+	// Construct the full bytes.
+	revLogBytes = append(revLogBytes, testHTLCEntryBytes...)
+
+	// Read the tlv stream.
+	buf := bytes.NewBuffer(revLogBytes)
+	rl, err := deserializeRevocationLog(buf)
+	require.NoError(t, err)
+
+	// Check the bytes are read as expected.
+	require.Len(t, rl.HTLCEntries, 1)
+	require.Equal(t, *revLog, rl)
 }
 
 func TestDerializeHTLCEntriesEmptyRHash(t *testing.T) {
@@ -269,23 +352,6 @@ func TestDerializeHTLCEntries(t *testing.T) {
 	// Check the bytes are read as expected.
 	require.Len(t, htlcs, 1)
 	require.Equal(t, &entry, htlcs[0])
-}
-
-func TestDerializeRevocationLog(t *testing.T) {
-	t.Parallel()
-
-	// Construct the full bytes.
-	b := testRevocationLogBytes
-	b = append(b, testHTLCEntryBytes...)
-
-	// Read the tlv stream.
-	buf := bytes.NewBuffer(b)
-	rl, err := deserializeRevocationLog(buf)
-	require.NoError(t, err)
-
-	// Check the bytes are read as expected.
-	require.Len(t, rl.HTLCEntries, 1)
-	require.Equal(t, testRevocationLog, rl)
 }
 
 func TestFetchLogBucket(t *testing.T) {
@@ -374,12 +440,22 @@ func TestPutRevocationLog(t *testing.T) {
 	}{
 		{
 			// Test a normal put operation.
-			name:        "successful put",
+			name:        "successful put with amount data",
 			commit:      testChannelCommit,
 			ourIndex:    0,
 			theirIndex:  1,
 			expectedErr: nil,
-			expectedLog: testRevocationLog,
+			expectedLog: testRevocationLogWithAmts,
+		},
+		{
+			// Test a normal put operation.
+			name:        "successful put with no amount data",
+			commit:      testChannelCommit,
+			ourIndex:    0,
+			theirIndex:  1,
+			noAmtData:   true,
+			expectedErr: nil,
+			expectedLog: testRevocationLogNoAmts,
 		},
 		{
 			// Test our index too big.
@@ -410,12 +486,22 @@ func TestPutRevocationLog(t *testing.T) {
 		},
 		{
 			// Test dust htlc is not saved.
-			name:        "dust htlc not saved",
+			name:        "dust htlc not saved with amout data",
 			commit:      testCommitDust,
 			ourIndex:    0,
 			theirIndex:  1,
 			expectedErr: nil,
-			expectedLog: testRevocationLog,
+			expectedLog: testRevocationLogWithAmts,
+		},
+		{
+			// Test dust htlc is not saved.
+			name:        "dust htlc not saved with no amount data",
+			commit:      testCommitDust,
+			ourIndex:    0,
+			theirIndex:  1,
+			noAmtData:   true,
+			expectedErr: nil,
+			expectedLog: testRevocationLogNoAmts,
 		},
 	}
 

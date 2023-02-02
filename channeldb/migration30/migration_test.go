@@ -512,6 +512,10 @@ func assertRevocationLog(t testing.TB, want, got RevocationLog) {
 		"wrong TheirOutputIndex")
 	require.Equal(t, want.CommitTxHash, got.CommitTxHash,
 		"wrong CommitTxHash")
+	require.Equal(t, want.TheirBalance, got.TheirBalance,
+		"wrong TheirBalance")
+	require.Equal(t, want.OurBalance, got.OurBalance,
+		"wrong OurBalance")
 	require.Equal(t, len(want.HTLCEntries), len(got.HTLCEntries),
 		"wrong HTLCEntries length")
 

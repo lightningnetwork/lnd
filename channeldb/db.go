@@ -661,6 +661,10 @@ func (c *ChannelStateDB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
 	var (
 		targetChan      *OpenChannel
 		targetChanPoint bytes.Buffer
+
+		// errChanFound is used to signal that the channel has been
+		// found so that iteration through the DB buckets can stop.
+		errChanFound = errors.New("channel found")
 	)
 
 	if err := writeOutpoint(&targetChanPoint, &chanPoint); err != nil {
@@ -739,7 +743,7 @@ func (c *ChannelStateDB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
 				targetChan = channel
 				targetChan.Db = c
 
-				return nil
+				return errChanFound
 			})
 		})
 	}
@@ -750,7 +754,7 @@ func (c *ChannelStateDB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
 	} else {
 		err = chanScan(tx)
 	}
-	if err != nil {
+	if err != nil && !errors.Is(err, errChanFound) {
 		return nil, err
 	}
 

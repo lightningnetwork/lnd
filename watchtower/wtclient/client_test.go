@@ -731,10 +731,9 @@ func (h *testHarness) backupState(id, i uint64, expErr error) {
 	_, retribution := h.channel(id).getState(i)
 
 	chanID := chanIDFromInt(id)
-	err := h.client.BackupState(
-		&chanID, retribution, channeldb.SingleFunderBit,
-	)
-	require.ErrorIs(h.t, err, expErr)
+
+	err := h.client.BackupState(&chanID, retribution.RevokedStateNum)
+	require.ErrorIs(h.t, expErr, err)
 }
 
 // sendPayments instructs the channel identified by id to send amt to the remote

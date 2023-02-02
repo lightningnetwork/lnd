@@ -2029,11 +2029,6 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// We've received a revocation from the remote chain, if valid,
 		// this moves the remote chain forward, and expands our
 		// revocation window.
-		//
-		// Before advancing our remote chain, we will record the
-		// current commit tx, which is used by the TowerClient to
-		// create backups.
-		oldCommitTx := l.channel.State().RemoteCommitment.CommitTx
 
 		// We now process the message and advance our remote commit
 		// chain.
@@ -2070,24 +2065,15 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// create a backup for the current state.
 		if l.cfg.TowerClient != nil {
 			state := l.channel.State()
-			breachInfo, err := lnwallet.NewBreachRetribution(
-				state, state.RemoteCommitment.CommitHeight-1, 0,
-				// OldCommitTx is the breaching tx at height-1.
-				oldCommitTx,
-			)
-			if err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					"failed to load breach info: %v", err)
-				return
-			}
-
 			chanID := l.ChanID()
+
 			err = l.cfg.TowerClient.BackupState(
-				&chanID, breachInfo, state.ChanType,
+				&chanID, state.RemoteCommitment.CommitHeight-1,
 			)
 			if err != nil {
 				l.fail(LinkFailureError{code: ErrInternalError},
-					"unable to queue breach backup: %v", err)
+					"unable to queue breach backup: %v",
+					err)
 				return
 			}
 		}

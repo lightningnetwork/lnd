@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -40,7 +39,6 @@ import (
 type backupTask struct {
 	id         wtdb.BackupID
 	breachInfo *lnwallet.BreachRetribution
-	chanType   channeldb.ChannelType
 
 	// state-dependent variables
 
@@ -55,11 +53,79 @@ type backupTask struct {
 	outputs  []*wire.TxOut
 }
 
-// newBackupTask initializes a new backupTask and populates all state-dependent
-// variables.
-func newBackupTask(chanID *lnwire.ChannelID,
-	breachInfo *lnwallet.BreachRetribution,
-	sweepPkScript []byte, chanType channeldb.ChannelType) *backupTask {
+// newBackupTask initializes a new backupTask.
+func newBackupTask(id wtdb.BackupID, sweepPkScript []byte) *backupTask {
+	return &backupTask{
+		id:            id,
+		sweepPkScript: sweepPkScript,
+	}
+}
+
+// inputs returns all non-dust inputs that we will attempt to spend from.
+//
+// NOTE: Ordering of the inputs is not critical as we sort the transaction with
+// BIP69 in a later stage.
+func (t *backupTask) inputs() map[wire.OutPoint]input.Input {
+	inputs := make(map[wire.OutPoint]input.Input)
+	if t.toLocalInput != nil {
+		inputs[*t.toLocalInput.OutPoint()] = t.toLocalInput
+	}
+	if t.toRemoteInput != nil {
+		inputs[*t.toRemoteInput.OutPoint()] = t.toRemoteInput
+	}
+
+	return inputs
+}
+
+// addrType returns the type of an address after parsing it and matching it to
+// the set of known script templates.
+func addrType(pkScript []byte) txscript.ScriptClass {
+	// We pass in a set of dummy chain params here as they're only needed
+	// to make the address struct, which we're ignoring anyway (scripts are
+	// always the same, it's addresses that change across chains).
+	scriptClass, _, _, _ := txscript.ExtractPkScriptAddrs(
+		pkScript, &chaincfg.MainNetParams,
+	)
+
+	return scriptClass
+}
+
+// addScriptWeight parses the passed pkScript and adds the computed weight cost
+// were the script to be added to the justice transaction.
+func addScriptWeight(weightEstimate *input.TxWeightEstimator,
+	pkScript []byte) error {
+
+	switch addrType(pkScript) {
+	case txscript.WitnessV0PubKeyHashTy:
+		weightEstimate.AddP2WKHOutput()
+
+	case txscript.WitnessV0ScriptHashTy:
+		weightEstimate.AddP2WSHOutput()
+
+	case txscript.WitnessV1TaprootTy:
+		weightEstimate.AddP2TROutput()
+
+	default:
+		return fmt.Errorf("invalid addr type: %v", addrType(pkScript))
+	}
+
+	return nil
+}
+
+// bindSession first populates all state-dependent variables of the task. Then
+// it determines if the backupTask is compatible with the passed SessionInfo's
+// policy. If no error is returned, the task has been bound to the session and
+// can be queued to upload to the tower. Otherwise, the bind failed and should
+// be rescheduled with a different session.
+func (t *backupTask) bindSession(session *wtdb.ClientSessionBody,
+	newBreachRetribution BreachRetributionBuilder) error {
+
+	breachInfo, chanType, err := newBreachRetribution(
+		t.id.ChanID, t.id.CommitHeight,
+	)
+	if err != nil {
+		return err
+	}
 
 	// Parse the non-dust outputs from the breach transaction,
 	// simultaneously computing the total amount contained in the inputs
@@ -123,76 +189,11 @@ func newBackupTask(chanID *lnwire.ChannelID,
 		totalAmt += breachInfo.LocalOutputSignDesc.Output.Value
 	}
 
-	return &backupTask{
-		id: wtdb.BackupID{
-			ChanID:       *chanID,
-			CommitHeight: breachInfo.RevokedStateNum,
-		},
-		breachInfo:    breachInfo,
-		chanType:      chanType,
-		toLocalInput:  toLocalInput,
-		toRemoteInput: toRemoteInput,
-		totalAmt:      btcutil.Amount(totalAmt),
-		sweepPkScript: sweepPkScript,
-	}
-}
+	t.breachInfo = breachInfo
+	t.toLocalInput = toLocalInput
+	t.toRemoteInput = toRemoteInput
+	t.totalAmt = btcutil.Amount(totalAmt)
 
-// inputs returns all non-dust inputs that we will attempt to spend from.
-//
-// NOTE: Ordering of the inputs is not critical as we sort the transaction with
-// BIP69.
-func (t *backupTask) inputs() map[wire.OutPoint]input.Input {
-	inputs := make(map[wire.OutPoint]input.Input)
-	if t.toLocalInput != nil {
-		inputs[*t.toLocalInput.OutPoint()] = t.toLocalInput
-	}
-	if t.toRemoteInput != nil {
-		inputs[*t.toRemoteInput.OutPoint()] = t.toRemoteInput
-	}
-	return inputs
-}
-
-// addrType returns the type of an address after parsing it and matching it to
-// the set of known script templates.
-func addrType(pkScript []byte) txscript.ScriptClass {
-	// We pass in a set of dummy chain params here as they're only needed
-	// to make the address struct, which we're ignoring anyway (scripts are
-	// always the same, it's addresses that change across chains).
-	scriptClass, _, _, _ := txscript.ExtractPkScriptAddrs(
-		pkScript, &chaincfg.MainNetParams,
-	)
-
-	return scriptClass
-}
-
-// addScriptWeight parses the passed pkScript and adds the computed weight cost
-// were the script to be added to the justice transaction.
-func addScriptWeight(weightEstimate *input.TxWeightEstimator,
-	pkScript []byte) error {
-
-	switch addrType(pkScript) { //nolint: whitespace
-
-	case txscript.WitnessV0PubKeyHashTy:
-		weightEstimate.AddP2WKHOutput()
-
-	case txscript.WitnessV0ScriptHashTy:
-		weightEstimate.AddP2WSHOutput()
-
-	case txscript.WitnessV1TaprootTy:
-		weightEstimate.AddP2TROutput()
-
-	default:
-		return fmt.Errorf("invalid addr type: %v", addrType(pkScript))
-	}
-
-	return nil
-}
-
-// bindSession determines if the backupTask is compatible with the passed
-// SessionInfo's policy. If no error is returned, the task has been bound to the
-// session and can be queued to upload to the tower. Otherwise, the bind failed
-// and should be rescheduled with a different session.
-func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 	// First we'll begin by deriving a weight estimate for the justice
 	// transaction. The final weight can be different depending on whether
 	// the watchtower is taking a reward.
@@ -208,7 +209,7 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 		// original weight estimate. For anchor channels we'll go ahead
 		// an use the correct penalty witness when signing our justice
 		// transactions.
-		if t.chanType.HasAnchors() {
+		if chanType.HasAnchors() {
 			weightEstimate.AddWitnessInput(
 				input.ToLocalPenaltyWitnessSize,
 			)
@@ -222,7 +223,7 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 		// Legacy channels (both tweaked and non-tweaked) spend from
 		// P2WKH output. Anchor channels spend a to-remote confirmed
 		// P2WSH  output.
-		if t.chanType.HasAnchors() {
+		if chanType.HasAnchors() {
 			weightEstimate.AddWitnessInput(
 				input.ToRemoteConfirmedWitnessSize,
 			)
@@ -233,7 +234,7 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 
 	// All justice transactions will either use segwit v0 (p2wkh + p2wsh)
 	// or segwit v1 (p2tr).
-	err := addScriptWeight(&weightEstimate, t.sweepPkScript)
+	err = addScriptWeight(&weightEstimate, t.sweepPkScript)
 	if err != nil {
 		return err
 	}
@@ -247,9 +248,9 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 		}
 	}
 
-	if t.chanType.HasAnchors() != session.Policy.IsAnchorChannel() {
+	if chanType.HasAnchors() != session.Policy.IsAnchorChannel() {
 		log.Criticalf("Invalid task (has_anchors=%t) for session "+
-			"(has_anchors=%t)", t.chanType.HasAnchors(),
+			"(has_anchors=%t)", chanType.HasAnchors(),
 			session.Policy.IsAnchorChannel())
 	}
 

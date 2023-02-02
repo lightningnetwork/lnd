@@ -57,6 +57,11 @@ type sessionQueueConfig struct {
 	// for justice transaction inputs.
 	Signer input.Signer
 
+	// BuildBreachRetribution is a function closure that allows the client
+	// to fetch the breach retribution info for a certain channel at a
+	// certain revoked commitment height.
+	BuildBreachRetribution BreachRetributionBuilder
+
 	// DB provides access to the client's stable storage.
 	DB DB
 
@@ -220,7 +225,10 @@ func (q *sessionQueue) AcceptTask(task *backupTask) (reserveStatus, bool) {
 	//
 	// TODO(conner): queue backups and retry with different session params.
 	case reserveAvailable:
-		err := task.bindSession(&q.cfg.ClientSession.ClientSessionBody)
+		err := task.bindSession(
+			&q.cfg.ClientSession.ClientSessionBody,
+			q.cfg.BuildBreachRetribution,
+		)
 		if err != nil {
 			q.queueCond.L.Unlock()
 			q.log.Debugf("SessionQueue(%s) rejected %v: %v ",

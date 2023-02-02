@@ -829,17 +829,12 @@ func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	c.chanCommitHeights[*chanID] = stateNum
 	c.backupMu.Unlock()
 
-	// Fetch the breach retribution info and channel type.
-	breachInfo, chanType, err := c.cfg.BuildBreachRetribution(
-		*chanID, stateNum,
-	)
-	if err != nil {
-		return err
+	id := wtdb.BackupID{
+		ChanID:       *chanID,
+		CommitHeight: stateNum,
 	}
 
-	task := newBackupTask(
-		chanID, breachInfo, summary.SweepPkScript, chanType,
-	)
+	task := newBackupTask(id, summary.SweepPkScript)
 
 	return c.pipeline.QueueBackupTask(task)
 }
@@ -1543,16 +1538,17 @@ func (c *TowerClient) newSessionQueue(s *ClientSession,
 	updates []wtdb.CommittedUpdate) *sessionQueue {
 
 	return newSessionQueue(&sessionQueueConfig{
-		ClientSession: s,
-		ChainHash:     c.cfg.ChainHash,
-		Dial:          c.dial,
-		ReadMessage:   c.readMessage,
-		SendMessage:   c.sendMessage,
-		Signer:        c.cfg.Signer,
-		DB:            c.cfg.DB,
-		MinBackoff:    c.cfg.MinBackoff,
-		MaxBackoff:    c.cfg.MaxBackoff,
-		Log:           c.log,
+		ClientSession:          s,
+		ChainHash:              c.cfg.ChainHash,
+		Dial:                   c.dial,
+		ReadMessage:            c.readMessage,
+		SendMessage:            c.sendMessage,
+		Signer:                 c.cfg.Signer,
+		DB:                     c.cfg.DB,
+		MinBackoff:             c.cfg.MinBackoff,
+		MaxBackoff:             c.cfg.MaxBackoff,
+		Log:                    c.log,
+		BuildBreachRetribution: c.cfg.BuildBreachRetribution,
 	}, updates)
 }
 

@@ -223,7 +223,9 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 		// P2WKH output. Anchor channels spend a to-remote confirmed
 		// P2WSH  output.
 		if t.chanType.HasAnchors() {
-			weightEstimate.AddWitnessInput(input.ToRemoteConfirmedWitnessSize)
+			weightEstimate.AddWitnessInput(
+				input.ToRemoteConfirmedWitnessSize,
+			)
 		} else {
 			weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
 		}
@@ -231,7 +233,8 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody) error {
 
 	// All justice transactions will either use segwit v0 (p2wkh + p2wsh)
 	// or segwit v1 (p2tr).
-	if err := addScriptWeight(&weightEstimate, t.sweepPkScript); err != nil {
+	err := addScriptWeight(&weightEstimate, t.sweepPkScript)
+	if err != nil {
 		return err
 	}
 

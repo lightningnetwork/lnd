@@ -45,7 +45,8 @@ type sessionQueueConfig struct {
 	Dial func(keychain.SingleKeyECDH, *lnwire.NetAddress) (wtserver.Peer,
 		error)
 
-	// SendMessage encodes, encrypts, and writes a message to the given peer.
+	// SendMessage encodes, encrypts, and writes a message to the given
+	// peer.
 	SendMessage func(wtserver.Peer, wtwire.Message) error
 
 	// ReadMessage receives, decypts, and decodes a message from the given
@@ -343,8 +344,8 @@ func (q *sessionQueue) drainBackups() {
 		// before attempting to dequeue any pending updates.
 		stateUpdate, isPending, backupID, err := q.nextStateUpdate()
 		if err != nil {
-			q.log.Errorf("SessionQueue(%v) unable to get next state "+
-				"update: %v", q.ID(), err)
+			q.log.Errorf("SessionQueue(%v) unable to get next "+
+				"state update: %v", q.ID(), err)
 			return
 		}
 

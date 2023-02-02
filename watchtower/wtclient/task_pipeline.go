@@ -116,8 +116,8 @@ func (q *taskPipeline) QueueBackupTask(task *backupTask) error {
 	default:
 	}
 
-	// Queue the new task and signal the queue's condition variable to wake up
-	// the queueManager for processing.
+	// Queue the new task and signal the queue's condition variable to wake
+	// up the queueManager for processing.
 	q.queue.PushBack(task)
 	q.queueCond.L.Unlock()
 
@@ -141,16 +141,21 @@ func (q *taskPipeline) queueManager() {
 
 			select {
 			case <-q.quit:
-				// Exit only after the queue has been fully drained.
+				// Exit only after the queue has been fully
+				// drained.
 				if q.queue.Len() == 0 {
 					q.queueCond.L.Unlock()
-					q.log.Debugf("Revoked state pipeline flushed.")
+					q.log.Debugf("Revoked state pipeline " +
+						"flushed.")
+
 					return
 				}
 
 			case <-q.forceQuit:
 				q.queueCond.L.Unlock()
-				q.log.Debugf("Revoked state pipeline force quit.")
+				q.log.Debugf("Revoked state pipeline force " +
+					"quit.")
+
 				return
 
 			default:
@@ -164,8 +169,8 @@ func (q *taskPipeline) queueManager() {
 
 		select {
 
-		// Backup task submitted to dispatcher. We don't select on quit to
-		// ensure that we still drain tasks while shutting down.
+		// Backup task submitted to dispatcher. We don't select on quit
+		// to ensure that we still drain tasks while shutting down.
 		case q.newBackupTasks <- task:
 
 		// Force quit, return immediately to allow the client to exit.

@@ -404,6 +404,14 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
   3.5.7](https://github.com/lightningnetwork/lnd/pull/7353) to resolve linking
   issues with outdated dependencies.
 
+* [Re-add local and remote output amounts to the revocation 
+  log](https://github.com/lightningnetwork/lnd/pull/7379) and add a new 
+  `--db.no-rev-log-amt-data` flag that can be used to explicitly opt out of  
+  storing this extra data. It should be noted that setting this flag is not 
+  recommended unless the user is sure that they will never activate their 
+  watchtower client (`--wtclient.active`) in the future. The new flag can not
+  be set at all if the `--wtclient.active` flag has been set.
+
 ## Pathfinding
 
 * [Pathfinding takes capacity of edges into account to improve success

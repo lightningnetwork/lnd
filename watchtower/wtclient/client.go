@@ -34,8 +34,8 @@ const (
 	// a read before breaking out of a blocking read.
 	DefaultReadTimeout = 15 * time.Second
 
-	// DefaultWriteTimeout specifies the default duration we will wait during
-	// a write before breaking out of a blocking write.
+	// DefaultWriteTimeout specifies the default duration we will wait
+	// during a write before breaking out of a blocking write.
 	DefaultWriteTimeout = 15 * time.Second
 
 	// DefaultStatInterval specifies the default interval between logging
@@ -569,8 +569,11 @@ func (c *TowerClient) Start() error {
 		// committed but unacked state updates. This ensures that these
 		// sessions will be able to flush the committed updates after a
 		// restart.
+		fetchCommittedUpdates := c.cfg.DB.FetchSessionCommittedUpdates
 		for _, session := range c.candidateSessions {
-			committedUpdates, err := c.cfg.DB.FetchSessionCommittedUpdates(&session.ID)
+			committedUpdates, err := fetchCommittedUpdates(
+				&session.ID,
+			)
 			if err != nil {
 				returnErr = err
 				return
@@ -799,8 +802,8 @@ func (c *TowerClient) RegisterChannel(chanID lnwire.ChannelID) error {
 //   - client is force quit,
 //   - justice transaction would create dust outputs when trying to abide by the
 //     negotiated policy, or
-//   - breached outputs contain too little value to sweep at the target sweep fee
-//     rate.
+//   - breached outputs contain too little value to sweep at the target sweep
+//     fee rate.
 func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	breachInfo *lnwallet.BreachRetribution,
 	chanType channeldb.ChannelType) error {
@@ -817,8 +820,8 @@ func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	height, ok := c.chanCommitHeights[*chanID]
 	if ok && breachInfo.RevokedStateNum <= height {
 		c.backupMu.Unlock()
-		c.log.Debugf("Ignoring duplicate backup for chanid=%v at height=%d",
-			chanID, breachInfo.RevokedStateNum)
+		c.log.Debugf("Ignoring duplicate backup for chanid=%v at "+
+			"height=%d", chanID, breachInfo.RevokedStateNum)
 		return nil
 	}
 
@@ -1496,7 +1499,9 @@ func (c *TowerClient) readMessage(peer wtserver.Peer) (wtwire.Message, error) {
 }
 
 // sendMessage sends a watchtower wire message to the target peer.
-func (c *TowerClient) sendMessage(peer wtserver.Peer, msg wtwire.Message) error {
+func (c *TowerClient) sendMessage(peer wtserver.Peer,
+	msg wtwire.Message) error {
+
 	// Encode the next wire message into the buffer.
 	// TODO(conner): use buffer pool
 	var b bytes.Buffer
@@ -1664,7 +1669,9 @@ func (c *TowerClient) handleNewTower(msg *newTowerMsg) error {
 // negotiations and from being used for any subsequent backups until it's added
 // again. If an address is provided, then this call only serves as a way of
 // removing the address from the watchtower instead.
-func (c *TowerClient) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
+func (c *TowerClient) RemoveTower(pubKey *btcec.PublicKey,
+	addr net.Addr) error {
+
 	errChan := make(chan error, 1)
 
 	select {
@@ -1745,8 +1752,9 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 	// If our active session queue corresponds to the stale tower, we'll
 	// proceed to negotiate a new one.
 	if c.sessionQueue != nil {
-		activeTower := c.sessionQueue.tower.IdentityKey.SerializeCompressed()
-		if bytes.Equal(pubKey, activeTower) {
+		towerKey := c.sessionQueue.tower.IdentityKey
+
+		if bytes.Equal(pubKey, towerKey.SerializeCompressed()) {
 			c.sessionQueue = nil
 		}
 	}

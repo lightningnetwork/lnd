@@ -461,7 +461,8 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 		}
 
 		return &invpkg.InvoiceUpdateDesc{
-			AddHtlcs: htlcs,
+			UpdateType: invpkg.AddHTLCsUpdate,
+			AddHtlcs:   htlcs,
 		}, nil
 	}
 
@@ -1533,6 +1534,7 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) invpkg.InvoiceUpdateCallback {
 			},
 		}
 		update := &invpkg.InvoiceUpdateDesc{
+			UpdateType: invpkg.AddHTLCsUpdate,
 			State: &invpkg.InvoiceStateUpdateDesc{
 				Preimage: invoice.Terms.PaymentPreimage,
 				NewState: invpkg.ContractSettled,
@@ -1590,7 +1592,10 @@ func TestCustomRecords(t *testing.T) {
 			},
 		}
 
-		return &invpkg.InvoiceUpdateDesc{AddHtlcs: htlcs}, nil
+		return &invpkg.InvoiceUpdateDesc{
+			AddHtlcs:   htlcs,
+			UpdateType: invpkg.AddHTLCsUpdate,
+		}, nil
 	}
 
 	_, err = db.UpdateInvoice(ref, nil, callback)
@@ -1667,7 +1672,10 @@ func testInvoiceHtlcAMPFields(t *testing.T, isAMP bool) {
 			},
 		}
 
-		return &invpkg.InvoiceUpdateDesc{AddHtlcs: htlcs}, nil
+		return &invpkg.InvoiceUpdateDesc{
+			AddHtlcs:   htlcs,
+			UpdateType: invpkg.AddHTLCsUpdate,
+		}, nil
 	}
 
 	ref := invpkg.InvoiceRefByHash(payHash)
@@ -2132,8 +2140,9 @@ func updateAcceptAMPHtlc(id uint64, amt lnwire.MilliSatoshi,
 		}
 
 		update := &invpkg.InvoiceUpdateDesc{
-			State:    state,
-			AddHtlcs: htlcs,
+			State:      state,
+			AddHtlcs:   htlcs,
+			UpdateType: invpkg.AddHTLCsUpdate,
 		}
 
 		return update, nil
@@ -2156,6 +2165,10 @@ func getUpdateInvoiceAMPSettle(setID *[32]byte, preimage [32]byte,
 		}
 
 		update := &invpkg.InvoiceUpdateDesc{
+			// TODO(positiveblue): this would be an invalid update
+			// because tires to settle an AMP invoice without adding
+			// any new htlc.
+			UpdateType: invpkg.AddHTLCsUpdate,
 			State: &invpkg.InvoiceStateUpdateDesc{
 				Preimage:      nil,
 				NewState:      invpkg.ContractSettled,
@@ -2276,12 +2289,16 @@ func testUpdateHTLCPreimages(t *testing.T, test updateHTLCPreimageTestCase) {
 		invoice *invpkg.Invoice) (*invpkg.InvoiceUpdateDesc, error) {
 
 		update := &invpkg.InvoiceUpdateDesc{
+			// TODO(positiveblue): this would be an invalid update
+			// because tires to settle an AMP invoice without adding
+			// any new htlc.
 			State: &invpkg.InvoiceStateUpdateDesc{
 				Preimage:      nil,
 				NewState:      invpkg.ContractSettled,
 				HTLCPreimages: htlcPreimages,
 				SetID:         setID,
 			},
+			UpdateType: invpkg.AddHTLCsUpdate,
 		}
 
 		return update, nil

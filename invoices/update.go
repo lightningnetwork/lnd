@@ -238,7 +238,8 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	}
 
 	update := InvoiceUpdateDesc{
-		AddHtlcs: newHtlcs,
+		UpdateType: AddHTLCsUpdate,
+		AddHtlcs:   newHtlcs,
 	}
 
 	// If the invoice cannot be settled yet, only record the htlc.
@@ -252,7 +253,6 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	if inv.HodlInvoice {
 		update.State = &InvoiceStateUpdateDesc{
 			NewState: ContractAccepted,
-			SetID:    setID,
 		}
 		return &update, ctx.acceptRes(resultAccepted), nil
 	}
@@ -428,7 +428,8 @@ func updateLegacy(ctx *invoiceUpdateCtx,
 	}
 
 	update := InvoiceUpdateDesc{
-		AddHtlcs: newHtlcs,
+		AddHtlcs:   newHtlcs,
+		UpdateType: AddHTLCsUpdate,
 	}
 
 	// Don't update invoice state if we are accepting a duplicate payment.

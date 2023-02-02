@@ -127,7 +127,7 @@ func TestReadTLVStream(t *testing.T) {
 
 	// Read the tlv stream.
 	buf := bytes.NewBuffer(testValueBytes)
-	err = readTlvStream(buf, ts)
+	_, err = readTlvStream(buf, ts)
 	require.NoError(t, err)
 
 	// Check the bytes are read as expected.
@@ -150,7 +150,7 @@ func TestReadTLVStreamErr(t *testing.T) {
 
 	// Read the tlv stream.
 	buf := bytes.NewBuffer(b)
-	err = readTlvStream(buf, ts)
+	_, err = readTlvStream(buf, ts)
 	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 
 	// Check the bytes are not read.

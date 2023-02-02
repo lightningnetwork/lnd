@@ -1112,8 +1112,8 @@ func calculateSubBatchSize(totalDelay, subBatchDelay time.Duration,
 		return batchSize
 	}
 
-	subBatchSize := (int(batchSize)*int(subBatchDelay) + int(totalDelay) - 1) /
-		int(totalDelay)
+	subBatchSize := (batchSize*int(subBatchDelay) +
+		int(totalDelay) - 1) / int(totalDelay)
 
 	if subBatchSize < minimumBatchSize {
 		return minimumBatchSize
@@ -1122,10 +1122,20 @@ func calculateSubBatchSize(totalDelay, subBatchDelay time.Duration,
 	return subBatchSize
 }
 
+// batchSizeCalculator maps to the function `calculateSubBatchSize`. We create
+// this variable so the function can be mocked in our test.
+var batchSizeCalculator = calculateSubBatchSize
+
 // splitAnnouncementBatches takes an exiting list of announcements and
 // decomposes it into sub batches controlled by the `subBatchSize`.
-func splitAnnouncementBatches(subBatchSize int,
+func (d *AuthenticatedGossiper) splitAnnouncementBatches(
 	announcementBatch []msgWithSenders) [][]msgWithSenders {
+
+	subBatchSize := batchSizeCalculator(
+		d.cfg.TrickleDelay, d.cfg.SubBatchDelay,
+		d.cfg.MinimumBatchSize, len(announcementBatch),
+	)
+
 	var splitAnnouncementBatch [][]msgWithSenders
 
 	for subBatchSize < len(announcementBatch) {
@@ -1136,7 +1146,9 @@ func splitAnnouncementBatches(subBatchSize int,
 			append(splitAnnouncementBatch,
 				announcementBatch[0:subBatchSize:subBatchSize])
 	}
-	splitAnnouncementBatch = append(splitAnnouncementBatch, announcementBatch)
+	splitAnnouncementBatch = append(
+		splitAnnouncementBatch, announcementBatch,
+	)
 
 	return splitAnnouncementBatch
 }
@@ -1148,16 +1160,7 @@ func splitAnnouncementBatches(subBatchSize int,
 func (d *AuthenticatedGossiper) splitAndSendAnnBatch(annBatch []msgWithSenders,
 	isLocal bool) {
 
-	// Next, If we have new things to announce then broadcast them to all
-	// our immediately connected peers.
-	subBatchSize := calculateSubBatchSize(
-		d.cfg.TrickleDelay, d.cfg.SubBatchDelay,
-		d.cfg.MinimumBatchSize, len(annBatch),
-	)
-
-	splitAnnouncementBatch := splitAnnouncementBatches(
-		subBatchSize, annBatch,
-	)
+	splitAnnouncementBatch := d.splitAnnouncementBatches(annBatch)
 
 	d.wg.Add(1)
 	go func() {
@@ -1168,7 +1171,11 @@ func (d *AuthenticatedGossiper) splitAndSendAnnBatch(annBatch []msgWithSenders,
 			len(splitAnnouncementBatch), isLocal)
 
 		for _, announcementBatch := range splitAnnouncementBatch {
-			d.sendBatch(announcementBatch, isLocal)
+			if isLocal {
+				d.sendLocalBatch(announcementBatch)
+			} else {
+				d.sendRemoteBatch(announcementBatch)
+			}
 
 			select {
 			case <-time.After(d.cfg.SubBatchDelay):
@@ -1179,28 +1186,25 @@ func (d *AuthenticatedGossiper) splitAndSendAnnBatch(annBatch []msgWithSenders,
 	}()
 }
 
-// sendBatch broadcasts a list of announcements to our peers.
-func (d *AuthenticatedGossiper) sendBatch(annBatch []msgWithSenders,
-	isLocal bool) {
+// sendLocalBatch broadcasts a list of locally generated announcements to our
+// peers. For local announcements, we skip the filter and dedup logic and just
+// send the announcements out to all our coonnected peers.
+func (d *AuthenticatedGossiper) sendLocalBatch(annBatch []msgWithSenders) {
+	msgsToSend := lnutils.Map(
+		annBatch, func(m msgWithSenders) lnwire.Message {
+			return m.msg
+		},
+	)
 
-	// If this is a batch of announcements created locally, then we can
-	// skip the filter and dedup logic below, and just send the
-	// announcements out to all our coonnected peers.
-	if isLocal {
-		msgsToSend := lnutils.Map(
-			annBatch, func(m msgWithSenders) lnwire.Message {
-				return m.msg
-			},
-		)
-		err := d.cfg.Broadcast(nil, msgsToSend...)
-		if err != nil {
-			log.Errorf("Unable to send local batch "+
-				"announcements: %v", err)
-		}
-
-		return
+	err := d.cfg.Broadcast(nil, msgsToSend...)
+	if err != nil {
+		log.Errorf("Unable to send local batch announcements: %v", err)
 	}
+}
 
+// sendRemoteBatch broadcasts a list of remotely generated announcements to our
+// peers.
+func (d *AuthenticatedGossiper) sendRemoteBatch(annBatch []msgWithSenders) {
 	syncerPeers := d.syncMgr.GossipSyncers()
 
 	// We'll first attempt to filter out this new message for all peers

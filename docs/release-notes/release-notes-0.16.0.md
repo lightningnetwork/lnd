@@ -59,6 +59,13 @@ current gossip sync query status.
   enables this feature by default but adds a new flag `skip_peer_alias_lookup`
   to skip the lookup.
 
+* [Add the possibility to define a change address type
+  for FundPsbt RPC call](https://github.com/lightningnetwork/lnd/pull/7348).
+  If no address type is specified for default/imported accounts, P2WKH will be
+  used. No custom address type should be provided for custom accounts as we will
+  always use the coin selection key scope to generate the change address. This
+  possibility is available in lncli as well.
+
 * The graph lookups method `DescribeGraph`, `GetNodeInfo` and `GetChanInfo` now
   [expose tlv data](https://github.com/lightningnetwork/lnd/pull/7085) that is
   broadcast over the gossip network.
@@ -468,6 +475,7 @@ refactor the itest for code health and maintenance.
 * Michael Street
 * Olaoluwa Osuntokun
 * Oliver Gugger
+* Pierre Beugnet
 * Priyansh Rastogi
 * Robyn Ffrancon
 * Roei Erez

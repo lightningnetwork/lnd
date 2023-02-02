@@ -1154,34 +1154,48 @@ func (d *AuthenticatedGossiper) splitAnnouncementBatches(
 }
 
 // splitAndSendAnnBatch takes a batch of messages, computes the proper batch
-// split size, and then sends out all items to the set of target peers. If
-// isLocal is true, then we'll send them to all peers and skip any gossip
-// filter checks.
-func (d *AuthenticatedGossiper) splitAndSendAnnBatch(annBatch []msgWithSenders,
-	isLocal bool) {
+// split size, and then sends out all items to the set of target peers. Locally
+// generated announcements are always sent before remotely generated
+// announcements.
+func (d *AuthenticatedGossiper) splitAndSendAnnBatch(
+	annBatch msgsToBroadcast) {
 
-	splitAnnouncementBatch := d.splitAnnouncementBatches(annBatch)
+	// delayNextBatch is a helper closure that blocks for `SubBatchDelay`
+	// duration to delay the sending of next announcement batch.
+	delayNextBatch := func() {
+		select {
+		case <-time.After(d.cfg.SubBatchDelay):
+		case <-d.quit:
+			return
+		}
+	}
+
+	// Fetch the local and remote announcements.
+	localBatches := d.splitAnnouncementBatches(annBatch.localMsgs)
+	remoteBatches := d.splitAnnouncementBatches(annBatch.remoteMsgs)
 
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
 
-		log.Infof("Broadcasting %v new announcements in %d sub "+
-			"batches (local=%v)", len(annBatch),
-			len(splitAnnouncementBatch), isLocal)
+		log.Debugf("Broadcasting %v new local announcements in %d "+
+			"sub batches", len(annBatch.localMsgs),
+			len(localBatches))
 
-		for _, announcementBatch := range splitAnnouncementBatch {
-			if isLocal {
-				d.sendLocalBatch(announcementBatch)
-			} else {
-				d.sendRemoteBatch(announcementBatch)
-			}
+		// Send out the local announcements first.
+		for _, annBatch := range localBatches {
+			d.sendLocalBatch(annBatch)
+			delayNextBatch()
+		}
 
-			select {
-			case <-time.After(d.cfg.SubBatchDelay):
-			case <-d.quit:
-				return
-			}
+		log.Debugf("Broadcasting %v new remote announcements in %d "+
+			"sub batches", len(annBatch.remoteMsgs),
+			len(remoteBatches))
+
+		// Now send the remote announcements.
+		for _, annBatch := range remoteBatches {
+			d.sendRemoteBatch(annBatch)
+			delayNextBatch()
 		}
 	}()
 }
@@ -1354,12 +1368,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// announcements, we'll blast them out w/o regard for
 			// our peer's policies so we ensure they propagate
 			// properly.
-			d.splitAndSendAnnBatch(
-				announcementBatch.localMsgs, true,
-			)
-			d.splitAndSendAnnBatch(
-				announcementBatch.remoteMsgs, false,
-			)
+			d.splitAndSendAnnBatch(announcementBatch)
 
 		// The retransmission timer has ticked which indicates that we
 		// should check if we need to prune or re-broadcast any of our

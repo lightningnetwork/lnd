@@ -784,7 +784,7 @@ func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
 		HistoricalSyncTicker:  ticker.NewForce(DefaultHistoricalSyncInterval),
 		NumActiveSyncers:      3,
 		AnnSigner:             &mock.SingleSigner{Privkey: selfKeyPriv},
-		SubBatchDelay:         time.Second * 5,
+		SubBatchDelay:         1 * time.Millisecond,
 		MinimumBatchSize:      10,
 		MaxChannelUpdateBurst: DefaultMaxChannelUpdateBurst,
 		ChannelUpdateInterval: DefaultChannelUpdateInterval,
@@ -3371,7 +3371,9 @@ out:
 		case <-sentMsgs:
 		case err := <-notifyErr:
 			t.Fatal(err)
-		default:
+
+		// Give it 5 seconds to drain out.
+		case <-time.After(5 * time.Second):
 			break out
 		}
 	}

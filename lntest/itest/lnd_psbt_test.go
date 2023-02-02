@@ -928,26 +928,37 @@ func runFundAndSignPsbt(ht *lntemp.HarnessTest, alice *node.HarnessNode) {
 		lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 		lnrpc.AddressType_TAPROOT_PUBKEY,
 	}
+	changeAddrTypes := []walletrpc.ChangeAddressType{
+		walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_UNSPECIFIED,
+		walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR,
+	}
 
 	for _, addrType := range spendAddrTypes {
-		ht.Logf("testing with address type %s", addrType)
+		for _, changeType := range changeAddrTypes {
+			ht.Logf("testing with address type %s and"+
+				"change address type %s", addrType, changeType)
 
-		// First, spend all the coins in the wallet to an address of
-		// the given type so that UTXO will be picked when funding a
-		// PSBT.
-		sendAllCoinsToAddrType(ht, alice, addrType)
+			// First, spend all the coins in the wallet to an
+			// address of the given type so that UTXO will be picked
+			// when funding a PSBT.
+			sendAllCoinsToAddrType(ht, alice, addrType)
 
-		// Let's fund a PSBT now where we want to send a few sats to
-		// our main address.
-		assertPsbtFundSignSpend(ht, alice, fundOutputs, false)
+			// Let's fund a PSBT now where we want to send a few
+			// sats to our main address.
+			assertPsbtFundSignSpend(
+				ht, alice, fundOutputs, changeType, false,
+			)
 
-		// Send all coins back to a single address once again.
-		sendAllCoinsToAddrType(ht, alice, addrType)
+			// Send all coins back to a single address once again.
+			sendAllCoinsToAddrType(ht, alice, addrType)
 
-		// And now make sure the alternate way of signing a PSBT, which
-		// is calling FinalizePsbt directly, also works for this
-		// address type.
-		assertPsbtFundSignSpend(ht, alice, fundOutputs, true)
+			// And now make sure the alternate way of signing a
+			// PSBT, which is calling FinalizePsbt directly, also
+			// works for this address type.
+			assertPsbtFundSignSpend(
+				ht, alice, fundOutputs, changeType, true,
+			)
+		}
 	}
 }
 
@@ -1064,7 +1075,8 @@ func assertPsbtSpend(ht *lntemp.HarnessTest, alice *node.HarnessNode,
 // assertPsbtFundSignSpend funds a PSBT from the internal wallet and then
 // attempts to sign it by using the SignPsbt or FinalizePsbt method.
 func assertPsbtFundSignSpend(ht *lntemp.HarnessTest, alice *node.HarnessNode,
-	fundOutputs map[string]uint64, useFinalize bool) {
+	fundOutputs map[string]uint64, changeType walletrpc.ChangeAddressType,
+	useFinalize bool) {
 
 	fundResp := alice.RPC.FundPsbt(&walletrpc.FundPsbtRequest{
 		Template: &walletrpc.FundPsbtRequest_Raw{
@@ -1075,7 +1087,8 @@ func assertPsbtFundSignSpend(ht *lntemp.HarnessTest, alice *node.HarnessNode,
 		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
 			SatPerVbyte: 2,
 		},
-		MinConfs: 1,
+		MinConfs:   1,
+		ChangeType: changeType,
 	},
 	)
 	require.GreaterOrEqual(ht, fundResp.ChangeOutputIndex, int32(-1))
@@ -1113,6 +1126,11 @@ func assertPsbtFundSignSpend(ht *lntemp.HarnessTest, alice *node.HarnessNode,
 	finalTx, err := psbt.Extract(signedPacket)
 	require.NoError(ht, err)
 
+	// Check type of the change script depending on the change address
+	// type we provided in FundPsbt.
+	changeScript := finalTx.TxOut[fundResp.ChangeOutputIndex].PkScript
+	assertChangeScriptType(ht, changeScript, changeType)
+
 	var buf bytes.Buffer
 	err = finalTx.Serialize(&buf)
 	require.NoError(ht, err)
@@ -1126,6 +1144,21 @@ func assertPsbtFundSignSpend(ht *lntemp.HarnessTest, alice *node.HarnessNode,
 	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 	finalTxHash := finalTx.TxHash()
 	ht.Miner.AssertTxInBlock(block, &finalTxHash)
+}
+
+// assertChangeScriptType checks if the given script has the right type given
+// the change address type we used in FundPsbt. By default, the script should
+// be a P2WPKH one.
+func assertChangeScriptType(ht *lntemp.HarnessTest, script []byte,
+	fundChangeType walletrpc.ChangeAddressType) {
+
+	switch fundChangeType {
+	case walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR:
+		require.True(ht, txscript.IsPayToTaproot(script))
+
+	default:
+		require.True(ht, txscript.IsPayToWitnessPubKeyHash(script))
+	}
 }
 
 // deriveInternalKey derives a signing key and returns its descriptor, full

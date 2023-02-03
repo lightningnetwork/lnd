@@ -6924,6 +6924,15 @@
         }
       }
     },
+    "lnrpcTransactionDetail": {
+      "type": "object",
+      "properties": {
+        "transaction": {
+          "$ref": "#/definitions/lnrpcTransaction",
+          "description": "The transaction related to the wallet."
+        }
+      }
+    },
     "lnrpcTransactionDetails": {
       "type": "object",
       "properties": {

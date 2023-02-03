@@ -1771,6 +1771,52 @@ func debugLevel(ctx *cli.Context) error {
 	return nil
 }
 
+var getChainTxnCommand = cli.Command{
+	Name:      "getchaintxn",
+	Category:  "On-chain",
+	Usage:     "Get a specific transaction from the wallet",
+	ArgsUsage: "getchaintxn tx_hash",
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  "tx_hash",
+			Usage: "the transaction hash to search for",
+		},
+	},
+	Description: `
+	Get a specific transaction related to the wallet.
+
+	This call will return a specific transaction related to our wallet,
+	The tx_hash is used to search for the transaction itself, including
+	uncorfirmed transactions.
+	`,
+	Action: actionDecorator(getChainTx),
+}
+
+func getChainTx(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	req := &lnrpc.GetTransactionRequest{}
+
+	switch {
+	case ctx.IsSet("tx_hash"):
+		req.TxHash = ctx.String("tx_hash")
+	case ctx.Args().Present():
+		req.TxHash = ctx.Args().First()
+	default:
+		return fmt.Errorf("tx_hash argument missing")
+	}
+
+	resp, err := client.GetTransaction(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
 var listChainTxnsCommand = cli.Command{
 	Name:     "listchaintxns",
 	Category: "On-chain",

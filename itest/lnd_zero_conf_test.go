@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -821,25 +822,34 @@ func testOptionScidUpgrade(ht *lntest.HarnessTest) {
 	var startingAlias lnwire.ShortChannelID
 	startingAlias.BlockHeight = 16_000_000
 
-	err := wait.Predicate(func() bool {
+	// TODO(yy): Carol and Dave will attempt to connect to each other
+	// during restart. However, due to the race condition in peer
+	// connection, they may both fail. Thus we need to ensure the
+	// connection here. Once the race is fixed, we can remove this line.
+	ht.EnsureConnected(dave, carol)
+
+	err := wait.NoError(func() error {
 		invoiceResp := dave.RPC.AddInvoice(daveParams)
 		decodedReq := dave.RPC.DecodePayReq(invoiceResp.PaymentRequest)
 
 		if len(decodedReq.RouteHints) != 1 {
-			return false
+			return fmt.Errorf("expected 1 route hint, got %v",
+				decodedReq.RouteHints)
 		}
 
 		if len(decodedReq.RouteHints[0].HopHints) != 1 {
-			return false
+			return fmt.Errorf("expected 1 hop hint, got %v",
+				len(decodedReq.RouteHints[0].HopHints))
 		}
 
 		hopHint := decodedReq.RouteHints[0].HopHints[0].ChanId
 		if startingAlias.ToUint64() == hopHint {
 			daveInvoice = invoiceResp
-			return true
+			return nil
 		}
 
-		return false
+		return fmt.Errorf("unmatched alias, expected %v, got %v",
+			startingAlias.ToUint64(), hopHint)
 	}, defaultTimeout)
 	require.NoError(ht, err)
 

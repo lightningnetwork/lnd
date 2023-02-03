@@ -335,9 +335,26 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		GetAlias:              s.cfg.GetAlias,
 	}
 
-	hash, err := lntypes.MakeHash(invoice.Hash)
-	if err != nil {
-		return nil, err
+	var preimage *lntypes.Preimage
+	var hash *lntypes.Hash
+	var err error
+
+	if len(invoice.Hash) == 0 {
+		preimage, err = lntypes.RandomPreimage()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		hash0, err := lntypes.MakeHash(invoice.Hash)
+		if err != nil {
+			return nil, err
+		}
+		hash = &hash0
+	}
+
+	var preimageBytes []byte
+	if preimage != nil {
+		preimageBytes = preimage[:]
 	}
 
 	value, err := lnrpc.UnmarshallAmt(invoice.Value, invoice.ValueMsat)
@@ -352,7 +369,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 	}
 	addInvoiceData := &AddInvoiceData{
 		Memo:            invoice.Memo,
-		Hash:            &hash,
+		Hash:            hash,
 		Value:           value,
 		DescriptionHash: invoice.DescriptionHash,
 		Expiry:          invoice.Expiry,
@@ -360,7 +377,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		CltvExpiry:      invoice.CltvExpiry,
 		Private:         invoice.Private,
 		HodlInvoice:     true,
-		Preimage:        nil,
+		Preimage:        preimage,
 		RouteHints:      routeHints,
 	}
 
@@ -373,6 +390,7 @@ func (s *Server) AddHoldInvoice(ctx context.Context,
 		AddIndex:       dbInvoice.AddIndex,
 		PaymentRequest: string(dbInvoice.PaymentRequest),
 		PaymentAddr:    dbInvoice.Terms.PaymentAddr[:],
+		Preimage:       preimageBytes,
 	}, nil
 }
 

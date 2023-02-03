@@ -1,6 +1,7 @@
 package lntypes
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -16,6 +17,18 @@ type Preimage [PreimageSize]byte
 // String returns the Preimage as a hexadecimal string.
 func (p Preimage) String() string {
 	return hex.EncodeToString(p[:])
+}
+
+// Returns a preimage with random bytes.
+func RandomPreimage() (*Preimage, error) {
+	bytes := make([]byte, PreimageSize)
+	if _, err := rand.Read(bytes); err != nil {
+		return &Preimage{}, err
+	}
+	var preimage Preimage
+	copy(preimage[:], bytes)
+
+	return &preimage, nil
 }
 
 // MakePreimage returns a new Preimage from a bytes slice. An error is returned

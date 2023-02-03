@@ -74,6 +74,22 @@ func testHoldInvoicePersistence(ht *lntemp.HarnessTest) {
 		}
 	}
 
+	// An AddHoldInvoiceRequest request without providing a preimage hash
+	// should generate one, saves it and its hash, and return the preimage
+	// in response.
+	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
+		Memo:    "testing without hash",
+		Value:   int64(payAmt),
+		Private: true,
+	}
+
+	resp := carol.RPC.AddHoldInvoice(invoiceReq)
+
+	require.NotNil(ht, resp.Preimage)
+	invoice := carol.RPC.DecodePayReq(resp.PaymentRequest)
+	preimageReturned, _ := lntypes.MakePreimage(resp.Preimage)
+	require.Equal(ht, preimageReturned.Hash().String(), invoice.PaymentHash)
+
 	for _, preimage := range preimages {
 		payHash := preimage.Hash()
 
@@ -86,6 +102,8 @@ func testHoldInvoicePersistence(ht *lntemp.HarnessTest) {
 			Private: true,
 		}
 		resp := carol.RPC.AddHoldInvoice(invoiceReq)
+		require.Nil(ht, resp.Preimage)
+
 		payReqs = append(payReqs, resp.PaymentRequest)
 
 		// We expect all of our invoices to have hop hints attached,

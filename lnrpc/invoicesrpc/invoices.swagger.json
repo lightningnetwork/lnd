@@ -301,6 +301,11 @@
           "type": "string",
           "format": "byte",
           "description": "The payment address of the generated invoice. This value should be used\nin all payments for this invoice as we require it for end to end\nsecurity."
+        },
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "If the preimage hash is not provided in the request, a random preimage is\ngenerated and returned in this field."
         }
       }
     },

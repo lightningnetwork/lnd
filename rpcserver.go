@@ -5460,7 +5460,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		}
 		addInvoiceData.Preimage = &preimage
 	}
-
 	hash, dbInvoice, err := invoicesrpc.AddInvoice(
 		ctx, addInvoiceCfg, addInvoiceData,
 	)

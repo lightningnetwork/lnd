@@ -153,6 +153,10 @@ var addHoldInvoiceCommand = cli.Command{
 	ArgsUsage: "hash [amt]",
 	Flags: []cli.Flag{
 		cli.StringFlag{
+			Name:  "hash",
+			Usage: "the hash of the preimage",
+		},
+		cli.StringFlag{
 			Name: "memo",
 			Usage: "a description of the payment to attach along " +
 				"with the invoice (default=\"\")",
@@ -210,9 +214,12 @@ func addHoldInvoice(ctx *cli.Context) error {
 		return nil
 	}
 
-	hash, err := hex.DecodeString(args.First())
-	if err != nil {
-		return fmt.Errorf("unable to parse hash: %v", err)
+	var hash []byte
+	if ctx.IsSet("hash") {
+		hash, err = hex.DecodeString(ctx.String("hash"))
+		if err != nil {
+			return fmt.Errorf("unable to parse hash: %w", err)
+		}
 	}
 
 	args = args.Tail()

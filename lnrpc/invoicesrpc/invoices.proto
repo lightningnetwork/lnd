@@ -125,6 +125,12 @@ message AddHoldInvoiceResp {
     security.
     */
     bytes payment_addr = 3;
+
+    /*
+    If the preimage hash is not provided in the request, a random preimage is
+    generated and returned in this field.
+    */
+    bytes preimage = 4;
 }
 
 message SettleInvoiceMsg {

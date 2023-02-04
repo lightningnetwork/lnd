@@ -72,9 +72,70 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 		return nil, fmt.Errorf("mock signer does not have key")
 	}
 
-	sig, err := txscript.RawTxInWitnessSignature(tx, signDesc.SigHashes,
-		signDesc.InputIndex, signDesc.Output.Value, signDesc.WitnessScript,
-		signDesc.HashType, privKey)
+	// In case of a taproot output any signature is always a Schnorr
+	// signature, based on the new tapscript sighash algorithm.
+	//
+	// TODO(roasbeef): should conslidate with btcwallet/signer.go
+	if txscript.IsPayToTaproot(signDesc.Output.PkScript) {
+		sigHashes := txscript.NewTxSigHashes(
+			tx, signDesc.PrevOutputFetcher,
+		)
+
+		witnessScript := signDesc.WitnessScript
+
+		// Are we spending a script path or the key path? The API is
+		// slightly different, so we need to account for that to get the
+		// raw signature.
+		var (
+			rawSig []byte
+			err    error
+		)
+		switch signDesc.SignMethod {
+		case TaprootKeySpendBIP0086SignMethod,
+			TaprootKeySpendSignMethod:
+
+			// This function tweaks the private key using the tap
+			// root key supplied as the tweak.
+			rawSig, err = txscript.RawTxInTaprootSignature(
+				tx, sigHashes, signDesc.InputIndex,
+				signDesc.Output.Value, signDesc.Output.PkScript,
+				signDesc.TapTweak, signDesc.HashType,
+				privKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		case TaprootScriptSpendSignMethod:
+			leaf := txscript.TapLeaf{
+				LeafVersion: txscript.BaseLeafVersion,
+				Script:      witnessScript,
+			}
+			rawSig, err = txscript.RawTxInTapscriptSignature(
+				tx, sigHashes, signDesc.InputIndex,
+				signDesc.Output.Value, signDesc.Output.PkScript,
+				leaf, signDesc.HashType, privKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		sig, err := schnorr.ParseSignature(
+			rawSig[:schnorr.SignatureSize],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return sig, nil
+	}
+
+	sig, err := txscript.RawTxInWitnessSignature(
+		tx, signDesc.SigHashes, signDesc.InputIndex,
+		signDesc.Output.Value, signDesc.WitnessScript,
+		signDesc.HashType, privKey,
+	)
 	if err != nil {
 		return nil, err
 	}

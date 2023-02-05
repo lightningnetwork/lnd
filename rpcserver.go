@@ -439,10 +439,6 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "onchain",
 			Action: "read",
 		}},
-		"/lnrpc.Lightning/GetTransaction": {{
-			Entity: "onchain",
-			Action: "read",
-		}},
 		"/lnrpc.Lightning/GetTransactions": {{
 			Entity: "onchain",
 			Action: "read",
@@ -5701,12 +5697,6 @@ func (r *rpcServer) SubscribeTransactions(req *lnrpc.GetTransactionsRequest,
 			return nil
 		}
 	}
-}
-
-func (r *rpcServer) GetTransaction(ctx context.Context,
-	req *lnrpc.GetTransactionRequest) (*lnrpc.TransactionDetail, error) {
-	//r.server.cc.Wallet.ListTransactionDetails()
-	return &lnrpc.TransactionDetail{}, nil
 }
 
 // GetTransactions returns a list of describing all the known transactions

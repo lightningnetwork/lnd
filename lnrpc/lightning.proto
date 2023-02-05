@@ -38,11 +38,6 @@ service Lightning {
     */
     rpc ChannelBalance (ChannelBalanceRequest) returns (ChannelBalanceResponse);
 
-    /* lncli: `getchaintxn`
-    GetTransaction returns a specific transaction related to the wallet.
-    */
-    rpc GetTransaction (GetTransactionRequest) returns (TransactionDetail);
-
     /* lncli: `listchaintxns`
     GetTransactions returns a list describing all the known transactions
     relevant to the wallet.
@@ -725,11 +720,6 @@ message Transaction {
     repeated PreviousOutPoint previous_outpoints = 12;
 }
 
-message GetTransactionRequest {
-    // The hash hex of the transaction to search.
-    string tx_hash = 1;
-}
-
 message GetTransactionsRequest {
     /*
     The height from which to list transactions, inclusive. If this value is
@@ -748,11 +738,6 @@ message GetTransactionsRequest {
 
     // An optional filter to only include transactions relevant to an account.
     string account = 3;
-}
-
-message TransactionDetail {
-    // The transaction related to the wallet.
-    Transaction transaction = 1;
 }
 
 message TransactionDetails {

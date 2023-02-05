@@ -28,9 +28,6 @@ type LightningClient interface {
 	// categorized in local/remote, pending local/remote and unsettled local/remote
 	// balances.
 	ChannelBalance(ctx context.Context, in *ChannelBalanceRequest, opts ...grpc.CallOption) (*ChannelBalanceResponse, error)
-	// lncli: `getchaintxn`
-	// GetTransaction returns a specific transaction related to the wallet.
-	GetTransaction(ctx context.Context, in *GetTransactionRequest, opts ...grpc.CallOption) (*TransactionDetail, error)
 	// lncli: `listchaintxns`
 	// GetTransactions returns a list describing all the known transactions
 	// relevant to the wallet.
@@ -428,15 +425,6 @@ func (c *lightningClient) WalletBalance(ctx context.Context, in *WalletBalanceRe
 func (c *lightningClient) ChannelBalance(ctx context.Context, in *ChannelBalanceRequest, opts ...grpc.CallOption) (*ChannelBalanceResponse, error) {
 	out := new(ChannelBalanceResponse)
 	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/ChannelBalance", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *lightningClient) GetTransaction(ctx context.Context, in *GetTransactionRequest, opts ...grpc.CallOption) (*TransactionDetail, error) {
-	out := new(TransactionDetail)
-	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/GetTransaction", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1339,9 +1327,6 @@ type LightningServer interface {
 	// categorized in local/remote, pending local/remote and unsettled local/remote
 	// balances.
 	ChannelBalance(context.Context, *ChannelBalanceRequest) (*ChannelBalanceResponse, error)
-	// lncli: `getchaintxn`
-	// GetTransaction returns a specific transaction related to the wallet.
-	GetTransaction(context.Context, *GetTransactionRequest) (*TransactionDetail, error)
 	// lncli: `listchaintxns`
 	// GetTransactions returns a list describing all the known transactions
 	// relevant to the wallet.
@@ -1730,9 +1715,6 @@ func (UnimplementedLightningServer) WalletBalance(context.Context, *WalletBalanc
 func (UnimplementedLightningServer) ChannelBalance(context.Context, *ChannelBalanceRequest) (*ChannelBalanceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ChannelBalance not implemented")
 }
-func (UnimplementedLightningServer) GetTransaction(context.Context, *GetTransactionRequest) (*TransactionDetail, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetTransaction not implemented")
-}
 func (UnimplementedLightningServer) GetTransactions(context.Context, *GetTransactionsRequest) (*TransactionDetails, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTransactions not implemented")
 }
@@ -1973,24 +1955,6 @@ func _Lightning_ChannelBalance_Handler(srv interface{}, ctx context.Context, dec
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(LightningServer).ChannelBalance(ctx, req.(*ChannelBalanceRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _Lightning_GetTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetTransactionRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(LightningServer).GetTransaction(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/lnrpc.Lightning/GetTransaction",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(LightningServer).GetTransaction(ctx, req.(*GetTransactionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3238,10 +3202,6 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ChannelBalance",
 			Handler:    _Lightning_ChannelBalance_Handler,
-		},
-		{
-			MethodName: "GetTransaction",
-			Handler:    _Lightning_GetTransaction_Handler,
 		},
 		{
 			MethodName: "GetTransactions",

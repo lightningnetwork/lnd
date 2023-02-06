@@ -738,6 +738,9 @@ message GetTransactionsRequest {
 
     // An optional filter to only include transactions relevant to an account.
     string account = 3;
+
+    // A filter for searching specific transactions.
+    repeated string tx_hash_list = 4;
 }
 
 message TransactionDetails {

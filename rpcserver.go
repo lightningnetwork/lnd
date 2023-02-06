@@ -5714,8 +5714,13 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		endHeight = req.EndHeight
 	}
 
+	var txHashList []string
+	if len(req.TxHashList) != 0 {
+		txHashList = req.TxHashList
+	}
+
 	transactions, err := r.server.cc.Wallet.ListTransactionDetails(
-		req.StartHeight, endHeight, req.Account,
+		req.StartHeight, endHeight, txHashList, req.Account,
 	)
 	if err != nil {
 		return nil, err

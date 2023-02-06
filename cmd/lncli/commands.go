@@ -1788,6 +1788,11 @@ var listChainTxnsCommand = cli.Command{
 				"until the chain tip, including unconfirmed, " +
 				"set this value to -1",
 		},
+		cli.StringSliceFlag{
+			Name: "tx_hash",
+			Usage: "the transaction hash to search for. Can be set " +
+				"multiple times in the same command.",
+		},
 	},
 	Description: `
 	List all transactions an address of the wallet was involved in.
@@ -1817,6 +1822,9 @@ func listChainTxns(ctx *cli.Context) error {
 	}
 	if ctx.IsSet("end_height") {
 		req.EndHeight = int32(ctx.Int64("end_height"))
+	}
+	if ctx.IsSet("tx_hash") {
+		req.TxHashList = ctx.StringSlice("tx_hash")
 	}
 
 	resp, err := client.GetTransactions(ctxc, req)

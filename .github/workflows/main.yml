@@ -188,6 +188,7 @@ jobs:
   integration-test:
     name: run itests
     runs-on: ubuntu-latest
+    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     strategy:
       # Allow other tests in the matrix to continue if one fails.
       fail-fast: false
@@ -243,6 +244,7 @@ jobs:
   windows-integration-test:
     name: run windows itest
     runs-on: windows-latest
+    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     steps:
       - name: git checkout
         uses: actions/checkout@v3
@@ -273,6 +275,7 @@ jobs:
   new-integration-test:
     name: run new itests
     runs-on: ubuntu-latest
+    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     strategy:
       # Allow other tests in the matrix to continue if one fails.
       fail-fast: false
@@ -328,6 +331,7 @@ jobs:
   new-windows-integration-test:
     name: run new windows itest
     runs-on: windows-latest
+    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     steps:
       - name: git checkout
         uses: actions/checkout@v3
@@ -381,6 +385,7 @@ jobs:
   milestone-check:
     name: check release notes updated
     runs-on: ubuntu-latest
+    if: '!contains(github.event.pull_request.labels.*.name, ''no-changelog'')'
     steps:
       - name: git checkout
         uses: actions/checkout@v3

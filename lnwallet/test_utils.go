@@ -106,8 +106,9 @@ var (
 // allocated to each side. Within the channel, Alice is the initiator. If
 // tweaklessCommits is true, then the commits within the channels will use the
 // new format, otherwise the legacy format.
-func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType) (
-	*LightningChannel, *LightningChannel, error) {
+func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
+	dbModifiers ...channeldb.OptionModifier) (*LightningChannel,
+	*LightningChannel, error) {
 
 	channelCapacity, err := btcutil.NewAmount(testChannelCapacity)
 	if err != nil {
@@ -228,7 +229,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType) (
 		return nil, nil, err
 	}
 
-	dbAlice, err := channeldb.Open(t.TempDir())
+	dbAlice, err := channeldb.Open(t.TempDir(), dbModifiers...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -236,7 +237,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType) (
 		require.NoError(t, dbAlice.Close())
 	})
 
-	dbBob, err := channeldb.Open(t.TempDir())
+	dbBob, err := channeldb.Open(t.TempDir(), dbModifiers...)
 	if err != nil {
 		return nil, nil, err
 	}

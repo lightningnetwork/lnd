@@ -73,6 +73,9 @@ current gossip sync query status.
   Final resolution data will only be available for htlcs that are resolved
   after upgrading lnd.
 
+  This feature is [opt-in](https://github.com/lightningnetwork/lnd/pull/7341)
+  via a config flag.
+
 * Zero-amount private invoices [now provide hop
   hints](https://github.com/lightningnetwork/lnd/pull/7082), up to `maxHopHints`
   (20 currently).

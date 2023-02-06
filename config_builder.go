@@ -872,6 +872,9 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
 		channeldb.OptionSetUseGraphCache(!cfg.DB.NoGraphCache),
 		channeldb.OptionKeepFailedPaymentAttempts(cfg.KeepFailedPaymentAttempts),
+		channeldb.OptionStoreFinalHtlcResolutions(
+			cfg.StoreFinalHtlcResolutions,
+		),
 		channeldb.OptionPruneRevocationLog(cfg.DB.PruneRevocation),
 	}
 

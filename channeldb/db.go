@@ -307,6 +307,7 @@ type DB struct {
 	clock                     clock.Clock
 	dryRun                    bool
 	keepFailedPaymentAttempts bool
+	storeFinalHtlcResolutions bool
 }
 
 // Open opens or creates channeldb. Any necessary schemas migrations due
@@ -364,6 +365,7 @@ func CreateWithBackend(backend kvdb.Backend,
 		clock:                     opts.clock,
 		dryRun:                    opts.dryRun,
 		keepFailedPaymentAttempts: opts.keepFailedPaymentAttempts,
+		storeFinalHtlcResolutions: opts.storeFinalHtlcResolutions,
 	}
 
 	// Set the parent pointer (only used in tests).
@@ -1740,6 +1742,11 @@ func (c *ChannelStateDB) LookupFinalHtlc(chanID lnwire.ShortChannelID,
 // the database.
 func (c *ChannelStateDB) PutOnchainFinalHtlcOutcome(
 	chanID lnwire.ShortChannelID, htlcID uint64, settled bool) error {
+
+	// Skip if the user did not opt in to storing final resolutions.
+	if !c.parent.storeFinalHtlcResolutions {
+		return nil
+	}
 
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		finalHtlcsBucket, err := fetchFinalHtlcsBucketRw(tx, chanID)

@@ -258,6 +258,9 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 * [Add a flag](https://github.com/lightningnetwork/lnd/pull/6527) to allow for
   the option to encrypt the tls key.
 
+* [Remove unused args](https://github.com/lightningnetwork/lnd/pull/7387)
+  from `cert.GenCertPair`.
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice

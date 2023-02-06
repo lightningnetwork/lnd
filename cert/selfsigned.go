@@ -200,9 +200,9 @@ func IsOutdated(cert *x509.Certificate, tlsExtraIPs,
 //
 // This function is adapted from https://github.com/btcsuite/btcd and
 // https://github.com/btcsuite/btcd/btcutil
-func GenCertPair(org, certFile, keyFile string, tlsExtraIPs,
-	tlsExtraDomains []string, tlsDisableAutofill bool,
-	certValidity time.Duration) ([]byte, []byte, error) {
+func GenCertPair(org string, tlsExtraIPs, tlsExtraDomains []string,
+	tlsDisableAutofill bool, certValidity time.Duration) (
+	[]byte, []byte, error) {
 
 	now := time.Now()
 	validUntil := now.Add(certValidity)

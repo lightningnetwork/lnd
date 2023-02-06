@@ -344,8 +344,11 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
   issue found in `bitcoindnotify/bitcoind_test.go`.
 
 * Add methods to easily check if an invoice [is AMP or 
-Keysend](https://github.com/lightningnetwork/lnd/pull/7334).
- 
+  Keysend](https://github.com/lightningnetwork/lnd/pull/7334).
+
+* [Fixed a unit test flake in the wallet
+  unlocker](https://github.com/lightningnetwork/lnd/pull/7384).
+
 ## Watchtowers
 
 * [Create a towerID-to-sessionID index in the wtclient DB to improve the 

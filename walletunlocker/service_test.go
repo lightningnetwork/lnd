@@ -404,16 +404,17 @@ func TestUnlockWallet(t *testing.T) {
 		// Send a fake macaroon that should be returned in the response
 		// in the async code above.
 		service.MacResponseChan <- testMac
+		require.NoError(t, unlockMsg.UnloadWallet())
 
 	case <-time.After(defaultTestTimeout):
 		t.Fatalf("password not received")
 	}
 }
 
-// TestChangeWalletPasswordNewRootkey tests that we can successfully change the
+// TestChangeWalletPasswordNewRootKey tests that we can successfully change the
 // wallet's password needed to unlock it and rotate the root key for the
 // macaroons in the same process.
-func TestChangeWalletPasswordNewRootkey(t *testing.T) {
+func TestChangeWalletPasswordNewRootKey(t *testing.T) {
 	t.Parallel()
 
 	// testDir is empty, meaning wallet was not created from before.
@@ -503,6 +504,7 @@ func TestChangeWalletPasswordNewRootkey(t *testing.T) {
 		// Send a fake macaroon that should be returned in the response
 		// in the async code above.
 		service.MacResponseChan <- testMac
+		require.NoError(t, unlockMsg.UnloadWallet())
 
 	case <-time.After(defaultTestTimeout):
 		t.Fatalf("password not received")
@@ -615,42 +617,50 @@ func TestChangeWalletPasswordStateless(t *testing.T) {
 func doChangePassword(service *walletunlocker.UnlockerService, testDir string,
 	req *lnrpc.ChangePasswordRequest, errChan chan error) {
 
-	// When providing the correct wallet's current password and a
-	// new password that meets the length requirement, the password
-	// change should succeed.
+	// When providing the correct wallet's current password and a new
+	// password that meets the length requirement, the password change
+	// should succeed.
 	ctx := context.Background()
 	response, err := service.ChangePassword(ctx, req)
 	if err != nil {
-		errChan <- fmt.Errorf("could not change password: %v", err)
+		errChan <- fmt.Errorf("could not change password: %w", err)
 		return
 	}
 
 	if !bytes.Equal(response.AdminMacaroon, testMac) {
-		errChan <- fmt.Errorf("mismatched macaroon: expected "+
-			"%x, got %x", testMac, response.AdminMacaroon)
+		errChan <- fmt.Errorf("mismatched macaroon: expected %x, got "+
+			"%x", testMac, response.AdminMacaroon)
 	}
 
-	// Close the macaroon DB and try to open it and read the root
-	// key with the new password.
+	// Close the macaroon DB and try to open it and read the root key with
+	// the new password.
 	store, err := openOrCreateTestMacStore(
 		testDir, &testPassword, testNetParams,
 	)
 	if err != nil {
-		errChan <- fmt.Errorf("could not create test store: %v", err)
+		errChan <- fmt.Errorf("could not create test store: %w", err)
 		return
 	}
 	_, _, err = store.RootKey(defaultRootKeyIDContext)
 	if err != nil {
-		errChan <- fmt.Errorf("could not get root key: %v", err)
+		errChan <- fmt.Errorf("could not get root key: %w", err)
 		return
 	}
 
-	// Do cleanup now. Since we are in a go func, the defer at the
-	// top of the outer would not work, because it would delete
-	// the directory before we could check the content in here.
+	// Do cleanup now. Since we are in a go func, the defer at the top of
+	// the outer would not work, because it would delete the directory
+	// before we could check the content in here.
 	err = store.Close()
 	if err != nil {
-		errChan <- fmt.Errorf("could not close store: %v", err)
+		errChan <- fmt.Errorf("could not close store: %w", err)
+		return
+	}
+
+	// The backend database isn't closed automatically if the store is
+	// closed, do that now manually.
+	err = store.Backend.Close()
+	if err != nil {
+		errChan <- fmt.Errorf("could not close db: %w", err)
 		return
 	}
 }

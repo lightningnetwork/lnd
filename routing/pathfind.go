@@ -46,6 +46,10 @@ type pathFinder = func(g *graphParams, r *RestrictParams,
 	[]*channeldb.CachedEdgePolicy, float64, error)
 
 var (
+	// DefaultEstimator is the default estimator used for computing
+	// probabilities in pathfinding.
+	DefaultEstimator = AprioriEstimatorName
+
 	// DefaultAttemptCost is the default fixed virtual cost in path finding
 	// of a failed payment attempt. It is used to trade off potentially
 	// better routes against their probability of succeeding.

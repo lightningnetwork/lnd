@@ -873,15 +873,42 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	if cfg.Estimator != nil {
 		estimator = cfg.Estimator
 	} else {
-		aCfg := routing.AprioriConfig{
-			AprioriHopProbability: routingConfig.
-				AprioriHopProbability,
-			PenaltyHalfLife: routingConfig.PenaltyHalfLife,
-			AprioriWeight:   routingConfig.AprioriWeight,
-		}
-		estimator, err = routing.NewAprioriEstimator(aCfg)
-		if err != nil {
-			return nil, err
+		switch routingConfig.ProbabilityEstimatorType {
+		case routing.AprioriEstimatorName:
+			aCfg := routingConfig.AprioriConfig
+			aprioriConfig := routing.AprioriConfig{
+				AprioriHopProbability: aCfg.HopProbability,
+				PenaltyHalfLife:       aCfg.PenaltyHalfLife,
+				AprioriWeight:         aCfg.Weight,
+			}
+
+			estimator, err = routing.NewAprioriEstimator(
+				aprioriConfig,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		case routing.BimodalEstimatorName:
+			bCfg := routingConfig.BimodalConfig
+			bimodalConfig := routing.BimodalConfig{
+				BimodalNodeWeight: bCfg.NodeWeight,
+				BimodalScaleMsat: lnwire.MilliSatoshi(
+					bCfg.Scale,
+				),
+				BimodalDecayTime: bCfg.DecayTime,
+			}
+
+			estimator, err = routing.NewBimodalEstimator(
+				bimodalConfig,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		default:
+			return nil, fmt.Errorf("unknown estimator type %v",
+				routingConfig.ProbabilityEstimatorType)
 		}
 	}
 

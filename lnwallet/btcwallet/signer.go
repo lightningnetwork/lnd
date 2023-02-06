@@ -26,7 +26,9 @@ import (
 // of ErrNotMine should be returned instead.
 //
 // This is a part of the WalletController interface.
-func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo, error) {
+func (b *BtcWallet) FetchInputInfo(prevOut *wire.OutPoint) (*lnwallet.Utxo,
+	error) {
+
 	prevTx, txOut, bip32, confirmations, err := b.wallet.FetchInputInfo(
 		prevOut,
 	)
@@ -476,11 +478,11 @@ type muSig2State struct {
 
 	// context is the signing context responsible for keeping track of the
 	// public keys involved in the signing process.
-	context *musig2.Context
+	context input.MuSig2Context
 
 	// session is the signing session responsible for keeping track of the
 	// nonces and partial signatures involved in the signing process.
-	session *musig2.Session
+	session input.MuSig2Session
 }
 
 // MuSig2CreateSession creates a new MuSig2 signing session using the local
@@ -488,8 +490,9 @@ type muSig2State struct {
 // all signing parties must be provided, including the public key of the local
 // signing key. If nonces of other parties are already known, they can be
 // submitted as well to reduce the number of method calls necessary later on.
-func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
-	allSignerPubKeys []*btcec.PublicKey, tweaks *input.MuSig2Tweaks,
+func (b *BtcWallet) MuSig2CreateSession(bipVersion input.MuSig2Version,
+	keyLoc keychain.KeyLocator, allSignerPubKeys []*btcec.PublicKey,
+	tweaks *input.MuSig2Tweaks,
 	otherSignerNonces [][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo,
 	error) {
 
@@ -500,66 +503,57 @@ func (b *BtcWallet) MuSig2CreateSession(keyLoc keychain.KeyLocator,
 		KeyLocator: keyLoc,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error deriving private key: %v", err)
+		return nil, fmt.Errorf("error deriving private key: %w", err)
 	}
 
-	// The context keeps track of all signing keys and our local key.
-	allOpts := append(
-		[]musig2.ContextOption{
-			musig2.WithKnownSigners(allSignerPubKeys),
-		},
-		tweaks.ToContextOptions()...,
+	// Create a signing context and session with the given private key and
+	// list of all known signer public keys.
+	muSigContext, muSigSession, err := input.MuSig2CreateContext(
+		bipVersion, privKey, allSignerPubKeys, tweaks,
 	)
-	musigContext, err := musig2.NewContext(privKey, true, allOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("error creating MuSig2 signing "+
-			"context: %v", err)
-	}
-
-	// The session keeps track of the own and other nonces.
-	musigSession, err := musigContext.NewSession()
-	if err != nil {
-		return nil, fmt.Errorf("error creating MuSig2 signing "+
-			"session: %v", err)
+		return nil, fmt.Errorf("error creating signing context: %w",
+			err)
 	}
 
 	// Add all nonces we might've learned so far.
 	haveAllNonces := false
 	for _, otherSignerNonce := range otherSignerNonces {
-		haveAllNonces, err = musigSession.RegisterPubNonce(
+		haveAllNonces, err = muSigSession.RegisterPubNonce(
 			otherSignerNonce,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error registering other "+
-				"signer public nonce: %v", err)
+				"signer public nonce: %w", err)
 		}
 	}
 
 	// Register the new session.
-	combinedKey, err := musigContext.CombinedKey()
+	combinedKey, err := muSigContext.CombinedKey()
 	if err != nil {
-		return nil, fmt.Errorf("error getting combined key: %v", err)
+		return nil, fmt.Errorf("error getting combined key: %w", err)
 	}
 	session := &muSig2State{
 		MuSig2SessionInfo: input.MuSig2SessionInfo{
 			SessionID: input.NewMuSig2SessionID(
-				combinedKey, musigSession.PublicNonce(),
+				combinedKey, muSigSession.PublicNonce(),
 			),
-			PublicNonce:   musigSession.PublicNonce(),
+			Version:       bipVersion,
+			PublicNonce:   muSigSession.PublicNonce(),
 			CombinedKey:   combinedKey,
 			TaprootTweak:  tweaks.HasTaprootTweak(),
 			HaveAllNonces: haveAllNonces,
 		},
-		context: musigContext,
-		session: musigSession,
+		context: muSigContext,
+		session: muSigSession,
 	}
 
 	// The internal key is only calculated if we are using a taproot tweak
 	// and need to know it for a potential script spend.
 	if tweaks.HasTaprootTweak() {
-		internalKey, err := musigContext.TaprootInternalKey()
+		internalKey, err := muSigContext.TaprootInternalKey()
 		if err != nil {
-			return nil, fmt.Errorf("error getting internal key: %v",
+			return nil, fmt.Errorf("error getting internal key: %w",
 				err)
 		}
 		session.TaprootInternalKey = internalKey
@@ -615,7 +609,7 @@ func (b *BtcWallet) MuSig2RegisterNonces(sessionID input.MuSig2SessionID,
 		)
 		if err != nil {
 			return false, fmt.Errorf("error registering other "+
-				"signer public nonce: %v", err)
+				"signer public nonce: %w", err)
 		}
 	}
 
@@ -652,9 +646,9 @@ func (b *BtcWallet) MuSig2Sign(sessionID input.MuSig2SessionID,
 	}
 
 	// Create our own partial signature with the local signing key.
-	partialSig, err := session.session.Sign(msg, musig2.WithSortedKeys())
+	partialSig, err := input.MuSig2Sign(session.session, msg, true)
 	if err != nil {
-		return nil, fmt.Errorf("error signing with local key: %v", err)
+		return nil, fmt.Errorf("error signing with local key: %w", err)
 	}
 
 	// Clean up our local state if requested.
@@ -698,12 +692,12 @@ func (b *BtcWallet) MuSig2CombineSig(sessionID input.MuSig2SessionID,
 		err      error
 	)
 	for _, otherPartialSig := range partialSigs {
-		session.HaveAllSigs, err = session.session.CombineSig(
-			otherPartialSig,
+		session.HaveAllSigs, err = input.MuSig2CombineSig(
+			session.session, otherPartialSig,
 		)
 		if err != nil {
 			return nil, false, fmt.Errorf("error combining "+
-				"partial signature: %v", err)
+				"partial signature: %w", err)
 		}
 	}
 

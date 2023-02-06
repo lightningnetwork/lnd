@@ -105,6 +105,16 @@ current gossip sync query status.
   `SignOutputRaw` call will now properly work for taproot signatures with a
   non-default sighash.
 
+* [The experimental MuSig2 RPC in the `signrpc` package was upgraded to the BIP
+  draft version `v1.0.0rc2`](https://github.com/lightningnetwork/lnd/pull/7171).
+  To remain backward compatible with applications that have on-chain funds on
+  keys that were created with the previous version of the MuSig2 BIP draft
+  `v0.4.0` (such as Pool accounts) a version flag was added to the
+  `MuSig2CombineKeys` and `MuSig2CreateSession` RPC calls. That version flag is
+  mandatory, which means software using MuSig2 (such as Pool or Loop) must
+  update in order to use the new versioned RPC and upgrade any on-chain outputs
+  to the new version.
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

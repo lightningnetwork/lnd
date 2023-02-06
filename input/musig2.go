@@ -8,7 +8,24 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/lightningnetwork/lnd/internal/musig2v040"
 	"github.com/lightningnetwork/lnd/keychain"
+)
+
+// MuSig2Version is a type that defines the different versions of the MuSig2
+// as defined in the BIP draft:
+// (https://github.com/jonasnick/bips/blob/musig2/bip-musig2.mediawiki)
+type MuSig2Version uint8
+
+const (
+	// MuSig2Version040 is version 0.4.0 of the MuSig2 BIP draft. This will
+	// use the lnd internal/musig2v040 package.
+	MuSig2Version040 MuSig2Version = 0
+
+	// MuSig2Version100RC2 is version 1.0.0rc2 of the MuSig2 BIP draft. This
+	// uses the github.com/btcsuite/btcd/btcec/v2/schnorr/musig2 package
+	// at git tag `btcec/v2.3.1`.
+	MuSig2Version100RC2 MuSig2Version = 1
 )
 
 const (
@@ -31,9 +48,9 @@ type MuSig2Signer interface {
 	// public key of the local signing key. If nonces of other parties are
 	// already known, they can be submitted as well to reduce the number of
 	// method calls necessary later on.
-	MuSig2CreateSession(keychain.KeyLocator, []*btcec.PublicKey,
-		*MuSig2Tweaks, [][musig2.PubNonceSize]byte) (*MuSig2SessionInfo,
-		error)
+	MuSig2CreateSession(MuSig2Version, keychain.KeyLocator,
+		[]*btcec.PublicKey, *MuSig2Tweaks,
+		[][musig2.PubNonceSize]byte) (*MuSig2SessionInfo, error)
 
 	// MuSig2RegisterNonces registers one or more public nonces of other
 	// signing participants for a session identified by its ID. This method
@@ -63,12 +80,63 @@ type MuSig2Signer interface {
 	MuSig2Cleanup(MuSig2SessionID) error
 }
 
+// MuSig2Context is an interface that is an abstraction over the MuSig2 signing
+// context. This interface does not contain all of the methods the underlying
+// implementations have because those use package specific types which cannot
+// easily be made compatible. Those calls (such as NewSession) are implemented
+// in this package instead and do the necessary type switch (see
+// MuSig2CreateContext).
+type MuSig2Context interface {
+	// SigningKeys returns the set of keys used for signing.
+	SigningKeys() []*btcec.PublicKey
+
+	// CombinedKey returns the combined public key that will be used to
+	// generate multi-signatures  against.
+	CombinedKey() (*btcec.PublicKey, error)
+
+	// TaprootInternalKey returns the internal taproot key, which is the
+	// aggregated key _before_ the tweak is applied. If a taproot tweak was
+	// specified, then CombinedKey() will return the fully tweaked output
+	// key, with this method returning the internal key. If a taproot tweak
+	// wasn't specified, then this method will return an error.
+	TaprootInternalKey() (*btcec.PublicKey, error)
+}
+
+// MuSig2Session is an interface that is an abstraction over the MuSig2 signing
+// session. This interface does not contain all of the methods the underlying
+// implementations have because those use package specific types which cannot
+// easily be made compatible. Those calls (such as CombineSig or Sign) are
+// implemented in this package instead and do the necessary type switch (see
+// MuSig2CombineSig or MuSig2Sign).
+type MuSig2Session interface {
+	// FinalSig returns the final combined multi-signature, if present.
+	FinalSig() *schnorr.Signature
+
+	// PublicNonce returns the public nonce for a signer. This should be
+	// sent to other parties before signing begins, so they can compute the
+	// aggregated public nonce.
+	PublicNonce() [musig2.PubNonceSize]byte
+
+	// NumRegisteredNonces returns the total number of nonces that have been
+	// registered so far.
+	NumRegisteredNonces() int
+
+	// RegisterPubNonce should be called for each public nonce from the set
+	// of signers. This method returns true once all the public nonces have
+	// been accounted for.
+	RegisterPubNonce(nonce [musig2.PubNonceSize]byte) (bool, error)
+}
+
 // MuSig2SessionInfo is a struct for keeping track of a signing session
 // information in memory.
 type MuSig2SessionInfo struct {
 	// SessionID is the wallet's internal unique ID of this session. The ID
 	// is the hash over the combined public key and the local public nonces.
 	SessionID [32]byte
+
+	// Version is the version of the MuSig2 BIP this signing session is
+	// using.
+	Version MuSig2Version
 
 	// PublicNonce contains the public nonce of the local signer session.
 	PublicNonce [musig2.PubNonceSize]byte
@@ -145,9 +213,98 @@ func (t *MuSig2Tweaks) ToContextOptions() []musig2.ContextOption {
 	return tweakOpts
 }
 
+// ToV040ContextOptions converts the tweak descriptor to v0.4.0 context options.
+func (t *MuSig2Tweaks) ToV040ContextOptions() []musig2v040.ContextOption {
+	var tweakOpts []musig2v040.ContextOption
+	if len(t.GenericTweaks) > 0 {
+		genericTweaksCopy := make(
+			[]musig2v040.KeyTweakDesc, len(t.GenericTweaks),
+		)
+		for idx := range t.GenericTweaks {
+			genericTweaksCopy[idx] = musig2v040.KeyTweakDesc{
+				Tweak:   t.GenericTweaks[idx].Tweak,
+				IsXOnly: t.GenericTweaks[idx].IsXOnly,
+			}
+		}
+		tweakOpts = append(tweakOpts, musig2v040.WithTweakedContext(
+			genericTweaksCopy...,
+		))
+	}
+
+	// The BIP0086 tweak and the taproot script tweak are mutually
+	// exclusive.
+	if t.TaprootBIP0086Tweak {
+		tweakOpts = append(tweakOpts, musig2v040.WithBip86TweakCtx())
+	} else if len(t.TaprootTweak) > 0 {
+		tweakOpts = append(tweakOpts, musig2v040.WithTaprootTweakCtx(
+			t.TaprootTweak,
+		))
+	}
+
+	return tweakOpts
+}
+
+// MuSig2ParsePubKeys parses a list of raw public keys as the signing keys of a
+// MuSig2 signing session.
+func MuSig2ParsePubKeys(bipVersion MuSig2Version,
+	rawPubKeys [][]byte) ([]*btcec.PublicKey, error) {
+
+	allSignerPubKeys := make([]*btcec.PublicKey, len(rawPubKeys))
+	if len(rawPubKeys) < 2 {
+		return nil, fmt.Errorf("need at least two signing public keys")
+	}
+
+	for idx, pubKeyBytes := range rawPubKeys {
+		switch bipVersion {
+		case MuSig2Version040:
+			pubKey, err := schnorr.ParsePubKey(pubKeyBytes)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing signer "+
+					"public key %d for v0.4.0 (x-only "+
+					"format): %v", idx, err)
+			}
+			allSignerPubKeys[idx] = pubKey
+
+		case MuSig2Version100RC2:
+			pubKey, err := btcec.ParsePubKey(pubKeyBytes)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing signer "+
+					"public key %d for v1.0.0rc2 ("+
+					"compressed format): %v", idx, err)
+			}
+			allSignerPubKeys[idx] = pubKey
+
+		default:
+			return nil, fmt.Errorf("unknown MuSig2 version: <%d>",
+				bipVersion)
+		}
+	}
+
+	return allSignerPubKeys, nil
+}
+
 // MuSig2CombineKeys combines the given set of public keys into a single
 // combined MuSig2 combined public key, applying the given tweaks.
-func MuSig2CombineKeys(allSignerPubKeys []*btcec.PublicKey,
+func MuSig2CombineKeys(bipVersion MuSig2Version,
+	allSignerPubKeys []*btcec.PublicKey, sortKeys bool,
+	tweaks *MuSig2Tweaks) (*musig2.AggregateKey, error) {
+
+	switch bipVersion {
+	case MuSig2Version040:
+		return combineKeysV040(allSignerPubKeys, sortKeys, tweaks)
+
+	case MuSig2Version100RC2:
+		return combineKeysV100RC2(allSignerPubKeys, sortKeys, tweaks)
+
+	default:
+		return nil, fmt.Errorf("unknown MuSig2 version: <%d>",
+			bipVersion)
+	}
+}
+
+// combineKeysV100rc1 implements the MuSigCombineKeys logic for the MuSig2 BIP
+// draft version 1.0.0rc2.
+func combineKeysV100RC2(allSignerPubKeys []*btcec.PublicKey, sortKeys bool,
 	tweaks *MuSig2Tweaks) (*musig2.AggregateKey, error) {
 
 	// Convert the tweak options into the appropriate MuSig2 API functional
@@ -168,9 +325,198 @@ func MuSig2CombineKeys(allSignerPubKeys []*btcec.PublicKey,
 
 	// Then we'll use this information to compute the aggregated public key.
 	combinedKey, _, _, err := musig2.AggregateKeys(
-		allSignerPubKeys, true, keyAggOpts...,
+		allSignerPubKeys, sortKeys, keyAggOpts...,
 	)
 	return combinedKey, err
+}
+
+// combineKeysV040 implements the MuSigCombineKeys logic for the MuSig2 BIP
+// draft version 0.4.0.
+func combineKeysV040(allSignerPubKeys []*btcec.PublicKey, sortKeys bool,
+	tweaks *MuSig2Tweaks) (*musig2.AggregateKey, error) {
+
+	// Convert the tweak options into the appropriate MuSig2 API functional
+	// options.
+	var keyAggOpts []musig2v040.KeyAggOption
+	switch {
+	case tweaks.TaprootBIP0086Tweak:
+		keyAggOpts = append(keyAggOpts, musig2v040.WithBIP86KeyTweak())
+	case len(tweaks.TaprootTweak) > 0:
+		keyAggOpts = append(keyAggOpts, musig2v040.WithTaprootKeyTweak(
+			tweaks.TaprootTweak,
+		))
+	case len(tweaks.GenericTweaks) > 0:
+		genericTweaksCopy := make(
+			[]musig2v040.KeyTweakDesc, len(tweaks.GenericTweaks),
+		)
+		for idx := range tweaks.GenericTweaks {
+			genericTweaksCopy[idx] = musig2v040.KeyTweakDesc{
+				Tweak:   tweaks.GenericTweaks[idx].Tweak,
+				IsXOnly: tweaks.GenericTweaks[idx].IsXOnly,
+			}
+		}
+		keyAggOpts = append(keyAggOpts, musig2v040.WithKeyTweaks(
+			genericTweaksCopy...,
+		))
+	}
+
+	// Then we'll use this information to compute the aggregated public key.
+	combinedKey, _, _, err := musig2v040.AggregateKeys(
+		allSignerPubKeys, sortKeys, keyAggOpts...,
+	)
+
+	// Copy the result back into the default version's native type.
+	return &musig2.AggregateKey{
+		FinalKey:      combinedKey.FinalKey,
+		PreTweakedKey: combinedKey.PreTweakedKey,
+	}, err
+}
+
+// MuSig2CreateContext creates a new MuSig2 signing context.
+func MuSig2CreateContext(bipVersion MuSig2Version, privKey *btcec.PrivateKey,
+	allSignerPubKeys []*btcec.PublicKey,
+	tweaks *MuSig2Tweaks) (MuSig2Context, MuSig2Session, error) {
+
+	switch bipVersion {
+	case MuSig2Version040:
+		return createContextV040(privKey, allSignerPubKeys, tweaks)
+
+	case MuSig2Version100RC2:
+		return createContextV100RC2(privKey, allSignerPubKeys, tweaks)
+
+	default:
+		return nil, nil, fmt.Errorf("unknown MuSig2 version: <%d>",
+			bipVersion)
+	}
+}
+
+// createContextV100RC2 implements the MuSig2CreateContext logic for the MuSig2
+// BIP draft version 1.0.0rc2.
+func createContextV100RC2(privKey *btcec.PrivateKey,
+	allSignerPubKeys []*btcec.PublicKey,
+	tweaks *MuSig2Tweaks) (*musig2.Context, *musig2.Session, error) {
+
+	// The context keeps track of all signing keys and our local key.
+	allOpts := append(
+		[]musig2.ContextOption{
+			musig2.WithKnownSigners(allSignerPubKeys),
+		},
+		tweaks.ToContextOptions()...,
+	)
+	muSigContext, err := musig2.NewContext(privKey, true, allOpts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating MuSig2 signing "+
+			"context: %v", err)
+	}
+
+	muSigSession, err := muSigContext.NewSession()
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating MuSig2 signing "+
+			"session: %v", err)
+	}
+
+	return muSigContext, muSigSession, nil
+}
+
+// createContextV040 implements the MuSig2CreateContext logic for the MuSig2 BIP
+// draft version 0.4.0.
+func createContextV040(privKey *btcec.PrivateKey,
+	allSignerPubKeys []*btcec.PublicKey,
+	tweaks *MuSig2Tweaks) (*musig2v040.Context, *musig2v040.Session,
+	error) {
+
+	// The context keeps track of all signing keys and our local key.
+	allOpts := append(
+		[]musig2v040.ContextOption{
+			musig2v040.WithKnownSigners(allSignerPubKeys),
+		},
+		tweaks.ToV040ContextOptions()...,
+	)
+	muSigContext, err := musig2v040.NewContext(privKey, true, allOpts...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating MuSig2 signing "+
+			"context: %v", err)
+	}
+
+	muSigSession, err := muSigContext.NewSession()
+	if err != nil {
+		return nil, nil, fmt.Errorf("error creating MuSig2 signing "+
+			"session: %v", err)
+	}
+
+	return muSigContext, muSigSession, nil
+}
+
+// MuSig2Sign calls the Sign() method on the given versioned signing session and
+// returns the result in the most recent version of the MuSig2 API.
+func MuSig2Sign(session MuSig2Session, msg [32]byte,
+	withSortedKeys bool) (*musig2.PartialSignature, error) {
+
+	switch s := session.(type) {
+	case *musig2.Session:
+		var opts []musig2.SignOption
+		if withSortedKeys {
+			opts = append(opts, musig2.WithSortedKeys())
+		}
+		partialSig, err := s.Sign(msg, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("error signing with local key: "+
+				"%v", err)
+		}
+
+		return partialSig, nil
+
+	case *musig2v040.Session:
+		var opts []musig2v040.SignOption
+		if withSortedKeys {
+			opts = append(opts, musig2v040.WithSortedKeys())
+		}
+		partialSig, err := s.Sign(msg, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("error signing with local key: "+
+				"%v", err)
+		}
+
+		return &musig2.PartialSignature{
+			S: partialSig.S,
+			R: partialSig.R,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("invalid session type <%T>", s)
+	}
+}
+
+// MuSig2CombineSig calls the CombineSig() method on the given versioned signing
+// session and returns the result in the most recent version of the MuSig2 API.
+func MuSig2CombineSig(session MuSig2Session,
+	otherPartialSig *musig2.PartialSignature) (bool, error) {
+
+	switch s := session.(type) {
+	case *musig2.Session:
+		haveAllSigs, err := s.CombineSig(otherPartialSig)
+		if err != nil {
+			return false, fmt.Errorf("error combining partial "+
+				"signature: %v", err)
+		}
+
+		return haveAllSigs, nil
+
+	case *musig2v040.Session:
+		haveAllSigs, err := s.CombineSig(&musig2v040.PartialSignature{
+			S: otherPartialSig.S,
+			R: otherPartialSig.R,
+		})
+		if err != nil {
+			return false, fmt.Errorf("error combining partial "+
+				"signature: %v", err)
+		}
+
+		return haveAllSigs, nil
+
+	default:
+		return false, fmt.Errorf("invalid session type <%T>", s)
+	}
 }
 
 // NewMuSig2SessionID returns the unique ID of a MuSig2 session by using the

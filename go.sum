@@ -76,8 +76,9 @@ github.com/btcsuite/btcd v0.23.5-0.20230125025938-be056b0a0b2f/go.mod h1:0QJIIN1
 github.com/btcsuite/btcd/btcec/v2 v2.1.0/go.mod h1:2VzYrv4Gm4apmbVVsSq5bqf1Ec8v56E48Vt0Y/umPgA=
 github.com/btcsuite/btcd/btcec/v2 v2.1.1/go.mod h1:ctjw4H1kknNJmRN4iP1R7bTQ+v3GJkZBd6mui8ZsAZE=
 github.com/btcsuite/btcd/btcec/v2 v2.1.3/go.mod h1:ctjw4H1kknNJmRN4iP1R7bTQ+v3GJkZBd6mui8ZsAZE=
-github.com/btcsuite/btcd/btcec/v2 v2.2.2 h1:5uxe5YjoCq+JeOpg0gZSNHuFgeogrocBYxvg6w9sAgc=
 github.com/btcsuite/btcd/btcec/v2 v2.2.2/go.mod h1:9/CSmJxmuvqzX9Wh2fXMWToLOHhPd11lSPuIupwTkI8=
+github.com/btcsuite/btcd/btcec/v2 v2.3.2 h1:5n0X6hX0Zk+6omWcihdYvdAlGf2DfasC0GMf7DClJ3U=
+github.com/btcsuite/btcd/btcec/v2 v2.3.2/go.mod h1:zYzJ8etWJQIv1Ogk7OzpWjowwOdXY1W/17j2MW85J04=
 github.com/btcsuite/btcd/btcutil v1.0.0/go.mod h1:Uoxwv0pqYWhD//tfTiipkxNfdhG9UrLwaeswfjfdF0A=
 github.com/btcsuite/btcd/btcutil v1.1.0/go.mod h1:5OapHB7A2hBBWLm48mmw4MOHNJCcUBTwmWH/0Jn8VHE=
 github.com/btcsuite/btcd/btcutil v1.1.1/go.mod h1:nbKlBMNm9FGsdvKvu0essceubPiAcI57pYBNnsLAa34=
@@ -405,8 +406,6 @@ github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display h1:RZJ8H4ueU/aQ
 github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display/go.mod h1:2oKOBU042GKFHrdbgGiKax4xVrFiZu51lhacUZQ9MnE=
 github.com/lightningnetwork/lightning-onion v1.2.1-0.20221202012345-ca23184850a1 h1:Wm0g70gkcAu2pGpNZwfWPSVOY21j8IyYsNewwK4OkT4=
 github.com/lightningnetwork/lightning-onion v1.2.1-0.20221202012345-ca23184850a1/go.mod h1:7dDx73ApjEZA0kcknI799m2O5kkpfg4/gr7N092ojNo=
-github.com/lightningnetwork/lnd/cert v1.1.1 h1:Nsav0RlIDRbOnzz2Yu69SQlK939IKya3Q2S0mDviIN8=
-github.com/lightningnetwork/lnd/cert v1.1.1/go.mod h1:1P46svkkd73oSoeI4zjkVKgZNwGq8bkGuPR8z+5vQUs=
 github.com/lightningnetwork/lnd/cert v1.2.0 h1:IWfjHNMI5JgQZU5fdvDptF3DkVI38f4jO/s3tYgWFbE=
 github.com/lightningnetwork/lnd/cert v1.2.0/go.mod h1:04JhIEodoR6usBN5+XBRtLEEmEHsclLi0tEyxZQNP+w=
 github.com/lightningnetwork/lnd/clock v1.0.1/go.mod h1:KnQudQ6w0IAMZi1SgvecLZQZ43ra2vpDNj7H/aasemg=

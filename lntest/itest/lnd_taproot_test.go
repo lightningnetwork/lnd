@@ -35,11 +35,14 @@ const (
 )
 
 var (
-	dummyInternalKeyBytes, _ = hex.DecodeString(
+	hexDecode = func(keyStr string) []byte {
+		keyBytes, _ := hex.DecodeString(keyStr)
+		return keyBytes
+	}
+	dummyInternalKey, _ = btcec.ParsePubKey(hexDecode(
 		"03464805f5468e294d88cf15a3f06aef6c89d63ef1bd7b42db2e0c74c1ac" +
 			"eb90fe",
-	)
-	dummyInternalKey, _ = btcec.ParsePubKey(dummyInternalKeyBytes)
+	))
 )
 
 // testTaproot ensures that the daemon can send to and spend from taproot (p2tr)
@@ -57,10 +60,17 @@ func testTaproot(ht *lntemp.HarnessTest) {
 	)
 	testTaprootSignOutputRawKeySpendRootHash(ht, ht.Alice)
 
-	testTaprootMuSig2KeySpendBip86(ht, ht.Alice)
-	testTaprootMuSig2KeySpendRootHash(ht, ht.Alice)
-	testTaprootMuSig2ScriptSpend(ht, ht.Alice)
-	testTaprootMuSig2CombinedLeafKeySpend(ht, ht.Alice)
+	muSig2Versions := []signrpc.MuSig2Version{
+		signrpc.MuSig2Version_MUSIG2_VERSION_V040,
+		signrpc.MuSig2Version_MUSIG2_VERSION_V100RC2,
+	}
+	for _, version := range muSig2Versions {
+		testTaprootMuSig2KeySpendBip86(ht, ht.Alice, version)
+		testTaprootMuSig2KeySpendRootHash(ht, ht.Alice, version)
+		testTaprootMuSig2ScriptSpend(ht, ht.Alice, version)
+		testTaprootMuSig2CombinedLeafKeySpend(ht, ht.Alice, version)
+		testMuSig2CombineKey(ht, ht.Alice, version)
+	}
 
 	testTaprootImportTapscriptFullTree(ht, ht.Alice)
 	testTaprootImportTapscriptPartialReveal(ht, ht.Alice)
@@ -574,7 +584,7 @@ func testTaprootSignOutputRawKeySpendRootHash(ht *lntemp.HarnessTest,
 // testTaprootMuSig2KeySpendBip86 tests that a combined MuSig2 key can also be
 // used as a BIP-0086 key spend only key.
 func testTaprootMuSig2KeySpendBip86(ht *lntemp.HarnessTest,
-	alice *node.HarnessNode) {
+	alice *node.HarnessNode, version signrpc.MuSig2Version) {
 
 	// We're not going to commit to a script. So our taproot tweak will be
 	// empty and just specify the necessary flag.
@@ -582,10 +592,12 @@ func testTaprootMuSig2KeySpendBip86(ht *lntemp.HarnessTest,
 		KeySpendOnly: true,
 	}
 
-	keyDesc1, keyDesc2, keyDesc3, allPubKeys := deriveSigningKeys(ht, alice)
+	keyDesc1, keyDesc2, keyDesc3, allPubKeys := deriveSigningKeys(
+		ht, alice, version,
+	)
 	_, taprootKey, sessResp1, sessResp2, sessResp3 := createMuSigSessions(
 		ht, alice, taprootTweak, keyDesc1, keyDesc2, keyDesc3,
-		allPubKeys,
+		allPubKeys, version,
 	)
 
 	// Send some coins to the generated tapscript address.
@@ -700,7 +712,7 @@ func testTaprootMuSig2KeySpendBip86(ht *lntemp.HarnessTest,
 // testTaprootMuSig2KeySpendRootHash tests that a tapscript address can also be
 // spent using a MuSig2 combined key.
 func testTaprootMuSig2KeySpendRootHash(ht *lntemp.HarnessTest,
-	alice *node.HarnessNode) {
+	alice *node.HarnessNode, version signrpc.MuSig2Version) {
 
 	// We're going to commit to a script as well. This is a hash lock with a
 	// simple preimage of "foobar". We need to know this upfront so, we can
@@ -713,11 +725,11 @@ func testTaprootMuSig2KeySpendRootHash(ht *lntemp.HarnessTest,
 	}
 
 	keyDesc1, keyDesc2, keyDesc3, allPubKeys := deriveSigningKeys(
-		ht, alice,
+		ht, alice, version,
 	)
 	_, taprootKey, sessResp1, sessResp2, sessResp3 := createMuSigSessions(
 		ht, alice, taprootTweak, keyDesc1, keyDesc2, keyDesc3,
-		allPubKeys,
+		allPubKeys, version,
 	)
 
 	// Send some coins to the generated tapscript address.
@@ -832,7 +844,7 @@ func testTaprootMuSig2KeySpendRootHash(ht *lntemp.HarnessTest,
 // testTaprootMuSig2ScriptSpend tests that a tapscript address with an internal
 // key that is a MuSig2 combined key can also be spent using the script path.
 func testTaprootMuSig2ScriptSpend(ht *lntemp.HarnessTest,
-	alice *node.HarnessNode) {
+	alice *node.HarnessNode, version signrpc.MuSig2Version) {
 
 	// We're going to commit to a script and spend the output using the
 	// script. This is a hash lock with a simple preimage of "foobar". We
@@ -845,11 +857,11 @@ func testTaprootMuSig2ScriptSpend(ht *lntemp.HarnessTest,
 	}
 
 	keyDesc1, keyDesc2, keyDesc3, allPubKeys := deriveSigningKeys(
-		ht, alice,
+		ht, alice, version,
 	)
 	internalKey, taprootKey, _, _, _ := createMuSigSessions(
 		ht, alice, taprootTweak, keyDesc1, keyDesc2, keyDesc3,
-		allPubKeys,
+		allPubKeys, version,
 	)
 
 	// Because we know the internal key and the script we want to spend, we
@@ -915,15 +927,16 @@ func testTaprootMuSig2ScriptSpend(ht *lntemp.HarnessTest,
 // testTaprootMuSig2CombinedLeafKeySpend tests that a MuSig2 combined key can be
 // used for an OP_CHECKSIG inside a tap script leaf spend.
 func testTaprootMuSig2CombinedLeafKeySpend(ht *lntemp.HarnessTest,
-	alice *node.HarnessNode) {
+	alice *node.HarnessNode, version signrpc.MuSig2Version) {
 
 	// We're using the combined MuSig2 key in a script leaf. So we need to
 	// derive the combined key first, before we can build the script.
 	keyDesc1, keyDesc2, keyDesc3, allPubKeys := deriveSigningKeys(
-		ht, alice,
+		ht, alice, version,
 	)
 	req := &signrpc.MuSig2CombineKeysRequest{
 		AllSignerPubkeys: allPubKeys,
+		Version:          version,
 	}
 	combineResp := alice.RPC.MuSig2CombineKeys(req)
 	combinedPubKey, err := schnorr.ParsePubKey(combineResp.CombinedKey)
@@ -978,6 +991,7 @@ func testTaprootMuSig2CombinedLeafKeySpend(ht *lntemp.HarnessTest,
 	// Do the actual signing now.
 	_, _, sessResp1, sessResp2, sessResp3 := createMuSigSessions(
 		ht, alice, nil, keyDesc1, keyDesc2, keyDesc3, allPubKeys,
+		version,
 	)
 	require.NoError(ht, err)
 
@@ -1640,8 +1654,8 @@ func confirmAddress(ht *lntemp.HarnessTest, hn *node.HarnessNode,
 
 // deriveSigningKeys derives three signing keys and returns their descriptors,
 // as well as the public keys in the Schnorr serialized format.
-func deriveSigningKeys(ht *lntemp.HarnessTest,
-	node *node.HarnessNode) (*signrpc.KeyDescriptor,
+func deriveSigningKeys(ht *lntemp.HarnessTest, node *node.HarnessNode,
+	version signrpc.MuSig2Version) (*signrpc.KeyDescriptor,
 	*signrpc.KeyDescriptor, *signrpc.KeyDescriptor, [][]byte) {
 
 	// For muSig2 we need multiple keys. We derive three of them from the
@@ -1662,10 +1676,21 @@ func deriveSigningKeys(ht *lntemp.HarnessTest,
 	// Now that we have all three keys we can create three sessions, one
 	// for each of the signers. This would of course normally not happen on
 	// the same node.
-	allPubKeys := [][]byte{
-		schnorr.SerializePubKey(pubKey1),
-		schnorr.SerializePubKey(pubKey2),
-		schnorr.SerializePubKey(pubKey3),
+	var allPubKeys [][]byte
+	switch version {
+	case signrpc.MuSig2Version_MUSIG2_VERSION_V040:
+		allPubKeys = [][]byte{
+			schnorr.SerializePubKey(pubKey1),
+			schnorr.SerializePubKey(pubKey2),
+			schnorr.SerializePubKey(pubKey3),
+		}
+
+	case signrpc.MuSig2Version_MUSIG2_VERSION_V100RC2:
+		allPubKeys = [][]byte{
+			pubKey1.SerializeCompressed(),
+			pubKey2.SerializeCompressed(),
+			pubKey3.SerializeCompressed(),
+		}
 	}
 
 	return keyDesc1, keyDesc2, keyDesc3, allPubKeys
@@ -1678,16 +1703,26 @@ func deriveSigningKeys(ht *lntemp.HarnessTest,
 func createMuSigSessions(ht *lntemp.HarnessTest, node *node.HarnessNode,
 	taprootTweak *signrpc.TaprootTweakDesc,
 	keyDesc1, keyDesc2, keyDesc3 *signrpc.KeyDescriptor,
-	allPubKeys [][]byte) (*btcec.PublicKey, *btcec.PublicKey,
-	*signrpc.MuSig2SessionResponse, *signrpc.MuSig2SessionResponse,
-	*signrpc.MuSig2SessionResponse) {
+	allPubKeys [][]byte, version signrpc.MuSig2Version) (*btcec.PublicKey,
+	*btcec.PublicKey, *signrpc.MuSig2SessionResponse,
+	*signrpc.MuSig2SessionResponse, *signrpc.MuSig2SessionResponse) {
 
-	req := &signrpc.MuSig2SessionRequest{
+	// Make sure that when not specifying a version we get an error, since
+	// it is mandatory.
+	err := node.RPC.MuSig2CreateSessionErr(&signrpc.MuSig2SessionRequest{})
+	require.ErrorContains(ht, err, "unknown MuSig2 version")
+
+	// Create the actual session with the version specified.
+	sessResp1 := node.RPC.MuSig2CreateSession(&signrpc.MuSig2SessionRequest{
 		KeyLoc:           keyDesc1.KeyLoc,
 		AllSignerPubkeys: allPubKeys,
 		TaprootTweak:     taprootTweak,
-	}
-	sessResp1 := node.RPC.MuSig2CreateSession(req)
+		Version:          version,
+	})
+	require.Equal(ht, version, sessResp1.Version)
+
+	// Make sure the version is returned correctly.
+	require.Equal(ht, version, sessResp1.Version)
 
 	// Now that we have the three keys in a combined form, we want to make
 	// sure the tweaking for the taproot key worked correctly. We first need
@@ -1724,11 +1759,17 @@ func createMuSigSessions(ht *lntemp.HarnessTest, node *node.HarnessNode,
 		)
 	}
 
+	// Same with the combine keys RPC, no version specified should give us
+	// an error.
+	err = node.RPC.MuSig2CombineKeysErr(&signrpc.MuSig2CombineKeysRequest{})
+	require.ErrorContains(ht, err, "unknown MuSig2 version")
+
 	// We should also get the same keys when just calling the
 	// MuSig2CombineKeys RPC.
 	combineReq := &signrpc.MuSig2CombineKeysRequest{
 		AllSignerPubkeys: allPubKeys,
 		TaprootTweak:     taprootTweak,
+		Version:          version,
 	}
 	combineResp := node.RPC.MuSig2CombineKeys(combineReq)
 	require.Equal(
@@ -1739,19 +1780,22 @@ func createMuSigSessions(ht *lntemp.HarnessTest, node *node.HarnessNode,
 		ht, schnorr.SerializePubKey(internalKey),
 		combineResp.TaprootInternalKey,
 	)
+	require.Equal(ht, version, combineResp.Version)
 
 	// Everything is good so far, let's continue with creating the signing
 	// session for the other two participants.
-	req = &signrpc.MuSig2SessionRequest{
+	req := &signrpc.MuSig2SessionRequest{
 		KeyLoc:           keyDesc2.KeyLoc,
 		AllSignerPubkeys: allPubKeys,
 		OtherSignerPublicNonces: [][]byte{
 			sessResp1.LocalPublicNonces,
 		},
 		TaprootTweak: taprootTweak,
+		Version:      version,
 	}
 	sessResp2 := node.RPC.MuSig2CreateSession(req)
 	require.Equal(ht, sessResp1.CombinedKey, sessResp2.CombinedKey)
+	require.Equal(ht, version, sessResp2.Version)
 
 	req = &signrpc.MuSig2SessionRequest{
 		KeyLoc:           keyDesc3.KeyLoc,
@@ -1761,10 +1805,11 @@ func createMuSigSessions(ht *lntemp.HarnessTest, node *node.HarnessNode,
 			sessResp2.LocalPublicNonces,
 		},
 		TaprootTweak: taprootTweak,
+		Version:      version,
 	}
 	sessResp3 := node.RPC.MuSig2CreateSession(req)
-	require.NoError(ht, err)
 	require.Equal(ht, sessResp2.CombinedKey, sessResp3.CombinedKey)
+	require.Equal(ht, version, sessResp3.Version)
 	require.Equal(ht, true, sessResp3.HaveAllNonces)
 
 	// We need to distribute the rest of the nonces.
@@ -1855,4 +1900,89 @@ func testTaprootCoopClose(ht *lntemp.HarnessTest) {
 	closingTxid = ht.CloseChannel(carol, chanPoint)
 	require.False(ht, assertTaprootDeliveryUsed(closingTxid),
 		"taproot addr shouldn't be used!")
+}
+
+// testMuSig2CombineKey makes sure that combining a key with MuSig2 returns the
+// correct result according to the MuSig2 version specified.
+func testMuSig2CombineKey(ht *lntemp.HarnessTest, alice *node.HarnessNode,
+	version signrpc.MuSig2Version) {
+
+	testVector040Key1 := hexDecode(
+		"F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BCE0" +
+			"36F9",
+	)
+	testVector040Key2 := hexDecode(
+		"DFF1D77F2A671C5F36183726DB2341BE58FEAE1DA2DECED843240F7B502B" +
+			"A659",
+	)
+	testVector040Key3 := hexDecode(
+		"3590A94E768F8E1815C2F24B4D80A8E3149316C3518CE7B7AD338368D038" +
+			"CA66",
+	)
+
+	testVector100Key1 := hexDecode(
+		"02F9308A019258C31049344F85F89D5229B531C845836F99B08601F113BC" +
+			"E036F9",
+	)
+	testVector100Key2 := hexDecode(
+		"03DFF1D77F2A671C5F36183726DB2341BE58FEAE1DA2DECED843240F7B50" +
+			"2BA659",
+	)
+	testVector100Key3 := hexDecode(
+		"023590A94E768F8E1815C2F24B4D80A8E3149316C3518CE7B7AD338368D0" +
+			"38CA66",
+	)
+
+	var allPubKeys [][]byte
+	switch version {
+	case signrpc.MuSig2Version_MUSIG2_VERSION_V040:
+		allPubKeys = [][]byte{
+			testVector040Key1, testVector040Key2, testVector040Key3,
+		}
+
+	case signrpc.MuSig2Version_MUSIG2_VERSION_V100RC2:
+		allPubKeys = [][]byte{
+			testVector100Key1, testVector100Key2, testVector100Key3,
+		}
+	}
+
+	resp := alice.RPC.MuSig2CombineKeys(&signrpc.MuSig2CombineKeysRequest{
+		AllSignerPubkeys: allPubKeys,
+		TaprootTweak: &signrpc.TaprootTweakDesc{
+			KeySpendOnly: true,
+		},
+		Version: version,
+	})
+
+	expectedFinalKey040 := hexDecode(
+		"5b257b4e785d61157ef5303051f45184bd5cb47bc4b4069ed4dd453645" +
+			"9cb83b",
+	)
+	expectedPreTweakKey040 := hexDecode(
+		"d70cd69a2647f7390973df48cbfa2ccc407b8b2d60b08c5f1641185c79" +
+			"98a290",
+	)
+
+	expectedFinalKey100 := hexDecode(
+		"79e6c3e628c9bfbce91de6b7fb28e2aec7713d377cf260ab599dcbc40e54" +
+			"2312",
+	)
+	expectedPreTweakKey100 := hexDecode(
+		"789d937bade6673538f3e28d8368dda4d0512f94da44cf477a505716d26a" +
+			"1575",
+	)
+
+	switch version {
+	case signrpc.MuSig2Version_MUSIG2_VERSION_V040:
+		require.Equal(ht, expectedFinalKey040, resp.CombinedKey)
+		require.Equal(
+			ht, expectedPreTweakKey040, resp.TaprootInternalKey,
+		)
+
+	case signrpc.MuSig2Version_MUSIG2_VERSION_V100RC2:
+		require.Equal(ht, expectedFinalKey100, resp.CombinedKey)
+		require.Equal(
+			ht, expectedPreTweakKey100, resp.TaprootInternalKey,
+		)
+	}
 }

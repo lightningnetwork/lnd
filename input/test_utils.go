@@ -139,7 +139,7 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 // all signing parties must be provided, including the public key of the local
 // signing key. If nonces of other parties are already known, they can be
 // submitted as well to reduce the number of method calls necessary later on.
-func (m *MockSigner) MuSig2CreateSession(keychain.KeyLocator,
+func (m *MockSigner) MuSig2CreateSession(MuSig2Version, keychain.KeyLocator,
 	[]*btcec.PublicKey, *MuSig2Tweaks,
 	[][musig2.PubNonceSize]byte) (*MuSig2SessionInfo, error) {
 

@@ -72,6 +72,20 @@ func (h *HarnessRPC) MuSig2CreateSession(
 	return resp
 }
 
+// MuSig2CreateSessionErr makes an RPC call to the node's SignerClient and
+// asserts an error is returned.
+func (h *HarnessRPC) MuSig2CreateSessionErr(
+	req *signrpc.MuSig2SessionRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.Signer.MuSig2CreateSession(ctxt, req)
+	require.Error(h, err, "expected error from calling MuSig2CreateSession")
+
+	return err
+}
+
 // MuSig2CombineKeys makes a RPC call to the node's SignerClient and asserts.
 //
 //nolint:lll
@@ -85,6 +99,20 @@ func (h *HarnessRPC) MuSig2CombineKeys(
 	h.NoError(err, "MuSig2CombineKeys")
 
 	return resp
+}
+
+// MuSig2CombineKeysErr makes an RPC call to the node's SignerClient and
+// asserts an error is returned.
+func (h *HarnessRPC) MuSig2CombineKeysErr(
+	req *signrpc.MuSig2CombineKeysRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.Signer.MuSig2CombineKeys(ctxt, req)
+	require.Error(h, err, "expected error from calling MuSig2CombineKeys")
+
+	return err
 }
 
 // MuSig2RegisterNonces makes a RPC call to the node's SignerClient and asserts.

@@ -824,20 +824,24 @@ func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 func (s *Server) MuSig2CombineKeys(_ context.Context,
 	in *MuSig2CombineKeysRequest) (*MuSig2CombineKeysResponse, error) {
 
-	// Parse the public keys of all signing participants. This must also
-	// include our own, local key.
-	allSignerPubKeys := make([]*btcec.PublicKey, len(in.AllSignerPubkeys))
-	if len(in.AllSignerPubkeys) < 2 {
-		return nil, fmt.Errorf("need at least two signing public keys")
+	// Check the now mandatory version first. We made the version mandatory,
+	// so we don't get unexpected/undefined behavior for old clients that
+	// don't specify the version. Since this API is still declared to be
+	// experimental this should be the approach that leads to the least
+	// amount of unexpected behavior.
+	version, err := UnmarshalMuSig2Version(in.Version)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing version: %w", err)
 	}
 
-	for idx, pubKeyBytes := range in.AllSignerPubkeys {
-		pubKey, err := schnorr.ParsePubKey(pubKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing signer public "+
-				"key %d: %v", idx, err)
-		}
-		allSignerPubKeys[idx] = pubKey
+	// Parse the public keys of all signing participants. This must also
+	// include our own, local key.
+	allSignerPubKeys, err := input.MuSig2ParsePubKeys(
+		version, in.AllSignerPubkeys,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing all signer public "+
+			"keys: %w", err)
 	}
 
 	// Are there any tweaks to apply to the combined public key?
@@ -848,7 +852,9 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 	}
 
 	// Combine the keys now without creating a session in memory.
-	combinedKey, err := input.MuSig2CombineKeys(allSignerPubKeys, tweaks)
+	combinedKey, err := input.MuSig2CombineKeys(
+		version, allSignerPubKeys, true, tweaks,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error combining keys: %v", err)
 	}
@@ -865,6 +871,7 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 			combinedKey.FinalKey,
 		),
 		TaprootInternalKey: internalKeyBytes,
+		Version:            in.Version,
 	}, nil
 }
 
@@ -875,6 +882,16 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 // submitted as well to reduce the number of RPC calls necessary later on.
 func (s *Server) MuSig2CreateSession(_ context.Context,
 	in *MuSig2SessionRequest) (*MuSig2SessionResponse, error) {
+
+	// Check the now mandatory version first. We made the version mandatory,
+	// so we don't get unexpected/undefined behavior for old clients that
+	// don't specify the version. Since this API is still declared to be
+	// experimental this should be the approach that leads to the least
+	// amount of unexpected behavior.
+	version, err := UnmarshalMuSig2Version(in.Version)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing version: %w", err)
+	}
 
 	// A key locator is always mandatory.
 	if in.KeyLoc == nil {
@@ -887,18 +904,12 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 
 	// Parse the public keys of all signing participants. This must also
 	// include our own, local key.
-	allSignerPubKeys := make([]*btcec.PublicKey, len(in.AllSignerPubkeys))
-	if len(in.AllSignerPubkeys) < 2 {
-		return nil, fmt.Errorf("need at least two signing public keys")
-	}
-
-	for idx, pubKeyBytes := range in.AllSignerPubkeys {
-		pubKey, err := schnorr.ParsePubKey(pubKeyBytes)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing signer public "+
-				"key %d: %v", idx, err)
-		}
-		allSignerPubKeys[idx] = pubKey
+	allSignerPubKeys, err := input.MuSig2ParsePubKeys(
+		version, in.AllSignerPubkeys,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing all signer public "+
+			"keys: %w", err)
 	}
 
 	// We participate a nonce ourselves, so we can't have more nonces than
@@ -927,7 +938,7 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 
 	// Register the session with the internal wallet/signer now.
 	session, err := s.cfg.Signer.MuSig2CreateSession(
-		keyLoc, allSignerPubKeys, tweaks, otherSignerNonces,
+		version, keyLoc, allSignerPubKeys, tweaks, otherSignerNonces,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error registering session: %v", err)
@@ -948,6 +959,7 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 		TaprootInternalKey: internalKeyBytes,
 		LocalPublicNonces:  session.PublicNonce[:],
 		HaveAllNonces:      session.HaveAllNonces,
+		Version:            in.Version,
 	}, nil
 }
 

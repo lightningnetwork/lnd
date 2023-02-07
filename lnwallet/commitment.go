@@ -231,11 +231,8 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 	// path living in a tapscript leaf.
 	//
 	// Our "redeem" script here is just the taproot witness program.
-	//
-	// TODO(roasbeef): rework ScriptInfo struct to have taproot specific
-	// info?
 	case chanType.IsTaproot():
-		toLocalOutputKey, err := input.TaprootCommitScriptToSelf(
+		toLocalScriptTree, err := input.NewLocalCommitScriptTree(
 			csvDelay, selfKey, revokeKey,
 		)
 		if err != nil {
@@ -244,11 +241,12 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 		}
 
 		toLocalPkScript, err := input.PayToTaprootScript(
-			toLocalOutputKey,
+			toLocalScriptTree.TaprootKey,
 		)
 
 		return &ScriptInfo{
-			PkScript: toLocalPkScript,
+			WitnessScript: toLocalScriptTree.SettleLeaf.Script,
+			PkScript:      toLocalPkScript,
 		}, nil
 
 	// If we are the initiator of a leased channel, then we have an

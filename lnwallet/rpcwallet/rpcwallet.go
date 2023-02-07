@@ -617,7 +617,7 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 
 	// Let's give the TX to the remote instance now, so it can sign the
 	// input.
-	sig, err := r.remoteSign(tx, signDesc, sigScript)
+	sig, err := r.remoteSign(tx, signDesc, witnessProgram)
 	if err != nil {
 		return nil, fmt.Errorf("error signing with remote instance: %v",
 			err)

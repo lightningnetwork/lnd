@@ -116,6 +116,11 @@ func testRemoteSigner(ht *lntemp.HarnessTest) {
 			runSignPsbtSegWitV1KeySpendBip86(tt, wo)
 			runSignPsbtSegWitV1KeySpendRootHash(tt, wo)
 			runSignPsbtSegWitV1ScriptSpend(tt, wo)
+
+			// The above tests all make sure we can sign for keys
+			// that aren't in the wallet. But we also want to make
+			// sure we can fund and then sign PSBTs from our wallet.
+			runFundAndSignPsbt(ht, wo)
 		},
 	}, {
 		name:      "sign output raw",

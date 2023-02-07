@@ -31,97 +31,44 @@ type paymentLifecycle struct {
 	currentHeight int32
 }
 
-// paymentState holds a number of key insights learned from a given MPPayment
-// that we use to determine what to do on each payment loop iteration.
-type paymentState struct {
-	// numAttemptsInFlight specifies the number of HTLCs the payment is
-	// waiting results for.
-	numAttemptsInFlight int
-
-	// remainingAmt specifies how much more money to be sent.
-	remainingAmt lnwire.MilliSatoshi
-
-	// remainingFees specifies the remaining budget that can be used as
-	// fees.
-	remainingFees lnwire.MilliSatoshi
-
-	// terminate indicates the payment is in its final stage and no more
-	// shards should be launched. This value is true if we have an HTLC
-	// settled or the payment has an error.
-	terminate bool
-}
-
 // terminated returns a bool to indicate there are no further actions needed
 // and we should return what we have, either the payment preimage or the
 // payment error.
-func (ps paymentState) terminated() bool {
+func terminated(ps *channeldb.MPPaymentState) bool {
 	// If the payment is in final stage and we have no in flight shards to
 	// wait result for, we consider the whole action terminated.
-	return ps.terminate && ps.numAttemptsInFlight == 0
+	return ps.Terminate && ps.NumAttemptsInFlight == 0
 }
 
 // needWaitForShards returns a bool to specify whether we need to wait for the
 // outcome of the shardHandler.
-func (ps paymentState) needWaitForShards() bool {
+func needWaitForShards(ps *channeldb.MPPaymentState) bool {
 	// If we have in flight shards and the payment is in final stage, we
 	// need to wait for the outcomes from the shards. Or if we have no more
 	// money to be sent, we need to wait for the already launched shards.
-	if ps.numAttemptsInFlight == 0 {
+	if ps.NumAttemptsInFlight == 0 {
 		return false
 	}
-	return ps.terminate || ps.remainingAmt == 0
+	return ps.Terminate || ps.RemainingAmt == 0
 }
 
-// fetchPaymentState will query the db for the latest payment state information
-// we need to act on every iteration of the payment loop and update the
-// paymentState.
-func (p *paymentLifecycle) fetchPaymentState() (*channeldb.MPPayment,
-	*paymentState, error) {
+// calcFeeBudget returns the available fee to be used for sending HTLC
+// attempts.
+func (p *paymentLifecycle) calcFeeBudget(
+	feesPaid lnwire.MilliSatoshi) lnwire.MilliSatoshi {
 
-	// Fetch the latest payment from db.
-	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
-	if err != nil {
-		return nil, nil, err
-	}
+	budget := p.feeLimit
 
-	// Fetch the total amount and fees that has already been sent in
-	// settled and still in-flight shards.
-	sentAmt, fees := payment.SentAmt()
-
-	// Sanity check we haven't sent a value larger than the payment amount.
-	totalAmt := payment.Info.Value
-	if sentAmt > totalAmt {
-		return nil, nil, fmt.Errorf("amount sent %v exceeds total "+
-			"amount %v", sentAmt, totalAmt)
-	}
-
-	// We'll subtract the used fee from our fee budget, but allow the fees
-	// of the already sent shards to exceed our budget (can happen after
-	// restarts).
-	feeBudget := p.feeLimit
-	if fees <= feeBudget {
-		feeBudget -= fees
+	// We'll subtract the used fee from our fee budget. In case of
+	// overflow, we need to check whether feesPaid exceeds our budget
+	// already.
+	if feesPaid <= budget {
+		budget -= feesPaid
 	} else {
-		feeBudget = 0
+		budget = 0
 	}
 
-	// Get any terminal info for this payment.
-	settle, failure := payment.TerminalInfo()
-
-	// If either an HTLC settled, or the payment has a payment level
-	// failure recorded, it means we should terminate the moment all shards
-	// have returned with a result.
-	terminate := settle != nil || failure != nil
-
-	// Update the payment state.
-	state := &paymentState{
-		numAttemptsInFlight: len(payment.InFlightHTLCs()),
-		remainingAmt:        totalAmt - sentAmt,
-		remainingFees:       feeBudget,
-		terminate:           terminate,
-	}
-
-	return payment, state, nil
+	return budget
 }
 
 // resumePayment resumes the paymentLifecycle from the current state.
@@ -143,7 +90,8 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 	// If we had any existing attempts outstanding, we'll start by spinning
 	// up goroutines that'll collect their results and deliver them to the
 	// lifecycle loop below.
-	payment, _, err := p.fetchPaymentState()
+	// Fetch the latest payment from db.
+	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
 	if err != nil {
 		return [32]byte{}, nil, err
 	}
@@ -172,23 +120,27 @@ lifecycle:
 		// collectResultAsync), it is NOT guaranteed that we always
 		// have the latest state here. This is fine as long as the
 		// state is consistent as a whole.
-		payment, ps, err := p.fetchPaymentState()
+
+		// Fetch the latest payment from db.
+		payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
 		if err != nil {
 			return [32]byte{}, nil, err
 		}
 
+		ps := payment.State
+		remainingFees := p.calcFeeBudget(ps.FeesPaid)
+
 		log.Debugf("Payment %v in state terminate=%v, "+
 			"active_shards=%v, rem_value=%v, fee_limit=%v",
-			p.identifier, ps.terminate, ps.numAttemptsInFlight,
-			ps.remainingAmt, ps.remainingFees,
-		)
+			p.identifier, ps.Terminate, ps.NumAttemptsInFlight,
+			ps.RemainingAmt, remainingFees)
 
 		// TODO(yy): sanity check all the states to make sure
 		// everything is expected.
 		switch {
 		// We have a terminal condition and no active shards, we are
 		// ready to exit.
-		case ps.terminated():
+		case payment.Terminated():
 			// Find the first successful shard and return
 			// the preimage and route.
 			for _, a := range payment.HTLCs {
@@ -215,7 +167,7 @@ lifecycle:
 		// If we either reached a terminal error condition (but had
 		// active shards still) or there is no remaining value to send,
 		// we'll wait for a shard outcome.
-		case ps.needWaitForShards():
+		case needWaitForShards(ps):
 			// We still have outstanding shards, so wait for a new
 			// outcome to be available before re-evaluating our
 			// state.
@@ -257,8 +209,8 @@ lifecycle:
 
 		// Create a new payment attempt from the given payment session.
 		rt, err := p.paySession.RequestRoute(
-			ps.remainingAmt, ps.remainingFees,
-			uint32(ps.numAttemptsInFlight),
+			ps.RemainingAmt, remainingFees,
+			uint32(ps.NumAttemptsInFlight),
 			uint32(p.currentHeight),
 		)
 		if err != nil {
@@ -273,7 +225,7 @@ lifecycle:
 			// There is no route to try, and we have no active
 			// shards. This means that there is no way for us to
 			// send the payment, so mark it failed with no route.
-			if ps.numAttemptsInFlight == 0 {
+			if ps.NumAttemptsInFlight == 0 {
 				failureCode := routeErr.FailureReason()
 				log.Debugf("Marking payment %v permanently "+
 					"failed with no route: %v",
@@ -301,7 +253,7 @@ lifecycle:
 
 		// If this route will consume the last remaining amount to send
 		// to the receiver, this will be our last shard (for now).
-		lastShard := rt.ReceiverAmt() == ps.remainingAmt
+		lastShard := rt.ReceiverAmt() == ps.RemainingAmt
 
 		// We found a route to try, launch a new shard.
 		attempt, outcome, err := shardHandler.launchShard(rt, lastShard)

@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"time"
@@ -147,6 +148,27 @@ type HTLCFailInfo struct {
 	FailureSourceIndex uint32
 }
 
+// MPPaymentState wraps a series of info needed for a given payment, which is
+// used by both MPP and AMP. This is a memory representation of the payment's
+// current state and is updated whenever the payment is read from disk.
+type MPPaymentState struct {
+	// NumAttemptsInFlight specifies the number of HTLCs the payment is
+	// waiting results for.
+	NumAttemptsInFlight int
+
+	// RemainingAmt specifies how much more money to be sent.
+	RemainingAmt lnwire.MilliSatoshi
+
+	// FeesPaid specifies the total fees paid so far that can be used to
+	// calculate remaining fee budget.
+	FeesPaid lnwire.MilliSatoshi
+
+	// Terminate indicates the payment is in its final stage and no more
+	// shards should be launched. This value is true if we have an HTLC
+	// settled or the payment has an error.
+	Terminate bool
+}
+
 // MPPayment is a wrapper around a payment's PaymentCreationInfo and
 // HTLCAttempts. All payments will have the PaymentCreationInfo set, any
 // HTLCs made in attempts to be completed will populated in the HTLCs slice.
@@ -175,6 +197,11 @@ type MPPayment struct {
 
 	// Status is the current PaymentStatus of this payment.
 	Status PaymentStatus
+
+	// State is the current state of the payment that holds a number of key
+	// insights and is used to determine what to do on each payment loop
+	// iteration.
+	State *MPPaymentState
 }
 
 // Terminated returns a bool to specify whether the payment is in a terminal
@@ -278,6 +305,55 @@ func (m *MPPayment) Registrable() error {
 
 	// Otherwise we can add more HTLCs.
 	return nil
+}
+
+// setState creates and attaches a new MPPaymentState to the payment. It also
+// updates the payment's status based on its current state.
+func (m *MPPayment) setState() error {
+	// Fetch the total amount and fees that has already been sent in
+	// settled and still in-flight shards.
+	sentAmt, fees := m.SentAmt()
+
+	// Sanity check we haven't sent a value larger than the payment amount.
+	totalAmt := m.Info.Value
+	if sentAmt > totalAmt {
+		return fmt.Errorf("%w: sent=%v, total=%v", ErrSentExceedsTotal,
+			sentAmt, totalAmt)
+	}
+
+	// Get any terminal info for this payment.
+	settle, failure := m.TerminalInfo()
+
+	// If either an HTLC settled, or the payment has a payment level
+	// failure recorded, it means we should terminate the moment all shards
+	// have returned with a result.
+	terminate := settle != nil || failure != nil
+
+	// Now determine the payment's status.
+	status, err := decidePaymentStatus(m.HTLCs, m.FailureReason)
+	if err != nil {
+		return err
+	}
+
+	// Update the payment state and status.
+	m.State = &MPPaymentState{
+		NumAttemptsInFlight: len(m.InFlightHTLCs()),
+		RemainingAmt:        totalAmt - sentAmt,
+		FeesPaid:            fees,
+		Terminate:           terminate,
+	}
+	m.Status = status
+
+	return nil
+}
+
+// SetState calls the internal method setState. This is a temporary method
+// to be used by the tests in routing. Once the tests are updated to use mocks,
+// this method can be removed.
+//
+// TODO(yy): delete.
+func (m *MPPayment) SetState() error {
+	return m.setState()
 }
 
 // serializeHTLCSettleInfo serializes the details of a settled htlc.

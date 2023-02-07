@@ -93,6 +93,10 @@ var (
 	// to a payment that already has a failure reason.
 	ErrPaymentPendingFailed = errors.New("payment has failure reason")
 
+	// ErrSentExceedsTotal is returned if the payment's current total sent
+	// amount exceed the total amount.
+	ErrSentExceedsTotal = errors.New("total sent exceeds total amount")
+
 	// errNoAttemptInfo is returned when no attempt info is stored yet.
 	errNoAttemptInfo = errors.New("unable to find attempt info for " +
 		"inflight payment")

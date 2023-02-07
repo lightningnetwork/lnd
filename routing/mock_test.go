@@ -518,6 +518,11 @@ func (m *mockControlTowerOld) fetchPayment(phash lntypes.Hash) (
 
 	// Return a copy of the current attempts.
 	mp.HTLCs = append(mp.HTLCs, p.attempts...)
+
+	if err := mp.SetState(); err != nil {
+		return nil, err
+	}
+
 	return mp, nil
 }
 

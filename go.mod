@@ -33,7 +33,7 @@ require (
 	github.com/lightninglabs/neutrino v0.14.2
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20221202012345-ca23184850a1
-	github.com/lightningnetwork/lnd/cert v1.2.0
+	github.com/lightningnetwork/lnd/cert v1.2.1
 	github.com/lightningnetwork/lnd/clock v1.1.0
 	github.com/lightningnetwork/lnd/healthcheck v1.2.2
 	github.com/lightningnetwork/lnd/kvdb v1.4.1

@@ -261,6 +261,9 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 * [Remove unused args](https://github.com/lightningnetwork/lnd/pull/7387)
   from `cert.GenCertPair`.
 
+* [Fixup GenCertPair use](https://github.com/lightningnetwork/lnd/pull/7388)
+  after updating to cert/v1.2.1.
+
 ## `lncli`
 
 * [Add an `insecure` flag to skip tls auth as well as a `metadata` string slice
@@ -443,6 +446,7 @@ refactor the itest for code health and maintenance.
 
 * Alejandro Pedraza
 * Alyssa Hertig
+* Andras Banki-Horvath
 * andreihod
 * Antoni Spaanderman
 * Carla Kirk-Cohen

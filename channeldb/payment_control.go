@@ -305,7 +305,7 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			return err
 		}
 
-		p, err := fetchPayment(bucket)
+		payment, err = fetchPayment(bucket)
 		if err != nil {
 			return err
 		}
@@ -313,20 +313,20 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 		// We cannot register a new attempt if the payment already has
 		// reached a terminal condition. We check this before
 		// ensureInFlight because it is a more general check.
-		settle, fail := p.TerminalInfo()
+		settle, fail := payment.TerminalInfo()
 		if settle != nil || fail != nil {
 			return ErrPaymentTerminal
 		}
 
 		// Ensure the payment is in-flight.
-		if err := ensureInFlight(p); err != nil {
+		if err := ensureInFlight(payment); err != nil {
 			return err
 		}
 
 		// Make sure any existing shards match the new one with regards
 		// to MPP options.
 		mpp := attempt.Route.FinalHop().MPP
-		for _, h := range p.InFlightHTLCs() {
+		for _, h := range payment.InFlightHTLCs() {
 			hMpp := h.Route.FinalHop().MPP
 
 			switch {
@@ -358,13 +358,13 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 		// If this is a non-MPP attempt, it must match the total amount
 		// exactly.
 		amt := attempt.Route.ReceiverAmt()
-		if mpp == nil && amt != p.Info.Value {
+		if mpp == nil && amt != payment.Info.Value {
 			return ErrValueMismatch
 		}
 
 		// Ensure we aren't sending more than the total payment amount.
-		sentAmt, _ := p.SentAmt()
-		if sentAmt+amt > p.Info.Value {
+		sentAmt, _ := payment.SentAmt()
+		if sentAmt+amt > payment.Info.Value {
 			return ErrValueExceedsAmt
 		}
 

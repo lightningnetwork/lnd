@@ -85,6 +85,12 @@ func testRemoteSigner(ht *lntemp.HarnessTest) {
 			runBasicChannelCreationAndUpdates(tt, wo, carol)
 		},
 	}, {
+		name:      "channel funding input types",
+		sendCoins: false,
+		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {
+			runChannelFundingInputTypes(tt, carol, wo)
+		},
+	}, {
 		name:      "async payments",
 		sendCoins: true,
 		fn: func(tt *lntemp.HarnessTest, wo, carol *node.HarnessNode) {

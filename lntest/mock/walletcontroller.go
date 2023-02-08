@@ -212,7 +212,7 @@ func (w *WalletController) ListLeasedOutputs() ([]*base.ListLeasedOutputResult,
 
 // FundPsbt currently does nothing.
 func (w *WalletController) FundPsbt(*psbt.Packet, int32, chainfee.SatPerKWeight,
-	string) (int32, error) {
+	string, *waddrmgr.KeyScope) (int32, error) {
 
 	return 0, nil
 }

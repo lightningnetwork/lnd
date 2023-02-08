@@ -582,7 +582,7 @@ var fundPsbtCommand = cli.Command{
 	Name:  "fund",
 	Usage: "Fund a Partially Signed Bitcoin Transaction (PSBT).",
 	ArgsUsage: "[--template_psbt=T | [--outputs=O [--inputs=I]]] " +
-		"[--conf_target=C | --sat_per_vbyte=S]",
+		"[--conf_target=C | --sat_per_vbyte=S] [--change_type=A]",
 	Description: `
 	The fund command creates a fully populated PSBT that contains enough
 	inputs to fund the outputs specified in either the PSBT or the
@@ -606,7 +606,14 @@ var fundPsbtCommand = cli.Command{
 	The optional 'inputs' flag decodes a JSON list of UTXO outpoints as
 	returned by the listunspent command for example:
 
-	    --inputs='["<txid1>:<output-index1>","<txid2>:<output-index2>",...]'
+	    --inputs='["<txid1>:<output-index1>","<txid2>:<output-index2>",...]
+
+	The optional '--change-type' flag permits to choose the address type
+	for the change for default accounts and single imported public keys.
+	The custom address type can only be p2tr at the moment (p2wkh will be
+	used by default). No custom address type should be provided for custom
+	accounts as we will always generate the change address using the coin
+	selection key scope.
 	`,
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -641,6 +648,17 @@ var fundPsbtCommand = cli.Command{
 			Name: "account",
 			Usage: "(optional) the name of the account to use to " +
 				"create/fund the PSBT",
+		},
+		cli.StringFlag{
+			Name: "change_type",
+			Usage: "(optional) the type of the change address to " +
+				"use to create/fund the PSBT. If no address " +
+				"type is provided, p2wpkh will be used for " +
+				"default accounts and single imported public " +
+				"keys. No custom address type should be " +
+				"provided for custom accounts as we will " +
+				"always use the coin selection key scope to " +
+				"generate the change address",
 		},
 	},
 	Action: actionDecorator(fundPsbt),
@@ -744,6 +762,21 @@ func fundPsbt(ctx *cli.Context) error {
 	case ctx.Uint64("conf_target") > 0:
 		req.Fees = &walletrpc.FundPsbtRequest_TargetConf{
 			TargetConf: uint32(ctx.Uint64("conf_target")),
+		}
+	}
+
+	if ctx.IsSet("change_type") {
+		switch addressType := ctx.String("change_type"); addressType {
+		case "p2tr":
+			//nolint:lll
+			req.ChangeType = walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
+
+		default:
+			return fmt.Errorf("invalid type for the "+
+				"change type: %s. At the moment, the "+
+				"only address type supported is p2tr "+
+				"(default to p2wkh)",
+				addressType)
 		}
 	}
 

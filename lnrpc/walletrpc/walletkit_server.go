@@ -1023,7 +1023,11 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 // externally and no additional inputs are added. If the specified inputs aren't
 // enough to fund the outputs with the given fee rate, an error is returned.
 // After either selecting or verifying the inputs, all input UTXOs are locked
-// with an internal app ID.
+// with an internal app ID. A custom address type for change can be specified
+// for default accounts and single imported public keys (only P2TR for now).
+// Otherwise, P2WPKH will be used by default. No custom address type should be
+// provided for custom accounts as we will always generate the change address
+// using the coin selection key scope.
 //
 // NOTE: If this method returns without an error, it is the caller's
 // responsibility to either spend the locked UTXOs (by finalizing and then
@@ -1178,6 +1182,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		// generating a new change address.
 		changeIndex, err = w.cfg.Wallet.FundPsbt(
 			packet, minConfs, feeSatPerKW, account,
+			keyScopeFromChangeAddressType(req.ChangeType),
 		)
 		if err != nil {
 			return fmt.Errorf("wallet couldn't fund PSBT: %v", err)
@@ -1241,6 +1246,21 @@ func marshallLeases(locks []*base.ListLeasedOutputResult) []*UtxoLease {
 	}
 
 	return rpcLocks
+}
+
+// keyScopeFromChangeAddressType maps a ChangeAddressType from protobuf to a
+// KeyScope. If the type is ChangeAddressType_CHANGE_ADDRESS_TYPE_UNSPECIFIED,
+// it returns nil.
+func keyScopeFromChangeAddressType(
+	changeAddressType ChangeAddressType) *waddrmgr.KeyScope {
+
+	switch changeAddressType {
+	case ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR:
+		return &waddrmgr.KeyScopeBIP0086
+
+	default:
+		return nil
+	}
 }
 
 // SignPsbt expects a partial transaction with all inputs and outputs fully

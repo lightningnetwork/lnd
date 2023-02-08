@@ -995,6 +995,23 @@ message LabelTransactionRequest {
 message LabelTransactionResponse {
 }
 
+// The possible change address types for default accounts and single imported
+// public keys. By default, P2WPKH will be used. We don't provide the
+// possibility to choose P2PKH as it is a legacy key scope, nor NP2WPKH as
+// no key scope permits to do so. For custom accounts, no change type should
+// be provided as the coin selection key scope will always be used to generate
+// the change address.
+enum ChangeAddressType {
+    // CHANGE_ADDRESS_TYPE_UNSPECIFIED indicates that no change address type is
+    // provided. We will then use P2WPKH address type for change (BIP0084 key
+    // scope).
+    CHANGE_ADDRESS_TYPE_UNSPECIFIED = 0;
+
+    // CHANGE_ADDRESS_TYPE_P2TR indicates to use P2TR address for change output
+    // (BIP0086 key scope).
+    CHANGE_ADDRESS_TYPE_P2TR = 1;
+}
+
 message FundPsbtRequest {
     oneof template {
         /*
@@ -1040,6 +1057,12 @@ message FundPsbtRequest {
 
     // Whether unconfirmed outputs should be used as inputs for the transaction.
     bool spend_unconfirmed = 7;
+
+    // The address type for the change. If empty, P2WPKH addresses will be used
+    // for default accounts and single imported public keys. For custom
+    // accounts, no change type should be provided as the coin selection key
+    // scope will always be used to generate the change address.
+    ChangeAddressType change_type = 8;
 }
 message FundPsbtResponse {
     /*

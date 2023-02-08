@@ -173,14 +173,8 @@ func psbtSendFromImportedAccount(ht *lntemp.HarnessTest, srcNode, destNode,
 	)
 	switch accountAddrType {
 	case walletrpc.AddressType_WITNESS_PUBKEY_HASH:
-		if account != defaultImportedAccount {
-			expTxFee = 141
-			expChangeScriptType = txscript.WitnessV0PubKeyHashTy
-			break
-		}
-
-		expTxFee = 153
-		expChangeScriptType = txscript.WitnessV1TaprootTy
+		expTxFee = 141
+		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
 
 	case walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH:
 		if account != defaultImportedAccount {
@@ -189,16 +183,26 @@ func psbtSendFromImportedAccount(ht *lntemp.HarnessTest, srcNode, destNode,
 			break
 		}
 
-		expTxFee = 176
-		expChangeScriptType = txscript.WitnessV1TaprootTy
+		// Spends from the default NP2WKH imported account have the same
+		// fee rate as the hybrid address type since a NP2WKH input is
+		// spent and a P2WKH change output is created.
+		fallthrough
 
 	case walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 		expTxFee = 164
 		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
 
 	case walletrpc.AddressType_TAPROOT_PUBKEY:
-		expTxFee = 143
-		expChangeScriptType = txscript.WitnessV1TaprootTy
+		if account != defaultImportedAccount {
+			expTxFee = 143
+			expChangeScriptType = txscript.WitnessV1TaprootTy
+			break
+		}
+
+		// Spends from the default imported account fall back to a P2WKH
+		// change. We'll want to change that, but in a separate PR.
+		expTxFee = 131
+		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
 
 	default:
 		ht.Fatalf("unsupported addr type %v", accountAddrType)
@@ -316,14 +320,8 @@ func fundChanAndCloseFromImportedAccount(ht *lntemp.HarnessTest, srcNode,
 	)
 	switch accountAddrType {
 	case walletrpc.AddressType_WITNESS_PUBKEY_HASH:
-		if account != defaultImportedAccount {
-			expChanTxFee = 153
-			expChangeScriptType = txscript.WitnessV0PubKeyHashTy
-			break
-		}
-
-		expChanTxFee = 165
-		expChangeScriptType = txscript.WitnessV1TaprootTy
+		expChanTxFee = 153
+		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
 
 	case walletrpc.AddressType_NESTED_WITNESS_PUBKEY_HASH:
 		if account != defaultImportedAccount {
@@ -332,16 +330,26 @@ func fundChanAndCloseFromImportedAccount(ht *lntemp.HarnessTest, srcNode,
 			break
 		}
 
-		expChanTxFee = 188
-		expChangeScriptType = txscript.WitnessV1TaprootTy
+		// Spends from the default NP2WKH imported account have the same
+		// fee rate as the hybrid address type since a NP2WKH input is
+		// spent and a P2WKH change output is created.
+		fallthrough
 
 	case walletrpc.AddressType_HYBRID_NESTED_WITNESS_PUBKEY_HASH:
 		expChanTxFee = 176
 		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
 
 	case walletrpc.AddressType_TAPROOT_PUBKEY:
-		expChanTxFee = 155
-		expChangeScriptType = txscript.WitnessV1TaprootTy
+		if account != defaultImportedAccount {
+			expChanTxFee = 155
+			expChangeScriptType = txscript.WitnessV1TaprootTy
+			break
+		}
+
+		// Spends from the default imported account fall back to a P2WKH
+		// change. We'll want to change that, but in a separate PR.
+		expChanTxFee = 143
+		expChangeScriptType = txscript.WitnessV0PubKeyHashTy
 
 	default:
 		ht.Fatalf("unsupported addr type %v", accountAddrType)

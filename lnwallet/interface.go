@@ -446,7 +446,10 @@ type WalletController interface {
 	// specified fee rate. If there is change left, a change output from the
 	// internal wallet is added and the index of the change output is
 	// returned. Otherwise no additional output is created and the index -1
-	// is returned.
+	// is returned. If no custom change scope is specified, the BIP0084 will
+	// be used for default accounts and single imported public keys. For
+	// custom account, no key scope should be provided as the coin selection
+	// key scope will always be used to generate the change address.
 	//
 	// NOTE: If the packet doesn't contain any inputs, coin selection is
 	// performed automatically. The account parameter must be non-empty as
@@ -458,7 +461,8 @@ type WalletController interface {
 	// the selected/validated inputs. It is in the caller's responsibility
 	// to lock the inputs before handing them out.
 	FundPsbt(packet *psbt.Packet, minConfs int32,
-		feeRate chainfee.SatPerKWeight, account string) (int32, error)
+		feeRate chainfee.SatPerKWeight, account string,
+		changeScope *waddrmgr.KeyScope) (int32, error)
 
 	// SignPsbt expects a partial transaction with all inputs and outputs
 	// fully declared and tries to sign all unsigned inputs that have all

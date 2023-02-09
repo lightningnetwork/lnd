@@ -131,6 +131,10 @@ type DB interface {
 	// update identified by seqNum was received and saved. The returned
 	// lastApplied will be recorded.
 	AckUpdate(id *wtdb.SessionID, seqNum, lastApplied uint16) error
+
+	// GetDBQueue returns a BackupID Queue instance under the given name
+	// space.
+	GetDBQueue(namespace []byte) wtdb.Queue[*wtdb.BackupID]
 }
 
 // AuthDialer connects to a remote node using an authenticated transport, such

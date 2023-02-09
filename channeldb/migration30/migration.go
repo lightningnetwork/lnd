@@ -23,10 +23,17 @@ import (
 // indexes.
 const recordsPerTx = 20_000
 
+// MigrateRevLogConfig is an interface that defines the config that should be
+// passed to the MigrateRevocationLog function.
+type MigrateRevLogConfig interface{}
+
+// MigrateRevLogConfigImpl implements the MigrationRevLogConfig interface.
+type MigrateRevLogConfigImpl struct{}
+
 // MigrateRevocationLog migrates the old revocation logs into the newer format
 // and deletes them once finished, with the deletion only happens once ALL the
 // old logs have been migrates.
-func MigrateRevocationLog(db kvdb.Backend) error {
+func MigrateRevocationLog(db kvdb.Backend, _ MigrateRevLogConfig) error {
 	log.Infof("Migrating revocation logs, might take a while...")
 
 	var (

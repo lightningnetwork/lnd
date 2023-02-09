@@ -89,7 +89,8 @@ func ApplyMigration(t *testing.T,
 // function. This function differs from ApplyMigration as it requires the
 // supplied migration functions to take a db instance and construct their own
 // database transactions.
-func ApplyMigrationWithDB(t testing.TB, beforeMigration, afterMigration,
+func ApplyMigrationWithDB(t testing.TB, beforeMigration,
+	afterMigration func(db kvdb.Backend) error,
 	migrationFunc func(db kvdb.Backend) error, shouldFail bool) {
 
 	t.Helper()

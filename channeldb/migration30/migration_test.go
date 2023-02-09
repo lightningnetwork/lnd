@@ -103,11 +103,15 @@ func TestMigrateRevocationLog(t *testing.T) {
 				return nil
 			}
 
+			cfg := &MigrateRevLogConfigImpl{}
+
 			migtest.ApplyMigrationWithDB(
 				t,
 				beforeMigration,
 				afterMigration,
-				MigrateRevocationLog,
+				func(db kvdb.Backend) error {
+					return MigrateRevocationLog(db, cfg)
+				},
 				false,
 			)
 		})
@@ -559,6 +563,8 @@ func BenchmarkMigration(b *testing.B) {
 		return setupTestLogs(db, c, oldLogs, nil)
 	}
 
+	cfg := &MigrateRevLogConfigImpl{}
+
 	// Run the migration test.
 	migtest.ApplyMigrationWithDB(
 		b,
@@ -568,7 +574,7 @@ func BenchmarkMigration(b *testing.B) {
 			b.StartTimer()
 			defer b.StopTimer()
 
-			return MigrateRevocationLog(db)
+			return MigrateRevocationLog(db, cfg)
 		},
 		false,
 	)

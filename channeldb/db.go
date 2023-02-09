@@ -63,12 +63,24 @@ type mandatoryVersion struct {
 	migration migration
 }
 
+// MigrationConfig is an interface combines the config interfaces of all
+// optional migrations.
+type MigrationConfig interface {
+	migration30.MigrateRevLogConfig
+}
+
+// MigrationConfigImpl is a super set of all the various migration configs and
+// an implementation of MigrationConfig.
+type MigrationConfigImpl struct {
+	migration30.MigrateRevLogConfigImpl
+}
+
 // optionalMigration defines an optional migration function. When a migration
 // is optional, it usually involves a large scale of changes that might touch
 // millions of keys. Due to OOM concern, the update cannot be safely done
 // within one db transaction. Thus, for optional migrations, they must take the
 // db backend and construct transactions as needed.
-type optionalMigration func(db kvdb.Backend) error
+type optionalMigration func(db kvdb.Backend, cfg MigrationConfig) error
 
 // optionalVersion defines a db version that can be optionally applied. When
 // applying migrations, we must apply all the mandatory migrations first before
@@ -273,8 +285,12 @@ var (
 	// to determine its state.
 	optionalVersions = []optionalVersion{
 		{
-			name:      "prune revocation log",
-			migration: migration30.MigrateRevocationLog,
+			name: "prune revocation log",
+			migration: func(db kvdb.Backend,
+				cfg MigrationConfig) error {
+
+				return migration30.MigrateRevocationLog(db, cfg)
+			},
 		},
 	}
 
@@ -1545,8 +1561,12 @@ func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 	version := optionalVersions[0]
 	log.Infof("Performing database optional migration: %s", version.name)
 
+	migrationCfg := &MigrationConfigImpl{
+		migration30.MigrateRevLogConfigImpl{},
+	}
+
 	// Migrate the data.
-	if err := version.migration(d); err != nil {
+	if err := version.migration(d, migrationCfg); err != nil {
 		log.Errorf("Unable to apply optional migration: %s, error: %v",
 			version.name, err)
 		return err

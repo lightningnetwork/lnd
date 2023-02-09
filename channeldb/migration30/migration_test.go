@@ -75,6 +75,7 @@ func TestMigrateRevocationLog(t *testing.T) {
 	}
 
 	fmt.Printf("Running %d test cases...\n", len(testCases))
+	fmt.Printf("withAmtData is set to: %v\n", withAmtData)
 
 	for i, tc := range testCases {
 		tc := tc
@@ -103,7 +104,9 @@ func TestMigrateRevocationLog(t *testing.T) {
 				return nil
 			}
 
-			cfg := &MigrateRevLogConfigImpl{}
+			cfg := &MigrateRevLogConfigImpl{
+				NoAmountData: !withAmtData,
+			}
 
 			migtest.ApplyMigrationWithDB(
 				t,
@@ -563,7 +566,9 @@ func BenchmarkMigration(b *testing.B) {
 		return setupTestLogs(db, c, oldLogs, nil)
 	}
 
-	cfg := &MigrateRevLogConfigImpl{}
+	cfg := &MigrateRevLogConfigImpl{
+		NoAmountData: !withAmtData,
+	}
 
 	// Run the migration test.
 	migtest.ApplyMigrationWithDB(

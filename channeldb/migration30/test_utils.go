@@ -3,6 +3,8 @@ package migration30
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -260,6 +262,12 @@ var (
 		0xf8, 0xc3, 0xfc, 0x7, 0x2d, 0x15, 0x99, 0x55,
 		0x8, 0x69, 0xf6, 0x1, 0xa2, 0xcd, 0x6b, 0xa7,
 	})
+
+	// withAmtData if set, will result in the amount data of the revoked
+	// commitment transactions also being stored in the new revocation log.
+	// The value of this variable is set randomly in the init function of
+	// this package.
+	withAmtData bool
 )
 
 // setupTestLogs takes care of creating the related buckets and inserts testing
@@ -550,4 +558,11 @@ func createFinished(cdb kvdb.Backend, c *mig26.OpenChannel,
 		newLogs = append(newLogs, newLog3)
 	}
 	return setupTestLogs(cdb, c, oldLogs, newLogs)
+}
+
+func init() {
+	rand.Seed(time.Now().Unix())
+	if rand.Intn(2) == 0 {
+		withAmtData = true
+	}
 }

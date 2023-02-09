@@ -69,6 +69,12 @@ type AddressIterator interface {
 	// Reset clears the iterators state, and makes the address at the front
 	// of the list the next item to be returned.
 	Reset()
+
+	// Copy constructs a new AddressIterator that has the same addresses
+	// as this iterator.
+	//
+	// NOTE that the address locks are not expected to be copied.
+	Copy() AddressIterator
 }
 
 // A compile-time check to ensure that addressIterator implements the
@@ -324,6 +330,33 @@ func (a *addressIterator) GetAll() []net.Addr {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	return a.getAllUnsafe()
+}
+
+// Copy constructs a new AddressIterator that has the same addresses
+// as this iterator.
+//
+// NOTE that the address locks will not be copied.
+func (a *addressIterator) Copy() AddressIterator {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	addrs := a.getAllUnsafe()
+
+	// Since newAddressIterator will only ever return an error if it is
+	// initialised with zero addresses, we can ignore the error here since
+	// we are initialising it with the set of addresses of this
+	// addressIterator which is by definition a non-empty list.
+	iter, _ := newAddressIterator(addrs...)
+
+	return iter
+}
+
+// getAllUnsafe returns a copy of all the addresses in the iterator.
+//
+// NOTE: this method is not thread safe and so must only be called once the
+// addressIterator mutex is already being held.
+func (a *addressIterator) getAllUnsafe() []net.Addr {
 	var addrs []net.Addr
 	cursor := a.addrList.Front()
 

@@ -52,14 +52,10 @@ func randTower(t *testing.T) *Tower {
 func copyTower(t *testing.T, tower *Tower) *Tower {
 	t.Helper()
 
-	addrs := tower.Addresses.GetAll()
-	addrIterator, err := newAddressIterator(addrs...)
-	require.NoError(t, err)
-
 	return &Tower{
 		ID:          tower.ID,
 		IdentityKey: tower.IdentityKey,
-		Addresses:   addrIterator,
+		Addresses:   tower.Addresses.Copy(),
 	}
 }
 

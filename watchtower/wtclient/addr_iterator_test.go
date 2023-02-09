@@ -97,6 +97,11 @@ func TestAddrIterator(t *testing.T) {
 	addrList := iter.GetAll()
 	require.ElementsMatch(t, addrList, []net.Addr{addr1, addr2, addr3})
 
+	// Also check that an iterator constructed via the Copy method, also
+	// contains all the expected addresses.
+	newIterAddrs := iter.Copy().GetAll()
+	require.ElementsMatch(t, newIterAddrs, []net.Addr{addr1, addr2, addr3})
+
 	// Let's now remove addr3.
 	err = iter.Remove(addr3)
 	require.NoError(t, err)

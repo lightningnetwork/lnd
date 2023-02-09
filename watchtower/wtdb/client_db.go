@@ -94,6 +94,10 @@ var (
 	// 	db-session-id -> last-channel-close-height
 	cClosableSessionsBkt = []byte("client-closable-sessions-bucket")
 
+	// cTaskQueue is a top-level bucket where the disk queue may store its
+	// content.
+	cTaskQueue = []byte("client-task-queue")
+
 	// ErrTowerNotFound signals that the target tower was not found in the
 	// database.
 	ErrTowerNotFound = errors.New("tower not found")
@@ -2058,6 +2062,15 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 
 		return index.Add(height, rangesBkt)
 	}, func() {})
+}
+
+// GetDBQueue returns a BackupID Queue instance under the given namespace.
+func (c *ClientDB) GetDBQueue(namespace []byte) Queue[*BackupID] {
+	return NewQueueDB[*BackupID](
+		c.db, namespace, func() *BackupID {
+			return &BackupID{}
+		},
+	)
 }
 
 // putChannelToSessionMapping adds the given session ID to a channel's

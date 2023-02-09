@@ -51,6 +51,10 @@ const (
 	// random number of blocks to delay closing a session after its last
 	// channel has been closed.
 	DefaultSessionCloseRange = 288
+
+	// DefaultMaxTasksInMemQueue is the maximum number of items to be held
+	// in the in-memory queue.
+	DefaultMaxTasksInMemQueue = 2000
 )
 
 // genSessionFilter constructs a filter that can be used to select sessions only

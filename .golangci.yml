@@ -268,3 +268,10 @@ issues:
         # if the returned value doesn't match the type, so there's no need to
         # check the convert.
         - forcetypeassert
+
+    - path: mock*
+      linters:
+        # forcetypeassert is skipped for the mock because the test would fail
+        # if the returned value doesn't match the type, so there's no need to
+        # check the convert.
+        - forcetypeassert

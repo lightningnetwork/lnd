@@ -86,7 +86,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 	// exitWithErr is a helper closure that logs and returns an error.
 	exitWithErr := func(err error) ([32]byte, *route.Route, error) {
 		log.Errorf("Payment %v with status=%v failed: %v",
-			p.identifier, payment.Status, err)
+			p.identifier, payment.GetStatus(), err)
 		return [32]byte{}, nil, err
 	}
 
@@ -112,7 +112,7 @@ lifecycle:
 			return exitWithErr(err)
 		}
 
-		ps := payment.State
+		ps := payment.GetState()
 		remainingFees := p.calcFeeBudget(ps.FeesPaid)
 
 		log.Debugf("Payment %v in state terminate=%v, "+
@@ -127,7 +127,7 @@ lifecycle:
 		if payment.Terminated() {
 			// Find the first successful shard and return
 			// the preimage and route.
-			for _, a := range payment.HTLCs {
+			for _, a := range payment.GetHTLCs() {
 				if a.Settle == nil {
 					continue
 				}
@@ -146,7 +146,7 @@ lifecycle:
 			}
 
 			// Payment failed.
-			return exitWithErr(*payment.FailureReason)
+			return exitWithErr(*payment.GetFailureReason())
 		}
 
 		// If we either reached a terminal error condition (but had

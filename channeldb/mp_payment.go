@@ -446,6 +446,26 @@ func (m *MPPayment) NeedWaitAttempts() (bool, error) {
 	}
 }
 
+// GetState returns the internal state of the payment.
+func (m *MPPayment) GetState() *MPPaymentState {
+	return m.State
+}
+
+// Status returns the current status of the payment.
+func (m *MPPayment) GetStatus() PaymentStatus {
+	return m.Status
+}
+
+// GetPayment returns all the HTLCs for this payment.
+func (m *MPPayment) GetHTLCs() []HTLCAttempt {
+	return m.HTLCs
+}
+
+// GetFailureReason returns the failure reason.
+func (m *MPPayment) GetFailureReason() *FailureReason {
+	return m.FailureReason
+}
+
 // serializeHTLCSettleInfo serializes the details of a settled htlc.
 func serializeHTLCSettleInfo(w io.Writer, s *HTLCSettleInfo) error {
 	if _, err := w.Write(s.Preimage[:]); err != nil {

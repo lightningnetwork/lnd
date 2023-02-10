@@ -479,6 +479,8 @@ messages directly. There is no routing/path finding involved.
 * [Fixes two issues around configuration parsing and error
   logging](https://github.com/lightningnetwork/lnd/pull/5948).
 
+* [Restricted permissions to GitHub main action](https://github.com/lightningnetwork/lnd/pull/5744)
+
 ## Database
 
 * [Ensure single writer for legacy

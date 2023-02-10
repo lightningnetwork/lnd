@@ -100,6 +100,11 @@ func (r *forwardInterceptor) onIntercept(
 func (r *forwardInterceptor) resolveFromClient(
 	in *ForwardHtlcInterceptResponse) error {
 
+	if in.IncomingCircuitKey == nil {
+		return status.Errorf(codes.InvalidArgument,
+			"CircuitKey missing from ForwardHtlcInterceptResponse")
+	}
+
 	log.Tracef("Resolving intercepted packet %v", in)
 
 	circuitKey := models.CircuitKey{

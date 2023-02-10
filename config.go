@@ -981,6 +981,13 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		)
 	}
 
+	// Ensure that the amount data for revoked commitment transactions is
+	// stored if the watchtower client is active.
+	if cfg.DB.NoRevLogAmtData && cfg.WtClient.Active {
+		return nil, mkErr("revocation log amount data must be stored " +
+			"if the watchtower client is active")
+	}
+
 	// Ensure a valid max channel fee allocation was set.
 	if cfg.MaxChannelFeeAllocation <= 0 || cfg.MaxChannelFeeAllocation > 1 {
 		return nil, mkErr("invalid max channel fee allocation: %v, "+

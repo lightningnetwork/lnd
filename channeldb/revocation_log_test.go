@@ -368,6 +368,7 @@ func TestPutRevocationLog(t *testing.T) {
 		commit      ChannelCommitment
 		ourIndex    uint32
 		theirIndex  uint32
+		noAmtData   bool
 		expectedErr error
 		expectedLog RevocationLog
 	}{
@@ -435,6 +436,7 @@ func TestPutRevocationLog(t *testing.T) {
 			// Save the log.
 			err = putRevocationLog(
 				bucket, &tc.commit, tc.ourIndex, tc.theirIndex,
+				tc.noAmtData,
 			)
 			if err != nil {
 				return RevocationLog{}, err
@@ -542,7 +544,7 @@ func TestFetchRevocationLogCompatible(t *testing.T) {
 				require.NoError(t, err)
 
 				err = putRevocationLog(
-					lb, &testChannelCommit, 0, 1,
+					lb, &testChannelCommit, 0, 1, false,
 				)
 				require.NoError(t, err)
 			}

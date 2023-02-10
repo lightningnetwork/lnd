@@ -324,6 +324,10 @@ type DB struct {
 	dryRun                    bool
 	keepFailedPaymentAttempts bool
 	storeFinalHtlcResolutions bool
+
+	// noRevLogAmtData if true, means that commitment transaction amount
+	// data should not be stored in the revocation log.
+	noRevLogAmtData bool
 }
 
 // Open opens or creates channeldb. Any necessary schemas migrations due
@@ -382,6 +386,7 @@ func CreateWithBackend(backend kvdb.Backend,
 		dryRun:                    opts.dryRun,
 		keepFailedPaymentAttempts: opts.keepFailedPaymentAttempts,
 		storeFinalHtlcResolutions: opts.storeFinalHtlcResolutions,
+		noRevLogAmtData:           opts.NoRevLogAmtData,
 	}
 
 	// Set the parent pointer (only used in tests).
@@ -1562,7 +1567,9 @@ func (d *DB) applyOptionalVersions(cfg OptionalMiragtionConfig) error {
 	log.Infof("Performing database optional migration: %s", version.name)
 
 	migrationCfg := &MigrationConfigImpl{
-		migration30.MigrateRevLogConfigImpl{},
+		migration30.MigrateRevLogConfigImpl{
+			NoAmountData: d.noRevLogAmtData,
+		},
 	}
 
 	// Migrate the data.

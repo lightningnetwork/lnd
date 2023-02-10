@@ -306,7 +306,7 @@ func setupTestLogs(db kvdb.Backend, c *mig26.OpenChannel,
 		}
 
 		// Create new logs.
-		return writeNewRevocationLogs(chanBucket, newLogs)
+		return writeNewRevocationLogs(chanBucket, newLogs, !withAmtData)
 	}, func() {})
 }
 
@@ -460,7 +460,7 @@ func writeOldRevocationLogs(chanBucket kvdb.RwBucket,
 
 // writeNewRevocationLogs saves a new revocation log to db.
 func writeNewRevocationLogs(chanBucket kvdb.RwBucket,
-	oldLogs []mig.ChannelCommitment) error {
+	oldLogs []mig.ChannelCommitment, noAmtData bool) error {
 
 	// Don't bother continue if the logs are empty.
 	if len(oldLogs) == 0 {
@@ -480,7 +480,7 @@ func writeNewRevocationLogs(chanBucket kvdb.RwBucket,
 		// old commit tx. We do this intentionally so we can
 		// distinguish a newly created log from an already saved one.
 		err := putRevocationLog(
-			logBucket, &c, testOurIndex, testTheirIndex,
+			logBucket, &c, testOurIndex, testTheirIndex, noAmtData,
 		)
 		if err != nil {
 			return err

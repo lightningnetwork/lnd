@@ -223,7 +223,7 @@ type RevocationLog struct {
 // disk. It also saves our output index and their output index, which are
 // useful when creating breach retribution.
 func putRevocationLog(bucket kvdb.RwBucket, commit *mig.ChannelCommitment,
-	ourOutputIndex, theirOutputIndex uint32) error {
+	ourOutputIndex, theirOutputIndex uint32, noAmtData bool) error {
 
 	// Sanity check that the output indexes can be safely converted.
 	if ourOutputIndex > math.MaxUint16 {

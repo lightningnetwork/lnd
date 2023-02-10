@@ -243,11 +243,13 @@ func TestFetchChannel(t *testing.T) {
 			spew.Sdump(channelState), spew.Sdump(dbChannel))
 	}
 
-	// If we attempt to query for a non-exist ante channel, then we should
+	// If we attempt to query for a non-existent channel, then we should
 	// get an error.
 	channelState2 := createTestChannelState(t, cdb)
 	require.NoError(t, err, "unable to create channel state")
-	channelState2.FundingOutpoint.Index ^= 1
+
+	uniqueOutputIndex.Add(1)
+	channelState2.FundingOutpoint.Index = uniqueOutputIndex.Load()
 
 	_, err = cdb.FetchChannel(nil, channelState2.FundingOutpoint)
 	if err == nil {

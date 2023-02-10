@@ -6,6 +6,7 @@ import (
 	"net"
 	"reflect"
 	"runtime"
+	"sync/atomic"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -64,6 +65,11 @@ var (
 	// dummyRemoteOutIndex specifics a default value for their output index
 	// in this test.
 	dummyRemoteOutIndex = uint32(1)
+
+	// uniqueOutputIndex is used to create a unique funding outpoint.
+	//
+	// NOTE: must be incremented when used.
+	uniqueOutputIndex = atomic.Uint32{}
 )
 
 // testChannelParams is a struct which details the specifics of how a channel
@@ -299,10 +305,15 @@ func createTestChannelState(t *testing.T, cdb *ChannelStateDB) *OpenChannel {
 
 	chanID := lnwire.NewShortChanIDFromInt(uint64(rand.Int63()))
 
+	// Increment the uniqueOutputIndex so we always get a unique value for
+	// the funding outpoint.
+	uniqueOutputIndex.Add(1)
+	op := wire.OutPoint{Hash: key, Index: uniqueOutputIndex.Load()}
+
 	return &OpenChannel{
 		ChanType:          SingleFunderBit | FrozenBit,
 		ChainHash:         key,
-		FundingOutpoint:   wire.OutPoint{Hash: key, Index: rand.Uint32()},
+		FundingOutpoint:   op,
 		ShortChannelID:    chanID,
 		IsInitiator:       true,
 		IsPending:         true,

@@ -103,7 +103,7 @@ func TestMigrateRevocationLog(t *testing.T) {
 				return nil
 			}
 
-			migtest.ApplyMigrationWithDb(
+			migtest.ApplyMigrationWithDB(
 				t,
 				beforeMigration,
 				afterMigration,
@@ -560,7 +560,7 @@ func BenchmarkMigration(b *testing.B) {
 	}
 
 	// Run the migration test.
-	migtest.ApplyMigrationWithDb(
+	migtest.ApplyMigrationWithDB(
 		b,
 		beforeMigration,
 		nil,

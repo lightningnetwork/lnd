@@ -1006,27 +1006,34 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 	// Fwd time 1 day.
 	testClock.SetTime(testTime.Add(24 * time.Hour))
 
-	// Give some time to the watcher to cancel everything.
-	time.Sleep(500 * time.Millisecond)
-	if err := registry.Stop(); err != nil {
-		t.Fatalf("failed to stop invoice registry: %v", err)
-	}
-
 	// Create the expected cancellation set before the final check.
 	expectedCancellations = append(
 		expectedCancellations, invoicesThatWillCancel...,
 	)
 
-	// Retrospectively check that all invoices that were expected to be
-	// canceled are indeed canceled.
-	for i := range expectedCancellations {
-		invoice, err := registry.LookupInvoice(expectedCancellations[i])
-		if err != nil {
-			t.Fatalf("cannot find invoice: %v", err)
+	// canceled returns a bool to indicate whether all the invoices are
+	// canceled.
+	canceled := func() bool {
+		for i := range expectedCancellations {
+			invoice, err := registry.LookupInvoice(
+				expectedCancellations[i],
+			)
+			require.NoError(t, err)
+
+			if invoice.State != invpkg.ContractCanceled {
+				return false
+			}
 		}
 
-		require.Equal(t, invpkg.ContractCanceled, invoice.State)
+		return true
 	}
+
+	// Retrospectively check that all invoices that were expected to be
+	// canceled are indeed canceled.
+	require.Eventually(t, canceled, testTimeout, 10*time.Millisecond)
+
+	// Finally stop the registry.
+	require.NoError(t, registry.Stop(), "failed to stop invoice registry")
 }
 
 // TestOldInvoiceRemovalOnStart tests that we'll attempt to remove old canceled

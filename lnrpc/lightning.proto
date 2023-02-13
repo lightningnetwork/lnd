@@ -1912,6 +1912,9 @@ message GetInfoResponse {
     Indicates whether the HTLC interceptor API is in always-on mode.
     */
     bool require_htlc_interceptor = 21;
+
+    // Indicates whether final htlc resolutions are stored on disk.
+    bool store_final_htlc_resolutions = 22;
 }
 
 message GetRecoveryInfoRequest {

@@ -2887,6 +2887,11 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	}
 
 	// TODO(roasbeef): add synced height n stuff
+
+	isTestNet := chainreg.IsTestnet(&r.cfg.ActiveNetParams)
+	nodeColor := routing.EncodeHexColor(nodeAnn.RGBColor)
+	version := build.Version() + " commit=" + build.Commit
+
 	return &lnrpc.GetInfoResponse{
 		IdentityPubkey:         encodedIDPub,
 		NumPendingChannels:     nPendingChannels,
@@ -2896,13 +2901,13 @@ func (r *rpcServer) GetInfo(_ context.Context,
 		BlockHeight:            uint32(bestHeight),
 		BlockHash:              bestHash.String(),
 		SyncedToChain:          isSynced,
-		Testnet:                chainreg.IsTestnet(&r.cfg.ActiveNetParams),
+		Testnet:                isTestNet,
 		Chains:                 activeChains,
 		Uris:                   uris,
 		Alias:                  nodeAnn.Alias.String(),
-		Color:                  routing.EncodeHexColor(nodeAnn.RGBColor),
+		Color:                  nodeColor,
 		BestHeaderTimestamp:    bestHeaderTimestamp,
-		Version:                build.Version() + " commit=" + build.Commit,
+		Version:                version,
 		CommitHash:             build.CommitHash,
 		SyncedToGraph:          isGraphSynced,
 		Features:               features,

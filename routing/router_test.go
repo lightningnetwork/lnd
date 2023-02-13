@@ -3528,12 +3528,12 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	).Return(nil)
 
 	// Create a buffered chan and it will be returned by GetAttemptResult.
-	payer.resultChan = make(chan *htlcswitch.PaymentResult, 1)
+	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	payer.On("GetAttemptResult",
 		mock.Anything, mock.Anything, mock.Anything,
-	).Run(func(_ mock.Arguments) {
+	).Return(resultChan, nil).Run(func(_ mock.Arguments) {
 		// Send a successful payment result.
-		payer.resultChan <- &htlcswitch.PaymentResult{}
+		resultChan <- &htlcswitch.PaymentResult{}
 	})
 
 	missionControl.On("ReportPaymentSuccess",
@@ -3599,6 +3599,11 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 		},
 	}}
 
+	// Create the error to be returned.
+	tempErr := htlcswitch.NewForwardingError(
+		&lnwire.FailTemporaryChannelFailure{}, 1,
+	)
+
 	// Register mockers with the expected method calls.
 	controlTower.On("InitPayment", payHash, mock.Anything).Return(nil)
 	controlTower.On("RegisterAttempt", payHash, mock.Anything).Return(nil)
@@ -3608,26 +3613,7 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil)
-
-	// Create a buffered chan and it will be returned by GetAttemptResult.
-	payer.resultChan = make(chan *htlcswitch.PaymentResult, 1)
-
-	// Create the error to be returned.
-	tempErr := htlcswitch.NewForwardingError(
-		&lnwire.FailTemporaryChannelFailure{},
-		1,
-	)
-
-	// Mock GetAttemptResult to return a failure.
-	payer.On("GetAttemptResult",
-		mock.Anything, mock.Anything, mock.Anything,
-	).Run(func(_ mock.Arguments) {
-		// Send an attempt failure.
-		payer.resultChan <- &htlcswitch.PaymentResult{
-			Error: tempErr,
-		}
-	})
+	).Return(tempErr)
 
 	// Mock the control tower to return the mocked payment.
 	payment := &mockMPPayment{}

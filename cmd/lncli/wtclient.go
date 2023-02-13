@@ -151,6 +151,12 @@ var listTowersCommand = cli.Command{
 			Usage: "include sessions with the watchtower in the " +
 				"response",
 		},
+		cli.BoolFlag{
+			Name: "exclude_exhausted_sessions",
+			Usage: "Whether to exclude exhausted sessions in " +
+				"the response info. This option is only " +
+				"meaningful if include_sessions is true",
+		},
 	},
 	Action: actionDecorator(listTowers),
 }
@@ -160,7 +166,7 @@ func listTowers(ctx *cli.Context) error {
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() > 0 || ctx.NumFlags() > 1 {
+	if ctx.NArg() > 0 || ctx.NumFlags() > 2 {
 		return cli.ShowCommandHelp(ctx, "towers")
 	}
 
@@ -169,6 +175,9 @@ func listTowers(ctx *cli.Context) error {
 
 	req := &wtclientrpc.ListTowersRequest{
 		IncludeSessions: ctx.Bool("include_sessions"),
+		ExcludeExhaustedSessions: ctx.Bool(
+			"exclude_exhausted_sessions",
+		),
 	}
 	resp, err := client.ListTowers(ctxc, req)
 	if err != nil {
@@ -190,6 +199,12 @@ var getTowerCommand = cli.Command{
 			Usage: "include sessions with the watchtower in the " +
 				"response",
 		},
+		cli.BoolFlag{
+			Name: "exclude_exhausted_sessions",
+			Usage: "Whether to exclude exhausted sessions in " +
+				"the response info. This option is only " +
+				"meaningful if include_sessions is true",
+		},
 	},
 	Action: actionDecorator(getTower),
 }
@@ -199,7 +214,7 @@ func getTower(ctx *cli.Context) error {
 
 	// Display the command's help message if the number of arguments/flags
 	// is not what we expect.
-	if ctx.NArg() != 1 || ctx.NumFlags() > 1 {
+	if ctx.NArg() != 1 || ctx.NumFlags() > 2 {
 		return cli.ShowCommandHelp(ctx, "tower")
 	}
 
@@ -217,6 +232,9 @@ func getTower(ctx *cli.Context) error {
 	req := &wtclientrpc.GetTowerInfoRequest{
 		Pubkey:          pubKey,
 		IncludeSessions: ctx.Bool("include_sessions"),
+		ExcludeExhaustedSessions: ctx.Bool(
+			"exclude_exhausted_sessions",
+		),
 	}
 	resp, err := client.GetTowerInfo(ctxc, req)
 	if err != nil {

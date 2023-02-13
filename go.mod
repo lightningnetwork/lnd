@@ -36,7 +36,7 @@ require (
 	github.com/lightningnetwork/lnd/cert v1.2.1
 	github.com/lightningnetwork/lnd/clock v1.1.0
 	github.com/lightningnetwork/lnd/healthcheck v1.2.2
-	github.com/lightningnetwork/lnd/kvdb v1.4.1
+	github.com/lightningnetwork/lnd/kvdb v1.4.0
 	github.com/lightningnetwork/lnd/queue v1.1.0
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tlv v1.1.0
@@ -50,8 +50,8 @@ require (
 	go.etcd.io/etcd/client/pkg/v3 v3.5.7
 	go.etcd.io/etcd/client/v3 v3.5.7
 	golang.org/x/crypto v0.1.0
-	golang.org/x/exp v0.0.0-20221111094246-ab4555d3164f
-	golang.org/x/net v0.4.0
+	golang.org/x/exp v0.0.0-20230212135524-a684f29349b6
+	golang.org/x/net v0.1.0
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/term v0.3.0
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
@@ -136,7 +136,7 @@ require (
 	go.etcd.io/etcd/client/v2 v2.305.7 // indirect
 	go.etcd.io/etcd/pkg/v3 v3.5.7 // indirect
 	go.etcd.io/etcd/raft/v3 v3.5.7 // indirect
-	go.etcd.io/etcd/server/v3 v3.5.7 // indirect
+	go.etcd.io/etcd/server/v3 v3.5.6 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.25.0 // indirect
 	go.opentelemetry.io/otel v1.0.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.0.1 // indirect
@@ -149,7 +149,7 @@ require (
 	go.uber.org/zap v1.17.0 // indirect
 	golang.org/x/mod v0.6.0 // indirect
 	golang.org/x/sys v0.3.0 // indirect
-	golang.org/x/text v0.5.0 // indirect
+	golang.org/x/text v0.4.0 // indirect
 	golang.org/x/tools v0.2.0 // indirect
 	google.golang.org/genproto v0.0.0-20210617175327-b9e0b3197ced // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
@@ -185,3 +185,7 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 go 1.18
 
 retract v0.0.2
+
+replace github.com/btcsuite/btcwallet v0.16.6 => github.com/ziggie1984/btcwallet v0.14.1-0.20230216141923-f109218c8988
+
+replace github.com/btcsuite/btcwallet/wallet/txauthor v1.3.2 => github.com/ziggie1984/btcwallet/wallet/txauthor v1.2.4-0.20230216141549-78502da359d1

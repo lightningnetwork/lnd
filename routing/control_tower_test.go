@@ -134,8 +134,8 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 			"subscriber %v failed, want %s, got %s", i,
 			channeldb.StatusSucceeded, result.GetStatus())
 
-		settle, _ := result.TerminalInfo()
-		if settle.Preimage != preimg {
+		attempt, _ := result.TerminalInfo()
+		if attempt.Settle.Preimage != preimg {
 			t.Fatal("unexpected preimage")
 		}
 		if len(result.HTLCs) != 1 {
@@ -264,9 +264,8 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 	)
 
 	settle1, _ := result1.TerminalInfo()
-	require.Equal(
-		t, preimg1, settle1.Preimage, "unexpected preimage payment 1",
-	)
+	require.Equal(t, preimg1, settle1.Settle.Preimage,
+		"unexpected preimage payment 1")
 
 	require.Len(
 		t, result1.HTLCs, 1, "expect 1 htlc for payment 1, got %d",
@@ -283,9 +282,8 @@ func TestPaymentControlSubscribeAllSuccess(t *testing.T) {
 	)
 
 	settle2, _ := result2.TerminalInfo()
-	require.Equal(
-		t, preimg2, settle2.Preimage, "unexpected preimage payment 2",
-	)
+	require.Equal(t, preimg2, settle2.Settle.Preimage,
+		"unexpected preimage payment 2")
 	require.Len(
 		t, result2.HTLCs, 1, "expect 1 htlc for payment 2, got %d",
 		len(result2.HTLCs),

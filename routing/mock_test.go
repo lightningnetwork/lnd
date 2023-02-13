@@ -827,20 +827,32 @@ func (m *mockMPPayment) InFlightHTLCs() []channeldb.HTLCAttempt {
 	return args.Get(0).([]channeldb.HTLCAttempt)
 }
 
-func (m *mockMPPayment) GetFailureReason() *channeldb.FailureReason {
-	args := m.Called()
-
-	reason := args.Get(0)
-	if reason == nil {
-		return nil
-	}
-
-	return reason.(*channeldb.FailureReason)
-}
-
 func (m *mockMPPayment) AllowMoreAttempts() (bool, error) {
 	args := m.Called()
 	return args.Bool(0), args.Error(1)
+}
+
+func (m *mockMPPayment) TerminalInfo() (*channeldb.HTLCAttempt,
+	*channeldb.FailureReason) {
+
+	args := m.Called()
+
+	var (
+		settleInfo  *channeldb.HTLCAttempt
+		failureInfo *channeldb.FailureReason
+	)
+
+	settle := args.Get(0)
+	if settle != nil {
+		settleInfo = settle.(*channeldb.HTLCAttempt)
+	}
+
+	reason := args.Get(1)
+	if reason != nil {
+		failureInfo = reason.(*channeldb.FailureReason)
+	}
+
+	return settleInfo, failureInfo
 }
 
 type mockLink struct {

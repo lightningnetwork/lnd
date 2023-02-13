@@ -31,6 +31,31 @@ type paymentLifecycle struct {
 	currentHeight int32
 }
 
+// newPaymentLifecycle initiates a new payment lifecycle and returns it.
+func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
+	identifier lntypes.Hash, paySession PaymentSession,
+	shardTracker shards.ShardTracker, timeout time.Duration,
+	currentHeight int32) *paymentLifecycle {
+
+	p := &paymentLifecycle{
+		router:        r,
+		feeLimit:      feeLimit,
+		identifier:    identifier,
+		paySession:    paySession,
+		shardTracker:  shardTracker,
+		currentHeight: currentHeight,
+	}
+
+	// If a timeout is specified, create a timeout channel. If no timeout is
+	// specified, the channel is left nil and will never abort the payment
+	// loop.
+	if timeout != 0 {
+		p.timeoutChan = time.After(timeout)
+	}
+
+	return p
+}
+
 // calcFeeBudget returns the available fee to be used for sending HTLC
 // attempts.
 func (p *paymentLifecycle) calcFeeBudget(

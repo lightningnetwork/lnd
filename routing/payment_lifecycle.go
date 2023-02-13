@@ -197,10 +197,10 @@ lifecycle:
 		ps := payment.GetState()
 		remainingFees := p.calcFeeBudget(ps.FeesPaid)
 
-		log.Debugf("Payment %v in state terminate=%v, "+
-			"active_shards=%v, rem_value=%v, fee_limit=%v",
-			p.identifier, payment.Terminated(),
-			ps.NumAttemptsInFlight, ps.RemainingAmt, remainingFees)
+		log.Debugf("Payment %v: status=%v, active_shards=%v, "+
+			"rem_value=%v, fee_limit=%v", p.identifier,
+			payment.GetStatus(), ps.NumAttemptsInFlight,
+			ps.RemainingAmt, remainingFees)
 
 		// We now proceed our lifecycle with the following tasks in
 		// order,
@@ -287,15 +287,13 @@ lifecycle:
 			"%v: %v", p.identifier, err)
 	}
 
-	// Find the first successful shard and return the preimage and route.
-	for _, a := range payment.GetHTLCs() {
-		if a.Settle != nil {
-			return a.Settle.Preimage, &a.Route, nil
-		}
+	htlc, failure := payment.TerminalInfo()
+	if htlc != nil {
+		return htlc.Settle.Preimage, &htlc.Route, nil
 	}
 
 	// Otherwise return the payment failure reason.
-	return [32]byte{}, nil, *payment.GetFailureReason()
+	return [32]byte{}, nil, *failure
 }
 
 // checkTimeout checks whether the payment has reached its timeout.

@@ -412,30 +412,13 @@ func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 		defer handleResultErr()
 
 		// Block until the result is available.
-		result, err := p.collectResult(attempt)
+		_, err := p.collectResult(attempt)
 		if err != nil {
-			if err != ErrRouterShuttingDown &&
-				err != htlcswitch.ErrSwitchExiting &&
-				err != errShardHandlerExiting {
+			log.Errorf("Error collecting result for attempt %v "+
+				"in payment %v: %v", attempt.AttemptID,
+				p.identifier, err)
 
-				log.Errorf("Error collecting result for "+
-					"shard %v for payment %v: %v",
-					attempt.AttemptID, p.identifier, err)
-			}
-
-			// Overwrite the param errToSend and return so that the
-			// defer function will use the param to proceed.
 			errToSend = err
-			return
-		}
-
-		// If a non-critical error was encountered handle it and mark
-		// the payment failed if the failure was terminal.
-		if result.err != nil {
-			// Overwrite the param errToSend and return so that the
-			// defer function will use the param to proceed. Notice
-			// that the errToSend could be nil here.
-			_, errToSend = p.handleSwitchErr(attempt, result.err)
 			return
 		}
 	}()
@@ -476,24 +459,12 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 	resultChan, err := p.router.cfg.Payer.GetAttemptResult(
 		attempt.AttemptID, p.identifier, errorDecryptor,
 	)
-	switch {
-	// If this attempt ID is unknown to the Switch, it means it was never
-	// checkpointed and forwarded by the switch before a restart. In this
-	// case we can safely send a new payment attempt, and wait for its
-	// result to be available.
-	case err == htlcswitch.ErrPaymentIDNotFound:
-		log.Debugf("Attempt ID %v for payment %v not found in "+
-			"the Switch, retrying.", attempt.AttemptID,
-			p.identifier)
-
-		return p.failAttempt(attempt.AttemptID, err)
-
-	// A critical, unexpected error was encountered.
-	case err != nil:
+	// Handle the switch error.
+	if err != nil {
 		log.Errorf("Failed getting result for attemptID %d "+
 			"from switch: %v", attempt.AttemptID, err)
 
-		return nil, err
+		return p.handleSwitchErr(attempt, err)
 	}
 
 	// The switch knows about this payment, we'll wait for a result to be
@@ -516,7 +487,7 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 	// In case of a payment failure, fail the attempt with the control
 	// tower and return.
 	if result.Error != nil {
-		return p.failAttempt(attempt.AttemptID, result.Error)
+		return p.handleSwitchErr(attempt, result.Error)
 	}
 
 	// We successfully got a payment result back from the switch.
@@ -751,6 +722,17 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 
 		// Otherwise fail both the payment and the attempt.
 		return p.failPaymentAndAttempt(attemptID, reason, sendErr)
+	}
+
+	// If this attempt ID is unknown to the Switch, it means it was never
+	// checkpointed and forwarded by the switch before a restart. In this
+	// case we can safely send a new payment attempt, and wait for its
+	// result to be available.
+	if errors.Is(sendErr, htlcswitch.ErrPaymentIDNotFound) {
+		log.Debugf("Attempt ID %v for payment %v not found in the "+
+			"Switch, retrying.", attempt.AttemptID, p.identifier)
+
+		return p.failAttempt(attemptID, sendErr)
 	}
 
 	if sendErr == htlcswitch.ErrUnreadableFailureMessage {

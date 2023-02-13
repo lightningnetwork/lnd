@@ -2299,6 +2299,88 @@ var clientTests = []clientTest{
 			)
 		},
 	},
+	{
+		// Assert that a client is _unable_ to remove a tower if there
+		// are persisted un-acked updates _and_ the client is restarted
+		// before the tower is removed.
+		name: "cant remove due to un-acked updates (with client " +
+			"restart)",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				numUpdates = 5
+				chanID     = 0
+			)
+
+			// Generate numUpdates retributions.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			// Back half of the states up.
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+
+			// Wait for the updates to be populated in the server's
+			// database.
+			h.server.waitForUpdates(hints[:numUpdates/2], waitTime)
+
+			// Now stop the server and restart it with the
+			// NoAckUpdates set to true.
+			h.server.restart(func(cfg *wtserver.Config) {
+				cfg.NoAckUpdates = true
+			})
+
+			// Back up the remaining tasks. This will bind the
+			// backup tasks to the session with the server. The
+			// client will also attempt to get the ack for one
+			// update which will cause a CommittedUpdate to be
+			// persisted.
+			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
+
+			tower, err := h.clientDB.LoadTower(
+				h.server.addr.IdentityKey,
+			)
+			require.NoError(h.t, err)
+
+			// Wait till the updates have been persisted.
+			err = wait.Predicate(func() bool {
+				var numCommittedUpdates int
+				countUpdates := func(_ *wtdb.ClientSession,
+					update *wtdb.CommittedUpdate) {
+
+					numCommittedUpdates++
+				}
+
+				_, err := h.clientDB.ListClientSessions(
+					&tower.ID, wtdb.WithPerCommittedUpdate(
+						countUpdates,
+					),
+				)
+				require.NoError(h.t, err)
+
+				return numCommittedUpdates == 1
+
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Now restart the client. This ensures that the
+			// updates are no longer in the pending queue.
+			require.NoError(h.t, h.client.Stop())
+			h.startClient()
+
+			// Now try removing the tower. This will fail due to
+			// the persisted CommittedUpdate.
+			err = h.client.RemoveTower(
+				h.server.addr.IdentityKey, nil,
+			)
+			require.Error(h.t, err, "tower has unacked updates")
+		},
+	},
 }
 
 // TestClient executes the client test suite, asserting the ability to backup

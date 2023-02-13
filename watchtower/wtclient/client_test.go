@@ -2224,10 +2224,11 @@ var clientTests = []clientTest{
 		},
 	},
 	{
-		// Assert that a client is unable to remove a tower if there
-		// are persisted un-acked updates. This is a bug that will be
-		// fixed in a future commit.
-		name: "cant remove due to un-acked updates (no client restart)",
+		// Assert that a client is able to remove a tower if there are
+		// persisted un-acked updates. This tests the case where the
+		// client is not-restarted meaning that the un-acked updates
+		// will still be in the pending queue.
+		name: "can remove due to un-acked updates (no client restart)",
 		cfg: harnessCfg{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
@@ -2288,23 +2289,29 @@ var clientTests = []clientTest{
 			}, waitTime)
 			require.NoError(h.t, err)
 
-			// Now attempt to remove the tower. This will fail due
-			// the tower having "un-acked" updates. This is a bug
-			// that will be fixed in a future commit.
+			// Now remove the tower.
 			err = h.client.RemoveTower(
 				h.server.addr.IdentityKey, nil,
 			)
-			require.ErrorContains(
-				h.t, err, "tower has unacked updates",
+			require.NoError(h.t, err)
+
+			// Add a new tower.
+			server2 := newServerHarness(
+				h.t, h.net, towerAddr2Str, nil,
 			)
+			server2.start()
+			h.addTower(server2.addr)
+
+			// Now we assert that the backups are backed up to the
+			// new tower.
+			server2.waitForUpdates(hints[numUpdates/2:], waitTime)
 		},
 	},
 	{
-		// Assert that a client is _unable_ to remove a tower if there
-		// are persisted un-acked updates _and_ the client is restarted
+		// Assert that a client is able to remove a tower if there are
+		// persisted un-acked updates _and_ the client is restarted
 		// before the tower is removed.
-		name: "cant remove due to un-acked updates (with client " +
-			"restart)",
+		name: "can remove tower with un-acked updates (with restart)",
 		cfg: harnessCfg{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
@@ -2373,12 +2380,22 @@ var clientTests = []clientTest{
 			require.NoError(h.t, h.client.Stop())
 			h.startClient()
 
-			// Now try removing the tower. This will fail due to
-			// the persisted CommittedUpdate.
+			// Now remove the tower.
 			err = h.client.RemoveTower(
 				h.server.addr.IdentityKey, nil,
 			)
-			require.Error(h.t, err, "tower has unacked updates")
+			require.NoError(h.t, err)
+
+			// Add a new tower.
+			server2 := newServerHarness(
+				h.t, h.net, towerAddr2Str, nil,
+			)
+			server2.start()
+			h.addTower(server2.addr)
+
+			// Now we assert that the backups are backed up to the
+			// new tower.
+			server2.waitForUpdates(hints[numUpdates/2:], waitTime)
 		},
 	},
 }

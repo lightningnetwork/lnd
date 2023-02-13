@@ -701,7 +701,7 @@ func (c *TowerClient) Stop() error {
 		// task pipeline.
 		c.activeSessions.ApplyAndWait(func(s *sessionQueue) func() {
 			return func() {
-				err := s.Stop()
+				err := s.Stop(false)
 				if err != nil {
 					c.log.Errorf("could not stop session "+
 						"queue: %s: %v", s.ID(), err)
@@ -1689,37 +1689,20 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 		return err
 	}
 
-	// We'll first update our in-memory state followed by our persisted
-	// state, with the stale tower. The removal of the tower address from
-	// the in-memory state will fail if the address is currently being used
-	// for a session negotiation.
-	err = c.candidateTowers.RemoveCandidate(dbTower.ID, msg.addr)
+	// If an address was provided, then we're only meant to remove the
+	// address from the tower.
+	if msg.addr != nil {
+		return c.removeTowerAddr(dbTower, msg.addr)
+	}
+
+	// Otherwise, the tower should no longer be used for future session
+	// negotiations and backups. First, we'll update our in-memory state
+	// with the stale tower.
+	err = c.candidateTowers.RemoveCandidate(dbTower.ID, nil)
 	if err != nil {
 		return err
 	}
 
-	if err := c.cfg.DB.RemoveTower(msg.pubKey, msg.addr); err != nil {
-		// If the persisted state update fails, re-add the address to
-		// our in-memory state.
-		tower, newTowerErr := NewTowerFromDBTower(dbTower)
-		if newTowerErr != nil {
-			log.Errorf("could not create new in-memory tower: %v",
-				newTowerErr)
-		} else {
-			c.candidateTowers.AddCandidate(tower)
-		}
-
-		return err
-	}
-
-	// If an address was provided, then we're only meant to remove the
-	// address from the tower, so there's nothing left for us to do.
-	if msg.addr != nil {
-		return nil
-	}
-
-	// Otherwise, the tower should no longer be used for future session
-	// negotiations and backups.
 	pubKey := msg.pubKey.SerializeCompressed()
 	sessions, err := c.cfg.DB.ListClientSessions(&dbTower.ID)
 	if err != nil {
@@ -1746,6 +1729,40 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 		if bytes.Equal(pubKey, towerKey.SerializeCompressed()) {
 			c.sessionQueue = nil
 		}
+	}
+
+	// Finally, we will update our persisted state with the stale tower.
+	return c.cfg.DB.RemoveTower(msg.pubKey, nil)
+}
+
+// removeTowerAddr removes the given address from the tower.
+func (c *TowerClient) removeTowerAddr(tower *wtdb.Tower, addr net.Addr) error {
+	if addr == nil {
+		return fmt.Errorf("an address must be provided")
+	}
+
+	// We'll first update our in-memory state followed by our persisted
+	// state with the stale tower. The removal of the tower address from
+	// the in-memory state will fail if the address is currently being used
+	// for a session negotiation.
+	err := c.candidateTowers.RemoveCandidate(tower.ID, addr)
+	if err != nil {
+		return err
+	}
+
+	err = c.cfg.DB.RemoveTower(tower.IdentityKey, addr)
+	if err != nil {
+		// If the persisted state update fails, re-add the address to
+		// our in-memory state.
+		tower, newTowerErr := NewTowerFromDBTower(tower)
+		if newTowerErr != nil {
+			log.Errorf("could not create new in-memory tower: %v",
+				newTowerErr)
+		} else {
+			c.candidateTowers.AddCandidate(tower)
+		}
+
+		return err
 	}
 
 	return nil

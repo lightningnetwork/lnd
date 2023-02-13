@@ -161,7 +161,10 @@ func (q *sessionQueue) Start() {
 
 // Stop idempotently stops the sessionQueue by initiating a clean shutdown that
 // will clear all pending tasks in the queue before returning to the caller.
-func (q *sessionQueue) Stop() error {
+// The final param should only be set to true if this is the last time that
+// this session will be used. Otherwise, during normal shutdown, the final param
+// should be false.
+func (q *sessionQueue) Stop(final bool) error {
 	var returnErr error
 	q.stopped.Do(func() {
 		q.log.Debugf("SessionQueue(%s) stopping ...", q.ID())
@@ -195,6 +198,28 @@ func (q *sessionQueue) Stop() error {
 		unAckedUpdates := make(map[wtdb.BackupID]bool)
 		for _, update := range updates {
 			unAckedUpdates[update.BackupID] = true
+
+			if !final {
+				continue
+			}
+
+			err := q.cfg.TaskPipeline.QueueBackupID(
+				&update.BackupID,
+			)
+			if err != nil {
+				log.Errorf("could not re-queue %s: %v",
+					update.BackupID, err)
+				continue
+			}
+
+			err = q.cfg.DB.DeleteCommittedUpdate(
+				q.ID(), update.SeqNum,
+			)
+			if err != nil {
+				log.Errorf("could not delete committed "+
+					"update %d for session %s",
+					update.SeqNum, q.ID())
+			}
 		}
 
 		// Push any task that was on the pending queue that there is
@@ -752,7 +777,7 @@ func (s *sessionQueueSet) StopAndRemove(id wtdb.SessionID) error {
 
 	delete(s.queues, id)
 
-	return queue.Stop()
+	return queue.Stop(true)
 }
 
 // Get fetches and returns the sessionQueue with the given ID.

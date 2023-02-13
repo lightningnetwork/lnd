@@ -406,8 +406,8 @@ func New(config *Config) (*TowerClient, error) {
 			return
 		}
 
-		c.log.Infof("Using private watchtower %s, offering policy %s",
-			tower, cfg.Policy)
+		c.log.Infof("Using private watchtower %x, offering policy %s",
+			tower.IdentityKey.SerializeCompressed(), cfg.Policy)
 
 		// Add the tower to the set of candidate towers.
 		candidateTowers.AddCandidate(tower)

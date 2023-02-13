@@ -81,7 +81,9 @@ current gossip sync query status.
   after upgrading lnd.
 
   This feature is [opt-in](https://github.com/lightningnetwork/lnd/pull/7341)
-  via a config flag.
+  via a config flag. The status of the flag is
+  [exposed](https://github.com/lightningnetwork/lnd/pull/7402) at run-time
+  through GetInfo.
 
 * Zero-amount private invoices [now provide hop
   hints](https://github.com/lightningnetwork/lnd/pull/7082), up to `maxHopHints`

@@ -4769,6 +4769,10 @@
         "require_htlc_interceptor": {
           "type": "boolean",
           "description": "Indicates whether the HTLC interceptor API is in always-on mode."
+        },
+        "store_final_htlc_resolutions": {
+          "type": "boolean",
+          "description": "Indicates whether final htlc resolutions are stored on disk."
         }
       }
     },

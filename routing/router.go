@@ -2415,21 +2415,10 @@ func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
 
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
-	p := &paymentLifecycle{
-		router:        r,
-		feeLimit:      feeLimit,
-		identifier:    identifier,
-		paySession:    paySession,
-		shardTracker:  shardTracker,
-		currentHeight: currentHeight,
-	}
-
-	// If a timeout is specified, create a timeout channel. If no timeout is
-	// specified, the channel is left nil and will never abort the payment
-	// loop.
-	if timeout != 0 {
-		p.timeoutChan = time.After(timeout)
-	}
+	p := newPaymentLifecycle(
+		r, feeLimit, identifier, paySession,
+		shardTracker, timeout, currentHeight,
+	)
 
 	return p.resumePayment()
 }

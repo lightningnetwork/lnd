@@ -219,10 +219,10 @@ func (m *MPPayment) Terminated() bool {
 // TerminalInfo returns any HTLC settle info recorded. If no settle info is
 // recorded, any payment level failure will be returned. If neither a settle
 // nor a failure is recorded, both return values will be nil.
-func (m *MPPayment) TerminalInfo() (*HTLCSettleInfo, *FailureReason) {
+func (m *MPPayment) TerminalInfo() (*HTLCAttempt, *FailureReason) {
 	for _, h := range m.HTLCs {
 		if h.Settle != nil {
-			return h.Settle, nil
+			return &h, nil
 		}
 	}
 
@@ -462,11 +462,6 @@ func (m *MPPayment) GetStatus() PaymentStatus {
 // GetPayment returns all the HTLCs for this payment.
 func (m *MPPayment) GetHTLCs() []HTLCAttempt {
 	return m.HTLCs
-}
-
-// GetFailureReason returns the failure reason.
-func (m *MPPayment) GetFailureReason() *FailureReason {
-	return m.FailureReason
 }
 
 // AllowMoreAttempts is used to decide whether we can safely attempt more HTLCs

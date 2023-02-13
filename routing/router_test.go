@@ -3482,7 +3482,7 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 	payment := &mockMPPayment{}
 	payment.On("InFlightHTLCs").Return(htlcs).
 		On("GetState").Return(&channeldb.MPPaymentState{FeesPaid: 0}).
-		On("Terminated").Return(false)
+		On("GetStatus").Return(channeldb.StatusInFlight)
 	controlTower.On("FetchPayment", identifier).Return(payment, nil).Once()
 
 	// Mock FetchPayment to return the payment.
@@ -3518,9 +3518,6 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 	controlTower.On("SettleAttempt",
 		identifier, mock.Anything, mock.Anything,
 	).Return(&settledAttempt, nil).Run(func(args mock.Arguments) {
-		payment.On("GetHTLCs").Return(
-			[]channeldb.HTLCAttempt{settledAttempt},
-		)
 		// We want to at least wait for one settlement.
 		if numAttempts.Load() > 1 {
 			settled.Store(true)
@@ -3565,6 +3562,8 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 	})
 
 	controlTower.On("DeleteFailedAttempts", identifier).Return(nil)
+
+	payment.On("TerminalInfo").Return(&settledAttempt, nil)
 
 	// Call the actual method SendPayment on router. This is place inside a
 	// goroutine so we can set a timeout for the whole test, in case
@@ -3683,7 +3682,7 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 	payment := &mockMPPayment{}
 	payment.On("InFlightHTLCs").Return(htlcs).
 		On("GetState").Return(&channeldb.MPPaymentState{FeesPaid: 0}).
-		On("Terminated").Return(false)
+		On("GetStatus").Return(channeldb.StatusInFlight)
 	controlTower.On("FetchPayment", identifier).Return(payment, nil).Once()
 
 	// Mock FetchPayment to return the payment.
@@ -3787,18 +3786,14 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 	controlTower.On("SettleAttempt",
 		identifier, mock.Anything, mock.Anything,
 	).Return(&settledAttempt, nil).Run(func(args mock.Arguments) {
-		// Whenever this method is invoked, we will mock the payment's
-		// GetHTLCs() to return the settled htlc.
-		payment.On("GetHTLCs").Return(
-			[]channeldb.HTLCAttempt{settledAttempt},
-		)
-
 		if numAttempts.Load() > 1 {
 			settled.Store(true)
 		}
 	})
 
 	controlTower.On("DeleteFailedAttempts", identifier).Return(nil)
+
+	payment.On("TerminalInfo").Return(&settledAttempt, nil)
 
 	// Call the actual method SendPayment on router. This is place inside a
 	// goroutine so we can set a timeout for the whole test, in case
@@ -3913,8 +3908,8 @@ func TestSendMPPaymentFailed(t *testing.T) {
 	// Make a mock MPPayment.
 	payment := &mockMPPayment{}
 	payment.On("InFlightHTLCs").Return(htlcs).Once()
-	payment.On("GetState").Return(&channeldb.MPPaymentState{})
-	payment.On("Terminated").Return(false)
+	payment.On("GetState").Return(&channeldb.MPPaymentState{}).
+		On("GetStatus").Return(channeldb.StatusInFlight)
 	controlTower.On("FetchPayment", identifier).Return(payment, nil).Once()
 
 	// Mock the sequential FetchPayment to return the payment.
@@ -3935,7 +3930,6 @@ func TestSendMPPaymentFailed(t *testing.T) {
 			}
 
 			payment.On("AllowMoreAttempts").Return(false, nil).
-				On("GetHTLCs").Return(htlcs).Once().
 				On("NeedWaitAttempts").Return(false, nil).Once()
 		})
 
@@ -4011,11 +4005,11 @@ func TestSendMPPaymentFailed(t *testing.T) {
 	})
 
 	// Mock the payment to return the failure reason.
-	payment.On("GetFailureReason").Return(&failureReason)
-
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil)
+
+	payment.On("TerminalInfo").Return(nil, &failureReason)
 
 	controlTower.On("DeleteFailedAttempts", identifier).Return(nil)
 
@@ -4194,7 +4188,7 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
 
 	// Mock the payment to return nil failrue reason.
-	payment.On("GetFailureReason").Return(nil)
+	payment.On("TerminalInfo").Return(nil, nil)
 
 	// Expect a successful send to route.
 	attempt, err := router.SendToRouteSkipTempErr(payHash, rt)
@@ -4289,7 +4283,7 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 	).Return(nil, nil)
 
 	// Mock the payment to return nil failrue reason.
-	payment.On("GetFailureReason").Return(nil)
+	payment.On("TerminalInfo").Return(nil, nil)
 
 	// Expect a failed send to route.
 	attempt, err := router.SendToRouteSkipTempErr(payHash, rt)
@@ -4374,7 +4368,7 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
 
 	// Mock the payment to return a failrue reason.
-	payment.On("GetFailureReason").Return(&failureReason)
+	payment.On("TerminalInfo").Return(nil, &failureReason)
 
 	// Expect a failed send to route.
 	attempt, err := router.SendToRouteSkipTempErr(payHash, rt)
@@ -4452,7 +4446,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
 
 	// Mock the payment to return nil failrue reason.
-	payment.On("GetFailureReason").Return(nil)
+	payment.On("TerminalInfo").Return(nil, nil)
 
 	// Return a nil reason to mock a temporary failure.
 	missionControl.On("ReportPaymentFail",

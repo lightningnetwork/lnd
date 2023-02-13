@@ -2532,7 +2532,8 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// Exit if the above error has caused the payment to be failed, we also
 	// return the error from sending attempt to mimic the old behavior of
 	// this method.
-	if payment.GetFailureReason() != nil {
+	_, failedReason := payment.TerminalInfo()
+	if failedReason != nil {
 		return result.attempt, result.err
 	}
 

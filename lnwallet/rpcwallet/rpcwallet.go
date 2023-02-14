@@ -159,6 +159,10 @@ func (r *RPCKeyRing) SendOutputs(outputs []*wire.TxOut,
 			return nil, fmt.Errorf("error looking up utxo: %v", err)
 		}
 
+		if txscript.IsPayToTaproot(info.PkScript) {
+			signDesc.HashType = txscript.SigHashDefault
+		}
+
 		// Now that we know the input is ours, we'll populate the
 		// signDesc with the per input unique information.
 		signDesc.Output = &wire.TxOut{
@@ -593,7 +597,7 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 		signDesc.SignMethod = input.TaprootKeySpendBIP0086SignMethod
 		signDesc.WitnessScript = nil
 
-		sig, err := r.remoteSign(tx, signDesc, sigScript)
+		sig, err := r.remoteSign(tx, signDesc, nil)
 		if err != nil {
 			return nil, fmt.Errorf("error signing with remote"+
 				"instance: %v", err)
@@ -617,7 +621,7 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 
 	// Let's give the TX to the remote instance now, so it can sign the
 	// input.
-	sig, err := r.remoteSign(tx, signDesc, sigScript)
+	sig, err := r.remoteSign(tx, signDesc, witnessProgram)
 	if err != nil {
 		return nil, fmt.Errorf("error signing with remote instance: %v",
 			err)

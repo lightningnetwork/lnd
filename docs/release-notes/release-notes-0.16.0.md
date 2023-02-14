@@ -151,6 +151,10 @@ current gossip sync query status.
 * [Add log message for edge
   case](https://github.com/lightningnetwork/lnd/pull/7115).
 
+* [A remote signer issue was fixed that caused opening channels to fail when
+  multiple mixed-type inputs were used for the funding
+  transaction](https://github.com/lightningnetwork/lnd/pull/7386).
+
 ## Build
 
 * [The project has updated to Go

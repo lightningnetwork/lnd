@@ -330,23 +330,43 @@ func testUnconfirmedChannelFunding(ht *lntemp.HarnessTest) {
 // testChannelFundingInputTypes tests that any type of supported input type can
 // be used to fund channels.
 func testChannelFundingInputTypes(ht *lntemp.HarnessTest) {
-	const (
-		chanAmt  = funding.MaxBtcFundingAmount
-		burnAddr = "bcrt1qxsnqpdc842lu8c0xlllgvejt6rhy49u6fmpgyz"
-	)
-
-	fundWithTypes := []func(amt btcutil.Amount, target *node.HarnessNode){
-		ht.FundCoins, ht.FundCoinsNP2WKH, ht.FundCoinsP2TR,
-	}
-
-	alice := ht.Alice
-
 	// We'll start off by creating a node for Carol.
 	carol := ht.NewNode("Carol", nil)
 
 	// Now, we'll connect her to Alice so that they can open a
 	// channel together.
-	ht.ConnectNodes(carol, alice)
+	ht.ConnectNodes(carol, ht.Alice)
+
+	runChannelFundingInputTypes(ht, ht.Alice, carol)
+}
+
+// runChannelFundingInputTypes tests that any type of supported input type can
+// be used to fund channels.
+func runChannelFundingInputTypes(ht *lntemp.HarnessTest, alice,
+	carol *node.HarnessNode) {
+
+	const (
+		chanAmt  = funding.MaxBtcFundingAmount
+		burnAddr = "bcrt1qxsnqpdc842lu8c0xlllgvejt6rhy49u6fmpgyz"
+	)
+
+	fundMixed := func(amt btcutil.Amount, target *node.HarnessNode) {
+		ht.FundCoins(amt/5, target)
+		ht.FundCoins(amt/5, target)
+		ht.FundCoinsP2TR(amt/5, target)
+		ht.FundCoinsP2TR(amt/5, target)
+		ht.FundCoinsP2TR(amt/5, target)
+	}
+	fundMultipleP2TR := func(amt btcutil.Amount, target *node.HarnessNode) {
+		ht.FundCoinsP2TR(amt/4, target)
+		ht.FundCoinsP2TR(amt/4, target)
+		ht.FundCoinsP2TR(amt/4, target)
+		ht.FundCoinsP2TR(amt/4, target)
+	}
+	fundWithTypes := []func(amt btcutil.Amount, target *node.HarnessNode){
+		ht.FundCoins, ht.FundCoinsNP2WKH, ht.FundCoinsP2TR, fundMixed,
+		fundMultipleP2TR,
+	}
 
 	// Creates a helper closure to be used below which asserts the
 	// proper response to a channel balance RPC.
@@ -386,8 +406,9 @@ func testChannelFundingInputTypes(ht *lntemp.HarnessTest) {
 	}
 
 	for _, funder := range fundWithTypes {
-		// We'll send her some confirmed funds.
-		funder(chanAmt*2, carol)
+		// We'll send her some confirmed funds. We send 10% more than
+		// we need to account for fees.
+		funder((chanAmt*11)/10, carol)
 
 		chanOpenUpdate := ht.OpenChannelAssertStream(
 			carol, alice, lntemp.OpenChannelParams{

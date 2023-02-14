@@ -110,13 +110,12 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 	prevOutFetcher := NewSegWitV0DualFundingPrevOutputFetcher(
 		f.coinSource, extraInputs,
 	)
-	signDesc := input.SignDescriptor{
-		SigHashes: txscript.NewTxSigHashes(
-			fundingTx, prevOutFetcher,
-		),
-		PrevOutputFetcher: prevOutFetcher,
-	}
+	sigHashes := txscript.NewTxSigHashes(fundingTx, prevOutFetcher)
 	for i, txIn := range fundingTx.TxIn {
+		signDesc := input.SignDescriptor{
+			SigHashes:         sigHashes,
+			PrevOutputFetcher: prevOutFetcher,
+		}
 		// We can only sign this input if it's ours, so we'll ask the
 		// coin source if it can map this outpoint into a coin we own.
 		// If not, then we'll continue as it isn't our input.

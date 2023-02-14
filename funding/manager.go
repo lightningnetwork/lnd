@@ -1766,11 +1766,15 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 
 	pendingChanID := msg.PendingChannelID
 	peerKey := peer.IdentityKey()
+	var peerKeyBytes []byte
+	if peerKey != nil {
+		peerKeyBytes = peerKey.SerializeCompressed()
+	}
 
 	resCtx, err := f.getReservationCtx(peerKey, pendingChanID)
 	if err != nil {
-		log.Warnf("Can't find reservation (peerKey:%v, chan_id:%v)",
-			peerKey, pendingChanID)
+		log.Warnf("Can't find reservation (peerKey:%x, chan_id:%v)",
+			peerKeyBytes, pendingChanID)
 		return
 	}
 
@@ -1950,7 +1954,8 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		addr, amt, packet, err := psbtErr.Intent.FundingParams()
 		if err != nil {
 			log.Errorf("Unable to process PSBT funding params "+
-				"for contribution from %v: %v", peerKey, err)
+				"for contribution from %x: %v", peerKeyBytes,
+				err)
 			f.failFundingFlow(peer, msg.PendingChannelID, err)
 			return
 		}
@@ -1958,7 +1963,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		err = packet.Serialize(&buf)
 		if err != nil {
 			log.Errorf("Unable to serialize PSBT for "+
-				"contribution from %v: %v", peerKey, err)
+				"contribution from %x: %v", peerKeyBytes, err)
 			f.failFundingFlow(peer, msg.PendingChannelID, err)
 			return
 		}
@@ -1974,8 +1979,8 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		}
 		psbtIntent = psbtErr.Intent
 	} else if err != nil {
-		log.Errorf("Unable to process contribution from %v: %v",
-			peerKey, err)
+		log.Errorf("Unable to process contribution from %x: %v",
+			peerKeyBytes, err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return
 	}

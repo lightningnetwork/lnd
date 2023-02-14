@@ -2505,7 +2505,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	)
 
 	var shardError error
-	attempt, outcome, err := p.launchShard(rt, false)
+	attempt, outcome, err := p.launchShard(rt, 0)
 
 	// With SendToRoute, it can happen that the route exceeds protocol
 	// constraints. Mark the payment as failed with an internal error.

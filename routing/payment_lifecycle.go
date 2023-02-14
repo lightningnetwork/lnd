@@ -267,12 +267,8 @@ lifecycle:
 
 		log.Tracef("Found route: %s", spew.Sdump(rt.Hops))
 
-		// If this route will consume the last remaining amount to send
-		// to the receiver, this will be our last shard (for now).
-		lastShard := rt.ReceiverAmt() == ps.RemainingAmt
-
 		// We found a route to try, launch a new shard.
-		attempt, outcome, err := p.launchShard(rt, lastShard)
+		attempt, outcome, err := p.launchShard(rt, ps.RemainingAmt)
 		switch {
 		// We may get a terminal error if we've processed a shard with
 		// a terminal state (settled or permanent failure), while we
@@ -380,23 +376,10 @@ type attemptResult struct {
 // non-nil error, it means that the attempt was not sent onto the network, so
 // no result will be available in the future for it.
 func (p *paymentLifecycle) launchShard(rt *route.Route,
-	lastShard bool) (*channeldb.HTLCAttempt, *attemptResult, error) {
+	remainingAmt lnwire.MilliSatoshi) (*channeldb.HTLCAttempt,
+	*attemptResult, error) {
 
-	// Using the route received from the payment session, create a new
-	// shard to send.
-	attempt, err := p.createNewPaymentAttempt(rt, lastShard)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Before sending this HTLC to the switch, we checkpoint the fresh
-	// paymentID and route to the DB. This lets us know on startup the ID
-	// of the payment that we attempted to send, such that we can query the
-	// Switch for its whereabouts. The route is needed to handle the result
-	// when it eventually comes back.
-	err = p.router.cfg.Control.RegisterAttempt(
-		p.identifier, &attempt.HTLCAttemptInfo,
-	)
+	attempt, err := p.registerAttempt(rt, remainingAmt)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -584,6 +567,35 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 	return &attemptResult{
 		attempt: htlcAttempt,
 	}, nil
+}
+
+// registerAttempt is responsible for creating and saving an HTLC attempt in db
+// by using the route info provided. The `remainingAmt` is used to decide
+// whether this is the last attempt.
+func (p *paymentLifecycle) registerAttempt(rt *route.Route,
+	remainingAmt lnwire.MilliSatoshi) (*channeldb.HTLCAttempt, error) {
+
+	// If this route will consume the last remeining amount to send
+	// to the receiver, this will be our last shard (for now).
+	isLastAttempt := rt.ReceiverAmt() == remainingAmt
+
+	// Using the route received from the payment session, create a new
+	// shard to send.
+	attempt, err := p.createNewPaymentAttempt(rt, isLastAttempt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Before sending this HTLC to the switch, we checkpoint the fresh
+	// paymentID and route to the DB. This lets us know on startup the ID
+	// of the payment that we attempted to send, such that we can query the
+	// Switch for its whereabouts. The route is needed to handle the result
+	// when it eventually comes back.
+	err = p.router.cfg.Control.RegisterAttempt(
+		p.identifier, &attempt.HTLCAttemptInfo,
+	)
+
+	return attempt, err
 }
 
 // createNewPaymentAttempt creates a new payment attempt from the given route.

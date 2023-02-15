@@ -868,20 +868,58 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// servers, the mission control instance itself can be moved there too.
 	routingConfig := routerrpc.GetRoutingConfig(cfg.SubRPCServers.RouterRPC)
 
-	estimatorCfg := routing.ProbabilityEstimatorCfg{
-		AprioriHopProbability: routingConfig.AprioriHopProbability,
-		PenaltyHalfLife:       routingConfig.PenaltyHalfLife,
-		AprioriWeight:         routingConfig.AprioriWeight,
+	// We only initialize a probability estimator if there's no custom one.
+	var estimator routing.Estimator
+	if cfg.Estimator != nil {
+		estimator = cfg.Estimator
+	} else {
+		switch routingConfig.ProbabilityEstimatorType {
+		case routing.AprioriEstimatorName:
+			aCfg := routingConfig.AprioriConfig
+			aprioriConfig := routing.AprioriConfig{
+				AprioriHopProbability: aCfg.HopProbability,
+				PenaltyHalfLife:       aCfg.PenaltyHalfLife,
+				AprioriWeight:         aCfg.Weight,
+			}
+
+			estimator, err = routing.NewAprioriEstimator(
+				aprioriConfig,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		case routing.BimodalEstimatorName:
+			bCfg := routingConfig.BimodalConfig
+			bimodalConfig := routing.BimodalConfig{
+				BimodalNodeWeight: bCfg.NodeWeight,
+				BimodalScaleMsat: lnwire.MilliSatoshi(
+					bCfg.Scale,
+				),
+				BimodalDecayTime: bCfg.DecayTime,
+			}
+
+			estimator, err = routing.NewBimodalEstimator(
+				bimodalConfig,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		default:
+			return nil, fmt.Errorf("unknown estimator type %v",
+				routingConfig.ProbabilityEstimatorType)
+		}
 	}
 
+	mcCfg := &routing.MissionControlConfig{
+		Estimator:               estimator,
+		MaxMcHistory:            routingConfig.MaxMcHistory,
+		McFlushInterval:         routingConfig.McFlushInterval,
+		MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
+	}
 	s.missionControl, err = routing.NewMissionControl(
-		dbs.ChanStateDB, selfNode.PubKeyBytes,
-		&routing.MissionControlConfig{
-			ProbabilityEstimatorCfg: estimatorCfg,
-			MaxMcHistory:            routingConfig.MaxMcHistory,
-			McFlushInterval:         routingConfig.McFlushInterval,
-			MinFailureRelaxInterval: routing.DefaultMinFailureRelaxInterval,
-		},
+		dbs.ChanStateDB, selfNode.PubKeyBytes, mcCfg,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("can't create mission control: %v", err)

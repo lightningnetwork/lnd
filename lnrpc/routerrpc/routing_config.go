@@ -7,27 +7,15 @@ import (
 )
 
 // RoutingConfig contains the configurable parameters that control routing.
+//
+//nolint:lll
 type RoutingConfig struct {
+	// ProbabilityEstimatorType sets the estimator to use.
+	ProbabilityEstimatorType string `long:"estimator" choice:"apriori" choice:"bimodal" description:"Probability estimator used for pathfinding." `
+
 	// MinRouteProbability is the minimum required route success probability
 	// to attempt the payment.
 	MinRouteProbability float64 `long:"minrtprob" description:"Minimum required route success probability to attempt the payment"`
-
-	// AprioriHopProbability is the assumed success probability of a hop in
-	// a route when no other information is available.
-	AprioriHopProbability float64 `long:"apriorihopprob" description:"Assumed success probability of a hop in a route when no other information is available."`
-
-	// AprioriWeight is a value in the range [0, 1] that defines to what
-	// extent historical results should be extrapolated to untried
-	// connections. Setting it to one will completely ignore historical
-	// results and always assume the configured a priori probability for
-	// untried connections. A value of zero will ignore the a priori
-	// probability completely and only base the probability on historical
-	// results, unless there are none available.
-	AprioriWeight float64 `long:"aprioriweight" description:"Weight of the a priori probability in success probability estimation. Valid values are in [0, 1]."`
-
-	// PenaltyHalfLife defines after how much time a penalized node or
-	// channel is back at 50% probability.
-	PenaltyHalfLife time.Duration `long:"penaltyhalflife" description:"Defines the duration after which a penalized node or channel is back at 50% probability"`
 
 	// AttemptCost is the fixed virtual cost in path finding of a failed
 	// payment attempt. It is used to trade off potentially better routes
@@ -47,4 +35,51 @@ type RoutingConfig struct {
 	// McFlushInterval defines the timer interval to use to flush mission
 	// control state to the DB.
 	McFlushInterval time.Duration `long:"mcflushinterval" description:"the timer interval to use to flush mission control state to the DB"`
+
+	// AprioriConfig defines parameters for the apriori probability.
+	AprioriConfig *AprioriConfig `group:"apriori" namespace:"apriori" description:"configuration for the apriori pathfinding probability estimator"`
+
+	// BimodalConfig defines parameters for the bimodal probability.
+	BimodalConfig *BimodalConfig `group:"bimodal" namespace:"bimodal" description:"configuration for the bimodal pathfinding probability estimator"`
+}
+
+// AprioriConfig defines parameters for the apriori probability.
+//
+//nolint:lll
+type AprioriConfig struct {
+	// HopProbability is the assumed success probability of a hop in a route
+	// when no other information is available.
+	HopProbability float64 `long:"hopprob" description:"Assumed success probability of a hop in a route when no other information is available."`
+
+	// Weight is a value in the range [0, 1] that defines to what extent
+	// historical results should be extrapolated to untried connections.
+	// Setting it to one will completely ignore historical results and
+	// always assume the configured a priori probability for untried
+	// connections. A value of zero will ignore the a priori probability
+	// completely and only base the probability on historical results,
+	// unless there are none available.
+	Weight float64 `long:"weight" description:"Weight of the a priori probability in success probability estimation. Valid values are in [0, 1]."`
+
+	// PenaltyHalfLife defines after how much time a penalized node or
+	// channel is back at 50% probability.
+	PenaltyHalfLife time.Duration `long:"penaltyhalflife" description:"Defines the duration after which a penalized node or channel is back at 50% probability"`
+}
+
+// BimodalConfig defines parameters for the bimodal probability.
+//
+//nolint:lll
+type BimodalConfig struct {
+	// Scale describes the scale over which channels still have some
+	// liquidity left on both channel ends. A value of 0 means that we
+	// assume perfectly unbalanced channels, a very high value means
+	// randomly balanced channels.
+	Scale int64 `long:"scale" description:"Defines the unbalancedness assumed for the network, the amount defined in msat."`
+
+	// NodeWeight defines how strongly non-routed channels should be taken
+	// into account for probability estimation. Valid values are in [0,1].
+	NodeWeight float64 `long:"nodeweight" description:"Defines how strongly non-routed channels should be taken into account for probability estimation. Valid values are in [0, 1]."`
+
+	// DecayTime is the scale for the exponential information decay over
+	// time for previous successes or failures.
+	DecayTime time.Duration `long:"decaytime" description:"Describes the information decay of knowledge about previous successes and failures in channels."`
 }

@@ -86,6 +86,20 @@ func (h *HarnessRPC) SetMissionControlConfig(
 	h.NoError(err, "SetMissionControlConfig")
 }
 
+// SetMissionControlConfigAssertErr makes a RPC call to the node's
+// SetMissionControlConfig and asserts that we error.
+func (h *HarnessRPC) SetMissionControlConfigAssertErr(
+	config *routerrpc.MissionControlConfig) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	req := &routerrpc.SetMissionControlConfigRequest{Config: config}
+	_, err := h.Router.SetMissionControlConfig(ctxt, req)
+	require.Error(h, err, "expect an error from setting import mission "+
+		"control")
+}
+
 // ResetMissionControl makes a RPC call to the node's ResetMissionControl and
 // asserts.
 func (h *HarnessRPC) ResetMissionControl() {

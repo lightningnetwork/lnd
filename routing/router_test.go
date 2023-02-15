@@ -119,13 +119,15 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		AttemptCost:    100,
 	}
 
-	mcConfig := &MissionControlConfig{
-		ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
-			PenaltyHalfLife:       time.Hour,
-			AprioriHopProbability: 0.9,
-			AprioriWeight:         0.5,
-		},
+	aCfg := AprioriConfig{
+		PenaltyHalfLife:       time.Hour,
+		AprioriHopProbability: 0.9,
+		AprioriWeight:         0.5,
 	}
+	estimator, err := NewAprioriEstimator(aCfg)
+	require.NoError(t, err)
+
+	mcConfig := &MissionControlConfig{Estimator: estimator}
 
 	mc, err := NewMissionControl(
 		graphInstance.graphBackend, route.Vertex{}, mcConfig,

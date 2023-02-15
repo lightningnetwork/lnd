@@ -454,39 +454,137 @@ func (s *Server) GetMissionControlConfig(ctx context.Context,
 	req *GetMissionControlConfigRequest) (*GetMissionControlConfigResponse,
 	error) {
 
+	// Query the current mission control config.
 	cfg := s.cfg.RouterBackend.MissionControl.GetConfig()
-	return &GetMissionControlConfigResponse{
+	resp := &GetMissionControlConfigResponse{
 		Config: &MissionControlConfig{
-			HalfLifeSeconds:             uint64(cfg.PenaltyHalfLife.Seconds()),
-			HopProbability:              float32(cfg.AprioriHopProbability),
-			Weight:                      float32(cfg.AprioriWeight),
-			MaximumPaymentResults:       uint32(cfg.MaxMcHistory),
-			MinimumFailureRelaxInterval: uint64(cfg.MinFailureRelaxInterval.Seconds()),
+			MaximumPaymentResults: uint32(cfg.MaxMcHistory),
+			MinimumFailureRelaxInterval: uint64(
+				cfg.MinFailureRelaxInterval.Seconds(),
+			),
 		},
-	}, nil
+	}
+
+	// We only populate fields based on the current estimator.
+	switch v := cfg.Estimator.Config().(type) {
+	case routing.AprioriConfig:
+		resp.Config.Model = MissionControlConfig_APRIORI
+		aCfg := AprioriParameters{
+			HalfLifeSeconds: uint64(v.PenaltyHalfLife.Seconds()),
+			HopProbability:  v.AprioriHopProbability,
+			Weight:          v.AprioriWeight,
+		}
+
+		// Populate deprecated fields.
+		resp.Config.HalfLifeSeconds = uint64(
+			v.PenaltyHalfLife.Seconds(),
+		)
+		resp.Config.HopProbability = float32(v.AprioriHopProbability)
+		resp.Config.Weight = float32(v.AprioriWeight)
+
+		resp.Config.EstimatorConfig = &MissionControlConfig_Apriori{
+			Apriori: &aCfg,
+		}
+
+	case routing.BimodalConfig:
+		resp.Config.Model = MissionControlConfig_BIMODAL
+		bCfg := BimodalParameters{
+			NodeWeight: v.BimodalNodeWeight,
+			ScaleMsat:  uint64(v.BimodalScaleMsat),
+			DecayTime:  uint64(v.BimodalDecayTime.Seconds()),
+		}
+
+		resp.Config.EstimatorConfig = &MissionControlConfig_Bimodal{
+			Bimodal: &bCfg,
+		}
+
+	default:
+		return nil, fmt.Errorf("unknown estimator config type %T", v)
+	}
+
+	return resp, nil
 }
 
-// SetMissionControlConfig returns our current mission control config.
+// SetMissionControlConfig sets parameters in the mission control config.
 func (s *Server) SetMissionControlConfig(ctx context.Context,
 	req *SetMissionControlConfigRequest) (*SetMissionControlConfigResponse,
 	error) {
 
-	cfg := &routing.MissionControlConfig{
-		ProbabilityEstimatorCfg: routing.ProbabilityEstimatorCfg{
-			PenaltyHalfLife: time.Duration(
-				req.Config.HalfLifeSeconds,
-			) * time.Second,
-			AprioriHopProbability: float64(req.Config.HopProbability),
-			AprioriWeight:         float64(req.Config.Weight),
-		},
+	mcCfg := &routing.MissionControlConfig{
 		MaxMcHistory: int(req.Config.MaximumPaymentResults),
 		MinFailureRelaxInterval: time.Duration(
 			req.Config.MinimumFailureRelaxInterval,
 		) * time.Second,
 	}
 
+	switch req.Config.Model {
+	case MissionControlConfig_APRIORI:
+		var aprioriConfig routing.AprioriConfig
+
+		// Determine the apriori config with backward compatibility
+		// should the api use deprecated fields.
+		switch v := req.Config.EstimatorConfig.(type) {
+		case *MissionControlConfig_Bimodal:
+			return nil, fmt.Errorf("bimodal config " +
+				"provided, but apriori model requested")
+
+		case *MissionControlConfig_Apriori:
+			aprioriConfig = routing.AprioriConfig{
+				PenaltyHalfLife: time.Duration(
+					v.Apriori.HalfLifeSeconds,
+				) * time.Second,
+				AprioriHopProbability: v.Apriori.HopProbability,
+				AprioriWeight:         v.Apriori.Weight,
+			}
+
+		default:
+			aprioriConfig = routing.AprioriConfig{
+				PenaltyHalfLife: time.Duration(
+					int64(req.Config.HalfLifeSeconds),
+				) * time.Second,
+				AprioriHopProbability: float64(
+					req.Config.HopProbability,
+				),
+				AprioriWeight: float64(req.Config.Weight),
+			}
+		}
+
+		estimator, err := routing.NewAprioriEstimator(aprioriConfig)
+		if err != nil {
+			return nil, err
+		}
+		mcCfg.Estimator = estimator
+
+	case MissionControlConfig_BIMODAL:
+		cfg, ok := req.Config.
+			EstimatorConfig.(*MissionControlConfig_Bimodal)
+		if !ok {
+			return nil, fmt.Errorf("bimodal estimator requested " +
+				"but corresponding config not set")
+		}
+		bCfg := cfg.Bimodal
+
+		bimodalConfig := routing.BimodalConfig{
+			BimodalDecayTime: time.Duration(
+				bCfg.DecayTime,
+			) * time.Second,
+			BimodalScaleMsat:  lnwire.MilliSatoshi(bCfg.ScaleMsat),
+			BimodalNodeWeight: bCfg.NodeWeight,
+		}
+
+		estimator, err := routing.NewBimodalEstimator(bimodalConfig)
+		if err != nil {
+			return nil, err
+		}
+		mcCfg.Estimator = estimator
+
+	default:
+		return nil, fmt.Errorf("unknown estimator type %v",
+			req.Config.Model)
+	}
+
 	return &SetMissionControlConfigResponse{},
-		s.cfg.RouterBackend.MissionControl.SetConfig(cfg)
+		s.cfg.RouterBackend.MissionControl.SetConfig(mcCfg)
 }
 
 // QueryMissionControl exposes the internal mission control state to callers. It

@@ -103,7 +103,7 @@ type MissionControl struct {
 
 	// estimator is the probability estimator that is used with the payment
 	// results that mission control collects.
-	estimator *probabilityEstimator
+	estimator Estimator
 
 	sync.Mutex
 
@@ -116,9 +116,8 @@ type MissionControl struct {
 // MissionControlConfig defines parameters that control mission control
 // behaviour.
 type MissionControlConfig struct {
-	// ProbabilityEstimatorConfig is the config we will use for probability
-	// calculations.
-	ProbabilityEstimatorCfg
+	// Estimator gives probability estimates for node pairs.
+	Estimator Estimator
 
 	// MaxMcHistory defines the maximum number of payment results that are
 	// held on disk.
@@ -135,10 +134,6 @@ type MissionControlConfig struct {
 }
 
 func (c *MissionControlConfig) validate() error {
-	if err := c.ProbabilityEstimatorCfg.validate(); err != nil {
-		return err
-	}
-
 	if c.MaxMcHistory < 0 {
 		return ErrInvalidMcHistory
 	}
@@ -152,11 +147,8 @@ func (c *MissionControlConfig) validate() error {
 
 // String returns a string representation of a mission control config.
 func (c *MissionControlConfig) String() string {
-	return fmt.Sprintf("Penalty Half Life: %v, Apriori Hop "+
-		"Probablity: %v, Maximum History: %v, Apriori Weight: %v, "+
-		"Minimum Failure Relax Interval: %v", c.PenaltyHalfLife,
-		c.AprioriHopProbability, c.MaxMcHistory, c.AprioriWeight,
-		c.MinFailureRelaxInterval)
+	return fmt.Sprintf("maximum history: %v, minimum failure relax "+
+		"interval: %v", c.MaxMcHistory, c.MinFailureRelaxInterval)
 }
 
 // TimedPairResult describes a timestamped pair result.
@@ -212,7 +204,8 @@ type paymentResult struct {
 func NewMissionControl(db kvdb.Backend, self route.Vertex,
 	cfg *MissionControlConfig) (*MissionControl, error) {
 
-	log.Debugf("Instantiating mission control with config: %v", cfg)
+	log.Debugf("Instantiating mission control with config: %v, %v", cfg,
+		cfg.Estimator)
 
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -225,17 +218,12 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 		return nil, err
 	}
 
-	estimator := &probabilityEstimator{
-		ProbabilityEstimatorCfg: cfg.ProbabilityEstimatorCfg,
-		prevSuccessProbability:  prevSuccessProbability,
-	}
-
 	mc := &MissionControl{
 		state:     newMissionControlState(cfg.MinFailureRelaxInterval),
 		now:       time.Now,
 		selfNode:  self,
 		store:     store,
-		estimator: estimator,
+		estimator: cfg.Estimator,
 	}
 
 	if err := mc.init(); err != nil {
@@ -284,7 +272,7 @@ func (m *MissionControl) GetConfig() *MissionControlConfig {
 	defer m.Unlock()
 
 	return &MissionControlConfig{
-		ProbabilityEstimatorCfg: m.estimator.ProbabilityEstimatorCfg,
+		Estimator:               m.estimator,
 		MaxMcHistory:            m.store.maxRecords,
 		McFlushInterval:         m.store.flushInterval,
 		MinFailureRelaxInterval: m.state.minFailureRelaxInterval,
@@ -305,11 +293,12 @@ func (m *MissionControl) SetConfig(cfg *MissionControlConfig) error {
 	m.Lock()
 	defer m.Unlock()
 
-	log.Infof("Updating mission control cfg: %v", cfg)
+	log.Infof("Active mission control cfg: %v, estimator: %v", cfg,
+		cfg.Estimator)
 
 	m.store.maxRecords = cfg.MaxMcHistory
 	m.state.minFailureRelaxInterval = cfg.MinFailureRelaxInterval
-	m.estimator.ProbabilityEstimatorCfg = cfg.ProbabilityEstimatorCfg
+	m.estimator = cfg.Estimator
 
 	return nil
 }
@@ -344,10 +333,10 @@ func (m *MissionControl) GetProbability(fromNode, toNode route.Vertex,
 
 	// Use a distinct probability estimation function for local channels.
 	if fromNode == m.selfNode {
-		return m.estimator.getLocalPairProbability(now, results, toNode)
+		return m.estimator.LocalPairProbability(now, results, toNode)
 	}
 
-	return m.estimator.getPairProbability(
+	return m.estimator.PairProbability(
 		now, results, toNode, amt, capacity,
 	)
 }

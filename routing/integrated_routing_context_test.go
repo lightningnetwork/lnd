@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -68,6 +69,14 @@ func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 	// defaults would break the unit tests. The actual values picked aren't
 	// critical to excite certain behavior, but do need to be aligned with
 	// the test case assertions.
+	aCfg := AprioriConfig{
+		PenaltyHalfLife:       30 * time.Minute,
+		AprioriHopProbability: 0.6,
+		AprioriWeight:         0.5,
+	}
+	estimator, err := NewAprioriEstimator(aCfg)
+	require.NoError(t, err)
+
 	ctx := integratedRoutingContext{
 		t:           t,
 		graph:       graph,
@@ -75,11 +84,7 @@ func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 		finalExpiry: 40,
 
 		mcCfg: MissionControlConfig{
-			ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
-				PenaltyHalfLife:       30 * time.Minute,
-				AprioriHopProbability: 0.6,
-				AprioriWeight:         0.5,
-			},
+			Estimator: estimator,
 		},
 
 		pathFindingCfg: PathFindingConfig{

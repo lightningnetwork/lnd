@@ -90,15 +90,17 @@ func (ctx *mcTestContext) restartMc() {
 		require.NoError(ctx.t, ctx.mc.store.storeResults())
 	}
 
+	aCfg := AprioriConfig{
+		PenaltyHalfLife:       testPenaltyHalfLife,
+		AprioriHopProbability: testAprioriHopProbability,
+		AprioriWeight:         testAprioriWeight,
+	}
+	estimator, err := NewAprioriEstimator(aCfg)
+	require.NoError(ctx.t, err)
+
 	mc, err := NewMissionControl(
 		ctx.db, mcTestSelf,
-		&MissionControlConfig{
-			ProbabilityEstimatorCfg: ProbabilityEstimatorCfg{
-				PenaltyHalfLife:       testPenaltyHalfLife,
-				AprioriHopProbability: testAprioriHopProbability,
-				AprioriWeight:         testAprioriWeight,
-			},
-		},
+		&MissionControlConfig{Estimator: estimator},
 	)
 	if err != nil {
 		ctx.t.Fatal(err)

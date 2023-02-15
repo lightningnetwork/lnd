@@ -468,6 +468,93 @@ message SetMissionControlConfigResponse {
 
 message MissionControlConfig {
     /*
+    Deprecated, use AprioriParameters. The amount of time mission control will
+    take to restore a penalized node or channel back to 50% success probability,
+    expressed in seconds. Setting this value to a higher value will penalize
+    failures for longer, making mission control less likely to route through
+    nodes and channels that we have previously recorded failures for.
+    */
+    uint64 half_life_seconds = 1 [deprecated = true];
+
+    /*
+    Deprecated, use AprioriParameters. The probability of success mission
+    control should assign to hop in a route where it has no other information
+    available. Higher values will make mission control more willing to try hops
+    that we have no information about, lower values will discourage trying these
+    hops.
+    */
+    float hop_probability = 2 [deprecated = true];
+
+    /*
+    Deprecated, use AprioriParameters. The importance that mission control
+    should place on historical results, expressed as a value in [0;1]. Setting
+    this value to 1 will ignore all historical payments and just use the hop
+    probability to assess the probability of success for each hop. A zero value
+    ignores hop probability completely and relies entirely on historical
+    results, unless none are available.
+    */
+    float weight = 3 [deprecated = true];
+
+    /*
+    The maximum number of payment results that mission control will store.
+    */
+    uint32 maximum_payment_results = 4;
+
+    /*
+    The minimum time that must have passed since the previously recorded failure
+    before we raise the failure amount.
+    */
+    uint64 minimum_failure_relax_interval = 5;
+
+    enum ProbabilityModel {
+        APRIORI = 0;
+        BIMODAL = 1;
+    }
+
+    /*
+    ProbabilityModel defines which probability estimator should be used in
+    pathfinding.
+    */
+    ProbabilityModel Model = 6;
+
+    /*
+    EstimatorConfig is populated dependent on the estimator type.
+    */
+    oneof EstimatorConfig {
+        AprioriParameters apriori = 7;
+        BimodalParameters bimodal = 8;
+    }
+}
+
+message BimodalParameters {
+    /*
+    NodeWeight defines how strongly other previous forwardings on channels of a
+    router should be taken into account when computing a channel's probability
+    to route. The allowed values are in the range [0, 1], where a value of 0
+    means that only direct information about a channel is taken into account.
+    */
+    double node_weight = 1;
+
+    /*
+    ScaleMsat describes the scale over which channels statistically have some
+    liquidity left. The value determines how quickly the bimodal distribution
+    drops off from the edges of a channel. A larger value (compared to typical
+    channel capacities) means that the drop off is slow and that channel
+    balances are distributed more uniformly. A small value leads to the
+    assumption of very unbalanced channels.
+    */
+    uint64 scale_msat = 2;
+
+    /*
+    DecayTime describes the information decay of knowledge about previous
+    successes and failures in channels. The smaller the decay time, the quicker
+    we forget about past forwardings.
+    */
+    uint64 decay_time = 3;
+}
+
+message AprioriParameters {
+    /*
     The amount of time mission control will take to restore a penalized node
     or channel back to 50% success probability, expressed in seconds. Setting
     this value to a higher value will penalize failures for longer, making
@@ -482,7 +569,7 @@ message MissionControlConfig {
     control more willing to try hops that we have no information about, lower
     values will discourage trying these hops.
     */
-    float hop_probability = 2;
+    double hop_probability = 2;
 
     /*
     The importance that mission control should place on historical results,
@@ -492,18 +579,7 @@ message MissionControlConfig {
     completely and relies entirely on historical results, unless none are
     available.
     */
-    float weight = 3;
-
-    /*
-    The maximum number of payment results that mission control will store.
-    */
-    uint32 maximum_payment_results = 4;
-
-    /*
-    The minimum time that must have passed since the previously recorded failure
-    before we raise the failure amount.
-    */
-    uint64 minimum_failure_relax_interval = 5;
+    double weight = 3;
 }
 
 message QueryProbabilityRequest {

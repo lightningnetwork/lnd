@@ -42,14 +42,23 @@ type Config struct {
 // DefaultConfig defines the config defaults.
 func DefaultConfig() *Config {
 	defaultRoutingConfig := RoutingConfig{
-		AprioriHopProbability: routing.DefaultAprioriHopProbability,
-		AprioriWeight:         routing.DefaultAprioriWeight,
-		MinRouteProbability:   routing.DefaultMinRouteProbability,
-		PenaltyHalfLife:       routing.DefaultPenaltyHalfLife,
-		AttemptCost:           routing.DefaultAttemptCost.ToSatoshis(),
-		AttemptCostPPM:        routing.DefaultAttemptCostPPM,
-		MaxMcHistory:          routing.DefaultMaxMcHistory,
-		McFlushInterval:       routing.DefaultMcFlushInterval,
+		ProbabilityEstimatorType: routing.DefaultEstimator,
+		MinRouteProbability:      routing.DefaultMinRouteProbability,
+
+		AttemptCost:     routing.DefaultAttemptCost.ToSatoshis(),
+		AttemptCostPPM:  routing.DefaultAttemptCostPPM,
+		MaxMcHistory:    routing.DefaultMaxMcHistory,
+		McFlushInterval: routing.DefaultMcFlushInterval,
+		AprioriConfig: &AprioriConfig{
+			HopProbability:  routing.DefaultAprioriHopProbability,
+			Weight:          routing.DefaultAprioriWeight,
+			PenaltyHalfLife: routing.DefaultPenaltyHalfLife,
+		},
+		BimodalConfig: &BimodalConfig{
+			Scale:      int64(routing.DefaultBimodalScaleMsat),
+			NodeWeight: routing.DefaultBimodalNodeWeight,
+			DecayTime:  routing.DefaultBimodalDecayTime,
+		},
 	}
 
 	return &Config{
@@ -60,13 +69,21 @@ func DefaultConfig() *Config {
 // GetRoutingConfig returns the routing config based on this sub server config.
 func GetRoutingConfig(cfg *Config) *RoutingConfig {
 	return &RoutingConfig{
-		AprioriHopProbability: cfg.AprioriHopProbability,
-		AprioriWeight:         cfg.AprioriWeight,
-		MinRouteProbability:   cfg.MinRouteProbability,
-		AttemptCost:           cfg.AttemptCost,
-		AttemptCostPPM:        cfg.AttemptCostPPM,
-		PenaltyHalfLife:       cfg.PenaltyHalfLife,
-		MaxMcHistory:          cfg.MaxMcHistory,
-		McFlushInterval:       cfg.McFlushInterval,
+		ProbabilityEstimatorType: cfg.ProbabilityEstimatorType,
+		MinRouteProbability:      cfg.MinRouteProbability,
+		AttemptCost:              cfg.AttemptCost,
+		AttemptCostPPM:           cfg.AttemptCostPPM,
+		MaxMcHistory:             cfg.MaxMcHistory,
+		McFlushInterval:          cfg.McFlushInterval,
+		AprioriConfig: &AprioriConfig{
+			HopProbability:  cfg.AprioriConfig.HopProbability,
+			Weight:          cfg.AprioriConfig.Weight,
+			PenaltyHalfLife: cfg.AprioriConfig.PenaltyHalfLife,
+		},
+		BimodalConfig: &BimodalConfig{
+			Scale:      cfg.BimodalConfig.Scale,
+			NodeWeight: cfg.BimodalConfig.NodeWeight,
+			DecayTime:  cfg.BimodalConfig.DecayTime,
+		},
 	}
 }

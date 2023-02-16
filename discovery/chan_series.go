@@ -7,6 +7,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/netann"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -131,10 +132,24 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 
 		updates = append(updates, chanAnn)
 		if edge1 != nil {
-			updates = append(updates, edge1)
+			// We don't want to send channel updates that don't
+			// conform to the spec (anymore).
+			err := routing.ValidateChannelUpdateFields(0, edge1)
+			if err != nil {
+				log.Errorf("not sending invalid channel "+
+					"update %v: %v", edge1, err)
+			} else {
+				updates = append(updates, edge1)
+			}
 		}
 		if edge2 != nil {
-			updates = append(updates, edge2)
+			err := routing.ValidateChannelUpdateFields(0, edge2)
+			if err != nil {
+				log.Errorf("not sending invalid channel "+
+					"update %v: %v", edge2, err)
+			} else {
+				updates = append(updates, edge2)
+			}
 		}
 	}
 

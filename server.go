@@ -1022,6 +1022,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		SignAliasUpdate:         s.signAliasUpdate,
 		FindBaseByAlias:         s.aliasMgr.FindBaseSCID,
 		GetAlias:                s.aliasMgr.GetPeerAlias,
+		FindChannel:             s.findChannel,
 	}, nodeKeyDesc)
 
 	s.localChanMgr = &localchans.Manager{
@@ -1283,26 +1284,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
 			return s.genNodeAnnouncement(true)
 		},
-		SendAnnouncement: s.authGossiper.ProcessLocalAnnouncement,
-		NotifyWhenOnline: s.NotifyWhenOnline,
-		TempChanIDSeed:   chanIDSeed,
-		FindChannel: func(node *btcec.PublicKey,
-			chanID lnwire.ChannelID) (*channeldb.OpenChannel,
-			error) {
-
-			nodeChans, err := s.chanStateDB.FetchOpenChannels(node)
-			if err != nil {
-				return nil, err
-			}
-
-			for _, channel := range nodeChans {
-				if chanID.IsChanPoint(&channel.FundingOutpoint) {
-					return channel, nil
-				}
-			}
-
-			return nil, fmt.Errorf("unable to find channel")
-		},
+		SendAnnouncement:     s.authGossiper.ProcessLocalAnnouncement,
+		NotifyWhenOnline:     s.NotifyWhenOnline,
+		TempChanIDSeed:       chanIDSeed,
+		FindChannel:          s.findChannel,
 		DefaultRoutingPolicy: cc.RoutingPolicy,
 		DefaultMinHtlcIn:     cc.MinHtlcIn,
 		NumRequiredConfs: func(chanAmt btcutil.Amount,
@@ -2877,6 +2862,26 @@ func (s *server) createNewHiddenService() error {
 	}
 
 	return nil
+}
+
+// findChannel finds a channel given a public key and ChannelID. It is an
+// optimization that is quicker than seeking for a channel given only the
+// ChannelID.
+func (s *server) findChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
+	*channeldb.OpenChannel, error) {
+
+	nodeChans, err := s.chanStateDB.FetchOpenChannels(node)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, channel := range nodeChans {
+		if chanID.IsChanPoint(&channel.FundingOutpoint) {
+			return channel, nil
+		}
+	}
+
+	return nil, fmt.Errorf("unable to find channel")
 }
 
 // genNodeAnnouncement generates and returns the current fully signed node

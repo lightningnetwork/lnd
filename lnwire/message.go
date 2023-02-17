@@ -145,6 +145,10 @@ type UnknownMessage struct {
 	messageType MessageType
 }
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> lnwire+peer: Add error type for disconnecting on unknown message type
 // UnknownMessageDisconnect is an implementation of the error interface that allows the
 // creation of an error in response to an unknown message, which should
 // also lead to disonnecting from the peer

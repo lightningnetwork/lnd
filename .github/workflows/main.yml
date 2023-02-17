@@ -7,7 +7,7 @@ on:
   pull_request:
     branches:
       - "*"
-  merge_queue:
+  merge_group:
     branches:
       - "master"
 

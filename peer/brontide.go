@@ -1490,6 +1490,15 @@ out:
 				idleTimer.Reset(idleTimeout)
 				continue
 
+			// If this is just a message we don't yet recognize,
+			// that must also make us disconnect, then
+			// disconnect from the peer
+			case *lnwire.UnknownMessageDisconnect:
+				p.storeError(e)
+				idleTimer.Reset(idleTimeout)
+				p.Disconnect(err)
+				continue
+
 			// If they sent us an address type that we don't yet
 			// know of, then this isn't a wire error, so we'll
 			// simply continue parsing the remainder of their

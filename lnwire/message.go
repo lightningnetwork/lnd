@@ -145,11 +145,27 @@ type UnknownMessage struct {
 	messageType MessageType
 }
 
+
+// UnknownMessageDisconnect is an implementation of the error interface that allows the
+// creation of an error in response to an unknown message, which should
+// also lead to disonnecting from the peer
+type UnknownMessageDisconnect struct {
+	messageType MessageType
+}
+
 // Error returns a human readable string describing the error.
 //
 // This is part of the error interface.
 func (u *UnknownMessage) Error() string {
 	return fmt.Sprintf("unable to parse message of unknown type: %v",
+		u.messageType)
+}
+
+// Error returns a human readable string describing the error.
+//
+// This is part of the error interface.
+func (u *UnknownMessageDisconnect) Error() string {
+	return fmt.Sprintf("unable to parse message of unknown type: %v, must disconnect",
 		u.messageType)
 }
 
@@ -244,6 +260,11 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		// known message types, only protocol messages that are not yet
 		// known to lnd.
 		if msgType < CustomTypeStart && !IsCustomOverride(msgType) {
+			// In case the unknown message type is eve
+			// then disconnect from peer
+			if msgType % 2 == 0 {
+				return nil, &UnknownMessageDisconnect{msgType}
+			}
 			return nil, &UnknownMessage{msgType}
 		}
 

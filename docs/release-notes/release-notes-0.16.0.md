@@ -17,6 +17,9 @@ current gossip sync query status.
   bytes](https://github.com/lightningnetwork/lnd/pull/6913). This moves LND
   closer to being spec compliant.
 
+* Channel updates without the maxHTLC message flag set are recognized as invalid
+  and are [not relayed](https://github.com/lightningnetwork/lnd/pull/7415).
+
 ## RPC
 
 * The `RegisterConfirmationsNtfn` call of the `chainnotifier` RPC sub-server 

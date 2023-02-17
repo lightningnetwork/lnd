@@ -182,8 +182,8 @@ func TestUpdateDisableFlag(t *testing.T) {
 
 			// Finally, validate the signature using the router's
 			// verification logic.
-			err = routing.ValidateChannelUpdateAnn(
-				pubKey, 0, newUpdate,
+			err = routing.VerifyChannelUpdateSignature(
+				newUpdate, pubKey,
 			)
 			if err != nil {
 				t.Fatalf("channel update failed to "+

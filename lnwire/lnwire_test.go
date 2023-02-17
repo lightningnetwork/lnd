@@ -772,7 +772,7 @@ func TestLightningWireProtocol(t *testing.T) {
 			// as being part of the ChannelUpdate, to pass
 			// serialization tests, as it will be ignored if the bit
 			// is not set.
-			if msgFlags&ChanUpdateOptionMaxHtlc == 0 {
+			if msgFlags&ChanUpdateRequiredMaxHtlc == 0 {
 				maxHtlc = 0
 			}
 

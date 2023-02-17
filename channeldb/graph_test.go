@@ -2924,7 +2924,7 @@ func TestEdgePolicyMissingMaxHtcl(t *testing.T) {
 
 	// Set the max_htlc field. The extra bytes added to the serialization
 	// will be the opaque data containing the serialized field.
-	edge1.MessageFlags = lnwire.ChanUpdateOptionMaxHtlc
+	edge1.MessageFlags = lnwire.ChanUpdateRequiredMaxHtlc
 	edge1.MaxHTLC = 13928598
 	var b2 bytes.Buffer
 	err = serializeChanEdgePolicy(&b2, edge1, to)

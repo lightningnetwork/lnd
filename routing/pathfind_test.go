@@ -676,7 +676,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		if node1.testChannelPolicy != nil {
 			var msgFlags lnwire.ChanUpdateMsgFlags
 			if node1.MaxHTLC != 0 {
-				msgFlags |= lnwire.ChanUpdateOptionMaxHtlc
+				msgFlags |= lnwire.ChanUpdateRequiredMaxHtlc
 			}
 			var channelFlags lnwire.ChanUpdateChanFlags
 			if node1.Disabled {
@@ -713,7 +713,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 		if node2.testChannelPolicy != nil {
 			var msgFlags lnwire.ChanUpdateMsgFlags
 			if node2.MaxHTLC != 0 {
-				msgFlags |= lnwire.ChanUpdateOptionMaxHtlc
+				msgFlags |= lnwire.ChanUpdateRequiredMaxHtlc
 			}
 			var channelFlags lnwire.ChanUpdateChanFlags
 			if node2.Disabled {

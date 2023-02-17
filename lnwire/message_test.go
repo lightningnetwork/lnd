@@ -690,7 +690,7 @@ func newMsgChannelUpdate(t testing.TB, r *rand.Rand) *lnwire.ChannelUpdate {
 	// as being part of the ChannelUpdate, to pass
 	// serialization tests, as it will be ignored if the bit
 	// is not set.
-	if msgFlags&lnwire.ChanUpdateOptionMaxHtlc == 0 {
+	if msgFlags&lnwire.ChanUpdateRequiredMaxHtlc == 0 {
 		maxHtlc = 0
 	}
 

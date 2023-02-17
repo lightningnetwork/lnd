@@ -3637,7 +3637,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 
 	// Our channel update message flags will signal that we support the
 	// max_htlc field.
-	msgFlags := lnwire.ChanUpdateOptionMaxHtlc
+	msgFlags := lnwire.ChanUpdateRequiredMaxHtlc
 
 	// We announce the channel with the default values. Some of
 	// these values can later be changed by crafting a new ChannelUpdate.

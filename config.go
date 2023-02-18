@@ -98,6 +98,10 @@ const (
 	// HTLCs on our channels.
 	minTimeLockDelta = routing.MinCLTVDelta
 
+	// MaxTimeLockDelta is the maximum CLTV delta that can be applied to
+	// forwarded HTLCs.
+	MaxTimeLockDelta = routing.MaxCLTVDelta
+
 	// defaultAcceptorTimeout is the time after which an RPCAcceptor will time
 	// out and return false if it hasn't yet received a response.
 	defaultAcceptorTimeout = 15 * time.Second

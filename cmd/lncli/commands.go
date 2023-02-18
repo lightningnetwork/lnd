@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
@@ -2029,7 +2030,7 @@ var updateChannelPolicyCommand = cli.Command{
 				"with a granularity of 0.000001 (millionths). Can not " +
 				"be set at the same time as fee_rate.",
 		},
-		cli.Int64Flag{
+		cli.Uint64Flag{
 			Name: "time_lock_delta",
 			Usage: "the CLTV delta that will be applied to all " +
 				"forwarded HTLCs",
@@ -2080,6 +2081,25 @@ func parseChanPoint(s string) (*lnrpc.ChannelPoint, error) {
 	}, nil
 }
 
+// parseTimeLockDelta is expected to get a uint16 type of timeLockDelta,
+// which maximum value is MaxTimeLockDelta.
+func parseTimeLockDelta(timeLockDeltaStr string) (uint16, error) {
+	timeLockDeltaUnCheck, err := strconv.ParseUint(
+		timeLockDeltaStr, 10, 64,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse time_lock_delta: %s "+
+			"to uint64, err: %v", timeLockDeltaStr, err)
+	}
+
+	if timeLockDeltaUnCheck > routing.MaxCLTVDelta {
+		return 0, fmt.Errorf("time_lock_delta is too big, "+
+			"max value is %d", routing.MaxCLTVDelta)
+	}
+
+	return uint16(timeLockDeltaUnCheck), nil
+}
+
 func updateChannelPolicy(ctx *cli.Context) error {
 	ctxc := getContext()
 	client, cleanUp := getClient(ctx)
@@ -2089,7 +2109,7 @@ func updateChannelPolicy(ctx *cli.Context) error {
 		baseFee       int64
 		feeRate       float64
 		feeRatePpm    uint64
-		timeLockDelta int64
+		timeLockDelta uint16
 		err           error
 	)
 	args := ctx.Args()
@@ -2127,12 +2147,15 @@ func updateChannelPolicy(ctx *cli.Context) error {
 
 	switch {
 	case ctx.IsSet("time_lock_delta"):
-		timeLockDelta = ctx.Int64("time_lock_delta")
-	case args.Present():
-		timeLockDelta, err = strconv.ParseInt(args.First(), 10, 64)
+		timeLockDeltaStr := ctx.String("time_lock_delta")
+		timeLockDelta, err = parseTimeLockDelta(timeLockDeltaStr)
 		if err != nil {
-			return fmt.Errorf("unable to decode time_lock_delta: %v",
-				err)
+			return err
+		}
+	case args.Present():
+		timeLockDelta, err = parseTimeLockDelta(args.First())
+		if err != nil {
+			return err
 		}
 
 		args = args.Tail()

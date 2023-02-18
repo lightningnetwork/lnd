@@ -348,7 +348,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	// We'll use our current default CLTV value unless one was specified as
 	// an option on the command line when creating an invoice.
 	switch {
-	case invoice.CltvExpiry > math.MaxUint16:
+	case invoice.CltvExpiry > routing.MaxCLTVDelta:
 		return nil, nil, fmt.Errorf("CLTV delta of %v is too large, "+
 			"max accepted is: %v", invoice.CltvExpiry,
 			math.MaxUint16)

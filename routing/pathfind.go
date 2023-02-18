@@ -649,9 +649,9 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		log.Trace(newLogClosure(func() string {
 			return fmt.Sprintf("path finding probability: fromnode=%v,"+
-				" tonode=%v, amt=%v, probability=%v",
+				" tonode=%v, amt=%v, cap=%v, probability=%v",
 				fromVertex, toNodeDist.node, amountToSend,
-				edgeProbability)
+				edge.capacity, edgeProbability)
 		}))
 
 		// If the probability is zero, there is no point in trying.

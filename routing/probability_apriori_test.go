@@ -28,11 +28,12 @@ const (
 
 	// testCapacity is used to define a capacity for some channels.
 	testCapacity         = btcutil.Amount(100_000)
-	testAmount           = lnwire.MilliSatoshi(50_000_000)
-	testCapacityFraction = 0.75
+	testAmount           = lnwire.MilliSatoshi(90_000_000)
+	testCapacityFraction = 0.9999
 
-	// Defines the capacityFactor for testAmount and testCapacity.
-	capFactor = 0.9241
+	// capFactor is the capacityFactor for testAmount, testCapacity and
+	// testCapacityFraction.
+	capFactor = 0.9909715
 )
 
 type estimatorTestContext struct {
@@ -244,13 +245,13 @@ func TestCapacityCutoff(t *testing.T) {
 			name:             "low amount",
 			capacityFraction: 0.75,
 			amountMsat:       capacityMSat / 10,
-			expectedFactor:   0.998,
+			expectedFactor:   1,
 		},
 		{
 			name:             "half amount",
 			capacityFraction: 0.75,
 			amountMsat:       capacityMSat / 2,
-			expectedFactor:   0.924,
+			expectedFactor:   1,
 		},
 		{
 			name:             "cutoff amount",
@@ -258,13 +259,13 @@ func TestCapacityCutoff(t *testing.T) {
 			amountMsat: int(
 				0.75 * float64(capacityMSat),
 			),
-			expectedFactor: 0.5,
+			expectedFactor: 0.75,
 		},
 		{
 			name:             "high amount",
 			capacityFraction: 0.75,
 			amountMsat:       capacityMSat * 80 / 100,
-			expectedFactor:   0.377,
+			expectedFactor:   0.560,
 		},
 		{
 			// Even when we spend the full capacity, we still want
@@ -274,13 +275,35 @@ func TestCapacityCutoff(t *testing.T) {
 			name:             "full amount",
 			capacityFraction: 0.75,
 			amountMsat:       capacityMSat,
-			expectedFactor:   0.076,
+			expectedFactor:   0.5,
 		},
 		{
 			name:             "more than capacity",
 			capacityFraction: 0.75,
 			amountMsat:       capacityMSat + 1,
 			expectedFactor:   0.0,
+		},
+		// Default CapacityFactor of 0.9999.
+		{
+			name:             "zero amount",
+			capacityFraction: 0.9999,
+			amountMsat:       0,
+			expectedFactor:   1.00,
+		},
+		{
+			name:             "90% of the channel capacity",
+			capacityFraction: 0.9999,
+			amountMsat:       capacityMSat * 90 / 100,
+			expectedFactor:   0.990,
+		},
+		{
+			// We won't saturate at 0.5 as in the other case but at
+			// a higher value of 0.75 due to the smearing, this
+			// translates to a penalty increase of a factor of 1.33.
+			name:             "full amount",
+			capacityFraction: 0.9999,
+			amountMsat:       capacityMSat,
+			expectedFactor:   0.75,
 		},
 		// Inactive capacity factor.
 		{

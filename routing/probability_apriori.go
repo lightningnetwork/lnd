@@ -16,31 +16,24 @@ const (
 	// capacity-related probability reweighting works. CapacityFraction
 	// defines the fraction of the channel capacity at which the effect
 	// roughly sets in and capacitySmearingFraction defines over which range
-	// the factor changes from 1 to 0.
-	//
-	// We may fall below the minimum required probability
-	// (DefaultMinRouteProbability) when the amount comes close to the
-	// available capacity of a single channel of the route in case of no
-	// prior knowledge about the channels. We want such routes still to be
-	// available and therefore a probability reduction should not completely
-	// drop the total probability below DefaultMinRouteProbability.
-	// For this to hold for a three-hop route we require:
-	// (DefaultAprioriHopProbability)^3 * minCapacityFactor >
-	//      DefaultMinRouteProbability
-	//
-	// For DefaultAprioriHopProbability = 0.6 and
-	// DefaultMinRouteProbability = 0.01 this results in
-	// minCapacityFactor ~ 0.05. The following combination of parameters
-	// fulfill the requirement with capacityFactor(cap, cap) ~ 0.076 (see
-	// tests).
+	// the factor changes from 1 to minCapacityFactor.
 
 	// DefaultCapacityFraction is the default value for CapacityFraction.
-	DefaultCapacityFraction = 0.75
+	// It is chosen such that the capacity factor is active but with a small
+	// effect. This value together with capacitySmearingFraction leads to a
+	// noticeable reduction in probability if the amount starts to come
+	// close to 90% of a channel's capacity.
+	DefaultCapacityFraction = 0.9999
 
-	// We don't want to have a sharp drop of the capacity factor to zero at
-	// capacityCutoffFraction, but a smooth smearing such that some residual
-	// probability is left when spending the whole amount, see above.
-	capacitySmearingFraction = 0.1
+	// capacitySmearingFraction defines how quickly the capacity factor
+	// drops from 1 to minCapacityFactor. This value results in about a
+	// variation over 20% of the capacity.
+	capacitySmearingFraction = 0.025
+
+	// minCapacityFactor is the minimal value the capacityFactor can take.
+	// Having a too low value can lead to discarding of paths due to the
+	// enforced minimal proability or to too high pathfinding weights.
+	minCapacityFactor = 0.5
 
 	// minCapacityFraction is the minimum allowed value for
 	// CapacityFraction. The success probability in the random balance model
@@ -265,10 +258,13 @@ func (p *AprioriEstimator) getWeight(age time.Duration) float64 {
 }
 
 // capacityFactor is a multiplier that can be used to reduce the probability
-// depending on how much of the capacity is sent. The limits are 1 for amt == 0
-// and 0 for amt >> cutoffMsat. The function drops significantly when amt
-// reaches cutoffMsat. smearingMsat determines over which scale the reduction
-// takes place.
+// depending on how much of the capacity is sent. In other words, the factor
+// sorts out channels that don't provide enough liquidity. Effectively, this
+// leads to usage of larger channels in total to increase success probability,
+// but it may also increase fees. The limits are 1 for amt == 0 and
+// minCapacityFactor for amt >> capacityCutoffFraction. The function drops
+// significantly when amt reaches cutoffMsat. smearingMsat determines over which
+// scale the reduction takes place.
 func capacityFactor(amt lnwire.MilliSatoshi, capacity btcutil.Amount,
 	capacityCutoffFraction float64) float64 {
 
@@ -299,7 +295,11 @@ func capacityFactor(amt lnwire.MilliSatoshi, capacity btcutil.Amount,
 	// at cutoffMsat, decaying over the smearingMsat scale.
 	denominator := 1 + math.Exp(-(amtMsat-cutoffMsat)/smearingMsat)
 
-	return 1 - 1/denominator
+	// The numerator decides what the minimal value of this function will
+	// be. The minimal value is set by minCapacityFactor.
+	numerator := 1 - minCapacityFactor
+
+	return 1 - numerator/denominator
 }
 
 // PairProbability estimates the probability of successfully traversing to

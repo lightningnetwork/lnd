@@ -993,10 +993,10 @@ func genScript(t *testing.T, address string) lnwire.DeliveryAddress {
 	return script
 }
 
-// TestPeerCustomMessage tests custom message exchange between peers.
-func TestPeerCustomMessage(t *testing.T) {
-	t.Parallel()
-
+// SetUpTest sets up a test environment for the custom
+// message exchange between peers.
+func SetUpTest(t *testing.T) ([33]byte, *Brontide, chan *customMsg,
+	*mockMessageConn) {
 	// Set up node Alice.
 	dbAlice, err := channeldb.Open(t.TempDir())
 	require.NoError(t, err)
@@ -1092,6 +1092,15 @@ func TestPeerCustomMessage(t *testing.T) {
 	// Start the peer.
 	require.NoError(t, alicePeer.Start())
 
+	return remoteKey, alicePeer, receivedCustomChan, mockConn
+}
+
+// TestPeerCustomMessage tests custom message exchange between peers.
+func TestPeerCustomMessage(t *testing.T) {
+	t.Parallel()
+
+	remoteKey, alicePeer, receivedCustomChan, mockConn := SetUpTest(t)
+
 	// Send a custom message.
 	customMsg, err := lnwire.NewCustom(
 		lnwire.MessageType(40000), []byte{1, 2, 3},
@@ -1117,4 +1126,44 @@ func TestPeerCustomMessage(t *testing.T) {
 	receivedCustom := <-receivedCustomChan
 	require.Equal(t, remoteKey, receivedCustom.peer)
 	require.Equal(t, receivedCustomMsg, &receivedCustom.msg)
+}
+
+// TestPeerUnknownMessageOdd tests custom message exchange between peers.
+func TestPeerUnknownMessageOdd(t *testing.T) {
+	t.Parallel()
+	_, _, _, mockConn := SetUpTest(t)
+
+	// Receive an unknown message.
+	_, err := lnwire.NewUnknown(
+		lnwire.MessageType(32001), []byte{4, 5, 6},
+	)
+	require.NoError(t, err)
+
+	receivedData := []byte{0x7d, 0x01, 0x4, 0x5, 0x6}
+	mockConn.readMessages <- receivedData
+
+	// Todo: would be better not to have to wait
+	// for the connection to close
+	time.Sleep(100 * time.Millisecond)
+	require.False(t, mockConn.isClosed)
+}
+
+// TestPeerUnknownMessageEven tests custom message exchange between peers.
+func TestPeerUnknownMessageEven(t *testing.T) {
+	t.Parallel()
+	_, _, _, mockConn := SetUpTest(t)
+
+	// Receive an unknown message.
+	_, err := lnwire.NewUnknown(
+		lnwire.MessageType(32000), []byte{4, 5, 6},
+	)
+	require.NoError(t, err)
+
+	receivedData := []byte{0x7d, 0x00, 0x4, 0x5, 0x6}
+	mockConn.readMessages <- receivedData
+
+	// Todo: would be better not to have to wait
+	// for the connection to close
+	time.Sleep(100 * time.Millisecond)
+	require.True(t, mockConn.isClosed)
 }

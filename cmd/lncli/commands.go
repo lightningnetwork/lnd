@@ -1323,6 +1323,30 @@ func channelBalance(ctx *cli.Context) error {
 	return nil
 }
 
+var generateManPageCommand = cli.Command{
+	Name:   "generatemanpage",
+	Usage:  "Generates a man page for lncli.",
+	Hidden: true,
+	Action: actionDecorator(generateManPage),
+}
+
+func generateManPage(ctx *cli.Context) error {
+	docs, manErr := ctx.App.ToMan()
+        if manErr != nil {
+		return manErr
+        }
+
+	writeErr := ioutil.WriteFile(
+		"lncli.1",
+		[]byte(docs),
+		0644,
+	)
+	if writeErr != nil {
+		return writeErr
+	}
+	return nil
+}
+
 var getInfoCommand = cli.Command{
 	Name:   "getinfo",
 	Usage:  "Returns basic information related to the active daemon.",

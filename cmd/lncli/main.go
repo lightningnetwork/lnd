@@ -488,6 +488,7 @@ func main() {
 		subscribeCustomCommand,
 		fishCompletionCommand,
 		listAliasesCommand,
+		generateManPageCommand,
 	}
 
 	// Add any extra commands determined by build flags.

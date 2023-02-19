@@ -7,6 +7,9 @@ on:
   pull_request:
     branches:
       - "*"
+  merge_group:
+    branches:
+      - "master"
 
 concurrency:
   # Cancel any previous workflows if they are from a PR or push.

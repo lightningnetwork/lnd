@@ -74,56 +74,63 @@ var openChannelCommand = cli.Command{
 
 	One can also connect to a node before opening a new channel to it by
 	setting its host:port via the --connect argument. For this to work,
-	the node_key must be provided, rather than the peer_id. This is optional.
+	the node_key must be provided, rather than the peer_id. This is
+	optional.
 
-	The channel will be initialized with local-amt satoshis local and push-amt
-	satoshis for the remote node. Note that specifying push-amt means you give that
-	amount to the remote node as part of the channel opening. Once the channel is open,
-	a channelPoint (txid:vout) of the funding output is returned.
+	The channel will be initialized with local-amt satoshis locally and
+	push-amt satoshis for the remote node. Note that the push-amt is
+	deducted from the specified local-amt which implies that the local-amt
+	must be greater than the push-amt. Also note that specifying push-amt
+	means you give that amount to the remote node as part of the channel
+	opening. Once the channel is open, a channelPoint (txid:vout) of the
+	funding output is returned.
 
-	If the remote peer supports the option upfront shutdown feature bit (query
-	listpeers to see their supported feature bits), an address to enforce
-	payout of funds on cooperative close can optionally be provided. Note that
-	if you set this value, you will not be able to cooperatively close out to
-	another address.
+	If the remote peer supports the option upfront shutdown feature bit
+	(query listpeers to see their supported feature bits), an address to
+	enforce payout of funds on cooperative close can optionally be provided.
+	Note that if you set this value, you will not be able to cooperatively
+	close out to another address.
 
-	One can manually set the fee to be used for the funding transaction via either
-	the --conf_target or --sat_per_vbyte arguments. This is optional.`,
+	One can manually set the fee to be used for the funding transaction via
+	either the --conf_target or --sat_per_vbyte arguments. This is
+	optional.`,
 	ArgsUsage: "node-key local-amt push-amt",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "node_key",
-			Usage: "the identity public key of the target node/peer " +
-				"serialized in compressed format",
+			Usage: "the identity public key of the target " +
+				"node/peer serialized in compressed format",
 		},
 		cli.StringFlag{
 			Name:  "connect",
 			Usage: "(optional) the host:port of the target node",
 		},
 		cli.IntFlag{
-			Name:  "local_amt",
-			Usage: "the number of satoshis the wallet should commit to the channel",
+			Name: "local_amt",
+			Usage: "the number of satoshis the wallet should " +
+				"commit to the channel",
 		},
 		cli.Uint64Flag{
 			Name: "base_fee_msat",
 			Usage: "the base fee in milli-satoshis that will " +
-				"be charged for each forwarded HTLC, regardless " +
-				"of payment size",
+				"be charged for each forwarded HTLC, " +
+				"regardless of payment size",
 		},
 		cli.Uint64Flag{
 			Name: "fee_rate_ppm",
 			Usage: "the fee rate ppm (parts per million) that " +
-				"will be charged proportionally based on the value of each " +
-				"forwarded HTLC, the lowest possible rate is 0 " +
-				"with a granularity of 0.000001 (millionths)",
+				"will be charged proportionally based on the " +
+				"value of each forwarded HTLC, the lowest " +
+				"possible rate is 0 with a granularity of " +
+				"0.000001 (millionths)",
 		},
 		cli.IntFlag{
 			Name: "push_amt",
-			Usage: "the number of satoshis to give the remote side " +
-				"as part of the initial commitment state, " +
-				"this is equivalent to first opening a " +
-				"channel and sending the remote party funds, " +
-				"but done all in one step",
+			Usage: "the number of satoshis to give the remote " +
+				"side as part of the initial commitment " +
+				"state, this is equivalent to first opening " +
+				"a channel and sending the remote party " +
+				"funds, but done all in one step",
 		},
 		cli.BoolFlag{
 			Name:  "block",
@@ -161,10 +168,11 @@ var openChannelCommand = cli.Command{
 		},
 		cli.Uint64Flag{
 			Name: "remote_csv_delay",
-			Usage: "(optional) the number of blocks we will require " +
-				"our channel counterparty to wait before accessing " +
-				"its funds in case of unilateral close. If this is " +
-				"not set, we will scale the value according to the " +
+			Usage: "(optional) the number of blocks we will " +
+				"require our channel counterparty to wait " +
+				"before accessing its funds in case of " +
+				"unilateral close. If this is not set, we " +
+				"will scale the value according to the " +
 				"channel size",
 		},
 		cli.Uint64Flag{
@@ -176,25 +184,26 @@ var openChannelCommand = cli.Command{
 		},
 		cli.Uint64Flag{
 			Name: "min_confs",
-			Usage: "(optional) the minimum number of confirmations " +
-				"each one of your outputs used for the funding " +
-				"transaction must satisfy",
+			Usage: "(optional) the minimum number of " +
+				"confirmations each one of your outputs used " +
+				"for the funding transaction must satisfy",
 			Value: defaultUtxoMinConf,
 		},
 		cli.StringFlag{
 			Name: "close_address",
-			Usage: "(optional) an address to enforce payout of our " +
-				"funds to on cooperative close. Note that if this " +
-				"value is set on channel open, you will *not* be " +
-				"able to cooperatively close to a different address.",
+			Usage: "(optional) an address to enforce payout of " +
+				"our funds to on cooperative close. Note " +
+				"that if this value is set on channel open, " +
+				"you will *not* be able to cooperatively " +
+				"close to a different address.",
 		},
 		cli.BoolFlag{
 			Name: "psbt",
 			Usage: "start an interactive mode that initiates " +
 				"funding through a partially signed bitcoin " +
 				"transaction (PSBT), allowing the channel " +
-				"funds to be added and signed from a hardware " +
-				"or other offline device.",
+				"funds to be added and signed from a " +
+				"hardware or other offline device.",
 		},
 		cli.StringFlag{
 			Name: "base_psbt",
@@ -215,7 +224,8 @@ var openChannelCommand = cli.Command{
 		cli.Uint64Flag{
 			Name: "remote_max_value_in_flight_msat",
 			Usage: "(optional) the maximum value in msat that " +
-				"can be pending within the channel at any given time",
+				"can be pending within the channel at any " +
+				"given time",
 		},
 		cli.StringFlag{
 			Name: "channel_type",
@@ -288,14 +298,16 @@ func openChannel(ctx *cli.Context) error {
 	case ctx.IsSet("node_key"):
 		nodePubHex, err := hex.DecodeString(ctx.String("node_key"))
 		if err != nil {
-			return fmt.Errorf("unable to decode node public key: %v", err)
+			return fmt.Errorf("unable to decode node public key: "+
+				"%v", err)
 		}
 		req.NodePubkey = nodePubHex
 
 	case args.Present():
 		nodePubHex, err := hex.DecodeString(args.First())
 		if err != nil {
-			return fmt.Errorf("unable to decode node public key: %v", err)
+			return fmt.Errorf("unable to decode node public key: "+
+				"%v", err)
 		}
 		args = args.Tail()
 		req.NodePubkey = nodePubHex
@@ -331,7 +343,9 @@ func openChannel(ctx *cli.Context) error {
 	case ctx.IsSet("local_amt"):
 		req.LocalFundingAmount = int64(ctx.Int("local_amt"))
 	case args.Present():
-		req.LocalFundingAmount, err = strconv.ParseInt(args.First(), 10, 64)
+		req.LocalFundingAmount, err = strconv.ParseInt(
+			args.First(), 10, 64,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to decode local amt: %v", err)
 		}
@@ -560,7 +574,10 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 			// remove it again, this would just produce another
 			// error.
 			cancelErr := chanfunding.ErrRemoteCanceled.Error()
-			if err != nil && strings.Contains(err.Error(), cancelErr) {
+			if err != nil && strings.Contains(
+				err.Error(), cancelErr,
+			) {
+
 				shimPending = false
 			}
 			close(quit)
@@ -996,7 +1013,8 @@ func sendFundingState(cancelCtx context.Context, cliCtx *cli.Context,
 // from either a hex encoded raw wire transaction or a base64/binary encoded
 // PSBT packet.
 func finalizeMsgFromString(tx string,
-	pendingChanID []byte) (*lnrpc.FundingTransitionMsg_PsbtFinalize, error) {
+	pendingChanID []byte) (*lnrpc.FundingTransitionMsg_PsbtFinalize,
+	error) {
 
 	psbtBytes, err := decodePsbt(tx)
 	if err == nil {

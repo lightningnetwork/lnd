@@ -4589,7 +4589,7 @@ func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
 
 	msg, err := lnwire.NewCustom(msgType, data)
 	if err != nil {
-		return err
+		msg, err = lnwire.NewUnknown(msgType, data)
 	}
 
 	// Send the message as low-priority. For now we assume that all

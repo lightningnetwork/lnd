@@ -145,7 +145,6 @@ type UnknownMessage struct {
 	messageType MessageType
 }
 
-
 // UnknownMessageDisconnect is an implementation of the error interface that allows the
 // creation of an error in response to an unknown message, which should
 // also lead to disonnecting from the peer
@@ -260,9 +259,9 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		// known message types, only protocol messages that are not yet
 		// known to lnd.
 		if msgType < CustomTypeStart && !IsCustomOverride(msgType) {
-			// In case the unknown message type is eve
+			// In case the unknown message type is even
 			// then disconnect from peer
-			if msgType % 2 == 0 {
+			if msgType%2 == 0 {
 				return nil, &UnknownMessageDisconnect{msgType}
 			}
 			return nil, &UnknownMessage{msgType}

@@ -307,6 +307,16 @@ clean-mobile:
 	$(RM) -r mobile/build
 	$(RM) mobile/*_generated.go
 
+docs:
+	@$(call print, "Generating man pages documents.")
+	if [ -f ./lnd-debug ] && [ -f ./lncli-debug ]; then \
+	./lnd-debug --manpage; \
+	./lncli-debug generatemanpage; \
+	elif [ -f ./lnd ] && [ -f ./lncli ]; then \
+	./lnd --manpage; \
+	./lncli generatemanpage; \
+	fi
+
 .PHONY: all \
 	btcd \
 	default \
@@ -334,4 +344,5 @@ clean-mobile:
 	ios \
 	android \
 	mobile \
-	clean
+	clean \
+	docs

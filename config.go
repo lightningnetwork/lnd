@@ -5,6 +5,7 @@
 package lnd
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -258,6 +259,7 @@ var (
 //nolint:lll
 type Config struct {
 	ShowVersion bool `short:"V" long:"version" description:"Display version information and exit"`
+	GenerateManPage bool `long:"manpage" description:"Generates a man page as lnd.1 file for lnd and exits"`
 
 	LndDir       string `long:"lnddir" description:"The base directory that contains lnd's data, logs, configuration file, etc."`
 	ConfigFile   string `short:"C" long:"configfile" description:"Path to configuration file"`
@@ -683,6 +685,17 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 	if preCfg.ShowVersion {
 		fmt.Println(appName, "version", build.Version(),
 			"commit="+build.Commit)
+		os.Exit(0)
+	}
+
+	if preCfg.GenerateManPage {
+		fileParser := flags.NewParser(&preCfg, flags.Default)
+		var buf bytes.Buffer
+		fileParser.WriteManPage(&buf)
+		err := ioutil.WriteFile("lnd.1", buf.Bytes(), 0644)
+		if err != nil {
+			return nil, err
+		}
 		os.Exit(0)
 	}
 

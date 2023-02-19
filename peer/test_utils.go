@@ -493,6 +493,8 @@ type mockMessageConn struct {
 
 	readMessages   chan []byte
 	curReadMessage []byte
+
+	isClosed bool
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {
@@ -500,6 +502,7 @@ func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {
 		t:               t,
 		writtenMessages: make(chan []byte, expectedMessages),
 		readMessages:    make(chan []byte, 1),
+		isClosed:        false,
 	}
 }
 
@@ -555,5 +558,10 @@ func (m *mockMessageConn) RemoteAddr() net.Addr {
 }
 
 func (m *mockMessageConn) LocalAddr() net.Addr {
+	return nil
+}
+
+func (m *mockMessageConn) Close() error {
+	m.isClosed = true
 	return nil
 }

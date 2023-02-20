@@ -127,6 +127,12 @@ unlock or create.
 * Make sure payment stream returns all the events by [subscribing it before
   sending](https://github.com/lightningnetwork/lnd/pull/7722).
 
+### Tooling and documentation
+
+* Add support for [custom `RPCHOST` and
+  `RPCCRTPATH`](https://github.com/lightningnetwork/lnd/pull/7429) to the
+  `lnd` Docker image main script (`/start-lnd.sh`).
+
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen
@@ -138,6 +144,7 @@ unlock or create.
 * Guillermo Caracuel
 * hieblmi
 * Jordi Montes
+* Lele Calo
 * Matt Morehouse
 * Michael Street
 * Oliver Gugger

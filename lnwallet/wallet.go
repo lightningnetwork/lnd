@@ -2072,6 +2072,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 
 	l.limboMtx.Lock()
 	delete(l.fundingLimbo, req.pendingFundingID)
+	delete(l.reservationIDs, pendingReservation.pendingChanID)
 	l.limboMtx.Unlock()
 
 	l.intentMtx.Lock()

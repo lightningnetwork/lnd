@@ -39,6 +39,8 @@ set_default() {
 }
 
 # Set default variables if needed.
+RPCCRTPATH=$(set_default "$RPCCRTPATH" "/rpc/rpc.cert")
+RPCHOST=$(set_default "$RPCHOST" "blockchain")
 RPCUSER=$(set_default "$RPCUSER" "devuser")
 RPCPASS=$(set_default "$RPCPASS" "devpass")
 DEBUG=$(set_default "$DEBUG" "debug")
@@ -60,8 +62,8 @@ exec lnd \
     "--$CHAIN.active" \
     "--$CHAIN.$NETWORK" \
     "--$CHAIN.node"="$BACKEND" \
-    "--$BACKEND.rpccert"="/rpc/rpc.cert" \
-    "--$BACKEND.rpchost"="blockchain" \
+    "--$BACKEND.rpccert"="$RPCCRTPATH" \
+    "--$BACKEND.rpchost"="$RPCHOST" \
     "--$BACKEND.rpcuser"="$RPCUSER" \
     "--$BACKEND.rpcpass"="$RPCPASS" \
     "--rpclisten=$HOSTNAME:10009" \

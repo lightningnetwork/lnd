@@ -455,6 +455,10 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
   issue where [it cannot fetch
   commits](https://github.com/lightningnetwork/lnd/pull/7374).
 
+* Add support for [custom RPCHOST and 
+  RPCCRTPATH](https://github.com/lightningnetwork/lnd/pull/7429) to the 
+  `lnd` Docker image main script (`/start-lnd.sh`)
+
 ### Integration test
 
 * The `lntest` has been

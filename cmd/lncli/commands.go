@@ -2314,8 +2314,9 @@ func exportChanBackup(ctx *cli.Context) error {
 	}
 
 	var (
-		err          error
-		chanPointStr string
+		err            error
+		chanPointStr   string
+		outputFileName string
 	)
 	args := ctx.Args()
 
@@ -2328,6 +2329,10 @@ func exportChanBackup(ctx *cli.Context) error {
 
 	case !ctx.IsSet("all"):
 		return fmt.Errorf("must specify chan_point if --all isn't set")
+	}
+
+	if ctx.IsSet("output_file") {
+		outputFileName = ctx.String("output_file")
 	}
 
 	if chanPointStr != "" {
@@ -2357,6 +2362,14 @@ func exportChanBackup(ctx *cli.Context) error {
 			Index: chanPointRPC.OutputIndex,
 		}
 
+		if outputFileName != "" {
+			return os.WriteFile(
+				outputFileName,
+				chanBackup.ChanBackup,
+				0666,
+			)
+		}
+
 		printJSON(struct {
 			ChanPoint  string `json:"chan_point"`
 			ChanBackup []byte `json:"chan_backup"`
@@ -2378,9 +2391,9 @@ func exportChanBackup(ctx *cli.Context) error {
 		return err
 	}
 
-	if ctx.IsSet("output_file") {
-		return ioutil.WriteFile(
-			ctx.String("output_file"),
+	if outputFileName != "" {
+		return os.WriteFile(
+			outputFileName,
 			chanBackup.MultiChanBackup.MultiChanBackup,
 			0666,
 		)
@@ -2416,13 +2429,16 @@ var verifyChanBackupCommand = cli.Command{
     backup for integrity. This is useful when a user has a backup, but is
     unsure as to if it's valid or for the target node.
 
-    The command will accept backups in one of three forms:
+    The command will accept backups in one of four forms:
 
        * A single channel packed SCB, which can be obtained from
 	 exportchanbackup. This should be passed in hex encoded format.
 
        * A packed multi-channel SCB, which couples several individual
 	 static channel backups in single blob.
+	
+       * A file path which points to a packed single-channel backup within a
+         file, using the same format that lnd does in its channel.backup file.
 
        * A file path which points to a packed multi-channel backup within a
 	 file, using the same format that lnd does in its channel.backup
@@ -2439,6 +2455,13 @@ var verifyChanBackupCommand = cli.Command{
 			Usage: "a hex encoded multi-channel backup obtained " +
 				"from exportchanbackup",
 		},
+
+		cli.StringFlag{
+			Name:      "single_file",
+			Usage:     "the path to a single-channel backup file",
+			TakesFile: true,
+		},
+
 		cli.StringFlag{
 			Name:      "multi_file",
 			Usage:     "the path to a multi-channel back up file",
@@ -2499,13 +2522,17 @@ var restoreChanBackupCommand = cli.Command{
 	channel. If successful, this command will allows the user to recover
 	the settled funds stored in the recovered channels.
 
-	The command will accept backups in one of three forms:
+	The command will accept backups in one of four forms:
 
 	   * A single channel packed SCB, which can be obtained from
 	     exportchanbackup. This should be passed in hex encoded format.
 
 	   * A packed multi-channel SCB, which couples several individual
 	     static channel backups in single blob.
+
+	   * A file path which points to a packed single-channel backup within
+	     a file, using the same format that lnd does in its channel.backup
+	     file.
 
 	   * A file path which points to a packed multi-channel backup within a
 	     file, using the same format that lnd does in its channel.backup
@@ -2522,6 +2549,13 @@ var restoreChanBackupCommand = cli.Command{
 			Usage: "a hex encoded multi-channel backup obtained " +
 				"from exportchanbackup",
 		},
+
+		cli.StringFlag{
+			Name:      "single_file",
+			Usage:     "the path to a single-channel backup file",
+			TakesFile: true,
+		},
+
 		cli.StringFlag{
 			Name:      "multi_file",
 			Usage:     "the path to a multi-channel back up file",
@@ -2570,6 +2604,23 @@ func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error)
 		return &lnrpc.RestoreChanBackupRequest{
 			Backup: &lnrpc.RestoreChanBackupRequest_MultiChanBackup{
 				MultiChanBackup: packedMulti,
+			},
+		}, nil
+
+	case ctx.IsSet("single_file"):
+		packedSingle, err := os.ReadFile(ctx.String("single_file"))
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode single "+
+				"packed backup: %v", err)
+		}
+
+		return &lnrpc.RestoreChanBackupRequest{
+			Backup: &lnrpc.RestoreChanBackupRequest_ChanBackups{
+				ChanBackups: &lnrpc.ChannelBackups{
+					ChanBackups: []*lnrpc.ChannelBackup{{
+						ChanBackup: packedSingle,
+					}},
+				},
 			},
 		}, nil
 

@@ -237,7 +237,7 @@ func TestMigrateAckedUpdates(t *testing.T) {
 			// summary bucket and a new index bucket.
 			after := after(test.shouldFail, test.pre, test.post)
 
-			migtest.ApplyMigrationWithDb(
+			migtest.ApplyMigrationWithDB(
 				t, before, after, MigrateAckedUpdates(2),
 				test.shouldFail,
 			)

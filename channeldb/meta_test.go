@@ -530,7 +530,9 @@ func TestApplyOptionalVersions(t *testing.T) {
 	// Overwrite the migration function so we can count how many times the
 	// migration has happened.
 	migrateCount := 0
-	optionalVersions[0].migration = func(_ kvdb.Backend) error {
+	optionalVersions[0].migration = func(_ kvdb.Backend,
+		_ MigrationConfig) error {
+
 		migrateCount++
 		return nil
 	}

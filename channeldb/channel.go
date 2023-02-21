@@ -2657,8 +2657,8 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		// With the commitment pointer swapped, we can now add the
 		// revoked (prior) state to the revocation log.
 		err = putRevocationLog(
-			logBucket, &c.RemoteCommitment,
-			ourOutputIndex, theirOutputIndex,
+			logBucket, &c.RemoteCommitment, ourOutputIndex,
+			theirOutputIndex, c.Db.parent.noRevLogAmtData,
 		)
 		if err != nil {
 			return err

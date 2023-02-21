@@ -867,15 +867,22 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	dbOptions := []channeldb.OptionModifier{
 		channeldb.OptionSetRejectCacheSize(cfg.Caches.RejectCacheSize),
-		channeldb.OptionSetChannelCacheSize(cfg.Caches.ChannelCacheSize),
-		channeldb.OptionSetBatchCommitInterval(cfg.DB.BatchCommitInterval),
+		channeldb.OptionSetChannelCacheSize(
+			cfg.Caches.ChannelCacheSize,
+		),
+		channeldb.OptionSetBatchCommitInterval(
+			cfg.DB.BatchCommitInterval,
+		),
 		channeldb.OptionDryRunMigration(cfg.DryRunMigration),
 		channeldb.OptionSetUseGraphCache(!cfg.DB.NoGraphCache),
-		channeldb.OptionKeepFailedPaymentAttempts(cfg.KeepFailedPaymentAttempts),
+		channeldb.OptionKeepFailedPaymentAttempts(
+			cfg.KeepFailedPaymentAttempts,
+		),
 		channeldb.OptionStoreFinalHtlcResolutions(
 			cfg.StoreFinalHtlcResolutions,
 		),
 		channeldb.OptionPruneRevocationLog(cfg.DB.PruneRevocation),
+		channeldb.OptionNoRevLogAmtData(cfg.DB.NoRevLogAmtData),
 	}
 
 	// We want to pre-allocate the channel graph cache according to what we

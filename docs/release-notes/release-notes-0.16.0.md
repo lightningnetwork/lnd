@@ -17,6 +17,9 @@ current gossip sync query status.
   bytes](https://github.com/lightningnetwork/lnd/pull/6913). This moves LND
   closer to being spec compliant.
 
+* [Encoding/decoding support for OpenChannel2 and
+  AcceptChannel2](https://github.com/lightningnetwork/lnd/pull/7145).
+
 ## RPC
 
 * The `RegisterConfirmationsNtfn` call of the `chainnotifier` RPC sub-server 

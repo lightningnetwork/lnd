@@ -1098,6 +1098,11 @@
           "type": "number",
           "format": "double",
           "description": "The importance that mission control should place on historical results,\nexpressed as a value in [0;1]. Setting this value to 1 will ignore all\nhistorical payments and just use the hop probability to assess the\nprobability of success for each hop. A zero value ignores hop probability\ncompletely and relies entirely on historical results, unless none are\navailable."
+        },
+        "capacity_fraction": {
+          "type": "number",
+          "format": "double",
+          "description": "The fraction of a channel's capacity that we consider to have liquidity. For\namounts that come close to or exceed the fraction, an additional penalty is\napplied. A value of 1.0 disables the capacity factor. Allowed values are in\n[0.75, 1.0]."
         }
       }
     },

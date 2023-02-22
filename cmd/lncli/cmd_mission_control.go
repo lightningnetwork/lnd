@@ -84,6 +84,13 @@ var setCfgCommand = cli.Command{
 				"rely on historical results, expressed as " +
 				"value in [0, 1]",
 		},
+		cli.Float64Flag{
+			Name: "aprioricapacityfraction",
+			Usage: "the fraction of channels' capacities that is " +
+				"considered liquid in pathfinding, a value " +
+				"between [0.75-1.0]. a value of 1.0 disables " +
+				"this feature.",
+		},
 		// Bimodal config.
 		cli.DurationFlag{
 			Name: "bimodaldecaytime",
@@ -156,8 +163,10 @@ func setCfg(ctx *cli.Context) error {
 					HalfLifeSeconds: uint64(
 						dCfg.PenaltyHalfLife.Seconds(),
 					),
-					HopProbability: dCfg.AprioriHopProbability, //nolint:lll
-					Weight:         dCfg.AprioriWeight,
+					HopProbability: dCfg.
+						AprioriHopProbability,
+					Weight:           dCfg.AprioriWeight,
+					CapacityFraction: dCfg.CapacityFraction,
 				}
 
 				// We make sure the correct config is set.
@@ -186,6 +195,11 @@ func setCfg(ctx *cli.Context) error {
 
 			if ctx.IsSet("aprioriweight") {
 				aCfg.Weight = ctx.Float64("aprioriweight")
+			}
+
+			if ctx.IsSet("aprioricapacityfraction") {
+				aCfg.CapacityFraction =
+					ctx.Float64("aprioricapacityfraction")
 			}
 
 		case routing.BimodalEstimatorName:

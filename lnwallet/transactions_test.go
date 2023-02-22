@@ -270,6 +270,11 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 		}
 	}
 
+	// Assert that the remote and local balances add up to the channel
+	// capacity.
+	require.EqualValues(t, lnwire.NewMSatFromSatoshis(tc.fundingAmount),
+		remoteBalance+localBalance)
+
 	// Set up a test channel on which the test commitment transaction is
 	// going to be produced.
 	remoteChannel, localChannel := createTestChannelsForVectors(

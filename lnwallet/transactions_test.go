@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,41 +94,80 @@ func newTestContext(t *testing.T) *testContext {
 	return tc
 }
 
-var testHtlcs = []struct {
+type htlc struct {
 	incoming bool
 	amount   lnwire.MilliSatoshi
 	expiry   uint32
 	preimage string
-}{
+}
+
+var testHtlcsSet1 = []htlc{
+	// htlc 0.
 	{
 		incoming: true,
 		amount:   1000000,
 		expiry:   500,
-		preimage: "0000000000000000000000000000000000000000000000000000000000000000",
+		preimage: "0000000000000000000000000000000000000000000000000" +
+			"000000000000000",
 	},
+	// htlc 1.
 	{
 		incoming: true,
 		amount:   2000000,
 		expiry:   501,
-		preimage: "0101010101010101010101010101010101010101010101010101010101010101",
+		preimage: "0101010101010101010101010101010101010101010101010" +
+			"101010101010101",
 	},
+	// htlc 2.
 	{
 		incoming: false,
 		amount:   2000000,
 		expiry:   502,
-		preimage: "0202020202020202020202020202020202020202020202020202020202020202",
+		preimage: "0202020202020202020202020202020202020202020202020" +
+			"202020202020202",
 	},
+	// htlc 3.
 	{
 		incoming: false,
 		amount:   3000000,
 		expiry:   503,
-		preimage: "0303030303030303030303030303030303030303030303030303030303030303",
+		preimage: "03030303030303030303030303030303030303030303030303" +
+			"03030303030303",
 	},
+	// htlc 4.
 	{
 		incoming: true,
 		amount:   4000000,
 		expiry:   504,
-		preimage: "0404040404040404040404040404040404040404040404040404040404040404",
+		preimage: "0404040404040404040404040404040404040404040404040" +
+			"404040404040404",
+	},
+}
+
+var testHtlcsSet2 = []htlc{
+	// htlc 1.
+	{
+		incoming: true,
+		amount:   2000000,
+		expiry:   501,
+		preimage: "01010101010101010101010101010101010101010101010101" +
+			"01010101010101",
+	},
+	// htlc 5.
+	{
+		incoming: false,
+		amount:   5000000,
+		expiry:   506,
+		preimage: "05050505050505050505050505050505050505050505050505" +
+			"05050505050505",
+	},
+	// htlc 6.
+	{
+		incoming: false,
+		amount:   5000001,
+		expiry:   505,
+		preimage: "05050505050505050505050505050505050505050505050505" +
+			"05050505050505",
 	},
 }
 
@@ -204,11 +244,11 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 
 // addTestHtlcs adds the test vector htlcs to the update logs of the local and
 // remote node.
-func addTestHtlcs(t *testing.T, remote,
-	local *LightningChannel) map[[20]byte]lntypes.Preimage {
+func addTestHtlcs(t *testing.T, remote, local *LightningChannel,
+	htlcSet []htlc) map[[20]byte]lntypes.Preimage {
 
 	hash160map := make(map[[20]byte]lntypes.Preimage)
-	for _, htlc := range testHtlcs {
+	for _, htlc := range htlcSet {
 		preimage, err := lntypes.MakePreimageFromStr(htlc.preimage)
 		require.NoError(t, err)
 
@@ -255,6 +295,12 @@ func addTestHtlcs(t *testing.T, remote,
 func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	tc := newTestContext(t)
 
+	// Determine which htlc set to use.
+	testHtlcs := testHtlcsSet1
+	if strings.Contains(test.Name, "same amount and preimage") {
+		testHtlcs = testHtlcsSet2
+	}
+
 	// Balances in the test vectors are before subtraction of in-flight
 	// htlcs. Convert to spendable balances.
 	remoteBalance := test.RemoteBalance
@@ -289,7 +335,9 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	// retrieve the corresponding preimage.
 	var hash160map map[[20]byte]lntypes.Preimage
 	if test.UseTestHtlcs {
-		hash160map = addTestHtlcs(t, remoteChannel, localChannel)
+		hash160map = addTestHtlcs(
+			t, remoteChannel, localChannel, testHtlcs,
+		)
 	}
 
 	// Execute commit dance to arrive at the point where the local node has

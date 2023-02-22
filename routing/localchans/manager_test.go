@@ -46,7 +46,7 @@ func TestManager(t *testing.T) {
 
 	currentPolicy := channeldb.ChannelEdgePolicy{
 		MinHTLC:      minHTLC,
-		MessageFlags: lnwire.ChanUpdateOptionMaxHtlc,
+		MessageFlags: lnwire.ChanUpdateRequiredMaxHtlc,
 	}
 
 	updateForwardingPolicies := func(

@@ -1533,7 +1533,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 		if !edge.MessageFlags.HasMaxHtlc() {
 			// We'll make sure we support the new max_htlc field if
 			// not already present.
-			edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
+			edge.MessageFlags |= lnwire.ChanUpdateRequiredMaxHtlc
 			edge.MaxHTLC = lnwire.NewMSatFromSatoshis(info.Capacity)
 
 			edgesToUpdate = append(edgesToUpdate, updateTuple{

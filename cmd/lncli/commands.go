@@ -2446,8 +2446,13 @@ func verifyChanBackup(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	
+	if resp.String() == "" {
+		fmt.Println("Backup successfully verified")
+	} else {
+		printRespJSON(resp)
+	}
 
-	printRespJSON(resp)
 	return nil
 }
 

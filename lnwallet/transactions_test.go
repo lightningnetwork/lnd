@@ -169,8 +169,9 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 			jsonFile: "test_vectors_legacy.json",
 		},
 		{
-			name:     "anchors",
-			chanType: channeldb.SingleFunderTweaklessBit | channeldb.AnchorOutputsBit,
+			name: "anchors",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit,
 			jsonFile: "test_vectors_anchors.json",
 		},
 	}
@@ -186,15 +187,18 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		err = json.Unmarshal(jsonText, &testCases)
 		require.NoError(t, err)
 
-		t.Run(set.name, func(t *testing.T) {
-			for _, test := range testCases {
-				test := test
+		for _, test := range testCases {
+			test := test
+			name := fmt.Sprintf("%s-%s", set.name, test.Name)
+
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 
 				t.Run(test.Name, func(t *testing.T) {
 					testVectors(t, set.chanType, test)
 				})
-			}
-		})
+			})
+		}
 	}
 }
 

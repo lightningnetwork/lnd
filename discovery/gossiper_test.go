@@ -784,7 +784,7 @@ func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
 		HistoricalSyncTicker:  ticker.NewForce(DefaultHistoricalSyncInterval),
 		NumActiveSyncers:      3,
 		AnnSigner:             &mock.SingleSigner{Privkey: selfKeyPriv},
-		SubBatchDelay:         time.Second * 5,
+		SubBatchDelay:         1 * time.Millisecond,
 		MinimumBatchSize:      10,
 		MaxChannelUpdateBurst: DefaultMaxChannelUpdateBurst,
 		ChannelUpdateInterval: DefaultChannelUpdateInterval,
@@ -3371,7 +3371,9 @@ out:
 		case <-sentMsgs:
 		case err := <-notifyErr:
 			t.Fatal(err)
-		default:
+
+		// Give it 5 seconds to drain out.
+		case <-time.After(5 * time.Second):
 			break out
 		}
 	}
@@ -3531,7 +3533,10 @@ func assertMessage(t *testing.T, expected, got lnwire.Message) {
 // TestSplitAnnouncementsCorrectSubBatches checks that we split a given
 // sizes of announcement list into the correct number of batches.
 func TestSplitAnnouncementsCorrectSubBatches(t *testing.T) {
-	t.Parallel()
+	// Create our test harness.
+	const blockHeight = 100
+	ctx, err := createTestCtx(t, blockHeight)
+	require.NoError(t, err, "can't create context")
 
 	const subBatchSize = 10
 
@@ -3540,6 +3545,12 @@ func TestSplitAnnouncementsCorrectSubBatches(t *testing.T) {
 
 	lengthAnnouncementBatchSizes := len(announcementBatchSizes)
 	lengthExpectedNumberMiniBatches := len(expectedNumberMiniBatches)
+
+	batchSizeCalculator = func(totalDelay, subBatchDelay time.Duration,
+		minimumBatchSize, batchSize int) int {
+
+		return subBatchSize
+	}
 
 	if lengthAnnouncementBatchSizes != lengthExpectedNumberMiniBatches {
 		t.Fatal("Length of announcementBatchSizes and " +
@@ -3550,15 +3561,16 @@ func TestSplitAnnouncementsCorrectSubBatches(t *testing.T) {
 		var batchSize = announcementBatchSizes[testIndex]
 		announcementBatch := make([]msgWithSenders, batchSize)
 
-		splitAnnouncementBatch := splitAnnouncementBatches(
-			subBatchSize, announcementBatch,
+		splitAnnouncementBatch := ctx.gossiper.splitAnnouncementBatches(
+			announcementBatch,
 		)
 
 		lengthMiniBatches := len(splitAnnouncementBatch)
 
 		if lengthMiniBatches != expectedNumberMiniBatches[testIndex] {
 			t.Fatalf("Expecting %d mini batches, actual %d",
-				expectedNumberMiniBatches[testIndex], lengthMiniBatches)
+				expectedNumberMiniBatches[testIndex],
+				lengthMiniBatches)
 		}
 	}
 }

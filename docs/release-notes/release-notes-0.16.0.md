@@ -7,6 +7,10 @@ locally to all connected
 peers](https://github.com/lightningnetwork/lnd/pull/7239), regardless of their
 current gossip sync query status.
 
+There's also a [bug fix](https://github.com/lightningnetwork/lnd/pull/7186)
+that might lead to channel updates being missed, causing channel graph being
+incomplete. Aside from that, a potential announcement messages being sent out
+of order is also [fixed](https://github.com/lightningnetwork/lnd/pull/7264).
 
 ## BOLT Specs
 

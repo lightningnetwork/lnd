@@ -47,6 +47,10 @@ const (
 	// updates that we'll hold onto.
 	maxPrematureUpdates = 100
 
+	// DefaultSubBatchDelay is the default delay we'll use when
+	// broadcasting the next announcement batch.
+	DefaultSubBatchDelay = 5 * time.Second
+
 	// maxRejectedUpdates tracks the max amount of rejected channel updates
 	// we'll maintain. This is the global size across all peers. We'll
 	// allocate ~3 MB max to the cache.
@@ -944,9 +948,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		// timestamp, then we'll just discard the message we got.
 		if oldTimestamp > msg.Timestamp {
 			log.Debugf("Ignored outdated network message: "+
-				"peer=%v, source=%x, msg=%s, ", message.peer,
-				message.source.SerializeCompressed(),
-				msg.MsgType())
+				"peer=%v, msg=%s", message.peer, msg.MsgType())
 			return
 		}
 
@@ -1110,8 +1112,8 @@ func calculateSubBatchSize(totalDelay, subBatchDelay time.Duration,
 		return batchSize
 	}
 
-	subBatchSize := (int(batchSize)*int(subBatchDelay) + int(totalDelay) - 1) /
-		int(totalDelay)
+	subBatchSize := (batchSize*int(subBatchDelay) +
+		int(totalDelay) - 1) / int(totalDelay)
 
 	if subBatchSize < minimumBatchSize {
 		return minimumBatchSize
@@ -1120,10 +1122,20 @@ func calculateSubBatchSize(totalDelay, subBatchDelay time.Duration,
 	return subBatchSize
 }
 
+// batchSizeCalculator maps to the function `calculateSubBatchSize`. We create
+// this variable so the function can be mocked in our test.
+var batchSizeCalculator = calculateSubBatchSize
+
 // splitAnnouncementBatches takes an exiting list of announcements and
 // decomposes it into sub batches controlled by the `subBatchSize`.
-func splitAnnouncementBatches(subBatchSize int,
+func (d *AuthenticatedGossiper) splitAnnouncementBatches(
 	announcementBatch []msgWithSenders) [][]msgWithSenders {
+
+	subBatchSize := batchSizeCalculator(
+		d.cfg.TrickleDelay, d.cfg.SubBatchDelay,
+		d.cfg.MinimumBatchSize, len(announcementBatch),
+	)
+
 	var splitAnnouncementBatch [][]msgWithSenders
 
 	for subBatchSize < len(announcementBatch) {
@@ -1134,71 +1146,79 @@ func splitAnnouncementBatches(subBatchSize int,
 			append(splitAnnouncementBatch,
 				announcementBatch[0:subBatchSize:subBatchSize])
 	}
-	splitAnnouncementBatch = append(splitAnnouncementBatch, announcementBatch)
+	splitAnnouncementBatch = append(
+		splitAnnouncementBatch, announcementBatch,
+	)
 
 	return splitAnnouncementBatch
 }
 
 // splitAndSendAnnBatch takes a batch of messages, computes the proper batch
-// split size, and then sends out all items to the set of target peers. If
-// isLocal is true, then we'll send them to all peers and skip any gossip
-// filter checks.
-func (d *AuthenticatedGossiper) splitAndSendAnnBatch(annBatch []msgWithSenders,
-	isLocal bool) {
+// split size, and then sends out all items to the set of target peers. Locally
+// generated announcements are always sent before remotely generated
+// announcements.
+func (d *AuthenticatedGossiper) splitAndSendAnnBatch(
+	annBatch msgsToBroadcast) {
 
-	// Next, If we have new things to announce then broadcast them to all
-	// our immediately connected peers.
-	subBatchSize := calculateSubBatchSize(
-		d.cfg.TrickleDelay, d.cfg.SubBatchDelay,
-		d.cfg.MinimumBatchSize, len(annBatch),
-	)
+	// delayNextBatch is a helper closure that blocks for `SubBatchDelay`
+	// duration to delay the sending of next announcement batch.
+	delayNextBatch := func() {
+		select {
+		case <-time.After(d.cfg.SubBatchDelay):
+		case <-d.quit:
+			return
+		}
+	}
 
-	splitAnnouncementBatch := splitAnnouncementBatches(
-		subBatchSize, annBatch,
-	)
+	// Fetch the local and remote announcements.
+	localBatches := d.splitAnnouncementBatches(annBatch.localMsgs)
+	remoteBatches := d.splitAnnouncementBatches(annBatch.remoteMsgs)
 
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
 
-		log.Infof("Broadcasting %v new announcements in %d sub "+
-			"batches (local=%v)", len(annBatch),
-			len(splitAnnouncementBatch), isLocal)
+		log.Debugf("Broadcasting %v new local announcements in %d "+
+			"sub batches", len(annBatch.localMsgs),
+			len(localBatches))
 
-		for _, announcementBatch := range splitAnnouncementBatch {
-			d.sendBatch(announcementBatch, isLocal)
+		// Send out the local announcements first.
+		for _, annBatch := range localBatches {
+			d.sendLocalBatch(annBatch)
+			delayNextBatch()
+		}
 
-			select {
-			case <-time.After(d.cfg.SubBatchDelay):
-			case <-d.quit:
-				return
-			}
+		log.Debugf("Broadcasting %v new remote announcements in %d "+
+			"sub batches", len(annBatch.remoteMsgs),
+			len(remoteBatches))
+
+		// Now send the remote announcements.
+		for _, annBatch := range remoteBatches {
+			d.sendRemoteBatch(annBatch)
+			delayNextBatch()
 		}
 	}()
 }
 
-// sendBatch broadcasts a list of announcements to our peers.
-func (d *AuthenticatedGossiper) sendBatch(annBatch []msgWithSenders,
-	isLocal bool) {
+// sendLocalBatch broadcasts a list of locally generated announcements to our
+// peers. For local announcements, we skip the filter and dedup logic and just
+// send the announcements out to all our coonnected peers.
+func (d *AuthenticatedGossiper) sendLocalBatch(annBatch []msgWithSenders) {
+	msgsToSend := lnutils.Map(
+		annBatch, func(m msgWithSenders) lnwire.Message {
+			return m.msg
+		},
+	)
 
-	// If this is a batch of announcements created locally, then we can
-	// skip the filter and dedup logic below, and just send the
-	// announcements out to all our coonnected peers.
-	if isLocal {
-		msgsToSend := lnutils.Map(
-			annBatch, func(m msgWithSenders) lnwire.Message {
-				return m.msg
-			},
-		)
-		err := d.cfg.Broadcast(nil, msgsToSend...)
-		if err != nil {
-			log.Errorf("Unable to send local batch "+
-				"announcements: %v", err)
-		}
-
-		return
+	err := d.cfg.Broadcast(nil, msgsToSend...)
+	if err != nil {
+		log.Errorf("Unable to send local batch announcements: %v", err)
 	}
+}
 
+// sendRemoteBatch broadcasts a list of remotely generated announcements to our
+// peers.
+func (d *AuthenticatedGossiper) sendRemoteBatch(annBatch []msgWithSenders) {
 	syncerPeers := d.syncMgr.GossipSyncers()
 
 	// We'll first attempt to filter out this new message for all peers
@@ -1282,10 +1302,8 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 		case announcement := <-d.networkMsgs:
 			log.Tracef("Received network message: "+
-				"peer=%v, source=%x, msg=%s, is_remote=%v",
-				announcement.peer,
-				announcement.source.SerializeCompressed(),
-				announcement.msg.MsgType(),
+				"peer=%v, msg=%s, is_remote=%v",
+				announcement.peer, announcement.msg.MsgType(),
 				announcement.isRemote)
 
 			switch announcement.msg.(type) {
@@ -1350,12 +1368,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// announcements, we'll blast them out w/o regard for
 			// our peer's policies so we ensure they propagate
 			// properly.
-			d.splitAndSendAnnBatch(
-				announcementBatch.localMsgs, true,
-			)
-			d.splitAndSendAnnBatch(
-				announcementBatch.remoteMsgs, false,
-			)
+			d.splitAndSendAnnBatch(announcementBatch)
 
 		// The retransmission timer has ticked which indicates that we
 		// should check if we need to prune or re-broadcast any of our
@@ -2629,9 +2642,8 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	) {
 
 		log.Debugf("Ignored stale edge policy for short_chan_id(%v): "+
-			"peer=%v, source=%x, msg=%s, is_remote=%v", shortChanID,
-			nMsg.peer, nMsg.source.SerializeCompressed(),
-			nMsg.msg.MsgType(), nMsg.isRemote,
+			"peer=%v, msg=%s, is_remote=%v", shortChanID,
+			nMsg.peer, nMsg.msg.MsgType(), nMsg.isRemote,
 		)
 
 		nMsg.err <- nil

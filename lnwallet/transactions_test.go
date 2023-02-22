@@ -378,27 +378,6 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	}
 }
 
-// htlcViewFromHTLCs constructs an htlcView of PaymentDescriptors from a slice
-// of channeldb.HTLC structs.
-func htlcViewFromHTLCs(htlcs []channeldb.HTLC) *htlcView {
-	var theHTLCView htlcView
-	for _, htlc := range htlcs {
-		paymentDesc := &PaymentDescriptor{
-			RHash:   htlc.RHash,
-			Timeout: htlc.RefundTimeout,
-			Amount:  htlc.Amt,
-		}
-		if htlc.Incoming {
-			theHTLCView.theirUpdates =
-				append(theHTLCView.theirUpdates, paymentDesc)
-		} else {
-			theHTLCView.ourUpdates =
-				append(theHTLCView.ourUpdates, paymentDesc)
-		}
-	}
-	return &theHTLCView
-}
-
 func TestCommitTxStateHint(t *testing.T) {
 	t.Parallel()
 

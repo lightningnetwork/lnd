@@ -178,10 +178,11 @@ type htlcDesc struct {
 }
 
 type testCase struct {
-	Name          string
-	LocalBalance  lnwire.MilliSatoshi
-	RemoteBalance lnwire.MilliSatoshi
-	FeePerKw      btcutil.Amount
+	Name              string
+	LocalBalance      lnwire.MilliSatoshi
+	RemoteBalance     lnwire.MilliSatoshi
+	FeePerKw          btcutil.Amount
+	DustLimitSatoshis btcutil.Amount
 
 	// UseTestHtlcs defined whether the fixed set of test htlc should be
 	// added to the channel before checking the commitment assertions.
@@ -213,6 +214,13 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 			chanType: channeldb.SingleFunderTweaklessBit |
 				channeldb.AnchorOutputsBit,
 			jsonFile: "test_vectors_anchors.json",
+		},
+		{
+			name: "zero fee htlc tx",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.ZeroHtlcTxFeeBit,
+			jsonFile: "test_vectors_zero_fee_htlc_tx.json",
 		},
 	}
 
@@ -299,6 +307,12 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	testHtlcs := testHtlcsSet1
 	if strings.Contains(test.Name, "same amount and preimage") {
 		testHtlcs = testHtlcsSet2
+	}
+
+	// If the test specifies a dust limit, then use it instead of the
+	// default.
+	if test.DustLimitSatoshis != 0 {
+		tc.dustLimit = test.DustLimitSatoshis
 	}
 
 	// Balances in the test vectors are before subtraction of in-flight

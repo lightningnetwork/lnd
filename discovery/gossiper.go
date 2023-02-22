@@ -408,7 +408,7 @@ type AuthenticatedGossiper struct {
 	// that wasn't associated with any channel we know about.  We store
 	// them temporarily, such that we can reprocess them when a
 	// ChannelAnnouncement for the channel is received.
-	prematureChannelUpdates *lru.Cache
+	prematureChannelUpdates *lru.Cache[uint64, *cachedNetworkMsg]
 
 	// networkMsgs is a channel that carries new network broadcasted
 	// message from outside the gossiper service to be processed by the
@@ -420,7 +420,7 @@ type AuthenticatedGossiper struct {
 	// the chan networkMsgs once the block height has reached. The cached
 	// map format is,
 	//   {blockHeight: [msg1, msg2, ...], ...}
-	futureMsgs *lru.Cache
+	futureMsgs *lru.Cache[uint32, *cachedNetworkMsg]
 
 	// chanPolicyUpdates is a channel that requests to update the
 	// forwarding policy of a set of channels is sent over.
@@ -439,7 +439,7 @@ type AuthenticatedGossiper struct {
 	// consistent between when the DB is first read until it's written.
 	channelMtx *multimutex.Mutex
 
-	recentRejects *lru.Cache
+	recentRejects *lru.Cache[rejectCacheKey, *cachedReject]
 
 	// syncMgr is a subsystem responsible for managing the gossip syncers
 	// for peers currently connected. When a new peer is connected, the
@@ -473,17 +473,23 @@ type AuthenticatedGossiper struct {
 // passed configuration parameters.
 func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper {
 	gossiper := &AuthenticatedGossiper{
-		selfKey:                 selfKeyDesc.PubKey,
-		selfKeyLoc:              selfKeyDesc.KeyLocator,
-		cfg:                     &cfg,
-		networkMsgs:             make(chan *networkMsg),
-		futureMsgs:              lru.NewCache(maxPrematureUpdates),
-		quit:                    make(chan struct{}),
-		chanPolicyUpdates:       make(chan *chanPolicyUpdateRequest),
-		prematureChannelUpdates: lru.NewCache(maxPrematureUpdates),
-		channelMtx:              multimutex.NewMutex(),
-		recentRejects:           lru.NewCache(maxRejectedUpdates),
-		chanUpdateRateLimiter:   make(map[uint64][2]*rate.Limiter),
+		selfKey:     selfKeyDesc.PubKey,
+		selfKeyLoc:  selfKeyDesc.KeyLocator,
+		cfg:         &cfg,
+		networkMsgs: make(chan *networkMsg),
+		futureMsgs: lru.NewCache[uint32, *cachedNetworkMsg](
+			maxPrematureUpdates,
+		),
+		quit:              make(chan struct{}),
+		chanPolicyUpdates: make(chan *chanPolicyUpdateRequest),
+		prematureChannelUpdates: lru.NewCache[uint64, *cachedNetworkMsg]( //nolint: lll
+			maxPrematureUpdates,
+		),
+		channelMtx: multimutex.NewMutex(),
+		recentRejects: lru.NewCache[rejectCacheKey, *cachedReject](
+			maxRejectedUpdates,
+		),
+		chanUpdateRateLimiter: make(map[uint64][2]*rate.Limiter),
 	}
 
 	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
@@ -638,7 +644,7 @@ func (d *AuthenticatedGossiper) resendFutureMessages(height uint32) {
 		return
 	}
 
-	msgs := result.(*cachedNetworkMsg).msgs
+	msgs := result.msgs
 
 	log.Debugf("Resending %d network messages at height %d",
 		len(msgs), height)
@@ -1876,7 +1882,7 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 	result, err := d.futureMsgs.Get(msgHeight)
 	// No error returned means we have old messages cached.
 	if err == nil {
-		cachedMsgs = result.(*cachedNetworkMsg)
+		cachedMsgs = result
 	}
 
 	// Copy the networkMsgs since the old message's err chan will
@@ -1895,7 +1901,9 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 
 	// Add the network message.
 	cachedMsgs.msgs = append(cachedMsgs.msgs, pMsg)
-	_, err = d.futureMsgs.Put(msgHeight, cachedMsgs)
+	_, err = d.futureMsgs.Put(msgHeight, &cachedNetworkMsg{
+		msgs: cachedMsgs.msgs,
+	})
 	if err != nil {
 		log.Errorf("Adding future message got error: %v", err)
 	}
@@ -2506,7 +2514,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		// There was actually an entry in the map, so we'll accumulate
 		// it. We don't worry about deletion, since it'll eventually
 		// fall out anyway.
-		chanMsgs := earlyChanUpdates.(*cachedNetworkMsg)
+		chanMsgs := earlyChanUpdates
 		channelUpdates = append(channelUpdates, chanMsgs.msgs...)
 	}
 
@@ -2717,7 +2725,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		// There's already something in the cache, so we'll combine the
 		// set of messages into a single value.
 		default:
-			msgs := earlyMsgs.(*cachedNetworkMsg).msgs
+			msgs := earlyMsgs.msgs
 			msgs = append(msgs, pMsg)
 			_, _ = d.prematureChannelUpdates.Put(
 				shortChanID, &cachedNetworkMsg{

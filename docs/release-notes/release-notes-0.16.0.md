@@ -382,6 +382,9 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 * [Fixed a unit test flake in the wallet
   unlocker](https://github.com/lightningnetwork/lnd/pull/7384).
 
+* [A new generic LRU cache is used where
+  applicable](https://github.com/lightningnetwork/lnd/pull/7406).
+
 ## Watchtowers
 
 * [Create a towerID-to-sessionID index in the wtclient DB to improve the 

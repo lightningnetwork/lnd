@@ -4,6 +4,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/neutrino"
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -12,14 +13,16 @@ import (
 
 // BlockCache is an lru cache for blocks.
 type BlockCache struct {
-	Cache     *lru.Cache
+	Cache     *lru.Cache[wire.InvVect, *neutrino.CacheableBlock]
 	HashMutex *multimutex.HashMutex
 }
 
 // NewBlockCache creates a new BlockCache with the given maximum capacity.
 func NewBlockCache(capacity uint64) *BlockCache {
 	return &BlockCache{
-		Cache:     lru.NewCache(capacity),
+		Cache: lru.NewCache[wire.InvVect, *neutrino.CacheableBlock](
+			capacity,
+		),
 		HashMutex: multimutex.NewHashMutex(),
 	}
 }
@@ -45,7 +48,7 @@ func (bc *BlockCache) GetBlock(hash *chainhash.Hash,
 		return nil, err
 	}
 	if cacheBlock != nil {
-		return cacheBlock.(*cache.CacheableBlock).MsgBlock(), nil
+		return cacheBlock.MsgBlock(), nil
 	}
 
 	// Fetch the block from the chain backends.
@@ -58,7 +61,7 @@ func (bc *BlockCache) GetBlock(hash *chainhash.Hash,
 	// capacity then the LFU item will be evicted in favour of this new
 	// block.
 	_, err = bc.Cache.Put(
-		*inv, &cache.CacheableBlock{
+		*inv, &neutrino.CacheableBlock{
 			Block: btcutil.NewBlock(block),
 		},
 	)

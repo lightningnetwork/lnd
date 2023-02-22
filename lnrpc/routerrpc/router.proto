@@ -580,6 +580,14 @@ message AprioriParameters {
     available.
     */
     double weight = 3;
+
+    /*
+    The fraction of a channel's capacity that we consider to have liquidity. For
+    amounts that come close to or exceed the fraction, an additional penalty is
+    applied. A value of 1.0 disables the capacity factor. Allowed values are in
+    [0.75, 1.0].
+    */
+    double capacity_fraction = 4;
 }
 
 message QueryProbabilityRequest {

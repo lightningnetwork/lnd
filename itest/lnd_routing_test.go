@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -1023,9 +1024,10 @@ func testMissionControlCfg(t *testing.T, hn *node.HarnessNode) {
 			MissionControlConfig_APRIORI,
 		EstimatorConfig: &routerrpc.MissionControlConfig_Apriori{
 			Apriori: &routerrpc.AprioriParameters{
-				HalfLifeSeconds: 8000,
-				HopProbability:  0.8,
-				Weight:          0.3,
+				HalfLifeSeconds:  8000,
+				HopProbability:   0.8,
+				Weight:           0.3,
+				CapacityFraction: 0.8,
 			},
 		},
 	}
@@ -1070,6 +1072,10 @@ func testMissionControlCfg(t *testing.T, hn *node.HarnessNode) {
 	hn.RPC.SetMissionControlConfig(cfg)
 	respCfg = hn.RPC.GetMissionControlConfig().Config
 	require.NotNil(t, respCfg.GetApriori())
+
+	// The default capacity fraction is set.
+	require.Equal(t, routing.DefaultCapacityFraction,
+		respCfg.GetApriori().CapacityFraction)
 
 	// Setting the wrong config results in an error.
 	cfg = &routerrpc.MissionControlConfig{

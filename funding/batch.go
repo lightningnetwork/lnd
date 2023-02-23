@@ -233,6 +233,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 		//nolint:ll
 		fundingReq, err := b.cfg.RequestParser(&lnrpc.OpenChannelRequest{
 			SatPerVbyte:                uint64(req.SatPerVbyte),
+			SatPerKw:                   req.SatPerKw,
 			TargetConf:                 req.TargetConf,
 			MinConfs:                   req.MinConfs,
 			SpendUnconfirmed:           req.SpendUnconfirmed,
@@ -331,14 +332,14 @@ func (b *Batcher) BatchFund(ctx context.Context,
 	// settings from the first request as all of them should be equal
 	// anyway.
 	firstReq := b.channels[0].fundingReq
-	feeRateSatPerVByte := firstReq.FundingFeePerKw.FeePerVByte()
+	feeRateSatPerKw := firstReq.FundingFeePerKw
 	changeType := walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
 	fundPsbtReq := &walletrpc.FundPsbtRequest{
 		Template: &walletrpc.FundPsbtRequest_Raw{
 			Raw: txTemplate,
 		},
-		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
-			SatPerVbyte: uint64(feeRateSatPerVByte),
+		Fees: &walletrpc.FundPsbtRequest_SatPerKw{
+			SatPerKw: uint64(feeRateSatPerKw),
 		},
 		MinConfs:              firstReq.MinConfs,
 		SpendUnconfirmed:      firstReq.MinConfs == 0,

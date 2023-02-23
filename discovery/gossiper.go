@@ -1900,9 +1900,10 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 	pMsg := &processedNetworkMsg{msg: copied}
 
 	// Add the network message.
-	cachedMsgs.msgs = append(cachedMsgs.msgs, pMsg)
+	msgs := cachedMsgs.msgs
+	msgs = append(msgs, pMsg)
 	_, err = d.futureMsgs.Put(msgHeight, &cachedNetworkMsg{
-		msgs: cachedMsgs.msgs,
+		msgs: msgs,
 	})
 	if err != nil {
 		log.Errorf("Adding future message got error: %v", err)

@@ -47,6 +47,10 @@ const (
 	// updates that we'll hold onto.
 	maxPrematureUpdates = 100
 
+	// maxFutureMessages tracks the max amount of future messages that
+	// we'll hold onto.
+	maxFutureMessages = 1000
+
 	// DefaultSubBatchDelay is the default delay we'll use when
 	// broadcasting the next announcement batch.
 	DefaultSubBatchDelay = 5 * time.Second
@@ -483,7 +487,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		cfg:         &cfg,
 		networkMsgs: make(chan *networkMsg),
 		futureMsgs: lru.NewCache[uint32, *cachedNetworkMsg](
-			maxPrematureUpdates,
+			maxFutureMessages,
 		),
 		quit:              make(chan struct{}),
 		chanPolicyUpdates: make(chan *chanPolicyUpdateRequest),

@@ -190,14 +190,14 @@ func (h *HarnessTest) SetupStandbyNodes() {
 		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	}
 
-	const initialFund = 10 * btcutil.SatoshiPerBitcoin
+	const initialFund = 1 * btcutil.SatoshiPerBitcoin
 
-	// Load up the wallets of the seeder nodes with 10 outputs of 10 BTC
+	// Load up the wallets of the seeder nodes with 100 outputs of 1 BTC
 	// each.
 	nodes := []*node.HarnessNode{h.Alice, h.Bob}
 	for _, hn := range nodes {
 		h.manager.standbyNodes[hn.Cfg.NodeID] = hn
-		for i := 0; i < 10; i++ {
+		for i := 0; i < 100; i++ {
 			resp := hn.RPC.NewAddress(addrReq)
 
 			addr, err := btcutil.DecodeAddress(
@@ -218,7 +218,7 @@ func (h *HarnessTest) SetupStandbyNodes() {
 
 	// We generate several blocks in order to give the outputs created
 	// above a good number of confirmations.
-	const totalTxes = 20
+	const totalTxes = 200
 	h.MineBlocksAndAssertNumTxes(numBlocksSendOutput, totalTxes)
 
 	// Now we want to wait for the nodes to catch up.
@@ -226,7 +226,7 @@ func (h *HarnessTest) SetupStandbyNodes() {
 	h.WaitForBlockchainSync(h.Bob)
 
 	// Now block until both wallets have fully synced up.
-	const expectedBalance = 10 * initialFund
+	const expectedBalance = 100 * initialFund
 	err := wait.NoError(func() error {
 		aliceResp := h.Alice.RPC.WalletBalance()
 		bobResp := h.Bob.RPC.WalletBalance()
@@ -411,7 +411,11 @@ func (h *HarnessTest) shutdownNodes(skipStandby bool) {
 		err := wait.NoError(func() error {
 			return h.manager.shutdownNode(node)
 		}, DefaultTimeout)
-		require.NoErrorf(h, err, "unable to shutdown %s", node.Name())
+
+		// Instead of returning the error, we will log it instead. This
+		// is needed so other nodes can continue their shutdown
+		// processes.
+		h.Logf("unable to shutdown %s, got err: %v", node.Name(), err)
 	}
 }
 

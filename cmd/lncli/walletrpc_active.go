@@ -195,8 +195,8 @@ var bumpFeeCommand = cli.Command{
 	parent's fee. This can be done by specifying an outpoint within the low
 	fee transaction that is under the control of the wallet.
 
-	A fee preference must be provided, either through the conf_target or
-	sat_per_vbyte parameters.
+	A fee preference must be provided, either through the conf_target,
+	sat_per_vbyte or sat_per_kweight parameters.
 
 	Note that this command currently doesn't perform any validation checks
 	on the fee preference being provided. For now, the responsibility of
@@ -215,9 +215,11 @@ var bumpFeeCommand = cli.Command{
 				"be swept on-chain within",
 		},
 		cli.Uint64Flag{
-			Name:   "sat_per_byte",
-			Usage:  "Deprecated, use sat_per_vbyte instead.",
-			Hidden: true,
+			Name: "sat_per_kweight",
+			Usage: "(optional) a manual fee expressed in " +
+				"sat/kweight that should be used when " +
+				"crafting the transaction " +
+				"(250 sat/kw = 1 sat/vbyte)",
 		},
 		cli.Uint64Flag{
 			Name: "sat_per_vbyte",
@@ -241,10 +243,10 @@ func bumpFee(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "bumpfee")
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
+	// Check that only the field sat_per_vbyte or the field
+	// sat_per_kweight is used.
+	_, err := checkNotBothSet(
+		ctx, "sat_per_vbyte", "sat_per_kweight",
 	)
 	if err != nil {
 		return err
@@ -260,10 +262,11 @@ func bumpFee(ctx *cli.Context) error {
 	defer cleanUp()
 
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
-		Outpoint:    protoOutPoint,
-		TargetConf:  uint32(ctx.Uint64("conf_target")),
-		SatPerVbyte: ctx.Uint64(feeRateFlag),
-		Force:       ctx.Bool("force"),
+		Outpoint:      protoOutPoint,
+		TargetConf:    uint32(ctx.Uint64("conf_target")),
+		SatPerVbyte:   ctx.Uint64("sat_per_vbyte"),
+		Force:         ctx.Bool("force"),
+		SatPerKweight: ctx.Uint64("sat_per_kweight"),
 	})
 	if err != nil {
 		return err
@@ -1082,7 +1085,8 @@ var fundPsbtCommand = cli.Command{
 	Name:  "fund",
 	Usage: "Fund a Partially Signed Bitcoin Transaction (PSBT).",
 	ArgsUsage: "[--template_psbt=T | [--outputs=O [--inputs=I]]] " +
-		"[--conf_target=C | --sat_per_vbyte=S] [--change_type=A]",
+		"[--conf_target=C | --sat_per_vbyte=S | --sat_per_kweight=K] " +
+		"[--change_type=A] ",
 	Description: `
 	The fund command creates a fully populated PSBT that contains enough
 	inputs to fund the outputs specified in either the PSBT or the
@@ -1143,6 +1147,12 @@ var fundPsbtCommand = cli.Command{
 			Name: "sat_per_vbyte",
 			Usage: "a manual fee expressed in sat/vbyte that " +
 				"should be used when creating the transaction",
+		},
+		cli.Uint64Flag{
+			Name: "sat_per_kweight",
+			Usage: "a manual fee expressed in sat/kweight that " +
+				"should be used when creating the " +
+				"transaction (250 sat/kweight = 1 sat/vbyte)",
 		},
 		cli.StringFlag{
 			Name: "account",
@@ -1257,11 +1267,27 @@ func fundPsbt(ctx *cli.Context) error {
 			"inputs/outputs flag")
 	}
 
+	// make sure only one manual fee setting is specified.
+	feerate, err := checkNotBothSet(
+		ctx, "conf_target", "sat_per_vbyte",
+	)
+	if err != nil {
+		return err
+	}
+
+	_, err = checkNotBothSet(
+		ctx, feerate, "sat_per_kweight",
+	)
+	if err != nil {
+		return err
+	}
+
 	// Parse fee flags.
 	switch {
-	case ctx.IsSet("conf_target") && ctx.IsSet("sat_per_vbyte"):
-		return fmt.Errorf("cannot set conf_target and sat_per_vbyte " +
-			"at the same time")
+	case ctx.Uint64("sat_per_kweight") > 0:
+		req.Fees = &walletrpc.FundPsbtRequest_SatPerKweight{
+			SatPerKweight: ctx.Uint64("sat_per_kweight"),
+		}
 
 	case ctx.Uint64("sat_per_vbyte") > 0:
 		req.Fees = &walletrpc.FundPsbtRequest_SatPerVbyte{

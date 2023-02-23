@@ -45,3 +45,23 @@ might be slow for unexpected reasons.
 ## Important note about replication
 
 In case a replication architecture is planned, streaming replication should be avoided, as the master does not verify the replica is indeed identical, but it will only forward the edits queue, and let the slave catch up autonomously; synchronous mode, albeit slower, is paramount for `lnd` data integrity across the copies, as it will finalize writes only after the slave confirmed successful replication.
+
+## What is in the database?
+
+At present, the Postgres Database functions as a Key-Value Store, much as Bolt DB does. Some values are TLV-encoded while others are not. More schema will be introduced over time. At present the schema for each table/relation is simply: `key`, `value`, `parent_id`, `id`, `sequence`.
+
+List of tables/relations:
+
+```
+              List of relations
+ Schema |       Name       | Type  |  Owner   
+--------+------------------+-------+----------
+ public | channeldb_kv     | table | lndadmin
+ public | decayedlogdb_kv  | table | lndadmin
+ public | macaroondb_kv    | table | lndadmin
+ public | towerclientdb_kv | table | lndadmin
+ public | towerserverdb_kv | table | lndadmin
+ public | walletdb_kv      | table | lndadmin
+```
+
+Notably, Invoice DB is maintained separately alongside the LND node.

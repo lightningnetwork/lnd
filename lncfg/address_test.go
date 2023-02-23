@@ -1,6 +1,3 @@
-//go:build !rpctest
-// +build !rpctest
-
 package lncfg
 
 import (

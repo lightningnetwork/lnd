@@ -697,6 +697,12 @@ func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
 	return a, nil
 }
 
+func mockFindChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
+	*channeldb.OpenChannel, error) {
+
+	return nil, nil
+}
+
 type testCtx struct {
 	gossiper           *AuthenticatedGossiper
 	router             *mockGraphSource
@@ -792,6 +798,7 @@ func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
 		SignAliasUpdate:       signAliasUpdate,
 		FindBaseByAlias:       findBaseByAlias,
 		GetAlias:              getAlias,
+		FindChannel:           mockFindChannel,
 	}, selfKeyDesc)
 
 	if err := gossiper.Start(); err != nil {

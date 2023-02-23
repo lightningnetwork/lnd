@@ -497,10 +497,10 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 			"chan_point=%v", chanState.FundingOutpoint)
 	}
 
-	log.Debugf("ChannelPoint(%v): local_commit_type=%v, local_commit=%v",
+	log.Tracef("ChannelPoint(%v): local_commit_type=%v, local_commit=%v",
 		chanState.FundingOutpoint, chanState.ChanType,
 		spew.Sdump(localCommit))
-	log.Debugf("ChannelPoint(%v): remote_commit_type=%v, remote_commit=%v",
+	log.Tracef("ChannelPoint(%v): remote_commit_type=%v, remote_commit=%v",
 		chanState.FundingOutpoint, chanState.ChanType,
 		spew.Sdump(remoteCommit))
 
@@ -527,7 +527,7 @@ func newChainSet(chanState *channeldb.OpenChannel) (*chainSet, error) {
 	var remotePendingCommit *channeldb.ChannelCommitment
 	if remoteChainTip != nil {
 		remotePendingCommit = &remoteChainTip.Commitment
-		log.Debugf("ChannelPoint(%v): remote_pending_commit_type=%v, "+
+		log.Tracef("ChannelPoint(%v): remote_pending_commit_type=%v, "+
 			"remote_pending_commit=%v", chanState.FundingOutpoint,
 			chanState.ChanType,
 			spew.Sdump(remoteChainTip.Commitment))

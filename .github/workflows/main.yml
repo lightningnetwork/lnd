@@ -186,10 +186,10 @@ jobs:
           parallel: true
 
   ########################
-  # run integration tests
+  # run ubuntu integration tests
   ########################
-  integration-test:
-    name: run itests
+  ubuntu-integration-test:
+    name: run ubuntu itests
     runs-on: ubuntu-latest
     if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
     strategy:
@@ -230,16 +230,17 @@ jobs:
 
       - name: Zip log files on failure
         if: ${{ failure() }}
-        timeout-minutes: 1 # timeout after 1 minute
-        run: 7z a logs-itest-${{ matrix.name }}.zip lntest/itest/**/*.log
+        timeout-minutes: 5 # timeout after 5 minute
+        run: 7z a logs-itest-${{ matrix.name }}.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v2.2.4
+        uses: actions/upload-artifact@v3
         if: ${{ failure() }}
         with:
           name: logs-itest-${{ matrix.name }}
           path: logs-itest-${{ matrix.name }}.zip
           retention-days: 5
+
 
   ########################
   # run windows integration test
@@ -258,102 +259,15 @@ jobs:
           go-version: '${{ env.GO_VERSION }}'
 
       - name: run itest
-        run: make itest-parallel windows=1 tranches=2 parallel=2
+        run: make itest-parallel windows=1
 
       - name: Zip log files on failure
         if: ${{ failure() }}
-        run: 7z a logs-itest-windows.zip lntest/itest/**/*.log
+        timeout-minutes: 5 # timeout after 5 minute
+        run: 7z a logs-itest-windows.zip itest/**/*.log
 
       - name: Upload log files on failure
-        uses: actions/upload-artifact@v2
-        if: ${{ failure() }}
-        with:
-          name: logs-itest-windows
-          path: logs-itest-windows.zip
-          retention-days: 5
-
-  ########################
-  # run new integration tests
-  ########################
-  new-integration-test:
-    name: run new itests
-    runs-on: ubuntu-latest
-    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
-    strategy:
-      # Allow other tests in the matrix to continue if one fails.
-      fail-fast: false
-      matrix:
-        include:
-          - name: btcd
-            args: backend=btcd
-          - name: bitcoind
-            args: backend=bitcoind
-          - name: bitcoind-notxindex
-            args: backend="bitcoind notxindex"
-          - name: bitcoind-rpcpolling
-            args: backend="bitcoind rpcpolling"
-          - name: bitcoind-etcd
-            args: backend=bitcoind dbbackend=etcd
-          - name: bitcoind-postgres
-            args: backend=bitcoind dbbackend=postgres
-          - name: bitcoind-sqlite
-            args: backend=bitcoind dbbackend=sqlite
-          - name: neutrino
-            args: backend=neutrino
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: install bitcoind
-        run: ./scripts/install_bitcoind.sh
-
-      - name: run new ${{ matrix.name }}
-        run: make itest-parallel temptest=true ${{ matrix.args }}
-
-      - name: Zip log files on failure
-        if: ${{ failure() }}
-        timeout-minutes: 1 # timeout after 1 minute
-        run: 7z a logs-itest-${{ matrix.name }}.zip lntest/itest/**/*.log
-
-      - name: Upload log files on failure
-        uses: actions/upload-artifact@v2.2.4
-        if: ${{ failure() }}
-        with:
-          name: logs-itest-${{ matrix.name }}
-          path: logs-itest-${{ matrix.name }}.zip
-          retention-days: 5
-
-  ########################
-  # run new windows integration test
-  ########################
-  new-windows-integration-test:
-    name: run new windows itest
-    runs-on: windows-latest
-    if: '!contains(github.event.pull_request.labels.*.name, ''no-itest'')'
-    steps:
-      - name: git checkout
-        uses: actions/checkout@v3
-
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
-        with:
-          go-version: '${{ env.GO_VERSION }}'
-
-      - name: run new itest
-        run: make itest-parallel temptest=true windows=1 tranches=2 parallel=2
-
-      - name: Zip log files on failure
-        if: ${{ failure() }}
-        timeout-minutes: 1 # timeout after 1 minute
-        run: 7z a logs-itest-windows.zip lntest/itest/**/*.log
-
-      - name: Upload log files on failure
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         if: ${{ failure() }}
         with:
           name: logs-itest-windows

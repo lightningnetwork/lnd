@@ -32,12 +32,12 @@ _testmain.go
 /lncli-itest
 
 # Integration test log files
-lntest/itest/*.log
-lntest/itest/.backendlogs
-lntest/itest/.minerlogs
-lntest/itest/lnd-itest
-lntest/itest/btcd-itest
-lntest/itest/.logs-*
+itest/*.log
+itest/.backendlogs
+itest/.minerlogs
+itest/lnd-itest
+itest/btcd-itest
+itest/.logs-*
 
 cmd/cmd
 *.key

@@ -316,6 +316,11 @@ type Config struct {
 	// ChannelID. This is used to sign updates for them if the channel has
 	// no AuthProof and the option-scid-alias feature bit was negotiated.
 	GetAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)
+
+	// FindChannel allows the gossiper to find a channel that we're party
+	// to without iterating over the entire set of open channels.
+	FindChannel func(node *btcec.PublicKey, chanID lnwire.ChannelID) (
+		*channeldb.OpenChannel, error)
 }
 
 // processedNetworkMsg is a wrapper around networkMsg and a boolean. It is
@@ -3016,6 +3021,16 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 		ann.ShortChannelID,
 	)
 	if err != nil {
+		_, err = d.cfg.FindChannel(nMsg.source, ann.ChannelID)
+		if err != nil {
+			err := fmt.Errorf("unable to store the proof for "+
+				"short_chan_id=%v: %v", shortChanID, err)
+			log.Error(err)
+			nMsg.err <- err
+
+			return nil, false
+		}
+
 		proof := channeldb.NewWaitingProof(nMsg.isRemote, ann)
 		err := d.cfg.WaitingProofStore.Add(proof)
 		if err != nil {

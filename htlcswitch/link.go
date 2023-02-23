@@ -2743,6 +2743,15 @@ func (l *channelLink) handleSwitchPacket(pkt *htlcPacket) error {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
+	select {
+	case <-l.quit:
+		// Return early if the link is already in the process of
+		// quitting. It doesn't make sense to hand the message to the
+		// mailbox here.
+		return
+	default:
+	}
+
 	l.mailBox.AddMessage(message)
 }
 

@@ -108,6 +108,11 @@ const (
 	// for the funding transaction to be confirmed before forgetting
 	// channels that aren't initiated by us. 2016 blocks is ~2 weeks.
 	maxWaitNumBlocksFundingConf = 2016
+
+	// pendingChansLimit is the maximum number of pending channels that we
+	// can have. After this point, pending channel opens will start to be
+	// rejected.
+	pendingChansLimit = 1_000
 )
 
 var (
@@ -1317,6 +1322,25 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 			peer, msg.PendingChannelID,
 			lnwire.ErrMaxPendingChannels,
 		)
+		return
+	}
+
+	// Ensure that the pendingChansLimit is respected.
+	pendingChans, err := f.cfg.Wallet.Cfg.Database.FetchPendingChannels()
+	if err != nil {
+		f.failFundingFlow(
+			peer, msg.PendingChannelID, err,
+		)
+
+		return
+	}
+
+	if len(pendingChans) > pendingChansLimit {
+		f.failFundingFlow(
+			peer, msg.PendingChannelID,
+			lnwire.ErrMaxPendingChannels,
+		)
+
 		return
 	}
 

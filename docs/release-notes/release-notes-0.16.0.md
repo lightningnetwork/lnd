@@ -469,6 +469,10 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
   [`tools`](https://github.com/lightningnetwork/lnd/pull/7254) and golangci
   issue where [it cannot fetch
   commits](https://github.com/lightningnetwork/lnd/pull/7374).
+  
+* [Update Postgres.md](https://github.com/lightningnetwork/lnd/pull/7442) 
+  to clarify how the database is currently used as a Key-Value store, but
+  in the future will have new schema introduced.
 
 ### Integration test
 
@@ -489,6 +493,7 @@ refactor the itest for code health and maintenance.
 
 # Contributors (Alphabetical Order)
 
+* Adam Anderson
 * Alejandro Pedraza
 * Alyssa Hertig
 * Andras Banki-Horvath

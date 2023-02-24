@@ -31,6 +31,18 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// FindChannelOption is a functional type for an option that modifies a
+// ListChannelsRequest.
+type ListChannelOption func(r *lnrpc.ListChannelsRequest)
+
+// WithPeerAliasLookup is an option for setting the peer alias lookup flag on a
+// ListChannelsRequest.
+func WithPeerAliasLookup() ListChannelOption {
+	return func(r *lnrpc.ListChannelsRequest) {
+		r.PeerAliasLookup = true
+	}
+}
+
 // WaitForBlockchainSync waits until the node is synced to chain.
 func (h *HarnessTest) WaitForBlockchainSync(hn *node.HarnessNode) {
 	err := wait.NoError(func() error {
@@ -368,12 +380,18 @@ func (h *HarnessTest) AssertChannelExists(hn *node.HarnessNode,
 // findChannel tries to find a target channel in the node using the given
 // channel point.
 func (h *HarnessTest) findChannel(hn *node.HarnessNode,
-	chanPoint *lnrpc.ChannelPoint) (*lnrpc.Channel, error) {
+	chanPoint *lnrpc.ChannelPoint,
+	opts ...ListChannelOption) (*lnrpc.Channel, error) {
 
 	// Get the funding point.
 	fp := h.OutPointFromChannelPoint(chanPoint)
 
 	req := &lnrpc.ListChannelsRequest{}
+
+	for _, opt := range opts {
+		opt(req)
+	}
+
 	channelInfo := hn.RPC.ListChannels(req)
 
 	// Find the target channel.

@@ -1598,10 +1598,12 @@ func (h *HarnessTest) MineEmptyBlocks(num int) []*wire.MsgBlock {
 // QueryChannelByChanPoint tries to find a channel matching the channel point
 // and asserts. It returns the channel found.
 func (h *HarnessTest) QueryChannelByChanPoint(hn *node.HarnessNode,
-	chanPoint *lnrpc.ChannelPoint) *lnrpc.Channel {
+	chanPoint *lnrpc.ChannelPoint,
+	opts ...ListChannelOption) *lnrpc.Channel {
 
-	channel, err := h.findChannel(hn, chanPoint)
+	channel, err := h.findChannel(hn, chanPoint, opts...)
 	require.NoError(h, err, "failed to query channel")
+
 	return channel
 }
 

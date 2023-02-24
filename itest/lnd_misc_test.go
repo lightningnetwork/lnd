@@ -272,11 +272,20 @@ func testListChannels(ht *lntest.HarnessTest) {
 	// Check the returned response is correct.
 	aliceChannel := ht.QueryChannelByChanPoint(alice, chanPoint)
 
+	// Query the channel again, this time with peer alias lookup.
+	aliceChannelWithAlias := ht.QueryChannelByChanPoint(
+		alice, chanPoint, lntest.WithPeerAliasLookup(),
+	)
+
 	// Since Alice is the initiator, she pays the commit fee.
 	aliceBalance := int64(chanAmt) - aliceChannel.CommitFee - int64(pushAmt)
 
+	bobAlias := bob.RPC.GetInfo().Alias
+
 	// Check the balance related fields are correct.
 	require.Equal(ht, aliceBalance, aliceChannel.LocalBalance)
+	require.Empty(ht, aliceChannel.PeerAlias)
+	require.Equal(ht, bobAlias, aliceChannelWithAlias.PeerAlias)
 	require.EqualValues(ht, pushAmt, aliceChannel.RemoteBalance)
 	require.EqualValues(ht, pushAmt, aliceChannel.PushAmountSat)
 
@@ -318,8 +327,17 @@ func testListChannels(ht *lntest.HarnessTest) {
 	require.Equal(ht, aliceChannel.ChannelPoint, bobChannel.ChannelPoint,
 		"Bob's channel point mismatched")
 
+	// Query the channel again, this time with node alias lookup.
+	bobChannelWithAlias := ht.QueryChannelByChanPoint(
+		bob, chanPoint, lntest.WithPeerAliasLookup(),
+	)
+
+	aliceAlias := alice.RPC.GetInfo().Alias
+
 	// Check the balance related fields are correct.
 	require.Equal(ht, aliceBalance, bobChannel.RemoteBalance)
+	require.Empty(ht, bobChannel.PeerAlias)
+	require.Equal(ht, aliceAlias, bobChannelWithAlias.PeerAlias)
 	require.EqualValues(ht, pushAmt, bobChannel.LocalBalance)
 	require.EqualValues(ht, pushAmt, bobChannel.PushAmountSat)
 

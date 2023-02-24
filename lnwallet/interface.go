@@ -373,7 +373,7 @@ type WalletController interface {
 	// unconfirmed transactions. The account parameter serves as a filter to
 	// retrieve the transactions relevant to a specific account. When
 	// empty, transactions of all wallet accounts are returned.
-	ListTransactionDetails(startHeight, endHeight int32, tx_hash_list []string,
+	ListTransactionDetails(startHeight, endHeight int32, txHashList []string,
 		accountFilter string) ([]*TransactionDetail, error)
 
 	// LockOutpoint marks an outpoint as locked meaning it will no longer

@@ -1384,7 +1384,7 @@ func unminedTransactionsToDetail(
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) ListTransactionDetails(startHeight, endHeight int32,
-	th_hash_list []string, accountFilter string) ([]*lnwallet.TransactionDetail, error) {
+	txHashList []string, accountFilter string) ([]*lnwallet.TransactionDetail, error) {
 
 	// Grab the best block the wallet knows of, we'll use this to calculate
 	// # of confirmations shortly below.

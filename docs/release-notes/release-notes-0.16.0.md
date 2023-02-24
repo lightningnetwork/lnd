@@ -441,6 +441,8 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
   `lncli setmccfg/getmccfg` is altered as well.
 
 
+* [Do not delay session negotiation with first candidate tower]()
+
 ### Tooling and documentation
 
 * [The `golangci-lint` tool was updated to

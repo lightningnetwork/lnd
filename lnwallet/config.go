@@ -56,4 +56,9 @@ type Config struct {
 	// NetParams is the set of parameters that tells the wallet which chain
 	// it will be operating on.
 	NetParams chaincfg.Params
+
+	// Rebroadcaster is an optional config param that can be used to
+	// passively rebroadcast transactions in the background until they're
+	// detected as being confirmed.
+	Rebroadcaster Rebroadcaster
 }

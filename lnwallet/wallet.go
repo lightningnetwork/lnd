@@ -407,6 +407,15 @@ func (l *LightningWallet) Startup() error {
 		return err
 	}
 
+	if l.Cfg.Rebroadcaster != nil {
+		go func() {
+			if err := l.Cfg.Rebroadcaster.Start(); err != nil {
+				walletLog.Errorf("unable to start "+
+					"rebroadcaster: %v", err)
+			}
+		}()
+	}
+
 	l.wg.Add(1)
 	// TODO(roasbeef): multiple request handlers?
 	go l.requestHandler()
@@ -426,8 +435,71 @@ func (l *LightningWallet) Shutdown() error {
 		return err
 	}
 
+	if l.Cfg.Rebroadcaster != nil && l.Cfg.Rebroadcaster.Started() {
+		l.Cfg.Rebroadcaster.Stop()
+	}
+
 	close(l.quit)
 	l.wg.Wait()
+	return nil
+}
+
+// PublishTransaction wraps the wallet controller tx publish method with an
+// extra rebroadcaster layer if the sub-system is configured.
+func (l *LightningWallet) PublishTransaction(tx *wire.MsgTx,
+	label string) error {
+
+	sendTxToWallet := func() error {
+		return l.WalletController.PublishTransaction(tx, label)
+	}
+
+	// If we don't have rebroadcaster then we can exit early (and send only
+	// to the wallet).
+	if l.Cfg.Rebroadcaster == nil || !l.Cfg.Rebroadcaster.Started() {
+		return sendTxToWallet()
+	}
+
+	// We pass this into the rebroadcaster first, so the initial attempt
+	// will succeed if the transaction isn't yet in the mempool. However we
+	// ignore the error here as this might be resent on start up and the
+	// transaction already exists.
+	_ = l.Cfg.Rebroadcaster.Broadcast(tx)
+
+	// Then we pass things into the wallet as normal, which'll add the
+	// transaction label on disk.
+	if err := sendTxToWallet(); err != nil {
+		return err
+	}
+
+	// TODO(roasbeef): want diff height actually? no context though
+	_, bestHeight, err := l.Cfg.ChainIO.GetBestBlock()
+	if err != nil {
+		return err
+	}
+
+	txHash := tx.TxHash()
+	go func() {
+		const numConfs = 6
+
+		txConf, err := l.Cfg.Notifier.RegisterConfirmationsNtfn(
+			&txHash, tx.TxOut[0].PkScript, numConfs, uint32(bestHeight),
+		)
+		if err != nil {
+			return
+		}
+
+		select {
+		case <-txConf.Confirmed:
+			// TODO(roasbeef): also want to remove from
+			// rebroadcaster if conflict happens...deeper wallet
+			// integration?
+			l.Cfg.Rebroadcaster.MarkAsConfirmed(tx.TxHash())
+
+		case <-l.quit:
+			return
+		}
+	}()
+
 	return nil
 }
 

@@ -94,6 +94,7 @@ func (ctx *mcTestContext) restartMc() {
 		PenaltyHalfLife:       testPenaltyHalfLife,
 		AprioriHopProbability: testAprioriHopProbability,
 		AprioriWeight:         testAprioriWeight,
+		CapacityFraction:      testCapacityFraction,
 	}
 	estimator, err := NewAprioriEstimator(aCfg)
 	require.NoError(ctx.t, err)

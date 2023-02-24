@@ -73,6 +73,7 @@ func newIntegratedRoutingContext(t *testing.T) *integratedRoutingContext {
 		PenaltyHalfLife:       30 * time.Minute,
 		AprioriHopProbability: 0.6,
 		AprioriWeight:         0.5,
+		CapacityFraction:      testCapacityFraction,
 	}
 	estimator, err := NewAprioriEstimator(aCfg)
 	require.NoError(t, err)

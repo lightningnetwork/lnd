@@ -123,6 +123,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		PenaltyHalfLife:       time.Hour,
 		AprioriHopProbability: 0.9,
 		AprioriWeight:         0.5,
+		CapacityFraction:      testCapacityFraction,
 	}
 	estimator, err := NewAprioriEstimator(aCfg)
 	require.NoError(t, err)

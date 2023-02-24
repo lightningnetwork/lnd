@@ -63,6 +63,9 @@ type AprioriConfig struct {
 	// PenaltyHalfLife defines after how much time a penalized node or
 	// channel is back at 50% probability.
 	PenaltyHalfLife time.Duration `long:"penaltyhalflife" description:"Defines the duration after which a penalized node or channel is back at 50% probability"`
+
+	// CapacityFraction defines the fraction of channels' capacities that is considered liquid.
+	CapacityFraction float64 `long:"capacityfraction" description:"Defines the fraction of channels' capacities that is considered liquid. Valid values are in [0.75, 1]."`
 }
 
 // BimodalConfig defines parameters for the bimodal probability.

@@ -433,6 +433,8 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 * [A new probability model ("bimodal") is added which models channel based
   liquidities within a probability theory framework.](
   https://github.com/lightningnetwork/lnd/pull/6815)
+* [The a priori capacity factor is made configurable and its effect is 
+  limited.](https://github.com/lightningnetwork/lnd/pull/7444)
 
 ## Configuration
 * Note that [this pathfinding change](https://github.com/lightningnetwork/lnd/pull/6815)

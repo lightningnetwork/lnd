@@ -27,8 +27,9 @@ const (
 	aprioriPrevSucProb = 0.95
 
 	// testCapacity is used to define a capacity for some channels.
-	testCapacity = btcutil.Amount(100_000)
-	testAmount   = lnwire.MilliSatoshi(50_000_000)
+	testCapacity         = btcutil.Amount(100_000)
+	testAmount           = lnwire.MilliSatoshi(50_000_000)
+	testCapacityFraction = 0.75
 
 	// Defines the capacityFactor for testAmount and testCapacity.
 	capFactor = 0.9241
@@ -53,6 +54,7 @@ func newEstimatorTestContext(t *testing.T) *estimatorTestContext {
 				AprioriHopProbability: aprioriHopProb,
 				AprioriWeight:         aprioriWeight,
 				PenaltyHalfLife:       time.Hour,
+				CapacityFraction:      testCapacityFraction,
 			},
 			prevSuccessProbability: aprioriPrevSucProb,
 		},
@@ -227,49 +229,65 @@ func TestCapacityCutoff(t *testing.T) {
 	capacityMSat := capacitySat * 1000
 
 	tests := []struct {
-		name           string
-		amountMsat     int
-		expectedFactor float64
+		name             string
+		capacityFraction float64
+		amountMsat       int
+		expectedFactor   float64
 	}{
+		// Minimal CapacityFraction of 0.75.
 		{
-			name:           "zero amount",
-			expectedFactor: 1,
+			name:             "zero amount",
+			capacityFraction: 0.75,
+			expectedFactor:   1,
 		},
 		{
-			name:           "low amount",
-			amountMsat:     capacityMSat / 10,
-			expectedFactor: 0.998,
+			name:             "low amount",
+			capacityFraction: 0.75,
+			amountMsat:       capacityMSat / 10,
+			expectedFactor:   0.998,
 		},
 		{
-			name:           "half amount",
-			amountMsat:     capacityMSat / 2,
-			expectedFactor: 0.924,
+			name:             "half amount",
+			capacityFraction: 0.75,
+			amountMsat:       capacityMSat / 2,
+			expectedFactor:   0.924,
 		},
 		{
-			name: "cutoff amount",
+			name:             "cutoff amount",
+			capacityFraction: 0.75,
 			amountMsat: int(
-				capacityCutoffFraction * float64(capacityMSat),
+				0.75 * float64(capacityMSat),
 			),
 			expectedFactor: 0.5,
 		},
 		{
-			name:           "high amount",
-			amountMsat:     capacityMSat * 80 / 100,
-			expectedFactor: 0.377,
+			name:             "high amount",
+			capacityFraction: 0.75,
+			amountMsat:       capacityMSat * 80 / 100,
+			expectedFactor:   0.377,
 		},
 		{
 			// Even when we spend the full capacity, we still want
 			// to have some residual probability to not throw away
 			// routes due to a min probability requirement of the
 			// whole path.
-			name:           "full amount",
-			amountMsat:     capacityMSat,
-			expectedFactor: 0.076,
+			name:             "full amount",
+			capacityFraction: 0.75,
+			amountMsat:       capacityMSat,
+			expectedFactor:   0.076,
 		},
 		{
-			name:           "more than capacity",
-			amountMsat:     capacityMSat + 1,
-			expectedFactor: 0.0,
+			name:             "more than capacity",
+			capacityFraction: 0.75,
+			amountMsat:       capacityMSat + 1,
+			expectedFactor:   0.0,
+		},
+		// Inactive capacity factor.
+		{
+			name:             "inactive capacity factor",
+			capacityFraction: 1.0,
+			amountMsat:       capacityMSat,
+			expectedFactor:   1.00,
 		},
 	}
 
@@ -282,6 +300,7 @@ func TestCapacityCutoff(t *testing.T) {
 			got := capacityFactor(
 				lnwire.MilliSatoshi(test.amountMsat),
 				btcutil.Amount(capacitySat),
+				test.capacityFraction,
 			)
 			require.InDelta(t, test.expectedFactor, got, 0.001)
 		})

@@ -553,6 +553,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 			HtlcEventTypeSend,
 			linkErr,
 			false,
+			htlc.PaymentHash,
 		)
 
 		return linkErr
@@ -576,6 +577,7 @@ func (s *Switch) SendHTLC(firstHop lnwire.ShortChannelID, attemptID uint64,
 			HtlcEventTypeSend,
 			linkErr,
 			false,
+			htlc.PaymentHash,
 		)
 
 		return errDustThresholdExceeded
@@ -976,10 +978,11 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateFulfillHTLC:
 		s.cfg.HtlcNotifier.NotifySettleEvent(key, htlc.PaymentPreimage,
-			eventType)
+			eventType, pkt.circuit.PaymentHash)
 
 	case *lnwire.UpdateFailHTLC:
-		s.cfg.HtlcNotifier.NotifyForwardingFailEvent(key, eventType)
+		s.cfg.HtlcNotifier.NotifyForwardingFailEvent(key, eventType,
+			pkt.circuit.PaymentHash)
 	}
 }
 

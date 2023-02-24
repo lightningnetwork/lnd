@@ -354,23 +354,25 @@ type htlcNotifier interface {
 	// NotifyForwardingEvent notifies the HtlcNotifier than a htlc has been
 	// forwarded.
 	NotifyForwardingEvent(key HtlcKey, info HtlcInfo,
-		eventType HtlcEventType)
+		eventType HtlcEventType, paymentHash lntypes.Hash)
 
 	// NotifyIncomingLinkFailEvent notifies that a htlc has failed on our
 	// incoming link. It takes an isReceive bool to differentiate between
 	// our node's receives and forwards.
 	NotifyLinkFailEvent(key HtlcKey, info HtlcInfo,
-		eventType HtlcEventType, linkErr *LinkError, incoming bool)
+		eventType HtlcEventType, linkErr *LinkError, incoming bool,
+		paymentHash lntypes.Hash)
 
 	// NotifyForwardingFailEvent notifies the HtlcNotifier that a htlc we
 	// forwarded has failed down the line.
-	NotifyForwardingFailEvent(key HtlcKey, eventType HtlcEventType)
+	NotifyForwardingFailEvent(key HtlcKey, eventType HtlcEventType,
+		paymentHash lntypes.Hash)
 
 	// NotifySettleEvent notifies the HtlcNotifier that a htlc that we
 	// committed to as part of a forward or a receive to our node has been
 	// settled.
 	NotifySettleEvent(key HtlcKey, preimage lntypes.Preimage,
-		eventType HtlcEventType)
+		eventType HtlcEventType, paymentHash lntypes.Hash)
 
 	// NotifyFinalHtlcEvent notifies the HtlcNotifier that the final outcome
 	// for an htlc has been determined.

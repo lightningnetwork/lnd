@@ -1415,6 +1415,11 @@ var listChannelsCommand = cli.Command{
 				"particular peer, accepts 66-byte, " +
 				"hex-encoded pubkeys",
 		},
+		cli.BoolFlag{
+			Name: "skip_peer_alias_lookup",
+			Usage: "skip the peer alias lookup per channel in " +
+				"order to improve performance",
+		},
 	},
 	Action: actionDecorator(listChannels),
 }
@@ -1463,12 +1468,17 @@ func listChannels(ctx *cli.Context) error {
 		peerKey = pk[:]
 	}
 
+	// By default we will look up the peers' alias information unless the
+	// skip_peer_alias_lookup flag indicates otherwise.
+	lookupPeerAlias := !ctx.Bool("skip_peer_alias_lookup")
+
 	req := &lnrpc.ListChannelsRequest{
-		ActiveOnly:   ctx.Bool("active_only"),
-		InactiveOnly: ctx.Bool("inactive_only"),
-		PublicOnly:   ctx.Bool("public_only"),
-		PrivateOnly:  ctx.Bool("private_only"),
-		Peer:         peerKey,
+		ActiveOnly:      ctx.Bool("active_only"),
+		InactiveOnly:    ctx.Bool("inactive_only"),
+		PublicOnly:      ctx.Bool("public_only"),
+		PrivateOnly:     ctx.Bool("private_only"),
+		Peer:            peerKey,
+		PeerAliasLookup: lookupPeerAlias,
 	}
 
 	resp, err := client.ListChannels(ctxc, req)

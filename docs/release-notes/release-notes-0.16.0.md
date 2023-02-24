@@ -141,6 +141,13 @@ of order is also [fixed](https://github.com/lightningnetwork/lnd/pull/7264).
   `updatenodeannouncement` peers cli which did not allow setting/
    unsetting of feature bits also has been fixed. 
 
+* [Enrich the `Channel` message with a peers' alias in order to retrieve it
+  in `ListChannels`.](https://github.com/lightningnetwork/lnd/pull/7322) This
+  behavior is opt-in for users of the rpc interface through a new parameter in
+  `ListChannelsRequest` called `PeerAliasLookup`. For users of lncli this
+  parameter is enabled by default but can be disabled with a new flag
+  `--skip_peer_alias_lookup`.
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

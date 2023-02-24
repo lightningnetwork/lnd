@@ -135,6 +135,13 @@
             "required": false,
             "type": "string",
             "format": "byte"
+          },
+          {
+            "name": "peer_alias_lookup",
+            "description": "Informs the server if the peer alias lookup per channel should be\nenabled. It is turned off by default in order to avoid degradation of\nperformance for existing clients.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -3556,6 +3563,10 @@
           "type": "string",
           "format": "uint64",
           "description": "This is the confirmed / on-chain zero-conf SCID."
+        },
+        "peer_alias": {
+          "type": "string",
+          "description": "The configured alias name of our peer."
         }
       }
     },

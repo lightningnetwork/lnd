@@ -1531,6 +1531,9 @@ message Channel {
 
     // This is the confirmed / on-chain zero-conf SCID.
     uint64 zero_conf_confirmed_scid = 33;
+
+    // The configured alias name of our peer.
+    string peer_alias = 34;
 }
 
 message ListChannelsRequest {
@@ -1544,6 +1547,11 @@ message ListChannelsRequest {
     empty, all channels will be returned.
     */
     bytes peer = 5;
+
+    // Informs the server if the peer alias lookup per channel should be
+    // enabled. It is turned off by default in order to avoid degradation of
+    // performance for existing clients.
+    bool peer_alias_lookup = 6;
 }
 message ListChannelsResponse {
     // The list of active channels

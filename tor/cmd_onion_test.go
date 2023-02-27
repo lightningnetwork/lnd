@@ -51,7 +51,7 @@ func TestOnionFile(t *testing.T) {
 	// Create a new file-based onion store that encrypts the key this time
 	// to ensure that an encrypted key is properly handled.
 	encryptedOnionFile := NewOnionFile(
-		privateKeyPath, 0600, true, MockEncrypter,
+		privateKeyPath, 0600, true, mockEncrypter,
 	)
 
 	err = encryptedOnionFile.StorePrivateKey(privateKey)

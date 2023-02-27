@@ -276,7 +276,7 @@ func testBucketForEachWithError(t *testing.T, db walletdb.DB) {
 
 		got = make(map[string]string)
 		i = 0
-		// Erro while iterating buckets.
+		// Error while iterating buckets.
 		err = apple.ForEach(func(key, val []byte) error {
 			if i == 3 {
 				return fmt.Errorf("error")
@@ -380,7 +380,7 @@ func testKeyClash(t *testing.T, db walletdb.DB) {
 }
 
 // TestBucketCreateDelete tests that creating then deleting then creating a
-// bucket suceeds.
+// bucket succeeds.
 func testBucketCreateDelete(t *testing.T, db walletdb.DB) {
 	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))

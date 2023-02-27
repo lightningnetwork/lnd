@@ -847,7 +847,7 @@ func genTimeoutTx(chanType channeldb.ChannelType) (*wire.MsgTx, error) {
 		return nil, err
 	}
 
-	// In order to sign the transcation, generate the script for the output
+	// In order to sign the transaction, generate the script for the output
 	// it spends.
 	witScript, err := input.SenderHTLCScript(
 		testPubkey, testPubkey, testPubkey, testHash160,
@@ -880,7 +880,7 @@ func genTimeoutTx(chanType channeldb.ChannelType) (*wire.MsgTx, error) {
 
 // genSuccessTx creates a signed HTLC second level success tx.
 func genSuccessTx(chanType channeldb.ChannelType) (*wire.MsgTx, error) {
-	// Create the unisgned success tx.
+	// Create the unsigned success tx.
 	successTx, err := lnwallet.CreateHtlcSuccessTx(
 		chanType, false, testOutPoint, testAmt, testCSVDelay, 0,
 		testPubkey, testPubkey,
@@ -889,7 +889,7 @@ func genSuccessTx(chanType channeldb.ChannelType) (*wire.MsgTx, error) {
 		return nil, err
 	}
 
-	// In order to sign the transcation, generate the script for the output
+	// In order to sign the transaction, generate the script for the output
 	// it spends.
 	witScript, err := input.ReceiverHTLCScript(
 		testCLTVExpiry, testPubkey, testPubkey,

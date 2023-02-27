@@ -38,7 +38,7 @@ func getPeersClient(ctx *cli.Context) (peersrpc.PeersClient, func()) {
 var updateNodeAnnouncementCommand = cli.Command{
 	Name:     "updatenodeannouncement",
 	Category: "Peers",
-	Usage:    "update and brodcast a new node announcement",
+	Usage:    "update and broadcast a new node announcement",
 	Description: `
 	Update the node's information and broadcast a new node announcement.
 

@@ -13,7 +13,7 @@ func TestShouldPeerBootstrap(t *testing.T) {
 
 	testCases := []struct {
 		cfg            *Config
-		shouldBoostrap bool
+		shouldBootstrap bool
 	}{
 		// Simnet active, no bootstrap.
 		{
@@ -64,7 +64,7 @@ func TestShouldPeerBootstrap(t *testing.T) {
 				},
 				Litecoin: &lncfg.Chain{},
 			},
-			shouldBoostrap: true,
+			shouldBootstrap: true,
 		},
 
 		// Testnet active, should bootstrap.
@@ -75,14 +75,14 @@ func TestShouldPeerBootstrap(t *testing.T) {
 				},
 				Litecoin: &lncfg.Chain{},
 			},
-			shouldBoostrap: true,
+			shouldBootstrap: true,
 		},
 	}
 	for i, testCase := range testCases {
 		bootstrapped := shouldPeerBootstrap(testCase.cfg)
-		if bootstrapped != testCase.shouldBoostrap {
+		if bootstrapped != testCase.shouldBootstrap {
 			t.Fatalf("#%v: expected bootstrap=%v, got bootstrap=%v",
-				i, testCase.shouldBoostrap, bootstrapped)
+				i, testCase.shouldBootstrap, bootstrapped)
 		}
 	}
 }

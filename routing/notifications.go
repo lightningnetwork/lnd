@@ -168,7 +168,7 @@ type TopologyChange struct {
 	// manner.
 	NodeUpdates []*NetworkNodeUpdate
 
-	// ChanelEdgeUpdates is a slice of channel edges which are either newly
+	// ChannelEdgeUpdates is a slice of channel edges which are either newly
 	// opened and authenticated, or have had their routing policies
 	// updated.
 	ChannelEdgeUpdates []*ChannelEdgeUpdate

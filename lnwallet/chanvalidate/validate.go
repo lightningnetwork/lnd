@@ -17,7 +17,7 @@ var (
 		"be found")
 
 	// ErrWrongPkScript is returned when the alleged funding transaction is
-	// found to have an incorrect pkSript.
+	// found to have an incorrect pkScript.
 	ErrWrongPkScript = fmt.Errorf("wrong pk script")
 
 	// ErrInvalidSize is returned when the alleged funding transaction

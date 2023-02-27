@@ -20,7 +20,7 @@
 
 * [A bug has been fixed that could cause lnd to underpay for co-op close
   transaction when or both of the outputs used a P2TR
-  addresss.](https://github.com/lightningnetwork/lnd/pull/6957)
+  address.](https://github.com/lightningnetwork/lnd/pull/6957)
 
 
 ## Taproot

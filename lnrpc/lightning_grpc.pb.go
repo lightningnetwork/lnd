@@ -313,7 +313,7 @@ type LightningClient interface {
 	// all HTLCs forwarded within the target time range, and integer offset
 	// within that time range, for a maximum number of events. If no maximum number
 	// of events is specified, up to 100 events will be returned. If no time-range
-	// is specified, then events will be returned in the order that they occured.
+	// is specified, then events will be returned in the order that they occurred.
 	//
 	// A list of forwarding events are returned. The size of each forwarding event
 	// is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.
@@ -1612,7 +1612,7 @@ type LightningServer interface {
 	// all HTLCs forwarded within the target time range, and integer offset
 	// within that time range, for a maximum number of events. If no maximum number
 	// of events is specified, up to 100 events will be returned. If no time-range
-	// is specified, then events will be returned in the order that they occured.
+	// is specified, then events will be returned in the order that they occurred.
 	//
 	// A list of forwarding events are returned. The size of each forwarding event
 	// is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.

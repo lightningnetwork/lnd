@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	// modifyFilePermissons is the file permission used for writing
+	// modifyFilePermissions is the file permission used for writing
 	// encrypted tls files.
 	modifyFilePermissions = 0600
 
@@ -213,7 +213,7 @@ func (t *TLSManager) generateCertPair(keyRing keychain.SecretKeyRing) error {
 	if lnrpc.FileExists(t.cfg.TLSCertPath) ||
 		lnrpc.FileExists(t.cfg.TLSKeyPath) {
 
-		// Handle discrepencies related to the TLSEncryptKey setting.
+		// Handle discrepancies related to the TLSEncryptKey setting.
 		return t.ensureEncryption(keyRing)
 	}
 
@@ -229,7 +229,7 @@ func (t *TLSManager) generateCertPair(keyRing keychain.SecretKeyRing) error {
 
 	if t.cfg.TLSEncryptKey {
 		var b bytes.Buffer
-		e, err := lnencrypt.KeyRingEncrypter(keyRing)
+		e, err := lnencrypt.KeyRingEncryptor(keyRing)
 		if err != nil {
 			return fmt.Errorf("unable to create "+
 				"encrypt key %v", err)
@@ -269,7 +269,7 @@ func (t *TLSManager) ensureEncryption(keyRing keychain.SecretKeyRing) error {
 
 	if t.cfg.TLSEncryptKey && bytes.HasPrefix(keyBytes, privateKeyPrefix) {
 		var b bytes.Buffer
-		e, err := lnencrypt.KeyRingEncrypter(keyRing)
+		e, err := lnencrypt.KeyRingEncryptor(keyRing)
 		if err != nil {
 			return fmt.Errorf("unable to generate encrypt key %w",
 				err)
@@ -309,12 +309,12 @@ func decryptTLSKeyBytes(keyRing keychain.SecretKeyRing,
 	encryptedData []byte) ([]byte, error) {
 
 	reader := bytes.NewReader(encryptedData)
-	encrypter, err := lnencrypt.KeyRingEncrypter(keyRing)
+	encryptor, err := lnencrypt.KeyRingEncryptor(keyRing)
 	if err != nil {
 		return nil, err
 	}
 
-	plaintext, err := encrypter.DecryptPayloadFromReader(
+	plaintext, err := encryptor.DecryptPayloadFromReader(
 		reader,
 	)
 	if err != nil {
@@ -555,7 +555,7 @@ func (t *TLSManager) LoadPermanentCertificate(
 	}
 
 	reader := bytes.NewReader(encryptedKeyBytes)
-	e, err := lnencrypt.KeyRingEncrypter(keyRing)
+	e, err := lnencrypt.KeyRingEncryptor(keyRing)
 	if err != nil {
 		return fmt.Errorf("unable to generate encrypt key %w",
 			err)

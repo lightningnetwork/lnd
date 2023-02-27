@@ -10,32 +10,32 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// EncrypterType establishes an enum used in serialization to indicate how to
-// decode a concrete instance of the ErrorEncrypter interface.
-type EncrypterType byte
+// EncryptorType establishes an enum used in serialization to indicate how to
+// decode a concrete instance of the ErrorEncryptor interface.
+type EncryptorType byte
 
 const (
-	// EncrypterTypeNone signals that no error encyrpter is present, this
+	// EncryptorTypeNone signals that no error encyrpter is present, this
 	// can happen if the htlc is originates in the switch.
-	EncrypterTypeNone EncrypterType = 0
+	EncryptorTypeNone EncryptorType = 0
 
-	// EncrypterTypeSphinx is used to identify a sphinx onion error
-	// encrypter instance.
-	EncrypterTypeSphinx = 1
+	// EncryptorTypeSphinx is used to identify a sphinx onion error
+	// encryptor instance.
+	EncryptorTypeSphinx = 1
 
-	// EncrypterTypeMock is used to identify a mock obfuscator instance.
-	EncrypterTypeMock = 2
+	// EncryptorTypeMock is used to identify a mock obfuscator instance.
+	EncryptorTypeMock = 2
 )
 
-// ErrorEncrypterExtracter defines a function signature that extracts an
-// ErrorEncrypter from an sphinx OnionPacket.
-type ErrorEncrypterExtracter func(*btcec.PublicKey) (ErrorEncrypter,
+// ErrorEncryptorExtractor defines a function signature that extracts an
+// ErrorEncryptor from an sphinx OnionPacket.
+type ErrorEncryptorExtractor func(*btcec.PublicKey) (ErrorEncryptor,
 	lnwire.FailCode)
 
-// ErrorEncrypter is an interface that is used to encrypt HTLC related errors
+// ErrorEncryptor is an interface that is used to encrypt HTLC related errors
 // at the source of the error, and also at each intermediate hop all the way
 // back to the source of the payment.
-type ErrorEncrypter interface {
+type ErrorEncryptor interface {
 	// EncryptFirstHop transforms a concrete failure message into an
 	// encrypted opaque failure reason. This method will be used at the
 	// source that the error occurs. It differs from IntermediateEncrypt
@@ -56,44 +56,44 @@ type ErrorEncrypter interface {
 
 	// Type returns an enum indicating the underlying concrete instance
 	// backing this interface.
-	Type() EncrypterType
+	Type() EncryptorType
 
-	// Encode serializes the encrypter's ephemeral public key to the given
+	// Encode serializes the encryptor's ephemeral public key to the given
 	// io.Writer.
 	Encode(io.Writer) error
 
-	// Decode deserializes the encrypter' ephemeral public key from the
+	// Decode deserializes the encryptor' ephemeral public key from the
 	// given io.Reader.
 	Decode(io.Reader) error
 
-	// Reextract rederives the encrypter using the extracter, performing an
+	// Reextract rederives the encryptor using the extractor, performing an
 	// ECDH with the sphinx router's key and the ephemeral public key.
 	//
 	// NOTE: This should be called shortly after Decode to properly
-	// reinitialize the error encrypter.
-	Reextract(ErrorEncrypterExtracter) error
+	// reinitialize the error encryptor.
+	Reextract(ErrorEncryptorExtractor) error
 }
 
-// SphinxErrorEncrypter is a concrete implementation of both the ErrorEncrypter
+// SphinxErrorEncryptor is a concrete implementation of both the ErrorEncryptor
 // interface backed by an implementation of the Sphinx packet format. As a
 // result, all errors handled are themselves wrapped in layers of onion
 // encryption and must be treated as such accordingly.
-type SphinxErrorEncrypter struct {
-	*sphinx.OnionErrorEncrypter
+type SphinxErrorEncryptor struct {
+	*sphinx.OnionErrorEncryptor
 
 	EphemeralKey *btcec.PublicKey
 }
 
-// NewSphinxErrorEncrypter initializes a blank sphinx error encrypter, that
-// should be used to deserialize an encoded SphinxErrorEncrypter. Since the
-// actual encrypter is not stored in plaintext while at rest, reconstructing the
-// error encrypter requires:
+// NewSphinxErrorEncryptor initializes a blank sphinx error encryptor, that
+// should be used to deserialize an encoded SphinxErrorEncryptor. Since the
+// actual encryptor is not stored in plaintext while at rest, reconstructing the
+// error encryptor requires:
 //  1. Decode: to deserialize the ephemeral public key.
-//  2. Reextract: to "unlock" the actual error encrypter using an active
+//  2. Reextract: to "unlock" the actual error encryptor using an active
 //     OnionProcessor.
-func NewSphinxErrorEncrypter() *SphinxErrorEncrypter {
-	return &SphinxErrorEncrypter{
-		OnionErrorEncrypter: nil,
+func NewSphinxErrorEncryptor() *SphinxErrorEncryptor {
+	return &SphinxErrorEncryptor{
+		OnionErrorEncryptor: nil,
 		EphemeralKey:        &btcec.PublicKey{},
 	}
 }
@@ -103,8 +103,8 @@ func NewSphinxErrorEncrypter() *SphinxErrorEncrypter {
 // occurs. It differs from BackwardObfuscate slightly, in that it computes a
 // proper MAC over the error.
 //
-// NOTE: Part of the ErrorEncrypter interface.
-func (s *SphinxErrorEncrypter) EncryptFirstHop(
+// NOTE: Part of the ErrorEncryptor interface.
+func (s *SphinxErrorEncryptor) EncryptFirstHop(
 	failure lnwire.FailureMessage) (lnwire.OpaqueReason, error) {
 
 	var b bytes.Buffer
@@ -123,8 +123,8 @@ func (s *SphinxErrorEncrypter) EncryptFirstHop(
 // peer and then need to convert that into an proper error from only the raw
 // bytes.
 //
-// NOTE: Part of the ErrorEncrypter interface.
-func (s *SphinxErrorEncrypter) EncryptMalformedError(
+// NOTE: Part of the ErrorEncryptor interface.
+func (s *SphinxErrorEncryptor) EncryptMalformedError(
 	reason lnwire.OpaqueReason) lnwire.OpaqueReason {
 
 	return s.EncryptError(true, reason)
@@ -136,29 +136,29 @@ func (s *SphinxErrorEncrypter) EncryptMalformedError(
 // backwards path to ensure that the error is indistinguishable from any other
 // error seen.
 //
-// NOTE: Part of the ErrorEncrypter interface.
-func (s *SphinxErrorEncrypter) IntermediateEncrypt(
+// NOTE: Part of the ErrorEncryptor interface.
+func (s *SphinxErrorEncryptor) IntermediateEncrypt(
 	reason lnwire.OpaqueReason) lnwire.OpaqueReason {
 
 	return s.EncryptError(false, reason)
 }
 
-// Type returns the identifier for a sphinx error encrypter.
-func (s *SphinxErrorEncrypter) Type() EncrypterType {
-	return EncrypterTypeSphinx
+// Type returns the identifier for a sphinx error encryptor.
+func (s *SphinxErrorEncryptor) Type() EncryptorType {
+	return EncryptorTypeSphinx
 }
 
-// Encode serializes the error encrypter' ephemeral public key to the provided
+// Encode serializes the error encryptor' ephemeral public key to the provided
 // io.Writer.
-func (s *SphinxErrorEncrypter) Encode(w io.Writer) error {
+func (s *SphinxErrorEncryptor) Encode(w io.Writer) error {
 	ephemeral := s.EphemeralKey.SerializeCompressed()
 	_, err := w.Write(ephemeral)
 	return err
 }
 
-// Decode reconstructs the error encrypter's ephemeral public key from the
+// Decode reconstructs the error encryptor's ephemeral public key from the
 // provided io.Reader.
-func (s *SphinxErrorEncrypter) Decode(r io.Reader) error {
+func (s *SphinxErrorEncryptor) Decode(r io.Reader) error {
 	var ephemeral [33]byte
 	if _, err := io.ReadFull(r, ephemeral[:]); err != nil {
 		return err
@@ -173,11 +173,11 @@ func (s *SphinxErrorEncrypter) Decode(r io.Reader) error {
 	return nil
 }
 
-// Reextract rederives the error encrypter from the currently held EphemeralKey.
+// Reextract rederives the error encryptor from the currently held EphemeralKey.
 // This intended to be used shortly after Decode, to fully initialize a
-// SphinxErrorEncrypter.
-func (s *SphinxErrorEncrypter) Reextract(
-	extract ErrorEncrypterExtracter) error {
+// SphinxErrorEncryptor.
+func (s *SphinxErrorEncryptor) Reextract(
+	extract ErrorEncryptorExtractor) error {
 
 	obfuscator, failcode := extract(s.EphemeralKey)
 	if failcode != lnwire.CodeNone {
@@ -188,18 +188,18 @@ func (s *SphinxErrorEncrypter) Reextract(
 			"obfuscator, got failcode: %d", failcode)
 	}
 
-	sphinxEncrypter, ok := obfuscator.(*SphinxErrorEncrypter)
+	sphinxEncryptor, ok := obfuscator.(*SphinxErrorEncryptor)
 	if !ok {
-		return fmt.Errorf("incorrect onion error extracter")
+		return fmt.Errorf("incorrect onion error extractor")
 	}
 
-	// Copy the freshly extracted encrypter.
-	s.OnionErrorEncrypter = sphinxEncrypter.OnionErrorEncrypter
+	// Copy the freshly extracted encryptor.
+	s.OnionErrorEncryptor = sphinxEncryptor.OnionErrorEncryptor
 
 	return nil
 
 }
 
-// A compile time check to ensure SphinxErrorEncrypter implements the
-// ErrorEncrypter interface.
-var _ ErrorEncrypter = (*SphinxErrorEncrypter)(nil)
+// A compile time check to ensure SphinxErrorEncryptor implements the
+// ErrorEncryptor interface.
+var _ ErrorEncryptor = (*SphinxErrorEncryptor)(nil)

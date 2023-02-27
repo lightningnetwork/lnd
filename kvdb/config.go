@@ -35,7 +35,7 @@ const (
 
 // BoltConfig holds bolt configuration.
 type BoltConfig struct {
-	NoFreelistSync bool `long:"nofreelistsync" description:"Whether the databases used within lnd should sync their freelist to disk. This is set to true by default, meaning we don't sync the free-list resulting in imporved memory performance during operation, but with an increase in startup time."`
+	NoFreelistSync bool `long:"nofreelistsync" description:"Whether the databases used within lnd should sync their freelist to disk. This is set to true by default, meaning we don't sync the free-list resulting in improved memory performance during operation, but with an increase in startup time."`
 
 	AutoCompact bool `long:"auto-compact" description:"Whether the databases used within lnd should automatically be compacted on every startup (and if the database has the configured minimum age). This is disabled by default because it requires additional disk space to be available during the compaction that is freed afterwards. In general compaction leads to smaller database files."`
 

@@ -652,7 +652,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),
-		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
+		ExtractErrorEncryptor:  s.sphinx.ExtractErrorEncryptor,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
 		Notifier:               s.cc.ChainNotifier,
 		HtlcNotifier:           s.htlcNotifier,
@@ -2802,7 +2802,7 @@ func (s *server) createNewHiddenService() error {
 		listenPorts = append(listenPorts, port)
 	}
 
-	encrypter, err := lnencrypt.KeyRingEncrypter(s.cc.KeyRing)
+	encryptor, err := lnencrypt.KeyRingEncryptor(s.cc.KeyRing)
 	if err != nil {
 		return err
 	}
@@ -2815,7 +2815,7 @@ func (s *server) createNewHiddenService() error {
 		TargetPorts: listenPorts,
 		Store: tor.NewOnionFile(
 			s.cfg.Tor.PrivateKeyPath, 0600, s.cfg.Tor.EncryptKey,
-			encrypter,
+			encryptor,
 		),
 	}
 
@@ -2916,11 +2916,11 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	return *s.currentNodeAnn, nil
 }
 
-// updateAndBrodcastSelfNode generates a new node announcement
+// updateAndBroadcastSelfNode generates a new node announcement
 // applying the giving modifiers and updating the time stamp
 // to ensure it propagates through the network. Then it brodcasts
 // it to the network.
-func (s *server) updateAndBrodcastSelfNode(
+func (s *server) updateAndBroadcastSelfNode(
 	modifiers ...netann.NodeAnnModifier) error {
 
 	newNodeAnn, err := s.genNodeAnnouncement(true, modifiers...)
@@ -2930,7 +2930,7 @@ func (s *server) updateAndBrodcastSelfNode(
 	}
 
 	// Update the on-disk version of our announcement.
-	// Load and modify self node istead of creating anew instance so we
+	// Load and modify self node instead of creating anew instance so we
 	// don't risk overwriting any existing values.
 	selfNode, err := s.graphDB.SourceNode()
 	if err != nil {
@@ -3830,8 +3830,8 @@ func (s *server) addPeer(p *peer.Brontide) {
 	// TODO(roasbeef): pipe all requests through to the
 	// queryHandler/peerManager
 
-	pubSer := p.IdentityKey().SerializeCompressed()
-	pubStr := string(pubSer)
+	pubSet := p.IdentityKey().SerializeCompressed()
+	pubStr := string(pubSet)
 
 	s.peersByPub[pubStr] = p
 
@@ -3844,7 +3844,7 @@ func (s *server) addPeer(p *peer.Brontide) {
 	// Inform the peer notifier of a peer online event so that it can be reported
 	// to clients listening for peer events.
 	var pubKey [33]byte
-	copy(pubKey[:], pubSer)
+	copy(pubKey[:], pubSet)
 
 	s.peerNotifier.NotifyPeerOnline(pubKey)
 }
@@ -4226,8 +4226,8 @@ func (s *server) removePeer(p *peer.Brontide) {
 	}
 
 	pKey := p.PubKey()
-	pubSer := pKey[:]
-	pubStr := string(pubSer)
+	pubSet := pKey[:]
+	pubStr := string(pubSet)
 
 	delete(s.peersByPub, pubStr)
 
@@ -4246,7 +4246,7 @@ func (s *server) removePeer(p *peer.Brontide) {
 	// Inform the peer notifier of a peer offline event so that it can be
 	// reported to clients listening for peer events.
 	var pubKey [33]byte
-	copy(pubKey[:], pubSer)
+	copy(pubKey[:], pubSet)
 
 	s.peerNotifier.NotifyPeerOffline(pubKey)
 }

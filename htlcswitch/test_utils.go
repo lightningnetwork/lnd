@@ -1070,7 +1070,7 @@ func createTwoClusterChannels(t *testing.T, aliceToBob,
 type hopNetwork struct {
 	feeEstimator *mockFeeEstimator
 	globalPolicy ForwardingPolicy
-	obfuscator   hop.ErrorEncrypter
+	obfuscator   hop.ErrorEncryptor
 
 	defaultDelta uint32
 }
@@ -1131,8 +1131,8 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 				return server.htlcSwitch.ForwardPackets(linkQuit, packets...)
 			},
 			DecodeHopIterators: decoder.DecodeHopIterators,
-			ExtractErrorEncrypter: func(*btcec.PublicKey) (
-				hop.ErrorEncrypter, lnwire.FailCode) {
+			ExtractErrorEncryptor: func(*btcec.PublicKey) (
+				hop.ErrorEncryptor, lnwire.FailCode) {
 				return h.obfuscator, lnwire.CodeNone
 			},
 			FetchLastChannelUpdate: mockGetChanUpdateMessage,

@@ -33,7 +33,7 @@ type InvoicesClient interface {
 	// SettleInvoice settles an accepted invoice. If the invoice is already
 	// settled, this call will succeed.
 	SettleInvoice(ctx context.Context, in *SettleInvoiceMsg, opts ...grpc.CallOption) (*SettleInvoiceResp, error)
-	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
+	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced
 	// using either its payment hash, payment address, or set ID.
 	LookupInvoiceV2(ctx context.Context, in *LookupInvoiceMsg, opts ...grpc.CallOption) (*lnrpc.Invoice, error)
 }
@@ -132,7 +132,7 @@ type InvoicesServer interface {
 	// SettleInvoice settles an accepted invoice. If the invoice is already
 	// settled, this call will succeed.
 	SettleInvoice(context.Context, *SettleInvoiceMsg) (*SettleInvoiceResp, error)
-	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
+	// LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced
 	// using either its payment hash, payment address, or set ID.
 	LookupInvoiceV2(context.Context, *LookupInvoiceMsg) (*lnrpc.Invoice, error)
 	mustEmbedUnimplementedInvoicesServer()

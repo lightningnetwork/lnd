@@ -107,7 +107,7 @@ func (b *readWriteBucket) Get(key []byte) []byte {
 	val, err := b.tx.stm.Get(string(makeValueKey(b.id, key)))
 	if err != nil {
 		// TODO: we should return the error once the
-		// kvdb inteface is extended.
+		// kvdb interface is extended.
 		return nil
 	}
 
@@ -134,7 +134,7 @@ func (b *readWriteBucket) NestedReadWriteBucket(key []byte) walletdb.ReadWriteBu
 	bucketVal, err := b.tx.stm.Get(string(bucketKey))
 	if err != nil {
 		// TODO: we should return the error once the
-		// kvdb inteface is extended.
+		// kvdb interface is extended.
 		return nil
 	}
 

@@ -603,7 +603,7 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 }
 
 // DisabledChannelIDs returns the channel ids of disabled channels.
-// A channel is disabled when two of the associated ChanelEdgePolicies
+// A channel is disabled when two of the associated ChannelEdgePolicies
 // have their disabled bit on.
 func (c *ChannelGraph) DisabledChannelIDs() ([]uint64, error) {
 	var disabledChanIDs []uint64

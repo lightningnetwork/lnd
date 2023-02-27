@@ -590,7 +590,7 @@ func replaceProtoMsg(target interface{}, replacement interface{}) error {
 	}
 	err = proto.Unmarshal(replacementBytes, targetMsg)
 	if err != nil {
-		return fmt.Errorf("error unmarshaling replacement: %v", err)
+		return fmt.Errorf("error unmarshalling replacement: %v", err)
 	}
 
 	return nil

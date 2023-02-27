@@ -467,7 +467,7 @@ func (h *HarnessRPC) BatchOpenChannelAssertErr(
 	defer cancel()
 
 	_, err := h.LN.BatchOpenChannel(ctxt, req)
-	require.Error(h, err, "expecte batch open channel fail")
+	require.Error(h, err, "expected batch open channel fail")
 
 	return err
 }

@@ -425,7 +425,7 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 func runChanRestoreScenarioBasic(ht *lntest.HarnessTest,
 	restoreMethod restoreMethodType) {
 
-	// Create a new retore scenario.
+	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
 		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
 	)
@@ -466,7 +466,7 @@ func testChannelBackupRestoreUnconfirmed(ht *lntest.HarnessTest) {
 // runChanRestoreScenarioUnConfirmed checks that Dave is able to restore for an
 // unconfirmed channel.
 func runChanRestoreScenarioUnConfirmed(ht *lntest.HarnessTest, useFile bool) {
-	// Create a new retore scenario.
+	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
 		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
 	)
@@ -589,7 +589,7 @@ func testChannelBackupRestoreCommitTypes(ht *lntest.HarnessTest) {
 func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 	ct lnrpc.CommitmentType, zeroConf bool) {
 
-	// Create a new retore scenario.
+	// Create a new restore scenario.
 	crs := newChanRestoreScenario(ht, ct, zeroConf)
 	carol, dave := crs.carol, crs.dave
 
@@ -642,7 +642,7 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 // testChannelBackupRestoreLegacy checks a channel with the legacy revocation
 // producer format and makes sure old SCBs can still be recovered.
 func testChannelBackupRestoreLegacy(ht *lntest.HarnessTest) {
-	// Create a new retore scenario.
+	// Create a new restore scenario.
 	crs := newChanRestoreScenario(
 		ht, lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE, false,
 	)
@@ -1253,7 +1253,7 @@ func testDataLossProtection(ht *lntest.HarnessTest) {
 		daveBalance := daveBalResp.ConfirmedBalance
 		if daveBalance <= daveStartingBalance {
 			return fmt.Errorf("expected dave to have balance "+
-				"above %d, intead had %v", daveStartingBalance,
+				"above %d, instead had %v", daveStartingBalance,
 				daveBalance)
 		}
 

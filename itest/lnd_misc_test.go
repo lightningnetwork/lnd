@@ -249,7 +249,7 @@ func testListChannels(ht *lntest.HarnessTest) {
 	ht.EnsureConnected(alice, bob)
 
 	// Open a channel with 100k satoshis between Alice and Bob with Alice
-	// being the sole funder of the channel. The minial HTLC amount is set
+	// being the sole funder of the channel. The minimal HTLC amount is set
 	// to 4200 msats.
 	const customizedMinHtlc = 4200
 

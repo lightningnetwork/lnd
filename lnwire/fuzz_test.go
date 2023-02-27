@@ -181,7 +181,7 @@ func FuzzAcceptChannel(f *testing.F) {
 		}
 
 		if shouldPanic {
-			t.Fatal("original message and deseralized message " +
+			t.Fatal("original message and deserialized message " +
 				"are not equal")
 		}
 	})

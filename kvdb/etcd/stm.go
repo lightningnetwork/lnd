@@ -705,7 +705,7 @@ func (s *stm) Get(key string) ([]byte, error) {
 		return []byte(put.val), nil
 	}
 
-	// Return value if alread in read set.
+	// Return value if already in read set.
 	if getValue, ok := s.rset.getItem(key); ok {
 		// Return the value if the rset contains an existing key.
 		if getValue.rev != 0 {

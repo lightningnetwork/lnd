@@ -172,7 +172,7 @@ func TestMuSig2CombineKeys(t *testing.T) {
 		sortKeys: false,
 		tweak:    bip86Tweak,
 		expectedFinalKey: "03d61d333ab8c53c330290c144f406ce0c0dc3564b" +
-			"8e3dee6d1data6288609bfc75",
+			"8e3dee6d1daa6288609bfc75",
 		expectedPreTweakKey: "036204de8b083426dc6eaf9502d27024d53fc82" +
 			"6bf7d2012148a0575435df54b2b",
 	}}

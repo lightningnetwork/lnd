@@ -160,10 +160,10 @@ type Config struct {
 	// forwarding packages, and ack settles and fails contained within them.
 	SwitchPackager channeldb.FwdOperator
 
-	// ExtractErrorEncryptor is an interface allowing switch to reextract
+	// ExtractErrorEncrypter is an interface allowing switch to reextract
 	// error encrypters stored in the circuit map on restarts, since they
 	// are not stored directly within the database.
-	ExtractErrorEncryptor hop.ErrorEncryptorExtractor
+	ExtractErrorEncrypter hop.ErrorEncrypterExtractor
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel
@@ -357,7 +357,7 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 		DB:                    cfg.DB,
 		FetchAllOpenChannels:  cfg.FetchAllOpenChannels,
 		FetchClosedChannels:   cfg.FetchClosedChannels,
-		ExtractErrorEncryptor: cfg.ExtractErrorEncryptor,
+		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 		CheckResolutionMsg:    resStore.checkResolutionMsg,
 	})
 	if err != nil {
@@ -1294,7 +1294,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		if isFail && !packet.hasSource {
 			switch {
 			// No message to encrypt, locally sourced payment.
-			case circuit.ErrorEncryptor == nil:
+			case circuit.ErrorEncrypter == nil:
 
 			// If this is a resolution message, then we'll need to
 			// encrypt it as it's actually internally sourced.
@@ -1302,7 +1302,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 				var err error
 				// TODO(roasbeef): don't need to pass actually?
 				failure := &lnwire.FailPermanentChannelFailure{}
-				fail.Reason, err = circuit.ErrorEncryptor.EncryptFirstHop(
+				fail.Reason, err = circuit.ErrorEncrypter.EncryptFirstHop(
 					failure,
 				)
 				if err != nil {
@@ -1322,14 +1322,14 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					packet.incomingChanID, packet.incomingHTLCID,
 					packet.outgoingChanID, packet.outgoingHTLCID)
 
-				fail.Reason = circuit.ErrorEncryptor.EncryptMalformedError(
+				fail.Reason = circuit.ErrorEncrypter.EncryptMalformedError(
 					fail.Reason,
 				)
 
 			default:
 				// Otherwise, it's a forwarded error, so we'll perform a
 				// wrapper encryption as normal.
-				fail.Reason = circuit.ErrorEncryptor.IntermediateEncrypt(
+				fail.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
 					fail.Reason,
 				)
 			}

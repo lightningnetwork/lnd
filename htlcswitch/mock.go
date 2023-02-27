@@ -339,8 +339,8 @@ func (r *mockHopIterator) ExtraOnionBlob() []byte {
 	return nil
 }
 
-func (r *mockHopIterator) ExtractErrorEncryptor(
-	extractor hop.ErrorEncryptorExtractor) (hop.ErrorEncryptor,
+func (r *mockHopIterator) ExtractErrorEncrypter(
+	extractor hop.ErrorEncrypterExtractor) (hop.ErrorEncrypter,
 	lnwire.FailCode) {
 
 	return extractor(nil)
@@ -394,7 +394,7 @@ type mockObfuscator struct {
 }
 
 // NewMockObfuscator initializes a dummy mockObfuscator used for testing.
-func NewMockObfuscator() hop.ErrorEncryptor {
+func NewMockObfuscator() hop.ErrorEncrypter {
 	return &mockObfuscator{}
 }
 
@@ -415,7 +415,7 @@ func (o *mockObfuscator) Decode(r io.Reader) error {
 }
 
 func (o *mockObfuscator) Reextract(
-	extractor hop.ErrorEncryptorExtractor) error {
+	extractor hop.ErrorEncrypterExtractor) error {
 
 	return nil
 }

@@ -33,7 +33,7 @@ var (
 
 	// testExtractor is a precomputed extraction of testEphemeralKey, using
 	// the sphinxPrivKey.
-	testExtractor *hop.SphinxErrorEncryptor
+	testExtractor *hop.SphinxErrorEncrypter
 )
 
 func init() {
@@ -66,11 +66,11 @@ func initTestExtractor() {
 	onionProcessor := newOnionProcessor(nil)
 	defer onionProcessor.Stop()
 
-	obfuscator, _ := onionProcessor.ExtractErrorEncryptor(
+	obfuscator, _ := onionProcessor.ExtractErrorEncrypter(
 		testEphemeralKey,
 	)
 
-	sphinxExtractor, ok := obfuscator.(*hop.SphinxErrorEncryptor)
+	sphinxExtractor, ok := obfuscator.(*hop.SphinxErrorEncrypter)
 	if !ok {
 		panic("did not extract sphinx error encryptor")
 	}
@@ -110,7 +110,7 @@ func newCircuitMap(t *testing.T, resMsg bool) (*htlcswitch.CircuitMapConfig,
 		DB:                    db,
 		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
 		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
-		ExtractErrorEncryptor: onionProcessor.ExtractErrorEncryptor,
+		ExtractErrorEncrypter: onionProcessor.ExtractErrorEncrypter,
 	}
 
 	if resMsg {
@@ -146,7 +146,7 @@ var halfCircuitTests = []struct {
 	outValue  btcutil.Amount
 	chanID    lnwire.ShortChannelID
 	htlcID    uint64
-	encryptor hop.ErrorEncryptor
+	encryptor hop.ErrorEncrypter
 }{
 	{
 		hash:      hash1,
@@ -179,7 +179,7 @@ var halfCircuitTests = []struct {
 
 // TestHalfCircuitSerialization checks that the half circuits can be properly
 // encoded and decoded properly. A critical responsibility of this test is to
-// verify that the various ErrorEncryptor implementations can be properly
+// verify that the various ErrorEncrypter implementations can be properly
 // reconstructed from a serialized half circuit.
 func TestHalfCircuitSerialization(t *testing.T) {
 	t.Parallel()
@@ -195,7 +195,7 @@ func TestHalfCircuitSerialization(t *testing.T) {
 				ChanID: test.chanID,
 				HtlcID: test.htlcID,
 			},
-			ErrorEncryptor: test.encryptor,
+			ErrorEncrypter: test.encryptor,
 		}
 
 		// Write the half circuit to our buffer.
@@ -215,9 +215,9 @@ func TestHalfCircuitSerialization(t *testing.T) {
 		// reextract it from it's decoded state, as this requires an
 		// ECDH with the onion processor's private key. For mock error
 		// encrypters, this will be a NOP.
-		if circuit2.ErrorEncryptor != nil {
-			err := circuit2.ErrorEncryptor.Reextract(
-				onionProcessor.ExtractErrorEncryptor,
+		if circuit2.ErrorEncrypter != nil {
+			err := circuit2.ErrorEncrypter.Reextract(
+				onionProcessor.ExtractErrorEncrypter,
 			)
 			if err != nil {
 				t.Fatalf("unable to reextract sphinx error "+
@@ -260,7 +260,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 			HtlcID: 1,
 		},
 		PaymentHash:    hash1,
-		ErrorEncryptor: htlcswitch.NewMockObfuscator(),
+		ErrorEncrypter: htlcswitch.NewMockObfuscator(),
 	}
 	if _, err := circuitMap.CommitCircuits(circuit1); err != nil {
 		t.Fatalf("unable to add half circuit: %v", err)
@@ -307,7 +307,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 			HtlcID: 2,
 		},
 		PaymentHash:    hash2,
-		ErrorEncryptor: htlcswitch.NewMockObfuscator(),
+		ErrorEncrypter: htlcswitch.NewMockObfuscator(),
 	}
 	if _, err := circuitMap.CommitCircuits(circuit2); err != nil {
 		t.Fatalf("unable to add half circuit: %v", err)
@@ -358,7 +358,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 			HtlcID: 2,
 		},
 		PaymentHash:    hash3,
-		ErrorEncryptor: htlcswitch.NewMockObfuscator(),
+		ErrorEncrypter: htlcswitch.NewMockObfuscator(),
 	}
 	if _, err := circuitMap.CommitCircuits(circuit3); err != nil {
 		t.Fatalf("unable to add half circuit: %v", err)
@@ -410,7 +410,7 @@ func TestCircuitMapPersistence(t *testing.T) {
 			HtlcID: 3,
 		},
 		PaymentHash:    hash1,
-		ErrorEncryptor: htlcswitch.NewMockObfuscator(),
+		ErrorEncrypter: htlcswitch.NewMockObfuscator(),
 	}
 	if _, err := circuitMap.CommitCircuits(circuit4); err != nil {
 		t.Fatalf("unable to add half circuit: %v", err)
@@ -649,7 +649,7 @@ func restartCircuitMap(t *testing.T, cfg *htlcswitch.CircuitMapConfig) (
 		DB:                    db,
 		FetchAllOpenChannels:  db.ChannelStateDB().FetchAllOpenChannels,
 		FetchClosedChannels:   db.ChannelStateDB().FetchClosedChannels,
-		ExtractErrorEncryptor: cfg.ExtractErrorEncryptor,
+		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
 		CheckResolutionMsg:    cfg.CheckResolutionMsg,
 	}
 	cm2, err := htlcswitch.NewCircuitMap(cfg2)
@@ -678,7 +678,7 @@ func TestCircuitMapCommitCircuits(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncryptor: testExtractor,
+		ErrorEncrypter: testExtractor,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this
@@ -768,7 +768,7 @@ func TestCircuitMapOpenCircuits(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncryptor: testExtractor,
+		ErrorEncrypter: testExtractor,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this
@@ -976,7 +976,7 @@ func TestCircuitMapTrimOpenCircuits(t *testing.T) {
 				ChanID: chan1,
 				HtlcID: uint64(i + 3),
 			},
-			ErrorEncryptor: htlcswitch.NewMockObfuscator(),
+			ErrorEncrypter: htlcswitch.NewMockObfuscator(),
 		}
 	}
 
@@ -1111,7 +1111,7 @@ func TestCircuitMapCloseOpenCircuits(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncryptor: &hop.SphinxErrorEncryptor{
+		ErrorEncrypter: &hop.SphinxErrorEncrypter{
 			EphemeralKey: testEphemeralKey,
 		},
 	}
@@ -1200,7 +1200,7 @@ func TestCircuitMapCloseUnopenedCircuit(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncryptor: testExtractor,
+		ErrorEncrypter: testExtractor,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this
@@ -1255,7 +1255,7 @@ func TestCircuitMapDeleteUnopenedCircuit(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncryptor: testExtractor,
+		ErrorEncrypter: testExtractor,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this
@@ -1312,7 +1312,7 @@ func TestCircuitMapDeleteOpenCircuit(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncryptor: testExtractor,
+		ErrorEncrypter: testExtractor,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this

@@ -72,7 +72,7 @@ func TestPaymentStatusesMigration(t *testing.T) {
 			binary.BigEndian.PutUint64(groundedKey[8:], 1)
 
 			// Generated using TestHalfCircuitSerialization with nil
-			// ErrorEncryptor, which is the case for locally-sourced
+			// ErrorEncrypter, which is the case for locally-sourced
 			// payments. No payment status should end up being set
 			// for this circuit, since the short channel id of the
 			// key is non-zero (e.g., a forwarded circuit). This
@@ -103,7 +103,7 @@ func TestPaymentStatusesMigration(t *testing.T) {
 			binary.BigEndian.PutUint64(inFlightKey[8:], 1)
 
 			// Generated using TestHalfCircuitSerialization with nil
-			// ErrorEncryptor, which is not the case for forwarded
+			// ErrorEncrypter, which is not the case for forwarded
 			// payments, but should have no impact on the
 			// correctness of the test. The payment status for this
 			// circuit should be set to InFlight, since the short

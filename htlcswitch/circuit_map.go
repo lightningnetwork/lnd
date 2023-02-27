@@ -210,9 +210,9 @@ type CircuitMapConfig struct {
 	FetchClosedChannels func(
 		pendingOnly bool) ([]*channeldb.ChannelCloseSummary, error)
 
-	// ExtractErrorEncryptor derives the shared secret used to encrypt
+	// ExtractErrorEncrypter derives the shared secret used to encrypt
 	// errors from the obfuscator's ephemeral public key.
-	ExtractErrorEncryptor hop.ErrorEncryptorExtractor
+	ExtractErrorEncrypter hop.ErrorEncrypterExtractor
 
 	// CheckResolutionMsg checks whether a given resolution message exists
 	// for the passed CircuitKey.
@@ -626,14 +626,14 @@ func (cm *circuitMap) decodeCircuit(v []byte) (*PaymentCircuit, error) {
 
 	// If the error encryptor is nil, this is locally-source payment so
 	// there is no encryptor.
-	if circuit.ErrorEncryptor == nil {
+	if circuit.ErrorEncrypter == nil {
 		return circuit, nil
 	}
 
 	// Otherwise, we need to reextract the encryptor, so that the shared
 	// secret is rederived from what was decoded.
-	err := circuit.ErrorEncryptor.Reextract(
-		cm.cfg.ExtractErrorEncryptor,
+	err := circuit.ErrorEncrypter.Reextract(
+		cm.cfg.ExtractErrorEncrypter,
 	)
 	if err != nil {
 		return nil, err

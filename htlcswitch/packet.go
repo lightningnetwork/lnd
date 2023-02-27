@@ -48,7 +48,7 @@ type htlcPacket struct {
 
 	// obfuscator contains the necessary state to allow the switch to wrap
 	// any forwarded errors in an additional layer of encryption.
-	obfuscator hop.ErrorEncryptor
+	obfuscator hop.ErrorEncrypter
 
 	// localFailure is set to true if an HTLC fails for a local payment before
 	// the first hop. In this case, the failure reason is simply encoded, not

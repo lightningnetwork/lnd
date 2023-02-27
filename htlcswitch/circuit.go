@@ -51,9 +51,9 @@ type PaymentCircuit struct {
 	// either as a payment or forwarded amount.
 	OutgoingAmount lnwire.MilliSatoshi
 
-	// ErrorEncryptor is used to re-encrypt the onion failure before
+	// ErrorEncrypter is used to re-encrypt the onion failure before
 	// sending it back to the originator of the payment.
-	ErrorEncryptor hop.ErrorEncryptor
+	ErrorEncrypter hop.ErrorEncrypter
 
 	// LoadedFromDisk is set true for any circuits loaded after the circuit
 	// map is reloaded from disk.
@@ -86,7 +86,7 @@ func newPaymentCircuit(hash *[32]byte, pkt *htlcPacket) *PaymentCircuit {
 		PaymentHash:    *hash,
 		IncomingAmount: pkt.incomingAmount,
 		OutgoingAmount: pkt.amount,
-		ErrorEncryptor: pkt.obfuscator,
+		ErrorEncrypter: pkt.obfuscator,
 	}
 }
 
@@ -107,7 +107,7 @@ func makePaymentCircuit(hash *[32]byte, pkt *htlcPacket) PaymentCircuit {
 		PaymentHash:    *hash,
 		IncomingAmount: pkt.incomingAmount,
 		OutgoingAmount: pkt.amount,
-		ErrorEncryptor: pkt.obfuscator,
+		ErrorEncrypter: pkt.obfuscator,
 	}
 }
 
@@ -139,8 +139,8 @@ func (c *PaymentCircuit) Encode(w io.Writer) error {
 
 	// Defaults to EncryptorTypeNone.
 	var encryptorType hop.EncryptorType
-	if c.ErrorEncryptor != nil {
-		encryptorType = c.ErrorEncryptor.Type()
+	if c.ErrorEncrypter != nil {
+		encryptorType = c.ErrorEncrypter.Type()
 	}
 
 	err := binary.Write(w, binary.BigEndian, encryptorType)
@@ -153,7 +153,7 @@ func (c *PaymentCircuit) Encode(w io.Writer) error {
 		return nil
 	}
 
-	return c.ErrorEncryptor.Encode(w)
+	return c.ErrorEncrypter.Encode(w)
 }
 
 // Decode reads a PaymentCircuit from the provided io.Reader.
@@ -199,17 +199,17 @@ func (c *PaymentCircuit) Decode(r io.Reader) error {
 
 	case hop.EncryptorTypeSphinx:
 		// Sphinx encryptor was used as this is a forwarded HTLC.
-		c.ErrorEncryptor = hop.NewSphinxErrorEncryptor()
+		c.ErrorEncrypter = hop.NewSphinxErrorEncrypter()
 
 	case hop.EncryptorTypeMock:
 		// Test encryptor.
-		c.ErrorEncryptor = NewMockObfuscator()
+		c.ErrorEncrypter = NewMockObfuscator()
 
 	default:
 		return UnknownEncryptorType(encryptorType)
 	}
 
-	return c.ErrorEncryptor.Decode(r)
+	return c.ErrorEncrypter.Decode(r)
 }
 
 // InKey returns the primary identifier for the circuit corresponding to the

@@ -153,9 +153,9 @@ type ChannelLinkConfig struct {
 	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest) (
 		[]hop.DecodeHopIteratorResponse, error)
 
-	// ExtractErrorEncryptor function is responsible for decoding HTLC
+	// ExtractErrorEncrypter function is responsible for decoding HTLC
 	// Sphinx onion blob, and creating onion failure obfuscator.
-	ExtractErrorEncryptor hop.ErrorEncryptorExtractor
+	ExtractErrorEncrypter hop.ErrorEncrypterExtractor
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel
@@ -412,7 +412,7 @@ type channelLink struct {
 // hodlHtlc contains htlc data that is required for resolution.
 type hodlHtlc struct {
 	pd         *lnwallet.PaymentDescriptor
-	obfuscator hop.ErrorEncryptor
+	obfuscator hop.ErrorEncrypter
 }
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
@@ -3011,8 +3011,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		// Retrieve onion obfuscator from onion blob in order to
 		// produce initial obfuscation of the onion failureCode.
-		obfuscator, failureCode := chanIterator.ExtractErrorEncryptor(
-			l.cfg.ExtractErrorEncryptor,
+		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
+			l.cfg.ExtractErrorEncrypter,
 		)
 		if failureCode != lnwire.CodeNone {
 			// If we're unable to process the onion blob than we
@@ -3228,7 +3228,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
 func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
-	obfuscator hop.ErrorEncryptor, fwdInfo hop.ForwardingInfo,
+	obfuscator hop.ErrorEncrypter, fwdInfo hop.ForwardingInfo,
 	heightNow uint32, payload invoices.Payload) error {
 
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
@@ -3379,7 +3379,7 @@ func (l *channelLink) forwardBatch(replay bool, packets ...*htlcPacket) {
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
 func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
-	failure *LinkError, e hop.ErrorEncryptor, isReceive bool) {
+	failure *LinkError, e hop.ErrorEncrypter, isReceive bool) {
 
 	reason, err := e.EncryptFirstHop(failure.WireMessage())
 	if err != nil {

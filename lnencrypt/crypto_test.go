@@ -56,11 +56,11 @@ func TestEncryptDecryptPayload(t *testing.T) {
 
 	for i, payloadCase := range payloadCases {
 		var cipherBuffer bytes.Buffer
-		encryptor, err := KeyRingEncrypter(keyRing)
+		encrypter, err := KeyRingEncrypter(keyRing)
 		require.NoError(t, err)
 
 		// First, we'll encrypt the passed payload with our scheme.
-		err = encryptor.EncryptPayloadToWriter(
+		err = encrypter.EncryptPayloadToWriter(
 			payloadCase.plaintext, &cipherBuffer,
 		)
 		if err != nil {
@@ -79,7 +79,7 @@ func TestEncryptDecryptPayload(t *testing.T) {
 			cipherBuffer.Write(cipherText)
 		}
 
-		plaintext, err := encryptor.DecryptPayloadFromReader(
+		plaintext, err := encrypter.DecryptPayloadFromReader(
 			&cipherBuffer,
 		)
 

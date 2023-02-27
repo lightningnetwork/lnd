@@ -309,12 +309,12 @@ func decryptTLSKeyBytes(keyRing keychain.SecretKeyRing,
 	encryptedData []byte) ([]byte, error) {
 
 	reader := bytes.NewReader(encryptedData)
-	encryptor, err := lnencrypt.KeyRingEncrypter(keyRing)
+	encrypter, err := lnencrypt.KeyRingEncrypter(keyRing)
 	if err != nil {
 		return nil, err
 	}
 
-	plaintext, err := encryptor.DecryptPayloadFromReader(
+	plaintext, err := encrypter.DecryptPayloadFromReader(
 		reader,
 	)
 	if err != nil {

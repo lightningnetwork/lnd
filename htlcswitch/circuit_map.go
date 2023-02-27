@@ -135,7 +135,7 @@ var (
 	// circuitAddKey is the key used to retrieve the bucket containing
 	// payment circuits. A circuit records information about how to return
 	// a packet to the source link, potentially including an error
-	// encryptor for applying this hop's encryption to the payload in the
+	// encrypter for applying this hop's encryption to the payload in the
 	// reverse direction.
 	//
 	// Bucket hierarchy:
@@ -624,13 +624,13 @@ func (cm *circuitMap) decodeCircuit(v []byte) (*PaymentCircuit, error) {
 		return nil, err
 	}
 
-	// If the error encryptor is nil, this is locally-source payment so
-	// there is no encryptor.
+	// If the error encrypter is nil, this is locally-source payment so
+	// there is no encrypter.
 	if circuit.ErrorEncrypter == nil {
 		return circuit, nil
 	}
 
-	// Otherwise, we need to reextract the encryptor, so that the shared
+	// Otherwise, we need to reextract the encrypter, so that the shared
 	// secret is rederived from what was decoded.
 	err := circuit.ErrorEncrypter.Reextract(
 		cm.cfg.ExtractErrorEncrypter,

@@ -72,14 +72,14 @@ func initTestExtractor() {
 
 	sphinxExtractor, ok := obfuscator.(*hop.SphinxErrorEncrypter)
 	if !ok {
-		panic("did not extract sphinx error encryptor")
+		panic("did not extract sphinx error encrypter")
 	}
 
 	testExtractor = sphinxExtractor
 
 	// We also set this error extractor on startup, otherwise it will be nil
 	// at compile-time.
-	halfCircuitTests[2].encryptor = testExtractor
+	halfCircuitTests[2].encrypter = testExtractor
 }
 
 // newOnionProcessor creates starts a new htlcswitch.OnionProcessor using a temp
@@ -146,7 +146,7 @@ var halfCircuitTests = []struct {
 	outValue  btcutil.Amount
 	chanID    lnwire.ShortChannelID
 	htlcID    uint64
-	encryptor hop.ErrorEncrypter
+	encrypter hop.ErrorEncrypter
 }{
 	{
 		hash:      hash1,
@@ -154,7 +154,7 @@ var halfCircuitTests = []struct {
 		outValue:  1000,
 		chanID:    lnwire.NewShortChanIDFromInt(1),
 		htlcID:    1,
-		encryptor: nil,
+		encrypter: nil,
 	},
 	{
 		hash:      hash2,
@@ -162,7 +162,7 @@ var halfCircuitTests = []struct {
 		outValue:  2000,
 		chanID:    lnwire.NewShortChanIDFromInt(2),
 		htlcID:    2,
-		encryptor: htlcswitch.NewMockObfuscator(),
+		encrypter: htlcswitch.NewMockObfuscator(),
 	},
 	{
 		hash:     hash3,
@@ -172,8 +172,8 @@ var halfCircuitTests = []struct {
 		htlcID:   3,
 		// NOTE: The value of testExtractor is nil at compile-time, it
 		// is fully-initialized in initTestExtractor, which should
-		// repopulate this encryptor.
-		encryptor: testExtractor,
+		// repopulate this encrypter.
+		encrypter: testExtractor,
 	},
 }
 
@@ -195,7 +195,7 @@ func TestHalfCircuitSerialization(t *testing.T) {
 				ChanID: test.chanID,
 				HtlcID: test.htlcID,
 			},
-			ErrorEncrypter: test.encryptor,
+			ErrorEncrypter: test.encrypter,
 		}
 
 		// Write the half circuit to our buffer.
@@ -211,7 +211,7 @@ func TestHalfCircuitSerialization(t *testing.T) {
 			t.Fatalf("unable to decode half payment circuit test=%d: %v", i, err)
 		}
 
-		// If the error encryptor is initialized, we will need to
+		// If the error encrypter is initialized, we will need to
 		// reextract it from it's decoded state, as this requires an
 		// ECDH with the onion processor's private key. For mock error
 		// encrypters, this will be a NOP.
@@ -221,7 +221,7 @@ func TestHalfCircuitSerialization(t *testing.T) {
 			)
 			if err != nil {
 				t.Fatalf("unable to reextract sphinx error "+
-					"encryptor: %v", err)
+					"encrypter: %v", err)
 			}
 		}
 

@@ -20,7 +20,7 @@ const (
 	encrypterTypeNone encrypterType = 0
 
 	// encrypterTypeSphinx is used to identify a sphinx onion error
-	// encryptor instance.
+	// encrypter instance.
 	encrypterTypeSphinx = 1
 
 	// encrypterTypeMock is used to identify a mock obfuscator instance.
@@ -58,19 +58,19 @@ type ErrorEncrypter interface {
 	// backing this interface.
 	Type() encrypterType
 
-	// Encode serializes the encryptor's ephemeral public key to the given
+	// Encode serializes the encrypter's ephemeral public key to the given
 	// io.Writer.
 	Encode(io.Writer) error
 
-	// Decode deserializes the encryptor' ephemeral public key from the
+	// Decode deserializes the encrypter' ephemeral public key from the
 	// given io.Reader.
 	Decode(io.Reader) error
 
-	// Reextract rederives the encryptor using the extractor, performing an
+	// Reextract rederives the encrypter using the extractor, performing an
 	// ECDH with the sphinx router's key and the ephemeral public key.
 	//
 	// NOTE: This should be called shortly after Decode to properly
-	// reinitialize the error encryptor.
+	// reinitialize the error encrypter.
 	Reextract(ErrorEncrypterExtracter) error
 }
 
@@ -84,12 +84,12 @@ type SphinxErrorEncrypter struct {
 	EphemeralKey *btcec.PublicKey
 }
 
-// NewSphinxErrorEncrypter initializes a blank sphinx error encryptor, that
+// NewSphinxErrorEncrypter initializes a blank sphinx error encrypter, that
 // should be used to deserialize an encoded SphinxErrorEncrypter. Since the
-// actual encryptor is not stored in plaintext while at rest, reconstructing the
-// error encryptor requires:
+// actual encrypter is not stored in plaintext while at rest, reconstructing the
+// error encrypter requires:
 //  1. Decode: to deserialize the ephemeral public key.
-//  2. Reextract: to "unlock" the actual error encryptor using an active
+//  2. Reextract: to "unlock" the actual error encrypter using an active
 //     OnionProcessor.
 func NewSphinxErrorEncrypter() *SphinxErrorEncrypter {
 	return &SphinxErrorEncrypter{
@@ -143,12 +143,12 @@ func (s *SphinxErrorEncrypter) IntermediateEncrypt(
 	return s.EncryptError(false, reason)
 }
 
-// Type returns the identifier for a sphinx error encryptor.
+// Type returns the identifier for a sphinx error encrypter.
 func (s *SphinxErrorEncrypter) Type() encrypterType {
 	return encrypterTypeSphinx
 }
 
-// Encode serializes the error encryptor' ephemeral public key to the provided
+// Encode serializes the error encrypter' ephemeral public key to the provided
 // io.Writer.
 func (s *SphinxErrorEncrypter) Encode(w io.Writer) error {
 	ephemeral := s.EphemeralKey.SerializeCompressed()
@@ -156,7 +156,7 @@ func (s *SphinxErrorEncrypter) Encode(w io.Writer) error {
 	return err
 }
 
-// Decode reconstructs the error encryptor's ephemeral public key from the
+// Decode reconstructs the error encrypter's ephemeral public key from the
 // provided io.Reader.
 func (s *SphinxErrorEncrypter) Decode(r io.Reader) error {
 	var ephemeral [33]byte
@@ -173,7 +173,7 @@ func (s *SphinxErrorEncrypter) Decode(r io.Reader) error {
 	return nil
 }
 
-// Reextract rederives the error encryptor from the currently held EphemeralKey.
+// Reextract rederives the error encrypter from the currently held EphemeralKey.
 // This intended to be used shortly after Decode, to fully initialize a
 // SphinxErrorEncrypter.
 func (s *SphinxErrorEncrypter) Reextract(
@@ -188,13 +188,13 @@ func (s *SphinxErrorEncrypter) Reextract(
 			"obfuscator, got failcode: %d", failcode)
 	}
 
-	sphinxEncryptor, ok := obfuscator.(*SphinxErrorEncrypter)
+	sphinxencrypter, ok := obfuscator.(*SphinxErrorEncrypter)
 	if !ok {
 		return fmt.Errorf("incorrect onion error extractor")
 	}
 
-	// Copy the freshly extracted encryptor.
-	s.OnionErrorEncrypter = sphinxEncryptor.OnionErrorEncrypter
+	// Copy the freshly extracted encrypter.
+	s.OnionErrorEncrypter = sphinxencrypter.OnionErrorEncrypter
 
 	return nil
 

@@ -149,7 +149,7 @@ type UnknownencrypterType hop.encrypterType
 
 // Error returns a formatted error indicating the invalid encrypterType.
 func (e UnknownencrypterType) Error() string {
-	return fmt.Sprintf("unknown error encryptor type: %d", e)
+	return fmt.Sprintf("unknown error encrypter type: %d", e)
 }
 
 // OnionErrorDecrypter is the interface that provides onion level error

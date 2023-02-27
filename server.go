@@ -2802,7 +2802,7 @@ func (s *server) createNewHiddenService() error {
 		listenPorts = append(listenPorts, port)
 	}
 
-	encryptor, err := lnencrypt.KeyRingEncrypter(s.cc.KeyRing)
+	encrypter, err := lnencrypt.KeyRingEncrypter(s.cc.KeyRing)
 	if err != nil {
 		return err
 	}
@@ -2815,7 +2815,7 @@ func (s *server) createNewHiddenService() error {
 		TargetPorts: listenPorts,
 		Store: tor.NewOnionFile(
 			s.cfg.Tor.PrivateKeyPath, 0600, s.cfg.Tor.EncryptKey,
-			encryptor,
+			encrypter,
 		),
 	}
 

@@ -24,9 +24,9 @@ var baseEncryptionKeyLoc = keychain.KeyLocator{
 	Index:  0,
 }
 
-// EncryptorDecrypter is an interface representing an object that encrypts or
+// encrypterDecrypter is an interface representing an object that encrypts or
 // decrypts data.
-type EncryptorDecrypter interface {
+type encrypterDecrypter interface {
 	// EncryptPayloadToWriter attempts to write the set of provided bytes
 	// into the passed io.Writer in an encrypted form.
 	EncryptPayloadToWriter([]byte, io.Writer) error
@@ -37,19 +37,19 @@ type EncryptorDecrypter interface {
 	DecryptPayloadFromReader(io.Reader) ([]byte, error)
 }
 
-// Encryptor is a struct responsible for encrypting and decrypting data.
-type Encryptor struct {
+// encrypter is a struct responsible for encrypting and decrypting data.
+type encrypter struct {
 	encryptionKey []byte
 }
 
 // KeyRingEncrypter derives an encryption key to encrypt all our files that are
-// written to disk and returns an Encryptor object holding the key.
+// written to disk and returns an encrypter object holding the key.
 //
 // The key itself, is the sha2 of a base key that we get from the keyring. We
 // derive the key this way as we don't force the HSM (or any future
 // abstractions) to be able to derive and know of the cipher that we'll use
 // within our protocol.
-func KeyRingEncrypter(keyRing keychain.KeyRing) (*Encryptor, error) {
+func KeyRingEncrypter(keyRing keychain.KeyRing) (*encrypter, error) {
 	//  key = SHA256(baseKey)
 	baseKey, err := keyRing.DeriveKey(
 		baseEncryptionKeyLoc,
@@ -64,7 +64,7 @@ func KeyRingEncrypter(keyRing keychain.KeyRing) (*Encryptor, error) {
 
 	// TODO(roasbeef): throw back in ECDH?
 
-	return &Encryptor{
+	return &encrypter{
 		encryptionKey: encryptionKey[:],
 	}, nil
 }
@@ -73,7 +73,7 @@ func KeyRingEncrypter(keyRing keychain.KeyRing) (*Encryptor, error) {
 // passed io.Writer in an encrypted form. We use a 24-byte chachapoly AEAD
 // instance with a randomized nonce that's pre-pended to the final payload and
 // used as associated data in the AEAD.
-func (e Encryptor) EncryptPayloadToWriter(payload []byte,
+func (e encrypter) EncryptPayloadToWriter(payload []byte,
 	w io.Writer) error {
 
 	// Before encryption, we'll initialize our cipher with the target
@@ -107,7 +107,7 @@ func (e Encryptor) EncryptPayloadToWriter(payload []byte,
 // passed io.Reader instance using the key derived from the passed keyRing. For
 // further details regarding the key derivation protocol, see the
 // KeyRingEncrypter function.
-func (e Encryptor) DecryptPayloadFromReader(payload io.Reader) ([]byte,
+func (e encrypter) DecryptPayloadFromReader(payload io.Reader) ([]byte,
 	error) {
 
 	// Next, we'll read out the entire blob as we need to isolate the nonce

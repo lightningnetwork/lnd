@@ -137,19 +137,19 @@ func (c *PaymentCircuit) Encode(w io.Writer) error {
 		return err
 	}
 
-	// Defaults to EncryptorTypeNone.
-	var encryptorType hop.EncryptorType
+	// Defaults to encrypterTypeNone.
+	var encrypterType hop.encrypterType
 	if c.ErrorEncrypter != nil {
-		encryptorType = c.ErrorEncrypter.Type()
+		encrypterType = c.ErrorEncrypter.Type()
 	}
 
-	err := binary.Write(w, binary.BigEndian, encryptorType)
+	err := binary.Write(w, binary.BigEndian, encrypterType)
 	if err != nil {
 		return err
 	}
 
 	// Skip encoding of error encryptor if this half add does not have one.
-	if encryptorType == hop.EncryptorTypeNone {
+	if encrypterType == hop.encrypterTypeNone {
 		return nil
 	}
 
@@ -185,28 +185,28 @@ func (c *PaymentCircuit) Decode(r io.Reader) error {
 		binary.BigEndian.Uint64(scratch[:]))
 
 	// Read the encryptor type used for this circuit.
-	var encryptorType hop.EncryptorType
-	err := binary.Read(r, binary.BigEndian, &encryptorType)
+	var encrypterType hop.encrypterType
+	err := binary.Read(r, binary.BigEndian, &encrypterType)
 	if err != nil {
 		return err
 	}
 
-	switch encryptorType {
-	case hop.EncryptorTypeNone:
+	switch encrypterType {
+	case hop.encrypterTypeNone:
 		// No encryptor was provided, such as when the payment is
 		// locally initiated.
 		return nil
 
-	case hop.EncryptorTypeSphinx:
+	case hop.encrypterTypeSphinx:
 		// Sphinx encryptor was used as this is a forwarded HTLC.
 		c.ErrorEncrypter = hop.NewSphinxErrorEncrypter()
 
-	case hop.EncryptorTypeMock:
+	case hop.encrypterTypeMock:
 		// Test encryptor.
 		c.ErrorEncrypter = NewMockObfuscator()
 
 	default:
-		return UnknownEncryptorType(encryptorType)
+		return UnknownencrypterType(encrypterType)
 	}
 
 	return c.ErrorEncrypter.Decode(r)

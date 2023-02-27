@@ -10,21 +10,21 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// EncryptorType establishes an enum used in serialization to indicate how to
+// encrypterType establishes an enum used in serialization to indicate how to
 // decode a concrete instance of the ErrorEncrypter interface.
-type EncryptorType byte
+type encrypterType byte
 
 const (
-	// EncryptorTypeNone signals that no error encyrpter is present, this
+	// encrypterTypeNone signals that no error encyrpter is present, this
 	// can happen if the htlc is originates in the switch.
-	EncryptorTypeNone EncryptorType = 0
+	encrypterTypeNone encrypterType = 0
 
-	// EncryptorTypeSphinx is used to identify a sphinx onion error
+	// encrypterTypeSphinx is used to identify a sphinx onion error
 	// encryptor instance.
-	EncryptorTypeSphinx = 1
+	encrypterTypeSphinx = 1
 
-	// EncryptorTypeMock is used to identify a mock obfuscator instance.
-	EncryptorTypeMock = 2
+	// encrypterTypeMock is used to identify a mock obfuscator instance.
+	encrypterTypeMock = 2
 )
 
 // ErrorEncrypterExtractor defines a function signature that extracts an
@@ -56,7 +56,7 @@ type ErrorEncrypter interface {
 
 	// Type returns an enum indicating the underlying concrete instance
 	// backing this interface.
-	Type() EncryptorType
+	Type() encrypterType
 
 	// Encode serializes the encryptor's ephemeral public key to the given
 	// io.Writer.
@@ -144,8 +144,8 @@ func (s *SphinxErrorEncrypter) IntermediateEncrypt(
 }
 
 // Type returns the identifier for a sphinx error encryptor.
-func (s *SphinxErrorEncrypter) Type() EncryptorType {
-	return EncryptorTypeSphinx
+func (s *SphinxErrorEncrypter) Type() encrypterType {
+	return encrypterTypeSphinx
 }
 
 // Encode serializes the error encryptor' ephemeral public key to the provided

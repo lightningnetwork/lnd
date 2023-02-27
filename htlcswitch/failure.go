@@ -143,12 +143,12 @@ type ErrorDecrypter interface {
 	DecryptError(lnwire.OpaqueReason) (*ForwardingError, error)
 }
 
-// UnknownEncryptorType is an error message used to signal that an unexpected
-// EncryptorType was encountered during decoding.
-type UnknownEncryptorType hop.EncryptorType
+// UnknownencrypterType is an error message used to signal that an unexpected
+// encrypterType was encountered during decoding.
+type UnknownencrypterType hop.encrypterType
 
-// Error returns a formatted error indicating the invalid EncryptorType.
-func (e UnknownEncryptorType) Error() string {
+// Error returns a formatted error indicating the invalid encrypterType.
+func (e UnknownencrypterType) Error() string {
 	return fmt.Sprintf("unknown error encryptor type: %d", e)
 }
 

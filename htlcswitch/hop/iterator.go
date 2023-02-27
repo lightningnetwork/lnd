@@ -31,7 +31,7 @@ type Iterator interface {
 
 	// ExtractErrorEncrypter returns the ErrorEncrypter needed for this hop,
 	// along with a failure code to signal if the decoding was successful.
-	ExtractErrorEncrypter(ErrorEncrypterExtractor) (ErrorEncrypter,
+	ExtractErrorEncrypter(ErrorEncrypterExtracter) (ErrorEncrypter,
 		lnwire.FailCode)
 }
 
@@ -107,7 +107,7 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 //
 // NOTE: Part of the HopIterator interface.
 func (r *sphinxHopIterator) ExtractErrorEncrypter(
-	extractor ErrorEncrypterExtractor) (ErrorEncrypter, lnwire.FailCode) {
+	extractor ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
 
 	return extractor(r.ogPacket.EphemeralKey)
 }

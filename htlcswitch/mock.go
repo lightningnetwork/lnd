@@ -340,7 +340,7 @@ func (r *mockHopIterator) ExtraOnionBlob() []byte {
 }
 
 func (r *mockHopIterator) ExtractErrorEncrypter(
-	extractor hop.ErrorEncrypterExtractor) (hop.ErrorEncrypter,
+	extractor hop.ErrorEncrypterExtracter) (hop.ErrorEncrypter,
 	lnwire.FailCode) {
 
 	return extractor(nil)
@@ -415,7 +415,7 @@ func (o *mockObfuscator) Decode(r io.Reader) error {
 }
 
 func (o *mockObfuscator) Reextract(
-	extractor hop.ErrorEncrypterExtractor) error {
+	extractor hop.ErrorEncrypterExtracter) error {
 
 	return nil
 }

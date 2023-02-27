@@ -696,3 +696,29 @@ func (h *HarnessRPC) GetChanInfo(
 
 	return resp
 }
+
+// LookupHtlc makes a RPC call to the node's LookupHtlc and returns the
+// response.
+func (h *HarnessRPC) LookupHtlc(
+	req *lnrpc.LookupHtlcRequest) *lnrpc.LookupHtlcResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.LN.LookupHtlc(ctxt, req)
+	h.NoError(err, "LookupHtlc")
+
+	return resp
+}
+
+// LookupHtlcAssertErr makes a RPC call to the node's LookupHtlc and asserts
+// an RPC error is returned.
+func (h *HarnessRPC) LookupHtlcAssertErr(req *lnrpc.LookupHtlcRequest) error {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.LookupHtlc(ctxt, req)
+	require.Error(h, err, "expected an error")
+
+	return err
+}

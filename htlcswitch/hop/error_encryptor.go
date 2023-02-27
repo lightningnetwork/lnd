@@ -188,7 +188,7 @@ func (s *SphinxErrorEncrypter) Reextract(
 			"obfuscator, got failcode: %d", failcode)
 	}
 
-	sphinxencrypter, ok := obfuscator.(*SphinxErrorEncrypter)
+	sphinxEncrypter, ok := obfuscator.(*SphinxErrorEncrypter)
 	if !ok {
 		return fmt.Errorf("incorrect onion error extracter")
 	}

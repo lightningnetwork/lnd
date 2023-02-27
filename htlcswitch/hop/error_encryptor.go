@@ -194,7 +194,7 @@ func (s *SphinxErrorEncrypter) Reextract(
 	}
 
 	// Copy the freshly extracted encrypter.
-	s.OnionErrorEncrypter = sphinxencrypter.OnionErrorEncrypter
+	s.OnionErrorEncrypter = sphinxEncrypter.OnionErrorEncrypter
 
 	return nil
 

@@ -94,7 +94,7 @@ func TestMultiPackUnpack(t *testing.T) {
 				)
 			}
 
-			encryptor, err := lnencrypt.KeyRingEncryptor(keyRing)
+			encryptor, err := lnencrypt.KeyRingEncrypter(keyRing)
 			require.NoError(t, err)
 
 			// Next, we'll make a fake packed multi, it'll have an

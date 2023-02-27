@@ -352,7 +352,7 @@ func (s *Single) PackToWriter(w io.Writer, keyRing keychain.KeyRing) error {
 	// Finally, we'll encrypt the raw serialized SCB (using the nonce as
 	// associated data), and write out the ciphertext prepend with the
 	// nonce that we used to the passed io.Reader.
-	e, err := lnencrypt.KeyRingEncryptor(keyRing)
+	e, err := lnencrypt.KeyRingEncrypter(keyRing)
 	if err != nil {
 		return fmt.Errorf("unable to generate encrypt key %v", err)
 	}
@@ -533,7 +533,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 // payload for whatever reason (wrong key, wrong nonce, etc), then this method
 // will return an error.
 func (s *Single) UnpackFromReader(r io.Reader, keyRing keychain.KeyRing) error {
-	e, err := lnencrypt.KeyRingEncryptor(keyRing)
+	e, err := lnencrypt.KeyRingEncrypter(keyRing)
 	if err != nil {
 		return fmt.Errorf("unable to generate key decrypter %v", err)
 	}

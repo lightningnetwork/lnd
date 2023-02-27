@@ -164,7 +164,7 @@ func (w *Standalone) createNewHiddenService() error {
 		listenPorts = append(listenPorts, port)
 	}
 
-	encryptor, err := lnencrypt.KeyRingEncryptor(w.cfg.KeyRing)
+	encryptor, err := lnencrypt.KeyRingEncrypter(w.cfg.KeyRing)
 	if err != nil {
 		return err
 	}

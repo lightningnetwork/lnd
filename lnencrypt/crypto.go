@@ -42,14 +42,14 @@ type Encryptor struct {
 	encryptionKey []byte
 }
 
-// KeyRingEncryptor derives an encryption key to encrypt all our files that are
+// KeyRingEncrypter derives an encryption key to encrypt all our files that are
 // written to disk and returns an Encryptor object holding the key.
 //
 // The key itself, is the sha2 of a base key that we get from the keyring. We
 // derive the key this way as we don't force the HSM (or any future
 // abstractions) to be able to derive and know of the cipher that we'll use
 // within our protocol.
-func KeyRingEncryptor(keyRing keychain.KeyRing) (*Encryptor, error) {
+func KeyRingEncrypter(keyRing keychain.KeyRing) (*Encryptor, error) {
 	//  key = SHA256(baseKey)
 	baseKey, err := keyRing.DeriveKey(
 		baseEncryptionKeyLoc,
@@ -106,7 +106,7 @@ func (e Encryptor) EncryptPayloadToWriter(payload []byte,
 // DecryptPayloadFromReader attempts to decrypt the encrypted bytes within the
 // passed io.Reader instance using the key derived from the passed keyRing. For
 // further details regarding the key derivation protocol, see the
-// KeyRingEncryptor function.
+// KeyRingEncrypter function.
 func (e Encryptor) DecryptPayloadFromReader(payload io.Reader) ([]byte,
 	error) {
 

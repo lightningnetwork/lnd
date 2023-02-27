@@ -229,7 +229,7 @@ func (t *TLSManager) generateCertPair(keyRing keychain.SecretKeyRing) error {
 
 	if t.cfg.TLSEncryptKey {
 		var b bytes.Buffer
-		e, err := lnencrypt.KeyRingEncryptor(keyRing)
+		e, err := lnencrypt.KeyRingEncrypter(keyRing)
 		if err != nil {
 			return fmt.Errorf("unable to create "+
 				"encrypt key %v", err)
@@ -269,7 +269,7 @@ func (t *TLSManager) ensureEncryption(keyRing keychain.SecretKeyRing) error {
 
 	if t.cfg.TLSEncryptKey && bytes.HasPrefix(keyBytes, privateKeyPrefix) {
 		var b bytes.Buffer
-		e, err := lnencrypt.KeyRingEncryptor(keyRing)
+		e, err := lnencrypt.KeyRingEncrypter(keyRing)
 		if err != nil {
 			return fmt.Errorf("unable to generate encrypt key %w",
 				err)
@@ -309,7 +309,7 @@ func decryptTLSKeyBytes(keyRing keychain.SecretKeyRing,
 	encryptedData []byte) ([]byte, error) {
 
 	reader := bytes.NewReader(encryptedData)
-	encryptor, err := lnencrypt.KeyRingEncryptor(keyRing)
+	encryptor, err := lnencrypt.KeyRingEncrypter(keyRing)
 	if err != nil {
 		return nil, err
 	}
@@ -555,7 +555,7 @@ func (t *TLSManager) LoadPermanentCertificate(
 	}
 
 	reader := bytes.NewReader(encryptedKeyBytes)
-	e, err := lnencrypt.KeyRingEncryptor(keyRing)
+	e, err := lnencrypt.KeyRingEncrypter(keyRing)
 	if err != nil {
 		return fmt.Errorf("unable to generate encrypt key %w",
 			err)

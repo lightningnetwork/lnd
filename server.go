@@ -2802,7 +2802,7 @@ func (s *server) createNewHiddenService() error {
 		listenPorts = append(listenPorts, port)
 	}
 
-	encryptor, err := lnencrypt.KeyRingEncryptor(s.cc.KeyRing)
+	encryptor, err := lnencrypt.KeyRingEncrypter(s.cc.KeyRing)
 	if err != nil {
 		return err
 	}

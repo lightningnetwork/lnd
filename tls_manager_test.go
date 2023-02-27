@@ -342,7 +342,7 @@ func writeTestCertFiles(t *testing.T, expiredCert, encryptTLSKey bool,
 		)
 		require.NoError(t, err, "failed to encode private key")
 	} else {
-		e, err := lnencrypt.KeyRingEncryptor(keyRing)
+		e, err := lnencrypt.KeyRingEncrypter(keyRing)
 		require.NoError(t, err, "unable to generate key encryptor")
 		err = e.EncryptPayloadToWriter(
 			keyBytes, keyBuf,

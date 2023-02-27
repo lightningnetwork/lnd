@@ -56,7 +56,7 @@ func TestEncryptDecryptPayload(t *testing.T) {
 
 	for i, payloadCase := range payloadCases {
 		var cipherBuffer bytes.Buffer
-		encryptor, err := KeyRingEncryptor(keyRing)
+		encryptor, err := KeyRingEncrypter(keyRing)
 		require.NoError(t, err)
 
 		// First, we'll encrypt the passed payload with our scheme.
@@ -110,7 +110,7 @@ func TestEncryptDecryptPayload(t *testing.T) {
 func TestInvalidKeyGeneration(t *testing.T) {
 	t.Parallel()
 
-	_, err := KeyRingEncryptor(&MockKeyRing{true})
+	_, err := KeyRingEncrypter(&MockKeyRing{true})
 	if err == nil {
 		t.Fatal("expected error due to fail key gen")
 	}

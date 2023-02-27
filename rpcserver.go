@@ -3942,6 +3942,11 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 func (r *rpcServer) LookupHtlc(ctx context.Context,
 	in *lnrpc.LookupHtlcRequest) (*lnrpc.LookupHtlcResponse, error) {
 
+	if !r.cfg.StoreFinalHtlcResolutions {
+		return nil, status.Error(codes.Unavailable, "cannot lookup "+
+			"with flag --store-final-htlc-resolutions=false")
+	}
+
 	chanID := lnwire.NewShortChanIDFromInt(in.ChanId)
 
 	info, err := r.server.chanStateDB.LookupFinalHtlc(chanID, in.HtlcIndex)

@@ -1355,7 +1355,9 @@ type LookupHtlcResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Settled  bool `protobuf:"varint,1,opt,name=settled,proto3" json:"settled,omitempty"`
+	// Settled is true is the htlc was settled. If false, the htlc was failed.
+	Settled bool `protobuf:"varint,1,opt,name=settled,proto3" json:"settled,omitempty"`
+	// Offchain indicates whether the htlc was resolved off-chain or on-chain.
 	Offchain bool `protobuf:"varint,2,opt,name=offchain,proto3" json:"offchain,omitempty"`
 }
 

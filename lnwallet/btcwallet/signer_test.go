@@ -103,7 +103,7 @@ var (
 			hardenedKey(49), hardenedKey(0), hardenedKey(0), 1,
 			12345,
 		},
-		wif: "cAndJt2fSNUJYVSb8JFjhosPcQgNvJ92SjNeNpsf1gUwDVDv2KVRa",
+		wif: "cNdJt2fSNUJYVSb8JFjhosPcQgNvJ92SjNeNpsf1gUwDVDv2KVRa",
 	}, {
 		name: "m/1017'/1'/0'/0/0",
 		path: []uint32{

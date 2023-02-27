@@ -43,7 +43,7 @@ type encrypter struct {
 }
 
 // KeyRingEncrypter derives an encryption key to encrypt all our files that are
-// written to disk and returns an encrypter object holding the key.
+// written to disk and returns an Encrypter object holding the key.
 //
 // The key itself, is the sha2 of a base key that we get from the keyring. We
 // derive the key this way as we don't force the HSM (or any future

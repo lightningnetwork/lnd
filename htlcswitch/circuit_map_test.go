@@ -300,7 +300,7 @@ func TestCircuitMapCleanClosedChannels(t *testing.T) {
 func createTestCircuit(ks htlcswitch.Keystone, cm htlcswitch.CircuitMap) error {
 	circuit := &htlcswitch.PaymentCircuit{
 		Incoming:       ks.InKey,
-		ErrorEncrypter: testextracter,
+		ErrorEncrypter: testExtracter,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this

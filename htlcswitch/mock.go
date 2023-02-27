@@ -402,8 +402,8 @@ func (o *mockObfuscator) OnionPacket() *sphinx.OnionPacket {
 	return o.ogPacket
 }
 
-func (o *mockObfuscator) Type() hop.encrypterType {
-	return hop.encrypterTypeMock
+func (o *mockObfuscator) Type() hop.EncrypterType {
+	return hop.EncrypterTypeMock
 }
 
 func (o *mockObfuscator) Encode(w io.Writer) error {

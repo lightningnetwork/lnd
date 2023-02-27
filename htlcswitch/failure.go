@@ -144,10 +144,10 @@ type ErrorDecrypter interface {
 }
 
 // UnknownEncrypterType is an error message used to signal that an unexpected
-// encrypterType was encountered during decoding.
-type UnknownEncrypterType hop.encrypterType
+// EncrypterType was encountered during decoding.
+type UnknownEncrypterType hop.EncrypterType
 
-// Error returns a formatted error indicating the invalid encrypterType.
+// Error returns a formatted error indicating the invalid EncrypterType.
 func (e UnknownEncrypterType) Error() string {
 	return fmt.Sprintf("unknown error encrypter type: %d", e)
 }

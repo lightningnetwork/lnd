@@ -354,6 +354,9 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 
 * [Sign/Verify messages and signatures for single
   addresses](https://github.com/lightningnetwork/lnd/pull/7231).
+  
+* [Allow `--stateless_init` mode to be used for watch-only
+  wallets](https://github.com/lightningnetwork/lnd/pull/7462).
 
 ## Code Health
 

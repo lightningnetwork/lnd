@@ -412,6 +412,10 @@ func (h *HarnessTest) shutdownNodes(skipStandby bool) {
 			return h.manager.shutdownNode(node)
 		}, DefaultTimeout)
 
+		if err == nil {
+			continue
+		}
+
 		// Instead of returning the error, we will log it instead. This
 		// is needed so other nodes can continue their shutdown
 		// processes.

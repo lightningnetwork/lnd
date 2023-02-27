@@ -38,7 +38,7 @@ type EncrypterDecrypter interface {
 }
 
 // Encrypter is a struct responsible for encrypting and decrypting data.
-type encrypter struct {
+type Encrypter struct {
 	encryptionKey []byte
 }
 

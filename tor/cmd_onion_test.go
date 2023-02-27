@@ -22,12 +22,12 @@ func TestOnionFile(t *testing.T) {
 
 	tempDir := t.TempDir()
 	privateKeyPath := filepath.Join(tempDir, "secret")
-	MockEncrypter := MockEncrypter{}
+	mockEncrypter := mockEncrypter{}
 
 	// Create a new file-based onion store. A private key should not exist
 	// yet.
 	onionFile := NewOnionFile(
-		privateKeyPath, 0600, false, MockEncrypter,
+		privateKeyPath, 0600, false, mockEncrypter,
 	)
 	_, err := onionFile.PrivateKey()
 	require.ErrorIs(t, err, ErrNoPrivateKey)
@@ -51,7 +51,7 @@ func TestOnionFile(t *testing.T) {
 	// Create a new file-based onion store that encrypts the key this time
 	// to ensure that an encrypted key is properly handled.
 	encryptedOnionFile := NewOnionFile(
-		privateKeyPath, 0600, true, MockEncrypter,
+		privateKeyPath, 0600, true, mockEncrypter,
 	)
 
 	err = encryptedOnionFile.StorePrivateKey(privateKey)
@@ -220,12 +220,12 @@ func (m *mockStore) DeletePrivateKey() error {
 	return args.Error(0)
 }
 
-type MockEncrypter struct{}
+type mockEncrypter struct{}
 
-func (m MockEncrypter) EncryptPayloadToWriter(_ []byte, _ io.Writer) error {
+func (m mockEncrypter) EncryptPayloadToWriter(_ []byte, _ io.Writer) error {
 	return nil
 }
 
-func (m MockEncrypter) DecryptPayloadFromReader(_ io.Reader) ([]byte, error) {
+func (m mockEncrypter) DecryptPayloadFromReader(_ io.Reader) ([]byte, error) {
 	return anotherKey, nil
 }

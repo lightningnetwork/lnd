@@ -636,17 +636,36 @@ func (b *BtcWallet) ListAccounts(name string,
 			break
 		}
 
-		// Otherwise, we'll retrieve the single account that's mapped by
-		// the given name.
-		scope, acctNum, err := b.wallet.LookupAccount(name)
-		if err != nil {
-			return nil, err
+		// In theory, there should be only one custom account for the
+		// given name. However, due to a lack of check, users could
+		// create custom accounts with various key scopes. This
+		// behaviour has been fixed but, we return all potential custom
+		// accounts with the given name.
+		for _, scope := range waddrmgr.DefaultKeyScopes {
+			a, err := b.wallet.AccountPropertiesByName(
+				scope, name,
+			)
+			switch {
+			case waddrmgr.IsError(err, waddrmgr.ErrAccountNotFound):
+				continue
+
+			// In the specific case of a wallet initialized only by
+			// importing account xpubs (watch only wallets), it is
+			// possible that some keyscopes will be 'unknown' by the
+			// wallet (depending on the xpubs given to initialize
+			// it). If the keyscope is not found, just skip it.
+			case waddrmgr.IsError(err, waddrmgr.ErrScopeNotFound):
+				continue
+
+			case err != nil:
+				return nil, err
+			}
+
+			res = append(res, a)
 		}
-		account, err := b.wallet.AccountProperties(scope, acctNum)
-		if err != nil {
-			return nil, err
+		if len(res) == 0 {
+			return nil, newAccountNotFoundError(name)
 		}
-		res = append(res, account)
 
 	// Only the key scope filter was provided, so we'll return all accounts
 	// matching it.
@@ -688,6 +707,18 @@ func (b *BtcWallet) ListAccounts(name string,
 	}
 
 	return res, nil
+}
+
+// newAccountNotFoundError returns an error indicating that the manager didn't
+// find the specific account. This error is used to be compatible with the old
+// 'LookupAccount' behaviour previously used.
+func newAccountNotFoundError(name string) error {
+	str := fmt.Sprintf("account name '%s' not found", name)
+
+	return waddrmgr.ManagerError{
+		ErrorCode:   waddrmgr.ErrAccountNotFound,
+		Description: str,
+	}
 }
 
 // RequiredReserve returns the minimum amount of satoshis that should be

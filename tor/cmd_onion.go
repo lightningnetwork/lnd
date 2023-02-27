@@ -56,9 +56,9 @@ type OnionStore interface {
 	DeletePrivateKey() error
 }
 
-// EncrypterDecrypter is used for encrypting and decrypting the onion service
+// EncryptorDecrypter is used for encrypting and decrypting the onion service
 // private key.
-type EncrypterDecrypter interface {
+type EncryptorDecrypter interface {
 	EncryptPayloadToWriter([]byte, io.Writer) error
 	DecryptPayloadFromReader(io.Reader) ([]byte, error)
 }
@@ -69,7 +69,7 @@ type OnionFile struct {
 	privateKeyPath string
 	privateKeyPerm os.FileMode
 	encryptKey     bool
-	encrypter      EncrypterDecrypter
+	encryptor      EncryptorDecrypter
 }
 
 // A compile-time constraint to ensure OnionFile satisfies the OnionStore
@@ -79,13 +79,13 @@ var _ OnionStore = (*OnionFile)(nil)
 // NewOnionFile creates a file-based implementation of the OnionStore interface
 // to store an onion service's private key.
 func NewOnionFile(privateKeyPath string, privateKeyPerm os.FileMode,
-	encryptKey bool, encrypter EncrypterDecrypter) *OnionFile {
+	encryptKey bool, encryptor EncryptorDecrypter) *OnionFile {
 
 	return &OnionFile{
 		privateKeyPath: privateKeyPath,
 		privateKeyPerm: privateKeyPerm,
 		encryptKey:     encryptKey,
-		encrypter:      encrypter,
+		encryptor:      encryptor,
 	}
 }
 
@@ -96,7 +96,7 @@ func (f *OnionFile) StorePrivateKey(privateKey []byte) error {
 
 	if f.encryptKey {
 		var b bytes.Buffer
-		err := f.encrypter.EncryptPayloadToWriter(
+		err := f.encryptor.EncryptPayloadToWriter(
 			privateKey, &b,
 		)
 		if err != nil {
@@ -145,7 +145,7 @@ func (f *OnionFile) PrivateKey() ([]byte, error) {
 
 	// Attempt to decrypt the key.
 	reader := bytes.NewReader(privateKeyContent)
-	privateKeyContent, err = f.encrypter.DecryptPayloadFromReader(
+	privateKeyContent, err = f.encryptor.DecryptPayloadFromReader(
 		reader,
 	)
 	if err != nil {

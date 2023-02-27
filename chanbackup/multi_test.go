@@ -94,7 +94,7 @@ func TestMultiPackUnpack(t *testing.T) {
 				)
 			}
 
-			encrypter, err := lnencrypt.KeyRingEncrypter(keyRing)
+			encryptor, err := lnencrypt.KeyRingEncryptor(keyRing)
 			require.NoError(t, err)
 
 			// Next, we'll make a fake packed multi, it'll have an
@@ -103,7 +103,7 @@ func TestMultiPackUnpack(t *testing.T) {
 			fakeRawMulti := bytes.NewBuffer(
 				bytes.Repeat([]byte{99}, 20),
 			)
-			err = encrypter.EncryptPayloadToWriter(
+			err = encryptor.EncryptPayloadToWriter(
 				fakeRawMulti.Bytes(), &fakePackedMulti,
 			)
 			if err != nil {

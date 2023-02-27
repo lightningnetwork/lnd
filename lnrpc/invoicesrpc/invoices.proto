@@ -37,7 +37,7 @@ service Invoices {
     rpc SettleInvoice (SettleInvoiceMsg) returns (SettleInvoiceResp);
 
     /*
-    LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced
+    LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced
     using either its payment hash, payment address, or set ID.
     */
     rpc LookupInvoiceV2 (LookupInvoiceMsg) returns (lnrpc.Invoice);

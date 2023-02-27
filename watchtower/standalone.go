@@ -164,7 +164,7 @@ func (w *Standalone) createNewHiddenService() error {
 		listenPorts = append(listenPorts, port)
 	}
 
-	encrypter, err := lnencrypt.KeyRingEncrypter(w.cfg.KeyRing)
+	encryptor, err := lnencrypt.KeyRingEncryptor(w.cfg.KeyRing)
 	if err != nil {
 		return err
 	}
@@ -177,7 +177,7 @@ func (w *Standalone) createNewHiddenService() error {
 		TargetPorts: listenPorts,
 		Store: tor.NewOnionFile(
 			w.cfg.WatchtowerKeyPath, 0600, w.cfg.EncryptKey,
-			encrypter,
+			encryptor,
 		),
 		Type: w.cfg.Type,
 	}

@@ -321,7 +321,7 @@ type OpenChannel struct {
 }
 
 func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
-	// Special case ChanStatusDefualt since it isn't actually flag, but a
+	// Special case ChanStatusDefault since it isn't actually flag, but a
 	// particular combination (or lack-there-of) of flags.
 	if status == ChanStatusDefault {
 		return c.ChanStatus == ChanStatusDefault
@@ -330,7 +330,7 @@ func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
 	return c.ChanStatus&status == status
 }
 
-// FundingTxPresent returns true if expect the funding transcation to be found
+// FundingTxPresent returns true if expect the funding transaction to be found
 // on disk or already populated within the passed open channel struct.
 func (c *OpenChannel) FundingTxPresent() bool {
 	chanType := c.ChanType

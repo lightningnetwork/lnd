@@ -4768,7 +4768,7 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 
 	// Balance should start out equal to half the channel capacity minus
 	// the commitment fee Alice must pay and the channel reserve. In
-	// addition the HTLC fee will be subtracted fromt the balance to
+	// addition the HTLC fee will be subtracted from the balance to
 	// reflect that this value must be reserved for any payment above the
 	// dust limit.
 	expAliceBalance := aliceBalance - commitFee - aliceReserve - htlcFee
@@ -4916,7 +4916,7 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 	}
 
 	// Helper method that fetches the current remote commitment weight
-	// fromt the given channel's POV.
+	// from the given channel's POV.
 	remoteCommitWeight := func(lc *LightningChannel) int64 {
 		remoteACKedIndex := lc.localCommitChain.tip().theirMessageIndex
 		htlcView := lc.fetchHTLCView(remoteACKedIndex,
@@ -9440,7 +9440,7 @@ func deriveDummyRetributionParams(chanState *channeldb.OpenChannel) (uint32,
 }
 
 // TestCreateHtlcRetribution checks that `createHtlcRetribution` behaves as
-// epxected.
+// expected.
 func TestCreateHtlcRetribution(t *testing.T) {
 	t.Parallel()
 
@@ -9676,7 +9676,7 @@ func TestCreateBreachRetribution(t *testing.T) {
 				// Otherwise we expect no error.
 				require.NoError(t, err)
 
-				// Check the amounts and the contructed partial
+				// Check the amounts and the constructed partial
 				// retribution are returned as expected.
 				require.Equal(t, tc.expectedOurAmt, our)
 				require.Equal(t, tc.expectedTheirAmt, their)

@@ -590,5 +590,5 @@ func assertChannelState(ht *lntest.HarnessTest, hn *node.HarnessNode,
 
 		return nil
 	}, lntest.DefaultTimeout)
-	require.NoError(ht, err, "timeout while chekcing for balance")
+	require.NoError(ht, err, "timeout while checking for balance")
 }

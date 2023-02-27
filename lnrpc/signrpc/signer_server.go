@@ -847,7 +847,7 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 	// Are there any tweaks to apply to the combined public key?
 	tweaks, err := UnmarshalTweaks(in.Tweaks, in.TaprootTweak)
 	if err != nil {
-		return nil, fmt.Errorf("error unmarshaling tweak options: %v",
+		return nil, fmt.Errorf("error unmarshalling tweak options: %v",
 			err)
 	}
 
@@ -932,7 +932,7 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 	// Are there any tweaks to apply to the combined public key?
 	tweaks, err := UnmarshalTweaks(in.Tweaks, in.TaprootTweak)
 	if err != nil {
-		return nil, fmt.Errorf("error unmarshaling tweak options: %v",
+		return nil, fmt.Errorf("error unmarshalling tweak options: %v",
 			err)
 	}
 

@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	// DeliveryAddrType is the TLV record type for delivery addreses within
+	// DeliveryAddrType is the TLV record type for delivery addresses within
 	// the name space of the OpenChannel and AcceptChannel messages.
 	DeliveryAddrType = 0
 

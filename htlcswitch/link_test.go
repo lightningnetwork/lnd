@@ -1479,8 +1479,8 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 	t.Cleanup(n.stop)
 
 	// Replace decode function with another which throws an error.
-	n.carolChannelLink.cfg.ExtractErrorEncrypter = func(
-		*btcec.PublicKey) (hop.ErrorEncrypter, lnwire.FailCode) {
+	n.carolChannelLink.cfg.ExtractErrorEncryptor = func(
+		*btcec.PublicKey) (hop.ErrorEncryptor, lnwire.FailCode) {
 		return nil, lnwire.CodeInvalidOnionVersion
 	}
 
@@ -1865,8 +1865,8 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt, chanReserve btcutil.Amount)
 			return aliceSwitch.ForwardPackets(linkQuit, packets...)
 		},
 		DecodeHopIterators: decoder.DecodeHopIterators,
-		ExtractErrorEncrypter: func(*btcec.PublicKey) (
-			hop.ErrorEncrypter, lnwire.FailCode) {
+		ExtractErrorEncryptor: func(*btcec.PublicKey) (
+			hop.ErrorEncryptor, lnwire.FailCode) {
 			return obfuscator, lnwire.CodeNone
 		},
 		FetchLastChannelUpdate: mockGetChanUpdateMessage,
@@ -4304,8 +4304,8 @@ func (h *persistentLinkHarness) restartLink(
 			return aliceSwitch.ForwardPackets(linkQuit, packets...)
 		},
 		DecodeHopIterators: decoder.DecodeHopIterators,
-		ExtractErrorEncrypter: func(*btcec.PublicKey) (
-			hop.ErrorEncrypter, lnwire.FailCode) {
+		ExtractErrorEncryptor: func(*btcec.PublicKey) (
+			hop.ErrorEncryptor, lnwire.FailCode) {
 
 			return obfuscator, lnwire.CodeNone
 		},
@@ -4365,7 +4365,7 @@ func (h *persistentLinkHarness) restartLink(
 	return aliceLink, bticker.Force, nil
 }
 
-// gnerateHtlc generates a simple payment from Bob to Alice.
+// generateHtlc generates a simple payment from Bob to Alice.
 func generateHtlc(t *testing.T, coreLink *channelLink,
 	id uint64) *lnwire.UpdateAddHTLC {
 

@@ -228,7 +228,7 @@ func (s *Server) updateAddresses(currentAddresses []net.Addr,
 		newAddrs = append(newAddrs, addr)
 	}
 
-	// Add new adresses if needed.
+	// Add new addresses if needed.
 	for _, addr := range addAddr {
 		if !findAddr(addr, newAddrs) {
 			ops.Actions = append(

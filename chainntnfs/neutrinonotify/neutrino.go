@@ -163,7 +163,7 @@ func (n *NeutrinoNotifier) Started() bool {
 
 func (n *NeutrinoNotifier) startNotifier() error {
 	// Start our concurrent queues before starting the rescan, to ensure
-	// onFilteredBlockConnected and onRelavantTx callbacks won't be
+	// onFilteredBlockConnected and onRelevantTx callbacks won't be
 	// blocked.
 	n.txUpdates.Start()
 

@@ -1021,7 +1021,7 @@ func getProbabilityBasedDist(weight int64, probability float64,
 
 	// Avoid cast if an overflow would occur. The maxFloat constant is
 	// chosen to stay well below the maximum float64 value that is still
-	// convertable to int64.
+	// convertible to int64.
 	const maxFloat = 9000000000000000000
 	if dist > maxFloat {
 		return infinity

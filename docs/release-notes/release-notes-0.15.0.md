@@ -80,7 +80,7 @@ releases. Backward compatibility is not guaranteed!
 
 ## Neutrino
 
-[Neutrino now suports BIP
+[Neutrino now supports BIP
 155](https://github.com/lightningnetwork/lnd/pull/6468), allowing it to connect
 to Bitcoin nodes that advertise a Tor v3 onion service address.
 

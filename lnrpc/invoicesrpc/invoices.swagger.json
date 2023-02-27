@@ -84,7 +84,7 @@
     },
     "/v2/invoices/lookup": {
       "get": {
-        "summary": "LookupInvoiceV2 attempts to look up at invoice. An invoice can be refrenced\nusing either its payment hash, payment address, or set ID.",
+        "summary": "LookupInvoiceV2 attempts to look up at invoice. An invoice can be referenced\nusing either its payment hash, payment address, or set ID.",
         "operationId": "Invoices_LookupInvoiceV2",
         "responses": {
           "200": {

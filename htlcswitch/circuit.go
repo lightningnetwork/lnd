@@ -51,9 +51,9 @@ type PaymentCircuit struct {
 	// either as a payment or forwarded amount.
 	OutgoingAmount lnwire.MilliSatoshi
 
-	// ErrorEncrypter is used to re-encrypt the onion failure before
+	// ErrorEncryptor is used to re-encrypt the onion failure before
 	// sending it back to the originator of the payment.
-	ErrorEncrypter hop.ErrorEncrypter
+	ErrorEncryptor hop.ErrorEncryptor
 
 	// LoadedFromDisk is set true for any circuits loaded after the circuit
 	// map is reloaded from disk.
@@ -86,7 +86,7 @@ func newPaymentCircuit(hash *[32]byte, pkt *htlcPacket) *PaymentCircuit {
 		PaymentHash:    *hash,
 		IncomingAmount: pkt.incomingAmount,
 		OutgoingAmount: pkt.amount,
-		ErrorEncrypter: pkt.obfuscator,
+		ErrorEncryptor: pkt.obfuscator,
 	}
 }
 
@@ -107,7 +107,7 @@ func makePaymentCircuit(hash *[32]byte, pkt *htlcPacket) PaymentCircuit {
 		PaymentHash:    *hash,
 		IncomingAmount: pkt.incomingAmount,
 		OutgoingAmount: pkt.amount,
-		ErrorEncrypter: pkt.obfuscator,
+		ErrorEncryptor: pkt.obfuscator,
 	}
 }
 
@@ -137,23 +137,23 @@ func (c *PaymentCircuit) Encode(w io.Writer) error {
 		return err
 	}
 
-	// Defaults to EncrypterTypeNone.
-	var encrypterType hop.EncrypterType
-	if c.ErrorEncrypter != nil {
-		encrypterType = c.ErrorEncrypter.Type()
+	// Defaults to EncryptorTypeNone.
+	var encryptorType hop.EncryptorType
+	if c.ErrorEncryptor != nil {
+		encryptorType = c.ErrorEncryptor.Type()
 	}
 
-	err := binary.Write(w, binary.BigEndian, encrypterType)
+	err := binary.Write(w, binary.BigEndian, encryptorType)
 	if err != nil {
 		return err
 	}
 
-	// Skip encoding of error encrypter if this half add does not have one.
-	if encrypterType == hop.EncrypterTypeNone {
+	// Skip encoding of error encryptor if this half add does not have one.
+	if encryptorType == hop.EncryptorTypeNone {
 		return nil
 	}
 
-	return c.ErrorEncrypter.Encode(w)
+	return c.ErrorEncryptor.Encode(w)
 }
 
 // Decode reads a PaymentCircuit from the provided io.Reader.
@@ -184,32 +184,32 @@ func (c *PaymentCircuit) Decode(r io.Reader) error {
 	c.OutgoingAmount = lnwire.MilliSatoshi(
 		binary.BigEndian.Uint64(scratch[:]))
 
-	// Read the encrypter type used for this circuit.
-	var encrypterType hop.EncrypterType
-	err := binary.Read(r, binary.BigEndian, &encrypterType)
+	// Read the encryptor type used for this circuit.
+	var encryptorType hop.EncryptorType
+	err := binary.Read(r, binary.BigEndian, &encryptorType)
 	if err != nil {
 		return err
 	}
 
-	switch encrypterType {
-	case hop.EncrypterTypeNone:
-		// No encrypter was provided, such as when the payment is
+	switch encryptorType {
+	case hop.EncryptorTypeNone:
+		// No encryptor was provided, such as when the payment is
 		// locally initiated.
 		return nil
 
-	case hop.EncrypterTypeSphinx:
-		// Sphinx encrypter was used as this is a forwarded HTLC.
-		c.ErrorEncrypter = hop.NewSphinxErrorEncrypter()
+	case hop.EncryptorTypeSphinx:
+		// Sphinx encryptor was used as this is a forwarded HTLC.
+		c.ErrorEncryptor = hop.NewSphinxErrorEncryptor()
 
-	case hop.EncrypterTypeMock:
-		// Test encrypter.
-		c.ErrorEncrypter = NewMockObfuscator()
+	case hop.EncryptorTypeMock:
+		// Test encryptor.
+		c.ErrorEncryptor = NewMockObfuscator()
 
 	default:
-		return UnknownEncrypterType(encrypterType)
+		return UnknownEncryptorType(encryptorType)
 	}
 
-	return c.ErrorEncrypter.Decode(r)
+	return c.ErrorEncryptor.Decode(r)
 }
 
 // InKey returns the primary identifier for the circuit corresponding to the

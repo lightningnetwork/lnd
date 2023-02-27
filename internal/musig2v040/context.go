@@ -21,23 +21,23 @@ var (
 	ErrSignerNotInKeySet = fmt.Errorf("signing key is not found in key" +
 		" set")
 
-	// ErrAlredyHaveAllNonces is called when RegisterPubNonce is called too
+	// ErrAlreadyHaveAllNonces is called when RegisterPubNonce is called too
 	// many times for a given signing session.
-	ErrAlredyHaveAllNonces = fmt.Errorf("already have all nonces")
+	ErrAlreadyHaveAllNonces = fmt.Errorf("already have all nonces")
 
 	// ErrNotEnoughSigners is returned when a caller attempts to create a
 	// session from a context, but before all the required signers are
 	// known.
 	ErrNotEnoughSigners = fmt.Errorf("not enough signers")
 
-	// ErrAlredyHaveAllNonces is returned when a caller attempts to
+	// ErrAlreadyHaveAllNonces is returned when a caller attempts to
 	// register a signer, once we already have the total set of known
 	// signers.
 	ErrAlreadyHaveAllSigners = fmt.Errorf("all signers registered")
 
-	// ErrAlredyHaveAllSigs is called when CombineSig is called too many
+	// ErrAlreadyHaveAllSigs is called when CombineSig is called too many
 	// times for a given signing session.
-	ErrAlredyHaveAllSigs = fmt.Errorf("already have all sigs")
+	ErrAlreadyHaveAllSigs = fmt.Errorf("already have all sigs")
 
 	// ErrSigningContextReuse is returned if a user attempts to sign using
 	// the same signing context more than once.
@@ -514,7 +514,7 @@ func (s *Session) PublicNonce() [PubNonceSize]byte {
 }
 
 // NumRegisteredNonces returns the total number of nonces that have been
-// regsitered so far.
+// registered so far.
 func (s *Session) NumRegisteredNonces() int {
 	return len(s.pubNonces)
 }
@@ -527,7 +527,7 @@ func (s *Session) RegisterPubNonce(nonce [PubNonceSize]byte) (bool, error) {
 	// many times.
 	haveAllNonces := len(s.pubNonces) == s.ctx.opts.numSigners
 	if haveAllNonces {
-		return false, ErrAlredyHaveAllNonces
+		return false, ErrAlreadyHaveAllNonces
 	}
 
 	// Add this nonce and check again if we already have tall the nonces we
@@ -562,7 +562,7 @@ func (s *Session) Sign(msg [32]byte,
 		return nil, ErrSigningContextReuse
 
 	// We also need to make sure we have the combined nonce, otherwise this
-	// funciton was called too early.
+	// function was called too early.
 	case s.combinedNonce == nil:
 		return nil, ErrCombinedNonceUnavailable
 	}
@@ -609,7 +609,7 @@ func (s *Session) CombineSig(sig *PartialSignature) (bool, error) {
 	// already accumulated our own signature when we generated the sig.
 	haveAllSigs := len(s.sigs) == len(s.ctx.opts.keySet)
 	if haveAllSigs {
-		return false, ErrAlredyHaveAllSigs
+		return false, ErrAlreadyHaveAllSigs
 	}
 
 	// TODO(roasbeef): incremental check for invalid sig, or just detect at

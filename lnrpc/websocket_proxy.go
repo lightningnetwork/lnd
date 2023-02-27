@@ -46,7 +46,7 @@ var (
 	// format.
 	defaultHeadersToForward = map[string]bool{
 		"Origin":                 true,
-		"Referer":                true,
+		"Referrer":                true,
 		"Grpc-Metadata-Macaroon": true,
 	}
 

@@ -80,7 +80,7 @@ func init() {
 		Open:   openDBDriver,
 	}
 	if err := walletdb.RegisterDriver(driver); err != nil {
-		panic(fmt.Sprintf("Failed to regiser database driver '%s': %v",
+		panic(fmt.Sprintf("Failed to register database driver '%s': %v",
 			dbType, err))
 	}
 }

@@ -29,9 +29,9 @@ type Iterator interface {
 	// into the passed io.Writer.
 	EncodeNextHop(w io.Writer) error
 
-	// ExtractErrorEncrypter returns the ErrorEncrypter needed for this hop,
+	// ExtractErrorEncryptor returns the ErrorEncryptor needed for this hop,
 	// along with a failure code to signal if the decoding was successful.
-	ExtractErrorEncrypter(ErrorEncrypterExtracter) (ErrorEncrypter,
+	ExtractErrorEncryptor(ErrorEncryptorExtractor) (ErrorEncryptor,
 		lnwire.FailCode)
 }
 
@@ -100,16 +100,16 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 	}
 }
 
-// ExtractErrorEncrypter decodes and returns the ErrorEncrypter for this hop,
+// ExtractErrorEncryptor decodes and returns the ErrorEncryptor for this hop,
 // along with a failure code to signal if the decoding was successful. The
-// ErrorEncrypter is used to encrypt errors back to the sender in the event that
+// ErrorEncryptor is used to encrypt errors back to the sender in the event that
 // a payment fails.
 //
 // NOTE: Part of the HopIterator interface.
-func (r *sphinxHopIterator) ExtractErrorEncrypter(
-	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
+func (r *sphinxHopIterator) ExtractErrorEncryptor(
+	extractor ErrorEncryptorExtractor) (ErrorEncryptor, lnwire.FailCode) {
 
-	return extracter(r.ogPacket.EphemeralKey)
+	return extractor(r.ogPacket.EphemeralKey)
 }
 
 // OnionProcessor is responsible for keeping all sphinx dependent parts inside
@@ -375,15 +375,15 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 	return resps, nil
 }
 
-// ExtractErrorEncrypter takes an io.Reader which should contain the onion
+// ExtractErrorEncryptor takes an io.Reader which should contain the onion
 // packet as original received by a forwarding node and creates an
-// ErrorEncrypter instance using the derived shared secret. In the case that en
+// ErrorEncryptor instance using the derived shared secret. In the case that en
 // error occurs, a lnwire failure code detailing the parsing failure will be
 // returned.
-func (p *OnionProcessor) ExtractErrorEncrypter(ephemeralKey *btcec.PublicKey) (
-	ErrorEncrypter, lnwire.FailCode) {
+func (p *OnionProcessor) ExtractErrorEncryptor(ephemeralKey *btcec.PublicKey) (
+	ErrorEncryptor, lnwire.FailCode) {
 
-	onionObfuscator, err := sphinx.NewOnionErrorEncrypter(
+	onionObfuscator, err := sphinx.NewOnionErrorEncryptor(
 		p.router, ephemeralKey,
 	)
 	if err != nil {
@@ -400,8 +400,8 @@ func (p *OnionProcessor) ExtractErrorEncrypter(ephemeralKey *btcec.PublicKey) (
 		}
 	}
 
-	return &SphinxErrorEncrypter{
-		OnionErrorEncrypter: onionObfuscator,
+	return &SphinxErrorEncryptor{
+		OnionErrorEncryptor: onionObfuscator,
 		EphemeralKey:        ephemeralKey,
 	}, lnwire.CodeNone
 }

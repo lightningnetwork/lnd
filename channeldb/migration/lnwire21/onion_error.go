@@ -571,14 +571,14 @@ func (f *FailInvalidOnionKey) Error() string {
 	return fmt.Sprintf("InvalidOnionKey(onion_sha=%x)", f.OnionSHA256[:])
 }
 
-// parseChannelUpdateCompatabilityMode will attempt to parse a channel updated
+// parseChannelUpdateCompatibilityMode will attempt to parse a channel updated
 // encoded into an onion error payload in two ways. First, we'll try the
 // compatibility oriented version wherein we'll _skip_ the length prefixing on
 // the channel update message. Older versions of c-lighting do this so we'll
 // attempt to parse these messages in order to retain compatibility. If we're
 // unable to pull out a fully valid version, then we'll fall back to the
 // regular parsing mechanism which includes the length prefix an NO type byte.
-func parseChannelUpdateCompatabilityMode(r *bufio.Reader,
+func parseChannelUpdateCompatibilityMode(r *bufio.Reader,
 	chanUpdate *ChannelUpdate, pver uint32) error {
 
 	// We'll peek out two bytes from the buffer without advancing the
@@ -658,7 +658,7 @@ func (f *FailTemporaryChannelFailure) Decode(r io.Reader, pver uint32) error {
 
 	if length != 0 {
 		f.Update = &ChannelUpdate{}
-		return parseChannelUpdateCompatabilityMode(
+		return parseChannelUpdateCompatibilityMode(
 			bufio.NewReader(r), f.Update, pver,
 		)
 	}
@@ -740,7 +740,7 @@ func (f *FailAmountBelowMinimum) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return parseChannelUpdateCompatabilityMode(
+	return parseChannelUpdateCompatibilityMode(
 		bufio.NewReader(r), &f.Update, pver,
 	)
 }
@@ -808,7 +808,7 @@ func (f *FailFeeInsufficient) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return parseChannelUpdateCompatabilityMode(
+	return parseChannelUpdateCompatibilityMode(
 		bufio.NewReader(r), &f.Update, pver,
 	)
 }
@@ -876,7 +876,7 @@ func (f *FailIncorrectCltvExpiry) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return parseChannelUpdateCompatabilityMode(
+	return parseChannelUpdateCompatibilityMode(
 		bufio.NewReader(r), &f.Update, pver,
 	)
 }
@@ -933,7 +933,7 @@ func (f *FailExpiryTooSoon) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return parseChannelUpdateCompatabilityMode(
+	return parseChannelUpdateCompatibilityMode(
 		bufio.NewReader(r), &f.Update, pver,
 	)
 }
@@ -997,7 +997,7 @@ func (f *FailChannelDisabled) Decode(r io.Reader, pver uint32) error {
 	}
 
 	f.Update = ChannelUpdate{}
-	return parseChannelUpdateCompatabilityMode(
+	return parseChannelUpdateCompatibilityMode(
 		bufio.NewReader(r), &f.Update, pver,
 	)
 }

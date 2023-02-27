@@ -153,9 +153,9 @@ type ChannelLinkConfig struct {
 	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest) (
 		[]hop.DecodeHopIteratorResponse, error)
 
-	// ExtractErrorEncrypter function is responsible for decoding HTLC
+	// ExtractErrorEncryptor function is responsible for decoding HTLC
 	// Sphinx onion blob, and creating onion failure obfuscator.
-	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
+	ExtractErrorEncryptor hop.ErrorEncryptorExtractor
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel
@@ -412,7 +412,7 @@ type channelLink struct {
 // hodlHtlc contains htlc data that is required for resolution.
 type hodlHtlc struct {
 	pd         *lnwallet.PaymentDescriptor
-	obfuscator hop.ErrorEncrypter
+	obfuscator hop.ErrorEncryptor
 }
 
 // NewChannelLink creates a new instance of a ChannelLink given a configuration
@@ -1824,7 +1824,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		default:
 			l.log.Warnf("unexpected failure code received in "+
-				"UpdateFailMailformedHTLC: %v", msg.FailureCode)
+				"UpdateFailMalformedHTLC: %v", msg.FailureCode)
 
 			// We don't just pass back the error we received from
 			// our successor. Otherwise we might report a failure
@@ -3011,8 +3011,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		// Retrieve onion obfuscator from onion blob in order to
 		// produce initial obfuscation of the onion failureCode.
-		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
-			l.cfg.ExtractErrorEncrypter,
+		obfuscator, failureCode := chanIterator.ExtractErrorEncryptor(
+			l.cfg.ExtractErrorEncryptor,
 		)
 		if failureCode != lnwire.CodeNone {
 			// If we're unable to process the onion blob than we
@@ -3044,7 +3044,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// is setup to handle TLV payloads, so testing this
 			// would require implementing a separate mock iterator
 			// for TLV payloads that also supports injecting invalid
-			// payloads. Deferring this non-trival effort till a
+			// payloads. Deferring this non-trivial effort till a
 			// later date
 			failure := lnwire.NewInvalidOnionPayload(failedType, 0)
 			l.sendHTLCError(
@@ -3228,7 +3228,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 // processExitHop handles an htlc for which this link is the exit hop. It
 // returns a boolean indicating whether the commitment tx needs an update.
 func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
-	obfuscator hop.ErrorEncrypter, fwdInfo hop.ForwardingInfo,
+	obfuscator hop.ErrorEncryptor, fwdInfo hop.ForwardingInfo,
 	heightNow uint32, payload invoices.Payload) error {
 
 	// If hodl.ExitSettle is requested, we will not validate the final hop's
@@ -3379,7 +3379,7 @@ func (l *channelLink) forwardBatch(replay bool, packets ...*htlcPacket) {
 // sendHTLCError functions cancels HTLC and send cancel message back to the
 // peer from which HTLC was received.
 func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
-	failure *LinkError, e hop.ErrorEncrypter, isReceive bool) {
+	failure *LinkError, e hop.ErrorEncryptor, isReceive bool) {
 
 	reason, err := e.EncryptFirstHop(failure.WireMessage())
 	if err != nil {

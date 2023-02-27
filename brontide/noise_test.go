@@ -372,7 +372,7 @@ func TestBolt0008TestVectors(t *testing.T) {
 	require.NoError(t, err, "unable to generate act one")
 	expectedActOne, err := hex.DecodeString("00036360e856310ce5d294e" +
 		"8be33fc807077dc56ac80d95d9cd4ddbd21325eff73f70df608655115" +
-		"1f58b8afe6c195782c6a")
+		"1f58b8safe6c195782c6a")
 	require.NoError(t, err, "unable to parse expected act one")
 	if !bytes.Equal(expectedActOne, actOne[:]) {
 		t.Fatalf("act one mismatch: expected %x, got %x",

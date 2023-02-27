@@ -1239,10 +1239,10 @@ type publAssertion func(*testing.T, map[wire.OutPoint]struct{},
 type breachTest struct {
 	name string
 
-	// spend2ndLevel requests that second level htlcs be spent *again*, as
+	// spend2andLevel requests that second level htlcs be spent *again*, as
 	// if by a remote party or watchtower. The outpoint of the second level
 	// htlc is in effect "re-added" to the set of inputs.
-	spend2ndLevel bool
+	spend2andLevel bool
 
 	// sweepHtlc tests that the HTLC output is swept using the revocation
 	// path in a separate tx.
@@ -1263,8 +1263,8 @@ type breachTest struct {
 
 type spendTxs struct {
 	commitSpendTx    *wire.MsgTx
-	htlc2ndLevlTx    *wire.MsgTx
-	htlc2ndLevlSpend *wire.MsgTx
+	htlc2andLevelTx    *wire.MsgTx
+	htlc2andLevelSpend *wire.MsgTx
 	htlcSweep        *wire.MsgTx
 }
 
@@ -1290,9 +1290,9 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 		},
 	}
 
-	// htlc2ndLevlTx is used to transition an htlc output on the commitment
+	// htlc2andLevelTx is used to transition an htlc output on the commitment
 	// transaction to a second level htlc.
-	htlc2ndLevlTx := &wire.MsgTx{
+	htlc2andLevelTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
 			{
 				PreviousOutPoint: htlcOutpoint,
@@ -1304,7 +1304,7 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 	}
 
 	secondLvlOp := wire.OutPoint{
-		Hash:  htlc2ndLevlTx.TxHash(),
+		Hash:  htlc2andLevelTx.TxHash(),
 		Index: 0,
 	}
 
@@ -1364,8 +1364,8 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 
 	return &spendTxs{
 		commitSpendTx:    commitSpendTx,
-		htlc2ndLevlTx:    htlc2ndLevlTx,
-		htlc2ndLevlSpend: htlcSpendTx,
+		htlc2andLevelTx:    htlc2andLevelTx,
+		htlc2andLevelSpend: htlcSpendTx,
 		htlcSweep:        htlcSweep,
 	}, nil
 }
@@ -1373,7 +1373,7 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 var breachTests = []breachTest{
 	{
 		name:          "all spends",
-		spend2ndLevel: true,
+		spend2andLevel: true,
 		whenNonZeroInputs: func(t *testing.T,
 			inputs map[wire.OutPoint]struct{},
 			publTx chan *wire.MsgTx, _ chainhash.Hash) *wire.MsgTx {
@@ -1419,7 +1419,7 @@ var breachTests = []breachTest{
 	},
 	{
 		name:          "commit spends, second level sweep",
-		spend2ndLevel: false,
+		spend2andLevel: false,
 		sendFinalConf: true,
 		whenNonZeroInputs: func(t *testing.T,
 			inputs map[wire.OutPoint]struct{},
@@ -1451,7 +1451,7 @@ var breachTests = []breachTest{
 		whenZeroInputs: func(t *testing.T,
 			inputs map[wire.OutPoint]struct{},
 			publTx chan *wire.MsgTx,
-			htlc2ndLevlTxHash chainhash.Hash) *wire.MsgTx {
+			htlc2andLevelTxHash chainhash.Hash) *wire.MsgTx {
 
 			// Now a transaction attempting to spend from the second
 			// level tx should be published instead. Let this
@@ -1480,7 +1480,7 @@ var breachTests = []breachTest{
 			// ensuring we aren't mistaking this for a different
 			// output type.
 			onlyInput := tx.TxIn[0].PreviousOutPoint.Hash
-			if onlyInput != htlc2ndLevlTxHash {
+			if onlyInput != htlc2andLevelTxHash {
 				t.Fatalf("tx not attempting to spend second "+
 					"level tx, %v", tx.TxIn[0])
 			}
@@ -1674,7 +1674,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	// updated to contain only the set of commitment or second level
 	// outpoints that remain to be spent.
 	spentBy := map[wire.OutPoint]*wire.MsgTx{
-		htlcOutpoint:   spendTxs.htlc2ndLevlTx,
+		htlcOutpoint:   spendTxs.htlc2andLevelTx,
 		localOutpoint:  spendTxs.commitSpendTx,
 		remoteOutpoint: spendTxs.commitSpendTx,
 	}
@@ -1687,8 +1687,8 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		remoteOutpoint: {},
 	}
 
-	htlc2ndLevlTx := spendTxs.htlc2ndLevlTx
-	htlcSpendTx := spendTxs.htlc2ndLevlSpend
+	htlc2andLevelTx := spendTxs.htlc2andLevelTx
+	htlcSpendTx := spendTxs.htlc2andLevelSpend
 
 	// If the test is checking sweep of the HTLC directly without the
 	// second level, insert the sweep tx instead.
@@ -1721,7 +1721,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 		// If this is the second-level spend, we must add the new
 		// outpoint to our expected sweeps.
 		spendTxID := spendTx.TxHash()
-		if spendTxID == htlc2ndLevlTx.TxHash() {
+		if spendTxID == htlc2andLevelTx.TxHash() {
 			// Create the second level outpoint that will
 			// be spent, the index is always zero for these
 			// 1-in-1-out txns.
@@ -1732,20 +1732,20 @@ func testBreachSpends(t *testing.T, test breachTest) {
 			// the outpoint of the second layer tx so that we can
 			// spend it again. Only do so if the test requests this
 			// behavior.
-			if test.spend2ndLevel {
+			if test.spend2andLevel {
 				spentBy[spendOp] = htlcSpendTx
 			}
 		}
 
 		if len(spentBy) > 0 {
-			justiceTx = test.whenNonZeroInputs(t, inputsToSweep, publTx, htlc2ndLevlTx.TxHash())
+			justiceTx = test.whenNonZeroInputs(t, inputsToSweep, publTx, htlc2andLevelTx.TxHash())
 		} else {
 			// Reset the publishing error so that any publication,
 			// made by the breach arbiter, if any, will succeed.
 			publMtx.Lock()
 			publErr = nil
 			publMtx.Unlock()
-			justiceTx = test.whenZeroInputs(t, inputsToSweep, publTx, htlc2ndLevlTx.TxHash())
+			justiceTx = test.whenZeroInputs(t, inputsToSweep, publTx, htlc2andLevelTx.TxHash())
 		}
 	}
 

@@ -27,7 +27,7 @@ func TestOnionFile(t *testing.T) {
 	// Create a new file-based onion store. A private key should not exist
 	// yet.
 	onionFile := NewOnionFile(
-		privateKeyPath, 0600, false, MockEncrypter,
+		privateKeyPath, 0600, false, mockEncrypter,
 	)
 	_, err := onionFile.PrivateKey()
 	require.ErrorIs(t, err, ErrNoPrivateKey)

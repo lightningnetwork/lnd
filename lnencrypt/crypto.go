@@ -37,7 +37,7 @@ type EncrypterDecrypter interface {
 	DecryptPayloadFromReader(io.Reader) ([]byte, error)
 }
 
-// encrypter is a struct responsible for encrypting and decrypting data.
+// Encrypter is a struct responsible for encrypting and decrypting data.
 type encrypter struct {
 	encryptionKey []byte
 }

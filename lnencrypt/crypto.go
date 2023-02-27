@@ -24,9 +24,9 @@ var baseEncryptionKeyLoc = keychain.KeyLocator{
 	Index:  0,
 }
 
-// encrypterDecrypter is an interface representing an object that encrypts or
+// EncrypterDecrypter is an interface representing an object that encrypts or
 // decrypts data.
-type encrypterDecrypter interface {
+type EncrypterDecrypter interface {
 	// EncryptPayloadToWriter attempts to write the set of provided bytes
 	// into the passed io.Writer in an encrypted form.
 	EncryptPayloadToWriter([]byte, io.Writer) error
@@ -49,7 +49,7 @@ type encrypter struct {
 // derive the key this way as we don't force the HSM (or any future
 // abstractions) to be able to derive and know of the cipher that we'll use
 // within our protocol.
-func KeyRingEncrypter(keyRing keychain.KeyRing) (*encrypter, error) {
+func KeyRingEncrypter(keyRing keychain.KeyRing) (*Encrypter, error) {
 	//  key = SHA256(baseKey)
 	baseKey, err := keyRing.DeriveKey(
 		baseEncryptionKeyLoc,
@@ -64,7 +64,7 @@ func KeyRingEncrypter(keyRing keychain.KeyRing) (*encrypter, error) {
 
 	// TODO(roasbeef): throw back in ECDH?
 
-	return &encrypter{
+	return &Encrypter{
 		encryptionKey: encryptionKey[:],
 	}, nil
 }
@@ -73,7 +73,7 @@ func KeyRingEncrypter(keyRing keychain.KeyRing) (*encrypter, error) {
 // passed io.Writer in an encrypted form. We use a 24-byte chachapoly AEAD
 // instance with a randomized nonce that's pre-pended to the final payload and
 // used as associated data in the AEAD.
-func (e encrypter) EncryptPayloadToWriter(payload []byte,
+func (e Encrypter) EncryptPayloadToWriter(payload []byte,
 	w io.Writer) error {
 
 	// Before encryption, we'll initialize our cipher with the target
@@ -107,7 +107,7 @@ func (e encrypter) EncryptPayloadToWriter(payload []byte,
 // passed io.Reader instance using the key derived from the passed keyRing. For
 // further details regarding the key derivation protocol, see the
 // KeyRingEncrypter function.
-func (e encrypter) DecryptPayloadFromReader(payload io.Reader) ([]byte,
+func (e Encrypter) DecryptPayloadFromReader(payload io.Reader) ([]byte,
 	error) {
 
 	// Next, we'll read out the entire blob as we need to isolate the nonce

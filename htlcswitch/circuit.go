@@ -197,7 +197,7 @@ func (c *PaymentCircuit) Decode(r io.Reader) error {
 		// locally initiated.
 		return nil
 
-	case hop.encrypterTypeSphinx:
+	case hop.EncrypterTypeSphinx:
 		// Sphinx encrypter was used as this is a forwarded HTLC.
 		c.ErrorEncrypter = hop.NewSphinxErrorEncrypter()
 
@@ -206,7 +206,7 @@ func (c *PaymentCircuit) Decode(r io.Reader) error {
 		c.ErrorEncrypter = NewMockObfuscator()
 
 	default:
-		return UnknownencrypterType(encrypterType)
+		return UnknownEncrypterType(encrypterType)
 	}
 
 	return c.ErrorEncrypter.Decode(r)

@@ -19,9 +19,9 @@ const (
 	// can happen if the htlc is originates in the switch.
 	encrypterTypeNone encrypterType = 0
 
-	// encrypterTypeSphinx is used to identify a sphinx onion error
+	// EncrypterTypeSphinx is used to identify a sphinx onion error
 	// encrypter instance.
-	encrypterTypeSphinx = 1
+	EncrypterTypeSphinx = 1
 
 	// encrypterTypeMock is used to identify a mock obfuscator instance.
 	encrypterTypeMock = 2
@@ -145,7 +145,7 @@ func (s *SphinxErrorEncrypter) IntermediateEncrypt(
 
 // Type returns the identifier for a sphinx error encrypter.
 func (s *SphinxErrorEncrypter) Type() encrypterType {
-	return encrypterTypeSphinx
+	return EncrypterTypeSphinx
 }
 
 // Encode serializes the error encrypter' ephemeral public key to the provided

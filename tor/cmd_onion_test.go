@@ -22,7 +22,7 @@ func TestOnionFile(t *testing.T) {
 
 	tempDir := t.TempDir()
 	privateKeyPath := filepath.Join(tempDir, "secret")
-	MockEncrypter := MockEncrypter{}
+	mockEncrypter := MockEncrypter{}
 
 	// Create a new file-based onion store. A private key should not exist
 	// yet.

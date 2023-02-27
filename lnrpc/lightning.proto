@@ -582,6 +582,10 @@ service Lightning {
     */
     rpc ListAliases (ListAliasesRequest) returns (ListAliasesResponse);
 
+    /*
+    LookupHtlc retrieves a final htlc resolution from the database. If the htlc
+    has no final resolution yet, a NotFound grpc status code is returned.
+    */
     rpc LookupHtlc (LookupHtlcRequest) returns (LookupHtlcResponse);
 }
 
@@ -592,8 +596,10 @@ message LookupHtlcRequest {
 }
 
 message LookupHtlcResponse {
+    // Settled is true is the htlc was settled. If false, the htlc was failed.
     bool settled = 1;
 
+    // Offchain indicates whether the htlc was resolved off-chain or on-chain.
     bool offchain = 2;
 }
 

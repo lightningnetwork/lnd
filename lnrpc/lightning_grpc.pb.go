@@ -402,6 +402,8 @@ type LightningClient interface {
 	// their confirmed SCID (if it exists) and/or the base SCID (in the case of
 	// zero conf).
 	ListAliases(ctx context.Context, in *ListAliasesRequest, opts ...grpc.CallOption) (*ListAliasesResponse, error)
+	// LookupHtlc retrieves a final htlc resolution from the database. If the htlc
+	// has no final resolution yet, a NotFound grpc status code is returned.
 	LookupHtlc(ctx context.Context, in *LookupHtlcRequest, opts ...grpc.CallOption) (*LookupHtlcResponse, error)
 }
 
@@ -1701,6 +1703,8 @@ type LightningServer interface {
 	// their confirmed SCID (if it exists) and/or the base SCID (in the case of
 	// zero conf).
 	ListAliases(context.Context, *ListAliasesRequest) (*ListAliasesResponse, error)
+	// LookupHtlc retrieves a final htlc resolution from the database. If the htlc
+	// has no final resolution yet, a NotFound grpc status code is returned.
 	LookupHtlc(context.Context, *LookupHtlcRequest) (*LookupHtlcResponse, error)
 	mustEmbedUnimplementedLightningServer()
 }

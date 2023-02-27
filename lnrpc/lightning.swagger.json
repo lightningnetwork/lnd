@@ -1603,6 +1603,7 @@
     },
     "/v1/htlc/{chan_id}/{htlc_index}": {
       "get": {
+        "summary": "LookupHtlc retrieves a final htlc resolution from the database. If the htlc\nhas no final resolution yet, a NotFound grpc status code is returned.",
         "operationId": "Lightning_LookupHtlc",
         "responses": {
           "200": {
@@ -5440,10 +5441,12 @@
       "type": "object",
       "properties": {
         "settled": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Settled is true is the htlc was settled. If false, the htlc was failed."
         },
         "offchain": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Offchain indicates whether the htlc was resolved off-chain or on-chain."
         }
       }
     },

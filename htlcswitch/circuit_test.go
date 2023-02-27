@@ -31,9 +31,9 @@ var (
 	// create onion obfuscators.
 	testEphemeralKey *btcec.PublicKey
 
-	// testExtractor is a precomputed extraction of testEphemeralKey, using
+	// testextracter is a precomputed extraction of testEphemeralKey, using
 	// the sphinxPrivKey.
-	testExtractor *hop.SphinxErrorEncrypter
+	testextracter *hop.SphinxErrorEncrypter
 )
 
 func init() {
@@ -51,18 +51,18 @@ func init() {
 	}
 	testEphemeralKey = testEphemeralPriv.PubKey()
 
-	// Finally, properly initialize the test extractor
-	initTestExtractor()
+	// Finally, properly initialize the test extracter
+	initTestextracter()
 }
 
-// initTestExtractor spins up a new onion processor specifically for the purpose
-// of generating our testExtractor, which should be derived from the
+// initTestextracter spins up a new onion processor specifically for the purpose
+// of generating our testextracter, which should be derived from the
 // testEphemeralKey, and which randomly-generated key is used to init the sphinx
 // router.
 //
 // NOTE: This should be called in init(), after testEphemeralKey has been
 // properly initialized.
-func initTestExtractor() {
+func initTestextracter() {
 	onionProcessor := newOnionProcessor(nil)
 	defer onionProcessor.Stop()
 
@@ -70,16 +70,16 @@ func initTestExtractor() {
 		testEphemeralKey,
 	)
 
-	sphinxExtractor, ok := obfuscator.(*hop.SphinxErrorEncrypter)
+	sphinxextracter, ok := obfuscator.(*hop.SphinxErrorEncrypter)
 	if !ok {
 		panic("did not extract sphinx error encrypter")
 	}
 
-	testExtractor = sphinxExtractor
+	testextracter = sphinxextracter
 
-	// We also set this error extractor on startup, otherwise it will be nil
+	// We also set this error extracter on startup, otherwise it will be nil
 	// at compile-time.
-	halfCircuitTests[2].encrypter = testExtractor
+	halfCircuitTests[2].encrypter = testextracter
 }
 
 // newOnionProcessor creates starts a new htlcswitch.OnionProcessor using a temp
@@ -170,10 +170,10 @@ var halfCircuitTests = []struct {
 		outValue: 9000,
 		chanID:   lnwire.NewShortChanIDFromInt(3),
 		htlcID:   3,
-		// NOTE: The value of testExtractor is nil at compile-time, it
-		// is fully-initialized in initTestExtractor, which should
+		// NOTE: The value of testextracter is nil at compile-time, it
+		// is fully-initialized in initTestextracter, which should
 		// repopulate this encrypter.
-		encrypter: testExtractor,
+		encrypter: testextracter,
 	},
 }
 
@@ -678,7 +678,7 @@ func TestCircuitMapCommitCircuits(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncrypter: testExtractor,
+		ErrorEncrypter: testextracter,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this
@@ -768,7 +768,7 @@ func TestCircuitMapOpenCircuits(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncrypter: testExtractor,
+		ErrorEncrypter: testextracter,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this
@@ -1200,7 +1200,7 @@ func TestCircuitMapCloseUnopenedCircuit(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncrypter: testExtractor,
+		ErrorEncrypter: testextracter,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this
@@ -1255,7 +1255,7 @@ func TestCircuitMapDeleteUnopenedCircuit(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncrypter: testExtractor,
+		ErrorEncrypter: testextracter,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this
@@ -1312,7 +1312,7 @@ func TestCircuitMapDeleteOpenCircuit(t *testing.T) {
 			ChanID: chan1,
 			HtlcID: 3,
 		},
-		ErrorEncrypter: testExtractor,
+		ErrorEncrypter: testextracter,
 	}
 
 	// First we will try to add an new circuit to the circuit map, this

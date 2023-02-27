@@ -107,9 +107,9 @@ func (r *sphinxHopIterator) HopPayload() (*Payload, error) {
 //
 // NOTE: Part of the HopIterator interface.
 func (r *sphinxHopIterator) ExtractErrorEncrypter(
-	extractor ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
+	extracter ErrorEncrypterExtracter) (ErrorEncrypter, lnwire.FailCode) {
 
-	return extractor(r.ogPacket.EphemeralKey)
+	return extracter(r.ogPacket.EphemeralKey)
 }
 
 // OnionProcessor is responsible for keeping all sphinx dependent parts inside

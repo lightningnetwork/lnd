@@ -66,7 +66,7 @@ type ErrorEncrypter interface {
 	// given io.Reader.
 	Decode(io.Reader) error
 
-	// Reextract rederives the encrypter using the extractor, performing an
+	// Reextract rederives the encrypter using the extracter, performing an
 	// ECDH with the sphinx router's key and the ephemeral public key.
 	//
 	// NOTE: This should be called shortly after Decode to properly
@@ -190,7 +190,7 @@ func (s *SphinxErrorEncrypter) Reextract(
 
 	sphinxencrypter, ok := obfuscator.(*SphinxErrorEncrypter)
 	if !ok {
-		return fmt.Errorf("incorrect onion error extractor")
+		return fmt.Errorf("incorrect onion error extracter")
 	}
 
 	// Copy the freshly extracted encrypter.

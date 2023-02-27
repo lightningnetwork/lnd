@@ -8,6 +8,9 @@
 * [Add time_lock_delta overflow check for UpdateChannelPolicy](https://github.com/lightningnetwork/lnd/pull/7350)
   that ensure `time_lock_delta` is greater or equal than `0` and less or equal than `65535`
 
+* [Added ability to backup, verify and
+  restore single channels](https://github.com/lightningnetwork/lnd/pull/7437)
+  to and from a file on disk.
 
 ## Watchtowers
 
@@ -39,6 +42,7 @@
 
 # Contributors (Alphabetical Order)
 
+* ardevd
 * Elle Mouton
 * Oliver Gugger
 * Tommy Volk

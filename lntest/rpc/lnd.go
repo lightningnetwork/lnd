@@ -697,27 +697,31 @@ func (h *HarnessRPC) GetChanInfo(
 	return resp
 }
 
-// LookupHtlc makes a RPC call to the node's LookupHtlc and returns the
-// response.
-func (h *HarnessRPC) LookupHtlc(
-	req *lnrpc.LookupHtlcRequest) *lnrpc.LookupHtlcResponse {
+// LookupHtlcResolution makes a RPC call to the node's LookupHtlcResolution and
+// returns the response.
+//
+//nolint:lll
+func (h *HarnessRPC) LookupHtlcResolution(
+	req *lnrpc.LookupHtlcResolutionRequest) *lnrpc.LookupHtlcResolutionResponse {
 
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	resp, err := h.LN.LookupHtlc(ctxt, req)
-	h.NoError(err, "LookupHtlc")
+	resp, err := h.LN.LookupHtlcResolution(ctxt, req)
+	h.NoError(err, "LookupHtlcResolution")
 
 	return resp
 }
 
-// LookupHtlcAssertErr makes a RPC call to the node's LookupHtlc and asserts
-// an RPC error is returned.
-func (h *HarnessRPC) LookupHtlcAssertErr(req *lnrpc.LookupHtlcRequest) error {
+// LookupHtlcResolutionAssertErr makes a RPC call to the node's
+// LookupHtlcResolution and asserts an RPC error is returned.
+func (h *HarnessRPC) LookupHtlcResolutionAssertErr(
+	req *lnrpc.LookupHtlcResolutionRequest) error {
+
 	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
 	defer cancel()
 
-	_, err := h.LN.LookupHtlc(ctxt, req)
+	_, err := h.LN.LookupHtlcResolution(ctxt, req)
 	require.Error(h, err, "expected an error")
 
 	return err

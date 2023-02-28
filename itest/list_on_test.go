@@ -512,7 +512,7 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBidirectionalAsyncPayments,
 	},
 	{
-		Name:     "lookup htlc",
-		TestFunc: testLookupHTLC,
+		Name:     "lookup htlc resolution",
+		TestFunc: testLookupHtlcResolution,
 	},
 }

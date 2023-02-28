@@ -1601,15 +1601,15 @@
         ]
       }
     },
-    "/v1/htlc/{chan_id}/{htlc_index}": {
+    "/v1/htlc-resolution/{chan_id}/{htlc_index}": {
       "get": {
-        "summary": "LookupHtlc retrieves a final htlc resolution from the database. If the htlc\nhas no final resolution yet, a NotFound grpc status code is returned.",
-        "operationId": "Lightning_LookupHtlc",
+        "summary": "LookupHtlcResolution retrieves a final htlc resolution from the database.\nIf the htlc has no final resolution yet, a NotFound grpc status code is\nreturned.",
+        "operationId": "Lightning_LookupHtlcResolution",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/lnrpcLookupHtlcResponse"
+              "$ref": "#/definitions/lnrpcLookupHtlcResolutionResponse"
             }
           },
           "default": {
@@ -5437,7 +5437,7 @@
         }
       }
     },
-    "lnrpcLookupHtlcResponse": {
+    "lnrpcLookupHtlcResolutionResponse": {
       "type": "object",
       "properties": {
         "settled": {

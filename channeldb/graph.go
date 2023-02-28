@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -3731,35 +3732,17 @@ func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
 
 // genMultiSigP2WSH generates the p2wsh'd multisig script for 2 of 2 pubkeys.
 func genMultiSigP2WSH(aPub, bPub []byte) ([]byte, error) {
-	if len(aPub) != 33 || len(bPub) != 33 {
-		return nil, fmt.Errorf("pubkey size error. Compressed " +
-			"pubkeys only")
-	}
-
-	// Swap to sort pubkeys if needed. Keys are sorted in lexicographical
-	// order. The signatures within the scriptSig must also adhere to the
-	// order, ensuring that the signatures for each public key appears in
-	// the proper order on the stack.
-	if bytes.Compare(aPub, bPub) == 1 {
-		aPub, bPub = bPub, aPub
-	}
-
-	// First, we'll generate the witness script for the multi-sig.
-	bldr := txscript.NewScriptBuilder()
-	bldr.AddOp(txscript.OP_2)
-	bldr.AddData(aPub) // Add both pubkeys (sorted).
-	bldr.AddData(bPub)
-	bldr.AddOp(txscript.OP_2)
-	bldr.AddOp(txscript.OP_CHECKMULTISIG)
-	witnessScript, err := bldr.Script()
+	witnessScript, err := input.GenMultiSigScript(aPub, bPub)
 	if err != nil {
 		return nil, err
 	}
 
-	// With the witness script generated, we'll now turn it into a p2sh
+	// With the witness script generated, we'll now turn it into a p2wsh
 	// script:
 	//  * OP_0 <sha256(script)>
-	bldr = txscript.NewScriptBuilder()
+	bldr := txscript.NewScriptBuilder(
+		txscript.WithScriptAllocSize(input.P2WSHSize),
+	)
 	bldr.AddOp(txscript.OP_0)
 	scriptHash := sha256.Sum256(witnessScript)
 	bldr.AddData(scriptHash[:])

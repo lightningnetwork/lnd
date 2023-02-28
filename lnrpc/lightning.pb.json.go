@@ -1724,10 +1724,10 @@ func RegisterLightningJSONCallbacks(registry map[string]func(ctx context.Context
 		callback(string(respBytes), nil)
 	}
 
-	registry["lnrpc.Lightning.LookupHtlc"] = func(ctx context.Context,
+	registry["lnrpc.Lightning.LookupHtlcResolution"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
-		req := &LookupHtlcRequest{}
+		req := &LookupHtlcResolutionRequest{}
 		err := marshaler.Unmarshal([]byte(reqJSON), req)
 		if err != nil {
 			callback("", err)
@@ -1735,7 +1735,7 @@ func RegisterLightningJSONCallbacks(registry map[string]func(ctx context.Context
 		}
 
 		client := NewLightningClient(conn)
-		resp, err := client.LookupHtlc(ctx, req)
+		resp, err := client.LookupHtlcResolution(ctx, req)
 		if err != nil {
 			callback("", err)
 			return

@@ -9,9 +9,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// testLookupHTLC checks that `LookupHtlc` returns the correct HTLC
-// information.
-func testLookupHTLC(ht *lntest.HarnessTest) {
+// testLookupHtlcResolution checks that `LookupHtlcResolution` returns the
+// correct HTLC information.
+func testLookupHtlcResolution(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(1000000)
 
 	alice := ht.Alice
@@ -54,18 +54,18 @@ func testLookupHTLC(ht *lntest.HarnessTest) {
 	channel := ht.AssertChannelExists(carol, cp)
 
 	// Lookup the HTLC and assert the htlc is settled offchain.
-	req := &lnrpc.LookupHtlcRequest{
+	req := &lnrpc.LookupHtlcResolutionRequest{
 		ChanId:    channel.ChanId,
 		HtlcIndex: 0,
 	}
 
-	// Check that Alice will get an error from LookupHtlc.
-	err := alice.RPC.LookupHtlcAssertErr(req)
+	// Check that Alice will get an error from LookupHtlcResolution.
+	err := alice.RPC.LookupHtlcResolutionAssertErr(req)
 	gErr := status.Convert(err)
 	require.Equal(ht, codes.Unavailable, gErr.Code())
 
 	// Check that Carol can get the final htlc info.
-	finalHTLC := carol.RPC.LookupHtlc(req)
+	finalHTLC := carol.RPC.LookupHtlcResolution(req)
 	require.True(ht, finalHTLC.Settled, "htlc should be settled")
 	require.True(ht, finalHTLC.Offchain, "htlc should be Offchain")
 }

@@ -577,7 +577,7 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
-		"/lnrpc.Lightning/LookupHtlc": {{
+		"/lnrpc.Lightning/LookupHtlcResolution": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -3937,10 +3937,12 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 	return resp, nil
 }
 
-// LookupHtlc retrieves a final htlc resolution from the database. If the htlc
-// has no final resolution yet, a NotFound grpc status code is returned.
-func (r *rpcServer) LookupHtlc(ctx context.Context,
-	in *lnrpc.LookupHtlcRequest) (*lnrpc.LookupHtlcResponse, error) {
+// LookupHtlcResolution retrieves a final htlc resolution from the database. If
+// the htlc has no final resolution yet, a NotFound grpc status code is
+// returned.
+func (r *rpcServer) LookupHtlcResolution(
+	ctx context.Context, in *lnrpc.LookupHtlcResolutionRequest) (
+	*lnrpc.LookupHtlcResolutionResponse, error) {
 
 	if !r.cfg.StoreFinalHtlcResolutions {
 		return nil, status.Error(codes.Unavailable, "cannot lookup "+
@@ -3958,7 +3960,7 @@ func (r *rpcServer) LookupHtlc(ctx context.Context,
 		return nil, err
 	}
 
-	return &lnrpc.LookupHtlcResponse{
+	return &lnrpc.LookupHtlcResolutionResponse{
 		Settled:  info.Settled,
 		Offchain: info.Offchain,
 	}, nil

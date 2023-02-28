@@ -1525,7 +1525,7 @@
         "txid": {
           "type": "string",
           "format": "byte",
-          "description": "The txid of the transaction to label."
+          "description": "The txid of the transaction to label. Note: When using gRPC, the bytes\nmust be in little-endian (reverse) order."
         },
         "label": {
           "type": "string",

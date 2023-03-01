@@ -149,6 +149,10 @@ of order is also [fixed](https://github.com/lightningnetwork/lnd/pull/7264).
   parameter is enabled by default but can be disabled with a new flag
   `--skip_peer_alias_lookup`.
 
+* Assign potential peer alias lookup errors in the [`ListChannels` and
+  `ForwardingHistory`rpcs](https://github.com/lightningnetwork/lnd/pull/7471) to
+  the rpc response.
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

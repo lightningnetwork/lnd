@@ -4193,8 +4193,8 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	if peerAliasLookup {
 		peerAlias, err := r.server.graphDB.LookupAlias(nodePub)
 		if err != nil {
-			return nil, fmt.Errorf("unable to lookup peer "+
-				"alias: %w", err)
+			peerAlias = fmt.Sprintf("unable to lookup "+
+				"peer alias: %v", err)
 		}
 		channel.PeerAlias = peerAlias
 	}
@@ -7035,16 +7035,15 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		if req.PeerAliasLookup {
 			aliasIn, err := getRemoteAlias(event.IncomingChanID)
 			if err != nil {
-				return nil, fmt.Errorf("unable to lookup peer "+
+				aliasIn = fmt.Sprintf("unable to lookup peer "+
+					"alias: %v", err)
+			}
+			aliasOut, err := getRemoteAlias(event.OutgoingChanID)
+			if err != nil {
+				aliasOut = fmt.Sprintf("unable to lookup peer"+
 					"alias: %v", err)
 			}
 			resp.ForwardingEvents[i].PeerAliasIn = aliasIn
-
-			aliasOut, err := getRemoteAlias(event.OutgoingChanID)
-			if err != nil {
-				return nil, fmt.Errorf("unable to lookup peer "+
-					"alias: %v", err)
-			}
 			resp.ForwardingEvents[i].PeerAliasOut = aliasOut
 		}
 	}

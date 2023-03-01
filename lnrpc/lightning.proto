@@ -582,18 +582,26 @@ service Lightning {
     */
     rpc ListAliases (ListAliasesRequest) returns (ListAliasesResponse);
 
-    rpc LookupHtlc (LookupHtlcRequest) returns (LookupHtlcResponse);
+    /*
+    LookupHtlcResolution retrieves a final htlc resolution from the database.
+    If the htlc has no final resolution yet, a NotFound grpc status code is
+    returned.
+    */
+    rpc LookupHtlcResolution (LookupHtlcResolutionRequest)
+        returns (LookupHtlcResolutionResponse);
 }
 
-message LookupHtlcRequest {
+message LookupHtlcResolutionRequest {
     uint64 chan_id = 1;
 
     uint64 htlc_index = 2;
 }
 
-message LookupHtlcResponse {
+message LookupHtlcResolutionResponse {
+    // Settled is true is the htlc was settled. If false, the htlc was failed.
     bool settled = 1;
 
+    // Offchain indicates whether the htlc was resolved off-chain or on-chain.
     bool offchain = 2;
 }
 

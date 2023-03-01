@@ -85,7 +85,8 @@ of order is also [fixed](https://github.com/lightningnetwork/lnd/pull/7264).
   application considers an HTLC settled, but in reality the HTLC has timed out.
 
   Final resolution data will only be available for htlcs that are resolved
-  after upgrading lnd.
+  after upgrading lnd. Once resolved, it's final status can be retrieved via
+  [`LookupHtlcResolution`](https://github.com/lightningnetwork/lnd/pull/7467).
 
   This feature is [opt-in](https://github.com/lightningnetwork/lnd/pull/7341)
   via a config flag. The status of the flag is

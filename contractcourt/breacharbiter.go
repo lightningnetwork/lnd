@@ -532,7 +532,12 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 
 	// In this case, we'll modify the witness type of this output to
 	// actually prepare for a second level revoke.
-	bo.witnessType = input.HtlcSecondLevelRevoke
+	isTaproot := txscript.IsPayToTaproot(bo.signDesc.Output.PkScript)
+	if isTaproot {
+		bo.witnessType = input.TaprootHtlcSecondLevelRevoke
+	} else {
+		bo.witnessType = input.HtlcSecondLevelRevoke
+	}
 
 	// We'll also redirect the outpoint to this second level output, so the
 	// spending transaction updates it inputs accordingly.
@@ -577,6 +582,10 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 		txIn := s.detail.SpendingTx.TxIn[s.detail.SpenderInputIndex]
 
 		switch breachedOutput.witnessType {
+		case input.TaprootHtlcAcceptedRevoke:
+			fallthrough
+		case input.TaprootHtlcOfferedRevoke:
+			fallthrough
 		case input.HtlcAcceptedRevoke:
 			fallthrough
 		case input.HtlcOfferedRevoke:
@@ -619,12 +628,13 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 		// count the total and revoked funds swept depending on the
 		// input type.
 		switch breachedOutput.witnessType {
-		// If the output being revoked is the remote commitment
-		// output or an offered HTLC output, it's amount
-		// contributes to the value of funds being revoked from
-		// the counter party.
-		case input.CommitmentRevoke, input.HtlcSecondLevelRevoke,
-			input.HtlcOfferedRevoke:
+		// If the output being revoked is the remote commitment output
+		// or an offered HTLC output, its amount contributes to the
+		// value of funds being revoked from the counter party.
+		case input.CommitmentRevoke, input.TaprootCommitmentRevoke,
+			input.HtlcSecondLevelRevoke,
+			input.TaprootHtlcSecondLevelRevoke,
+			input.TaprootHtlcOfferedRevoke, input.HtlcOfferedRevoke:
 
 			revokedFunds += breachedOutput.Amount()
 		}
@@ -1168,20 +1178,39 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	// the nil-ness of their sign descriptors.
 	breachedOutputs := make([]breachedOutput, 0, nHtlcs+2)
 
+	isTaproot := func() bool {
+		if breachInfo.LocalOutputSignDesc != nil {
+			return txscript.IsPayToTaproot(
+				breachInfo.LocalOutputSignDesc.Output.PkScript,
+			)
+		}
+
+		return txscript.IsPayToTaproot(
+			breachInfo.RemoteOutputSignDesc.Output.PkScript,
+		)
+	}()
+
 	// First, record the breach information for the local channel point if
 	// it is not considered dust, which is signaled by a non-nil sign
 	// descriptor. Here we use CommitmentNoDelay (or
 	// CommitmentNoDelayTweakless for newer commitments) since this output
 	// belongs to us and has no time-based constraints on spending.
 	if breachInfo.LocalOutputSignDesc != nil {
-		witnessType := input.CommitmentNoDelay
-		if breachInfo.LocalOutputSignDesc.SingleTweak == nil {
+		var witnessType input.StandardWitnessType
+		switch {
+		case isTaproot:
+			witnessType = input.TaprootLocalCommitSpend
+
+		case !isTaproot && breachInfo.LocalOutputSignDesc.SingleTweak == nil:
 			witnessType = input.CommitSpendNoDelayTweakless
+
+		case !isTaproot:
+			witnessType = input.CommitmentNoDelay
 		}
 
 		// If the local delay is non-zero, it means this output is of
 		// the confirmed to_remote type.
-		if breachInfo.LocalDelay != 0 {
+		if !isTaproot && breachInfo.LocalDelay != 0 {
 			witnessType = input.CommitmentToRemoteConfirmed
 		}
 
@@ -1204,9 +1233,16 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	// CommitmentRevoke, since we will be using a revoke key, withdrawing
 	// the funds from the commitment transaction immediately.
 	if breachInfo.RemoteOutputSignDesc != nil {
+		var witType input.StandardWitnessType
+		if isTaproot {
+			witType = input.TaprootCommitmentRevoke
+		} else {
+			witType = input.CommitmentRevoke
+		}
+
 		remoteOutput := makeBreachedOutput(
 			&breachInfo.RemoteOutpoint,
-			input.CommitmentRevoke,
+			witType,
 			// No second level script as this is a commitment
 			// output.
 			nil,
@@ -1226,9 +1262,18 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		// appropriate witness type that needs to be generated in order
 		// to sweep the HTLC output.
 		var htlcWitnessType input.StandardWitnessType
-		if breachedHtlc.IsIncoming {
+		switch {
+
+		case isTaproot && breachedHtlc.IsIncoming:
+			htlcWitnessType = input.TaprootHtlcAcceptedRevoke
+
+		case !isTaproot && !breachedHtlc.IsIncoming:
+			htlcWitnessType = input.TaprootHtlcOfferedRevoke
+
+		case !isTaproot && breachedHtlc.IsIncoming:
 			htlcWitnessType = input.HtlcAcceptedRevoke
-		} else {
+
+		case !isTaproot && !breachedHtlc.IsIncoming:
 			htlcWitnessType = input.HtlcOfferedRevoke
 		}
 
@@ -1237,7 +1282,8 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			htlcWitnessType,
 			breachInfo.HtlcRetributions[i].SecondLevelWitnessScript,
 			&breachInfo.HtlcRetributions[i].SignDesc,
-			breachInfo.BreachHeight)
+			breachInfo.BreachHeight,
+		)
 
 		breachedOutputs = append(breachedOutputs, htlcOutput)
 	}
@@ -1292,12 +1338,16 @@ func (b *BreachArbiter) createJusticeTx(
 		allInputs = append(allInputs, inp)
 
 		// Check if the input is from an HTLC or a commitment output.
-		if inp.WitnessType() == input.HtlcAcceptedRevoke ||
-			inp.WitnessType() == input.HtlcOfferedRevoke ||
-			inp.WitnessType() == input.HtlcSecondLevelRevoke {
+
+		switch inp.WitnessType() {
+		case input.HtlcAcceptedRevoke, input.HtlcOfferedRevoke,
+			input.HtlcSecondLevelRevoke,
+			input.TaprootHtlcAcceptedRevoke,
+			input.TaprootHtlcOfferedRevoke,
+			input.TaprootHtlcSecondLevelRevoke:
 
 			htlcInputs = append(htlcInputs, inp)
-		} else {
+		default:
 			commitInputs = append(commitInputs, inp)
 		}
 	}
@@ -1704,6 +1754,8 @@ func (bo *breachedOutput) Encode(w io.Writer) error {
 	if err != nil {
 		return err
 	}
+
+	// TODO(roasbeef): need to write taptweak...
 
 	err = wire.WriteVarBytes(w, 0, bo.secondLevelWitnessScript)
 	if err != nil {

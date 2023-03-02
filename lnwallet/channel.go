@@ -6372,6 +6372,26 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 			},
 			MaturityDelay: maturityDelay,
 		}
+
+		// For taproot channels, we'll need to set some additional
+		// fields to ensure the output can be swept.
+		//
+		// TODO(roasbef): abstract into new func
+		if chanState.ChanType.IsTaproot() {
+			commitResolution.SelfOutputSignDesc.SignMethod =
+				input.TaprootScriptSpendSignMethod
+
+			ctrlBlock := input.MakeTaprootCtrlBlock(
+				commitResolution.SelfOutputSignDesc.WitnessScript,
+				&input.TaprootNUMSKey, selfScript.ScriptTree,
+			)
+			commitResolution.SelfOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
+			if err != nil {
+				return nil, err
+			}
+
+			// TODO(roasbeef): put ctrl block in resolution?
+		}
 	}
 
 	closeSummary := channeldb.ChannelCloseSummary{

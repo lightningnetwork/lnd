@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
@@ -7231,6 +7232,24 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 				HashType: txscript.SigHashAll,
 			},
 			MaturityDelay: csvTimeout,
+		}
+
+		// For taproot channels, we'll need to set some additional
+		// fields to ensure the output can be swept.
+		//
+		// TODO(roasbef): abstract into new func
+		if chanState.ChanType.IsTaproot() {
+			commitResolution.SelfOutputSignDesc.SignMethod =
+				input.TaprootScriptSpendSignMethod
+
+			ctrlBlock := input.MakeTaprootSuccessCtrlBlock(
+				commitResolution.SelfOutputSignDesc.WitnessScript,
+				keyRing.RevocationKey, toLocalScript.ScriptTree,
+			)
+			commitResolution.SelfOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 

@@ -225,8 +225,6 @@ func WriteSignDescriptor(w io.Writer, sd *SignDescriptor) error {
 		return err
 	}
 
-	// TODO(roasbeef): also write ctrl block?
-
 	return nil
 }
 

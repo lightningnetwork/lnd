@@ -607,7 +607,7 @@ func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 // SenderHTLCScriptTaproot constructs the taproot witness program (schnorr key)
 // for an outgoing HTLC on the sender's version of the commitment transaction.
 // This method returns the top level tweaked public key that commits to both
-// the script paths.
+// the script paths. This is also known as an offered HTLC.
 //
 // The returned key commits to a tapscript tree with two possible paths:
 //
@@ -669,12 +669,21 @@ func SenderHTLCScriptTaprootRedeem(signer Signer, signDesc *SignDescriptor,
 
 	// In addition to the signature and the witness/leaf script, we also
 	// need to make a control block proof using the tapscript tree.
-	successTapLeafHash := txscript.NewBaseTapLeaf(
-		signDesc.WitnessScript,
-	).TapHash()
-	successIdx := tapscriptTree.LeafProofIndex[successTapLeafHash]
-	successMerkleProof := tapscriptTree.LeafMerkleProofs[successIdx]
-	successControlBlock := successMerkleProof.ToControlBlock(revokeKey)
+	var ctrlBlock []byte
+	if signDesc.ControlBlock == nil {
+		successControlBlock := MakeTaprootSuccessCtrlBlock(
+			signDesc.WitnessScript, revokeKey, tapscriptTree,
+		)
+
+		ctrlBytes, err := successControlBlock.ToBytes()
+		if err != nil {
+			return nil, err
+		}
+
+		ctrlBlock = ctrlBytes
+	} else {
+		ctrlBlock = signDesc.ControlBlock
+	}
 
 	// The final witness stack is:
 	//  <receiver sig> <preimage> <success_script> <control_block>
@@ -682,10 +691,7 @@ func SenderHTLCScriptTaprootRedeem(signer Signer, signDesc *SignDescriptor,
 	witnessStack[0] = maybeAppendSighash(sweepSig, signDesc.HashType)
 	witnessStack[1] = preimage
 	witnessStack[2] = signDesc.WitnessScript
-	witnessStack[3], err = successControlBlock.ToBytes()
-	if err != nil {
-		return nil, err
-	}
+	witnessStack[3] = ctrlBlock
 
 	return witnessStack, nil
 }
@@ -707,12 +713,20 @@ func SenderHTLCScriptTaprootTimeout(receiverSig Signature,
 
 	// With the sweep signature obtained, we'll obtain the control block
 	// proof needed to perform a valid spend for the timeout path.
-	timeoutTapLeafHash := txscript.NewBaseTapLeaf(
-		signDesc.WitnessScript,
-	).TapHash()
-	timeoutIdx := tapscriptTree.LeafProofIndex[timeoutTapLeafHash]
-	timeoutMerkleProof := tapscriptTree.LeafMerkleProofs[timeoutIdx]
-	timeoutControlBlock := timeoutMerkleProof.ToControlBlock(revokeKey)
+	var ctrlBlockBytes []byte
+	if signDesc.ControlBlock == nil {
+		timeoutControlBlock := MakeTaprootSuccessCtrlBlock(
+			signDesc.WitnessScript, revokeKey, tapscriptTree,
+		)
+		ctrlBytes, err := timeoutControlBlock.ToBytes()
+		if err != nil {
+			return nil, err
+		}
+
+		ctrlBlockBytes = ctrlBytes
+	} else {
+		ctrlBlockBytes = signDesc.ControlBlock
+	}
 
 	// The final witness stack is:
 	//  <receiver sig> <local sig> <timeout_script> <control_block>
@@ -720,10 +734,7 @@ func SenderHTLCScriptTaprootTimeout(receiverSig Signature,
 	witnessStack[0] = maybeAppendSighash(receiverSig, receiverSigHash)
 	witnessStack[1] = maybeAppendSighash(sweepSig, signDesc.HashType)
 	witnessStack[2] = signDesc.WitnessScript
-	witnessStack[3], err = timeoutControlBlock.ToBytes()
-	if err != nil {
-		return nil, err
-	}
+	witnessStack[3] = ctrlBlockBytes
 
 	return witnessStack, nil
 }
@@ -1138,7 +1149,7 @@ func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 // ReceiverHTLCScriptTaproot constructs the taproot witness program (schnor
 // key) for an outgoing HTLC on the receiver's version of the commitment
 // transaction. This method returns the top level tweaked public key that
-// commits to both the script paths. From the PoV fo teh receiver, this is an
+// commits to both the script paths. From the PoV of the receiver, this is an
 // accepted HTLC.
 //
 // The returned key commits to a tapscript tree with two possible paths:
@@ -1195,12 +1206,20 @@ func ReceiverHTLCScriptTaprootRedeem(senderSig Signature,
 
 	// In addition to the signature and the witness/leaf script, we also
 	// need to make a control block proof using the tapscript tree.
-	timeoutTapLeafHash := txscript.NewBaseTapLeaf(
-		signDesc.WitnessScript,
-	).TapHash()
-	timeoutIdx := tapscriptTree.LeafProofIndex[timeoutTapLeafHash]
-	timeoutMerkleProof := tapscriptTree.LeafMerkleProofs[timeoutIdx]
-	timeoutControlBlock := timeoutMerkleProof.ToControlBlock(revokeKey)
+	var ctrlBlock []byte
+	if signDesc.ControlBlock == nil {
+		timeoutControlBlock := MakeTaprootSuccessCtrlBlock(
+			signDesc.WitnessScript, revokeKey, tapscriptTree,
+		)
+		ctrlBytes, err := timeoutControlBlock.ToBytes()
+		if err != nil {
+			return nil, err
+		}
+
+		ctrlBlock = ctrlBytes
+	} else {
+		ctrlBlock = signDesc.ControlBlock
+	}
 
 	// The final witness stack is:
 	//  * <sender sig> <receiver sig> <preimage> <success_script> <control_block>
@@ -1209,10 +1228,7 @@ func ReceiverHTLCScriptTaprootRedeem(senderSig Signature,
 	witnessStack[1] = maybeAppendSighash(sweepSig, signDesc.HashType)
 	witnessStack[2] = paymentPreimage
 	witnessStack[3] = signDesc.WitnessScript
-	witnessStack[4], err = timeoutControlBlock.ToBytes()
-	if err != nil {
-		return nil, err
-	}
+	witnessStack[4] = ctrlBlock
 
 	return witnessStack, nil
 }
@@ -1248,22 +1264,28 @@ func ReceiverHTLCScriptTaprootTimeout(signer Signer, signDesc *SignDescriptor,
 
 	// In addition to the signature and the witness/leaf script, we also
 	// need to make a control block proof using the tapscript tree.
-	timeoutTapLeafHash := txscript.NewBaseTapLeaf(
-		signDesc.WitnessScript,
-	).TapHash()
-	timeoutIdx := tapscriptTree.LeafProofIndex[timeoutTapLeafHash]
-	timeoutMerkleProof := tapscriptTree.LeafMerkleProofs[timeoutIdx]
-	timeoutControlBlock := timeoutMerkleProof.ToControlBlock(revokeKey)
+	var ctrlBlock []byte
+	if signDesc.ControlBlock == nil {
+		timeoutTapLeafHash := txscript.NewBaseTapLeaf(
+			signDesc.WitnessScript,
+		).TapHash()
+		timeoutIdx := tapscriptTree.LeafProofIndex[timeoutTapLeafHash]
+		timeoutMerkleProof := tapscriptTree.LeafMerkleProofs[timeoutIdx]
+		timeoutControlBlock := timeoutMerkleProof.ToControlBlock(revokeKey)
+		ctrlBlock, err = timeoutControlBlock.ToBytes()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		ctrlBlock = signDesc.ControlBlock
+	}
 
 	// The final witness is pretty simple, we just need to present a valid
 	// signature for the script, and then provide the control block.
 	witnessStack := make(wire.TxWitness, 3)
 	witnessStack[0] = maybeAppendSighash(sweepSig, signDesc.HashType)
 	witnessStack[1] = signDesc.WitnessScript
-	witnessStack[2], err = timeoutControlBlock.ToBytes()
-	if err != nil {
-		return nil, err
-	}
+	witnessStack[2] = ctrlBlock
 
 	return witnessStack, nil
 }
@@ -1478,7 +1500,7 @@ func TaprootHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 // NOTE: The caller MUST set the txn version, sequence number, and sign
 // descriptor's sig hash cache before invocation.
 func TaprootHtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
-	revokeKey *btcec.PublicKey, sweepTx *wire.MsgTx,
+	sweepTx *wire.MsgTx, revokeKey *btcec.PublicKey,
 	tapscriptTree *txscript.IndexedTapScriptTree) (wire.TxWitness, error) {
 
 	// First, we'll generate the sweep signature based on the populated
@@ -1489,14 +1511,23 @@ func TaprootHtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 		return nil, err
 	}
 
-	// Now that we have the sweep signature, we'll construct the control
-	// block needed to spend the script path.
-	redeemTapLeafHash := txscript.NewBaseTapLeaf(
-		signDesc.WitnessScript,
-	).TapHash()
-	redeemIdx := tapscriptTree.LeafProofIndex[redeemTapLeafHash]
-	redeemMerkleProof := tapscriptTree.LeafMerkleProofs[redeemIdx]
-	redeemControlBlock := redeemMerkleProof.ToControlBlock(revokeKey)
+	var ctrlBlock []byte
+	if signDesc.ControlBlock == nil {
+		// Now that we have the sweep signature, we'll construct the control
+		// block needed to spend the script path.
+		redeemTapLeafHash := txscript.NewBaseTapLeaf(
+			signDesc.WitnessScript,
+		).TapHash()
+		redeemIdx := tapscriptTree.LeafProofIndex[redeemTapLeafHash]
+		redeemMerkleProof := tapscriptTree.LeafMerkleProofs[redeemIdx]
+		redeemControlBlock := redeemMerkleProof.ToControlBlock(revokeKey)
+		ctrlBlock, err = redeemControlBlock.ToBytes()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		ctrlBlock = signDesc.ControlBlock
+	}
 
 	// Now that we have the redeem control block, we can construct the
 	// final witness needed to spend the script:
@@ -1505,10 +1536,7 @@ func TaprootHtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	witnessStack := make(wire.TxWitness, 3)
 	witnessStack[0] = maybeAppendSighash(sweepSig, signDesc.HashType)
 	witnessStack[1] = signDesc.WitnessScript
-	witnessStack[2], err = redeemControlBlock.ToBytes()
-	if err != nil {
-		return nil, err
-	}
+	witnessStack[2] = ctrlBlock
 
 	return witnessStack, nil
 }
@@ -1848,6 +1876,24 @@ func TaprootCommitScriptToSelf(csvTimeout uint32,
 	return commitScriptTree.TaprootKey, nil
 }
 
+// MakeTaprootSuccessCtrlBlock takes a leaf script, the internal key (usually
+// the revoke key), and a script tree and creates a valid control block for a
+// spend of the leaf.
+//
+// TODO(roasbeef): can make more generic
+func MakeTaprootSuccessCtrlBlock(leafScript []byte,
+	revokeKey *btcec.PublicKey,
+	scriptTree *txscript.IndexedTapScriptTree) txscript.ControlBlock {
+
+	settleTapleafHash := txscript.NewBaseTapLeaf(leafScript).TapHash()
+	settleIdx := scriptTree.LeafProofIndex[settleTapleafHash]
+	settleMerkleProof := scriptTree.LeafMerkleProofs[settleIdx]
+
+	return settleMerkleProof.ToControlBlock(
+		revokeKey,
+	)
+}
+
 // TaprootCommitSpendSuccess constructs a valid witness allowing a node to
 // sweep the settled taproot output after the delay has passed for a force
 // close.
@@ -1857,12 +1903,24 @@ func TaprootCommitSpendSuccess(signer Signer, signDesc *SignDescriptor,
 
 	// First, we'll need to construct a valid control block to execute the
 	// leaf script for sweep settlement.
-	settleTapleafHash := txscript.NewBaseTapLeaf(
-		signDesc.WitnessScript,
-	).TapHash()
-	settleIdx := scriptTree.LeafProofIndex[settleTapleafHash]
-	settleMerkleProof := scriptTree.LeafMerkleProofs[settleIdx]
-	settleControlBlock := settleMerkleProof.ToControlBlock(revokeKey)
+	//
+	// TODO(roasbeef); make into closure instead? only need reovke key and
+	// scriptTree to make the ctrl block -- then default version that would
+	// take froms ign desc?
+	var ctrlBlockBytes []byte
+	if ctrlBlockBytes == nil {
+		settleControlBlock := MakeTaprootSuccessCtrlBlock(
+			signDesc.WitnessScript, revokeKey, scriptTree,
+		)
+		ctrlBytes, err := settleControlBlock.ToBytes()
+		if err != nil {
+			return nil, err
+		}
+
+		ctrlBlockBytes = ctrlBytes
+	} else {
+		ctrlBlockBytes = signDesc.ControlBlock
+	}
 
 	// With the control block created, we'll now generate the signature we
 	// need to authorize the spend.
@@ -1877,7 +1935,7 @@ func TaprootCommitSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	witnessStack := make(wire.TxWitness, 3)
 	witnessStack[0] = maybeAppendSighash(sweepSig, signDesc.HashType)
 	witnessStack[1] = signDesc.WitnessScript
-	witnessStack[2], err = settleControlBlock.ToBytes()
+	witnessStack[2] = ctrlBlockBytes
 	if err != nil {
 		return nil, err
 	}
@@ -2189,12 +2247,20 @@ func TaprootCommitRemoteSpend(signer Signer, signDesc *SignDescriptor,
 
 	// First, we'll need to construct a valid control block to execute the
 	// leaf script for sweep settlement.
-	settleTapleafHash := txscript.NewBaseTapLeaf(
-		signDesc.WitnessScript,
-	).TapHash()
-	settleIdx := scriptTree.LeafProofIndex[settleTapleafHash]
-	settleMerkleProof := scriptTree.LeafMerkleProofs[settleIdx]
-	settleControlBlock := settleMerkleProof.ToControlBlock(numsKey)
+	var ctrlBlockBytes []byte
+	if signDesc.ControlBlock == nil {
+		settleControlBlock := MakeTaprootSuccessCtrlBlock(
+			signDesc.WitnessScript, numsKey, scriptTree,
+		)
+		ctrlBytes, err := settleControlBlock.ToBytes()
+		if err != nil {
+			return nil, err
+		}
+
+		ctrlBlockBytes = ctrlBytes
+	} else {
+		ctrlBlockBytes = signDesc.ControlBlock
+	}
 
 	// With the control block created, we'll now generate the signature we
 	// need to authorize the spend.
@@ -2209,10 +2275,7 @@ func TaprootCommitRemoteSpend(signer Signer, signDesc *SignDescriptor,
 	witnessStack := make(wire.TxWitness, 3)
 	witnessStack[0] = maybeAppendSighash(sweepSig, signDesc.HashType)
 	witnessStack[1] = signDesc.WitnessScript
-	witnessStack[2], err = settleControlBlock.ToBytes()
-	if err != nil {
-		return nil, err
-	}
+	witnessStack[2] = ctrlBlockBytes
 
 	return witnessStack, nil
 }
@@ -2387,11 +2450,11 @@ func TaprootOutputKeyAnchor(key *btcec.PublicKey) (*btcec.PublicKey, error) {
 // TaprootAnchorSpend constructs a valid witness allowing a node to sweep their
 // anchor output.
 func TaprootAnchorSpend(signer Signer, signDesc *SignDescriptor,
-	revokeTx *wire.MsgTx) (wire.TxWitness, error) {
+	sweepTx *wire.MsgTx) (wire.TxWitness, error) {
 
 	// For this spend type, we only need a single signature which'll be a
-	// keyspend using the revoke private key.
-	sweepSig, err := signer.SignOutputRaw(revokeTx, signDesc)
+	// keyspend using the anchor private key.
+	sweepSig, err := signer.SignOutputRaw(sweepTx, signDesc)
 	if err != nil {
 		return nil, err
 	}

@@ -482,17 +482,18 @@ func CommitWeight(chanType channeldb.ChannelType) int64 {
 func HtlcTimeoutFee(chanType channeldb.ChannelType,
 	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
 
+	switch {
 	// For zero-fee HTLC channels, this will always be zero, regardless of
 	// feerate.
-	if chanType.ZeroHtlcTxFee() {
+	case chanType.ZeroHtlcTxFee() || chanType.IsTaproot():
 		return 0
-	}
 
-	if chanType.HasAnchors() {
+	case chanType.HasAnchors():
 		return feePerKw.FeeForWeight(input.HtlcTimeoutWeightConfirmed)
-	}
 
-	return feePerKw.FeeForWeight(input.HtlcTimeoutWeight)
+	default:
+		return feePerKw.FeeForWeight(input.HtlcTimeoutWeight)
+	}
 }
 
 // HtlcSuccessFee returns the fee in satoshis required for an HTLC success
@@ -500,19 +501,18 @@ func HtlcTimeoutFee(chanType channeldb.ChannelType,
 func HtlcSuccessFee(chanType channeldb.ChannelType,
 	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
 
+	switch {
 	// For zero-fee HTLC channels, this will always be zero, regardless of
 	// feerate.
-	if chanType.ZeroHtlcTxFee() {
+	case chanType.ZeroHtlcTxFee() || chanType.IsTaproot():
 		return 0
-	}
 
-	// TODO(roasbeef): fee is still off here?
-
-	if chanType.HasAnchors() {
+	case chanType.HasAnchors():
 		return feePerKw.FeeForWeight(input.HtlcSuccessWeightConfirmed)
-	}
 
-	return feePerKw.FeeForWeight(input.HtlcSuccessWeight)
+	default:
+		return feePerKw.FeeForWeight(input.HtlcSuccessWeight)
+	}
 }
 
 // CommitScriptAnchors return the scripts to use for the local and remote

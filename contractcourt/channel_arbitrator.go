@@ -656,6 +656,54 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 			resolver.SupplementState(chanState)
 		}
 
+		// The on disk resolutions contains all the ctrl block
+		// information, so we'll set that now for the relevent
+		// resolvers.
+		switch r := resolver.(type) {
+		case *commitSweepResolver:
+			if contractResolutions.CommitResolution != nil {
+				r.commitResolution = *contractResolutions.CommitResolution
+			}
+		case *htlcOutgoingContestResolver:
+			htlcResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
+			for _, htlcRes := range htlcResolutions {
+				htlcRes := htlcRes
+
+				if r.htlcResolution.ClaimOutpoint == htlcRes.ClaimOutpoint {
+					r.htlcResolution = htlcRes
+				}
+			}
+
+		case *htlcTimeoutResolver:
+			htlcResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
+			for _, htlcRes := range htlcResolutions {
+				htlcRes := htlcRes
+
+				if r.htlcResolution.ClaimOutpoint == htlcRes.ClaimOutpoint {
+					r.htlcResolution = htlcRes
+				}
+			}
+
+		case *htlcIncomingContestResolver:
+			htlcResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
+			for _, htlcRes := range htlcResolutions {
+				htlcRes := htlcRes
+
+				if r.htlcResolution.ClaimOutpoint == htlcRes.ClaimOutpoint {
+					r.htlcResolution = htlcRes
+				}
+			}
+		case *htlcSuccessResolver:
+			htlcResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
+			for _, htlcRes := range htlcResolutions {
+				htlcRes := htlcRes
+
+				if r.htlcResolution.ClaimOutpoint == htlcRes.ClaimOutpoint {
+					r.htlcResolution = htlcRes
+				}
+			}
+		}
+
 		htlcResolver, ok := resolver.(htlcContractResolver)
 		if !ok {
 			continue

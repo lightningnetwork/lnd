@@ -730,7 +730,12 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 				ChannelArbitratorConfig: c.cfg,
 			},
 		)
+
+		anchorResolver.SupplementState(chanState)
+
 		unresolvedContracts = append(unresolvedContracts, anchorResolver)
+
+		// TODO(roasbeef): this isn't re-launched?
 	}
 
 	c.launchResolvers(unresolvedContracts)
@@ -1185,6 +1190,9 @@ func (c *ChannelArbitrator) stateStep(
 			return StateError, closeTx, err
 		}
 
+		// TODO(roasbeef): sweeps abandoned should also return anchor
+		// res
+
 		// If we still have unresolved contracts, then we'll stay alive
 		// to oversee their resolution.
 		if len(numUnresolved) != 0 {
@@ -1241,10 +1249,22 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 			"anchor of %s commit tx %v", c.cfg.ChanPoint,
 			anchorPath, anchor.CommitAnchor)
 
+		witnessType := input.CommitmentAnchor
+
+		chanState, err := c.cfg.FetchHistoricalChannel()
+		if err != nil {
+			return err
+		}
+
+		// For taproot channels, we need to use the proper witness type.
+		if chanState.ChanType.IsTaproot() {
+			witnessType = input.TaprootAnchorSweepSpend
+		}
+
 		// Prepare anchor output for sweeping.
 		anchorInput := input.MakeBaseInput(
 			&anchor.CommitAnchor,
-			input.CommitmentAnchor,
+			witnessType,
 			&anchor.AnchorSignDescriptor,
 			heightHint,
 			&input.TxInfo{
@@ -2122,6 +2142,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 			contractResolutions.AnchorResolution.CommitAnchor,
 			height, c.cfg.ChanPoint, resolverCfg,
 		)
+		anchorResolver.SupplementState(chanState)
+
 		htlcResolvers = append(htlcResolvers, anchorResolver)
 	}
 

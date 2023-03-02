@@ -1675,8 +1675,8 @@ func secondLevelHtlcSuccessWitGen(sigHash txscript.SigHashType,
 		}
 
 		return TaprootHtlcSpendSuccess(
-			signer, signDesc, scriptTree.revokeKey.PubKey(),
-			spendTx, scriptTree.scriptTree,
+			signer, signDesc, spendTx,
+			scriptTree.revokeKey.PubKey(), scriptTree.scriptTree,
 		)
 	}
 }

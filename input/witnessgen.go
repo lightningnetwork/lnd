@@ -182,6 +182,78 @@ const (
 	// regular p2tr output that's sent to an output which is under complete
 	// control of the backing wallet.
 	TaprootPubKeySpend StandardWitnessType = 21
+
+	// TaprootLocalCommitSpend is a witness type that allows us to spend
+	// our settled local commitment after a CSV delay when we force close
+	// the channel.
+	TaprootLocalCommitSpend StandardWitnessType = 22
+
+	// TaprootRemoteCommitSpend is a witness type that allows us to spend
+	// our settled local commitment after a CSV delay when the remote party
+	// has force closed the channel.
+	TaprootRemoteCommitSpend StandardWitnessType = 23
+
+	// TaprootAnchorSweepSpend is the witness type we'll use for spending
+	// our own anchor output.
+	TaprootAnchorSweepSpend StandardWitnessType = 24
+
+	// TaprootHtlcOfferedTimeoutSecondLevel is a witness that allows us to
+	// timeout an HTLC we offered to the remote party on our commitment
+	// transaction. We use this when we need to go on chain to time out an
+	// HTLC.
+	TaprootHtlcOfferedTimeoutSecondLevel StandardWitnessType = 25
+
+	// TaprootHtlcAcceptedSuccessSecondLevel is a witness that allows us to
+	// sweep an HTLC we accepted on our commitment transaction after we go
+	// to the second level on chain.
+	TaprootHtlcAcceptedSuceessSecondLevel StandardWitnessType = 26
+
+	// TaprootHtlcSecondLevelRevoke is a witness that allows us to sweep an
+	// HTLC on the revoked transaction of the remote party that goes to the
+	// second level.
+	TaprootHtlcSecondLevelRevoke StandardWitnessType = 27
+
+	// TaprootHtlcAcceptedRevoke is a witness that allows us to sweep an
+	// HTLC sent to us by the remote party in the event that they broadcast
+	// a revoked state.
+	TaprootHtlcAcceptedRevoke StandardWitnessType = 28
+
+	// TaprootHtlcOfferedRevoke is a witness that allows us to sweep an
+	// HTLC we offered to the remote party if they broadcast a revoked
+	// commitment.
+	TaprootHtlcOfferedRevoke StandardWitnessType = 29
+
+	// TaprootHtlcOfferedRemoteTimeout is a witness that allows us to sweep
+	// an HTLC we offered to the remote party that lies on the commitment
+	// transaction for the remote party. We can spend this output after the
+	// absolute CLTV timeout of the HTLC as passed.
+	TaprootHtlcOfferedRemoteTimeout StandardWitnessType = 30
+
+	// TaprootHtlcLocalOfferedTimeout is a witness type that allows us to
+	// sign the second level HTLC timeout transaction when spending from an
+	// HTLC residing on our local commitment transaction.
+	//
+	// This is used by the sweeper to re-sign inputs if it needs to
+	// aggregate several second level HTLCs.
+	TaprootHtlcLocalOfferedTimeout StandardWitnessType = 31
+
+	// TaprootHtlcAcceptedRemoteSuccess is a witness that allows us to
+	// sweep an HTLC that was offered to us by the remote party for a
+	// taproot channels. We use this witness in the case that the remote
+	// party goes to chain, and we know the pre-image to the HTLC. We can
+	// sweep this without any additional timeout.
+	TaprootHtlcAcceptedRemoteSuccess StandardWitnessType = 32
+
+	// TaprootHtlcAcceptedLocalSuccess is a witness type that allows us to
+	// sweep the HTLC offered to us on our local commitment transaction.
+	// We'll use this when we need to go on chain to sweep the HTLC. In
+	// this case, this is the second level HTLC success transaction.
+	TaprootHtlcAcceptedLocalSuccess StandardWitnessType = 33
+
+	// TaprootCommitmentRevoke is a witness that allows us to sweep the
+	// settled output of a malicious counterparty's who broadcasts a
+	// revoked taproot commitment transaction.
+	TaprootCommitmentRevoke StandardWitnessType = 34
 )
 
 // String returns a human readable version of the target WitnessType.
@@ -255,6 +327,45 @@ func (wt StandardWitnessType) String() string {
 	case TaprootPubKeySpend:
 		return "TaprootPubKeySpend"
 
+	case TaprootLocalCommitSpend:
+		return "TaprootLocalCommitSpend"
+
+	case TaprootRemoteCommitSpend:
+		return "TaprootRemoteCommitSpend"
+
+	case TaprootAnchorSweepSpend:
+		return "TaprootAnchorSweepSpend"
+
+	case TaprootHtlcOfferedTimeoutSecondLevel:
+		return "TaprootHtlcOfferedTimeoutSecondLevel"
+
+	case TaprootHtlcAcceptedSuceessSecondLevel:
+		return "TaprootHtlcAcceptedSuceessSecondLevel"
+
+	case TaprootHtlcSecondLevelRevoke:
+		return "TaprootHtlcSecondLevelRevoke"
+
+	case TaprootHtlcAcceptedRevoke:
+		return "TaprootHtlcAcceptedRevoke"
+
+	case TaprootHtlcOfferedRevoke:
+		return "TaprootHtlcOfferedRevoke"
+
+	case TaprootHtlcOfferedRemoteTimeout:
+		return "TaprootHtlcOfferedRemoteTimeout"
+
+	case TaprootHtlcLocalOfferedTimeout:
+		return "TaprootHtlcLocalOfferedTimeout"
+
+	case TaprootHtlcAcceptedRemoteSuccess:
+		return "TaprootHtlcAcceptedRemoteSuccess"
+
+	case TaprootHtlcAcceptedLocalSuccess:
+		return "TaprootHtlcAcceptedLocalSuccess"
+
+	case TaprootCommitmentRevoke:
+		return "TaprootCommitmentRevoke"
+
 	default:
 		return fmt.Sprintf("Unknown WitnessType: %v", uint32(wt))
 	}
@@ -272,6 +383,7 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 	return func(tx *wire.MsgTx, hc *txscript.TxSigHashes,
 		inputIndex int) (*Script, error) {
 
+		// TODO(roasbeef): copy the desc?
 		desc := descriptor
 		desc.SigHashes = hc
 		desc.InputIndex = inputIndex

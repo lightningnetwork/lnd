@@ -6400,7 +6400,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	}
 
 	anchorResolution, err := NewAnchorResolution(
-		chanState, commitTxBroadcast, keyRing,
+		chanState, commitTxBroadcast, keyRing, false,
 	)
 	if err != nil {
 		return nil, err
@@ -6992,7 +6992,8 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 		localCommitment.CommitHeight,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to gen force close "+
+			"summary: %w", err)
 	}
 
 	// Set the channel state to indicate that the channel is now in a
@@ -7098,14 +7099,15 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		chanState.IsInitiator, leaseExpiry,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to gen htlc resolution: %w", err)
 	}
 
 	anchorResolution, err := NewAnchorResolution(
-		chanState, commitTx, keyRing,
+		chanState, commitTx, keyRing, true,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to gen anchor "+
+			"resolution: %w", err)
 	}
 
 	return &LocalForceCloseSummary{
@@ -7386,7 +7388,7 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	)
 	localRes, err := NewAnchorResolution(
 		lc.channelState, lc.channelState.LocalCommitment.CommitTx,
-		localKeyRing,
+		localKeyRing, true,
 	)
 	if err != nil {
 		return nil, err
@@ -7401,7 +7403,7 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 	)
 	remoteRes, err := NewAnchorResolution(
 		lc.channelState, lc.channelState.RemoteCommitment.CommitTx,
-		remoteKeyRing,
+		remoteKeyRing, false,
 	)
 	if err != nil {
 		return nil, err
@@ -7423,7 +7425,7 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 		remotePendingRes, err := NewAnchorResolution(
 			lc.channelState,
 			remotePendingCommit.Commitment.CommitTx,
-			pendingRemoteKeyRing,
+			pendingRemoteKeyRing, false,
 		)
 		if err != nil {
 			return nil, err
@@ -7437,26 +7439,34 @@ func (lc *LightningChannel) NewAnchorResolutions() (*AnchorResolutions,
 // NewAnchorResolution returns the information that is required to sweep the
 // local anchor.
 func NewAnchorResolution(chanState *channeldb.OpenChannel,
-	commitTx *wire.MsgTx,
-	keyRing *CommitmentKeyRing) (*AnchorResolution, error) {
+	commitTx *wire.MsgTx, keyRing *CommitmentKeyRing,
+	isLocalCommit bool) (*AnchorResolution, error) {
 
 	// Return nil resolution if the channel has no anchors.
 	if !chanState.ChanType.HasAnchors() {
 		return nil, nil
 	}
 
-	// Derive our local anchor script.
-	localAnchor, _, err := CommitScriptAnchors(
+	// Derive our local anchor script. For taproot channels, rather than
+	// use the same multi-sig key for both commitments, the anchor script
+	// will differ depending on if this is our local or remote
+	// commitment.
+	localAnchor, remoteAnchor, err := CommitScriptAnchors(
 		chanState.ChanType, &chanState.LocalChanCfg,
 		&chanState.RemoteChanCfg, keyRing,
 	)
 	if err != nil {
 		return nil, err
 	}
+	if chanState.ChanType.IsTaproot() && !isLocalCommit {
+		localAnchor, remoteAnchor = remoteAnchor, localAnchor
+	}
 
 	// Look up the script on the commitment transaction. It may not be
 	// present if there is no output paying to us.
-	found, index := input.FindScriptOutputIndex(commitTx, localAnchor.PkScript)
+	found, index := input.FindScriptOutputIndex(
+		commitTx, localAnchor.PkScript,
+	)
 	if !found {
 		return nil, nil
 	}
@@ -7477,12 +7487,56 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 		HashType: txscript.SigHashAll,
 	}
 
+	// For taproot outputs, we'll need to ensure that the proper sign
+	// method is used, and the tweak as well.
+	if chanState.ChanType.IsTaproot() {
+		signDesc.SignMethod = input.TaprootKeySpendSignMethod
+		signDesc.HashType = txscript.SigHashDefault
+
+		signDesc.PrevOutputFetcher = txscript.NewCannedPrevOutputFetcher(
+			localAnchor.PkScript, int64(anchorSize),
+		)
+
+		// For anchor outputs with taproot channels, the key desc is
+		// also different: we'll just re-use our local delay base point
+		// (which becomes our to local output).
+		if isLocalCommit {
+			// In addition to the sign method, we'll also need to
+			// ensure that the single tweak is set, as with the
+			// current formulation, we'll need to use two levels of
+			// tweaks: the normal LN tweak, and the tapscript
+			// tweak.
+			signDesc.SingleTweak = keyRing.LocalCommitKeyTweak
+
+			signDesc.KeyDesc = chanState.LocalChanCfg.DelayBasePoint
+		} else {
+			// When we're playing the force close of a remote
+			// commitment, as this is a "tweakless" channel type,
+			// we don't need a tweak value at all.
+			signDesc.KeyDesc = chanState.LocalChanCfg.PaymentBasePoint
+		}
+
+		// TODO(roasbeef): need to be payment point if remote, delay
+		// point otherwise?
+
+		// Finally, as this is a keyspend method, we'll need to also
+		// include the taptweak as well.
+		tapscriptRoot := localAnchor.ScriptTree.RootNode.TapHash()
+		signDesc.TapTweak = tapscriptRoot[:]
+	}
+
+	var witnessWeight int64
+	if chanState.ChanType.IsTaproot() {
+		witnessWeight = input.TaprootKeyPathWitnessSize
+	} else {
+		witnessWeight = input.WitnessCommitmentTxWeight
+	}
+
 	// Calculate commit tx weight. This commit tx doesn't yet include the
 	// witness spending the funding output, so we add the (worst case)
 	// weight for that too.
 	utx := btcutil.NewTx(commitTx)
-	weight := blockchain.GetTransactionWeight(utx) +
-		input.WitnessCommitmentTxWeight
+	weight := blockchain.GetTransactionWeight(utx) + witnessWeight
 
 	// Calculate commit tx fee.
 	fee := chanState.Capacity

@@ -22,9 +22,9 @@ func testNetworkConnectionTimeout(ht *lntest.HarnessTest) {
 		testPub = "0332bda7da70fefe4b6ab92f53b3c4f4ee7999" +
 			"f312284a8e89c8670bb3f67dbee2"
 
-		// testHost is a non-routable IP address. It's used to cause a
-		// connection timeout.
-		testHost = "10.255.255.255"
+		// testHost is a reachable IP address with an unreachable port
+		// that's used for testing only.
+		testHost = "lightning.engineering:81"
 	)
 
 	// First, test the global timeout settings.

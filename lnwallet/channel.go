@@ -2456,6 +2456,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 	// If the returned *RevocationLog is non-nil, use it to derive the info
 	// we need.
+	isTaproot := chanState.ChanType.IsTaproot()
 	if revokedLog != nil {
 		br, ourAmt, theirAmt, err = createBreachRetribution(
 			revokedLog, spendTx, chanState, keyRing,
@@ -2498,6 +2499,23 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			},
 			HashType: txscript.SigHashAll,
 		}
+
+		// For taproot channels, we'll make sure to set the script path
+		// spend (as our output on their revoked tx still needs the
+		// delay), and set the control block.
+		if isTaproot {
+			br.LocalOutputSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
+
+			ctrlBlock := input.MakeTaprootSuccessCtrlBlock(
+				br.LocalOutputSignDesc.WitnessScript,
+				keyRing.CombinedFundingKey,
+				ourScript.ScriptTree,
+			)
+			br.LocalOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// Similarly, if their balance exceeds the remote party's dust limit,
@@ -2513,6 +2531,18 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				Value:    theirAmt,
 			},
 			HashType: txscript.SigHashAll,
+		}
+
+		// For taproot channels, the remote ouput (the revoked outuput)
+		// can be septn using a single key spend, now that we know the
+		// revocation key.
+		if isTaproot {
+			br.RemoteOutputSignDesc.SignMethod = input.TaprootKeySpendSignMethod
+
+			// We'll also need to set the taptweak as we'll be
+			// signing with the full output key.
+			tapscriptRoot := theirScript.ScriptTree.RootNode.TapHash()
+			br.RemoteOutputSignDesc.TapTweak = tapscriptRoot[:]
 		}
 	}
 

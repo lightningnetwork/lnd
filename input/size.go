@@ -153,6 +153,12 @@ const (
 	//	- PkScript (P2WSH)
 	CommitmentDelayOutput = 8 + 1 + P2WSHSize
 
+	// TaprootCommitmentOutput 43 bytes
+	//	- Value: 8 bytes
+	//	- VarInt: 1 byte (PkScript length)
+	//	- PkScript (P2TR)
+	TaprootCommitmentOutput = 8 + 1 + P2TRSize
+
 	// CommitmentKeyHashOutput 31 bytes
 	//	- Value: 8 bytes
 	//	- VarInt: 1 byte (PkScript length)
@@ -164,6 +170,12 @@ const (
 	//	- VarInt: 1 byte (PkScript length)
 	//	- PkScript (P2WSH)
 	CommitmentAnchorOutput = 8 + 1 + P2WSHSize
+
+	// TaprootCommitmentAnchorOutput 43 bytes
+	//	- Value: 8 bytes
+	//	- VarInt: 1 byte (PkScript length)
+	//	- PkScript (P2TR)
+	TaprootCommitmentAnchorOutput = 8 + 1 + P2WSHSize
 
 	// HTLCSize 43 bytes
 	//	- Value: 8 bytes
@@ -222,11 +234,29 @@ const (
 	// BaseAnchorCommitmentTxWeight 900 weight.
 	BaseAnchorCommitmentTxWeight = witnessScaleFactor * BaseAnchorCommitmentTxSize
 
+	// BaseTaprootCommitmentTxSize 125 + 43 * num-htlc-outputs bytes
+	//	- Version: 4 bytes
+	//	- WitnessHeader <---- part of the witness data
+	//	- CountTxIn: 1 byte
+	//	- TxIn: 41 bytes
+	//		FundingInput
+	//	- CountTxOut: 1 byte
+	//	- TxOut: 74 + 43 * num-htlc-outputs bytes
+	//		OutputPayingToThem,
+	//		OutputPayingToUs,
+	//		....HTLCOutputs...
+	//	- LockTime: 4 bytes
+	BaseTaprootCommitmentTxWeight = 4 + 1 + FundingInputSize + 3 +
+		2*TaprootCommitmentOutput + 2*TaprootCommitmentAnchorOutput + 4
+
 	// CommitWeight 724 weight.
 	CommitWeight = BaseCommitmentTxWeight + WitnessCommitmentTxWeight
 
 	// AnchorCommitWeight 1124 weight.
 	AnchorCommitWeight = BaseAnchorCommitmentTxWeight + WitnessCommitmentTxWeight
+
+	// TaprootCommitWeight 1124 weight.
+	TaprootCommitWeight = BaseTaprootCommitmentTxWeight + TaprootKeyPathWitnessSize
 
 	// HTLCWeight 172 weight.
 	HTLCWeight = witnessScaleFactor * HTLCSize
@@ -556,6 +586,203 @@ const (
 	//      - leafVersionAndParity: 1 byte
 	//      - schnorrPubKey: 32 byte
 	TaprootBaseControlBlockWitnessSize = 33
+
+	// TaprootToLocalScriptSize
+	//      - OP_DATA: 1 byte (pub key len)
+	//      - local_key: 32 bytes
+	//      - OP_CHECKSIG: 1 byte
+	//      - csv_delay: 4 bytes (worst case estimate)
+	//      - OP_CSV: 1 byte
+	//      - OP_DROP: 1 byte
+	TaprootToLocalScriptSize = 41
+
+	// TaprootToLocalWitnessSize: 139 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//      - script_len: 1 byte
+	//      - taproot_to_local_script_size: 41 bytes
+	//      - ctrl_block_len: 1 byte
+	//      - base_control_block_size: 33 bytes
+	TaprootToLocalWitnessSize = 1 + 1 + 65 + 1 + TaprootToLocalScriptSize +
+		1 + TaprootBaseControlBlockWitnessSize
+
+	// TaprootToRemoteScriptSize
+	//      - OP_DATA: 1 byte (pub key len)
+	//      - local_key: 32 bytes
+	//      - OP_CHECKSIG: 1 byte
+	//      - OP_CSV: 1 byte
+	TaprootToRemoteScriptSize = 35
+
+	// TaprootToRemoteWitnessSize:
+	//      - number_of_witness_elements: 1 byte
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//      - script_len: 1 byte
+	//      - taproot_to_local_script_size: 36 bytes
+	//      - ctrl_block_len: 1 byte
+	//      - base_control_block_size: 33 bytes
+	TaprootToRemoteWitnessSize = 1 + 1 + 65 + 1 + TaprootToRemoteScriptSize +
+		1 + TaprootBaseControlBlockWitnessSize
+
+	// TaprootAnchorWitnessSize: 67 bytes
+	//
+	// In this case, we use the custom sighash size to give the most
+	// pessemistic estimate.
+	TaprootAnchorWitnessSize = TaprootKeyPathCustomSighashWitnessSize
+
+	// TaprootSecondLevelHtlcScriptSize: 40 bytes
+	//      - OP_DATA: 1 byte (pub key len)
+	//      - local_key: 32 bytes
+	//      - OP_CHECKSIG: 1 byte
+	//      - OP_DATA: 1 byte (csv delay)
+	//      - csv_delay: 4 bytes (worst case)
+	//      - OP_CSV: 1 byte
+	//      - OP_DROP: 1 byte
+	TaprootSecondLevelHtlcScriptSize = 1 + 32 + 1 + 1 + 4 + 1 + 1
+
+	// TaprootOfferedSecondLevelHtlcWitnessSize:
+	//      - number_of_witness_elements: 1 byte
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//      - script_len: 1 byte
+	//      - taproot_second_level_htlc_script_size: 40 bytes
+	//      - ctrl_block_len: 1 byte
+	//      - base_control_block_size: 33 bytes
+	TaprootSecondLevelHtlcWitnessSize = 1 + 1 + 65 + 1 +
+		TaprootSecondLevelHtlcScriptSize + 1 +
+		TaprootBaseControlBlockWitnessSize
+
+	// TaprootSecondLevelRevokeWitnessSize
+	//      - number_of_witness_elements: 1 byte
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	TaprootSecondLevelRevokeWitnessSize = TaprootKeyPathCustomSighashWitnessSize
+
+	// TaprootAcceptedRevokeWitnessSize:
+	//      - number_of_witness_elements: 1 byte
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	TaprootAcceptedRevokeWitnessSize = TaprootKeyPathCustomSighashWitnessSize
+
+	// TaprootOfferedRevokeWitnessSize:
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	TaprootOfferedRevokeWitnessSize = TaprootKeyPathCustomSighashWitnessSize
+
+	// TaprootHtlcOfferedRemoteTimeoutScriptSize: 42 bytes
+	//	- OP_DATA: 1 byte (pub key len)
+	//	- local_key: 32 bytes
+	//	- OP_CHECKSIG: 1 byte
+	//      - OP_CHECKSEQUENCEVERIFY: 1 byte
+	//      - OP_DATA: 1 byte (cltv_expiry length)
+	//      - cltv_expiry: 4 bytes
+	//      - OP_CHECKLOCKTIMEVERIFY: 1 byte
+	//      - OP_DROP: 1 byte
+	TaprootHtlcOfferedRemoteTimeoutScriptSize = 1 + 32 + 1 + 1 + 1 + 4 + 1 + 1
+
+	// TaprootHtlcOfferedRemoteTimeoutwitSize: 143 bytes
+	//      - number_of_witness_elements: 1 byte
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//      - script_len: 1 byte
+	//      - taproot_offered_htlc_script_size: 42 bytes
+	//      - ctrl_block_len: 1 byte
+	//      - base_control_block_size: 33 bytes
+	//      - sibilng_merkle_proof: 32 bytes
+	TaprootHtlcOfferedRemoteTimeoutWitnessSize = 1 + 1 + 65 + 1 +
+		TaprootHtlcOfferedRemoteTimeoutScriptSize + 1 +
+		TaprootBaseControlBlockWitnessSize + 32
+
+	// TaprootHtlcOfferedLocalTmeoutScriptSize:
+	//	- OP_DATA: 1 byte (pub key len)
+	//	- local_key: 32 bytes
+	//	- OP_CHECKSIGVERIFY: 1 byte
+	//	- OP_DATA: 1 byte (pub key len)
+	//	- remote_key: 32 bytes
+	//	- OP_CHECKSIG: 1 byte
+	TaprootHtlcOfferedLocalTimeoutScriptSize = 1 + 32 + 1 + 1 + 32 + 1
+
+	// TaprootOfferedLocalTimeoutWitnessSize
+	//      - number_of_witness_elements: 1 byte
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//      - script_len: 1 byte
+	//      - taproot_offered_htlc_script_timeout_size:
+	//      - ctrl_block_len: 1 byte
+	//      - base_control_block_size: 33 bytes
+	//      - sibilng_merkle_proof: 32 bytes
+	TaprootOfferedLocalTimeoutWitnessSize = 1 + 1 + 65 + 1 + 65 + 1 +
+		TaprootHtlcOfferedLocalTimeoutScriptSize + 1 +
+		TaprootBaseControlBlockWitnessSize + 32
+
+	// TaprootHtlcAcceptedRemoteSuccessScriptSize:
+	//      - OP_SIZE: 1 byte
+	//      - OP_DATA: 1 byte
+	//      - 32: 1 byte
+	//      - OP_EQUALVERIFY: 1 byte
+	//      - OP_HASH160: 1 byte
+	//      - OP_DATA: 1 byte (RIPEMD160(payment_hash) length)
+	//      - RIPEMD160(payment_hash): 20 bytes
+	//      - OP_EQUALVERIFY: 1 byte
+	//	- OP_DATA: 1 byte (pub key len)
+	//	- remote_key: 32 bytes
+	//	- OP_CHECKSIG: 1 byte
+	//      - OP_CSV: 1 byte
+	TaprootHtlcAcceptedRemoteSuccessScriptSize = 1 + 1 + 1 + 1 + 1 + 1 +
+		1 + 20 + 1 + 32 + 1 + 1
+
+	// TaprootHtlcAcceptedRemoteSuccessScriptSize:
+	//      - number_of_witness_elements: 1 byte
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//      - payment_preimage_length: 1 byte
+	//      - payment_preimage: 32 bytes
+	//      - script_len: 1 byte
+	//      - taproot_offered_htlc_script_success_size:
+	//      - ctrl_block_len: 1 byte
+	//      - base_control_block_size: 33 bytes
+	//      - sibilng_merkle_proof: 32 bytes
+	TaprootHtlcAcceptedRemoteSuccessWitnessSize = 1 + 1 + 65 + 1 + 32 + 1 +
+		TaprootHtlcAcceptedRemoteSuccessScriptSize + 1 +
+		TaprootBaseControlBlockWitnessSize + 32
+
+	// TaprootHtlcAcceptedLocalSuccessScriptSize:
+	//      - OP_SIZE: 1 byte
+	//      - OP_DATA: 1 byte
+	//      - 32: 1 byte
+	//      - OP_EQUALVERIFY: 1 byte
+	//      - OP_HASH160: 1 byte
+	//      - OP_DATA: 1 byte (RIPEMD160(payment_hash) length)
+	//      - RIPEMD160(payment_hash): 20 bytes
+	//      - OP_EQUALVERIFY: 1 byte
+	//	- OP_DATA: 1 byte (pub key len)
+	//	- local_key: 32 bytes
+	//	- OP_CHECKSIGVERIFY: 1 byte
+	//	- OP_DATA: 1 byte (pub key len)
+	//	- remote_key: 32 bytes
+	//	- OP_CHECKSIG: 1 byte
+	TaprootHtlcAcceptedLocalSuccessScriptSize = 1 + 1 + 1 + 1 + 1 + 1 +
+		20 + 1 + 1 + 32 + 1 + 1 + 32 + 1
+
+	// TaprootHtlcAcceptedLocalSuccessWitnessSize:
+	//      - number_of_witness_elements: 1 byte
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//      - sig_len: 1 byte
+	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//      - payment_preimage_length: 1 byte
+	//      - payment_preimage: 32 bytes
+	//      - script_len: 1 byte
+	//      - taproot_accepted_htlc_script_success_size:
+	//      - ctrl_block_len: 1 byte
+	//      - base_control_block_size: 33 bytes
+	//      - sibilng_merkle_proof: 32 bytes
+	TaprootHtlcAcceptedLocalSuccessWitnessSize = 1 + 1 + 65 + 1 + 65 + 1 +
+		32 + 1 + TaprootHtlcAcceptedLocalSuccessScriptSize + 1 +
+		TaprootBaseControlBlockWitnessSize + 32
 )
 
 // EstimateCommitTxWeight estimate commitment transaction weight depending on
@@ -571,6 +798,8 @@ func EstimateCommitTxWeight(count int, prediction bool) int64 {
 	htlcWeight := int64(count * HTLCWeight)
 	baseWeight := int64(BaseCommitmentTxWeight)
 	witnessWeight := int64(WitnessCommitmentTxWeight)
+
+	// TODO(roasbeef): need taproot modifier? also no anchor so wrong?
 
 	return htlcWeight + baseWeight + witnessWeight
 }

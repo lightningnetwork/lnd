@@ -1530,6 +1530,61 @@ func TaprootSecondLevelHtlcScript(revokeKey, delayKey *btcec.PublicKey,
 	return redemptionKey, nil
 }
 
+// SecondLevelScriptTree is a tapscript tree used to spend the second level
+// HTLC output after the CSV delay has passed.
+type SecondLevelScriptTree struct {
+	// TaprootKey is the key that will be used to generate the taproot output.
+	TaprootKey *btcec.PublicKey
+
+	// PkScript is the pkScript of the second level output.
+	PkScript []byte
+
+	// SuccessTapLeaf is the tapleaf for the redemption path.
+	SuccessTapLeaf txscript.TapLeaf
+
+	// TapscriptTree is the full tapscript tree that also includes the
+	// control block needed to spend each of the leaves.
+	TapscriptTree *txscript.IndexedTapScriptTree
+
+	// TapscriptTreeRoot is the root hash of the tapscript tree.
+	TapscriptRoot []byte
+}
+
+// TaprootSecondLevelScriptTree constructs the tapscript tree used to spend the
+// second level HTLC output.
+func TaprootSecondLevelScriptTree(revokeKey, delayKey *btcec.PublicKey,
+	csvDelay uint32) (*SecondLevelScriptTree, error) {
+
+	// First, we'll make the tapscript tree that commits to the redemption
+	// path.
+	tapScriptTree, err := SecondLevelHtlcTapscriptTree(
+		delayKey, csvDelay,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// With the tree constructed, we can make the pkscript which is the
+	// taproot output key itself.
+	tapScriptRoot := tapScriptTree.RootNode.TapHash()
+	outputKey := txscript.ComputeTaprootOutputKey(
+		revokeKey, tapScriptRoot[:],
+	)
+	pkScript, err := PayToTaprootScript(outputKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make taproot "+
+			"pkscript: %w", err)
+	}
+
+	return &SecondLevelScriptTree{
+		TaprootKey:     outputKey,
+		PkScript:       pkScript,
+		SuccessTapLeaf: tapScriptTree.LeafMerkleProofs[0].TapLeaf,
+		TapscriptTree:  tapScriptTree,
+		TapscriptRoot:  tapScriptRoot[:],
+	}, nil
+}
+
 // TaprootHtlcSpendRevoke spends a second-level HTLC output via the revocation
 // path. This uses the top level keyspend path to redeem the contested output.
 //

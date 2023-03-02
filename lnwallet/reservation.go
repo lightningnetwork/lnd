@@ -244,6 +244,8 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	commitWeight := int64(input.CommitWeight)
 	if req.CommitType.HasAnchors() {
 		commitWeight = int64(input.AnchorCommitWeight)
+	} else if req.CommitType.IsTaproot() {
+		commitWeight = input.TaprootCommitWeight
 	}
 	commitFee := req.CommitFeePerKw.FeeForWeight(commitWeight)
 

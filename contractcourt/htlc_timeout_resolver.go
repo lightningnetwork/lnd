@@ -7,12 +7,14 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -56,6 +58,9 @@ type htlcTimeoutResolver struct {
 	// reportLock prevents concurrent access to the resolver report.
 	reportLock sync.Mutex
 
+	// isTaproot...
+	isTaproot bool
+
 	contractResolverKit
 
 	htlcLeaseResolver
@@ -70,7 +75,10 @@ func newTimeoutResolver(res lnwallet.OutgoingHtlcResolution,
 		contractResolverKit: *newContractResolverKit(resCfg),
 		htlcResolution:      res,
 		broadcastHeight:     broadcastHeight,
-		htlc:                htlc,
+		isTaproot: txscript.IsPayToTaproot(
+			res.SweepSignDesc.Output.PkScript,
+		),
+		htlc: htlc,
 	}
 
 	h.initReport()
@@ -113,6 +121,18 @@ const (
 	// commitment transaction for an outgoing HTLC that will hold the
 	// pre-image if the remote party sweeps it.
 	localPreimageIndex = 1
+
+	// remoteTaprootWitnessSuccessSize is the expected size of the witness
+	// on the remote commitment for taproot channels. The spend path will
+	// look like
+	//   - <sender sig> <receiver sig> <preimage> <success_script>
+	//     <control_block>
+	remoteTaprootWitnessSuccessSize = 5
+
+	// taprootRemotePreimageIndex is the index within the witness on the
+	// taproot remote commitment spend that'll hold the pre-image if the
+	// remote party sweeps it.
+	taprootRemotePreimageIndex = 2
 )
 
 // claimCleanUp is a helper method that's called once the HTLC output is spent
@@ -133,17 +153,32 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	// If this is the remote party's commitment, then we'll be looking for
 	// them to spend using the second-level success transaction.
 	var preimageBytes []byte
-	if h.htlcResolution.SignedTimeoutTx == nil {
-		// The witness stack when the remote party sweeps the output to
-		// them looks like:
-		//
-		//  * <0> <sender sig> <recvr sig> <preimage> <witness script>
+	switch {
+	// For taproot channels, if the remote party has swept the HTLC, then
+	// the witness stack will look like:
+	//
+	//   - <sender sig> <receiver sig> <preimage> <success_script>
+	//     <control_block>
+	case !h.isTaproot && h.htlcResolution.SignedTimeoutTx == nil:
+		preimageBytes = spendingInput.Witness[taprootRemotePreimageIndex]
+
+	// The witness stack when the remote party sweeps the output on a
+	// regular channel to them looks like:
+	//
+	//  - <0> <sender sig> <recvr sig> <preimage> <witness script>
+	case !h.isTaproot && h.htlcResolution.SignedTimeoutTx == nil:
 		preimageBytes = spendingInput.Witness[remotePreimageIndex]
-	} else {
-		// Otherwise, they'll be spending directly from our commitment
-		// output. In which case the witness stack looks like:
-		//
-		//  * <sig> <preimage> <witness script>
+
+	// Otherwise, they'll be spending directly from our commitment output.
+	// In which case the witness stack looks like:
+	//
+	//  - <sig> <preimage> <witness script>
+	//
+	// For taproot channels, this looks like:
+	//  - <receiver sig> <preimage> <success_script> <control_block>
+	//
+	// So we can target the same index.
+	case !h.isTaproot:
 		preimageBytes = spendingInput.Witness[localPreimageIndex]
 	}
 
@@ -213,7 +248,45 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 	// we need to watch.
 	outPointToWatch := h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
 	witness := h.htlcResolution.SignedTimeoutTx.TxIn[0].Witness
-	scriptToWatch, err := input.WitnessScriptHash(witness[len(witness)-1])
+
+	var (
+		scriptToWatch []byte
+		err           error
+	)
+	switch {
+	// For taproot channels, then final witness element is the control
+	// block, and the one before it the witness script. We can use both of
+	// these together to reconstruct the taproot output key, then map that
+	// into a v1 witness program.
+	case h.isTaproot:
+		// First, we'll parse the control block into something we can use.
+		ctrlBlockBytes := witness[len(witness)-1]
+		ctrlBlock, err := txscript.ParseControlBlock(ctrlBlockBytes)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// With the control block, we'll grab the witness script, then
+		// use that to derive the tapscript root.
+		witnessScript := witness[len(witness)-2]
+		tapscriptRoot := ctrlBlock.RootHash(witnessScript)
+
+		// Once we have the root, then we can derive the output key
+		// from the internal key, then turn that into a witness
+		// program.
+		outputKey := txscript.ComputeTaprootOutputKey(
+			ctrlBlock.InternalKey, tapscriptRoot,
+		)
+		scriptToWatch, err = txscript.PayToTaprootScript(outputKey)
+
+	// For regular channels, the witness script is the last element on the
+	// stack. We can then use this to re-derive the output that we're
+	// watching on chain.
+	default:
+		scriptToWatch, err = input.WitnessScriptHash(
+			witness[len(witness)-1],
+		)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -223,15 +296,45 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 
 // isSuccessSpend returns true if the passed spend on the specified commitment
 // is a success spend that reveals the pre-image or not.
-func isSuccessSpend(spend *chainntnfs.SpendDetail, localCommit bool) bool {
+func isSuccessSpend(isTaproot bool, spend *chainntnfs.SpendDetail, localCommit bool) bool {
 	// Based on the spending input index and transaction, obtain the
 	// witness that tells us what type of spend this is.
 	spenderIndex := spend.SpenderInputIndex
 	spendingInput := spend.SpendingTx.TxIn[spenderIndex]
 	spendingWitness := spendingInput.Witness
 
-	// If this is the remote commitment then the only possible spends for
-	// outgoing HTLCs are:
+	// TODO(roasbeef): breach updates?
+
+	switch {
+	// If this is a taproot remote commitment, then we can detect the type
+	// of spend via the leaf revealed in the control block and the witness
+	// itself.
+	//
+	// The keyspend (revocation path) is just a single signature, while the
+	// timeout and success paths are most distinct.
+	//
+	// The success path will look like:
+	//
+	//   - <sender sig> <receiver sig> <preimage> <success_script>
+	//     <control_block>
+	case isTaproot && !localCommit:
+		preImageIdx := taprootRemotePreimageIndex
+		return len(spendingWitness) == remoteTaprootWitnessSuccessSize &&
+			len(spendingWitness[preImageIdx]) == lntypes.HashSize
+
+	// Otherwise, then if this is our local commitment transaction, then if
+	// they're sweeping the transaction, it'll be directly from the output,
+	// skipping the second level.
+	//
+	// In this case, then there're two main tapscript paths, with the
+	// success case look like:
+	//
+	//  - <receiver sig> <preimage> <success_script> <control_block>
+	case isTaproot && localCommit:
+		return len(spendingWitness[localPreimageIndex]) == lntypes.HashSize
+
+	// If this is the non-taproot, remote commitment then the only possible
+	// spends for outgoing HTLCs are:
 	//
 	//  RECVR: <0> <sender sig> <recvr sig> <preimage> (2nd level success spend)
 	//  REVOK: <sig> <key>
@@ -241,13 +344,12 @@ func isSuccessSpend(spend *chainntnfs.SpendDetail, localCommit bool) bool {
 	// witness script), and the 3rd element is the size of the pre-image,
 	// then this is a remote spend. If not, then we swept it ourselves, or
 	// revoked their output.
-	if !localCommit {
+	case !isTaproot && !localCommit:
 		return len(spendingWitness) == expectedRemoteWitnessSuccessSize &&
 			len(spendingWitness[remotePreimageIndex]) == lntypes.HashSize
-	}
 
-	// Otherwise, for our commitment, the only possible spends for an
-	// outgoing HTLC are:
+	// Otherwise, for our non-taproot commitment, the only possible spends
+	// for an outgoing HTLC are:
 	//
 	//  SENDR: <0> <sendr sig>  <recvr sig> <0> (2nd level timeout)
 	//  RECVR: <recvr sig>  <preimage>
@@ -255,7 +357,11 @@ func isSuccessSpend(spend *chainntnfs.SpendDetail, localCommit bool) bool {
 	//
 	// So the only success case has the pre-image as the 2nd (index 1)
 	// element in the witness.
-	return len(spendingWitness[localPreimageIndex]) == lntypes.HashSize
+	case !isTaproot:
+		fallthrough
+	default:
+		return len(spendingWitness[localPreimageIndex]) == lntypes.HashSize
+	}
 }
 
 // Resolve kicks off full resolution of an outgoing HTLC output. If it's our
@@ -281,7 +387,9 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	// If the spend reveals the pre-image, then we'll enter the clean up
 	// workflow to pass the pre-image back to the incoming link, add it to
 	// the witness cache, and exit.
-	if isSuccessSpend(commitSpend, h.htlcResolution.SignedTimeoutTx != nil) {
+	if isSuccessSpend(
+		h.isTaproot, commitSpend, h.htlcResolution.SignedTimeoutTx != nil,
+	) {
 		log.Infof("%T(%v): HTLC has been swept with pre-image by "+
 			"remote party during timeout flow! Adding pre-image to "+
 			"witness cache", h.htlcResolution.ClaimOutpoint)
@@ -326,13 +434,22 @@ func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error)
 			"sweeper: %v", h, h.htlc.RHash[:],
 			spew.Sdump(h.htlcResolution.SignedTimeoutTx))
 
-		inp := input.MakeHtlcSecondLevelTimeoutAnchorInput(
-			h.htlcResolution.SignedTimeoutTx,
-			h.htlcResolution.SignDetails,
-			h.broadcastHeight,
-		)
+		var inp input.Input
+		if h.isTaproot {
+			inp = lnutils.Ptr(input.MakeHtlcSecondLevelTimeoutTaprootInput(
+				h.htlcResolution.SignedTimeoutTx,
+				h.htlcResolution.SignDetails,
+				h.broadcastHeight,
+			))
+		} else {
+			inp = lnutils.Ptr(input.MakeHtlcSecondLevelTimeoutAnchorInput(
+				h.htlcResolution.SignedTimeoutTx,
+				h.htlcResolution.SignDetails,
+				h.broadcastHeight,
+			))
+		}
 		_, err := h.Sweeper.SweepInput(
-			&inp,
+			inp,
 			sweep.Params{
 				Fee: sweep.FeePreference{
 					ConfTarget: secondLevelConfTarget,
@@ -348,6 +465,9 @@ func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error)
 	case h.htlcResolution.SignDetails == nil && !h.outputIncubating:
 		log.Debugf("%T(%v): incubating htlc output", h,
 			h.htlcResolution.ClaimOutpoint)
+
+		// TODO(roasbeef): skip the nursery? direct spend from remote
+		// party's commitment transaction to timeout
 
 		err := h.IncubateOutputs(
 			h.ChanPoint, &h.htlcResolution, nil,
@@ -465,10 +585,17 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 			Index: commitSpend.SpenderInputIndex,
 		}
 
+		var csvWitnessType input.StandardWitnessType
+		if h.isTaproot {
+			csvWitnessType = input.TaprootHtlcOfferedTimeoutSecondLevel
+		} else {
+			csvWitnessType = input.HtlcOfferedTimeoutSecondLevel
+		}
+
 		// Let the sweeper sweep the second-level output now that the
 		// CSV/CLTV locks have expired.
 		inp := h.makeSweepInput(
-			op, input.HtlcOfferedTimeoutSecondLevel,
+			op, csvWitnessType,
 			input.LeaseHtlcOfferedTimeoutSecondLevel,
 			&h.htlcResolution.SweepSignDesc,
 			h.htlcResolution.CsvDelay, h.broadcastHeight,

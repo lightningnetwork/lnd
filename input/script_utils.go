@@ -468,6 +468,13 @@ func SenderHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 func IsHtlcSpendRevoke(txIn *wire.TxIn, signDesc *SignDescriptor) (
 	bool, error) {
 
+	// For taproot channels, the revocation path only has a single witness,
+	// as that's the key spend path.
+	isTaproot := txscript.IsPayToTaproot(signDesc.Output.PkScript)
+	if isTaproot {
+		return len(txIn.Witness) == 1, nil
+	}
+
 	revokeKey, err := deriveRevokePubKey(signDesc)
 	if err != nil {
 		return false, err

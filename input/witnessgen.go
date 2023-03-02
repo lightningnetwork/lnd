@@ -515,6 +515,205 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 		case NestedWitnessKeyHash:
 			return signer.ComputeInputScript(tx, desc)
 
+		case TaprootLocalCommitSpend:
+			// Ensure that the sign desc has the proper sign method
+			// set, and a valid prev output fetcher.
+			desc.SignMethod = TaprootScriptSpendSignMethod
+
+			// The control block bytes must be set at this point.
+			if desc.ControlBlock == nil {
+				return nil, fmt.Errorf("control block must be " +
+					"set for taproot spend")
+			}
+
+			witness, err := TaprootCommitSpendSuccess(
+				signer, desc, tx, nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
+		case TaprootRemoteCommitSpend:
+			// Ensure that the sign desc has the proper sign method
+			// set, and a valid prev output fetcher.
+			desc.SignMethod = TaprootScriptSpendSignMethod
+
+			// The control block bytes must be set at this point.
+			if desc.ControlBlock == nil {
+				return nil, fmt.Errorf("control block must be " +
+					"set for taproot spend")
+			}
+
+			witness, err := TaprootCommitRemoteSpend(
+				signer, desc, tx, nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
+		case TaprootAnchorSweepSpend:
+			// Ensure that the sign desc has the proper sign method
+			// set, and a valid prev output fetcher.
+			desc.SignMethod = TaprootKeySpendSignMethod
+
+			// The tap tweak must be set at this point.
+			if desc.TapTweak == nil {
+				return nil, fmt.Errorf("tap tweak must be " +
+					"set for keyspend")
+			}
+
+			witness, err := TaprootAnchorSpend(
+				signer, desc, tx,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
+		case TaprootHtlcOfferedTimeoutSecondLevel,
+			TaprootHtlcAcceptedSuccessSecondLevel:
+			// Ensure that the sign desc has the proper sign method
+			// set, and a valid prev output fetcher.
+			desc.SignMethod = TaprootScriptSpendSignMethod
+
+			// The control block bytes must be set at this point.
+			if desc.ControlBlock == nil {
+				return nil, fmt.Errorf("control block must be " +
+					"set for taproot spend")
+			}
+
+			witness, err := TaprootHtlcSpendSuccess(
+				signer, desc, tx, nil, nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
+		case TaprootHtlcSecondLevelRevoke:
+			// Ensure that the sign desc has the proper sign method
+			// set, and a valid prev output fetcher.
+			desc.SignMethod = TaprootKeySpendSignMethod
+
+			// The tap tweak must be set at this point.
+			if desc.TapTweak == nil {
+				return nil, fmt.Errorf("tap tweak must be " +
+					"set for keyspend")
+			}
+
+			witness, err := TaprootHtlcSpendRevoke(
+				signer, desc, tx,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
+		case TaprootHtlcOfferedRevoke:
+			// Ensure that the sign desc has the proper sign method
+			// set, and a valid prev output fetcher.
+			desc.SignMethod = TaprootKeySpendSignMethod
+
+			// The tap tweak must be set at this point.
+			if desc.TapTweak == nil {
+				return nil, fmt.Errorf("tap tweak must be " +
+					"set for keyspend")
+			}
+
+			witness, err := SenderHTLCScriptTaprootRevoke(
+				signer, desc, tx,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
+		case TaprootHtlcAcceptedRevoke:
+			// Ensure that the sign desc has the proper sign method
+			// set, and a valid prev output fetcher.
+			desc.SignMethod = TaprootKeySpendSignMethod
+
+			// The tap tweak must be set at this point.
+			if desc.TapTweak == nil {
+				return nil, fmt.Errorf("tap tweak must be " +
+					"set for keyspend")
+			}
+
+			witness, err := ReceiverHTLCScriptTaprootRevoke(
+				signer, desc, tx,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
+		case TaprootHtlcOfferedRemoteTimeout:
+			// Ensure that the sign desc has the proper sign method
+			// set, and a valid prev output fetcher.
+			desc.SignMethod = TaprootScriptSpendSignMethod
+
+			// The control block bytes must be set at this point.
+			if desc.ControlBlock == nil {
+				return nil, fmt.Errorf("control block must be " +
+					"set for taproot spend")
+			}
+
+			witness, err := ReceiverHTLCScriptTaprootTimeout(
+				signer, desc, tx, -1, nil, nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
+		case TaprootCommitmentRevoke:
+			// Ensure that the sign desc has the proper sign method
+			// set, and a valid prev output fetcher.
+			desc.SignMethod = TaprootScriptSpendSignMethod
+
+			// The control block bytes must be set at this point.
+			if desc.ControlBlock == nil {
+				return nil, fmt.Errorf("control block " +
+					"must be set for taproot spend")
+			}
+
+			witness, err := TaprootCommitSpendRevoke(
+				signer, desc, tx, nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Script{
+				Witness: witness,
+			}, nil
+
 		default:
 			return nil, fmt.Errorf("unknown witness type: %v", wt)
 		}

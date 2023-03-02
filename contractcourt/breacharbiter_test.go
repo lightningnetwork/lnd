@@ -1223,14 +1223,18 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 	// "regular" justice transaction type.
 	require.Len(t, justiceTxs.spendAll.TxIn, len(breachedOutputs))
 
-	// The spendCommitOuts tx should be spending the 4 typed of commit outs
+	// The spendCommitOuts tx should be spending the 4 types of commit outs
 	// (note that in practice there will be at most two commit outputs per
 	// commit, but we test all 4 types here).
 	require.Len(t, justiceTxs.spendCommitOuts.TxIn, 4)
 
-	// Finally check that the spendHTLCs tx are spending the two revoked
-	// HTLC types, and the second level type.
-	require.Len(t, justiceTxs.spendHTLCs.TxIn, 3)
+	// Check that the spendHTLCs tx is spending the two revoked commitment
+	// level HTLC output types.
+	require.Len(t, justiceTxs.spendHTLCs.TxIn, 2)
+
+	// Finally, check that the spendSecondLevelHTLCs txs are spending the
+	// second level type.
+	require.Len(t, justiceTxs.spendSecondLevelHTLCs, 1)
 }
 
 type publAssertion func(*testing.T, map[wire.OutPoint]struct{},

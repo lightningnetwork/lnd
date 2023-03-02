@@ -2319,6 +2319,11 @@ type HtlcRetribution struct {
 	// update the SignDesc above accordingly to sweep properly.
 	SecondLevelWitnessScript []byte
 
+	// SecondLevelTapTweak is the tap tweak value needed to spend the
+	// second level output in case the breaching party attempts to publish
+	// it.
+	SecondLevelTapTweak [32]byte
+
 	// IsIncoming is a boolean flag that indicates whether or not this
 	// HTLC was accepted from the counterparty. A false value indicates that
 	// this HTLC was offered by us. This flag is used determine the exact
@@ -2632,6 +2637,16 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 
 		tapscriptRoot := scriptInfo.ScriptTree.RootNode.TapHash()
 		signDesc.TapTweak = tapscriptRoot[:]
+	}
+
+	// If this is a taproot output, we'll also need to obtain the second
+	// level tap tweak as well.
+	var secondLevelTapTweak [32]byte
+	if chanState.ChanType.IsTaproot() {
+		tapscriptRoot := secondLevelScript.ScriptTree.RootNode.TapHash()
+		copy(
+			secondLevelTapTweak[:], tapscriptRoot[:],
+		)
 	}
 
 	return HtlcRetribution{

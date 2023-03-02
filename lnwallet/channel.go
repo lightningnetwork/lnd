@@ -6786,24 +6786,38 @@ func newIncomingHtlcResolution(signer input.Signer,
 	if !localCommit {
 		// With the script generated, we can completely populated the
 		// SignDescriptor needed to sweep the output.
+		signDesc := input.SignDescriptor{
+			KeyDesc:       localChanCfg.HtlcBasePoint,
+			SingleTweak:   keyRing.LocalHtlcKeyTweak,
+			WitnessScript: htlcPkScript,
+			Output: &wire.TxOut{
+				PkScript: htlcWitnessScript,
+				Value:    int64(htlc.Amt.ToSatoshis()),
+			},
+			HashType: txscript.SigHashAll,
+		}
+
+		if chanType.IsTaproot() {
+			signDesc.SignMethod = input.TaprootScriptSpendSignMethod
+			ctrlBlock := input.MakeTaprootSuccessCtrlBlock(
+				htlcWitnessScript, keyRing.RevocationKey,
+				scriptInfo.ScriptTree,
+			)
+			signDesc.ControlBlock, err = ctrlBlock.ToBytes()
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		return &IncomingHtlcResolution{
 			ClaimOutpoint: op,
-			SweepSignDesc: input.SignDescriptor{
-				KeyDesc:       localChanCfg.HtlcBasePoint,
-				SingleTweak:   keyRing.LocalHtlcKeyTweak,
-				WitnessScript: htlcScript,
-				Output: &wire.TxOut{
-					PkScript: htlcScriptHash,
-					Value:    int64(htlc.Amt.ToSatoshis()),
-				},
-				HashType: txscript.SigHashAll,
-			},
-			CsvDelay: HtlcSecondLevelInputSequence(chanType),
+			SweepSignDesc: signDesc,
+			CsvDelay:      HtlcSecondLevelInputSequence(chanType),
 		}, nil
 	}
 
 	// Otherwise, we'll need to go to the second level to sweep this HTLC.
-
+	//
 	// First, we'll reconstruct the original HTLC success transaction,
 	// taking into account the fee rate used.
 	htlcFee := HtlcSuccessFee(chanType, feePerKw)
@@ -6822,28 +6836,50 @@ func newIncomingHtlcResolution(signer input.Signer,
 	successSignDesc := input.SignDescriptor{
 		KeyDesc:       localChanCfg.HtlcBasePoint,
 		SingleTweak:   keyRing.LocalHtlcKeyTweak,
-		WitnessScript: htlcScript,
+		WitnessScript: htlcWitnessScript,
 		Output:        txOut,
 		HashType:      txscript.SigHashAll,
 		SigHashes:     input.NewTxSigHashesV0Only(successTx),
 		InputIndex:    0,
 	}
 
-	htlcSig, err := ecdsa.ParseDERSignature(htlc.Signature)
-	if err != nil {
-		return nil, err
+	var htlcSig input.Signature
+	if chanType.IsTaproot() {
+		// TODO(roasbeef): make sure default elsewhere
+		successSignDesc.HashType = txscript.SigHashDefault
+		htlcSig, err = schnorr.ParseSignature(htlc.Signature)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		htlcSig, err = ecdsa.ParseDERSignature(htlc.Signature)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Next, we'll construct the full witness needed to satisfy the input of
 	// the success transaction. Don't specify the preimage yet. The preimage
 	// will be supplied by the contract resolver, either directly or when it
 	// becomes known.
+	var successWitness wire.TxWitness
 	sigHashType := HtlcSigHashType(chanType)
-	successWitness, err := input.ReceiverHtlcSpendRedeem(
-		htlcSig, sigHashType, nil, signer, &successSignDesc, successTx,
-	)
-	if err != nil {
-		return nil, err
+	if chanType.IsTaproot() {
+		successWitness, err = input.ReceiverHTLCScriptTaprootRedeem(
+			htlcSig, sigHashType, nil, signer, &successSignDesc,
+			successTx, keyRing.RevocationKey, scriptInfo.ScriptTree,
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		successWitness, err = input.ReceiverHtlcSpendRedeem(
+			htlcSig, sigHashType, nil, signer, &successSignDesc,
+			successTx,
+		)
+		if err != nil {
+			return nil, err
+		}
 	}
 	successTx.TxIn[0].Witness = successWitness
 
@@ -6856,12 +6892,44 @@ func newIncomingHtlcResolution(signer input.Signer,
 	// Finally, we'll generate the script that the second-level transaction
 	// creates so we can generate the proper signDesc to sweep it after the
 	// CSV delay has passed.
-	htlcSweepScript, err := SecondLevelHtlcScript(
-		chanType, isCommitFromInitiator, keyRing.RevocationKey,
-		keyRing.ToLocalKey, csvDelay, leaseExpiry,
+	var (
+		htlcSweepScript *ScriptInfo
+		signMethod      input.SignMethod
+		ctrlBlock       []byte
 	)
-	if err != nil {
-		return nil, err
+	if !chanType.IsTaproot() {
+		htlcSweepScript, err = SecondLevelHtlcScript(
+			chanType, isCommitFromInitiator, keyRing.RevocationKey,
+			keyRing.ToLocalKey, csvDelay, leaseExpiry,
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
+			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		htlcSweepScript = &ScriptInfo{
+			PkScript:      secondLevelScriptTree.PkScript,
+			WitnessScript: secondLevelScriptTree.SuccessTapLeaf.Script,
+		}
+
+		signMethod = input.TaprootScriptSpendSignMethod
+
+		controlBlock := input.MakeTaprootSuccessCtrlBlock(
+			htlcSweepScript.WitnessScript, keyRing.RevocationKey,
+			secondLevelScriptTree.TapscriptTree,
+		)
+		ctrlBlock, err = controlBlock.ToBytes()
+		if err != nil {
+			return nil, err
+		}
+
+		// TODO(roasbeef): conslidate logic to reduce vertical noise
 	}
 
 	localDelayTweak := input.SingleTweakBytes(
@@ -6883,7 +6951,9 @@ func newIncomingHtlcResolution(signer input.Signer,
 				PkScript: htlcSweepScript.PkScript,
 				Value:    int64(secondLevelOutputAmt),
 			},
-			HashType: txscript.SigHashAll,
+			HashType:     txscript.SigHashAll,
+			SignMethod:   signMethod,
+			ControlBlock: ctrlBlock,
 		},
 	}, nil
 }

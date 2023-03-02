@@ -384,6 +384,50 @@ func MakeHtlcSecondLevelTimeoutAnchorInput(signedTx *wire.MsgTx,
 	}
 }
 
+// MakeHtlcSecondLevelTimeoutTaprootInput creates an input that allows the
+// sweeper to spend an HTLC output to the second level on our commitment
+// transaction. The sweeper is also able to generate witnesses on demand to
+// sweep the second level HTLC aggregated with other transactions.
+func MakeHtlcSecondLevelTimeoutTaprootInput(signedTx *wire.MsgTx,
+	signDetails *SignDetails, heightHint uint32) HtlcSecondLevelAnchorInput {
+
+	createWitness := func(signer Signer, txn *wire.MsgTx,
+		hashCache *txscript.TxSigHashes,
+		prevOutputFetcher txscript.PrevOutputFetcher,
+		txinIdx int) (wire.TxWitness, error) {
+
+		desc := signDetails.SignDesc
+		if desc.ControlBlock == nil {
+			return nil, fmt.Errorf("ctrl block must be set")
+		}
+
+		desc.SigHashes = txscript.NewTxSigHashes(txn, prevOutputFetcher)
+		desc.InputIndex = txinIdx
+		desc.PrevOutputFetcher = prevOutputFetcher
+
+		desc.SignMethod = TaprootScriptSpendSignMethod
+
+		return SenderHTLCScriptTaprootTimeout(
+			signDetails.PeerSig, signDetails.SigHashType, signer,
+			&desc, txn, nil, nil,
+		)
+	}
+
+	return HtlcSecondLevelAnchorInput{
+		inputKit: inputKit{
+			outpoint:    signedTx.TxIn[0].PreviousOutPoint,
+			witnessType: TaprootHtlcLocalOfferedTimeout,
+			signDesc:    signDetails.SignDesc,
+			heightHint:  heightHint,
+
+			// CSV delay is always 1 for these inputs.
+			blockToMaturity: 1,
+		},
+		SignedTx:      signedTx,
+		createWitness: createWitness,
+	}
+}
+
 // MakeHtlcSecondLevelSuccessAnchorInput creates an input allowing the sweeper
 // to spend the HTLC output on our commit using the second level success
 // transaction.
@@ -413,6 +457,50 @@ func MakeHtlcSecondLevelSuccessAnchorInput(signedTx *wire.MsgTx,
 		inputKit: inputKit{
 			outpoint:    signedTx.TxIn[0].PreviousOutPoint,
 			witnessType: HtlcAcceptedSuccessSecondLevelInputConfirmed,
+			signDesc:    signDetails.SignDesc,
+			heightHint:  heightHint,
+
+			// CSV delay is always 1 for these inputs.
+			blockToMaturity: 1,
+		},
+		SignedTx:      signedTx,
+		createWitness: createWitness,
+	}
+}
+
+// MakeHtlcSecondLevelSuccessTaprootInput creates an input that allows the
+// sweeper to spend an HTLC output to the second level on our taproot
+// commitment transaction.
+func MakeHtlcSecondLevelSuccessTaprootInput(signedTx *wire.MsgTx,
+	signDetails *SignDetails, preimage lntypes.Preimage,
+	heightHint uint32) HtlcSecondLevelAnchorInput {
+
+	createWitness := func(signer Signer, txn *wire.MsgTx,
+		hashCache *txscript.TxSigHashes,
+		prevOutputFetcher txscript.PrevOutputFetcher,
+		txinIdx int) (wire.TxWitness, error) {
+
+		desc := signDetails.SignDesc
+		if desc.ControlBlock == nil {
+			return nil, fmt.Errorf("ctrl block must be set")
+		}
+
+		desc.SigHashes = txscript.NewTxSigHashes(txn, prevOutputFetcher)
+		desc.InputIndex = txinIdx
+		desc.PrevOutputFetcher = prevOutputFetcher
+
+		desc.SignMethod = TaprootScriptSpendSignMethod
+
+		return ReceiverHTLCScriptTaprootRedeem(
+			signDetails.PeerSig, signDetails.SigHashType,
+			preimage[:], signer, &desc, txn, nil, nil,
+		)
+	}
+
+	return HtlcSecondLevelAnchorInput{
+		inputKit: inputKit{
+			outpoint:    signedTx.TxIn[0].PreviousOutPoint,
+			witnessType: TaprootHtlcAcceptedLocalSuccess,
 			signDesc:    signDetails.SignDesc,
 			heightHint:  heightHint,
 

@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -8,8 +9,10 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -39,6 +42,10 @@ type chanFundMaxTestCase struct {
 	// is set to true.
 	expectedErrStr string
 
+	// commitmentType allows to define the exact type when opening the
+	// channel.
+	commitmentType lnrpc.CommitmentType
+
 	// private denotes if the channel opening is announced to the network or
 	// not.
 	private bool
@@ -49,15 +56,24 @@ type chanFundMaxTestCase struct {
 func testChannelFundMax(ht *lntest.HarnessTest) {
 	// Create two new nodes that open a channel between each other for these
 	// tests.
-	alice := ht.NewNode("Alice", nil)
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+	alice := ht.NewNode("Alice", args)
 	defer ht.Shutdown(alice)
 
-	bob := ht.NewNode("Bob", nil)
+	bob := ht.NewNode("Bob", args)
 	defer ht.Shutdown(bob)
 
 	// Ensure both sides are connected so the funding flow can be properly
 	// executed.
 	ht.EnsureConnected(alice, bob)
+
+	// Calculate reserve amount for one channel.
+	reserveResp, _ := alice.RPC.WalletKit.RequiredReserve(
+		context.Background(), &walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+	reserveAmount := btcutil.Amount(reserveResp.RequiredReserve)
 
 	var testCases = []*chanFundMaxTestCase{
 		{
@@ -132,6 +148,25 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 			pushAmt:              16_766_000,
 			expectedBalanceAlice: lnd.MaxFundingAmount - 16_766_000,
 		},
+
+		{
+			name:                 "anchor reserved value",
+			initialWalletBalance: 100_000,
+			commitmentType:       lnrpc.CommitmentType_ANCHORS,
+			expectedBalanceAlice: btcutil.Amount(100_000) -
+				fundingFee(1, true) - reserveAmount,
+		},
+		// Funding a private anchor channel should omit the achor
+		// reserve and produce no change output.
+		{
+			name: "private anchor no reserved " +
+				"value",
+			private:              true,
+			initialWalletBalance: 100_000,
+			commitmentType:       lnrpc.CommitmentType_ANCHORS,
+			expectedBalanceAlice: btcutil.Amount(100_000) -
+				fundingFee(1, false),
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -139,6 +174,7 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 			testCase.name, func(tt *testing.T) {
 				runFundMaxTestCase(
 					ht, tt, alice, bob, testCase,
+					reserveAmount,
 				)
 			},
 		)
@@ -153,7 +189,8 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 
 // runTestCase runs a single test case asserting that test conditions are met.
 func runFundMaxTestCase(ht *lntest.HarnessTest, t *testing.T, alice,
-	bob *node.HarnessNode, testCase *chanFundMaxTestCase) {
+	bob *node.HarnessNode, testCase *chanFundMaxTestCase,
+	reserveAmount btcutil.Amount) {
 
 	ht.FundCoins(testCase.initialWalletBalance, alice)
 
@@ -167,19 +204,24 @@ func runFundMaxTestCase(ht *lntest.HarnessTest, t *testing.T, alice,
 		sweepNodeWalletAndAssert(ht, alice)
 	}()
 
+	commitType := testCase.commitmentType
+	if commitType == lnrpc.CommitmentType_UNKNOWN_COMMITMENT_TYPE {
+		commitType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+	}
+
 	// The parameters to try opening the channel with.
 	chanParams := lntest.OpenChannelParams{
-		Amt:         0,
-		PushAmt:     testCase.pushAmt,
-		SatPerVByte: testCase.feeRate,
-		FundMax:     true,
-		Private:     testCase.private,
+		Amt:            0,
+		PushAmt:        testCase.pushAmt,
+		SatPerVByte:    testCase.feeRate,
+		CommitmentType: commitType,
+		FundMax:        true,
+		Private:        testCase.private,
 	}
 
 	// If we don't expect the channel opening to be
 	// successful, simply check for an error.
 	if testCase.chanOpenShouldFail {
-
 		expectedErr := fmt.Errorf(testCase.expectedErrStr)
 		ht.OpenChannelAssertErr(
 			alice, bob, chanParams, expectedErr,
@@ -210,6 +252,15 @@ func runFundMaxTestCase(ht *lntest.HarnessTest, t *testing.T, alice,
 		ht, bob, testCase.pushAmt,
 		testCase.expectedBalanceAlice-lntest.CalcStaticFee(cType, 0),
 	)
+
+	if lntest.CommitTypeHasAnchors(testCase.commitmentType) &&
+		!testCase.private {
+
+		ht.AssertWalletAccountBalance(
+			alice, lnwallet.DefaultAccountName,
+			int64(reserveAmount), 0,
+		)
+	}
 }
 
 // Creates a helper closure to be used below which asserts the proper

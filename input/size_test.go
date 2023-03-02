@@ -998,7 +998,7 @@ var witnessSizeTests = []witnessSizeTest{
 			}
 
 			witness, err := input.TaprootHtlcSpendSuccess(
-				signer, signDesc, revokeKey.PubKey(), testTx,
+				signer, signDesc, testTx, revokeKey.PubKey(),
 				scriptTree,
 			)
 			require.NoError(t, err)

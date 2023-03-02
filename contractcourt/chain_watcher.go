@@ -885,7 +885,8 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 	// TODO(roasbeef): make keyring for taproot chans to pass in instead of
 	// nil
 	anchorRes, err := lnwallet.NewAnchorResolution(
-		c.cfg.chanState, commitSpend.SpendingTx, nil, false,
+		c.cfg.chanState, commitSpend.SpendingTx, retribution.KeyRing,
+		false,
 	)
 	if err != nil {
 		return false, fmt.Errorf("unable to create anchor "+

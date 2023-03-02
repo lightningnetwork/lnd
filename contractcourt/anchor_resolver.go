@@ -33,6 +33,9 @@ type anchorResolver struct {
 	// chanPoint is the channel point of the original contract.
 	chanPoint wire.OutPoint
 
+	// chanType denotes the type of channel the contract belongs to.
+	chanType channeldb.ChannelType
+
 	// currentReport stores the current state of the resolver for reporting
 	// over the rpc interface.
 	currentReport ContractReport
@@ -97,12 +100,16 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 	// to the sweeper.
 	relayFeeRate := c.Sweeper.RelayFeePerKW()
 
+	witnessType := input.CommitmentAnchor
+
+	// For taproot channels, we need to use the proper witness type.
+	if c.chanType.IsTaproot() {
+		witnessType = input.TaprootAnchorSweepSpend
+	}
+
 	anchorInput := input.MakeBaseInput(
-		&c.anchor,
-		input.CommitmentAnchor,
-		&c.anchorSignDescriptor,
-		c.broadcastHeight,
-		nil,
+		&c.anchor, witnessType, &c.anchorSignDescriptor,
+		c.broadcastHeight, nil,
 	)
 
 	resultChan, err := c.Sweeper.SweepInput(
@@ -195,7 +202,8 @@ func (c *anchorResolver) IsResolved() bool {
 // state required for the proper resolution of a contract.
 //
 // NOTE: Part of the ContractResolver interface.
-func (c *anchorResolver) SupplementState(_ *channeldb.OpenChannel) {
+func (c *anchorResolver) SupplementState(state *channeldb.OpenChannel) {
+	c.chanType = state.ChanType
 }
 
 // report returns a report on the resolution state of the contract.

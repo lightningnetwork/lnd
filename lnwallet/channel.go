@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
@@ -803,7 +804,6 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		ourP2WSH, theirP2WSH                 []byte
 		ourWitnessScript, theirWitnessScript []byte
 		pd                                   PaymentDescriptor
-		err                                  error
 		chanType                             = lc.channelState.ChanType
 	)
 
@@ -817,26 +817,30 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		htlc.Amt.ToSatoshis(), lc.channelState.LocalChanCfg.DustLimit,
 	)
 	if !isDustLocal && localCommitKeys != nil {
-		ourP2WSH, ourWitnessScript, err = genHtlcScript(
+		scriptInfo, err := genHtlcScript(
 			chanType, htlc.Incoming, true, htlc.RefundTimeout,
 			htlc.RHash, localCommitKeys,
 		)
 		if err != nil {
 			return pd, err
 		}
+		ourP2WSH = scriptInfo.PkScript
+		ourWitnessScript = scriptInfo.WitnessScript
 	}
 	isDustRemote := HtlcIsDust(
 		chanType, htlc.Incoming, false, feeRate,
 		htlc.Amt.ToSatoshis(), lc.channelState.RemoteChanCfg.DustLimit,
 	)
 	if !isDustRemote && remoteCommitKeys != nil {
-		theirP2WSH, theirWitnessScript, err = genHtlcScript(
+		scriptInfo, err := genHtlcScript(
 			chanType, htlc.Incoming, false, htlc.RefundTimeout,
 			htlc.RHash, remoteCommitKeys,
 		)
 		if err != nil {
 			return pd, err
 		}
+		theirP2WSH = scriptInfo.PkScript
+		theirWitnessScript = scriptInfo.WitnessScript
 	}
 
 	// Reconstruct the proper local/remote output indexes from the HTLC's
@@ -1565,7 +1569,7 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 			wireMsg.Amount.ToSatoshis(), remoteDustLimit,
 		)
 		if !isDustRemote {
-			theirP2WSH, theirWitnessScript, err := genHtlcScript(
+			scriptInfo, err := genHtlcScript(
 				lc.channelState.ChanType, false, false,
 				wireMsg.Expiry, wireMsg.PaymentHash,
 				remoteCommitKeys,
@@ -1574,8 +1578,8 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 				return nil, err
 			}
 
-			pd.theirPkScript = theirP2WSH
-			pd.theirWitnessScript = theirWitnessScript
+			pd.theirPkScript = scriptInfo.PkScript
+			pd.theirWitnessScript = scriptInfo.WitnessScript
 		}
 
 	// For HTLC's we're offered we'll fetch the original offered HTLC
@@ -2574,7 +2578,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	// HTLC script. Otherwise, is this was an outgoing HTLC that we sent,
 	// then from the PoV of the remote commitment state, they're the
 	// receiver of this HTLC.
-	htlcPkScript, htlcWitnessScript, err := genHtlcScript(
+	scriptInfo, err := genHtlcScript(
 		chanState.ChanType, htlc.Incoming, false,
 		htlc.RefundTimeout, htlc.RHash, keyRing,
 	)
@@ -2593,6 +2597,8 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 				Value:    int64(htlc.Amt),
 			},
 			HashType: txscript.SigHashAll,
+	htlcPkScript := scriptInfo.PkScript
+	htlcWitnessScript := scriptInfo.WitnessScript
 		},
 		OutPoint: wire.OutPoint{
 			Hash:  commitHash,
@@ -6544,15 +6550,17 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		Index: uint32(htlc.OutputIndex),
 	}
 
-	// First, we'll re-generate the script used to send the HTLC to
-	// the remote party within their commitment transaction.
-	htlcScriptHash, htlcScript, err := genHtlcScript(
+	// First, we'll re-generate the script used to send the HTLC to the
+	// remote party within their commitment transaction.
+	htlcScriptInfo, err := genHtlcScript(
 		chanType, false, localCommit, htlc.RefundTimeout, htlc.RHash,
 		keyRing,
 	)
 	if err != nil {
 		return nil, err
 	}
+	htlcPkScript := htlcScriptInfo.PkScript
+	htlcWitnessScript := htlcScriptInfo.WitnessScript
 
 	// If we're spending this HTLC output from the remote node's
 	// commitment, then we won't need to go to the second level as our
@@ -6690,13 +6698,16 @@ func newIncomingHtlcResolution(signer input.Signer,
 
 	// First, we'll re-generate the script the remote party used to
 	// send the HTLC to us in their commitment transaction.
-	htlcScriptHash, htlcScript, err := genHtlcScript(
+	scriptInfo, err := genHtlcScript(
 		chanType, true, localCommit, htlc.RefundTimeout, htlc.RHash,
 		keyRing,
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	htlcPkScript := scriptInfo.PkScript
+	htlcWitnessScript := scriptInfo.WitnessScript
 
 	// If we're spending this output from the remote node's commitment,
 	// then we can skip the second layer and spend the output directly.

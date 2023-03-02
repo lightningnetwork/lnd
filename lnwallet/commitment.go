@@ -190,6 +190,10 @@ type ScriptInfo struct {
 	// output is being signed. For p2wkh it should be set equal to the
 	// PkScript.
 	WitnessScript []byte
+
+	// ScriptTree is the script tree that stores all the scripts that are
+	// committed to by the above PkScript, if it's a P2TR script template.
+	ScriptTree *txscript.IndexedTapScriptTree
 }
 
 // CommitScriptToSelf constructs the public key script for the output on the
@@ -225,9 +229,11 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 				"pkscript: %w", err)
 		}
 
+		// TODO(rosabeef): recator to be able to get script key
 		return &ScriptInfo{
 			WitnessScript: toLocalScriptTree.SettleLeaf.Script,
 			PkScript:      toLocalPkScript,
+			ScriptTree:    toLocalScriptTree.TapscriptTree,
 		}, nil
 
 	// If we are the initiator of a leased channel, then we have an
@@ -310,20 +316,24 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 	// we use a NUMS key to force the remote party to take a script path,
 	// with the sole tap leaf enforcing the 1 CSV delay.
 	case chanType.IsTaproot():
-		toRemoteKey, err := input.TaprootCommitScriptToRemote(
+		toRemoteScriptTree, err := input.NewRemoteCommitScriptTree(
 			remoteKey,
 		)
 		if err != nil {
 			return nil, 0, err
 		}
 
-		toRemotePkScript, err := input.PayToTaprootScript(toRemoteKey)
+		toRemotePkScript, err := input.PayToTaprootScript(
+			toRemoteScriptTree.TaprootKey,
+		)
 		if err != nil {
 			return nil, 0, err
 		}
 
 		return &ScriptInfo{
-			PkScript: toRemotePkScript,
+			WitnessScript: toRemoteScriptTree.SettleLeaf.Script,
+			PkScript:      toRemotePkScript,
+			ScriptTree:    toRemoteScriptTree.TapscriptTree,
 		}, 1, nil
 
 	// If this channel type has anchors, we derive the delayed to_remote
@@ -471,7 +481,6 @@ func CommitWeight(chanType channeldb.ChannelType) int64 {
 	// If this commitment has anchors, it will be slightly heavier.
 	case chanType.HasAnchors():
 		return input.AnchorCommitWeight
-	}
 
 	default:
 		return input.CommitWeight
@@ -491,7 +500,6 @@ func HtlcTimeoutFee(chanType channeldb.ChannelType,
 
 	case chanType.HasAnchors():
 		return feePerKw.FeeForWeight(input.HtlcTimeoutWeightConfirmed)
-	}
 
 	default:
 
@@ -504,6 +512,7 @@ func HtlcTimeoutFee(chanType channeldb.ChannelType,
 func HtlcSuccessFee(chanType channeldb.ChannelType,
 	feePerKw chainfee.SatPerKWeight) btcutil.Amount {
 
+	switch {
 	// For zero-fee HTLC channels, this will always be zero, regardless of
 	// feerate.
 	case chanType.ZeroHtlcTxFee() || chanType.IsTaproot():
@@ -535,20 +544,23 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	// since these are fully revealed once the commitment hits the chain.
 	case chanType.IsTaproot():
 		anchorScript = func(key *btcec.PublicKey) (*ScriptInfo, error) {
-			anchorKey, err := input.TaprootOutputKeyAnchor(key)
+			anchorScriptTree, err := input.NewAnchorScriptTree(
+				key,
+			)
 			if err != nil {
 				return nil, err
 			}
 
 			anchorPkScript, err := input.PayToTaprootScript(
-				anchorKey,
+				anchorScriptTree.TaprootKey,
 			)
 			if err != nil {
 				return nil, err
 			}
 
 			return &ScriptInfo{
-				PkScript: anchorPkScript,
+				PkScript:   anchorPkScript,
+				ScriptTree: anchorScriptTree.TapscriptTree,
 			}, nil
 		}
 
@@ -1080,6 +1092,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 	var (
 		taprootKey        *btcec.PublicKey
 		secondLevelScript []byte
+		tapScriptTree     *txscript.IndexedTapScriptTree
 	)
 
 	// Generate the proper redeem scripts for the HTLC output modified by
@@ -1098,6 +1111,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 			return nil, err
 		}
 
+		tapScriptTree = scriptTree.TapscriptTree
 		taprootKey = scriptTree.TaprootKey
 
 		// As this is an HTLC on our commitment transaction, the second
@@ -1118,6 +1132,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 			return nil, err
 		}
 
+		tapScriptTree = scriptTree.TapscriptTree
 		taprootKey = scriptTree.TaprootKey
 
 		// In this case, this is an incoming HTLC on the commitment
@@ -1138,6 +1153,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 			return nil, err
 		}
 
+		tapScriptTree = scriptTree.TapscriptTree
 		taprootKey = scriptTree.TaprootKey
 
 		// This is an outgoing HTLC on our commitment transaction, so
@@ -1157,6 +1173,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 			return nil, err
 		}
 
+		tapScriptTree = scriptTree.TapscriptTree
 		taprootKey = scriptTree.TaprootKey
 
 		// This is an outgoing HTLC on the remote party's commitment
@@ -1176,6 +1193,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 	return &ScriptInfo{
 		PkScript:      p2trOutput,
 		WitnessScript: secondLevelScript,
+		ScriptTree:    tapScriptTree,
 	}, nil
 }
 
@@ -1184,7 +1202,7 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 // HTLC is being applied to their commitment transaction or ours.
 func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
 	timeout uint32, rHash [32]byte,
-	keyRing *CommitmentKeyRing) ([]byte, []byte, error) {
+	keyRing *CommitmentKeyRing) (*ScriptInfo, error) {
 
 	var (
 		scriptInfo *ScriptInfo
@@ -1202,10 +1220,10 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
 		)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return scriptInfo.PkScript, scriptInfo.WitnessScript, nil
+	return scriptInfo, nil
 }
 
 // addHTLC adds a new HTLC to the passed commitment transaction. One of four
@@ -1222,12 +1240,15 @@ func addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	timeout := paymentDesc.Timeout
 	rHash := paymentDesc.RHash
 
-	witnessProgram, witnessScript, err := genHtlcScript(
+	scriptInfo, err := genHtlcScript(
 		chanType, isIncoming, ourCommit, timeout, rHash, keyRing,
 	)
 	if err != nil {
 		return err
 	}
+
+	witnessProgram := scriptInfo.PkScript
+	witnessScript := scriptInfo.WitnessScript
 
 	// Add the new HTLC outputs to the respective commitment transactions.
 	amountPending := int64(paymentDesc.Amount.ToSatoshis())

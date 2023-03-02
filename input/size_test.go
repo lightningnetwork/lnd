@@ -26,6 +26,10 @@ const (
 	// without the trailing sighash flag.
 	maxDERSignatureSize = 72
 
+	// maxSchnorrSignature is the largest possilbe schnorr sig w/o a non
+	// default sighash.
+	maxSchnorrSignatureSize = 64
+
 	testAmt = btcutil.MaxSatoshi
 )
 
@@ -313,6 +317,18 @@ func (s *maxDERSignature) Verify(_ []byte, _ *btcec.PublicKey) bool {
 	return true
 }
 
+type maxSchnorrSignature struct{}
+
+func (s *maxSchnorrSignature) Serialize() []byte {
+	// Always return worst-case signature length, including a non-default
+	// sighash type.
+	return make([]byte, maxSchnorrSignatureSize)
+}
+
+func (s *maxSchnorrSignature) Verify(_ []byte, _ *btcec.PublicKey) bool {
+	return true
+}
+
 // dummySigner is a fake signer used for size (upper bound) calculations.
 type dummySigner struct {
 	input.Signer
@@ -322,6 +338,15 @@ type dummySigner struct {
 // the data within the passed SignDescriptor.
 func (s *dummySigner) SignOutputRaw(tx *wire.MsgTx,
 	signDesc *input.SignDescriptor) (input.Signature, error) {
+
+	switch signDesc.SignMethod {
+	case input.TaprootKeySpendBIP0086SignMethod:
+		fallthrough
+	case input.TaprootKeySpendSignMethod:
+		fallthrough
+	case input.TaprootScriptSpendSignMethod:
+		return &maxSchnorrSignature{}, nil
+	}
 
 	return &maxDERSignature{}, nil
 }
@@ -812,6 +837,463 @@ var witnessSizeTests = []witnessSizeTest{
 			if err != nil {
 				t.Fatal(err)
 			}
+
+			return witness
+		},
+	},
+	{
+		name:    "taproot to local sweep",
+		expSize: input.TaprootToLocalWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			testKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			signer := &dummySigner{}
+			commitScriptTree, err := input.NewLocalCommitScriptTree(
+				testCSVDelay, testKey.PubKey(), testKey.PubKey(),
+			)
+			require.NoError(t, err)
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: testKey.PubKey(),
+				},
+				WitnessScript: commitScriptTree.SettleLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootScriptSpendSignMethod,
+			}
+
+			witness, err := input.TaprootCommitSpendSuccess(
+				signer, signDesc, testTx, testKey.PubKey(),
+				commitScriptTree.TapscriptTree,
+			)
+			require.NoError(t, err)
+			return witness
+		},
+	},
+	{
+		name:    "taproot to remote sweep",
+		expSize: input.TaprootToRemoteWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			testKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			signer := &dummySigner{}
+			commitScriptTree, err := input.NewRemoteCommitScriptTree(
+				testKey.PubKey(), testKey.PubKey(),
+			)
+			require.NoError(t, err)
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: testKey.PubKey(),
+				},
+				WitnessScript: commitScriptTree.SettleLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootScriptSpendSignMethod,
+			}
+
+			witness, err := input.TaprootCommitRemoteSpend(
+				signer, signDesc, testTx, testKey.PubKey(),
+				commitScriptTree.TapscriptTree,
+			)
+			require.NoError(t, err)
+			return witness
+		},
+	},
+	{
+		name:    "taproot anchor sweep",
+		expSize: input.TaprootAnchorWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			testKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			signer := &dummySigner{}
+
+			anchorScriptTree, err := input.NewAnchorScriptTree(
+				testKey.PubKey(),
+			)
+			require.NoError(t, err)
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: testKey.PubKey(),
+				},
+				HashType:   txscript.SigHashAll,
+				InputIndex: 0,
+				SignMethod: input.TaprootKeySpendSignMethod,
+				TapTweak:   anchorScriptTree.TapscriptRoot,
+			}
+
+			witness, err := input.TaprootAnchorSpend(
+				signer, signDesc, testTx,
+			)
+			require.NoError(t, err)
+			return witness
+		},
+	},
+	{
+		name:    "taproot second level htlc success+timeout",
+		expSize: input.TaprootSecondLevelHtlcWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			testKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			signer := &dummySigner{}
+
+			scriptTree, err := input.SecondLevelHtlcTapscriptTree(
+				testKey.PubKey(), testCSVDelay,
+			)
+			require.NoError(t, err)
+
+			tapScriptRoot := scriptTree.RootNode.TapHash()
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			tapLeaf := scriptTree.LeafMerkleProofs[0].TapLeaf
+			witnessScript := tapLeaf.Script
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: revokeKey.PubKey(),
+				},
+				WitnessScript: witnessScript,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootKeySpendSignMethod,
+				TapTweak:      tapScriptRoot[:],
+			}
+
+			witness, err := input.TaprootHtlcSpendSuccess(
+				signer, signDesc, testTx, revokeKey.PubKey(),
+				scriptTree,
+			)
+			require.NoError(t, err)
+			return witness
+		},
+	},
+	{
+		name:    "taproot second level htlc revoke",
+		expSize: input.TaprootSecondLevelRevokeWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			testKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			scriptTree, err := input.SecondLevelHtlcTapscriptTree(
+				testKey.PubKey(), testCSVDelay,
+			)
+			require.NoError(t, err)
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			signer := &dummySigner{}
+
+			tapScriptRoot := scriptTree.RootNode.TapHash()
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: revokeKey.PubKey(),
+				},
+				HashType:   txscript.SigHashAll,
+				InputIndex: 0,
+				SignMethod: input.TaprootKeySpendSignMethod,
+				TapTweak:   tapScriptRoot[:],
+			}
+
+			witness, err := input.TaprootHtlcSpendRevoke(
+				signer, signDesc, testTx,
+			)
+			require.NoError(t, err)
+			return witness
+		},
+	},
+	{
+		name:    "taproot offered htlc revoke",
+		expSize: input.TaprootOfferedRevokeWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			senderKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			receiverKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			var payHash [32]byte
+
+			signer := &dummySigner{}
+
+			htlcScriptTree, err := input.SenderHTLCScriptTaproot(
+				senderKey.PubKey(), receiverKey.PubKey(),
+				revokeKey.PubKey(), payHash[:],
+			)
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: revokeKey.PubKey(),
+				},
+				HashType:   txscript.SigHashAll,
+				InputIndex: 0,
+				SignMethod: input.TaprootKeySpendSignMethod,
+				TapTweak:   htlcScriptTree.TapscriptRoot,
+			}
+
+			witness, err := input.SenderHTLCScriptTaprootRevoke(
+				signer, signDesc, testTx,
+			)
+			require.NoError(t, err)
+			return witness
+		},
+	},
+	{
+		name:    "taproot accepted htlc revoke",
+		expSize: input.TaprootAcceptedRevokeWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			senderKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			receiverKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			var payHash [32]byte
+
+			signer := &dummySigner{}
+
+			htlcScriptTree, err := input.ReceiverHTLCScriptTaproot(
+				testCLTVExpiry, senderKey.PubKey(),
+				receiverKey.PubKey(), revokeKey.PubKey(),
+				payHash[:],
+			)
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: revokeKey.PubKey(),
+				},
+				HashType:   txscript.SigHashAll,
+				InputIndex: 0,
+				SignMethod: input.TaprootKeySpendSignMethod,
+				TapTweak:   htlcScriptTree.TapscriptRoot,
+			}
+
+			witness, err := input.ReceiverHTLCScriptTaprootRevoke(
+				signer, signDesc, testTx,
+			)
+			require.NoError(t, err)
+			return witness
+		},
+	},
+	{
+		name:    "taproot offered remote timeout",
+		expSize: input.TaprootHtlcOfferedRemoteTimeoutWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			senderKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			receiverKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			var payHash [32]byte
+
+			signer := &dummySigner{}
+
+			htlcScriptTree, err := input.ReceiverHTLCScriptTaproot(
+				testCLTVExpiry, senderKey.PubKey(),
+				receiverKey.PubKey(), revokeKey.PubKey(),
+				payHash[:],
+			)
+
+			timeoutLeaf := htlcScriptTree.TimeoutTapLeaf
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: senderKey.PubKey(),
+				},
+				WitnessScript: timeoutLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootScriptSpendSignMethod,
+			}
+
+			witness, err := input.ReceiverHTLCScriptTaprootTimeout(
+				signer, signDesc, testTx, testCLTVExpiry,
+				revokeKey.PubKey(), htlcScriptTree.TapscriptTree,
+			)
+			require.NoError(t, err)
+			return witness
+		},
+	},
+	{
+		name:    "taproot offered local timeout",
+		expSize: input.TaprootOfferedLocalTimeoutWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+
+			senderKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			receiverKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			var payHash [32]byte
+
+			signer := &dummySigner{}
+
+			htlcScriptTree, err := input.SenderHTLCScriptTaproot(
+				senderKey.PubKey(), receiverKey.PubKey(),
+				revokeKey.PubKey(), payHash[:],
+			)
+			require.NoError(t, err)
+
+			timeoutLeaf := htlcScriptTree.TimeoutTapLeaf
+			scriptTree := htlcScriptTree.TapscriptTree
+
+			receiverDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: receiverKey.PubKey(),
+				},
+				WitnessScript: timeoutLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootScriptSpendSignMethod,
+			}
+			receiverSig, err := signer.SignOutputRaw(
+				testTx, receiverDesc,
+			)
+			require.NoError(t, err)
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: senderKey.PubKey(),
+				},
+				WitnessScript: timeoutLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootScriptSpendSignMethod,
+			}
+
+			witness, err := input.SenderHTLCScriptTaprootTimeout(
+				receiverSig, txscript.SigHashAll, signer,
+				signDesc, testTx, revokeKey.PubKey(),
+				scriptTree,
+			)
+			require.NoError(t, err)
+			return witness
+		},
+	},
+	{
+		name:    "taproot accepted remote success",
+		expSize: input.TaprootHtlcAcceptedRemoteSuccessWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			senderKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			receiverKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			var payHash [32]byte
+
+			signer := &dummySigner{}
+
+			htlcScriptTree, err := input.SenderHTLCScriptTaproot(
+				senderKey.PubKey(), receiverKey.PubKey(),
+				revokeKey.PubKey(),
+				payHash[:],
+			)
+			require.NoError(t, err)
+
+			successLeaf := htlcScriptTree.SuccessTapLeaf
+			scriptTree := htlcScriptTree.TapscriptTree
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: receiverKey.PubKey(),
+				},
+				WitnessScript: successLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootScriptSpendSignMethod,
+			}
+
+			witness, err := input.SenderHTLCScriptTaprootRedeem(
+				signer, signDesc, testTx, testPreimage,
+				revokeKey.PubKey(), scriptTree,
+			)
+			require.NoError(t, err)
+
+			return witness
+		},
+	},
+	{
+		name:    "taproot accepted local success",
+		expSize: input.TaprootHtlcAcceptedLocalSuccessWitnessSize,
+		genWitness: func(t *testing.T) wire.TxWitness {
+			senderKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			receiverKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			revokeKey, err := btcec.NewPrivateKey()
+			require.NoError(t, err)
+
+			var payHash [32]byte
+
+			signer := &dummySigner{}
+
+			htlcScriptTree, err := input.ReceiverHTLCScriptTaproot(
+				testCLTVExpiry, senderKey.PubKey(),
+				receiverKey.PubKey(), revokeKey.PubKey(),
+				payHash[:],
+			)
+
+			successsLeaf := htlcScriptTree.SuccessTapLeaf
+			scriptTree := htlcScriptTree.TapscriptTree
+
+			senderDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: senderKey.PubKey(),
+				},
+				WitnessScript: successsLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootScriptSpendSignMethod,
+			}
+			senderSig, err := signer.SignOutputRaw(
+				testTx, senderDesc,
+			)
+			require.NoError(t, err)
+
+			signDesc := &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					PubKey: receiverKey.PubKey(),
+				},
+				WitnessScript: successsLeaf.Script,
+				HashType:      txscript.SigHashAll,
+				InputIndex:    0,
+				SignMethod:    input.TaprootScriptSpendSignMethod,
+			}
+
+			witness, err := input.ReceiverHTLCScriptTaprootRedeem(
+				senderSig, txscript.SigHashAll, testPreimage,
+				signer, signDesc, testTx, revokeKey.PubKey(),
+				scriptTree,
+			)
+			require.NoError(t, err)
 
 			return witness
 		},

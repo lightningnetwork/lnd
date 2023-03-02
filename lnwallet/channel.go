@@ -6563,20 +6563,34 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	if !localCommit {
 		// With the script generated, we can completely populated the
 		// SignDescriptor needed to sweep the output.
+		signDesc := input.SignDescriptor{
+			KeyDesc:       localChanCfg.HtlcBasePoint,
+			SingleTweak:   keyRing.LocalHtlcKeyTweak,
+			WitnessScript: htlcWitnessScript,
+			Output: &wire.TxOut{
+				PkScript: htlcPkScript,
+				Value:    int64(htlc.Amt.ToSatoshis()),
+			},
+			HashType: txscript.SigHashAll,
+		}
+
+		if chanType.IsTaproot() {
+			signDesc.SignMethod = input.TaprootScriptSpendSignMethod
+			ctrlBlock := input.MakeTaprootCtrlBlock(
+				htlcWitnessScript, keyRing.RevocationKey,
+				htlcScriptInfo.ScriptTree,
+			)
+			signDesc.ControlBlock, err = ctrlBlock.ToBytes()
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		return &OutgoingHtlcResolution{
 			Expiry:        htlc.RefundTimeout,
 			ClaimOutpoint: op,
-			SweepSignDesc: input.SignDescriptor{
-				KeyDesc:       localChanCfg.HtlcBasePoint,
-				SingleTweak:   keyRing.LocalHtlcKeyTweak,
-				WitnessScript: htlcWitnessScript,
-				Output: &wire.TxOut{
-					PkScript: htlcPkScript,
-					Value:    int64(htlc.Amt.ToSatoshis()),
-				},
-				HashType: txscript.SigHashAll,
-			},
-			CsvDelay: HtlcSecondLevelInputSequence(chanType),
+			SweepSignDesc: signDesc,
+			CsvDelay:      HtlcSecondLevelInputSequence(chanType),
 		}, nil
 	}
 
@@ -6604,17 +6618,22 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// that's capable of generating the signature required to spend the
 	// HTLC output using the timeout transaction.
 	txOut := commitTx.TxOut[htlc.OutputIndex]
+	prevFetcher := txscript.NewCannedPrevOutputFetcher(
+		txOut.PkScript, txOut.Value,
+	)
+	hashCache := txscript.NewTxSigHashes(timeoutTx, prevFetcher)
 	timeoutSignDesc := input.SignDescriptor{
-		KeyDesc:       localChanCfg.HtlcBasePoint,
-		SingleTweak:   keyRing.LocalHtlcKeyTweak,
-		WitnessScript: htlcWitnessScript,
-		Output:        txOut,
-		HashType:      txscript.SigHashAll,
-		SigHashes:     input.NewTxSigHashesV0Only(timeoutTx),
-		InputIndex:    0,
+		KeyDesc:           localChanCfg.HtlcBasePoint,
+		SingleTweak:       keyRing.LocalHtlcKeyTweak,
+		WitnessScript:     htlcWitnessScript,
+		Output:            txOut,
+		HashType:          txscript.SigHashAll,
+		PrevOutputFetcher: prevFetcher,
+		SigHashes:         hashCache,
+		InputIndex:        0,
 	}
 
-	htlcSig, err := ecdsa.ParseDERSignature(htlc.Signature)
+	htlcSig, err := input.ParseSignature(htlc.Signature)
 	if err != nil {
 		return nil, err
 	}
@@ -6622,12 +6641,38 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// With the sign desc created, we can now construct the full witness
 	// for the timeout transaction, and populate it as well.
 	sigHashType := HtlcSigHashType(chanType)
-	timeoutWitness, err := input.SenderHtlcSpendTimeout(
-		htlcSig, sigHashType, signer, &timeoutSignDesc, timeoutTx,
-	)
+	var timeoutWitness wire.TxWitness
+	if chanType.IsTaproot() {
+		// TODO(roasbeef): make sure default elsewhere
+		timeoutSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		timeoutSignDesc.HashType = txscript.SigHashDefault
+
+		timeoutWitness, err = input.SenderHTLCScriptTaprootTimeout(
+			htlcSig, sigHashType, signer, &timeoutSignDesc,
+			timeoutTx, keyRing.RevocationKey,
+			htlcScriptInfo.ScriptTree,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// The control block is always the final element of the witness
+		// stack. We set this here as eventually the sweeper will need
+		// to re-sign, so it needs the isolated control block.
+		//
+		// TODO(roasbeef): move this into input.go?
+		ctlrBlkIdx := len(timeoutWitness) - 1
+		timeoutSignDesc.ControlBlock = timeoutWitness[ctlrBlkIdx]
+	} else {
+		timeoutWitness, err = input.SenderHtlcSpendTimeout(
+			htlcSig, sigHashType, signer, &timeoutSignDesc,
+			timeoutTx,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
+
 	timeoutTx.TxIn[0].Witness = timeoutWitness
 
 	// If this is an anchor type channel, the sign details will let us
@@ -6639,12 +6684,42 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// Finally, we'll generate the script output that the timeout
 	// transaction creates so we can generate the signDesc required to
 	// complete the claim process after a delay period.
-	htlcSweepScript, err := SecondLevelHtlcScript(
-		chanType, isCommitFromInitiator, keyRing.RevocationKey,
-		keyRing.ToLocalKey, csvDelay, leaseExpiry,
+	var (
+		htlcSweepScript *ScriptInfo
+		signMethod      input.SignMethod
+		ctrlBlock       []byte
 	)
-	if err != nil {
-		return nil, err
+	if !chanType.IsTaproot() {
+		htlcSweepScript, err = SecondLevelHtlcScript(
+			chanType, isCommitFromInitiator, keyRing.RevocationKey,
+			keyRing.ToLocalKey, csvDelay, leaseExpiry,
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
+			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		htlcSweepScript = &ScriptInfo{
+			PkScript:      secondLevelScriptTree.PkScript,
+			WitnessScript: secondLevelScriptTree.SuccessTapLeaf.Script,
+		}
+
+		signMethod = input.TaprootScriptSpendSignMethod
+
+		controlBlock := input.MakeTaprootCtrlBlock(
+			htlcSweepScript.WitnessScript, keyRing.RevocationKey,
+			secondLevelScriptTree.TapscriptTree,
+		)
+		ctrlBlock, err = controlBlock.ToBytes()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	localDelayTweak := input.SingleTweakBytes(
@@ -6667,7 +6742,9 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				PkScript: htlcSweepScript.PkScript,
 				Value:    int64(secondLevelOutputAmt),
 			},
-			HashType: txscript.SigHashAll,
+			HashType:     txscript.SigHashAll,
+			SignMethod:   signMethod,
+			ControlBlock: ctrlBlock,
 		},
 	}, nil
 }

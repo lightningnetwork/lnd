@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -728,7 +729,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	for i := range unresolvedContracts {
 		resolver := unresolvedContracts[i]
 
-        if chanState != nil {
+		if chanState != nil {
 			resolver.SupplementState(chanState)
 		}
 
@@ -737,6 +738,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		maybeAugmentTaprootResolvers(
 			chanState.ChanType, resolver, contractResolutions,
 		)
+
 
 		unresolvedContracts[i] = resolver
 
@@ -766,7 +768,12 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 				ChannelArbitratorConfig: c.cfg,
 			},
 		)
+
+		anchorResolver.SupplementState(chanState)
+
 		unresolvedContracts = append(unresolvedContracts, anchorResolver)
+
+		// TODO(roasbeef): this isn't re-launched?
 	}
 
 	c.launchResolvers(unresolvedContracts)
@@ -1221,6 +1228,9 @@ func (c *ChannelArbitrator) stateStep(
 			return StateError, closeTx, err
 		}
 
+		// TODO(roasbeef): sweeps abandoned should also return anchor
+		// res
+
 		// If we still have unresolved contracts, then we'll stay alive
 		// to oversee their resolution.
 		if len(numUnresolved) != 0 {
@@ -1277,10 +1287,21 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 			"anchor of %s commit tx %v", c.cfg.ChanPoint,
 			anchorPath, anchor.CommitAnchor)
 
+		witnessType := input.CommitmentAnchor
+
+		// For taproot channels, we need to use the proper witness
+		// type.
+		if txscript.IsPayToTaproot(
+			anchor.AnchorSignDescriptor.Output.PkScript,
+		) {
+
+			witnessType = input.TaprootAnchorSweepSpend
+		}
+
 		// Prepare anchor output for sweeping.
 		anchorInput := input.MakeBaseInput(
 			&anchor.CommitAnchor,
-			input.CommitmentAnchor,
+			witnessType,
 			&anchor.AnchorSignDescriptor,
 			heightHint,
 			&input.TxInfo{
@@ -2158,6 +2179,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 			contractResolutions.AnchorResolution.CommitAnchor,
 			height, c.cfg.ChanPoint, resolverCfg,
 		)
+		anchorResolver.SupplementState(chanState)
+
 		htlcResolvers = append(htlcResolvers, anchorResolver)
 	}
 

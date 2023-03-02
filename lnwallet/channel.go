@@ -7240,6 +7240,24 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 			},
 			MaturityDelay: csvTimeout,
 		}
+
+		// For taproot channels, we'll need to set some additional
+		// fields to ensure the output can be swept.
+		//
+		// TODO(roasbef): abstract into new func
+		if chanState.ChanType.IsTaproot() {
+			commitResolution.SelfOutputSignDesc.SignMethod =
+				input.TaprootScriptSpendSignMethod
+
+			ctrlBlock := input.MakeTaprootCtrlBlock(
+				commitResolution.SelfOutputSignDesc.WitnessScript,
+				keyRing.RevocationKey, toLocalScript.ScriptTree,
+			)
+			commitResolution.SelfOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// Once the delay output has been found (if it exists), then we'll also

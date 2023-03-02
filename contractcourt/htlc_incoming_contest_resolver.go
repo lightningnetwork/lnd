@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -103,9 +104,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 		// If we've locked in an htlc with an invalid payload on our
 		// commitment tx, we don't need to resolve it. The other party
-		// will time it out and get their funds back. This situation can
-		// present itself when we crash before processRemoteAdds in the
-		// link has ran.
+		// will time it out and get their funds back. This situation
+		// can present itself when we crash before processRemoteAdds in
+		// the link has ran.
 		h.resolved = true
 
 		if err := h.processFinalHtlcFail(); err != nil {
@@ -192,17 +193,41 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		log.Infof("%T(%v): applied preimage=%v", h,
 			h.htlcResolution.ClaimOutpoint, preimage)
 
+		isSecondLevel := h.htlcResolution.SignedSuccessTx != nil
+
+		// If we didn't have to go to the second level to claim (this
+		// is the remote commitment transaction), then we don't need to
+		// modify our canned witness.
+		if !isSecondLevel {
+			return nil
+		}
+
+		isTaproot := txscript.IsPayToTaproot(
+			h.htlcResolution.SignedSuccessTx.TxOut[0].PkScript,
+		)
+
 		// If this is our commitment transaction, then we'll need to
 		// populate the witness for the second-level HTLC transaction.
-		if h.htlcResolution.SignedSuccessTx != nil {
-			// Within the witness for the success transaction, the
-			// preimage is the 4th element as it looks like:
-			//
-			//  * <sender sig> <recvr sig> <preimage> <witness script>
-			//
-			// We'll populate it within the witness, as since this
-			// was a "contest" resolver, we didn't yet know of the
-			// preimage.
+		switch {
+		// For taproot channels, the witness for sweeping with sucess
+		// looks like:
+		//   - <sender sig> <receiver sig> <preimage> <success_script>
+		//     <control_block>
+		//
+		// So we'll insert it at the 3rd index of the witness.
+		case isTaproot:
+			//nolint:lll
+			h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[2] = preimage[:]
+
+		// Within the witness for the success transaction, the
+		// preimage is the 4th element as it looks like:
+		//
+		//  * <0> <sender sig> <recvr sig> <preimage> <witness script>
+		//
+		// We'll populate it within the witness, as since this
+		// was a "contest" resolver, we didn't yet know of the
+		// preimage.
+		case !isTaproot:
 			h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[3] = preimage[:]
 		}
 

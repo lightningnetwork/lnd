@@ -224,6 +224,8 @@ func TestTaprootSenderHtlcSpend(t *testing.T) {
 	testCases := []struct {
 		name string
 
+		// TODO(roasbeef): use sighash slice
+
 		witnessGen witnessGen
 
 		txInMutator func(txIn *wire.TxIn)
@@ -437,7 +439,7 @@ type testReceiverHtlcScriptTree struct {
 
 	receiverKey *btcec.PrivateKey
 
-	revokeKey *btcec.PrivateKey
+	revokeKey btcec.PrivateKey
 
 	htlcTxOut *wire.TxOut
 
@@ -486,7 +488,7 @@ func newTestReceiverHtlcScriptTree(t *testing.T) *testReceiverHtlcScriptTree {
 		preImage:       preImage,
 		senderKey:      senderKey,
 		receiverKey:    receiverKey,
-		revokeKey:      revokeKey,
+		revokeKey:      *revokeKey,
 		htlcTxOut:      targetTxOut,
 		htlcAmt:        htlcAmt,
 		rootHash:       htlcScriptTree.TapscriptRoot,
@@ -542,7 +544,7 @@ func htlcReceiverRevocationWitnessGen(sigHash txscript.SigHashType,
 		revokeKey := htlcScriptTree.revokeKey
 		signer := &MockSigner{
 			Privkeys: []*btcec.PrivateKey{
-				revokeKey,
+				&revokeKey,
 			},
 		}
 
@@ -636,6 +638,8 @@ func TestTaprootReceiverHtlcSpend(t *testing.T) {
 	// spend paths), and also a mock spend transaction that we'll be
 	// signing below.
 	htlcScriptTree := newTestReceiverHtlcScriptTree(t)
+
+	// TODO(roasbeef): issue with revoke key??? ctrl block even/odd
 
 	spendTx := wire.NewMsgTx(2)
 	spendTx.AddTxIn(&wire.TxIn{})

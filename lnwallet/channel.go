@@ -2583,18 +2583,30 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 		return emptyRetribution, err
 	}
 
-	return HtlcRetribution{
-		SignDesc: input.SignDescriptor{
-			KeyDesc: chanState.LocalChanCfg.
-				RevocationBasePoint,
-			DoubleTweak:   commitmentSecret,
-			WitnessScript: scriptInfo.WitnessScript,
-			Output: &wire.TxOut{
-				PkScript: scriptInfo.PkScript,
-				Value:    int64(htlc.Amt),
-			},
-			HashType: txscript.SigHashAll,
+	signDesc := input.SignDescriptor{
+		KeyDesc: chanState.LocalChanCfg.
+			RevocationBasePoint,
+		DoubleTweak:   commitmentSecret,
+		WitnessScript: scriptInfo.WitnessScript,
+		Output: &wire.TxOut{
+			PkScript: scriptInfo.PkScript,
+			Value:    int64(htlc.Amt),
 		},
+		HashType: txscript.SigHashAll,
+	}
+
+	// For taproot HTLC outputs, we need to set the sign method to key
+	// spend, and also set the tap tweak root needed to derive the proper
+	// private key.
+	if chanState.ChanType.IsTaproot() {
+		signDesc.SignMethod = input.TaprootKeySpendSignMethod
+
+		tapscriptRoot := scriptInfo.ScriptTree.RootNode.TapHash()
+		signDesc.TapTweak = tapscriptRoot[:]
+	}
+
+	return HtlcRetribution{
+		SignDesc: signDesc,
 		OutPoint: wire.OutPoint{
 			Hash:  commitHash,
 			Index: uint32(htlc.OutputIndex),

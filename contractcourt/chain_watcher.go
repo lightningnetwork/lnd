@@ -881,9 +881,6 @@ func (c *chainWatcher) handlePossibleBreach(commitSpend *chainntnfs.SpendDetail,
 	}
 
 	// Create an AnchorResolution for the breached state.
-	//
-	// TODO(roasbeef): make keyring for taproot chans to pass in instead of
-	// nil
 	anchorRes, err := lnwallet.NewAnchorResolution(
 		c.cfg.chanState, commitSpend.SpendingTx, retribution.KeyRing,
 		false,

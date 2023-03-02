@@ -206,7 +206,7 @@ const (
 	// TaprootHtlcAcceptedSuccessSecondLevel is a witness that allows us to
 	// sweep an HTLC we accepted on our commitment transaction after we go
 	// to the second level on chain.
-	TaprootHtlcAcceptedSuceessSecondLevel StandardWitnessType = 26
+	TaprootHtlcAcceptedSuccessSecondLevel StandardWitnessType = 26
 
 	// TaprootHtlcSecondLevelRevoke is a witness that allows us to sweep an
 	// HTLC on the revoked transaction of the remote party that goes to the
@@ -339,8 +339,8 @@ func (wt StandardWitnessType) String() string {
 	case TaprootHtlcOfferedTimeoutSecondLevel:
 		return "TaprootHtlcOfferedTimeoutSecondLevel"
 
-	case TaprootHtlcAcceptedSuceessSecondLevel:
-		return "TaprootHtlcAcceptedSuceessSecondLevel"
+	case TaprootHtlcAcceptedSuccessSecondLevel:
+		return "TaprootHtlcAcceptedSuccessSecondLevel"
 
 	case TaprootHtlcSecondLevelRevoke:
 		return "TaprootHtlcSecondLevelRevoke"
@@ -621,6 +621,48 @@ func (wt StandardWitnessType) SizeUpperBound() (int, bool, error) {
 
 	case TaprootPubKeySpend:
 		return TaprootKeyPathCustomSighashWitnessSize, false, nil
+
+	// Sweeping a self output after a delay for taproot channels.
+	case TaprootLocalCommitSpend:
+		return TaprootToLocalWitnessSize, false, nil
+
+	// Sweeping a self output after the remote party fro ce closes. Must
+	// wait 1 CSV.
+	case TaprootRemoteCommitSpend:
+		return TaprootToRemoteWitnessSize, false, nil
+
+	// Sweeping our anchor output with a key spend witness.
+	case TaprootAnchorSweepSpend:
+		return TaprootAnchorWitnessSize, false, nil
+
+	case TaprootHtlcOfferedTimeoutSecondLevel,
+		TaprootHtlcAcceptedSuccessSecondLevel:
+
+		return TaprootSecondLevelHtlcWitnessSize, false, nil
+
+	case TaprootHtlcSecondLevelRevoke:
+		return TaprootSecondLevelRevokeWitnessSize, false, nil
+
+	case TaprootHtlcAcceptedRevoke:
+		return TaprootAcceptedRevokeWitnessSize, false, nil
+
+	case TaprootHtlcOfferedRevoke:
+		return TaprootOfferedRevokeWitnessSize, false, nil
+
+	case TaprootHtlcOfferedRemoteTimeout:
+		return TaprootHtlcOfferedRemoteTimeoutWitnessSize, false, nil
+
+	case TaprootHtlcLocalOfferedTimeout:
+		return TaprootOfferedLocalTimeoutWitnessSize, false, nil
+
+	case TaprootHtlcAcceptedRemoteSuccess:
+		return TaprootHtlcAcceptedRemoteSuccessWitnessSize, false, nil
+
+	case TaprootHtlcAcceptedLocalSuccess:
+		return TaprootHtlcAcceptedLocalSuccessWitnessSize, false, nil
+
+	case TaprootCommitmentRevoke:
+		return TaprootToLocalRevokeWitnessSize, false, nil
 	}
 
 	return 0, false, fmt.Errorf("unexpected witness type: %v", wt)

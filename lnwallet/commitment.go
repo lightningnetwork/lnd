@@ -464,12 +464,17 @@ func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
 
 // CommitWeight returns the base commitment weight before adding HTLCs.
 func CommitWeight(chanType channeldb.ChannelType) int64 {
-	// If this commitment has anchors, it will be slightly heavier.
-	if chanType.HasAnchors() {
-		return input.AnchorCommitWeight
-	}
+	switch {
+	case chanType.IsTaproot():
+		return input.TaprootCommitWeight
 
-	return input.CommitWeight
+	// If this commitment has anchors, it will be slightly heavier.
+	case chanType.HasAnchors():
+		return input.AnchorCommitWeight
+
+	default:
+		return input.CommitWeight
+	}
 }
 
 // HtlcTimeoutFee returns the fee in satoshis required for an HTLC timeout

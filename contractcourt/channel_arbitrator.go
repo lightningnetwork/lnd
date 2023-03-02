@@ -567,6 +567,80 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 	return nil
 }
 
+// maybeAugmentTaprootResolvers will update the contract resolution information
+// for taproot channels. This ensures that all the resolvers have the latest
+// resolution, which may also include data such as the control block and tap
+// tweaks.
+func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
+	resolver ContractResolver,
+	contractResolutions *ContractResolutions) {
+
+	if !chanType.IsTaproot() {
+		return
+	}
+
+	// The on disk resolutions contains all the ctrl block
+	// information, so we'll set that now for the relevant
+	// resolvers.
+	switch r := resolver.(type) {
+	case *commitSweepResolver:
+		if contractResolutions.CommitResolution != nil {
+			//nolint:lll
+			r.commitResolution = *contractResolutions.CommitResolution
+		}
+	case *htlcOutgoingContestResolver:
+		//nolint:lll
+		htlcResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
+		for _, htlcRes := range htlcResolutions {
+			htlcRes := htlcRes
+
+			if r.htlcResolution.ClaimOutpoint ==
+				htlcRes.ClaimOutpoint {
+
+				r.htlcResolution = htlcRes
+			}
+		}
+
+	case *htlcTimeoutResolver:
+		//nolint:lll
+		htlcResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
+		for _, htlcRes := range htlcResolutions {
+			htlcRes := htlcRes
+
+			if r.htlcResolution.ClaimOutpoint ==
+				htlcRes.ClaimOutpoint {
+
+				r.htlcResolution = htlcRes
+			}
+		}
+
+	case *htlcIncomingContestResolver:
+		//nolint:lll
+		htlcResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
+		for _, htlcRes := range htlcResolutions {
+			htlcRes := htlcRes
+
+			if r.htlcResolution.ClaimOutpoint ==
+				htlcRes.ClaimOutpoint {
+
+				r.htlcResolution = htlcRes
+			}
+		}
+	case *htlcSuccessResolver:
+		//nolint:lll
+		htlcResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
+		for _, htlcRes := range htlcResolutions {
+			htlcRes := htlcRes
+
+			if r.htlcResolution.ClaimOutpoint ==
+				htlcRes.ClaimOutpoint {
+
+				r.htlcResolution = htlcRes
+			}
+		}
+	}
+}
+
 // relauchResolvers relaunches the set of resolvers for unresolved contracts in
 // order to provide them with information that's not immediately available upon
 // starting the ChannelArbitrator. This information should ideally be stored in
@@ -651,10 +725,20 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	log.Infof("ChannelArbitrator(%v): relaunching %v contract "+
 		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
 
-	for _, resolver := range unresolvedContracts {
-		if chanState != nil {
+	for i := range unresolvedContracts {
+		resolver := unresolvedContracts[i]
+
+        if chanState != nil {
 			resolver.SupplementState(chanState)
 		}
+
+		// For taproot channels, we'll need to also make sure the
+		// control block information was set properly.
+		maybeAugmentTaprootResolvers(
+			chanState.ChanType, resolver, contractResolutions,
+		)
+
+		unresolvedContracts[i] = resolver
 
 		htlcResolver, ok := resolver.(htlcContractResolver)
 		if !ok {

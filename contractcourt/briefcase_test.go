@@ -625,10 +625,7 @@ func TestContractResolutionsStorage(t *testing.T) {
 	diskRes, err := testLog.FetchContractResolutions()
 	require.NoError(t, err, "unable to read resolution from db")
 
-	if !reflect.DeepEqual(&res, diskRes) {
-		t.Fatalf("resolution mismatch: expected %v\n, got %v",
-			spew.Sdump(&res), spew.Sdump(diskRes))
-	}
+	require.Equal(t, res, *diskRes)
 
 	// We'll now delete the state, then attempt to retrieve the set of
 	// resolvers, no resolutions should be found.

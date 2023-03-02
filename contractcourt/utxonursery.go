@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -367,10 +368,23 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	// second-layer HTLC output. We effectively skip the baby stage (as the
 	// timelock is zero), and enter the kid stage.
 	for _, htlcRes := range incomingHtlcs {
+		// Based on the input pk script of the sign descriptor, we can
+		// determine if this is a taproot output or not. This'll
+		// determine the witness type we try to set below.
+		isTaproot := txscript.IsPayToTaproot(
+			htlcRes.SweepSignDesc.Output.PkScript,
+		)
+
+		var witType input.StandardWitnessType
+		if isTaproot {
+			witType = input.TaprootHtlcAcceptedSuceessSecondLevel
+		} else {
+			witType = input.HtlcAcceptedSuccessSecondLevel
+		}
+
 		htlcOutput := makeKidOutput(
 			&htlcRes.ClaimOutpoint, &chanPoint, htlcRes.CsvDelay,
-			input.HtlcAcceptedSuccessSecondLevel,
-			&htlcRes.SweepSignDesc, 0,
+			witType, &htlcRes.SweepSignDesc, 0,
 		)
 
 		if htlcOutput.Amount() > 0 {
@@ -395,6 +409,20 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 			continue
 		}
 
+		// Based on the input pk script of the sign descriptor, we can
+		// determine if this is a taproot output or not. This'll
+		// determine the witness type we try to set below.
+		isTaproot := txscript.IsPayToTaproot(
+			htlcRes.SweepSignDesc.Output.PkScript,
+		)
+
+		var witType input.StandardWitnessType
+		if isTaproot {
+			witType = input.TaprootHtlcOfferedRemoteTimeout
+		} else {
+			witType = input.HtlcOfferedRemoteTimeout
+		}
+
 		// Otherwise, this is actually a kid output as we can sweep it
 		// once the commitment transaction confirms, and the absolute
 		// CLTV lock has expired. We set the CSV delay what the
@@ -402,8 +430,7 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 		// accordingly.
 		htlcOutput := makeKidOutput(
 			&htlcRes.ClaimOutpoint, &chanPoint, htlcRes.CsvDelay,
-			input.HtlcOfferedRemoteTimeout,
-			&htlcRes.SweepSignDesc, htlcRes.Expiry,
+			witType, &htlcRes.SweepSignDesc, htlcRes.Expiry,
 		)
 		kidOutputs = append(kidOutputs, htlcOutput)
 	}
@@ -515,13 +542,15 @@ func (u *UtxoNursery) NurseryReport(
 				// confirmation of the commitment transaction.
 				switch kid.WitnessType() {
 
-				case input.HtlcAcceptedSuccessSecondLevel:
+				case input.HtlcAcceptedSuccessSecondLevel,
+					input.TaprootHtlcAcceptedSuceessSecondLevel:
 					// An HTLC output on our commitment transaction
 					// where the second-layer transaction hasn't
 					// yet confirmed.
 					report.AddLimboStage1SuccessHtlc(&kid)
 
-				case input.HtlcOfferedRemoteTimeout:
+				case input.HtlcOfferedRemoteTimeout,
+					input.TaprootHtlcOfferedRemoteTimeout:
 					// This is an HTLC output on the
 					// commitment transaction of the remote
 					// party. We are waiting for the CLTV
@@ -536,7 +565,8 @@ func (u *UtxoNursery) NurseryReport(
 				// types.
 				switch kid.WitnessType() {
 
-				case input.HtlcOfferedRemoteTimeout:
+				case input.HtlcOfferedRemoteTimeout,
+					input.TaprootHtlcOfferedRemoteTimeout:
 					// This is an HTLC output on the
 					// commitment transaction of the remote
 					// party. The CLTV timelock has
@@ -544,6 +574,10 @@ func (u *UtxoNursery) NurseryReport(
 					// it.
 					report.AddLimboDirectHtlc(&kid)
 
+				case input.TaprootHtlcAcceptedSuceessSecondLevel:
+					fallthrough
+				case input.TaprootHtlcOfferedTimeoutSecondLevel:
+					fallthrough
 				case input.HtlcAcceptedSuccessSecondLevel:
 					fallthrough
 				case input.HtlcOfferedTimeoutSecondLevel:
@@ -560,9 +594,15 @@ func (u *UtxoNursery) NurseryReport(
 				// balance.
 				switch kid.WitnessType() {
 
+				case input.TaprootHtlcAcceptedSuceessSecondLevel:
+					fallthrough
+				case input.TaprootHtlcOfferedTimeoutSecondLevel:
+					fallthrough
 				case input.HtlcAcceptedSuccessSecondLevel:
 					fallthrough
 				case input.HtlcOfferedTimeoutSecondLevel:
+					fallthrough
+				case input.TaprootHtlcOfferedRemoteTimeout:
 					fallthrough
 				case input.HtlcOfferedRemoteTimeout:
 					// This htlc output successfully
@@ -1215,9 +1255,22 @@ type babyOutput struct {
 func makeBabyOutput(chanPoint *wire.OutPoint,
 	htlcResolution *lnwallet.OutgoingHtlcResolution) babyOutput {
 
+	// TODO(roasbeef): isn't actually needed since all anchor outputs with
+	// taproot, so bypasses this?
+
 	htlcOutpoint := htlcResolution.ClaimOutpoint
 	blocksToMaturity := htlcResolution.CsvDelay
-	witnessType := input.HtlcOfferedTimeoutSecondLevel
+
+	isTaproot := txscript.IsPayToTaproot(
+		htlcResolution.SweepSignDesc.Output.PkScript,
+	)
+
+	var witnessType input.StandardWitnessType
+	if isTaproot {
+		witnessType = input.TaprootHtlcOfferedTimeoutSecondLevel
+	} else {
+		witnessType = input.HtlcOfferedTimeoutSecondLevel
+	}
 
 	kid := makeKidOutput(
 		&htlcOutpoint, chanPoint, blocksToMaturity, witnessType,
@@ -1305,6 +1358,8 @@ func makeKidOutput(outpoint, originChanPoint *wire.OutPoint,
 	// transaction, or is an outgoing HTLC on the commitment transaction of
 	// the remote peer.
 	isHtlc := (witnessType == input.HtlcAcceptedSuccessSecondLevel ||
+		witnessType == input.TaprootHtlcAcceptedSuceessSecondLevel ||
+		witnessType == input.TaprootHtlcOfferedRemoteTimeout ||
 		witnessType == input.HtlcOfferedRemoteTimeout)
 
 	// heightHint can be safely set to zero here, because after this
@@ -1381,6 +1436,7 @@ func (k *kidOutput) Encode(w io.Writer) error {
 		return err
 	}
 
+	// TODO(roasbeef): can write the control block since at the end?
 	return input.WriteSignDescriptor(w, k.SignDesc())
 }
 

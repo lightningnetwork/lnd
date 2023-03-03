@@ -104,10 +104,10 @@ const (
 	// TODO(roasbeef): tune.
 	msgBufferSize = 50
 
-	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
+	// MaxWaitNumBlocksFundingConf is the maximum number of blocks to wait
 	// for the funding transaction to be confirmed before forgetting
 	// channels that aren't initiated by us. 2016 blocks is ~2 weeks.
-	maxWaitNumBlocksFundingConf = 2016
+	MaxWaitNumBlocksFundingConf uint32 = 2016
 
 	// pendingChansLimit is the maximum number of pending channels that we
 	// can have. After this point, pending channel opens will start to be
@@ -2744,7 +2744,7 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 
 	// On block maxHeight we will cancel the funding confirmation wait.
 	broadcastHeight := completeChan.BroadcastHeight()
-	maxHeight := broadcastHeight + maxWaitNumBlocksFundingConf
+	maxHeight := broadcastHeight + MaxWaitNumBlocksFundingConf
 	for {
 		select {
 		case epoch, ok := <-epochClient.Epochs:
@@ -2760,7 +2760,7 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 				log.Warnf("Waited for %v blocks without "+
 					"seeing funding transaction confirmed,"+
 					" cancelling.",
-					maxWaitNumBlocksFundingConf)
+					MaxWaitNumBlocksFundingConf)
 
 				// Notify the caller of the timeout.
 				close(timeoutChan)

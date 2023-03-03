@@ -233,6 +233,7 @@ func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 // ListChannels becomes mature, a test against all fields in ListChannels
 // should be performed.
 func testListChannels(ht *lntest.HarnessTest) {
+	// @nocommit candidate for testing
 	const aliceRemoteMaxHtlcs = 50
 	const bobRemoteMaxHtlcs = 100
 

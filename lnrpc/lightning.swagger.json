@@ -3567,6 +3567,11 @@
         "peer_alias": {
           "type": "string",
           "description": "The configured alias name of our peer."
+        },
+        "funding_expiry_blocks": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of blocks until the funding transaction is considered expired.\nIf this value gets close to zero, there is a risk that the channel\nfunding will be canceled by the channel responder. The channel should be\nfee bumped using CPFP (see walletrpc.BumpFee) to ensure that the channel\nconfirms in time. Otherwise a force-close will be necessary if the\nchannel confirms after the funding transaction expires. A value of -1\nindicates that the channel has at least one confirmation and this field\ncan be safely ignored."
         }
       }
     },

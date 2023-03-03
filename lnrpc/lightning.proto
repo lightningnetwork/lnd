@@ -4261,6 +4261,8 @@ message ChannelBackupSubscription {
 }
 
 message VerifyChanBackupResponse {
+    // Backup verification success
+    bool success = 1;
 }
 
 message MacaroonPermission {

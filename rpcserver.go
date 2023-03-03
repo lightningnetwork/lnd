@@ -7148,7 +7148,9 @@ func (r *rpcServer) VerifyChanBackup(ctx context.Context,
 		}
 	}
 
-	return &lnrpc.VerifyChanBackupResponse{}, nil
+	return &lnrpc.VerifyChanBackupResponse{
+		Success: true,
+	}, nil
 }
 
 // createBackupSnapshot converts the passed Single backup into a snapshot which

@@ -6993,7 +6993,13 @@
       }
     },
     "lnrpcVerifyChanBackupResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "success": {
+          "type": "boolean",
+          "title": "Backup verification success"
+        }
+      }
     },
     "lnrpcVerifyMessageRequest": {
       "type": "object",

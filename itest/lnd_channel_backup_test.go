@@ -907,7 +907,12 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 					},
 				}
 
-				carol.RPC.VerifyChanBackup(snapshot)
+				result := carol.RPC.VerifyChanBackup(snapshot)
+				if !result.Success {
+					return fmt.Errorf("backup " +
+						"verification result not " +
+						"indicated as successful")
+				}
 			}
 
 			return nil

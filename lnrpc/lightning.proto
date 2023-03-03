@@ -2581,6 +2581,17 @@ message PendingChannelsResponse {
 
         // Previously used for confirmation_height. Do not reuse.
         reserved 2;
+
+        // The number of blocks until the funding transaction is considered
+        // expired. If this value gets close to zero, there is a risk that the
+        // channel funding will be canceled by the channel responder. The
+        // channel should be fee bumped using CPFP (see walletrpc.BumpFee) to
+        // ensure that the channel confirms in time. Otherwise a force-close
+        // will be necessary if the channel confirms after the funding
+        // transaction expires. A negative value means the channel responder has
+        // very likely canceled the funding and the channel will never become
+        // fully operational.
+        int32 funding_expiry_blocks = 3;
     }
 
     message WaitingCloseChannel {

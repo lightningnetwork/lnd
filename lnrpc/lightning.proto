@@ -1542,6 +1542,16 @@ message Channel {
 
     // The configured alias name of our peer.
     string peer_alias = 34;
+
+    // The number of blocks until the funding transaction is considered expired.
+    // If this value gets close to zero, there is a risk that the channel
+    // funding will be canceled by the channel responder. The channel should be
+    // fee bumped using CPFP (see walletrpc.BumpFee) to ensure that the channel
+    // confirms in time. Otherwise a force-close will be necessary if the
+    // channel confirms after the funding transaction expires. A value of -1
+    // indicates that the channel has at least one confirmation and this field
+    // can be safely ignored.
+    int32 funding_expiry_blocks = 35;
 }
 
 message ListChannelsRequest {

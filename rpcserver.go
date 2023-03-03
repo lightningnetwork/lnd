@@ -3993,6 +3993,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		return nil, err
 	}
 
+
 	rpcsLog.Debugf("[listchannels] fetched %v channels from DB",
 		len(dbChannels))
 
@@ -4136,6 +4137,21 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	// Fetch the set of aliases for the channel.
 	channelAliases := r.server.aliasMgr.GetAliases(dbScid)
 
+	// If the channel funding is pending, calculate the FundingExpiryBlocks
+	// based on the broadcast height.
+	fundingExpiryBlocks := int32(-1)
+	if dbChannel.IsPending {
+		_, currentHeight, err := r.server.cc.ChainIO.GetBestBlock()
+		if err != nil {
+			return nil, err
+		}
+		maxFundingHeight := funding.MaxWaitNumBlocksFundingConf + dbChannel.BroadcastHeight()
+		fundingExpiryBlocks = int32(maxFundingHeight) - currentHeight
+		if fundingExpiryBlocks < 0 {
+			fundingExpiryBlocks = 0
+		}
+	}
+
 	channel := &lnrpc.Channel{
 		Active:                isActive,
 		Private:               isPrivate(dbChannel),
@@ -4170,6 +4186,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		CsvDelay:             uint32(dbChannel.LocalChanCfg.CsvDelay),
 		LocalChanReserveSat:  int64(dbChannel.LocalChanCfg.ChanReserve),
 		RemoteChanReserveSat: int64(dbChannel.RemoteChanCfg.ChanReserve),
+		FundingExpiryBlocks: fundingExpiryBlocks,
 	}
 
 	// Look up our channel peer's node alias if the caller requests it.

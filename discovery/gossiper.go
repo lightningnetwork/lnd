@@ -430,8 +430,7 @@ type AuthenticatedGossiper struct {
 	// the chan networkMsgs once the block height has reached. The cached
 	// map format is,
 	//   {msgID1: msg1, msgID2: msg2, ...}
-	futureMsgs  *lru.Cache[uint64, *cachedFutureMsg]
-	futureMsgID atomic.Uint64
+	futureMsgs *futureMsgCache
 
 	// chanPolicyUpdates is a channel that requests to update the
 	// forwarding policy of a set of channels is sent over.
@@ -484,13 +483,11 @@ type AuthenticatedGossiper struct {
 // passed configuration parameters.
 func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper {
 	gossiper := &AuthenticatedGossiper{
-		selfKey:     selfKeyDesc.PubKey,
-		selfKeyLoc:  selfKeyDesc.KeyLocator,
-		cfg:         &cfg,
-		networkMsgs: make(chan *networkMsg),
-		futureMsgs: lru.NewCache[uint64, *cachedFutureMsg](
-			maxFutureMessages,
-		),
+		selfKey:           selfKeyDesc.PubKey,
+		selfKeyLoc:        selfKeyDesc.KeyLocator,
+		cfg:               &cfg,
+		networkMsgs:       make(chan *networkMsg),
+		futureMsgs:        newFutureMsgCache(maxFutureMessages),
 		quit:              make(chan struct{}),
 		chanPolicyUpdates: make(chan *chanPolicyUpdateRequest),
 		prematureChannelUpdates: lru.NewCache[uint64, *cachedNetworkMsg]( //nolint: lll
@@ -638,7 +635,32 @@ func (d *AuthenticatedGossiper) syncBlockHeight() {
 	}
 }
 
-// cachedFutureMsg is a future message that's saved to the `futureMsgs` cache.
+// futureMsgCache embeds a `lru.Cache` with a message counter that's served as
+// the unique ID when saving the message.
+type futureMsgCache struct {
+	*lru.Cache[uint64, *cachedFutureMsg]
+
+	// msgID is a monotonically increased integer.
+	msgID atomic.Uint64
+}
+
+// nextMsgID returns a unique message ID.
+func (f *futureMsgCache) nextMsgID() uint64 {
+	return f.msgID.Add(1)
+}
+
+// newFutureMsgCache creates a new future message cache with the underlying lru
+// cache being initialized with the specified capacity.
+func newFutureMsgCache(capacity uint64) *futureMsgCache {
+	// Create a new cache.
+	cache := lru.NewCache[uint64, *cachedFutureMsg](capacity)
+
+	return &futureMsgCache{
+		Cache: cache,
+	}
+}
+
+// cachedFutureMsg is a future message that's saved to the `futureMsgCache`.
 type cachedFutureMsg struct {
 	// msg is the network message.
 	msg *networkMsg
@@ -1933,7 +1955,7 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 	}
 
 	// Increment the msg ID and add it to the cache.
-	nextMsgID := d.futureMsgID.Add(1)
+	nextMsgID := d.futureMsgs.nextMsgID()
 	_, err := d.futureMsgs.Put(nextMsgID, cachedMsg)
 	if err != nil {
 		log.Errorf("Adding future message got error: %v", err)

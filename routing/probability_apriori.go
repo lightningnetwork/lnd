@@ -12,40 +12,37 @@ import (
 )
 
 const (
-	// capacityCutoffFraction and capacitySmearingFraction define how
-	// capacity-related probability reweighting works.
-	// capacityCutoffFraction defines the fraction of the channel capacity
-	// at which the effect roughly sets in and capacitySmearingFraction
-	// defines over which range the factor changes from 1 to 0.
-	//
-	// We may fall below the minimum required probability
-	// (DefaultMinRouteProbability) when the amount comes close to the
-	// available capacity of a single channel of the route in case of no
-	// prior knowledge about the channels. We want such routes still to be
-	// available and therefore a probability reduction should not completely
-	// drop the total probability below DefaultMinRouteProbability.
-	// For this to hold for a three-hop route we require:
-	// (DefaultAprioriHopProbability)^3 * minCapacityFactor >
-	//      DefaultMinRouteProbability
-	//
-	// For DefaultAprioriHopProbability = 0.6 and
-	// DefaultMinRouteProbability = 0.01 this results in
-	// minCapacityFactor ~ 0.05. The following combination of parameters
-	// fulfill the requirement with capacityFactor(cap, cap) ~ 0.076 (see
-	// tests).
+	// CapacityFraction and capacitySmearingFraction define how
+	// capacity-related probability reweighting works. CapacityFraction
+	// defines the fraction of the channel capacity at which the effect
+	// roughly sets in and capacitySmearingFraction defines over which range
+	// the factor changes from 1 to minCapacityFactor.
 
-	// The capacityCutoffFraction is a trade-off between usage of the
-	// provided capacity and expected probability reduction when we send the
-	// full amount. The success probability in the random balance model can
-	// be approximated with P(a) = 1 - a/c, for amount a and capacity c. If
-	// we require a probability P(a) > 0.25, this translates into a value of
-	// 0.75 for a/c.
-	capacityCutoffFraction = 0.75
+	// DefaultCapacityFraction is the default value for CapacityFraction.
+	// It is chosen such that the capacity factor is active but with a small
+	// effect. This value together with capacitySmearingFraction leads to a
+	// noticeable reduction in probability if the amount starts to come
+	// close to 90% of a channel's capacity.
+	DefaultCapacityFraction = 0.9999
 
-	// We don't want to have a sharp drop of the capacity factor to zero at
-	// capacityCutoffFraction, but a smooth smearing such that some residual
-	// probability is left when spending the whole amount, see above.
-	capacitySmearingFraction = 0.1
+	// capacitySmearingFraction defines how quickly the capacity factor
+	// drops from 1 to minCapacityFactor. This value results in about a
+	// variation over 20% of the capacity.
+	capacitySmearingFraction = 0.025
+
+	// minCapacityFactor is the minimal value the capacityFactor can take.
+	// Having a too low value can lead to discarding of paths due to the
+	// enforced minimal proability or to too high pathfinding weights.
+	minCapacityFactor = 0.5
+
+	// minCapacityFraction is the minimum allowed value for
+	// CapacityFraction. The success probability in the random balance model
+	// (which may not be an accurate description of the liquidity
+	// distribution in the network) can be approximated with P(a) = 1 - a/c,
+	// for amount a and capacity c. If we require a probability P(a) = 0.25,
+	// this translates into a value of 0.75 for a/c. We limit this value in
+	// order to not discard too many channels.
+	minCapacityFraction = 0.75
 
 	// AprioriEstimatorName is used to identify the apriori probability
 	// estimator.
@@ -64,6 +61,11 @@ var (
 	// ErrInvalidAprioriWeight is returned when we get an apriori weight
 	// that is out of range.
 	ErrInvalidAprioriWeight = errors.New("apriori weight must be in [0, 1]")
+
+	// ErrInvalidCapacityFraction is returned when we get a capacity
+	// fraction that is out of range.
+	ErrInvalidCapacityFraction = fmt.Errorf("capacity fraction must be in "+
+		"[%v, 1]", minCapacityFraction)
 )
 
 // AprioriConfig contains configuration for our probability estimator.
@@ -84,6 +86,12 @@ type AprioriConfig struct {
 	// probability completely and only base the probability on historical
 	// results, unless there are none available.
 	AprioriWeight float64
+
+	// CapacityFraction is the fraction of a channel's capacity that we
+	// consider to have liquidity. For amounts that come close to or exceed
+	// the fraction, an additional penalty is applied. A value of 1.0
+	// disables the capacityFactor.
+	CapacityFraction float64
 }
 
 // validate checks the configuration of the estimator for allowed values.
@@ -100,6 +108,10 @@ func (p AprioriConfig) validate() error {
 		return ErrInvalidAprioriWeight
 	}
 
+	if p.CapacityFraction < minCapacityFraction || p.CapacityFraction > 1 {
+		return ErrInvalidCapacityFraction
+	}
+
 	return nil
 }
 
@@ -109,6 +121,7 @@ func DefaultAprioriConfig() AprioriConfig {
 		PenaltyHalfLife:       DefaultPenaltyHalfLife,
 		AprioriHopProbability: DefaultAprioriHopProbability,
 		AprioriWeight:         DefaultAprioriWeight,
+		CapacityFraction:      DefaultCapacityFraction,
 	}
 }
 
@@ -155,9 +168,10 @@ func (p *AprioriEstimator) Config() estimatorConfig {
 func (p *AprioriEstimator) String() string {
 	return fmt.Sprintf("estimator type: %v, penalty halflife time: %v, "+
 		"apriori hop probability: %v, apriori weight: %v, previous "+
-		"success probability: %v", AprioriEstimatorName,
-		p.PenaltyHalfLife, p.AprioriHopProbability, p.AprioriWeight,
-		p.prevSuccessProbability)
+		"success probability: %v, capacity fraction: %v",
+		AprioriEstimatorName, p.PenaltyHalfLife,
+		p.AprioriHopProbability, p.AprioriWeight,
+		p.prevSuccessProbability, p.CapacityFraction)
 }
 
 // getNodeProbability calculates the probability for connections from a node
@@ -169,7 +183,9 @@ func (p *AprioriEstimator) getNodeProbability(now time.Time,
 
 	// We reduce the apriori hop probability if the amount comes close to
 	// the capacity.
-	apriori := p.AprioriHopProbability * capacityFactor(amt, capacity)
+	apriori := p.AprioriHopProbability * capacityFactor(
+		amt, capacity, p.CapacityFraction,
+	)
 
 	// If the channel history is not to be taken into account, we can return
 	// early here with the configured a priori probability.
@@ -242,11 +258,22 @@ func (p *AprioriEstimator) getWeight(age time.Duration) float64 {
 }
 
 // capacityFactor is a multiplier that can be used to reduce the probability
-// depending on how much of the capacity is sent. The limits are 1 for amt == 0
-// and 0 for amt >> cutoffMsat. The function drops significantly when amt
-// reaches cutoffMsat. smearingMsat determines over which scale the reduction
-// takes place.
-func capacityFactor(amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
+// depending on how much of the capacity is sent. In other words, the factor
+// sorts out channels that don't provide enough liquidity. Effectively, this
+// leads to usage of larger channels in total to increase success probability,
+// but it may also increase fees. The limits are 1 for amt == 0 and
+// minCapacityFactor for amt >> capacityCutoffFraction. The function drops
+// significantly when amt reaches cutoffMsat. smearingMsat determines over which
+// scale the reduction takes place.
+func capacityFactor(amt lnwire.MilliSatoshi, capacity btcutil.Amount,
+	capacityCutoffFraction float64) float64 {
+
+	// The special value of 1.0 for capacityFactor disables any effect from
+	// this factor.
+	if capacityCutoffFraction == 1 {
+		return 1.0
+	}
+
 	// If we don't have information about the capacity, which can be the
 	// case for hop hints or local channels, we return unity to not alter
 	// anything.
@@ -268,7 +295,11 @@ func capacityFactor(amt lnwire.MilliSatoshi, capacity btcutil.Amount) float64 {
 	// at cutoffMsat, decaying over the smearingMsat scale.
 	denominator := 1 + math.Exp(-(amtMsat-cutoffMsat)/smearingMsat)
 
-	return 1 - 1/denominator
+	// The numerator decides what the minimal value of this function will
+	// be. The minimal value is set by minCapacityFactor.
+	numerator := 1 - minCapacityFactor
+
+	return 1 - numerator/denominator
 }
 
 // PairProbability estimates the probability of successfully traversing to

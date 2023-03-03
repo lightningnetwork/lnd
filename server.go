@@ -880,6 +880,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				AprioriHopProbability: aCfg.HopProbability,
 				PenaltyHalfLife:       aCfg.PenaltyHalfLife,
 				AprioriWeight:         aCfg.Weight,
+				CapacityFraction:      aCfg.CapacityFraction,
 			}
 
 			estimator, err = routing.NewAprioriEstimator(

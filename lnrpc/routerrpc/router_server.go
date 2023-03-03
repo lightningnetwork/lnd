@@ -470,9 +470,10 @@ func (s *Server) GetMissionControlConfig(ctx context.Context,
 	case routing.AprioriConfig:
 		resp.Config.Model = MissionControlConfig_APRIORI
 		aCfg := AprioriParameters{
-			HalfLifeSeconds: uint64(v.PenaltyHalfLife.Seconds()),
-			HopProbability:  v.AprioriHopProbability,
-			Weight:          v.AprioriWeight,
+			HalfLifeSeconds:  uint64(v.PenaltyHalfLife.Seconds()),
+			HopProbability:   v.AprioriHopProbability,
+			Weight:           v.AprioriWeight,
+			CapacityFraction: v.CapacityFraction,
 		}
 
 		// Populate deprecated fields.
@@ -535,6 +536,8 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 				) * time.Second,
 				AprioriHopProbability: v.Apriori.HopProbability,
 				AprioriWeight:         v.Apriori.Weight,
+				CapacityFraction: v.Apriori.
+					CapacityFraction,
 			}
 
 		default:
@@ -546,6 +549,8 @@ func (s *Server) SetMissionControlConfig(ctx context.Context,
 					req.Config.HopProbability,
 				),
 				AprioriWeight: float64(req.Config.Weight),
+				CapacityFraction: float64(
+					routing.DefaultCapacityFraction),
 			}
 		}
 

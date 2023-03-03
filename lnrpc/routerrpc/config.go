@@ -50,9 +50,10 @@ func DefaultConfig() *Config {
 		MaxMcHistory:    routing.DefaultMaxMcHistory,
 		McFlushInterval: routing.DefaultMcFlushInterval,
 		AprioriConfig: &AprioriConfig{
-			HopProbability:  routing.DefaultAprioriHopProbability,
-			Weight:          routing.DefaultAprioriWeight,
-			PenaltyHalfLife: routing.DefaultPenaltyHalfLife,
+			HopProbability:   routing.DefaultAprioriHopProbability,
+			Weight:           routing.DefaultAprioriWeight,
+			PenaltyHalfLife:  routing.DefaultPenaltyHalfLife,
+			CapacityFraction: routing.DefaultCapacityFraction,
 		},
 		BimodalConfig: &BimodalConfig{
 			Scale:      int64(routing.DefaultBimodalScaleMsat),
@@ -76,9 +77,10 @@ func GetRoutingConfig(cfg *Config) *RoutingConfig {
 		MaxMcHistory:             cfg.MaxMcHistory,
 		McFlushInterval:          cfg.McFlushInterval,
 		AprioriConfig: &AprioriConfig{
-			HopProbability:  cfg.AprioriConfig.HopProbability,
-			Weight:          cfg.AprioriConfig.Weight,
-			PenaltyHalfLife: cfg.AprioriConfig.PenaltyHalfLife,
+			HopProbability:   cfg.AprioriConfig.HopProbability,
+			Weight:           cfg.AprioriConfig.Weight,
+			PenaltyHalfLife:  cfg.AprioriConfig.PenaltyHalfLife,
+			CapacityFraction: cfg.AprioriConfig.CapacityFraction,
 		},
 		BimodalConfig: &BimodalConfig{
 			Scale:      cfg.BimodalConfig.Scale,

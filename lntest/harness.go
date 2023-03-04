@@ -922,6 +922,10 @@ type OpenChannelParams struct {
 	// virtual byte of the transaction.
 	SatPerVByte btcutil.Amount
 
+	// SatPerKWeight is the amount of satoshis to spend in chain fees per
+	// KWeight of the transaction.
+	SatPerKWeight btcutil.Amount
+
 	// CommitmentType is the commitment type that should be used for the
 	// channel to be opened.
 	CommitmentType lnrpc.CommitmentType
@@ -1004,6 +1008,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
 		SatPerVbyte:        uint64(p.SatPerVByte),
+		SatPerKweight:      uint64(p.SatPerKWeight),
 		CommitmentType:     p.CommitmentType,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
@@ -1984,6 +1989,33 @@ func (h *HarnessTest) CalculateTxesFeeRate(txns []*wire.MsgTx) int64 {
 	feeRate := totalFee * scale / totalWeight
 
 	return feeRate
+}
+
+// CalculateTxWeight calculates the weight of a transaction.
+func (h *HarnessTest) CalculateTxWeight(tx *wire.MsgTx) int64 {
+	utx := btcutil.NewTx(tx)
+
+	return blockchain.GetTransactionWeight(utx)
+}
+
+// CalculateFeeRateSatPerVByte calculates the weight of a transaction in
+// sat_per_vbyte.
+func (h *HarnessTest) CalculateFeeRateSatPerVByte(tx *wire.MsgTx) int64 {
+	weight := h.CalculateTxWeight(tx)
+	// always rounding up because there are no decimal vbytes.
+	virtualSize := (weight + 3) / 4
+	txFee := int64(h.CalculateTxFee(tx))
+
+	return txFee / virtualSize
+}
+
+// CalculateFeeRateSatPerKWeight calculates the weight of a transaction in
+// sat_per_kweight.
+func (h *HarnessTest) CalculateFeeRateSatPerKWeight(tx *wire.MsgTx) int64 {
+	weight := h.CalculateTxWeight(tx)
+	txFee := int64(h.CalculateTxFee(tx))
+
+	return txFee * 1000 / weight
 }
 
 type SweptOutput struct {

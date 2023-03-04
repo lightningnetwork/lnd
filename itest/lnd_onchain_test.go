@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -211,21 +212,29 @@ func testChainKitSendOutputsAnchorReserve(ht *lntest.HarnessTest) {
 }
 
 // testCPFP ensures that the daemon can bump an unconfirmed  transaction's fee
-// rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
-//
-// TODO(wilmer): Add RBF case once btcd supports it.
+// rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction and includes
+// an RBF testcase for the child transaction.
 func testCPFP(ht *lntest.HarnessTest) {
 	runCPFP(ht, ht.Alice, ht.Bob)
 }
 
 // runCPFP ensures that the daemon can bump an unconfirmed transaction's fee
-// rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction.
+// rate by broadcasting a Child-Pays-For-Parent (CPFP) transaction. In addition
+// a test to further RBF the child transaction is performed.
 func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	// Skip this test for neutrino, as it's not aware of mempool
 	// transactions.
 	if ht.IsNeutrinoBackend() {
 		ht.Skipf("skipping CPFP test for neutrino backend")
 	}
+
+	// We decrease the batchwindow duration to make sure our RBF
+	// transaction is broadcasted in time.
+	extraArgs := []string{
+		fmt.Sprintf("--sweeper.batchwindowduration="+
+			"%v", time.Second),
+	}
+	ht.RestartNodeWithExtraArgs(bob, extraArgs)
 
 	// We'll start the test by sending Alice some coins, which she'll use
 	// to send to Bob.
@@ -271,14 +280,25 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	}
 	ht.AssertUTXOInWallet(bob, op, "")
 
-	// We'll attempt to bump the fee of this transaction by performing a
-	// CPFP from Alice's point of view.
+	// We'll first try to bump the fee of this transaction specifying
+	// the fee rate in sat/vbyte and sat/kweight which must fail.
 	maxFeeRate := uint64(sweep.DefaultMaxFeeRate)
 	bumpFeeReq := &walletrpc.BumpFeeRequest{
 		Outpoint: op,
 		// We use a higher fee rate than the default max and expect the
 		// sweeper to cap the fee rate at the max value.
-		SatPerVbyte: maxFeeRate * 2,
+		SatPerVbyte:   maxFeeRate * 2,
+		SatPerKweight: uint64(5000),
+	}
+	err := bob.RPC.BumpFeeErr(bumpFeeReq)
+	require.ErrorContains(ht, err, "either SatPerKweight or SatPerVbyte "+
+		"should be set")
+
+	// We'll attempt to bump the fee of this transaction by performing a
+	// CPFP from Bob's point of view.
+	bumpFeeReq = &walletrpc.BumpFeeRequest{
+		Outpoint:    op,
+		SatPerVbyte: uint64(5),
 	}
 	bob.RPC.BumpFee(bumpFeeReq)
 
@@ -298,15 +318,61 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 		"output index not matched")
 
 	// Also validate that the fee rate is capped at the max value.
-	require.Equalf(ht, maxFeeRate, pendingSweep.SatPerVbyte,
+	require.EqualValuesf(ht, 5, pendingSweep.SatPerVbyte,
 		"sweep sat per vbyte not matched, want %v, got %v",
 		maxFeeRate, pendingSweep.SatPerVbyte)
+
+	// Now we RBF the transaction with a higher fee rate specified
+	// in sat/kweight this time.
+	bumpFeeReq = &walletrpc.BumpFeeRequest{
+		Outpoint:      pendingSweep.Outpoint,
+		SatPerKweight: uint64(7500),
+	}
+	bob.RPC.BumpFee(bumpFeeReq)
+
+	// We need to wait for the sweeper to execute the new request.
+	// The batchwindow duration is 1 sec but we make sure lnd has enough
+	// time to rebroadcast the transaction.
+	time.Sleep(time.Second * 5)
+
+	// We should still expect to see two transactions within the mempool, a
+	// parent and its child which got RBFed now.
+	ht.Miner.AssertNumTxsInMempool(2)
+
+	// We should also expect to see the new output (child) being swept by
+	// the UtxoSweeper with the new fee rate.
+	pendingSweepsResp = bob.RPC.PendingSweeps()
+	require.Len(ht, pendingSweepsResp.PendingSweeps, 1,
+		"expected to find 1 pending sweep")
+	pendingSweep = pendingSweepsResp.PendingSweeps[0]
+	require.Equal(ht, pendingSweep.SatPerKweight, bumpFeeReq.SatPerKweight,
+		"sweep sat per kweight not matched")
 
 	// Mine a block to clean up the unconfirmed transactions.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
 
+	// Make sure the child transaction used the requested fee rate for real.
+	unspent := bob.RPC.ListUnspent(&walletrpc.ListUnspentRequest{})
+	var childUtxo *lnrpc.Utxo
+	// Find the unspent output with a confirmation of 1, this is our child
+	// transaction.
+	for _, utxo := range unspent.Utxos {
+		if utxo.Confirmations == 1 {
+			childUtxo = utxo
+		}
+	}
+	require.NotNil(ht, childUtxo, "expected RBF transaction")
+	childTxID, err := chainhash.NewHash(childUtxo.Outpoint.TxidBytes)
+	require.NoError(ht, err)
+	child := ht.Miner.GetRawTransaction(childTxID)
+	feerate := ht.CalculateFeeRateSatPerKWeight(child.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(bumpFeeReq.SatPerKweight), feerate, 0.01)
+
 	// The input used to CPFP should no longer be pending.
-	err := wait.NoError(func() error {
+	err = wait.NoError(func() error {
 		resp := bob.RPC.PendingSweeps()
 		if len(resp.PendingSweeps) != 0 {
 			return fmt.Errorf("expected 0 pending sweeps, found %d",
@@ -928,4 +994,129 @@ func testListSweeps(ht *lntest.HarnessTest) {
 	sweepResp = alice.RPC.ListSweeps(false, -1)
 	txIDs = sweepResp.GetTransactionIds().TransactionIds
 	require.Empty(ht, txIDs, "pending sweep should not be returned")
+}
+
+// testSendCoinsFeerate tests that we can create transaction with a specified
+// feerate in either sats_per_vbyte and sats_per_kweight.
+func testSendCoinsFeerate(ht *lntest.HarnessTest) {
+	alice := ht.Alice
+	minerAddr := ht.Miner.NewMinerAddress()
+
+	sweepReq := &lnrpc.SendCoinsRequest{
+		Addr:        minerAddr.String(),
+		SatPerVbyte: 2,
+		Amount:      10000,
+	}
+	_ = alice.RPC.SendCoins(sweepReq)
+
+	// We'll mine a block which should include the sweep transaction we
+	// generated above.
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	sweepTx := block.Transactions[1].TxHash()
+
+	// Calculate the feerate of the funding transaction in sat_per_vbyte.
+	rawTx := ht.Miner.GetRawTransaction(&sweepTx)
+	feerate := ht.CalculateFeeRateSatPerVByte(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(sweepReq.SatPerVbyte), feerate, 0.01)
+
+	// Send coins with a defined feerate in sat_per_kweight.
+	sweepReq = &lnrpc.SendCoinsRequest{
+		Addr:          minerAddr.String(),
+		SatPerKweight: 5000,
+		Amount:        10000,
+	}
+	_ = alice.RPC.SendCoins(sweepReq)
+
+	// We'll mine a block which should include the sweep transaction we
+	// generated above.
+	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	sweepTx = block.Transactions[1].TxHash()
+
+	// Calculate the feerate of the funding transaction in sat_per_kweight.
+	rawTx = ht.Miner.GetRawTransaction(&sweepTx)
+	feerate = ht.CalculateFeeRateSatPerKWeight(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(sweepReq.SatPerKweight), feerate, 0.01)
+
+	// Try sending coins with both feerate options sat_per_kweight and
+	// sat_per_vbyte specified.
+	sweepReq = &lnrpc.SendCoinsRequest{
+		Addr:          minerAddr.String(),
+		SatPerKweight: 500,
+		SatPerVbyte:   2,
+		SendAll:       true,
+	}
+
+	// This should fail because only one feerate option makes sense.
+	alice.RPC.SendCoinsAssertErr(sweepReq)
+}
+
+// testSendManyFeerate tests that we can create transaction with many outputs
+// with a specified feerate in either sats_per_vbyte and sats_per_kweight.
+func testSendManyFeerate(ht *lntest.HarnessTest) {
+	alice := ht.Alice
+	addr1 := ht.Miner.NewMinerAddress().String()
+	addr2 := ht.Miner.NewMinerAddress().String()
+
+	addrAmtMap := map[string]int64{
+		addr1: 50000,
+		addr2: 50000,
+	}
+
+	// We create the transaction specifying the feerate in sats_per_vbyte.
+	sendManyReq := &lnrpc.SendManyRequest{
+		AddrToAmount: addrAmtMap,
+		SatPerVbyte:  2,
+	}
+	_ = alice.RPC.SendMany(sendManyReq)
+
+	// We'll mine a block which should include the sweep transaction we
+	// generated above.
+	block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	sweepTx := block.Transactions[1].TxHash()
+
+	// Calculate the feerate of the funding transaction in sat_per_vbyte.
+	rawTx := ht.Miner.GetRawTransaction(&sweepTx)
+	feerate := ht.CalculateFeeRateSatPerVByte(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(sendManyReq.SatPerVbyte), feerate, 0.01)
+
+	// We create the transaction specifying the feerate in
+	// sats_per_kweight.
+	sendManyReq = &lnrpc.SendManyRequest{
+		AddrToAmount:  addrAmtMap,
+		SatPerKweight: 2000,
+	}
+	_ = alice.RPC.SendMany(sendManyReq)
+
+	// We'll mine a block which should include the sweep transaction we
+	// generated above.
+	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+	sweepTx = block.Transactions[1].TxHash()
+
+	// Calculate the feerate of the funding transaction in sats_per_kweight.
+	rawTx = ht.Miner.GetRawTransaction(&sweepTx)
+	feerate = ht.CalculateFeeRateSatPerKWeight(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(sendManyReq.SatPerKweight), feerate, 0.01)
+
+	// Try sending coins with both feerate options sat_per_kweight and
+	// sat_per_vbyte specified.
+	sendManyReq = &lnrpc.SendManyRequest{
+		AddrToAmount:  addrAmtMap,
+		SatPerKweight: 2000,
+		SatPerVbyte:   3,
+	}
+
+	// This should fail because only one feerate option makes sense.
+	alice.RPC.SendManyAssertErr(sendManyReq)
 }

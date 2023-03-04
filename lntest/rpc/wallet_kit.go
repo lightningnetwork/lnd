@@ -244,6 +244,19 @@ func (h *HarnessRPC) BumpFee(
 	return resp
 }
 
+// BumpFeeErr makes a RPC call to the node's WalletKitClient and asserts
+// an error returned.
+func (h *HarnessRPC) BumpFeeErr(req *walletrpc.BumpFeeRequest) error {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WalletKit.BumpFee(ctxt, req)
+	require.Errorf(h, err, "%s: expect bump fee to return an error",
+		h.Name)
+
+	return err
+}
+
 // ListAccounts makes a RPC call to the node's WalletKitClient and asserts.
 func (h *HarnessRPC) ListAccounts(
 	req *walletrpc.ListAccountsRequest) *walletrpc.ListAccountsResponse {

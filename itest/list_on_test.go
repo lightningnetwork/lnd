@@ -559,6 +559,18 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testQueryBlindedRoutes,
 	},
 	{
+		Name:     "openchannel feerate",
+		TestFunc: testOpenChannelFeerate,
+	},
+	{
+		Name:     "sendcoins feerate",
+		TestFunc: testSendCoinsFeerate,
+	},
+	{
+		Name:     "sendmany feerate",
+		TestFunc: testSendManyFeerate,
+	},
+	{
 		Name:     "removetx",
 		TestFunc: testRemoveTx,
 	},

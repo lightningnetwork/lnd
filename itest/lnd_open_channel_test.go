@@ -879,3 +879,61 @@ func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
 	balance = alice.RPC.WalletBalance()
 	require.EqualValues(ht, 0, balance.LockedBalance)
 }
+
+// testOpenChannelFeerate tests that we can open a channel with a specified
+// feerate either in sat_per_vbyte or in sat_per_kweight.
+func testOpenChannelFeerate(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
+	ht.EnsureConnected(alice, bob)
+
+	chanAmt := funding.MaxBtcFundingAmount / 2
+
+	// First we test opening a channel by specifying the feerate in
+	// sat_per_kweight
+	params := lntest.OpenChannelParams{
+		Amt:           chanAmt,
+		SatPerKWeight: 500,
+	}
+
+	// Create a channel Alice->Bob.
+	chanPoint := ht.OpenChannel(alice, bob, params)
+	defer ht.CloseChannel(alice, chanPoint)
+
+	// Calculate the feerate of the funding transaction.
+	fundingTxID := ht.GetChanPointFundingTxid(chanPoint)
+	rawTx := ht.Miner.GetRawTransaction(fundingTxID)
+	feerate := ht.CalculateFeeRateSatPerKWeight(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(params.SatPerKWeight), feerate, 0.01)
+
+	// Now we open another channel with the feerate sat_per_vbyte
+	params = lntest.OpenChannelParams{
+		Amt:         chanAmt,
+		SatPerVByte: 100,
+	}
+
+	// Create a channel Alice->Bob.
+	chanPoint = ht.OpenChannel(alice, bob, params)
+	defer ht.CloseChannel(alice, chanPoint)
+
+	// Calculate the feerate of the funding transaction.
+	fundingTxID = ht.GetChanPointFundingTxid(chanPoint)
+	rawTx = ht.Miner.GetRawTransaction(fundingTxID)
+	feerate = ht.CalculateFeeRateSatPerVByte(rawTx.MsgTx())
+
+	// Allow some deviation because weight estimates during tx generation
+	// are estimates (ECDSA signature size estimate).
+	require.InEpsilon(ht, int64(params.SatPerVByte), feerate, 0.01)
+
+	// Test when specififying both feerate options we should fail.
+	params = lntest.OpenChannelParams{
+		Amt:           chanAmt,
+		SatPerVByte:   2,
+		SatPerKWeight: 500,
+	}
+
+	ht.OpenChannelAssertErr(alice, bob, params, fmt.Errorf("either "+
+		"SatPerKWeight or SatPerVByte should be set, but not both"))
+}

@@ -1051,7 +1051,7 @@ func checkPsbtFlags(req *lnrpc.OpenChannelRequest) error {
 		return fmt.Errorf("specifying minimum confirmations for PSBT " +
 			"funding is not supported")
 	}
-	if req.TargetConf != 0 || req.SatPerByte != 0 || req.SatPerVbyte != 0 { // nolint:staticcheck
+	if req.TargetConf != 0 || req.SatPerVbyte != 0 { // nolint:staticcheck
 		return fmt.Errorf("setting fee estimation parameters not " +
 			"supported for PSBT funding")
 	}

@@ -47,15 +47,15 @@ type HTLCAttemptInfo struct {
 	Hash *lntypes.Hash
 }
 
-// NewHtlcAttemptInfo creates a htlc attempt.
-func NewHtlcAttemptInfo(attemptID uint64, sessionKey *btcec.PrivateKey,
+// NewHtlcAttempt creates a htlc attempt.
+func NewHtlcAttempt(attemptID uint64, sessionKey *btcec.PrivateKey,
 	route route.Route, attemptTime time.Time,
-	hash *lntypes.Hash) *HTLCAttemptInfo {
+	hash *lntypes.Hash) *HTLCAttempt {
 
 	var scratch [btcec.PrivKeyBytesLen]byte
 	copy(scratch[:], sessionKey.Serialize())
 
-	return &HTLCAttemptInfo{
+	info := HTLCAttemptInfo{
 		AttemptID:        attemptID,
 		sessionKey:       scratch,
 		cachedSessionKey: sessionKey,
@@ -63,6 +63,8 @@ func NewHtlcAttemptInfo(attemptID uint64, sessionKey *btcec.PrivateKey,
 		AttemptTime:      attemptTime,
 		Hash:             hash,
 	}
+
+	return &HTLCAttempt{HTLCAttemptInfo: info}
 }
 
 // SessionKey returns the ephemeral key used for a htlc attempt. This function

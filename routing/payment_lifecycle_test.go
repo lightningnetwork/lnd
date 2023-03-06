@@ -791,27 +791,12 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 	}
 }
 
-func makeActiveAttempt(total, fee int) channeldb.HTLCAttempt {
-	return channeldb.HTLCAttempt{
-		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),
-	}
-}
-
 func makeSettledAttempt(total, fee int,
 	preimage lntypes.Preimage) channeldb.HTLCAttempt {
 
 	return channeldb.HTLCAttempt{
 		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),
 		Settle:          &channeldb.HTLCSettleInfo{Preimage: preimage},
-	}
-}
-
-func makeFailedAttempt(total, fee int) channeldb.HTLCAttempt {
-	return channeldb.HTLCAttempt{
-		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),
-		Failure: &channeldb.HTLCFailInfo{
-			Reason: channeldb.HTLCFailInternal,
-		},
 	}
 }
 

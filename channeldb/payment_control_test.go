@@ -38,7 +38,7 @@ func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
 	}
 
 	rhash := sha256.Sum256(preimage[:])
-	attempt := NewHtlcAttemptInfo(
+	attempt := NewHtlcAttempt(
 		0, priv, *testRoute.Copy(), time.Time{}, nil,
 	)
 	return &PaymentCreationInfo{
@@ -46,7 +46,7 @@ func genInfo() (*PaymentCreationInfo, *HTLCAttemptInfo,
 		Value:             testRoute.ReceiverAmt(),
 		CreationTime:      time.Unix(time.Now().Unix(), 0),
 		PaymentRequest:    []byte("hola"),
-	}, attempt, preimage, nil
+	}, &attempt.HTLCAttemptInfo, preimage, nil
 }
 
 // TestPaymentControlSwitchFail checks that payment status returns to Failed

@@ -105,7 +105,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		log.Infof("Resuming payment shard %v for payment %v",
 			a.AttemptID, p.identifier)
 
-		shardHandler.collectResultAsync(&a.HTLCAttemptInfo)
+		shardHandler.collectResultAsync(&a)
 	}
 
 	// exitWithErr is a helper closure that logs and returns an error.
@@ -400,7 +400,7 @@ type launchOutcome struct {
 // non-nil error, it means that the attempt was not sent onto the network, so
 // no result will be available in the future for it.
 func (p *shardHandler) launchShard(rt *route.Route,
-	lastShard bool) (*channeldb.HTLCAttemptInfo, *launchOutcome, error) {
+	lastShard bool) (*channeldb.HTLCAttempt, *launchOutcome, error) {
 
 	// Using the route received from the payment session, create a new
 	// shard to send.
@@ -414,7 +414,9 @@ func (p *shardHandler) launchShard(rt *route.Route,
 	// of the payment that we attempted to send, such that we can query the
 	// Switch for its whereabouts. The route is needed to handle the result
 	// when it eventually comes back.
-	err = p.router.cfg.Control.RegisterAttempt(p.identifier, attempt)
+	err = p.router.cfg.Control.RegisterAttempt(
+		p.identifier, &attempt.HTLCAttemptInfo,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -425,7 +427,7 @@ func (p *shardHandler) launchShard(rt *route.Route,
 	if sendErr != nil {
 		// TODO(joostjager): Distinguish unexpected internal errors
 		// from real send errors.
-		htlcAttempt, err := p.failAttempt(attempt, sendErr)
+		htlcAttempt, err := p.failAttempt(attempt.AttemptID, sendErr)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -452,7 +454,7 @@ type shardResult struct {
 // collectResultAsync launches a goroutine that will wait for the result of the
 // given HTLC attempt to be available then handle its result. It will fail the
 // payment with the control tower if a terminal error is encountered.
-func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
+func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 	// errToSend is the error to be sent to sh.shardErrors.
 	var errToSend error
 
@@ -507,7 +509,7 @@ func (p *shardHandler) collectResultAsync(attempt *channeldb.HTLCAttemptInfo) {
 // collectResult waits for the result for the given attempt to be available
 // from the Switch, then records the attempt outcome with the control tower. A
 // shardResult is returned, indicating the final outcome of this HTLC attempt.
-func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
+func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttempt) (
 	*shardResult, error) {
 
 	// We'll retrieve the hash specific to this shard from the
@@ -548,7 +550,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 			"the Switch, retrying.", attempt.AttemptID,
 			p.identifier)
 
-		attempt, cErr := p.failAttempt(attempt, err)
+		attempt, cErr := p.failAttempt(attempt.AttemptID, err)
 		if cErr != nil {
 			return nil, cErr
 		}
@@ -586,7 +588,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 	// In case of a payment failure, fail the attempt with the control
 	// tower and return.
 	if result.Error != nil {
-		attempt, err := p.failAttempt(attempt, result.Error)
+		attempt, err := p.failAttempt(attempt.AttemptID, result.Error)
 		if err != nil {
 			return nil, err
 		}
@@ -630,7 +632,7 @@ func (p *shardHandler) collectResult(attempt *channeldb.HTLCAttemptInfo) (
 
 // createNewPaymentAttempt creates a new payment attempt from the given route.
 func (p *shardHandler) createNewPaymentAttempt(rt *route.Route,
-	lastShard bool) (*channeldb.HTLCAttemptInfo, error) {
+	lastShard bool) (*channeldb.HTLCAttempt, error) {
 
 	// Generate a new key to be used for this attempt.
 	sessionKey, err := generateNewSessionKey()
@@ -670,7 +672,7 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route,
 
 	// We now have all the information needed to populate the current
 	// attempt information.
-	attempt := channeldb.NewHtlcAttemptInfo(
+	attempt := channeldb.NewHtlcAttempt(
 		attemptID, sessionKey, *rt, p.router.cfg.Clock.Now(), &hash,
 	)
 
@@ -681,7 +683,7 @@ func (p *shardHandler) createNewPaymentAttempt(rt *route.Route,
 // the payment. If this attempt fails, then we'll continue on to the next
 // available route.
 func (p *shardHandler) sendAttempt(
-	attempt *channeldb.HTLCAttemptInfo) error {
+	attempt *channeldb.HTLCAttempt) error {
 
 	log.Tracef("Attempting to send payment %v (pid=%v), "+
 		"using route: %v", p.identifier, attempt.AttemptID,
@@ -741,7 +743,7 @@ func (p *shardHandler) sendAttempt(
 // the error type, the error is either the final outcome of the payment or we
 // need to continue with an alternative route. A final outcome is indicated by
 // a non-nil reason value.
-func (p *shardHandler) handleSwitchErr(attempt *channeldb.HTLCAttemptInfo,
+func (p *shardHandler) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	sendErr error) error {
 
 	internalErrorReason := channeldb.FailureReasonError
@@ -910,10 +912,10 @@ func (p *shardHandler) handleFailureMessage(rt *route.Route,
 }
 
 // failAttempt calls control tower to fail the current payment attempt.
-func (p *shardHandler) failAttempt(attempt *channeldb.HTLCAttemptInfo,
+func (p *shardHandler) failAttempt(attemptID uint64,
 	sendError error) (*channeldb.HTLCAttempt, error) {
 
-	log.Warnf("Attempt %v for payment %v failed: %v", attempt.AttemptID,
+	log.Warnf("Attempt %v for payment %v failed: %v", attemptID,
 		p.identifier, sendError)
 
 	failInfo := marshallError(
@@ -924,13 +926,12 @@ func (p *shardHandler) failAttempt(attempt *channeldb.HTLCAttemptInfo,
 	// Now that we are failing this payment attempt, cancel the shard with
 	// the ShardTracker such that it can derive the correct hash for the
 	// next attempt.
-	if err := p.shardTracker.CancelShard(attempt.AttemptID); err != nil {
+	if err := p.shardTracker.CancelShard(attemptID); err != nil {
 		return nil, err
 	}
 
 	return p.router.cfg.Control.FailAttempt(
-		p.identifier, attempt.AttemptID,
-		failInfo,
+		p.identifier, attemptID, failInfo,
 	)
 }
 

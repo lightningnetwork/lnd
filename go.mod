@@ -31,7 +31,7 @@ require (
 	github.com/jrick/logrotate v1.0.0
 	github.com/kkdai/bstream v1.0.0
 	github.com/lightninglabs/neutrino v0.15.0
-	github.com/lightninglabs/neutrino/cache v1.1.0
+	github.com/lightninglabs/neutrino/cache v1.1.1
 	github.com/lightninglabs/protobuf-hex-display v1.4.3-hex-display
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20221202012345-ca23184850a1
 	github.com/lightningnetwork/lnd/cert v1.2.1

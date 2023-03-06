@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -4097,4 +4098,39 @@ func TestRejectCacheChannelAnn(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
 	}
+}
+
+// TestFutureMsgCacheEviction checks that when the cache's capacity is reached,
+// saving one more item will evict the oldest item.
+func TestFutureMsgCacheEviction(t *testing.T) {
+	t.Parallel()
+
+	// Create a future message cache with size 1.
+	c := newFutureMsgCache(1)
+
+	// Send two messages to the cache, which ends in the first message
+	// being evicted.
+	//
+	// Put the first item.
+	id := c.nextMsgID()
+	evicted, err := c.Put(id, &cachedFutureMsg{height: uint32(id)})
+	require.NoError(t, err)
+	require.False(t, evicted, "should not be evicted")
+
+	// Put the second item.
+	id = c.nextMsgID()
+	evicted, err = c.Put(id, &cachedFutureMsg{height: uint32(id)})
+	require.NoError(t, err)
+	require.True(t, evicted, "should be evicted")
+
+	// The first item should have been evicted.
+	//
+	// NOTE: msg ID starts at 1, not 0.
+	_, err = c.Get(1)
+	require.ErrorIs(t, err, cache.ErrElementNotFound)
+
+	// The second item should be found.
+	item, err := c.Get(2)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, item.height, "should be the second item")
 }

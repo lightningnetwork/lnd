@@ -87,29 +87,15 @@ func TestRegistrable(t *testing.T) {
 		},
 	}
 
-	// Create test objects.
-	reason := FailureReasonError
-	htlcSettled := HTLCAttempt{
-		Settle: &HTLCSettleInfo{},
-	}
-
 	for i, tc := range testCases {
 		i, tc := i, tc
 
 		p := &MPPayment{
 			Status: tc.status,
-		}
-
-		// Add the settled htlc to the payment if needed.
-		htlcs := make([]HTLCAttempt, 0)
-		if tc.hasSettledHTLC {
-			htlcs = append(htlcs, htlcSettled)
-		}
-		p.HTLCs = htlcs
-
-		// Add the failure reason if needed.
-		if tc.paymentFailed {
-			p.FailureReason = &reason
+			State: &MPPaymentState{
+				HasSettledHTLC: tc.hasSettledHTLC,
+				PaymentFailed:  tc.paymentFailed,
+			},
 		}
 
 		name := fmt.Sprintf("test_%d_%s", i, p.Status.String())
@@ -173,7 +159,8 @@ func TestPaymentSetState(t *testing.T) {
 				NumAttemptsInFlight: 1,
 				RemainingAmt:        1000 - 90,
 				FeesPaid:            10,
-				Terminate:           false,
+				HasSettledHTLC:      false,
+				PaymentFailed:       false,
 			},
 		},
 		{
@@ -193,7 +180,8 @@ func TestPaymentSetState(t *testing.T) {
 				NumAttemptsInFlight: 0,
 				RemainingAmt:        1000 - 90,
 				FeesPaid:            10,
-				Terminate:           true,
+				HasSettledHTLC:      true,
+				PaymentFailed:       false,
 			},
 		},
 		{
@@ -211,13 +199,15 @@ func TestPaymentSetState(t *testing.T) {
 				NumAttemptsInFlight: 0,
 				RemainingAmt:        1000,
 				FeesPaid:            0,
-				Terminate:           true,
+				HasSettledHTLC:      false,
+				PaymentFailed:       true,
 			},
 		},
 	}
 
 	for _, tc := range testCases {
 		tc := tc
+
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 

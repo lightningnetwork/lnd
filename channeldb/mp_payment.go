@@ -167,6 +167,14 @@ type MPPaymentState struct {
 	// shards should be launched. This value is true if we have an HTLC
 	// settled or the payment has an error.
 	Terminate bool
+
+	// HasSettledHTLC is true if at least one of the payment's HTLCs is
+	// settled.
+	HasSettledHTLC bool
+
+	// PaymentFailed is true if the payment has been marked as failed with
+	// a reason.
+	PaymentFailed bool
 }
 
 // MPPayment is a wrapper around a payment's PaymentCreationInfo and
@@ -274,11 +282,6 @@ func (m *MPPayment) GetAttempt(id uint64) (*HTLCAttempt, error) {
 // registrations when it's newly created, or none of its HTLCs is in a terminal
 // state.
 func (m *MPPayment) Registrable() error {
-	// Get the terminal info.
-	settle, reason := m.TerminalInfo()
-	settled := settle != nil
-	failed := reason != nil
-
 	// If updating the payment is not allowed, we can't register new HTLCs.
 	// Otherwise, the status must be either `StatusInitiated` or
 	// `StatusInFlight`.
@@ -294,12 +297,12 @@ func (m *MPPayment) Registrable() error {
 	// There are still inflight HTLCs and we need to check whether there
 	// are settled HTLCs or the payment is failed. If we already have
 	// settled HTLCs, we won't allow adding more HTLCs.
-	if settled {
+	if m.State.HasSettledHTLC {
 		return ErrPaymentPendingSettled
 	}
 
 	// If the payment is already failed, we won't allow adding more HTLCs.
-	if failed {
+	if m.State.PaymentFailed {
 		return ErrPaymentPendingFailed
 	}
 
@@ -341,6 +344,8 @@ func (m *MPPayment) setState() error {
 		RemainingAmt:        totalAmt - sentAmt,
 		FeesPaid:            fees,
 		Terminate:           terminate,
+		HasSettledHTLC:      settle != nil,
+		PaymentFailed:       failure != nil,
 	}
 	m.Status = status
 

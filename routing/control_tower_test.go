@@ -560,9 +560,9 @@ func genInfo() (*channeldb.PaymentCreationInfo, *channeldb.HTLCAttemptInfo,
 			CreationTime:      time.Unix(time.Now().Unix(), 0),
 			PaymentRequest:    []byte("hola"),
 		},
-		channeldb.NewHtlcAttemptInfo(
+		&channeldb.NewHtlcAttempt(
 			1, priv, testRoute, time.Time{}, nil,
-		), preimage, nil
+		).HTLCAttemptInfo, preimage, nil
 }
 
 func genPreimage() ([32]byte, error) {

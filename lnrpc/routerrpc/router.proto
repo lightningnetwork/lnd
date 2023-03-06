@@ -515,7 +515,7 @@ message MissionControlConfig {
     ProbabilityModel defines which probability estimator should be used in
     pathfinding.
     */
-    ProbabilityModel Model = 6;
+    ProbabilityModel model = 6;
 
     /*
     EstimatorConfig is populated dependent on the estimator type.

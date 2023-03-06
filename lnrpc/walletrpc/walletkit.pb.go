@@ -3023,7 +3023,8 @@ type LabelTransactionRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The txid of the transaction to label.
+	// The txid of the transaction to label. Note: When using gRPC, the bytes
+	// must be in little-endian (reverse) order.
 	Txid []byte `protobuf:"bytes,1,opt,name=txid,proto3" json:"txid,omitempty"`
 	// The label to add to the transaction, limited to 500 characters.
 	Label string `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`

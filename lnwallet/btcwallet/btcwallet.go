@@ -82,11 +82,6 @@ var (
 	// requested for the default imported account within the wallet.
 	errNoImportedAddrGen = errors.New("addresses cannot be generated for " +
 		"the default imported account")
-
-	// errIncompatibleAccountAddr is an error returned when the type of a
-	// new address being requested is incompatible with the account.
-	errIncompatibleAccountAddr = errors.New("incompatible address type " +
-		"for account")
 )
 
 // BtcWallet is an implementation of the lnwallet.WalletController interface
@@ -516,18 +511,14 @@ func (b *BtcWallet) keyScopeForAccountAddr(accountName string,
 		return addrKeyScope, defaultAccount, nil
 	}
 
-	// Otherwise, look up the account's key scope and check that it supports
-	// the requested address type.
-	keyScope, account, err := b.wallet.LookupAccount(accountName)
+	// Otherwise, look up the custom account and if it supports the given
+	// key scope.
+	accountNumber, err := b.wallet.AccountNumber(addrKeyScope, accountName)
 	if err != nil {
 		return waddrmgr.KeyScope{}, 0, err
 	}
 
-	if keyScope != addrKeyScope {
-		return waddrmgr.KeyScope{}, 0, errIncompatibleAccountAddr
-	}
-
-	return keyScope, account, nil
+	return addrKeyScope, accountNumber, nil
 }
 
 // NewAddress returns the next external or internal address for the wallet

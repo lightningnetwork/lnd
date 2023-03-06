@@ -229,6 +229,145 @@ func TestPaymentSetState(t *testing.T) {
 	}
 }
 
+// TestNeedWaitAttempts checks whether we need to wait for the results of the
+// HTLC attempts against ALL possible payment statuses.
+func TestNeedWaitAttempts(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		status           PaymentStatus
+		remainingAmt     lnwire.MilliSatoshi
+		hasSettledHTLC   bool
+		hasFailureReason bool
+		needWait         bool
+		expectedErr      error
+	}{
+		{
+			// For a newly created payment we don't need to wait
+			// for results.
+			status:       StatusInitiated,
+			remainingAmt: 1000,
+			needWait:     false,
+			expectedErr:  nil,
+		},
+		{
+			// With HTLCs inflight we don't need to wait when the
+			// remainingAmt is not zero and we have no settled
+			// HTLCs.
+			status:       StatusInFlight,
+			remainingAmt: 1000,
+			needWait:     false,
+			expectedErr:  nil,
+		},
+		{
+			// With HTLCs inflight we need to wait when the
+			// remainingAmt is not zero but we have settled HTLCs.
+			status:         StatusInFlight,
+			remainingAmt:   1000,
+			hasSettledHTLC: true,
+			needWait:       true,
+			expectedErr:    nil,
+		},
+		{
+			// With HTLCs inflight we need to wait when the
+			// remainingAmt is not zero and the payment is failed.
+			status:           StatusInFlight,
+			remainingAmt:     1000,
+			needWait:         true,
+			hasFailureReason: true,
+			expectedErr:      nil,
+		},
+
+		{
+			// With the payment settled, but the remainingAmt is
+			// not zero, we have an error state.
+			status:       StatusSucceeded,
+			remainingAmt: 1000,
+			needWait:     false,
+			expectedErr:  ErrPaymentInternal,
+		},
+		{
+			// Payment is in terminal state, no need to wait.
+			status:       StatusFailed,
+			remainingAmt: 1000,
+			needWait:     false,
+			expectedErr:  nil,
+		},
+		{
+			// A newly created payment with zero remainingAmt
+			// indicates an error.
+			status:       StatusInitiated,
+			remainingAmt: 0,
+			needWait:     false,
+			expectedErr:  ErrPaymentInternal,
+		},
+		{
+			// With zero remainingAmt we must wait for the results.
+			status:       StatusInFlight,
+			remainingAmt: 0,
+			needWait:     true,
+			expectedErr:  nil,
+		},
+		{
+			// Payment is terminated, no need to wait for results.
+			status:       StatusSucceeded,
+			remainingAmt: 0,
+			needWait:     false,
+			expectedErr:  nil,
+		},
+		{
+			// Payment is terminated, no need to wait for results.
+			status:       StatusFailed,
+			remainingAmt: 0,
+			needWait:     false,
+			expectedErr:  ErrPaymentInternal,
+		},
+		{
+			// Payment is in an unknown status, return an error.
+			status:       0,
+			remainingAmt: 0,
+			needWait:     false,
+			expectedErr:  ErrUnknownPaymentStatus,
+		},
+		{
+			// Payment is in an unknown status, return an error.
+			status:       0,
+			remainingAmt: 1000,
+			needWait:     false,
+			expectedErr:  ErrUnknownPaymentStatus,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		p := &MPPayment{
+			Info: &PaymentCreationInfo{
+				PaymentIdentifier: [32]byte{1, 2, 3},
+			},
+			Status: tc.status,
+			State: &MPPaymentState{
+				RemainingAmt:   tc.remainingAmt,
+				HasSettledHTLC: tc.hasSettledHTLC,
+				PaymentFailed:  tc.hasFailureReason,
+			},
+		}
+
+		name := fmt.Sprintf("status=%s|remainingAmt=%v|"+
+			"settledHTLC=%v|failureReason=%v", tc.status,
+			tc.remainingAmt, tc.hasSettledHTLC, tc.hasFailureReason)
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := p.NeedWaitAttempts()
+			require.ErrorIs(t, err, tc.expectedErr)
+			require.Equalf(t, tc.needWait, result, "status=%v, "+
+				"remainingAmt=%v", tc.status, tc.remainingAmt)
+		})
+	}
+}
+
 func makeActiveAttempt(total, fee int) HTLCAttempt {
 	return HTLCAttempt{
 		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),

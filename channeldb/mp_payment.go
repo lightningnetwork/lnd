@@ -163,11 +163,6 @@ type MPPaymentState struct {
 	// calculate remaining fee budget.
 	FeesPaid lnwire.MilliSatoshi
 
-	// Terminate indicates the payment is in its final stage and no more
-	// shards should be launched. This value is true if we have an HTLC
-	// settled or the payment has an error.
-	Terminate bool
-
 	// HasSettledHTLC is true if at least one of the payment's HTLCs is
 	// settled.
 	HasSettledHTLC bool
@@ -327,11 +322,6 @@ func (m *MPPayment) setState() error {
 	// Get any terminal info for this payment.
 	settle, failure := m.TerminalInfo()
 
-	// If either an HTLC settled, or the payment has a payment level
-	// failure recorded, it means we should terminate the moment all shards
-	// have returned with a result.
-	terminate := settle != nil || failure != nil
-
 	// Now determine the payment's status.
 	status, err := decidePaymentStatus(m.HTLCs, m.FailureReason)
 	if err != nil {
@@ -343,7 +333,6 @@ func (m *MPPayment) setState() error {
 		NumAttemptsInFlight: len(m.InFlightHTLCs()),
 		RemainingAmt:        totalAmt - sentAmt,
 		FeesPaid:            fees,
-		Terminate:           terminate,
 		HasSettledHTLC:      settle != nil,
 		PaymentFailed:       failure != nil,
 	}
@@ -359,6 +348,102 @@ func (m *MPPayment) setState() error {
 // TODO(yy): delete.
 func (m *MPPayment) SetState() error {
 	return m.setState()
+}
+
+// NeedWaitAttempts decides whether we need to hold creating more HTLC attempts
+// and wait for the results of the payment's inflight HTLCs. Return an error if
+// the payment is in an unexpected state.
+func (m *MPPayment) NeedWaitAttempts() (bool, error) {
+	// Check when the remainingAmt is not zero, which means we have more
+	// money to be sent.
+	if m.State.RemainingAmt != 0 {
+		switch m.Status {
+		// If the payment is newly created, no need to wait for HTLC
+		// results.
+		case StatusInitiated:
+			return false, nil
+
+		// If we have inflight HTLCs, we'll check if we have terminal
+		// states to decide if we need to wait.
+		case StatusInFlight:
+			// We still have money to send, and one of the HTLCs is
+			// settled. We'd stop sending money and wait for all
+			// inflight HTLC attempts to finish.
+			if m.State.HasSettledHTLC {
+				log.Warnf("payment=%v has remaining amount "+
+					"%v, yet at least one of its HTLCs is "+
+					"settled", m.Info.PaymentIdentifier,
+					m.State.RemainingAmt)
+
+				return true, nil
+			}
+
+			// The payment has a failure reason though we still
+			// have money to send, we'd stop sending money and wait
+			// for all inflight HTLC attempts to finish.
+			if m.State.PaymentFailed {
+				return true, nil
+			}
+
+			// Otherwise we don't need to wait for inflight HTLCs
+			// since we still have money to be sent.
+			return false, nil
+
+		// We need to send more money, yet the payment is already
+		// succeeded. Return an error in this case as the receiver is
+		// violating the protocol.
+		case StatusSucceeded:
+			return false, fmt.Errorf("%w: parts of the payment "+
+				"already succeeded but still have remaining "+
+				"amount %v", ErrPaymentInternal,
+				m.State.RemainingAmt)
+
+		// The payment is failed and we have no inflight HTLCs, no need
+		// to wait.
+		case StatusFailed:
+			return false, nil
+
+		// Unknown payment status.
+		default:
+			return false, fmt.Errorf("%w: %s",
+				ErrUnknownPaymentStatus, m.Status)
+		}
+	}
+
+	// Now we determine whether we need to wait when the remainingAmt is
+	// already zero.
+	switch m.Status {
+	// When the payment is newly created, yet the payment has no remaining
+	// amount, return an error.
+	case StatusInitiated:
+		return false, fmt.Errorf("%w: %v", ErrPaymentInternal, m.Status)
+
+	// If the payment is inflight, we must wait.
+	//
+	// NOTE: an edge case is when all HTLCs are failed while the payment is
+	// not failed we'd still be in this inflight state. However, since the
+	// remainingAmt is zero here, it means we cannot be in that state as
+	// otherwise the remainingAmt would not be zero.
+	case StatusInFlight:
+		return true, nil
+
+	// If the payment is already succeeded, no need to wait.
+	case StatusSucceeded:
+		return false, nil
+
+	// If the payment is already failed, yet the remaining amount is zero,
+	// return an error as this indicates an error state. We will only each
+	// this status when there are no inflight HTLCs and the payment is
+	// marked as failed with a reason, which means the remainingAmt must
+	// not be zero because our sentAmt is zero.
+	case StatusFailed:
+		return false, fmt.Errorf("%w: %v", ErrPaymentInternal, m.Status)
+
+	// Unknown payment status.
+	default:
+		return false, fmt.Errorf("%w: %s", ErrUnknownPaymentStatus,
+			m.Status)
+	}
 }
 
 // serializeHTLCSettleInfo serializes the details of a settled htlc.

@@ -30,6 +30,13 @@ var (
 	// existing payment that is not failed.
 	ErrPaymentExists = errors.New("payment already exists")
 
+	// ErrPaymentInternal is returned when performing the payment has a
+	// conflicting state, such as,
+	// - payment has StatusSucceeded but remaining amount is not zero.
+	// - payment has StatusInitiated but remaining amount is zero.
+	// - payment has StatusFailed but remaining amount is zero.
+	ErrPaymentInternal = errors.New("internal error")
+
 	// ErrPaymentNotInitiated is returned if the payment wasn't initiated.
 	ErrPaymentNotInitiated = errors.New("payment isn't initiated")
 

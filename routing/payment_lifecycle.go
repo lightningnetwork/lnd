@@ -1,12 +1,12 @@
 package routing
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -17,7 +17,7 @@ import (
 )
 
 // errShardHandlerExiting is returned from the shardHandler when it exits.
-var errShardHandlerExiting = fmt.Errorf("shard handler exiting")
+var errShardHandlerExiting = errors.New("shard handler exiting")
 
 // paymentLifecycle holds all information about the current state of a payment
 // needed to resume if from any point.
@@ -29,27 +29,6 @@ type paymentLifecycle struct {
 	shardTracker  shards.ShardTracker
 	timeoutChan   <-chan time.Time
 	currentHeight int32
-}
-
-// terminated returns a bool to indicate there are no further actions needed
-// and we should return what we have, either the payment preimage or the
-// payment error.
-func terminated(ps *channeldb.MPPaymentState) bool {
-	// If the payment is in final stage and we have no in flight shards to
-	// wait result for, we consider the whole action terminated.
-	return ps.Terminate && ps.NumAttemptsInFlight == 0
-}
-
-// needWaitForShards returns a bool to specify whether we need to wait for the
-// outcome of the shardHandler.
-func needWaitForShards(ps *channeldb.MPPaymentState) bool {
-	// If we have in flight shards and the payment is in final stage, we
-	// need to wait for the outcomes from the shards. Or if we have no more
-	// money to be sent, we need to wait for the already launched shards.
-	if ps.NumAttemptsInFlight == 0 {
-		return false
-	}
-	return ps.Terminate || ps.RemainingAmt == 0
 }
 
 // calcFeeBudget returns the available fee to be used for sending HTLC
@@ -132,15 +111,14 @@ lifecycle:
 
 		log.Debugf("Payment %v in state terminate=%v, "+
 			"active_shards=%v, rem_value=%v, fee_limit=%v",
-			p.identifier, ps.Terminate, ps.NumAttemptsInFlight,
-			ps.RemainingAmt, remainingFees)
+			p.identifier, payment.Terminated(),
+			ps.NumAttemptsInFlight, ps.RemainingAmt, remainingFees)
 
 		// TODO(yy): sanity check all the states to make sure
 		// everything is expected.
-		switch {
 		// We have a terminal condition and no active shards, we are
 		// ready to exit.
-		case payment.Terminated():
+		if payment.Terminated() {
 			// Find the first successful shard and return
 			// the preimage and route.
 			for _, a := range payment.HTLCs {
@@ -163,11 +141,17 @@ lifecycle:
 
 			// Payment failed.
 			return [32]byte{}, nil, *payment.FailureReason
+		}
 
 		// If we either reached a terminal error condition (but had
 		// active shards still) or there is no remaining value to send,
 		// we'll wait for a shard outcome.
-		case needWaitForShards(ps):
+		wait, err := payment.NeedWaitAttempts()
+		if err != nil {
+			return [32]byte{}, nil, err
+		}
+
+		if wait {
 			// We still have outstanding shards, so wait for a new
 			// outcome to be available before re-evaluating our
 			// state.

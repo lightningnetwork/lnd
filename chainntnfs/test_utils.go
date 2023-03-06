@@ -6,6 +6,7 @@ package chainntnfs
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"os/exec"
 	"path/filepath"
@@ -197,7 +198,11 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 
 	t.Helper()
 
-	tempBitcoindDir := t.TempDir()
+	// We use ioutil.TempDir here instead of t.TempDir because some versions
+	// of bitcoind complain about the zmq connection string formats when the
+	// t.TempDir directory string is used.
+	tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
+	require.NoError(t, err, "unable to create temp dir")
 
 	rpcPort := rand.Intn(65536-1024) + 1024
 	zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
@@ -241,20 +246,20 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 	}
 
 	if rpcpolling {
+		cfg.PollingConfig = &chain.PollingConfig{
+			BlockPollingInterval: time.Millisecond * 20,
+			TxPollingInterval:    time.Millisecond * 20,
+		}
+	} else {
 		cfg.ZMQConfig = &chain.ZMQConfig{
 			ZMQBlockHost:    zmqBlockHost,
 			ZMQTxHost:       zmqTxHost,
 			ZMQReadDeadline: 5 * time.Second,
 		}
-	} else {
-		cfg.PollingConfig = &chain.PollingConfig{
-			BlockPollingInterval: time.Millisecond * 20,
-			TxPollingInterval:    time.Millisecond * 20,
-		}
 	}
 
 	var conn *chain.BitcoindConn
-	err := wait.NoError(func() error {
+	err = wait.NoError(func() error {
 		var err error
 		conn, err = chain.NewBitcoindConn(cfg)
 		if err != nil {

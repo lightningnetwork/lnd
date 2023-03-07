@@ -40,6 +40,12 @@ type paymentLifecycle struct {
 	// or failed with temporary error. Otherwise, we should exit the
 	// lifecycle loop as a terminal error has occurred.
 	resultCollected chan error
+
+	// resultCollector is a function that is used to collect the result of
+	// an HTLC attempt, which is always mounted to `p.collectResultAsync`
+	// except in unit test, where we use a much simpler resultCollector to
+	// decouple the test flow for the payment lifecycle.
+	resultCollector func(attempt *channeldb.HTLCAttempt)
 }
 
 // newPaymentLifecycle initiates a new payment lifecycle and returns it.
@@ -58,6 +64,9 @@ func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
 		quit:            make(chan struct{}),
 		resultCollected: make(chan error, 1),
 	}
+
+	// Mount the result collector.
+	p.resultCollector = p.collectResultAsync
 
 	// If a timeout is specified, create a timeout channel. If no timeout is
 	// specified, the channel is left nil and will never abort the payment
@@ -177,7 +186,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 		log.Infof("Resuming payment shard %v for payment %v",
 			a.AttemptID, p.identifier)
 
-		p.collectResultAsync(&a)
+		p.resultCollector(&a)
 	}
 
 	// exitWithErr is a helper closure that logs and returns an error.
@@ -279,7 +288,7 @@ lifecycle:
 		// Now that the shard was successfully sent, launch a go
 		// routine that will handle its result when its back.
 		if result.err == nil {
-			p.collectResultAsync(attempt)
+			p.resultCollector(attempt)
 		}
 	}
 
@@ -415,6 +424,9 @@ type attemptResult struct {
 // will send a nil error to channel `resultCollected` to indicate there's an
 // result.
 func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
+	log.Debugf("Collecting result for attempt %v in payment %v",
+		attempt.AttemptID, p.identifier)
+
 	go func() {
 		// Block until the result is available.
 		_, err := p.collectResult(attempt)

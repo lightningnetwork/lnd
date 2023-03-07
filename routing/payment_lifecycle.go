@@ -715,6 +715,30 @@ func (p *paymentLifecycle) sendAttempt(
 	return nil
 }
 
+// failAttemptAndPayment fails both the payment and its attempt via the
+// router's control tower, which marks the payment as failed in db.
+func (p *paymentLifecycle) failPaymentAndAttempt(
+	attemptID uint64, reason *channeldb.FailureReason,
+	sendErr error) (*channeldb.HTLCAttempt, error) {
+
+	log.Errorf("Payment %v failed: final_outcome=%v, raw_err=%v",
+		p.identifier, *reason, sendErr)
+
+	// Fail the payment via control tower.
+	//
+	// NOTE: we must fail the payment first before failing the attempt.
+	// Otherwise, once the attempt is marked as failed, another goroutine
+	// might make another attempt while we are failing the payment.
+	err := p.router.cfg.Control.FailPayment(p.identifier, *reason)
+	if err != nil {
+		log.Errorf("Unable to fail payment: %v", err)
+		return nil, err
+	}
+
+	// Fail the attempt.
+	return p.failAttempt(attemptID, sendErr)
+}
+
 // handleSwitchErr inspects the given error from the Switch and determines
 // whether we should make another payment attempt, or if it should be
 // considered a terminal error. Terminal errors will be recorded with the
@@ -727,36 +751,18 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	sendErr error) error {
 
 	internalErrorReason := channeldb.FailureReasonError
+	attemptID := attempt.AttemptID
 
-	// failPayment is a helper closure that fails the payment via the
-	// router's control tower, which marks the payment as failed in db.
-	failPayment := func(reason *channeldb.FailureReason,
-		sendErr error) error {
-
-		log.Infof("Payment %v failed: final_outcome=%v, raw_err=%v",
-			p.identifier, *reason, sendErr)
-
-		// Fail the payment via control tower.
-		if err := p.router.cfg.Control.FailPayment(
-			p.identifier, *reason,
-		); err != nil {
-			log.Errorf("unable to report failure to control "+
-				"tower: %v", err)
-
-			return &internalErrorReason
-		}
-
-		return reason
-	}
-
-	// reportFail is a helper closure that reports the failure to the
+	// reportAndFail is a helper closure that reports the failure to the
 	// mission control, which helps us to decide whether we want to retry
 	// the payment or not. If a non nil reason is returned from mission
 	// control, it will further fail the payment via control tower.
-	reportFail := func(srcIdx *int, msg lnwire.FailureMessage) error {
+	reportAndFail := func(srcIdx *int,
+		msg lnwire.FailureMessage) (*channeldb.HTLCAttempt, error) {
+
 		// Report outcome to mission control.
 		reason, err := p.router.cfg.MissionControl.ReportPaymentFail(
-			attempt.AttemptID, &attempt.Route, srcIdx, msg,
+			attemptID, &attempt.Route, srcIdx, msg,
 		)
 		if err != nil {
 			log.Errorf("Error reporting payment result to mc: %v",
@@ -765,18 +771,21 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 			reason = &internalErrorReason
 		}
 
-		// Exit early if there's no reason.
+		// Fail the attempt only if there's no reason.
 		if reason == nil {
-			return nil
+			// Fail the attempt.
+			return p.failAttempt(attemptID, sendErr)
 		}
 
-		return failPayment(reason, sendErr)
+		// Otherwise fail both the payment and the attempt.
+		return p.failPaymentAndAttempt(attemptID, reason, sendErr)
 	}
 
 	if sendErr == htlcswitch.ErrUnreadableFailureMessage {
 		log.Tracef("Unreadable failure when sending htlc")
 
-		return reportFail(nil, nil)
+		_, err := reportAndFail(nil, nil)
+		return err
 	}
 
 	// If the error is a ClearTextError, we have received a valid wire
@@ -786,7 +795,10 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	// occurred.
 	rtErr, ok := sendErr.(htlcswitch.ClearTextError)
 	if !ok {
-		return failPayment(&internalErrorReason, sendErr)
+		_, err := p.failPaymentAndAttempt(
+			attemptID, &internalErrorReason, sendErr,
+		)
+		return err
 	}
 
 	// failureSourceIdx is the index of the node that the failure occurred
@@ -801,21 +813,25 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 		failureSourceIdx = source.FailureSourceIdx
 	}
 
-	// Extract the wire failure and apply channel update if it contains one.
-	// If we received an unknown failure message from a node along the
-	// route, the failure message will be nil.
+	// Extract the wire failure and apply channel update if it contains
+	// one.  If we received an unknown failure message from a node along
+	// the route, the failure message will be nil.
 	failureMessage := rtErr.WireMessage()
 	err := p.handleFailureMessage(
 		&attempt.Route, failureSourceIdx, failureMessage,
 	)
 	if err != nil {
-		return failPayment(&internalErrorReason, sendErr)
+		_, err := p.failPaymentAndAttempt(
+			attemptID, &internalErrorReason, sendErr,
+		)
+		return err
 	}
 
 	log.Tracef("Node=%v reported failure when sending htlc",
 		failureSourceIdx)
 
-	return reportFail(&failureSourceIdx, failureMessage)
+	_, err = reportAndFail(&failureSourceIdx, failureMessage)
+	return err
 }
 
 // handleFailureMessage tries to apply a channel update present in the failure

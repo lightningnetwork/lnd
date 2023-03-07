@@ -1000,6 +1000,8 @@ func (s *Switch) extractResult(deobfuscator ErrorDecrypter, n *networkResult,
 	// We've received a fail update which means we can finalize the
 	// user payment and return fail response.
 	case *lnwire.UpdateFailHTLC:
+		// TODO(yy): construct deobfuscator here to avoid creating it
+		// in paymentLifecycle even for settled HTLCs.
 		paymentErr := s.parseFailedPayment(
 			deobfuscator, attemptID, paymentHash, n.unencrypted,
 			n.isResolution, htlc,

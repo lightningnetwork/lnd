@@ -621,3 +621,34 @@ func verifyCloseUpdate(chanUpdate *lnrpc.ChannelEventUpdate,
 
 	return nil
 }
+
+// testFundingExpiryBlocksOnPending checks that after an OpenChannel, and
+// before the funding transaction is confirmed, that the FundingExpiryBlocks
+// field of a PendingChannels decreases.
+func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
+	param := lntest.OpenChannelParams{Amt: 100000}
+	update := ht.OpenChannelAssertPending(alice, bob, param)
+
+	// At this point, the channel's funding transaction will have been
+	// broadcast, but not confirmed. Alice and Bob's nodes should reflect
+	// this when queried via RPC. FundingExpiryBlock should decrease
+	// as blocks are mined, until the channel is confirmed. Empty blocks
+	// won't confirm the funding transaction, so let's mine a few empty
+	// blocks and verify the value of FundingExpiryBlock at each step.
+	const numEmptyBlocks = 3
+	for i := int32(0); i < numEmptyBlocks; i++ {
+		expectedVal := funding.MaxWaitNumBlocksFundingConf - i
+		pending := ht.AssertNumPendingOpenChannels(alice, 1)
+		require.Equal(ht, expectedVal, pending[0].FundingExpiryBlocks)
+		pending = ht.AssertNumPendingOpenChannels(bob, 1)
+		require.Equal(ht, expectedVal, pending[0].FundingExpiryBlocks)
+		ht.MineEmptyBlocks(1)
+	}
+
+	// Mine 1 block to confirm the funding transaction, and then close the
+	// channel.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+	chanPoint := lntest.ChanPointFromPendingUpdate(update)
+	ht.CloseChannel(alice, chanPoint)
+}

@@ -368,6 +368,183 @@ func TestNeedWaitAttempts(t *testing.T) {
 	}
 }
 
+// TestAllowMoreAttempts checks whether more attempts can be created against
+// ALL possible payment statuses.
+func TestAllowMoreAttempts(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		status         PaymentStatus
+		remainingAmt   lnwire.MilliSatoshi
+		hasSettledHTLC bool
+		paymentFailed  bool
+		allowMore      bool
+		expectedErr    error
+	}{
+		{
+			// A newly created payment with zero remainingAmt
+			// indicates an error.
+			status:       StatusInitiated,
+			remainingAmt: 0,
+			allowMore:    false,
+			expectedErr:  ErrPaymentInternal,
+		},
+		{
+			// With zero remainingAmt we don't allow more HTLC
+			// attempts.
+			status:       StatusInFlight,
+			remainingAmt: 0,
+			allowMore:    false,
+			expectedErr:  nil,
+		},
+		{
+			// With zero remainingAmt we don't allow more HTLC
+			// attempts.
+			status:       StatusSucceeded,
+			remainingAmt: 0,
+			allowMore:    false,
+			expectedErr:  nil,
+		},
+		{
+			// With zero remainingAmt we don't allow more HTLC
+			// attempts.
+			status:       StatusFailed,
+			remainingAmt: 0,
+			allowMore:    false,
+			expectedErr:  nil,
+		},
+		{
+			// With zero remainingAmt and settled HTLCs we don't
+			// allow more HTLC attempts.
+			status:         StatusInFlight,
+			remainingAmt:   0,
+			hasSettledHTLC: true,
+			allowMore:      false,
+			expectedErr:    nil,
+		},
+		{
+			// With zero remainingAmt and failed payment we don't
+			// allow more HTLC attempts.
+			status:        StatusInFlight,
+			remainingAmt:  0,
+			paymentFailed: true,
+			allowMore:     false,
+			expectedErr:   nil,
+		},
+		{
+			// With zero remainingAmt and both settled HTLCs and
+			// failed payment, we don't allow more HTLC attempts.
+			status:         StatusInFlight,
+			remainingAmt:   0,
+			hasSettledHTLC: true,
+			paymentFailed:  true,
+			allowMore:      false,
+			expectedErr:    nil,
+		},
+		{
+			// A newly created payment can have more attempts.
+			status:       StatusInitiated,
+			remainingAmt: 1000,
+			allowMore:    true,
+			expectedErr:  nil,
+		},
+		{
+			// With HTLCs inflight we can have more attempts when
+			// the remainingAmt is not zero and we have neither
+			// failed payment or settled HTLCs.
+			status:       StatusInFlight,
+			remainingAmt: 1000,
+			allowMore:    true,
+			expectedErr:  nil,
+		},
+		{
+			// With HTLCs inflight we cannot have more attempts
+			// though the remainingAmt is not zero but we have
+			// settled HTLCs.
+			status:         StatusInFlight,
+			remainingAmt:   1000,
+			hasSettledHTLC: true,
+			allowMore:      false,
+			expectedErr:    nil,
+		},
+		{
+			// With HTLCs inflight we cannot have more attempts
+			// though the remainingAmt is not zero but we have
+			// failed payment.
+			status:        StatusInFlight,
+			remainingAmt:  1000,
+			paymentFailed: true,
+			allowMore:     false,
+			expectedErr:   nil,
+		},
+		{
+			// With HTLCs inflight we cannot have more attempts
+			// though the remainingAmt is not zero but we have
+			// settled HTLCs and failed payment.
+			status:         StatusInFlight,
+			remainingAmt:   1000,
+			hasSettledHTLC: true,
+			paymentFailed:  true,
+			allowMore:      false,
+			expectedErr:    nil,
+		},
+		{
+			// With the payment settled, but the remainingAmt is
+			// not zero, we have an error state.
+			status:         StatusSucceeded,
+			remainingAmt:   1000,
+			hasSettledHTLC: true,
+			allowMore:      false,
+			expectedErr:    ErrPaymentInternal,
+		},
+		{
+			// With the payment failed with no inflight HTLCs, we
+			// don't allow more attempts to be made.
+			status:        StatusFailed,
+			remainingAmt:  1000,
+			paymentFailed: true,
+			allowMore:     false,
+			expectedErr:   nil,
+		},
+		{
+			// With the payment in an unknown state, we don't allow
+			// more attempts to be made.
+			status:       0,
+			remainingAmt: 1000,
+			allowMore:    false,
+			expectedErr:  nil,
+		},
+	}
+
+	for i, tc := range testCases {
+		tc := tc
+
+		p := &MPPayment{
+			Info: &PaymentCreationInfo{
+				PaymentIdentifier: [32]byte{1, 2, 3},
+			},
+			Status: tc.status,
+			State: &MPPaymentState{
+				RemainingAmt:   tc.remainingAmt,
+				HasSettledHTLC: tc.hasSettledHTLC,
+				PaymentFailed:  tc.paymentFailed,
+			},
+		}
+
+		name := fmt.Sprintf("test_%d|status=%s|remainingAmt=%v", i,
+			tc.status, tc.remainingAmt)
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			result, err := p.AllowMoreAttempts()
+			require.ErrorIs(t, err, tc.expectedErr)
+			require.Equalf(t, tc.allowMore, result, "status=%v, "+
+				"remainingAmt=%v", tc.status, tc.remainingAmt)
+		})
+	}
+}
+
 func makeActiveAttempt(total, fee int) HTLCAttempt {
 	return HTLCAttempt{
 		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),

@@ -469,6 +469,51 @@ func (m *MPPayment) GetFailureReason() *FailureReason {
 	return m.FailureReason
 }
 
+// AllowMoreAttempts is used to decide whether we can safely attempt more HTLCs
+// for a given payment state. Return an error if the payment is in an
+// unexpected state.
+func (m *MPPayment) AllowMoreAttempts() (bool, error) {
+	// Now check whether the remainingAmt is zero or not. If we don't have
+	// any remainingAmt, no more HTLCs should be made.
+	if m.State.RemainingAmt == 0 {
+		// If the payment is newly created, yet we don't have any
+		// remainingAmt, return an error.
+		if m.Status == StatusInitiated {
+			return false, fmt.Errorf("%w: initiated payment has "+
+				"zero remainingAmt", ErrPaymentInternal)
+		}
+
+		// Otherwise, exit early since all other statuses with zero
+		// remainingAmt indicate no more HTLCs can be made.
+		return false, nil
+	}
+
+	// Otherwise, the remaining amount is not zero, we now decide whether
+	// to make more attempts based on the payment's current status.
+	//
+	// If at least one of the payment's attempts is settled, yet we haven't
+	// sent all the amount, it indicates something is wrong with the peer
+	// as the preimage is received. In this case, return an error state.
+	if m.Status == StatusSucceeded {
+		return false, fmt.Errorf("%w: payment already succeeded but "+
+			"still have remaining amount %v", ErrPaymentInternal,
+			m.State.RemainingAmt)
+	}
+
+	// Now check if we can register a new HTLC.
+	err := m.Registrable()
+	if err != nil {
+		log.Warnf("Payment(%v): cannot register HTLC attempt: %v, "+
+			"current status: %s", m.Info.PaymentIdentifier,
+			err, m.Status)
+
+		return false, nil
+	}
+
+	// Now we know we can register new HTLCs.
+	return true, nil
+}
+
 // serializeHTLCSettleInfo serializes the details of a settled htlc.
 func serializeHTLCSettleInfo(w io.Writer, s *HTLCSettleInfo) error {
 	if _, err := w.Write(s.Preimage[:]); err != nil {

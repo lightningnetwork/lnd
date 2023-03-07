@@ -21,6 +21,10 @@ import (
 
 const stepTimeout = 5 * time.Second
 
+var (
+	dummyErr = errors.New("dummy")
+)
+
 // createTestRoute builds a route a->b->c paying the given amt to c.
 func createTestRoute(amt lnwire.MilliSatoshi,
 	aliasMap map[string]route.Vertex) (*route.Route, error) {
@@ -1111,4 +1115,120 @@ func TestRequestRouteFailPaymentError(t *testing.T) {
 
 	// Assert that `FailPayment` is called as expected.
 	ct.AssertExpectations(t)
+}
+
+// TestDecideNextStep checks the method `decideNextStep` behaves as expected.
+func TestDecideNextStep(t *testing.T) {
+	t.Parallel()
+
+	// mockReturn is used to hold the return values from AllowMoreAttempts
+	// or NeedWaitAttempts.
+	type mockReturn struct {
+		allowOrWait bool
+		err         error
+	}
+
+	testCases := []struct {
+		name              string
+		allowMoreAttempts *mockReturn
+		needWaitAttempts  *mockReturn
+
+		// When the attemptResultChan has returned.
+		closeResultChan bool
+
+		// Whether the router has quit.
+		routerQuit bool
+
+		expectedStep stateStep
+		expectedErr  error
+	}{
+		{
+			name:              "allow more attempts",
+			allowMoreAttempts: &mockReturn{true, nil},
+			expectedStep:      stepProceed,
+			expectedErr:       nil,
+		},
+		{
+			name:              "error on allow more attempts",
+			allowMoreAttempts: &mockReturn{false, dummyErr},
+			expectedStep:      stepExit,
+			expectedErr:       dummyErr,
+		},
+		{
+			name:              "no wait and exit",
+			allowMoreAttempts: &mockReturn{false, nil},
+			needWaitAttempts:  &mockReturn{false, nil},
+			expectedStep:      stepExit,
+			expectedErr:       nil,
+		},
+		{
+			name:              "wait returns an error",
+			allowMoreAttempts: &mockReturn{false, nil},
+			needWaitAttempts:  &mockReturn{false, dummyErr},
+			expectedStep:      stepExit,
+			expectedErr:       dummyErr,
+		},
+
+		{
+			name:              "wait and exit on result chan",
+			allowMoreAttempts: &mockReturn{false, nil},
+			needWaitAttempts:  &mockReturn{true, nil},
+			closeResultChan:   true,
+			expectedStep:      stepSkip,
+			expectedErr:       nil,
+		},
+		{
+			name:              "wait and exit on router quit",
+			allowMoreAttempts: &mockReturn{false, nil},
+			needWaitAttempts:  &mockReturn{true, nil},
+			routerQuit:        true,
+			expectedStep:      stepExit,
+			expectedErr:       ErrRouterShuttingDown,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		// Create a test paymentLifecycle.
+		p := createTestPaymentLifecycle()
+
+		// Make a mock payment.
+		payment := &mockMPPayment{}
+
+		// Mock the method AllowMoreAttempts.
+		payment.On("AllowMoreAttempts").Return(
+			tc.allowMoreAttempts.allowOrWait,
+			tc.allowMoreAttempts.err,
+		).Once()
+
+		// Mock the method NeedWaitAttempts.
+		if tc.needWaitAttempts != nil {
+			payment.On("NeedWaitAttempts").Return(
+				tc.needWaitAttempts.allowOrWait,
+				tc.needWaitAttempts.err,
+			).Once()
+		}
+
+		// Send a nil error to the attemptResultChan if requested.
+		if tc.closeResultChan {
+			p.resultCollected = make(chan error, 1)
+			p.resultCollected <- nil
+		}
+
+		// Quit the router if requested.
+		if tc.routerQuit {
+			close(p.router.quit)
+		}
+
+		// Once the setup is finished, run the test cases.
+		t.Run(tc.name, func(t *testing.T) {
+			step, err := p.decideNextStep(payment)
+			require.Equal(t, tc.expectedStep, step)
+			require.ErrorIs(t, tc.expectedErr, err)
+		})
+
+		// Check the payment's methods are called as expected.
+		payment.AssertExpectations(t)
+	}
 }

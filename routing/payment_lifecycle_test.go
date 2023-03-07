@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -17,31 +18,68 @@ var (
 	dummyErr = errors.New("dummy")
 )
 
-func makeSettledAttempt(total, fee int,
-	preimage lntypes.Preimage) channeldb.HTLCAttempt {
+// createDummyRoute builds a route a->b->c paying the given amt to c.
+func createDummyRoute(t *testing.T, amt lnwire.MilliSatoshi) *route.Route {
+	t.Helper()
 
-	return channeldb.HTLCAttempt{
-		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err, "failed to create private key")
+	hop1 := route.NewVertex(priv.PubKey())
+
+	priv, err = btcec.NewPrivateKey()
+	require.NoError(t, err, "failed to create private key")
+	hop2 := route.NewVertex(priv.PubKey())
+
+	hopFee := lnwire.NewMSatFromSatoshis(3)
+	hops := []*route.Hop{
+		{
+			ChannelID:     1,
+			PubKeyBytes:   hop1,
+			LegacyPayload: true,
+			AmtToForward:  amt + hopFee,
+		},
+		{
+			ChannelID:     2,
+			PubKeyBytes:   hop2,
+			LegacyPayload: true,
+			AmtToForward:  amt,
+		},
+	}
+
+	priv, err = btcec.NewPrivateKey()
+	require.NoError(t, err, "failed to create private key")
+	source := route.NewVertex(priv.PubKey())
+
+	// We create a simple route that we will supply every time the router
+	// requests one.
+	rt, err := route.NewRouteFromHops(amt+2*hopFee, 100, source, hops)
+	require.NoError(t, err, "failed to create route")
+
+	return rt
+}
+
+func makeSettledAttempt(t *testing.T, total int,
+	preimage lntypes.Preimage) *channeldb.HTLCAttempt {
+
+	return &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: makeAttemptInfo(t, total),
 		Settle:          &channeldb.HTLCSettleInfo{Preimage: preimage},
 	}
 }
 
-func makeFailedAttempt(total, fee int) *channeldb.HTLCAttempt {
+func makeFailedAttempt(t *testing.T, total int) *channeldb.HTLCAttempt {
 	return &channeldb.HTLCAttempt{
-		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),
+		HTLCAttemptInfo: makeAttemptInfo(t, total),
 		Failure: &channeldb.HTLCFailInfo{
 			Reason: channeldb.HTLCFailInternal,
 		},
 	}
 }
 
-func makeAttemptInfo(total, amtForwarded int) channeldb.HTLCAttemptInfo {
-	hop := &route.Hop{AmtToForward: lnwire.MilliSatoshi(amtForwarded)}
+func makeAttemptInfo(t *testing.T, amt int) channeldb.HTLCAttemptInfo {
+	rt := createDummyRoute(t, lnwire.MilliSatoshi(amt))
 	return channeldb.HTLCAttemptInfo{
-		Route: route.Route{
-			TotalAmount: lnwire.MilliSatoshi(total),
-			Hops:        []*route.Hop{hop},
-		},
+		Route: *rt,
 	}
 }
 

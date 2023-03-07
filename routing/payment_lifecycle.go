@@ -456,15 +456,22 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 	// below.
 	hash, err := p.shardTracker.GetHash(attempt.AttemptID)
 	if err != nil {
-		return nil, err
+		return p.failAttempt(attempt.AttemptID, err)
 	}
 
 	// Regenerate the circuit for this attempt.
 	_, circuit, err := generateSphinxPacket(
 		&attempt.Route, hash[:], attempt.SessionKey(),
 	)
+	// TODO(yy): if for some reason the sphinx packet is failed to be
+	// generated yet the htlc is settled, we'd miss it. This means we
+	// should give it a second chance to try the settlement path in case
+	// `GetAttemptResult` gives us back the preimage.
 	if err != nil {
-		return nil, err
+		log.Debugf("Unable to generate circuit for attempt %v: %v",
+			attempt.AttemptID, err)
+
+		return p.failAttempt(attempt.AttemptID, err)
 	}
 
 	// Using the created circuit, initialize the error decrypter so we can
@@ -476,6 +483,12 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 
 	// Now ask the switch to return the result of the payment when
 	// available.
+	//
+	// TODO(yy): consider using htlcswitch to create the `errorDecryptor`
+	// since the htlc is already in db. This will also make the interface
+	// `PaymentAttemptDispatcher` deeper and eaiser to use. Moreover, we'd
+	// only create the decryptor when received a failure, further saving us
+	// a few CPU cycles.
 	resultChan, err := p.router.cfg.Payer.GetAttemptResult(
 		attempt.AttemptID, p.identifier, errorDecryptor,
 	)
@@ -536,6 +549,9 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 	)
 	if err != nil {
 		log.Errorf("Unable to settle payment attempt: %v", err)
+
+		// We won't mark the attempt as failed since we already have
+		// the preimage.
 		return nil, err
 	}
 

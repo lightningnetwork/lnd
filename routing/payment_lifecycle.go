@@ -16,6 +16,10 @@ import (
 	"github.com/lightningnetwork/lnd/routing/shards"
 )
 
+// ErrPaymentLifecycleExiting is used when waiting for htlc attempt result, but
+// the payment lifecycle is exiting .
+var ErrPaymentLifecycleExiting = errors.New("payment lifecycle exiting")
+
 // paymentLifecycle holds all information about the current state of a payment
 // needed to resume if from any point.
 type paymentLifecycle struct {
@@ -491,6 +495,9 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 		if !ok {
 			return nil, htlcswitch.ErrSwitchExiting
 		}
+
+	case <-p.quit:
+		return nil, ErrPaymentLifecycleExiting
 
 	case <-p.router.quit:
 		return nil, ErrRouterShuttingDown

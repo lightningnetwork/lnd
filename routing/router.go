@@ -2307,7 +2307,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// the error to check if it maps into a terminal error code, if not use
 	// a generic NO_ROUTE error.
 	var failureReason *channeldb.FailureReason
-	err = p.handleSwitchErr(attempt, shardError)
+	_, err = p.handleSwitchErr(attempt, shardError)
 
 	switch {
 	// If a non-terminal error is returned and `skipTempErr` is false, then

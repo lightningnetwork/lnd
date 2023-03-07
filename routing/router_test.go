@@ -3470,34 +3470,44 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 	session := &mockPaymentSession{}
 	sessionSource.On("NewPaymentSession", req).Return(session, nil)
 	controlTower.On("InitPayment", identifier, mock.Anything).Return(nil)
-
 	// Mock the InFlightHTLCs.
 	var (
 		htlcs       []channeldb.HTLCAttempt
 		numAttempts atomic.Uint32
+		settled     atomic.Bool
+		numParts    = uint32(4)
 	)
 
 	// Make a mock MPPayment.
 	payment := &mockMPPayment{}
 	payment.On("InFlightHTLCs").Return(htlcs).
-		On("GetState").Return(&channeldb.MPPaymentState{FeesPaid: 0})
+		On("GetState").Return(&channeldb.MPPaymentState{FeesPaid: 0}).
+		On("Terminated").Return(false)
+	controlTower.On("FetchPayment", identifier).Return(payment, nil).Once()
 
 	// Mock FetchPayment to return the payment.
-	controlTower.On("FetchPayment",
-		identifier,
-	).Return(payment, nil).Run(func(args mock.Arguments) {
-		// When number of attempts made is less than 4, we will mock
-		// the payment's methods to allow the lifecycle to continue.
-		if numAttempts.Load() < 4 {
-			payment.On("Terminated").Return(false).Times(2).
-				On("NeedWaitAttempts").Return(false, nil).Once()
-			return
-		}
+	controlTower.On("FetchPayment", identifier).Return(payment, nil).
+		Run(func(args mock.Arguments) {
+			// When number of attempts made is less than 4, we will
+			// mock the payment's methods to allow the lifecycle to
+			// continue.
+			if numAttempts.Load() < numParts {
+				payment.On("AllowMoreAttempts").Return(true, nil).Once()
+				return
+			}
 
-		// Otherwise, terminate the lifecycle.
-		payment.On("Terminated").Return(true).
-			On("NeedWaitAttempts").Return(true, nil)
-	})
+			if !settled.Load() {
+				fmt.Println("wait")
+				payment.On("AllowMoreAttempts").Return(false, nil).Once()
+				payment.On("NeedWaitAttempts").Return(true, nil).Once()
+				// We add another attempt to the counter to
+				// unblock next time.
+				return
+			}
+
+			payment.On("AllowMoreAttempts").Return(false, nil).
+				On("NeedWaitAttempts").Return(false, nil)
+		})
 
 	// Mock SettleAttempt.
 	preimage := lntypes.Preimage{1, 2, 3}
@@ -3511,6 +3521,10 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 		payment.On("GetHTLCs").Return(
 			[]channeldb.HTLCAttempt{settledAttempt},
 		)
+		// We want to at least wait for one settlement.
+		if numAttempts.Load() > 1 {
+			settled.Store(true)
+		}
 	})
 
 	// Create a route that can send 1/4 of the total amount. This value
@@ -3527,7 +3541,6 @@ func TestSendMPPaymentSucceed(t *testing.T) {
 	controlTower.On("RegisterAttempt",
 		identifier, mock.Anything,
 	).Return(nil).Run(func(args mock.Arguments) {
-		// Increase the counter whenever an attempt is made.
 		numAttempts.Add(1)
 	})
 
@@ -3663,29 +3676,40 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 		htlcs            []channeldb.HTLCAttempt
 		numAttempts      atomic.Uint32
 		failAttemptCount atomic.Uint32
+		settled          atomic.Bool
 	)
 
 	// Make a mock MPPayment.
 	payment := &mockMPPayment{}
 	payment.On("InFlightHTLCs").Return(htlcs).
-		On("GetState").Return(&channeldb.MPPaymentState{FeesPaid: 0})
+		On("GetState").Return(&channeldb.MPPaymentState{FeesPaid: 0}).
+		On("Terminated").Return(false)
+	controlTower.On("FetchPayment", identifier).Return(payment, nil).Once()
 
 	// Mock FetchPayment to return the payment.
-	controlTower.On("FetchPayment",
-		identifier,
-	).Return(payment, nil).Run(func(args mock.Arguments) {
-		// When number of attempts made is less than 6, we will mock
-		// the payment's methods to allow the lifecycle to continue.
-		if numAttempts.Load() < 6 {
-			payment.On("Terminated").Return(false).Times(2).
-				On("NeedWaitAttempts").Return(false, nil).Once()
-			return
-		}
+	controlTower.On("FetchPayment", identifier).Return(payment, nil).
+		Run(func(args mock.Arguments) {
+			// When number of attempts made is less than 4, we will
+			// mock the payment's methods to allow the lifecycle to
+			// continue.
+			attempts := numAttempts.Load()
+			if attempts < 6 {
+				payment.On("AllowMoreAttempts").Return(true, nil).Once()
+				return
+			}
 
-		// Otherwise, terminate the lifecycle.
-		payment.On("Terminated").Return(true).
-			On("NeedWaitAttempts").Return(true, nil)
-	})
+			if !settled.Load() {
+				payment.On("AllowMoreAttempts").Return(false, nil).Once()
+				payment.On("NeedWaitAttempts").Return(true, nil).Once()
+				// We add another attempt to the counter to
+				// unblock next time.
+				numAttempts.Add(1)
+				return
+			}
+
+			payment.On("AllowMoreAttempts").Return(false, nil).
+				On("NeedWaitAttempts").Return(false, nil)
+		})
 
 	// Create a route that can send 1/4 of the total amount. This value
 	// will be returned by calling RequestRoute.
@@ -3768,6 +3792,10 @@ func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
 		payment.On("GetHTLCs").Return(
 			[]channeldb.HTLCAttempt{settledAttempt},
 		)
+
+		if numAttempts.Load() > 1 {
+			settled.Store(true)
+		}
 	})
 
 	controlTower.On("DeleteFailedAttempts", identifier).Return(nil)
@@ -3885,8 +3913,8 @@ func TestSendMPPaymentFailed(t *testing.T) {
 	// Make a mock MPPayment.
 	payment := &mockMPPayment{}
 	payment.On("InFlightHTLCs").Return(htlcs).Once()
-	payment.On("GetStatus").Return(channeldb.StatusInFlight).Once()
 	payment.On("GetState").Return(&channeldb.MPPaymentState{})
+	payment.On("Terminated").Return(false)
 	controlTower.On("FetchPayment", identifier).Return(payment, nil).Once()
 
 	// Mock the sequential FetchPayment to return the payment.
@@ -3895,21 +3923,20 @@ func TestSendMPPaymentFailed(t *testing.T) {
 			// We want to at least send out all parts in order to
 			// wait for them later.
 			if numAttempts.Load() < numParts {
-				payment.On("Terminated").Return(false).Times(2).
-					On("NeedWaitAttempts").Return(false, nil).Once()
+				payment.On("AllowMoreAttempts").Return(true, nil).Once()
 				return
 			}
 
 			// Wait if the payment wasn't failed yet.
 			if !failed.Load() {
-				payment.On("Terminated").Return(false).Times(2).
+				payment.On("AllowMoreAttempts").Return(false, nil).Once().
 					On("NeedWaitAttempts").Return(true, nil).Once()
-
 				return
 			}
 
-			payment.On("Terminated").Return(true).
-				On("GetHTLCs").Return(htlcs).Once()
+			payment.On("AllowMoreAttempts").Return(false, nil).
+				On("GetHTLCs").Return(htlcs).Once().
+				On("NeedWaitAttempts").Return(false, nil).Once()
 		})
 
 	// Create a route that can send 1/4 of the total amount. This value
@@ -3989,6 +4016,8 @@ func TestSendMPPaymentFailed(t *testing.T) {
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil)
+
+	controlTower.On("DeleteFailedAttempts", identifier).Return(nil)
 
 	// Call the actual method SendPayment on router. This is place inside a
 	// goroutine so we can set a timeout for the whole test, in case

@@ -1969,13 +1969,8 @@ func (d *DB) cancelHTLCs(invoices kvdb.RwBucket, invoiceNum []byte,
 		return nil, errors.New("cancel action on non-existent htlc(s)")
 	}
 
-	// Reserialize and update invoice.
-	var buf bytes.Buffer
-	if err := serializeInvoice(&buf, invoice); err != nil {
-		return nil, err
-	}
-
-	if err := invoices.Put(invoiceNum, buf.Bytes()); err != nil {
+	err := d.serializeAndStoreInvoice(invoices, invoiceNum, invoice)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1990,6 +1985,22 @@ func (d *DB) cancelHTLCs(invoices kvdb.RwBucket, invoiceNum []byte,
 	}
 
 	return invoice, nil
+}
+
+// serializeAndStoreInvoice is a helper function used to store invoices.
+func (d *DB) serializeAndStoreInvoice(invoices kvdb.RwBucket, invoiceNum []byte,
+	invoice *invpkg.Invoice) error {
+
+	var buf bytes.Buffer
+	if err := serializeInvoice(&buf, invoice); err != nil {
+		return err
+	}
+
+	if err := invoices.Put(invoiceNum, buf.Bytes()); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // addHTLCs tries to add the htlcs in the given InvoiceUpdateDesc.
@@ -2219,13 +2230,8 @@ func (d *DB) addHTLCs(invoices, settleIndex, //nolint:funlen
 		}
 	}
 
-	// Reserialize and update invoice.
-	var buf bytes.Buffer
-	if err := serializeInvoice(&buf, invoice); err != nil {
-		return nil, err
-	}
-
-	if err := invoices.Put(invoiceNum, buf.Bytes()); err != nil {
+	err := d.serializeAndStoreInvoice(invoices, invoiceNum, invoice)
+	if err != nil {
 		return nil, err
 	}
 
@@ -2307,13 +2313,8 @@ func (d *DB) settleHodlInvoice(invoices, settleIndex kvdb.RwBucket,
 
 	invoice.AmtPaid = amtPaid
 
-	// Reserialize and update invoice.
-	var buf bytes.Buffer
-	if err := serializeInvoice(&buf, invoice); err != nil {
-		return nil, err
-	}
-
-	if err := invoices.Put(invoiceNum, buf.Bytes()); err != nil {
+	err = d.serializeAndStoreInvoice(invoices, invoiceNum, invoice)
+	if err != nil {
 		return nil, err
 	}
 
@@ -2369,13 +2370,8 @@ func (d *DB) cancelInvoice(invoices kvdb.RwBucket, invoiceNum []byte,
 		}
 	}
 
-	// Reserialize and update invoice.
-	var buf bytes.Buffer
-	if err := serializeInvoice(&buf, invoice); err != nil {
-		return nil, err
-	}
-
-	if err := invoices.Put(invoiceNum, buf.Bytes()); err != nil {
+	err = d.serializeAndStoreInvoice(invoices, invoiceNum, invoice)
+	if err != nil {
 		return nil, err
 	}
 

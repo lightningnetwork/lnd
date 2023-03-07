@@ -363,12 +363,12 @@ func (p *paymentLifecycle) checkShards() error {
 	}
 }
 
-// launchOutcome is a type returned from launchShard that indicates whether the
-// shard was successfully send onto the network.
-type launchOutcome struct {
+// attemptResult is returned from launchShard that indicates whether the HTLC
+// was successfully sent to the network.
+type attemptResult struct {
 	// err is non-nil if a non-critical error was encountered when trying
-	// to send the shard, and we successfully updated the control tower to
-	// reflect this error. This can be errors like not enough local
+	// to send the attempt, and we successfully updated the control tower
+	// to reflect this error. This can be errors like not enough local
 	// balance for the given route etc.
 	err error
 
@@ -385,7 +385,7 @@ type launchOutcome struct {
 // non-nil error, it means that the attempt was not sent onto the network, so
 // no result will be available in the future for it.
 func (p *paymentLifecycle) launchShard(rt *route.Route,
-	lastShard bool) (*channeldb.HTLCAttempt, *launchOutcome, error) {
+	lastShard bool) (*channeldb.HTLCAttempt, *attemptResult, error) {
 
 	// Using the route received from the payment session, create a new
 	// shard to send.
@@ -418,22 +418,13 @@ func (p *paymentLifecycle) launchShard(rt *route.Route,
 		}
 
 		// Return a launchOutcome indicating the shard failed.
-		return attempt, &launchOutcome{
-			attempt: htlcAttempt,
+		return attempt, &attemptResult{
+			attempt: htlcAttempt.attempt,
 			err:     sendErr,
 		}, nil
 	}
 
-	return attempt, &launchOutcome{}, nil
-}
-
-// shardResult holds the resulting outcome of a shard sent.
-type shardResult struct {
-	// attempt is the attempt structure as recorded in the database.
-	attempt *channeldb.HTLCAttempt
-
-	// err indicates that the shard failed.
-	err error
+	return attempt, &attemptResult{}, nil
 }
 
 // collectResultAsync launches a goroutine that will wait for the result of the
@@ -492,10 +483,11 @@ func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 }
 
 // collectResult waits for the result for the given attempt to be available
-// from the Switch, then records the attempt outcome with the control tower. A
-// shardResult is returned, indicating the final outcome of this HTLC attempt.
+// from the Switch, then records the attempt outcome with the control tower.
+// An attemptResult is returned, indicating the final outcome of this HTLC
+// attempt.
 func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
-	*shardResult, error) {
+	*attemptResult, error) {
 
 	// We'll retrieve the hash specific to this shard from the
 	// shardTracker, since it will be needed to regenerate the circuit
@@ -535,15 +527,7 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 			"the Switch, retrying.", attempt.AttemptID,
 			p.identifier)
 
-		attempt, cErr := p.failAttempt(attempt.AttemptID, err)
-		if cErr != nil {
-			return nil, cErr
-		}
-
-		return &shardResult{
-			attempt: attempt,
-			err:     err,
-		}, nil
+		return p.failAttempt(attempt.AttemptID, err)
 
 	// A critical, unexpected error was encountered.
 	case err != nil:
@@ -573,15 +557,7 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 	// In case of a payment failure, fail the attempt with the control
 	// tower and return.
 	if result.Error != nil {
-		attempt, err := p.failAttempt(attempt.AttemptID, result.Error)
-		if err != nil {
-			return nil, err
-		}
-
-		return &shardResult{
-			attempt: attempt,
-			err:     result.Error,
-		}, nil
+		return p.failAttempt(attempt.AttemptID, result.Error)
 	}
 
 	// We successfully got a payment result back from the switch.
@@ -610,7 +586,7 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 		return nil, err
 	}
 
-	return &shardResult{
+	return &attemptResult{
 		attempt: htlcAttempt,
 	}, nil
 }
@@ -724,7 +700,7 @@ func (p *paymentLifecycle) sendAttempt(
 // router's control tower, which marks the payment as failed in db.
 func (p *paymentLifecycle) failPaymentAndAttempt(
 	attemptID uint64, reason *channeldb.FailureReason,
-	sendErr error) (*channeldb.HTLCAttempt, error) {
+	sendErr error) (*attemptResult, error) {
 
 	log.Errorf("Payment %v failed: final_outcome=%v, raw_err=%v",
 		p.identifier, *reason, sendErr)
@@ -763,7 +739,7 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	// the payment or not. If a non nil reason is returned from mission
 	// control, it will further fail the payment via control tower.
 	reportAndFail := func(srcIdx *int,
-		msg lnwire.FailureMessage) (*channeldb.HTLCAttempt, error) {
+		msg lnwire.FailureMessage) (*attemptResult, error) {
 
 		// Report outcome to mission control.
 		reason, err := p.router.cfg.MissionControl.ReportPaymentFail(
@@ -914,7 +890,7 @@ func (p *paymentLifecycle) handleFailureMessage(rt *route.Route,
 
 // failAttempt calls control tower to fail the current payment attempt.
 func (p *paymentLifecycle) failAttempt(attemptID uint64,
-	sendError error) (*channeldb.HTLCAttempt, error) {
+	sendError error) (*attemptResult, error) {
 
 	log.Warnf("Attempt %v for payment %v failed: %v", attemptID,
 		p.identifier, sendError)
@@ -931,9 +907,17 @@ func (p *paymentLifecycle) failAttempt(attemptID uint64,
 		return nil, err
 	}
 
-	return p.router.cfg.Control.FailAttempt(
+	attempt, err := p.router.cfg.Control.FailAttempt(
 		p.identifier, attemptID, failInfo,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &attemptResult{
+		attempt: attempt,
+		err:     sendError,
+	}, nil
 }
 
 // marshallError marshall an error as received from the switch to a structure

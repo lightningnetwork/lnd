@@ -838,6 +838,11 @@ func (m *mockMPPayment) GetFailureReason() *channeldb.FailureReason {
 	return reason.(*channeldb.FailureReason)
 }
 
+func (m *mockMPPayment) AllowMoreAttempts() (bool, error) {
+	args := m.Called()
+	return args.Bool(0), args.Error(1)
+}
+
 type mockLink struct {
 	htlcswitch.ChannelLink
 	bandwidth         lnwire.MilliSatoshi

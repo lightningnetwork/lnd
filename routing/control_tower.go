@@ -33,6 +33,11 @@ type dbMPPayment interface {
 
 	// GetFailureReason returns the reason the payment failed.
 	GetFailureReason() *channeldb.FailureReason
+
+	// AllowMoreAttempts is used to decide whether we can safely attempt
+	// more HTLCs for a given payment state. Return an error if the payment
+	// is in an unexpected state.
+	AllowMoreAttempts() (bool, error)
 }
 
 // ControlTower tracks all outgoing payments made, whose primary purpose is to

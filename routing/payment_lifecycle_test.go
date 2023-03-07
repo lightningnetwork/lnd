@@ -800,6 +800,15 @@ func makeSettledAttempt(total, fee int,
 	}
 }
 
+func makeFailedAttempt(total, fee int) *channeldb.HTLCAttempt {
+	return &channeldb.HTLCAttempt{
+		HTLCAttemptInfo: makeAttemptInfo(total, total-fee),
+		Failure: &channeldb.HTLCFailInfo{
+			Reason: channeldb.HTLCFailInternal,
+		},
+	}
+}
+
 func makeAttemptInfo(total, amtForwarded int) channeldb.HTLCAttemptInfo {
 	hop := &route.Hop{AmtToForward: lnwire.MilliSatoshi(amtForwarded)}
 	return channeldb.HTLCAttemptInfo{

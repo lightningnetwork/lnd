@@ -3434,7 +3434,7 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	)
 
 	preimage := lntypes.Preimage{1}
-	testAttempt := makeSettledAttempt(int(payAmt), 0, preimage)
+	testAttempt := makeSettledAttempt(t, int(payAmt), preimage)
 
 	node, err := createTestNode()
 	require.NoError(t, err)
@@ -3472,7 +3472,7 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	controlTower.On("RegisterAttempt", payHash, mock.Anything).Return(nil)
 	controlTower.On("SettleAttempt",
 		payHash, mock.Anything, mock.Anything,
-	).Return(&testAttempt, nil)
+	).Return(testAttempt, nil)
 
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
@@ -3514,11 +3514,11 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 // cause the payment to be failed.
 func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 	var (
-		payHash     lntypes.Hash
-		payAmt      = lnwire.MilliSatoshi(10000)
-		testAttempt = &channeldb.HTLCAttempt{}
+		payHash lntypes.Hash
+		payAmt  = lnwire.MilliSatoshi(10000)
 	)
 
+	testAttempt := makeFailedAttempt(t, int(payAmt))
 	node, err := createTestNode()
 	require.NoError(t, err)
 
@@ -3599,7 +3599,7 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 		payAmt  = lnwire.MilliSatoshi(10000)
 	)
 
-	testAttempt := makeFailedAttempt(int(payAmt), 0)
+	testAttempt := makeFailedAttempt(t, int(payAmt))
 	node, err := createTestNode()
 	require.NoError(t, err)
 
@@ -3684,7 +3684,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 		payAmt  = lnwire.MilliSatoshi(10000)
 	)
 
-	testAttempt := makeFailedAttempt(int(payAmt), 0)
+	testAttempt := makeFailedAttempt(t, int(payAmt))
 	node, err := createTestNode()
 	require.NoError(t, err)
 

@@ -299,7 +299,7 @@ lifecycle:
 			// We must inspect the error to know whether it was
 			// critical or not, to decide whether we should
 			// continue trying.
-			err := p.handleSwitchErr(
+			_, err := p.handleSwitchErr(
 				attempt, outcome.err,
 			)
 			if err != nil {
@@ -391,7 +391,7 @@ func (p *paymentLifecycle) launchShard(rt *route.Route,
 
 	// Now that the attempt is created and checkpointed to the DB, we send
 	// it.
-	sendErr := p.sendAttempt(attempt)
+	_, sendErr := p.sendAttempt(attempt)
 	if sendErr != nil {
 		// TODO(joostjager): Distinguish unexpected internal errors
 		// from real send errors.
@@ -459,7 +459,7 @@ func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 			// Overwrite the param errToSend and return so that the
 			// defer function will use the param to proceed. Notice
 			// that the errToSend could be nil here.
-			errToSend = p.handleSwitchErr(attempt, result.err)
+			_, errToSend = p.handleSwitchErr(attempt, result.err)
 			return
 		}
 	}()
@@ -656,7 +656,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 // the payment. If this attempt fails, then we'll continue on to the next
 // available route.
 func (p *paymentLifecycle) sendAttempt(
-	attempt *channeldb.HTLCAttempt) error {
+	attempt *channeldb.HTLCAttempt) (*attemptResult, error) {
 
 	log.Tracef("Attempting to send payment %v (pid=%v), "+
 		"using route: %v", p.identifier, attempt.AttemptID,
@@ -686,8 +686,13 @@ func (p *paymentLifecycle) sendAttempt(
 		&rt, attempt.Hash[:], attempt.SessionKey(),
 	)
 	if err != nil {
-		return err
+		log.Errorf("Failed to create onion blob: attempt=%d in "+
+			"payment=%v, err:%v", attempt.AttemptID,
+			p.identifier, err)
+
+		return p.failAttempt(attempt.AttemptID, err)
 	}
+
 	copy(htlcAdd.OnionBlob[:], onionBlob)
 
 	// Send it to the Switch. When this method returns we assume
@@ -699,13 +704,15 @@ func (p *paymentLifecycle) sendAttempt(
 		log.Errorf("Failed sending attempt %d for payment %v to "+
 			"switch: %v", attempt.AttemptID, p.identifier, err)
 
-		return err
+		return p.handleSwitchErr(attempt, err)
 	}
 
 	log.Debugf("Payment %v (pid=%v) successfully sent to switch, route: %v",
 		p.identifier, attempt.AttemptID, &attempt.Route)
 
-	return nil
+	return &attemptResult{
+		attempt: attempt,
+	}, nil
 }
 
 // failAttemptAndPayment fails both the payment and its attempt via the
@@ -741,7 +748,7 @@ func (p *paymentLifecycle) failPaymentAndAttempt(
 // need to continue with an alternative route. A final outcome is indicated by
 // a non-nil reason value.
 func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
-	sendErr error) error {
+	sendErr error) (*attemptResult, error) {
 
 	internalErrorReason := channeldb.FailureReasonError
 	attemptID := attempt.AttemptID
@@ -775,10 +782,13 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	}
 
 	if sendErr == htlcswitch.ErrUnreadableFailureMessage {
-		log.Tracef("Unreadable failure when sending htlc")
+		log.Warn("Unreadable failure when sending htlc: id=%v, hash=%v",
+			attempt.AttemptID, attempt.Hash)
 
-		_, err := reportAndFail(nil, nil)
-		return err
+		// Since this error message cannot be decrypted, we will send a
+		// nil error message to our mission controller and fail the
+		// payment.
+		return reportAndFail(nil, nil)
 	}
 
 	// If the error is a ClearTextError, we have received a valid wire
@@ -788,10 +798,9 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 	// occurred.
 	rtErr, ok := sendErr.(htlcswitch.ClearTextError)
 	if !ok {
-		_, err := p.failPaymentAndAttempt(
+		return p.failPaymentAndAttempt(
 			attemptID, &internalErrorReason, sendErr,
 		)
-		return err
 	}
 
 	// failureSourceIdx is the index of the node that the failure occurred
@@ -814,17 +823,15 @@ func (p *paymentLifecycle) handleSwitchErr(attempt *channeldb.HTLCAttempt,
 		&attempt.Route, failureSourceIdx, failureMessage,
 	)
 	if err != nil {
-		_, err := p.failPaymentAndAttempt(
+		return p.failPaymentAndAttempt(
 			attemptID, &internalErrorReason, sendErr,
 		)
-		return err
 	}
 
 	log.Tracef("Node=%v reported failure when sending htlc",
 		failureSourceIdx)
 
-	_, err = reportAndFail(&failureSourceIdx, failureMessage)
-	return err
+	return reportAndFail(&failureSourceIdx, failureMessage)
 }
 
 // handleFailureMessage tries to apply a channel update present in the failure

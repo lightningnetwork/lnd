@@ -533,12 +533,12 @@
         "amt_paid_sat": {
           "type": "string",
           "format": "int64",
-          "description": "The amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled. We provide this field as if the\ninvoice was created with a zero value, then we need to record what amount\nwas ultimately accepted. Additionally, it's possible that the sender paid\nMORE that was specified in the original invoice. So we'll record that here\nas well.\nNote: Output only, don't specify for creating an invoice."
+          "description": "The amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled or accepted. We provide this field\nas if the invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well.\nNote: Output only, don't specify for creating an invoice."
         },
         "amt_paid_msat": {
           "type": "string",
           "format": "int64",
-          "description": "The amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled. We provide this field as if\nthe invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well.\nNote: Output only, don't specify for creating an invoice."
+          "description": "The amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled or accepted. We provide this\nfield as if the invoice was created with a zero value, then we need to\nrecord what amount was ultimately accepted. Additionally, it's possible that\nthe sender paid MORE that was specified in the original invoice. So we'll\nrecord that here as well.\nNote: Output only, don't specify for creating an invoice."
         },
         "state": {
           "$ref": "#/definitions/InvoiceInvoiceState",

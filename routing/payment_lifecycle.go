@@ -267,48 +267,23 @@ lifecycle:
 
 		log.Tracef("Found route: %s", spew.Sdump(rt.Hops))
 
-		// We found a route to try, launch a new shard.
-		attempt, outcome, err := p.launchShard(rt, ps.RemainingAmt)
-		switch {
-		// We may get a terminal error if we've processed a shard with
-		// a terminal state (settled or permanent failure), while we
-		// were pathfinding. We know we're in a terminal state here,
-		// so we can continue and wait for our last shards to return.
-		case err == channeldb.ErrPaymentTerminal:
-			log.Infof("Payment %v in terminal state, abandoning "+
-				"shard", p.identifier)
-
-			continue lifecycle
-
-		case err != nil:
+		// We found a route to try, create a new HTLC attempt to try.
+		attempt, err := p.registerAttempt(rt, ps.RemainingAmt)
+		if err != nil {
 			return exitWithErr(err)
 		}
 
-		// If we encountered a non-critical error when launching the
-		// shard, handle it.
-		if outcome.err != nil {
-			log.Warnf("Failed to launch shard %v for "+
-				"payment %v: %v", attempt.AttemptID,
-				p.identifier, outcome.err)
-
-			// We must inspect the error to know whether it was
-			// critical or not, to decide whether we should
-			// continue trying.
-			_, err := p.handleSwitchErr(
-				attempt, outcome.err,
-			)
-			if err != nil {
-				return exitWithErr(err)
-			}
-
-			// Error was handled successfully, continue to make a
-			// new attempt.
-			continue lifecycle
+		// Once the attempt is created, send it to the htlcswitch.
+		result, err := p.sendAttempt(attempt)
+		if err != nil {
+			return exitWithErr(err)
 		}
 
 		// Now that the shard was successfully sent, launch a go
 		// routine that will handle its result when its back.
-		p.collectResultAsync(attempt)
+		if result.err == nil {
+			p.collectResultAsync(attempt)
+		}
 	}
 }
 
@@ -365,44 +340,6 @@ type attemptResult struct {
 
 	// attempt is the attempt structure as recorded in the database.
 	attempt *channeldb.HTLCAttempt
-}
-
-// launchShard creates and sends an HTLC attempt along the given route,
-// registering it with the control tower before sending it. The lastShard
-// argument should be true if this shard will consume the remainder of the
-// amount to send. It returns the HTLCAttemptInfo that was created for the
-// shard, along with a launchOutcome.  The launchOutcome is used to indicate
-// whether the attempt was successfully sent. If the launchOutcome wraps a
-// non-nil error, it means that the attempt was not sent onto the network, so
-// no result will be available in the future for it.
-func (p *paymentLifecycle) launchShard(rt *route.Route,
-	remainingAmt lnwire.MilliSatoshi) (*channeldb.HTLCAttempt,
-	*attemptResult, error) {
-
-	attempt, err := p.registerAttempt(rt, remainingAmt)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Now that the attempt is created and checkpointed to the DB, we send
-	// it.
-	_, sendErr := p.sendAttempt(attempt)
-	if sendErr != nil {
-		// TODO(joostjager): Distinguish unexpected internal errors
-		// from real send errors.
-		htlcAttempt, err := p.failAttempt(attempt.AttemptID, sendErr)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		// Return a launchOutcome indicating the shard failed.
-		return attempt, &attemptResult{
-			attempt: htlcAttempt.attempt,
-			err:     sendErr,
-		}, nil
-	}
-
-	return attempt, &attemptResult{}, nil
 }
 
 // collectResultAsync launches a goroutine that will wait for the result of the
@@ -651,12 +588,8 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 func (p *paymentLifecycle) sendAttempt(
 	attempt *channeldb.HTLCAttempt) (*attemptResult, error) {
 
-	log.Tracef("Attempting to send payment %v (pid=%v), "+
-		"using route: %v", p.identifier, attempt.AttemptID,
-		newLogClosure(func() string {
-			return spew.Sdump(attempt.Route)
-		}),
-	)
+	log.Debugf("Attempting to send payment %v (pid=%v)", p.identifier,
+		attempt.AttemptID)
 
 	rt := attempt.Route
 
@@ -703,8 +636,8 @@ func (p *paymentLifecycle) sendAttempt(
 		return p.handleSwitchErr(attempt, err)
 	}
 
-	log.Debugf("Payment %v (pid=%v) successfully sent to switch, route: %v",
-		p.identifier, attempt.AttemptID, &attempt.Route)
+	log.Debugf("Attempt %v for %v successfully sent to switch, route: %v",
+		attempt.AttemptID, p.identifier, &attempt.Route)
 
 	return &attemptResult{
 		attempt: attempt,

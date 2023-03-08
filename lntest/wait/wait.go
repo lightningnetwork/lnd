@@ -58,6 +58,13 @@ func NoError(f func() error, timeout time.Duration) error {
 	// If f() doesn't succeed within the timeout, return the last
 	// encountered error.
 	if err := Predicate(pred, timeout); err != nil {
+		// Handle the case where the passed in method, f, hangs for the
+		// full timeout
+		if predErr == nil {
+			return fmt.Errorf("method did not return within the " +
+				"timeout")
+		}
+
 		return predErr
 	}
 

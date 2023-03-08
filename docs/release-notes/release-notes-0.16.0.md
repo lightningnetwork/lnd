@@ -406,7 +406,10 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
   speed of listing sessions for a particular tower ID](
   https://github.com/lightningnetwork/lnd/pull/6972). This PR also ensures a 
   closer coupling of Towers and Sessions and ensures that a session cannot be
-  added if the tower it is referring to does not exist.
+  added if the tower it is referring to does not exist. A [follow-up migration 
+  was added](https://github.com/lightningnetwork/lnd/pull/7491) to ensure that 
+  entries are added to the new index for _all_ towers in the db, including those
+  for which there are not yet associated sessions. 
 
 * [Remove `AckedUpdates` & `CommittedUpdates` from the `ClientSession`
   struct](https://github.com/lightningnetwork/lnd/pull/6928) in order to

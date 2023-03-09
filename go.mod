@@ -183,6 +183,6 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.
-go 1.18
+go 1.19
 
 retract v0.0.2

@@ -37,6 +37,9 @@
   might panic due to empty witness data found in a transaction. More details
   can be found [here](https://github.com/bitcoin/bitcoin/issues/28730).
 
+* [Fixed a case](https://github.com/lightningnetwork/lnd/pull/7503) where it's
+  possible a failed payment might be stuck in pending.
+
 # New Features
 ## Functional Enhancements
 
@@ -89,6 +92,11 @@
   Bitcoin is now the only supported chain. The `chains` field in the
   `lnrpc.GetInfoResponse` message along with the `chain` field in the
   `lnrpc.Chain` message have also been deprecated for the same reason.
+
+* The payment lifecycle code has been refactored to improve its maintainablity.
+  In particular, the complexity involved in the lifecycle loop has been
+  decoupled into logical steps, with each step having its own responsibility,
+  making it easier to reason about the payment flow.
 
 ## Breaking Changes
 ## Performance Improvements

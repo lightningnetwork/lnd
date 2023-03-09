@@ -93,23 +93,23 @@ following build dependencies are required:
 
 ### Installing Go
 
-`lnd` is written in Go, with a minimum version of 1.18. To install, run one of 
+`lnd` is written in Go, with a minimum version of 1.19. To install, run one of
 the following commands for your OS:
 
 <details>
   <summary>Linux (x86-64)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.18.linux-amd64.tar.gz
-  sha256sum go1.18.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.19.7.linux-amd64.tar.gz
+  sha256sum go1.19.7.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `e85278e98f57cdb150fe8409e6e5df5343ecb13cebf03a5d5ff12bd55a80264f`. If it
+  `7a75720c9b066ae1750f6bcc7052aba70fa3813f4223199ee2a2315fd3eb533d`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo tar -C /usr/local -xzf go1.18.linux-amd64.tar.gz
+  sudo tar -C /usr/local -xzf go1.19.7.linux-amd64.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```
 </details>
@@ -118,16 +118,16 @@ the following commands for your OS:
   <summary>Linux (ARMv6)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.18.linux-armv6l.tar.gz
-  sha256sum go1.18.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.19.7.linux-armv6l.tar.gz
+  sha256sum go1.19.7.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `a80fa43d1f4575fb030adbfbaa94acd860c6847820764eecb06c63b7c103612b`. If it
+  `93b1f621ddfc2c2b4e383e185fa7801e80f8b546918cb96afea2723677928312`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  tar -C /usr/local -xzf go1.18.linux-armv6l.tar.gz
+  tar -C /usr/local -xzf go1.19.7.linux-armv6l.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```  
   

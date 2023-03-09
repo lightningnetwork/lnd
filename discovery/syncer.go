@@ -1251,6 +1251,8 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 	// If the peer doesn't have an update horizon set, then we won't send
 	// it any new update messages.
 	if g.remoteUpdateHorizon == nil {
+		log.Tracef("GossipSyncer(%x): skipped due to nil "+
+			"remoteUpdateHorizon", g.cfg.peerPub[:])
 		return
 	}
 

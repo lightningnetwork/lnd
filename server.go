@@ -3202,7 +3202,7 @@ func (s *server) BroadcastMessage(skips map[route.Vertex]struct{},
 	for pubStr, sPeer := range s.peersByPub {
 		if skips != nil {
 			if _, ok := skips[sPeer.PubKey()]; ok {
-				srvrLog.Debugf("Skipping %x in broadcast with "+
+				srvrLog.Tracef("Skipping %x in broadcast with "+
 					"pubStr=%x", sPeer.PubKey(), pubStr)
 				continue
 			}

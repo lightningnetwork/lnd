@@ -1293,7 +1293,8 @@ func (d *AuthenticatedGossiper) sendRemoteBatch(annBatch []msgWithSenders) {
 
 	// We'll first attempt to filter out this new message for all peers
 	// that have active gossip syncers active.
-	for _, syncer := range syncerPeers {
+	for pub, syncer := range syncerPeers {
+		log.Tracef("Sending messages batch to GossipSyncer(%x)", pub)
 		syncer.FilterGossipMsgs(annBatch...)
 	}
 

@@ -12,6 +12,12 @@ that might lead to channel updates being missed, causing channel graph being
 incomplete. Aside from that, a potential announcement messages being sent out
 of order is also [fixed](https://github.com/lightningnetwork/lnd/pull/7264).
 
+`lnd` will now attempt to [rebroadcast unconfirmed
+transactions](https://github.com/lightningnetwork/lnd/pull/7448) with each
+passing block the transaction hasn't been confirmed. This was already the
+default for the neutrino backend. This complements the existing behavior where
+all unconfirmed transactions are rebroadcast on start up.
+
 ## BOLT Specs
 
 * Warning messages from peers are now recognized and

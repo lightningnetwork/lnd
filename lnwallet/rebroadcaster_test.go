@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/stretchr/testify/require"
@@ -132,7 +131,7 @@ func TestWalletRebroadcaster(t *testing.T) {
 		ChainIO:          chainIO,
 	}
 
-	t.Run("rebroadcast bypass", func(t *testing.T) {
+	t.Run("rebroadcast bypass", func(t *testing.T) { //nolint:paralleltest
 		// We'll make a copy of the config, but without the
 		// broadcaster.
 		testCfg := *cfg
@@ -148,7 +147,8 @@ func TestWalletRebroadcaster(t *testing.T) {
 			t, wallet, rebroadcaster, walletController,
 		)
 
-		wallet.Shutdown()
+		err = wallet.Shutdown()
+		require.NoError(t, err)
 
 		// If we make a new wallet, that has the broadcaster, but
 		// hasn't started yet, we should see the same behavior.
@@ -162,15 +162,19 @@ func TestWalletRebroadcaster(t *testing.T) {
 			t, wallet, rebroadcaster, walletController,
 		)
 
-		wallet.Shutdown()
+		err = wallet.Shutdown()
+		require.NoError(t, err)
 	})
 
-	t.Run("rebroadcast normal", func(t *testing.T) {
+	t.Run("rebroadcast normal", func(t *testing.T) { //nolint:paralleltest
 		wallet, err := NewLightningWallet(*cfg)
 		require.NoError(t, err)
 		require.NoError(t, wallet.Startup())
 
-		defer wallet.Shutdown()
+		defer func() {
+			err = wallet.Shutdown()
+			require.NoError(t, err)
+		}()
 
 		// Wait for the broadcaster to start.
 		_, err = lnutils.RecvOrTimeout(
@@ -192,6 +196,5 @@ func TestWalletRebroadcaster(t *testing.T) {
 			rebroadcaster.confSignal, time.Second,
 		)
 		require.NoError(t, err)
-
 	})
 }

@@ -652,7 +652,9 @@ type walletReBroadcaster struct {
 }
 
 // newWalletReBroadcaster creates a new instance of the walletReBroadcaster.
-func newWalletReBroadcaster(broadcaster *pushtx.Broadcaster) *walletReBroadcaster {
+func newWalletReBroadcaster(
+	broadcaster *pushtx.Broadcaster) *walletReBroadcaster {
+
 	return &walletReBroadcaster{
 		Broadcaster: broadcaster,
 	}

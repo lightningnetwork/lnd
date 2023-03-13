@@ -6,7 +6,7 @@ import (
 )
 
 // RecvOrTimeout attempts to recv over chan c, returning the value. If the
-// timeout passes before the recv succeeds, an error is returned
+// timeout passes before the recv succeeds, an error is returned.
 func RecvOrTimeout[T any](c <-chan T, timeout time.Duration) (*T, error) {
 	select {
 	case m := <-c:

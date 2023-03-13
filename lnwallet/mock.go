@@ -21,7 +21,9 @@ import (
 )
 
 var (
-	CoinPkScript, _ = hex.DecodeString("001431df1bde03c074d0cf21ea2529427e1499b8f1de")
+	CoinPkScript, _ = hex.DecodeString(
+		"001431df1bde03c074d0cf21ea2529427e1499b8f1de",
+	)
 )
 
 // mockWalletController is a mock implementation of the WalletController
@@ -50,6 +52,7 @@ func (w *mockWalletController) FetchInputInfo(
 		Confirmations: 1,
 		OutPoint:      *prevOut,
 	}
+
 	return utxo, nil
 }
 
@@ -74,8 +77,10 @@ func (w *mockWalletController) NewAddress(AddressType, bool,
 	string) (btcutil.Address, error) {
 
 	addr, _ := btcutil.NewAddressPubKey(
-		w.RootKey.PubKey().SerializeCompressed(), &chaincfg.MainNetParams,
+		w.RootKey.PubKey().SerializeCompressed(),
+		&chaincfg.MainNetParams,
 	)
+
 	return addr, nil
 }
 
@@ -176,6 +181,7 @@ func (w *mockWalletController) ListUnspentWitness(int32, int32,
 	atomic.AddUint32(&w.index, 1)
 	var ret []*Utxo
 	ret = append(ret, utxo)
+
 	return ret, nil
 }
 
@@ -200,19 +206,21 @@ func (w *mockWalletController) LeaseOutput(wtxmgr.LockID, wire.OutPoint,
 }
 
 // ReleaseOutput currently does nothing.
-func (w *mockWalletController) ReleaseOutput(wtxmgr.LockID, wire.OutPoint) error {
+func (w *mockWalletController) ReleaseOutput(wtxmgr.LockID,
+	wire.OutPoint) error {
+
 	return nil
 }
 
-func (w *mockWalletController) ListLeasedOutputs() ([]*base.ListLeasedOutputResult,
+func (w *mockWalletController) ListLeasedOutputs() ([]*base.ListLeasedOutputResult, //nolint:lll
 	error) {
 
 	return nil, nil
 }
 
 // FundPsbt currently does nothing.
-func (w *mockWalletController) FundPsbt(*psbt.Packet, int32, chainfee.SatPerKWeight,
-	string, *waddrmgr.KeyScope) (int32, error) {
+func (w *mockWalletController) FundPsbt(*psbt.Packet, int32,
+	chainfee.SatPerKWeight, string, *waddrmgr.KeyScope) (int32, error) {
 
 	return 0, nil
 }
@@ -228,7 +236,9 @@ func (w *mockWalletController) FinalizePsbt(_ *psbt.Packet, _ string) error {
 }
 
 // PublishTransaction sends a transaction to the PublishedTransactions chan.
-func (w *mockWalletController) PublishTransaction(tx *wire.MsgTx, _ string) error {
+func (w *mockWalletController) PublishTransaction(tx *wire.MsgTx,
+	_ string) error {
+
 	w.PublishedTransactions <- tx
 	return nil
 }
@@ -286,7 +296,8 @@ type mockChainNotifier struct {
 // that the tx confirmation will go over.
 func (c *mockChainNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte, numConfs, heightHint uint32,
-	opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
+	opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent,
+	error) {
 
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed: c.ConfChan,
@@ -307,8 +318,9 @@ func (c *mockChainNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 
 // RegisterBlockEpochNtfn returns a BlockEpochEvent that contains a channel that
 // block epochs will go over.
-func (c *mockChainNotifier) RegisterBlockEpochNtfn(blockEpoch *chainntnfs.BlockEpoch) (
-	*chainntnfs.BlockEpochEvent, error) {
+func (c *mockChainNotifier) RegisterBlockEpochNtfn(
+	blockEpoch *chainntnfs.BlockEpoch) (*chainntnfs.BlockEpochEvent,
+	error) {
 
 	return &chainntnfs.BlockEpochEvent{
 		Epochs: c.EpochChan,
@@ -339,6 +351,7 @@ func (*mockChainIO) GetBestBlock() (*chainhash.Hash, int32, error) {
 
 func (*mockChainIO) GetUtxo(op *wire.OutPoint, _ []byte,
 	heightHint uint32, _ <-chan struct{}) (*wire.TxOut, error) {
+
 	return nil, nil
 }
 
@@ -346,6 +359,8 @@ func (*mockChainIO) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
 	return nil, nil
 }
 
-func (*mockChainIO) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
+func (*mockChainIO) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock,
+	error) {
+
 	return nil, nil
 }

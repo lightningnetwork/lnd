@@ -482,7 +482,8 @@ func (l *LightningWallet) PublishTransaction(tx *wire.MsgTx,
 		const numConfs = 6
 
 		txConf, err := l.Cfg.Notifier.RegisterConfirmationsNtfn(
-			&txHash, tx.TxOut[0].PkScript, numConfs, uint32(bestHeight),
+			&txHash, tx.TxOut[0].PkScript, numConfs,
+			uint32(bestHeight),
 		)
 		if err != nil {
 			return

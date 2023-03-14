@@ -1,5 +1,11 @@
 # Release Notes
 
+## Wallet
+
+- The logging around transaction broadcast failures [has been improved by always
+  logging the causing error and the raw transaction as
+  hex](https://github.com/lightningnetwork/lnd/pull/7513).
+
 ## `lncli`
 
 * The `lncli wallet psbt fund` command now allows users to specify the

@@ -660,6 +660,13 @@ var fundPsbtCommand = cli.Command{
 				"always use the coin selection key scope to " +
 				"generate the change address",
 		},
+		cli.Uint64Flag{
+			Name: "min_confs",
+			Usage: "(optional) the minimum number of " +
+				"confirmations each input used for the PSBT " +
+				"transaction must satisfy",
+			Value: defaultUtxoMinConf,
+		},
 	},
 	Action: actionDecorator(fundPsbt),
 }
@@ -673,8 +680,11 @@ func fundPsbt(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "fund")
 	}
 
+	minConfs := int32(ctx.Uint64("min_confs"))
 	req := &walletrpc.FundPsbtRequest{
-		Account: ctx.String("account"),
+		Account:          ctx.String("account"),
+		MinConfs:         minConfs,
+		SpendUnconfirmed: minConfs == 0,
 	}
 
 	// Parse template flags.

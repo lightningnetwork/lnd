@@ -1864,7 +1864,7 @@ func testTaprootCoopClose(ht *lntest.HarnessTest) {
 	eve := ht.NewNode("Eve", eveArgs)
 	ht.EnsureConnected(carol, eve)
 
-	// We'll now open up a chanel again between Carol and Eve.
+	// We'll now open up a channel again between Carol and Eve.
 	chanPoint = ht.OpenChannel(
 		carol, eve, lntest.OpenChannelParams{
 			Amt:         chanAmt,

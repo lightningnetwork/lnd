@@ -54,7 +54,7 @@ var (
 	//
 	paymentsRootBucket = []byte("payments-root-bucket")
 
-	// paymentDublicateBucket is the name of a optional sub-bucket within
+	// paymentDuplicateBucket is the name of a optional sub-bucket within
 	// the payment hash bucket, that is used to hold duplicate payments to
 	// a payment hash. This is needed to support information from earlier
 	// versions of lnd, where it was possible to pay to a payment hash more

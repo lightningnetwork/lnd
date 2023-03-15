@@ -1415,9 +1415,9 @@ func TestLeaseSecondLevelHtlcSpends(t *testing.T) {
 	}
 }
 
-// TestLeaseCommmitSpendToSelf tests all the possible redemption clauses from
+// TestLeaseCommitSpendToSelf tests all the possible redemption clauses from
 // the to_self output in a script enforced lease commitment transaction.
-func TestLeaseCommmitSpendToSelf(t *testing.T) {
+func TestLeaseCommitSpendToSelf(t *testing.T) {
 	t.Parallel()
 
 	const (

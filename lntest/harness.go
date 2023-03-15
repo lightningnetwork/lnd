@@ -175,7 +175,7 @@ func (h *HarnessTest) Context() context.Context {
 // node's wallets will be funded wallets with 10x10 BTC outputs each.
 func (h *HarnessTest) SetupStandbyNodes() {
 	h.Log("Setting up standby nodes Alice and Bob...")
-	defer h.Log("Finshed the setup, now running tests...")
+	defer h.Log("Finished the setup, now running tests...")
 
 	lndArgs := []string{
 		"--default-remote-max-htlcs=483",
@@ -811,7 +811,7 @@ type OpenChannelParams struct {
 	// channel is opened.
 	PushAmt btcutil.Amount
 
-	// Private is a boolan indicating whether the opened channel should be
+	// Private is a boolean indicating whether the opened channel should be
 	// private.
 	Private bool
 
@@ -1438,7 +1438,7 @@ func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode,
 	// closed channel.
 	//
 	// The commit sweep resolver is able to broadcast the sweep tx up to
-	// one block before the CSV elapses, so wait until defaulCSV-1.
+	// one block before the CSV elapses, so wait until defaultCSV-1.
 	h.MineBlocks(node.DefaultCSV - 1)
 
 	// The node should now sweep the funds, clean up by mining the sweeping
@@ -1712,7 +1712,7 @@ func (h *HarnessTest) OpenMultiChannelsAsync(
 	h.MineBlocks(numBlocksOpenChannel - 1)
 
 	// Once the blocks are mined, we fire goroutines for each of the
-	// request to watch for the channel openning.
+	// request to watch for the channel opening.
 	for _, r := range reqs {
 		r.result = make(chan *lnrpc.ChannelPoint, 1)
 		go assertChannelOpen(r)

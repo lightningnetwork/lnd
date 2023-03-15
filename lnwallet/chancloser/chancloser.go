@@ -39,10 +39,10 @@ var (
 	ErrUpfrontShutdownScriptMismatch = fmt.Errorf("shutdown script does not " +
 		"match upfront shutdown script")
 
-	// ErrProposalExeceedsMaxFee is returned when as the initiator, the
+	// ErrProposalExceedsMaxFee is returned when as the initiator, the
 	// latest fee proposal sent by the responder exceed our max fee.
 	// responder.
-	ErrProposalExeceedsMaxFee = fmt.Errorf("latest fee proposal exceeds " +
+	ErrProposalExceedsMaxFee = fmt.Errorf("latest fee proposal exceeds " +
 		"max fee")
 
 	// ErrInvalidShutdownScript is returned when we receive an address from
@@ -674,7 +674,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			)
 			if c.cfg.Channel.IsInitiator() && feeProposal > c.maxFee {
 				return nil, false, fmt.Errorf("%w: %v > %v",
-					ErrProposalExeceedsMaxFee, feeProposal,
+					ErrProposalExceedsMaxFee, feeProposal,
 					c.maxFee)
 			}
 

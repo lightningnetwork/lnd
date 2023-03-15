@@ -864,7 +864,7 @@ func TestHtlcTimeoutSecondStageRemoteSpend(t *testing.T) {
 		},
 		{
 			// We send a confirmation for the remote's second layer
-			// success transcation.
+			// success transaction.
 			preCheckpoint: func(ctx *htlcResolverTestContext,
 				_ bool) error {
 

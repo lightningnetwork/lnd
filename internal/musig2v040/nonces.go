@@ -135,7 +135,7 @@ func defaultNonceGenOpts() *nonceGenOpts {
 
 // WithCustomRand allows a caller to use a custom random number generator in
 // place for crypto/rand. This should only really be used to generate
-// determinstic tests.
+// deterministic tests.
 func WithCustomRand(r io.Reader) NonceGenOption {
 	return func(o *nonceGenOpts) {
 		o.randReader = r

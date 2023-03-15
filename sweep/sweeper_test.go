@@ -1028,7 +1028,7 @@ func TestGiveUp(t *testing.T) {
 	// We expect a sweep to be published at height 100 (mockChainIOHeight).
 	ctx.receiveTx()
 
-	// Because of MaxSweepAttemps, two more sweeps will be attempted. We
+	// Because of MaxSweepAttempts, two more sweeps will be attempted. We
 	// configured exponential back-off without randomness for the test. The
 	// second attempt, we expect to happen at 101. The third attempt at 103.
 	// At that point, the input is expected to be failed.

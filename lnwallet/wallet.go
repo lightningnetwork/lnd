@@ -1650,9 +1650,9 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 			theirContribution.PaymentBasePoint.PubKey,
 		)
 	} else {
-		ourSer := ourContribution.PaymentBasePoint.PubKey.SerializeCompressed()
-		theirSer := theirContribution.PaymentBasePoint.PubKey.SerializeCompressed()
-		switch bytes.Compare(ourSer, theirSer) {
+		ourSet := ourContribution.PaymentBasePoint.PubKey.SerializeCompressed()
+		theirSet := theirContribution.PaymentBasePoint.PubKey.SerializeCompressed()
+		switch bytes.Compare(ourSet, theirSet) {
 		case -1:
 			stateObfuscator = DeriveStateHintObfuscator(
 				ourContribution.PaymentBasePoint.PubKey,

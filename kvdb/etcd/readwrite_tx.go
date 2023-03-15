@@ -63,7 +63,7 @@ func (tx *readWriteTx) ForEachBucket(fn func(key []byte) error) error {
 	return root.ForEach(func(key []byte, val []byte) error {
 		if val != nil {
 			// A non-nil value would mean that we have a non
-			// walletdb/kvdb compatibel database containing
+			// walletdb/kvdb compatible database containing
 			// arbitrary key/values.
 			return walletdb.ErrInvalid
 		}

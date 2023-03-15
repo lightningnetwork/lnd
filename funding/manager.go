@@ -3706,7 +3706,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		chanUpdateAnn.FeeRate = uint32(storedFwdingPolicy.FeeRate)
 
 	default:
-		log.Infof("No channel forwaring policy specified for channel "+
+		log.Infof("No channel forwarding policy specified for channel "+
 			"announcement of ChannelID(%v). "+
 			"Assuming default fee parameters.", chanID)
 		chanUpdateAnn.BaseFee = uint32(

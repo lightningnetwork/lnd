@@ -1824,7 +1824,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		default:
 			l.log.Warnf("unexpected failure code received in "+
-				"UpdateFailMailformedHTLC: %v", msg.FailureCode)
+				"UpdateFailMalformedHTLC: %v", msg.FailureCode)
 
 			// We don't just pass back the error we received from
 			// our successor. Otherwise we might report a failure
@@ -3044,7 +3044,7 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// is setup to handle TLV payloads, so testing this
 			// would require implementing a separate mock iterator
 			// for TLV payloads that also supports injecting invalid
-			// payloads. Deferring this non-trival effort till a
+			// payloads. Deferring this non-trivial effort till a
 			// later date
 			failure := lnwire.NewInvalidOnionPayload(failedType, 0)
 			l.sendHTLCError(

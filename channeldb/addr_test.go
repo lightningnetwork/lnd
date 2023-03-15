@@ -19,7 +19,7 @@ var testIP6 = net.ParseIP("2001:0db8:0000:0000:0000:ff00:0042:8329")
 
 var addrTests = []struct {
 	expAddr net.Addr
-	serErr  string
+	setErr  string
 }{
 	// Valid addresses.
 	{
@@ -50,7 +50,7 @@ var addrTests = []struct {
 	// Invalid addresses.
 	{
 		expAddr: unknownAddrType{},
-		serErr:  ErrUnknownAddressType.Error(),
+		setErr:  ErrUnknownAddressType.Error(),
 	},
 	{
 		expAddr: &net.TCPAddr{
@@ -58,7 +58,7 @@ var addrTests = []struct {
 			IP:   testIP4[:len(testIP4)-1],
 			Port: 12345,
 		},
-		serErr: "unable to encode",
+		setErr: "unable to encode",
 	},
 	{
 		expAddr: &net.TCPAddr{
@@ -66,7 +66,7 @@ var addrTests = []struct {
 			IP:   append(testIP4, 0xff),
 			Port: 12345,
 		},
-		serErr: "unable to encode",
+		setErr: "unable to encode",
 	},
 	{
 		expAddr: &net.TCPAddr{
@@ -74,7 +74,7 @@ var addrTests = []struct {
 			IP:   testIP6[:len(testIP6)-1],
 			Port: 65535,
 		},
-		serErr: "unable to encode",
+		setErr: "unable to encode",
 	},
 	{
 		expAddr: &net.TCPAddr{
@@ -82,7 +82,7 @@ var addrTests = []struct {
 			IP:   append(testIP6, 0xff),
 			Port: 65535,
 		},
-		serErr: "unable to encode",
+		setErr: "unable to encode",
 	},
 	{
 		expAddr: &tor.OnionAddr{
@@ -90,7 +90,7 @@ var addrTests = []struct {
 			OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd.inion",
 			Port:         80,
 		},
-		serErr: "invalid suffix",
+		setErr: "invalid suffix",
 	},
 	{
 		expAddr: &tor.OnionAddr{
@@ -98,7 +98,7 @@ var addrTests = []struct {
 			OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyy.onion",
 			Port:         80,
 		},
-		serErr: "unknown onion service length",
+		setErr: "unknown onion service length",
 	},
 	{
 		expAddr: &tor.OnionAddr{
@@ -106,7 +106,7 @@ var addrTests = []struct {
 			OnionService: "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyA.onion",
 			Port:         80,
 		},
-		serErr: "illegal base32",
+		setErr: "illegal base32",
 	},
 }
 
@@ -119,17 +119,17 @@ func TestAddrSerialization(t *testing.T) {
 	for _, test := range addrTests {
 		err := serializeAddr(&b, test.expAddr)
 		switch {
-		case err == nil && test.serErr != "":
+		case err == nil && test.setErr != "":
 			t.Fatalf("expected serialization err for addr %v",
 				test.expAddr)
 
-		case err != nil && test.serErr == "":
+		case err != nil && test.setErr == "":
 			t.Fatalf("unexpected serialization err for addr %v: %v",
 				test.expAddr, err)
 
-		case err != nil && !strings.Contains(err.Error(), test.serErr):
+		case err != nil && !strings.Contains(err.Error(), test.setErr):
 			t.Fatalf("unexpected serialization err for addr %v, "+
-				"want: %v, got %v", test.expAddr, test.serErr,
+				"want: %v, got %v", test.expAddr, test.setErr,
 				err)
 
 		case err != nil:

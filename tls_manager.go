@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	// modifyFilePermissons is the file permission used for writing
+	// modifyFilePermissions is the file permission used for writing
 	// encrypted tls files.
 	modifyFilePermissions = 0600
 
@@ -213,7 +213,7 @@ func (t *TLSManager) generateCertPair(keyRing keychain.SecretKeyRing) error {
 	if lnrpc.FileExists(t.cfg.TLSCertPath) ||
 		lnrpc.FileExists(t.cfg.TLSKeyPath) {
 
-		// Handle discrepencies related to the TLSEncryptKey setting.
+		// Handle discrepancies related to the TLSEncryptKey setting.
 		return t.ensureEncryption(keyRing)
 	}
 

@@ -36,7 +36,7 @@ var (
 	// firstAddress is the first address that we should get from the wallet,
 	// corresponding to the derivation path m/84'/0'/0'/0/0 (even on regtest
 	// which is a special case for the BIP49/84 addresses in btcwallet).
-	firstAddress = "bcrt1qgdlgjc5ede7fjv350wcjqat80m0zsmfaswsj9p"
+	firstAddress = "bcrt1qgdlgjc5edge7fjv350wcjqat80m0zsmfaswsj9p"
 
 	// firstAddressTaproot is the first address that we should get from the
 	// wallet when deriving a taproot address.

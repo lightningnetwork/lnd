@@ -445,7 +445,7 @@ service Lightning {
     all HTLCs forwarded within the target time range, and integer offset
     within that time range, for a maximum number of events. If no maximum number
     of events is specified, up to 100 events will be returned. If no time-range
-    is specified, then events will be returned in the order that they occured.
+    is specified, then events will be returned in the order that they occurred.
 
     A list of forwarding events are returned. The size of each forwarding event
     is 40 bytes, and the max message size able to be returned in gRPC is 4 MiB.
@@ -1996,7 +1996,7 @@ message CloseChannelRequest {
     An optional address to send funds to in the case of a cooperative close.
     If the channel was opened with an upfront shutdown script and this field
     is set, the request to close will fail because the channel must pay out
-    to the upfront shutdown addresss.
+    to the upfront shutdown address.
     */
     string delivery_address = 5;
 
@@ -2320,7 +2320,7 @@ message ChanPointShim {
     */
     int64 amt = 1;
 
-    // The target channel point to refrence in created commitment transactions.
+    // The target channel point to reference in created commitment transactions.
     ChannelPoint chan_point = 2;
 
     // Our local key to use when creating the multi-sig output.
@@ -3725,7 +3725,7 @@ enum PaymentFailureReason {
     FAILURE_REASON_NO_ROUTE = 2;
 
     /*
-    A non-recoverable error has occured.
+    A non-recoverable error has occurred.
     */
     FAILURE_REASON_ERROR = 3;
 

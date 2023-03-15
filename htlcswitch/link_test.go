@@ -4365,7 +4365,7 @@ func (h *persistentLinkHarness) restartLink(
 	return aliceLink, bticker.Force, nil
 }
 
-// gnerateHtlc generates a simple payment from Bob to Alice.
+// generateHtlc generates a simple payment from Bob to Alice.
 func generateHtlc(t *testing.T, coreLink *channelLink,
 	id uint64) *lnwire.UpdateAddHTLC {
 

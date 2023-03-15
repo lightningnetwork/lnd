@@ -512,7 +512,7 @@ const (
 	// All possible routes were tried and failed permanently. Or were no
 	// routes to the destination at all.
 	PaymentFailureReason_FAILURE_REASON_NO_ROUTE PaymentFailureReason = 2
-	// A non-recoverable error has occured.
+	// A non-recoverable error has occurred.
 	PaymentFailureReason_FAILURE_REASON_ERROR PaymentFailureReason = 3
 	// Payment details incorrect (unknown hash, invalid amt or
 	// invalid final cltv delta)
@@ -6573,7 +6573,7 @@ type CloseChannelRequest struct {
 	// An optional address to send funds to in the case of a cooperative close.
 	// If the channel was opened with an upfront shutdown script and this field
 	// is set, the request to close will fail because the channel must pay out
-	// to the upfront shutdown addresss.
+	// to the upfront shutdown address.
 	DeliveryAddress string `protobuf:"bytes,5,opt,name=delivery_address,json=deliveryAddress,proto3" json:"delivery_address,omitempty"`
 	// A manual fee rate set in sat/vbyte that should be used when crafting the
 	// closure transaction.
@@ -7692,7 +7692,7 @@ type ChanPointShim struct {
 	// The size of the pre-crafted output to be used as the channel point for this
 	// channel funding.
 	Amt int64 `protobuf:"varint,1,opt,name=amt,proto3" json:"amt,omitempty"`
-	// The target channel point to refrence in created commitment transactions.
+	// The target channel point to reference in created commitment transactions.
 	ChanPoint *ChannelPoint `protobuf:"bytes,2,opt,name=chan_point,json=chanPoint,proto3" json:"chan_point,omitempty"`
 	// Our local key to use when creating the multi-sig output.
 	LocalKey *KeyDescriptor `protobuf:"bytes,3,opt,name=local_key,json=localKey,proto3" json:"local_key,omitempty"`

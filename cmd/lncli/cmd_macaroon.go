@@ -453,7 +453,7 @@ func constrainMacaroon(ctx *cli.Context) error {
 	// add first-party caveats (if necessary) to it.
 	sourceMac := &macaroon.Macaroon{}
 	if err = sourceMac.UnmarshalBinary(sourceMacBytes); err != nil {
-		return fmt.Errorf("error unmarshaling source macaroon file "+
+		return fmt.Errorf("error unmarshalling source macaroon file "+
 			"%s: %v", sourceMacFile, err)
 	}
 

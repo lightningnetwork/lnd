@@ -653,7 +653,7 @@ var _ lnrpc.LightningServer = (*rpcServer)(nil)
 func newRPCServer(cfg *Config, interceptorChain *rpcperms.InterceptorChain,
 	implCfg *ImplementationCfg, interceptor signal.Interceptor) *rpcServer {
 
-	// We go trhough the list of registered sub-servers, and create a gRPC
+	// We go through the list of registered sub-servers, and create a gRPC
 	// handler for each. These are used to register with the gRPC server
 	// before all dependencies are available.
 	registeredSubServers := lnrpc.RegisteredSubServers()
@@ -787,7 +787,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		s.sweeper, tower, s.towerClient, s.anchorTowerClient,
 		r.cfg.net.ResolveTCPAddr, genInvoiceFeatures,
 		genAmpInvoiceFeatures, getNodeAnnouncement,
-		s.updateAndBrodcastSelfNode, parseAddr, rpcsLog,
+		s.updateAndBroadcastSelfNode, parseAddr, rpcsLog,
 		s.aliasMgr.GetPeerAlias,
 	)
 	if err != nil {

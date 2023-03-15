@@ -915,7 +915,7 @@ func (c *OpenChannel) HasChanStatus(status ChannelStatus) bool {
 }
 
 func (c *OpenChannel) hasChanStatus(status ChannelStatus) bool {
-	// Special case ChanStatusDefualt since it isn't actually flag, but a
+	// Special case ChanStatusDefault since it isn't actually flag, but a
 	// particular combination (or lack-there-of) of flags.
 	if status == ChanStatusDefault {
 		return c.chanStatus == ChanStatusDefault
@@ -1423,7 +1423,7 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 		currentCommitSecret[0] ^= 1
 
 		// If this is a tweakless channel, then we'll purposefully send
-		// a next local height taht's invalid to trigger a force close
+		// a next local height that's invalid to trigger a force close
 		// on their end. We do this as tweakless channels don't require
 		// that the commitment point is valid, only that it's present.
 		if c.ChanType.IsTweakless() {
@@ -3586,7 +3586,7 @@ func writeChanConfig(b io.Writer, c *ChannelConfig) error {
 	)
 }
 
-// fundingTxPresent returns true if expect the funding transcation to be found
+// fundingTxPresent returns true if expect the funding transaction to be found
 // on disk or already populated within the passed open channel struct.
 func fundingTxPresent(channel *OpenChannel) bool {
 	chanType := channel.ChanType

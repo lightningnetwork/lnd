@@ -14,8 +14,8 @@ import (
 // retried. When a new transaction is added to the queue, we first upgrade the
 // read/write counts in the queue's own accounting to decide whether the new
 // transaction has any conflicting dependencies. If the transaction does not
-// conflict with any other, then it is comitted immediately, otherwise it'll be
-// queued up for later exection.
+// conflict with any other, then it is committed immediately, otherwise it'll be
+// queued up for later execution.
 // The algorithm is described in: http://www.cs.umd.edu/~abadi/papers/vll-vldb13.pdf
 type commitQueue struct {
 	ctx       context.Context

@@ -734,7 +734,7 @@ func (l *channelLink) syncChanStates() error {
 					"revocation: %v", err)
 			}
 
-			fundingLockedMsg := lnwire.NewFundingLocked(
+			fundingLockedMsg := lnwire.NewChannelReady(
 				l.ChanID(), nextRevocation,
 			)
 

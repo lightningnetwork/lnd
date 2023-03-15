@@ -2909,7 +2909,7 @@ func (f *Manager) sendFundingLocked(completeChan *channeldb.OpenChannel,
 	if err != nil {
 		return fmt.Errorf("unable to create next revocation: %v", err)
 	}
-	fundingLockedMsg := lnwire.NewFundingLocked(chanID, nextRevocation)
+	fundingLockedMsg := lnwire.NewChannelReady(chanID, nextRevocation)
 
 	// If the channel negotiated the option-scid-alias feature bit, we'll
 	// send a TLV segment that includes an alias the peer can use in their
@@ -3517,7 +3517,7 @@ func (f *Manager) handleFundingLocked(peer lnpeer.Peer,
 				return
 			}
 
-			fundingLockedMsg := lnwire.NewFundingLocked(
+			fundingLockedMsg := lnwire.NewChannelReady(
 				chanID, secondPoint,
 			)
 			fundingLockedMsg.AliasScid = &alias

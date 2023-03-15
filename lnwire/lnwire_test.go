@@ -580,7 +580,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
-			req := NewFundingLocked(ChannelID(c), pubKey)
+			req := NewChannelReady(ChannelID(c), pubKey)
 
 			v[0] = reflect.ValueOf(*req)
 		},

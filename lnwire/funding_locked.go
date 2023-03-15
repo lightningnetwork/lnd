@@ -35,7 +35,7 @@ type ChannelReady struct {
 
 // NewFundingLocked creates a new FundingLocked message, populating it with the
 // necessary IDs and revocation secret.
-func NewFundingLocked(cid ChannelID, npcp *btcec.PublicKey) *ChannelReady {
+func NewChannelReady(cid ChannelID, npcp *btcec.PublicKey) *ChannelReady {
 	return &ChannelReady{
 		ChanID:                 cid,
 		NextPerCommitmentPoint: npcp,

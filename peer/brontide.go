@@ -746,7 +746,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 					return nil, err
 				}
 
-				fundingLockedMsg := lnwire.NewFundingLocked(
+				fundingLockedMsg := lnwire.NewChannelReady(
 					chanID, second,
 				)
 				fundingLockedMsg.AliasScid = &aliasScid

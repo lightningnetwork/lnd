@@ -452,7 +452,7 @@ func newMsgFundingLocked(t testing.TB, r io.Reader) *lnwire.ChannelReady {
 
 	pubKey := randPubKey(t)
 
-	msg := lnwire.NewFundingLocked(lnwire.ChannelID(c), pubKey)
+	msg := lnwire.NewChannelReady(lnwire.ChannelID(c), pubKey)
 	msg.ExtraData = createExtraData(t, r)
 
 	return msg

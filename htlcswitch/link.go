@@ -721,7 +721,7 @@ func (l *channelLink) syncChanStates() error {
 		// done any state updates yet, then we'll retransmit the
 		// funding locked message first. We do this, as at this point
 		// we can't be sure if they've really received the
-		// FundingLocked message.
+		// ChannelReady message.
 		if remoteChanSyncMsg.NextLocalCommitHeight == 1 &&
 			localChanSyncMsg.NextLocalCommitHeight == 1 &&
 			!l.channel.IsPending() {

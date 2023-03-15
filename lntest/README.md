@@ -101,8 +101,8 @@ the real-world has. Aside from that, `lnd` has several places that use
 different code, which is triggered by the build flag `integration`, to speed up
 the tests. They are summarized as followings,
 
-1. `funding.checkPeerFundingLockInterval`, which is used when we wait for the
-   peer to send us `FundingLocked`. This value is 1 second in `lnd`, and 10
+1. `funding.checkPeerChannelReadyInterval`, which is used when we wait for the
+   peer to send us `ChannelReady`. This value is 1 second in `lnd`, and 10
    milliseconds in `lntest`.
 2. `lncfg.ProtocolOptions`, which is used to specify protocol flags. In `lnd`,
    anchor and script enforced lease are enabled by default, while in `lntest`,

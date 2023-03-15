@@ -3770,7 +3770,7 @@ func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) erro
 	// TODO(roasbeef): don't keep producer on disk
 
 	// If the next revocation is present, which is only the case after the
-	// FundingLocked message has been sent, then we'll write it to disk.
+	// ChannelReady message has been sent, then we'll write it to disk.
 	if channel.RemoteNextRevocation != nil {
 		err = WriteElements(&b, channel.RemoteNextRevocation)
 		if err != nil {

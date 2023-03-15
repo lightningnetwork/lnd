@@ -1082,7 +1082,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 
 	t.Helper()
 
-	// After the FundingLocked message is sent, Alice and Bob will each send
+	// After the ChannelReady message is sent, Alice and Bob will each send
 	// the following messages to their gossiper:
 	//	1) ChannelAnnouncement
 	//	2) ChannelUpdate
@@ -1222,7 +1222,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 	t.Helper()
 
-	// After the FundingLocked message is sent and six confirmations have
+	// After the ChannelReady message is sent and six confirmations have
 	// been reached, the channel will be announced to the greater network
 	// by having the nodes exchange announcement signatures.
 	// Two distinct messages will be sent:
@@ -1868,7 +1868,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	}
 
 	// Before sending on the con chan, update Alice's NotifyWhenOnline
-	// function so that the next invocation in receivedFundingLocked will
+	// function so that the next invocation in receivedChannelReady will
 	// use this new function.
 	alice.fundingMgr.cfg.NotifyWhenOnline = func(peer [33]byte,
 		connected chan<- lnpeer.Peer) {
@@ -2272,7 +2272,7 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 	assertNumPendingChannelsBecomes(t, bob, 0)
 }
 
-// TestFundingManagerReceiveFundingLockedTwice checks that the fundingManager
+// TestFundingManagerReceiveChannelReadyTwice checks that the fundingManager
 // continues to operate as expected in case we receive a duplicate fundingLocked
 // message.
 func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
@@ -2480,7 +2480,7 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
 }
 
-// TestFundingManagerRestartAfterReceivingFundingLocked checks that the
+// TestFundingManagerRestartAfterReceivingChannelReady checks that the
 // fundingManager continues to operate as expected after it has received
 // fundingLocked and then gets restarted.
 func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
@@ -3486,7 +3486,7 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 			Tx: txs[i],
 		}
 
-		// Expect both to be sending FundingLocked.
+		// Expect both to be sending ChannelReady.
 		_ = assertFundingMsgSent(
 			t, alice.msgChan, "ChannelReady",
 		).(*lnwire.ChannelReady)

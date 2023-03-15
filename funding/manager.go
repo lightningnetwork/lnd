@@ -40,8 +40,8 @@ var (
 	// buffers.
 	byteOrder = binary.BigEndian
 
-	// checkPeerFundingLockInterval is used when we are waiting for the
-	// peer to send us FundingLocked. We will check every 1 second to see
+	// checkPeerChannelReadyInterval is used when we are waiting for the
+	// peer to send us ChannelReady. We will check every 1 second to see
 	// if the message is received.
 	//
 	// NOTE: for itest, this value is changed to 10ms.
@@ -1040,9 +1040,9 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		}
 
 		if !received {
-			// We haven't received FundingLocked, so we'll continue
+			// We haven't received ChannelReady, so we'll continue
 			// to the next iteration of the loop after sleeping for
-			// checkPeerFundingLockInterval.
+			// checkPeerChannelReadyInterval.
 			select {
 			case <-time.After(checkPeerChannelReadyInterval):
 			case <-f.quit:
@@ -1213,7 +1213,7 @@ func (f *Manager) advancePendingChannelState(
 		f.cfg.NotifyOpenChannelEvent(channel.FundingOutpoint)
 
 		// Find and close the discoverySignal for this channel such
-		// that FundingLocked messages will be processed.
+		// that ChannelReady messages will be processed.
 		chanID := lnwire.NewChanIDFromOutPoint(
 			&channel.FundingOutpoint,
 		)
@@ -2890,7 +2890,7 @@ func (f *Manager) handleFundingConfirmation(
 	return nil
 }
 
-// sendFundingLocked creates and sends the fundingLocked message.
+// sendChannelReady creates and sends the fundingLocked message.
 // This should be called after the funding transaction has been confirmed,
 // and the channelState is 'markedOpen'.
 func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
@@ -2961,7 +2961,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 
 			// If an alias was not assigned above and the scid
 			// alias feature was negotiated, check if we already
-			// have an alias stored in case handleFundingLocked was
+			// have an alias stored in case handleChannelReady was
 			// called before this. If an alias exists, use that in
 			// channel_ready. Otherwise, request and store an
 			// alias and use that.
@@ -3005,7 +3005,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 	return nil
 }
 
-// receivedFundingLocked checks whether or not we've received a FundingLocked
+// receivedChannelReady checks whether or not we've received a ChannelReady
 // from the remote peer. If we have, RemoteNextRevocation will be set.
 func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 	chanID lnwire.ChannelID) (bool, error) {
@@ -3391,7 +3391,7 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
 	return nil
 }
 
-// handleFundingLocked finalizes the channel funding process and enables the
+// handleChannelReady finalizes the channel funding process and enables the
 // channel to enter normal operating mode.
 func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	msg *lnwire.ChannelReady) {
@@ -3464,7 +3464,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	// during invoice creation. In the zero-conf case, it is also used to
 	// provide a ChannelUpdate to the remote peer. This is done before the
 	// call to InsertNextRevocation in case the call to PutPeerAlias fails.
-	// If it were to fail on the first call to handleFundingLocked, we
+	// If it were to fail on the first call to handleChannelReady, we
 	// wouldn't want the channel to be usable yet.
 	if channel.NegotiatedAliasFeature() {
 		// If the AliasScid field is nil, we must fail out. We will
@@ -3488,7 +3488,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		// This is only used in the upgrade case where a user toggles
 		// the option-scid-alias feature-bit to on. We'll also send the
 		// channel_ready message here in case the link is created
-		// before sendFundingLocked is called.
+		// before sendChannelReady is called.
 		aliases := f.cfg.AliasManager.GetAliases(
 			channel.ShortChannelID,
 		)

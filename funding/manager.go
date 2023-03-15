@@ -617,16 +617,30 @@ func (c channelOpeningState) String() string {
 // fundingManager.
 func NewFundingManager(cfg Config) (*Manager, error) {
 	return &Manager{
-		cfg:                        &cfg,
-		chanIDKey:                  cfg.TempChanIDSeed,
-		activeReservations:         make(map[serializedPubKey]pendingChannels),
-		signedReservations:         make(map[lnwire.ChannelID][32]byte),
-		newChanBarriers:            make(map[lnwire.ChannelID]chan struct{}),
-		fundingMsgs:                make(chan *fundingMsg, msgBufferSize),
-		fundingRequests:            make(chan *InitFundingMsg, msgBufferSize),
-		localDiscoverySignals:      make(map[lnwire.ChannelID]chan struct{}),
-		handleChannelReadyBarriers: make(map[lnwire.ChannelID]struct{}),
-		quit:                       make(chan struct{}),
+		cfg:       &cfg,
+		chanIDKey: cfg.TempChanIDSeed,
+		activeReservations: make(
+			map[serializedPubKey]pendingChannels,
+		),
+		signedReservations: make(
+			map[lnwire.ChannelID][32]byte,
+		),
+		newChanBarriers: make(
+			map[lnwire.ChannelID]chan struct{},
+		),
+		fundingMsgs: make(
+			chan *fundingMsg, msgBufferSize,
+		),
+		fundingRequests: make(
+			chan *InitFundingMsg, msgBufferSize,
+		),
+		localDiscoverySignals: make(
+			map[lnwire.ChannelID]chan struct{},
+		),
+		handleChannelReadyBarriers: make(
+			map[lnwire.ChannelID]struct{},
+		),
+		quit: make(chan struct{}),
 	}, nil
 }
 

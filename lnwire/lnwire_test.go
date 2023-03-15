@@ -567,7 +567,6 @@ func TestLightningWireProtocol(t *testing.T) {
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgChannelReady: func(v []reflect.Value, r *rand.Rand) {
-
 			var c [32]byte
 			if _, err := r.Read(c[:]); err != nil {
 				t.Fatalf("unable to generate chan id: %v", err)

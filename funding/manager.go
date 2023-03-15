@@ -377,7 +377,7 @@ type Config struct {
 
 	// NotifyWhenOnline allows the FundingManager to register with a
 	// subsystem that will notify it when the peer comes online. This is
-	// used when sending the fundingLocked message, since it MUST be
+	// used when sending the channelReady message, since it MUST be
 	// delivered after the funding transaction is confirmed.
 	//
 	// NOTE: The peerChan channel must be buffered.
@@ -584,18 +584,18 @@ type channelOpeningState uint8
 
 const (
 	// markedOpen is the opening state of a channel if the funding
-	// transaction is confirmed on-chain, but fundingLocked is not yet
+	// transaction is confirmed on-chain, but channelReady is not yet
 	// successfully sent to the other peer.
 	markedOpen channelOpeningState = iota
 
-	// fundingLockedSent is the opening state of a channel if the
-	// fundingLocked message has successfully been sent to the other peer,
+	// channelReadySent is the opening state of a channel if the
+	// channelReady message has successfully been sent to the other peer,
 	// but we still haven't announced the channel to the network.
 	channelReadySent
 
 	// addedToRouterGraph is the opening state of a channel if the
 	// channel has been successfully added to the router graph
-	// immediately after the fundingLocked message has been sent, but
+	// immediately after the channelReady message has been sent, but
 	// we still haven't announced the channel to the network.
 	addedToRouterGraph
 )
@@ -1000,7 +1000,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 
 	switch channelState {
 	// The funding transaction was confirmed, but we did not successfully
-	// send the fundingLocked message to the peer, so let's do that now.
+	// send the channelReady message to the peer, so let's do that now.
 	case markedOpen:
 		err := f.sendChannelReady(channel, lnChannel)
 		if err != nil {
@@ -1008,7 +1008,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 				err)
 		}
 
-		// As the fundingLocked message is now sent to the peer, the
+		// As the channelReady message is now sent to the peer, the
 		// channel is moved to the next state of the state machine. It
 		// will be moved to the last state (actually deleted from the
 		// database) after the channel is finally announced.
@@ -1026,7 +1026,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 
 		return nil
 
-	// fundingLocked was sent to peer, but the channel was not added to the
+	// channelReady was sent to peer, but the channel was not added to the
 	// router graph and the channel announcement was not sent.
 	case channelReadySent:
 		// We must wait until we've received the peer's funding locked
@@ -2890,7 +2890,7 @@ func (f *Manager) handleFundingConfirmation(
 	return nil
 }
 
-// sendChannelReady creates and sends the fundingLocked message.
+// sendChannelReady creates and sends the channelReady message.
 // This should be called after the funding transaction has been confirmed,
 // and the channelState is 'markedOpen'.
 func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
@@ -2930,15 +2930,15 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 	}
 
 	// If the peer has disconnected before we reach this point, we will need
-	// to wait for him to come back online before sending the fundingLocked
-	// message. This is special for fundingLocked, since failing to send any
+	// to wait for him to come back online before sending the channelReady
+	// message. This is special for channelReady, since failing to send any
 	// of the previous messages in the funding flow just cancels the flow.
 	// But now the funding transaction is confirmed, the channel is open
-	// and we have to make sure the peer gets the fundingLocked message when
+	// and we have to make sure the peer gets the channelReady message when
 	// it comes back online. This is also crucial during restart of lnd,
-	// where we might try to resend the fundingLocked message before the
+	// where we might try to resend the channelReady message before the
 	// server has had the time to connect to the peer. We keep trying to
-	// send fundingLocked until we succeed, or the fundingManager is shut
+	// send channelReady until we succeed, or the fundingManager is shut
 	// down.
 	for {
 		peer, err := f.waitForPeerOnline(completeChan.IdentityPub)
@@ -3140,7 +3140,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 }
 
 // annAfterSixConfs broadcasts the necessary channel announcement messages to
-// the network after 6 confs. Should be called after the fundingLocked message
+// the network after 6 confs. Should be called after the channelReady message
 // is sent and the channel is added to the router graph (channelState is
 // 'addedToRouterGraph') and the channel is ready to be used. This is the last
 // step in the channel opening process, and the opening state will be deleted
@@ -3412,7 +3412,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		return
 	}
 
-	// If not already handling fundingLocked for this channel, set up
+	// If not already handling channelReady for this channel, set up
 	// barrier, and move on.
 	f.handleChannelReadyBarriers[msg.ChanID] = struct{}{}
 	f.handleChannelReadyMtx.Unlock()
@@ -3532,7 +3532,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	}
 
 	// If the RemoteNextRevocation is non-nil, it means that we have
-	// already processed fundingLocked for this channel, so ignore. This
+	// already processed channelReady for this channel, so ignore. This
 	// check is after the alias logic so we store the peer's most recent
 	// alias. The spec requires us to validate that subsequent
 	// channel_ready messages use the same per commitment point (the

@@ -28,9 +28,12 @@ const (
 	// the timescale of about a week.
 	DefaultBimodalDecayTime = 7 * 24 * time.Hour
 
-	// BimodalScaleMsatLimit is the maximum value for BimodalScaleMsat to
-	// avoid numerical issues.
-	BimodalScaleMsatMax = lnwire.MilliSatoshi(21e17)
+	// BimodalScaleMsatMax is the maximum value for BimodalScaleMsat. We
+	// limit it here to the fakeHopHintCapacity to avoid issues with hop
+	// hint probability calculations.
+	BimodalScaleMsatMax = lnwire.MilliSatoshi(
+		1000 * fakeHopHintCapacity / 4,
+	)
 
 	// BimodalEstimatorName is used to identify the bimodal estimator.
 	BimodalEstimatorName = "bimodal"

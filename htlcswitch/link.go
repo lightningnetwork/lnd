@@ -734,7 +734,7 @@ func (l *channelLink) syncChanStates() error {
 					"revocation: %v", err)
 			}
 
-			fundingLockedMsg := lnwire.NewChannelReady(
+			channelReadyMsg := lnwire.NewChannelReady(
 				l.ChanID(), nextRevocation,
 			)
 
@@ -756,10 +756,10 @@ func (l *channelLink) syncChanStates() error {
 				// getAliases returns a copy of the alias slice
 				// so it is ok to use a pointer to the first
 				// entry.
-				fundingLockedMsg.AliasScid = &aliases[0]
+				channelReadyMsg.AliasScid = &aliases[0]
 			}
 
-			err = l.cfg.Peer.SendMessage(false, fundingLockedMsg)
+			err = l.cfg.Peer.SendMessage(false, channelReadyMsg)
 			if err != nil {
 				return fmt.Errorf("unable to re-send "+
 					"FundingLocked: %v", err)

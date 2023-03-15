@@ -746,12 +746,12 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 					return nil, err
 				}
 
-				fundingLockedMsg := lnwire.NewChannelReady(
+				channelReadyMsg := lnwire.NewChannelReady(
 					chanID, second,
 				)
-				fundingLockedMsg.AliasScid = &aliasScid
+				channelReadyMsg.AliasScid = &aliasScid
 
-				msgs = append(msgs, fundingLockedMsg)
+				msgs = append(msgs, channelReadyMsg)
 			}
 
 			// If we've negotiated the option-scid-alias feature

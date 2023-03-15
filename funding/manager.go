@@ -2909,7 +2909,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 	if err != nil {
 		return fmt.Errorf("unable to create next revocation: %v", err)
 	}
-	fundingLockedMsg := lnwire.NewChannelReady(chanID, nextRevocation)
+	channelReadyMsg := lnwire.NewChannelReady(chanID, nextRevocation)
 
 	// If the channel negotiated the option-scid-alias feature bit, we'll
 	// send a TLV segment that includes an alias the peer can use in their
@@ -2926,7 +2926,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 
 		// We can use a pointer to aliases since GetAliases returns a
 		// copy of the alias slice.
-		fundingLockedMsg.AliasScid = &aliases[0]
+		channelReadyMsg.AliasScid = &aliases[0]
 	}
 
 	// If the peer has disconnected before we reach this point, we will need
@@ -2956,7 +2956,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 		// We could also refresh the channel state instead of checking
 		// whether the feature was negotiated, but this saves us a
 		// database read.
-		if fundingLockedMsg.AliasScid == nil && localAlias &&
+		if channelReadyMsg.AliasScid == nil && localAlias &&
 			remoteAlias {
 
 			// If an alias was not assigned above and the scid
@@ -2983,16 +2983,16 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 					return err
 				}
 
-				fundingLockedMsg.AliasScid = &alias
+				channelReadyMsg.AliasScid = &alias
 			} else {
-				fundingLockedMsg.AliasScid = &aliases[0]
+				channelReadyMsg.AliasScid = &aliases[0]
 			}
 		}
 
 		log.Infof("Peer(%x) is online, sending FundingLocked "+
 			"for ChannelID(%v)", peerKey, chanID)
 
-		if err := peer.SendMessage(true, fundingLockedMsg); err == nil {
+		if err := peer.SendMessage(true, channelReadyMsg); err == nil {
 			// Sending succeeded, we can break out and continue the
 			// funding flow.
 			break
@@ -3517,12 +3517,12 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 				return
 			}
 
-			fundingLockedMsg := lnwire.NewChannelReady(
+			channelReadyMsg := lnwire.NewChannelReady(
 				chanID, secondPoint,
 			)
-			fundingLockedMsg.AliasScid = &alias
+			channelReadyMsg.AliasScid = &alias
 
-			err = peer.SendMessage(true, fundingLockedMsg)
+			err = peer.SendMessage(true, channelReadyMsg)
 			if err != nil {
 				log.Errorf("unable to send funding locked: %v",
 					err)

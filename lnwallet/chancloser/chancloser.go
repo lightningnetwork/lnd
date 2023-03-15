@@ -785,16 +785,18 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 		return nil, err
 	}
 
-	// We'll note our last signature and proposed fee so when the remote party
-	// responds we'll be able to decide if we've agreed on fees or not.
+	// We'll note our last signature and proposed fee so when the remote
+	// party responds we'll be able to decide if we've agreed on fees or
+	// not.
 	c.lastFeeProposal = fee
+
 	parsedSig, err := lnwire.NewSigFromSignature(rawSig)
 	if err != nil {
 		return nil, err
 	}
 
-	chancloserLog.Infof("ChannelPoint(%v): proposing fee of %v sat to close "+
-		"chan", c.chanPoint, int64(fee))
+	chancloserLog.Infof("ChannelPoint(%v): proposing fee of %v sat to "+
+		"close chan", c.chanPoint, int64(fee))
 
 	// We'll assemble a ClosingSigned message using this information and return
 	// it to the caller so we can kick off the final stage of the channel

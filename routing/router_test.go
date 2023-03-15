@@ -506,7 +506,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 
 	// Set up a channel update message with an invalid signature to be
 	// returned to the sender.
-	var invalidSignature [64]byte
+	var invalidSignature lnwire.Sig
 	errChanUpdate := lnwire.ChannelUpdate{
 		Signature:       invalidSignature,
 		FeeRate:         500,

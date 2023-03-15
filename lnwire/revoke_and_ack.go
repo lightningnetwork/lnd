@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // RevokeAndAck is sent by either side once a CommitSig message has been
@@ -32,6 +33,11 @@ type RevokeAndAck struct {
 	// transaction.
 	NextRevocationKey *btcec.PublicKey
 
+	// LocalNonce is the next _local_ nonce for the sending party. This
+	// allows the receiving party to propose a new commitment using their
+	// remote nonce and the sender's local nonce.
+	LocalNonce *Musig2Nonce
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -54,12 +60,36 @@ var _ Message = (*RevokeAndAck)(nil)
 //
 // This is part of the lnwire.Message interface.
 func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+	err := ReadElements(r,
 		&c.ChanID,
 		c.Revocation[:],
 		&c.NextRevocationKey,
-		&c.ExtraData,
 	)
+	if err != nil {
+		return err
+	}
+
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	var musigNonce Musig2Nonce
+	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
+	if err != nil {
+		return err
+	}
+
+	// Set the corresponding TLV types if they were included in the stream.
+	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
+		c.LocalNonce = &musigNonce
+	}
+
+	if len(tlvRecords) != 0 {
+		c.ExtraData = tlvRecords
+	}
+
+	return nil
 }
 
 // Encode serializes the target RevokeAndAck into the passed io.Writer
@@ -67,6 +97,15 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *RevokeAndAck) Encode(w *bytes.Buffer, pver uint32) error {
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	if c.LocalNonce != nil {
+		recordProducers = append(recordProducers, c.LocalNonce)
+	}
+	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
+	if err != nil {
+		return err
+	}
+
 	if err := WriteChannelID(w, c.ChanID); err != nil {
 		return err
 	}

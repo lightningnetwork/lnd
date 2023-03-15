@@ -383,7 +383,11 @@ func FuzzNodeAnnouncement(f *testing.F) {
 			t.Fatal("new message was not NodeAnnouncement")
 		}
 
-		if !bytes.Equal(first.Signature[:], second.Signature[:]) {
+		if !bytes.Equal(
+			first.Signature.RawBytes(),
+			second.Signature.RawBytes(),
+		) {
+
 			shouldPanic = true
 		}
 

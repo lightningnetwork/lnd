@@ -289,7 +289,7 @@ func FuzzFundingCreated(f *testing.F) {
 func FuzzFundingLocked(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgFundingLocked.
-		data = prefixWithMsgType(data, MsgFundingLocked)
+		data = prefixWithMsgType(data, MsgChannelReady)
 
 		// Pass the message into our general fuzz harness for wire
 		// messages!

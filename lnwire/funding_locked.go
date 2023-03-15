@@ -111,5 +111,5 @@ func (c *ChannelReady) Encode(w *bytes.Buffer, pver uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ChannelReady) MsgType() MessageType {
-	return MsgFundingLocked
+	return MsgChannelReady
 }

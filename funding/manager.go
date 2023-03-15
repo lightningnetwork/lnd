@@ -605,7 +605,7 @@ func (c channelOpeningState) String() string {
 	case markedOpen:
 		return "markedOpen"
 	case channelReadySent:
-		return "fundingLocked"
+		return "channelReady"
 	case addedToRouterGraph:
 		return "addedToRouterGraph"
 	default:
@@ -1004,7 +1004,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	case markedOpen:
 		err := f.sendChannelReady(channel, lnChannel)
 		if err != nil {
-			return fmt.Errorf("failed sending fundingLocked: %v",
+			return fmt.Errorf("failed sending channelReady: %v",
 				err)
 		}
 
@@ -1018,7 +1018,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		)
 		if err != nil {
 			return fmt.Errorf("error setting channel state to"+
-				" fundingLockedSent: %v", err)
+				" channelReadySent: %v", err)
 		}
 
 		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
@@ -2998,7 +2998,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 			break
 		}
 
-		log.Warnf("Unable to send fundingLocked to peer %x: %v. "+
+		log.Warnf("Unable to send channelReady to peer %x: %v. "+
 			"Will retry when online", peerKey, err)
 	}
 
@@ -3406,7 +3406,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	f.handleChannelReadyMtx.Lock()
 	_, ok := f.handleChannelReadyBarriers[msg.ChanID]
 	if ok {
-		log.Infof("Already handling fundingLocked for "+
+		log.Infof("Already handling channelReady for "+
 			"ChannelID(%v), ignoring.", msg.ChanID)
 		f.handleChannelReadyMtx.Unlock()
 		return
@@ -3541,7 +3541,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	// commitment point, since another pedantic implementation might
 	// verify it.
 	if channel.RemoteNextRevocation != nil {
-		log.Infof("Received duplicate fundingLocked for "+
+		log.Infof("Received duplicate channelReady for "+
 			"ChannelID(%v), ignoring.", chanID)
 		return
 	}

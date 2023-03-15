@@ -1055,8 +1055,8 @@ func assertFundingLockedSent(t *testing.T, alice, bob *testNode,
 
 	t.Helper()
 
-	assertDatabaseState(t, alice, fundingOutPoint, fundingLockedSent)
-	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
+	assertDatabaseState(t, alice, fundingOutPoint, channelReadySent)
+	assertDatabaseState(t, bob, fundingOutPoint, channelReadySent)
 }
 
 func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
@@ -1685,7 +1685,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	assertDatabaseState(t, alice, fundingOutPoint, markedOpen)
 
 	// While Bob successfully sent fundingLocked.
-	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
+	assertDatabaseState(t, bob, fundingOutPoint, channelReadySent)
 
 	// We now recreate Alice's fundingManager with the correct sendMessage
 	// implementation, and expect it to retry sending the fundingLocked
@@ -1711,7 +1711,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	).(*lnwire.ChannelReady)
 
 	// The state should now be fundingLockedSent
-	assertDatabaseState(t, alice, fundingOutPoint, fundingLockedSent)
+	assertDatabaseState(t, alice, fundingOutPoint, channelReadySent)
 
 	// Check that the channel announcements were never sent
 	select {
@@ -1842,7 +1842,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	assertDatabaseState(t, alice, fundingOutPoint, markedOpen)
 
 	// While Bob successfully sent fundingLocked.
-	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
+	assertDatabaseState(t, bob, fundingOutPoint, channelReadySent)
 
 	// Alice should be waiting for the server to notify when Bob comes back
 	// online.
@@ -1887,7 +1887,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	).(*lnwire.ChannelReady)
 
 	// The state should now be fundingLockedSent
-	assertDatabaseState(t, alice, fundingOutPoint, fundingLockedSent)
+	assertDatabaseState(t, alice, fundingOutPoint, channelReadySent)
 
 	// Exchange the fundingLocked messages.
 	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)

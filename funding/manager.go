@@ -1022,7 +1022,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		}
 
 		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
-			"sent FundingLocked", chanID, shortChanID)
+			"sent ChannelReady", chanID, shortChanID)
 
 		return nil
 
@@ -1054,7 +1054,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 
 		var peerAlias *lnwire.ShortChannelID
 		if channel.IsZeroConf() {
-			// We'll need to wait until funding_locked has been
+			// We'll need to wait until channel_ready has been
 			// received and the peer lets us know the alias they
 			// want to use for the channel. With this information,
 			// we can then construct a ChannelUpdate for them.
@@ -2963,7 +2963,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 			// alias feature was negotiated, check if we already
 			// have an alias stored in case handleFundingLocked was
 			// called before this. If an alias exists, use that in
-			// funding_locked. Otherwise, request and store an
+			// channel_ready. Otherwise, request and store an
 			// alias and use that.
 			aliases := f.cfg.AliasManager.GetAliases(
 				completeChan.ShortChannelID,
@@ -2989,7 +2989,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 			}
 		}
 
-		log.Infof("Peer(%x) is online, sending FundingLocked "+
+		log.Infof("Peer(%x) is online, sending ChannelReady "+
 			"for ChannelID(%v)", peerKey, chanID)
 
 		if err := peer.SendMessage(true, channelReadyMsg); err == nil {
@@ -3028,7 +3028,7 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 	channel, err := f.cfg.FindChannel(node, chanID)
 	if err != nil {
 		log.Errorf("Unable to locate ChannelID(%v) to determine if "+
-			"FundingLocked was received", chanID)
+			"ChannelReady was received", chanID)
 		return false, err
 	}
 
@@ -3397,7 +3397,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	msg *lnwire.ChannelReady) {
 
 	defer f.wg.Done()
-	log.Debugf("Received FundingLocked for ChannelID(%v) from "+
+	log.Debugf("Received ChannelReady for ChannelID(%v) from "+
 		"peer %x", msg.ChanID,
 		peer.IdentityKey().SerializeCompressed())
 
@@ -3487,14 +3487,14 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		// If we do not have an alias stored, we'll create one now.
 		// This is only used in the upgrade case where a user toggles
 		// the option-scid-alias feature-bit to on. We'll also send the
-		// funding_locked message here in case the link is created
+		// channel_ready message here in case the link is created
 		// before sendFundingLocked is called.
 		aliases := f.cfg.AliasManager.GetAliases(
 			channel.ShortChannelID,
 		)
 		if len(aliases) == 0 {
 			// No aliases were found so we'll request and store an
-			// alias and use it in the funding_locked message.
+			// alias and use it in the channel_ready message.
 			alias, err := f.cfg.AliasManager.RequestAlias()
 			if err != nil {
 				log.Errorf("unable to request alias: %v", err)
@@ -3535,7 +3535,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	// already processed fundingLocked for this channel, so ignore. This
 	// check is after the alias logic so we store the peer's most recent
 	// alias. The spec requires us to validate that subsequent
-	// funding_locked messages use the same per commitment point (the
+	// channel_ready messages use the same per commitment point (the
 	// second), but it is not actually necessary since we'll just end up
 	// ignoring it. We are, however, required to *send* the same per
 	// commitment point, since another pedantic implementation might

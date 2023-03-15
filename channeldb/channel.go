@@ -1345,7 +1345,7 @@ func (c *OpenChannel) MarkBorked() error {
 }
 
 // SecondCommitmentPoint returns the second per-commitment-point for use in the
-// funding_locked message.
+// channel_ready message.
 func (c *OpenChannel) SecondCommitmentPoint() (*btcec.PublicKey, error) {
 	c.RLock()
 	defer c.RUnlock()

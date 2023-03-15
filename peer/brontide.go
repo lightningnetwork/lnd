@@ -717,11 +717,11 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			// manager are not aware of each other's states and if
 			// we did not do this, we would accept alias channel
 			// updates after 6 confirmations, which would be buggy.
-			// We'll queue a funding_locked message with the new
+			// We'll queue a channel_ready message with the new
 			// alias. This should technically be done *after* the
 			// reestablish, but this behavior is pre-existing since
 			// the funding manager may already queue a
-			// funding_locked before the channel_reestablish.
+			// channel_ready before the channel_reestablish.
 			if !dbChan.IsPending {
 				aliasScid, err := p.cfg.RequestAlias()
 				if err != nil {
@@ -740,7 +740,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				)
 
 				// Fetch the second commitment point to send in
-				// the funding_locked message.
+				// the channel_ready message.
 				second, err := dbChan.SecondCommitmentPoint()
 				if err != nil {
 					return nil, err
@@ -2372,7 +2372,7 @@ out:
 				}
 
 				p.log.Infof("Processing retransmitted "+
-					"FundingLocked for ChannelPoint(%v)",
+					"ChannelReady for ChannelPoint(%v)",
 					chanPoint)
 
 				nextRevoke := newChan.RemoteNextRevocation

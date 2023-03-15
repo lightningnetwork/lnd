@@ -89,7 +89,7 @@ func (t MessageType) String() string {
 	case MsgFundingSigned:
 		return "MsgFundingSigned"
 	case MsgChannelReady:
-		return "FundingLocked"
+		return "ChannelReady"
 	case MsgShutdown:
 		return "Shutdown"
 	case MsgClosingSigned:

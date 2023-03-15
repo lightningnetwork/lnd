@@ -726,7 +726,7 @@ func (l *channelLink) syncChanStates() error {
 			localChanSyncMsg.NextLocalCommitHeight == 1 &&
 			!l.channel.IsPending() {
 
-			l.log.Infof("resending FundingLocked message to peer")
+			l.log.Infof("resending ChannelReady message to peer")
 
 			nextRevocation, err := l.channel.NextRevocationKey()
 			if err != nil {
@@ -740,7 +740,7 @@ func (l *channelLink) syncChanStates() error {
 
 			// For channels that negotiated the option-scid-alias
 			// feature bit, ensure that we send over the alias in
-			// the funding_locked message. We'll send the first
+			// the channel_ready message. We'll send the first
 			// alias we find for the channel since it does not
 			// matter which alias we send. We'll error out if no
 			// aliases are found.
@@ -762,7 +762,7 @@ func (l *channelLink) syncChanStates() error {
 			err = l.cfg.Peer.SendMessage(false, channelReadyMsg)
 			if err != nil {
 				return fmt.Errorf("unable to re-send "+
-					"FundingLocked: %v", err)
+					"ChannelReady: %v", err)
 			}
 		}
 

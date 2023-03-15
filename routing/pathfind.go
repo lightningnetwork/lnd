@@ -37,6 +37,11 @@ const (
 	// to avoid resizing and copies. It should be number on the same order as
 	// the number of active nodes in the network.
 	estimatedNodeCount = 10000
+
+	// fakeHopHintCapacity is the capacity we assume for hop hint channels.
+	// This is a high number, which expresses that a hop hint channel should
+	// be able to route payments.
+	fakeHopHintCapacity = btcutil.Amount(10 * btcutil.SatoshiPerBitcoin)
 )
 
 // pathFinder defines the interface of a path finding algorithm.
@@ -863,8 +868,17 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			return nil, 0, err
 		}
 
+		// We add hop hints that were supplied externally.
 		for _, reverseEdge := range additionalEdgesWithSrc[pivot] {
-			u.addPolicy(reverseEdge.sourceNode, reverseEdge.edge, 0)
+			// Hop hints don't contain a capacity. We set one here,
+			// since a capacity is needed for probability
+			// calculations. We set a high capacity to act as if
+			// there is enough liquidity, otherwise the hint would
+			// not have been added by a wallet.
+			u.addPolicy(
+				reverseEdge.sourceNode, reverseEdge.edge,
+				fakeHopHintCapacity,
+			)
 		}
 
 		amtToSend := partialPath.amountToReceive

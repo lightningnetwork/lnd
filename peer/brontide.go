@@ -1545,7 +1545,7 @@ out:
 			*lnwire.AcceptChannel,
 			*lnwire.FundingCreated,
 			*lnwire.FundingSigned,
-			*lnwire.FundingLocked:
+			*lnwire.ChannelReady:
 
 			p.cfg.FundingManager.ProcessFundingMsg(msg, p)
 
@@ -1794,7 +1794,7 @@ func messageSummary(msg lnwire.Message) string {
 	case *lnwire.FundingSigned:
 		return fmt.Sprintf("chan_id=%v", msg.ChanID)
 
-	case *lnwire.FundingLocked:
+	case *lnwire.ChannelReady:
 		return fmt.Sprintf("chan_id=%v, next_point=%x",
 			msg.ChanID, msg.NextPerCommitmentPoint.SerializeCompressed())
 

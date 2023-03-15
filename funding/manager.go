@@ -889,7 +889,7 @@ func (f *Manager) reservationCoordinator() {
 			case *lnwire.FundingSigned:
 				f.handleFundingSigned(fmsg.peer, msg)
 
-			case *lnwire.FundingLocked:
+			case *lnwire.ChannelReady:
 				f.wg.Add(1)
 				go f.handleFundingLocked(fmsg.peer, msg)
 
@@ -3394,7 +3394,7 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
 // handleFundingLocked finalizes the channel funding process and enables the
 // channel to enter normal operating mode.
 func (f *Manager) handleFundingLocked(peer lnpeer.Peer,
-	msg *lnwire.FundingLocked) {
+	msg *lnwire.ChannelReady) {
 
 	defer f.wg.Done()
 	log.Debugf("Received FundingLocked for ChannelID(%v) from "+

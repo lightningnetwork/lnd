@@ -1014,7 +1014,7 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 		{
 			msgType: MsgFundingLocked,
-			scenario: func(m FundingLocked) bool {
+			scenario: func(m ChannelReady) bool {
 				return mainScenario(&m)
 			},
 		},

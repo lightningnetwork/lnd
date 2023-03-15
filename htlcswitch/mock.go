@@ -627,7 +627,7 @@ func (s *mockServer) readHandler(message lnwire.Message) error {
 		targetChan = msg.ChanID
 	case *lnwire.CommitSig:
 		targetChan = msg.ChanID
-	case *lnwire.FundingLocked:
+	case *lnwire.ChannelReady:
 		// Ignore
 		return nil
 	case *lnwire.ChannelReestablish:

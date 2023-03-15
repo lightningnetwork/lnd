@@ -442,7 +442,7 @@ func newMsgFundingSigned(t testing.TB, r io.Reader) *lnwire.FundingSigned {
 	return msg
 }
 
-func newMsgFundingLocked(t testing.TB, r io.Reader) *lnwire.FundingLocked {
+func newMsgFundingLocked(t testing.TB, r io.Reader) *lnwire.ChannelReady {
 	t.Helper()
 
 	var c [32]byte

@@ -191,7 +191,7 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 	case MsgFundingSigned:
 		msg = &FundingSigned{}
 	case MsgFundingLocked:
-		msg = &FundingLocked{}
+		msg = &ChannelReady{}
 	case MsgShutdown:
 		msg = &Shutdown{}
 	case MsgClosingSigned:

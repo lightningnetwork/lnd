@@ -286,7 +286,7 @@ func FuzzFundingCreated(f *testing.F) {
 	})
 }
 
-func FuzzFundingLocked(f *testing.F) {
+func FuzzChannelReady(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		// Prefix with MsgFundingLocked.
 		data = prefixWithMsgType(data, MsgChannelReady)

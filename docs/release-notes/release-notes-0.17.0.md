@@ -155,6 +155,9 @@ unlock or create.
 * Fixed a memory leak found in mempool management handled by
   [`btcwallet`](https://github.com/lightningnetwork/lnd/pull/7767).
 
+- A race condition found between `channel_ready` and link updates is [now
+  fixed](https://github.com/lightningnetwork/lnd/pull/7518).
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and

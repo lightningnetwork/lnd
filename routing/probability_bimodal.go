@@ -455,11 +455,17 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 
 	// failAmount should be capacity at max.
 	if failAmount > capacity {
+		log.Debugf("Correcting failAmount %v to capacity %v",
+			failAmount, capacity)
+
 		failAmount = capacity
 	}
 
 	// successAmount should be capacity at max.
 	if successAmount > capacity {
+		log.Debugf("Correcting successAmount %v to capacity %v",
+			successAmount, capacity)
+
 		successAmount = capacity
 	}
 
@@ -468,7 +474,7 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 	// happen if a large channel gets closed and smaller ones remain, but
 	// it should recover with the time decay.
 	if failAmount <= successAmount {
-		log.Tracef("fail amount (%v) is larger than or equal the "+
+		log.Tracef("fail amount (%v) is smaller than or equal the "+
 			"success amount (%v) for capacity (%v)",
 			failAmountMsat, successAmountMsat, capacityMsat)
 

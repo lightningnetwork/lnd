@@ -5339,6 +5339,7 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 	ogPacket := &htlcPacket{
 		incomingChanID: bobLink.ShortChanID(),
 		incomingHTLCID: 0,
+		incomingAmount: 1000,
 		obfuscator:     NewMockObfuscator(),
 		htlc: &lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,

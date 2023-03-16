@@ -5643,6 +5643,19 @@ func TestCheckHtlcForward(t *testing.T) {
 		}
 	})
 
+	// Test that insufficient fee error takes preference over insufficient
+	// channel balance.
+	t.Run("insufficient fee error preference", func(t *testing.T) {
+		t.Parallel()
+
+		result := link.CheckHtlcForward(
+			hash, 100005, 100000, 200,
+			150, 0, lnwire.ShortChannelID{},
+		)
+		_, ok := result.WireMessage().(*lnwire.FailFeeInsufficient)
+		require.True(t, ok, "expected FailFeeInsufficient failure code")
+	})
+
 	t.Run("expiry too soon", func(t *testing.T) {
 		result := link.CheckHtlcForward(hash, 1500, 1000,
 			200, 150, 190, lnwire.ShortChannelID{})

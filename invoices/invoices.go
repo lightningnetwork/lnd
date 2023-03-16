@@ -656,6 +656,51 @@ type HtlcAcceptDesc struct {
 	AMP *InvoiceHtlcAMPData
 }
 
+// UpdateType is an enum that describes the type of update that was applied to
+// an invoice.
+type UpdateType uint8
+
+const (
+	// UnknownUpdate indicates that the UpdateType has not been set for a
+	// given udpate. This kind of updates are not allowed.
+	UnknownUpdate UpdateType = iota
+
+	// CancelHTLCsUpdate indicates that this update cancels one or more
+	// HTLCs.
+	CancelHTLCsUpdate
+
+	// AddHTLCsUpdate indicates that this update adds one or more HTLCs.
+	AddHTLCsUpdate
+
+	// SettleHodlInvoiceUpdate indicates that this update settles one or
+	// more HTLCs from a hodl invoice.
+	SettleHodlInvoiceUpdate
+
+	// CancelInvoiceUpdate indicates that this update is trying to cancel
+	// an invoice.
+	CancelInvoiceUpdate
+)
+
+// String returns a human readable string for the UpdateType.
+func (u UpdateType) String() string {
+	switch u {
+	case CancelHTLCsUpdate:
+		return "CancelHTLCsUpdate"
+
+	case AddHTLCsUpdate:
+		return "AddHTLCsUpdate"
+
+	case SettleHodlInvoiceUpdate:
+		return "SettleHodlInvoiceUpdate"
+
+	case CancelInvoiceUpdate:
+		return "CancelInvoiceUpdate"
+
+	default:
+		return fmt.Sprintf("unknown invoice update type: %d", u)
+	}
+}
+
 // InvoiceUpdateDesc describes the changes that should be applied to the
 // invoice.
 type InvoiceUpdateDesc struct {
@@ -674,6 +719,9 @@ type InvoiceUpdateDesc struct {
 	// to be more efficient by ensuring we don't need to read out the
 	// entire HTLC set each timee an HTLC is to be cancelled.
 	SetID *SetID
+
+	// UpdateType indicates what type of update is being applied.
+	UpdateType UpdateType
 }
 
 // InvoiceStateUpdateDesc describes an invoice-level state transition.

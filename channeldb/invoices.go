@@ -1858,7 +1858,7 @@ func settleHtlcsAmp(invoice *invpkg.Invoice,
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
 // callback and applies the updates in a single db transaction.
-func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices, //nolint:lll,funlen
+func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 	settleIndex, setIDIndex kvdb.RwBucket, invoiceNum []byte,
 	callback invpkg.InvoiceUpdateCallback) (*invpkg.Invoice, error) {
 
@@ -1893,27 +1893,128 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 		return &invoice, nil
 	}
 
-	var (
-		newState = invoice.State
-		setID    *[32]byte
-	)
+	switch update.UpdateType {
+	case invpkg.CancelHTLCsUpdate:
+		return d.cancelHTLCs(invoices, invoiceNum, &invoice, update)
 
-	// We can either get the set ID from the main state update (if the
-	// state is changing), or via the hint passed in returned by the update
-	// call back.
-	if update.State != nil {
-		setID = update.State.SetID
-		newState = update.State.NewState
-	} else if update.SetID != nil {
-		// When we go to cancel HTLCs, there's no new state, but the
-		// set of HTLCs to be cancelled along with the setID affected
-		// will be passed in.
-		setID = (*[32]byte)(update.SetID)
+	case invpkg.AddHTLCsUpdate:
+		return d.addHTLCs(
+			invoices, settleIndex, setIDIndex, invoiceNum, &invoice,
+			hash, update,
+		)
+
+	case invpkg.SettleHodlInvoiceUpdate:
+		return d.settleHodlInvoice(
+			invoices, settleIndex, invoiceNum, &invoice, hash,
+			update.State,
+		)
+
+	case invpkg.CancelInvoiceUpdate:
+		return d.cancelInvoice(
+			invoices, invoiceNum, &invoice, hash, update.State,
+		)
+
+	default:
+		return nil, fmt.Errorf("unknown update type: %s",
+			update.UpdateType)
+	}
+}
+
+// cancelHTLCs tries to cancel the htlcs in the given InvoiceUpdateDesc.
+//
+// NOTE: cancelHTLCs updates will only use the `CancelHtlcs` field in the
+// InvoiceUpdateDesc.
+func (d *DB) cancelHTLCs(invoices kvdb.RwBucket, invoiceNum []byte,
+	invoice *invpkg.Invoice,
+	update *invpkg.InvoiceUpdateDesc) (*invpkg.Invoice, error) {
+
+	timestamp := d.clock.Now()
+
+	// Process add actions from update descriptor.
+	htlcsAmpUpdate := make(map[invpkg.SetID]map[models.CircuitKey]*invpkg.InvoiceHTLC) //nolint:lll
+
+	// Process cancel actions from update descriptor.
+	cancelHtlcs := update.CancelHtlcs
+	for key, htlc := range invoice.Htlcs {
+		htlc := htlc
+
+		// Check whether this htlc needs to be canceled. If it does,
+		// update the htlc state to Canceled.
+		_, cancel := cancelHtlcs[key]
+		if !cancel {
+			continue
+		}
+
+		err := cancelSingleHtlc(timestamp, htlc, invoice.State)
+		if err != nil {
+			return nil, err
+		}
+
+		// Delete processed cancel action, so that we can check later
+		// that there are no actions left.
+		delete(cancelHtlcs, key)
+
+		// Tally this into the set of HTLCs that need to be updated on
+		// disk, but once again, only if this is an AMP invoice.
+		if invoice.IsAMP() {
+			cancelHtlcsAmp(
+				invoice, htlcsAmpUpdate, htlc, key,
+			)
+		}
 	}
 
-	now := d.clock.Now()
+	// Verify that we didn't get an action for htlcs that are not present on
+	// the invoice.
+	if len(cancelHtlcs) > 0 {
+		return nil, errors.New("cancel action on non-existent htlc(s)")
+	}
 
-	invoiceIsAMP := invoiceCopy.IsAMP()
+	err := d.serializeAndStoreInvoice(invoices, invoiceNum, invoice)
+	if err != nil {
+		return nil, err
+	}
+
+	// If this is an AMP invoice, then we'll actually store the rest of the
+	// HTLCs in-line with the invoice, using the invoice ID as a prefix,
+	// and the AMP key as a suffix: invoiceNum || setID.
+	if invoice.IsAMP() {
+		err := updateAMPInvoices(invoices, invoiceNum, htlcsAmpUpdate)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return invoice, nil
+}
+
+// serializeAndStoreInvoice is a helper function used to store invoices.
+func (d *DB) serializeAndStoreInvoice(invoices kvdb.RwBucket, invoiceNum []byte,
+	invoice *invpkg.Invoice) error {
+
+	var buf bytes.Buffer
+	if err := serializeInvoice(&buf, invoice); err != nil {
+		return err
+	}
+
+	if err := invoices.Put(invoiceNum, buf.Bytes()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// addHTLCs tries to add the htlcs in the given InvoiceUpdateDesc.
+func (d *DB) addHTLCs(invoices, settleIndex, //nolint:funlen
+	setIDIndex kvdb.RwBucket, invoiceNum []byte, invoice *invpkg.Invoice,
+	hash *lntypes.Hash, update *invpkg.InvoiceUpdateDesc) (*invpkg.Invoice,
+	error) {
+
+	var setID *[32]byte
+	invoiceIsAMP := invoice.IsAMP()
+	if invoiceIsAMP && update.State != nil {
+		setID = update.State.SetID
+	}
+	timestamp := d.clock.Now()
 
 	// Process add actions from update descriptor.
 	htlcsAmpUpdate := make(map[invpkg.SetID]map[models.CircuitKey]*invpkg.InvoiceHTLC) //nolint:lll
@@ -1928,21 +2029,26 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 			return nil, errors.New("nil custom records map")
 		}
 
-		// If a newly added HTLC has an associated set id, use it to
-		// index this invoice in the set id index. An error is returned
-		// if we find the index already points to a different invoice.
-		var setID [32]byte
-		if htlcUpdate.AMP != nil {
-			setID = htlcUpdate.AMP.Record.SetID()
-			setIDInvNum := setIDIndex.Get(setID[:])
+		if invoiceIsAMP {
+			if htlcUpdate.AMP == nil {
+				return nil, fmt.Errorf("unable to add htlc "+
+					"without AMP data to AMP invoice(%v)",
+					invoice.AddIndex)
+			}
+
+			// Check if this SetID already exist.
+			htlcSetID := htlcUpdate.AMP.Record.SetID()
+			setIDInvNum := setIDIndex.Get(htlcSetID[:])
+
 			if setIDInvNum == nil {
-				err = setIDIndex.Put(setID[:], invoiceNum)
+				err := setIDIndex.Put(htlcSetID[:], invoiceNum)
 				if err != nil {
 					return nil, err
 				}
 			} else if !bytes.Equal(setIDInvNum, invoiceNum) {
-				err = invpkg.ErrDuplicateSetID{SetID: setID}
-				return nil, err
+				return nil, invpkg.ErrDuplicateSetID{
+					SetID: htlcSetID,
+				}
 			}
 		}
 
@@ -1951,7 +2057,7 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 			MppTotalAmt:   htlcUpdate.MppTotalAmt,
 			Expiry:        htlcUpdate.Expiry,
 			AcceptHeight:  uint32(htlcUpdate.AcceptHeight),
-			AcceptTime:    now,
+			AcceptTime:    timestamp,
 			State:         invpkg.HtlcStateAccepted,
 			CustomRecords: htlcUpdate.CustomRecords,
 			AMP:           htlcUpdate.AMP.Copy(),
@@ -1963,51 +2069,10 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 		// below, but only if this is an AMP invoice.
 		if invoiceIsAMP {
 			updateHtlcsAmp(
-				&invoice, htlcsAmpUpdate, htlc, setID, key,
+				invoice, htlcsAmpUpdate, htlc,
+				htlcUpdate.AMP.Record.SetID(), key,
 			)
 		}
-	}
-
-	// Process cancel actions from update descriptor.
-	cancelHtlcs := update.CancelHtlcs
-	for key, htlc := range invoice.Htlcs {
-		htlc := htlc
-
-		// Check whether this htlc needs to be canceled. If it does,
-		// update the htlc state to Canceled.
-		_, cancel := cancelHtlcs[key]
-		if !cancel {
-			continue
-		}
-
-		// Consistency check to verify that there is no overlap between
-		// the add and cancel sets.
-		if _, added := update.AddHtlcs[key]; added {
-			return nil, fmt.Errorf("added htlc %v canceled", key)
-		}
-
-		err := cancelSingleHtlc(now, htlc, newState)
-		if err != nil {
-			return nil, err
-		}
-
-		// Delete processed cancel action, so that we can check later
-		// that there are no actions left.
-		delete(cancelHtlcs, key)
-
-		// Tally this into the set of HTLCs that need to be updated on
-		// disk, but once again, only if this is an AMP invoice.
-		if invoiceIsAMP {
-			cancelHtlcsAmp(
-				&invoice, htlcsAmpUpdate, htlc, key,
-			)
-		}
-	}
-
-	// Verify that we didn't get an action for htlcs that are not present on
-	// the invoice.
-	if len(cancelHtlcs) > 0 {
-		return nil, errors.New("cancel action on non-existent htlc(s)")
 	}
 
 	// At this point, the set of accepted HTLCs should be fully
@@ -2017,7 +2082,7 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 	// HTLCs.
 	if update.State != nil {
 		newState, err := updateInvoiceState(
-			&invoice, hash, *update.State,
+			invoice, hash, *update.State,
 		)
 		if err != nil {
 			return nil, err
@@ -2039,7 +2104,8 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 		isSettled := update.State.NewState == invpkg.ContractSettled
 		if !invoiceIsAMP && isSettled {
 			err := setSettleMetaFields(
-				settleIndex, invoiceNum, &invoice, now, nil,
+				settleIndex, invoiceNum, invoice, timestamp,
+				nil,
 			)
 			if err != nil {
 				return nil, err
@@ -2093,7 +2159,7 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 			htlcContextState = invpkg.ContractSettled
 		}
 		htlcSettled, err := updateHtlc(
-			now, htlc, htlcContextState, setID,
+			timestamp, htlc, htlcContextState, setID,
 		)
 		if err != nil {
 			return nil, err
@@ -2104,7 +2170,7 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 		// meta data state.
 		if htlcSettled && invoiceIsAMP {
 			settleHtlcsAmp(
-				&invoice, settledSetIDs, htlcsAmpUpdate, htlc,
+				invoice, settledSetIDs, htlcsAmpUpdate, htlc,
 				key,
 			)
 		}
@@ -2156,20 +2222,16 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 	for settledSetID := range settledSetIDs {
 		settledSetID := settledSetID
 		err := setSettleMetaFields(
-			settleIndex, invoiceNum, &invoice, now, &settledSetID,
+			settleIndex, invoiceNum, invoice, timestamp,
+			&settledSetID,
 		)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	// Reserialize and update invoice.
-	var buf bytes.Buffer
-	if err := serializeInvoice(&buf, &invoice); err != nil {
-		return nil, err
-	}
-
-	if err := invoices.Put(invoiceNum[:], buf.Bytes()); err != nil {
+	err := d.serializeAndStoreInvoice(invoices, invoiceNum, invoice)
+	if err != nil {
 		return nil, err
 	}
 
@@ -2183,7 +2245,137 @@ func (d *DB) updateInvoice(hash *lntypes.Hash, refSetID *invpkg.SetID, invoices,
 		}
 	}
 
-	return &invoice, nil
+	return invoice, nil
+}
+
+// settleHodlInvoice marks a hodl invoice as settled.
+//
+// NOTE: Currently it is not possible to have HODL AMP invoices.
+func (d *DB) settleHodlInvoice(invoices, settleIndex kvdb.RwBucket,
+	invoiceNum []byte, invoice *invpkg.Invoice, hash *lntypes.Hash,
+	update *invpkg.InvoiceStateUpdateDesc) (*invpkg.Invoice, error) {
+
+	if !invoice.HodlInvoice {
+		return nil, fmt.Errorf("unable to settle hodl invoice: %v is "+
+			"not a hodl invoice", invoice.AddIndex)
+	}
+
+	// TODO(positiveblue): because NewState can only be ContractSettled we
+	// can remove it from the API and set it here directly.
+	switch {
+	case update == nil:
+		fallthrough
+
+	case update.NewState != invpkg.ContractSettled:
+		return nil, fmt.Errorf("unable to settle hodl invoice: "+
+			"not valid InvoiceUpdateDesc.State: %v", update)
+
+	case update.Preimage == nil:
+		return nil, fmt.Errorf("unable to settle hodl invoice: " +
+			"preimage is nil")
+	}
+
+	// TODO(positiveblue): create a invoice.CanSettleHodlInvoice func.
+	newState, err := updateInvoiceState(invoice, hash, *update)
+	if err != nil {
+		return nil, err
+	}
+
+	if newState == nil || *newState != invpkg.ContractSettled {
+		return nil, fmt.Errorf("unable to settle hodl invoice: "+
+			"new computed state is not settled: %s", newState)
+	}
+
+	invoice.State = invpkg.ContractSettled
+	timestamp := d.clock.Now()
+
+	err = setSettleMetaFields(
+		settleIndex, invoiceNum, invoice, timestamp, nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO(positiveblue): this logic can be further simplified.
+	var amtPaid lnwire.MilliSatoshi
+	for _, htlc := range invoice.Htlcs {
+		_, err := updateHtlc(
+			timestamp, htlc, invpkg.ContractSettled, nil,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if htlc.State == invpkg.HtlcStateSettled {
+			amtPaid += htlc.Amt
+		}
+	}
+
+	invoice.AmtPaid = amtPaid
+
+	err = d.serializeAndStoreInvoice(invoices, invoiceNum, invoice)
+	if err != nil {
+		return nil, err
+	}
+
+	return invoice, nil
+}
+
+// cancelInvoice attempts to cancel the given invoice. That includes changing
+// the invoice state and the state of any relevant HTLC.
+func (d *DB) cancelInvoice(invoices kvdb.RwBucket, invoiceNum []byte,
+	invoice *invpkg.Invoice, hash *lntypes.Hash,
+	update *invpkg.InvoiceStateUpdateDesc) (*invpkg.Invoice, error) {
+
+	switch {
+	case update == nil:
+		fallthrough
+
+	case update.NewState != invpkg.ContractCanceled:
+		return nil, fmt.Errorf("unable to cancel invoice: "+
+			"InvoiceUpdateDesc.State not valid: %v", update)
+	}
+
+	var (
+		setID        *[32]byte
+		invoiceIsAMP bool
+	)
+
+	invoiceIsAMP = invoice.IsAMP()
+	if invoiceIsAMP {
+		setID = update.SetID
+	}
+
+	newState, err := updateInvoiceState(invoice, hash, *update)
+	if err != nil {
+		return nil, err
+	}
+
+	if newState == nil || *newState != invpkg.ContractCanceled {
+		return nil, fmt.Errorf("unable to cancel invoice(%v): new "+
+			"computed state is not canceled: %s", invoice.AddIndex,
+			newState)
+	}
+
+	invoice.State = invpkg.ContractCanceled
+	timestamp := d.clock.Now()
+
+	// TODO(positiveblue): this logic can be simplified.
+	for _, htlc := range invoice.Htlcs {
+		_, err := updateHtlc(
+			timestamp, htlc, invpkg.ContractCanceled, setID,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = d.serializeAndStoreInvoice(invoices, invoiceNum, invoice)
+	if err != nil {
+		return nil, err
+	}
+
+	return invoice, nil
 }
 
 // updateInvoiceState validates and processes an invoice state update. The new

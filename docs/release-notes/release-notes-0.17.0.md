@@ -216,6 +216,9 @@ compare the default values between lnd and sample-lnd.conf.
   creation](https://github.com/lightningnetwork/lnd/pull/7856) that can arise
   under rare scenarios.
 
+- A race condition found between `channel_ready` and link updates is [now
+  fixed](https://github.com/lightningnetwork/lnd/pull/7518).
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and

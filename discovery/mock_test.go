@@ -63,6 +63,12 @@ func (p *mockPeer) RemoteFeatures() *lnwire.FeatureVector {
 	return nil
 }
 
+func (p *mockPeer) AddPendingChannel(_ lnwire.ChannelID,
+	_ <-chan struct{}) error {
+
+	return nil
+}
+
 // mockMessageStore is an in-memory implementation of the MessageStore interface
 // used for the gossiper's unit tests.
 type mockMessageStore struct {

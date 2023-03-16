@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -66,6 +67,14 @@ const (
 
 	// ErrorBufferSize is the number of historic peer errors that we store.
 	ErrorBufferSize = 10
+
+	// maxEarlyMsgs tracks the max number of early messages that will be
+	// cached for a particular pending channel.
+	maxEarlyMsgs = 100
+
+	// maxCachedPendingChannels is the maximum number of pending channels
+	// we will cache.
+	maxCachedPendingChannels = 1000
 )
 
 var (
@@ -436,6 +445,13 @@ type Brontide struct {
 	// channels to the source peer which handled the funding workflow.
 	newPendingChannel chan *newChannelMsg
 
+	// earlyMsgCaches is a nested cache with the outer map keyed by the
+	// ChannelID and the inner map keyed by the message ID. It stores
+	// messages received that would apply link updates to pending channels.
+	// These messages are cached and reprocessed once the targeting channel
+	// becomes active.
+	earlyMsgCaches *lru.Cache[lnwire.ChannelID, *lnwireMsgCache]
+
 	// activeMsgStreams is a map from channel id to the channel streams that
 	// proxy messages to individual, active links.
 	activeMsgStreams map[lnwire.ChannelID]*msgStream
@@ -502,11 +518,16 @@ func NewBrontide(cfg Config) *Brontide {
 		activeChannels: &lnutils.SyncMap[
 			lnwire.ChannelID, *lnwallet.LightningChannel,
 		]{},
+		earlyMsgCaches: lru.NewCache[lnwire.ChannelID, *lnwireMsgCache](
+			maxCachedPendingChannels,
+		),
 		newActiveChannel:  make(chan *newChannelMsg, 1),
 		newPendingChannel: make(chan *newChannelMsg, 1),
 
-		activeMsgStreams:   make(map[lnwire.ChannelID]*msgStream),
-		activeChanCloses:   make(map[lnwire.ChannelID]*chancloser.ChanCloser),
+		activeMsgStreams: make(map[lnwire.ChannelID]*msgStream),
+		activeChanCloses: make(
+			map[lnwire.ChannelID]*chancloser.ChanCloser,
+		),
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
@@ -1602,7 +1623,9 @@ out:
 
 		case LinkUpdater:
 			targetChan = msg.TargetChanID()
-			isLinkUpdate = p.isActiveChannel(targetChan)
+			isLinkUpdate = p.handleLinkUpdateMsg(
+				nextMsg, targetChan,
+			)
 
 		case *lnwire.ChannelUpdate,
 			*lnwire.ChannelAnnouncement,
@@ -3841,6 +3864,9 @@ func (p *Brontide) handleNewActiveChannel(req *newChannelMsg) {
 
 	// Close the err chan if everything went fine.
 	close(req.err)
+
+	// Process early messages for this active channel, if any.
+	p.processEarlyMsgs(chanID)
 }
 
 // handleNewPendingChannel takes a `newChannelMsg` request and add it to
@@ -3901,4 +3927,103 @@ func (p *Brontide) sendLinkUpdateMsg(cid lnwire.ChannelID, msg lnwire.Message) {
 	// With the stream obtained, add the message to the stream so we can
 	// continue processing message.
 	chanStream.AddMsg(msg)
+}
+
+// handleLinkUpdateMsg returns a boolean to indicate whether the given message
+// can be sent to the channel's message stream. If this message's channel is
+// still pending, it will be cached.
+func (p *Brontide) handleLinkUpdateMsg(msg lnwire.Message,
+	chanID lnwire.ChannelID) bool {
+
+	// Return true if the channel is active.
+	if p.isActiveChannel(chanID) {
+		return true
+	}
+
+	// If the channel is not active, it must be pending, otherwise this
+	// indicates an error.
+	if !p.isPendingChannel(chanID) {
+		p.log.Errorf("Received msg %s for non-existing channel %v",
+			msg.MsgType(), chanID)
+
+		return false
+	}
+
+	// Otherwise this is a pending channel, we will save the message to
+	// cache and reprocess it once the channel becomes active.
+	//
+	// Load the cache.
+	cache, err := p.earlyMsgCaches.Get(chanID)
+
+	// If only error returned from `Get` is `cache.ErrElementNotFound`,
+	// which indicates we don't have an item saved under this chanID.
+	if err != nil {
+		// Create the cache for this specific channel.
+		cache = newLnwireMsgCache(maxEarlyMsgs)
+		evicted, err := p.earlyMsgCaches.Put(chanID, cache)
+		if err != nil {
+			p.log.Errorf("Failed create cache for pending "+
+				"channel: %v, error: %v", chanID, err)
+
+			return false
+		}
+
+		p.log.Debugf("Created cache for pending channel: %v, "+
+			"evicted=%v", chanID, evicted)
+	}
+
+	// Create a cached message and save it.
+	err = cache.addMsg(&cachedlnwireMsg{
+		msg: msg,
+	})
+	if err != nil {
+		p.log.Errorf("Failed to cache msg %s for pending channel: %v, "+
+			"error: %v", msg.MsgType(), chanID, err)
+	}
+
+	p.log.Debugf("Cached early msg %s for pending channel: %v",
+		msg.MsgType(), chanID)
+
+	return false
+}
+
+// processEarlyMsgs takes a channel ID, finds all the cached messages for this
+// channel and resends them for link update.
+func (p *Brontide) processEarlyMsgs(chanID lnwire.ChannelID) {
+	// msgs are the target messages.
+	var msgs []lnwire.Message
+
+	// filterMsgs is the visitor used when iterating the future cache.
+	filterMsgs := func(k uint64, cmsg *cachedlnwireMsg) bool {
+		msgs = append(msgs, cmsg.msg)
+
+		return true
+	}
+
+	// Find and delete the cache for this channel.
+	cache, loaded := p.earlyMsgCaches.LoadAndDelete(chanID)
+
+	// Exit early if there's no cache for this channel.
+	if !loaded {
+		return
+	}
+
+	// Filter out the target messages in order.
+	cache.Range(filterMsgs)
+
+	// Return early if no messages found.
+	if len(msgs) == 0 {
+		return
+	}
+
+	p.log.Debugf("Processing %d early messages for channel %v", len(msgs),
+		chanID)
+
+	// Send the messages to the channel stream.
+	for _, msg := range msgs {
+		p.log.Debugf("Forwarding received msg %s to channel stream",
+			msg.MsgType())
+
+		p.sendLinkUpdateMsg(chanID, msg)
+	}
 }

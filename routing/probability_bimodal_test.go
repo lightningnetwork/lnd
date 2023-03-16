@@ -232,6 +232,16 @@ func TestSuccessProbability(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+
+	// We expect an error when the capacity is zero.
+	t.Run("zero capacity", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := estimator.probabilityFormula(
+			0, 0, 0, 0,
+		)
+		require.ErrorIs(t, err, ErrZeroCapacity)
+	})
 }
 
 // TestIntegral tests certain limits of the probability distribution integral.
@@ -649,7 +659,9 @@ func FuzzProbability(f *testing.F) {
 	estimator := BimodalEstimator{
 		BimodalConfig: BimodalConfig{BimodalScaleMsat: scale},
 	}
-	f.Add(uint64(0), uint64(0), uint64(0), uint64(0))
+
+	// We don't start fuzzing at zero, because that would cause an error.
+	f.Add(uint64(1), uint64(0), uint64(0), uint64(0))
 
 	f.Fuzz(func(t *testing.T, capacity, successAmt, failAmt, amt uint64) {
 		_, err := estimator.probabilityFormula(

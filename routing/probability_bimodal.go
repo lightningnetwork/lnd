@@ -49,6 +49,10 @@ var (
 
 	// ErrInvalidDecayTime is returned when we get a decay time below zero.
 	ErrInvalidDecayTime = errors.New("decay time must be larger than zero")
+
+	// ErrZeroCapacity is returned when we encounter a channel with zero
+	// capacity in probability estimation.
+	ErrZeroCapacity = errors.New("capacity must be larger than zero")
 )
 
 // BimodalConfig contains configuration for our probability estimator.
@@ -226,7 +230,9 @@ func (p *BimodalEstimator) directProbability(now time.Time,
 		capacity, successAmount, failAmount, amt,
 	)
 	if err != nil {
-		log.Errorf("error computing probability: %v", err)
+		log.Errorf("error computing probability to node: %v "+
+			"(node: %v, results: %v, amt: %v, capacity: %v)",
+			err, toNode, results, amt, capacity)
 
 		return 0.0
 	}
@@ -441,10 +447,10 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 	failAmount := float64(failAmountMsat)
 	amount := float64(amountMsat)
 
-	// Capacity being zero is a sentinel value to ignore the probability
-	// estimation, we'll return the full probability here.
+	// In order for this formula to give reasonable results, we need to have
+	// an estimate of the capacity of a channel (or edge between nodes).
 	if capacity == 0.0 {
-		return 1.0, nil
+		return 0, ErrZeroCapacity
 	}
 
 	// We cannot send more than the capacity.

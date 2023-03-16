@@ -27,6 +27,10 @@ type Peer interface {
 	// to be added if the cancel channel is closed.
 	AddNewChannel(channel *channeldb.OpenChannel, cancel <-chan struct{}) error
 
+	// AddPendingChannel adds a pending open channel ID to the peer. The
+	// channel should fail to be added if the cancel chan is closed.
+	AddPendingChannel(cid lnwire.ChannelID, cancel <-chan struct{}) error
+
 	// WipeChannel removes the channel uniquely identified by its channel
 	// point from all indexes associated with the peer.
 	WipeChannel(*wire.OutPoint)

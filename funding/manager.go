@@ -2172,7 +2172,16 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	log.Infof("Generated ChannelPoint(%v) for pending_id(%x)", outPoint,
 		pendingChanID[:])
 
-	var err error
+	// Before sending FundingCreated sent, we notify Brontide to keep track
+	// of this pending open channel.
+	err := resCtx.peer.AddPendingChannel(channelID, f.quit)
+	if err != nil {
+		pubKey := resCtx.peer.IdentityKey().SerializeCompressed()
+		log.Errorf("Unable to add pending channel %v with peer %x: %v",
+			channelID, pubKey, err)
+	}
+
+	// Send the FundingCreated msg.
 	fundingCreated := &lnwire.FundingCreated{
 		PendingChannelID: pendingChanID,
 		FundingPoint:     *outPoint,
@@ -2292,6 +2301,14 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 		f.failFundingFlow(peer, pendingChanID, err)
 		deleteFromDatabase()
 		return
+	}
+
+	// Before sending FundingSigned, we notify Brontide first to keep track
+	// of this pending open channel.
+	if err := peer.AddPendingChannel(channelID, f.quit); err != nil {
+		pubKey := peer.IdentityKey().SerializeCompressed()
+		log.Errorf("Unable to add pending channel %v with peer %x: %v",
+			channelID, pubKey, err)
 	}
 
 	fundingSigned := &lnwire.FundingSigned{

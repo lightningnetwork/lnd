@@ -14,6 +14,11 @@
 
 * [Return `FEE_INSUFFICIENT` before checking balance for incoming low-fee
   HTLCs.](https://github.com/lightningnetwork/lnd/pull/7490).
+ 
+## Spec
+
+* [Add test vectors for
+  option_zero_fee_htlc_tx](https://github.com/lightningnetwork/lnd/pull/7439)
 
 # Contributors (Alphabetical Order)
 

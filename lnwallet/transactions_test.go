@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,41 +94,80 @@ func newTestContext(t *testing.T) *testContext {
 	return tc
 }
 
-var testHtlcs = []struct {
+type htlc struct {
 	incoming bool
 	amount   lnwire.MilliSatoshi
 	expiry   uint32
 	preimage string
-}{
+}
+
+var testHtlcsSet1 = []htlc{
+	// htlc 0.
 	{
 		incoming: true,
 		amount:   1000000,
 		expiry:   500,
-		preimage: "0000000000000000000000000000000000000000000000000000000000000000",
+		preimage: "0000000000000000000000000000000000000000000000000" +
+			"000000000000000",
 	},
+	// htlc 1.
 	{
 		incoming: true,
 		amount:   2000000,
 		expiry:   501,
-		preimage: "0101010101010101010101010101010101010101010101010101010101010101",
+		preimage: "0101010101010101010101010101010101010101010101010" +
+			"101010101010101",
 	},
+	// htlc 2.
 	{
 		incoming: false,
 		amount:   2000000,
 		expiry:   502,
-		preimage: "0202020202020202020202020202020202020202020202020202020202020202",
+		preimage: "0202020202020202020202020202020202020202020202020" +
+			"202020202020202",
 	},
+	// htlc 3.
 	{
 		incoming: false,
 		amount:   3000000,
 		expiry:   503,
-		preimage: "0303030303030303030303030303030303030303030303030303030303030303",
+		preimage: "03030303030303030303030303030303030303030303030303" +
+			"03030303030303",
 	},
+	// htlc 4.
 	{
 		incoming: true,
 		amount:   4000000,
 		expiry:   504,
-		preimage: "0404040404040404040404040404040404040404040404040404040404040404",
+		preimage: "0404040404040404040404040404040404040404040404040" +
+			"404040404040404",
+	},
+}
+
+var testHtlcsSet2 = []htlc{
+	// htlc 1.
+	{
+		incoming: true,
+		amount:   2000000,
+		expiry:   501,
+		preimage: "01010101010101010101010101010101010101010101010101" +
+			"01010101010101",
+	},
+	// htlc 5.
+	{
+		incoming: false,
+		amount:   5000000,
+		expiry:   506,
+		preimage: "05050505050505050505050505050505050505050505050505" +
+			"05050505050505",
+	},
+	// htlc 6.
+	{
+		incoming: false,
+		amount:   5000001,
+		expiry:   505,
+		preimage: "05050505050505050505050505050505050505050505050505" +
+			"05050505050505",
 	},
 }
 
@@ -138,10 +178,11 @@ type htlcDesc struct {
 }
 
 type testCase struct {
-	Name          string
-	LocalBalance  lnwire.MilliSatoshi
-	RemoteBalance lnwire.MilliSatoshi
-	FeePerKw      btcutil.Amount
+	Name              string
+	LocalBalance      lnwire.MilliSatoshi
+	RemoteBalance     lnwire.MilliSatoshi
+	FeePerKw          btcutil.Amount
+	DustLimitSatoshis btcutil.Amount
 
 	// UseTestHtlcs defined whether the fixed set of test htlc should be
 	// added to the channel before checking the commitment assertions.
@@ -169,9 +210,17 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 			jsonFile: "test_vectors_legacy.json",
 		},
 		{
-			name:     "anchors",
-			chanType: channeldb.SingleFunderTweaklessBit | channeldb.AnchorOutputsBit,
+			name: "anchors",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit,
 			jsonFile: "test_vectors_anchors.json",
+		},
+		{
+			name: "zero fee htlc tx",
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.ZeroHtlcTxFeeBit,
+			jsonFile: "test_vectors_zero_fee_htlc_tx.json",
 		},
 	}
 
@@ -186,25 +235,28 @@ func TestCommitmentAndHTLCTransactions(t *testing.T) {
 		err = json.Unmarshal(jsonText, &testCases)
 		require.NoError(t, err)
 
-		t.Run(set.name, func(t *testing.T) {
-			for _, test := range testCases {
-				test := test
+		for _, test := range testCases {
+			test := test
+			name := fmt.Sprintf("%s-%s", set.name, test.Name)
+
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
 
 				t.Run(test.Name, func(t *testing.T) {
 					testVectors(t, set.chanType, test)
 				})
-			}
-		})
+			})
+		}
 	}
 }
 
 // addTestHtlcs adds the test vector htlcs to the update logs of the local and
 // remote node.
-func addTestHtlcs(t *testing.T, remote,
-	local *LightningChannel) map[[20]byte]lntypes.Preimage {
+func addTestHtlcs(t *testing.T, remote, local *LightningChannel,
+	htlcSet []htlc) map[[20]byte]lntypes.Preimage {
 
 	hash160map := make(map[[20]byte]lntypes.Preimage)
-	for _, htlc := range testHtlcs {
+	for _, htlc := range htlcSet {
 		preimage, err := lntypes.MakePreimageFromStr(htlc.preimage)
 		require.NoError(t, err)
 
@@ -251,6 +303,18 @@ func addTestHtlcs(t *testing.T, remote,
 func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	tc := newTestContext(t)
 
+	// Determine which htlc set to use.
+	testHtlcs := testHtlcsSet1
+	if strings.Contains(test.Name, "same amount and preimage") {
+		testHtlcs = testHtlcsSet2
+	}
+
+	// If the test specifies a dust limit, then use it instead of the
+	// default.
+	if test.DustLimitSatoshis != 0 {
+		tc.dustLimit = test.DustLimitSatoshis
+	}
+
 	// Balances in the test vectors are before subtraction of in-flight
 	// htlcs. Convert to spendable balances.
 	remoteBalance := test.RemoteBalance
@@ -266,6 +330,11 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 		}
 	}
 
+	// Assert that the remote and local balances add up to the channel
+	// capacity.
+	require.EqualValues(t, lnwire.NewMSatFromSatoshis(tc.fundingAmount),
+		remoteBalance+localBalance)
+
 	// Set up a test channel on which the test commitment transaction is
 	// going to be produced.
 	remoteChannel, localChannel := createTestChannelsForVectors(
@@ -280,7 +349,9 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	// retrieve the corresponding preimage.
 	var hash160map map[[20]byte]lntypes.Preimage
 	if test.UseTestHtlcs {
-		hash160map = addTestHtlcs(t, remoteChannel, localChannel)
+		hash160map = addTestHtlcs(
+			t, remoteChannel, localChannel, testHtlcs,
+		)
 	}
 
 	// Execute commit dance to arrive at the point where the local node has
@@ -300,10 +371,12 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	remoteSig, remoteHtlcSigs, _, err := remoteChannel.SignNextCommitment()
 	require.NoError(t, err)
 
-	require.Equal(t, test.RemoteSigHex, hex.EncodeToString(remoteSig.ToSignatureBytes()))
+	require.Equal(t, test.RemoteSigHex,
+		hex.EncodeToString(remoteSig.ToSignatureBytes()))
 
 	for i, sig := range remoteHtlcSigs {
-		require.Equal(t, test.HtlcDescs[i].RemoteSigHex, hex.EncodeToString(sig.ToSignatureBytes()))
+		require.Equal(t, test.HtlcDescs[i].RemoteSigHex,
+			hex.EncodeToString(sig.ToSignatureBytes()))
 	}
 
 	err = localChannel.ReceiveNewCommitment(remoteSig, remoteHtlcSigs)
@@ -321,7 +394,8 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	var txBytes bytes.Buffer
 	require.NoError(t, forceCloseSum.CloseTx.Serialize(&txBytes))
 
-	require.Equal(t, test.ExpectedCommitmentTxHex, hex.EncodeToString(txBytes.Bytes()))
+	require.Equal(t, test.ExpectedCommitmentTxHex,
+		hex.EncodeToString(txBytes.Bytes()))
 
 	// Obtain the second level transactions that the local node's channel
 	// state machine has produced. Store them in a map indexed by commit tx
@@ -372,27 +446,6 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 			hex.EncodeToString(b.Bytes()),
 		)
 	}
-}
-
-// htlcViewFromHTLCs constructs an htlcView of PaymentDescriptors from a slice
-// of channeldb.HTLC structs.
-func htlcViewFromHTLCs(htlcs []channeldb.HTLC) *htlcView {
-	var theHTLCView htlcView
-	for _, htlc := range htlcs {
-		paymentDesc := &PaymentDescriptor{
-			RHash:   htlc.RHash,
-			Timeout: htlc.RefundTimeout,
-			Amount:  htlc.Amt,
-		}
-		if htlc.Incoming {
-			theHTLCView.theirUpdates =
-				append(theHTLCView.theirUpdates, paymentDesc)
-		} else {
-			theHTLCView.ourUpdates =
-				append(theHTLCView.ourUpdates, paymentDesc)
-		}
-	}
-	return &theHTLCView
 }
 
 func TestCommitTxStateHint(t *testing.T) {

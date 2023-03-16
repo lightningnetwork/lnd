@@ -423,9 +423,9 @@ type Brontide struct {
 	// waited a shorter duration.
 	addedChannels *lnutils.SyncMap[lnwire.ChannelID, struct{}]
 
-	// newChannels is used by the fundingManager to send fully opened
+	// newActiveChannel is used by the fundingManager to send fully opened
 	// channels to the source peer which handled the funding workflow.
-	newChannels chan *newChannelMsg
+	newActiveChannel chan *newChannelMsg
 
 	// activeMsgStreams is a map from channel id to the channel streams that
 	// proxy messages to individual, active links.
@@ -493,7 +493,7 @@ func NewBrontide(cfg Config) *Brontide {
 		activeChannels: &lnutils.SyncMap[
 			lnwire.ChannelID, *lnwallet.LightningChannel,
 		]{},
-		newChannels: make(chan *newChannelMsg, 1),
+		newActiveChannel: make(chan *newChannelMsg, 1),
 
 		activeMsgStreams:   make(map[lnwire.ChannelID]*msgStream),
 		activeChanCloses:   make(map[lnwire.ChannelID]*chancloser.ChanCloser),
@@ -2392,8 +2392,8 @@ out:
 		// A new channel has arrived which means we've just completed a
 		// funding workflow. We'll initialize the necessary local
 		// state, and notify the htlc switch of a new link.
-		case newChanReq := <-p.newChannels:
-			p.handleNewActiveChannel(newChanReq)
+		case req := <-p.newActiveChannel:
+			p.handleNewActiveChannel(req)
 
 		// We've just received a local request to close an active
 		// channel. It will either kick of a cooperative channel
@@ -3474,7 +3474,7 @@ func (p *Brontide) AddNewChannel(channel *channeldb.OpenChannel,
 	}
 
 	select {
-	case p.newChannels <- newChanMsg:
+	case p.newActiveChannel <- newChanMsg:
 	case <-cancel:
 		return errors.New("canceled adding new channel")
 	case <-p.quit:

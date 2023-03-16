@@ -1572,7 +1572,8 @@ out:
 
 		case *lnwire.ChannelReestablish:
 			targetChan = msg.ChanID
-			isLinkUpdate = p.isActiveChannel(targetChan)
+			isLinkUpdate = p.isActiveChannel(targetChan) ||
+				p.isPendingChannel(targetChan)
 
 			// If we failed to find the link in question, and the
 			// message received was a channel sync message, then
@@ -1663,8 +1664,25 @@ func (p *Brontide) handleCustomMessage(msg *lnwire.Custom) error {
 // isActiveChannel returns true if the provided channel id is active, otherwise
 // returns false.
 func (p *Brontide) isActiveChannel(chanID lnwire.ChannelID) bool {
-	_, ok := p.activeChannels.Load(chanID)
-	return ok
+	// The channel would be nil if,
+	// - the channel doesn't exist, or,
+	// - the channel exists, but is pending. In this case, we don't
+	//   consider this channel active.
+	channel, _ := p.activeChannels.Load(chanID)
+
+	return channel != nil
+}
+
+// isPendingChannel returns true if the provided channel ID is pending, and
+// returns false if the channel is active or unknown.
+func (p *Brontide) isPendingChannel(chanID lnwire.ChannelID) bool {
+	// Return false if the channel is unknown.
+	channel, ok := p.activeChannels.Load(chanID)
+	if !ok {
+		return false
+	}
+
+	return channel == nil
 }
 
 // storeError stores an error in our peer's buffer of recent errors with the

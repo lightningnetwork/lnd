@@ -309,6 +309,7 @@ func (c *WatchtowerClient) ListTowers(ctx context.Context,
 		}
 
 		t.SessionInfo = append(t.SessionInfo, rpcTower.SessionInfo...)
+		t.Sessions = append(t.Sessions, rpcTower.Sessions...)
 	}
 
 	towers := make([]*Tower, 0, len(rpcTowers))
@@ -364,6 +365,9 @@ func (c *WatchtowerClient) GetTowerInfo(ctx context.Context,
 
 	rpcTower.SessionInfo = append(
 		rpcTower.SessionInfo, rpcLegacyTower.SessionInfo...,
+	)
+	rpcTower.Sessions = append(
+		rpcTower.Sessions, rpcLegacyTower.Sessions...,
 	)
 
 	return rpcTower, nil

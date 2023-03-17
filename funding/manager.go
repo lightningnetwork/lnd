@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -583,14 +584,11 @@ type Manager struct {
 	// be signalled once the channel is fully open. This barrier acts as a
 	// synchronization point for any incoming/outgoing HTLCs before the
 	// channel has been fully opened.
-	barrierMtx      sync.RWMutex
-	newChanBarriers map[lnwire.ChannelID]chan struct{}
+	newChanBarriers *lnutils.SyncMap[lnwire.ChannelID, chan struct{}]
 
-	localDiscoveryMtx     sync.Mutex
-	localDiscoverySignals map[lnwire.ChannelID]chan struct{}
+	localDiscoverySignals *lnutils.SyncMap[lnwire.ChannelID, chan struct{}]
 
-	handleChannelReadyMtx      sync.RWMutex
-	handleChannelReadyBarriers map[lnwire.ChannelID]struct{}
+	handleChannelReadyBarriers *lnutils.SyncMap[lnwire.ChannelID, struct{}]
 
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -644,21 +642,21 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 		signedReservations: make(
 			map[lnwire.ChannelID][32]byte,
 		),
-		newChanBarriers: make(
-			map[lnwire.ChannelID]chan struct{},
-		),
+		newChanBarriers: &lnutils.SyncMap[
+			lnwire.ChannelID, chan struct{},
+		]{},
 		fundingMsgs: make(
 			chan *fundingMsg, msgBufferSize,
 		),
 		fundingRequests: make(
 			chan *InitFundingMsg, msgBufferSize,
 		),
-		localDiscoverySignals: make(
-			map[lnwire.ChannelID]chan struct{},
-		),
-		handleChannelReadyBarriers: make(
-			map[lnwire.ChannelID]struct{},
-		),
+		localDiscoverySignals: &lnutils.SyncMap[
+			lnwire.ChannelID, chan struct{},
+		]{},
+		handleChannelReadyBarriers: &lnutils.SyncMap[
+			lnwire.ChannelID, struct{},
+		]{},
 		quit: make(chan struct{}),
 	}, nil
 }
@@ -694,17 +692,14 @@ func (f *Manager) start() error {
 		// re-initialize the channel barriers, and republish the
 		// funding transaction if we're the initiator.
 		if channel.IsPending {
-			f.barrierMtx.Lock()
 			log.Tracef("Loading pending ChannelPoint(%v), "+
 				"creating chan barrier",
 				channel.FundingOutpoint)
 
-			f.newChanBarriers[chanID] = make(chan struct{})
-			f.barrierMtx.Unlock()
-
-			f.localDiscoveryMtx.Lock()
-			f.localDiscoverySignals[chanID] = make(chan struct{})
-			f.localDiscoveryMtx.Unlock()
+			f.newChanBarriers.Store(chanID, make(chan struct{}))
+			f.localDiscoverySignals.Store(
+				chanID, make(chan struct{}),
+			)
 
 			// Rebroadcast the funding transaction for any pending
 			// channel that we initiated. No error will be returned
@@ -1247,12 +1242,9 @@ func (f *Manager) advancePendingChannelState(
 
 		// Find and close the discoverySignal for this channel such
 		// that ChannelReady messages will be processed.
-		chanID := lnwire.NewChanIDFromOutPoint(
-			&channel.FundingOutpoint,
-		)
-		f.localDiscoveryMtx.Lock()
-		defer f.localDiscoveryMtx.Unlock()
-		if discoverySignal, ok := f.localDiscoverySignals[chanID]; ok {
+		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		discoverySignal, ok := f.localDiscoverySignals.Load(chanID)
+		if ok {
 			close(discoverySignal)
 		}
 
@@ -2158,11 +2150,9 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	// properly synchronize with the writeHandler goroutine, we add a new
 	// channel to the barriers map which will be closed once the channel is
 	// fully open.
-	f.barrierMtx.Lock()
 	channelID := lnwire.NewChanIDFromOutPoint(outPoint)
 	log.Debugf("Creating chan barrier for ChanID(%v)", channelID)
-	f.newChanBarriers[channelID] = make(chan struct{})
-	f.barrierMtx.Unlock()
+	f.newChanBarriers.Store(channelID, make(chan struct{}))
 
 	// The next message that advances the funding flow will reference the
 	// channel via its permanent channel ID, so we'll set up this mapping
@@ -2279,11 +2269,9 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	// properly synchronize with the writeHandler goroutine, we add a new
 	// channel to the barriers map which will be closed once the channel is
 	// fully open.
-	f.barrierMtx.Lock()
 	channelID := lnwire.NewChanIDFromOutPoint(&fundingOut)
 	log.Debugf("Creating chan barrier for ChanID(%v)", channelID)
-	f.newChanBarriers[channelID] = make(chan struct{})
-	f.barrierMtx.Unlock()
+	f.newChanBarriers.Store(channelID, make(chan struct{}))
 
 	log.Infof("sending FundingSigned for pending_id(%x) over "+
 		"ChannelPoint(%v)", pendingChanID[:], fundingOut)
@@ -2329,9 +2317,7 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	// Create an entry in the local discovery map so we can ensure that we
 	// process the channel confirmation fully before we receive a
 	// channel_ready message.
-	f.localDiscoveryMtx.Lock()
-	f.localDiscoverySignals[channelID] = make(chan struct{})
-	f.localDiscoveryMtx.Unlock()
+	f.localDiscoverySignals.Store(channelID, make(chan struct{}))
 
 	// Inform the ChannelNotifier that the channel has entered
 	// pending open state.
@@ -2395,9 +2381,7 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 	// channel_ready message.
 	fundingPoint := resCtx.reservation.FundingOutpoint()
 	permChanID := lnwire.NewChanIDFromOutPoint(fundingPoint)
-	f.localDiscoveryMtx.Lock()
-	f.localDiscoverySignals[permChanID] = make(chan struct{})
-	f.localDiscoveryMtx.Unlock()
+	f.localDiscoverySignals.Store(permChanID, make(chan struct{}))
 
 	// We have to store the forwardingPolicy before the reservation context
 	// is deleted. The policy will then be read and applied in
@@ -2914,11 +2898,9 @@ func (f *Manager) handleFundingConfirmation(
 	// goroutine that the channel now is marked as open in the database
 	// and that it is acceptable to process channel_ready messages
 	// from the peer.
-	f.localDiscoveryMtx.Lock()
-	if discoverySignal, ok := f.localDiscoverySignals[chanID]; ok {
+	if discoverySignal, ok := f.localDiscoverySignals.Load(chanID); ok {
 		close(discoverySignal)
 	}
-	f.localDiscoveryMtx.Unlock()
 
 	return nil
 }
@@ -3456,32 +3438,25 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		"peer %x", msg.ChanID,
 		peer.IdentityKey().SerializeCompressed())
 
+	// We now load or create a new channel barrier for this channel.
+	_, loaded := f.handleChannelReadyBarriers.LoadOrStore(
+		msg.ChanID, struct{}{},
+	)
+
 	// If we are currently in the process of handling a channel_ready
 	// message for this channel, ignore.
-	f.handleChannelReadyMtx.Lock()
-	_, ok := f.handleChannelReadyBarriers[msg.ChanID]
-	if ok {
+	if loaded {
 		log.Infof("Already handling channelReady for "+
 			"ChannelID(%v), ignoring.", msg.ChanID)
-		f.handleChannelReadyMtx.Unlock()
 		return
 	}
 
-	// If not already handling channelReady for this channel, set up
-	// barrier, and move on.
-	f.handleChannelReadyBarriers[msg.ChanID] = struct{}{}
-	f.handleChannelReadyMtx.Unlock()
+	// If not already handling channelReady for this channel, then the
+	// `LoadOrStore` has set up a barrier, and it will be removed once this
+	// function exits.
+	defer f.handleChannelReadyBarriers.Delete(msg.ChanID)
 
-	defer func() {
-		f.handleChannelReadyMtx.Lock()
-		delete(f.handleChannelReadyBarriers, msg.ChanID)
-		f.handleChannelReadyMtx.Unlock()
-	}()
-
-	f.localDiscoveryMtx.Lock()
-	localDiscoverySignal, ok := f.localDiscoverySignals[msg.ChanID]
-	f.localDiscoveryMtx.Unlock()
-
+	localDiscoverySignal, ok := f.localDiscoverySignals.Load(msg.ChanID)
 	if ok {
 		// Before we proceed with processing the channel_ready
 		// message, we'll wait for the local waitForFundingConfirmation
@@ -3497,9 +3472,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 
 		// With the signal received, we can now safely delete the entry
 		// from the map.
-		f.localDiscoveryMtx.Lock()
-		delete(f.localDiscoverySignals, msg.ChanID)
-		f.localDiscoveryMtx.Unlock()
+		f.localDiscoverySignals.Delete(msg.ChanID)
 	}
 
 	// First, we'll attempt to locate the channel whose funding workflow is
@@ -3617,15 +3590,12 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		// Close the active channel barrier signaling the readHandler
 		// that commitment related modifications to this channel can
 		// now proceed.
-		f.barrierMtx.Lock()
-		chanBarrier, ok := f.newChanBarriers[chanID]
+		chanBarrier, ok := f.newChanBarriers.LoadAndDelete(chanID)
 		if ok {
 			log.Tracef("Closing chan barrier for ChanID(%v)",
 				chanID)
 			close(chanBarrier)
-			delete(f.newChanBarriers, chanID)
 		}
-		f.barrierMtx.Unlock()
 	}()
 
 	if err := peer.AddNewChannel(channel, f.quit); err != nil {

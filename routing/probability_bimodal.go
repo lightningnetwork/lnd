@@ -308,6 +308,32 @@ func (p *BimodalEstimator) calculateProbability(directProbability float64,
 		return directProbability
 	}
 
+	// If we have up-to-date information about the channel we want to use,
+	// i.e. the info stems from results not longer ago than the decay time,
+	// we will only use the direct probability. This is needed in order to
+	// avoid that other previous results (on all other channels of the same
+	// routing node) will distort and pin the calculated probability even if
+	// we have accurate direct information. This helps to dip the
+	// probability below the min probability in case of failures, to start
+	// the splitting process.
+	directResult, ok := results[toNode]
+	if ok {
+		latest := directResult.SuccessTime
+		if directResult.FailTime.After(latest) {
+			latest = directResult.FailTime
+		}
+
+		// We use BimonodalDecayTime to judge the currentness of the
+		// data. It is the time scale on which we assume to have lost
+		// information.
+		if now.Sub(latest) < p.BimodalDecayTime {
+			log.Tracef("Using direct probability for node %v: %v",
+				toNode, directResult)
+
+			return directProbability
+		}
+	}
+
 	// w is a parameter which determines how strongly the other channels of
 	// a node should be incorporated, the higher the stronger.
 	w := p.BimodalNodeWeight

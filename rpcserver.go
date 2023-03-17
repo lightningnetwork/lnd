@@ -2941,8 +2941,6 @@ func (r *rpcServer) GetRecoveryInfo(ctx context.Context,
 func (r *rpcServer) ListPeers(ctx context.Context,
 	in *lnrpc.ListPeersRequest) (*lnrpc.ListPeersResponse, error) {
 
-	rpcsLog.Tracef("[listpeers] request")
-
 	serverPeers := r.server.Peers()
 	resp := &lnrpc.ListPeersResponse{
 		Peers: make([]*lnrpc.Peer, 0, len(serverPeers)),
@@ -3700,8 +3698,6 @@ func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
 func (r *rpcServer) PendingChannels(ctx context.Context,
 	in *lnrpc.PendingChannelsRequest) (
 	*lnrpc.PendingChannelsResponse, error) {
-
-	rpcsLog.Debugf("[pendingchannels]")
 
 	resp := &lnrpc.PendingChannelsResponse{}
 
@@ -6409,8 +6405,6 @@ func marshallTopologyChange(topChange *routing.TopologyChange) *lnrpc.GraphTopol
 func (r *rpcServer) ListPayments(ctx context.Context,
 	req *lnrpc.ListPaymentsRequest) (*lnrpc.ListPaymentsResponse, error) {
 
-	rpcsLog.Debugf("[ListPayments]")
-
 	// If both dates are set, we check that the start date is less than the
 	// end date, otherwise we'll get an empty result.
 	if req.CreationDateStart != 0 && req.CreationDateEnd != 0 {
@@ -6626,10 +6620,6 @@ const feeBase float64 = 1000000
 // schedule enforced by the node globally for each channel.
 func (r *rpcServer) FeeReport(ctx context.Context,
 	_ *lnrpc.FeeReportRequest) (*lnrpc.FeeReportResponse, error) {
-
-	// TODO(roasbeef): use UnaryInterceptor to add automated logging
-
-	rpcsLog.Debugf("[feereport]")
 
 	channelGraph := r.server.graphDB
 	selfNode, err := channelGraph.SourceNode()
@@ -6893,8 +6883,6 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 func (r *rpcServer) ForwardingHistory(ctx context.Context,
 	req *lnrpc.ForwardingHistoryRequest) (*lnrpc.ForwardingHistoryResponse,
 	error) {
-
-	rpcsLog.Debugf("[forwardinghistory]")
 
 	// Before we perform the queries below, we'll instruct the switch to
 	// flush any pending events to disk. This ensure we get a complete
@@ -7426,8 +7414,6 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 func (r *rpcServer) BakeMacaroon(ctx context.Context,
 	req *lnrpc.BakeMacaroonRequest) (*lnrpc.BakeMacaroonResponse, error) {
 
-	rpcsLog.Debugf("[bakemacaroon]")
-
 	// If the --no-macaroons flag is used to start lnd, the macaroon service
 	// is not initialized. Therefore we can't bake new macaroons.
 	if r.macService == nil {
@@ -7514,8 +7500,6 @@ func (r *rpcServer) ListMacaroonIDs(ctx context.Context,
 	req *lnrpc.ListMacaroonIDsRequest) (
 	*lnrpc.ListMacaroonIDsResponse, error) {
 
-	rpcsLog.Debugf("[listmacaroonids]")
-
 	// If the --no-macaroons flag is used to start lnd, the macaroon service
 	// is not initialized. Therefore we can't show any IDs.
 	if r.macService == nil {
@@ -7546,8 +7530,6 @@ func (r *rpcServer) DeleteMacaroonID(ctx context.Context,
 	req *lnrpc.DeleteMacaroonIDRequest) (
 	*lnrpc.DeleteMacaroonIDResponse, error) {
 
-	rpcsLog.Debugf("[deletemacaroonid]")
-
 	// If the --no-macaroons flag is used to start lnd, the macaroon service
 	// is not initialized. Therefore we can't delete any IDs.
 	if r.macService == nil {
@@ -7576,8 +7558,6 @@ func (r *rpcServer) DeleteMacaroonID(ctx context.Context,
 func (r *rpcServer) ListPermissions(_ context.Context,
 	_ *lnrpc.ListPermissionsRequest) (*lnrpc.ListPermissionsResponse,
 	error) {
-
-	rpcsLog.Debugf("[listpermissions]")
 
 	permissionMap := make(map[string]*lnrpc.MacaroonPermissionList)
 	for uri, perms := range r.interceptorChain.Permissions() {

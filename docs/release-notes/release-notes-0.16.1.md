@@ -20,6 +20,12 @@
 * [Add test vectors for
   option_zero_fee_htlc_tx](https://github.com/lightningnetwork/lnd/pull/7439)
 
+## RPC
+
+- A [debug log](https://github.com/lightningnetwork/lnd/pull/7514) has been
+  added to `lnrpc` so the node operator can know whether a certain request has
+  happened or not.
+
 # Contributors (Alphabetical Order)
 
 * Elle Mouton

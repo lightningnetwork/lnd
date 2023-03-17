@@ -772,6 +772,8 @@ func (r *InterceptorChain) rpcStateUnaryServerInterceptor() grpc.UnaryServerInte
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler) (interface{}, error) {
 
+		r.rpcsLog.Debugf("[%v] requested", info.FullMethod)
+
 		if err := r.checkRPCState(info.Server); err != nil {
 			return nil, err
 		}
@@ -785,6 +787,8 @@ func (r *InterceptorChain) rpcStateUnaryServerInterceptor() grpc.UnaryServerInte
 func (r *InterceptorChain) rpcStateStreamServerInterceptor() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream,
 		info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+
+		r.rpcsLog.Debugf("[%v] requested", info.FullMethod)
 
 		if err := r.checkRPCState(srv); err != nil {
 			return err

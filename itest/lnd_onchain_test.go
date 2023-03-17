@@ -430,6 +430,15 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	commitTxn := ht.Miner.GetRawTransaction(forceCloseTxID)
 	ht.Miner.MineBlockWithTxes([]*btcutil.Tx{commitTxn})
 
+	// Assert that the channel is now in PendingForceClose.
+	//
+	// NOTE: We must do this check to make sure `lnd` node has updated its
+	// internal state regarding the closing transaction, otherwise the
+	// `SendCoins` below might fail since it involves a reserved value
+	// check, which requires a certain amount of coins to be reserved based
+	// on the number of anchor channels.
+	ht.AssertChannelPendingForceClose(alice, aliceChanPoint1)
+
 	// With the anchor output located, and the main commitment mined we'll
 	// instruct the wallet to send all coins in the wallet to a new address
 	// (to the miner), including unconfirmed change.

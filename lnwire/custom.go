@@ -86,14 +86,6 @@ func NewCustom(msgType MessageType, data []byte) (*Custom, error) {
 	}, nil
 }
 
-// NewUnknown instantiates a new unknown message.
-func NewUnknown(msgType MessageType, data []byte) (*Custom, error) {
-	return &Custom{
-		Type: msgType,
-		Data: data,
-	}, nil
-}
-
 // Encode serializes the target Custom message into the passed io.Writer
 // implementation.
 //

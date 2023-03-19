@@ -1233,23 +1233,21 @@ func TestPeerUnknownMessage(t *testing.T) {
 
 				mockConn.readMessages <- b.Bytes()
 			}()
+			
+			ready := make(chan struct{})
 
 			// Start the peer.
 			require.NoError(t, alicePeer.Start())
 
-			// Receive an unknown message.
-			_, err = lnwire.NewUnknown(
-				testCase.messageType, testCase.messageData,
-			)
-			require.NoError(t, err)
+		    close(ready)
 
 			receivedData := append([]byte{byte(testCase.messageType >> 8), byte(testCase.messageType)}, testCase.messageData...)
 			mockConn.readMessages <- receivedData
 
-			// Todo: would be better not to have to wait
-			// for the connection to close
-			time.Sleep(100 * time.Millisecond)
+			alicePeer.WaitForDisconnect(ready)
+
 			require.Equal(t, testCase.shouldClose, mockConn.isClosed)
+			require.Equal(t, mockConn.curReadMessage, receivedData)
 		})
 	}
 }

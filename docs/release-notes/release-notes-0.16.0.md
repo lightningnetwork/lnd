@@ -7,6 +7,16 @@ locally to all connected
 peers](https://github.com/lightningnetwork/lnd/pull/7239), regardless of their
 current gossip sync query status.
 
+There's also a [bug fix](https://github.com/lightningnetwork/lnd/pull/7186)
+that might lead to channel updates being missed, causing channel graph being
+incomplete. Aside from that, a potential announcement messages being sent out
+of order is also [fixed](https://github.com/lightningnetwork/lnd/pull/7264).
+
+`lnd` will now attempt to [rebroadcast unconfirmed
+transactions](https://github.com/lightningnetwork/lnd/pull/7448) with each
+passing block the transaction hasn't been confirmed. This was already the
+default for the neutrino backend. This complements the existing behavior where
+all unconfirmed transactions are rebroadcast on start up.
 
 ## BOLT Specs
 
@@ -16,6 +26,9 @@ current gossip sync query status.
 * Decrypt onion failure messages with a [length greater than 256
   bytes](https://github.com/lightningnetwork/lnd/pull/6913). This moves LND
   closer to being spec compliant.
+
+* Channel updates without the maxHTLC message flag set are recognized as invalid
+  and are [not relayed](https://github.com/lightningnetwork/lnd/pull/7415).
 
 ## RPC
 
@@ -78,7 +91,8 @@ current gossip sync query status.
   application considers an HTLC settled, but in reality the HTLC has timed out.
 
   Final resolution data will only be available for htlcs that are resolved
-  after upgrading lnd.
+  after upgrading lnd. Once resolved, it's final status can be retrieved via
+  [`LookupHtlcResolution`](https://github.com/lightningnetwork/lnd/pull/7467).
 
   This feature is [opt-in](https://github.com/lightningnetwork/lnd/pull/7341)
   via a config flag. The status of the flag is
@@ -133,6 +147,17 @@ current gossip sync query status.
 * [A bug](https://github.com/lightningnetwork/lnd/pull/7408) in the 
   `updatenodeannouncement` peers cli which did not allow setting/
    unsetting of feature bits also has been fixed. 
+
+* [Enrich the `Channel` message with a peers' alias in order to retrieve it
+  in `ListChannels`.](https://github.com/lightningnetwork/lnd/pull/7322) This
+  behavior is opt-in for users of the rpc interface through a new parameter in
+  `ListChannelsRequest` called `PeerAliasLookup`. For users of lncli this
+  parameter is enabled by default but can be disabled with a new flag
+  `--skip_peer_alias_lookup`.
+
+* Assign potential peer alias lookup errors in the [`ListChannels` and
+  `ForwardingHistory`rpcs](https://github.com/lightningnetwork/lnd/pull/7471) to
+  the rpc response.
 
 ## Wallet
 
@@ -340,6 +365,9 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 
 * [Sign/Verify messages and signatures for single
   addresses](https://github.com/lightningnetwork/lnd/pull/7231).
+  
+* [Allow `--stateless_init` mode to be used for watch-only
+  wallets](https://github.com/lightningnetwork/lnd/pull/7462).
 
 ## Code Health
 
@@ -375,13 +403,19 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 * [Fixed a unit test flake in the wallet
   unlocker](https://github.com/lightningnetwork/lnd/pull/7384).
 
+* [A new generic LRU cache is used where
+  applicable](https://github.com/lightningnetwork/lnd/pull/7406).
+
 ## Watchtowers
 
 * [Create a towerID-to-sessionID index in the wtclient DB to improve the 
   speed of listing sessions for a particular tower ID](
   https://github.com/lightningnetwork/lnd/pull/6972). This PR also ensures a 
   closer coupling of Towers and Sessions and ensures that a session cannot be
-  added if the tower it is referring to does not exist.
+  added if the tower it is referring to does not exist. A [follow-up migration 
+  was added](https://github.com/lightningnetwork/lnd/pull/7491) to ensure that 
+  entries are added to the new index for _all_ towers in the db, including those
+  for which there are not yet associated sessions. 
 
 * [Remove `AckedUpdates` & `CommittedUpdates` from the `ClientSession`
   struct](https://github.com/lightningnetwork/lnd/pull/6928) in order to
@@ -408,6 +442,14 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
   3.5.7](https://github.com/lightningnetwork/lnd/pull/7353) to resolve linking
   issues with outdated dependencies.
 
+* [Re-add local and remote output amounts to the revocation 
+  log](https://github.com/lightningnetwork/lnd/pull/7379) and add a new 
+  `--db.no-rev-log-amt-data` flag that can be used to explicitly opt out of  
+  storing this extra data. It should be noted that setting this flag is not 
+  recommended unless the user is sure that they will never activate their 
+  watchtower client (`--wtclient.active`) in the future. The new flag can not
+  be set at all if the `--wtclient.active` flag has been set.
+
 ## Pathfinding
 
 * [Pathfinding takes capacity of edges into account to improve success
@@ -415,6 +457,8 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
 * [A new probability model ("bimodal") is added which models channel based
   liquidities within a probability theory framework.](
   https://github.com/lightningnetwork/lnd/pull/6815)
+* [The a priori capacity factor is made configurable and its effect is 
+  limited.](https://github.com/lightningnetwork/lnd/pull/7444)
 
 ## Configuration
 * Note that [this pathfinding change](https://github.com/lightningnetwork/lnd/pull/6815)
@@ -469,7 +513,8 @@ PRs([6776](https://github.com/lightningnetwork/lnd/pull/6776),
 [7242](https://github.com/lightningnetwork/lnd/pull/7242),
 [7245](https://github.com/lightningnetwork/lnd/pull/7245)),
 [6823](https://github.com/lightningnetwork/lnd/pull/6823),
-[6824](https://github.com/lightningnetwork/lnd/pull/6824),) have been made to
+[6824](https://github.com/lightningnetwork/lnd/pull/6824),
+[6825](https://github.com/lightningnetwork/lnd/pull/6825)) have been made to
 refactor the itest for code health and maintenance.
 
 # Contributors (Alphabetical Order)

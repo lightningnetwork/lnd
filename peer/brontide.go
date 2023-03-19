@@ -1905,7 +1905,7 @@ func messageSummary(msg lnwire.Message) string {
 		return fmt.Sprintf("type=%d", msg.Type)
 	}
 
-	return ""
+	return fmt.Sprintf("unknown msg type=%T", msg)
 }
 
 // logWireMessage logs the receipt or sending of particular wire message. This

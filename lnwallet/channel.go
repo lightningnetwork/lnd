@@ -108,6 +108,10 @@ var (
 	// ErrOutputIndexOutOfRange is returned when an output index is greater
 	// than or equal to the length of a given transaction's outputs.
 	ErrOutputIndexOutOfRange = errors.New("output index is out of range")
+
+	// ErrRevLogDataMissing is returned when a certain wanted optional field
+	// in a revocation log entry is missing.
+	ErrRevLogDataMissing = errors.New("revocation log data missing")
 )
 
 // ErrCommitSyncLocalDataLoss is returned in the case that we receive a valid
@@ -2287,8 +2291,12 @@ type BreachRetribution struct {
 }
 
 // NewBreachRetribution creates a new fully populated BreachRetribution for the
-// passed channel, at a particular revoked state number, and one which targets
-// the passed commitment transaction.
+// passed channel, at a particular revoked state number. If the spend
+// transaction that the breach retribution should target is known, then it can
+// be provided via the spendTx parameter. Otherwise, if the spendTx parameter is
+// nil, then the revocation log will be checked to see if it contains the info
+// required to construct the BreachRetribution. If the revocation log is missing
+// the required fields then ErrRevLogDataMissing will be returned.
 func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	breachHeight uint32, spendTx *wire.MsgTx) (*BreachRetribution, error) {
 
@@ -2493,7 +2501,11 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 
 // createBreachRetribution creates a partially initiated BreachRetribution
 // using a RevocationLog. Returns the constructed retribution, our amount,
-// their amount, and a possible non-nil error.
+// their amount, and a possible non-nil error. If the spendTx parameter is
+// non-nil, then it will be used to glean the breach transaction's to-local and
+// to-remote output amounts. Otherwise, the RevocationLog will be checked to
+// see if these fields are present there. If they are not, then
+// ErrRevLogDataMissing is returned.
 func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	spendTx *wire.MsgTx, chanState *channeldb.OpenChannel,
 	keyRing *CommitmentKeyRing, commitmentSecret *btcec.PrivateKey,
@@ -2523,18 +2535,33 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	if revokedLog.OurOutputIndex != channeldb.OutputIndexEmpty {
 		ourOutpoint.Index = uint32(revokedLog.OurOutputIndex)
 
-		// Sanity check that OurOutputIndex is within range.
-		if int(ourOutpoint.Index) >= len(spendTx.TxOut) {
-			return nil, 0, 0, fmt.Errorf("%w: ours=%v, "+
-				"len(TxOut)=%v", ErrOutputIndexOutOfRange,
-				ourOutpoint.Index, len(spendTx.TxOut),
-			)
+		// If the spend transaction is provided, then we use it to get
+		// the value of our output.
+		if spendTx != nil {
+			// Sanity check that OurOutputIndex is within range.
+			if int(ourOutpoint.Index) >= len(spendTx.TxOut) {
+				return nil, 0, 0, fmt.Errorf("%w: ours=%v, "+
+					"len(TxOut)=%v",
+					ErrOutputIndexOutOfRange,
+					ourOutpoint.Index, len(spendTx.TxOut),
+				)
+			}
+			// Read the amounts from the breach transaction.
+			//
+			// NOTE: ourAmt here includes commit fee and anchor
+			// amount (if enabled).
+			ourAmt = spendTx.TxOut[ourOutpoint.Index].Value
+		} else {
+			// Otherwise, we check to see if the revocation log
+			// contains our output amount. Due to a previous
+			// migration, this field may be empty in which case an
+			// error will be returned.
+			if revokedLog.OurBalance == nil {
+				return nil, 0, 0, ErrRevLogDataMissing
+			}
+
+			ourAmt = int64(revokedLog.OurBalance.ToSatoshis())
 		}
-		// Read the amounts from the breach transaction.
-		//
-		// NOTE: ourAmt here includes commit fee and anchor amount(if
-		// enabled).
-		ourAmt = spendTx.TxOut[ourOutpoint.Index].Value
 	}
 
 	// Construct the their outpoint.
@@ -2544,16 +2571,35 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 	if revokedLog.TheirOutputIndex != channeldb.OutputIndexEmpty {
 		theirOutpoint.Index = uint32(revokedLog.TheirOutputIndex)
 
-		// Sanity check that TheirOutputIndex is within range.
-		if int(revokedLog.TheirOutputIndex) >= len(spendTx.TxOut) {
-			return nil, 0, 0, fmt.Errorf("%w: theirs=%v, "+
-				"len(TxOut)=%v", ErrOutputIndexOutOfRange,
-				revokedLog.TheirOutputIndex, len(spendTx.TxOut),
-			)
-		}
+		// If the spend transaction is provided, then we use it to get
+		// the value of the remote parties' output.
+		if spendTx != nil {
+			// Sanity check that TheirOutputIndex is within range.
+			if int(revokedLog.TheirOutputIndex) >=
+				len(spendTx.TxOut) {
 
-		// Read the amounts from the breach transaction.
-		theirAmt = spendTx.TxOut[theirOutpoint.Index].Value
+				return nil, 0, 0, fmt.Errorf("%w: theirs=%v, "+
+					"len(TxOut)=%v",
+					ErrOutputIndexOutOfRange,
+					revokedLog.TheirOutputIndex,
+					len(spendTx.TxOut),
+				)
+			}
+
+			// Read the amounts from the breach transaction.
+			theirAmt = spendTx.TxOut[theirOutpoint.Index].Value
+
+		} else {
+			// Otherwise, we check to see if the revocation log
+			// contains remote parties' output amount. Due to a
+			// previous migration, this field may be empty in which
+			// case an error will be returned.
+			if revokedLog.TheirBalance == nil {
+				return nil, 0, 0, ErrRevLogDataMissing
+			}
+
+			theirAmt = int64(revokedLog.TheirBalance.ToSatoshis())
+		}
 	}
 
 	return &BreachRetribution{

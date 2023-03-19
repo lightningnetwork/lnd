@@ -311,7 +311,8 @@ func (s *Server) ImportGraph(ctx context.Context,
 				policy.MaxHTLC = lnwire.MilliSatoshi(
 					rpcPolicy.MaxHtlcMsat,
 				)
-				policy.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
+				policy.MessageFlags |=
+					lnwire.ChanUpdateRequiredMaxHtlc
 			}
 
 			return policy

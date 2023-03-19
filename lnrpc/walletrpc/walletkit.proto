@@ -982,7 +982,8 @@ message ListSweepsResponse {
 }
 
 message LabelTransactionRequest {
-    // The txid of the transaction to label.
+    // The txid of the transaction to label. Note: When using gRPC, the bytes
+    // must be in little-endian (reverse) order.
     bytes txid = 1;
 
     // The label to add to the transaction, limited to 500 characters.

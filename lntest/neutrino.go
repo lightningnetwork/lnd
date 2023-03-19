@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/lntest/node"
 )
 
 // NeutrinoBackendConfig is an implementation of the BackendConfig interface
@@ -17,7 +18,7 @@ type NeutrinoBackendConfig struct {
 
 // A compile time assertion to ensure NeutrinoBackendConfig meets the
 // BackendConfig interface.
-var _ BackendConfig = (*NeutrinoBackendConfig)(nil)
+var _ node.BackendConfig = (*NeutrinoBackendConfig)(nil)
 
 // GenArgs returns the arguments needed to be passed to LND at startup for
 // using this node as a chain backend.

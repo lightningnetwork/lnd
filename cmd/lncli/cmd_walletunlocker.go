@@ -687,6 +687,10 @@ var createWatchOnlyCommand = cli.Command{
 	Read the documentation under docs/remote-signing.md for more information
 	on how to set up a remote signing node over RPC.
 	`,
+	Flags: []cli.Flag{
+		statelessInitFlag,
+		saveToFlag,
+	},
 	Action: actionDecorator(createWatchOnly),
 }
 
@@ -697,6 +701,15 @@ func createWatchOnly(ctx *cli.Context) error {
 
 	if ctx.NArg() != 1 {
 		return cli.ShowCommandHelp(ctx, "createwatchonly")
+	}
+
+	// Should the daemon be initialized stateless? Then we expect an answer
+	// with the admin macaroon later. Because the --save_to is related to
+	// stateless init, it doesn't make sense to be set on its own.
+	statelessInit := ctx.Bool(statelessInitFlag.Name)
+	if !statelessInit && ctx.IsSet(saveToFlag.Name) {
+		return fmt.Errorf("cannot set save_to parameter without " +
+			"stateless_init")
 	}
 
 	jsonFile := lncfg.CleanAndExpandPath(ctx.Args().First())
@@ -754,12 +767,21 @@ func createWatchOnly(ctx *cli.Context) error {
 		}
 	}
 
-	_, err = client.InitWallet(ctxc, &lnrpc.InitWalletRequest{
+	initResp, err := client.InitWallet(ctxc, &lnrpc.InitWalletRequest{
 		WalletPassword: walletPassword,
 		WatchOnly:      rpcResp,
 		RecoveryWindow: recoveryWindow,
+		StatelessInit:  statelessInit,
 	})
-	return err
+	if err != nil {
+		return err
+	}
+
+	if statelessInit {
+		return storeOrPrintAdminMac(ctx, initResp.AdminMacaroon)
+	}
+
+	return nil
 }
 
 // storeOrPrintAdminMac either stores the admin macaroon to a file specified or
@@ -767,9 +789,11 @@ func createWatchOnly(ctx *cli.Context) error {
 func storeOrPrintAdminMac(ctx *cli.Context, adminMac []byte) error {
 	// The user specified the optional --save_to parameter. We'll save the
 	// macaroon to that file.
-	if ctx.IsSet("save_to") {
-		macSavePath := lncfg.CleanAndExpandPath(ctx.String("save_to"))
-		err := ioutil.WriteFile(macSavePath, adminMac, 0644)
+	if ctx.IsSet(saveToFlag.Name) {
+		macSavePath := lncfg.CleanAndExpandPath(ctx.String(
+			saveToFlag.Name,
+		))
+		err := os.WriteFile(macSavePath, adminMac, 0644)
 		if err != nil {
 			_ = os.Remove(macSavePath)
 			return err

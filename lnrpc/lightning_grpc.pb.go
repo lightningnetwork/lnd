@@ -402,7 +402,10 @@ type LightningClient interface {
 	// their confirmed SCID (if it exists) and/or the base SCID (in the case of
 	// zero conf).
 	ListAliases(ctx context.Context, in *ListAliasesRequest, opts ...grpc.CallOption) (*ListAliasesResponse, error)
-	LookupHtlc(ctx context.Context, in *LookupHtlcRequest, opts ...grpc.CallOption) (*LookupHtlcResponse, error)
+	// LookupHtlcResolution retrieves a final htlc resolution from the database.
+	// If the htlc has no final resolution yet, a NotFound grpc status code is
+	// returned.
+	LookupHtlcResolution(ctx context.Context, in *LookupHtlcResolutionRequest, opts ...grpc.CallOption) (*LookupHtlcResolutionResponse, error)
 }
 
 type lightningClient struct {
@@ -1304,9 +1307,9 @@ func (c *lightningClient) ListAliases(ctx context.Context, in *ListAliasesReques
 	return out, nil
 }
 
-func (c *lightningClient) LookupHtlc(ctx context.Context, in *LookupHtlcRequest, opts ...grpc.CallOption) (*LookupHtlcResponse, error) {
-	out := new(LookupHtlcResponse)
-	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/LookupHtlc", in, out, opts...)
+func (c *lightningClient) LookupHtlcResolution(ctx context.Context, in *LookupHtlcResolutionRequest, opts ...grpc.CallOption) (*LookupHtlcResolutionResponse, error) {
+	out := new(LookupHtlcResolutionResponse)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/LookupHtlcResolution", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1701,7 +1704,10 @@ type LightningServer interface {
 	// their confirmed SCID (if it exists) and/or the base SCID (in the case of
 	// zero conf).
 	ListAliases(context.Context, *ListAliasesRequest) (*ListAliasesResponse, error)
-	LookupHtlc(context.Context, *LookupHtlcRequest) (*LookupHtlcResponse, error)
+	// LookupHtlcResolution retrieves a final htlc resolution from the database.
+	// If the htlc has no final resolution yet, a NotFound grpc status code is
+	// returned.
+	LookupHtlcResolution(context.Context, *LookupHtlcResolutionRequest) (*LookupHtlcResolutionResponse, error)
 	mustEmbedUnimplementedLightningServer()
 }
 
@@ -1907,8 +1913,8 @@ func (UnimplementedLightningServer) SubscribeCustomMessages(*SubscribeCustomMess
 func (UnimplementedLightningServer) ListAliases(context.Context, *ListAliasesRequest) (*ListAliasesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListAliases not implemented")
 }
-func (UnimplementedLightningServer) LookupHtlc(context.Context, *LookupHtlcRequest) (*LookupHtlcResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method LookupHtlc not implemented")
+func (UnimplementedLightningServer) LookupHtlcResolution(context.Context, *LookupHtlcResolutionRequest) (*LookupHtlcResolutionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LookupHtlcResolution not implemented")
 }
 func (UnimplementedLightningServer) mustEmbedUnimplementedLightningServer() {}
 
@@ -3170,20 +3176,20 @@ func _Lightning_ListAliases_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
-func _Lightning_LookupHtlc_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(LookupHtlcRequest)
+func _Lightning_LookupHtlcResolution_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LookupHtlcResolutionRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(LightningServer).LookupHtlc(ctx, in)
+		return srv.(LightningServer).LookupHtlcResolution(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/lnrpc.Lightning/LookupHtlc",
+		FullMethod: "/lnrpc.Lightning/LookupHtlcResolution",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(LightningServer).LookupHtlc(ctx, req.(*LookupHtlcRequest))
+		return srv.(LightningServer).LookupHtlcResolution(ctx, req.(*LookupHtlcResolutionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3408,8 +3414,8 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Lightning_ListAliases_Handler,
 		},
 		{
-			MethodName: "LookupHtlc",
-			Handler:    _Lightning_LookupHtlc_Handler,
+			MethodName: "LookupHtlcResolution",
+			Handler:    _Lightning_LookupHtlcResolution_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

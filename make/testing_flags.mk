@@ -9,11 +9,6 @@ NUM_ITEST_TRANCHES = 4
 ITEST_PARALLELISM = $(NUM_ITEST_TRANCHES)
 POSTGRES_START_DELAY = 5
 
-# Build temp tests only. TODO(yy): remove.
-ifneq ($(temptest),)
-ITEST_FLAGS += -temptest=$(temptest)
-endif
-
 # If rpc option is set also add all extra RPC tags to DEV_TAGS
 ifneq ($(with-rpc),)
 DEV_TAGS += $(RPC_TAGS)
@@ -85,11 +80,11 @@ LOG_TAGS := nolog
 endif
 
 # If a timeout was requested, construct initialize the proper flag for the go
-# test command. If not, we set 120m (up from the default 10m).
+# test command. If not, we set 180m (up from the default 10m).
 ifneq ($(timeout),)
 TEST_FLAGS += -test.timeout=$(timeout)
 else
-TEST_FLAGS += -test.timeout=120m
+TEST_FLAGS += -test.timeout=180m
 endif
 
 GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
@@ -120,4 +115,4 @@ backend = btcd
 endif
 
 # Construct the integration test command with the added build flags.
-ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) rpctest $(backend)
+ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) integration $(backend)

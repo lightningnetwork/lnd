@@ -213,7 +213,7 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	}
 
 	// If the MaxHtlc flag wasn't already set, we can set it now.
-	edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
+	edge.MessageFlags |= lnwire.ChanUpdateRequiredMaxHtlc
 
 	// Validate htlc amount constraints.
 	switch {

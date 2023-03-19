@@ -14,6 +14,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/lightningnetwork/lnd/lntest/node"
 )
 
 // logDirPattern is the pattern of the name of the temporary log directory.
@@ -37,7 +38,7 @@ type BitcoindBackendConfig struct {
 
 // A compile time assertion to ensure BitcoindBackendConfig meets the
 // BackendConfig interface.
-var _ BackendConfig = (*BitcoindBackendConfig)(nil)
+var _ node.BackendConfig = (*BitcoindBackendConfig)(nil)
 
 // GenArgs returns the arguments needed to be passed to LND at startup for
 // using this node as a chain backend.
@@ -89,7 +90,7 @@ func (b BitcoindBackendConfig) Name() string {
 func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 	rpcPolling bool) (*BitcoindBackendConfig, func() error, error) {
 
-	baseLogDir := fmt.Sprintf(logDirPattern, GetLogDir())
+	baseLogDir := fmt.Sprintf(logDirPattern, node.GetLogDir())
 	if netParams != &chaincfg.RegressionNetParams {
 		return nil, nil, fmt.Errorf("only regtest supported")
 	}
@@ -109,10 +110,12 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 			fmt.Errorf("unable to create temp directory: %v", err)
 	}
 
-	zmqBlockAddr := fmt.Sprintf("tcp://127.0.0.1:%d", NextAvailablePort())
-	zmqTxAddr := fmt.Sprintf("tcp://127.0.0.1:%d", NextAvailablePort())
-	rpcPort := NextAvailablePort()
-	p2pPort := NextAvailablePort()
+	zmqBlockAddr := fmt.Sprintf("tcp://127.0.0.1:%d",
+		node.NextAvailablePort())
+	zmqTxAddr := fmt.Sprintf("tcp://127.0.0.1:%d",
+		node.NextAvailablePort())
+	rpcPort := node.NextAvailablePort()
+	p2pPort := node.NextAvailablePort()
 
 	cmdArgs := []string{
 		"-datadir=" + tempBitcoindDir,
@@ -146,9 +149,9 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 		// After shutting down the chain backend, we'll make a copy of
 		// the log file before deleting the temporary log dir.
 		logDestination := fmt.Sprintf(
-			"%s/output_bitcoind_chainbackend.log", GetLogDir(),
+			"%s/output_bitcoind_chainbackend.log", node.GetLogDir(),
 		)
-		err := CopyFile(logDestination, logFile)
+		err := node.CopyFile(logDestination, logFile)
 		if err != nil {
 			errStr += fmt.Sprintf("unable to copy file: %v\n", err)
 		}

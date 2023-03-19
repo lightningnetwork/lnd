@@ -3,6 +3,8 @@ package migration30
 import (
 	"bytes"
 	"fmt"
+	"math/rand"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -78,6 +80,12 @@ var (
 	// logHeight1 is the CommitHeight used by oldLog1.
 	logHeight1 = uint64(0)
 
+	// localBalance1 is the LocalBalance used in oldLog1.
+	localBalance1 = lnwire.MilliSatoshi(990_950_000)
+
+	// remoteBalance1 is the RemoteBalance used in oldLog1.
+	remoteBalance1 = lnwire.MilliSatoshi(0)
+
 	// oldLog1 defines an old revocation that has no HTLCs.
 	oldLog1 = mig.ChannelCommitment{
 		CommitHeight:    logHeight1,
@@ -85,16 +93,27 @@ var (
 		LocalHtlcIndex:  0,
 		RemoteLogIndex:  0,
 		RemoteHtlcIndex: 0,
-		LocalBalance:    lnwire.MilliSatoshi(990_950_000),
-		RemoteBalance:   0,
+		LocalBalance:    localBalance1,
+		RemoteBalance:   remoteBalance1,
 		CommitTx:        commitTx1,
 	}
 
-	// newLog1 is the new version of oldLog1.
+	// newLog1 is the new version of oldLog1 in the case were we don't want
+	// to store any balance data.
 	newLog1 = RevocationLog{
 		OurOutputIndex:   0,
 		TheirOutputIndex: OutputIndexEmpty,
 		CommitTxHash:     commitTx1.TxHash(),
+	}
+
+	// newLog1WithAmts is the new version of oldLog1 in the case were we do
+	// want to store balance data.
+	newLog1WithAmts = RevocationLog{
+		OurOutputIndex:   0,
+		TheirOutputIndex: OutputIndexEmpty,
+		CommitTxHash:     commitTx1.TxHash(),
+		OurBalance:       &localBalance1,
+		TheirBalance:     &remoteBalance1,
 	}
 
 	// preimage2 defines the second revocation preimage used in the test,
@@ -146,6 +165,12 @@ var (
 	// logHeight2 is the CommitHeight used by oldLog2.
 	logHeight2 = uint64(1)
 
+	// localBalance2 is the LocalBalance used in oldLog2.
+	localBalance2 = lnwire.MilliSatoshi(888_800_000)
+
+	// remoteBalance2 is the RemoteBalance used in oldLog2.
+	remoteBalance2 = lnwire.MilliSatoshi(0)
+
 	// oldLog2 defines an old revocation that has one HTLC.
 	oldLog2 = mig.ChannelCommitment{
 		CommitHeight:    logHeight2,
@@ -153,17 +178,37 @@ var (
 		LocalHtlcIndex:  1,
 		RemoteLogIndex:  0,
 		RemoteHtlcIndex: 0,
-		LocalBalance:    lnwire.MilliSatoshi(888_800_000),
-		RemoteBalance:   0,
+		LocalBalance:    localBalance2,
+		RemoteBalance:   remoteBalance2,
 		CommitTx:        commitTx2,
 		Htlcs:           []mig.HTLC{htlc},
 	}
 
-	// newLog2 is the new version of the oldLog2.
+	// newLog2 is the new version of the oldLog2 in the case were we don't
+	// want to store any balance data.
 	newLog2 = RevocationLog{
 		OurOutputIndex:   1,
 		TheirOutputIndex: OutputIndexEmpty,
 		CommitTxHash:     commitTx2.TxHash(),
+		HTLCEntries: []*HTLCEntry{
+			{
+				RHash:         rHash,
+				RefundTimeout: 489,
+				OutputIndex:   0,
+				Incoming:      false,
+				Amt:           btcutil.Amount(100_000),
+			},
+		},
+	}
+
+	// newLog2WithAmts is the new version of oldLog2 in the case were we do
+	// want to store balance data.
+	newLog2WithAmts = RevocationLog{
+		OurOutputIndex:   1,
+		TheirOutputIndex: OutputIndexEmpty,
+		CommitTxHash:     commitTx2.TxHash(),
+		OurBalance:       &localBalance2,
+		TheirBalance:     &remoteBalance2,
 		HTLCEntries: []*HTLCEntry{
 			{
 				RHash:         rHash,
@@ -260,6 +305,12 @@ var (
 		0xf8, 0xc3, 0xfc, 0x7, 0x2d, 0x15, 0x99, 0x55,
 		0x8, 0x69, 0xf6, 0x1, 0xa2, 0xcd, 0x6b, 0xa7,
 	})
+
+	// withAmtData if set, will result in the amount data of the revoked
+	// commitment transactions also being stored in the new revocation log.
+	// The value of this variable is set randomly in the init function of
+	// this package.
+	withAmtData bool
 )
 
 // setupTestLogs takes care of creating the related buckets and inserts testing
@@ -298,7 +349,7 @@ func setupTestLogs(db kvdb.Backend, c *mig26.OpenChannel,
 		}
 
 		// Create new logs.
-		return writeNewRevocationLogs(chanBucket, newLogs)
+		return writeNewRevocationLogs(chanBucket, newLogs, !withAmtData)
 	}, func() {})
 }
 
@@ -452,7 +503,7 @@ func writeOldRevocationLogs(chanBucket kvdb.RwBucket,
 
 // writeNewRevocationLogs saves a new revocation log to db.
 func writeNewRevocationLogs(chanBucket kvdb.RwBucket,
-	oldLogs []mig.ChannelCommitment) error {
+	oldLogs []mig.ChannelCommitment, noAmtData bool) error {
 
 	// Don't bother continue if the logs are empty.
 	if len(oldLogs) == 0 {
@@ -472,7 +523,7 @@ func writeNewRevocationLogs(chanBucket kvdb.RwBucket,
 		// old commit tx. We do this intentionally so we can
 		// distinguish a newly created log from an already saved one.
 		err := putRevocationLog(
-			logBucket, &c, testOurIndex, testTheirIndex,
+			logBucket, &c, testOurIndex, testTheirIndex, noAmtData,
 		)
 		if err != nil {
 			return err
@@ -550,4 +601,16 @@ func createFinished(cdb kvdb.Backend, c *mig26.OpenChannel,
 		newLogs = append(newLogs, newLog3)
 	}
 	return setupTestLogs(cdb, c, oldLogs, newLogs)
+}
+
+func init() {
+	rand.Seed(time.Now().Unix())
+	if rand.Intn(2) == 0 {
+		withAmtData = true
+	}
+
+	if withAmtData {
+		newLog1 = newLog1WithAmts
+		newLog2 = newLog2WithAmts
+	}
 }

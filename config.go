@@ -629,6 +629,7 @@ func DefaultConfig() Config {
 		Gossip: &lncfg.Gossip{
 			MaxChannelUpdateBurst: discovery.DefaultMaxChannelUpdateBurst,
 			ChannelUpdateInterval: discovery.DefaultChannelUpdateInterval,
+			SubBatchDelay:         discovery.DefaultSubBatchDelay,
 		},
 		Invoices: &lncfg.Invoices{
 			HoldExpiryDelta: lncfg.DefaultHoldInvoiceExpiryDelta,
@@ -979,6 +980,13 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			"non-wumbo channel size %v", cfg.MaxChanSize,
 			MaxFundingAmount,
 		)
+	}
+
+	// Ensure that the amount data for revoked commitment transactions is
+	// stored if the watchtower client is active.
+	if cfg.DB.NoRevLogAmtData && cfg.WtClient.Active {
+		return nil, mkErr("revocation log amount data must be stored " +
+			"if the watchtower client is active")
 	}
 
 	// Ensure a valid max channel fee allocation was set.

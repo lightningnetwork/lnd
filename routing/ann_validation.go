@@ -129,7 +129,7 @@ func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
 func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
 	a *lnwire.ChannelUpdate) error {
 
-	if err := validateOptionalFields(capacity, a); err != nil {
+	if err := ValidateChannelUpdateFields(capacity, a); err != nil {
 		return err
 	}
 
@@ -160,27 +160,30 @@ func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate,
 	return nil
 }
 
-// validateOptionalFields validates a channel update's message flags and
+// ValidateChannelUpdateFields validates a channel update's message flags and
 // corresponding update fields.
-func validateOptionalFields(capacity btcutil.Amount,
+func ValidateChannelUpdateFields(capacity btcutil.Amount,
 	msg *lnwire.ChannelUpdate) error {
 
-	if msg.MessageFlags.HasMaxHtlc() {
-		maxHtlc := msg.HtlcMaximumMsat
-		if maxHtlc == 0 || maxHtlc < msg.HtlcMinimumMsat {
-			return errors.Errorf("invalid max htlc for channel "+
-				"update %v", spew.Sdump(msg))
-		}
+	// The maxHTLC flag is mandatory.
+	if !msg.MessageFlags.HasMaxHtlc() {
+		return errors.Errorf("max htlc flag not set for channel "+
+			"update %v", spew.Sdump(msg))
+	}
 
-		// For light clients, the capacity will not be set so we'll skip
-		// checking whether the MaxHTLC value respects the channel's
-		// capacity.
-		capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
-		if capacityMsat != 0 && maxHtlc > capacityMsat {
-			return errors.Errorf("max_htlc(%v) for channel "+
-				"update greater than capacity(%v)", maxHtlc,
-				capacityMsat)
-		}
+	maxHtlc := msg.HtlcMaximumMsat
+	if maxHtlc == 0 || maxHtlc < msg.HtlcMinimumMsat {
+		return errors.Errorf("invalid max htlc for channel "+
+			"update %v", spew.Sdump(msg))
+	}
+
+	// For light clients, the capacity will not be set so we'll skip
+	// checking whether the MaxHTLC value respects the channel's
+	// capacity.
+	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
+	if capacityMsat != 0 && maxHtlc > capacityMsat {
+		return errors.Errorf("max_htlc (%v) for channel update "+
+			"greater than capacity (%v)", maxHtlc, capacityMsat)
 	}
 
 	return nil

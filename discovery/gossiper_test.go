@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightninglabs/neutrino/cache"
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -582,7 +583,7 @@ func createUpdateAnnouncement(blockHeight uint32,
 			BlockHeight: blockHeight,
 		},
 		Timestamp:       timestamp,
-		MessageFlags:    lnwire.ChanUpdateOptionMaxHtlc,
+		MessageFlags:    lnwire.ChanUpdateRequiredMaxHtlc,
 		ChannelFlags:    flags,
 		TimeLockDelta:   uint16(prand.Int63()),
 		HtlcMinimumMsat: htlcMinMsat,
@@ -697,6 +698,12 @@ func createChannelAnnouncement(blockHeight uint32, key1, key2 *btcec.PrivateKey,
 	return a, nil
 }
 
+func mockFindChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
+	*channeldb.OpenChannel, error) {
+
+	return nil, nil
+}
+
 type testCtx struct {
 	gossiper           *AuthenticatedGossiper
 	router             *mockGraphSource
@@ -784,7 +791,7 @@ func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
 		HistoricalSyncTicker:  ticker.NewForce(DefaultHistoricalSyncInterval),
 		NumActiveSyncers:      3,
 		AnnSigner:             &mock.SingleSigner{Privkey: selfKeyPriv},
-		SubBatchDelay:         time.Second * 5,
+		SubBatchDelay:         1 * time.Millisecond,
 		MinimumBatchSize:      10,
 		MaxChannelUpdateBurst: DefaultMaxChannelUpdateBurst,
 		ChannelUpdateInterval: DefaultChannelUpdateInterval,
@@ -792,6 +799,7 @@ func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
 		SignAliasUpdate:       signAliasUpdate,
 		FindBaseByAlias:       findBaseByAlias,
 		GetAlias:              getAlias,
+		FindChannel:           mockFindChannel,
 	}, selfKeyDesc)
 
 	if err := gossiper.Start(); err != nil {
@@ -859,9 +867,30 @@ func TestProcessAnnouncement(t *testing.T) {
 		t.Fatalf("edge wasn't added to router: %v", err)
 	}
 
+	// We'll craft an invalid channel update, setting no message flags.
+	ua, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp)
+	require.NoError(t, err, "can't create update announcement")
+	ua.MessageFlags = 0
+
+	// We send an invalid channel update and expect it to fail.
+	select {
+	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(ua, nodePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("remote announcement not processed")
+	}
+	require.ErrorContains(t, err, "max htlc flag not set for channel "+
+		"update")
+
+	// We should not broadcast the channel update.
+	select {
+	case <-ctx.broadcastedMessage:
+		t.Fatal("gossiper should not have broadcast channel update")
+	case <-time.After(2 * trickleDelay):
+	}
+
 	// We'll then craft the channel policy of the remote party and also send
 	// it to the gossiper.
-	ua, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp)
+	ua, err = createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp)
 	require.NoError(t, err, "can't create update announcement")
 
 	select {
@@ -2861,24 +2890,26 @@ func TestNodeAnnouncementNoChannels(t *testing.T) {
 }
 
 // TestOptionalFieldsChannelUpdateValidation tests that we're able to properly
-// validate the msg flags and optional max HTLC field of a ChannelUpdate.
+// validate the msg flags and max HTLC field of a ChannelUpdate.
 func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 	t.Parallel()
 
 	ctx, err := createTestCtx(t, 0)
 	require.NoError(t, err, "can't create context")
 
+	processRemoteAnnouncement := ctx.gossiper.ProcessRemoteAnnouncement
+
 	chanUpdateHeight := uint32(0)
 	timestamp := uint32(123456)
 	nodePeer := &mockPeer{remoteKeyPriv1.PubKey(), nil, nil}
 
-	// In this scenario, we'll test whether the message flags field in a channel
-	// update is properly handled.
+	// In this scenario, we'll test whether the message flags field in a
+	// channel update is properly handled.
 	chanAnn, err := createRemoteChannelAnnouncement(chanUpdateHeight)
 	require.NoError(t, err, "can't create channel announcement")
 
 	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanAnn, nodePeer):
+	case err = <-processRemoteAnnouncement(chanAnn, nodePeer):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
 	}
@@ -2886,7 +2917,9 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 
 	// The first update should fail from an invalid max HTLC field, which is
 	// less than the min HTLC.
-	chanUpdAnn, err := createUpdateAnnouncement(0, 0, remoteKeyPriv1, timestamp)
+	chanUpdAnn, err := createUpdateAnnouncement(
+		0, 0, remoteKeyPriv1, timestamp,
+	)
 	require.NoError(t, err, "unable to create channel update")
 
 	chanUpdAnn.HtlcMinimumMsat = 5000
@@ -2896,7 +2929,7 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 	}
 
 	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanUpdAnn, nodePeer):
+	case err = <-processRemoteAnnouncement(chanUpdAnn, nodePeer):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
 	}
@@ -2913,7 +2946,7 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 	}
 
 	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanUpdAnn, nodePeer):
+	case err = <-processRemoteAnnouncement(chanUpdAnn, nodePeer):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
 	}
@@ -2921,19 +2954,36 @@ func TestOptionalFieldsChannelUpdateValidation(t *testing.T) {
 		t.Fatalf("expected chan update to error, instead got %v", err)
 	}
 
-	// The final update should succeed, since setting the flag 0 means the
-	// nonsense max_htlc field will just be ignored.
+	// The third update should not succeed, a channel update with no message
+	// flag set is invalid.
 	chanUpdAnn.MessageFlags = 0
 	if err := signUpdate(remoteKeyPriv1, chanUpdAnn); err != nil {
 		t.Fatalf("unable to sign channel update: %v", err)
 	}
 
 	select {
-	case err = <-ctx.gossiper.ProcessRemoteAnnouncement(chanUpdAnn, nodePeer):
+	case err = <-processRemoteAnnouncement(chanUpdAnn, nodePeer):
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
 	}
-	require.NoError(t, err, "unable to process announcement")
+	require.ErrorContains(t, err, "max htlc flag not set")
+
+	// The final update should succeed.
+	chanUpdAnn, err = createUpdateAnnouncement(
+		0, 0, remoteKeyPriv1, timestamp,
+	)
+	require.NoError(t, err, "unable to create channel update")
+
+	if err := signUpdate(remoteKeyPriv1, chanUpdAnn); err != nil {
+		t.Fatalf("unable to sign channel update: %v", err)
+	}
+
+	select {
+	case err = <-processRemoteAnnouncement(chanUpdAnn, nodePeer):
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not process remote announcement")
+	}
+	require.NoError(t, err, "expected update to be processed")
 }
 
 // TestSendChannelUpdateReliably ensures that the latest channel update for a
@@ -3371,7 +3421,9 @@ out:
 		case <-sentMsgs:
 		case err := <-notifyErr:
 			t.Fatal(err)
-		default:
+
+		// Give it 5 seconds to drain out.
+		case <-time.After(5 * time.Second):
 			break out
 		}
 	}
@@ -3531,7 +3583,10 @@ func assertMessage(t *testing.T, expected, got lnwire.Message) {
 // TestSplitAnnouncementsCorrectSubBatches checks that we split a given
 // sizes of announcement list into the correct number of batches.
 func TestSplitAnnouncementsCorrectSubBatches(t *testing.T) {
-	t.Parallel()
+	// Create our test harness.
+	const blockHeight = 100
+	ctx, err := createTestCtx(t, blockHeight)
+	require.NoError(t, err, "can't create context")
 
 	const subBatchSize = 10
 
@@ -3540,6 +3595,12 @@ func TestSplitAnnouncementsCorrectSubBatches(t *testing.T) {
 
 	lengthAnnouncementBatchSizes := len(announcementBatchSizes)
 	lengthExpectedNumberMiniBatches := len(expectedNumberMiniBatches)
+
+	batchSizeCalculator = func(totalDelay, subBatchDelay time.Duration,
+		minimumBatchSize, batchSize int) int {
+
+		return subBatchSize
+	}
 
 	if lengthAnnouncementBatchSizes != lengthExpectedNumberMiniBatches {
 		t.Fatal("Length of announcementBatchSizes and " +
@@ -3550,15 +3611,16 @@ func TestSplitAnnouncementsCorrectSubBatches(t *testing.T) {
 		var batchSize = announcementBatchSizes[testIndex]
 		announcementBatch := make([]msgWithSenders, batchSize)
 
-		splitAnnouncementBatch := splitAnnouncementBatches(
-			subBatchSize, announcementBatch,
+		splitAnnouncementBatch := ctx.gossiper.splitAnnouncementBatches(
+			announcementBatch,
 		)
 
 		lengthMiniBatches := len(splitAnnouncementBatch)
 
 		if lengthMiniBatches != expectedNumberMiniBatches[testIndex] {
 			t.Fatalf("Expecting %d mini batches, actual %d",
-				expectedNumberMiniBatches[testIndex], lengthMiniBatches)
+				expectedNumberMiniBatches[testIndex],
+				lengthMiniBatches)
 		}
 	}
 }
@@ -4036,4 +4098,39 @@ func TestRejectCacheChannelAnn(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("did not process remote announcement")
 	}
+}
+
+// TestFutureMsgCacheEviction checks that when the cache's capacity is reached,
+// saving one more item will evict the oldest item.
+func TestFutureMsgCacheEviction(t *testing.T) {
+	t.Parallel()
+
+	// Create a future message cache with size 1.
+	c := newFutureMsgCache(1)
+
+	// Send two messages to the cache, which ends in the first message
+	// being evicted.
+	//
+	// Put the first item.
+	id := c.nextMsgID()
+	evicted, err := c.Put(id, &cachedFutureMsg{height: uint32(id)})
+	require.NoError(t, err)
+	require.False(t, evicted, "should not be evicted")
+
+	// Put the second item.
+	id = c.nextMsgID()
+	evicted, err = c.Put(id, &cachedFutureMsg{height: uint32(id)})
+	require.NoError(t, err)
+	require.True(t, evicted, "should be evicted")
+
+	// The first item should have been evicted.
+	//
+	// NOTE: msg ID starts at 1, not 0.
+	_, err = c.Get(1)
+	require.ErrorIs(t, err, cache.ErrElementNotFound)
+
+	// The second item should be found.
+	item, err := c.Get(2)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, item.height, "should be the second item")
 }

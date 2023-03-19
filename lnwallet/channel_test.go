@@ -9482,7 +9482,7 @@ func TestCreateHtlcRetribution(t *testing.T) {
 }
 
 // TestCreateBreachRetribution checks that `createBreachRetribution` behaves as
-// epxected.
+// expected.
 func TestCreateBreachRetribution(t *testing.T) {
 	t.Parallel()
 
@@ -9524,11 +9524,15 @@ func TestCreateBreachRetribution(t *testing.T) {
 	}
 
 	// Create a dummy revocation log.
+	ourAmtMsat := lnwire.MilliSatoshi(ourAmt * 1000)
+	theirAmtMsat := lnwire.MilliSatoshi(theirAmt * 1000)
 	revokedLog := channeldb.RevocationLog{
 		CommitTxHash:     commitHash,
 		OurOutputIndex:   uint16(localIndex),
 		TheirOutputIndex: uint16(remoteIndex),
 		HTLCEntries:      []*channeldb.HTLCEntry{htlc},
+		TheirBalance:     &theirAmtMsat,
+		OurBalance:       &ourAmtMsat,
 	}
 
 	// Create a log with an empty local output index.
@@ -9545,13 +9549,24 @@ func TestCreateBreachRetribution(t *testing.T) {
 		expectedErr      error
 		expectedOurAmt   int64
 		expectedTheirAmt int64
+		noSpendTx        bool
 	}{
 		{
-			name:             "create retribution successfully",
+			name: "create retribution successfully " +
+				"with spend tx",
 			revocationLog:    &revokedLog,
 			expectedErr:      nil,
 			expectedOurAmt:   ourAmt,
 			expectedTheirAmt: theirAmt,
+		},
+		{
+			name: "create retribution successfully " +
+				"without spend tx",
+			revocationLog:    &revokedLog,
+			expectedErr:      nil,
+			expectedOurAmt:   ourAmt,
+			expectedTheirAmt: theirAmt,
+			noSpendTx:        true,
 		},
 		{
 			name: "fail due to our index too big",
@@ -9568,18 +9583,38 @@ func TestCreateBreachRetribution(t *testing.T) {
 			expectedErr: ErrOutputIndexOutOfRange,
 		},
 		{
-			name:             "empty local output index",
+			name: "empty local output index with spend " +
+				"tx",
 			revocationLog:    &revokedLogNoLocal,
 			expectedErr:      nil,
 			expectedOurAmt:   0,
 			expectedTheirAmt: theirAmt,
 		},
 		{
-			name:             "empty remote output index",
+			name: "empty local output index without spend " +
+				"tx",
+			revocationLog:    &revokedLogNoLocal,
+			expectedErr:      nil,
+			expectedOurAmt:   0,
+			expectedTheirAmt: theirAmt,
+			noSpendTx:        true,
+		},
+		{
+			name: "empty remote output index with spend " +
+				"tx",
 			revocationLog:    &revokedLogNoRemote,
 			expectedErr:      nil,
 			expectedOurAmt:   ourAmt,
 			expectedTheirAmt: 0,
+		},
+		{
+			name: "empty remote output index without spend " +
+				"tx",
+			revocationLog:    &revokedLogNoRemote,
+			expectedErr:      nil,
+			expectedOurAmt:   ourAmt,
+			expectedTheirAmt: 0,
+			noSpendTx:        true,
 		},
 	}
 
@@ -9623,8 +9658,13 @@ func TestCreateBreachRetribution(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
+			tx := spendTx
+			if tc.noSpendTx {
+				tx = nil
+			}
+
 			br, our, their, err := createBreachRetribution(
-				tc.revocationLog, spendTx,
+				tc.revocationLog, tx,
 				aliceChannel.channelState, keyRing,
 				dummyPrivate, leaseExpiry,
 			)
@@ -9748,6 +9788,13 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	)
 	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
 
+	// We also check that the same error is returned if no breach tx is
+	// provided.
+	_, err = NewBreachRetribution(
+		aliceChannel.channelState, stateNum, breachHeight, nil,
+	)
+	require.ErrorIs(t, err, channeldb.ErrNoPastDeltas)
+
 	// We now force a state transition which will give us a revocation log
 	// at height 0.
 	txid := aliceChannel.channelState.RemoteCommitment.CommitTx.TxHash()
@@ -9797,10 +9844,25 @@ func testNewBreachRetribution(t *testing.T, chanType channeldb.ChannelType) {
 	t.Log(spew.Sdump(breachTx))
 	assertRetribution(br, 1, 0)
 
+	// Repeat the check but with the breach tx set to nil. This should work
+	// since the necessary info should now be found in the revocation log.
+	br, err = NewBreachRetribution(
+		aliceChannel.channelState, stateNum, breachHeight, nil,
+	)
+	require.NoError(t, err)
+	assertRetribution(br, 1, 0)
+
 	// Create the retribution using a stateNum+1 and we should expect an
 	// error.
 	_, err = NewBreachRetribution(
 		aliceChannel.channelState, stateNum+1, breachHeight, breachTx,
+	)
+	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
+
+	// Once again, repeat the check for the case when no breach tx is
+	// provided.
+	_, err = NewBreachRetribution(
+		aliceChannel.channelState, stateNum+1, breachHeight, nil,
 	)
 	require.ErrorIs(t, err, channeldb.ErrLogEntryNotFound)
 }

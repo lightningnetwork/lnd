@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -46,6 +47,14 @@ const (
 	// maxPrematureUpdates tracks the max amount of premature channel
 	// updates that we'll hold onto.
 	maxPrematureUpdates = 100
+
+	// maxFutureMessages tracks the max amount of future messages that
+	// we'll hold onto.
+	maxFutureMessages = 1000
+
+	// DefaultSubBatchDelay is the default delay we'll use when
+	// broadcasting the next announcement batch.
+	DefaultSubBatchDelay = 5 * time.Second
 
 	// maxRejectedUpdates tracks the max amount of rejected channel updates
 	// we'll maintain. This is the global size across all peers. We'll
@@ -312,6 +321,11 @@ type Config struct {
 	// ChannelID. This is used to sign updates for them if the channel has
 	// no AuthProof and the option-scid-alias feature bit was negotiated.
 	GetAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)
+
+	// FindChannel allows the gossiper to find a channel that we're party
+	// to without iterating over the entire set of open channels.
+	FindChannel func(node *btcec.PublicKey, chanID lnwire.ChannelID) (
+		*channeldb.OpenChannel, error)
 }
 
 // processedNetworkMsg is a wrapper around networkMsg and a boolean. It is
@@ -404,7 +418,7 @@ type AuthenticatedGossiper struct {
 	// that wasn't associated with any channel we know about.  We store
 	// them temporarily, such that we can reprocess them when a
 	// ChannelAnnouncement for the channel is received.
-	prematureChannelUpdates *lru.Cache
+	prematureChannelUpdates *lru.Cache[uint64, *cachedNetworkMsg]
 
 	// networkMsgs is a channel that carries new network broadcasted
 	// message from outside the gossiper service to be processed by the
@@ -415,8 +429,8 @@ type AuthenticatedGossiper struct {
 	// height specified in the future. We will save them and resend it to
 	// the chan networkMsgs once the block height has reached. The cached
 	// map format is,
-	//   {blockHeight: [msg1, msg2, ...], ...}
-	futureMsgs *lru.Cache
+	//   {msgID1: msg1, msgID2: msg2, ...}
+	futureMsgs *futureMsgCache
 
 	// chanPolicyUpdates is a channel that requests to update the
 	// forwarding policy of a set of channels is sent over.
@@ -435,7 +449,7 @@ type AuthenticatedGossiper struct {
 	// consistent between when the DB is first read until it's written.
 	channelMtx *multimutex.Mutex
 
-	recentRejects *lru.Cache
+	recentRejects *lru.Cache[rejectCacheKey, *cachedReject]
 
 	// syncMgr is a subsystem responsible for managing the gossip syncers
 	// for peers currently connected. When a new peer is connected, the
@@ -469,17 +483,21 @@ type AuthenticatedGossiper struct {
 // passed configuration parameters.
 func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper {
 	gossiper := &AuthenticatedGossiper{
-		selfKey:                 selfKeyDesc.PubKey,
-		selfKeyLoc:              selfKeyDesc.KeyLocator,
-		cfg:                     &cfg,
-		networkMsgs:             make(chan *networkMsg),
-		futureMsgs:              lru.NewCache(maxPrematureUpdates),
-		quit:                    make(chan struct{}),
-		chanPolicyUpdates:       make(chan *chanPolicyUpdateRequest),
-		prematureChannelUpdates: lru.NewCache(maxPrematureUpdates),
-		channelMtx:              multimutex.NewMutex(),
-		recentRejects:           lru.NewCache(maxRejectedUpdates),
-		chanUpdateRateLimiter:   make(map[uint64][2]*rate.Limiter),
+		selfKey:           selfKeyDesc.PubKey,
+		selfKeyLoc:        selfKeyDesc.KeyLocator,
+		cfg:               &cfg,
+		networkMsgs:       make(chan *networkMsg),
+		futureMsgs:        newFutureMsgCache(maxFutureMessages),
+		quit:              make(chan struct{}),
+		chanPolicyUpdates: make(chan *chanPolicyUpdateRequest),
+		prematureChannelUpdates: lru.NewCache[uint64, *cachedNetworkMsg]( //nolint: lll
+			maxPrematureUpdates,
+		),
+		channelMtx: multimutex.NewMutex(),
+		recentRejects: lru.NewCache[rejectCacheKey, *cachedReject](
+			maxRejectedUpdates,
+		),
+		chanUpdateRateLimiter: make(map[uint64][2]*rate.Limiter),
 	}
 
 	gossiper.syncMgr = newSyncManager(&SyncManagerCfg{
@@ -617,33 +635,89 @@ func (d *AuthenticatedGossiper) syncBlockHeight() {
 	}
 }
 
+// futureMsgCache embeds a `lru.Cache` with a message counter that's served as
+// the unique ID when saving the message.
+type futureMsgCache struct {
+	*lru.Cache[uint64, *cachedFutureMsg]
+
+	// msgID is a monotonically increased integer.
+	msgID atomic.Uint64
+}
+
+// nextMsgID returns a unique message ID.
+func (f *futureMsgCache) nextMsgID() uint64 {
+	return f.msgID.Add(1)
+}
+
+// newFutureMsgCache creates a new future message cache with the underlying lru
+// cache being initialized with the specified capacity.
+func newFutureMsgCache(capacity uint64) *futureMsgCache {
+	// Create a new cache.
+	cache := lru.NewCache[uint64, *cachedFutureMsg](capacity)
+
+	return &futureMsgCache{
+		Cache: cache,
+	}
+}
+
+// cachedFutureMsg is a future message that's saved to the `futureMsgCache`.
+type cachedFutureMsg struct {
+	// msg is the network message.
+	msg *networkMsg
+
+	// height is the block height.
+	height uint32
+}
+
+// Size returns the size of the message.
+func (c *cachedFutureMsg) Size() (uint64, error) {
+	// Return a constant 1.
+	return 1, nil
+}
+
 // resendFutureMessages takes a block height, resends all the future messages
-// found at that height and deletes those messages found in the gossiper's
-// futureMsgs.
+// found below and equal to that height and deletes those messages found in the
+// gossiper's futureMsgs.
 func (d *AuthenticatedGossiper) resendFutureMessages(height uint32) {
-	result, err := d.futureMsgs.Get(height)
+	var (
+		// msgs are the target messages.
+		msgs []*networkMsg
+
+		// keys are the target messages' caching keys.
+		keys []uint64
+	)
+
+	// filterMsgs is the visitor used when iterating the future cache.
+	filterMsgs := func(k uint64, cmsg *cachedFutureMsg) bool {
+		if cmsg.height <= height {
+			msgs = append(msgs, cmsg.msg)
+			keys = append(keys, k)
+		}
+
+		return true
+	}
+
+	// Filter out the target messages.
+	d.futureMsgs.Range(filterMsgs)
 
 	// Return early if no messages found.
-	if err == cache.ErrElementNotFound {
+	if len(msgs) == 0 {
 		return
 	}
 
-	// The error must nil, we will log an error and exit.
-	if err != nil {
-		log.Errorf("Reading future messages got error: %v", err)
-		return
+	// Remove the filtered messages.
+	for _, key := range keys {
+		d.futureMsgs.Delete(key)
 	}
-
-	msgs := result.(*cachedNetworkMsg).msgs
 
 	log.Debugf("Resending %d network messages at height %d",
 		len(msgs), height)
 
-	for _, pMsg := range msgs {
+	for _, msg := range msgs {
 		select {
-		case d.networkMsgs <- pMsg.msg:
+		case d.networkMsgs <- msg:
 		case <-d.quit:
-			pMsg.msg.err <- ErrGossiperShuttingDown
+			msg.err <- ErrGossiperShuttingDown
 		}
 	}
 }
@@ -944,9 +1018,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		// timestamp, then we'll just discard the message we got.
 		if oldTimestamp > msg.Timestamp {
 			log.Debugf("Ignored outdated network message: "+
-				"peer=%v, source=%x, msg=%s, ", message.peer,
-				message.source.SerializeCompressed(),
-				msg.MsgType())
+				"peer=%v, msg=%s", message.peer, msg.MsgType())
 			return
 		}
 
@@ -1110,8 +1182,8 @@ func calculateSubBatchSize(totalDelay, subBatchDelay time.Duration,
 		return batchSize
 	}
 
-	subBatchSize := (int(batchSize)*int(subBatchDelay) + int(totalDelay) - 1) /
-		int(totalDelay)
+	subBatchSize := (batchSize*int(subBatchDelay) +
+		int(totalDelay) - 1) / int(totalDelay)
 
 	if subBatchSize < minimumBatchSize {
 		return minimumBatchSize
@@ -1120,10 +1192,20 @@ func calculateSubBatchSize(totalDelay, subBatchDelay time.Duration,
 	return subBatchSize
 }
 
+// batchSizeCalculator maps to the function `calculateSubBatchSize`. We create
+// this variable so the function can be mocked in our test.
+var batchSizeCalculator = calculateSubBatchSize
+
 // splitAnnouncementBatches takes an exiting list of announcements and
 // decomposes it into sub batches controlled by the `subBatchSize`.
-func splitAnnouncementBatches(subBatchSize int,
+func (d *AuthenticatedGossiper) splitAnnouncementBatches(
 	announcementBatch []msgWithSenders) [][]msgWithSenders {
+
+	subBatchSize := batchSizeCalculator(
+		d.cfg.TrickleDelay, d.cfg.SubBatchDelay,
+		d.cfg.MinimumBatchSize, len(announcementBatch),
+	)
+
 	var splitAnnouncementBatch [][]msgWithSenders
 
 	for subBatchSize < len(announcementBatch) {
@@ -1134,76 +1216,85 @@ func splitAnnouncementBatches(subBatchSize int,
 			append(splitAnnouncementBatch,
 				announcementBatch[0:subBatchSize:subBatchSize])
 	}
-	splitAnnouncementBatch = append(splitAnnouncementBatch, announcementBatch)
+	splitAnnouncementBatch = append(
+		splitAnnouncementBatch, announcementBatch,
+	)
 
 	return splitAnnouncementBatch
 }
 
 // splitAndSendAnnBatch takes a batch of messages, computes the proper batch
-// split size, and then sends out all items to the set of target peers. If
-// isLocal is true, then we'll send them to all peers and skip any gossip
-// filter checks.
-func (d *AuthenticatedGossiper) splitAndSendAnnBatch(annBatch []msgWithSenders,
-	isLocal bool) {
+// split size, and then sends out all items to the set of target peers. Locally
+// generated announcements are always sent before remotely generated
+// announcements.
+func (d *AuthenticatedGossiper) splitAndSendAnnBatch(
+	annBatch msgsToBroadcast) {
 
-	// Next, If we have new things to announce then broadcast them to all
-	// our immediately connected peers.
-	subBatchSize := calculateSubBatchSize(
-		d.cfg.TrickleDelay, d.cfg.SubBatchDelay,
-		d.cfg.MinimumBatchSize, len(annBatch),
-	)
+	// delayNextBatch is a helper closure that blocks for `SubBatchDelay`
+	// duration to delay the sending of next announcement batch.
+	delayNextBatch := func() {
+		select {
+		case <-time.After(d.cfg.SubBatchDelay):
+		case <-d.quit:
+			return
+		}
+	}
 
-	splitAnnouncementBatch := splitAnnouncementBatches(
-		subBatchSize, annBatch,
-	)
+	// Fetch the local and remote announcements.
+	localBatches := d.splitAnnouncementBatches(annBatch.localMsgs)
+	remoteBatches := d.splitAnnouncementBatches(annBatch.remoteMsgs)
 
 	d.wg.Add(1)
 	go func() {
 		defer d.wg.Done()
 
-		log.Infof("Broadcasting %v new announcements in %d sub "+
-			"batches (local=%v)", len(annBatch),
-			len(splitAnnouncementBatch), isLocal)
+		log.Debugf("Broadcasting %v new local announcements in %d "+
+			"sub batches", len(annBatch.localMsgs),
+			len(localBatches))
 
-		for _, announcementBatch := range splitAnnouncementBatch {
-			d.sendBatch(announcementBatch, isLocal)
+		// Send out the local announcements first.
+		for _, annBatch := range localBatches {
+			d.sendLocalBatch(annBatch)
+			delayNextBatch()
+		}
 
-			select {
-			case <-time.After(d.cfg.SubBatchDelay):
-			case <-d.quit:
-				return
-			}
+		log.Debugf("Broadcasting %v new remote announcements in %d "+
+			"sub batches", len(annBatch.remoteMsgs),
+			len(remoteBatches))
+
+		// Now send the remote announcements.
+		for _, annBatch := range remoteBatches {
+			d.sendRemoteBatch(annBatch)
+			delayNextBatch()
 		}
 	}()
 }
 
-// sendBatch broadcasts a list of announcements to our peers.
-func (d *AuthenticatedGossiper) sendBatch(annBatch []msgWithSenders,
-	isLocal bool) {
+// sendLocalBatch broadcasts a list of locally generated announcements to our
+// peers. For local announcements, we skip the filter and dedup logic and just
+// send the announcements out to all our coonnected peers.
+func (d *AuthenticatedGossiper) sendLocalBatch(annBatch []msgWithSenders) {
+	msgsToSend := lnutils.Map(
+		annBatch, func(m msgWithSenders) lnwire.Message {
+			return m.msg
+		},
+	)
 
-	// If this is a batch of announcements created locally, then we can
-	// skip the filter and dedup logic below, and just send the
-	// announcements out to all our coonnected peers.
-	if isLocal {
-		msgsToSend := lnutils.Map(
-			annBatch, func(m msgWithSenders) lnwire.Message {
-				return m.msg
-			},
-		)
-		err := d.cfg.Broadcast(nil, msgsToSend...)
-		if err != nil {
-			log.Errorf("Unable to send local batch "+
-				"announcements: %v", err)
-		}
-
-		return
+	err := d.cfg.Broadcast(nil, msgsToSend...)
+	if err != nil {
+		log.Errorf("Unable to send local batch announcements: %v", err)
 	}
+}
 
+// sendRemoteBatch broadcasts a list of remotely generated announcements to our
+// peers.
+func (d *AuthenticatedGossiper) sendRemoteBatch(annBatch []msgWithSenders) {
 	syncerPeers := d.syncMgr.GossipSyncers()
 
 	// We'll first attempt to filter out this new message for all peers
 	// that have active gossip syncers active.
-	for _, syncer := range syncerPeers {
+	for pub, syncer := range syncerPeers {
+		log.Tracef("Sending messages batch to GossipSyncer(%x)", pub)
 		syncer.FilterGossipMsgs(annBatch...)
 	}
 
@@ -1282,10 +1373,8 @@ func (d *AuthenticatedGossiper) networkHandler() {
 
 		case announcement := <-d.networkMsgs:
 			log.Tracef("Received network message: "+
-				"peer=%v, source=%x, msg=%s, is_remote=%v",
-				announcement.peer,
-				announcement.source.SerializeCompressed(),
-				announcement.msg.MsgType(),
+				"peer=%v, msg=%s, is_remote=%v",
+				announcement.peer, announcement.msg.MsgType(),
 				announcement.isRemote)
 
 			switch announcement.msg.(type) {
@@ -1350,12 +1439,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			// announcements, we'll blast them out w/o regard for
 			// our peer's policies so we ensure they propagate
 			// properly.
-			d.splitAndSendAnnBatch(
-				announcementBatch.localMsgs, true,
-			)
-			d.splitAndSendAnnBatch(
-				announcementBatch.remoteMsgs, false,
-			)
+			d.splitAndSendAnnBatch(announcementBatch)
 
 		// The retransmission timer has ticked which indicates that we
 		// should check if we need to prune or re-broadcast any of our
@@ -1520,7 +1604,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 		if !edge.MessageFlags.HasMaxHtlc() {
 			// We'll make sure we support the new max_htlc field if
 			// not already present.
-			edge.MessageFlags |= lnwire.ChanUpdateOptionMaxHtlc
+			edge.MessageFlags |= lnwire.ChanUpdateRequiredMaxHtlc
 			edge.MaxHTLC = lnwire.NewMSatFromSatoshis(info.Capacity)
 
 			edgesToUpdate = append(edgesToUpdate, updateTuple{
@@ -1851,23 +1935,11 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 		return false
 	}
 
-	// Add the premature message to our future messages which will
-	// be resent once the block height has reached.
+	// Add the premature message to our future messages which will be
+	// resent once the block height has reached.
 	//
-	// Init an empty cached message and overwrite it if there are cached
-	// messages found.
-	cachedMsgs := &cachedNetworkMsg{
-		msgs: make([]*processedNetworkMsg, 0),
-	}
-
-	result, err := d.futureMsgs.Get(msgHeight)
-	// No error returned means we have old messages cached.
-	if err == nil {
-		cachedMsgs = result.(*cachedNetworkMsg)
-	}
-
-	// Copy the networkMsgs since the old message's err chan will
-	// be consumed.
+	// Copy the networkMsgs since the old message's err chan will be
+	// consumed.
 	copied := &networkMsg{
 		peer:              msg.peer,
 		source:            msg.source,
@@ -1877,12 +1949,15 @@ func (d *AuthenticatedGossiper) isPremature(chanID lnwire.ShortChannelID,
 		err:               make(chan error, 1),
 	}
 
-	// The processed boolean is unused in the futureMsgs case.
-	pMsg := &processedNetworkMsg{msg: copied}
+	// Create the cached message.
+	cachedMsg := &cachedFutureMsg{
+		msg:    copied,
+		height: msgHeight,
+	}
 
-	// Add the network message.
-	cachedMsgs.msgs = append(cachedMsgs.msgs, pMsg)
-	_, err = d.futureMsgs.Put(msgHeight, cachedMsgs)
+	// Increment the msg ID and add it to the cache.
+	nextMsgID := d.futureMsgs.nextMsgID()
+	_, err := d.futureMsgs.Put(nextMsgID, cachedMsg)
 	if err != nil {
 		log.Errorf("Adding future message got error: %v", err)
 	}
@@ -2493,7 +2568,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		// There was actually an entry in the map, so we'll accumulate
 		// it. We don't worry about deletion, since it'll eventually
 		// fall out anyway.
-		chanMsgs := earlyChanUpdates.(*cachedNetworkMsg)
+		chanMsgs := earlyChanUpdates
 		channelUpdates = append(channelUpdates, chanMsgs.msgs...)
 	}
 
@@ -2629,9 +2704,8 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	) {
 
 		log.Debugf("Ignored stale edge policy for short_chan_id(%v): "+
-			"peer=%v, source=%x, msg=%s, is_remote=%v", shortChanID,
-			nMsg.peer, nMsg.source.SerializeCompressed(),
-			nMsg.msg.MsgType(), nMsg.isRemote,
+			"peer=%v, msg=%s, is_remote=%v", shortChanID,
+			nMsg.peer, nMsg.msg.MsgType(), nMsg.isRemote,
 		)
 
 		nMsg.err <- nil
@@ -2705,7 +2779,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		// There's already something in the cache, so we'll combine the
 		// set of messages into a single value.
 		default:
-			msgs := earlyMsgs.(*cachedNetworkMsg).msgs
+			msgs := earlyMsgs.msgs
 			msgs = append(msgs, pMsg)
 			_, _ = d.prematureChannelUpdates.Put(
 				shortChanID, &cachedNetworkMsg{
@@ -2996,6 +3070,16 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 		ann.ShortChannelID,
 	)
 	if err != nil {
+		_, err = d.cfg.FindChannel(nMsg.source, ann.ChannelID)
+		if err != nil {
+			err := fmt.Errorf("unable to store the proof for "+
+				"short_chan_id=%v: %v", shortChanID, err)
+			log.Error(err)
+			nMsg.err <- err
+
+			return nil, false
+		}
+
 		proof := channeldb.NewWaitingProof(nMsg.isRemote, ann)
 		err := d.cfg.WaitingProofStore.Add(proof)
 		if err != nil {

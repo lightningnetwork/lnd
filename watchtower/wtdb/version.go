@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration2"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration3"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration4"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration5"
 )
 
 // txMigration is a function which takes a prior outdated version of the
@@ -54,6 +55,9 @@ var clientDBVersions = []version{
 		dbMigration: migration4.MigrateAckedUpdates(
 			migration4.DefaultSessionsPerTx,
 		),
+	},
+	{
+		txMigration: migration5.MigrateCompleteTowerToSessionIndex,
 	},
 }
 

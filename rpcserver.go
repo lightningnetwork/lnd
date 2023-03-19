@@ -577,7 +577,7 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "read",
 		}},
-		"/lnrpc.Lightning/LookupHtlc": {{
+		"/lnrpc.Lightning/LookupHtlcResolution": {{
 			Entity: "offchain",
 			Action: "read",
 		}},
@@ -3937,10 +3937,17 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 	return resp, nil
 }
 
-// LookupHtlc retrieves a final htlc resolution from the database. If the htlc
-// has no final resolution yet, a NotFound grpc status code is returned.
-func (r *rpcServer) LookupHtlc(ctx context.Context,
-	in *lnrpc.LookupHtlcRequest) (*lnrpc.LookupHtlcResponse, error) {
+// LookupHtlcResolution retrieves a final htlc resolution from the database. If
+// the htlc has no final resolution yet, a NotFound grpc status code is
+// returned.
+func (r *rpcServer) LookupHtlcResolution(
+	ctx context.Context, in *lnrpc.LookupHtlcResolutionRequest) (
+	*lnrpc.LookupHtlcResolutionResponse, error) {
+
+	if !r.cfg.StoreFinalHtlcResolutions {
+		return nil, status.Error(codes.Unavailable, "cannot lookup "+
+			"with flag --store-final-htlc-resolutions=false")
+	}
 
 	chanID := lnwire.NewShortChanIDFromInt(in.ChanId)
 
@@ -3953,7 +3960,7 @@ func (r *rpcServer) LookupHtlc(ctx context.Context,
 		return nil, err
 	}
 
-	return &lnrpc.LookupHtlcResponse{
+	return &lnrpc.LookupHtlcResolutionResponse{
 		Settled:  info.Settled,
 		Offchain: info.Offchain,
 	}, nil
@@ -4017,7 +4024,9 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		// Next, we'll determine whether we should add this channel to
 		// our list depending on the type of channels requested to us.
 		isActive := peerOnline && linkActive
-		channel, err := createRPCOpenChannel(r, dbChannel, isActive)
+		channel, err := createRPCOpenChannel(
+			r, dbChannel, isActive, in.PeerAliasLookup,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -4066,7 +4075,6 @@ func rpcCommitmentType(chanType channeldb.ChannelType) lnrpc.CommitmentType {
 // *Channeldb.ChannelConfig.
 func createChannelConstraint(
 	chanCfg *channeldb.ChannelConfig) *lnrpc.ChannelConstraints {
-
 	return &lnrpc.ChannelConstraints{
 		CsvDelay:          uint32(chanCfg.CsvDelay),
 		ChanReserveSat:    uint64(chanCfg.ChanReserve),
@@ -4088,7 +4096,7 @@ func isPrivate(dbChannel *channeldb.OpenChannel) bool {
 
 // createRPCOpenChannel creates an *lnrpc.Channel from the *channeldb.Channel.
 func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
-	isActive bool) (*lnrpc.Channel, error) {
+	isActive, peerAliasLookup bool) (*lnrpc.Channel, error) {
 
 	nodePub := dbChannel.IdentityPub
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
@@ -4162,6 +4170,16 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		CsvDelay:             uint32(dbChannel.LocalChanCfg.CsvDelay),
 		LocalChanReserveSat:  int64(dbChannel.LocalChanCfg.ChanReserve),
 		RemoteChanReserveSat: int64(dbChannel.RemoteChanCfg.ChanReserve),
+	}
+
+	// Look up our channel peer's node alias if the caller requests it.
+	if peerAliasLookup {
+		peerAlias, err := r.server.graphDB.LookupAlias(nodePub)
+		if err != nil {
+			peerAlias = fmt.Sprintf("unable to lookup "+
+				"peer alias: %v", err)
+		}
+		channel.PeerAlias = peerAlias
 	}
 
 	// Populate the set of aliases.
@@ -4576,7 +4594,7 @@ func (r *rpcServer) SubscribeChannelEvents(req *lnrpc.ChannelEventSubscription,
 				}
 			case channelnotifier.OpenChannelEvent:
 				channel, err := createRPCOpenChannel(
-					r, event.Channel, true,
+					r, event.Channel, true, false,
 				)
 				if err != nil {
 					return err
@@ -7000,16 +7018,15 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 		if req.PeerAliasLookup {
 			aliasIn, err := getRemoteAlias(event.IncomingChanID)
 			if err != nil {
-				return nil, fmt.Errorf("unable to lookup peer "+
+				aliasIn = fmt.Sprintf("unable to lookup peer "+
+					"alias: %v", err)
+			}
+			aliasOut, err := getRemoteAlias(event.OutgoingChanID)
+			if err != nil {
+				aliasOut = fmt.Sprintf("unable to lookup peer"+
 					"alias: %v", err)
 			}
 			resp.ForwardingEvents[i].PeerAliasIn = aliasIn
-
-			aliasOut, err := getRemoteAlias(event.OutgoingChanID)
-			if err != nil {
-				return nil, fmt.Errorf("unable to lookup peer "+
-					"alias: %v", err)
-			}
 			resp.ForwardingEvents[i].PeerAliasOut = aliasOut
 		}
 	}

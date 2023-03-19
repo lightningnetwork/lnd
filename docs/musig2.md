@@ -44,7 +44,7 @@ to test the RPCs and to showcase the different use cases.
 ### 3-of-3 Taproot key spend path (BIP-0086)
 
 See `testTaprootMuSig2KeySpendBip86` in
-[`lntest/itest/lnd_taproot_test.go`](../lntest/itest/lnd_taproot_test.go) to see
+[`itest/lnd_taproot_test.go`](../itest/lnd_taproot_test.go) to see
 the full code.
 
 This example uses combines the public keys of 3 participants into a shared
@@ -73,7 +73,7 @@ the `MuSig2CreateSession` RPC call:
 ### 3-of-3 Taproot key spend path with root hash commitment
 
 See `testTaprootMuSig2KeySpendRootHash` in
-[`lntest/itest/lnd_taproot_test.go`](../lntest/itest/lnd_taproot_test.go) to see
+[`itest/lnd_taproot_test.go`](../itest/lnd_taproot_test.go) to see
 the full code.
 
 This is very similar to the above example but with the main difference that the
@@ -101,7 +101,7 @@ the `MuSig2CreateSession` RPC call:
 ### 3-of-3 `OP_CHECKSIG` in Taproot script spend path
 
 See `testTaprootMuSig2CombinedLeafKeySpend` in
-[`lntest/itest/lnd_taproot_test.go`](../lntest/itest/lnd_taproot_test.go) to see
+[`itest/lnd_taproot_test.go`](../itest/lnd_taproot_test.go) to see
 the full code.
 
 This example is definitely the most involved one. To be able to use a MuSig2

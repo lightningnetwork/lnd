@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/neutrino"
 	"github.com/lightninglabs/neutrino/cache"
 	"github.com/stretchr/testify/require"
 )
@@ -84,7 +85,9 @@ func TestBlockCacheGetBlock(t *testing.T) {
 	inv3 := wire.NewInvVect(wire.InvTypeWitnessBlock, &blockhash3)
 
 	// Determine the size of one of the blocks.
-	sz, _ := (&cache.CacheableBlock{Block: btcutil.NewBlock(block1)}).Size()
+	sz, _ := (&neutrino.CacheableBlock{
+		Block: btcutil.NewBlock(block1),
+	}).Size()
 
 	// A new Cache is set up with a capacity of 2 blocks
 	bc := NewBlockCache(2 * sz)
@@ -167,7 +170,9 @@ func TestBlockCacheMutexes(t *testing.T) {
 	blockhash2 := block2.BlockHash()
 
 	// Determine the size of the block.
-	sz, _ := (&cache.CacheableBlock{Block: btcutil.NewBlock(block1)}).Size()
+	sz, _ := (&neutrino.CacheableBlock{
+		Block: btcutil.NewBlock(block1),
+	}).Size()
 
 	// A new Cache is set up with a capacity of 2 blocks
 	bc := NewBlockCache(2 * sz)

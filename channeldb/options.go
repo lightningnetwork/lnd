@@ -64,6 +64,10 @@ type Options struct {
 	// applications that use the channeldb package as a library.
 	NoMigration bool
 
+	// NoRevLogAmtData when set to true, indicates that amount data should
+	// not be stored in the revocation log.
+	NoRevLogAmtData bool
+
 	// clock is the time source used by the database.
 	clock clock.Clock
 
@@ -127,6 +131,14 @@ func OptionSetPreAllocCacheNumNodes(n int) OptionModifier {
 func OptionSetUseGraphCache(use bool) OptionModifier {
 	return func(o *Options) {
 		o.UseGraphCache = use
+	}
+}
+
+// OptionNoRevLogAmtData sets the NoRevLogAmtData option to the given value. If
+// it is set to true then amount data will not be stored in the revocation log.
+func OptionNoRevLogAmtData(noAmtData bool) OptionModifier {
+	return func(o *Options) {
+		o.NoRevLogAmtData = noAmtData
 	}
 }
 

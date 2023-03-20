@@ -902,6 +902,130 @@ func (c *TowerClient) handleClosedChannel(chanID lnwire.ChannelID,
 	return nil
 }
 
+// deleteSessionFromTower dials the tower that we created the session with and
+// attempts to send the tower the DeleteSession message.
+func (c *TowerClient) deleteSessionFromTower(sess *wtdb.ClientSession) error {
+	// First, we check if we have already loaded this tower in our
+	// candidate towers iterator.
+	tower, err := c.candidateTowers.GetTower(sess.TowerID)
+	if errors.Is(err, ErrTowerNotInIterator) {
+		// If not, then we attempt to load it from the DB.
+		dbTower, err := c.cfg.DB.LoadTowerByID(sess.TowerID)
+		if err != nil {
+			return err
+		}
+
+		tower, err = NewTowerFromDBTower(dbTower)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
+	session, err := NewClientSessionFromDBSession(
+		sess, tower, c.cfg.SecretKeyRing,
+	)
+	if err != nil {
+		return err
+	}
+
+	localInit := wtwire.NewInitMessage(
+		lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
+		c.cfg.ChainHash,
+	)
+
+	var (
+		conn wtserver.Peer
+
+		// addrIterator is a copy of the tower's address iterator.
+		// We use this copy so that iterating through the addresses does
+		// not affect any other threads using this iterator.
+		addrIterator = tower.Addresses.Copy()
+		towerAddr    = addrIterator.Peek()
+	)
+	// Attempt to dial the tower with its available addresses.
+	for {
+		conn, err = c.dial(
+			session.SessionKeyECDH, &lnwire.NetAddress{
+				IdentityKey: tower.IdentityKey,
+				Address:     towerAddr,
+			},
+		)
+		if err != nil {
+			// If there are more addrs available, immediately try
+			// those.
+			nextAddr, iteratorErr := addrIterator.Next()
+			if iteratorErr == nil {
+				towerAddr = nextAddr
+				continue
+			}
+
+			// Otherwise, if we have exhausted the address list,
+			// exit.
+			addrIterator.Reset()
+
+			return fmt.Errorf("failed to dial tower(%x) at any "+
+				"available addresses",
+				tower.IdentityKey.SerializeCompressed())
+		}
+
+		break
+	}
+	defer conn.Close()
+
+	// Send Init to tower.
+	err = c.sendMessage(conn, localInit)
+	if err != nil {
+		return err
+	}
+
+	// Receive Init from tower.
+	remoteMsg, err := c.readMessage(conn)
+	if err != nil {
+		return err
+	}
+
+	remoteInit, ok := remoteMsg.(*wtwire.Init)
+	if !ok {
+		return fmt.Errorf("watchtower %s responded with %T to Init",
+			towerAddr, remoteMsg)
+	}
+
+	// Validate Init.
+	err = localInit.CheckRemoteInit(remoteInit, wtwire.FeatureNames)
+	if err != nil {
+		return err
+	}
+
+	// Send DeleteSession to tower.
+	err = c.sendMessage(conn, &wtwire.DeleteSession{})
+	if err != nil {
+		return err
+	}
+
+	// Receive DeleteSessionReply from tower.
+	remoteMsg, err = c.readMessage(conn)
+	if err != nil {
+		return err
+	}
+
+	deleteSessionReply, ok := remoteMsg.(*wtwire.DeleteSessionReply)
+	if !ok {
+		return fmt.Errorf("watchtower %s responded with %T to "+
+			"DeleteSession", towerAddr, remoteMsg)
+	}
+
+	switch deleteSessionReply.Code {
+	case wtwire.CodeOK, wtwire.DeleteSessionCodeNotFound:
+		return nil
+	default:
+		return fmt.Errorf("received error code %v in "+
+			"DeleteSessionReply when attempting to delete "+
+			"session from tower", deleteSessionReply.Code)
+	}
+}
+
 // backupDispatcher processes events coming from the taskPipeline and is
 // responsible for detecting when the client needs to renegotiate a session to
 // fulfill continuing demand. The event loop exits after all tasks have been

@@ -23,11 +23,23 @@ var (
 	// cChanDetailsBkt is a top-level bucket storing:
 	//   channel-id => cChannelSummary -> encoded ClientChanSummary.
 	//  		=> cChanDBID -> db-assigned-id
+	// 		=> cChanSessions => db-session-id -> 1
+	// 		=> cChanClosedHeight -> block-height
 	cChanDetailsBkt = []byte("client-channel-detail-bucket")
+
+	// cChanSessions is a sub-bucket of cChanDetailsBkt which stores:
+	//    db-session-id -> 1
+	cChanSessions = []byte("client-channel-sessions")
 
 	// cChanDBID is a key used in the cChanDetailsBkt to store the
 	// db-assigned-id of a channel.
 	cChanDBID = []byte("client-channel-db-id")
+
+	// cChanClosedHeight is a key used in the cChanDetailsBkt to store the
+	// block height at which the channel's closing transaction was mined in.
+	// If this there is no associated value for this key, then the channel
+	// has not yet been marked as closed.
+	cChanClosedHeight = []byte("client-channel-closed-height")
 
 	// cChannelSummary is a key used in cChanDetailsBkt to store the encoded
 	// body of ClientChanSummary.
@@ -35,9 +47,14 @@ var (
 
 	// cSessionBkt is a top-level bucket storing:
 	//   session-id => cSessionBody -> encoded ClientSessionBody
+	// 		=> cSessionDBID -> db-assigned-id
 	//              => cSessionCommits => seqnum -> encoded CommittedUpdate
 	//              => cSessionAckRangeIndex => db-chan-id => start -> end
 	cSessionBkt = []byte("client-session-bucket")
+
+	// cSessionDBID is a key used in the cSessionBkt to store the
+	// db-assigned-id of a session.
+	cSessionDBID = []byte("client-session-db-id")
 
 	// cSessionBody is a sub-bucket of cSessionBkt storing only the body of
 	// the ClientSession.
@@ -55,6 +72,10 @@ var (
 	//    db-assigned-id -> channel-ID
 	cChanIDIndexBkt = []byte("client-channel-id-index")
 
+	// cSessionIDIndexBkt is a top-level bucket storing:
+	//    db-assigned-id -> session-id
+	cSessionIDIndexBkt = []byte("client-session-id-index")
+
 	// cTowerBkt is a top-level bucket storing:
 	//    tower-id -> encoded Tower.
 	cTowerBkt = []byte("client-tower-bucket")
@@ -68,6 +89,10 @@ var (
 	cTowerToSessionIndexBkt = []byte(
 		"client-tower-to-session-index-bucket",
 	)
+
+	// cClosableSessionsBkt is a top-level bucket storing:
+	// 	db-session-id -> last-channel-close-height
+	cClosableSessionsBkt = []byte("client-closable-sessions-bucket")
 
 	// ErrTowerNotFound signals that the target tower was not found in the
 	// database.
@@ -142,6 +167,23 @@ var (
 	// ErrSessionFailedFilterFn indicates that a particular session did
 	// not pass the filter func provided by the caller.
 	ErrSessionFailedFilterFn = errors.New("session failed filter func")
+
+	// ErrSessionNotClosable is returned when a session is not found in the
+	// closable list.
+	ErrSessionNotClosable = errors.New("session is not closable")
+
+	// errSessionHasOpenChannels is an error used to indicate that a
+	// session has updates for channels that are still open.
+	errSessionHasOpenChannels = errors.New("session has open channels")
+
+	// errSessionHasUnackedUpdates is an error used to indicate that a
+	// session has un-acked updates.
+	errSessionHasUnackedUpdates = errors.New("session has un-acked updates")
+
+	// errChannelHasMoreSessions is an error used to indicate that a channel
+	// has updates in other non-closed sessions.
+	errChannelHasMoreSessions = errors.New("channel has updates in " +
+		"other sessions")
 )
 
 // NewBoltBackendCreator returns a function that creates a new bbolt backend for
@@ -241,6 +283,8 @@ func initClientDBBuckets(tx kvdb.RwTx) error {
 		cTowerIndexBkt,
 		cTowerToSessionIndexBkt,
 		cChanIDIndexBkt,
+		cSessionIDIndexBkt,
+		cClosableSessionsBkt,
 	}
 
 	for _, bucket := range buckets {
@@ -723,20 +767,54 @@ func (c *ClientDB) CreateClientSession(session *ClientSession) error {
 			}
 		}
 
-		// Add the new entry to the towerID-to-SessionID index.
-		indexBkt := towerToSessionIndex.NestedReadWriteBucket(
-			towerID.Bytes(),
-		)
-		if indexBkt == nil {
-			return ErrTowerNotFound
+		// Get the session-ID index bucket.
+		dbIDIndex := tx.ReadWriteBucket(cSessionIDIndexBkt)
+		if dbIDIndex == nil {
+			return ErrUninitializedDB
 		}
 
-		err = indexBkt.Put(session.ID[:], []byte{1})
+		// Get a new, unique, ID for this session from the session-ID
+		// index bucket.
+		nextSeq, err := dbIDIndex.NextSequence()
 		if err != nil {
 			return err
 		}
 
+		// Add the new entry to the dbID-to-SessionID index.
+		newIndex, err := writeBigSize(nextSeq)
+		if err != nil {
+			return err
+		}
+
+		err = dbIDIndex.Put(newIndex, session.ID[:])
+		if err != nil {
+			return err
+		}
+
+		// Also add the db-assigned-id to the session bucket under the
+		// cSessionDBID key.
 		sessionBkt, err := sessions.CreateBucket(session.ID[:])
+		if err != nil {
+			return err
+		}
+
+		err = sessionBkt.Put(cSessionDBID, newIndex)
+		if err != nil {
+			return err
+		}
+
+		// TODO(elle): migrate the towerID-to-SessionID to use the
+		// new db-assigned sessionID's rather.
+
+		// Add the new entry to the towerID-to-SessionID index.
+		towerSessions := towerToSessionIndex.NestedReadWriteBucket(
+			towerID.Bytes(),
+		)
+		if towerSessions == nil {
+			return ErrTowerNotFound
+		}
+
+		err = towerSessions.Put(session.ID[:], []byte{1})
 		if err != nil {
 			return err
 		}
@@ -960,6 +1038,37 @@ func getSessionKeyIndex(keyIndexes kvdb.RwBucket, towerID TowerID,
 	return byteOrder.Uint32(keyIndexBytes), nil
 }
 
+// GetClientSession loads the ClientSession with the given ID from the DB.
+func (c *ClientDB) GetClientSession(id SessionID,
+	opts ...ClientSessionListOption) (*ClientSession, error) {
+
+	var sess *ClientSession
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+		sessionsBkt := tx.ReadBucket(cSessionBkt)
+		if sessionsBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanIDIndexBkt := tx.ReadBucket(cChanIDIndexBkt)
+		if chanIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		session, err := c.getClientSession(
+			sessionsBkt, chanIDIndexBkt, id[:], nil, opts...,
+		)
+		if err != nil {
+			return err
+		}
+
+		sess = session
+
+		return nil
+	}, func() {})
+
+	return sess, err
+}
+
 // ListClientSessions returns the set of all client sessions known to the db. An
 // optional tower ID can be used to filter out any client sessions in the
 // response that do not correspond to this tower.
@@ -974,20 +1083,14 @@ func (c *ClientDB) ListClientSessions(id *TowerID,
 			return ErrUninitializedDB
 		}
 
-		towers := tx.ReadBucket(cTowerBkt)
-		if towers == nil {
-			return ErrUninitializedDB
-		}
-
 		chanIDIndexBkt := tx.ReadBucket(cChanIDIndexBkt)
 		if chanIDIndexBkt == nil {
 			return ErrUninitializedDB
 		}
 
-		var err error
-
 		// If no tower ID is specified, then fetch all the sessions
 		// known to the db.
+		var err error
 		if id == nil {
 			clientSessions, err = c.listClientAllSessions(
 				sessions, chanIDIndexBkt, filterFn, opts...,
@@ -1181,7 +1284,8 @@ func (c *ClientDB) NumAckedUpdates(id *SessionID) (uint64, error) {
 }
 
 // FetchChanSummaries loads a mapping from all registered channels to their
-// channel summaries.
+// channel summaries. Only the channels that have not yet been marked as closed
+// will be loaded.
 func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
 	var summaries map[lnwire.ChannelID]ClientChanSummary
 
@@ -1195,6 +1299,13 @@ func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
 			chanDetails := chanDetailsBkt.NestedReadBucket(k)
 			if chanDetails == nil {
 				return ErrCorruptChanDetails
+			}
+
+			// If this channel has already been marked as closed,
+			// then its summary does not need to be loaded.
+			closedHeight := chanDetails.Get(cChanClosedHeight)
+			if len(closedHeight) > 0 {
+				return nil
 			}
 
 			var chanID lnwire.ChannelID
@@ -1290,6 +1401,420 @@ func (c *ClientDB) MarkBackupIneligible(chanID lnwire.ChannelID,
 	commitHeight uint64) error {
 
 	return nil
+}
+
+// ListClosableSessions fetches and returns the IDs for all sessions marked as
+// closable.
+func (c *ClientDB) ListClosableSessions() (map[SessionID]uint32, error) {
+	sessions := make(map[SessionID]uint32)
+	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+		csBkt := tx.ReadBucket(cClosableSessionsBkt)
+		if csBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		sessIDIndexBkt := tx.ReadBucket(cSessionIDIndexBkt)
+		if sessIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		return csBkt.ForEach(func(dbIDBytes, heightBytes []byte) error {
+			dbID, err := readBigSize(dbIDBytes)
+			if err != nil {
+				return err
+			}
+
+			sessID, err := getRealSessionID(sessIDIndexBkt, dbID)
+			if err != nil {
+				return err
+			}
+
+			sessions[*sessID] = byteOrder.Uint32(heightBytes)
+
+			return nil
+		})
+	}, func() {
+		sessions = make(map[SessionID]uint32)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
+}
+
+// DeleteSession can be called when a session should be deleted from the DB.
+// All references to the session will also be deleted from the DB. Note that a
+// session will only be deleted if was previously marked as closable.
+func (c *ClientDB) DeleteSession(id SessionID) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		sessionsBkt := tx.ReadWriteBucket(cSessionBkt)
+		if sessionsBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		closableBkt := tx.ReadWriteBucket(cClosableSessionsBkt)
+		if closableBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanDetailsBkt := tx.ReadWriteBucket(cChanDetailsBkt)
+		if chanDetailsBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		sessIDIndexBkt := tx.ReadWriteBucket(cSessionIDIndexBkt)
+		if sessIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanIDIndexBkt := tx.ReadWriteBucket(cChanIDIndexBkt)
+		if chanIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		towerToSessBkt := tx.ReadWriteBucket(cTowerToSessionIndexBkt)
+		if towerToSessBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		// Get the sub-bucket for this session ID. If it does not exist
+		// then the session has already been deleted and so our work is
+		// done.
+		sessionBkt := sessionsBkt.NestedReadBucket(id[:])
+		if sessionBkt == nil {
+			return nil
+		}
+
+		_, dbIDBytes, err := getDBSessionID(sessionsBkt, id)
+		if err != nil {
+			return err
+		}
+
+		// First we check if the session has actually been marked as
+		// closable.
+		if closableBkt.Get(dbIDBytes) == nil {
+			return ErrSessionNotClosable
+		}
+
+		sess, err := getClientSessionBody(sessionsBkt, id[:])
+		if err != nil {
+			return err
+		}
+
+		// Delete from the tower-to-sessionID index.
+		towerIndexBkt := towerToSessBkt.NestedReadWriteBucket(
+			sess.TowerID.Bytes(),
+		)
+		if towerIndexBkt == nil {
+			return fmt.Errorf("no entry in the tower-to-session "+
+				"index found for tower ID %v", sess.TowerID)
+		}
+
+		err = towerIndexBkt.Delete(id[:])
+		if err != nil {
+			return err
+		}
+
+		// Delete entry from session ID index.
+		err = sessIDIndexBkt.Delete(dbIDBytes)
+		if err != nil {
+			return err
+		}
+
+		// Delete the entry from the closable sessions index.
+		err = closableBkt.Delete(dbIDBytes)
+		if err != nil {
+			return err
+		}
+
+		// Get the acked updates range index for the session. This is
+		// used to get the list of channels that the session has updates
+		// for.
+		ackRanges := sessionBkt.NestedReadBucket(cSessionAckRangeIndex)
+		if ackRanges == nil {
+			// A session would only be considered closable if it
+			// was exhausted. Meaning that it should not be the
+			// case that it has no acked-updates.
+			return fmt.Errorf("cannot delete session %s since it "+
+				"is not yet exhausted", id)
+		}
+
+		// For each of the channels, delete the session ID entry.
+		err = ackRanges.ForEach(func(chanDBID, _ []byte) error {
+			chanDBIDInt, err := readBigSize(chanDBID)
+			if err != nil {
+				return err
+			}
+
+			chanID, err := getRealChannelID(
+				chanIDIndexBkt, chanDBIDInt,
+			)
+			if err != nil {
+				return err
+			}
+
+			chanDetails := chanDetailsBkt.NestedReadWriteBucket(
+				chanID[:],
+			)
+			if chanDetails == nil {
+				return ErrChannelNotRegistered
+			}
+
+			chanSessions := chanDetails.NestedReadWriteBucket(
+				cChanSessions,
+			)
+			if chanSessions == nil {
+				return fmt.Errorf("no session list found for "+
+					"channel %s", chanID)
+			}
+
+			// Check that this session was actually listed in the
+			// session list for this channel.
+			if len(chanSessions.Get(dbIDBytes)) == 0 {
+				return fmt.Errorf("session %s not found in "+
+					"the session list for channel %s", id,
+					chanID)
+			}
+
+			// If it was, then delete it.
+			err = chanSessions.Delete(dbIDBytes)
+			if err != nil {
+				return err
+			}
+
+			// If this was the last session for this channel, we can
+			// now delete the channel details for this channel
+			// completely.
+			err = chanSessions.ForEach(func(_, _ []byte) error {
+				return errChannelHasMoreSessions
+			})
+			if errors.Is(err, errChannelHasMoreSessions) {
+				return nil
+			} else if err != nil {
+				return err
+			}
+
+			// Delete the channel's entry from the channel-id-index.
+			dbID := chanDetails.Get(cChanDBID)
+			err = chanIDIndexBkt.Delete(dbID)
+			if err != nil {
+				return err
+			}
+
+			// Delete the channel details.
+			return chanDetailsBkt.DeleteNestedBucket(chanID[:])
+		})
+		if err != nil {
+			return err
+		}
+
+		// Delete the actual session.
+		return sessionsBkt.DeleteNestedBucket(id[:])
+	}, func() {})
+}
+
+// MarkChannelClosed will mark a registered channel as closed by setting its
+// closed-height as the given block height. It returns a list of session IDs for
+// sessions that are now considered closable due to the close of this channel.
+// The details for this channel will be deleted from the DB if there are no more
+// sessions in the DB that contain updates for this channel.
+func (c *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
+	blockHeight uint32) ([]SessionID, error) {
+
+	var closableSessions []SessionID
+	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		sessionsBkt := tx.ReadBucket(cSessionBkt)
+		if sessionsBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanDetailsBkt := tx.ReadWriteBucket(cChanDetailsBkt)
+		if chanDetailsBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		closableSessBkt := tx.ReadWriteBucket(cClosableSessionsBkt)
+		if closableSessBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanIDIndexBkt := tx.ReadBucket(cChanIDIndexBkt)
+		if chanIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		sessIDIndexBkt := tx.ReadBucket(cSessionIDIndexBkt)
+		if sessIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanDetails := chanDetailsBkt.NestedReadWriteBucket(chanID[:])
+		if chanDetails == nil {
+			return ErrChannelNotRegistered
+		}
+
+		// If there are no sessions for this channel, the channel
+		// details can be deleted.
+		chanSessIDsBkt := chanDetails.NestedReadBucket(cChanSessions)
+		if chanSessIDsBkt == nil {
+			return chanDetailsBkt.DeleteNestedBucket(chanID[:])
+		}
+
+		// Otherwise, mark the channel as closed.
+		var height [4]byte
+		byteOrder.PutUint32(height[:], blockHeight)
+
+		err := chanDetails.Put(cChanClosedHeight, height[:])
+		if err != nil {
+			return err
+		}
+
+		// Now iterate through all the sessions of the channel to check
+		// if any of them are closeable.
+		return chanSessIDsBkt.ForEach(func(sessDBID, _ []byte) error {
+			sessDBIDInt, err := readBigSize(sessDBID)
+			if err != nil {
+				return err
+			}
+
+			// Use the session-ID index to get the real session ID.
+			sID, err := getRealSessionID(
+				sessIDIndexBkt, sessDBIDInt,
+			)
+			if err != nil {
+				return err
+			}
+
+			isClosable, err := isSessionClosable(
+				sessionsBkt, chanDetailsBkt, chanIDIndexBkt,
+				sID,
+			)
+			if err != nil {
+				return err
+			}
+
+			if !isClosable {
+				return nil
+			}
+
+			// Add session to "closableSessions" list and add the
+			// block height that this last channel was closed in.
+			// This will be used in future to determine when we
+			// should delete the session.
+			var height [4]byte
+			byteOrder.PutUint32(height[:], blockHeight)
+			err = closableSessBkt.Put(sessDBID, height[:])
+			if err != nil {
+				return err
+			}
+
+			closableSessions = append(closableSessions, *sID)
+
+			return nil
+		})
+	}, func() {
+		closableSessions = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return closableSessions, nil
+}
+
+// isSessionClosable returns true if a session is considered closable. A session
+// is considered closable only if all the following points are true:
+// 1) It has no un-acked updates.
+// 2) It is exhausted (ie it can't accept any more updates)
+// 3) All the channels that it has acked updates for are closed.
+func isSessionClosable(sessionsBkt, chanDetailsBkt, chanIDIndexBkt kvdb.RBucket,
+	id *SessionID) (bool, error) {
+
+	sessBkt := sessionsBkt.NestedReadBucket(id[:])
+	if sessBkt == nil {
+		return false, ErrSessionNotFound
+	}
+
+	commitsBkt := sessBkt.NestedReadBucket(cSessionCommits)
+	if commitsBkt == nil {
+		// If the session has no cSessionCommits bucket then we can be
+		// sure that no updates have ever been committed to the session
+		// and so it is not yet exhausted.
+		return false, nil
+	}
+
+	// If the session has any un-acked updates, then it is not yet closable.
+	err := commitsBkt.ForEach(func(_, _ []byte) error {
+		return errSessionHasUnackedUpdates
+	})
+	if errors.Is(err, errSessionHasUnackedUpdates) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	session, err := getClientSessionBody(sessionsBkt, id[:])
+	if err != nil {
+		return false, err
+	}
+
+	// We have already checked that the session has no more committed
+	// updates. So now we can check if the session is exhausted.
+	if session.SeqNum < session.Policy.MaxUpdates {
+		// If the session is not yet exhausted, it is not yet closable.
+		return false, nil
+	}
+
+	// If the session has no acked-updates, then something is wrong since
+	// the above check ensures that this session has been exhausted meaning
+	// that it should have MaxUpdates acked updates.
+	ackedRangeBkt := sessBkt.NestedReadBucket(cSessionAckRangeIndex)
+	if ackedRangeBkt == nil {
+		return false, fmt.Errorf("no acked-updates found for "+
+			"exhausted session %s", id)
+	}
+
+	// Iterate over each of the channels that the session has acked-updates
+	// for. If any of those channels are not closed, then the session is
+	// not yet closable.
+	err = ackedRangeBkt.ForEach(func(dbChanID, _ []byte) error {
+		dbChanIDInt, err := readBigSize(dbChanID)
+		if err != nil {
+			return err
+		}
+
+		chanID, err := getRealChannelID(chanIDIndexBkt, dbChanIDInt)
+		if err != nil {
+			return err
+		}
+
+		// Get the channel details bucket for the channel.
+		chanDetails := chanDetailsBkt.NestedReadBucket(chanID[:])
+		if chanDetails == nil {
+			return fmt.Errorf("no channel details found for "+
+				"channel %s referenced by session %s", chanID,
+				id)
+		}
+
+		// If a closed height has been set, then the channel is closed.
+		closedHeight := chanDetails.Get(cChanClosedHeight)
+		if len(closedHeight) > 0 {
+			return nil
+		}
+
+		// Otherwise, the channel is not yet closed meaning that the
+		// session is not yet closable. We break the ForEach by
+		// returning an error to indicate this.
+		return errSessionHasOpenChannels
+	})
+	if errors.Is(err, errSessionHasOpenChannels) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 // CommitUpdate persists the CommittedUpdate provided in the slot for (session,
@@ -1410,7 +1935,7 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 			return ErrUninitializedDB
 		}
 
-		chanDetailsBkt := tx.ReadBucket(cChanDetailsBkt)
+		chanDetailsBkt := tx.ReadWriteBucket(cChanDetailsBkt)
 		if chanDetailsBkt == nil {
 			return ErrUninitializedDB
 		}
@@ -1494,6 +2019,23 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 			return err
 		}
 
+		dbSessionID, _, err := getDBSessionID(sessions, *id)
+		if err != nil {
+			return err
+		}
+
+		chanDetails := chanDetailsBkt.NestedReadWriteBucket(
+			committedUpdate.BackupID.ChanID[:],
+		)
+		if chanDetails == nil {
+			return ErrChannelNotRegistered
+		}
+
+		err = putChannelToSessionMapping(chanDetails, dbSessionID)
+		if err != nil {
+			return err
+		}
+
 		// Get the range index for the given session-channel pair.
 		index, err := c.getRangeIndex(tx, *id, chanID)
 		if err != nil {
@@ -1502,6 +2044,26 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 
 		return index.Add(height, rangesBkt)
 	}, func() {})
+}
+
+// putChannelToSessionMapping adds the given session ID to a channel's
+// cChanSessions bucket.
+func putChannelToSessionMapping(chanDetails kvdb.RwBucket,
+	dbSessID uint64) error {
+
+	chanSessIDsBkt, err := chanDetails.CreateBucketIfNotExists(
+		cChanSessions,
+	)
+	if err != nil {
+		return err
+	}
+
+	b, err := writeBigSize(dbSessID)
+	if err != nil {
+		return err
+	}
+
+	return chanSessIDsBkt.Put(b, []byte{1})
 }
 
 // getClientSessionBody loads the body of a ClientSession from the sessions
@@ -1880,6 +2442,68 @@ func getDBChanID(chanDetailsBkt kvdb.RBucket, chanID lnwire.ChannelID) (uint64,
 	}
 
 	return id, idBytes, nil
+}
+
+// getDBSessionID returns the db-assigned session ID for the given real session
+// ID. It returns both the uint64 and byte representation.
+func getDBSessionID(sessionsBkt kvdb.RBucket, sessionID SessionID) (uint64,
+	[]byte, error) {
+
+	sessionBkt := sessionsBkt.NestedReadBucket(sessionID[:])
+	if sessionBkt == nil {
+		return 0, nil, ErrClientSessionNotFound
+	}
+
+	idBytes := sessionBkt.Get(cSessionDBID)
+	if len(idBytes) == 0 {
+		return 0, nil, fmt.Errorf("no db-assigned ID found for "+
+			"session ID %s", sessionID)
+	}
+
+	id, err := readBigSize(idBytes)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return id, idBytes, nil
+}
+
+func getRealSessionID(sessIDIndexBkt kvdb.RBucket, dbID uint64) (*SessionID,
+	error) {
+
+	dbIDBytes, err := writeBigSize(dbID)
+	if err != nil {
+		return nil, err
+	}
+
+	sessIDBytes := sessIDIndexBkt.Get(dbIDBytes)
+	if len(sessIDBytes) != SessionIDSize {
+		return nil, fmt.Errorf("session ID not found")
+	}
+
+	var sessID SessionID
+	copy(sessID[:], sessIDBytes)
+
+	return &sessID, nil
+}
+
+func getRealChannelID(chanIDIndexBkt kvdb.RBucket,
+	dbID uint64) (*lnwire.ChannelID, error) {
+
+	dbIDBytes, err := writeBigSize(dbID)
+	if err != nil {
+		return nil, err
+	}
+
+	chanIDBytes := chanIDIndexBkt.Get(dbIDBytes)
+	if len(chanIDBytes) != 32 { //nolint:gomnd
+		return nil, fmt.Errorf("channel ID not found")
+	}
+
+	var chanIDS lnwire.ChannelID
+	copy(chanIDS[:], chanIDBytes)
+
+	return &chanIDS, nil
 }
 
 // writeBigSize will encode the given uint64 as a BigSize byte slice.

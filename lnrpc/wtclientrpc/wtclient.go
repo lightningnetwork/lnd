@@ -269,7 +269,7 @@ func (c *WatchtowerClient) ListTowers(ctx context.Context,
 	}
 
 	opts, ackCounts, committedUpdateCounts := constructFunctionalOptions(
-		req.IncludeSessions,
+		req.IncludeSessions, req.ExcludeExhaustedSessions,
 	)
 
 	anchorTowers, err := c.cfg.AnchorClient.RegisteredTowers(opts...)
@@ -334,7 +334,7 @@ func (c *WatchtowerClient) GetTowerInfo(ctx context.Context,
 	}
 
 	opts, ackCounts, committedUpdateCounts := constructFunctionalOptions(
-		req.IncludeSessions,
+		req.IncludeSessions, req.ExcludeExhaustedSessions,
 	)
 
 	// Get the tower and its sessions from anchors client.
@@ -377,9 +377,9 @@ func (c *WatchtowerClient) GetTowerInfo(ctx context.Context,
 // functional options to be used when fetching a tower from the DB. It also
 // returns a map of acked-update counts and one for un-acked-update counts that
 // will be populated once the db call has been made.
-func constructFunctionalOptions(includeSessions bool) (
-	[]wtdb.ClientSessionListOption, map[wtdb.SessionID]uint16,
-	map[wtdb.SessionID]uint16) {
+func constructFunctionalOptions(includeSessions,
+	excludeExhaustedSessions bool) ([]wtdb.ClientSessionListOption,
+	map[wtdb.SessionID]uint16, map[wtdb.SessionID]uint16) {
 
 	var (
 		opts                  []wtdb.ClientSessionListOption
@@ -405,6 +405,12 @@ func constructFunctionalOptions(includeSessions bool) (
 	opts = []wtdb.ClientSessionListOption{
 		wtdb.WithPerNumAckedUpdates(perNumAckedUpdates),
 		wtdb.WithPerCommittedUpdate(perCommittedUpdate),
+	}
+
+	if excludeExhaustedSessions {
+		opts = append(opts, wtdb.WithPostEvalFilterFn(
+			wtclient.ExhaustedSessionFilter(),
+		))
 	}
 
 	return opts, ackCounts, committedUpdateCounts

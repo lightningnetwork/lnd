@@ -41,6 +41,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "exclude_exhausted_sessions",
+            "description": "Whether to exclude exhausted sessions in the response info. This option\nis only meaningful if include_sessions is true.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -109,6 +116,13 @@
           {
             "name": "include_sessions",
             "description": "Whether we should include sessions with the watchtower in the response.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "exclude_exhausted_sessions",
+            "description": "Whether to exclude exhausted sessions in the response info. This option\nis only meaningful if include_sessions is true.",
             "in": "query",
             "required": false,
             "type": "boolean"

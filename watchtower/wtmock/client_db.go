@@ -260,8 +260,6 @@ func (m *ClientDB) listClientSessions(tower *wtdb.TowerID,
 			continue
 		}
 
-		sessions[session.ID] = &session
-
 		if cfg.PerMaxHeight != nil {
 			for chanID, index := range m.ackedUpdates[session.ID] {
 				cfg.PerMaxHeight(
@@ -285,6 +283,14 @@ func (m *ClientDB) listClientSessions(tower *wtdb.TowerID,
 				cfg.PerCommittedUpdate(&session, &update)
 			}
 		}
+
+		if cfg.PostEvaluateFilterFn != nil &&
+			!cfg.PostEvaluateFilterFn(&session) {
+
+			continue
+		}
+
+		sessions[session.ID] = &session
 	}
 
 	return sessions, nil

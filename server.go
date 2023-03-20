@@ -1498,6 +1498,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			policy.SweepFeeRate = sweepRateSatPerVByte.FeePerKWeight()
 		}
 
+		sessionCloseRange := uint32(wtclient.DefaultSessionCloseRange)
+		if cfg.WtClient.SessionCloseRange != 0 {
+			sessionCloseRange = cfg.WtClient.SessionCloseRange
+		}
+
 		if err := policy.Validate(); err != nil {
 			return nil, err
 		}
@@ -1517,6 +1522,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		s.towerClient, err = wtclient.New(&wtclient.Config{
 			FetchClosedChannel: fetchClosedChannel,
+			SessionCloseRange:  sessionCloseRange,
+			ChainNotifier:      s.cc.ChainNotifier,
 			SubscribeChannelEvents: func() (subscribe.Subscription,
 				error) {
 
@@ -1547,6 +1554,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		s.anchorTowerClient, err = wtclient.New(&wtclient.Config{
 			FetchClosedChannel: fetchClosedChannel,
+			SessionCloseRange:  sessionCloseRange,
+			ChainNotifier:      s.cc.ChainNotifier,
 			SubscribeChannelEvents: func() (subscribe.Subscription,
 				error) {
 

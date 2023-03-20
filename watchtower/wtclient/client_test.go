@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/input"
@@ -396,6 +397,9 @@ type testHarness struct {
 	server     *wtserver.Server
 	net        *mockNet
 
+	blockEvents *mockBlockSub
+	height      int32
+
 	channelEvents *mockSubscription
 	sendUpdatesOn bool
 
@@ -458,6 +462,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		serverDB:       serverDB,
 		serverCfg:      serverCfg,
 		net:            mockNet,
+		blockEvents:    newMockBlockSub(t),
 		channelEvents:  newMockSubscription(t),
 		channels:       make(map[lnwire.ChannelID]*mockChannel),
 		closedChannels: make(map[lnwire.ChannelID]uint32),
@@ -487,6 +492,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 			return h.channelEvents, nil
 		},
 		FetchClosedChannel: fetchChannel,
+		ChainNotifier:      h.blockEvents,
 		Dial:               mockNet.Dial,
 		DB:                 clientDB,
 		AuthDial:           mockNet.AuthDial,
@@ -495,11 +501,12 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		NewAddress: func() ([]byte, error) {
 			return addrScript, nil
 		},
-		ReadTimeout:    timeout,
-		WriteTimeout:   timeout,
-		MinBackoff:     time.Millisecond,
-		MaxBackoff:     time.Second,
-		ForceQuitDelay: 10 * time.Second,
+		ReadTimeout:       timeout,
+		WriteTimeout:      timeout,
+		MinBackoff:        time.Millisecond,
+		MaxBackoff:        time.Second,
+		ForceQuitDelay:    10 * time.Second,
+		SessionCloseRange: 1,
 	}
 
 	if !cfg.noServerStart {
@@ -516,6 +523,16 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	}
 
 	return h
+}
+
+// mine mimics the mining of new blocks by sending new block notifications.
+func (h *testHarness) mine(numBlocks int) {
+	h.t.Helper()
+
+	for i := 0; i < numBlocks; i++ {
+		h.height++
+		h.blockEvents.sendNewBlock(h.height)
+	}
 }
 
 // startServer creates a new server using the harness's current serverCfg and
@@ -907,6 +924,44 @@ func (m *mockSubscription) sendUpdate(update interface{}) {
 // Updates returns the updates channel for the mock.
 func (m *mockSubscription) Updates() <-chan interface{} {
 	return m.updates
+}
+
+// mockBlockSub mocks out the ChainNotifier.
+type mockBlockSub struct {
+	t      *testing.T
+	events chan *chainntnfs.BlockEpoch
+
+	chainntnfs.ChainNotifier
+}
+
+// newMockBlockSub creates a new mockBlockSub.
+func newMockBlockSub(t *testing.T) *mockBlockSub {
+	t.Helper()
+
+	return &mockBlockSub{
+		t:      t,
+		events: make(chan *chainntnfs.BlockEpoch),
+	}
+}
+
+// RegisterBlockEpochNtfn returns a channel that can be used to listen for new
+// blocks.
+func (m *mockBlockSub) RegisterBlockEpochNtfn(_ *chainntnfs.BlockEpoch) (
+	*chainntnfs.BlockEpochEvent, error) {
+
+	return &chainntnfs.BlockEpochEvent{
+		Epochs: m.events,
+	}, nil
+}
+
+// sendNewBlock will send a new block on the notification channel.
+func (m *mockBlockSub) sendNewBlock(height int32) {
+	select {
+	case m.events <- &chainntnfs.BlockEpoch{Height: height}:
+
+	case <-time.After(waitTime):
+		m.t.Fatalf("timed out sending block: %d", height)
+	}
 }
 
 const (
@@ -1889,6 +1944,73 @@ var clientTests = []clientTest{
 			// Now the session should be closable.
 			err = wait.Predicate(func() bool {
 				return h.isSessionClosable(sessionIDs[0])
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Now we will mine a few blocks. This will cause the
+			// necessary session-close-range to be exceeded meaning
+			// that the client should send the DeleteSession message
+			// to the server. We will assert that both the client
+			// and server have deleted the appropriate sessions and
+			// channel info.
+
+			// Before we mine blocks, assert that the client
+			// currently has 3 closable sessions.
+			closableSess, err := h.clientDB.ListClosableSessions()
+			require.NoError(h.t, err)
+			require.Len(h.t, closableSess, 3)
+
+			// Assert that the server is also aware of all of these
+			// sessions.
+			for sid := range closableSess {
+				_, err := h.serverDB.GetSessionInfo(&sid)
+				require.NoError(h.t, err)
+			}
+
+			// Also make a note of the total number of sessions the
+			// client has.
+			sessions, err := h.clientDB.ListClientSessions(nil, nil)
+			require.NoError(h.t, err)
+			require.Len(h.t, sessions, 4)
+
+			h.mine(3)
+
+			// The client should no longer have any closable
+			// sessions and the total list of client sessions should
+			// no longer include the three that it previously had
+			// marked as closable. The server should also no longer
+			// have these sessions in its DB.
+			err = wait.Predicate(func() bool {
+				sess, err := h.clientDB.ListClientSessions(
+					nil, nil,
+				)
+				require.NoError(h.t, err)
+
+				cs, err := h.clientDB.ListClosableSessions()
+				require.NoError(h.t, err)
+
+				if len(sess) != 1 || len(cs) != 0 {
+					return false
+				}
+
+				for sid := range closableSess {
+					_, ok := sess[sid]
+					if ok {
+						return false
+					}
+
+					_, err := h.serverDB.GetSessionInfo(
+						&sid,
+					)
+					if !errors.Is(
+						err, wtdb.ErrSessionNotFound,
+					) {
+						return false
+					}
+				}
+
+				return true
+
 			}, waitTime)
 			require.NoError(h.t, err)
 		},

@@ -661,19 +661,6 @@ func (p *Brontide) Start() error {
 		}
 	}
 
-	// Node announcements don't propagate very well throughout the network
-	// as there isn't a way to efficiently query for them through their
-	// timestamp, mostly affecting nodes that were offline during the time
-	// of broadcast. We'll resend our node announcement to the remote peer
-	// as a best-effort delivery such that it can also propagate to their
-	// peers. To ensure they can successfully process it in most cases,
-	// we'll only resend it as long as we have at least one confirmed
-	// advertised channel with the remote peer.
-	//
-	// TODO(wilmer): Remove this once we're able to query for node
-	// announcements through their timestamps.
-	p.maybeSendNodeAnn(activeChans)
-
 	return nil
 }
 
@@ -1045,36 +1032,6 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	// this channel can be used to dispatch local payments and also
 	// passively forward payments.
 	return p.cfg.Switch.CreateAndAddLink(linkCfg, lnChan)
-}
-
-// maybeSendNodeAnn sends our node announcement to the remote peer if at least
-// one confirmed public channel exists with them.
-func (p *Brontide) maybeSendNodeAnn(channels []*channeldb.OpenChannel) {
-	hasConfirmedPublicChan := false
-	for _, channel := range channels {
-		if channel.IsPending {
-			continue
-		}
-		if channel.ChannelFlags&lnwire.FFAnnounceChannel == 0 {
-			continue
-		}
-
-		hasConfirmedPublicChan = true
-		break
-	}
-	if !hasConfirmedPublicChan {
-		return
-	}
-
-	ourNodeAnn, err := p.cfg.GenNodeAnnouncement()
-	if err != nil {
-		p.log.Debugf("Unable to retrieve node announcement: %v", err)
-		return
-	}
-
-	if err := p.SendMessageLazy(false, &ourNodeAnn); err != nil {
-		p.log.Debugf("Unable to resend node announcement: %v", err)
-	}
 }
 
 // WaitForDisconnect waits until the peer has disconnected. A peer may be

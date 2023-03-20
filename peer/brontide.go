@@ -776,7 +776,8 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
-		p.log.Infof("loading ChannelPoint(%v)", chanPoint)
+		p.log.Infof("Loading ChannelPoint(%v), isPending=%v",
+			chanPoint, lnChan.IsPending())
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
@@ -1318,6 +1319,8 @@ func (ms *msgStream) AddMsg(msg lnwire.Message) {
 func waitUntilLinkActive(p *Brontide,
 	cid lnwire.ChannelID) htlcswitch.ChannelUpdateHandler {
 
+	p.log.Tracef("Waiting for link=%v to be active", cid)
+
 	// Subscribe to receive channel events.
 	//
 	// NOTE: If the link is already active by SubscribeChannelEvents, then
@@ -1395,6 +1398,7 @@ func newChanMsgStream(p *Brontide, cid lnwire.ChannelID) *msgStream {
 			// If the link is still not active and the calling function
 			// errored out, just return.
 			if chanLink == nil {
+				p.log.Warnf("Link=%v is not active")
 				return
 			}
 		}

@@ -12,6 +12,10 @@
 * [Clean up sessions once all channels for which they have updates for are
   closed. Also start sending the `DeleteSession` message to the
   tower.](https://github.com/lightningnetwork/lnd/pull/7069)
+* [Don't load exhausted sessions when not
+  needed](https://github.com/lightningnetwork/lnd/pull/7405). Also add a new
+  `exclude_exhausted_sessions` boolean flag to the relevant lncli wtclient
+  commands.
 
 ## Misc
 

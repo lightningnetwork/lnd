@@ -17,6 +17,11 @@ type WtClient struct {
 	// SweepFeeRate specifies the fee rate in sat/byte to be used when
 	// constructing justice transactions sent to the tower.
 	SweepFeeRate uint64 `long:"sweep-fee-rate" description:"Specifies the fee rate in sat/byte to be used when constructing justice transactions sent to the watchtower."`
+
+	// SessionCloseRange is the range over which to choose a random number
+	// of blocks to wait after the last channel of a session is closed
+	// before sending the DeleteSession message to the tower server.
+	SessionCloseRange uint32 `long:"session-close-range" description:"The range over which to choose a random number of blocks to wait after the last channel of a session is closed before sending the DeleteSession message to the tower server. Set to 1 for no delay."`
 }
 
 // Validate ensures the user has provided a valid configuration.

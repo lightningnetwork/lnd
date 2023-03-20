@@ -255,8 +255,9 @@ func (r *RPCKeyRing) SignPsbt(packet *psbt.Packet) ([]uint32, error) {
 // parameter in FinalizePsbt so we can get rid of this code duplication.
 func (r *RPCKeyRing) FinalizePsbt(packet *psbt.Packet, _ string) error {
 	// Let's check that this is actually something we can and want to sign.
-	// We need at least one input and one output.
-	err := psbt.VerifyInputOutputLen(packet, true, true)
+	// We need at least one input and one output. In addition each
+	// input needs nonWitness Utxo or witness Utxo data specified.
+	err := psbt.InputsReadyToSign(packet)
 	if err != nil {
 		return err
 	}

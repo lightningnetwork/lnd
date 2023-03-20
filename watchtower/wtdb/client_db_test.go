@@ -52,12 +52,11 @@ func (h *clientDBHarness) insertSession(session *wtdb.ClientSession,
 }
 
 func (h *clientDBHarness) listSessions(id *wtdb.TowerID,
-	filterFn wtdb.ClientSessionFilterFn,
 	opts ...wtdb.ClientSessionListOption) map[wtdb.SessionID]*wtdb.ClientSession {
 
 	h.t.Helper()
 
-	sessions, err := h.db.ListClientSessions(id, filterFn, opts...)
+	sessions, err := h.db.ListClientSessions(id, opts...)
 	require.NoError(h.t, err, "unable to list client sessions")
 
 	return sessions
@@ -84,7 +83,7 @@ func (h *clientDBHarness) createTower(lnAddr *lnwire.NetAddress,
 	require.ErrorIs(h.t, err, expErr)
 	require.NotZero(h.t, tower.ID, "tower id should never be 0")
 
-	for _, session := range h.listSessions(&tower.ID, nil) {
+	for _, session := range h.listSessions(&tower.ID) {
 		require.Equal(h.t, wtdb.CSessionActive, session.Status)
 	}
 
@@ -127,7 +126,7 @@ func (h *clientDBHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr,
 			return
 		}
 
-		for _, session := range h.listSessions(&tower.ID, nil) {
+		for _, session := range h.listSessions(&tower.ID) {
 			require.Equal(h.t, wtdb.CSessionInactive,
 				session.Status, "expected status for session "+
 					"%v to be %v, got %v", session.ID,
@@ -301,7 +300,7 @@ func testCreateClientSession(h *clientDBHarness) {
 
 	// First, assert that this session is not already present in the
 	// database.
-	_, ok := h.listSessions(nil, nil)[session.ID]
+	_, ok := h.listSessions(nil)[session.ID]
 	require.Falsef(h.t, ok, "session for id %x should not exist yet",
 		session.ID)
 
@@ -329,7 +328,7 @@ func testCreateClientSession(h *clientDBHarness) {
 	h.insertSession(session, nil)
 
 	// Verify that the session now exists in the database.
-	_, ok = h.listSessions(nil, nil)[session.ID]
+	_, ok = h.listSessions(nil)[session.ID]
 	require.Truef(h.t, ok, "session for id %x should exist now", session.ID)
 
 	// Attempt to insert the session again, which should fail due to the
@@ -377,7 +376,7 @@ func testFilterClientSessions(h *clientDBHarness) {
 	// We should see the expected sessions for each tower when filtering
 	// them.
 	for towerID, expectedSessions := range towerSessions {
-		sessions := h.listSessions(&towerID, nil)
+		sessions := h.listSessions(&towerID)
 		require.Len(h.t, sessions, len(expectedSessions))
 
 		for _, expectedSession := range expectedSessions {

@@ -410,8 +410,9 @@ func New(config *Config) (*TowerClient, error) {
 	// current policy of the client, otherwise they will be ignored and new
 	// sessions will be requested.
 	candidateSessions, err := getTowerAndSessionCandidates(
-		cfg.DB, cfg.SecretKeyRing, c.genSessionFilter(true),
-		perActiveTower, wtdb.WithPerMaxHeight(perMaxHeight),
+		cfg.DB, cfg.SecretKeyRing, perActiveTower,
+		wtdb.WithPreEvalFilterFn(c.genSessionFilter(true)),
+		wtdb.WithPerMaxHeight(perMaxHeight),
 		wtdb.WithPerCommittedUpdate(perCommittedUpdate),
 	)
 	if err != nil {
@@ -444,7 +445,6 @@ func New(config *Config) (*TowerClient, error) {
 // sessionFilter check then the perActiveTower call-back will be called on that
 // tower.
 func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
-	sessionFilter wtdb.ClientSessionFilterFn,
 	perActiveTower func(tower *Tower),
 	opts ...wtdb.ClientSessionListOption) (
 	map[wtdb.SessionID]*ClientSession, error) {
@@ -461,18 +461,12 @@ func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 			return nil, err
 		}
 
-		sessions, err := db.ListClientSessions(
-			&tower.ID, sessionFilter, opts...,
-		)
+		sessions, err := db.ListClientSessions(&tower.ID, opts...)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, s := range sessions {
-			if !sessionFilter(s) {
-				continue
-			}
-
 			cs, err := NewClientSessionFromDBSession(
 				s, tower, keyRing,
 			)
@@ -498,13 +492,10 @@ func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 // ClientSession's SessionPrivKey field is desired, otherwise, the existing
 // ListClientSessions method should be used.
 func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
-	sessionFilter wtdb.ClientSessionFilterFn,
 	opts ...wtdb.ClientSessionListOption) (
 	map[wtdb.SessionID]*ClientSession, error) {
 
-	dbSessions, err := db.ListClientSessions(
-		forTower, sessionFilter, opts...,
-	)
+	dbSessions, err := db.ListClientSessions(forTower, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1635,7 +1626,7 @@ func (c *TowerClient) handleNewTower(msg *newTowerMsg) error {
 	// Include all of its corresponding sessions to our set of candidates.
 	sessions, err := getClientSessions(
 		c.cfg.DB, c.cfg.SecretKeyRing, &tower.ID,
-		c.genSessionFilter(true),
+		wtdb.WithPreEvalFilterFn(c.genSessionFilter(true)),
 	)
 	if err != nil {
 		return fmt.Errorf("unable to determine sessions for tower %x: "+
@@ -1721,7 +1712,7 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 	// Otherwise, the tower should no longer be used for future session
 	// negotiations and backups.
 	pubKey := msg.pubKey.SerializeCompressed()
-	sessions, err := c.cfg.DB.ListClientSessions(&dbTower.ID, nil)
+	sessions, err := c.cfg.DB.ListClientSessions(&dbTower.ID)
 	if err != nil {
 		return fmt.Errorf("unable to retrieve sessions for tower %x: "+
 			"%v", pubKey, err)
@@ -1752,9 +1743,10 @@ func (c *TowerClient) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
 	if err != nil {
 		return nil, err
 	}
-	clientSessions, err := c.cfg.DB.ListClientSessions(
-		nil, c.genSessionFilter(false), opts...,
-	)
+
+	opts = append(opts, wtdb.WithPreEvalFilterFn(c.genSessionFilter(false)))
+
+	clientSessions, err := c.cfg.DB.ListClientSessions(nil, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1795,9 +1787,9 @@ func (c *TowerClient) LookupTower(pubKey *btcec.PublicKey,
 		return nil, err
 	}
 
-	towerSessions, err := c.cfg.DB.ListClientSessions(
-		&tower.ID, c.genSessionFilter(false), opts...,
-	)
+	opts = append(opts, wtdb.WithPreEvalFilterFn(c.genSessionFilter(false)))
+
+	towerSessions, err := c.cfg.DB.ListClientSessions(&tower.ID, opts...)
 	if err != nil {
 		return nil, err
 	}

@@ -870,7 +870,7 @@ func (h *testHarness) relevantSessions(chanID uint64) []wtdb.SessionID {
 		},
 	)
 
-	_, err := h.clientDB.ListClientSessions(nil, nil, collectSessions)
+	_, err := h.clientDB.ListClientSessions(nil, collectSessions)
 	require.NoError(h.t, err)
 
 	return sessionIDs
@@ -1969,7 +1969,7 @@ var clientTests = []clientTest{
 
 			// Also make a note of the total number of sessions the
 			// client has.
-			sessions, err := h.clientDB.ListClientSessions(nil, nil)
+			sessions, err := h.clientDB.ListClientSessions(nil)
 			require.NoError(h.t, err)
 			require.Len(h.t, sessions, 4)
 
@@ -1981,9 +1981,7 @@ var clientTests = []clientTest{
 			// marked as closable. The server should also no longer
 			// have these sessions in its DB.
 			err = wait.Predicate(func() bool {
-				sess, err := h.clientDB.ListClientSessions(
-					nil, nil,
-				)
+				sess, err := h.clientDB.ListClientSessions(nil)
 				require.NoError(h.t, err)
 
 				cs, err := h.clientDB.ListClosableSessions()

@@ -12,6 +12,8 @@
   wtdb.BackupIDs](https://github.com/lightningnetwork/lnd/pull/7623) instead of 
   the entire retribution struct. This reduces the amount of data that needs to 
   be held in memory. 
+* [Replace in-mem task pipeline with a disk-overflow
+  queue](https://github.com/lightningnetwork/lnd/pull/7380)
  
 ## Misc
 

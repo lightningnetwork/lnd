@@ -68,6 +68,10 @@ message GetTowerInfoRequest {
 
     // Whether we should include sessions with the watchtower in the response.
     bool include_sessions = 2;
+
+    // Whether to exclude exhausted sessions in the response info. This option
+    // is only meaningful if include_sessions is true.
+    bool exclude_exhausted_sessions = 3;
 }
 
 message TowerSession {
@@ -143,6 +147,10 @@ message TowerSessionInfo {
 message ListTowersRequest {
     // Whether we should include sessions with the watchtower in the response.
     bool include_sessions = 1;
+
+    // Whether to exclude exhausted sessions in the response info. This option
+    // is only meaningful if include_sessions is true.
+    bool exclude_exhausted_sessions = 2;
 }
 
 message ListTowersResponse {

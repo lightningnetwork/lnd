@@ -89,7 +89,7 @@ func (m *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*wtdb.Tower, error) {
 		tower = m.towers[towerID]
 		tower.AddAddress(lnAddr.Address)
 
-		towerSessions, err := m.listClientSessions(&towerID, nil)
+		towerSessions, err := m.listClientSessions(&towerID)
 		if err != nil {
 			return nil, err
 		}
@@ -141,7 +141,7 @@ func (m *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 		return nil
 	}
 
-	towerSessions, err := m.listClientSessions(&tower.ID, nil)
+	towerSessions, err := m.listClientSessions(&tower.ID)
 	if err != nil {
 		return err
 	}
@@ -226,20 +226,19 @@ func (m *ClientDB) MarkBackupIneligible(_ lnwire.ChannelID, _ uint64) error {
 // optional tower ID can be used to filter out any client sessions in the
 // response that do not correspond to this tower.
 func (m *ClientDB) ListClientSessions(tower *wtdb.TowerID,
-	filterFn wtdb.ClientSessionFilterFn,
 	opts ...wtdb.ClientSessionListOption) (
 	map[wtdb.SessionID]*wtdb.ClientSession, error) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.listClientSessions(tower, filterFn, opts...)
+
+	return m.listClientSessions(tower, opts...)
 }
 
 // listClientSessions returns the set of all client sessions known to the db. An
 // optional tower ID can be used to filter out any client sessions in the
 // response that do not correspond to this tower.
 func (m *ClientDB) listClientSessions(tower *wtdb.TowerID,
-	filterFn wtdb.ClientSessionFilterFn,
 	opts ...wtdb.ClientSessionListOption) (
 	map[wtdb.SessionID]*wtdb.ClientSession, error) {
 
@@ -255,11 +254,11 @@ func (m *ClientDB) listClientSessions(tower *wtdb.TowerID,
 			continue
 		}
 
-		if filterFn != nil && !filterFn(&session) {
+		if cfg.PreEvaluateFilterFn != nil &&
+			!cfg.PreEvaluateFilterFn(&session) {
+
 			continue
 		}
-
-		sessions[session.ID] = &session
 
 		if cfg.PerMaxHeight != nil {
 			for chanID, index := range m.ackedUpdates[session.ID] {
@@ -284,6 +283,14 @@ func (m *ClientDB) listClientSessions(tower *wtdb.TowerID,
 				cfg.PerCommittedUpdate(&session, &update)
 			}
 		}
+
+		if cfg.PostEvaluateFilterFn != nil &&
+			!cfg.PostEvaluateFilterFn(&session) {
+
+			continue
+		}
+
+		sessions[session.ID] = &session
 	}
 
 	return sessions, nil

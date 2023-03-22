@@ -386,6 +386,9 @@ func New(config *Config) (*TowerClient, error) {
 			return
 		}
 
+		c.backupMu.Lock()
+		defer c.backupMu.Unlock()
+
 		// Take the highest commit height found in the session's acked
 		// updates.
 		height, ok := c.chanCommitHeights[chanID]

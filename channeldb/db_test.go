@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -238,10 +237,16 @@ func TestFetchChannel(t *testing.T) {
 
 	// The decoded channel state should be identical to what we stored
 	// above.
-	if !reflect.DeepEqual(channelState, dbChannel) {
-		t.Fatalf("channel state doesn't match:: %v vs %v",
-			spew.Sdump(channelState), spew.Sdump(dbChannel))
-	}
+	require.Equal(t, channelState, dbChannel)
+
+	// Next, attempt to fetch the channel by its channel ID.
+	chanID := lnwire.NewChanIDFromOutPoint(&channelState.FundingOutpoint)
+	dbChannel, err = cdb.FetchChannelByID(nil, chanID)
+	require.NoError(t, err, "unable to fetch channel")
+
+	// The decoded channel state should be identical to what we stored
+	// above.
+	require.Equal(t, channelState, dbChannel)
 
 	// If we attempt to query for a non-existent channel, then we should
 	// get an error.
@@ -252,9 +257,11 @@ func TestFetchChannel(t *testing.T) {
 	channelState2.FundingOutpoint.Index = uniqueOutputIndex.Load()
 
 	_, err = cdb.FetchChannel(nil, channelState2.FundingOutpoint)
-	if err == nil {
-		t.Fatalf("expected query to fail")
-	}
+	require.ErrorIs(t, err, ErrChannelNotFound)
+
+	chanID2 := lnwire.NewChanIDFromOutPoint(&channelState2.FundingOutpoint)
+	_, err = cdb.FetchChannelByID(nil, chanID2)
+	require.ErrorIs(t, err, ErrChannelNotFound)
 }
 
 func genRandomChannelShell() (*ChannelShell, error) {

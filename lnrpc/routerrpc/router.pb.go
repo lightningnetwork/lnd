@@ -1667,7 +1667,7 @@ type MissionControlConfig struct {
 	// before we raise the failure amount.
 	MinimumFailureRelaxInterval uint64 `protobuf:"varint,5,opt,name=minimum_failure_relax_interval,json=minimumFailureRelaxInterval,proto3" json:"minimum_failure_relax_interval,omitempty"`
 	// ProbabilityModel defines which probability estimator should be used in
-	// pathfinding.
+	// pathfinding. Note that the bimodal estimator is experimental.
 	Model MissionControlConfig_ProbabilityModel `protobuf:"varint,6,opt,name=model,proto3,enum=routerrpc.MissionControlConfig_ProbabilityModel" json:"model,omitempty"`
 	// EstimatorConfig is populated dependent on the estimator type.
 	//

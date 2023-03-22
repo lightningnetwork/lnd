@@ -65,7 +65,8 @@ var setCfgCommand = cli.Command{
 		cli.StringFlag{
 			Name: "estimator",
 			Usage: "the probability estimator to use, choose " +
-				"between 'apriori' or 'bimodal'",
+				"between 'apriori' or 'bimodal' (bimodal is " +
+				"experimental)",
 		},
 		// Apriori config.
 		cli.DurationFlag{

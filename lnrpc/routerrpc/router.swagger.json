@@ -1477,7 +1477,7 @@
         },
         "model": {
           "$ref": "#/definitions/MissionControlConfigProbabilityModel",
-          "description": "ProbabilityModel defines which probability estimator should be used in\npathfinding."
+          "description": "ProbabilityModel defines which probability estimator should be used in\npathfinding. Note that the bimodal estimator is experimental."
         },
         "apriori": {
           "$ref": "#/definitions/routerrpcAprioriParameters"

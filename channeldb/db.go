@@ -674,6 +674,54 @@ func (c *ChannelStateDB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
 	return c.channelScanner(tx, selector)
 }
 
+// FetchChannelByID attempts to locate a channel specified by the passed channel
+// ID. If the channel cannot be found, then an error will be returned.
+// Optionally an existing db tx can be supplied.
+func (c *ChannelStateDB) FetchChannelByID(tx kvdb.RTx, id lnwire.ChannelID) (
+	*OpenChannel, error) {
+
+	selector := func(chainBkt walletdb.ReadBucket) ([]byte, *wire.OutPoint,
+		error) {
+
+		var (
+			targetChanPointBytes []byte
+			targetChanPoint      *wire.OutPoint
+
+			// errChanFound is used to signal that the channel has
+			// been found so that iteration through the DB buckets
+			// can stop.
+			errChanFound = errors.New("channel found")
+		)
+		err := chainBkt.ForEach(func(k, _ []byte) error {
+			var outPoint wire.OutPoint
+			err := readOutpoint(bytes.NewReader(k), &outPoint)
+			if err != nil {
+				return err
+			}
+
+			chanID := lnwire.NewChanIDFromOutPoint(&outPoint)
+			if chanID != id {
+				return nil
+			}
+
+			targetChanPoint = &outPoint
+			targetChanPointBytes = k
+
+			return errChanFound
+		})
+		if err != nil && !errors.Is(err, errChanFound) {
+			return nil, nil, err
+		}
+		if targetChanPoint == nil {
+			return nil, nil, ErrChannelNotFound
+		}
+
+		return targetChanPointBytes, targetChanPoint, nil
+	}
+
+	return c.channelScanner(tx, selector)
+}
+
 // channelSelector describes a function that takes a chain-hash bucket from
 // within the open-channel DB and returns the wanted channel point bytes, and
 // channel point. It must return the ErrChannelNotFound error if the wanted

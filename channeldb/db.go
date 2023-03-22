@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/go-errors/errors"
 	mig "github.com/lightningnetwork/lnd/channeldb/migration"
 	"github.com/lightningnetwork/lnd/channeldb/migration12"
@@ -658,18 +659,41 @@ func (c *ChannelStateDB) fetchNodeChannels(chainBucket kvdb.RBucket) (
 func (c *ChannelStateDB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
 	*OpenChannel, error) {
 
+	var targetChanPoint bytes.Buffer
+	if err := writeOutpoint(&targetChanPoint, &chanPoint); err != nil {
+		return nil, err
+	}
+
+	targetChanPointBytes := targetChanPoint.Bytes()
+	selector := func(chainBkt walletdb.ReadBucket) ([]byte, *wire.OutPoint,
+		error) {
+
+		return targetChanPointBytes, &chanPoint, nil
+	}
+
+	return c.channelScanner(tx, selector)
+}
+
+// channelSelector describes a function that takes a chain-hash bucket from
+// within the open-channel DB and returns the wanted channel point bytes, and
+// channel point. It must return the ErrChannelNotFound error if the wanted
+// channel is not in the given bucket.
+type channelSelector func(chainBkt walletdb.ReadBucket) ([]byte, *wire.OutPoint,
+	error)
+
+// channelScanner will traverse the DB to each chain-hash bucket of each node
+// pub-key bucket in the open-channel-bucket. The chanSelector will then be used
+// to fetch the wanted channel outpoint from the chain bucket.
+func (c *ChannelStateDB) channelScanner(tx kvdb.RTx,
+	chanSelect channelSelector) (*OpenChannel, error) {
+
 	var (
-		targetChan      *OpenChannel
-		targetChanPoint bytes.Buffer
+		targetChan *OpenChannel
 
 		// errChanFound is used to signal that the channel has been
 		// found so that iteration through the DB buckets can stop.
 		errChanFound = errors.New("channel found")
 	)
-
-	if err := writeOutpoint(&targetChanPoint, &chanPoint); err != nil {
-		return nil, err
-	}
 
 	// chanScan will traverse the following bucket structure:
 	//  * nodePub => chainHash => chanPoint
@@ -688,8 +712,8 @@ func (c *ChannelStateDB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
 		}
 
 		// Within the node channel bucket, are the set of node pubkeys
-		// we have channels with, we don't know the entire set, so
-		// we'll check them all.
+		// we have channels with, we don't know the entire set, so we'll
+		// check them all.
 		return openChanBucket.ForEach(func(nodePub, v []byte) error {
 			// Ensure that this is a key the same size as a pubkey,
 			// and also that it leads directly to a bucket.
@@ -726,15 +750,24 @@ func (c *ChannelStateDB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (
 
 				// Finally, we reach the leaf bucket that stores
 				// all the chanPoints for this node.
+				targetChanBytes, chanPoint, err := chanSelect(
+					chainBucket,
+				)
+				if errors.Is(err, ErrChannelNotFound) {
+					return nil
+				} else if err != nil {
+					return err
+				}
+
 				chanBucket := chainBucket.NestedReadBucket(
-					targetChanPoint.Bytes(),
+					targetChanBytes,
 				)
 				if chanBucket == nil {
 					return nil
 				}
 
 				channel, err := fetchOpenChannel(
-					chanBucket, &chanPoint,
+					chanBucket, chanPoint,
 				)
 				if err != nil {
 					return err

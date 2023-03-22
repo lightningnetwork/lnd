@@ -178,6 +178,11 @@ type Config struct {
 	// ChainNotifier can be used to subscribe to block notifications.
 	ChainNotifier chainntnfs.ChainNotifier
 
+	// BuildBreachRetribution is a function closure that allows the client
+	// fetch the breach retribution info for a certain channel at a certain
+	// revoked commitment height.
+	BuildBreachRetribution BreachRetributionBuilder
+
 	// NewAddress generates a new on-chain sweep pkscript.
 	NewAddress func() ([]byte, error)
 
@@ -239,6 +244,12 @@ type Config struct {
 	// has been closed.
 	SessionCloseRange uint32
 }
+
+// BreachRetributionBuilder is a function that can be used to construct a
+// BreachRetribution from a channel ID and a commitment height.
+type BreachRetributionBuilder func(id lnwire.ChannelID,
+	commitHeight uint64) (*lnwallet.BreachRetribution,
+	channeldb.ChannelType, error)
 
 // newTowerMsg is an internal message we'll use within the TowerClient to signal
 // that a new tower can be considered.

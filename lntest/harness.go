@@ -1132,7 +1132,7 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		// active htlcs` or `link failed to shutdown` if we close the
 		// channel. We need to investigate the order of settling the
 		// payments and updating commitments to properly fix it.
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 
 		// Give it another chance.
 		stream = hn.RPC.CloseChannel(closeReq)

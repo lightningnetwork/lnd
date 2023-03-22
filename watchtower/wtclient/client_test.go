@@ -517,6 +517,15 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		SessionCloseRange: 1,
 	}
 
+	h.clientCfg.BuildBreachRetribution = func(id lnwire.ChannelID,
+		commitHeight uint64) (*lnwallet.BreachRetribution,
+		channeldb.ChannelType, error) {
+
+		_, retribution := h.channelFromID(id).getState(commitHeight)
+
+		return retribution, channeldb.SingleFunderBit, nil
+	}
+
 	if !cfg.noServerStart {
 		h.startServer()
 		t.Cleanup(h.stopServer)
@@ -623,6 +632,21 @@ func (h *testHarness) channel(id uint64) *mockChannel {
 	c, ok := h.channels[chanIDFromInt(id)]
 	h.mu.Unlock()
 	require.Truef(h.t, ok, "unable to fetch channel %d", id)
+
+	return c
+}
+
+// channelFromID retrieves the channel corresponding to id.
+//
+// NOTE: The method fails if a channel for id does not exist.
+func (h *testHarness) channelFromID(chanID lnwire.ChannelID) *mockChannel {
+	h.t.Helper()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	c, ok := h.channels[chanID]
+	require.Truef(h.t, ok, "unable to fetch channel %s", chanID)
 
 	return c
 }

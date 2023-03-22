@@ -1523,12 +1523,37 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			)
 		}
 
+		// buildBreachRetribution is a call-back that can be used to
+		// query the BreachRetribution info and channel type given a
+		// channel ID and commitment height.
+		buildBreachRetribution := func(chanID lnwire.ChannelID,
+			commitHeight uint64) (*lnwallet.BreachRetribution,
+			channeldb.ChannelType, error) {
+
+			channel, err := s.chanStateDB.FetchChannelByID(
+				nil, chanID,
+			)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			br, err := lnwallet.NewBreachRetribution(
+				channel, commitHeight, 0, nil,
+			)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			return br, channel.ChanType, nil
+		}
+
 		fetchClosedChannel := s.chanStateDB.FetchClosedChannelForID
 
 		s.towerClient, err = wtclient.New(&wtclient.Config{
-			FetchClosedChannel: fetchClosedChannel,
-			SessionCloseRange:  sessionCloseRange,
-			ChainNotifier:      s.cc.ChainNotifier,
+			FetchClosedChannel:     fetchClosedChannel,
+			BuildBreachRetribution: buildBreachRetribution,
+			SessionCloseRange:      sessionCloseRange,
+			ChainNotifier:          s.cc.ChainNotifier,
 			SubscribeChannelEvents: func() (subscribe.Subscription,
 				error) {
 
@@ -1558,9 +1583,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			blob.Type(blob.FlagAnchorChannel)
 
 		s.anchorTowerClient, err = wtclient.New(&wtclient.Config{
-			FetchClosedChannel: fetchClosedChannel,
-			SessionCloseRange:  sessionCloseRange,
-			ChainNotifier:      s.cc.ChainNotifier,
+			FetchClosedChannel:     fetchClosedChannel,
+			BuildBreachRetribution: buildBreachRetribution,
+			SessionCloseRange:      sessionCloseRange,
+			ChainNotifier:          s.cc.ChainNotifier,
 			SubscribeChannelEvents: func() (subscribe.Subscription,
 				error) {
 

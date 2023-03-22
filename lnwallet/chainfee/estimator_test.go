@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -204,6 +203,10 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 	}
 
 	// Construct mock fee source for the Estimator to pull fees from.
+	//
+	// This will create a `feeByBlockTarget` map with the following values,
+	// - 20: testFeeRate
+	// - 100: 42, which will be floored to feeFloor.
 	testFees := make(map[uint32]uint32)
 	for _, tc := range testCases {
 		if tc.apiEst != 0 {
@@ -233,25 +236,22 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			est, err := estimator.EstimateFeePerKW(tc.target)
-			if tc.err != "" {
-				if err == nil ||
-					!strings.Contains(err.Error(), tc.err) {
 
-					t.Fatalf("expected fee estimation to "+
-						"fail, instead got: %v", err)
-				}
-			} else {
-				exp := SatPerKVByte(tc.est).FeePerKWeight()
-				if err != nil {
-					t.Fatalf("unable to estimate fee for "+
-						"%v block target, got: %v",
-						tc.target, err)
-				}
-				if est != exp {
-					t.Fatalf("expected fee estimate of "+
-						"%v, got %v", exp, est)
-				}
+			// Test an error case.
+			if tc.err != "" {
+				require.Error(t, err, "expected error")
+				require.ErrorContains(t, err, tc.err)
+
+				return
 			}
+
+			// Test an non-error case.
+			require.NoErrorf(t, err, "error from target %v",
+				tc.target)
+
+			exp := SatPerKVByte(tc.est).FeePerKWeight()
+			require.Equalf(t, exp, est, "target %v failed, fee "+
+				"map is %v", tc.target, feeSource.fees)
 		})
 	}
 }

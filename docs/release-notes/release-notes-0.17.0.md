@@ -18,6 +18,8 @@
  
 * [Replace in-mem task pipeline with a disk-overflow
   queue](https://github.com/lightningnetwork/lnd/pull/7380)
+* [Replay pending and un-acked updates onto the main task pipeline if a tower
+  is being removed](https://github.com/lightningnetwork/lnd/pull/6895)
  
 * [Add defaults](https://github.com/lightningnetwork/lnd/pull/7771) to the 
   wtclient and watchtower config structs and use these to populate the defaults 

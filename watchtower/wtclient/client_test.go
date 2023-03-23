@@ -2168,6 +2168,51 @@ var clientTests = []clientTest{
 			h.server.waitForUpdates(hints[0:numUpdates], waitTime)
 		},
 	},
+	{
+		// Assert that the client is able to switch to a new tower if
+		// the primary one goes down.
+		name: "switch to new tower",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				numUpdates = 5
+				chanID     = 0
+			)
+
+			// Generate numUpdates retributions and back a few of
+			// them up to the main tower.
+			hints := h.advanceChannelN(chanID, numUpdates)
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+
+			// Wait for all the backed up updates to be populated in
+			// the server's database.
+			h.server.waitForUpdates(hints[:numUpdates/2], waitTime)
+
+			// Now we add a new tower.
+			server2 := newServerHarness(
+				h.t, h.net, towerAddr2Str, nil,
+			)
+			server2.start()
+			h.addTower(server2.addr)
+
+			// Stop the old tower and remove it from the client.
+			h.server.stop()
+			h.removeTower(h.server.addr.IdentityKey, nil)
+
+			// Back up the remaining states.
+			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
+
+			// Assert that the new tower has the remaining states.
+			server2.waitForUpdates(hints[numUpdates/2:], waitTime)
+		},
+	},
 }
 
 // TestClient executes the client test suite, asserting the ability to backup

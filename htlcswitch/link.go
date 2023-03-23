@@ -710,6 +710,9 @@ func (l *channelLink) syncChanStates() error {
 	// first message sent MUST be the ChanSync message.
 	select {
 	case msg := <-l.upstream:
+		l.log.Tracef("Received msg=%v from peer(%x)", msg.MsgType(),
+			l.cfg.Peer.PubKey())
+
 		remoteChanSyncMsg, ok := msg.(*lnwire.ChannelReestablish)
 		if !ok {
 			return fmt.Errorf("first message sent to sync "+

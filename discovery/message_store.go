@@ -111,7 +111,11 @@ func messageStoreKey(msg lnwire.Message, peerPubKey [33]byte) ([]byte, error) {
 
 // AddMessage adds a message to the store for this peer.
 func (s *MessageStore) AddMessage(msg lnwire.Message, peerPubKey [33]byte) error {
-	// Construct the key for which we'll find this message with in the store.
+	log.Tracef("Adding message of type %v to store for peer %x",
+		msg.MsgType(), peerPubKey)
+
+	// Construct the key for which we'll find this message with in the
+	// store.
 	msgKey, err := messageStoreKey(msg, peerPubKey)
 	if err != nil {
 		return err
@@ -136,6 +140,9 @@ func (s *MessageStore) AddMessage(msg lnwire.Message, peerPubKey [33]byte) error
 // DeleteMessage deletes a message from the store for this peer.
 func (s *MessageStore) DeleteMessage(msg lnwire.Message,
 	peerPubKey [33]byte) error {
+
+	log.Tracef("Deleting message of type %v from store for peer %x",
+		msg.MsgType(), peerPubKey)
 
 	// Construct the key for which we'll find this message with in the
 	// store.

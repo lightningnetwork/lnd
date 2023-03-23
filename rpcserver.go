@@ -6827,6 +6827,10 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		return nil, fmt.Errorf("time lock delta of %v is too small, "+
 			"minimum supported is %v", req.TimeLockDelta,
 			minTimeLockDelta)
+	} else if req.TimeLockDelta > uint32(MaxTimeLockDelta) {
+		return nil, fmt.Errorf("time lock delta of %v is too big, "+
+			"maximum supported is %v", req.TimeLockDelta,
+			MaxTimeLockDelta)
 	}
 
 	baseFeeMsat := lnwire.MilliSatoshi(req.BaseFeeMsat)

@@ -4,6 +4,10 @@
 
 * The `lncli wallet psbt fund` command now allows users to specify the
   [`--min_confs` flag](https://github.com/lightningnetwork/lnd/pull/7510).
+ 
+* [Add time_lock_delta overflow check for UpdateChannelPolicy](https://github.com/lightningnetwork/lnd/pull/7350)
+  that ensure `time_lock_delta` is greater or equal than `0` and less or equal than `65535`
+
 
 ## Watchtowers
 

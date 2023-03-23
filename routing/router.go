@@ -4,6 +4,7 @@ import (
 	"bytes"
 	goErrors "errors"
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 	"sync"
@@ -80,6 +81,10 @@ const (
 	// bitcoin (160 for litecoin), though we now clamp the lower end of this
 	// range for user-chosen deltas to 18 blocks to be conservative.
 	MinCLTVDelta = 18
+
+	// MaxCLTVDelta is the maximum CLTV value accepted by LND for all
+	// timelock deltas.
+	MaxCLTVDelta = math.MaxUint16
 )
 
 var (

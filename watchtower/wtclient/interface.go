@@ -135,6 +135,10 @@ type DB interface {
 	// GetDBQueue returns a BackupID Queue instance under the given name
 	// space.
 	GetDBQueue(namespace []byte) wtdb.Queue[*wtdb.BackupID]
+
+	// DeleteCommittedUpdate deletes the committed update belonging to the
+	// given session and with the given sequence number from the db.
+	DeleteCommittedUpdate(id *wtdb.SessionID, seqNum uint16) error
 }
 
 // AuthDialer connects to a remote node using an authenticated transport, such

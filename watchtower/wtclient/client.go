@@ -306,7 +306,7 @@ type TowerClient struct {
 	negotiator        SessionNegotiator
 	candidateTowers   TowerCandidateIterator
 	candidateSessions map[wtdb.SessionID]*ClientSession
-	activeSessions    sessionQueueSet
+	activeSessions    *sessionQueueSet
 
 	sessionQueue *sessionQueue
 	prevTask     *wtdb.BackupID
@@ -378,7 +378,7 @@ func New(config *Config) (*TowerClient, error) {
 		log:                  plog,
 		pipeline:             queue,
 		chanCommitHeights:    make(map[lnwire.ChannelID]uint64),
-		activeSessions:       make(sessionQueueSet),
+		activeSessions:       newSessionQueueSet(),
 		summaries:            chanSummaries,
 		closableSessionQueue: newSessionCloseMinHeap(),
 		statTicker:           time.NewTicker(DefaultStatInterval),
@@ -1609,7 +1609,7 @@ func (c *TowerClient) newSessionQueue(s *ClientSession,
 func (c *TowerClient) getOrInitActiveQueue(s *ClientSession,
 	updates []wtdb.CommittedUpdate) *sessionQueue {
 
-	if sq, ok := c.activeSessions[s.ID]; ok {
+	if sq, ok := c.activeSessions.Get(s.ID); ok {
 		return sq
 	}
 
@@ -1628,12 +1628,10 @@ func (c *TowerClient) initActiveQueue(s *ClientSession,
 	sq := c.newSessionQueue(s, updates)
 
 	// Add the session queue as an active session so that we remember to
-	// stop it on shutdown.
-	c.activeSessions.Add(sq)
-
-	// Start the queue so that it can be active in processing newly assigned
-	// tasks or to upload previously committed updates.
-	sq.Start()
+	// stop it on shutdown. This method will also start the queue so that it
+	// can be active in processing newly assigned tasks or to upload
+	// previously committed updates.
+	c.activeSessions.AddAndStart(sq)
 
 	return sq
 }

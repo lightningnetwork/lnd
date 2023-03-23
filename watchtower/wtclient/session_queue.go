@@ -682,19 +682,63 @@ func (q *sessionQueue) signalUntilShutdown() {
 
 // sessionQueueSet maintains a mapping of SessionIDs to their corresponding
 // sessionQueue.
-type sessionQueueSet map[wtdb.SessionID]*sessionQueue
+type sessionQueueSet struct {
+	queues map[wtdb.SessionID]*sessionQueue
+	mu     sync.Mutex
+}
 
-// Add inserts a sessionQueue into the sessionQueueSet.
-func (s *sessionQueueSet) Add(sessionQueue *sessionQueue) {
-	(*s)[*sessionQueue.ID()] = sessionQueue
+// newSessionQueueSet constructs a new sessionQueueSet.
+func newSessionQueueSet() *sessionQueueSet {
+	return &sessionQueueSet{
+		queues: make(map[wtdb.SessionID]*sessionQueue),
+	}
+}
+
+// AddAndStart inserts a sessionQueue into the sessionQueueSet and starts it.
+func (s *sessionQueueSet) AddAndStart(sessionQueue *sessionQueue) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.queues[*sessionQueue.ID()] = sessionQueue
+
+	sessionQueue.Start()
+}
+
+// StopAndRemove stops the given session queue and removes it from the
+// sessionQueueSet.
+func (s *sessionQueueSet) StopAndRemove(id wtdb.SessionID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	queue, ok := s.queues[id]
+	if !ok {
+		return
+	}
+
+	queue.Stop()
+
+	delete(s.queues, id)
+}
+
+// Get fetches and returns the sessionQueue with the given ID.
+func (s *sessionQueueSet) Get(id wtdb.SessionID) (*sessionQueue, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	q, ok := s.queues[id]
+
+	return q, ok
 }
 
 // ApplyAndWait executes the nil-adic function returned from getApply for each
 // sessionQueue in the set in parallel, then waits for all of them to finish
 // before returning to the caller.
 func (s *sessionQueueSet) ApplyAndWait(getApply func(*sessionQueue) func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	var wg sync.WaitGroup
-	for _, sessionq := range *s {
+	for _, sessionq := range s.queues {
 		wg.Add(1)
 		go func(sq *sessionQueue) {
 			defer wg.Done()

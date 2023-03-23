@@ -28,9 +28,12 @@ const (
 	// the timescale of about a week.
 	DefaultBimodalDecayTime = 7 * 24 * time.Hour
 
-	// BimodalScaleMsatLimit is the maximum value for BimodalScaleMsat to
-	// avoid numerical issues.
-	BimodalScaleMsatMax = lnwire.MilliSatoshi(21e17)
+	// BimodalScaleMsatMax is the maximum value for BimodalScaleMsat. We
+	// limit it here to the fakeHopHintCapacity to avoid issues with hop
+	// hint probability calculations.
+	BimodalScaleMsatMax = lnwire.MilliSatoshi(
+		1000 * fakeHopHintCapacity / 4,
+	)
 
 	// BimodalEstimatorName is used to identify the bimodal estimator.
 	BimodalEstimatorName = "bimodal"
@@ -46,6 +49,10 @@ var (
 
 	// ErrInvalidDecayTime is returned when we get a decay time below zero.
 	ErrInvalidDecayTime = errors.New("decay time must be larger than zero")
+
+	// ErrZeroCapacity is returned when we encounter a channel with zero
+	// capacity in probability estimation.
+	ErrZeroCapacity = errors.New("capacity must be larger than zero")
 )
 
 // BimodalConfig contains configuration for our probability estimator.
@@ -223,7 +230,9 @@ func (p *BimodalEstimator) directProbability(now time.Time,
 		capacity, successAmount, failAmount, amt,
 	)
 	if err != nil {
-		log.Errorf("error computing probability: %v", err)
+		log.Errorf("error computing probability to node: %v "+
+			"(node: %v, results: %v, amt: %v, capacity: %v)",
+			err, toNode, results, amt, capacity)
 
 		return 0.0
 	}
@@ -297,6 +306,32 @@ func (p *BimodalEstimator) calculateProbability(directProbability float64,
 	// If we don't take other channels into account, we can return early.
 	if p.BimodalNodeWeight == 0.0 {
 		return directProbability
+	}
+
+	// If we have up-to-date information about the channel we want to use,
+	// i.e. the info stems from results not longer ago than the decay time,
+	// we will only use the direct probability. This is needed in order to
+	// avoid that other previous results (on all other channels of the same
+	// routing node) will distort and pin the calculated probability even if
+	// we have accurate direct information. This helps to dip the
+	// probability below the min probability in case of failures, to start
+	// the splitting process.
+	directResult, ok := results[toNode]
+	if ok {
+		latest := directResult.SuccessTime
+		if directResult.FailTime.After(latest) {
+			latest = directResult.FailTime
+		}
+
+		// We use BimonodalDecayTime to judge the currentness of the
+		// data. It is the time scale on which we assume to have lost
+		// information.
+		if now.Sub(latest) < p.BimodalDecayTime {
+			log.Tracef("Using direct probability for node %v: %v",
+				toNode, directResult)
+
+			return directProbability
+		}
 	}
 
 	// w is a parameter which determines how strongly the other channels of
@@ -438,10 +473,10 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 	failAmount := float64(failAmountMsat)
 	amount := float64(amountMsat)
 
-	// Capacity being zero is a sentinel value to ignore the probability
-	// estimation, we'll return the full probability here.
+	// In order for this formula to give reasonable results, we need to have
+	// an estimate of the capacity of a channel (or edge between nodes).
 	if capacity == 0.0 {
-		return 1.0, nil
+		return 0, ErrZeroCapacity
 	}
 
 	// We cannot send more than the capacity.
@@ -455,11 +490,17 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 
 	// failAmount should be capacity at max.
 	if failAmount > capacity {
+		log.Debugf("Correcting failAmount %v to capacity %v",
+			failAmount, capacity)
+
 		failAmount = capacity
 	}
 
 	// successAmount should be capacity at max.
 	if successAmount > capacity {
+		log.Debugf("Correcting successAmount %v to capacity %v",
+			successAmount, capacity)
+
 		successAmount = capacity
 	}
 
@@ -468,7 +509,7 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 	// happen if a large channel gets closed and smaller ones remain, but
 	// it should recover with the time decay.
 	if failAmount <= successAmount {
-		log.Tracef("fail amount (%v) is larger than or equal the "+
+		log.Tracef("fail amount (%v) is smaller than or equal the "+
 			"success amount (%v) for capacity (%v)",
 			failAmountMsat, successAmountMsat, capacityMsat)
 

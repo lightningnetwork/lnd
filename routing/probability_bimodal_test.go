@@ -232,6 +232,16 @@ func TestSuccessProbability(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+
+	// We expect an error when the capacity is zero.
+	t.Run("zero capacity", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := estimator.probabilityFormula(
+			0, 0, 0, 0,
+		)
+		require.ErrorIs(t, err, ErrZeroCapacity)
+	})
 }
 
 // TestIntegral tests certain limits of the probability distribution integral.
@@ -369,24 +379,32 @@ func TestComputeProbability(t *testing.T) {
 	nodeWeight := 1 / 5.
 	toNode := route.Vertex{10}
 	tolerance := 0.01
+	now := time.Unix(0, 0)
 	decayTime := time.Duration(1) * time.Hour * 24
 
 	// makeNodeResults prepares forwarding data for the other channels of
 	// the node.
-	makeNodeResults := func(successes []bool, now time.Time) NodeResults {
+	makeNodeResults := func(successes []bool, resultsTime time.Time,
+		directResultTime time.Time) NodeResults {
+
 		results := make(NodeResults, len(successes))
 
 		for i, s := range successes {
 			vertex := route.Vertex{byte(i)}
 
 			results[vertex] = TimedPairResult{
-				FailTime: now, FailAmt: 1,
+				FailTime: resultsTime, FailAmt: 1,
 			}
 			if s {
 				results[vertex] = TimedPairResult{
-					SuccessTime: now, SuccessAmt: 1,
+					SuccessTime: resultsTime, SuccessAmt: 1,
 				}
 			}
+		}
+
+		// Include a direct result.
+		results[toNode] = TimedPairResult{
+			SuccessTime: directResultTime, SuccessAmt: 1,
 		}
 
 		return results
@@ -395,9 +413,10 @@ func TestComputeProbability(t *testing.T) {
 	tests := []struct {
 		name                string
 		directProbability   float64
+		recentDirectResult  bool
 		otherResults        []bool
 		expectedProbability float64
-		delay               time.Duration
+		resultsTimeAgo      time.Duration
 	}{
 		// If no other information is available, use the direct
 		// probability.
@@ -516,7 +535,7 @@ func TestComputeProbability(t *testing.T) {
 				"time",
 			directProbability:   1.0,
 			otherResults:        []bool{true},
-			delay:               decayTime,
+			resultsTimeAgo:      decayTime,
 			expectedProbability: 1.00,
 		},
 		// A failure that was experienced some time ago won't influence
@@ -525,7 +544,7 @@ func TestComputeProbability(t *testing.T) {
 			name:                "success, single fail, decay time",
 			directProbability:   1.0,
 			otherResults:        []bool{false},
-			delay:               decayTime,
+			resultsTimeAgo:      decayTime,
 			expectedProbability: 0.9314,
 		},
 		// Information from a long time ago doesn't have any effect.
@@ -533,7 +552,7 @@ func TestComputeProbability(t *testing.T) {
 			name:                "success, single fail, long ago",
 			directProbability:   1.0,
 			otherResults:        []bool{false},
-			delay:               10 * decayTime,
+			resultsTimeAgo:      10 * decayTime,
 			expectedProbability: 1.0,
 		},
 		{
@@ -542,7 +561,7 @@ func TestComputeProbability(t *testing.T) {
 			otherResults: []bool{
 				true, true, true, true, true,
 			},
-			delay:               decayTime,
+			resultsTimeAgo:      decayTime,
 			expectedProbability: 0.269,
 		},
 		// Very recent info approaches the case with no time decay.
@@ -552,8 +571,21 @@ func TestComputeProbability(t *testing.T) {
 			otherResults: []bool{
 				true, true, true, true, true,
 			},
-			delay:               decayTime / 10,
+			resultsTimeAgo:      decayTime / 10,
 			expectedProbability: 0.741,
+		},
+		// If we have recent info on the direct probability, we don't
+		// include node-wide info. Here we check that a recent failure
+		// is not pinned to a high probability by many successes on the
+		// node.
+		{
+			name:               "recent direct result",
+			directProbability:  0.1,
+			recentDirectResult: true,
+			otherResults: []bool{
+				true, true, true, true, true,
+			},
+			expectedProbability: 0.1,
 		},
 	}
 
@@ -570,9 +602,19 @@ func TestComputeProbability(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			then := time.Unix(0, 0)
-			results := makeNodeResults(test.otherResults, then)
-			now := then.Add(test.delay)
+			var directResultTime time.Time
+			if test.recentDirectResult {
+				directResultTime = now.Add(-decayTime / 2)
+			} else {
+				directResultTime = now.Add(-2 * decayTime)
+			}
+
+			resultsTime := now.Add(-test.resultsTimeAgo)
+
+			results := makeNodeResults(
+				test.otherResults, resultsTime,
+				directResultTime,
+			)
 
 			p := estimator.calculateProbability(
 				test.directProbability, now, results, toNode,
@@ -649,7 +691,9 @@ func FuzzProbability(f *testing.F) {
 	estimator := BimodalEstimator{
 		BimodalConfig: BimodalConfig{BimodalScaleMsat: scale},
 	}
-	f.Add(uint64(0), uint64(0), uint64(0), uint64(0))
+
+	// We don't start fuzzing at zero, because that would cause an error.
+	f.Add(uint64(1), uint64(0), uint64(0), uint64(0))
 
 	f.Fuzz(func(t *testing.T, capacity, successAmt, failAmt, amt uint64) {
 		_, err := estimator.probabilityFormula(

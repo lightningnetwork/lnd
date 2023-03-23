@@ -218,7 +218,10 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 		maxBandwidth = bandwidth
 
 		// Update best edge.
-		bestEdge = &unifiedEdge{policy: edge.policy}
+		bestEdge = &unifiedEdge{
+			policy:   edge.policy,
+			capacity: edge.capacity,
+		}
 	}
 
 	return bestEdge

@@ -1485,10 +1485,17 @@ out:
 			// we'll continue processing as normal as this allows
 			// us to introduce new messages in a forwards
 			// compatible manner.
-			case *lnwire.UnknownMessage:
+			case *lnwire.UnknownOddMessage:
 				p.storeError(e)
 				idleTimer.Reset(idleTimeout)
 				continue
+
+			// If this is just a message we don't yet recognize,
+			// that must also make us disconnect, then
+			// disconnect from the peer
+			case *lnwire.UnknownEvenMessage:
+				p.storeError(e)
+				break out
 
 			// If they sent us an address type that we don't yet
 			// know of, then this isn't a wire error, so we'll

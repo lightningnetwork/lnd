@@ -1466,7 +1466,7 @@ var clientTests = []clientTest{
 			h.waitServerUpdates(hints[:numUpdates/2], time.Second)
 
 			// Stop the client, which should have no more backups.
-			h.client.Stop()
+			require.NoError(h.t, h.client.Stop())
 
 			// Record the policy that the first half was stored
 			// under. We'll expect the second half to also be stored
@@ -1527,7 +1527,7 @@ var clientTests = []clientTest{
 
 			// Restart the client, so we can ensure the deduping is
 			// maintained across restarts.
-			h.client.Stop()
+			require.NoError(h.t, h.client.Stop())
 			h.startClient()
 
 			// Try to back up the full range of retributions. Only
@@ -2011,6 +2011,61 @@ var clientTests = []clientTest{
 
 			}, waitTime)
 			require.NoError(h.t, err)
+		},
+	},
+	{
+		// Demonstrate that the client is unable to upload state updates
+		// to a tower if the client deletes its database after already
+		// having created and started to use a session with a tower.
+		// This happens because the session key is generated
+		// deterministically and will only be unique for new sessions
+		// if the same DB is used. The server therefore rejects these
+		// updates with the StateUpdateCodeClientBehind error.
+		name: "demonstrate the StateUpdateCodeClientBehind error",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				numUpdates = 5
+				chanID     = 0
+			)
+
+			// Generate numUpdates retributions.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			// Back half of the states up.
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+
+			// Wait for the updates to be populated in the server's
+			// database.
+			h.waitServerUpdates(hints[:numUpdates/2], waitTime)
+
+			// Now stop the client and reset its database.
+			require.NoError(h.t, h.client.Stop())
+
+			db := wtmock.NewClientDB()
+			h.clientDB = db
+			h.clientCfg.DB = db
+
+			// Restart the client.
+			h.startClient()
+
+			// We need to re-register the channel due to the client
+			// db being reset.
+			h.registerChannel(0)
+
+			// Attempt to back up the remaining tasks.
+			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
+
+			// Show that the server does not get the remaining
+			// updates.
+			h.waitServerUpdates(nil, waitTime)
 		},
 	},
 }

@@ -1087,6 +1087,34 @@ func assertPsbtFundSignSpend(ht *lntest.HarnessTest, alice *node.HarnessNode,
 	)
 	require.GreaterOrEqual(ht, fundResp.ChangeOutputIndex, int32(-1))
 
+	// Make sure our change output has all the meta information required for
+	// signing.
+	fundedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(fundResp.FundedPsbt), false,
+	)
+	require.NoError(ht, err)
+
+	pOut := fundedPacket.Outputs[fundResp.ChangeOutputIndex]
+	require.NotEmpty(ht, pOut.Bip32Derivation)
+	derivation := pOut.Bip32Derivation[0]
+	_, err = btcec.ParsePubKey(derivation.PubKey)
+	require.NoError(ht, err)
+	require.Len(ht, derivation.Bip32Path, 5)
+
+	// Ensure we get the change output properly decorated with all the new
+	// Taproot related fields, if it is a Taproot output.
+	if changeType == walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR {
+		require.NotEmpty(ht, pOut.TaprootBip32Derivation)
+		require.NotEmpty(ht, pOut.TaprootInternalKey)
+
+		trDerivation := pOut.TaprootBip32Derivation[0]
+		require.Equal(
+			ht, trDerivation.XOnlyPubKey, pOut.TaprootInternalKey,
+		)
+		_, err := schnorr.ParsePubKey(pOut.TaprootInternalKey)
+		require.NoError(ht, err)
+	}
+
 	var signedPsbt []byte
 	if useFinalize {
 		finalizeResp := alice.RPC.FinalizePsbt(

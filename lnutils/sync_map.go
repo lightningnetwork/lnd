@@ -45,9 +45,54 @@ func (m *SyncMap[K, V]) LoadAndDelete(key K) (V, bool) {
 	return item, ok
 }
 
-// Range iterates the map.
+// Range iterates the map and applies the `visitor` function. If the `visitor`
+// returns false, the iteration will be stopped.
 func (m *SyncMap[K, V]) Range(visitor func(K, V) bool) {
 	m.Map.Range(func(k any, v any) bool {
 		return visitor(k.(K), v.(V))
 	})
+}
+
+// ForEach iterates the map and applies the `visitor` function. Unlike the
+// `Range` method, the `visitor` function will be applied to all the items
+// unless there's an error.
+func (m *SyncMap[K, V]) ForEach(visitor func(K, V) error) {
+	// rangeVisitor wraps the `visitor` function and returns false if
+	// there's an error returned from the `visitor` function.
+	rangeVisitor := func(k K, v V) bool {
+		if err := visitor(k, v); err != nil {
+			// Break the iteration if there's an error.
+			return false
+		}
+
+		return true
+	}
+
+	m.Range(rangeVisitor)
+}
+
+// Len returns the number of items in the map.
+func (m *SyncMap[K, V]) Len() int {
+	var count int
+	m.Range(func(_ K, _ V) bool {
+		count++
+
+		return true
+	})
+
+	return count
+}
+
+// LoadOrStore queries an item from the map using the specified key. If the
+// item cannot be found, the `value` will be stored in the map and returned.
+// If the stored item fails the type assertion, a nil value and false will be
+// returned.
+func (m *SyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
+	result, loaded := m.Map.LoadOrStore(key, value)
+	item, ok := result.(V)
+	if !ok {
+		return *new(V), false //nolint: gocritic
+	}
+
+	return item, loaded
 }

@@ -20,6 +20,8 @@
   queue](https://github.com/lightningnetwork/lnd/pull/7380)
 * [Replay pending and un-acked updates onto the main task pipeline if a tower
   is being removed](https://github.com/lightningnetwork/lnd/pull/6895)
+* Add the ability to [mark a session as
+  borked](https://github.com/lightningnetwork/lnd/pull/7545)
  
 * [Add defaults](https://github.com/lightningnetwork/lnd/pull/7771) to the 
   wtclient and watchtower config structs and use these to populate the defaults 

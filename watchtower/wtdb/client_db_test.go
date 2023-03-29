@@ -204,6 +204,24 @@ func (h *clientDBHarness) deleteCommittedUpdate(id *wtdb.SessionID,
 	require.ErrorIs(h.t, err, expErr)
 }
 
+func (h *clientDBHarness) markSessionBorked(id *wtdb.SessionID, expErr error) {
+	h.t.Helper()
+
+	err := h.db.MarkSessionBorked(id)
+	require.ErrorIs(h.t, err, expErr)
+}
+
+func (h *clientDBHarness) getClientSession(id wtdb.SessionID,
+	expErr error) *wtdb.ClientSession {
+
+	h.t.Helper()
+
+	session, err := h.db.GetClientSession(id)
+	require.ErrorIs(h.t, err, expErr)
+
+	return session
+}
+
 func (h *clientDBHarness) markChannelClosed(id lnwire.ChannelID,
 	blockHeight uint32, expErr error) []wtdb.SessionID {
 
@@ -763,7 +781,7 @@ func testMarkChannelClosed(h *clientDBHarness) {
 	require.EqualValues(h.t, 4, lastApplied)
 	h.ackUpdate(&session1.ID, 5, 5, nil)
 
-	// The session is no exhausted.
+	// The session is now exhausted.
 	// If we now close channel 5, session 1 should still not be closable
 	// since it has an update for channel 6 which is still open.
 	sl = h.markChannelClosed(chanID5, 1, nil)
@@ -873,6 +891,56 @@ func testAckUpdate(h *clientDBHarness) {
 	// Acking with a last applied greater than any allocated seqnum should
 	// fail.
 	h.ackUpdate(&session.ID, 4, 3, wtdb.ErrUnallocatedLastApplied)
+}
+
+// testAckUpdate asserts the behavior of MarkSessionBorked.
+func testMarkSessionBorked(h *clientDBHarness) {
+	const blobType = blob.TypeAltruistCommit
+
+	tower := h.newTower()
+
+	// Create a new session that the updates in this will be tied to.
+	session := &wtdb.ClientSession{
+		ClientSessionBody: wtdb.ClientSessionBody{
+			TowerID: tower.ID,
+			Policy: wtpolicy.Policy{
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType: blobType,
+				},
+				MaxUpdates: 100,
+			},
+			RewardPkScript: []byte{0x01, 0x02, 0x03},
+		},
+		ID: wtdb.SessionID([33]byte{0x03}),
+	}
+
+	// Reserve a session key and insert the client session.
+	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType, false)
+	h.insertSession(session, nil)
+
+	// Commit to a random update at seqnum 1.
+	update1 := randCommittedUpdate(h.t, 1)
+	h.registerChan(update1.BackupID.ChanID, nil, nil)
+	lastApplied := h.commitUpdate(&session.ID, update1, nil)
+	require.Zero(h.t, lastApplied)
+
+	// Marking the session as borked now should fail since the session has
+	// an un-acked update.
+	h.markSessionBorked(&session.ID, wtdb.ErrSessionHasUnackedUpdates)
+
+	// Fetch the session and assert that the status is still active.
+	sess := h.getClientSession(session.ID, nil)
+	require.Equal(h.t, wtdb.CSessionActive, sess.Status)
+
+	// Delete the update.
+	h.deleteCommittedUpdate(&session.ID, 1, nil)
+
+	// Marking the session as borked should now succeed.
+	h.markSessionBorked(&session.ID, nil)
+
+	// Fetch the session again and assert that its status is now borked.
+	sess = h.getClientSession(session.ID, nil)
+	require.Equal(h.t, wtdb.CSessionBorked, sess.Status)
 }
 
 func (h *clientDBHarness) assertUpdates(id wtdb.SessionID,
@@ -1007,6 +1075,10 @@ func TestClientDB(t *testing.T) {
 		{
 			name: "mark channel closed",
 			run:  testMarkChannelClosed,
+		},
+		{
+			name: "mark session borked",
+			run:  testMarkSessionBorked,
 		},
 	}
 

@@ -2111,6 +2111,49 @@ func (c *ClientDB) DeleteCommittedUpdate(id *SessionID, seqNum uint16) error {
 	}, func() {})
 }
 
+// MarkSessionBorked will set the status of the given session to Borked so that
+// the session is not used for any future updates. This method must not be
+// called if the session has un-acked updates.
+func (c *ClientDB) MarkSessionBorked(id *SessionID) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		sessions := tx.ReadWriteBucket(cSessionBkt)
+		if sessions == nil {
+			return ErrUninitializedDB
+		}
+
+		sessionsBkt := tx.ReadBucket(cSessionBkt)
+		if sessionsBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanIDIndexBkt := tx.ReadBucket(cChanIDIndexBkt)
+		if chanIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		committedUpdateCount := make(map[SessionID]uint16)
+		perCommittedUpdate := func(s *ClientSession,
+			_ *CommittedUpdate) {
+
+			committedUpdateCount[s.ID]++
+		}
+
+		session, err := c.getClientSession(
+			sessionsBkt, chanIDIndexBkt, id[:],
+			WithPerCommittedUpdate(perCommittedUpdate),
+		)
+		if err != nil {
+			return err
+		}
+
+		if committedUpdateCount[*id] > 0 {
+			return ErrSessionHasUnackedUpdates
+		}
+
+		return markSessionStatus(sessions, session, CSessionBorked)
+	}, func() {})
+}
+
 // putChannelToSessionMapping adds the given session ID to a channel's
 // cChanSessions bucket.
 func putChannelToSessionMapping(chanDetails kvdb.RwBucket,

@@ -626,6 +626,28 @@ func (m *ClientDB) DeleteCommittedUpdate(id *wtdb.SessionID,
 	return wtdb.ErrCommittedUpdateNotFound
 }
 
+// MarkSessionBorked will set the status of the given session to Borked so that
+// the session is not used for any future updates. This method must not be
+// called if the session has un-acked updates.
+func (m *ClientDB) MarkSessionBorked(id *wtdb.SessionID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	session, ok := m.activeSessions[*id]
+	if !ok {
+		return wtdb.ErrClientSessionNotFound
+	}
+
+	if len(m.committedUpdates[*id]) != 0 {
+		return wtdb.ErrSessionHasUnackedUpdates
+	}
+
+	session.Status = wtdb.CSessionBorked
+	m.activeSessions[*id] = session
+
+	return nil
+}
+
 // ListClosableSessions fetches and returns the IDs for all sessions marked as
 // closable.
 func (m *ClientDB) ListClosableSessions() (map[wtdb.SessionID]uint32, error) {
@@ -716,10 +738,10 @@ func (m *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
 
 // isSessionClosable returns true if a session is considered closable. A session
 // is considered closable only if:
-// 1) It has no un-acked updates
-// 2) It is exhausted (ie it cant accept any more updates) OR it has been marked
-//    as borked.
-// 3) All the channels that it has acked-updates for are closed.
+//  1. It has no un-acked updates
+//  2. It is exhausted (ie it cant accept any more updates) OR it has been
+//     marked as borked.
+//  3. All the channels that it has acked-updates for are closed.
 func (m *ClientDB) isSessionClosable(id wtdb.SessionID) (bool, error) {
 	// The session is not closable if it has un-acked updates.
 	if len(m.committedUpdates[id]) > 0 {

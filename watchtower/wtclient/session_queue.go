@@ -334,6 +334,11 @@ func (q *sessionQueue) AcceptTask(task *backupTask) (sessionQueueStatus, bool) {
 	return newStatus, true
 }
 
+// Stopped returns a channel that will return if the session queue is stopped.
+func (q *sessionQueue) Stopped() chan struct{} {
+	return q.quit
+}
+
 // sessionManager is the primary event loop for the sessionQueue, and is
 // responsible for encrypting and sending accepted tasks to the tower.
 func (q *sessionQueue) sessionManager() {

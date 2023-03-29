@@ -1260,6 +1260,13 @@ func (c *TowerClient) backupDispatcher() {
 			// Normal operation where new tasks are read from the
 			// pipeline.
 			select {
+			// If the active session queue is stopped, set it to
+			// nil so that a new session can be negotiated.
+			case <-c.sessionQueue.Stopped():
+				c.log.Debugf("The active session queue (%s) "+
+					"was stopped", c.sessionQueue.ID())
+
+				c.sessionQueue = nil
 
 			// If any sessions are negotiated while we have an
 			// active session queue, queue them for future use.

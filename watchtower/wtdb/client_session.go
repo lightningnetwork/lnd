@@ -18,9 +18,13 @@ const (
 	// used for backups.
 	CSessionActive CSessionStatus = 0
 
-	// CSessionInactive indicates that the ClientSession is inactive and
-	// cannot be used for backups.
+	// CSessionInactive indicates that the ClientSession is temporarily
+	// inactive and cannot be used for backups.
 	CSessionInactive CSessionStatus = 1
+
+	// CSessionBorked indicates that the ClientSession is permanently
+	// inactive and should not ever be used for any more backups.
+	CSessionBorked CSessionStatus = 2
 )
 
 // ClientSession encapsulates a SessionInfo returned from a successful

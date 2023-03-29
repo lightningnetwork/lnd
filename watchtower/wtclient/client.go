@@ -74,10 +74,12 @@ func (c *TowerClient) genSessionFilter(
 }
 
 // ExhaustedSessionFilter constructs a wtdb.ClientSessionFilterFn filter
-// function that will filter out any sessions that have been exhausted.
+// function that will filter out any sessions that have been exhausted or the
+// session has been marked as borked.
 func ExhaustedSessionFilter() wtdb.ClientSessionFilterFn {
 	return func(session *wtdb.ClientSession) bool {
-		return session.SeqNum < session.Policy.MaxUpdates
+		return session.SeqNum < session.Policy.MaxUpdates &&
+			session.Status != wtdb.CSessionBorked
 	}
 }
 

@@ -1744,7 +1744,8 @@ func (c *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
 // isSessionClosable returns true if a session is considered closable. A session
 // is considered closable only if all the following points are true:
 // 1) It has no un-acked updates.
-// 2) It is exhausted (ie it can't accept any more updates)
+// 2) It is exhausted (ie it can't accept any more updates) OR it has been
+//    marked as borked.
 // 3) All the channels that it has acked updates for are closed.
 func isSessionClosable(sessionsBkt, chanDetailsBkt, chanIDIndexBkt kvdb.RBucket,
 	id *SessionID) (bool, error) {
@@ -1778,8 +1779,9 @@ func isSessionClosable(sessionsBkt, chanDetailsBkt, chanIDIndexBkt kvdb.RBucket,
 	}
 
 	// We have already checked that the session has no more committed
-	// updates. So now we can check if the session is exhausted.
-	if session.SeqNum < session.Policy.MaxUpdates {
+	// updates. So now we can check if the session is exhausted or borked.
+	borked := session.Status == CSessionBorked
+	if !borked && session.SeqNum < session.Policy.MaxUpdates {
 		// If the session is not yet exhausted, it is not yet closable.
 		return false, nil
 	}
@@ -2456,6 +2458,12 @@ func putClientSessionBody(sessionBkt kvdb.RwBucket,
 // status.
 func markSessionStatus(sessions kvdb.RwBucket, session *ClientSession,
 	status CSessionStatus) error {
+
+	// Don't change the session status if it has previously been marked as
+	// borked.
+	if session.Status == CSessionBorked {
+		return nil
+	}
 
 	sessionBkt, err := sessions.CreateBucketIfNotExists(session.ID[:])
 	if err != nil {

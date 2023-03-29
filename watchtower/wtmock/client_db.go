@@ -97,6 +97,10 @@ func (m *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*wtdb.Tower, error) {
 			return nil, err
 		}
 		for id, session := range towerSessions {
+			if session.Status == wtdb.CSessionBorked {
+				continue
+			}
+
 			session.Status = wtdb.CSessionActive
 			m.activeSessions[id] = *session
 		}
@@ -160,6 +164,11 @@ func (m *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 		if len(m.committedUpdates[session.ID]) > 0 {
 			return wtdb.ErrTowerUnackedUpdates
 		}
+
+		if session.Status == wtdb.CSessionBorked {
+			continue
+		}
+
 		session.Status = wtdb.CSessionInactive
 		m.activeSessions[id] = *session
 	}
@@ -708,7 +717,8 @@ func (m *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
 // isSessionClosable returns true if a session is considered closable. A session
 // is considered closable only if:
 // 1) It has no un-acked updates
-// 2) It is exhausted (ie it cant accept any more updates)
+// 2) It is exhausted (ie it cant accept any more updates) OR it has been marked
+//    as borked.
 // 3) All the channels that it has acked-updates for are closed.
 func (m *ClientDB) isSessionClosable(id wtdb.SessionID) (bool, error) {
 	// The session is not closable if it has un-acked updates.
@@ -721,8 +731,9 @@ func (m *ClientDB) isSessionClosable(id wtdb.SessionID) (bool, error) {
 		return false, wtdb.ErrClientSessionNotFound
 	}
 
-	// The session is not closable if it is not yet exhausted.
-	if sess.SeqNum != sess.Policy.MaxUpdates {
+	// The session is not closable if it is not yet exhausted or borked.
+	borked := sess.Status == wtdb.CSessionBorked
+	if !borked && sess.SeqNum != sess.Policy.MaxUpdates {
 		return false, nil
 	}
 

@@ -401,9 +401,10 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 // particular tower id. The index is reserved for that tower until
 // CreateClientSession is invoked for that tower and index, at which point a new
 // index for that tower can be reserved. Multiple calls to this method before
-// CreateClientSession is invoked should return the same index.
-func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID,
-	blobType blob.Type) (uint32, error) {
+// CreateClientSession is invoked should return the same index unless forceNext
+// is set to true.
+func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID, blobType blob.Type,
+	forceNext bool) (uint32, error) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -413,15 +414,24 @@ func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID,
 		blobType: blobType,
 	}
 
-	if index, err := m.getSessionKeyIndex(key); err == nil {
-		return index, nil
+	if !forceNext {
+		if index, err := m.getSessionKeyIndex(key); err == nil {
+			return index, nil
+		}
 	}
 
-	m.nextIndex++
-	index := m.nextIndex
-	m.indexes[key] = index
+	// By default, we use the next available bucket sequence as the key
+	// index. But if forceNext is true, then it is assumed that some data
+	// loss occurred and so the sequence is incremented a by a jump of 1000
+	// so that we can arrive at a brand new key index quicker.
+	nextIndex := m.nextIndex + 1
+	if forceNext {
+		nextIndex = m.nextIndex + 1000
+	}
+	m.nextIndex = nextIndex
+	m.indexes[key] = nextIndex
 
-	return index, nil
+	return nextIndex, nil
 }
 
 func (m *ClientDB) getSessionKeyIndex(key keyIndexKey) (uint32, error) {

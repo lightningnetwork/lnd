@@ -2398,6 +2398,58 @@ var clientTests = []clientTest{
 			server2.waitForUpdates(hints[numUpdates/2:], waitTime)
 		},
 	},
+	{
+		// This test demonstrates that if the server returns an error
+		// to the client for a state update, the client is then unable
+		// to continue backing up states. This behaviour will be fixed
+		// in an upcoming commit.
+		name: "cannot backup states after error from server",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				numUpdates = 5
+				chanID     = 0
+			)
+
+			// Generate numUpdates retributions.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			// Backup half of the states.
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+
+			// Wait for the updates to be populated in the server's
+			// database.
+			h.server.waitForUpdates(hints[:numUpdates/2], waitTime)
+
+			// Now stop the client and reset its database.
+			require.NoError(h.t, h.client.Stop())
+
+			db := wtmock.NewClientDB()
+			h.clientDB = db
+			h.clientCfg.DB = db
+
+			// Restart the client.
+			h.startClient()
+
+			// We need to re-register the channel due to the client
+			// db being reset.
+			h.registerChannel(0)
+
+			// Attempt to back up the remaining tasks.
+			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
+
+			// Show that the server does not get the remaining
+			// updates.
+			h.server.waitForUpdates(nil, waitTime)
+		},
+	},
 }
 
 // TestClient executes the client test suite, asserting the ability to backup

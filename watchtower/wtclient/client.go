@@ -139,6 +139,10 @@ type Client interface {
 	// when trying to abide by the negotiated policy.
 	BackupState(chanID *lnwire.ChannelID, stateNum uint64) error
 
+	// MarkSessionBorked will set the status of the given session to Borked
+	// so that the session is not used for any future updates.
+	MarkSessionBorked(id *wtdb.SessionID) error
+
 	// Start initializes the watchtower client, allowing it process requests
 	// to backup revoked channel states.
 	Start() error
@@ -800,6 +804,17 @@ func (c *TowerClient) BackupState(chanID *lnwire.ChannelID,
 	}
 
 	return c.pipeline.QueueBackupID(id)
+}
+
+// MarkSessionBorked will set the status of the given session to Borked so that
+// the session is not used for any future updates.
+func (c *TowerClient) MarkSessionBorked(id *wtdb.SessionID) error {
+	ok, err := c.activeSessions.StopAndRemove(*id)
+	if !ok || err != nil {
+		return err
+	}
+
+	return c.cfg.DB.MarkSessionBorked(id)
 }
 
 // nextSessionQueue attempts to fetch an active session from our set of

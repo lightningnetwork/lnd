@@ -2399,11 +2399,11 @@ var clientTests = []clientTest{
 		},
 	},
 	{
-		// This test demonstrates that if the server returns an error
-		// to the client for a state update, the client is then unable
-		// to continue backing up states. This behaviour will be fixed
-		// in an upcoming commit.
-		name: "cannot backup states after error from server",
+		// This test shows that if a session error occurs, the client
+		// can use the MarkSessionBorked method to abort the use of the
+		// session so that a new one is negotiated and backups can
+		// continue.
+		name: "mark session borked",
 		cfg: harnessCfg{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
@@ -2448,6 +2448,32 @@ var clientTests = []clientTest{
 			// Show that the server does not get the remaining
 			// updates.
 			h.server.waitForUpdates(nil, waitTime)
+
+			// Get all the sessions.
+			towers, err := h.clientDB.ListTowers()
+			require.NoError(h.t, err)
+			require.Len(h.t, towers, 1)
+
+			sessions, err := h.clientDB.ListClientSessions(
+				&towers[0].ID,
+			)
+			require.NoError(h.t, err)
+			require.Len(h.t, sessions, 1)
+
+			var sessID wtdb.SessionID
+			for id := range sessions {
+				sessID = id
+			}
+
+			// Mark the client session as borked.
+			err = h.client.MarkSessionBorked(&sessID)
+			require.NoError(h.t, err)
+
+			// Since the problem session has been marked as borked,
+			// the client should have negotiated a new session with
+			// the server and so we now assert that the latest
+			// updates have been backed up to the server.
+			h.server.waitForUpdates(hints[numUpdates/2:], waitTime)
 		},
 	},
 }

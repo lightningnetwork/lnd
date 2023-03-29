@@ -180,9 +180,9 @@ var (
 	// session has updates for channels that are still open.
 	errSessionHasOpenChannels = errors.New("session has open channels")
 
-	// errSessionHasUnackedUpdates is an error used to indicate that a
+	// ErrSessionHasUnackedUpdates is an error used to indicate that a
 	// session has un-acked updates.
-	errSessionHasUnackedUpdates = errors.New("session has un-acked updates")
+	ErrSessionHasUnackedUpdates = errors.New("session has un-acked updates")
 
 	// errChannelHasMoreSessions is an error used to indicate that a channel
 	// has updates in other non-closed sessions.
@@ -1743,10 +1743,10 @@ func (c *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
 
 // isSessionClosable returns true if a session is considered closable. A session
 // is considered closable only if all the following points are true:
-// 1) It has no un-acked updates.
-// 2) It is exhausted (ie it can't accept any more updates) OR it has been
-//    marked as borked.
-// 3) All the channels that it has acked updates for are closed.
+//  1. It has no un-acked updates.
+//  2. It is exhausted (ie it can't accept any more updates) OR it has been
+//     marked as borked.
+//  3. All the channels that it has acked updates for are closed.
 func isSessionClosable(sessionsBkt, chanDetailsBkt, chanIDIndexBkt kvdb.RBucket,
 	id *SessionID) (bool, error) {
 
@@ -1765,9 +1765,9 @@ func isSessionClosable(sessionsBkt, chanDetailsBkt, chanIDIndexBkt kvdb.RBucket,
 
 	// If the session has any un-acked updates, then it is not yet closable.
 	err := commitsBkt.ForEach(func(_, _ []byte) error {
-		return errSessionHasUnackedUpdates
+		return ErrSessionHasUnackedUpdates
 	})
-	if errors.Is(err, errSessionHasUnackedUpdates) {
+	if errors.Is(err, ErrSessionHasUnackedUpdates) {
 		return false, nil
 	} else if err != nil {
 		return false, err

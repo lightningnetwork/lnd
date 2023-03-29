@@ -60,6 +60,10 @@ var (
 			Entity: "offchain",
 			Action: "read",
 		}},
+		"/wtclientrpc.WatchtowerClient/MarkSessionBorked": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 	}
 
 	// ErrWtclientNotActive signals that RPC calls cannot be processed
@@ -481,6 +485,35 @@ func (c *WatchtowerClient) Policy(ctx context.Context,
 			policy.SweepFeeRate.FeePerKVByte() / 1000,
 		),
 	}, nil
+}
+
+// MarkSessionBorked will set the status of the given session to Borked so that
+// the session is not used for any future updates.
+func (c *WatchtowerClient) MarkSessionBorked(_ context.Context,
+	req *MarkSessionBorkedRequest) (*MarkSessionBorkedResponse, error) {
+
+	if err := c.isActive(); err != nil {
+		return nil, err
+	}
+
+	pubKey, err := btcec.ParsePubKey(req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionID := wtdb.NewSessionIDFromPubKey(pubKey)
+
+	err = c.cfg.Client.MarkSessionBorked(&sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	err = c.cfg.AnchorClient.MarkSessionBorked(&sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MarkSessionBorkedResponse{}, nil
 }
 
 // marshallTower converts a client registered watchtower into its corresponding

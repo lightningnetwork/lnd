@@ -170,6 +170,39 @@
         ]
       }
     },
+    "/v2/watchtower/client/session": {
+      "post": {
+        "summary": "MarkSessionBorked will set the status of the given session to Borked so\nthat the session is not used for any future updates.",
+        "operationId": "WatchtowerClient_MarkSessionBorked",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcMarkSessionBorkedResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcMarkSessionBorkedRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WatchtowerClient"
+        ]
+      }
+    },
     "/v2/watchtower/client/stats": {
       "get": {
         "summary": "Stats returns the in-memory statistics of the client since startup.",
@@ -293,6 +326,19 @@
           "description": "The list of watchtowers available for new backups."
         }
       }
+    },
+    "wtclientrpcMarkSessionBorkedRequest": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ID of the session that should be marked as borked."
+        }
+      }
+    },
+    "wtclientrpcMarkSessionBorkedResponse": {
+      "type": "object"
     },
     "wtclientrpcPolicyResponse": {
       "type": "object",

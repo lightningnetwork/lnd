@@ -36,6 +36,9 @@ type WatchtowerClientClient interface {
 	Stats(ctx context.Context, in *StatsRequest, opts ...grpc.CallOption) (*StatsResponse, error)
 	// Policy returns the active watchtower client policy configuration.
 	Policy(ctx context.Context, in *PolicyRequest, opts ...grpc.CallOption) (*PolicyResponse, error)
+	// MarkSessionBorked will set the status of the given session to Borked so
+	// that the session is not used for any future updates.
+	MarkSessionBorked(ctx context.Context, in *MarkSessionBorkedRequest, opts ...grpc.CallOption) (*MarkSessionBorkedResponse, error)
 }
 
 type watchtowerClientClient struct {
@@ -100,6 +103,15 @@ func (c *watchtowerClientClient) Policy(ctx context.Context, in *PolicyRequest, 
 	return out, nil
 }
 
+func (c *watchtowerClientClient) MarkSessionBorked(ctx context.Context, in *MarkSessionBorkedRequest, opts ...grpc.CallOption) (*MarkSessionBorkedResponse, error) {
+	out := new(MarkSessionBorkedResponse)
+	err := c.cc.Invoke(ctx, "/wtclientrpc.WatchtowerClient/MarkSessionBorked", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WatchtowerClientServer is the server API for WatchtowerClient service.
 // All implementations must embed UnimplementedWatchtowerClientServer
 // for forward compatibility
@@ -122,6 +134,9 @@ type WatchtowerClientServer interface {
 	Stats(context.Context, *StatsRequest) (*StatsResponse, error)
 	// Policy returns the active watchtower client policy configuration.
 	Policy(context.Context, *PolicyRequest) (*PolicyResponse, error)
+	// MarkSessionBorked will set the status of the given session to Borked so
+	// that the session is not used for any future updates.
+	MarkSessionBorked(context.Context, *MarkSessionBorkedRequest) (*MarkSessionBorkedResponse, error)
 	mustEmbedUnimplementedWatchtowerClientServer()
 }
 
@@ -146,6 +161,9 @@ func (UnimplementedWatchtowerClientServer) Stats(context.Context, *StatsRequest)
 }
 func (UnimplementedWatchtowerClientServer) Policy(context.Context, *PolicyRequest) (*PolicyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Policy not implemented")
+}
+func (UnimplementedWatchtowerClientServer) MarkSessionBorked(context.Context, *MarkSessionBorkedRequest) (*MarkSessionBorkedResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MarkSessionBorked not implemented")
 }
 func (UnimplementedWatchtowerClientServer) mustEmbedUnimplementedWatchtowerClientServer() {}
 
@@ -268,6 +286,24 @@ func _WatchtowerClient_Policy_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WatchtowerClient_MarkSessionBorked_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MarkSessionBorkedRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WatchtowerClientServer).MarkSessionBorked(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/wtclientrpc.WatchtowerClient/MarkSessionBorked",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WatchtowerClientServer).MarkSessionBorked(ctx, req.(*MarkSessionBorkedRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // WatchtowerClient_ServiceDesc is the grpc.ServiceDesc for WatchtowerClient service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -298,6 +334,10 @@ var WatchtowerClient_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Policy",
 			Handler:    _WatchtowerClient_Policy_Handler,
+		},
+		{
+			MethodName: "MarkSessionBorked",
+			Handler:    _WatchtowerClient_MarkSessionBorked_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

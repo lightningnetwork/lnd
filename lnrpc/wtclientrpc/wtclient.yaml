@@ -16,3 +16,6 @@ http:
       get: "/v2/watchtower/client/stats"
     - selector: wtclientrpc.WatchtowerClient.Policy
       get: "/v2/watchtower/client/policy"
+    - selector: wtclientrpc.WatchtowerClient.MarkSessionBorked
+      post: "/v2/watchtower/client/session"
+      body: "*"

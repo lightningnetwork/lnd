@@ -2014,14 +2014,12 @@ var clientTests = []clientTest{
 		},
 	},
 	{
-		// Demonstrate that the client is unable to upload state updates
-		// to a tower if the client deletes its database after already
-		// having created and started to use a session with a tower.
-		// This happens because the session key is generated
-		// deterministically and will only be unique for new sessions
-		// if the same DB is used. The server therefore rejects these
-		// updates with the StateUpdateCodeClientBehind error.
-		name: "demonstrate the StateUpdateCodeClientBehind error",
+		// Demonstrate that the client is unable to recover after
+		// deleting its database by skipping through key indices until
+		// it gets to one that does not result in the
+		// CreateSessionCodeAlreadyExists error code being returned from
+		// the server.
+		name: "continue after client database deletion",
 		cfg: harnessCfg{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
@@ -2063,9 +2061,8 @@ var clientTests = []clientTest{
 			// Attempt to back up the remaining tasks.
 			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
 
-			// Show that the server does not get the remaining
-			// updates.
-			h.waitServerUpdates(nil, waitTime)
+			// Show that the server does get the remaining updates.
+			h.waitServerUpdates(hints[numUpdates/2:], waitTime)
 		},
 	},
 }

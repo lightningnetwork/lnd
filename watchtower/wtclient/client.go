@@ -1714,7 +1714,7 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 
 		// Shutdown the session so that any pending updates are
 		// replayed back onto the main task pipeline.
-		err = c.activeSessions.StopAndRemove(sessionID)
+		_, err = c.activeSessions.StopAndRemove(sessionID)
 		if err != nil {
 			c.log.Errorf("could not stop session %s: %w", sessionID,
 				err)

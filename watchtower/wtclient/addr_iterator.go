@@ -162,6 +162,10 @@ func (a *addressIterator) next(lock bool) (net.Addr, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	if a.currentTopAddr == nil {
+		return nil, ErrAddressesExhausted
+	}
+
 	// Set the next candidate to the subsequent element.
 	a.currentTopAddr = a.currentTopAddr.Next()
 

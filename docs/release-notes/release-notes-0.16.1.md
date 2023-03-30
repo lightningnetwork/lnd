@@ -14,6 +14,8 @@
 
 ## Watchtowers
 
+* [Fix Address iterator 
+  panic](https://github.com/lightningnetwork/lnd/pull/7556)
 * [Allow caller to filter sessions at the time of reading them from 
   disk](https://github.com/lightningnetwork/lnd/pull/7059)
 * [Clean up sessions once all channels for which they have updates for are

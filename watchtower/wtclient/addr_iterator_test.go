@@ -216,4 +216,27 @@ func TestAddrIterator(t *testing.T) {
 		iter.ReleaseLock(addr3)
 		require.False(t, iter.HasLocked())
 	})
+
+	t.Run("calling Next twice without Reset panics", func(t *testing.T) {
+		t.Parallel()
+
+		// This defer-function asserts that a panic does occur.
+		defer func() {
+			r := recover()
+			require.NotNilf(t, r, "the code did not panic")
+		}()
+
+		// Initialise the iterator with addr1.
+		iter, err := newAddressIterator(addr1)
+		require.NoError(t, err)
+
+		a1 := iter.Peek()
+		require.Equal(t, addr1, a1)
+
+		_, err = iter.Next()
+		require.ErrorIs(t, err, ErrAddressesExhausted)
+
+		_, err = iter.Next()
+		require.ErrorIs(t, err, ErrAddressesExhausted)
+	})
 }

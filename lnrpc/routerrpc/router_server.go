@@ -356,6 +356,20 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	// native unit of LN.
 	amtMsat := lnwire.NewMSatFromSatoshis(btcutil.Amount(req.AmtSat))
 
+	// We'll now attempt to unmarshall the route hints in the request.
+	routeHints, err := unmarshallRouteHints(req.RouteHints)
+	if err != nil {
+		return nil, err
+	}
+
+	// Next we'll now convert the route hints into edges.
+	routeHintEdges, err := routing.RouteHintsToEdges(
+		routeHints, route.Vertex(req.Dest),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	// Pick a fee limit
 	//
 	// TODO: Change this into behaviour that makes more sense.
@@ -372,7 +386,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 			FeeLimit:          feeLimit,
 			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
 			ProbabilitySource: mc.GetProbability,
-		}, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
+		}, nil, routeHintEdges, s.cfg.RouterBackend.DefaultFinalCltvDelta,
 	)
 	if err != nil {
 		return nil, err

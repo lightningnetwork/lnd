@@ -1630,6 +1630,13 @@
           "type": "string",
           "format": "int64",
           "description": "The amount one wishes to send to the target destination."
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcRouteHint"
+          },
+          "description": "Optional route hints to reach the destination through private channels."
         }
       }
     },

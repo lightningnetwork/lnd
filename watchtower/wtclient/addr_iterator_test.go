@@ -217,14 +217,8 @@ func TestAddrIterator(t *testing.T) {
 		require.False(t, iter.HasLocked())
 	})
 
-	t.Run("calling Next twice without Reset panics", func(t *testing.T) {
+	t.Run("calling Next twice without Reset is safe", func(t *testing.T) {
 		t.Parallel()
-
-		// This defer-function asserts that a panic does occur.
-		defer func() {
-			r := recover()
-			require.NotNilf(t, r, "the code did not panic")
-		}()
 
 		// Initialise the iterator with addr1.
 		iter, err := newAddressIterator(addr1)

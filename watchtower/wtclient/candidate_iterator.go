@@ -145,6 +145,7 @@ func (t *towerListIterator) AddCandidate(candidate *Tower) {
 		for {
 			next, err := candidate.Addresses.Next()
 			if err != nil {
+				candidate.Addresses.Reset()
 				break
 			}
 

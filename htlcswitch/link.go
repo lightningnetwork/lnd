@@ -724,12 +724,12 @@ func (l *channelLink) syncChanStates() error {
 		// done any state updates yet, then we'll retransmit the
 		// funding locked message first. We do this, as at this point
 		// we can't be sure if they've really received the
-		// FundingLocked message.
+		// ChannelReady message.
 		if remoteChanSyncMsg.NextLocalCommitHeight == 1 &&
 			localChanSyncMsg.NextLocalCommitHeight == 1 &&
 			!l.channel.IsPending() {
 
-			l.log.Infof("resending FundingLocked message to peer")
+			l.log.Infof("resending ChannelReady message to peer")
 
 			nextRevocation, err := l.channel.NextRevocationKey()
 			if err != nil {
@@ -737,13 +737,13 @@ func (l *channelLink) syncChanStates() error {
 					"revocation: %v", err)
 			}
 
-			fundingLockedMsg := lnwire.NewFundingLocked(
+			channelReadyMsg := lnwire.NewChannelReady(
 				l.ChanID(), nextRevocation,
 			)
 
 			// For channels that negotiated the option-scid-alias
 			// feature bit, ensure that we send over the alias in
-			// the funding_locked message. We'll send the first
+			// the channel_ready message. We'll send the first
 			// alias we find for the channel since it does not
 			// matter which alias we send. We'll error out if no
 			// aliases are found.
@@ -759,13 +759,13 @@ func (l *channelLink) syncChanStates() error {
 				// getAliases returns a copy of the alias slice
 				// so it is ok to use a pointer to the first
 				// entry.
-				fundingLockedMsg.AliasScid = &aliases[0]
+				channelReadyMsg.AliasScid = &aliases[0]
 			}
 
-			err = l.cfg.Peer.SendMessage(false, fundingLockedMsg)
+			err = l.cfg.Peer.SendMessage(false, channelReadyMsg)
 			if err != nil {
 				return fmt.Errorf("unable to re-send "+
-					"FundingLocked: %v", err)
+					"ChannelReady: %v", err)
 			}
 		}
 

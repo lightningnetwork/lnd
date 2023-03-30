@@ -1345,7 +1345,7 @@ func (c *OpenChannel) MarkBorked() error {
 }
 
 // SecondCommitmentPoint returns the second per-commitment-point for use in the
-// funding_locked message.
+// channel_ready message.
 func (c *OpenChannel) SecondCommitmentPoint() (*btcec.PublicKey, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -3770,7 +3770,7 @@ func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) erro
 	// TODO(roasbeef): don't keep producer on disk
 
 	// If the next revocation is present, which is only the case after the
-	// FundingLocked message has been sent, then we'll write it to disk.
+	// ChannelReady message has been sent, then we'll write it to disk.
 	if channel.RemoteNextRevocation != nil {
 		err = WriteElements(&b, channel.RemoteNextRevocation)
 		if err != nil {

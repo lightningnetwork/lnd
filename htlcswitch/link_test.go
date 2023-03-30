@@ -1684,8 +1684,8 @@ func TestChannelLinkSingleHopMessageOrdering(t *testing.T) {
 		{"alice", "bob", &lnwire.ChannelReestablish{}, false},
 		{"bob", "alice", &lnwire.ChannelReestablish{}, false},
 
-		{"alice", "bob", &lnwire.FundingLocked{}, false},
-		{"bob", "alice", &lnwire.FundingLocked{}, false},
+		{"alice", "bob", &lnwire.ChannelReady{}, false},
+		{"bob", "alice", &lnwire.ChannelReady{}, false},
 
 		{"alice", "bob", &lnwire.UpdateAddHTLC{}, false},
 		{"alice", "bob", &lnwire.CommitSig{}, false},
@@ -3303,8 +3303,8 @@ func TestChannelRetransmission(t *testing.T) {
 				{"alice", "bob", &lnwire.ChannelReestablish{}, false},
 				{"bob", "alice", &lnwire.ChannelReestablish{}, false},
 
-				{"alice", "bob", &lnwire.FundingLocked{}, false},
-				{"bob", "alice", &lnwire.FundingLocked{}, false},
+				{"alice", "bob", &lnwire.ChannelReady{}, false},
+				{"bob", "alice", &lnwire.ChannelReady{}, false},
 
 				// Send payment from Alice to Bob and intercept
 				// the last revocation message, in this case
@@ -3343,8 +3343,8 @@ func TestChannelRetransmission(t *testing.T) {
 				{"alice", "bob", &lnwire.ChannelReestablish{}, false},
 				{"bob", "alice", &lnwire.ChannelReestablish{}, false},
 
-				{"alice", "bob", &lnwire.FundingLocked{}, false},
-				{"bob", "alice", &lnwire.FundingLocked{}, false},
+				{"alice", "bob", &lnwire.ChannelReady{}, false},
+				{"bob", "alice", &lnwire.ChannelReady{}, false},
 
 				// Send payment from Alice to Bob and intercept
 				// the last revocation message, in this case
@@ -3385,8 +3385,8 @@ func TestChannelRetransmission(t *testing.T) {
 				{"alice", "bob", &lnwire.ChannelReestablish{}, false},
 				{"bob", "alice", &lnwire.ChannelReestablish{}, false},
 
-				{"alice", "bob", &lnwire.FundingLocked{}, false},
-				{"bob", "alice", &lnwire.FundingLocked{}, false},
+				{"alice", "bob", &lnwire.ChannelReady{}, false},
+				{"bob", "alice", &lnwire.ChannelReady{}, false},
 
 				// Attempt make a payment from Alice to Bob,
 				// which is intercepted, emulating the Bob
@@ -3399,8 +3399,8 @@ func TestChannelRetransmission(t *testing.T) {
 				{"alice", "bob", &lnwire.ChannelReestablish{}, false},
 				{"bob", "alice", &lnwire.ChannelReestablish{}, false},
 
-				{"alice", "bob", &lnwire.FundingLocked{}, false},
-				{"bob", "alice", &lnwire.FundingLocked{}, false},
+				{"alice", "bob", &lnwire.ChannelReady{}, false},
+				{"bob", "alice", &lnwire.ChannelReady{}, false},
 
 				// After Bob has notified Alice that he didn't
 				// receive updates Alice should re-send them.
@@ -3816,8 +3816,8 @@ func TestChannelLinkUpdateCommitFee(t *testing.T) {
 		{"alice", "bob", &lnwire.ChannelReestablish{}, false},
 		{"bob", "alice", &lnwire.ChannelReestablish{}, false},
 
-		{"alice", "bob", &lnwire.FundingLocked{}, false},
-		{"bob", "alice", &lnwire.FundingLocked{}, false},
+		{"alice", "bob", &lnwire.ChannelReady{}, false},
+		{"bob", "alice", &lnwire.ChannelReady{}, false},
 
 		// First fee update.
 		{"alice", "bob", &lnwire.UpdateFee{}, false},

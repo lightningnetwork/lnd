@@ -169,12 +169,12 @@ const (
 
 	// ScidAliasRequired is a required feature bit that signals that the
 	// node requires understanding of ShortChannelID aliases in the TLV
-	// segment of the funding_locked message.
+	// segment of the channel_ready message.
 	ScidAliasRequired FeatureBit = 46
 
 	// ScidAliasOptional is an optional feature bit that signals that the
 	// node understands ShortChannelID aliases in the TLV segment of the
-	// funding_locked message.
+	// channel_ready message.
 	ScidAliasOptional FeatureBit = 47
 
 	// PaymentMetadataRequired is a required bit that denotes that if an

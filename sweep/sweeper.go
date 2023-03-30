@@ -82,6 +82,13 @@ type Params struct {
 	// ExclusiveGroup is an identifier that, if set, prevents other inputs
 	// with the same identifier from being batched together.
 	ExclusiveGroup *uint64
+
+	// Strategy specifies how the fee will be bumped.
+	Strategy Strategy
+
+	// MaxFeeRatio specifies a portion of the input amount that can be used
+	// as mining fee. If not set, defaultMaxFeeRatio will be used.
+	MaxFeeRatio float64
 }
 
 // ParamsUpdate contains a new set of parameters to update a pending sweep with.
@@ -233,6 +240,9 @@ type UtxoSweeper struct {
 
 	relayFeeRate chainfee.SatPerKWeight
 
+	// feeBumper is used to bump the fee of inputs that are time sensitive.
+	feeBumper Bumper
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -320,8 +330,8 @@ type sweepInputMessage struct {
 }
 
 // New returns a new Sweeper instance.
-func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
-	return &UtxoSweeper{
+func New(cfg *UtxoSweeperConfig) (*UtxoSweeper, error) {
+	s := &UtxoSweeper{
 		cfg:               cfg,
 		newInputs:         make(chan *sweepInputMessage),
 		spendChan:         make(chan *chainntnfs.SpendDetail),
@@ -330,6 +340,18 @@ func New(cfg *UtxoSweeperConfig) *UtxoSweeper {
 		quit:              make(chan struct{}),
 		pendingInputs:     make(pendingInputs),
 	}
+
+	// Generate a pkScript to be used by the fee bumper for weight
+	// calculation.
+	pkScript, err := s.cfg.GenSweepScript()
+	if err != nil {
+		return nil, fmt.Errorf("gen sweep script: %w", err)
+	}
+
+	// Create the fee bumper.
+	s.feeBumper = newFeeBumper(s.cfg.Notifier, s.UpdateParams, pkScript)
+
+	return s, nil
 }
 
 // Start starts the process of constructing and publish sweep txes.
@@ -382,6 +404,9 @@ func (s *UtxoSweeper) Start() error {
 		defer blockEpochs.Cancel()
 		defer s.wg.Done()
 
+		// Start the fee bumper.
+		s.feeBumper.Start()
+
 		s.collector(blockEpochs.Epochs)
 
 		// The collector exited and won't longer handle incoming
@@ -430,6 +455,9 @@ func (s *UtxoSweeper) Stop() error {
 
 	log.Info("Sweeper shutting down")
 
+	// Stop the fee bumper.
+	s.feeBumper.Stop()
+
 	close(s.quit)
 	s.wg.Wait()
 
@@ -463,9 +491,10 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 	absoluteTimeLock, _ := input.RequiredLockTime()
 	log.Infof("Sweep request received: out_point=%v, witness_type=%v, "+
 		"relative_time_lock=%v, absolute_time_lock=%v, amount=%v, "+
-		"params=(%v)", input.OutPoint(), input.WitnessType(),
-		input.BlocksToMaturity(), absoluteTimeLock,
-		btcutil.Amount(input.SignDesc().Output.Value), params)
+		"params=(%v), strategy=%s", input.OutPoint(),
+		input.WitnessType(), input.BlocksToMaturity(), absoluteTimeLock,
+		btcutil.Amount(input.SignDesc().Output.Value), params,
+		params.Strategy)
 
 	sweeperInput := &sweepInputMessage{
 		input:      input,
@@ -677,6 +706,11 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			}
 			log.Tracef("input %v scheduled", outpoint)
 
+			err = s.monitorInput(input, bestHeight)
+			if err != nil {
+				log.Errorf("monitor input got: %v", err)
+			}
+
 		// A spend of one of our inputs is detected. Signal sweep
 		// results to the caller(s).
 		case spend := <-s.spendChan:
@@ -746,6 +780,9 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 					Tx:  spend.SpendingTx,
 					Err: err,
 				})
+
+				// Notify the fee bumper that it's confirmed.
+				s.feeBumper.NotifyConfirm(&outpoint)
 
 				// Remove all other inputs in this exclusive
 				// group.
@@ -1629,6 +1666,44 @@ func DefaultNextAttemptDeltaFunc(attempts int) int32 {
 // ListSweeps returns a list of the the sweeps recorded by the sweep store.
 func (s *UtxoSweeper) ListSweeps() ([]chainhash.Hash, error) {
 	return s.cfg.Store.ListSweeps()
+}
+
+// monitorInput creates and sends a monitor request to the fee bumper.
+func (s *UtxoSweeper) monitorInput(
+	input *sweepInputMessage, currentHeight int32) error {
+
+	// Get the initial conf target.
+	initialConfTarget := input.params.Fee.ConfTarget
+
+	// We may choose to use fee rate instead of conf target, in which case
+	// we'll use the NoConfTarget to explicitly signal that.
+	if initialConfTarget == 0 {
+		initialConfTarget = NoHeightInfo
+	}
+
+	// Get the initial fee rate.
+	initialFeeRate, err := s.feeRateForPreference(input.params.Fee)
+	if err != nil {
+		return err
+	}
+
+	// Create the monitor request.
+	req := &MonitorRequest{
+		Input:      input.input,
+		Height:     uint32(currentHeight),
+		ConfTarget: initialConfTarget,
+		FeeRate:    initialFeeRate,
+	}
+
+	// Send the requst.
+	if err := s.feeBumper.RequestMonitor(req); err != nil {
+		return err
+	}
+
+	op := input.input.OutPoint()
+	log.Tracef("Sent monitor request for outpoint: %v", op)
+
+	return nil
 }
 
 // init initializes the random generator for random input rescheduling.

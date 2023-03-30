@@ -5,14 +5,20 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 )
 
-// log is a logger that is initialized with no output filters.  This means the
-// package will not perform any logging by default until the caller requests
-// it.
-var log btclog.Logger
+var (
+	// log is a logger that is initialized with no output filters. This
+	// means the package will not perform any logging by default until the
+	// caller requests it.
+	log btclog.Logger
+
+	// feeLog is used by the fee bumper.
+	feeLog btclog.Logger
+)
 
 // The default amount of logging is none.
 func init() {
 	UseLogger(build.NewSubLogger("SWPR", nil))
+	UseBumperLogger(build.NewSubLogger("FBMP", nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled by
@@ -26,6 +32,13 @@ func DisableLog() {
 // btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+}
+
+// UseBumperLogger uses a specified Logger to output package logging info.
+// This should be used in preference to SetLogWriter if the caller is also
+// using btclog.
+func UseBumperLogger(logger btclog.Logger) {
+	feeLog = logger
 }
 
 // logClosure is used to provide a closure over expensive logging operations so

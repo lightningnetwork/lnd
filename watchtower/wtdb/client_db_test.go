@@ -3,6 +3,7 @@ package wtdb_test
 import (
 	crand "crypto/rand"
 	"io"
+	"math/rand"
 	"net"
 	"testing"
 
@@ -16,6 +17,8 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"github.com/stretchr/testify/require"
 )
+
+const blobType = blob.TypeAltruistCommit
 
 // pseudoAddr is a fake network address to be used for testing purposes.
 var pseudoAddr = &net.TCPAddr{IP: []byte{0x01, 0x00, 0x00, 0x00}, Port: 9911}
@@ -59,12 +62,12 @@ func (h *clientDBHarness) listSessions(id *wtdb.TowerID,
 	return sessions
 }
 
-func (h *clientDBHarness) nextKeyIndex(id wtdb.TowerID,
-	blobType blob.Type) uint32 {
+func (h *clientDBHarness) nextKeyIndex(id wtdb.TowerID, blobType blob.Type,
+	forceNext bool) uint32 {
 
 	h.t.Helper()
 
-	index, err := h.db.NextSessionKeyIndex(id, blobType)
+	index, err := h.db.NextSessionKeyIndex(id, blobType, forceNext)
 	require.NoError(h.t, err, "unable to create next session key index")
 	require.NotZero(h.t, index, "next key index should never be 0")
 
@@ -192,6 +195,35 @@ func (h *clientDBHarness) ackUpdate(id *wtdb.SessionID, seqNum uint16,
 	require.ErrorIs(h.t, err, expErr)
 }
 
+func (h *clientDBHarness) markChannelClosed(id lnwire.ChannelID,
+	blockHeight uint32, expErr error) []wtdb.SessionID {
+
+	h.t.Helper()
+
+	closableSessions, err := h.db.MarkChannelClosed(id, blockHeight)
+	require.ErrorIs(h.t, err, expErr)
+
+	return closableSessions
+}
+
+func (h *clientDBHarness) listClosableSessions(
+	expErr error) map[wtdb.SessionID]uint32 {
+
+	h.t.Helper()
+
+	closableSessions, err := h.db.ListClosableSessions()
+	require.ErrorIs(h.t, err, expErr)
+
+	return closableSessions
+}
+
+func (h *clientDBHarness) deleteSession(id wtdb.SessionID, expErr error) {
+	h.t.Helper()
+
+	err := h.db.DeleteSession(id)
+	require.ErrorIs(h.t, err, expErr)
+}
+
 // newTower is a helper function that creates a new tower with a randomly
 // generated public key and inserts it into the client DB.
 func (h *clientDBHarness) newTower() *wtdb.Tower {
@@ -277,7 +309,7 @@ func testCreateClientSession(h *clientDBHarness) {
 	h.insertSession(session, wtdb.ErrNoReservedKeyIndex)
 
 	// Now, reserve a session key for this tower.
-	keyIndex := h.nextKeyIndex(session.TowerID, blobType)
+	keyIndex := h.nextKeyIndex(session.TowerID, blobType, false)
 
 	// The client session hasn't been updated with the reserved key index
 	// (since it's still zero). Inserting should fail due to the mismatch.
@@ -286,7 +318,7 @@ func testCreateClientSession(h *clientDBHarness) {
 	// Reserve another key for the same index. Since no session has been
 	// successfully created, it should return the same index to maintain
 	// idempotency across restarts.
-	keyIndex2 := h.nextKeyIndex(session.TowerID, blobType)
+	keyIndex2 := h.nextKeyIndex(session.TowerID, blobType, false)
 	require.Equalf(h.t, keyIndex, keyIndex2, "next key index should "+
 		"be idempotent: want: %v, got %v", keyIndex, keyIndex2)
 
@@ -303,11 +335,23 @@ func testCreateClientSession(h *clientDBHarness) {
 	// session already existing.
 	h.insertSession(session, wtdb.ErrClientSessionAlreadyExists)
 
-	// Finally, assert that reserving another key index succeeds with a
-	// different key index, now that the first one has been finalized.
-	keyIndex3 := h.nextKeyIndex(session.TowerID, blobType)
+	// Assert that reserving another key index succeeds with a different key
+	// index, now that the first one has been finalized.
+	keyIndex3 := h.nextKeyIndex(session.TowerID, blobType, false)
 	require.NotEqualf(h.t, keyIndex, keyIndex3, "key index still "+
 		"reserved after creating session")
+
+	// Show that calling NextSessionKeyIndex again now will result in the
+	// same key being returned as long as forceNext remains false.
+	keyIndex4 := h.nextKeyIndex(session.TowerID, blobType, false)
+	require.Equal(h.t, keyIndex3, keyIndex4)
+
+	// Finally, assert that if the forceNext param of the
+	// NextSessionKeyIndex method is true, then the key index returned will
+	// be different.
+	keyIndex5 := h.nextKeyIndex(session.TowerID, blobType, true)
+	require.NotEqual(h.t, keyIndex5, keyIndex4)
+	require.Equal(h.t, keyIndex3+1000, keyIndex5)
 }
 
 // testFilterClientSessions asserts that we can correctly filter client sessions
@@ -320,7 +364,7 @@ func testFilterClientSessions(h *clientDBHarness) {
 	towerSessions := make(map[wtdb.TowerID][]wtdb.SessionID)
 	for i := 0; i < numSessions; i++ {
 		tower := h.newTower()
-		keyIndex := h.nextKeyIndex(tower.ID, blobType)
+		keyIndex := h.nextKeyIndex(tower.ID, blobType, false)
 		sessionID := wtdb.SessionID([33]byte{byte(i)})
 		h.insertSession(&wtdb.ClientSession{
 			ClientSessionBody: wtdb.ClientSessionBody{
@@ -467,7 +511,9 @@ func testRemoveTower(h *clientDBHarness) {
 				MaxUpdates: 100,
 			},
 			RewardPkScript: []byte{0x01, 0x02, 0x03},
-			KeyIndex:       h.nextKeyIndex(tower.ID, blobType),
+			KeyIndex: h.nextKeyIndex(
+				tower.ID, blobType, false,
+			),
 		},
 		ID: wtdb.SessionID([33]byte{0x01}),
 	}
@@ -549,7 +595,7 @@ func testCommitUpdate(h *clientDBHarness) {
 	)
 
 	// Reserve a session key index and insert the session.
-	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType)
+	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType, false)
 	h.insertSession(session, nil)
 
 	// Now, try to commit the update that failed initially which should
@@ -604,6 +650,118 @@ func testCommitUpdate(h *clientDBHarness) {
 	}, nil)
 }
 
+// testMarkChannelClosed asserts the behaviour of MarkChannelClosed.
+func testMarkChannelClosed(h *clientDBHarness) {
+	tower := h.newTower()
+
+	// Create channel 1.
+	chanID1 := randChannelID(h.t)
+
+	// Since we have not yet registered the channel, we expect an error
+	// when attempting to mark it as closed.
+	h.markChannelClosed(chanID1, 1, wtdb.ErrChannelNotRegistered)
+
+	// Now register the channel.
+	h.registerChan(chanID1, nil, nil)
+
+	// Since there are still no sessions that would have updates for the
+	// channel, marking it as closed now should succeed.
+	h.markChannelClosed(chanID1, 1, nil)
+
+	// Register channel 2.
+	chanID2 := randChannelID(h.t)
+	h.registerChan(chanID2, nil, nil)
+
+	// Create session1 with MaxUpdates set to 5.
+	session1 := h.randSession(h.t, tower.ID, 5)
+	h.insertSession(session1, nil)
+
+	// Add an update for channel 2 in session 1 and ack it too.
+	update := randCommittedUpdateForChannel(h.t, chanID2, 1)
+	lastApplied := h.commitUpdate(&session1.ID, update, nil)
+	require.Zero(h.t, lastApplied)
+	h.ackUpdate(&session1.ID, 1, 1, nil)
+
+	// Marking channel 2 now should not result in any closable sessions
+	// since session 1 is not yet exhausted.
+	sl := h.markChannelClosed(chanID2, 1, nil)
+	require.Empty(h.t, sl)
+
+	// Create channel 3 and 4.
+	chanID3 := randChannelID(h.t)
+	h.registerChan(chanID3, nil, nil)
+
+	chanID4 := randChannelID(h.t)
+	h.registerChan(chanID4, nil, nil)
+
+	// Add an update for channel 4 and ack it.
+	update = randCommittedUpdateForChannel(h.t, chanID4, 2)
+	lastApplied = h.commitUpdate(&session1.ID, update, nil)
+	require.EqualValues(h.t, 1, lastApplied)
+	h.ackUpdate(&session1.ID, 2, 2, nil)
+
+	// Add an update for channel 3 in session 1. But dont ack it yet.
+	update = randCommittedUpdateForChannel(h.t, chanID2, 3)
+	lastApplied = h.commitUpdate(&session1.ID, update, nil)
+	require.EqualValues(h.t, 2, lastApplied)
+
+	// Mark channel 4 as closed & assert that session 1 is not seen as
+	// closable since it still has committed updates.
+	sl = h.markChannelClosed(chanID4, 1, nil)
+	require.Empty(h.t, sl)
+
+	// Now ack the update we added above.
+	h.ackUpdate(&session1.ID, 3, 3, nil)
+
+	// Mark channel 3 as closed & assert that session 1 is still not seen as
+	// closable since it is not yet exhausted.
+	sl = h.markChannelClosed(chanID3, 1, nil)
+	require.Empty(h.t, sl)
+
+	// Create channel 5 and 6.
+	chanID5 := randChannelID(h.t)
+	h.registerChan(chanID5, nil, nil)
+
+	chanID6 := randChannelID(h.t)
+	h.registerChan(chanID6, nil, nil)
+
+	// Add an update for channel 5 and ack it.
+	update = randCommittedUpdateForChannel(h.t, chanID5, 4)
+	lastApplied = h.commitUpdate(&session1.ID, update, nil)
+	require.EqualValues(h.t, 3, lastApplied)
+	h.ackUpdate(&session1.ID, 4, 4, nil)
+
+	// Add an update for channel 6 and ack it.
+	update = randCommittedUpdateForChannel(h.t, chanID6, 5)
+	lastApplied = h.commitUpdate(&session1.ID, update, nil)
+	require.EqualValues(h.t, 4, lastApplied)
+	h.ackUpdate(&session1.ID, 5, 5, nil)
+
+	// The session is no exhausted.
+	// If we now close channel 5, session 1 should still not be closable
+	// since it has an update for channel 6 which is still open.
+	sl = h.markChannelClosed(chanID5, 1, nil)
+	require.Empty(h.t, sl)
+	require.Empty(h.t, h.listClosableSessions(nil))
+
+	// Also check that attempting to delete the session will fail since it
+	// is not yet considered closable.
+	h.deleteSession(session1.ID, wtdb.ErrSessionNotClosable)
+
+	// Finally, if we close channel 6, session 1 _should_ be in the closable
+	// list.
+	sl = h.markChannelClosed(chanID6, 100, nil)
+	require.ElementsMatch(h.t, sl, []wtdb.SessionID{session1.ID})
+	slMap := h.listClosableSessions(nil)
+	require.InDeltaMapValues(h.t, slMap, map[wtdb.SessionID]uint32{
+		session1.ID: 100,
+	}, 0)
+
+	// Assert that we now can delete the session.
+	h.deleteSession(session1.ID, nil)
+	require.Empty(h.t, h.listClosableSessions(nil))
+}
+
 // testAckUpdate asserts the behavior of AckUpdate.
 func testAckUpdate(h *clientDBHarness) {
 	const blobType = blob.TypeAltruistCommit
@@ -630,7 +788,7 @@ func testAckUpdate(h *clientDBHarness) {
 	h.ackUpdate(&session.ID, 1, 0, wtdb.ErrClientSessionNotFound)
 
 	// Reserve a session key and insert the client session.
-	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType)
+	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType, false)
 	h.insertSession(session, nil)
 
 	// Now, try to ack update 1. This should fail since update 1 was never
@@ -820,6 +978,10 @@ func TestClientDB(t *testing.T) {
 			name: "ack update",
 			run:  testAckUpdate,
 		},
+		{
+			name: "mark channel closed",
+			run:  testMarkChannelClosed,
+		},
 	}
 
 	for _, database := range dbs {
@@ -840,12 +1002,32 @@ func TestClientDB(t *testing.T) {
 
 // randCommittedUpdate generates a random committed update.
 func randCommittedUpdate(t *testing.T, seqNum uint16) *wtdb.CommittedUpdate {
+	t.Helper()
+
+	chanID := randChannelID(t)
+
+	return randCommittedUpdateForChannel(t, chanID, seqNum)
+}
+
+func randChannelID(t *testing.T) lnwire.ChannelID {
+	t.Helper()
+
 	var chanID lnwire.ChannelID
 	_, err := io.ReadFull(crand.Reader, chanID[:])
 	require.NoError(t, err)
 
+	return chanID
+}
+
+// randCommittedUpdateForChannel generates a random committed update for the
+// given channel ID.
+func randCommittedUpdateForChannel(t *testing.T, chanID lnwire.ChannelID,
+	seqNum uint16) *wtdb.CommittedUpdate {
+
+	t.Helper()
+
 	var hint blob.BreachHint
-	_, err = io.ReadFull(crand.Reader, hint[:])
+	_, err := io.ReadFull(crand.Reader, hint[:])
 	require.NoError(t, err)
 
 	encBlob := make([]byte, blob.Size(blob.FlagCommitOutputs.Type()))
@@ -862,5 +1044,31 @@ func randCommittedUpdate(t *testing.T, seqNum uint16) *wtdb.CommittedUpdate {
 			Hint:          hint,
 			EncryptedBlob: encBlob,
 		},
+	}
+}
+
+func (h *clientDBHarness) randSession(t *testing.T,
+	towerID wtdb.TowerID, maxUpdates uint16) *wtdb.ClientSession {
+
+	t.Helper()
+
+	var id wtdb.SessionID
+	rand.Read(id[:])
+
+	return &wtdb.ClientSession{
+		ClientSessionBody: wtdb.ClientSessionBody{
+			TowerID: towerID,
+			Policy: wtpolicy.Policy{
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType: blobType,
+				},
+				MaxUpdates: maxUpdates,
+			},
+			RewardPkScript: []byte{0x01, 0x02, 0x03},
+			KeyIndex: h.nextKeyIndex(
+				towerID, blobType, false,
+			),
+		},
+		ID: id,
 	}
 }

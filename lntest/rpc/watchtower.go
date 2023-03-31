@@ -24,6 +24,20 @@ func (h *HarnessRPC) GetInfoWatchtower() *watchtowerrpc.GetInfoResponse {
 	return info
 }
 
+// GetTowerInfo makes an RPC call to the watchtower client of the given node and
+// asserts.
+func (h *HarnessRPC) GetTowerInfo(
+	req *wtclientrpc.GetTowerInfoRequest) *wtclientrpc.Tower {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	info, err := h.WatchtowerClient.GetTowerInfo(ctxt, req)
+	h.NoError(err, "GetTowerInfo from WatchtowerClient")
+
+	return info
+}
+
 // AddTower makes a RPC call to the WatchtowerClient of the given node and
 // asserts.
 func (h *HarnessRPC) AddTower(

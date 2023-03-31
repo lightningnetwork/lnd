@@ -29,6 +29,10 @@ type TowerCandidateIterator interface {
 	// candidates available as long as they remain in the set.
 	Reset() error
 
+	// GetTower gets the tower with the given ID from the iterator. If no
+	// such tower is found then ErrTowerNotInIterator is returned.
+	GetTower(id wtdb.TowerID) (*Tower, error)
+
 	// Next returns the next candidate tower. The iterator is not required
 	// to return results in any particular order.  If no more candidates are
 	// available, ErrTowerCandidatesExhausted is returned.
@@ -74,6 +78,20 @@ func (t *towerListIterator) Reset() error {
 	t.nextCandidate = t.queue.Front()
 
 	return nil
+}
+
+// GetTower gets the tower with the given ID from the iterator. If no such tower
+// is found then ErrTowerNotInIterator is returned.
+func (t *towerListIterator) GetTower(id wtdb.TowerID) (*Tower, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	tower, ok := t.candidates[id]
+	if !ok {
+		return nil, ErrTowerNotInIterator
+	}
+
+	return tower, nil
 }
 
 // Next returns the next candidate tower. This iterator will always return
@@ -127,6 +145,7 @@ func (t *towerListIterator) AddCandidate(candidate *Tower) {
 		for {
 			next, err := candidate.Addresses.Next()
 			if err != nil {
+				candidate.Addresses.Reset()
 				break
 			}
 

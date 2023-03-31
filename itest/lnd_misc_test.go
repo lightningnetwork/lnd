@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
@@ -757,10 +759,8 @@ func testAbandonChannel(ht *lntest.HarnessTest) {
 
 // testSweepAllCoins tests that we're able to properly sweep all coins from the
 // wallet into a single target address at the specified fee rate.
-//
-// TODO(yy): expand this test to also use P2TR.
 func testSweepAllCoins(ht *lntest.HarnessTest) {
-	// First, we'll make a new node, ainz who'll we'll use to test wallet
+	// First, we'll make a new node, Ainz who'll we'll use to test wallet
 	// sweeping.
 	//
 	// NOTE: we won't use standby nodes here since the test will change
@@ -772,60 +772,50 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, ainz)
 	ht.FundCoinsNP2WKH(btcutil.SatoshiPerBitcoin, ainz)
 
-	// Ensure that we can't send coins to our own Pubkey.
-	info := ainz.RPC.GetInfo()
-
-	// Create a label that we will used to label the transaction with.
+	// Create a label that will be used to label the transaction with.
 	sendCoinsLabel := "send all coins"
 
-	sweepReq := &lnrpc.SendCoinsRequest{
-		Addr:    info.IdentityPubkey,
+	// Ensure that we can't send coins to our own Pubkey.
+	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+		Addr:    ainz.RPC.GetInfo().IdentityPubkey,
 		SendAll: true,
 		Label:   sendCoinsLabel,
-	}
-	ainz.RPC.SendCoinsAssertErr(sweepReq)
+	})
 
 	// Ensure that we can't send coins to another user's Pubkey.
-	info = ht.Alice.RPC.GetInfo()
-
-	sweepReq = &lnrpc.SendCoinsRequest{
-		Addr:    info.IdentityPubkey,
+	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+		Addr:    ht.Alice.RPC.GetInfo().IdentityPubkey,
 		SendAll: true,
 		Label:   sendCoinsLabel,
-	}
-	ainz.RPC.SendCoinsAssertErr(sweepReq)
+	})
 
-	// With the two coins above mined, we'll now instruct ainz to sweep all
-	// the coins to an external address not under its control.  We will
-	// first attempt to send the coins to addresses that are not compatible
+	// With the two coins above mined, we'll now instruct Ainz to sweep all
+	// the coins to an external address not under its control. We will first
+	// attempt to send the coins to addresses that are not compatible
 	// with the current network. This is to test that the wallet will
-	// prevent any onchain transactions to addresses that are not on the
+	// prevent any on-chain transactions to addresses that are not on the
 	// same network as the user.
 
 	// Send coins to a testnet3 address.
-	sweepReq = &lnrpc.SendCoinsRequest{
+	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:    "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
 		SendAll: true,
 		Label:   sendCoinsLabel,
-	}
-	ainz.RPC.SendCoinsAssertErr(sweepReq)
+	})
 
 	// Send coins to a mainnet address.
-	sweepReq = &lnrpc.SendCoinsRequest{
+	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
 		Addr:    "1MPaXKp5HhsLNjVSqaL7fChE3TVyrTMRT3",
 		SendAll: true,
 		Label:   sendCoinsLabel,
-	}
-	ainz.RPC.SendCoinsAssertErr(sweepReq)
+	})
 
 	// Send coins to a compatible address.
-	minerAddr := ht.Miner.NewMinerAddress()
-	sweepReq = &lnrpc.SendCoinsRequest{
-		Addr:    minerAddr.String(),
+	ainz.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+		Addr:    ht.Miner.NewMinerAddress().String(),
 		SendAll: true,
 		Label:   sendCoinsLabel,
-	}
-	ainz.RPC.SendCoins(sweepReq)
+	})
 
 	// We'll mine a block which should include the sweep transaction we
 	// generated above.
@@ -849,6 +839,7 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 		for _, txn := range txResp.Transactions {
 			if txn.TxHash == targetTx {
 				target = txn
+				break
 			}
 		}
 
@@ -883,28 +874,29 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// label our transaction with an empty label, and check that we fail as
 	// expected.
 	sweepHash := sweepTx.TxHash()
-	req := &walletrpc.LabelTransactionRequest{
-		Txid:      sweepHash[:],
-		Label:     "",
-		Overwrite: false,
-	}
-	err := ainz.RPC.LabelTransactionAssertErr(req)
+	err := ainz.RPC.LabelTransactionAssertErr(
+		&walletrpc.LabelTransactionRequest{
+			Txid:      sweepHash[:],
+			Label:     "",
+			Overwrite: false,
+		},
+	)
 
 	// Our error will be wrapped in a rpc error, so we check that it
 	// contains the error we expect.
 	errZeroLabel := "cannot label transaction with empty label"
-	require.Contains(ht, err.Error(), errZeroLabel,
-		"expected: zero label errorv")
+	require.Contains(ht, err.Error(), errZeroLabel)
 
 	// Next, we try to relabel our transaction without setting the overwrite
 	// boolean. We expect this to fail, because the wallet requires setting
 	// of this param to prevent accidental overwrite of labels.
-	req = &walletrpc.LabelTransactionRequest{
-		Txid:      sweepHash[:],
-		Label:     "label that will not work",
-		Overwrite: false,
-	}
-	err = ainz.RPC.LabelTransactionAssertErr(req)
+	err = ainz.RPC.LabelTransactionAssertErr(
+		&walletrpc.LabelTransactionRequest{
+			Txid:      sweepHash[:],
+			Label:     "label that will not work",
+			Overwrite: false,
+		},
+	)
 
 	// Our error will be wrapped in a rpc error, so we check that it
 	// contains the error we expect.
@@ -913,12 +905,11 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// Finally, we overwrite our label with a new label, which should not
 	// fail.
 	newLabel := "new sweep tx label"
-	req = &walletrpc.LabelTransactionRequest{
+	ainz.RPC.LabelTransaction(&walletrpc.LabelTransactionRequest{
 		Txid:      sweepHash[:],
 		Label:     newLabel,
 		Overwrite: true,
-	}
-	ainz.RPC.LabelTransaction(req)
+	})
 
 	waitTxLabel(sweepTxStr, newLabel)
 
@@ -929,8 +920,60 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 
 	// If we try again, but this time specifying an amount, then the call
 	// should fail.
-	sweepReq.Amount = 10000
-	ainz.RPC.SendCoinsAssertErr(sweepReq)
+	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+		Addr:    ht.Miner.NewMinerAddress().String(),
+		Amount:  10000,
+		SendAll: true,
+		Label:   sendCoinsLabel,
+	})
+
+	// With all the edge cases tested, we'll now test the happy paths of
+	// change output types.
+	// We'll be using a "main" address where we send the funds to and from
+	// several times.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, ainz)
+	mainAddrResp := ainz.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+	})
+	spendAddrTypes := []lnrpc.AddressType{
+		lnrpc.AddressType_NESTED_PUBKEY_HASH,
+		lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+		lnrpc.AddressType_TAPROOT_PUBKEY,
+	}
+	for _, addrType := range spendAddrTypes {
+		ht.Logf("testing with address type %s", addrType)
+
+		// First, spend all the coins in the wallet to an address of the
+		// given type so that UTXO will be picked when sending coins.
+		sendAllCoinsToAddrType(ht, ainz, addrType)
+
+		// Let's send some coins to the main address.
+		const amt = 123456
+		resp := ainz.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+			Addr:   mainAddrResp.Address,
+			Amount: amt,
+		})
+		block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
+		sweepTx := block.Transactions[1]
+		require.Equal(ht, sweepTx.TxHash().String(), resp.Txid)
+
+		// Find the change output, it will be the one with an amount
+		// different from the amount we sent.
+		var changeOutput *wire.TxOut
+		for idx := range sweepTx.TxOut {
+			txOut := sweepTx.TxOut[idx]
+			if txOut.Value != amt {
+				changeOutput = txOut
+				break
+			}
+		}
+		require.NotNil(ht, changeOutput)
+
+		// Assert the type of change output to be p2tr.
+		pkScript, err := txscript.ParsePkScript(changeOutput.PkScript)
+		require.NoError(ht, err)
+		require.Equal(ht, txscript.WitnessV1TaprootTy, pkScript.Class())
+	}
 }
 
 // testListAddresses tests that we get all the addresses and their

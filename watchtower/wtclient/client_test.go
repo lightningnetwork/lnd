@@ -1,6 +1,7 @@
 package wtclient_test
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -15,12 +16,15 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
@@ -393,8 +397,15 @@ type testHarness struct {
 	server     *wtserver.Server
 	net        *mockNet
 
-	mu       sync.Mutex
-	channels map[lnwire.ChannelID]*mockChannel
+	blockEvents *mockBlockSub
+	height      int32
+
+	channelEvents *mockSubscription
+	sendUpdatesOn bool
+
+	mu             sync.Mutex
+	channels       map[lnwire.ChannelID]*mockChannel
+	closedChannels map[lnwire.ChannelID]uint32
 
 	quit chan struct{}
 }
@@ -441,40 +452,62 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	mockNet := newMockNet()
 	clientDB := wtmock.NewClientDB()
 
-	clientCfg := &wtclient.Config{
-		Signer:        signer,
-		Dial:          mockNet.Dial,
-		DB:            clientDB,
-		AuthDial:      mockNet.AuthDial,
-		SecretKeyRing: wtmock.NewSecretKeyRing(),
-		Policy:        cfg.policy,
-		NewAddress: func() ([]byte, error) {
-			return addrScript, nil
-		},
-		ReadTimeout:    timeout,
-		WriteTimeout:   timeout,
-		MinBackoff:     time.Millisecond,
-		MaxBackoff:     time.Second,
-		ForceQuitDelay: 10 * time.Second,
-	}
-
 	h := &testHarness{
-		t:          t,
-		cfg:        cfg,
-		signer:     signer,
-		capacity:   cfg.localBalance + cfg.remoteBalance,
-		clientDB:   clientDB,
-		clientCfg:  clientCfg,
-		serverAddr: towerAddr,
-		serverDB:   serverDB,
-		serverCfg:  serverCfg,
-		net:        mockNet,
-		channels:   make(map[lnwire.ChannelID]*mockChannel),
-		quit:       make(chan struct{}),
+		t:              t,
+		cfg:            cfg,
+		signer:         signer,
+		capacity:       cfg.localBalance + cfg.remoteBalance,
+		clientDB:       clientDB,
+		serverAddr:     towerAddr,
+		serverDB:       serverDB,
+		serverCfg:      serverCfg,
+		net:            mockNet,
+		blockEvents:    newMockBlockSub(t),
+		channelEvents:  newMockSubscription(t),
+		channels:       make(map[lnwire.ChannelID]*mockChannel),
+		closedChannels: make(map[lnwire.ChannelID]uint32),
+		quit:           make(chan struct{}),
 	}
 	t.Cleanup(func() {
 		close(h.quit)
 	})
+
+	fetchChannel := func(id lnwire.ChannelID) (
+		*channeldb.ChannelCloseSummary, error) {
+
+		h.mu.Lock()
+		defer h.mu.Unlock()
+
+		height, ok := h.closedChannels[id]
+		if !ok {
+			return nil, channeldb.ErrClosedChannelNotFound
+		}
+
+		return &channeldb.ChannelCloseSummary{CloseHeight: height}, nil
+	}
+
+	h.clientCfg = &wtclient.Config{
+		Signer: signer,
+		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
+			return h.channelEvents, nil
+		},
+		FetchClosedChannel: fetchChannel,
+		ChainNotifier:      h.blockEvents,
+		Dial:               mockNet.Dial,
+		DB:                 clientDB,
+		AuthDial:           mockNet.AuthDial,
+		SecretKeyRing:      wtmock.NewSecretKeyRing(),
+		Policy:             cfg.policy,
+		NewAddress: func() ([]byte, error) {
+			return addrScript, nil
+		},
+		ReadTimeout:       timeout,
+		WriteTimeout:      timeout,
+		MinBackoff:        time.Millisecond,
+		MaxBackoff:        time.Second,
+		ForceQuitDelay:    10 * time.Second,
+		SessionCloseRange: 1,
+	}
 
 	if !cfg.noServerStart {
 		h.startServer()
@@ -490,6 +523,16 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	}
 
 	return h
+}
+
+// mine mimics the mining of new blocks by sending new block notifications.
+func (h *testHarness) mine(numBlocks int) {
+	h.t.Helper()
+
+	for i := 0; i < numBlocks; i++ {
+		h.height++
+		h.blockEvents.sendNewBlock(h.height)
+	}
 }
 
 // startServer creates a new server using the harness's current serverCfg and
@@ -576,6 +619,41 @@ func (h *testHarness) channel(id uint64) *mockChannel {
 	return c
 }
 
+// closeChannel marks a channel as closed.
+//
+// NOTE: The method fails if a channel for id does not exist.
+func (h *testHarness) closeChannel(id uint64, height uint32) {
+	h.t.Helper()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	chanID := chanIDFromInt(id)
+
+	_, ok := h.channels[chanID]
+	require.Truef(h.t, ok, "unable to fetch channel %d", id)
+
+	h.closedChannels[chanID] = height
+	delete(h.channels, chanID)
+
+	chanPointHash, err := chainhash.NewHash(chanID[:])
+	require.NoError(h.t, err)
+
+	if !h.sendUpdatesOn {
+		return
+	}
+
+	h.channelEvents.sendUpdate(channelnotifier.ClosedChannelEvent{
+		CloseSummary: &channeldb.ChannelCloseSummary{
+			ChanPoint: wire.OutPoint{
+				Hash:  *chanPointHash,
+				Index: 0,
+			},
+			CloseHeight: height,
+		},
+	})
+}
+
 // registerChannel registers the channel identified by id with the client.
 func (h *testHarness) registerChannel(id uint64) {
 	h.t.Helper()
@@ -624,7 +702,7 @@ func (h *testHarness) backupState(id, i uint64, expErr error) {
 	err := h.client.BackupState(
 		&chanID, retribution, channeldb.SingleFunderBit,
 	)
-	require.ErrorIs(h.t, expErr, err)
+	require.ErrorIs(h.t, err, expErr)
 }
 
 // sendPayments instructs the channel identified by id to send amt to the remote
@@ -770,10 +848,131 @@ func (h *testHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr) {
 	require.NoError(h.t, err)
 }
 
+// relevantSessions returns a list of session IDs that have acked updates for
+// the given channel ID.
+func (h *testHarness) relevantSessions(chanID uint64) []wtdb.SessionID {
+	h.t.Helper()
+
+	var (
+		sessionIDs []wtdb.SessionID
+		cID        = chanIDFromInt(chanID)
+	)
+
+	collectSessions := wtdb.WithPerNumAckedUpdates(
+		func(session *wtdb.ClientSession, id lnwire.ChannelID,
+			_ uint16) {
+
+			if !bytes.Equal(id[:], cID[:]) {
+				return
+			}
+
+			sessionIDs = append(sessionIDs, session.ID)
+		},
+	)
+
+	_, err := h.clientDB.ListClientSessions(nil, collectSessions)
+	require.NoError(h.t, err)
+
+	return sessionIDs
+}
+
+// isSessionClosable returns true if the given session has been marked as
+// closable in the DB.
+func (h *testHarness) isSessionClosable(id wtdb.SessionID) bool {
+	h.t.Helper()
+
+	cs, err := h.clientDB.ListClosableSessions()
+	require.NoError(h.t, err)
+
+	_, ok := cs[id]
+
+	return ok
+}
+
+// mockSubscription is a mock subscription client that blocks on sends into the
+// updates channel.
+type mockSubscription struct {
+	t       *testing.T
+	updates chan interface{}
+
+	// Embed the subscription interface in this mock so that we satisfy it.
+	subscribe.Subscription
+}
+
+// newMockSubscription creates a mock subscription.
+func newMockSubscription(t *testing.T) *mockSubscription {
+	t.Helper()
+
+	return &mockSubscription{
+		t:       t,
+		updates: make(chan interface{}),
+	}
+}
+
+// sendUpdate sends an update into our updates channel, mocking the dispatch of
+// an update from a subscription server. This call will fail the test if the
+// update is not consumed within our timeout.
+func (m *mockSubscription) sendUpdate(update interface{}) {
+	select {
+	case m.updates <- update:
+
+	case <-time.After(waitTime):
+		m.t.Fatalf("update: %v timeout", update)
+	}
+}
+
+// Updates returns the updates channel for the mock.
+func (m *mockSubscription) Updates() <-chan interface{} {
+	return m.updates
+}
+
+// mockBlockSub mocks out the ChainNotifier.
+type mockBlockSub struct {
+	t      *testing.T
+	events chan *chainntnfs.BlockEpoch
+
+	chainntnfs.ChainNotifier
+}
+
+// newMockBlockSub creates a new mockBlockSub.
+func newMockBlockSub(t *testing.T) *mockBlockSub {
+	t.Helper()
+
+	return &mockBlockSub{
+		t:      t,
+		events: make(chan *chainntnfs.BlockEpoch),
+	}
+}
+
+// RegisterBlockEpochNtfn returns a channel that can be used to listen for new
+// blocks.
+func (m *mockBlockSub) RegisterBlockEpochNtfn(_ *chainntnfs.BlockEpoch) (
+	*chainntnfs.BlockEpochEvent, error) {
+
+	return &chainntnfs.BlockEpochEvent{
+		Epochs: m.events,
+	}, nil
+}
+
+// sendNewBlock will send a new block on the notification channel.
+func (m *mockBlockSub) sendNewBlock(height int32) {
+	select {
+	case m.events <- &chainntnfs.BlockEpoch{Height: height}:
+
+	case <-time.After(waitTime):
+		m.t.Fatalf("timed out sending block: %d", height)
+	}
+}
+
 const (
 	localBalance  = lnwire.MilliSatoshi(100000000)
 	remoteBalance = lnwire.MilliSatoshi(200000000)
 )
+
+var defaultTxPolicy = wtpolicy.TxPolicy{
+	BlobType:     blob.TypeAltruistCommit,
+	SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+}
 
 type clientTest struct {
 	name string
@@ -791,10 +990,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 20000,
 			},
 			noRegisterChan0: true,
@@ -825,10 +1021,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 20000,
 			},
 		},
@@ -860,10 +1053,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 5,
 			},
 		},
@@ -927,10 +1117,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 20000,
 			},
 		},
@@ -1006,10 +1193,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 5,
 			},
 		},
@@ -1062,10 +1246,7 @@ var clientTests = []clientTest{
 			localBalance:  100000001, // ensure (% amt != 0)
 			remoteBalance: 200000001, // ensure (% amt != 0)
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 1000,
 			},
 		},
@@ -1106,10 +1287,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 5,
 			},
 		},
@@ -1156,10 +1334,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 5,
 			},
 			noAckCreateSession: true,
@@ -1212,10 +1387,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 5,
 			},
 			noAckCreateSession: true,
@@ -1274,10 +1446,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 10,
 			},
 		},
@@ -1297,7 +1466,7 @@ var clientTests = []clientTest{
 			h.waitServerUpdates(hints[:numUpdates/2], time.Second)
 
 			// Stop the client, which should have no more backups.
-			h.client.Stop()
+			require.NoError(h.t, h.client.Stop())
 
 			// Record the policy that the first half was stored
 			// under. We'll expect the second half to also be stored
@@ -1333,10 +1502,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 5,
 			},
 		},
@@ -1361,7 +1527,7 @@ var clientTests = []clientTest{
 
 			// Restart the client, so we can ensure the deduping is
 			// maintained across restarts.
-			h.client.Stop()
+			require.NoError(h.t, h.client.Stop())
 			h.startClient()
 
 			// Try to back up the full range of retributions. Only
@@ -1381,10 +1547,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 5,
 			},
 		},
@@ -1489,10 +1652,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 5,
 			},
 		},
@@ -1557,10 +1717,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 5,
 			},
 			noServerStart: true,
@@ -1653,6 +1810,259 @@ var clientTests = []clientTest{
 				)
 			}, waitTime)
 			require.NoError(h.t, err)
+		},
+	}, {
+		name: "assert that sessions are correctly marked as closable",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const numUpdates = 5
+
+			// In this test we assert that a channel is correctly
+			// marked as closed and that sessions are also correctly
+			// marked as closable.
+
+			// We start with the sendUpdatesOn parameter set to
+			// false so that we can test that channels are correctly
+			// evaluated at startup.
+			h.sendUpdatesOn = false
+
+			// Advance channel 0 to create all states and back them
+			// all up. This will saturate the session with updates
+			// for channel 0 which means that the session should be
+			// considered closable when channel 0 is closed.
+			hints := h.advanceChannelN(0, numUpdates)
+			h.backupStates(0, 0, numUpdates, nil)
+			h.waitServerUpdates(hints, waitTime)
+
+			// We expect only 1 session to have updates for this
+			// channel.
+			sessionIDs := h.relevantSessions(0)
+			require.Len(h.t, sessionIDs, 1)
+
+			// Since channel 0 is still open, the session should not
+			// yet be closable.
+			require.False(h.t, h.isSessionClosable(sessionIDs[0]))
+
+			// Close the channel.
+			h.closeChannel(0, 1)
+
+			// Since updates are currently not being sent, we expect
+			// the session to still not be marked as closable.
+			require.False(h.t, h.isSessionClosable(sessionIDs[0]))
+
+			// Restart the client.
+			h.client.ForceQuit()
+			h.startClient()
+
+			// The session should now have been marked as closable.
+			err := wait.Predicate(func() bool {
+				return h.isSessionClosable(sessionIDs[0])
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Now we set sendUpdatesOn to true and do the same with
+			// a new channel. A restart should now not be necessary
+			// anymore.
+			h.sendUpdatesOn = true
+
+			h.makeChannel(
+				1, h.cfg.localBalance, h.cfg.remoteBalance,
+			)
+			h.registerChannel(1)
+
+			hints = h.advanceChannelN(1, numUpdates)
+			h.backupStates(1, 0, numUpdates, nil)
+			h.waitServerUpdates(hints, waitTime)
+
+			// Determine the ID of the session of interest.
+			sessionIDs = h.relevantSessions(1)
+
+			// We expect only 1 session to have updates for this
+			// channel.
+			require.Len(h.t, sessionIDs, 1)
+
+			// Assert that the session is not yet closable since
+			// the channel is still open.
+			require.False(h.t, h.isSessionClosable(sessionIDs[0]))
+
+			// Now close the channel.
+			h.closeChannel(1, 1)
+
+			// Since the updates have been turned on, the session
+			// should now show up as closable.
+			err = wait.Predicate(func() bool {
+				return h.isSessionClosable(sessionIDs[0])
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Now we test that a session must be exhausted with all
+			// channels closed before it is seen as closable.
+			h.makeChannel(
+				2, h.cfg.localBalance, h.cfg.remoteBalance,
+			)
+			h.registerChannel(2)
+
+			// Fill up only half of the session updates.
+			hints = h.advanceChannelN(2, numUpdates)
+			h.backupStates(2, 0, numUpdates/2, nil)
+			h.waitServerUpdates(hints[:numUpdates/2], waitTime)
+
+			// Determine the ID of the session of interest.
+			sessionIDs = h.relevantSessions(2)
+
+			// We expect only 1 session to have updates for this
+			// channel.
+			require.Len(h.t, sessionIDs, 1)
+
+			// Now close the channel.
+			h.closeChannel(2, 1)
+
+			// The session should _not_ be closable due to it not
+			// being exhausted yet.
+			require.False(h.t, h.isSessionClosable(sessionIDs[0]))
+
+			// Create a new channel.
+			h.makeChannel(
+				3, h.cfg.localBalance, h.cfg.remoteBalance,
+			)
+			h.registerChannel(3)
+
+			hints = h.advanceChannelN(3, numUpdates)
+			h.backupStates(3, 0, numUpdates, nil)
+			h.waitServerUpdates(hints, waitTime)
+
+			// Close it.
+			h.closeChannel(3, 1)
+
+			// Now the session should be closable.
+			err = wait.Predicate(func() bool {
+				return h.isSessionClosable(sessionIDs[0])
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Now we will mine a few blocks. This will cause the
+			// necessary session-close-range to be exceeded meaning
+			// that the client should send the DeleteSession message
+			// to the server. We will assert that both the client
+			// and server have deleted the appropriate sessions and
+			// channel info.
+
+			// Before we mine blocks, assert that the client
+			// currently has 3 closable sessions.
+			closableSess, err := h.clientDB.ListClosableSessions()
+			require.NoError(h.t, err)
+			require.Len(h.t, closableSess, 3)
+
+			// Assert that the server is also aware of all of these
+			// sessions.
+			for sid := range closableSess {
+				_, err := h.serverDB.GetSessionInfo(&sid)
+				require.NoError(h.t, err)
+			}
+
+			// Also make a note of the total number of sessions the
+			// client has.
+			sessions, err := h.clientDB.ListClientSessions(nil)
+			require.NoError(h.t, err)
+			require.Len(h.t, sessions, 4)
+
+			h.mine(3)
+
+			// The client should no longer have any closable
+			// sessions and the total list of client sessions should
+			// no longer include the three that it previously had
+			// marked as closable. The server should also no longer
+			// have these sessions in its DB.
+			err = wait.Predicate(func() bool {
+				sess, err := h.clientDB.ListClientSessions(nil)
+				require.NoError(h.t, err)
+
+				cs, err := h.clientDB.ListClosableSessions()
+				require.NoError(h.t, err)
+
+				if len(sess) != 1 || len(cs) != 0 {
+					return false
+				}
+
+				for sid := range closableSess {
+					_, ok := sess[sid]
+					if ok {
+						return false
+					}
+
+					_, err := h.serverDB.GetSessionInfo(
+						&sid,
+					)
+					if !errors.Is(
+						err, wtdb.ErrSessionNotFound,
+					) {
+						return false
+					}
+				}
+
+				return true
+
+			}, waitTime)
+			require.NoError(h.t, err)
+		},
+	},
+	{
+		// Demonstrate that the client is unable to recover after
+		// deleting its database by skipping through key indices until
+		// it gets to one that does not result in the
+		// CreateSessionCodeAlreadyExists error code being returned from
+		// the server.
+		name: "continue after client database deletion",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				numUpdates = 5
+				chanID     = 0
+			)
+
+			// Generate numUpdates retributions.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			// Back half of the states up.
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+
+			// Wait for the updates to be populated in the server's
+			// database.
+			h.waitServerUpdates(hints[:numUpdates/2], waitTime)
+
+			// Now stop the client and reset its database.
+			require.NoError(h.t, h.client.Stop())
+
+			db := wtmock.NewClientDB()
+			h.clientDB = db
+			h.clientCfg.DB = db
+
+			// Restart the client.
+			h.startClient()
+
+			// We need to re-register the channel due to the client
+			// db being reset.
+			h.registerChannel(0)
+
+			// Attempt to back up the remaining tasks.
+			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
+
+			// Show that the server does get the remaining updates.
+			h.waitServerUpdates(hints[numUpdates/2:], waitTime)
 		},
 	},
 }

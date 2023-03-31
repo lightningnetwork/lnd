@@ -135,8 +135,9 @@ func (b *BtcWallet) SignPsbt(packet *psbt.Packet) ([]uint32, error) {
 	var signedInputs []uint32
 
 	// Let's check that this is actually something we can and want to sign.
-	// We need at least one input and one output.
-	err := psbt.VerifyInputOutputLen(packet, true, true)
+	// We need at least one input and one output. In addition each
+	// input needs nonWitness Utxo or witness Utxo data specified.
+	err := psbt.InputsReadyToSign(packet)
 	if err != nil {
 		return nil, err
 	}

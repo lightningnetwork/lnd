@@ -268,7 +268,7 @@ func makeAllMessages(t testing.TB, r *rand.Rand) []lnwire.Message {
 	msgAll = append(msgAll, newMsgAcceptChannel(t, r))
 	msgAll = append(msgAll, newMsgFundingCreated(t, r))
 	msgAll = append(msgAll, newMsgFundingSigned(t, r))
-	msgAll = append(msgAll, newMsgFundingLocked(t, r))
+	msgAll = append(msgAll, newMsgChannelReady(t, r))
 	msgAll = append(msgAll, newMsgShutdown(t, r))
 	msgAll = append(msgAll, newMsgClosingSigned(t, r))
 	msgAll = append(msgAll, newMsgUpdateAddHTLC(t, r))
@@ -442,7 +442,7 @@ func newMsgFundingSigned(t testing.TB, r io.Reader) *lnwire.FundingSigned {
 	return msg
 }
 
-func newMsgFundingLocked(t testing.TB, r io.Reader) *lnwire.FundingLocked {
+func newMsgChannelReady(t testing.TB, r io.Reader) *lnwire.ChannelReady {
 	t.Helper()
 
 	var c [32]byte
@@ -452,7 +452,7 @@ func newMsgFundingLocked(t testing.TB, r io.Reader) *lnwire.FundingLocked {
 
 	pubKey := randPubKey(t)
 
-	msg := lnwire.NewFundingLocked(lnwire.ChannelID(c), pubKey)
+	msg := lnwire.NewChannelReady(lnwire.ChannelID(c), pubKey)
 	msg.ExtraData = createExtraData(t, r)
 
 	return msg

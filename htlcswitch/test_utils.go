@@ -495,7 +495,7 @@ func getChanID(msg lnwire.Message) (lnwire.ChannelID, error) {
 		chanID = msg.ChanID
 	case *lnwire.ChannelReestablish:
 		chanID = msg.ChanID
-	case *lnwire.FundingLocked:
+	case *lnwire.ChannelReady:
 		chanID = msg.ChanID
 	case *lnwire.UpdateFee:
 		chanID = msg.ChanID

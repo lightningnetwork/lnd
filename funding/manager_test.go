@@ -900,8 +900,8 @@ func assertFundingMsgSent(t *testing.T, msgChan chan lnwire.Message,
 		sentMsg, ok = msg.(*lnwire.FundingCreated)
 	case "FundingSigned":
 		sentMsg, ok = msg.(*lnwire.FundingSigned)
-	case "FundingLocked":
-		sentMsg, ok = msg.(*lnwire.FundingLocked)
+	case "ChannelReady":
+		sentMsg, ok = msg.(*lnwire.ChannelReady)
 	case "Error":
 		sentMsg, ok = msg.(*lnwire.Error)
 	default:
@@ -1050,13 +1050,13 @@ func assertMarkedOpen(t *testing.T, alice, bob *testNode,
 	assertDatabaseState(t, bob, fundingOutPoint, markedOpen)
 }
 
-func assertFundingLockedSent(t *testing.T, alice, bob *testNode,
+func assertChannelReadySent(t *testing.T, alice, bob *testNode,
 	fundingOutPoint *wire.OutPoint) {
 
 	t.Helper()
 
-	assertDatabaseState(t, alice, fundingOutPoint, fundingLockedSent)
-	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
+	assertDatabaseState(t, alice, fundingOutPoint, channelReadySent)
+	assertDatabaseState(t, bob, fundingOutPoint, channelReadySent)
 }
 
 func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
@@ -1082,7 +1082,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 
 	t.Helper()
 
-	// After the FundingLocked message is sent, Alice and Bob will each send
+	// After the ChannelReady message is sent, Alice and Bob will each send
 	// the following messages to their gossiper:
 	//	1) ChannelAnnouncement
 	//	2) ChannelUpdate
@@ -1222,7 +1222,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 	t.Helper()
 
-	// After the FundingLocked message is sent and six confirmations have
+	// After the ChannelReady message is sent and six confirmations have
 	// been reached, the channel will be announced to the greater network
 	// by having the nodes exchange announcement signatures.
 	// Two distinct messages will be sent:
@@ -1347,7 +1347,7 @@ func assertInitialFwdingPolicyNotFound(t *testing.T, node *testNode,
 		fwdingPolicy)
 }
 
-func assertHandleFundingLocked(t *testing.T, alice, bob *testNode) {
+func assertHandleChannelReady(t *testing.T, alice, bob *testNode) {
 	t.Helper()
 
 	// They should both send the new channel state to their peer.
@@ -1405,26 +1405,28 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	assertMarkedOpen(t, alice, bob, fundingOutPoint)
 
 	// After the funding transaction is mined, Alice will send
-	// fundingLocked to Bob.
-	fundingLockedAlice := assertFundingMsgSent(
-		t, alice.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	// channelReady to Bob.
+	channelReadyAlice, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// And similarly Bob will send funding locked to Alice.
-	fundingLockedBob := assertFundingMsgSent(
-		t, bob.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	channelReadyBob, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// Check that the state machine is updated accordingly
-	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+	assertChannelReadySent(t, alice, bob, fundingOutPoint)
 
-	// Exchange the fundingLocked messages.
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
-	bob.fundingMgr.ProcessFundingMsg(fundingLockedAlice, alice)
+	// Exchange the channelReady messages.
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
+	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
-	assertHandleFundingLocked(t, alice, bob)
+	assertHandleChannelReady(t, alice, bob)
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
@@ -1635,7 +1637,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	)
 
 	// After the funding transaction gets mined, both nodes will send the
-	// fundingLocked message to the other peer. If the funding node fails
+	// channelReady message to the other peer. If the funding node fails
 	// before this message has been successfully sent, it should retry
 	// sending it on restart. We mimic this behavior by letting the
 	// SendToPeer method return an error, as if the message was not
@@ -1666,7 +1668,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	assertMarkedOpen(t, alice, bob, fundingOutPoint)
 
 	// After the funding transaction was mined, Bob should have successfully
-	// sent the fundingLocked message, while Alice failed sending it. In
+	// sent the channelReady message, while Alice failed sending it. In
 	// Alice's case this means that there should be no messages for Bob, and
 	// the channel should still be in state 'markedOpen'
 	select {
@@ -1677,18 +1679,19 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	}
 
 	// Bob will send funding locked to Alice.
-	fundingLockedBob := assertFundingMsgSent(
-		t, bob.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	channelReadyBob, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// Alice should still be markedOpen
 	assertDatabaseState(t, alice, fundingOutPoint, markedOpen)
 
-	// While Bob successfully sent fundingLocked.
-	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
+	// While Bob successfully sent channelReady.
+	assertDatabaseState(t, bob, fundingOutPoint, channelReadySent)
 
 	// We now recreate Alice's fundingManager with the correct sendMessage
-	// implementation, and expect it to retry sending the fundingLocked
+	// implementation, and expect it to retry sending the channelReady
 	// message. We'll explicitly shut down Alice's funding manager to
 	// prevent a race when overriding the sendMessage implementation.
 	if err := alice.fundingMgr.Stop(); err != nil {
@@ -1706,12 +1709,13 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 		return errChan
 	}
 
-	fundingLockedAlice := assertFundingMsgSent(
-		t, alice.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	channelReadyAlice, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
-	// The state should now be fundingLockedSent
-	assertDatabaseState(t, alice, fundingOutPoint, fundingLockedSent)
+	// The state should now be channelReadySent
+	assertDatabaseState(t, alice, fundingOutPoint, channelReadySent)
 
 	// Check that the channel announcements were never sent
 	select {
@@ -1722,13 +1726,13 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 		// Expected
 	}
 
-	// Exchange the fundingLocked messages.
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
-	bob.fundingMgr.ProcessFundingMsg(fundingLockedAlice, alice)
+	// Exchange the channelReady messages.
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
+	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
-	assertHandleFundingLocked(t, alice, bob)
+	assertHandleChannelReady(t, alice, bob)
 
 	// Next up, we check that Alice rebroadcasts the announcement
 	// messages on restart. Bob should as expected send announcements.
@@ -1771,7 +1775,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 // TestFundingManagerOfflinePeer checks that the fundingManager waits for the
 // server to notify when the peer comes online, in case sending the
-// fundingLocked message fails the first time.
+// channelReady message fails the first time.
 func TestFundingManagerOfflinePeer(t *testing.T) {
 	t.Parallel()
 
@@ -1791,8 +1795,8 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	)
 
 	// After the funding transaction gets mined, both nodes will send the
-	// fundingLocked message to the other peer. If the funding node fails
-	// to send the fundingLocked message to the peer, it should wait for
+	// channelReady message to the other peer. If the funding node fails
+	// to send the channelReady message to the peer, it should wait for
 	// the server to notify it that the peer is back online, and try again.
 	// We'll save the current implementation of sendMessage to restore the
 	// original behavior later on.
@@ -1823,7 +1827,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	assertMarkedOpen(t, alice, bob, fundingOutPoint)
 
 	// After the funding transaction was mined, Bob should have successfully
-	// sent the fundingLocked message, while Alice failed sending it. In
+	// sent the channelReady message, while Alice failed sending it. In
 	// Alice's case this means that there should be no messages for Bob, and
 	// the channel should still be in state 'markedOpen'
 	select {
@@ -1834,15 +1838,16 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	}
 
 	// Bob will send funding locked to Alice
-	fundingLockedBob := assertFundingMsgSent(
-		t, bob.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	channelReadyBob, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// Alice should still be markedOpen
 	assertDatabaseState(t, alice, fundingOutPoint, markedOpen)
 
-	// While Bob successfully sent fundingLocked.
-	assertDatabaseState(t, bob, fundingOutPoint, fundingLockedSent)
+	// While Bob successfully sent channelReady.
+	assertDatabaseState(t, bob, fundingOutPoint, channelReadySent)
 
 	// Alice should be waiting for the server to notify when Bob comes back
 	// online.
@@ -1868,7 +1873,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	}
 
 	// Before sending on the con chan, update Alice's NotifyWhenOnline
-	// function so that the next invocation in receivedFundingLocked will
+	// function so that the next invocation in receivedChannelReady will
 	// use this new function.
 	alice.fundingMgr.cfg.NotifyWhenOnline = func(peer [33]byte,
 		connected chan<- lnpeer.Peer) {
@@ -1881,21 +1886,22 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	bob.sendMessage = workingSendMessage
 	con <- bob
 
-	// This should make Alice send the fundingLocked.
-	fundingLockedAlice := assertFundingMsgSent(
-		t, alice.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	// This should make Alice send the channelReady.
+	channelReadyAlice, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
-	// The state should now be fundingLockedSent
-	assertDatabaseState(t, alice, fundingOutPoint, fundingLockedSent)
+	// The state should now be channelReadySent
+	assertDatabaseState(t, alice, fundingOutPoint, channelReadySent)
 
-	// Exchange the fundingLocked messages.
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
-	bob.fundingMgr.ProcessFundingMsg(fundingLockedAlice, alice)
+	// Exchange the channelReady messages.
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
+	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
-	assertHandleFundingLocked(t, alice, bob)
+	assertHandleChannelReady(t, alice, bob)
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
@@ -2272,10 +2278,10 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 	assertNumPendingChannelsBecomes(t, bob, 0)
 }
 
-// TestFundingManagerReceiveFundingLockedTwice checks that the fundingManager
-// continues to operate as expected in case we receive a duplicate fundingLocked
+// TestFundingManagerReceiveChannelReadyTwice checks that the fundingManager
+// continues to operate as expected in case we receive a duplicate channelReady
 // message.
-func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
+func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
@@ -2310,27 +2316,29 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 	assertMarkedOpen(t, alice, bob, fundingOutPoint)
 
 	// After the funding transaction is mined, Alice will send
-	// fundingLocked to Bob.
-	fundingLockedAlice := assertFundingMsgSent(
-		t, alice.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	// channelReady to Bob.
+	channelReadyAlice, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// And similarly Bob will send funding locked to Alice.
-	fundingLockedBob := assertFundingMsgSent(
-		t, bob.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	channelReadyBob, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// Check that the state machine is updated accordingly
-	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+	assertChannelReadySent(t, alice, bob, fundingOutPoint)
 
-	// Send the fundingLocked message twice to Alice, and once to Bob.
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
-	bob.fundingMgr.ProcessFundingMsg(fundingLockedAlice, alice)
+	// Send the channelReady message twice to Alice, and once to Bob.
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
+	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
-	assertHandleFundingLocked(t, alice, bob)
+	assertHandleChannelReady(t, alice, bob)
 
 	// Alice should not send the channel state the second time, as the
 	// second funding locked should just be ignored.
@@ -2341,9 +2349,9 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 		// Expected
 	}
 
-	// Another fundingLocked should also be ignored, since Alice should
+	// Another channelReady should also be ignored, since Alice should
 	// have updated her database at this point.
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
 	select {
 	case <-alice.newChannels:
 		t.Fatalf("alice sent new channel to peer a second time")
@@ -2384,7 +2392,7 @@ func TestFundingManagerReceiveFundingLockedTwice(t *testing.T) {
 }
 
 // TestFundingManagerRestartAfterChanAnn checks that the fundingManager properly
-// handles receiving a fundingLocked after the its own fundingLocked and channel
+// handles receiving a channelReady after the its own channelReady and channel
 // announcement is sent and gets restarted.
 func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	t.Parallel()
@@ -2421,26 +2429,28 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	assertMarkedOpen(t, alice, bob, fundingOutPoint)
 
 	// After the funding transaction is mined, Alice will send
-	// fundingLocked to Bob.
-	fundingLockedAlice := assertFundingMsgSent(
-		t, alice.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	// channelReady to Bob.
+	channelReadyAlice, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// And similarly Bob will send funding locked to Alice.
-	fundingLockedBob := assertFundingMsgSent(
-		t, bob.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	channelReadyBob, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// Check that the state machine is updated accordingly
-	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+	assertChannelReadySent(t, alice, bob, fundingOutPoint)
 
-	// Exchange the fundingLocked messages.
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
-	bob.fundingMgr.ProcessFundingMsg(fundingLockedAlice, alice)
+	// Exchange the channelReady messages.
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
+	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
-	assertHandleFundingLocked(t, alice, bob)
+	assertHandleChannelReady(t, alice, bob)
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
@@ -2454,7 +2464,7 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	waitForOpenUpdate(t, updateChan)
 
 	// At this point we restart Alice's fundingManager, before she receives
-	// the fundingLocked message. After restart, she will receive it, and
+	// the channelReady message. After restart, she will receive it, and
 	// we expect her to be able to handle it correctly.
 	recreateAliceFundingManager(t, alice)
 
@@ -2480,10 +2490,10 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
 }
 
-// TestFundingManagerRestartAfterReceivingFundingLocked checks that the
+// TestFundingManagerRestartAfterReceivingChannelReady checks that the
 // fundingManager continues to operate as expected after it has received
-// fundingLocked and then gets restarted.
-func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
+// channelReady and then gets restarted.
+func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 	t.Parallel()
 
 	alice, bob := setupFundingManagers(t)
@@ -2518,28 +2528,30 @@ func TestFundingManagerRestartAfterReceivingFundingLocked(t *testing.T) {
 	assertMarkedOpen(t, alice, bob, fundingOutPoint)
 
 	// After the funding transaction is mined, Alice will send
-	// fundingLocked to Bob.
-	fundingLockedAlice := assertFundingMsgSent(
-		t, alice.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	// channelReady to Bob.
+	channelReadyAlice, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// And similarly Bob will send funding locked to Alice.
-	fundingLockedBob := assertFundingMsgSent(
-		t, bob.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	channelReadyBob, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// Check that the state machine is updated accordingly
-	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+	assertChannelReadySent(t, alice, bob, fundingOutPoint)
 
-	// Let Alice immediately get the fundingLocked message.
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
+	// Let Alice immediately get the channelReady message.
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
 
-	// Also let Bob get the fundingLocked message.
-	bob.fundingMgr.ProcessFundingMsg(fundingLockedAlice, alice)
+	// Also let Bob get the channelReady message.
+	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
-	assertHandleFundingLocked(t, alice, bob)
+	assertHandleChannelReady(t, alice, bob)
 
 	// At this point we restart Alice's fundingManager.
 	recreateAliceFundingManager(t, alice)
@@ -2611,26 +2623,28 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	assertMarkedOpen(t, alice, bob, fundingOutPoint)
 
 	// After the funding transaction is mined, Alice will send
-	// fundingLocked to Bob.
-	fundingLockedAlice := assertFundingMsgSent(
-		t, alice.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	// channelReady to Bob.
+	channelReadyAlice, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// And similarly Bob will send funding locked to Alice.
-	fundingLockedBob := assertFundingMsgSent(
-		t, bob.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	channelReadyBob, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// Check that the state machine is updated accordingly
-	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+	assertChannelReadySent(t, alice, bob, fundingOutPoint)
 
-	// Exchange the fundingLocked messages.
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
-	bob.fundingMgr.ProcessFundingMsg(fundingLockedAlice, alice)
+	// Exchange the channelReady messages.
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
+	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
-	assertHandleFundingLocked(t, alice, bob)
+	assertHandleChannelReady(t, alice, bob)
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
@@ -2734,26 +2748,28 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	assertMarkedOpen(t, alice, bob, fundingOutPoint)
 
 	// After the funding transaction is mined, Alice will send
-	// fundingLocked to Bob.
-	fundingLockedAlice := assertFundingMsgSent(
-		t, alice.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	// channelReady to Bob.
+	channelReadyAlice, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// And similarly Bob will send funding locked to Alice.
-	fundingLockedBob := assertFundingMsgSent(
-		t, bob.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	channelReadyBob, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// Check that the state machine is updated accordingly
-	assertFundingLockedSent(t, alice, bob, fundingOutPoint)
+	assertChannelReadySent(t, alice, bob, fundingOutPoint)
 
-	// Exchange the fundingLocked messages.
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
-	bob.fundingMgr.ProcessFundingMsg(fundingLockedAlice, alice)
+	// Exchange the channelReady messages.
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
+	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
-	assertHandleFundingLocked(t, alice, bob)
+	assertHandleChannelReady(t, alice, bob)
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
@@ -3169,23 +3185,25 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	}
 
 	// After the funding transaction is mined, Alice will send
-	// fundingLocked to Bob.
-	fundingLockedAlice := assertFundingMsgSent(
-		t, alice.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	// channelReady to Bob.
+	channelReadyAlice, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
 	// And similarly Bob will send funding locked to Alice.
-	fundingLockedBob := assertFundingMsgSent(
-		t, bob.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
+	channelReadyBob, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
 
-	// Exchange the fundingLocked messages.
-	alice.fundingMgr.ProcessFundingMsg(fundingLockedBob, bob)
-	bob.fundingMgr.ProcessFundingMsg(fundingLockedAlice, alice)
+	// Exchange the channelReady messages.
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
+	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
-	assertHandleFundingLocked(t, alice, bob)
+	assertHandleChannelReady(t, alice, bob)
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
@@ -3486,14 +3504,14 @@ func TestFundingManagerMaxPendingChannels(t *testing.T) {
 			Tx: txs[i],
 		}
 
-		// Expect both to be sending FundingLocked.
+		// Expect both to be sending ChannelReady.
 		_ = assertFundingMsgSent(
-			t, alice.msgChan, "FundingLocked",
-		).(*lnwire.FundingLocked)
+			t, alice.msgChan, "ChannelReady",
+		).(*lnwire.ChannelReady)
 
 		_ = assertFundingMsgSent(
-			t, bob.msgChan, "FundingLocked",
-		).(*lnwire.FundingLocked)
+			t, bob.msgChan, "ChannelReady",
+		).(*lnwire.ChannelReady)
 
 	}
 
@@ -4202,26 +4220,28 @@ func TestFundingManagerZeroConf(t *testing.T) {
 		Index: 0,
 	}
 
-	// Assert that Bob's funding_locked message has an AliasScid.
-	bobFundingLocked := assertFundingMsgSent(
-		t, bob.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
-	require.NotNil(t, bobFundingLocked.AliasScid)
-	require.Equal(t, *bobFundingLocked.AliasScid, alias)
+	// Assert that Bob's channel_ready message has an AliasScid.
+	bobChannelReady, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
+	require.NotNil(t, bobChannelReady.AliasScid)
+	require.Equal(t, *bobChannelReady.AliasScid, alias)
 
 	// Do the same for Alice as well.
-	aliceFundingLocked := assertFundingMsgSent(
-		t, alice.msgChan, "FundingLocked",
-	).(*lnwire.FundingLocked)
-	require.NotNil(t, aliceFundingLocked.AliasScid)
-	require.Equal(t, *aliceFundingLocked.AliasScid, alias)
+	aliceChannelReady, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
+	require.NotNil(t, aliceChannelReady.AliasScid)
+	require.Equal(t, *aliceChannelReady.AliasScid, alias)
 
-	// Exchange the funding_locked messages.
-	alice.fundingMgr.ProcessFundingMsg(bobFundingLocked, bob)
-	bob.fundingMgr.ProcessFundingMsg(aliceFundingLocked, alice)
+	// Exchange the channel_ready messages.
+	alice.fundingMgr.ProcessFundingMsg(bobChannelReady, bob)
+	bob.fundingMgr.ProcessFundingMsg(aliceChannelReady, alice)
 
 	// We'll assert that they both create new links.
-	assertHandleFundingLocked(t, alice, bob)
+	assertHandleChannelReady(t, alice, bob)
 
 	// We'll now assert that both sides send ChannelAnnouncement and
 	// ChannelUpdate messages.

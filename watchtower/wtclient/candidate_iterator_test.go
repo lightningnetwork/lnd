@@ -52,14 +52,10 @@ func randTower(t *testing.T) *Tower {
 func copyTower(t *testing.T, tower *Tower) *Tower {
 	t.Helper()
 
-	addrs := tower.Addresses.GetAll()
-	addrIterator, err := newAddressIterator(addrs...)
-	require.NoError(t, err)
-
 	return &Tower{
 		ID:          tower.ID,
 		IdentityKey: tower.IdentityKey,
-		Addresses:   addrIterator,
+		Addresses:   tower.Addresses.Copy(),
 	}
 }
 
@@ -83,9 +79,15 @@ func assertNextCandidate(t *testing.T, i TowerCandidateIterator, c *Tower) {
 
 	tower, err := i.Next()
 	require.NoError(t, err)
-	require.True(t, tower.IdentityKey.IsEqual(c.IdentityKey))
-	require.Equal(t, tower.ID, c.ID)
-	require.Equal(t, tower.Addresses.GetAll(), c.Addresses.GetAll())
+	assertTowersEqual(t, c, tower)
+}
+
+func assertTowersEqual(t *testing.T, expected, actual *Tower) {
+	t.Helper()
+
+	require.True(t, expected.IdentityKey.IsEqual(actual.IdentityKey))
+	require.Equal(t, expected.ID, actual.ID)
+	require.Equal(t, expected.Addresses.GetAll(), actual.Addresses.GetAll())
 }
 
 // TestTowerCandidateIterator asserts the internal state of a
@@ -155,4 +157,16 @@ func TestTowerCandidateIterator(t *testing.T) {
 	towerIterator.AddCandidate(secondTower)
 	assertActiveCandidate(t, towerIterator, secondTower, true)
 	assertNextCandidate(t, towerIterator, secondTower)
+
+	// Assert that the GetTower correctly returns the tower too.
+	tower, err := towerIterator.GetTower(secondTower.ID)
+	require.NoError(t, err)
+	assertTowersEqual(t, secondTower, tower)
+
+	// Now remove the tower and assert that GetTower returns expected error.
+	err = towerIterator.RemoveCandidate(secondTower.ID, nil)
+	require.NoError(t, err)
+
+	_, err = towerIterator.GetTower(secondTower.ID)
+	require.ErrorIs(t, err, ErrTowerNotInIterator)
 }

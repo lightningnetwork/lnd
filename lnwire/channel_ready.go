@@ -8,12 +8,12 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-// FundingLocked is the message that both parties to a new channel creation
+// ChannelReady is the message that both parties to a new channel creation
 // send once they have observed the funding transaction being confirmed on the
-// blockchain. FundingLocked contains the signatures necessary for the channel
+// blockchain. ChannelReady contains the signatures necessary for the channel
 // participants to advertise the existence of the channel to the rest of the
 // network.
-type FundingLocked struct {
+type ChannelReady struct {
 	// ChanID is the outpoint of the channel's funding transaction. This
 	// can be used to query for the channel in the database.
 	ChanID ChannelID
@@ -33,26 +33,26 @@ type FundingLocked struct {
 	ExtraData ExtraOpaqueData
 }
 
-// NewFundingLocked creates a new FundingLocked message, populating it with the
+// NewChannelReady creates a new ChannelReady message, populating it with the
 // necessary IDs and revocation secret.
-func NewFundingLocked(cid ChannelID, npcp *btcec.PublicKey) *FundingLocked {
-	return &FundingLocked{
+func NewChannelReady(cid ChannelID, npcp *btcec.PublicKey) *ChannelReady {
+	return &ChannelReady{
 		ChanID:                 cid,
 		NextPerCommitmentPoint: npcp,
 		ExtraData:              make([]byte, 0),
 	}
 }
 
-// A compile time check to ensure FundingLocked implements the lnwire.Message
+// A compile time check to ensure ChannelReady implements the lnwire.Message
 // interface.
-var _ Message = (*FundingLocked)(nil)
+var _ Message = (*ChannelReady)(nil)
 
-// Decode deserializes the serialized FundingLocked message stored in the
-// passed io.Reader into the target FundingLocked using the deserialization
+// Decode deserializes the serialized ChannelReady message stored in the
+// passed io.Reader into the target ChannelReady using the deserialization
 // rules defined by the passed protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
+func (c *ChannelReady) Decode(r io.Reader, pver uint32) error {
 	// Read all the mandatory fields in the message.
 	err := ReadElements(r,
 		&c.ChanID,
@@ -80,12 +80,12 @@ func (c *FundingLocked) Decode(r io.Reader, pver uint32) error {
 	return nil
 }
 
-// Encode serializes the target FundingLocked message into the passed io.Writer
+// Encode serializes the target ChannelReady message into the passed io.Writer
 // implementation. Serialization will observe the rules defined by the passed
 // protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *FundingLocked) Encode(w *bytes.Buffer, pver uint32) error {
+func (c *ChannelReady) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WriteChannelID(w, c.ChanID); err != nil {
 		return err
 	}
@@ -107,9 +107,9 @@ func (c *FundingLocked) Encode(w *bytes.Buffer, pver uint32) error {
 }
 
 // MsgType returns the uint32 code which uniquely identifies this message as a
-// FundingLocked message on the wire.
+// ChannelReady message on the wire.
 //
 // This is part of the lnwire.Message interface.
-func (c *FundingLocked) MsgType() MessageType {
-	return MsgFundingLocked
+func (c *ChannelReady) MsgType() MessageType {
+	return MsgChannelReady
 }

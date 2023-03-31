@@ -69,6 +69,12 @@ type AddressIterator interface {
 	// Reset clears the iterators state, and makes the address at the front
 	// of the list the next item to be returned.
 	Reset()
+
+	// Copy constructs a new AddressIterator that has the same addresses
+	// as this iterator.
+	//
+	// NOTE that the address locks are not expected to be copied.
+	Copy() AddressIterator
 }
 
 // A compile-time check to ensure that addressIterator implements the
@@ -156,7 +162,15 @@ func (a *addressIterator) next(lock bool) (net.Addr, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	// Set the next candidate to the subsequent element.
+	// In-case currentTopAddr is nil (meaning that Reset has not yet been
+	// called), return an error indicating this.
+	if a.currentTopAddr == nil {
+		return nil, ErrAddressesExhausted
+	}
+
+	// Set the next candidate to the subsequent element. If we are at the
+	// end of the address list, this could mean setting currentTopAddr to
+	// nil.
 	a.currentTopAddr = a.currentTopAddr.Next()
 
 	for a.currentTopAddr != nil {
@@ -166,9 +180,26 @@ func (a *addressIterator) next(lock bool) (net.Addr, error) {
 		// Check whether this address is still considered a candidate.
 		// If it's not, we'll proceed to the next.
 		candidate, ok := a.candidates[addrID]
+
+		// If the address cannot be found in the candidate set, then
+		// this must mean that the Remove method was called for the
+		// address. The Remove method would have checked that the
+		// address is not the last one in the iterator and that it has
+		// no locks on it. It is therefor safe to remove.
 		if !ok {
+			// Grab the next address candidate. This might be nil
+			// if the iterator is on the last item in the list.
 			nextCandidate := a.currentTopAddr.Next()
+
+			// Remove the address from the list that is no longer
+			// in the candidate set.
 			a.addrList.Remove(a.currentTopAddr)
+
+			// Set the current top to the next candidate. This might
+			// mean setting it to nil if the iterator is on its last
+			// item in which case the loop will be exited and an
+			// ErrAddressesExhausted exhausted error will be
+			// returned.
 			a.currentTopAddr = nextCandidate
 			continue
 		}
@@ -224,9 +255,25 @@ func (a *addressIterator) peek(lock bool) net.Addr {
 
 		addrID := a.currentTopAddr.Value.(string)
 		candidate, ok := a.candidates[addrID]
+
+		// If the address cannot be found in the candidate set, then
+		// this must mean that the Remove method was called for the
+		// address. The Remove method would have checked that the
+		// address is not the last one in the iterator and that it has
+		// no locks on it. It is therefor safe to remove.
 		if !ok {
+			// Grab the next address candidate. This might be nil
+			// if the iterator is on the last item in the list.
 			nextCandidate := a.currentTopAddr.Next()
+
+			// Remove the address from the list that is no longer
+			// in the candidate set.
 			a.addrList.Remove(a.currentTopAddr)
+
+			// Set the current top to the next candidate. This might
+			// mean setting it to nil if the iterator is on its last
+			// item but this will be reset at the top of the for
+			// loop.
 			a.currentTopAddr = nextCandidate
 			continue
 		}
@@ -324,6 +371,33 @@ func (a *addressIterator) GetAll() []net.Addr {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	return a.getAllUnsafe()
+}
+
+// Copy constructs a new AddressIterator that has the same addresses
+// as this iterator.
+//
+// NOTE that the address locks will not be copied.
+func (a *addressIterator) Copy() AddressIterator {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	addrs := a.getAllUnsafe()
+
+	// Since newAddressIterator will only ever return an error if it is
+	// initialised with zero addresses, we can ignore the error here since
+	// we are initialising it with the set of addresses of this
+	// addressIterator which is by definition a non-empty list.
+	iter, _ := newAddressIterator(addrs...)
+
+	return iter
+}
+
+// getAllUnsafe returns a copy of all the addresses in the iterator.
+//
+// NOTE: this method is not thread safe and so must only be called once the
+// addressIterator mutex is already being held.
+func (a *addressIterator) getAllUnsafe() []net.Addr {
 	var addrs []net.Addr
 	cursor := a.addrList.Front()
 

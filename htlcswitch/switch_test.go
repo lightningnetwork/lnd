@@ -82,7 +82,7 @@ func TestSwitchAddDuplicateLink(t *testing.T) {
 // TestSwitchHasActiveLink tests the behavior of HasActiveLink, and asserts that
 // it only returns true if a link's short channel id has confirmed (meaning the
 // channel is no longer pending) and it's EligibleToForward method returns true,
-// i.e. it has received FundingLocked from the remote peer.
+// i.e. it has received ChannelReady from the remote peer.
 func TestSwitchHasActiveLink(t *testing.T) {
 	t.Parallel()
 
@@ -5339,6 +5339,7 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 	ogPacket := &htlcPacket{
 		incomingChanID: bobLink.ShortChanID(),
 		incomingHTLCID: 0,
+		incomingAmount: 1000,
 		obfuscator:     NewMockObfuscator(),
 		htlc: &lnwire.UpdateAddHTLC{
 			PaymentHash: rhash,

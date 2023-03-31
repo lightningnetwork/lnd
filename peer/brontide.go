@@ -717,11 +717,11 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			// manager are not aware of each other's states and if
 			// we did not do this, we would accept alias channel
 			// updates after 6 confirmations, which would be buggy.
-			// We'll queue a funding_locked message with the new
+			// We'll queue a channel_ready message with the new
 			// alias. This should technically be done *after* the
 			// reestablish, but this behavior is pre-existing since
 			// the funding manager may already queue a
-			// funding_locked before the channel_reestablish.
+			// channel_ready before the channel_reestablish.
 			if !dbChan.IsPending {
 				aliasScid, err := p.cfg.RequestAlias()
 				if err != nil {
@@ -740,18 +740,18 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				)
 
 				// Fetch the second commitment point to send in
-				// the funding_locked message.
+				// the channel_ready message.
 				second, err := dbChan.SecondCommitmentPoint()
 				if err != nil {
 					return nil, err
 				}
 
-				fundingLockedMsg := lnwire.NewFundingLocked(
+				channelReadyMsg := lnwire.NewChannelReady(
 					chanID, second,
 				)
-				fundingLockedMsg.AliasScid = &aliasScid
+				channelReadyMsg.AliasScid = &aliasScid
 
-				msgs = append(msgs, fundingLockedMsg)
+				msgs = append(msgs, channelReadyMsg)
 			}
 
 			// If we've negotiated the option-scid-alias feature
@@ -776,7 +776,8 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
-		p.log.Infof("loading ChannelPoint(%v)", chanPoint)
+		p.log.Infof("Loading ChannelPoint(%v), isPending=%v",
+			chanPoint, lnChan.IsPending())
 
 		// Skip adding any permanently irreconcilable channels to the
 		// htlcswitch.
@@ -1318,6 +1319,8 @@ func (ms *msgStream) AddMsg(msg lnwire.Message) {
 func waitUntilLinkActive(p *Brontide,
 	cid lnwire.ChannelID) htlcswitch.ChannelUpdateHandler {
 
+	p.log.Tracef("Waiting for link=%v to be active", cid)
+
 	// Subscribe to receive channel events.
 	//
 	// NOTE: If the link is already active by SubscribeChannelEvents, then
@@ -1395,6 +1398,7 @@ func newChanMsgStream(p *Brontide, cid lnwire.ChannelID) *msgStream {
 			// If the link is still not active and the calling function
 			// errored out, just return.
 			if chanLink == nil {
+				p.log.Warnf("Link=%v is not active")
 				return
 			}
 		}
@@ -1545,7 +1549,7 @@ out:
 			*lnwire.AcceptChannel,
 			*lnwire.FundingCreated,
 			*lnwire.FundingSigned,
-			*lnwire.FundingLocked:
+			*lnwire.ChannelReady:
 
 			p.cfg.FundingManager.ProcessFundingMsg(msg, p)
 
@@ -1794,7 +1798,7 @@ func messageSummary(msg lnwire.Message) string {
 	case *lnwire.FundingSigned:
 		return fmt.Sprintf("chan_id=%v", msg.ChanID)
 
-	case *lnwire.FundingLocked:
+	case *lnwire.ChannelReady:
 		return fmt.Sprintf("chan_id=%v, next_point=%x",
 			msg.ChanID, msg.NextPerCommitmentPoint.SerializeCompressed())
 
@@ -2372,7 +2376,7 @@ out:
 				}
 
 				p.log.Infof("Processing retransmitted "+
-					"FundingLocked for ChannelPoint(%v)",
+					"ChannelReady for ChannelPoint(%v)",
 					chanPoint)
 
 				nextRevoke := newChan.RemoteNextRevocation

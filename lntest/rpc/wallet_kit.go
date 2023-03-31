@@ -263,6 +263,19 @@ func (h *HarnessRPC) SignPsbt(
 	return resp
 }
 
+// SignPsbtErr makes a RPC call to the node's WalletKitClient and asserts
+// an error returned.
+func (h *HarnessRPC) SignPsbtErr(req *walletrpc.SignPsbtRequest) error {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WalletKit.SignPsbt(ctxt, req)
+	require.Errorf(h, err, "%s: expect sign psbt to return an error",
+		h.Name)
+
+	return err
+}
+
 // ImportTapscript makes a RPC call to the node's WalletKitClient and asserts.
 //
 //nolint:lll

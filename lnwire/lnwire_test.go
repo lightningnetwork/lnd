@@ -566,8 +566,7 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
-		MsgFundingLocked: func(v []reflect.Value, r *rand.Rand) {
-
+		MsgChannelReady: func(v []reflect.Value, r *rand.Rand) {
 			var c [32]byte
 			if _, err := r.Read(c[:]); err != nil {
 				t.Fatalf("unable to generate chan id: %v", err)
@@ -580,7 +579,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
-			req := NewFundingLocked(ChannelID(c), pubKey)
+			req := NewChannelReady(ChannelID(c), pubKey)
 
 			v[0] = reflect.ValueOf(*req)
 		},
@@ -1013,8 +1012,8 @@ func TestLightningWireProtocol(t *testing.T) {
 			},
 		},
 		{
-			msgType: MsgFundingLocked,
-			scenario: func(m FundingLocked) bool {
+			msgType: MsgChannelReady,
+			scenario: func(m ChannelReady) bool {
 				return mainScenario(&m)
 			},
 		},

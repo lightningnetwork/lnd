@@ -40,6 +40,10 @@ var (
 	// ErrConflictArgs is used when conflicting arguments are both
 	// set/unset when making a request.
 	ErrConflictArgs = errors.New("conflict arguments used")
+
+	// ErrMissingParams is returned when the requested strategy needs
+	// certain params but they don't exist.
+	ErrMissingParams = errors.New("missing params")
 )
 
 // Bumper helps managing the fee bumping of a given outpoint.
@@ -66,6 +70,21 @@ const (
 	// StrategyNone defines a strategy that does not bump the fee.
 	StrategyNone Strategy = iota
 
+	// StrategyLinear defines a strategy that bumps the fee linearly
+	// towards the deadline. It calcuates the fee rate using,
+	// newFeeRate = startingFeeRate + feeRateIncreased, in which,
+	// - feeRateIncreased = blocksPassed/blocksTotal * feeRateDelta
+	// - feeRateDelta = maxFeeRate - startingFeeRate
+	// - blocksTotal = deadlineHeight - monitorHeight
+	// - blocksPassed = currentHeight - monitorHeight
+	// This means to be able to use this strategy, the MaxFeeRate must be
+	// set in the request. And either the DeadlineHeight or ConfTarget, or
+	// both, must be set. If only ConfTarget is set, the DeadlineHeight
+	// will be ConfTarget+MonitorHeight, which may not be as precise as
+	// setting the DeadlineHeight directly but still gives us an implicit
+	// deadline.
+	StrategyLinear
+
 	// strategySentinel specifies the total number of strategies and is
 	// used only for validation.
 	strategySentinel
@@ -85,6 +104,9 @@ func (s Strategy) String() string {
 	switch s {
 	case StrategyNone:
 		return "none"
+
+	case StrategyLinear:
+		return "linear"
 
 	default:
 		return "unknown strategy"
@@ -346,7 +368,15 @@ func validateConfTarget(req *MonitorRequest) error {
 	if req.ConfTarget == NoHeightInfo && req.FeeRate == 0 {
 		return fmt.Errorf("%w: must set conf target or fee rate",
 			ErrConflictArgs)
+	}
 
+	// If strategy is linear, we need to make sure the conf target is set
+	// so we can use it to find the deadline.
+	if req.Strategy == StrategyLinear {
+		if req.ConfTarget == NoHeightInfo {
+			return fmt.Errorf("%w: must set ConfTarget or "+
+				"DeadlineHeight", ErrMissingParams)
+		}
 	}
 
 	return nil
@@ -444,10 +474,37 @@ func (f *feeBumper) calculateFeeRate(r *monitoredInput) chainfee.SatPerKWeight {
 	case StrategyNone:
 		return r.currentFeeRate
 
+	case StrategyLinear:
+		return f.feeRateForStrategyLinear(r)
+
 	default:
 		feeLog.Errorf("Unknown strategy %v", r.strategy)
 		return r.currentFeeRate
 	}
+}
+
+// TODO(yy): cache the results?
+func (f *feeBumper) feeRateForStrategyLinear(
+	r *monitoredInput) chainfee.SatPerKWeight {
+
+	startingFeeRate := r.initalFeeRate
+	endingFeeRate := r.maxFeeRate
+
+	// Calculate the fee rate delta.
+	feeRateDelta := btcutil.Amount(endingFeeRate - startingFeeRate)
+
+	// Calculate the height delta.
+	heightDelta := r.deadlineHeight - r.monitorHeight
+	heightsPassed := f.currentHeight - r.monitorHeight
+
+	// Calculate the fee rate increased.
+	ratio := float64(heightsPassed) / float64(heightDelta)
+	feeRateIncreased := chainfee.SatPerKWeight(feeRateDelta.MulF64(ratio))
+
+	// Calculate the fee rate to use.
+	feeRate := startingFeeRate + feeRateIncreased
+
+	return feeRate
 }
 
 // needFeeBump checks whether a fee bumping is needed for a given outpoint.  A

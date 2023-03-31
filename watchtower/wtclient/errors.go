@@ -34,4 +34,9 @@ var (
 	// revoked state because the channel had not been previously registered
 	// with the client.
 	ErrUnregisteredChannel = errors.New("channel is not registered")
+
+	// ErrSessionKeyAlreadyUsed indicates that the client attempted to
+	// create a new session with a tower with a session key that has already
+	// been used in the past.
+	ErrSessionKeyAlreadyUsed = errors.New("session key already used")
 )

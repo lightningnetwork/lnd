@@ -643,9 +643,10 @@ func (c *ClientDB) ListTowers() ([]*Tower, error) {
 // particular tower id. The index is reserved for that tower until
 // CreateClientSession is invoked for that tower and index, at which point a new
 // index for that tower can be reserved. Multiple calls to this method before
-// CreateClientSession is invoked should return the same index.
+// CreateClientSession is invoked should return the same index unless forceNext
+// is true.
 func (c *ClientDB) NextSessionKeyIndex(towerID TowerID,
-	blobType blob.Type) (uint32, error) {
+	blobType blob.Type, forceNext bool) (uint32, error) {
 
 	var index uint32
 	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
@@ -654,33 +655,48 @@ func (c *ClientDB) NextSessionKeyIndex(towerID TowerID,
 			return ErrUninitializedDB
 		}
 
-		// Check the session key index to see if a key has already been
-		// reserved for this tower. If so, we'll deserialize and return
-		// the index directly.
 		var err error
-		index, err = getSessionKeyIndex(keyIndex, towerID, blobType)
-		if err == nil {
-			return nil
+		if !forceNext {
+			// Check the session key index to see if a key has
+			// already been reserved for this tower. If so, we'll
+			// deserialize and return the index directly.
+			index, err = getSessionKeyIndex(
+				keyIndex, towerID, blobType,
+			)
+			if err == nil {
+				return nil
+			}
 		}
 
-		// Otherwise, generate a new session key index since the node
-		// doesn't already have reserved index. The error is ignored
-		// since NextSequence can't fail inside Update.
-		index64, _ := keyIndex.NextSequence()
+		// By default, we use the next available bucket sequence as the
+		// key index. But if forceNext is true, then it is assumed that
+		// some data loss occurred and so the sequence is incremented a
+		// by a jump of 1000 so that we can arrive at a brand new key
+		// index quicker.
+		currentSequence := keyIndex.Sequence()
+		nextIndex := currentSequence + 1
+		if forceNext {
+			nextIndex = currentSequence + 1000
+		}
+
+		if err = keyIndex.SetSequence(nextIndex); err != nil {
+			return fmt.Errorf("could not set next bucket "+
+				"sequence: %w", err)
+		}
 
 		// As a sanity check, assert that the index is still in the
 		// valid range of unhardened pubkeys. In the future, we should
 		// move to only using hardened keys, and this will prevent any
 		// overlap from occurring until then. This also prevents us from
 		// overflowing uint32s.
-		if index64 > math.MaxInt32 {
+		if nextIndex > math.MaxInt32 {
 			return fmt.Errorf("exhausted session key indexes")
 		}
 
 		// Create the key that will used to be store the reserved index.
 		keyBytes := createSessionKeyIndexKey(towerID, blobType)
 
-		index = uint32(index64)
+		index = uint32(nextIndex)
 
 		var indexBuf [4]byte
 		byteOrder.PutUint32(indexBuf[:], index)

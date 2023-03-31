@@ -25,6 +25,8 @@
   needed](https://github.com/lightningnetwork/lnd/pull/7405). Also add a new
   `exclude_exhausted_sessions` boolean flag to the relevant lncli wtclient
   commands.
+* [Recover from StateUpdateCodeClientBehind 
+  error](https://github.com/lightningnetwork/lnd/pull/7541) after data loss. 
 
 ## Misc
 

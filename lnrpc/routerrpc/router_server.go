@@ -343,6 +343,8 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
 // may cost to send an HTLC to the target end destination.
+// To supply more custom parameters, optionally one can also
+// use the QueryRoutes RPC over EstimateRouteFee.
 func (s *Server) EstimateRouteFee(ctx context.Context,
 	req *RouteFeeRequest) (*RouteFeeResponse, error) {
 

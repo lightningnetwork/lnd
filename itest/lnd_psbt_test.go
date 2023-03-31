@@ -1009,17 +1009,28 @@ func assertPsbtSpend(ht *lntest.HarnessTest, alice *node.HarnessNode,
 	packet, err := psbt.NewFromUnsignedTx(pendingTx)
 	require.NoError(ht, err)
 
+	// We first try to sign the psbt without the necessary input data
+	// which should fail with the expected error.
+	var buf bytes.Buffer
+	err = packet.Serialize(&buf)
+	require.NoError(ht, err)
+
+	signReq := &walletrpc.SignPsbtRequest{FundedPsbt: buf.Bytes()}
+	err = alice.RPC.SignPsbtErr(signReq)
+	require.ErrorContains(ht, err, "input (index=0) doesn't specify "+
+		"any UTXO info", "error does not match")
+
 	// Now let's add the meta information that we need for signing.
 	packet.Inputs[0].WitnessUtxo = utxo
 	packet.Inputs[0].NonWitnessUtxo = prevTx
 	decorateUnsigned(packet)
 
 	// That's it, we should be able to sign the PSBT now.
-	var buf bytes.Buffer
+	buf.Reset()
 	err = packet.Serialize(&buf)
 	require.NoError(ht, err)
 
-	signReq := &walletrpc.SignPsbtRequest{FundedPsbt: buf.Bytes()}
+	signReq = &walletrpc.SignPsbtRequest{FundedPsbt: buf.Bytes()}
 	signResp := alice.RPC.SignPsbt(signReq)
 
 	// Let's make sure we have a partial signature.

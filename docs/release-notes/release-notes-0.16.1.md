@@ -38,7 +38,7 @@
 
 ## RPC
 
-- A [debug log](https://github.com/lightningnetwork/lnd/pull/7514) has been
+* A [debug log](https://github.com/lightningnetwork/lnd/pull/7514) has been
   added to `lnrpc` so the node operator can know whether a certain request has
   happened or not.
 
@@ -48,6 +48,11 @@
   anything for the users since the message type(36) stays unchanged, except in
   the logging all the appearance of `funding_locked` replated experssion is
   replaced with `channel_ready`.
+## Bug Fixes
+
+* [Fix a bug where lnd crashes when psbt data is not fully 
+available](https://github.com/lightningnetwork/lnd/pull/7529).
+
 
 # Contributors (Alphabetical Order)
 
@@ -56,3 +61,4 @@
 * Oliver Gugger
 * Tommy Volk
 * Yong Yu
+* ziggie1984

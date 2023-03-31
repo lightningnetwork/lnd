@@ -8,7 +8,7 @@ RUN apk add --no-cache git gcc musl-dev
 WORKDIR $GOPATH/src/github.com/btcsuite/btcd
 
 # Pin down btcd to a version that we know works with lnd.
-ARG BTCD_VERSION=v0.23.1
+ARG BTCD_VERSION=v0.23.5
 
 # Grab and install the latest version of of btcd and all related dependencies.
 RUN git clone https://github.com/btcsuite/btcd.git . \

@@ -333,6 +333,11 @@ message RouteFeeRequest {
     The amount one wishes to send to the target destination.
     */
     int64 amt_sat = 2;
+
+    /*
+    Optional route hints to reach the destination through private channels.
+    */
+    repeated lnrpc.RouteHint route_hints = 3;
 }
 
 message RouteFeeResponse {

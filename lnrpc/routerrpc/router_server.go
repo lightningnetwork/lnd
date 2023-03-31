@@ -343,6 +343,8 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
 // may cost to send an HTLC to the target end destination.
+// To supply more custom parameters, optionally one can also
+// use the QueryRoutes RPC over EstimateRouteFee.
 func (s *Server) EstimateRouteFee(ctx context.Context,
 	req *RouteFeeRequest) (*RouteFeeResponse, error) {
 
@@ -355,6 +357,25 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	// Next, we'll convert the amount in satoshis to mSAT, which are the
 	// native unit of LN.
 	amtMsat := lnwire.NewMSatFromSatoshis(btcutil.Amount(req.AmtSat))
+
+	// We'll now attempt to unmarshall the route hints in the request.
+	routeHints, err := unmarshallRouteHints(req.RouteHints)
+	if err != nil {
+		return nil, err
+	}
+
+	destVertex, err := route.NewVertexFromBytes(req.Dest)
+	if err != nil {
+		return nil, err
+	}
+
+	// Next we'll now convert the route hints into edges.
+	routeHintEdges, err := routing.RouteHintsToEdges(
+		routeHints, destVertex,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Pick a fee limit
 	//
@@ -372,7 +393,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 			FeeLimit:          feeLimit,
 			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
 			ProbabilitySource: mc.GetProbability,
-		}, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
+		}, nil, routeHintEdges, s.cfg.RouterBackend.DefaultFinalCltvDelta,
 	)
 	if err != nil {
 		return nil, err

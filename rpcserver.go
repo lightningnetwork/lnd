@@ -4097,6 +4097,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	nodePub := dbChannel.IdentityPub
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
 	chanPoint := dbChannel.FundingOutpoint
+	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 
 	// As this is required for display purposes, we'll calculate
 	// the weight of the commitment transaction. We also add on the
@@ -4132,6 +4133,10 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	// Fetch the set of aliases for the channel.
 	channelAliases := r.server.aliasMgr.GetAliases(dbScid)
 
+	// Fetch the peer alias. If one does not exist, errNoPeerAlias
+	// is returned and peerScidAlias will be an empty ShortChannelID.
+	peerScidAlias, _ := r.server.aliasMgr.GetPeerAlias(chanID)
+
 	channel := &lnrpc.Channel{
 		Active:                isActive,
 		Private:               isPrivate(dbChannel),
@@ -4160,6 +4165,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 			&dbChannel.RemoteChanCfg,
 		),
 		AliasScids:            make([]uint64, 0, len(channelAliases)),
+		PeerScidAlias:         peerScidAlias.ToUint64(),
 		ZeroConf:              dbChannel.IsZeroConf(),
 		ZeroConfConfirmedScid: dbChannel.ZeroConfRealScid().ToUint64(),
 		// TODO: remove the following deprecated fields

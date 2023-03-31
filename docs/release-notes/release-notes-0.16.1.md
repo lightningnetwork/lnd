@@ -43,6 +43,8 @@
 * A [debug log](https://github.com/lightningnetwork/lnd/pull/7514) has been
   added to `lnrpc` so the node operator can know whether a certain request has
   happened or not.
+* [Add peer_scid_alias to the response of 
+  `listchannels`](https://github.com/lightningnetwork/lnd/pull/7366)
 
 * Message `funding_locked` [has been
   renamed](https://github.com/lightningnetwork/lnd/pull/7517) to

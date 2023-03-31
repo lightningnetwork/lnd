@@ -3568,6 +3568,11 @@
         "peer_alias": {
           "type": "string",
           "description": "The configured alias name of our peer."
+        },
+        "peer_scid_alias": {
+          "type": "string",
+          "format": "uint64",
+          "description": "This is the peer SCID alias."
         }
       }
     },

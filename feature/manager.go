@@ -1,10 +1,15 @@
 package feature
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+// ErrUnknownSet is returned if a proposed feature vector contains a set that
+// is unknown to LND.
+var ErrUnknownSet = errors.New("unknown feature bit set")
 
 // Config houses any runtime modifications to the default set descriptors. For
 // our purposes, this typically means disabling certain features to test legacy
@@ -197,4 +202,41 @@ func (m *Manager) ListSets() []Set {
 	}
 
 	return sets
+}
+
+// UpdateFeatureSets accepts a map of new feature vectors for each of the
+// manager's known sets, validates that the update can be applied and modifies
+// the feature manager's internal state. If a set is not included in the update
+// map, it is left unchanged. The feature vectors provided are expected to
+// include the current set of features, updated with desired bits added/removed.
+func (m *Manager) UpdateFeatureSets(
+	updates map[Set]*lnwire.RawFeatureVector) error {
+
+	for set, newFeatures := range updates {
+		if !set.valid() {
+			return fmt.Errorf("%w: set: %d", ErrUnknownSet, set)
+		}
+
+		if err := newFeatures.ValidatePairs(); err != nil {
+			return err
+		}
+
+		if err := m.Get(set).ValidateUpdate(newFeatures); err != nil {
+			return err
+		}
+
+		fv := lnwire.NewFeatureVector(newFeatures, lnwire.Features)
+		if err := ValidateDeps(fv); err != nil {
+			return err
+		}
+	}
+
+	// Only update the current feature sets once every proposed set has
+	// passed validation so that we don't partially update any sets then
+	// fail out on a later set's validation.
+	for set, features := range updates {
+		m.SetRaw(set, features.Clone())
+	}
+
+	return nil
 }

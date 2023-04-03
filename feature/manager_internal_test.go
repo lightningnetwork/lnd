@@ -135,3 +135,113 @@ func testManager(t *testing.T, test managerTest) {
 		assertSet(lnwire.StaticRemoteKeyOptional)
 	}
 }
+
+// TestUpdateFeatureSets tests validation of the update of various features in
+// each of our sets, asserting that the feature set is not partially modified
+// if one set in incorrectly specified.
+func TestUpdateFeatureSets(t *testing.T) {
+	t.Parallel()
+
+	// Use a reduced set description to make reasoning about our sets
+	// easier.
+	setDesc := setDesc{
+		lnwire.DataLossProtectRequired: {
+			SetInit:    {}, // I
+			SetNodeAnn: {}, // N
+		},
+		lnwire.GossipQueriesOptional: {
+			SetNodeAnn: {}, // N
+		},
+	}
+
+	testCases := []struct {
+		name     string
+		features map[Set]*lnwire.RawFeatureVector
+		err      error
+	}{
+		{
+			name: "unknown set",
+			features: map[Set]*lnwire.RawFeatureVector{
+				setSentinel + 1: lnwire.NewRawFeatureVector(),
+			},
+			err: ErrUnknownSet,
+		},
+		{
+			name: "invalid pairwise feature",
+			features: map[Set]*lnwire.RawFeatureVector{
+				SetNodeAnn: lnwire.NewRawFeatureVector(
+					lnwire.FeatureBit(1000),
+					lnwire.FeatureBit(1001),
+				),
+			},
+			err: lnwire.ErrFeaturePairExists,
+		},
+		{
+			name: "error in one set",
+			features: map[Set]*lnwire.RawFeatureVector{
+				SetNodeAnn: lnwire.NewRawFeatureVector(
+					lnwire.FeatureBit(1000),
+					lnwire.FeatureBit(1001),
+				),
+				SetInit: lnwire.NewRawFeatureVector(
+					lnwire.DataLossProtectRequired,
+				),
+			},
+			err: lnwire.ErrFeaturePairExists,
+		},
+		{
+			name: "update existing sets ok",
+			features: map[Set]*lnwire.RawFeatureVector{
+				SetInit: lnwire.NewRawFeatureVector(
+					lnwire.DataLossProtectRequired,
+					lnwire.FeatureBit(1001),
+				),
+				SetNodeAnn: lnwire.NewRawFeatureVector(
+					lnwire.DataLossProtectRequired,
+					lnwire.GossipQueriesOptional,
+					lnwire.FeatureBit(1000),
+				),
+			},
+		},
+		{
+			name: "update new, valid set ok",
+			features: map[Set]*lnwire.RawFeatureVector{
+				SetInvoice: lnwire.NewRawFeatureVector(
+					lnwire.FeatureBit(1001),
+				),
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			featureMgr, err := newManager(Config{}, setDesc)
+			require.NoError(t, err)
+
+			err = featureMgr.UpdateFeatureSets(testCase.features)
+			require.ErrorIs(t, err, testCase.err)
+
+			// Compare the feature manager's sets to the updated
+			// set if no error was hit, otherwise assert that it
+			// is unchanged.
+			expected := testCase.features
+			actual := featureMgr
+			if err != nil {
+				originalMgr, err := newManager(
+					Config{}, setDesc,
+				)
+				require.NoError(t, err)
+				expected = originalMgr.fsets
+			}
+
+			for set, expectedFeatures := range expected {
+				actualSet := actual.GetRaw(set)
+				require.True(t,
+					actualSet.Equals(expectedFeatures))
+			}
+		})
+	}
+}

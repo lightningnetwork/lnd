@@ -157,6 +157,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 	testCases := []struct {
 		name     string
 		features map[Set]*lnwire.RawFeatureVector
+		config   Config
 		err      error
 	}{
 		{
@@ -211,6 +212,49 @@ func TestUpdateFeatureSets(t *testing.T) {
 				),
 			},
 		},
+		{
+			name: "missing configured feature",
+			features: map[Set]*lnwire.RawFeatureVector{
+				SetInit: lnwire.NewRawFeatureVector(
+					lnwire.DataLossProtectRequired,
+				),
+				SetNodeAnn: lnwire.NewRawFeatureVector(
+					lnwire.DataLossProtectRequired,
+					lnwire.GossipQueriesOptional,
+				),
+			},
+			config: Config{
+				CustomFeatures: map[Set][]lnwire.FeatureBit{
+					SetInit: {
+						lnwire.FeatureBit(333),
+					},
+				},
+			},
+			err: ErrFeatureConfigured,
+		},
+		{
+			name: "valid",
+			features: map[Set]*lnwire.RawFeatureVector{
+				SetInit: lnwire.NewRawFeatureVector(
+					lnwire.DataLossProtectRequired,
+				),
+				SetNodeAnn: lnwire.NewRawFeatureVector(
+					lnwire.DataLossProtectRequired,
+					lnwire.GossipQueriesOptional,
+					lnwire.FeatureBit(500),
+				),
+				SetInvoice: lnwire.NewRawFeatureVector(
+					lnwire.FeatureBit(333),
+				),
+			},
+			config: Config{
+				CustomFeatures: map[Set][]lnwire.FeatureBit{
+					SetInvoice: {
+						lnwire.FeatureBit(333),
+					},
+				},
+			},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -218,7 +262,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			featureMgr, err := newManager(Config{}, setDesc)
+			featureMgr, err := newManager(testCase.config, setDesc)
 			require.NoError(t, err)
 
 			err = featureMgr.UpdateFeatureSets(testCase.features)
@@ -231,7 +275,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 			actual := featureMgr
 			if err != nil {
 				originalMgr, err := newManager(
-					Config{}, setDesc,
+					testCase.config, setDesc,
 				)
 				require.NoError(t, err)
 				expected = originalMgr.fsets

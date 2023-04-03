@@ -2961,11 +2961,15 @@ func (s *server) genNodeAnnouncement(refresh bool,
 	// propagates.
 	modifiers = append(modifiers, netann.NodeAnnSetTimestamp)
 
+	// Apply the requested changes to the node announcement.
+	for _, modifier := range modifiers {
+		modifier(s.currentNodeAnn)
+	}
+
 	// Otherwise, we'll sign a new update after applying all of the passed
 	// modifiers.
 	err := netann.SignNodeAnnouncement(
 		s.nodeSigner, s.identityKeyLoc, s.currentNodeAnn,
-		modifiers...,
 	)
 	if err != nil {
 		return lnwire.NodeAnnouncement{}, err

@@ -49,6 +49,10 @@ type Config struct {
 	// NoAnySegwit unsets any bits that signal support for using other
 	// segwit witness versions for co-op closes.
 	NoAnySegwit bool
+
+	// CustomFeatures is a set of custom features to advertise in each
+	// set.
+	CustomFeatures map[Set][]lnwire.FeatureBit
 }
 
 // Manager is responsible for generating feature vectors for different requested
@@ -156,6 +160,23 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.ShutdownAnySegwitRequired)
 		}
 
+		for _, custom := range cfg.CustomFeatures[set] {
+			if custom > set.Maximum() {
+				return nil, fmt.Errorf("feature bit: %v "+
+					"exceeds set: %v maximum: %v", custom,
+					set, set.Maximum())
+			}
+
+			if raw.IsSet(custom) {
+				return nil, fmt.Errorf("feature bit: %v "+
+					"already set", custom)
+			}
+
+			if err := raw.SafeSet(custom); err != nil {
+				return nil, fmt.Errorf("%w: could not set "+
+					"feature: %d", err, custom)
+			}
+		}
 		// Ensure that all of our feature sets properly set any
 		// dependent features.
 		fv := lnwire.NewFeatureVector(raw, lnwire.Features)

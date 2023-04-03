@@ -178,7 +178,7 @@ func IPAnnouncer(annUpdater NodeAnnUpdater) func([]net.Addr,
 	map[string]struct{}) error {
 
 	return func(newAddrs []net.Addr, oldAddrs map[string]struct{}) error {
-		_, err := annUpdater(func(
+		_, err := annUpdater(nil, func(
 			currentNodeAnn *lnwire.NodeAnnouncement) {
 			// To ensure we don't duplicate any addresses, we'll
 			// filter out the same of addresses we should no longer

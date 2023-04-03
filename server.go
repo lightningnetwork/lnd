@@ -1004,7 +1004,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		UpdateSelfAnnouncement: func() (lnwire.NodeAnnouncement,
 			error) {
 
-			return s.genNodeAnnouncement()
+			return s.genNodeAnnouncement(nil)
 		},
 		ProofMatureDelta:        0,
 		TrickleDelay:            time.Millisecond * time.Duration(cfg.TrickleDelay),
@@ -1290,7 +1290,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement,
 			error) {
 
-			return s.genNodeAnnouncement()
+			return s.genNodeAnnouncement(nil)
 		},
 		SendAnnouncement:     s.authGossiper.ProcessLocalAnnouncement,
 		NotifyWhenOnline:     s.NotifyWhenOnline,
@@ -1605,8 +1605,15 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 					cfg.net.ResolveTCPAddr,
 				)
 			},
-			AdvertisedIPs:  advertisedIPs,
-			AnnounceNewIPs: netann.IPAnnouncer(s.genNodeAnnouncement),
+			AdvertisedIPs: advertisedIPs,
+			AnnounceNewIPs: netann.IPAnnouncer(
+				func(modifier ...netann.NodeAnnModifier) (
+					lnwire.NodeAnnouncement, error) {
+
+					return s.genNodeAnnouncement(
+						nil, modifier...,
+					)
+				}),
 		})
 	}
 
@@ -2479,7 +2486,7 @@ out:
 			// announcement with the updated addresses and broadcast
 			// it to our peers.
 			newNodeAnn, err := s.genNodeAnnouncement(
-				netann.NodeAnnSetAddrs(newAddrs),
+				nil, netann.NodeAnnSetAddrs(newAddrs),
 			)
 			if err != nil {
 				srvrLog.Debugf("Unable to generate new node "+
@@ -2868,7 +2875,7 @@ func (s *server) createNewHiddenService() error {
 	// Now that the onion service has been created, we'll add the onion
 	// address it can be reached at to our list of advertised addresses.
 	newNodeAnn, err := s.genNodeAnnouncement(
-		func(currentAnn *lnwire.NodeAnnouncement) {
+		nil, func(currentAnn *lnwire.NodeAnnouncement) {
 			currentAnn.Addresses = append(currentAnn.Addresses, addr)
 		},
 	)
@@ -2929,11 +2936,30 @@ func (s *server) getNodeAnnouncement() lnwire.NodeAnnouncement {
 // genNodeAnnouncement generates and returns the current fully signed node
 // announcement. The time stamp of the announcement will be updated in order
 // to ensure it propagates through the network.
-func (s *server) genNodeAnnouncement(modifiers ...netann.NodeAnnModifier) (
-	lnwire.NodeAnnouncement, error) {
+func (s *server) genNodeAnnouncement(features *lnwire.RawFeatureVector,
+	modifiers ...netann.NodeAnnModifier) (lnwire.NodeAnnouncement, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// First, try to update our feature manager with the updated set of
+	// features.
+	if features != nil {
+		proposedFeatures := map[feature.Set]*lnwire.RawFeatureVector{
+			feature.SetNodeAnn: features,
+		}
+		err := s.featureMgr.UpdateFeatureSets(proposedFeatures)
+		if err != nil {
+			return lnwire.NodeAnnouncement{}, err
+		}
+
+		// If we could successfully update our feature manager, add
+		// an update modifier to include these new features to our
+		// set.
+		modifiers = append(
+			modifiers, netann.NodeAnnSetFeatures(features),
+		)
+	}
 
 	// Always update the timestamp when refreshing to ensure the update
 	// propagates.
@@ -2959,10 +2985,10 @@ func (s *server) genNodeAnnouncement(modifiers ...netann.NodeAnnModifier) (
 // applying the giving modifiers and updating the time stamp
 // to ensure it propagates through the network. Then it brodcasts
 // it to the network.
-func (s *server) updateAndBrodcastSelfNode(
+func (s *server) updateAndBrodcastSelfNode(features *lnwire.RawFeatureVector,
 	modifiers ...netann.NodeAnnModifier) error {
 
-	newNodeAnn, err := s.genNodeAnnouncement(modifiers...)
+	newNodeAnn, err := s.genNodeAnnouncement(features, modifiers...)
 	if err != nil {
 		return fmt.Errorf("unable to generate new node "+
 			"announcement: %v", err)
@@ -2980,9 +3006,7 @@ func (s *server) updateAndBrodcastSelfNode(
 	selfNode.LastUpdate = time.Unix(int64(newNodeAnn.Timestamp), 0)
 	selfNode.Addresses = newNodeAnn.Addresses
 	selfNode.Alias = newNodeAnn.Alias.String()
-	selfNode.Features = lnwire.NewFeatureVector(
-		newNodeAnn.Features, lnwire.Features,
-	)
+	selfNode.Features = s.featureMgr.Get(feature.SetNodeAnn)
 	selfNode.Color = newNodeAnn.RGBColor
 	selfNode.AuthSigBytes = newNodeAnn.Signature.ToSignatureBytes()
 
@@ -2991,11 +3015,6 @@ func (s *server) updateAndBrodcastSelfNode(
 	if err := s.graphDB.SetSourceNode(selfNode); err != nil {
 		return fmt.Errorf("can't set self node: %v", err)
 	}
-
-	// Update the feature bits for the SetNodeAnn in case they changed.
-	s.featureMgr.SetRaw(
-		feature.SetNodeAnn, selfNode.Features.RawFeatureVector,
-	)
 
 	// Finally, propagate it to the nodes in the network.
 	err = s.BroadcastMessage(nil, &newNodeAnn)
@@ -3802,7 +3821,11 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		TowerClient:             s.towerClient,
 		AnchorTowerClient:       s.anchorTowerClient,
 		DisconnectPeer:          s.DisconnectPeer,
-		GenNodeAnnouncement:     s.genNodeAnnouncement,
+		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
+			lnwire.NodeAnnouncement, error) {
+
+			return s.genNodeAnnouncement(nil)
+		},
 
 		PongBuf: s.pongBuf,
 

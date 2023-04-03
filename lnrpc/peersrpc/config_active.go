@@ -23,7 +23,10 @@ type Config struct {
 	// ParseAddr parses an address from its string format to a net.Addr.
 	ParseAddr func(addr string) (net.Addr, error)
 
-	// UpdateNodeAnnouncement updates our node announcement applying the
-	// given NodeAnnModifiers and broadcasts the new version to the network.
-	UpdateNodeAnnouncement func(...netann.NodeAnnModifier) error
+	// UpdateNodeAnnouncement updates and broadcasts our node announcement,
+	// setting the feature vector provided and applying the
+	// NodeAnnModifiers. If no feature updates are required, a nil feature
+	// vector should be provided.
+	UpdateNodeAnnouncement func(features *lnwire.RawFeatureVector,
+		mods ...netann.NodeAnnModifier) error
 }

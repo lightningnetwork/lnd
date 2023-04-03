@@ -530,6 +530,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		readBufferPool, cfg.Workers.Read, pool.DefaultWorkerTimeout,
 	)
 
+	//nolint:lll
 	featureMgr, err := feature.NewManager(feature.Config{
 		NoTLVOnion:               cfg.ProtocolOptions.LegacyOnion(),
 		NoStaticRemoteKey:        cfg.ProtocolOptions.NoStaticRemoteKey(),
@@ -540,6 +541,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoOptionScidAlias:        !cfg.ProtocolOptions.ScidAlias(),
 		NoZeroConf:               !cfg.ProtocolOptions.ZeroConf(),
 		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
+		CustomFeatures:           cfg.ProtocolOptions.ExperimentalProtocol.CustomFeatures(),
 	})
 	if err != nil {
 		return nil, err

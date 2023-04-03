@@ -7,9 +7,15 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// ErrUnknownSet is returned if a proposed feature vector contains a set that
-// is unknown to LND.
-var ErrUnknownSet = errors.New("unknown feature bit set")
+var (
+	// ErrUnknownSet is returned if a proposed feature vector contains a
+	// set that is unknown to LND.
+	ErrUnknownSet = errors.New("unknown feature bit set")
+
+	// ErrFeatureConfigured is returned if an attempt is made to unset a
+	// feature that was configured at startup.
+	ErrFeatureConfigured = errors.New("can't unset configured feature")
+)
 
 // Config houses any runtime modifications to the default set descriptors. For
 // our purposes, this typically means disabling certain features to test legacy
@@ -61,6 +67,11 @@ type Manager struct {
 	// fsets is a static map of feature set to raw feature vectors. Requests
 	// are fulfilled by cloning these internal feature vectors.
 	fsets map[Set]*lnwire.RawFeatureVector
+
+	// configFeatures is a set of custom features that were "hard set" in
+	// lnd's config that cannot be updated at runtime (as is the case with
+	// our "standard" features that are defined in LND).
+	configFeatures map[Set]*lnwire.FeatureVector
 }
 
 // NewManager creates a new feature Manager, applying any custom modifications
@@ -99,6 +110,7 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 	}
 
 	// Now, remove any features as directed by the config.
+	configFeatures := make(map[Set]*lnwire.FeatureVector)
 	for set, raw := range fsets {
 		if cfg.NoTLVOnion {
 			raw.Unset(lnwire.TLVOnionPayloadOptional)
@@ -177,6 +189,15 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 					"feature: %d", err, custom)
 			}
 		}
+
+		// Track custom features separately so that we can check that
+		// they aren't unset in subsequent updates. If there is no
+		// entry for the set, the vector will just be empty.
+		configFeatures[set] = lnwire.NewFeatureVector(
+			lnwire.NewRawFeatureVector(cfg.CustomFeatures[set]...),
+			lnwire.Features,
+		)
+
 		// Ensure that all of our feature sets properly set any
 		// dependent features.
 		fv := lnwire.NewFeatureVector(raw, lnwire.Features)
@@ -188,7 +209,8 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 	}
 
 	return &Manager{
-		fsets: fsets,
+		fsets:          fsets,
+		configFeatures: configFeatures,
 	}, nil
 }
 
@@ -246,6 +268,18 @@ func (m *Manager) UpdateFeatureSets(
 			newFeatures, set.Maximum(),
 		); err != nil {
 			return err
+		}
+
+		// If any features were configured for this set, ensure that
+		// they are still set in the new feature vector.
+		if cfgFeat, haveCfgFeat := m.configFeatures[set]; haveCfgFeat {
+			for feature := range cfgFeat.Features() {
+				if !newFeatures.IsSet(feature) {
+					return fmt.Errorf("%w: can't unset: "+
+						"%d", ErrFeatureConfigured,
+						feature)
+				}
+			}
 		}
 
 		fv := lnwire.NewFeatureVector(newFeatures, lnwire.Features)

@@ -80,6 +80,10 @@ type BitcoindNotifier struct {
 // time.
 var _ chainntnfs.ChainNotifier = (*BitcoindNotifier)(nil)
 
+// Ensure BitcoindNotifier implements the MempoolWatcher interface at compile
+// time.
+var _ chainntnfs.MempoolWatcher = (*BitcoindNotifier)(nil)
+
 // New returns a new BitcoindNotifier instance. This function assumes the
 // bitcoind node detailed in the passed configuration is already running, and
 // willing to accept RPC requests and new zmq clients.

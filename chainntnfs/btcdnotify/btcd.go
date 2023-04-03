@@ -96,6 +96,9 @@ type BtcdNotifier struct {
 // Ensure BtcdNotifier implements the ChainNotifier interface at compile time.
 var _ chainntnfs.ChainNotifier = (*BtcdNotifier)(nil)
 
+// Ensure BtcdNotifier implements the MempoolWatcher interface at compile time.
+var _ chainntnfs.MempoolWatcher = (*BtcdNotifier)(nil)
+
 // New returns a new BtcdNotifier instance. This function assumes the btcd node
 // detailed in the passed configuration is already running, and willing to
 // accept new websockets clients.

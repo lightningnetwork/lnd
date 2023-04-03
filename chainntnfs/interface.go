@@ -808,3 +808,16 @@ type ConfirmHintCache interface {
 	// the cache.
 	PurgeConfirmHint(confRequests ...ConfRequest) error
 }
+
+// MempoolWatcher defines an interface that allows the caller to query
+// information in the mempool.
+type MempoolWatcher interface {
+	// SubscribeMempoolSpent allows the caller to register a subscription
+	// to watch for a spend of an outpoint in the mempool.The event will be
+	// dispatched once the outpoint is spent in the mempool.
+	SubscribeMempoolSpent(op wire.OutPoint) (*MempoolSpendEvent, error)
+
+	// CancelMempoolSpendEvent allows the caller to cancel a subscription to
+	// watch for a spend of an outpoint in the mempool.
+	CancelMempoolSpendEvent(sub *MempoolSpendEvent)
+}

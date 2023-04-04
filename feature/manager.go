@@ -181,8 +181,8 @@ func (m *Manager) GetRaw(set Set) *lnwire.RawFeatureVector {
 	return lnwire.NewRawFeatureVector()
 }
 
-// SetRaw sets a new raw feature vector for the given set.
-func (m *Manager) SetRaw(set Set, raw *lnwire.RawFeatureVector) {
+// setRaw sets a new raw feature vector for the given set.
+func (m *Manager) setRaw(set Set, raw *lnwire.RawFeatureVector) {
 	m.fsets[set] = raw
 }
 
@@ -237,7 +237,7 @@ func (m *Manager) UpdateFeatureSets(
 	// passed validation so that we don't partially update any sets then
 	// fail out on a later set's validation.
 	for set, features := range updates {
-		m.SetRaw(set, features.Clone())
+		m.setRaw(set, features.Clone())
 	}
 
 	return nil

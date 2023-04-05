@@ -29,7 +29,7 @@ env:
   # /dev.Dockerfile
   # /make/builder.Dockerfile
   # /.github/workflows/release.yml
-  GO_VERSION: 1.19.7
+  GO_VERSION: 1.20.3
 
 jobs:
   ########################

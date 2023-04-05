@@ -52,9 +52,9 @@ require (
 	go.etcd.io/etcd/client/v3 v3.5.7
 	golang.org/x/crypto v0.1.0
 	golang.org/x/exp v0.0.0-20221111094246-ab4555d3164f
-	golang.org/x/net v0.4.0
+	golang.org/x/net v0.7.0
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/term v0.3.0
+	golang.org/x/term v0.5.0
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	google.golang.org/grpc v1.41.0
 	google.golang.org/protobuf v1.27.1
@@ -149,8 +149,8 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.17.0 // indirect
 	golang.org/x/mod v0.6.0 // indirect
-	golang.org/x/sys v0.3.0 // indirect
-	golang.org/x/text v0.5.0 // indirect
+	golang.org/x/sys v0.5.0 // indirect
+	golang.org/x/text v0.7.0 // indirect
 	golang.org/x/tools v0.2.0 // indirect
 	google.golang.org/genproto v0.0.0-20210617175327-b9e0b3197ced // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
@@ -180,6 +180,8 @@ replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.8
 // This replace is for
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1
 replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
+
+replace github.com/lightningnetwork/lnd/kvdb => github.com/ellemouton/lnd/kvdb v0.0.0-20230405064505-fad8555b5692
 
 // If you change this please also update .github/pull_request_template.md and
 // docs/INSTALL.md.

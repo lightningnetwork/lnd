@@ -1,5 +1,12 @@
 # Release Notes
 
+## Platform Support
+
+* Support for the `dragonfly-amd64`, `netbsd-386`, `netbsd-arm64` and
+  `openbsd-386` platforms has been 
+  [re-added](https://github.com/lightningnetwork/lnd/pull/7579). However, it 
+  should be noted that the sqlite backend will not be usable on these platforms. 
+
 ## `lncli`
 
 * The `lncli wallet psbt fund` command now allows users to specify the
@@ -52,6 +59,7 @@
   anything for the users since the message type(36) stays unchanged, except in
   the logging all the appearance of `funding_locked` replated experssion is
   replaced with `channel_ready`.
+
 ## Bug Fixes
 
 * [Fix a bug where lnd crashes when psbt data is not fully 

@@ -2,6 +2,9 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -65,6 +68,56 @@ func TestParseChanPoint(t *testing.T) {
 		require.Equal(t, tc.channelPointIsNil, cp == nil)
 		if !tc.channelPointIsNil {
 			require.Equal(t, tc.outputIndex, cp.OutputIndex)
+		}
+	}
+}
+
+// TestParseTimeLockDelta tests parseTimeLockDelta with various
+// valid and invalid input values and verifies the output.
+func TestParseTimeLockDelta(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		timeLockDeltaStr      string
+		expectedTimeLockDelta uint16
+		expectErr             bool
+		expectedErrContent    string
+	}{
+		{
+			timeLockDeltaStr: "-1",
+			expectErr:        true,
+			expectedErrContent: fmt.Sprintf(
+				"failed to parse time_lock_delta: %d "+
+					"to uint64", -1,
+			),
+		},
+		{
+			timeLockDeltaStr: "0",
+		},
+		{
+			timeLockDeltaStr:      "3",
+			expectedTimeLockDelta: 3,
+		},
+		{
+			timeLockDeltaStr: strconv.FormatUint(
+				uint64(math.MaxUint16), 10,
+			),
+			expectedTimeLockDelta: math.MaxUint16,
+		},
+		{
+			timeLockDeltaStr: "18446744073709551616",
+			expectErr:        true,
+			expectedErrContent: fmt.Sprint(
+				"failed to parse time_lock_delta:" +
+					" 18446744073709551616 to uint64"),
+		},
+	}
+	for _, tc := range testCases {
+		timeLockDelta, err := parseTimeLockDelta(tc.timeLockDeltaStr)
+		require.Equal(t, tc.expectedTimeLockDelta, timeLockDelta)
+		if tc.expectErr {
+			require.ErrorContains(t, err, tc.expectedErrContent)
+		} else {
+			require.NoError(t, err)
 		}
 	}
 }

@@ -8,6 +8,8 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration3"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration4"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration5"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration6"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration7"
 )
 
 // log is a logger that is initialized with no output filters.  This
@@ -36,6 +38,8 @@ func UseLogger(logger btclog.Logger) {
 	migration3.UseLogger(logger)
 	migration4.UseLogger(logger)
 	migration5.UseLogger(logger)
+	migration6.UseLogger(logger)
+	migration7.UseLogger(logger)
 }
 
 // logClosure is used to provide a closure over expensive logging operations so

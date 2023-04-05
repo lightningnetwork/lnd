@@ -38,7 +38,7 @@ var (
 	lastAliasKey = []byte("last-alias-key")
 
 	// invoiceAliasBucket is a root-level bucket that stores the alias
-	// SCIDs that our peers send us in the funding_locked TLV. The keys are
+	// SCIDs that our peers send us in the channel_ready TLV. The keys are
 	// the ChannelID generated from the FundingOutpoint and the values are
 	// the remote peer's alias SCID.
 	invoiceAliasBucket = []byte("invoice-alias-bucket")
@@ -88,7 +88,7 @@ type Manager struct {
 	aliasToBase map[lnwire.ShortChannelID]lnwire.ShortChannelID
 
 	// peerAlias is a cache for the alias SCIDs that our peers send us in
-	// the funding_locked TLV. The keys are the ChannelID generated from
+	// the channel_ready TLV. The keys are the ChannelID generated from
 	// the FundingOutpoint and the values are the remote peer's alias SCID.
 	// The values should match the ones stored in the "invoice-alias-bucket"
 	// bucket.
@@ -341,7 +341,7 @@ func (m *Manager) DeleteSixConfs(baseScid lnwire.ShortChannelID) error {
 }
 
 // PutPeerAlias stores the peer's alias SCID once we learn of it in the
-// funding_locked message.
+// channel_ready message.
 func (m *Manager) PutPeerAlias(chanID lnwire.ChannelID,
 	alias lnwire.ShortChannelID) error {
 

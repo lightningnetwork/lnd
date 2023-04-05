@@ -41,6 +41,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "exclude_exhausted_sessions",
+            "description": "Whether to exclude exhausted sessions in the response info. This option\nis only meaningful if include_sessions is true.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -109,6 +116,13 @@
           {
             "name": "include_sessions",
             "description": "Whether we should include sessions with the watchtower in the response.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "exclude_exhausted_sessions",
+            "description": "Whether to exclude exhausted sessions in the response info. This option\nis only meaningful if include_sessions is true.",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -359,19 +373,26 @@
         },
         "active_session_candidate": {
           "type": "boolean",
-          "description": "Whether the watchtower is currently a candidate for new sessions."
+          "description": "Deprecated, use the active_session_candidate field under the\ncorrect identifier in the client_type map.\nWhether the watchtower is currently a candidate for new sessions."
         },
         "num_sessions": {
           "type": "integer",
           "format": "int64",
-          "description": "The number of sessions that have been negotiated with the watchtower."
+          "description": "Deprecated, use the num_sessions field under the correct identifier\nin the client_type map.\nThe number of sessions that have been negotiated with the watchtower."
         },
         "sessions": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/wtclientrpcTowerSession"
           },
-          "description": "The list of sessions that have been negotiated with the watchtower."
+          "description": "Deprecated, use the sessions field under the correct identifier in the\nclient_type map.\nThe list of sessions that have been negotiated with the watchtower."
+        },
+        "session_info": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/wtclientrpcTowerSessionInfo"
+          },
+          "description": "A list sessions held with the tower."
         }
       }
     },
@@ -402,6 +423,31 @@
           "type": "integer",
           "format": "int64",
           "description": "The fee rate, in satoshis per vbyte, that will be used by the watchtower for\nthe justice transaction in the event of a channel breach."
+        }
+      }
+    },
+    "wtclientrpcTowerSessionInfo": {
+      "type": "object",
+      "properties": {
+        "active_session_candidate": {
+          "type": "boolean",
+          "description": "Whether the watchtower is currently a candidate for new sessions."
+        },
+        "num_sessions": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of sessions that have been negotiated with the watchtower."
+        },
+        "sessions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/wtclientrpcTowerSession"
+          },
+          "description": "The list of sessions that have been negotiated with the watchtower."
+        },
+        "policy_type": {
+          "$ref": "#/definitions/wtclientrpcPolicyType",
+          "description": "The session's policy type."
         }
       }
     }

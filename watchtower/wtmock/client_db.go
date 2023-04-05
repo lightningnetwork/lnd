@@ -25,19 +25,26 @@ type rangeIndexArrayMap map[wtdb.SessionID]map[lnwire.ChannelID]*wtdb.RangeIndex
 
 type rangeIndexKVStore map[wtdb.SessionID]map[lnwire.ChannelID]*mockKVStore
 
+type channel struct {
+	summary      *wtdb.ClientChanSummary
+	closedHeight uint32
+	sessions     map[wtdb.SessionID]bool
+}
+
 // ClientDB is a mock, in-memory database or testing the watchtower client
 // behavior.
 type ClientDB struct {
 	nextTowerID uint64 // to be used atomically
 
 	mu                    sync.Mutex
-	summaries             map[lnwire.ChannelID]wtdb.ClientChanSummary
+	channels              map[lnwire.ChannelID]*channel
 	activeSessions        map[wtdb.SessionID]wtdb.ClientSession
 	ackedUpdates          rangeIndexArrayMap
 	persistedAckedUpdates rangeIndexKVStore
 	committedUpdates      map[wtdb.SessionID][]wtdb.CommittedUpdate
 	towerIndex            map[towerPK]wtdb.TowerID
 	towers                map[wtdb.TowerID]*wtdb.Tower
+	closableSessions      map[wtdb.SessionID]uint32
 
 	nextIndex     uint32
 	indexes       map[keyIndexKey]uint32
@@ -47,9 +54,7 @@ type ClientDB struct {
 // NewClientDB initializes a new mock ClientDB.
 func NewClientDB() *ClientDB {
 	return &ClientDB{
-		summaries: make(
-			map[lnwire.ChannelID]wtdb.ClientChanSummary,
-		),
+		channels: make(map[lnwire.ChannelID]*channel),
 		activeSessions: make(
 			map[wtdb.SessionID]wtdb.ClientSession,
 		),
@@ -58,10 +63,11 @@ func NewClientDB() *ClientDB {
 		committedUpdates: make(
 			map[wtdb.SessionID][]wtdb.CommittedUpdate,
 		),
-		towerIndex:    make(map[towerPK]wtdb.TowerID),
-		towers:        make(map[wtdb.TowerID]*wtdb.Tower),
-		indexes:       make(map[keyIndexKey]uint32),
-		legacyIndexes: make(map[wtdb.TowerID]uint32),
+		towerIndex:       make(map[towerPK]wtdb.TowerID),
+		towers:           make(map[wtdb.TowerID]*wtdb.Tower),
+		indexes:          make(map[keyIndexKey]uint32),
+		legacyIndexes:    make(map[wtdb.TowerID]uint32),
+		closableSessions: make(map[wtdb.SessionID]uint32),
 	}
 }
 
@@ -225,6 +231,7 @@ func (m *ClientDB) ListClientSessions(tower *wtdb.TowerID,
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	return m.listClientSessions(tower, opts...)
 }
 
@@ -246,7 +253,12 @@ func (m *ClientDB) listClientSessions(tower *wtdb.TowerID,
 		if tower != nil && *tower != session.TowerID {
 			continue
 		}
-		sessions[session.ID] = &session
+
+		if cfg.PreEvaluateFilterFn != nil &&
+			!cfg.PreEvaluateFilterFn(&session) {
+
+			continue
+		}
 
 		if cfg.PerMaxHeight != nil {
 			for chanID, index := range m.ackedUpdates[session.ID] {
@@ -271,6 +283,14 @@ func (m *ClientDB) listClientSessions(tower *wtdb.TowerID,
 				cfg.PerCommittedUpdate(&session, &update)
 			}
 		}
+
+		if cfg.PostEvaluateFilterFn != nil &&
+			!cfg.PostEvaluateFilterFn(&session) {
+
+			continue
+		}
+
+		sessions[session.ID] = &session
 	}
 
 	return sessions, nil
@@ -381,9 +401,10 @@ func (m *ClientDB) CreateClientSession(session *wtdb.ClientSession) error {
 // particular tower id. The index is reserved for that tower until
 // CreateClientSession is invoked for that tower and index, at which point a new
 // index for that tower can be reserved. Multiple calls to this method before
-// CreateClientSession is invoked should return the same index.
-func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID,
-	blobType blob.Type) (uint32, error) {
+// CreateClientSession is invoked should return the same index unless forceNext
+// is set to true.
+func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID, blobType blob.Type,
+	forceNext bool) (uint32, error) {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -393,15 +414,24 @@ func (m *ClientDB) NextSessionKeyIndex(towerID wtdb.TowerID,
 		blobType: blobType,
 	}
 
-	if index, err := m.getSessionKeyIndex(key); err == nil {
-		return index, nil
+	if !forceNext {
+		if index, err := m.getSessionKeyIndex(key); err == nil {
+			return index, nil
+		}
 	}
 
-	m.nextIndex++
-	index := m.nextIndex
-	m.indexes[key] = index
+	// By default, we use the next available bucket sequence as the key
+	// index. But if forceNext is true, then it is assumed that some data
+	// loss occurred and so the sequence is incremented a by a jump of 1000
+	// so that we can arrive at a brand new key index quicker.
+	nextIndex := m.nextIndex + 1
+	if forceNext {
+		nextIndex = m.nextIndex + 1000
+	}
+	m.nextIndex = nextIndex
+	m.indexes[key] = nextIndex
 
-	return index, nil
+	return nextIndex, nil
 }
 
 func (m *ClientDB) getSessionKeyIndex(key keyIndexKey) (uint32, error) {
@@ -496,6 +526,13 @@ func (m *ClientDB) AckUpdate(id *wtdb.SessionID, seqNum,
 			continue
 		}
 
+		// Add sessionID to channel.
+		channel, ok := m.channels[update.BackupID.ChanID]
+		if !ok {
+			return wtdb.ErrChannelNotRegistered
+		}
+		channel.sessions[*id] = true
+
 		// Remove the committed update from disk and mark the update as
 		// acked. The tower last applied value is also recorded to send
 		// along with the next update.
@@ -531,20 +568,190 @@ func (m *ClientDB) AckUpdate(id *wtdb.SessionID, seqNum,
 	return wtdb.ErrCommittedUpdateNotFound
 }
 
+// ListClosableSessions fetches and returns the IDs for all sessions marked as
+// closable.
+func (m *ClientDB) ListClosableSessions() (map[wtdb.SessionID]uint32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cs := make(map[wtdb.SessionID]uint32, len(m.closableSessions))
+	for id, height := range m.closableSessions {
+		cs[id] = height
+	}
+
+	return cs, nil
+}
+
 // FetchChanSummaries loads a mapping from all registered channels to their
-// channel summaries.
+// channel summaries. Only the channels that have not yet been marked as closed
+// will be loaded.
 func (m *ClientDB) FetchChanSummaries() (wtdb.ChannelSummaries, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	summaries := make(map[lnwire.ChannelID]wtdb.ClientChanSummary)
-	for chanID, summary := range m.summaries {
+	for chanID, channel := range m.channels {
+		// Don't load the channel if it has been marked as closed.
+		if channel.closedHeight > 0 {
+			continue
+		}
+
 		summaries[chanID] = wtdb.ClientChanSummary{
-			SweepPkScript: cloneBytes(summary.SweepPkScript),
+			SweepPkScript: cloneBytes(
+				channel.summary.SweepPkScript,
+			),
 		}
 	}
 
 	return summaries, nil
+}
+
+// MarkChannelClosed will mark a registered channel as closed by setting
+// its closed-height as the given block height. It returns a list of
+// session IDs for sessions that are now considered closable due to the
+// close of this channel.
+func (m *ClientDB) MarkChannelClosed(chanID lnwire.ChannelID,
+	blockHeight uint32) ([]wtdb.SessionID, error) {
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	channel, ok := m.channels[chanID]
+	if !ok {
+		return nil, wtdb.ErrChannelNotRegistered
+	}
+
+	// If there are no sessions for this channel, the channel details can be
+	// deleted.
+	if len(channel.sessions) == 0 {
+		delete(m.channels, chanID)
+		return nil, nil
+	}
+
+	// Mark the channel as closed.
+	channel.closedHeight = blockHeight
+
+	// Now iterate through all the sessions of the channel to check if any
+	// of them are closeable.
+	var closableSessions []wtdb.SessionID
+	for sessID := range channel.sessions {
+		isClosable, err := m.isSessionClosable(sessID)
+		if err != nil {
+			return nil, err
+		}
+
+		if !isClosable {
+			continue
+		}
+
+		closableSessions = append(closableSessions, sessID)
+
+		// Add session to "closableSessions" list and add the block
+		// height that this last channel was closed in. This will be
+		// used in future to determine when we should delete the
+		// session.
+		m.closableSessions[sessID] = blockHeight
+	}
+
+	return closableSessions, nil
+}
+
+// isSessionClosable returns true if a session is considered closable. A session
+// is considered closable only if:
+// 1) It has no un-acked updates
+// 2) It is exhausted (ie it cant accept any more updates)
+// 3) All the channels that it has acked-updates for are closed.
+func (m *ClientDB) isSessionClosable(id wtdb.SessionID) (bool, error) {
+	// The session is not closable if it has un-acked updates.
+	if len(m.committedUpdates[id]) > 0 {
+		return false, nil
+	}
+
+	sess, ok := m.activeSessions[id]
+	if !ok {
+		return false, wtdb.ErrClientSessionNotFound
+	}
+
+	// The session is not closable if it is not yet exhausted.
+	if sess.SeqNum != sess.Policy.MaxUpdates {
+		return false, nil
+	}
+
+	// Iterate over each of the channels that the session has acked-updates
+	// for. If any of those channels are not closed, then the session is
+	// not yet closable.
+	for chanID := range m.ackedUpdates[id] {
+		channel, ok := m.channels[chanID]
+		if !ok {
+			continue
+		}
+
+		// Channel is not yet closed, and so we can not yet delete the
+		// session.
+		if channel.closedHeight == 0 {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// GetClientSession loads the ClientSession with the given ID from the DB.
+func (m *ClientDB) GetClientSession(id wtdb.SessionID,
+	opts ...wtdb.ClientSessionListOption) (*wtdb.ClientSession, error) {
+
+	cfg := wtdb.NewClientSessionCfg()
+	for _, o := range opts {
+		o(cfg)
+	}
+
+	session, ok := m.activeSessions[id]
+	if !ok {
+		return nil, wtdb.ErrClientSessionNotFound
+	}
+
+	if cfg.PerMaxHeight != nil {
+		for chanID, index := range m.ackedUpdates[session.ID] {
+			cfg.PerMaxHeight(&session, chanID, index.MaxHeight())
+		}
+	}
+
+	if cfg.PerCommittedUpdate != nil {
+		for _, update := range m.committedUpdates[session.ID] {
+			update := update
+			cfg.PerCommittedUpdate(&session, &update)
+		}
+	}
+
+	return &session, nil
+}
+
+// DeleteSession can be called when a session should be deleted from the DB.
+// All references to the session will also be deleted from the DB. Note that a
+// session will only be deleted if it is considered closable.
+func (m *ClientDB) DeleteSession(id wtdb.SessionID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, ok := m.closableSessions[id]
+	if !ok {
+		return wtdb.ErrSessionNotClosable
+	}
+
+	// For each of the channels, delete the session ID entry.
+	for chanID := range m.ackedUpdates[id] {
+		c, ok := m.channels[chanID]
+		if !ok {
+			return wtdb.ErrChannelNotRegistered
+		}
+
+		delete(c.sessions, id)
+	}
+
+	delete(m.closableSessions, id)
+	delete(m.activeSessions, id)
+
+	return nil
 }
 
 // RegisterChannel registers a channel for use within the client database. For
@@ -558,12 +765,15 @@ func (m *ClientDB) RegisterChannel(chanID lnwire.ChannelID,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.summaries[chanID]; ok {
+	if _, ok := m.channels[chanID]; ok {
 		return wtdb.ErrChannelAlreadyRegistered
 	}
 
-	m.summaries[chanID] = wtdb.ClientChanSummary{
-		SweepPkScript: cloneBytes(sweepPkScript),
+	m.channels[chanID] = &channel{
+		summary: &wtdb.ClientChanSummary{
+			SweepPkScript: cloneBytes(sweepPkScript),
+		},
+		sessions: make(map[wtdb.SessionID]bool),
 	}
 
 	return nil

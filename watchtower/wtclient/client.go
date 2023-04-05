@@ -2,7 +2,10 @@ package wtclient
 
 import (
 	"bytes"
+	"crypto/rand"
+	"errors"
 	"fmt"
+	"math/big"
 	"net"
 	"sync"
 	"time"
@@ -11,11 +14,14 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
@@ -40,14 +46,39 @@ const (
 	// client should abandon any pending updates or session negotiations
 	// before terminating.
 	DefaultForceQuitDelay = 10 * time.Second
+
+	// DefaultSessionCloseRange is the range over which we will generate a
+	// random number of blocks to delay closing a session after its last
+	// channel has been closed.
+	DefaultSessionCloseRange = 288
 )
 
-// genActiveSessionFilter generates a filter that selects active sessions that
-// also match the desired channel type, either legacy or anchor.
-func genActiveSessionFilter(anchor bool) func(*ClientSession) bool {
-	return func(s *ClientSession) bool {
-		return s.Status == wtdb.CSessionActive &&
-			anchor == s.Policy.IsAnchorChannel()
+// genSessionFilter constructs a filter that can be used to select sessions only
+// if they match the policy of the client (namely anchor vs legacy). If
+// activeOnly is set, then only active sessions will be returned.
+func (c *TowerClient) genSessionFilter(
+	activeOnly bool) wtdb.ClientSessionFilterFn {
+
+	return func(session *wtdb.ClientSession) bool {
+		if c.cfg.Policy.IsAnchorChannel() !=
+			session.Policy.IsAnchorChannel() {
+
+			return false
+		}
+
+		if !activeOnly {
+			return true
+		}
+
+		return session.Status == wtdb.CSessionActive
+	}
+}
+
+// ExhaustedSessionFilter constructs a wtdb.ClientSessionFilterFn filter
+// function that will filter out any sessions that have been exhausted.
+func ExhaustedSessionFilter() wtdb.ClientSessionFilterFn {
+	return func(session *wtdb.ClientSession) bool {
+		return session.SeqNum < session.Policy.MaxUpdates
 	}
 }
 
@@ -134,6 +165,19 @@ type Config struct {
 	// transaction.
 	Signer input.Signer
 
+	// SubscribeChannelEvents can be used to subscribe to channel event
+	// notifications.
+	SubscribeChannelEvents func() (subscribe.Subscription, error)
+
+	// FetchClosedChannel can be used to fetch the info about a closed
+	// channel. If the channel is not found or not yet closed then
+	// channeldb.ErrClosedChannelNotFound will be returned.
+	FetchClosedChannel func(cid lnwire.ChannelID) (
+		*channeldb.ChannelCloseSummary, error)
+
+	// ChainNotifier can be used to subscribe to block notifications.
+	ChainNotifier chainntnfs.ChainNotifier
+
 	// NewAddress generates a new on-chain sweep pkscript.
 	NewAddress func() ([]byte, error)
 
@@ -189,6 +233,11 @@ type Config struct {
 	// watchtowers. If the exponential backoff produces a timeout greater
 	// than this value, the backoff will be clamped to MaxBackoff.
 	MaxBackoff time.Duration
+
+	// SessionCloseRange is the range over which we will generate a random
+	// number of blocks to delay closing a session after its last channel
+	// has been closed.
+	SessionCloseRange uint32
 }
 
 // newTowerMsg is an internal message we'll use within the TowerClient to signal
@@ -246,6 +295,8 @@ type TowerClient struct {
 	sessionQueue *sessionQueue
 	prevTask     *backupTask
 
+	closableSessionQueue *sessionCloseMinHeap
+
 	backupMu          sync.Mutex
 	summaries         wtdb.ChannelSummaries
 	chanCommitHeights map[lnwire.ChannelID]uint64
@@ -257,6 +308,7 @@ type TowerClient struct {
 	staleTowers chan *staleTowerMsg
 
 	wg        sync.WaitGroup
+	quit      chan struct{}
 	forceQuit chan struct{}
 }
 
@@ -296,17 +348,19 @@ func New(config *Config) (*TowerClient, error) {
 	}
 
 	c := &TowerClient{
-		cfg:               cfg,
-		log:               plog,
-		pipeline:          newTaskPipeline(plog),
-		chanCommitHeights: make(map[lnwire.ChannelID]uint64),
-		activeSessions:    make(sessionQueueSet),
-		summaries:         chanSummaries,
-		statTicker:        time.NewTicker(DefaultStatInterval),
-		stats:             new(ClientStats),
-		newTowers:         make(chan *newTowerMsg),
-		staleTowers:       make(chan *staleTowerMsg),
-		forceQuit:         make(chan struct{}),
+		cfg:                  cfg,
+		log:                  plog,
+		pipeline:             newTaskPipeline(plog),
+		chanCommitHeights:    make(map[lnwire.ChannelID]uint64),
+		activeSessions:       make(sessionQueueSet),
+		summaries:            chanSummaries,
+		closableSessionQueue: newSessionCloseMinHeap(),
+		statTicker:           time.NewTicker(DefaultStatInterval),
+		stats:                new(ClientStats),
+		newTowers:            make(chan *newTowerMsg),
+		staleTowers:          make(chan *staleTowerMsg),
+		forceQuit:            make(chan struct{}),
+		quit:                 make(chan struct{}),
 	}
 
 	// perUpdate is a callback function that will be used to inspect the
@@ -344,13 +398,6 @@ func New(config *Config) (*TowerClient, error) {
 		perUpdate(s.Policy, u.BackupID.ChanID, u.BackupID.CommitHeight)
 	}
 
-	// Load all candidate sessions and towers from the database into the
-	// client. We will use any of these sessions if their policies match the
-	// current policy of the client, otherwise they will be ignored and new
-	// sessions will be requested.
-	isAnchorClient := cfg.Policy.IsAnchorChannel()
-	activeSessionFilter := genActiveSessionFilter(isAnchorClient)
-
 	candidateTowers := newTowerListIterator()
 	perActiveTower := func(tower *Tower) {
 		// If the tower has already been marked as active, then there is
@@ -359,17 +406,23 @@ func New(config *Config) (*TowerClient, error) {
 			return
 		}
 
-		log.Infof("Using private watchtower %s, offering policy %s",
-			tower, cfg.Policy)
+		c.log.Infof("Using private watchtower %x, offering policy %s",
+			tower.IdentityKey.SerializeCompressed(), cfg.Policy)
 
 		// Add the tower to the set of candidate towers.
 		candidateTowers.AddCandidate(tower)
 	}
 
+	// Load all candidate sessions and towers from the database into the
+	// client. We will use any of these sessions if their policies match the
+	// current policy of the client, otherwise they will be ignored and new
+	// sessions will be requested.
 	candidateSessions, err := getTowerAndSessionCandidates(
-		cfg.DB, cfg.SecretKeyRing, activeSessionFilter, perActiveTower,
+		cfg.DB, cfg.SecretKeyRing, perActiveTower,
+		wtdb.WithPreEvalFilterFn(c.genSessionFilter(true)),
 		wtdb.WithPerMaxHeight(perMaxHeight),
 		wtdb.WithPerCommittedUpdate(perCommittedUpdate),
+		wtdb.WithPostEvalFilterFn(ExhaustedSessionFilter()),
 	)
 	if err != nil {
 		return nil, err
@@ -401,7 +454,6 @@ func New(config *Config) (*TowerClient, error) {
 // sessionFilter check then the perActiveTower call-back will be called on that
 // tower.
 func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
-	sessionFilter func(*ClientSession) bool,
 	perActiveTower func(tower *Tower),
 	opts ...wtdb.ClientSessionListOption) (
 	map[wtdb.SessionID]*ClientSession, error) {
@@ -424,33 +476,16 @@ func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 		}
 
 		for _, s := range sessions {
-			towerKeyDesc, err := keyRing.DeriveKey(
-				keychain.KeyLocator{
-					Family: keychain.KeyFamilyTowerSession,
-					Index:  s.KeyIndex,
-				},
+			cs, err := NewClientSessionFromDBSession(
+				s, tower, keyRing,
 			)
 			if err != nil {
 				return nil, err
 			}
 
-			sessionKeyECDH := keychain.NewPubKeyECDH(
-				towerKeyDesc, keyRing,
-			)
-
-			cs := &ClientSession{
-				ID:                s.ID,
-				ClientSessionBody: s.ClientSessionBody,
-				Tower:             tower,
-				SessionKeyECDH:    sessionKeyECDH,
-			}
-
-			if !sessionFilter(cs) {
-				continue
-			}
-
 			// Add the session to the set of candidate sessions.
 			candidateSessions[s.ID] = cs
+
 			perActiveTower(tower)
 		}
 	}
@@ -466,7 +501,6 @@ func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 // ClientSession's SessionPrivKey field is desired, otherwise, the existing
 // ListClientSessions method should be used.
 func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
-	passesFilter func(*ClientSession) bool,
 	opts ...wtdb.ClientSessionListOption) (
 	map[wtdb.SessionID]*ClientSession, error) {
 
@@ -494,6 +528,7 @@ func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
 		if err != nil {
 			return nil, err
 		}
+
 		sessionKeyECDH := keychain.NewPubKeyECDH(towerKeyDesc, keyRing)
 
 		tower, err := NewTowerFromDBTower(dbTower)
@@ -501,20 +536,12 @@ func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
 			return nil, err
 		}
 
-		cs := &ClientSession{
+		sessions[s.ID] = &ClientSession{
 			ID:                s.ID,
 			ClientSessionBody: s.ClientSessionBody,
 			Tower:             tower,
 			SessionKeyECDH:    sessionKeyECDH,
 		}
-
-		// If an optional filter was provided, use it to filter out any
-		// undesired sessions.
-		if passesFilter != nil && !passesFilter(cs) {
-			continue
-		}
-
-		sessions[s.ID] = cs
 	}
 
 	return sessions, nil
@@ -547,10 +574,70 @@ func (c *TowerClient) Start() error {
 			}
 		}
 
+		chanSub, err := c.cfg.SubscribeChannelEvents()
+		if err != nil {
+			returnErr = err
+			return
+		}
+
+		// Iterate over the list of registered channels and check if
+		// any of them can be marked as closed.
+		for id := range c.summaries {
+			isClosed, closedHeight, err := c.isChannelClosed(id)
+			if err != nil {
+				returnErr = err
+				return
+			}
+
+			if !isClosed {
+				continue
+			}
+
+			_, err = c.cfg.DB.MarkChannelClosed(id, closedHeight)
+			if err != nil {
+				c.log.Errorf("could not mark channel(%s) as "+
+					"closed: %v", id, err)
+
+				continue
+			}
+
+			// Since the channel has been marked as closed, we can
+			// also remove it from the channel summaries map.
+			delete(c.summaries, id)
+		}
+
+		// Load all closable sessions.
+		closableSessions, err := c.cfg.DB.ListClosableSessions()
+		if err != nil {
+			returnErr = err
+			return
+		}
+
+		err = c.trackClosableSessions(closableSessions)
+		if err != nil {
+			returnErr = err
+			return
+		}
+
+		c.wg.Add(1)
+		go c.handleChannelCloses(chanSub)
+
+		// Subscribe to new block events.
+		blockEvents, err := c.cfg.ChainNotifier.RegisterBlockEpochNtfn(
+			nil,
+		)
+		if err != nil {
+			returnErr = err
+			return
+		}
+
+		c.wg.Add(1)
+		go c.handleClosableSessions(blockEvents)
+
 		// Now start the session negotiator, which will allow us to
 		// request new session as soon as the backupDispatcher starts
 		// up.
-		err := c.negotiator.Start()
+		err = c.negotiator.Start()
 		if err != nil {
 			returnErr = err
 			return
@@ -598,6 +685,7 @@ func (c *TowerClient) Stop() error {
 		// dispatcher to exit. The backup queue will signal it's
 		// completion to the dispatcher, which releases the wait group
 		// after all tasks have been assigned to session queues.
+		close(c.quit)
 		c.wg.Wait()
 
 		// 4. Since all valid tasks have been assigned to session
@@ -777,6 +865,335 @@ func (c *TowerClient) nextSessionQueue() (*sessionQueue, error) {
 	// updates. If the queue was already made active on startup, this will
 	// simply return the existing session queue from the set.
 	return c.getOrInitActiveQueue(candidateSession, updates), nil
+}
+
+// handleChannelCloses listens for channel close events and marks channels as
+// closed in the DB.
+//
+// NOTE: This method MUST be run as a goroutine.
+func (c *TowerClient) handleChannelCloses(chanSub subscribe.Subscription) {
+	defer c.wg.Done()
+
+	c.log.Debugf("Starting channel close handler")
+	defer c.log.Debugf("Stopping channel close handler")
+
+	for {
+		select {
+		case update, ok := <-chanSub.Updates():
+			if !ok {
+				c.log.Debugf("Channel notifier has exited")
+				return
+			}
+
+			// We only care about channel-close events.
+			event, ok := update.(channelnotifier.ClosedChannelEvent)
+			if !ok {
+				continue
+			}
+
+			chanID := lnwire.NewChanIDFromOutPoint(
+				&event.CloseSummary.ChanPoint,
+			)
+
+			c.log.Debugf("Received ClosedChannelEvent for "+
+				"channel: %s", chanID)
+
+			err := c.handleClosedChannel(
+				chanID, event.CloseSummary.CloseHeight,
+			)
+			if err != nil {
+				c.log.Errorf("Could not handle channel close "+
+					"event for channel(%s): %v", chanID,
+					err)
+			}
+
+		case <-c.forceQuit:
+			return
+
+		case <-c.quit:
+			return
+		}
+	}
+}
+
+// handleClosedChannel handles the closure of a single channel. It will mark the
+// channel as closed in the DB, then it will handle all the sessions that are
+// now closable due to the channel closure.
+func (c *TowerClient) handleClosedChannel(chanID lnwire.ChannelID,
+	closeHeight uint32) error {
+
+	c.backupMu.Lock()
+	defer c.backupMu.Unlock()
+
+	// We only care about channels registered with the tower client.
+	if _, ok := c.summaries[chanID]; !ok {
+		return nil
+	}
+
+	c.log.Debugf("Marking channel(%s) as closed", chanID)
+
+	sessions, err := c.cfg.DB.MarkChannelClosed(chanID, closeHeight)
+	if err != nil {
+		return fmt.Errorf("could not mark channel(%s) as closed: %w",
+			chanID, err)
+	}
+
+	closableSessions := make(map[wtdb.SessionID]uint32, len(sessions))
+	for _, sess := range sessions {
+		closableSessions[sess] = closeHeight
+	}
+
+	c.log.Debugf("Tracking %d new closable sessions as a result of "+
+		"closing channel %s", len(closableSessions), chanID)
+
+	err = c.trackClosableSessions(closableSessions)
+	if err != nil {
+		return fmt.Errorf("could not track closable sessions: %w", err)
+	}
+
+	delete(c.summaries, chanID)
+	delete(c.chanCommitHeights, chanID)
+
+	return nil
+}
+
+// handleClosableSessions listens for new block notifications. For each block,
+// it checks the closableSessionQueue to see if there is a closable session with
+// a delete-height smaller than or equal to the new block, if there is then the
+// tower is informed that it can delete the session, and then we also delete it
+// from our DB.
+func (c *TowerClient) handleClosableSessions(
+	blocksChan *chainntnfs.BlockEpochEvent) {
+
+	defer c.wg.Done()
+
+	c.log.Debug("Starting closable sessions handler")
+	defer c.log.Debug("Stopping closable sessions handler")
+
+	for {
+		select {
+		case newBlock := <-blocksChan.Epochs:
+			if newBlock == nil {
+				return
+			}
+
+			height := uint32(newBlock.Height)
+			for {
+				select {
+				case <-c.quit:
+					return
+				default:
+				}
+
+				// If there are no closable sessions that we
+				// need to handle, then we are done and can
+				// reevaluate when the next block comes.
+				item := c.closableSessionQueue.Top()
+				if item == nil {
+					break
+				}
+
+				// If there is closable session but the delete
+				// height we have set for it is after the
+				// current block height, then our work is done.
+				if item.deleteHeight > height {
+					break
+				}
+
+				// Otherwise, we pop this item from the heap
+				// and handle it.
+				c.closableSessionQueue.Pop()
+
+				// Fetch the session from the DB so that we can
+				// extract the Tower info.
+				sess, err := c.cfg.DB.GetClientSession(
+					item.sessionID,
+				)
+				if err != nil {
+					c.log.Errorf("error calling "+
+						"GetClientSession for "+
+						"session %s: %v",
+						item.sessionID, err)
+
+					continue
+				}
+
+				err = c.deleteSessionFromTower(sess)
+				if err != nil {
+					c.log.Errorf("error deleting "+
+						"session %s from tower: %v",
+						sess.ID, err)
+
+					continue
+				}
+
+				err = c.cfg.DB.DeleteSession(item.sessionID)
+				if err != nil {
+					c.log.Errorf("could not delete "+
+						"session(%s) from DB: %w",
+						sess.ID, err)
+
+					continue
+				}
+			}
+
+		case <-c.forceQuit:
+			return
+
+		case <-c.quit:
+			return
+		}
+	}
+}
+
+// trackClosableSessions takes in a map of session IDs to the earliest block
+// height at which the session should be deleted. For each of the sessions,
+// a random delay is added to the block height and the session is added to the
+// closableSessionQueue.
+func (c *TowerClient) trackClosableSessions(
+	sessions map[wtdb.SessionID]uint32) error {
+
+	// For each closable session, add a random delay to its close
+	// height and add it to the closableSessionQueue.
+	for sID, blockHeight := range sessions {
+		delay, err := newRandomDelay(c.cfg.SessionCloseRange)
+		if err != nil {
+			return err
+		}
+
+		deleteHeight := blockHeight + delay
+
+		c.closableSessionQueue.Push(&sessionCloseItem{
+			sessionID:    sID,
+			deleteHeight: deleteHeight,
+		})
+	}
+
+	return nil
+}
+
+// deleteSessionFromTower dials the tower that we created the session with and
+// attempts to send the tower the DeleteSession message.
+func (c *TowerClient) deleteSessionFromTower(sess *wtdb.ClientSession) error {
+	// First, we check if we have already loaded this tower in our
+	// candidate towers iterator.
+	tower, err := c.candidateTowers.GetTower(sess.TowerID)
+	if errors.Is(err, ErrTowerNotInIterator) {
+		// If not, then we attempt to load it from the DB.
+		dbTower, err := c.cfg.DB.LoadTowerByID(sess.TowerID)
+		if err != nil {
+			return err
+		}
+
+		tower, err = NewTowerFromDBTower(dbTower)
+		if err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+
+	session, err := NewClientSessionFromDBSession(
+		sess, tower, c.cfg.SecretKeyRing,
+	)
+	if err != nil {
+		return err
+	}
+
+	localInit := wtwire.NewInitMessage(
+		lnwire.NewRawFeatureVector(wtwire.AltruistSessionsRequired),
+		c.cfg.ChainHash,
+	)
+
+	var (
+		conn wtserver.Peer
+
+		// addrIterator is a copy of the tower's address iterator.
+		// We use this copy so that iterating through the addresses does
+		// not affect any other threads using this iterator.
+		addrIterator = tower.Addresses.Copy()
+		towerAddr    = addrIterator.Peek()
+	)
+	// Attempt to dial the tower with its available addresses.
+	for {
+		conn, err = c.dial(
+			session.SessionKeyECDH, &lnwire.NetAddress{
+				IdentityKey: tower.IdentityKey,
+				Address:     towerAddr,
+			},
+		)
+		if err != nil {
+			// If there are more addrs available, immediately try
+			// those.
+			nextAddr, iteratorErr := addrIterator.Next()
+			if iteratorErr == nil {
+				towerAddr = nextAddr
+				continue
+			}
+
+			// Otherwise, if we have exhausted the address list,
+			// exit.
+			addrIterator.Reset()
+
+			return fmt.Errorf("failed to dial tower(%x) at any "+
+				"available addresses",
+				tower.IdentityKey.SerializeCompressed())
+		}
+
+		break
+	}
+	defer conn.Close()
+
+	// Send Init to tower.
+	err = c.sendMessage(conn, localInit)
+	if err != nil {
+		return err
+	}
+
+	// Receive Init from tower.
+	remoteMsg, err := c.readMessage(conn)
+	if err != nil {
+		return err
+	}
+
+	remoteInit, ok := remoteMsg.(*wtwire.Init)
+	if !ok {
+		return fmt.Errorf("watchtower %s responded with %T to Init",
+			towerAddr, remoteMsg)
+	}
+
+	// Validate Init.
+	err = localInit.CheckRemoteInit(remoteInit, wtwire.FeatureNames)
+	if err != nil {
+		return err
+	}
+
+	// Send DeleteSession to tower.
+	err = c.sendMessage(conn, &wtwire.DeleteSession{})
+	if err != nil {
+		return err
+	}
+
+	// Receive DeleteSessionReply from tower.
+	remoteMsg, err = c.readMessage(conn)
+	if err != nil {
+		return err
+	}
+
+	deleteSessionReply, ok := remoteMsg.(*wtwire.DeleteSessionReply)
+	if !ok {
+		return fmt.Errorf("watchtower %s responded with %T to "+
+			"DeleteSession", towerAddr, remoteMsg)
+	}
+
+	switch deleteSessionReply.Code {
+	case wtwire.CodeOK, wtwire.DeleteSessionCodeNotFound:
+		return nil
+	default:
+		return fmt.Errorf("received error code %v in "+
+			"DeleteSessionReply when attempting to delete "+
+			"session from tower", deleteSessionReply.Code)
+	}
 }
 
 // backupDispatcher processes events coming from the taskPipeline and is
@@ -1152,6 +1569,22 @@ func (c *TowerClient) initActiveQueue(s *ClientSession,
 	return sq
 }
 
+// isChanClosed can be used to check if the channel with the given ID has been
+// closed. If it has been, the block height in which its closing transaction was
+// mined will also be returned.
+func (c *TowerClient) isChannelClosed(id lnwire.ChannelID) (bool, uint32,
+	error) {
+
+	chanSum, err := c.cfg.FetchClosedChannel(id)
+	if errors.Is(err, channeldb.ErrClosedChannelNotFound) {
+		return false, 0, nil
+	} else if err != nil {
+		return false, 0, err
+	}
+
+	return true, chanSum.CloseHeight, nil
+}
+
 // AddTower adds a new watchtower reachable at the given address and considers
 // it for new sessions. If the watchtower already exists, then any new addresses
 // included will be considered when dialing it for session negotiations and
@@ -1200,10 +1633,10 @@ func (c *TowerClient) handleNewTower(msg *newTowerMsg) error {
 	c.candidateTowers.AddCandidate(tower)
 
 	// Include all of its corresponding sessions to our set of candidates.
-	isAnchorClient := c.cfg.Policy.IsAnchorChannel()
-	activeSessionFilter := genActiveSessionFilter(isAnchorClient)
 	sessions, err := getClientSessions(
-		c.cfg.DB, c.cfg.SecretKeyRing, &tower.ID, activeSessionFilter,
+		c.cfg.DB, c.cfg.SecretKeyRing, &tower.ID,
+		wtdb.WithPreEvalFilterFn(c.genSessionFilter(true)),
+		wtdb.WithPostEvalFilterFn(ExhaustedSessionFilter()),
 	)
 	if err != nil {
 		return fmt.Errorf("unable to determine sessions for tower %x: "+
@@ -1320,6 +1753,9 @@ func (c *TowerClient) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
 	if err != nil {
 		return nil, err
 	}
+
+	opts = append(opts, wtdb.WithPreEvalFilterFn(c.genSessionFilter(false)))
+
 	clientSessions, err := c.cfg.DB.ListClientSessions(nil, opts...)
 	if err != nil {
 		return nil, err
@@ -1360,6 +1796,8 @@ func (c *TowerClient) LookupTower(pubKey *btcec.PublicKey,
 	if err != nil {
 		return nil, err
 	}
+
+	opts = append(opts, wtdb.WithPreEvalFilterFn(c.genSessionFilter(false)))
 
 	towerSessions, err := c.cfg.DB.ListClientSessions(&tower.ID, opts...)
 	if err != nil {
@@ -1404,4 +1842,16 @@ func (c *TowerClient) logMessage(
 	c.log.Debugf("%s %s%v %s %x@%s", action, msg.MsgType(), summary,
 		preposition, peer.RemotePub().SerializeCompressed(),
 		peer.RemoteAddr())
+}
+
+func newRandomDelay(max uint32) (uint32, error) {
+	var maxDelay big.Int
+	maxDelay.SetUint64(uint64(max))
+
+	randDelay, err := rand.Int(rand.Reader, &maxDelay)
+	if err != nil {
+		return 0, err
+	}
+
+	return uint32(randDelay.Uint64()), nil
 }

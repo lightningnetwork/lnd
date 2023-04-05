@@ -49,8 +49,8 @@ type DB interface {
 	// (tower, blob type) pair until CreateClientSession is invoked for that
 	// tower and index, at which point a new index for that tower can be
 	// reserved. Multiple calls to this method before CreateClientSession is
-	// invoked should return the same index.
-	NextSessionKeyIndex(wtdb.TowerID, blob.Type) (uint32, error)
+	// invoked should return the same index unless forceNext is true.
+	NextSessionKeyIndex(wtdb.TowerID, blob.Type, bool) (uint32, error)
 
 	// CreateClientSession saves a newly negotiated client session to the
 	// client's database. This enables the session to be used across
@@ -62,6 +62,11 @@ type DB interface {
 	// sessions in the response that do not correspond to this tower.
 	ListClientSessions(*wtdb.TowerID, ...wtdb.ClientSessionListOption) (
 		map[wtdb.SessionID]*wtdb.ClientSession, error)
+
+	// GetClientSession loads the ClientSession with the given ID from the
+	// DB.
+	GetClientSession(wtdb.SessionID,
+		...wtdb.ClientSessionListOption) (*wtdb.ClientSession, error)
 
 	// FetchSessionCommittedUpdates retrieves the current set of un-acked
 	// updates of the given session.
@@ -77,8 +82,28 @@ type DB interface {
 	NumAckedUpdates(id *wtdb.SessionID) (uint64, error)
 
 	// FetchChanSummaries loads a mapping from all registered channels to
-	// their channel summaries.
+	// their channel summaries. Only the channels that have not yet been
+	// marked as closed will be loaded.
 	FetchChanSummaries() (wtdb.ChannelSummaries, error)
+
+	// MarkChannelClosed will mark a registered channel as closed by setting
+	// its closed-height as the given block height. It returns a list of
+	// session IDs for sessions that are now considered closable due to the
+	// close of this channel. The details for this channel will be deleted
+	// from the DB if there are no more sessions in the DB that contain
+	// updates for this channel.
+	MarkChannelClosed(chanID lnwire.ChannelID, blockHeight uint32) (
+		[]wtdb.SessionID, error)
+
+	// ListClosableSessions fetches and returns the IDs for all sessions
+	// marked as closable.
+	ListClosableSessions() (map[wtdb.SessionID]uint32, error)
+
+	// DeleteSession can be called when a session should be deleted from the
+	// DB. All references to the session will also be deleted from the DB.
+	// A session will only be deleted if it was previously marked as
+	// closable.
+	DeleteSession(id wtdb.SessionID) error
 
 	// RegisterChannel registers a channel for use within the client
 	// database. For now, all that is stored in the channel summary is the
@@ -172,4 +197,31 @@ type ClientSession struct {
 	// SessionKeyECDH is the ECDH capable wrapper of the ephemeral secret
 	// key used to connect to the watchtower.
 	SessionKeyECDH keychain.SingleKeyECDH
+}
+
+// NewClientSessionFromDBSession converts a wtdb.ClientSession to a
+// ClientSession.
+func NewClientSessionFromDBSession(s *wtdb.ClientSession, tower *Tower,
+	keyRing ECDHKeyRing) (*ClientSession, error) {
+
+	towerKeyDesc, err := keyRing.DeriveKey(
+		keychain.KeyLocator{
+			Family: keychain.KeyFamilyTowerSession,
+			Index:  s.KeyIndex,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionKeyECDH := keychain.NewPubKeyECDH(
+		towerKeyDesc, keyRing,
+	)
+
+	return &ClientSession{
+		ID:                s.ID,
+		ClientSessionBody: s.ClientSessionBody,
+		Tower:             tower,
+		SessionKeyECDH:    sessionKeyECDH,
+	}, nil
 }

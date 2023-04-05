@@ -68,6 +68,10 @@ message GetTowerInfoRequest {
 
     // Whether we should include sessions with the watchtower in the response.
     bool include_sessions = 2;
+
+    // Whether to exclude exhausted sessions in the response info. This option
+    // is only meaningful if include_sessions is true.
+    bool exclude_exhausted_sessions = 3;
 }
 
 message TowerSession {
@@ -107,19 +111,46 @@ message Tower {
     // The list of addresses the watchtower is reachable over.
     repeated string addresses = 2;
 
+    // Deprecated, use the active_session_candidate field under the
+    // correct identifier in the client_type map.
     // Whether the watchtower is currently a candidate for new sessions.
-    bool active_session_candidate = 3;
+    bool active_session_candidate = 3 [deprecated = true];
+
+    // Deprecated, use the num_sessions field under the correct identifier
+    // in the client_type map.
+    // The number of sessions that have been negotiated with the watchtower.
+    uint32 num_sessions = 4 [deprecated = true];
+
+    // Deprecated, use the sessions field under the correct identifier in the
+    // client_type map.
+    // The list of sessions that have been negotiated with the watchtower.
+    repeated TowerSession sessions = 5 [deprecated = true];
+
+    // A list sessions held with the tower.
+    repeated TowerSessionInfo session_info = 6;
+}
+
+message TowerSessionInfo {
+    // Whether the watchtower is currently a candidate for new sessions.
+    bool active_session_candidate = 1;
 
     // The number of sessions that have been negotiated with the watchtower.
-    uint32 num_sessions = 4;
+    uint32 num_sessions = 2;
 
     // The list of sessions that have been negotiated with the watchtower.
-    repeated TowerSession sessions = 5;
+    repeated TowerSession sessions = 3;
+
+    // The session's policy type.
+    PolicyType policy_type = 4;
 }
 
 message ListTowersRequest {
     // Whether we should include sessions with the watchtower in the response.
     bool include_sessions = 1;
+
+    // Whether to exclude exhausted sessions in the response info. This option
+    // is only meaningful if include_sessions is true.
+    bool exclude_exhausted_sessions = 2;
 }
 
 message ListTowersResponse {

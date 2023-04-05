@@ -4063,7 +4063,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 
 			// If we get a failure due to not knowing their next
 			// point, then this is fine as they'll either send
-			// FundingLocked, or revoke their next state to allow
+			// ChannelReady, or revoke their next state to allow
 			// us to continue forwards.
 			case err == ErrNoWindow:
 
@@ -7220,7 +7220,7 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 	// Along with this revocation, we'll also send the _next_ commitment
 	// point that the remote party should use to create our next commitment
 	// transaction. We use a +2 here as we already gave them a look ahead
-	// of size one after the FundingLocked message was sent:
+	// of size one after the ChannelReady message was sent:
 	//
 	// 0: current revocation, 1: their "next" revocation, 2: this revocation
 	//

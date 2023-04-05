@@ -54,7 +54,7 @@ type ChanStatusConfig struct {
 	// IsChannelActive checks whether the channel identified by the provided
 	// ChannelID is considered active. This should only return true if the
 	// channel has been sufficiently confirmed, the channel has received
-	// FundingLocked, and the remote peer is online.
+	// ChannelReady, and the remote peer is online.
 	IsChannelActive func(lnwire.ChannelID) bool
 
 	// ApplyChannelUpdate processes new ChannelUpdates signed by our node by

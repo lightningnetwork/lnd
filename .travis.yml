@@ -36,7 +36,7 @@ jobs:
       name: Bitcoind Integration ARM
       script:
         - bash ./scripts/install_bitcoind.sh
-        - GOMEMLIMIT=500MiB GOARM=7 GOARCH=arm GOOS=linux travis_wait 30 make itest-parallel backend=bitcoind 
+        - GOMEMLIMIT=1024MiB GOARM=7 GOARCH=arm GOOS=linux travis_wait 120 make itest-parallel backend=bitcoind tranches=8
       arch: arm64
 
 after_failure:

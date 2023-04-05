@@ -31,7 +31,7 @@ const (
 	MsgAcceptChannel                       = 33
 	MsgFundingCreated                      = 34
 	MsgFundingSigned                       = 35
-	MsgFundingLocked                       = 36
+	MsgChannelReady                        = 36
 	MsgShutdown                            = 38
 	MsgClosingSigned                       = 39
 	MsgUpdateAddHTLC                       = 128
@@ -88,8 +88,8 @@ func (t MessageType) String() string {
 		return "MsgFundingCreated"
 	case MsgFundingSigned:
 		return "MsgFundingSigned"
-	case MsgFundingLocked:
-		return "FundingLocked"
+	case MsgChannelReady:
+		return "ChannelReady"
 	case MsgShutdown:
 		return "Shutdown"
 	case MsgClosingSigned:
@@ -190,8 +190,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &FundingCreated{}
 	case MsgFundingSigned:
 		msg = &FundingSigned{}
-	case MsgFundingLocked:
-		msg = &FundingLocked{}
+	case MsgChannelReady:
+		msg = &ChannelReady{}
 	case MsgShutdown:
 		msg = &Shutdown{}
 	case MsgClosingSigned:

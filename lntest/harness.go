@@ -299,9 +299,6 @@ func (h *HarnessTest) resetStandbyNodes(t *testing.T) {
 		// config for the coming test. This will also inherit the
 		// test's running context.
 		h.RestartNodeWithExtraArgs(hn, hn.Cfg.OriginalExtraArgs)
-
-		// Update the node's internal state.
-		hn.UpdateState()
 	}
 }
 
@@ -433,8 +430,19 @@ func (h *HarnessTest) cleanupStandbyNode(hn *node.HarnessNode) {
 	// Delete all payments made from this test.
 	hn.RPC.DeleteAllPayments()
 
-	// Finally, check the node is in a clean state for the following tests.
-	h.validateNodeState(hn)
+	// Check the node's current state with timeout.
+	//
+	// NOTE: we need to do this in a `wait` because it takes some time for
+	// the node to update its internal state. Once the RPCs are synced we
+	// can then remove this wait.
+	err := wait.NoError(func() error {
+		// Update the node's internal state.
+		hn.UpdateState()
+
+		// Check the node is in a clean state for the following tests.
+		return h.validateNodeState(hn)
+	}, wait.DefaultTimeout)
+	require.NoError(h, err, "timeout checking node's state")
 }
 
 // removeConnectionns will remove all connections made on the standby nodes
@@ -752,32 +760,43 @@ func (h *HarnessTest) SetFeeEstimateWithConf(
 
 // validateNodeState checks that the node doesn't have any uncleaned states
 // which will affect its following tests.
-func (h *HarnessTest) validateNodeState(hn *node.HarnessNode) {
-	errStr := func(subject string) string {
-		return fmt.Sprintf("%s: found %s channels, please close "+
+func (h *HarnessTest) validateNodeState(hn *node.HarnessNode) error {
+	errStr := func(subject string) error {
+		return fmt.Errorf("%s: found %s channels, please close "+
 			"them properly", hn.Name(), subject)
 	}
 	// If the node still has open channels, it's most likely that the
 	// current test didn't close it properly.
-	require.Zerof(h, hn.State.OpenChannel.Active, errStr("active"))
-	require.Zerof(h, hn.State.OpenChannel.Public, errStr("public"))
-	require.Zerof(h, hn.State.OpenChannel.Private, errStr("private"))
-	require.Zerof(h, hn.State.OpenChannel.Pending, errStr("pending open"))
+	if hn.State.OpenChannel.Active != 0 {
+		return errStr("active")
+	}
+	if hn.State.OpenChannel.Public != 0 {
+		return errStr("public")
+	}
+	if hn.State.OpenChannel.Private != 0 {
+		return errStr("private")
+	}
+	if hn.State.OpenChannel.Pending != 0 {
+		return errStr("pending open")
+	}
 
 	// The number of pending force close channels should be zero.
-	require.Zerof(h, hn.State.CloseChannel.PendingForceClose,
-		errStr("pending force"))
+	if hn.State.CloseChannel.PendingForceClose != 0 {
+		return errStr("pending force")
+	}
 
 	// The number of waiting close channels should be zero.
-	require.Zerof(h, hn.State.CloseChannel.WaitingClose,
-		errStr("waiting close"))
+	if hn.State.CloseChannel.WaitingClose != 0 {
+		return errStr("waiting close")
+	}
 
 	// Ths number of payments should be zero.
-	// TODO(yy): no need to check since it's deleted in the cleanup? Or
-	// check it in a wait?
-	require.Zerof(h, hn.State.Payment.Total, "%s: found "+
-		"uncleaned payments, please delete all of them properly",
-		hn.Name())
+	if hn.State.Payment.Total != 0 {
+		return fmt.Errorf("%s: found uncleaned payments, please "+
+			"delete all of them properly", hn.Name())
+	}
+
+	return nil
 }
 
 // GetChanPointFundingTxid takes a channel point and converts it into a chain
@@ -1113,7 +1132,7 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		// active htlcs` or `link failed to shutdown` if we close the
 		// channel. We need to investigate the order of settling the
 		// payments and updating commitments to properly fix it.
-		time.Sleep(2 * time.Second)
+		time.Sleep(5 * time.Second)
 
 		// Give it another chance.
 		stream = hn.RPC.CloseChannel(closeReq)

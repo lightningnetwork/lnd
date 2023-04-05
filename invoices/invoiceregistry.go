@@ -711,6 +711,7 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef InvoiceRef,
 		}
 
 		return &InvoiceUpdateDesc{
+			UpdateType:  CancelHTLCsUpdate,
 			CancelHtlcs: canceledHtlcs,
 			SetID:       setID,
 		}, nil
@@ -1230,9 +1231,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 	i.Lock()
 	defer i.Unlock()
 
-	updateInvoice := func(invoice *Invoice) (
-		*InvoiceUpdateDesc, error) {
-
+	updateInvoice := func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
 		switch invoice.State {
 		case ContractOpen:
 			return nil, ErrInvoiceStillOpen
@@ -1245,6 +1244,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 		}
 
 		return &InvoiceUpdateDesc{
+			UpdateType: SettleHodlInvoiceUpdate,
 			State: &InvoiceStateUpdateDesc{
 				NewState: ContractSettled,
 				Preimage: &preimage,
@@ -1329,6 +1329,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 		// channeldb to return an error if the invoice is already
 		// settled or canceled.
 		return &InvoiceUpdateDesc{
+			UpdateType: CancelInvoiceUpdate,
 			State: &InvoiceStateUpdateDesc{
 				NewState: ContractCanceled,
 			},

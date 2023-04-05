@@ -775,7 +775,14 @@ func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
 			c := make(chan struct{})
 			return c
 		},
-		SelfNodeAnnouncement: func(bool) (lnwire.NodeAnnouncement, error) {
+		FetchSelfAnnouncement: func() lnwire.NodeAnnouncement {
+			return lnwire.NodeAnnouncement{
+				Timestamp: testTimestamp,
+			}
+		},
+		UpdateSelfAnnouncement: func() (lnwire.NodeAnnouncement,
+			error) {
+
 			return lnwire.NodeAnnouncement{
 				Timestamp: testTimestamp,
 			}, nil
@@ -1446,28 +1453,30 @@ func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
 		return lnwire.ShortChannelID{}, fmt.Errorf("no peer alias")
 	}
 
+	//nolint:lll
 	gossiper := New(Config{
-		Notifier:             ctx.gossiper.cfg.Notifier,
-		Broadcast:            ctx.gossiper.cfg.Broadcast,
-		NotifyWhenOnline:     ctx.gossiper.reliableSender.cfg.NotifyWhenOnline,
-		NotifyWhenOffline:    ctx.gossiper.reliableSender.cfg.NotifyWhenOffline,
-		SelfNodeAnnouncement: ctx.gossiper.cfg.SelfNodeAnnouncement,
-		Router:               ctx.gossiper.cfg.Router,
-		TrickleDelay:         trickleDelay,
-		RetransmitTicker:     ticker.NewForce(retransmitDelay),
-		RebroadcastInterval:  rebroadcastInterval,
-		ProofMatureDelta:     proofMatureDelta,
-		WaitingProofStore:    ctx.gossiper.cfg.WaitingProofStore,
-		MessageStore:         ctx.gossiper.cfg.MessageStore,
-		RotateTicker:         ticker.NewForce(DefaultSyncerRotationInterval),
-		HistoricalSyncTicker: ticker.NewForce(DefaultHistoricalSyncInterval),
-		NumActiveSyncers:     3,
-		MinimumBatchSize:     10,
-		SubBatchDelay:        time.Second * 5,
-		IsAlias:              isAlias,
-		SignAliasUpdate:      signAliasUpdate,
-		FindBaseByAlias:      findBaseByAlias,
-		GetAlias:             getAlias,
+		Notifier:               ctx.gossiper.cfg.Notifier,
+		Broadcast:              ctx.gossiper.cfg.Broadcast,
+		NotifyWhenOnline:       ctx.gossiper.reliableSender.cfg.NotifyWhenOnline,
+		NotifyWhenOffline:      ctx.gossiper.reliableSender.cfg.NotifyWhenOffline,
+		FetchSelfAnnouncement:  ctx.gossiper.cfg.FetchSelfAnnouncement,
+		UpdateSelfAnnouncement: ctx.gossiper.cfg.UpdateSelfAnnouncement,
+		Router:                 ctx.gossiper.cfg.Router,
+		TrickleDelay:           trickleDelay,
+		RetransmitTicker:       ticker.NewForce(retransmitDelay),
+		RebroadcastInterval:    rebroadcastInterval,
+		ProofMatureDelta:       proofMatureDelta,
+		WaitingProofStore:      ctx.gossiper.cfg.WaitingProofStore,
+		MessageStore:           ctx.gossiper.cfg.MessageStore,
+		RotateTicker:           ticker.NewForce(DefaultSyncerRotationInterval),
+		HistoricalSyncTicker:   ticker.NewForce(DefaultHistoricalSyncInterval),
+		NumActiveSyncers:       3,
+		MinimumBatchSize:       10,
+		SubBatchDelay:          time.Second * 5,
+		IsAlias:                isAlias,
+		SignAliasUpdate:        signAliasUpdate,
+		FindBaseByAlias:        findBaseByAlias,
+		GetAlias:               getAlias,
 	}, &keychain.KeyDescriptor{
 		PubKey:     ctx.gossiper.selfKey,
 		KeyLocator: ctx.gossiper.selfKeyLoc,

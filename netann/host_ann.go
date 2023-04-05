@@ -168,15 +168,18 @@ func (h *HostAnnouncer) hostWatcher() {
 // NodeAnnUpdater describes a function that's able to update our current node
 // announcement on disk. It returns the updated node announcement given a set
 // of updates to be applied to the current node announcement.
-type NodeAnnUpdater func(refresh bool, modifier ...NodeAnnModifier,
+type NodeAnnUpdater func(modifier ...NodeAnnModifier,
 ) (lnwire.NodeAnnouncement, error)
 
 // IPAnnouncer is a factory function that generates a new function that uses
 // the passed annUpdater function to to announce new IP changes for a given
 // host.
-func IPAnnouncer(annUpdater NodeAnnUpdater) func([]net.Addr, map[string]struct{}) error {
+func IPAnnouncer(annUpdater NodeAnnUpdater) func([]net.Addr,
+	map[string]struct{}) error {
+
 	return func(newAddrs []net.Addr, oldAddrs map[string]struct{}) error {
-		_, err := annUpdater(true, func(currentNodeAnn *lnwire.NodeAnnouncement) {
+		_, err := annUpdater(func(
+			currentNodeAnn *lnwire.NodeAnnouncement) {
 			// To ensure we don't duplicate any addresses, we'll
 			// filter out the same of addresses we should no longer
 			// advertise.

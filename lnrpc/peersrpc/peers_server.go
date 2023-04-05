@@ -313,11 +313,7 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 	resp := &NodeAnnouncementUpdateResponse{}
 	nodeModifiers := make([]netann.NodeAnnModifier, 0)
 
-	currentNodeAnn, err := s.cfg.GetNodeAnnouncement()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get current node "+
-			"announcement: %v", err)
-	}
+	currentNodeAnn := s.cfg.GetNodeAnnouncement()
 
 	if len(req.FeatureUpdates) > 0 {
 		features, ops, err := s.updateFeatures(

@@ -130,6 +130,10 @@ type ChainArbitratorConfig struct {
 	// certain on-chain events.
 	Notifier chainntnfs.ChainNotifier
 
+	// Mempool is the a mempool watcher that allows us to watch for events
+	// happened in mempool.
+	Mempool chainntnfs.MempoolWatcher
+
 	// Signer is a signer backed by the active lnd node. This should be
 	// capable of producing a signature as specified by a valid
 	// SignDescriptor.

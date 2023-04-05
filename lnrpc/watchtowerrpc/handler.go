@@ -144,24 +144,29 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 	return subServer, macPermissions, nil
 }
 
-// AddTower adds a new watchtower reachable at the given address and considers
-// it for new sessions. If the watchtower already exists, then any new addresses
-// included will be considered when dialing it for session negotiations and
-// backups.
+// GetInfo returns information about the Lightning node that this Handler
+// instance represents. This information includes the node's public key, a list
+// of network addresses that the tower is listening on, and a list of URIs that
+// the node is reachable at.
 func (c *Handler) GetInfo(ctx context.Context,
 	req *GetInfoRequest) (*GetInfoResponse, error) {
 
+	// Check if the node is active.
 	if err := c.isActive(); err != nil {
 		return nil, err
 	}
 
+	// Retrieve the node's public key.
 	pubkey := c.cfg.Tower.PubKey().SerializeCompressed()
 
+	// Retrieve a list of network addresses that the tower is listening on.
 	var listeners []string
 	for _, addr := range c.cfg.Tower.ListeningAddrs() {
 		listeners = append(listeners, addr.String())
 	}
 
+	// Retrieve a list of external IP addresses that the node is reachable
+	// at.
 	var uris []string
 	for _, addr := range c.cfg.Tower.ExternalIPs() {
 		uris = append(uris, fmt.Sprintf("%x@%v", pubkey, addr))

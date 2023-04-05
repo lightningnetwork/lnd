@@ -1,4 +1,4 @@
-//go:build kvdb_sqlite && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64))
+//go:build kvdb_sqlite && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)) && !(dragonfly && amd64) && !(netbsd && (386 || amd64)) && !(openbsd && 386)
 
 package sqlite
 

@@ -192,13 +192,10 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 
 // chainDetailsToWatch returns the output and script which we use to watch for
 // spends from the direct HTLC output on the commitment transaction.
-//
-// TODO(joostjager): output already set properly in
-// lnwallet.newOutgoingHtlcResolution? And script too?
 func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, error) {
-	// If there's no timeout transaction, then the claim output is the
-	// output directly on the commitment transaction, so we'll just use
-	// that.
+	// If there's no timeout transaction, it means we are spending from a
+	// remote commit, then the claim output is the output directly on the
+	// commitment transaction, so we'll just use that.
 	if h.htlcResolution.SignedTimeoutTx == nil {
 		outPointToWatch := h.htlcResolution.ClaimOutpoint
 		scriptToWatch := h.htlcResolution.SweepSignDesc.Output.PkScript
@@ -206,11 +203,11 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 		return &outPointToWatch, scriptToWatch, nil
 	}
 
-	// If this is the remote party's commitment, then we'll need to grab
-	// watch the output that our timeout transaction points to. We can
-	// directly grab the outpoint, then also extract the witness script
-	// (the last element of the witness stack) to re-construct the pkScript
-	// we need to watch.
+	// If SignedTimeoutTx is not nil, this is the local party's commitment,
+	// and we'll need to grab watch the output that our timeout transaction
+	// points to. We can directly grab the outpoint, then also extract the
+	// witness script (the last element of the witness stack) to
+	// re-construct the pkScript we need to watch.
 	outPointToWatch := h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
 	witness := h.htlcResolution.SignedTimeoutTx.TxIn[0].Witness
 	scriptToWatch, err := input.WitnessScriptHash(witness[len(witness)-1])
@@ -221,9 +218,9 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 	return &outPointToWatch, scriptToWatch, nil
 }
 
-// isSuccessSpend returns true if the passed spend on the specified commitment
+// isPreimageSpend returns true if the passed spend on the specified commitment
 // is a success spend that reveals the pre-image or not.
-func isSuccessSpend(spend *chainntnfs.SpendDetail, localCommit bool) bool {
+func isPreimageSpend(spend *chainntnfs.SpendDetail, localCommit bool) bool {
 	// Based on the spending input index and transaction, obtain the
 	// witness that tells us what type of spend this is.
 	spenderIndex := spend.SpenderInputIndex
@@ -281,7 +278,10 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	// If the spend reveals the pre-image, then we'll enter the clean up
 	// workflow to pass the pre-image back to the incoming link, add it to
 	// the witness cache, and exit.
-	if isSuccessSpend(commitSpend, h.htlcResolution.SignedTimeoutTx != nil) {
+	if isPreimageSpend(
+		commitSpend, h.htlcResolution.SignedTimeoutTx != nil,
+	) {
+
 		log.Infof("%T(%v): HTLC has been swept with pre-image by "+
 			"remote party during timeout flow! Adding pre-image to "+
 			"witness cache", h.htlcResolution.ClaimOutpoint)
@@ -310,6 +310,49 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	return h.handleCommitSpend(commitSpend)
 }
 
+// sweepSecondLevelTx sends a second level timeout transaction to the sweeper.
+// This transaction uses the SINLGE|ANYONECANPAY flag.
+func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
+	log.Infof("%T(%x): offering second-layer timeout tx to sweeper: %v",
+		h, h.htlc.RHash[:],
+		spew.Sdump(h.htlcResolution.SignedTimeoutTx))
+
+	inp := input.MakeHtlcSecondLevelTimeoutAnchorInput(
+		h.htlcResolution.SignedTimeoutTx,
+		h.htlcResolution.SignDetails,
+		h.broadcastHeight,
+	)
+	_, err := h.Sweeper.SweepInput(
+		&inp, sweep.Params{
+			Fee: sweep.FeePreference{
+				ConfTarget: secondLevelConfTarget,
+			},
+		},
+	)
+
+	// TODO(yy): checkpoint here?
+	return err
+}
+
+// sendSecondLevelTxLegacy sends a second level timeout transaction to the utxo
+// nursery. This transaction uses the legacy SIGHASH_ALL flag.
+func (h *htlcTimeoutResolver) sendSecondLevelTxLegacy() error {
+	log.Debugf("%T(%v): incubating htlc output", h,
+		h.htlcResolution.ClaimOutpoint)
+
+	err := h.IncubateOutputs(
+		h.ChanPoint, &h.htlcResolution, nil,
+		h.broadcastHeight,
+	)
+	if err != nil {
+		return err
+	}
+
+	h.outputIncubating = true
+
+	return h.Checkpoint(h)
+}
+
 // spendHtlcOutput handles the initial spend of an HTLC output via the timeout
 // clause. If this is our local commitment, the second-level timeout TX will be
 // used to spend the output into the next stage. If this is the remote
@@ -322,45 +365,16 @@ func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error)
 	// (the case for anchor type channels). In this case we can re-sign it
 	// and attach fees at will. We let the sweeper handle this job.
 	case h.htlcResolution.SignDetails != nil && !h.outputIncubating:
-		log.Infof("%T(%x): offering second-layer timeout tx to "+
-			"sweeper: %v", h, h.htlc.RHash[:],
-			spew.Sdump(h.htlcResolution.SignedTimeoutTx))
-
-		inp := input.MakeHtlcSecondLevelTimeoutAnchorInput(
-			h.htlcResolution.SignedTimeoutTx,
-			h.htlcResolution.SignDetails,
-			h.broadcastHeight,
-		)
-		_, err := h.Sweeper.SweepInput(
-			&inp,
-			sweep.Params{
-				Fee: sweep.FeePreference{
-					ConfTarget: secondLevelConfTarget,
-				},
-			},
-		)
-		if err != nil {
+		if err := h.sweepSecondLevelTx(); err != nil {
+			log.Errorf("Sending timeout tx to sweeper: %v", err)
 			return nil, err
 		}
 
 	// If we have no SignDetails, and we haven't already sent the output to
 	// the utxo nursery, then we'll do so now.
 	case h.htlcResolution.SignDetails == nil && !h.outputIncubating:
-		log.Debugf("%T(%v): incubating htlc output", h,
-			h.htlcResolution.ClaimOutpoint)
-
-		err := h.IncubateOutputs(
-			h.ChanPoint, &h.htlcResolution, nil,
-			h.broadcastHeight,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		h.outputIncubating = true
-
-		if err := h.Checkpoint(h); err != nil {
-			log.Errorf("unable to Checkpoint: %v", err)
+		if err := h.sendSecondLevelTxLegacy(); err != nil {
+			log.Errorf("Sending timeout tx to nursery: %v", err)
 			return nil, err
 		}
 	}
@@ -369,36 +383,56 @@ func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error)
 	// watch for a spend of the output, and make our next move off of that.
 	// Depending on if this is our commitment, or the remote party's
 	// commitment, we'll be watching a different outpoint and script.
+	//
+	// TODO(yy): outpointToWatch is always h.HtlcOutpoint(), can refactor
+	// to remove the redundancy.
 	outpointToWatch, scriptToWatch, err := h.chainDetailsToWatch()
 	if err != nil {
 		return nil, err
 	}
 
+	return h.waitForConfirmedSpend(outpointToWatch, scriptToWatch)
+}
+
+// waitForConfirmedSpend waits for the HTLC output to be spent and confirmed in
+// a block, returns the spend details.
+func (h *htlcTimeoutResolver) waitForConfirmedSpend(op *wire.OutPoint,
+	pkScript []byte) (*chainntnfs.SpendDetail, error) {
+
 	log.Infof("%T(%v): waiting for spent of HTLC output %v to be "+
-		"fully confirmed", h, h.htlcResolution.ClaimOutpoint,
-		outpointToWatch)
+		"fully confirmed", h, h.htlcResolution.ClaimOutpoint, op)
 
 	// We'll block here until either we exit, or the HTLC output on the
 	// commitment transaction has been spent.
 	spend, err := waitForSpend(
-		outpointToWatch, scriptToWatch, h.broadcastHeight,
-		h.Notifier, h.quit,
+		op, pkScript, h.broadcastHeight, h.Notifier, h.quit,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	// Once confirmed, persist the state on disk.
+	if err := h.checkPointSecondLevelTx(); err != nil {
+		return nil, err
+	}
+
+	return spend, err
+}
+
+// checkPointSecondLevelTx persists the state of a second level HTLC tx to disk
+// if it's published by the sweeper.
+func (h *htlcTimeoutResolver) checkPointSecondLevelTx() error {
 	// If this was the second level transaction published by the sweeper,
 	// we can checkpoint the resolver now that it's confirmed.
 	if h.htlcResolution.SignDetails != nil && !h.outputIncubating {
 		h.outputIncubating = true
 		if err := h.Checkpoint(h); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
-			return nil, err
+			return err
 		}
 	}
 
-	return spend, err
+	return nil
 }
 
 // handleCommitSpend handles the spend of the HTLC output on the commitment

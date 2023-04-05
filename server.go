@@ -993,15 +993,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.authGossiper = discovery.New(discovery.Config{
-		Router:            s.chanRouter,
-		Notifier:          s.cc.ChainNotifier,
-		ChainHash:         *s.cfg.ActiveNetParams.GenesisHash,
-		Broadcast:         s.BroadcastMessage,
-		ChanSeries:        chanSeries,
-		NotifyWhenOnline:  s.NotifyWhenOnline,
-		NotifyWhenOffline: s.NotifyWhenOffline,
-		SelfNodeAnnouncement: func(refresh bool) (lnwire.NodeAnnouncement, error) {
-			return s.genNodeAnnouncement(refresh)
+		Router:                s.chanRouter,
+		Notifier:              s.cc.ChainNotifier,
+		ChainHash:             *s.cfg.ActiveNetParams.GenesisHash,
+		Broadcast:             s.BroadcastMessage,
+		ChanSeries:            chanSeries,
+		NotifyWhenOnline:      s.NotifyWhenOnline,
+		NotifyWhenOffline:     s.NotifyWhenOffline,
+		FetchSelfAnnouncement: s.getNodeAnnouncement,
+		UpdateSelfAnnouncement: func() (lnwire.NodeAnnouncement,
+			error) {
+
+			return s.genNodeAnnouncement()
 		},
 		ProofMatureDelta:        0,
 		TrickleDelay:            time.Millisecond * time.Duration(cfg.TrickleDelay),
@@ -1271,6 +1274,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return ourPolicy, err
 	}
 
+	//nolint:lll
 	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
 		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),
 		IDKey:              nodeKeyDesc.PubKey,
@@ -1283,8 +1287,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Notifier:     cc.ChainNotifier,
 		FeeEstimator: cc.FeeEstimator,
 		SignMessage:  cc.MsgSigner.SignMessage,
-		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement, error) {
-			return s.genNodeAnnouncement(true)
+		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement,
+			error) {
+
+			return s.genNodeAnnouncement()
 		},
 		SendAnnouncement:     s.authGossiper.ProcessLocalAnnouncement,
 		NotifyWhenOnline:     s.NotifyWhenOnline,
@@ -2476,12 +2482,8 @@ out:
 			// throughout the network. We'll only include addresses
 			// that have a different IP from the previous one, as
 			// the previous IP is no longer valid.
-			currentNodeAnn, err := s.genNodeAnnouncement(false)
-			if err != nil {
-				srvrLog.Debugf("Unable to retrieve current "+
-					"node announcement: %v", err)
-				continue
-			}
+			currentNodeAnn := s.getNodeAnnouncement()
+
 			for _, addr := range currentNodeAnn.Addresses {
 				host, _, err := net.SplitHostPort(addr.String())
 				if err != nil {
@@ -2503,7 +2505,7 @@ out:
 			// announcement with the updated addresses and broadcast
 			// it to our peers.
 			newNodeAnn, err := s.genNodeAnnouncement(
-				true, netann.NodeAnnSetAddrs(newAddrs),
+				netann.NodeAnnSetAddrs(newAddrs),
 			)
 			if err != nil {
 				srvrLog.Debugf("Unable to generate new node "+
@@ -2892,7 +2894,7 @@ func (s *server) createNewHiddenService() error {
 	// Now that the onion service has been created, we'll add the onion
 	// address it can be reached at to our list of advertised addresses.
 	newNodeAnn, err := s.genNodeAnnouncement(
-		true, func(currentAnn *lnwire.NodeAnnouncement) {
+		func(currentAnn *lnwire.NodeAnnouncement) {
 			currentAnn.Addresses = append(currentAnn.Addresses, addr)
 		},
 	)
@@ -2942,20 +2944,22 @@ func (s *server) findChannel(node *btcec.PublicKey, chanID lnwire.ChannelID) (
 	return nil, fmt.Errorf("unable to find channel")
 }
 
-// genNodeAnnouncement generates and returns the current fully signed node
-// announcement. If refresh is true, then the time stamp of the announcement
-// will be updated in order to ensure it propagates through the network.
-func (s *server) genNodeAnnouncement(refresh bool,
-	modifiers ...netann.NodeAnnModifier) (lnwire.NodeAnnouncement, error) {
-
+// getNodeAnnouncement fetches the current, fully signed node announcement.
+func (s *server) getNodeAnnouncement() lnwire.NodeAnnouncement {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// If we don't need to refresh the announcement, then we can return a
-	// copy of our cached version.
-	if !refresh {
-		return *s.currentNodeAnn, nil
-	}
+	return *s.currentNodeAnn
+}
+
+// genNodeAnnouncement generates and returns the current fully signed node
+// announcement. The time stamp of the announcement will be updated in order
+// to ensure it propagates through the network.
+func (s *server) genNodeAnnouncement(modifiers ...netann.NodeAnnModifier) (
+	lnwire.NodeAnnouncement, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// Always update the timestamp when refreshing to ensure the update
 	// propagates.
@@ -2966,8 +2970,7 @@ func (s *server) genNodeAnnouncement(refresh bool,
 		modifier(s.currentNodeAnn)
 	}
 
-	// Otherwise, we'll sign a new update after applying all of the passed
-	// modifiers.
+	// Sign a new update after applying all of the passed modifiers.
 	err := netann.SignNodeAnnouncement(
 		s.nodeSigner, s.identityKeyLoc, s.currentNodeAnn,
 	)
@@ -2985,7 +2988,7 @@ func (s *server) genNodeAnnouncement(refresh bool,
 func (s *server) updateAndBrodcastSelfNode(
 	modifiers ...netann.NodeAnnModifier) error {
 
-	newNodeAnn, err := s.genNodeAnnouncement(true, modifiers...)
+	newNodeAnn, err := s.genNodeAnnouncement(modifiers...)
 	if err != nil {
 		return fmt.Errorf("unable to generate new node "+
 			"announcement: %v", err)

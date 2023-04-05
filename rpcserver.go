@@ -762,10 +762,6 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		return s.featureMgr.Get(feature.SetInvoiceAmp)
 	}
 
-	getNodeAnnouncement := func() (lnwire.NodeAnnouncement, error) {
-		return s.genNodeAnnouncement(false)
-	}
-
 	parseAddr := func(addr string) (net.Addr, error) {
 		return parseAddr(addr, r.cfg.net)
 	}
@@ -786,7 +782,7 @@ func (r *rpcServer) addDeps(s *server, macService *macaroons.Service,
 		routerBackend, s.nodeSigner, s.graphDB, s.chanStateDB,
 		s.sweeper, tower, s.towerClient, s.anchorTowerClient,
 		r.cfg.net.ResolveTCPAddr, genInvoiceFeatures,
-		genAmpInvoiceFeatures, getNodeAnnouncement,
+		genAmpInvoiceFeatures, s.getNodeAnnouncement,
 		s.updateAndBrodcastSelfNode, parseAddr, rpcsLog,
 		s.aliasMgr.GetPeerAlias,
 	)
@@ -2910,11 +2906,8 @@ func (r *rpcServer) GetInfo(_ context.Context,
 
 	// Check if external IP addresses were provided to lnd and use them
 	// to set the URIs.
-	nodeAnn, err := r.server.genNodeAnnouncement(false)
-	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve current fully signed "+
-			"node announcement: %v", err)
-	}
+	nodeAnn := r.server.getNodeAnnouncement()
+
 	addrs := nodeAnn.Addresses
 	uris := make([]string, len(addrs))
 	for i, addr := range addrs {

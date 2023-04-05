@@ -13,6 +13,7 @@ import (
 	flags "github.com/jessevdk/go-flags"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/signal"
+	_ "golang.org/x/mobile/bind"
 	"google.golang.org/grpc"
 )
 

@@ -28,6 +28,10 @@
 * [Recover from StateUpdateCodeClientBehind 
   error](https://github.com/lightningnetwork/lnd/pull/7541) after data loss. 
 
+## Build
+* [ldflags were being incorrectly passed](
+https://github.com/lightningnetwork/lnd/pull/7359)
+
 ## Misc
 
 * [Return `FEE_INSUFFICIENT` before checking balance for incoming low-fee

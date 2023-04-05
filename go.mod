@@ -52,8 +52,9 @@ require (
 	go.etcd.io/etcd/client/v3 v3.5.7
 	golang.org/x/crypto v0.1.0
 	golang.org/x/exp v0.0.0-20221111094246-ab4555d3164f
+	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
 	golang.org/x/net v0.4.0
-	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
+	golang.org/x/sync v0.0.0-20220819030929-7fc1605a5dde
 	golang.org/x/term v0.3.0
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	google.golang.org/grpc v1.41.0

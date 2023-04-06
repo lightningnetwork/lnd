@@ -18,6 +18,14 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
+const (
+	// DefaultMaxFeeRatio specidfies the default maximum ratio between the
+	// max fee allowed and the input's amount.
+	//
+	// TODO(yy): too aggressive? And make it configurable.
+	DefaultMaxFeeRatio = 0.2
+)
+
 // htlcTimeoutResolver is a ContractResolver that's capable of resolving an
 // outgoing HTLC. The HTLC may be on our commitment transaction, or on the
 // commitment transaction of the remote party. An output on our commitment
@@ -335,8 +343,12 @@ func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error)
 			&inp,
 			sweep.Params{
 				Fee: sweep.FeePreference{
+					// TODO(yy): Need to get the conf
+					// target from the incoming htlc.
 					ConfTarget: secondLevelConfTarget,
 				},
+				Strategy:    sweep.StrategyLinear,
+				MaxFeeRatio: DefaultMaxFeeRatio,
 			},
 		)
 		if err != nil {

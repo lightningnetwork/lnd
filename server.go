@@ -1052,7 +1052,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
+	s.sweeper, err = sweep.New(&sweep.UtxoSweeperConfig{
 		FeeEstimator:   cc.FeeEstimator,
 		GenSweepScript: newSweepPkScriptGen(cc.Wallet),
 		Signer:         cc.Wallet.Cfg.Signer,
@@ -1068,6 +1068,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MaxFeeRate:           sweep.DefaultMaxFeeRate,
 		FeeRateBucketSize:    sweep.DefaultFeeRateBucketSize,
 	})
+	if err != nil {
+		srvrLog.Errorf("unable to create sweeper: %v", err)
+		return nil, err
+	}
 
 	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{
 		ChainIO:             cc.ChainIO,

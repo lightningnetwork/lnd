@@ -124,7 +124,7 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 		timeoutChan: make(chan chan time.Time, 1),
 	}
 
-	ctx.sweeper = New(&UtxoSweeperConfig{
+	sweeper, err := New(&UtxoSweeperConfig{
 		Notifier: notifier,
 		Wallet:   backend,
 		NewBatchTimer: func() <-chan time.Time {
@@ -150,7 +150,9 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 		MaxFeeRate:        DefaultMaxFeeRate,
 		FeeRateBucketSize: DefaultFeeRateBucketSize,
 	})
+	require.NoError(t, err, "failed to create sweeper")
 
+	ctx.sweeper = sweeper
 	ctx.sweeper.Start()
 
 	return ctx
@@ -160,7 +162,11 @@ func (ctx *sweeperTestContext) restartSweeper() {
 	ctx.t.Helper()
 
 	ctx.sweeper.Stop()
-	ctx.sweeper = New(ctx.sweeper.cfg)
+
+	sweeper, err := New(ctx.sweeper.cfg)
+	require.NoError(ctx.t, err, "failed to create sweeper")
+
+	ctx.sweeper = sweeper
 	ctx.sweeper.Start()
 }
 

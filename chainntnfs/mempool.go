@@ -140,6 +140,23 @@ func (m *MempoolNotifier) UnsubscribeEvent(sub *MempoolSpendEvent) {
 	clients.Delete(sub.id)
 }
 
+// UnsubsribeConfirmedSpentTx takes a transaction and removes the subscriptions
+// identified using its inputs.
+func (m *MempoolNotifier) UnsubsribeConfirmedSpentTx(tx *btcutil.Tx) {
+	Log.Tracef("Unsubscribe confirmed tx %s", tx.Hash())
+
+	// Get the spent inputs of interest.
+	spentInputs := m.findRelevantInputs(tx)
+
+	// Unsubscribe the subscribers.
+	for outpoint := range spentInputs {
+		m.UnsubscribeInput(outpoint)
+	}
+
+	Log.Tracef("Finished unsubscribing confirmed tx %s, found %d inputs",
+		tx.Hash(), len(spentInputs))
+}
+
 // ProcessRelevantSpendTx takes a transaction and checks whether it spends any
 // of the subscribed inputs. If so, spend notifications are sent to the
 // relevant subscribers.

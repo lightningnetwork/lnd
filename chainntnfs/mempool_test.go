@@ -342,3 +342,46 @@ func TestMempoolNotifySpentCancel(t *testing.T) {
 		// Expected
 	}
 }
+
+// TestMempoolUnsubscribeConfirmedSpentTx tests that the subscriptions for a
+// confirmed tx are removed when calling the method.
+func TestMempoolUnsubscribeConfirmedSpentTx(t *testing.T) {
+	t.Parallel()
+
+	// Create a new mempool notifier instance.
+	notifier := NewMempoolNotifier()
+
+	// Create two inputs and subscribe to them.
+	input1 := wire.OutPoint{Hash: [32]byte{1}, Index: 0}
+	input2 := wire.OutPoint{Hash: [32]byte{2}, Index: 0}
+
+	// sub1 and sub2 are subscribed to the same input.
+	notifier.SubscribeInput(input1)
+	notifier.SubscribeInput(input1)
+
+	// sub3 is subscribed to a different input.
+	sub3 := notifier.SubscribeInput(input2)
+
+	// Create a transaction that spends input1.
+	msgTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: input1},
+		},
+	}
+	tx := btcutil.NewTx(msgTx)
+
+	// Unsubscribe the relevant transaction.
+	notifier.UnsubsribeConfirmedSpentTx(tx)
+
+	// Verify that the sub1 and sub2 are removed from the notifier.
+	_, loaded := notifier.subscribedInputs.Load(input1)
+	require.False(t, loaded)
+
+	// Verify that the sub3 is not affected.
+	subs, loaded := notifier.subscribedInputs.Load(input2)
+	require.True(t, loaded)
+
+	// sub3 should still be found.
+	_, loaded = subs.Load(sub3.id)
+	require.True(t, loaded)
+}

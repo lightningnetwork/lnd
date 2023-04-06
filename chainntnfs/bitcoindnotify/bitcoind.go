@@ -455,29 +455,58 @@ out:
 			case chain.RelevantTx:
 				tx := btcutil.NewTx(&item.TxRecord.MsgTx)
 
-				// If this is a mempool spend, we'll ask the
-				// mempool notifier to hanlde it.
+				// Init values.
+				isMempool := false
+				height := uint32(0)
+
+				// Unwrap values.
 				if item.Block == nil {
-					b.memNotifier.ProcessRelevantSpendTx(tx)
-					continue
+					isMempool = true
+				} else {
+					height = uint32(item.Block.Height)
 				}
 
-				// Otherwise this is a confirmed spend, and
-				// we'll ask the tx notifier to handle it.
-				err := b.txNotifier.ProcessRelevantSpendTx(
-					tx, uint32(item.Block.Height),
-				)
-				if err != nil {
-					chainntnfs.Log.Errorf("Unable to "+
-						"process transaction %v: %v",
-						tx.Hash(), err)
-				}
+				// Handle the transaction.
+				b.handleRelevantTx(tx, isMempool, height)
 			}
 
 		case <-b.quit:
 			break out
 		}
 	}
+}
+
+// handleRelevantTx handles a new transaction that has been seen either in a
+// block or in the mempool. If in mempool, it will ask the mempool notifier to
+// handle it. If in a block, it will ask the txNotifier to handle it, and
+// cancel any relevant subscriptions made in the mempool.
+func (b *BitcoindNotifier) handleRelevantTx(tx *btcutil.Tx,
+	mempool bool, height uint32) {
+
+	// If this is a mempool spend, we'll ask the mempool notifier to hanlde
+	// it.
+	if mempool {
+		b.memNotifier.ProcessRelevantSpendTx(tx)
+		return
+	}
+
+	// Otherwise this is a confirmed spend, and we'll ask the tx notifier
+	// to handle it.
+	err := b.txNotifier.ProcessRelevantSpendTx(tx, height)
+	if err != nil {
+		chainntnfs.Log.Errorf("Unable to process transaction %v: %v",
+			tx.Hash(), err)
+
+		return
+	}
+
+	// Once the tx is processed, we will ask the memNotifier to unsubscribe
+	// the input.
+	//
+	// NOTE(yy): we could build it into txNotifier.ProcessRelevantSpendTx,
+	// but choose to implement it here so we can easily decouple the two
+	// notifiers in the future.
+	b.memNotifier.UnsubsribeConfirmedSpentTx(tx)
 }
 
 // historicalConfDetails looks up whether a confirmation request (txid/output

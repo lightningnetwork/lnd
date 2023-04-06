@@ -514,10 +514,18 @@ func NewPsbtAssembler(fundingAmt btcutil.Amount, basePsbt *psbt.Packet,
 //
 // NOTE: This method satisfies the chanfunding.Assembler interface.
 func (p *PsbtAssembler) ProvisionChannel(req *Request) (Intent, error) {
-	// We'll exit out if this field is set as the funding transaction will
+	// We'll exit out if SubtractFees is set as the funding transaction will
 	// be assembled externally, so we don't influence coin selection.
 	if req.SubtractFees {
 		return nil, fmt.Errorf("SubtractFees not supported for PSBT")
+	}
+
+	// We'll exit out if FundUpToMaxAmt or MinFundAmt is set as the funding
+	// transaction will be assembled externally, so we don't influence coin
+	// selection.
+	if req.FundUpToMaxAmt != 0 || req.MinFundAmt != 0 {
+		return nil, fmt.Errorf("FundUpToMaxAmt and MinFundAmt not " +
+			"supported for PSBT")
 	}
 
 	intent := &PsbtIntent{

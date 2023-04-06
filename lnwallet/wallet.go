@@ -121,6 +121,20 @@ type InitFundingReserveMsg struct {
 	// to this channel.
 	RemoteFundingAmt btcutil.Amount
 
+	// FundUpToMaxAmt defines if channel funding should try to add as many
+	// funds to the channel opening as possible up to this amount. If used,
+	// then MinFundAmt is treated as the minimum amount of funds that must
+	// be available to open the channel. If set to zero it is ignored.
+	FundUpToMaxAmt btcutil.Amount
+
+	// MinFundAmt denotes the minimum channel capacity that has to be
+	// allocated iff the FundUpToMaxAmt is set.
+	MinFundAmt btcutil.Amount
+
+	// RemoteChanReserve is the channel reserve we required for the remote
+	// peer.
+	RemoteChanReserve btcutil.Amount
+
 	// CommitFeePerKw is the starting accepted satoshis/Kw fee for the set
 	// of initial commitment transactions. In order to ensure timely
 	// confirmation, it is recommended that this fee should be generous,
@@ -772,8 +786,12 @@ func (l *LightningWallet) CancelFundingIntent(pid [32]byte) error {
 // handleFundingReserveRequest processes a message intending to create, and
 // validate a funding reservation request.
 func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg) {
+
+	noFundsCommitted := req.LocalFundingAmt == 0 &&
+		req.RemoteFundingAmt == 0 && req.FundUpToMaxAmt == 0
+
 	// It isn't possible to create a channel with zero funds committed.
-	if req.LocalFundingAmt+req.RemoteFundingAmt == 0 {
+	if noFundsCommitted {
 		err := ErrZeroCapacity()
 		req.err <- err
 		req.resp <- nil
@@ -818,6 +836,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 
 	localFundingAmt := req.LocalFundingAmt
 	remoteFundingAmt := req.RemoteFundingAmt
+	hasAnchors := req.CommitType.HasAnchors()
 
 	var (
 		fundingIntent chanfunding.Intent
@@ -837,12 +856,45 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// funder in the attached request to provision the inputs/outputs
 	// that'll ultimately be used to construct the funding transaction.
 	if !ok {
+		var err error
+		var numAnchorChans int
+
+		// Get the number of anchor channels to determine if there is a
+		// reserved value that must be respected when funding up to the
+		// maximum amount. Since private channels (most likely) won't be
+		// used for routing other than the last hop, they bear a smaller
+		// risk that we must force close them in order to resolve a HTLC
+		// up/downstream. Hence we exclude them from the count of anchor
+		// channels in order to attribute the respective anchor amount
+		// to the channel capacity.
+		if req.FundUpToMaxAmt > 0 && req.MinFundAmt > 0 {
+			numAnchorChans, err = l.CurrentNumAnchorChans()
+			if err != nil {
+				req.err <- err
+				req.resp <- nil
+				return
+			}
+
+			isPublic := req.Flags&lnwire.FFAnnounceChannel != 0
+			if hasAnchors && isPublic {
+				numAnchorChans++
+			}
+		}
+
 		// Coin selection is done on the basis of sat/kw, so we'll use
 		// the fee rate passed in to perform coin selection.
-		var err error
 		fundingReq := &chanfunding.Request{
-			RemoteAmt:    req.RemoteFundingAmt,
-			LocalAmt:     req.LocalFundingAmt,
+			RemoteAmt:         req.RemoteFundingAmt,
+			LocalAmt:          req.LocalFundingAmt,
+			FundUpToMaxAmt:    req.FundUpToMaxAmt,
+			MinFundAmt:        req.MinFundAmt,
+			RemoteChanReserve: req.RemoteChanReserve,
+			PushAmt: lnwire.MilliSatoshi.ToSatoshis(
+				req.PushMSat,
+			),
+			WalletReserve: l.RequiredReserve(
+				uint32(numAnchorChans),
+			),
 			MinConfs:     req.MinConfs,
 			SubtractFees: req.SubtractFees,
 			FeeRate:      req.FundingFeePerKw,
@@ -915,7 +967,6 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// funding tx ready, so this will always pass.  We'll do another check
 	// when the PSBT has been verified.
 	isPublic := req.Flags&lnwire.FFAnnounceChannel != 0
-	hasAnchors := req.CommitType.HasAnchors()
 	if enforceNewReservedValue {
 		err = l.enforceNewReservedValue(fundingIntent, isPublic, hasAnchors)
 		if err != nil {
@@ -1136,10 +1187,7 @@ func (l *LightningWallet) CheckReservedValue(in []wire.OutPoint,
 	}
 
 	// We reserve a given amount for each anchor channel.
-	reserved := btcutil.Amount(numAnchorChans) * AnchorChanReservedValue
-	if reserved > MaxAnchorChanReservedValue {
-		reserved = MaxAnchorChanReservedValue
-	}
+	reserved := l.RequiredReserve(uint32(numAnchorChans))
 
 	if walletBalance < reserved {
 		walletLog.Debugf("Reserved value=%v above final "+

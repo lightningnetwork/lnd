@@ -284,8 +284,54 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		// If there's no funding amount at all (receiving an inbound
 		// single funder request), then we don't need to perform any
 		// coin selection at all.
-		case r.LocalAmt == 0:
+		case r.LocalAmt == 0 && r.FundUpToMaxAmt == 0:
 			break
+
+		// The local funding amount cannot be used in combination with
+		// the funding up to some maximum amount. If that is the case
+		// we return an error.
+		case r.LocalAmt != 0 && r.FundUpToMaxAmt != 0:
+			return fmt.Errorf("cannot use a local funding amount " +
+				"and fundmax parameters")
+
+		// We cannot use the subtract fees flag while using the funding
+		// up to some maximum amount. If that is the case we return an
+		// error.
+		case r.SubtractFees && r.FundUpToMaxAmt != 0:
+			return fmt.Errorf("cannot subtract fees from local " +
+				"amount while using fundmax parameters")
+
+		// In case this request uses funding up to some maximum amount,
+		// we will call the specialized coin selection function for
+		// that.
+		case r.FundUpToMaxAmt != 0 && r.MinFundAmt != 0:
+			selectedCoins, localContributionAmt, changeAmt,
+				err = CoinSelectUpToAmount(
+				r.FeeRate, r.MinFundAmt, r.FundUpToMaxAmt,
+				r.WalletReserve, w.cfg.DustLimit, coins,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Now where the actual channel capacity is determined
+			// we can check for local contribution constraints.
+			//
+			// Ensure that the remote channel reserve does not
+			// exceed 20% of the channel capacity.
+			if r.RemoteChanReserve >= localContributionAmt/5 {
+				return fmt.Errorf("remote channel reserve " +
+					"must be less than the %%20 of the " +
+					"channel capacity")
+			}
+			// Ensure that the initial remote balance does not
+			// exceed our local contribution as that would leave a
+			// negative balance on our side.
+			if r.PushAmt >= localContributionAmt {
+				return fmt.Errorf("amount pushed to remote " +
+					"peer for initial state must be " +
+					"below the local funding amount")
+			}
 
 		// In case this request want the fees subtracted from the local
 		// amount, we'll call the specialized method for that. This
@@ -293,7 +339,8 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		// from our wallet.
 		case r.SubtractFees:
 			dustLimit := w.cfg.DustLimit
-			selectedCoins, localContributionAmt, changeAmt, err = CoinSelectSubtractFees(
+			selectedCoins, localContributionAmt, changeAmt,
+				err = CoinSelectSubtractFees(
 				r.FeeRate, r.LocalAmt, dustLimit, coins,
 			)
 			if err != nil {

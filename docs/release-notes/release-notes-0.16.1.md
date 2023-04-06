@@ -37,6 +37,8 @@ https://github.com/lightningnetwork/lnd/pull/7359)
 * [Return `FEE_INSUFFICIENT` before checking balance for incoming low-fee
   HTLCs.](https://github.com/lightningnetwork/lnd/pull/7490).
  
+* Fixed [neutrino strict zombie pruning behavior](https://github.com/lightningnetwork/lnd/pull/7329)
+
 ## Spec
 
 * [Add test vectors for

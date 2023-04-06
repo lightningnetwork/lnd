@@ -1028,14 +1028,16 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.Tor.DNS = dns.String()
 	}
 
-	control, err := lncfg.ParseAddressString(
-		cfg.Tor.Control, strconv.Itoa(defaultTorControlPort),
-		cfg.net.ResolveTCPAddr,
-	)
-	if err != nil {
-		return nil, mkErr("error parsing tor control address: %v", err)
+	if !strings.HasPrefix(cfg.Tor.Control, "unix://") {
+		control, err := lncfg.ParseAddressString(
+			cfg.Tor.Control, strconv.Itoa(defaultTorControlPort),
+			cfg.net.ResolveTCPAddr,
+		)
+		if err != nil {
+			return nil, mkErr("error parsing tor control address: %v", err)
+		}
+		cfg.Tor.Control = control.String()
 	}
-	cfg.Tor.Control = control.String()
 
 	// Ensure that tor socks host:port is not equal to tor control
 	// host:port. This would lead to lnd not starting up properly.

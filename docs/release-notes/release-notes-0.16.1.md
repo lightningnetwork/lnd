@@ -62,6 +62,9 @@ https://github.com/lightningnetwork/lnd/pull/7359)
 available](https://github.com/lightningnetwork/lnd/pull/7529).
 
 
+## Tor
+* [Make connecting to tor over unix sockets possible](https://github.com/lightningnetwork/lnd/pull/7355)
+
 # Contributors (Alphabetical Order)
 
 * ardevd

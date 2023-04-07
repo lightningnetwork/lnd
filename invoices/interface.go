@@ -1,9 +1,11 @@
 package invoices
 
 import (
+	"context"
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/database"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/record"
 )
@@ -84,6 +86,106 @@ type InvoiceDB interface {
 	// keys required to delete the invoices without also needing to
 	// deserialze them.
 	DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error
+}
+
+// InvoiceDB2 is the database that stores the information about invoices.
+//
+// TODO(positiveblue): remove this interface once the migration is complete.
+// This is a temporary interface to allow us to follow better the next changes
+// in the commits.
+type InvoiceDB2 interface {
+	// AddInvoice inserts the given invoice into the database.
+	//
+	// NOTE: If the invoice is added to the database this method will
+	// populate the next avaialbe value for the AddIndex field.
+	//
+	// NOTE: This method will be executed in its own transaction and will
+	// use the default timeout.
+	AddInvoice(invoice *Invoice) error
+
+	// AddInvoiceWithTx inserts the given invoice into the database.
+	//
+	// NOTE: If the invoice is added to the database this method will
+	// populate the next avaialbe value for the AddIndex field.
+	AddInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
+		invoice *Invoice) error
+
+	// GetInvoice fetches the invoice identified by the given InvoiceRef.
+	//
+	// NOTE: If the ref is invalid this method will return the
+	// ErrInvoiceNotFound error.
+	//
+	// NOTE: This method will be executed in its own transaction and will
+	// use the default database timeout.
+	GetInvoice(ref InvoiceRef) (*Invoice, error)
+
+	// GetInvoiceWithTx fetches the invoice identified by the given
+	// InvoiceRef.
+	//
+	// NOTE: If the ref is invalid this method will return the
+	// ErrInvoiceNotFound error.
+	GetInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
+		ref InvoiceRef) (*Invoice, error)
+
+	// UpdateInvoice updates the invoice identified by the given InvoiceRef.
+	//
+	// NOTE: If the ContractState is ContractSettled and the passed invoice
+	// does not have a valid settle index this method will populate the
+	// SettleIndex field with the next availabe value.
+	//
+	// NOTE: Unless the invoice is being settled or canceled this method
+	// does not update any changes related to the htlc fields.
+	//
+	// NOTE: This method will be executed in its own transaction and will
+	// use the default timeout.
+	UpdateInvoice(invoice *Invoice) error
+
+	// UpdateInvoiceWithTx updates the invoice identified by the given
+	// InvoiceRef.
+	//
+	// NOTE: If the ContractState is ContractSettled and the passed invoice
+	// does not have a valid settle index this method will populate the
+	// SettleIndex field with the next availabe value.
+	//
+	// NOTE: Unless the invoice is being settled or canceled this method
+	// does not update any changes related to the htlc fields.
+	UpdateInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
+		invoice *Invoice) error
+
+	// DeleteInvoices updates the invoice identified by the given
+	// InvoiceRef.
+	//
+	// NOTE: This method will be executed in its own transaction and will
+	// use the default timeout.
+	DeleteInvoices(refs []InvoiceRef) error
+
+	// DeleteInvoiceWithTx updates the invoice identified by the given
+	// InvoiceRef.
+	DeleteInvoicesWithTx(ctx context.Context, dbTx database.DBTx,
+		refs []InvoiceRef) error
+
+	// AddHtlc adds new htlc to an existing invoice.
+	//
+	// NOTE: This method will be executed in its own transaction and will
+	// use the default timeout.
+	AddHtlc(ref InvoiceRef, htlcID models.CircuitKey,
+		htlc *InvoiceHTLC) error
+
+	// AddHtlcWithTx adds new htlc to an existing invoice.
+	AddHtlcWithTx(ctx context.Context, dbTx database.DBTx,
+		ref InvoiceRef, htlcID models.CircuitKey,
+		htlc *InvoiceHTLC) error
+
+	// UpdateInvoiceHTLCs updates the htlcs for the given invoice.
+	//
+	// NOTE: This function will be executed in its own transaction and will
+	// use the default timeout.
+	UpdateInvoiceHTLCs(ref InvoiceRef, state HtlcState,
+		timestamp time.Time) error
+
+	// UpdateInvoiceHTLCsWithTx updates the htlcs for the given invoice.
+	UpdateInvoiceHTLCsWithTx(ctx context.Context, dbTx database.DBTx,
+		ref InvoiceRef, state HtlcState, timestamp time.Time) error
 }
 
 // Payload abstracts access to any additional fields provided in the final hop's

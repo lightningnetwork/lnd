@@ -954,7 +954,7 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 	var expectedCancellations []lntypes.Hash
 	expiredInvoices := existingInvoices.expiredInvoices
 	for paymentHash, expiredInvoice := range expiredInvoices {
-		_, err := idb.AddInvoice(expiredInvoice, paymentHash)
+		err := idb.AddInvoice(expiredInvoice)
 		require.NoError(t, err)
 		expectedCancellations = append(
 			expectedCancellations, paymentHash,
@@ -962,8 +962,8 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 	}
 
 	pendingInvoices := existingInvoices.pendingInvoices
-	for paymentHash, pendingInvoice := range pendingInvoices {
-		_, err := idb.AddInvoice(pendingInvoice, paymentHash)
+	for _, pendingInvoice := range pendingInvoices {
+		err := idb.AddInvoice(pendingInvoice)
 		require.NoError(t, err)
 	}
 
@@ -1064,7 +1064,7 @@ func TestOldInvoiceRemovalOnStart(t *testing.T) {
 	)
 
 	i := 0
-	for paymentHash, invoice := range existingInvoices.expiredInvoices {
+	for _, invoice := range existingInvoices.expiredInvoices {
 		// Mark half of the invoices as settled, the other half as
 		// canceled.
 		if i%2 == 0 {
@@ -1072,8 +1072,8 @@ func TestOldInvoiceRemovalOnStart(t *testing.T) {
 		} else {
 			invoice.State = invpkg.ContractCanceled
 		}
+		err := idb.AddInvoice(invoice)
 
-		_, err := idb.AddInvoice(invoice, paymentHash)
 		require.NoError(t, err)
 		i++
 	}

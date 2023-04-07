@@ -586,11 +586,17 @@ func (i *InvoiceRegistry) AddInvoice(invoice *Invoice,
 	ref := InvoiceRefByHash(paymentHash)
 	log.Debugf("Invoice%v: added with terms %v", ref, invoice.Terms)
 
-	addIndex, err := i.idb.AddInvoice(invoice, paymentHash)
+	if invoice.Terms.PaymentPreimage == nil {
+		invoice.Terms.PaymentHash = &paymentHash
+	}
+
+	err := i.idb.AddInvoice(invoice)
 	if err != nil {
 		i.Unlock()
 		return 0, err
 	}
+
+	addIndex := invoice.AddIndex
 
 	// Now that we've added the invoice, we'll send dispatch a message to
 	// notify the clients of this new invoice.

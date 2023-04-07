@@ -16,14 +16,21 @@ type InvScanFunc func(lntypes.Hash, *Invoice) error
 
 // InvoiceDB is the database that stores the information about invoices.
 type InvoiceDB interface {
-	// AddInvoice inserts the targeted invoice into the database.
-	// If the invoice has *any* payment hashes which already exists within
-	// the database, then the insertion will be aborted and rejected due to
-	// the strict policy banning any duplicate payment hashes.
+	// AddInvoice inserts the given invoice into the database.
 	//
-	// NOTE: A side effect of this function is that it sets AddIndex on
-	// newInvoice.
-	AddInvoice(invoice *Invoice, paymentHash lntypes.Hash) (uint64, error)
+	// NOTE: If the invoice is added to the database this method will
+	// populate the next avaialbe value for the AddIndex field.
+	//
+	// NOTE: This method will be executed in its own transaction and will
+	// use the default timeout.
+	AddInvoice(invoice *Invoice) error
+
+	// AddInvoiceWithTx inserts the given invoice into the database.
+	//
+	// NOTE: If the invoice is added to the database this method will
+	// populate the next avaialbe value for the AddIndex field.
+	AddInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
+		invoice *Invoice) error
 
 	// InvoicesAddedSince can be used by callers to seek into the event
 	// time series of all the invoices added in the database. The specified
@@ -94,22 +101,6 @@ type InvoiceDB interface {
 // This is a temporary interface to allow us to follow better the next changes
 // in the commits.
 type InvoiceDB2 interface {
-	// AddInvoice inserts the given invoice into the database.
-	//
-	// NOTE: If the invoice is added to the database this method will
-	// populate the next avaialbe value for the AddIndex field.
-	//
-	// NOTE: This method will be executed in its own transaction and will
-	// use the default timeout.
-	AddInvoice(invoice *Invoice) error
-
-	// AddInvoiceWithTx inserts the given invoice into the database.
-	//
-	// NOTE: If the invoice is added to the database this method will
-	// populate the next avaialbe value for the AddIndex field.
-	AddInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
-		invoice *Invoice) error
-
 	// GetInvoice fetches the invoice identified by the given InvoiceRef.
 	//
 	// NOTE: If the ref is invalid this method will return the

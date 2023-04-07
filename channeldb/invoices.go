@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/database"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -135,90 +137,129 @@ const (
 	ampStateAmtPaidType     tlv.Type = 5
 )
 
-// AddInvoice inserts the targeted invoice into the database. If the invoice has
-// *any* payment hashes which already exists within the database, then the
-// insertion will be aborted and rejected due to the strict policy banning any
-// duplicate payment hashes. A side effect of this function is that it sets
-// AddIndex on newInvoice.
-func (d *DB) AddInvoice(newInvoice *invpkg.Invoice, paymentHash lntypes.Hash) (
-	uint64, error) {
-
-	if err := invpkg.ValidateInvoice(newInvoice, paymentHash); err != nil {
-		return 0, err
-	}
-
-	var invoiceAddIndex uint64
-	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
-		invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
-		if err != nil {
-			return err
-		}
-
-		invoiceIndex, err := invoices.CreateBucketIfNotExists(
-			invoiceIndexBucket,
-		)
-		if err != nil {
-			return err
-		}
-		addIndex, err := invoices.CreateBucketIfNotExists(
-			addIndexBucket,
-		)
-		if err != nil {
-			return err
-		}
-
-		// Ensure that an invoice an identical payment hash doesn't
-		// already exist within the index.
-		if invoiceIndex.Get(paymentHash[:]) != nil {
-			return invpkg.ErrDuplicateInvoice
-		}
-
-		// Check that we aren't inserting an invoice with a duplicate
-		// payment address. The all-zeros payment address is
-		// special-cased to support legacy keysend invoices which don't
-		// assign one. This is safe since later we also will avoid
-		// indexing them and avoid collisions.
-		payAddrIndex := tx.ReadWriteBucket(payAddrIndexBucket)
-		if newInvoice.Terms.PaymentAddr != invpkg.BlankPayAddr {
-			paymentAddr := newInvoice.Terms.PaymentAddr[:]
-			if payAddrIndex.Get(paymentAddr) != nil {
-				return invpkg.ErrDuplicatePayAddr
-			}
-		}
-
-		// If the current running payment ID counter hasn't yet been
-		// created, then create it now.
-		var invoiceNum uint32
-		invoiceCounter := invoiceIndex.Get(numInvoicesKey)
-		if invoiceCounter == nil {
-			var scratch [4]byte
-			byteOrder.PutUint32(scratch[:], invoiceNum)
-			err := invoiceIndex.Put(numInvoicesKey, scratch[:])
-			if err != nil {
-				return err
-			}
-		} else {
-			invoiceNum = byteOrder.Uint32(invoiceCounter)
-		}
-
-		newIndex, err := putInvoice(
-			invoices, invoiceIndex, payAddrIndex, addIndex,
-			newInvoice, invoiceNum, paymentHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		invoiceAddIndex = newIndex
-		return nil
-	}, func() {
-		invoiceAddIndex = 0
-	})
+// AddInvoice inserts the targeted invoice into the database.
+//
+// NOTE: If the invoice is added to the database this will set the next
+// avaialbe value for the AddIndex field.
+//
+// NOTE: This function will be executed in its own transaction and will
+// use the default timeout.
+func (d *DB) AddInvoice(invoice *invpkg.Invoice) error {
+	tx, err := d.BeginReadWriteTx()
 	if err != nil {
-		return 0, err
+		return err
 	}
 
-	return invoiceAddIndex, err
+	// Make sure the transaction rolls back in the event of a panic.
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), database.DefaultStoreTimeout,
+	)
+	defer cancel()
+
+	err = d.AddInvoiceWithTx(ctxt, tx, invoice)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// AddInvoiceWithTx inserts the targeted invoice into the database.
+//
+// NOTE: If the invoice is added to the database this will set the next
+// available value for the AddIndex field.
+//
+// NOTE: This method is part of the InvoiceDB interface.
+func (d *DB) AddInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
+	invoice *invpkg.Invoice) error {
+
+	tx, ok := dbTx.(kvdb.RwTx)
+	if !ok {
+		return errors.New("invalid transaction type")
+	}
+
+	var hash lntypes.Hash
+	switch {
+	case invoice.Terms.PaymentPreimage != nil:
+		hash = invoice.Terms.PaymentPreimage.Hash()
+
+	case invoice.Terms.PaymentHash != nil:
+		hash = *invoice.Terms.PaymentHash
+
+	default:
+		return fmt.Errorf("unable to add invoice without payment hash")
+	}
+
+	if err := invpkg.ValidateInvoice(invoice, hash); err != nil {
+		return err
+	}
+
+	invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
+	if err != nil {
+		return err
+	}
+
+	invoiceIndex, err := invoices.CreateBucketIfNotExists(
+		invoiceIndexBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	addIndex, err := invoices.CreateBucketIfNotExists(
+		addIndexBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Ensure that an invoice an identical payment hash doesn't
+	// already exist within the index.
+	if invoiceIndex.Get(hash[:]) != nil {
+		return invpkg.ErrDuplicateInvoice
+	}
+
+	// Check that we aren't inserting an invoice with a duplicate
+	// payment address. The all-zeros payment address is
+	// special-cased to support legacy keysend invoices which don't
+	// assign one. This is safe since later we also will avoid
+	// indexing them and avoid collisions.
+	payAddrIndex := tx.ReadWriteBucket(payAddrIndexBucket)
+	if invoice.Terms.PaymentAddr != invpkg.BlankPayAddr {
+		paymentAddr := invoice.Terms.PaymentAddr[:]
+		if payAddrIndex.Get(paymentAddr) != nil {
+			return invpkg.ErrDuplicatePayAddr
+		}
+	}
+
+	// If the current running payment ID counter hasn't yet been
+	// created, then create it now.
+	var invoiceNum uint32
+	invoiceCounter := invoiceIndex.Get(numInvoicesKey)
+	if invoiceCounter == nil {
+		var scratch [4]byte
+		byteOrder.PutUint32(scratch[:], invoiceNum)
+		err := invoiceIndex.Put(numInvoicesKey, scratch[:])
+		if err != nil {
+			return err
+		}
+	} else {
+		invoiceNum = byteOrder.Uint32(invoiceCounter)
+	}
+
+	_, err = putInvoice(
+		invoices, invoiceIndex, payAddrIndex, addIndex,
+		invoice, invoiceNum, hash,
+	)
+	if err != nil {
+		return err
+	}
+
+	return err
 }
 
 // InvoicesAddedSince can be used by callers to seek into the event time series

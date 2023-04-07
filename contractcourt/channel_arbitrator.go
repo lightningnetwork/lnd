@@ -1589,11 +1589,15 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		)
 
 		if toChain {
+			// Convert to int64 in case of overflow.
+			remainingBlocks := int64(htlc.RefundTimeout) -
+				int64(height)
+
 			log.Infof("ChannelArbitrator(%v): go to chain for "+
 				"outgoing htlc %x: timeout=%v, "+
 				"blocks_until_expiry=%v, broadcast_delta=%v",
 				c.cfg.ChanPoint, htlc.RHash[:],
-				htlc.RefundTimeout, htlc.RefundTimeout-height,
+				htlc.RefundTimeout, remainingBlocks,
 				c.cfg.OutgoingBroadcastDelta,
 			)
 		}
@@ -1620,11 +1624,15 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 		)
 
 		if toChain {
+			// Convert to int64 in case of overflow.
+			remainingBlocks := int64(htlc.RefundTimeout) -
+				int64(height)
+
 			log.Infof("ChannelArbitrator(%v): go to chain for "+
 				"incoming htlc %x: timeout=%v, "+
 				"blocks_until_expiry=%v, broadcast_delta=%v",
 				c.cfg.ChanPoint, htlc.RHash[:],
-				htlc.RefundTimeout, htlc.RefundTimeout-height,
+				htlc.RefundTimeout, remainingBlocks,
 				c.cfg.IncomingBroadcastDelta,
 			)
 		}

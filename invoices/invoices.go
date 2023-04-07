@@ -262,6 +262,11 @@ type ContractTerm struct {
 	// extended. Set to nil if the preimage isn't known yet.
 	PaymentPreimage *lntypes.Preimage
 
+	// PaymentHash is the hash of the preimage associated to this invoice.
+	// By default this field is set to nil unless we do not know the
+	// preimage for this invoice. Like in the case of hodl invoices.
+	PaymentHash *lntypes.Hash
+
 	// Value is the expected amount of milli-satoshis to be paid to an HTLC
 	// which can be satisfied by the above preimage.
 	Value lnwire.MilliSatoshi

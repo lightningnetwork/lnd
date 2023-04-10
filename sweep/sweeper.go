@@ -81,6 +81,10 @@ type Params struct {
 	// ExclusiveGroup is an identifier that, if set, prevents other inputs
 	// with the same identifier from being batched together.
 	ExclusiveGroup *uint64
+
+	// MaxSweepFeeRate is the maximum feerate allowed for the sweep
+	// transaction.
+	MaxSweepFeeRate chainfee.SatPerKWeight
 }
 
 // ParamsUpdate contains a new set of parameters to update a pending sweep with.
@@ -307,6 +311,22 @@ type UtxoSweeperConfig struct {
 	//   #1: min = 1 sat/vbyte, max (exclusive) = 11 sat/vbyte
 	//   #2: min = 11 sat/vbyte, max (exclusive) = 21 sat/vbyte...
 	FeeRateBucketSize int
+
+	// MaxNonTimeSensitiveFeeRate is the maximum feerate which is used
+	// when sweeping outputs which are non time sensitive. There is no risk
+	// in loosing funds when those outputs do not confirm in time.
+	MaxNonTimeSensitiveFeeRate chainfee.SatPerKWeight
+
+	// MaxTimeSensitiveFeeRate is the maximum feerate which is used
+	// when sweeping outputs which are time sensitive. This has to be
+	// a high enough feerate so that the transaction is confirmed in time.
+	MaxTimeSensitiveFeeRate chainfee.SatPerKWeight
+
+	// MaxAnchorFeerate is the maximum feerate which is used
+	// when using the anchor to CPFP the unconfirmed commitment tx. This
+	// does not apply to the normal anchor sweep when the commitment is
+	// already confirmed.
+	MaxAnchorFeerate chainfee.SatPerKWeight
 }
 
 // Result is the struct that is pushed through the result channel. Callers can
@@ -408,6 +428,36 @@ func (s *UtxoSweeper) RelayFeePerKW() chainfee.SatPerKWeight {
 	return s.relayFeeRate
 }
 
+// MaxSweepFeeRate returns the maximum feerate in sat_per_kweigth for a
+// specific input type. This allows introducing fee limits for different input
+// types.
+func (s *UtxoSweeper) MaxSweepFeeRate(
+	witnessType input.WitnessType) chainfee.SatPerKWeight {
+
+	maxFeeRate := DefaultMaxFeeRate.FeePerKWeight()
+
+	switch witnessType {
+	// For non time sensitive sweeps we limit the maximum feerate.
+	case input.CommitSpendNoDelayTweakless,
+		input.CommitmentNoDelay, input.CommitmentToRemoteConfirmed,
+		input.CommitmentTimeLock, input.HtlcOfferedTimeoutSecondLevel,
+		input.HtlcAcceptedSuccessSecondLevel:
+
+		maxFeeRate = s.cfg.MaxNonTimeSensitiveFeeRate
+
+	case input.HtlcOfferedTimeoutSecondLevelInputConfirmed,
+		input.HtlcAcceptedSuccessSecondLevelInputConfirmed,
+		input.HtlcOfferedRemoteTimeout, input.HtlcAcceptedRemoteSuccess:
+
+		maxFeeRate = s.cfg.MaxTimeSensitiveFeeRate
+
+	case input.CommitmentAnchor:
+		maxFeeRate = s.cfg.MaxAnchorFeerate
+	}
+
+	return maxFeeRate
+}
+
 // Stop stops sweeper from listening to block epochs and constructing sweep
 // txes.
 func (s *UtxoSweeper) Stop() error {
@@ -442,7 +492,8 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 	}
 
 	// Ensure the client provided a sane fee preference.
-	if _, err := s.feeRateForPreference(params.Fee); err != nil {
+	_, err := s.feeRateForPreference(params.Fee, params.MaxSweepFeeRate)
+	if err != nil {
 		return nil, err
 	}
 
@@ -473,7 +524,8 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 // feeRateForPreference returns a fee rate for the given fee preference. It
 // ensures that the fee rate respects the bounds of the UtxoSweeper.
 func (s *UtxoSweeper) feeRateForPreference(
-	feePreference FeePreference) (chainfee.SatPerKWeight, error) {
+	feePreference FeePreference, maxSweepFeeRate chainfee.SatPerKWeight) (
+	chainfee.SatPerKWeight, error) {
 
 	// Ensure a type of fee preference is specified to prevent using a
 	// default below.
@@ -487,7 +539,20 @@ func (s *UtxoSweeper) feeRateForPreference(
 	if err != nil {
 		return 0, err
 	}
-
+	// Ensure that a maximum fee rate is specified before capping the value.
+	if maxSweepFeeRate != 0 && feeRate > maxSweepFeeRate {
+		log.Infof("Limiting fee rate for input of %v too high, using "+
+			"%v instead", feeRate, maxSweepFeeRate)
+		feeRate = maxSweepFeeRate
+		// Ensure when we cap the feerate that we do not fall below
+		// the relay fee.
+		if feeRate < s.relayFeeRate {
+			log.Infof("Fee rate limit for input of %v is too low, "+
+				" using %v (relayFeeRate) "+
+				"instead", feeRate, s.relayFeeRate)
+			feeRate = s.relayFeeRate
+		}
+	}
 	if feeRate < s.relayFeeRate {
 		return 0, fmt.Errorf("%w: got %v, minimum is %v",
 			ErrFeePreferenceTooLow, feeRate, s.relayFeeRate)
@@ -832,7 +897,8 @@ func (s *UtxoSweeper) clusterByLockTime(inputs pendingInputs) ([]inputCluster,
 		// returned, we'll skip sweeping this input for this round of
 		// cluster creation and retry it when we create the clusters
 		// from the pending inputs again.
-		feeRate, err := s.feeRateForPreference(input.params.Fee)
+		feeRate, err := s.feeRateForPreference(input.params.Fee,
+			s.MaxSweepFeeRate(input.WitnessType()))
 		if err != nil {
 			log.Warnf("Skipping input %v: %v", op, err)
 			continue
@@ -882,7 +948,9 @@ func (s *UtxoSweeper) clusterBySweepFeeRate(inputs pendingInputs) []inputCluster
 	// First, we'll group together all inputs with similar fee rates. This
 	// is done by determining the fee rate bucket they should belong in.
 	for op, input := range inputs {
-		feeRate, err := s.feeRateForPreference(input.params.Fee)
+		feeRate, err := s.feeRateForPreference(
+			input.params.Fee, input.params.MaxSweepFeeRate,
+		)
 		if err != nil {
 			log.Warnf("Skipping input %v: %v", op, err)
 			continue
@@ -1362,7 +1430,10 @@ func (s *UtxoSweeper) UpdateParams(input wire.OutPoint,
 	params ParamsUpdate) (chan Result, error) {
 
 	// Ensure the client provided a sane fee preference.
-	if _, err := s.feeRateForPreference(params.Fee); err != nil {
+	_, err := s.feeRateForPreference(
+		params.Fee, DefaultMaxFeeRate.FeePerKWeight(),
+	)
+	if err != nil {
 		return nil, err
 	}
 

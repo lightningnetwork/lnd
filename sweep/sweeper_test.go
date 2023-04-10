@@ -2240,7 +2240,8 @@ func TestFeeRateForPreference(t *testing.T) {
 			s.cfg.DetermineFeePerKw = tc.determineFeePerKw
 
 			// Call the function under test.
-			feerate, err := s.feeRateForPreference(tc.feePref)
+			feerate, err := s.feeRateForPreference(tc.feePref,
+				DefaultMaxFeeRate.FeePerKWeight())
 
 			// Assert the expected feerate.
 			require.Equal(t, tc.expectedFeeRate, feerate)

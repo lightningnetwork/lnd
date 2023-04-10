@@ -85,10 +85,6 @@ const (
 	defaultTorV2PrivateKeyFilename = "v2_onion_private_key"
 	defaultTorV3PrivateKeyFilename = "v3_onion_private_key"
 
-	// defaultZMQReadDeadline is the default read deadline to be used for
-	// both the block and tx ZMQ subscriptions.
-	defaultZMQReadDeadline = 5 * time.Second
-
 	// DefaultAutogenValidity is the default validity of a self-signed
 	// certificate. The value corresponds to 14 months
 	// (14 months * 30 days * 24 hours).
@@ -508,13 +504,7 @@ func DefaultConfig() Config {
 			RPCHost: defaultRPCHost,
 			RPCCert: defaultBtcdRPCCertFile,
 		},
-		BitcoindMode: &lncfg.Bitcoind{
-			Dir:                defaultBitcoindDir,
-			RPCHost:            defaultRPCHost,
-			EstimateMode:       defaultBitcoindEstimateMode,
-			PrunedNodeMaxPeers: defaultPrunedNodeMaxPeers,
-			ZMQReadDeadline:    defaultZMQReadDeadline,
-		},
+		BitcoindMode: lncfg.DefaultBitcoind(),
 		Litecoin: &lncfg.Chain{
 			MinHTLCIn:     chainreg.DefaultLitecoinMinHTLCInMSat,
 			MinHTLCOut:    chainreg.DefaultLitecoinMinHTLCOutMSat,
@@ -1895,6 +1885,16 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			if err != nil {
 				return err
 			}
+		}
+
+		// If the user has explicitly disabled the jitter, set the
+		// config value to 0.
+		if conf.TxPollingJitter == -1 {
+			conf.TxPollingJitter = 0
+		}
+
+		if err := conf.ValidatePollingConfig(); err != nil {
+			return err
 		}
 
 		// Get the daemon name for displaying proper errors.

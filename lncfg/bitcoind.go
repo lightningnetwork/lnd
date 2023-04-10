@@ -1,6 +1,34 @@
 package lncfg
 
-import "time"
+import (
+	"errors"
+	"time"
+
+	"github.com/btcsuite/btcd/btcutil"
+)
+
+var (
+	defaultBitcoindDir = btcutil.AppDataDir("bitcoin", false)
+)
+
+const (
+	// defaultTxPollInterval is the default interval at which we poll for
+	// new transactions.
+	defaultTxPollInterval = 10 * time.Second
+
+	// defaultTxPollingJitter is the default jitter we apply to the
+	// polling. With the above defaultTxPollInterval, this means we would
+	// poll transitions randomly between 5 and 15 seconds.
+	defaultTxPollingJitter = 0.5
+
+	defaultRPCHost              = "localhost"
+	defaultBitcoindEstimateMode = "CONSERVATIVE"
+	defaultPrunedNodeMaxPeers   = 4
+
+	// defaultZMQReadDeadline is the default read deadline to be used for
+	// both the block and tx ZMQ subscriptions.
+	defaultZMQReadDeadline = 5 * time.Second
+)
 
 // Bitcoind holds the configuration options for the daemon's connection to
 // bitcoind.
@@ -22,4 +50,37 @@ type Bitcoind struct {
 	BlockPollingInterval time.Duration `long:"blockpollinginterval" description:"The interval that will be used to poll bitcoind for new blocks. Only used if rpcpolling is true."`
 	TxPollingInterval    time.Duration `long:"txpollinginterval" description:"The interval that will be used to poll bitcoind for new tx. Only used if rpcpolling is true."`
 	TxPollingJitter      float64       `long:"txpollingjitter" description:"The factor used to simulates jitter by scaling 'txpollinginterval' with it. This value must be greater than 0 to see any effect. Use -1 to disable it."`
+}
+
+// DefaultBitcoind returns a default configuration for the bitcoind backend.
+func DefaultBitcoind() *Bitcoind {
+	return &Bitcoind{
+		Dir:                defaultBitcoindDir,
+		RPCHost:            defaultRPCHost,
+		EstimateMode:       defaultBitcoindEstimateMode,
+		PrunedNodeMaxPeers: defaultPrunedNodeMaxPeers,
+		ZMQReadDeadline:    defaultZMQReadDeadline,
+		TxPollingInterval:  defaultTxPollInterval,
+		TxPollingJitter:    defaultTxPollingJitter,
+	}
+}
+
+// ValidatePollingConfig validates the polling configuration.
+func (b *Bitcoind) ValidatePollingConfig() error {
+	if b.TxPollingJitter < 0 && b.TxPollingJitter != -1 {
+		return errors.New("txpollingjitter must be greater than 0 or " +
+			"equal to -1(disabled)")
+	}
+
+	if b.TxPollingInterval > 2*time.Minute {
+		return errors.New("txpollinginterval must be less than 2 " +
+			"minutes")
+	}
+
+	if b.BlockPollingInterval > 2*time.Minute {
+		return errors.New("blockpollinginterval must be less than 2 " +
+			"minutes")
+	}
+
+	return nil
 }

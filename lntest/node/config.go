@@ -236,6 +236,13 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		// Use a small cache duration so the `DescribeGraph` can be
 		// updated quicker.
 		"--caches.rpc-graph-cache-duration=100ms",
+
+		// Use a small interval to speed up the test.
+		"--bitcoind.txpollinginterval=1s",
+		"--bitcoind.blockpollinginterval=1s",
+
+		// Disable the tx polling jitter to give deterministic results.
+		"--bitcoind.txpollingjitter=-1",
 	}
 
 	args = append(args, nodeArgs...)

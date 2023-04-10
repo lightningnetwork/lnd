@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/stretchr/testify/require"
 )
@@ -462,6 +463,7 @@ func createNurseryTestContext(t *testing.T,
 		PublishTransaction: func(tx *wire.MsgTx, _ string) error {
 			return publishFunc(tx, "nursery")
 		},
+		MaxSweepFeeRate: sweeper.maxSweepFeeRate,
 	}
 
 	nursery := NewUtxoNursery(&nurseryCfg)
@@ -1080,6 +1082,24 @@ func (s *mockSweeperFull) sweepInput(input input.Input,
 	s.resultChans[*input.OutPoint()] = c
 
 	return c, nil
+}
+
+func (s *mockSweeperFull) maxSweepFeeRate(
+	witnessType input.WitnessType) chainfee.SatPerKWeight {
+
+	var maxFeeRate = sweep.DefaultMaxFeeRate.FeePerKWeight()
+
+	switch witnessType {
+	// For non timesensitive sweeps we cap the maximum feerate.
+	case input.CommitSpendNoDelayTweakless,
+		input.CommitmentNoDelay, input.CommitmentToRemoteConfirmed,
+		input.CommitmentTimeLock, input.HtlcOfferedTimeoutSecondLevel,
+		input.HtlcAcceptedSuccessSecondLevel:
+
+		maxFeeRate = 2500
+	}
+
+	return maxFeeRate
 }
 
 func (s *mockSweeperFull) expectSweep() {

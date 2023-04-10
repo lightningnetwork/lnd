@@ -170,7 +170,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 // outpoint of the second-level tx, that we must wait to be spent for the
 // resolver to be fully resolved.
 func (h *htlcSuccessResolver) broadcastSuccessTx() (*wire.OutPoint, error) {
-	// If we have non-nil SignDetails, this means that have a 2nd level
+	// If we have non-nil SignDetails, this means that we have a 2nd level
 	// HTLC transaction that is signed using sighash SINGLE|ANYONECANPAY
 	// (the case for anchor type channels). In this case we can re-sign it
 	// and attach fees at will. We let the sweeper handle this job.  We use
@@ -266,6 +266,9 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 				Fee: sweep.FeePreference{
 					ConfTarget: secondLevelConfTarget,
 				},
+				MaxSweepFeeRate: h.Sweeper.MaxSweepFeeRate(
+					secondLevelInput.WitnessType(),
+				),
 			},
 		)
 		if err != nil {
@@ -378,6 +381,8 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 			Fee: sweep.FeePreference{
 				ConfTarget: sweepConfTarget,
 			},
+			MaxSweepFeeRate: h.Sweeper.MaxSweepFeeRate(
+				inp.WitnessType()),
 		},
 	)
 	if err != nil {

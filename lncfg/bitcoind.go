@@ -21,4 +21,5 @@ type Bitcoind struct {
 	RPCPolling           bool          `long:"rpcpolling" description:"Poll the bitcoind RPC interface for block and transaction notifications instead of using the ZMQ interface"`
 	BlockPollingInterval time.Duration `long:"blockpollinginterval" description:"The interval that will be used to poll bitcoind for new blocks. Only used if rpcpolling is true."`
 	TxPollingInterval    time.Duration `long:"txpollinginterval" description:"The interval that will be used to poll bitcoind for new tx. Only used if rpcpolling is true."`
+	TxPollingJitter      float64       `long:"txpollingjitter" description:"The factor used to simulates jitter by scaling 'txpollinginterval' with it. This value must be greater than 0 to see any effect. Use -1 to disable it."`
 }

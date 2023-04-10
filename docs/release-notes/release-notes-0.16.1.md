@@ -50,6 +50,12 @@ https://github.com/lightningnetwork/lnd/pull/7359)
 * Optimize script allocation size in order to save
   [memory](https://github.com/lightningnetwork/lnd/pull/7464).
 
+* Add [a new config option
+  `bitcoind.txpollingjitter`](https://github.com/lightningnetwork/lnd/pull/7587)
+  to allow polling transactions randomly between the range [`txpollinginterval
+  * (1 - txpollingjitter)`, `txpollinginterval * (1 + txpollingjitter)`]. Set
+    `--bitcoind.txpollingjitter=-1` to disable it, default to 0.5.
+
 ## Spec
 
 * [Add test vectors for

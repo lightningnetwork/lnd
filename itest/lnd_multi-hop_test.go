@@ -343,8 +343,10 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 // receiver of an HTLC knows the preimage, but wasn't able to settle the HTLC
 // off-chain, then it goes on chain to claim the HTLC uing the HTLC success
 // transaction. In this scenario, the node that sent the outgoing HTLC should
-// extract the preimage from the sweep transaction, and finish settling the
-// HTLC backwards into the route.
+// extract the preimage from the sweep transaction found in the mempool, and
+// finish settling the HTLC backwards into the route.
+//
+// NOTE: for neutrino, we will extract the preimage from blocks.
 func testMultiHopReceiverChainClaim(ht *lntest.HarnessTest) {
 	runMultiHopHtlcClaimTest(ht, runMultiHopReceiverChainClaim)
 }
@@ -396,9 +398,10 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 
 	// At this point, all 3 nodes should now have an active channel with
 	// the created HTLC pending on all of them.
-	ht.AssertActiveHtlcs(alice, payHash[:])
-	ht.AssertActiveHtlcs(bob, payHash[:])
-	ht.AssertActiveHtlcs(carol, payHash[:])
+	ht.AssertOutgoingHTLCActive(alice, aliceChanPoint, payHash[:])
+	ht.AssertIncomingHTLCActive(bob, aliceChanPoint, payHash[:])
+	ht.AssertOutgoingHTLCActive(bob, bobChanPoint, payHash[:])
+	ht.AssertIncomingHTLCActive(carol, bobChanPoint, payHash[:])
 
 	// Wait for carol to mark invoice as accepted. There is a small gap to
 	// bridge between adding the htlc to the channel and executing the exit
@@ -482,72 +485,26 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	txes := ht.Miner.GetNumTxsFromMempool(expectedTxes)
 	ht.AssertAllTxesSpendFrom(txes, closingTxid)
 
-	// We'll now mine an additional block which should confirm both the
-	// second layer transactions.
-	ht.MineBlocksAndAssertNumTxes(1, expectedTxes)
-
-	// Carol's pending channel report should now show two outputs under
-	// limbo: her commitment output, as well as the second-layer claim
-	// output, and the pending HTLC should also now be in stage 2.
-	ht.AssertNumHTLCsAndStage(carol, bobChanPoint, 1, 2)
-
-	// Once the second-level transaction confirmed, Bob should have
-	// extracted the preimage from the chain, and sent it back to Alice,
-	// clearing the HTLC off-chain.
-	ht.AssertNumActiveHtlcs(alice, 0)
-
-	// If we mine 4 additional blocks, then Carol can sweep the second
-	// level HTLC output once the CSV expires.
-	ht.MineEmptyBlocks(defaultCSV)
-
-	// We should have a new transaction in the mempool.
-	ht.Miner.AssertNumTxsInMempool(1)
-
-	// Finally, if we mine an additional block to confirm Carol's second
-	// level success transaction. Carol should not show a pending channel
-	// in her report afterwards.
-	ht.MineBlocks(1)
-	ht.AssertNumPendingForceClose(carol, 0)
-
-	// The invoice should show as settled for Carol, indicating that it was
-	// swept on-chain.
-	ht.AssertInvoiceSettled(carol, carolInvoice.PaymentAddr)
+	// Mine a block to confirm the 2nd level success tx if this is
+	// neutrino backend.
+	if ht.IsNeutrinoBackend() {
+		ht.MineBlocksAndAssertNumTxes(1, expectedTxes)
+	}
 
 	// Finally, check that the Alice's payment is correctly marked
 	// succeeded.
 	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
 
-	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
-		// Bob still has his commit output to sweep to since he incurred
-		// an additional CLTV from being the channel initiator of a
-		// script-enforced leased channel, regardless of whether he
-		// forced closed the channel or not.
-		pendingChanResp := bob.RPC.PendingChannels()
+	// Once the second-level transaction enters the mempool, Bob should
+	// have extracted the preimage and sent it back to Alice, clearing the
+	// HTLC off-chain.
+	ht.AssertHLTCNotActive(alice, aliceChanPoint, payHash[:])
 
-		require.Len(ht, pendingChanResp.PendingForceClosingChannels, 1)
-		forceCloseChan := pendingChanResp.PendingForceClosingChannels[0]
-		require.Positive(ht, forceCloseChan.LimboBalance)
-		require.Positive(ht, forceCloseChan.BlocksTilMaturity)
-
-		// TODO: Bob still shows a pending HTLC at this point when he
-		// shouldn't, as he already extracted the preimage from Carol's
-		// claim.
-		// require.Len(t.t, forceCloseChan.PendingHtlcs, 0)
-
-		// Mine enough blocks for Bob's commit output's CLTV to expire
-		// and sweep it.
-		numBlocks := uint32(forceCloseChan.BlocksTilMaturity)
-		ht.MineBlocks(numBlocks)
-		commitOutpoint := wire.OutPoint{Hash: closingTxid, Index: 3}
-		ht.Miner.AssertOutpointInMempool(commitOutpoint)
-		ht.MineBlocks(1)
-	}
-
-	ht.AssertNumPendingForceClose(bob, 0)
-
-	// We'll close out the channel between Alice and Bob, then shutdown
-	// carol to conclude the test.
-	ht.CloseChannel(alice, aliceChanPoint)
+	// Exit the test and clean the mempool.
+	//
+	// NOTE: for non-standby nodes there's no need to clean up the force
+	// close as long as the mempool is cleaned.
+	ht.CleanShutDown()
 }
 
 // testMultiHopLocalForceCloseOnChainHtlcTimeout tests that in a multi-hop HTLC

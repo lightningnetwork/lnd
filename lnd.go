@@ -690,46 +690,64 @@ func bakeMacaroon(ctx context.Context, svc *macaroons.Service,
 	return mac.M().MarshalBinary()
 }
 
-// genMacaroons generates three macaroon files; one admin-level, one for
-// invoice access and one read-only. These can also be used to generate more
-// granular macaroons.
-func genMacaroons(ctx context.Context, svc *macaroons.Service,
+// saveMacaroon bakes a macaroon with the specified macaroon permissions and
+// writes it to a file with the given filename and file permissions.
+func saveMacaroon(ctx context.Context, svc *macaroons.Service, filename string,
+	macaroonPermissions []bakery.Op, filePermissions os.FileMode) error {
+
+	macaroonBytes, err := bakeMacaroon(ctx, svc, macaroonPermissions)
+	if err != nil {
+		return err
+	}
+	err = os.WriteFile(filename, macaroonBytes, filePermissions)
+	if err != nil {
+		_ = os.Remove(filename)
+		return err
+	}
+
+	return nil
+}
+
+// genDefaultMacaroons checks for three default macaroon files and generates
+// them if they do not exist; one admin-level, one for invoice access and one
+// read-only. Each macaroon is checked and created independently to ensure all
+// three exist. The admin macaroon can also be used to generate more granular
+// macaroons.
+func genDefaultMacaroons(ctx context.Context, svc *macaroons.Service,
 	admFile, roFile, invoiceFile string) error {
 
 	// First, we'll generate a macaroon that only allows the caller to
 	// access invoice related calls. This is useful for merchants and other
 	// services to allow an isolated instance that can only query and
 	// modify invoices.
-	invoiceMacBytes, err := bakeMacaroon(ctx, svc, invoicePermissions)
-	if err != nil {
-		return err
-	}
-	err = ioutil.WriteFile(invoiceFile, invoiceMacBytes, 0644)
-	if err != nil {
-		_ = os.Remove(invoiceFile)
-		return err
+	if !lnrpc.FileExists(invoiceFile) {
+		err := saveMacaroon(
+			ctx, svc, invoiceFile, invoicePermissions, 0644,
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Generate the read-only macaroon and write it to a file.
-	roBytes, err := bakeMacaroon(ctx, svc, readPermissions)
-	if err != nil {
-		return err
-	}
-	if err = ioutil.WriteFile(roFile, roBytes, 0644); err != nil {
-		_ = os.Remove(roFile)
-		return err
+	if !lnrpc.FileExists(roFile) {
+		err := saveMacaroon(
+			ctx, svc, roFile, readPermissions, 0644,
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Generate the admin macaroon and write it to a file.
-	admBytes, err := bakeMacaroon(ctx, svc, adminPermissions())
-	if err != nil {
-		return err
-	}
-
-	err = ioutil.WriteFile(admFile, admBytes, adminMacaroonFilePermissions)
-	if err != nil {
-		_ = os.Remove(admFile)
-		return err
+	if !lnrpc.FileExists(admFile) {
+		err := saveMacaroon(
+			ctx, svc, admFile, adminPermissions(),
+			adminMacaroonFilePermissions,
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

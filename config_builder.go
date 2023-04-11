@@ -470,14 +470,10 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 
 		// If the user requested a stateless initialization, no macaroon
 		// files should be created.
-		if !walletInitParams.StatelessInit &&
-			!lnrpc.FileExists(d.cfg.AdminMacPath) &&
-			!lnrpc.FileExists(d.cfg.ReadMacPath) &&
-			!lnrpc.FileExists(d.cfg.InvoiceMacPath) {
-
-			// Create macaroon files for lncli to use if they don't
-			// exist.
-			err = genMacaroons(
+		if !walletInitParams.StatelessInit {
+			// Create default macaroon files for lncli to use if
+			// they don't exist.
+			err = genDefaultMacaroons(
 				ctx, macaroonService, d.cfg.AdminMacPath,
 				d.cfg.ReadMacPath, d.cfg.InvoiceMacPath,
 			)

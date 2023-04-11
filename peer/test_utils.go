@@ -282,6 +282,18 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 	bobSigner := input.NewMockSigner(
 		[]*btcec.PrivateKey{bobKeyPriv}, nil,
 	)
+	aliceSigner.SignDescriptorChecker = &input.DefaultSignDescriptorChecker{
+		OutChecker: lnwallet.GetCommitmentOutChecker(
+			t, channeldb.SingleFunderTweaklessBit,
+			isAliceInitiator, aliceCfg, bobCfg,
+		),
+	}
+	bobSigner.SignDescriptorChecker = &input.DefaultSignDescriptorChecker{
+		OutChecker: lnwallet.GetCommitmentOutChecker(
+			t, channeldb.SingleFunderTweaklessBit,
+			!isAliceInitiator, bobCfg, aliceCfg,
+		),
+	}
 
 	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(
@@ -418,6 +430,20 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 	go alicePeer.channelManager()
 
 	return alicePeer, channelBob, nil
+}
+
+// addAllowedOut iterates through a peer's active channels and adds an allowed
+// output to each channel's signer, if required.
+func addAllowedOut(peer *Brontide, out []byte) {
+	peer.activeChannels.Range(
+		func(
+			_ lnwire.ChannelID,
+			channel *lnwallet.LightningChannel,
+		) bool {
+			input.AddAllowedOut(channel.Signer, out)
+			return true
+		},
+	)
 }
 
 // mockMessageSwitch is a mock implementation of the messageSwitch interface

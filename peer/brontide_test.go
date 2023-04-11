@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
@@ -50,12 +51,21 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create test channels")
 
+	// We generate a shutdown script so we can match against it when the
+	// signer checks the SignDescriptor.
+	aliceDeliveryScript, err := alicePeer.genDeliveryScript()
+	require.NoError(t, err, "unable to generate delivery script")
+	addAllowedOut(alicePeer, aliceDeliveryScript)
+	input.AddAllowedOut(bobChan.Signer, aliceDeliveryScript)
+
 	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
 
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
 
 	dummyDeliveryScript := genScript(t, p2wshAddress)
+	addAllowedOut(alicePeer, dummyDeliveryScript)
+	input.AddAllowedOut(bobChan.Signer, dummyDeliveryScript)
 
 	// We send a shutdown request to Alice. She will now be the responding
 	// node in this shutdown procedure. We first expect Alice to answer
@@ -158,6 +168,8 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	mockSwitch.links = append(mockSwitch.links, mockLink)
 
 	dummyDeliveryScript := genScript(t, p2wshAddress)
+	addAllowedOut(alicePeer, dummyDeliveryScript)
+	input.AddAllowedOut(bobChan.Signer, dummyDeliveryScript)
 
 	// We make Alice send a shutdown request.
 	updateChan := make(chan interface{}, 1)
@@ -186,6 +198,8 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	}
 
 	aliceDeliveryScript := shutdownMsg.Address
+	addAllowedOut(alicePeer, aliceDeliveryScript)
+	input.AddAllowedOut(bobChan.Signer, aliceDeliveryScript)
 
 	// Bob will respond with his own Shutdown message.
 	alicePeer.chanCloseMsgs <- &closeMsg{
@@ -284,6 +298,16 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	// node in this shutdown procedure. We first expect Alice to answer this
 	// Shutdown request with a Shutdown message.
 	dummyDeliveryScript := genScript(t, p2wshAddress)
+	addAllowedOut(alicePeer, dummyDeliveryScript)
+	input.AddAllowedOut(bobChan.Signer, dummyDeliveryScript)
+
+	// We generate a shutdown script so we can match against it when the
+	// signer checks the SignDescriptor.
+	respDeliveryScript, err := alicePeer.genDeliveryScript()
+	require.NoError(t, err, "unable to generate delivery script")
+	addAllowedOut(alicePeer, respDeliveryScript)
+	input.AddAllowedOut(bobChan.Signer, respDeliveryScript)
+
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,
 		msg: lnwire.NewShutdown(chanID,
@@ -492,9 +516,13 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	}
 
 	aliceDeliveryScript := shutdownMsg.Address
+	addAllowedOut(alicePeer, aliceDeliveryScript)
+	input.AddAllowedOut(bobChan.Signer, aliceDeliveryScript)
 
 	// Bob will answer the Shutdown message with his own Shutdown.
 	dummyDeliveryScript := genScript(t, p2wshAddress)
+	addAllowedOut(alicePeer, dummyDeliveryScript)
+	input.AddAllowedOut(bobChan.Signer, dummyDeliveryScript)
 	respShutdown := lnwire.NewShutdown(chanID, dummyDeliveryScript)
 	alicePeer.chanCloseMsgs <- &closeMsg{
 		cid: chanID,

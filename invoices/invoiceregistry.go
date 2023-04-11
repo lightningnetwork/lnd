@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/database"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1033,12 +1034,25 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	var (
 		resolution        HtlcResolution
 		updateSubscribers bool
+		invoice           *Invoice
+		err               error
 	)
 
-	callback := func(inv *Invoice) (*InvoiceUpdateDesc, error) {
-		updateDesc, res, err := updateInvoice(ctx, inv)
+	ctxb := context.Background()
+	fn := func(tx database.DBTx) error {
+		invRef := ctx.invoiceRef()
+		setID := (*SetID)(ctx.setID())
+		if setID != nil {
+			invRef.setID = ctx.setID()
+		}
+		invoice, err = i.idb.GetInvoiceWithTx(ctxb, tx, invRef)
 		if err != nil {
-			return nil, err
+			return err
+		}
+
+		updateDesc, res, err := updateInvoice(ctx, invoice)
+		if err != nil {
+			return err
 		}
 
 		// Only send an update if the invoice state was changed.
@@ -1048,12 +1062,83 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 		// Assign resolution to outer scope variable.
 		resolution = res
 
-		return updateDesc, nil
+		if updateDesc == nil {
+			return nil
+		}
+
+		switch updateDesc.UpdateType {
+		case AddHTLCsUpdate, CancelInvoiceUpdate:
+			// This are the only valid update types.
+
+		default:
+			return fmt.Errorf("unexpected update type: %v",
+				updateDesc.UpdateType)
+		}
+
+		htlcs := updateDesc.AddHtlcs
+		if len(htlcs) != 1 {
+			return fmt.Errorf("expected 1 new htlc, got %v",
+				len(htlcs))
+		}
+
+		var (
+			htlcID     models.CircuitKey
+			htlcUpdate *HtlcAcceptDesc
+		)
+
+		for key, value := range updateDesc.AddHtlcs {
+			htlcID = key
+			htlcUpdate = value
+		}
+
+		timestamp := i.cfg.Clock.Now()
+		htlc := &InvoiceHTLC{
+			Amt:           htlcUpdate.Amt,
+			MppTotalAmt:   htlcUpdate.MppTotalAmt,
+			Expiry:        htlcUpdate.Expiry,
+			AcceptHeight:  uint32(htlcUpdate.AcceptHeight),
+			AcceptTime:    timestamp,
+			State:         HtlcStateAccepted,
+			CustomRecords: htlcUpdate.CustomRecords,
+			AMP:           htlcUpdate.AMP.Copy(),
+		}
+
+		invoice.AddHTLC(htlcID, htlc)
+		err = i.idb.AddHtlcWithTx(
+			ctxb, tx, invRef, htlcID, htlc,
+		)
+		if err != nil {
+			return err
+		}
+
+		if updateDesc.State != nil {
+			newState := updateDesc.State.NewState
+
+			switch {
+			case newState == ContractAccepted:
+				invoice.State = ContractAccepted
+				invoice.Terms.PaymentHash = &ctx.hash
+
+			case newState == ContractSettled:
+				invoice, err = invoice.Settle(timestamp)
+				if err != nil {
+					return err
+				}
+			case newState == ContractCanceled:
+				invoice, err = invoice.CancelAMPInvoice(
+					setID, i.cfg.Clock.Now(),
+				)
+
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		return i.idb.UpdateInvoiceWithTx(ctxb, tx, invoice)
 	}
 
-	invoiceRef := ctx.invoiceRef()
-	setID := (*SetID)(ctx.setID())
-	invoice, err := i.idb.UpdateInvoice(invoiceRef, setID, callback)
+	err = i.idb.WithTx(ctxb, fn)
 
 	var duplicateSetIDErr ErrDuplicateSetID
 	if errors.As(err, &duplicateSetIDErr) {

@@ -343,6 +343,18 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	bobSigner := input.NewMockSigner(
 		[]*btcec.PrivateKey{bobKeyPriv}, nil,
 	)
+	aliceSigner.SignDescriptorChecker = &input.DefaultSignDescriptorChecker{
+		OutChecker: lnwallet.GetCommitmentOutChecker(
+			t, channeldb.SingleFunderTweaklessBit,
+			isAliceInitiator, aliceCfg, bobCfg,
+		),
+	}
+	bobSigner.SignDescriptorChecker = &input.DefaultSignDescriptorChecker{
+		OutChecker: lnwallet.GetCommitmentOutChecker(
+			t, channeldb.SingleFunderTweaklessBit,
+			!isAliceInitiator, bobCfg, aliceCfg,
+		),
+	}
 
 	alicePool := lnwallet.NewSigPool(runtime.NumCPU(), aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(

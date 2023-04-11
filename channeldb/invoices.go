@@ -137,6 +137,38 @@ const (
 	ampStateAmtPaidType     tlv.Type = 5
 )
 
+// WithTx is a helper method that allows callers to execute a function
+// within a database transaction. If the function returns an error, the
+// transaction will be rolled back. Otherwise, the transaction will be
+// committed.
+//
+// NOTE: All transactions will be created as a read-write transaction.
+//
+// TODO(positiveblue): delete this method from this interface and use
+// something like the executor patter that we use in other projects.
+func (d *DB) WithTx(ctx context.Context,
+	funcs ...func(tx database.DBTx) error) error {
+
+	tx, err := d.BeginReadWriteTx()
+	if err != nil {
+		return err
+	}
+
+	// Make sure the transaction rolls back in the event of a panic.
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	for _, f := range funcs {
+		err = f(tx)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 // AddInvoice inserts the targeted invoice into the database.
 //
 // NOTE: If the invoice is added to the database this will set the next

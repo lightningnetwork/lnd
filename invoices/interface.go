@@ -16,6 +16,17 @@ type InvScanFunc func(lntypes.Hash, *Invoice) error
 
 // InvoiceDB is the database that stores the information about invoices.
 type InvoiceDB interface {
+	// WithTx is a helper method that allows callers to execute a function
+	// within a database transaction. If the function returns an error, the
+	// transaction will be rolled back. Otherwise, the transaction will be
+	// committed.
+	//
+	// NOTE: All transactions will be created as a read-write transaction.
+	//
+	// TODO(positiveblue): delete this method from this interface and use
+	// something like the executor patter that we use in other projects.
+	WithTx(ctx context.Context, funcs ...func(tx database.DBTx) error) error
+
 	// AddInvoice inserts the given invoice into the database.
 	//
 	// NOTE: If the invoice is added to the database this method will

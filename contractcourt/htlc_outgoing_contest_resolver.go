@@ -55,38 +55,81 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, nil
 	}
 
+	// handleSpendEvent is a helper closure that processes the spend event
+	// received. If the `spend` field is non-nil, this is a preimage spent
+	// event. Otherwise, either an error has occurred or this is a timeout
+	// spent.
+	handleSpendEvent := func(preimageSpent *spendResult) (
+		ContractResolver, error) {
+
+		// Return the error if there's one.
+		if preimageSpent.err != nil {
+			return nil, preimageSpent.err
+		}
+
+		// If an event is returned but the spend is nil, then the HTLC
+		// has been spent in a timeout tx. In this case, we'll let the
+		// timeout resolver to handle it.
+		if preimageSpent.spend == nil {
+			log.Infof("HTLC(%s) has already been spent in "+
+				"timeout tx", h.HtlcPoint())
+			return nil, nil
+		}
+
+		log.Infof("%T(%v): HTLC has been swept with preimage by "+
+			"remote party!", h, h.htlcResolution.ClaimOutpoint)
+
+		// The only way this output can be spent by the remote party is
+		// by revealing the preimage. So we'll perform our duties to
+		// clean up the contract once it has been claimed.
+		return h.claimCleanUp(preimageSpent.spend)
+	}
+
 	// Otherwise, we'll watch for two external signals to decide if we'll
 	// morph into another resolver, or fully resolve the contract.
 	//
-	// The output we'll be watching for is the *direct* spend from the HTLC
-	// output. If this isn't our commitment transaction, it'll be right on
-	// the resolution. Otherwise, we fetch this pointer from the input of
-	// the time out transaction.
-	outPointToWatch, scriptToWatch, err := h.chainDetailsToWatch()
-	if err != nil {
-		return nil, err
-	}
+	// First, we'll start watching for the spend of the HTLC. This is
+	// either a spend found in mempool which reveals the preimage, or a
+	// spend found in blocks that is a timeout.
+	//
+	// NOTE: We expect the HTLC to be spent in a timeout tx if it's found
+	// in a block since for the preimage spend, we'd already catch it in
+	// our mempool. This could be false if our mempool missed the preimage
+	// spend tx. In that case, we'd still see the preimage spend tx in
+	// blocks.
+	resultChan := make(chan *spendResult, 1)
+	go func() {
+		sr := &spendResult{}
 
-	// First, we'll register for a spend notification for this output. If
-	// the remote party sweeps with the pre-image, we'll be notified.
-	spendNtfn, err := h.Notifier.RegisterSpendNtfn(
-		outPointToWatch, scriptToWatch, h.broadcastHeight,
-	)
-	if err != nil {
-		return nil, err
-	}
+		// Watch the spend in a goroutine and send back the result.
+		result, err := h.watchHtlcSpend()
+		if err != nil {
+			// Send back the err if there's one.
+			sr.err = err
+		} else if isPreimageSpend(
+			h.isTaproot(), result, h.isLocalCommit(),
+		) {
+
+			// Otherwise, we want only to send back the spend that
+			// reveals the preimage.
+			//
+			// NOTE: this could be a timeout tx if there's a race
+			// between the contest resolver and the timeout
+			// resolver.
+			sr.spend = result
+		}
+
+		// Send the result. Because the channel is buffered, this will
+		// be non-blocking.
+		resultChan <- sr
+	}()
 
 	// We'll quickly check to see if the output has already been spent.
 	select {
 	// If the output has already been spent, then we can stop early and
 	// sweep the pre-image from the output.
-	case commitSpend, ok := <-spendNtfn.Spend:
-		if !ok {
-			return nil, errResolverShuttingDown
-		}
-
-		// TODO(roasbeef): Checkpoint?
-		return h.claimCleanUp(commitSpend)
+	case event := <-resultChan:
+		return handleSpendEvent(event)
 
 	// If it hasn't, then we'll watch for both the expiration, and the
 	// sweeping out this output.
@@ -134,16 +177,8 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 
 		// The output has been spent! This means the preimage has been
 		// revealed on-chain.
-		case commitSpend, ok := <-spendNtfn.Spend:
-			if !ok {
-				return nil, errResolverShuttingDown
-			}
-
-			// The only way this output can be spent by the remote
-			// party is by revealing the preimage. So we'll perform
-			// our duties to clean up the contract once it has been
-			// claimed.
-			return h.claimCleanUp(commitSpend)
+		case event := <-resultChan:
+			return handleSpendEvent(event)
 
 		case <-h.quit:
 			return nil, fmt.Errorf("resolver canceled")

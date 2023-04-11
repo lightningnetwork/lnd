@@ -74,7 +74,7 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 		TxIn: []*wire.TxIn{
 			{
 				Witness: [][]byte{
-					{0}, {1}, {2}, preimage[:],
+					{0}, {1}, {2}, preimage[:], {4},
 				},
 			},
 		},

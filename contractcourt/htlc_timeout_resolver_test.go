@@ -72,6 +72,7 @@ func (m *mockWitnessBeacon) AddPreimages(preimages ...lntypes.Preimage) error {
 func TestHtlcTimeoutResolver(t *testing.T) {
 	t.Parallel()
 
+	dummyBytes := []byte{0}
 	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
 
 	var (
@@ -94,6 +95,12 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		},
 	}
 	fakeTimeout := int32(5)
+
+	// witnessSpendDirect is the remote's witness used to spend the HTLC
+	// via the preimage path on the local commitment.
+	witnessSpendDirect := wire.TxWitness{
+		dummyBytes, fakePreimageBytes, dummyBytes,
+	}
 
 	templateTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
@@ -237,27 +244,20 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			remoteCommit: false,
 			timeout:      false,
 			txToBroadcast: func() (*wire.MsgTx, error) {
-				witness, err := input.SenderHtlcSpendRedeem(
-					signer, fakeSignDesc, sweepTx,
-					fakePreimageBytes,
-				)
-				if err != nil {
-					return nil, err
-				}
-
 				// To avoid triggering the race detector by
 				// setting the witness the second time this
 				// method is called during tests, we return
 				// immediately if the witness is already set
 				// correctly.
 				if reflect.DeepEqual(
-					templateTx.TxIn[0].Witness, witness,
+					templateTx.TxIn[0].Witness,
+					witnessSpendDirect,
 				) {
 
 					return templateTx, nil
 				}
 
-				templateTx.TxIn[0].Witness = witness
+				templateTx.TxIn[0].Witness = witnessSpendDirect
 				return templateTx, nil
 			},
 			outcome: channeldb.ResolverOutcomeClaimed,
@@ -706,12 +706,15 @@ func TestHtlcTimeoutSingleStageRemoteSpend(t *testing.T) {
 	copy(fakePreimage[:], fakePreimageBytes)
 
 	signer := &mock.DummySigner{}
-	witness, err := input.SenderHtlcSpendRedeem(
-		signer, &testSignDesc, spendTx,
-		fakePreimageBytes,
-	)
-	require.NoError(t, err)
-	spendTx.TxIn[0].Witness = witness
+	dummyBytes := []byte{0}
+	preimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+
+	// witnessSpendDirect is the remote's witness used to spend the HTLC
+	// via the preimage path on the local commitment.
+	witnessSpendDirect := wire.TxWitness{
+		dummyBytes, preimageBytes, dummyBytes,
+	}
+	spendTx.TxIn[0].Witness = witnessSpendDirect
 
 	spendTxHash := spendTx.TxHash()
 
@@ -1163,17 +1166,18 @@ func TestHtlcTimeoutSecondStageSweeperRemoteSpend(t *testing.T) {
 		TxOut: []*wire.TxOut{{}},
 	}
 
+	dummyBytes := []byte{0}
 	fakePreimageBytes := bytes.Repeat([]byte{1}, lntypes.HashSize)
+
 	var fakePreimage lntypes.Preimage
 	copy(fakePreimage[:], fakePreimageBytes)
 
-	witness, err := input.SenderHtlcSpendRedeem(
-		signer, &testSignDesc, spendTx,
-		fakePreimageBytes,
-	)
-	require.NoError(t, err)
-	spendTx.TxIn[0].Witness = witness
-
+	// witnessSpendDirect is the remote's witness used to spend the HTLC
+	// via the preimage path on the local commitment.
+	witnessSpendDirect := wire.TxWitness{
+		dummyBytes, fakePreimageBytes, dummyBytes,
+	}
+	spendTx.TxIn[0].Witness = witnessSpendDirect
 	spendTxHash := spendTx.TxHash()
 
 	// twoStageResolution is a resolution for a htlc on the local

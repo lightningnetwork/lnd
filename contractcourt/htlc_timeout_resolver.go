@@ -406,6 +406,12 @@ func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
 	return len(witness[index]) == lntypes.HashSize
 }
 
+// isLocalCommit returns a bool to indicate whether the HTLC is on the local
+// commitment.
+func (h *htlcTimeoutResolver) isLocalCommit() bool {
+	return h.htlcResolution.SignedTimeoutTx != nil
+}
+
 // Resolve kicks off full resolution of an outgoing HTLC output. If it's our
 // commitment, it isn't resolved until we see the second level HTLC txn
 // confirmed. If it's the remote party's commitment, we don't resolve until we

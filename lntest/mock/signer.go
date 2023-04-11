@@ -106,6 +106,8 @@ type SingleSigner struct {
 	Privkey *btcec.PrivateKey
 	KeyLoc  keychain.KeyLocator
 
+	SignDescriptorChecker input.SignDescriptorChecker
+
 	*input.MusigSessionManager
 }
 
@@ -152,6 +154,13 @@ func (s *SingleSigner) SignOutputRaw(tx *wire.MsgTx,
 		return nil, err
 	}
 
+	if s.SignDescriptorChecker != nil {
+		err = s.SignDescriptorChecker.CheckSignDescriptor(tx, signDesc)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return ecdsa.ParseDERSignature(sig[:len(sig)-1])
 }
 
@@ -176,6 +185,13 @@ func (s *SingleSigner) ComputeInputScript(tx *wire.MsgTx,
 		signDesc.HashType, privKey, true)
 	if err != nil {
 		return nil, err
+	}
+
+	if s.SignDescriptorChecker != nil {
+		err = s.SignDescriptorChecker.CheckSignDescriptor(tx, signDesc)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &input.Script{

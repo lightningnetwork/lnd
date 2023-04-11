@@ -688,6 +688,164 @@ func (d *DB) AddHtlcWithTx(ctx context.Context, dbTx database.DBTx,
 	return nil
 }
 
+// UpdateInvoiceV2 updates the invoice identified by the given
+// InvoiceRef.
+//
+// NOTE: If the ContractState is ContractSettled and the passed invoice
+// does not have a valid settle index this method will populate the
+// SettleIndex field with the next available value.
+//
+// NOTE: Unless the invoice is being settled or canceled this method
+// does not update any changes related to the htlc fields.
+//
+// NOTE: This method will be executed in its own transaction and will
+// use the default timeout.
+func (d *DB) UpdateInvoiceV2(invoice *invpkg.Invoice) error {
+	tx, err := d.BeginReadWriteTx()
+	if err != nil {
+		return err
+	}
+
+	// Make sure the transaction rolls back in the event of a panic.
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), database.DefaultStoreTimeout,
+	)
+	defer cancel()
+
+	err = d.UpdateInvoiceWithTx(ctxt, tx, invoice)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// UpdateInvoiceWithTx updates the invoice identified by the passed
+// InvoiceRef.
+//
+// NOTE: If the ContractState is ContractSettled and the passed invoice
+// does not have a settle index this function will set the next available
+// value.
+//
+// NOTE: This function does not update any changes relaged to the htlcs
+// fields.
+func (d *DB) UpdateInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
+	invoice *invpkg.Invoice) error {
+
+	tx, ok := dbTx.(kvdb.RwTx)
+	if !ok {
+		return errors.New("invalid transaction type")
+	}
+
+	invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
+	if err != nil {
+		return err
+	}
+	invoiceIndex, err := invoices.CreateBucketIfNotExists(
+		invoiceIndexBucket,
+	)
+	if err != nil {
+		return err
+	}
+	settleIndex, err := invoices.CreateBucketIfNotExists(
+		settleIndexBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	payAddrIndex := tx.ReadBucket(payAddrIndexBucket)
+	setIDIndex := tx.ReadWriteBucket(setIDIndexBucket)
+
+	var ref invpkg.InvoiceRef
+	switch {
+	case invoice.Terms.PaymentPreimage != nil:
+		ref = invpkg.InvoiceRefByHash(
+			invoice.Terms.PaymentPreimage.Hash(),
+		)
+
+	case invoice.Terms.PaymentHash != nil:
+		ref = invpkg.InvoiceRefByHash(*invoice.Terms.PaymentHash)
+
+	case invoice.IsAMP():
+		ref = invpkg.InvoiceRefByAddr(invoice.Terms.PaymentAddr)
+
+	default:
+		return errors.New("unable to create invoice reference")
+	}
+
+	// Retrieve the invoice number for this invoice using the
+	// provided invoice reference.
+	invoiceNum, err := fetchInvoiceNumByRef(
+		invoiceIndex, payAddrIndex, setIDIndex, ref,
+	)
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case invoice.IsAMP():
+		// Check if we need to mark any of the subinvoices as settled.
+		for setID, state := range invoice.AMPState {
+			if state.State == invpkg.HtlcStateSettled &&
+				state.SettleIndex == 0 {
+
+				err := setSettleMetaFields(
+					settleIndex, invoiceNum, invoice,
+					state.SettleDate, &setID,
+				)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		updateMap := map[invpkg.SetID]map[models.CircuitKey]*invpkg.InvoiceHTLC{} //nolint:lll
+
+		// We use all the HTLCs present in the invoice. Usually they
+		// will only belong to one SetID. Even if the user did not
+		// update them we overwrite what was in the db.
+		for key, htlc := range invoice.Htlcs {
+			setID := htlc.AMP.Record.SetID()
+			if _, ok := updateMap[setID]; !ok {
+				updateMap[setID] = make(map[models.CircuitKey]*invpkg.InvoiceHTLC) //nolint:lll
+			}
+
+			updateMap[setID][key] = htlc
+		}
+
+		err := updateAMPInvoices(invoices, invoiceNum, updateMap)
+		if err != nil {
+			return err
+		}
+
+	default:
+		isSettled := invoice.State == invpkg.ContractSettled
+		hasSettledIndex := invoice.SettleIndex != 0
+		if isSettled && !hasSettledIndex {
+			err = setSettleMetaFields(
+				settleIndex, invoiceNum, invoice,
+				invoice.SettleDate, nil,
+			)
+			if err != nil {
+				return err
+			}
+
+		}
+	}
+
+	err = d.serializeAndStoreInvoice(invoices, invoiceNum, invoice)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // InvoicesAddedSince can be used by callers to seek into the event time series
 // of all the invoices added in the database. The specified sinceAddIndex
 // should be the highest add index that the caller knows of. This method will

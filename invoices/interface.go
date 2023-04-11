@@ -49,6 +49,32 @@ type InvoiceDB interface {
 	GetInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
 		ref InvoiceRef) (*Invoice, error)
 
+	// UpdateInvoiceV2 updates the invoice identified by the given
+	// InvoiceRef.
+	//
+	// NOTE: If the ContractState is ContractSettled and the passed invoice
+	// does not have a valid settle index this method will populate the
+	// SettleIndex field with the next available value.
+	//
+	// NOTE: Unless the invoice is being settled or canceled this method
+	// does not update any changes related to the htlc fields.
+	//
+	// NOTE: This method will be executed in its own transaction and will
+	// use the default timeout.
+	UpdateInvoiceV2(invoice *Invoice) error
+
+	// UpdateInvoiceWithTx updates the invoice identified by the given
+	// InvoiceRef.
+	//
+	// NOTE: If the ContractState is ContractSettled and the passed invoice
+	// does not have a valid settle index this method will populate the
+	// SettleIndex field with the next available value.
+	//
+	// NOTE: Unless the invoice is being settled or canceled this method
+	// does not update any changes related to the htlc fields.
+	UpdateInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
+		invoice *Invoice) error
+
 	// DeleteInvoices updates the invoice identified by the passed
 	// InvoiceRef.
 	//
@@ -126,31 +152,6 @@ type InvoiceDB interface {
 // This is a temporary interface to allow us to follow better the next changes
 // in the commits.
 type InvoiceDB2 interface {
-	// UpdateInvoice updates the invoice identified by the given InvoiceRef.
-	//
-	// NOTE: If the ContractState is ContractSettled and the passed invoice
-	// does not have a valid settle index this method will populate the
-	// SettleIndex field with the next availabe value.
-	//
-	// NOTE: Unless the invoice is being settled or canceled this method
-	// does not update any changes related to the htlc fields.
-	//
-	// NOTE: This method will be executed in its own transaction and will
-	// use the default timeout.
-	UpdateInvoice(invoice *Invoice) error
-
-	// UpdateInvoiceWithTx updates the invoice identified by the given
-	// InvoiceRef.
-	//
-	// NOTE: If the ContractState is ContractSettled and the passed invoice
-	// does not have a valid settle index this method will populate the
-	// SettleIndex field with the next availabe value.
-	//
-	// NOTE: Unless the invoice is being settled or canceled this method
-	// does not update any changes related to the htlc fields.
-	UpdateInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
-		invoice *Invoice) error
-
 	// UpdateInvoiceHTLCs updates the htlcs for the given invoice.
 	//
 	// NOTE: This function will be executed in its own transaction and will

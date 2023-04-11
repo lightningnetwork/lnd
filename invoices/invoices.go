@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lightningnetwork/lnd/amp"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -492,6 +494,423 @@ func (i *Invoice) IsAMP() bool {
 	return i.Terms.Features.HasFeature(
 		lnwire.AMPRequired,
 	)
+}
+
+// AddHTLC adds an HTLC to the invoice.
+func (i *Invoice) AddHTLC(htlcID CircuitKey, htlc *InvoiceHTLC) {
+	switch {
+	case i.IsAMP():
+		setID := htlc.AMP.Record.SetID()
+		ampState, ok := i.AMPState[setID]
+		if !ok {
+			// If an entry for this set ID doesn't already exist,
+			// then we'll need to create it.
+			ampState = InvoiceStateAMP{
+				State: HtlcStateAccepted,
+				InvoiceKeys: make(
+					map[models.CircuitKey]struct{},
+				),
+			}
+		}
+
+		ampState.AmtPaid += htlc.Amt
+		ampState.InvoiceKeys[htlcID] = struct{}{}
+
+		// Due to the way maps work, we need to read out the value,
+		// update it, then re-assign it into the map.
+		i.AMPState[setID] = ampState
+
+	default:
+		i.AmtPaid += htlc.Amt
+	}
+
+	i.Htlcs[htlcID] = htlc
+}
+
+// Settle tries to settle the invoice.
+//
+// NOTE: This method modifies the invoice in place but does not write it to
+// disk.
+//
+// NOTE: If this method fails it is not safe to use the invoice again.
+func (i *Invoice) Settle(timestamp time.Time) (*Invoice, error) {
+	switch {
+	case i.IsAMP():
+		return i.settleAMPInvoice(timestamp)
+
+	case i.HodlInvoice:
+		return i.settleHodlInvoice(timestamp)
+
+	default:
+		return i.settleInvoice(timestamp)
+	}
+}
+
+// settleAMPInvoice tries to settle an AMP invoice.
+func (i *Invoice) settleAMPInvoice(timestamp time.Time) (*Invoice, error) {
+	switch i.State {
+	case ContractOpen:
+		// This is the only state that we allow the amp invoice
+		// to be in when settling it.
+
+	case ContractCanceled:
+		return nil, ErrInvoiceAlreadyCanceled
+
+	case ContractAccepted, ContractSettled:
+		return nil, fmt.Errorf("invalid state for amp "+
+			"invoice: %v", i.State)
+
+	default:
+		return nil, fmt.Errorf("unknown invoice state: %v",
+			i.State)
+	}
+
+	i.SettleDate = timestamp
+
+	err := i.settleAMPHTLCs(timestamp)
+	if err != nil {
+		return nil, err
+	}
+
+	return i, nil
+}
+
+// settleAMPHTLCs tries to settle all accepted HTLCs for an AMP sub-invoice.
+func (i *Invoice) settleAMPHTLCs(timestamp time.Time) error {
+	setID, err := i.AMPSubinvoice()
+	if err != nil {
+		return err
+	}
+
+	amtPaid := lnwire.MilliSatoshi(0)
+
+	// Settle all accepted HTLCs.
+	for _, htlc := range i.Htlcs {
+		switch htlc.State {
+		case HtlcStateAccepted:
+			htlc.State = HtlcStateSettled
+			htlc.ResolveTime = timestamp
+
+			amtPaid += htlc.Amt
+
+		case HtlcStateCanceled:
+			// An invocie can be settled even if it has some
+			// canceled HTLCs. For example from previous mpp
+			// attempts.
+
+		case HtlcStateSettled:
+			return fmt.Errorf("trying to settle an invoice that " +
+				"already has settled htlcs")
+
+		default:
+			return fmt.Errorf("unknown htlc state: %v", htlc.State)
+		}
+	}
+
+	if amtPaid < i.Terms.Value {
+		return fmt.Errorf("settle amount %v is less than invoice "+
+			"amount %v", amtPaid, i.Terms.Value)
+	}
+
+	// TODO(positiveblue): check that the amount paid is not greater than
+	// the invoice amount within a threshold?
+
+	ampInvoiceState := i.AMPState[*setID]
+	ampInvoiceState.State = HtlcStateSettled
+	ampInvoiceState.SettleDate = timestamp
+	ampInvoiceState.AmtPaid = amtPaid
+
+	i.AMPState[*setID] = ampInvoiceState
+	i.AmtPaid += amtPaid
+
+	// Create a slice containing all the child descriptors to be used for
+	// reconstruction. This should include all HTLCs currently in the HTLC
+	// set, plus the incoming HTLC.
+	childDescs := make([]amp.ChildDesc, 0, len(i.Htlcs))
+
+	// Next, construct an index mapping the position in childDescs to a
+	// circuit key for all preexisting HTLCs.
+	indexToCircuitKey := make(map[int]CircuitKey)
+
+	// Add the child descriptor for each HTLC in the HTLC set, recording
+	// it's position within the slice.
+	var htlcSetIndex int
+	for circuitKey, htlc := range i.Htlcs {
+		if htlc.AMP.Record.SetID() != (*setID) {
+			continue
+		}
+		childDescs = append(childDescs, amp.ChildDesc{
+			Share: htlc.AMP.Record.RootShare(),
+			Index: htlc.AMP.Record.ChildIndex(),
+		})
+		indexToCircuitKey[htlcSetIndex] = circuitKey
+		htlcSetIndex++
+	}
+
+	// Using the child descriptors, reconstruct the root seed and derive the
+	// child hash/preimage pairs for each of the HTLCs.
+	children := amp.ReconstructChildren(childDescs...)
+
+	// Validate that the derived child preimages match the hash of each
+	// HTLC's respective hash.
+	for idx, child := range children {
+		circuitKey := indexToCircuitKey[idx]
+		htlc := i.Htlcs[circuitKey]
+		if htlc.AMP.Hash != child.Hash {
+			return fmt.Errorf("invalid preimage for idx %v child: "+
+				"%v amp: %v", idx, child.Hash, htlc.AMP.Hash)
+		}
+
+		htlc.AMP.Preimage = &child.Preimage
+	}
+
+	return nil
+}
+
+// settleInvoice tries to settle a regular invoice.
+func (i *Invoice) settleInvoice(timestamp time.Time) (*Invoice, error) {
+	switch i.State {
+	case ContractOpen, ContractAccepted:
+		// These are the only two states that we allow an
+		// invoice to be in when settling it.
+
+	case ContractCanceled:
+		return nil, ErrInvoiceAlreadyCanceled
+
+	case ContractSettled:
+		return nil, ErrInvoiceAlreadySettled
+
+	default:
+		return nil, fmt.Errorf("unknown invoice state: %v",
+			i.State)
+	}
+
+	i.State = ContractSettled
+	i.SettleDate = timestamp
+
+	err := i.settleHTLCs(timestamp)
+	if err != nil {
+		return nil, err
+	}
+
+	return i, nil
+}
+
+// settleHodlInvoice tries to settle a hodl invoice.
+func (i *Invoice) settleHodlInvoice(timestamp time.Time) (*Invoice, error) {
+	switch i.State {
+	case ContractOpen:
+		return nil, ErrInvoiceStillOpen
+
+	case ContractCanceled:
+		return nil, ErrInvoiceAlreadyCanceled
+
+	case ContractSettled:
+		return nil, ErrInvoiceAlreadySettled
+
+	case ContractAccepted:
+		// This is the only state that we allow the hodl invoice
+		// to be in when settling it.
+
+	default:
+		return nil, fmt.Errorf("unknown invoice state: %v",
+			i.State)
+	}
+
+	i.State = ContractSettled
+	i.SettleDate = timestamp
+
+	err := i.settleHTLCs(timestamp)
+	if err != nil {
+		return nil, err
+	}
+
+	return i, nil
+}
+
+// settleHTLCs sets the state of all accepted HTLCs to settled.
+func (i *Invoice) settleHTLCs(timestamp time.Time) error {
+	if i.IsAMP() {
+		return fmt.Errorf("settling htlcs of an AMP invoice is " +
+			"handled by its own method")
+	}
+
+	amtPaid := lnwire.MilliSatoshi(0)
+
+	// Settle all accepted HTLCs.
+	for _, htlc := range i.Htlcs {
+		switch htlc.State {
+		case HtlcStateAccepted:
+			htlc.State = HtlcStateSettled
+			htlc.ResolveTime = timestamp
+
+			amtPaid += htlc.Amt
+
+		case HtlcStateCanceled:
+			// An invocie can be settled even if it has some
+			// canceled HTLCs. For example from previous mpp
+			// attempts.
+
+		case HtlcStateSettled:
+			return fmt.Errorf("trying to settle an invoice that " +
+				"already has settled htlcs")
+
+		default:
+			return fmt.Errorf("unknown htlc state: %v", htlc.State)
+		}
+	}
+
+	if amtPaid < i.Terms.Value {
+		return fmt.Errorf("settle amount %v is less than invoice "+
+			"amount %v", amtPaid, i.Terms.Value)
+	}
+
+	// TODO(positiveblue): check that the amount paid is not greater than
+	// the invoice amount within a threshold?
+
+	i.AmtPaid = amtPaid
+
+	return nil
+}
+
+// Cancel cancels the invoice.
+//
+// NOTE: This method modifies the invoice in place, but does not write it to
+// disk.
+//
+// NOTE: If this method fails it is not safe to use the invoice again.
+func (i *Invoice) Cancel(timestamp time.Time) (*Invoice, error) {
+	if i.IsAMP() {
+		return nil, fmt.Errorf("cancel amp invoices is handled by " +
+			"its own method")
+	}
+
+	switch i.State {
+	case ContractOpen, ContractAccepted:
+		// These are the only two states that we allow an
+		// invoice to be in when canceling it.
+
+	case ContractCanceled:
+		return nil, ErrInvoiceAlreadyCanceled
+
+	case ContractSettled:
+		return nil, ErrInvoiceAlreadySettled
+
+	default:
+		return nil, fmt.Errorf("unknown invoice state: %v",
+			i.State)
+	}
+
+	err := i.cancelHTLCs(timestamp)
+	if err != nil {
+		return nil, err
+	}
+
+	i.State = ContractCanceled
+
+	return i, nil
+}
+
+// cancelHTLCs sets the state of all accepted HTLCs to canceled.
+func (i *Invoice) cancelHTLCs(timestamp time.Time) error {
+	for _, htlc := range i.Htlcs {
+		switch htlc.State {
+		case HtlcStateAccepted:
+			htlc.State = HtlcStateCanceled
+			htlc.ResolveTime = timestamp
+
+		case HtlcStateCanceled:
+			// An invocie can be canceled even if it has some
+			// canceled HTLCs. For example from previous mpp
+			// attempts.
+
+		case HtlcStateSettled:
+			return fmt.Errorf("trying to cancel an invoice that " +
+				"already has settled htlcs")
+
+		default:
+			return fmt.Errorf("unknown htlc state: %v", htlc.State)
+		}
+	}
+
+	return nil
+}
+
+// CancelAMPInvoice cancels the AMP invoice/subinvoice. If the setID is not nil,
+// this method cancels the subinvoice with the given setID. If the setID is nil,
+// this method cancels the entire AMP invoice.
+func (i *Invoice) CancelAMPInvoice(setID *SetID,
+	timestamp time.Time) (*Invoice, error) {
+
+	if !i.IsAMP() {
+		return nil, errors.New("unable to execute CancelAMPInvoice " +
+			"for a non-AMP invoice")
+	}
+
+	switch i.State {
+	case ContractOpen:
+		// This is the only state that we allow the amp invoice to be
+		// in when canceling it.
+
+	case ContractCanceled:
+		return nil, ErrInvoiceAlreadyCanceled
+
+	case ContractAccepted, ContractSettled:
+		return nil, fmt.Errorf("invalid state for amp "+
+			"invoice: %v", i.State)
+
+	default:
+		return nil, fmt.Errorf("unknown invoice state: %v",
+			i.State)
+	}
+
+	if setID != nil {
+		ampInvoiceState := i.AMPState[*setID]
+		ampInvoiceState.State = HtlcStateCanceled
+		ampInvoiceState.SettleDate = timestamp
+		ampInvoiceState.AmtPaid = 0
+
+		i.AMPState[*setID] = ampInvoiceState
+
+		err := i.cancelHTLCs(timestamp)
+		if err != nil {
+			return nil, err
+		}
+
+		return i, nil
+	}
+
+	i.State = ContractCanceled
+
+	return i, nil
+}
+
+// AMPSubinvoice returns the setID of the subinvoice that is currently being
+// represented by the invoice. If this is an AMP invoice with htlcs from
+// multiple setIDs, an error is returned.
+func (i *Invoice) AMPSubinvoice() (*SetID, error) {
+	if !i.IsAMP() {
+		return nil, errors.New("unable to get AMP subinvoice for a " +
+			"non-AMP invoice")
+	}
+
+	htlcSet := make(map[SetID]struct{})
+
+	for _, htlc := range i.Htlcs {
+		htlcSet[htlc.AMP.Record.SetID()] = struct{}{}
+	}
+
+	if len(htlcSet) != 1 {
+		return nil, fmt.Errorf("unable to get AMP subinvoice for "+
+			"invoice with %v setIDs", len(htlcSet))
+	}
+
+	var setID SetID
+	for key := range htlcSet {
+		setID = key
+	}
+
+	return &setID, nil
 }
 
 // HtlcState defines the states an htlc paying to an invoice can be in.

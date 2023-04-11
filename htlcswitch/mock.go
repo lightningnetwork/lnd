@@ -969,6 +969,7 @@ func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 		),
 		&invoices.RegistryConfig{
 			FinalCltvRejectDelta: 5,
+			Clock:                clock.NewDefaultClock(),
 		},
 	)
 	registry.Start()

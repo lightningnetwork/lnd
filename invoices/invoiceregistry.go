@@ -1,6 +1,7 @@
 package invoices
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/database"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
@@ -1238,30 +1240,57 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 	i.Lock()
 	defer i.Unlock()
 
-	updateInvoice := func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
-		switch invoice.State {
-		case ContractOpen:
-			return nil, ErrInvoiceStillOpen
+	var (
+		settledInvoice *Invoice
+	)
 
-		case ContractCanceled:
-			return nil, ErrInvoiceAlreadyCanceled
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), database.DefaultStoreTimeout,
+	)
+	defer cancel()
 
-		case ContractSettled:
-			return nil, ErrInvoiceAlreadySettled
+	invRef := InvoiceRefByHash(preimage.Hash())
+
+	fn := func(tx database.DBTx) error {
+		invoice, err := i.idb.GetInvoiceWithTx(ctxt, tx, invRef)
+		if err != nil {
+			return err
+		}
+		// Make sure this is a hodl invoice that can be settled.
+		if !invoice.HodlInvoice {
+			return fmt.Errorf("unable to settle hodl invoice: %v "+
+				"is not a hodl invoice", invoice.AddIndex)
 		}
 
-		return &InvoiceUpdateDesc{
-			UpdateType: SettleHodlInvoiceUpdate,
-			State: &InvoiceStateUpdateDesc{
-				NewState: ContractSettled,
-				Preimage: &preimage,
-			},
-		}, nil
+		// We are ready to settle the invoice. We will also make sure
+		// that we record the paid amount for the invoice.
+		timestamp := i.cfg.Clock.Now()
+
+		invoice, err = invoice.Settle(timestamp)
+		if err != nil {
+			return err
+		}
+
+		invoice.Terms.PaymentPreimage = &preimage
+
+		err = i.idb.UpdateInvoiceHTLCsWithTx(
+			ctxt, tx, invRef, HtlcStateSettled, timestamp,
+		)
+		if err != nil {
+			return err
+		}
+
+		err = i.idb.UpdateInvoiceWithTx(ctxt, tx, invoice)
+		if err != nil {
+			return err
+		}
+
+		settledInvoice = invoice
+
+		return nil
 	}
 
-	hash := preimage.Hash()
-	invoiceRef := InvoiceRefByHash(hash)
-	invoice, err := i.idb.UpdateInvoice(invoiceRef, nil, updateInvoice)
+	err := i.idb.WithTx(ctxt, fn)
 	if err != nil {
 		log.Errorf("SettleHodlInvoice with preimage %v: %v",
 			preimage, err)
@@ -1269,8 +1298,8 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 		return err
 	}
 
-	log.Debugf("Invoice%v: settled with preimage %v", invoiceRef,
-		invoice.Terms.PaymentPreimage)
+	log.Debugf("Invoice%v: settled with preimage %v", invRef,
+		settledInvoice.Terms.PaymentPreimage)
 
 	// In the callback, we marked the invoice as settled. UpdateInvoice will
 	// have seen this and should have moved all htlcs that were accepted to
@@ -1278,7 +1307,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 	// notify links and resolvers that are waiting for resolution. Any htlcs
 	// that were already settled before, will be notified again. This isn't
 	// necessary but doesn't hurt either.
-	for key, htlc := range invoice.Htlcs {
+	for key, htlc := range settledInvoice.Htlcs {
 		if htlc.State != HtlcStateSettled {
 			continue
 		}
@@ -1289,7 +1318,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 
 		i.notifyHodlSubscribers(resolution)
 	}
-	i.notifyClients(hash, invoice, nil)
+	i.notifyClients(preimage.Hash(), settledInvoice, nil)
 
 	return nil
 }

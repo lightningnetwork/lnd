@@ -6,9 +6,11 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSignDescriptorSerialization(t *testing.T) {
@@ -126,4 +128,43 @@ func TestSignDescriptorSerialization(t *testing.T) {
 				sd, desSd)
 		}
 	}
+}
+
+func TestSignDescriptorEnrichment(t *testing.T) {
+	t.Parallel()
+
+	var outSignInfo []SignInfo
+
+	// One output in packet but nothing to enrich with.
+	packet := &psbt.Packet{Outputs: []psbt.POutput{{}}}
+	err := MaybeEnrichPsbt(packet, outSignInfo)
+	require.NoError(t, err)
+	require.Equal(
+		t, &psbt.Packet{Outputs: []psbt.POutput{{}}}, packet,
+	)
+
+	// Two outputs worth of enrichment data but only one output in packet.
+	outSignInfo = []SignInfo{
+		{},
+		{
+			{Key: []byte("k1"), Value: []byte("v1")},
+			{Key: []byte("k2"), Value: []byte("v2")},
+		},
+	}
+	err = MaybeEnrichPsbt(&psbt.Packet{Outputs: []psbt.POutput{
+		{},
+	}}, outSignInfo)
+	require.Error(t, err)
+
+	// Packet enrichment works correctly.
+	packet = &psbt.Packet{Outputs: []psbt.POutput{{}, {}}}
+	err = MaybeEnrichPsbt(packet, outSignInfo)
+	require.NoError(t, err)
+	require.EqualValues(t, &psbt.Packet{Outputs: []psbt.POutput{
+		{},
+		{Unknowns: SignInfo{
+			{Key: []byte("k1"), Value: []byte("v1")},
+			{Key: []byte("k2"), Value: []byte("v2")},
+		}}},
+	}, packet)
 }

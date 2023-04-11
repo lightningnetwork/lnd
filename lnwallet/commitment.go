@@ -183,6 +183,11 @@ func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 // WitnessScriptDesc holds the output script and the witness script for p2wsh
 // outputs.
 type WitnessScriptDesc struct {
+	// PsbtSignInfo is the information used to generate the OutputScript.
+	// It's used by remote signers to be able to validate that this output
+	// will be correctly claimable.
+	PsbtSignInfo input.SignInfo
+
 	// OutputScript is the output's PkScript.
 	OutputScript []byte
 
@@ -197,6 +202,12 @@ type WitnessScriptDesc struct {
 // contract.
 func (w *WitnessScriptDesc) PkScript() []byte {
 	return w.OutputScript
+}
+
+// SignInfo is the metadata to attach to PSBTs for external signers to verify
+// the PkScript was generated correctly.
+func (w *WitnessScriptDesc) SignInfo() input.SignInfo {
+	return w.PsbtSignInfo
 }
 
 // WitnessScript returns the witness script that we'll use when signing for the

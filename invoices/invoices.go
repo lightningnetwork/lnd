@@ -854,21 +854,3 @@ func CopyInvoice(src *Invoice) (*Invoice, error) {
 
 	return &dest, nil
 }
-
-// InvoiceDeleteRef holds a reference to an invoice to be deleted.
-type InvoiceDeleteRef struct {
-	// PayHash is the payment hash of the target invoice. All invoices are
-	// currently indexed by payment hash.
-	PayHash lntypes.Hash
-
-	// PayAddr is the payment addr of the target invoice. Newer invoices
-	// (0.11 and up) are indexed by payment address in addition to payment
-	// hash, but pre 0.8 invoices do not have one at all.
-	PayAddr *[32]byte
-
-	// AddIndex is the add index of the invoice.
-	AddIndex uint64
-
-	// SettleIndex is the settle index of the invoice.
-	SettleIndex uint64
-}

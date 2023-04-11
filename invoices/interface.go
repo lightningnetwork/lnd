@@ -49,6 +49,18 @@ type InvoiceDB interface {
 	GetInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
 		ref InvoiceRef) (*Invoice, error)
 
+	// DeleteInvoices updates the invoice identified by the passed
+	// InvoiceRef.
+	//
+	// NOTE: This function will be executed in its own transaction and will
+	// use the default timeout.
+	DeleteInvoices(refs []InvoiceRef) error
+
+	// DeleteInvoicesWithTx updates the invoice identified by the passed
+	// InvoiceRef.
+	DeleteInvoicesWithTx(ctx context.Context, dbTx database.DBTx,
+		refs []InvoiceRef) error
+
 	// InvoicesAddedSince can be used by callers to seek into the event
 	// time series of all the invoices added in the database. The specified
 	// sinceAddIndex should be the highest add index that the caller knows
@@ -95,12 +107,6 @@ type InvoiceDB interface {
 	// NOTE: The index starts from 1, as a result. We enforce that
 	// specifying a value below the starting index value is a noop.
 	InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error)
-
-	// DeleteInvoice attempts to delete the passed invoices from the
-	// database in one transaction. The passed delete references hold all
-	// keys required to delete the invoices without also needing to
-	// deserialze them.
-	DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error
 }
 
 // InvoiceDB2 is the database that stores the information about invoices.
@@ -133,18 +139,6 @@ type InvoiceDB2 interface {
 	// does not update any changes related to the htlc fields.
 	UpdateInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
 		invoice *Invoice) error
-
-	// DeleteInvoices updates the invoice identified by the given
-	// InvoiceRef.
-	//
-	// NOTE: This method will be executed in its own transaction and will
-	// use the default timeout.
-	DeleteInvoices(refs []InvoiceRef) error
-
-	// DeleteInvoiceWithTx updates the invoice identified by the given
-	// InvoiceRef.
-	DeleteInvoicesWithTx(ctx context.Context, dbTx database.DBTx,
-		refs []InvoiceRef) error
 
 	// AddHtlc adds new htlc to an existing invoice.
 	//

@@ -182,7 +182,7 @@ func NewRegistry(idb InvoiceDB, expiryWatcher *InvoiceExpiryWatcher,
 func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 	var (
 		pending   []invoiceExpiry
-		removable []InvoiceDeleteRef
+		removable []InvoiceRef
 	)
 
 	reset := func() {
@@ -192,7 +192,7 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 		// using the etcd driver, where all transactions are allowed
 		// to retry for serializability).
 		pending = nil
-		removable = make([]InvoiceDeleteRef, 0)
+		removable = make([]InvoiceRef, 0)
 	}
 
 	scanFunc := func(paymentHash lntypes.Hash,
@@ -210,16 +210,7 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 			// canceled. Invoices that are expired but not yet
 			// canceled, will be queued up for cancellation after
 			// startup and will be deleted afterwards.
-			ref := InvoiceDeleteRef{
-				PayHash:     paymentHash,
-				AddIndex:    invoice.AddIndex,
-				SettleIndex: invoice.SettleIndex,
-			}
-
-			if invoice.Terms.PaymentAddr != BlankPayAddr {
-				ref.PayAddr = &invoice.Terms.PaymentAddr
-			}
-
+			ref := InvoiceRefByHash(paymentHash)
 			removable = append(removable, ref)
 		}
 		return nil
@@ -237,7 +228,7 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 	if len(removable) > 0 {
 		log.Infof("Attempting to delete %v canceled invoices",
 			len(removable))
-		if err := i.idb.DeleteInvoice(removable); err != nil {
+		if err := i.idb.DeleteInvoices(removable); err != nil {
 			log.Warnf("Deleting canceled invoices failed: %v", err)
 		} else {
 			log.Infof("Deleted %v canceled invoices",
@@ -1395,18 +1386,9 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 	// Attempt to also delete the invoice if requested through the registry
 	// config.
 	if i.cfg.GcCanceledInvoicesOnTheFly {
-		// Assemble the delete reference and attempt to delete through
-		// the invocice from the DB.
-		deleteRef := InvoiceDeleteRef{
-			PayHash:     payHash,
-			AddIndex:    invoice.AddIndex,
-			SettleIndex: invoice.SettleIndex,
-		}
-		if invoice.Terms.PaymentAddr != BlankPayAddr {
-			deleteRef.PayAddr = &invoice.Terms.PaymentAddr
-		}
+		ref := InvoiceRefByHash(payHash)
+		err = i.idb.DeleteInvoices([]InvoiceRef{ref})
 
-		err = i.idb.DeleteInvoice([]InvoiceDeleteRef{deleteRef})
 		// If by any chance deletion failed, then log it instead of
 		// returning the error, as the invoice itself has already been
 		// canceled.

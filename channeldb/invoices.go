@@ -356,6 +356,187 @@ func (d *DB) GetInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
 	return &invoice, nil
 }
 
+// DeleteInvoices updates the invoice identified by the passed InvoiceRef.
+//
+// NOTE: This function will be executed in its own transaction and will
+// use the default timeout.
+func (d *DB) DeleteInvoices(refs []invpkg.InvoiceRef) error {
+	tx, err := d.BeginReadWriteTx()
+	if err != nil {
+		return err
+	}
+
+	// Make sure the transaction rolls back in the event of a panic.
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), database.DefaultStoreTimeout,
+	)
+	defer cancel()
+
+	err = d.DeleteInvoicesWithTx(ctxt, tx, refs)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// DeleteInvoicesWithTx updates the invoice identified by the passed InvoiceRef.
+func (d *DB) DeleteInvoicesWithTx(ctx context.Context, dbTx database.DBTx,
+	refs []invpkg.InvoiceRef) error {
+
+	tx, ok := dbTx.(kvdb.RwTx)
+	if !ok {
+		return errors.New("invalid transaction type")
+	}
+
+	invoices := tx.ReadWriteBucket(invoiceBucket)
+	if invoices == nil {
+		return invpkg.ErrNoInvoicesCreated
+	}
+
+	invoiceIndex := invoices.NestedReadWriteBucket(
+		invoiceIndexBucket,
+	)
+	if invoiceIndex == nil {
+		return invpkg.ErrNoInvoicesCreated
+	}
+
+	invoiceAddIndex := invoices.NestedReadWriteBucket(
+		addIndexBucket,
+	)
+	if invoiceAddIndex == nil {
+		return invpkg.ErrNoInvoicesCreated
+	}
+
+	// settleIndex can be nil, as the bucket is created lazily when the
+	// first invoice is settled.
+	settleIndex := invoices.NestedReadWriteBucket(settleIndexBucket)
+	payAddrIndex := tx.ReadWriteBucket(payAddrIndexBucket)
+
+	for _, ref := range refs {
+		invoice, err := d.GetInvoiceWithTx(ctx, tx, ref)
+		if err != nil {
+			return invpkg.ErrInvoiceNotFound
+		}
+
+		// Fetch the invoice key for using it to check for consistency
+		// and also to delete from the invoice index.
+		var payHash lntypes.Hash
+		switch {
+		case ref.PayHash() != nil:
+			payHash = *ref.PayHash()
+
+		case invoice.Terms.PaymentPreimage != nil:
+			payHash = invoice.Terms.PaymentPreimage.Hash()
+
+		default:
+			return errors.New("unable to find payment hash or " +
+				"preimage")
+		}
+
+		invoiceKey := invoiceIndex.Get(payHash[:])
+		if invoiceKey == nil {
+			return invpkg.ErrInvoiceNotFound
+		}
+
+		err = invoiceIndex.Delete(payHash[:])
+		if err != nil {
+			return err
+		}
+
+		// Delete payment address index reference if there's a valid
+		// payment address passed.
+		payAddr := invoice.Terms.PaymentAddr
+		if payAddr != invpkg.BlankPayAddr {
+			// To ensure consistency check that the already fetched
+			// invoice key matches the one in the payment address
+			// index.
+			key := payAddrIndex.Get(payAddr[:])
+			if bytes.Equal(key, invoiceKey) {
+				//nolint:lll
+				// Delete from the payment address index.
+				// Note that since the payment address index
+				// has been introduced with an empty migration
+				// it may be possible that the index doesn't
+				// have an entry for this invoice.
+				// ref: https://github.com/lightningnetwork/lnd/pull/4285/commits/cbf71b5452fa1d3036a43309e490787c5f7f08dc#r426368127
+				err := payAddrIndex.Delete(payAddr[:])
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		var addIndexKey [8]byte
+		byteOrder.PutUint64(addIndexKey[:], invoice.AddIndex)
+
+		// To ensure consistency check that the key stored in the add
+		// index also matches the previously fetched invoice key.
+		key := invoiceAddIndex.Get(addIndexKey[:])
+		if !bytes.Equal(key, invoiceKey) {
+			return fmt.Errorf("unknown invoice " +
+				"in add index")
+		}
+
+		// Remove from the add index.
+		err = invoiceAddIndex.Delete(addIndexKey[:])
+		if err != nil {
+			return err
+		}
+
+		// Remove from the settle index if available and if the invoice
+		// is settled.
+		if invoice.SettleIndex != 0 {
+			var settleIndexKey [8]byte
+			byteOrder.PutUint64(
+				settleIndexKey[:], invoice.SettleIndex,
+			)
+
+			// To ensure consistency check that the already fetched
+			// invoice key matches the one in the settle index.
+			key := settleIndex.Get(settleIndexKey[:])
+
+			if !bytes.Equal(key, invoiceKey) {
+				return fmt.Errorf("unknown invoice in settle " +
+					"index")
+			}
+
+			err = settleIndex.Delete(settleIndexKey[:])
+			if err != nil {
+				return err
+			}
+		}
+
+		// In addition to deleting the main invoice state, if this is
+		// an AMP invoice, then we'll also need to delete the set HTLC
+		// set stored as a key prefix. For non-AMP invoices, this'll be
+		// a noop.
+		err = delAMPSettleIndex(
+			invoiceKey, invoices, settleIndex,
+		)
+		if err != nil {
+			return err
+		}
+		err = delAMPInvoices(invoiceKey, invoices)
+		if err != nil {
+			return err
+		}
+
+		// Finally remove the serialized invoice from the
+		// invoice bucket.
+		err = invoices.Delete(invoiceKey)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // InvoicesAddedSince can be used by callers to seek into the event time series
 // of all the invoices added in the database. The specified sinceAddIndex
 // should be the highest add index that the caller knows of. This method will
@@ -2765,141 +2946,4 @@ func delAMPSettleIndex(invoiceNum []byte, invoices,
 	}
 
 	return nil
-}
-
-// DeleteInvoice attempts to delete the passed invoices from the database in
-// one transaction. The passed delete references hold all keys required to
-// delete the invoices without also needing to deserialze them.
-func (d *DB) DeleteInvoice(invoicesToDelete []invpkg.InvoiceDeleteRef) error {
-	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
-		invoices := tx.ReadWriteBucket(invoiceBucket)
-		if invoices == nil {
-			return invpkg.ErrNoInvoicesCreated
-		}
-
-		invoiceIndex := invoices.NestedReadWriteBucket(
-			invoiceIndexBucket,
-		)
-		if invoiceIndex == nil {
-			return invpkg.ErrNoInvoicesCreated
-		}
-
-		invoiceAddIndex := invoices.NestedReadWriteBucket(
-			addIndexBucket,
-		)
-		if invoiceAddIndex == nil {
-			return invpkg.ErrNoInvoicesCreated
-		}
-
-		// settleIndex can be nil, as the bucket is created lazily
-		// when the first invoice is settled.
-		settleIndex := invoices.NestedReadWriteBucket(settleIndexBucket)
-
-		payAddrIndex := tx.ReadWriteBucket(payAddrIndexBucket)
-
-		for _, ref := range invoicesToDelete {
-			// Fetch the invoice key for using it to check for
-			// consistency and also to delete from the invoice
-			// index.
-			invoiceKey := invoiceIndex.Get(ref.PayHash[:])
-			if invoiceKey == nil {
-				return invpkg.ErrInvoiceNotFound
-			}
-
-			err := invoiceIndex.Delete(ref.PayHash[:])
-			if err != nil {
-				return err
-			}
-
-			// Delete payment address index reference if there's a
-			// valid payment address passed.
-			if ref.PayAddr != nil {
-				// To ensure consistency check that the already
-				// fetched invoice key matches the one in the
-				// payment address index.
-				key := payAddrIndex.Get(ref.PayAddr[:])
-				if bytes.Equal(key, invoiceKey) {
-					// Delete from the payment address
-					// index. Note that since the payment
-					// address index has been introduced
-					// with an empty migration it may be
-					// possible that the index doesn't have
-					// an entry for this invoice.
-					// ref: https://github.com/lightningnetwork/lnd/pull/4285/commits/cbf71b5452fa1d3036a43309e490787c5f7f08dc#r426368127
-					if err := payAddrIndex.Delete(
-						ref.PayAddr[:],
-					); err != nil {
-						return err
-					}
-				}
-			}
-
-			var addIndexKey [8]byte
-			byteOrder.PutUint64(addIndexKey[:], ref.AddIndex)
-
-			// To ensure consistency check that the key stored in
-			// the add index also matches the previously fetched
-			// invoice key.
-			key := invoiceAddIndex.Get(addIndexKey[:])
-			if !bytes.Equal(key, invoiceKey) {
-				return fmt.Errorf("unknown invoice " +
-					"in add index")
-			}
-
-			// Remove from the add index.
-			err = invoiceAddIndex.Delete(addIndexKey[:])
-			if err != nil {
-				return err
-			}
-
-			// Remove from the settle index if available and
-			// if the invoice is settled.
-			if settleIndex != nil && ref.SettleIndex > 0 {
-				var settleIndexKey [8]byte
-				byteOrder.PutUint64(
-					settleIndexKey[:], ref.SettleIndex,
-				)
-
-				// To ensure consistency check that the already
-				// fetched invoice key matches the one in the
-				// settle index
-				key := settleIndex.Get(settleIndexKey[:])
-				if !bytes.Equal(key, invoiceKey) {
-					return fmt.Errorf("unknown invoice " +
-						"in settle index")
-				}
-
-				err = settleIndex.Delete(settleIndexKey[:])
-				if err != nil {
-					return err
-				}
-			}
-
-			// In addition to deleting the main invoice state, if
-			// this is an AMP invoice, then we'll also need to
-			// delete the set HTLC set stored as a key prefix. For
-			// non-AMP invoices, this'll be a noop.
-			err = delAMPSettleIndex(
-				invoiceKey, invoices, settleIndex,
-			)
-			if err != nil {
-				return err
-			}
-			err = delAMPInvoices(invoiceKey, invoices)
-			if err != nil {
-				return err
-			}
-
-			// Finally remove the serialized invoice from the
-			// invoice bucket.
-			err = invoices.Delete(invoiceKey)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}, func() {})
-
-	return err
 }

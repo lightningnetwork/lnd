@@ -71,7 +71,7 @@ func (m *MockInvoiceDB) UpdateInvoice(ref InvoiceRef, setIDHint *SetID,
 	return invoice, args.Error(1)
 }
 
-func (m *MockInvoiceDB) DeleteInvoice(invoices []InvoiceDeleteRef) error {
+func (m *MockInvoiceDB) DeleteInvoices(invoices []InvoiceRef) error {
 	args := m.Called(invoices)
 
 	return args.Error(0)

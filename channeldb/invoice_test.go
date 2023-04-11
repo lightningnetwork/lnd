@@ -977,12 +977,8 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 
 	// Finally, delete the invoice. If we query again, then nothing should
 	// be found.
-	err = db.DeleteInvoice([]invpkg.InvoiceDeleteRef{
-		{
-			PayHash:  payHash,
-			PayAddr:  &testInvoice.Terms.PaymentAddr,
-			AddIndex: testInvoice.AddIndex,
-		},
+	err = db.DeleteInvoices([]invpkg.InvoiceRef{
+		invpkg.InvoiceRefByHash(payHash),
 	})
 	require.Nil(t, err)
 }
@@ -2977,7 +2973,7 @@ func TestDeleteInvoices(t *testing.T) {
 
 	// Add some invoices to the test db.
 	numInvoices := 3
-	invoicesToDelete := make([]invpkg.InvoiceDeleteRef, numInvoices)
+	invoicesToDelete := make([]invpkg.InvoiceRef, numInvoices)
 
 	for i := 0; i < numInvoices; i++ {
 		invoice, err := randInvoice(lnwire.MilliSatoshi(i + 1))
@@ -2986,8 +2982,6 @@ func TestDeleteInvoices(t *testing.T) {
 		paymentHash := invoice.Terms.PaymentPreimage.Hash()
 		err = db.AddInvoice(invoice)
 		require.NoError(t, err)
-
-		addIndex := invoice.AddIndex
 
 		// Settle the second invoice.
 		if i == 1 {
@@ -2998,13 +2992,7 @@ func TestDeleteInvoices(t *testing.T) {
 			require.NoError(t, err, "unable to settle invoice")
 		}
 
-		// store the delete ref for later.
-		invoicesToDelete[i] = invpkg.InvoiceDeleteRef{
-			PayHash:     paymentHash,
-			PayAddr:     &invoice.Terms.PaymentAddr,
-			AddIndex:    addIndex,
-			SettleIndex: invoice.SettleIndex,
-		}
+		invoicesToDelete[i] = invpkg.InvoiceRefByHash(paymentHash)
 	}
 
 	// assertInvoiceCount asserts that the number of invoices equals
@@ -3022,33 +3010,31 @@ func TestDeleteInvoices(t *testing.T) {
 		require.Equal(t, count, len(response.Invoices))
 	}
 
-	// XOR one byte of one of the references' hash and attempt to delete.
-	invoicesToDelete[0].PayHash[2] ^= 3
-	require.Error(t, db.DeleteInvoice(invoicesToDelete))
+	fakePayHash := *invoicesToDelete[0].PayHash()
+	fakePayHash[5] = 3
+
+	require.Error(t, db.DeleteInvoices(
+		[]invpkg.InvoiceRef{
+			invpkg.InvoiceRefByHash(fakePayHash),
+		},
+	))
 	assertInvoiceCount(3)
-
-	// Restore the hash.
-	invoicesToDelete[0].PayHash[2] ^= 3
-
-	// XOR the second invoice's payment settle index as it is settled, and
-	// attempt to delete.
-	invoicesToDelete[1].SettleIndex ^= 11
-	require.Error(t, db.DeleteInvoice(invoicesToDelete))
-	assertInvoiceCount(3)
-
-	// Restore the settle index.
-	invoicesToDelete[1].SettleIndex ^= 11
-
-	// XOR the add index for one of the references and attempt to delete.
-	invoicesToDelete[2].AddIndex ^= 13
-	require.Error(t, db.DeleteInvoice(invoicesToDelete))
-	assertInvoiceCount(3)
-
-	// Restore the add index.
-	invoicesToDelete[2].AddIndex ^= 13
 
 	// Delete should succeed with all the valid references.
-	require.NoError(t, db.DeleteInvoice(invoicesToDelete))
+	require.NoError(
+		t, db.DeleteInvoices(
+			[]invpkg.InvoiceRef{invoicesToDelete[0]},
+		),
+	)
+
+	// Only one of the invocies have been deleted.
+	assertInvoiceCount(2)
+
+	// Delete should succeed with all the valid references.
+	require.NoError(t, db.DeleteInvoices(
+		[]invpkg.InvoiceRef{invoicesToDelete[1], invoicesToDelete[2]},
+	))
+
 	assertInvoiceCount(0)
 }
 

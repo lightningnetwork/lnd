@@ -2347,6 +2347,18 @@ func createInitChannels(t *testing.T, revocationWindow int) (
 		[]*btcec.PrivateKey{aliceKeyPriv}, nil,
 	)
 	bobSigner := input.NewMockSigner([]*btcec.PrivateKey{bobKeyPriv}, nil)
+	aliceSigner.SignDescriptorChecker = &input.DefaultSignDescriptorChecker{
+		OutChecker: lnwallet.GetCommitmentOutChecker(
+			t, channeldb.SingleFunderTweaklessBit, true,
+			aliceCfg, bobCfg,
+		),
+	}
+	bobSigner.SignDescriptorChecker = &input.DefaultSignDescriptorChecker{
+		OutChecker: lnwallet.GetCommitmentOutChecker(
+			t, channeldb.SingleFunderTweaklessBit, false,
+			bobCfg, aliceCfg,
+		),
+	}
 
 	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(

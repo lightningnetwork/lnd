@@ -688,6 +688,54 @@ func (d *DB) AddHtlcWithTx(ctx context.Context, dbTx database.DBTx,
 	return nil
 }
 
+// UpdateInvoiceHTLCs updates the htlcs for the given invoice.
+//
+// NOTE: This function will be executed in its own transaction and will
+// use the default timeout.
+func (d *DB) UpdateInvoiceHTLCs(ref invpkg.InvoiceRef, state invpkg.HtlcState,
+	timestamp time.Time) error {
+
+	tx, err := d.BeginReadWriteTx()
+	if err != nil {
+		return err
+	}
+
+	// Make sure the transaction rolls back in the event of a panic.
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), database.DefaultStoreTimeout,
+	)
+	defer cancel()
+
+	err = d.UpdateInvoiceHTLCsWithTx(ctxt, tx, ref, state, timestamp)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// UpdateInvoiceHTLCsWithTx updates the htlcs for the given invoice.
+func (d *DB) UpdateInvoiceHTLCsWithTx(ctx context.Context, dbTx database.DBTx,
+	ref invpkg.InvoiceRef, state invpkg.HtlcState,
+	timestamp time.Time) error {
+
+	_, ok := dbTx.(kvdb.RwTx)
+	if !ok {
+		return errors.New("invalid transaction type")
+	}
+
+	// We have nothing to do here because everytime that we update the
+	// htlcs of an invoic we will also have to update the invoice itself.
+	// The caller of this function will take care of that.
+	// This only happens because of how we serialize/store invoices here.
+
+	return nil
+}
+
 // UpdateInvoiceV2 updates the invoice identified by the given
 // InvoiceRef.
 //

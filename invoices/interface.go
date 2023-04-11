@@ -98,6 +98,17 @@ type InvoiceDB interface {
 	AddHtlcWithTx(ctx context.Context, dbTx database.DBTx, ref InvoiceRef,
 		htlcID models.CircuitKey, htlc *InvoiceHTLC) error
 
+	// UpdateInvoiceHTLCs updates the htlcs for the given invoice.
+	//
+	// NOTE: This function will be executed in its own transaction and will
+	// use the default timeout.
+	UpdateInvoiceHTLCs(ref InvoiceRef, state HtlcState,
+		timestamp time.Time) error
+
+	// UpdateInvoiceHTLCsWithTx updates the htlcs for the given invoice.
+	UpdateInvoiceHTLCsWithTx(ctx context.Context, dbTx database.DBTx,
+		ref InvoiceRef, state HtlcState, timestamp time.Time) error
+
 	// InvoicesAddedSince can be used by callers to seek into the event
 	// time series of all the invoices added in the database. The specified
 	// sinceAddIndex should be the highest add index that the caller knows
@@ -144,24 +155,6 @@ type InvoiceDB interface {
 	// NOTE: The index starts from 1, as a result. We enforce that
 	// specifying a value below the starting index value is a noop.
 	InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error)
-}
-
-// InvoiceDB2 is the database that stores the information about invoices.
-//
-// TODO(positiveblue): remove this interface once the migration is complete.
-// This is a temporary interface to allow us to follow better the next changes
-// in the commits.
-type InvoiceDB2 interface {
-	// UpdateInvoiceHTLCs updates the htlcs for the given invoice.
-	//
-	// NOTE: This function will be executed in its own transaction and will
-	// use the default timeout.
-	UpdateInvoiceHTLCs(ref InvoiceRef, state HtlcState,
-		timestamp time.Time) error
-
-	// UpdateInvoiceHTLCsWithTx updates the htlcs for the given invoice.
-	UpdateInvoiceHTLCsWithTx(ctx context.Context, dbTx database.DBTx,
-		ref InvoiceRef, state HtlcState, timestamp time.Time) error
 }
 
 // Payload abstracts access to any additional fields provided in the final hop's

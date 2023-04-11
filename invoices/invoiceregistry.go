@@ -1329,20 +1329,6 @@ func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
 	return i.cancelInvoiceImpl(payHash, true)
 }
 
-// shouldCancel examines the state of an invoice and whether we want to
-// cancel already accepted invoices, taking our force cancel boolean into
-// account. This is pulled out into its own function so that tests that mock
-// cancelInvoiceImpl can reuse this logic.
-func shouldCancel(state ContractState, cancelAccepted bool) bool {
-	if state != ContractAccepted {
-		return true
-	}
-
-	// If the invoice is accepted, we should only cancel if we want to
-	// force cancellation of accepted invoices.
-	return cancelAccepted
-}
-
 // cancelInvoice attempts to cancel the invoice corresponding to the passed
 // payment hash. Accepted invoices will only be canceled if explicitly
 // requested to do so. It notifies subscribing links and resolvers that
@@ -1353,53 +1339,100 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 	i.Lock()
 	defer i.Unlock()
 
-	ref := InvoiceRefByHash(payHash)
-	log.Debugf("Invoice%v: canceling invoice", ref)
+	var (
+		canceledInvoice *Invoice
+	)
 
-	updateInvoice := func(invoice *Invoice) (*InvoiceUpdateDesc, error) {
-		if !shouldCancel(invoice.State, cancelAccepted) {
-			return nil, nil
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), database.DefaultStoreTimeout,
+	)
+	defer cancel()
+	invRef := InvoiceRefByHash(payHash)
+	fn := func(tx database.DBTx) error {
+		invoice, err := i.idb.GetInvoiceWithTx(ctxt, tx, invRef)
+		if err != nil {
+			return err
 		}
 
-		// Move invoice to the canceled state. Rely on validation in
-		// channeldb to return an error if the invoice is already
-		// settled or canceled.
-		return &InvoiceUpdateDesc{
-			UpdateType: CancelInvoiceUpdate,
-			State: &InvoiceStateUpdateDesc{
-				NewState: ContractCanceled,
-			},
-		}, nil
-	}
+		switch invoice.State {
+		case ContractAccepted:
+			// If the invoice is already accepted, and we don't want
+			// to cancel accepted invoices, we can return early.
+			// This is the case for HODL invoices that are being
+			// cancel using the timeout expiry path.
+			if !cancelAccepted {
+				canceledInvoice = invoice
+				return nil
+			}
 
-	invoiceRef := InvoiceRefByHash(payHash)
-	invoice, err := i.idb.UpdateInvoice(invoiceRef, nil, updateInvoice)
+		case ContractCanceled:
+			return ErrInvoiceAlreadyCanceled
 
-	// Implement idempotency by returning success if the invoice was already
-	// canceled.
-	if errors.Is(err, ErrInvoiceAlreadyCanceled) {
-		log.Debugf("Invoice%v: already canceled", ref)
+		case ContractSettled:
+			return ErrInvoiceAlreadySettled
+		}
+
+		// We need to cancel all accepted htlcs before changing the
+		// invoice state.
+		timestamp := time.Now()
+
+		switch {
+		case invoice.IsAMP():
+			invoice, err = invoice.CancelAMPInvoice(nil, timestamp)
+
+		default:
+			invoice, err = invoice.Cancel(timestamp)
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if invoice.Terms.PaymentPreimage == nil {
+			invoice.Terms.PaymentHash = &payHash
+		}
+
+		err = i.idb.UpdateInvoiceWithTx(ctxt, tx, invoice)
+		if err != nil {
+			return err
+		}
+
+		canceledInvoice = invoice
+
 		return nil
 	}
-	if err != nil {
+
+	log.Debugf("Invoice%v: canceling invoice", invRef)
+
+	err := i.idb.WithTx(ctxt, fn)
+	switch {
+	case errors.Is(err, ErrInvoiceAlreadyCanceled):
+		// Implement idempotency by returning success if the invoice was
+		// already canceled.
+		log.Debugf("Invoice%v: already canceled", invRef)
+
+		return nil
+
+	case err != nil:
 		return err
 	}
 
 	// Return without cancellation if the invoice state is ContractAccepted.
-	if invoice.State == ContractAccepted {
+	if canceledInvoice.State == ContractAccepted {
 		log.Debugf("Invoice%v: remains accepted as cancel wasn't"+
-			"explicitly requested.", ref)
+			"explicitly requested.", invRef)
+
 		return nil
 	}
 
-	log.Debugf("Invoice%v: canceled", ref)
+	log.Debugf("Invoice%v: canceled", invRef)
 
 	// In the callback, some htlcs may have been moved to the canceled
 	// state. We now go through all of these and notify links and resolvers
 	// that are waiting for resolution. Any htlcs that were already canceled
 	// before, will be notified again. This isn't necessary but doesn't hurt
 	// either.
-	for key, htlc := range invoice.Htlcs {
+	for key, htlc := range canceledInvoice.Htlcs {
 		if htlc.State != HtlcStateCanceled {
 			continue
 		}
@@ -1410,7 +1443,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 			),
 		)
 	}
-	i.notifyClients(payHash, invoice, nil)
+	i.notifyClients(payHash, canceledInvoice, nil)
 
 	// Attempt to also delete the invoice if requested through the registry
 	// config.

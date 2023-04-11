@@ -537,6 +537,157 @@ func (d *DB) DeleteInvoicesWithTx(ctx context.Context, dbTx database.DBTx,
 	return nil
 }
 
+// AddHtlc records a new Invoice HTLC.
+//
+// NOTE: This function will be executed in its own transaction and will use the
+// default timeout.
+func (d *DB) AddHtlc(ref invpkg.InvoiceRef, htlcID models.CircuitKey,
+	htlc *invpkg.InvoiceHTLC) error {
+
+	tx, err := d.BeginReadWriteTx()
+	if err != nil {
+		return err
+	}
+
+	// Make sure the transaction rolls back in the event of a panic.
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), database.DefaultStoreTimeout,
+	)
+	defer cancel()
+
+	err = d.AddHtlcWithTx(ctxt, tx, ref, htlcID, htlc)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// AddHtlcWithTx records a new Invoice HTLC.
+func (d *DB) AddHtlcWithTx(ctx context.Context, dbTx database.DBTx,
+	ref invpkg.InvoiceRef, htlcID models.CircuitKey,
+	htlc *invpkg.InvoiceHTLC) error {
+
+	tx, ok := dbTx.(kvdb.RwTx)
+	if !ok {
+		return errors.New("invalid transaction type")
+	}
+
+	invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
+	if err != nil {
+		return err
+	}
+
+	invoiceIndex, err := invoices.CreateBucketIfNotExists(
+		invoiceIndexBucket,
+	)
+	if err != nil {
+		return err
+	}
+
+	payAddrIndex := tx.ReadBucket(payAddrIndexBucket)
+	setIDIndex := tx.ReadWriteBucket(setIDIndexBucket)
+
+	// Retrieve the invoice number for this invoice using the
+	// provided invoice reference.
+	invoiceNum, err := fetchInvoiceNumByRef(
+		invoiceIndex, payAddrIndex, setIDIndex, ref,
+	)
+	if err != nil {
+		return err
+	}
+
+	var setID *invpkg.SetID
+	switch {
+	// If this is a payment address ref, and the blank modified was
+	// specified, then we'll use the zero set ID to indicate that
+	// we won't want any HTLCs returned.
+	case ref.PayAddr() != nil &&
+		ref.Modifier() == invpkg.HtlcSetBlankModifier:
+
+		var zeroSetID invpkg.SetID
+		setID = &zeroSetID
+
+	// If this is a set ID ref, and the htlc set only modified was
+	// specified, then we'll pass through the specified setID so
+	// only that will be returned.
+	case ref.SetID() != nil &&
+		ref.Modifier() == invpkg.HtlcSetOnlyModifier:
+
+		setID = (*invpkg.SetID)(ref.SetID())
+	}
+
+	// An invoice was found, retrieve the remainder of the invoice
+	// body.
+	invoice, err := fetchInvoice(invoiceNum, invoices, setID)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := invoice.Htlcs[htlcID]; ok {
+		return fmt.Errorf("duplicate add of htlc %v", htlcID)
+	}
+
+	// Force caller to supply htlc without custom records in a
+	// consistent way.
+	if htlc.CustomRecords == nil {
+		return errors.New("nil custom records map")
+	}
+
+	invoice.Htlcs[htlcID] = htlc
+
+	isAMP := invoice.IsAMP()
+	if isAMP {
+		if htlc.AMP == nil {
+			return fmt.Errorf("unable to add htlc without AMP "+
+				"data to AMP invoice(%v)", invoice.AddIndex)
+		}
+
+		// Check if this SetID already exist.
+		htlcSetID := htlc.AMP.Record.SetID()
+		setIDInvNum := setIDIndex.Get(htlcSetID[:])
+
+		if setIDInvNum == nil {
+			err := setIDIndex.Put(htlcSetID[:], invoiceNum)
+			if err != nil {
+				return err
+			}
+		} else if !bytes.Equal(setIDInvNum, invoiceNum) {
+			return invpkg.ErrDuplicateSetID{
+				SetID: htlcSetID,
+			}
+		}
+
+		updateMap := map[invpkg.SetID]map[models.CircuitKey]*invpkg.InvoiceHTLC{ //nolint:lll
+			htlcSetID: {
+				htlcID: htlc,
+			},
+		}
+
+		// Collect the set of new HTLCs so we can write them properly
+		// below, but only if this is an AMP invoice.
+		updateHtlcsAmp(
+			&invoice, updateMap, htlc, htlcSetID, htlcID,
+		)
+
+		err := updateAMPInvoices(invoices, invoiceNum, updateMap)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = d.serializeAndStoreInvoice(invoices, invoiceNum, &invoice)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // InvoicesAddedSince can be used by callers to seek into the event time series
 // of all the invoices added in the database. The specified sinceAddIndex
 // should be the highest add index that the caller knows of. This method will

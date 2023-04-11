@@ -61,6 +61,17 @@ type InvoiceDB interface {
 	DeleteInvoicesWithTx(ctx context.Context, dbTx database.DBTx,
 		refs []InvoiceRef) error
 
+	// AddHtlc adds new htlc to an existing invoice.
+	//
+	// NOTE: This method will be executed in its own transaction and will
+	// use the default timeout.
+	AddHtlc(ref InvoiceRef, htlcID models.CircuitKey,
+		htlc *InvoiceHTLC) error
+
+	// AddHtlcWithTx adds new htlc to an existing invoice.
+	AddHtlcWithTx(ctx context.Context, dbTx database.DBTx, ref InvoiceRef,
+		htlcID models.CircuitKey, htlc *InvoiceHTLC) error
+
 	// InvoicesAddedSince can be used by callers to seek into the event
 	// time series of all the invoices added in the database. The specified
 	// sinceAddIndex should be the highest add index that the caller knows
@@ -139,18 +150,6 @@ type InvoiceDB2 interface {
 	// does not update any changes related to the htlc fields.
 	UpdateInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
 		invoice *Invoice) error
-
-	// AddHtlc adds new htlc to an existing invoice.
-	//
-	// NOTE: This method will be executed in its own transaction and will
-	// use the default timeout.
-	AddHtlc(ref InvoiceRef, htlcID models.CircuitKey,
-		htlc *InvoiceHTLC) error
-
-	// AddHtlcWithTx adds new htlc to an existing invoice.
-	AddHtlcWithTx(ctx context.Context, dbTx database.DBTx,
-		ref InvoiceRef, htlcID models.CircuitKey,
-		htlc *InvoiceHTLC) error
 
 	// UpdateInvoiceHTLCs updates the htlcs for the given invoice.
 	//

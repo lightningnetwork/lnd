@@ -187,14 +187,14 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	// Attempt to retrieve the invoice which was just added to the
 	// database. It should be found, and the invoice returned should be
 	// identical to the one created above.
-	dbInvoice, err := db.LookupInvoice(ref)
+	dbInvoice, err := db.GetInvoice(ref)
 	if !test.queryPayAddr && !test.queryPayHash {
 		require.ErrorIs(t, err, invpkg.ErrInvoiceNotFound)
 		return
 	}
 
 	require.Equal(t,
-		*fakeInvoice, dbInvoice,
+		*fakeInvoice, *dbInvoice,
 		"invoice fetched from db doesn't match original",
 	)
 
@@ -212,7 +212,7 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	payAmt := fakeInvoice.Terms.Value * 2
 	_, err = db.UpdateInvoice(ref, nil, getUpdateInvoice(payAmt))
 	require.NoError(t, err, "unable to settle invoice")
-	dbInvoice2, err := db.LookupInvoice(ref)
+	dbInvoice2, err := db.GetInvoice(ref)
 	require.NoError(t, err, "unable to fetch invoice")
 	if dbInvoice2.State != invpkg.ContractSettled {
 		t.Fatalf("invoice should now be settled but isn't")
@@ -241,14 +241,14 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	// with a "not found" error.
 	var fakeHash [32]byte
 	fakeRef := invpkg.InvoiceRefByHash(fakeHash)
-	_, err = db.LookupInvoice(fakeRef)
+	_, err = db.GetInvoice(fakeRef)
 	require.ErrorIs(t, err, invpkg.ErrInvoiceNotFound)
 
 	// Add 10 random invoices.
 	const numInvoices = 10
 	amt := lnwire.NewMSatFromSatoshis(1000)
 	invoices := make([]*invpkg.Invoice, numInvoices+1)
-	invoices[0] = &dbInvoice2
+	invoices[0] = dbInvoice2
 	for i := 1; i < len(invoices); i++ {
 		invoice, err := randInvoice(amt)
 		require.NoError(t, err)
@@ -335,14 +335,14 @@ func TestAddDuplicateKeysendPayAddr(t *testing.T) {
 	// invoices, so if both succeed we can be assured they aren't included
 	// in the payment address index.
 	ref1 := invpkg.InvoiceRefByHashAndAddr(inv1Hash, invpkg.BlankPayAddr)
-	dbInv1, err := db.LookupInvoice(ref1)
+	dbInv1, err := db.GetInvoice(ref1)
 	require.NoError(t, err)
-	require.Equal(t, invoice1, &dbInv1)
+	require.Equal(t, invoice1, dbInv1)
 
 	ref2 := invpkg.InvoiceRefByHashAndAddr(inv2Hash, invpkg.BlankPayAddr)
-	dbInv2, err := db.LookupInvoice(ref2)
+	dbInv2, err := db.GetInvoice(ref2)
 	require.NoError(t, err)
-	require.Equal(t, invoice2, &dbInv2)
+	require.Equal(t, invoice2, dbInv2)
 }
 
 // TestFailInvoiceLookupMPPPayAddrOnly asserts that looking up a MPP invoice
@@ -370,7 +370,7 @@ func TestFailInvoiceLookupMPPPayAddrOnly(t *testing.T) {
 	// legacy/MPP invoices, as this guarantees that the preimage is valid
 	// for the given HTLC.
 	ref := invpkg.InvoiceRefByHashAndAddr(payHash, payAddr)
-	_, err = db.LookupInvoice(ref)
+	_, err = db.GetInvoice(ref)
 	require.Equal(t, invpkg.ErrInvoiceNotFound, err)
 }
 
@@ -400,7 +400,7 @@ func TestInvRefEquivocation(t *testing.T) {
 	ref := invpkg.InvoiceRefByHashAndAddr(
 		inv2Hash, invoice1.Terms.PaymentAddr,
 	)
-	_, err = db.LookupInvoice(ref)
+	_, err = db.GetInvoice(ref)
 	require.Error(t, err, invpkg.ErrInvRefEquivocation)
 
 	// The same error should be returned when updating an equivocating
@@ -562,9 +562,9 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	_, err = db.UpdateInvoice(ref, (*invpkg.SetID)(setID1), callback)
 	require.NoError(t, err, "unable to cancel htlc")
 
-	freshInvoice, err := db.LookupInvoice(ref)
+	freshInvoice, err := db.GetInvoice(ref)
 	require.Nil(t, err)
-	dbInvoice = &freshInvoice
+	dbInvoice = freshInvoice
 
 	// The amount paid should reflect that an invoice was cancelled.
 	require.Equal(t, dbInvoice.AmtPaid, amt*2)
@@ -620,9 +620,9 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 		})
 	require.NoError(t, err, "unable to cancel htlc")
 
-	freshInvoice, err = db.LookupInvoice(ref)
+	freshInvoice, err = db.GetInvoice(ref)
 	require.Nil(t, err)
-	dbInvoice = &freshInvoice
+	dbInvoice = freshInvoice
 
 	invoice.Htlcs[htlc1].State = invpkg.HtlcStateCanceled
 	invoice.Htlcs[htlc1].ResolveTime = time.Unix(1, 0)
@@ -652,9 +652,9 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	_, err = db.UpdateInvoice(ref, (*invpkg.SetID)(setID2), callback)
 	require.NoError(t, err, "unable to cancel htlc")
 
-	freshInvoice, err = db.LookupInvoice(ref)
+	freshInvoice, err = db.GetInvoice(ref)
 	require.Nil(t, err)
-	dbInvoice = &freshInvoice
+	dbInvoice = freshInvoice
 
 	ampState = invoice.AMPState[*setID2]
 	ampState.AmtPaid = 0
@@ -877,7 +877,7 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 	refNoHtlcs := invpkg.InvoiceRefByAddrBlankHtlc(
 		testInvoice.Terms.PaymentAddr,
 	)
-	invoiceNoHTLCs, err := db.LookupInvoice(refNoHtlcs)
+	invoiceNoHTLCs, err := db.GetInvoice(refNoHtlcs)
 	require.Nil(t, err)
 
 	require.Equal(t, 0, len(invoiceNoHTLCs.Htlcs))
@@ -886,7 +886,7 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 	// above.
 	for i, setID := range []*[32]byte{setID1, setID2, setID3} {
 		refFiltered := invpkg.InvoiceRefBySetIDFiltered(*setID)
-		invoiceFiltered, err := db.LookupInvoice(refFiltered)
+		invoiceFiltered, err := db.GetInvoice(refFiltered)
 		require.Nil(t, err)
 
 		// Only a single HTLC should be present.
@@ -935,12 +935,12 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 	// To get around the settle index quirk, we'll fetch the very first
 	// invoice in the HTLC filtered mode and append it to the set of
 	// invoices.
-	firstInvoice, err := db.LookupInvoice(
+	firstInvoice, err := db.GetInvoice(
 		invpkg.InvoiceRefBySetIDFiltered(*setID1),
 	)
 	require.Nil(t, err)
 	settledInvoices = append(
-		[]invpkg.Invoice{firstInvoice}, settledInvoices...,
+		[]invpkg.Invoice{*firstInvoice}, settledInvoices...,
 	)
 
 	// There should be 3 invoices settled, as we created 3 "sub-invoices"
@@ -971,7 +971,7 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 	// If we attempt to look up the invoice by the payment addr, with all
 	// the HTLCs, the main invoice should have 3 HTLCs present.
 	refWithHtlcs := invpkg.InvoiceRefByAddr(testInvoice.Terms.PaymentAddr)
-	invoiceWithHTLCs, err := db.LookupInvoice(refWithHtlcs)
+	invoiceWithHTLCs, err := db.GetInvoice(refWithHtlcs)
 	require.Nil(t, err)
 	require.Equal(t, numInvoices, len(invoiceWithHTLCs.Htlcs))
 
@@ -1589,7 +1589,7 @@ func TestCustomRecords(t *testing.T) {
 
 	// Retrieve the invoice from that database and verify that the custom
 	// records are present.
-	dbInvoice, err := db.LookupInvoice(ref)
+	dbInvoice, err := db.GetInvoice(ref)
 	require.NoError(t, err, "unable to lookup invoice")
 
 	if len(dbInvoice.Htlcs) != 1 {
@@ -1670,7 +1670,7 @@ func testInvoiceHtlcAMPFields(t *testing.T, isAMP bool) {
 
 	// Retrieve the invoice from that database and verify that the AMP
 	// fields are as expected.
-	dbInvoice, err := db.LookupInvoice(ref)
+	dbInvoice, err := db.GetInvoice(ref)
 	require.Nil(t, err)
 
 	require.Equal(t, 1, len(dbInvoice.Htlcs))
@@ -1886,9 +1886,9 @@ func TestSetIDIndex(t *testing.T) {
 
 	// Now lookup the invoice by set id and see that we get the same one.
 	refBySetID := invpkg.InvoiceRefBySetID(*setID)
-	dbInvoiceBySetID, err := db.LookupInvoice(refBySetID)
+	dbInvoiceBySetID, err := db.GetInvoice(refBySetID)
 	require.Nil(t, err)
-	require.Equal(t, invoice, &dbInvoiceBySetID)
+	require.Equal(t, invoice, dbInvoiceBySetID)
 
 	// Trying to accept an HTLC to a different invoice, but using the same
 	// set id should fail.
@@ -1957,19 +1957,21 @@ func TestSetIDIndex(t *testing.T) {
 
 	// Since UpdateInvoice will only return the sub-set of updated HTLcs,
 	// we'll query again to ensure we get the full set of HTLCs returned.
-	freshInvoice, err := db.LookupInvoice(ref)
+	freshInvoice, err := db.GetInvoice(ref)
 	require.Nil(t, err)
-	dbInvoice = &freshInvoice
+	dbInvoice = freshInvoice
 
 	// We should get back the exact same invoice that we just inserted.
 	require.Equal(t, invoice, dbInvoice)
 
+	delete(invoice.Htlcs, htlc0)
+
 	// Now lookup the invoice by second set id and see that we get the same
 	// index, including the htlcs under the first set id.
 	refBySetID = invpkg.InvoiceRefBySetID(*setID2)
-	dbInvoiceBySetID, err = db.LookupInvoice(refBySetID)
+	dbInvoiceBySetID, err = db.GetInvoice(refBySetID)
 	require.Nil(t, err)
-	require.Equal(t, invoice, &dbInvoiceBySetID)
+	require.Equal(t, invoice, dbInvoiceBySetID)
 
 	// Now attempt to settle a non-existent HTLC set, this set ID is the
 	// zero setID so it isn't used for anything internally.
@@ -1993,9 +1995,9 @@ func TestSetIDIndex(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	freshInvoice, err = db.LookupInvoice(ref)
+	freshInvoice, err = db.GetInvoice(ref)
 	require.Nil(t, err)
-	dbInvoice = &freshInvoice
+	dbInvoice = freshInvoice
 
 	invoice.State = invpkg.ContractOpen
 
@@ -2009,6 +2011,10 @@ func TestSetIDIndex(t *testing.T) {
 	ampState.SettleIndex = 1
 
 	invoice.AMPState[*setID] = ampState
+
+	invoice.Htlcs[htlc0] = makeAMPInvoiceHTLC(
+		amt, *setID, payHash, &preimage,
+	)
 
 	invoice.Htlcs[htlc0].State = invpkg.HtlcStateSettled
 	invoice.Htlcs[htlc0].ResolveTime = time.Unix(1, 0)
@@ -2038,9 +2044,9 @@ func TestSetIDIndex(t *testing.T) {
 	)
 	require.Nil(t, err)
 
-	freshInvoice, err = db.LookupInvoice(ref)
+	freshInvoice, err = db.GetInvoice(ref)
 	require.Nil(t, err)
-	dbInvoice = &freshInvoice
+	dbInvoice = freshInvoice
 
 	// Now the rest of the HTLCs should show as fully settled.
 	ampState = invoice.AMPState[*setID2]
@@ -2062,7 +2068,7 @@ func TestSetIDIndex(t *testing.T) {
 
 	// Lastly, querying for an unknown set id should fail.
 	refUnknownSetID := invpkg.InvoiceRefBySetID([32]byte{})
-	_, err = db.LookupInvoice(refUnknownSetID)
+	_, err = db.GetInvoice(refUnknownSetID)
 	require.Equal(t, invpkg.ErrInvoiceNotFound, err)
 }
 

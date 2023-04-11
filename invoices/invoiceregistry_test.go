@@ -273,7 +273,7 @@ func testCancelInvoice(t *testing.T, gc bool) {
 
 	if gc {
 		// Check that the invoice has been deleted from the db.
-		_, err = ctx.idb.LookupInvoice(
+		_, err = ctx.idb.GetInvoice(
 			invpkg.InvoiceRefByHash(testInvoicePaymentHash),
 		)
 		require.Error(t, err)

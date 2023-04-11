@@ -538,7 +538,7 @@ func (i *InvoiceRegistry) deliverBacklogEvents(
 func (i *InvoiceRegistry) deliverSingleBacklogEvents(
 	client *SingleInvoiceSubscription) error {
 
-	invoice, err := i.idb.LookupInvoice(client.invoiceRef)
+	invoice, err := i.idb.GetInvoice(client.invoiceRef)
 
 	// It is possible that the invoice does not exist yet, but the client is
 	// already watching it in anticipation.
@@ -558,7 +558,7 @@ func (i *InvoiceRegistry) deliverSingleBacklogEvents(
 
 	err = client.notify(&invoiceEvent{
 		hash:    *payHash,
-		invoice: &invoice,
+		invoice: invoice,
 	})
 	if err != nil {
 		return err
@@ -622,13 +622,23 @@ func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (Invoice, error) {
 	// We'll check the database to see if there's an existing matching
 	// invoice.
 	ref := InvoiceRefByHash(rHash)
-	return i.idb.LookupInvoice(ref)
+	invoice, err := i.idb.GetInvoice(ref)
+	if err != nil {
+		return Invoice{}, err
+	}
+
+	return *invoice, nil
 }
 
 // LookupInvoiceByRef looks up an invoice by the given reference, if found
 // then we're able to pull the funds pending within an HTLC.
 func (i *InvoiceRegistry) LookupInvoiceByRef(ref InvoiceRef) (Invoice, error) {
-	return i.idb.LookupInvoice(ref)
+	invoice, err := i.idb.GetInvoice(ref)
+	if err != nil {
+		return Invoice{}, err
+	}
+
+	return *invoice, nil
 }
 
 // startHtlcTimer starts a new timer via the invoice registry main loop that

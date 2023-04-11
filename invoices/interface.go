@@ -32,6 +32,23 @@ type InvoiceDB interface {
 	AddInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
 		invoice *Invoice) error
 
+	// GetInvoice fetches the invoice identified by the passed InvoiceRef.
+	//
+	// NOTE: If the ref is invalid this function will return the
+	// ErrInvoiceNotFound error.
+	//
+	// NOTE: This function will be executed in its own transaction and will
+	// use the default database timeout.
+	GetInvoice(ref InvoiceRef) (*Invoice, error)
+
+	// GetInvoiceWithTx fetches the invoice identified by the passed
+	// InvoiceRef.
+	//
+	// NOTE: If the ref is invalid this function will return the
+	// ErrInvoiceNotFound error.
+	GetInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
+		ref InvoiceRef) (*Invoice, error)
+
 	// InvoicesAddedSince can be used by callers to seek into the event
 	// time series of all the invoices added in the database. The specified
 	// sinceAddIndex should be the highest add index that the caller knows
@@ -101,23 +118,6 @@ type InvoiceDB interface {
 // This is a temporary interface to allow us to follow better the next changes
 // in the commits.
 type InvoiceDB2 interface {
-	// GetInvoice fetches the invoice identified by the given InvoiceRef.
-	//
-	// NOTE: If the ref is invalid this method will return the
-	// ErrInvoiceNotFound error.
-	//
-	// NOTE: This method will be executed in its own transaction and will
-	// use the default database timeout.
-	GetInvoice(ref InvoiceRef) (*Invoice, error)
-
-	// GetInvoiceWithTx fetches the invoice identified by the given
-	// InvoiceRef.
-	//
-	// NOTE: If the ref is invalid this method will return the
-	// ErrInvoiceNotFound error.
-	GetInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
-		ref InvoiceRef) (*Invoice, error)
-
 	// UpdateInvoice updates the invoice identified by the given InvoiceRef.
 	//
 	// NOTE: If the ContractState is ContractSettled and the passed invoice

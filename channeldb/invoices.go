@@ -262,6 +262,100 @@ func (d *DB) AddInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
 	return err
 }
 
+func (d *DB) GetInvoice(ref invpkg.InvoiceRef) (*invpkg.Invoice, error) {
+	tx, err := d.BeginReadWriteTx()
+	if err != nil {
+		return nil, err
+	}
+
+	// Make sure the transaction rolls back in the event of a panic.
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), database.DefaultStoreTimeout,
+	)
+	defer cancel()
+
+	invoice, err := d.GetInvoiceWithTx(ctxt, tx, ref)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("unable to commit db tx: %w", err)
+	}
+
+	return invoice, nil
+}
+
+// GetInvoiceWithTx fetches the invoice identified by the passed InvoiceRef.
+//
+// NOTE: If the reference includes data of multiple invoices, then the
+// ErrNoInvoiceFound error will be returned.
+//
+// NOTE: This method is part of the InvoiceDB interface.
+func (d *DB) GetInvoiceWithTx(ctx context.Context, dbTx database.DBTx,
+	ref invpkg.InvoiceRef) (*invpkg.Invoice, error) {
+
+	tx, ok := dbTx.(kvdb.RwTx)
+	if !ok {
+		return nil, errors.New("invalid transaction type")
+	}
+
+	invoices, err := tx.CreateTopLevelBucket(invoiceBucket)
+	if err != nil {
+		return nil, err
+	}
+
+	invoiceIndex, err := invoices.CreateBucketIfNotExists(
+		invoiceIndexBucket,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	payAddrIndex := tx.ReadBucket(payAddrIndexBucket)
+	setIDIndex := tx.ReadWriteBucket(setIDIndexBucket)
+
+	// Retrieve the invoice number for this invoice using the
+	// provided invoice reference.
+	invoiceNum, err := fetchInvoiceNumByRef(
+		invoiceIndex, payAddrIndex, setIDIndex, ref,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var setID *invpkg.SetID
+	payAddr := ref.PayAddr()
+
+	switch {
+	case payAddr != nil && ref.Modifier() == invpkg.HtlcSetBlankModifier:
+		// If this is a payment address ref, and the blank modified was
+		// specified, then we'll use the zero set ID to indicate that
+		// we won't want any HTLCs returned.
+		var zeroSetID invpkg.SetID
+		setID = &zeroSetID
+
+	case ref.SetID() != nil:
+		// If this is a set ID ref, and the htlc set only modified was
+		// specified, then we'll pass through the specified setID so
+		// only that will be returned.
+		setID = (*invpkg.SetID)(ref.SetID())
+	}
+
+	// An invoice was found, retrieve the remainder of the invoice
+	// body.
+	invoice, err := fetchInvoice(invoiceNum, invoices, setID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &invoice, nil
+}
+
 // InvoicesAddedSince can be used by callers to seek into the event time series
 // of all the invoices added in the database. The specified sinceAddIndex
 // should be the highest add index that the caller knows of. This method will
@@ -407,11 +501,9 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 	setID := ref.SetID()
 	if setID != nil {
 		invoiceNumBySetID := setIDIndex.Get(setID[:])
-		if invoiceNumBySetID == nil {
-			return nil, invpkg.ErrInvoiceNotFound
+		if invoiceNumBySetID != nil {
+			return invoiceNumBySetID, nil
 		}
-
-		return invoiceNumBySetID, nil
 	}
 
 	payHash := ref.PayHash()

@@ -35,7 +35,9 @@ type Signature interface {
 // WitnessScriptHash generates a pay-to-witness-script-hash public key script
 // paying to a version 0 witness program paying to the passed redeem script.
 func WitnessScriptHash(witnessScript []byte) ([]byte, error) {
-	bldr := txscript.NewScriptBuilder()
+	bldr := txscript.NewScriptBuilder(
+		txscript.WithScriptAllocSize(P2WSHSize),
+	)
 
 	bldr.AddOp(txscript.OP_0)
 	scriptHash := sha256.Sum256(witnessScript)
@@ -47,7 +49,9 @@ func WitnessScriptHash(witnessScript []byte) ([]byte, error) {
 // paying to a version 0 witness program containing the passed serialized
 // public key.
 func WitnessPubKeyHash(pubkey []byte) ([]byte, error) {
-	bldr := txscript.NewScriptBuilder()
+	bldr := txscript.NewScriptBuilder(
+		txscript.WithScriptAllocSize(P2WPKHSize),
+	)
 
 	bldr.AddOp(txscript.OP_0)
 	pkhash := btcutil.Hash160(pubkey)
@@ -58,7 +62,9 @@ func WitnessPubKeyHash(pubkey []byte) ([]byte, error) {
 // GenerateP2SH generates a pay-to-script-hash public key script paying to the
 // passed redeem script.
 func GenerateP2SH(script []byte) ([]byte, error) {
-	bldr := txscript.NewScriptBuilder()
+	bldr := txscript.NewScriptBuilder(
+		txscript.WithScriptAllocSize(NestedP2WPKHSize),
+	)
 
 	bldr.AddOp(txscript.OP_HASH160)
 	scripthash := btcutil.Hash160(script)
@@ -70,7 +76,9 @@ func GenerateP2SH(script []byte) ([]byte, error) {
 // GenerateP2PKH generates a pay-to-public-key-hash public key script paying to
 // the passed serialized public key.
 func GenerateP2PKH(pubkey []byte) ([]byte, error) {
-	bldr := txscript.NewScriptBuilder()
+	bldr := txscript.NewScriptBuilder(
+		txscript.WithScriptAllocSize(P2PKHSize),
+	)
 
 	bldr.AddOp(txscript.OP_DUP)
 	bldr.AddOp(txscript.OP_HASH160)
@@ -96,7 +104,8 @@ func GenerateUnknownWitness() ([]byte, error) {
 // pubkeys.
 func GenMultiSigScript(aPub, bPub []byte) ([]byte, error) {
 	if len(aPub) != 33 || len(bPub) != 33 {
-		return nil, fmt.Errorf("pubkey size error: compressed pubkeys only")
+		return nil, fmt.Errorf("pubkey size error: compressed " +
+			"pubkeys only")
 	}
 
 	// Swap to sort pubkeys if needed. Keys are sorted in lexicographical
@@ -107,7 +116,9 @@ func GenMultiSigScript(aPub, bPub []byte) ([]byte, error) {
 		aPub, bPub = bPub, aPub
 	}
 
-	bldr := txscript.NewScriptBuilder()
+	bldr := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
+		MultiSigSize,
+	))
 	bldr.AddOp(txscript.OP_2)
 	bldr.AddData(aPub) // Add both pubkeys (sorted).
 	bldr.AddData(bPub)
@@ -241,7 +252,9 @@ func SenderHTLCScript(senderHtlcKey, receiverHtlcKey,
 	revocationKey *btcec.PublicKey, paymentHash []byte,
 	confirmedSpend bool) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder()
+	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
+		OfferedHtlcScriptSizeConfirmed,
+	))
 
 	// The opening operations are used to determine if this is the receiver
 	// of the HTLC attempting to sweep all the funds due to a contract
@@ -484,7 +497,9 @@ func ReceiverHTLCScript(cltvExpiry uint32, senderHtlcKey,
 	receiverHtlcKey, revocationKey *btcec.PublicKey,
 	paymentHash []byte, confirmedSpend bool) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder()
+	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
+		AcceptedHtlcScriptSizeConfirmed,
+	))
 
 	// The opening operations are used to determine if this is the sender
 	// of the HTLC attempting to sweep all the funds due to a contract
@@ -747,7 +762,9 @@ func ReceiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
 func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	csvDelay uint32) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder()
+	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
+		ToLocalScriptSize,
+	))
 
 	// If this is the revocation clause for this script is to be executed,
 	// the spender will push a 1, forcing us to hit the true clause of this
@@ -815,7 +832,9 @@ func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 func LeaseSecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	csvDelay, cltvExpiry uint32) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder()
+	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
+		ToLocalScriptSize + LeaseWitnessScriptSizeOverhead,
+	))
 
 	// If this is the revocation clause for this script is to be executed,
 	// the spender will push a 1, forcing us to hit the true clause of this
@@ -998,7 +1017,9 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	// have divulged the revocation hash, allowing them to homomorphically
 	// derive the proper private key which corresponds to the revoke public
 	// key.
-	builder := txscript.NewScriptBuilder()
+	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
+		ToLocalScriptSize,
+	))
 
 	builder.AddOp(txscript.OP_IF)
 
@@ -1054,7 +1075,9 @@ func LeaseCommitScriptToSelf(selfKey, revokeKey *btcec.PublicKey,
 	// have divulged the revocation hash, allowing them to homomorphically
 	// derive the proper private key which corresponds to the revoke public
 	// key.
-	builder := txscript.NewScriptBuilder()
+	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
+		ToLocalScriptSize + LeaseWitnessScriptSizeOverhead,
+	))
 
 	builder.AddOp(txscript.OP_IF)
 
@@ -1199,7 +1222,9 @@ func CommitSpendNoDelay(signer Signer, signDesc *SignDescriptor,
 // p2wkh output spendable immediately, requiring no contestation period.
 func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 	// This script goes to the "other" party, and is spendable immediately.
-	builder := txscript.NewScriptBuilder()
+	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
+		P2WPKHSize,
+	))
 	builder.AddOp(txscript.OP_0)
 	builder.AddData(btcutil.Hash160(key.SerializeCompressed()))
 
@@ -1219,7 +1244,9 @@ func CommitScriptUnencumbered(key *btcec.PublicKey) ([]byte, error) {
 //	<key> OP_CHECKSIGVERIFY
 //	1 OP_CHECKSEQUENCEVERIFY
 func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
-	builder := txscript.NewScriptBuilder()
+	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
+		ToRemoteConfirmedScriptSize,
+	))
 
 	// Only the given key can spend the output.
 	builder.AddData(key.SerializeCompressed())
@@ -1248,7 +1275,7 @@ func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
 func LeaseCommitScriptToRemoteConfirmed(key *btcec.PublicKey,
 	leaseExpiry uint32) ([]byte, error) {
 
-	builder := txscript.NewScriptBuilder()
+	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(45))
 
 	// Only the given key can spend the output.
 	builder.AddData(key.SerializeCompressed())
@@ -1310,7 +1337,9 @@ func CommitSpendToRemoteConfirmed(signer Signer, signDesc *SignDescriptor,
 //	  OP_16 OP_CSV
 //	OP_ENDIF
 func CommitScriptAnchor(key *btcec.PublicKey) ([]byte, error) {
-	builder := txscript.NewScriptBuilder()
+	builder := txscript.NewScriptBuilder(txscript.WithScriptAllocSize(
+		AnchorScriptSize,
+	))
 
 	// Spend immediately with key.
 	builder.AddData(key.SerializeCompressed())

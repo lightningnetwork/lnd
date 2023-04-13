@@ -186,6 +186,40 @@ var (
 		0x82, 0x54, 0x5d, 0x4b, 0xb4, 0xfa, 0xe0, 0x8b,
 		0xd5, 0x93, 0x78, 0x31, 0xb7, 0xe3, 0x8f, 0x98,
 	}
+
+	// allWitnessTypes is a mapping between the witness types defined in the
+	// `input` package, and the witness types in the protobuf definition.
+	// This map is necessary because the native enum and the protobuf enum
+	// are numbered differently. The protobuf enum cannot be renumbered
+	// because this would break backwards compatibility with older clients,
+	// and the native enum cannot be renumbered because it is stored in the
+	// watchtower and breacharbiter databases.
+	//
+	//nolint:lll
+	allWitnessTypes = map[input.WitnessType]WitnessType{
+		input.CommitmentTimeLock:                           WitnessType_COMMITMENT_TIME_LOCK,
+		input.CommitmentNoDelay:                            WitnessType_COMMITMENT_NO_DELAY,
+		input.CommitmentRevoke:                             WitnessType_COMMITMENT_REVOKE,
+		input.HtlcOfferedRevoke:                            WitnessType_HTLC_OFFERED_REVOKE,
+		input.HtlcAcceptedRevoke:                           WitnessType_HTLC_ACCEPTED_REVOKE,
+		input.HtlcOfferedTimeoutSecondLevel:                WitnessType_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL,
+		input.HtlcAcceptedSuccessSecondLevel:               WitnessType_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL,
+		input.HtlcOfferedRemoteTimeout:                     WitnessType_HTLC_OFFERED_REMOTE_TIMEOUT,
+		input.HtlcAcceptedRemoteSuccess:                    WitnessType_HTLC_ACCEPTED_REMOTE_SUCCESS,
+		input.HtlcSecondLevelRevoke:                        WitnessType_HTLC_SECOND_LEVEL_REVOKE,
+		input.WitnessKeyHash:                               WitnessType_WITNESS_KEY_HASH,
+		input.NestedWitnessKeyHash:                         WitnessType_NESTED_WITNESS_KEY_HASH,
+		input.CommitmentAnchor:                             WitnessType_COMMITMENT_ANCHOR,
+		input.HtlcOfferedTimeoutSecondLevelInputConfirmed:  WitnessType_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL_INPUT_CONFIRMED,
+		input.HtlcAcceptedSuccessSecondLevelInputConfirmed: WitnessType_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL_INPUT_CONFIRMED,
+		input.CommitSpendNoDelayTweakless:                  WitnessType_COMMITMENT_NO_DELAY_TWEAKLESS,
+		input.CommitmentToRemoteConfirmed:                  WitnessType_COMMITMENT_TO_REMOTE_CONFIRMED,
+		input.LeaseCommitmentTimeLock:                      WitnessType_LEASE_COMMITMENT_TIME_LOCK,
+		input.LeaseCommitmentToRemoteConfirmed:             WitnessType_LEASE_COMMITMENT_TO_REMOTE_CONFIRMED,
+		input.LeaseHtlcOfferedTimeoutSecondLevel:           WitnessType_LEASE_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL,
+		input.LeaseHtlcAcceptedSuccessSecondLevel:          WitnessType_LEASE_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL,
+		input.TaprootPubKeySpend:                           WitnessType_TAPROOT_PUB_KEY_SPEND,
+	}
 )
 
 // ErrZeroLabel is returned when an attempt is made to label a transaction with
@@ -715,37 +749,11 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 	// Convert them into their respective RPC format.
 	rpcPendingSweeps := make([]*PendingSweep, 0, len(pendingInputs))
 	for _, pendingInput := range pendingInputs {
-		var witnessType WitnessType
-		switch pendingInput.WitnessType {
-		case input.CommitmentTimeLock:
-			witnessType = WitnessType_COMMITMENT_TIME_LOCK
-		case input.CommitmentNoDelay:
-			witnessType = WitnessType_COMMITMENT_NO_DELAY
-		case input.CommitmentRevoke:
-			witnessType = WitnessType_COMMITMENT_REVOKE
-		case input.HtlcOfferedRevoke:
-			witnessType = WitnessType_HTLC_OFFERED_REVOKE
-		case input.HtlcAcceptedRevoke:
-			witnessType = WitnessType_HTLC_ACCEPTED_REVOKE
-		case input.HtlcOfferedTimeoutSecondLevel:
-			witnessType = WitnessType_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL
-		case input.HtlcAcceptedSuccessSecondLevel:
-			witnessType = WitnessType_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL
-		case input.HtlcOfferedRemoteTimeout:
-			witnessType = WitnessType_HTLC_OFFERED_REMOTE_TIMEOUT
-		case input.HtlcAcceptedRemoteSuccess:
-			witnessType = WitnessType_HTLC_ACCEPTED_REMOTE_SUCCESS
-		case input.HtlcSecondLevelRevoke:
-			witnessType = WitnessType_HTLC_SECOND_LEVEL_REVOKE
-		case input.WitnessKeyHash:
-			witnessType = WitnessType_WITNESS_KEY_HASH
-		case input.NestedWitnessKeyHash:
-			witnessType = WitnessType_NESTED_WITNESS_KEY_HASH
-		case input.CommitmentAnchor:
-			witnessType = WitnessType_COMMITMENT_ANCHOR
-		default:
-			log.Warnf("Unhandled witness type %v for input %v",
-				pendingInput.WitnessType, pendingInput.OutPoint)
+		witnessType, ok := allWitnessTypes[pendingInput.WitnessType]
+		if !ok {
+			return nil, fmt.Errorf("unhandled witness type %v for "+
+				"input %v", pendingInput.WitnessType,
+				pendingInput.OutPoint)
 		}
 
 		op := &lnrpc.OutPoint{

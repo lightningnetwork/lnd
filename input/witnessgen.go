@@ -47,6 +47,8 @@ type StandardWitnessType uint16
 // WitnessType interface.
 var _ WitnessType = (StandardWitnessType)(0)
 
+// NOTE: When adding a new `StandardWitnessType`, also update the `WitnessType`
+// protobuf enum and the `allWitnessTypes` map in the `walletrpc` package.
 const (
 	// CommitmentTimeLock is a witness that allows us to spend our output
 	// on our local commitment transaction after a relative lock-time

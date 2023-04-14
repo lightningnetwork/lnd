@@ -97,6 +97,10 @@ available](https://github.com/lightningnetwork/lnd/pull/7529).
   funding manager would error out if no persisted initial forwarding policy is 
   found for a channel. 
 
+* The internal rebroacaster [will no longer continue to rebroadcast stale
+  sweeper transactions (have a conflict mined or in the
+  mempool)](https://github.com/lightningnetwork/lnd/pull/7599).
+
 ## Documentation
 
 * [Update Postgres.md](https://github.com/lightningnetwork/lnd/pull/7442)
@@ -109,6 +113,7 @@ available](https://github.com/lightningnetwork/lnd/pull/7529).
 * Elle Mouton
 * hieblmi
 * Oliver Gugger
+* Olaoluwa Osuntokun
 * Pierre Beugnet
 * Tommy Volk
 * Yong Yu

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -159,19 +160,22 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 	ht.CloseChannel(alice, chanPoint)
 }
 
-// testOpenChannelFeePolicy checks if different channel fee scenarios
-// are correctly handled when the optional channel fee parameters
-// baseFee and feeRate are provided. If the OpenChannelRequest is not
-// provided with a value for baseFee/feeRate the expectation is that the
-// default baseFee/feeRate is applied.
-// 1.) no params provided to OpenChannelRequest
-// ChannelUpdate --> defaultBaseFee, defaultFeeRate
-// 2.) only baseFee provided to OpenChannelRequest
-// ChannelUpdate --> provided baseFee, defaultFeeRate
-// 3.) only feeRate provided to OpenChannelRequest
-// ChannelUpdate --> defaultBaseFee, provided FeeRate
-// 4.) baseFee and feeRate provided to OpenChannelRequest
-// ChannelUpdate --> provided baseFee, provided feeRate.
+// testOpenChannelFeePolicy checks if different channel fee scenarios are
+// correctly handled when the optional channel fee parameters baseFee and
+// feeRate are provided. If the OpenChannelRequest is not provided with a value
+// for baseFee/feeRate the expectation is that the default baseFee/feeRate is
+// applied.
+//
+//  1. No params provided to OpenChannelRequest:
+//     ChannelUpdate --> defaultBaseFee, defaultFeeRate
+//  2. Only baseFee provided to OpenChannelRequest:
+//     ChannelUpdate --> provided baseFee, defaultFeeRate
+//  3. Only feeRate provided to OpenChannelRequest:
+//     ChannelUpdate --> defaultBaseFee, provided FeeRate
+//  4. baseFee and feeRate provided to OpenChannelRequest:
+//     ChannelUpdate --> provided baseFee, provided feeRate
+//  5. Both baseFee and feeRate are set to a value lower than the default:
+//     ChannelUpdate --> provided baseFee, provided feeRate
 func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 	const (
 		defaultBaseFee       = 1000
@@ -180,6 +184,8 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 		defaultMinHtlc       = 1000
 		optionalBaseFee      = 1337
 		optionalFeeRate      = 1337
+		lowBaseFee           = 0
+		lowFeeRate           = 900
 	)
 
 	defaultMaxHtlc := lntest.CalculateMaxHtlc(funding.MaxBtcFundingAmount)
@@ -216,6 +222,14 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 			UseBaseFee: true,
 			UseFeeRate: true,
 		},
+		{
+			Amt:        chanAmt,
+			PushAmt:    pushAmt,
+			BaseFee:    lowBaseFee,
+			FeeRate:    lowFeeRate,
+			UseBaseFee: true,
+			UseFeeRate: true,
+		},
 	}
 
 	expectedPolicies := []lnrpc.RoutingPolicy{
@@ -247,6 +261,13 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 			MinHtlc:          defaultMinHtlc,
 			MaxHtlcMsat:      defaultMaxHtlc,
 		},
+		{
+			FeeBaseMsat:      lowBaseFee,
+			FeeRateMilliMsat: lowFeeRate,
+			TimeLockDelta:    defaultTimeLockDelta,
+			MinHtlc:          defaultMinHtlc,
+			MaxHtlcMsat:      defaultMaxHtlc,
+		},
 	}
 
 	bobExpectedPolicy := lnrpc.RoutingPolicy{
@@ -257,19 +278,29 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 		MaxHtlcMsat:      defaultMaxHtlc,
 	}
 
+	// In this basic test, we'll need a third node, Carol, so we can forward
+	// a payment through the channel we'll open with the different fee
+	// policies.
+	carol := ht.NewNode("Carol", nil)
+
 	alice, bob := ht.Alice, ht.Bob
+	nodes := []*node.HarnessNode{alice, bob, carol}
 
 	runTestCase := func(ht *lntest.HarnessTest,
-		fs lntest.OpenChannelParams,
+		chanParams lntest.OpenChannelParams,
 		alicePolicy, bobPolicy *lnrpc.RoutingPolicy) {
 
 		// Create a channel Alice->Bob.
-		chanPoint := ht.OpenChannel(alice, bob, fs)
+		chanPoint := ht.OpenChannel(alice, bob, chanParams)
 		defer ht.CloseChannel(alice, chanPoint)
 
-		// We add all the nodes' update channels to a slice, such that
-		// we can make sure they all receive the expected updates.
-		nodes := []*node.HarnessNode{alice, bob}
+		// Create a channel Carol->Alice.
+		chanPoint2 := ht.OpenChannel(
+			carol, alice, lntest.OpenChannelParams{
+				Amt: 500000,
+			},
+		)
+		defer ht.CloseChannel(carol, chanPoint2)
 
 		// Alice and Bob should see each other's ChannelUpdates,
 		// advertising the preferred routing policies.
@@ -279,20 +310,37 @@ func testOpenChannelUpdateFeePolicy(ht *lntest.HarnessTest) {
 		assertNodesPolicyUpdate(ht, nodes, bob, bobPolicy, chanPoint)
 
 		// They should now know about the default policies.
-		for _, node := range nodes {
+		for _, n := range nodes {
 			ht.AssertChannelPolicy(
-				node, alice.PubKeyStr, alicePolicy, chanPoint,
+				n, alice.PubKeyStr, alicePolicy, chanPoint,
 			)
 			ht.AssertChannelPolicy(
-				node, bob.PubKeyStr, bobPolicy, chanPoint,
+				n, bob.PubKeyStr, bobPolicy, chanPoint,
 			)
 		}
+
+		// We should be able to forward a payment from Carol to Bob
+		// through the new channel we opened.
+		payReqs, _, _ := ht.CreatePayReqs(bob, paymentAmt, 1)
+		ht.CompletePaymentRequests(carol, payReqs)
 	}
 
 	for i, feeScenario := range feeScenarios {
 		ht.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
 			st := ht.Subtest(t)
-			ht.EnsureConnected(alice, bob)
+			st.EnsureConnected(alice, bob)
+
+			st.RestartNode(carol)
+
+			// Because we're using ht.Subtest(), we need to restart
+			// any node we have to refresh its runtime context.
+			// Otherwise, we'll get a "context canceled" error on
+			// RPC calls.
+			st.EnsureConnected(alice, carol)
+
+			// Send Carol enough coins to be able to open a channel
+			// to Alice.
+			ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 			runTestCase(
 				st, feeScenario,

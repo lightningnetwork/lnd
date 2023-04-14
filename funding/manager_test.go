@@ -1085,6 +1085,22 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 
 	t.Helper()
 
+	// The following checks are to make sure the parameters are used
+	// correctly, as we currently only support 2 values, one for each node.
+	aliceCfg := alice.fundingMgr.cfg
+	if len(customMinHtlc) > 0 {
+		require.Len(t, customMinHtlc, 2, "incorrect usage")
+	}
+	if len(customMaxHtlc) > 0 {
+		require.Len(t, customMaxHtlc, 2, "incorrect usage")
+	}
+	if len(baseFees) > 0 {
+		require.Len(t, baseFees, 2, "incorrect usage")
+	}
+	if len(feeRates) > 0 {
+		require.Len(t, feeRates, 2, "incorrect usage")
+	}
+
 	// After the ChannelReady message is sent, Alice and Bob will each send
 	// the following messages to their gossiper:
 	//	1) ChannelAnnouncement
@@ -1115,102 +1131,50 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 				// advertise the MinHTLC value required by the
 				// _other_ node.
 				other := (j + 1) % 2
-				minHtlc := nodes[other].fundingMgr.cfg.
-					DefaultMinHtlcIn
+				otherCfg := nodes[other].fundingMgr.cfg
+
+				minHtlc := otherCfg.DefaultMinHtlcIn
+				maxHtlc := aliceCfg.RequiredRemoteMaxValue(
+					capacity,
+				)
+				baseFee := aliceCfg.DefaultRoutingPolicy.BaseFee
+				feeRate := aliceCfg.DefaultRoutingPolicy.FeeRate
+
+				require.EqualValues(t, 1, m.MessageFlags)
 
 				// We might expect a custom MinHTLC value.
 				if len(customMinHtlc) > 0 {
-					if len(customMinHtlc) != 2 {
-						t.Fatalf("only 0 or 2 custom " +
-							"min htlc values " +
-							"currently supported")
-					}
-
 					minHtlc = customMinHtlc[j]
 				}
+				require.Equal(t, minHtlc, m.HtlcMinimumMsat)
 
-				if m.HtlcMinimumMsat != minHtlc {
-					t.Fatalf("expected ChannelUpdate to "+
-						"advertise min HTLC %v, had %v",
-						minHtlc, m.HtlcMinimumMsat)
-				}
-
-				maxHtlc := alice.fundingMgr.cfg.RequiredRemoteMaxValue(
-					capacity,
-				)
 				// We might expect a custom MaxHltc value.
 				if len(customMaxHtlc) > 0 {
-					if len(customMaxHtlc) != 2 {
-						t.Fatalf("only 0 or 2 custom " +
-							"min htlc values " +
-							"currently supported")
-					}
-
 					maxHtlc = customMaxHtlc[j]
 				}
-				if m.MessageFlags != 1 {
-					t.Fatalf("expected message flags to "+
-						"be 1, was %v", m.MessageFlags)
-				}
-
-				if maxHtlc != m.HtlcMaximumMsat {
-					t.Fatalf("expected ChannelUpdate to "+
-						"advertise max HTLC %v, had %v",
-						maxHtlc,
-						m.HtlcMaximumMsat)
-				}
-
-				baseFee := alice.fundingMgr.cfg.DefaultRoutingPolicy.BaseFee
+				require.Equal(t, maxHtlc, m.HtlcMaximumMsat)
 
 				// We might expect a custom baseFee value.
 				if len(baseFees) > 0 {
-					if len(baseFees) != 2 {
-						t.Fatalf("only 0 or 2 custom " +
-							"base fee values " +
-							"currently supported")
-					}
-
 					baseFee = baseFees[j]
 				}
-
-				if uint32(baseFee) != m.BaseFee {
-					t.Fatalf("expected ChannelUpdate to "+
-						"advertise base fee %v, had %v",
-						baseFee,
-						m.BaseFee)
-				}
-
-				feeRate := alice.fundingMgr.cfg.DefaultRoutingPolicy.FeeRate
+				require.EqualValues(t, baseFee, m.BaseFee)
 
 				// We might expect a custom feeRate value.
 				if len(feeRates) > 0 {
-					if len(feeRates) != 2 {
-						t.Fatalf("only 0 or 2 custom " +
-							"fee rate values " +
-							"currently supported")
-					}
-
 					feeRate = feeRates[j]
 				}
-
-				if uint32(feeRate) != m.FeeRate {
-					t.Fatalf("expected ChannelUpdate to "+
-						"advertise base fee %v, had %v",
-						feeRate,
-						m.FeeRate)
-				}
+				require.EqualValues(t, feeRate, m.FeeRate)
 
 				gotChannelUpdate = true
 			}
 		}
 
-		if !gotChannelAnnouncement {
-			t.Fatalf("did not get ChannelAnnouncement from node %d",
-				j)
-		}
-		if !gotChannelUpdate {
-			t.Fatalf("did not get ChannelUpdate from node %d", j)
-		}
+		require.Truef(
+			t, gotChannelAnnouncement,
+			"ChannelAnnouncement from %d", j,
+		)
+		require.Truef(t, gotChannelUpdate, "ChannelUpdate from %d", j)
 
 		// Make sure no other message is sent.
 		select {
@@ -1335,14 +1299,12 @@ func assertInitialFwdingPolicyNotFound(t *testing.T, node *testNode,
 			time.Sleep(testPollSleepMs * time.Millisecond)
 		}
 		fwdingPolicy, err = node.fundingMgr.getInitialFwdingPolicy(
-			*chanID)
-		if err == channeldb.ErrChannelNotFound {
-			// Got expected result, return with success.
-			return
-		} else if err != nil {
-			t.Fatalf("unable to get forwarding policy from db: %v",
-				err)
-		}
+			*chanID,
+		)
+		require.ErrorIs(t, err, channeldb.ErrChannelNotFound)
+
+		// Got expected result, return with success.
+		return
 	}
 
 	// 10 tries without success.

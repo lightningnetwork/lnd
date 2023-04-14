@@ -250,6 +250,7 @@ type testNode struct {
 	testDir         string
 	shutdownChannel chan struct{}
 	reportScidChan  chan struct{}
+	updatedPolicies chan map[wire.OutPoint]htlcswitch.ForwardingPolicy
 	localFeatures   []lnwire.FeatureBit
 	remoteFeatures  []lnwire.FeatureBit
 
@@ -368,6 +369,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	publTxChan := make(chan *wire.MsgTx, 1)
 	shutdownChan := make(chan struct{})
 	reportScidChan := make(chan struct{})
+	updatedPolicies := make(
+		chan map[wire.OutPoint]htlcswitch.ForwardingPolicy, 1,
+	)
 
 	wc := &mock.WalletController{
 		RootKey: alicePrivKey,
@@ -524,6 +528,11 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return nil, nil
 		},
 		AliasManager: aliasMgr,
+		UpdateForwardingPolicies: func(
+			p map[wire.OutPoint]htlcswitch.ForwardingPolicy) {
+
+			updatedPolicies <- p
+		},
 	}
 
 	for _, op := range options {
@@ -548,6 +557,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		testDir:         tempTestDir,
 		shutdownChannel: shutdownChan,
 		reportScidChan:  reportScidChan,
+		updatedPolicies: updatedPolicies,
 		addr:            addr,
 	}
 
@@ -627,11 +637,12 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		UpdateLabel: func(chainhash.Hash, string) error {
 			return nil
 		},
-		ZombieSweeperInterval: oldCfg.ZombieSweeperInterval,
-		ReservationTimeout:    oldCfg.ReservationTimeout,
-		OpenChannelPredicate:  chainedAcceptor,
-		DeleteAliasEdge:       oldCfg.DeleteAliasEdge,
-		AliasManager:          oldCfg.AliasManager,
+		ZombieSweeperInterval:    oldCfg.ZombieSweeperInterval,
+		ReservationTimeout:       oldCfg.ReservationTimeout,
+		OpenChannelPredicate:     chainedAcceptor,
+		DeleteAliasEdge:          oldCfg.DeleteAliasEdge,
+		AliasManager:             oldCfg.AliasManager,
+		UpdateForwardingPolicies: oldCfg.UpdateForwardingPolicies,
 	})
 	require.NoError(t, err, "failed recreating aliceFundingManager")
 
@@ -1119,6 +1130,21 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 			}
 		}
 
+		// At this point we should also have gotten a policy update that
+		// was sent to the switch subsystem. Make sure it contains the
+		// same values.
+		var policyUpdate htlcswitch.ForwardingPolicy
+		select {
+		case policyUpdateMap := <-node.updatedPolicies:
+			require.Len(t, policyUpdateMap, 1)
+			for _, policy := range policyUpdateMap {
+				policyUpdate = policy
+			}
+
+		case <-time.After(time.Second * 5):
+			t.Fatalf("node didn't send policy update")
+		}
+
 		gotChannelAnnouncement := false
 		gotChannelUpdate := false
 		for _, msg := range announcements {
@@ -1147,24 +1173,34 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 					minHtlc = customMinHtlc[j]
 				}
 				require.Equal(t, minHtlc, m.HtlcMinimumMsat)
+				require.Equal(
+					t, minHtlc, policyUpdate.MinHTLCOut,
+				)
 
 				// We might expect a custom MaxHltc value.
 				if len(customMaxHtlc) > 0 {
 					maxHtlc = customMaxHtlc[j]
 				}
 				require.Equal(t, maxHtlc, m.HtlcMaximumMsat)
+				require.Equal(t, maxHtlc, policyUpdate.MaxHTLC)
 
 				// We might expect a custom baseFee value.
 				if len(baseFees) > 0 {
 					baseFee = baseFees[j]
 				}
 				require.EqualValues(t, baseFee, m.BaseFee)
+				require.EqualValues(
+					t, baseFee, policyUpdate.BaseFee,
+				)
 
 				// We might expect a custom feeRate value.
 				if len(feeRates) > 0 {
 					feeRate = feeRates[j]
 				}
 				require.EqualValues(t, feeRate, m.FeeRate)
+				require.EqualValues(
+					t, feeRate, policyUpdate.FeeRate,
+				)
 
 				gotChannelUpdate = true
 			}

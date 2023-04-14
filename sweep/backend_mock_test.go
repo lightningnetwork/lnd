@@ -159,3 +159,6 @@ func (b *mockBackend) RemoveDescendants(*wire.MsgTx) error {
 func (b *mockBackend) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
 	return nil, nil
 }
+
+func (b *mockBackend) CancelRebroadcast(tx chainhash.Hash) {
+}

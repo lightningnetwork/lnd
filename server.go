@@ -1056,7 +1056,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FeeEstimator:   cc.FeeEstimator,
 		GenSweepScript: newSweepPkScriptGen(cc.Wallet),
 		Signer:         cc.Wallet.Cfg.Signer,
-		Wallet:         cc.Wallet,
+		Wallet:         newSweeperWallet(cc.Wallet),
 		NewBatchTimer: func() <-chan time.Time {
 			return time.NewTimer(cfg.Sweeper.BatchWindowDuration).C
 		},

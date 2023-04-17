@@ -398,7 +398,9 @@ func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint,
 
 	// Channel is already enabled, nothing to do.
 	case ChanStatusEnabled:
-		log.Debugf("Channel(%v) already enabled, skipped announcement")
+		log.Debugf("Channel(%v) already enabled, skipped "+
+			"announcement", outpoint)
+
 		return nil
 
 	// The channel is enabled, though we are now canceling the scheduled

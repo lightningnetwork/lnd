@@ -74,6 +74,8 @@ https://github.com/lightningnetwork/lnd/pull/7359)
 * [Fix a bug where lnd crashes when psbt data is not fully 
 available](https://github.com/lightningnetwork/lnd/pull/7529).
 
+* [Put back P2TR as default change type
+  in batch_open_channel](https://github.com/lightningnetwork/lnd/pull/7603).
 
 # Contributors (Alphabetical Order)
 
@@ -81,6 +83,7 @@ available](https://github.com/lightningnetwork/lnd/pull/7529).
 * Elle Mouton
 * hieblmi
 * Oliver Gugger
+* Pierre Beugnet
 * Tommy Volk
 * Yong Yu
 * ziggie1984

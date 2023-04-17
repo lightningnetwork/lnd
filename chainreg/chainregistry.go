@@ -421,6 +421,11 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 				ZMQBlockHost:    bitcoindMode.ZMQPubRawBlock,
 				ZMQTxHost:       bitcoindMode.ZMQPubRawTx,
 				ZMQReadDeadline: bitcoindMode.ZMQReadDeadline,
+
+				// Use the default tx polling interval and
+				// jitter for ZMQ.
+				MempoolPollingInterval: bitcoindMode.TxPollingInterval,
+				PollingIntervalJitter:  bitcoindMode.TxPollingJitter,
 			}
 		}
 

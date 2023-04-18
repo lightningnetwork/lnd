@@ -2437,6 +2437,11 @@ out:
 			// values, as they currently are always set to the default values
 			// at initial channel creation. Note that the maximum HTLC value
 			// defaults to the cap on the total value of outstanding HTLCs.
+			//
+			// TODO(guggero): We should instead pass in the current
+			// forwarding policy from the funding manager to avoid
+			// needing us to update the link once the channel is
+			// announced to the network with custom user values.
 			fwdMinHtlc := lnChan.FwdMinHtlc()
 			defaultPolicy := p.cfg.RoutingPolicy
 			forwardingPolicy := &htlcswitch.ForwardingPolicy{

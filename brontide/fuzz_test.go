@@ -2,12 +2,16 @@ package brontide
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"encoding/hex"
+	"io"
 	"math"
+	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -98,18 +102,38 @@ func dumpAndFail(t *testing.T, initiator, responder *Machine, err error) {
 		spew.Sdump(initiator), spew.Sdump(responder))
 }
 
-// getBrontideMachines returns two brontide machines that use random keys
-// everywhere.
-func getBrontideMachines() (*Machine, *Machine) {
-	initPriv, _ := btcec.NewPrivateKey()
-	respPriv, _ := btcec.NewPrivateKey()
-	respPub := (respPriv.PubKey())
+// newInsecurePrivateKey returns a private key that is generated using a
+// cryptographically insecure RNG. This function should only be used for testing
+// where reproducibility is required.
+func newInsecurePrivateKey(t *testing.T,
+	insecureRNG io.Reader) *btcec.PrivateKey {
+
+	key, err := ecdsa.GenerateKey(secp256k1.S256(), insecureRNG)
+	if err != nil {
+		t.Fatalf("error generating private key: %v", err)
+	}
+
+	return secp256k1.PrivKeyFromBytes(key.D.Bytes())
+}
+
+// getBrontideMachines returns two brontide machines that use pseudorandom keys
+// everywhere, generated from seed.
+func getBrontideMachines(t *testing.T, seed int64) (*Machine, *Machine) {
+	rng := rand.New(rand.NewSource(seed))
+
+	initPriv := newInsecurePrivateKey(t, rng)
+	respPriv := newInsecurePrivateKey(t, rng)
+	respPub := respPriv.PubKey()
 
 	initPrivECDH := &keychain.PrivKeyECDH{PrivKey: initPriv}
 	respPrivECDH := &keychain.PrivKeyECDH{PrivKey: respPriv}
 
-	initiator := NewBrontideMachine(true, initPrivECDH, respPub)
-	responder := NewBrontideMachine(false, respPrivECDH, nil)
+	ephGen := EphemeralGenerator(func() (*btcec.PrivateKey, error) {
+		return newInsecurePrivateKey(t, rng), nil
+	})
+
+	initiator := NewBrontideMachine(true, initPrivECDH, respPub, ephGen)
+	responder := NewBrontideMachine(false, respPrivECDH, nil, ephGen)
 
 	return initiator, responder
 }
@@ -135,14 +159,14 @@ func getStaticBrontideMachines() (*Machine, *Machine) {
 
 // FuzzRandomActOne fuzz tests ActOne in the brontide handshake.
 func FuzzRandomActOne(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, seed int64, data []byte) {
 		// Check if data is large enough.
 		if len(data) < ActOneSize {
 			return
 		}
 
 		// This will return brontide machines with random keys.
-		_, responder := getBrontideMachines()
+		_, responder := getBrontideMachines(t, seed)
 
 		// Copy data into [ActOneSize]byte.
 		var actOne [ActOneSize]byte
@@ -157,14 +181,14 @@ func FuzzRandomActOne(f *testing.F) {
 
 // FuzzRandomActThree fuzz tests ActThree in the brontide handshake.
 func FuzzRandomActThree(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, seed int64, data []byte) {
 		// Check if data is large enough.
 		if len(data) < ActThreeSize {
 			return
 		}
 
 		// This will return brontide machines with random keys.
-		initiator, responder := getBrontideMachines()
+		initiator, responder := getBrontideMachines(t, seed)
 
 		// Generate ActOne and send to the responder.
 		actOne, err := initiator.GenActOne()
@@ -199,14 +223,14 @@ func FuzzRandomActThree(f *testing.F) {
 
 // FuzzRandomActTwo fuzz tests ActTwo in the brontide handshake.
 func FuzzRandomActTwo(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, seed int64, data []byte) {
 		// Check if data is large enough.
 		if len(data) < ActTwoSize {
 			return
 		}
 
 		// This will return brontide machines with random keys.
-		initiator, _ := getBrontideMachines()
+		initiator, _ := getBrontideMachines(t, seed)
 
 		// Generate ActOne - this isn't sent to the responder because
 		// nothing is done with the responder machine and this would
@@ -231,9 +255,9 @@ func FuzzRandomActTwo(f *testing.F) {
 // FuzzRandomInitDecrypt fuzz tests decrypting arbitrary data with the
 // initiator.
 func FuzzRandomInitDecrypt(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, seed int64, data []byte) {
 		// This will return brontide machines with random keys.
-		initiator, responder := getBrontideMachines()
+		initiator, responder := getBrontideMachines(t, seed)
 
 		// Complete the brontide handshake.
 		completeHandshake(t, initiator, responder)
@@ -252,7 +276,7 @@ func FuzzRandomInitDecrypt(f *testing.F) {
 // FuzzRandomInitEncDec fuzz tests round-trip encryption and decryption between
 // the initiator and the responder.
 func FuzzRandomInitEncDec(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, seed int64, data []byte) {
 		// Ensure that length of message is not greater than max allowed
 		// size.
 		if len(data) > math.MaxUint16 {
@@ -260,7 +284,7 @@ func FuzzRandomInitEncDec(f *testing.F) {
 		}
 
 		// This will return brontide machines with random keys.
-		initiator, responder := getBrontideMachines()
+		initiator, responder := getBrontideMachines(t, seed)
 
 		// Complete the brontide handshake.
 		completeHandshake(t, initiator, responder)
@@ -295,7 +319,7 @@ func FuzzRandomInitEncDec(f *testing.F) {
 // FuzzRandomInitEncrypt fuzz tests the encryption of arbitrary data with the
 // initiator.
 func FuzzRandomInitEncrypt(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, seed int64, data []byte) {
 		// Ensure that length of message is not greater than max allowed
 		// size.
 		if len(data) > math.MaxUint16 {
@@ -303,7 +327,7 @@ func FuzzRandomInitEncrypt(f *testing.F) {
 		}
 
 		// This will return brontide machines with random keys.
-		initiator, responder := getBrontideMachines()
+		initiator, responder := getBrontideMachines(t, seed)
 
 		// Complete the brontide handshake.
 		completeHandshake(t, initiator, responder)
@@ -325,9 +349,9 @@ func FuzzRandomInitEncrypt(f *testing.F) {
 // FuzzRandomRespDecrypt fuzz tests the decryption of arbitrary data with the
 // responder.
 func FuzzRandomRespDecrypt(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, seed int64, data []byte) {
 		// This will return brontide machines with random keys.
-		initiator, responder := getBrontideMachines()
+		initiator, responder := getBrontideMachines(t, seed)
 
 		// Complete the brontide handshake.
 		completeHandshake(t, initiator, responder)
@@ -346,7 +370,7 @@ func FuzzRandomRespDecrypt(f *testing.F) {
 // FuzzRandomRespEncDec fuzz tests round-trip encryption and decryption between
 // the responder and the initiator.
 func FuzzRandomRespEncDec(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, seed int64, data []byte) {
 		// Ensure that length of message is not greater than max allowed
 		// size.
 		if len(data) > math.MaxUint16 {
@@ -354,7 +378,7 @@ func FuzzRandomRespEncDec(f *testing.F) {
 		}
 
 		// This will return brontide machines with random keys.
-		initiator, responder := getBrontideMachines()
+		initiator, responder := getBrontideMachines(t, seed)
 
 		// Complete the brontide handshake.
 		completeHandshake(t, initiator, responder)
@@ -389,7 +413,7 @@ func FuzzRandomRespEncDec(f *testing.F) {
 // FuzzRandomRespEncrypt fuzz tests encryption of arbitrary data with the
 // responder.
 func FuzzRandomRespEncrypt(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data []byte) {
+	f.Fuzz(func(t *testing.T, seed int64, data []byte) {
 		// Ensure that length of message is not greater than max allowed
 		// size.
 		if len(data) > math.MaxUint16 {
@@ -397,7 +421,7 @@ func FuzzRandomRespEncrypt(f *testing.F) {
 		}
 
 		// This will return brontide machines with random keys.
-		initiator, responder := getBrontideMachines()
+		initiator, responder := getBrontideMachines(t, seed)
 
 		// Complete the brontide handshake.
 		completeHandshake(t, initiator, responder)

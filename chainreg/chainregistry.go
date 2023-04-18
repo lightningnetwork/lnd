@@ -128,7 +128,7 @@ const (
 
 	// DefaultBitcoinTimeLockDelta is the default forwarding time lock
 	// delta.
-	DefaultBitcoinTimeLockDelta = 40
+	DefaultBitcoinTimeLockDelta = 80
 
 	DefaultLitecoinMinHTLCInMSat  = lnwire.MilliSatoshi(1)
 	DefaultLitecoinMinHTLCOutMSat = lnwire.MilliSatoshi(1000)

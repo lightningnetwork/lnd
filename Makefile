@@ -55,7 +55,7 @@ ifneq ($(workers),)
 LINT_WORKERS = --concurrency=$(workers)
 endif
 
-DOCKER_TOOLS = docker run -v $$(pwd):/build lnd-tools
+DOCKER_TOOLS = docker run --rm -v $$(pwd):/build lnd-tools
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"

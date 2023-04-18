@@ -59,43 +59,35 @@ var (
 // and completes the brontide handshake between them. If any part of the
 // handshake fails, this function will panic.
 func completeHandshake(t *testing.T, initiator, responder *Machine) {
-	t.Helper()
-
-	if err := handshake(initiator, responder); err != nil {
-		dumpAndFail(t, initiator, responder, err)
-	}
-}
-
-// handshake actually completes the brontide handshake and bubbles up
-// an error to the calling function.
-func handshake(initiator, responder *Machine) error {
 	// Generate ActOne and send to the responder.
 	actOne, err := initiator.GenActOne()
 	if err != nil {
-		return err
+		dumpAndFail(t, initiator, responder, err)
 	}
 
 	if err := responder.RecvActOne(actOne); err != nil {
-		return err
+		dumpAndFail(t, initiator, responder, err)
 	}
 
 	// Generate ActTwo and send to initiator.
 	actTwo, err := responder.GenActTwo()
 	if err != nil {
-		return err
+		dumpAndFail(t, initiator, responder, err)
 	}
 
 	if err := initiator.RecvActTwo(actTwo); err != nil {
-		return err
+		dumpAndFail(t, initiator, responder, err)
 	}
 
 	// Generate ActThree and send to responder.
 	actThree, err := initiator.GenActThree()
 	if err != nil {
-		return err
+		dumpAndFail(t, initiator, responder, err)
 	}
 
-	return responder.RecvActThree(actThree)
+	if err := responder.RecvActThree(actThree); err != nil {
+		dumpAndFail(t, initiator, responder, err)
+	}
 }
 
 // dumpAndFail dumps the initiator and responder Machines and fails.

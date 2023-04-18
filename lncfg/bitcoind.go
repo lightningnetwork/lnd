@@ -2,6 +2,12 @@ package lncfg
 
 import "time"
 
+const (
+	// DefaultTxPollingJitter defines the default TxPollingIntervalJitter
+	// to be used for bitcoind backend.
+	DefaultTxPollingJitter = 0.5
+)
+
 // Bitcoind holds the configuration options for the daemon's connection to
 // bitcoind.
 //

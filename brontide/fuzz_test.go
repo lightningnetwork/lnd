@@ -62,7 +62,7 @@ func completeHandshake(t *testing.T, initiator, responder *Machine) {
 	t.Helper()
 
 	if err := handshake(initiator, responder); err != nil {
-		nilAndPanic(t, initiator, responder, err)
+		dumpAndFail(t, initiator, responder, err)
 	}
 }
 
@@ -98,9 +98,8 @@ func handshake(initiator, responder *Machine) error {
 	return responder.RecvActThree(actThree)
 }
 
-// nilAndPanic first nils the initiator and responder's Curve fields and then
-// panics.
-func nilAndPanic(t *testing.T, initiator, responder *Machine, err error) {
+// dumpAndFail dumps the initiator and responder Machines and fails.
+func dumpAndFail(t *testing.T, initiator, responder *Machine, err error) {
 	t.Helper()
 
 	t.Fatalf("error: %v, initiator: %v, responder: %v", err,
@@ -159,7 +158,7 @@ func FuzzRandomActOne(f *testing.F) {
 
 		// Responder receives ActOne, should fail on the MAC check.
 		if err := responder.RecvActOne(actOne); err == nil {
-			nilAndPanic(t, nil, responder, nil)
+			dumpAndFail(t, nil, responder, nil)
 		}
 	})
 }
@@ -178,12 +177,12 @@ func FuzzRandomActThree(f *testing.F) {
 		// Generate ActOne and send to the responder.
 		actOne, err := initiator.GenActOne()
 		if err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Receiving ActOne should succeed, so we panic on error.
 		if err := responder.RecvActOne(actOne); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Generate ActTwo - this is not sent to the initiator because
@@ -192,7 +191,7 @@ func FuzzRandomActThree(f *testing.F) {
 		// the appropriate state in the responder machine.
 		_, err = responder.GenActTwo()
 		if err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Copy data into [ActThreeSize]byte.
@@ -201,7 +200,7 @@ func FuzzRandomActThree(f *testing.F) {
 
 		// Responder receives ActThree, should fail on the MAC check.
 		if err := responder.RecvActThree(actThree); err == nil {
-			nilAndPanic(t, initiator, responder, nil)
+			dumpAndFail(t, initiator, responder, nil)
 		}
 	})
 }
@@ -223,7 +222,7 @@ func FuzzRandomActTwo(f *testing.F) {
 		// appropriate state in the initiator machine.
 		_, err := initiator.GenActOne()
 		if err != nil {
-			nilAndPanic(t, initiator, nil, err)
+			dumpAndFail(t, initiator, nil, err)
 		}
 
 		// Copy data into [ActTwoSize]byte.
@@ -232,7 +231,7 @@ func FuzzRandomActTwo(f *testing.F) {
 
 		// Initiator receives ActTwo, should fail.
 		if err := initiator.RecvActTwo(actTwo); err == nil {
-			nilAndPanic(t, initiator, nil, nil)
+			dumpAndFail(t, initiator, nil, nil)
 		}
 	})
 }
@@ -253,7 +252,7 @@ func FuzzRandomInitDecrypt(f *testing.F) {
 		// Decrypt the encrypted message using ReadMessage w/ initiator
 		// machine.
 		if _, err := initiator.ReadMessage(r); err == nil {
-			nilAndPanic(t, initiator, responder, nil)
+			dumpAndFail(t, initiator, responder, nil)
 		}
 	})
 }
@@ -278,25 +277,25 @@ func FuzzRandomInitEncDec(f *testing.F) {
 
 		// Encrypt the message using WriteMessage w/ initiator machine.
 		if err := initiator.WriteMessage(data); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Flush the encrypted message w/ initiator machine.
 		if _, err := initiator.Flush(&b); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Decrypt the ciphertext using ReadMessage w/ responder
 		// machine.
 		plaintext, err := responder.ReadMessage(&b)
 		if err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Check that the decrypted message and the original message are
 		// equal.
 		if !bytes.Equal(data, plaintext) {
-			nilAndPanic(t, initiator, responder, nil)
+			dumpAndFail(t, initiator, responder, nil)
 		}
 	})
 }
@@ -321,12 +320,12 @@ func FuzzRandomInitEncrypt(f *testing.F) {
 
 		// Encrypt the message using WriteMessage w/ initiator machine.
 		if err := initiator.WriteMessage(data); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Flush the encrypted message w/ initiator machine.
 		if _, err := initiator.Flush(&b); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 	})
 }
@@ -347,7 +346,7 @@ func FuzzRandomRespDecrypt(f *testing.F) {
 		// Decrypt the encrypted message using ReadMessage w/ responder
 		// machine.
 		if _, err := responder.ReadMessage(r); err == nil {
-			nilAndPanic(t, initiator, responder, nil)
+			dumpAndFail(t, initiator, responder, nil)
 		}
 	})
 }
@@ -372,25 +371,25 @@ func FuzzRandomRespEncDec(f *testing.F) {
 
 		// Encrypt the message using WriteMessage w/ responder machine.
 		if err := responder.WriteMessage(data); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Flush the encrypted message w/ responder machine.
 		if _, err := responder.Flush(&b); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Decrypt the ciphertext using ReadMessage w/ initiator
 		// machine.
 		plaintext, err := initiator.ReadMessage(&b)
 		if err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Check that the decrypted message and the original message are
 		// equal.
 		if !bytes.Equal(data, plaintext) {
-			nilAndPanic(t, initiator, responder, nil)
+			dumpAndFail(t, initiator, responder, nil)
 		}
 	})
 }
@@ -415,12 +414,12 @@ func FuzzRandomRespEncrypt(f *testing.F) {
 
 		// Encrypt the message using WriteMessage w/ responder machine.
 		if err := responder.WriteMessage(data); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Flush the encrypted message w/ responder machine.
 		if _, err := responder.Flush(&b); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 	})
 }
@@ -442,7 +441,7 @@ func FuzzStaticActOne(f *testing.F) {
 
 		// Responder receives ActOne, should fail.
 		if err := responder.RecvActOne(actOne); err == nil {
-			nilAndPanic(t, nil, responder, nil)
+			dumpAndFail(t, nil, responder, nil)
 		}
 	})
 }
@@ -461,12 +460,12 @@ func FuzzStaticActThree(f *testing.F) {
 		// Generate ActOne and send to the responder.
 		actOne, err := initiator.GenActOne()
 		if err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Receiving ActOne should succeed, so we panic on error.
 		if err := responder.RecvActOne(actOne); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Generate ActTwo - this is not sent to the initiator because
@@ -475,7 +474,7 @@ func FuzzStaticActThree(f *testing.F) {
 		// the appropriate state in the responder machine.
 		_, err = responder.GenActTwo()
 		if err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Copy data into [ActThreeSize]byte.
@@ -484,7 +483,7 @@ func FuzzStaticActThree(f *testing.F) {
 
 		// Responder receives ActThree, should fail.
 		if err := responder.RecvActThree(actThree); err == nil {
-			nilAndPanic(t, initiator, responder, nil)
+			dumpAndFail(t, initiator, responder, nil)
 		}
 	})
 }
@@ -506,7 +505,7 @@ func FuzzStaticActTwo(f *testing.F) {
 		// appropriate state in the initiator machine.
 		_, err := initiator.GenActOne()
 		if err != nil {
-			nilAndPanic(t, initiator, nil, err)
+			dumpAndFail(t, initiator, nil, err)
 		}
 
 		// Copy data into [ActTwoSize]byte.
@@ -515,7 +514,7 @@ func FuzzStaticActTwo(f *testing.F) {
 
 		// Initiator receives ActTwo, should fail.
 		if err := initiator.RecvActTwo(actTwo); err == nil {
-			nilAndPanic(t, initiator, nil, nil)
+			dumpAndFail(t, initiator, nil, nil)
 		}
 	})
 }
@@ -536,7 +535,7 @@ func FuzzStaticInitDecrypt(f *testing.F) {
 		// Decrypt the encrypted message using ReadMessage w/ initiator
 		// machine.
 		if _, err := initiator.ReadMessage(r); err == nil {
-			nilAndPanic(t, initiator, responder, nil)
+			dumpAndFail(t, initiator, responder, nil)
 		}
 	})
 }
@@ -561,25 +560,25 @@ func FuzzStaticInitEncDec(f *testing.F) {
 
 		// Encrypt the message using WriteMessage w/ initiator machine.
 		if err := initiator.WriteMessage(data); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Flush the encrypted message w/ initiator machine.
 		if _, err := initiator.Flush(&b); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Decrypt the ciphertext using ReadMessage w/ responder
 		// machine.
 		plaintext, err := responder.ReadMessage(&b)
 		if err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Check that the decrypted message and the original message are
 		// equal.
 		if !bytes.Equal(data, plaintext) {
-			nilAndPanic(t, initiator, responder, nil)
+			dumpAndFail(t, initiator, responder, nil)
 		}
 	})
 }
@@ -604,12 +603,12 @@ func FuzzStaticInitEncrypt(f *testing.F) {
 
 		// Encrypt the message using WriteMessage w/ initiator machine.
 		if err := initiator.WriteMessage(data); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Flush the encrypted message w/ initiator machine.
 		if _, err := initiator.Flush(&b); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 	})
 }
@@ -630,7 +629,7 @@ func FuzzStaticRespDecrypt(f *testing.F) {
 		// Decrypt the encrypted message using ReadMessage w/ responder
 		// machine.
 		if _, err := responder.ReadMessage(r); err == nil {
-			nilAndPanic(t, initiator, responder, nil)
+			dumpAndFail(t, initiator, responder, nil)
 		}
 	})
 }
@@ -655,25 +654,25 @@ func FuzzStaticRespEncDec(f *testing.F) {
 
 		// Encrypt the message using WriteMessage w/ responder machine.
 		if err := responder.WriteMessage(data); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Flush the encrypted message w/ responder machine.
 		if _, err := responder.Flush(&b); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Decrypt the ciphertext using ReadMessage w/ initiator
 		// machine.
 		plaintext, err := initiator.ReadMessage(&b)
 		if err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Check that the decrypted message and the original message are
 		// equal.
 		if !bytes.Equal(data, plaintext) {
-			nilAndPanic(t, initiator, responder, nil)
+			dumpAndFail(t, initiator, responder, nil)
 		}
 	})
 }
@@ -698,12 +697,12 @@ func FuzzStaticRespEncrypt(f *testing.F) {
 
 		// Encrypt the message using WriteMessage w/ responder machine.
 		if err := responder.WriteMessage(data); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 
 		// Flush the encrypted message w/ responder machine.
 		if _, err := responder.Flush(&b); err != nil {
-			nilAndPanic(t, initiator, responder, err)
+			dumpAndFail(t, initiator, responder, err)
 		}
 	})
 }

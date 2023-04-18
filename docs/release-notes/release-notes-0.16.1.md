@@ -50,6 +50,10 @@ https://github.com/lightningnetwork/lnd/pull/7359)
 * Optimize script allocation size in order to save
   [memory](https://github.com/lightningnetwork/lnd/pull/7464).
 
+* When resolving outgoing HTLCs onchain, the HTLC timeout resolver will now
+  [monitor mempool](https://github.com/lightningnetwork/lnd/pull/7564) for
+  faster preimage extraction.
+ 
 ## Spec
 
 * [Add test vectors for

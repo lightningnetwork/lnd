@@ -69,6 +69,9 @@ type BitcoindNotifier struct {
 	// which the transaction could have confirmed within the chain.
 	confirmHintCache chainntnfs.ConfirmHintCache
 
+	// memNotifier notifies clients of events related to the mempool.
+	memNotifier *chainntnfs.MempoolNotifier
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -76,6 +79,10 @@ type BitcoindNotifier struct {
 // Ensure BitcoindNotifier implements the ChainNotifier interface at compile
 // time.
 var _ chainntnfs.ChainNotifier = (*BitcoindNotifier)(nil)
+
+// Ensure BitcoindNotifier implements the MempoolWatcher interface at compile
+// time.
+var _ chainntnfs.MempoolWatcher = (*BitcoindNotifier)(nil)
 
 // New returns a new BitcoindNotifier instance. This function assumes the
 // bitcoind node detailed in the passed configuration is already running, and
@@ -96,7 +103,8 @@ func New(chainConn *chain.BitcoindConn, chainParams *chaincfg.Params,
 		spendHintCache:   spendHintCache,
 		confirmHintCache: confirmHintCache,
 
-		blockCache: blockCache,
+		blockCache:  blockCache,
+		memNotifier: chainntnfs.NewMempoolNotifier(),
 
 		quit: make(chan struct{}),
 	}
@@ -113,6 +121,7 @@ func (b *BitcoindNotifier) Start() error {
 	b.start.Do(func() {
 		startErr = b.startNotifier()
 	})
+
 	return startErr
 }
 
@@ -141,6 +150,9 @@ func (b *BitcoindNotifier) Stop() error {
 		close(epochClient.epochChan)
 	}
 	b.txNotifier.TearDown()
+
+	// Stop the mempool notifier.
+	b.memNotifier.TearDown()
 
 	return nil
 }
@@ -441,29 +453,60 @@ out:
 				b.bestBlock = newBestBlock
 
 			case chain.RelevantTx:
-				// We only care about notifying on confirmed
-				// spends, so if this is a mempool spend, we can
-				// ignore it and wait for the spend to appear in
-				// on-chain.
+				tx := btcutil.NewTx(&item.TxRecord.MsgTx)
+
+				// Init values.
+				isMempool := false
+				height := uint32(0)
+
+				// Unwrap values.
 				if item.Block == nil {
-					continue
+					isMempool = true
+				} else {
+					height = uint32(item.Block.Height)
 				}
 
-				tx := btcutil.NewTx(&item.TxRecord.MsgTx)
-				err := b.txNotifier.ProcessRelevantSpendTx(
-					tx, uint32(item.Block.Height),
-				)
-				if err != nil {
-					chainntnfs.Log.Errorf("Unable to "+
-						"process transaction %v: %v",
-						tx.Hash(), err)
-				}
+				// Handle the transaction.
+				b.handleRelevantTx(tx, isMempool, height)
 			}
 
 		case <-b.quit:
 			break out
 		}
 	}
+}
+
+// handleRelevantTx handles a new transaction that has been seen either in a
+// block or in the mempool. If in mempool, it will ask the mempool notifier to
+// handle it. If in a block, it will ask the txNotifier to handle it, and
+// cancel any relevant subscriptions made in the mempool.
+func (b *BitcoindNotifier) handleRelevantTx(tx *btcutil.Tx,
+	mempool bool, height uint32) {
+
+	// If this is a mempool spend, we'll ask the mempool notifier to hanlde
+	// it.
+	if mempool {
+		b.memNotifier.ProcessRelevantSpendTx(tx)
+		return
+	}
+
+	// Otherwise this is a confirmed spend, and we'll ask the tx notifier
+	// to handle it.
+	err := b.txNotifier.ProcessRelevantSpendTx(tx, height)
+	if err != nil {
+		chainntnfs.Log.Errorf("Unable to process transaction %v: %v",
+			tx.Hash(), err)
+
+		return
+	}
+
+	// Once the tx is processed, we will ask the memNotifier to unsubscribe
+	// the input.
+	//
+	// NOTE(yy): we could build it into txNotifier.ProcessRelevantSpendTx,
+	// but choose to implement it here so we can easily decouple the two
+	// notifiers in the future.
+	b.memNotifier.UnsubsribeConfirmedSpentTx(tx)
 }
 
 // historicalConfDetails looks up whether a confirmation request (txid/output
@@ -992,4 +1035,29 @@ func (b *BitcoindNotifier) GetBlock(hash *chainhash.Hash) (*wire.MsgBlock,
 	error) {
 
 	return b.blockCache.GetBlock(hash, b.chainConn.GetBlock)
+}
+
+// SubscribeMempoolSpent allows the caller to register a subscription to watch
+// for a spend of an outpoint in the mempool.The event will be dispatched once
+// the outpoint is spent in the mempool.
+//
+// NOTE: part of the MempoolWatcher interface.
+func (b *BitcoindNotifier) SubscribeMempoolSpent(
+	outpoint wire.OutPoint) (*chainntnfs.MempoolSpendEvent, error) {
+
+	event := b.memNotifier.SubscribeInput(outpoint)
+
+	ops := []*wire.OutPoint{&outpoint}
+
+	return event, b.chainConn.NotifySpent(ops)
+}
+
+// CancelMempoolSpendEvent allows the caller to cancel a subscription to watch
+// for a spend of an outpoint in the mempool.
+//
+// NOTE: part of the MempoolWatcher interface.
+func (b *BitcoindNotifier) CancelMempoolSpendEvent(
+	sub *chainntnfs.MempoolSpendEvent) {
+
+	b.memNotifier.UnsubscribeEvent(sub)
 }

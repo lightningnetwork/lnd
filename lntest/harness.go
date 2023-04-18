@@ -1125,25 +1125,39 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		ChannelPoint: cp,
 		Force:        force,
 	}
-	stream := hn.RPC.CloseChannel(closeReq)
+
+	var (
+		stream rpc.CloseChanClient
+		event  *lnrpc.CloseStatusUpdate
+		err    error
+	)
 
 	// Consume the "channel close" update in order to wait for the closing
 	// transaction to be broadcast, then wait for the closing tx to be seen
 	// within the network.
-	event, err := h.ReceiveCloseChannelUpdate(stream)
-	if err != nil {
-		// TODO(yy): remove the sleep once the following bug is fixed.
-		// We may receive the error `cannot co-op close channel with
-		// active htlcs` or `link failed to shutdown` if we close the
-		// channel. We need to investigate the order of settling the
-		// payments and updating commitments to properly fix it.
-		time.Sleep(5 * time.Second)
-
-		// Give it another chance.
+	//
+	// TODO(yy): remove the wait once the following bug is fixed.
+	// - https://github.com/lightningnetwork/lnd/issues/6039
+	// We may receive the error `cannot co-op close channel with active
+	// htlcs` or `link failed to shutdown` if we close the channel. We need
+	// to investigate the order of settling the payments and updating
+	// commitments to properly fix it.
+	err = wait.NoError(func() error {
 		stream = hn.RPC.CloseChannel(closeReq)
 		event, err = h.ReceiveCloseChannelUpdate(stream)
-		require.NoError(h, err)
-	}
+		if err != nil {
+			h.Logf("Test: %s, close channel got error: %v",
+				h.manager.currentTestCase, err)
+
+			// NoError predicates every 200ms, which is too
+			// frequent for closing channels. We sleep here to
+			// avoid trying it too much.
+			time.Sleep(2 * time.Second)
+		}
+
+		return err
+	}, wait.ChannelCloseTimeout)
+	require.NoError(h, err, "retry closing channel failed")
 
 	pendingClose, ok := event.Update.(*lnrpc.CloseStatusUpdate_ClosePending)
 	require.Truef(h, ok, "expected channel close update, instead got %v",

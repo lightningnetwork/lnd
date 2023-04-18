@@ -253,6 +253,8 @@ func GenDefaultBtcConstraints() channeldb.ChannelConstraints {
 // NewPartialChainControl creates a new partial chain control that contains all
 // the parts that can be purely constructed from the passed in global
 // configuration and doesn't need any wallet instance yet.
+//
+//nolint:lll
 func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
@@ -414,14 +416,17 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 
 		if bitcoindMode.RPCPolling {
 			bitcoindCfg.PollingConfig = &chain.PollingConfig{
-				BlockPollingInterval: bitcoindMode.BlockPollingInterval,
-				TxPollingInterval:    bitcoindMode.TxPollingInterval,
+				BlockPollingInterval:    bitcoindMode.BlockPollingInterval,
+				TxPollingInterval:       bitcoindMode.TxPollingInterval,
+				TxPollingIntervalJitter: lncfg.DefaultTxPollingJitter,
 			}
 		} else {
 			bitcoindCfg.ZMQConfig = &chain.ZMQConfig{
-				ZMQBlockHost:    bitcoindMode.ZMQPubRawBlock,
-				ZMQTxHost:       bitcoindMode.ZMQPubRawTx,
-				ZMQReadDeadline: bitcoindMode.ZMQReadDeadline,
+				ZMQBlockHost:           bitcoindMode.ZMQPubRawBlock,
+				ZMQTxHost:              bitcoindMode.ZMQPubRawTx,
+				ZMQReadDeadline:        bitcoindMode.ZMQReadDeadline,
+				MempoolPollingInterval: bitcoindMode.TxPollingInterval,
+				PollingIntervalJitter:  lncfg.DefaultTxPollingJitter,
 			}
 		}
 

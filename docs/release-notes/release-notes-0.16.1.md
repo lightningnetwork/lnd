@@ -1,5 +1,10 @@
 # Release Notes
 
+## Routing
+
+* The default CLTV delta delay [has been increased from 40 blocks to 80
+  blocks](https://github.com/lightningnetwork/lnd/pull/7609).
+
 ## Wallet
 
 - The logging around transaction broadcast failures [has been improved by always

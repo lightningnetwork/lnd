@@ -76,6 +76,9 @@ available](https://github.com/lightningnetwork/lnd/pull/7529).
 
 * [Put back P2TR as default change type
   in batch_open_channel](https://github.com/lightningnetwork/lnd/pull/7603).
+  
+* [Fix log output](https://github.com/lightningnetwork/lnd/pull/7604).
+
 
 # Contributors (Alphabetical Order)
 

@@ -50,6 +50,11 @@ service NeutrinoKit {
     GetBlockHash returns the header hash of a block at a given height.
     */
     rpc GetBlockHash (GetBlockHashRequest) returns (GetBlockHashResponse);
+
+    /*
+    UnBanPeer unbans a previously banned peer.
+     */
+    rpc UnBanPeer (UnBanPeerRequest) returns (UnBanPeerResponse);
 }
 
 message StatusRequest {
@@ -222,4 +227,12 @@ message GetBlockHashRequest {
 message GetBlockHashResponse {
     // The block hash.
     string hash = 1;
+}
+
+message UnBanPeerRequest {
+    // The address of the peer to ban.
+    string peer_address = 1;
+}
+
+message UnBanPeerResponse {
 }

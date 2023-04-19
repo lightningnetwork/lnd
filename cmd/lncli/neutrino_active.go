@@ -225,6 +225,40 @@ func getCFilter(ctx *cli.Context) error {
 	return nil
 }
 
+var unBanPeerCommand = cli.Command{
+	Name:        "unbanPeer",
+	Usage:       "Unban a peer",
+	Category:    "Neutrino",
+	Description: "Unban previously banned peer",
+	ArgsUsage:   "address",
+	Action:      actionDecorator(unBanPeer),
+}
+
+func unBanPeer(ctx *cli.Context) error {
+	ctxc := getContext()
+	args := ctx.Args()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if !args.Present() {
+		return cli.ShowCommandHelp(ctx, "unBanPeerCommand")
+	}
+
+	client, cleanUp := getNeutrinoKitClient(ctx)
+	defer cleanUp()
+
+	req := &neutrinorpc.UnBanPeerRequest{PeerAddress: args.First()}
+
+	resp, err := client.UnBanPeer(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
 // neutrinoCommands will return the set of commands to enable for neutrinorpc
 // builds.
 func neutrinoCommands() []cli.Command {
@@ -241,6 +275,7 @@ func neutrinoCommands() []cli.Command {
 				isBannedCommand,
 				getBlockHeaderCommand,
 				getCFilterCommand,
+				unBanPeerCommand,
 			},
 		},
 	}

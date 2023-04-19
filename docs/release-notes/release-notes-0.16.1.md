@@ -92,6 +92,12 @@ available](https://github.com/lightningnetwork/lnd/pull/7529).
   funding manager would error out if no persisted initial forwarding policy is 
   found for a channel. 
 
+## Documentation
+
+* [Update Postgres.md](https://github.com/lightningnetwork/lnd/pull/7442)
+  to clarify how the database is currently used as a Key-Value store, but
+  in the future will have new schema introduced.
+
 # Contributors (Alphabetical Order)
 
 * ardevd

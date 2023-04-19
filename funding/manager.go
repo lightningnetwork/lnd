@@ -3729,10 +3729,11 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	}
 
 	// The caller of newChanAnnouncement is expected to provide the initial
-	// forwarding policy to be announced. We abort the channel announcement
-	// if they are not provided.
+	// forwarding policy to be announced. If no persisted initial policy
+	// values are found, then we will use the default policy values in the
+	// channel announcement.
 	storedFwdingPolicy, err := f.getInitialFwdingPolicy(chanID)
-	if err != nil {
+	if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
 		return nil, errors.Errorf("unable to generate channel "+
 			"update announcement: %v", err)
 	}

@@ -1,6 +1,7 @@
 package chanfunding
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -53,6 +54,7 @@ type Coin struct {
 // selected coins are returned in order for the caller to properly handle
 // change+fees.
 func selectInputs(amt btcutil.Amount, coins []Coin) (btcutil.Amount, []Coin, error) {
+
 	satSelected := btcutil.Amount(0)
 	for i, coin := range coins {
 		satSelected += btcutil.Amount(coin.Value)
@@ -250,4 +252,104 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	}
 
 	return selectedUtxos, outputAmt, changeAmt, nil
+}
+
+// CoinSelectUpToAmount attempts to select coins such that we'll select up to
+// maxAmount exclusive of fees and optional reserve if sufficient funds are
+// available. If insufficient funds are available this method selects all
+// available coins.
+func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
+	reserved, dustLimit btcutil.Amount, coins []Coin) ([]Coin,
+	btcutil.Amount, btcutil.Amount, error) {
+
+	var (
+		// selectSubtractFee is tracking if our coin selection was
+		// unsuccessful and whether we have to start a new round of
+		// selecting coins considering fees.
+		selectSubtractFee = false
+		outputAmount      = maxAmount
+	)
+
+	// Get total balance from coins which we need for reserve considerations
+	// and fee santiy checks.
+	var totalBalance btcutil.Amount
+	for _, coin := range coins {
+		totalBalance += btcutil.Amount(coin.Value)
+	}
+
+	// First we try to select coins to create an output of the specified
+	// maxAmount with or without a change output that covers the miner fee.
+	selected, changeAmt, err := CoinSelect(
+		feeRate, maxAmount, dustLimit, coins,
+	)
+
+	var errInsufficientFunds *ErrInsufficientFunds
+	if err == nil { //nolint:gocritic,ifElseChain
+		// If the coin selection succeeds we check if our total balance
+		// covers the selected set of coins including fees plus an
+		// optional anchor reserve.
+
+		// First we sum up the value of all selected coins.
+		var sumSelected btcutil.Amount
+		for _, coin := range selected {
+			sumSelected += btcutil.Amount(coin.Value)
+		}
+
+		// We then subtract the change amount from the value of all
+		// selected coins to obtain the actual amount that is selected.
+		sumSelected -= changeAmt
+
+		// Next we check if our total balance can cover for the selected
+		// output plus the optional anchor reserve.
+		if totalBalance-sumSelected < reserved {
+			// If our local balance is insufficient to cover for the
+			// reserve we try to select an output amount that uses
+			// our total balance minus reserve and fees.
+			selectSubtractFee = true
+		}
+	} else if errors.As(err, &errInsufficientFunds) {
+		// If the initial coin selection fails due to insufficient funds
+		// we select our total available balance minus fees.
+		selectSubtractFee = true
+	} else {
+		return nil, 0, 0, err
+	}
+
+	// If we determined that our local balance is insufficient we check
+	// our total balance minus fees and optional reserve.
+	if selectSubtractFee {
+		selected, outputAmount, changeAmt, err = CoinSelectSubtractFees(
+			feeRate, totalBalance-reserved, dustLimit, coins,
+		)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+	}
+
+	// Sanity check the resulting output values to make sure we don't burn a
+	// great part to fees.
+	totalOut := outputAmount + changeAmt
+	sum := func(coins []Coin) btcutil.Amount {
+		var sum btcutil.Amount
+		for _, coin := range coins {
+			sum += btcutil.Amount(coin.Value)
+		}
+
+		return sum
+	}
+	err = sanityCheckFee(totalOut, sum(selected)-totalOut)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	// In case the selected amount is lower than minimum funding amount we
+	// must return an error. The minimum funding amount is determined
+	// upstream and denotes either the minimum viable channel size or an
+	// amount sufficient to cover for the initial remote balance.
+	if outputAmount < minAmount {
+		return nil, 0, 0, fmt.Errorf("available funds(%v) below the "+
+			"minimum amount(%v)", outputAmount, minAmount)
+	}
+
+	return selected, outputAmount, changeAmt, nil
 }

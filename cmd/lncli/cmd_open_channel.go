@@ -110,6 +110,13 @@ var openChannelCommand = cli.Command{
 			Usage: "the number of satoshis the wallet should " +
 				"commit to the channel",
 		},
+		cli.BoolFlag{
+			Name: "fundmax",
+			Usage: "if set, the wallet will attempt to commit " +
+				"the maximum possible local amount to the " +
+				"channel. This must not be set at the same " +
+				"time as local_amt",
+		},
 		cli.Uint64Flag{
 			Name: "base_fee_msat",
 			Usage: "the base fee in milli-satoshis that will " +
@@ -292,6 +299,7 @@ func openChannel(ctx *cli.Context) error {
 		ZeroConf:                   ctx.Bool("zero_conf"),
 		ScidAlias:                  ctx.Bool("scid_alias"),
 		RemoteChanReserveSat:       ctx.Uint64("remote_reserve_sats"),
+		FundMax:                    ctx.Bool("fundmax"),
 	}
 
 	switch {
@@ -350,8 +358,23 @@ func openChannel(ctx *cli.Context) error {
 			return fmt.Errorf("unable to decode local amt: %v", err)
 		}
 		args = args.Tail()
-	default:
-		return fmt.Errorf("local amt argument missing")
+	case !ctx.Bool("fundmax"):
+		return fmt.Errorf("either local_amt or fundmax must be " +
+			"specified")
+	}
+
+	// The fundmax flag is NOT allowed to be combined with local_amt above.
+	// It is allowed to be combined with push_amt, but only if explicitly
+	// set.
+	if ctx.Bool("fundmax") && req.LocalFundingAmount != 0 {
+		return fmt.Errorf("local amount cannot be set if attempting " +
+			"to commit the maximum amount out of the wallet")
+	}
+
+	// The fundmax flag is NOT allowed to be combined with the psbt flag.
+	if ctx.Bool("fundmax") && ctx.Bool("psbt") {
+		return fmt.Errorf("psbt cannot be set if attempting " +
+			"to commit the maximum amount out of the wallet")
 	}
 
 	if ctx.IsSet("push_amt") {

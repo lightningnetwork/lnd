@@ -12,6 +12,10 @@
   restore single channels](https://github.com/lightningnetwork/lnd/pull/7437)
   to and from a file on disk.
 
+* [Add a `fundmax` flag to `openchannel` to allow for the allocation of all
+  funds in a wallet](https://github.com/lightningnetwork/lnd/pull/6903) towards
+  a new channel opening.
+
 ## Watchtowers
 
 * [Fix Address iterator 
@@ -66,6 +70,7 @@ available](https://github.com/lightningnetwork/lnd/pull/7529).
 
 * ardevd
 * Elle Mouton
+* hieblmi
 * Oliver Gugger
 * Tommy Volk
 * Yong Yu

@@ -3234,9 +3234,11 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 
 		// For private channels we do not announce the channel policy
 		// to the network but still need to delete them from the
-		// database.
+		// database. It is possible that we do not have a stored
+		// forwarding policy for this channel so we ignore that specific
+		// type of error.
 		err = f.deleteInitialFwdingPolicy(chanID)
-		if err != nil {
+		if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
 			log.Infof("Could not delete channel fees "+
 				"for chanId %x.", chanID)
 		}
@@ -3863,9 +3865,11 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	}
 
 	// After the fee parameters have been stored in the announcement
-	// we can delete them from the database.
+	// we can delete them from the database. It is possible that we do not
+	// have a stored forwarding policy for this channel so we ignore that
+	// specific type of error.
 	err = f.deleteInitialFwdingPolicy(chanID)
-	if err != nil {
+	if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
 		log.Infof("Could not delete channel fees for chanId %x.",
 			chanID)
 	}

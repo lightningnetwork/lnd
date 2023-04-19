@@ -216,6 +216,24 @@ func (s *Server) Status(ctx context.Context,
 	}, nil
 }
 
+// UnbanPeer unbans a previously banned peer.
+//
+// NOTE: Part of the NeutrinoKitServer interface.
+func (s *Server) UnBanPeer(ctx context.Context,
+	in *UnBanPeerRequest) (*UnBanPeerResponse, error) {
+
+	if s.cfg.NeutrinoCS == nil {
+		return nil, ErrNeutrinoNotActive
+	}
+
+	err := s.cfg.NeutrinoCS.UnBanPeer(in.PeerAddress)
+	if err != nil {
+		return nil, err
+	}
+
+	return &UnBanPeerResponse{}, nil
+}
+
 // AddPeer adds a new peer that has already been connected to the server.
 //
 // NOTE: Part of the NeutrinoKitServer interface.

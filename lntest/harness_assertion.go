@@ -377,6 +377,20 @@ func (h *HarnessTest) AssertChannelExists(hn *node.HarnessNode,
 	return channel
 }
 
+// AssertOutputScriptClass checks that the specified transaction output has the
+// expected script class.
+func (h *HarnessTest) AssertOutputScriptClass(tx *btcutil.Tx,
+	outputIndex uint32, scriptClass txscript.ScriptClass) {
+
+	require.Greater(h, len(tx.MsgTx().TxOut), int(outputIndex))
+
+	txOut := tx.MsgTx().TxOut[outputIndex]
+
+	pkScript, err := txscript.ParsePkScript(txOut.PkScript)
+	require.NoError(h, err)
+	require.Equal(h, pkScript.Class(), scriptClass)
+}
+
 // findChannel tries to find a target channel in the node using the given
 // channel point.
 func (h *HarnessTest) findChannel(hn *node.HarnessNode,
@@ -873,6 +887,15 @@ func (h *HarnessTest) Random32Bytes() []byte {
 	return randBuf
 }
 
+// RandomPreimage generates a random preimage which can be used as a payment
+// preimage.
+func (h *HarnessTest) RandomPreimage() lntypes.Preimage {
+	var preimage lntypes.Preimage
+	copy(preimage[:], h.Random32Bytes())
+
+	return preimage
+}
+
 // DecodeAddress decodes a given address and asserts there's no error.
 func (h *HarnessTest) DecodeAddress(addr string) btcutil.Address {
 	resp, err := btcutil.DecodeAddress(addr, harnessNetParams)
@@ -1242,6 +1265,111 @@ func (h *HarnessTest) AssertActiveHtlcs(hn *node.HarnessNode,
 	require.NoError(h, err, "timeout checking active HTLCs")
 }
 
+// AssertIncomingHTLCActive asserts the node has a pending incoming HTLC in the
+// given channel. Returns the HTLC if found and active.
+func (h *HarnessTest) AssertIncomingHTLCActive(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, payHash []byte) *lnrpc.HTLC {
+
+	return h.assertHLTCActive(hn, cp, payHash, true)
+}
+
+// AssertOutgoingHTLCActive asserts the node has a pending outgoing HTLC in the
+// given channel. Returns the HTLC if found and active.
+func (h *HarnessTest) AssertOutgoingHTLCActive(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, payHash []byte) *lnrpc.HTLC {
+
+	return h.assertHLTCActive(hn, cp, payHash, false)
+}
+
+// assertHLTCActive asserts the node has a pending HTLC in the given channel.
+// Returns the HTLC if found and active.
+func (h *HarnessTest) assertHLTCActive(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, payHash []byte, incoming bool) *lnrpc.HTLC {
+
+	var result *lnrpc.HTLC
+	target := hex.EncodeToString(payHash)
+
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		ch := h.GetChannelByChanPoint(hn, cp)
+
+		// Check all payment hashes active for this channel.
+		for _, htlc := range ch.PendingHtlcs {
+			h := hex.EncodeToString(htlc.HashLock)
+			if h != target {
+				continue
+			}
+
+			// If the payment hash is found, check the incoming
+			// field.
+			if htlc.Incoming == incoming {
+				// Found it and return.
+				result = htlc
+				return nil
+			}
+
+			// Otherwise we do have the HTLC but its direction is
+			// not right.
+			have, want := "outgoing", "incoming"
+			if htlc.Incoming {
+				have, want = "incoming", "outgoing"
+			}
+
+			return fmt.Errorf("node[%s] have htlc(%v), want: %s, "+
+				"have: %s", hn.Name(), payHash, want, have)
+		}
+
+		return fmt.Errorf("node [%s:%x] didn't have: the payHash %v",
+			hn.Name(), hn.PubKey[:], payHash)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking pending HTLC")
+
+	return result
+}
+
+// AssertHLTCNotActive asserts the node doesn't have a pending HTLC in the
+// given channel, which mean either the HTLC never exists, or it was pending
+// and now settled. Returns the HTLC if found and active.
+//
+// NOTE: to check a pending HTLC becoming settled, first use AssertHLTCActive
+// then follow this check.
+func (h *HarnessTest) AssertHLTCNotActive(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, payHash []byte) *lnrpc.HTLC {
+
+	var result *lnrpc.HTLC
+	target := hex.EncodeToString(payHash)
+
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		ch := h.GetChannelByChanPoint(hn, cp)
+
+		// Check all payment hashes active for this channel.
+		for _, htlc := range ch.PendingHtlcs {
+			h := hex.EncodeToString(htlc.HashLock)
+
+			// Break if found the htlc.
+			if h == target {
+				result = htlc
+				break
+			}
+		}
+
+		// If we've found nothing, we're done.
+		if result == nil {
+			return nil
+		}
+
+		// Otherwise return an error.
+		return fmt.Errorf("node [%s:%x] still has: the payHash %x",
+			hn.Name(), hn.PubKey[:], payHash)
+	}, DefaultTimeout)
+	require.NoError(h, err, "timeout checking pending HTLC")
+
+	return result
+}
+
 // ReceiveSingleInvoice waits until a message is received on the subscribe
 // single invoice stream or the timeout is reached.
 func (h *HarnessTest) ReceiveSingleInvoice(
@@ -1436,16 +1564,17 @@ func (h *HarnessTest) AssertPaymentStatus(hn *node.HarnessNode,
 	status lnrpc.Payment_PaymentStatus) *lnrpc.Payment {
 
 	var target *lnrpc.Payment
+	payHash := preimage.Hash()
 
 	err := wait.NoError(func() error {
-		p := h.findPayment(hn, preimage.Hash().String())
+		p := h.findPayment(hn, payHash.String())
 		if status == p.Status {
 			target = p
 			return nil
 		}
 
 		return fmt.Errorf("payment: %v status not match, want %s "+
-			"got %s", preimage, status, p.Status)
+			"got %s", payHash, status, p.Status)
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout checking payment status")
 
@@ -2334,4 +2463,54 @@ func (h *HarnessTest) AssertWalletAccountBalance(hn *node.HarnessNode,
 		return nil
 	}, DefaultTimeout)
 	require.NoError(h, err, "timeout checking wallet account balance")
+}
+
+// AssertClosingTxInMempool assert that the closing transaction of the given
+// channel point can be found in the mempool. If the channel has anchors, it
+// will assert the anchor sweep tx is also in the mempool.
+func (h *HarnessTest) AssertClosingTxInMempool(cp *lnrpc.ChannelPoint,
+	c lnrpc.CommitmentType) *wire.MsgTx {
+
+	// Get expected number of txes to be found in the mempool.
+	expectedTxes := 1
+	hasAnchors := CommitTypeHasAnchors(c)
+	if hasAnchors {
+		expectedTxes = 2
+	}
+
+	// Wait for the expected txes to be found in the mempool.
+	h.Miner.AssertNumTxsInMempool(expectedTxes)
+
+	// Get the closing tx from the mempool.
+	op := h.OutPointFromChannelPoint(cp)
+	closeTx := h.Miner.AssertOutpointInMempool(op)
+
+	return closeTx
+}
+
+// AssertClosingTxInMempool assert that the closing transaction of the given
+// channel point can be found in the mempool. If the channel has anchors, it
+// will assert the anchor sweep tx is also in the mempool.
+func (h *HarnessTest) MineClosingTx(cp *lnrpc.ChannelPoint,
+	c lnrpc.CommitmentType) *wire.MsgTx {
+
+	// Get expected number of txes to be found in the mempool.
+	expectedTxes := 1
+	hasAnchors := CommitTypeHasAnchors(c)
+	if hasAnchors {
+		expectedTxes = 2
+	}
+
+	// Wait for the expected txes to be found in the mempool.
+	h.Miner.AssertNumTxsInMempool(expectedTxes)
+
+	// Get the closing tx from the mempool.
+	op := h.OutPointFromChannelPoint(cp)
+	closeTx := h.Miner.AssertOutpointInMempool(op)
+
+	// Mine a block to confirm the closing transaction and potential anchor
+	// sweep.
+	h.MineBlocksAndAssertNumTxes(1, expectedTxes)
+
+	return closeTx
 }

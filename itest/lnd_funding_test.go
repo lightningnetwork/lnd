@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
@@ -776,6 +777,21 @@ func testBatchChanFunding(ht *lntest.HarnessTest) {
 	ht.AssertTopologyChannelOpen(alice, chanPoint1)
 	ht.AssertTopologyChannelOpen(alice, chanPoint2)
 	ht.AssertTopologyChannelOpen(alice, chanPoint3)
+
+	// Check if the change type from the batch_open_channel funding is P2TR.
+	rawTx := ht.Miner.GetRawTransaction(txHash)
+	require.Len(ht, rawTx.MsgTx().TxOut, 4)
+
+	// For calculating the change output index we use the formula for the
+	// sum of consecutive of integers (n(n+1)/2). All the channel point
+	// indexes are known, so we just calculate the difference to get the
+	// change output index.
+	changeIndex := uint32(6) - (chanPoint1.OutputIndex +
+		chanPoint2.OutputIndex + chanPoint3.OutputIndex)
+
+	ht.AssertOutputScriptClass(
+		rawTx, changeIndex, txscript.WitnessV1TaprootTy,
+	)
 
 	// With the channel open, ensure that it is counted towards Alice's
 	// total channel balance.

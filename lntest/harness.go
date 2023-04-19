@@ -886,6 +886,10 @@ type OpenChannelParams struct {
 	// If set to false it avoids applying a fee rate of 0 and instead
 	// activates the default configured fee rate.
 	UseFeeRate bool
+
+	// FundMax is a boolean indicating whether the channel should be funded
+	// with the maximum possible amount from the wallet.
+	FundMax bool
 }
 
 // prepareOpenChannel waits for both nodes to be synced to chain and returns an
@@ -926,6 +930,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		FeeRate:            p.FeeRate,
 		UseBaseFee:         p.UseBaseFee,
 		UseFeeRate:         p.UseFeeRate,
+		FundMax:            p.FundMax,
 	}
 }
 
@@ -1603,6 +1608,57 @@ func (h *HarnessTest) MineBlocksAndAssertNumTxes(num uint32,
 	h.AssertActiveNodesSyncedTo(bestBlock)
 
 	return blocks
+}
+
+// cleanMempool mines blocks till the mempool is empty and asserts all active
+// nodes have synced to the chain.
+func (h *HarnessTest) cleanMempool() {
+	_, startHeight := h.Miner.GetBestBlock()
+
+	// Mining the blocks slow to give `lnd` more time to sync.
+	var bestBlock *wire.MsgBlock
+	err := wait.NoError(func() error {
+		// If mempool is empty, exit.
+		mem := h.Miner.GetRawMempool()
+		if len(mem) == 0 {
+			_, height := h.Miner.GetBestBlock()
+			h.Logf("Mined %d blocks when cleanup the mempool",
+				height-startHeight)
+
+			return nil
+		}
+
+		// Otherwise mine a block.
+		blocks := h.Miner.MineBlocksSlow(1)
+		bestBlock = blocks[len(blocks)-1]
+
+		return fmt.Errorf("still have %d txes in mempool", len(mem))
+	}, wait.MinerMempoolTimeout)
+	require.NoError(h, err, "timeout cleaning up mempool")
+
+	// Exit early if the best block is nil, which means we haven't mined
+	// any blocks during the cleanup.
+	if bestBlock == nil {
+		return
+	}
+
+	// Make sure all the active nodes are synced.
+	h.AssertActiveNodesSyncedTo(bestBlock)
+}
+
+// CleanShutDown is used to quickly end a test by shutting down all non-standby
+// nodes and mining blocks to empty the mempool.
+//
+// NOTE: this method provides a faster exit for a test that involves force
+// closures as the caller doesn't need to mine all the blocks to make sure the
+// mempool is empty.
+func (h *HarnessTest) CleanShutDown() {
+	// First, shutdown all non-standby nodes to prevent new transactions
+	// being created and fed into the mempool.
+	h.shutdownNonStandbyNodes()
+
+	// Now mine blocks till the mempool is empty.
+	h.cleanMempool()
 }
 
 // MineEmptyBlocks mines a given number of empty blocks.

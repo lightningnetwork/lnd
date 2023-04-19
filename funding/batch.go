@@ -320,6 +320,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 	// anyway.
 	firstReq := b.channels[0].fundingReq
 	feeRateSatPerKVByte := firstReq.FundingFeePerKw.FeePerKVByte()
+	changeType := walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
 	fundPsbtReq := &walletrpc.FundPsbtRequest{
 		Template: &walletrpc.FundPsbtRequest_Raw{
 			Raw: txTemplate,
@@ -329,6 +330,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 		},
 		MinConfs:         firstReq.MinConfs,
 		SpendUnconfirmed: firstReq.MinConfs == 0,
+		ChangeType:       changeType,
 	}
 	fundPsbtResp, err := b.cfg.WalletKitServer.FundPsbt(ctx, fundPsbtReq)
 	if err != nil {

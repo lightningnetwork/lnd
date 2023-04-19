@@ -182,6 +182,10 @@ type PartialChainControl struct {
 	// interested in.
 	ChainNotifier chainntnfs.ChainNotifier
 
+	// MempoolNotifier is used to watch for spending events happened in
+	// mempool.
+	MempoolNotifier chainntnfs.MempoolWatcher
+
 	// ChainView is used in the router for maintaining an up-to-date graph.
 	ChainView chainview.FilteredChainView
 
@@ -249,6 +253,8 @@ func GenDefaultBtcConstraints() channeldb.ChannelConstraints {
 // NewPartialChainControl creates a new partial chain control that contains all
 // the parts that can be purely constructed from the passed in global
 // configuration and doesn't need any wallet instance yet.
+//
+//nolint:lll
 func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	// Set the RPC config from the "home" chain. Multi-chain isn't yet
 	// active, so we'll restrict usage to a particular chain for now.
@@ -410,14 +416,17 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 
 		if bitcoindMode.RPCPolling {
 			bitcoindCfg.PollingConfig = &chain.PollingConfig{
-				BlockPollingInterval: bitcoindMode.BlockPollingInterval,
-				TxPollingInterval:    bitcoindMode.TxPollingInterval,
+				BlockPollingInterval:    bitcoindMode.BlockPollingInterval,
+				TxPollingInterval:       bitcoindMode.TxPollingInterval,
+				TxPollingIntervalJitter: lncfg.DefaultTxPollingJitter,
 			}
 		} else {
 			bitcoindCfg.ZMQConfig = &chain.ZMQConfig{
-				ZMQBlockHost:    bitcoindMode.ZMQPubRawBlock,
-				ZMQTxHost:       bitcoindMode.ZMQPubRawTx,
-				ZMQReadDeadline: bitcoindMode.ZMQReadDeadline,
+				ZMQBlockHost:           bitcoindMode.ZMQPubRawBlock,
+				ZMQTxHost:              bitcoindMode.ZMQPubRawTx,
+				ZMQReadDeadline:        bitcoindMode.ZMQReadDeadline,
+				MempoolPollingInterval: bitcoindMode.TxPollingInterval,
+				PollingIntervalJitter:  lncfg.DefaultTxPollingJitter,
 			}
 		}
 
@@ -433,10 +442,14 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 				"bitcoind: %v", err)
 		}
 
-		cc.ChainNotifier = bitcoindnotify.New(
+		chainNotifier := bitcoindnotify.New(
 			bitcoindConn, cfg.ActiveNetParams.Params, hintCache,
 			hintCache, cfg.BlockCache,
 		)
+
+		cc.ChainNotifier = chainNotifier
+		cc.MempoolNotifier = chainNotifier
+
 		cc.ChainView = chainview.NewBitcoindFilteredChainView(
 			bitcoindConn, cfg.BlockCache,
 		)
@@ -655,13 +668,17 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			DisableConnectOnNew:  true,
 			DisableAutoReconnect: false,
 		}
-		cc.ChainNotifier, err = btcdnotify.New(
+
+		chainNotifier, err := btcdnotify.New(
 			rpcConfig, cfg.ActiveNetParams.Params, hintCache,
 			hintCache, cfg.BlockCache,
 		)
 		if err != nil {
 			return nil, nil, err
 		}
+
+		cc.ChainNotifier = chainNotifier
+		cc.MempoolNotifier = chainNotifier
 
 		// Finally, we'll create an instance of the default chain view
 		// to be used within the routing layer.

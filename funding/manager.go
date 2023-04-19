@@ -266,6 +266,15 @@ type InitFundingMsg struct {
 	// peer.
 	MaxLocalCsv uint16
 
+	// FundUpToMaxAmt is the maximum amount to try to commit to. If set, the
+	// MinFundAmt field denotes the acceptable minimum amount to commit to,
+	// while trying to commit as many coins as possible up to this value.
+	FundUpToMaxAmt btcutil.Amount
+
+	// MinFundAmt must be set iff FundUpToMaxAmt is set. It denotes the
+	// minimum amount to commit to.
+	MinFundAmt btcutil.Amount
+
 	// ChanFunder is an optional channel funder that allows the caller to
 	// control exactly how the channel funding is carried out. If not
 	// specified, then the default chanfunding.WalletAssembler will be
@@ -478,6 +487,11 @@ type Config struct {
 	// NotifyOpenChannelEvent informs the ChannelNotifier when channels
 	// transition from pending open to open.
 	NotifyOpenChannelEvent func(wire.OutPoint)
+
+	// UpdateForwardingPolicies is used by the manager to update active
+	// links with a new policy.
+	UpdateForwardingPolicies func(
+		chanPolicies map[wire.OutPoint]htlcswitch.ForwardingPolicy)
 
 	// OpenChannelPredicate is a predicate on the lnwire.OpenChannel message
 	// and on the requesting node's public key that returns a bool which
@@ -3150,6 +3164,28 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 		return ErrFundingManagerShuttingDown
 	}
 
+	// The user can define non-default channel policies when opening a
+	// channel. They are stored in the database to be persisted from the
+	// moment of funding the channel to it being confirmed. We just
+	// announced those policies to the network, but we also need to update
+	// our local policy in the switch to make sure we can forward payments
+	// with the correct fees. We can't do this when creating the link
+	// initially as that only takes the static channel parameters.
+	updatedPolicy := map[wire.OutPoint]htlcswitch.ForwardingPolicy{
+		completeChan.FundingOutpoint: {
+			MinHTLCOut: ann.chanUpdateAnn.HtlcMinimumMsat,
+			MaxHTLC:    ann.chanUpdateAnn.HtlcMaximumMsat,
+			BaseFee: lnwire.MilliSatoshi(
+				ann.chanUpdateAnn.BaseFee,
+			),
+			FeeRate: lnwire.MilliSatoshi(
+				ann.chanUpdateAnn.FeeRate,
+			),
+			TimeLockDelta: uint32(ann.chanUpdateAnn.TimeLockDelta),
+		},
+	}
+	f.cfg.UpdateForwardingPolicies(updatedPolicy)
+
 	return nil
 }
 
@@ -3693,10 +3729,11 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	}
 
 	// The caller of newChanAnnouncement is expected to provide the initial
-	// forwarding policy to be announced. We abort the channel announcement
-	// if they are not provided.
+	// forwarding policy to be announced. If no persisted initial policy
+	// values are found, then we will use the default policy values in the
+	// channel announcement.
 	storedFwdingPolicy, err := f.getInitialFwdingPolicy(chanID)
-	if err != nil {
+	if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
 		return nil, errors.Errorf("unable to generate channel "+
 			"update announcement: %v", err)
 	}
@@ -3720,7 +3757,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		chanUpdateAnn.FeeRate = uint32(storedFwdingPolicy.FeeRate)
 
 	default:
-		log.Infof("No channel forwaring policy specified for channel "+
+		log.Infof("No channel forwarding policy specified for channel "+
 			"announcement of ChannelID(%v). "+
 			"Assuming default fee parameters.", chanID)
 		chanUpdateAnn.BaseFee = uint32(
@@ -4079,23 +4116,26 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	req := &lnwallet.InitFundingReserveMsg{
-		ChainHash:        &msg.ChainHash,
-		PendingChanID:    chanID,
-		NodeID:           peerKey,
-		NodeAddr:         msg.Peer.Address(),
-		SubtractFees:     msg.SubtractFees,
-		LocalFundingAmt:  localAmt,
-		RemoteFundingAmt: 0,
-		CommitFeePerKw:   commitFeePerKw,
-		FundingFeePerKw:  msg.FundingFeePerKw,
-		PushMSat:         msg.PushAmt,
-		Flags:            channelFlags,
-		MinConfs:         msg.MinConfs,
-		CommitType:       commitType,
-		ChanFunder:       msg.ChanFunder,
-		ZeroConf:         zeroConf,
-		OptionScidAlias:  scid,
-		ScidAliasFeature: scidFeatureVal,
+		ChainHash:         &msg.ChainHash,
+		PendingChanID:     chanID,
+		NodeID:            peerKey,
+		NodeAddr:          msg.Peer.Address(),
+		SubtractFees:      msg.SubtractFees,
+		LocalFundingAmt:   localAmt,
+		RemoteFundingAmt:  0,
+		FundUpToMaxAmt:    msg.FundUpToMaxAmt,
+		MinFundAmt:        msg.MinFundAmt,
+		RemoteChanReserve: chanReserve,
+		CommitFeePerKw:    commitFeePerKw,
+		FundingFeePerKw:   msg.FundingFeePerKw,
+		PushMSat:          msg.PushAmt,
+		Flags:             channelFlags,
+		MinConfs:          msg.MinConfs,
+		CommitType:        commitType,
+		ChanFunder:        msg.ChanFunder,
+		ZeroConf:          zeroConf,
+		OptionScidAlias:   scid,
+		ScidAliasFeature:  scidFeatureVal,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

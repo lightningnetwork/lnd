@@ -5816,6 +5816,10 @@
           "type": "string",
           "format": "uint64",
           "description": "The number of satoshis we require the remote peer to reserve. This value,\nif specified, must be above the dust limit and below 20% of the channel\ncapacity."
+        },
+        "fund_max": {
+          "type": "boolean",
+          "description": "If set, then lnd will attempt to commit all the coins under control of the\ninternal wallet to open the channel, and the LocalFundingAmount field must\nbe zero and is ignored."
         }
       }
     },

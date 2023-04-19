@@ -1148,6 +1148,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		PreimageDB:   s.witnessBeacon,
 		Notifier:     cc.ChainNotifier,
+		Mempool:      cc.MempoolNotifier,
 		Signer:       cc.Wallet.Cfg.Signer,
 		FeeEstimator: cc.FeeEstimator,
 		ChainIO:      cc.ChainIO,
@@ -1439,8 +1440,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		RegisteredChains:              cfg.registeredChains,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
-		DeleteAliasEdge: deleteAliasEdge,
-		AliasManager:    s.aliasMgr,
+		DeleteAliasEdge:          deleteAliasEdge,
+		AliasManager:             s.aliasMgr,
+		UpdateForwardingPolicies: s.htlcSwitch.UpdateForwardingPolicies,
 	})
 	if err != nil {
 		return nil, err

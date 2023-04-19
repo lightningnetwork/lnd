@@ -519,4 +519,16 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "watchtower session management",
 		TestFunc: testWatchtowerSessionManagement,
 	},
+	{
+		Name:     "channel fundmax",
+		TestFunc: testChannelFundMax,
+	},
+	{
+		Name:     "htlc timeout resolver extract preimage remote",
+		TestFunc: testHtlcTimeoutResolverExtractPreimageRemote,
+	},
+	{
+		Name:     "htlc timeout resolver extract preimage local",
+		TestFunc: testHtlcTimeoutResolverExtractPreimageLocal,
+	},
 }

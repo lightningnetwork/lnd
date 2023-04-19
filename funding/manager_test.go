@@ -250,6 +250,7 @@ type testNode struct {
 	testDir         string
 	shutdownChannel chan struct{}
 	reportScidChan  chan struct{}
+	updatedPolicies chan map[wire.OutPoint]htlcswitch.ForwardingPolicy
 	localFeatures   []lnwire.FeatureBit
 	remoteFeatures  []lnwire.FeatureBit
 
@@ -368,6 +369,9 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	publTxChan := make(chan *wire.MsgTx, 1)
 	shutdownChan := make(chan struct{})
 	reportScidChan := make(chan struct{})
+	updatedPolicies := make(
+		chan map[wire.OutPoint]htlcswitch.ForwardingPolicy, 1,
+	)
 
 	wc := &mock.WalletController{
 		RootKey: alicePrivKey,
@@ -524,6 +528,11 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return nil, nil
 		},
 		AliasManager: aliasMgr,
+		UpdateForwardingPolicies: func(
+			p map[wire.OutPoint]htlcswitch.ForwardingPolicy) {
+
+			updatedPolicies <- p
+		},
 	}
 
 	for _, op := range options {
@@ -548,6 +557,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		testDir:         tempTestDir,
 		shutdownChannel: shutdownChan,
 		reportScidChan:  reportScidChan,
+		updatedPolicies: updatedPolicies,
 		addr:            addr,
 	}
 
@@ -627,11 +637,12 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		UpdateLabel: func(chainhash.Hash, string) error {
 			return nil
 		},
-		ZombieSweeperInterval: oldCfg.ZombieSweeperInterval,
-		ReservationTimeout:    oldCfg.ReservationTimeout,
-		OpenChannelPredicate:  chainedAcceptor,
-		DeleteAliasEdge:       oldCfg.DeleteAliasEdge,
-		AliasManager:          oldCfg.AliasManager,
+		ZombieSweeperInterval:    oldCfg.ZombieSweeperInterval,
+		ReservationTimeout:       oldCfg.ReservationTimeout,
+		OpenChannelPredicate:     chainedAcceptor,
+		DeleteAliasEdge:          oldCfg.DeleteAliasEdge,
+		AliasManager:             oldCfg.AliasManager,
+		UpdateForwardingPolicies: oldCfg.UpdateForwardingPolicies,
 	})
 	require.NoError(t, err, "failed recreating aliceFundingManager")
 
@@ -710,7 +721,7 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	*wire.OutPoint, *wire.MsgTx) {
 
 	publ := fundChannel(
-		t, alice, bob, localFundingAmt, pushAmt, false, numConfs,
+		t, alice, bob, localFundingAmt, pushAmt, false, 0, 0, numConfs,
 		updateChan, announceChan, nil,
 	)
 	fundingOutPoint := &wire.OutPoint{
@@ -723,7 +734,8 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 // fundChannel takes the funding process to the point where the funding
 // transaction is confirmed on-chain. Returns the funding tx.
 func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
-	pushAmt btcutil.Amount, subtractFees bool, numConfs uint32,
+	pushAmt btcutil.Amount, subtractFees bool, fundUpToMaxAmt,
+	minFundAmt btcutil.Amount, numConfs uint32, //nolint:unparam
 	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool,
 	chanType *lnwire.ChannelType) *wire.MsgTx {
 
@@ -734,6 +746,8 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		TargetPubkey:    bob.privKey.PubKey(),
 		ChainHash:       *fundingNetParams.GenesisHash,
 		SubtractFees:    subtractFees,
+		FundUpToMaxAmt:  fundUpToMaxAmt,
+		MinFundAmt:      minFundAmt,
 		LocalFundingAmt: localFundingAmt,
 		PushAmt:         lnwire.NewMSatFromSatoshis(pushAmt),
 		FundingFeePerKw: 1000,
@@ -1082,6 +1096,22 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 
 	t.Helper()
 
+	// The following checks are to make sure the parameters are used
+	// correctly, as we currently only support 2 values, one for each node.
+	aliceCfg := alice.fundingMgr.cfg
+	if len(customMinHtlc) > 0 {
+		require.Len(t, customMinHtlc, 2, "incorrect usage")
+	}
+	if len(customMaxHtlc) > 0 {
+		require.Len(t, customMaxHtlc, 2, "incorrect usage")
+	}
+	if len(baseFees) > 0 {
+		require.Len(t, baseFees, 2, "incorrect usage")
+	}
+	if len(feeRates) > 0 {
+		require.Len(t, feeRates, 2, "incorrect usage")
+	}
+
 	// After the ChannelReady message is sent, Alice and Bob will each send
 	// the following messages to their gossiper:
 	//	1) ChannelAnnouncement
@@ -1100,6 +1130,21 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 			}
 		}
 
+		// At this point we should also have gotten a policy update that
+		// was sent to the switch subsystem. Make sure it contains the
+		// same values.
+		var policyUpdate htlcswitch.ForwardingPolicy
+		select {
+		case policyUpdateMap := <-node.updatedPolicies:
+			require.Len(t, policyUpdateMap, 1)
+			for _, policy := range policyUpdateMap {
+				policyUpdate = policy
+			}
+
+		case <-time.After(time.Second * 5):
+			t.Fatalf("node didn't send policy update")
+		}
+
 		gotChannelAnnouncement := false
 		gotChannelUpdate := false
 		for _, msg := range announcements {
@@ -1112,102 +1157,60 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 				// advertise the MinHTLC value required by the
 				// _other_ node.
 				other := (j + 1) % 2
-				minHtlc := nodes[other].fundingMgr.cfg.
-					DefaultMinHtlcIn
+				otherCfg := nodes[other].fundingMgr.cfg
+
+				minHtlc := otherCfg.DefaultMinHtlcIn
+				maxHtlc := aliceCfg.RequiredRemoteMaxValue(
+					capacity,
+				)
+				baseFee := aliceCfg.DefaultRoutingPolicy.BaseFee
+				feeRate := aliceCfg.DefaultRoutingPolicy.FeeRate
+
+				require.EqualValues(t, 1, m.MessageFlags)
 
 				// We might expect a custom MinHTLC value.
 				if len(customMinHtlc) > 0 {
-					if len(customMinHtlc) != 2 {
-						t.Fatalf("only 0 or 2 custom " +
-							"min htlc values " +
-							"currently supported")
-					}
-
 					minHtlc = customMinHtlc[j]
 				}
-
-				if m.HtlcMinimumMsat != minHtlc {
-					t.Fatalf("expected ChannelUpdate to "+
-						"advertise min HTLC %v, had %v",
-						minHtlc, m.HtlcMinimumMsat)
-				}
-
-				maxHtlc := alice.fundingMgr.cfg.RequiredRemoteMaxValue(
-					capacity,
+				require.Equal(t, minHtlc, m.HtlcMinimumMsat)
+				require.Equal(
+					t, minHtlc, policyUpdate.MinHTLCOut,
 				)
+
 				// We might expect a custom MaxHltc value.
 				if len(customMaxHtlc) > 0 {
-					if len(customMaxHtlc) != 2 {
-						t.Fatalf("only 0 or 2 custom " +
-							"min htlc values " +
-							"currently supported")
-					}
-
 					maxHtlc = customMaxHtlc[j]
 				}
-				if m.MessageFlags != 1 {
-					t.Fatalf("expected message flags to "+
-						"be 1, was %v", m.MessageFlags)
-				}
-
-				if maxHtlc != m.HtlcMaximumMsat {
-					t.Fatalf("expected ChannelUpdate to "+
-						"advertise max HTLC %v, had %v",
-						maxHtlc,
-						m.HtlcMaximumMsat)
-				}
-
-				baseFee := alice.fundingMgr.cfg.DefaultRoutingPolicy.BaseFee
+				require.Equal(t, maxHtlc, m.HtlcMaximumMsat)
+				require.Equal(t, maxHtlc, policyUpdate.MaxHTLC)
 
 				// We might expect a custom baseFee value.
 				if len(baseFees) > 0 {
-					if len(baseFees) != 2 {
-						t.Fatalf("only 0 or 2 custom " +
-							"base fee values " +
-							"currently supported")
-					}
-
 					baseFee = baseFees[j]
 				}
-
-				if uint32(baseFee) != m.BaseFee {
-					t.Fatalf("expected ChannelUpdate to "+
-						"advertise base fee %v, had %v",
-						baseFee,
-						m.BaseFee)
-				}
-
-				feeRate := alice.fundingMgr.cfg.DefaultRoutingPolicy.FeeRate
+				require.EqualValues(t, baseFee, m.BaseFee)
+				require.EqualValues(
+					t, baseFee, policyUpdate.BaseFee,
+				)
 
 				// We might expect a custom feeRate value.
 				if len(feeRates) > 0 {
-					if len(feeRates) != 2 {
-						t.Fatalf("only 0 or 2 custom " +
-							"fee rate values " +
-							"currently supported")
-					}
-
 					feeRate = feeRates[j]
 				}
-
-				if uint32(feeRate) != m.FeeRate {
-					t.Fatalf("expected ChannelUpdate to "+
-						"advertise base fee %v, had %v",
-						feeRate,
-						m.FeeRate)
-				}
+				require.EqualValues(t, feeRate, m.FeeRate)
+				require.EqualValues(
+					t, feeRate, policyUpdate.FeeRate,
+				)
 
 				gotChannelUpdate = true
 			}
 		}
 
-		if !gotChannelAnnouncement {
-			t.Fatalf("did not get ChannelAnnouncement from node %d",
-				j)
-		}
-		if !gotChannelUpdate {
-			t.Fatalf("did not get ChannelUpdate from node %d", j)
-		}
+		require.Truef(
+			t, gotChannelAnnouncement,
+			"ChannelAnnouncement from %d", j,
+		)
+		require.Truef(t, gotChannelUpdate, "ChannelUpdate from %d", j)
 
 		// Make sure no other message is sent.
 		select {
@@ -1332,14 +1335,12 @@ func assertInitialFwdingPolicyNotFound(t *testing.T, node *testNode,
 			time.Sleep(testPollSleepMs * time.Millisecond)
 		}
 		fwdingPolicy, err = node.fundingMgr.getInitialFwdingPolicy(
-			*chanID)
-		if err == channeldb.ErrChannelNotFound {
-			// Got expected result, return with success.
-			return
-		} else if err != nil {
-			t.Fatalf("unable to get forwarding policy from db: %v",
-				err)
-		}
+			*chanID,
+		)
+		require.ErrorIs(t, err, channeldb.ErrChannelNotFound)
+
+		// Got expected result, return with success.
+		return
 	}
 
 	// 10 tries without success.
@@ -3153,7 +3154,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_ChanPending")
 	}
 
-	// After the funding is sigend and before the channel announcement
+	// After the funding is signed and before the channel announcement
 	// we expect Alice and Bob to store their respective fees in the
 	// database.
 	forwardingPolicy, err := alice.fundingMgr.getInitialFwdingPolicy(
@@ -3168,7 +3169,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, assertFees(forwardingPolicy, 100, 1000))
 
-	// Wait for Alice to published the funding tx to the network.
+	// Wait for Alice to publish the funding tx to the network.
 	var fundingTx *wire.MsgTx
 	select {
 	case fundingTx = <-alice.publTxChan:
@@ -3730,7 +3731,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 		// Initiate a fund channel, and inspect the funding tx.
 		pushAmt := btcutil.Amount(0)
 		fundingTx := fundChannel(
-			t, alice, bob, test.spendAmt, pushAmt, true, 1,
+			t, alice, bob, test.spendAmt, pushAmt, true, 0, 0, 1,
 			updateChan, true, nil,
 		)
 
@@ -3758,6 +3759,157 @@ func TestFundingManagerFundAll(t *testing.T) {
 					txIn.PreviousOutPoint)
 			}
 		}
+	}
+}
+
+// TestFundingManagerFundMax tests that we can initiate a funding request to use
+// the maximum allowed funds remaining in the wallet.
+func TestFundingManagerFundMax(t *testing.T) {
+	t.Parallel()
+
+	// Helper function to create a test utxos
+	constructTestUtxos := func(values ...btcutil.Amount) []*lnwallet.Utxo {
+		var utxos []*lnwallet.Utxo
+		for _, value := range values {
+			utxos = append(utxos, &lnwallet.Utxo{
+				AddressType: lnwallet.WitnessPubKey,
+				Value:       value,
+				PkScript:    mock.CoinPkScript,
+				OutPoint: wire.OutPoint{
+					Hash:  chainhash.Hash{},
+					Index: 0,
+				},
+			})
+		}
+
+		return utxos
+	}
+
+	tests := []struct {
+		name           string
+		coins          []*lnwallet.Utxo
+		fundUpToMaxAmt btcutil.Amount
+		minFundAmt     btcutil.Amount
+		pushAmt        btcutil.Amount
+		change         bool
+	}{
+		{
+			// We will spend all the funds in the wallet, and expect
+			// no change output due to the dust limit.
+			coins: constructTestUtxos(
+				MaxBtcFundingAmount + 1,
+			),
+			fundUpToMaxAmt: MaxBtcFundingAmount,
+			minFundAmt:     MinChanFundingSize,
+			pushAmt:        0,
+			change:         false,
+		},
+		{
+			// We spend less than the funds in the wallet, so a
+			// change output should be created.
+			coins: constructTestUtxos(
+				2 * MaxBtcFundingAmount,
+			),
+			fundUpToMaxAmt: MaxBtcFundingAmount,
+			minFundAmt:     MinChanFundingSize,
+			pushAmt:        0,
+			change:         true,
+		},
+		{
+			// We spend less than the funds in the wallet when
+			// setting a smaller channel size, so a change output
+			// should be created.
+			coins: constructTestUtxos(
+				MaxBtcFundingAmount,
+			),
+			fundUpToMaxAmt: MaxBtcFundingAmount / 2,
+			minFundAmt:     MinChanFundingSize,
+			pushAmt:        0,
+			change:         true,
+		},
+		{
+			// We are using the entirety of two inputs for the
+			// funding of a channel, hence expect no change output.
+			coins: constructTestUtxos(
+				MaxBtcFundingAmount/2, MaxBtcFundingAmount/2,
+			),
+			fundUpToMaxAmt: MaxBtcFundingAmount,
+			minFundAmt:     MinChanFundingSize,
+			pushAmt:        0,
+			change:         false,
+		},
+		{
+			// We are using a fraction of two inputs for the funding
+			// of our channel, hence expect a change output.
+			coins: constructTestUtxos(
+				MaxBtcFundingAmount/2, MaxBtcFundingAmount/2,
+			),
+			fundUpToMaxAmt: MaxBtcFundingAmount / 2,
+			minFundAmt:     MinChanFundingSize,
+			pushAmt:        0,
+			change:         true,
+		},
+		{
+			// We are funding a channel with half of the balance in
+			// our wallet hence expect a change output. Furthermore
+			// we push half of the funding amount to the remote end
+			// which we expect to succeed.
+			coins:          constructTestUtxos(MaxBtcFundingAmount),
+			fundUpToMaxAmt: MaxBtcFundingAmount / 2,
+			minFundAmt:     MinChanFundingSize / 4,
+			pushAmt:        MaxBtcFundingAmount / 4,
+			change:         true,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			// We set up our mock wallet to control a list of UTXOs
+			// that sum to more than the max channel size.
+			addFunds := func(fundingCfg *Config) {
+				wc := fundingCfg.Wallet.WalletController
+				mockWc, ok := wc.(*mock.WalletController)
+				if ok {
+					mockWc.Utxos = test.coins
+				}
+			}
+			alice, bob := setupFundingManagers(t, addFunds)
+			defer tearDownFundingManagers(t, alice, bob)
+
+			// We will consume the channel updates as we go, so no
+			// buffering is needed.
+			updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+			// Initiate a fund channel, and inspect the funding tx.
+			pushAmt := test.pushAmt
+			fundingTx := fundChannel(
+				t, alice, bob, 0, pushAmt, false,
+				test.fundUpToMaxAmt, test.minFundAmt, 1,
+				updateChan, true, nil,
+			)
+
+			// Check whether the expected change output is present.
+			if test.change {
+				require.EqualValues(t, 2, len(fundingTx.TxOut))
+			}
+
+			if !test.change {
+				require.EqualValues(t, 1, len(fundingTx.TxOut))
+			}
+
+			// Inputs should be all funds in the wallet.
+			require.Equal(t, len(test.coins), len(fundingTx.TxIn))
+
+			for i, txIn := range fundingTx.TxIn {
+				require.Equal(
+					t, test.coins[i].OutPoint,
+					txIn.PreviousOutPoint,
+				)
+			}
+		})
 	}
 }
 
@@ -4212,8 +4364,8 @@ func TestFundingManagerZeroConf(t *testing.T) {
 
 	// Call fundChannel with the zero-conf ChannelType.
 	fundingTx := fundChannel(
-		t, alice, bob, fundingAmt, pushAmt, false, 1, updateChan, true,
-		&channelType,
+		t, alice, bob, fundingAmt, pushAmt, false, 0, 0, 1, updateChan,
+		true, &channelType,
 	)
 	fundingOp := &wire.OutPoint{
 		Hash:  fundingTx.TxHash(),
@@ -4308,4 +4460,36 @@ func TestFundingManagerZeroConf(t *testing.T) {
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
 	assertNoFwdingPolicy(t, alice, bob, fundingOp)
+}
+
+// TestCommitmentTypeFundmaxSanityCheck was introduced as a way of reminding
+// developers of new channel commitment types to also consider the channel
+// opening behavior with a specified fundmax flag. To give a hypothetical
+// example, if ANCHOR types had been introduced after the fundmax flag had been
+// activated, the developer would have had to code for the anchor reserve in the
+// funding manager in the context of public and private channels. Otherwise
+// inconsistent bahvior would have resulted when specifying fundmax for
+// different types of channel openings.
+// To ensure consistency this test compares a map of locally defined channel
+// commitment types to the list of channel types that are defined in the proto
+// files. It fails if the proto files contain additional commitment types. Once
+// the developer considered the new channel type behavior it can be added in
+// this test to the map `allCommitmentTypes`.
+func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
+	t.Parallel()
+	allCommitmentTypes := map[string]int{
+		"UNKNOWN_COMMITMENT_TYPE": 0,
+		"LEGACY":                  1,
+		"STATIC_REMOTE_KEY":       2,
+		"ANCHORS":                 3,
+		"SCRIPT_ENFORCED_LEASE":   4,
+	}
+
+	for commitmentType := range lnrpc.CommitmentType_value {
+		if _, ok := allCommitmentTypes[commitmentType]; !ok {
+			t.Fatalf("Commitment type %s hasn't been considered "+
+				"in the context of the --fundmax flag for "+
+				"channel openings.", commitmentType)
+		}
+	}
 }

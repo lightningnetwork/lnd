@@ -301,6 +301,40 @@ func (h *HarnessMiner) AssertTxInMempool(txid *chainhash.Hash) *wire.MsgTx {
 	return msgTx
 }
 
+// AssertTxNotInMempool asserts a given transaction cannot be found in the
+// mempool. It assumes the mempool is not empty.
+//
+// NOTE: this should be used after `AssertTxInMempool` to ensure the tx has
+// entered the mempool before. Otherwise it might give false positive and the
+// tx may enter the mempool after the check.
+func (h *HarnessMiner) AssertTxNotInMempool(txid chainhash.Hash) *wire.MsgTx {
+	var msgTx *wire.MsgTx
+
+	err := wait.NoError(func() error {
+		// We require the RPC call to be succeeded and won't wait for
+		// it as it's an unexpected behavior.
+		mempool := h.GetRawMempool()
+
+		if len(mempool) == 0 {
+			return fmt.Errorf("empty mempool")
+		}
+
+		for _, memTx := range mempool {
+			// Check the values are equal.
+			if txid.IsEqual(memTx) {
+				return fmt.Errorf("expect txid %v to be NOT "+
+					"found in mempool", txid)
+			}
+		}
+
+		return nil
+	}, wait.MinerMempoolTimeout)
+
+	require.NoError(h, err, "timeout checking tx not in mempool")
+
+	return msgTx
+}
+
 // SendOutputsWithoutChange uses the miner to send the given outputs using the
 // specified fee rate and returns the txid.
 func (h *HarnessMiner) SendOutputsWithoutChange(outputs []*wire.TxOut,

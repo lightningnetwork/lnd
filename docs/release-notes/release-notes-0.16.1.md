@@ -1,5 +1,11 @@
 # Release Notes
 
+## Wallet
+
+- The logging around transaction broadcast failures [has been improved by always
+  logging the causing error and the raw transaction as
+  hex](https://github.com/lightningnetwork/lnd/pull/7513).
+
 ## `lncli`
 
 * The `lncli wallet psbt fund` command now allows users to specify the
@@ -11,6 +17,10 @@
 * [Added ability to backup, verify and
   restore single channels](https://github.com/lightningnetwork/lnd/pull/7437)
   to and from a file on disk.
+
+* [Add a `fundmax` flag to `openchannel` to allow for the allocation of all
+  funds in a wallet](https://github.com/lightningnetwork/lnd/pull/6903) towards
+  a new channel opening.
 
 ## Watchtowers
 
@@ -36,6 +46,13 @@ https://github.com/lightningnetwork/lnd/pull/7359)
 
 * [Return `FEE_INSUFFICIENT` before checking balance for incoming low-fee
   HTLCs.](https://github.com/lightningnetwork/lnd/pull/7490).
+
+* Optimize script allocation size in order to save
+  [memory](https://github.com/lightningnetwork/lnd/pull/7464).
+
+* When resolving outgoing HTLCs onchain, the HTLC timeout resolver will now
+  [monitor mempool](https://github.com/lightningnetwork/lnd/pull/7564) for
+  faster preimage extraction.
  
 ## Spec
 
@@ -56,17 +73,38 @@ https://github.com/lightningnetwork/lnd/pull/7359)
   anything for the users since the message type(36) stays unchanged, except in
   the logging all the appearance of `funding_locked` replated experssion is
   replaced with `channel_ready`.
+
 ## Bug Fixes
 
 * [Fix a bug where lnd crashes when psbt data is not fully 
 available](https://github.com/lightningnetwork/lnd/pull/7529).
 
+* [Put back P2TR as default change type
+  in batch_open_channel](https://github.com/lightningnetwork/lnd/pull/7603).
+  
+* [Fix log output](https://github.com/lightningnetwork/lnd/pull/7604).
+
+* [Channels opened with custom fee policies are now able to forward payments
+  correctly without needing to restart
+  first](https://github.com/lightningnetwork/lnd/pull/7597).
+
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/7613) where the 
+  funding manager would error out if no persisted initial forwarding policy is 
+  found for a channel. 
+
+## Documentation
+
+* [Update Postgres.md](https://github.com/lightningnetwork/lnd/pull/7442)
+  to clarify how the database is currently used as a Key-Value store, but
+  in the future will have new schema introduced.
 
 # Contributors (Alphabetical Order)
 
 * ardevd
 * Elle Mouton
+* hieblmi
 * Oliver Gugger
+* Pierre Beugnet
 * Tommy Volk
 * Yong Yu
 * ziggie1984

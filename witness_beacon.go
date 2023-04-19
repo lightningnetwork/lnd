@@ -1,6 +1,7 @@
 package lnd
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -127,6 +128,11 @@ func (p *preimageBeacon) LookupPreimage(
 
 	// Otherwise, we'll perform a final check using the witness cache.
 	preimage, err := p.wCache.LookupSha256Witness(payHash)
+	if errors.Is(err, channeldb.ErrNoWitnesses) {
+		ltndLog.Debugf("No witness for payment %v", payHash)
+		return lntypes.Preimage{}, false
+	}
+
 	if err != nil {
 		ltndLog.Errorf("Unable to lookup witness: %v", err)
 		return lntypes.Preimage{}, false
@@ -147,7 +153,9 @@ func (p *preimageBeacon) AddPreimages(preimages ...lntypes.Preimage) error {
 	// the caller when delivering notifications.
 	preimageCopies := make([]lntypes.Preimage, 0, len(preimages))
 	for _, preimage := range preimages {
-		srvrLog.Infof("Adding preimage=%v to witness cache", preimage)
+		srvrLog.Infof("Adding preimage=%v to witness cache for %v",
+			preimage, preimage.Hash())
+
 		preimageCopies = append(preimageCopies, preimage)
 	}
 
@@ -173,6 +181,9 @@ func (p *preimageBeacon) AddPreimages(preimages ...lntypes.Preimage) error {
 			}
 		}(client)
 	}
+
+	srvrLog.Debugf("Added %d preimage(s) to witness cache",
+		len(preimageCopies))
 
 	return nil
 }

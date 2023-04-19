@@ -3154,7 +3154,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t.Fatal("OpenStatusUpdate was not OpenStatusUpdate_ChanPending")
 	}
 
-	// After the funding is sigend and before the channel announcement
+	// After the funding is signed and before the channel announcement
 	// we expect Alice and Bob to store their respective fees in the
 	// database.
 	forwardingPolicy, err := alice.fundingMgr.getInitialFwdingPolicy(
@@ -3169,7 +3169,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, assertFees(forwardingPolicy, 100, 1000))
 
-	// Wait for Alice to published the funding tx to the network.
+	// Wait for Alice to publish the funding tx to the network.
 	var fundingTx *wire.MsgTx
 	select {
 	case fundingTx = <-alice.publTxChan:

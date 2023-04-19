@@ -377,6 +377,20 @@ func (h *HarnessTest) AssertChannelExists(hn *node.HarnessNode,
 	return channel
 }
 
+// AssertOutputScriptClass checks that the specified transaction output has the
+// expected script class.
+func (h *HarnessTest) AssertOutputScriptClass(tx *btcutil.Tx,
+	outputIndex uint32, scriptClass txscript.ScriptClass) {
+
+	require.Greater(h, len(tx.MsgTx().TxOut), int(outputIndex))
+
+	txOut := tx.MsgTx().TxOut[outputIndex]
+
+	pkScript, err := txscript.ParsePkScript(txOut.PkScript)
+	require.NoError(h, err)
+	require.Equal(h, pkScript.Class(), scriptClass)
+}
+
 // findChannel tries to find a target channel in the node using the given
 // channel point.
 func (h *HarnessTest) findChannel(hn *node.HarnessNode,

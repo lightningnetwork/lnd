@@ -47,6 +47,8 @@ type NeutrinoKitClient interface {
 	// Deprecated, use chainrpc.GetBlockHash instead.
 	// GetBlockHash returns the header hash of a block at a given height.
 	GetBlockHash(ctx context.Context, in *GetBlockHashRequest, opts ...grpc.CallOption) (*GetBlockHashResponse, error)
+	// UnbanPeer unbans a previously banned peer and connects to it.
+	UnbanPeer(ctx context.Context, in *UnbanPeerRequest, opts ...grpc.CallOption) (*UnbanPeerResponse, error)
 }
 
 type neutrinoKitClient struct {
@@ -130,6 +132,15 @@ func (c *neutrinoKitClient) GetBlockHash(ctx context.Context, in *GetBlockHashRe
 	return out, nil
 }
 
+func (c *neutrinoKitClient) UnbanPeer(ctx context.Context, in *UnbanPeerRequest, opts ...grpc.CallOption) (*UnbanPeerResponse, error) {
+	out := new(UnbanPeerResponse)
+	err := c.cc.Invoke(ctx, "/neutrinorpc.NeutrinoKit/UnbanPeer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // NeutrinoKitServer is the server API for NeutrinoKit service.
 // All implementations must embed UnimplementedNeutrinoKitServer
 // for forward compatibility
@@ -163,6 +174,8 @@ type NeutrinoKitServer interface {
 	// Deprecated, use chainrpc.GetBlockHash instead.
 	// GetBlockHash returns the header hash of a block at a given height.
 	GetBlockHash(context.Context, *GetBlockHashRequest) (*GetBlockHashResponse, error)
+	// UnbanPeer unbans a previously banned peer and connects to it.
+	UnbanPeer(context.Context, *UnbanPeerRequest) (*UnbanPeerResponse, error)
 	mustEmbedUnimplementedNeutrinoKitServer()
 }
 
@@ -193,6 +206,9 @@ func (UnimplementedNeutrinoKitServer) GetCFilter(context.Context, *GetCFilterReq
 }
 func (UnimplementedNeutrinoKitServer) GetBlockHash(context.Context, *GetBlockHashRequest) (*GetBlockHashResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBlockHash not implemented")
+}
+func (UnimplementedNeutrinoKitServer) UnbanPeer(context.Context, *UnbanPeerRequest) (*UnbanPeerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnbanPeer not implemented")
 }
 func (UnimplementedNeutrinoKitServer) mustEmbedUnimplementedNeutrinoKitServer() {}
 
@@ -351,6 +367,24 @@ func _NeutrinoKit_GetBlockHash_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _NeutrinoKit_UnbanPeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnbanPeerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(NeutrinoKitServer).UnbanPeer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/neutrinorpc.NeutrinoKit/UnbanPeer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(NeutrinoKitServer).UnbanPeer(ctx, req.(*UnbanPeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // NeutrinoKit_ServiceDesc is the grpc.ServiceDesc for NeutrinoKit service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -389,6 +423,10 @@ var NeutrinoKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBlockHash",
 			Handler:    _NeutrinoKit_GetBlockHash_Handler,
+		},
+		{
+			MethodName: "UnbanPeer",
+			Handler:    _NeutrinoKit_UnbanPeer_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

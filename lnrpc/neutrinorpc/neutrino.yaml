@@ -22,3 +22,6 @@ http:
     # deprecated
     - selector: neutrinorpc.NeutrinoKit.GetBlockHash
       get: "/v2/neutrino/blockhash/{height}"
+    - selector: neutrinorpc.NeutrinoKit.UnbanPeer
+      post: "/v2/neutrino/unban"
+      body: "*"

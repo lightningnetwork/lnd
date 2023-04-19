@@ -187,3 +187,5 @@ replace github.com/gogo/protobuf => github.com/gogo/protobuf v1.3.2
 go 1.19
 
 retract v0.0.2
+
+replace github.com/lightninglabs/neutrino v0.15.0 => github.com/Chinwendu20/neutrino v0.0.0-20230417112635-10f9b8c99d1f

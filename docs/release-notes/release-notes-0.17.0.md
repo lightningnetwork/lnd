@@ -80,6 +80,13 @@ package](https://github.com/lightningnetwork/lnd/pull/7356)
 * [Fixed a bug where we didn't check for correct networks when submitting
   onchain transactions](https://github.com/lightningnetwork/lnd/pull/6448).
 
+* [Fix non-deterministic behaviour in RPC calls for
+  custom accounts](https://github.com/lightningnetwork/lnd/pull/7565).
+  In theory, it should be only one custom account with a given name. However,
+  due to a lack of check, users could have created custom accounts with various
+  key scopes. The non-deterministic behaviours linked to this case are fixed,
+  and users can no longer create two custom accounts with the same name.
+
 ## Misc
 
 * [Generate default macaroons
@@ -157,6 +164,7 @@ unlock or create.
 * Michael Street
 * MG-ng
 * Oliver Gugger
+* Pierre Beugnet
 * Satarupa Deb
 * Shaurya Arora
 * Torkel Rogstad

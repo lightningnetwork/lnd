@@ -113,6 +113,11 @@ const (
 	// swept on-chain by them with pre-image.
 	expectedRemoteWitnessSuccessSize = 5
 
+	// expectedLocalWitnessSuccessSize is the expected size of the witness
+	// on the local commitment transaction for an outgoing HTLC that is
+	// swept on-chain by them with pre-image.
+	expectedLocalWitnessSuccessSize = 3
+
 	// remotePreimageIndex index within the witness on the remote
 	// commitment transaction that will hold they pre-image if they go to
 	// sweep it on chain.
@@ -129,6 +134,12 @@ const (
 	//   - <sender sig> <receiver sig> <preimage> <success_script>
 	//     <control_block>
 	remoteTaprootWitnessSuccessSize = 5
+
+	// localTaprootWitnessSuccessSize is the expected size of the witness
+	// on the local commitment for taproot channels. The spend path will
+	// look like
+	//  - <receiver sig> <preimage> <success_script> <control_block>
+	localTaprootWitnessSuccessSize = 4
 
 	// taprootRemotePreimageIndex is the index within the witness on the
 	// taproot remote commitment spend that'll hold the pre-image if the
@@ -329,10 +340,10 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	//   - <sender sig> <receiver sig> <preimage> <success_script>
 	//     <control_block>
 	case isTaproot && !localCommit:
-		preImageIdx := taprootRemotePreimageIndex
-		//nolint:lll
-		return len(spendingWitness) == remoteTaprootWitnessSuccessSize &&
-			len(spendingWitness[preImageIdx]) == lntypes.HashSize
+		return checkSizeAndIndex(
+			spendingWitness, remoteTaprootWitnessSuccessSize,
+			taprootRemotePreimageIndex,
+		)
 
 	// Otherwise, then if this is our local commitment transaction, then if
 	// they're sweeping the transaction, it'll be directly from the output,
@@ -343,8 +354,10 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	//
 	//  - <receiver sig> <preimage> <success_script> <control_block>
 	case isTaproot && localCommit:
-		return len(spendingWitness[localPreimageIndex]) ==
-			lntypes.HashSize
+		return checkSizeAndIndex(
+			spendingWitness, localTaprootWitnessSuccessSize,
+			localPreimageIndex,
+		)
 
 	// If this is the non-taproot, remote commitment then the only possible
 	// spends for outgoing HTLCs are:
@@ -358,9 +371,10 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	// then this is a remote spend. If not, then we swept it ourselves, or
 	// revoked their output.
 	case !isTaproot && !localCommit:
-		return len(spendingWitness) == expectedRemoteWitnessSuccessSize &&
-			len(spendingWitness[remotePreimageIndex]) ==
-				lntypes.HashSize
+		return checkSizeAndIndex(
+			spendingWitness, expectedRemoteWitnessSuccessSize,
+			remotePreimageIndex,
+		)
 
 	// Otherwise, for our non-taproot commitment, the only possible spends
 	// for an outgoing HTLC are:
@@ -373,10 +387,23 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	// element in the witness.
 	case !isTaproot:
 		fallthrough
+
 	default:
-		return len(spendingWitness[localPreimageIndex]) ==
-			lntypes.HashSize
+		return checkSizeAndIndex(
+			spendingWitness, expectedLocalWitnessSuccessSize,
+			localPreimageIndex,
+		)
 	}
+}
+
+// checkSizeAndIndex checks that the witness is of the expected size and that
+// the witness element at the specified index is of the expected size.
+func checkSizeAndIndex(witness wire.TxWitness, size, index int) bool {
+	if len(witness) != size {
+		return false
+	}
+
+	return len(witness[index]) == lntypes.HashSize
 }
 
 // Resolve kicks off full resolution of an outgoing HTLC output. If it's our

@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -627,10 +628,12 @@ func (hn *HarnessNode) cleanup() error {
 
 // waitForProcessExit Launch a new goroutine which that bubbles up any
 // potential fatal process errors to the goroutine running the tests.
-func (hn *HarnessNode) waitForProcessExit() {
+func (hn *HarnessNode) waitForProcessExit() error {
+	var err error
+
 	errChan := make(chan error, 1)
 	go func() {
-		err := hn.cmd.Wait()
+		err = hn.cmd.Wait()
 		errChan <- err
 	}()
 
@@ -643,7 +646,7 @@ func (hn *HarnessNode) waitForProcessExit() {
 		// If the process has already been canceled, we can exit early
 		// as the logs have already been saved.
 		if strings.Contains(err.Error(), "Wait was already called") {
-			return
+			return nil
 		}
 
 		// Otherwise, we print the error, break the select and save
@@ -653,7 +656,8 @@ func (hn *HarnessNode) waitForProcessExit() {
 		break
 
 	case <-time.After(wait.DefaultTimeout):
-		hn.printErrf("timeout waiting for process to exit")
+		err = errors.New("timeout waiting for process to exit")
+		hn.printErrf(err.Error())
 	}
 
 	// Make sure log file is closed and renamed if necessary.
@@ -662,6 +666,8 @@ func (hn *HarnessNode) waitForProcessExit() {
 	// Rename the etcd.log file if the node was running on embedded
 	// etcd.
 	finalizeEtcdLog(hn)
+
+	return err
 }
 
 // Stop attempts to stop the active lnd process.
@@ -674,9 +680,6 @@ func (hn *HarnessNode) Stop() error {
 
 	// Stop the runCtx.
 	hn.cancel()
-
-	// Wait for lnd process to exit in the end.
-	defer hn.waitForProcessExit()
 
 	// If we ever reaches the state where `Watcher` is initialized, it
 	// means the node has an authed connection and all its RPC clients are
@@ -740,7 +743,8 @@ func (hn *HarnessNode) Stop() error {
 		}
 	}
 
-	return nil
+	// Wait for lnd process to exit in the end.
+	return hn.waitForProcessExit()
 }
 
 // CloseConn closes the grpc connection.

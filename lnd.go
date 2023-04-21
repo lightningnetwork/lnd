@@ -180,14 +180,42 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		network,
 	)
 
+	ctx := context.Background()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	// Enable http profiling server if requested.
 	if cfg.Profile != "" {
+		// Create the http handler.
+		profileRedirect := http.RedirectHandler(
+			"/debug/pprof", http.StatusSeeOther,
+		)
+		http.Handle("/", profileRedirect)
+		ltndLog.Infof("Pprof listening on %v", cfg.Profile)
+
+		// Create the pprof server.
+		pprofServer := &http.Server{
+			Addr:              cfg.Profile,
+			Handler:           profileRedirect,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+
+		// Shut the server down when lnd is shutting down.
+		defer func() {
+			ltndLog.Info("Stopping pprof server...")
+			err := pprofServer.Shutdown(ctx)
+			if err != nil {
+				ltndLog.Errorf("Stop pprof server got err: %v",
+					err)
+			}
+		}()
+
+		// Start the pprof server.
 		go func() {
-			profileRedirect := http.RedirectHandler("/debug/pprof",
-				http.StatusSeeOther)
-			http.Handle("/", profileRedirect)
-			ltndLog.Infof("Pprof listening on %v", cfg.Profile)
-			fmt.Println(http.ListenAndServe(cfg.Profile, nil))
+			err := pprofServer.ListenAndServe()
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				ltndLog.Errorf("Serving pprof got err: %v", err)
+			}
 		}()
 	}
 
@@ -201,10 +229,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		defer f.Close()
 		defer pprof.StopCPUProfile()
 	}
-
-	ctx := context.Background()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	// Run configuration dependent DB pre-initialization. Note that this
 	// needs to be done early and once during the startup process, before

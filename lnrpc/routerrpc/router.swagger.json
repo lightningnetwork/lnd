@@ -1475,9 +1475,9 @@
           "format": "uint64",
           "description": "The minimum time that must have passed since the previously recorded failure\nbefore we raise the failure amount."
         },
-        "Model": {
+        "model": {
           "$ref": "#/definitions/MissionControlConfigProbabilityModel",
-          "description": "ProbabilityModel defines which probability estimator should be used in\npathfinding."
+          "description": "ProbabilityModel defines which probability estimator should be used in\npathfinding. Note that the bimodal estimator is experimental."
         },
         "apriori": {
           "$ref": "#/definitions/routerrpcAprioriParameters"

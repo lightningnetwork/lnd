@@ -158,8 +158,8 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	spenderIndex := commitSpend.SpenderInputIndex
 	spendingInput := commitSpend.SpendingTx.TxIn[spenderIndex]
 
-	log.Infof("%T(%v): extracting preimage! remote party spent "+
-		"HTLC with tx=%v", h, h.htlcResolution.ClaimOutpoint,
+	log.Infof("%v: extracting preimage! remote party spent HTLC with tx=%v",
+		h.htlcResolution.ClaimOutpoint,
 		spew.Sdump(commitSpend.SpendingTx))
 
 	// If this is the remote party's commitment, then we'll be looking for
@@ -207,13 +207,13 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 			"witness: %v", err)
 	}
 
-	log.Infof("%T(%v): extracting preimage=%v from on-chain "+
-		"spend!", h, h.htlcResolution.ClaimOutpoint, preimage)
+	log.Infof("%v: adding preimage=%v to witness beacon!",
+		h.htlcResolution.ClaimOutpoint, preimage)
 
 	// With the preimage obtained, we can now add it to the global cache.
 	if err := h.PreimageDB.AddPreimages(preimage); err != nil {
-		log.Errorf("%T(%v): unable to add witness to cache",
-			h, h.htlcResolution.ClaimOutpoint)
+		log.Errorf("%v: unable to add preimage to witness beacon cache",
+			h.htlcResolution.ClaimOutpoint)
 	}
 
 	var pre [32]byte
@@ -441,8 +441,8 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	) {
 
 		log.Infof("%T(%v): HTLC has been swept with pre-image by "+
-			"remote party during timeout flow! Adding pre-image to "+
-			"witness cache", h.htlcResolution.ClaimOutpoint)
+			"remote party during timeout flow! Adding pre-image "+
+			"to witness cache", h, h.htlcResolution.ClaimOutpoint)
 
 		return h.claimCleanUp(commitSpend)
 	}

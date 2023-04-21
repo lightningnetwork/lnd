@@ -72,6 +72,11 @@
 
 # Improvements
 ## Functional Updates
+
+* When resolving outgoing HTLCs onchain, the HTLC contest resolver will now
+  [monitor mempool](https://github.com/lightningnetwork/lnd/pull/7615) for
+  faster preimage extraction.
+
 ### Tlv
 * [Bool was added](https://github.com/lightningnetwork/lnd/pull/8057) to the
   primitive type of the tlv package.
@@ -155,3 +160,4 @@
 * Turtle
 * Ononiwu Maureen Chiamaka
 * Yong Yu
+

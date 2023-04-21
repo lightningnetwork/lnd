@@ -4496,11 +4496,7 @@ func rpcChannelResolution(report *channeldb.ResolverReport) (*lnrpc.Resolution,
 
 	res := &lnrpc.Resolution{
 		AmountSat: uint64(report.Amount),
-		Outpoint: &lnrpc.OutPoint{
-			OutputIndex: report.OutPoint.Index,
-			TxidStr:     report.OutPoint.Hash.String(),
-			TxidBytes:   report.OutPoint.Hash[:],
-		},
+		Outpoint:  lnrpc.MarshalOutPoint(&report.OutPoint),
 	}
 
 	if report.SpendTxID != nil {

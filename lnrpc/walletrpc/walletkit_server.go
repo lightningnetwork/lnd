@@ -756,10 +756,7 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 				pendingInput.OutPoint)
 		}
 
-		op := &lnrpc.OutPoint{
-			TxidBytes:   pendingInput.OutPoint.Hash[:],
-			OutputIndex: pendingInput.OutPoint.Index,
-		}
+		op := lnrpc.MarshalOutPoint(&pendingInput.OutPoint)
 		amountSat := uint32(pendingInput.Amount)
 		satPerVbyte := uint64(pendingInput.LastFeeRate.FeePerKVByte() / 1000)
 		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
@@ -1241,12 +1238,8 @@ func marshallLeases(locks []*base.ListLeasedOutputResult) []*UtxoLease {
 		lock := lock
 
 		rpcLocks[idx] = &UtxoLease{
-			Id: lock.LockID[:],
-			Outpoint: &lnrpc.OutPoint{
-				TxidBytes:   lock.Outpoint.Hash[:],
-				TxidStr:     lock.Outpoint.Hash.String(),
-				OutputIndex: lock.Outpoint.Index,
-			},
+			Id:         lock.LockID[:],
+			Outpoint:   lnrpc.MarshalOutPoint(&lock.Outpoint),
 			Expiration: uint64(lock.Expiration.Unix()),
 			PkScript:   lock.PkScript,
 			Value:      uint64(lock.Value),

@@ -644,7 +644,7 @@ func proxyBlockEpoch(notifier chainntnfs.ChainNotifier,
 }
 
 // walletReBroadcaster is a simple wrapper around the pushtx.Broadcaster
-// interface to adhere to the expanded lnwallet.Rebraodcaster interface.
+// interface to adhere to the expanded lnwallet.Rebroadcaster interface.
 type walletReBroadcaster struct {
 	started atomic.Bool
 

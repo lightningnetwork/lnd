@@ -35,4 +35,10 @@ type Wallet interface {
 	// hash passed in. If the transaction can't be found then a nil
 	// transaction pointer is returned.
 	FetchTx(chainhash.Hash) (*wire.MsgTx, error)
+
+	// CancelRebroadcast is used to inform the rebroadcaster sub-system
+	// that it no longer needs to try to rebroadcast a transaction. This is
+	// used to ensure that invalid transactions (inputs spent) aren't
+	// retried in the background.
+	CancelRebroadcast(tx chainhash.Hash)
 }

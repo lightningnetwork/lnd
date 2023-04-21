@@ -555,6 +555,9 @@ func (s *UtxoSweeper) removeLastSweepDescendants(spendingTx *wire.MsgTx) error {
 		// Transaction wasn't found in the wallet, may have already
 		// been replaced/removed.
 		if sweepTx == nil {
+			// If it was removed, then we'll play it safe and mark
+			// it as no longer need to be rebroadcasted.
+			s.cfg.Wallet.CancelRebroadcast(sweepHash)
 			continue
 		}
 
@@ -579,6 +582,10 @@ func (s *UtxoSweeper) removeLastSweepDescendants(spendingTx *wire.MsgTx) error {
 			if err != nil {
 				log.Warnf("unable to remove descendants: %v", err)
 			}
+
+			// If this transaction was conflicting, then we'll stop
+			// rebroadcasting it in the background.
+			s.cfg.Wallet.CancelRebroadcast(sweepHash)
 		}
 	}
 

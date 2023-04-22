@@ -513,9 +513,9 @@ message MissionControlConfig {
 
     /*
     ProbabilityModel defines which probability estimator should be used in
-    pathfinding.
+    pathfinding. Note that the bimodal estimator is experimental.
     */
-    ProbabilityModel Model = 6;
+    ProbabilityModel model = 6;
 
     /*
     EstimatorConfig is populated dependent on the estimator type.

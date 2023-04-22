@@ -1694,7 +1694,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 			return err
 		}
 
-		log.Debugf("New channel update applied: %v",
+		log.Tracef("New channel update applied: %v",
 			newLogClosure(func() string { return spew.Sdump(msg) }))
 		r.stats.incNumChannelUpdates()
 

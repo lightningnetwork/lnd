@@ -459,6 +459,10 @@ in the lnwire package](https://github.com/lightningnetwork/lnd/pull/7303)
   https://github.com/lightningnetwork/lnd/pull/6815)
 * [The a priori capacity factor is made configurable and its effect is 
   limited.](https://github.com/lightningnetwork/lnd/pull/7444)
+* Local edges and hop hints [are extended with a
+  capacity](https://github.com/lightningnetwork/lnd/pull/7520) to avoid channel
+  white listing in probability calculations. The influence of the node
+  probability is reduced.
 
 ## Configuration
 * Note that [this pathfinding change](https://github.com/lightningnetwork/lnd/pull/6815)

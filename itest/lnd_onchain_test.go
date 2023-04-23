@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
@@ -26,6 +27,7 @@ func testChainKit(ht *lntest.HarnessTest) {
 	// avoid the need to start separate nodes.
 	testChainKitGetBlock(ht)
 	testChainKitGetBlockHash(ht)
+	testChainKitSendOutputsAnchorReserve(ht)
 }
 
 // testChainKitGetBlock ensures that given a block hash, the RPC endpoint
@@ -72,6 +74,96 @@ func testChainKitGetBlockHash(ht *lntest.HarnessTest) {
 	expected := bestBlockRes.BlockHash
 	actual := getBlockHashRes.BlockHash
 	require.Equal(ht, expected, actual)
+}
+
+// testChainKitSendOutputsAnchorReserve checks if the SendOutputs rpc prevents
+// our wallet balance to drop below the required anchor channel reserve amount.
+func testChainKitSendOutputsAnchorReserve(ht *lntest.HarnessTest) {
+	// Start two nodes supporting anchor channels.
+	args := lntest.NodeArgsForCommitType(lnrpc.CommitmentType_ANCHORS)
+
+	// NOTE: we cannot reuse the standby node here as the test requires the
+	// node to start with no UTXOs.
+	charlie := ht.NewNode("Charlie", args)
+	bob := ht.Bob
+	ht.RestartNodeWithExtraArgs(bob, args)
+
+	// We'll start the test by sending Charlie some coins.
+	fundingAmount := btcutil.Amount(100_000)
+	ht.FundCoins(fundingAmount, charlie)
+
+	// Before opening the channel we ensure that the nodes are connected.
+	ht.EnsureConnected(charlie, bob)
+
+	// We'll get the anchor reserve that is required for a single channel.
+	reserve := charlie.RPC.RequiredReserve(
+		&walletrpc.RequiredReserveRequest{
+			AdditionalPublicChannels: 1,
+		},
+	)
+
+	// Charlie opens an anchor channel and keeps twice the amount of the
+	// anchor reserve in her wallet.
+	chanAmt := fundingAmount - 2*btcutil.Amount(reserve.RequiredReserve)
+	outpoint := ht.OpenChannel(charlie, bob, lntest.OpenChannelParams{
+		Amt:            chanAmt,
+		CommitmentType: lnrpc.CommitmentType_ANCHORS,
+		SatPerVByte:    1,
+	})
+
+	// Now we obtain a taproot address from bob which Charlie will use to
+	// send coins to him via the SendOutputs rpc.
+	address := bob.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+	})
+	decodedAddr := ht.DecodeAddress(address.Address)
+	addrScript := ht.PayToAddrScript(decodedAddr)
+
+	// First she will try to send Bob an amount that would undershoot her
+	// reserve requirement by one satoshi.
+	balance := charlie.RPC.WalletBalance()
+	utxo := &wire.TxOut{
+		Value:    balance.TotalBalance - reserve.RequiredReserve + 1,
+		PkScript: addrScript,
+	}
+	req := &walletrpc.SendOutputsRequest{
+		Outputs: []*signrpc.TxOut{{
+			Value:    utxo.Value,
+			PkScript: utxo.PkScript,
+		}},
+		SatPerKw: 2400,
+		MinConfs: 1,
+	}
+
+	// We try to send the reserve violating transaction and expect it to
+	// fail.
+	_, err := charlie.RPC.WalletKit.SendOutputs(ht.Context(), req)
+	require.ErrorContains(ht, err, walletrpc.ErrInsufficientReserve.Error())
+
+	ht.MineBlocksAndAssertNumTxes(1, 0)
+
+	// Next she will try to send Bob an amount that just leaves enough
+	// reserves in her wallet.
+	utxo = &wire.TxOut{
+		Value:    balance.TotalBalance - reserve.RequiredReserve,
+		PkScript: addrScript,
+	}
+	req = &walletrpc.SendOutputsRequest{
+		Outputs: []*signrpc.TxOut{{
+			Value:    utxo.Value,
+			PkScript: utxo.PkScript,
+		}},
+		SatPerKw: 2400,
+		MinConfs: 1,
+	}
+
+	// This second transaction should be published correctly.
+	charlie.RPC.SendOutputs(req)
+
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Clean up our test setup.
+	ht.CloseChannel(charlie, outpoint)
 }
 
 // testCPFP ensures that the daemon can bump an unconfirmed  transaction's fee

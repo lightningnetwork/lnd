@@ -390,8 +390,8 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 	// Force min_confs and max_confs to be zero if unconfirmed_only is
 	// true.
 	if req.UnconfirmedOnly && (req.MinConfs != 0 || req.MaxConfs != 0) {
-		return nil, fmt.Errorf("min_confs and max_confs must be zero if " +
-			"unconfirmed_only is true")
+		return nil, fmt.Errorf("min_confs and max_confs must be zero " +
+			"if unconfirmed_only is true")
 	}
 
 	// When unconfirmed_only is inactive and max_confs is zero (default
@@ -674,7 +674,9 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 
 	// Then, we'll extract the minimum number of confirmations that each
 	// output we use to fund the transaction should satisfy.
-	minConfs, err := lnrpc.ExtractMinConfs(req.MinConfs, req.SpendUnconfirmed)
+	minConfs, err := lnrpc.ExtractMinConfs(
+		req.MinConfs, req.SpendUnconfirmed,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -710,7 +712,8 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 	// requirement, we can request that the wallet attempts to create this
 	// transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
-		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), minConfs, label,
+		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), minConfs,
+		label,
 	)
 	if err != nil {
 		return nil, err
@@ -944,7 +947,10 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 			err)
 	}
 
-	inp := input.NewBaseInput(op, witnessType, signDesc, uint32(currentHeight))
+	inp := input.NewBaseInput(
+		op, witnessType, signDesc, uint32(currentHeight),
+	)
+
 	sweepParams := sweep.Params{Fee: feePreference}
 	if _, err = w.cfg.Sweeper.SweepInput(inp, sweepParams); err != nil {
 		return nil, err
@@ -1545,7 +1551,8 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 		keyScopeFilter = &keyScope
 
 	default:
-		return nil, fmt.Errorf("unhandled address type %v", req.AddressType)
+		return nil, fmt.Errorf("unhandled address type %v",
+			req.AddressType)
 	}
 
 	accounts, err := w.cfg.Wallet.ListAccounts(req.Name, keyScopeFilter)
@@ -1659,7 +1666,8 @@ func parseAddrType(addrType AddressType,
 	switch addrType {
 	case AddressType_UNKNOWN:
 		if required {
-			return nil, errors.New("an address type must be specified")
+			return nil, fmt.Errorf("an address type must be " +
+				"specified")
 		}
 		return nil, nil
 

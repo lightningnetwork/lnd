@@ -45,7 +45,8 @@ type sessionQueueConfig struct {
 	Dial func(keychain.SingleKeyECDH, *lnwire.NetAddress) (wtserver.Peer,
 		error)
 
-	// SendMessage encodes, encrypts, and writes a message to the given peer.
+	// SendMessage encodes, encrypts, and writes a message to the given
+	// peer.
 	SendMessage func(wtserver.Peer, wtwire.Message) error
 
 	// ReadMessage receives, decypts, and decodes a message from the given
@@ -55,6 +56,11 @@ type sessionQueueConfig struct {
 	// Signer facilitates signing of inputs, used to construct the witnesses
 	// for justice transaction inputs.
 	Signer input.Signer
+
+	// BuildBreachRetribution is a function closure that allows the client
+	// to fetch the breach retribution info for a certain channel at a
+	// certain revoked commitment height.
+	BuildBreachRetribution BreachRetributionBuilder
 
 	// DB provides access to the client's stable storage.
 	DB DB
@@ -219,7 +225,10 @@ func (q *sessionQueue) AcceptTask(task *backupTask) (reserveStatus, bool) {
 	//
 	// TODO(conner): queue backups and retry with different session params.
 	case reserveAvailable:
-		err := task.bindSession(&q.cfg.ClientSession.ClientSessionBody)
+		err := task.bindSession(
+			&q.cfg.ClientSession.ClientSessionBody,
+			q.cfg.BuildBreachRetribution,
+		)
 		if err != nil {
 			q.queueCond.L.Unlock()
 			q.log.Debugf("SessionQueue(%s) rejected %v: %v ",
@@ -343,8 +352,8 @@ func (q *sessionQueue) drainBackups() {
 		// before attempting to dequeue any pending updates.
 		stateUpdate, isPending, backupID, err := q.nextStateUpdate()
 		if err != nil {
-			q.log.Errorf("SessionQueue(%v) unable to get next state "+
-				"update: %v", q.ID(), err)
+			q.log.Errorf("SessionQueue(%v) unable to get next "+
+				"state update: %v", q.ID(), err)
 			return
 		}
 

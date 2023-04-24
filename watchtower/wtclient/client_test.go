@@ -36,8 +36,6 @@ import (
 )
 
 const (
-	csvDelay uint32 = 144
-
 	towerAddrStr  = "18.28.243.2:9911"
 	towerAddr2Str = "19.29.244.3:9912"
 )
@@ -73,6 +71,16 @@ var (
 	addrScript, _ = txscript.PayToAddrScript(addr)
 
 	waitTime = 5 * time.Second
+
+	defaultTxPolicy = wtpolicy.TxPolicy{
+		BlobType:     blob.TypeAltruistCommit,
+		SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
+	}
+
+	highSweepRateTxPolicy = wtpolicy.TxPolicy{
+		BlobType:     blob.TypeAltruistCommit,
+		SweepFeeRate: 1000000, // The high sweep fee creates dust.
+	}
 )
 
 // randPrivKey generates a new secp keypair, and returns the public key.
@@ -509,6 +517,15 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		SessionCloseRange: 1,
 	}
 
+	h.clientCfg.BuildBreachRetribution = func(id lnwire.ChannelID,
+		commitHeight uint64) (*lnwallet.BreachRetribution,
+		channeldb.ChannelType, error) {
+
+		_, retribution := h.channelFromID(id).getState(commitHeight)
+
+		return retribution, channeldb.SingleFunderBit, nil
+	}
+
 	if !cfg.noServerStart {
 		h.startServer()
 		t.Cleanup(h.stopServer)
@@ -619,6 +636,21 @@ func (h *testHarness) channel(id uint64) *mockChannel {
 	return c
 }
 
+// channelFromID retrieves the channel corresponding to id.
+//
+// NOTE: The method fails if a channel for id does not exist.
+func (h *testHarness) channelFromID(chanID lnwire.ChannelID) *mockChannel {
+	h.t.Helper()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	c, ok := h.channels[chanID]
+	require.Truef(h.t, ok, "unable to fetch channel %s", chanID)
+
+	return c
+}
+
 // closeChannel marks a channel as closed.
 //
 // NOTE: The method fails if a channel for id does not exist.
@@ -699,10 +731,9 @@ func (h *testHarness) backupState(id, i uint64, expErr error) {
 	_, retribution := h.channel(id).getState(i)
 
 	chanID := chanIDFromInt(id)
-	err := h.client.BackupState(
-		&chanID, retribution, channeldb.SingleFunderBit,
-	)
-	require.ErrorIs(h.t, err, expErr)
+
+	err := h.client.BackupState(&chanID, retribution.RevokedStateNum)
+	require.ErrorIs(h.t, expErr, err)
 }
 
 // sendPayments instructs the channel identified by id to send amt to the remote
@@ -823,7 +854,7 @@ func (h *testHarness) assertUpdatesForPolicy(hints []blob.BreachHint,
 	require.Lenf(h.t, matches, len(hints), "expected: %d matches, got: %d",
 		len(hints), len(matches))
 
-	// Assert that all of the matches correspond to a session with the
+	// Assert that all the matches correspond to a session with the
 	// expected policy.
 	for _, match := range matches {
 		matchPolicy := match.SessionInfo.Policy
@@ -969,11 +1000,6 @@ const (
 	remoteBalance = lnwire.MilliSatoshi(200000000)
 )
 
-var defaultTxPolicy = wtpolicy.TxPolicy{
-	BlobType:     blob.TypeAltruistCommit,
-	SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-}
-
 type clientTest struct {
 	name string
 	cfg  harnessCfg
@@ -1072,7 +1098,7 @@ var clientTests = []clientTest{
 			// pipeline is always flushed before it exits.
 			go h.client.Stop()
 
-			// Wait for all of the updates to be populated in the
+			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, time.Second)
 		},
@@ -1086,10 +1112,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: 1000000, // high sweep fee creates dust
-				},
+				TxPolicy:   highSweepRateTxPolicy,
 				MaxUpdates: 20000,
 			},
 		},
@@ -1177,7 +1200,7 @@ var clientTests = []clientTest{
 			// the tower to receive the remaining states.
 			h.backupStates(chanID, numSent, numUpdates, nil)
 
-			// Wait for all of the updates to be populated in the
+			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, time.Second)
 
@@ -1230,7 +1253,7 @@ var clientTests = []clientTest{
 			h.serverCfg.NoAckUpdates = false
 			h.startServer()
 
-			// Wait for all of the updates to be populated in the
+			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, waitTime)
 		},
@@ -1252,9 +1275,11 @@ var clientTests = []clientTest{
 		},
 		fn: func(h *testHarness) {
 			var (
-				capacity   = h.cfg.localBalance + h.cfg.remoteBalance
+				capacity = h.cfg.localBalance +
+					h.cfg.remoteBalance
 				paymentAmt = lnwire.MilliSatoshi(2000000)
-				numSends   = uint64(h.cfg.localBalance / paymentAmt)
+				numSends   = uint64(h.cfg.localBalance) /
+					uint64(paymentAmt)
 				numRecvs   = uint64(capacity / paymentAmt)
 				numUpdates = numSends + numRecvs // 200 updates
 				chanID     = uint64(0)
@@ -1262,11 +1287,15 @@ var clientTests = []clientTest{
 
 			// Send money to the remote party until all funds are
 			// depleted.
-			sendHints := h.sendPayments(chanID, 0, numSends, paymentAmt)
+			sendHints := h.sendPayments(
+				chanID, 0, numSends, paymentAmt,
+			)
 
 			// Now, sequentially receive the entire channel balance
 			// from the remote party.
-			recvHints := h.recvPayments(chanID, numSends, numUpdates, paymentAmt)
+			recvHints := h.recvPayments(
+				chanID, numSends, numUpdates, paymentAmt,
+			)
 
 			// Collect the hints generated by both sending and
 			// receiving.
@@ -1275,7 +1304,7 @@ var clientTests = []clientTest{
 			// Backup the channel's states the client.
 			h.backupStates(chanID, 0, numUpdates, nil)
 
-			// Wait for all of the updates to be populated in the
+			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, 3*time.Second)
 		},
@@ -1292,10 +1321,7 @@ var clientTests = []clientTest{
 			},
 		},
 		fn: func(h *testHarness) {
-			const (
-				numUpdates = 5
-				numChans   = 10
-			)
+			const numUpdates = 5
 
 			// Initialize and register an additional 9 channels.
 			for id := uint64(1); id < 10; id++ {
@@ -1323,7 +1349,7 @@ var clientTests = []clientTest{
 			// Test reliable flush under multi-client scenario.
 			go h.client.Stop()
 
-			// Wait for all of the updates to be populated in the
+			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, 10*time.Second)
 		},
@@ -1372,7 +1398,7 @@ var clientTests = []clientTest{
 			// Now, queue the retributions for backup.
 			h.backupStates(chanID, 0, numUpdates, nil)
 
-			// Wait for all of the updates to be populated in the
+			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, waitTime)
 
@@ -1426,7 +1452,7 @@ var clientTests = []clientTest{
 			// Now, queue the retributions for backup.
 			h.backupStates(chanID, 0, numUpdates, nil)
 
-			// Wait for all of the updates to be populated in the
+			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, waitTime)
 
@@ -1469,11 +1495,11 @@ var clientTests = []clientTest{
 			require.NoError(h.t, h.client.Stop())
 
 			// Record the policy that the first half was stored
-			// under. We'll expect the second half to also be stored
-			// under the original policy, since we are only adjusting
-			// the MaxUpdates. The client should detect that the
-			// two policies have equivalent TxPolicies and continue
-			// using the first.
+			// under. We'll expect the second half to also be
+			// stored under the original policy, since we are only
+			// adjusting the MaxUpdates. The client should detect
+			// that the two policies have equivalent TxPolicies and
+			// continue using the first.
 			expPolicy := h.clientCfg.Policy
 
 			// Restart the client with a new policy.
@@ -1483,7 +1509,7 @@ var clientTests = []clientTest{
 			// Now, queue the second half of the retributions.
 			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
 
-			// Wait for all of the updates to be populated in the
+			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, waitTime)
 
@@ -1534,7 +1560,7 @@ var clientTests = []clientTest{
 			// the second half should actually be sent.
 			h.backupStates(chanID, 0, numUpdates, nil)
 
-			// Wait for all of the updates to be populated in the
+			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, waitTime)
 		},
@@ -1599,10 +1625,7 @@ var clientTests = []clientTest{
 			localBalance:  localBalance,
 			remoteBalance: remoteBalance,
 			policy: wtpolicy.Policy{
-				TxPolicy: wtpolicy.TxPolicy{
-					BlobType:     blob.TypeAltruistCommit,
-					SweepFeeRate: wtpolicy.DefaultSweepFeeRate,
-				},
+				TxPolicy:   defaultTxPolicy,
 				MaxUpdates: 5,
 			},
 		},
@@ -1629,7 +1652,7 @@ var clientTests = []clientTest{
 
 			// Back up the remaining two states. Once the first is
 			// processed, the session will be exhausted but the
-			// client won't be able to regnegotiate a session for
+			// client won't be able to renegotiate a session for
 			// the final state. We'll only wait for the first five
 			// states to arrive at the tower.
 			h.backupStates(chanID, maxUpdates-1, numUpdates, nil)

@@ -483,19 +483,19 @@ func TestBackupTask(t *testing.T) {
 
 func testBackupTask(t *testing.T, test backupTaskTest) {
 	// Create a new backupTask from the channel id and breach info.
-	task := newBackupTask(
-		&test.chanID, test.breachInfo, test.expSweepScript,
-		test.chanType,
-	)
+	id := wtdb.BackupID{
+		ChanID:       test.chanID,
+		CommitHeight: test.breachInfo.RevokedStateNum,
+	}
+	task := newBackupTask(id, test.expSweepScript)
 
-	// Assert that all parameters set during initialization are properly
-	// populated.
-	require.Equal(t, test.chanID, task.id.ChanID)
-	require.Equal(t, test.breachInfo.RevokedStateNum, task.id.CommitHeight)
-	require.Equal(t, test.expTotalAmt, task.totalAmt)
-	require.Equal(t, test.breachInfo, task.breachInfo)
-	require.Equal(t, test.expToLocalInput, task.toLocalInput)
-	require.Equal(t, test.expToRemoteInput, task.toRemoteInput)
+	// getBreachInfo is a helper closure that returns the breach retribution
+	// info and channel type for the given channel and commit height.
+	getBreachInfo := func(id lnwire.ChannelID, commitHeight uint64) (
+		*lnwallet.BreachRetribution, channeldb.ChannelType, error) {
+
+		return test.breachInfo, test.chanType, nil
+	}
 
 	// Reconstruct the expected input.Inputs that will be returned by the
 	// task's inputs() method.
@@ -515,8 +515,17 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	// Now, bind the session to the task. If successful, this locks in the
 	// session's negotiated parameters and allows the backup task to derive
 	// the final free variables in the justice transaction.
-	err := task.bindSession(test.session)
+	err := task.bindSession(test.session, getBreachInfo)
 	require.ErrorIs(t, err, test.bindErr)
+
+	// Assert that all parameters set during after binding the backup task
+	// are properly populated.
+	require.Equal(t, test.chanID, task.id.ChanID)
+	require.Equal(t, test.breachInfo.RevokedStateNum, task.id.CommitHeight)
+	require.Equal(t, test.expTotalAmt, task.totalAmt)
+	require.Equal(t, test.breachInfo, task.breachInfo)
+	require.Equal(t, test.expToLocalInput, task.toLocalInput)
+	require.Equal(t, test.expToRemoteInput, task.toRemoteInput)
 
 	// Exit early if the bind was supposed to fail. But first, we check that
 	// all fields set during a bind are still unset. This ensure that a

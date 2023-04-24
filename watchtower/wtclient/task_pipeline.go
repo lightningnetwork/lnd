@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btclog"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
 
 // taskPipeline implements a reliable, in-order queue that ensures its queue
@@ -25,7 +26,7 @@ type taskPipeline struct {
 	queueCond *sync.Cond
 	queue     *list.List
 
-	newBackupTasks chan *backupTask
+	newBackupTasks chan *wtdb.BackupID
 
 	quit      chan struct{}
 	forceQuit chan struct{}
@@ -37,7 +38,7 @@ func newTaskPipeline(log btclog.Logger) *taskPipeline {
 	rq := &taskPipeline{
 		log:            log,
 		queue:          list.New(),
-		newBackupTasks: make(chan *backupTask),
+		newBackupTasks: make(chan *wtdb.BackupID),
 		quit:           make(chan struct{}),
 		forceQuit:      make(chan struct{}),
 		shutdown:       make(chan struct{}),
@@ -91,7 +92,7 @@ func (q *taskPipeline) ForceQuit() {
 // channel will be closed after a call to Stop and all pending tasks have been
 // delivered, or if a call to ForceQuit is called before the pending entries
 // have been drained.
-func (q *taskPipeline) NewBackupTasks() <-chan *backupTask {
+func (q *taskPipeline) NewBackupTasks() <-chan *wtdb.BackupID {
 	return q.newBackupTasks
 }
 
@@ -99,7 +100,7 @@ func (q *taskPipeline) NewBackupTasks() <-chan *backupTask {
 // of NewBackupTasks. If the taskPipeline is shutting down, ErrClientExiting is
 // returned. Otherwise, if QueueBackupTask returns nil it is guaranteed to be
 // delivered via NewBackupTasks unless ForceQuit is called before completion.
-func (q *taskPipeline) QueueBackupTask(task *backupTask) error {
+func (q *taskPipeline) QueueBackupTask(task *wtdb.BackupID) error {
 	q.queueCond.L.Lock()
 	select {
 
@@ -116,8 +117,8 @@ func (q *taskPipeline) QueueBackupTask(task *backupTask) error {
 	default:
 	}
 
-	// Queue the new task and signal the queue's condition variable to wake up
-	// the queueManager for processing.
+	// Queue the new task and signal the queue's condition variable to wake
+	// up the queueManager for processing.
 	q.queue.PushBack(task)
 	q.queueCond.L.Unlock()
 
@@ -141,16 +142,21 @@ func (q *taskPipeline) queueManager() {
 
 			select {
 			case <-q.quit:
-				// Exit only after the queue has been fully drained.
+				// Exit only after the queue has been fully
+				// drained.
 				if q.queue.Len() == 0 {
 					q.queueCond.L.Unlock()
-					q.log.Debugf("Revoked state pipeline flushed.")
+					q.log.Debugf("Revoked state pipeline " +
+						"flushed.")
+
 					return
 				}
 
 			case <-q.forceQuit:
 				q.queueCond.L.Unlock()
-				q.log.Debugf("Revoked state pipeline force quit.")
+				q.log.Debugf("Revoked state pipeline force " +
+					"quit.")
+
 				return
 
 			default:
@@ -159,13 +165,15 @@ func (q *taskPipeline) queueManager() {
 
 		// Pop the first element from the queue.
 		e := q.queue.Front()
-		task := q.queue.Remove(e).(*backupTask)
+
+		//nolint:forcetypeassert
+		task := q.queue.Remove(e).(*wtdb.BackupID)
 		q.queueCond.L.Unlock()
 
 		select {
 
-		// Backup task submitted to dispatcher. We don't select on quit to
-		// ensure that we still drain tasks while shutting down.
+		// Backup task submitted to dispatcher. We don't select on quit
+		// to ensure that we still drain tasks while shutting down.
 		case q.newBackupTasks <- task:
 
 		// Force quit, return immediately to allow the client to exit.

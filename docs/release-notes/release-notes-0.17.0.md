@@ -13,8 +13,13 @@
   the entire retribution struct. This reduces the amount of data that needs to 
   be held in memory. 
 
+## Neutrino
+
+* Added [`unbanPeer`](https://github.com/lightningnetwork/lnd/pull/7606) subcommand to lncli neutrino command.
+
 # Contributors (Alphabetical Order)
 
 * Elle Mouton
 * Jordi Montes
+* Ononiwu Maureen Chiamaka
 

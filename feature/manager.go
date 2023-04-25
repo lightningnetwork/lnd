@@ -221,7 +221,9 @@ func (m *Manager) UpdateFeatureSets(
 			return err
 		}
 
-		if err := m.Get(set).ValidateUpdate(newFeatures); err != nil {
+		if err := m.Get(set).ValidateUpdate(
+			newFeatures, set.Maximum(),
+		); err != nil {
 			return err
 		}
 

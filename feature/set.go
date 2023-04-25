@@ -1,5 +1,11 @@
 package feature
 
+import (
+	"math"
+
+	"github.com/lightningnetwork/lnd/lnwire"
+)
+
 // Set is an enum identifying various feature sets, which separates the single
 // feature namespace into distinct categories depending what context a feature
 // vector is being used.
@@ -54,5 +60,24 @@ func (s Set) String() string {
 		return "SetInvoiceAmp"
 	default:
 		return "SetUnknown"
+	}
+}
+
+// Maximum returns the maximum allowable value for a feature bit in the context
+// of a set. The maximum feature value we can express differs by set context
+// because the amount of space available varies between protocol messages. In
+// practice this should never be a problem (reasonably one would never hit
+// these high ranges), but we enforce these maximums for the sake of sane
+// validation.
+func (s Set) Maximum() lnwire.FeatureBit {
+	switch s {
+	case SetInvoice, SetInvoiceAmp:
+		return lnwire.MaxBolt11Feature
+
+	// The space available in other sets is > math.MaxUint16, so we just
+	// return the maximum value our expression of a feature bit allows so
+	// that any value will pass.
+	default:
+		return math.MaxUint16
 	}
 }

@@ -76,7 +76,7 @@ var updateNodeAnnouncementCommand = cli.Command{
 		},
 		cli.Int64SliceFlag{
 			Name: "feature_bit_remove",
-			Usage: "a feature bit that needs to be disabled" +
+			Usage: "a feature bit that needs to be disabled. " +
 				"Can be set multiple times in the same command",
 		},
 	},

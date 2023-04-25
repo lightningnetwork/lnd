@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"math"
 	"reflect"
 	"sort"
 	"testing"
@@ -423,6 +424,7 @@ func TestValidateUpdate(t *testing.T) {
 		name            string
 		currentFeatures []FeatureBit
 		newFeatures     []FeatureBit
+		maximumValue    FeatureBit
 		err             error
 	}{
 		{
@@ -479,6 +481,30 @@ func TestValidateUpdate(t *testing.T) {
 			},
 			err: nil,
 		},
+		{
+			name: "at allowed maximum",
+			currentFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+			},
+			newFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+				100,
+			},
+			maximumValue: 100,
+			err:          nil,
+		},
+		{
+			name: "above allowed maximum",
+			currentFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+			},
+			newFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+				101,
+			},
+			maximumValue: 100,
+			err:          ErrFeatureBitMaximum,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -491,7 +517,13 @@ func TestValidateUpdate(t *testing.T) {
 			)
 			newFV := NewRawFeatureVector(testCase.newFeatures...)
 
-			err := currentFV.ValidateUpdate(newFV)
+			// Set maximum value if not populated in the test case.
+			maximumValue := testCase.maximumValue
+			if testCase.maximumValue == 0 {
+				maximumValue = math.MaxUint16
+			}
+
+			err := currentFV.ValidateUpdate(newFV, maximumValue)
 			require.ErrorIs(t, err, testCase.err)
 		})
 	}

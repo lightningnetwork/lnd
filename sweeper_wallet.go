@@ -21,5 +21,9 @@ func newSweeperWallet(w *lnwallet.LightningWallet) *sweeperWallet {
 
 // CancelRebroadcast cancels the rebroadcast of the given transaction.
 func (s *sweeperWallet) CancelRebroadcast(txid chainhash.Hash) {
-	s.Cfg.Rebroadcaster.MarkAsConfirmed(txid)
+	// For neutrino, we don't config the rebroadcaster for the wallet as it
+	// manages the rebroadcasting logic in neutrino itself.
+	if s.Cfg.Rebroadcaster != nil {
+		s.Cfg.Rebroadcaster.MarkAsConfirmed(txid)
+	}
 }

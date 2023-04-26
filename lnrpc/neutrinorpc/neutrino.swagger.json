@@ -265,6 +265,39 @@
           "NeutrinoKit"
         ]
       }
+    },
+    "/v2/neutrino/unban": {
+      "post": {
+        "summary": "UnBanPeer unbans a previously banned peer.",
+        "operationId": "NeutrinoKit_UnBanPeer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcUnBanPeerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/neutrinorpcUnBanPeerRequest"
+            }
+          }
+        ],
+        "tags": [
+          "NeutrinoKit"
+        ]
+      }
     }
   },
   "definitions": {
@@ -504,6 +537,18 @@
           "description": "Connected peers."
         }
       }
+    },
+    "neutrinorpcUnBanPeerRequest": {
+      "type": "object",
+      "properties": {
+        "peer_address": {
+          "type": "string",
+          "description": "The address of the peer to ban."
+        }
+      }
+    },
+    "neutrinorpcUnBanPeerResponse": {
+      "type": "object"
     },
     "protobufAny": {
       "type": "object",

@@ -1434,7 +1434,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		}
 
 		if err := r.cfg.Graph.AddLightningNode(msg, op...); err != nil {
-			return errors.Errorf("unable to add node %v to the "+
+			return errors.Errorf("unable to add node %x to the "+
 				"graph: %v", msg.PubKeyBytes, err)
 		}
 

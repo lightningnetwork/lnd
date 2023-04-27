@@ -722,7 +722,7 @@ func (l *channelLink) syncChanStates() error {
 
 		// If the remote party indicates that they think we haven't
 		// done any state updates yet, then we'll retransmit the
-		// funding locked message first. We do this, as at this point
+		// channel_ready message first. We do this, as at this point
 		// we can't be sure if they've really received the
 		// ChannelReady message.
 		if remoteChanSyncMsg.NextLocalCommitHeight == 1 &&
@@ -1091,7 +1091,7 @@ func (l *channelLink) htlcManager() {
 	// allow the switch to forward HTLCs in the outbound direction.
 	l.markReestablished()
 
-	// Now that we've received both funding locked and channel reestablish,
+	// Now that we've received both channel_ready and channel reestablish,
 	// we can go ahead and send the active channel notification. We'll also
 	// defer the inactive notification for when the link exits to ensure
 	// that every active notification is matched by an inactive one.

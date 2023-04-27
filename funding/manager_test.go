@@ -1412,7 +1412,7 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	).(*lnwire.ChannelReady)
 	require.True(t, ok)
 
-	// And similarly Bob will send funding locked to Alice.
+	// And similarly Bob will send channel_ready to Alice.
 	channelReadyBob, ok := assertFundingMsgSent(
 		t, bob.msgChan, "ChannelReady",
 	).(*lnwire.ChannelReady)
@@ -1679,7 +1679,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 		// Expected.
 	}
 
-	// Bob will send funding locked to Alice.
+	// Bob will send channel_ready to Alice.
 	channelReadyBob, ok := assertFundingMsgSent(
 		t, bob.msgChan, "ChannelReady",
 	).(*lnwire.ChannelReady)
@@ -1838,7 +1838,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 		// Expected.
 	}
 
-	// Bob will send funding locked to Alice
+	// Bob will send channel_ready to Alice
 	channelReadyBob, ok := assertFundingMsgSent(
 		t, bob.msgChan, "ChannelReady",
 	).(*lnwire.ChannelReady)
@@ -2323,7 +2323,7 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 	).(*lnwire.ChannelReady)
 	require.True(t, ok)
 
-	// And similarly Bob will send funding locked to Alice.
+	// And similarly Bob will send channel_ready to Alice.
 	channelReadyBob, ok := assertFundingMsgSent(
 		t, bob.msgChan, "ChannelReady",
 	).(*lnwire.ChannelReady)
@@ -2342,7 +2342,7 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 	assertHandleChannelReady(t, alice, bob)
 
 	// Alice should not send the channel state the second time, as the
-	// second funding locked should just be ignored.
+	// second channel_ready should just be ignored.
 	select {
 	case <-alice.newChannels:
 		t.Fatalf("alice sent new channel to peer a second time")
@@ -2436,7 +2436,7 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	).(*lnwire.ChannelReady)
 	require.True(t, ok)
 
-	// And similarly Bob will send funding locked to Alice.
+	// And similarly Bob will send channel_ready to Alice.
 	channelReadyBob, ok := assertFundingMsgSent(
 		t, bob.msgChan, "ChannelReady",
 	).(*lnwire.ChannelReady)
@@ -2535,7 +2535,7 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 	).(*lnwire.ChannelReady)
 	require.True(t, ok)
 
-	// And similarly Bob will send funding locked to Alice.
+	// And similarly Bob will send channel_ready to Alice.
 	channelReadyBob, ok := assertFundingMsgSent(
 		t, bob.msgChan, "ChannelReady",
 	).(*lnwire.ChannelReady)
@@ -2630,7 +2630,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	).(*lnwire.ChannelReady)
 	require.True(t, ok)
 
-	// And similarly Bob will send funding locked to Alice.
+	// And similarly Bob will send channel_ready to Alice.
 	channelReadyBob, ok := assertFundingMsgSent(
 		t, bob.msgChan, "ChannelReady",
 	).(*lnwire.ChannelReady)
@@ -2755,7 +2755,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	).(*lnwire.ChannelReady)
 	require.True(t, ok)
 
-	// And similarly Bob will send funding locked to Alice.
+	// And similarly Bob will send channel_ready to Alice.
 	channelReadyBob, ok := assertFundingMsgSent(
 		t, bob.msgChan, "ChannelReady",
 	).(*lnwire.ChannelReady)
@@ -3192,7 +3192,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	).(*lnwire.ChannelReady)
 	require.True(t, ok)
 
-	// And similarly Bob will send funding locked to Alice.
+	// And similarly Bob will send channel_ready to Alice.
 	channelReadyBob, ok := assertFundingMsgSent(
 		t, bob.msgChan, "ChannelReady",
 	).(*lnwire.ChannelReady)

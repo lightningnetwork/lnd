@@ -1063,7 +1063,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 			channel.IdentityPub, chanID,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to check if funding locked "+
+			return fmt.Errorf("failed to check if channel_ready "+
 				"was received: %v", err)
 		}
 
@@ -3574,7 +3574,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 
 			err = peer.SendMessage(true, channelReadyMsg)
 			if err != nil {
-				log.Errorf("unable to send funding locked: %v",
+				log.Errorf("unable to send channel_ready: %v",
 					err)
 				return
 			}

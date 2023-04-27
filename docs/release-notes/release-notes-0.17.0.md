@@ -31,6 +31,10 @@ package](https://github.com/lightningnetwork/lnd/pull/7356)
 * [SendOutputs](https://github.com/lightningnetwork/lnd/pull/7631) now adheres
   to the anchor channel reserve requirement.
 
+* Enforce provided [fee rate is no less than the relay or minimum mempool
+  fee](https://github.com/lightningnetwork/lnd/pull/7645) when calling
+  `OpenChannel`, `CloseChannel`, `SendCoins`, and `SendMany`.
+
 * The [UpdateNodeAnnouncement](https://github.com/lightningnetwork/lnd/pull/7568)
   API can no longer be used to set/unset protocol features that are defined by 
   LND.  
@@ -76,4 +80,5 @@ unlock or create.
 * Matt Morehouse
 * Michael Street
 * Oliver Gugger
+* Shaurya Arora
 * ziggie1984

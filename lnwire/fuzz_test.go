@@ -822,3 +822,24 @@ func FuzzCustomMessage(f *testing.F) {
 		harness(t, data)
 	})
 }
+
+// FuzzParseRawSignature tests that our DER-encoded signature parsing does not
+// panic for arbitrary inputs and that serializing and reparsing the signatures
+// does not mutate them.
+func FuzzParseRawSignature(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		sig, err := NewSigFromRawSignature(data)
+		if err != nil {
+			return
+		}
+
+		sig2, err := NewSigFromRawSignature(sig.ToSignatureBytes())
+		if err != nil {
+			t.Fatalf("failed to reparse signature: %v", err)
+		}
+
+		if !reflect.DeepEqual(sig, sig2) {
+			t.Fatalf("signature mismatch: %v != %v", sig, sig2)
+		}
+	})
+}

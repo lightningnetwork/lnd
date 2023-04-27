@@ -43,12 +43,20 @@ func TestDetermineFeePerKw(t *testing.T) {
 		// fail determines if this test case should fail or not.
 		fail bool
 	}{
-		// A fee rate below the fee rate floor should output the floor.
+		// A fee rate below the floor should error out.
 		{
 			feePref: FeePreference{
 				FeeRate: chainfee.SatPerKWeight(99),
 			},
-			fee: chainfee.FeePerKwFloor,
+			fail: true,
+		},
+
+		// A fee rate below the relay fee should error out.
+		{
+			feePref: FeePreference{
+				FeeRate: chainfee.SatPerKWeight(299),
+			},
+			fail: true,
 		},
 
 		// A fee rate above the floor, should pass through and return

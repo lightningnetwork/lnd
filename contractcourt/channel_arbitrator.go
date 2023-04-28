@@ -1132,19 +1132,27 @@ func (c *ChannelArbitrator) stateStep(
 		log.Infof("ChannelArbitrator(%v): still awaiting contract "+
 			"resolution", c.cfg.ChanPoint)
 
-		numUnresolved, err := c.log.FetchUnresolvedContracts()
+		unresolved, err := c.log.FetchUnresolvedContracts()
 		if err != nil {
 			return StateError, closeTx, err
 		}
 
-		// If we still have unresolved contracts, then we'll stay alive
-		// to oversee their resolution.
-		if len(numUnresolved) != 0 {
-			nextState = StateWaitingFullResolution
+		// If we have no unresolved contracts, then we can move to the
+		// final state.
+		if len(unresolved) == 0 {
+			nextState = StateFullyResolved
 			break
 		}
 
-		nextState = StateFullyResolved
+		// Otherwise we still have unresolved contracts, then we'll
+		// stay alive to oversee their resolution.
+		nextState = StateWaitingFullResolution
+
+		// Add debug logs.
+		for _, r := range unresolved {
+			log.Debugf("ChannelArbitrator(%v): still have "+
+				"unresolved contract: %T", c.cfg.ChanPoint, r)
+		}
 
 	// If we start as fully resolved, then we'll end as fully resolved.
 	case StateFullyResolved:

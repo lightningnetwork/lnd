@@ -942,7 +942,7 @@ func (f *Manager) reservationCoordinator() {
 // advanceFundingState will advance the channel through the steps after the
 // funding transaction is broadcasted, up until the point where the channel is
 // ready for operation. This includes waiting for the funding transaction to
-// confirm, sending funding locked to the peer, adding the channel to the
+// confirm, sending channel_ready to the peer, adding the channel to the
 // router graph, and announcing the channel. The updateChan can be set non-nil
 // to get OpenStatusUpdates.
 //
@@ -1057,13 +1057,13 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	// channelReady was sent to peer, but the channel was not added to the
 	// router graph and the channel announcement was not sent.
 	case channelReadySent:
-		// We must wait until we've received the peer's funding locked
+		// We must wait until we've received the peer's channel_ready
 		// before sending a channel_update according to BOLT#07.
 		received, err := f.receivedChannelReady(
 			channel.IdentityPub, chanID,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to check if funding locked "+
+			return fmt.Errorf("failed to check if channel_ready "+
 				"was received: %v", err)
 		}
 
@@ -1126,7 +1126,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 
 		// Give the caller a final update notifying them that
 		// the channel is now open.
-		// TODO(roasbeef): only notify after recv of funding locked?
+		// TODO(roasbeef): only notify after recv of channel_ready?
 		fundingPoint := channel.FundingOutpoint
 		cp := &lnrpc.ChannelPoint{
 			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
@@ -2322,8 +2322,8 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	}
 
 	// Create an entry in the local discovery map so we can ensure that we
-	// process the channel confirmation fully before we receive a funding
-	// locked message.
+	// process the channel confirmation fully before we receive a
+	// channel_ready message.
 	f.localDiscoveryMtx.Lock()
 	f.localDiscoverySignals[channelID] = make(chan struct{})
 	f.localDiscoveryMtx.Unlock()
@@ -2386,8 +2386,8 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 	}
 
 	// Create an entry in the local discovery map so we can ensure that we
-	// process the channel confirmation fully before we receive a funding
-	// locked message.
+	// process the channel confirmation fully before we receive a
+	// channel_ready message.
 	fundingPoint := resCtx.reservation.FundingOutpoint()
 	permChanID := lnwire.NewChanIDFromOutPoint(fundingPoint)
 	f.localDiscoveryMtx.Lock()
@@ -2907,7 +2907,7 @@ func (f *Manager) handleFundingConfirmation(
 
 	// Close the discoverySignal channel, indicating to a separate
 	// goroutine that the channel now is marked as open in the database
-	// and that it is acceptable to process funding locked messages
+	// and that it is acceptable to process channel_ready messages
 	// from the peer.
 	f.localDiscoveryMtx.Lock()
 	if discoverySignal, ok := f.localDiscoverySignals[chanID]; ok {
@@ -2929,7 +2929,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 	var peerKey [33]byte
 	copy(peerKey[:], completeChan.IdentityPub.SerializeCompressed())
 
-	// Next, we'll send over the funding locked message which marks that we
+	// Next, we'll send over the channel_ready message which marks that we
 	// consider the channel open by presenting the remote party with our
 	// next revocation key. Without the revocation key, the remote party
 	// will be unable to propose state transitions.
@@ -3451,7 +3451,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		"peer %x", msg.ChanID,
 		peer.IdentityKey().SerializeCompressed())
 
-	// If we are currently in the process of handling a funding locked
+	// If we are currently in the process of handling a channel_ready
 	// message for this channel, ignore.
 	f.handleChannelReadyMtx.Lock()
 	_, ok := f.handleChannelReadyBarriers[msg.ChanID]
@@ -3478,7 +3478,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	f.localDiscoveryMtx.Unlock()
 
 	if ok {
-		// Before we proceed with processing the funding locked
+		// Before we proceed with processing the channel_ready
 		// message, we'll wait for the local waitForFundingConfirmation
 		// goroutine to signal that it has the necessary state in
 		// place. Otherwise, we may be missing critical information
@@ -3574,7 +3574,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 
 			err = peer.SendMessage(true, channelReadyMsg)
 			if err != nil {
-				log.Errorf("unable to send funding locked: %v",
+				log.Errorf("unable to send channel_ready: %v",
 					err)
 				return
 			}
@@ -3596,7 +3596,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		return
 	}
 
-	// The funding locked message contains the next commitment point we'll
+	// The channel_ready message contains the next commitment point we'll
 	// need to create the next commitment state for the remote party. So
 	// we'll insert that into the channel now before passing it along to
 	// other sub-systems.

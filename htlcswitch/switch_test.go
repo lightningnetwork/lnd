@@ -115,7 +115,7 @@ func TestSwitchHasActiveLink(t *testing.T) {
 		t.Fatalf("link should not be active yet, still pending")
 	}
 
-	// Finally, simulate the link receiving funding locked by setting its
+	// Finally, simulate the link receiving channel_ready by setting its
 	// eligibility to true.
 	aliceChannelLink.eligible = true
 

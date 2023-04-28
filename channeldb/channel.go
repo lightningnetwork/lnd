@@ -3532,7 +3532,7 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 
 	// Finally, we'll attempt to read the next unrevoked commitment point
 	// for the remote party. If we closed the channel before receiving a
-	// funding locked message then this might not be present. A boolean
+	// channel_ready message then this might not be present. A boolean
 	// indicating whether the field is present will come first.
 	var hasRemoteNextRevocation bool
 	err = ReadElements(r, &hasRemoteNextRevocation)

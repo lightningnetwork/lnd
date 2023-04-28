@@ -14,32 +14,8 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testBasicChannelFunding,
 	},
 	{
-		Name:     "multi hop htlc local timeout",
-		TestFunc: testMultiHopHtlcLocalTimeout,
-	},
-	{
 		Name:     "multi hop receiver chain claim",
 		TestFunc: testMultiHopReceiverChainClaim,
-	},
-	{
-		Name:     "multi hop local force close on-chain htlc timeout",
-		TestFunc: testMultiHopLocalForceCloseOnChainHtlcTimeout,
-	},
-	{
-		Name:     "multi hop remote force close on-chain htlc timeout",
-		TestFunc: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
-	},
-	{
-		Name:     "multi hop htlc local chain claim",
-		TestFunc: testMultiHopHtlcLocalChainClaim,
-	},
-	{
-		Name:     "multi hop htlc remote chain claim",
-		TestFunc: testMultiHopHtlcRemoteChainClaim,
-	},
-	{
-		Name:     "multi hop htlc aggregation",
-		TestFunc: testMultiHopHtlcAggregation,
 	},
 	{
 		Name:     "external channel funding",
@@ -146,14 +122,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSendUpdateDisableChannel,
 	},
 	{
-		Name:     "private channel update policy",
-		TestFunc: testUpdateChannelPolicyForPrivateChannel,
-	},
-	{
-		Name:     "update channel policy fee rate accuracy",
-		TestFunc: testUpdateChannelPolicyFeeRateAccuracy,
-	},
-	{
 		Name:     "connection timeout",
 		TestFunc: testNetworkConnectionTimeout,
 	},
@@ -164,6 +132,26 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "addpeer config",
 		TestFunc: testAddPeerConfig,
+	},
+	{
+		Name:     "multi hop htlc local timeout",
+		TestFunc: testMultiHopHtlcLocalTimeout,
+	},
+	{
+		Name:     "multi hop local force close on-chain htlc timeout",
+		TestFunc: testMultiHopLocalForceCloseOnChainHtlcTimeout,
+	},
+	{
+		Name:     "multi hop remote force close on-chain htlc timeout",
+		TestFunc: testMultiHopRemoteForceCloseOnChainHtlcTimeout,
+	},
+	{
+		Name:     "private channel update policy",
+		TestFunc: testUpdateChannelPolicyForPrivateChannel,
+	},
+	{
+		Name:     "update channel policy fee rate accuracy",
+		TestFunc: testUpdateChannelPolicyFeeRateAccuracy,
 	},
 	{
 		Name:     "unannounced channels",
@@ -296,6 +284,18 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "REST API",
 		TestFunc: testRestAPI,
+	},
+	{
+		Name:     "multi hop htlc local chain claim",
+		TestFunc: testMultiHopHtlcLocalChainClaim,
+	},
+	{
+		Name:     "multi hop htlc remote chain claim",
+		TestFunc: testMultiHopHtlcRemoteChainClaim,
+	},
+	{
+		Name:     "multi hop htlc aggregation",
+		TestFunc: testMultiHopHtlcAggregation,
 	},
 	{
 		Name:     "revoked uncooperative close retribution",

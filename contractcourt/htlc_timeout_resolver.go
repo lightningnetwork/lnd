@@ -822,6 +822,12 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 	// Create a result chan to hold the results.
 	result := &spendResult{}
 
+	// hasMempoolSpend is a flag that indicates whether we have found a
+	// preimage spend from the mempool. This is used to determine whether
+	// to checkpoint the resolver or not when later we found the
+	// corresponding block spend.
+	hasMempoolSpent := false
+
 	// Wait for a spend event to arrive.
 	for {
 		select {
@@ -846,8 +852,26 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 
 				result.spend = spendDetail
 
-				// Once confirmed, persist the state on disk.
-				result.err = h.checkPointSecondLevelTx()
+				// Once confirmed, persist the state on disk if
+				// we haven't seen the output's spending tx in
+				// mempool before.
+				//
+				// NOTE: we don't checkpoint the resolver if
+				// it's spending tx has already been found in
+				// mempool - the resolver will take care of the
+				// checkpoint in its `claimCleanUp`. If we do
+				// checkpoint here, however, we'd create a new
+				// record in db for the same htlc resolver
+				// which won't be cleaned up later, resulting
+				// the channel to stay in unresolved state.
+				//
+				// TODO(yy): when fee bumper is implemented, we
+				// need to further check whether this is a
+				// preimage spend. Also need to refactor here
+				// to save us some indentation.
+				if !hasMempoolSpent {
+					result.err = h.checkPointSecondLevelTx()
+				}
 			}
 
 			// Send the result and exit the loop.
@@ -893,6 +917,10 @@ func (h *htlcTimeoutResolver) consumeSpendEvents(resultChan chan *spendResult,
 			// continue the loop.
 			result.spend = spendDetail
 			resultChan <- result
+
+			// Set the hasMempoolSpent flag to true so we won't
+			// checkpoint the resolver again in db.
+			hasMempoolSpent = true
 
 			continue
 

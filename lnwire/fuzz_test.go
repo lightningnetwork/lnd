@@ -646,11 +646,17 @@ func prefixWithFailCode(data []byte, code FailCode) []byte {
 	return data
 }
 
-// onionFailureHarness performs the actual fuzz testing of the appropriate onion
-// failure message. This function will check that the passed-in message passes
-// wire length checks, is a valid message once deserialized, and passes a
+// equalFunc is a function used to determine whether two deserialized messages
+// are equivalent.
+type equalFunc func(x, y any) bool
+
+// onionFailureHarnessCustom performs the actual fuzz testing of the appropriate
+// onion failure message. This function will check that the passed-in message
+// passes wire length checks, is a valid message once deserialized, and passes a
 // sequence of serialization and deserialization checks.
-func onionFailureHarness(t *testing.T, data []byte, code FailCode) {
+func onionFailureHarnessCustom(t *testing.T, data []byte, code FailCode,
+	eq equalFunc) {
+
 	data = prefixWithFailCode(data, code)
 
 	// Don't waste time fuzzing messages larger than we'll ever accept.
@@ -678,7 +684,7 @@ func onionFailureHarness(t *testing.T, data []byte, code FailCode) {
 		t.Fatalf("failed to decode serialized failure message: %v", err)
 	}
 
-	if !reflect.DeepEqual(msg, newMsg) {
+	if !eq(msg, newMsg) {
 		t.Fatalf("original message and deserialized message are not "+
 			"equal: %v != %v", msg, newMsg)
 	}
@@ -716,10 +722,45 @@ func onionFailureHarness(t *testing.T, data []byte, code FailCode) {
 		t.Fatalf("failed to decode failure packet: %v", err)
 	}
 
-	if !reflect.DeepEqual(msg, pktMsg) {
+	if !eq(msg, pktMsg) {
 		t.Fatalf("original message and decoded packet message are not "+
 			"equal: %v != %v", msg, pktMsg)
 	}
+}
+
+func onionFailureHarness(t *testing.T, data []byte, code FailCode) {
+	t.Helper()
+	onionFailureHarnessCustom(t, data, code, reflect.DeepEqual)
+}
+
+func FuzzFailIncorrectDetails(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Since FailIncorrectDetails.Decode can leave extraOpaqueData
+		// as nil while FailIncorrectDetails.Encode writes an empty
+		// slice, we need to use a custom equality function.
+		eq := func(x, y any) bool {
+			msg1, ok := x.(*FailIncorrectDetails)
+			if !ok {
+				t.Fatal("msg1 was not FailIncorrectDetails")
+			}
+
+			msg2, ok := y.(*FailIncorrectDetails)
+			if !ok {
+				t.Fatalf("msg2 was not FailIncorrectDetails")
+			}
+
+			return msg1.amount == msg2.amount &&
+				msg1.height == msg2.height &&
+				bytes.Equal(
+					msg1.extraOpaqueData,
+					msg2.extraOpaqueData,
+				)
+		}
+
+		onionFailureHarnessCustom(
+			t, data, CodeIncorrectOrUnknownPaymentDetails, eq,
+		)
+	})
 }
 
 func FuzzFailInvalidOnionVersion(f *testing.F) {

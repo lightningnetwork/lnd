@@ -698,21 +698,12 @@ func (f *FailTemporaryChannelFailure) Decode(r io.Reader, pver uint32) error {
 func (f *FailTemporaryChannelFailure) Encode(w *bytes.Buffer,
 	pver uint32) error {
 
-	var payload []byte
 	if f.Update != nil {
-		var bw bytes.Buffer
-		if err := f.Update.Encode(&bw, pver); err != nil {
-			return err
-		}
-		payload = bw.Bytes()
+		return writeOnionErrorChanUpdate(w, f.Update, pver)
 	}
 
-	if err := WriteUint16(w, uint16(len(payload))); err != nil {
-		return err
-	}
-
-	_, err := w.Write(payload)
-	return err
+	// Write zero length to indicate no channel_update is present.
+	return WriteUint16(w, 0)
 }
 
 // FailAmountBelowMinimum is returned if the HTLC does not reach the current
@@ -1474,13 +1465,13 @@ func writeOnionErrorChanUpdate(w *bytes.Buffer, chanUpdate *ChannelUpdate,
 	// First, we encode the channel update in a temporary buffer in order
 	// to get the exact serialized size.
 	var b bytes.Buffer
-	if err := chanUpdate.Encode(&b, pver); err != nil {
+	updateLen, err := WriteMessage(&b, chanUpdate, pver)
+	if err != nil {
 		return err
 	}
 
 	// Now that we know the size, we can write the length out in the main
 	// writer.
-	updateLen := b.Len()
 	if err := WriteUint16(w, uint16(updateLen)); err != nil {
 		return err
 	}

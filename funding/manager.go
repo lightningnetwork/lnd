@@ -4141,6 +4141,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		ZeroConf:          zeroConf,
 		OptionScidAlias:   scid,
 		ScidAliasFeature:  scidFeatureVal,
+		Memo:              msg.Memo,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

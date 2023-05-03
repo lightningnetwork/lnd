@@ -184,15 +184,15 @@ func TestWriteOnionErrorChanUpdate(t *testing.T) {
 	// raw serialized length.
 	var b bytes.Buffer
 	update := testChannelUpdate
-	if err := update.Encode(&b, 0); err != nil {
+	trueUpdateLength, err := WriteMessage(&b, &update, 0)
+	if err != nil {
 		t.Fatalf("unable to write update: %v", err)
 	}
-	trueUpdateLength := b.Len()
 
 	// Next, we'll use the function to encode the update as we would in a
 	// onion error message.
 	var errorBuf bytes.Buffer
-	err := writeOnionErrorChanUpdate(&errorBuf, &update, 0)
+	err = writeOnionErrorChanUpdate(&errorBuf, &update, 0)
 	require.NoError(t, err, "unable to encode onion error")
 
 	// Finally, read the length encoded and ensure that it matches the raw

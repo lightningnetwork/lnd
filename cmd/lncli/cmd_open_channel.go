@@ -93,7 +93,12 @@ var openChannelCommand = cli.Command{
 
 	One can manually set the fee to be used for the funding transaction via
 	either the --conf_target or --sat_per_vbyte arguments. This is
-	optional.`,
+	optional.
+
+	One can also specify a short string memo to record some useful
+	information about the channel using the --memo argument. This is stored
+	locally only, and is purely for reference. It has no bearing on the
+	channel's operation. Max allowed length is 500 characters.`,
 	ArgsUsage: "node-key local-amt push-amt",
 	Flags: []cli.Flag{
 		cli.StringFlag{
@@ -257,6 +262,14 @@ var openChannelCommand = cli.Command{
 				"payment. If not specified, a default of 1% " +
 				"of the channel capacity will be used.",
 		},
+		cli.StringFlag{
+			Name: "memo",
+			Usage: `(optional) a note-to-self containing some useful
+				information about the channel. This is stored
+				locally only, and is purely for reference. It
+				has no bearing on the channel's operation. Max
+				allowed length is 500 characters`,
+		},
 	},
 	Action: actionDecorator(openChannel),
 }
@@ -300,6 +313,7 @@ func openChannel(ctx *cli.Context) error {
 		ScidAlias:                  ctx.Bool("scid_alias"),
 		RemoteChanReserveSat:       ctx.Uint64("remote_reserve_sats"),
 		FundMax:                    ctx.Bool("fundmax"),
+		Memo:                       ctx.String("memo"),
 	}
 
 	switch {

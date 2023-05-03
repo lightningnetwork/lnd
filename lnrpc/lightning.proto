@@ -1545,6 +1545,13 @@ message Channel {
 
     // This is the peer SCID alias.
     uint64 peer_scid_alias = 35 [jstype = JS_STRING];
+
+    /*
+    An optional note-to-self to go along with the channel containing some
+    useful information. This is only ever stored locally and in no way impacts
+    the channel's operation.
+    */
+    string memo = 36;
 }
 
 message ListChannelsRequest {
@@ -2274,6 +2281,13 @@ message OpenChannelRequest {
     be zero and is ignored.
     */
     bool fund_max = 26;
+
+    /*
+    An optional note-to-self to go along with the channel containing some
+    useful information. This is only ever stored locally and in no way impacts
+    the channel's operation.
+    */
+    string memo = 27;
 }
 message OpenStatusUpdate {
     oneof update {

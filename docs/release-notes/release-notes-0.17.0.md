@@ -40,6 +40,11 @@ package](https://github.com/lightningnetwork/lnd/pull/7356)
   and `--protocol.custom-invoice` flags to set feature bits for various feature
   "sets", as defined in [BOLT 9](https://github.com/lightning/bolts/blob/master/09-features.md).
 
+* `OpenChannel` now accepts an [optional `memo`
+  argument](https://github.com/lightningnetwork/lnd/pull/7668) for specifying
+  a helpful note-to-self containing arbitrary useful information about the
+  channel.
+
 ## Misc
 
 * [Generate default macaroons

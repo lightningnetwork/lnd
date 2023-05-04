@@ -732,7 +732,14 @@ func (hn *HarnessNode) Stop() error {
 		// manually.
 		hn.printErrf("found nil RPC clients")
 		if err := hn.Kill(); err != nil {
-			return fmt.Errorf("killing process got: %v", err)
+			// Skip the error if the process is already dead.
+			if !strings.Contains(
+				err.Error(), "process already finished",
+			) {
+
+				return fmt.Errorf("killing process got: %w",
+					err)
+			}
 		}
 	}
 

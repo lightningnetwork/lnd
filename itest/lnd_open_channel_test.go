@@ -2,6 +2,7 @@ package itest
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcjson"
@@ -373,15 +374,31 @@ func runBasicChannelCreationAndUpdates(ht *lntest.HarnessTest,
 	aliceChanSub := alice.RPC.SubscribeChannelEvents()
 
 	// Open the channels between Alice and Bob, asserting that the channels
-	// have been properly opened on-chain.
+	// have been properly opened on-chain. We also attach the optional Memo
+	// argument to one of the channels so we can test that it can be
+	// retrieved correctly when querying the created channel.
 	chanPoints := make([]*lnrpc.ChannelPoint, numChannels)
+	openChannelParams := []lntest.OpenChannelParams{
+		{Amt: amount, Memo: "bob is a good peer"},
+		{Amt: amount},
+	}
 	for i := 0; i < numChannels; i++ {
 		chanPoints[i] = ht.OpenChannel(
-			alice, bob, lntest.OpenChannelParams{
-				Amt: amount,
-			},
+			alice, bob, openChannelParams[i],
 		)
 	}
+
+	// Alice should see the memo when retrieving the first channel.
+	channel := ht.QueryChannelByChanPoint(alice, chanPoints[0])
+	require.Equal(ht, "bob is a good peer", channel.Memo)
+
+	// Bob shouldn't see the memo since it's for Alice only.
+	channel = ht.QueryChannelByChanPoint(bob, chanPoints[0])
+	require.Empty(ht, channel.Memo, "Memo is not empty")
+
+	// The second channel doesn't have a memo.
+	channel = ht.QueryChannelByChanPoint(alice, chanPoints[1])
+	require.Empty(ht, channel.Memo, "Memo is not empty")
 
 	// Since each of the channels just became open, Bob and Alice should
 	// each receive an open and an active notification for each channel.
@@ -444,6 +461,16 @@ func runBasicChannelCreationAndUpdates(ht *lntest.HarnessTest,
 			ht.CloseChannel(alice, chanPoint)
 		}
 	}
+
+	// If Bob now tries to open a channel with an invalid memo, reject it.
+	invalidMemo := strings.Repeat("a", 501)
+	params := lntest.OpenChannelParams{
+		Amt:  funding.MaxBtcFundingAmount,
+		Memo: invalidMemo,
+	}
+	expErr := fmt.Errorf("provided memo (%s) is of length 501, exceeds 500",
+		invalidMemo)
+	ht.OpenChannelAssertErr(bob, alice, params, expErr)
 
 	// verifyCloseUpdatesReceived is used to verify that Alice and Bob
 	// receive the correct channel updates in order.

@@ -311,11 +311,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testRevokedCloseRetributionRemoteHodl,
 	},
 	{
-		Name: "revoked uncooperative close retribution altruist " +
-			"watchtower",
-		TestFunc: testRevokedCloseRetributionAltruistWatchtower,
-	},
-	{
 		Name:     "single-hop send to route",
 		TestFunc: testSingleHopSendToRoute,
 	},
@@ -518,6 +513,14 @@ var allTestCases = []*lntest.TestCase{
 	{
 		Name:     "watchtower session management",
 		TestFunc: testWatchtowerSessionManagement,
+	},
+	{
+		// NOTE: this test must be put in the same tranche as
+		// `testWatchtowerSessionManagement` to avoid parallel use of
+		// the default watchtower port.
+		Name: "revoked uncooperative close retribution altruist " +
+			"watchtower",
+		TestFunc: testRevokedCloseRetributionAltruistWatchtower,
 	},
 	{
 		Name:     "channel fundmax",

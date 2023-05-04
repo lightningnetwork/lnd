@@ -13,6 +13,11 @@
   the entire retribution struct. This reduces the amount of data that needs to 
   be held in memory. 
 
+## RPC
+
+* [SendOutputs](https://github.com/lightningnetwork/lnd/pull/7631) now adheres
+  to the anchor channel reserve requirement.
+
 ## Misc
 
 * [Generate default macaroons
@@ -23,4 +28,5 @@ unlock or create.
 
 * Daniel McNally
 * Elle Mouton
+* hieblmi
 * Jordi Montes

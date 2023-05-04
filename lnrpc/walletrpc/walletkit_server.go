@@ -222,10 +222,6 @@ var (
 	}
 )
 
-// ErrZeroLabel is returned when an attempt is made to label a transaction with
-// an empty label.
-var ErrZeroLabel = errors.New("cannot label transaction with empty label")
-
 // ServerShell is a shell struct holding a reference to the actual sub-server.
 // It is used to register the gRPC sub-server with the root server before we
 // have the necessary dependencies to populate the actual sub-server.
@@ -394,8 +390,8 @@ func (w *WalletKit) ListUnspent(ctx context.Context,
 	// Force min_confs and max_confs to be zero if unconfirmed_only is
 	// true.
 	if req.UnconfirmedOnly && (req.MinConfs != 0 || req.MaxConfs != 0) {
-		return nil, fmt.Errorf("min_confs and max_confs must be zero if " +
-			"unconfirmed_only is true")
+		return nil, fmt.Errorf("min_confs and max_confs must be zero " +
+			"if unconfirmed_only is true")
 	}
 
 	// When unconfirmed_only is inactive and max_confs is zero (default
@@ -666,19 +662,45 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 	// Before we can request this transaction to be created, we'll need to
 	// amp the protos back into the format that the internal wallet will
 	// recognize.
+	var totalOutputValue int64
 	outputsToCreate := make([]*wire.TxOut, 0, len(req.Outputs))
 	for _, output := range req.Outputs {
 		outputsToCreate = append(outputsToCreate, &wire.TxOut{
 			Value:    output.Value,
 			PkScript: output.PkScript,
 		})
+		totalOutputValue += output.Value
 	}
 
 	// Then, we'll extract the minimum number of confirmations that each
 	// output we use to fund the transaction should satisfy.
-	minConfs, err := lnrpc.ExtractMinConfs(req.MinConfs, req.SpendUnconfirmed)
+	minConfs, err := lnrpc.ExtractMinConfs(
+		req.MinConfs, req.SpendUnconfirmed,
+	)
 	if err != nil {
 		return nil, err
+	}
+
+	// Before sending out funds we need to ensure that the remainder of our
+	// wallet funds would cover for the anchor reserve requirement. We'll
+	// also take unconfirmed funds into account.
+	walletBalance, err := w.cfg.Wallet.ConfirmedBalance(
+		0, lnwallet.DefaultAccountName,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// We'll get the currently required reserve amount.
+	reserve, err := w.RequiredReserve(ctx, &RequiredReserveRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	// Then we check if our current wallet balance undershoots the required
+	// reserve if we'd send out the outputs specified in the request.
+	if int64(walletBalance)-totalOutputValue < reserve.RequiredReserve {
+		return nil, ErrInsufficientReserve
 	}
 
 	label, err := labels.ValidateAPI(req.Label)
@@ -686,10 +708,12 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 		return nil, err
 	}
 
-	// Now that we have the outputs mapped, we can request that the wallet
-	// attempt to create this transaction.
+	// Now that we have the outputs mapped and checked for the reserve
+	// requirement, we can request that the wallet attempts to create this
+	// transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
-		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), minConfs, label,
+		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), minConfs,
+		label,
 	)
 	if err != nil {
 		return nil, err
@@ -923,7 +947,10 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 			err)
 	}
 
-	inp := input.NewBaseInput(op, witnessType, signDesc, uint32(currentHeight))
+	inp := input.NewBaseInput(
+		op, witnessType, signDesc, uint32(currentHeight),
+	)
+
 	sweepParams := sweep.Params{Fee: feePreference}
 	if _, err = w.cfg.Sweeper.SweepInput(inp, sweepParams); err != nil {
 		return nil, err
@@ -1524,7 +1551,8 @@ func (w *WalletKit) ListAccounts(ctx context.Context,
 		keyScopeFilter = &keyScope
 
 	default:
-		return nil, fmt.Errorf("unhandled address type %v", req.AddressType)
+		return nil, fmt.Errorf("unhandled address type %v",
+			req.AddressType)
 	}
 
 	accounts, err := w.cfg.Wallet.ListAccounts(req.Name, keyScopeFilter)
@@ -1638,7 +1666,8 @@ func parseAddrType(addrType AddressType,
 	switch addrType {
 	case AddressType_UNKNOWN:
 		if required {
-			return nil, errors.New("an address type must be specified")
+			return nil, fmt.Errorf("an address type must be " +
+				"specified")
 		}
 		return nil, nil
 

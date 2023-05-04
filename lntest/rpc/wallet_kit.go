@@ -290,3 +290,18 @@ func (h *HarnessRPC) ImportTapscript(
 
 	return resp
 }
+
+// RequiredReserve makes a RPC call to the node's WalletKitClient and asserts.
+//
+//nolint:lll
+func (h *HarnessRPC) RequiredReserve(
+	req *walletrpc.RequiredReserveRequest) *walletrpc.RequiredReserveResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.RequiredReserve(ctxt, req)
+	h.NoError(err, "RequiredReserve")
+
+	return resp
+}

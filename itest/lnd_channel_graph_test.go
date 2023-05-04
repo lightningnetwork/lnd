@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
@@ -491,10 +492,29 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 		)
 	}
 
-	// This feature bit is used to test that our endpoint sets/unsets
-	// feature bits properly. If the current FeatureBit is set by default
-	// update this one for another one unset by default at random.
-	featureBit := lnrpc.FeatureBit_WUMBO_CHANNELS_REQ
+	// Test that we can't modify a feature bit that is known to LND.
+	reservedFeatureBit := lnrpc.FeatureBit_WUMBO_CHANNELS_REQ
+	_, known := lnwire.Features[lnwire.FeatureBit(reservedFeatureBit)]
+	require.True(ht, known, "feature bit should be known to lnd")
+
+	nodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
+		FeatureUpdates: []*peersrpc.UpdateFeatureAction{
+			{
+				Action:     peersrpc.UpdateAction_ADD,
+				FeatureBit: reservedFeatureBit,
+			},
+		},
+	}
+
+	// Node announcement should fail because we're not allowed to alter
+	// "known" feature bits.
+	dave.RPC.UpdateNodeAnnouncementErr(nodeAnnReq)
+
+	// We also set an unknown feature bit (which we should be able to
+	// set/unset) and test that we can update it accordingly.
+	featureBit := lnrpc.FeatureBit(999)
+	_, known = lnwire.Features[lnwire.FeatureBit(featureBit)]
+	require.False(ht, known, "feature bit should be unknown to lnd")
 	featureIdx := uint32(featureBit)
 	_, ok := resp.Features[featureIdx]
 	require.False(ht, ok, "unexpected feature bit enabled by default")
@@ -566,7 +586,7 @@ func testUpdateNodeAnnouncement(ht *lntest.HarnessTest) {
 		},
 	}
 
-	nodeAnnReq := &peersrpc.NodeAnnouncementUpdateRequest{
+	nodeAnnReq = &peersrpc.NodeAnnouncementUpdateRequest{
 		Alias:          newAlias,
 		Color:          newColor,
 		AddressUpdates: updateAddressActions,

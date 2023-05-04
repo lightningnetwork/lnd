@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"math"
 	"reflect"
 	"sort"
 	"testing"
@@ -395,4 +396,135 @@ func TestIsEmptyFeatureVector(t *testing.T) {
 
 	fv.Unset(StaticRemoteKeyOptional)
 	require.True(t, fv.IsEmpty())
+}
+
+// TestValidatePairs tests that feature vectors can only set the required or
+// optional feature bit in a pair, not both.
+func TestValidatePairs(t *testing.T) {
+	t.Parallel()
+
+	rfv := NewRawFeatureVector(
+		StaticRemoteKeyOptional,
+		StaticRemoteKeyRequired,
+	)
+	require.Equal(t, ErrFeaturePairExists, rfv.ValidatePairs())
+
+	rfv = NewRawFeatureVector(
+		StaticRemoteKeyOptional,
+		PaymentAddrRequired,
+	)
+	require.Nil(t, rfv.ValidatePairs())
+}
+
+// TestValidateUpdate tests validation of an update to a feature vector.
+func TestValidateUpdate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name            string
+		currentFeatures []FeatureBit
+		newFeatures     []FeatureBit
+		maximumValue    FeatureBit
+		err             error
+	}{
+		{
+			name: "defined feature bit set, can include",
+			currentFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+			},
+			newFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+			},
+			err: nil,
+		},
+		{
+			name: "defined feature bit not already set",
+			currentFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+			},
+			newFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+				PaymentAddrRequired,
+			},
+			err: ErrFeatureStandard,
+		},
+		{
+			name: "known feature missing",
+			currentFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+				PaymentAddrRequired,
+			},
+			newFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+			},
+			err: ErrFeatureStandard,
+		},
+		{
+			name: "can set unknown feature",
+			currentFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+			},
+			newFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+				FeatureBit(1001),
+			},
+			err: nil,
+		},
+		{
+			name: "can unset unknown feature",
+			currentFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+				FeatureBit(1001),
+			},
+			newFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+			},
+			err: nil,
+		},
+		{
+			name: "at allowed maximum",
+			currentFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+			},
+			newFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+				100,
+			},
+			maximumValue: 100,
+			err:          nil,
+		},
+		{
+			name: "above allowed maximum",
+			currentFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+			},
+			newFeatures: []FeatureBit{
+				StaticRemoteKeyOptional,
+				101,
+			},
+			maximumValue: 100,
+			err:          ErrFeatureBitMaximum,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			currentFV := NewRawFeatureVector(
+				testCase.currentFeatures...,
+			)
+			newFV := NewRawFeatureVector(testCase.newFeatures...)
+
+			// Set maximum value if not populated in the test case.
+			maximumValue := testCase.maximumValue
+			if testCase.maximumValue == 0 {
+				maximumValue = math.MaxUint16
+			}
+
+			err := currentFV.ValidateUpdate(newFV, maximumValue)
+			require.ErrorIs(t, err, testCase.err)
+		})
+	}
 }

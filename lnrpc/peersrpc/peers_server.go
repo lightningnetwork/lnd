@@ -313,26 +313,23 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 	resp := &NodeAnnouncementUpdateResponse{}
 	nodeModifiers := make([]netann.NodeAnnModifier, 0)
 
-	currentNodeAnn, err := s.cfg.GetNodeAnnouncement()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get current node "+
-			"announcement: %v", err)
-	}
+	currentNodeAnn := s.cfg.GetNodeAnnouncement()
 
-	if len(req.FeatureUpdates) > 0 {
-		features, ops, err := s.updateFeatures(
-			currentNodeAnn.Features,
-			req.FeatureUpdates,
+	nodeAnnFeatures := currentNodeAnn.Features
+	featureUpdates := len(req.FeatureUpdates) > 0
+	if featureUpdates {
+		var (
+			ops *lnrpc.Op
+			err error
+		)
+		nodeAnnFeatures, ops, err = s.updateFeatures(
+			nodeAnnFeatures, req.FeatureUpdates,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error trying to update node "+
 				"features: %w", err)
 		}
 		resp.Ops = append(resp.Ops, ops)
-		nodeModifiers = append(
-			nodeModifiers,
-			netann.NodeAnnSetFeatures(features),
-		)
 	}
 
 	if req.Color != "" {
@@ -390,12 +387,14 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 		)
 	}
 
-	if len(nodeModifiers) == 0 {
-		return nil, fmt.Errorf("unable detect any new values to " +
+	if len(nodeModifiers) == 0 && !featureUpdates {
+		return nil, fmt.Errorf("unable to detect any new values to " +
 			"update the node announcement")
 	}
 
-	if err := s.cfg.UpdateNodeAnnouncement(nodeModifiers...); err != nil {
+	if err := s.cfg.UpdateNodeAnnouncement(
+		nodeAnnFeatures, nodeModifiers...,
+	); err != nil {
 		return nil, err
 	}
 

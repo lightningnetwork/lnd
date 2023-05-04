@@ -531,4 +531,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "htlc timeout resolver extract preimage local",
 		TestFunc: testHtlcTimeoutResolverExtractPreimageLocal,
 	},
+	{
+		Name:     "custom features",
+		TestFunc: testCustomFeatures,
+	},
 }

@@ -3,6 +3,7 @@ package lnwire
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -10,6 +11,15 @@ var (
 	// ErrFeaturePairExists signals an error in feature vector construction
 	// where the opposing bit in a feature pair has already been set.
 	ErrFeaturePairExists = errors.New("feature pair exists")
+
+	// ErrFeatureStandard is returned when attempts to modify LND's known
+	// set of features are made.
+	ErrFeatureStandard = errors.New("feature is used in standard " +
+		"protocol set")
+
+	// ErrFeatureBitMaximum is returned when a feature bit exceeds the
+	// maximum allowable value.
+	ErrFeatureBitMaximum = errors.New("feature bit exceeds allowed maximum")
 )
 
 // FeatureBit represents a feature that can be enabled in either a local or
@@ -221,17 +231,18 @@ const (
 	// TODO: Decide on actual feature bit value.
 	ScriptEnforcedLeaseOptional FeatureBit = 2023
 
-	// maxAllowedSize is a maximum allowed size of feature vector.
+	// MaxBolt11Feature is the maximum feature bit value allowed in bolt 11
+	// invoices.
 	//
-	// NOTE: Within the protocol, the maximum allowed message size is 65535
-	// bytes for all messages. Accounting for the overhead within the feature
-	// message to signal the type of message, that leaves us with 65533 bytes
-	// for the init message itself.  Next, we reserve 4 bytes to encode the
-	// lengths of both the local and global feature vectors, so 65529 bytes
-	// for the local and global features. Knocking off one byte for the sake
-	// of the calculation, that leads us to 32764 bytes for each feature
-	// vector, or 131056 different features.
-	maxAllowedSize = 32764
+	// The base 32 encoded tagged fields in invoices are limited to 10 bits
+	// to express the length of the field's data.
+	//nolint:lll
+	// See: https://github.com/lightning/bolts/blob/master/11-payment-encoding.md#tagged-fields
+	//
+	// With a maximum length field of 1023 (2^10 -1) and 5 bit encoding,
+	// the highest feature bit that can be expressed is:
+	// 1023 * 5 - 1 = 5114.
+	MaxBolt11Feature = 5114
 )
 
 // IsRequired returns true if the feature bit is even, and false otherwise.
@@ -341,6 +352,67 @@ func (fv *RawFeatureVector) Merge(other *RawFeatureVector) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// ValidateUpdate checks whether a feature vector can safely be updated to the
+// new feature vector provided, checking that it does not alter any of the
+// "standard" features that are defined by LND. The new feature vector should
+// be inclusive of all features in the original vector that it still wants to
+// advertise, setting and unsetting updates as desired. Features in the vector
+// are also checked against a maximum inclusive value, as feature vectors in
+// different contexts have different maximum values.
+func (fv *RawFeatureVector) ValidateUpdate(other *RawFeatureVector,
+	maximumValue FeatureBit) error {
+
+	// Run through the new set of features and check that we're not adding
+	// any feature bits that are defined but not set in LND.
+	for feature := range other.features {
+		if fv.IsSet(feature) {
+			continue
+		}
+
+		if feature > maximumValue {
+			return fmt.Errorf("can't set feature bit %d: %w %v",
+				feature, ErrFeatureBitMaximum,
+				maximumValue)
+		}
+
+		if name, known := Features[feature]; known {
+			return fmt.Errorf("can't set feature "+
+				"bit %d (%v): %w", feature, name,
+				ErrFeatureStandard)
+		}
+	}
+
+	// Check that the new feature vector for this set does not unset any
+	// features that are standard in LND by comparing the features in our
+	// current set to the omitted values in the new set.
+	for feature := range fv.features {
+		if other.IsSet(feature) {
+			continue
+		}
+
+		if name, known := Features[feature]; known {
+			return fmt.Errorf("can't unset feature "+
+				"bit %d (%v): %w", feature, name,
+				ErrFeatureStandard)
+		}
+	}
+
+	return nil
+}
+
+// ValidatePairs checks each feature bit in a raw vector to ensure that the
+// opposing bit is not set, validating that the vector has either the optional
+// or required bit set, not both.
+func (fv *RawFeatureVector) ValidatePairs() error {
+	for feature := range fv.features {
+		if _, ok := fv.features[feature^1]; ok {
+			return ErrFeaturePairExists
+		}
+	}
+
 	return nil
 }
 

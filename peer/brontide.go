@@ -263,8 +263,8 @@ type Config struct {
 
 	// GenNodeAnnouncement is used to send our node announcement to the remote
 	// on startup.
-	GenNodeAnnouncement func(bool,
-		...netann.NodeAnnModifier) (lnwire.NodeAnnouncement, error)
+	GenNodeAnnouncement func(...netann.NodeAnnModifier) (
+		lnwire.NodeAnnouncement, error)
 
 	// PrunePersistentPeerConnection is used to remove all internal state
 	// related to this peer in the server.
@@ -1036,7 +1036,7 @@ func (p *Brontide) maybeSendNodeAnn(channels []*channeldb.OpenChannel) {
 		return
 	}
 
-	ourNodeAnn, err := p.cfg.GenNodeAnnouncement(false)
+	ourNodeAnn, err := p.cfg.GenNodeAnnouncement()
 	if err != nil {
 		p.log.Debugf("Unable to retrieve node announcement: %v", err)
 		return

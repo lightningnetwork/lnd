@@ -60,18 +60,11 @@ func NodeAnnSetTimestamp(nodeAnn *lnwire.NodeAnnouncement) {
 	nodeAnn.Timestamp = newTimestamp
 }
 
-// SignNodeAnnouncement applies the given modifies to the passed
-// lnwire.NodeAnnouncement, then signs the resulting announcement. The provided
-// update should be the most recent, valid update, otherwise the timestamp may
-// not monotonically increase from the prior.
+// SignNodeAnnouncement signs the lnwire.NodeAnnouncement provided, which
+// should be the most recent, valid update, otherwise the timestamp may not
+// monotonically increase from the prior.
 func SignNodeAnnouncement(signer lnwallet.MessageSigner,
-	keyLoc keychain.KeyLocator, nodeAnn *lnwire.NodeAnnouncement,
-	mods ...NodeAnnModifier) error {
-
-	// Apply the requested changes to the node announcement.
-	for _, modifier := range mods {
-		modifier(nodeAnn)
-	}
+	keyLoc keychain.KeyLocator, nodeAnn *lnwire.NodeAnnouncement) error {
 
 	// Create the DER-encoded ECDSA signature over the message digest.
 	sig, err := SignAnnouncement(signer, keyLoc, nodeAnn)

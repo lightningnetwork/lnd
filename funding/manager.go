@@ -373,7 +373,8 @@ type Config struct {
 		msg []byte, doubleHash bool) (*ecdsa.Signature, error)
 
 	// CurrentNodeAnnouncement should return the latest, fully signed node
-	// announcement from the backing Lightning Network node.
+	// announcement from the backing Lightning Network node with a fresh
+	// timestamp.
 	CurrentNodeAnnouncement func() (lnwire.NodeAnnouncement, error)
 
 	// SendAnnouncement is used by the FundingManager to send announcement

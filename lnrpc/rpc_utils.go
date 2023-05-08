@@ -22,23 +22,19 @@ var (
 	// options for marshaling protobuf messages into JSON in a
 	// human-readable way. This should only be used in the CLI and in
 	// integration tests.
-	//
-	// TODO(guggero): Use custom fork of this library to support hex
-	// encoding byte slices instead of the default base64 encoding.
 	ProtoJSONMarshalOpts = &protojson.MarshalOptions{
 		EmitUnpopulated: true,
 		UseProtoNames:   true,
 		Indent:          "    ",
+		UseHexForBytes:  true,
 	}
 
 	// ProtoJSONUnmarshalOpts is a struct that holds the default unmarshal
 	// options for un-marshaling lncli JSON into protobuf messages. This
 	// should only be used in the CLI and in integration tests.
-	//
-	// TODO(guggero): Use custom fork of this library to support hex
-	// encoding byte slices instead of the default base64 encoding.
 	ProtoJSONUnmarshalOpts = &protojson.UnmarshalOptions{
-		AllowPartial: false,
+		AllowPartial:   false,
+		UseHexForBytes: true,
 	}
 
 	// RESTJsonMarshalOpts is a struct that holds the default marshal

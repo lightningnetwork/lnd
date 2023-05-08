@@ -490,6 +490,7 @@ func (b *Batcher) cleanup(ctx context.Context) {
 		rpcOP := &lnrpc.OutPoint{
 			OutputIndex: lockedUTXO.Outpoint.OutputIndex,
 			TxidBytes:   lockedUTXO.Outpoint.TxidBytes,
+			TxidStr:     lockedUTXO.Outpoint.TxidStr,
 		}
 		_, err := b.cfg.WalletKitServer.ReleaseOutput(
 			ctx, &walletrpc.ReleaseOutputRequest{

@@ -265,11 +265,7 @@ func (r *Manager) getHtlcAmtLimits(tx kvdb.RTx, chanPoint wire.OutPoint) (
 func makeFailureItem(outPoint wire.OutPoint, updateFailure lnrpc.UpdateFailure,
 	errStr string) *lnrpc.FailedUpdate {
 
-	outpoint := &lnrpc.OutPoint{
-		TxidBytes:   outPoint.Hash[:],
-		TxidStr:     outPoint.Hash.String(),
-		OutputIndex: outPoint.Index,
-	}
+	outpoint := lnrpc.MarshalOutPoint(&outPoint)
 
 	return &lnrpc.FailedUpdate{
 		Outpoint:    outpoint,

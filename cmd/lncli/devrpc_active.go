@@ -4,11 +4,9 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"io/ioutil"
+	"os"
 
-	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/devrpc"
@@ -43,14 +41,14 @@ func importGraph(ctx *cli.Context) error {
 	defer cleanUp()
 
 	jsonFile := lncfg.CleanAndExpandPath(ctx.Args().First())
-	jsonBytes, err := ioutil.ReadFile(jsonFile)
+	jsonBytes, err := os.ReadFile(jsonFile)
 	if err != nil {
 		return fmt.Errorf("error reading JSON from file %v: %v",
 			jsonFile, err)
 	}
 
 	jsonGraph := &lnrpc.ChannelGraph{}
-	err = jsonpb.Unmarshal(bytes.NewReader(jsonBytes), jsonGraph)
+	err = lnrpc.ProtoJSONUnmarshalOpts.Unmarshal(jsonBytes, jsonGraph)
 	if err != nil {
 		return fmt.Errorf("error parsing JSON: %v", err)
 	}

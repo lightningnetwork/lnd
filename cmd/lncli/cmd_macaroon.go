@@ -10,11 +10,11 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/golang/protobuf/proto"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/urfave/cli"
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon.v2"
 )
@@ -385,7 +385,7 @@ func printMacaroon(ctx *cli.Context) error {
 		return fmt.Errorf("unable to decode macaroon version: %v", err)
 	}
 
-	// Prepare everything to be printed in a more human readable format.
+	// Prepare everything to be printed in a more human-readable format.
 	content := &macaroonContent{
 		Version:     uint16(mac.Version()),
 		Location:    mac.Location(),

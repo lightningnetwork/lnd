@@ -35,7 +35,10 @@ const (
 
 var (
 	// privateKeyPrefix is the prefix to a plaintext TLS key.
-	privateKeyPrefix = []byte("-----BEGIN EC PRIVATE KEY-----")
+	// It should match these two key formats:
+	// - `-----BEGIN PRIVATE KEY-----`    (PKCS8).
+	// - `-----BEGIN EC PRIVATE KEY-----` (SEC1/rfc5915, the legacy format).
+	privateKeyPrefix = []byte("-----BEGIN ")
 
 	// letsEncryptTimeout sets a timeout for the Lets Encrypt server.
 	letsEncryptTimeout = 5 * time.Second

@@ -33,11 +33,14 @@
 independently](https://github.com/lightningnetwork/lnd/pull/7592) on wallet
 unlock or create.
 
+* [Restore support](https://github.com/lightningnetwork/lnd/pull/7678) for
+  `PKCS8`-encoded cert private keys.
 
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen
 * Daniel McNally
 * Elle Mouton
+* Erik Arvstedt
 * hieblmi
 * Jordi Montes

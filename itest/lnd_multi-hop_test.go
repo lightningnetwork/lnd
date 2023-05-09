@@ -1936,6 +1936,11 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	// notice the force close from Carol.
 	require.NoError(ht, restartBob())
 
+	// For anchor channels, Bob should sweep his anchor output.
+	if lntest.CommitTypeHasAnchors(c) {
+		ht.Miner.AssertNumTxsInMempool(1)
+	}
+
 	// Get the current height to compute number of blocks to mine to
 	// trigger the htlc timeout resolver from Bob.
 	_, height := ht.Miner.GetBestBlock()

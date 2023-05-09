@@ -17,6 +17,9 @@
 
 * [Ensure that both the byte and string form of a TXID is populated in the 
   lnrpc.Outpoint message](https://github.com/lightningnetwork/lnd/pull/7624). 
+  
+* [Fix Benchmark Test (BenchmarkReadMessage/Channel_Ready) in the lnwire 
+package](https://github.com/lightningnetwork/lnd/pull/7356)
 
 ## RPC
 
@@ -49,3 +52,4 @@ unlock or create.
 * Erik Arvstedt
 * hieblmi
 * Jordi Montes
+* ziggie1984

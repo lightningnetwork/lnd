@@ -23,6 +23,10 @@ type WtClient struct {
 	// before sending the DeleteSession message to the tower server.
 	SessionCloseRange uint32 `long:"session-close-range" description:"The range over which to choose a random number of blocks to wait after the last channel of a session is closed before sending the DeleteSession message to the tower server. Set to 1 for no delay."`
 
+	// MaxTasksInMemQueue is the maximum number of back-up tasks that should
+	// be queued in memory before overflowing to disk.
+	MaxTasksInMemQueue uint64 `long:"max-tasks-in-mem-queue" description:"The maximum number of updates that should be queued in memory before overflowing to disk."`
+
 	// MaxUpdates is the maximum number of updates to be backed up in a
 	// single tower sessions.
 	MaxUpdates uint16 `long:"max-updates" description:"The maximum number of updates to be backed up in a single session."`

@@ -1779,31 +1779,15 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 		)
 	}
 
-	var (
-		cancel       context.CancelFunc
-		acceptStream rpc.AcceptorClient
-	)
-	// If a zero-conf channel is being opened, the nodes are signalling the
-	// zero-conf feature bit. Setup a ChannelAcceptor for the fundee.
-	if zeroConf {
-		acceptStream, cancel = bob.RPC.ChannelAcceptor()
-		go acceptChannel(ht.T, true, acceptStream)
-	}
-
+	// Prepare params for Alice.
 	aliceParams := lntest.OpenChannelParams{
 		Amt:            chanAmt,
 		CommitmentType: c,
 		FundingShim:    aliceFundingShim,
 		ZeroConf:       zeroConf,
 	}
-	aliceChanPoint := ht.OpenChannel(alice, bob, aliceParams)
 
-	// Remove the ChannelAcceptor for Bob.
-	if zeroConf {
-		cancel()
-	}
-
-	// We'll then create a channel from Bob to Carol. After this channel is
+	// We'll create a channel from Bob to Carol. After this channel is
 	// open, our topology looks like:  A -> B -> C.
 	var bobFundingShim *lnrpc.FundingShim
 	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
@@ -1812,24 +1796,44 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 		)
 	}
 
-	// Setup a ChannelAcceptor for Carol if a zero-conf channel open is
-	// being attempted.
-	if zeroConf {
-		acceptStream, cancel = carol.RPC.ChannelAcceptor()
-		go acceptChannel(ht.T, true, acceptStream)
-	}
-
+	// Prepare params for Bob.
 	bobParams := lntest.OpenChannelParams{
 		Amt:            chanAmt,
 		CommitmentType: c,
 		FundingShim:    bobFundingShim,
 		ZeroConf:       zeroConf,
 	}
-	bobChanPoint := ht.OpenChannel(bob, carol, bobParams)
 
-	// Remove the ChannelAcceptor for Carol.
+	var (
+		acceptStreamBob   rpc.AcceptorClient
+		acceptStreamCarol rpc.AcceptorClient
+		cancelBob         context.CancelFunc
+		cancelCarol       context.CancelFunc
+	)
+
+	// If a zero-conf channel is being opened, the nodes are signalling the
+	// zero-conf feature bit. Setup a ChannelAcceptor for the fundee.
 	if zeroConf {
-		cancel()
+		acceptStreamBob, cancelBob = bob.RPC.ChannelAcceptor()
+		go acceptChannel(ht.T, true, acceptStreamBob)
+
+		acceptStreamCarol, cancelCarol = carol.RPC.ChannelAcceptor()
+		go acceptChannel(ht.T, true, acceptStreamCarol)
+	}
+
+	// Open channels in batch to save blocks mined.
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: aliceParams},
+		{Local: bob, Remote: carol, Param: bobParams},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+	aliceChanPoint := resp[0]
+	bobChanPoint := resp[1]
+
+	// Remove the ChannelAcceptor for Bob and Carol.
+	if zeroConf {
+		cancelBob()
+		cancelCarol()
 	}
 
 	// Make sure alice and carol know each other's channels.
@@ -1931,6 +1935,11 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	// Restart Bob. Once he finishes syncing the channel state, he should
 	// notice the force close from Carol.
 	require.NoError(ht, restartBob())
+
+	// For anchor channels, Bob should sweep his anchor output.
+	if lntest.CommitTypeHasAnchors(c) {
+		ht.Miner.AssertNumTxsInMempool(1)
+	}
 
 	// Get the current height to compute number of blocks to mine to
 	// trigger the htlc timeout resolver from Bob.

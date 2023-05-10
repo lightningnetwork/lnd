@@ -1549,6 +1549,13 @@ func (c *ChannelArbitrator) shouldGoOnChain(htlc channeldb.HTLC,
 		return true
 	}
 
+	// If this is a dust HTLC, then we don't want this to factor into our
+	// decision to go to chain as we'll likley end up spending more in
+	// chain costs.
+	if htlc.OutputIndex < 0 {
+		return false
+	}
+
 	// For htlcs that are result of our initiated payments we give some grace
 	// period before force closing the channel. During this time we expect
 	// both nodes to connect and give a chance to the other node to send its
@@ -1592,8 +1599,8 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 	for _, htlc := range htlcs.outgoingHTLCs {
 		// We'll need to go on-chain for an outgoing HTLC if it was
 		// never resolved downstream, and it's "close" to timing out.
-		toChain := c.shouldGoOnChain(htlc, c.cfg.OutgoingBroadcastDelta,
-			height,
+		toChain := c.shouldGoOnChain(
+			htlc, c.cfg.OutgoingBroadcastDelta, height,
 		)
 
 		if toChain {
@@ -1627,8 +1634,8 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 			continue
 		}
 
-		toChain := c.shouldGoOnChain(htlc, c.cfg.IncomingBroadcastDelta,
-			height,
+		toChain := c.shouldGoOnChain(
+			htlc, c.cfg.IncomingBroadcastDelta, height,
 		)
 
 		if toChain {

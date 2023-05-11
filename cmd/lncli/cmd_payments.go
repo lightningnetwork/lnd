@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
-	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -952,7 +951,7 @@ func sendToRoute(ctx *cli.Context) error {
 	// format.
 	var route *lnrpc.Route
 	routes := &lnrpc.QueryRoutesResponse{}
-	err = jsonpb.UnmarshalString(jsonRoutes, routes)
+	err = lnrpc.ProtoJSONUnmarshalOpts.Unmarshal([]byte(jsonRoutes), routes)
 	if err == nil {
 		if len(routes.Routes) == 0 {
 			return fmt.Errorf("no routes provided")
@@ -966,7 +965,9 @@ func sendToRoute(ctx *cli.Context) error {
 		route = routes.Routes[0]
 	} else {
 		routes := &routerrpc.BuildRouteResponse{}
-		err = jsonpb.UnmarshalString(jsonRoutes, routes)
+		err = lnrpc.ProtoJSONUnmarshalOpts.Unmarshal(
+			[]byte(jsonRoutes), routes,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to unmarshal json string "+
 				"from incoming array of routes: %v", err)

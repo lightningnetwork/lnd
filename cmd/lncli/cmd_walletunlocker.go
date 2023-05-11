@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -720,7 +719,7 @@ func createWatchOnly(ctx *cli.Context) error {
 	}
 
 	jsonAccts := &walletrpc.ListAccountsResponse{}
-	err = jsonpb.Unmarshal(bytes.NewReader(jsonBytes), jsonAccts)
+	err = lnrpc.ProtoJSONUnmarshalOpts.Unmarshal(jsonBytes, jsonAccts)
 	if err != nil {
 		return fmt.Errorf("error parsing JSON: %v", err)
 	}

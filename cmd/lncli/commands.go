@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,9 +18,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/protobuf-hex-display/json"
-	"github.com/lightninglabs/protobuf-hex-display/jsonpb"
-	"github.com/lightninglabs/protobuf-hex-display/proto"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -27,6 +25,7 @@ import (
 	"github.com/urfave/cli"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // TODO(roasbeef): cli logic for supporting both positional and unix style
@@ -71,19 +70,13 @@ func printJSON(resp interface{}) {
 }
 
 func printRespJSON(resp proto.Message) {
-	jsonMarshaler := &jsonpb.Marshaler{
-		EmitDefaults: true,
-		OrigName:     true,
-		Indent:       "    ",
-	}
-
-	jsonStr, err := jsonMarshaler.MarshalToString(resp)
+	jsonBytes, err := lnrpc.ProtoJSONMarshalOpts.Marshal(resp)
 	if err != nil {
 		fmt.Println("unable to decode response: ", err)
 		return
 	}
 
-	fmt.Println(jsonStr)
+	fmt.Printf("%s\n", jsonBytes)
 }
 
 // actionDecorator is used to add additional information and error handling

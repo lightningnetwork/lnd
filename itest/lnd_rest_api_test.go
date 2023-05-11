@@ -7,15 +7,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/proto"
 	"github.com/gorilla/websocket"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/autopilotrpc"
@@ -26,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -34,11 +32,6 @@ var (
 	}
 	restClient = &http.Client{
 		Transport: insecureTransport,
-	}
-	jsonMarshaler = &jsonpb.Marshaler{
-		EmitDefaults: true,
-		OrigName:     true,
-		Indent:       "    ",
 	}
 	urlEnc          = base64.URLEncoding
 	webSocketDialer = &websocket.Dialer{
@@ -288,7 +281,9 @@ func wsTestCaseSubscription(ht *lntest.HarnessTest) {
 		// Make sure we can parse the unwrapped message into the
 		// expected proto message.
 		protoMsg := &chainrpc.BlockEpoch{}
-		err = jsonpb.UnmarshalString(msgStr, protoMsg)
+		err = lnrpc.RESTJsonUnmarshalOpts.Unmarshal(
+			[]byte(msgStr), protoMsg,
+		)
 		if err != nil {
 			errChan <- err
 			return
@@ -378,7 +373,9 @@ func wsTestCaseSubscriptionMacaroon(ht *lntest.HarnessTest) {
 		// Make sure we can parse the unwrapped message into the
 		// expected proto message.
 		protoMsg := &chainrpc.BlockEpoch{}
-		err = jsonpb.UnmarshalString(msgStr, protoMsg)
+		err = lnrpc.RESTJsonUnmarshalOpts.Unmarshal(
+			[]byte(msgStr), protoMsg,
+		)
 		if err != nil {
 			errChan <- err
 			return
@@ -474,7 +471,9 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 			// Make sure we can parse the unwrapped message into the
 			// expected proto message.
 			protoMsg := &lnrpc.ChannelAcceptRequest{}
-			err = jsonpb.UnmarshalString(msgStr, protoMsg)
+			err = lnrpc.RESTJsonUnmarshalOpts.Unmarshal(
+				[]byte(msgStr), protoMsg,
+			)
 			if err != nil {
 				select {
 				case errChan <- err:
@@ -488,7 +487,8 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 				Accept:        true,
 				PendingChanId: protoMsg.PendingChanId,
 			}
-			resMsg, err := jsonMarshaler.MarshalToString(res)
+
+			resMsg, err := lnrpc.RESTJsonMarshalOpts.Marshal(res)
 			if err != nil {
 				select {
 				case errChan <- err:
@@ -496,9 +496,7 @@ func wsTestCaseBiDirectionalSubscription(ht *lntest.HarnessTest) {
 				}
 				return
 			}
-			err = conn.WriteMessage(
-				websocket.TextMessage, []byte(resMsg),
-			)
+			err = conn.WriteMessage(websocket.TextMessage, resMsg)
 			if err != nil {
 				select {
 				case errChan <- err:
@@ -613,7 +611,9 @@ func wsTestPingPongTimeout(ht *lntest.HarnessTest) {
 			// Make sure we can parse the unwrapped message into the
 			// expected proto message.
 			protoMsg := &lnrpc.Invoice{}
-			err = jsonpb.UnmarshalString(msgStr, protoMsg)
+			err = lnrpc.RESTJsonUnmarshalOpts.Unmarshal(
+				[]byte(msgStr), protoMsg,
+			)
 			if err != nil {
 				select {
 				case errChan <- err:
@@ -684,7 +684,7 @@ func invokeGET(node *node.HarnessNode, url string, resp proto.Message) error {
 		return err
 	}
 
-	return jsonpb.Unmarshal(bytes.NewReader(rawResp), resp)
+	return lnrpc.RESTJsonUnmarshalOpts.Unmarshal(rawResp, resp)
 }
 
 // invokePOST calls the given URL with the POST method, request body and
@@ -693,19 +693,21 @@ func invokeGET(node *node.HarnessNode, url string, resp proto.Message) error {
 func invokePOST(node *node.HarnessNode, url string, req,
 	resp proto.Message) error {
 
-	// Marshal the request to JSON using the jsonpb marshaler to get correct
+	// Marshal the request to JSON using the REST marshaler to get correct
 	// field names.
-	var buf bytes.Buffer
-	if err := jsonMarshaler.Marshal(&buf, req); err != nil {
-		return err
-	}
-
-	_, rawResp, err := makeRequest(node, url, "POST", &buf, nil)
+	reqBytes, err := lnrpc.RESTJsonMarshalOpts.Marshal(req)
 	if err != nil {
 		return err
 	}
 
-	return jsonpb.Unmarshal(bytes.NewReader(rawResp), resp)
+	_, rawResp, err := makeRequest(
+		node, url, "POST", bytes.NewReader(reqBytes), nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	return lnrpc.RESTJsonUnmarshalOpts.Unmarshal(rawResp, resp)
 }
 
 // makeRequest calls the given URL with the given method, request body and
@@ -737,7 +739,7 @@ func makeRequest(node *node.HarnessNode, url, method string,
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	data, err := ioutil.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	return resp.Header, data, err
 }
 
@@ -766,11 +768,11 @@ func openWebSocket(node *node.HarnessNode, url, method string,
 	defer func() { _ = resp.Body.Close() }()
 
 	// Send the given request message as the first message on the socket.
-	reqMsg, err := jsonMarshaler.MarshalToString(req)
+	reqMsg, err := lnrpc.RESTJsonMarshalOpts.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
-	err = conn.WriteMessage(websocket.TextMessage, []byte(reqMsg))
+	err = conn.WriteMessage(websocket.TextMessage, reqMsg)
 	if err != nil {
 		return nil, err
 	}

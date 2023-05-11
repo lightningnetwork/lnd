@@ -44,6 +44,13 @@ unlock or create.
 * [Restore support](https://github.com/lightningnetwork/lnd/pull/7678) for
   `PKCS8`-encoded cert private keys.
 
+## Code Health
+
+* Updated [our fork for serializing protobuf as JSON to be based on the
+  latest version of `google.golang.org/protobuf` instead of the deprecated
+  `github.com/golang/protobuf/jsonpb`
+  module](https://github.com/lightningnetwork/lnd/pull/7659).
+
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen
@@ -52,4 +59,5 @@ unlock or create.
 * Erik Arvstedt
 * hieblmi
 * Jordi Montes
+* Oliver Gugger
 * ziggie1984

@@ -98,6 +98,13 @@ linters-settings:
       - 'math.*'
       - 'strconv.ParseInt'
       - 'errors.Wrap'
+  
+  gomoddirectives:
+    replace-allow-list:
+      # See go.mod for the explanation why these are needed.
+      - github.com/ulikunitz/xz
+      - github.com/gogo/protobuf
+      - google.golang.org/protobuf
 
 
 linters:

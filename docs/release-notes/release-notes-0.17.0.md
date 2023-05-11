@@ -54,6 +54,11 @@ unlock or create.
   `github.com/golang/protobuf/jsonpb`
   module](https://github.com/lightningnetwork/lnd/pull/7659).
 
+## Testing
+
+* [Added fuzz tests](https://github.com/lightningnetwork/lnd/pull/7649) for
+  signature parsing and conversion.
+
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen
@@ -62,6 +67,7 @@ unlock or create.
 * Erik Arvstedt
 * hieblmi
 * Jordi Montes
+* Matt Morehouse
 * Michael Street
 * Oliver Gugger
 * ziggie1984

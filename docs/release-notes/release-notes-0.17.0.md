@@ -21,6 +21,9 @@
 * [Fix Benchmark Test (BenchmarkReadMessage/Channel_Ready) in the lnwire 
 package](https://github.com/lightningnetwork/lnd/pull/7356)
 
+* [Fix unit test flake (TestLightningWallet) in the neutrino package via
+  version bump of btcsuite/btcwallet](https://github.com/lightningnetwork/lnd/pull/7049)
+
 ## RPC
 
 * [SendOutputs](https://github.com/lightningnetwork/lnd/pull/7631) now adheres
@@ -59,5 +62,6 @@ unlock or create.
 * Erik Arvstedt
 * hieblmi
 * Jordi Montes
+* Michael Street
 * Oliver Gugger
 * ziggie1984

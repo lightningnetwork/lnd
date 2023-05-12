@@ -583,6 +583,12 @@ There are currently two primary ways to run `lnd`: one requires a local `btcd`
 instance with the RPC service exposed, and the other uses a fully integrated
 light client powered by [neutrino](https://github.com/lightninglabs/neutrino).
 
+For testing scenarios like integration tests where wallet security is not
+important, the `itest/lnd-itest` binary can be used which uses very weak
+password stretching for the wallet encryption and therefore starts up faster
+than a production/mainnet/release build. The binary can be built by running
+`make build-itest`.
+
 # Creating an lnd.conf (Optional)
 
 Optionally, if you'd like to have a persistent configuration between `lnd`

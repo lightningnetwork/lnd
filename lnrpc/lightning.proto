@@ -3466,22 +3466,22 @@ message Invoice {
 
     /*
     The amount that was accepted for this invoice, in satoshis. This will ONLY
-    be set if this invoice has been settled. We provide this field as if the
-    invoice was created with a zero value, then we need to record what amount
-    was ultimately accepted. Additionally, it's possible that the sender paid
-    MORE that was specified in the original invoice. So we'll record that here
-    as well.
+    be set if this invoice has been settled or accepted. We provide this field
+    as if the invoice was created with a zero value, then we need to record what
+    amount was ultimately accepted. Additionally, it's possible that the sender
+    paid MORE that was specified in the original invoice. So we'll record that
+    here as well.
     Note: Output only, don't specify for creating an invoice.
     */
     int64 amt_paid_sat = 19;
 
     /*
     The amount that was accepted for this invoice, in millisatoshis. This will
-    ONLY be set if this invoice has been settled. We provide this field as if
-    the invoice was created with a zero value, then we need to record what
-    amount was ultimately accepted. Additionally, it's possible that the sender
-    paid MORE that was specified in the original invoice. So we'll record that
-    here as well.
+    ONLY be set if this invoice has been settled or accepted. We provide this
+    field as if the invoice was created with a zero value, then we need to
+    record what amount was ultimately accepted. Additionally, it's possible that
+    the sender paid MORE that was specified in the original invoice. So we'll
+    record that here as well.
     Note: Output only, don't specify for creating an invoice.
     */
     int64 amt_paid_msat = 20;

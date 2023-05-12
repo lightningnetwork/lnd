@@ -11716,19 +11716,19 @@ type Invoice struct {
 	// Deprecated: Marked as deprecated in lightning.proto.
 	AmtPaid int64 `protobuf:"varint,18,opt,name=amt_paid,json=amtPaid,proto3" json:"amt_paid,omitempty"`
 	// The amount that was accepted for this invoice, in satoshis. This will ONLY
-	// be set if this invoice has been settled. We provide this field as if the
-	// invoice was created with a zero value, then we need to record what amount
-	// was ultimately accepted. Additionally, it's possible that the sender paid
-	// MORE that was specified in the original invoice. So we'll record that here
-	// as well.
-	// Note: Output only, don't specify for creating an invoice.
-	AmtPaidSat int64 `protobuf:"varint,19,opt,name=amt_paid_sat,json=amtPaidSat,proto3" json:"amt_paid_sat,omitempty"`
-	// The amount that was accepted for this invoice, in millisatoshis. This will
-	// ONLY be set if this invoice has been settled. We provide this field as if
-	// the invoice was created with a zero value, then we need to record what
+	// be set if this invoice has been settled or accepted. We provide this field
+	// as if the invoice was created with a zero value, then we need to record what
 	// amount was ultimately accepted. Additionally, it's possible that the sender
 	// paid MORE that was specified in the original invoice. So we'll record that
 	// here as well.
+	// Note: Output only, don't specify for creating an invoice.
+	AmtPaidSat int64 `protobuf:"varint,19,opt,name=amt_paid_sat,json=amtPaidSat,proto3" json:"amt_paid_sat,omitempty"`
+	// The amount that was accepted for this invoice, in millisatoshis. This will
+	// ONLY be set if this invoice has been settled or accepted. We provide this
+	// field as if the invoice was created with a zero value, then we need to
+	// record what amount was ultimately accepted. Additionally, it's possible that
+	// the sender paid MORE that was specified in the original invoice. So we'll
+	// record that here as well.
 	// Note: Output only, don't specify for creating an invoice.
 	AmtPaidMsat int64 `protobuf:"varint,20,opt,name=amt_paid_msat,json=amtPaidMsat,proto3" json:"amt_paid_msat,omitempty"`
 	// The state the invoice is in.

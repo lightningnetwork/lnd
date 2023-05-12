@@ -135,6 +135,8 @@ unlock or create.
 
 # Contributors (Alphabetical Order)
 
+* Aljaz Ceru
+* BhhagBoseDK
 * Carla Kirk-Cohen
 * Daniel McNally
 * Elle Mouton
@@ -147,6 +149,10 @@ unlock or create.
 * Lele Calo
 * Matt Morehouse
 * Michael Street
+* MG-ng
 * Oliver Gugger
+* Satarupa Deb
 * Shaurya Arora
+* Torkel Rogstad
 * ziggie1984
+* zx9r

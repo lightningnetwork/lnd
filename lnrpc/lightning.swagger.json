@@ -2740,7 +2740,7 @@
     },
     "/v1/verifymessage": {
       "post": {
-        "summary": "lncli: `verifymessage`\nVerifyMessage verifies a signature over a msg. The signature must be\nzbase32 encoded and signed by an active node in the resident node's\nchannel database. In addition to returning the validity of the signature,\nVerifyMessage also returns the recovered pubkey from the signature.",
+        "summary": "lncli: `verifymessage`\nVerifyMessage verifies a signature over a message and recovers the signer's\npublic key. The signature is only deemed valid if the recovered public key\ncorresponds to a node key in the public Lightning network. The signature\nmust be zbase32 encoded and signed by an active node in the resident node's\nchannel database. In addition to returning the validity of the signature,\nVerifyMessage also returns the recovered pubkey from the signature.",
         "operationId": "Lightning_VerifyMessage",
         "responses": {
           "200": {

@@ -355,28 +355,6 @@ func TestWriteBool(t *testing.T) {
 	require.Equal(t, expectedBytes, buf.Bytes())
 }
 
-func TestWritePkScript(t *testing.T) {
-	buf := new(bytes.Buffer)
-
-	// Write a very long script to check the error is returned as expected.
-	script := PkScript{}
-	zeros := [35]byte{}
-	script = append(script, zeros[:]...)
-	err := WritePkScript(buf, script)
-	require.Equal(t, ErrPkScriptTooLong, err)
-
-	data := PkScript{1, 1, 1}
-	expectedBytes := []byte{
-		3,       // First byte encodes the length.
-		1, 1, 1, // The actual data.
-	}
-
-	err = WritePkScript(buf, data)
-
-	require.NoError(t, err)
-	require.Equal(t, expectedBytes, buf.Bytes())
-}
-
 func TestWriteOutPoint(t *testing.T) {
 	buf := new(bytes.Buffer)
 

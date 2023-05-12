@@ -28,10 +28,6 @@ const (
 	MaxMsgBody = 65533
 )
 
-// PkScript is simple type definition which represents a raw serialized public
-// key script.
-type PkScript []byte
-
 // addressType specifies the network protocol and version that should be used
 // when connecting to a node at a particular address.
 type addressType uint8
@@ -249,18 +245,6 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 
 	case []byte:
 		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
-	case PkScript:
-		// The largest script we'll accept is a p2wsh which is exactly
-		// 34 bytes long.
-		scriptLength := len(e)
-		if scriptLength > 34 {
-			return fmt.Errorf("'PkScript' too long")
-		}
-
-		if err := wire.WriteVarBytes(w, 0, e); err != nil {
 			return err
 		}
 
@@ -691,13 +675,6 @@ func ReadElement(r io.Reader, element interface{}) error {
 		if _, err := io.ReadFull(r, e); err != nil {
 			return err
 		}
-
-	case *PkScript:
-		pkScript, err := wire.ReadVarBytes(r, 0, 34, "pkscript")
-		if err != nil {
-			return err
-		}
-		*e = pkScript
 
 	case *wire.OutPoint:
 		var h [32]byte

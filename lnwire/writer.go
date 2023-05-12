@@ -264,19 +264,6 @@ func WriteBool(buf *bytes.Buffer, b bool) error {
 	return WriteBytes(buf, []byte{0})
 }
 
-// WritePkScript appends the script to the provided buffer. Returns an error if
-// the provided script exceeds 34 bytes.
-func WritePkScript(buf *bytes.Buffer, s PkScript) error {
-	// The largest script we'll accept is a p2wsh which is exactly
-	// 34 bytes long.
-	scriptLength := len(s)
-	if scriptLength > 34 {
-		return ErrPkScriptTooLong
-	}
-
-	return wire.WriteVarBytes(buf, 0, s)
-}
-
 // WriteOutPoint appends the outpoint to the provided buffer.
 func WriteOutPoint(buf *bytes.Buffer, p wire.OutPoint) error {
 	// Before we write anything to the buffer, check the Index is sane.

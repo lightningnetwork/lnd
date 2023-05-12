@@ -76,11 +76,6 @@ func (a addressType) AddrLen() uint16 {
 // packages.
 func WriteElement(w *bytes.Buffer, element interface{}) error {
 	switch e := element.(type) {
-	case NodeAlias:
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
 	case uint8:
 		var b [1]byte
 		b[0] = e
@@ -88,37 +83,9 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 
-	case FundingFlag:
-		var b [1]byte
-		b[0] = uint8(e)
-		if _, err := w.Write(b[:]); err != nil {
-			return err
-		}
-
 	case uint16:
 		var b [2]byte
 		binary.BigEndian.PutUint16(b[:], e)
-		if _, err := w.Write(b[:]); err != nil {
-			return err
-		}
-
-	case ChanUpdateMsgFlags:
-		var b [1]byte
-		b[0] = uint8(e)
-		if _, err := w.Write(b[:]); err != nil {
-			return err
-		}
-
-	case ChanUpdateChanFlags:
-		var b [1]byte
-		b[0] = uint8(e)
-		if _, err := w.Write(b[:]); err != nil {
-			return err
-		}
-
-	case MilliSatoshi:
-		var b [8]byte
-		binary.BigEndian.PutUint64(b[:], uint64(e))
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
@@ -137,13 +104,6 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 
-	case uint64:
-		var b [8]byte
-		binary.BigEndian.PutUint64(b[:], e)
-		if _, err := w.Write(b[:]); err != nil {
-			return err
-		}
-
 	case *btcec.PublicKey:
 		if e == nil {
 			return fmt.Errorf("cannot write nil pubkey")
@@ -156,97 +116,8 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 
-	case []Sig:
-		var b [2]byte
-		numSigs := uint16(len(e))
-		binary.BigEndian.PutUint16(b[:], numSigs)
-		if _, err := w.Write(b[:]); err != nil {
-			return err
-		}
-
-		for _, sig := range e {
-			if err := WriteElement(w, sig); err != nil {
-				return err
-			}
-		}
-
-	case Sig:
-		// Write buffer
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
-	case PingPayload:
-		var l [2]byte
-		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
-		if _, err := w.Write(l[:]); err != nil {
-			return err
-		}
-
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
-	case PongPayload:
-		var l [2]byte
-		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
-		if _, err := w.Write(l[:]); err != nil {
-			return err
-		}
-
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
-	case WarningData:
-		var l [2]byte
-		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
-		if _, err := w.Write(l[:]); err != nil {
-			return err
-		}
-
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
-	case ErrorData:
-		var l [2]byte
-		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
-		if _, err := w.Write(l[:]); err != nil {
-			return err
-		}
-
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
-	case OpaqueReason:
-		var l [2]byte
-		binary.BigEndian.PutUint16(l[:], uint16(len(e)))
-		if _, err := w.Write(l[:]); err != nil {
-			return err
-		}
-
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
-	case [33]byte:
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
 	case []byte:
 		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
-	case *RawFeatureVector:
-		if e == nil {
-			return fmt.Errorf("cannot write nil feature vector")
-		}
-
-		if err := e.Encode(w); err != nil {
 			return err
 		}
 
@@ -266,16 +137,6 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 		var idx [2]byte
 		binary.BigEndian.PutUint16(idx[:], uint16(e.Index))
 		if _, err := w.Write(idx[:]); err != nil {
-			return err
-		}
-
-	case ChannelID:
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
-	case FailCode:
-		if err := WriteElement(w, uint16(e)); err != nil {
 			return err
 		}
 
@@ -410,21 +271,6 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			}
 		}
 
-	case color.RGBA:
-		if err := WriteElements(w, e.R, e.G, e.B); err != nil {
-			return err
-		}
-
-	case DeliveryAddress:
-		var length [2]byte
-		binary.BigEndian.PutUint16(length[:], uint16(len(e)))
-		if _, err := w.Write(length[:]); err != nil {
-			return err
-		}
-		if _, err := w.Write(e[:]); err != nil {
-			return err
-		}
-
 	case bool:
 		var b [1]byte
 		if e {
@@ -433,9 +279,6 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 		if _, err := w.Write(b[:]); err != nil {
 			return err
 		}
-
-	case ExtraOpaqueData:
-		return e.Encode(w)
 
 	default:
 		return fmt.Errorf("unknown type in WriteElement: %T", e)

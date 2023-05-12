@@ -2246,7 +2246,9 @@ type Transaction struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The raw serialized transaction.
+	// The raw serialized transaction. Despite the field name, this does need to be
+	// specified in raw bytes (or base64 encoded when using REST) and not in hex.
+	// To not break existing software, the field can't simply be renamed.
 	TxHex []byte `protobuf:"bytes,1,opt,name=tx_hex,json=txHex,proto3" json:"tx_hex,omitempty"`
 	// An optional label to save with the transaction. Limited to 500 characters.
 	Label string `protobuf:"bytes,2,opt,name=label,proto3" json:"label,omitempty"`

@@ -281,13 +281,9 @@ func after(shouldFail bool, preMigDB,
 			// If the migration fails, the sessions bucket should be
 			// untouched.
 			if shouldFail {
-				if err := migtest.VerifyDB(
+				return migtest.VerifyDB(
 					tx, cSessionBkt, preMigDB,
-				); err != nil {
-					return err
-				}
-
-				return nil
+				)
 			}
 
 			return migtest.VerifyDB(tx, cSessionBkt, postMigDB)

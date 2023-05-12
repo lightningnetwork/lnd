@@ -323,7 +323,9 @@ func (q *DiskOverflowQueue[T]) drainInputList() {
 
 		// What we do with this new item depends on what the mode of the
 		// queue currently is.
-		for q.pushToActiveQueue(task) {
+		for q.pushToActiveQueue(task) { //nolint:revive
+			// We retry until the task is handled or the quit
+			// channel is closed.
 		}
 
 		// If the above returned false because the quit channel was

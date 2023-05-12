@@ -632,16 +632,16 @@ func (h *HarnessTest) newNodeWithSeed(name string,
 // be used for regular rpc operations.
 func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 	password []byte, mnemonic []string, rootKey string,
-	recoveryWindow int32, chanBackups *lnrpc.ChanBackupSnapshot,
-	opts ...node.Option) *node.HarnessNode {
+	recoveryWindow int32,
+	chanBackups *lnrpc.ChanBackupSnapshot) *node.HarnessNode {
 
-	node, err := h.manager.newNode(h.T, name, extraArgs, password, true)
+	n, err := h.manager.newNode(h.T, name, extraArgs, password, true)
 	require.NoErrorf(h, err, "unable to create new node for %s", name)
 
 	// Start the node with seed only, which will only create the `State`
 	// and `WalletUnlocker` clients.
-	err = node.StartWithNoAuth(h.runCtx)
-	require.NoErrorf(h, err, "failed to start node %s", node.Name())
+	err = n.StartWithNoAuth(h.runCtx)
+	require.NoErrorf(h, err, "failed to start node %s", n.Name())
 
 	// Create the wallet.
 	initReq := &lnrpc.InitWalletRequest{
@@ -652,11 +652,11 @@ func (h *HarnessTest) RestoreNodeWithSeed(name string, extraArgs []string,
 		RecoveryWindow:     recoveryWindow,
 		ChannelBackups:     chanBackups,
 	}
-	_, err = h.manager.initWalletAndNode(node, initReq)
+	_, err = h.manager.initWalletAndNode(n, initReq)
 	require.NoErrorf(h, err, "failed to unlock and init node %s",
-		node.Name())
+		n.Name())
 
-	return node
+	return n
 }
 
 // NewNodeEtcd starts a new node with seed that'll use an external etcd
@@ -688,7 +688,7 @@ func (h *HarnessTest) NewNodeEtcd(name string, etcdCfg *etcd.Config,
 // database as its storage. The passed cluster flag indicates that we'd like
 // the node to join the cluster leader election.
 func (h *HarnessTest) NewNodeWithSeedEtcd(name string, etcdCfg *etcd.Config,
-	password []byte, entropy []byte, statelessInit, cluster bool,
+	password []byte, statelessInit, cluster bool,
 	leaderSessionTTL int) (*node.HarnessNode, []string, []byte) {
 
 	// We don't want to use the embedded etcd instance.
@@ -1216,7 +1216,7 @@ func (h *HarnessTest) ForceCloseChannel(hn *node.HarnessNode,
 	closingTxid := h.AssertStreamChannelForceClosed(hn, cp, false, stream)
 
 	// Cleanup the force close.
-	h.CleanupForceClose(hn, cp)
+	h.CleanupForceClose(hn)
 
 	return closingTxid
 }
@@ -1473,9 +1473,7 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
 
 // CleanupForceClose mines a force close commitment found in the mempool and
 // the following sweep transaction from the force closing node.
-func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode,
-	chanPoint *lnrpc.ChannelPoint) {
-
+func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode) {
 	// Wait for the channel to be marked pending force close.
 	h.AssertNumPendingForceClose(hn, 1)
 

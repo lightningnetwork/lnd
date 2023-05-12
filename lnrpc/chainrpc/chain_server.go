@@ -269,7 +269,7 @@ func (r *ServerShell) CreateSubServer(configRegistry lnrpc.SubServerConfigDispat
 }
 
 // GetBlock returns a block given the corresponding block hash.
-func (s *Server) GetBlock(ctx context.Context,
+func (s *Server) GetBlock(_ context.Context,
 	in *GetBlockRequest) (*GetBlockResponse, error) {
 
 	// We'll start by reconstructing the RPC request into what the
@@ -295,8 +295,8 @@ func (s *Server) GetBlock(ctx context.Context,
 
 // GetBestBlock returns the latest block hash and current height of the valid
 // most-work chain.
-func (s *Server) GetBestBlock(ctx context.Context,
-	req *GetBestBlockRequest) (*GetBestBlockResponse, error) {
+func (s *Server) GetBestBlock(_ context.Context,
+	_ *GetBestBlockRequest) (*GetBestBlockResponse, error) {
 
 	blockHash, blockHeight, err := s.cfg.Chain.GetBestBlock()
 	if err != nil {
@@ -311,7 +311,7 @@ func (s *Server) GetBestBlock(ctx context.Context,
 
 // GetBlockHash returns the hash of the block in the best blockchain
 // at the given height.
-func (s *Server) GetBlockHash(ctx context.Context,
+func (s *Server) GetBlockHash(_ context.Context,
 	req *GetBlockHashRequest) (*GetBlockHashResponse, error) {
 
 	blockHash, err := s.cfg.Chain.GetBlockHash(req.BlockHeight)

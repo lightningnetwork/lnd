@@ -3955,7 +3955,7 @@ func (r *rpcServer) ClosedChannels(ctx context.Context,
 // the htlc has no final resolution yet, a NotFound grpc status code is
 // returned.
 func (r *rpcServer) LookupHtlcResolution(
-	ctx context.Context, in *lnrpc.LookupHtlcResolutionRequest) (
+	_ context.Context, in *lnrpc.LookupHtlcResolutionRequest) (
 	*lnrpc.LookupHtlcResolutionResponse, error) {
 
 	if !r.cfg.StoreFinalHtlcResolutions {

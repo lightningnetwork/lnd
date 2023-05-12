@@ -103,7 +103,7 @@ func (f *FeeService) Start() error {
 }
 
 // handleRequest handles a client request for fee estimates.
-func (f *FeeService) handleRequest(w http.ResponseWriter, r *http.Request) {
+func (f *FeeService) handleRequest(w http.ResponseWriter, _ *http.Request) {
 	f.lock.Lock()
 	defer f.lock.Unlock()
 

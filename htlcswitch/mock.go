@@ -1102,7 +1102,7 @@ func (m *mockOnionErrorDecryptor) DecryptError(encryptedData []byte) (
 var _ htlcNotifier = (*mockHTLCNotifier)(nil)
 
 type mockHTLCNotifier struct {
-	htlcNotifier
+	htlcNotifier //nolint:unused
 }
 
 func (h *mockHTLCNotifier) NotifyForwardingEvent(key HtlcKey, info HtlcInfo,

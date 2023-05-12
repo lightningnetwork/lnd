@@ -118,5 +118,5 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Clean up the force closed channel.
-	ht.CleanupForceClose(bob, chanPointAB)
+	ht.CleanupForceClose(bob)
 }

@@ -52,7 +52,7 @@ var _ Message = (*ChannelReady)(nil)
 // rules defined by the passed protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *ChannelReady) Decode(r io.Reader, pver uint32) error {
+func (c *ChannelReady) Decode(r io.Reader, _ uint32) error {
 	// Read all the mandatory fields in the message.
 	err := ReadElements(r,
 		&c.ChanID,
@@ -85,7 +85,7 @@ func (c *ChannelReady) Decode(r io.Reader, pver uint32) error {
 // protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *ChannelReady) Encode(w *bytes.Buffer, pver uint32) error {
+func (c *ChannelReady) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteChannelID(w, c.ChanID); err != nil {
 		return err
 	}

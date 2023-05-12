@@ -517,7 +517,7 @@ func (t *TLSManager) loadEphemeralCertificate() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	t.setEphemeralSettings(keyBytes, certBytes, t.cfg.TLSCertPath+".tmp")
+	t.setEphemeralSettings(keyBytes, certBytes)
 
 	err = cert.WriteCertPair(tmpCertPath, "", certBytes, keyBytes)
 	if err != nil {
@@ -583,9 +583,7 @@ func (t *TLSManager) LoadPermanentCertificate(
 
 // setEphemeralSettings sets the TLSManager settings needed when an ephemeral
 // certificate is created.
-func (t *TLSManager) setEphemeralSettings(keyBytes, certBytes []byte,
-	certPath string) {
-
+func (t *TLSManager) setEphemeralSettings(keyBytes, certBytes []byte) {
 	t.ephemeralKey = keyBytes
 	t.ephemeralCert = certBytes
 	t.ephemeralCertPath = t.cfg.TLSCertPath + ".tmp"

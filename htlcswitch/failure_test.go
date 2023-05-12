@@ -19,9 +19,9 @@ func TestLongFailureMessage(t *testing.T) {
 	t.Parallel()
 
 	var testData struct {
-		SessionKey string
-		Path       []string
-		Reason     string
+		SessionKey string   `json:"session_key"`
+		Path       []string `json:"path"`
+		Reason     string   `json:"reason"`
 	}
 
 	// Use long 1024-byte test vector from BOLT 04.

@@ -315,7 +315,6 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 						"dave", nil, password, mnemonic,
 						"", revocationWindow,
 						backupSnapshot,
-						copyPorts(oldNode),
 					)
 				}
 			},
@@ -347,7 +346,6 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 					newNode := st.RestoreNodeWithSeed(
 						"dave", nil, password, mnemonic,
 						"", revocationWindow, nil,
-						copyPorts(oldNode),
 					)
 					st.RestartNodeWithChanBackups(
 						newNode, backupSnapshot,
@@ -386,7 +384,6 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 					newNode := st.RestoreNodeWithSeed(
 						"dave", nil, password, mnemonic,
 						"", revocationWindow, nil,
-						copyPorts(oldNode),
 					)
 
 					req := &lnrpc.RestoreChanBackupRequest{
@@ -1367,23 +1364,12 @@ func chanRestoreViaRPC(ht *lntest.HarnessTest, password []byte,
 	return func() *node.HarnessNode {
 		newNode := ht.RestoreNodeWithSeed(
 			"dave", nil, password, mnemonic, "", revocationWindow,
-			nil, copyPorts(oldNode),
+			nil,
 		)
 		req := &lnrpc.RestoreChanBackupRequest{Backup: backup}
 		newNode.RPC.RestoreChanBackups(req)
 
 		return newNode
-	}
-}
-
-// copyPorts returns a node option function that copies the ports of an existing
-// node over to the newly created one.
-func copyPorts(oldNode *node.HarnessNode) node.Option {
-	return func(cfg *node.BaseNodeConfig) {
-		cfg.P2PPort = oldNode.Cfg.P2PPort
-		cfg.RPCPort = oldNode.Cfg.RPCPort
-		cfg.RESTPort = oldNode.Cfg.RESTPort
-		cfg.ProfilePort = oldNode.Cfg.ProfilePort
 	}
 }
 

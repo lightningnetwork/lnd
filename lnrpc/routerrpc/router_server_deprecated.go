@@ -123,7 +123,7 @@ func (s *Server) SendToRoute(ctx context.Context,
 
 // QueryProbability returns the current success probability estimate for a
 // given node pair and amount.
-func (s *Server) QueryProbability(ctx context.Context,
+func (s *Server) QueryProbability(_ context.Context,
 	req *QueryProbabilityRequest) (*QueryProbabilityResponse, error) {
 
 	fromNode, err := route.NewVertexFromBytes(req.FromNode)

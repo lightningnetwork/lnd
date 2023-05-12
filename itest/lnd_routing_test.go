@@ -480,8 +480,6 @@ func testSendToRouteErrorPropagation(ht *lntest.HarnessTest) {
 // testPrivateChannels tests that a private channel can be used for
 // routing by the two endpoints of the channel, but is not known by
 // the rest of the nodes in the graph.
-//
-//nolint:dupword
 func testPrivateChannels(ht *lntest.HarnessTest) {
 	const chanAmt = btcutil.Amount(100000)
 

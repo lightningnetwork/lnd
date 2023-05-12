@@ -822,3 +822,60 @@ func FuzzCustomMessage(f *testing.F) {
 		harness(t, data)
 	})
 }
+
+// FuzzParseRawSignature tests that our DER-encoded signature parsing does not
+// panic for arbitrary inputs and that serializing and reparsing the signatures
+// does not mutate them.
+func FuzzParseRawSignature(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		sig, err := NewSigFromRawSignature(data)
+		if err != nil {
+			return
+		}
+
+		sig2, err := NewSigFromRawSignature(sig.ToSignatureBytes())
+		if err != nil {
+			t.Fatalf("failed to reparse signature: %v", err)
+		}
+
+		if !reflect.DeepEqual(sig, sig2) {
+			t.Fatalf("signature mismatch: %v != %v", sig, sig2)
+		}
+	})
+}
+
+// FuzzConvertFixedSignature tests that conversion of fixed 64-byte signatures
+// to DER-encoded signatures does not panic and that parsing and reconverting
+// the signatures does not mutate them.
+func FuzzConvertFixedSignature(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var sig Sig
+		if len(data) > len(sig) {
+			return
+		}
+		copy(sig[:], data)
+
+		derSig, err := sig.ToSignature()
+		if err != nil {
+			return
+		}
+
+		sig2, err := NewSigFromSignature(derSig)
+		if err != nil {
+			t.Fatalf("failed to parse signature: %v", err)
+		}
+
+		derSig2, err := sig2.ToSignature()
+		if err != nil {
+			t.Fatalf("failed to reconvert signature to DER: %v",
+				err)
+		}
+
+		derBytes := derSig.Serialize()
+		derBytes2 := derSig2.Serialize()
+		if !bytes.Equal(derBytes, derBytes2) {
+			t.Fatalf("signature mismatch: %v != %v", derBytes,
+				derBytes2)
+		}
+	})
+}

@@ -107,6 +107,9 @@ type Config struct {
 // required for each different commitment transaction type. The Manager acts as
 // a tower client multiplexer.
 type Manager struct {
+	started sync.Once
+	stopped sync.Once
+
 	cfg *Config
 
 	clients   map[blob.Type]*TowerClient
@@ -161,4 +164,39 @@ func (m *Manager) NewClient(policy wtpolicy.Policy) (*TowerClient, error) {
 	m.clients[policy.BlobType] = client
 
 	return client, nil
+}
+
+// Start starts all the clients that have been registered with the Manager.
+func (m *Manager) Start() error {
+	var returnErr error
+	m.started.Do(func() {
+		m.clientsMu.Lock()
+		defer m.clientsMu.Unlock()
+
+		for _, client := range m.clients {
+			if err := client.start(); err != nil {
+				returnErr = err
+				return
+			}
+		}
+	})
+
+	return returnErr
+}
+
+// Stop stops all the clients that the Manger is managing.
+func (m *Manager) Stop() error {
+	var returnErr error
+	m.stopped.Do(func() {
+		m.clientsMu.Lock()
+		defer m.clientsMu.Unlock()
+
+		for _, client := range m.clients {
+			if err := client.stop(); err != nil {
+				returnErr = err
+			}
+		}
+	})
+
+	return returnErr
 }

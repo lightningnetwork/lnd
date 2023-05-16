@@ -1906,19 +1906,12 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.htlcNotifier.Stop)
 
-		if s.towerClient != nil {
-			if err := s.towerClient.Start(); err != nil {
+		if s.towerClientMgr != nil {
+			if err := s.towerClientMgr.Start(); err != nil {
 				startErr = err
 				return
 			}
-			cleanup = cleanup.add(s.towerClient.Stop)
-		}
-		if s.anchorTowerClient != nil {
-			if err := s.anchorTowerClient.Start(); err != nil {
-				startErr = err
-				return
-			}
-			cleanup = cleanup.add(s.anchorTowerClient.Stop)
+			cleanup = cleanup.add(s.towerClientMgr.Stop)
 		}
 
 		if err := s.sweeper.Start(); err != nil {
@@ -2294,16 +2287,10 @@ func (s *server) Stop() error {
 		// client which will reliably flush all queued states to the
 		// tower. If this is halted for any reason, the force quit timer
 		// will kick in and abort to allow this method to return.
-		if s.towerClient != nil {
-			if err := s.towerClient.Stop(); err != nil {
+		if s.towerClientMgr != nil {
+			if err := s.towerClientMgr.Stop(); err != nil {
 				srvrLog.Warnf("Unable to shut down tower "+
-					"client: %v", err)
-			}
-		}
-		if s.anchorTowerClient != nil {
-			if err := s.anchorTowerClient.Stop(); err != nil {
-				srvrLog.Warnf("Unable to shut down anchor "+
-					"tower client: %v", err)
+					"client manager: %v", err)
 			}
 		}
 

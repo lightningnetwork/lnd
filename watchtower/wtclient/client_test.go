@@ -396,6 +396,7 @@ type testHarness struct {
 	cfg          harnessCfg
 	signer       *wtmock.MockSigner
 	capacity     lnwire.MilliSatoshi
+	clientMgr    *wtclient.Manager
 	clientDB     *wtmock.ClientDB
 	clientCfg    *wtclient.Config
 	clientPolicy wtpolicy.Policy
@@ -589,12 +590,13 @@ func (h *testHarness) startClient() {
 		Address:     towerTCPAddr,
 	}
 
-	m, err := wtclient.NewManager(h.clientCfg)
+	h.clientMgr, err = wtclient.NewManager(h.clientCfg)
 	require.NoError(h.t, err)
 
-	h.client, err = m.NewClient(h.clientPolicy)
+	h.client, err = h.clientMgr.NewClient(h.clientPolicy)
 	require.NoError(h.t, err)
-	require.NoError(h.t, h.client.Start())
+
+	require.NoError(h.t, h.clientMgr.Start())
 	require.NoError(h.t, h.client.AddTower(towerAddr))
 }
 
@@ -1063,7 +1065,7 @@ var clientTests = []clientTest{
 			)
 
 			// Stop the client, subsequent backups should fail.
-			h.client.Stop()
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Advance the channel and try to back up the states. We
 			// expect ErrClientExiting to be returned from
@@ -1480,7 +1482,7 @@ var clientTests = []clientTest{
 			h.waitServerUpdates(hints[:numUpdates/2], time.Second)
 
 			// Stop the client, which should have no more backups.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Record the policy that the first half was stored
 			// under. We'll expect the second half to also be
@@ -1541,7 +1543,7 @@ var clientTests = []clientTest{
 
 			// Restart the client, so we can ensure the deduping is
 			// maintained across restarts.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 			h.startClient()
 
 			// Try to back up the full range of retributions. Only
@@ -2056,7 +2058,7 @@ var clientTests = []clientTest{
 			h.waitServerUpdates(hints[:numUpdates/2], waitTime)
 
 			// Now stop the client and reset its database.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			db := wtmock.NewClientDB()
 			h.clientDB = db

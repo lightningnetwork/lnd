@@ -140,15 +140,6 @@ type Client interface {
 	// negotiated policy.
 	BackupState(chanID *lnwire.ChannelID, stateNum uint64) error
 
-	// Start initializes the watchtower client, allowing it process requests
-	// to backup revoked channel states.
-	Start() error
-
-	// Stop attempts a graceful shutdown of the watchtower client. In doing
-	// so, it will attempt to flush the pipeline and deliver any queued
-	// states to the tower before exiting.
-	Stop() error
-
 	// ForceQuit will forcibly shutdown the watchtower client. Calling this
 	// may lead to queued states being dropped.
 	ForceQuit()
@@ -208,9 +199,7 @@ type towerClientCfg struct {
 // non-blocking, reliable subsystem for backing up revoked states to a specified
 // private tower.
 type TowerClient struct {
-	started sync.Once
-	stopped sync.Once
-	forced  sync.Once
+	forced sync.Once
 
 	cfg *towerClientCfg
 
@@ -476,185 +465,168 @@ func getClientSessions(db DB, keyRing ECDHKeyRing, forTower *wtdb.TowerID,
 	return sessions, nil
 }
 
-// Start initializes the watchtower client by loading or negotiating an active
+// start initializes the watchtower client by loading or negotiating an active
 // session and then begins processing backup tasks from the request pipeline.
-func (c *TowerClient) Start() error {
-	var returnErr error
-	c.started.Do(func() {
-		c.log.Infof("Watchtower client starting")
+func (c *TowerClient) start() error {
+	c.log.Infof("Watchtower client starting")
 
-		// First, restart a session queue for any sessions that have
-		// committed but unacked state updates. This ensures that these
-		// sessions will be able to flush the committed updates after a
-		// restart.
-		fetchCommittedUpdates := c.cfg.DB.FetchSessionCommittedUpdates
-		for _, session := range c.candidateSessions {
-			committedUpdates, err := fetchCommittedUpdates(
-				&session.ID,
-			)
-			if err != nil {
-				returnErr = err
-				return
-			}
-
-			if len(committedUpdates) > 0 {
-				c.log.Infof("Starting session=%s to process "+
-					"%d committed backups", session.ID,
-					len(committedUpdates))
-
-				c.initActiveQueue(session, committedUpdates)
-			}
-		}
-
-		chanSub, err := c.cfg.SubscribeChannelEvents()
-		if err != nil {
-			returnErr = err
-			return
-		}
-
-		// Iterate over the list of registered channels and check if
-		// any of them can be marked as closed.
-		for id := range c.summaries {
-			isClosed, closedHeight, err := c.isChannelClosed(id)
-			if err != nil {
-				returnErr = err
-				return
-			}
-
-			if !isClosed {
-				continue
-			}
-
-			_, err = c.cfg.DB.MarkChannelClosed(id, closedHeight)
-			if err != nil {
-				c.log.Errorf("could not mark channel(%s) as "+
-					"closed: %v", id, err)
-
-				continue
-			}
-
-			// Since the channel has been marked as closed, we can
-			// also remove it from the channel summaries map.
-			delete(c.summaries, id)
-		}
-
-		// Load all closable sessions.
-		closableSessions, err := c.cfg.DB.ListClosableSessions()
-		if err != nil {
-			returnErr = err
-			return
-		}
-
-		err = c.trackClosableSessions(closableSessions)
-		if err != nil {
-			returnErr = err
-			return
-		}
-
-		c.wg.Add(1)
-		go c.handleChannelCloses(chanSub)
-
-		// Subscribe to new block events.
-		blockEvents, err := c.cfg.ChainNotifier.RegisterBlockEpochNtfn(
-			nil,
+	// First, restart a session queue for any sessions that have committed
+	// but unacked state updates. This ensures that these sessions will be
+	// able to flush the committed updates after a restart.
+	fetchCommittedUpdates := c.cfg.DB.FetchSessionCommittedUpdates
+	for _, session := range c.candidateSessions {
+		committedUpdates, err := fetchCommittedUpdates(
+			&session.ID,
 		)
 		if err != nil {
-			returnErr = err
-			return
+			return err
 		}
 
-		c.wg.Add(1)
-		go c.handleClosableSessions(blockEvents)
+		if len(committedUpdates) > 0 {
+			c.log.Infof("Starting session=%s to process %d "+
+				"committed backups", session.ID,
+				len(committedUpdates))
 
-		// Now start the session negotiator, which will allow us to
-		// request new session as soon as the backupDispatcher starts
-		// up.
-		err = c.negotiator.Start()
+			c.initActiveQueue(session, committedUpdates)
+		}
+	}
+
+	chanSub, err := c.cfg.SubscribeChannelEvents()
+	if err != nil {
+		return err
+	}
+
+	// Iterate over the list of registered channels and check if any of them
+	// can be marked as closed.
+	for id := range c.summaries {
+		isClosed, closedHeight, err := c.isChannelClosed(id)
 		if err != nil {
-			returnErr = err
-			return
+			return err
 		}
 
-		// Start the task pipeline to which new backup tasks will be
-		// submitted from active links.
-		err = c.pipeline.Start()
+		if !isClosed {
+			continue
+		}
+
+		_, err = c.cfg.DB.MarkChannelClosed(id, closedHeight)
 		if err != nil {
-			returnErr = err
-			return
+			c.log.Errorf("could not mark channel(%s) as closed: %v",
+				id, err)
+
+			continue
 		}
 
-		c.wg.Add(1)
-		go c.backupDispatcher()
+		// Since the channel has been marked as closed, we can also
+		// remove it from the channel summaries map.
+		delete(c.summaries, id)
+	}
 
-		c.log.Infof("Watchtower client started successfully")
-	})
-	return returnErr
+	// Load all closable sessions.
+	closableSessions, err := c.cfg.DB.ListClosableSessions()
+	if err != nil {
+		return err
+	}
+
+	err = c.trackClosableSessions(closableSessions)
+	if err != nil {
+		return err
+	}
+
+	c.wg.Add(1)
+	go c.handleChannelCloses(chanSub)
+
+	// Subscribe to new block events.
+	blockEvents, err := c.cfg.ChainNotifier.RegisterBlockEpochNtfn(
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	c.wg.Add(1)
+	go c.handleClosableSessions(blockEvents)
+
+	// Now start the session negotiator, which will allow us to request new
+	// session as soon as the backupDispatcher starts up.
+	err = c.negotiator.Start()
+	if err != nil {
+		return err
+	}
+
+	// Start the task pipeline to which new backup tasks will be
+	// submitted from active links.
+	err = c.pipeline.Start()
+	if err != nil {
+		return err
+	}
+
+	c.wg.Add(1)
+	go c.backupDispatcher()
+
+	c.log.Infof("Watchtower client started successfully")
+
+	return nil
 }
 
-// Stop idempotently initiates a graceful shutdown of the watchtower client.
-func (c *TowerClient) Stop() error {
+// stop idempotently initiates a graceful shutdown of the watchtower client.
+func (c *TowerClient) stop() error {
 	var returnErr error
-	c.stopped.Do(func() {
-		c.log.Debugf("Stopping watchtower client")
+	c.log.Debugf("Stopping watchtower client")
 
-		// 1. To ensure we don't hang forever on shutdown due to
-		// unintended failures, we'll delay a call to force quit the
-		// pipeline if a ForceQuitDelay is specified. This will have no
-		// effect if the pipeline shuts down cleanly before the delay
-		// fires.
-		//
-		// For full safety, this can be set to 0 and wait out
-		// indefinitely.  However for mobile clients which may have a
-		// limited amount of time to exit before the background process
-		// is killed, this offers a way to ensure the process
-		// terminates.
-		if c.cfg.ForceQuitDelay > 0 {
-			time.AfterFunc(c.cfg.ForceQuitDelay, c.ForceQuit)
-		}
+	// 1. To ensure we don't hang forever on shutdown due to unintended
+	// failures, we'll delay a call to force quit the pipeline if a
+	// ForceQuitDelay is specified. This will have no effect if the pipeline
+	// shuts down cleanly before the delay fires.
+	//
+	// For full safety, this can be set to 0 and wait out indefinitely.
+	// However, for mobile clients which may have a limited amount of time
+	// to exit before the background process is killed, this offers a way to
+	// ensure the process terminates.
+	if c.cfg.ForceQuitDelay > 0 {
+		time.AfterFunc(c.cfg.ForceQuitDelay, c.ForceQuit)
+	}
 
-		// 2. Shutdown the backup queue, which will prevent any further
-		// updates from being accepted. In practice, the links should be
-		// shutdown before the client has been stopped, so all updates
-		// would have been added prior.
-		err := c.pipeline.Stop()
-		if err != nil {
-			returnErr = err
-		}
+	// 2. Shutdown the backup queue, which will prevent any further updates
+	// from being accepted. In practice, the links should be shutdown before
+	// the client has been stopped, so all updates would have been added prior.
+	err := c.pipeline.Stop()
+	if err != nil {
+		returnErr = err
+	}
 
-		// 3. Once the backup queue has shutdown, wait for the main
-		// dispatcher to exit. The backup queue will signal it's
-		// completion to the dispatcher, which releases the wait group
-		// after all tasks have been assigned to session queues.
-		close(c.quit)
-		c.wg.Wait()
+	// 3. Once the backup queue has shutdown, wait for the main dispatcher
+	// to exit. The backup queue will signal its completion to the
+	// dispatcher, which releases the wait group after all tasks have been
+	// assigned to session queues.
+	close(c.quit)
+	c.wg.Wait()
 
-		// 4. Since all valid tasks have been assigned to session
-		// queues, we no longer need to negotiate sessions.
-		err = c.negotiator.Stop()
-		if err != nil {
-			returnErr = err
-		}
+	// 4. Since all valid tasks have been assigned to session
+	// queues, we no longer need to negotiate sessions.
+	err = c.negotiator.Stop()
+	if err != nil {
+		returnErr = err
+	}
 
-		c.log.Debugf("Waiting for active session queues to finish "+
-			"draining, stats: %s", c.stats)
+	c.log.Debugf("Waiting for active session queues to finish "+
+		"draining, stats: %s", c.stats)
 
-		// 5. Shutdown all active session queues in parallel. These will
-		// exit once all updates have been acked by the watchtower.
-		c.activeSessions.ApplyAndWait(func(s *sessionQueue) func() {
-			return s.Stop
-		})
-
-		// Skip log if force quitting.
-		select {
-		case <-c.forceQuit:
-			return
-		default:
-		}
-
-		c.log.Debugf("Client successfully stopped, stats: %s", c.stats)
+	// 5. Shutdown all active session queues in parallel. These will exit
+	// once all updates have been acked by the watchtower.
+	c.activeSessions.ApplyAndWait(func(s *sessionQueue) func() {
+		return s.Stop
 	})
 
-	return returnErr
+	// Skip log if force quitting.
+	select {
+	case <-c.forceQuit:
+		return returnErr
+	default:
+	}
+
+	c.log.Debugf("Client successfully stopped, stats: %s", c.stats)
+
+	return nil
 }
 
 // ForceQuit idempotently initiates an unclean shutdown of the watchtower

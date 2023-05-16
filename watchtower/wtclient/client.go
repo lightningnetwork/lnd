@@ -95,9 +95,6 @@ type RegisteredTower struct {
 // Client is the primary interface used by the daemon to control a client's
 // lifecycle and backup revoked states.
 type Client interface {
-	// Policy returns the active client policy configuration.
-	Policy() wtpolicy.Policy
-
 	// RegisterChannel persistently initializes any channel-dependent
 	// parameters within the client. This should be called during link
 	// startup to ensure that the client is able to support the link during
@@ -1620,8 +1617,8 @@ func (c *TowerClient) getStats() ClientStats {
 	return c.stats.getStatsCopy()
 }
 
-// Policy returns the active client policy configuration.
-func (c *TowerClient) Policy() wtpolicy.Policy {
+// policy returns the active client policy configuration.
+func (c *TowerClient) policy() wtpolicy.Policy {
 	return c.cfg.Policy
 }
 

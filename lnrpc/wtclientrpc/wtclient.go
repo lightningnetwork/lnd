@@ -263,23 +263,7 @@ func (c *WatchtowerClient) ListTowers(ctx context.Context,
 		req.IncludeSessions, req.ExcludeExhaustedSessions,
 	)
 
-	anchorTowers, err := c.cfg.AnchorClient.RegisteredTowers(opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	// Collect all the anchor client towers.
-	rpcTowers := make(map[wtdb.TowerID]*Tower)
-	for _, tower := range anchorTowers {
-		rpcTower := marshallTower(
-			tower, PolicyType_ANCHOR, req.IncludeSessions,
-			ackCounts, committedUpdateCounts,
-		)
-
-		rpcTowers[tower.ID] = rpcTower
-	}
-
-	legacyTowers, err := c.cfg.Client.RegisteredTowers(opts...)
+	towersPerBlobType, err := c.cfg.ClientMgr.RegisteredTowers(opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -287,20 +271,32 @@ func (c *WatchtowerClient) ListTowers(ctx context.Context,
 	// Collect all the legacy client towers. If it has any of the same
 	// towers that the anchors client has, then just add the session info
 	// for the legacy client to the existing tower.
-	for _, tower := range legacyTowers {
-		rpcTower := marshallTower(
-			tower, PolicyType_LEGACY, req.IncludeSessions,
-			ackCounts, committedUpdateCounts,
-		)
-
-		t, ok := rpcTowers[tower.ID]
-		if !ok {
-			rpcTowers[tower.ID] = rpcTower
-			continue
+	rpcTowers := make(map[wtdb.TowerID]*Tower)
+	for blobType, towers := range towersPerBlobType {
+		policyType := PolicyType_LEGACY
+		if blobType.IsAnchorChannel() {
+			policyType = PolicyType_ANCHOR
 		}
 
-		t.SessionInfo = append(t.SessionInfo, rpcTower.SessionInfo...)
-		t.Sessions = append(t.Sessions, rpcTower.Sessions...)
+		for _, tower := range towers {
+			rpcTower := marshallTower(
+				tower, policyType, req.IncludeSessions,
+				ackCounts, committedUpdateCounts,
+			)
+
+			t, ok := rpcTowers[tower.ID]
+			if !ok {
+				rpcTowers[tower.ID] = rpcTower
+				continue
+			}
+
+			t.SessionInfo = append(
+				t.SessionInfo, rpcTower.SessionInfo...,
+			)
+			t.Sessions = append(
+				t.Sessions, rpcTower.Sessions...,
+			)
+		}
 	}
 
 	towers := make([]*Tower, 0, len(rpcTowers))

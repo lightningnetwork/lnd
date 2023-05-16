@@ -99,11 +99,6 @@ type RegisteredTower struct {
 // Client is the primary interface used by the daemon to control a client's
 // lifecycle and backup revoked states.
 type Client interface {
-	// RegisteredTowers retrieves the list of watchtowers registered with
-	// the client.
-	RegisteredTowers(...wtdb.ClientSessionListOption) ([]*RegisteredTower,
-		error)
-
 	// LookupTower retrieves a registered watchtower through its public key.
 	LookupTower(*btcec.PublicKey,
 		...wtdb.ClientSessionListOption) (*RegisteredTower, error)
@@ -1628,9 +1623,9 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 	return nil
 }
 
-// RegisteredTowers retrieves the list of watchtowers registered with the
+// registeredTowers retrieves the list of watchtowers registered with the
 // client.
-func (c *TowerClient) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
+func (c *TowerClient) registeredTowers(opts ...wtdb.ClientSessionListOption) (
 	[]*RegisteredTower, error) {
 
 	// Retrieve all of our towers along with all of our sessions.

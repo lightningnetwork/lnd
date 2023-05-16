@@ -113,8 +113,6 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	chanStateDB *channeldb.ChannelStateDB,
 	sweeper *sweep.UtxoSweeper,
 	tower *watchtower.Standalone,
-	towerClient wtclient.Client,
-	anchorTowerClient wtclient.Client,
 	towerClientMgr wtclient.TowerClientManager,
 	tcpResolver lncfg.TCPResolver,
 	genInvoiceFeatures func() *lnwire.FeatureVector,
@@ -290,15 +288,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 		case *wtclientrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)
 
-			if towerClient != nil && anchorTowerClient != nil {
+			if towerClientMgr != nil {
 				subCfgValue.FieldByName("Active").Set(
-					reflect.ValueOf(towerClient != nil),
-				)
-				subCfgValue.FieldByName("Client").Set(
-					reflect.ValueOf(towerClient),
-				)
-				subCfgValue.FieldByName("AnchorClient").Set(
-					reflect.ValueOf(anchorTowerClient),
+					reflect.ValueOf(towerClientMgr != nil),
 				)
 				subCfgValue.FieldByName("ClientMgr").Set(
 					reflect.ValueOf(towerClientMgr),

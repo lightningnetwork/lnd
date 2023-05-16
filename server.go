@@ -283,10 +283,6 @@ type server struct {
 
 	towerClientMgr *wtclient.Manager
 
-	towerClient wtclient.Client
-
-	anchorTowerClient wtclient.Client
-
 	connMgr *connmgr.ConnManager
 
 	sigPool *lnwallet.SigPool
@@ -1583,7 +1579,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		}
 
 		// Register a legacy tower client.
-		s.towerClient, err = s.towerClientMgr.NewClient(policy)
+		_, err = s.towerClientMgr.NewClient(policy)
 		if err != nil {
 			return nil, err
 		}
@@ -1595,9 +1591,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			blob.Type(blob.FlagAnchorChannel)
 
 		// Register an anchors tower client.
-		s.anchorTowerClient, err = s.towerClientMgr.NewClient(
-			anchorPolicy,
-		)
+		_, err = s.towerClientMgr.NewClient(anchorPolicy)
 		if err != nil {
 			return nil, err
 		}
@@ -3798,8 +3792,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		Invoices:                s.invoices,
 		ChannelNotifier:         s.channelNotifier,
 		HtlcNotifier:            s.htlcNotifier,
-		TowerClient:             s.towerClient,
-		AnchorTowerClient:       s.anchorTowerClient,
+		TowerClient:             s.towerClientMgr,
 		DisconnectPeer:          s.DisconnectPeer,
 		GenNodeAnnouncement:     s.genNodeAnnouncement,
 

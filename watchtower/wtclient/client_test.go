@@ -400,7 +400,6 @@ type testHarness struct {
 	clientDB     *wtmock.ClientDB
 	clientCfg    *wtclient.Config
 	clientPolicy wtpolicy.Policy
-	client       wtclient.Client
 	serverAddr   *lnwire.NetAddress
 	serverDB     *wtmock.TowerDB
 	serverCfg    *wtserver.Config
@@ -593,7 +592,7 @@ func (h *testHarness) startClient() {
 	h.clientMgr, err = wtclient.NewManager(h.clientCfg)
 	require.NoError(h.t, err)
 
-	h.client, err = h.clientMgr.NewClient(h.clientPolicy)
+	_, err = h.clientMgr.NewClient(h.clientPolicy)
 	require.NoError(h.t, err)
 
 	require.NoError(h.t, h.clientMgr.Start())
@@ -698,7 +697,7 @@ func (h *testHarness) registerChannel(id uint64) {
 	h.t.Helper()
 
 	chanID := chanIDFromInt(id)
-	err := h.client.RegisterChannel(chanID)
+	err := h.clientMgr.RegisterChannel(chanID, channeldb.SingleFunderBit)
 	require.NoError(h.t, err)
 }
 
@@ -739,8 +738,8 @@ func (h *testHarness) backupState(id, i uint64, expErr error) {
 
 	chanID := chanIDFromInt(id)
 
-	err := h.client.BackupState(&chanID, retribution.RevokedStateNum)
-	require.ErrorIs(h.t, expErr, err)
+	err := h.clientMgr.BackupState(&chanID, retribution.RevokedStateNum)
+	require.ErrorIs(h.t, err, expErr)
 }
 
 // sendPayments instructs the channel identified by id to send amt to the remote
@@ -1194,6 +1193,7 @@ var clientTests = []clientTest{
 			// Restart the client and allow it to process the
 			// committed update.
 			h.startClient()
+			h.registerChannel(chanID)
 
 			// Wait for the committed update to be accepted by the
 			// tower.
@@ -1495,6 +1495,7 @@ var clientTests = []clientTest{
 			// Restart the client with a new policy.
 			h.clientPolicy.MaxUpdates = 20
 			h.startClient()
+			h.registerChannel(chanID)
 
 			// Now, queue the second half of the retributions.
 			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
@@ -1545,6 +1546,7 @@ var clientTests = []clientTest{
 			// maintained across restarts.
 			require.NoError(h.t, h.clientMgr.Stop())
 			h.startClient()
+			h.registerChannel(chanID)
 
 			// Try to back up the full range of retributions. Only
 			// the second half should actually be sent.
@@ -2115,6 +2117,7 @@ var clientTests = []clientTest{
 			h.clientMgr.ForceQuit()
 			h.startServer()
 			h.startClient()
+			h.registerChannel(chanID)
 
 			// Back up a few more states.
 			h.backupStates(chanID, numUpdates/2, numUpdates, nil)

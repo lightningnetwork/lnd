@@ -454,7 +454,9 @@ func (l *channelLink) Start() error {
 	// If the config supplied watchtower client, ensure the channel is
 	// registered before trying to use it during operation.
 	if l.cfg.TowerClient != nil {
-		err := l.cfg.TowerClient.RegisterChannel(l.ChanID())
+		err := l.cfg.TowerClient.RegisterChannel(
+			l.ChanID(), l.channel.State().ChanType,
+		)
 		if err != nil {
 			return err
 		}

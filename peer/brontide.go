@@ -250,12 +250,8 @@ type Config struct {
 	// HtlcNotifier is used when creating a ChannelLink.
 	HtlcNotifier *htlcswitch.HtlcNotifier
 
-	// TowerClient is used by legacy channels to backup revoked states.
-	TowerClient wtclient.Client
-
-	// AnchorTowerClient is used by anchor channels to backup revoked
-	// states.
-	AnchorTowerClient wtclient.Client
+	// TowerClient is used to backup revoked states.
+	TowerClient wtclient.TowerClientManager
 
 	// DisconnectPeer is used to disconnect this peer if the cooperative close
 	// process fails.
@@ -970,8 +966,6 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 				"are not yet taproot channel compatible",
 				chanPoint)
 		}
-	case chanType.HasAnchors():
-		towerClient = p.cfg.AnchorTowerClient
 	default:
 		towerClient = p.cfg.TowerClient
 	}

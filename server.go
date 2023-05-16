@@ -1516,6 +1516,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			sessionCloseRange = cfg.WtClient.SessionCloseRange
 		}
 
+		maxTasksInMemQueue := uint64(wtclient.DefaultMaxTasksInMemQueue)
+		if cfg.WtClient.MaxTasksInMemQueue != 0 {
+			maxTasksInMemQueue = cfg.WtClient.MaxTasksInMemQueue
+		}
+
 		if err := policy.Validate(); err != nil {
 			return nil, err
 		}
@@ -1568,17 +1573,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				return s.channelNotifier.
 					SubscribeChannelEvents()
 			},
-			Signer:         cc.Wallet.Cfg.Signer,
-			NewAddress:     newSweepPkScriptGen(cc.Wallet),
-			SecretKeyRing:  s.cc.KeyRing,
-			Dial:           cfg.net.Dial,
-			AuthDial:       authDial,
-			DB:             dbs.TowerClientDB,
-			Policy:         policy,
-			ChainHash:      *s.cfg.ActiveNetParams.GenesisHash,
-			MinBackoff:     10 * time.Second,
-			MaxBackoff:     5 * time.Minute,
-			ForceQuitDelay: wtclient.DefaultForceQuitDelay,
+			Signer:             cc.Wallet.Cfg.Signer,
+			NewAddress:         newSweepPkScriptGen(cc.Wallet),
+			SecretKeyRing:      s.cc.KeyRing,
+			Dial:               cfg.net.Dial,
+			AuthDial:           authDial,
+			DB:                 dbs.TowerClientDB,
+			Policy:             policy,
+			ChainHash:          *s.cfg.ActiveNetParams.GenesisHash,
+			MinBackoff:         10 * time.Second,
+			MaxBackoff:         5 * time.Minute,
+			ForceQuitDelay:     wtclient.DefaultForceQuitDelay,
+			MaxTasksInMemQueue: maxTasksInMemQueue,
 		})
 		if err != nil {
 			return nil, err
@@ -1601,17 +1607,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				return s.channelNotifier.
 					SubscribeChannelEvents()
 			},
-			Signer:         cc.Wallet.Cfg.Signer,
-			NewAddress:     newSweepPkScriptGen(cc.Wallet),
-			SecretKeyRing:  s.cc.KeyRing,
-			Dial:           cfg.net.Dial,
-			AuthDial:       authDial,
-			DB:             dbs.TowerClientDB,
-			Policy:         anchorPolicy,
-			ChainHash:      *s.cfg.ActiveNetParams.GenesisHash,
-			MinBackoff:     10 * time.Second,
-			MaxBackoff:     5 * time.Minute,
-			ForceQuitDelay: wtclient.DefaultForceQuitDelay,
+			Signer:             cc.Wallet.Cfg.Signer,
+			NewAddress:         newSweepPkScriptGen(cc.Wallet),
+			SecretKeyRing:      s.cc.KeyRing,
+			Dial:               cfg.net.Dial,
+			AuthDial:           authDial,
+			DB:                 dbs.TowerClientDB,
+			Policy:             anchorPolicy,
+			ChainHash:          *s.cfg.ActiveNetParams.GenesisHash,
+			MinBackoff:         10 * time.Second,
+			MaxBackoff:         5 * time.Minute,
+			ForceQuitDelay:     wtclient.DefaultForceQuitDelay,
+			MaxTasksInMemQueue: maxTasksInMemQueue,
 		})
 		if err != nil {
 			return nil, err

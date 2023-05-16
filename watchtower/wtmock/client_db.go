@@ -49,6 +49,8 @@ type ClientDB struct {
 	nextIndex     uint32
 	indexes       map[keyIndexKey]uint32
 	legacyIndexes map[wtdb.TowerID]uint32
+
+	queues map[string]wtdb.Queue[*wtdb.BackupID]
 }
 
 // NewClientDB initializes a new mock ClientDB.
@@ -68,6 +70,7 @@ func NewClientDB() *ClientDB {
 		indexes:          make(map[keyIndexKey]uint32),
 		legacyIndexes:    make(map[wtdb.TowerID]uint32),
 		closableSessions: make(map[wtdb.SessionID]uint32),
+		queues:           make(map[string]wtdb.Queue[*wtdb.BackupID]),
 	}
 }
 
@@ -566,6 +569,21 @@ func (m *ClientDB) AckUpdate(id *wtdb.SessionID, seqNum,
 	}
 
 	return wtdb.ErrCommittedUpdateNotFound
+}
+
+// GetDBQueue returns a BackupID Queue instance under the given name space.
+func (m *ClientDB) GetDBQueue(namespace []byte) wtdb.Queue[*wtdb.BackupID] {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if q, ok := m.queues[string(namespace)]; ok {
+		return q
+	}
+
+	q := NewQueueDB[*wtdb.BackupID]()
+	m.queues[string(namespace)] = q
+
+	return q
 }
 
 // ListClosableSessions fetches and returns the IDs for all sessions marked as

@@ -509,12 +509,13 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		NewAddress: func() ([]byte, error) {
 			return addrScript, nil
 		},
-		ReadTimeout:       timeout,
-		WriteTimeout:      timeout,
-		MinBackoff:        time.Millisecond,
-		MaxBackoff:        time.Second,
-		ForceQuitDelay:    10 * time.Second,
-		SessionCloseRange: 1,
+		ReadTimeout:        timeout,
+		WriteTimeout:       timeout,
+		MinBackoff:         time.Millisecond,
+		MaxBackoff:         time.Second,
+		ForceQuitDelay:     10 * time.Second,
+		SessionCloseRange:  1,
+		MaxTasksInMemQueue: 2,
 	}
 
 	h.clientCfg.BuildBreachRetribution = func(id lnwire.ChannelID,
@@ -1094,10 +1095,6 @@ var clientTests = []clientTest{
 			hints := h.advanceChannelN(chanID, numUpdates)
 			h.backupStates(chanID, 0, numUpdates, nil)
 
-			// Stop the client in the background, to assert the
-			// pipeline is always flushed before it exits.
-			go h.client.Stop()
-
 			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, time.Second)
@@ -1238,10 +1235,6 @@ var clientTests = []clientTest{
 			// Now, queue the retributions for backup.
 			h.backupStates(chanID, 0, numUpdates, nil)
 
-			// Stop the client in the background, to assert the
-			// pipeline is always flushed before it exits.
-			go h.client.Stop()
-
 			// Give the client time to saturate a large number of
 			// session queues for which the server has not acked the
 			// state updates that it has received.
@@ -1346,9 +1339,6 @@ var clientTests = []clientTest{
 				h.backupStates(id, 0, numUpdates, nil)
 			}
 
-			// Test reliable flush under multi-client scenario.
-			go h.client.Stop()
-
 			// Wait for all the updates to be populated in the
 			// server's database.
 			h.waitServerUpdates(hints, 10*time.Second)
@@ -1394,9 +1384,6 @@ var clientTests = []clientTest{
 			// immediately try to overwrite the old session with an
 			// identical one.
 			h.startClient()
-
-			// Now, queue the retributions for backup.
-			h.backupStates(chanID, 0, numUpdates, nil)
 
 			// Wait for all the updates to be populated in the
 			// server's database.
@@ -1448,9 +1435,6 @@ var clientTests = []clientTest{
 			// the old policy.
 			h.clientCfg.Policy.SweepFeeRate *= 2
 			h.startClient()
-
-			// Now, queue the retributions for backup.
-			h.backupStates(chanID, 0, numUpdates, nil)
 
 			// Wait for all the updates to be populated in the
 			// server's database.
@@ -2037,7 +2021,7 @@ var clientTests = []clientTest{
 		},
 	},
 	{
-		// Demonstrate that the client is unable to recover after
+		// Demonstrate that the client is able to recover after
 		// deleting its database by skipping through key indices until
 		// it gets to one that does not result in the
 		// CreateSessionCodeAlreadyExists error code being returned from
@@ -2086,6 +2070,51 @@ var clientTests = []clientTest{
 
 			// Show that the server does get the remaining updates.
 			h.waitServerUpdates(hints[numUpdates/2:], waitTime)
+		},
+	},
+	{
+		// This test demonstrates that if there is no active session,
+		// the updates are persisted to disk on restart and reliably
+		// sent.
+		name: "in-mem updates not lost on restart",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+			// noServerStart ensures that the server does not
+			// automatically start on creation of the test harness.
+			// This ensures that the client does not initially have
+			// any active sessions.
+			noServerStart: true,
+		},
+		fn: func(h *testHarness) {
+			const (
+				chanID     = 0
+				numUpdates = 5
+			)
+
+			// Try back up the first few states of the client's
+			// channel. Since the server has not yet started, the
+			// client should have no active session yet and so these
+			// updates will just be kept in an in-memory queue.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			h.backupStates(chanID, 0, numUpdates/2, nil)
+
+			// Restart the Client (force quit). And also now start
+			// the server.
+			h.client.ForceQuit()
+			h.startServer()
+			h.startClient()
+
+			// Back up a few more states.
+			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
+
+			// Assert that the server does receive ALL the updates.
+			h.waitServerUpdates(hints[0:numUpdates], waitTime)
 		},
 	},
 }

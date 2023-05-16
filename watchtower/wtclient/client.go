@@ -99,13 +99,6 @@ type RegisteredTower struct {
 // Client is the primary interface used by the daemon to control a client's
 // lifecycle and backup revoked states.
 type Client interface {
-	// RemoveTower removes a watchtower from being considered for future
-	// session negotiations and from being used for any subsequent backups
-	// until it's added again. If an address is provided, then this call
-	// only serves as a way of removing the address from the watchtower
-	// instead.
-	RemoveTower(*btcec.PublicKey, net.Addr) error
-
 	// RegisteredTowers retrieves the list of watchtowers registered with
 	// the client.
 	RegisteredTowers(...wtdb.ClientSessionListOption) ([]*RegisteredTower,
@@ -158,6 +151,9 @@ type newTowerMsg struct {
 // staleTowerMsg is an internal message we'll use within the TowerClient to
 // signal that a tower should no longer be considered.
 type staleTowerMsg struct {
+	// id is the unique database identifier for the tower.
+	id wtdb.TowerID
+
 	// pubKey is the identifying public key of the watchtower.
 	pubKey *btcec.PublicKey
 
@@ -1559,17 +1555,18 @@ func (c *TowerClient) handleNewTower(tower *Tower) error {
 	return nil
 }
 
-// RemoveTower removes a watchtower from being considered for future session
+// removeTower removes a watchtower from being considered for future session
 // negotiations and from being used for any subsequent backups until it's added
 // again. If an address is provided, then this call only serves as a way of
 // removing the address from the watchtower instead.
-func (c *TowerClient) RemoveTower(pubKey *btcec.PublicKey,
+func (c *TowerClient) removeTower(id wtdb.TowerID, pubKey *btcec.PublicKey,
 	addr net.Addr) error {
 
 	errChan := make(chan error, 1)
 
 	select {
 	case c.staleTowers <- &staleTowerMsg{
+		id:      id,
 		pubKey:  pubKey,
 		addr:    addr,
 		errChan: errChan,
@@ -1591,33 +1588,12 @@ func (c *TowerClient) RemoveTower(pubKey *btcec.PublicKey,
 // and removed as candidates. If the active session queue corresponds to any of
 // these sessions, a new one will be negotiated.
 func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
-	// We'll load the tower before potentially removing it in order to
-	// retrieve its ID within the database.
-	dbTower, err := c.cfg.DB.LoadTower(msg.pubKey)
-	if err != nil {
-		return err
-	}
-
 	// We'll first update our in-memory state followed by our persisted
 	// state, with the stale tower. The removal of the tower address from
 	// the in-memory state will fail if the address is currently being used
 	// for a session negotiation.
-	err = c.candidateTowers.RemoveCandidate(dbTower.ID, msg.addr)
+	err := c.candidateTowers.RemoveCandidate(msg.id, msg.addr)
 	if err != nil {
-		return err
-	}
-
-	if err := c.cfg.DB.RemoveTower(msg.pubKey, msg.addr); err != nil {
-		// If the persisted state update fails, re-add the address to
-		// our in-memory state.
-		tower, newTowerErr := NewTowerFromDBTower(dbTower)
-		if newTowerErr != nil {
-			log.Errorf("could not create new in-memory tower: %v",
-				newTowerErr)
-		} else {
-			c.candidateTowers.AddCandidate(tower)
-		}
-
 		return err
 	}
 
@@ -1630,7 +1606,7 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 	// Otherwise, the tower should no longer be used for future session
 	// negotiations and backups.
 	pubKey := msg.pubKey.SerializeCompressed()
-	sessions, err := c.cfg.DB.ListClientSessions(&dbTower.ID)
+	sessions, err := c.cfg.DB.ListClientSessions(&msg.id)
 	if err != nil {
 		return fmt.Errorf("unable to retrieve sessions for tower %x: "+
 			"%v", pubKey, err)

@@ -2,9 +2,11 @@ package wtclient
 
 import (
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -24,6 +26,13 @@ type TowerClientManager interface {
 	// any new addresses included will be considered when dialing it for
 	// session negotiations and backups.
 	AddTower(*lnwire.NetAddress) error
+
+	// RemoveTower removes a watchtower from being considered for future
+	// session negotiations and from being used for any subsequent backups
+	// until it's added again. If an address is provided, then this call
+	// only serves as a way of removing the address from the watchtower
+	// instead.
+	RemoveTower(*btcec.PublicKey, net.Addr) error
 }
 
 // Config provides the TowerClient with access to the resources it requires to
@@ -251,6 +260,53 @@ func (m *Manager) AddTower(address *lnwire.NetAddress) error {
 		if err := client.addTower(tower); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// RemoveTower removes a watchtower from being considered for future session
+// negotiations and from being used for any subsequent backups until it's added
+// again. If an address is provided, then this call only serves as a way of
+// removing the address from the watchtower instead.
+func (m *Manager) RemoveTower(key *btcec.PublicKey, addr net.Addr) error {
+	// We'll load the tower before potentially removing it in order to
+	// retrieve its ID within the database.
+	dbTower, err := m.cfg.DB.LoadTower(key)
+	if err != nil {
+		return err
+	}
+
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+
+	for _, client := range m.clients {
+		err := client.removeTower(dbTower.ID, key, addr)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := m.cfg.DB.RemoveTower(key, addr); err != nil {
+		// If the persisted state update fails, re-add the address to
+		// our client's in-memory state.
+		tower, newTowerErr := NewTowerFromDBTower(dbTower)
+		if newTowerErr != nil {
+			log.Errorf("could not create new in-memory tower: %v",
+				newTowerErr)
+
+			return err
+		}
+
+		for _, client := range m.clients {
+			addTowerErr := client.addTower(tower)
+			if err != nil {
+				log.Errorf("could not re-add tower: %v",
+					addTowerErr)
+			}
+		}
+
+		return err
 	}
 
 	return nil

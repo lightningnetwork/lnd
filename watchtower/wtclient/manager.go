@@ -1,6 +1,7 @@
 package wtclient
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -10,6 +11,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/subscribe"
@@ -50,6 +53,18 @@ type TowerClientManager interface {
 	// LookupTower retrieves a registered watchtower through its public key.
 	LookupTower(*btcec.PublicKey, ...wtdb.ClientSessionListOption) (
 		map[blob.Type]*RegisteredTower, error)
+
+	// RegisterChannel persistently initializes any channel-dependent
+	// parameters within the client. This should be called during link
+	// startup to ensure that the client is able to support the link during
+	// operation.
+	RegisterChannel(lnwire.ChannelID, channeldb.ChannelType) error
+
+	// BackupState initiates a request to back up a particular revoked
+	// state. If the method returns nil, the backup is guaranteed to be
+	// successful unless the justice transaction would create dust outputs
+	// when trying to abide by the negotiated policy.
+	BackupState(chanID *lnwire.ChannelID, stateNum uint64) error
 }
 
 // Config provides the TowerClient with access to the resources it requires to
@@ -143,6 +158,15 @@ type Manager struct {
 
 	clients   map[blob.Type]*TowerClient
 	clientsMu sync.Mutex
+
+	backupMu     sync.Mutex
+	chanInfos    wtdb.ChannelInfos
+	chanBlobType map[lnwire.ChannelID]blob.Type
+
+	closableSessionQueue *sessionCloseMinHeap
+
+	wg   sync.WaitGroup
+	quit chan struct{}
 }
 
 var _ TowerClientManager = (*Manager)(nil)
@@ -163,9 +187,18 @@ func NewManager(config *Config) (*Manager, error) {
 		cfg.WriteTimeout = DefaultWriteTimeout
 	}
 
+	chanInfos, err := cfg.DB.FetchChanInfos()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Manager{
-		cfg:     &cfg,
-		clients: make(map[blob.Type]*TowerClient),
+		cfg:                  &cfg,
+		clients:              make(map[blob.Type]*TowerClient),
+		chanBlobType:         make(map[lnwire.ChannelID]blob.Type),
+		chanInfos:            chanInfos,
+		closableSessionQueue: newSessionCloseMinHeap(),
+		quit:                 make(chan struct{}),
 	}, nil
 }
 
@@ -182,8 +215,9 @@ func (m *Manager) NewClient(policy wtpolicy.Policy) (*TowerClient, error) {
 	}
 
 	cfg := &towerClientCfg{
-		Config: m.cfg,
-		Policy: policy,
+		Config:         m.cfg,
+		Policy:         policy,
+		getSweepScript: m.getSweepScript,
 	}
 
 	client, err := newTowerClient(cfg)
@@ -200,6 +234,71 @@ func (m *Manager) NewClient(policy wtpolicy.Policy) (*TowerClient, error) {
 func (m *Manager) Start() error {
 	var returnErr error
 	m.started.Do(func() {
+		chanSub, err := m.cfg.SubscribeChannelEvents()
+		if err != nil {
+			returnErr = err
+
+			return
+		}
+
+		// Iterate over the list of registered channels and check if any
+		// of them can be marked as closed.
+		for id := range m.chanInfos {
+			isClosed, closedHeight, err := m.isChannelClosed(id)
+			if err != nil {
+				returnErr = err
+
+				return
+			}
+
+			if !isClosed {
+				continue
+			}
+
+			_, err = m.cfg.DB.MarkChannelClosed(id, closedHeight)
+			if err != nil {
+				log.Errorf("could not mark channel(%s) as "+
+					"closed: %v", id, err)
+
+				continue
+			}
+
+			// Since the channel has been marked as closed, we can
+			// also remove it from the channel summaries map.
+			delete(m.chanInfos, id)
+		}
+
+		// Load all closable sessions.
+		closableSessions, err := m.cfg.DB.ListClosableSessions()
+		if err != nil {
+			returnErr = err
+
+			return
+		}
+
+		err = m.trackClosableSessions(closableSessions)
+		if err != nil {
+			returnErr = err
+
+			return
+		}
+
+		m.wg.Add(1)
+		go m.handleChannelCloses(chanSub)
+
+		// Subscribe to new block events.
+		blockEvents, err := m.cfg.ChainNotifier.RegisterBlockEpochNtfn(
+			nil,
+		)
+		if err != nil {
+			returnErr = err
+
+			return
+		}
+
+		m.wg.Add(1)
+		go m.handleClosableSessions(blockEvents)
+
 		m.clientsMu.Lock()
 		defer m.clientsMu.Unlock()
 
@@ -220,6 +319,9 @@ func (m *Manager) Stop() error {
 	m.stopped.Do(func() {
 		m.clientsMu.Lock()
 		defer m.clientsMu.Unlock()
+
+		close(m.quit)
+		m.wg.Wait()
 
 		for _, client := range m.clients {
 			if err := client.stop(); err != nil {
@@ -401,4 +503,388 @@ func (m *Manager) Policy(blobType blob.Type) (wtpolicy.Policy, error) {
 	}
 
 	return client.policy(), nil
+}
+
+// RegisterChannel persistently initializes any channel-dependent parameters
+// within the client. This should be called during link startup to ensure that
+// the client is able to support the link during operation.
+func (m *Manager) RegisterChannel(id lnwire.ChannelID,
+	chanType channeldb.ChannelType) error {
+
+	blobType := blob.TypeAltruistCommit
+	if chanType.HasAnchors() {
+		blobType = blob.TypeAltruistAnchorCommit
+	}
+
+	m.clientsMu.Lock()
+	if _, ok := m.clients[blobType]; !ok {
+		m.clientsMu.Unlock()
+
+		return fmt.Errorf("no client registered for blob type %s",
+			blobType)
+	}
+	m.clientsMu.Unlock()
+
+	m.backupMu.Lock()
+	defer m.backupMu.Unlock()
+
+	// If a pkscript for this channel already exists, the channel has been
+	// previously registered.
+	if _, ok := m.chanInfos[id]; ok {
+		// Keep track of which blob type this channel will use for
+		// updates.
+		m.chanBlobType[id] = blobType
+
+		return nil
+	}
+
+	// Otherwise, generate a new sweep pkscript used to sweep funds for this
+	// channel.
+	pkScript, err := m.cfg.NewAddress()
+	if err != nil {
+		return err
+	}
+
+	// Persist the sweep pkscript so that restarts will not introduce
+	// address inflation when the channel is reregistered after a restart.
+	err = m.cfg.DB.RegisterChannel(id, pkScript)
+	if err != nil {
+		return err
+	}
+
+	// Finally, cache the pkscript in our in-memory cache to avoid db
+	// lookups for the remainder of the daemon's execution.
+	m.chanInfos[id] = &wtdb.ChannelInfo{
+		ClientChanSummary: wtdb.ClientChanSummary{
+			SweepPkScript: pkScript,
+		},
+	}
+
+	// Keep track of which blob type this channel will use for updates.
+	m.chanBlobType[id] = blobType
+
+	return nil
+}
+
+// BackupState initiates a request to back up a particular revoked state. If the
+// method returns nil, the backup is guaranteed to be successful unless the
+// justice transaction would create dust outputs when trying to abide by the
+// negotiated policy.
+func (m *Manager) BackupState(chanID *lnwire.ChannelID, stateNum uint64) error {
+	select {
+	case <-m.quit:
+		return ErrClientExiting
+	default:
+	}
+
+	// Make sure that this channel is registered with the tower client.
+	m.backupMu.Lock()
+	info, ok := m.chanInfos[*chanID]
+	if !ok {
+		m.backupMu.Unlock()
+
+		return ErrUnregisteredChannel
+	}
+
+	// Ignore backups that have already been presented to the client.
+	var duplicate bool
+	info.MaxHeight.WhenSome(func(maxHeight uint64) {
+		if stateNum <= maxHeight {
+			duplicate = true
+		}
+	})
+	if duplicate {
+		m.backupMu.Unlock()
+
+		log.Debugf("Ignoring duplicate backup for chanid=%v at "+
+			"height=%d", chanID, stateNum)
+
+		return nil
+	}
+
+	// This backup has a higher commit height than any known backup for this
+	// channel. We'll update our tip so that we won't accept it again if the
+	// link flaps.
+	m.chanInfos[*chanID].MaxHeight = fn.Some(stateNum)
+
+	blobType, ok := m.chanBlobType[*chanID]
+	if !ok {
+		m.backupMu.Unlock()
+
+		return ErrUnregisteredChannel
+	}
+	m.backupMu.Unlock()
+
+	m.clientsMu.Lock()
+	client, ok := m.clients[blobType]
+	if !ok {
+		m.clientsMu.Unlock()
+
+		return fmt.Errorf("no client registered for blob type %s",
+			blobType)
+	}
+	m.clientsMu.Unlock()
+
+	return client.backupState(chanID, stateNum)
+}
+
+// isChanClosed can be used to check if the channel with the given ID has been
+// closed. If it has been, the block height in which its closing transaction was
+// mined will also be returned.
+func (m *Manager) isChannelClosed(id lnwire.ChannelID) (bool, uint32,
+	error) {
+
+	chanSum, err := m.cfg.FetchClosedChannel(id)
+	if errors.Is(err, channeldb.ErrClosedChannelNotFound) {
+		return false, 0, nil
+	} else if err != nil {
+		return false, 0, err
+	}
+
+	return true, chanSum.CloseHeight, nil
+}
+
+// trackClosableSessions takes in a map of session IDs to the earliest block
+// height at which the session should be deleted. For each of the sessions,
+// a random delay is added to the block height and the session is added to the
+// closableSessionQueue.
+func (m *Manager) trackClosableSessions(
+	sessions map[wtdb.SessionID]uint32) error {
+
+	// For each closable session, add a random delay to its close
+	// height and add it to the closableSessionQueue.
+	for sID, blockHeight := range sessions {
+		delay, err := newRandomDelay(m.cfg.SessionCloseRange)
+		if err != nil {
+			return err
+		}
+
+		deleteHeight := blockHeight + delay
+
+		m.closableSessionQueue.Push(&sessionCloseItem{
+			sessionID:    sID,
+			deleteHeight: deleteHeight,
+		})
+	}
+
+	return nil
+}
+
+// handleChannelCloses listens for channel close events and marks channels as
+// closed in the DB.
+//
+// NOTE: This method MUST be run as a goroutine.
+func (m *Manager) handleChannelCloses(chanSub subscribe.Subscription) {
+	defer m.wg.Done()
+
+	log.Debugf("Starting channel close handler")
+	defer log.Debugf("Stopping channel close handler")
+
+	for {
+		select {
+		case update, ok := <-chanSub.Updates():
+			if !ok {
+				log.Debugf("Channel notifier has exited")
+				return
+			}
+
+			// We only care about channel-close events.
+			event, ok := update.(channelnotifier.ClosedChannelEvent)
+			if !ok {
+				continue
+			}
+
+			chanID := lnwire.NewChanIDFromOutPoint(
+				&event.CloseSummary.ChanPoint,
+			)
+
+			log.Debugf("Received ClosedChannelEvent for "+
+				"channel: %s", chanID)
+
+			err := m.handleClosedChannel(
+				chanID, event.CloseSummary.CloseHeight,
+			)
+			if err != nil {
+				log.Errorf("Could not handle channel close "+
+					"event for channel(%s): %v", chanID,
+					err)
+			}
+
+		case <-m.quit:
+			return
+		}
+	}
+}
+
+// handleClosedChannel handles the closure of a single channel. It will mark the
+// channel as closed in the DB, then it will handle all the sessions that are
+// now closable due to the channel closure.
+func (m *Manager) handleClosedChannel(chanID lnwire.ChannelID,
+	closeHeight uint32) error {
+
+	m.backupMu.Lock()
+	defer m.backupMu.Unlock()
+
+	// We only care about channels registered with the tower client.
+	if _, ok := m.chanInfos[chanID]; !ok {
+		return nil
+	}
+
+	log.Debugf("Marking channel(%s) as closed", chanID)
+
+	sessions, err := m.cfg.DB.MarkChannelClosed(chanID, closeHeight)
+	if err != nil {
+		return fmt.Errorf("could not mark channel(%s) as closed: %w",
+			chanID, err)
+	}
+
+	closableSessions := make(map[wtdb.SessionID]uint32, len(sessions))
+	for _, sess := range sessions {
+		closableSessions[sess] = closeHeight
+	}
+
+	log.Debugf("Tracking %d new closable sessions as a result of "+
+		"closing channel %s", len(closableSessions), chanID)
+
+	err = m.trackClosableSessions(closableSessions)
+	if err != nil {
+		return fmt.Errorf("could not track closable sessions: %w", err)
+	}
+
+	delete(m.chanInfos, chanID)
+
+	return nil
+}
+
+// handleClosableSessions listens for new block notifications. For each block,
+// it checks the closableSessionQueue to see if there is a closable session with
+// a delete-height smaller than or equal to the new block, if there is then the
+// tower is informed that it can delete the session, and then we also delete it
+// from our DB.
+func (m *Manager) handleClosableSessions(
+	blocksChan *chainntnfs.BlockEpochEvent) {
+
+	defer m.wg.Done()
+
+	log.Debug("Starting closable sessions handler")
+	defer log.Debug("Stopping closable sessions handler")
+
+	for {
+		select {
+		case newBlock := <-blocksChan.Epochs:
+			if newBlock == nil {
+				return
+			}
+
+			height := uint32(newBlock.Height)
+			for {
+				select {
+				case <-m.quit:
+					return
+				default:
+				}
+
+				// If there are no closable sessions that we
+				// need to handle, then we are done and can
+				// reevaluate when the next block comes.
+				item := m.closableSessionQueue.Top()
+				if item == nil {
+					break
+				}
+
+				// If there is closable session but the delete
+				// height we have set for it is after the
+				// current block height, then our work is done.
+				if item.deleteHeight > height {
+					break
+				}
+
+				// Otherwise, we pop this item from the heap
+				// and handle it.
+				m.closableSessionQueue.Pop()
+
+				// Fetch the session from the DB so that we can
+				// extract the Tower info.
+				sess, err := m.cfg.DB.GetClientSession(
+					item.sessionID,
+				)
+				if err != nil {
+					log.Errorf("error calling "+
+						"GetClientSession for "+
+						"session %s: %v",
+						item.sessionID, err)
+
+					continue
+				}
+
+				// get appropriate client.
+				m.clientsMu.Lock()
+				client, ok := m.clients[sess.Policy.BlobType]
+				if !ok {
+					m.clientsMu.Unlock()
+					log.Errorf("no client currently " +
+						"active for the session type")
+
+					continue
+				}
+				m.clientsMu.Unlock()
+
+				clientName, err := client.policy().BlobType.
+					Identifier()
+				if err != nil {
+					log.Errorf("could not get client "+
+						"identifier: %v", err)
+
+					continue
+				}
+
+				// Stop the session and remove it from the
+				// in-memory set.
+				err = client.stopAndRemoveSession(
+					item.sessionID,
+				)
+				if err != nil {
+					log.Errorf("could not remove "+
+						"session(%s) from in-memory "+
+						"set of the %s client: %v",
+						item.sessionID, clientName, err)
+
+					continue
+				}
+
+				err = client.deleteSessionFromTower(sess)
+				if err != nil {
+					log.Errorf("error deleting "+
+						"session %s from tower: %v",
+						sess.ID, err)
+
+					continue
+				}
+
+				err = m.cfg.DB.DeleteSession(item.sessionID)
+				if err != nil {
+					log.Errorf("could not delete "+
+						"session(%s) from DB: %w",
+						sess.ID, err)
+
+					continue
+				}
+			}
+
+		case <-m.quit:
+			return
+		}
+	}
+}
+
+func (m *Manager) getSweepScript(id lnwire.ChannelID) ([]byte, bool) {
+	m.backupMu.Lock()
+	defer m.backupMu.Unlock()
+
+	summary, ok := m.chanInfos[id]
+	if !ok {
+		return nil, false
+	}
+
+	return summary.SweepPkScript, true
 }

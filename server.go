@@ -284,10 +284,6 @@ type server struct {
 
 	towerClientMgr *wtclient.Manager
 
-	towerClient wtclient.Client
-
-	anchorTowerClient wtclient.Client
-
 	connMgr *connmgr.ConnManager
 
 	sigPool *lnwallet.SigPool
@@ -1577,7 +1573,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		}
 
 		// Register a legacy tower client.
-		s.towerClient, err = s.towerClientMgr.NewClient(policy)
+		_, err = s.towerClientMgr.NewClient(policy)
 		if err != nil {
 			return nil, err
 		}
@@ -1589,9 +1585,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			blob.Type(blob.FlagAnchorChannel)
 
 		// Register an anchors tower client.
-		s.anchorTowerClient, err = s.towerClientMgr.NewClient(
-			anchorPolicy,
-		)
+		_, err = s.towerClientMgr.NewClient(anchorPolicy)
 		if err != nil {
 			return nil, err
 		}
@@ -3782,6 +3776,17 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		}
 	}
 
+	// If we directly set the peer.Config TowerClient member to the
+	// s.towerClientMgr then in the case that the s.towerClientMgr is nil,
+	// the peer.Config's TowerClient member will not evaluate to nil even
+	// though the underlying value is nil. To avoid this gotcha which can
+	// cause a panic, we need to explicitly pass nil to the peer.Config's
+	// TowerClient if needed.
+	var towerClient wtclient.TowerClientManager
+	if s.towerClientMgr != nil {
+		towerClient = s.towerClientMgr
+	}
+
 	// Now that we've established a connection, create a peer, and it to the
 	// set of currently active peers. Configure the peer with the incoming
 	// and outgoing broadcast deltas to prevent htlcs from being accepted or
@@ -3820,8 +3825,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		Invoices:                s.invoices,
 		ChannelNotifier:         s.channelNotifier,
 		HtlcNotifier:            s.htlcNotifier,
-		TowerClient:             s.towerClient,
-		AnchorTowerClient:       s.anchorTowerClient,
+		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement, error) {

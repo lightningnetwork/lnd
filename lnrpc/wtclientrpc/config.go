@@ -15,14 +15,6 @@ type Config struct {
 	// Active indicates if the watchtower client is enabled.
 	Active bool
 
-	// Client is the backing watchtower client that we'll interact with
-	// through the watchtower RPC subserver.
-	Client wtclient.Client
-
-	// AnchorClient is the backing watchtower client for anchor channels that
-	// we'll interact through the watchtower RPC subserver.
-	AnchorClient wtclient.Client
-
 	// ClientMgr is a tower client manager that manages a set of tower
 	// clients.
 	ClientMgr wtclient.TowerClientManager

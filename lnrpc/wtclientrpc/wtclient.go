@@ -16,9 +16,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower"
+	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
-	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
@@ -432,15 +432,20 @@ func (c *WatchtowerClient) Policy(ctx context.Context,
 		return nil, err
 	}
 
-	var policy wtpolicy.Policy
+	var blobType blob.Type
 	switch req.PolicyType {
 	case PolicyType_LEGACY:
-		policy = c.cfg.Client.Policy()
+		blobType = blob.TypeAltruistCommit
 	case PolicyType_ANCHOR:
-		policy = c.cfg.AnchorClient.Policy()
+		blobType = blob.TypeAltruistAnchorCommit
 	default:
 		return nil, fmt.Errorf("unknown policy type: %v",
 			req.PolicyType)
+	}
+
+	policy, err := c.cfg.ClientMgr.Policy(blobType)
+	if err != nil {
+		return nil, err
 	}
 
 	return &PolicyResponse{

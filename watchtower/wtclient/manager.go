@@ -38,6 +38,9 @@ type TowerClientManager interface {
 	// Stats returns the in-memory statistics of the client since startup.
 	Stats() ClientStats
 
+	// Policy returns the active client policy configuration.
+	Policy(blob.Type) (wtpolicy.Policy, error)
+
 	// RegisteredTowers retrieves the list of watchtowers registered with
 	// the client. It returns a set of registered towers per client policy
 	// type.
@@ -360,7 +363,7 @@ func (m *Manager) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
 			return nil, err
 		}
 
-		resp[client.Policy().BlobType] = towers
+		resp[client.policy().BlobType] = towers
 	}
 
 	return resp, nil
@@ -381,8 +384,23 @@ func (m *Manager) LookupTower(key *btcec.PublicKey,
 			return nil, err
 		}
 
-		resp[client.Policy().BlobType] = tower
+		resp[client.policy().BlobType] = tower
 	}
 
 	return resp, nil
+}
+
+// Policy returns the active client policy configuration for the client using
+// the given blob type.
+func (m *Manager) Policy(blobType blob.Type) (wtpolicy.Policy, error) {
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+
+	var policy wtpolicy.Policy
+	client, ok := m.clients[blobType]
+	if !ok {
+		return policy, fmt.Errorf("no client for the given blob type")
+	}
+
+	return client.policy(), nil
 }

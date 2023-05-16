@@ -16,6 +16,16 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
+// TowerClientManager is the primary interface used by the daemon to control a
+// client's lifecycle and backup revoked states.
+type TowerClientManager interface {
+	// AddTower adds a new watchtower reachable at the given address and
+	// considers it for new sessions. If the watchtower already exists, then
+	// any new addresses included will be considered when dialing it for
+	// session negotiations and backups.
+	AddTower(*lnwire.NetAddress) error
+}
+
 // Config provides the TowerClient with access to the resources it requires to
 // perform its duty. All nillable fields must be non-nil for the tower to be
 // initialized properly.
@@ -116,6 +126,8 @@ type Manager struct {
 	clientsMu sync.Mutex
 }
 
+var _ TowerClientManager = (*Manager)(nil)
+
 // NewManager constructs a new Manager.
 func NewManager(config *Config) (*Manager, error) {
 	// Copy the config to prevent side effects from modifying both the
@@ -199,4 +211,35 @@ func (m *Manager) Stop() error {
 	})
 
 	return returnErr
+}
+
+// AddTower adds a new watchtower reachable at the given address and considers
+// it for new sessions. If the watchtower already exists, then any new addresses
+// included will be considered when dialing it for session negotiations and
+// backups.
+func (m *Manager) AddTower(address *lnwire.NetAddress) error {
+	// We'll start by updating our persisted state, followed by the
+	// in-memory state of each client, with the new tower. This might not
+	// actually be a new tower, but it might include a new address at which
+	// it can be reached.
+	dbTower, err := m.cfg.DB.CreateTower(address)
+	if err != nil {
+		return err
+	}
+
+	tower, err := NewTowerFromDBTower(dbTower)
+	if err != nil {
+		return err
+	}
+
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+
+	for _, client := range m.clients {
+		if err := client.addTower(tower); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

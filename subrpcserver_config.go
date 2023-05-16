@@ -115,6 +115,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	tower *watchtower.Standalone,
 	towerClient wtclient.Client,
 	anchorTowerClient wtclient.Client,
+	towerClientMgr wtclient.TowerClientManager,
 	tcpResolver lncfg.TCPResolver,
 	genInvoiceFeatures func() *lnwire.FeatureVector,
 	genAmpInvoiceFeatures func() *lnwire.FeatureVector,
@@ -298,6 +299,9 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				)
 				subCfgValue.FieldByName("AnchorClient").Set(
 					reflect.ValueOf(anchorTowerClient),
+				)
+				subCfgValue.FieldByName("ClientMgr").Set(
+					reflect.ValueOf(towerClientMgr),
 				)
 			}
 			subCfgValue.FieldByName("Resolver").Set(

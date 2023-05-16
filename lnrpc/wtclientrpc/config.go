@@ -23,6 +23,10 @@ type Config struct {
 	// we'll interact through the watchtower RPC subserver.
 	AnchorClient wtclient.Client
 
+	// ClientMgr is a tower client manager that manages a set of tower
+	// clients.
+	ClientMgr wtclient.TowerClientManager
+
 	// Resolver is a custom resolver that will be used to resolve watchtower
 	// addresses to ensure we don't leak any information when running over
 	// non-clear networks, e.g. Tor, etc.

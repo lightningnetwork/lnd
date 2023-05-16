@@ -208,11 +208,7 @@ func (c *WatchtowerClient) AddTower(ctx context.Context,
 		Address:     addr,
 	}
 
-	// TODO(conner): make atomic via multiplexed client
-	if err := c.cfg.Client.AddTower(towerAddr); err != nil {
-		return nil, err
-	}
-	if err := c.cfg.AnchorClient.AddTower(towerAddr); err != nil {
+	if err := c.cfg.ClientMgr.AddTower(towerAddr); err != nil {
 		return nil, err
 	}
 

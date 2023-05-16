@@ -99,12 +99,6 @@ type RegisteredTower struct {
 // Client is the primary interface used by the daemon to control a client's
 // lifecycle and backup revoked states.
 type Client interface {
-	// AddTower adds a new watchtower reachable at the given address and
-	// considers it for new sessions. If the watchtower already exists, then
-	// any new addresses included will be considered when dialing it for
-	// session negotiations and backups.
-	AddTower(*lnwire.NetAddress) error
-
 	// RemoveTower removes a watchtower from being considered for future
 	// session negotiations and from being used for any subsequent backups
 	// until it's added again. If an address is provided, then this call
@@ -154,9 +148,9 @@ type BreachRetributionBuilder func(id lnwire.ChannelID,
 // newTowerMsg is an internal message we'll use within the TowerClient to signal
 // that a new tower can be considered.
 type newTowerMsg struct {
-	// addr is the tower's reachable address that we'll use to establish a
-	// connection with.
-	addr *lnwire.NetAddress
+	// tower holds the info about the new Tower or new tower address
+	// required to connect to it.
+	tower *Tower
 
 	// errChan is the channel through which we'll send a response back to
 	// the caller when handling their request.
@@ -1161,7 +1155,7 @@ func (c *TowerClient) backupDispatcher() {
 			// its corresponding sessions, if any, as new
 			// candidates.
 			case msg := <-c.newTowers:
-				msg.errChan <- c.handleNewTower(msg)
+				msg.errChan <- c.handleNewTower(msg.tower)
 
 			// A tower has been requested to be removed. We'll
 			// only allow removal of it if the address in question
@@ -1245,7 +1239,7 @@ func (c *TowerClient) backupDispatcher() {
 			// its corresponding sessions, if any, as new
 			// candidates.
 			case msg := <-c.newTowers:
-				msg.errChan <- c.handleNewTower(msg)
+				msg.errChan <- c.handleNewTower(msg.tower)
 
 			// A tower has been removed, so we'll remove certain
 			// information that's persisted and also in our
@@ -1526,16 +1520,16 @@ func (c *TowerClient) isChannelClosed(id lnwire.ChannelID) (bool, uint32,
 	return true, chanSum.CloseHeight, nil
 }
 
-// AddTower adds a new watchtower reachable at the given address and considers
+// addTower adds a new watchtower reachable at the given address and considers
 // it for new sessions. If the watchtower already exists, then any new addresses
 // included will be considered when dialing it for session negotiations and
 // backups.
-func (c *TowerClient) AddTower(addr *lnwire.NetAddress) error {
+func (c *TowerClient) addTower(tower *Tower) error {
 	errChan := make(chan error, 1)
 
 	select {
 	case c.newTowers <- &newTowerMsg{
-		addr:    addr,
+		tower:   tower,
 		errChan: errChan,
 	}:
 	case <-c.pipeline.quit:
@@ -1553,20 +1547,7 @@ func (c *TowerClient) AddTower(addr *lnwire.NetAddress) error {
 // handleNewTower handles a request for a new tower to be added. If the tower
 // already exists, then its corresponding sessions, if any, will be set
 // considered as candidates.
-func (c *TowerClient) handleNewTower(msg *newTowerMsg) error {
-	// We'll start by updating our persisted state, followed by our
-	// in-memory state, with the new tower. This might not actually be a new
-	// tower, but it might include a new address at which it can be reached.
-	dbTower, err := c.cfg.DB.CreateTower(msg.addr)
-	if err != nil {
-		return err
-	}
-
-	tower, err := NewTowerFromDBTower(dbTower)
-	if err != nil {
-		return err
-	}
-
+func (c *TowerClient) handleNewTower(tower *Tower) error {
 	c.candidateTowers.AddCandidate(tower)
 
 	// Include all of its corresponding sessions to our set of candidates.

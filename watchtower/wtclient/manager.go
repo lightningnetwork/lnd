@@ -119,6 +119,7 @@ type Config struct {
 type Manager struct {
 	started sync.Once
 	stopped sync.Once
+	forced  sync.Once
 
 	cfg *Config
 
@@ -211,6 +212,17 @@ func (m *Manager) Stop() error {
 	})
 
 	return returnErr
+}
+
+func (m *Manager) ForceQuit() {
+	m.forced.Do(func() {
+		m.clientsMu.Lock()
+		defer m.clientsMu.Unlock()
+
+		for _, client := range m.clients {
+			client.forceQuit()
+		}
+	})
 }
 
 // AddTower adds a new watchtower reachable at the given address and considers

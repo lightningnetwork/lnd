@@ -133,10 +133,6 @@ type Client interface {
 	// transaction would create dust outputs when trying to abide by the
 	// negotiated policy.
 	BackupState(chanID *lnwire.ChannelID, stateNum uint64) error
-
-	// ForceQuit will forcibly shutdown the watchtower client. Calling this
-	// may lead to queued states being dropped.
-	ForceQuit()
 }
 
 // BreachRetributionBuilder is a function that can be used to construct a
@@ -193,8 +189,6 @@ type towerClientCfg struct {
 // non-blocking, reliable subsystem for backing up revoked states to a specified
 // private tower.
 type TowerClient struct {
-	forced sync.Once
-
 	cfg *towerClientCfg
 
 	log btclog.Logger
@@ -221,9 +215,9 @@ type TowerClient struct {
 	newTowers   chan *newTowerMsg
 	staleTowers chan *staleTowerMsg
 
-	wg        sync.WaitGroup
-	quit      chan struct{}
-	forceQuit chan struct{}
+	wg            sync.WaitGroup
+	quit          chan struct{}
+	forceQuitChan chan struct{}
 }
 
 // Compile-time constraint to ensure *TowerClient implements the Client
@@ -268,7 +262,7 @@ func newTowerClient(cfg *towerClientCfg) (*TowerClient, error) {
 		stats:                new(ClientStats),
 		newTowers:            make(chan *newTowerMsg),
 		staleTowers:          make(chan *staleTowerMsg),
-		forceQuit:            make(chan struct{}),
+		forceQuitChan:        make(chan struct{}),
 		quit:                 make(chan struct{}),
 	}
 
@@ -577,7 +571,7 @@ func (c *TowerClient) stop() error {
 	// to exit before the background process is killed, this offers a way to
 	// ensure the process terminates.
 	if c.cfg.ForceQuitDelay > 0 {
-		time.AfterFunc(c.cfg.ForceQuitDelay, c.ForceQuit)
+		time.AfterFunc(c.cfg.ForceQuitDelay, c.forceQuit)
 	}
 
 	// 2. Shutdown the backup queue, which will prevent any further updates
@@ -613,7 +607,7 @@ func (c *TowerClient) stop() error {
 
 	// Skip log if force quitting.
 	select {
-	case <-c.forceQuit:
+	case <-c.forceQuitChan:
 		return returnErr
 	default:
 	}
@@ -623,41 +617,39 @@ func (c *TowerClient) stop() error {
 	return nil
 }
 
-// ForceQuit idempotently initiates an unclean shutdown of the watchtower
+// forceQuit idempotently initiates an unclean shutdown of the watchtower
 // client. This should only be executed if Stop is unable to exit cleanly.
-func (c *TowerClient) ForceQuit() {
-	c.forced.Do(func() {
-		c.log.Infof("Force quitting watchtower client")
+func (c *TowerClient) forceQuit() {
+	c.log.Infof("Force quitting watchtower client")
 
-		// 1. Shutdown the backup queue, which will prevent any further
-		// updates from being accepted. In practice, the links should be
-		// shutdown before the client has been stopped, so all updates
-		// would have been added prior.
-		err := c.pipeline.Stop()
-		if err != nil {
-			c.log.Errorf("could not stop backup queue: %v", err)
-		}
+	// 1. Shutdown the backup queue, which will prevent any further updates
+	// from being accepted. In practice, the links should be shutdown before
+	// the client has been stopped, so all updates would have been added
+	// prior.
+	err := c.pipeline.Stop()
+	if err != nil {
+		c.log.Errorf("could not stop backup queue: %v", err)
+	}
 
-		// 2. Once the backup queue has shutdown, wait for the main
-		// dispatcher to exit. The backup queue will signal it's
-		// completion to the dispatcher, which releases the wait group
-		// after all tasks have been assigned to session queues.
-		close(c.forceQuit)
-		c.wg.Wait()
+	// 2. Once the backup queue has shutdown, wait for the main dispatcher
+	// to exit. The backup queue will signal its completion to the
+	// dispatcher, which releases the wait group after all tasks have been
+	// assigned to session queues.
+	close(c.forceQuitChan)
+	c.wg.Wait()
 
-		// 3. Since all valid tasks have been assigned to session
-		// queues, we no longer need to negotiate sessions.
-		c.negotiator.Stop()
+	// 3. Since all valid tasks have been assigned to session queues, we no
+	// longer need to negotiate sessions.
+	c.negotiator.Stop()
 
-		// 4. Force quit all active session queues in parallel. These
-		// will exit once all updates have been acked by the watchtower.
-		c.activeSessions.ApplyAndWait(func(s *sessionQueue) func() {
-			return s.ForceQuit
-		})
-
-		c.log.Infof("Watchtower client unclean shutdown complete, "+
-			"stats: %s", c.stats)
+	// 4. Force quit all active session queues in parallel. These will exit
+	// once all updates have been acked by the watchtower.
+	c.activeSessions.ApplyAndWait(func(s *sessionQueue) func() {
+		return s.ForceQuit
 	})
+
+	c.log.Infof("Watchtower client unclean shutdown complete, "+
+		"stats: %s", c.stats)
 }
 
 // RegisterChannel persistently initializes any channel-dependent parameters
@@ -821,7 +813,7 @@ func (c *TowerClient) handleChannelCloses(chanSub subscribe.Subscription) {
 					err)
 			}
 
-		case <-c.forceQuit:
+		case <-c.forceQuitChan:
 			return
 
 		case <-c.quit:
@@ -951,7 +943,7 @@ func (c *TowerClient) handleClosableSessions(
 				}
 			}
 
-		case <-c.forceQuit:
+		case <-c.forceQuitChan:
 			return
 
 		case <-c.quit:
@@ -1163,7 +1155,7 @@ func (c *TowerClient) backupDispatcher() {
 			case msg := <-c.staleTowers:
 				msg.errChan <- c.handleStaleTower(msg)
 
-			case <-c.forceQuit:
+			case <-c.forceQuitChan:
 				return
 			}
 

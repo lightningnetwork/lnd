@@ -535,7 +535,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	}
 
 	h.startClient()
-	t.Cleanup(h.client.ForceQuit)
+	t.Cleanup(h.clientMgr.ForceQuit)
 
 	h.makeChannel(0, h.cfg.localBalance, h.cfg.remoteBalance)
 	if !cfg.noRegisterChan0 {
@@ -1183,7 +1183,7 @@ var clientTests = []clientTest{
 			// have enough time to commit the state updates before
 			// the client is killed.
 			time.Sleep(time.Second)
-			h.client.ForceQuit()
+			h.clientMgr.ForceQuit()
 
 			// Restart the server and allow it to ack the updates
 			// after the client retransmits the unacked update.
@@ -1378,7 +1378,7 @@ var clientTests = []clientTest{
 			h.waitServerUpdates(nil, time.Second)
 
 			// Force quit the client since it has queued backups.
-			h.client.ForceQuit()
+			h.clientMgr.ForceQuit()
 
 			// Restart the server and allow it to ack session
 			// creation.
@@ -1428,7 +1428,7 @@ var clientTests = []clientTest{
 			h.waitServerUpdates(nil, time.Second)
 
 			// Force quit the client since it has queued backups.
-			h.client.ForceQuit()
+			h.clientMgr.ForceQuit()
 
 			// Restart the server and allow it to ack session
 			// creation.
@@ -1871,7 +1871,7 @@ var clientTests = []clientTest{
 			require.False(h.t, h.isSessionClosable(sessionIDs[0]))
 
 			// Restart the client.
-			h.client.ForceQuit()
+			h.clientMgr.ForceQuit()
 			h.startClient()
 
 			// The session should now have been marked as closable.
@@ -2112,7 +2112,7 @@ var clientTests = []clientTest{
 
 			// Restart the Client (force quit). And also now start
 			// the server.
-			h.client.ForceQuit()
+			h.clientMgr.ForceQuit()
 			h.startServer()
 			h.startClient()
 

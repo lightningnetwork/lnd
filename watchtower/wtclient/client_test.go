@@ -567,7 +567,7 @@ func (h *testHarness) startClient() {
 	h.client, err = h.clientMgr.NewClient(h.clientPolicy)
 	require.NoError(h.t, err)
 	require.NoError(h.t, h.clientMgr.Start())
-	require.NoError(h.t, h.client.AddTower(towerAddr))
+	require.NoError(h.t, h.clientMgr.AddTower(towerAddr))
 }
 
 // chanIDFromInt creates a unique channel id given a unique integral id.
@@ -757,7 +757,7 @@ func (h *testHarness) recvPayments(id, from, to uint64,
 func (h *testHarness) addTower(addr *lnwire.NetAddress) {
 	h.t.Helper()
 
-	err := h.client.AddTower(addr)
+	err := h.clientMgr.AddTower(addr)
 	require.NoError(h.t, err)
 }
 
@@ -1714,7 +1714,7 @@ var clientTests = []clientTest{
 			h.server.addr = towerAddr
 
 			// Add the new tower address to the client.
-			err = h.client.AddTower(towerAddr)
+			err = h.clientMgr.AddTower(towerAddr)
 			require.NoError(h.t, err)
 
 			// Remove the old tower address from the client.
@@ -1795,11 +1795,11 @@ var clientTests = []clientTest{
 			require.NoError(h.t, h.server.server.Start())
 
 			// Re-add the server to the client
-			err = h.client.AddTower(h.server.addr)
+			err = h.clientMgr.AddTower(h.server.addr)
 			require.NoError(h.t, err)
 
 			// Also add the new tower address.
-			err = h.client.AddTower(towerAddr)
+			err = h.clientMgr.AddTower(towerAddr)
 			require.NoError(h.t, err)
 
 			// Assert that if the client attempts to remove the

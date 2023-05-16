@@ -43,6 +43,10 @@ type TowerClientManager interface {
 	// type.
 	RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
 		map[blob.Type][]*RegisteredTower, error)
+
+	// LookupTower retrieves a registered watchtower through its public key.
+	LookupTower(*btcec.PublicKey, ...wtdb.ClientSessionListOption) (
+		map[blob.Type]*RegisteredTower, error)
 }
 
 // Config provides the TowerClient with access to the resources it requires to
@@ -357,6 +361,27 @@ func (m *Manager) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
 		}
 
 		resp[client.Policy().BlobType] = towers
+	}
+
+	return resp, nil
+}
+
+// LookupTower retrieves a registered watchtower through its public key.
+func (m *Manager) LookupTower(key *btcec.PublicKey,
+	opts ...wtdb.ClientSessionListOption) (map[blob.Type]*RegisteredTower,
+	error) {
+
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+
+	resp := make(map[blob.Type]*RegisteredTower)
+	for _, client := range m.clients {
+		tower, err := client.lookupTower(key, opts...)
+		if err != nil {
+			return nil, err
+		}
+
+		resp[client.Policy().BlobType] = tower
 	}
 
 	return resp, nil

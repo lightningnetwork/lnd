@@ -324,40 +324,42 @@ func (c *WatchtowerClient) GetTowerInfo(ctx context.Context,
 		req.IncludeSessions, req.ExcludeExhaustedSessions,
 	)
 
-	// Get the tower and its sessions from anchors client.
-	tower, err := c.cfg.AnchorClient.LookupTower(pubKey, opts...)
-	if err != nil {
-		return nil, err
-	}
-	rpcTower := marshallTower(
-		tower, PolicyType_ANCHOR, req.IncludeSessions, ackCounts,
-		committedUpdateCounts,
-	)
-
-	// Get the tower and its sessions from legacy client.
-	tower, err = c.cfg.Client.LookupTower(pubKey, opts...)
+	towersPerBlobType, err := c.cfg.ClientMgr.LookupTower(pubKey, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcLegacyTower := marshallTower(
-		tower, PolicyType_LEGACY, req.IncludeSessions, ackCounts,
-		committedUpdateCounts,
-	)
+	var resTower *Tower
+	for blobType, tower := range towersPerBlobType {
+		policyType := PolicyType_LEGACY
+		if blobType.IsAnchorChannel() {
+			policyType = PolicyType_ANCHOR
+		}
 
-	if !bytes.Equal(rpcTower.Pubkey, rpcLegacyTower.Pubkey) {
-		return nil, fmt.Errorf("legacy and anchor clients returned " +
-			"inconsistent results for the given tower")
+		rpcTower := marshallTower(
+			tower, policyType, req.IncludeSessions,
+			ackCounts, committedUpdateCounts,
+		)
+
+		if resTower == nil {
+			resTower = rpcTower
+			continue
+		}
+
+		if !bytes.Equal(rpcTower.Pubkey, resTower.Pubkey) {
+			return nil, fmt.Errorf("tower clients returned " +
+				"inconsistent results for the given tower")
+		}
+
+		resTower.SessionInfo = append(
+			resTower.SessionInfo, rpcTower.SessionInfo...,
+		)
+		resTower.Sessions = append(
+			resTower.Sessions, rpcTower.Sessions...,
+		)
 	}
 
-	rpcTower.SessionInfo = append(
-		rpcTower.SessionInfo, rpcLegacyTower.SessionInfo...,
-	)
-	rpcTower.Sessions = append(
-		rpcTower.Sessions, rpcLegacyTower.Sessions...,
-	)
-
-	return rpcTower, nil
+	return resTower, nil
 }
 
 // constructFunctionalOptions is a helper function that constructs a list of

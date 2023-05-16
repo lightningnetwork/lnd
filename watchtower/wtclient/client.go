@@ -108,9 +108,6 @@ type Client interface {
 	LookupTower(*btcec.PublicKey,
 		...wtdb.ClientSessionListOption) (*RegisteredTower, error)
 
-	// Stats returns the in-memory statistics of the client since startup.
-	Stats() ClientStats
-
 	// Policy returns the active client policy configuration.
 	Policy() wtpolicy.Policy
 
@@ -205,8 +202,8 @@ type TowerClient struct {
 	summaries         wtdb.ChannelSummaries
 	chanCommitHeights map[lnwire.ChannelID]uint64
 
-	statTicker *time.Ticker
-	stats      *ClientStats
+	statTicker  *time.Ticker
+	clientStats *ClientStats
 
 	newTowers   chan *newTowerMsg
 	staleTowers chan *staleTowerMsg
@@ -255,7 +252,7 @@ func newTowerClient(cfg *towerClientCfg) (*TowerClient, error) {
 		summaries:            chanSummaries,
 		closableSessionQueue: newSessionCloseMinHeap(),
 		statTicker:           time.NewTicker(DefaultStatInterval),
-		stats:                new(ClientStats),
+		clientStats:          new(ClientStats),
 		newTowers:            make(chan *newTowerMsg),
 		staleTowers:          make(chan *staleTowerMsg),
 		forceQuitChan:        make(chan struct{}),
@@ -593,7 +590,7 @@ func (c *TowerClient) stop() error {
 	}
 
 	c.log.Debugf("Waiting for active session queues to finish "+
-		"draining, stats: %s", c.stats)
+		"draining, clientStats: %s", c.clientStats)
 
 	// 5. Shutdown all active session queues in parallel. These will exit
 	// once all updates have been acked by the watchtower.
@@ -608,7 +605,8 @@ func (c *TowerClient) stop() error {
 	default:
 	}
 
-	c.log.Debugf("Client successfully stopped, stats: %s", c.stats)
+	c.log.Debugf("Client successfully stopped, clientStats: %s",
+		c.clientStats)
 
 	return nil
 }
@@ -645,7 +643,7 @@ func (c *TowerClient) forceQuit() {
 	})
 
 	c.log.Infof("Watchtower client unclean shutdown complete, "+
-		"stats: %s", c.stats)
+		"clientStats: %s", c.clientStats)
 }
 
 // RegisterChannel persistently initializes any channel-dependent parameters
@@ -1129,14 +1127,15 @@ func (c *TowerClient) backupDispatcher() {
 				c.log.Infof("Acquired new session with id=%s",
 					session.ID)
 				c.candidateSessions[session.ID] = session
-				c.stats.sessionAcquired()
+				c.clientStats.sessionAcquired()
 
 				// We'll continue to choose the newly negotiated
 				// session as our active session queue.
 				continue
 
 			case <-c.statTicker.C:
-				c.log.Infof("Client stats: %s", c.stats)
+				c.log.Infof("Client clientStats: %s",
+					c.clientStats)
 
 			// A new tower has been requested to be added. We'll
 			// update our persisted and in-memory state and consider
@@ -1203,10 +1202,11 @@ func (c *TowerClient) backupDispatcher() {
 				c.log.Warnf("Acquired new session with id=%s "+
 					"while processing tasks", session.ID)
 				c.candidateSessions[session.ID] = session
-				c.stats.sessionAcquired()
+				c.clientStats.sessionAcquired()
 
 			case <-c.statTicker.C:
-				c.log.Infof("Client stats: %s", c.stats)
+				c.log.Infof("Client clientStats: %s",
+					c.clientStats)
 
 			// Process each backup task serially from the queue of
 			// revoked states.
@@ -1219,7 +1219,7 @@ func (c *TowerClient) backupDispatcher() {
 
 				c.log.Debugf("Processing %v", task)
 
-				c.stats.taskReceived()
+				c.clientStats.taskReceived()
 				c.processTask(task)
 
 			// A new tower has been requested to be added. We'll
@@ -1281,7 +1281,7 @@ func (c *TowerClient) taskAccepted(task *wtdb.BackupID,
 	c.log.Infof("Queued %v successfully for session %v", task,
 		c.sessionQueue.ID())
 
-	c.stats.taskAccepted()
+	c.clientStats.taskAccepted()
 
 	// If this task was accepted, we discard anything held in the prevTask.
 	// Either it was nil before, or is the task which was just accepted.
@@ -1295,7 +1295,7 @@ func (c *TowerClient) taskAccepted(task *wtdb.BackupID,
 	// The sessionQueue is full after accepting this task, so we will need
 	// to request a new one before proceeding.
 	case reserveExhausted:
-		c.stats.sessionExhausted()
+		c.clientStats.sessionExhausted()
 
 		c.log.Debugf("Session %s exhausted", c.sessionQueue.ID())
 
@@ -1320,7 +1320,7 @@ func (c *TowerClient) taskRejected(task *wtdb.BackupID,
 	// The sessionQueue has available capacity but the task was rejected,
 	// this indicates that the task was ineligible for backup.
 	case reserveAvailable:
-		c.stats.taskIneligible()
+		c.clientStats.taskIneligible()
 
 		c.log.Infof("Ignoring ineligible %v", task)
 
@@ -1346,7 +1346,7 @@ func (c *TowerClient) taskRejected(task *wtdb.BackupID,
 	// The sessionQueue rejected the task because it is full, we will stash
 	// this task and try to add it to the next available sessionQueue.
 	case reserveExhausted:
-		c.stats.sessionExhausted()
+		c.clientStats.sessionExhausted()
 
 		c.log.Debugf("Session %v exhausted, %v queued for next session",
 			c.sessionQueue.ID(), task)
@@ -1696,9 +1696,9 @@ func (c *TowerClient) LookupTower(pubKey *btcec.PublicKey,
 	}, nil
 }
 
-// Stats returns the in-memory statistics of the client since startup.
-func (c *TowerClient) Stats() ClientStats {
-	return c.stats.Copy()
+// stats returns the in-memory statistics of the client since startup.
+func (c *TowerClient) stats() ClientStats {
+	return c.clientStats.Copy()
 }
 
 // Policy returns the active client policy configuration.

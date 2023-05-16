@@ -408,30 +408,14 @@ func constructFunctionalOptions(includeSessions,
 }
 
 // Stats returns the in-memory statistics of the client since startup.
-func (c *WatchtowerClient) Stats(ctx context.Context,
-	req *StatsRequest) (*StatsResponse, error) {
+func (c *WatchtowerClient) Stats(_ context.Context, _ *StatsRequest) (
+	*StatsResponse, error) {
 
 	if err := c.isActive(); err != nil {
 		return nil, err
 	}
 
-	clientStats := []wtclient.ClientStats{
-		c.cfg.Client.Stats(),
-		c.cfg.AnchorClient.Stats(),
-	}
-
-	var stats wtclient.ClientStats
-	for i := range clientStats {
-		// Grab a reference to the slice index rather than copying bc
-		// ClientStats contains a lock which cannot be copied by value.
-		stat := &clientStats[i]
-
-		stats.NumTasksAccepted += stat.NumTasksAccepted
-		stats.NumTasksIneligible += stat.NumTasksIneligible
-		stats.NumTasksPending += stat.NumTasksPending
-		stats.NumSessionsAcquired += stat.NumSessionsAcquired
-		stats.NumSessionsExhausted += stat.NumSessionsExhausted
-	}
+	stats := c.cfg.ClientMgr.Stats()
 
 	return &StatsResponse{
 		NumBackups:           uint32(stats.NumTasksAccepted),

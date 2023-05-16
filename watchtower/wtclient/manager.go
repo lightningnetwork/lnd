@@ -33,6 +33,9 @@ type TowerClientManager interface {
 	// only serves as a way of removing the address from the watchtower
 	// instead.
 	RemoveTower(*btcec.PublicKey, net.Addr) error
+
+	// Stats returns the in-memory statistics of the client since startup.
+	Stats() ClientStats
 }
 
 // Config provides the TowerClient with access to the resources it requires to
@@ -310,4 +313,23 @@ func (m *Manager) RemoveTower(key *btcec.PublicKey, addr net.Addr) error {
 	}
 
 	return nil
+}
+
+// Stats returns the in-memory statistics of the clients managed by the Manager
+// since startup.
+func (m *Manager) Stats() ClientStats {
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+
+	var resp ClientStats
+	for _, client := range m.clients {
+		stats := client.stats()
+		resp.NumTasksAccepted += stats.NumTasksAccepted
+		resp.NumTasksIneligible += stats.NumTasksIneligible
+		resp.NumTasksPending += stats.NumTasksPending
+		resp.NumSessionsAcquired += stats.NumSessionsAcquired
+		resp.NumSessionsExhausted += stats.NumSessionsExhausted
+	}
+
+	return resp
 }

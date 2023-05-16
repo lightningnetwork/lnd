@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
@@ -36,6 +37,12 @@ type TowerClientManager interface {
 
 	// Stats returns the in-memory statistics of the client since startup.
 	Stats() ClientStats
+
+	// RegisteredTowers retrieves the list of watchtowers registered with
+	// the client. It returns a set of registered towers per client policy
+	// type.
+	RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
+		map[blob.Type][]*RegisteredTower, error)
 }
 
 // Config provides the TowerClient with access to the resources it requires to
@@ -320,4 +327,30 @@ func (m *Manager) Stats() ClientStats {
 	}
 
 	return resp
+}
+
+// RegisteredTowers retrieves the list of watchtowers being used by the various
+// clients.
+func (m *Manager) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
+	map[blob.Type][]*RegisteredTower, error) {
+
+	towers, err := m.cfg.DB.ListTowers()
+	if err != nil {
+		return nil, err
+	}
+
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+
+	resp := make(map[blob.Type][]*RegisteredTower)
+	for _, client := range m.clients {
+		towers, err := client.registeredTowers(towers, opts...)
+		if err != nil {
+			return nil, err
+		}
+
+		resp[client.Policy().BlobType] = towers
+	}
+
+	return resp, nil
 }

@@ -95,11 +95,6 @@ type RegisteredTower struct {
 // Client is the primary interface used by the daemon to control a client's
 // lifecycle and backup revoked states.
 type Client interface {
-	// RegisteredTowers retrieves the list of watchtowers registered with
-	// the client.
-	RegisteredTowers(...wtdb.ClientSessionListOption) ([]*RegisteredTower,
-		error)
-
 	// LookupTower retrieves a registered watchtower through its public key.
 	LookupTower(*btcec.PublicKey,
 		...wtdb.ClientSessionListOption) (*RegisteredTower, error)
@@ -1564,17 +1559,13 @@ func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 	return nil
 }
 
-// RegisteredTowers retrieves the list of watchtowers registered with the
+// registeredTowers retrieves the list of watchtowers registered with the
 // client.
-func (c *TowerClient) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
-	[]*RegisteredTower, error) {
+func (c *TowerClient) registeredTowers(towers []*wtdb.Tower,
+	opts ...wtdb.ClientSessionListOption) ([]*RegisteredTower, error) {
 
-	// Retrieve all of our towers along with all of our sessions.
-	towers, err := c.cfg.DB.ListTowers()
-	if err != nil {
-		return nil, err
-	}
-
+	// Generate a filter that will fetch all the client's sessions
+	// regardless of if they are active or not.
 	opts = append(opts, wtdb.WithPreEvalFilterFn(c.genSessionFilter(false)))
 
 	clientSessions, err := c.cfg.DB.ListClientSessions(nil, opts...)
@@ -1582,8 +1573,8 @@ func (c *TowerClient) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
 		return nil, err
 	}
 
-	// Construct a lookup map that coalesces all of the sessions for a
-	// specific watchtower.
+	// Construct a lookup map that coalesces all the sessions for a specific
+	// watchtower.
 	towerSessions := make(
 		map[wtdb.TowerID]map[wtdb.SessionID]*wtdb.ClientSession,
 	)

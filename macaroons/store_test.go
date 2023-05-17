@@ -209,10 +209,7 @@ func TestStoreSetRootKey(t *testing.T) {
 }
 
 // TestStoreChangePassword tests that the password for the store can be changed
-// without changing the root key. The test also demonstrates that currently,
-// this change is only applied to the root key at the default root key ID
-// location and not to other root keys. This will be fixed in an upcoming
-// commit.
+// without changing the root keys.
 func TestStoreChangePassword(t *testing.T) {
 	tempDir, store := newTestStore(t)
 
@@ -222,8 +219,7 @@ func TestStoreChangePassword(t *testing.T) {
 
 	// Unlock the DB and read the current default root key and one other
 	// non-default root key. Both of these should stay the same after
-	// changing the password but currently only the default root key is
-	// re-encrypted correclty.
+	// changing the password for the test to succeed.
 	pw := []byte("weks")
 	err = store.CreateUnlock(&pw)
 	require.NoError(t, err)
@@ -231,7 +227,7 @@ func TestStoreChangePassword(t *testing.T) {
 	rootKey1, _, err := store.RootKey(defaultRootKeyIDContext)
 	require.NoError(t, err)
 
-	_, _, err = store.RootKey(nonDefaultRootKeyIDContext)
+	rootKey2, _, err := store.RootKey(nonDefaultRootKeyIDContext)
 	require.NoError(t, err)
 
 	// Both passwords must be set.
@@ -266,12 +262,12 @@ func TestStoreChangePassword(t *testing.T) {
 	require.NoError(t, err)
 
 	// Finally, read the root keys from the DB using the new password and
-	// make sure the default root key stayed the same but that the
-	// non-default root key could not be decrypted.
-	rootKeyDb, _, err := store.RootKey(defaultRootKeyIDContext)
+	// make sure that both root keys stayed the same.
+	rootKeyDB1, _, err := store.RootKey(defaultRootKeyIDContext)
 	require.NoError(t, err)
-	require.Equal(t, rootKey1, rootKeyDb)
+	require.Equal(t, rootKey1, rootKeyDB1)
 
-	_, _, err = store.RootKey(nonDefaultRootKeyIDContext)
-	require.ErrorContains(t, err, "unable to decrypt")
+	rootKeyDB2, _, err := store.RootKey(nonDefaultRootKeyIDContext)
+	require.NoError(t, err)
+	require.Equal(t, rootKey2, rootKeyDB2)
 }

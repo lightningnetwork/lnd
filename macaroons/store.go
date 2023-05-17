@@ -54,6 +54,10 @@ var (
 	// ErrEncKeyNotFound specifies that there was no encryption key found
 	// even if one was expected to be generated.
 	ErrEncKeyNotFound = fmt.Errorf("macaroon encryption key not found")
+
+	// ErrDefaultRootKeyNotFound is returned when the default root key is
+	// not found in the DB when it is expected to be.
+	ErrDefaultRootKeyNotFound = fmt.Errorf("default root key not found")
 )
 
 // RootKeyStorage implements the bakery.RootKeyStorage interface.
@@ -140,8 +144,8 @@ func (r *RootKeyStorage) CreateUnlock(password *[]byte) error {
 	}, func() {})
 }
 
-// ChangePassword decrypts the macaroon root key with the old password and then
-// encrypts it again with the new password.
+// ChangePassword decrypts all the macaroon root keys with the old password and
+// then encrypts them again with the new password.
 func (r *RootKeyStorage) ChangePassword(oldPw, newPw []byte) error {
 	// We need the store to already be unlocked. With this we can make sure
 	// that there already is a key in the DB.
@@ -159,19 +163,18 @@ func (r *RootKeyStorage) ChangePassword(oldPw, newPw []byte) error {
 		if bucket == nil {
 			return ErrRootKeyBucketNotFound
 		}
-		encKeyDb := bucket.Get(encryptionKeyID)
-		rootKeyDb := bucket.Get(DefaultRootKeyID)
 
-		// Both the encryption key and the root key must be present
-		// otherwise we are in the wrong state to change the password.
-		if len(encKeyDb) == 0 || len(rootKeyDb) == 0 {
+		// The encryption key must be present, otherwise we are in the
+		// wrong state to change the password.
+		encKeyDB := bucket.Get(encryptionKeyID)
+		if len(encKeyDB) == 0 {
 			return ErrEncKeyNotFound
 		}
 
 		// Unmarshal parameters for old encryption key and derive the
 		// old key with them.
 		encKeyOld := &snacl.SecretKey{}
-		err := encKeyOld.Unmarshal(encKeyDb)
+		err := encKeyOld.Unmarshal(encKeyDB)
 		if err != nil {
 			return err
 		}
@@ -188,21 +191,42 @@ func (r *RootKeyStorage) ChangePassword(oldPw, newPw []byte) error {
 			return err
 		}
 
-		// Now try to decrypt the root key with the old encryption key,
-		// encrypt it with the new one and then store it in the DB.
-		decryptedKey, err := encKeyOld.Decrypt(rootKeyDb)
+		// foundDefaultRootKey is used to keep track of if we have
+		// found and re-encrypted the default root key so that we can
+		// return an error if it is not found.
+		var foundDefaultRootKey bool
+		err = bucket.ForEach(func(k, v []byte) error {
+			// Skip the key if it is the encryption key ID since
+			// we do not want to re-encrypt this.
+			if bytes.Equal(k, encryptionKeyID) {
+				return nil
+			}
+
+			if bytes.Equal(k, DefaultRootKeyID) {
+				foundDefaultRootKey = true
+			}
+
+			// Now try to decrypt the root key with the old
+			// encryption key, encrypt it with the new one and then
+			// store it in the DB.
+			decryptedKey, err := encKeyOld.Decrypt(v)
+			if err != nil {
+				return err
+			}
+
+			encryptedKey, err := encKeyNew.Encrypt(decryptedKey)
+			if err != nil {
+				return err
+			}
+
+			return bucket.Put(k, encryptedKey)
+		})
 		if err != nil {
 			return err
 		}
-		rootKey := make([]byte, len(decryptedKey))
-		copy(rootKey, decryptedKey)
-		encryptedKey, err := encKeyNew.Encrypt(rootKey)
-		if err != nil {
-			return err
-		}
-		err = bucket.Put(DefaultRootKeyID, encryptedKey)
-		if err != nil {
-			return err
+
+		if !foundDefaultRootKey {
+			return ErrDefaultRootKeyNotFound
 		}
 
 		// Finally, store the new encryption key parameters in the DB

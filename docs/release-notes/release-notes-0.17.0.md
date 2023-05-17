@@ -49,6 +49,10 @@ unlock or create.
 * [Restore support](https://github.com/lightningnetwork/lnd/pull/7678) for
   `PKCS8`-encoded cert private keys.
 
+* [Re-encrypt/regenerate](https://github.com/lightningnetwork/lnd/pull/7705) 
+  all macaroon DB root keys on `ChangePassword`/`GenerateNewRootKey` 
+  respectively.
+
 ## Code Health
 
 * Updated [our fork for serializing protobuf as JSON to be based on the

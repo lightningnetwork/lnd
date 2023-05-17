@@ -209,20 +209,29 @@ func TestStoreSetRootKey(t *testing.T) {
 }
 
 // TestStoreChangePassword tests that the password for the store can be changed
-// without changing the root key.
+// without changing the root key. The test also demonstrates that currently,
+// this change is only applied to the root key at the default root key ID
+// location and not to other root keys. This will be fixed in an upcoming
+// commit.
 func TestStoreChangePassword(t *testing.T) {
 	tempDir, store := newTestStore(t)
 
-	// The store must be unlocked to replace the root key.
+	// The store must be unlocked to replace the root keys.
 	err := store.ChangePassword(nil, nil)
 	require.Equal(t, macaroons.ErrStoreLocked, err)
 
-	// Unlock the DB and read the current root key. This will need to stay
-	// the same after changing the password for the test to succeed.
+	// Unlock the DB and read the current default root key and one other
+	// non-default root key. Both of these should stay the same after
+	// changing the password but currently only the default root key is
+	// re-encrypted correclty.
 	pw := []byte("weks")
 	err = store.CreateUnlock(&pw)
 	require.NoError(t, err)
-	rootKey, _, err := store.RootKey(defaultRootKeyIDContext)
+
+	rootKey1, _, err := store.RootKey(defaultRootKeyIDContext)
+	require.NoError(t, err)
+
+	_, _, err = store.RootKey(nonDefaultRootKeyIDContext)
 	require.NoError(t, err)
 
 	// Both passwords must be set.
@@ -256,9 +265,13 @@ func TestStoreChangePassword(t *testing.T) {
 	err = store.CreateUnlock(&newPw)
 	require.NoError(t, err)
 
-	// Finally read the root key from the DB using the new password and
-	// make sure the root key stayed the same.
+	// Finally, read the root keys from the DB using the new password and
+	// make sure the default root key stayed the same but that the
+	// non-default root key could not be decrypted.
 	rootKeyDb, _, err := store.RootKey(defaultRootKeyIDContext)
 	require.NoError(t, err)
-	require.Equal(t, rootKey, rootKeyDb)
+	require.Equal(t, rootKey1, rootKeyDb)
+
+	_, _, err = store.RootKey(nonDefaultRootKeyIDContext)
+	require.ErrorContains(t, err, "unable to decrypt")
 }

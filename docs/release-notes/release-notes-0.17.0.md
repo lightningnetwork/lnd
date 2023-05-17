@@ -53,6 +53,9 @@ unlock or create.
   all macaroon DB root keys on `ChangePassword`/`GenerateNewRootKey` 
   respectively.
 
+* [Fixed a validation bug](https://github.com/lightningnetwork/lnd/pull/7177) in
+  `channel_type` negotiation.
+
 ## Code Health
 
 * Updated [our fork for serializing protobuf as JSON to be based on the

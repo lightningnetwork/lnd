@@ -325,10 +325,34 @@ func (r *RootKeyStorage) GenerateNewRootKey() error {
 		if bucket == nil {
 			return ErrRootKeyBucketNotFound
 		}
+
+		// The default root key should be created even if it does not
+		// yet exist, so we do this separately from the rest of the
+		// root keys.
 		_, err := generateAndStoreNewRootKey(
 			bucket, DefaultRootKeyID, r.encKey,
 		)
-		return err
+		if err != nil {
+			return err
+		}
+
+		// Now iterate over all the other root keys that may exist
+		// and re-generate each of them.
+		return bucket.ForEach(func(k, v []byte) error {
+			if bytes.Equal(k, encryptionKeyID) {
+				return nil
+			}
+
+			if bytes.Equal(k, DefaultRootKeyID) {
+				return nil
+			}
+
+			_, err := generateAndStoreNewRootKey(
+				bucket, k, r.encKey,
+			)
+
+			return err
+		})
 	}, func() {})
 }
 

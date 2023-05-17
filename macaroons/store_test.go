@@ -135,10 +135,8 @@ func TestStore(t *testing.T) {
 	require.Equal(t, rootID, id)
 }
 
-// TestStoreGenerateNewRootKey tests that a root key can be replaced with a new
-// one in the store without changing the password. Also demonstrate that at the
-// moment, only the default root key will be replaced. This is a bug that will
-// be fixed in an upcoming commit.
+// TestStoreGenerateNewRootKey tests that root keys can be replaced with new
+// ones in the store without changing the password.
 func TestStoreGenerateNewRootKey(t *testing.T) {
 	_, store := newTestStore(t)
 
@@ -159,22 +157,20 @@ func TestStoreGenerateNewRootKey(t *testing.T) {
 	oldRootKey2, _, err := store.RootKey(nonDefaultRootKeyIDContext)
 	require.NoError(t, err)
 
-	// Attempt to replace the root keys with new random keys.
+	// Replace the root keys with new random keys.
 	err = store.GenerateNewRootKey()
 	require.NoError(t, err)
 
 	// Finally, read both root keys from the DB and compare them to the ones
 	// we got returned earlier. This makes sure that the encryption/
 	// decryption of the key in the DB worked as expected too.
-	// Currently, this is only successful for the default root key and not
-	// for non-default key. This will be fixed in an upcoming commit.
 	newRootKey1, _, err := store.RootKey(defaultRootKeyIDContext)
 	require.NoError(t, err)
 	require.NotEqual(t, oldRootKey1, newRootKey1)
 
 	newRootKey2, _, err := store.RootKey(nonDefaultRootKeyIDContext)
 	require.NoError(t, err)
-	require.Equal(t, oldRootKey2, newRootKey2)
+	require.NotEqual(t, oldRootKey2, newRootKey2)
 }
 
 // TestStoreSetRootKey tests that a root key can be set to a specified value.

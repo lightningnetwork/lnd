@@ -9,7 +9,7 @@ require (
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.2
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcwallet v0.16.10-0.20230706223227-037580c66b74
+	github.com/btcsuite/btcwallet v0.16.10-0.20230804184612-07be54bc22cf
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.2
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.0
 	github.com/btcsuite/btcwallet/walletdb v1.4.0
@@ -33,7 +33,7 @@ require (
 	github.com/jrick/logrotate v1.0.0
 	github.com/kkdai/bstream v1.0.0
 	github.com/lib/pq v1.10.3
-	github.com/lightninglabs/neutrino v0.15.1-0.20230710222839-9fd0fc551366
+	github.com/lightninglabs/neutrino v0.15.1-0.20230727175126-fc413d722789
 	github.com/lightninglabs/neutrino/cache v1.1.1
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20221202012345-ca23184850a1
 	github.com/lightningnetwork/lnd/cert v1.2.1

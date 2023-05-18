@@ -148,6 +148,12 @@ compare the default values between lnd and sample-lnd.conf.
   `github.com/golang/protobuf/jsonpb`
   module](https://github.com/lightningnetwork/lnd/pull/7659).
 
+## Neutrino
+
+* The [Neutrino version 
+  is updated](https://github.com/lightningnetwork/lnd/pull/7788) so that LND can 
+  take advantage of the latest filter fetching performance improvements.
+
 ## Testing
 
 * [Started](https://github.com/lightningnetwork/lnd/pull/7494) running fuzz

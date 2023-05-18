@@ -67,6 +67,20 @@ const (
 	TypeRewardCommit = Type(FlagCommitOutputs | FlagReward)
 )
 
+// Identifier returns a unique, stable string identifier for the blob Type.
+func (t Type) Identifier() (string, error) {
+	switch t {
+	case TypeAltruistCommit:
+		return "legacy", nil
+	case TypeAltruistAnchorCommit:
+		return "anchor", nil
+	case TypeRewardCommit:
+		return "reward", nil
+	default:
+		return "", fmt.Errorf("unknown blob type: %v", t)
+	}
+}
+
 // Has returns true if the Type has the passed flag enabled.
 func (t Type) Has(flag Flag) bool {
 	return Flag(t)&flag == flag

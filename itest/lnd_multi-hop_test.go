@@ -1936,11 +1936,6 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	// notice the force close from Carol.
 	require.NoError(ht, restartBob())
 
-	// For anchor channels, Bob should sweep his anchor output.
-	if lntest.CommitTypeHasAnchors(c) {
-		ht.Miner.AssertNumTxsInMempool(1)
-	}
-
 	// Get the current height to compute number of blocks to mine to
 	// trigger the htlc timeout resolver from Bob.
 	_, height := ht.Miner.GetBestBlock()
@@ -1949,22 +1944,51 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	numBlocks = htlc.ExpirationHeight - uint32(height) -
 		lncfg.DefaultOutgoingBroadcastDelta
 
-	// Mine empty blocks so Carol's htlc success tx stays in mempool. Once
-	// the height is reached, Bob's timeout resolver will resolve the htlc
-	// by extracing the preimage from the mempool.
-	ht.MineEmptyBlocks(int(numBlocks))
+	// We should now have Carol's htlc suucess tx in the mempool.
+	numTxesMempool := 1
 
 	// For neutrino backend, the timeout resolver needs to extract the
 	// preimage from the blocks.
 	if ht.IsNeutrinoBackend() {
 		// Mine a block to confirm Carol's 2nd level success tx.
 		ht.MineBlocksAndAssertNumTxes(1, 1)
+		numTxesMempool--
 	}
+	// Mine empty blocks so Carol's htlc success tx stays in mempool. Once
+	// the height is reached, Bob's timeout resolver will resolve the htlc
+	// by extracing the preimage from the mempool.
+	ht.MineEmptyBlocks(int(numBlocks))
 
 	// Finally, check that the Alice's payment is marked as succeeded as
 	// Bob has settled the htlc using the preimage extracted from Carol's
 	// 2nd level success tx.
 	ht.AssertPaymentStatus(alice, preimage, lnrpc.Payment_SUCCEEDED)
+
+	switch c {
+	// For non-anchor channel type, we should expect to see Bob's commit
+	// sweep in the mempool.
+	case lnrpc.CommitmentType_LEGACY:
+		numTxesMempool++
+
+	// For non-anchor channel type, we should expect to see Bob's commit
+	// sweep and his anchor sweep tx in the mempool.
+	case lnrpc.CommitmentType_ANCHORS:
+		numTxesMempool += 2
+
+	// For script-enforced leased channel, we should expect to see Bob's
+	// anchor sweep tx in the mempool.
+	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		numTxesMempool++
+
+		// For neutrino backend, because of the additional block mined,
+		// Bob's output is now mature.
+		if ht.IsNeutrinoBackend() {
+			numTxesMempool++
+		}
+	}
+
+	// Mine a block to clean the mempool.
+	ht.MineBlocksAndAssertNumTxes(1, numTxesMempool)
 
 	// NOTE: for non-standby nodes there's no need to clean up the force
 	// close as long as the mempool is cleaned.

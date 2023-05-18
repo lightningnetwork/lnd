@@ -678,7 +678,11 @@ func (c *TowerClient) Start() error {
 
 		// Start the task pipeline to which new backup tasks will be
 		// submitted from active links.
-		c.pipeline.Start()
+		err = c.pipeline.Start()
+		if err != nil {
+			returnErr = err
+			return
+		}
 
 		c.wg.Add(1)
 		go c.backupDispatcher()
@@ -727,7 +731,10 @@ func (c *TowerClient) Stop() error {
 
 		// 4. Since all valid tasks have been assigned to session
 		// queues, we no longer need to negotiate sessions.
-		c.negotiator.Stop()
+		err = c.negotiator.Stop()
+		if err != nil {
+			returnErr = err
+		}
 
 		c.log.Debugf("Waiting for active session queues to finish "+
 			"draining, stats: %s", c.stats)

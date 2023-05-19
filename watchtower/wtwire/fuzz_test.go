@@ -3,8 +3,9 @@ package wtwire
 import (
 	"bytes"
 	"encoding/binary"
-	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // prefixWithMsgType takes []byte and adds a wire protocol prefix
@@ -43,26 +44,15 @@ func harness(t *testing.T, data []byte, emptyMsg Message) {
 
 	// We will serialize the message into a new bytes buffer.
 	var b bytes.Buffer
-	if _, err := WriteMessage(&b, msg, 0); err != nil {
-		// Could not serialize message into bytes buffer, panic.
-		t.Fatal(err)
-	}
+	_, err = WriteMessage(&b, msg, 0)
+	require.NoError(t, err)
 
 	// Deserialize the message from the serialized bytes buffer, and then
 	// assert that the original message is equal to the newly deserialized
 	// message.
 	newMsg, err := ReadMessage(&b, 0)
-	if err != nil {
-		// Could not deserialize message from bytes buffer, panic.
-		t.Fatal(err)
-	}
-
-	if !reflect.DeepEqual(msg, newMsg) {
-		// Deserialized message and original message are not
-		// deeply equal.
-		t.Fatal("deserialized message and original message " +
-			"are not deeply equal.")
-	}
+	require.NoError(t, err)
+	require.Equal(t, msg, newMsg)
 }
 
 func FuzzCreateSessionReply(f *testing.F) {

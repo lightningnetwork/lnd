@@ -9,6 +9,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -183,7 +184,7 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 			htlc: channeldb.HTLC{
 				Amt:       lnwire.MilliSatoshi(testHtlcAmount),
 				RHash:     testResHash,
-				OnionBlob: testOnionBlob,
+				OnionBlob: lnmock.MockOnion(),
 			},
 		},
 	}

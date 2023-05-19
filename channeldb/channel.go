@@ -2001,7 +2001,7 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 	// which ones are present on their commitment.
 	remoteHtlcs := make(map[[32]byte]struct{})
 	for _, htlc := range c.RemoteCommitment.Htlcs {
-		onionHash := sha256.Sum256(htlc.OnionBlob)
+		onionHash := sha256.Sum256(htlc.OnionBlob[:])
 		remoteHtlcs[onionHash] = struct{}{}
 	}
 
@@ -2009,7 +2009,7 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 	// as active if *we* know them as well.
 	activeHtlcs := make([]HTLC, 0, len(remoteHtlcs))
 	for _, htlc := range c.LocalCommitment.Htlcs {
-		onionHash := sha256.Sum256(htlc.OnionBlob)
+		onionHash := sha256.Sum256(htlc.OnionBlob[:])
 		if _, ok := remoteHtlcs[onionHash]; !ok {
 			continue
 		}
@@ -2056,7 +2056,7 @@ type HTLC struct {
 
 	// OnionBlob is an opaque blob which is used to complete multi-hop
 	// routing.
-	OnionBlob []byte
+	OnionBlob [lnwire.OnionPacketSize]byte
 
 	// HtlcIndex is the HTLC counter index of this active, outstanding
 	// HTLC. This differs from the LogIndex, as the HtlcIndex is only
@@ -2113,14 +2113,17 @@ func DeserializeHtlcs(r io.Reader) ([]HTLC, error) {
 
 	htlcs = make([]HTLC, numHtlcs)
 	for i := uint16(0); i < numHtlcs; i++ {
+		var onionBlob []byte
 		if err := ReadElements(r,
 			&htlcs[i].Signature, &htlcs[i].RHash, &htlcs[i].Amt,
 			&htlcs[i].RefundTimeout, &htlcs[i].OutputIndex,
-			&htlcs[i].Incoming, &htlcs[i].OnionBlob,
+			&htlcs[i].Incoming, &onionBlob,
 			&htlcs[i].HtlcIndex, &htlcs[i].LogIndex,
 		); err != nil {
 			return htlcs, err
 		}
+
+		copy(htlcs[i].OnionBlob[:], onionBlob)
 	}
 
 	return htlcs, nil

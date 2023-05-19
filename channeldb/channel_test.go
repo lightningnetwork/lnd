@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -366,12 +367,13 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 	// Create the test channel state, with additional htlcs on the local
 	// and remote commitment.
 	localHtlcs := []HTLC{
-		{Signature: testSig.Serialize(),
+		{
+			Signature:     testSig.Serialize(),
 			Incoming:      true,
 			Amt:           10,
 			RHash:         key,
 			RefundTimeout: 1,
-			OnionBlob:     []byte("onionblob"),
+			OnionBlob:     lnmock.MockOnion(),
 		},
 	}
 
@@ -382,7 +384,7 @@ func TestOpenChannelPutGetDelete(t *testing.T) {
 			Amt:           10,
 			RHash:         key,
 			RefundTimeout: 1,
-			OnionBlob:     []byte("onionblob"),
+			OnionBlob:     lnmock.MockOnion(),
 		},
 	}
 
@@ -612,8 +614,10 @@ func TestChannelStateTransition(t *testing.T) {
 			LogIndex:      uint64(i * 2),
 			HtlcIndex:     uint64(i),
 		}
-		htlc.OnionBlob = make([]byte, 10)
-		copy(htlc.OnionBlob[:], bytes.Repeat([]byte{2}, 10))
+		copy(
+			htlc.OnionBlob[:],
+			bytes.Repeat([]byte{2}, lnwire.OnionPacketSize),
+		)
 		htlcs = append(htlcs, htlc)
 		htlcAmt += htlc.Amt
 	}

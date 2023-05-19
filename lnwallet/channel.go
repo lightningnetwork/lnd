@@ -745,7 +745,6 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 			LogIndex:      htlc.LogIndex,
 			Incoming:      false,
 		}
-		h.OnionBlob = make([]byte, len(htlc.OnionBlob))
 		copy(h.OnionBlob[:], htlc.OnionBlob)
 
 		if ourCommit && htlc.sig != nil {
@@ -770,7 +769,6 @@ func (c *commitment) toDiskCommit(ourCommit bool) *channeldb.ChannelCommitment {
 			LogIndex:      htlc.LogIndex,
 			Incoming:      true,
 		}
-		h.OnionBlob = make([]byte, len(htlc.OnionBlob))
 		copy(h.OnionBlob[:], htlc.OnionBlob)
 
 		if ourCommit && htlc.sig != nil {
@@ -859,7 +857,7 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		EntryType:          Add,
 		HtlcIndex:          htlc.HtlcIndex,
 		LogIndex:           htlc.LogIndex,
-		OnionBlob:          htlc.OnionBlob,
+		OnionBlob:          htlc.OnionBlob[:],
 		localOutputIndex:   localOutputIndex,
 		remoteOutputIndex:  remoteOutputIndex,
 		ourPkScript:        ourP2WSH,

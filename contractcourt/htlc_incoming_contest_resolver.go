@@ -487,7 +487,7 @@ func (h *htlcIncomingContestResolver) Supplement(htlc channeldb.HTLC) {
 func (h *htlcIncomingContestResolver) decodePayload() (*hop.Payload,
 	[]byte, error) {
 
-	onionReader := bytes.NewReader(h.htlc.OnionBlob)
+	onionReader := bytes.NewReader(h.htlc.OnionBlob[:])
 	iterator, err := h.OnionProcessor.ReconstructHopIterator(
 		onionReader, h.htlc.RHash[:],
 	)

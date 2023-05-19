@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -110,7 +111,7 @@ func newHtlcResolverTestContext(t *testing.T,
 
 	htlc := channeldb.HTLC{
 		RHash:     testResHash,
-		OnionBlob: testOnionBlob,
+		OnionBlob: lnmock.MockOnion(),
 		Amt:       testHtlcAmt,
 	}
 

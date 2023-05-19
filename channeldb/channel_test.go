@@ -1531,3 +1531,105 @@ func TestFinalHtlcs(t *testing.T) {
 	_, err = cdb.LookupFinalHtlc(chanID, unknownHtlcID)
 	require.ErrorIs(t, err, ErrHtlcUnknown)
 }
+
+// TestHTLCsExtraData tests serialization and deserialization of HTLCs
+// combined with extra data.
+func TestHTLCsExtraData(t *testing.T) {
+	t.Parallel()
+
+	mockHtlc := HTLC{
+		Signature:     testSig.Serialize(),
+		Incoming:      false,
+		Amt:           10,
+		RHash:         key,
+		RefundTimeout: 1,
+		OnionBlob:     lnmock.MockOnion(),
+	}
+
+	testCases := []struct {
+		name  string
+		htlcs []HTLC
+	}{
+		{
+			// Serialize multiple HLTCs with no extra data to
+			// assert that there is no regression for HTLCs with
+			// no extra data.
+			name: "no extra data",
+			htlcs: []HTLC{
+				mockHtlc, mockHtlc,
+			},
+		},
+		{
+			name: "mixed extra data",
+			htlcs: []HTLC{
+				mockHtlc,
+				{
+					Signature:     testSig.Serialize(),
+					Incoming:      false,
+					Amt:           10,
+					RHash:         key,
+					RefundTimeout: 1,
+					OnionBlob:     lnmock.MockOnion(),
+					ExtraData:     []byte{1, 2, 3},
+				},
+				mockHtlc,
+				{
+					Signature:     testSig.Serialize(),
+					Incoming:      false,
+					Amt:           10,
+					RHash:         key,
+					RefundTimeout: 1,
+					OnionBlob:     lnmock.MockOnion(),
+					ExtraData: bytes.Repeat(
+						[]byte{9}, 999,
+					),
+				},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var b bytes.Buffer
+			err := SerializeHtlcs(&b, testCase.htlcs...)
+			require.NoError(t, err)
+
+			r := bytes.NewReader(b.Bytes())
+			htlcs, err := DeserializeHtlcs(r)
+			require.NoError(t, err)
+			require.Equal(t, testCase.htlcs, htlcs)
+		})
+	}
+}
+
+// TestOnionBlobIncorrectLength tests HTLC deserialization in the case where
+// the OnionBlob saved on disk is of an unexpected length. This error case is
+// only expected in the case of database corruption (or some severe protocol
+// breakdown/bug). A HTLC is manually serialized because we cannot force a
+// case where we write an onion blob of incorrect length.
+func TestOnionBlobIncorrectLength(t *testing.T) {
+	t.Parallel()
+
+	var b bytes.Buffer
+
+	var numHtlcs uint16 = 1
+	require.NoError(t, WriteElement(&b, numHtlcs))
+
+	require.NoError(t, WriteElements(
+		&b,
+		// Number of HTLCs.
+		numHtlcs,
+		// Signature, incoming, amount, Rhash, Timeout.
+		testSig.Serialize(), false, lnwire.MilliSatoshi(10), key,
+		uint32(1),
+		// Write an onion blob that is half of our expected size.
+		bytes.Repeat([]byte{1}, lnwire.OnionPacketSize/2),
+	))
+
+	_, err := DeserializeHtlcs(&b)
+	require.ErrorIs(t, err, ErrOnionBlobLength)
+}

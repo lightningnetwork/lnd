@@ -291,6 +291,10 @@ type InitFundingMsg struct {
 	// support explicit channel type negotiation.
 	ChannelType *lnwire.ChannelType
 
+	// Memo is any arbitrary information we wish to store locally about the
+	// channel that will be useful to our future selves.
+	Memo []byte
+
 	// Updates is a channel which updates to the opening status of the
 	// channel are sent on.
 	Updates chan *lnrpc.OpenStatusUpdate
@@ -4137,6 +4141,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		ZeroConf:          zeroConf,
 		OptionScidAlias:   scid,
 		ScidAliasFeature:  scidFeatureVal,
+		Memo:              msg.Memo,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

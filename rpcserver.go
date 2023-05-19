@@ -2169,6 +2169,15 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 			in.CommitmentType)
 	}
 
+	// We limit the channel memo to be 500 characters long. This enforces
+	// a reasonable upper bound on storage consumption. This also mimics
+	// the length limit for the label of a TX.
+	const maxMemoLength = 500
+	if len(in.Memo) > maxMemoLength {
+		return nil, fmt.Errorf("provided memo (%s) is of length %d, "+
+			"exceeds %d", in.Memo, len(in.Memo), maxMemoLength)
+	}
+
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
@@ -2194,6 +2203,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		ChannelType:       channelType,
 		FundUpToMaxAmt:    fundUpToMaxAmt,
 		MinFundAmt:        minFundAmt,
+		Memo:              []byte(in.Memo),
 	}, nil
 }
 
@@ -4214,6 +4224,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 		PeerScidAlias:         peerScidAlias.ToUint64(),
 		ZeroConf:              dbChannel.IsZeroConf(),
 		ZeroConfConfirmedScid: dbChannel.ZeroConfRealScid().ToUint64(),
+		Memo:                  string(dbChannel.Memo),
 		// TODO: remove the following deprecated fields
 		CsvDelay:             uint32(dbChannel.LocalChanCfg.CsvDelay),
 		LocalChanReserveSat:  int64(dbChannel.LocalChanCfg.ChanReserve),

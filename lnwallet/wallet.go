@@ -179,6 +179,10 @@ type InitFundingReserveMsg struct {
 	// negotiated.
 	ScidAliasFeature bool
 
+	// Memo is any arbitrary information we wish to store locally about the
+	// channel that will be useful to our future selves.
+	Memo []byte
+
 	// err is a channel in which all errors will be sent across. Will be
 	// nil if this initial set is successful.
 	//

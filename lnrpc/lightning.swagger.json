@@ -3573,6 +3573,10 @@
           "type": "string",
           "format": "uint64",
           "description": "This is the peer SCID alias."
+        },
+        "memo": {
+          "type": "string",
+          "description": "An optional note-to-self to go along with the channel containing some\nuseful information. This is only ever stored locally and in no way impacts\nthe channel's operation."
         }
       }
     },
@@ -5820,6 +5824,10 @@
         "fund_max": {
           "type": "boolean",
           "description": "If set, then lnd will attempt to commit all the coins under control of the\ninternal wallet to open the channel, and the LocalFundingAmount field must\nbe zero and is ignored."
+        },
+        "memo": {
+          "type": "string",
+          "description": "An optional note-to-self to go along with the channel containing some\nuseful information. This is only ever stored locally and in no way impacts\nthe channel's operation."
         }
       }
     },

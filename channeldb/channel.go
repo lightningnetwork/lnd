@@ -220,6 +220,10 @@ const (
 	// A tlv type definition used to serialize and deserialize the
 	// confirmed ShortChannelID for a zero-conf channel.
 	realScidType tlv.Type = 4
+
+	// A tlv type definition used to serialize and deserialize the
+	// Memo for the channel channel.
+	channelMemoType tlv.Type = 5
 )
 
 // indexStatus is an enum-like type that describes what state the
@@ -817,6 +821,10 @@ type OpenChannel struct {
 	// channel. If the channel is unconfirmed, then this will be the
 	// default ShortChannelID. This is only set for zero-conf channels.
 	confirmedScid lnwire.ShortChannelID
+
+	// Memo is any arbitrary information we wish to store locally about the
+	// channel that will be useful to our future selves.
+	Memo []byte
 
 	// TODO(roasbeef): eww
 	Db *ChannelStateDB
@@ -3642,6 +3650,7 @@ func putChanInfo(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 			initialRemoteBalanceType, &remoteBalance,
 		),
 		MakeScidRecord(realScidType, &channel.confirmedScid),
+		tlv.MakePrimitiveRecord(channelMemoType, &channel.Memo),
 	)
 	if err != nil {
 		return err
@@ -3839,10 +3848,11 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 		}
 	}
 
-	// Create balance fields in uint64.
+	// Create balance fields in uint64, and Memo field as byte slice.
 	var (
 		localBalance  uint64
 		remoteBalance uint64
+		memo          []byte
 	)
 
 	// Create the tlv stream.
@@ -3859,6 +3869,7 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 			initialRemoteBalanceType, &remoteBalance,
 		),
 		MakeScidRecord(realScidType, &channel.confirmedScid),
+		tlv.MakePrimitiveRecord(channelMemoType, &memo),
 	)
 	if err != nil {
 		return err
@@ -3871,6 +3882,11 @@ func fetchChanInfo(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	// Attach the balance fields.
 	channel.InitialLocalBalance = lnwire.MilliSatoshi(localBalance)
 	channel.InitialRemoteBalance = lnwire.MilliSatoshi(remoteBalance)
+
+	// Attach the memo field if non-empty.
+	if len(memo) > 0 {
+		channel.Memo = memo
+	}
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)
 

@@ -890,6 +890,12 @@ type OpenChannelParams struct {
 	// FundMax is a boolean indicating whether the channel should be funded
 	// with the maximum possible amount from the wallet.
 	FundMax bool
+
+	// An optional note-to-self containing some useful information about the
+	// channel. This is stored locally only, and is purely for reference. It
+	// has no bearing on the channel's operation. Max allowed length is 500
+	// characters.
+	Memo string
 }
 
 // prepareOpenChannel waits for both nodes to be synced to chain and returns an
@@ -931,6 +937,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		UseBaseFee:         p.UseBaseFee,
 		UseFeeRate:         p.UseFeeRate,
 		FundMax:            p.FundMax,
+		Memo:               p.Memo,
 	}
 }
 

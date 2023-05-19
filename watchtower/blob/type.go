@@ -26,6 +26,10 @@ const (
 	// channel, and therefore must expect a P2WSH-style to-remote output if
 	// one exists.
 	FlagAnchorChannel Flag = 1 << 2
+
+	// FlagTaprootChannel signals that this blob is meant to spend a
+	// taproot channel and therefore must expect P2TR outputs.
+	FlagTaprootChannel Flag = 1 << 3
 )
 
 // Type returns a Type consisting solely of this flag enabled.
@@ -42,6 +46,8 @@ func (f Flag) String() string {
 		return "FlagCommitOutputs"
 	case FlagAnchorChannel:
 		return "FlagAnchorChannel"
+	case FlagTaprootChannel:
+		return "FlagTaprootChannel"
 	default:
 		return "FlagUnknown"
 	}
@@ -67,6 +73,11 @@ const (
 	// TypeRewardCommit sweeps only commitment outputs to a sweep address
 	// controlled by the user, and pays a negotiated reward to the tower.
 	TypeRewardCommit = Type(FlagCommitOutputs | FlagReward)
+
+	// TypeAltruistTaprootCommit sweeps only the commitment outputs from a
+	// taproot channel commitment to a sweep address controlled by the user,
+	// and does not give the tower a reward.
+	TypeAltruistTaprootCommit = Type(FlagCommitOutputs | FlagTaprootChannel)
 )
 
 // Identifier returns a unique, stable string identifier for the blob Type.
@@ -78,6 +89,8 @@ func (t Type) Identifier() (string, error) {
 		return "anchor", nil
 	case TypeRewardCommit:
 		return "reward", nil
+	case TypeAltruistTaprootCommit:
+		return "taproot", nil
 	default:
 		return "", fmt.Errorf("unknown blob type: %v", t)
 	}
@@ -122,14 +135,20 @@ func (t Type) IsAnchorChannel() bool {
 	return t.Has(FlagAnchorChannel)
 }
 
-// knownFlags maps the supported flags to their name.
-var knownFlags = map[Flag]struct{}{
-	FlagReward:        {},
-	FlagCommitOutputs: {},
-	FlagAnchorChannel: {},
+// IsTaprootChannel returns true if the blob type is for a taproot channel.
+func (t Type) IsTaprootChannel() bool {
+	return t.Has(FlagTaprootChannel)
 }
 
-// String returns a human readable description of a Type.
+// knownFlags maps the supported flags to their name.
+var knownFlags = map[Flag]struct{}{
+	FlagReward:         {},
+	FlagCommitOutputs:  {},
+	FlagAnchorChannel:  {},
+	FlagTaprootChannel: {},
+}
+
+// String returns a human-readable description of a Type.
 func (t Type) String() string {
 	var (
 		hrPieces        []string
@@ -173,9 +192,10 @@ func (t Type) String() string {
 // supportedTypes is the set of all configurations known to be supported by the
 // package.
 var supportedTypes = map[Type]struct{}{
-	TypeAltruistCommit:       {},
-	TypeRewardCommit:         {},
-	TypeAltruistAnchorCommit: {},
+	TypeAltruistCommit:        {},
+	TypeRewardCommit:          {},
+	TypeAltruistAnchorCommit:  {},
+	TypeAltruistTaprootCommit: {},
 }
 
 // IsSupportedType returns true if the given type is supported by the package.

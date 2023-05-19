@@ -125,6 +125,12 @@ func (p Policy) IsAnchorChannel() bool {
 	return p.TxPolicy.BlobType.IsAnchorChannel()
 }
 
+// IsTaprootChannel returns true if the session policy requires taproot
+// channels.
+func (p Policy) IsTaprootChannel() bool {
+	return p.TxPolicy.BlobType.IsTaprootChannel()
+}
+
 // Validate ensures that the policy satisfies some minimal correctness
 // constraints.
 func (p Policy) Validate() error {

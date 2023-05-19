@@ -93,20 +93,32 @@ func TestPolicyValidate(t *testing.T) {
 	}
 }
 
-// TestPolicyIsAnchorChannel asserts that the IsAnchorChannel helper properly
-// reflects the anchor bit of the policy's blob type.
-func TestPolicyIsAnchorChannel(t *testing.T) {
-	policyNoAnchor := wtpolicy.Policy{
+// TestPolicyIsChannelType asserts that the IsAnchorChannel and IsTaprootChannel
+// helpers properly reflect the anchor bit of the policy's blob type.
+func TestPolicyIsChannelType(t *testing.T) {
+	t.Parallel()
+
+	policyLegacy := wtpolicy.Policy{
 		TxPolicy: wtpolicy.TxPolicy{
 			BlobType: blob.TypeAltruistCommit,
 		},
 	}
-	require.Equal(t, false, policyNoAnchor.IsAnchorChannel())
+	require.False(t, policyLegacy.IsAnchorChannel())
+	require.False(t, policyLegacy.IsTaprootChannel())
 
 	policyAnchor := wtpolicy.Policy{
 		TxPolicy: wtpolicy.TxPolicy{
 			BlobType: blob.TypeAltruistAnchorCommit,
 		},
 	}
-	require.Equal(t, true, policyAnchor.IsAnchorChannel())
+	require.True(t, policyAnchor.IsAnchorChannel())
+	require.False(t, policyAnchor.IsTaprootChannel())
+
+	policyTaproot := wtpolicy.Policy{
+		TxPolicy: wtpolicy.TxPolicy{
+			BlobType: blob.TypeAltruistTaprootCommit,
+		},
+	}
+	require.True(t, policyTaproot.IsTaprootChannel())
+	require.False(t, policyTaproot.IsAnchorChannel())
 }

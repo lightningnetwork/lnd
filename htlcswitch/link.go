@@ -1037,7 +1037,7 @@ func (l *channelLink) htlcManager() {
 				l.fail(
 					LinkFailureError{
 						code:          ErrSyncError,
-						FailureAction: LinkFailureForceClose, // nolint:lll
+						FailureAction: LinkFailureForceClose, //nolint:lll
 					},
 					"unable to synchronize channel "+
 						"states: %v", err,
@@ -1239,8 +1239,13 @@ func (l *channelLink) htlcManager() {
 			}
 
 		case <-l.cfg.PendingCommitTicker.Ticks():
-			l.fail(LinkFailureError{code: ErrRemoteUnresponsive},
-				"unable to complete dance")
+			l.fail(
+				LinkFailureError{
+					code:          ErrRemoteUnresponsive,
+					FailureAction: LinkFailureDisconnect,
+				},
+				"unable to complete dance",
+			)
 			return
 
 		// A message from the switch was just received. This indicates

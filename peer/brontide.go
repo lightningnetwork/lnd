@@ -3142,6 +3142,13 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 				"remote peer: %v", err)
 		}
 	}
+
+	// If the failure action is disconnect, then we'll execute that now. If
+	// we had to send an error above, it was a sync call, so we expect the
+	// message to be flushed on the wire by now.
+	if failure.linkErr.FailureAction == htlcswitch.LinkFailureDisconnect {
+		p.Disconnect(fmt.Errorf("link requested disconnect"))
+	}
 }
 
 // tryLinkShutdown attempts to fetch a target link from the switch, calls

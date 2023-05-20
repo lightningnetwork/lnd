@@ -5457,7 +5457,8 @@ func TestChannelLinkFail(t *testing.T) {
 		// If we expect the link to force close the channel in this
 		// case, check that it happens. If not, make sure it does not
 		// happen.
-		isForceCloseErr := (linkErr.FailureAction == LinkFailureForceClose)
+		isForceCloseErr := (linkErr.FailureAction ==
+			LinkFailureForceClose)
 		require.True(
 			t, test.shouldForceClose == isForceCloseErr, test.name,
 		)
@@ -6343,11 +6344,12 @@ func TestPendingCommitTicker(t *testing.T) {
 	// Assert that we get the expected link failure from Alice.
 	select {
 	case linkErr := <-linkErrs:
-		if linkErr.code != ErrRemoteUnresponsive {
-			t.Fatalf("error code mismatch, "+
-				"want: ErrRemoteUnresponsive, got: %v",
-				linkErr.code)
-		}
+		require.Equal(
+			t, linkErr.code, ErrRemoteUnresponsive,
+			fmt.Sprintf("error code mismatch, want: "+
+				"ErrRemoteUnresponsive, got: %v", linkErr.code),
+		)
+		require.Equal(t, linkErr.FailureAction, LinkFailureDisconnect)
 
 	case <-time.After(time.Second):
 		t.Fatalf("did not receive failure")

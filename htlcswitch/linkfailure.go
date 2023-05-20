@@ -64,6 +64,11 @@ const (
 	// LinkFailureForceClose indicates that the channel should be force
 	// closed.
 	LinkFailureForceClose
+
+	// LinkFailureDisconnect indicates that we should disconnect in an
+	// attempt to recycle the connection. This can be useful if we think a
+	// TCP connection or state machine is stalled.
+	LinkFailureDisconnect
 )
 
 // LinkFailureError encapsulates an error that will make us fail the current

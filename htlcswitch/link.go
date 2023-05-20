@@ -1036,8 +1036,8 @@ func (l *channelLink) htlcManager() {
 				// storing the transaction in the db.
 				l.fail(
 					LinkFailureError{
-						code:       ErrSyncError,
-						ForceClose: true,
+						code:          ErrSyncError,
+						FailureAction: LinkFailureForceClose, // nolint:lll
 					},
 					"unable to synchronize channel "+
 						"states: %v", err,
@@ -1077,8 +1077,8 @@ func (l *channelLink) htlcManager() {
 
 			l.fail(
 				LinkFailureError{
-					code:       ErrRecoveryError,
-					ForceClose: false,
+					code:          ErrRecoveryError,
+					FailureAction: LinkFailureForceNone,
 				},
 				"unable to synchronize channel "+
 					"states: %v", err,
@@ -1782,8 +1782,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		if err := l.channel.ReceiveHTLCSettle(pre, idx); err != nil {
 			l.fail(
 				LinkFailureError{
-					code:       ErrInvalidUpdate,
-					ForceClose: true,
+					code:          ErrInvalidUpdate,
+					FailureAction: LinkFailureForceClose,
 				},
 				"unable to handle upstream settle HTLC: %v", err,
 			)
@@ -1947,9 +1947,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 			l.fail(
 				LinkFailureError{
-					code:       ErrInvalidCommitment,
-					ForceClose: true,
-					SendData:   sendData,
+					code:          ErrInvalidCommitment,
+					FailureAction: LinkFailureForceClose,
+					SendData:      sendData,
 				},
 				"ChannelPoint(%v): unable to accept new "+
 					"commitment: %v",

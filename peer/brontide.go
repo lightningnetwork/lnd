@@ -3094,11 +3094,10 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 	// being applied.
 	p.WipeChannel(&failure.chanPoint)
 
-	// If the error encountered was severe enough, we'll now force close the
-	// channel to prevent reading it to the switch in the future.
-	if failure.linkErr.ForceClose {
-		p.log.Warnf("Force closing link(%v)",
-			failure.shortChanID)
+	// If the error encountered was severe enough, we'll now force close
+	// the channel to prevent reading it to the switch in the future.
+	if failure.linkErr.FailureAction == htlcswitch.LinkFailureForceClose {
+		p.log.Warnf("Force closing link(%v)", failure.shortChanID)
 
 		closeTx, err := p.cfg.ChainArb.ForceCloseContract(
 			failure.chanPoint,

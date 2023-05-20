@@ -53,6 +53,19 @@ const (
 	ErrCircuitError
 )
 
+// LinkFailureAction is an enum-like type that describes the action that should
+// be taken in response to a link failure.
+type LinkFailureAction uint8
+
+const (
+	// LinkFailureForceNone indicates no action is to be taken.
+	LinkFailureForceNone LinkFailureAction = iota
+
+	// LinkFailureForceClose indicates that the channel should be force
+	// closed.
+	LinkFailureForceClose
+)
+
 // LinkFailureError encapsulates an error that will make us fail the current
 // link. It contains the necessary information needed to determine if we should
 // force close the channel in the process, and if any error data should be sent
@@ -61,9 +74,8 @@ type LinkFailureError struct {
 	// code is the type of error this LinkFailureError encapsulates.
 	code errorCode
 
-	// ForceClose indicates whether we should force close the channel
-	// because of this error.
-	ForceClose bool
+	// FailureAction describes what we should do to fail the channel.
+	FailureAction LinkFailureAction
 
 	// PermanentFailure indicates whether this failure is permanent, and
 	// the channel should not be attempted loaded again.

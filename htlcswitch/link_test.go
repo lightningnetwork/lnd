@@ -5457,8 +5457,9 @@ func TestChannelLinkFail(t *testing.T) {
 		// If we expect the link to force close the channel in this
 		// case, check that it happens. If not, make sure it does not
 		// happen.
-		require.Equal(
-			t, test.shouldForceClose, linkErr.ForceClose, test.name,
+		isForceCloseErr := (linkErr.FailureAction == LinkFailureForceClose)
+		require.True(
+			t, test.shouldForceClose == isForceCloseErr, test.name,
 		)
 		require.Equal(
 			t, test.permanentFailure, linkErr.PermanentFailure,
@@ -6523,7 +6524,7 @@ func TestPipelineSettle(t *testing.T) {
 	// ForceClose should be false.
 	select {
 	case linkErr := <-linkErrors:
-		require.False(t, linkErr.ForceClose)
+		require.False(t, linkErr.FailureAction == LinkFailureForceClose)
 	case <-forwardChan:
 		t.Fatal("packet was erroneously forwarded")
 	}
@@ -6559,7 +6560,7 @@ func TestPipelineSettle(t *testing.T) {
 	// ForceClose should be false.
 	select {
 	case linkErr := <-linkErrors:
-		require.False(t, linkErr.ForceClose)
+		require.False(t, linkErr.FailureAction == LinkFailureForceClose)
 	case <-forwardChan:
 		t.Fatal("packet was erroneously forwarded")
 	}

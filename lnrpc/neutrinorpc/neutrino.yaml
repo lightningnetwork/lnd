@@ -19,5 +19,6 @@ http:
       get: "/v2/neutrino/blockheader/{hash}"
     - selector: neutrinorpc.NeutrinoKit.GetCFilter
       get: "/v2/neutrino/cfilter/{hash}"
+    # deprecated
     - selector: neutrinorpc.NeutrinoKit.GetBlockHash
       get: "/v2/neutrino/blockhash/{height}"

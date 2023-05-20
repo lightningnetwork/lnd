@@ -47,9 +47,12 @@ service NeutrinoKit {
     rpc GetCFilter (GetCFilterRequest) returns (GetCFilterResponse);
 
     /*
+    Deprecated, use chainrpc.GetBlockHash instead.
     GetBlockHash returns the header hash of a block at a given height.
     */
-    rpc GetBlockHash (GetBlockHashRequest) returns (GetBlockHashResponse);
+    rpc GetBlockHash (GetBlockHashRequest) returns (GetBlockHashResponse) {
+        option deprecated = true;
+    }
 }
 
 message StatusRequest {

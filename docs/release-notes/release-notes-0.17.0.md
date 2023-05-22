@@ -67,6 +67,9 @@ unlock or create.
 
 ## Testing
 
+* [Started](https://github.com/lightningnetwork/lnd/pull/7494) running fuzz
+  tests in CI.
+
 * [Added fuzz tests](https://github.com/lightningnetwork/lnd/pull/7649) for
   signature parsing and conversion.
 

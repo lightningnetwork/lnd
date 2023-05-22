@@ -45,11 +45,6 @@ service NeutrinoKit {
     GetCFilter returns a compact filter from a block.
     */
     rpc GetCFilter (GetCFilterRequest) returns (GetCFilterResponse);
-
-    /*
-    GetBlockHash returns the header hash of a block at a given height.
-    */
-    rpc GetBlockHash (GetBlockHashRequest) returns (GetBlockHashResponse);
 }
 
 message StatusRequest {
@@ -212,14 +207,4 @@ message GetCFilterRequest {
 message GetCFilterResponse {
     // GCS filter.
     bytes filter = 1;
-}
-
-message GetBlockHashRequest {
-    // The block height or index.
-    int32 height = 1;
-}
-
-message GetBlockHashResponse {
-    // The block hash.
-    string hash = 1;
 }

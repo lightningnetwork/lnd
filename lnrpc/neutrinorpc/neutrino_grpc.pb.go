@@ -36,6 +36,9 @@ type NeutrinoKitClient interface {
 	GetBlock(ctx context.Context, in *GetBlockRequest, opts ...grpc.CallOption) (*GetBlockResponse, error)
 	// GetCFilter returns a compact filter from a block.
 	GetCFilter(ctx context.Context, in *GetCFilterRequest, opts ...grpc.CallOption) (*GetCFilterResponse, error)
+	// Deprecated: Do not use.
+	//
+	// Deprecated, use chainrpc.GetBlockHash instead.
 	// GetBlockHash returns the header hash of a block at a given height.
 	GetBlockHash(ctx context.Context, in *GetBlockHashRequest, opts ...grpc.CallOption) (*GetBlockHashResponse, error)
 }
@@ -111,6 +114,7 @@ func (c *neutrinoKitClient) GetCFilter(ctx context.Context, in *GetCFilterReques
 	return out, nil
 }
 
+// Deprecated: Do not use.
 func (c *neutrinoKitClient) GetBlockHash(ctx context.Context, in *GetBlockHashRequest, opts ...grpc.CallOption) (*GetBlockHashResponse, error) {
 	out := new(GetBlockHashResponse)
 	err := c.cc.Invoke(ctx, "/neutrinorpc.NeutrinoKit/GetBlockHash", in, out, opts...)
@@ -142,6 +146,9 @@ type NeutrinoKitServer interface {
 	GetBlock(context.Context, *GetBlockRequest) (*GetBlockResponse, error)
 	// GetCFilter returns a compact filter from a block.
 	GetCFilter(context.Context, *GetCFilterRequest) (*GetCFilterResponse, error)
+	// Deprecated: Do not use.
+	//
+	// Deprecated, use chainrpc.GetBlockHash instead.
 	// GetBlockHash returns the header hash of a block at a given height.
 	GetBlockHash(context.Context, *GetBlockHashRequest) (*GetBlockHashResponse, error)
 	mustEmbedUnimplementedNeutrinoKitServer()

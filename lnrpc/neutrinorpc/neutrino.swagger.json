@@ -83,7 +83,7 @@
     },
     "/v2/neutrino/blockhash/{height}": {
       "get": {
-        "summary": "GetBlockHash returns the header hash of a block at a given height.",
+        "summary": "Deprecated, use chainrpc.GetBlockHash instead.\nGetBlockHash returns the header hash of a block at a given height.",
         "operationId": "NeutrinoKit_GetBlockHash",
         "responses": {
           "200": {

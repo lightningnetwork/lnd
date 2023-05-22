@@ -1653,18 +1653,12 @@ func (h *HarnessTest) cleanMempool() {
 		blocks := h.Miner.MineBlocksSlow(1)
 		bestBlock = blocks[len(blocks)-1]
 
+		// Make sure all the active nodes are synced.
+		h.AssertActiveNodesSyncedTo(bestBlock)
+
 		return fmt.Errorf("still have %d txes in mempool", len(mem))
 	}, wait.MinerMempoolTimeout)
 	require.NoError(h, err, "timeout cleaning up mempool")
-
-	// Exit early if the best block is nil, which means we haven't mined
-	// any blocks during the cleanup.
-	if bestBlock == nil {
-		return
-	}
-
-	// Make sure all the active nodes are synced.
-	h.AssertActiveNodesSyncedTo(bestBlock)
 }
 
 // CleanShutDown is used to quickly end a test by shutting down all non-standby

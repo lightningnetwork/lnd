@@ -77,6 +77,10 @@ unlock or create.
 * [Added fuzz tests](https://github.com/lightningnetwork/lnd/pull/7649) for
   signature parsing and conversion.
 
+## `lncli`
+
+* Added ability to use [ENV variables to override `lncli` global flags](https://github.com/lightningnetwork/lnd/pull/7693). Flags will have preference over ENVs.
+
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen
@@ -84,6 +88,7 @@ unlock or create.
 * Elle Mouton
 * Erik Arvstedt
 * ErikEk
+* Guillermo Caracuel
 * hieblmi
 * Jordi Montes
 * Matt Morehouse

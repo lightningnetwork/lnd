@@ -34,6 +34,18 @@ const (
 	defaultMacaroonFilename = "admin.macaroon"
 	defaultRPCPort          = "10009"
 	defaultRPCHostPort      = "localhost:" + defaultRPCPort
+
+	envVarRPCServer       = "LNCLI_RPCSERVER"
+	envVarLNDDir          = "LNCLI_LNDDIR"
+	envVarSOCKSProxy      = "LNCLI_SOCKSPROXY"
+	envVarTLSCertPath     = "LNCLI_TLSCERTPATH"
+	envVarChain           = "LNCLI_CHAIN"
+	envVarNetwork         = "LNCLI_NETWORK"
+	envVarMacaroonPath    = "LNCLI_MACAROONPATH"
+	envVarMacaroonTimeout = "LNCLI_MACAROONTIMEOUT"
+	envVarMacaroonIP      = "LNCLI_MACAROONIP"
+	envVarProfile         = "LNCLI_PROFILE"
+	envVarMacFromJar      = "LNCLI_MACFROMJAR"
 )
 
 var (
@@ -342,38 +354,44 @@ func main() {
 	app.Usage = "control plane for your Lightning Network Daemon (lnd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
-			Name:  "rpcserver",
-			Value: defaultRPCHostPort,
-			Usage: "The host:port of LN daemon.",
+			Name:   "rpcserver",
+			Value:  defaultRPCHostPort,
+			Usage:  "The host:port of LN daemon.",
+			EnvVar: envVarRPCServer,
 		},
 		cli.StringFlag{
 			Name:      "lnddir",
 			Value:     defaultLndDir,
 			Usage:     "The path to lnd's base directory.",
 			TakesFile: true,
+			EnvVar:    envVarLNDDir,
 		},
 		cli.StringFlag{
 			Name: "socksproxy",
 			Usage: "The host:port of a SOCKS proxy through " +
 				"which all connections to the LN " +
 				"daemon will be established over.",
+			EnvVar: envVarSOCKSProxy,
 		},
 		cli.StringFlag{
 			Name:      "tlscertpath",
 			Value:     defaultTLSCertPath,
 			Usage:     "The path to lnd's TLS certificate.",
 			TakesFile: true,
+			EnvVar:    envVarTLSCertPath,
 		},
 		cli.StringFlag{
-			Name:  "chain, c",
-			Usage: "The chain lnd is running on, e.g. bitcoin.",
-			Value: "bitcoin",
+			Name:   "chain, c",
+			Usage:  "The chain lnd is running on, e.g. bitcoin.",
+			Value:  "bitcoin",
+			EnvVar: envVarChain,
 		},
 		cli.StringFlag{
 			Name: "network, n",
 			Usage: "The network lnd is running on, e.g. mainnet, " +
 				"testnet, etc.",
-			Value: "mainnet",
+			Value:  "mainnet",
+			EnvVar: envVarNetwork,
 		},
 		cli.BoolFlag{
 			Name:  "no-macaroons",
@@ -383,15 +401,19 @@ func main() {
 			Name:      "macaroonpath",
 			Usage:     "The path to macaroon file.",
 			TakesFile: true,
+			EnvVar:    envVarMacaroonPath,
 		},
 		cli.Int64Flag{
 			Name:  "macaroontimeout",
 			Value: 60,
-			Usage: "Anti-replay macaroon validity time in seconds.",
+			Usage: "Anti-replay macaroon validity time in " +
+				"seconds.",
+			EnvVar: envVarMacaroonTimeout,
 		},
 		cli.StringFlag{
-			Name:  "macaroonip",
-			Usage: "If set, lock macaroon to specific IP address.",
+			Name:   "macaroonip",
+			Usage:  "If set, lock macaroon to specific IP address.",
+			EnvVar: envVarMacaroonIP,
 		},
 		cli.StringFlag{
 			Name: "profile, p",
@@ -401,12 +423,14 @@ func main() {
 				"a default profile is set, this flag can be " +
 				"set to an empty string to disable reading " +
 				"values from the profiles file.",
+			EnvVar: envVarProfile,
 		},
 		cli.StringFlag{
 			Name: "macfromjar",
 			Usage: "Use this macaroon from the profile's " +
 				"macaroon jar instead of the default one. " +
 				"Can only be used if profiles are defined.",
+			EnvVar: envVarMacFromJar,
 		},
 		cli.StringSliceFlag{
 			Name: "metadata",

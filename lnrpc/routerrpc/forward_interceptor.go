@@ -1,6 +1,7 @@
 package routerrpc
 
 import (
+	"crypto/sha256"
 	"errors"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -134,7 +135,7 @@ func (r *forwardInterceptor) resolveFromClient(
 			// message size + hmac + two uint16 lengths. See BOLT
 			// #4.
 			if len(in.FailureMessage) !=
-				lnwire.FailureMessageLength+32+2+2 {
+				lnwire.FailureMessageLength+sha256.Size+2+2 {
 
 				return status.Errorf(
 					codes.InvalidArgument,

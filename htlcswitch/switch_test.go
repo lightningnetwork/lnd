@@ -4051,10 +4051,12 @@ func TestSwitchHoldForward(t *testing.T) {
 
 	reason := lnwire.OpaqueReason(make([]byte, 292))
 	copy(reason, []byte{1, 2, 3})
+
+	intercepted := c.forwardInterceptor.getIntercepted()
 	require.NoError(t, switchForwardInterceptor.Resolve(&FwdResolution{
-		Action:         FwdActionFail,
-		Key:            c.forwardInterceptor.getIntercepted().IncomingCircuit,
-		FailureMessage: reason,
+		Action:                  FwdActionFail,
+		Key:                     intercepted.IncomingCircuit,
+		EncryptedFailureMessage: reason,
 	}))
 
 	assertOutgoingLinkReceive(t, c.bobChannelLink, false)
@@ -4173,7 +4175,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	)
 
 	// A replay of the held packet is expected.
-	intercepted := c.forwardInterceptor.getIntercepted()
+	intercepted = c.forwardInterceptor.getIntercepted()
 
 	// Settle the packet.
 	require.NoError(t, switchForwardInterceptor.Resolve(&FwdResolution{

@@ -184,7 +184,7 @@ func unmarshallFailureResolution(in *ForwardHtlcInterceptResponse,
 		}
 
 		// Fail with an encrypted reason.
-		fwdRes.FailureMessage = in.FailureMessage
+		fwdRes.EncryptedFailureMessage = in.FailureMessage
 	} else {
 		code, err := unmarshalFailCode(in.FailureCode)
 		if err != nil {

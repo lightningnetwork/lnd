@@ -264,6 +264,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(ht *lntest.HarnessTest) {
 	// three channels. Note that we won't call the cleanUp function here as
 	// we will manually stop the node Carol and her channel.
 	s := setupScenarioFourNodes(ht)
+	defer s.cleanUp()
 
 	// Disconnect the two intermediaries, Alice and Dave, so that when carol
 	// restarts, the response will be held by Dave.
@@ -296,7 +297,7 @@ func testSwitchOfflineDeliveryOutgoingOffline(ht *lntest.HarnessTest) {
 	// Shutdown carol and leave her offline for the rest of the test. This
 	// is critical, as we wish to see if Dave can propragate settles even if
 	// the outgoing link is never revived.
-	ht.Shutdown(s.carol)
+	restartCarol := ht.SuspendNode(s.carol)
 
 	// Now restart Dave, ensuring he is both persisting the settles, and is
 	// able to reforward them to Alice after recovering from a restart.
@@ -339,8 +340,8 @@ func testSwitchOfflineDeliveryOutgoingOffline(ht *lntest.HarnessTest) {
 		amountPaid+(baseFee*numPayments)*2, int64(0),
 	)
 
-	ht.CloseChannel(s.alice, s.chanPointAliceBob)
-	ht.CloseChannel(s.dave, s.chanPointDaveAlice)
+	// Finally, restart Carol so the cleanup process can be finished.
+	require.NoError(ht, restartCarol())
 }
 
 // scenarioFourNodes specifies a scenario which we have a topology that has

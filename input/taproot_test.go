@@ -927,7 +927,7 @@ func newTestCommitScriptTree(local bool) (*testCommitScriptTree, error) {
 		)
 	} else {
 		commitScriptTree, err = NewRemoteCommitScriptTree(
-			revokeKey.PubKey(), selfKey.PubKey(),
+			selfKey.PubKey(),
 		)
 	}
 
@@ -1210,7 +1210,6 @@ func remoteCommitSweepWitGen(sigHash txscript.SigHashType,
 
 		return TaprootCommitRemoteSpend(
 			signer, signDesc, spendTx,
-			commitScriptTree.revokeKey.PubKey(),
 			commitScriptTree.TapscriptTree,
 		)
 	}

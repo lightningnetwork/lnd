@@ -3,6 +3,7 @@ package input
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -21,6 +22,34 @@ var (
 	// SequenceLockTimeSeconds is the 22nd bit which indicates the lock
 	// time is in seconds.
 	SequenceLockTimeSeconds = uint32(1 << 22)
+)
+
+// mustParsePubKey parses a hex encoded public key string into a public key and
+// panic if parsing fails.
+func mustParsePubKey(pubStr string) btcec.PublicKey {
+	pubBytes, err := hex.DecodeString(pubStr)
+	if err != nil {
+		panic(err)
+	}
+
+	pub, err := btcec.ParsePubKey(pubBytes)
+	if err != nil {
+		panic(err)
+	}
+
+	return *pub
+}
+
+// TaprootNUMSHex is the hex encoded version of the taproot NUMs key.
+const TaprootNUMSHex = "02dca094751109d0bd055d03565874e8276dd53e926b44e3bd1bb" +
+	"6bf4bc130a279"
+
+var (
+	// TaprootNUMSKey is a NUMS key (nothing up my sleeves number) that has
+	// no known private key. This was generated using the following script:
+	// https://github.com/lightninglabs/lightning-node-connect/tree/master/mailbox/numsgen),
+	// with the seed phrase "Lightning Simple Taproot".
+	TaprootNUMSKey = mustParsePubKey(TaprootNUMSHex)
 )
 
 // Signature is an interface for objects that can populate signatures during
@@ -1130,7 +1159,7 @@ func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 	// With the two leaves obtained, we'll now make the tapscript tree,
 	// then obtain the root from that
 	tapscriptTree := txscript.AssembleTaprootScriptTree(
-		successTapLeaf, timeoutTapLeaf,
+		timeoutTapLeaf, successTapLeaf,
 	)
 
 	tapScriptRoot := tapscriptTree.RootNode.TapHash()
@@ -1823,7 +1852,7 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 	// Now that we have our root, we can arrive at the final output script
 	// by tweaking the internal key with this root.
 	toLocalOutputKey := txscript.ComputeTaprootOutputKey(
-		revokeKey, tapScriptRoot[:],
+		&TaprootNUMSKey, tapScriptRoot[:],
 	)
 
 	return &CommitScriptTree{
@@ -1883,7 +1912,9 @@ func TaprootCommitSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	).TapHash()
 	settleIdx := scriptTree.LeafProofIndex[settleTapleafHash]
 	settleMerkleProof := scriptTree.LeafMerkleProofs[settleIdx]
-	settleControlBlock := settleMerkleProof.ToControlBlock(revokeKey)
+	settleControlBlock := settleMerkleProof.ToControlBlock(
+		&TaprootNUMSKey,
+	)
 
 	// With the control block created, we'll now generate the signature we
 	// need to authorize the spend.
@@ -2142,8 +2173,8 @@ func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
 
 // NewRemoteCommitScriptTree constructs a new script tree for the remote party
 // to sweep their funds after a hard coded 1 block delay.
-func NewRemoteCommitScriptTree(numsKey,
-	remoteKey *btcec.PublicKey) (*CommitScriptTree, error) {
+func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
+) (*CommitScriptTree, error) {
 
 	// First, construct the remote party's tapscript they'll use to sweep their
 	// outputs.
@@ -2166,7 +2197,7 @@ func NewRemoteCommitScriptTree(numsKey,
 	// Now that we have our root, we can arrive at the final output script
 	// by tweaking the internal key with this root.
 	toRemoteOutputKey := txscript.ComputeTaprootOutputKey(
-		numsKey, tapScriptRoot[:],
+		&TaprootNUMSKey, tapScriptRoot[:],
 	)
 
 	return &CommitScriptTree{
@@ -2179,9 +2210,10 @@ func NewRemoteCommitScriptTree(numsKey,
 
 // TaprootCommitScriptToRemote constructs a taproot witness program for the
 // output on the commitment transaction for the remote party. For the top level
-// key spend, we'll use the combined funding key (musig2.KeyAgg(k1, k2)), as a
-// sort of practical NUMs point (the local party would never sign for this). We
-// then commit to a single tapscript leaf that holds the normal CSV 1 delay
+// key spend, we'll use a NUMs key to ensure that only the script path can be
+// taken. Using a set NUMs key here also means that recovery solutions can scan
+// the chain given knowledge of the public key fo the remote party. We then
+// commit to a single tapscript leaf that holds the normal CSV 1 delay
 // script.
 //
 // Our single tapleaf will use the following script:
@@ -2195,12 +2227,10 @@ func NewRemoteCommitScriptTree(numsKey,
 // the stack.
 //
 // TODO(roasbeef): double check here can't pass additional stack elements?
-func TaprootCommitScriptToRemote(combinedFundingKey,
-	remoteKey *btcec.PublicKey) (*btcec.PublicKey, error) {
+func TaprootCommitScriptToRemote(remoteKey *btcec.PublicKey,
+) (*btcec.PublicKey, error) {
 
-	commitScriptTree, err := NewRemoteCommitScriptTree(
-		combinedFundingKey, remoteKey,
-	)
+	commitScriptTree, err := NewRemoteCommitScriptTree(remoteKey)
 	if err != nil {
 		return nil, err
 	}
@@ -2211,7 +2241,7 @@ func TaprootCommitScriptToRemote(combinedFundingKey,
 // TaprootCommitRemoteSpend allows the remote party to sweep their output into
 // their wallet after an enforced 1 block delay.
 func TaprootCommitRemoteSpend(signer Signer, signDesc *SignDescriptor,
-	sweepTx *wire.MsgTx, numsKey *btcec.PublicKey,
+	sweepTx *wire.MsgTx,
 	scriptTree *txscript.IndexedTapScriptTree) (wire.TxWitness, error) {
 
 	// First, we'll need to construct a valid control block to execute the
@@ -2221,7 +2251,7 @@ func TaprootCommitRemoteSpend(signer Signer, signDesc *SignDescriptor,
 	).TapHash()
 	settleIdx := scriptTree.LeafProofIndex[settleTapleafHash]
 	settleMerkleProof := scriptTree.LeafMerkleProofs[settleIdx]
-	settleControlBlock := settleMerkleProof.ToControlBlock(numsKey)
+	settleControlBlock := settleMerkleProof.ToControlBlock(&TaprootNUMSKey)
 
 	// With the control block created, we'll now generate the signature we
 	// need to authorize the spend.

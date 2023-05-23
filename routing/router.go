@@ -2044,7 +2044,7 @@ func (l *LightningPayment) Identifier() [32]byte {
 func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	*route.Route, error) {
 
-	paySession, shardTracker, err := r.preparePayment(payment)
+	paySession, shardTracker, err := r.PreparePayment(payment)
 	if err != nil {
 		return [32]byte{}, nil, err
 	}
@@ -2062,11 +2062,8 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 
 // SendPaymentAsync is the non-blocking version of SendPayment. The payment
 // result needs to be retrieved via the control tower.
-func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
-	paySession, shardTracker, err := r.preparePayment(payment)
-	if err != nil {
-		return err
-	}
+func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment,
+	ps PaymentSession, st shards.ShardTracker) error {
 
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
@@ -2079,7 +2076,7 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment) error {
 
 		_, _, err := r.sendPayment(
 			payment.FeeLimit, payment.Identifier(),
-			payment.PayAttemptTimeout, paySession, shardTracker,
+			payment.PayAttemptTimeout, ps, st,
 		)
 		if err != nil {
 			log.Errorf("Payment %x failed: %v",
@@ -2111,9 +2108,9 @@ func spewPayment(payment *LightningPayment) logClosure {
 	})
 }
 
-// preparePayment creates the payment session and registers the payment with the
+// PreparePayment creates the payment session and registers the payment with the
 // control tower.
-func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
+func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	PaymentSession, shards.ShardTracker, error) {
 
 	// Before starting the HTLC routing attempt, we'll create a fresh

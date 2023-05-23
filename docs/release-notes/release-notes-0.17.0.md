@@ -70,6 +70,9 @@ unlock or create.
 * [Started](https://github.com/lightningnetwork/lnd/pull/7494) running fuzz
   tests in CI.
 
+* [Derandomized](https://github.com/lightningnetwork/lnd/pull/7618) the BOLT
+  8 fuzz tests.
+
 * [Added fuzz tests](https://github.com/lightningnetwork/lnd/pull/7649) for
   signature parsing and conversion.
 

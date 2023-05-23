@@ -76,6 +76,9 @@ unlock or create.
 * [Added fuzz tests](https://github.com/lightningnetwork/lnd/pull/7649) for
   signature parsing and conversion.
 
+* [Simplify fuzz tests](https://github.com/lightningnetwork/lnd/pull/7709)
+  using the `require` package.
+
 ## `lncli`
 
 * Added ability to use [ENV variables to override `lncli` global flags](https://github.com/lightningnetwork/lnd/pull/7693). Flags will have preference over ENVs.

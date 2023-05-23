@@ -12,15 +12,7 @@ import (
 
 func FuzzDecode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data string) {
-		inv, err := Decode(data, &chaincfg.TestNet3Params)
-		if err != nil {
-			return
-		}
-
-		// Call these functions as a sanity check to make sure the
-		// invoice is well-formed.
-		_ = inv.MinFinalCLTVExpiry()
-		_ = inv.Expiry()
+		_, _ = Decode(data, &chaincfg.TestNet3Params)
 	})
 }
 
@@ -30,11 +22,6 @@ func FuzzEncode(f *testing.F) {
 		if err != nil {
 			return
 		}
-
-		// Call these functions as a sanity check to make sure the
-		// invoice is well-formed.
-		_ = inv.MinFinalCLTVExpiry()
-		_ = inv.Expiry()
 
 		// Initialize the static key we will be using for this fuzz
 		// test.

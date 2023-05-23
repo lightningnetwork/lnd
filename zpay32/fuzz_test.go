@@ -1,13 +1,9 @@
 package zpay32
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
 func FuzzDecode(f *testing.F) {
@@ -23,26 +19,7 @@ func FuzzEncode(f *testing.F) {
 			return
 		}
 
-		// Initialize the static key we will be using for this fuzz
-		// test.
-		testPrivKey, _ := btcec.PrivKeyFromBytes(testPrivKeyBytes)
-
-		// Then, initialize the testMessageSigner so we can encode out
-		// invoices with this private key.
-		testMessageSigner := MessageSigner{
-			SignCompact: func(msg []byte) ([]byte, error) {
-				hash := chainhash.HashB(msg)
-				sig, err := ecdsa.SignCompact(testPrivKey, hash,
-					true)
-				if err != nil {
-					return nil,
-						fmt.Errorf("can't sign the "+
-							"message: %v", err)
-				}
-
-				return sig, nil
-			},
-		}
+		// Re-encode the invoice using our private key from unit tests.
 		_, err = inv.Encode(testMessageSigner)
 		if err != nil {
 			return

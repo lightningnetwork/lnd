@@ -977,7 +977,6 @@ func localCommitSweepWitGen(sigHash txscript.SigHashType,
 
 		return TaprootCommitSpendSuccess(
 			signer, signDesc, spendTx,
-			commitScriptTree.revokeKey.PubKey(),
 			commitScriptTree.TapscriptTree,
 		)
 	}
@@ -1000,17 +999,18 @@ func localCommitRevokeWitGen(sigHash txscript.SigHashType,
 			KeyDesc: keychain.KeyDescriptor{
 				PubKey: revokeKey.PubKey(),
 			},
+			WitnessScript:     commitScriptTree.RevocationLeaf.Script,
 			Output:            commitScriptTree.txOut,
 			HashType:          sigHash,
 			InputIndex:        0,
 			SigHashes:         hashCache,
-			SignMethod:        TaprootKeySpendSignMethod,
-			TapTweak:          commitScriptTree.TapscriptRoot,
+			SignMethod:        TaprootScriptSpendSignMethod,
 			PrevOutputFetcher: prevOuts,
 		}
 
 		return TaprootCommitSpendRevoke(
 			signer, signDesc, spendTx,
+			commitScriptTree.TapscriptTree,
 		)
 	}
 }

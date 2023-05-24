@@ -47,8 +47,9 @@ const TaprootNUMSHex = "02dca094751109d0bd055d03565874e8276dd53e926b44e3bd1bb" +
 var (
 	// TaprootNUMSKey is a NUMS key (nothing up my sleeves number) that has
 	// no known private key. This was generated using the following script:
-	// https://github.com/lightninglabs/lightning-node-connect/tree/master/mailbox/numsgen),
-	// with the seed phrase "Lightning Simple Taproot".
+	// https://github.com/lightninglabs/lightning-node-connect/tree/
+	// master/mailbox/numsgen, with the seed phrase "Lightning Simple
+	// Taproot".
 	TaprootNUMSKey = mustParsePubKey(TaprootNUMSHex)
 )
 
@@ -573,7 +574,8 @@ func SenderHTLCTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 // HtlcScriptTree holds the taproot output key, as well as the two script path
 // leaves that every taproot HTLC script depends on.
 type HtlcScriptTree struct {
-	// TaprootKey is the key that will be used to generate the taproot output.
+	// TaprootKey is the key that will be used to generate the taproot
+	// output.
 	TaprootKey *btcec.PublicKey
 
 	// SuccessTapLeaf is the tapleaf for the redemption path.
@@ -1074,7 +1076,7 @@ func ReceiverHtlcTapLeafTimeout(senderHtlcKey *btcec.PublicKey,
 
 	timeoutLeafScript, err := builder.Script()
 	if err != nil {
-		return txscript.TapLeaf{}, nil
+		return txscript.TapLeaf{}, err
 	}
 
 	return txscript.NewBaseTapLeaf(timeoutLeafScript), nil
@@ -1084,10 +1086,10 @@ func ReceiverHtlcTapLeafTimeout(senderHtlcKey *btcec.PublicKey,
 // path for an HTLC on the receiver's commitment transaction. This script
 // allows the receiver to redeem an HTLC with knowledge of the preimage:
 //
-// OP_SIZE 32 OP_EQUALVERIFY OP_HASH160
-// <RIPEMD160(payment_hash)> OP_EQUALVERIFY
-// <receiver_htlcpubkey> OP_CHECKSIGVERIFY
-// <sender_htlcpubkey> OP_CHECKSIG
+//	OP_SIZE 32 OP_EQUALVERIFY OP_HASH160
+//	<RIPEMD160(payment_hash)> OP_EQUALVERIFY
+//	<receiver_htlcpubkey> OP_CHECKSIGVERIFY
+//	<sender_htlcpubkey> OP_CHECKSIG
 func ReceiverHtlcTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 	senderHtlcKey *btcec.PublicKey,
 	paymentHash []byte) (txscript.TapLeaf, error) {
@@ -1165,9 +1167,9 @@ func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 }
 
 // ReceiverHTLCScriptTaproot constructs the taproot witness program (schnor
-// key) for an outgoing HTLC on the receiver's version of the commitment
+// key) for an incoming HTLC on the receiver's version of the commitment
 // transaction. This method returns the top level tweaked public key that
-// commits to both the script paths. From the PoV fo teh receiver, this is an
+// commits to both the script paths. From the PoV for the receiver, this is an
 // accepted HTLC.
 //
 // The returned key commits to a tapscript tree with two possible paths:
@@ -1183,7 +1185,7 @@ func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 //     <local_htlcpubkey> OP_CHECKSIGVERIFY
 //     <remote_htlcpubkey> OP_CHECKSIG
 //
-// The timeout path can be be spent with a witness of:
+// The timeout path can be spent with a witness of:
 //   - <sender sig> <timeout_script> <control_block>
 //
 // The success path can be spent with a witness of:
@@ -1232,7 +1234,8 @@ func ReceiverHTLCScriptTaprootRedeem(senderSig Signature,
 	successControlBlock := successMerkleProof.ToControlBlock(revokeKey)
 
 	// The final witness stack is:
-	//  * <sender sig> <receiver sig> <preimage> <success_script> <control_block>
+	//  * <sender sig> <receiver sig> <preimage> <success_script>
+	//    <control_block>
 	witnessStack := wire.TxWitness(make([][]byte, 5))
 	witnessStack[0] = maybeAppendSighash(senderSig, senderSigHash)
 	witnessStack[1] = maybeAppendSighash(sweepSig, signDesc.HashType)
@@ -1423,8 +1426,8 @@ func TaprootSecondLevelTapLeaf(delayKey *btcec.PublicKey,
 func SecondLevelHtlcTapscriptTree(delayKey *btcec.PublicKey,
 	csvDelay uint32) (*txscript.IndexedTapScriptTree, error) {
 
-	// First grab the second level leaf script we need to create the top level
-	// output.
+	// First grab the second level leaf script we need to create the top
+	// level output.
 	secondLevelTapLeaf, err := TaprootSecondLevelTapLeaf(delayKey, csvDelay)
 	if err != nil {
 		return nil, err
@@ -1501,8 +1504,7 @@ func TaprootHtlcSpendRevoke(signer Signer, signDesc *SignDescriptor,
 }
 
 // TaprootHtlcSpendSuccess spends a second-level HTLC output via the redemption
-// path. This should be used to sweep funds after the pre-image is known or the
-// timeout has elapsed on the commitment transaction of the broadcaster.
+// path. This should be used to sweep funds after the pre-image is known.
 //
 // NOTE: The caller MUST set the txn version, sequence number, and sign
 // descriptor's sig hash cache before invocation.
@@ -1782,9 +1784,9 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 	return builder.Script()
 }
 
-// CommitScript holds the taproot output key (in this case the revocation key,
-// or a NUMs point for the remote output) along with the tapscript leaf that
-// can spend the output after a delay.
+// CommitScriptTree holds the taproot output key (in this case the revocation
+// key, or a NUMs point for the remote output) along with the tapscript leaf
+// that can spend the output after a delay.
 type CommitScriptTree struct {
 	// TaprootKey is the key that will be used to generate the taproot
 	// output.
@@ -1864,8 +1866,9 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 // TaprootCommitScriptToSelf creates the taproot witness program that commits
 // to the revocation (script path) and delay path (script path) in a single
 // taproot output key. Both the delay script and the revocation script are part
-// of the tapscript tree to ensure that the internal key is always revealed.
-// This ensures that a 3rd party can always sweep the set of anchor outputs.
+// of the tapscript tree to ensure that the internal key (the local delay key)
+// is always revealed.  This ensures that a 3rd party can always sweep the set
+// of anchor outputs.
 //
 // For the delay path we have the following tapscript leaf script:
 //
@@ -1883,7 +1886,7 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 //
 // The revocation path is simply:
 //
-//	<local_delayedpubkey> OP_CHECKSIG
+//	<local_delayedpubkey> OP_DROP
 //	<revocationkey> OP_CHECKSIG
 //
 // The revocation path can be spent with a control block similar to the above
@@ -2196,21 +2199,21 @@ func CommitScriptToRemoteConfirmed(key *btcec.PublicKey) ([]byte, error) {
 func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
 ) (*CommitScriptTree, error) {
 
-	// First, construct the remote party's tapscript they'll use to sweep their
-	// outputs.
+	// First, construct the remote party's tapscript they'll use to sweep
+	// their outputs.
 	builder := txscript.NewScriptBuilder()
 	builder.AddData(schnorr.SerializePubKey(remoteKey))
 	builder.AddOp(txscript.OP_CHECKSIG)
 	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
 
-	delayScript, err := builder.Script()
+	remoteScript, err := builder.Script()
 	if err != nil {
 		return nil, err
 	}
 
 	// With this script constructed, we'll map that into a tapLeaf, then
 	// make a new tapscript root from that.
-	tapLeaf := txscript.NewBaseTapLeaf(delayScript)
+	tapLeaf := txscript.NewBaseTapLeaf(remoteScript)
 	tapScriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
 	tapScriptRoot := tapScriptTree.RootNode.TapHash()
 
@@ -2232,7 +2235,7 @@ func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
 // output on the commitment transaction for the remote party. For the top level
 // key spend, we'll use a NUMs key to ensure that only the script path can be
 // taken. Using a set NUMs key here also means that recovery solutions can scan
-// the chain given knowledge of the public key fo the remote party. We then
+// the chain given knowledge of the public key for the remote party. We then
 // commit to a single tapscript leaf that holds the normal CSV 1 delay
 // script.
 //
@@ -2245,8 +2248,6 @@ func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
 // succeeds, which then enforces our 1 CSV. The true will remain on the stack,
 // causing the script to pass. If the CHECKSIG fails, then a 0 will remain on
 // the stack.
-//
-// TODO(roasbeef): double check here can't pass additional stack elements?
 func TaprootCommitScriptToRemote(remoteKey *btcec.PublicKey,
 ) (*btcec.PublicKey, error) {
 
@@ -2390,10 +2391,8 @@ func CommitScriptAnchor(key *btcec.PublicKey) ([]byte, error) {
 	return builder.Script()
 }
 
-// AnchorScriptTree holds all the contents needed to to sweep a taproot anchor
+// AnchorScriptTree holds all the contents needed to sweep a taproot anchor
 // output on chain.
-//
-// TODO(roasbeef): refactor trees to reduce dedup
 type AnchorScriptTree struct {
 	// TaprootKey is the key that will be used to generate the taproot
 	// output.
@@ -2412,7 +2411,9 @@ type AnchorScriptTree struct {
 
 // NewAnchorScriptTree makes a new script tree for an anchor output with the
 // passed anchor key.
-func NewAnchorScriptTree(anchorKey *btcec.PublicKey) (*AnchorScriptTree, error) {
+func NewAnchorScriptTree(anchorKey *btcec.PublicKey,
+) (*AnchorScriptTree, error) {
+
 	// The main script used is just a OP_16 CSV (anyone can sweep after 16
 	// blocks).
 	builder := txscript.NewScriptBuilder()

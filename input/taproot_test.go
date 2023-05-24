@@ -29,8 +29,6 @@ type testSenderHtlcScriptTree struct {
 	rootHash []byte
 
 	htlcAmt int64
-
-	lockTime int32
 }
 
 func newTestSenderHtlcScriptTree(t *testing.T) *testSenderHtlcScriptTree {
@@ -358,7 +356,7 @@ func TestTaprootSenderHtlcSpend(t *testing.T) {
 			valid: true,
 		},
 
-		// Invalid spend of timeout path, invalid reciever sig.
+		// Invalid spend of timeout path, invalid receiver sig.
 		{
 			name: "timeout spend invalid receiver sig",
 			witnessGen: htlcSenderTimeoutWitnessGen(
@@ -384,7 +382,9 @@ func TestTaprootSenderHtlcSpend(t *testing.T) {
 	}
 
 	for i, testCase := range testCases {
+		i := i
 		testCase := testCase
+
 		spendTxCopy := spendTx.Copy()
 
 		t.Run(testCase.name, func(t *testing.T) {
@@ -419,12 +419,10 @@ func TestTaprootSenderHtlcSpend(t *testing.T) {
 			newEngine := func() (*txscript.Engine, error) {
 				return txscript.NewEngine(
 					htlcScriptTree.htlcTxOut.PkScript,
-					spendTxCopy, 0, txscript.StandardVerifyFlags,
+					spendTxCopy, 0,
+					txscript.StandardVerifyFlags,
 					nil, hashCache, htlcScriptTree.htlcAmt,
-					txscript.NewCannedPrevOutputFetcher(
-						htlcScriptTree.htlcTxOut.PkScript,
-						htlcScriptTree.htlcAmt,
-					),
+					prevOuts,
 				)
 			}
 			assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -837,7 +835,8 @@ func TestTaprootReceiverHtlcSpend(t *testing.T) {
 			valid: false,
 		},
 	}
-	for i, testCase := range testCases {
+	for i, testCase := range testCases { //nolint:paralleltest
+		i := i
 		testCase := testCase
 		spendTxCopy := spendTx.Copy()
 
@@ -877,12 +876,10 @@ func TestTaprootReceiverHtlcSpend(t *testing.T) {
 			newEngine := func() (*txscript.Engine, error) {
 				return txscript.NewEngine(
 					htlcScriptTree.htlcTxOut.PkScript,
-					spendTxCopy, 0, txscript.StandardVerifyFlags,
+					spendTxCopy, 0,
+					txscript.StandardVerifyFlags,
 					nil, hashCache, htlcScriptTree.htlcAmt,
-					txscript.NewCannedPrevOutputFetcher(
-						htlcScriptTree.htlcTxOut.PkScript,
-						htlcScriptTree.htlcAmt,
-					),
+					prevOuts,
 				)
 			}
 			assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -929,6 +926,9 @@ func newTestCommitScriptTree(local bool) (*testCommitScriptTree, error) {
 		commitScriptTree, err = NewRemoteCommitScriptTree(
 			selfKey.PubKey(),
 		)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	pkScript, err := PayToTaprootScript(commitScriptTree.TaprootKey)
@@ -995,11 +995,12 @@ func localCommitRevokeWitGen(sigHash txscript.SigHashType,
 			},
 		}
 
+		revScript := commitScriptTree.RevocationLeaf.Script
 		signDesc := &SignDescriptor{
 			KeyDesc: keychain.KeyDescriptor{
 				PubKey: revokeKey.PubKey(),
 			},
-			WitnessScript:     commitScriptTree.RevocationLeaf.Script,
+			WitnessScript:     revScript,
 			Output:            commitScriptTree.txOut,
 			HashType:          sigHash,
 			InputIndex:        0,
@@ -1135,7 +1136,8 @@ func TestTaprootCommitScriptToSelf(t *testing.T) {
 		},
 	}
 
-	for i, testCase := range testCases {
+	for i, testCase := range testCases { //nolint:paralleltest
+		i := i
 		testCase := testCase
 		spendTxCopy := spendTx.Copy()
 
@@ -1169,12 +1171,11 @@ func TestTaprootCommitScriptToSelf(t *testing.T) {
 			newEngine := func() (*txscript.Engine, error) {
 				return txscript.NewEngine(
 					commitScriptTree.txOut.PkScript,
-					spendTxCopy, 0, txscript.StandardVerifyFlags,
-					nil, hashCache, int64(commitScriptTree.selfAmt),
-					txscript.NewCannedPrevOutputFetcher(
-						commitScriptTree.txOut.PkScript,
-						int64(commitScriptTree.selfAmt),
-					),
+					spendTxCopy, 0,
+					txscript.StandardVerifyFlags, nil,
+					hashCache,
+					int64(commitScriptTree.selfAmt),
+					prevOuts,
 				)
 			}
 			assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -1312,7 +1313,8 @@ func TestTaprootCommitScriptRemote(t *testing.T) {
 		},
 	}
 
-	for i, testCase := range testCases {
+	for i, testCase := range testCases { //nolint:paralleltest
+		i := i
 		testCase := testCase
 		spendTxCopy := spendTx.Copy()
 
@@ -1346,12 +1348,11 @@ func TestTaprootCommitScriptRemote(t *testing.T) {
 			newEngine := func() (*txscript.Engine, error) {
 				return txscript.NewEngine(
 					commitScriptTree.txOut.PkScript,
-					spendTxCopy, 0, txscript.StandardVerifyFlags,
-					nil, hashCache, int64(commitScriptTree.selfAmt),
-					txscript.NewCannedPrevOutputFetcher(
-						commitScriptTree.txOut.PkScript,
-						int64(commitScriptTree.selfAmt),
-					),
+					spendTxCopy, 0,
+					txscript.StandardVerifyFlags, nil,
+					hashCache,
+					int64(commitScriptTree.selfAmt),
+					prevOuts,
 				)
 			}
 			assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -1531,7 +1532,8 @@ func TestTaprootAnchorScript(t *testing.T) {
 		},
 	}
 
-	for i, testCase := range testCases {
+	for i, testCase := range testCases { //nolint:paralleltest
+		i := i
 		testCase := testCase
 		spendTxCopy := spendTx.Copy()
 
@@ -1565,12 +1567,11 @@ func TestTaprootAnchorScript(t *testing.T) {
 			newEngine := func() (*txscript.Engine, error) {
 				return txscript.NewEngine(
 					anchorScriptTree.txOut.PkScript,
-					spendTxCopy, 0, txscript.StandardVerifyFlags,
-					nil, hashCache, int64(anchorScriptTree.amt),
-					txscript.NewCannedPrevOutputFetcher(
-						anchorScriptTree.txOut.PkScript,
-						int64(anchorScriptTree.amt),
-					),
+					spendTxCopy, 0,
+					txscript.StandardVerifyFlags,
+					nil, hashCache,
+					int64(anchorScriptTree.amt),
+					prevOuts,
 				)
 			}
 			assertEngineExecution(t, i, testCase.valid, newEngine)
@@ -1799,7 +1800,7 @@ func TestTaprootSecondLevelHtlcScript(t *testing.T) {
 		},
 
 		{
-			name: "valid revocation sweep sig hash deafult",
+			name: "valid revocation sweep sig hash default",
 			witnessGen: secondLevelHtlcRevokeWitnessgen(
 				txscript.SigHashDefault, htlcScriptTree,
 			),
@@ -1828,7 +1829,8 @@ func TestTaprootSecondLevelHtlcScript(t *testing.T) {
 		},
 	}
 
-	for i, testCase := range testCases {
+	for i, testCase := range testCases { //nolint:paralleltest
+		i := i
 		testCase := testCase
 		spendTxCopy := spendTx.Copy()
 
@@ -1862,12 +1864,11 @@ func TestTaprootSecondLevelHtlcScript(t *testing.T) {
 			newEngine := func() (*txscript.Engine, error) {
 				return txscript.NewEngine(
 					htlcScriptTree.txOut.PkScript,
-					spendTxCopy, 0, txscript.StandardVerifyFlags,
-					nil, hashCache, int64(htlcScriptTree.amt),
-					txscript.NewCannedPrevOutputFetcher(
-						htlcScriptTree.txOut.PkScript,
-						int64(htlcScriptTree.amt),
-					),
+					spendTxCopy, 0,
+					txscript.StandardVerifyFlags,
+					nil, hashCache,
+					int64(htlcScriptTree.amt),
+					prevOuts,
 				)
 			}
 			assertEngineExecution(t, i, testCase.valid, newEngine)

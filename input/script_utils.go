@@ -1814,6 +1814,10 @@ type CommitScriptTree struct {
 	// SettleLeaf is the leaf used to settle the output after the delay.
 	SettleLeaf txscript.TapLeaf
 
+	// RevocationLeaf is the leaf used to spend the output with the
+	// revocation key signature.
+	RevocationLeaf txscript.TapLeaf
+
 	// TapscriptTree is the full tapscript tree that also includes the
 	// control block needed to spend each of the leaves.
 	TapscriptTree *txscript.IndexedTapScriptTree
@@ -1829,8 +1833,6 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 
 	// First, we'll need to construct the tapLeaf that'll be our delay CSV
 	// clause.
-	//
-	// TODO(roasbeef): extract into diff func
 	builder := txscript.NewScriptBuilder()
 	builder.AddData(schnorr.SerializePubKey(selfKey))
 	builder.AddOp(txscript.OP_CHECKSIG)
@@ -1843,10 +1845,26 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 		return nil, err
 	}
 
-	// With the delay script computed, we'll now create a tapscript tree
-	// with a single leaf, and then obtain a root from that.
-	tapLeaf := txscript.NewBaseTapLeaf(delayScript)
-	tapScriptTree := txscript.AssembleTaprootScriptTree(tapLeaf)
+	// Next, we'll need to construct the revocation path, which is just a
+	// simple checksig script.
+	builder = txscript.NewScriptBuilder()
+	builder.AddData(schnorr.SerializePubKey(selfKey))
+	builder.AddOp(txscript.OP_DROP)
+	builder.AddData(schnorr.SerializePubKey(revokeKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	revokeScript, err := builder.Script()
+	if err != nil {
+		return nil, err
+	}
+
+	// With both scripts computed, we'll now create a tapscript tree with
+	// the two leaves, and then obtain a root from that.
+	delayTapLeaf := txscript.NewBaseTapLeaf(delayScript)
+	revokeTapLeaf := txscript.NewBaseTapLeaf(revokeScript)
+	tapScriptTree := txscript.AssembleTaprootScriptTree(
+		delayTapLeaf, revokeTapLeaf,
+	)
 	tapScriptRoot := tapScriptTree.RootNode.TapHash()
 
 	// Now that we have our root, we can arrive at the final output script
@@ -1856,16 +1874,19 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 	)
 
 	return &CommitScriptTree{
-		SettleLeaf:    tapLeaf,
-		TaprootKey:    toLocalOutputKey,
-		TapscriptTree: tapScriptTree,
-		TapscriptRoot: tapScriptRoot[:],
+		SettleLeaf:     delayTapLeaf,
+		RevocationLeaf: revokeTapLeaf,
+		TaprootKey:     toLocalOutputKey,
+		TapscriptTree:  tapScriptTree,
+		TapscriptRoot:  tapScriptRoot[:],
 	}, nil
 }
 
 // TaprootCommitScriptToSelf creates the taproot witness program that commits
-// to the revocation (keyspend) and delay path (script path) in a single
-// taproot output key.
+// to the revocation (script path) and delay path (script path) in a single
+// taproot output key. Both the delay script and the revocation script are part
+// of the tapscript tree to ensure that the internal key is always revealed.
+// This ensures that a 3rd party can always sweep the set of anchor outputs.
 //
 // For the delay path we have the following tapscript leaf script:
 //
@@ -1879,12 +1900,20 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 // Where the to_delay_script is listed above, and the delay_control_block
 // computed as:
 //
-//	delay_control_block = (output_key_y_parity | 0xc0) || revocationpubkey
+//	delay_control_block = (output_key_y_parity | 0xc0) || taproot_nums_key
 //
-// The revocation key spend path will simply present a valid signature with the
-// witness being just:
+// The revocation path is simply:
+//
+//	<local_delayedpubkey> OP_CHECKSIG
+//	<revocationkey> OP_CHECKSIG
+//
+// The revocation path can be spent with a control block similar to the above
+// (but contains the hash of the other script), and with the following witness:
 //
 //	<revocation_sig>
+//
+// We use a noop data push to ensure that the local public key is also revealed
+// on chain, which enables the anchor output to be swept.
 func TaprootCommitScriptToSelf(csvTimeout uint32,
 	selfKey, revokeKey *btcec.PublicKey) (*btcec.PublicKey, error) {
 
@@ -1902,7 +1931,7 @@ func TaprootCommitScriptToSelf(csvTimeout uint32,
 // sweep the settled taproot output after the delay has passed for a force
 // close.
 func TaprootCommitSpendSuccess(signer Signer, signDesc *SignDescriptor,
-	sweepTx *wire.MsgTx, revokeKey *btcec.PublicKey,
+	sweepTx *wire.MsgTx,
 	scriptTree *txscript.IndexedTapScriptTree) (wire.TxWitness, error) {
 
 	// First, we'll need to construct a valid control block to execute the
@@ -1940,19 +1969,37 @@ func TaprootCommitSpendSuccess(signer Signer, signDesc *SignDescriptor,
 // TaprootCommitSpendRevoke constructs a valid witness allowing a node to sweep
 // the revoked taproot output of a malicious peer.
 func TaprootCommitSpendRevoke(signer Signer, signDesc *SignDescriptor,
-	revokeTx *wire.MsgTx) (wire.TxWitness, error) {
+	revokeTx *wire.MsgTx,
+	scriptTree *txscript.IndexedTapScriptTree) (wire.TxWitness, error) {
 
-	// For this spend type, we only need a single signature which'll be a
-	// keyspend using the revoke private key.
-	sweepSig, err := signer.SignOutputRaw(revokeTx, signDesc)
+	// First, we'll need to construct a valid control block to execute the
+	// leaf script for revocation path.
+	revokeTapleafHash := txscript.NewBaseTapLeaf(
+		signDesc.WitnessScript,
+	).TapHash()
+	revokeIdx := scriptTree.LeafProofIndex[revokeTapleafHash]
+	revokeMerkleProof := scriptTree.LeafMerkleProofs[revokeIdx]
+	revokeControlBlock := revokeMerkleProof.ToControlBlock(
+		&TaprootNUMSKey,
+	)
+
+	// With the control block created, we'll now generate the signature we
+	// need to authorize the spend.
+	revokeSig, err := signer.SignOutputRaw(revokeTx, signDesc)
 	if err != nil {
 		return nil, err
 	}
 
-	// The witness stack in this case is pretty simple: we only need to
-	// specify the signature generated.
-	witnessStack := make(wire.TxWitness, 1)
-	witnessStack[0] = maybeAppendSighash(sweepSig, signDesc.HashType)
+	// The final witness stack will be:
+	//
+	//  <revoke sig sig> <revoke script> <control block>
+	witnessStack := make(wire.TxWitness, 3)
+	witnessStack[0] = maybeAppendSighash(revokeSig, signDesc.HashType)
+	witnessStack[1] = signDesc.WitnessScript
+	witnessStack[2], err = revokeControlBlock.ToBytes()
+	if err != nil {
+		return nil, err
+	}
 
 	return witnessStack, nil
 }

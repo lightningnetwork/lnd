@@ -26,6 +26,9 @@ package](https://github.com/lightningnetwork/lnd/pull/7356)
 * [Fix unit test flake (TestLightningWallet) in the neutrino package via
   version bump of btcsuite/btcwallet](https://github.com/lightningnetwork/lnd/pull/7049)
 
+* [HTLC serialization updated](https://github.com/lightningnetwork/lnd/pull/7710) 
+  to allow storing extra data transmitted in TLVs.
+
 ## RPC
 
 * [SendOutputs](https://github.com/lightningnetwork/lnd/pull/7631) now adheres

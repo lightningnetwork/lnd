@@ -83,6 +83,11 @@ unlock or create.
 
 * Added ability to use [ENV variables to override `lncli` global flags](https://github.com/lightningnetwork/lnd/pull/7693). Flags will have preference over ENVs.
 
+## Bug Fix
+
+* Make sure payment stream returns all the events by [subscribing it before
+  sending](https://github.com/lightningnetwork/lnd/pull/7722).
+
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen

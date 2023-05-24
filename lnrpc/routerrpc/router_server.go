@@ -318,27 +318,46 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 		return err
 	}
 
-	err = s.cfg.Router.SendPaymentAsync(payment)
+	// Get the payment hash.
+	payHash := payment.Identifier()
+
+	// Init the payment in db.
+	paySession, shardTracker, err := s.cfg.Router.PreparePayment(payment)
 	if err != nil {
-		// Transform user errors to grpc code.
-		if err == channeldb.ErrPaymentInFlight ||
-			err == channeldb.ErrAlreadyPaid {
-
-			log.Debugf("SendPayment async result for payment %x: %v",
-				payment.Identifier(), err)
-
-			return status.Error(
-				codes.AlreadyExists, err.Error(),
-			)
-		}
-
-		log.Errorf("SendPayment async error for payment %x: %v",
-			payment.Identifier(), err)
-
 		return err
 	}
 
-	return s.trackPayment(payment.Identifier(), stream, req.NoInflightUpdates)
+	// Subscribe to the payment before sending it to make sure we won't
+	// miss events.
+	sub, err := s.subscribePayment(payHash)
+	if err != nil {
+		return err
+	}
+
+	// Send the payment.
+	err = s.cfg.Router.SendPaymentAsync(payment, paySession, shardTracker)
+	if err == nil {
+		// If the payment was sent successfully, we can start tracking
+		// the events.
+		return s.trackPayment(
+			sub, payHash, stream, req.NoInflightUpdates,
+		)
+	}
+
+	// Otherwise, transform user errors to grpc code.
+	if errors.Is(err, channeldb.ErrPaymentInFlight) ||
+		errors.Is(err, channeldb.ErrAlreadyPaid) {
+
+		log.Debugf("SendPayment async result for payment %x: %v",
+			payment.Identifier(), err)
+
+		return status.Error(codes.AlreadyExists, err.Error())
+	}
+
+	log.Errorf("SendPayment async error for payment %x: %v",
+		payment.Identifier(), err)
+
+	return err
 }
 
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
@@ -800,34 +819,48 @@ func getMsatPairValue(msatValue lnwire.MilliSatoshi,
 func (s *Server) TrackPaymentV2(request *TrackPaymentRequest,
 	stream Router_TrackPaymentV2Server) error {
 
-	paymentHash, err := lntypes.MakeHash(request.PaymentHash)
+	payHash, err := lntypes.MakeHash(request.PaymentHash)
 	if err != nil {
 		return err
 	}
 
-	log.Debugf("TrackPayment called for payment %v", paymentHash)
+	log.Debugf("TrackPayment called for payment %v", payHash)
 
-	return s.trackPayment(paymentHash, stream, request.NoInflightUpdates)
-}
-
-// trackPayment writes payment status updates to the provided stream.
-func (s *Server) trackPayment(identifier lntypes.Hash,
-	stream Router_TrackPaymentV2Server, noInflightUpdates bool) error {
-
-	router := s.cfg.RouterBackend
-
-	// Subscribe to the outcome of this payment.
-	subscription, err := router.Tower.SubscribePayment(identifier)
-
-	switch {
-	case err == channeldb.ErrPaymentNotInitiated:
-		return status.Error(codes.NotFound, err.Error())
-	case err != nil:
+	// Make the subscription.
+	sub, err := s.subscribePayment(payHash)
+	if err != nil {
 		return err
 	}
 
+	return s.trackPayment(sub, payHash, stream, request.NoInflightUpdates)
+}
+
+// subscribePayment subscribes to the payment updates for the given payment
+// hash.
+func (s *Server) subscribePayment(identifier lntypes.Hash) (
+	routing.ControlTowerSubscriber, error) {
+
+	// Make the subscription.
+	router := s.cfg.RouterBackend
+	sub, err := router.Tower.SubscribePayment(identifier)
+
+	switch {
+	case err == channeldb.ErrPaymentNotInitiated:
+		return nil, status.Error(codes.NotFound, err.Error())
+	case err != nil:
+		return nil, err
+	}
+
+	return sub, nil
+}
+
+// trackPayment writes payment status updates to the provided stream.
+func (s *Server) trackPayment(subscription routing.ControlTowerSubscriber,
+	identifier lntypes.Hash, stream Router_TrackPaymentV2Server,
+	noInflightUpdates bool) error {
+
 	// Stream updates to the client.
-	err = s.trackPaymentStream(
+	err := s.trackPaymentStream(
 		stream.Context(), subscription, noInflightUpdates, stream.Send,
 	)
 

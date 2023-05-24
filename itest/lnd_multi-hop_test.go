@@ -1371,6 +1371,9 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	resp := carol.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(alice, []string{resp.PaymentRequest})
 
+	// Make sure Carol has settled the invoice.
+	ht.AssertInvoiceSettled(carol, resp.PaymentAddr)
+
 	// With the network active, we'll now add a new hodl invoices at both
 	// Alice's and Carol's end. Make sure the cltv expiry delta is large
 	// enough, otherwise Bob won't send out the outgoing htlc.

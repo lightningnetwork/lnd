@@ -1739,10 +1739,10 @@ func (c *TowerClient) RemoveTower(pubKey *btcec.PublicKey,
 	}
 }
 
-// handleNewTower handles a request for an existing tower to be removed. If none
-// of the tower's sessions have pending updates, then they will become inactive
-// and removed as candidates. If the active session queue corresponds to any of
-// these sessions, a new one will be negotiated.
+// handleStaleTower handles a request for an existing tower to be removed. If
+// none of the tower's sessions have pending updates, then they will become
+// inactive and removed as candidates. If the active session queue corresponds
+// to any of these sessions, a new one will be negotiated.
 func (c *TowerClient) handleStaleTower(msg *staleTowerMsg) error {
 	// We'll load the tower before potentially removing it in order to
 	// retrieve its ID within the database.

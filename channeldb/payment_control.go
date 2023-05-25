@@ -85,6 +85,14 @@ var (
 	ErrMPPTotalAmountMismatch = errors.New("mp payment total amount " +
 		"mismatch")
 
+	// ErrPaymentPendingSettled is returned when we try to add a new
+	// attempt to a payment that has at least one of its HTLCs settled.
+	ErrPaymentPendingSettled = errors.New("payment has settled htlcs")
+
+	// ErrPaymentAlreadyFailed is returned when we try to add a new attempt
+	// to a payment that already has a failure reason.
+	ErrPaymentPendingFailed = errors.New("payment has failure reason")
+
 	// errNoAttemptInfo is returned when no attempt info is stored yet.
 	errNoAttemptInfo = errors.New("unable to find attempt info for " +
 		"inflight payment")
@@ -310,16 +318,8 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 			return err
 		}
 
-		// We cannot register a new attempt if the payment already has
-		// reached a terminal condition. We check this before
-		// ensureInFlight because it is a more general check.
-		settle, fail := payment.TerminalInfo()
-		if settle != nil || fail != nil {
-			return ErrPaymentTerminal
-		}
-
-		// Ensure the payment is in-flight.
-		if err := ensureInFlight(payment); err != nil {
+		// Check if registering a new attempt is allowed.
+		if err := payment.Registrable(); err != nil {
 			return err
 		}
 
@@ -705,34 +705,6 @@ func fetchPaymentStatus(bucket kvdb.RBucket) (PaymentStatus, error) {
 	}
 
 	return payment.Status, nil
-}
-
-// ensureInFlight checks whether the payment found in the given bucket has
-// status InFlight, and returns an error otherwise. This should be used to
-// ensure we only mark in-flight payments as succeeded or failed.
-func ensureInFlight(payment *MPPayment) error {
-	paymentStatus := payment.Status
-
-	switch {
-	// Newly created payment is also inflight.
-	case paymentStatus == StatusInitiated:
-		return nil
-
-	// The payment was indeed InFlight.
-	case paymentStatus == StatusInFlight:
-		return nil
-
-	// The payment succeeded previously.
-	case paymentStatus == StatusSucceeded:
-		return ErrPaymentAlreadySucceeded
-
-	// The payment was already failed.
-	case paymentStatus == StatusFailed:
-		return ErrPaymentAlreadyFailed
-
-	default:
-		return ErrUnknownPaymentStatus
-	}
 }
 
 // FetchInFlightPayments returns all payments with status InFlight.

@@ -459,6 +459,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	const (
 		firstChanSize   = 1_000_000
 		anchorFeeBuffer = 500_000
+		testMemo        = "bob is a good peer"
 	)
 	ht.FundCoins(firstChanSize+anchorFeeBuffer, alice)
 
@@ -466,7 +467,8 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// fully.
 	aliceChanPoint1 := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{
-			Amt: firstChanSize,
+			Amt:  firstChanSize,
+			Memo: testMemo,
 		},
 	)
 
@@ -509,6 +511,12 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// PendingChannels RPC under the waiting close section.
 	waitingClose := ht.AssertChannelWaitingClose(alice, aliceChanPoint1)
 
+	// Verify that the channel Memo is returned even for channels that are
+	// waiting close (close TX broadcasted but not confirmed)
+	pendingChannelsResp := alice.RPC.PendingChannels()
+	require.Equal(ht, testMemo,
+		pendingChannelsResp.WaitingCloseChannels[0].Channel.Memo)
+
 	// At this point, the channel is waiting close, and we have both the
 	// commitment transaction and anchor sweep in the mempool.
 	const expectedTxns = 2
@@ -530,6 +538,12 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// check, which requires a certain amount of coins to be reserved based
 	// on the number of anchor channels.
 	ht.AssertChannelPendingForceClose(alice, aliceChanPoint1)
+
+	// Verify that the channel Memo is returned even for channels that are
+	// pending force close (close TX confirmed but sweep hasn't happened)
+	pendingChannelsResp = alice.RPC.PendingChannels()
+	require.Equal(ht, testMemo,
+		pendingChannelsResp.PendingForceClosingChannels[0].Channel.Memo)
 
 	// With the anchor output located, and the main commitment mined we'll
 	// instruct the wallet to send all coins in the wallet to a new address

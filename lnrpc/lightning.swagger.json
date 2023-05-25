@@ -3028,6 +3028,10 @@
         "private": {
           "type": "boolean",
           "description": "Whether this channel is advertised to the network or not."
+        },
+        "memo": {
+          "type": "string",
+          "description": "An optional note-to-self to go along with the channel containing some\nuseful information. This is only ever stored locally and in no way\nimpacts the channel's operation."
         }
       }
     },

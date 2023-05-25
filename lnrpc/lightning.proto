@@ -2556,6 +2556,13 @@ message PendingChannelsResponse {
 
         // Whether this channel is advertised to the network or not.
         bool private = 12;
+
+        /*
+        An optional note-to-self to go along with the channel containing some
+        useful information. This is only ever stored locally and in no way
+        impacts the channel's operation.
+        */
+        string memo = 13;
     }
 
     message PendingOpenChannel {

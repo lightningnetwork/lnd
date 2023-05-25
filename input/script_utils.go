@@ -553,7 +553,7 @@ func SenderHTLCTapLeafTimeout(senderHtlcKey,
 //	OP_SIZE 32 OP_EQUALVERIFY OP_HASH160
 //	<RIPEMD160(payment_hash)> OP_EQUALVERIFY
 //	<remote_htlcpubkey> OP_CHECKSIG
-//	OP_CHECKSEQUENCEVERIFY
+//	1 OP_CHECKSEQUENCEVERIFY OP_DROP
 func SenderHTLCTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 	paymentHash []byte) (txscript.TapLeaf, error) {
 
@@ -574,7 +574,9 @@ func SenderHTLCTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 	// after confirmation to properly sweep.
 	builder.AddData(schnorr.SerializePubKey(receiverHtlcKey))
 	builder.AddOp(txscript.OP_CHECKSIG)
+	builder.AddOp(txscript.OP_1)
 	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
 
 	successLeafScript, err := builder.Script()
 	if err != nil {
@@ -663,7 +665,7 @@ func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 //     OP_SIZE 32 OP_EQUALVERIFY
 //     OP_HASH160 <RIPEMD160(payment_hash)> OP_EQUALVERIFY
 //     <remote_htlcpubkey> OP_CHECKSIG
-//     OP_CHECKSEQUENCEVERIFY
+//     1 OP_CHECKSEQUENCEVERIFY OP_DROP
 //
 // The timeout path can be spent with a witness of (sender timeout):
 //
@@ -1070,7 +1072,7 @@ func ReceiverHtlcSpendTimeout(signer Signer, signDesc *SignDescriptor,
 // timeout the HTLC after expiry:
 //
 //	<sender_htlcpubkey> OP_CHECKSIG
-//	OP_CHECKSEQUENCEVERIFY
+//	1 OP_CHECKSEQUENCEVERIFY OP_DROP
 //	<cltv_expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
 func ReceiverHtlcTapLeafTimeout(senderHtlcKey *btcec.PublicKey,
 	cltvExpiry uint32) (txscript.TapLeaf, error) {
@@ -1081,7 +1083,9 @@ func ReceiverHtlcTapLeafTimeout(senderHtlcKey *btcec.PublicKey,
 	// sender authorizing the spend (the timeout).
 	builder.AddData(schnorr.SerializePubKey(senderHtlcKey))
 	builder.AddOp(txscript.OP_CHECKSIG)
+	builder.AddOp(txscript.OP_1)
 	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
 
 	// The second portion will ensure that the CLTV expiry on the spending
 	// transaction is correct.
@@ -1191,7 +1195,7 @@ func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 //
 //   - The timeout path:
 //     <remote_htlcpubkey> OP_CHECKSIG
-//     OP_CHECKSEQUENCEVERIFY
+//     1 OP_CHECKSEQUENCEVERIFY OP_DROP
 //     <cltv_expiry> OP_CHECKLOCKTIMEVERIFY OP_DROP
 //
 //   - Success path:

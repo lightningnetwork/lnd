@@ -53,6 +53,25 @@ package](https://github.com/lightningnetwork/lnd/pull/7356)
   a helpful note-to-self containing arbitrary useful information about the
   channel.
 
+* [gRPC keepalive parameters can now be set in the
+  configuration](https://github.com/lightningnetwork/lnd/pull/7730). The `lnd`
+  configuration settings `grpc.server-ping-time` and `grpc.server-ping-timeout`
+  configure how often `lnd` pings its clients and how long a pong response is
+  allowed to take. The default values for there settings are improved over the
+  gRPC protocol internal default values, so most users won't need to change
+  those. The `grpc.client-ping-min-wait` setting defines how often a client is
+  allowed to ping `lnd` to check for connection healthiness. The `lnd` default
+  value of 5 seconds is much lower than the previously used protocol internal
+  value, which means clients can now check connection health more often. For
+  this to be activated on the client side, gRPC clients are encouraged to set
+  the keepalive setting on their end as well (using the `grpc.keepalive_time_ms`
+  option in JavaScript or Python, or the equivalent setting in the gRPC library
+  they are using, might be an environment variable or a different syntax
+  depending on the programming language used) when creating long open streams
+  over a network topology that might silently fail connections. A value of
+  `grpc.keepalive_time_ms=5100` is recommended on the client side (adding 100ms
+  to account for slightly different clock speeds).
+
 ## Misc
 
 * [Generate default macaroons

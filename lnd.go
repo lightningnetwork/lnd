@@ -37,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 	"gopkg.in/macaroon.v2"
 )
@@ -303,10 +304,23 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		}
 	}()
 
+	// Allow the user to overwrite some defaults of the gRPC library related
+	// to connection keepalive (server side and client side pings).
+	serverKeepalive := keepalive.ServerParameters{
+		Time:    cfg.GRPC.ServerPingTime,
+		Timeout: cfg.GRPC.ServerPingTimeout,
+	}
+	clientKeepalive := keepalive.EnforcementPolicy{
+		MinTime:             cfg.GRPC.ClientPingMinWait,
+		PermitWithoutStream: cfg.GRPC.ClientAllowPingWithoutStream,
+	}
+
 	rpcServerOpts := interceptorChain.CreateServerOpts()
 	serverOpts = append(serverOpts, rpcServerOpts...)
 	serverOpts = append(
 		serverOpts, grpc.MaxRecvMsgSize(lnrpc.MaxGrpcMsgSize),
+		grpc.KeepaliveParams(serverKeepalive),
+		grpc.KeepaliveEnforcementPolicy(clientKeepalive),
 	)
 
 	grpcServer := grpc.NewServer(serverOpts...)

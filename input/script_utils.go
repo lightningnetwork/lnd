@@ -2231,7 +2231,9 @@ func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
 	builder := txscript.NewScriptBuilder()
 	builder.AddData(schnorr.SerializePubKey(remoteKey))
 	builder.AddOp(txscript.OP_CHECKSIG)
+	builder.AddOp(txscript.OP_1)
 	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
 
 	remoteScript, err := builder.Script()
 	if err != nil {
@@ -2269,12 +2271,7 @@ func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
 // Our single tapleaf will use the following script:
 //
 //	<remotepubkey> OP_CHECKSIG
-//	OP_CHECKSEQUENCEVERIFY
-//
-// The CSV clause is a bit subtle, but OP_CHECKSIG will return true if it
-// succeeds, which then enforces our 1 CSV. The true will remain on the stack,
-// causing the script to pass. If the CHECKSIG fails, then a 0 will remain on
-// the stack.
+//	1 OP_CHECKSEQUENCEVERIFY OP_DROP
 func TaprootCommitScriptToRemote(remoteKey *btcec.PublicKey,
 ) (*btcec.PublicKey, error) {
 

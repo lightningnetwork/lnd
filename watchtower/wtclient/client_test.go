@@ -488,7 +488,6 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		WriteTimeout:       timeout,
 		MinBackoff:         time.Millisecond,
 		MaxBackoff:         time.Second,
-		ForceQuitDelay:     10 * time.Second,
 		SessionCloseRange:  1,
 		MaxTasksInMemQueue: 2,
 	}
@@ -508,7 +507,9 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	}
 
 	h.startClient()
-	t.Cleanup(h.client.ForceQuit)
+	t.Cleanup(func() {
+		require.NoError(t, h.client.Stop())
+	})
 
 	h.makeChannel(0, h.cfg.localBalance, h.cfg.remoteBalance)
 	if !cfg.noRegisterChan0 {
@@ -952,27 +953,6 @@ func (s *serverHarness) restart(op func(cfg *wtserver.Config)) {
 	op(s.cfg)
 }
 
-// assertUpdatesNotFound asserts that a set of hints are not found in the
-// server's DB.
-func (s *serverHarness) assertUpdatesNotFound(hints []blob.BreachHint) {
-	s.t.Helper()
-
-	hintSet := make(map[blob.BreachHint]struct{})
-	for _, hint := range hints {
-		hintSet[hint] = struct{}{}
-	}
-
-	time.Sleep(time.Second)
-
-	matches, err := s.db.QueryMatches(hints)
-	require.NoError(s.t, err, "unable to query for hints")
-
-	for _, match := range matches {
-		_, ok := hintSet[match.Hint]
-		require.False(s.t, ok, "breach hint was found in server DB")
-	}
-}
-
 // waitForUpdates blocks until the breach hints provided all appear in the
 // watchtower's database or the timeout expires. This is used to test that the
 // client in fact sends the updates to the server, even if it is offline.
@@ -1238,12 +1218,9 @@ var clientTests = []clientTest{
 			h.backupState(chanID, numSent, nil)
 			numSent++
 
-			// Force quit the client to abort the state updates it
-			// has queued. The sleep ensures that the session queues
-			// have enough time to commit the state updates before
-			// the client is killed.
-			time.Sleep(time.Second)
-			h.client.ForceQuit()
+			// Stop the client to abort the state updates it has
+			// queued.
+			require.NoError(h.t, h.client.Stop())
 
 			// Restart the server and allow it to ack the updates
 			// after the client retransmits the unacked update.
@@ -1437,8 +1414,8 @@ var clientTests = []clientTest{
 			// server should have no updates.
 			h.server.waitForUpdates(nil, waitTime)
 
-			// Force quit the client since it has queued backups.
-			h.client.ForceQuit()
+			// Stop the client since it has queued backups.
+			require.NoError(h.t, h.client.Stop())
 
 			// Restart the server and allow it to ack session
 			// creation.
@@ -1489,8 +1466,8 @@ var clientTests = []clientTest{
 			// server should have no updates.
 			h.server.waitForUpdates(nil, waitTime)
 
-			// Force quit the client since it has queued backups.
-			h.client.ForceQuit()
+			// Stop the client since it has queued backups.
+			require.NoError(h.t, h.client.Stop())
 
 			// Restart the server and allow it to ack session
 			// creation.
@@ -1670,56 +1647,6 @@ var clientTests = []clientTest{
 			})
 
 			h.server.waitForUpdates(hints[numUpdates/2:], waitTime)
-		},
-	},
-	{
-		// Asserts that the client's force quite delay will properly
-		// shutdown the client if it is unable to completely drain the
-		// task pipeline.
-		name: "force unclean shutdown",
-		cfg: harnessCfg{
-			localBalance:  localBalance,
-			remoteBalance: remoteBalance,
-			policy: wtpolicy.Policy{
-				TxPolicy:   defaultTxPolicy,
-				MaxUpdates: 5,
-			},
-		},
-		fn: func(h *testHarness) {
-			const (
-				chanID     = 0
-				numUpdates = 6
-				maxUpdates = 5
-			)
-
-			// Advance the channel to create all states.
-			hints := h.advanceChannelN(chanID, numUpdates)
-
-			// Back up 4 of the 5 states for the negotiated session.
-			h.backupStates(chanID, 0, maxUpdates-1, nil)
-			h.server.waitForUpdates(hints[:maxUpdates-1], waitTime)
-
-			// Now, restart the tower and prevent it from acking any
-			// new sessions. We do this here as once the last slot
-			// is exhausted the client will attempt to renegotiate.
-			h.server.restart(func(cfg *wtserver.Config) {
-				cfg.NoAckCreateSession = true
-			})
-
-			// Back up the remaining two states. Once the first is
-			// processed, the session will be exhausted but the
-			// client won't be able to renegotiate a session for
-			// the final state. We'll only wait for the first five
-			// states to arrive at the tower.
-			h.backupStates(chanID, maxUpdates-1, numUpdates, nil)
-			h.server.waitForUpdates(hints[:maxUpdates], waitTime)
-
-			// Finally, stop the client which will continue to
-			// attempt session negotiation since it has one more
-			// state to process. After the force quite delay
-			// expires, the client should force quite itself and
-			// allow the test to complete.
-			h.server.stop()
 		},
 	},
 	{
@@ -1937,7 +1864,7 @@ var clientTests = []clientTest{
 			require.False(h.t, h.isSessionClosable(sessionIDs[0]))
 
 			// Restart the client.
-			h.client.ForceQuit()
+			require.NoError(h.t, h.client.Stop())
 			h.startClient()
 
 			// The session should now have been marked as closable.
@@ -2176,9 +2103,8 @@ var clientTests = []clientTest{
 
 			h.backupStates(chanID, 0, numUpdates/2, nil)
 
-			// Restart the Client (force quit). And also now start
-			// the server.
-			h.client.ForceQuit()
+			// Restart the Client. And also now start the server.
+			require.NoError(h.t, h.client.Stop())
 			h.server.start()
 			h.startClient()
 
@@ -2237,8 +2163,7 @@ var clientTests = []clientTest{
 	{
 		// Show that if a client switches to a new tower _after_ backup
 		// tasks have been bound to the session with the first old tower
-		// then these updates are _not_ replayed onto the new tower.
-		// This is a bug that will be fixed in a future commit.
+		// then these updates are replayed onto the new tower.
 		name: "switch to new tower after tasks are bound",
 		cfg: harnessCfg{
 			localBalance:  localBalance,
@@ -2290,18 +2215,11 @@ var clientTests = []clientTest{
 			// Back up the final task.
 			h.backupStates(chanID, numUpdates-1, numUpdates, nil)
 
-			// Show that only the latest backup is backed up to the
-			// server and that the ones backed up while no tower was
-			// online were _not_ backed up to either server. This is
-			// a bug that will be fixed in a future commit.
+			// Show that all the backups (the ones added while no
+			// towers were online and the one added after adding the
+			// second tower) are backed up to the second tower.
 			server2.waitForUpdates(
-				hints[numUpdates-1:], time.Second,
-			)
-			server2.assertUpdatesNotFound(
-				hints[numUpdates/2 : numUpdates-1],
-			)
-			h.server.assertUpdatesNotFound(
-				hints[numUpdates/2 : numUpdates-1],
+				hints[numUpdates/2:numUpdates], waitTime,
 			)
 		},
 	},

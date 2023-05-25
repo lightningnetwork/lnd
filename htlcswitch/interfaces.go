@@ -252,9 +252,8 @@ type TowerClient interface {
 
 	// BackupState initiates a request to back up a particular revoked
 	// state. If the method returns nil, the backup is guaranteed to be
-	// successful unless the tower is unavailable and client is force quit,
-	// or the justice transaction would create dust outputs when trying to
-	// abide by the negotiated policy.
+	// successful unless the justice transaction would create dust outputs
+	// when trying to abide by the negotiated policy.
 	BackupState(chanID *lnwire.ChannelID, stateNum uint64) error
 }
 

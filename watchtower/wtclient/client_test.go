@@ -589,10 +589,7 @@ func (h *testHarness) startClient() {
 		Address:     towerTCPAddr,
 	}
 
-	h.clientMgr, err = wtclient.NewManager(h.clientCfg)
-	require.NoError(h.t, err)
-
-	_, err = h.clientMgr.NewClient(h.clientPolicy)
+	h.clientMgr, err = wtclient.NewManager(h.clientCfg, h.clientPolicy)
 	require.NoError(h.t, err)
 
 	require.NoError(h.t, h.clientMgr.Start())

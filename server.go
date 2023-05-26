@@ -1551,6 +1551,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		fetchClosedChannel := s.chanStateDB.FetchClosedChannelForID
 
+		// Copy the policy for legacy channels and set the blob flag
+		// signalling support for anchor channels.
+		anchorPolicy := policy
+		anchorPolicy.TxPolicy.BlobType |=
+			blob.Type(blob.FlagAnchorChannel)
+
 		s.towerClientMgr, err = wtclient.NewManager(&wtclient.Config{
 			FetchClosedChannel:     fetchClosedChannel,
 			BuildBreachRetribution: buildBreachRetribution,
@@ -1573,25 +1579,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			MaxBackoff:         5 * time.Minute,
 			ForceQuitDelay:     wtclient.DefaultForceQuitDelay,
 			MaxTasksInMemQueue: maxTasksInMemQueue,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		// Register a legacy tower client.
-		_, err = s.towerClientMgr.NewClient(policy)
-		if err != nil {
-			return nil, err
-		}
-
-		// Copy the policy for legacy channels and set the blob flag
-		// signalling support for anchor channels.
-		anchorPolicy := policy
-		anchorPolicy.TxPolicy.BlobType |=
-			blob.Type(blob.FlagAnchorChannel)
-
-		// Register an anchors tower client.
-		_, err = s.towerClientMgr.NewClient(anchorPolicy)
+		}, policy, anchorPolicy)
 		if err != nil {
 			return nil, err
 		}
@@ -3755,6 +3743,11 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		}
 	}
 
+	var towerClient wtclient.TowerClientManager
+	if s.towerClientMgr != nil {
+		towerClient = s.towerClientMgr
+	}
+
 	// Now that we've established a connection, create a peer, and it to the
 	// set of currently active peers. Configure the peer with the incoming
 	// and outgoing broadcast deltas to prevent htlcs from being accepted or
@@ -3792,7 +3785,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		Invoices:                s.invoices,
 		ChannelNotifier:         s.channelNotifier,
 		HtlcNotifier:            s.htlcNotifier,
-		TowerClient:             s.towerClientMgr,
+		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
 		GenNodeAnnouncement:     s.genNodeAnnouncement,
 

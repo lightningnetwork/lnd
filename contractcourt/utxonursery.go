@@ -781,9 +781,10 @@ func (u *UtxoNursery) sweepMatureOutputs(classHeight uint32,
 		// passed in with disastrous consequences.
 		local := output
 
-		resultChan, err := u.cfg.SweepInput(
-			&local, sweep.Params{Fee: feePref},
-		)
+		resultChan, err := u.cfg.SweepInput(&local, sweep.Params{
+			Fee:   feePref,
+			Force: true,
+		})
 		if err != nil {
 			return err
 		}

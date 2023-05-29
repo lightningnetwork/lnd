@@ -20,6 +20,14 @@
   peer, then this'll force a reconnect, which may restart things and help avoid
   certain force close scenarios.
 
+
+## Consistent Contract Resolution
+
+* If lnd decides to go to chain for an HTLC, it will now _always_ ensure the
+  HTLC is fully swept on the outgoing link. Prior logic would avoid sweeping
+  due to negative yield, but combined with other inputs, the HTLC will usually
+  be positive yield.
+
 # Contributors (Alphabetical Order)
 
 * Elle Mouton

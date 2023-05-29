@@ -16,6 +16,10 @@ var (
 	defaultRootKeyIDContext = macaroons.ContextWithRootKeyID(
 		context.Background(), macaroons.DefaultRootKeyID,
 	)
+
+	nonDefaultRootKeyIDContext = macaroons.ContextWithRootKeyID(
+		context.Background(), []byte{1},
+	)
 )
 
 // newTestStore creates a new bolt DB in a temporary directory and then
@@ -131,8 +135,8 @@ func TestStore(t *testing.T) {
 	require.Equal(t, rootID, id)
 }
 
-// TestStoreGenerateNewRootKey tests that a root key can be replaced with a new
-// one in the store without changing the password.
+// TestStoreGenerateNewRootKey tests that root keys can be replaced with new
+// ones in the store without changing the password.
 func TestStoreGenerateNewRootKey(t *testing.T) {
 	_, store := newTestStore(t)
 
@@ -140,23 +144,33 @@ func TestStoreGenerateNewRootKey(t *testing.T) {
 	err := store.GenerateNewRootKey()
 	require.Equal(t, macaroons.ErrStoreLocked, err)
 
-	// Unlock the store and read the current key.
+	// Unlock the store.
 	pw := []byte("weks")
 	err = store.CreateUnlock(&pw)
 	require.NoError(t, err)
-	oldRootKey, _, err := store.RootKey(defaultRootKeyIDContext)
+
+	// Read the default root key.
+	oldRootKey1, _, err := store.RootKey(defaultRootKeyIDContext)
 	require.NoError(t, err)
 
-	// Replace the root key with a new random key.
+	// Read the non-default root-key.
+	oldRootKey2, _, err := store.RootKey(nonDefaultRootKeyIDContext)
+	require.NoError(t, err)
+
+	// Replace the root keys with new random keys.
 	err = store.GenerateNewRootKey()
 	require.NoError(t, err)
 
-	// Finally, read the root key from the DB and compare it to the one
+	// Finally, read both root keys from the DB and compare them to the ones
 	// we got returned earlier. This makes sure that the encryption/
 	// decryption of the key in the DB worked as expected too.
-	newRootKey, _, err := store.RootKey(defaultRootKeyIDContext)
+	newRootKey1, _, err := store.RootKey(defaultRootKeyIDContext)
 	require.NoError(t, err)
-	require.NotEqual(t, oldRootKey, newRootKey)
+	require.NotEqual(t, oldRootKey1, newRootKey1)
+
+	newRootKey2, _, err := store.RootKey(nonDefaultRootKeyIDContext)
+	require.NoError(t, err)
+	require.NotEqual(t, oldRootKey2, newRootKey2)
 }
 
 // TestStoreSetRootKey tests that a root key can be set to a specified value.
@@ -195,20 +209,25 @@ func TestStoreSetRootKey(t *testing.T) {
 }
 
 // TestStoreChangePassword tests that the password for the store can be changed
-// without changing the root key.
+// without changing the root keys.
 func TestStoreChangePassword(t *testing.T) {
 	tempDir, store := newTestStore(t)
 
-	// The store must be unlocked to replace the root key.
+	// The store must be unlocked to replace the root keys.
 	err := store.ChangePassword(nil, nil)
 	require.Equal(t, macaroons.ErrStoreLocked, err)
 
-	// Unlock the DB and read the current root key. This will need to stay
-	// the same after changing the password for the test to succeed.
+	// Unlock the DB and read the current default root key and one other
+	// non-default root key. Both of these should stay the same after
+	// changing the password for the test to succeed.
 	pw := []byte("weks")
 	err = store.CreateUnlock(&pw)
 	require.NoError(t, err)
-	rootKey, _, err := store.RootKey(defaultRootKeyIDContext)
+
+	rootKey1, _, err := store.RootKey(defaultRootKeyIDContext)
+	require.NoError(t, err)
+
+	rootKey2, _, err := store.RootKey(nonDefaultRootKeyIDContext)
 	require.NoError(t, err)
 
 	// Both passwords must be set.
@@ -242,9 +261,13 @@ func TestStoreChangePassword(t *testing.T) {
 	err = store.CreateUnlock(&newPw)
 	require.NoError(t, err)
 
-	// Finally read the root key from the DB using the new password and
-	// make sure the root key stayed the same.
-	rootKeyDb, _, err := store.RootKey(defaultRootKeyIDContext)
+	// Finally, read the root keys from the DB using the new password and
+	// make sure that both root keys stayed the same.
+	rootKeyDB1, _, err := store.RootKey(defaultRootKeyIDContext)
 	require.NoError(t, err)
-	require.Equal(t, rootKey, rootKeyDb)
+	require.Equal(t, rootKey1, rootKeyDB1)
+
+	rootKeyDB2, _, err := store.RootKey(nonDefaultRootKeyIDContext)
+	require.NoError(t, err)
+	require.Equal(t, rootKey2, rootKeyDB2)
 }

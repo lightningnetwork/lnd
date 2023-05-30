@@ -71,12 +71,27 @@ func DetermineFeePerKw(feeEstimator chainfee.Estimator,
 	// internally.
 	case feePref.FeeRate != 0:
 		feePerKW := feePref.FeeRate
-		if feePerKW < chainfee.FeePerKwFloor {
+
+		// Because the user can specify 1 sat/vByte on the RPC
+		// interface, which corresponds to 250 sat/kw, we need to bump
+		// that to the minimum "safe" fee rate which is 253 sat/kw.
+		if feePerKW == chainfee.AbsoluteFeePerKwFloor {
 			log.Infof("Manual fee rate input of %d sat/kw is "+
 				"too low, using %d sat/kw instead", feePerKW,
 				chainfee.FeePerKwFloor)
-
 			feePerKW = chainfee.FeePerKwFloor
+		}
+
+		// If that bumped fee rate of at least 253 sat/kw is still lower
+		// than the relay fee rate, we return an error to let the user
+		// know. Note that "Relay fee rate" may mean slightly different
+		// things depending on the backend. For bitcoind, it is
+		// effectively max(relay fee, min mempool fee).
+		minFeePerKW := feeEstimator.RelayFeePerKW()
+		if feePerKW < minFeePerKW {
+			return 0, fmt.Errorf("manual fee rate input of %d "+
+				"sat/kw is too low to be accepted into the "+
+				"mempool or relayed to the network", feePerKW)
 		}
 
 		return feePerKW, nil

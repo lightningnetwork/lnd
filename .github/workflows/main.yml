@@ -33,6 +33,29 @@ env:
 
 jobs:
   ########################
+  # SQLC code gen check 
+  ########################
+  sqlc-check:
+    name: Sqlc check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+
+      - name: setup go ${{ env.GO_VERSION }}
+        uses: ./.github/actions/setup-go
+        with:
+          go-version: '${{ env.GO_VERSION }}'
+
+      - name: docker image cache
+        uses: satackey/action-docker-layer-caching@v0.0.11
+        # Ignore the failure of a step and avoid terminating the job.
+        continue-on-error: true
+
+      - name: Generate sql models
+        run: make sqlc-check
+
+  ########################
   # RPC and mobile compilation check
   ########################
   rpc-check:

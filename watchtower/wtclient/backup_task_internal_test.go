@@ -1,7 +1,6 @@
 package wtclient
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -65,6 +64,7 @@ type backupTaskTest struct {
 	expSweepScript   []byte
 	signer           input.Signer
 	chanType         channeldb.ChannelType
+	commitType       blob.CommitmentType
 }
 
 // genTaskTest creates a instance of a backupTaskTest using the passed
@@ -210,6 +210,7 @@ func genTaskTest(
 		expSweepScript: sweepAddr,
 		signer:         signer,
 		chanType:       chanType,
+		commitType:     commitType,
 	}
 }
 
@@ -567,60 +568,27 @@ func testBackupTask(t *testing.T, test backupTaskTest) {
 	require.NoError(t, err, "unable to decrypt blob")
 
 	keyRing := test.breachInfo.KeyRing
-	expToLocalPK := keyRing.ToLocalKey.SerializeCompressed()
-	expRevPK := keyRing.RevocationKey.SerializeCompressed()
-	expToRemotePK := keyRing.ToRemoteKey.SerializeCompressed()
+	expToLocalPK := keyRing.ToLocalKey
+	expRevPK := keyRing.RevocationKey
+	expToRemotePK := keyRing.ToRemoteKey
 
-	// Assert that the blob contained the serialized revocation and to-local
-	// pubkeys.
-	require.Equal(t, expRevPK, jKit.RevocationPubKey[:])
-	require.Equal(t, expToLocalPK, jKit.LocalDelayPubKey[:])
-
-	// Determine if the breach transaction has a to-remote output and/or
-	// to-local output to spend from. Note the seemingly-reversed
-	// nomenclature.
-	hasToRemote := test.breachInfo.LocalOutputSignDesc != nil
-	hasToLocal := test.breachInfo.RemoteOutputSignDesc != nil
-
-	// If the to-remote output is present, assert that the to-remote public
-	// key was included in the blob. Otherwise assert that a blank public
-	// key was inserted.
-	if hasToRemote {
-		require.Equal(t, expToRemotePK, jKit.CommitToRemotePubKey[:])
-	} else {
-		require.Equal(t, zeroPK[:], jKit.CommitToRemotePubKey[:])
+	breachInfo := &lnwallet.BreachRetribution{
+		RemoteDelay: csvDelay,
+		KeyRing: &lnwallet.CommitmentKeyRing{
+			ToLocalKey:    expToLocalPK,
+			RevocationKey: expRevPK,
+			ToRemoteKey:   expToRemotePK,
+		},
 	}
 
-	// Assert that the CSV is encoded in the blob.
-	require.Equal(t, test.breachInfo.RemoteDelay, jKit.CSVDelay)
-
-	// Assert that the sweep pkscript is included.
-	require.Equal(t, test.expSweepScript, jKit.SweepAddress)
-
-	// Finally, verify that the signatures are encoded in the justice kit.
-	// We don't validate the actual signatures produced here, since at the
-	// moment, it is tested indirectly by other packages and integration
-	// tests.
-	// TODO(conner): include signature validation checks
-	emptyToLocalSig := bytes.Equal(
-		jKit.CommitToLocalSig.RawBytes(), zeroSig[:],
+	expectedKit, err := test.commitType.NewJusticeKit(
+		test.expSweepScript, breachInfo, test.expToRemoteInput != nil,
 	)
-	if hasToLocal {
-		require.False(t, emptyToLocalSig, "to-local signature should "+
-			"not be empty")
-	} else {
-		require.True(t, emptyToLocalSig, "to-local signature should "+
-			"be empty")
-	}
+	require.NoError(t, err)
 
-	emptyToRemoteSig := bytes.Equal(
-		jKit.CommitToRemoteSig.RawBytes(), zeroSig[:],
-	)
-	if hasToRemote {
-		require.False(t, emptyToRemoteSig, "to-remote signature "+
-			"should not be empty")
-	} else {
-		require.True(t, emptyToRemoteSig, "to-remote signature "+
-			"should be empty")
-	}
+	zero, _ := lnwire.NewSigFromWireECDSA(zeroSig[:])
+	jKit.AddToLocalSig(zero)
+	jKit.AddToRemoteSig(zero)
+
+	require.Equal(t, expectedKit, jKit)
 }

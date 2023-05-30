@@ -1030,7 +1030,10 @@ func randCommittedUpdateForChannel(t *testing.T, chanID lnwire.ChannelID,
 	_, err := io.ReadFull(crand.Reader, hint[:])
 	require.NoError(t, err)
 
-	encBlob := make([]byte, blob.Size(blob.FlagCommitOutputs.Type()))
+	kit, err := blob.AnchorCommitment.EmptyJusticeKit()
+	require.NoError(t, err)
+
+	encBlob := make([]byte, blob.Size(kit))
 	_, err = io.ReadFull(crand.Reader, encBlob)
 	require.NoError(t, err)
 

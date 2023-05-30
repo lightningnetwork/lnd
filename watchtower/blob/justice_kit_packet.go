@@ -40,25 +40,6 @@ const (
 	MaxSweepAddrSize = 42
 )
 
-// Size returns the size of the encoded-and-encrypted blob in bytes.
-//
-//	nonce:                24 bytes
-//	enciphered plaintext:  n bytes
-//	MAC:                  16 bytes
-func Size(blobType Type) int {
-	return NonceSize + PlaintextSize(blobType) + CiphertextExpansion
-}
-
-// PlaintextSize returns the size of the encoded-but-unencrypted blob in bytes.
-func PlaintextSize(blobType Type) int {
-	switch {
-	case blobType.Has(FlagCommitOutputs):
-		return V0PlaintextSize
-	default:
-		return 0
-	}
-}
-
 var (
 	// byteOrder specifies a big-endian encoding of all integer values.
 	byteOrder = binary.BigEndian
@@ -88,8 +69,66 @@ var (
 	)
 )
 
-// PubKey is a 33-byte, serialized compressed public key.
-type PubKey [33]byte
+// Size returns the size of the encoded-and-encrypted blob in bytes.
+//
+//	nonce:                24 bytes
+//	enciphered plaintext:  n bytes
+//	MAC:                  16 bytes
+func Size(kit JusticeKit) int {
+	return NonceSize + kit.PlainTextSize() + CiphertextExpansion
+}
+
+// pubKey is a 33-byte, serialized compressed public key.
+type pubKey [33]byte
+
+// justiceKitPacketV0 is lé Blob of Justice. The JusticeKit contains information
+// required to construct a justice transaction, that sweeps a remote party's
+// revoked commitment transaction. It supports encryption and decryption using
+// chacha20poly1305, allowing the client to encrypt the contents of the blob,
+// and for a watchtower to later decrypt if action must be taken. The encoding
+// format is versioned to allow future extensions.
+type justiceKitPacketV0 struct {
+	// sweepAddress is the witness program of the output where the client's
+	// fund will be deposited. This value is included in the blobs, as
+	// opposed to the session info, such that the sweep addresses can't be
+	// correlated across sessions and/or towers.
+	//
+	// NOTE: This is chosen to be the length of a maximally sized witness
+	// program.
+	sweepAddress []byte
+
+	// revocationPubKey is the compressed pubkey that guards the revocation
+	// clause of the remote party's to-local output.
+	revocationPubKey pubKey
+
+	// localDelayPubKey is the compressed pubkey in the to-local script of
+	// the remote party, which guards the path where the remote party
+	// claims their commitment output.
+	localDelayPubKey pubKey
+
+	// csvDelay is the relative timelock in the remote party's to-local
+	// output, which the remote party must wait out before sweeping their
+	// commitment output.
+	csvDelay uint32
+
+	// commitToLocalSig is a signature under RevocationPubKey using
+	// SIGHASH_ALL.
+	commitToLocalSig lnwire.Sig
+
+	// commitToRemotePubKey is the public key in the to-remote output of the
+	// revoked commitment transaction.
+	//
+	// NOTE: This value is only used if it contains a valid compressed
+	// public key.
+	commitToRemotePubKey pubKey
+
+	// commitToRemoteSig is a signature under CommitToRemotePubKey using
+	// SIGHASH_ALL.
+	//
+	// NOTE: This value is only used if CommitToRemotePubKey contains a
+	// valid compressed public key.
+	commitToRemoteSig lnwire.Sig
+}
 
 // Encrypt encodes the blob of justice using encoding version, and then
 // creates a ciphertext using chacha20poly1305 under the chosen (nonce, key)
@@ -97,11 +136,11 @@ type PubKey [33]byte
 //
 // NOTE: It is the caller's responsibility to ensure that this method is only
 // called once for a given (nonce, key) pair.
-func (b *JusticeKit) Encrypt(key BreachKey) ([]byte, error) {
+func Encrypt(kit JusticeKit, key BreachKey) ([]byte, error) {
 	// Encode the plaintext using the provided version, to obtain the
 	// plaintext bytes.
 	var ptxtBuf bytes.Buffer
-	err := b.encode(&ptxtBuf, b.BlobType)
+	err := kit.encode(&ptxtBuf)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +154,7 @@ func (b *JusticeKit) Encrypt(key BreachKey) ([]byte, error) {
 	// Allocate the ciphertext, which will contain the nonce, encrypted
 	// plaintext and MAC.
 	plaintext := ptxtBuf.Bytes()
-	ciphertext := make([]byte, Size(b.BlobType))
+	ciphertext := make([]byte, Size(kit))
 
 	// Generate a random  24-byte nonce in the ciphertext's prefix.
 	nonce := ciphertext[:NonceSize]
@@ -134,7 +173,7 @@ func (b *JusticeKit) Encrypt(key BreachKey) ([]byte, error) {
 // chacha20poly1305 with the chosen (nonce, key) pair. The internal plaintext is
 // then deserialized using the given encoding version.
 func Decrypt(key BreachKey, ciphertext []byte,
-	blobType Type) (*JusticeKit, error) {
+	blobType Type) (JusticeKit, error) {
 
 	// Fail if the blob's overall length is less than required for the nonce
 	// and expansion factor.
@@ -161,42 +200,27 @@ func Decrypt(key BreachKey, ciphertext []byte,
 		return nil, err
 	}
 
-	// If decryption succeeded, we will then decode the plaintext bytes
-	// using the specified blob version.
-	boj := &JusticeKit{
-		BlobType: blobType,
-	}
-	err = boj.decode(bytes.NewReader(plaintext), blobType)
+	commitment, err := blobType.CommitmentType(nil)
 	if err != nil {
 		return nil, err
 	}
 
-	return boj, nil
-}
-
-// encode serializes the JusticeKit according to the version, returning an
-// error if the version is unknown.
-func (b *JusticeKit) encode(w io.Writer, blobType Type) error {
-	switch {
-	case blobType.Has(FlagCommitOutputs):
-		return b.encodeV0(w)
-	default:
-		return ErrUnknownBlobType
+	kit, err := commitment.EmptyJusticeKit()
+	if err != nil {
+		return nil, err
 	}
-}
 
-// decode deserializes the JusticeKit according to the version, returning an
-// error if the version is unknown.
-func (b *JusticeKit) decode(r io.Reader, blobType Type) error {
-	switch {
-	case blobType.Has(FlagCommitOutputs):
-		return b.decodeV0(r)
-	default:
-		return ErrUnknownBlobType
+	// If decryption succeeded, we will then decode the plaintext bytes
+	// using the specified blob version.
+	err = kit.decode(bytes.NewReader(plaintext))
+	if err != nil {
+		return nil, err
 	}
+
+	return kit, nil
 }
 
-// encodeV0 encodes the JusticeKit using the version 0 encoding scheme to the
+// encode encodes the JusticeKit using the version 0 encoding scheme to the
 // provided io.Writer. The encoding supports sweeping of the commit to-local
 // output, and  optionally the  commit to-remote output. The encoding produces a
 // constant-size plaintext size of 274 bytes.
@@ -211,21 +235,21 @@ func (b *JusticeKit) decode(r io.Reader, blobType Type) error {
 //	commit to-local revocation sig: 64 bytes
 //	commit to-remote pubkey:        33 bytes, maybe blank
 //	commit to-remote sig:           64 bytes, maybe blank
-func (b *JusticeKit) encodeV0(w io.Writer) error {
+func (b *justiceKitPacketV0) encode(w io.Writer) error {
 	// Assert the sweep address length is sane.
-	if len(b.SweepAddress) > MaxSweepAddrSize {
+	if len(b.sweepAddress) > MaxSweepAddrSize {
 		return ErrSweepAddressToLong
 	}
 
 	// Write the actual length of the sweep address as a single byte.
-	err := binary.Write(w, byteOrder, uint8(len(b.SweepAddress)))
+	err := binary.Write(w, byteOrder, uint8(len(b.sweepAddress)))
 	if err != nil {
 		return err
 	}
 
 	// Pad the sweep address to our maximum length of 42 bytes.
 	var sweepAddressBuf [MaxSweepAddrSize]byte
-	copy(sweepAddressBuf[:], b.SweepAddress)
+	copy(sweepAddressBuf[:], b.sweepAddress)
 
 	// Write padded 42-byte sweep address.
 	_, err = w.Write(sweepAddressBuf[:])
@@ -234,41 +258,41 @@ func (b *JusticeKit) encodeV0(w io.Writer) error {
 	}
 
 	// Write 33-byte revocation public key.
-	_, err = w.Write(b.RevocationPubKey[:])
+	_, err = w.Write(b.revocationPubKey[:])
 	if err != nil {
 		return err
 	}
 
 	// Write 33-byte local delay public key.
-	_, err = w.Write(b.LocalDelayPubKey[:])
+	_, err = w.Write(b.localDelayPubKey[:])
 	if err != nil {
 		return err
 	}
 
 	// Write 4-byte CSV delay.
-	err = binary.Write(w, byteOrder, b.CSVDelay)
+	err = binary.Write(w, byteOrder, b.csvDelay)
 	if err != nil {
 		return err
 	}
 
 	// Write 64-byte revocation signature for commit to-local output.
-	_, err = w.Write(b.CommitToLocalSig.RawBytes())
+	_, err = w.Write(b.commitToLocalSig.RawBytes())
 	if err != nil {
 		return err
 	}
 
 	// Write 33-byte commit to-remote public key, which may be blank.
-	_, err = w.Write(b.CommitToRemotePubKey[:])
+	_, err = w.Write(b.commitToRemotePubKey[:])
 	if err != nil {
 		return err
 	}
 
 	// Write 64-byte commit to-remote signature, which may be blank.
-	_, err = w.Write(b.CommitToRemoteSig.RawBytes())
+	_, err = w.Write(b.commitToRemoteSig.RawBytes())
 	return err
 }
 
-// decodeV0 reconstructs a JusticeKit from the io.Reader, using version 0
+// decode reconstructs a JusticeKit from the io.Reader, using version 0
 // encoding scheme. This will parse a constant size input stream of 274 bytes to
 // recover information for the commit to-local output, and possibly the commit
 // to-remote output.
@@ -283,7 +307,7 @@ func (b *JusticeKit) encodeV0(w io.Writer) error {
 //	commit to-local revocation sig: 64 bytes
 //	commit to-remote pubkey:        33 bytes, maybe blank
 //	commit to-remote sig:           64 bytes, maybe blank
-func (b *JusticeKit) decodeV0(r io.Reader) error {
+func (b *justiceKitPacketV0) decode(r io.Reader) error {
 	// Read the sweep address length as a single byte.
 	var sweepAddrLen uint8
 	err := binary.Read(r, byteOrder, &sweepAddrLen)
@@ -304,23 +328,23 @@ func (b *JusticeKit) decodeV0(r io.Reader) error {
 	}
 
 	// Parse sweep address from padded buffer.
-	b.SweepAddress = make([]byte, sweepAddrLen)
-	copy(b.SweepAddress, sweepAddressBuf[:])
+	b.sweepAddress = make([]byte, sweepAddrLen)
+	copy(b.sweepAddress, sweepAddressBuf[:])
 
 	// Read 33-byte revocation public key.
-	_, err = io.ReadFull(r, b.RevocationPubKey[:])
+	_, err = io.ReadFull(r, b.revocationPubKey[:])
 	if err != nil {
 		return err
 	}
 
 	// Read 33-byte local delay public key.
-	_, err = io.ReadFull(r, b.LocalDelayPubKey[:])
+	_, err = io.ReadFull(r, b.localDelayPubKey[:])
 	if err != nil {
 		return err
 	}
 
 	// Read 4-byte CSV delay.
-	err = binary.Read(r, byteOrder, &b.CSVDelay)
+	err = binary.Read(r, byteOrder, &b.csvDelay)
 	if err != nil {
 		return err
 	}
@@ -332,13 +356,13 @@ func (b *JusticeKit) decodeV0(r io.Reader) error {
 		return err
 	}
 
-	b.CommitToLocalSig, err = lnwire.NewSigFromWireECDSA(localSig[:])
+	b.commitToLocalSig, err = lnwire.NewSigFromWireECDSA(localSig[:])
 	if err != nil {
 		return err
 	}
 
 	var (
-		commitToRemotePubkey PubKey
+		commitToRemotePubkey pubKey
 		commitToRemoteSig    [64]byte
 	)
 
@@ -357,8 +381,8 @@ func (b *JusticeKit) decodeV0(r io.Reader) error {
 	// Only populate the commit to-remote fields in the decoded blob if a
 	// valid compressed public key was read from the reader.
 	if btcec.IsCompressedPubKey(commitToRemotePubkey[:]) {
-		b.CommitToRemotePubKey = commitToRemotePubkey
-		b.CommitToRemoteSig, err = lnwire.NewSigFromWireECDSA(
+		b.commitToRemotePubKey = commitToRemotePubkey
+		b.commitToRemoteSig, err = lnwire.NewSigFromWireECDSA(
 			commitToRemoteSig[:],
 		)
 		if err != nil {
@@ -367,4 +391,12 @@ func (b *JusticeKit) decodeV0(r io.Reader) error {
 	}
 
 	return nil
+}
+
+// toBlobPubKey serializes the given public key into a pubKey that can be set
+// as a field on a JusticeKit.
+func toBlobPubKey(pk *btcec.PublicKey) pubKey {
+	var blobPubKey pubKey
+	copy(blobPubKey[:], pk.SerializeCompressed())
+	return blobPubKey
 }

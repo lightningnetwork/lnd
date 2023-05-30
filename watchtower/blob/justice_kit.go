@@ -1,154 +1,263 @@
 package blob
 
 import (
+	"io"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// JusticeKit is lé Blob of Justice. The JusticeKit contains information
-// required to construct a justice transaction, that sweeps a remote party's
-// revoked commitment transaction. It supports encryption and decryption using
-// chacha20poly1305, allowing the client to encrypt the contents of the blob,
-// and for a watchtower to later decrypt if action must be taken. The encoding
-// format is versioned to allow future extensions.
-type JusticeKit struct {
-	// BlobType encodes a bitfield that inform the tower of various features
-	// requested by the client when resolving a breach. Examples include
-	// whether the justice transaction contains a reward for the tower, or
-	// whether the channel is a legacy or anchor channel.
-	//
-	// NOTE: This value is not serialized in the encrypted payload. It is
-	// stored separately and added to the JusticeKit after decryption.
-	BlobType Type
+type JusticeKit interface {
+	// ToLocalOutputSpendInfo returns the info required to send the to-local
+	// output. It returns the output pub key script and the witness required
+	// to spend the output.
+	ToLocalOutputSpendInfo() ([]byte, [][]byte, error)
 
-	// SweepAddress is the witness program of the output where the client's
-	// fund will be deposited. This value is included in the blobs, as
-	// opposed to the session info, such that the sweep addresses can't be
-	// correlated across sessions and/or towers.
-	//
-	// NOTE: This is chosen to be the length of a maximally sized witness
-	// program.
-	SweepAddress []byte
+	// ToRemoteOutputSpendInfo returns the info required to send the
+	// to-remote output. It returns the output pub key script, the witness
+	// required to spend the output and the sequence to apply.
+	ToRemoteOutputSpendInfo() ([]byte, [][]byte, uint32, error)
 
-	// RevocationPubKey is the compressed pubkey that guards the revocation
-	// clause of the remote party's to-local output.
-	RevocationPubKey PubKey
+	// HasCommitToRemoteOutput returns true if the kit does include the
+	// information required to sweep the to-remote output.
+	HasCommitToRemoteOutput() bool
 
-	// LocalDelayPubKey is the compressed pubkey in the to-local script of
-	// the remote party, which guards the path where the remote party
-	// claims their commitment output.
-	LocalDelayPubKey PubKey
+	// AddToLocalSig adds the to-local signature to the kit.
+	AddToLocalSig(sig lnwire.Sig)
 
-	// CSVDelay is the relative timelock in the remote party's to-local
-	// output, which the remote party must wait out before sweeping their
-	// commitment output.
-	CSVDelay uint32
+	// AddToRemoteSig adds the to-remote signature to the kit.
+	AddToRemoteSig(sig lnwire.Sig)
 
-	// CommitToLocalSig is a signature under RevocationPubKey using
-	// SIGHASH_ALL.
-	CommitToLocalSig lnwire.Sig
+	// SweepAddress returns the sweep address to be used on the justice tx
+	// output.
+	SweepAddress() []byte
 
-	// CommitToRemotePubKey is the public key in the to-remote output of the
-	// revoked
-	// commitment transaction.
-	//
-	// NOTE: This value is only used if it contains a valid compressed
-	// public key.
-	CommitToRemotePubKey PubKey
+	// PlainTextSize is the size of the encoded-but-unencrypted blob in
+	// bytes.
+	PlainTextSize() int
 
-	// CommitToRemoteSig is a signature under CommitToRemotePubKey using
-	// SIGHASH_ALL.
-	//
-	// NOTE: This value is only used if CommitToRemotePubKey contains a
-	// valid compressed public key.
-	CommitToRemoteSig lnwire.Sig
+	encode(w io.Writer) error
+	decode(r io.Reader) error
 }
 
-// CommitToLocalWitnessScript returns the serialized witness script for the
-// commitment to-local output.
-func (b *JusticeKit) CommitToLocalWitnessScript() ([]byte, error) {
-	revocationPubKey, err := btcec.ParsePubKey(
-		b.RevocationPubKey[:],
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	localDelayedPubKey, err := btcec.ParsePubKey(
-		b.LocalDelayPubKey[:],
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return input.CommitScriptToSelf(
-		b.CSVDelay, localDelayedPubKey, revocationPubKey,
-	)
+// legacyJusticeKit is an implementation of the JusticeKit interface which can
+// be used for backing up commitments of legacy (pre-anchor) channels.
+type legacyJusticeKit struct {
+	justiceKitPacketV0
 }
 
-// CommitToLocalRevokeWitnessStack constructs a witness stack spending the
-// revocation clause of the commitment to-local output.
+// A compile-time check to ensure that legacyJusticeKit implements the
+// JusticeKit interface.
+var _ JusticeKit = (*legacyJusticeKit)(nil)
+
+// newLegacyJusticeKit constructs a new legacyJusticeKit.
+func newLegacyJusticeKit(sweepScript []byte,
+	breachInfo *lnwallet.BreachRetribution,
+	withToRemote bool) *legacyJusticeKit {
+
+	keyRing := breachInfo.KeyRing
+
+	packet := justiceKitPacketV0{
+		sweepAddress:         sweepScript,
+		revocationPubKey:     toBlobPubKey(keyRing.RevocationKey),
+		localDelayPubKey:     toBlobPubKey(keyRing.ToLocalKey),
+		csvDelay:             breachInfo.RemoteDelay,
+		commitToRemotePubKey: pubKey{},
+	}
+
+	if withToRemote {
+		packet.commitToRemotePubKey = toBlobPubKey(
+			keyRing.ToRemoteKey,
+		)
+	}
+
+	return &legacyJusticeKit{packet}
+}
+
+// ToLocalOutputSpendInfo returns the info required to send the to-local output.
+// It returns the output pub key script and the witness required to spend the
+// output.
 //
-//	<revocation-sig> 1
-func (b *JusticeKit) CommitToLocalRevokeWitnessStack() ([][]byte, error) {
-	toLocalSig, err := b.CommitToLocalSig.ToSignature()
+// NOTE: This is part of the JusticeKit interface.
+func (l *legacyJusticeKit) ToLocalOutputSpendInfo() ([]byte, [][]byte, error) {
+	revocationPubKey, err := btcec.ParsePubKey(l.revocationPubKey[:])
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	witnessStack := make([][]byte, 2)
-	witnessStack[0] = append(toLocalSig.Serialize(),
-		byte(txscript.SigHashAll))
-	witnessStack[1] = []byte{1}
+	localDelayedPubKey, err := btcec.ParsePubKey(l.localDelayPubKey[:])
+	if err != nil {
+		return nil, nil, err
+	}
 
-	return witnessStack, nil
+	script, err := input.CommitScriptToSelf(
+		l.csvDelay, localDelayedPubKey, revocationPubKey,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	scriptPubKey, err := input.WitnessScriptHash(script)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	toLocalSig, err := l.commitToLocalSig.ToSignature()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	witness := make([][]byte, 3)
+	witness[0] = append(toLocalSig.Serialize(), byte(txscript.SigHashAll))
+	witness[1] = []byte{1}
+	witness[2] = script
+
+	return scriptPubKey, witness, nil
+}
+
+// ToRemoteOutputSpendInfo returns the info required to send the to-remote
+// output. It returns the output pub key script, the witness required to spend
+// the output and the sequence to apply.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (l *legacyJusticeKit) ToRemoteOutputSpendInfo() ([]byte, [][]byte, uint32,
+	error) {
+
+	if !btcec.IsCompressedPubKey(l.commitToRemotePubKey[:]) {
+		return nil, nil, 0, ErrNoCommitToRemoteOutput
+	}
+
+	toRemoteScript := l.commitToRemotePubKey[:]
+
+	// Since the to-remote witness script should just be a regular p2wkh
+	// output, we'll parse it to retrieve the public key.
+	toRemotePubKey, err := btcec.ParsePubKey(toRemoteScript)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	// Compute the witness script hash from the to-remote pubkey, which will
+	// be used to locate the input on the breach commitment transaction.
+	toRemoteScriptHash, err := input.CommitScriptUnencumbered(
+		toRemotePubKey,
+	)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	toRemoteSig, err := l.commitToRemoteSig.ToSignature()
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	witness := make([][]byte, 2)
+	witness[0] = append(toRemoteSig.Serialize(), byte(txscript.SigHashAll))
+	witness[1] = toRemoteScript
+
+	return toRemoteScriptHash, witness, 0, nil
 }
 
 // HasCommitToRemoteOutput returns true if the blob contains a to-remote p2wkh
 // pubkey.
-func (b *JusticeKit) HasCommitToRemoteOutput() bool {
-	return btcec.IsCompressedPubKey(b.CommitToRemotePubKey[:])
-}
-
-// CommitToRemoteWitnessScript returns the witness script for the commitment
-// to-remote output given the blob type. The script returned will either be for
-// a p2wpkh to-remote output or an p2wsh anchor to-remote output which includes
-// a CSV delay.
-func (b *JusticeKit) CommitToRemoteWitnessScript() ([]byte, error) {
-	if !btcec.IsCompressedPubKey(b.CommitToRemotePubKey[:]) {
-		return nil, ErrNoCommitToRemoteOutput
-	}
-
-	// If this is a blob for an anchor channel, we'll return the p2wsh
-	// output containing a CSV delay of 1.
-	if b.BlobType.IsAnchorChannel() {
-		pk, err := btcec.ParsePubKey(b.CommitToRemotePubKey[:])
-		if err != nil {
-			return nil, err
-		}
-
-		return input.CommitScriptToRemoteConfirmed(pk)
-	}
-
-	return b.CommitToRemotePubKey[:], nil
-}
-
-// CommitToRemoteWitnessStack returns a witness stack spending the commitment
-// to-remote output, which consists of a single signature satisfying either the
-// legacy or anchor witness scripts.
 //
-//	<to-remote-sig>
-func (b *JusticeKit) CommitToRemoteWitnessStack() ([][]byte, error) {
-	toRemoteSig, err := b.CommitToRemoteSig.ToSignature()
-	if err != nil {
-		return nil, err
+// NOTE: This is part of the JusticeKit interface.
+func (l *legacyJusticeKit) HasCommitToRemoteOutput() bool {
+	return btcec.IsCompressedPubKey(l.commitToRemotePubKey[:])
+}
+
+// SweepAddress returns the sweep address to be used on the justice tx
+// output.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (l *legacyJusticeKit) SweepAddress() []byte {
+	return l.sweepAddress
+}
+
+// AddToLocalSig adds the to-local signature to the kit.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (l *legacyJusticeKit) AddToLocalSig(sig lnwire.Sig) {
+	l.commitToLocalSig = sig
+}
+
+// AddToRemoteSig adds the to-remote signature to the kit.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (l *legacyJusticeKit) AddToRemoteSig(sig lnwire.Sig) {
+	l.commitToRemoteSig = sig
+}
+
+// PlainTextSize is the size of the encoded-but-unencrypted blob in
+// bytes.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (l *legacyJusticeKit) PlainTextSize() int {
+	return V0PlaintextSize
+}
+
+// anchorJusticeKit is an implementation of the JusticeKit interface which can
+// be used for backing up commitments of anchor channels. It inherits most of
+// the methods from the legacyJusticeKit and overrides the
+// ToRemoteOutputSpendInfo method since the to-remote output of an anchor
+// output is a P2WSH instead of the P2WPKH used by the legacy channels.
+type anchorJusticeKit struct {
+	*legacyJusticeKit
+}
+
+// A compile-time check to ensure that legacyJusticeKit implements the
+// JusticeKit interface.
+var _ JusticeKit = (*anchorJusticeKit)(nil)
+
+// newAnchorJusticeKit constructs a new anchorJusticeKit.
+func newAnchorJusticeKit(sweepScript []byte,
+	breachInfo *lnwallet.BreachRetribution,
+	withToRemote bool) *anchorJusticeKit {
+
+	return &anchorJusticeKit{
+		legacyJusticeKit: newLegacyJusticeKit(
+			sweepScript, breachInfo, withToRemote,
+		),
+	}
+}
+
+// ToRemoteOutputSpendInfo returns the info required to send the to-remote
+// output. It returns the output pub key script, the witness required to spend
+// the output and the sequence to apply.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (a *anchorJusticeKit) ToRemoteOutputSpendInfo() ([]byte, [][]byte, uint32,
+	error) {
+
+	if !btcec.IsCompressedPubKey(a.commitToRemotePubKey[:]) {
+		return nil, nil, 0, ErrNoCommitToRemoteOutput
 	}
 
-	witnessStack := make([][]byte, 1)
-	witnessStack[0] = append(toRemoteSig.Serialize(),
-		byte(txscript.SigHashAll))
+	pk, err := btcec.ParsePubKey(a.commitToRemotePubKey[:])
+	if err != nil {
+		return nil, nil, 0, err
+	}
 
-	return witnessStack, nil
+	toRemoteScript, err := input.CommitScriptToRemoteConfirmed(pk)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	toRemoteScriptHash, err := input.WitnessScriptHash(toRemoteScript)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	toRemoteSig, err := a.commitToRemoteSig.ToSignature()
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	witness := make([][]byte, 2)
+	witness[0] = append(toRemoteSig.Serialize(), byte(txscript.SigHashAll))
+	witness[1] = toRemoteScript
+
+	return toRemoteScriptHash, witness, 1, nil
 }

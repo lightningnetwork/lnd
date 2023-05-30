@@ -1,30 +1,24 @@
-package blob_test
+package blob
 
 import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"io"
-	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/stretchr/testify/require"
 )
 
-func makePubKey(i uint64) blob.PubKey {
-	var pk blob.PubKey
-	pk[0] = 0x02
-	if i%2 == 1 {
-		pk[0] |= 0x01
-	}
-	binary.BigEndian.PutUint64(pk[1:9], i)
-	return pk
+func makePubKey() *btcec.PublicKey {
+	priv, _ := btcec.NewPrivateKey()
+	return priv.PubKey()
 }
 
 func makeSig(i int) lnwire.Sig {
@@ -46,15 +40,15 @@ func makeAddr(size int) []byte {
 
 type descriptorTest struct {
 	name                 string
-	encVersion           blob.Type
-	decVersion           blob.Type
+	encVersion           Type
+	decVersion           Type
 	sweepAddr            []byte
-	revPubKey            blob.PubKey
-	delayPubKey          blob.PubKey
+	revPubKey            *btcec.PublicKey
+	delayPubKey          *btcec.PublicKey
 	csvDelay             uint32
 	commitToLocalSig     lnwire.Sig
 	hasCommitToRemote    bool
-	commitToRemotePubKey blob.PubKey
+	commitToRemotePubKey *btcec.PublicKey
 	commitToRemoteSig    lnwire.Sig
 	encErr               error
 	decErr               error
@@ -63,79 +57,79 @@ type descriptorTest struct {
 var descriptorTests = []descriptorTest{
 	{
 		name:             "to-local only",
-		encVersion:       blob.TypeAltruistCommit,
-		decVersion:       blob.TypeAltruistCommit,
+		encVersion:       TypeAltruistCommit,
+		decVersion:       TypeAltruistCommit,
 		sweepAddr:        makeAddr(22),
-		revPubKey:        makePubKey(0),
-		delayPubKey:      makePubKey(1),
+		revPubKey:        makePubKey(),
+		delayPubKey:      makePubKey(),
 		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
 	},
 	{
 		name:                 "to-local and p2wkh",
-		encVersion:           blob.TypeRewardCommit,
-		decVersion:           blob.TypeRewardCommit,
+		encVersion:           TypeRewardCommit,
+		decVersion:           TypeRewardCommit,
 		sweepAddr:            makeAddr(22),
-		revPubKey:            makePubKey(0),
-		delayPubKey:          makePubKey(1),
+		revPubKey:            makePubKey(),
+		delayPubKey:          makePubKey(),
 		csvDelay:             144,
 		commitToLocalSig:     makeSig(1),
 		hasCommitToRemote:    true,
-		commitToRemotePubKey: makePubKey(2),
+		commitToRemotePubKey: makePubKey(),
 		commitToRemoteSig:    makeSig(2),
 	},
 	{
 		name:             "unknown encrypt version",
 		encVersion:       0,
-		decVersion:       blob.TypeAltruistCommit,
+		decVersion:       TypeAltruistCommit,
 		sweepAddr:        makeAddr(34),
-		revPubKey:        makePubKey(0),
-		delayPubKey:      makePubKey(1),
+		revPubKey:        makePubKey(),
+		delayPubKey:      makePubKey(),
 		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
-		encErr:           blob.ErrUnknownBlobType,
+		encErr:           ErrUnknownBlobType,
 	},
 	{
 		name:             "unknown decrypt version",
-		encVersion:       blob.TypeAltruistCommit,
+		encVersion:       TypeAltruistCommit,
 		decVersion:       0,
 		sweepAddr:        makeAddr(34),
-		revPubKey:        makePubKey(0),
-		delayPubKey:      makePubKey(1),
+		revPubKey:        makePubKey(),
+		delayPubKey:      makePubKey(),
 		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
-		decErr:           blob.ErrUnknownBlobType,
+		decErr:           ErrUnknownBlobType,
 	},
 	{
 		name:             "sweep addr length zero",
-		encVersion:       blob.TypeAltruistCommit,
-		decVersion:       blob.TypeAltruistCommit,
+		encVersion:       TypeAltruistCommit,
+		decVersion:       TypeAltruistCommit,
 		sweepAddr:        makeAddr(0),
-		revPubKey:        makePubKey(0),
-		delayPubKey:      makePubKey(1),
+		revPubKey:        makePubKey(),
+		delayPubKey:      makePubKey(),
 		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
 	},
 	{
 		name:             "sweep addr max size",
-		encVersion:       blob.TypeAltruistCommit,
-		decVersion:       blob.TypeAltruistCommit,
-		sweepAddr:        makeAddr(blob.MaxSweepAddrSize),
-		revPubKey:        makePubKey(0),
-		delayPubKey:      makePubKey(1),
+		encVersion:       TypeAltruistCommit,
+		decVersion:       TypeAltruistCommit,
+		sweepAddr:        makeAddr(MaxSweepAddrSize),
+		revPubKey:        makePubKey(),
+		delayPubKey:      makePubKey(),
 		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
 	},
 	{
 		name:             "sweep addr too long",
-		encVersion:       blob.TypeAltruistCommit,
-		decVersion:       blob.TypeAltruistCommit,
-		sweepAddr:        makeAddr(blob.MaxSweepAddrSize + 1),
-		revPubKey:        makePubKey(0),
-		delayPubKey:      makePubKey(1),
+		encVersion:       TypeAltruistCommit,
+		decVersion:       TypeAltruistCommit,
+		sweepAddr:        makeAddr(MaxSweepAddrSize + 1),
+		revPubKey:        makePubKey(),
+		delayPubKey:      makePubKey(),
 		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
-		encErr:           blob.ErrSweepAddressToLong,
+		encErr:           ErrSweepAddressToLong,
 	},
 }
 
@@ -152,30 +146,43 @@ func TestBlobJusticeKitEncryptDecrypt(t *testing.T) {
 }
 
 func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
-	boj := &blob.JusticeKit{
-		BlobType:             test.encVersion,
-		SweepAddress:         test.sweepAddr,
-		RevocationPubKey:     test.revPubKey,
-		LocalDelayPubKey:     test.delayPubKey,
-		CSVDelay:             test.csvDelay,
-		CommitToLocalSig:     test.commitToLocalSig,
-		CommitToRemotePubKey: test.commitToRemotePubKey,
-		CommitToRemoteSig:    test.commitToRemoteSig,
+	commitmentType, err := test.encVersion.CommitmentType(nil)
+	if err != nil {
+		require.ErrorIs(t, err, test.encErr)
+		return
 	}
+
+	breachInfo := &lnwallet.BreachRetribution{
+		RemoteDelay: test.csvDelay,
+		KeyRing: &lnwallet.CommitmentKeyRing{
+			ToLocalKey:    test.delayPubKey,
+			ToRemoteKey:   test.commitToRemotePubKey,
+			RevocationKey: test.revPubKey,
+		},
+	}
+
+	kit, err := commitmentType.NewJusticeKit(
+		test.sweepAddr, breachInfo, test.hasCommitToRemote,
+	)
+	if err != nil {
+		return
+	}
+	kit.AddToLocalSig(test.commitToLocalSig)
+	kit.AddToRemoteSig(test.commitToRemoteSig)
 
 	// Generate a random encryption key for the blob. The key is
 	// sized at 32 byte, as in practice we will be using the remote
 	// party's commitment txid as the key.
-	var key blob.BreachKey
-	_, err := rand.Read(key[:])
+	var key BreachKey
+	_, err = rand.Read(key[:])
 	require.NoError(t, err, "unable to generate blob encryption key")
 
 	// Encrypt the blob plaintext using the generated key and
 	// target version for this test.
-	ctxt, err := boj.Encrypt(key)
-	if err != test.encErr {
-		t.Fatalf("unable to encrypt blob: %v", err)
-	} else if test.encErr != nil {
+	ctxt, err := Encrypt(kit, key)
+	require.ErrorIs(t, err, test.encErr)
+
+	if test.encErr != nil {
 		// If the test expected an encryption failure, we can
 		// continue to the next test.
 		return
@@ -183,19 +190,15 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 
 	// Ensure that all encrypted blobs are padded out to the same
 	// size: 282 bytes for version 0.
-	if len(ctxt) != blob.Size(test.encVersion) {
-		t.Fatalf("expected blob to have size %d, got %d instead",
-			blob.Size(test.encVersion), len(ctxt))
-
-	}
+	require.Len(t, ctxt, Size(kit))
 
 	// Decrypt the encrypted blob, reconstructing the original
 	// blob plaintext from the decrypted contents. We use the target
 	// decryption version specified by this test case.
-	boj2, err := blob.Decrypt(key, ctxt, test.decVersion)
-	if err != test.decErr {
-		t.Fatalf("unable to decrypt blob: %v", err)
-	} else if test.decErr != nil {
+	boj2, err := Decrypt(key, ctxt, test.decVersion)
+	require.ErrorIs(t, err, test.decErr)
+
+	if test.decErr != nil {
 		// If the test expected an decryption failure, we can
 		// continue to the next test.
 		return
@@ -210,15 +213,12 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 
 	// Check that the original blob plaintext matches the
 	// one reconstructed from the encrypted blob.
-	if !reflect.DeepEqual(boj, boj2) {
-		t.Fatalf("decrypted plaintext does not match original, "+
-			"want: %v, got %v", boj, boj2)
-	}
+	require.Equal(t, kit, boj2)
 }
 
 type remoteWitnessTest struct {
 	name             string
-	blobType         blob.Type
+	blobType         Type
 	expWitnessScript func(pk *btcec.PublicKey) []byte
 }
 
@@ -229,15 +229,14 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 	tests := []remoteWitnessTest{
 		{
 			name:     "legacy commitment",
-			blobType: blob.Type(blob.FlagCommitOutputs),
+			blobType: TypeAltruistCommit,
 			expWitnessScript: func(pk *btcec.PublicKey) []byte {
 				return pk.SerializeCompressed()
 			},
 		},
 		{
-			name: "anchor commitment",
-			blobType: blob.Type(blob.FlagCommitOutputs |
-				blob.FlagAnchorChannel),
+			name:     "anchor commitment",
+			blobType: TypeAltruistAnchorCommit,
 			expWitnessScript: func(pk *btcec.PublicKey) []byte {
 				script, _ := input.CommitScriptToRemoteConfirmed(pk)
 				return script
@@ -257,12 +256,13 @@ func testJusticeKitRemoteWitnessConstruction(
 
 	// Generate the to-remote pubkey.
 	toRemotePrivKey, err := btcec.NewPrivateKey()
-	require.Nil(t, err)
+	require.NoError(t, err)
 
-	// Copy the to-remote pubkey into the format expected by our justice
-	// kit.
-	var toRemotePubKey blob.PubKey
-	copy(toRemotePubKey[:], toRemotePrivKey.PubKey().SerializeCompressed())
+	revKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	toLocalKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
 
 	// Sign a message using the to-remote private key. The exact message
 	// doesn't matter as we won't be validating the signature's validity.
@@ -273,26 +273,29 @@ func testJusticeKitRemoteWitnessConstruction(
 	commitToRemoteSig, err := lnwire.NewSigFromSignature(rawToRemoteSig)
 	require.Nil(t, err)
 
-	// Populate the justice kit fields relevant to the to-remote output.
-	justiceKit := &blob.JusticeKit{
-		BlobType:             test.blobType,
-		CommitToRemotePubKey: toRemotePubKey,
-		CommitToRemoteSig:    commitToRemoteSig,
+	commitType, err := test.blobType.CommitmentType(nil)
+	require.NoError(t, err)
+
+	breachInfo := &lnwallet.BreachRetribution{
+		KeyRing: &lnwallet.CommitmentKeyRing{
+			ToRemoteKey:   toRemotePrivKey.PubKey(),
+			RevocationKey: revKey.PubKey(),
+			ToLocalKey:    toLocalKey.PubKey(),
+		},
 	}
+
+	justiceKit, err := commitType.NewJusticeKit(nil, breachInfo, true)
+	require.NoError(t, err)
+	justiceKit.AddToRemoteSig(commitToRemoteSig)
 
 	// Now, compute the to-remote witness script returned by the justice
 	// kit.
-	toRemoteScript, err := justiceKit.CommitToRemoteWitnessScript()
-	require.Nil(t, err)
+	_, witness, _, err := justiceKit.ToRemoteOutputSpendInfo()
+	require.NoError(t, err)
 
 	// Assert this is exactly the to-remote, compressed pubkey.
 	expToRemoteScript := test.expWitnessScript(toRemotePrivKey.PubKey())
-	require.Equal(t, expToRemoteScript, toRemoteScript)
-
-	// Next, compute the to-remote witness stack, which should be a p2wkh
-	// witness stack consisting solely of a signature.
-	toRemoteWitnessStack, err := justiceKit.CommitToRemoteWitnessStack()
-	require.Nil(t, err)
+	require.Equal(t, expToRemoteScript, witness[1])
 
 	// Compute the expected first element, by appending a sighash all byte
 	// to our raw DER-encoded signature.
@@ -304,16 +307,7 @@ func testJusticeKitRemoteWitnessConstruction(
 	expWitnessStack := [][]byte{
 		rawToRemoteSigWithSigHash,
 	}
-	require.Equal(t, expWitnessStack, toRemoteWitnessStack)
-
-	// Finally, set the CommitToRemotePubKey to be a blank value.
-	justiceKit.CommitToRemotePubKey = blob.PubKey{}
-
-	// When trying to compute the witness script, this should now return
-	// ErrNoCommitToRemoteOutput since a valid pubkey could not be parsed
-	// from CommitToRemotePubKey.
-	_, err = justiceKit.CommitToRemoteWitnessScript()
-	require.Error(t, blob.ErrNoCommitToRemoteOutput, err)
+	require.Equal(t, expWitnessStack, witness[:1])
 }
 
 // TestJusticeKitToLocalWitnessConstruction tests that a JusticeKit returns the
@@ -324,18 +318,10 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 
 	// Generate the revocation and delay private keys.
 	revPrivKey, err := btcec.NewPrivateKey()
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	delayPrivKey, err := btcec.NewPrivateKey()
-	require.Nil(t, err)
-
-	// Copy the revocation and delay pubkeys into the format expected by our
-	// justice kit.
-	var revPubKey blob.PubKey
-	copy(revPubKey[:], revPrivKey.PubKey().SerializeCompressed())
-
-	var delayPubKey blob.PubKey
-	copy(delayPubKey[:], delayPrivKey.PubKey().SerializeCompressed())
+	require.NoError(t, err)
 
 	// Sign a message using the revocation private key. The exact message
 	// doesn't matter as we won't be validating the signature's validity.
@@ -344,33 +330,35 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 
 	// Convert the DER-encoded signature into a fixed-size sig.
 	commitToLocalSig, err := lnwire.NewSigFromSignature(rawRevSig)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
-	// Populate the justice kit with fields relevant to the to-local output.
-	justiceKit := &blob.JusticeKit{
-		CSVDelay:         csvDelay,
-		RevocationPubKey: revPubKey,
-		LocalDelayPubKey: delayPubKey,
-		CommitToLocalSig: commitToLocalSig,
+	commitType, err := TypeAltruistCommit.CommitmentType(nil)
+	require.NoError(t, err)
+
+	breachInfo := &lnwallet.BreachRetribution{
+		RemoteDelay: csvDelay,
+		KeyRing: &lnwallet.CommitmentKeyRing{
+			RevocationKey: revPrivKey.PubKey(),
+			ToLocalKey:    delayPrivKey.PubKey(),
+		},
 	}
+
+	justiceKit, err := commitType.NewJusticeKit(nil, breachInfo, false)
+	require.NoError(t, err)
+	justiceKit.AddToLocalSig(commitToLocalSig)
 
 	// Compute the expected to-local script, which is a function of the CSV
 	// delay, revocation pubkey and delay pubkey.
 	expToLocalScript, err := input.CommitScriptToSelf(
 		csvDelay, delayPrivKey.PubKey(), revPrivKey.PubKey(),
 	)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	// Compute the to-local script that is returned by the justice kit.
-	toLocalScript, err := justiceKit.CommitToLocalWitnessScript()
-	require.Nil(t, err)
+	_, witness, err := justiceKit.ToLocalOutputSpendInfo()
+	require.NoError(t, err)
 
-	// Assert that the expected to-local script matches the actual script.
-	require.Equal(t, expToLocalScript, toLocalScript)
-
-	// Next, compute the to-local witness stack returned by the justice kit.
-	toLocalWitnessStack, err := justiceKit.CommitToLocalRevokeWitnessStack()
-	require.Nil(t, err)
+	require.Equal(t, expToLocalScript, witness[2])
 
 	// Compute the expected signature in the bottom element of the stack, by
 	// appending a sighash all flag to the raw DER signature.
@@ -383,5 +371,5 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 		rawRevSigWithSigHash,
 		{1},
 	}
-	require.Equal(t, expWitnessStack, toLocalWitnessStack)
+	require.Equal(t, expWitnessStack, witness[:2])
 }

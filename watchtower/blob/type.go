@@ -3,6 +3,8 @@ package blob
 import (
 	"fmt"
 	"strings"
+
+	"github.com/lightningnetwork/lnd/channeldb"
 )
 
 // Flag represents a specify option that can be present in a Type.
@@ -78,6 +80,25 @@ func (t Type) Identifier() (string, error) {
 		return "reward", nil
 	default:
 		return "", fmt.Errorf("unknown blob type: %v", t)
+	}
+}
+
+// CommitmentType returns the appropriate CommitmentType for the given blob Type
+// and channel type.
+func (t Type) CommitmentType(chanType *channeldb.ChannelType) (CommitmentType,
+	error) {
+
+	switch {
+	case t.Has(FlagAnchorChannel):
+		return AnchorCommitment, nil
+	case t.Has(FlagCommitOutputs):
+		if chanType != nil && chanType.IsTweakless() {
+			return LegacyTweaklessCommitment, nil
+		}
+
+		return LegacyCommitment, nil
+	default:
+		return 0, ErrUnknownBlobType
 	}
 }
 

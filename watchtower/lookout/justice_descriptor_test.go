@@ -92,15 +92,13 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	)
 
 	// Parse the key pairs for all keys used in the test.
-	revSK, revPK := btcec.PrivKeyFromBytes(
-		revPrivBytes,
-	)
-	_, toLocalPK := btcec.PrivKeyFromBytes(
-		toLocalPrivBytes,
-	)
-	toRemoteSK, toRemotePK := btcec.PrivKeyFromBytes(
-		toRemotePrivBytes,
-	)
+	revSK, revPK := btcec.PrivKeyFromBytes(revPrivBytes)
+	_, toLocalPK := btcec.PrivKeyFromBytes(toLocalPrivBytes)
+	toRemoteSK, toRemotePK := btcec.PrivKeyFromBytes(toRemotePrivBytes)
+
+	// Get the commitment type.
+	commitType, err := blobType.CommitmentType(nil)
+	require.NoError(t, err)
 
 	// Create the signer, and add the revocation and to-remote privkeys.
 	signer := wtmock.NewMockSigner()
@@ -113,11 +111,11 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	toLocalScript, err := input.CommitScriptToSelf(
 		csvDelay, toLocalPK, revPK,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	// Compute the to-local witness script hash.
 	toLocalScriptHash, err := input.WitnessScriptHash(toLocalScript)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	// Compute the to-remote redeem script, witness script hash, and
 	// sequence numbers.
@@ -147,12 +145,12 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 		toRemoteRedeemScript, err = input.CommitScriptToRemoteConfirmed(
 			toRemotePK,
 		)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		toRemoteScriptHash, err = input.WitnessScriptHash(
 			toRemoteRedeemScript,
 		)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		// As it should be.
 		toRemoteSigningScript = toRemoteRedeemScript
@@ -161,7 +159,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 		toRemoteScriptHash, err = input.CommitScriptUnencumbered(
 			toRemotePK,
 		)
-		require.Nil(t, err)
+		require.NoError(t, err)
 
 		// NOTE: This is the _pkscript_.
 		toRemoteSigningScript = toRemoteScriptHash
@@ -188,26 +186,24 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	// Compute the weight estimate for our justice transaction.
 	var weightEstimate input.TxWeightEstimator
 
-	// An older ToLocalPenaltyWitnessSize constant used to underestimate the
-	// size by one byte. The diferrence in weight can cause different output
-	// values on the sweep transaction, so we mimic the original bug and
-	// create signatures using the original weight estimate. For anchor
-	// channels we fix this and use the correct witness size.
-	if isAnchorChannel {
-		weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
-	} else {
-		weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize - 1)
-	}
+	// Add the local witness size to the weight estimator.
+	toLocalWitnessSize, err := commitType.ToLocalWitnessSize()
+	require.NoError(t, err)
+	weightEstimate.AddWitnessInput(toLocalWitnessSize)
 
-	if isAnchorChannel {
-		weightEstimate.AddWitnessInput(input.ToRemoteConfirmedWitnessSize)
-	} else {
-		weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
-	}
+	// Add the remote witness size to the weight estimator.
+	toRemoteWitnessSize, err := commitType.ToRemoteWitnessSize()
+	require.NoError(t, err)
+	weightEstimate.AddWitnessInput(toRemoteWitnessSize)
+
+	// Add the sweep output to the weight estimator.
 	weightEstimate.AddP2WKHOutput()
+
+	// Add the reward output to the weight estimator.
 	if blobType.Has(blob.FlagReward) {
 		weightEstimate.AddP2WKHOutput()
 	}
+
 	txWeight := weightEstimate.Weight()
 
 	// Create a session info so that simulate agreement of the sweep
@@ -263,7 +259,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 		totalAmount, int64(txWeight), justiceKit.SweepAddress,
 		sessionInfo.RewardAddress,
 	)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
 	// Attach the txouts and BIP69 sort the resulting transaction.
 	justiceTxn.TxOut = outputs

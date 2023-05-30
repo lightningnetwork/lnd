@@ -264,6 +264,11 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 		weightEstimate input.TxWeightEstimator
 	)
 
+	commitmentType, err := p.SessionInfo.Policy.BlobType.CommitmentType(nil)
+	if err != nil {
+		return nil, err
+	}
+
 	// Add the sweep address's contribution, depending on whether it is a
 	// p2wkh or p2wsh output.
 	switch len(p.JusticeKit.SweepAddress) {
@@ -290,16 +295,13 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 		return nil, err
 	}
 
-	// An older ToLocalPenaltyWitnessSize constant used to underestimate the
-	// size by one byte. The diferrence in weight can cause different output
-	// values on the sweep transaction, so we mimic the original bug to
-	// avoid invalidating signatures by older clients. For anchor channels
-	// we correct this and use the correct witness size.
-	if p.JusticeKit.BlobType.IsAnchorChannel() {
-		weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize)
-	} else {
-		weightEstimate.AddWitnessInput(input.ToLocalPenaltyWitnessSize - 1)
+	// Get the weight for the to-local witness and add that to the
+	// estimator.
+	toLocalWitnessSize, err := commitmentType.ToLocalWitnessSize()
+	if err != nil {
+		return nil, err
 	}
+	weightEstimate.AddWitnessInput(toLocalWitnessSize)
 
 	sweepInputs = append(sweepInputs, toLocalInput)
 
@@ -319,11 +321,14 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 		log.Debugf("Found to remote witness output=%#v, stack=%v",
 			toRemoteInput.txOut, toRemoteInput.witness)
 
-		if p.JusticeKit.BlobType.IsAnchorChannel() {
-			weightEstimate.AddWitnessInput(input.ToRemoteConfirmedWitnessSize)
-		} else {
-			weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
+		// Get the weight for the to-remote witness and add that to the
+		// estimator.
+		toRemoteWitnessSize, err := commitmentType.ToRemoteWitnessSize()
+		if err != nil {
+			return nil, err
 		}
+
+		weightEstimate.AddWitnessInput(toRemoteWitnessSize)
 	}
 
 	// TODO(conner): sweep htlc outputs

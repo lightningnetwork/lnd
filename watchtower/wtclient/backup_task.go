@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 )
@@ -37,8 +36,9 @@ import (
 //     necessary components are stripped out and encrypted before being sent to
 //     the tower in a StateUpdate.
 type backupTask struct {
-	id         wtdb.BackupID
-	breachInfo *lnwallet.BreachRetribution
+	id             wtdb.BackupID
+	breachInfo     *lnwallet.BreachRetribution
+	commitmentType blob.CommitmentType
 
 	// state-dependent variables
 
@@ -127,6 +127,11 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody,
 		return err
 	}
 
+	commitType, err := session.Policy.BlobType.CommitmentType(&chanType)
+	if err != nil {
+		return err
+	}
+
 	// Parse the non-dust outputs from the breach transaction,
 	// simultaneously computing the total amount contained in the inputs
 	// present. We can't compute the exact output values at this time
@@ -147,48 +152,23 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody,
 	// to that output as local, though relative to their commitment, it is
 	// paying to-the-remote party (which is us).
 	if breachInfo.RemoteOutputSignDesc != nil {
-		toLocalInput = input.NewBaseInput(
-			&breachInfo.RemoteOutpoint,
-			input.CommitmentRevoke,
-			breachInfo.RemoteOutputSignDesc,
-			0,
-		)
+		toLocalInput, err = commitType.ToLocalInput(breachInfo)
+		if err != nil {
+			return err
+		}
+
 		totalAmt += breachInfo.RemoteOutputSignDesc.Output.Value
 	}
 	if breachInfo.LocalOutputSignDesc != nil {
-		var witnessType input.WitnessType
-		switch {
-		case chanType.HasAnchors():
-			witnessType = input.CommitmentToRemoteConfirmed
-		case chanType.IsTweakless():
-			witnessType = input.CommitSpendNoDelayTweakless
-		default:
-			witnessType = input.CommitmentNoDelay
-		}
-
-		// Anchor channels have a CSV-encumbered to-remote output. We'll
-		// construct a CSV input in that case and assign the proper CSV
-		// delay of 1, otherwise we fallback to the a regular P2WKH
-		// to-remote output for tweaked or tweakless channels.
-		if chanType.HasAnchors() {
-			toRemoteInput = input.NewCsvInput(
-				&breachInfo.LocalOutpoint,
-				witnessType,
-				breachInfo.LocalOutputSignDesc,
-				0, 1,
-			)
-		} else {
-			toRemoteInput = input.NewBaseInput(
-				&breachInfo.LocalOutpoint,
-				witnessType,
-				breachInfo.LocalOutputSignDesc,
-				0,
-			)
+		toRemoteInput, err = commitType.ToRemoteInput(breachInfo)
+		if err != nil {
+			return err
 		}
 
 		totalAmt += breachInfo.LocalOutputSignDesc.Output.Value
 	}
 
+	t.commitmentType = commitType
 	t.breachInfo = breachInfo
 	t.toLocalInput = toLocalInput
 	t.toRemoteInput = toRemoteInput
@@ -202,34 +182,20 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody,
 	// Next, add the contribution from the inputs that are present on this
 	// breach transaction.
 	if t.toLocalInput != nil {
-		// An older ToLocalPenaltyWitnessSize constant used to
-		// underestimate the size by one byte. The diferrence in weight
-		// can cause different output values on the sweep transaction,
-		// so we mimic the original bug and create signatures using the
-		// original weight estimate. For anchor channels we'll go ahead
-		// an use the correct penalty witness when signing our justice
-		// transactions.
-		if chanType.HasAnchors() {
-			weightEstimate.AddWitnessInput(
-				input.ToLocalPenaltyWitnessSize,
-			)
-		} else {
-			weightEstimate.AddWitnessInput(
-				input.ToLocalPenaltyWitnessSize - 1,
-			)
+		toLocalWitnessSize, err := commitType.ToLocalWitnessSize()
+		if err != nil {
+			return err
 		}
+
+		weightEstimate.AddWitnessInput(toLocalWitnessSize)
 	}
 	if t.toRemoteInput != nil {
-		// Legacy channels (both tweaked and non-tweaked) spend from
-		// P2WKH output. Anchor channels spend a to-remote confirmed
-		// P2WSH  output.
-		if chanType.HasAnchors() {
-			weightEstimate.AddWitnessInput(
-				input.ToRemoteConfirmedWitnessSize,
-			)
-		} else {
-			weightEstimate.AddWitnessInput(input.P2WKHWitnessSize)
+		toRemoteWitnessSize, err := commitType.ToRemoteWitnessSize()
+		if err != nil {
+			return err
 		}
+
+		weightEstimate.AddWitnessInput(toRemoteWitnessSize)
 	}
 
 	// All justice transactions will either use segwit v0 (p2wkh + p2wsh)
@@ -349,6 +315,7 @@ func (t *backupTask) craftSessionPayload(
 	// Now, iterate through the list of inputs that were initially added to
 	// the transaction and store the computed witness within the justice
 	// kit.
+	commitType := t.commitmentType
 	for _, inp := range inputs {
 		// Lookup the input's new post-sort position.
 		i := inputIndex[*inp.OutPoint()]
@@ -361,17 +328,17 @@ func (t *backupTask) craftSessionPayload(
 			return hint, nil, err
 		}
 
-		// Parse the DER-encoded signature from the first position of
-		// the resulting witness. We trim an extra byte to remove the
-		// sighash flag.
-		witness := inputScript.Witness
-		rawSignature := witness[0][:len(witness[0])-1]
+		signature, err := commitType.ParseRawSig(inputScript.Witness)
+		if err != nil {
+			return hint, nil, err
+		}
 
-		// Re-encode the DER signature into a fixed-size 64 byte
-		// signature.
-		signature, err := lnwire.NewSigFromECDSARawSignature(
-			rawSignature,
-		)
+		toLocalWitnessType, err := commitType.ToLocalWitnessType()
+		if err != nil {
+			return hint, nil, err
+		}
+
+		toRemoteWitnessType, err := commitType.ToRemoteWitnessType()
 		if err != nil {
 			return hint, nil, err
 		}
@@ -380,14 +347,9 @@ func (t *backupTask) craftSessionPayload(
 		// using the input's witness type to select the appropriate
 		// field
 		switch inp.WitnessType() {
-		case input.CommitmentRevoke:
+		case toLocalWitnessType:
 			justiceKit.CommitToLocalSig = signature
-
-		case input.CommitSpendNoDelayTweakless:
-			fallthrough
-		case input.CommitmentNoDelay:
-			fallthrough
-		case input.CommitmentToRemoteConfirmed:
+		case toRemoteWitnessType:
 			justiceKit.CommitToRemoteSig = signature
 		default:
 			return hint, nil, fmt.Errorf("invalid witness type: %v",

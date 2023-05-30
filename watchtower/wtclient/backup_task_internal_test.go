@@ -72,6 +72,7 @@ type backupTaskTest struct {
 // corresponding BreachInfo, as well as setting the wtpolicy.Policy of the given
 // session.
 func genTaskTest(
+	t *testing.T,
 	name string,
 	stateNum uint64,
 	toLocalAmt int64,
@@ -91,15 +92,12 @@ func genTaskTest(
 	}
 
 	// Parse the key pairs for all keys used in the test.
-	revSK, revPK := btcec.PrivKeyFromBytes(
-		revPrivBytes,
-	)
-	_, toLocalPK := btcec.PrivKeyFromBytes(
-		toLocalPrivBytes,
-	)
-	toRemoteSK, toRemotePK := btcec.PrivKeyFromBytes(
-		toRemotePrivBytes,
-	)
+	revSK, revPK := btcec.PrivKeyFromBytes(revPrivBytes)
+	_, toLocalPK := btcec.PrivKeyFromBytes(toLocalPrivBytes)
+	toRemoteSK, toRemotePK := btcec.PrivKeyFromBytes(toRemotePrivBytes)
+
+	commitType, err := blobType.CommitmentType(&chanType)
+	require.NoError(t, err)
 
 	// Create the signer, and add the revocation and to-remote privkeys.
 	signer := wtmock.NewMockSigner()
@@ -174,12 +172,9 @@ func genTaskTest(
 			Hash:  txid,
 			Index: index,
 		}
-		toLocalInput = input.NewBaseInput(
-			&breachInfo.RemoteOutpoint,
-			input.CommitmentRevoke,
-			breachInfo.RemoteOutputSignDesc,
-			0,
-		)
+		toLocalInput, err = commitType.ToLocalInput(breachInfo)
+		require.NoError(t, err)
+
 		index++
 	}
 	if toRemoteAmt > 0 {
@@ -188,31 +183,8 @@ func genTaskTest(
 			Index: index,
 		}
 
-		var witnessType input.WitnessType
-		switch {
-		case chanType.HasAnchors():
-			witnessType = input.CommitmentToRemoteConfirmed
-		case chanType.IsTweakless():
-			witnessType = input.CommitSpendNoDelayTweakless
-		default:
-			witnessType = input.CommitmentNoDelay
-		}
-
-		if chanType.HasAnchors() {
-			toRemoteInput = input.NewCsvInput(
-				&breachInfo.LocalOutpoint,
-				witnessType,
-				breachInfo.LocalOutputSignDesc,
-				0, 1,
-			)
-		} else {
-			toRemoteInput = input.NewBaseInput(
-				&breachInfo.LocalOutpoint,
-				witnessType,
-				breachInfo.LocalOutputSignDesc,
-				0,
-			)
-		}
+		toRemoteInput, err = commitType.ToRemoteInput(breachInfo)
+		require.NoError(t, err)
 	}
 
 	return backupTaskTest{
@@ -312,6 +284,7 @@ func TestBackupTask(t *testing.T) {
 
 		backupTaskTests = append(backupTaskTests, []backupTaskTest{
 			genTaskTest(
+				t,
 				"commit no-reward, both outputs",
 				100,                        // stateNum
 				200000,                     // toLocalAmt
@@ -325,6 +298,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit no-reward, to-local output only",
 				1000,                        // stateNum
 				200000,                      // toLocalAmt
@@ -338,6 +312,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit no-reward, to-remote output only",
 				1,                            // stateNum
 				0,                            // toLocalAmt
@@ -351,6 +326,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit no-reward, to-remote output only, creates dust",
 				1,                              // stateNum
 				0,                              // toLocalAmt
@@ -364,6 +340,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit no-reward, no outputs, fee rate exceeds inputs",
 				300,                          // stateNum
 				0,                            // toLocalAmt
@@ -377,6 +354,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit no-reward, no outputs, fee rate of 0 creates dust",
 				300,                     // stateNum
 				0,                       // toLocalAmt
@@ -390,6 +368,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit reward, both outputs",
 				100,                      // stateNum
 				200000,                   // toLocalAmt
@@ -403,6 +382,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit reward, to-local output only",
 				1000,                      // stateNum
 				200000,                    // toLocalAmt
@@ -416,6 +396,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit reward, to-remote output only",
 				1,                          // stateNum
 				0,                          // toLocalAmt
@@ -429,6 +410,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit reward, to-remote output only, creates dust",
 				1,                            // stateNum
 				0,                            // toLocalAmt
@@ -442,6 +424,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit reward, no outputs, fee rate exceeds inputs",
 				300,                          // stateNum
 				0,                            // toLocalAmt
@@ -455,6 +438,7 @@ func TestBackupTask(t *testing.T) {
 				chanType,
 			),
 			genTaskTest(
+				t,
 				"commit reward, no outputs, fee rate of 0 creates dust",
 				300,                     // stateNum
 				0,                       // toLocalAmt

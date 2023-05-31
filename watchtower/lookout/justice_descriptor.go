@@ -176,6 +176,8 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 		return nil, fmt.Errorf("error creating previous output "+
 			"fetcher: %v", err)
 	}
+
+	hashes := txscript.NewTxSigHashes(justiceTxn, prevOutFetcher)
 	for _, inp := range inputs {
 		// Lookup the input's new post-sort position.
 		i := inputIndex[inp.outPoint]
@@ -186,7 +188,7 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 		vm, err := txscript.NewEngine(
 			inp.txOut.PkScript, justiceTxn, i,
 			txscript.StandardVerifyFlags,
-			nil, nil, inp.txOut.Value, prevOutFetcher,
+			nil, hashes, inp.txOut.Value, prevOutFetcher,
 		)
 		if err != nil {
 			return nil, err

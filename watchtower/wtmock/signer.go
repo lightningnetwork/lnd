@@ -2,6 +2,7 @@ package wtmock
 
 import (
 	"crypto/sha256"
+	"fmt"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -45,6 +46,69 @@ func (s *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 	privKey, ok := s.keys[signDesc.KeyDesc.KeyLocator]
 	if !ok {
 		panic("cannot sign w/ unknown key")
+	}
+
+	// In case of a taproot output any signature is always a Schnorr
+	// signature, based on the new tapscript sighash algorithm.
+	if txscript.IsPayToTaproot(signDesc.Output.PkScript) {
+		sigHashes := txscript.NewTxSigHashes(
+			tx, signDesc.PrevOutputFetcher,
+		)
+
+		// Are we spending a script path or the key path? The API is
+		// slightly different, so we need to account for that to get the
+		// raw signature.
+		var (
+			rawSig []byte
+			err    error
+		)
+		switch signDesc.SignMethod {
+		case input.TaprootKeySpendBIP0086SignMethod,
+			input.TaprootKeySpendSignMethod:
+
+			// This function tweaks the private key using the tap
+			// root key supplied as the tweak.
+			rawSig, err = txscript.RawTxInTaprootSignature(
+				tx, sigHashes, signDesc.InputIndex,
+				signDesc.Output.Value, signDesc.Output.PkScript,
+				signDesc.TapTweak, signDesc.HashType,
+				privKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		case input.TaprootScriptSpendSignMethod:
+			leaf := txscript.TapLeaf{
+				LeafVersion: txscript.BaseLeafVersion,
+				Script:      witnessScript,
+			}
+			rawSig, err = txscript.RawTxInTapscriptSignature(
+				tx, sigHashes, signDesc.InputIndex,
+				signDesc.Output.Value, signDesc.Output.PkScript,
+				leaf, signDesc.HashType, privKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		default:
+			return nil, fmt.Errorf("unknown sign method: %v",
+				signDesc.SignMethod)
+		}
+
+		// The signature returned above might have a sighash flag
+		// attached if a non-default type was used. We'll slice this
+		// off if it exists to ensure we can properly parse the raw
+		// signature.
+		sig, err := schnorr.ParseSignature(
+			rawSig[:schnorr.SignatureSize],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return sig, nil
 	}
 
 	sig, err := txscript.RawTxInWitnessSignature(

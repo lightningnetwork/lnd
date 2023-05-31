@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -34,6 +35,17 @@ const (
 	//    commit to-remote pubkey:        33 bytes, maybe blank
 	//    commit to-remote sig:           64 bytes, maybe blank
 	V0PlaintextSize = 274
+
+	// V1PlaintextSize is the plaintext size of a version 1 encoded blob.
+	//    sweep address length:            1 byte
+	//    padded sweep address:           42 bytes
+	//    revocation pubkey:              32 bytes
+	//    local delay pubkey:             32 bytes
+	//    commit to-local revocation sig: 64 bytes
+	//    hash of to-local delay script:  32 bytes
+	//    commit to-remote pubkey:        33 bytes, maybe blank
+	//    commit to-remote sig:           64 bytes, maybe blank
+	V1PlaintextSize = 300
 
 	// MaxSweepAddrSize defines the maximum sweep address size that can be
 	// encoded in a blob.
@@ -77,6 +89,9 @@ var (
 func Size(kit JusticeKit) int {
 	return NonceSize + kit.PlainTextSize() + CiphertextExpansion
 }
+
+// schnorrPubKey is a 32-byte serialized x-only public key.
+type schnorrPubKey [32]byte
 
 // pubKey is a 33-byte, serialized compressed public key.
 type pubKey [33]byte
@@ -396,6 +411,225 @@ func (b *justiceKitPacketV0) decode(r io.Reader) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// justiceKitPacketV1 is lé Blob of Justice for taproot channels.
+type justiceKitPacketV1 struct {
+	// sweepAddress is the witness program of the output where the client's
+	// fund will be deposited. This value is included in the blobs, as
+	// opposed to the session info, such that the sweep addresses can't be
+	// correlated across sessions and/or towers.
+	//
+	// NOTE: This is chosen to be the length of a maximally sized witness
+	// program.
+	sweepAddress []byte
+
+	// revocationPubKey is the x-only pubkey that guards the revocation
+	// clause of the remote party's to-local output.
+	revocationPubKey schnorrPubKey
+
+	// localDelayPubKey is the x-only pubkey in the to-local script of
+	// the remote party, which guards the path where the remote party
+	// claims their commitment output.
+	localDelayPubKey schnorrPubKey
+
+	// delayScriptHash is the hash of the to_local delay script that is used
+	// in the TapTree.
+	delayScriptHash [chainhash.HashSize]byte
+
+	// commitToLocalSig is a signature under revocationPubKey using
+	// SIGHASH_DEFAULT.
+	commitToLocalSig lnwire.Sig
+
+	// commitToRemotePubKey is the public key in the to-remote output of the
+	// revoked commitment transaction. This uses a 33-byte compressed pubkey
+	// encoding unlike the other public keys because it will not always be
+	// present and so this gives us an easy way to check if it is present or
+	// not.
+	//
+	// NOTE: This value is only used if it contains a valid compressed
+	// public key.
+	commitToRemotePubKey pubKey
+
+	// commitToRemoteSig is a signature under commitToRemotePubKey using
+	// SIGHASH_DEFAULT.
+	//
+	// NOTE: This value is only used if commitToRemotePubKey contains a
+	// valid compressed public key.
+	commitToRemoteSig lnwire.Sig
+}
+
+// encode encodes the justiceKitPacketV1 to the provided io.Writer. The encoding
+// supports sweeping of the commit to-local output, and  optionally the commit
+// to-remote output. The encoding produces a constant-size plaintext size of
+// 300 bytes.
+//
+// blob version 1 plaintext encoding:
+//
+//	sweep address length:            1 byte
+//	padded sweep address:           42 bytes
+//	revocation pubkey:              32 bytes
+//	local delay pubkey:             32 bytes
+//	commit to-local revocation sig: 64 bytes
+//	hash of to-local delay script:  32 bytes
+//	commit to-remote pubkey:        33 bytes, maybe blank
+//	commit to-remote sig:           64 bytes, maybe blank
+func (t *justiceKitPacketV1) encode(w io.Writer) error {
+	// Assert the sweep address length is sane.
+	if len(t.sweepAddress) > MaxSweepAddrSize {
+		return ErrSweepAddressToLong
+	}
+
+	// Write the actual length of the sweep address as a single byte.
+	err := binary.Write(w, byteOrder, uint8(len(t.sweepAddress)))
+	if err != nil {
+		return err
+	}
+
+	// Pad the sweep address to our maximum length of 42 bytes.
+	var sweepAddressBuf [MaxSweepAddrSize]byte
+	copy(sweepAddressBuf[:], t.sweepAddress)
+
+	// Write padded 42-byte sweep address.
+	_, err = w.Write(sweepAddressBuf[:])
+	if err != nil {
+		return err
+	}
+
+	// Write 32-byte revocation public key.
+	_, err = w.Write(t.revocationPubKey[:])
+	if err != nil {
+		return err
+	}
+
+	// Write 32-byte local delay public key.
+	_, err = w.Write(t.localDelayPubKey[:])
+	if err != nil {
+		return err
+	}
+
+	// Write 64-byte revocation signature for commit to-local output.
+	_, err = w.Write(t.commitToLocalSig.RawBytes())
+	if err != nil {
+		return err
+	}
+
+	// Write 32-byte hash of the to-local delay script.
+	_, err = w.Write(t.delayScriptHash[:])
+	if err != nil {
+		return err
+	}
+
+	// Write 33-byte commit to-remote public key, which may be blank.
+	_, err = w.Write(t.commitToRemotePubKey[:])
+	if err != nil {
+		return err
+	}
+
+	// Write 64-byte commit to-remote signature, which may be blank.
+	_, err = w.Write(t.commitToRemoteSig.RawBytes())
+
+	return err
+}
+
+// decode reconstructs a justiceKitPacketV1 from the io.Reader, using version 1
+// encoding scheme. This will parse a constant size input stream of 300 bytes to
+// recover information for the commit to-local output, and possibly the commit
+// to-remote output.
+//
+// blob version 1 plaintext encoding:
+//
+//	sweep address length:            1 byte
+//	padded sweep address:           42 bytes
+//	revocation pubkey:              32 bytes
+//	local delay pubkey:             32 bytes
+//	commit to-local revocation sig: 64 bytes
+//	hash of to-local delay script:  32 bytes
+//	commit to-remote pubkey:        33 bytes, maybe blank
+//	commit to-remote sig:           64 bytes, maybe blank
+func (t *justiceKitPacketV1) decode(r io.Reader) error {
+	// Read the sweep address length as a single byte.
+	var sweepAddrLen uint8
+	err := binary.Read(r, byteOrder, &sweepAddrLen)
+	if err != nil {
+		return err
+	}
+	// Assert the sweep address length is sane.
+	if sweepAddrLen > MaxSweepAddrSize {
+		return ErrSweepAddressToLong
+	}
+	// Read padded 42-byte sweep address.
+	var sweepAddressBuf [MaxSweepAddrSize]byte
+	_, err = io.ReadFull(r, sweepAddressBuf[:])
+	if err != nil {
+		return err
+	}
+
+	// Parse sweep address from padded buffer.
+	t.sweepAddress = make([]byte, sweepAddrLen)
+	copy(t.sweepAddress, sweepAddressBuf[:])
+
+	// Read 32-byte revocation public key.
+	_, err = io.ReadFull(r, t.revocationPubKey[:])
+	if err != nil {
+		return err
+	}
+
+	// Read 32-byte local delay public key.
+	_, err = io.ReadFull(r, t.localDelayPubKey[:])
+	if err != nil {
+		return err
+	}
+
+	// Read 64-byte revocation signature for commit to-local output.
+	var localSig [64]byte
+	_, err = io.ReadFull(r, localSig[:])
+	if err != nil {
+		return err
+	}
+
+	// Read 32-byte to-local delay script hash.
+	_, err = io.ReadFull(r, t.delayScriptHash[:])
+	if err != nil {
+		return err
+	}
+
+	t.commitToLocalSig, err = lnwire.NewSigFromSchnorrRawSignature(
+		localSig[:],
+	)
+	if err != nil {
+		return err
+	}
+	var (
+		commitToRemotePubkey pubKey
+		commitToRemoteSig    [64]byte
+	)
+	// Read 33-byte commit to-remote public key, which may be discarded.
+	_, err = io.ReadFull(r, commitToRemotePubkey[:])
+	if err != nil {
+		return err
+	}
+	// Read 64-byte commit to-remote signature, which may be discarded.
+	_, err = io.ReadFull(r, commitToRemoteSig[:])
+	if err != nil {
+		return err
+	}
+
+	// Only populate the commit to-remote fields in the decoded blob if a
+	// valid compressed public key was read from the reader.
+	if !btcec.IsCompressedPubKey(commitToRemotePubkey[:]) {
+		return nil
+	}
+
+	t.commitToRemotePubKey = commitToRemotePubkey
+	t.commitToRemoteSig, err = lnwire.NewSigFromSchnorrRawSignature(
+		commitToRemoteSig[:],
+	)
+	if err != nil {
+		return err
 	}
 
 	return nil

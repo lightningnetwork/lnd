@@ -143,14 +143,91 @@ type MissionControl interface {
 func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	parsePubKey := func(key string) (route.Vertex, error) {
-		pubKeyBytes, err := hex.DecodeString(key)
+	routeReq, err := r.parseQueryRoutesRequest(in)
+	if err != nil {
+		return nil, err
+	}
+
+	// Query the channel router for a possible path to the destination that
+	// can carry `in.Amt` satoshis _including_ the total fee required on
+	// the route
+	route, successProb, err := r.FindRoute(routeReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// For each valid route, we'll convert the result into the format
+	// required by the RPC system.
+	rpcRoute, err := r.MarshallRoute(route)
+	if err != nil {
+		return nil, err
+	}
+
+	routeResp := &lnrpc.QueryRoutesResponse{
+		Routes:      []*lnrpc.Route{rpcRoute},
+		SuccessProb: successProb,
+	}
+
+	return routeResp, nil
+}
+
+func parsePubKey(key string) (route.Vertex, error) {
+	pubKeyBytes, err := hex.DecodeString(key)
+	if err != nil {
+		return route.Vertex{}, err
+	}
+
+	return route.NewVertexFromBytes(pubKeyBytes)
+}
+
+func (r *RouterBackend) parseIgnored(in *lnrpc.QueryRoutesRequest) (
+	map[route.Vertex]struct{}, map[routing.DirectedNodePair]struct{},
+	error) {
+
+	ignoredNodes := make(map[route.Vertex]struct{})
+	for _, ignorePubKey := range in.IgnoredNodes {
+		ignoreVertex, err := route.NewVertexFromBytes(ignorePubKey)
 		if err != nil {
-			return route.Vertex{}, err
+			return nil, nil, err
+		}
+		ignoredNodes[ignoreVertex] = struct{}{}
+	}
+
+	ignoredPairs := make(map[routing.DirectedNodePair]struct{})
+
+	// Convert deprecated ignoredEdges to pairs.
+	for _, ignoredEdge := range in.IgnoredEdges {
+		pair, err := r.rpcEdgeToPair(ignoredEdge)
+		if err != nil {
+			log.Warnf("Ignore channel %v skipped: %v",
+				ignoredEdge.ChannelId, err)
+
+			continue
+		}
+		ignoredPairs[pair] = struct{}{}
+	}
+
+	// Add ignored pairs to set.
+	for _, ignorePair := range in.IgnoredPairs {
+		from, err := route.NewVertexFromBytes(ignorePair.From)
+		if err != nil {
+			return nil, nil, err
 		}
 
-		return route.NewVertexFromBytes(pubKeyBytes)
+		to, err := route.NewVertexFromBytes(ignorePair.To)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		pair := routing.NewDirectedNodePair(from, to)
+		ignoredPairs[pair] = struct{}{}
 	}
+
+	return ignoredNodes, ignoredPairs, nil
+}
+
+func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
+	*routing.RouteRequest, error) {
 
 	// Parse the hex-encoded source and target public keys into full public
 	// key objects we can properly manipulate.
@@ -182,45 +259,6 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Unmarshall restrictions from request.
 	feeLimit := lnrpc.CalculateFeeLimit(in.FeeLimit, amt)
 
-	ignoredNodes := make(map[route.Vertex]struct{})
-	for _, ignorePubKey := range in.IgnoredNodes {
-		ignoreVertex, err := route.NewVertexFromBytes(ignorePubKey)
-		if err != nil {
-			return nil, err
-		}
-		ignoredNodes[ignoreVertex] = struct{}{}
-	}
-
-	ignoredPairs := make(map[routing.DirectedNodePair]struct{})
-
-	// Convert deprecated ignoredEdges to pairs.
-	for _, ignoredEdge := range in.IgnoredEdges {
-		pair, err := r.rpcEdgeToPair(ignoredEdge)
-		if err != nil {
-			log.Warnf("Ignore channel %v skipped: %v",
-				ignoredEdge.ChannelId, err)
-
-			continue
-		}
-		ignoredPairs[pair] = struct{}{}
-	}
-
-	// Add ignored pairs to set.
-	for _, ignorePair := range in.IgnoredPairs {
-		from, err := route.NewVertexFromBytes(ignorePair.From)
-		if err != nil {
-			return nil, err
-		}
-
-		to, err := route.NewVertexFromBytes(ignorePair.To)
-		if err != nil {
-			return nil, err
-		}
-
-		pair := routing.NewDirectedNodePair(from, to)
-		ignoredPairs[pair] = struct{}{}
-	}
-
 	// Since QueryRoutes allows having a different source other than
 	// ourselves, we'll only apply our max time lock if we are the source.
 	maxTotalTimelock := r.MaxTotalTimelock
@@ -251,6 +289,11 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 
 	// Parse destination feature bits.
 	features, err := UnmarshalFeatures(in.DestFeatures)
+	if err != nil {
+		return nil, err
+	}
+
+	ignoredNodes, ignoredPairs, err := r.parseIgnored(in)
 	if err != nil {
 		return nil, err
 	}
@@ -322,35 +365,10 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
-	// Query the channel router for a possible path to the destination that
-	// can carry `in.Amt` satoshis _including_ the total fee required on
-	// the route.
-	routeReq, err := routing.NewRouteRequest(
+	return routing.NewRouteRequest(
 		sourcePubKey, &targetPubKey, amt, in.TimePref, restrictions,
 		customRecords, routeHintEdges, nil, finalCLTVDelta,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	route, successProb, err := r.FindRoute(routeReq)
-	if err != nil {
-		return nil, err
-	}
-
-	// For each valid route, we'll convert the result into the format
-	// required by the RPC system.
-	rpcRoute, err := r.MarshallRoute(route)
-	if err != nil {
-		return nil, err
-	}
-
-	routeResp := &lnrpc.QueryRoutesResponse{
-		Routes:      []*lnrpc.Route{rpcRoute},
-		SuccessProb: successProb,
-	}
-
-	return routeResp, nil
 }
 
 // rpcEdgeToPair looks up the provided channel and returns the channel endpoints

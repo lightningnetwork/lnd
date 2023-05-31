@@ -136,6 +136,10 @@
 * [Add a watchtower tower client
   multiplexer](https://github.com/lightningnetwork/lnd/pull/7702) to manage
   tower clients of different types.
+ 
+* [Introduce CommitmentType and JusticeKit
+  interface](https://github.com/lightningnetwork/lnd/pull/7736) to simplify the
+  code. 
 
 ## Breaking Changes
 ## Performance Improvements

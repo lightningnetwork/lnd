@@ -102,6 +102,9 @@ func (t Type) CommitmentType(chanType *channeldb.ChannelType) (CommitmentType,
 	error) {
 
 	switch {
+	case t.Has(FlagTaprootChannel):
+		return TaprootCommitment, nil
+
 	case t.Has(FlagAnchorChannel):
 		return AnchorCommitment, nil
 

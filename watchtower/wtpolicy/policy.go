@@ -8,7 +8,9 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
+	"github.com/lightningnetwork/lnd/watchtower/wtwire"
 )
 
 const (
@@ -114,26 +116,44 @@ type Policy struct {
 }
 
 // String returns a human-readable description of the current policy.
-func (p Policy) String() string {
+func (p *Policy) String() string {
 	return fmt.Sprintf("(blob-type=%b max-updates=%d reward-rate=%d "+
 		"sweep-fee-rate=%d)", p.BlobType, p.MaxUpdates, p.RewardRate,
 		p.SweepFeeRate)
 }
 
+// FeatureBits returns the watchtower feature bits required for the given
+// policy.
+func (p *Policy) FeatureBits() []lnwire.FeatureBit {
+	features := []lnwire.FeatureBit{
+		wtwire.AltruistSessionsRequired,
+	}
+
+	t := p.TxPolicy.BlobType
+	switch {
+	case t.IsTaprootChannel():
+		features = append(features, wtwire.TaprootCommitRequired)
+	case t.IsAnchorChannel():
+		features = append(features, wtwire.AnchorCommitRequired)
+	}
+
+	return features
+}
+
 // IsAnchorChannel returns true if the session policy requires anchor channels.
-func (p Policy) IsAnchorChannel() bool {
+func (p *Policy) IsAnchorChannel() bool {
 	return p.TxPolicy.BlobType.IsAnchorChannel()
 }
 
 // IsTaprootChannel returns true if the session policy requires taproot
 // channels.
-func (p Policy) IsTaprootChannel() bool {
+func (p *Policy) IsTaprootChannel() bool {
 	return p.TxPolicy.BlobType.IsTaprootChannel()
 }
 
 // Validate ensures that the policy satisfies some minimal correctness
 // constraints.
-func (p Policy) Validate() error {
+func (p *Policy) Validate() error {
 	// RewardBase and RewardRate should not be set if the policy doesn't
 	// have a reward.
 	if !p.BlobType.Has(blob.FlagReward) &&

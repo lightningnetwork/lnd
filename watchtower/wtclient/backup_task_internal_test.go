@@ -85,10 +85,12 @@ func genTaskTest(
 	bindErr error,
 	chanType channeldb.ChannelType) backupTaskTest {
 
-	// Set the anchor flag in the blob type if the session needs to support
-	// anchor channels.
+	// Set the anchor or taproot flag in the blob type if the session needs
+	// to support anchor or taproot channels.
 	if chanType.HasAnchors() {
 		blobType |= blob.Type(blob.FlagAnchorChannel)
+	} else if chanType.IsTaproot() {
+		blobType |= blob.Type(blob.FlagTaprootChannel)
 	}
 
 	// Parse the key pairs for all keys used in the test.
@@ -129,30 +131,112 @@ func genTaskTest(
 	// to that output as local, though relative to their commitment, it is
 	// paying to-the-remote party (which is us).
 	if toLocalAmt > 0 {
-		toLocalSignDesc := &input.SignDescriptor{
-			KeyDesc: keychain.KeyDescriptor{
-				KeyLocator: revKeyLoc,
-				PubKey:     revPK,
-			},
-			Output: &wire.TxOut{
-				Value: toLocalAmt,
-			},
-			HashType: txscript.SigHashAll,
+		var toLocalSignDesc *input.SignDescriptor
+
+		if chanType.IsTaproot() {
+			scriptTree, _ := input.NewLocalCommitScriptTree(
+				csvDelay, toLocalPK, revPK,
+			)
+
+			pkScript, _ := input.PayToTaprootScript(
+				scriptTree.TaprootKey,
+			)
+
+			revokeTapleafHash := txscript.NewBaseTapLeaf(
+				scriptTree.RevocationLeaf.Script,
+			).TapHash()
+
+			tapTree := scriptTree.TapscriptTree
+			revokeIdx := tapTree.LeafProofIndex[revokeTapleafHash]
+			revokeMerkleProof := tapTree.LeafMerkleProofs[revokeIdx]
+			revokeControlBlock := revokeMerkleProof.ToControlBlock(
+				&input.TaprootNUMSKey,
+			)
+			ctrlBytes, _ := revokeControlBlock.ToBytes()
+
+			toLocalSignDesc = &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					KeyLocator: revKeyLoc,
+					PubKey:     revPK,
+				},
+				Output: &wire.TxOut{
+					Value:    toLocalAmt,
+					PkScript: pkScript,
+				},
+				WitnessScript: scriptTree.RevocationLeaf.Script,
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				HashType:      txscript.SigHashDefault,
+				ControlBlock:  ctrlBytes,
+			}
+		} else {
+			toLocalSignDesc = &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					KeyLocator: revKeyLoc,
+					PubKey:     revPK,
+				},
+				Output: &wire.TxOut{
+					Value: toLocalAmt,
+				},
+				HashType: txscript.SigHashAll,
+			}
 		}
+
 		breachInfo.RemoteOutputSignDesc = toLocalSignDesc
 		breachTxn.AddTxOut(toLocalSignDesc.Output)
 	}
 	if toRemoteAmt > 0 {
-		toRemoteSignDesc := &input.SignDescriptor{
-			KeyDesc: keychain.KeyDescriptor{
-				KeyLocator: toRemoteKeyLoc,
-				PubKey:     toRemotePK,
-			},
-			Output: &wire.TxOut{
-				Value: toRemoteAmt,
-			},
-			HashType: txscript.SigHashAll,
+		var toRemoteSignDesc *input.SignDescriptor
+
+		if chanType.IsTaproot() {
+			scriptTree, _ := input.NewRemoteCommitScriptTree(
+				toRemotePK,
+			)
+
+			pkScript, _ := input.PayToTaprootScript(
+				scriptTree.TaprootKey,
+			)
+
+			revokeTapleafHash := txscript.NewBaseTapLeaf(
+				scriptTree.SettleLeaf.Script,
+			).TapHash()
+
+			tapTree := scriptTree.TapscriptTree
+			revokeIdx := tapTree.LeafProofIndex[revokeTapleafHash]
+			revokeMerkleProof := tapTree.LeafMerkleProofs[revokeIdx]
+			revokeControlBlock := revokeMerkleProof.ToControlBlock(
+				&input.TaprootNUMSKey,
+			)
+
+			ctrlBytes, _ := revokeControlBlock.ToBytes()
+
+			toRemoteSignDesc = &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					KeyLocator: toRemoteKeyLoc,
+					PubKey:     toRemotePK,
+				},
+				WitnessScript: scriptTree.SettleLeaf.Script,
+				SignMethod:    input.TaprootScriptSpendSignMethod, //nolint:lll
+				Output: &wire.TxOut{
+					Value:    toRemoteAmt,
+					PkScript: pkScript,
+				},
+				HashType:     txscript.SigHashDefault,
+				InputIndex:   1,
+				ControlBlock: ctrlBytes,
+			}
+		} else {
+			toRemoteSignDesc = &input.SignDescriptor{
+				KeyDesc: keychain.KeyDescriptor{
+					KeyLocator: toRemoteKeyLoc,
+					PubKey:     toRemotePK,
+				},
+				Output: &wire.TxOut{
+					Value: toRemoteAmt,
+				},
+				HashType: txscript.SigHashAll,
+			}
 		}
+
 		breachInfo.LocalOutputSignDesc = toRemoteSignDesc
 		breachTxn.AddTxOut(toRemoteSignDesc.Output)
 	}
@@ -248,6 +332,7 @@ func TestBackupTask(t *testing.T) {
 		channeldb.SingleFunderBit,
 		channeldb.SingleFunderTweaklessBit,
 		channeldb.AnchorOutputsBit,
+		channeldb.SimpleTaprootFeatureBit,
 	}
 
 	var backupTaskTests []backupTaskTest
@@ -281,6 +366,15 @@ func TestBackupTask(t *testing.T) {
 			expSweepCommitRewardRemote = 98385
 			sweepFeeRateNoRewardRemoteDust = 225400
 			sweepFeeRateRewardRemoteDust = 174100
+		} else if chanType.IsTaproot() {
+			expSweepCommitNoRewardBoth = 299165
+			expSweepCommitNoRewardLocal = 199468
+			expSweepCommitNoRewardRemote = 99531
+			sweepFeeRateNoRewardRemoteDust = 213200
+			expSweepCommitRewardBoth = 295993
+			expSweepCommitRewardLocal = 197296
+			expSweepCommitRewardRemote = 98359
+			sweepFeeRateRewardRemoteDust = 167000
 		}
 
 		backupTaskTests = append(backupTaskTests, []backupTaskTest{

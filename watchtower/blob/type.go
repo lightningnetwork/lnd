@@ -80,6 +80,19 @@ const (
 	TypeAltruistTaprootCommit = Type(FlagCommitOutputs | FlagTaprootChannel)
 )
 
+// TypeFromChannel returns the appropriate blob Type for the given channel
+// type.
+func TypeFromChannel(chanType channeldb.ChannelType) Type {
+	switch {
+	case chanType.IsTaproot():
+		return TypeAltruistTaprootCommit
+	case chanType.HasAnchors():
+		return TypeAltruistAnchorCommit
+	default:
+		return TypeAltruistCommit
+	}
+}
+
 // Identifier returns a unique, stable string identifier for the blob Type.
 func (t Type) Identifier() (string, error) {
 	switch t {

@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -92,6 +93,14 @@ func Size(kit JusticeKit) int {
 
 // schnorrPubKey is a 32-byte serialized x-only public key.
 type schnorrPubKey [32]byte
+
+// toBlobSchnorrPubKey serializes the given public key into a schnorrPubKey that
+// can be set as a field on a JusticeKit.
+func toBlobSchnorrPubKey(pubKey *btcec.PublicKey) schnorrPubKey {
+	var blobPubKey schnorrPubKey
+	copy(blobPubKey[:], schnorr.SerializePubKey(pubKey))
+	return blobPubKey
+}
 
 // pubKey is a 33-byte, serialized compressed public key.
 type pubKey [33]byte

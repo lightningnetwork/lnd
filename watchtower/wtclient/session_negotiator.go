@@ -126,7 +126,9 @@ func newSessionNegotiator(cfg *NegotiatorConfig) *sessionNegotiator {
 	features := []lnwire.FeatureBit{
 		wtwire.AltruistSessionsRequired,
 	}
-	if cfg.Policy.IsAnchorChannel() {
+	if cfg.Policy.IsTaprootChannel() {
+		features = append(features, wtwire.TaprootCommitRequired)
+	} else if cfg.Policy.IsAnchorChannel() {
 		features = append(features, wtwire.AnchorCommitRequired)
 	}
 

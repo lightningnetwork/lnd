@@ -523,10 +523,7 @@ func (m *Manager) Policy(blobType blob.Type) (wtpolicy.Policy, error) {
 func (m *Manager) RegisterChannel(id lnwire.ChannelID,
 	chanType channeldb.ChannelType) error {
 
-	blobType := blob.TypeAltruistCommit
-	if chanType.HasAnchors() {
-		blobType = blob.TypeAltruistAnchorCommit
-	}
+	blobType := blob.TypeFromChannel(chanType)
 
 	m.clientsMu.Lock()
 	if _, ok := m.clients[blobType]; !ok {

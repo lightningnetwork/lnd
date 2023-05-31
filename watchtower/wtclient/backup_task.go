@@ -213,12 +213,6 @@ func (t *backupTask) bindSession(session *wtdb.ClientSessionBody,
 		}
 	}
 
-	if chanType.HasAnchors() != session.Policy.IsAnchorChannel() {
-		log.Criticalf("Invalid task (has_anchors=%t) for session "+
-			"(has_anchors=%t)", chanType.HasAnchors(),
-			session.Policy.IsAnchorChannel())
-	}
-
 	// Now, compute the output values depending on whether FlagReward is set
 	// in the current session's policy.
 	outputs, err := session.Policy.ComputeJusticeTxOuts(
@@ -334,6 +328,7 @@ func (t *backupTask) craftSessionPayload(
 		switch inp.WitnessType() {
 		case toLocalWitnessType:
 			justiceKit.AddToLocalSig(signature)
+
 		case toRemoteWitnessType:
 			justiceKit.AddToRemoteSig(signature)
 		default:

@@ -27,6 +27,10 @@ const (
 	// anchor channel. The key differences are that the to_remote is
 	// encumbered by a 1 block CSV and so is thus a P2WSH output.
 	AnchorCommitment
+
+	// TaprootCommitment represents the commitment transaction of a simple
+	// taproot channel.
+	TaprootCommitment
 )
 
 // ToLocalInput constructs the input that will be used to spend the to_local
@@ -61,9 +65,10 @@ func (c CommitmentType) ToRemoteInput(info *lnwallet.BreachRetribution) (
 			info.LocalOutputSignDesc, 0,
 		), nil
 
-	case AnchorCommitment:
-		// Anchor channels have a CSV-encumbered to-remote output. We'll
-		// construct a CSV input and assign the proper CSV delay of 1.
+	case AnchorCommitment, TaprootCommitment:
+		// Anchor and Taproot channels have a CSV-encumbered to-remote
+		// output. We'll construct a CSV input and assign the proper CSV
+		// delay of 1.
 		return input.NewCsvInput(
 			&info.LocalOutpoint, witnessType,
 			info.LocalOutputSignDesc, 0, 1,
@@ -79,6 +84,9 @@ func (c CommitmentType) ToLocalWitnessType() (input.WitnessType, error) {
 	switch c {
 	case LegacyTweaklessCommitment, LegacyCommitment, AnchorCommitment:
 		return input.CommitmentRevoke, nil
+
+	case TaprootCommitment:
+		return input.TaprootCommitmentRevoke, nil
 
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)
@@ -97,6 +105,9 @@ func (c CommitmentType) ToRemoteWitnessType() (input.WitnessType, error) {
 	case AnchorCommitment:
 		return input.CommitmentToRemoteConfirmed, nil
 
+	case TaprootCommitment:
+		return input.TaprootRemoteCommitSpend, nil
+
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)
 	}
@@ -114,6 +125,10 @@ func (c CommitmentType) ToRemoteWitnessSize() (int, error) {
 	// Anchor channels spend a to-remote confirmed P2WSH output.
 	case AnchorCommitment:
 		return input.ToRemoteConfirmedWitnessSize, nil
+
+	// Taproot channels spend a confirmed P2SH output.
+	case TaprootCommitment:
+		return input.TaprootToRemoteWitnessSize, nil
 
 	default:
 		return 0, fmt.Errorf("unknown commitment type: %v", c)
@@ -134,6 +149,9 @@ func (c CommitmentType) ToLocalWitnessSize() (int, error) {
 	case AnchorCommitment:
 		return input.ToLocalPenaltyWitnessSize, nil
 
+	case TaprootCommitment:
+		return input.TaprootToLocalRevokeWitnessSize, nil
+
 	default:
 		return 0, fmt.Errorf("unknown commitment type: %v", c)
 	}
@@ -143,21 +161,22 @@ func (c CommitmentType) ToLocalWitnessSize() (int, error) {
 func (c CommitmentType) ParseRawSig(witness wire.TxWitness) (lnwire.Sig,
 	error) {
 
+	// Check that the witness has at least one item since this is required
+	// for all commitment types to follow.
+	if len(witness) < 1 {
+		return lnwire.Sig{}, fmt.Errorf("the witness should have at " +
+			"least one element")
+	}
+
+	// Check that the first witness element is non-nil. This is to ensure
+	// that the witness length checks below do not panic.
+	if witness[0] == nil {
+		return lnwire.Sig{}, fmt.Errorf("the first witness element " +
+			"should not be nil")
+	}
+
 	switch c {
 	case LegacyCommitment, LegacyTweaklessCommitment, AnchorCommitment:
-		// Check that the witness has at least one item.
-		if len(witness) < 1 {
-			return lnwire.Sig{}, fmt.Errorf("the witness should " +
-				"have at least one element")
-		}
-
-		// Check that the first witness element is non-nil. This is to
-		// ensure that the witness length check below does not panic.
-		if witness[0] == nil {
-			return lnwire.Sig{}, fmt.Errorf("the first witness " +
-				"element should not be nil")
-		}
-
 		// Parse the DER-encoded signature from the first position of
 		// the resulting witness. We trim an extra byte to remove the
 		// sighash flag.
@@ -166,6 +185,16 @@ func (c CommitmentType) ParseRawSig(witness wire.TxWitness) (lnwire.Sig,
 		// Re-encode the DER signature into a fixed-size 64 byte
 		// signature.
 		return lnwire.NewSigFromECDSARawSignature(rawSignature)
+
+	case TaprootCommitment:
+		rawSignature := witness[0]
+		if len(rawSignature) > 64 {
+			rawSignature = witness[0][:len(witness[0])-1]
+		}
+
+		// Re-encode the schnorr signature into a fixed-size 64 byte
+		// signature.
+		return lnwire.NewSigFromSchnorrRawSignature(rawSignature)
 
 	default:
 		return lnwire.Sig{}, fmt.Errorf("unknown commitment type: %v",
@@ -190,6 +219,11 @@ func (c CommitmentType) NewJusticeKit(sweepScript []byte,
 			sweepScript, breachInfo, withToRemote,
 		), nil
 
+	case TaprootCommitment:
+		return newTaprootJusticeKit(
+			sweepScript, breachInfo, withToRemote,
+		)
+
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)
 	}
@@ -206,6 +240,9 @@ func (c CommitmentType) EmptyJusticeKit() (JusticeKit, error) {
 		return &anchorJusticeKit{
 			legacyJusticeKit: legacyJusticeKit{},
 		}, nil
+
+	case TaprootCommitment:
+		return &taprootJusticeKit{}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)

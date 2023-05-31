@@ -1043,24 +1043,6 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		return p.cfg.ChainArb.NotifyContractUpdate(*chanPoint, update)
 	}
 
-	var towerClient wtclient.ClientManager
-	if lnChan.ChanType().IsTaproot() {
-		// Leave the tower client as nil for now until the tower client
-		// has support for taproot channels.
-		//
-		// If the user has activated the tower client, then add a log
-		// to explain that any taproot channel updates wil not be
-		// backed up to a tower.
-		if p.cfg.TowerClient != nil {
-			p.log.Debugf("Updates for channel %s will not be "+
-				"backed up to a watchtower as watchtowers "+
-				"are not yet taproot channel compatible",
-				chanPoint)
-		}
-	} else {
-		towerClient = p.cfg.TowerClient
-	}
-
 	//nolint:lll
 	linkCfg := htlcswitch.ChannelLinkConfig{
 		Peer:                   p,
@@ -1090,7 +1072,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		MinFeeUpdateTimeout:     htlcswitch.DefaultMinLinkFeeUpdateTimeout,
 		MaxFeeUpdateTimeout:     htlcswitch.DefaultMaxLinkFeeUpdateTimeout,
 		OutgoingCltvRejectDelta: p.cfg.OutgoingCltvRejectDelta,
-		TowerClient:             towerClient,
+		TowerClient:             p.cfg.TowerClient,
 		MaxOutgoingCltvExpiry:   p.cfg.MaxOutgoingCltvExpiry,
 		MaxFeeAllocation:        p.cfg.MaxChannelFeeAllocation,
 		MaxAnchorsCommitFeeRate: p.cfg.MaxAnchorsCommitFeeRate,

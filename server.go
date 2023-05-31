@@ -1551,6 +1551,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		anchorPolicy := policy
 		anchorPolicy.BlobType |= blob.Type(blob.FlagAnchorChannel)
 
+		// Copy the policy for legacy channels and set the blob flag
+		// signalling support for taproot channels.
+		taprootPolicy := policy
+		taprootPolicy.TxPolicy.BlobType |=
+			blob.Type(blob.FlagTaprootChannel)
+
 		s.towerClientMgr, err = wtclient.NewManager(&wtclient.Config{
 			FetchClosedChannel:     fetchClosedChannel,
 			BuildBreachRetribution: buildBreachRetribution,
@@ -1572,7 +1578,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
 			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
-		}, policy, anchorPolicy)
+		}, policy, anchorPolicy, taprootPolicy)
 		if err != nil {
 			return nil, err
 		}

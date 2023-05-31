@@ -1,10 +1,14 @@
 package blob
 
 import (
+	"bytes"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -67,11 +71,10 @@ func newLegacyJusticeKit(sweepScript []byte,
 	keyRing := breachInfo.KeyRing
 
 	packet := justiceKitPacketV0{
-		sweepAddress:         sweepScript,
-		revocationPubKey:     toBlobPubKey(keyRing.RevocationKey),
-		localDelayPubKey:     toBlobPubKey(keyRing.ToLocalKey),
-		csvDelay:             breachInfo.RemoteDelay,
-		commitToRemotePubKey: pubKey{},
+		sweepAddress:     sweepScript,
+		revocationPubKey: toBlobPubKey(keyRing.RevocationKey),
+		localDelayPubKey: toBlobPubKey(keyRing.ToLocalKey),
+		csvDelay:         breachInfo.RemoteDelay,
 	}
 
 	if withToRemote {
@@ -266,4 +269,209 @@ func (a *anchorJusticeKit) ToRemoteOutputSpendInfo() ([]byte, [][]byte, uint32,
 	witness[1] = toRemoteScript
 
 	return toRemoteScriptHash, witness, 1, nil
+}
+
+// taprootJusticeKit is an implementation of the JusticeKit interface which can
+// be used for backing up commitments of taproot channels.
+type taprootJusticeKit struct {
+	justiceKitPacketV1
+}
+
+// A compile-time check to ensure that taprootJusticeKit implements the
+// JusticeKit interface.
+var _ JusticeKit = (*taprootJusticeKit)(nil)
+
+// newTaprootJusticeKit constructs a new anchorJusticeKit.
+func newTaprootJusticeKit(sweepScript []byte,
+	breachInfo *lnwallet.BreachRetribution,
+	withToRemote bool) (*taprootJusticeKit, error) {
+
+	keyRing := breachInfo.KeyRing
+
+	tree, err := input.NewLocalCommitScriptTree(
+		breachInfo.RemoteDelay, keyRing.ToLocalKey,
+		keyRing.RevocationKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	packet := justiceKitPacketV1{
+		sweepAddress: sweepScript,
+		revocationPubKey: toBlobSchnorrPubKey(
+			keyRing.RevocationKey,
+		),
+		localDelayPubKey: toBlobSchnorrPubKey(keyRing.ToLocalKey),
+		delayScriptHash:  tree.SettleLeaf.TapHash(),
+	}
+
+	if withToRemote {
+		packet.commitToRemotePubKey = toBlobPubKey(keyRing.ToRemoteKey)
+	}
+
+	return &taprootJusticeKit{packet}, nil
+}
+
+// ToLocalOutputSpendInfo returns the info required to send the to-local
+// output. It returns the output pub key script and the witness required
+// to spend the output.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (t *taprootJusticeKit) ToLocalOutputSpendInfo() ([]byte, [][]byte, error) {
+	revocationPubKey, err := schnorr.ParsePubKey(t.revocationPubKey[:])
+	if err != nil {
+		return nil, nil, err
+	}
+
+	localDelayedPubKey, err := schnorr.ParsePubKey(t.localDelayPubKey[:])
+	if err != nil {
+		return nil, nil, err
+	}
+
+	revokeScript, err := input.NewLocalCommitRevokeScript(
+		localDelayedPubKey, revocationPubKey,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	revokeLeaf := txscript.NewBaseTapLeaf(revokeScript)
+	revokeLeafHash := revokeLeaf.TapHash()
+	rootHash := tapBranchHash(revokeLeafHash[:], t.delayScriptHash[:])
+
+	outputKey := txscript.ComputeTaprootOutputKey(
+		&input.TaprootNUMSKey, rootHash[:],
+	)
+
+	scriptPk, err := input.PayToTaprootScript(outputKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var outputKeyYIsOdd bool
+	if outputKey.SerializeCompressed()[0] ==
+		secp.PubKeyFormatCompressedOdd {
+
+		outputKeyYIsOdd = true
+	}
+
+	ctrlBlock := txscript.ControlBlock{
+		InternalKey:     &input.TaprootNUMSKey,
+		OutputKeyYIsOdd: outputKeyYIsOdd,
+		LeafVersion:     revokeLeaf.LeafVersion,
+		InclusionProof:  t.delayScriptHash[:],
+	}
+
+	ctrlBytes, err := ctrlBlock.ToBytes()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	toLocalSig, err := t.commitToLocalSig.ToSignature()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	witness := make([][]byte, 3)
+	witness[0] = toLocalSig.Serialize()
+	witness[1] = revokeScript
+	witness[2] = ctrlBytes
+
+	return scriptPk, witness, nil
+}
+
+// ToRemoteOutputSpendInfo returns the info required to send the to-remote
+// output. It returns the output pub key script, the witness required to spend
+// the output and the sequence to apply.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (t *taprootJusticeKit) ToRemoteOutputSpendInfo() ([]byte, [][]byte, uint32,
+	error) {
+
+	if len(t.commitToRemotePubKey[:]) == 0 {
+		return nil, nil, 0, ErrNoCommitToRemoteOutput
+	}
+
+	toRemotePk, err := btcec.ParsePubKey(t.commitToRemotePubKey[:])
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	scriptTree, err := input.NewRemoteCommitScriptTree(toRemotePk)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	script, err := input.PayToTaprootScript(scriptTree.TaprootKey)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	tree := scriptTree.TapscriptTree
+	settleTapleafHash := scriptTree.SettleLeaf.TapHash()
+	settleIdx := tree.LeafProofIndex[settleTapleafHash]
+	settleMerkleProof := tree.LeafMerkleProofs[settleIdx]
+	settleControlBlock := settleMerkleProof.ToControlBlock(
+		&input.TaprootNUMSKey,
+	)
+
+	ctrl, err := settleControlBlock.ToBytes()
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	toRemoteSig, err := t.commitToRemoteSig.ToSignature()
+	if err != nil {
+		return nil, nil, 0, err
+	}
+
+	witness := make([][]byte, 3)
+	witness[0] = toRemoteSig.Serialize()
+	witness[1] = scriptTree.SettleLeaf.Script
+	witness[2] = ctrl
+
+	return script, witness, 1, nil
+}
+
+// HasCommitToRemoteOutput returns true if the blob contains a to-remote pubkey.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (t *taprootJusticeKit) HasCommitToRemoteOutput() bool {
+	return btcec.IsCompressedPubKey(t.commitToRemotePubKey[:])
+}
+
+// AddToLocalSig adds the to-local signature to the kit.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (t *taprootJusticeKit) AddToLocalSig(sig lnwire.Sig) {
+	t.commitToLocalSig = sig
+}
+
+// AddToRemoteSig adds the to-remote signature to the kit.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (t *taprootJusticeKit) AddToRemoteSig(sig lnwire.Sig) {
+	t.commitToRemoteSig = sig
+}
+
+// SweepAddress returns the sweep address to be used on the justice tx output.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (t *taprootJusticeKit) SweepAddress() []byte {
+	return t.sweepAddress
+}
+
+// PlainTextSize is the size of the encoded-but-unencrypted blob in bytes.
+//
+// NOTE: This is part of the JusticeKit interface.
+func (t *taprootJusticeKit) PlainTextSize() int {
+	return V1PlaintextSize
+}
+
+func tapBranchHash(l, r []byte) chainhash.Hash {
+	if bytes.Compare(l, r) > 0 {
+		l, r = r, l
+	}
+
+	return *chainhash.TaggedHash(chainhash.TagTapBranch, l, r)
 }

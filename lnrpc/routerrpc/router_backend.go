@@ -143,14 +143,45 @@ type MissionControl interface {
 func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	parsePubKey := func(key string) (route.Vertex, error) {
-		pubKeyBytes, err := hex.DecodeString(key)
-		if err != nil {
-			return route.Vertex{}, err
-		}
-
-		return route.NewVertexFromBytes(pubKeyBytes)
+	routeReq, err := r.parseQueryRoutesRequest(in)
+	if err != nil {
+		return nil, err
 	}
+
+	// Query the channel router for a possible path to the destination that
+	// can carry `in.Amt` satoshis _including_ the total fee required on
+	// the route
+	route, successProb, err := r.FindRoute(routeReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// For each valid route, we'll convert the result into the format
+	// required by the RPC system.
+	rpcRoute, err := r.MarshallRoute(route)
+	if err != nil {
+		return nil, err
+	}
+
+	routeResp := &lnrpc.QueryRoutesResponse{
+		Routes:      []*lnrpc.Route{rpcRoute},
+		SuccessProb: successProb,
+	}
+
+	return routeResp, nil
+}
+
+func parsePubKey(key string) (route.Vertex, error) {
+	pubKeyBytes, err := hex.DecodeString(key)
+	if err != nil {
+		return route.Vertex{}, err
+	}
+
+	return route.NewVertexFromBytes(pubKeyBytes)
+}
+
+func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
+	*routing.RouteRequest, error) {
 
 	// Parse the hex-encoded source and target public keys into full public
 	// key objects we can properly manipulate.
@@ -322,31 +353,10 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
-	// Query the channel router for a possible path to the destination that
-	// can carry `in.Amt` satoshis _including_ the total fee required on
-	// the route.
-	routeReq := routing.NewRouteRequest(
+	return routing.NewRouteRequest(
 		sourcePubKey, &targetPubKey, amt, in.TimePref, restrictions,
 		customRecords, routeHintEdges, nil, finalCLTVDelta,
-	)
-	route, successProb, err := r.FindRoute(routeReq)
-	if err != nil {
-		return nil, err
-	}
-
-	// For each valid route, we'll convert the result into the format
-	// required by the RPC system.
-	rpcRoute, err := r.MarshallRoute(route)
-	if err != nil {
-		return nil, err
-	}
-
-	routeResp := &lnrpc.QueryRoutesResponse{
-		Routes:      []*lnrpc.Route{rpcRoute},
-		SuccessProb: successProb,
-	}
-
-	return routeResp, nil
+	), nil
 }
 
 // rpcEdgeToPair looks up the provided channel and returns the channel endpoints

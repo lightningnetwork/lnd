@@ -993,11 +993,9 @@ func genScript(t *testing.T, address string) lnwire.DeliveryAddress {
 	return script
 }
 
-// TestPeerCustomMessage tests custom message exchange between peers.
-func TestPeerCustomMessage(t *testing.T) {
-	t.Parallel()
+func setupTestPeer(t *testing.T, remoteKey [33]byte, 
+                   mockConn *mockMessageConn, receivedCustomChan chan *customMsg) (*Brontide, func()) {
 
-	// Set up node Alice.
 	dbAlice, err := channeldb.Open(t.TempDir())
 	require.NoError(t, err)
 
@@ -1024,25 +1022,14 @@ func TestPeerCustomMessage(t *testing.T) {
 	)
 	require.NoError(t, readPool.Start())
 
-	mockConn := newMockConn(t, 1)
-
-	receivedCustomChan := make(chan *customMsg)
-
-	remoteKey := [33]byte{8}
-
 	notifier := &mock.ChainNotifier{
 		SpendChan: make(chan *chainntnfs.SpendDetail),
 		EpochChan: make(chan *chainntnfs.BlockEpoch),
 		ConfChan:  make(chan *chainntnfs.TxConfirmation),
 	}
 
-	// TODO(yy): change ChannelNotifier to be an interface.
 	channelNotifier := channelnotifier.New(dbAlice.ChannelStateDB())
 	require.NoError(t, channelNotifier.Start())
-	t.Cleanup(func() {
-		require.NoError(t, channelNotifier.Stop(),
-			"stop channel notifier failed")
-	})
 
 	alicePeer := NewBrontide(Config{
 		PubKeyBytes: remoteKey,
@@ -1070,6 +1057,23 @@ func TestPeerCustomMessage(t *testing.T) {
 		ChannelNotifier: channelNotifier,
 	})
 
+	return alicePeer, func() {
+		require.NoError(t, channelNotifier.Stop(),
+			"stop channel notifier failed")
+	}
+}
+
+
+func TestPeerCustomMessage(t *testing.T) {
+	t.Parallel()
+
+	mockConn := newMockConn(t, 1)
+	receivedCustomChan := make(chan *customMsg)
+	remoteKey := [33]byte{8}
+
+	alicePeer, cleanup := setupTestPeer(t, remoteKey, mockConn, receivedCustomChan)
+	defer cleanup()
+
 	// Set up the init sequence.
 	go func() {
 		// Read init message.
@@ -1083,7 +1087,7 @@ func TestPeerCustomMessage(t *testing.T) {
 			lnwire.NewRawFeatureVector(),
 		)
 		var b bytes.Buffer
-		_, err = lnwire.WriteMessage(&b, initReplyMsg, 0)
+		_, err := lnwire.WriteMessage(&b, initReplyMsg, 0)
 		require.NoError(t, err)
 
 		mockConn.readMessages <- b.Bytes()
@@ -1121,20 +1125,26 @@ func TestPeerCustomMessage(t *testing.T) {
 
 func TestPeerUnknownMessage(t *testing.T) {
 	testCases := []struct {
-		name          string
+		name		  string
 		messageType   lnwire.MessageType
 		messageData   []byte
 		shouldClose   bool
 	}{
 		{
-			name:        "unknown message odd",
+			name:		"unknown message odd",
 			messageType: lnwire.MessageType(32001),
 			messageData: []byte{4, 5, 6},
 			shouldClose: false,
 		},
 		{
-			name:        "unknown message even",
+			name:		"unknown message even",
 			messageType: lnwire.MessageType(32000),
+			messageData: []byte{4, 5, 6},
+			shouldClose: true,
+		},
+		{
+			name:		"custom even message",
+			messageType: lnwire.MessageType(lnwire.CustomTypeStart + 2),
 			messageData: []byte{4, 5, 6},
 			shouldClose: true,
 		},
@@ -1142,78 +1152,13 @@ func TestPeerUnknownMessage(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
-			dbAlice, err := channeldb.Open(t.TempDir())
-			require.NoError(t, err)
-
-			aliceKey, err := btcec.NewPrivateKey()
-			require.NoError(t, err)
-
-			writeBufferPool := pool.NewWriteBuffer(
-				pool.DefaultWriteBufferGCInterval,
-				pool.DefaultWriteBufferExpiryInterval,
-			)
-
-			writePool := pool.NewWrite(
-				writeBufferPool, 1, timeout,
-			)
-			require.NoError(t, writePool.Start())
-
-			readBufferPool := pool.NewReadBuffer(
-				pool.DefaultReadBufferGCInterval,
-				pool.DefaultReadBufferExpiryInterval,
-			)
-
-			readPool := pool.NewRead(
-				readBufferPool, 1, timeout,
-			)
-			require.NoError(t, readPool.Start())
-
 			mockConn := newMockConn(t, 1)
-
 			receivedCustomChan := make(chan *customMsg)
+			remoteKey := [33]byte{}
+			remoteKey[0] = 8
 
-			remoteKey := [33]byte{8}
-
-			notifier := &mock.ChainNotifier{
-				SpendChan: make(chan *chainntnfs.SpendDetail),
-				EpochChan: make(chan *chainntnfs.BlockEpoch),
-				ConfChan:  make(chan *chainntnfs.TxConfirmation),
-			}
-
-			channelNotifier := channelnotifier.New(dbAlice.ChannelStateDB())
-			require.NoError(t, channelNotifier.Start())
-			t.Cleanup(func() {
-				require.NoError(t, channelNotifier.Stop(),
-					"stop channel notifier failed")
-			})
-
-			alicePeer := NewBrontide(Config{
-				PubKeyBytes: remoteKey,
-				ChannelDB:   dbAlice.ChannelStateDB(),
-				Addr: &lnwire.NetAddress{
-					IdentityKey: aliceKey.PubKey(),
-				},
-				PrunePersistentPeerConnection: func([33]byte) {},
-				Features:                      lnwire.EmptyFeatureVector(),
-				LegacyFeatures:                lnwire.EmptyFeatureVector(),
-				WritePool:                     writePool,
-				ReadPool:                      readPool,
-				Conn:                          mockConn,
-				ChainNotifier:                 notifier,
-				HandleCustomMessage: func(
-					peer [33]byte, msg *lnwire.Custom) error {
-
-					receivedCustomChan <- &customMsg{
-						peer: peer,
-						msg:  *msg,
-					}
-					return nil
-				},
-				PongBuf:         make([]byte, lnwire.MaxPongBytes),
-				ChannelNotifier: channelNotifier,
-			})
+			alicePeer, cleanup := setupTestPeer(t, remoteKey, mockConn, receivedCustomChan)
+			defer cleanup()
 
 			// Set up the init sequence.
 			go func() {
@@ -1228,7 +1173,7 @@ func TestPeerUnknownMessage(t *testing.T) {
 					lnwire.NewRawFeatureVector(),
 				)
 				var b bytes.Buffer
-				_, err = lnwire.WriteMessage(&b, initReplyMsg, 0)
+				_, err := lnwire.WriteMessage(&b, initReplyMsg, 0)
 				require.NoError(t, err)
 
 				mockConn.readMessages <- b.Bytes()
@@ -1239,12 +1184,18 @@ func TestPeerUnknownMessage(t *testing.T) {
 			// Start the peer.
 			require.NoError(t, alicePeer.Start())
 
-		    close(ready)
+			close(ready)
 
 			receivedData := append([]byte{byte(testCase.messageType >> 8), byte(testCase.messageType)}, testCase.messageData...)
 			mockConn.readMessages <- receivedData
 
-			alicePeer.WaitForDisconnect(ready)
+			if (testCase.shouldClose){
+				alicePeer.WaitForDisconnect(ready)
+			} else {
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			t.Logf("%v: Should close: %v, Is closed: %v", testCase.name, testCase.shouldClose, mockConn.isClosed)
 
 			require.Equal(t, testCase.shouldClose, mockConn.isClosed)
 			require.Equal(t, mockConn.curReadMessage, receivedData)

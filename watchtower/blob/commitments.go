@@ -27,6 +27,10 @@ const (
 	// anchor channel. The key differences are that the to_remote is
 	// encumbered by a 1 block CSV and so is thus a P2SH output.
 	AnchorCommitment
+
+	// TaprootCommitment represents the commitment transaction of a simple
+	// taproot channel.
+	TaprootCommitment
 )
 
 // ToLocalInput constructs the input that will be used to spend the to_local
@@ -61,9 +65,10 @@ func (c CommitmentType) ToRemoteInput(info *lnwallet.BreachRetribution) (
 			info.LocalOutputSignDesc, 0,
 		), nil
 
-	case AnchorCommitment:
-		// Anchor channels have a CSV-encumbered to-remote output. We'll
-		// construct a CSV input nd assign the proper CSV delay of 1.
+	case AnchorCommitment, TaprootCommitment:
+		// Anchor and Taproot channels have a CSV-encumbered to-remote
+		// output. We'll construct a CSV input nd assign the proper CSV
+		// delay of 1.
 		return input.NewCsvInput(
 			&info.LocalOutpoint, witnessType,
 			info.LocalOutputSignDesc, 0, 1,
@@ -78,6 +83,10 @@ func (c CommitmentType) ToLocalWitnessType() (input.WitnessType, error) {
 	switch c {
 	case LegacyTweaklessCommitment, LegacyCommitment, AnchorCommitment:
 		return input.CommitmentRevoke, nil
+
+	case TaprootCommitment:
+		return input.TaprootCommitmentRevoke, nil
+
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)
 	}
@@ -88,10 +97,16 @@ func (c CommitmentType) ToRemoteWitnessType() (input.WitnessType, error) {
 	switch c {
 	case LegacyTweaklessCommitment:
 		return input.CommitSpendNoDelayTweakless, nil
+
 	case LegacyCommitment:
 		return input.CommitmentNoDelay, nil
+
 	case AnchorCommitment:
 		return input.CommitmentToRemoteConfirmed, nil
+
+	case TaprootCommitment:
+		return input.TaprootRemoteCommitSpend, nil
+
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)
 	}
@@ -106,9 +121,13 @@ func (c CommitmentType) ToRemoteWitnessSize() (int, error) {
 	case LegacyTweaklessCommitment, LegacyCommitment:
 		return input.P2WKHWitnessSize, nil
 
-	// Anchor channels spend a to-remote confirmed P2WSH  output.
+	// Anchor channels spend a to-remote confirmed P2WSH output.
 	case AnchorCommitment:
 		return input.ToRemoteConfirmedWitnessSize, nil
+
+	// Taproot channels spend a confirmed P2SH output.
+	case TaprootCommitment:
+		return input.TaprootToRemoteWitnessSize, nil
 	default:
 		return 0, fmt.Errorf("unknown commitment type: %v", c)
 	}
@@ -127,6 +146,10 @@ func (c CommitmentType) ToLocalWitnessSize() (int, error) {
 
 	case AnchorCommitment:
 		return input.ToLocalPenaltyWitnessSize, nil
+
+	case TaprootCommitment:
+		return input.TaprootToLocalRevokeWitnessSize, nil
+
 	default:
 		return 0, fmt.Errorf("unknown commitment type: %v", c)
 	}
@@ -146,6 +169,17 @@ func (c CommitmentType) ParseRawSig(witness wire.TxWitness) (lnwire.Sig,
 		// Re-encode the DER signature into a fixed-size 64 byte
 		// signature.
 		return lnwire.NewSigFromECDSARawSignature(rawSignature)
+
+	case TaprootCommitment:
+		rawSignature := witness[0]
+		if len(witness[0]) > 64 {
+			rawSignature = witness[0][:len(witness[0])-1]
+		}
+
+		// Re-encode the schnorr signature into a fixed-size 64 byte
+		// signature.
+		return lnwire.NewSigFromSchnorrRawSignature(rawSignature)
+
 	default:
 		return lnwire.Sig{}, fmt.Errorf("unknown commitment type: %v",
 			c)
@@ -163,10 +197,17 @@ func (c CommitmentType) NewJusticeKit(sweepScript []byte,
 		return newLegacyJusticeKit(
 			sweepScript, breachInfo, withToRemote,
 		), nil
+
 	case AnchorCommitment:
 		return newAnchorJusticeKit(
 			sweepScript, breachInfo, withToRemote,
 		), nil
+
+	case TaprootCommitment:
+		return newTaprootJusticeKit(
+			sweepScript, breachInfo, withToRemote,
+		)
+
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)
 	}
@@ -178,10 +219,15 @@ func (c CommitmentType) EmptyJusticeKit() (JusticeKit, error) {
 	switch c {
 	case LegacyTweaklessCommitment, LegacyCommitment:
 		return &legacyJusticeKit{}, nil
+
 	case AnchorCommitment:
 		return &anchorJusticeKit{
 			legacyJusticeKit: &legacyJusticeKit{},
 		}, nil
+
+	case TaprootCommitment:
+		return &taprootJusticeKit{}, nil
+
 	default:
 		return nil, fmt.Errorf("unknown commitment type: %v", c)
 	}

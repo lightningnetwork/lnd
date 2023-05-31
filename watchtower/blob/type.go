@@ -102,14 +102,19 @@ func (t Type) CommitmentType(chanType *channeldb.ChannelType) (CommitmentType,
 	error) {
 
 	switch {
+	case t.Has(FlagTaprootChannel):
+		return TaprootCommitment, nil
+
 	case t.Has(FlagAnchorChannel):
 		return AnchorCommitment, nil
+
 	case t.Has(FlagCommitOutputs):
 		if chanType != nil && chanType.IsTweakless() {
 			return LegacyTweaklessCommitment, nil
 		}
 
 		return LegacyCommitment, nil
+
 	default:
 		return 0, ErrUnknownBlobType
 	}

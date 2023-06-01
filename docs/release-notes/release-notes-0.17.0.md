@@ -62,6 +62,9 @@ unlock or create.
 * [Restore support](https://github.com/lightningnetwork/lnd/pull/7678) for
   `PKCS8`-encoded cert private keys.
 
+* [Add support for accepting Zero-Conf channels](https://github.com/lightningnetwork/lnd/pull/7740) with type `ScidAliasRequired` and  
+  `StaticRemoteKeyRequired`.
+
 ## Code Health
 
 * Updated [our fork for serializing protobuf as JSON to be based on the
@@ -99,6 +102,7 @@ unlock or create.
 * Elle Mouton
 * Erik Arvstedt
 * ErikEk
+* Graham Krizek
 * Guillermo Caracuel
 * hieblmi
 * Jordi Montes

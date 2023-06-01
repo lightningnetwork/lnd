@@ -332,6 +332,13 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 					commitmentType = lnrpc.CommitmentType_ANCHORS
 
 				case channelFeatures.OnlyContains(
+					lnwire.ZeroConfRequired,
+					lnwire.ScidAliasRequired,
+					lnwire.StaticRemoteKeyRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+
+				case channelFeatures.OnlyContains(
 					lnwire.StaticRemoteKeyRequired,
 				):
 					commitmentType = lnrpc.CommitmentType_STATIC_REMOTE_KEY

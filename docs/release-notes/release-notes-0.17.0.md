@@ -80,6 +80,9 @@ unlock or create.
 * [Added fuzz tests](https://github.com/lightningnetwork/lnd/pull/7649) for
   signature parsing and conversion.
 
+* [Added a fuzz test](https://github.com/lightningnetwork/lnd/pull/7687) for
+  watchtower address iterators.
+
 * [Simplify fuzz tests](https://github.com/lightningnetwork/lnd/pull/7709)
   using the `require` package.
 

@@ -14,7 +14,7 @@ import (
 // BlockCache is an lru cache for blocks.
 type BlockCache struct {
 	Cache     *lru.Cache[wire.InvVect, *neutrino.CacheableBlock]
-	HashMutex *multimutex.HashMutex
+	HashMutex *multimutex.Mutex[lntypes.Hash]
 }
 
 // NewBlockCache creates a new BlockCache with the given maximum capacity.
@@ -23,7 +23,7 @@ func NewBlockCache(capacity uint64) *BlockCache {
 		Cache: lru.NewCache[wire.InvVect, *neutrino.CacheableBlock](
 			capacity,
 		),
-		HashMutex: multimutex.NewHashMutex(),
+		HashMutex: multimutex.NewMutex[lntypes.Hash](),
 	}
 }
 

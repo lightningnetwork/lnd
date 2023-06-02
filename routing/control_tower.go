@@ -132,7 +132,7 @@ type controlTower struct {
 	// paymentsMtx provides synchronization on the payment level to ensure
 	// that no race conditions occur in between updating the database and
 	// sending a notification.
-	paymentsMtx *multimutex.HashMutex
+	paymentsMtx *multimutex.Mutex[lntypes.Hash]
 }
 
 // NewControlTower creates a new instance of the controlTower.
@@ -143,7 +143,7 @@ func NewControlTower(db *channeldb.PaymentControl) ControlTower {
 			map[uint64]*controlTowerSubscriberImpl,
 		),
 		subscribers: make(map[lntypes.Hash][]*controlTowerSubscriberImpl),
-		paymentsMtx: multimutex.NewHashMutex(),
+		paymentsMtx: multimutex.NewMutex[lntypes.Hash](),
 	}
 }
 

@@ -187,3 +187,7 @@ replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-d
 go 1.19
 
 retract v0.0.2
+
+replace github.com/lightninglabs/neutrino v0.15.0 => github.com/ziggie1984/neutrino v0.15.1-0.20230606080342-1b922a5af583
+
+replace github.com/btcsuite/btcwallet v0.16.10-0.20230517173256-aa62c04afcdf => github.com/ziggie1984/btcwallet v0.14.1-0.20230608122547-a461f28a45ed

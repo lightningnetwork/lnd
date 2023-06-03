@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -872,7 +873,13 @@ func (u *UtxoNursery) sweepCribOutput(classHeight uint32, baby *babyOutput) erro
 	// confirmed before transitioning it to kindergarten.
 	label := labels.MakeLabel(labels.LabelTypeSweepTransaction, nil)
 	err := u.cfg.PublishTransaction(baby.timeoutTx, label)
-	if err != nil && err != lnwallet.ErrDoubleSpend {
+
+	// In case the tx does not meet mempool fee requirements we continue
+	// because the tx is rebroadcasted in the background and there is
+	// nothing we can do to bump this transaction anyways.
+	if err != nil && !errors.Is(err, lnwallet.ErrDoubleSpend) &&
+		!errors.Is(err, lnwallet.ErrMempoolFee) {
+
 		utxnLog.Errorf("Unable to broadcast baby tx: "+
 			"%v, %v", err, spew.Sdump(baby.timeoutTx))
 		return err

@@ -553,7 +553,7 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 		// StateWaitingFullResolution after we've transitioned from
 		// StateContractClosed which can only be triggered by the local
 		// or remote close trigger. This trigger is only fired when we
-		// receive a chain event from the chain watcher than the
+		// receive a chain event from the chain watcher that the
 		// commitment has been confirmed on chain, and before we
 		// advance our state step, we call InsertConfirmedCommitSet.
 		err := c.relaunchResolvers(state.commitSet, triggerHeight)
@@ -990,11 +990,18 @@ func (c *ChannelArbitrator) stateStep(
 		label := labels.MakeLabel(
 			labels.LabelTypeChannelClose, &c.cfg.ShortChanID,
 		)
-
 		if err := c.cfg.PublishTx(closeTx, label); err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to broadcast "+
 				"close tx: %v", c.cfg.ChanPoint, err)
-			if err != lnwallet.ErrDoubleSpend {
+
+			// This makes sure we don't fail at startup if the
+			// commitment transaction has too low fees to make it
+			// into mempool. The rebroadcaster makes sure this
+			// transaction is republished regularly until confirmed
+			// or replaced.
+			if !errors.Is(err, lnwallet.ErrDoubleSpend) &&
+				!errors.Is(err, lnwallet.ErrMempoolFee) {
+
 				return StateError, closeTx, err
 			}
 		}

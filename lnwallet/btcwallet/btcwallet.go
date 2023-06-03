@@ -1168,6 +1168,12 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 		case *base.ErrReplacement:
 			return lnwallet.ErrDoubleSpend
 
+		// If the wallet reports that fee requirements for accepting
+		// the tx into mempool are not met, convert it to our internal
+		// ErrMempoolFee and return.
+		case *base.ErrMempoolFee:
+			return lnwallet.ErrMempoolFee
+
 		default:
 			return err
 		}

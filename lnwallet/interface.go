@@ -69,6 +69,12 @@ var (
 	// ErrNotMine is an error denoting that a WalletController instance is
 	// unable to spend a specified output.
 	ErrNotMine = errors.New("the passed output doesn't belong to the wallet")
+
+	// ErrMempoolFee is returned from PublishTransaction in case the tx
+	// being published is not accepted into mempool because the fee
+	// requirements of the mempool backend are not met.
+	ErrMempoolFee = errors.New("transaction rejected by the mempool " +
+		"because of low fees")
 )
 
 // ErrNoOutputs is returned if we try to create a transaction with no outputs

@@ -92,6 +92,11 @@ unlock or create.
 * Make sure payment stream returns all the events by [subscribing it before
   sending](https://github.com/lightningnetwork/lnd/pull/7722).
 
+* Make sure lnd starts up as normal in case a transaction does not meet min
+  mempool fee requirements. [Handle min mempool fee backend error when a
+  transaction fails to be broadcasted by the 
+  bitcoind backend](https://github.com/lightningnetwork/lnd/pull/7746)
+
 # Contributors (Alphabetical Order)
 
 * Carla Kirk-Cohen

@@ -342,13 +342,12 @@ func (a *arbChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) 
 func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	c *ChainArbitrator, chanEvents *ChainEventSubscription) (*ChannelArbitrator, error) {
 
-	log.Tracef("Creating ChannelArbitrator for ChannelPoint(%v)",
-		channel.FundingOutpoint)
-
 	// TODO(roasbeef): fetch best height (or pass in) so can ensure block
 	// epoch delivers all the notifications to
 
 	chanPoint := channel.FundingOutpoint
+
+	log.Tracef("Creating ChannelArbitrator for ChannelPoint(%v)", chanPoint)
 
 	// Next we'll create the matching configuration struct that contains
 	// all interfaces and methods the arbitrator needs to do its job.
@@ -375,8 +374,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 			report *channeldb.ResolverReport) error {
 
 			return c.chanSource.PutResolverReport(
-				tx, c.cfg.ChainHash, &channel.FundingOutpoint,
-				report,
+				tx, c.cfg.ChainHash, &chanPoint, report,
 			)
 		},
 		FetchHistoricalChannel: func() (*channeldb.OpenChannel, error) {
@@ -1125,12 +1123,13 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	c.Lock()
 	defer c.Unlock()
 
+	chanPoint := newChan.FundingOutpoint
+
 	log.Infof("Creating new ChannelArbitrator for ChannelPoint(%v)",
-		newChan.FundingOutpoint)
+		chanPoint)
 
 	// If we're already watching this channel, then we'll ignore this
 	// request.
-	chanPoint := newChan.FundingOutpoint
 	if _, ok := c.activeChannels[chanPoint]; ok {
 		return nil
 	}
@@ -1157,7 +1156,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 		return err
 	}
 
-	c.activeWatchers[newChan.FundingOutpoint] = chainWatcher
+	c.activeWatchers[chanPoint] = chainWatcher
 
 	// We'll also create a new channel arbitrator instance using this new
 	// channel, and our internal state.

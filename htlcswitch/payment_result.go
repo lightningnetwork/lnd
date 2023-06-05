@@ -93,14 +93,14 @@ type networkResultStore struct {
 	// paymentIDMtx is a multimutex used to make sure the database and
 	// result subscribers map is consistent for each payment ID in case of
 	// concurrent callers.
-	paymentIDMtx *multimutex.Mutex
+	paymentIDMtx *multimutex.Mutex[uint64]
 }
 
 func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
 	return &networkResultStore{
 		backend:      db,
 		results:      make(map[uint64][]chan *networkResult),
-		paymentIDMtx: multimutex.NewMutex(),
+		paymentIDMtx: multimutex.NewMutex[uint64](),
 	}
 }
 

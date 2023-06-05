@@ -450,7 +450,7 @@ type AuthenticatedGossiper struct {
 	// goroutine per channel ID. This is done to ensure that when
 	// the gossiper is handling an announcement, the db state stays
 	// consistent between when the DB is first read until it's written.
-	channelMtx *multimutex.Mutex
+	channelMtx *multimutex.Mutex[uint64]
 
 	recentRejects *lru.Cache[rejectCacheKey, *cachedReject]
 
@@ -496,7 +496,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		prematureChannelUpdates: lru.NewCache[uint64, *cachedNetworkMsg]( //nolint: lll
 			maxPrematureUpdates,
 		),
-		channelMtx: multimutex.NewMutex(),
+		channelMtx: multimutex.NewMutex[uint64](),
 		recentRejects: lru.NewCache[rejectCacheKey, *cachedReject](
 			maxRejectedUpdates,
 		),

@@ -442,7 +442,7 @@ type ChannelRouter struct {
 	// channelEdgeMtx is a mutex we use to make sure we process only one
 	// ChannelEdgePolicy at a time for a given channelID, to ensure
 	// consistency between the various database accesses.
-	channelEdgeMtx *multimutex.Mutex
+	channelEdgeMtx *multimutex.Mutex[uint64]
 
 	// statTicker is a resumable ticker that logs the router's progress as
 	// it discovers channels or receives updates.
@@ -480,7 +480,7 @@ func New(cfg Config) (*ChannelRouter, error) {
 		networkUpdates:    make(chan *routingMsg),
 		topologyClients:   &lnutils.SyncMap[uint64, *topologyClient]{},
 		ntfnClientUpdates: make(chan *topologyClientUpdate),
-		channelEdgeMtx:    multimutex.NewMutex(),
+		channelEdgeMtx:    multimutex.NewMutex[uint64](),
 		selfNode:          selfNode,
 		statTicker:        ticker.New(defaultStatInterval),
 		stats:             new(routerStats),

@@ -1865,8 +1865,8 @@ func (c *ChannelArbitrator) checkRemoteDanglingActions(
 			continue
 		}
 
-		log.Infof("ChannelArbitrator(%v): immediately failing "+
-			"htlc=%x from remote commitment",
+		log.Infof("ChannelArbitrator(%v): fail dangling htlc=%x from "+
+			"local/remote commitments diff",
 			c.cfg.ChanPoint, htlc.RHash[:])
 
 		actionMap[HtlcFailNowAction] = append(
@@ -1949,8 +1949,8 @@ func (c *ChannelArbitrator) checkRemoteDiffActions(height uint32,
 			actionMap[HtlcFailNowAction], htlc,
 		)
 
-		log.Infof("ChannelArbitrator(%v): immediately failing "+
-			"htlc=%x from remote commitment",
+		log.Infof("ChannelArbitrator(%v): fail dangling htlc=%x from "+
+			"remote commitments diff",
 			c.cfg.ChanPoint, htlc.RHash[:])
 	}
 

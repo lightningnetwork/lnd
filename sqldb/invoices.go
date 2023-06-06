@@ -1,9 +1,13 @@
 package sqldb
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/lightningnetwork/lnd/clock"
+	invpkg "github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
@@ -200,4 +204,107 @@ func NewInvoiceStore(db BatchedInvoiceQueries) *InvoiceStore {
 		db:    db,
 		clock: clock.NewDefaultClock(),
 	}
+}
+
+// AddInvoice inserts the targeted invoice into the database.
+// If the invoice has *any* payment hashes which already exists within
+// the database, then the insertion will be aborted and rejected due to
+// the strict policy banning any duplicate payment hashes.
+//
+// NOTE: A side effect of this function is that it sets AddIndex on
+// newInvoice.
+func (i *InvoiceStore) AddInvoice(ctx context.Context,
+	newInvoice *invpkg.Invoice, paymentHash lntypes.Hash) error {
+
+	// Make sure this is a valid invoice before trying to store it in our
+	// DB.
+	if err := invpkg.ValidateInvoice(newInvoice, paymentHash); err != nil {
+		return err
+	}
+
+	var writeTxOpts InvoiceQueriesTxOptions
+	err := i.db.ExecTx(ctx, &writeTxOpts, func(db InvoiceQueries) error {
+		var fb bytes.Buffer
+		err := newInvoice.Terms.Features.EncodeBase256(&fb)
+		if err != nil {
+			return err
+		}
+
+		params := sqlc.InsertInvoiceParams{
+			// Mandatory (not nullable).
+			AmountMsat:     int64(newInvoice.Terms.Value),
+			Expiry:         int32(newInvoice.Terms.Expiry),
+			Hash:           paymentHash[:],
+			State:          int16(newInvoice.State),
+			AmountPaidMsat: int64(newInvoice.AmtPaid),
+			IsAmp:          newInvoice.IsAMP(),
+			IsHodl:         newInvoice.HodlInvoice,
+			IsKeysend:      newInvoice.IsKeysend(),
+			CreatedAt:      newInvoice.CreationDate,
+			// Optional (nullable).
+			Memo: sqlStr(string(newInvoice.Memo)),
+			// KeySend invoices don't have a payment request.
+			PaymentRequest: sqlStr(string(
+				newInvoice.PaymentRequest),
+			),
+		}
+
+		// BOLT12 invoices don't have a final cltv delta.
+		params.CltvDelta = sqlInt32(newInvoice.Terms.FinalCltvDelta)
+
+		// Some invoices may not have a preimage, like in the case of
+		// HODL invoices.
+		if newInvoice.Terms.PaymentPreimage != nil {
+			params.Preimage = newInvoice.Terms.PaymentPreimage[:]
+		}
+
+		// Some non MPP payments may have the defaulf (invalid) value.
+		if newInvoice.Terms.PaymentAddr != invpkg.BlankPayAddr {
+			params.PaymentAddr = newInvoice.Terms.PaymentAddr[:]
+		}
+
+		addIdx, err := db.InsertInvoice(ctx, params)
+		if err != nil {
+			return fmt.Errorf("unable to insert invoice: %w", err)
+		}
+
+		// TODO(positiveblue): if invocies do not have custom features
+		// maybe just store the "invoice type" and populate the features
+		// based on that.
+		for feature := range newInvoice.Terms.Features.Features() {
+			params := sqlc.InsertInvoiceFeatureParams{
+				InvoiceID: addIdx,
+				Feature:   int32(feature),
+			}
+
+			err := db.InsertInvoiceFeature(ctx, params)
+			if err != nil {
+				return fmt.Errorf("unable to insert invoice "+
+					"feature(%v): %w", feature, err)
+			}
+		}
+
+		eventParams := sqlc.InsertInvoiceEventParams{
+			InvoiceID: addIdx,
+			CreatedAt: i.clock.Now(),
+			EventType: int32(InvoiceCreated),
+		}
+
+		err = db.InsertInvoiceEvent(ctx, eventParams)
+		if err != nil {
+			return fmt.Errorf("unable to insert invoice event: %w",
+				err)
+		}
+
+		newInvoice.AddIndex = uint64(addIdx)
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("unable to add invoice(%v): %w", paymentHash,
+			err)
+	}
+
+	return nil
 }

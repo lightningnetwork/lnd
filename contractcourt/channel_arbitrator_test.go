@@ -2686,6 +2686,91 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	)
 }
 
+// TestChannelArbitratorStartAfterCommitmentRejected tests that when we run into
+// the case where our commitment tx is rejected by our bitcoin backend we still
+// continue to startup the arbitrator for a specific set of errors.
+func TestChannelArbitratorStartAfterCommitmentRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+
+		// The specific error during broadcasting the transaction.
+		broadcastErr error
+
+		// expected state when the startup of the arbitrator succeeds.
+		expectedState ArbitratorState
+
+		expectedStartup bool
+	}{
+		{
+			name: "Commitment is rejected because of low mempool " +
+				"fees",
+			broadcastErr:    lnwallet.ErrMempoolFee,
+			expectedState:   StateCommitmentBroadcasted,
+			expectedStartup: true,
+		},
+		{
+			// We map a rejected rbf transaction to ErrDoubleSpend
+			// in lnd.
+			name: "Commitment is rejected because of a " +
+				"rbf transaction not succeeding",
+			broadcastErr:    lnwallet.ErrDoubleSpend,
+			expectedState:   StateCommitmentBroadcasted,
+			expectedStartup: true,
+		},
+		{
+			name: "Commitment is rejected with an " +
+				"unmatched error",
+			broadcastErr:    fmt.Errorf("Reject Commitment Tx"),
+			expectedState:   StateBroadcastCommit,
+			expectedStartup: false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// We'll create the arbitrator and its backing log
+			// to signal that it's already in the process of being
+			// force closed.
+			log := &mockArbitratorLog{
+				newStates: make(chan ArbitratorState, 5),
+				state:     StateBroadcastCommit,
+			}
+			chanArbCtx, err := createTestChannelArbitrator(t, log)
+			require.NoError(t, err, "unable to create "+
+				"ChannelArbitrator")
+
+			chanArb := chanArbCtx.chanArb
+
+			// Customize the PublishTx function of the arbitrator.
+			chanArb.cfg.PublishTx = func(*wire.MsgTx,
+				string) error {
+
+				return test.broadcastErr
+			}
+			err = chanArb.Start(nil)
+			if !test.expectedStartup {
+				require.ErrorIs(t, err, test.broadcastErr)
+				return
+			}
+			require.NoError(t, err)
+
+			t.Cleanup(func() {
+				require.NoError(t, chanArb.Stop())
+			})
+
+			// In case the startup succeeds we check that the state
+			// is as expected.
+			chanArbCtx.AssertStateTransitions(test.expectedState)
+		})
+	}
+}
+
 // putResolverReportInChannel returns a put report function which will pipe
 // reports into the channel provided.
 func putResolverReportInChannel(reports chan *channeldb.ResolverReport) func(

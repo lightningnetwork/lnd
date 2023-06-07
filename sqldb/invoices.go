@@ -400,6 +400,89 @@ func (i *InvoiceStore) LookupInvoice(ctx context.Context,
 	return invoice, nil
 }
 
+// InvoicesAddedSince can be used by callers to seek into the event time series
+// of all the invoices added in the database. The specified sinceAddIndex should
+// be the highest add index that the caller knows of. This method will return
+// all invoices with an add index greater than the specified sinceAddIndex.
+//
+// NOTE: The index starts from 1, as a result. We enforce that specifying a
+// value below the starting index value is a noop.
+func (i *InvoiceStore) InvoicesAddedSince(ctx context.Context,
+	id uint64) ([]*invpkg.Invoice, error) {
+
+	return i.invoiceAddedSince(ctx, id, DefaultRowsLimit)
+}
+
+// invoiceAddedSince is a helper method that retrieves all invoices added since
+// the specified add index. The limit parameter can be used to limit the number
+// of invoices fetched at once from the database.
+func (i *InvoiceStore) invoiceAddedSince(ctx context.Context,
+	id uint64, limit int32) ([]*invpkg.Invoice, error) {
+
+	var newInvoices []*invpkg.Invoice
+
+	if id == 0 {
+		return newInvoices, nil
+	}
+
+	readTxOpt := InvoiceQueriesTxOptions{readOnly: true}
+	err := i.db.ExecTx(ctx, &readTxOpt, func(db InvoiceQueries) error {
+		allRows := make([]sqlc.Invoice, 0, 100)
+
+		addIdx := id
+		limit := int32(100)
+		offset := int32(0)
+
+		for {
+			params := sqlc.FilterInvoicesParams{
+				// AddIndexGreaterOrEqualThan.
+				AddIndexGet: sqlInt64(addIdx + 1),
+				NumLimit:    limit,
+				NumOffset:   offset,
+			}
+
+			rows, err := db.FilterInvoices(ctx, params)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("unable to get invoices "+
+					"from db: %w", err)
+			}
+
+			allRows = append(allRows, rows...)
+
+			if len(rows) < int(limit) {
+				break
+			}
+
+			addIdx += uint64(limit)
+			offset += limit
+		}
+
+		if len(allRows) == 0 {
+			return nil
+		}
+
+		// Load all the information for the invoices.
+		for _, row := range allRows {
+			// Load the common invoice data.
+			invoice, err := fetchInvoiceData(ctx, db, row)
+			if err != nil {
+				return err
+			}
+
+			newInvoices = append(newInvoices, invoice)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to get invoices added since "+
+			"index %d: %w", id, err)
+	}
+
+	return newInvoices, nil
+}
+
 // fetchInvoiceData fetches the common invoice data for the given params.
 func fetchInvoiceData(ctx context.Context, db InvoiceQueries,
 	row sqlc.Invoice) (*invpkg.Invoice, error) {

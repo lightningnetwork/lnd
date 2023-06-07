@@ -24,6 +24,9 @@ const (
 	// DefaultRetryDelay is the default delay between retries. This will be
 	// used to generate a random delay between 0 and this value.
 	DefaultRetryDelay = time.Millisecond * 50
+
+	// DefaultRowsLimit is the default number of rows to return in a query
+	DefaultRowsLimit = int32(100)
 )
 
 // TxOptions represents a set of options one can use to control what type of

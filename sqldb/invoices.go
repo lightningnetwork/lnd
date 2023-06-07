@@ -3,11 +3,18 @@ package sqldb
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
+	"strconv"
+	"time"
 
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 )
 
@@ -45,7 +52,7 @@ type InvoiceQueries interface { //nolint:interfacebloat
 		invoiceID int64) ([]sqlc.InvoiceHtlc, error)
 
 	FilterInvoicePayments(ctx context.Context,
-		arg sqlc.FilterInvoicePaymentsParams) ([]sqlc.InvoicePayment,
+		arg sqlc.FilterInvoicePaymentsParams) ([]sqlc.FilterInvoicePaymentsRow, // nolint:lll
 		error)
 
 	GetInvoicePayments(ctx context.Context,
@@ -63,7 +70,7 @@ type InvoiceQueries interface { //nolint:interfacebloat
 
 	DeleteInvoiceFeatures(ctx context.Context, invoiceID int64) error
 
-	DeleteInvoiceHTLC(ctx context.Context, htlcID string) error
+	DeleteInvoiceHTLC(ctx context.Context, htlcID int64) error
 
 	DeleteInvoiceHTLCCustomRecords(ctx context.Context,
 		invoiceID int64) error
@@ -307,4 +314,300 @@ func (i *InvoiceStore) AddInvoice(ctx context.Context,
 	}
 
 	return nil
+}
+
+// LookupInvoice attempts to look up an invoice according to its 32 byte
+// payment hash. If an invoice which can settle the HTLC identified by the
+// passed payment hash isn't found, then an error is returned.
+// Otherwise, the full invoice is returned.
+// Before setting the incoming HTLC, the values SHOULD be checked to ensure the
+// payer meets the agreed upon contractual terms of the payment.
+func (i *InvoiceStore) LookupInvoice(ctx context.Context,
+	ref invpkg.InvoiceRef) (*invpkg.Invoice, error) {
+
+	var (
+		invoice *invpkg.Invoice
+		err     error
+	)
+
+	readTxOpt := InvoiceQueriesTxOptions{readOnly: true}
+	err = i.db.ExecTx(ctx, &readTxOpt, func(db InvoiceQueries) error {
+		switch {
+		// If the reference is a SetID then we'll fetch the AMP invoice
+		// and populate the HTLCs for that set id.
+		case ref.SetID() != nil:
+			return fmt.Errorf("lookup for amp invoices is not " +
+				"implemented yet")
+
+		default:
+			params := sqlc.GetInvoiceParams{}
+			if ref.PayHash() != nil {
+				params.Hash = ref.PayHash()[:]
+			}
+			if ref.PayAddr() != nil {
+				params.PaymentAddr = ref.PayAddr()[:]
+			}
+
+			rows, err := db.GetInvoice(ctx, params)
+			switch {
+			case len(rows) == 0:
+				return fmt.Errorf("invoice not found")
+
+			case len(rows) > 1:
+				return fmt.Errorf("more than one invoice found")
+
+			case err != nil:
+				return fmt.Errorf("unable to get invoice from "+
+					"db: %w", err)
+			}
+
+			// Load the common invoice data.
+			invoice, err = fetchInvoiceData(ctx, db, rows[0])
+			if err != nil {
+				return err
+			}
+
+			// Load any extra HTLC data needed for this invoice ref.
+			if invoice.IsAMP() {
+				switch ref.Modifier() {
+				case invpkg.DefaultModifier:
+					// TODO(positiveblue): fetch all htlc
+					// data.
+
+				case invpkg.HtlcSetOnlyModifier:
+					// TODO(positiveblue): should this ever
+					// happen?
+
+				case invpkg.HtlcSetBlankModifier:
+					// No need to fetch any htlc data.
+
+				default:
+					return fmt.Errorf("unknown invoice "+
+						"ref modifier: %v",
+						ref.Modifier())
+				}
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to lookup invoice(%s): %w", ref,
+			err)
+	}
+
+	return invoice, nil
+}
+
+// fetchInvoiceData fetches the common invoice data for the given params.
+func fetchInvoiceData(ctx context.Context, db InvoiceQueries,
+	row sqlc.Invoice) (*invpkg.Invoice, error) {
+
+	// Unmarshal the common data.
+	invoice, err := unmarshalInvoice(row)
+	if err != nil {
+		return nil, fmt.Errorf("unable to unmarshal invoice(id=%d) "+
+			"from db: %w", row.ID, err)
+	}
+
+	// Fetch the invoice features.
+	features, err := getInvoiceFeatures(ctx, db, row.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	invoice.Terms.Features = features
+
+	// Fetch the payment data.
+	dbPayments, err := db.GetInvoicePayments(ctx, row.ID)
+	switch {
+	case err != nil && !errors.Is(err, sql.ErrNoRows):
+		return nil, fmt.Errorf("unable to get invoice payment: %w", err)
+
+	case len(dbPayments) > 1:
+		return nil, fmt.Errorf("more than one payment found")
+
+	case len(dbPayments) == 1:
+		dbPayment := dbPayments[0]
+		invoice.SettleIndex = uint64(dbPayment.ID)
+		invoice.SettleDate = dbPayment.SettledAt
+	}
+
+	// Fetch the invoice htlcs.
+	htlcs, err := getInvoiceHtlcs(ctx, db, row.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(htlcs) > 0 {
+		invoice.Htlcs = htlcs
+	}
+
+	return invoice, nil
+}
+
+// getInvoiceFeatures fetches the invoice features for the given invoice id.
+func getInvoiceFeatures(ctx context.Context, db InvoiceQueries,
+	invoiceID int64) (*lnwire.FeatureVector, error) {
+
+	rows, err := db.GetInvoiceFeatures(ctx, invoiceID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get invoice features: %w",
+			err)
+	}
+
+	features := lnwire.EmptyFeatureVector()
+	for _, feature := range rows {
+		features.Set(lnwire.FeatureBit(feature.Feature))
+	}
+
+	return features, nil
+}
+
+// getInvoiceHtlcs fetches the invoice htlcs for the given invoice id.
+func getInvoiceHtlcs(ctx context.Context, db InvoiceQueries,
+	invoiceID int64) (map[invpkg.CircuitKey]*invpkg.InvoiceHTLC, error) {
+
+	htlcRows, err := db.GetInvoiceHTLCs(ctx, invoiceID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get invoice htlcs: %w", err)
+	}
+
+	// We have no htlcs to unmarshal.
+	if len(htlcRows) == 0 {
+		return nil, nil
+	}
+
+	crRows, err := db.GetInvoiceHTLCCustomRecords(ctx, invoiceID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get custom records for "+
+			"invoice htlcs: %w", err)
+	}
+
+	cr := make(map[int64]record.CustomSet, len(crRows))
+	for _, row := range crRows {
+		if _, ok := cr[row.HtlcID]; !ok {
+			cr[row.HtlcID] = make(record.CustomSet)
+		}
+
+		cr[row.HtlcID][uint64(row.Key)] = row.Value
+	}
+
+	htlcs := make(map[invpkg.CircuitKey]*invpkg.InvoiceHTLC, len(htlcRows))
+
+	for _, row := range htlcRows {
+		circuiteKey, htlc, err := unmarshalInvoiceHTLC(row)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal "+
+				"htlc(%d): %w", row.ID, err)
+
+		}
+
+		if customRecords, ok := cr[row.HtlcID]; ok {
+			htlc.CustomRecords = customRecords
+		}
+
+		htlcs[circuiteKey] = htlc
+	}
+
+	return htlcs, nil
+}
+
+// unmarshalInvoice converts an InvoiceRow to an Invoice.
+func unmarshalInvoice(row sqlc.Invoice) (*invpkg.Invoice, error) {
+	var (
+		memo           []byte
+		paymentRequest = []byte{}
+
+		preimage *lntypes.Preimage
+
+		paymentAddr [32]byte
+	)
+
+	if row.Memo.Valid {
+		memo = []byte(row.Memo.String)
+	}
+
+	// Keysend payments will have this field empty.
+	if row.PaymentRequest.Valid {
+		paymentRequest = []byte(row.PaymentRequest.String)
+	}
+
+	// If this invoice is a hodl invoice we may not have its preimage
+	// stored.
+	if row.Preimage != nil {
+		preimage = &lntypes.Preimage{}
+		copy(preimage[:], row.Preimage)
+	}
+
+	copy(paymentAddr[:], row.PaymentAddr)
+
+	var cltvDelta int32
+	if row.CltvDelta.Valid {
+		cltvDelta = row.CltvDelta.Int32
+	}
+
+	invoice := &invpkg.Invoice{
+		Memo:           memo,
+		PaymentRequest: paymentRequest,
+		CreationDate:   row.CreatedAt,
+		Terms: invpkg.ContractTerm{
+			FinalCltvDelta:  cltvDelta,
+			Expiry:          time.Duration(row.Expiry),
+			PaymentPreimage: preimage,
+			Value:           lnwire.MilliSatoshi(row.AmountMsat),
+			PaymentAddr:     paymentAddr,
+		},
+		AddIndex:    uint64(row.ID),
+		State:       invpkg.ContractState(row.State),
+		AmtPaid:     lnwire.MilliSatoshi(row.AmountPaidMsat),
+		Htlcs:       make(map[models.CircuitKey]*invpkg.InvoiceHTLC),
+		AMPState:    invpkg.AMPInvoiceState{},
+		HodlInvoice: row.IsHodl,
+	}
+
+	return invoice, nil
+}
+
+// unmarshalInvoiceHTLC converts an sqlc.InvoiceHtlc to an InvoiceHTLC.
+func unmarshalInvoiceHTLC(row sqlc.InvoiceHtlc) (invpkg.CircuitKey,
+	*invpkg.InvoiceHTLC, error) {
+
+	uint64ChanID, err := strconv.ParseUint(row.ChanID, 10, 64)
+	if err != nil {
+		return invpkg.CircuitKey{}, nil, err
+	}
+
+	chanID := lnwire.NewShortChanIDFromInt(uint64ChanID)
+
+	if row.HtlcID < 0 {
+		return invpkg.CircuitKey{}, nil, fmt.Errorf("invalid uint64 "+
+			"value: %v", row.HtlcID)
+	}
+
+	htlcID := uint64(row.HtlcID)
+
+	circuitKey := invpkg.CircuitKey{
+		ChanID: chanID,
+		HtlcID: htlcID,
+	}
+
+	htlc := &invpkg.InvoiceHTLC{
+		Amt:          lnwire.MilliSatoshi(row.AmountMsat),
+		AcceptHeight: uint32(row.AcceptHeight),
+		AcceptTime:   row.AcceptTime,
+		Expiry:       uint32(row.ExpiryHeight),
+		State:        invpkg.HtlcState(row.State),
+	}
+
+	if row.TotalMppMsat.Valid {
+		htlc.MppTotalAmt = lnwire.MilliSatoshi(row.TotalMppMsat.Int64)
+	}
+
+	if row.ResolveTime.Valid {
+		htlc.ResolveTime = row.ResolveTime.Time
+	}
+
+	return circuitKey, htlc, nil
 }

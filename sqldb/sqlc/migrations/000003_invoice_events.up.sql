@@ -18,11 +18,11 @@ CREATE TABLE IF NOT EXISTS invoice_events (
 
     -- htlc_id is the reference to the htlc this event was emitted for, may be 
     -- null.
-    htlc_id BIGINT REFERENCES invoice_htlcs(htlc_id),
+    htlc_id BIGINT,
 
     -- set_id is the reference to the set_id this event was emitted for, may be
     -- null.
-    set_id BLOB NOT NULL REFERENCES amp_invoice_payments(set_id),
+    set_id BLOB REFERENCES amp_invoice_payments(set_id),
 
     -- event_type is the type of this event.
     event_type INTEGER NOT NULL REFERENCES invoice_event_types(id),

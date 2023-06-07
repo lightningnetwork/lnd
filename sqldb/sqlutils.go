@@ -18,6 +18,13 @@ func sqlInt32[T constraints.Integer](num T) sql.NullInt32 {
 	}
 }
 
+// extractSqlInt32 turns a NullInt32 into a numerical type. This can be useful
+// when reading directly from the database, as this function handles extracting
+// the inner value from the "option"-like struct.
+func extractSqlInt32[T constraints.Integer](num sql.NullInt32) T {
+	return T(num.Int32)
+}
+
 // sqlStr turns a string into the NullString that sql/sqlc uses when a string
 // can be permitted to be NULL.
 func sqlStr(s string) sql.NullString {

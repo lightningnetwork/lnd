@@ -531,6 +531,13 @@ type Config struct {
 	AliasManager aliasHandler
 }
 
+// tempChannelSignal is used by `newChanBarriers` to store a signal and the
+// tempChanID for the given channel.
+type tempChannelSignal struct {
+	tempChanID [32]byte
+	signal     chan struct{}
+}
+
 // Manager acts as an orchestrator/bridge between the wallet's
 // 'ChannelReservation' workflow, and the wire protocol's funding initiation
 // messages. Any requests to initiate the funding workflow for a channel,
@@ -584,7 +591,7 @@ type Manager struct {
 	// be signalled once the channel is fully open. This barrier acts as a
 	// synchronization point for any incoming/outgoing HTLCs before the
 	// channel has been fully opened.
-	newChanBarriers *lnutils.SyncMap[lnwire.ChannelID, chan struct{}]
+	newChanBarriers *lnutils.SyncMap[lnwire.ChannelID, *tempChannelSignal]
 
 	localDiscoverySignals *lnutils.SyncMap[lnwire.ChannelID, chan struct{}]
 
@@ -643,7 +650,7 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 			map[lnwire.ChannelID][32]byte,
 		),
 		newChanBarriers: &lnutils.SyncMap[
-			lnwire.ChannelID, chan struct{},
+			lnwire.ChannelID, *tempChannelSignal,
 		]{},
 		fundingMsgs: make(
 			chan *fundingMsg, msgBufferSize,
@@ -696,7 +703,24 @@ func (f *Manager) start() error {
 				"creating chan barrier",
 				channel.FundingOutpoint)
 
-			f.newChanBarriers.Store(chanID, make(chan struct{}))
+			// Create the signal with empty temp channel ID.
+			//
+			// NOTE: funding manager won't notify Brontide about
+			// pending channels loaded from disk. Instead, Brontide
+			// will handle the loading part to update itself about
+			// the pending channels.
+			//
+			// TODO(yy): we need to decide the design on how
+			// Brontide interacts with channel funding. Either it
+			// reads the channel state from db directly and handles
+			// the state change on its own, or relies on funding
+			// manager to get the latest state, but not a mix of
+			// both.
+			sig := &tempChannelSignal{
+				signal: make(chan struct{}),
+			}
+
+			f.newChanBarriers.Store(chanID, sig)
 			f.localDiscoverySignals.Store(
 				chanID, make(chan struct{}),
 			)
@@ -2152,7 +2176,13 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	// fully open.
 	channelID := lnwire.NewChanIDFromOutPoint(outPoint)
 	log.Debugf("Creating chan barrier for ChanID(%v)", channelID)
-	f.newChanBarriers.Store(channelID, make(chan struct{}))
+
+	// Create the barrier signal.
+	barrierSig := &tempChannelSignal{
+		tempChanID: pendingChanID,
+		signal:     make(chan struct{}),
+	}
+	f.newChanBarriers.Store(channelID, barrierSig)
 
 	// The next message that advances the funding flow will reference the
 	// channel via its permanent channel ID, so we'll set up this mapping
@@ -2280,7 +2310,13 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	// fully open.
 	channelID := lnwire.NewChanIDFromOutPoint(&fundingOut)
 	log.Debugf("Creating chan barrier for ChanID(%v)", channelID)
-	f.newChanBarriers.Store(channelID, make(chan struct{}))
+
+	// Create the barrier signal.
+	barrierSig := &tempChannelSignal{
+		tempChanID: pendingChanID,
+		signal:     make(chan struct{}),
+	}
+	f.newChanBarriers.Store(channelID, barrierSig)
 
 	log.Infof("sending FundingSigned for pending_id(%x) over "+
 		"ChannelPoint(%v)", pendingChanID[:], fundingOut)
@@ -3611,7 +3647,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		if ok {
 			log.Tracef("Closing chan barrier for ChanID(%v)",
 				chanID)
-			close(chanBarrier)
+			close(chanBarrier.signal)
 		}
 	}()
 

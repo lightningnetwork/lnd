@@ -859,6 +859,58 @@ func (f *Manager) CancelPeerReservations(nodePub [33]byte) {
 	delete(f.activeReservations, nodePub)
 }
 
+// removePendingChannelFromBrontide notifies Brontide to remove a pending
+// channel from its state due to channel funding failure.
+func (f *Manager) removePendingChannelFromBrontide(peer lnpeer.Peer,
+	tempChanID [32]byte) {
+
+	var (
+		cid   lnwire.ChannelID
+		found bool
+	)
+
+	// visitor finds the channel ID based on the tempChanID.
+	visitor := func(chanID lnwire.ChannelID, sig *tempChannelSignal) bool {
+		// Found the matching tempChanID, return false to exit the
+		// iteration.
+		if sig.tempChanID == tempChanID {
+			cid = chanID
+			found = true
+
+			return false
+		}
+
+		// No matching record found, continue the iteration.
+		return true
+	}
+
+	// Iterate the map to find the channel ID.
+	//
+	// NOTE: we could instead create a new map that has
+	// `tempChanID:channelID` to speed up the lookup. However, since
+	// funding failure is not a common event, and the `newChanBarriers` map
+	// is relatively small, this should not cause performance issue.
+	f.newChanBarriers.Range(visitor)
+
+	// Grab the pubkey.
+	pubKey := peer.PubKey()
+
+	// Depending which step we are in we may not have added the pending
+	// channel to the map yet. We'll exit early if no record found.
+	if !found {
+		log.Debugf("Cannot find channel ID using tempChanID=%x for "+
+			"peer %x", tempChanID, pubKey)
+		return
+	}
+
+	// Notify Brontide to remove the pending channel.
+	err := peer.RemovePendingChannel(cid)
+	if err != nil {
+		log.Errorf("Unable to remove channel %v with peer %x: %v",
+			cid, pubKey, err)
+	}
+}
+
 // failFundingFlow will fail the active funding flow with the target peer,
 // identified by its unique temporary channel ID. This method will send an
 // error to the remote peer, and also remove the reservation from our set of
@@ -871,6 +923,9 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 
 	log.Debugf("Failing funding flow for pending_id=%x: %v",
 		tempChanID, fundingErr)
+
+	// First, remove the channel from Brontide.
+	f.removePendingChannelFromBrontide(peer, tempChanID)
 
 	ctx, err := f.cancelReservationCtx(
 		peer.IdentityKey(), tempChanID, false,

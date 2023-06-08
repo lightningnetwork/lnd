@@ -436,6 +436,10 @@ type Brontide struct {
 	// channels to the source peer which handled the funding workflow.
 	newPendingChannel chan *newChannelMsg
 
+	// removePendingChannel is used by the fundingManager to cancel pending
+	// open channels to the source peer when the funding flow is failed.
+	removePendingChannel chan *newChannelMsg
+
 	// activeMsgStreams is a map from channel id to the channel streams that
 	// proxy messages to individual, active links.
 	activeMsgStreams map[lnwire.ChannelID]*msgStream
@@ -2393,6 +2397,11 @@ out:
 		case req := <-p.newActiveChannel:
 			p.handleNewActiveChannel(req)
 
+		// The funding flow for a pending channel is failed, we will
+		// remove it from Brontide.
+		case req := <-p.removePendingChannel:
+			p.handleRemovePendingChannel(req)
+
 		// We've just received a local request to close an active
 		// channel. It will either kick of a cooperative channel
 		// closure negotiation, or be a notification of a breached
@@ -3527,6 +3536,34 @@ func (p *Brontide) AddPendingChannel(cid lnwire.ChannelID,
 	}
 }
 
+// RemovePendingChannel removes a pending open channel from the peer.
+//
+// NOTE: Part of the lnpeer.Peer interface.
+func (p *Brontide) RemovePendingChannel(cid lnwire.ChannelID) error {
+	errChan := make(chan error, 1)
+	newChanMsg := &newChannelMsg{
+		channelID: cid,
+		err:       errChan,
+	}
+
+	select {
+	case p.removePendingChannel <- newChanMsg:
+	case <-p.quit:
+		return lnpeer.ErrPeerExiting
+	}
+
+	// We pause here to wait for the peer to respond to the cancellation of
+	// the pending channel before we close the channel barrier
+	// corresponding to the channel.
+	select {
+	case err := <-errChan:
+		return err
+
+	case <-p.quit:
+		return lnpeer.ErrPeerExiting
+	}
+}
+
 // StartTime returns the time at which the connection was established if the
 // peer started successfully, and zero otherwise.
 func (p *Brontide) StartTime() time.Time {
@@ -3869,6 +3906,34 @@ func (p *Brontide) handleNewPendingChannel(req *newChannelMsg) {
 	// `addedChannels`.
 	p.activeChannels.Store(chanID, nil)
 	p.addedChannels.Store(chanID, struct{}{})
+}
+
+// handleRemovePendingChannel takes a `newChannelMsg` request and removes it
+// from `activeChannels` map. The request will be ignored if the channel is
+// considered active by Brontide. Noop if the channel ID cannot be found.
+func (p *Brontide) handleRemovePendingChannel(req *newChannelMsg) {
+	defer close(req.err)
+
+	chanID := req.channelID
+
+	// If we already have this channel, something is wrong with the funding
+	// flow as it will only be marked as active after `ChannelReady` is
+	// handled. In this case, we will log an error and exit.
+	if p.isActiveChannel(chanID) {
+		p.log.Errorf("Channel(%v) is active, ignoring remove request",
+			chanID)
+		return
+	}
+
+	// The channel has not been added yet, we will log a warning as there
+	// is an unexpected call from funding manager.
+	if !p.isPendingChannel(chanID) {
+		p.log.Warnf("Channel(%v) not found, removing it anyway", chanID)
+	}
+
+	// Remove the record of this pending channel.
+	p.activeChannels.Delete(chanID)
+	p.addedChannels.Delete(chanID)
 }
 
 // sendLinkUpdateMsg sends a message that updates the channel to the

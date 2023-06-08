@@ -894,8 +894,20 @@ func (c *chanIdentifier) hasChanID() bool {
 func (f *Manager) failFundingFlow(peer lnpeer.Peer, cid *chanIdentifier,
 	fundingErr error) {
 
-	log.Debugf("Failing funding flow for pending_id=%x: %v",
+	log.Debugf("Failing funding flow for pending_id=%v: %v",
 		cid.tempChanID, fundingErr)
+
+	// First, notify Brontide to remove the pending channel.
+	//
+	// NOTE: depending on where we fail the flow, we may not have the
+	// active channel ID yet.
+	if cid.hasChanID() {
+		err := peer.RemovePendingChannel(cid.chanID)
+		if err != nil {
+			log.Errorf("Unable to remove channel %v with peer %x: "+
+				"%v", cid, peer.IdentityKey(), err)
+		}
+	}
 
 	ctx, err := f.cancelReservationCtx(
 		peer.IdentityKey(), cid.tempChanID, false,

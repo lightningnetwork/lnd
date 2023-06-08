@@ -327,6 +327,10 @@ func (n *testNode) AddPendingChannel(_ lnwire.ChannelID,
 	return nil
 }
 
+func (n *testNode) RemovePendingChannel(_ lnwire.ChannelID) error {
+	return nil
+}
+
 func createTestWallet(cdb *channeldb.ChannelStateDB, netParams *chaincfg.Params,
 	notifier chainntnfs.ChainNotifier, wc lnwallet.WalletController,
 	signer input.Signer, keyRing keychain.SecretKeyRing,

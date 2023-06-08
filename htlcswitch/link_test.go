@@ -1894,6 +1894,10 @@ func (m *mockPeer) AddPendingChannel(_ lnwire.ChannelID,
 	return nil
 }
 
+func (m *mockPeer) RemovePendingChannel(_ lnwire.ChannelID) error {
+	return nil
+}
+
 func newSingleLinkTestHarness(t *testing.T, chanAmt, chanReserve btcutil.Amount) (
 	ChannelLink, *lnwallet.LightningChannel, chan time.Time, func() error,
 	func() (*lnwallet.LightningChannel, error), error) {

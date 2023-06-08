@@ -69,6 +69,10 @@ func (p *mockPeer) AddPendingChannel(_ lnwire.ChannelID,
 	return nil
 }
 
+func (p *mockPeer) RemovePendingChannel(_ lnwire.ChannelID) error {
+	return nil
+}
+
 // mockMessageStore is an in-memory implementation of the MessageStore interface
 // used for the gossiper's unit tests.
 type mockMessageStore struct {

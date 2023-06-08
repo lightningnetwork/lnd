@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 
@@ -586,6 +587,122 @@ func (i *InvoiceStore) invoiceAddedSince(ctx context.Context,
 	}
 
 	return newInvoices, nil
+}
+
+// QueryInvoices allows a caller to query the invoice database for invoices
+// within the specified add index range.
+func (i *InvoiceStore) QueryInvoices(ctx context.Context,
+	q invpkg.InvoiceQuery) (invpkg.InvoiceSlice, error) {
+
+	// TODO(positiveblue): add support for fetching the data in batches
+	// until we get the NumMaxInvoices.
+	if q.NumMaxInvoices > uint64(DefaultRowsLimit) {
+		return invpkg.InvoiceSlice{}, fmt.Errorf("max invoices %v is "+
+			"greater than the max allowed rows limit of %v",
+			q.NumMaxInvoices, DefaultRowsLimit)
+	}
+
+	var invoices []invpkg.Invoice
+
+	readTxOpt := InvoiceQueriesTxOptions{readOnly: true}
+	err := i.db.ExecTx(ctx, &readTxOpt, func(db InvoiceQueries) error {
+		params := sqlc.FilterInvoicesParams{
+			NumLimit:    int32(q.NumMaxInvoices),
+			PendingOnly: q.PendingOnly,
+		}
+
+		if !q.Reversed {
+			// The invoice with index offset id must not be included
+			// in the results.
+			params.AddIndexGet = sqlInt64(q.IndexOffset + 1)
+		}
+
+		if q.Reversed {
+			idx := int32(q.IndexOffset)
+
+			// If the index offset was not set, we want to fetch
+			// from the lastest invoice.
+			if idx == 0 {
+				params.AddIndexLet = sqlInt64(math.MaxInt64)
+
+			} else {
+				// The invoice with index offset id must not be
+				// included in the results.
+				params.AddIndexLet = sqlInt64(idx - 1)
+			}
+
+			params.Reverse = true
+		}
+
+		if !q.CreationDateStart.IsZero() {
+			params.CreatedAfter = sql.NullTime{
+				Time:  q.CreationDateStart,
+				Valid: true,
+			}
+		}
+
+		if !q.CreationDateEnd.IsZero() {
+			params.CreatedBefore = sql.NullTime{
+				Time:  q.CreationDateEnd,
+				Valid: true,
+			}
+		}
+
+		rows, err := db.FilterInvoices(ctx, params)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("unable to get invoices from db: %w",
+				err)
+		}
+
+		if len(rows) == 0 {
+			return nil
+		}
+
+		// Load all the information for the invoices.
+		for _, row := range rows {
+			// Load the common invoice data.
+			invoice, err := fetchInvoiceData(ctx, db, row)
+			if err != nil {
+				return err
+			}
+
+			invoices = append(invoices, *invoice)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return invpkg.InvoiceSlice{}, fmt.Errorf("unable to query "+
+			"invoices: %w", err)
+	}
+
+	if len(invoices) == 0 {
+		return invpkg.InvoiceSlice{
+			InvoiceQuery: q,
+		}, nil
+	}
+
+	// If we iterated through the add index in reverse order, then
+	// we'll need to reverse the slice of invoices to return them in
+	// forward order.
+	if q.Reversed {
+		numInvoices := len(invoices)
+		for i := 0; i < numInvoices/2; i++ {
+			reverse := numInvoices - i - 1
+			invoices[i], invoices[reverse] =
+				invoices[reverse], invoices[i]
+		}
+	}
+
+	res := invpkg.InvoiceSlice{
+		InvoiceQuery:     q,
+		Invoices:         invoices,
+		FirstIndexOffset: invoices[0].AddIndex,
+		LastIndexOffset:  invoices[len(invoices)-1].AddIndex,
+	}
+
+	return res, nil
 }
 
 // fetchInvoiceData fetches the common invoice data for the given params.

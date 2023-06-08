@@ -307,3 +307,420 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 		}
 	}
 }
+
+// TestQueryInvoices ensures that we can properly query the invoice database for
+// invoices using different types of queries.
+func TestQueryInvoices(t *testing.T) {
+	t.Parallel()
+
+	ctxt, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	db := NewTestDB(t)
+
+	executor := NewTransactionExecutor(
+		db, func(tx *sql.Tx) InvoiceQueries {
+			return db.BaseDB.WithTx(tx)
+		},
+	)
+
+	store := NewInvoiceStore(executor)
+
+	// To begin the test, we'll add 50 invoices to the database. We'll
+	// assume that the index of the invoice within the database is the same
+	// as the amount of the invoice itself.
+	const numInvoices = 50
+	var invoices []invpkg.Invoice
+	var pendingInvoices []invpkg.Invoice
+
+	for i := int64(1); i <= numInvoices; i++ {
+		amt := lnwire.MilliSatoshi(i)
+		invoice, err := randInvoice(amt)
+		invoice.CreationDate = invoice.CreationDate.Add(
+			time.Duration(i-1) * time.Second,
+		)
+		if err != nil {
+			t.Fatalf("unable to create invoice: %v", err)
+		}
+
+		paymentHash := invoice.Terms.PaymentPreimage.Hash()
+
+		err = store.AddInvoice(ctxt, invoice, paymentHash)
+		if err != nil {
+			t.Fatalf("unable to add invoice: %v", err)
+		}
+
+		// We'll settle half of all invoices created.
+		if i%2 == 0 {
+			// TODO(positiveblue): really settle the invoice instead
+			// of just making the changes directly in the invoice
+			// and the db.
+			invoice.State = invpkg.ContractSettled
+			invoice.AmtPaid = amt
+
+			preimage := invoice.Terms.PaymentPreimage
+			params := sqlc.UpdateInvoiceParams{
+				ID:             i,
+				State:          int16(invpkg.ContractSettled),
+				Preimage:       preimage[:],
+				AmountPaidMsat: int64(amt),
+			}
+			err := db.UpdateInvoice(ctxt, params)
+			require.NoError(t, err)
+		} else {
+			pendingInvoices = append(pendingInvoices, *invoice)
+		}
+
+		invoices = append(invoices, *invoice)
+	}
+
+	// The test will consist of several queries along with their respective
+	// expected response. Each query response should match its expected one.
+	testCases := []struct {
+		query    invpkg.InvoiceQuery
+		expected []invpkg.Invoice
+	}{
+		// Fetch all invoices with a single query.
+		{
+			query: invpkg.InvoiceQuery{
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices,
+		},
+		// Fetch all invoices with a single query, reversed.
+		{
+			query: invpkg.InvoiceQuery{
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices,
+		},
+		// Fetch the first 25 invoices.
+		{
+			query: invpkg.InvoiceQuery{
+				NumMaxInvoices: numInvoices / 2,
+			},
+			expected: invoices[:numInvoices/2],
+		},
+		// Fetch the first 10 invoices, but this time iterating
+		// backwards.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    11,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices[:10],
+		},
+		// Fetch the last 40 invoices.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    10,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices[10:],
+		},
+		// Fetch all but the first invoice.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    1,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices[1:],
+		},
+		// Fetch one invoice, reversed, with index offset 3. This
+		// should give us the second invoice in the array.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    3,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[1:2],
+		},
+		// Same as above, at index 2.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    2,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[0:1],
+		},
+		// Fetch one invoice, at index 1, reversed. Since invoice#1 is
+		// the very first, there won't be any left in a reverse search,
+		// so we expect no invoices to be returned.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    1,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: nil,
+		},
+		// Same as above, but don't restrict the number of invoices to
+		// 1.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    1,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: nil,
+		},
+		// Fetch one invoice, reversed, with no offset set. We expect
+		// the last invoice in the response.
+		{
+			query: invpkg.InvoiceQuery{
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-1:],
+		},
+		// Fetch one invoice, reversed, the offset set at numInvoices+1.
+		// We expect this to return the last invoice.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    numInvoices + 1,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-1:],
+		},
+		// Same as above, at offset numInvoices.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    numInvoices,
+				Reversed:       true,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-2 : numInvoices-1],
+		},
+		// Fetch one invoice, at no offset (same as offset 0). We
+		// expect the first invoice only in the response.
+		{
+			query: invpkg.InvoiceQuery{
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[:1],
+		},
+		// Same as above, at offset 1.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    1,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[1:2],
+		},
+		// Same as above, at offset 2.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    2,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[2:3],
+		},
+		// Same as above, at offset numInvoices-1. Expect the last
+		// invoice to be returned.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    numInvoices - 1,
+				NumMaxInvoices: 1,
+			},
+			expected: invoices[numInvoices-1:],
+		},
+		// Same as above, at offset numInvoices. No invoices should be
+		// returned, as there are no invoices after this offset.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    numInvoices,
+				NumMaxInvoices: 1,
+			},
+			expected: nil,
+		},
+		// Fetch all pending invoices with a single query.
+		{
+			query: invpkg.InvoiceQuery{
+				PendingOnly:    true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: pendingInvoices,
+		},
+		// Fetch the first 12 pending invoices.
+		{
+			query: invpkg.InvoiceQuery{
+				PendingOnly:    true,
+				NumMaxInvoices: numInvoices / 4,
+			},
+			expected: pendingInvoices[:len(pendingInvoices)/2],
+		},
+		// Fetch the first 5 pending invoices, but this time iterating
+		// backwards.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    10,
+				PendingOnly:    true,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			// Since we seek to the invoice with index 10 and
+			// iterate backwards, there should only be 5 pending
+			// invoices before it as every other invoice within the
+			// index is settled.
+			expected: pendingInvoices[:5],
+		},
+		// Fetch the last 15 invoices.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    20,
+				PendingOnly:    true,
+				NumMaxInvoices: numInvoices,
+			},
+			// Since we seek to the invoice with index 20, there are
+			// 30 invoices left. From these 30, only 15 of them are
+			// still pending.
+			expected: pendingInvoices[len(pendingInvoices)-15:],
+		},
+		// Fetch all invoices paginating backwards, with an index offset
+		// that is beyond our last offset. We expect all invoices to be
+		// returned.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:    numInvoices * 2,
+				PendingOnly:    false,
+				Reversed:       true,
+				NumMaxInvoices: numInvoices,
+			},
+			expected: invoices,
+		},
+		// Fetch invoices <= 25 by creation date.
+		{
+			query: invpkg.InvoiceQuery{
+				NumMaxInvoices:  numInvoices,
+				CreationDateEnd: time.Unix(25, 0),
+			},
+			expected: invoices[:25],
+		},
+		// Fetch invoices >= 26 creation date.
+		{
+			query: invpkg.InvoiceQuery{
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(26, 0),
+			},
+			expected: invoices[25:],
+		},
+		// Fetch pending invoices <= 25 by creation date.
+		{
+			query: invpkg.InvoiceQuery{
+				PendingOnly:     true,
+				NumMaxInvoices:  numInvoices,
+				CreationDateEnd: time.Unix(25, 0),
+			},
+			expected: pendingInvoices[:13],
+		},
+		// Fetch pending invoices >= 26 creation date.
+		{
+			query: invpkg.InvoiceQuery{
+				PendingOnly:       true,
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(26, 0),
+			},
+			expected: pendingInvoices[13:],
+		},
+		// Fetch pending invoices with offset and end creation date.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:     20,
+				NumMaxInvoices:  numInvoices,
+				CreationDateEnd: time.Unix(30, 0),
+			},
+			// Since we're skipping to invoice 20 and iterating
+			// to invoice 30, we'll expect those invoices.
+			expected: invoices[20:30],
+		},
+		// Fetch pending invoices with offset and start creation date
+		// in reversed order.
+		{
+			query: invpkg.InvoiceQuery{
+				IndexOffset:       21,
+				Reversed:          true,
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(11, 0),
+			},
+			// Since we're skipping to invoice 20 and iterating
+			// backward to invoice 10, we'll expect those invoices.
+			expected: invoices[10:20],
+		},
+		// Fetch invoices with start and end creation date.
+		{
+			query: invpkg.InvoiceQuery{
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(11, 0),
+				CreationDateEnd:   time.Unix(20, 0),
+			},
+			expected: invoices[10:20],
+		},
+		// Fetch pending invoices with start and end creation date.
+		{
+			query: invpkg.InvoiceQuery{
+				PendingOnly:       true,
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(11, 0),
+				CreationDateEnd:   time.Unix(20, 0),
+			},
+			expected: pendingInvoices[5:10],
+		},
+		// Fetch invoices with start and end creation date in reverse
+		// order.
+		{
+			query: invpkg.InvoiceQuery{
+				Reversed:          true,
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(11, 0),
+				CreationDateEnd:   time.Unix(20, 0),
+			},
+			expected: invoices[10:20],
+		},
+		// Fetch pending invoices with start and end creation date in
+		// reverse order.
+		{
+			query: invpkg.InvoiceQuery{
+				PendingOnly:       true,
+				Reversed:          true,
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(11, 0),
+				CreationDateEnd:   time.Unix(20, 0),
+			},
+			expected: pendingInvoices[5:10],
+		},
+		// Fetch invoices with a start date greater than end date
+		// should result in an empty slice.
+		{
+			query: invpkg.InvoiceQuery{
+				NumMaxInvoices:    numInvoices,
+				CreationDateStart: time.Unix(20, 0),
+				CreationDateEnd:   time.Unix(11, 0),
+			},
+			expected: nil,
+		},
+	}
+
+	for i, testCase := range testCases {
+		response, err := store.QueryInvoices(ctxt, testCase.query)
+		if err != nil {
+			t.Fatalf("unable to query invoice database: %v", err)
+		}
+
+		require.Equal(
+			t, len(testCase.expected), len(response.Invoices),
+			fmt.Sprintf("test: #%v", i),
+		)
+
+		for j, expected := range testCase.expected {
+			require.Equal(
+				t, expected, response.Invoices[j],
+				fmt.Sprintf("test: #%v, item: #%v", i, j),
+			)
+		}
+	}
+}

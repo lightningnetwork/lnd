@@ -52,7 +52,7 @@ type InvoiceQueries interface { //nolint:interfacebloat
 		invoiceID int64) ([]sqlc.InvoiceHtlc, error)
 
 	FilterInvoicePayments(ctx context.Context,
-		arg sqlc.FilterInvoicePaymentsParams) ([]sqlc.FilterInvoicePaymentsRow, // nolint:lll
+		arg sqlc.FilterInvoicePaymentsParams) ([]sqlc.FilterInvoicePaymentsRow, //nolint:lll
 		error)
 
 	GetInvoicePayments(ctx context.Context,
@@ -400,6 +400,111 @@ func (i *InvoiceStore) LookupInvoice(ctx context.Context,
 	return invoice, nil
 }
 
+// InvoicesSettledSince can be used by callers to catch up any settled invoices
+// they missed within the settled invoice time series. We'll return all known
+// settled invoice that have a settle index higher than the passed
+// sinceSettleIndex.
+//
+// NOTE: The index starts from 1, as a result. We enforce that
+// specifying a value below the starting index value is a noop.
+func (i *InvoiceStore) InvoicesSettledSince(ctx context.Context,
+	id uint64) ([]*invpkg.Invoice, error) {
+
+	return i.invoiceSettledSince(ctx, id, DefaultRowsLimit)
+}
+
+// invoiceAddedSince is a helper method that retrieves all invoices added since
+// the specified add index. The limit parameter can be used to limit the number
+// of invoices fetched at once from the database.
+func (i *InvoiceStore) invoiceSettledSince(ctx context.Context,
+	id uint64, limit int32) ([]*invpkg.Invoice, error) {
+
+	var invoices []*invpkg.Invoice
+
+	if id == 0 {
+		return invoices, nil
+	}
+
+	readTxOpt := InvoiceQueriesTxOptions{readOnly: true}
+	err := i.db.ExecTx(ctx, &readTxOpt, func(db InvoiceQueries) error {
+		allRows := make([]sqlc.FilterInvoicePaymentsRow, 0, 100)
+
+		settleIdx := id
+		limit := int32(100)
+		offset := int32(0)
+
+		for {
+			params := sqlc.FilterInvoicePaymentsParams{
+				// SettleIndexGreaterOrEqualThan.
+				SettleIndexGet: sqlInt64(settleIdx + 1),
+				NumLimit:       limit,
+				NumOffset:      offset,
+			}
+
+			rows, err := db.FilterInvoicePayments(ctx, params)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("unable to get invoices "+
+					"from db: %w", err)
+			}
+
+			allRows = append(allRows, rows...)
+
+			if len(rows) < int(limit) {
+				break
+			}
+
+			settleIdx += uint64(limit)
+			offset += limit
+		}
+
+		if len(allRows) == 0 {
+			return nil
+		}
+
+		// Load all the information for the invoices.
+		for _, row := range allRows {
+			// TODO(positiveblue): handle AMP invoices.
+
+			// Unmarshal the common data.
+			invoice, err := unmarshalInvoiceWithPayment(row)
+			if err != nil {
+				return fmt.Errorf("unable to unmarshal "+
+					"invoice(id=%d) from db: %w", row.ID,
+					err)
+			}
+
+			// Fetch the invoice features.
+			features, err := getInvoiceFeatures(ctx, db, row.ID)
+			if err != nil {
+				return err
+			}
+
+			invoice.Terms.Features = features
+
+			// Fetch the invoice htlcs.
+			htlcs, err := getInvoiceHtlcs(ctx, db, row.ID)
+			if err != nil {
+				return err
+			}
+
+			if len(htlcs) > 0 {
+				invoice.Htlcs = htlcs
+			}
+
+			invoices = append(invoices, invoice)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to get invoices settled since "+
+			"index %d: %w", id, err)
+	}
+
+	return invoices, nil
+}
+
 // InvoicesAddedSince can be used by callers to seek into the event time series
 // of all the invoices added in the database. The specified sinceAddIndex should
 // be the highest add index that the caller knows of. This method will return
@@ -648,6 +753,67 @@ func unmarshalInvoice(row sqlc.Invoice) (*invpkg.Invoice, error) {
 		Htlcs:       make(map[models.CircuitKey]*invpkg.InvoiceHTLC),
 		AMPState:    invpkg.AMPInvoiceState{},
 		HodlInvoice: row.IsHodl,
+	}
+
+	return invoice, nil
+}
+
+// unmarsalInvoiceWithPayment converts a sqlc.FilterInvoicePaymentsRow to an
+// Invoice.
+func unmarshalInvoiceWithPayment(
+	row sqlc.FilterInvoicePaymentsRow) (*invpkg.Invoice, error) {
+
+	var (
+		memo           []byte
+		paymentRequest = []byte{}
+
+		preimage *lntypes.Preimage
+
+		paymentAddr [32]byte
+	)
+
+	if row.Memo.Valid {
+		memo = []byte(row.Memo.String)
+	}
+
+	// Keysend payments will have this field empty.
+	if row.PaymentRequest.Valid {
+		paymentRequest = []byte(row.PaymentRequest.String)
+	}
+
+	// If this invoice is a hodl invoice we may not have its preimage
+	// stored.
+	if row.Preimage != nil {
+		preimage = &lntypes.Preimage{}
+		copy(preimage[:], row.Preimage)
+	}
+
+	copy(paymentAddr[:], row.PaymentAddr)
+
+	var cltvDelta int32
+	if row.CltvDelta.Valid {
+		cltvDelta = row.CltvDelta.Int32
+	}
+
+	invoice := &invpkg.Invoice{
+		Memo:           memo,
+		PaymentRequest: paymentRequest,
+		CreationDate:   row.CreatedAt,
+		Terms: invpkg.ContractTerm{
+			FinalCltvDelta:  cltvDelta,
+			Expiry:          time.Duration(row.Expiry),
+			PaymentPreimage: preimage,
+			Value:           lnwire.MilliSatoshi(row.AmountMsat),
+			PaymentAddr:     paymentAddr,
+		},
+		AddIndex:    uint64(row.ID),
+		State:       invpkg.ContractState(row.State),
+		AmtPaid:     lnwire.MilliSatoshi(row.AmountPaidMsat),
+		Htlcs:       make(map[models.CircuitKey]*invpkg.InvoiceHTLC),
+		AMPState:    invpkg.AMPInvoiceState{},
+		HodlInvoice: row.IsHodl,
+		SettleIndex: uint64(row.SettleIndex),
+		SettleDate:  row.SettleDate,
 	}
 
 	return invoice, nil

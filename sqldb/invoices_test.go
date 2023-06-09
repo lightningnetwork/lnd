@@ -227,4 +227,83 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 			)
 		}
 	}
+
+	_, err = store.InvoicesSettledSince(ctxt, 0)
+	require.NoError(t, err)
+
+	var settledInvoices []*invpkg.Invoice
+	// We'll now only settle the latter half of each of those invoices.
+	for i := 10; i < len(invoices); i++ {
+		invoice := invoices[i]
+		// TODO(positiveblue): really settle the invoice instead
+		// of just making the changes directly in the invoice
+		// and the db.
+		invoice.State = invpkg.ContractSettled
+		invoice.AmtPaid = amt
+
+		preimage := invoices[i].Terms.PaymentPreimage
+		params := sqlc.UpdateInvoiceParams{
+			ID:             int64(invoice.AddIndex),
+			State:          int16(invpkg.ContractSettled),
+			Preimage:       preimage[:],
+			AmountPaidMsat: int64(amt),
+		}
+		err := db.UpdateInvoice(ctxt, params)
+		require.NoError(t, err)
+
+		paymentParams := sqlc.InsertInvoicePaymentParams{
+			InvoiceID:      int64(invoice.AddIndex),
+			AmountPaidMsat: int64(amt),
+		}
+		settleIndex, err := db.InsertInvoicePayment(ctxt, paymentParams)
+		require.NoError(t, err)
+		invoice.SettleIndex = uint64(settleIndex)
+
+		settledInvoices = append(settledInvoices, invoice)
+	}
+
+	// We'll now prepare an additional set of queries to ensure the settle
+	// time series has properly been maintained in the database.
+	settleQueries := []struct {
+		sinceSettleIndex uint64
+
+		resp []*invpkg.Invoice
+	}{
+		// If we specify a value of zero, we shouldn't get any settled
+		// invoices back.
+		{
+			sinceSettleIndex: 0,
+		},
+
+		// If we specify a value well beyond the number of settled
+		// invoices, we shouldn't get any invoices back.
+		{
+			sinceSettleIndex: 99999999,
+		},
+
+		// Using an index of 1 should result in the final 10 invoices
+		// being returned, as we only settled those.
+		{
+			sinceSettleIndex: 1,
+			resp:             settledInvoices[1:],
+		},
+	}
+
+	for i, query := range settleQueries {
+		resp, err := store.InvoicesSettledSince(
+			ctxt, query.sinceSettleIndex,
+		)
+		if err != nil {
+			t.Fatalf("unable to query: %v", err)
+		}
+
+		require.Equal(t, len(query.resp), len(resp))
+
+		for j := 0; j < len(query.resp); j++ {
+			require.Equal(t,
+				query.resp[j], resp[j],
+				fmt.Sprintf("test: #%v, item: #%v", i, j),
+			)
+		}
+	}
 }

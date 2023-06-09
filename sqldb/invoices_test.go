@@ -724,3 +724,124 @@ func TestQueryInvoices(t *testing.T) {
 		}
 	}
 }
+
+// TestDeleteInvoices tests that deleting a list of invoices will succeed
+// if all delete references are valid, or will fail otherwise.
+func TestDeleteInvoices(t *testing.T) {
+	t.Parallel()
+
+	ctxt, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
+	db := NewTestDB(t)
+
+	executor := NewTransactionExecutor(
+		db, func(tx *sql.Tx) InvoiceQueries {
+			return db.BaseDB.WithTx(tx)
+		},
+	)
+
+	store := NewInvoiceStore(executor)
+
+	// Add some invoices to the test db.
+	numInvoices := 3
+	invoicesToDelete := make([]invpkg.InvoiceDeleteRef, numInvoices)
+	canBeDeleted := make([]invpkg.InvoiceDeleteRef, 0, numInvoices)
+
+	for i := 0; i < numInvoices; i++ {
+		invoice, err := randInvoice(lnwire.MilliSatoshi(i + 1))
+		require.NoError(t, err)
+
+		paymentHash := invoice.Terms.PaymentPreimage.Hash()
+		err = store.AddInvoice(ctxt, invoice, paymentHash)
+		require.NoError(t, err)
+
+		// Settle the second invoice.
+		if i == 1 {
+			invoice.State = invpkg.ContractSettled
+			invoice.AmtPaid = invoice.Terms.Value
+
+			preimage := invoice.Terms.PaymentPreimage
+			params := sqlc.UpdateInvoiceParams{
+				ID:             int64(invoice.AddIndex),
+				State:          int16(invpkg.ContractSettled),
+				Preimage:       preimage[:],
+				AmountPaidMsat: int64(invoice.AmtPaid),
+			}
+			err := db.UpdateInvoice(ctxt, params)
+			require.NoError(t, err)
+
+			paymentParams := sqlc.InsertInvoicePaymentParams{
+				InvoiceID:      int64(invoice.AddIndex),
+				AmountPaidMsat: int64(invoice.AmtPaid),
+			}
+			settleIndex, err := db.InsertInvoicePayment(
+				ctxt, paymentParams,
+			)
+			require.NoError(t, err)
+			invoice.SettleIndex = uint64(settleIndex)
+		}
+
+		// store the delete ref for later.
+		ref := invpkg.InvoiceDeleteRef{
+			PayHash:     paymentHash,
+			PayAddr:     &invoice.Terms.PaymentAddr,
+			AddIndex:    invoice.AddIndex,
+			SettleIndex: invoice.SettleIndex,
+		}
+
+		if invoice.State != invpkg.ContractSettled {
+			canBeDeleted = append(canBeDeleted, ref)
+		}
+
+		invoicesToDelete[i] = ref
+	}
+
+	// assertInvoiceCount asserts that the number of invoices equals
+	// to the passed count.
+	assertInvoiceCount := func(count int) {
+		// Query to collect all invoices.
+		query := invpkg.InvoiceQuery{
+			IndexOffset:    0,
+			NumMaxInvoices: uint64(DefaultRowsLimit),
+		}
+
+		// Check that we really have 3 invoices.
+		response, err := store.QueryInvoices(ctxt, query)
+		require.NoError(t, err)
+		require.Equal(t, count, len(response.Invoices))
+	}
+
+	// XOR one byte of one of the references' hash and attempt to delete.
+	invoicesToDelete[0].PayHash[2] ^= 3
+	require.Error(t, store.DeleteInvoice(ctxt, invoicesToDelete))
+	assertInvoiceCount(3)
+
+	// Restore the hash.
+	invoicesToDelete[0].PayHash[2] ^= 3
+
+	// XOR the second invoice's payment settle index as it is settled, and
+	// attempt to delete.
+	invoicesToDelete[1].SettleIndex ^= 11
+	require.Error(t, store.DeleteInvoice(ctxt, invoicesToDelete))
+	assertInvoiceCount(3)
+
+	// Restore the settle index.
+	invoicesToDelete[1].SettleIndex ^= 11
+
+	// XOR the add index for one of the references and attempt to delete.
+	invoicesToDelete[2].AddIndex ^= 13
+	require.Error(t, store.DeleteInvoice(ctxt, invoicesToDelete))
+	assertInvoiceCount(3)
+
+	// Restore the add index.
+	invoicesToDelete[2].AddIndex ^= 13
+
+	// We should be able to delete the invoices that are not settled.
+	require.NoError(t, store.DeleteInvoice(ctxt, canBeDeleted))
+	assertInvoiceCount(1)
+
+	// We should not be able to delete settled invoices.
+	require.Error(t, store.DeleteInvoice(ctxt, invoicesToDelete))
+	assertInvoiceCount(1)
+}

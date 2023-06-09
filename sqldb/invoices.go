@@ -705,6 +705,89 @@ func (i *InvoiceStore) QueryInvoices(ctx context.Context,
 	return res, nil
 }
 
+// DeleteInvoice attempts to delete the passed invoices and all their related
+// data from the database in one transaction.
+//
+// NOTE: Settled invoices cannot be deleted with this method.
+func (i *InvoiceStore) DeleteInvoice(ctx context.Context,
+	invoicesToDelete []invpkg.InvoiceDeleteRef) error {
+
+	// All the InvoiceDeleteRef instances include the add index of the
+	// invoice. The rest was added to ensure that the invoices were deleted
+	// properly in the kv database. When we have fully migrated we can
+	// remove the rest of the fields.
+	for _, ref := range invoicesToDelete {
+		if ref.AddIndex == 0 {
+			return fmt.Errorf("unable to delete invoice using a "+
+				"ref without AddIndex set: %v", ref)
+		}
+	}
+
+	var writeTxOpt InvoiceQueriesTxOptions
+	err := i.db.ExecTx(ctx, &writeTxOpt, func(db InvoiceQueries) error {
+		for _, ref := range invoicesToDelete {
+
+			// TODO(positiveblue): delete AMP faild set_ids data.
+
+			invoiceID := int64(ref.AddIndex)
+
+			rows, err := db.GetInvoicePayments(ctx, invoiceID)
+			switch {
+			case err != nil && !errors.Is(err, sql.ErrNoRows):
+				return fmt.Errorf("unable to get payment "+
+					"for invoice(%v): %w", invoiceID, err)
+
+			case len(rows) > 0:
+				return fmt.Errorf("unable to delete "+
+					"invoice(%v) with %d settled payments",
+					invoiceID, len(rows))
+			}
+
+			err = db.DeleteInvoiceHTLCCustomRecords(ctx, invoiceID)
+			if err != nil {
+				return fmt.Errorf("unable to delete htlc "+
+					"custom records for invoice(%v): %w",
+					invoiceID, err)
+			}
+
+			err = db.DeleteInvoiceHTLCs(ctx, invoiceID)
+			if err != nil {
+				return fmt.Errorf("unable to delete htlcs for "+
+					"invoice(%v): %w", invoiceID, err)
+			}
+
+			err = db.DeleteInvoiceFeatures(ctx, int64(ref.AddIndex))
+			if err != nil {
+				return fmt.Errorf("unable to delete features "+
+					"for invoices(%v): %w", invoiceID, err)
+			}
+			params := sqlc.DeleteInvoiceParams{
+				AddIndex: sqlInt64(ref.AddIndex),
+			}
+
+			err = db.DeleteInvoiceEvents(ctx, invoiceID)
+			if err != nil {
+				return fmt.Errorf("unable to delete events "+
+					"for invoice(%v): %w", invoiceID, err)
+			}
+
+			err = db.DeleteInvoice(ctx, params)
+			if err != nil {
+				return fmt.Errorf("unable to delete "+
+					"invoice(%v): %w", invoiceID, err)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("unable to delete invoices: %w", err)
+	}
+
+	return nil
+}
+
 // fetchInvoiceData fetches the common invoice data for the given params.
 func fetchInvoiceData(ctx context.Context, db InvoiceQueries,
 	row sqlc.Invoice) (*invpkg.Invoice, error) {

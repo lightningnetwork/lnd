@@ -2290,6 +2290,11 @@ message OpenChannelRequest {
     the channel's operation.
     */
     string memo = 27;
+
+    /*
+    A list of selected outpoints that are allocated for channel funding.
+    */
+    repeated OutPoint outpoints = 28;
 }
 message OpenStatusUpdate {
     oneof update {

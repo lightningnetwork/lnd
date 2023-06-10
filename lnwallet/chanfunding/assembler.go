@@ -84,6 +84,13 @@ type Request struct {
 	// e.g. anchor channels.
 	WalletReserve btcutil.Amount
 
+	// Outpoints is a list of client-selected outpoints that should be used
+	// for funding a channel. If LocalAmt is specified then this amount is
+	// allocated from the sum of outpoints towards funding. If the
+	// FundUpToMaxAmt is specified the entirety of selected funds is
+	// allocated towards channel funding.
+	Outpoints []wire.OutPoint
+
 	// MinConfs controls how many confirmations a coin need to be eligible
 	// to be used as an input to the funding transaction. If this value is
 	// set to zero, then zero conf outputs may be spent.

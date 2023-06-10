@@ -122,6 +122,17 @@ var openChannelCommand = cli.Command{
 				"channel. This must not be set at the same " +
 				"time as local_amt",
 		},
+		cli.StringSliceFlag{
+			Name: "utxo",
+			Usage: "a utxo specified as outpoint(tx:idx) which " +
+				"will be used to fund a channel. This flag " +
+				"can be repeatedly used to fund a channel " +
+				"with a selection of utxos. The selected " +
+				"funds can either be entirely spent by " +
+				"specifying the fundmax flag or partially by " +
+				"selecting a fraction of the sum of the " +
+				"outpoints in local_amt",
+		},
 		cli.Uint64Flag{
 			Name: "base_fee_msat",
 			Usage: "the base fee in milli-satoshis that will " +
@@ -389,6 +400,17 @@ func openChannel(ctx *cli.Context) error {
 	if ctx.Bool("fundmax") && ctx.Bool("psbt") {
 		return fmt.Errorf("psbt cannot be set if attempting " +
 			"to commit the maximum amount out of the wallet")
+	}
+
+	if ctx.IsSet("utxo") {
+		utxos := ctx.StringSlice("utxo")
+
+		outpoints, err := utxosToOutpoints(utxos)
+		if err != nil {
+			return fmt.Errorf("unable to decode utxos: %w", err)
+		}
+
+		req.Outpoints = outpoints
 	}
 
 	if ctx.IsSet("push_amt") {
@@ -1108,4 +1130,22 @@ func decodePsbt(psbt string) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("not a PSBT")
 	}
+}
+
+// parseUtxos parses a comma separated list of utxos into outpoints that are
+// passed to the server.
+func utxosToOutpoints(utxos []string) ([]*lnrpc.OutPoint, error) {
+	var outpoints []*lnrpc.OutPoint
+	if len(utxos) == 0 {
+		return nil, fmt.Errorf("no utxos specified")
+	}
+	for _, utxo := range utxos {
+		outpoint, err := NewProtoOutPoint(utxo)
+		if err != nil {
+			return nil, err
+		}
+		outpoints = append(outpoints, outpoint)
+	}
+
+	return outpoints, nil
 }

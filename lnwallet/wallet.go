@@ -131,6 +131,13 @@ type InitFundingReserveMsg struct {
 	// allocated iff the FundUpToMaxAmt is set.
 	MinFundAmt btcutil.Amount
 
+	// Outpoints is a list of client-selected outpoints that should be used
+	// for funding a channel. If LocalFundingAmt is specified then this
+	// amount is allocated from the sum of outpoints towards funding. If the
+	// FundUpToMaxAmt is specified the entirety of selected funds is
+	// allocated towards channel funding.
+	Outpoints []wire.OutPoint
+
 	// RemoteChanReserve is the channel reserve we required for the remote
 	// peer.
 	RemoteChanReserve btcutil.Amount
@@ -899,6 +906,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			WalletReserve: l.RequiredReserve(
 				uint32(numAnchorChans),
 			),
+			Outpoints:    req.Outpoints,
 			MinConfs:     req.MinConfs,
 			SubtractFees: req.SubtractFees,
 			FeeRate:      req.FundingFeePerKw,

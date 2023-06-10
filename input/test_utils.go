@@ -2,14 +2,12 @@ package input
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -51,6 +49,26 @@ var (
 type MockSigner struct {
 	Privkeys  []*btcec.PrivateKey
 	NetParams *chaincfg.Params
+
+	*MusigSessionManager
+}
+
+// NewMockSigner returns a new instance of the MockSigner given a set of
+// backing private keys.
+func NewMockSigner(privKeys []*btcec.PrivateKey,
+	netParams *chaincfg.Params) *MockSigner {
+
+	signer := &MockSigner{
+		Privkeys:  privKeys,
+		NetParams: netParams,
+	}
+
+	keyFetcher := func(*keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+		return signer.Privkeys[0], nil
+	}
+	signer.MusigSessionManager = NewMusigSessionManager(keyFetcher)
+
+	return signer
 }
 
 // SignOutputRaw generates a signature for the passed transaction according to
@@ -74,18 +92,14 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 
 	// In case of a taproot output any signature is always a Schnorr
 	// signature, based on the new tapscript sighash algorithm.
-	//
-	// TODO(roasbeef): should conslidate with btcwallet/signer.go
 	if txscript.IsPayToTaproot(signDesc.Output.PkScript) {
 		sigHashes := txscript.NewTxSigHashes(
 			tx, signDesc.PrevOutputFetcher,
 		)
 
-		witnessScript := signDesc.WitnessScript
-
 		// Are we spending a script path or the key path? The API is
-		// slightly different, so we need to account for that to get the
-		// raw signature.
+		// slightly different, so we need to account for that to get
+		// the raw signature.
 		var (
 			rawSig []byte
 			err    error
@@ -109,7 +123,7 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 		case TaprootScriptSpendSignMethod:
 			leaf := txscript.TapLeaf{
 				LeafVersion: txscript.BaseLeafVersion,
-				Script:      witnessScript,
+				Script:      signDesc.WitnessScript,
 			}
 			rawSig, err = txscript.RawTxInTapscriptSignature(
 				tx, sigHashes, signDesc.InputIndex,
@@ -121,6 +135,10 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 			}
 		}
 
+		// The signature returned above might have a sighash flag
+		// attached if a non-default type was used. We'll slice this
+		// off if it exists to ensure we can properly parse the raw
+		// signature.
 		sig, err := schnorr.ParseSignature(
 			rawSig[:schnorr.SignatureSize],
 		)
@@ -195,55 +213,6 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 	}
 }
 
-// MuSig2CreateSession creates a new MuSig2 signing session using the local
-// key identified by the key locator. The complete list of all public keys of
-// all signing parties must be provided, including the public key of the local
-// signing key. If nonces of other parties are already known, they can be
-// submitted as well to reduce the number of method calls necessary later on.
-func (m *MockSigner) MuSig2CreateSession(MuSig2Version, keychain.KeyLocator,
-	[]*btcec.PublicKey, *MuSig2Tweaks,
-	[][musig2.PubNonceSize]byte) (*MuSig2SessionInfo, error) {
-
-	return nil, nil
-}
-
-// MuSig2RegisterNonces registers one or more public nonces of other signing
-// participants for a session identified by its ID. This method returns true
-// once we have all nonces for all other signing participants.
-func (m *MockSigner) MuSig2RegisterNonces(MuSig2SessionID,
-	[][musig2.PubNonceSize]byte) (bool, error) {
-
-	return false, nil
-}
-
-// MuSig2Sign creates a partial signature using the local signing key
-// that was specified when the session was created. This can only be
-// called when all public nonces of all participants are known and have
-// been registered with the session. If this node isn't responsible for
-// combining all the partial signatures, then the cleanup parameter
-// should be set, indicating that the session can be removed from memory
-// once the signature was produced.
-func (m *MockSigner) MuSig2Sign(MuSig2SessionID,
-	[sha256.Size]byte, bool) (*musig2.PartialSignature, error) {
-
-	return nil, nil
-}
-
-// MuSig2CombineSig combines the given partial signature(s) with the
-// local one, if it already exists. Once a partial signature of all
-// participants is registered, the final signature will be combined and
-// returned.
-func (m *MockSigner) MuSig2CombineSig(MuSig2SessionID,
-	[]*musig2.PartialSignature) (*schnorr.Signature, bool, error) {
-
-	return nil, false, nil
-}
-
-// MuSig2Cleanup removes a session from memory to free up resources.
-func (m *MockSigner) MuSig2Cleanup(MuSig2SessionID) error {
-	return nil
-}
-
 // findKey searches through all stored private keys and returns one
 // corresponding to the hashed pubkey if it can be found. The public key may
 // either correspond directly to the private key or to the private key with a
@@ -252,13 +221,15 @@ func (m *MockSigner) findKey(needleHash160 []byte, singleTweak []byte,
 	doubleTweak *btcec.PrivateKey) *btcec.PrivateKey {
 
 	for _, privkey := range m.Privkeys {
-		// First check whether public key is directly derived from private key.
+		// First check whether public key is directly derived from
+		// private key.
 		hash160 := btcutil.Hash160(privkey.PubKey().SerializeCompressed())
 		if bytes.Equal(hash160, needleHash160) {
 			return privkey
 		}
 
-		// Otherwise check if public key is derived from tweaked private key.
+		// Otherwise check if public key is derived from tweaked
+		// private key.
 		switch {
 		case singleTweak != nil:
 			privkey = TweakPrivKey(privkey, singleTweak)

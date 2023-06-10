@@ -343,8 +343,8 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	aliceSigner := &input.MockSigner{Privkeys: aliceKeys}
-	bobSigner := &input.MockSigner{Privkeys: bobKeys}
+	aliceSigner := input.NewMockSigner(aliceKeys, nil)
+	bobSigner := input.NewMockSigner(bobKeys, nil)
 
 	// TODO(roasbeef): make mock version of pre-image store
 

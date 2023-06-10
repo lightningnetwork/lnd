@@ -2145,6 +2145,15 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 			"exceeds %d", in.Memo, len(in.Memo), maxMemoLength)
 	}
 
+	// Check, if manually selected outpoints are present to fund a channel.
+	var outpoints []wire.OutPoint
+	if len(in.Outpoints) > 0 {
+		outpoints, err = toWireOutpoints(in.Outpoints)
+		if err != nil {
+			return nil, fmt.Errorf("can't create outpoints %w", err)
+		}
+	}
+
 	// Instruct the server to trigger the necessary events to attempt to
 	// open a new channel. A stream is returned in place, this stream will
 	// be used to consume updates of the state of the pending channel.
@@ -2171,7 +2180,27 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		FundUpToMaxAmt:    fundUpToMaxAmt,
 		MinFundAmt:        minFundAmt,
 		Memo:              []byte(in.Memo),
+		Outpoints:         outpoints,
 	}, nil
+}
+
+// toWireOutpoints converts a list of outpoints from the rpc format to the wire
+// format.
+func toWireOutpoints(outpoints []*lnrpc.OutPoint) ([]wire.OutPoint, error) {
+	var wireOutpoints []wire.OutPoint
+	for _, outpoint := range outpoints {
+		hash, err := chainhash.NewHashFromStr(outpoint.TxidStr)
+		if err != nil {
+			return nil, fmt.Errorf("cannot create chainhash")
+		}
+
+		wireOutpoint := wire.NewOutPoint(
+			hash, outpoint.OutputIndex,
+		)
+		wireOutpoints = append(wireOutpoints, *wireOutpoint)
+	}
+
+	return wireOutpoints, nil
 }
 
 // OpenChannel attempts to open a singly funded channel specified in the

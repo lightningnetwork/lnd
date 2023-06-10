@@ -209,6 +209,21 @@ const (
 	// defaultKeepFailedPaymentAttempts is the default setting for whether
 	// to keep failed payments in the database.
 	defaultKeepFailedPaymentAttempts = false
+
+	// defaultGrpcServerPingTime is the default duration for the amount of
+	// time of no activity after which the server pings the client to see if
+	// the transport is still alive. If set below 1s, a minimum value of 1s
+	// will be used instead.
+	defaultGrpcServerPingTime = time.Minute
+
+	// defaultGrpcServerPingTimeout is the default duration the server waits
+	// after having pinged for keepalive check, and if no activity is seen
+	// even after that the connection is closed.
+	defaultGrpcServerPingTimeout = 20 * time.Second
+
+	// defaultGrpcClientPingMinWait is the default minimum amount of time a
+	// client should wait before sending a keepalive ping.
+	defaultGrpcClientPingMinWait = 5 * time.Second
 )
 
 var (
@@ -454,6 +469,8 @@ type Config struct {
 
 	Htlcswitch *lncfg.Htlcswitch `group:"htlcswitch" namespace:"htlcswitch"`
 
+	GRPC *GRPCConfig `group:"grpc" namespace:"grpc"`
+
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
@@ -472,6 +489,35 @@ type Config struct {
 
 	// Estimator is used to estimate routing probabilities.
 	Estimator routing.Estimator
+}
+
+// GRPCConfig holds the configuration options for the gRPC server.
+// See https://github.com/grpc/grpc-go/blob/v1.41.0/keepalive/keepalive.go#L50
+// for more details. Any value of 0 means we use the gRPC internal default
+// values.
+//
+//nolint:lll
+type GRPCConfig struct {
+	// ServerPingTime is a duration for the amount of time of no activity
+	// after which the server pings the client to see if the transport is
+	// still alive. If set below 1s, a minimum value of 1s will be used
+	// instead.
+	ServerPingTime time.Duration `long:"server-ping-time" description:"How long the server waits on a gRPC stream with no activity before pinging the client."`
+
+	// ServerPingTimeout is the duration the server waits after having
+	// pinged for keepalive check, and if no activity is seen even after
+	// that the connection is closed.
+	ServerPingTimeout time.Duration `long:"server-ping-timeout" description:"How long the server waits for the response from the client for the keepalive ping response."`
+
+	// ClientPingMinWait is the minimum amount of time a client should wait
+	// before sending a keepalive ping.
+	ClientPingMinWait time.Duration `long:"client-ping-min-wait" description:"The minimum amount of time the client should wait before sending a keepalive ping."`
+
+	// ClientAllowPingWithoutStream specifies whether pings from the client
+	// are allowed even if there are no active gRPC streams. This might be
+	// useful to keep the underlying HTTP/2 connection open for future
+	// requests.
+	ClientAllowPingWithoutStream bool `long:"client-allow-ping-without-stream" description:"If true, the server allows keepalive pings from the client even when there are no active gRPC streams. This might be useful to keep the underlying HTTP/2 connection open for future requests."`
 }
 
 // DefaultConfig returns all default values for the Config struct.
@@ -661,6 +707,11 @@ func DefaultConfig() Config {
 		},
 		Htlcswitch: &lncfg.Htlcswitch{
 			MailboxDeliveryTimeout: htlcswitch.DefaultMailboxDeliveryTimeout,
+		},
+		GRPC: &GRPCConfig{
+			ServerPingTime:    defaultGrpcServerPingTime,
+			ServerPingTimeout: defaultGrpcServerPingTimeout,
+			ClientPingMinWait: defaultGrpcClientPingMinWait,
 		},
 	}
 }

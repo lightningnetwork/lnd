@@ -3542,9 +3542,8 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 // ChannelUpdate they understand. ourPolicy may be set for various
 // option-scid-alias channels to re-use the same policy.
 func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
-	shortChanID *lnwire.ShortChannelID,
-	peerAlias *lnwire.ShortChannelID,
-	ourPolicy *models.ChannelEdgePolicy) error {
+	peerAlias *lnwire.ShortChannelID, ourPolicy *models.ChannelEdgePolicy,
+	shouldAnnounce bool) error {
 
 	chanAnn, err := f.newChanAnnouncement(
 		f.cfg.IDKey, completeChan.IdentityPub,
@@ -3591,10 +3590,15 @@ func (f *Manager) addToGraph(completeChan *channeldb.OpenChannel,
 		chanUpdateChanFlags = 1
 	}
 
+	msgFlags := lnwire.ChanUpdateMsgFlags(0)
+	if !shouldAnnounce {
+		msgFlags = lnwire.ChanUpdateDontForward
+	}
+
 	chanID := lnwire.NewChanIDFromOutPoint(completeChan.FundingOutpoint)
 	chanUpdateAnn, err := f.newChanUpdate(
-		chanUpdateChanFlags, completeChan.ShortChanID(), chanID,
-		fwdMinHTLC, fwdMaxHTLC, ourPolicy,
+		chanUpdateChanFlags, msgFlags, completeChan.ShortChanID(),
+		chanID, fwdMinHTLC, fwdMaxHTLC, ourPolicy,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel update: %w", err)
@@ -3726,9 +3730,10 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		// delete the mappings the gossiper uses so that ChannelUpdates
 		// with aliases won't be accepted. This is done elsewhere for
 		// zero-conf channels.
-		isScidFeature := completeChan.NegotiatedAliasFeature()
-		isZeroConf := completeChan.IsZeroConf()
-		if isScidFeature && !isZeroConf {
+		// We also do it for non option-scid-alias channels, because
+		// we need to update the msg flags of the channel policies
+		// so that it does not set the __dont_forward__ bit.
+		if !completeChan.IsZeroConf() {
 			baseScid := completeChan.ShortChanID()
 			err := f.cfg.AliasManager.DeleteSixConfs(baseScid)
 			if err != nil {
@@ -4206,7 +4211,22 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 	delete(f.pendingMusigNonces, chanID)
 	f.nonceMtx.Unlock()
 
-	var peerAlias *lnwire.ShortChannelID
+	var (
+		peerAlias      *lnwire.ShortChannelID
+		shouldAnnounce bool
+	)
+
+	// shouldAnnounce defines whether the __dont_forward__ bit in the
+	// ChanUpdate msg is set hence signaling to the peer whether it should
+	// forward this msg to the broader network. So whether this ChanUpdate
+	// should be announced depends on two factors. First the
+	// __announce_channel__ bit in the channel open msg has to be set.
+	// In case the required number of confirmations is met, but it is still
+	// less than the obligatory 6 confirmations we also signal to not relay
+	// the channel update to the broader network.
+	shouldAnnounce = channel.ChannelFlags&lnwire.FFAnnounceChannel == 1 &&
+		channel.NumConfsRequired >= 6
+
 	if channel.IsZeroConf() {
 		// We'll need to wait until channel_ready has been received and
 		// the peer lets us know the alias they want to use for the
@@ -4221,10 +4241,16 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 			return nil
 		}
 
+		// In case it is a zero-conf channel, we don't want our peer
+		// to relay the channel update to the broader network even if
+		// it is an announced channel. As soon as the channel has the
+		// obligatory six confirmations, we'll send out a new
+		// chanUpdate with this bit unset.
+		shouldAnnounce = false
 		peerAlias = &foundAlias
 	}
 
-	err := f.addToGraph(channel, scid, peerAlias, nil)
+	err := f.addToGraph(channel, peerAlias, nil, shouldAnnounce)
 	if err != nil {
 		return fmt.Errorf("failed adding to graph: %w", err)
 	}
@@ -4337,17 +4363,15 @@ func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
 // newChanUpdate creates a new channel update message for the given channel.
 func (f *Manager) newChanUpdate(
 	chanUpdatechanFlags lnwire.ChanUpdateChanFlags,
-	shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID,
-	fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi,
-	ourPolicy *models.ChannelEdgePolicy) (*lnwire.ChannelUpdate1,
-	error) {
+	msgFlags lnwire.ChanUpdateMsgFlags, shortChanID lnwire.ShortChannelID,
+	chanID lnwire.ChannelID, fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi,
+	ourPolicy *models.ChannelEdgePolicy) (*lnwire.ChannelUpdate1, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
 	// Our channel update message flags will signal that we support the
 	// max_htlc field.
-	msgFlags := lnwire.ChanUpdateRequiredMaxHtlc
+	msgFlags |= lnwire.ChanUpdateRequiredMaxHtlc
 
 	// We announce the channel with the default values. Some of
 	// these values can later be changed by crafting a new ChannelUpdate.
@@ -4654,9 +4678,11 @@ func (f *Manager) sendChanUpdate(completeChan *channeldb.OpenChannel,
 		chanUpdateChanFlags = 1
 	}
 
+	msgFlags := lnwire.ChanUpdateDontForward
+
 	chanUpdate, err := f.newChanUpdate(
-		chanUpdateChanFlags, completeChan.ShortChanID(), chanID,
-		fwdMinHTLC, fwdMaxHTLC, ourPolicy,
+		chanUpdateChanFlags, msgFlags, completeChan.ShortChanID(),
+		chanID, fwdMinHTLC, fwdMaxHTLC, ourPolicy,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel update: %w", err)

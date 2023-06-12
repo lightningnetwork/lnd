@@ -1093,7 +1093,7 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 	capacity btcutil.Amount, customMinHtlc []lnwire.MilliSatoshi,
 	customMaxHtlc []lnwire.MilliSatoshi, baseFees []lnwire.MilliSatoshi,
-	feeRates []lnwire.MilliSatoshi) {
+	feeRates []lnwire.MilliSatoshi, unannounced bool) {
 
 	t.Helper()
 
@@ -1167,7 +1167,11 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 				baseFee := aliceCfg.DefaultRoutingPolicy.BaseFee
 				feeRate := aliceCfg.DefaultRoutingPolicy.FeeRate
 
-				require.EqualValues(t, 1, m.MessageFlags)
+				msgflags := lnwire.ChanUpdateRequiredMaxHtlc
+				if unannounced {
+					msgflags |= lnwire.ChanUpdateDontForward
+				}
+				require.EqualValues(t, msgflags, m.MessageFlags)
 
 				// We might expect a custom MinHTLC value.
 				if len(customMinHtlc) > 0 {
@@ -1432,7 +1436,9 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1743,7 +1749,9 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -1907,7 +1915,9 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2366,7 +2376,9 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2459,7 +2471,9 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2563,7 +2577,9 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, false,
+	)
 
 	// Check that the state machine is updated accordingly
 	assertAddedToRouterGraph(t, alice, bob, fundingOutPoint)
@@ -2653,7 +2669,9 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, true,
+	)
 
 	// The funding transaction is now confirmed, wait for the
 	// OpenStatusUpdate_ChanOpen update
@@ -2778,7 +2796,9 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
-	assertChannelAnnouncements(t, alice, bob, capacity, nil, nil, nil, nil)
+	assertChannelAnnouncements(
+		t, alice, bob, capacity, nil, nil, nil, nil, true,
+	)
 
 	// Note: We don't check for the addedToRouterGraph state because in
 	// the private channel mode, the state is quickly changed from
@@ -3237,7 +3257,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	assertChannelAnnouncements(
 		t, alice, bob, capacity, minHtlcArr, maxHtlcArr, baseFees,
-		feeRates,
+		feeRates, false,
 	)
 
 	// The funding transaction is now confirmed, wait for the
@@ -4402,7 +4422,7 @@ func TestFundingManagerZeroConf(t *testing.T) {
 	// We'll now assert that both sides send ChannelAnnouncement and
 	// ChannelUpdate messages.
 	assertChannelAnnouncements(
-		t, alice, bob, fundingAmt, nil, nil, nil, nil,
+		t, alice, bob, fundingAmt, nil, nil, nil, nil, true,
 	)
 
 	// We'll now wait for the OpenStatusUpdate_ChanOpen update.
@@ -4429,8 +4449,36 @@ func TestFundingManagerZeroConf(t *testing.T) {
 		Tx: fundingTx,
 	}
 
+	// After 6 confirmation a channel which should be announced to the
+	// network will be readded to the network graph and announced by its
+	// real ShortChannelID. In case of a public zeroconf channel we need
+	// to make sure the MessageFlags of the prior edgeinfo are not copied
+	// but redetermined.
+	//nolint:lll
+	alice.fundingMgr.cfg.DeleteAliasEdge = func(scid lnwire.ShortChannelID) (*channeldb.ChannelEdgePolicy, error) {
+		//nolint:lll
+		return &channeldb.ChannelEdgePolicy{
+			MessageFlags:              lnwire.ChanUpdateRequiredMaxHtlc | lnwire.ChanUpdateDontForward,
+			FeeBaseMSat:               alice.fundingMgr.cfg.DefaultRoutingPolicy.BaseFee,
+			FeeProportionalMillionths: alice.fundingMgr.cfg.DefaultRoutingPolicy.FeeRate,
+			MaxHTLC:                   alice.fundingMgr.cfg.RequiredRemoteMaxValue(fundingAmt),
+			MinHTLC:                   bob.fundingMgr.cfg.DefaultMinHtlcIn,
+		}, nil
+	}
+	//nolint:lll
+	bob.fundingMgr.cfg.DeleteAliasEdge = func(scid lnwire.ShortChannelID) (*channeldb.ChannelEdgePolicy, error) {
+		//nolint:lll
+		return &channeldb.ChannelEdgePolicy{
+			MessageFlags:              lnwire.ChanUpdateRequiredMaxHtlc | lnwire.ChanUpdateDontForward,
+			FeeBaseMSat:               bob.fundingMgr.cfg.DefaultRoutingPolicy.BaseFee,
+			FeeProportionalMillionths: bob.fundingMgr.cfg.DefaultRoutingPolicy.FeeRate,
+			MaxHTLC:                   bob.fundingMgr.cfg.RequiredRemoteMaxValue(fundingAmt),
+			MinHTLC:                   alice.fundingMgr.cfg.DefaultMinHtlcIn,
+		}, nil
+	}
+
 	assertChannelAnnouncements(
-		t, alice, bob, fundingAmt, nil, nil, nil, nil,
+		t, alice, bob, fundingAmt, nil, nil, nil, nil, false,
 	)
 
 	// Both Alice and Bob should send on reportScidChan.

@@ -3734,7 +3734,7 @@ func (p *Brontide) attachChannelEventSubscription() error {
 
 // updateNextRevocation updates the existing channel's next revocation if it's
 // nil.
-func (p *Brontide) updateNextRevocation(c *channeldb.OpenChannel) {
+func (p *Brontide) updateNextRevocation(c *channeldb.OpenChannel) error {
 	chanPoint := &c.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
@@ -3744,32 +3744,35 @@ func (p *Brontide) updateNextRevocation(c *channeldb.OpenChannel) {
 	// currentChan should exist, but we perform a check anyway to avoid nil
 	// pointer dereference.
 	if !loaded {
-		p.log.Errorf("missing active channel with chanID=%v", chanID)
-		return
+		return fmt.Errorf("missing active channel with chanID=%v",
+			chanID)
 	}
 
 	// currentChan should not be nil, but we perform a check anyway to
 	// avoid nil pointer dereference.
 	if currentChan == nil {
-		p.log.Errorf("found nil active channel with chanID=%v", chanID)
-		return
+		return fmt.Errorf("found nil active channel with chanID=%v",
+			chanID)
 	}
 
 	// If we're being sent a new channel, and our existing channel doesn't
 	// have the next revocation, then we need to update the current
 	// existing channel.
 	if currentChan.RemoteNextRevocation() != nil {
-		return
+		return nil
 	}
 
 	p.log.Infof("Processing retransmitted ChannelReady for "+
 		"ChannelPoint(%v)", chanPoint)
 
 	nextRevoke := c.RemoteNextRevocation
+
 	err := currentChan.InitNextRevocation(nextRevoke)
 	if err != nil {
-		p.log.Errorf("unable to init chan revocation: %v", err)
+		return fmt.Errorf("unable to init next revocation: %w", err)
 	}
+
+	return nil
 }
 
 // addActiveChannel adds a new active channel to the `activeChannels` map. It
@@ -3855,7 +3858,11 @@ func (p *Brontide) handleNewActiveChannel(req *newChannelMsg) {
 
 		// Handle it and close the err chan on the request.
 		close(req.err)
-		p.updateNextRevocation(newChan)
+
+		// Update the next revocation point.
+		if err := p.updateNextRevocation(newChan); err != nil {
+			p.log.Errorf(err.Error())
+		}
 
 		return
 	}

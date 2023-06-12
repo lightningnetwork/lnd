@@ -88,7 +88,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		delete(unprocessedChans, info.ChannelPoint)
 
 		// Apply the new policy to the edge.
-		err := r.updateEdge(tx, info.ChannelPoint, edge, newSchema)
+		err := r.updateEdge(tx, info, edge, newSchema)
 		if err != nil {
 			failedUpdates = append(failedUpdates,
 				makeFailureItem(info.ChannelPoint,
@@ -171,7 +171,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 }
 
 // updateEdge updates the given edge with the new schema.
-func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
+func (r *Manager) updateEdge(tx kvdb.RTx, edgeInfo *channeldb.ChannelEdgeInfo,
 	edge *channeldb.ChannelEdgePolicy,
 	newSchema routing.ChannelPolicy) error {
 
@@ -183,7 +183,7 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
 
 	// Retrieve negotiated channel htlc amt limits.
-	amtMin, amtMax, err := r.getHtlcAmtLimits(tx, chanPoint)
+	amtMin, amtMax, err := r.getHtlcAmtLimits(tx, edgeInfo.ChannelPoint)
 	if err != nil {
 		return err
 	}
@@ -210,6 +210,14 @@ func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
 	// If a new min htlc is specified, update the edge.
 	if newSchema.MinHTLC != nil {
 		edge.MinHTLC = *newSchema.MinHTLC
+	}
+
+	// If the channel is unannounced we make sure the dont_forward bit is
+	// set in the ChannelEdgePolicy. This is an on-the-fly migration. The
+	// edge is persisted to disk later when propagating the new channel
+	// update.
+	if edgeInfo.AuthProof == nil {
+		edge.MessageFlags |= lnwire.ChanUpdateDontForward
 	}
 
 	// If the MaxHtlc flag wasn't already set, we can set it now.

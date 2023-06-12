@@ -154,6 +154,9 @@ unlock or create.
 
 * Fixed a memory leak found in mempool management handled by
   [`btcwallet`](https://github.com/lightningnetwork/lnd/pull/7767).
+  
+* Make sure to [set the dont_forward msg flag in the channel update msg 
+  for unannounced channels](https://github.com/lightningnetwork/lnd/pull/7759).
 
 ### Tooling and documentation
 

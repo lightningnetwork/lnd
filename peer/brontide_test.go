@@ -1118,3 +1118,56 @@ func TestPeerCustomMessage(t *testing.T) {
 	require.Equal(t, remoteKey, receivedCustom.peer)
 	require.Equal(t, receivedCustomMsg, &receivedCustom.msg)
 }
+
+// TestUpdateNextRevocation checks that the method `updateNextRevocation` is
+// behave as expected.
+func TestUpdateNextRevocation(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// TODO(yy): create interface for lnwallet.LightningChannel so we can
+	// easily mock it without the following setups.
+	notifier := &mock.ChainNotifier{
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+	}
+	broadcastTxChan := make(chan *wire.MsgTx)
+	mockSwitch := &mockMessageSwitch{}
+
+	alicePeer, bobChan, err := createTestPeer(
+		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
+	)
+	require.NoError(err, "unable to create test channels")
+
+	// testChannel is used to test the updateNextRevocation function.
+	testChannel := bobChan.State()
+
+	// Update the next revocation for a known channel should give us no
+	// error.
+	err = alicePeer.updateNextRevocation(testChannel)
+	require.NoError(err, "expected no error")
+
+	// Test an error is returned when the chanID cannot be found in
+	// `activeChannels` map.
+	testChannel.FundingOutpoint = wire.OutPoint{Index: 0}
+	err = alicePeer.updateNextRevocation(testChannel)
+	require.Error(err, "expected an error")
+
+	// Test an error is returned when the chanID's corresponding channel is
+	// nil.
+	testChannel.FundingOutpoint = wire.OutPoint{Index: 1}
+	chanID := lnwire.NewChanIDFromOutPoint(&testChannel.FundingOutpoint)
+	alicePeer.activeChannels.Store(chanID, nil)
+
+	err = alicePeer.updateNextRevocation(testChannel)
+	require.Error(err, "expected an error")
+
+	// TODO(yy): should also test `InitNextRevocation` is called on
+	// `lnwallet.LightningWallet` once it's interfaced.
+}
+
+// TODO(yy): add test for `addActiveChannel` and `handleNewActiveChannel` once
+// we have interfaced `lnwallet.LightningChannel` and
+// `*contractcourt.ChainArbitrator`.

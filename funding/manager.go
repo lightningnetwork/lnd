@@ -3115,11 +3115,19 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 
 	fwdMinHTLC, fwdMaxHTLC := f.extractAnnounceParams(completeChan)
 
+	// announcedC specifies whether a channel is announced to the broader
+	// network. This can change during the lifetime for zeroconf public
+	// channels. A channel is not announced to the network if it is
+	// explicitly set or when a peerAlias is available which signals a
+	// still unconfirmed zeroconf channel.
+	announcedC := completeChan.ChannelFlags&lnwire.FFAnnounceChannel != 0 &&
+		peerAlias == nil
+
 	ann, err := f.newChanAnnouncement(
 		f.cfg.IDKey, completeChan.IdentityPub,
 		&completeChan.LocalChanCfg.MultiSigKey,
 		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
-		chanID, fwdMinHTLC, fwdMaxHTLC, ourPolicy,
+		chanID, fwdMinHTLC, fwdMaxHTLC, ourPolicy, announcedC,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel "+
@@ -3657,7 +3665,8 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID, fwdMinHTLC,
 	fwdMaxHTLC lnwire.MilliSatoshi,
-	ourPolicy *channeldb.ChannelEdgePolicy) (*chanAnnouncement, error) {
+	ourPolicy *channeldb.ChannelEdgePolicy,
+	announcedChan bool) (*chanAnnouncement, error) {
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 
@@ -3718,6 +3727,13 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// max_htlc field.
 	msgFlags := lnwire.ChanUpdateRequiredMaxHtlc
 
+	// In case the channel is not (yet) broadcasted to the broader network
+	// we have to set the dont_forward flag when sending a channel update
+	// msg to the peer.
+	if !announcedChan {
+		msgFlags |= lnwire.ChanUpdateDontForward
+	}
+
 	// We announce the channel with the default values. Some of
 	// these values can later be changed by crafting a new ChannelUpdate.
 	chanUpdateAnn := &lnwire.ChannelUpdate{
@@ -3746,8 +3762,9 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	switch {
 	case ourPolicy != nil:
 		// If ourPolicy is non-nil, modify the default parameters of the
-		// ChannelUpdate.
-		chanUpdateAnn.MessageFlags = ourPolicy.MessageFlags
+		// ChannelUpdate. We do not overwrite the Messageflags because
+		// a channel could have changed from unannounced to announced
+		// (zeroconf public channel).
 		chanUpdateAnn.ChannelFlags = ourPolicy.ChannelFlags
 		chanUpdateAnn.TimeLockDelta = ourPolicy.TimeLockDelta
 		chanUpdateAnn.HtlcMinimumMsat = ourPolicy.MinHTLC
@@ -3860,7 +3877,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	// only use the channel announcement message from the returned struct.
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
 		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		0, 0, nil,
+		0, 0, nil, true,
 	)
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)

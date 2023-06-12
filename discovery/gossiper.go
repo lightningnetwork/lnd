@@ -2943,6 +2943,11 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		return nil, false
 	}
 
+	// Get our peer's public key.
+	remotePubKey := remotePubFromChanInfo(
+		chanInfo, upd.ChannelFlags,
+	)
+
 	// If this is a local ChannelUpdate without an AuthProof, it means it
 	// is an update to a channel that is not (yet) supposed to be announced
 	// to the greater network. However, our channel counter party will need
@@ -2978,11 +2983,6 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 			}
 		}
 
-		// Get our peer's public key.
-		remotePubKey := remotePubFromChanInfo(
-			chanInfo, upd.ChannelFlags,
-		)
-
 		log.Debugf("The message %v has no AuthProof, sending the "+
 			"update to remote peer %x", upd.MsgType(), remotePubKey)
 
@@ -3004,8 +3004,26 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	// broadcast the channel update announcement if it has an attached
 	// authentication proof. We also won't broadcast the update if it
 	// contains an alias because the network would reject this.
+	//
+	// NOTE: We do not check the dont_forward bit in the channel update
+	// msg because without the authentication proof a channel will not be
+	// broadcasted to the broader network anyways.
 	var announcements []networkMsg
 	if chanInfo.AuthProof != nil && !d.cfg.IsAlias(upd.ShortChannelID) {
+		// We log the case where the dont_forward bit is set although
+		// the channel is already announced to the network because we
+		// already have a AuthProof for it.
+		if upd.MessageFlags.HasDontForward() {
+			log.Warnf("Received %v with the dont_forward bit set "+
+				"(msgflags=%s) for channel=%v from peer=%x "+
+				"for an announced channel",
+				upd.MsgType().String(),
+				upd.MessageFlags.String(),
+				upd.ShortChannelID.ToUint64(),
+				remotePubKey,
+			)
+		}
+
 		announcements = append(announcements, networkMsg{
 			peer:     nMsg.peer,
 			source:   nMsg.source,

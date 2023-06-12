@@ -168,6 +168,11 @@ unlock or create.
   `RPCCRTPATH`](https://github.com/lightningnetwork/lnd/pull/7429) to the
   `lnd` Docker image main script (`/start-lnd.sh`).
 
+* Fix bug in `scripts/verify-install.sh` that caused the [release binary
+  signature verification script to not properly import signing
+  keys](https://github.com/lightningnetwork/lnd/pull/7758) when being run with
+  new version of `gpg` (which is the case in the latest Docker image).
+
 # Contributors (Alphabetical Order)
 
 * Aljaz Ceru

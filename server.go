@@ -1276,8 +1276,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return ourPolicy, err
 	}
 
+	// Get the development config for funding manager. If we are not in
+	// development mode, this would be nil.
+	var devCfg *funding.DevConfig
+	if lncfg.IsDevBuild() {
+		devCfg = &funding.DevConfig{
+			ProcessChannelReadyWait: cfg.Dev.ChannelReadyWait(),
+		}
+	}
+
 	//nolint:lll
 	s.fundingMgr, err = funding.NewFundingManager(funding.Config{
+		Dev:                devCfg,
 		NoWumboChans:       !cfg.ProtocolOptions.Wumbo(),
 		IDKey:              nodeKeyDesc.PubKey,
 		IDKeyLoc:           nodeKeyDesc.KeyLocator,

@@ -214,11 +214,6 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	// Add amount of new htlc.
 	newSetTotal += ctx.amtPaid
 
-	// Make sure the communicated set total isn't overpaid.
-	if newSetTotal > ctx.mpp.TotalMsat() {
-		return nil, ctx.failRes(ResultHtlcSetOverpayment), nil
-	}
-
 	// The invoice is still open. Check the expiry.
 	if ctx.expiry < uint32(ctx.currentHeight+ctx.finalCltvRejectDelta) {
 		return nil, ctx.failRes(ResultExpiryTooSoon), nil
@@ -243,7 +238,7 @@ func updateMpp(ctx *invoiceUpdateCtx, inv *Invoice) (*InvoiceUpdateDesc,
 	}
 
 	// If the invoice cannot be settled yet, only record the htlc.
-	setComplete := newSetTotal == ctx.mpp.TotalMsat()
+	setComplete := newSetTotal >= ctx.mpp.TotalMsat()
 	if !setComplete {
 		return &update, ctx.acceptRes(resultPartialAccepted), nil
 	}

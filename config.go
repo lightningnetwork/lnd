@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"os"
@@ -2071,7 +2072,7 @@ func extractBtcdRPCParams(btcdConfigPath string) (string, string, error) {
 
 	// With the file open extract the contents of the configuration file so
 	// we can attempt to locate the RPC credentials.
-	configContents, err := ioutil.ReadAll(btcdConfigFile)
+	configContents, err := io.ReadAll(btcdConfigFile)
 	if err != nil {
 		return "", "", err
 	}
@@ -2120,7 +2121,7 @@ func extractBitcoindRPCParams(networkName, bitcoindDataDir, bitcoindConfigPath,
 
 	// With the file open extract the contents of the configuration file so
 	// we can attempt to locate the RPC credentials.
-	configContents, err := ioutil.ReadAll(bitcoindConfigFile)
+	configContents, err := io.ReadAll(bitcoindConfigFile)
 	if err != nil {
 		return "", "", "", "", err
 	}

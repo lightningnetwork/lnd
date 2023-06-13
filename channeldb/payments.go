@@ -850,10 +850,12 @@ func (d *DB) DeletePayment(paymentHash lntypes.Hash,
 
 // DeletePayments deletes all completed and failed payments from the DB. If
 // failedOnly is set, only failed payments will be considered for deletion. If
-// failedHtlsOnly is set, the payment itself won't be deleted, only failed HTLC
-// attempts.
-func (d *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
-	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+// failedHtlcsOnly is set, the payment itself won't be deleted, only failed HTLC
+// attempts. The method returns the number of deleted payments, which is always
+// 0 if failedHtlcsOnly is set.
+func (d *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) (int, error) {
+	var numPayments int
+	err := kvdb.Update(d, func(tx kvdb.RwTx) error {
 		payments := tx.ReadWriteBucket(paymentsRootBucket)
 		if payments == nil {
 			return nil
@@ -929,6 +931,7 @@ func (d *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
 			}
 
 			deleteIndexes = append(deleteIndexes, seqNrs...)
+			numPayments++
 			return nil
 		})
 		if err != nil {
@@ -979,7 +982,14 @@ func (d *DB) DeletePayments(failedOnly, failedHtlcsOnly bool) error {
 		}
 
 		return nil
-	}, func() {})
+	}, func() {
+		numPayments = 0
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return numPayments, nil
 }
 
 // fetchSequenceNumbers fetches all the sequence numbers associated with a

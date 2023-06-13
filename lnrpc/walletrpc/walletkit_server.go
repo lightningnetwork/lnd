@@ -519,7 +519,9 @@ func (w *WalletKit) ReleaseOutput(ctx context.Context,
 		return nil, err
 	}
 
-	return &ReleaseOutputResponse{}, nil
+	return &ReleaseOutputResponse{
+		Status: "output released",
+	}, nil
 }
 
 // ListLeases returns a list of all currently locked utxos.
@@ -953,7 +955,11 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		return nil, err
 	}
 
-	return &BumpFeeResponse{}, nil
+	return &BumpFeeResponse{
+		Status: "fee bump sweep initiated in background, check logs " +
+			"and the PendingSweeps RPC (lncli wallet " +
+			"pendingsweeps) for updates",
+	}, nil
 }
 
 // ListSweeps returns a list of the sweeps that our node has published.
@@ -1043,7 +1049,10 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 	}
 
 	err = w.cfg.Wallet.LabelTransaction(*hash, req.Label, req.Overwrite)
-	return &LabelTransactionResponse{}, err
+
+	return &LabelTransactionResponse{
+		Status: "transaction label added",
+	}, err
 }
 
 // FundPsbt creates a fully populated PSBT that contains enough inputs to fund
@@ -1969,7 +1978,9 @@ func (w *WalletKit) ImportPublicKey(_ context.Context,
 		return nil, err
 	}
 
-	return &ImportPublicKeyResponse{}, nil
+	return &ImportPublicKeyResponse{
+		Status: "public key imported",
+	}, nil
 }
 
 // ImportTapscript imports a Taproot script and internal key and adds the

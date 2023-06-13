@@ -1289,7 +1289,13 @@
       }
     },
     "walletrpcBumpFeeResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the bump fee operation."
+        }
+      }
     },
     "walletrpcChangeAddressType": {
       "type": "string",
@@ -1466,7 +1472,13 @@
       }
     },
     "walletrpcImportPublicKeyResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the import operation."
+        }
+      }
     },
     "walletrpcImportTapscriptRequest": {
       "type": "object",
@@ -1538,7 +1550,13 @@
       }
     },
     "walletrpcLabelTransactionResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the label operation."
+        }
+      }
     },
     "walletrpcLeaseOutputRequest": {
       "type": "object",
@@ -1743,7 +1761,13 @@
       }
     },
     "walletrpcReleaseOutputResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the release operation."
+        }
+      }
     },
     "walletrpcRequiredReserveResponse": {
       "type": "object",

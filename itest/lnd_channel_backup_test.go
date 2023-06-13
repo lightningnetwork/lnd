@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/funding"
@@ -392,12 +393,22 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 					req := &lnrpc.RestoreChanBackupRequest{
 						Backup: backup,
 					}
-					newNode.RPC.RestoreChanBackups(req)
+					res := newNode.RPC.RestoreChanBackups(
+						req,
+					)
+					require.EqualValues(
+						st, 1, res.NumRestored,
+					)
 
 					req = &lnrpc.RestoreChanBackupRequest{
 						Backup: backup,
 					}
-					newNode.RPC.RestoreChanBackups(req)
+					res = newNode.RPC.RestoreChanBackups(
+						req,
+					)
+					require.EqualValues(
+						st, 0, res.NumRestored,
+					)
 
 					return newNode
 				}
@@ -877,9 +888,33 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 		}
 	}
 
+	containsChan := func(b *lnrpc.VerifyChanBackupResponse,
+		chanPoint *lnrpc.ChannelPoint) bool {
+
+		txidString := chanPoint.GetFundingTxidStr()
+		if txidString == "" {
+			hash, err := chainhash.NewHash(
+				chanPoint.GetFundingTxidBytes(),
+			)
+			require.NoError(ht, err)
+			txidString = hash.String()
+		}
+
+		chanPointStr := fmt.Sprintf("%s:%d", txidString,
+			chanPoint.OutputIndex)
+
+		for idx := range b.ChanPoints {
+			if b.ChanPoints[idx] == chanPointStr {
+				return true
+			}
+		}
+
+		return false
+	}
+
 	// assertBackupFileState is a helper function that we'll use to compare
 	// the on disk back up file to our currentBackup pointer above.
-	assertBackupFileState := func() {
+	assertBackupFileState := func(expectAllChannels bool) {
 		err := wait.NoError(func() error {
 			packedBackup, err := ioutil.ReadFile(backupFilePath)
 			if err != nil {
@@ -907,7 +942,19 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 					},
 				}
 
-				carol.RPC.VerifyChanBackup(snapshot)
+				res := carol.RPC.VerifyChanBackup(snapshot)
+
+				if !expectAllChannels {
+					continue
+				}
+				for idx := range chanPoints {
+					if !containsChan(res, chanPoints[idx]) {
+						return fmt.Errorf("backup "+
+							"doesn't contain "+
+							"chan_point: %v",
+							chanPoints[idx])
+					}
+				}
 			}
 
 			return nil
@@ -922,7 +969,7 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 
 	// The on disk file should also exactly match the latest backup that we
 	// have.
-	assertBackupFileState()
+	assertBackupFileState(true)
 
 	// Next, we'll close the channels one by one. After each channel
 	// closure, we should get a notification, and the on-disk state should
@@ -949,14 +996,14 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 			// Now that the channel's been fully resolved, we
 			// expect another notification.
 			assertBackupNtfns(1)
-			assertBackupFileState()
+			assertBackupFileState(false)
 		} else {
 			ht.CloseChannel(alice, chanPoint)
 			// We should get a single notification after closing,
 			// and the on-disk state should match this latest
 			// notifications.
 			assertBackupNtfns(1)
-			assertBackupFileState()
+			assertBackupFileState(false)
 		}
 	}
 }
@@ -1370,7 +1417,8 @@ func chanRestoreViaRPC(ht *lntest.HarnessTest, password []byte,
 			nil, copyPorts(oldNode),
 		)
 		req := &lnrpc.RestoreChanBackupRequest{Backup: backup}
-		newNode.RPC.RestoreChanBackups(req)
+		res := newNode.RPC.RestoreChanBackups(req)
+		require.Greater(ht, res.NumRestored, 0)
 
 		return newNode
 	}

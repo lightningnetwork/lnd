@@ -40,9 +40,11 @@ type PeerConnector interface {
 // the channel. In addition a LinkNode will be created for each new peer as
 // well, in order to expose the addressing information required to locate to
 // and connect to each peer in order to initiate the recovery protocol.
+// The number of channels that were successfully restored is returned.
 func Recover(backups []Single, restorer ChannelRestorer,
-	peerConnector PeerConnector) error {
+	peerConnector PeerConnector) (int, error) {
 
+	var numRestored int
 	for i, backup := range backups {
 		log.Infof("Restoring ChannelPoint(%v) to disk: ",
 			backup.FundingOutpoint)
@@ -57,9 +59,10 @@ func Recover(backups []Single, restorer ChannelRestorer,
 			continue
 		}
 		if err != nil {
-			return err
+			return 0, err
 		}
 
+		numRestored++
 		log.Infof("Attempting to connect to node=%x (addrs=%v) to "+
 			"restore ChannelPoint(%v)",
 			backup.RemoteNodePub.SerializeCompressed(),
@@ -71,7 +74,7 @@ func Recover(backups []Single, restorer ChannelRestorer,
 			backup.RemoteNodePub, backup.Addresses,
 		)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		// TODO(roasbeef): to handle case where node has changed addrs,
@@ -81,7 +84,7 @@ func Recover(backups []Single, restorer ChannelRestorer,
 		//  * just to to fresh w/ call to node addrs and de-dup?
 	}
 
-	return nil
+	return numRestored, nil
 }
 
 // TODO(roasbeef): more specific keychain interface?
@@ -89,16 +92,17 @@ func Recover(backups []Single, restorer ChannelRestorer,
 // UnpackAndRecoverSingles is a one-shot method, that given a set of packed
 // single channel backups, will restore the channel state to a channel shell,
 // and also reach out to connect to any of the known node addresses for that
-// channel. It is assumes that after this method exists, if a connection we
-// able to be established, then then PeerConnector will continue to attempt to
-// re-establish a persistent connection in the background.
+// channel. It is assumes that after this method exists, if a connection was
+// established, then the PeerConnector will continue to attempt to re-establish
+// a persistent connection in the background. The number of channels that were
+// successfully restored is returned.
 func UnpackAndRecoverSingles(singles PackedSingles,
 	keyChain keychain.KeyRing, restorer ChannelRestorer,
-	peerConnector PeerConnector) error {
+	peerConnector PeerConnector) (int, error) {
 
 	chanBackups, err := singles.Unpack(keyChain)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	return Recover(chanBackups, restorer, peerConnector)
@@ -107,16 +111,17 @@ func UnpackAndRecoverSingles(singles PackedSingles,
 // UnpackAndRecoverMulti is a one-shot method, that given a set of packed
 // multi-channel backups, will restore the channel states to channel shells,
 // and also reach out to connect to any of the known node addresses for that
-// channel. It is assumes that after this method exists, if a connection we
-// able to be established, then then PeerConnector will continue to attempt to
-// re-establish a persistent connection in the background.
+// channel. It is assumes that after this method exists, if a connection was
+// established, then the PeerConnector will continue to attempt to re-establish
+// a persistent connection in the background. The number of channels that were
+// successfully restored is returned.
 func UnpackAndRecoverMulti(packedMulti PackedMulti,
 	keyChain keychain.KeyRing, restorer ChannelRestorer,
-	peerConnector PeerConnector) error {
+	peerConnector PeerConnector) (int, error) {
 
 	chanBackups, err := packedMulti.Unpack(keyChain)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	return Recover(chanBackups.StaticBackups, restorer, peerConnector)

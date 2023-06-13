@@ -433,9 +433,9 @@ func TestPaymentControlDeleteNonInFlight(t *testing.T) {
 	}
 
 	// Delete all failed payments.
-	if err := db.DeletePayments(true, false); err != nil {
-		t.Fatal(err)
-	}
+	numPayments, err := db.DeletePayments(true, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, numPayments)
 
 	// This should leave the succeeded and in-flight payments.
 	dbPayments, err := db.FetchPayments()
@@ -469,9 +469,9 @@ func TestPaymentControlDeleteNonInFlight(t *testing.T) {
 	}
 
 	// Now delete all payments except in-flight.
-	if err := db.DeletePayments(false, false); err != nil {
-		t.Fatal(err)
-	}
+	numPayments, err = db.DeletePayments(false, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, numPayments)
 
 	// This should leave the in-flight payment.
 	dbPayments, err = db.FetchPayments()
@@ -534,14 +534,18 @@ func TestPaymentControlDeletePayments(t *testing.T) {
 	assertPayments(t, db, payments)
 
 	// Delete HTLC attempts for failed payments only.
-	require.NoError(t, db.DeletePayments(true, true))
+	numPayments, err := db.DeletePayments(true, true)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, numPayments)
 
 	// The failed payment is the only altered one.
 	payments[0].htlcs = 0
 	assertPayments(t, db, payments)
 
 	// Delete failed attempts for all payments.
-	require.NoError(t, db.DeletePayments(false, true))
+	numPayments, err = db.DeletePayments(false, true)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, numPayments)
 
 	// The failed attempts should be deleted, except for the in-flight
 	// payment, that shouldn't be altered until it has completed.
@@ -549,12 +553,16 @@ func TestPaymentControlDeletePayments(t *testing.T) {
 	assertPayments(t, db, payments)
 
 	// Now delete all failed payments.
-	require.NoError(t, db.DeletePayments(true, false))
+	numPayments, err = db.DeletePayments(true, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, numPayments)
 
 	assertPayments(t, db, payments[1:])
 
 	// Finally delete all completed payments.
-	require.NoError(t, db.DeletePayments(false, false))
+	numPayments, err = db.DeletePayments(false, false)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, numPayments)
 
 	assertPayments(t, db, payments[2:])
 }

@@ -72,6 +72,12 @@ package](https://github.com/lightningnetwork/lnd/pull/7356)
   `grpc.keepalive_time_ms=5100` is recommended on the client side (adding 100ms
   to account for slightly different clock speeds).
 
+* Some RPCs that previously just returned an empty response message now at least
+  return [a short status
+  message](https://github.com/lightningnetwork/lnd/pull/7762) to help command
+  line users to better understand that the command was executed successfully and
+  something was executed or initiated to run in the background.
+
 ## Misc
 
 * [Generate default macaroons

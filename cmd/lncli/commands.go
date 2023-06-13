@@ -1846,10 +1846,12 @@ func stopDaemon(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	_, err := client.StopDaemon(ctxc, &lnrpc.StopRequest{})
+	resp, err := client.StopDaemon(ctxc, &lnrpc.StopRequest{})
 	if err != nil {
 		return err
 	}
+
+	printRespJSON(resp)
 
 	return nil
 }
@@ -2655,10 +2657,12 @@ func restoreChanBackup(ctx *cli.Context) error {
 
 	req.Backup = backups.Backup
 
-	_, err = client.RestoreChannelBackups(ctxc, &req)
+	resp, err := client.RestoreChannelBackups(ctxc, &req)
 	if err != nil {
 		return fmt.Errorf("unable to restore chan backups: %v", err)
 	}
+
+	printRespJSON(resp)
 
 	return nil
 }

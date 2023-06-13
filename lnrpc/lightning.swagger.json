@@ -3150,7 +3150,13 @@
       }
     },
     "lnrpcAbandonChannelResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the abandon operation."
+        }
+      }
     },
     "lnrpcAddInvoiceResponse": {
       "type": "object",
@@ -4242,7 +4248,13 @@
       }
     },
     "lnrpcConnectPeerResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the connect operation."
+        }
+      }
     },
     "lnrpcCustomMessage": {
       "type": "object",
@@ -4284,7 +4296,13 @@
       }
     },
     "lnrpcDeleteAllPaymentsResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the delete operation."
+        }
+      }
     },
     "lnrpcDeleteMacaroonIDResponse": {
       "type": "object",
@@ -4296,10 +4314,22 @@
       }
     },
     "lnrpcDeletePaymentResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the delete operation."
+        }
+      }
     },
     "lnrpcDisconnectPeerResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the disconnect operation."
+        }
+      }
     },
     "lnrpcEdgeLocator": {
       "type": "object",
@@ -6480,7 +6510,14 @@
       "description": " - ANCHOR: We resolved an anchor output.\n - INCOMING_HTLC: We are resolving an incoming htlc on chain. This if this htlc is\nclaimed, we swept the incoming htlc with the preimage. If it is timed\nout, our peer swept the timeout path.\n - OUTGOING_HTLC: We are resolving an outgoing htlc on chain. If this htlc is claimed,\nthe remote party swept the htlc with the preimage. If it is timed out,\nwe swept it with the timeout path.\n - COMMIT: We force closed and need to sweep our time locked commitment output."
     },
     "lnrpcRestoreBackupResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "num_restored": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of channels successfully restored."
+        }
+      }
     },
     "lnrpcRestoreChanBackupRequest": {
       "type": "object",
@@ -6662,7 +6699,13 @@
       }
     },
     "lnrpcSendCustomMessageResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the send operation."
+        }
+      }
     },
     "lnrpcSendManyRequest": {
       "type": "object",
@@ -6863,7 +6906,13 @@
       "type": "object"
     },
     "lnrpcStopResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the stop operation."
+        }
+      }
     },
     "lnrpcStreamAuth": {
       "type": "object",
@@ -7010,7 +7059,15 @@
       }
     },
     "lnrpcVerifyChanBackupResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "chan_points": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
     },
     "lnrpcVerifyMessageRequest": {
       "type": "object",

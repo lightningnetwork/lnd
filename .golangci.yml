@@ -214,10 +214,17 @@ issues:
         - gosec
         - funlen
         - revive
+        # Allow duplications in tests so it's easier to follow a single unit
+        # test.
+        - dupl
 
     - path: mock*
       linters:
         - revive
+        # forcetypeassert is skipped for the mock because the test would fail
+        # if the returned value doesn't match the type, so there's no need to
+        # check the convert.
+        - forcetypeassert
 
     - path: test*
       linters:

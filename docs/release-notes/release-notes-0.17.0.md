@@ -53,6 +53,11 @@ package](https://github.com/lightningnetwork/lnd/pull/7356)
   a helpful note-to-self containing arbitrary useful information about the
   channel.
 
+* `PendingOpenChannel` now has the field
+  [`funding_expiry_blocks`](https://github.com/lightningnetwork/lnd/pull/7480)
+  that indicates the number of blocks until the funding transaction is
+  considered expired.
+
 * [gRPC keepalive parameters can now be set in the
   configuration](https://github.com/lightningnetwork/lnd/pull/7730). The `lnd`
   configuration settings `grpc.server-ping-time` and `grpc.server-ping-timeout`
@@ -125,6 +130,7 @@ unlock or create.
 * hieblmi
 * Jordi Montes
 * Matt Morehouse
+* Maxwell Sayles
 * Michael Street
 * Oliver Gugger
 * Shaurya Arora

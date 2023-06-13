@@ -58,6 +58,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSphinxReplayPersistence,
 	},
 	{
+		Name:     "funding expiry blocks on pending",
+		TestFunc: testFundingExpiryBlocksOnPending,
+	},
+	{
 		Name:     "list channels",
 		TestFunc: testListChannels,
 	},

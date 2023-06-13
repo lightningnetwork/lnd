@@ -104,10 +104,10 @@ const (
 	// TODO(roasbeef): tune.
 	msgBufferSize = 50
 
-	// maxWaitNumBlocksFundingConf is the maximum number of blocks to wait
+	// MaxWaitNumBlocksFundingConf is the maximum number of blocks to wait
 	// for the funding transaction to be confirmed before forgetting
 	// channels that aren't initiated by us. 2016 blocks is ~2 weeks.
-	maxWaitNumBlocksFundingConf = 2016
+	MaxWaitNumBlocksFundingConf = 2016
 
 	// pendingChansLimit is the maximum number of pending channels that we
 	// can have. After this point, pending channel opens will start to be
@@ -2535,7 +2535,7 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 	pendingID [32]byte) error {
 
 	// We'll get a timeout if the number of blocks mined since the channel
-	// was initiated reaches maxWaitNumBlocksFundingConf and we are not the
+	// was initiated reaches MaxWaitNumBlocksFundingConf and we are not the
 	// channel initiator.
 	localBalance := c.LocalCommitment.LocalBalance.ToSatoshis()
 	closeInfo := &channeldb.ChannelCloseSummary{
@@ -2597,7 +2597,7 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 
 // waitForFundingWithTimeout is a wrapper around waitForFundingConfirmation and
 // waitForTimeout that will return ErrConfirmationTimeout if we are not the
-// channel initiator and the maxWaitNumBlocksFundingConf has passed from the
+// channel initiator and the MaxWaitNumBlocksFundingConf has passed from the
 // funding broadcast height. In case of confirmation, the short channel ID of
 // the channel and the funding transaction will be returned.
 func (f *Manager) waitForFundingWithTimeout(
@@ -2754,7 +2754,7 @@ func (f *Manager) waitForFundingConfirmation(
 	}
 }
 
-// waitForTimeout will close the timeout channel if maxWaitNumBlocksFundingConf
+// waitForTimeout will close the timeout channel if MaxWaitNumBlocksFundingConf
 // has passed from the broadcast height of the given channel. In case of error,
 // the error is sent on timeoutChan. The wait can be canceled by closing the
 // cancelChan.
@@ -2777,7 +2777,7 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 
 	// On block maxHeight we will cancel the funding confirmation wait.
 	broadcastHeight := completeChan.BroadcastHeight()
-	maxHeight := broadcastHeight + maxWaitNumBlocksFundingConf
+	maxHeight := broadcastHeight + MaxWaitNumBlocksFundingConf
 	for {
 		select {
 		case epoch, ok := <-epochClient.Epochs:
@@ -2793,7 +2793,7 @@ func (f *Manager) waitForTimeout(completeChan *channeldb.OpenChannel,
 				log.Warnf("Waited for %v blocks without "+
 					"seeing funding transaction confirmed,"+
 					" cancelling.",
-					maxWaitNumBlocksFundingConf)
+					MaxWaitNumBlocksFundingConf)
 
 				// Notify the caller of the timeout.
 				close(timeoutChan)

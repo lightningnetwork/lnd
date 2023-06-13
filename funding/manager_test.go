@@ -2192,14 +2192,15 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 	// We expect Bob to forget the channel after 2016 blocks (2 weeks), so
 	// mine 2016-1, and check that it is still pending.
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + maxWaitNumBlocksFundingConf - 1,
+		Height: fundingBroadcastHeight +
+			MaxWaitNumBlocksFundingConf - 1,
 	}
 
 	// Bob should still be waiting for the channel to open.
 	assertNumPendingChannelsRemains(t, bob, 1)
 
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + maxWaitNumBlocksFundingConf,
+		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf,
 	}
 
 	// Bob should have sent an Error message to Alice.
@@ -2245,14 +2246,16 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 		t.Fatalf("alice did not publish funding tx")
 	}
 
-	// Increase the height to 1 minus the maxWaitNumBlocksFundingConf
+	// Increase the height to 1 minus the MaxWaitNumBlocksFundingConf
 	// height.
 	alice.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + maxWaitNumBlocksFundingConf - 1,
+		Height: fundingBroadcastHeight +
+			MaxWaitNumBlocksFundingConf - 1,
 	}
 
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + maxWaitNumBlocksFundingConf - 1,
+		Height: fundingBroadcastHeight +
+			MaxWaitNumBlocksFundingConf - 1,
 	}
 
 	// Assert both and Alice and Bob still have 1 pending channels.
@@ -2260,13 +2263,13 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 
 	assertNumPendingChannelsRemains(t, bob, 1)
 
-	// Increase both Alice and Bob to maxWaitNumBlocksFundingConf height.
+	// Increase both Alice and Bob to MaxWaitNumBlocksFundingConf height.
 	alice.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + maxWaitNumBlocksFundingConf,
+		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf,
 	}
 
 	bob.mockNotifier.epochChan <- &chainntnfs.BlockEpoch{
-		Height: fundingBroadcastHeight + maxWaitNumBlocksFundingConf,
+		Height: fundingBroadcastHeight + MaxWaitNumBlocksFundingConf,
 	}
 
 	// Since Alice was the initiator, the channel should not have timed out.

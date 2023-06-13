@@ -3052,6 +3052,11 @@
           "type": "string",
           "format": "int64",
           "description": "The required number of satoshis per kilo-weight that the requester will\npay at all times, for both the funding transaction and commitment\ntransaction. This value can later be updated once the channel is open."
+        },
+        "funding_expiry_blocks": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The number of blocks until the funding transaction is considered\nexpired. If this value gets close to zero, there is a risk that the\nchannel funding will be canceled by the channel responder. The\nchannel should be fee bumped using CPFP (see walletrpc.BumpFee) to\nensure that the channel confirms in time. Otherwise a force-close\nwill be necessary if the channel confirms after the funding\ntransaction expires. A negative value means the channel responder has\nvery likely canceled the funding and the channel will never become\nfully operational."
         }
       }
     },

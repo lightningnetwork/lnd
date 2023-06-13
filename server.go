@@ -4012,6 +4012,7 @@ func (s *server) peerTerminationWatcher(p *peer.Brontide, ready chan struct{}) {
 	// If the server is exiting then we can bail out early ourselves as all
 	// the other sub-systems will already be shutting down.
 	if s.Stopped() {
+		srvrLog.Debugf("Server quitting, exit early for peer %v", p)
 		return
 	}
 

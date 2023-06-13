@@ -1099,7 +1099,7 @@ func (p *Brontide) readNextMessage() (lnwire.Message, error) {
 
 	pktLen, err := noiseConn.ReadNextHeader()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read next header: %w", err)
 	}
 
 	// First we'll read the next _full_ message. We do this rather than
@@ -1128,7 +1128,7 @@ func (p *Brontide) readNextMessage() (lnwire.Message, error) {
 		// pool.
 		rawMsg, readErr := noiseConn.ReadNextBody(buf[:pktLen])
 		if readErr != nil {
-			return readErr
+			return fmt.Errorf("read next body: %w", readErr)
 		}
 		msgLen = uint64(len(rawMsg))
 

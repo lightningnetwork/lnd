@@ -218,7 +218,7 @@ func lastCompactionDate(dbFile string) (time.Time, error) {
 		return zeroTime, nil
 	}
 
-	tsBytes, err := ioutil.ReadFile(tsFile)
+	tsBytes, err := os.ReadFile(tsFile)
 	if err != nil {
 		return zeroTime, err
 	}

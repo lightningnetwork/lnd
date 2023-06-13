@@ -124,7 +124,7 @@ func (f *OnionFile) PrivateKey() ([]byte, error) {
 	}
 
 	// Try to read the Tor private key to pass into the AddOnion call.
-	privateKeyContent, err := ioutil.ReadFile(f.privateKeyPath)
+	privateKeyContent, err := os.ReadFile(f.privateKeyPath)
 	if err != nil {
 		return nil, err
 	}

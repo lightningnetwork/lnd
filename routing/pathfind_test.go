@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"net"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -181,7 +181,7 @@ func makeTestGraph(t *testing.T, useCache bool) (*channeldb.ChannelGraph,
 func parseTestGraph(t *testing.T, useCache bool, path string) (
 	*testGraphInstance, error) {
 
-	graphJSON, err := ioutil.ReadFile(path)
+	graphJSON, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"unicode"
@@ -352,7 +353,7 @@ func printMacaroon(ctx *cli.Context) error {
 		macPath := lncfg.CleanAndExpandPath(ctx.String("macaroon_file"))
 
 		// Load the specified macaroon file.
-		macBytes, err = ioutil.ReadFile(macPath)
+		macBytes, err = os.ReadFile(macPath)
 		if err != nil {
 			return fmt.Errorf("unable to read macaroon path %v: %v",
 				macPath, err)
@@ -441,7 +442,7 @@ func constrainMacaroon(ctx *cli.Context) error {
 	sourceMacFile := lncfg.CleanAndExpandPath(args.First())
 	args = args.Tail()
 
-	sourceMacBytes, err := ioutil.ReadFile(sourceMacFile)
+	sourceMacBytes, err := os.ReadFile(sourceMacFile)
 	if err != nil {
 		return fmt.Errorf("error trying to read source macaroon file "+
 			"%s: %v", sourceMacFile, err)

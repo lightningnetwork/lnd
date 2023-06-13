@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"os"
 	"strconv"
@@ -2833,7 +2832,7 @@ func parseChanBackups(ctx *cli.Context) (*lnrpc.RestoreChanBackupRequest, error)
 		}, nil
 
 	case ctx.IsSet("multi_file"):
-		packedMulti, err := ioutil.ReadFile(ctx.String("multi_file"))
+		packedMulti, err := os.ReadFile(ctx.String("multi_file"))
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode multi packed "+
 				"backup: %v", err)

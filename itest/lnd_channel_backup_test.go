@@ -3,7 +3,6 @@ package itest
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -285,7 +284,7 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 
 				// Read the entire Multi backup stored within
 				// this node's channel.backup file.
-				multi, err := ioutil.ReadFile(backupFilePath)
+				multi, err := os.ReadFile(backupFilePath)
 				require.NoError(st, err)
 
 				// Now that we have Dave's backup file, we'll
@@ -376,7 +375,7 @@ func testChannelBackupRestoreBasic(ht *lntest.HarnessTest) {
 
 				// Read the entire Multi backup stored within
 				// this node's channel.backup file.
-				multi, err := ioutil.ReadFile(backupFilePath)
+				multi, err := os.ReadFile(backupFilePath)
 				require.NoError(st, err)
 
 				// Now that we have Dave's backup file, we'll
@@ -501,7 +500,7 @@ func runChanRestoreScenarioUnConfirmed(ht *lntest.HarnessTest, useFile bool) {
 		backupFilePath := dave.Cfg.ChanBackupPath()
 		// Read the entire Multi backup stored within this node's
 		// channel.backup file.
-		multi, err = ioutil.ReadFile(backupFilePath)
+		multi, err = os.ReadFile(backupFilePath)
 		require.NoError(ht, err)
 	} else {
 		// For this restoration method, we'll grab the current
@@ -646,7 +645,7 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 
 	// Read the entire Multi backup stored within this node's
 	// channels.backup file.
-	multi, err := ioutil.ReadFile(backupFilePath)
+	multi, err := os.ReadFile(backupFilePath)
 	require.NoError(ht, err)
 
 	// If this was a zero conf taproot channel, then since it's private,
@@ -774,7 +773,7 @@ func runChanRestoreScenarioForceClose(ht *lntest.HarnessTest, zeroConf bool) {
 
 	// Read the entire Multi backup stored within this node's
 	// channel.backup file.
-	multi, err := ioutil.ReadFile(backupFilePath)
+	multi, err := os.ReadFile(backupFilePath)
 	require.NoError(ht, err)
 
 	// Now that we have Dave's backup file, we'll create a new nodeRestorer
@@ -907,7 +906,7 @@ func testChannelBackupUpdates(ht *lntest.HarnessTest) {
 	// the on disk back up file to our currentBackup pointer above.
 	assertBackupFileState := func() {
 		err := wait.NoError(func() error {
-			packedBackup, err := ioutil.ReadFile(backupFilePath)
+			packedBackup, err := os.ReadFile(backupFilePath)
 			if err != nil {
 				return fmt.Errorf("unable to read backup "+
 					"file: %v", err)

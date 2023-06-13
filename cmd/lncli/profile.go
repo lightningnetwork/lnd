@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path"
 	"strings"
 
@@ -129,7 +130,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	var tlsCert []byte
 	if tlsCertPath != "" && !insecure {
 		var err error
-		tlsCert, err = ioutil.ReadFile(tlsCertPath)
+		tlsCert, err = os.ReadFile(tlsCertPath)
 		if err != nil {
 			return nil, fmt.Errorf("could not load TLS cert "+
 				"file: %v", err)
@@ -167,7 +168,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	}
 
 	// Now load and possibly encrypt the macaroon file.
-	macBytes, err := ioutil.ReadFile(macPath)
+	macBytes, err := os.ReadFile(macPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read macaroon path (check "+
 			"the network setting!): %v", err)
@@ -222,7 +223,7 @@ func loadProfileFile(file string) (*profileFile, error) {
 		return nil, errNoProfileFile
 	}
 
-	content, err := ioutil.ReadFile(file)
+	content, err := os.ReadFile(file)
 	if err != nil {
 		return nil, fmt.Errorf("could not load profile file %s: %w",
 			file, err)

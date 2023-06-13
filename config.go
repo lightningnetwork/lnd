@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/user"
@@ -1846,7 +1845,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 
 		// We convert the cookie into a user name and password.
 		if conf.RPCCookie != "" {
-			cookie, err := ioutil.ReadFile(conf.RPCCookie)
+			cookie, err := os.ReadFile(conf.RPCCookie)
 			if err != nil {
 				return fmt.Errorf("cannot read cookie file: %w",
 					err)
@@ -2119,7 +2118,7 @@ func extractBitcoindRPCParams(networkName, bitcoindDataDir, bitcoindConfigPath,
 	if rpcCookiePath != "" {
 		cookiePath = rpcCookiePath
 	}
-	cookie, err := ioutil.ReadFile(cookiePath)
+	cookie, err := os.ReadFile(cookiePath)
 	if err == nil {
 		splitCookie := strings.Split(string(cookie), ":")
 		if len(splitCookie) == 2 {

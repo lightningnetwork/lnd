@@ -3,7 +3,7 @@ package cert
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"io/ioutil"
+	"os"
 	"sync"
 )
 
@@ -31,11 +31,11 @@ var (
 func GetCertBytesFromPath(certPath, keyPath string) (certBytes,
 	keyBytes []byte, err error) {
 
-	certBytes, err = ioutil.ReadFile(certPath)
+	certBytes, err = os.ReadFile(certPath)
 	if err != nil {
 		return nil, nil, err
 	}
-	keyBytes, err = ioutil.ReadFile(keyPath)
+	keyBytes, err = os.ReadFile(keyPath)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -542,4 +542,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "custom features",
 		TestFunc: testCustomFeatures,
 	},
+	{
+		Name:     "update pending open channels",
+		TestFunc: testUpdateOnPendingOpenChannels,
+	},
 }

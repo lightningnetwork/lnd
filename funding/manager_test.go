@@ -4507,3 +4507,60 @@ func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
 		}
 	}
 }
+
+// TestRemovePendingChannelFromBrontide checks the method behaves as expected.
+func TestRemovePendingChannelFromBrontide(t *testing.T) {
+	t.Parallel()
+	require := require.New(t)
+
+	mockPeer := &lnpeer.MockPeer{}
+
+	// Create a testing funding manager.
+	cfg := Config{TempChanIDSeed: [32]byte{1}}
+	f, err := NewFundingManager(cfg)
+	require.NoError(err, "failed to create funding manager")
+
+	// Setup the testing state.
+	//
+	// Add one item to the newChanBarriers map.
+	tempChanIDExist := [32]byte{2}
+	chanID := lnwire.ChannelID{3}
+	f.newChanBarriers.Store(chanID, &tempChannelSignal{
+		tempChanID: tempChanIDExist,
+	})
+
+	// Create a non-existing temp channel ID.
+	tempChanIDNotExist := [32]byte{4}
+
+	// First, test when the temp channel ID cannot be found.
+	//
+	// Mock the peer to return its pubkey. We expect it to be called
+	// exactly once.
+	testPub := [33]byte{0}
+	mockPeer.On("PubKey").Return(testPub).Once()
+
+	// We also expect the RemovePendingChannel to NOT be called since the
+	// temp channel ID cannot be found.
+	mockPeer.AssertNotCalled(t, "RemovePendingChannel")
+
+	// Call the method.
+	f.removePendingChannelFromBrontide(mockPeer, tempChanIDNotExist)
+
+	// Assert the methods are called as expected.
+	mockPeer.AssertExpectations(t)
+
+	// Second, test when the temp channel ID is found.
+	//
+	// Mock the peer to return its pubkey. We expect it to be called
+	// exactly once.
+	mockPeer.On("PubKey").Return(testPub).Once()
+
+	// We expect `RemovePendingChannel` to be called with chanID.
+	mockPeer.On("RemovePendingChannel", chanID).Return(nil)
+
+	// Call the method.
+	f.removePendingChannelFromBrontide(mockPeer, tempChanIDExist)
+
+	// Assert the methods are called as expected.
+	mockPeer.AssertExpectations(t)
+}

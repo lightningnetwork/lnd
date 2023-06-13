@@ -490,6 +490,10 @@ type Config struct {
 
 	// Estimator is used to estimate routing probabilities.
 	Estimator routing.Estimator
+
+	// Dev specifies configs used for integration tests, which is always
+	// empty if not built with `integration` flag.
+	Dev *lncfg.DevConfig `group:"dev" namespace:"dev"`
 }
 
 // GRPCConfig holds the configuration options for the gRPC server.

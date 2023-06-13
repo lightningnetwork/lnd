@@ -337,10 +337,22 @@ func newSerializedKey(pubKey *btcec.PublicKey) serializedPubKey {
 	return s
 }
 
+// DevConfig specifies configs used for integration test only.
+type DevConfig struct {
+	// ProcessChannelReadyWait is the duration to sleep before processing
+	// remote node's channel ready message once the channel as been marked
+	// as `channelReadySent`.
+	ProcessChannelReadyWait time.Duration
+}
+
 // Config defines the configuration for the FundingManager. All elements
 // within the configuration MUST be non-nil for the FundingManager to carry out
 // its duties.
 type Config struct {
+	// Dev specifies config values used in integration test. For
+	// production, this config will always be an empty struct.
+	Dev *DevConfig
+
 	// NoWumboChans indicates if we're to reject all incoming wumbo channel
 	// requests, and also reject all outgoing wumbo channel requests.
 	NoWumboChans bool
@@ -3523,6 +3535,24 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	msg *lnwire.ChannelReady) {
 
 	defer f.wg.Done()
+
+	// If we are in development mode, we'll wait for specified duration
+	// before processing the channel ready message.
+	if f.cfg.Dev != nil {
+		duration := f.cfg.Dev.ProcessChannelReadyWait
+		log.Warnf("Channel(%v): sleeping %v before processing "+
+			"channel_ready", msg.ChanID, duration)
+
+		select {
+		case <-time.After(duration):
+			log.Warnf("Channel(%v): slept %v before processing "+
+				"channel_ready", msg.ChanID, duration)
+		case <-f.quit:
+			log.Warnf("Channel(%v): quit sleeping", msg.ChanID)
+			return
+		}
+	}
+
 	log.Debugf("Received ChannelReady for ChannelID(%v) from "+
 		"peer %x", msg.ChanID,
 		peer.IdentityKey().SerializeCompressed())

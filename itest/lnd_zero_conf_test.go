@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -906,8 +904,6 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 		ht.Skipf("skipping zero-conf reorg test for neutrino backend")
 	}
 
-	var temp = "temp"
-
 	// Since zero-conf is opt in, the harness nodes provided won't be able
 	// to open zero-conf channels. In that case, we just spin up new nodes.
 	zeroConfArgs := []string{
@@ -963,37 +959,7 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 	// exists in the graph.
 	//
 	// First, we'll setup a new miner that we can use to cause a reorg.
-	tempLogDir := ".tempminerlogs"
-	logFilename := "output-open_channel_reorg-temp_miner.log"
-	tempMiner := lntest.NewTempMiner(
-		ht.Context(), ht.T, tempLogDir, logFilename,
-	)
-	defer tempMiner.Stop()
-
-	require.NoError(
-		ht.T, tempMiner.SetUp(false, 0), "unable to setup mining node",
-	)
-
-	// We start by connecting the new miner to our original miner, such
-	// that it will sync to our original chain.
-	err := ht.Miner.Client.Node(
-		btcjson.NConnect, tempMiner.P2PAddress(), &temp,
-	)
-	require.NoError(ht.T, err, "unable to connect node")
-
-	nodeSlice := []*rpctest.Harness{ht.Miner.Harness, tempMiner.Harness}
-	err = rpctest.JoinNodes(nodeSlice, rpctest.Blocks)
-	require.NoError(ht.T, err, "unable to join node on blocks")
-
-	// The two miners should be on the same block height.
-	assertMinerBlockHeightDelta(ht, ht.Miner, tempMiner, 0)
-
-	// We disconnect the two miners, such that we can mine two chains and
-	// cause a reorg later.
-	err = ht.Miner.Client.Node(
-		btcjson.NDisconnect, tempMiner.P2PAddress(), &temp,
-	)
-	require.NoError(ht.T, err, "unable to remove node")
+	tempMiner := ht.Miner.SpawnTempMiner()
 
 	// We now cause a fork, by letting our original miner mine 1 block and
 	// our new miner will mine 2. We also expect the funding transition to
@@ -1002,7 +968,7 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 	tempMiner.MineEmptyBlocks(2)
 
 	// Ensure the temp miner is one block ahead.
-	assertMinerBlockHeightDelta(ht, ht.Miner, tempMiner, 1)
+	ht.Miner.AssertMinerBlockHeightDelta(tempMiner, 1)
 
 	// Wait for Carol to sync to the original miner's chain.
 	_, minerHeight := ht.Miner.GetBestBlock()
@@ -1015,24 +981,14 @@ func testZeroConfReorg(ht *lntest.HarnessTest) {
 
 	// Connecting to the temporary miner should cause the original miner to
 	// reorg to the longer chain.
-	err = ht.Miner.Client.Node(
-		btcjson.NConnect, tempMiner.P2PAddress(), &temp,
-	)
-	require.NoError(ht.T, err, "unable to remove node")
-
-	nodes := []*rpctest.Harness{tempMiner.Harness, ht.Miner.Harness}
-	err = rpctest.JoinNodes(nodes, rpctest.Blocks)
-	require.NoError(ht.T, err, "unable to join node on blocks")
+	ht.Miner.ConnectMiner(tempMiner)
 
 	// They should now be on the same chain.
-	assertMinerBlockHeightDelta(ht, ht.Miner, tempMiner, 0)
+	ht.Miner.AssertMinerBlockHeightDelta(tempMiner, 0)
 
 	// Now we disconnect the two miners and reconnect our original chain
 	// backend.
-	err = ht.Miner.Client.Node(
-		btcjson.NDisconnect, tempMiner.P2PAddress(), &temp,
-	)
-	require.NoError(ht.T, err, "unable to remove node")
+	ht.Miner.DisconnectMiner(tempMiner)
 
 	ht.ConnectMiner()
 

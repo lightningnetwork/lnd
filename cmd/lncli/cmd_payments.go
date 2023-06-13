@@ -803,9 +803,12 @@ func formatPayment(ctxc context.Context, payment *lnrpc.Payment,
 }
 
 var payInvoiceCommand = cli.Command{
-	Name:      "payinvoice",
-	Category:  "Payments",
-	Usage:     "Pay an invoice over lightning.",
+	Name:     "payinvoice",
+	Category: "Payments",
+	Usage:    "Pay an invoice over lightning.",
+	Description: `
+	This command is a shortcut for 'sendpayment --pay_req='.
+	`,
 	ArgsUsage: "pay_req",
 	Flags: append(paymentFlags(),
 		cli.Int64Flag{
@@ -1038,7 +1041,7 @@ var queryRoutesCommand = cli.Command{
 			Usage: "use mission control probabilities",
 		},
 		cli.Uint64Flag{
-			Name: "outgoing_chanid",
+			Name: "outgoing_chan_id",
 			Usage: "(optional) the channel id of the channel " +
 				"that must be taken to the first hop",
 		},
@@ -1127,7 +1130,7 @@ func queryRoutes(ctx *cli.Context) error {
 		FinalCltvDelta:    int32(ctx.Int("final_cltv_delta")),
 		UseMissionControl: ctx.Bool("use_mc"),
 		CltvLimit:         uint32(ctx.Uint64(cltvLimitFlag.Name)),
-		OutgoingChanId:    ctx.Uint64("outgoing_chanid"),
+		OutgoingChanId:    ctx.Uint64("outgoing_chan_id"),
 		TimePref:          ctx.Float64(timePrefFlag.Name),
 		IgnoredPairs:      ignoredPairs,
 	}

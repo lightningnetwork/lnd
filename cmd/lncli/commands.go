@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
+	"golang.org/x/term"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -132,6 +133,11 @@ var newAddressCommand = cli.Command{
 			Usage: "(optional) the name of the account to " +
 				"generate a new address for",
 		},
+		cli.BoolFlag{
+			Name: "unused",
+			Usage: "(optional) return the last unused address " +
+				"instead of generating a new one",
+		},
 	},
 	Description: `
 	Generate a wallet new address. Address-types has to be one of:
@@ -153,14 +159,25 @@ func newAddress(ctx *cli.Context) error {
 	// Map the string encoded address type, to the concrete typed address
 	// type enum. An unrecognized address type will result in an error.
 	stringAddrType := ctx.Args().First()
+	unused := ctx.Bool("unused")
+
 	var addrType lnrpc.AddressType
 	switch stringAddrType { // TODO(roasbeef): make them ints on the cli?
 	case "p2wkh":
 		addrType = lnrpc.AddressType_WITNESS_PUBKEY_HASH
+		if unused {
+			addrType = lnrpc.AddressType_UNUSED_WITNESS_PUBKEY_HASH
+		}
 	case "np2wkh":
 		addrType = lnrpc.AddressType_NESTED_PUBKEY_HASH
+		if unused {
+			addrType = lnrpc.AddressType_UNUSED_NESTED_PUBKEY_HASH
+		}
 	case "p2tr":
 		addrType = lnrpc.AddressType_TAPROOT_PUBKEY
+		if unused {
+			addrType = lnrpc.AddressType_UNUSED_TAPROOT_PUBKEY
+		}
 	default:
 		return fmt.Errorf("invalid address type %v, support address type "+
 			"are: p2wkh, np2wkh, and p2tr", stringAddrType)
@@ -286,6 +303,14 @@ var sendCoinsCommand = cli.Command{
 				"must satisfy",
 			Value: defaultUtxoMinConf,
 		},
+		cli.BoolFlag{
+			Name: "force, f",
+			Usage: "if set, the transaction will be broadcast " +
+				"without asking for confirmation; this is " +
+				"set to true by default if stdout is not a " +
+				"terminal avoid breaking existing shell " +
+				"scripts",
+		},
 		txLabelFlag,
 	},
 	Action: actionDecorator(sendCoins),
@@ -346,6 +371,19 @@ func sendCoins(ctx *cli.Context) error {
 	if amt != 0 && ctx.Bool("sweepall") {
 		return fmt.Errorf("amount cannot be set if attempting to " +
 			"sweep all coins out of the wallet")
+	}
+
+	// Ask for confirmation if we're on an actual terminal and the output is
+	// not being redirected to another command. This prevents existing shell
+	// scripts from breaking.
+	if !ctx.Bool("force") && term.IsTerminal(int(os.Stdout.Fd())) {
+		fmt.Printf("Amount: %d\n", amt)
+		fmt.Printf("Destination address: %v\n", addr)
+
+		confirm := promptForConfirmation("Confirm payment (yes/no): ")
+		if !confirm {
+			return nil
+		}
 	}
 
 	client, cleanUp := getClient(ctx)

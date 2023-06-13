@@ -77,12 +77,11 @@ func testEtcdFailoverCase(ht *lntest.HarnessTest, kill bool) {
 	require.NoError(ht, err, "Cannot start election observer")
 
 	password := []byte("the quick brown fox jumps the lazy dog")
-	entropy := [16]byte{1, 2, 3}
 	stateless := false
 	cluster := true
 
 	carol1, _, _ := ht.NewNodeWithSeedEtcd(
-		"Carol-1", etcdCfg, password, entropy[:], stateless, cluster,
+		"Carol-1", etcdCfg, password, stateless, cluster,
 		leaderSessionTTL,
 	)
 	info1 := carol1.RPC.GetInfo()

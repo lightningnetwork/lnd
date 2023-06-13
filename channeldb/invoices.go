@@ -1996,11 +1996,7 @@ func (d *DB) serializeAndStoreInvoice(invoices kvdb.RwBucket, invoiceNum []byte,
 		return err
 	}
 
-	if err := invoices.Put(invoiceNum, buf.Bytes()); err != nil {
-		return err
-	}
-
-	return nil
+	return invoices.Put(invoiceNum, buf.Bytes())
 }
 
 // addHTLCs tries to add the htlcs in the given InvoiceUpdateDesc.

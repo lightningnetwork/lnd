@@ -91,7 +91,7 @@ func (m *SyncMap[K, V]) LoadOrStore(key K, value V) (V, bool) {
 	result, loaded := m.Map.LoadOrStore(key, value)
 	item, ok := result.(V)
 	if !ok {
-		return *new(V), false //nolint: gocritic
+		return *new(V), false
 	}
 
 	return item, loaded

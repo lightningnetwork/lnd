@@ -77,6 +77,9 @@ package](https://github.com/lightningnetwork/lnd/pull/7356)
   `grpc.keepalive_time_ms=5100` is recommended on the client side (adding 100ms
   to account for slightly different clock speeds).
 
+* [Fixed a bug where we didn't check for correct networks when submitting
+  onchain transactions](https://github.com/lightningnetwork/lnd/pull/6448).
+
 ## Misc
 
 * [Generate default macaroons
@@ -85,6 +88,9 @@ unlock or create.
 
 * [Restore support](https://github.com/lightningnetwork/lnd/pull/7678) for
   `PKCS8`-encoded cert private keys.
+
+* Add [`--unused`](https://github.com/lightningnetwork/lnd/pull/6387) to
+  `lncli newaddr` command.
 
 ## Code Health
 
@@ -114,24 +120,45 @@ unlock or create.
 
 * Added ability to use [ENV variables to override `lncli` global flags](https://github.com/lightningnetwork/lnd/pull/7693). Flags will have preference over ENVs.
 
+* The `lncli sendcoins` command now asks for manual confirmation when invoked
+  on the command line. This can be skipped by adding the `--force` (or `-f`)
+  flag, similar to how `lncli payinvoice` works. To not break any existing
+  scripts the confirmation is also skipped if `stdout` is not a terminal/tty
+  (e.g. when capturing the output in a shell script variable or piping the
+  output to another program).
+
 ## Bug Fix
 
 * Make sure payment stream returns all the events by [subscribing it before
   sending](https://github.com/lightningnetwork/lnd/pull/7722).
 
+### Tooling and documentation
+
+* Add support for [custom `RPCHOST` and
+  `RPCCRTPATH`](https://github.com/lightningnetwork/lnd/pull/7429) to the
+  `lnd` Docker image main script (`/start-lnd.sh`).
+
 # Contributors (Alphabetical Order)
 
+* Aljaz Ceru
+* BhhagBoseDK
 * Carla Kirk-Cohen
 * Daniel McNally
 * Elle Mouton
 * Erik Arvstedt
 * ErikEk
+* gabbyprecious
 * Guillermo Caracuel
 * hieblmi
 * Jordi Montes
+* Lele Calo
 * Matt Morehouse
 * Maxwell Sayles
 * Michael Street
+* MG-ng
 * Oliver Gugger
+* Satarupa Deb
 * Shaurya Arora
+* Torkel Rogstad
 * ziggie1984
+* zx9r

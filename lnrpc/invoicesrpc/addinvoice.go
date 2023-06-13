@@ -292,12 +292,19 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	// If specified, add a fallback address to the payment request.
 	if len(invoice.FallbackAddr) > 0 {
-		addr, err := btcutil.DecodeAddress(invoice.FallbackAddr,
-			cfg.ChainParams)
+		addr, err := btcutil.DecodeAddress(
+			invoice.FallbackAddr, cfg.ChainParams,
+		)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid fallback "+
 				"address: %v", err)
 		}
+
+		if !addr.IsForNet(cfg.ChainParams) {
+			return nil, nil, fmt.Errorf("fallback address is not "+
+				"for %s", cfg.ChainParams.Name)
+		}
+
 		options = append(options, zpay32.FallbackAddr(addr))
 	}
 

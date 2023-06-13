@@ -53,8 +53,6 @@ var (
 
 	testTime = time.Date(2018, time.February, 2, 14, 0, 0, 0, time.UTC)
 
-	testInvoicePreimage = lntypes.Preimage{1}
-
 	testPrivKeyBytes, _ = hex.DecodeString(
 		"e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2d" +
 			"b734",

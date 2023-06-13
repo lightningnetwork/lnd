@@ -1104,6 +1104,12 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 					"%s for network %s: %v", addrStr,
 					w.cfg.ChainParams.Name, err)
 			}
+
+			if !addr.IsForNet(w.cfg.ChainParams) {
+				return nil, fmt.Errorf("address is not for %s",
+					w.cfg.ChainParams.Name)
+			}
+
 			pkScript, err := txscript.PayToAddrScript(addr)
 			if err != nil {
 				return nil, fmt.Errorf("error getting pk "+
@@ -1692,7 +1698,7 @@ const msgSignaturePrefix = "Bitcoin Signed Message:\n"
 
 // SignMessageWithAddr signs a message with the private key of the provided
 // address. The address needs to belong to the lnd wallet.
-func (w *WalletKit) SignMessageWithAddr(ctx context.Context,
+func (w *WalletKit) SignMessageWithAddr(_ context.Context,
 	req *SignMessageWithAddrRequest) (*SignMessageWithAddrResponse, error) {
 
 	addr, err := btcutil.DecodeAddress(req.Addr, w.cfg.ChainParams)
@@ -1757,7 +1763,7 @@ func (w *WalletKit) SignMessageWithAddr(ctx context.Context,
 // provided address. There is no dependence on the private key of the address
 // therefore also external addresses are allowed to verify signatures.
 // Supported address types are P2PKH, P2WKH, NP2WKH, P2TR.
-func (w *WalletKit) VerifyMessageWithAddr(ctx context.Context,
+func (w *WalletKit) VerifyMessageWithAddr(_ context.Context,
 	req *VerifyMessageWithAddrRequest) (*VerifyMessageWithAddrResponse,
 	error) {
 

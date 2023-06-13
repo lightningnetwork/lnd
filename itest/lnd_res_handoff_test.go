@@ -77,7 +77,7 @@ func testResHandoff(ht *lntest.HarnessTest) {
 	// Mine blocks until Bob has no waiting close channels. This tests that
 	// the circuit-deletion logic is skipped if a resolution message
 	// exists.
-	ht.CleanupForceClose(bob, chanPointCarol)
+	ht.CleanupForceClose(bob)
 
 	// We will now restart Bob so that we can test whether the resolution
 	// messages are re-forwarded on start-up.

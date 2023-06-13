@@ -48,7 +48,7 @@ func (c *Warning) Warning() string {
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (c *Warning) Decode(r io.Reader, pver uint32) error {
+func (c *Warning) Decode(r io.Reader, _ uint32) error {
 	return ReadElements(r,
 		&c.ChanID,
 		&c.Data,
@@ -59,7 +59,7 @@ func (c *Warning) Decode(r io.Reader, pver uint32) error {
 // protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (c *Warning) Encode(w *bytes.Buffer, pver uint32) error {
+func (c *Warning) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteBytes(w, c.ChanID[:]); err != nil {
 		return err
 	}

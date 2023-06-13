@@ -735,7 +735,7 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 // transaction is confirmed on-chain. Returns the funding tx.
 func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	pushAmt btcutil.Amount, subtractFees bool, fundUpToMaxAmt,
-	minFundAmt btcutil.Amount, numConfs uint32, //nolint:unparam
+	minFundAmt btcutil.Amount, numConfs uint32,
 	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool,
 	chanType *lnwire.ChannelType) *wire.MsgTx {
 
@@ -747,6 +747,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		ChainHash:       *fundingNetParams.GenesisHash,
 		SubtractFees:    subtractFees,
 		FundUpToMaxAmt:  fundUpToMaxAmt,
+		MinConfs:        int32(numConfs),
 		MinFundAmt:      minFundAmt,
 		LocalFundingAmt: localFundingAmt,
 		PushAmt:         lnwire.NewMSatFromSatoshis(pushAmt),

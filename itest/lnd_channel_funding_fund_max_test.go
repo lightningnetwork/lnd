@@ -173,8 +173,7 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 		success := ht.Run(
 			testCase.name, func(tt *testing.T) {
 				runFundMaxTestCase(
-					ht, tt, alice, bob, testCase,
-					reserveAmount,
+					ht, alice, bob, testCase, reserveAmount,
 				)
 			},
 		)
@@ -188,9 +187,8 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 }
 
 // runTestCase runs a single test case asserting that test conditions are met.
-func runFundMaxTestCase(ht *lntest.HarnessTest, t *testing.T, alice,
-	bob *node.HarnessNode, testCase *chanFundMaxTestCase,
-	reserveAmount btcutil.Amount) {
+func runFundMaxTestCase(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
+	testCase *chanFundMaxTestCase, reserveAmount btcutil.Amount) {
 
 	ht.FundCoins(testCase.initialWalletBalance, alice)
 

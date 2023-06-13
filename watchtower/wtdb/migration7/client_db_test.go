@@ -144,14 +144,10 @@ func TestMigrateChannelToSessionIndex(t *testing.T) {
 				// If the migration fails, the details bucket
 				// should be untouched.
 				if test.shouldFail {
-					if err := migtest.VerifyDB(
+					return migtest.VerifyDB(
 						tx, cChanDetailsBkt,
 						test.preDetails,
-					); err != nil {
-						return err
-					}
-
-					return nil
+					)
 				}
 
 				// Else, we expect an updated details bucket

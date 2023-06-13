@@ -712,7 +712,9 @@ message ImportTapscriptResponse {
 
 message Transaction {
     /*
-    The raw serialized transaction.
+    The raw serialized transaction. Despite the field name, this does need to be
+    specified in raw bytes (or base64 encoded when using REST) and not in hex.
+    To not break existing software, the field can't simply be renamed.
     */
     bytes tx_hex = 1;
 

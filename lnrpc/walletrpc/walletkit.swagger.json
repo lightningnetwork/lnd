@@ -1893,7 +1893,7 @@
         "tx_hex": {
           "type": "string",
           "format": "byte",
-          "description": "The raw serialized transaction."
+          "description": "The raw serialized transaction. Despite the field name, this does need to be\nspecified in raw bytes (or base64 encoded when using REST) and not in hex.\nTo not break existing software, the field can't simply be renamed."
         },
         "label": {
           "type": "string",

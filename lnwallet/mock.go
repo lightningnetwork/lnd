@@ -212,8 +212,8 @@ func (w *mockWalletController) ReleaseOutput(wtxmgr.LockID,
 	return nil
 }
 
-func (w *mockWalletController) ListLeasedOutputs() ([]*base.ListLeasedOutputResult, //nolint:lll
-	error) {
+func (w *mockWalletController) ListLeasedOutputs() (
+	[]*base.ListLeasedOutputResult, error) {
 
 	return nil, nil
 }

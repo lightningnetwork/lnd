@@ -89,8 +89,8 @@ github.com/btcsuite/btcd/chaincfg/chainhash v1.0.2/go.mod h1:7SFka0XMvUgj3hfZtyd
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f h1:bAs4lUbRJpnnkd9VhRV3jjAVU7DJVjMaK+IsvSeZvFo=
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f/go.mod h1:TdznJufoqS23FtqVCzL0ZqgP5MqXbb4fg/WgDys70nA=
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
-github.com/btcsuite/btcwallet v0.16.10-0.20230517173256-aa62c04afcdf h1:YRY292S4axfeDPJrZYkDq4+JaRhaPvjMueZ65evmUfc=
-github.com/btcsuite/btcwallet v0.16.10-0.20230517173256-aa62c04afcdf/go.mod h1:T3DjEAMZYIqQ28l+ixlB6DX4mFJXCX8Pzz+yACQcLsc=
+github.com/btcsuite/btcwallet v0.16.10-0.20230621165747-9c21f464ce13 h1:7i0CzK+PP4+Dth9ia/eIBFRw8+K6MT8MfoFqBH43Xts=
+github.com/btcsuite/btcwallet v0.16.10-0.20230621165747-9c21f464ce13/go.mod h1:Hl4PP/tSNcgN6himfx/020mYSa19a1qkqTuqQBUU97w=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.2 h1:etuLgGEojecsDOYTII8rYiGHjGyV5xTqsXi+ZQ715UU=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.2/go.mod h1:Zpk/LOb2sKqwP2lmHjaZT9AdaKsHPSbNLm2Uql5IQ/0=
 github.com/btcsuite/btcwallet/wallet/txrules v1.2.0 h1:BtEN5Empw62/RVnZ0VcJaVtVlBijnLlJY+dwjAye2Bg=

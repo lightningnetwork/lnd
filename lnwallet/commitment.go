@@ -202,36 +202,76 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 	selfKey, revokeKey *btcec.PublicKey, csvDelay, leaseExpiry uint32) (
 	*ScriptInfo, error) {
 
-	var (
-		toLocalRedeemScript []byte
-		err                 error
-	)
 	switch {
-	// If we are the initiator of a leased channel, then we have an
-	// additional CLTV requirement in addition to the usual CSV requirement.
-	case initiator && chanType.HasLeaseExpiration():
-		toLocalRedeemScript, err = input.LeaseCommitScriptToSelf(
-			selfKey, revokeKey, csvDelay, leaseExpiry,
-		)
-
-	default:
-		toLocalRedeemScript, err = input.CommitScriptToSelf(
+	// For taproot scripts, we'll need to make a slightly modified script
+	// where a NUMS key is used to force a script path reveal of either the
+	// revocation or the CSV timeout.
+	//
+	// Our "redeem" script here is just the taproot witness program.
+	case chanType.IsTaproot():
+		toLocalOutputKey, err := input.TaprootCommitScriptToSelf(
 			csvDelay, selfKey, revokeKey,
 		)
-	}
-	if err != nil {
-		return nil, err
-	}
+		if err != nil {
+			return nil, fmt.Errorf("unable to generate taproot "+
+				"key: %w", err)
+		}
 
-	toLocalScriptHash, err := input.WitnessScriptHash(toLocalRedeemScript)
-	if err != nil {
-		return nil, err
-	}
+		toLocalPkScript, err := input.PayToTaprootScript(
+			toLocalOutputKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to gen taproot "+
+				"pkscript: %w", err)
+		}
 
-	return &ScriptInfo{
-		PkScript:      toLocalScriptHash,
-		WitnessScript: toLocalRedeemScript,
-	}, nil
+		return &ScriptInfo{
+			PkScript: toLocalPkScript,
+		}, nil
+
+	// If we are the initiator of a leased channel, then we have an
+	// additional CLTV requirement in addition to the usual CSV
+	// requirement.
+	case initiator && chanType.HasLeaseExpiration():
+		toLocalRedeemScript, err := input.LeaseCommitScriptToSelf(
+			selfKey, revokeKey, csvDelay, leaseExpiry,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		toLocalScriptHash, err := input.WitnessScriptHash(
+			toLocalRedeemScript,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &ScriptInfo{
+			PkScript:      toLocalScriptHash,
+			WitnessScript: toLocalRedeemScript,
+		}, nil
+
+	default:
+		toLocalRedeemScript, err := input.CommitScriptToSelf(
+			csvDelay, selfKey, revokeKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		toLocalScriptHash, err := input.WitnessScriptHash(
+			toLocalRedeemScript,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &ScriptInfo{
+			PkScript:      toLocalScriptHash,
+			WitnessScript: toLocalRedeemScript,
+		}, nil
+	}
 }
 
 // CommitScriptToRemote derives the appropriate to_remote script based on the
@@ -240,7 +280,8 @@ func CommitScriptToSelf(chanType channeldb.ChannelType, initiator bool,
 // script for. The second return value is the CSV delay of the output script,
 // what must be satisfied in order to spend the output.
 func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
-	key *btcec.PublicKey, leaseExpiry uint32) (*ScriptInfo, uint32, error) {
+	remoteKey *btcec.PublicKey,
+	leaseExpiry uint32) (*ScriptInfo, uint32, error) {
 
 	switch {
 	// If we are not the initiator of a leased channel, then the remote
@@ -248,7 +289,7 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 	// CSV requirement.
 	case chanType.HasLeaseExpiration() && !initiator:
 		script, err := input.LeaseCommitScriptToRemoteConfirmed(
-			key, leaseExpiry,
+			remoteKey, leaseExpiry,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -264,10 +305,30 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 			WitnessScript: script,
 		}, 1, nil
 
+	// For taproot channels, we'll use a slightly different format, where
+	// we use a NUMS key to force the remote party to take a script path,
+	// with the sole tap leaf enforcing the 1 CSV delay.
+	case chanType.IsTaproot():
+		toRemoteKey, err := input.TaprootCommitScriptToRemote(
+			remoteKey,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		toRemotePkScript, err := input.PayToTaprootScript(toRemoteKey)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		return &ScriptInfo{
+			PkScript: toRemotePkScript,
+		}, 1, nil
+
 	// If this channel type has anchors, we derive the delayed to_remote
 	// script.
 	case chanType.HasAnchors():
-		script, err := input.CommitScriptToRemoteConfirmed(key)
+		script, err := input.CommitScriptToRemoteConfirmed(remoteKey)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -284,7 +345,7 @@ func CommitScriptToRemote(chanType channeldb.ChannelType, initiator bool,
 
 	default:
 		// Otherwise the to_remote will be a simple p2wkh.
-		p2wkh, err := input.CommitScriptUnencumbered(key)
+		p2wkh, err := input.CommitScriptUnencumbered(remoteKey)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -418,45 +479,100 @@ func HtlcSuccessFee(chanType channeldb.ChannelType,
 		return 0
 	}
 
+	// TODO(roasbeef): fee is still off here?
+
 	if chanType.HasAnchors() {
 		return feePerKw.FeeForWeight(input.HtlcSuccessWeightConfirmed)
 	}
+
 	return feePerKw.FeeForWeight(input.HtlcSuccessWeight)
 }
 
 // CommitScriptAnchors return the scripts to use for the local and remote
 // anchor.
-func CommitScriptAnchors(localChanCfg,
-	remoteChanCfg *channeldb.ChannelConfig) (*ScriptInfo,
-	*ScriptInfo, error) {
+func CommitScriptAnchors(chanType channeldb.ChannelType,
+	localChanCfg, remoteChanCfg *channeldb.ChannelConfig,
+	keyRing *CommitmentKeyRing) (*ScriptInfo, *ScriptInfo, error) {
 
-	// Helper to create anchor ScriptInfo from key.
-	anchorScript := func(key *btcec.PublicKey) (*ScriptInfo, error) {
-		script, err := input.CommitScriptAnchor(key)
-		if err != nil {
-			return nil, err
+	var (
+		anchorScript func(key *btcec.PublicKey) (*ScriptInfo, error)
+		keySelector  func(*channeldb.ChannelConfig,
+			bool) *btcec.PublicKey
+	)
+
+	switch {
+	// For taproot channels, the anchor is slightly different: the top
+	// level key is now the (relative) local delay and remote public key,
+	// since these are fully revealed once the commitment hits the chain.
+	case chanType.IsTaproot():
+		anchorScript = func(key *btcec.PublicKey) (*ScriptInfo, error) {
+			anchorKey, err := input.TaprootOutputKeyAnchor(key)
+			if err != nil {
+				return nil, err
+			}
+
+			anchorPkScript, err := input.PayToTaprootScript(
+				anchorKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return &ScriptInfo{
+				PkScript: anchorPkScript,
+			}, nil
 		}
 
-		scriptHash, err := input.WitnessScriptHash(script)
-		if err != nil {
-			return nil, err
+		keySelector = func(cfg *channeldb.ChannelConfig,
+			local bool) *btcec.PublicKey {
+
+			if local {
+				return keyRing.ToLocalKey
+			}
+
+			return keyRing.ToRemoteKey
 		}
 
-		return &ScriptInfo{
-			PkScript:      scriptHash,
-			WitnessScript: script,
-		}, nil
+	// For normal channels we'll use the multi-sig keys since those are
+	// revealed when the channel closes
+	default:
+		// For normal channels, we'll create a p2wsh script based on
+		// the target key.
+		anchorScript = func(key *btcec.PublicKey) (*ScriptInfo, error) {
+			script, err := input.CommitScriptAnchor(key)
+			if err != nil {
+				return nil, err
+			}
+
+			scriptHash, err := input.WitnessScriptHash(script)
+			if err != nil {
+				return nil, err
+			}
+
+			return &ScriptInfo{
+				PkScript:      scriptHash,
+				WitnessScript: script,
+			}, nil
+		}
+
+		// For the existing channels, we'll always select the multi-sig
+		// key from the party's channel config.
+		keySelector = func(cfg *channeldb.ChannelConfig,
+			_ bool) *btcec.PublicKey {
+
+			return cfg.MultiSigKey.PubKey
+		}
 	}
 
 	// Get the script used for the anchor output spendable by the local
 	// node.
-	localAnchor, err := anchorScript(localChanCfg.MultiSigKey.PubKey)
+	localAnchor, err := anchorScript(keySelector(localChanCfg, true))
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// And the anchor spendable by the remote node.
-	remoteAnchor, err := anchorScript(remoteChanCfg.MultiSigKey.PubKey)
+	remoteAnchor, err := anchorScript(keySelector(remoteChanCfg, false))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -784,7 +900,7 @@ func CreateCommitTx(chanType channeldb.ChannelType,
 	// If this channel type has anchors, we'll also add those.
 	if chanType.HasAnchors() {
 		localAnchor, remoteAnchor, err := CommitScriptAnchors(
-			localChanCfg, remoteChanCfg,
+			chanType, localChanCfg, remoteChanCfg, keyRing,
 		)
 		if err != nil {
 			return nil, err

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"strings"
@@ -244,7 +243,8 @@ func saveProfileFile(file string, f *profileFile) error {
 	if err != nil {
 		return fmt.Errorf("could not marshal profile: %w", err)
 	}
-	return ioutil.WriteFile(file, content, 0644)
+
+	return os.WriteFile(file, content, 0644)
 }
 
 // profileFile is a struct that represents the whole content of a profile file.

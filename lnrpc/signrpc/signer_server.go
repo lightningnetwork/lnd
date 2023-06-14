@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -167,7 +166,7 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		err = ioutil.WriteFile(macFilePath, signerMacBytes, 0644)
+		err = os.WriteFile(macFilePath, signerMacBytes, 0644)
 		if err != nil {
 			_ = os.Remove(macFilePath)
 			return nil, nil, err

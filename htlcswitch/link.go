@@ -1929,9 +1929,9 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// Instead of truncating the slice to conserve memory
 		// allocations, we simply set the uncommitted preimage slice to
 		// nil so that a new one will be initialized if any more
-		// witnesses are discovered. We do this maximum size of the
-		// slice can occupy 15KB, and want to ensure we release that
-		// memory back to the runtime.
+		// witnesses are discovered. We do this because the maximum size
+		// that the slice can occupy is 15KB, and we want to ensure we
+		// release that memory back to the runtime.
 		l.uncommittedPreimages = nil
 
 		// We just received a new updates to our local commitment
@@ -3237,11 +3237,10 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// As we're the exit hop, we'll double check the hop-payload included in
 	// the HTLC to ensure that it was crafted correctly by the sender and
-	// matches the HTLC we were extended.
-	if pd.Amount != fwdInfo.AmountToForward {
-
-		l.log.Errorf("onion payload of incoming htlc(%x) has incorrect "+
-			"value: expected %v, got %v", pd.RHash,
+	// is compatible with the HTLC we were extended.
+	if pd.Amount < fwdInfo.AmountToForward {
+		l.log.Errorf("onion payload of incoming htlc(%x) has "+
+			"incompatible value: expected <=%v, got %v", pd.RHash,
 			pd.Amount, fwdInfo.AmountToForward)
 
 		failure := NewLinkError(
@@ -3254,9 +3253,9 @@ func (l *channelLink) processExitHop(pd *lnwallet.PaymentDescriptor,
 
 	// We'll also ensure that our time-lock value has been computed
 	// correctly.
-	if pd.Timeout != fwdInfo.OutgoingCTLV {
-		l.log.Errorf("onion payload of incoming htlc(%x) has incorrect "+
-			"time-lock: expected %v, got %v",
+	if pd.Timeout < fwdInfo.OutgoingCTLV {
+		l.log.Errorf("onion payload of incoming htlc(%x) has "+
+			"incompatible time-lock: expected <=%v, got %v",
 			pd.RHash[:], pd.Timeout, fwdInfo.OutgoingCTLV)
 
 		failure := NewLinkError(

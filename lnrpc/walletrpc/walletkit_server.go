@@ -816,12 +816,10 @@ func UnmarshallOutPoint(op *lnrpc.OutPoint) (*wire.OutPoint, error) {
 
 	var hash chainhash.Hash
 	switch {
+	// Return an error if both txid fields are unpopulated.
 	case len(op.TxidBytes) == 0 && len(op.TxidStr) == 0:
-		fallthrough
-
-	case len(op.TxidBytes) != 0 && len(op.TxidStr) != 0:
-		return nil, fmt.Errorf("either TxidBytes or TxidStr must be " +
-			"specified, but not both")
+		return nil, fmt.Errorf("TxidBytes and TxidStr are both " +
+			"unspecified")
 
 	// The hash was provided as raw bytes.
 	case len(op.TxidBytes) != 0:

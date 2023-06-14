@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 
@@ -135,7 +134,7 @@ func NewBackend(miner string, netParams *chaincfg.Params) (
 		// the log files, including any compressed log files from
 		// logrorate, before deleting the temporary log dir.
 		logDir := fmt.Sprintf("%s/%s", baseLogDir, netParams.Name)
-		files, err := ioutil.ReadDir(logDir)
+		files, err := os.ReadDir(logDir)
 		if err != nil {
 			errStr += fmt.Sprintf(
 				"unable to read log directory: %v\n", err,

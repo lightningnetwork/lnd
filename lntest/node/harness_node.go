@@ -1032,7 +1032,7 @@ func addLogFile(hn *HarnessNode) error {
 // copyAll copies all files and directories from srcDir to dstDir recursively.
 // Note that this function does not support links.
 func copyAll(dstDir, srcDir string) error {
-	entries, err := ioutil.ReadDir(srcDir)
+	entries, err := os.ReadDir(srcDir)
 	if err != nil {
 		return err
 	}

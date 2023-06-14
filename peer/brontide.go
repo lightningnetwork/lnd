@@ -4078,8 +4078,8 @@ func (p *Brontide) processEarlyMsgs(chanID lnwire.ChannelID) {
 		return
 	}
 
-	// Filter out the target messages in order.
-	cache.Range(filterMsgs)
+	// Filter out the target messages in FIFO order.
+	cache.RangeFIFO(filterMsgs)
 
 	// Return early if no messages found.
 	if len(msgs) == 0 {

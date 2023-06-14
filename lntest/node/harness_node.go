@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -824,7 +823,7 @@ func (hn *HarnessNode) BackupDB() error {
 		}
 	} else {
 		// Backup files.
-		tempDir, err := ioutil.TempDir("", "past-state")
+		tempDir, err := os.MkdirTemp("", "past-state")
 		if err != nil {
 			return fmt.Errorf("unable to create temp db folder: %w",
 				err)

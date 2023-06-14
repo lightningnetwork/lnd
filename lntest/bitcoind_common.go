@@ -6,7 +6,6 @@ package lntest
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,7 +104,7 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 		return nil, nil, err
 	}
 
-	tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
+	tempBitcoindDir, err := os.MkdirTemp("", "bitcoind")
 	if err != nil {
 		return nil, nil,
 			fmt.Errorf("unable to create temp directory: %w", err)

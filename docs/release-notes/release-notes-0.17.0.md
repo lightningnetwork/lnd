@@ -110,6 +110,8 @@ on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
 independently](https://github.com/lightningnetwork/lnd/pull/7592) on wallet
 unlock or create.
 
+* [Remove io/ioutil package dependence](https://github.com/lightningnetwork/lnd/pull/7765).
+
 * [Restore support](https://github.com/lightningnetwork/lnd/pull/7678) for
   `PKCS8`-encoded cert private keys.
 

@@ -3,7 +3,6 @@ package watchtower_test
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -104,7 +103,7 @@ func BenchmarkEncodeCreateSession(t *testing.B) {
 
 	var err error
 	for i := 0; i < t.N; i++ {
-		err = m.Encode(ioutil.Discard, 0)
+		err = m.Encode(io.Discard, 0)
 	}
 	require.NoError(t, err)
 }
@@ -118,7 +117,7 @@ func BenchmarkEncodeCreateSessionTLV(t *testing.B) {
 
 	var err error
 	for i := 0; i < t.N; i++ {
-		err = m.Encode(ioutil.Discard)
+		err = m.Encode(io.Discard)
 	}
 	require.NoError(t, err)
 }

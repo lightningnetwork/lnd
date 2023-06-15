@@ -13,3 +13,14 @@ type Watchtower struct {
 
 	watchtower.Conf
 }
+
+// DefaultWatchtowerCfg creates a Watchtower with some default values filled
+// out.
+func DefaultWatchtowerCfg(defaultTowerDir string) *Watchtower {
+	conf := watchtower.DefaultConf()
+
+	return &Watchtower{
+		TowerDir: defaultTowerDir,
+		Conf:     *conf,
+	}
+}

@@ -638,9 +638,7 @@ func DefaultConfig() Config {
 			ChannelCacheSize: channeldb.DefaultChannelCacheSize,
 		},
 		Prometheus: lncfg.DefaultPrometheus(),
-		Watchtower: &lncfg.Watchtower{
-			TowerDir: defaultTowerDir,
-		},
+		Watchtower: lncfg.DefaultWatchtowerCfg(defaultTowerDir),
 		HealthChecks: &lncfg.HealthCheckConfig{
 			ChainCheck: &lncfg.CheckConfig{
 				Interval: defaultChainInterval,

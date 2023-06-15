@@ -713,6 +713,7 @@ func DefaultConfig() Config {
 			ServerPingTimeout: defaultGrpcServerPingTimeout,
 			ClientPingMinWait: defaultGrpcClientPingMinWait,
 		},
+		WtClient: lncfg.DefaultWtClientCfg(),
 	}
 }
 

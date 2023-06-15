@@ -1,6 +1,11 @@
 package lncfg
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/lightningnetwork/lnd/watchtower/wtclient"
+	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
+)
 
 // WtClient holds the configuration options for the daemon's watchtower client.
 //
@@ -32,6 +37,23 @@ type WtClient struct {
 	MaxUpdates uint16 `long:"max-updates" description:"The maximum number of updates to be backed up in a single session."`
 }
 
+// DefaultWtClientCfg returns the WtClient config struct with some default
+// values populated.
+func DefaultWtClientCfg() *WtClient {
+	// The sweep fee rate used internally by the tower client is in sats/kw
+	// but the config exposed to the user is in sats/byte, so we convert the
+	// default here before exposing it to the user.
+	sweepSatsPerKvB := wtpolicy.DefaultSweepFeeRate.FeePerKVByte()
+	sweepFeeRate := uint64(sweepSatsPerKvB / 1000)
+
+	return &WtClient{
+		SweepFeeRate:       sweepFeeRate,
+		SessionCloseRange:  wtclient.DefaultSessionCloseRange,
+		MaxTasksInMemQueue: wtclient.DefaultMaxTasksInMemQueue,
+		MaxUpdates:         wtpolicy.DefaultMaxUpdates,
+	}
+}
+
 // Validate ensures the user has provided a valid configuration.
 //
 // NOTE: Part of the Validator interface.
@@ -43,6 +65,22 @@ func (c *WtClient) Validate() error {
 			"removed in v0.9.0-beta. To setup watchtowers for " +
 			"the client, set `wtclient.active` and run " +
 			"`lncli wtclient -h` for more information")
+	}
+
+	if c.SweepFeeRate == 0 {
+		return fmt.Errorf("sweep-fee-rate must be non-zero")
+	}
+
+	if c.MaxUpdates == 0 {
+		return fmt.Errorf("max-updates must be non-zero")
+	}
+
+	if c.MaxTasksInMemQueue == 0 {
+		return fmt.Errorf("max-tasks-in-mem-queue must be non-zero")
+	}
+
+	if c.SessionCloseRange == 0 {
+		return fmt.Errorf("session-close-range must be non-zero")
 	}
 
 	return nil

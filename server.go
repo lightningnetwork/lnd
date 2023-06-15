@@ -1497,29 +1497,15 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	if cfg.WtClient.Active {
 		policy := wtpolicy.DefaultPolicy()
+		policy.MaxUpdates = cfg.WtClient.MaxUpdates
 
-		if cfg.WtClient.SweepFeeRate != 0 {
-			// We expose the sweep fee rate in sat/vbyte, but the
-			// tower protocol operations on sat/kw.
-			sweepRateSatPerVByte := chainfee.SatPerKVByte(
-				1000 * cfg.WtClient.SweepFeeRate,
-			)
-			policy.SweepFeeRate = sweepRateSatPerVByte.FeePerKWeight()
-		}
+		// We expose the sweep fee rate in sat/vbyte, but the tower
+		// protocol operations on sat/kw.
+		sweepRateSatPerVByte := chainfee.SatPerKVByte(
+			1000 * cfg.WtClient.SweepFeeRate,
+		)
 
-		if cfg.WtClient.MaxUpdates != 0 {
-			policy.MaxUpdates = cfg.WtClient.MaxUpdates
-		}
-
-		sessionCloseRange := uint32(wtclient.DefaultSessionCloseRange)
-		if cfg.WtClient.SessionCloseRange != 0 {
-			sessionCloseRange = cfg.WtClient.SessionCloseRange
-		}
-
-		maxTasksInMemQueue := uint64(wtclient.DefaultMaxTasksInMemQueue)
-		if cfg.WtClient.MaxTasksInMemQueue != 0 {
-			maxTasksInMemQueue = cfg.WtClient.MaxTasksInMemQueue
-		}
+		policy.SweepFeeRate = sweepRateSatPerVByte.FeePerKWeight()
 
 		if err := policy.Validate(); err != nil {
 			return nil, err
@@ -1565,7 +1551,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		s.towerClient, err = wtclient.New(&wtclient.Config{
 			FetchClosedChannel:     fetchClosedChannel,
 			BuildBreachRetribution: buildBreachRetribution,
-			SessionCloseRange:      sessionCloseRange,
+			SessionCloseRange:      cfg.WtClient.SessionCloseRange,
 			ChainNotifier:          s.cc.ChainNotifier,
 			SubscribeChannelEvents: func() (subscribe.Subscription,
 				error) {
@@ -1584,7 +1570,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
 			ForceQuitDelay:     wtclient.DefaultForceQuitDelay,
-			MaxTasksInMemQueue: maxTasksInMemQueue,
+			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
 		})
 		if err != nil {
 			return nil, err
@@ -1599,7 +1585,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		s.anchorTowerClient, err = wtclient.New(&wtclient.Config{
 			FetchClosedChannel:     fetchClosedChannel,
 			BuildBreachRetribution: buildBreachRetribution,
-			SessionCloseRange:      sessionCloseRange,
+			SessionCloseRange:      cfg.WtClient.SessionCloseRange,
 			ChainNotifier:          s.cc.ChainNotifier,
 			SubscribeChannelEvents: func() (subscribe.Subscription,
 				error) {
@@ -1618,7 +1604,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
 			ForceQuitDelay:     wtclient.DefaultForceQuitDelay,
-			MaxTasksInMemQueue: maxTasksInMemQueue,
+			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
 		})
 		if err != nil {
 			return nil, err

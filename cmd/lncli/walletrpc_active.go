@@ -1447,6 +1447,9 @@ var importAccountCommand = cli.Command{
 	The address type can usually be inferred from the key's version, but may
 	be required for certain keys to map them into the proper scope.
 
+	If an account with the same name already exists (even with a different
+	key scope), an error will be returned.
+
 	For BIP-0044 keys, an address type must be specified as we intend to not
 	support importing BIP-0044 keys into the wallet using the legacy
 	pay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will

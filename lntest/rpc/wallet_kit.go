@@ -235,6 +235,20 @@ func (h *HarnessRPC) ImportAccount(
 	return resp
 }
 
+// ImportAccountAssertErr makes the ImportAccount RPC call and asserts an error
+// is returned. It then returns the error.
+func (h *HarnessRPC) ImportAccountAssertErr(
+	req *walletrpc.ImportAccountRequest) error {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WalletKit.ImportAccount(ctxt, req)
+	require.Error(h, err)
+
+	return err
+}
+
 // ImportPublicKey makes a RPC call to the node's WalletKitClient and asserts.
 //
 //nolint:lll

@@ -82,11 +82,6 @@ var (
 	// requested for the default imported account within the wallet.
 	errNoImportedAddrGen = errors.New("addresses cannot be generated for " +
 		"the default imported account")
-
-	// errIncompatibleAccountAddr is an error returned when the type of a
-	// new address being requested is incompatible with the account.
-	errIncompatibleAccountAddr = errors.New("incompatible address type " +
-		"for account")
 )
 
 // BtcWallet is an implementation of the lnwallet.WalletController interface
@@ -516,18 +511,14 @@ func (b *BtcWallet) keyScopeForAccountAddr(accountName string,
 		return addrKeyScope, defaultAccount, nil
 	}
 
-	// Otherwise, look up the account's key scope and check that it supports
-	// the requested address type.
-	keyScope, account, err := b.wallet.LookupAccount(accountName)
+	// Otherwise, look up the custom account and if it supports the given
+	// key scope.
+	accountNumber, err := b.wallet.AccountNumber(addrKeyScope, accountName)
 	if err != nil {
 		return waddrmgr.KeyScope{}, 0, err
 	}
 
-	if keyScope != addrKeyScope {
-		return waddrmgr.KeyScope{}, 0, errIncompatibleAccountAddr
-	}
-
-	return keyScope, account, nil
+	return addrKeyScope, accountNumber, nil
 }
 
 // NewAddress returns the next external or internal address for the wallet
@@ -636,17 +627,36 @@ func (b *BtcWallet) ListAccounts(name string,
 			break
 		}
 
-		// Otherwise, we'll retrieve the single account that's mapped by
-		// the given name.
-		scope, acctNum, err := b.wallet.LookupAccount(name)
-		if err != nil {
-			return nil, err
+		// In theory, there should be only one custom account for the
+		// given name. However, due to a lack of check, users could
+		// create custom accounts with various key scopes. This
+		// behaviour has been fixed but, we return all potential custom
+		// accounts with the given name.
+		for _, scope := range waddrmgr.DefaultKeyScopes {
+			a, err := b.wallet.AccountPropertiesByName(
+				scope, name,
+			)
+			switch {
+			case waddrmgr.IsError(err, waddrmgr.ErrAccountNotFound):
+				continue
+
+			// In the specific case of a wallet initialized only by
+			// importing account xpubs (watch only wallets), it is
+			// possible that some keyscopes will be 'unknown' by the
+			// wallet (depending on the xpubs given to initialize
+			// it). If the keyscope is not found, just skip it.
+			case waddrmgr.IsError(err, waddrmgr.ErrScopeNotFound):
+				continue
+
+			case err != nil:
+				return nil, err
+			}
+
+			res = append(res, a)
 		}
-		account, err := b.wallet.AccountProperties(scope, acctNum)
-		if err != nil {
-			return nil, err
+		if len(res) == 0 {
+			return nil, newAccountNotFoundError(name)
 		}
-		res = append(res, account)
 
 	// Only the key scope filter was provided, so we'll return all accounts
 	// matching it.
@@ -688,6 +698,18 @@ func (b *BtcWallet) ListAccounts(name string,
 	}
 
 	return res, nil
+}
+
+// newAccountNotFoundError returns an error indicating that the manager didn't
+// find the specific account. This error is used to be compatible with the old
+// 'LookupAccount' behaviour previously used.
+func newAccountNotFoundError(name string) error {
+	str := fmt.Sprintf("account name '%s' not found", name)
+
+	return waddrmgr.ManagerError{
+		ErrorCode:   waddrmgr.ErrAccountNotFound,
+		Description: str,
+	}
 }
 
 // RequiredReserve returns the minimum amount of satoshis that should be
@@ -821,6 +843,10 @@ func (b *BtcWallet) ListAddresses(name string,
 // The address type can usually be inferred from the key's version, but may be
 // required for certain keys to map them into the proper scope.
 //
+// For custom accounts, we will first check if there is no account with the same
+// name (even with a different key scope). No custom account should have various
+// key scopes as it will result in non-deterministic behaviour.
+//
 // For BIP-0044 keys, an address type must be specified as we intend to not
 // support importing BIP-0044 keys into the wallet using the legacy
 // pay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will force
@@ -837,6 +863,22 @@ func (b *BtcWallet) ImportAccount(name string, accountPubKey *hdkeychain.Extende
 	masterKeyFingerprint uint32, addrType *waddrmgr.AddressType,
 	dryRun bool) (*waddrmgr.AccountProperties, []btcutil.Address,
 	[]btcutil.Address, error) {
+
+	// For custom accounts, we first check if there is no existing account
+	// with the same name.
+	if name != lnwallet.DefaultAccountName &&
+		name != waddrmgr.ImportedAddrAccountName {
+
+		_, err := b.ListAccounts(name, nil)
+		if err == nil {
+			return nil, nil, nil,
+				fmt.Errorf("account '%s' already exists",
+					name)
+		}
+		if !waddrmgr.IsError(err, waddrmgr.ErrAccountNotFound) {
+			return nil, nil, nil, err
+		}
+	}
 
 	if !dryRun {
 		accountProps, err := b.wallet.ImportAccount(

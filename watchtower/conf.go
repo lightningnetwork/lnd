@@ -23,6 +23,14 @@ type Conf struct {
 	WriteTimeout time.Duration `long:"writetimeout" description:"Duration the watchtower server will wait for messages to be written before hanging up on client connections"`
 }
 
+// DefaultConf returns a Conf with some default values filled in.
+func DefaultConf() *Conf {
+	return &Conf{
+		ReadTimeout:  DefaultReadTimeout,
+		WriteTimeout: DefaultWriteTimeout,
+	}
+}
+
 // Apply completes the passed Config struct by applying any parsed Conf options.
 // If the corresponding values parsed by Conf are already set in the Config,
 // those fields will be not be modified.

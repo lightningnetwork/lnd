@@ -12,8 +12,18 @@
   wtdb.BackupIDs](https://github.com/lightningnetwork/lnd/pull/7623) instead of 
   the entire retribution struct. This reduces the amount of data that needs to 
   be held in memory. 
+ 
 * [Replace in-mem task pipeline with a disk-overflow
   queue](https://github.com/lightningnetwork/lnd/pull/7380)
+ 
+* [Add defaults](https://github.com/lightningnetwork/lnd/pull/7771) to the 
+  wtclient and watchtower config structs and use these to populate the defaults 
+  of the main LND config struct so that the defaults appear in the `lnd --help` 
+  command output. 
+ 
+* The deprecated "wtclient.private-tower-uris" option has also been 
+  [removed](https://github.com/lightningnetwork/lnd/pull/7771). This field was 
+  deprecated in v0.8.0-beta. 
  
 ## Misc
 

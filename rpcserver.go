@@ -3424,6 +3424,7 @@ func (r *rpcServer) fetchPendingOpenChannels() (pendingOpenChannels, error) {
 				Initiator:            rpcInitiator(pendingChan.IsInitiator),
 				CommitmentType:       rpcCommitmentType(pendingChan.ChanType),
 				Private:              isPrivate(pendingChan),
+				Memo:                 string(pendingChan.Memo),
 			},
 			CommitWeight:        commitWeight,
 			CommitFee:           int64(localCommitment.CommitFee),
@@ -3513,6 +3514,7 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 			)
 
 			channel.Private = isPrivate(historical)
+			channel.Memo = string(historical.Memo)
 
 		// If the error is non-nil, and not due to older versions of lnd
 		// not persisting historical channels, return it.
@@ -3715,6 +3717,7 @@ func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
 			NumForwardingPackages: int64(len(fwdPkgs)),
 			ChanStatusFlags:       waitingClose.ChanStatus().String(),
 			Private:               isPrivate(waitingClose),
+			Memo:                  string(waitingClose.Memo),
 		}
 
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{

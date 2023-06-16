@@ -16,6 +16,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnmock"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
@@ -745,7 +746,7 @@ func TestCommitSetStorage(t *testing.T) {
 	activeHTLCs := []channeldb.HTLC{
 		{
 			Amt:       1000,
-			OnionBlob: make([]byte, 0),
+			OnionBlob: lnmock.MockOnion(),
 			Signature: make([]byte, 0),
 		},
 	}

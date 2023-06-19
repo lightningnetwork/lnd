@@ -5,17 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/integration/rpctest"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
-	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,43 +27,11 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 		ht.Skipf("skipping reorg test for neutrino backend")
 	}
 
-	temp := "temp"
-
-	// Set up a new miner that we can use to cause a reorg.
-	tempLogDir := ".tempminerlogs"
-	logFilename := "output-open_channel_reorg-temp_miner.log"
-	tempMiner := lntest.NewTempMiner(
-		ht.Context(), ht.T, tempLogDir, logFilename,
-	)
-	defer tempMiner.Stop()
-
-	// Setup the temp miner
-	require.NoError(ht, tempMiner.SetUp(false, 0),
-		"unable to set up mining node")
+	// Create a temp miner.
+	tempMiner := ht.Miner.SpawnTempMiner()
 
 	miner := ht.Miner
 	alice, bob := ht.Alice, ht.Bob
-
-	// We start by connecting the new miner to our original miner,
-	// such that it will sync to our original chain.
-	err := miner.Client.Node(
-		btcjson.NConnect, tempMiner.P2PAddress(), &temp,
-	)
-	require.NoError(ht, err, "unable to connect miners")
-
-	nodeSlice := []*rpctest.Harness{miner.Harness, tempMiner.Harness}
-	err = rpctest.JoinNodes(nodeSlice, rpctest.Blocks)
-	require.NoError(ht, err, "unable to join node on blocks")
-
-	// The two miners should be on the same blockheight.
-	assertMinerBlockHeightDelta(ht, miner, tempMiner, 0)
-
-	// We disconnect the two miners, such that we can mine two different
-	// chains and can cause a reorg later.
-	err = miner.Client.Node(
-		btcjson.NDisconnect, tempMiner.P2PAddress(), &temp,
-	)
-	require.NoError(ht, err, "unable to disconnect miners")
 
 	// Create a new channel that requires 1 confs before it's considered
 	// open, then broadcast the funding transaction
@@ -98,7 +63,7 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 
 	// Ensure the chain lengths are what we expect, with the temp miner
 	// being 5 blocks ahead.
-	assertMinerBlockHeightDelta(ht, miner, tempMiner, 5)
+	miner.AssertMinerBlockHeightDelta(tempMiner, 5)
 
 	chanPoint := &lnrpc.ChannelPoint{
 		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
@@ -125,22 +90,14 @@ func testOpenChannelAfterReorg(ht *lntest.HarnessTest) {
 
 	// Connecting to the temporary miner should now cause our original
 	// chain to be re-orged out.
-	err = miner.Client.Node(btcjson.NConnect, tempMiner.P2PAddress(), &temp)
-	require.NoError(ht, err, "unable to connect temp miner")
-
-	nodes := []*rpctest.Harness{tempMiner.Harness, miner.Harness}
-	err = rpctest.JoinNodes(nodes, rpctest.Blocks)
-	require.NoError(ht, err, "unable to join node on blocks")
+	miner.ConnectMiner(tempMiner)
 
 	// Once again they should be on the same chain.
-	assertMinerBlockHeightDelta(ht, miner, tempMiner, 0)
+	miner.AssertMinerBlockHeightDelta(tempMiner, 0)
 
 	// Now we disconnect the two miners, and connect our original miner to
 	// our chain backend once again.
-	err = miner.Client.Node(
-		btcjson.NDisconnect, tempMiner.P2PAddress(), &temp,
-	)
-	require.NoError(ht, err, "unable to disconnect temp miner")
+	miner.DisconnectMiner(tempMiner)
 
 	ht.ConnectMiner()
 
@@ -529,36 +486,6 @@ func runBasicChannelCreationAndUpdates(ht *lntest.HarnessTest,
 			lnrpc.Initiator_INITIATOR_LOCAL,
 		), "verifying alice close updates",
 	)
-}
-
-// assertMinerBlockHeightDelta ensures that tempMiner is 'delta' blocks ahead
-// of miner.
-func assertMinerBlockHeightDelta(ht *lntest.HarnessTest,
-	miner, tempMiner *lntest.HarnessMiner, delta int32) {
-
-	// Ensure the chain lengths are what we expect.
-	err := wait.NoError(func() error {
-		_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
-		if err != nil {
-			return fmt.Errorf("unable to get current "+
-				"blockheight %v", err)
-		}
-
-		_, minerHeight, err := miner.Client.GetBestBlock()
-		if err != nil {
-			return fmt.Errorf("unable to get current "+
-				"blockheight %v", err)
-		}
-
-		if tempMinerHeight != minerHeight+delta {
-			return fmt.Errorf("expected new miner(%d) to be %d "+
-				"blocks ahead of original miner(%d)",
-				tempMinerHeight, delta, minerHeight)
-		}
-
-		return nil
-	}, defaultTimeout)
-	require.NoError(ht, err, "failed to assert block height delta")
 }
 
 // verifyCloseUpdate is used to verify that a closed channel update is of the

@@ -34,7 +34,15 @@ const (
 	slowMineDelay = 100 * time.Millisecond
 )
 
-var harnessNetParams = &chaincfg.RegressionNetParams
+var (
+	harnessNetParams = &chaincfg.RegressionNetParams
+
+	// temp is used to signal we want to establish a temporary connection
+	// using the btcd Node API.
+	//
+	// NOTE: Cannot be const, since the node API expects a reference.
+	temp = "temp"
+)
 
 type HarnessMiner struct {
 	*testing.T
@@ -486,4 +494,90 @@ func (h *HarnessMiner) MineEmptyBlocks(num int) []*wire.MsgBlock {
 	}
 
 	return blocks
+}
+
+// SpawnTempMiner creates a temp miner and syncs it with the current miner.
+// Once miners are synced, the temp miner is disconnected from the original
+// miner and returned.
+func (h *HarnessMiner) SpawnTempMiner() *HarnessMiner {
+	require := require.New(h.T)
+
+	// Setup a temp miner.
+	tempLogDir := ".tempminerlogs"
+	logFilename := "output-temp_miner.log"
+	tempMiner := NewTempMiner(h.runCtx, h.T, tempLogDir, logFilename)
+
+	// Make sure to clean the miner when the test ends.
+	h.T.Cleanup(tempMiner.Stop)
+
+	// Setup the miner.
+	require.NoError(tempMiner.SetUp(false, 0), "unable to setup miner")
+
+	// Connect the temp miner to the original miner.
+	err := h.Client.Node(btcjson.NConnect, tempMiner.P2PAddress(), &temp)
+	require.NoError(err, "unable to connect node")
+
+	// Sync the blocks.
+	nodeSlice := []*rpctest.Harness{h.Harness, tempMiner.Harness}
+	err = rpctest.JoinNodes(nodeSlice, rpctest.Blocks)
+	require.NoError(err, "unable to join node on blocks")
+
+	// The two miners should be on the same block height.
+	h.AssertMinerBlockHeightDelta(tempMiner, 0)
+
+	// Once synced, we now disconnect the temp miner so it'll be
+	// independent from the original miner.
+	err = h.Client.Node(btcjson.NDisconnect, tempMiner.P2PAddress(), &temp)
+	require.NoError(err, "unable to disconnect miners")
+
+	return tempMiner
+}
+
+// ConnectMiner connects the miner to a temp miner.
+func (h *HarnessMiner) ConnectMiner(tempMiner *HarnessMiner) {
+	require := require.New(h.T)
+
+	// Connect the current miner to the temporary miner.
+	err := h.Client.Node(btcjson.NConnect, tempMiner.P2PAddress(), &temp)
+	require.NoError(err, "unable to connect temp miner")
+
+	nodes := []*rpctest.Harness{tempMiner.Harness, h.Harness}
+	err = rpctest.JoinNodes(nodes, rpctest.Blocks)
+	require.NoError(err, "unable to join node on blocks")
+}
+
+// DisconnectMiner disconnects the miner from the temp miner.
+func (h *HarnessMiner) DisconnectMiner(tempMiner *HarnessMiner) {
+	err := h.Client.Node(btcjson.NDisconnect, tempMiner.P2PAddress(), &temp)
+	require.NoError(h.T, err, "unable to disconnect temp miner")
+}
+
+// AssertMinerBlockHeightDelta ensures that tempMiner is 'delta' blocks ahead
+// of miner.
+func (h *HarnessMiner) AssertMinerBlockHeightDelta(tempMiner *HarnessMiner,
+	delta int32) {
+
+	// Ensure the chain lengths are what we expect.
+	err := wait.NoError(func() error {
+		_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
+		if err != nil {
+			return fmt.Errorf("unable to get current "+
+				"blockheight %v", err)
+		}
+
+		_, minerHeight, err := h.Client.GetBestBlock()
+		if err != nil {
+			return fmt.Errorf("unable to get current "+
+				"blockheight %v", err)
+		}
+
+		if tempMinerHeight != minerHeight+delta {
+			return fmt.Errorf("expected new miner(%d) to be %d "+
+				"blocks ahead of original miner(%d)",
+				tempMinerHeight, delta, minerHeight)
+		}
+
+		return nil
+	}, DefaultTimeout)
+	require.NoError(h.T, err, "failed to assert block height delta")
 }

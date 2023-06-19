@@ -21,12 +21,6 @@ import (
 // logDirPattern is the pattern of the name of the temporary log directory.
 const logDirPattern = "%s/.backendlogs"
 
-// temp is used to signal we want to establish a temporary connection using the
-// btcd Node API.
-//
-// NOTE: Cannot be const, since the node API expects a reference.
-var temp = "temp"
-
 // BtcdBackendConfig is an implementation of the BackendConfig interface
 // backed by a btcd node.
 type BtcdBackendConfig struct {

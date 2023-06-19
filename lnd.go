@@ -635,11 +635,14 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 			return nil
 		}
 
-		synced, _, err := activeChainControl.Wallet.IsSynced()
+		synced, ts, err := activeChainControl.Wallet.IsSynced()
 		if err != nil {
 			return mkErr("unable to determine if wallet is "+
 				"synced: %v", err)
 		}
+
+		ltndLog.Debugf("Syncing to block timestamp: %v, is synced=%v",
+			time.Unix(ts, 0), synced)
 
 		if synced {
 			break

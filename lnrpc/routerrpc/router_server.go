@@ -324,6 +324,19 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 	// Init the payment in db.
 	paySession, shardTracker, err := s.cfg.Router.PreparePayment(payment)
 	if err != nil {
+		log.Errorf("SendPayment async error for payment %x: %v",
+			payment.Identifier(), err)
+
+		// Transform user errors to grpc code.
+		if errors.Is(err, channeldb.ErrPaymentExists) ||
+			errors.Is(err, channeldb.ErrPaymentInFlight) ||
+			errors.Is(err, channeldb.ErrAlreadyPaid) {
+
+			return status.Error(
+				codes.AlreadyExists, err.Error(),
+			)
+		}
+
 		return err
 	}
 

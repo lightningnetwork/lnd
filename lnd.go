@@ -11,9 +11,9 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	_ "net/http/pprof" // nolint:gosec // used to set up profiling HTTP handlers.
+	"net/http/pprof"
 	"os"
-	"runtime/pprof"
+	runtimePprof "runtime/pprof"
 	"strings"
 	"sync"
 	"time"
@@ -187,16 +187,26 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	// Enable http profiling server if requested.
 	if cfg.Profile != "" {
 		// Create the http handler.
-		profileRedirect := http.RedirectHandler(
-			"/debug/pprof", http.StatusSeeOther,
-		)
-		http.Handle("/", profileRedirect)
+		pprofMux := http.NewServeMux()
+		pprofMux.HandleFunc("/debug/pprof/", pprof.Index)
+		pprofMux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		pprofMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		pprofMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		pprofMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+		// Redirect all requests to the pprof handler, thus visiting
+		// `127.0.0.1:6060` will be redirected to
+		// `127.0.0.1:6060/debug/pprof`.
+		pprofMux.Handle("/", http.RedirectHandler(
+			"/debug/pprof/", http.StatusSeeOther,
+		))
+
 		ltndLog.Infof("Pprof listening on %v", cfg.Profile)
 
 		// Create the pprof server.
 		pprofServer := &http.Server{
 			Addr:              cfg.Profile,
-			Handler:           profileRedirect,
+			Handler:           pprofMux,
 			ReadHeaderTimeout: 5 * time.Second,
 		}
 
@@ -225,9 +235,11 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		if err != nil {
 			return mkErr("unable to create CPU profile: %v", err)
 		}
-		pprof.StartCPUProfile(f)
-		defer f.Close()
-		defer pprof.StopCPUProfile()
+		_ = runtimePprof.StartCPUProfile(f)
+		defer func() {
+			_ = f.Close()
+		}()
+		defer runtimePprof.StopCPUProfile()
 	}
 
 	// Run configuration dependent DB pre-initialization. Note that this

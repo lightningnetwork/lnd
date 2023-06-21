@@ -160,6 +160,10 @@ Lists all known make targets.
 -----
 Compiles the `lnrpc` proto files.
 
+`sample-conf-check`
+-------------------
+Checks whether all required options of `lnd --help` are included in [sample-lnd.conf](github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf) and that the default values of `lnd --help` are also mentioned correctly.
+
 `scratch`
 ---------
 Compiles all dependencies and builds the `./lnd` and `./lncli` binaries.

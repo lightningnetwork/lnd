@@ -2663,6 +2663,23 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			// case we must manually re-trigger the state
 			// transition into StateContractClosed based on the
 			// close status of the channel.
+
+			info, err := c.log.FetchLocalForceCloseInfo()
+			if info != nil && err == nil {
+				htlcMap := make(map[string][]channeldb.HTLC)
+				for action, htlcs := range info.htlcActions {
+					htlcMap[action.String()] = htlcs
+				}
+
+				dbLocalFCInfo := &channeldb.LocalForceCloseInfo{
+					UserInitiated:    info.userInitiated,
+					LinkFailureError: info.linkFailureError,
+					HtlcActions:      htlcMap,
+				}
+				closeInfo.ChannelCloseSummary.LocalFCInfo =
+					dbLocalFCInfo
+			}
+
 			err = c.cfg.MarkChannelClosed(
 				closeInfo.ChannelCloseSummary,
 				channeldb.ChanStatusLocalCloseInitiator,

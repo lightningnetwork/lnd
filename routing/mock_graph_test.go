@@ -51,7 +51,7 @@ func newMockNode(id byte) *mockNode {
 // nil, this node is considered to be the sender of the payment. The route
 // parameter describes the remaining route from this node onwards. If route.next
 // is nil, this node is the final hop.
-func (m *mockNode) fwd(from *mockNode, route *hop) (htlcResult, error) {
+func (m *mockNode) fwd(from *mockNode, route *mockHop) (htlcResult, error) {
 	next := route.next
 
 	// Get the incoming channel, if any.
@@ -258,24 +258,24 @@ type htlcResult struct {
 	failure       lnwire.FailureMessage
 }
 
-// hop describes one hop of a route.
-type hop struct {
+// mockHop describes one mockHop of a route.
+type mockHop struct {
 	node     *mockNode
 	amtToFwd lnwire.MilliSatoshi
-	next     *hop
+	next     *mockHop
 }
 
 // sendHtlc sends out an htlc on the mock network and synchronously returns the
 // final resolution of the htlc.
 func (m *mockGraph) sendHtlc(route *route.Route) (htlcResult, error) {
-	var next *hop
+	var next *mockHop
 
 	// Convert the route into a structure that is suitable for recursive
 	// processing.
 	for i := len(route.Hops) - 1; i >= 0; i-- {
 		routeHop := route.Hops[i]
 		node := m.nodes[routeHop.PubKeyBytes]
-		next = &hop{
+		next = &mockHop{
 			node:     node,
 			next:     next,
 			amtToFwd: routeHop.AmtToForward,
@@ -284,7 +284,7 @@ func (m *mockGraph) sendHtlc(route *route.Route) (htlcResult, error) {
 
 	// Create the starting hop instance.
 	source := m.nodes[route.SourcePubKey]
-	next = &hop{
+	next = &mockHop{
 		node:     source,
 		next:     next,
 		amtToFwd: route.TotalAmount,

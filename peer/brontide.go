@@ -3101,6 +3101,9 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 
 		closeTx, err := p.cfg.ChainArb.ForceCloseContract(
 			failure.chanPoint,
+			contractcourt.LinkFailureErrorForceClose(
+				failure.linkErr.Error(),
+			),
 		)
 		if err != nil {
 			p.log.Errorf("unable to force close "+

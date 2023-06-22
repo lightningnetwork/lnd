@@ -2495,6 +2495,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		chainArbitrator := r.server.chainArb
 		closingTx, err := chainArbitrator.ForceCloseContract(
 			*chanPoint,
+			contractcourt.UserInitiatedForceClose,
 		)
 		if err != nil {
 			rpcsLog.Errorf("unable to force close transaction: %v", err)

@@ -870,6 +870,11 @@ func (c *ChannelArbitrator) stateStep(
 		// next state, as we still need to broadcast the commitment
 		// transaction.
 		case chainTrigger:
+			// Ignore errors since logging force close info is not a
+			// critical part of the force close flow.
+			_ = c.log.LogLocalForceCloseInfo(localForceCloseInfo{
+				htlcActions: chainActions,
+			})
 			fallthrough
 		case userTrigger:
 			nextState = StateBroadcastCommit

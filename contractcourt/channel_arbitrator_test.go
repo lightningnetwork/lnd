@@ -40,6 +40,7 @@ type mockArbitratorLog struct {
 	failCommitState ArbitratorState
 	resolutions     *ContractResolutions
 	resolvers       map[ContractResolver]struct{}
+	localFCInfo     channeldb.LocalForceCloseInitiator
 
 	commitSet *CommitSet
 
@@ -132,6 +133,20 @@ func (b *mockArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 
 func (b *mockArbitratorLog) FetchChainActions() (ChainActionMap, error) {
 	return nil, nil
+}
+
+func (b *mockArbitratorLog) LogLocalForceCloseInitiator(
+	init channeldb.LocalForceCloseInitiator) error {
+
+	b.localFCInfo = init
+	return nil
+}
+
+func (b *mockArbitratorLog) FetchLocalForceCloseInitiator() (
+	channeldb.LocalForceCloseInitiator,
+	error) {
+
+	return b.localFCInfo, nil
 }
 
 func (b *mockArbitratorLog) InsertConfirmedCommitSet(c *CommitSet) error {

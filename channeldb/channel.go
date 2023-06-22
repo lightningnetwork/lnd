@@ -3252,6 +3252,96 @@ const (
 	Abandoned ClosureType = 5
 )
 
+// LocalForceCloseInitiator is a type that gives information about what led to a
+// channel being force closed locally.
+type LocalForceCloseInitiator string
+
+const (
+	// UserInitiated indicates that the force close was specifically
+	// initiated by the user.
+	UserInitiated LocalForceCloseInitiator = "user initiated"
+
+	// ChainActionsInitiated indicates that the force close was
+	// automatically initiated by an on-chain trigger such as HTLC timeout.
+	ChainActionsInitiated LocalForceCloseInitiator = "chain action" +
+		" initiated"
+
+	// localForceCloseInitiatorType is used to serialize/deserialize
+	// localForceCloseInitiator.
+	localForceCloseInitiatorType tlv.Type = 0
+)
+
+// String returns the human-readable format of the LocalForceCloseInitiator.
+func (l *LocalForceCloseInitiator) String() string {
+	return string(*l)
+}
+
+// SerializeLocalForceCloseInitiator writes out the passed set of
+// LocalForceCloseInitiator to the passed writer.
+func SerializeLocalForceCloseInitiator(w io.Writer,
+	lc *LocalForceCloseInitiator) error {
+
+	localForceCloseReasonByte := []byte(*lc)
+
+	tlvStream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(localForceCloseInitiatorType,
+			&localForceCloseReasonByte),
+	)
+
+	if err != nil {
+		return err
+	}
+	var b bytes.Buffer
+	err = tlvStream.Encode(&b)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, byteOrder, uint64(b.Len()))
+	if err != nil {
+		return err
+	}
+
+	if _, err = w.Write(b.Bytes()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// DeserializeLocalForceCloseInitiator reads out the ForceCloseInitiator from
+// the reader.
+func DeserializeLocalForceCloseInitiator(r io.Reader) (LocalForceCloseInitiator,
+	error) {
+
+	var (
+		lc []byte
+	)
+
+	tlvStream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(
+			localForceCloseInitiatorType, &lc,
+		),
+	)
+
+	if err != nil {
+		return LocalForceCloseInitiator(lc), err
+	}
+
+	var bodyLen int64
+	err = binary.Read(r, byteOrder, &bodyLen)
+	if err != nil {
+		return LocalForceCloseInitiator(lc), err
+	}
+
+	lr := io.LimitReader(r, bodyLen)
+	if err = tlvStream.Decode(lr); err != nil {
+		return LocalForceCloseInitiator(lc), err
+	}
+
+	return LocalForceCloseInitiator(lc), nil
+}
+
 // ChannelCloseSummary contains the final state of a channel at the point it
 // was closed. Once a channel is closed, all the information pertaining to that
 // channel within the openChannelBucket is deleted, and a compact summary is

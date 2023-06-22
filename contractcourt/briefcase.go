@@ -118,6 +118,20 @@ type ArbitratorLog interface {
 	// introduced.
 	FetchChainActions() (ChainActionMap, error)
 
+	// LogLocalForceCloseInitiator records the passed-in
+	// localForceCloseInitiator object within the ArbitratorLog for deferred
+	// consumption. This is typically invoked when the channel force closure
+	// is first initiated either by the user or automatically (
+	// link error, HTLC actions, etc.).
+	LogLocalForceCloseInitiator(
+		initiator channeldb.LocalForceCloseInitiator) error
+
+	// FetchLocalForceCloseInitiator attempts to fetch the
+	// localForceCloseInitiator object that was previously logged in the
+	// ArbitratorLog.
+	FetchLocalForceCloseInitiator() (channeldb.LocalForceCloseInitiator,
+		error)
+
 	// WipeHistory is to be called ONLY once *all* contracts have been
 	// fully resolved, and the channel closure if finalized. This method
 	// will delete all on-disk state within the persistent log.
@@ -366,6 +380,10 @@ var (
 	// taprootDataKey is the key we'll use to store taproot specific data
 	// for the set of channels we'll need to sweep/claim.
 	taprootDataKey = []byte("taproot-data")
+
+	// localForceCloseInitiatorKey is the key that we use to store the
+	// localForceCloseInitiator object within the log, if any.
+	localForceCloseInitiatorKey = []byte("local-force-close-info")
 )
 
 var (
@@ -1045,6 +1063,65 @@ func (b *boltArbitratorLog) FetchChainActions() (ChainActionMap, error) {
 	}
 
 	return actionsMap, nil
+}
+
+// LogLocalForceCloseInitiator records the passed-in localForceCloseInitiator
+// object within the ArbitratorLog for deferred consumption. This is
+// typically invoked when the channel force closure is first initiated
+// either by the user or automatically (link error, HTLC actions, etc.).
+func (b *boltArbitratorLog) LogLocalForceCloseInitiator(
+	info channeldb.LocalForceCloseInitiator) error {
+
+	return kvdb.Update(b.db, func(tx kvdb.RwTx) error {
+		scopeBucket, err := tx.CreateTopLevelBucket(b.scopeKey[:])
+		if err != nil {
+			return err
+		}
+		var buf bytes.Buffer
+		if err := channeldb.SerializeLocalForceCloseInitiator(&buf,
+			&info); err != nil {
+			return err
+		}
+
+		return scopeBucket.Put(localForceCloseInitiatorKey, buf.Bytes())
+	}, func() {})
+}
+
+// FetchLocalForceCloseInitiator attempts to fetch the localForceCloseInitiator
+// object that was previously logged in the ArbitratorLog.
+func (b *boltArbitratorLog) FetchLocalForceCloseInitiator() (
+	channeldb.LocalForceCloseInitiator,
+	error) {
+
+	var init channeldb.LocalForceCloseInitiator
+	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
+		scopeBucket := tx.ReadBucket(b.scopeKey[:])
+		if scopeBucket == nil {
+			return errScopeBucketNoExist
+		}
+
+		infoBytes := scopeBucket.Get(localForceCloseInitiatorKey)
+		if infoBytes == nil {
+			return nil
+		}
+
+		infoReader := bytes.NewReader(infoBytes)
+		lcInfo, err := channeldb.DeserializeLocalForceCloseInitiator(
+			infoReader)
+		if err != nil {
+			return err
+		}
+
+		init = lcInfo
+
+		return nil
+	}, func() {})
+
+	if err != nil {
+		return "", err
+	}
+
+	return init, nil
 }
 
 // InsertConfirmedCommitSet stores the known set of active HTLCs at the time

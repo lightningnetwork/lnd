@@ -169,6 +169,10 @@ unlock or create.
 
 * [Fix let's encrypt autocert generation](https://github.com/lightningnetwork/lnd/pull/7739)
 
+* Fix an issue where [IPv6 couldn't be dialed when using
+  Tor](https://github.com/lightningnetwork/lnd/pull/7783), even when
+  `tor.skip-proxy-for-clearnet-targets=true` was set.
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and

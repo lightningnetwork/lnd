@@ -262,6 +262,20 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	// no longer has any pending channels.
 	ht.AssertNumPendingForceClose(bob, 0)
 
+	// Bob's closed channels data entry should have the correct htlc actions
+	// (Timeout and FailNow) populated.
+	closedChanReq := &lnrpc.ClosedChannelsRequest{Abandoned: false}
+	closedChans := bob.RPC.ClosedChannels(closedChanReq)
+	localFCInfo := closedChans.Channels[0].LocalForceCloseInfo
+	require.Empty(ht, localFCInfo.LinkFailureError)
+	require.Equal(ht, false, localFCInfo.UserInitiated)
+	require.Contains(ht, localFCInfo.HtlcActions, "HtlcTimeoutAction")
+	require.Contains(ht, localFCInfo.HtlcActions["HtlcTimeoutAction"].Hash,
+		payHash)
+	require.Contains(ht, localFCInfo.HtlcActions, "HtlcFailNowAction")
+	require.Contains(ht, localFCInfo.HtlcActions["HtlcFailNowAction"].Hash,
+		dustPayHash)
+
 	// Coop close channel, expect no anchors.
 	ht.CloseChannel(alice, aliceChanPoint)
 }

@@ -987,8 +987,8 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Finally, we check that alice and carol have the set of resolutions
 	// we expect.
-	assertReports(ht, alice, chanPoint, aliceReports)
-	assertReports(ht, carol, chanPoint, carolReports)
+	assertReports(ht, alice, chanPoint, aliceReports, true)
+	assertReports(ht, carol, chanPoint, carolReports, false)
 }
 
 // padCLTV is a small helper function that pads a cltv value with a block
@@ -1066,6 +1066,15 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 
 	// No pending channels should be left.
 	ht.AssertNumPendingForceClose(alice, 0)
+
+	// Alice's closed channels data entry should have the correct link
+	// failure error (invalid update) populated.
+	closedChanReq := &lnrpc.ClosedChannelsRequest{Abandoned: false}
+	closedChans := alice.RPC.ClosedChannels(closedChanReq)
+	localFCInfo := closedChans.Channels[0].LocalForceCloseInfo
+	require.Equal(ht, "invalid update", localFCInfo.LinkFailureError)
+	require.Equal(ht, false, localFCInfo.UserInitiated)
+	require.Empty(ht, localFCInfo.HtlcActions)
 }
 
 // assertReports checks that the count of resolutions we have present per
@@ -1073,7 +1082,8 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 //
 // NOTE: only used in current test file.
 func assertReports(ht *lntest.HarnessTest, hn *node.HarnessNode,
-	chanPoint *lnrpc.ChannelPoint, expected map[string]*lnrpc.Resolution) {
+	chanPoint *lnrpc.ChannelPoint, expected map[string]*lnrpc.Resolution,
+	fcInitiator bool) {
 
 	op := ht.OutPointFromChannelPoint(chanPoint)
 
@@ -1085,6 +1095,11 @@ func assertReports(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	for _, close := range closed.Channels {
 		if close.ChannelPoint == op.String() {
 			resolutions = close.Resolutions
+			if fcInitiator {
+				localFCInfo := close.GetLocalForceCloseInfo()
+				require.True(ht, localFCInfo.UserInitiated)
+			}
+
 			break
 		}
 	}

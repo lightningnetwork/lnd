@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -559,11 +560,29 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// PendingChannels RPC under the waiting close section.
 	waitingClose := ht.AssertChannelWaitingClose(alice, aliceChanPoint1)
 
+	// Verify local force close insights.
+	require.NotNil(ht, waitingClose.Channel.LocalFirstCloseInsights)
+	fcInsights := waitingClose.Channel.LocalFirstCloseInsights
+	userInitiated := channeldb.UserInitiated
+	require.Equal(ht, userInitiated.String(), fcInsights.
+		LocalForceCloseInitiator)
+	require.Len(ht, fcInsights.LocalForceCloseChainActions, 0)
+	require.NotZero(ht, fcInsights.LocalForceCloseBroadcastHeight)
+
+	pendingChannelsResp := alice.RPC.PendingChannels()
+	forceCloseChan := pendingChannelsResp.WaitingCloseChannels[0]
+
 	// Verify that the channel Memo is returned even for channels that are
 	// waiting close (close TX broadcasted but not confirmed)
-	pendingChannelsResp := alice.RPC.PendingChannels()
-	require.Equal(ht, testMemo,
-		pendingChannelsResp.WaitingCloseChannels[0].Channel.Memo)
+	require.Equal(ht, testMemo, forceCloseChan.Channel.Memo)
+
+	// Verify the local force close insights.
+	require.NotNil(ht, forceCloseChan.Channel.LocalFirstCloseInsights)
+	fcInsights = forceCloseChan.Channel.LocalFirstCloseInsights
+	require.Equal(ht, userInitiated.String(), fcInsights.
+		LocalForceCloseInitiator)
+	require.Len(ht, fcInsights.LocalForceCloseChainActions, 0)
+	require.NotZero(ht, fcInsights.LocalForceCloseBroadcastHeight)
 
 	// At this point, the channel is waiting close so we have the
 	// commitment transaction in the mempool. Alice's anchor, however,
@@ -593,7 +612,8 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// pending force close (close TX confirmed but sweep hasn't happened)
 	pendingChannelsResp = alice.RPC.PendingChannels()
 	require.Equal(ht, testMemo,
-		pendingChannelsResp.PendingForceClosingChannels[0].Channel.Memo)
+		pendingChannelsResp.PendingForceClosingChannels[0].
+			Channel.Memo)
 
 	// With the anchor output located, and the main commitment mined we'll
 	// instruct the wallet to send all coins in the wallet to a new address

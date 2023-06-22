@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
@@ -76,11 +77,19 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 	// Now that the channel has been force closed, it should show up in
 	// bob's PendingChannels RPC under the waiting close section.
 	pendingAB := ht.AssertChannelWaitingClose(bob, chanPointAB).Channel
-
 	// Check that Bob has created forwarding packages. We don't care the
 	// exact number here as long as these packages are deleted when the
 	// channel is closed.
 	require.NotZero(ht, pendingAB.NumForwardingPackages)
+
+	// Verify local force close insights.
+	require.NotNil(ht, pendingAB.LocalFirstCloseInsights)
+	fcInsights := pendingAB.LocalFirstCloseInsights
+	userInitiated := channeldb.UserInitiated
+	require.Equal(ht, userInitiated.String(), fcInsights.
+		LocalForceCloseInitiator)
+	require.Len(ht, fcInsights.LocalForceCloseChainActions, 0)
+	require.NotZero(ht, fcInsights.LocalForceCloseBroadcastHeight)
 
 	// Secondly, Bob coop closes the channel.
 	ht.CloseChannelAssertPending(bob, chanPointBC, false)
@@ -89,15 +98,20 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 	// bob's PendingChannels RPC under the waiting close section.
 	pendingBC := ht.AssertChannelWaitingClose(bob, chanPointBC).Channel
 
+	// Test localForceCloseInsights
+	require.Nil(ht, pendingBC.LocalFirstCloseInsights)
+
 	// Check that Bob has created forwarding packages. We don't care the
 	// exact number here as long as these packages are deleted when the
 	// channel is closed.
 	require.NotZero(ht, pendingBC.NumForwardingPackages)
-
 	// Since it's a coop close, Carol should see the waiting close channel
 	// too.
 	pendingBC = ht.AssertChannelWaitingClose(carol, chanPointBC).Channel
 	require.NotZero(ht, pendingBC.NumForwardingPackages)
+
+	// Test localForceCloseInsights
+	require.Nil(ht, pendingBC.LocalFirstCloseInsights)
 
 	// Mine 1 block to get the two closing transactions confirmed.
 	ht.MineBlocksAndAssertNumTxes(1, 2)
@@ -108,7 +122,6 @@ func testWipeForwardingPackages(ht *lntest.HarnessTest) {
 
 	// Check the forwarding pacakges are deleted.
 	require.Zero(ht, pendingAB.NumForwardingPackages)
-
 	// For Alice, the forwarding packages should have been wiped too.
 	pending := ht.AssertChannelPendingForceClose(alice, chanPointAB)
 	pendingAB = pending.Channel

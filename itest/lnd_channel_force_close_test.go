@@ -11,6 +11,7 @@ import (
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
@@ -396,6 +397,17 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// PendingChannels RPC under the waiting close section.
 	waitingClose := ht.AssertChannelWaitingClose(alice, chanPoint)
 
+	// test the local force close insights in the waitingClose channel.
+	require.NotNil(ht, waitingClose.Channel.LocalFirstCloseInsights)
+	fcInsights := waitingClose.Channel.LocalFirstCloseInsights
+	userInitiated := channeldb.UserInitiated
+	require.Equal(ht, userInitiated.String(), fcInsights.
+		LocalForceCloseInitiator)
+	require.Len(ht, fcInsights.LocalForceCloseChainActions, 1)
+	require.Contains(ht, fcInsights.LocalForceCloseChainActions,
+		"HtlcOutgoingWatchAction")
+	require.NotZero(ht, fcInsights.LocalForceCloseBroadcastHeight)
+
 	// Immediately after force closing, all of the funds should be in
 	// limbo.
 	require.NotZero(ht, waitingClose.LimboBalance,
@@ -496,6 +508,54 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 				"as recovered")
 		}
 
+		// Check for force close insights
+		if len(forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions) != 1 {
+
+			return errors.Errorf(
+				"Expected force close chain actions of "+
+					"length"+
+					" %d but got %d", 1, len(forceClose.
+					Channel.LocalFirstCloseInsights.
+					LocalForceCloseChainActions))
+		}
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseBroadcastHeight == 0 {
+
+			return errors.Errorf(
+				"expected broadcast height of %d but"+
+					" got not set",
+				forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseBroadcastHeight)
+		}
+		_, ok := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"]
+
+		if !ok {
+			return errors.Errorf(
+				"Expected chainactions to contain, " +
+					"HtlcOutgoingWatchAction action")
+		}
+		hashLength := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"+
+			""].Hash
+		if len(hashLength) != numInvoices {
+			return errors.Errorf(
+				"expected length of %d for chain actions hash"+
+					" but got %d", numInvoices, hashLength)
+		}
+
+		userInitiated := channeldb.UserInitiated
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseInitiator != userInitiated.String() {
+
+			return errors.Errorf("Expected %s as local force close"+
+				" initiator but got %s",
+				userInitiated.String(), forceClose.Channel.
+					LocalFirstCloseInsights.
+					LocalForceCloseInitiator)
+		}
+
 		return nil
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout while checking force closed channel")
@@ -593,6 +653,53 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		if forceClose.RecoveredBalance != expectedRecoveredBalance {
 			return errors.New("no funds should yet be shown " +
 				"as recovered")
+		}
+
+		// Check for force close insights
+		if len(forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions) != 1 {
+
+			return errors.Errorf(
+				"Expected force close chain actions "+
+					"of length %d but got %d", 1,
+				len(forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseChainActions))
+		}
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseBroadcastHeight == 0 {
+
+			return errors.Errorf(
+				"expected broadcast height of %d but"+
+					" got not set",
+				forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseBroadcastHeight)
+		}
+		_, ok := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"]
+
+		if !ok {
+			return errors.Errorf(
+				"Expected chainactions to contain, " +
+					"HtlcOutgoingWatchAction action")
+		}
+		hashLength := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"+
+			""].Hash
+		if len(hashLength) != numInvoices {
+			return errors.Errorf(
+				"expected length of %d for chain actions hash"+
+					" but got %d", numInvoices, hashLength)
+		}
+
+		userInitiated := channeldb.UserInitiated
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseInitiator != userInitiated.String() {
+
+			return errors.Errorf("Expected %s as local force close"+
+				" initiator but got %s",
+				userInitiated.String(), forceClose.Channel.
+					LocalFirstCloseInsights.
+					LocalForceCloseInitiator)
 		}
 
 		return nil
@@ -701,6 +808,53 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 			return fmt.Errorf("expected funds in limbo, found 0")
 		}
 
+		// Check for force close insights
+		if len(forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions) != 1 {
+
+			return errors.Errorf(
+				"Expected force close chain actions "+
+					"of length %d but got %d", 1,
+				len(forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseChainActions))
+		}
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseBroadcastHeight == 0 {
+
+			return errors.Errorf(
+				"expected broadcast height of %d but"+
+					" got not set",
+				forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseBroadcastHeight)
+		}
+		_, ok := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"]
+
+		if !ok {
+			return errors.Errorf(
+				"Expected chainactions to contain, " +
+					"HtlcOutgoingWatchAction action")
+		}
+		hashLength := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"+
+			""].Hash
+		if len(hashLength) != numInvoices {
+			return errors.Errorf(
+				"expected length of %d for chain actions hash"+
+					" but got %d", numInvoices, hashLength)
+		}
+
+		userInitiated := channeldb.UserInitiated
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseInitiator != userInitiated.String() {
+
+			return errors.Errorf("Expected %s as local force close"+
+				" initiator but got %s",
+				userInitiated.String(), forceClose.Channel.
+					LocalFirstCloseInsights.
+					LocalForceCloseInitiator)
+		}
+
 		return nil
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout checking pending "+
@@ -750,6 +904,53 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 		if forceClose.LimboBalance == 0 {
 			return errors.New("htlc funds should still be in " +
 				"limbo")
+		}
+
+		// Check for force close insights
+		if len(forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions) != 1 {
+
+			return errors.Errorf(
+				"Expected force close chain actions "+
+					"of length %d but got %d", 1,
+				len(forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseChainActions))
+		}
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseBroadcastHeight == 0 {
+
+			return errors.Errorf(
+				"expected broadcast height of %d but"+
+					" got not set",
+				forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseBroadcastHeight)
+		}
+		_, ok := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"]
+
+		if !ok {
+			return errors.Errorf(
+				"Expected chainactions to contain, " +
+					"HtlcOutgoingWatchAction action")
+		}
+		hashLength := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"+
+			""].Hash
+		if len(hashLength) != numInvoices {
+			return errors.Errorf(
+				"expected length of %d for chain actions hash"+
+					" but got %d", numInvoices, hashLength)
+		}
+
+		userInitiated := channeldb.UserInitiated
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseInitiator != userInitiated.String() {
+
+			return errors.Errorf("Expected %s as local force close"+
+				" initiator but got %s",
+				userInitiated.String(), forceClose.Channel.
+					LocalFirstCloseInsights.
+					LocalForceCloseInitiator)
 		}
 
 		return nil
@@ -911,6 +1112,53 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 			return fmt.Errorf("htlc funds should still be in limbo")
 		}
 
+		// Check for force close insights
+		if len(forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions) != 1 {
+
+			return errors.Errorf(
+				"Expected force close chain actions of "+
+					"length %d but got %d", 1,
+				len(forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseChainActions))
+		}
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseBroadcastHeight == 0 {
+
+			return errors.Errorf(
+				"expected broadcast height of %d but"+
+					" got not set",
+				forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseBroadcastHeight)
+		}
+		_, ok := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"]
+
+		if !ok {
+			return errors.Errorf(
+				"Expected chainactions to contain, " +
+					"HtlcOutgoingWatchAction action")
+		}
+		hashLength := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"+
+			""].Hash
+		if len(hashLength) != numInvoices {
+			return errors.Errorf(
+				"expected length of %d for chain actions hash"+
+					" but got %d", numInvoices, hashLength)
+		}
+
+		userInitiated := channeldb.UserInitiated
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseInitiator != userInitiated.String() {
+
+			return errors.Errorf("Expected %s as local force close"+
+				" initiator but got %s",
+				userInitiated.String(), forceClose.Channel.
+					LocalFirstCloseInsights.
+					LocalForceCloseInitiator)
+		}
+
 		return checkPendingChannelNumHtlcs(forceClose)
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout while checking force closed channel")
@@ -998,6 +1246,53 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 			return err
 		}
 
+		// Check for force close insights
+		if len(forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions) != 1 {
+
+			return errors.Errorf(
+				"Expected force close chain actions of "+
+					"length %d but got %d", 1,
+				len(forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseChainActions))
+		}
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseBroadcastHeight == 0 {
+
+			return errors.Errorf(
+				"expected broadcast height of %d but"+
+					" got not set",
+				forceClose.Channel.LocalFirstCloseInsights.
+					LocalForceCloseBroadcastHeight)
+		}
+		_, ok := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"]
+
+		if !ok {
+			return errors.Errorf(
+				"Expected chainactions to contain, " +
+					"HtlcOutgoingWatchAction action")
+		}
+		hashLength := forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcOutgoingWatchAction"+
+			""].Hash
+		if len(hashLength) != numInvoices {
+			return errors.Errorf(
+				"expected length of %d for chain actions hash"+
+					" but got %d", numInvoices, hashLength)
+		}
+
+		userInitiated := channeldb.UserInitiated
+		if forceClose.Channel.LocalFirstCloseInsights.
+			LocalForceCloseInitiator != userInitiated.String() {
+
+			return errors.Errorf("Expected %s as local force close"+
+				" initiator but got %s",
+				userInitiated.String(), forceClose.Channel.
+					LocalFirstCloseInsights.
+					LocalForceCloseInitiator)
+		}
+
 		return nil
 	}, defaultTimeout)
 	require.NoError(ht, err, "timeout while checking force closed channel")
@@ -1046,8 +1341,8 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Finally, we check that alice and carol have the set of resolutions
 	// we expect.
-	assertReports(ht, alice, chanPoint, aliceReports)
-	assertReports(ht, carol, chanPoint, carolReports)
+	assertReports(ht, alice, chanPoint, aliceReports, true)
+	assertReports(ht, carol, chanPoint, carolReports, false)
 }
 
 // padCLTV is a small helper function that pads a cltv value with a block
@@ -1072,7 +1367,8 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	ht.ConnectNodes(alice, carol)
 
 	// Let Alice connect and open a channel to Carol,
-	ht.OpenChannel(alice, carol, lntest.OpenChannelParams{Amt: chanAmt})
+	ht.OpenChannel(alice, carol,
+		lntest.OpenChannelParams{Amt: chanAmt})
 
 	// With the channel open, we'll create a invoice for Carol that Alice
 	// will attempt to pay.
@@ -1106,8 +1402,22 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 	require.Len(ht, block.Transactions, 2, "transaction wasn't mined")
 
 	// The channel should now show up as force closed both for Alice and
-	// Carol.
-	ht.AssertNumPendingForceClose(alice, 1)
+	// as isa local force close for Alice we test the local force close
+	// insights.
+	pendingChanResp := alice.RPC.PendingChannels()
+	require.Len(ht, pendingChanResp.
+		PendingForceClosingChannels, 1)
+	forceCloseChan := pendingChanResp.PendingForceClosingChannels[0]
+	require.NotNil(ht, forceCloseChan.Channel.LocalFirstCloseInsights)
+	localFCInfo := forceCloseChan.Channel.LocalFirstCloseInsights.
+		LocalForceCloseInitiator
+	chainActions := forceCloseChan.Channel.LocalFirstCloseInsights.
+		LocalForceCloseChainActions
+	require.Equal(ht, "invalid update", localFCInfo)
+	require.Len(ht, chainActions, 1)
+	require.Contains(ht, chainActions, "HtlcOutgoingWatchAction")
+
+	// The channel should now show up as force closed for Carol.
 	ht.AssertNumPendingForceClose(carol, 1)
 
 	// Carol will use the correct preimage to resolve the HTLC on-chain.
@@ -1125,6 +1435,16 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 
 	// No pending channels should be left.
 	ht.AssertNumPendingForceClose(alice, 0)
+
+	// Alice's closed channels data entry should have the correct link
+	// failure error (invalid update) populated.
+	closedChanReq := &lnrpc.ClosedChannelsRequest{Abandoned: false}
+	closedChans := alice.RPC.ClosedChannels(closedChanReq)
+
+	// Assert the local force close insights for Alice is as expected.
+	ht.AssertCloseSummaryContainsLocalFCInsights(closedChans.Channels,
+		forceCloseChan.Channel.ChannelPoint, "invalid update",
+		[]string{"HtlcOutgoingWatchAction"})
 }
 
 // assertReports checks that the count of resolutions we have present per
@@ -1132,7 +1452,8 @@ func testFailingChannel(ht *lntest.HarnessTest) {
 //
 // NOTE: only used in current test file.
 func assertReports(ht *lntest.HarnessTest, hn *node.HarnessNode,
-	chanPoint *lnrpc.ChannelPoint, expected map[string]*lnrpc.Resolution) {
+	chanPoint *lnrpc.ChannelPoint, expected map[string]*lnrpc.Resolution,
+	fcInitiator bool) {
 
 	op := ht.OutPointFromChannelPoint(chanPoint)
 
@@ -1144,6 +1465,14 @@ func assertReports(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	for _, close := range closed.Channels {
 		if close.ChannelPoint == op.String() {
 			resolutions = close.Resolutions
+			if fcInitiator {
+				localFCInfo := close.LocalFirstCloseInsights.
+					GetLocalForceCloseInitiator()
+				userInitiated := channeldb.UserInitiated
+				require.Equal(ht, localFCInfo,
+					userInitiated.String())
+			}
+
 			break
 		}
 	}

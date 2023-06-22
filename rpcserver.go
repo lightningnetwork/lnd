@@ -3563,6 +3563,31 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 			Initiator:      lnrpc.Initiator_INITIATOR_UNKNOWN,
 		}
 
+		// Append local force close insights if present.
+		if pendingClose.LocalFCInsights != nil {
+			htlcActions := make(map[string]*lnrpc.ListHTLCHash)
+			for action, htlcs := range pendingClose.LocalFCInsights.
+				ChainActions {
+				htlcHashes := make([][]byte, len(htlcs))
+				for i, htlc := range htlcs {
+					htlcHashes[i] = htlc.RHash[:]
+				}
+				htlcHashList := &lnrpc.ListHTLCHash{
+					Hash: htlcHashes,
+				}
+				htlcActions[action] = htlcHashList
+			}
+
+			channel.LocalFirstCloseInsights = &lnrpc.
+				LocalForceCloseInsights{
+				LocalForceCloseInitiator: pendingClose.
+					LocalFCInsights.Initiator.String(),
+				LocalForceCloseBroadcastHeight: pendingClose.
+					LocalFCInsights.BroadcastHeight,
+				LocalForceCloseChainActions: htlcActions,
+			}
+		}
+
 		// Lookup the channel in the historical channel bucket to obtain
 		// initiator information. If the historical channel bucket was
 		// not found, or the channel itself, this channel was closed
@@ -3803,6 +3828,31 @@ func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
 			ChanStatusFlags:       waitingClose.ChanStatus().String(),
 			Private:               isPrivate(waitingClose),
 			Memo:                  string(waitingClose.Memo),
+		}
+
+		// Append local force close insights if present.
+		if waitingClose.LocalFCInsights != nil {
+			htlcActions := make(map[string]*lnrpc.ListHTLCHash)
+			for action, htlcs := range waitingClose.LocalFCInsights.
+				ChainActions {
+				htlcHashes := make([][]byte, len(htlcs))
+				for i, htlc := range htlcs {
+					htlcHashes[i] = htlc.RHash[:]
+				}
+				htlcHashList := &lnrpc.ListHTLCHash{
+					Hash: htlcHashes,
+				}
+				htlcActions[action] = htlcHashList
+			}
+
+			channel.LocalFirstCloseInsights = &lnrpc.
+				LocalForceCloseInsights{
+				LocalForceCloseInitiator: waitingClose.
+					LocalFCInsights.Initiator.String(),
+				LocalForceCloseBroadcastHeight: waitingClose.
+					LocalFCInsights.BroadcastHeight,
+				LocalForceCloseChainActions: htlcActions,
+			}
 		}
 
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{
@@ -4515,7 +4565,33 @@ func (r *rpcServer) createRPCClosedChannel(
 		ClosingTxHash:     dbChannel.ClosingTXID.String(),
 		OpenInitiator:     openInit,
 		CloseInitiator:    closeInitiator,
-		AliasScids:        make([]uint64, 0, len(channelAliases)),
+		AliasScids: make([]uint64, 0,
+			len(channelAliases)),
+	}
+
+	// Append LocalFCInsights if present.
+	if dbChannel.LocalFCInsights != nil {
+		htlcActions := make(map[string]*lnrpc.ListHTLCHash)
+		for action, htlcs := range dbChannel.LocalFCInsights.
+			ChainActions {
+			htlcHashes := make([][]byte, len(htlcs))
+			for i, htlc := range htlcs {
+				htlcHashes[i] = htlc.RHash[:]
+			}
+			htlcHashList := &lnrpc.ListHTLCHash{
+				Hash: htlcHashes,
+			}
+			htlcActions[action] = htlcHashList
+		}
+
+		channel.LocalFirstCloseInsights = &lnrpc.
+			LocalForceCloseInsights{
+			LocalForceCloseInitiator: dbChannel.
+				LocalFCInsights.Initiator.String(),
+			LocalForceCloseBroadcastHeight: dbChannel.
+				LocalFCInsights.BroadcastHeight,
+			LocalForceCloseChainActions: htlcActions,
+		}
 	}
 
 	// Populate the set of aliases.

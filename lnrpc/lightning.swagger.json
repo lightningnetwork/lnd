@@ -3058,6 +3058,10 @@
         "memo": {
           "type": "string",
           "description": "An optional note-to-self to go along with the channel containing some\nuseful information. This is only ever stored locally and in no way\nimpacts the channel's operation."
+        },
+        "local_first_close_insights": {
+          "$ref": "#/definitions/lnrpclocalForceCloseInsights",
+          "description": "The insights related to a local force close."
         }
       }
     },
@@ -4024,6 +4028,10 @@
           "type": "string",
           "format": "uint64",
           "description": "The confirmed SCID for a zero-conf channel."
+        },
+        "local_first_close_insights": {
+          "$ref": "#/definitions/lnrpclocalForceCloseInsights",
+          "description": "The insights related to a local force close."
         }
       }
     },
@@ -5528,6 +5536,19 @@
             "$ref": "#/definitions/lnrpcChannel"
           },
           "title": "The list of active channels"
+        }
+      }
+    },
+    "lnrpcListHTLCHash": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "title": "Hash of HTLC"
         }
       }
     },
@@ -7278,6 +7299,27 @@
             "$ref": "#/definitions/lnrpcWalletAccountBalance"
           },
           "description": "A mapping of each wallet account's name to its balance."
+        }
+      }
+    },
+    "lnrpclocalForceCloseInsights": {
+      "type": "object",
+      "properties": {
+        "local_force_close_initiator": {
+          "type": "string",
+          "description": "LocalForceCloseInitiator indicates what initiated a force close, it could\nbe user initiated, due to chain trigger or due to any of link failure\nerrors."
+        },
+        "local_force_close_broadcast_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height in which the commitment transaction during a local force\nclose is broadcasted."
+        },
+        "local_force_close_chain_actions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcListHTLCHash"
+          },
+          "description": "The map of reason =\u003e list of HTLCs (hashes), during a local force close."
         }
       }
     },

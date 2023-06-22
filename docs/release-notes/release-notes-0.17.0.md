@@ -6,6 +6,9 @@
   implementation](https://github.com/lightningnetwork/lnd/pull/7377) logic in 
   different update types.
 
+* Add [invoice SQL schema and 
+  queries](https://github.com/lightningnetwork/lnd/pull/7354)
+
 ## Watchtowers 
 
 * Let the task pipeline [only carry 

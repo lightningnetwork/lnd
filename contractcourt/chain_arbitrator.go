@@ -1056,13 +1056,46 @@ type forceCloseReq struct {
 	closeTx chan *wire.MsgTx
 }
 
+// forceCloseContractOption is used for providing functional options to callers
+// of ForceCloseContract(). We don't export this type directly, but rather the
+// concrete functions implementing this type, so that callers can choose the
+// concrete function that best describes their use case for force closing.
+type forceCloseContractOption func(*ChannelArbitrator)
+
+// Functional option for ForceCloseContract() that signifies that the force
+// close is purely user-initiated.
+func UserInitiatedForceClose(ca *ChannelArbitrator) {
+	// Ignore errors since logging force close info is not a critical part
+	// of the force close flow.
+	_ = ca.log.LogLocalForceCloseInfo(localForceCloseInfo{
+		userInitiated: true,
+	})
+}
+
+// Functional option for ForceCloseContract() that signifies that the force
+// close is due to a link failure. Requires the error message of the link
+// failure to be specified.
+//
+//nolint:revive // forceCloseContractOption doesn't need to be exported
+func LinkFailureErrorForceClose(errorMsg string) forceCloseContractOption {
+	return func(ca *ChannelArbitrator) {
+		// Ignore errors since logging force close info is not a
+		// critical part of the force close flow.
+		_ = ca.log.LogLocalForceCloseInfo(localForceCloseInfo{
+			linkFailureError: errorMsg,
+		})
+	}
+}
+
 // ForceCloseContract attempts to force close the channel infield by the passed
 // channel point. A force close will immediately terminate the contract,
 // causing it to enter the resolution phase. If the force close was successful,
 // then the force close transaction itself will be returned.
 //
 // TODO(roasbeef): just return the summary itself?
-func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.MsgTx, error) {
+func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint,
+	opt forceCloseContractOption) (*wire.MsgTx, error) {
+
 	c.Lock()
 	arbitrator, ok := c.activeChannels[chanPoint]
 	c.Unlock()
@@ -1071,6 +1104,7 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 	}
 
 	log.Infof("Attempting to force close ChannelPoint(%v)", chanPoint)
+	opt(arbitrator)
 
 	// Before closing, we'll attempt to send a disable update for the
 	// channel. We do so before closing the channel as otherwise the current

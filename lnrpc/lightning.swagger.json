@@ -3866,6 +3866,10 @@
           "type": "string",
           "format": "uint64",
           "description": "The confirmed SCID for a zero-conf channel."
+        },
+        "local_force_close_info": {
+          "$ref": "#/definitions/lnrpcLocalForceCloseInfo",
+          "description": "LocalForceCloseInfo encapsulates information related to a local force\nclosure such as whether it was user-initiated, or whether a link\nfailure occurred, or whether there was on-chain HTLC conditions that\nnecessitated a force close."
         }
       }
     },
@@ -5357,6 +5361,19 @@
         }
       }
     },
+    "lnrpcListHTLCHash": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "title": "Hash of HTLC"
+        }
+      }
+    },
     "lnrpcListInvoiceResponse": {
       "type": "object",
       "properties": {
@@ -5452,6 +5469,26 @@
             "$ref": "#/definitions/lnrpcUtxo"
           },
           "title": "A list of utxos"
+        }
+      }
+    },
+    "lnrpcLocalForceCloseInfo": {
+      "type": "object",
+      "properties": {
+        "user_initiated": {
+          "type": "boolean",
+          "description": "Whether the local force close was user initiated."
+        },
+        "link_failure_error": {
+          "type": "string",
+          "description": "The string error from the link failure, in case the local\nforce close was invoked by a link failure."
+        },
+        "htlc_actions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcListHTLCHash"
+          },
+          "description": "The map of reason =\u003e list of HTLCs (hashes), in case the\nlocal force close was invoked by some chain-related trigger\n(like HTLC timeout)."
         }
       }
     },

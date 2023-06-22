@@ -4482,6 +4482,26 @@ func (r *rpcServer) createRPCClosedChannel(
 		channel.Resolutions = append(channel.Resolutions, rpcResolution)
 	}
 
+	if dbChannel.LocalFCInfo != nil {
+		localFCInfo := dbChannel.LocalFCInfo
+		htlcActions := make(map[string]*lnrpc.ListHTLCHash)
+		for action, htlcs := range localFCInfo.HtlcActions {
+			htlcHashes := make([][]byte, len(htlcs))
+			for i, htlc := range htlcs {
+				htlcHashes[i] = htlc.RHash[:]
+			}
+			htlcHashList := &lnrpc.ListHTLCHash{
+				Hash: htlcHashes,
+			}
+			htlcActions[action] = htlcHashList
+		}
+		channel.LocalForceCloseInfo = &lnrpc.LocalForceCloseInfo{
+			UserInitiated:    localFCInfo.UserInitiated,
+			LinkFailureError: localFCInfo.LinkFailureError,
+			HtlcActions:      htlcActions,
+		}
+	}
+
 	return channel, nil
 }
 

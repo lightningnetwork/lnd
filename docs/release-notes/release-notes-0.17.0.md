@@ -152,6 +152,9 @@ unlock or create.
 * Make sure payment stream returns all the events by [subscribing it before
   sending](https://github.com/lightningnetwork/lnd/pull/7722).
 
+* Fixed a memory leak found in mempool management handled by
+  [`btcwallet`](https://github.com/lightningnetwork/lnd/pull/7767).
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and
@@ -181,5 +184,6 @@ unlock or create.
 * Satarupa Deb
 * Shaurya Arora
 * Torkel Rogstad
+* Yong Yu
 * ziggie1984
 * zx9r

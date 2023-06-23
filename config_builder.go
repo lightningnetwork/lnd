@@ -3,6 +3,7 @@ package lnd
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -719,6 +720,10 @@ func (d *DefaultWalletImpl) BuildChainControl(
 				partialChainControl.ChainNotifier,
 			),
 			RebroadcastInterval: pushtx.DefaultRebroadcastInterval,
+			// In case the backend is different from neutrino we
+			// make sure that broadcast backend errors are mapped
+			// to the neutrino broadcastErr.
+			MapCustomBroadcastError: broadcastErrorMapper,
 		}
 
 		lnWalletConfig.Rebroadcaster = newWalletReBroadcaster(
@@ -1419,4 +1424,51 @@ func parseHeaderStateAssertion(state string) (*headerfs.FilterHeader, error) {
 		Height:     uint32(height),
 		FilterHash: *hash,
 	}, nil
+}
+
+// broadcastErrorMapper maps errors from bitcoin backends other than neutrino to
+// the neutrino BroadcastError which allows the Rebroadcaster which currently
+// resides in the neutrino package to use all of its functionalities.
+func broadcastErrorMapper(err error) error {
+	returnErr := wallet.MapBroadcastBackendError(err)
+
+	// We only filter for specific backend errors which are relevant for the
+	// Rebroadcaster.
+	var errAlreadyConfirmed *wallet.ErrAlreadyConfirmed
+	var errInMempool *wallet.ErrInMempool
+	var errMempoolFee *wallet.ErrMempoolFee
+
+	switch {
+	// This makes sure the tx is removed from the rebroadcaster once it is
+	// confirmed.
+	case errors.As(returnErr, &errAlreadyConfirmed):
+		returnErr = &pushtx.BroadcastError{
+			Code:   pushtx.Confirmed,
+			Reason: returnErr.Error(),
+		}
+
+	// Transactions which are still in mempool but might fall out because
+	// of low fees are rebroadcasted despite of their backend error.
+	case errors.As(returnErr, &errInMempool):
+		returnErr = &pushtx.BroadcastError{
+			Code:   pushtx.Mempool,
+			Reason: returnErr.Error(),
+		}
+
+	// Transactions which are not accepted into mempool because of low fees
+	// in the first place are rebroadcasted despite of their backend error.
+	// Mempool conditions change over time so it makes sense to retry
+	// publishing the transaction. Moreover we log the detailed error so the
+	// user can intervene and increase the size of his mempool.
+	case errors.As(returnErr, &errMempoolFee):
+		ltndLog.Warnf("Error while broadcasting transaction: %v",
+			returnErr)
+
+		returnErr = &pushtx.BroadcastError{
+			Code:   pushtx.Mempool,
+			Reason: returnErr.Error(),
+		}
+	}
+
+	return returnErr
 }

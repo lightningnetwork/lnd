@@ -155,6 +155,8 @@ unlock or create.
 * Fixed a memory leak found in mempool management handled by
   [`btcwallet`](https://github.com/lightningnetwork/lnd/pull/7767).
 
+* [Stop rejecting payments that overpay or over-timelock the final hop](https://github.com/lightningnetwork/lnd/pull/7768)
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and
@@ -174,6 +176,7 @@ unlock or create.
 * Guillermo Caracuel
 * hieblmi
 * Jordi Montes
+* Keagan McClelland
 * Lele Calo
 * Matt Morehouse
 * Maxwell Sayles

@@ -162,6 +162,8 @@ unlock or create.
 * [Updated bbolt to v1.3.7](https://github.com/lightningnetwork/lnd/pull/7796)
   in order to address mmap issues affecting certain older iPhone devices.
 
+* [Stop rejecting payments that overpay or over-timelock the final hop](https://github.com/lightningnetwork/lnd/pull/7768)
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and
@@ -182,6 +184,7 @@ unlock or create.
 * Hampus Sjöberg
 * hieblmi
 * Jordi Montes
+* Keagan McClelland
 * Lele Calo
 * Matt Morehouse
 * Maxwell Sayles

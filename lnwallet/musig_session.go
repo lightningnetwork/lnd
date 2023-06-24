@@ -19,17 +19,18 @@ import (
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
-// commitType is an enum that denotes if this is the local or remote
+// MusigCommitType is an enum that denotes if this is the local or remote
 // commitment.
-type commitType uint8
+type MusigCommitType uint8
 
 const (
-	// localCommit denotes that this a session for the local commitment.
-	localCommit commitType = iota
-
-	// remoteCommit denotes that this is a session for the remote
+	// LocalMusigCommit denotes that this a session for the local
 	// commitment.
-	remoteCommit
+	LocalMusigCommit MusigCommitType = iota
+
+	// RemoteMusigCommit denotes that this is a session for the remote
+	// commitment.
+	RemoteMusigCommit
 )
 
 var (
@@ -198,7 +199,7 @@ type MusigSession struct {
 
 	// commitType tracks if this is the session for the local or remote
 	// commitment.
-	commitType commitType
+	commitType MusigCommitType
 }
 
 // NewPartialMusigSession creates a new musig2 session given only the
@@ -207,7 +208,7 @@ type MusigSession struct {
 func NewPartialMusigSession(verificationNonce musig2.Nonces,
 	localKey, remoteKey keychain.KeyDescriptor,
 	signer input.MuSig2Signer, inputTxOut *wire.TxOut,
-	commitType commitType) *MusigSession {
+	commitType MusigCommitType) *MusigSession {
 
 	signerKeys := []*btcec.PublicKey{localKey.PubKey, remoteKey.PubKey}
 
@@ -243,7 +244,7 @@ func (m *MusigSession) FinalizeSession(signingNonce musig2.Nonces) error {
 	// If we're making a session for the remote commitment, then the nonce
 	// we use to sign is actually will be the signing nonce for the
 	// session, and their nonce the verification nonce.
-	case remoteCommit:
+	case RemoteMusigCommit:
 		localNonce = m.nonces.SigningNonce
 		remoteNonce = m.nonces.VerificationNonce
 
@@ -251,7 +252,7 @@ func (m *MusigSession) FinalizeSession(signingNonce musig2.Nonces) error {
 	// commitment (to broadcast), so now our verification nonce is the one
 	// we've already generated, and we want to bind their new signing
 	// nonce.
-	case localCommit:
+	case LocalMusigCommit:
 		localNonce = m.nonces.VerificationNonce
 		remoteNonce = m.nonces.SigningNonce
 	}
@@ -307,7 +308,7 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, error) {
 	switch {
 	// If we already have a session, then we don't need to finalize as this
 	// was done up front (symmetric nonce case, like for co-op close).
-	case m.session == nil && m.commitType == remoteCommit:
+	case m.session == nil && m.commitType == RemoteMusigCommit:
 		// Before we can sign a new commitment, we'll need to generate
 		// a fresh nonce that'll be sent along side our signature. With
 		// the nonce in hand, we can finalize the session.
@@ -535,11 +536,11 @@ func NewMusigPairSession(cfg *MusigSessionCfg) *MusigPairSession {
 	// the local+remote party.
 	localSession := NewPartialMusigSession(
 		cfg.LocalNonce, cfg.LocalKey, cfg.RemoteKey,
-		cfg.Signer, cfg.InputTxOut, localCommit,
+		cfg.Signer, cfg.InputTxOut, LocalMusigCommit,
 	)
 	remoteSession := NewPartialMusigSession(
 		cfg.RemoteNonce, cfg.LocalKey, cfg.RemoteKey,
-		cfg.Signer, cfg.InputTxOut, remoteCommit,
+		cfg.Signer, cfg.InputTxOut, RemoteMusigCommit,
 	)
 
 	return &MusigPairSession{

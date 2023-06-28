@@ -155,6 +155,9 @@ unlock or create.
 * Fixed a memory leak found in mempool management handled by
   [`btcwallet`](https://github.com/lightningnetwork/lnd/pull/7767).
 
+* [Updated bbolt to v1.3.7](https://github.com/lightningnetwork/lnd/pull/7796)
+  in order to address mmap issues affecting certain older iPhone devices.
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and
@@ -172,6 +175,7 @@ unlock or create.
 * ErikEk
 * gabbyprecious
 * Guillermo Caracuel
+* Hampus Sjöberg
 * hieblmi
 * Jordi Montes
 * Lele Calo

@@ -121,6 +121,10 @@
   [MinConf](https://github.com/lightningnetwork/lnd/pull/8097)(minimum number
   of confirmations) has been added to the `WalletBalance` RPC call.
 
+* Log information about [local force
+  close](https://github.com/lightningnetwork/lnd/pull/7787) in DB
+  and include it in `ClosedChannels` and `PendingChannels` response.
+
 ## lncli Updates
 
 * [Documented all available lncli commands](https://github.com/lightningnetwork/lnd/pull/8181).
@@ -201,3 +205,4 @@
 * Turtle
 * Ononiwu Maureen Chiamaka
 * Yong Yu
+* shaurya947 

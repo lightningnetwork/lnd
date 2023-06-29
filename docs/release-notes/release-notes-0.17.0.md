@@ -39,6 +39,10 @@ package](https://github.com/lightningnetwork/lnd/pull/7356)
 * [HTLC serialization updated](https://github.com/lightningnetwork/lnd/pull/7710) 
   to allow storing extra data transmitted in TLVs.
 
+* [MaxLocalCSVDelay now has a default value of 2016. It is still possible to 
+override this value with the config option --maxlocaldelay for those who rely
+on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
+
 ## RPC
 
 * [SendOutputs](https://github.com/lightningnetwork/lnd/pull/7631) now adheres

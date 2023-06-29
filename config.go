@@ -175,9 +175,10 @@ const (
 	defaultRemoteMaxHtlcs = 483
 
 	// defaultMaxLocalCSVDelay is the maximum delay we accept on our
-	// commitment output.
-	// TODO(halseth): find a more scientific choice of value.
-	defaultMaxLocalCSVDelay = 10000
+	// commitment output. The local csv delay maximum is now equal to
+	// the remote csv delay maximum we require for the remote commitment
+	// transaction.
+	defaultMaxLocalCSVDelay = 2016
 
 	// defaultChannelCommitInterval is the default maximum time between
 	// receiving a channel state update and signing a new commitment.

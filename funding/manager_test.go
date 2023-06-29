@@ -59,7 +59,7 @@ const (
 
 	// defaultMaxLocalCSVDelay is the maximum delay we accept on our
 	// commitment output.
-	defaultMaxLocalCSVDelay = 10000
+	defaultMaxLocalCSVDelay = 2016
 )
 
 var (

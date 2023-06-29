@@ -8,8 +8,8 @@ require (
 	github.com/google/btree v1.0.1
 	github.com/jackc/pgx/v4 v4.13.0
 	github.com/lightningnetwork/lnd/healthcheck v1.0.0
-	github.com/stretchr/testify v1.7.0
-	go.etcd.io/bbolt v1.3.6
+	github.com/stretchr/testify v1.8.1
+	go.etcd.io/bbolt v1.3.7
 	go.etcd.io/etcd/api/v3 v3.5.7
 	go.etcd.io/etcd/client/pkg/v3 v3.5.7
 	go.etcd.io/etcd/client/v3 v3.5.7
@@ -94,7 +94,7 @@ require (
 	google.golang.org/protobuf v1.27.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	lukechampine.com/uint128 v1.2.0 // indirect
 	modernc.org/cc/v3 v3.40.0 // indirect
 	modernc.org/ccgo/v3 v3.16.13 // indirect

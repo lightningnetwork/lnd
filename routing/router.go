@@ -2782,7 +2782,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	}
 
 	pathEdges, receiverAmt, err := getPathEdges(
-		senderAmt, unifiers, bandwidthHints, hops,
+		sourceNode, senderAmt, unifiers, bandwidthHints, hops,
 	)
 	if err != nil {
 		return nil, err
@@ -2879,8 +2879,8 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 
 // getPathEdges returns the edges that make up the path and the total amount,
 // including fees, to send the payment.
-func getPathEdges(receiverAmt lnwire.MilliSatoshi, unifiers []*edgeUnifier,
-	bandwidthHints *bandwidthManager,
+func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
+	unifiers []*edgeUnifier, bandwidthHints *bandwidthManager,
 	hops []route.Vertex) ([]*channeldb.CachedEdgePolicy,
 	lnwire.MilliSatoshi, error) {
 
@@ -2892,8 +2892,13 @@ func getPathEdges(receiverAmt lnwire.MilliSatoshi, unifiers []*edgeUnifier,
 	for i, unifier := range unifiers {
 		edge := unifier.getEdge(receiverAmt, bandwidthHints)
 		if edge == nil {
+			fromNode := source
+			if i > 0 {
+				fromNode = hops[i-1]
+			}
+
 			return nil, 0, ErrNoChannel{
-				fromNode: hops[i-1],
+				fromNode: fromNode,
 				position: i,
 			}
 		}

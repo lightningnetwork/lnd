@@ -3187,6 +3187,55 @@ func TestBuildRoute(t *testing.T) {
 	}
 }
 
+// TestGetPathEdges tests that the getPathEdges function returns the expected
+// edges and amount when given a set of unifiers and does not panic.
+func TestGetPathEdges(t *testing.T) {
+	t.Parallel()
+
+	const startingBlockHeight = 101
+	ctx := createTestCtxFromFile(t, startingBlockHeight, basicGraphFilePath)
+
+	testCases := []struct {
+		sourceNode     route.Vertex
+		amt            lnwire.MilliSatoshi
+		unifiers       []*edgeUnifier
+		bandwidthHints *bandwidthManager
+		hops           []route.Vertex
+
+		expectedEdges []*channeldb.CachedEdgePolicy
+		expectedAmt   lnwire.MilliSatoshi
+		expectedErr   string
+	}{{
+		sourceNode: ctx.aliases["roasbeef"],
+		unifiers: []*edgeUnifier{
+			{
+				edges:     []*unifiedEdge{},
+				localChan: true,
+			},
+		},
+		expectedErr: fmt.Sprintf("no matching outgoing channel "+
+			"available for node 0 (%v)", ctx.aliases["roasbeef"]),
+	}}
+
+	for _, tc := range testCases {
+		pathEdges, amt, err := getPathEdges(
+			tc.sourceNode, tc.amt, tc.unifiers, tc.bandwidthHints,
+			tc.hops,
+		)
+
+		if tc.expectedErr != "" {
+			require.Error(t, err)
+			require.ErrorContains(t, err, tc.expectedErr)
+
+			continue
+		}
+
+		require.NoError(t, err)
+		require.Equal(t, pathEdges, tc.expectedEdges)
+		require.Equal(t, amt, tc.expectedAmt)
+	}
+}
+
 // edgeCreationModifier is an enum-like type used to modify steps that are
 // skipped when creating a channel in the test context.
 type edgeCreationModifier uint8

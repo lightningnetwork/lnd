@@ -506,13 +506,23 @@ func (s *UtxoSweeper) feeRateForPreference(
 	return feeRate, nil
 }
 
-// removeLastSweepDescendants removes any transactions from the wallet that
-// spend outputs produced by the passed spendingTx. This needs to be done in
+// removeConflictSweepDescendants removes any transactions from the wallet that
+// spend outputs included in the passed outpoint set. This needs to be done in
 // cases where we're not the only ones that can sweep an output, but there may
 // exist unconfirmed spends that spend outputs created by a sweep transaction.
 // The most common case for this is when someone sweeps our anchor outputs
-// after 16 blocks.
-func (s *UtxoSweeper) removeLastSweepDescendants(spendingTx *wire.MsgTx) error {
+// after 16 blocks. Moreover this is also needed for wallets which use neutrino
+// as a backend when a channel is force closed and anchor cpfp txns are
+// created to bump the initial commitment transaction. In this case an anchor
+// cpfp is broadcasted for up to 3 commitment transactions (local,
+// remote-dangling, remote). Using neutrino all of those transactions will be
+// accepted (the commitment tx will be different in all of those cases) and have
+// to be removed as soon as one of them confirmes (they do have the same
+// ExclusiveGroup). For neutrino backends the corresponding BIP 157 serving full
+// nodes do not signal invalid transactions anymore.
+func (s *UtxoSweeper) removeConflictSweepDescendants(
+	outpoints map[wire.OutPoint]struct{}) error {
+
 	// Obtain all the past sweeps that we've done so far. We'll need these
 	// to ensure that if the spendingTx spends any of the same inputs, then
 	// we remove any transaction that may be spending those inputs from the
@@ -523,16 +533,6 @@ func (s *UtxoSweeper) removeLastSweepDescendants(spendingTx *wire.MsgTx) error {
 	pastSweepHashes, err := s.cfg.Store.ListSweeps()
 	if err != nil {
 		return err
-	}
-
-	log.Debugf("Attempting to remove descendant txns invalidated by "+
-		"(txid=%v): %v", spendingTx.TxHash(), spew.Sdump(spendingTx))
-
-	// Construct a map of the inputs this transaction spends for each look
-	// up.
-	inputsSpent := make(map[wire.OutPoint]struct{}, len(spendingTx.TxIn))
-	for _, txIn := range spendingTx.TxIn {
-		inputsSpent[txIn.PreviousOutPoint] = struct{}{}
 	}
 
 	// We'll now go through each past transaction we published during this
@@ -561,28 +561,30 @@ func (s *UtxoSweeper) removeLastSweepDescendants(spendingTx *wire.MsgTx) error {
 		// same inputs as spendingTx.
 		var isConflicting bool
 		for _, txIn := range sweepTx.TxIn {
-			if _, ok := inputsSpent[txIn.PreviousOutPoint]; ok {
+			if _, ok := outpoints[txIn.PreviousOutPoint]; ok {
 				isConflicting = true
 				break
 			}
 		}
 
-		// If it did, then we'll signal the wallet to remove all the
-		// transactions that are descendants of outputs created by the
-		// sweepTx.
-		if isConflicting {
-			log.Debugf("Removing sweep txid=%v from wallet: %v",
-				sweepTx.TxHash(), spew.Sdump(sweepTx))
-
-			err := s.cfg.Wallet.RemoveDescendants(sweepTx)
-			if err != nil {
-				log.Warnf("unable to remove descendants: %v", err)
-			}
-
-			// If this transaction was conflicting, then we'll stop
-			// rebroadcasting it in the background.
-			s.cfg.Wallet.CancelRebroadcast(sweepHash)
+		if !isConflicting {
+			continue
 		}
+
+		// If it is conflicting, then we'll signal the wallet to remove
+		// all the transactions that are descendants of outputs created
+		// by the sweepTx and the sweepTx itself.
+		log.Debugf("Removing sweep txid=%v from wallet: %v",
+			sweepTx.TxHash(), spew.Sdump(sweepTx))
+
+		err = s.cfg.Wallet.RemoveDescendants(sweepTx)
+		if err != nil {
+			log.Warnf("Unable to remove descendants: %v", err)
+		}
+
+		// If this transaction was conflicting, then we'll stop
+		// rebroadcasting it in the background.
+		s.cfg.Wallet.CancelRebroadcast(sweepHash)
 	}
 
 	return nil
@@ -661,7 +663,8 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 // removeExclusiveGroup removes all inputs in the given exclusive group. This
 // function is called when one of the exclusive group inputs has been spent. The
 // other inputs won't ever be spendable and can be removed. This also prevents
-// them from being part of future sweep transactions that would fail.
+// them from being part of future sweep transactions that would fail. In
+// addition sweep transactions of those inputs will be removed from the wallet.
 func (s *UtxoSweeper) removeExclusiveGroup(group uint64) {
 	for outpoint, input := range s.pendingInputs {
 		outpoint := outpoint
@@ -680,6 +683,17 @@ func (s *UtxoSweeper) removeExclusiveGroup(group uint64) {
 		s.signalAndRemove(&outpoint, Result{
 			Err: ErrExclusiveGroupSpend,
 		})
+
+		// Remove all unconfirmed transactions from the wallet which
+		// spend the passed outpoint of the same exclusive group.
+		outpoints := map[wire.OutPoint]struct{}{
+			outpoint: {},
+		}
+		err := s.removeConflictSweepDescendants(outpoints)
+		if err != nil {
+			log.Warnf("Unable to remove conflicting sweep tx from "+
+				"wallet for outpoint %v : %v", outpoint, err)
+		}
 	}
 }
 
@@ -1575,17 +1589,30 @@ func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
 	// as well as justice transactions. In this case, we'll notify the
 	// wallet to remove any spends that descent from this output.
 	if !isOurTx {
-		err := s.removeLastSweepDescendants(spend.SpendingTx)
+		// Construct a map of the inputs this transaction spends.
+		spendingTx := spend.SpendingTx
+		inputsSpent := make(
+			map[wire.OutPoint]struct{}, len(spendingTx.TxIn),
+		)
+		for _, txIn := range spendingTx.TxIn {
+			inputsSpent[txIn.PreviousOutPoint] = struct{}{}
+		}
+
+		log.Debugf("Attempting to remove descendant txns invalidated "+
+			"by (txid=%v): %v", spendingTx.TxHash(),
+			spew.Sdump(spendingTx))
+
+		err := s.removeConflictSweepDescendants(inputsSpent)
 		if err != nil {
 			log.Warnf("unable to remove descendant transactions "+
 				"due to tx %v: ", spendHash)
 		}
 
 		log.Debugf("Detected third party spend related to in flight "+
-			"inputs (is_ours=%v): %v",
+			"inputs (is_ours=%v): %v", isOurTx,
 			newLogClosure(func() string {
 				return spew.Sdump(spend.SpendingTx)
-			}), isOurTx,
+			}),
 		)
 	}
 

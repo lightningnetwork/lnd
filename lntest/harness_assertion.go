@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -692,6 +693,27 @@ func (h *HarnessTest) AssertStreamChannelForceClosed(hn *node.HarnessNode,
 	// the block.
 	closingTxid := h.WaitForChannelCloseEvent(stream)
 	h.Miner.AssertTxInBlock(block, closingTxid)
+
+	// This makes sure that we do not have any lingering unconfirmed anchor
+	// cpfp transactions blocking some of our utxos. Especially important
+	// in case of a neutrino backend.
+	if anchors {
+		err := wait.NoError(func() error {
+			utxos := h.GetUTXOsUnconfirmed(
+				hn, lnwallet.DefaultAccountName,
+			)
+			total := len(utxos)
+			if total == 0 {
+				return nil
+			}
+
+			return fmt.Errorf("%s: assert %s failed: want %d "+
+				"got: %d", hn.Name(), "no unconfirmed cpfp "+
+				"achor sweep transactions", 0, total)
+		}, DefaultTimeout)
+		require.NoErrorf(hn, err, "expected no unconfirmed cpfp "+
+			"anchor sweep utxos")
+	}
 
 	// We should see zero waiting close channels and 1 pending force close
 	// channels now.

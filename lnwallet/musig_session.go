@@ -467,8 +467,17 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 	walletLog.Infof("Verifying new musig2 sig for session=%x, nonce=%s",
 		m.session.SessionID[:], m.nonces.String())
 
+	if partialSig == nil {
+		return nil, fmt.Errorf("partial sig not set")
+	}
+
 	if !partialSig.Verify(sigHash, m.remoteKey.PubKey) {
-		return nil, fmt.Errorf("invalid partial commit sig")
+		return nil, &invalidPartialSigError{
+			partialSig:        partialSig.Serialize(),
+			sigHash:           sigHash,
+			verificationNonce: m.nonces.VerificationNonce.PubNonce,
+			signingNonce:      m.nonces.SigningNonce.PubNonce,
+		}
 	}
 
 	nonceOpts := []musig2.NonceGenOption{

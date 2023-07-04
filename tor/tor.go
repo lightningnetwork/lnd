@@ -220,12 +220,20 @@ func ResolveTCPAddr(address, socksAddr string) (*net.TCPAddr, error) {
 		return nil, err
 	}
 
-	ip, err := LookupHost(host, socksAddr)
+	p, err := strconv.Atoi(port)
 	if err != nil {
 		return nil, err
 	}
 
-	p, err := strconv.Atoi(port)
+	// Do we already have an IP? Then we don't need to look up anything.
+	if ip := net.ParseIP(host); ip != nil {
+		return &net.TCPAddr{
+			IP:   ip,
+			Port: p,
+		}, nil
+	}
+
+	ip, err := LookupHost(host, socksAddr)
 	if err != nil {
 		return nil, err
 	}

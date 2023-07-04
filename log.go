@@ -122,6 +122,15 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 		SetSubLogger(root, l.subsystem, l.Logger)
 	}
 
+	// Initialize loggers from packages outside of `lnd` first. The
+	// packages below will overwrite the names of the loggers they import.
+	// For instance, the logger in `neutrino.query` is overwritten by
+	// `btcwallet.chain`, which is overwritten by `lnwallet`. To ensure the
+	// overwriting works, we need to initialize the loggers here so they
+	// can be overwritten later.
+	AddSubLogger(root, "BTCN", interceptor, neutrino.UseLogger)
+	AddSubLogger(root, "CMGR", interceptor, connmgr.UseLogger)
+
 	// Some of the loggers declared in the main lnd package are also used
 	// in sub packages.
 	signal.UseLogger(ltndLog)
@@ -132,8 +141,6 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, "NTFN", interceptor, chainntnfs.UseLogger)
 	AddSubLogger(root, "CHDB", interceptor, channeldb.UseLogger)
 	AddSubLogger(root, "HSWC", interceptor, htlcswitch.UseLogger)
-	AddSubLogger(root, "CMGR", interceptor, connmgr.UseLogger)
-	AddSubLogger(root, "BTCN", interceptor, neutrino.UseLogger)
 	AddSubLogger(root, "CNCT", interceptor, contractcourt.UseLogger)
 	AddSubLogger(root, "UTXN", interceptor, contractcourt.UseNurseryLogger)
 	AddSubLogger(root, "BRAR", interceptor, contractcourt.UseBreachLogger)

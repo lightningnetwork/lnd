@@ -35,7 +35,7 @@ require (
 	github.com/lightningnetwork/lnd/cert v1.2.1
 	github.com/lightningnetwork/lnd/clock v1.1.0
 	github.com/lightningnetwork/lnd/healthcheck v1.2.2
-	github.com/lightningnetwork/lnd/kvdb v1.4.1
+	github.com/lightningnetwork/lnd/kvdb v1.4.2
 	github.com/lightningnetwork/lnd/queue v1.1.0
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tlv v1.1.0

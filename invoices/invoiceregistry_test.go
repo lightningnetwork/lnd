@@ -931,9 +931,8 @@ func TestMppPayment(t *testing.T) {
 // invoice.
 func TestMppPaymentWithOverpayment(t *testing.T) {
 	t.Parallel()
-	defer timeout()()
 
-	f := func(overpayment_rand uint64) bool {
+	f := func(overpaymentRand uint64) bool {
 		ctx := newTestContext(t, nil)
 
 		// Add the invoice.
@@ -949,7 +948,7 @@ func TestMppPaymentWithOverpayment(t *testing.T) {
 		}
 
 		// We constrain overpayment amount to be [1,1000].
-		overpayment := lnwire.MilliSatoshi((overpayment_rand % 999) + 1)
+		overpayment := lnwire.MilliSatoshi((overpaymentRand % 999) + 1)
 
 		// Send htlc 1.
 		hodlChan1 := make(chan interface{}, 1)
@@ -999,7 +998,7 @@ func TestMppPaymentWithOverpayment(t *testing.T) {
 
 		return inv.AmtPaid == testInvoice.Terms.Value+overpayment
 	}
-	if err := quick.Check(f, &quick.Config{MaxCount: 50}); err != nil {
+	if err := quick.Check(f, nil); err != nil {
 		t.Fatalf("amount incorrect: %v", err)
 	}
 }

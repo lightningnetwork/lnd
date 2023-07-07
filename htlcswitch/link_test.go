@@ -821,25 +821,26 @@ func TestExitNodeTimelockPayloadExceedsHTLC(t *testing.T) {
 func TestExitNodeHTLCUnderpaysPayloadAmount(t *testing.T) {
 	t.Parallel()
 
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*5,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	require.NoError(t, err, "unable to create channel")
+
+	n := newThreeHopNetwork(
+		t, channels.aliceToBob, channels.bobToAlice,
+		channels.bobToCarol, channels.carolToBob,
+		testStartingHeight,
+	)
+	require.NoError(t, n.start())
+	t.Cleanup(n.stop)
+
 	f := func(underpaymentRand uint64) bool {
+		const amount = btcutil.SatoshiPerBitcoin / 100
 		underpayment := lnwire.MilliSatoshi(
-			underpaymentRand%(btcutil.SatoshiPerBitcoin-1) + 1,
+			underpaymentRand%(amount-1) + 1,
 		)
-		channels, _, err := createClusterChannels(
-			t, btcutil.SatoshiPerBitcoin*5,
-			btcutil.SatoshiPerBitcoin*5,
-		)
-		require.NoError(t, err, "unable to create channel")
 
-		n := newThreeHopNetwork(
-			t, channels.aliceToBob, channels.bobToAlice,
-			channels.bobToCarol, channels.carolToBob,
-			testStartingHeight,
-		)
-		require.NoError(t, n.start())
-		t.Cleanup(n.stop)
-
-		const amount = btcutil.SatoshiPerBitcoin
 		htlcAmt, htlcExpiry, hops := generateHops(
 			amount, testStartingHeight, n.firstBobChannelLink,
 		)
@@ -858,7 +859,7 @@ func TestExitNodeHTLCUnderpaysPayloadAmount(t *testing.T) {
 
 		return err != nil
 	}
-	err := quick.Check(f, &quick.Config{MaxCount: 20})
+	err = quick.Check(f, nil)
 	require.NoError(t, err, "payment should have failed but didn't")
 }
 
@@ -868,23 +869,24 @@ func TestExitNodeHTLCUnderpaysPayloadAmount(t *testing.T) {
 func TestExitNodeHTLCExceedsAmountPayload(t *testing.T) {
 	t.Parallel()
 
+	channels, _, err := createClusterChannels(
+		t, btcutil.SatoshiPerBitcoin*5,
+		btcutil.SatoshiPerBitcoin*5,
+	)
+	require.NoError(t, err, "unable to create channel")
+
+	n := newThreeHopNetwork(t, channels.aliceToBob,
+		channels.bobToAlice, channels.bobToCarol,
+		channels.carolToBob, testStartingHeight)
+	require.NoError(t, n.start())
+	t.Cleanup(n.stop)
+
 	f := func(overpaymentRand uint64) bool {
+		const amount = btcutil.SatoshiPerBitcoin / 100
 		overpayment := lnwire.MilliSatoshi(
-			overpaymentRand%(btcutil.SatoshiPerBitcoin-1) + 1,
+			overpaymentRand%(amount-1) + 1,
 		)
-		channels, _, err := createClusterChannels(
-			t, btcutil.SatoshiPerBitcoin*5,
-			btcutil.SatoshiPerBitcoin*5,
-		)
-		require.NoError(t, err, "unable to create channel")
 
-		n := newThreeHopNetwork(t, channels.aliceToBob,
-			channels.bobToAlice, channels.bobToCarol,
-			channels.carolToBob, testStartingHeight)
-		require.NoError(t, n.start())
-		t.Cleanup(n.stop)
-
-		const amount = btcutil.SatoshiPerBitcoin
 		htlcAmt, htlcExpiry, hops := generateHops(amount,
 			testStartingHeight, n.firstBobChannelLink)
 
@@ -901,7 +903,7 @@ func TestExitNodeHTLCExceedsAmountPayload(t *testing.T) {
 
 		return err == nil
 	}
-	err := quick.Check(f, &quick.Config{MaxCount: 20})
+	err = quick.Check(f, nil)
 	require.NoError(t, err, "payment should have succeeded but didn't")
 }
 

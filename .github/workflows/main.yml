@@ -295,14 +295,14 @@ jobs:
       fail-fast: false
       matrix:
         pinned_dep:
-          - google.golang.org/grpc v1.41.0
+          - google.golang.org/grpc v1.53.0
           - github.com/golang/protobuf v1.5.2
 
     steps:
       - name: git checkout
         uses: actions/checkout@v3
 
-      - name: ensure dependences at correct version
+      - name: ensure dependencies at correct version
         run: if ! grep -q "${{ matrix.pinned_dep }}" go.mod; then echo dependency ${{ matrix.pinned_dep }} should not be altered ; exit 1 ; fi
 
   ########################

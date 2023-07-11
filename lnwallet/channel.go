@@ -1396,17 +1396,9 @@ func NewLightningChannel(signer input.Signer,
 
 	logPrefix := fmt.Sprintf("ChannelPoint(%v):", state.FundingOutpoint)
 
-	// In order to obtain the revocation root hash to create the taproot
-	// revocation, we'll encode the producer into a buffer, then use that
-	// to derive the shachain root needed.
-	var rootHashBuf bytes.Buffer
-	if err := state.RevocationProducer.Encode(&rootHashBuf); err != nil {
-		return nil, fmt.Errorf("unable to encode producer: %v", err)
-	}
-
-	revRootHash := chainhash.HashH(rootHashBuf.Bytes())
-
-	taprootNonceProducer, err := deriveMusig2Shachain(revRootHash)
+	taprootNonceProducer, err := deriveMusig2Shachain(
+		state.RevocationProducer,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to derive shachain: %v", err)
 	}

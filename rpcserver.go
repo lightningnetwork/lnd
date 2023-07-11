@@ -2731,12 +2731,21 @@ func abandonChanFromGraph(chanGraph *channeldb.ChannelGraph,
 func (r *rpcServer) abandonChan(chanPoint *wire.OutPoint,
 	bestHeight uint32) error {
 
+	// Before we remove the channel we cancel the rebroadcasting of the
+	// transaction. If this transaction does not exist in the rebroadcast
+	// queue anymore it is a noop.
+	txid, err := chainhash.NewHash(chanPoint.Hash[:])
+	if err != nil {
+		return err
+	}
+	r.server.cc.Wallet.CancelRebroadcast(*txid)
+
 	// Abandoning a channel is a three-step process: remove from the open
 	// channel state, remove from the graph, remove from the contract
 	// court. Between any step it's possible that the users restarts the
 	// process all over again. As a result, each of the steps below are
 	// intended to be idempotent.
-	err := r.server.chanStateDB.AbandonChannel(chanPoint, bestHeight)
+	err = r.server.chanStateDB.AbandonChannel(chanPoint, bestHeight)
 	if err != nil {
 		return err
 	}

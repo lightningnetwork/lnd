@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"math"
 	"testing"
+	"testing/quick"
 	"time"
 
 	"github.com/lightningnetwork/lnd/amp"
@@ -922,6 +923,83 @@ func TestMppPayment(t *testing.T) {
 	if inv.AmtPaid != testInvoice.Terms.Value {
 		t.Fatalf("amount incorrect, expected %v but got %v",
 			testInvoice.Terms.Value, inv.AmtPaid)
+	}
+}
+
+// TestMppPaymentWithOverpayment tests settling of an invoice with multiple
+// partial payments. It covers the case where the mpp overpays what is in the
+// invoice.
+func TestMppPaymentWithOverpayment(t *testing.T) {
+	t.Parallel()
+
+	f := func(overpaymentRand uint64) bool {
+		ctx := newTestContext(t, nil)
+
+		// Add the invoice.
+		_, err := ctx.registry.AddInvoice(
+			testInvoice, testInvoicePaymentHash,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		mppPayload := &mockPayload{
+			mpp: record.NewMPP(testInvoiceAmt, [32]byte{}),
+		}
+
+		// We constrain overpayment amount to be [1,1000].
+		overpayment := lnwire.MilliSatoshi((overpaymentRand % 999) + 1)
+
+		// Send htlc 1.
+		hodlChan1 := make(chan interface{}, 1)
+		resolution, err := ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash, testInvoice.Terms.Value/2,
+			testHtlcExpiry, testCurrentHeight, getCircuitKey(11),
+			hodlChan1, mppPayload,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution != nil {
+			t.Fatal("expected no direct resolution")
+		}
+
+		// Send htlc 2.
+		hodlChan2 := make(chan interface{}, 1)
+		resolution, err = ctx.registry.NotifyExitHopHtlc(
+			testInvoicePaymentHash,
+			testInvoice.Terms.Value/2+overpayment, testHtlcExpiry,
+			testCurrentHeight, getCircuitKey(12), hodlChan2,
+			mppPayload,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		settleResolution, ok :=
+			resolution.(*invpkg.HtlcSettleResolution)
+		if !ok {
+			t.Fatalf("expected settle resolution, got: %T",
+				resolution)
+		}
+		if settleResolution.Outcome != invpkg.ResultSettled {
+			t.Fatalf("expected result settled, got: %v",
+				settleResolution.Outcome)
+		}
+
+		// Check that settled amount is equal to the sum of values of
+		// the htlcs 1 and 2.
+		inv, err := ctx.registry.LookupInvoice(testInvoicePaymentHash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if inv.State != invpkg.ContractSettled {
+			t.Fatal("expected invoice to be settled")
+		}
+
+		return inv.AmtPaid == testInvoice.Terms.Value+overpayment
+	}
+	if err := quick.Check(f, nil); err != nil {
+		t.Fatalf("amount incorrect: %v", err)
 	}
 }
 

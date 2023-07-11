@@ -66,8 +66,8 @@ function import_keys() {
     USERNAME=$(echo $key | cut -d' ' -f2)
     IMPORT_FILE="keys/$USERNAME.asc"
     KEY_FILE="$DIR/$IMPORT_FILE"
-    KEYRING_UNTRUSTED="$TEMP_DIR/$USERNAME.pgp-untrusted"
-    KEYRING_TRUSTED="$TEMP_DIR/$USERNAME.pgp"
+    KEYRING_UNTRUSTED="$USERNAME.pgp-untrusted"
+    KEYRING_TRUSTED="$USERNAME.pgp"
 
     # Because a key file could contain multiple keys, we need to be careful. To
     # make sure we only import and use the key with the hard coded key ID of
@@ -79,14 +79,14 @@ function import_keys() {
     # few lines.
     echo ""
     echo "Importing key(s) from $KEY_FILE into temporary keyring $KEYRING_UNTRUSTED"
-    gpg --no-default-keyring --keyring "$KEYRING_UNTRUSTED" \
+    gpg --homedir "$TEMP_DIR" --no-default-keyring --keyring "$KEYRING_UNTRUSTED" \
       --import < "$KEY_FILE"
 
     echo ""
     echo "Exporting key $KEY_ID from untrusted keyring to trusted keyring $KEYRING_TRUSTED"
-    gpg --no-default-keyring --keyring "$KEYRING_UNTRUSTED" \
+    gpg --homedir "$TEMP_DIR" --no-default-keyring --keyring "$KEYRING_UNTRUSTED" \
       --export "$KEY_ID" | \
-      gpg --no-default-keyring --keyring "$KEYRING_TRUSTED" --import
+      gpg --homedir "$TEMP_DIR" --no-default-keyring --keyring "$KEYRING_TRUSTED" --import
 
   done
 }
@@ -137,8 +137,8 @@ function verify_signatures() {
     USERNAME=${USERNAME##manifest-}
 
     # If the user is known, they should have a key ring file with only their key.
-    KEYRING="$TEMP_DIR/$USERNAME.pgp"
-    if [[ ! -f "$KEYRING" ]]; then
+    KEYRING="$USERNAME.pgp"
+    if [[ ! -f "$TEMP_DIR/$KEYRING" ]]; then
       echo "User $USERNAME does not have a known key, skipping"
       continue
     fi
@@ -156,7 +156,7 @@ function verify_signatures() {
     fi
 
     # Run the actual verification.
-    gpg --no-default-keyring --keyring "$KEYRING" --status-fd=1 \
+    gpg --homedir "$TEMP_DIR" --no-default-keyring --keyring "$KEYRING" --status-fd=1 \
       --verify "$TEMP_DIR/$signature" "$TEMP_DIR/$MANIFEST" \
       > "$STATUS_FILE" 2>&1 || { echo "ERROR: Invalid signature!"; exit 1; } 
 

@@ -487,7 +487,12 @@ func (b *BitcoindNotifier) handleRelevantTx(tx *btcutil.Tx,
 	// If this is a mempool spend, we'll ask the mempool notifier to hanlde
 	// it.
 	if mempool {
-		b.memNotifier.ProcessRelevantSpendTx(tx)
+		err := b.memNotifier.ProcessRelevantSpendTx(tx)
+		if err != nil {
+			chainntnfs.Log.Errorf("Unable to process transaction "+
+				"%v: %v", tx.Hash(), err)
+		}
+
 		return
 	}
 

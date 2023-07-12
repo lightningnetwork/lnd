@@ -1901,6 +1901,12 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
 
+		if err := s.cc.BestBlockTracker.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.cc.BestBlockTracker.Stop)
+
 		if err := s.channelNotifier.Start(); err != nil {
 			startErr = err
 			return
@@ -2281,6 +2287,10 @@ func (s *server) Stop() error {
 		}
 		if err := s.cc.ChainNotifier.Stop(); err != nil {
 			srvrLog.Warnf("Unable to stop ChainNotifier: %v", err)
+		}
+		if err := s.cc.BestBlockTracker.Stop(); err != nil {
+			srvrLog.Warnf("Unable to stop BestBlockTracker: %v",
+				err)
 		}
 		s.chanEventStore.Stop()
 		s.missionControl.StopStoreTicker()

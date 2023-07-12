@@ -233,6 +233,10 @@ type Config struct {
 	// transaction.
 	ChainNotifier chainntnfs.ChainNotifier
 
+	// BestBlockView is used to efficiently query for up-to-date
+	// blockchain state information
+	BestBlockView chainntnfs.BestBlockView
+
 	// RoutingPolicy is used to set the forwarding policy for links created by
 	// the Brontide.
 	RoutingPolicy models.ForwardingPolicy

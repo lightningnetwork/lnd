@@ -133,15 +133,6 @@ var (
 
 var (
 	testInvoiceAmt = lnwire.MilliSatoshi(100000)
-	testInvoice    = &invpkg.Invoice{
-		Terms: invpkg.ContractTerm{
-			PaymentPreimage: &testInvoicePreimage,
-			Value:           testInvoiceAmt,
-			Expiry:          time.Hour,
-			Features:        testFeatures,
-		},
-		CreationDate: testInvoiceCreationDate,
-	}
 
 	testPayAddrReqInvoice = &invpkg.Invoice{
 		Terms: invpkg.ContractTerm{
@@ -173,16 +164,6 @@ var (
 			),
 		},
 		CreationDate: testInvoiceCreationDate,
-	}
-
-	testHodlInvoice = &invpkg.Invoice{
-		Terms: invpkg.ContractTerm{
-			Value:    testInvoiceAmt,
-			Expiry:   time.Hour,
-			Features: testFeatures,
-		},
-		CreationDate: testInvoiceCreationDate,
-		HodlInvoice:  true,
 	}
 )
 
@@ -273,6 +254,37 @@ func getCircuitKey(htlcID uint64) invpkg.CircuitKey {
 		},
 		HtlcID: htlcID,
 	}
+}
+
+// newInvoice returns an invoice that can be used for testing, using the
+// constant values defined above (deep copied if necessary).
+//
+// Note that this invoice *does not* have a payment address set. It will
+// create a regular invoice with a preimage is hodl is false, and a hodl
+// invoice with no preimage otherwise.
+func newInvoice(t *testing.T, hodl bool) *invpkg.Invoice {
+	invoice := &invpkg.Invoice{
+		Terms: invpkg.ContractTerm{
+			Value:    testInvoiceAmt,
+			Expiry:   time.Hour,
+			Features: testFeatures.Clone(),
+		},
+		CreationDate: testInvoiceCreationDate,
+	}
+
+	// If creating a hodl invoice, we don't include a preimage.
+	if hodl {
+		invoice.HodlInvoice = true
+		return invoice
+	}
+
+	preimage, err := lntypes.MakePreimage(
+		testInvoicePreimage[:],
+	)
+	require.NoError(t, err)
+	invoice.Terms.PaymentPreimage = &preimage
+
+	return invoice
 }
 
 // timeout implements a test level timeout.

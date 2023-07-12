@@ -944,17 +944,25 @@ func (s *UtxoSweeper) clusterByLockTime(inputs pendingInputs) ([]inputCluster,
 			cluster = make(pendingInputs)
 		}
 
-		cluster[op] = input
-		locktimes[lt] = cluster
-
-		// We also get the preferred fee rate for this input.
+		// Get the fee rate based on the fee preference. If an error is
+		// returned, we'll skip sweeping this input for this round of
+		// cluster creation and retry it when we create the clusters
+		// from the pending inputs again.
 		feeRate, err := s.feeRateForPreference(input.params.Fee)
 		if err != nil {
 			log.Warnf("Skipping input %v: %v", op, err)
 			continue
 		}
 
+		log.Debugf("Adding input %v to cluster with locktime=%v, "+
+			"feeRate=%v", op, lt, feeRate)
+
+		// Attach the fee rate to the input.
 		input.lastFeeRate = feeRate
+
+		// Update the cluster about the updated input.
+		cluster[op] = input
+		locktimes[lt] = cluster
 	}
 
 	// We'll then determine the sweep fee rate for each set of inputs by

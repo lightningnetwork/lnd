@@ -227,6 +227,10 @@ type Config struct {
 	// transaction.
 	ChainNotifier chainntnfs.ChainNotifier
 
+	// CurrentChainStateView is used to efficiently query for up-to-date
+	// blockchain state information
+	CurrentChainStateView chainntnfs.CurrentChainStateView
+
 	// RoutingPolicy is used to set the forwarding policy for links created by
 	// the Brontide.
 	RoutingPolicy htlcswitch.ForwardingPolicy

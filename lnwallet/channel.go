@@ -5209,17 +5209,6 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 		&lc.channelState.FundingOutpoint,
 	)
 
-	// If this is a taproot channel, We've now accepted+revoked a new
-	// commitment, so we'll send the remote party another verification
-	// nonce they can use to generate new commitments.
-	if lc.channelState.ChanType.IsTaproot() {
-		localSession := lc.musigSessions.LocalSession
-		nextVerificationNonce := localSession.VerificationNonce()
-		revocationMsg.LocalNonce = (*lnwire.Musig2Nonce)(
-			&nextVerificationNonce.PubNonce,
-		)
-	}
-
 	return revocationMsg, newCommitment.Htlcs, finalHtlcs, nil
 }
 
@@ -7759,8 +7748,9 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 	// revocation.
 	//
 	// Put simply in the window slides to the left by one.
+	revHeight := height + 2
 	nextCommitSecret, err := lc.channelState.RevocationProducer.AtIndex(
-		height + 2,
+		revHeight,
 	)
 	if err != nil {
 		return nil, err
@@ -7770,6 +7760,21 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(
 		&lc.channelState.FundingOutpoint,
 	)
+
+	// If this is a taproot channel, then we also need to generate the
+	// verification nonce for this target state.
+	if lc.channelState.ChanType.IsTaproot() {
+		nextVerificationNonce, err := channeldb.NewMusigVerificationNonce( //nolint:lll
+			lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
+			revHeight, lc.taprootNonceProducer,
+		)
+		if err != nil {
+			return nil, err
+		}
+		revocationMsg.LocalNonce = (*lnwire.Musig2Nonce)(
+			&nextVerificationNonce.PubNonce,
+		)
+	}
 
 	return revocationMsg, nil
 }

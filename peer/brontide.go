@@ -1607,8 +1607,7 @@ out:
 
 		case *lnwire.ChannelReestablish:
 			targetChan = msg.ChanID
-			isLinkUpdate = p.isActiveChannel(targetChan) ||
-				p.isPendingChannel(targetChan)
+			isLinkUpdate = p.hasChannel(targetChan)
 
 			// If we failed to find the link in question, and the
 			// message received was a channel sync message, then
@@ -1625,9 +1624,22 @@ out:
 				}
 			}
 
+		// For messages that implement the LinkUpdater interface, we
+		// will consider them as link updates and send them to
+		// chanStream. These messages will be queued inside chanStream
+		// if the channel is not active yet.
 		case LinkUpdater:
 			targetChan = msg.TargetChanID()
-			isLinkUpdate = p.isActiveChannel(targetChan)
+			isLinkUpdate = p.hasChannel(targetChan)
+
+			// Log an error if we don't have this channel. This
+			// means the peer has sent us a message with unknown
+			// channel ID.
+			if !isLinkUpdate {
+				p.log.Errorf("Unknown channel ID: %v found "+
+					"in received msg=%s", targetChan,
+					nextMsg.MsgType())
+			}
 
 		case *lnwire.ChannelUpdate,
 			*lnwire.ChannelAnnouncement,
@@ -1727,6 +1739,13 @@ func (p *Brontide) isPendingChannel(chanID lnwire.ChannelID) bool {
 	}
 
 	return channel == nil
+}
+
+// hasChannel returns true if the peer has a pending/active channel specified
+// by the channel ID.
+func (p *Brontide) hasChannel(chanID lnwire.ChannelID) bool {
+	_, ok := p.activeChannels.Load(chanID)
+	return ok
 }
 
 // storeError stores an error in our peer's buffer of recent errors with the

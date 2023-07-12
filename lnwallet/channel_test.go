@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -2809,6 +2810,23 @@ func assertNoChanSyncNeeded(t *testing.T, aliceChannel *LightningChannel,
 		t.Fatalf("line #%v: unable to produce chan sync msg: %v",
 			line, err)
 	}
+	bobChanSyncMsg, err := bobChannel.channelState.ChanSyncMsg()
+	if err != nil {
+		t.Fatalf("line #%v: unable to produce chan sync msg: %v",
+			line, err)
+	}
+
+	// For taproot channels, simulate the link/peer binding the generated
+	// nonces.
+	if aliceChannel.channelState.ChanType.IsTaproot() {
+		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *aliceChanSyncMsg.LocalNonce,
+		}
+		bobChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *bobChanSyncMsg.LocalNonce,
+		}
+	}
+
 	bobMsgsToSend, _, _, err := bobChannel.ProcessChanSyncMsg(aliceChanSyncMsg)
 	if err != nil {
 		t.Fatalf("line #%v: unable to process ChannelReestablish "+
@@ -2819,11 +2837,6 @@ func assertNoChanSyncNeeded(t *testing.T, aliceChannel *LightningChannel,
 			"instead wants to send: %v", line, spew.Sdump(bobMsgsToSend))
 	}
 
-	bobChanSyncMsg, err := bobChannel.channelState.ChanSyncMsg()
-	if err != nil {
-		t.Fatalf("line #%v: unable to produce chan sync msg: %v",
-			line, err)
-	}
 	aliceMsgsToSend, _, _, err := aliceChannel.ProcessChanSyncMsg(bobChanSyncMsg)
 	if err != nil {
 		t.Fatalf("line #%v: unable to process ChannelReestablish "+
@@ -3338,19 +3351,14 @@ func TestChanSyncOweCommitmentPendingRemote(t *testing.T) {
 	}
 }
 
-// TestChanSyncOweRevocation tests that if Bob restarts (and then Alice) before
-// he receiver's Alice's RevokeAndAck message, then Alice concludes that she
-// needs to re-send the RevokeAndAck. After the revocation has been sent, both
-// nodes should be able to successfully complete another state transition.
-func TestChanSyncOweRevocation(t *testing.T) {
-	t.Parallel()
-
+// testChanSyncOweRevocation is the internal version of
+// TestChanSyncOweRevocation that is parameterized based on the type of channel
+// being used in the test.
+func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
-	)
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
 	chanID := lnwire.NewChanIDFromOutPoint(
@@ -3417,8 +3425,23 @@ func TestChanSyncOweRevocation(t *testing.T) {
 	bobSyncMsg, err := bobChannel.channelState.ChanSyncMsg()
 	require.NoError(t, err, "unable to produce chan sync msg")
 
+	// For taproot channels, simulate the link/peer binding the generated
+	// nonces.
+	if chanType.IsTaproot() {
+		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *aliceSyncMsg.LocalNonce,
+		}
+		bobChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *bobSyncMsg.LocalNonce,
+		}
+	}
+
 	assertAliceOwesRevoke := func() {
-		aliceMsgsToSend, _, _, err := aliceChannel.ProcessChanSyncMsg(bobSyncMsg)
+		t.Helper()
+
+		aliceMsgsToSend, _, _, err := aliceChannel.ProcessChanSyncMsg(
+			bobSyncMsg,
+		)
 		if err != nil {
 			t.Fatalf("unable to process chan sync msg: %v", err)
 		}
@@ -3442,7 +3465,8 @@ func TestChanSyncOweRevocation(t *testing.T) {
 		}
 		if !reflect.DeepEqual(expectedRevocation, aliceReRevoke) {
 			t.Fatalf("wrong re-revocation: expected %v, got %v",
-				expectedRevocation, aliceReRevoke)
+				spew.Sdump(expectedRevocation),
+				spew.Sdump(aliceReRevoke))
 		}
 	}
 
@@ -3462,11 +3486,24 @@ func TestChanSyncOweRevocation(t *testing.T) {
 	// revocation message to Bob.
 	aliceChannel, err = restartChannel(aliceChannel)
 	require.NoError(t, err, "unable to restart alice")
+
+	// For taproot channels, simulate the link/peer binding the generated
+	// nonces.
+	if chanType.IsTaproot() {
+		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *aliceSyncMsg.LocalNonce,
+		}
+		bobChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *bobSyncMsg.LocalNonce,
+		}
+	}
+
 	assertAliceOwesRevoke()
 
 	// TODO(roasbeef): restart bob too???
 
-	// We'll continue by then allowing bob to process Alice's revocation message.
+	// We'll continue by then allowing bob to process Alice's revocation
+	// message.
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to recv revocation")
 
@@ -3495,19 +3532,33 @@ func TestChanSyncOweRevocation(t *testing.T) {
 	assertNoChanSyncNeeded(t, aliceChannel, bobChannel)
 }
 
-// TestChanSyncOweRevocationAndCommit tests that if Alice initiates a state
-// transition with Bob and Bob sends both a RevokeAndAck and CommitSig message
-// but Alice doesn't receive them before the connection dies, then he'll
-// retransmit them both.
-func TestChanSyncOweRevocationAndCommit(t *testing.T) {
+// TestChanSyncOweRevocation tests that if Bob restarts (and then Alice) before
+// he receiver's Alice's RevokeAndAck message, then Alice concludes that she
+// needs to re-send the RevokeAndAck. After the revocation has been sent, both
+// nodes should be able to successfully complete another state transition.
+func TestChanSyncOweRevocation(t *testing.T) {
 	t.Parallel()
+
+	t.Run("tweakless", func(t *testing.T) {
+		testChanSyncOweRevocation(t, channeldb.SingleFunderTweaklessBit)
+	})
+	t.Run("taproot", func(t *testing.T) {
+		taprootBits := channeldb.SimpleTaprootFeatureBit |
+			channeldb.AnchorOutputsBit |
+			channeldb.ZeroHtlcTxFeeBit |
+			channeldb.SingleFunderTweaklessBit
+
+		testChanSyncOweRevocation(t, taprootBits)
+	})
+}
+
+func testChanSyncOweRevocationAndCommit(t *testing.T,
+	chanType channeldb.ChannelType) {
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
-	)
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
 	htlcAmt := lnwire.NewMSatFromSatoshis(20000)
@@ -3559,6 +3610,17 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	bobSyncMsg, err := bobChannel.channelState.ChanSyncMsg()
 	require.NoError(t, err, "unable to produce chan sync msg")
 
+	// For taproot channels, simulate the link/peer binding the generated
+	// nonces.
+	if chanType.IsTaproot() {
+		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *aliceSyncMsg.LocalNonce,
+		}
+		bobChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *bobSyncMsg.LocalNonce,
+		}
+	}
+
 	aliceMsgsToSend, _, _, err := aliceChannel.ProcessChanSyncMsg(bobSyncMsg)
 	require.NoError(t, err, "unable to process chan sync msg")
 	if len(aliceMsgsToSend) != 0 {
@@ -3567,6 +3629,8 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	}
 
 	assertBobSendsRevokeAndCommit := func() {
+		t.Helper()
+
 		bobMsgsToSend, _, _, err := bobChannel.ProcessChanSyncMsg(aliceSyncMsg)
 		if err != nil {
 			t.Fatalf("unable to process chan sync msg: %v", err)
@@ -3618,6 +3682,18 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	// Bob. He should still re-send the exact same set of messages.
 	bobChannel, err = restartChannel(bobChannel)
 	require.NoError(t, err, "unable to restart channel")
+
+	// For taproot channels, simulate the link/peer binding the generated
+	// nonces.
+	if chanType.IsTaproot() {
+		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *aliceSyncMsg.LocalNonce,
+		}
+		bobChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *bobSyncMsg.LocalNonce,
+		}
+	}
+
 	assertBobSendsRevokeAndCommit()
 
 	// We'll now finish the state transition by having Alice process both
@@ -3632,21 +3708,35 @@ func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	require.NoError(t, err, "bob unable to recv revocation")
 }
 
-// TestChanSyncOweRevocationAndCommitForceTransition tests that if Alice
-// initiates a state transition with Bob, but Alice fails to receive his
-// RevokeAndAck and the connection dies before Bob sends his CommitSig message,
-// then Bob will re-send her RevokeAndAck message. Bob will also send and
-// _identical_ CommitSig as he detects his commitment chain is ahead of
-// Alice's.
-func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
+// TestChanSyncOweRevocationAndCommit tests that if Alice initiates a state
+// transition with Bob and Bob sends both a RevokeAndAck and CommitSig message
+// but Alice doesn't receive them before the connection dies, then he'll
+// retransmit them both.
+func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	t.Parallel()
+
+	t.Run("tweakless", func(t *testing.T) {
+		testChanSyncOweRevocationAndCommit(
+			t, channeldb.SingleFunderTweaklessBit,
+		)
+	})
+	t.Run("taproot", func(t *testing.T) {
+		taprootBits := channeldb.SimpleTaprootFeatureBit |
+			channeldb.AnchorOutputsBit |
+			channeldb.ZeroHtlcTxFeeBit |
+			channeldb.SingleFunderTweaklessBit
+
+		testChanSyncOweRevocationAndCommit(t, taprootBits)
+	})
+}
+
+func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
+	chanType channeldb.ChannelType) {
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
-	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
-	)
+	aliceChannel, bobChannel, err := CreateTestChannels(t, chanType)
 	require.NoError(t, err, "unable to create test channels")
 
 	htlcAmt := lnwire.NewMSatFromSatoshis(20000)
@@ -3730,6 +3820,17 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	bobSyncMsg, err := bobChannel.channelState.ChanSyncMsg()
 	require.NoError(t, err, "unable to produce chan sync msg")
 
+	// For taproot channels, simulate the link/peer binding the generated
+	// nonces.
+	if chanType.IsTaproot() {
+		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *aliceSyncMsg.LocalNonce,
+		}
+		bobChannel.pendingVerificationNonce = &musig2.Nonces{
+			PubNonce: *bobSyncMsg.LocalNonce,
+		}
+	}
+
 	aliceMsgsToSend, _, _, err := aliceChannel.ProcessChanSyncMsg(bobSyncMsg)
 	require.NoError(t, err, "unable to process chan sync msg")
 	if len(aliceMsgsToSend) != 0 {
@@ -3804,20 +3905,60 @@ func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 		}
 	}
 
+	// If this is a taproot channel, then we'll also have Bob generate their
+	// current nonce, and also process Alice's.
+	if chanType.IsTaproot() {
+		_, err = bobChannel.GenMusigNonces()
+		require.NoError(t, err)
+
+		aliceNonces, err := aliceChannel.GenMusigNonces()
+		require.NoError(t, err)
+
+		err = bobChannel.InitRemoteMusigNonces(aliceNonces)
+		require.NoError(t, err)
+	}
+
 	// Now, we'll continue the exchange, sending Bob's revocation and
 	// signature message to Alice, ending with Alice sending her revocation
 	// message to Bob.
 	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
 	require.NoError(t, err, "alice unable to recv revocation")
 	err = aliceChannel.ReceiveNewCommitment(&CommitSigs{
-		CommitSig: bobSigMsg.CommitSig,
-		HtlcSigs:  bobSigMsg.HtlcSigs,
+		CommitSig:  bobSigMsg.CommitSig,
+		HtlcSigs:   bobSigMsg.HtlcSigs,
+		PartialSig: bobSigMsg.PartialSig,
 	})
 	require.NoError(t, err, "alice unable to rev bob's commitment")
 	aliceRevocation, _, _, err = aliceChannel.RevokeCurrentCommitment()
 	require.NoError(t, err, "alice unable to revoke commitment")
 	_, _, _, _, err = bobChannel.ReceiveRevocation(aliceRevocation)
 	require.NoError(t, err, "bob unable to recv revocation")
+}
+
+// TestChanSyncOweRevocationAndCommitForceTransition tests that if Alice
+// initiates a state transition with Bob, but Alice fails to receive his
+// RevokeAndAck and the connection dies before Bob sends his CommitSig message,
+// then Bob will re-send her RevokeAndAck message. Bob will also send and
+// _identical_ CommitSig as he detects his commitment chain is ahead of
+// Alice's.
+func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tweakless", func(t *testing.T) {
+		testChanSyncOweRevocationAndCommitForceTransition(
+			t, channeldb.SingleFunderTweaklessBit,
+		)
+	})
+	t.Run("taproot", func(t *testing.T) {
+		taprootBits := channeldb.SimpleTaprootFeatureBit |
+			channeldb.AnchorOutputsBit |
+			channeldb.ZeroHtlcTxFeeBit |
+			channeldb.SingleFunderTweaklessBit
+
+		testChanSyncOweRevocationAndCommitForceTransition(
+			t, taprootBits,
+		)
+	})
 }
 
 // TestChanSyncFailure tests the various scenarios during channel sync where we

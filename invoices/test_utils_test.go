@@ -149,22 +149,6 @@ var (
 		},
 		CreationDate: testInvoiceCreationDate,
 	}
-
-	testPayAddrOptionalInvoice = &invpkg.Invoice{
-		Terms: invpkg.ContractTerm{
-			PaymentPreimage: &testInvoicePreimage,
-			Value:           testInvoiceAmt,
-			Expiry:          time.Hour,
-			Features: lnwire.NewFeatureVector(
-				lnwire.NewRawFeatureVector(
-					lnwire.TLVOnionPayloadOptional,
-					lnwire.PaymentAddrOptional,
-				),
-				lnwire.Features,
-			),
-		},
-		CreationDate: testInvoiceCreationDate,
-	}
 )
 
 func newTestChannelDB(t *testing.T, clock clock.Clock) (*channeldb.DB, error) {

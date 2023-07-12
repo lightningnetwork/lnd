@@ -1504,10 +1504,26 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 
 	require.Equal(t, subscription.PayHash(), &testInvoicePaymentHash)
 
-	// Add the invoice, which requires the MPP payload to always be
+	invoice := &invpkg.Invoice{
+		Terms: invpkg.ContractTerm{
+			PaymentPreimage: &testInvoicePreimage,
+			Value:           testInvoiceAmt,
+			Expiry:          time.Hour,
+			Features: lnwire.NewFeatureVector(
+				lnwire.NewRawFeatureVector(
+					lnwire.TLVOnionPayloadOptional,
+					lnwire.PaymentAddrOptional,
+				),
+				lnwire.Features,
+			),
+		},
+		CreationDate: testInvoiceCreationDate,
+	}
+
+	// Add the invoice, which does not require the MPP payload to always be
 	// included due to its set of feature bits.
 	addIdx, err := ctx.registry.AddInvoice(
-		testPayAddrOptionalInvoice, testInvoicePaymentHash,
+		invoice, testInvoicePaymentHash,
 	)
 	require.NoError(t, err)
 	require.Equal(t, int(addIdx), 1)
@@ -1560,7 +1576,7 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 			t.Fatalf("expected state ContractOpen, but got %v",
 				update.State)
 		}
-		if update.AmtPaid != testPayAddrOptionalInvoice.Terms.Value {
+		if update.AmtPaid != invoice.Terms.Value {
 			t.Fatal("invoice AmtPaid incorrect")
 		}
 	case <-time.After(testTimeout):

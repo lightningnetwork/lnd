@@ -1513,6 +1513,30 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 		}
 	}
 
+	// If this is a taproot channel, then we'll need to generate our next
+	// verification nonce to send to the remote party. They'll use this to
+	// sign the next update to our commitment transaction.
+	var nextTaprootNonce *lnwire.Musig2Nonce
+	if c.ChanType.IsTaproot() {
+		taprootRevProducer, err := DeriveMusig2Shachain(
+			c.RevocationProducer,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		nextNonce, err := NewMusigVerificationNonce(
+			c.LocalChanCfg.MultiSigKey.PubKey,
+			nextLocalCommitHeight, taprootRevProducer,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to gen next "+
+				"nonce: %w", err)
+		}
+
+		nextTaprootNonce = (*lnwire.Musig2Nonce)(&nextNonce.PubNonce)
+	}
+
 	return &lnwire.ChannelReestablish{
 		ChanID: lnwire.NewChanIDFromOutPoint(
 			&c.FundingOutpoint,
@@ -1523,6 +1547,7 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 		LocalUnrevokedCommitPoint: input.ComputeCommitmentPoint(
 			currentCommitSecret[:],
 		),
+		LocalNonce: nextTaprootNonce,
 	}, nil
 }
 

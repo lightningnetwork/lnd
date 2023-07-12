@@ -145,6 +145,10 @@ type PartialChainControl struct {
 	// interested in.
 	ChainNotifier chainntnfs.ChainNotifier
 
+	// BestBlockTracker is used to maintain a view of the global
+	// chain state that changes over time
+	BestBlockTracker *chainntnfs.BestBlockTracker
+
 	// MempoolNotifier is used to watch for spending events happened in
 	// mempool.
 	MempoolNotifier chainntnfs.MempoolWatcher
@@ -666,6 +670,9 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		return nil, nil, fmt.Errorf("unknown node type: %s",
 			cfg.Bitcoin.Node)
 	}
+
+	cc.BestBlockTracker =
+		chainntnfs.NewBestBlockTracker(cc.ChainNotifier)
 
 	switch {
 	// If the fee URL isn't set, and the user is running mainnet, then

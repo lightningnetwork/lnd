@@ -52,6 +52,14 @@ var (
 	// request from a client whom did not specify a fee preference.
 	ErrNoFeePreference = errors.New("no fee preference specified")
 
+	// ErrFeePreferenceTooLow is returned when the fee preference gives a
+	// fee rate that's below the relay fee rate.
+	ErrFeePreferenceTooLow = errors.New("fee preference too low")
+
+	// ErrFeePreferenceTooHigh is returned when the fee preference gives a
+	// fee rate that's above the max fee rate.
+	ErrFeePreferenceTooHigh = errors.New("fee preference too high")
+
 	// ErrExclusiveGroupSpend is returned in case a different input of the
 	// same exclusive group was spent.
 	ErrExclusiveGroupSpend = errors.New("other member of exclusive group " +
@@ -491,13 +499,14 @@ func (s *UtxoSweeper) feeRateForPreference(
 	if err != nil {
 		return 0, err
 	}
+
 	if feeRate < s.relayFeeRate {
-		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
-			"rate %v, minimum is %v", feeRate, s.relayFeeRate)
+		return 0, fmt.Errorf("%w: got %v, minimum is %v",
+			ErrFeePreferenceTooLow, feeRate, s.relayFeeRate)
 	}
 	if feeRate > s.cfg.MaxFeeRate {
-		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
-			"rate %v, maximum is %v", feeRate, s.cfg.MaxFeeRate)
+		return 0, fmt.Errorf("%w: got %v, maximum is %v",
+			ErrFeePreferenceTooHigh, feeRate, s.cfg.MaxFeeRate)
 	}
 
 	return feeRate, nil

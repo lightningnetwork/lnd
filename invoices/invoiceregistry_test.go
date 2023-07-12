@@ -299,7 +299,7 @@ func testCancelInvoice(t *testing.T, gc bool) {
 	// result in a cancel resolution.
 	hodlChan := make(chan interface{})
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
-		testInvoicePaymentHash, testInvoiceAmt, testHtlcExpiry,
+		testInvoicePaymentHash, testInvoiceAmount, testHtlcExpiry,
 		testCurrentHeight, getCircuitKey(0), hodlChan, testPayload,
 	)
 	if err != nil {
@@ -850,7 +850,7 @@ func TestMppPayment(t *testing.T) {
 	}
 
 	mppPayload := &mockPayload{
-		mpp: record.NewMPP(testInvoiceAmt, [32]byte{}),
+		mpp: record.NewMPP(testInvoiceAmount, [32]byte{}),
 	}
 
 	// Send htlc 1.
@@ -949,7 +949,7 @@ func TestMppPaymentWithOverpayment(t *testing.T) {
 		}
 
 		mppPayload := &mockPayload{
-			mpp: record.NewMPP(testInvoiceAmt, [32]byte{}),
+			mpp: record.NewMPP(testInvoiceAmount, [32]byte{}),
 		}
 
 		// We constrain overpayment amount to be [1,1000].
@@ -1236,7 +1236,7 @@ func testHeightExpiryWithRegistry(t *testing.T, numParts int, settle bool) {
 	payLoad := testPayload
 	if numParts > 1 {
 		payLoad = &mockPayload{
-			mpp: record.NewMPP(testInvoiceAmt, [32]byte{}),
+			mpp: record.NewMPP(testInvoiceAmount, [32]byte{}),
 		}
 	}
 
@@ -1338,7 +1338,7 @@ func TestMultipleSetHeightExpiry(t *testing.T) {
 	require.NoError(t, err)
 
 	mppPayload := &mockPayload{
-		mpp: record.NewMPP(testInvoiceAmt, [32]byte{}),
+		mpp: record.NewMPP(testInvoiceAmount, [32]byte{}),
 	}
 
 	// Send htlc 1.
@@ -1507,7 +1507,7 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 	invoice := &invpkg.Invoice{
 		Terms: invpkg.ContractTerm{
 			PaymentPreimage: &testInvoicePreimage,
-			Value:           testInvoiceAmt,
+			Value:           testInvoiceAmount,
 			Expiry:          time.Hour,
 			Features: lnwire.NewFeatureVector(
 				lnwire.NewRawFeatureVector(
@@ -1555,7 +1555,7 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 	// no problem as we should allow these existing invoices to be settled.
 	hodlChan := make(chan interface{}, 1)
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
-		testInvoicePaymentHash, testInvoiceAmt,
+		testInvoicePaymentHash, testInvoiceAmount,
 		testHtlcExpiry, testCurrentHeight,
 		getCircuitKey(10), hodlChan, testPayload,
 	)

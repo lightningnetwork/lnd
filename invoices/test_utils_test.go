@@ -132,12 +132,10 @@ var (
 )
 
 var (
-	testInvoiceAmt = lnwire.MilliSatoshi(100000)
-
 	testPayAddrReqInvoice = &invpkg.Invoice{
 		Terms: invpkg.ContractTerm{
 			PaymentPreimage: &testInvoicePreimage,
-			Value:           testInvoiceAmt,
+			Value:           testInvoiceAmount,
 			Expiry:          time.Hour,
 			Features: lnwire.NewFeatureVector(
 				lnwire.NewRawFeatureVector(
@@ -249,7 +247,7 @@ func getCircuitKey(htlcID uint64) invpkg.CircuitKey {
 func newInvoice(t *testing.T, hodl bool) *invpkg.Invoice {
 	invoice := &invpkg.Invoice{
 		Terms: invpkg.ContractTerm{
-			Value:    testInvoiceAmt,
+			Value:    testInvoiceAmount,
 			Expiry:   time.Hour,
 			Features: testFeatures.Clone(),
 		},

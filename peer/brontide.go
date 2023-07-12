@@ -649,7 +649,35 @@ func (p *Brontide) Start() error {
 	go p.writeHandler()
 	go p.readHandler()
 	go p.channelManager()
-	go p.pingHandler()
+
+	var (
+		lastBlockHeader           *wire.BlockHeader
+		lastSerializedBlockHeader [wire.MaxBlockHeaderPayload]byte
+	)
+	newPingPayload := func() []byte {
+		// We query the BestBlockHeader from our BestBlockView each time
+		// this is called, and update our serialized block header if
+		// they differ.  Over time, we'll use this to disseminate the
+		// latest block header between all our peers, which can later be
+		// used to cross-check our own view of the network to mitigate
+		// various types of eclipse attacks.
+		header, err := p.cfg.BestBlockView.BestBlockHeader()
+		if err == nil && header != lastBlockHeader {
+			buf := bytes.NewBuffer(lastSerializedBlockHeader[0:0])
+			err := header.Serialize(buf)
+			if err == nil {
+				lastBlockHeader = header
+			} else {
+				p.log.Warn("unable to serialize current block" +
+					"header for ping payload generation." +
+					"This should be impossible and means" +
+					"there is an implementation bug.")
+			}
+		}
+
+		return lastSerializedBlockHeader[:]
+	}
+	go p.pingHandler(newPingPayload)
 
 	// Signal to any external processes that the peer is now active.
 	close(p.activeSignal)
@@ -2257,7 +2285,7 @@ func (p *Brontide) queueHandler() {
 // connection is still active.
 //
 // NOTE: This method MUST be run as a goroutine.
-func (p *Brontide) pingHandler() {
+func (p *Brontide) pingHandler(newPayload func() []byte) {
 	defer p.wg.Done()
 
 	pingTicker := time.NewTicker(pingInterval)
@@ -2266,47 +2294,14 @@ func (p *Brontide) pingHandler() {
 	// TODO(roasbeef): make dynamic in order to create fake cover traffic
 	const numPongBytes = 16
 
-	blockEpochs, err := p.cfg.ChainNotifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		p.log.Errorf("unable to establish block epoch "+
-			"subscription: %v", err)
-		return
-	}
-	defer blockEpochs.Cancel()
-
-	var (
-		pingPayload [wire.MaxBlockHeaderPayload]byte
-		blockHeader *wire.BlockHeader
-	)
 out:
 	for {
 		select {
-		// Each time a new block comes in, we'll copy the raw header
-		// contents over to our ping payload declared above. Over time,
-		// we'll use this to disseminate the latest block header
-		// between all our peers, which can later be used to
-		// cross-check our own view of the network to mitigate various
-		// types of eclipse attacks.
-		case epoch, ok := <-blockEpochs.Epochs:
-			if !ok {
-				p.log.Debugf("block notifications " +
-					"canceled")
-				return
-			}
-
-			blockHeader = epoch.BlockHeader
-			headerBuf := bytes.NewBuffer(pingPayload[0:0])
-			err := blockHeader.Serialize(headerBuf)
-			if err != nil {
-				p.log.Errorf("unable to encode header: %v",
-					err)
-			}
-
 		case <-pingTicker.C:
 
 			pingMsg := &lnwire.Ping{
 				NumPongBytes: numPongBytes,
-				PaddingBytes: pingPayload[:],
+				PaddingBytes: newPayload(),
 			}
 
 			p.queueMsg(pingMsg, nil)

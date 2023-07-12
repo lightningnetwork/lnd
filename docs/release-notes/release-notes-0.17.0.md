@@ -243,6 +243,10 @@
   have to make sure to not broadcast outdated transactions which can lead to
   locked up wallet funds indefinitely in the worst case.
 
+* [Fixed a potential case](https://github.com/lightningnetwork/lnd/pull/7824)
+  that when sweeping inputs with locktime, an unexpected lower fee rate is
+  applied.
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and

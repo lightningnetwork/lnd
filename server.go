@@ -1902,6 +1902,12 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.cc.ChainNotifier.Stop)
 
+		if err := s.cc.CurrentChainStateTracker.Start(); err != nil {
+			startErr = err
+			return
+		}
+		cleanup = cleanup.add(s.cc.CurrentChainStateTracker.Stop)
+
 		if err := s.channelNotifier.Start(); err != nil {
 			startErr = err
 			return

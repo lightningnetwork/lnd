@@ -19,6 +19,8 @@ import (
 
 // TestSettleInvoice tests settling of an invoice and related notifications.
 func TestSettleInvoice(t *testing.T) {
+	t.Parallel()
+
 	ctx := newTestContext(t, nil)
 
 	allSubscriptions, err := ctx.registry.SubscribeNotifications(0, 0)
@@ -194,6 +196,8 @@ func TestSettleInvoice(t *testing.T) {
 }
 
 func testCancelInvoice(t *testing.T, gc bool) {
+	t.Parallel()
+
 	cfg := defaultRegistryConfig()
 
 	// If set to true, then also delete the invoice from the DB after
@@ -326,6 +330,8 @@ func testCancelInvoice(t *testing.T, gc bool) {
 
 // TestCancelInvoice tests cancellation of an invoice and related notifications.
 func TestCancelInvoice(t *testing.T) {
+	t.Parallel()
+
 	// Test cancellation both with garbage collection (meaning that canceled
 	// invoice will be deleted) and without (meaning it'll be kept).
 	t.Run("garbage collect", func(t *testing.T) {
@@ -340,6 +346,7 @@ func TestCancelInvoice(t *testing.T) {
 // TestSettleHoldInvoice tests settling of a hold invoice and related
 // notifications.
 func TestSettleHoldInvoice(t *testing.T) {
+	t.Parallel()
 	defer timeout()()
 
 	idb, err := newTestChannelDB(t, clock.NewTestClock(time.Time{}))
@@ -513,6 +520,7 @@ func TestSettleHoldInvoice(t *testing.T) {
 // TestCancelHoldInvoice tests canceling of a hold invoice and related
 // notifications.
 func TestCancelHoldInvoice(t *testing.T) {
+	t.Parallel()
 	defer timeout()()
 
 	testClock := clock.NewTestClock(testTime)
@@ -593,6 +601,7 @@ func TestCancelHoldInvoice(t *testing.T) {
 // if we are the exit hop, but in htlcIncomingContestResolver it is called with
 // forwarded htlc hashes as well.
 func TestUnknownInvoice(t *testing.T) {
+	t.Parallel()
 	ctx := newTestContext(t, nil)
 
 	// Notify arrival of a new htlc paying to this invoice. This should
@@ -613,6 +622,8 @@ func TestUnknownInvoice(t *testing.T) {
 // TestKeySend tests receiving a spontaneous payment with and without keysend
 // enabled.
 func TestKeySend(t *testing.T) {
+	t.Parallel()
+
 	t.Run("enabled", func(t *testing.T) {
 		testKeySend(t, true)
 	})
@@ -624,6 +635,7 @@ func TestKeySend(t *testing.T) {
 // testKeySend is the inner test function that tests keysend for a particular
 // enabled state on the receiver end.
 func testKeySend(t *testing.T, keySendEnabled bool) {
+	t.Parallel()
 	defer timeout()()
 
 	cfg := defaultRegistryConfig()
@@ -738,6 +750,8 @@ func testKeySend(t *testing.T, keySendEnabled bool) {
 
 // TestHoldKeysend tests receiving a spontaneous payment that is held.
 func TestHoldKeysend(t *testing.T) {
+	t.Parallel()
+
 	t.Run("settle", func(t *testing.T) {
 		testHoldKeysend(t, false)
 	})
@@ -748,6 +762,7 @@ func TestHoldKeysend(t *testing.T) {
 
 // testHoldKeysend is the inner test function that tests hold-keysend.
 func testHoldKeysend(t *testing.T, timeoutKeysend bool) {
+	t.Parallel()
 	defer timeout()()
 
 	const holdDuration = time.Minute
@@ -838,6 +853,7 @@ func testHoldKeysend(t *testing.T, timeoutKeysend bool) {
 // It covers the case where there is a mpp timeout before the whole invoice is
 // paid and the case where the invoice is settled in time.
 func TestMppPayment(t *testing.T) {
+	t.Parallel()
 	defer timeout()()
 
 	ctx := newTestContext(t, nil)
@@ -1199,6 +1215,8 @@ func TestOldInvoiceRemovalOnStart(t *testing.T) {
 // invoice is settled before expiry (and thus not canceled), and the case
 // where the invoice is expired.
 func TestHeightExpiryWithRegistry(t *testing.T) {
+	t.Parallel()
+
 	t.Run("single shot settled before expiry", func(t *testing.T) {
 		testHeightExpiryWithRegistry(t, 1, true)
 	})
@@ -1613,6 +1631,7 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 // TestAMPWithoutMPPPayload asserts that we correctly reject an AMP HTLC that
 // does not include an MPP record.
 func TestAMPWithoutMPPPayload(t *testing.T) {
+	t.Parallel()
 	defer timeout()()
 
 	cfg := defaultRegistryConfig()
@@ -1645,6 +1664,8 @@ func TestAMPWithoutMPPPayload(t *testing.T) {
 // TestSpontaneousAmpPayment tests receiving a spontaneous AMP payment with both
 // valid and invalid reconstructions.
 func TestSpontaneousAmpPayment(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name               string
 		ampEnabled         bool
@@ -1698,6 +1719,7 @@ func TestSpontaneousAmpPayment(t *testing.T) {
 func testSpontaneousAmpPayment(
 	t *testing.T, ampEnabled, failReconstruction bool, numShards int) {
 
+	t.Parallel()
 	defer timeout()()
 
 	cfg := defaultRegistryConfig()

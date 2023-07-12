@@ -1396,7 +1396,7 @@ func NewLightningChannel(signer input.Signer,
 
 	logPrefix := fmt.Sprintf("ChannelPoint(%v):", state.FundingOutpoint)
 
-	taprootNonceProducer, err := deriveMusig2Shachain(
+	taprootNonceProducer, err := channeldb.DeriveMusig2Shachain(
 		state.RevocationProducer,
 	)
 	if err != nil {
@@ -6103,7 +6103,7 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 		// the remote party to create this musig session. We pass in
 		// the same height here as we're generating the nonce needed
 		// for the _current_ state.
-		localNonce, err := NewMusigVerificationNonce(
+		localNonce, err := channeldb.NewMusigVerificationNonce(
 			ourKey.PubKey, lc.currentHeight,
 			lc.taprootNonceProducer,
 		)
@@ -8163,7 +8163,7 @@ func (lc *LightningChannel) GenMusigNonces() (*musig2.Nonces, error) {
 	// We pass in the current height+1 as this'll be the set of
 	// verification nonces we'll send to the party to create our _next_
 	// state.
-	lc.pendingVerificationNonce, err = NewMusigVerificationNonce(
+	lc.pendingVerificationNonce, err = channeldb.NewMusigVerificationNonce(
 		lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
 		lc.currentHeight+1, lc.taprootNonceProducer,
 	)
@@ -8172,27 +8172,6 @@ func (lc *LightningChannel) GenMusigNonces() (*musig2.Nonces, error) {
 	}
 
 	return lc.pendingVerificationNonce, nil
-}
-
-// NewMusigVerificationNonce generates the local or verification nonce for
-// another musig2 session. In order to permit our implementation to not have to
-// write any secret nonce state to disk, we'll use the _next_ shachain
-// pre-image as our primary randomness source. When used to generate the nonce
-// again to broadcast our commitment hte current height will be used.
-func NewMusigVerificationNonce(pubKey *btcec.PublicKey, targetHeight uint64,
-	shaGen shachain.Producer) (*musig2.Nonces, error) {
-
-	// Now that we know what height we need, we'll grab the shachain
-	// pre-image at the target destination.
-	nextPreimage, err := shaGen.AtIndex(targetHeight)
-	if err != nil {
-		return nil, err
-	}
-
-	shaChainRand := musig2.WithCustomRand(bytes.NewBuffer(nextPreimage[:]))
-	pubKeyOpt := musig2.WithPublicKey(pubKey)
-
-	return musig2.GenNonces(pubKeyOpt, shaChainRand)
 }
 
 // HasRemoteNonces returns true if the channel has a remote nonce pair.

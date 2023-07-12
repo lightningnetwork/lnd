@@ -164,6 +164,8 @@ unlock or create.
 
 * [Stop rejecting payments that overpay or over-timelock the final hop](https://github.com/lightningnetwork/lnd/pull/7768)
 
+* [Fix let's encrypt autocert generation](https://github.com/lightningnetwork/lnd/pull/7739)
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and
@@ -190,6 +192,7 @@ unlock or create.
 * hieblmi
 * Jordi Montes
 * Keagan McClelland
+* Konstantin Nick
 * Lele Calo
 * Matt Morehouse
 * Maxwell Sayles

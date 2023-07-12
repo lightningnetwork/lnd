@@ -53,9 +53,9 @@ func TestGenerateOrRenewCert(t *testing.T) {
 		TLSCertDuration: testTLSCertDuration,
 	}
 	tlsManager := NewTLSManager(cfg)
-	_, cleanUp, err := tlsManager.generateOrRenewCert()
+	_, err := tlsManager.generateOrRenewCert()
 	require.NoError(t, err)
-	_, _, _, err = tlsManager.getConfig()
+	_, _, _, cleanUp, err := tlsManager.getConfig()
 	require.NoError(t, err, "couldn't retrieve TLS config")
 	t.Cleanup(cleanUp)
 
@@ -86,7 +86,7 @@ func TestTLSManagerGenCert(t *testing.T) {
 	}
 	tlsManager := NewTLSManager(cfg)
 
-	_, _, err := tlsManager.generateOrRenewCert()
+	_, err := tlsManager.generateOrRenewCert()
 	require.NoError(t, err, "failed to generate new certificate")
 
 	// After this is run, a new certificate should be created and written

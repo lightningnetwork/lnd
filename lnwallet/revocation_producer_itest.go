@@ -4,6 +4,7 @@ package lnwallet
 
 import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -46,7 +47,9 @@ func (l *LightningWallet) nextRevocationProducer(res *ChannelReservation,
 		}
 		shaChainRoot := shachain.NewRevocationProducer(*revRoot)
 
-		taprootShaChainRoot, err := deriveMusig2Shachain(*revRoot)
+		taprootShaChainRoot, err := channeldb.DeriveMusig2Shachain(
+			shaChainRoot,
+		)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -81,7 +84,9 @@ func (l *LightningWallet) nextRevocationProducer(res *ChannelReservation,
 	// Once we have the root, we can then generate our shachain producer
 	// and from that generate the per-commitment point.
 	shaChainRoot := shachain.NewRevocationProducer(revRoot)
-	taprootShaChainRoot, err := deriveMusig2Shachain(revRoot)
+	taprootShaChainRoot, err := channeldb.DeriveMusig2Shachain(
+		shaChainRoot,
+	)
 	if err != nil {
 		return nil, nil, err
 	}

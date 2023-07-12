@@ -4092,8 +4092,6 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	msg *lnwire.ChannelReestablish) ([]lnwire.Message, []models.CircuitKey,
 	[]models.CircuitKey, error) {
 
-	// TODO(roasbeef): need to replace w/ received nonces
-
 	// Now we'll examine the state we have, vs what was contained in the
 	// chain sync message. If we're de-synchronized, then we'll send a
 	// batch of messages which when applied will kick start the chain
@@ -4130,6 +4128,25 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			lc.log.Errorf("sync failed: remote provided invalid " +
 				"commit secret!")
 			return nil, nil, nil, ErrInvalidLastCommitSecret
+		}
+	}
+
+	// If this is a taproot channel, then we expect that the remote party
+	// has sent the next verification nonce. If they haven't, then we'll
+	// bail out, otherwise we'll init our local session then continue as
+	// normal.
+	switch {
+	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce == nil:
+		return nil, nil, nil, fmt.Errorf("remote verification nonce " +
+			"not sent")
+
+	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce != nil:
+		err := lc.InitRemoteMusigNonces(&musig2.Nonces{
+			PubNonce: *msg.LocalNonce,
+		})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("unable to init "+
+				"remote nonce: %w", err)
 		}
 	}
 
@@ -4210,12 +4227,12 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			"while we have %v, we owe them a revocation",
 			msg.RemoteCommitTailHeight, localTailHeight)
 
-		revocationMsg, err := lc.generateRevocation(
-			localTailHeight - 1,
-		)
+		heightToRetransmit := localTailHeight - 1
+		revocationMsg, err := lc.generateRevocation(heightToRetransmit)
 		if err != nil {
 			return nil, nil, nil, err
 		}
+
 		updates = append(updates, revocationMsg)
 
 		// Next, as a precaution, we'll check a special edge case. If

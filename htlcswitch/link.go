@@ -660,7 +660,6 @@ func (l *channelLink) syncChanStates() error {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
 	}
-
 	if err := l.cfg.Peer.SendMessage(true, localChanSyncMsg); err != nil {
 		return fmt.Errorf("unable to send chan sync message for "+
 			"ChannelPoint(%v): %v", l.channel.ChannelPoint(), err)
@@ -702,6 +701,13 @@ func (l *channelLink) syncChanStates() error {
 			channelReadyMsg := lnwire.NewChannelReady(
 				l.ChanID(), nextRevocation,
 			)
+
+			// If this is a taproot channel, then we'll send the
+			// very same nonce that we sent above, as they should
+			// take the latest verification nonce we send.
+			if chanState.ChanType.IsTaproot() {
+				fundingLockedMsg.NextLocalNonce = localChanSyncMsg.LocalNonce
+			}
 
 			// For channels that negotiated the option-scid-alias
 			// feature bit, ensure that we send over the alias in
@@ -1900,8 +1906,8 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// chain, validate this new commitment, closing the link if
 		// invalid.
 		err = l.channel.ReceiveNewCommitment(&lnwallet.CommitSigs{
-			CommitSig:  msg.CommitSig,
-			HtlcSigs:   msg.HtlcSigs,
+			CommitSig: msg.CommitSig,
+			HtlcSigs:  msg.HtlcSigs,
 		})
 		if err != nil {
 			// If we were unable to reconstruct their proposed
@@ -2265,9 +2271,9 @@ func (l *channelLink) updateCommitTx() error {
 	}
 
 	commitSig := &lnwire.CommitSig{
-		ChanID:     l.ChanID(),
-		CommitSig:  newCommit.CommitSig,
-		HtlcSigs:   newCommit.HtlcSigs,
+		ChanID:    l.ChanID(),
+		CommitSig: newCommit.CommitSig,
+		HtlcSigs:  newCommit.HtlcSigs,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
 

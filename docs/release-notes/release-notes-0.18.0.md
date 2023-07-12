@@ -21,6 +21,18 @@
 
 # New Features
 ## Functional Enhancements
+
+* A new config value,
+  [sweeper.maxfeerate](https://github.com/lightningnetwork/lnd/pull/7823), is
+  added so users can specify the max allowed fee rate when sweeping onchain
+  funds. The default value is 1000 sat/vb. Setting this value below 100 sat/vb
+  is not allowed, as low fee rate can cause transactions not confirming in
+  time, which could result in fund loss.
+  Please note that the actual fee rate to be used is deteremined by the fee
+  estimator used(for instance `bitcoind`), and this value is a cap on the max
+  allowed value. So it's expected that this cap is rarely hit unless there's
+  mempool congestion.
+
 ## RPC Additions
 ## lncli Additions
 

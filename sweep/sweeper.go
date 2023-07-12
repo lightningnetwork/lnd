@@ -22,9 +22,9 @@ import (
 
 const (
 	// DefaultMaxFeeRate is the default maximum fee rate allowed within the
-	// UtxoSweeper. The current value is equivalent to a fee rate of 10,000
+	// UtxoSweeper. The current value is equivalent to a fee rate of 1,000
 	// sat/vbyte.
-	DefaultMaxFeeRate = chainfee.FeePerKwFloor * 1e4
+	DefaultMaxFeeRate = chainfee.AbsoluteFeePerKwFloor * 1e3
 
 	// DefaultFeeRateBucketSize is the default size of fee rate buckets
 	// we'll use when clustering inputs into buckets with similar fee rates

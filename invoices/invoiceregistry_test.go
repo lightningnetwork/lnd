@@ -1431,10 +1431,25 @@ func TestSettleInvoicePaymentAddrRequired(t *testing.T) {
 
 	require.Equal(t, subscription.PayHash(), &testInvoicePaymentHash)
 
+	invoice := &invpkg.Invoice{
+		Terms: invpkg.ContractTerm{
+			PaymentPreimage: &testInvoicePreimage,
+			Value:           testInvoiceAmount,
+			Expiry:          time.Hour,
+			Features: lnwire.NewFeatureVector(
+				lnwire.NewRawFeatureVector(
+					lnwire.TLVOnionPayloadOptional,
+					lnwire.PaymentAddrRequired,
+				),
+				lnwire.Features,
+			),
+		},
+		CreationDate: testInvoiceCreationDate,
+	}
 	// Add the invoice, which requires the MPP payload to always be
 	// included due to its set of feature bits.
 	addIdx, err := ctx.registry.AddInvoice(
-		testPayAddrReqInvoice, testInvoicePaymentHash,
+		invoice, testInvoicePaymentHash,
 	)
 	require.NoError(t, err)
 	require.Equal(t, int(addIdx), 1)
@@ -1467,7 +1482,7 @@ func TestSettleInvoicePaymentAddrRequired(t *testing.T) {
 	// information, so it should be forced to the updateLegacy path then
 	// fail as a required feature bit exists.
 	resolution, err := ctx.registry.NotifyExitHopHtlc(
-		testInvoicePaymentHash, testPayAddrReqInvoice.Terms.Value,
+		testInvoicePaymentHash, invoice.Terms.Value,
 		uint32(testCurrentHeight)+testInvoiceCltvDelta-1,
 		testCurrentHeight, getCircuitKey(10), hodlChan, testPayload,
 	)

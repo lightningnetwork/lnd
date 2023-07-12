@@ -4902,11 +4902,6 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	verifyResps := lc.sigPool.SubmitVerifyBatch(verifyJobs, cancelChan)
 
 	localCommitTx := localCommitmentView.txn
-	multiSigScript := lc.signDesc.WitnessScript
-	prevFetcher := txscript.NewCannedPrevOutputFetcher(
-		multiSigScript, int64(lc.channelState.Capacity),
-	)
-	hashCache := txscript.NewTxSigHashes(localCommitTx, prevFetcher)
 
 	// While the HTLC verification jobs are proceeding asynchronously,
 	// we'll ensure that the newly constructed commitment state has a valid
@@ -4966,6 +4961,12 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 		lc.musigSessions.LocalSession = newLocalSession
 
 	} else {
+		multiSigScript := lc.signDesc.WitnessScript
+		prevFetcher := txscript.NewCannedPrevOutputFetcher(
+			multiSigScript, int64(lc.channelState.Capacity),
+		)
+		hashCache := txscript.NewTxSigHashes(localCommitTx, prevFetcher)
+
 		sigHash, err := txscript.CalcWitnessSigHash(
 			multiSigScript, hashCache, txscript.SigHashAll,
 			localCommitTx, 0, int64(lc.channelState.Capacity),

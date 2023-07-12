@@ -2340,6 +2340,7 @@ func TestFeeRateForPreference(t *testing.T) {
 		},
 	}
 
+	//nolint:paralleltest
 	for _, tc := range testCases {
 		tc := tc
 
@@ -2504,6 +2505,7 @@ func TestClusterByLockTime(t *testing.T) {
 		},
 	}
 
+	//nolint:paralleltest
 	for _, tc := range testCases {
 		tc := tc
 

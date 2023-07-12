@@ -237,11 +237,20 @@ type UtxoSweeper struct {
 	wg   sync.WaitGroup
 }
 
+// feeDeterminer defines an alias to the function signature of
+// `DetermineFeePerKw`.
+type feeDeterminer func(chainfee.Estimator,
+	FeePreference) (chainfee.SatPerKWeight, error)
+
 // UtxoSweeperConfig contains dependencies of UtxoSweeper.
 type UtxoSweeperConfig struct {
 	// GenSweepScript generates a P2WKH script belonging to the wallet where
 	// funds can be swept.
 	GenSweepScript func() ([]byte, error)
+
+	// DetermineFeePerKw determines the fee in sat/kw based on the given
+	// estimator and fee preference.
+	DetermineFeePerKw feeDeterminer
 
 	// FeeEstimator is used when crafting sweep transactions to estimate
 	// the necessary fee relative to the expected size of the sweep
@@ -470,7 +479,9 @@ func (s *UtxoSweeper) feeRateForPreference(
 		return 0, ErrNoFeePreference
 	}
 
-	feeRate, err := DetermineFeePerKw(s.cfg.FeeEstimator, feePreference)
+	feeRate, err := s.cfg.DetermineFeePerKw(
+		s.cfg.FeeEstimator, feePreference,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -1599,7 +1610,7 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq, bestHeight int32) (
 func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input, feePref FeePreference,
 	currentBlockHeight uint32) (*wire.MsgTx, error) {
 
-	feePerKw, err := DetermineFeePerKw(s.cfg.FeeEstimator, feePref)
+	feePerKw, err := s.cfg.DetermineFeePerKw(s.cfg.FeeEstimator, feePref)
 	if err != nil {
 		return nil, err
 	}

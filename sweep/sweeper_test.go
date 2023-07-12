@@ -149,6 +149,7 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 		},
 		MaxFeeRate:        DefaultMaxFeeRate,
 		FeeRateBucketSize: DefaultFeeRateBucketSize,
+		DetermineFeePerKw: DetermineFeePerKw,
 	})
 
 	ctx.sweeper.Start()

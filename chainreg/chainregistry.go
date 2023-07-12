@@ -182,6 +182,10 @@ type PartialChainControl struct {
 	// interested in.
 	ChainNotifier chainntnfs.ChainNotifier
 
+	// CurrentChainStateTracker is used to maintain a view of the global
+	// chain state that changes over time
+	CurrentChainStateTracker *chainntnfs.CurrentChainStateTracker
+
 	// MempoolNotifier is used to watch for spending events happened in
 	// mempool.
 	MempoolNotifier chainntnfs.MempoolWatcher
@@ -448,6 +452,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		)
 
 		cc.ChainNotifier = chainNotifier
+		cc.CurrentChainStateTracker =
+			chainntnfs.NewChainStateTracker(&cc.ChainNotifier)
 		cc.MempoolNotifier = chainNotifier
 
 		cc.ChainView = chainview.NewBitcoindFilteredChainView(

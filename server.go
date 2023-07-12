@@ -1070,7 +1070,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,
 		MaxSweepAttempts:     sweep.DefaultMaxSweepAttempts,
 		NextAttemptDeltaFunc: sweep.DefaultNextAttemptDeltaFunc,
-		MaxFeeRate:           sweep.DefaultMaxFeeRate,
+		MaxFeeRate:           cfg.Sweeper.MaxFeeRate,
 		FeeRateBucketSize:    sweep.DefaultFeeRateBucketSize,
 	})
 

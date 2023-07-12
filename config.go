@@ -684,6 +684,7 @@ func DefaultConfig() Config {
 		},
 		Sweeper: &lncfg.Sweeper{
 			BatchWindowDuration: sweep.DefaultBatchWindowDuration,
+			MaxFeeRate:          sweep.DefaultMaxFeeRate,
 		},
 		Htlcswitch: &lncfg.Htlcswitch{
 			MailboxDeliveryTimeout: htlcswitch.DefaultMailboxDeliveryTimeout,

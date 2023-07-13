@@ -936,8 +936,9 @@ func TestMppPaymentWithOverpayment(t *testing.T) {
 		ctx := newTestContext(t, nil)
 
 		// Add the invoice.
+		invoice := *testInvoice
 		_, err := ctx.registry.AddInvoice(
-			testInvoice, testInvoicePaymentHash,
+			&invoice, testInvoicePaymentHash,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -953,7 +954,7 @@ func TestMppPaymentWithOverpayment(t *testing.T) {
 		// Send htlc 1.
 		hodlChan1 := make(chan interface{}, 1)
 		resolution, err := ctx.registry.NotifyExitHopHtlc(
-			testInvoicePaymentHash, testInvoice.Terms.Value/2,
+			testInvoicePaymentHash, invoice.Terms.Value/2,
 			testHtlcExpiry, testCurrentHeight, getCircuitKey(11),
 			hodlChan1, mppPayload,
 		)
@@ -968,7 +969,7 @@ func TestMppPaymentWithOverpayment(t *testing.T) {
 		hodlChan2 := make(chan interface{}, 1)
 		resolution, err = ctx.registry.NotifyExitHopHtlc(
 			testInvoicePaymentHash,
-			testInvoice.Terms.Value/2+overpayment, testHtlcExpiry,
+			invoice.Terms.Value/2+overpayment, testHtlcExpiry,
 			testCurrentHeight, getCircuitKey(12), hodlChan2,
 			mppPayload,
 		)
@@ -996,7 +997,7 @@ func TestMppPaymentWithOverpayment(t *testing.T) {
 			t.Fatal("expected invoice to be settled")
 		}
 
-		return inv.AmtPaid == testInvoice.Terms.Value+overpayment
+		return inv.AmtPaid == invoice.Terms.Value+overpayment
 	}
 	if err := quick.Check(f, nil); err != nil {
 		t.Fatalf("amount incorrect: %v", err)

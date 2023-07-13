@@ -39,7 +39,7 @@ require (
 	github.com/lightningnetwork/lnd/queue v1.1.0
 	github.com/lightningnetwork/lnd/ticker v1.1.0
 	github.com/lightningnetwork/lnd/tlv v1.1.0
-	github.com/lightningnetwork/lnd/tor v1.1.0
+	github.com/lightningnetwork/lnd/tor v1.1.1
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
 	github.com/prometheus/client_golang v1.11.1

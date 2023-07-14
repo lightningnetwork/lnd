@@ -5,6 +5,7 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -48,6 +49,12 @@ import (
 const (
 	// pingInterval is the interval at which ping messages are sent.
 	pingInterval = 1 * time.Minute
+
+	// pingTimeout is the amount of time we will wait for a pong response
+	// before considering the peer to be unresponsive.
+	//
+	// This MUST be a smaller value than the pingInterval.
+	pingTimeout = 30 * time.Second
 
 	// idleTimeout is the duration of inactivity before we time out a peer.
 	idleTimeout = 5 * time.Minute
@@ -358,6 +365,57 @@ type Config struct {
 	Quit chan struct{}
 }
 
+// The pingManager is a structure that is designed to manage the internal state
+// of the ping pong lifecycle with the remote peer. We assume there is only one
+// ping outstanding at once.
+type pingManager struct {
+	// pingTime is a rough estimate of the RTT (round-trip-time) between us
+	// and the connected peer. This time is expressed in microseconds.
+	// To be used atomically.
+	// TODO(roasbeef): also use a WMA or EMA?
+	pingTime atomic.Int64
+
+	// pingLastSend is the Unix time expressed in nanoseconds when we sent
+	// our last ping message. To be used atomically.
+	pingLastSend atomic.Int64
+
+	// We keep track of the current size of the requested pong payload.
+	// This value can only validly range from [0,65531]. Any value < 0
+	// is interpreted as if there is no outstanding ping message.
+	outstandingPongSize atomic.Int32
+}
+
+// markPingSend is responsible for updating all of the bookkeeping inside of
+// the pingManager after the ping message has been written to the wire.
+func (m *pingManager) markPingSend(pongSize uint16) {
+	now := time.Now().UnixNano()
+	m.pingLastSend.Store(now)
+	m.outstandingPongSize.Store(int32(pongSize))
+}
+
+// cancelPing is used by the timeout logic. If there was an outstanding ping to
+// cancel then this function will return true. If there is no outstanding ping
+// then we return false.
+func (m *pingManager) cancelPing() bool {
+	v := m.outstandingPongSize.Swap(-1)
+	return v >= 0
+}
+
+// resolvePing should be called whenever we receive a pong message from the
+// remote peer, if the payload we receive from them is congruent with the
+// outstandingPongSize, then we return true. A false return value indicates
+// a failure to respond to the ping correctly.
+func (m *pingManager) resolvePing(payload []byte) bool {
+	if len(payload) != int(m.outstandingPongSize.Swap(-1)) {
+		return false
+	}
+	pingSendTime := m.pingLastSend.Load()
+	delay := (time.Now().UnixNano() - pingSendTime) / 1000
+	m.pingTime.Store(delay)
+
+	return true
+}
+
 // Brontide is an active peer on the Lightning Network. This struct is responsible
 // for managing any channel state related to this peer. To do so, it has
 // several helper goroutines to handle events such as HTLC timeouts, new
@@ -373,15 +431,7 @@ type Brontide struct {
 	bytesReceived uint64
 	bytesSent     uint64
 
-	// pingTime is a rough estimate of the RTT (round-trip-time) between us
-	// and the connected peer. This time is expressed in microseconds.
-	// To be used atomically.
-	// TODO(roasbeef): also use a WMA or EMA?
-	pingTime int64
-
-	// pingLastSend is the Unix time expressed in nanoseconds when we sent
-	// our last ping message. To be used atomically.
-	pingLastSend int64
+	pingManager pingManager
 
 	// lastPingPayload stores an unsafe pointer wrapped as an atomic
 	// variable which points to the last payload the remote party sent us
@@ -652,7 +702,14 @@ func (p *Brontide) Start() error {
 
 		return lastSerializedBlockHeader[:]
 	}
-	go p.pingHandler(newPingPayload)
+	randPongSize := func() uint16 {
+		return uint16(
+			// We don't need cryptographic randomness here.
+			/* #nosec */
+			rand.Intn(65532),
+		)
+	}
+	go p.pingHandler(newPingPayload, randPongSize)
 
 	// Signal to any external processes that the peer is now active.
 	close(p.activeSignal)
@@ -1554,9 +1611,13 @@ out:
 			// last ping message, we'll use the time in which we
 			// sent the ping message to measure a rough estimate of
 			// round trip time.
-			pingSendTime := atomic.LoadInt64(&p.pingLastSend)
-			delay := (time.Now().UnixNano() - pingSendTime) / 1000
-			atomic.StoreInt64(&p.pingTime, delay)
+			valid := p.pingManager.resolvePing(msg.PongBytes)
+			if !valid {
+				eStr := "peer %s responded with invalid pong " +
+					"-- disconnecting"
+				p.log.Warnf(eStr, p)
+				p.Disconnect(fmt.Errorf(eStr, p))
+			}
 
 		case *lnwire.Ping:
 			// First, we'll store their latest ping payload within
@@ -2104,17 +2165,6 @@ out:
 	for {
 		select {
 		case outMsg := <-p.sendQueue:
-			// If we're about to send a ping message, then log the
-			// exact time in which we send the message so we can
-			// use the delay as a rough estimate of latency to the
-			// remote peer.
-			if _, ok := outMsg.msg.(*lnwire.Ping); ok {
-				// TODO(roasbeef): do this before the write?
-				// possibly account for processing within func?
-				now := time.Now().UnixNano()
-				atomic.StoreInt64(&p.pingLastSend, now)
-			}
-
 			// Record the time at which we first attempt to send the
 			// message.
 			startTime := time.Now()
@@ -2252,26 +2302,58 @@ func (p *Brontide) queueHandler() {
 // connection is still active.
 //
 // NOTE: This method MUST be run as a goroutine.
-func (p *Brontide) pingHandler(newPayload func() []byte) {
+func (p *Brontide) pingHandler(
+	newPayload func() []byte,
+	pongSize func() uint16,
+) {
+
 	defer p.wg.Done()
 
 	pingTicker := time.NewTicker(pingInterval)
 	defer pingTicker.Stop()
-
-	// TODO(roasbeef): make dynamic in order to create fake cover traffic
-	const numPongBytes = 16
 
 out:
 	for {
 		select {
 		case <-pingTicker.C:
 
+			pongBytes := pongSize()
 			pingMsg := &lnwire.Ping{
-				NumPongBytes: numPongBytes,
+				// TODO(roasbeef): make dynamic in order to
+				// create fake cover traffic
+				// NOTE(proofofkeags): this was changed to be
+				// dynamic to allow better pong identification,
+				// however, more thought is needed to make this
+				// actually usable as a traffic decoy
+				NumPongBytes: pongBytes,
 				PaddingBytes: newPayload(),
 			}
 
-			p.queueMsg(pingMsg, nil)
+			msgWritten := make(chan error)
+			p.queueMsg(pingMsg, msgWritten)
+			p.wg.Add(1)
+			go func() {
+				defer p.wg.Done()
+				err, ok := <-msgWritten
+				if err == nil && ok {
+					p.pingManager.markPingSend(pongBytes)
+					time.Sleep(pingTimeout)
+					if p.pingManager.cancelPing() {
+						eStr := "pong timeout for %s" +
+							"-- disconnecting"
+						p.log.Warnf(eStr, p)
+						p.Disconnect(
+							fmt.Errorf(eStr, p),
+						)
+					}
+				} else {
+					p.log.Errorf(
+						"writeHandler failed to write "+
+							"ping to the wire: %v",
+						err,
+					)
+				}
+			}()
 		case <-p.quit:
 			break out
 		}
@@ -2280,7 +2362,7 @@ out:
 
 // PingTime returns the estimated ping time to the peer in microseconds.
 func (p *Brontide) PingTime() int64 {
-	return atomic.LoadInt64(&p.pingTime)
+	return p.pingManager.pingTime.Load()
 }
 
 // queueMsg adds the lnwire.Message to the back of the high priority send queue.

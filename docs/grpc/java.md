@@ -149,8 +149,8 @@ public class Main {
     }
   }
 
-  private static final String CERT_PATH = "/Users/user/Library/Application Support/Lnd/tls.cert";
-  private static final String MACAROON_PATH = "/Users/user/Library/Application Support/Lnd/data/chain/bitcoin/simnet/admin.macaroon";
+  private static final String CERT_PATH = "/Users/<username>/Library/Application Support/Lnd/tls.cert";
+  private static final String MACAROON_PATH = "/Users/<username>/Library/Application Support/Lnd/data/chain/bitcoin/simnet/admin.macaroon";
   private static final String HOST = "localhost";
   private static final int PORT = 10009;
 
@@ -197,10 +197,10 @@ $  mvn compile exec:java -Dexec.mainClass="Main" -Dexec.cleanupDaemonThreads=fal
 [INFO] ------------------------------------------------------------------------
 [INFO]
 [INFO] --- protobuf-maven-plugin:0.6.1:compile (default) @ lightning-client ---
-[INFO] Compiling 3 proto file(s) to /Users/user/Documents/Projects/lightningclient/target/generated-sources/protobuf/java
+[INFO] Compiling 3 proto file(s) to /Users/<username>/Documents/Projects/lightningclient/target/generated-sources/protobuf/java
 [INFO]
 [INFO] --- protobuf-maven-plugin:0.6.1:compile-custom (default) @ lightning-client ---
-[INFO] Compiling 3 proto file(s) to /Users/user/Documents/Projects/lightningclient/target/generated-sources/protobuf/grpc-java
+[INFO] Compiling 3 proto file(s) to /Users/<username>/Documents/Projects/lightningclient/target/generated-sources/protobuf/grpc-java
 [INFO]
 [INFO] --- maven-resources-plugin:2.6:resources (default-resources) @ lightning-client ---
 [INFO] Using 'UTF-8' encoding to copy filtered resources.
@@ -210,7 +210,7 @@ $  mvn compile exec:java -Dexec.mainClass="Main" -Dexec.cleanupDaemonThreads=fal
 [INFO]
 [INFO] --- maven-compiler-plugin:3.1:compile (default-compile) @ lightning-client ---
 [INFO] Changes detected - recompiling the module!
-[INFO] Compiling 12 source files to /Users/user/Documents/Projects/lightningclient/target/classes
+[INFO] Compiling 12 source files to /Users/<username>/Documents/Projects/lightningclient/target/classes
 [INFO]
 [INFO] --- exec-maven-plugin:1.6.0:java (default-cli) @ lightning-client ---
 032562215c38dede6f1f2f262ff4c8db58a38ecf889e8e907eee8e4c320e0b5e81

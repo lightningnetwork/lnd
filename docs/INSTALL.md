@@ -316,11 +316,11 @@ The set of arguments for each of the backend modes is as follows:
 ## btcd Options
 ```text
 btcd:
-      --btcd.dir=                                             The base directory that contains the node's data, logs, configuration file, etc. (default: /Users/roasbeef/Library/Application Support/Btcd)
+      --btcd.dir=                                             The base directory that contains the node's data, logs, configuration file, etc. (default: /Users/<username>/Library/Application Support/Btcd)
       --btcd.rpchost=                                         The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used. (default: localhost)
       --btcd.rpcuser=                                         Username for RPC connections
       --btcd.rpcpass=                                         Password for RPC connections
-      --btcd.rpccert=                                         File containing the daemon's certificate file (default: /Users/roasbeef/Library/Application Support/Btcd/rpc.cert)
+      --btcd.rpccert=                                         File containing the daemon's certificate file (default: /Users/<username>/Library/Application Support/Btcd/rpc.cert)
       --btcd.rawrpccert=                                      The raw bytes of the daemon's PEM-encoded certificate chain which will be used to authenticate the RPC connection.
 ```
 
@@ -339,7 +339,7 @@ neutrino:
 ## Bitcoind Options
 ```text
 bitcoind:
-      --bitcoind.dir=                                         The base directory that contains the node's data, logs, configuration file, etc. (default: /Users/roasbeef/Library/Application Support/Bitcoin)
+      --bitcoind.dir=                                         The base directory that contains the node's data, logs, configuration file, etc. (default: /Users/<username>/Library/Application Support/Bitcoin)
       --bitcoind.rpchost=                                     The daemon's rpc listening address. If a port is omitted, then the default port for the selected chain parameters will be used. (default: localhost)
       --bitcoind.rpcuser=                                     Username for RPC connections
       --bitcoind.rpcpass=                                     Password for RPC connections
@@ -596,7 +596,7 @@ launches, allowing you to simply type `lnd --bitcoin.testnet --bitcoin.active`
 at the command line, you can create an `lnd.conf`.
 
 **On MacOS, located at:**
-`/Users/[username]/Library/Application Support/Lnd/lnd.conf`
+`/Users/<username>/Library/Application Support/Lnd/lnd.conf`
 
 **On Linux, located at:**
 `~/.lnd/lnd.conf`

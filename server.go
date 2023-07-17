@@ -1459,9 +1459,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		RegisteredChains:              cfg.registeredChains,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
-		DeleteAliasEdge:          deleteAliasEdge,
-		AliasManager:             s.aliasMgr,
-		UpdateForwardingPolicies: s.htlcSwitch.UpdateForwardingPolicies,
+		DeleteAliasEdge: deleteAliasEdge,
+		AliasManager:    s.aliasMgr,
 	})
 	if err != nil {
 		return nil, err

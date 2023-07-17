@@ -516,11 +516,6 @@ type Config struct {
 	// transition from pending open to open.
 	NotifyOpenChannelEvent func(wire.OutPoint)
 
-	// UpdateForwardingPolicies is used by the manager to update active
-	// links with a new policy.
-	UpdateForwardingPolicies func(
-		chanPolicies map[wire.OutPoint]models.ForwardingPolicy)
-
 	// OpenChannelPredicate is a predicate on the lnwire.OpenChannel message
 	// and on the requesting node's public key that returns a bool which
 	// tells the funding manager whether or not to accept the channel.
@@ -3245,28 +3240,6 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	case <-f.quit:
 		return ErrFundingManagerShuttingDown
 	}
-
-	// The user can define non-default channel policies when opening a
-	// channel. They are stored in the database to be persisted from the
-	// moment of funding the channel to it being confirmed. We just
-	// announced those policies to the network, but we also need to update
-	// our local policy in the switch to make sure we can forward payments
-	// with the correct fees. We can't do this when creating the link
-	// initially as that only takes the static channel parameters.
-	updatedPolicy := map[wire.OutPoint]models.ForwardingPolicy{
-		completeChan.FundingOutpoint: {
-			MinHTLCOut: ann.chanUpdateAnn.HtlcMinimumMsat,
-			MaxHTLC:    ann.chanUpdateAnn.HtlcMaximumMsat,
-			BaseFee: lnwire.MilliSatoshi(
-				ann.chanUpdateAnn.BaseFee,
-			),
-			FeeRate: lnwire.MilliSatoshi(
-				ann.chanUpdateAnn.FeeRate,
-			),
-			TimeLockDelta: uint32(ann.chanUpdateAnn.TimeLockDelta),
-		},
-	}
-	f.cfg.UpdateForwardingPolicies(updatedPolicy)
 
 	return nil
 }

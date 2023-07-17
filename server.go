@@ -1297,6 +1297,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return cc.Wallet.LabelTransaction(hash, label, true)
 		},
 		Notifier:     cc.ChainNotifier,
+		ChannelDB:    s.chanStateDB,
 		FeeEstimator: cc.FeeEstimator,
 		SignMessage:  cc.MsgSigner.SignMessage,
 		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement,

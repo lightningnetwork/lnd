@@ -386,6 +386,9 @@ type Config struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
+	// ChannelDB is the database that keeps track of all channel state.
+	ChannelDB *channeldb.ChannelStateDB
+
 	// SignMessage signs an arbitrary message with a given public key. The
 	// actual digest signed is the double sha-256 of the message. In the
 	// case that the private key corresponding to the passed public key
@@ -698,7 +701,7 @@ func (f *Manager) start() error {
 	// down.
 	// TODO(roasbeef): store height that funding finished?
 	//  * would then replace call below
-	allChannels, err := f.cfg.Wallet.Cfg.Database.FetchAllChannels()
+	allChannels, err := f.cfg.ChannelDB.FetchAllChannels()
 	if err != nil {
 		return err
 	}
@@ -1396,7 +1399,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 
 	// Also count the channels that are already pending. There we don't know
 	// the underlying intent anymore, unfortunately.
-	channels, err := f.cfg.Wallet.Cfg.Database.FetchOpenChannels(peerPubKey)
+	channels, err := f.cfg.ChannelDB.FetchOpenChannels(peerPubKey)
 	if err != nil {
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -1423,7 +1426,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 
 	// Ensure that the pendingChansLimit is respected.
-	pendingChans, err := f.cfg.Wallet.Cfg.Database.FetchPendingChannels()
+	pendingChans, err := f.cfg.ChannelDB.FetchPendingChannels()
 	if err != nil {
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -4633,9 +4636,7 @@ func (f *Manager) saveInitialFwdingPolicy(permChanID lnwire.ChannelID,
 	byteOrder.PutUint64(scratch[24:32], uint64(forwardingPolicy.FeeRate))
 	byteOrder.PutUint32(scratch[32:], forwardingPolicy.TimeLockDelta)
 
-	return f.cfg.Wallet.Cfg.Database.SaveInitialFwdingPolicy(
-		chanID, scratch,
-	)
+	return f.cfg.ChannelDB.SaveInitialFwdingPolicy(chanID, scratch)
 }
 
 // getInitialFwdingPolicy fetches the initial forwarding policy for a given
@@ -4647,7 +4648,7 @@ func (f *Manager) getInitialFwdingPolicy(permChanID lnwire.ChannelID) (
 	chanID := make([]byte, 32)
 	copy(chanID, permChanID[:])
 
-	value, err := f.cfg.Wallet.Cfg.Database.GetInitialFwdingPolicy(chanID)
+	value, err := f.cfg.ChannelDB.GetInitialFwdingPolicy(chanID)
 	if err != nil {
 		return nil, err
 	}
@@ -4676,7 +4677,7 @@ func (f *Manager) deleteInitialFwdingPolicy(permChanID lnwire.ChannelID) error {
 	chanID := make([]byte, 32)
 	copy(chanID, permChanID[:])
 
-	return f.cfg.Wallet.Cfg.Database.DeleteInitialFwdingPolicy(chanID)
+	return f.cfg.ChannelDB.DeleteInitialFwdingPolicy(chanID)
 }
 
 // saveChannelOpeningState saves the channelOpeningState for the provided
@@ -4694,7 +4695,7 @@ func (f *Manager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 	scratch := make([]byte, 10)
 	byteOrder.PutUint16(scratch[:2], uint16(state))
 	byteOrder.PutUint64(scratch[2:], shortChanID.ToUint64())
-	return f.cfg.Wallet.Cfg.Database.SaveChannelOpeningState(
+	return f.cfg.ChannelDB.SaveChannelOpeningState(
 		outpointBytes.Bytes(), scratch,
 	)
 }
@@ -4710,7 +4711,7 @@ func (f *Manager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 		return 0, nil, err
 	}
 
-	value, err := f.cfg.Wallet.Cfg.Database.GetChannelOpeningState(
+	value, err := f.cfg.ChannelDB.GetChannelOpeningState(
 		outpointBytes.Bytes(),
 	)
 	if err != nil {
@@ -4729,7 +4730,7 @@ func (f *Manager) deleteChannelOpeningState(chanPoint *wire.OutPoint) error {
 		return err
 	}
 
-	return f.cfg.Wallet.Cfg.Database.DeleteChannelOpeningState(
+	return f.cfg.ChannelDB.DeleteChannelOpeningState(
 		outpointBytes.Bytes(),
 	)
 }

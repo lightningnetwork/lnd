@@ -432,6 +432,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		IDKeyLoc:     testKeyLoc,
 		Wallet:       lnw,
 		Notifier:     chainNotifier,
+		ChannelDB:    cdb,
 		FeeEstimator: estimator,
 		SignMessage: func(_ keychain.KeyLocator,
 			_ []byte, _ bool) (*ecdsa.Signature, error) {
@@ -601,6 +602,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		IDKeyLoc:     oldCfg.IDKeyLoc,
 		Wallet:       oldCfg.Wallet,
 		Notifier:     oldCfg.Notifier,
+		ChannelDB:    oldCfg.ChannelDB,
 		FeeEstimator: oldCfg.FeeEstimator,
 		SignMessage: func(_ keychain.KeyLocator,
 			_ []byte, _ bool) (*ecdsa.Signature, error) {

@@ -3832,26 +3832,18 @@ func (p *Brontide) addActiveChannel(c *channeldb.OpenChannel) error {
 			err)
 	}
 
-	// We'll query the localChanCfg of the new channel to determine the
-	// minimum HTLC value that can be forwarded. For the maximum HTLC value
-	// that can be forwarded and fees we'll use the default values, as they
-	// currently are always set to the default values at initial channel
-	// creation. Note that the maximum HTLC value defaults to the cap on
-	// the total value of outstanding HTLCs.
-	fwdMinHtlc := lnChan.FwdMinHtlc()
-	defaultPolicy := p.cfg.RoutingPolicy
-	forwardingPolicy := &models.ForwardingPolicy{
-		MinHTLCOut:    fwdMinHtlc,
-		MaxHTLC:       c.LocalChanCfg.MaxPendingAmount,
-		BaseFee:       defaultPolicy.BaseFee,
-		FeeRate:       defaultPolicy.FeeRate,
-		TimeLockDelta: defaultPolicy.TimeLockDelta,
+	// We'll query the channel DB for the new channel's initial forwarding
+	// policies to determine the policy we start out with.
+	initialPolicy, err := p.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
+	if err != nil {
+		return fmt.Errorf("unable to query for initial forwarding "+
+			"policy: %v", err)
 	}
 
 	// Create the link and add it to the switch.
 	err = p.addLink(
-		chanPoint, lnChan, forwardingPolicy,
-		chainEvents, shouldReestablish,
+		chanPoint, lnChan, initialPolicy, chainEvents,
+		shouldReestablish,
 	)
 	if err != nil {
 		return fmt.Errorf("can't register new channel link(%v) with "+

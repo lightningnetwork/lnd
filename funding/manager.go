@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -4636,62 +4637,45 @@ func (f *Manager) defaultForwardingPolicy(
 
 // saveInitialForwardingPolicy saves the forwarding policy for the provided
 // chanPoint in the channelOpeningStateBucket.
-func (f *Manager) saveInitialForwardingPolicy(permChanID lnwire.ChannelID,
+func (f *Manager) saveInitialForwardingPolicy(chanID lnwire.ChannelID,
 	forwardingPolicy *htlcswitch.ForwardingPolicy) error {
 
-	chanID := make([]byte, 32)
-	copy(chanID, permChanID[:])
-
-	scratch := make([]byte, 36)
-	byteOrder.PutUint64(scratch[:8], uint64(forwardingPolicy.MinHTLCOut))
-	byteOrder.PutUint64(scratch[8:16], uint64(forwardingPolicy.MaxHTLC))
-	byteOrder.PutUint64(scratch[16:24], uint64(forwardingPolicy.BaseFee))
-	byteOrder.PutUint64(scratch[24:32], uint64(forwardingPolicy.FeeRate))
-	byteOrder.PutUint32(scratch[32:], forwardingPolicy.TimeLockDelta)
-
-	return f.cfg.ChannelDB.SaveInitialForwardingPolicy(chanID, scratch)
+	return f.cfg.ChannelDB.SaveInitialForwardingPolicy(
+		chanID, &models.ForwardingPolicy{
+			MinHTLCOut:    forwardingPolicy.MinHTLCOut,
+			MaxHTLC:       forwardingPolicy.MaxHTLC,
+			BaseFee:       forwardingPolicy.BaseFee,
+			FeeRate:       forwardingPolicy.FeeRate,
+			TimeLockDelta: forwardingPolicy.TimeLockDelta,
+		},
+	)
 }
 
 // getInitialForwardingPolicy fetches the initial forwarding policy for a given
 // channel id from the database which will be applied during the channel
 // announcement phase.
 func (f *Manager) getInitialForwardingPolicy(
-	permChanID lnwire.ChannelID) (*htlcswitch.ForwardingPolicy, error) {
+	chanID lnwire.ChannelID) (*htlcswitch.ForwardingPolicy, error) {
 
-	chanID := make([]byte, 32)
-	copy(chanID, permChanID[:])
-
-	value, err := f.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
+	dbPolicy, err := f.cfg.ChannelDB.GetInitialForwardingPolicy(
+		chanID,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	var forwardingPolicy htlcswitch.ForwardingPolicy
-	forwardingPolicy.MinHTLCOut = lnwire.MilliSatoshi(
-		byteOrder.Uint64(value[:8]),
-	)
-	forwardingPolicy.MaxHTLC = lnwire.MilliSatoshi(
-		byteOrder.Uint64(value[8:16]),
-	)
-	forwardingPolicy.BaseFee = lnwire.MilliSatoshi(
-		byteOrder.Uint64(value[16:24]),
-	)
-	forwardingPolicy.FeeRate = lnwire.MilliSatoshi(
-		byteOrder.Uint64(value[24:32]),
-	)
-	forwardingPolicy.TimeLockDelta = byteOrder.Uint32(value[32:36])
-
-	return &forwardingPolicy, nil
+	return &htlcswitch.ForwardingPolicy{
+		MinHTLCOut:    dbPolicy.MinHTLCOut,
+		MaxHTLC:       dbPolicy.MaxHTLC,
+		BaseFee:       dbPolicy.BaseFee,
+		FeeRate:       dbPolicy.FeeRate,
+		TimeLockDelta: dbPolicy.TimeLockDelta,
+	}, nil
 }
 
 // deleteInitialForwardingPolicy removes channel fees for this chanID from
 // the database.
-func (f *Manager) deleteInitialForwardingPolicy(
-	permChanID lnwire.ChannelID) error {
-
-	chanID := make([]byte, 32)
-	copy(chanID, permChanID[:])
-
+func (f *Manager) deleteInitialForwardingPolicy(chanID lnwire.ChannelID) error {
 	return f.cfg.ChannelDB.DeleteInitialForwardingPolicy(chanID)
 }
 

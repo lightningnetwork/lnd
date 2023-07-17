@@ -3711,12 +3711,67 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		}
 	}()
 
+	// Before we can add the channel to the peer, we'll need to ensure that
+	// we have an initial forwarding policy set.
+	if err := f.ensureInitialForwardingPolicy(chanID, channel); err != nil {
+		log.Errorf("Unable to ensure initial forwarding policy: %v",
+			err)
+	}
+
 	if err := peer.AddNewChannel(channel, f.quit); err != nil {
 		log.Errorf("Unable to add new channel %v with peer %x: %v",
 			channel.FundingOutpoint,
 			peer.IdentityKey().SerializeCompressed(), err,
 		)
 	}
+}
+
+// ensureInitialForwardingPolicy ensures that we have an initial forwarding
+// policy set for the given channel. If we don't, we'll fall back to the default
+// values.
+func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
+	channel *channeldb.OpenChannel) error {
+
+	// Before we can add the channel to the peer, we'll need to ensure that
+	// we have an initial forwarding policy set. This should always be the
+	// case except for a channel that was created with lnd <= 0.15.5 and
+	// is still pending while updating to this version.
+	var needDBUpdate bool
+	forwardingPolicy, err := f.getInitialForwardingPolicy(chanID)
+	if err != nil {
+		log.Errorf("Unable to fetch initial forwarding policy, "+
+			"falling back to default values: %v", err)
+
+		forwardingPolicy = f.defaultForwardingPolicy(
+			channel.LocalChanCfg.ChannelConstraints,
+		)
+		needDBUpdate = true
+	}
+
+	// We only started storing the actual values for MinHTLCOut and MaxHTLC
+	// after 0.16.x, so if a channel was opened with such a version and is
+	// still pending while updating to this version, we'll need to set the
+	// values to the default values.
+	if forwardingPolicy.MinHTLCOut == 0 {
+		forwardingPolicy.MinHTLCOut = channel.LocalChanCfg.MinHTLC
+		needDBUpdate = true
+	}
+	if forwardingPolicy.MaxHTLC == 0 {
+		forwardingPolicy.MaxHTLC = channel.LocalChanCfg.MaxPendingAmount
+		needDBUpdate = true
+	}
+
+	// And finally, if we found that the values currently stored aren't
+	// sufficient for the link, we'll update the database.
+	if needDBUpdate {
+		err := f.saveInitialForwardingPolicy(chanID, forwardingPolicy)
+		if err != nil {
+			return fmt.Errorf("unable to update initial "+
+				"forwarding policy: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // chanAnnouncement encapsulates the two authenticated announcements that we

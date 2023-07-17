@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1340,42 +1342,38 @@ func assertInitialFwdingPolicyNotFound(t *testing.T, node *testNode,
 
 	t.Helper()
 
-	var fwdingPolicy *models.ForwardingPolicy
-	var err error
-	for i := 0; i < testPollNumTries; i++ {
-		// If this is not the first try, sleep before retrying.
-		if i > 0 {
-			time.Sleep(testPollSleepMs * time.Millisecond)
-		}
-		fwdingPolicy, err = node.fundingMgr.getInitialForwardingPolicy(
-			*chanID,
-		)
-		require.ErrorIs(t, err, channeldb.ErrChannelNotFound)
-
-		// Got expected result, return with success.
-		return
-	}
-
-	// 10 tries without success.
-	t.Fatalf("expected to not find a forwarding policy, found policy %v",
-		fwdingPolicy)
+	_, err := node.fundingMgr.getInitialForwardingPolicy(*chanID)
+	require.ErrorIs(t, err, channeldb.ErrChannelNotFound)
 }
 
-func assertHandleChannelReady(t *testing.T, alice, bob *testNode) {
+func assertHandleChannelReady(t *testing.T, alice, bob *testNode,
+	checkChannel ...func(node *testNode, msg *newChannelMsg) bool) {
+
 	t.Helper()
 
+	const timeout = time.Second * 15
 	// They should both send the new channel state to their peer.
 	select {
 	case c := <-alice.newChannels:
+		for _, check := range checkChannel {
+			require.NoError(t, wait.Predicate(func() bool {
+				return check(alice, c)
+			}, timeout))
+		}
 		close(c.err)
-	case <-time.After(time.Second * 15):
+	case <-time.After(timeout):
 		t.Fatalf("alice did not send new channel to peer")
 	}
 
 	select {
 	case c := <-bob.newChannels:
+		for _, check := range checkChannel {
+			require.NoError(t, wait.Predicate(func() bool {
+				return check(bob, c)
+			}, timeout))
+		}
 		close(c.err)
-	case <-time.After(time.Second * 15):
+	case <-time.After(timeout):
 		t.Fatalf("bob did not send new channel to peer")
 	}
 }
@@ -2892,12 +2890,12 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	const fundingAmt = 5000000
 	const chanReserve = 100000
 
-	// Use custom channel fees.
-	// These will show up in the channel reservation context
-	var baseFee uint64
-	var feeRate uint64
-	baseFee = 42
-	feeRate = 1337
+	// Use custom channel fees. These will show up in the channel
+	// reservation context.
+	var (
+		baseFee uint64 = 42
+		feeRate uint64 = 1337
+	)
 
 	// We will consume the channel updates as we go, so no buffering is
 	// needed.
@@ -3218,10 +3216,6 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
 	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
-	// Check that they notify the breach arbiter and peer about the new
-	// channel.
-	assertHandleChannelReady(t, alice, bob)
-
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
 	// Alice should advertise the default MinHTLC value of
@@ -3238,15 +3232,45 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// Alice should have custom fees set whereas Bob should see his
 	// configured default fees announced.
+	defaultDelta := bob.fundingMgr.cfg.DefaultRoutingPolicy.TimeLockDelta
 	defaultBaseFee := bob.fundingMgr.cfg.DefaultRoutingPolicy.BaseFee
-	defaultFeerate := bob.fundingMgr.cfg.DefaultRoutingPolicy.FeeRate
+	defaultFeeRate := bob.fundingMgr.cfg.DefaultRoutingPolicy.FeeRate
 	baseFees := []lnwire.MilliSatoshi{
 		lnwire.MilliSatoshi(baseFee), defaultBaseFee,
 	}
 	feeRates := []lnwire.MilliSatoshi{
-		lnwire.MilliSatoshi(feeRate), defaultFeerate,
+		lnwire.MilliSatoshi(feeRate), defaultFeeRate,
 	}
 
+	// Check that they notify the breach arbiter and peer about the new
+	// channel.
+	assertHandleChannelReady(
+		t, alice, bob, func(node *testNode, msg *newChannelMsg) bool {
+			aliceDB := alice.fundingMgr.cfg.ChannelDB
+			chanID := lnwire.NewChanIDFromOutPoint(
+				&msg.channel.FundingOutpoint,
+			)
+
+			if node == alice {
+				p, err := aliceDB.GetInitialForwardingPolicy(
+					chanID,
+				)
+				require.NoError(t, err)
+
+				return reflect.DeepEqual(
+					p, &models.ForwardingPolicy{
+						MaxHTLC:       maxHtlcArr[0],
+						MinHTLCOut:    minHtlcArr[0],
+						BaseFee:       baseFees[0],
+						FeeRate:       feeRates[0],
+						TimeLockDelta: defaultDelta,
+					},
+				)
+			}
+
+			return true
+		},
+	)
 	assertChannelAnnouncements(
 		t, alice, bob, capacity, minHtlcArr, maxHtlcArr, baseFees,
 		feeRates,

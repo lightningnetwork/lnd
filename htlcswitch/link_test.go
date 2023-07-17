@@ -23,6 +23,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -1925,7 +1926,7 @@ func newSingleLinkTestHarness(t *testing.T, chanAmt, chanReserve btcutil.Amount)
 			sentMsgs: make(chan lnwire.Message, 2000),
 			quit:     make(chan struct{}),
 		}
-		globalPolicy = ForwardingPolicy{
+		globalPolicy = models.ForwardingPolicy{
 			MinHTLCOut:    lnwire.NewMSatFromSatoshis(5),
 			MaxHTLC:       lnwire.NewMSatFromSatoshis(chanAmt),
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
@@ -4374,7 +4375,7 @@ func (h *persistentLinkHarness) restartLink(
 			quit:     make(chan struct{}),
 		}
 
-		globalPolicy = ForwardingPolicy{
+		globalPolicy = models.ForwardingPolicy{
 			MinHTLCOut:    lnwire.NewMSatFromSatoshis(5),
 			BaseFee:       lnwire.NewMSatFromSatoshis(1),
 			TimeLockDelta: 6,
@@ -5630,7 +5631,7 @@ func TestExpectedFee(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		f := ForwardingPolicy{
+		f := models.ForwardingPolicy{
 			BaseFee: test.baseFee,
 			FeeRate: test.feeRate,
 		}
@@ -5716,7 +5717,7 @@ func TestCheckHtlcForward(t *testing.T) {
 
 	link := channelLink{
 		cfg: ChannelLinkConfig{
-			FwrdingPolicy: ForwardingPolicy{
+			FwrdingPolicy: models.ForwardingPolicy{
 				TimeLockDelta: 20,
 				MinHTLCOut:    500,
 				MaxHTLC:       1000,

@@ -22,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
-	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
@@ -155,7 +154,7 @@ type reservationWithCtx struct {
 	chanAmt btcutil.Amount
 
 	// forwardingPolicy is the policy provided by the initFundingMsg.
-	forwardingPolicy htlcswitch.ForwardingPolicy
+	forwardingPolicy models.ForwardingPolicy
 
 	// Constraints we require for the remote.
 	remoteCsvDelay    uint16
@@ -433,7 +432,7 @@ type Config struct {
 
 	// DefaultRoutingPolicy is the default routing policy used when
 	// initially announcing channels.
-	DefaultRoutingPolicy htlcswitch.ForwardingPolicy
+	DefaultRoutingPolicy models.ForwardingPolicy
 
 	// DefaultMinHtlcIn is the default minimum incoming htlc value that is
 	// set as a channel parameter.
@@ -520,7 +519,7 @@ type Config struct {
 	// UpdateForwardingPolicies is used by the manager to update active
 	// links with a new policy.
 	UpdateForwardingPolicies func(
-		chanPolicies map[wire.OutPoint]htlcswitch.ForwardingPolicy)
+		chanPolicies map[wire.OutPoint]models.ForwardingPolicy)
 
 	// OpenChannelPredicate is a predicate on the lnwire.OpenChannel message
 	// and on the requesting node's public key that returns a bool which
@@ -3254,7 +3253,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	// our local policy in the switch to make sure we can forward payments
 	// with the correct fees. We can't do this when creating the link
 	// initially as that only takes the static channel parameters.
-	updatedPolicy := map[wire.OutPoint]htlcswitch.ForwardingPolicy{
+	updatedPolicy := map[wire.OutPoint]models.ForwardingPolicy{
 		completeChan.FundingOutpoint: {
 			MinHTLCOut: ann.chanUpdateAnn.HtlcMinimumMsat,
 			MaxHTLC:    ann.chanUpdateAnn.HtlcMaximumMsat,
@@ -4624,9 +4623,9 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 // defaultForwardingPolicy returns the default forwarding policy based on the
 // default routing policy and our local channel constraints.
 func (f *Manager) defaultForwardingPolicy(
-	constraints channeldb.ChannelConstraints) *htlcswitch.ForwardingPolicy {
+	constraints channeldb.ChannelConstraints) *models.ForwardingPolicy {
 
-	return &htlcswitch.ForwardingPolicy{
+	return &models.ForwardingPolicy{
 		MinHTLCOut:    constraints.MinHTLC,
 		MaxHTLC:       constraints.MaxPendingAmount,
 		BaseFee:       f.cfg.DefaultRoutingPolicy.BaseFee,
@@ -4638,16 +4637,10 @@ func (f *Manager) defaultForwardingPolicy(
 // saveInitialForwardingPolicy saves the forwarding policy for the provided
 // chanPoint in the channelOpeningStateBucket.
 func (f *Manager) saveInitialForwardingPolicy(chanID lnwire.ChannelID,
-	forwardingPolicy *htlcswitch.ForwardingPolicy) error {
+	forwardingPolicy *models.ForwardingPolicy) error {
 
 	return f.cfg.ChannelDB.SaveInitialForwardingPolicy(
-		chanID, &models.ForwardingPolicy{
-			MinHTLCOut:    forwardingPolicy.MinHTLCOut,
-			MaxHTLC:       forwardingPolicy.MaxHTLC,
-			BaseFee:       forwardingPolicy.BaseFee,
-			FeeRate:       forwardingPolicy.FeeRate,
-			TimeLockDelta: forwardingPolicy.TimeLockDelta,
-		},
+		chanID, forwardingPolicy,
 	)
 }
 
@@ -4655,22 +4648,9 @@ func (f *Manager) saveInitialForwardingPolicy(chanID lnwire.ChannelID,
 // channel id from the database which will be applied during the channel
 // announcement phase.
 func (f *Manager) getInitialForwardingPolicy(
-	chanID lnwire.ChannelID) (*htlcswitch.ForwardingPolicy, error) {
+	chanID lnwire.ChannelID) (*models.ForwardingPolicy, error) {
 
-	dbPolicy, err := f.cfg.ChannelDB.GetInitialForwardingPolicy(
-		chanID,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &htlcswitch.ForwardingPolicy{
-		MinHTLCOut:    dbPolicy.MinHTLCOut,
-		MaxHTLC:       dbPolicy.MaxHTLC,
-		BaseFee:       dbPolicy.BaseFee,
-		FeeRate:       dbPolicy.FeeRate,
-		TimeLockDelta: dbPolicy.TimeLockDelta,
-	}, nil
+	return f.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
 }
 
 // deleteInitialForwardingPolicy removes channel fees for this chanID from

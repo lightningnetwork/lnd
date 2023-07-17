@@ -23,6 +23,7 @@ import (
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
@@ -1069,7 +1070,7 @@ func createTwoClusterChannels(t *testing.T, aliceToBob,
 // hopNetwork is the base struct for two and three hop networks
 type hopNetwork struct {
 	feeEstimator *mockFeeEstimator
-	globalPolicy ForwardingPolicy
+	globalPolicy models.ForwardingPolicy
 	obfuscator   hop.ErrorEncrypter
 
 	defaultDelta uint32
@@ -1078,7 +1079,7 @@ type hopNetwork struct {
 func newHopNetwork() *hopNetwork {
 	defaultDelta := uint32(6)
 
-	globalPolicy := ForwardingPolicy{
+	globalPolicy := models.ForwardingPolicy{
 		MinHTLCOut:    lnwire.NewMSatFromSatoshis(5),
 		BaseFee:       lnwire.NewMSatFromSatoshis(1),
 		TimeLockDelta: defaultDelta,

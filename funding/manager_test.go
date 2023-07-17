@@ -22,9 +22,9 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	acpt "github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/discovery"
-	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -250,7 +250,7 @@ type testNode struct {
 	testDir         string
 	shutdownChannel chan struct{}
 	reportScidChan  chan struct{}
-	updatedPolicies chan map[wire.OutPoint]htlcswitch.ForwardingPolicy
+	updatedPolicies chan map[wire.OutPoint]models.ForwardingPolicy
 	localFeatures   []lnwire.FeatureBit
 	remoteFeatures  []lnwire.FeatureBit
 
@@ -380,7 +380,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	shutdownChan := make(chan struct{})
 	reportScidChan := make(chan struct{})
 	updatedPolicies := make(
-		chan map[wire.OutPoint]htlcswitch.ForwardingPolicy, 1,
+		chan map[wire.OutPoint]models.ForwardingPolicy, 1,
 	)
 
 	wc := &mock.WalletController{
@@ -477,7 +477,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 			return nil, fmt.Errorf("unable to find channel")
 		},
-		DefaultRoutingPolicy: htlcswitch.ForwardingPolicy{
+		DefaultRoutingPolicy: models.ForwardingPolicy{
 			MinHTLCOut:    5,
 			BaseFee:       100,
 			FeeRate:       1000,
@@ -540,7 +540,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		},
 		AliasManager: aliasMgr,
 		UpdateForwardingPolicies: func(
-			p map[wire.OutPoint]htlcswitch.ForwardingPolicy) {
+			p map[wire.OutPoint]models.ForwardingPolicy) {
 
 			updatedPolicies <- p
 		},
@@ -633,7 +633,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		TempChanIDSeed: oldCfg.TempChanIDSeed,
 		FindChannel:    oldCfg.FindChannel,
-		DefaultRoutingPolicy: htlcswitch.ForwardingPolicy{
+		DefaultRoutingPolicy: models.ForwardingPolicy{
 			MinHTLCOut:    5,
 			BaseFee:       100,
 			FeeRate:       1000,
@@ -1146,7 +1146,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 		// At this point we should also have gotten a policy update that
 		// was sent to the switch subsystem. Make sure it contains the
 		// same values.
-		var policyUpdate htlcswitch.ForwardingPolicy
+		var policyUpdate models.ForwardingPolicy
 		select {
 		case policyUpdateMap := <-node.updatedPolicies:
 			require.Len(t, policyUpdateMap, 1)
@@ -1340,7 +1340,7 @@ func assertInitialFwdingPolicyNotFound(t *testing.T, node *testNode,
 
 	t.Helper()
 
-	var fwdingPolicy *htlcswitch.ForwardingPolicy
+	var fwdingPolicy *models.ForwardingPolicy
 	var err error
 	for i := 0; i < testPollNumTries; i++ {
 		// If this is not the first try, sleep before retrying.
@@ -3076,7 +3076,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// Helper method for checking baseFee and feeRate stored for a
 	// reservation.
-	assertFees := func(forwardingPolicy *htlcswitch.ForwardingPolicy,
+	assertFees := func(forwardingPolicy *models.ForwardingPolicy,
 		baseFee, feeRate lnwire.MilliSatoshi) error {
 
 		if forwardingPolicy.BaseFee != baseFee {

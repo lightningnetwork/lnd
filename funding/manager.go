@@ -1747,13 +1747,10 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		minHtlc = acceptorResp.MinHtlcIn
 	}
 
-	// If we are handling a FundingOpen request then we need to
-	// specify the default channel fees since they are not provided
-	// by the responder interactively.
-	forwardingPolicy := htlcswitch.ForwardingPolicy{
-		BaseFee: f.cfg.DefaultRoutingPolicy.BaseFee,
-		FeeRate: f.cfg.DefaultRoutingPolicy.FeeRate,
-	}
+	// If we are handling a FundingOpen request then we need to specify the
+	// default channel fees since they are not provided by the responder
+	// interactively.
+	forwardingPolicy := f.defaultForwardingPolicy()
 
 	// Once the reservation has been created successfully, we add it to
 	// this peer's map of pending reservations to track this particular
@@ -1765,7 +1762,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	resCtx := &reservationWithCtx{
 		reservation:       reservation,
 		chanAmt:           amt,
-		forwardingPolicy:  forwardingPolicy,
+		forwardingPolicy:  *forwardingPolicy,
 		remoteCsvDelay:    remoteCsvDelay,
 		remoteMinHtlc:     minHtlc,
 		remoteMaxValue:    remoteMaxValue,
@@ -4282,14 +4279,10 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		maxHtlcs = f.cfg.RequiredRemoteMaxHTLCs(capacity)
 	}
 
-	// Prepare the optional channel fee values from the initFundingMsg.
-	// If useBaseFee or useFeeRate are false the client did not
-	// provide fee values hence we assume default fee settings from
-	// the config.
-	forwardingPolicy := htlcswitch.ForwardingPolicy{
-		BaseFee: f.cfg.DefaultRoutingPolicy.BaseFee,
-		FeeRate: f.cfg.DefaultRoutingPolicy.FeeRate,
-	}
+	// Prepare the optional channel fee values from the initFundingMsg. If
+	// useBaseFee or useFeeRate are false the client did not provide fee
+	// values hence we assume default fee settings from the config.
+	forwardingPolicy := f.defaultForwardingPolicy()
 	if baseFee != nil {
 		forwardingPolicy.BaseFee = lnwire.MilliSatoshi(*baseFee)
 	}
@@ -4327,7 +4320,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 
 	resCtx := &reservationWithCtx{
 		chanAmt:           capacity,
-		forwardingPolicy:  forwardingPolicy,
+		forwardingPolicy:  *forwardingPolicy,
 		remoteCsvDelay:    remoteCsvDelay,
 		remoteMinHtlc:     minHtlcIn,
 		remoteMaxValue:    maxValue,
@@ -4621,7 +4614,15 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 	return btcec.NewPublicKey(&tmp.X, &tmp.Y)
 }
 
-// saveInitialFwdingPolicy saves the forwarding policy for the provided
+// defaultForwardingPolicy returns the default forwarding policy.
+func (f *Manager) defaultForwardingPolicy() *htlcswitch.ForwardingPolicy {
+	return &htlcswitch.ForwardingPolicy{
+		BaseFee: f.cfg.DefaultRoutingPolicy.BaseFee,
+		FeeRate: f.cfg.DefaultRoutingPolicy.FeeRate,
+	}
+}
+
+// saveInitialForwardingPolicy saves the forwarding policy for the provided
 // chanPoint in the channelOpeningStateBucket.
 func (f *Manager) saveInitialFwdingPolicy(permChanID lnwire.ChannelID,
 	forwardingPolicy *htlcswitch.ForwardingPolicy) error {

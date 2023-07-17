@@ -1347,7 +1347,7 @@ func assertInitialFwdingPolicyNotFound(t *testing.T, node *testNode,
 		if i > 0 {
 			time.Sleep(testPollSleepMs * time.Millisecond)
 		}
-		fwdingPolicy, err = node.fundingMgr.getInitialFwdingPolicy(
+		fwdingPolicy, err = node.fundingMgr.getInitialForwardingPolicy(
 			*chanID,
 		)
 		require.ErrorIs(t, err, channeldb.ErrChannelNotFound)
@@ -3173,13 +3173,13 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// After the funding is signed and before the channel announcement
 	// we expect Alice and Bob to store their respective fees in the
 	// database.
-	forwardingPolicy, err := alice.fundingMgr.getInitialFwdingPolicy(
+	forwardingPolicy, err := alice.fundingMgr.getInitialForwardingPolicy(
 		fundingSigned.ChanID,
 	)
 	require.NoError(t, err)
 	require.NoError(t, assertFees(forwardingPolicy, 42, 1337))
 
-	forwardingPolicy, err = bob.fundingMgr.getInitialFwdingPolicy(
+	forwardingPolicy, err = bob.fundingMgr.getInitialForwardingPolicy(
 		fundingSigned.ChanID,
 	)
 	require.NoError(t, err)
@@ -3269,13 +3269,17 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// After the announcement we expect Alice and Bob to have cleared
 	// the fees for the channel from the database.
-	_, err = alice.fundingMgr.getInitialFwdingPolicy(fundingSigned.ChanID)
+	_, err = alice.fundingMgr.getInitialForwardingPolicy(
+		fundingSigned.ChanID,
+	)
 	if err != channeldb.ErrChannelNotFound {
 		err = fmt.Errorf("channel fees were expected to be deleted" +
 			" but were not")
 		t.Fatal(err)
 	}
-	_, err = bob.fundingMgr.getInitialFwdingPolicy(fundingSigned.ChanID)
+	_, err = bob.fundingMgr.getInitialForwardingPolicy(
+		fundingSigned.ChanID,
+	)
 	if err != channeldb.ErrChannelNotFound {
 		err = fmt.Errorf("channel fees were expected to be deleted" +
 			" but were not")

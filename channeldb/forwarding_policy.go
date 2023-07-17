@@ -3,20 +3,22 @@ package channeldb
 import "github.com/lightningnetwork/lnd/kvdb"
 
 var (
-	// initialChannelFwdingPolicyBucket is the database bucket used to store
-	// the forwarding policy for each permanent channel that is currently
-	// in the process of being opened.
-	initialChannelFwdingPolicyBucket = []byte("initialChannelFwdingPolicy")
+	// initialChannelForwardingPolicyBucket is the database bucket used to
+	// store the forwarding policy for each permanent channel that is
+	// currently in the process of being opened.
+	initialChannelForwardingPolicyBucket = []byte(
+		"initialChannelFwdingPolicy",
+	)
 )
 
-// SaveInitialFwdingPolicy saves the serialized forwarding policy for the
-// provided permanent channel id to the initialChannelFwdingPolicyBucket.
-func (c *ChannelStateDB) SaveInitialFwdingPolicy(chanID,
+// SaveInitialForwardingPolicy saves the serialized forwarding policy for the
+// provided permanent channel id to the initialChannelForwardingPolicyBucket.
+func (c *ChannelStateDB) SaveInitialForwardingPolicy(chanID,
 	forwardingPolicy []byte) error {
 
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
 		bucket, err := tx.CreateTopLevelBucket(
-			initialChannelFwdingPolicyBucket,
+			initialChannelForwardingPolicyBucket,
 		)
 		if err != nil {
 			return err
@@ -26,13 +28,15 @@ func (c *ChannelStateDB) SaveInitialFwdingPolicy(chanID,
 	}, func() {})
 }
 
-// GetInitialFwdingPolicy fetches the serialized forwarding policy for the
+// GetInitialForwardingPolicy fetches the serialized forwarding policy for the
 // provided channel id from the database, or returns ErrChannelNotFound if
 // a forwarding policy for this channel id is not found.
-func (c *ChannelStateDB) GetInitialFwdingPolicy(chanID []byte) ([]byte, error) {
+func (c *ChannelStateDB) GetInitialForwardingPolicy(chanID []byte) ([]byte,
+	error) {
+
 	var serializedState []byte
 	err := kvdb.View(c.backend, func(tx kvdb.RTx) error {
-		bucket := tx.ReadBucket(initialChannelFwdingPolicyBucket)
+		bucket := tx.ReadBucket(initialChannelForwardingPolicyBucket)
 		if bucket == nil {
 			// If the bucket does not exist, it means we
 			// never added a channel fees to the db, so
@@ -54,11 +58,13 @@ func (c *ChannelStateDB) GetInitialFwdingPolicy(chanID []byte) ([]byte, error) {
 	return serializedState, err
 }
 
-// DeleteInitialFwdingPolicy removes the forwarding policy for a given channel
-// from the database.
-func (c *ChannelStateDB) DeleteInitialFwdingPolicy(chanID []byte) error {
+// DeleteInitialForwardingPolicy removes the forwarding policy for a given
+// channel from the database.
+func (c *ChannelStateDB) DeleteInitialForwardingPolicy(chanID []byte) error {
 	return kvdb.Update(c.backend, func(tx kvdb.RwTx) error {
-		bucket := tx.ReadWriteBucket(initialChannelFwdingPolicyBucket)
+		bucket := tx.ReadWriteBucket(
+			initialChannelForwardingPolicyBucket,
+		)
 		if bucket == nil {
 			return ErrChannelNotFound
 		}

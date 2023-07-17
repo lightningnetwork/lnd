@@ -2372,7 +2372,7 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	// With a permanent channel id established we can save the respective
 	// forwarding policy in the database. In the channel announcement phase
 	// this forwarding policy is retrieved and applied.
-	err = f.saveInitialFwdingPolicy(cid.chanID, &forwardingPolicy)
+	err = f.saveInitialForwardingPolicy(cid.chanID, &forwardingPolicy)
 	if err != nil {
 		log.Errorf("Unable to store the forwarding policy: %v", err)
 	}
@@ -2475,7 +2475,9 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 	// We have to store the forwardingPolicy before the reservation context
 	// is deleted. The policy will then be read and applied in
 	// newChanAnnouncement.
-	err = f.saveInitialFwdingPolicy(permChanID, &resCtx.forwardingPolicy)
+	err = f.saveInitialForwardingPolicy(
+		permChanID, &resCtx.forwardingPolicy,
+	)
 	if err != nil {
 		log.Errorf("Unable to store the forwarding policy: %v", err)
 	}
@@ -3315,7 +3317,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		// For private channels we do not announce the channel policy
 		// to the network but still need to delete them from the
 		// database.
-		err = f.deleteInitialFwdingPolicy(chanID)
+		err = f.deleteInitialForwardingPolicy(chanID)
 		if err != nil {
 			log.Infof("Could not delete channel fees "+
 				"for chanId %x.", chanID)
@@ -3818,7 +3820,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// forwarding policy to be announced. If no persisted initial policy
 	// values are found, then we will use the default policy values in the
 	// channel announcement.
-	storedFwdingPolicy, err := f.getInitialFwdingPolicy(chanID)
+	storedFwdingPolicy, err := f.getInitialForwardingPolicy(chanID)
 	if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
 		return nil, errors.Errorf("unable to generate channel "+
 			"update announcement: %v", err)
@@ -3950,7 +3952,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 
 	// After the fee parameters have been stored in the announcement
 	// we can delete them from the database.
-	err = f.deleteInitialFwdingPolicy(chanID)
+	err = f.deleteInitialForwardingPolicy(chanID)
 	if err != nil {
 		log.Infof("Could not delete channel fees for chanId %x.",
 			chanID)
@@ -4634,7 +4636,7 @@ func (f *Manager) defaultForwardingPolicy(
 
 // saveInitialForwardingPolicy saves the forwarding policy for the provided
 // chanPoint in the channelOpeningStateBucket.
-func (f *Manager) saveInitialFwdingPolicy(permChanID lnwire.ChannelID,
+func (f *Manager) saveInitialForwardingPolicy(permChanID lnwire.ChannelID,
 	forwardingPolicy *htlcswitch.ForwardingPolicy) error {
 
 	chanID := make([]byte, 32)
@@ -4647,48 +4649,50 @@ func (f *Manager) saveInitialFwdingPolicy(permChanID lnwire.ChannelID,
 	byteOrder.PutUint64(scratch[24:32], uint64(forwardingPolicy.FeeRate))
 	byteOrder.PutUint32(scratch[32:], forwardingPolicy.TimeLockDelta)
 
-	return f.cfg.ChannelDB.SaveInitialFwdingPolicy(chanID, scratch)
+	return f.cfg.ChannelDB.SaveInitialForwardingPolicy(chanID, scratch)
 }
 
-// getInitialFwdingPolicy fetches the initial forwarding policy for a given
+// getInitialForwardingPolicy fetches the initial forwarding policy for a given
 // channel id from the database which will be applied during the channel
 // announcement phase.
-func (f *Manager) getInitialFwdingPolicy(permChanID lnwire.ChannelID) (
-	*htlcswitch.ForwardingPolicy, error) {
+func (f *Manager) getInitialForwardingPolicy(
+	permChanID lnwire.ChannelID) (*htlcswitch.ForwardingPolicy, error) {
 
 	chanID := make([]byte, 32)
 	copy(chanID, permChanID[:])
 
-	value, err := f.cfg.ChannelDB.GetInitialFwdingPolicy(chanID)
+	value, err := f.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
 	if err != nil {
 		return nil, err
 	}
 
-	var fwdingPolicy htlcswitch.ForwardingPolicy
-	fwdingPolicy.MinHTLCOut = lnwire.MilliSatoshi(
+	var forwardingPolicy htlcswitch.ForwardingPolicy
+	forwardingPolicy.MinHTLCOut = lnwire.MilliSatoshi(
 		byteOrder.Uint64(value[:8]),
 	)
-	fwdingPolicy.MaxHTLC = lnwire.MilliSatoshi(
+	forwardingPolicy.MaxHTLC = lnwire.MilliSatoshi(
 		byteOrder.Uint64(value[8:16]),
 	)
-	fwdingPolicy.BaseFee = lnwire.MilliSatoshi(
+	forwardingPolicy.BaseFee = lnwire.MilliSatoshi(
 		byteOrder.Uint64(value[16:24]),
 	)
-	fwdingPolicy.FeeRate = lnwire.MilliSatoshi(
+	forwardingPolicy.FeeRate = lnwire.MilliSatoshi(
 		byteOrder.Uint64(value[24:32]),
 	)
-	fwdingPolicy.TimeLockDelta = byteOrder.Uint32(value[32:36])
+	forwardingPolicy.TimeLockDelta = byteOrder.Uint32(value[32:36])
 
-	return &fwdingPolicy, nil
+	return &forwardingPolicy, nil
 }
 
-// deleteInitialFwdingPolicy removes channel fees for this chanID from
+// deleteInitialForwardingPolicy removes channel fees for this chanID from
 // the database.
-func (f *Manager) deleteInitialFwdingPolicy(permChanID lnwire.ChannelID) error {
+func (f *Manager) deleteInitialForwardingPolicy(
+	permChanID lnwire.ChannelID) error {
+
 	chanID := make([]byte, 32)
 	copy(chanID, permChanID[:])
 
-	return f.cfg.ChannelDB.DeleteInitialFwdingPolicy(chanID)
+	return f.cfg.ChannelDB.DeleteInitialForwardingPolicy(chanID)
 }
 
 // saveChannelOpeningState saves the channelOpeningState for the provided

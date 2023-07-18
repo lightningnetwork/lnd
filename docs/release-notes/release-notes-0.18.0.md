@@ -25,6 +25,9 @@
   that when sweeping inputs with locktime, an unexpected lower fee rate is
   applied.
 
+* LND will now [enforce pong responses
+  ](https://github.com/lightningnetwork/lnd/pull/7828) from its peers
+
 # New Features
 ## Functional Enhancements
 
@@ -94,5 +97,6 @@
 * Andras Banki-Horvath
 * Carla Kirk-Cohen
 * Elle Mouton
-* Yong Yu
+* Keagan McClelland
 * Ononiwu Maureen Chiamaka
+* Yong Yu

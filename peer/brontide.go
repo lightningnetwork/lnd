@@ -709,7 +709,12 @@ func (p *Brontide) Start() error {
 			rand.Intn(65532),
 		)
 	}
-	go p.pingHandler(newPingPayload, randPongSize)
+	go p.pingHandler(
+		newPingPayload,
+		randPongSize,
+		pingInterval,
+		pingTimeout,
+	)
 
 	// Signal to any external processes that the peer is now active.
 	close(p.activeSignal)
@@ -2301,15 +2306,19 @@ func (p *Brontide) queueHandler() {
 // remote peer in order to keep the connection alive and/or determine if the
 // connection is still active.
 //
+// NOTE: timeout MUST be shorter than interval
+//
 // NOTE: This method MUST be run as a goroutine.
 func (p *Brontide) pingHandler(
 	newPayload func() []byte,
 	pongSize func() uint16,
+	interval time.Duration,
+	timeout time.Duration,
 ) {
 
 	defer p.wg.Done()
 
-	pingTicker := time.NewTicker(pingInterval)
+	pingTicker := time.NewTicker(interval)
 	defer pingTicker.Stop()
 
 out:
@@ -2337,7 +2346,7 @@ out:
 				err, ok := <-msgWritten
 				if err == nil && ok {
 					p.pingManager.markPingSend(pongBytes)
-					time.Sleep(pingTimeout)
+					time.Sleep(timeout)
 					if p.pingManager.cancelPing() {
 						eStr := "pong timeout for %s" +
 							"-- disconnecting"

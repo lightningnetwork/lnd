@@ -1118,3 +1118,196 @@ func TestPeerCustomMessage(t *testing.T) {
 	require.Equal(t, remoteKey, receivedCustom.peer)
 	require.Equal(t, receivedCustomMsg, &receivedCustom.msg)
 }
+
+func TestPeerPongCorrect(t *testing.T) {
+	t.Parallel()
+
+	mockConn := newMockConn(t, 10)
+
+	writeBufferPool := pool.NewWriteBuffer(
+		pool.DefaultWriteBufferGCInterval,
+		pool.DefaultWriteBufferExpiryInterval,
+	)
+	writePool := pool.NewWrite(
+		writeBufferPool, 1, timeout,
+	)
+	require.NoError(t, writePool.Start())
+
+	readBufferPool := pool.NewReadBuffer(
+		pool.DefaultReadBufferGCInterval,
+		pool.DefaultReadBufferExpiryInterval,
+	)
+
+	readPool := pool.NewRead(
+		readBufferPool, 1, timeout,
+	)
+	require.NoError(t, readPool.Start())
+
+	p := NewBrontide(Config{
+		Conn:           mockConn,
+		Features:       lnwire.EmptyFeatureVector(),
+		LegacyFeatures: lnwire.EmptyFeatureVector(),
+		WritePool:      writePool,
+		ReadPool:       readPool,
+	})
+
+	err := p.handleInitMsg(lnwire.NewInitMessage(
+		lnwire.EmptyFeatureVector().RawFeatureVector,
+		lnwire.EmptyFeatureVector().RawFeatureVector,
+	))
+	require.NoError(t, err)
+
+	newPingPayload := func() []byte {
+		return []byte{0, 0, 0, 0}
+	}
+	p.wg.Add(4)
+	go p.queueHandler()
+	go p.writeHandler()
+	go p.readHandler()
+	go p.pingHandler(
+		newPingPayload,
+		func() uint16 { return 4 },
+		2*time.Second,
+		time.Second,
+	)
+
+	pong := make([]byte, 0, 256)
+	buf := bytes.NewBuffer(pong)
+	<-mockConn.writtenMessages
+
+	_, err = lnwire.WriteMessage(
+		buf,
+		lnwire.Message(&lnwire.Pong{PongBytes: []byte{0, 0, 0, 0}}),
+		0,
+	)
+	require.NoError(t, err)
+
+	mockConn.readMessages <- buf.Bytes()
+	time.Sleep(time.Second)
+	require.False(t, mockConn.closed)
+}
+
+func TestPeerPongIncorrect(t *testing.T) {
+	t.Parallel()
+
+	mockConn := newMockConn(t, 10)
+
+	writeBufferPool := pool.NewWriteBuffer(
+		pool.DefaultWriteBufferGCInterval,
+		pool.DefaultWriteBufferExpiryInterval,
+	)
+	writePool := pool.NewWrite(
+		writeBufferPool, 1, timeout,
+	)
+	require.NoError(t, writePool.Start())
+
+	readBufferPool := pool.NewReadBuffer(
+		pool.DefaultReadBufferGCInterval,
+		pool.DefaultReadBufferExpiryInterval,
+	)
+
+	readPool := pool.NewRead(
+		readBufferPool, 1, timeout,
+	)
+	require.NoError(t, readPool.Start())
+
+	p := NewBrontide(Config{
+		Conn:           mockConn,
+		Features:       lnwire.EmptyFeatureVector(),
+		LegacyFeatures: lnwire.EmptyFeatureVector(),
+		WritePool:      writePool,
+		ReadPool:       readPool,
+	})
+
+	err := p.handleInitMsg(lnwire.NewInitMessage(
+		lnwire.EmptyFeatureVector().RawFeatureVector,
+		lnwire.EmptyFeatureVector().RawFeatureVector,
+	))
+	require.NoError(t, err)
+
+	newPingPayload := func() []byte {
+		return []byte{0, 0, 0, 0}
+	}
+	p.wg.Add(4)
+	go p.queueHandler()
+	go p.writeHandler()
+	go p.readHandler()
+	go p.pingHandler(
+		newPingPayload,
+		func() uint16 { return 4 },
+		2*time.Second,
+		time.Second,
+	)
+
+	pong := make([]byte, 0, 256)
+	buf := bytes.NewBuffer(pong)
+	<-mockConn.writtenMessages
+
+	_, err = lnwire.WriteMessage(
+		buf,
+		lnwire.Message(&lnwire.Pong{PongBytes: []byte{0, 0, 0}}),
+		0,
+	)
+	require.NoError(t, err)
+
+	mockConn.readMessages <- buf.Bytes()
+	time.Sleep(time.Second)
+	require.True(t, mockConn.closed)
+}
+
+func TestPeerPongLate(t *testing.T) {
+	t.Parallel()
+
+	mockConn := newMockConn(t, 10)
+
+	writeBufferPool := pool.NewWriteBuffer(
+		pool.DefaultWriteBufferGCInterval,
+		pool.DefaultWriteBufferExpiryInterval,
+	)
+	writePool := pool.NewWrite(
+		writeBufferPool, 1, timeout,
+	)
+	require.NoError(t, writePool.Start())
+
+	readBufferPool := pool.NewReadBuffer(
+		pool.DefaultReadBufferGCInterval,
+		pool.DefaultReadBufferExpiryInterval,
+	)
+
+	readPool := pool.NewRead(
+		readBufferPool, 1, timeout,
+	)
+	require.NoError(t, readPool.Start())
+
+	p := NewBrontide(Config{
+		Conn:           mockConn,
+		Features:       lnwire.EmptyFeatureVector(),
+		LegacyFeatures: lnwire.EmptyFeatureVector(),
+		WritePool:      writePool,
+		ReadPool:       readPool,
+	})
+
+	err := p.handleInitMsg(lnwire.NewInitMessage(
+		lnwire.EmptyFeatureVector().RawFeatureVector,
+		lnwire.EmptyFeatureVector().RawFeatureVector,
+	))
+	require.NoError(t, err)
+
+	newPingPayload := func() []byte {
+		return []byte{0, 0, 0, 0}
+	}
+	p.wg.Add(4)
+	go p.queueHandler()
+	go p.writeHandler()
+	go p.readHandler()
+	go p.pingHandler(
+		newPingPayload,
+		func() uint16 { return 4 },
+		2*time.Second,
+		time.Second,
+	)
+
+	<-mockConn.writtenMessages
+	time.Sleep(3 * time.Second)
+	require.True(t, mockConn.closed)
+}

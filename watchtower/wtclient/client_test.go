@@ -988,6 +988,9 @@ func (s *serverHarness) waitForUpdates(hints []blob.BreachHint,
 		return true
 	}
 
+	require.Truef(s.t, timeout.Seconds() > 1, "timeout must be set to "+
+		"greater than 1 second")
+
 	failTimeout := time.After(timeout)
 	for {
 		select {
@@ -1139,7 +1142,7 @@ var clientTests = []clientTest{
 
 			// Wait for all the updates to be populated in the
 			// server's database.
-			h.server.waitForUpdates(hints, time.Second)
+			h.server.waitForUpdates(hints, waitTime)
 		},
 	},
 	{
@@ -1167,7 +1170,7 @@ var clientTests = []clientTest{
 
 			// Ensure that no updates are received by the server,
 			// since they should all be marked as ineligible.
-			h.server.waitForUpdates(nil, time.Second)
+			h.server.waitForUpdates(nil, waitTime)
 		},
 	},
 	{
@@ -1199,7 +1202,7 @@ var clientTests = []clientTest{
 
 			// Wait for both to be reflected in the server's
 			// database.
-			h.server.waitForUpdates(hints[:numSent], time.Second)
+			h.server.waitForUpdates(hints[:numSent], waitTime)
 
 			// Now, restart the server and prevent it from acking
 			// state updates.
@@ -1233,7 +1236,7 @@ var clientTests = []clientTest{
 
 			// Wait for the committed update to be accepted by the
 			// tower.
-			h.server.waitForUpdates(hints[:numSent], time.Second)
+			h.server.waitForUpdates(hints[:numSent], waitTime)
 
 			// Finally, send the rest of the updates and wait for
 			// the tower to receive the remaining states.
@@ -1241,7 +1244,7 @@ var clientTests = []clientTest{
 
 			// Wait for all the updates to be populated in the
 			// server's database.
-			h.server.waitForUpdates(hints, time.Second)
+			h.server.waitForUpdates(hints, waitTime)
 
 		},
 	},
@@ -1411,7 +1414,7 @@ var clientTests = []clientTest{
 
 			// Since the client is unable to create a session, the
 			// server should have no updates.
-			h.server.waitForUpdates(nil, time.Second)
+			h.server.waitForUpdates(nil, waitTime)
 
 			// Force quit the client since it has queued backups.
 			h.client.ForceQuit()
@@ -1463,7 +1466,7 @@ var clientTests = []clientTest{
 
 			// Since the client is unable to create a session, the
 			// server should have no updates.
-			h.server.waitForUpdates(nil, time.Second)
+			h.server.waitForUpdates(nil, waitTime)
 
 			// Force quit the client since it has queued backups.
 			h.client.ForceQuit()
@@ -1519,9 +1522,7 @@ var clientTests = []clientTest{
 			h.backupStates(chanID, 0, numUpdates/2, nil)
 
 			// Wait for the server to collect the first half.
-			h.server.waitForUpdates(
-				hints[:numUpdates/2], time.Second,
-			)
+			h.server.waitForUpdates(hints[:numUpdates/2], waitTime)
 
 			// Stop the client, which should have no more backups.
 			require.NoError(h.t, h.client.Stop())
@@ -1628,7 +1629,7 @@ var clientTests = []clientTest{
 			// Back up the remaining states. Since the tower has
 			// been removed, it shouldn't receive any updates.
 			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
-			h.server.waitForUpdates(nil, time.Second)
+			h.server.waitForUpdates(nil, waitTime)
 
 			// Re-add the tower. We prevent the tower from acking
 			// session creation to ensure the inactive sessions are
@@ -1638,7 +1639,7 @@ var clientTests = []clientTest{
 			})
 
 			h.addTower(h.server.addr)
-			h.server.waitForUpdates(nil, time.Second)
+			h.server.waitForUpdates(nil, waitTime)
 
 			// Finally, allow the tower to ack session creation,
 			// allowing the state updates to be sent through the new

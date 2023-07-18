@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -55,18 +54,6 @@ type FullIntent struct {
 
 	// coin is the Assembler's wallet's coin type.
 	coin uint32
-
-	// localConfig is the local configuration for this channel.
-	localConfig *channeldb.ChannelConfig
-
-	// remoteCOnfig is the remote configuration for this channel.
-	remoteConfig *channeldb.ChannelConfig
-
-	// chanType specifies the channel type.
-	chanType channeldb.ChannelType
-
-	// initiator specifies whether the local node initiated the channel.
-	initiator bool
 }
 
 // BindKeys is a method unique to the FullIntent variant. This allows the
@@ -79,20 +66,6 @@ func (f *FullIntent) BindKeys(localKey *keychain.KeyDescriptor,
 
 	f.localKey = localKey
 	f.remoteKey = remoteKey
-}
-
-// ConfigurePsbt is a method unique to the FullIntent variant. This allows the
-// caller to attach a local and remote channel configuration so that a remote
-// signer can be aware of the parameters used to derive commitment transaction
-// outputs. It specifically allows the signer to validate the initial commitment
-// transactions.
-func (f *FullIntent) ConfigurePsbt(local, remote *channeldb.ChannelConfig,
-	chanType channeldb.ChannelType, initiator bool) {
-
-	f.localConfig = local
-	f.remoteConfig = remote
-	f.chanType = chanType
-	f.initiator = initiator
 }
 
 // CompileFundingTx is to be called after BindKeys on the sub-intent has been

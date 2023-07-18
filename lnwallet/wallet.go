@@ -1542,6 +1542,16 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		err       error
 	)
 
+	// We bind the channel configurations to send to the signer so that a
+	// validating remote signer can validate commitment and second-level
+	// HTLC transactions.
+	pendingReservation.fundingIntent.ConfigurePsbt(
+		pendingReservation.ourContribution.ChannelConfig,
+		pendingReservation.theirContribution.ChannelConfig,
+		pendingReservation.partialState.ChanType,
+		pendingReservation.partialState.IsInitiator,
+	)
+
 	// At this point, we can now construct our channel point. Depending on
 	// which type of intent we obtained from our chanfunding.Assembler,
 	// we'll carry out a distinct set of steps.
@@ -1596,16 +1606,6 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 		fundingIntent.BindKeys(
 			&pendingReservation.ourContribution.MultiSigKey,
 			theirContribution.MultiSigKey.PubKey,
-		)
-
-		// We also bind the channel configurations to send to the signer
-		// so that a validating remote signer can validate commitment
-		// and second-level HTLC transactions.
-		fundingIntent.ConfigurePsbt(
-			pendingReservation.ourContribution.ChannelConfig,
-			pendingReservation.theirContribution.ChannelConfig,
-			pendingReservation.partialState.ChanType,
-			pendingReservation.partialState.IsInitiator,
 		)
 
 		// With our keys bound, we can now construct+sign the final

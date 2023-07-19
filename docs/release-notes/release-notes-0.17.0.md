@@ -136,6 +136,9 @@ unlock or create.
 * [Derandomized](https://github.com/lightningnetwork/lnd/pull/7618) the BOLT
   8 fuzz tests.
 
+* [Improved](https://github.com/lightningnetwork/lnd/pull/7723) invoice fuzz
+  tests.
+
 * [Added fuzz tests](https://github.com/lightningnetwork/lnd/pull/7649) for
   signature parsing and conversion.
 

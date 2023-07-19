@@ -1,61 +1,97 @@
 package zpay32
 
 import (
-	"fmt"
+	"strings"
 	"testing"
 
-	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
-func FuzzDecode(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data string) {
-		inv, err := Decode(data, &chaincfg.TestNet3Params)
-		if err != nil {
-			return
-		}
+// getPrefixAndChainParams selects network chain parameters based on the fuzzer-
+// selected input byte "net". 50% of the time mainnet is selected, while the
+// other 50% of the time one of the test networks is selected. For each network
+// the appropriate invoice HRP prefix is also returned, with a small chance that
+// no prefix is returned, allowing the fuzzer to generate invalid prefixes too.
+func getPrefixAndChainParams(net byte) (string, *chaincfg.Params) {
+	switch {
+	case net == 0x00:
+		return "", &chaincfg.RegressionNetParams
+	case net < 0x20:
+		return "lnbcrt", &chaincfg.RegressionNetParams
 
-		// Call these functions as a sanity check to make sure the
-		// invoice is well-formed.
-		_ = inv.MinFinalCLTVExpiry()
-		_ = inv.Expiry()
+	case net == 0x20:
+		return "", &chaincfg.TestNet3Params
+	case net < 0x40:
+		return "lntb", &chaincfg.TestNet3Params
+
+	case net == 0x40:
+		return "", &chaincfg.SimNetParams
+	case net < 0x60:
+		return "lnsb", &chaincfg.SimNetParams
+
+	case net == 0x60:
+		return "", &chaincfg.SigNetParams
+	case net < 0x80:
+		return "lntbs", &chaincfg.SigNetParams
+
+	case net == 0x80:
+		return "", &chaincfg.MainNetParams
+	default:
+		return "lnbc", &chaincfg.MainNetParams
+	}
+}
+
+func FuzzDecode(f *testing.F) {
+	f.Fuzz(func(t *testing.T, net byte, data string) {
+		_, chainParams := getPrefixAndChainParams(net)
+		_, _ = Decode(data, chainParams)
 	})
 }
 
+// appendChecksum returns a string containing bech followed by its bech32
+// checksum if a checksum could be calculated. Otherwise, the function returns
+// bech unchanged.
+//
+// This code is based on checksum calculation in zpay32/bech32.go.
+func appendChecksum(bech string) string {
+	lower := strings.ToLower(bech)
+
+	// The string is invalid if the last '1' is non-existent or it is the
+	// first character of the string (no human-readable part).
+	one := strings.LastIndexByte(lower, '1')
+	if one < 1 {
+		return bech
+	}
+	hrp := lower[:one]
+	data := lower[one+1:]
+
+	decoded, err := toBytes(data)
+	if err != nil {
+		return bech
+	}
+
+	checksum, err := toChars(bech32Checksum(hrp, decoded))
+	if err != nil {
+		return bech
+	}
+
+	return bech + checksum
+}
+
 func FuzzEncode(f *testing.F) {
-	f.Fuzz(func(t *testing.T, data string) {
-		inv, err := Decode(data, &chaincfg.TestNet3Params)
+	f.Fuzz(func(t *testing.T, net byte, data string) {
+		// Make it easier for the fuzzer to generate valid invoice
+		// encodings by adding the required prefix and valid checksum.
+		hrpPrefix, chainParams := getPrefixAndChainParams(net)
+		data = hrpPrefix + data
+		data = appendChecksum(data)
+
+		inv, err := Decode(data, chainParams)
 		if err != nil {
 			return
 		}
 
-		// Call these functions as a sanity check to make sure the
-		// invoice is well-formed.
-		_ = inv.MinFinalCLTVExpiry()
-		_ = inv.Expiry()
-
-		// Initialize the static key we will be using for this fuzz
-		// test.
-		testPrivKey, _ := btcec.PrivKeyFromBytes(testPrivKeyBytes)
-
-		// Then, initialize the testMessageSigner so we can encode out
-		// invoices with this private key.
-		testMessageSigner := MessageSigner{
-			SignCompact: func(msg []byte) ([]byte, error) {
-				hash := chainhash.HashB(msg)
-				sig, err := ecdsa.SignCompact(testPrivKey, hash,
-					true)
-				if err != nil {
-					return nil,
-						fmt.Errorf("can't sign the "+
-							"message: %v", err)
-				}
-
-				return sig, nil
-			},
-		}
+		// Re-encode the invoice using our private key from unit tests.
 		_, err = inv.Encode(testMessageSigner)
 		if err != nil {
 			return

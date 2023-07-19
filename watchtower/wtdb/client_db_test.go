@@ -195,6 +195,15 @@ func (h *clientDBHarness) ackUpdate(id *wtdb.SessionID, seqNum uint16,
 	require.ErrorIs(h.t, err, expErr)
 }
 
+func (h *clientDBHarness) deleteCommittedUpdate(id *wtdb.SessionID,
+	seqNum uint16, expErr error) {
+
+	h.t.Helper()
+
+	err := h.db.DeleteCommittedUpdate(id, seqNum)
+	require.ErrorIs(h.t, err, expErr)
+}
+
 func (h *clientDBHarness) markChannelClosed(id lnwire.ChannelID,
 	blockHeight uint32, expErr error) []wtdb.SessionID {
 
@@ -567,7 +576,8 @@ func testChanSummaries(h *clientDBHarness) {
 	h.registerChan(chanID, expPkScript, wtdb.ErrChannelAlreadyRegistered)
 }
 
-// testCommitUpdate tests the behavior of CommitUpdate, ensuring that they can
+// testCommitUpdate tests the behavior of CommitUpdate and
+// DeleteCommittedUpdate.
 func testCommitUpdate(h *clientDBHarness) {
 	const blobType = blob.TypeAltruistCommit
 
@@ -648,6 +658,22 @@ func testCommitUpdate(h *clientDBHarness) {
 		*update1,
 		*update2,
 	}, nil)
+
+	// We will now also test that the DeleteCommittedUpdates method also
+	// works.
+	// First, try to delete a committed update that does not exist.
+	h.deleteCommittedUpdate(
+		&session.ID, update4.SeqNum, wtdb.ErrCommittedUpdateNotFound,
+	)
+
+	// Now delete an existing committed update and ensure that it succeeds.
+	h.deleteCommittedUpdate(&session.ID, update1.SeqNum, nil)
+	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{
+		*update2,
+	}, nil)
+
+	h.deleteCommittedUpdate(&session.ID, update2.SeqNum, nil)
+	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{}, nil)
 }
 
 // testMarkChannelClosed asserts the behaviour of MarkChannelClosed.

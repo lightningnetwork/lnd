@@ -586,6 +586,37 @@ func (m *ClientDB) GetDBQueue(namespace []byte) wtdb.Queue[*wtdb.BackupID] {
 	return q
 }
 
+// DeleteCommittedUpdate deletes the committed update with the given sequence
+// number from the given session.
+func (m *ClientDB) DeleteCommittedUpdate(id *wtdb.SessionID,
+	seqNum uint16) error {
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Fail if session doesn't exist.
+	session, ok := m.activeSessions[*id]
+	if !ok {
+		return wtdb.ErrClientSessionNotFound
+	}
+
+	// Retrieve the committed update, failing if none is found.
+	updates := m.committedUpdates[session.ID]
+	for i, update := range updates {
+		if update.SeqNum != seqNum {
+			continue
+		}
+
+		// Remove the committed update from "disk".
+		updates = append(updates[:i], updates[i+1:]...)
+		m.committedUpdates[session.ID] = updates
+
+		return nil
+	}
+
+	return wtdb.ErrCommittedUpdateNotFound
+}
+
 // ListClosableSessions fetches and returns the IDs for all sessions marked as
 // closable.
 func (m *ClientDB) ListClosableSessions() (map[wtdb.SessionID]uint32, error) {

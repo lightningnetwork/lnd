@@ -1569,7 +1569,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			ChainHash:          *s.cfg.ActiveNetParams.GenesisHash,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
-			ForceQuitDelay:     wtclient.DefaultForceQuitDelay,
 			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
 		})
 		if err != nil {
@@ -1603,7 +1602,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			ChainHash:          *s.cfg.ActiveNetParams.GenesisHash,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
-			ForceQuitDelay:     wtclient.DefaultForceQuitDelay,
 			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
 		})
 		if err != nil {

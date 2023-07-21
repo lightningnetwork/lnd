@@ -148,6 +148,9 @@ unlock or create.
 * [Simplify fuzz tests](https://github.com/lightningnetwork/lnd/pull/7709)
   using the `require` package.
 
+* [Removed](https://github.com/lightningnetwork/lnd/pull/7854) need for an
+  active internet connection for the network connection itest.
+
 ## `lncli`
 
 * Added ability to use [ENV variables to override `lncli` global flags](https://github.com/lightningnetwork/lnd/pull/7693). Flags will have preference over ENVs.

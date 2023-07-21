@@ -17,14 +17,20 @@ import (
 // effect. It creates a node with a small connection timeout value, and
 // connects it to a non-routable IP address.
 func testNetworkConnectionTimeout(ht *lntest.HarnessTest) {
+	// Bind to a random port on localhost but never actually accept any
+	// connections. This makes any connection attempts timeout.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(ht, err)
+	defer l.Close()
+
 	var (
 		// testPub is a random public key for testing only.
 		testPub = "0332bda7da70fefe4b6ab92f53b3c4f4ee7999" +
 			"f312284a8e89c8670bb3f67dbee2"
 
-		// testHost is a reachable IP address with an unreachable port
-		// that's used for testing only.
-		testHost = "lightning.engineering:81"
+		// testHost is the previously bound address that will never
+		// accept any conns.
+		testHost = l.Addr().String()
 	)
 
 	// First, test the global timeout settings.
@@ -62,7 +68,7 @@ func testNetworkConnectionTimeout(ht *lntest.HarnessTest) {
 	dave := ht.NewNode("Dave", nil)
 
 	// Try to connect Dave to a non-routable IP address, using a timeout
-	// value of 1ms, which should give us a timeout error immediately.
+	// value of 1s, which should give us a timeout error immediately.
 	req = &lnrpc.ConnectPeerRequest{
 		Addr: &lnrpc.LightningAddress{
 			Pubkey: testPub,

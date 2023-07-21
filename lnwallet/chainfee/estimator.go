@@ -311,6 +311,8 @@ type BitcoindEstimator struct {
 	// to "CONSERVATIVE".
 	feeMode string
 
+	// TODO(ziggie): introduce an interface for the client to enhance
+	// testability of the estimator.
 	bitcoindConn *rpcclient.Client
 }
 
@@ -472,6 +474,13 @@ func (b *BitcoindEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, err
 		return 0, err
 	}
 
+	// Bitcoind will not report any fee estimation if it has not enough
+	// data available hence the fee will remain zero. We return an error
+	// here to make sure that we do not use the min relay fee instead.
+	if satPerKB == 0 {
+		return 0, fmt.Errorf("fee estimation data not available yet")
+	}
+
 	// Since we use fee rates in sat/kw internally, we'll convert the
 	// estimated fee rate from its sat/kb representation to sat/kw.
 	satPerKw := SatPerKVByte(satPerKB).FeePerKWeight()
@@ -479,14 +488,14 @@ func (b *BitcoindEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, err
 	// Finally, we'll enforce our fee floor.
 	minRelayFee := b.minFeeManager.fetchMinFee()
 	if satPerKw < minRelayFee {
-		log.Debugf("Estimated fee rate of %v sat/kw is too low, "+
-			"using fee floor of %v sat/kw instead", satPerKw,
+		log.Debugf("Estimated fee rate of %v is too low, "+
+			"using fee floor of %v instead", satPerKw,
 			minRelayFee)
 
 		satPerKw = minRelayFee
 	}
 
-	log.Debugf("Returning %v sat/kw for conf target of %v",
+	log.Debugf("Returning %v for conf target of %v",
 		int64(satPerKw), confTarget)
 
 	return satPerKw, nil

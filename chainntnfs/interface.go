@@ -820,4 +820,8 @@ type MempoolWatcher interface {
 	// CancelMempoolSpendEvent allows the caller to cancel a subscription to
 	// watch for a spend of an outpoint in the mempool.
 	CancelMempoolSpendEvent(sub *MempoolSpendEvent)
+
+	// Recursively query each ancestor until there are no more ancestors.
+	// This implementation assumes all ancestor transactions are in the mempool.
+	GetAllAncestors(txid chainhash.Hash) ([]*btcjson.GetMempoolEntryResult, error)
 }

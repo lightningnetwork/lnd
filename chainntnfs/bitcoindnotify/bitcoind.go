@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/queue"
@@ -74,6 +75,10 @@ type BitcoindNotifier struct {
 
 	wg   sync.WaitGroup
 	quit chan struct{}
+
+	Client *rpcclient.Client
+
+	Mempool map[chainhash.Hash]btcjson.GetRawMempoolVerboseResult
 }
 
 // Ensure BitcoindNotifier implements the ChainNotifier interface at compile
@@ -1060,4 +1065,59 @@ func (b *BitcoindNotifier) CancelMempoolSpendEvent(
 	sub *chainntnfs.MempoolSpendEvent) {
 
 	b.memNotifier.UnsubscribeEvent(sub)
+}
+
+// Recursively query each ancestor until there are no more ancestors
+// This implementation assumes all ancestor transactions are in the mempool
+func (b *BitcoindNotifier) GetAllAncestors(txid chainhash.Hash) ([]*btcjson.GetMempoolEntryResult, error) {
+	// Get all transactions of mempool
+	mempool, err := b.Client.GetRawMempool()
+	if err != nil {
+		return nil, err
+	}
+
+	// Determine whether the transaction to be queried is in the memory pool
+	var entry *btcjson.GetMempoolEntryResult
+	for _, tx := range mempool {
+		if tx == &txid {
+		entry, err = b.Client.GetMempoolEntry(txid.String())
+		if err != nil {
+			return nil, err
+		}
+		break
+		}
+	}
+
+	// Returns an error if the transaction is not in the mempool
+	if entry == nil {
+		return nil, fmt.Errorf("transaction not found in mempool")
+	}
+
+	// Create an empty list of ancestors
+	ancestors := []*btcjson.GetMempoolEntryResult{}
+
+	// Get all ancestors recursively
+	for _, ancestorTxidStr := range entry.Depends {
+		ancestorTxid, err := chainhash.NewHashFromStr(ancestorTxidStr)
+		if err != nil {
+		return nil, err
+		}
+
+		ancestorEntry, err := b.Client.GetMempoolEntry(ancestorTxid.String())
+		if err != nil {
+		return nil, err
+		}
+
+		ancestors = append(ancestors, ancestorEntry)
+
+		// Recursively get all ancestors of this ancestor
+		moreAncestors, err := b.GetAllAncestors(*ancestorTxid)
+		if err != nil {
+		return nil, err
+		}
+
+		ancestors = append(ancestors, moreAncestors...)
+	}
+
+	return ancestors, nil
 }

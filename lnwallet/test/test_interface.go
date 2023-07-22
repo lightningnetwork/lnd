@@ -1685,6 +1685,30 @@ func newTx(t *testing.T, r *rpctest.Harness, pubKey *btcec.PublicKey,
 	return tx1
 }
 
+// testGetTransactionDetails checks that GetTransactionDetails returns the
+// correct amount after a transaction has been sent from alice to bob.
+func testGetTransactionDetails(r *rpctest.Harness,
+	alice, bob *lnwallet.LightningWallet, t *testing.T) {
+
+	const txFee = int64(14500)
+
+	bobPkScript := newPkScript(t, bob, lnwallet.WitnessPubKey)
+	txFeeRate := chainfee.SatPerKWeight(2500)
+	amountSats := btcutil.Amount(btcutil.SatoshiPerBitcoin - txFee)
+	output := &wire.TxOut{
+		Value:    int64(amountSats),
+		PkScript: bobPkScript,
+	}
+	tx := sendCoins(t, r, alice, bob, output, txFeeRate, true, 1)
+	txHash := tx.TxHash()
+	assertTxInWallet(t, alice, txHash, true)
+	assertTxInWallet(t, bob, txHash, true)
+
+	txDetails, err := bob.GetTransactionDetails(&txHash)
+	require.NoError(t, err, "unable to receive transaction details")
+	require.Equal(t, txDetails.Value, amountSats, "tx value")
+}
+
 // testPublishTransaction checks that PublishTransaction returns the expected
 // error types in case the transaction being published conflicts with the
 // current mempool or chain.
@@ -2793,6 +2817,10 @@ var walletTests = []walletTestCase{
 	{
 		name: "transaction details",
 		test: testListTransactionDetails,
+	},
+	{
+		name: "get transaction details",
+		test: testGetTransactionDetails,
 	},
 	{
 		name: "publish transaction",

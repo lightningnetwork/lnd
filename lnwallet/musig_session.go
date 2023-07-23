@@ -2,15 +2,12 @@ package lnwallet
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
 	"fmt"
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
@@ -19,17 +16,18 @@ import (
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
-// commitType is an enum that denotes if this is the local or remote
+// MusigCommitType is an enum that denotes if this is the local or remote
 // commitment.
-type commitType uint8
+type MusigCommitType uint8
 
 const (
-	// localCommit denotes that this a session for the local commitment.
-	localCommit commitType = iota
-
-	// remoteCommit denotes that this is a session for the remote
+	// LocalMusigCommit denotes that this a session for the local
 	// commitment.
-	remoteCommit
+	LocalMusigCommit MusigCommitType = iota
+
+	// RemoteMusigCommit denotes that this is a session for the remote
+	// commitment.
+	RemoteMusigCommit
 )
 
 var (
@@ -198,7 +196,7 @@ type MusigSession struct {
 
 	// commitType tracks if this is the session for the local or remote
 	// commitment.
-	commitType commitType
+	commitType MusigCommitType
 }
 
 // NewPartialMusigSession creates a new musig2 session given only the
@@ -207,7 +205,7 @@ type MusigSession struct {
 func NewPartialMusigSession(verificationNonce musig2.Nonces,
 	localKey, remoteKey keychain.KeyDescriptor,
 	signer input.MuSig2Signer, inputTxOut *wire.TxOut,
-	commitType commitType) *MusigSession {
+	commitType MusigCommitType) *MusigSession {
 
 	signerKeys := []*btcec.PublicKey{localKey.PubKey, remoteKey.PubKey}
 
@@ -243,7 +241,7 @@ func (m *MusigSession) FinalizeSession(signingNonce musig2.Nonces) error {
 	// If we're making a session for the remote commitment, then the nonce
 	// we use to sign is actually will be the signing nonce for the
 	// session, and their nonce the verification nonce.
-	case remoteCommit:
+	case RemoteMusigCommit:
 		localNonce = m.nonces.SigningNonce
 		remoteNonce = m.nonces.VerificationNonce
 
@@ -251,7 +249,7 @@ func (m *MusigSession) FinalizeSession(signingNonce musig2.Nonces) error {
 	// commitment (to broadcast), so now our verification nonce is the one
 	// we've already generated, and we want to bind their new signing
 	// nonce.
-	case localCommit:
+	case LocalMusigCommit:
 		localNonce = m.nonces.VerificationNonce
 		remoteNonce = m.nonces.SigningNonce
 	}
@@ -307,7 +305,7 @@ func (m *MusigSession) SignCommit(tx *wire.MsgTx) (*MusigPartialSig, error) {
 	switch {
 	// If we already have a session, then we don't need to finalize as this
 	// was done up front (symmetric nonce case, like for co-op close).
-	case m.session == nil && m.commitType == remoteCommit:
+	case m.session == nil && m.commitType == RemoteMusigCommit:
 		// Before we can sign a new commitment, we'll need to generate
 		// a fresh nonce that'll be sent along side our signature. With
 		// the nonce in hand, we can finalize the session.
@@ -407,6 +405,23 @@ func WithLocalCounterNonce(targetHeight uint64,
 	}
 }
 
+// invalidPartialSigError is used to return additional debug information to a
+// caller that encounters an invalid partial sig.
+type invalidPartialSigError struct {
+	partialSig        []byte
+	sigHash           []byte
+	signingNonce      [musig2.PubNonceSize]byte
+	verificationNonce [musig2.PubNonceSize]byte
+}
+
+// Error returns the error string for the partial sig error.
+func (i invalidPartialSigError) Error() string {
+	return fmt.Sprintf("invalid partial sig: partial_sig=%x, "+
+		"sig_hash=%x, signing_nonce=%x, verification_nonce=%x",
+		i.partialSig, i.sigHash, i.signingNonce[:],
+		i.verificationNonce[:])
+}
+
 // VerifyCommitSig attempts to verify the passed partial signature against the
 // passed commitment transaction. A keyspend sighash is assumed to generate the
 // signed message. As we never re-use nonces, a new verification nonce (our
@@ -449,8 +464,17 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 	walletLog.Infof("Verifying new musig2 sig for session=%x, nonce=%s",
 		m.session.SessionID[:], m.nonces.String())
 
+	if partialSig == nil {
+		return nil, fmt.Errorf("partial sig not set")
+	}
+
 	if !partialSig.Verify(sigHash, m.remoteKey.PubKey) {
-		return nil, fmt.Errorf("invalid partial commit sig")
+		return nil, &invalidPartialSigError{
+			partialSig:        partialSig.Serialize(),
+			sigHash:           sigHash,
+			verificationNonce: m.nonces.VerificationNonce.PubNonce,
+			signingNonce:      m.nonces.SigningNonce.PubNonce,
+		}
 	}
 
 	nonceOpts := []musig2.NonceGenOption{
@@ -535,11 +559,11 @@ func NewMusigPairSession(cfg *MusigSessionCfg) *MusigPairSession {
 	// the local+remote party.
 	localSession := NewPartialMusigSession(
 		cfg.LocalNonce, cfg.LocalKey, cfg.RemoteKey,
-		cfg.Signer, cfg.InputTxOut, localCommit,
+		cfg.Signer, cfg.InputTxOut, LocalMusigCommit,
 	)
 	remoteSession := NewPartialMusigSession(
 		cfg.RemoteNonce, cfg.LocalKey, cfg.RemoteKey,
-		cfg.Signer, cfg.InputTxOut, remoteCommit,
+		cfg.Signer, cfg.InputTxOut, RemoteMusigCommit,
 	)
 
 	return &MusigPairSession{
@@ -547,28 +571,4 @@ func NewMusigPairSession(cfg *MusigSessionCfg) *MusigPairSession {
 		RemoteSession: remoteSession,
 		signer:        cfg.Signer,
 	}
-}
-
-var (
-	// taprootRevRootKey is the key used to derive the revocation root for
-	// the taproot nonces. This is done via HMAC of the existing revocation
-	// root.
-	taprootRevRootKey = []byte("taproot-rev-root")
-)
-
-// deriveMusig2Shachain derives a shachain producer for the taproot channel
-// from normal shachain revocation root.
-func deriveMusig2Shachain(revRoot chainhash.Hash) (shachain.Producer, error) {
-	// For taproot channel types, we'll also generate a distinct shachain
-	// root using the same seed information. We'll use this to generate
-	// verification nonces for the channel. We'll bind with this a simple
-	// hmac.
-	taprootRevHmac := hmac.New(sha256.New, taprootRevRootKey)
-	taprootRevRoot := taprootRevHmac.Sum(nil)
-
-	// Once we have the root, we can then generate our shachain producer
-	// and from that generate the per-commitment point.
-	return shachain.NewRevocationProducerFromBytes(
-		taprootRevRoot,
-	)
 }

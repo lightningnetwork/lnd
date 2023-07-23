@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -25,8 +26,10 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 )
 
 var (
@@ -1317,7 +1320,54 @@ type LightningChannel struct {
 	// log is a channel-specific logging instance.
 	log btclog.Logger
 
+	// taprootNonceProducer is used to generate a shachain tree for the
+	// purpose of generating verification nonces for taproot channels.
+	taprootNonceProducer shachain.Producer
+
+	// musigSessions holds the current musig2 pair session for the channel.
+	musigSessions *MusigPairSession
+
+	// pendingVerificationNonce is the initial verification nonce generated
+	// for musig2 channels when the state machine is intiated. Once we know
+	// the verification nonce of the remote party, then we can start to use
+	// the channel as normal.
+	pendingVerificationNonce *musig2.Nonces
+
+	// fundingOutput is the funding output (script+value).
+	fundingOutput wire.TxOut
+
 	sync.RWMutex
+}
+
+// ChannelOpt is a functional option that lets callers modify how a new channel
+// is created.
+type ChannelOpt func(*channelOpts)
+
+// WithLocalMusigNonces is used to bind an existing verification/local nonce to
+// a new channel.
+func WithLocalMusigNonces(nonce *musig2.Nonces) ChannelOpt {
+	return func(o *channelOpts) {
+		o.localNonce = nonce
+	}
+}
+
+// WithRemoteMusigNonces is used to bind the remote party's local/verification
+// nonce to a new channel.
+func WithRemoteMusigNonces(nonces *musig2.Nonces) ChannelOpt {
+	return func(o *channelOpts) {
+		o.remoteNonce = nonces
+	}
+}
+
+// channelOpts is the set of options used to create a new channel.
+type channelOpts struct {
+	localNonce  *musig2.Nonces
+	remoteNonce *musig2.Nonces
+}
+
+// defaultChannelOpts returns the set of default options for a new channel.
+func defaultChannelOpts() *channelOpts {
+	return &channelOpts{}
 }
 
 // NewLightningChannel creates a new, active payment channel given an
@@ -1327,7 +1377,12 @@ type LightningChannel struct {
 // manner.
 func NewLightningChannel(signer input.Signer,
 	state *channeldb.OpenChannel,
-	sigPool *SigPool) (*LightningChannel, error) {
+	sigPool *SigPool, chanOpts ...ChannelOpt) (*LightningChannel, error) {
+
+	opts := defaultChannelOpts()
+	for _, optFunc := range chanOpts {
+		optFunc(opts)
+	}
 
 	localCommit := state.LocalCommitment
 	remoteCommit := state.RemoteCommitment
@@ -1343,26 +1398,46 @@ func NewLightningChannel(signer input.Signer,
 
 	logPrefix := fmt.Sprintf("ChannelPoint(%v):", state.FundingOutpoint)
 
+	taprootNonceProducer, err := channeldb.DeriveMusig2Shachain(
+		state.RevocationProducer,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to derive shachain: %w", err)
+	}
+
 	lc := &LightningChannel{
-		Signer:            signer,
-		sigPool:           sigPool,
-		currentHeight:     localCommit.CommitHeight,
-		remoteCommitChain: newCommitmentChain(),
-		localCommitChain:  newCommitmentChain(),
-		channelState:      state,
-		commitBuilder:     NewCommitmentBuilder(state),
-		localUpdateLog:    localUpdateLog,
-		remoteUpdateLog:   remoteUpdateLog,
-		ChanPoint:         &state.FundingOutpoint,
-		Capacity:          state.Capacity,
-		LocalFundingKey:   state.LocalChanCfg.MultiSigKey.PubKey,
-		RemoteFundingKey:  state.RemoteChanCfg.MultiSigKey.PubKey,
-		log:               build.NewPrefixLog(logPrefix, walletLog),
+		Signer:               signer,
+		sigPool:              sigPool,
+		currentHeight:        localCommit.CommitHeight,
+		remoteCommitChain:    newCommitmentChain(),
+		localCommitChain:     newCommitmentChain(),
+		channelState:         state,
+		commitBuilder:        NewCommitmentBuilder(state),
+		localUpdateLog:       localUpdateLog,
+		remoteUpdateLog:      remoteUpdateLog,
+		ChanPoint:            &state.FundingOutpoint,
+		Capacity:             state.Capacity,
+		LocalFundingKey:      state.LocalChanCfg.MultiSigKey.PubKey,
+		RemoteFundingKey:     state.RemoteChanCfg.MultiSigKey.PubKey,
+		taprootNonceProducer: taprootNonceProducer,
+		log:                  build.NewPrefixLog(logPrefix, walletLog),
+	}
+
+	// At this point, we may already have nonces that were passed in, so
+	// we'll check that now as this lets us skip some steps later.
+	if opts.localNonce != nil {
+		lc.pendingVerificationNonce = opts.localNonce
+	}
+	if lc.pendingVerificationNonce != nil && opts.remoteNonce != nil {
+		err := lc.InitRemoteMusigNonces(opts.remoteNonce)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// With the main channel struct reconstructed, we'll now restore the
 	// commitment state in memory and also the update logs themselves.
-	err := lc.restoreCommitState(&localCommit, &remoteCommit)
+	err = lc.restoreCommitState(&localCommit, &remoteCommit)
 	if err != nil {
 		return nil, err
 	}
@@ -1380,29 +1455,48 @@ func NewLightningChannel(signer input.Signer,
 // createSignDesc derives the SignDescriptor for commitment transactions from
 // other fields on the LightningChannel.
 func (lc *LightningChannel) createSignDesc() error {
-	localKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-	remoteKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
 
-	multiSigScript, err := input.GenMultiSigScript(localKey, remoteKey)
-	if err != nil {
-		return err
+	var (
+		fundingPkScript, multiSigScript []byte
+		err                             error
+	)
+
+	chanState := lc.channelState
+	localKey := chanState.LocalChanCfg.MultiSigKey.PubKey
+	remoteKey := chanState.RemoteChanCfg.MultiSigKey.PubKey
+
+	if chanState.ChanType.IsTaproot() {
+		fundingPkScript, _, err = input.GenTaprootFundingScript(
+			localKey, remoteKey, int64(lc.channelState.Capacity),
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		multiSigScript, err = input.GenMultiSigScript(
+			localKey.SerializeCompressed(),
+			remoteKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return err
+		}
+
+		fundingPkScript, err = input.WitnessScriptHash(multiSigScript)
+		if err != nil {
+			return err
+		}
 	}
 
-	fundingPkScript, err := input.WitnessScriptHash(multiSigScript)
-	if err != nil {
-		return err
+	lc.fundingOutput = wire.TxOut{
+		PkScript: fundingPkScript,
+		Value:    int64(lc.channelState.Capacity),
 	}
 	lc.signDesc = &input.SignDescriptor{
 		KeyDesc:       lc.channelState.LocalChanCfg.MultiSigKey,
 		WitnessScript: multiSigScript,
-		Output: &wire.TxOut{
-			PkScript: fundingPkScript,
-			Value:    int64(lc.channelState.Capacity),
-		},
-		HashType:   txscript.SigHashAll,
-		InputIndex: 0,
+		Output:        &lc.fundingOutput,
+		HashType:      txscript.SigHashAll,
+		InputIndex:    0,
 	}
 
 	return nil
@@ -3219,7 +3313,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 
 		// If the HTLC isn't dust, then we'll create an empty sign job
 		// to add to the batch momentarily.
-		sigJob := SignJob{}
+		var sigJob SignJob
 		sigJob.Cancel = cancelChan
 		sigJob.Resp = make(chan SignJobResp, 1)
 
@@ -3246,20 +3340,34 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			return nil, nil, err
 		}
 
+		// Construct a full hash cache as we may be signing a segwit v1
+		// sighash.
+		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
+		prevFetcher := txscript.NewCannedPrevOutputFetcher(
+			txOut.PkScript, int64(htlc.Amount.ToSatoshis()),
+		)
+		hashCache := txscript.NewTxSigHashes(sigJob.Tx, prevFetcher)
+
 		// Finally, we'll generate a sign descriptor to generate a
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
-		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
 		sigJob.SignDesc = input.SignDescriptor{
-			KeyDesc:       localChanCfg.HtlcBasePoint,
-			SingleTweak:   keyRing.LocalHtlcKeyTweak,
-			WitnessScript: htlc.theirWitnessScript,
-			Output:        txOut,
-			HashType:      sigHashType,
-			SigHashes:     input.NewTxSigHashesV0Only(sigJob.Tx),
-			InputIndex:    0,
+			KeyDesc:           localChanCfg.HtlcBasePoint,
+			SingleTweak:       keyRing.LocalHtlcKeyTweak,
+			WitnessScript:     htlc.theirWitnessScript,
+			Output:            txOut,
+			PrevOutputFetcher: prevFetcher,
+			HashType:          sigHashType,
+			SigHashes:         hashCache,
+			InputIndex:        0,
 		}
 		sigJob.OutputIndex = htlc.remoteOutputIndex
+
+		// If this is a taproot channel, then we'll need to set the
+		// method type to ensure we generate a valid signature.
+		if chanType.IsTaproot() {
+			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod //nolint:lll
+		}
 
 		sigBatch = append(sigBatch, sigJob)
 	}
@@ -3300,20 +3408,34 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 			return nil, nil, err
 		}
 
+		// Construct a full hash cache as we may be signing a segwit v1
+		// sighash.
+		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
+		prevFetcher := txscript.NewCannedPrevOutputFetcher(
+			txOut.PkScript, int64(htlc.Amount.ToSatoshis()),
+		)
+		hashCache := txscript.NewTxSigHashes(sigJob.Tx, prevFetcher)
+
 		// Finally, we'll generate a sign descriptor to generate a
 		// signature to give to the remote party for this commitment
 		// transaction. Note we use the raw HTLC amount.
-		txOut := remoteCommitView.txn.TxOut[htlc.remoteOutputIndex]
 		sigJob.SignDesc = input.SignDescriptor{
-			KeyDesc:       localChanCfg.HtlcBasePoint,
-			SingleTweak:   keyRing.LocalHtlcKeyTweak,
-			WitnessScript: htlc.theirWitnessScript,
-			Output:        txOut,
-			HashType:      sigHashType,
-			SigHashes:     input.NewTxSigHashesV0Only(sigJob.Tx),
-			InputIndex:    0,
+			KeyDesc:           localChanCfg.HtlcBasePoint,
+			SingleTweak:       keyRing.LocalHtlcKeyTweak,
+			WitnessScript:     htlc.theirWitnessScript,
+			Output:            txOut,
+			PrevOutputFetcher: prevFetcher,
+			HashType:          sigHashType,
+			SigHashes:         hashCache,
+			InputIndex:        0,
 		}
 		sigJob.OutputIndex = htlc.remoteOutputIndex
+
+		// If this is a taproot channel, then we'll need to set the
+		// method type to ensure we generate a valid signature.
+		if chanType.IsTaproot() {
+			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod //nolint:lll
+		}
 
 		sigBatch = append(sigBatch, sigJob)
 	}
@@ -3718,6 +3840,34 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 	return nil
 }
 
+// CommitSigs holds the set of related signatures for a new commitment
+// transaction state.
+type CommitSigs struct {
+	// CommitSig is the normal commitment signature. This will only be a
+	// non-zero commitment signature for non-taproot channels.
+	CommitSig lnwire.Sig
+
+	// HtlcSigs is the set of signatures for all HTLCs in the commitment
+	// transaction. Depending on the channel type, these will either be
+	// ECDSA or Schnorr signatures.
+	HtlcSigs []lnwire.Sig
+
+	// PartialSig is the musig2 partial signature for taproot commitment
+	// transactions.
+	PartialSig *lnwire.PartialSigWithNonce
+}
+
+// NewCommitState wraps the various signatures needed to properly
+// propose/accept a new commitment state. This includes the signer's nonce for
+// musig2 channels.
+type NewCommitState struct {
+	*CommitSigs
+
+	// PendingHTLCs is the set of new/pending HTLCs produced by this
+	// commitment state.
+	PendingHTLCs []channeldb.HTLC
+}
+
 // SignNextCommitment signs a new commitment which includes any previous
 // unsettled HTLCs, any new HTLCs, and any modifications to prior HTLCs
 // committed in previous commitment updates. Signing a new commitment
@@ -3729,9 +3879,7 @@ func (lc *LightningChannel) validateCommitmentSanity(theirLogCounter,
 // any). The HTLC signatures are sorted according to the BIP 69 order of the
 // HTLC's on the commitment transaction. Finally, the new set of pending HTLCs
 // for the remote party's commitment are also returned.
-func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
-	[]channeldb.HTLC, error) {
-
+func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -3744,8 +3892,9 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 	}
 
 	var (
-		sig      lnwire.Sig
-		htlcSigs []lnwire.Sig
+		sig        lnwire.Sig
+		partialSig *lnwire.PartialSigWithNonce
+		htlcSigs   []lnwire.Sig
 	)
 
 	// If we're awaiting for an ACK to a commitment signature, or if we
@@ -3757,7 +3906,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 	if unacked || commitPoint == nil {
 		lc.log.Tracef("waiting for remote ack=%v, nil "+
 			"RemoteNextRevocation: %v", unacked, commitPoint == nil)
-		return sig, htlcSigs, nil, ErrNoWindow
+		return nil, ErrNoWindow
 	}
 
 	// Determine the last update on the remote log that has been locked in.
@@ -3772,7 +3921,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 		remoteACKedIndex, lc.localUpdateLog.logIndex, true, nil, nil,
 	)
 	if err != nil {
-		return sig, htlcSigs, nil, err
+		return nil, err
 	}
 
 	// Grab the next commitment point for the remote party. This will be
@@ -3795,7 +3944,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 		remoteACKedIndex, remoteHtlcIndex, keyRing,
 	)
 	if err != nil {
-		return sig, htlcSigs, nil, err
+		return nil, err
 	}
 
 	lc.log.Tracef("extending remote chain to height %v, "+
@@ -3826,23 +3975,45 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 		&lc.channelState.RemoteChanCfg, newCommitView,
 	)
 	if err != nil {
-		return sig, htlcSigs, nil, err
+		return nil, err
 	}
 	lc.sigPool.SubmitSignBatch(sigBatch)
 
 	// While the jobs are being carried out, we'll Sign their version of
 	// the new commitment transaction while we're waiting for the rest of
 	// the HTLC signatures to be processed.
-	lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(newCommitView.txn)
-	rawSig, err := lc.Signer.SignOutputRaw(newCommitView.txn, lc.signDesc)
-	if err != nil {
-		close(cancelChan)
-		return sig, htlcSigs, nil, err
-	}
-	sig, err = lnwire.NewSigFromSignature(rawSig)
-	if err != nil {
-		close(cancelChan)
-		return sig, htlcSigs, nil, err
+	//
+	// TODO(roasbeef): abstract into CommitSigner interface?
+	if lc.channelState.ChanType.IsTaproot() {
+		// In this case, we'll send out a partial signature as this is
+		// a musig2 channel. The encoded normal ECDSA signature will be
+		// just blank.
+		remoteSession := lc.musigSessions.RemoteSession
+		musig, err := remoteSession.SignCommit(
+			newCommitView.txn,
+		)
+		if err != nil {
+			close(cancelChan)
+			return nil, err
+		}
+
+		partialSig = musig.ToWireSig()
+	} else {
+		lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(
+			newCommitView.txn,
+		)
+		rawSig, err := lc.Signer.SignOutputRaw(
+			newCommitView.txn, lc.signDesc,
+		)
+		if err != nil {
+			close(cancelChan)
+			return nil, err
+		}
+		sig, err = lnwire.NewSigFromSignature(rawSig)
+		if err != nil {
+			close(cancelChan)
+			return nil, err
+		}
 	}
 
 	// We'll need to send over the signatures to the remote party in the
@@ -3862,7 +4033,7 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 		// jobs.
 		if jobResp.Err != nil {
 			close(cancelChan)
-			return sig, htlcSigs, nil, jobResp.Err
+			return nil, jobResp.Err
 		}
 
 		htlcSigs = append(htlcSigs, jobResp.Sig)
@@ -3873,11 +4044,11 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 	// can retransmit it if necessary.
 	commitDiff, err := lc.createCommitDiff(newCommitView, sig, htlcSigs)
 	if err != nil {
-		return sig, htlcSigs, nil, err
+		return nil, err
 	}
 	err = lc.channelState.AppendRemoteCommitChain(commitDiff)
 	if err != nil {
-		return sig, htlcSigs, nil, err
+		return nil, err
 	}
 
 	// TODO(roasbeef): check that one eclair bug
@@ -3888,7 +4059,14 @@ func (lc *LightningChannel) SignNextCommitment() (lnwire.Sig, []lnwire.Sig,
 	// latest commitment update.
 	lc.remoteCommitChain.addCommitment(newCommitView)
 
-	return sig, htlcSigs, commitDiff.Commitment.Htlcs, nil
+	return &NewCommitState{
+		CommitSigs: &CommitSigs{
+			CommitSig:  sig,
+			HtlcSigs:   htlcSigs,
+			PartialSig: partialSig,
+		},
+		PendingHTLCs: commitDiff.Commitment.Htlcs,
+	}, nil
 }
 
 // ProcessChanSyncMsg processes a ChannelReestablish message sent by the remote
@@ -3952,6 +4130,25 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			lc.log.Errorf("sync failed: remote provided invalid " +
 				"commit secret!")
 			return nil, nil, nil, ErrInvalidLastCommitSecret
+		}
+	}
+
+	// If this is a taproot channel, then we expect that the remote party
+	// has sent the next verification nonce. If they haven't, then we'll
+	// bail out, otherwise we'll init our local session then continue as
+	// normal.
+	switch {
+	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce == nil:
+		return nil, nil, nil, fmt.Errorf("remote verification nonce " +
+			"not sent")
+
+	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce != nil:
+		err := lc.InitRemoteMusigNonces(&musig2.Nonces{
+			PubNonce: *msg.LocalNonce,
+		})
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("unable to init "+
+				"remote nonce: %w", err)
 		}
 	}
 
@@ -4032,12 +4229,12 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			"while we have %v, we owe them a revocation",
 			msg.RemoteCommitTailHeight, localTailHeight)
 
-		revocationMsg, err := lc.generateRevocation(
-			localTailHeight - 1,
-		)
+		heightToRetransmit := localTailHeight - 1
+		revocationMsg, err := lc.generateRevocation(heightToRetransmit)
 		if err != nil {
 			return nil, nil, nil, err
 		}
+
 		updates = append(updates, revocationMsg)
 
 		// Next, as a precaution, we'll check a special edge case. If
@@ -4046,19 +4243,22 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// revocation, but also initiate a state transition to re-sync
 		// them.
 		if lc.OweCommitment() {
-			commitSig, htlcSigs, _, err := lc.SignNextCommitment()
+			newCommit, err := lc.SignNextCommitment()
 			switch {
 
 			// If we signed this state, then we'll accumulate
 			// another update to send over.
 			case err == nil:
-				updates = append(updates, &lnwire.CommitSig{
+				commitSig := &lnwire.CommitSig{
 					ChanID: lnwire.NewChanIDFromOutPoint(
 						&lc.channelState.FundingOutpoint,
 					),
-					CommitSig: commitSig,
-					HtlcSigs:  htlcSigs,
-				})
+					CommitSig:  newCommit.CommitSig,
+					HtlcSigs:   newCommit.HtlcSigs,
+					PartialSig: newCommit.PartialSig,
+				}
+
+				updates = append(updates, commitSig)
 
 			// If we get a failure due to not knowing their next
 			// point, then this is fine as they'll either send
@@ -4138,6 +4338,9 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 		// With the batch of updates accumulated, we'll now re-send the
 		// original CommitSig message required to re-sync their remote
 		// commitment chain with our local version of their chain.
+		//
+		// TODO(roasbeef): need to re-sign commitment states w/
+		// fresh nonce
 		commitUpdates = append(commitUpdates, commitDiff.CommitSig)
 
 		// NOTE: If a revocation is not owed, then updates is empty.
@@ -4366,11 +4569,33 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 					return nil, err
 				}
 
+				htlcAmt := int64(htlc.Amount.ToSatoshis())
+
+				if chanType.IsTaproot() {
+					// TODO(roasbeef): add abstraction in
+					// front
+					prevFetcher := txscript.NewCannedPrevOutputFetcher( //nolint:lll
+						htlc.ourPkScript, htlcAmt,
+					)
+					hashCache := txscript.NewTxSigHashes(
+						successTx, prevFetcher,
+					)
+					tapLeaf := txscript.NewBaseTapLeaf(
+						htlc.ourWitnessScript,
+					)
+
+					return txscript.CalcTapscriptSignaturehash( //nolint:lll
+						hashCache, sigHashType,
+						successTx, 0, prevFetcher,
+						tapLeaf,
+					)
+				}
+
 				hashCache := input.NewTxSigHashesV0Only(successTx)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
 					sigHashType, successTx, 0,
-					int64(htlc.Amount.ToSatoshis()),
+					htlcAmt,
 				)
 				if err != nil {
 					return nil, err
@@ -4383,6 +4608,13 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 			if i >= len(htlcSigs) {
 				return nil, fmt.Errorf("not enough HTLC " +
 					"signatures")
+			}
+
+			// If this is a taproot channel, then we'll convert it
+			// to a schnorr signature, so we can get correct type
+			// from ToSignature below.
+			if chanType.IsTaproot() {
+				htlcSigs[i].ForceSchnorr()
 			}
 
 			// With the sighash generated, we'll also store the
@@ -4414,18 +4646,43 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				timeoutTx, err := CreateHtlcTimeoutTx(
 					chanType, isLocalInitiator, op,
 					outputAmt, htlc.Timeout,
-					uint32(localChanCfg.CsvDelay), leaseExpiry,
-					keyRing.RevocationKey, keyRing.ToLocalKey,
+					uint32(localChanCfg.CsvDelay),
+					leaseExpiry, keyRing.RevocationKey,
+					keyRing.ToLocalKey,
 				)
 				if err != nil {
 					return nil, err
 				}
 
-				hashCache := input.NewTxSigHashesV0Only(timeoutTx)
+				htlcAmt := int64(htlc.Amount.ToSatoshis())
+
+				if chanType.IsTaproot() {
+					// TODO(roasbeef): add abstraction in
+					// front
+					prevFetcher := txscript.NewCannedPrevOutputFetcher( //nolint:lll
+						htlc.ourPkScript, htlcAmt,
+					)
+					hashCache := txscript.NewTxSigHashes(
+						timeoutTx, prevFetcher,
+					)
+					tapLeaf := txscript.NewBaseTapLeaf(
+						htlc.ourWitnessScript,
+					)
+
+					return txscript.CalcTapscriptSignaturehash( //nolint:lll
+						hashCache, sigHashType,
+						timeoutTx, 0, prevFetcher,
+						tapLeaf,
+					)
+				}
+
+				hashCache := input.NewTxSigHashesV0Only(
+					timeoutTx,
+				)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
 					sigHashType, timeoutTx, 0,
-					int64(htlc.Amount.ToSatoshis()),
+					htlcAmt,
 				)
 				if err != nil {
 					return nil, err
@@ -4440,6 +4697,13 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 					"signatures")
 			}
 
+			// If this is a taproot channel, then we'll convert it
+			// to a schnorr signature, so we can get correct type
+			// from ToSignature below.
+			if chanType.IsTaproot() {
+				htlcSigs[i].ForceSchnorr()
+			}
+
 			// With the sighash generated, we'll also store the
 			// signature so it can be written to disk if this state
 			// is valid.
@@ -4447,6 +4711,7 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 			if err != nil {
 				return nil, err
 			}
+
 			htlc.sig = sig
 
 		default:
@@ -4500,6 +4765,22 @@ func (i *InvalidCommitSigError) Error() string {
 // error interface.
 var _ error = (*InvalidCommitSigError)(nil)
 
+// InvalidPartialCommitSigError is used when we encounter an invalid musig2
+// partial signature.
+type InvalidPartialCommitSigError struct {
+	InvalidCommitSigError
+
+	*invalidPartialSigError
+}
+
+// Error returns a detailed error string including the exact transaction that
+// caused an invalid partial commit sig signature.
+func (i *InvalidPartialCommitSigError) Error() string {
+	return fmt.Sprintf("rejected commitment: commit_height=%v, "+
+		"commit_tx=%x -- %v", i.commitHeight, i.commitTx,
+		i.invalidPartialSigError)
+}
+
 // InvalidHtlcSigError is a struct that implements the error interface to
 // report a failure to validate an htlc signature from a remote peer. We'll use
 // the items in this struct to generate a rich error message for the remote
@@ -4537,9 +4818,9 @@ var _ error = (*InvalidCommitSigError)(nil)
 // to our local commitment chain. Once we send a revocation for our prior
 // state, then this newly added commitment becomes our current accepted channel
 // state.
-func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
-	htlcSigs []lnwire.Sig) error {
-
+//
+//nolint:funlen
+func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -4610,30 +4891,15 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 		}),
 	)
 
-	// Construct the sighash of the commitment transaction corresponding to
-	// this newly proposed state update.
-	localCommitTx := localCommitmentView.txn
-	multiSigScript := lc.signDesc.WitnessScript
-	hashCache := input.NewTxSigHashesV0Only(localCommitTx)
-	sigHash, err := txscript.CalcWitnessSigHash(
-		multiSigScript, hashCache, txscript.SigHashAll,
-		localCommitTx, 0, int64(lc.channelState.Capacity),
-	)
-	if err != nil {
-		// TODO(roasbeef): fetchview has already mutated the HTLCs...
-		//  * need to either roll-back, or make pure
-		return err
-	}
-
 	// As an optimization, we'll generate a series of jobs for the worker
-	// pool to verify each of the HTLc signatures presented. Once
+	// pool to verify each of the HTLC signatures presented. Once
 	// generated, we'll submit these jobs to the worker pool.
 	var leaseExpiry uint32
 	if lc.channelState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = lc.channelState.ThawHeight
 	}
 	verifyJobs, err := genHtlcSigValidationJobs(
-		localCommitmentView, keyRing, htlcSigs,
+		localCommitmentView, keyRing, commitSigs.HtlcSigs,
 		lc.channelState.ChanType, lc.channelState.IsInitiator,
 		leaseExpiry, &lc.channelState.LocalChanCfg,
 		&lc.channelState.RemoteChanCfg,
@@ -4645,29 +4911,104 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	cancelChan := make(chan struct{})
 	verifyResps := lc.sigPool.SubmitVerifyBatch(verifyJobs, cancelChan)
 
+	localCommitTx := localCommitmentView.txn
+
 	// While the HTLC verification jobs are proceeding asynchronously,
 	// we'll ensure that the newly constructed commitment state has a valid
 	// signature.
-	verifyKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey
+	//
+	// To do that we'll, construct the sighash of the commitment
+	// transaction corresponding to this newly proposed state update.  If
+	// this is a taproot channel, then in order to validate the sighash,
+	// we'll need to call into the relevant tapscript methods.
+	if lc.channelState.ChanType.IsTaproot() {
+		localSession := lc.musigSessions.LocalSession
 
-	cSig, err := commitSig.ToSignature()
-	if err != nil {
-		return err
-	}
-	if !cSig.Verify(sigHash, verifyKey) {
-		close(cancelChan)
+		// As we want to ensure we never write nonces to disk, we'll
+		// use the shachain state to generate a nonce for our next
+		// local state. Similar to generateRevocation, we do height + 2
+		// (next height + 1) here, as this is for the _next_ local
+		// state, and we're about to accept height + 1.
+		localCtrNonce := WithLocalCounterNonce(
+			nextHeight+1, lc.taprootNonceProducer,
+		)
+		nextVerificationNonce, err := localSession.VerifyCommitSig(
+			localCommitTx, commitSigs.PartialSig, localCtrNonce,
+		)
+		if err != nil {
+			close(cancelChan)
 
-		// If we fail to validate their commitment signature, we'll
-		// generate a special error to send over the protocol. We'll
-		// include the exact signature and commitment we failed to
-		// verify against in order to aide debugging.
-		var txBytes bytes.Buffer
-		localCommitTx.Serialize(&txBytes)
-		return &InvalidCommitSigError{
-			commitHeight: nextHeight,
-			commitSig:    commitSig.ToSignatureBytes(),
-			sigHash:      sigHash,
-			commitTx:     txBytes.Bytes(),
+			var sigErr invalidPartialSigError
+			if errors.As(err, &sigErr) {
+				// If we fail to validate their commitment
+				// signature, we'll generate a special error to
+				// send over the protocol. We'll include the
+				// exact signature and commitment we failed to
+				// verify against in order to aide debugging.
+				var txBytes bytes.Buffer
+				_ = localCommitTx.Serialize(&txBytes)
+				return &InvalidPartialCommitSigError{
+					invalidPartialSigError: &sigErr,
+					InvalidCommitSigError: InvalidCommitSigError{ //nolint:lll
+						commitHeight: nextHeight,
+						commitTx:     txBytes.Bytes(),
+					},
+				}
+			}
+
+			return err
+		}
+
+		// Now that we have the next verification nonce for our local
+		// session, we'll refresh it to yield a new session we'll use
+		// for the next incoming signature.
+		newLocalSession, err := lc.musigSessions.LocalSession.Refresh(
+			nextVerificationNonce,
+		)
+		if err != nil {
+			return err
+		}
+		lc.musigSessions.LocalSession = newLocalSession
+	} else {
+		multiSigScript := lc.signDesc.WitnessScript
+		prevFetcher := txscript.NewCannedPrevOutputFetcher(
+			multiSigScript, int64(lc.channelState.Capacity),
+		)
+		hashCache := txscript.NewTxSigHashes(localCommitTx, prevFetcher)
+
+		sigHash, err := txscript.CalcWitnessSigHash(
+			multiSigScript, hashCache, txscript.SigHashAll,
+			localCommitTx, 0, int64(lc.channelState.Capacity),
+		)
+		if err != nil {
+			// TODO(roasbeef): fetchview has already mutated the
+			// HTLCs...  * need to either roll-back, or make pure
+			return err
+		}
+
+		verifyKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey
+
+		cSig, err := commitSigs.CommitSig.ToSignature()
+		if err != nil {
+			return err
+		}
+		if !cSig.Verify(sigHash, verifyKey) {
+			close(cancelChan)
+
+			// If we fail to validate their commitment signature,
+			// we'll generate a special error to send over the
+			// protocol. We'll include the exact signature and
+			// commitment we failed to verify against in order to
+			// aide debugging.
+			var txBytes bytes.Buffer
+			_ = localCommitTx.Serialize(&txBytes)
+
+			return &InvalidCommitSigError{
+				commitHeight: nextHeight,
+				commitSig:    commitSigs.CommitSig.ToSignatureBytes(), //nolint:lll
+				sigHash:      sigHash,
+				commitTx:     txBytes.Bytes(),
+			}
 		}
 	}
 
@@ -4704,8 +5045,21 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	}
 
 	// The signature checks out, so we can now add the new commitment to
-	// our local commitment chain.
-	localCommitmentView.sig = commitSig.ToSignatureBytes()
+	// our local commitment chain. For regular channels, we can just
+	// serialize the ECDSA sig. For taproot channels, we'll serialize the
+	// partial sig that includes the nonce that was used for signing.
+	if lc.channelState.ChanType.IsTaproot() {
+		var sigBytes [lnwire.PartialSigWithNonceLen]byte
+		b := bytes.NewBuffer(sigBytes[0:0])
+		if err := commitSigs.PartialSig.Encode(b); err != nil {
+			return err
+		}
+
+		localCommitmentView.sig = sigBytes[:]
+	} else {
+		localCommitmentView.sig = commitSigs.CommitSig.ToSignatureBytes() //nolint:lll
+	}
+
 	lc.localCommitChain.addCommitment(localCommitmentView)
 
 	return nil
@@ -5110,6 +5464,24 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
+	}
+
+	// Now that we have a new verification nonce from them, we can refresh
+	// our remote musig2 session which allows us to create another state.
+	if lc.channelState.ChanType.IsTaproot() {
+		if revMsg.LocalNonce == nil {
+			return nil, nil, nil, nil, fmt.Errorf("next " +
+				"revocation nonce not set")
+		}
+		newRemoteSession, err := lc.musigSessions.RemoteSession.Refresh(
+			&musig2.Nonces{
+				PubNonce: *revMsg.LocalNonce,
+			},
+		)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		lc.musigSessions.RemoteSession = newRemoteSession
 	}
 
 	// At this point, the revocation has been accepted, and we've rotated
@@ -5723,7 +6095,7 @@ func (lc *LightningChannel) RemoteUpfrontShutdownScript() lnwire.DeliveryAddress
 // AbsoluteThawHeight determines a frozen channel's absolute thaw height. If
 // the channel is not frozen, then 0 is returned.
 //
-// An error is returned if the channel is penidng, or is an unconfirmed zero
+// An error is returned if the channel is pending, or is an unconfirmed zero
 // conf channel.
 func (lc *LightningChannel) AbsoluteThawHeight() (uint32, error) {
 	return lc.channelState.AbsoluteThawHeight()
@@ -5737,30 +6109,103 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 	localCommit := lc.channelState.LocalCommitment
 	commitTx := localCommit.CommitTx.Copy()
 
-	theirSig, err := ecdsa.ParseDERSignature(localCommit.CommitSig)
-	if err != nil {
-		return nil, err
+	ourKey := lc.channelState.LocalChanCfg.MultiSigKey
+	theirKey := lc.channelState.RemoteChanCfg.MultiSigKey
+
+	var witness wire.TxWitness
+	switch {
+	// If this is a taproot channel, then we'll need to re-derive the nonce
+	// we need to generate a new signature
+	case lc.channelState.ChanType.IsTaproot():
+		// First, we'll need to re-derive the local nonce we sent to
+		// the remote party to create this musig session. We pass in
+		// the same height here as we're generating the nonce needed
+		// for the _current_ state.
+		localNonce, err := channeldb.NewMusigVerificationNonce(
+			ourKey.PubKey, lc.currentHeight,
+			lc.taprootNonceProducer,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Now that we have the local nonce, we'll re-create the musig
+		// session we had for this height.
+		musigSession := NewPartialMusigSession(
+			*localNonce, ourKey, theirKey, lc.Signer,
+			&lc.fundingOutput, LocalMusigCommit,
+		)
+
+		var remoteSig lnwire.PartialSigWithNonce
+		err = remoteSig.Decode(
+			bytes.NewReader(localCommit.CommitSig),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode remote "+
+				"partial sig: %w", err)
+		}
+
+		// Next, we'll manually finalize the session with the signing
+		// nonce we got from the remote party which is embedded in the
+		// signature we have.
+		err = musigSession.FinalizeSession(musig2.Nonces{
+			PubNonce: remoteSig.Nonce,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("unable to finalize musig "+
+				"session: %w", err)
+		}
+
+		// Now that the session has been finalized, we can generate our
+		// half of the signature for the state. We don't capture the
+		// sig as it's stored within the session.
+		if _, err := musigSession.SignCommit(commitTx); err != nil {
+			return nil, err
+		}
+
+		// The final step is now to combine this signature we generated
+		// above, with the remote party's signature. We only need to
+		// pass the remote sig, as the local sig was already cached in
+		// the session.
+		var partialSig MusigPartialSig
+		partialSig.FromWireSig(&remoteSig)
+		finalSig, err := musigSession.CombineSigs(partialSig.sig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to combine musig "+
+				"partial sigs: %w", err)
+		}
+
+		// The witness is the single keyspend schnorr sig.
+		witness = wire.TxWitness{
+			finalSig.Serialize(),
+		}
+
+	// Otherwise, the final witness we generate will be a normal p2wsh
+	// multi-sig spend.
+	default:
+		theirSig, err := ecdsa.ParseDERSignature(localCommit.CommitSig)
+		if err != nil {
+			return nil, err
+		}
+
+		// With this, we then generate the full witness so the caller
+		// can broadcast a fully signed transaction.
+		lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(commitTx)
+		ourSig, err := lc.Signer.SignOutputRaw(commitTx, lc.signDesc)
+		if err != nil {
+			return nil, err
+		}
+
+		// With the final signature generated, create the witness stack
+		// required to spend from the multi-sig output.
+		witness = input.SpendMultiSig(
+			lc.signDesc.WitnessScript,
+			ourKey.PubKey.SerializeCompressed(), ourSig,
+			theirKey.PubKey.SerializeCompressed(), theirSig,
+		)
 	}
 
-	// With this, we then generate the full witness so the caller can
-	// broadcast a fully signed transaction.
-	lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(commitTx)
-	ourSig, err := lc.Signer.SignOutputRaw(commitTx, lc.signDesc)
-	if err != nil {
-		return nil, err
-	}
-
-	// With the final signature generated, create the witness stack
-	// required to spend from the multi-sig output.
-	ourKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-	theirKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-
-	commitTx.TxIn[0].Witness = input.SpendMultiSig(
-		lc.signDesc.WitnessScript, ourKey,
-		ourSig, theirKey, theirSig,
-	)
+	commitTx.TxIn[0].Witness = witness
 
 	return commitTx, nil
 }
@@ -6657,6 +7102,30 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	}, nil
 }
 
+// chanCloseOpt is a functional option that can be used to modify the co-op
+// close process.
+type chanCloseOpt struct {
+	musigSession *MusigSession
+}
+
+// ChanCloseOpt is a closure type that cen be used to modify the set of default
+// options.
+type ChanCloseOpt func(*chanCloseOpt)
+
+// defaultCloseOpts is the default set of close options.
+func defaultCloseOpts() *chanCloseOpt {
+	return &chanCloseOpt{}
+}
+
+// WithCoopCloseMusigSession can be used to apply an existing musig2 session to
+// the cooperative close process. If specified, then a musig2 co-op close
+// (single sig keyspend) will be used.
+func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.musigSession = session
+	}
+}
+
 // CreateCloseProposal is used by both parties in a cooperative channel close
 // workflow to generate proposed close transactions and signatures. This method
 // should only be executed once all pending HTLCs (if any) on the channel have
@@ -6668,8 +7137,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 // TODO(roasbeef): caller should initiate signal to reject all incoming HTLCs,
 // settle any in flight.
 func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
-	localDeliveryScript []byte,
-	remoteDeliveryScript []byte) (input.Signature, *chainhash.Hash,
+	localDeliveryScript []byte, remoteDeliveryScript []byte,
+	closeOpts ...ChanCloseOpt) (input.Signature, *chainhash.Hash,
 	btcutil.Amount, error) {
 
 	lc.Lock()
@@ -6679,6 +7148,11 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, nil, 0, ErrChanClosing
+	}
+
+	opts := defaultCloseOpts()
+	for _, optFunc := range closeOpts {
+		optFunc(opts)
 	}
 
 	// Get the final balances after subtracting the proposed fee, taking
@@ -6706,14 +7180,25 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		return nil, nil, 0, err
 	}
 
-	// Finally, sign the completed cooperative closure transaction. As the
-	// initiator we'll simply send our signature over to the remote party,
-	// using the generated txid to be notified once the closure transaction
-	// has been confirmed.
-	lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(closeTx)
-	sig, err := lc.Signer.SignOutputRaw(closeTx, lc.signDesc)
-	if err != nil {
-		return nil, nil, 0, err
+	// If we have a co-op close musig session, then this is a taproot
+	// channel, so we'll generate a _partial_ signature.
+	var sig input.Signature
+	if opts.musigSession != nil {
+		sig, err = opts.musigSession.SignCommit(closeTx)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+	} else {
+		// For regular channels we'll, sign the completed cooperative
+		// closure transaction. As the initiator we'll simply send our
+		// signature over to the remote party, using the generated txid
+		// to be notified once the closure transaction has been
+		// confirmed.
+		lc.signDesc.SigHashes = input.NewTxSigHashesV0Only(closeTx)
+		sig, err = lc.Signer.SignOutputRaw(closeTx, lc.signDesc)
+		if err != nil {
+			return nil, nil, 0, err
+		}
 	}
 
 	// As everything checks out, indicate in the channel status that a
@@ -6734,7 +7219,8 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 func (lc *LightningChannel) CompleteCooperativeClose(
 	localSig, remoteSig input.Signature,
 	localDeliveryScript, remoteDeliveryScript []byte,
-	proposedFee btcutil.Amount) (*wire.MsgTx, btcutil.Amount, error) {
+	proposedFee btcutil.Amount,
+	closeOpts ...ChanCloseOpt) (*wire.MsgTx, btcutil.Amount, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
@@ -6743,6 +7229,11 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	if lc.status == channelClosed {
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, 0, ErrChanClosing
+	}
+
+	opts := defaultCloseOpts()
+	for _, optFunc := range closeOpts {
+		optFunc(opts)
 	}
 
 	// Get the final balances after subtracting the proposed fee.
@@ -6767,31 +7258,60 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	// consensus rules such as being too big, or having any value with a
 	// negative output.
 	tx := btcutil.NewTx(closeTx)
+	prevOut := lc.signDesc.Output
 	if err := blockchain.CheckTransactionSanity(tx); err != nil {
 		return nil, 0, err
 	}
-	hashCache := input.NewTxSigHashesV0Only(closeTx)
 
-	// Finally, construct the witness stack minding the order of the
-	// pubkeys+sigs on the stack.
-	ourKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-	theirKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
-		SerializeCompressed()
-	witness := input.SpendMultiSig(
-		lc.signDesc.WitnessScript, ourKey, localSig, theirKey,
-		remoteSig,
+	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(
+		prevOut.PkScript, prevOut.Value,
 	)
-	closeTx.TxIn[0].Witness = witness
+	hashCache := txscript.NewTxSigHashes(closeTx, prevOutputFetcher)
+
+	// Next, we'll complete the co-op close transaction. Depending on the
+	// set of options, we'll either do a regular p2wsh spend, or construct
+	// the final schnorr signature from a set of partial sigs.
+	if opts.musigSession != nil {
+		// For taproot channels, we'll use the attached session to
+		// combine the two partial signatures into a proper schnorr
+		// signature.
+		remotePartialSig, ok := remoteSig.(*MusigPartialSig)
+		if !ok {
+			return nil, 0, fmt.Errorf("expected MusigPartialSig, "+
+				"got %T", remoteSig)
+		}
+
+		finalSchnorrSig, err := opts.musigSession.CombineSigs(
+			remotePartialSig.sig,
+		)
+		if err != nil {
+			return nil, 0, fmt.Errorf("unable to combine "+
+				"final co-op close sig: %w", err)
+		}
+
+		// The witness for a keyspend is just the signature itself.
+		closeTx.TxIn[0].Witness = wire.TxWitness{
+			finalSchnorrSig.Serialize(),
+		}
+	} else {
+		// For regular channels, we'll need to , construct the witness
+		// stack minding the order of the pubkeys+sigs on the stack.
+		ourKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed()
+		theirKey := lc.channelState.RemoteChanCfg.MultiSigKey.PubKey.
+			SerializeCompressed()
+		witness := input.SpendMultiSig(
+			lc.signDesc.WitnessScript, ourKey, localSig, theirKey,
+			remoteSig,
+		)
+		closeTx.TxIn[0].Witness = witness
+	}
 
 	// Validate the finalized transaction to ensure the output script is
 	// properly met, and that the remote peer supplied a valid signature.
-	prevOut := lc.signDesc.Output
 	vm, err := txscript.NewEngine(
 		prevOut.PkScript, closeTx, 0, txscript.StandardVerifyFlags, nil,
-		hashCache, prevOut.Value, txscript.NewCannedPrevOutputFetcher(
-			prevOut.PkScript, prevOut.Value,
-		),
+		hashCache, prevOut.Value, prevOutputFetcher,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -7255,8 +7775,9 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 	// revocation.
 	//
 	// Put simply in the window slides to the left by one.
+	revHeight := height + 2
 	nextCommitSecret, err := lc.channelState.RevocationProducer.AtIndex(
-		height + 2,
+		revHeight,
 	)
 	if err != nil {
 		return nil, err
@@ -7266,6 +7787,21 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(
 		&lc.channelState.FundingOutpoint,
 	)
+
+	// If this is a taproot channel, then we also need to generate the
+	// verification nonce for this target state.
+	if lc.channelState.ChanType.IsTaproot() {
+		nextVerificationNonce, err := channeldb.NewMusigVerificationNonce( //nolint:lll
+			lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
+			revHeight, lc.taprootNonceProducer,
+		)
+		if err != nil {
+			return nil, err
+		}
+		revocationMsg.LocalNonce = (*lnwire.Musig2Nonce)(
+			&nextVerificationNonce.PubNonce,
+		)
+	}
 
 	return revocationMsg, nil
 }
@@ -7451,10 +7987,22 @@ func (lc *LightningChannel) IdealCommitFeeRate(netFeeRate, minRelayFeeRate,
 	return absoluteMaxFee
 }
 
-// RemoteNextRevocation returns the channelState's RemoteNextRevocation.
+// RemoteNextRevocation returns the channelState's RemoteNextRevocation. For
+// musig2 channels, until a nonce pair is processed by the remote party, a nil
+// public key is returned.
+//
+// TODO(roasbeef): revisit, maybe just make a more general method instead?
 func (lc *LightningChannel) RemoteNextRevocation() *btcec.PublicKey {
 	lc.RLock()
 	defer lc.RUnlock()
+
+	if !lc.channelState.ChanType.IsTaproot() {
+		return lc.channelState.RemoteNextRevocation
+	}
+
+	if lc.musigSessions == nil {
+		return nil
+	}
 
 	return lc.channelState.RemoteNextRevocation
 }
@@ -7634,4 +8182,99 @@ func (lc *LightningChannel) unsignedLocalUpdates(remoteMessageIndex,
 	}
 
 	return localPeerUpdates
+}
+
+// GenMusigNonces generates the verification nonce to start off a new musig2
+// channel session.
+func (lc *LightningChannel) GenMusigNonces() (*musig2.Nonces, error) {
+	lc.Lock()
+	defer lc.Unlock()
+
+	var err error
+
+	// We pass in the current height+1 as this'll be the set of
+	// verification nonces we'll send to the party to create our _next_
+	// state.
+	lc.pendingVerificationNonce, err = channeldb.NewMusigVerificationNonce(
+		lc.channelState.LocalChanCfg.MultiSigKey.PubKey,
+		lc.currentHeight+1, lc.taprootNonceProducer,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return lc.pendingVerificationNonce, nil
+}
+
+// HasRemoteNonces returns true if the channel has a remote nonce pair.
+func (lc *LightningChannel) HasRemoteNonces() bool {
+	return lc.musigSessions != nil
+}
+
+// InitRemoteMusigNonces processes the remote musig nonces sent by the remote
+// party. This should be called upon connection re-establishment, after we've
+// generated our own nonces. Once this method returns a nil error, then the
+// channel can be used to sign commitment states.
+func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
+) error {
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	if lc.pendingVerificationNonce == nil {
+		return fmt.Errorf("pending verification nonce is not set")
+	}
+
+	// Now that we have the set of local and remote nonces, we can generate
+	// a new pair of musig sessions for our local commitment and the
+	// commitment of the remote party.
+	localNonce := lc.pendingVerificationNonce
+
+	localChanCfg := lc.channelState.LocalChanCfg
+	remoteChanCfg := lc.channelState.RemoteChanCfg
+
+	// TODO(roasbeef): propagate rename of signing and verification nonces
+
+	sessionCfg := &MusigSessionCfg{
+		LocalKey:    localChanCfg.MultiSigKey,
+		RemoteKey:   remoteChanCfg.MultiSigKey,
+		LocalNonce:  *localNonce,
+		RemoteNonce: *remoteNonce,
+		Signer:      lc.Signer,
+		InputTxOut:  &lc.fundingOutput,
+	}
+	lc.musigSessions = NewMusigPairSession(
+		sessionCfg,
+	)
+
+	lc.pendingVerificationNonce = nil
+
+	return nil
+}
+
+// ChanType returns the channel type.
+func (lc *LightningChannel) ChanType() channeldb.ChannelType {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.ChanType
+}
+
+// FundingTxOut returns the funding output of the channel.
+func (lc *LightningChannel) FundingTxOut() *wire.TxOut {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return &lc.fundingOutput
+}
+
+// MultiSigKeys returns the set of multi-sig keys for an channel.
+func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor,
+	keychain.KeyDescriptor) {
+
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.channelState.LocalChanCfg.MultiSigKey,
+		lc.channelState.RemoteChanCfg.MultiSigKey
 }

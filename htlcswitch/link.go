@@ -698,7 +698,6 @@ func (l *channelLink) syncChanStates() error {
 		return fmt.Errorf("unable to generate chan sync message for "+
 			"ChannelPoint(%v)", l.channel.ChannelPoint())
 	}
-
 	if err := l.cfg.Peer.SendMessage(true, localChanSyncMsg); err != nil {
 		return fmt.Errorf("unable to send chan sync message for "+
 			"ChannelPoint(%v): %v", l.channel.ChannelPoint(), err)
@@ -737,6 +736,13 @@ func (l *channelLink) syncChanStates() error {
 			fundingLockedMsg := lnwire.NewFundingLocked(
 				l.ChanID(), nextRevocation,
 			)
+
+			// If this is a taproot channel, then we'll send the
+			// very same nonce that we sent above, as they should
+			// take the latest verification nonce we send.
+			if chanState.ChanType.IsTaproot() {
+				fundingLockedMsg.NextLocalNonce = localChanSyncMsg.LocalNonce //nolint:lll
+			}
 
 			// For channels that negotiated the option-scid-alias
 			// feature bit, ensure that we send over the alias in
@@ -1929,7 +1935,10 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// We just received a new updates to our local commitment
 		// chain, validate this new commitment, closing the link if
 		// invalid.
-		err = l.channel.ReceiveNewCommitment(msg.CommitSig, msg.HtlcSigs)
+		err = l.channel.ReceiveNewCommitment(&lnwallet.CommitSigs{
+			CommitSig: msg.CommitSig,
+			HtlcSigs:  msg.HtlcSigs,
+		})
 		if err != nil {
 			// If we were unable to reconstruct their proposed
 			// commitment, then we'll examine the type of error. If
@@ -2259,7 +2268,7 @@ func (l *channelLink) updateCommitTx() error {
 		return nil
 	}
 
-	theirCommitSig, htlcSigs, pendingHTLCs, err := l.channel.SignNextCommitment()
+	newCommit, err := l.channel.SignNextCommitment()
 	if err == lnwallet.ErrNoWindow {
 		l.cfg.PendingCommitTicker.Resume()
 		l.log.Trace("PendingCommitTicker resumed")
@@ -2291,7 +2300,7 @@ func (l *channelLink) updateCommitTx() error {
 	// pending).
 	newUpdate := &contractcourt.ContractUpdate{
 		HtlcKey: contractcourt.RemotePendingHtlcSet,
-		Htlcs:   pendingHTLCs,
+		Htlcs:   newCommit.PendingHTLCs,
 	}
 	err = l.cfg.NotifyContractUpdate(newUpdate)
 	if err != nil {
@@ -2307,8 +2316,8 @@ func (l *channelLink) updateCommitTx() error {
 
 	commitSig := &lnwire.CommitSig{
 		ChanID:    l.ChanID(),
-		CommitSig: theirCommitSig,
-		HtlcSigs:  htlcSigs,
+		CommitSig: newCommit.CommitSig,
+		HtlcSigs:  newCommit.HtlcSigs,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
 

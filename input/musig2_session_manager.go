@@ -78,7 +78,7 @@ func (m *MusigSessionManager) MuSig2CreateSession(bipVersion MuSig2Version,
 	// Create a signing context and session with the given private key and
 	// list of all known signer public keys.
 	musigContext, musigSession, err := MuSig2CreateContext(
-		bipVersion, privKey, allSignerPubKeys, tweaks,
+		bipVersion, privKey, allSignerPubKeys, tweaks, sessionOpts...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating signing context: %w",

@@ -31,7 +31,9 @@ func NewMusigChanCloser(channel *lnwallet.LightningChannel) *MusigChanCloser {
 
 // ProposalClosingOpts returns the options that should be used when
 // generating a new co-op close signature.
-func (m *MusigChanCloser) ProposalClosingOpts() ([]lnwallet.ChanCloseOpt, error) {
+func (m *MusigChanCloser) ProposalClosingOpts() (
+	[]lnwallet.ChanCloseOpt, error) {
+
 	switch {
 	case m.localNonce == nil:
 		return nil, fmt.Errorf("local nonce not generated")

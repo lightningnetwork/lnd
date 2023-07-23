@@ -1400,7 +1400,7 @@ func NewLightningChannel(signer input.Signer,
 		state.RevocationProducer,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to derive shachain: %v", err)
+		return nil, fmt.Errorf("unable to derive shachain: %w", err)
 	}
 
 	lc := &LightningChannel{
@@ -1472,7 +1472,8 @@ func (lc *LightningChannel) createSignDesc() error {
 		}
 	} else {
 		multiSigScript, err = input.GenMultiSigScript(
-			localKey.SerializeCompressed(), remoteKey.SerializeCompressed(),
+			localKey.SerializeCompressed(),
+			remoteKey.SerializeCompressed(),
 		)
 		if err != nil {
 			return err
@@ -3363,7 +3364,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// If this is a taproot channel, then we'll need to set the
 		// method type to ensure we generate a valid signature.
 		if chanType.IsTaproot() {
-			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
+			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod //nolint:lll
 		}
 
 		sigBatch = append(sigBatch, sigJob)
@@ -3431,7 +3432,7 @@ func genRemoteHtlcSigJobs(keyRing *CommitmentKeyRing,
 		// If this is a taproot channel, then we'll need to set the
 		// method type to ensure we generate a valid signature.
 		if chanType.IsTaproot() {
-			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod
+			sigJob.SignDesc.SignMethod = input.TaprootScriptSpendSignMethod //nolint:lll
 		}
 
 		sigBatch = append(sigBatch, sigJob)
@@ -3877,7 +3878,6 @@ type NewCommitState struct {
 // HTLC's on the commitment transaction. Finally, the new set of pending HTLCs
 // for the remote party's commitment are also returned.
 func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
-
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -4570,8 +4570,9 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				htlcAmt := int64(htlc.Amount.ToSatoshis())
 
 				if chanType.IsTaproot() {
-					// TODO(roasbeef): add abstraction in front
-					prevFetcher := txscript.NewCannedPrevOutputFetcher(
+					// TODO(roasbeef): add abstraction in
+					// front
+					prevFetcher := txscript.NewCannedPrevOutputFetcher( //nolint:lll
 						htlc.ourPkScript, htlcAmt,
 					)
 					hashCache := txscript.NewTxSigHashes(
@@ -4580,9 +4581,11 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 					tapLeaf := txscript.NewBaseTapLeaf(
 						htlc.ourWitnessScript,
 					)
-					return txscript.CalcTapscriptSignaturehash(
-						hashCache, sigHashType, successTx, 0,
-						prevFetcher, tapLeaf,
+
+					return txscript.CalcTapscriptSignaturehash( //nolint:lll
+						hashCache, sigHashType,
+						successTx, 0, prevFetcher,
+						tapLeaf,
 					)
 				}
 
@@ -4641,8 +4644,9 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				timeoutTx, err := CreateHtlcTimeoutTx(
 					chanType, isLocalInitiator, op,
 					outputAmt, htlc.Timeout,
-					uint32(localChanCfg.CsvDelay), leaseExpiry,
-					keyRing.RevocationKey, keyRing.ToLocalKey,
+					uint32(localChanCfg.CsvDelay),
+					leaseExpiry, keyRing.RevocationKey,
+					keyRing.ToLocalKey,
 				)
 				if err != nil {
 					return nil, err
@@ -4651,8 +4655,9 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 				htlcAmt := int64(htlc.Amount.ToSatoshis())
 
 				if chanType.IsTaproot() {
-					// TODO(roasbeef): add abstraction in front
-					prevFetcher := txscript.NewCannedPrevOutputFetcher(
+					// TODO(roasbeef): add abstraction in
+					// front
+					prevFetcher := txscript.NewCannedPrevOutputFetcher( //nolint:lll
 						htlc.ourPkScript, htlcAmt,
 					)
 					hashCache := txscript.NewTxSigHashes(
@@ -4661,13 +4666,17 @@ func genHtlcSigValidationJobs(localCommitmentView *commitment,
 					tapLeaf := txscript.NewBaseTapLeaf(
 						htlc.ourWitnessScript,
 					)
-					return txscript.CalcTapscriptSignaturehash(
-						hashCache, sigHashType, timeoutTx, 0,
-						prevFetcher, tapLeaf,
+
+					return txscript.CalcTapscriptSignaturehash( //nolint:lll
+						hashCache, sigHashType,
+						timeoutTx, 0, prevFetcher,
+						tapLeaf,
 					)
 				}
 
-				hashCache := input.NewTxSigHashesV0Only(timeoutTx)
+				hashCache := input.NewTxSigHashesV0Only(
+					timeoutTx,
+				)
 				sigHash, err := txscript.CalcWitnessSigHash(
 					htlc.ourWitnessScript, hashCache,
 					sigHashType, timeoutTx, 0,
@@ -4807,8 +4816,9 @@ var _ error = (*InvalidCommitSigError)(nil)
 // to our local commitment chain. Once we send a revocation for our prior
 // state, then this newly added commitment becomes our current accepted channel
 // state.
+//
+//nolint:funlen
 func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
-
 	lc.Lock()
 	defer lc.Unlock()
 
@@ -4934,7 +4944,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 				// exact signature and commitment we failed to
 				// verify against in order to aide debugging.
 				var txBytes bytes.Buffer
-				localCommitTx.Serialize(&txBytes)
+				_ = localCommitTx.Serialize(&txBytes)
 				return &InvalidPartialCommitSigError{
 					invalidPartialSigError: &sigErr,
 					InvalidCommitSigError: InvalidCommitSigError{ //nolint:lll
@@ -4957,7 +4967,6 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 			return err
 		}
 		lc.musigSessions.LocalSession = newLocalSession
-
 	} else {
 		multiSigScript := lc.signDesc.WitnessScript
 		prevFetcher := txscript.NewCannedPrevOutputFetcher(
@@ -4970,8 +4979,8 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 			localCommitTx, 0, int64(lc.channelState.Capacity),
 		)
 		if err != nil {
-			// TODO(roasbeef): fetchview has already mutated the HTLCs...
-			//  * need to either roll-back, or make pure
+			// TODO(roasbeef): fetchview has already mutated the
+			// HTLCs...  * need to either roll-back, or make pure
 			return err
 		}
 
@@ -4990,10 +4999,11 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 			// commitment we failed to verify against in order to
 			// aide debugging.
 			var txBytes bytes.Buffer
-			localCommitTx.Serialize(&txBytes)
+			_ = localCommitTx.Serialize(&txBytes)
+
 			return &InvalidCommitSigError{
 				commitHeight: nextHeight,
-				commitSig:    commitSigs.CommitSig.ToSignatureBytes(),
+				commitSig:    commitSigs.CommitSig.ToSignatureBytes(), //nolint:lll
 				sigHash:      sigHash,
 				commitTx:     txBytes.Bytes(),
 			}
@@ -5045,7 +5055,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 
 		localCommitmentView.sig = sigBytes[:]
 	} else {
-		localCommitmentView.sig = commitSigs.CommitSig.ToSignatureBytes()
+		localCommitmentView.sig = commitSigs.CommitSig.ToSignatureBytes() //nolint:lll
 	}
 
 	lc.localCommitChain.addCommitment(localCommitmentView)
@@ -7282,7 +7292,6 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 			finalSchnorrSig.Serialize(),
 		}
 	} else {
-
 		// For regular channels, we'll need to , construct the witness
 		// stack minding the order of the pubkeys+sigs on the stack.
 		ourKey := lc.channelState.LocalChanCfg.MultiSigKey.PubKey.
@@ -7294,7 +7303,6 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 			remoteSig,
 		)
 		closeTx.TxIn[0].Witness = witness
-
 	}
 
 	// Validate the finalized transaction to ensure the output script is
@@ -8259,7 +8267,9 @@ func (lc *LightningChannel) FundingTxOut() *wire.TxOut {
 }
 
 // MultiSigKeys returns the set of multi-sig keys for an channel.
-func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor, keychain.KeyDescriptor) {
+func (lc *LightningChannel) MultiSigKeys() (keychain.KeyDescriptor,
+	keychain.KeyDescriptor) {
+
 	lc.RLock()
 	defer lc.RUnlock()
 

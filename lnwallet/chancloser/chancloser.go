@@ -688,8 +688,6 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 					"new co op close offer: %w", err)
 			}
 
-			break
-
 		// Otherwise, if we are the initiator, and we just sent a
 		// signature for a taproot channel, then we'll ensure that the
 		// fee rate matches up exactly.
@@ -755,7 +753,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		matchingSig := c.priorFeeOffers[remoteProposedFee]
 		if c.cfg.Channel.ChanType().IsTaproot() {
 			muSession := c.cfg.MusigSession
-			localSig, remoteSig, closeOpts, err = muSession.CombineClosingOpts( //nolint:ll
+			localSig, remoteSig, closeOpts, err = muSession.CombineClosingOpts( //nolint:lll
 				*matchingSig.PartialSig,
 				*closeSignedMsg.PartialSig,
 			)

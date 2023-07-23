@@ -61,7 +61,8 @@ func assertOutputExistsByValue(t *testing.T, commitTx *wire.MsgTx,
 // testAddSettleWorkflow tests a simple channel scenario where Alice and Bob
 // add, the settle an HTLC between themselves.
 func testAddSettleWorkflow(t *testing.T, tweakless bool,
-	chanTypeModifier channeldb.ChannelType, storeFinalHtlcResolutions bool) {
+	chanTypeModifier channeldb.ChannelType,
+	storeFinalHtlcResolutions bool) {
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
@@ -196,23 +197,26 @@ func testAddSettleWorkflow(t *testing.T, tweakless bool,
 			aliceChannel.currentHeight, 1)
 	}
 
+	aliceChanState := aliceChannel.channelState
+	bobChanState := bobChannel.channelState
+
 	// Both commitment transactions should have three outputs, and one of
 	// them should be exactly the amount of the HTLC.
 	numOutputs := 3
 	if chanTypeModifier.HasAnchors() {
-		// In this case we expect two extra outputs as both sides need an
-		// anchor output.
+		// In this case we expect two extra outputs as both sides need
+		// an anchor output.
 		numOutputs = 5
 	}
-	if len(aliceChannel.channelState.LocalCommitment.CommitTx.TxOut) != numOutputs {
+	if len(aliceChanState.LocalCommitment.CommitTx.TxOut) != numOutputs {
 		t.Fatalf("alice should have three commitment outputs, instead "+
 			"have %v",
-			len(aliceChannel.channelState.LocalCommitment.CommitTx.TxOut))
+			len(aliceChanState.LocalCommitment.CommitTx.TxOut))
 	}
-	if len(bobChannel.channelState.LocalCommitment.CommitTx.TxOut) != numOutputs {
+	if len(bobChanState.LocalCommitment.CommitTx.TxOut) != numOutputs {
 		t.Fatalf("bob should have three commitment outputs, instead "+
 			"have %v",
-			len(bobChannel.channelState.LocalCommitment.CommitTx.TxOut))
+			len(bobChanState.LocalCommitment.CommitTx.TxOut))
 	}
 	assertOutputExistsByValue(t,
 		aliceChannel.channelState.LocalCommitment.CommitTx,
@@ -367,7 +371,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		})
 	}
 
-	t.Run("anchors", func(t *testing.T) {
+	t.Run("anchors", func(t *testing.T) { //nolint:paralleltest
 		testAddSettleWorkflow(
 			t, true,
 			channeldb.AnchorOutputsBit|channeldb.ZeroHtlcTxFeeBit,
@@ -375,12 +379,13 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		)
 	})
 
-	t.Run("taproot", func(t *testing.T) {
+	t.Run("taproot", func(t *testing.T) { //nolint:paralleltest
 		testAddSettleWorkflow(
 			t, true, channeldb.SimpleTaprootFeatureBit, false,
 		)
 	})
 
+	//nolint:paralleltest
 	t.Run("storeFinalHtlcResolutions=true", func(t *testing.T) {
 		testAddSettleWorkflow(t, false, 0, true)
 	})
@@ -3105,8 +3110,10 @@ func TestChanSyncOweCommitment(t *testing.T) {
 				spew.Sdump(aliceMsgsToSend[4]))
 		}
 		if commitSigMsg.CommitSig != aliceNewCommit.CommitSig {
-			t.Fatalf("commit sig msgs don't match: expected %x got %x",
-				aliceNewCommit.CommitSig, commitSigMsg.CommitSig)
+			t.Fatalf("commit sig msgs don't match: expected "+
+				"%x got %x",
+				aliceNewCommit.CommitSig,
+				commitSigMsg.CommitSig)
 		}
 		if len(commitSigMsg.HtlcSigs) != len(aliceNewCommit.HtlcSigs) {
 			t.Fatalf("wrong number of htlc sigs: expected %v, got %v",
@@ -3539,10 +3546,10 @@ func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 func TestChanSyncOweRevocation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("tweakless", func(t *testing.T) {
+	t.Run("tweakless", func(t *testing.T) { //nolint:paralleltest
 		testChanSyncOweRevocation(t, channeldb.SingleFunderTweaklessBit)
 	})
-	t.Run("taproot", func(t *testing.T) {
+	t.Run("taproot", func(t *testing.T) { //nolint:paralleltest
 		taprootBits := channeldb.SimpleTaprootFeatureBit |
 			channeldb.AnchorOutputsBit |
 			channeldb.ZeroHtlcTxFeeBit |
@@ -3631,7 +3638,9 @@ func testChanSyncOweRevocationAndCommit(t *testing.T,
 	assertBobSendsRevokeAndCommit := func() {
 		t.Helper()
 
-		bobMsgsToSend, _, _, err := bobChannel.ProcessChanSyncMsg(aliceSyncMsg)
+		bobMsgsToSend, _, _, err := bobChannel.ProcessChanSyncMsg(
+			aliceSyncMsg,
+		)
 		if err != nil {
 			t.Fatalf("unable to process chan sync msg: %v", err)
 		}
@@ -3641,26 +3650,31 @@ func testChanSyncOweRevocationAndCommit(t *testing.T,
 		}
 		bobReRevoke, ok := bobMsgsToSend[0].(*lnwire.RevokeAndAck)
 		if !ok {
-			t.Fatalf("expected bob to re-send revoke, instead sending: %v",
-				spew.Sdump(bobMsgsToSend[0]))
+			t.Fatalf("expected bob to re-send revoke, instead "+
+				"sending: %v", spew.Sdump(bobMsgsToSend[0]))
 		}
 		if !reflect.DeepEqual(bobReRevoke, bobRevocation) {
-			t.Fatalf("revocation msgs don't match: expected %v, got %v",
-				bobRevocation, bobReRevoke)
+			t.Fatalf("revocation msgs don't match: expected %v, "+
+				"got %v", bobRevocation, bobReRevoke)
 		}
 
 		bobReCommitSigMsg, ok := bobMsgsToSend[1].(*lnwire.CommitSig)
 		if !ok {
-			t.Fatalf("expected bob to re-send commit sig, instead sending: %v",
+			t.Fatalf("expected bob to re-send commit sig, "+
+				"instead sending: %v",
 				spew.Sdump(bobMsgsToSend[1]))
 		}
 		if bobReCommitSigMsg.CommitSig != bobNewCommit.CommitSig {
-			t.Fatalf("commit sig msgs don't match: expected %x got %x",
+			t.Fatalf("commit sig msgs don't match: expected %x "+
+				"got %x",
 				bobNewCommit.CommitSigs.CommitSig,
 				bobReCommitSigMsg.CommitSig)
 		}
-		if len(bobReCommitSigMsg.HtlcSigs) != len(bobNewCommit.HtlcSigs) {
-			t.Fatalf("wrong number of htlc sigs: expected %v, got %v",
+		if len(bobReCommitSigMsg.HtlcSigs) !=
+			len(bobNewCommit.HtlcSigs) {
+
+			t.Fatalf("wrong number of htlc sigs: expected %v, "+
+				"got %v",
 				len(bobNewCommit.HtlcSigs),
 				len(bobReCommitSigMsg.HtlcSigs))
 		}
@@ -3715,12 +3729,12 @@ func testChanSyncOweRevocationAndCommit(t *testing.T,
 func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	t.Parallel()
 
-	t.Run("tweakless", func(t *testing.T) {
+	t.Run("tweakless", func(t *testing.T) { //nolint:paralleltest
 		testChanSyncOweRevocationAndCommit(
 			t, channeldb.SingleFunderTweaklessBit,
 		)
 	})
-	t.Run("taproot", func(t *testing.T) {
+	t.Run("taproot", func(t *testing.T) { //nolint:paralleltest
 		taprootBits := channeldb.SimpleTaprootFeatureBit |
 			channeldb.AnchorOutputsBit |
 			channeldb.ZeroHtlcTxFeeBit |
@@ -3944,12 +3958,12 @@ func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
 func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	t.Parallel()
 
-	t.Run("tweakless", func(t *testing.T) {
+	t.Run("tweakless", func(t *testing.T) { //nolint:paralleltest
 		testChanSyncOweRevocationAndCommitForceTransition(
 			t, channeldb.SingleFunderTweaklessBit,
 		)
 	})
-	t.Run("taproot", func(t *testing.T) {
+	t.Run("taproot", func(t *testing.T) { //nolint:paralleltest
 		taprootBits := channeldb.SimpleTaprootFeatureBit |
 			channeldb.AnchorOutputsBit |
 			channeldb.ZeroHtlcTxFeeBit |

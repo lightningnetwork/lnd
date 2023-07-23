@@ -8,7 +8,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/input"
 )
 
 const (
@@ -48,7 +47,7 @@ var (
 //
 // In order to spend the segwit v1 (taproot) HTLC output, the witness for the
 // passed transaction should be:
-//   - <sender sig> <receiver sig> <preimage> <sucess_script> <control_block>
+//   - <sender sig> <receiver sig> <preimage> <success_script> <control_block>
 func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 	htlcOutput wire.OutPoint, htlcAmt btcutil.Amount, csvDelay,
 	leaseExpiry uint32, revocationKey, delayKey *btcec.PublicKey) (
@@ -136,35 +135,18 @@ func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 
 	var pkScript []byte
 
-	// Depending on if this is a taproot channel or not, we'll create a v0
-	// vs v1 segwit script.
-	if chanType.IsTaproot() {
-		taprootOutputKey, err := input.TaprootSecondLevelHtlcScript(
-			revocationKey, delayKey, csvDelay,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		pkScript, err = input.PayToTaprootScript(taprootOutputKey)
-		if err != nil {
-			return nil, err
-		}
-
-	} else {
-		// Next, we'll generate the script used as the output for all second
-		// level HTLC which forces a covenant w.r.t what can be done with all
-		// HTLC outputs.
-		scriptInfo, err := SecondLevelHtlcScript(
-			chanType, initiator, revocationKey, delayKey, csvDelay,
-			leaseExpiry,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		pkScript = scriptInfo.PkScript
+	// Next, we'll generate the script used as the output for all second
+	// level HTLC which forces a covenant w.r.t what can be done with all
+	// HTLC outputs.
+	scriptInfo, err := SecondLevelHtlcScript(
+		chanType, initiator, revocationKey, delayKey, csvDelay,
+		leaseExpiry,
+	)
+	if err != nil {
+		return nil, err
 	}
+
+	pkScript = scriptInfo.PkScript
 
 	// Finally, the output is simply the amount of the HTLC (minus the
 	// required fees), paying to the regular second level HTLC script.

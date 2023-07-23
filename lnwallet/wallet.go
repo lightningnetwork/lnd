@@ -2388,7 +2388,6 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 		if err != nil {
 			return err
 		}
-
 	} else {
 		witnessScript, err := input.GenMultiSigScript(
 			localKey.SerializeCompressed(),

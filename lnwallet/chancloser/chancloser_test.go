@@ -211,7 +211,9 @@ func (m *mockChannel) FundingTxOut() *wire.TxOut {
 	return nil
 }
 
-func (m *mockChannel) MultiSigKeys() (keychain.KeyDescriptor, keychain.KeyDescriptor) {
+func (m *mockChannel) MultiSigKeys() (
+	keychain.KeyDescriptor, keychain.KeyDescriptor) {
+
 	return m.localKey, m.remoteKey
 }
 
@@ -250,7 +252,9 @@ func newMockMusigSession() *mockMusigSession {
 	return &mockMusigSession{}
 }
 
-func (m *mockMusigSession) ProposalClosingOpts() ([]lnwallet.ChanCloseOpt, error) {
+func (m *mockMusigSession) ProposalClosingOpts() ([]lnwallet.ChanCloseOpt,
+	error) {
+
 	return nil, nil
 }
 
@@ -267,7 +271,6 @@ func (m *mockMusigSession) ClosingNonce() (*musig2.Nonces, error) {
 }
 
 func (m *mockMusigSession) InitRemoteNonce(nonce *musig2.Nonces) {
-	return
 }
 
 type mockCoopFeeEstimator struct {
@@ -565,7 +568,7 @@ func TestTaprootFastClose(t *testing.T) {
 	ogOffer := bobOffer.FeeSatoshis
 	bobOffer.FeeSatoshis /= 2
 
-	aliceMsgs, _, err = aliceCloser.ProcessCloseMsg(bobOffer)
+	_, _, err = aliceCloser.ProcessCloseMsg(bobOffer)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "was not accepted")
 

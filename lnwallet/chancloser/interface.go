@@ -27,7 +27,7 @@ type CoopFeeEstimator interface {
 // Channel abstracts away from the core channel state machine by exposing an
 // interface that requires only the methods we need to carry out the channel
 // closing process.
-type Channel interface {
+type Channel interface { //nolint:interfacebloat
 	// ChannelPoint returns the channel point of the target channel.
 	ChannelPoint() *wire.OutPoint
 
@@ -70,10 +70,11 @@ type Channel interface {
 	// CreateCloseProposal creates a new co-op close proposal in the form
 	// of a valid signature, the chainhash of the final txid, and our final
 	// balance in the created state.
-	CreateCloseProposal(proposedFee btcutil.Amount, localDeliveryScript []byte,
-		remoteDeliveryScript []byte,
-		closeOpt ...lnwallet.ChanCloseOpt) (input.Signature, *chainhash.Hash,
-		btcutil.Amount, error)
+	CreateCloseProposal(proposedFee btcutil.Amount,
+		localDeliveryScript []byte, remoteDeliveryScript []byte,
+		closeOpt ...lnwallet.ChanCloseOpt,
+	) (
+		input.Signature, *chainhash.Hash, btcutil.Amount, error)
 
 	// CompleteCooperativeClose persistently "completes" the cooperative
 	// close by producing a fully signed co-op close transaction.

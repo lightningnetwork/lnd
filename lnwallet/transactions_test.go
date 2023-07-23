@@ -300,10 +300,18 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	remoteNewCommit, err := remoteChannel.SignNextCommitment()
 	require.NoError(t, err)
 
-	require.Equal(t, test.RemoteSigHex, hex.EncodeToString(remoteNewCommit.CommitSig.ToSignatureBytes()))
+	require.Equal(
+		t, test.RemoteSigHex,
+		hex.EncodeToString(
+			remoteNewCommit.CommitSig.ToSignatureBytes(),
+		),
+	)
 
 	for i, sig := range remoteNewCommit.HtlcSigs {
-		require.Equal(t, test.HtlcDescs[i].RemoteSigHex, hex.EncodeToString(sig.ToSignatureBytes()))
+		require.Equal(
+			t, test.HtlcDescs[i].RemoteSigHex,
+			hex.EncodeToString(sig.ToSignatureBytes()),
+		)
 	}
 
 	err = localChannel.ReceiveNewCommitment(remoteNewCommit.CommitSigs)
@@ -321,7 +329,10 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	var txBytes bytes.Buffer
 	require.NoError(t, forceCloseSum.CloseTx.Serialize(&txBytes))
 
-	require.Equal(t, test.ExpectedCommitmentTxHex, hex.EncodeToString(txBytes.Bytes()))
+	require.Equal(
+		t, test.ExpectedCommitmentTxHex,
+		hex.EncodeToString(txBytes.Bytes()),
+	)
 
 	// Obtain the second level transactions that the local node's channel
 	// state machine has produced. Store them in a map indexed by commit tx

@@ -1421,10 +1421,20 @@ func NewLightningChannel(signer input.Signer,
 		log:                  build.NewPrefixLog(logPrefix, walletLog),
 	}
 
+	switch {
 	// At this point, we may already have nonces that were passed in, so
 	// we'll check that now as this lets us skip some steps later.
-	if opts.localNonce != nil {
+	case state.ChanType.IsTaproot() && opts.localNonce != nil:
 		lc.pendingVerificationNonce = opts.localNonce
+
+	// Otherwise, we'll generate the nonces here ourselves. This ensures
+	// we'll be ablve to process the chan syncmessag efrom the remote
+	// party.
+	case state.ChanType.IsTaproot() && opts.localNonce == nil:
+		_, err := lc.GenMusigNonces()
+		if err != nil {
+			return nil, err
+		}
 	}
 	if lc.pendingVerificationNonce != nil && opts.remoteNonce != nil {
 		err := lc.InitRemoteMusigNonces(opts.remoteNonce)

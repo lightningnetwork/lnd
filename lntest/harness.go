@@ -896,6 +896,13 @@ type OpenChannelParams struct {
 	// has no bearing on the channel's operation. Max allowed length is 500
 	// characters.
 	Memo string
+
+	// Outpoints is a list of client-selected outpoints that should be used
+	// for funding a channel. If Amt is specified then this amount is
+	// allocated from the sum of outpoints towards funding. If the
+	// FundMax flag is specified the entirety of selected funds is
+	// allocated towards channel funding.
+	Outpoints []*lnrpc.OutPoint
 }
 
 // prepareOpenChannel waits for both nodes to be synced to chain and returns an
@@ -938,6 +945,7 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		UseFeeRate:         p.UseFeeRate,
 		FundMax:            p.FundMax,
 		Memo:               p.Memo,
+		Outpoints:          p.Outpoints,
 	}
 }
 

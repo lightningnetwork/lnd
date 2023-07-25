@@ -5837,6 +5837,13 @@
         "memo": {
           "type": "string",
           "description": "An optional note-to-self to go along with the channel containing some\nuseful information. This is only ever stored locally and in no way impacts\nthe channel's operation."
+        },
+        "outpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcOutPoint"
+          },
+          "description": "A list of selected outpoints that are allocated for channel funding."
         }
       }
     },

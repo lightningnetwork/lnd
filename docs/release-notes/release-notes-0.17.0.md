@@ -109,6 +109,10 @@ on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
   key scopes. The non-deterministic behaviours linked to this case are fixed,
   and users can no longer create two custom accounts with the same name.
 
+* `OpenChannel` adds a new `utxo` flag that allows the specification of multiple
+  UTXOs [as a basis for funding a channel 
+  opening.](https://github.com/lightningnetwork/lnd/pull/7516)
+
 ## Misc
 
 * [Generate default macaroons

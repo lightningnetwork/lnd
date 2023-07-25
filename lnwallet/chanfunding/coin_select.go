@@ -22,7 +22,7 @@ type ErrInsufficientFunds struct {
 // Error returns a human readable string describing the error.
 func (e *ErrInsufficientFunds) Error() string {
 	return fmt.Sprintf("not enough witness outputs to create funding "+
-		"transaction, need %v only have %v  available",
+		"transaction, need %v only have %v available",
 		e.amountAvailable, e.amountSelected)
 }
 

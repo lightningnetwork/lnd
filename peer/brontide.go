@@ -469,8 +469,9 @@ type Brontide struct {
 	// potentially holding lots of un-consumed events.
 	channelEventClient *subscribe.Client
 
-	quit chan struct{}
-	wg   sync.WaitGroup
+	startReady chan struct{}
+	quit       chan struct{}
+	wg         sync.WaitGroup
 
 	// log is a peer-specific logging instance.
 	log btclog.Logger
@@ -500,6 +501,7 @@ func NewBrontide(cfg Config) *Brontide {
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
+		startReady:         make(chan struct{}),
 		quit:               make(chan struct{}),
 		log:                build.NewPrefixLog(logPrefix, peerLog),
 	}
@@ -513,6 +515,11 @@ func (p *Brontide) Start() error {
 	if atomic.AddInt32(&p.started, 1) != 1 {
 		return nil
 	}
+
+	// Once we've finished starting up the peer, we'll signal to other
+	// goroutines that the they can move forward to tear down the peer, or
+	// carry out other relevant changes.
+	defer close(p.startReady)
 
 	p.log.Tracef("starting with conn[%v->%v]",
 		p.cfg.Conn.LocalAddr(), p.cfg.Conn.RemoteAddr())
@@ -1050,6 +1057,14 @@ func (p *Brontide) maybeSendNodeAnn(channels []*channeldb.OpenChannel) {
 // calling Disconnect will signal the quit channel and the method will not
 // block, since no goroutines were spawned.
 func (p *Brontide) WaitForDisconnect(ready chan struct{}) {
+	// Before we try to call the `Wait` goroutine, we'll make sure the main
+	// set of goroutines are already active.
+	select {
+	case <-p.startReady:
+	case <-p.quit:
+		return
+	}
+
 	select {
 	case <-ready:
 	case <-p.quit:
@@ -1063,6 +1078,14 @@ func (p *Brontide) WaitForDisconnect(ready chan struct{}) {
 // allocated to the peer can now be cleaned up.
 func (p *Brontide) Disconnect(reason error) {
 	if !atomic.CompareAndSwapInt32(&p.disconnect, 0, 1) {
+		return
+	}
+
+	// Make sure initialization has completed before we try to tear things
+	// down.
+	select {
+	case <-p.startReady:
+	case <-p.quit:
 		return
 	}
 

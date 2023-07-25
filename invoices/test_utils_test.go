@@ -131,61 +131,6 @@ var (
 	testInvoiceCreationDate = testTime
 )
 
-var (
-	testInvoiceAmt = lnwire.MilliSatoshi(100000)
-	testInvoice    = &invpkg.Invoice{
-		Terms: invpkg.ContractTerm{
-			PaymentPreimage: &testInvoicePreimage,
-			Value:           testInvoiceAmt,
-			Expiry:          time.Hour,
-			Features:        testFeatures,
-		},
-		CreationDate: testInvoiceCreationDate,
-	}
-
-	testPayAddrReqInvoice = &invpkg.Invoice{
-		Terms: invpkg.ContractTerm{
-			PaymentPreimage: &testInvoicePreimage,
-			Value:           testInvoiceAmt,
-			Expiry:          time.Hour,
-			Features: lnwire.NewFeatureVector(
-				lnwire.NewRawFeatureVector(
-					lnwire.TLVOnionPayloadOptional,
-					lnwire.PaymentAddrRequired,
-				),
-				lnwire.Features,
-			),
-		},
-		CreationDate: testInvoiceCreationDate,
-	}
-
-	testPayAddrOptionalInvoice = &invpkg.Invoice{
-		Terms: invpkg.ContractTerm{
-			PaymentPreimage: &testInvoicePreimage,
-			Value:           testInvoiceAmt,
-			Expiry:          time.Hour,
-			Features: lnwire.NewFeatureVector(
-				lnwire.NewRawFeatureVector(
-					lnwire.TLVOnionPayloadOptional,
-					lnwire.PaymentAddrOptional,
-				),
-				lnwire.Features,
-			),
-		},
-		CreationDate: testInvoiceCreationDate,
-	}
-
-	testHodlInvoice = &invpkg.Invoice{
-		Terms: invpkg.ContractTerm{
-			Value:    testInvoiceAmt,
-			Expiry:   time.Hour,
-			Features: testFeatures,
-		},
-		CreationDate: testInvoiceCreationDate,
-		HodlInvoice:  true,
-	}
-)
-
 func newTestChannelDB(t *testing.T, clock clock.Clock) (*channeldb.DB, error) {
 	t.Helper()
 
@@ -275,44 +220,35 @@ func getCircuitKey(htlcID uint64) invpkg.CircuitKey {
 	}
 }
 
-func newTestInvoice(t *testing.T, preimage lntypes.Preimage,
-	timestamp time.Time, expiry time.Duration) *invpkg.Invoice {
-
-	if expiry == 0 {
-		expiry = time.Hour
-	}
-
-	var payAddr [32]byte
-	if _, err := rand.Read(payAddr[:]); err != nil {
-		t.Fatalf("unable to generate payment addr: %v", err)
-	}
-
-	rawInvoice, err := zpay32.NewInvoice(
-		testNetParams,
-		preimage.Hash(),
-		timestamp,
-		zpay32.Amount(testInvoiceAmount),
-		zpay32.Description(testInvoiceDescription),
-		zpay32.Expiry(expiry),
-		zpay32.PaymentAddr(payAddr),
-	)
-	require.NoError(t, err, "Error while creating new invoice")
-
-	paymentRequest, err := rawInvoice.Encode(testMessageSigner)
-
-	require.NoError(t, err, "Error while encoding payment request")
-
-	return &invpkg.Invoice{
+// newInvoice returns an invoice that can be used for testing, using the
+// constant values defined above (deep copied if necessary).
+//
+// Note that this invoice *does not* have a payment address set. It will
+// create a regular invoice with a preimage is hodl is false, and a hodl
+// invoice with no preimage otherwise.
+func newInvoice(t *testing.T, hodl bool) *invpkg.Invoice {
+	invoice := &invpkg.Invoice{
 		Terms: invpkg.ContractTerm{
-			PaymentPreimage: &preimage,
-			PaymentAddr:     payAddr,
-			Value:           testInvoiceAmount,
-			Expiry:          expiry,
-			Features:        testFeatures,
+			Value:    testInvoiceAmount,
+			Expiry:   time.Hour,
+			Features: testFeatures.Clone(),
 		},
-		PaymentRequest: []byte(paymentRequest),
-		CreationDate:   timestamp,
+		CreationDate: testInvoiceCreationDate,
 	}
+
+	// If creating a hodl invoice, we don't include a preimage.
+	if hodl {
+		invoice.HodlInvoice = true
+		return invoice
+	}
+
+	preimage, err := lntypes.MakePreimage(
+		testInvoicePreimage[:],
+	)
+	require.NoError(t, err)
+	invoice.Terms.PaymentPreimage = &preimage
+
+	return invoice
 }
 
 // timeout implements a test level timeout.
@@ -360,7 +296,7 @@ func generateInvoiceExpiryTestData(
 		var preimage lntypes.Preimage
 		binary.BigEndian.PutUint32(preimage[:4], uint32(offset+i))
 		expiry := time.Duration((i+offset)%24) * time.Hour
-		invoice := newTestInvoice(
+		invoice := newInvoiceExpiryTestInvoice(
 			t, preimage, expiredCreationDate, expiry,
 		)
 		testData.expiredInvoices[preimage.Hash()] = invoice
@@ -370,11 +306,55 @@ func generateInvoiceExpiryTestData(
 		var preimage lntypes.Preimage
 		binary.BigEndian.PutUint32(preimage[4:], uint32(offset+i))
 		expiry := time.Duration((i+offset)%24) * time.Hour
-		invoice := newTestInvoice(t, preimage, now, expiry)
+		invoice := newInvoiceExpiryTestInvoice(t, preimage, now, expiry)
 		testData.pendingInvoices[preimage.Hash()] = invoice
 	}
 
 	return testData
+}
+
+// newInvoiceExpiryTestInvoice creates a test invoice with a randomly generated
+// payment address and custom preimage and expiry details. It should be used in
+// the case where tests require custom invoice expiry and unique payment
+// hashes.
+func newInvoiceExpiryTestInvoice(t *testing.T, preimage lntypes.Preimage,
+	timestamp time.Time, expiry time.Duration) *invpkg.Invoice {
+
+	if expiry == 0 {
+		expiry = time.Hour
+	}
+
+	var payAddr [32]byte
+	if _, err := rand.Read(payAddr[:]); err != nil {
+		t.Fatalf("unable to generate payment addr: %v", err)
+	}
+
+	rawInvoice, err := zpay32.NewInvoice(
+		testNetParams,
+		preimage.Hash(),
+		timestamp,
+		zpay32.Amount(testInvoiceAmount),
+		zpay32.Description(testInvoiceDescription),
+		zpay32.Expiry(expiry),
+		zpay32.PaymentAddr(payAddr),
+	)
+	require.NoError(t, err, "Error while creating new invoice")
+
+	paymentRequest, err := rawInvoice.Encode(testMessageSigner)
+
+	require.NoError(t, err, "Error while encoding payment request")
+
+	return &invpkg.Invoice{
+		Terms: invpkg.ContractTerm{
+			PaymentPreimage: &preimage,
+			PaymentAddr:     payAddr,
+			Value:           testInvoiceAmount,
+			Expiry:          expiry,
+			Features:        testFeatures,
+		},
+		PaymentRequest: []byte(paymentRequest),
+		CreationDate:   timestamp,
+	}
 }
 
 // checkSettleResolution asserts the resolution is a settle with the correct

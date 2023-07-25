@@ -469,9 +469,8 @@ type Brontide struct {
 	// potentially holding lots of un-consumed events.
 	channelEventClient *subscribe.Client
 
-	queueQuit chan struct{}
-	quit      chan struct{}
-	wg        sync.WaitGroup
+	quit chan struct{}
+	wg   sync.WaitGroup
 
 	// log is a peer-specific logging instance.
 	log btclog.Logger
@@ -501,7 +500,6 @@ func NewBrontide(cfg Config) *Brontide {
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
 		resentChanSyncMsg:  make(map[lnwire.ChannelID]struct{}),
-		queueQuit:          make(chan struct{}),
 		quit:               make(chan struct{}),
 		log:                build.NewPrefixLog(logPrefix, peerLog),
 	}

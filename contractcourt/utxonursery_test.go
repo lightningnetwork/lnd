@@ -504,8 +504,7 @@ func createNurseryTestContext(t *testing.T,
 			/// Restart nursery.
 			nurseryCfg.SweepInput = ctx.sweeper.sweepInput
 			ctx.nursery = NewUtxoNursery(&nurseryCfg)
-			ctx.nursery.Start()
-
+			require.NoError(t, ctx.nursery.Start())
 		})
 	}
 
@@ -644,6 +643,109 @@ func incubateTestOutput(t *testing.T, nursery *UtxoNursery,
 	assertNurseryReport(t, nursery, 1, expectedStage, 10000)
 
 	return outgoingRes
+}
+
+// TestRejectedCribTransaction makes sure that our nursery does not fail to
+// start up in case a Crib transaction (htlc-timeout) is rejected by the
+// bitcoin backend for some excepted reasons.
+func TestRejectedCribTransaction(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+
+		// The specific error during broadcasting the transaction.
+		broadcastErr error
+
+		// expectErr specifies whether the rejection of the transaction
+		// fails the nursery engine.
+		expectErr bool
+	}{
+		{
+			name: "Crib tx is rejected because of low mempool " +
+				"fees",
+			broadcastErr: lnwallet.ErrMempoolFee,
+		},
+		{
+			// We map a rejected rbf transaction to ErrDoubleSpend
+			// in lnd.
+			name: "Crib tx is rejected because of a " +
+				"rbf transaction not succeeding",
+			broadcastErr: lnwallet.ErrDoubleSpend,
+		},
+		{
+			name: "Crib tx is rejected with an " +
+				"unmatched error",
+			broadcastErr: fmt.Errorf("Reject Commitment Tx"),
+			expectErr:    true,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// The checkStartStop function just calls the callback
+			// here to make sure the restart routine works
+			// correctly.
+			ctx := createNurseryTestContext(t,
+				func(callback func()) bool {
+					callback()
+					return true
+				})
+
+			outgoingRes := createOutgoingRes(true)
+
+			ctx.nursery.cfg.PublishTransaction =
+				func(tx *wire.MsgTx, source string) error {
+					log.Tracef("Publishing tx %v "+
+						"by %v", tx.TxHash(), source)
+					return test.broadcastErr
+				}
+			ctx.notifyEpoch(125)
+
+			// Hand off to nursery.
+			err := ctx.nursery.IncubateOutputs(
+				testChanPoint,
+				[]lnwallet.OutgoingHtlcResolution{*outgoingRes},
+				nil, 0,
+			)
+			if test.expectErr {
+				require.ErrorIs(t, err, test.broadcastErr)
+				return
+			}
+			require.NoError(t, err)
+
+			// Make sure that a restart is not affected by the
+			// rejected Crib transaction.
+			ctx.restart()
+
+			// Confirm the timeout tx. This should promote the
+			// HTLC to KNDR state.
+			timeoutTxHash := outgoingRes.SignedTimeoutTx.TxHash()
+			err = ctx.notifier.ConfirmTx(&timeoutTxHash, 126)
+			require.NoError(t, err)
+
+			// Wait for output to be promoted in store to KNDR.
+			select {
+			case <-ctx.store.cribToKinderChan:
+			case <-time.After(defaultTestTimeout):
+				t.Fatalf("output not promoted to KNDR")
+			}
+
+			// Notify arrival of block where second level HTLC
+			// unlocks.
+			ctx.notifyEpoch(128)
+
+			// Check final sweep into wallet.
+			testSweepHtlc(t, ctx)
+
+			// Cleanup utxonursery.
+			ctx.finish()
+		})
+	}
 }
 
 func assertNurseryReport(t *testing.T, nursery *UtxoNursery,

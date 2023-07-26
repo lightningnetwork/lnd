@@ -1192,8 +1192,9 @@ func (b *BtcWallet) ListUnspentWitness(minConfs, maxConfs int32,
 // PublishTransaction performs cursory validation (dust checks, etc), then
 // finally broadcasts the passed transaction to the Bitcoin network. If
 // publishing the transaction fails, an error describing the reason is returned
-// (currently ErrDoubleSpend). If the transaction is already published to the
-// network (either in the mempool or chain) no error will be returned.
+// and mapped to the wallet's internal error types. If the transaction is
+// already published to the network (either in the mempool or chain) no error
+// will be returned.
 func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	if err := b.wallet.PublishTransaction(tx, label); err != nil {
 		// If we failed to publish the transaction, check whether we
@@ -1209,6 +1210,13 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 		// replace transactions.
 		case *base.ErrReplacement:
 			return lnwallet.ErrDoubleSpend
+
+		// If the wallet reports that fee requirements for accepting the
+		// tx into mempool are not met, convert it to our internal
+		// ErrMempoolFee and return.
+		case *base.ErrMempoolFee:
+			return fmt.Errorf("%w: %v", lnwallet.ErrMempoolFee,
+				err.Error())
 
 		default:
 			return err

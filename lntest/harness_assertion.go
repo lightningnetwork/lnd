@@ -388,7 +388,7 @@ func (h *HarnessTest) AssertOutputScriptClass(tx *btcutil.Tx,
 
 	pkScript, err := txscript.ParsePkScript(txOut.PkScript)
 	require.NoError(h, err)
-	require.Equal(h, pkScript.Class(), scriptClass)
+	require.Equal(h, scriptClass, pkScript.Class())
 }
 
 // findChannel tries to find a target channel in the node using the given

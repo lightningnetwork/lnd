@@ -230,19 +230,31 @@ func (b *Batcher) BatchFund(ctx context.Context,
 				err)
 		}
 
+		//nolint:lll
 		fundingReq, err := b.cfg.RequestParser(&lnrpc.OpenChannelRequest{
-			SatPerVbyte:        uint64(req.SatPerVbyte),
-			NodePubkey:         rpcChannel.NodePubkey,
-			LocalFundingAmount: rpcChannel.LocalFundingAmount,
-			PushSat:            rpcChannel.PushSat,
-			TargetConf:         req.TargetConf,
-			Private:            rpcChannel.Private,
-			MinHtlcMsat:        rpcChannel.MinHtlcMsat,
-			RemoteCsvDelay:     rpcChannel.RemoteCsvDelay,
-			MinConfs:           req.MinConfs,
-			SpendUnconfirmed:   req.SpendUnconfirmed,
-			CloseAddress:       rpcChannel.CloseAddress,
-			CommitmentType:     rpcChannel.CommitmentType,
+			SatPerVbyte:                uint64(req.SatPerVbyte),
+			TargetConf:                 req.TargetConf,
+			MinConfs:                   req.MinConfs,
+			SpendUnconfirmed:           req.SpendUnconfirmed,
+			NodePubkey:                 rpcChannel.NodePubkey,
+			LocalFundingAmount:         rpcChannel.LocalFundingAmount,
+			PushSat:                    rpcChannel.PushSat,
+			Private:                    rpcChannel.Private,
+			MinHtlcMsat:                rpcChannel.MinHtlcMsat,
+			RemoteCsvDelay:             rpcChannel.RemoteCsvDelay,
+			CloseAddress:               rpcChannel.CloseAddress,
+			RemoteMaxValueInFlightMsat: rpcChannel.RemoteMaxValueInFlightMsat,
+			RemoteMaxHtlcs:             rpcChannel.RemoteMaxHtlcs,
+			MaxLocalCsv:                rpcChannel.MaxLocalCsv,
+			CommitmentType:             rpcChannel.CommitmentType,
+			ZeroConf:                   rpcChannel.ZeroConf,
+			ScidAlias:                  rpcChannel.ScidAlias,
+			BaseFee:                    rpcChannel.BaseFee,
+			FeeRate:                    rpcChannel.FeeRate,
+			UseBaseFee:                 rpcChannel.UseBaseFee,
+			UseFeeRate:                 rpcChannel.UseFeeRate,
+			RemoteChanReserveSat:       rpcChannel.RemoteChanReserveSat,
+			Memo:                       rpcChannel.Memo,
 			FundingShim: &lnrpc.FundingShim{
 				Shim: &lnrpc.FundingShim_PsbtShim{
 					PsbtShim: &lnrpc.PsbtShim{

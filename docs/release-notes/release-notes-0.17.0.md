@@ -113,6 +113,10 @@ on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
   UTXOs [as a basis for funding a channel 
   opening.](https://github.com/lightningnetwork/lnd/pull/7516)
 
+* The [BatchOpenChannel](https://github.com/lightningnetwork/lnd/pull/7820)
+  message now supports all fields that are present in the `OpenChannel` message,
+  except for the `funding_shim` and `fundmax` fields.
+
 ## Misc
 
 * [Generate default macaroons

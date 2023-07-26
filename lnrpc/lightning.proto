@@ -2128,6 +2128,76 @@ message BatchOpenChannel {
     the remote peer supports explicit channel negotiation.
     */
     CommitmentType commitment_type = 9;
+
+    /*
+    The maximum amount of coins in millisatoshi that can be pending within
+    the channel. It only applies to the remote party.
+    */
+    uint64 remote_max_value_in_flight_msat = 10;
+
+    /*
+    The maximum number of concurrent HTLCs we will allow the remote party to add
+    to the commitment transaction.
+    */
+    uint32 remote_max_htlcs = 11;
+
+    /*
+    Max local csv is the maximum csv delay we will allow for our own commitment
+    transaction.
+    */
+    uint32 max_local_csv = 12;
+
+    /*
+    If this is true, then a zero-conf channel open will be attempted.
+    */
+    bool zero_conf = 13;
+
+    /*
+    If this is true, then an option-scid-alias channel-type open will be
+    attempted.
+    */
+    bool scid_alias = 14;
+
+    /*
+    The base fee charged regardless of the number of milli-satoshis sent.
+    */
+    uint64 base_fee = 15;
+
+    /*
+    The fee rate in ppm (parts per million) that will be charged in
+    proportion of the value of each forwarded HTLC.
+    */
+    uint64 fee_rate = 16;
+
+    /*
+    If use_base_fee is true the open channel announcement will update the
+    channel base fee with the value specified in base_fee. In the case of
+    a base_fee of 0 use_base_fee is needed downstream to distinguish whether
+    to use the default base fee value specified in the config or 0.
+    */
+    bool use_base_fee = 17;
+
+    /*
+    If use_fee_rate is true the open channel announcement will update the
+    channel fee rate with the value specified in fee_rate. In the case of
+    a fee_rate of 0 use_fee_rate is needed downstream to distinguish whether
+    to use the default fee rate value specified in the config or 0.
+    */
+    bool use_fee_rate = 18;
+
+    /*
+    The number of satoshis we require the remote peer to reserve. This value,
+    if specified, must be above the dust limit and below 20% of the channel
+    capacity.
+    */
+    uint64 remote_chan_reserve_sat = 19;
+
+    /*
+    An optional note-to-self to go along with the channel containing some
+    useful information. This is only ever stored locally and in no way impacts
+    the channel's operation.
+    */
+    string memo = 20;
 }
 
 message BatchOpenChannelResponse {

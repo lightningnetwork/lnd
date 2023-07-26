@@ -24,6 +24,10 @@ type Config struct {
 	// NoWumbo unsets any bits signalling support for wumbo channels.
 	NoWumbo bool
 
+	// NoTaprootChans unsets any bits signaling support for taproot
+	// channels.
+	NoTaprootChans bool
+
 	// NoScriptEnforcementLease unsets any bits signaling support for script
 	// enforced leases.
 	NoScriptEnforcementLease bool
@@ -149,6 +153,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoAnySegwit {
 			raw.Unset(lnwire.ShutdownAnySegwitOptional)
 			raw.Unset(lnwire.ShutdownAnySegwitRequired)
+		}
+		if cfg.NoTaprootChans {
+			raw.Unset(lnwire.SimpleTaprootChannelsOptional)
+			raw.Unset(lnwire.SimpleTaprootChannelsRequired)
 		}
 
 		// Ensure that all of our feature sets properly set any

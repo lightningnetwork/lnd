@@ -1186,7 +1186,7 @@ func TestBumpFeeRBF(t *testing.T) {
 
 	// We'll then attempt to bump its fee rate.
 	highFeePref := FeePreference{ConfTarget: 6}
-	highFeeRate := DefaultMaxFeeRate
+	highFeeRate := DefaultMaxFeeRate.FeePerKWeight()
 	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
 
 	// We should expect to see an error if a fee preference isn't provided.

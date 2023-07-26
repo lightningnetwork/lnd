@@ -21,11 +21,6 @@ import (
 )
 
 const (
-	// DefaultMaxFeeRate is the default maximum fee rate allowed within the
-	// UtxoSweeper. The current value is equivalent to a fee rate of 1,000
-	// sat/vbyte.
-	DefaultMaxFeeRate = chainfee.AbsoluteFeePerKwFloor * 1e3
-
 	// DefaultFeeRateBucketSize is the default size of fee rate buckets
 	// we'll use when clustering inputs into buckets with similar fee rates
 	// within the UtxoSweeper.
@@ -288,7 +283,7 @@ type UtxoSweeperConfig struct {
 
 	// MaxFeeRate is the the maximum fee rate allowed within the
 	// UtxoSweeper.
-	MaxFeeRate chainfee.SatPerKWeight
+	MaxFeeRate chainfee.SatPerVByte
 
 	// FeeRateBucketSize is the default size of fee rate buckets we'll use
 	// when clustering inputs into buckets with similar fee rates within the
@@ -483,7 +478,7 @@ func (s *UtxoSweeper) feeRateForPreference(
 		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
 			"rate %v, minimum is %v", feeRate, s.relayFeeRate)
 	}
-	if feeRate > s.cfg.MaxFeeRate {
+	if feeRate > s.cfg.MaxFeeRate.FeePerKWeight() {
 		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
 			"rate %v, maximum is %v", feeRate, s.cfg.MaxFeeRate)
 	}

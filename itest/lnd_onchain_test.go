@@ -230,10 +230,8 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	// We'll attempt to bump the fee of this transaction by performing a
 	// CPFP from Alice's point of view.
 	bumpFeeReq := &walletrpc.BumpFeeRequest{
-		Outpoint: op,
-		SatPerVbyte: uint64(
-			sweep.DefaultMaxFeeRate.FeePerKVByte() / 2000,
-		),
+		Outpoint:    op,
+		SatPerVbyte: uint64(sweep.DefaultMaxFeeRate),
 	}
 	bob.RPC.BumpFee(bumpFeeReq)
 

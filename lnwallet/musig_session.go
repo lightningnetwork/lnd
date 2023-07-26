@@ -436,6 +436,10 @@ func (m *MusigSession) VerifyCommitSig(commitTx *wire.MsgTx,
 		optFunc(opts)
 	}
 
+	if sig == nil {
+		return nil, fmt.Errorf("sig not provided")
+	}
+
 	// Before we can verify the signature, we'll need to finalize the
 	// session by binding the remote party's provided signing nonce.
 	if err := m.FinalizeSession(musig2.Nonces{

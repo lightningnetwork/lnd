@@ -117,6 +117,9 @@ on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
   message now supports all fields that are present in the `OpenChannel` message,
   except for the `funding_shim` and `fundmax` fields.
 
+* The [WalletBalance](https://github.com/lightningnetwork/lnd/pull/7857) RPC
+  (lncli walletbalance) now supports showing the balance for a specific account.
+
 ## Misc
 
 * [Generate default macaroons

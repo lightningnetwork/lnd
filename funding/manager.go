@@ -842,6 +842,48 @@ func (f *Manager) CancelPeerReservations(nodePub [33]byte) {
 	delete(f.activeReservations, nodePub)
 }
 
+// chanIdentifier wraps pending channel ID and channel ID into one struct so
+// it's easier to identify a specific channel.
+//
+// TODO(yy): move to a different package to hide the private fields so direct
+// access is disabled.
+type chanIdentifier struct {
+	// tempChanID is the pending channel ID created by the funder when
+	// initializing the funding flow. For fundee, it's received from the
+	// `open_channel` message.
+	tempChanID lnwire.ChannelID
+
+	// chanID is the channel ID created by the funder once the
+	// `accept_channel` message is received. For fundee, it's received from
+	// the `funding_created` message.
+	chanID lnwire.ChannelID
+
+	// chanIDSet is a boolean indicates whether the active channel ID is
+	// set for this identifier. For zero conf channels, the `chanID` can be
+	// all-zero, which is the same as the empty value of `ChannelID`. To
+	// avoid the confusion, we use this boolean to explicitly signal
+	// whether the `chanID` is set or not.
+	chanIDSet bool
+}
+
+// newChanIdentifier creates a new chanIdentifier.
+func newChanIdentifier(tempChanID lnwire.ChannelID) *chanIdentifier {
+	return &chanIdentifier{
+		tempChanID: tempChanID,
+	}
+}
+
+// setChanID updates the `chanIdentifier` with the active channel ID.
+func (c *chanIdentifier) setChanID(chanID lnwire.ChannelID) {
+	c.chanID = chanID
+	c.chanIDSet = true
+}
+
+// hasChanID returns true if the active channel ID has been set.
+func (c *chanIdentifier) hasChanID() bool {
+	return c.chanIDSet
+}
+
 // failFundingFlow will fail the active funding flow with the target peer,
 // identified by its unique temporary channel ID. This method will send an
 // error to the remote peer, and also remove the reservation from our set of
@@ -849,14 +891,14 @@ func (f *Manager) CancelPeerReservations(nodePub [33]byte) {
 //
 // TODO(roasbeef): if peer disconnects, and haven't yet broadcast funding
 // transaction, then all reservations should be cleared.
-func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
+func (f *Manager) failFundingFlow(peer lnpeer.Peer, cid *chanIdentifier,
 	fundingErr error) {
 
 	log.Debugf("Failing funding flow for pending_id=%x: %v",
-		tempChanID, fundingErr)
+		cid.tempChanID, fundingErr)
 
 	ctx, err := f.cancelReservationCtx(
-		peer.IdentityKey(), tempChanID, false,
+		peer.IdentityKey(), cid.tempChanID, false,
 	)
 	if err != nil {
 		log.Errorf("unable to cancel reservation: %v", err)
@@ -887,7 +929,7 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	}
 
 	errMsg := &lnwire.Error{
-		ChanID: tempChanID,
+		ChanID: cid.tempChanID,
 		Data:   msg,
 	}
 
@@ -1325,13 +1367,14 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 	f.resMtx.RUnlock()
 
+	// Create the channel identifier.
+	cid := newChanIdentifier(msg.PendingChannelID)
+
 	// Also count the channels that are already pending. There we don't know
 	// the underlying intent anymore, unfortunately.
 	channels, err := f.cfg.Wallet.Cfg.Database.FetchOpenChannels(peerPubKey)
 	if err != nil {
-		f.failFundingFlow(
-			peer, msg.PendingChannelID, err,
-		)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -1350,29 +1393,20 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// TODO(roasbeef): modify to only accept a _single_ pending channel per
 	// block unless white listed
 	if numPending >= f.cfg.MaxPendingChannels {
-		f.failFundingFlow(
-			peer, msg.PendingChannelID,
-			lnwire.ErrMaxPendingChannels,
-		)
+		f.failFundingFlow(peer, cid, lnwire.ErrMaxPendingChannels)
+
 		return
 	}
 
 	// Ensure that the pendingChansLimit is respected.
 	pendingChans, err := f.cfg.Wallet.Cfg.Database.FetchPendingChannels()
 	if err != nil {
-		f.failFundingFlow(
-			peer, msg.PendingChannelID, err,
-		)
-
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
 	if len(pendingChans) > pendingChansLimit {
-		f.failFundingFlow(
-			peer, msg.PendingChannelID,
-			lnwire.ErrMaxPendingChannels,
-		)
-
+		f.failFundingFlow(peer, cid, lnwire.ErrMaxPendingChannels)
 		return
 	}
 
@@ -1385,17 +1419,14 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 			log.Errorf("unable to query wallet: %v", err)
 		}
 		err := errors.New("Synchronizing blockchain")
-		f.failFundingFlow(
-			peer, msg.PendingChannelID,
-			err,
-		)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
 	// Ensure that the remote party respects our maximum channel size.
 	if amt > f.cfg.MaxChanSize {
 		f.failFundingFlow(
-			peer, msg.PendingChannelID,
+			peer, cid,
 			lnwallet.ErrChanTooLarge(amt, f.cfg.MaxChanSize),
 		)
 		return
@@ -1405,7 +1436,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// a channel that's below our current min channel size.
 	if amt < f.cfg.MinChanSize {
 		f.failFundingFlow(
-			peer, msg.PendingChannelID,
+			peer, cid,
 			lnwallet.ErrChanTooSmall(amt, f.cfg.MinChanSize),
 		)
 		return
@@ -1414,10 +1445,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// If request specifies non-zero push amount and 'rejectpush' is set,
 	// signal an error.
 	if f.cfg.RejectPush && msg.PushAmount > 0 {
-		f.failFundingFlow(
-			peer, msg.PendingChannelID,
-			lnwallet.ErrNonZeroPushAmount(),
-		)
+		f.failFundingFlow(peer, cid, lnwallet.ErrNonZeroPushAmount())
 		return
 	}
 
@@ -1432,10 +1460,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	// the channel.
 	acceptorResp := f.cfg.OpenChannelPredicate.Accept(chanReq)
 	if acceptorResp.RejectChannel() {
-		f.failFundingFlow(
-			peer, msg.PendingChannelID,
-			acceptorResp.ChanAcceptError,
-		)
+		f.failFundingFlow(peer, cid, acceptorResp.ChanAcceptError)
 		return
 	}
 
@@ -1462,7 +1487,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	if err != nil {
 		// TODO(roasbeef): should be using soft errors
 		log.Errorf("channel type negotiation failed: %v", err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -1498,9 +1523,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 			// Fail the funding flow.
 			flowErr := fmt.Errorf("channel acceptor blocked " +
 				"zero-conf channel negotiation")
-			f.failFundingFlow(
-				peer, msg.PendingChannelID, flowErr,
-			)
+			f.failFundingFlow(peer, cid, flowErr)
 			return
 		}
 
@@ -1514,9 +1537,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 				// Fail the funding flow.
 				flowErr := fmt.Errorf("scid-alias feature " +
 					"must be negotiated for zero-conf")
-				f.failFundingFlow(
-					peer, msg.PendingChannelID, flowErr,
-				)
+				f.failFundingFlow(peer, cid, flowErr)
 				return
 			}
 
@@ -1532,7 +1553,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		err = fmt.Errorf("option-scid-alias chantype for public " +
 			"channel")
 		log.Error(err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -1557,7 +1578,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
 	if err != nil {
 		log.Errorf("Unable to initialize reservation: %v", err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -1571,7 +1592,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		aliasScid, err := f.cfg.AliasManager.RequestAlias()
 		if err != nil {
 			log.Errorf("Unable to request alias: %v", err)
-			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			f.failFundingFlow(peer, cid, err)
 			return
 		}
 
@@ -1612,7 +1633,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	)
 	if err != nil {
 		log.Errorf("Unacceptable channel constraints: %v", err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -1626,7 +1647,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	)
 	if err != nil {
 		f.failFundingFlow(
-			peer, msg.PendingChannelID,
+			peer, cid,
 			fmt.Errorf("getUpfrontShutdownScript error: %v", err),
 		)
 		return
@@ -1638,7 +1659,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	if commitType == lnwallet.CommitmentTypeScriptEnforcedLease {
 		if msg.LeaseExpiry == nil {
 			err := errors.New("missing lease expiry")
-			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			f.failFundingFlow(peer, cid, err)
 			return
 		}
 
@@ -1651,9 +1672,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 				reservation.LeaseExpiry() {
 
 				err := errors.New("lease expiry mismatch")
-				f.failFundingFlow(
-					peer, msg.PendingChannelID, err,
-				)
+				f.failFundingFlow(peer, cid, err)
 				return
 			}
 		}
@@ -1775,7 +1794,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	err = reservation.ProcessSingleContribution(remoteContribution)
 	if err != nil {
 		log.Errorf("unable to add contribution reservation: %v", err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -1809,7 +1828,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 
 	if err := peer.SendMessage(true, &fundingAccept); err != nil {
 		log.Errorf("unable to send funding response to peer: %v", err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 }
@@ -1840,6 +1859,9 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	log.Infof("Recv'd fundingResponse for pending_id(%x)",
 		pendingChanID[:])
 
+	// Create the channel identifier.
+	cid := newChanIdentifier(msg.PendingChannelID)
+
 	// Perform some basic validation of any custom TLV records included.
 	//
 	// TODO: Return errors as funding.Error to give context to remote peer?
@@ -1849,14 +1871,14 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		if msg.ChannelType == nil {
 			err := errors.New("explicit channel type not echoed " +
 				"back")
-			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			f.failFundingFlow(peer, cid, err)
 			return
 		}
 		proposedFeatures := lnwire.RawFeatureVector(*resCtx.channelType)
 		ackedFeatures := lnwire.RawFeatureVector(*msg.ChannelType)
 		if !proposedFeatures.Equals(&ackedFeatures) {
 			err := errors.New("channel type mismatch")
-			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			f.failFundingFlow(peer, cid, err)
 			return
 		}
 
@@ -1866,18 +1888,14 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			if msg.LeaseExpiry == nil {
 				err := errors.New("lease expiry not echoed " +
 					"back")
-				f.failFundingFlow(
-					peer, msg.PendingChannelID, err,
-				)
+				f.failFundingFlow(peer, cid, err)
 				return
 			}
 			if uint32(*msg.LeaseExpiry) !=
 				resCtx.reservation.LeaseExpiry() {
 
 				err := errors.New("lease expiry mismatch")
-				f.failFundingFlow(
-					peer, msg.PendingChannelID, err,
-				)
+				f.failFundingFlow(peer, cid, err)
 				return
 			}
 		}
@@ -1899,7 +1917,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		)
 		if err != nil {
 			err := errors.New("received unexpected channel type")
-			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			f.failFundingFlow(peer, cid, err)
 			return
 		}
 
@@ -1909,7 +1927,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		// it's another type, we fail the flow.
 		if implicitChannelType != negotiatedChannelType {
 			err := errors.New("negotiated unexpected channel type")
-			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			f.failFundingFlow(peer, cid, err)
 			return
 		}
 	}
@@ -1922,7 +1940,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			msg.MinAcceptDepth, chainntnfs.MaxNumConfs,
 		)
 		log.Warnf("Unacceptable channel constraints: %v", err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -1930,7 +1948,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	if resCtx.reservation.IsZeroConf() && msg.MinAcceptDepth != 0 {
 		err = fmt.Errorf("zero-conf channel has min_depth non-zero")
 		log.Warn(err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -1939,7 +1957,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	if !resCtx.reservation.IsZeroConf() && msg.MinAcceptDepth == 0 {
 		err = fmt.Errorf("non-zero-conf channel has min depth zero")
 		log.Warn(err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -1960,7 +1978,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	)
 	if err != nil {
 		log.Warnf("Unacceptable channel constraints: %v", err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -2012,7 +2030,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 			log.Errorf("Unable to process PSBT funding params "+
 				"for contribution from %x: %v", peerKeyBytes,
 				err)
-			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			f.failFundingFlow(peer, cid, err)
 			return
 		}
 		var buf bytes.Buffer
@@ -2020,7 +2038,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		if err != nil {
 			log.Errorf("Unable to serialize PSBT for "+
 				"contribution from %x: %v", peerKeyBytes, err)
-			f.failFundingFlow(peer, msg.PendingChannelID, err)
+			f.failFundingFlow(peer, cid, err)
 			return
 		}
 		resCtx.updates <- &lnrpc.OpenStatusUpdate{
@@ -2037,7 +2055,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 	} else if err != nil {
 		log.Errorf("Unable to process contribution from %x: %v",
 			peerKeyBytes, err)
-		f.failFundingFlow(peer, msg.PendingChannelID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -2056,7 +2074,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 		go func() {
 			defer f.wg.Done()
 
-			f.waitForPsbt(psbtIntent, resCtx, pendingChanID)
+			f.waitForPsbt(psbtIntent, resCtx, cid)
 		}()
 
 		// With the new goroutine spawned, we can now exit to unblock
@@ -2066,7 +2084,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 
 	// In a normal, non-PSBT funding flow, we can jump directly to the next
 	// step where we expect our contribution to be finalized.
-	f.continueFundingAccept(resCtx, pendingChanID)
+	f.continueFundingAccept(resCtx, cid)
 }
 
 // waitForPsbt blocks until either a signed PSBT arrives, an error occurs or
@@ -2075,7 +2093,7 @@ func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
 //
 // NOTE: This method must be called as a goroutine.
 func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
-	resCtx *reservationWithCtx, pendingChanID [32]byte) {
+	resCtx *reservationWithCtx, cid *chanIdentifier) {
 
 	// failFlow is a helper that logs an error message with the current
 	// context and then fails the funding flow.
@@ -2083,9 +2101,9 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 	failFlow := func(errMsg string, cause error) {
 		log.Errorf("Unable to handle funding accept message "+
 			"for peer_key=%x, pending_chan_id=%x: %s: %v",
-			peerKey.SerializeCompressed(), pendingChanID, errMsg,
+			peerKey.SerializeCompressed(), cid.tempChanID, errMsg,
 			cause)
-		f.failFundingFlow(resCtx.peer, pendingChanID, cause)
+		f.failFundingFlow(resCtx.peer, cid, cause)
 	}
 
 	// We'll now wait until the intent has received the final and complete
@@ -2106,7 +2124,7 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 		case chanfunding.ErrRemoteCanceled:
 			log.Infof("Remote canceled, aborting PSBT flow "+
 				"for peer_key=%x, pending_chan_id=%x",
-				peerKey.SerializeCompressed(), pendingChanID)
+				peerKey.SerializeCompressed(), cid.tempChanID)
 			return
 
 		// Nil error means the flow continues normally now.
@@ -2128,7 +2146,7 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 		}
 
 		// We are now ready to continue the funding flow.
-		f.continueFundingAccept(resCtx, pendingChanID)
+		f.continueFundingAccept(resCtx, cid)
 
 	// Handle a server shutdown as well because the reservation won't
 	// survive a restart as it's in memory only.
@@ -2136,7 +2154,7 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 		log.Errorf("Unable to handle funding accept message "+
 			"for peer_key=%x, pending_chan_id=%x: funding manager "+
 			"shutting down", peerKey.SerializeCompressed(),
-			pendingChanID)
+			cid.tempChanID)
 		return
 	}
 }
@@ -2145,7 +2163,7 @@ func (f *Manager) waitForPsbt(intent *chanfunding.PsbtIntent,
 // contribution is finalized, the channel output is known and the funding
 // transaction is signed.
 func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
-	pendingChanID [32]byte) {
+	cid *chanIdentifier) {
 
 	// Now that we have their contribution, we can extract, then send over
 	// both the funding out point and our signature for their version of
@@ -2166,11 +2184,11 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	// so we can retrieve the reservation context once we get the
 	// FundingSigned message.
 	f.resMtx.Lock()
-	f.signedReservations[channelID] = pendingChanID
+	f.signedReservations[channelID] = cid.tempChanID
 	f.resMtx.Unlock()
 
 	log.Infof("Generated ChannelPoint(%v) for pending_id(%x)", outPoint,
-		pendingChanID[:])
+		cid.tempChanID[:])
 
 	// Before sending FundingCreated sent, we notify Brontide to keep track
 	// of this pending open channel.
@@ -2181,20 +2199,25 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 			channelID, pubKey, err)
 	}
 
+	// Once Brontide is aware of this channel, we need to set it in
+	// chanIdentifier so this channel will be removed from Brontide if the
+	// funding flow fails.
+	cid.setChanID(channelID)
+
 	// Send the FundingCreated msg.
 	fundingCreated := &lnwire.FundingCreated{
-		PendingChannelID: pendingChanID,
+		PendingChannelID: cid.tempChanID,
 		FundingPoint:     *outPoint,
 	}
 	fundingCreated.CommitSig, err = lnwire.NewSigFromSignature(sig)
 	if err != nil {
 		log.Errorf("Unable to parse signature: %v", err)
-		f.failFundingFlow(resCtx.peer, pendingChanID, err)
+		f.failFundingFlow(resCtx.peer, cid, err)
 		return
 	}
 	if err := resCtx.peer.SendMessage(true, fundingCreated); err != nil {
 		log.Errorf("Unable to send funding complete message: %v", err)
-		f.failFundingFlow(resCtx.peer, pendingChanID, err)
+		f.failFundingFlow(resCtx.peer, cid, err)
 		return
 	}
 }
@@ -2225,10 +2248,13 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	log.Infof("completing pending_id(%x) with ChannelPoint(%v)",
 		pendingChanID[:], fundingOut)
 
+	// Create the channel identifier without setting the active channel ID.
+	cid := newChanIdentifier(pendingChanID)
+
 	commitSig, err := msg.CommitSig.ToSignature()
 	if err != nil {
 		log.Errorf("unable to parse signature: %v", err)
-		f.failFundingFlow(peer, pendingChanID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -2243,7 +2269,7 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	if err != nil {
 		// TODO(roasbeef): better error logging: peerID, channelID, etc.
 		log.Errorf("unable to complete single reservation: %v", err)
-		f.failFundingFlow(peer, pendingChanID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -2252,7 +2278,7 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 
 	// The channel is marked IsPending in the database, and can be removed
 	// from the set of active reservations.
-	f.deleteReservationCtx(peerKey, msg.PendingChannelID)
+	f.deleteReservationCtx(peerKey, cid.tempChanID)
 
 	// If something goes wrong before the funding transaction is confirmed,
 	// we use this convenience method to delete the pending OpenChannel
@@ -2298,7 +2324,7 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	ourCommitSig, err := lnwire.NewSigFromSignature(sig)
 	if err != nil {
 		log.Errorf("unable to parse signature: %v", err)
-		f.failFundingFlow(peer, pendingChanID, err)
+		f.failFundingFlow(peer, cid, err)
 		deleteFromDatabase()
 		return
 	}
@@ -2308,16 +2334,21 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	if err := peer.AddPendingChannel(channelID, f.quit); err != nil {
 		pubKey := peer.IdentityKey().SerializeCompressed()
 		log.Errorf("Unable to add pending channel %v with peer %x: %v",
-			channelID, pubKey, err)
+			cid.chanID, pubKey, err)
 	}
 
+	// Once Brontide is aware of this channel, we need to set it in
+	// chanIdentifier so this channel will be removed from Brontide if the
+	// funding flow fails.
+	cid.setChanID(channelID)
+
 	fundingSigned := &lnwire.FundingSigned{
-		ChanID:    channelID,
+		ChanID:    cid.chanID,
 		CommitSig: ourCommitSig,
 	}
 	if err := peer.SendMessage(true, fundingSigned); err != nil {
 		log.Errorf("unable to send FundingSigned message: %v", err)
-		f.failFundingFlow(peer, pendingChanID, err)
+		f.failFundingFlow(peer, cid, err)
 		deleteFromDatabase()
 		return
 	}
@@ -2325,7 +2356,7 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	// With a permanent channel id established we can save the respective
 	// forwarding policy in the database. In the channel announcement phase
 	// this forwarding policy is retrieved and applied.
-	err = f.saveInitialFwdingPolicy(channelID, &forwardingPolicy)
+	err = f.saveInitialFwdingPolicy(cid.chanID, &forwardingPolicy)
 	if err != nil {
 		log.Errorf("Unable to store the forwarding policy: %v", err)
 	}
@@ -2341,7 +2372,7 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	// Create an entry in the local discovery map so we can ensure that we
 	// process the channel confirmation fully before we receive a
 	// channel_ready message.
-	f.localDiscoverySignals.Store(channelID, make(chan struct{}))
+	f.localDiscoverySignals.Store(cid.chanID, make(chan struct{}))
 
 	// Inform the ChannelNotifier that the channel has entered
 	// pending open state.
@@ -2382,11 +2413,29 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 	pendingChanID, ok := f.signedReservations[msg.ChanID]
 	delete(f.signedReservations, msg.ChanID)
 	f.resMtx.Unlock()
+
+	// Create the channel identifier and set the channel ID.
+	//
+	// NOTE: we may get an empty pending channel ID here if the key cannot
+	// be found, which means when we cancel the reservation context in
+	// `failFundingFlow`, we will get an error. In this case, we will send
+	// an error msg to our peer using the active channel ID.
+	//
+	// TODO(yy): refactor the funding flow to fix this case.
+	cid := newChanIdentifier(pendingChanID)
+	cid.setChanID(msg.ChanID)
+
+	// If the pending channel ID is not found, fail the funding flow.
 	if !ok {
+		// NOTE: we directly overwrite the pending channel ID here for
+		// this rare case since we don't have a valid pending channel
+		// ID.
+		cid.tempChanID = msg.ChanID
+
 		err := fmt.Errorf("unable to find signed reservation for "+
 			"chan_id=%x", msg.ChanID)
 		log.Warnf(err.Error())
-		f.failFundingFlow(peer, msg.ChanID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -2396,7 +2445,7 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 		log.Warnf("Unable to find reservation (peer_id:%v, "+
 			"chan_id:%x)", peerKey, pendingChanID[:])
 		// TODO: add ErrChanNotFound?
-		f.failFundingFlow(peer, pendingChanID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -2421,7 +2470,7 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 	commitSig, err := msg.CommitSig.ToSignature()
 	if err != nil {
 		log.Errorf("Unable to parse signature: %v", err)
-		f.failFundingFlow(peer, pendingChanID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -2431,7 +2480,7 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 	if err != nil {
 		log.Errorf("Unable to complete reservation sign "+
 			"complete: %v", err)
-		f.failFundingFlow(peer, pendingChanID, err)
+		f.failFundingFlow(peer, cid, err)
 		return
 	}
 
@@ -2592,12 +2641,16 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 				"to come online: %v", err)
 		}
 
+		// Create channel identifier and set the channel ID.
+		cid := newChanIdentifier(pendingID)
+		cid.setChanID(lnwire.NewChanIDFromOutPoint(&c.FundingOutpoint))
+
 		// TODO(halseth): should this send be made
 		// reliable?
 
 		// The reservation won't exist at this point, but we'll send an
 		// Error message over anyways with ChanID set to pendingID.
-		f.failFundingFlow(peer, pendingID, timeoutErr)
+		f.failFundingFlow(peer, cid, timeoutErr)
 	}()
 
 	return timeoutErr
@@ -4403,7 +4456,16 @@ func (f *Manager) pruneZombieReservations() {
 			resCtx.peer.IdentityKey().SerializeCompressed(),
 			pendingChanID[:])
 		log.Warnf(err.Error())
-		f.failFundingFlow(resCtx.peer, pendingChanID, err)
+
+		chanID := lnwire.NewChanIDFromOutPoint(
+			resCtx.reservation.FundingOutpoint(),
+		)
+
+		// Create channel identifier and set the channel ID.
+		cid := newChanIdentifier(pendingChanID)
+		cid.setChanID(chanID)
+
+		f.failFundingFlow(resCtx.peer, cid, err)
 	}
 }
 

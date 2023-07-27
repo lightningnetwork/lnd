@@ -2743,6 +2743,19 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 	// amount that this route can carry.
 	useMinAmt := amt == nil
 
+	var runningAmt lnwire.MilliSatoshi
+	if useMinAmt {
+		// For minimum amount routes, aim to deliver at least 1 msat to
+		// the destination. There are nodes in the wild that have a
+		// min_htlc channel policy of zero, which could lead to a zero
+		// amount payment being made.
+		runningAmt = 1
+	} else {
+		// If an amount is specified, we need to build a route that
+		// delivers exactly this amount to the final destination.
+		runningAmt = *amt
+	}
+
 	// We'll attempt to obtain a set of bandwidth hints that helps us select
 	// the best outgoing channel to use in case no outgoing channel is set.
 	bandwidthHints, err := newBandwidthManager(
@@ -2759,24 +2772,46 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		return nil, err
 	}
 
+	sourceNode := r.selfNode.PubKeyBytes
+	unifiers, senderAmt, err := getRouteUnifiers(
+		sourceNode, hops, useMinAmt, runningAmt, outgoingChans,
+		r.cachedGraph, bandwidthHints,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pathEdges, receiverAmt, err := getPathEdges(
+		sourceNode, senderAmt, unifiers, bandwidthHints, hops,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build and return the final route.
+	return newRoute(
+		sourceNode, pathEdges, uint32(height),
+		finalHopParams{
+			amt:         receiverAmt,
+			totalAmt:    receiverAmt,
+			cltvDelta:   uint16(finalCltvDelta),
+			records:     nil,
+			paymentAddr: payAddr,
+		},
+	)
+}
+
+// getRouteUnifiers returns a list of edge unifiers for the given route.
+func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
+	useMinAmt bool, runningAmt lnwire.MilliSatoshi,
+	outgoingChans map[uint64]struct{}, graph routingGraph,
+	bandwidthHints *bandwidthManager) ([]*edgeUnifier, lnwire.MilliSatoshi,
+	error) {
+
 	// Allocate a list that will contain the edge unifiers for this route.
 	unifiers := make([]*edgeUnifier, len(hops))
 
-	var runningAmt lnwire.MilliSatoshi
-	if useMinAmt {
-		// For minimum amount routes, aim to deliver at least 1 msat to
-		// the destination. There are nodes in the wild that have a
-		// min_htlc channel policy of zero, which could lead to a zero
-		// amount payment being made.
-		runningAmt = 1
-	} else {
-		// If an amount is specified, we need to build a route that
-		// delivers exactly this amount to the final destination.
-		runningAmt = *amt
-	}
-
 	// Traverse hops backwards to accumulate fees in the running amounts.
-	source := r.selfNode.PubKeyBytes
 	for i := len(hops) - 1; i >= 0; i-- {
 		toNode := hops[i]
 
@@ -2793,16 +2828,16 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		// in the graph.
 		u := newNodeEdgeUnifier(source, toNode, outgoingChans)
 
-		err := u.addGraphPolicies(r.cachedGraph)
+		err := u.addGraphPolicies(graph)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 
 		// Exit if there are no channels.
 		edgeUnifier, ok := u.edgeUnifiers[fromNode]
 		if !ok {
 			log.Errorf("Cannot find policy for node %v", fromNode)
-			return nil, ErrNoChannel{
+			return nil, 0, ErrNoChannel{
 				fromNode: fromNode,
 				position: i,
 			}
@@ -2822,7 +2857,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 			log.Errorf("Cannot find policy with amt=%v for node %v",
 				runningAmt, fromNode)
 
-			return nil, ErrNoChannel{
+			return nil, 0, ErrNoChannel{
 				fromNode: fromNode,
 				position: i,
 			}
@@ -2839,17 +2874,31 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		unifiers[i] = edgeUnifier
 	}
 
+	return unifiers, runningAmt, nil
+}
+
+// getPathEdges returns the edges that make up the path and the total amount,
+// including fees, to send the payment.
+func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
+	unifiers []*edgeUnifier, bandwidthHints *bandwidthManager,
+	hops []route.Vertex) ([]*channeldb.CachedEdgePolicy,
+	lnwire.MilliSatoshi, error) {
+
 	// Now that we arrived at the start of the route and found out the route
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
 	var pathEdges []*channeldb.CachedEdgePolicy
-	receiverAmt := runningAmt
 	for i, unifier := range unifiers {
 		edge := unifier.getEdge(receiverAmt, bandwidthHints)
 		if edge == nil {
-			return nil, ErrNoChannel{
-				fromNode: hops[i-1],
+			fromNode := source
+			if i > 0 {
+				fromNode = hops[i-1]
+			}
+
+			return nil, 0, ErrNoChannel{
+				fromNode: fromNode,
 				position: i,
 			}
 		}
@@ -2864,15 +2913,5 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 		pathEdges = append(pathEdges, edge.policy)
 	}
 
-	// Build and return the final route.
-	return newRoute(
-		source, pathEdges, uint32(height),
-		finalHopParams{
-			amt:         receiverAmt,
-			totalAmt:    receiverAmt,
-			cltvDelta:   uint16(finalCltvDelta),
-			records:     nil,
-			paymentAddr: payAddr,
-		},
-	)
+	return pathEdges, receiverAmt, nil
 }

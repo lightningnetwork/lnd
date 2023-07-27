@@ -194,6 +194,10 @@ unlock or create.
   Tor](https://github.com/lightningnetwork/lnd/pull/7783), even when
   `tor.skip-proxy-for-clearnet-targets=true` was set.
 
+* Fix a [concurrency issue related to rapid peer teardown and
+  creation](https://github.com/lightningnetwork/lnd/pull/7856) that can arise
+  under rare scenarios.
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and
@@ -226,6 +230,7 @@ unlock or create.
 * Maxwell Sayles
 * Michael Street
 * MG-ng
+* Olaoluwa Osuntokun
 * Oliver Gugger
 * Pierre Beugnet
 * Satarupa Deb

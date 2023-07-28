@@ -666,11 +666,15 @@ func (n *TxNotifier) RegisterConf(txid *chainhash.Hash, pkScript []byte,
 		// block along with the rest of the details. However not all
 		// clients want the block, so we make a copy here w/o the block
 		// if needed so we can give clients only what they ask for.
-		if !ntfn.includeBlock && confSet.details != nil {
-			confSet.details.Block = nil
+		confDetails := confSet.details
+		if !ntfn.includeBlock && confDetails != nil {
+			confDetailsCopy := *confDetails
+			confDetailsCopy.Block = nil
+
+			confDetails = &confDetailsCopy
 		}
 
-		err := n.dispatchConfDetails(ntfn, confSet.details)
+		err := n.dispatchConfDetails(ntfn, confDetails)
 		if err != nil {
 			return nil, err
 		}

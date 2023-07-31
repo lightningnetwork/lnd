@@ -112,6 +112,8 @@ type mailBoxConfig struct {
 
 // memoryMailBox is an implementation of the MailBox struct backed by purely
 // in-memory queues.
+//
+// TODO(morehouse): use typed lists instead of list.Lists to avoid type asserts.
 type memoryMailBox struct {
 	started sync.Once
 	stopped sync.Once

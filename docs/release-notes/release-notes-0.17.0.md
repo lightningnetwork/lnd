@@ -9,6 +9,9 @@
 * Add [invoice SQL schema and 
   queries](https://github.com/lightningnetwork/lnd/pull/7354)
 
+* Add new [sqldb 
+package](https://github.com/lightningnetwork/lnd/pull/7343) 
+
 ## Watchtowers 
 
 * Let the task pipeline [only carry 

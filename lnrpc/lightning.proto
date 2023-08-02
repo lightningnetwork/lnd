@@ -2828,6 +2828,9 @@ message WalletAccountBalance {
 }
 
 message WalletBalanceRequest {
+    // The wallet account the balance is shown for.
+    // If this is not specified, the balance of the "default" account is shown.
+    string account = 1;
 }
 
 message WalletBalanceResponse {

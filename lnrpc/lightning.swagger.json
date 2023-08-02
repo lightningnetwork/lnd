@@ -57,6 +57,15 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "account",
+            "description": "The wallet account the balance is shown for.\nIf this is not specified, the balance of the \"default\" account is shown.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
         "tags": [
           "Lightning"
         ]

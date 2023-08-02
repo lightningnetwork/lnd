@@ -1314,7 +1314,15 @@ var walletBalanceCommand = cli.Command{
 	Name:     "walletbalance",
 	Category: "Wallet",
 	Usage:    "Compute and display the wallet's current balance.",
-	Action:   actionDecorator(walletBalance),
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "account",
+			Usage: "(optional) the account for which the balance " +
+				"is shown",
+			Value: "",
+		},
+	},
+	Action: actionDecorator(walletBalance),
 }
 
 func walletBalance(ctx *cli.Context) error {
@@ -1322,7 +1330,9 @@ func walletBalance(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.WalletBalanceRequest{}
+	req := &lnrpc.WalletBalanceRequest{
+		Account: ctx.String("account"),
+	}
 	resp, err := client.WalletBalance(ctxc, req)
 	if err != nil {
 		return err

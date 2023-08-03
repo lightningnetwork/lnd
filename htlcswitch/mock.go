@@ -365,10 +365,6 @@ func (r *mockHopIterator) EncodeNextHop(w io.Writer) error {
 }
 
 func encodeFwdInfo(w io.Writer, f *hop.ForwardingInfo) error {
-	if _, err := w.Write([]byte{byte(f.Network)}); err != nil {
-		return err
-	}
-
 	if err := binary.Write(w, binary.BigEndian, f.NextHop); err != nil {
 		return err
 	}
@@ -563,12 +559,6 @@ func (p *mockIteratorDecoder) DecodeHopIterators(id []byte,
 }
 
 func decodeFwdInfo(r io.Reader, f *hop.ForwardingInfo) error {
-	var net [1]byte
-	if _, err := r.Read(net[:]); err != nil {
-		return err
-	}
-	f.Network = hop.Network(net[0])
-
 	if err := binary.Read(r, binary.BigEndian, &f.NextHop); err != nil {
 		return err
 	}

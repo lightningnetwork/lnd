@@ -106,7 +106,6 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 
 	return &Payload{
 		FwdInfo: ForwardingInfo{
-			Network:         BitcoinNetwork,
 			NextHop:         lnwire.NewShortChanIDFromInt(nextHop),
 			AmountToForward: lnwire.MilliSatoshi(f.ForwardAmount),
 			OutgoingCTLV:    f.OutgoingCltv,
@@ -187,7 +186,6 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 
 	return &Payload{
 		FwdInfo: ForwardingInfo{
-			Network:         BitcoinNetwork,
 			NextHop:         nextHop,
 			AmountToForward: lnwire.MilliSatoshi(amt),
 			OutgoingCTLV:    cltv,

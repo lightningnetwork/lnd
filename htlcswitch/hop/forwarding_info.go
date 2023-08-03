@@ -10,10 +10,6 @@ import (
 // received within the incoming HTLC, to ensure that the prior hop didn't
 // tamper with the end-to-end routing information at all.
 type ForwardingInfo struct {
-	// Network is the target blockchain network that the HTLC will travel
-	// over next.
-	Network Network
-
 	// NextHop is the channel ID of the next hop. The received HTLC should
 	// be forwarded to this particular channel in order to continue the
 	// end-to-end route.

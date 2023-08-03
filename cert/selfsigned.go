@@ -9,7 +9,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"math/big"
 	"net"
 	"os"
@@ -295,14 +294,14 @@ func GenCertPair(org string, tlsExtraIPs, tlsExtraDomains []string,
 func WriteCertPair(certFile, keyFile string, certBytes, keyBytes []byte) error {
 	// Write cert and key files.
 	if certFile != "" {
-		err := ioutil.WriteFile(certFile, certBytes, 0644)
+		err := os.WriteFile(certFile, certBytes, 0644)
 		if err != nil {
 			return err
 		}
 	}
 
 	if keyFile != "" {
-		err := ioutil.WriteFile(keyFile, keyBytes, 0600)
+		err := os.WriteFile(keyFile, keyBytes, 0600)
 		if err != nil {
 			os.Remove(certFile)
 			return err

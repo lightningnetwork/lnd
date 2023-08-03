@@ -6,8 +6,8 @@ package chainntnfs
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -198,10 +198,10 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 
 	t.Helper()
 
-	// We use ioutil.TempDir here instead of t.TempDir because some versions
+	// We use os.MkdirTemp here instead of t.TempDir because some versions
 	// of bitcoind complain about the zmq connection string formats when the
 	// t.TempDir directory string is used.
-	tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
+	tempBitcoindDir, err := os.MkdirTemp("", "bitcoind")
 	require.NoError(t, err, "unable to create temp dir")
 
 	rpcPort := rand.Intn(65536-1024) + 1024

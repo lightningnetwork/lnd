@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
@@ -328,7 +327,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	case d.cfg.WalletUnlockPasswordFile != "" && walletExists:
 		d.logger.Infof("Attempting automatic wallet unlock with " +
 			"password provided in file")
-		pwBytes, err := ioutil.ReadFile(d.cfg.WalletUnlockPasswordFile)
+		pwBytes, err := os.ReadFile(d.cfg.WalletUnlockPasswordFile)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("error reading "+
 				"password from file %s: %v",

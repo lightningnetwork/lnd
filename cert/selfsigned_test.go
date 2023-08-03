@@ -1,7 +1,7 @@
 package cert_test
 
 import (
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -42,10 +42,10 @@ func TestIsOutdatedCert(t *testing.T) {
 	// number of IPs and domains.
 	for numIPs := 1; numIPs <= len(extraIPs); numIPs++ {
 		for numDomains := 1; numDomains <= len(extraDomains); numDomains++ {
-			certBytes, err := ioutil.ReadFile(certPath)
+			certBytes, err := os.ReadFile(certPath)
 			require.NoError(t, err)
 
-			keyBytes, err := ioutil.ReadFile(keyPath)
+			keyBytes, err := os.ReadFile(keyPath)
 			require.NoError(t, err)
 
 			_, parsedCert, err := cert.LoadCertFromBytes(
@@ -98,10 +98,10 @@ func TestIsOutdatedPermutation(t *testing.T) {
 	err = cert.WriteCertPair(certPath, keyPath, certBytes, keyBytes)
 	require.NoError(t, err)
 
-	certBytes, err = ioutil.ReadFile(certPath)
+	certBytes, err = os.ReadFile(certPath)
 	require.NoError(t, err)
 
-	keyBytes, err = ioutil.ReadFile(keyPath)
+	keyBytes, err = os.ReadFile(keyPath)
 	require.NoError(t, err)
 
 	_, parsedCert, err := cert.LoadCertFromBytes(certBytes, keyBytes)
@@ -171,10 +171,10 @@ func TestTLSDisableAutofill(t *testing.T) {
 	require.NoError(t, err)
 
 	// Read certs from disk.
-	certBytes, err = ioutil.ReadFile(certPath)
+	certBytes, err = os.ReadFile(certPath)
 	require.NoError(t, err)
 
-	keyBytes, err = ioutil.ReadFile(keyPath)
+	keyBytes, err = os.ReadFile(keyPath)
 	require.NoError(t, err)
 
 	// Load the certificate.
@@ -230,10 +230,10 @@ func TestTLSConfig(t *testing.T) {
 	err = cert.WriteCertPair(certPath, keyPath, certBytes, keyBytes)
 	require.NoError(t, err)
 
-	certBytes, err = ioutil.ReadFile(certPath)
+	certBytes, err = os.ReadFile(certPath)
 	require.NoError(t, err)
 
-	keyBytes, err = ioutil.ReadFile(keyPath)
+	keyBytes, err = os.ReadFile(keyPath)
 	require.NoError(t, err)
 
 	// Load the certificate.

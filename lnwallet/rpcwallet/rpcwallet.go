@@ -7,7 +7,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -1246,7 +1246,7 @@ func extractSignature(in *psbt.PInput,
 func connectRPC(hostPort, tlsCertPath, macaroonPath string,
 	timeout time.Duration) (*grpc.ClientConn, error) {
 
-	certBytes, err := ioutil.ReadFile(tlsCertPath)
+	certBytes, err := os.ReadFile(tlsCertPath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading TLS cert file %v: %v",
 			tlsCertPath, err)
@@ -1258,7 +1258,7 @@ func connectRPC(hostPort, tlsCertPath, macaroonPath string,
 			"certificate")
 	}
 
-	macBytes, err := ioutil.ReadFile(macaroonPath)
+	macBytes, err := os.ReadFile(macaroonPath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading macaroon file %v: %v",
 			macaroonPath, err)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"io/ioutil"
 	"math"
 )
 
@@ -262,7 +261,7 @@ func (s *Stream) decode(r io.Reader, parsedTypes TypeMap, p2p bool) (TypeMap,
 			// If the caller provided an initialized TypeMap, record
 			// the encoded bytes.
 			var b *bytes.Buffer
-			writer := ioutil.Discard
+			writer := io.Discard
 			if parsedTypes != nil {
 				b = bytes.NewBuffer(make([]byte, 0, length))
 				writer = b

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image/color"
 	"io"
-	"io/ioutil"
 	"net"
 	"unicode/utf8"
 )
@@ -127,7 +126,7 @@ func (a *NodeAnnouncement) Decode(r io.Reader, pver uint32) error {
 	// we'll collect the remainder into the ExtraOpaqueData field. If there
 	// aren't any bytes, then we'll snip off the slice to avoid carrying
 	// around excess capacity.
-	a.ExtraOpaqueData, err = ioutil.ReadAll(r)
+	a.ExtraOpaqueData, err = io.ReadAll(r)
 	if err != nil {
 		return err
 	}

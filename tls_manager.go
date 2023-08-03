@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -285,7 +284,7 @@ func (t *TLSManager) ensureEncryption(keyRing keychain.SecretKeyRing) error {
 		if err != nil {
 			return err
 		}
-		err = ioutil.WriteFile(
+		err = os.WriteFile(
 			t.cfg.TLSKeyPath, b.Bytes(), modifyFilePermissions,
 		)
 		if err != nil {

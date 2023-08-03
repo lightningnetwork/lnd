@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"io/ioutil"
 
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -112,7 +111,7 @@ func (e Encrypter) DecryptPayloadFromReader(payload io.Reader) ([]byte,
 
 	// Next, we'll read out the entire blob as we need to isolate the nonce
 	// from the rest of the ciphertext.
-	packedPayload, err := ioutil.ReadAll(payload)
+	packedPayload, err := io.ReadAll(payload)
 	if err != nil {
 		return nil, err
 	}

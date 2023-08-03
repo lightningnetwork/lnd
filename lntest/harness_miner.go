@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,7 +120,7 @@ func (h *HarnessMiner) saveLogs() {
 	// After shutting down the miner, we'll make a copy of the log files
 	// before deleting the temporary log dir.
 	path := fmt.Sprintf("%s/%s", h.logPath, harnessNetParams.Name)
-	files, err := ioutil.ReadDir(path)
+	files, err := os.ReadDir(path)
 	require.NoError(h, err, "unable to read log directory")
 
 	for _, file := range files {

@@ -3,7 +3,6 @@ package chanbackup
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -27,7 +26,7 @@ func assertBackupMatches(t *testing.T, filePath string,
 
 	t.Helper()
 
-	packedBackup, err := ioutil.ReadFile(filePath)
+	packedBackup, err := os.ReadFile(filePath)
 	require.NoError(t, err, "unable to test file")
 
 	if !bytes.Equal(packedBackup, currentBackup) {

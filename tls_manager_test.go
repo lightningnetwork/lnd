@@ -9,9 +9,9 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"io/ioutil"
 	"math/big"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -199,7 +199,7 @@ func TestGenerateEphemeralCert(t *testing.T) {
 	keyBytes, err := tlsManager.loadEphemeralCertificate()
 	require.NoError(t, err, "failed to generate new certificate")
 
-	certBytes, err := ioutil.ReadFile(tmpCertPath)
+	certBytes, err := os.ReadFile(tmpCertPath)
 	require.NoError(t, err)
 
 	tlsr, err := cert.NewTLSReloader(certBytes, keyBytes)
@@ -207,15 +207,15 @@ func TestGenerateEphemeralCert(t *testing.T) {
 	tlsManager.tlsReloader = tlsr
 
 	// Make sure .tmp file is created at the tmp cert path.
-	_, err = ioutil.ReadFile(tmpCertPath)
+	_, err = os.ReadFile(tmpCertPath)
 	require.NoError(t, err, "couldn't find temp cert file")
 
 	// But no key should be stored.
-	_, err = ioutil.ReadFile(cfg.TLSKeyPath)
+	_, err = os.ReadFile(cfg.TLSKeyPath)
 	require.Error(t, err, "shouldn't have found file")
 
 	// And no permanent cert file should be stored.
-	_, err = ioutil.ReadFile(cfg.TLSCertPath)
+	_, err = os.ReadFile(cfg.TLSCertPath)
 	require.Error(t, err, "shouldn't have found a permanent cert file")
 
 	// Now test that when we reload the certificate it generates the new
@@ -350,9 +350,9 @@ func writeTestCertFiles(t *testing.T, expiredCert, encryptTLSKey bool,
 		require.NoError(t, err, "failed to encrypt private key")
 	}
 
-	err = ioutil.WriteFile(tempDir+"/tls.cert", certBuf.Bytes(), 0644)
+	err = os.WriteFile(tempDir+"/tls.cert", certBuf.Bytes(), 0644)
 	require.NoError(t, err, "failed to write cert file")
-	err = ioutil.WriteFile(tempDir+"/tls.key", keyBuf.Bytes(), 0600)
+	err = os.WriteFile(tempDir+"/tls.key", keyBuf.Bytes(), 0600)
 	require.NoError(t, err, "failed to write key file")
 
 	return certPath, keyPath, parsedCert

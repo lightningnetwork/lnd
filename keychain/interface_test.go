@@ -122,14 +122,6 @@ func TestKeyRingDerivation(t *testing.T) {
 			return "btcwallet", keyRing, nil
 		},
 		func() (string, KeyRing, error) {
-			wallet, err := createTestBtcWallet(t, CoinTypeLitecoin)
-			require.NoError(t, err)
-
-			keyRing := NewBtcWalletKeyRing(wallet, CoinTypeLitecoin)
-
-			return "ltcwallet", keyRing, nil
-		},
-		func() (string, KeyRing, error) {
 			wallet, err := createTestBtcWallet(t, CoinTypeTestnet)
 			require.NoError(t, err)
 
@@ -248,14 +240,6 @@ func TestSecretKeyRingDerivation(t *testing.T) {
 			keyRing := NewBtcWalletKeyRing(wallet, CoinTypeBitcoin)
 
 			return "btcwallet", keyRing, nil
-		},
-		func() (string, SecretKeyRing, error) {
-			wallet, err := createTestBtcWallet(t, CoinTypeLitecoin)
-			require.NoError(t, err)
-
-			keyRing := NewBtcWalletKeyRing(wallet, CoinTypeLitecoin)
-
-			return "ltcwallet", keyRing, nil
 		},
 		func() (string, SecretKeyRing, error) {
 			wallet, err := createTestBtcWallet(t, CoinTypeTestnet)

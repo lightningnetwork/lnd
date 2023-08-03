@@ -538,7 +538,6 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	// replicated, so we'll pass in the remote channel DB instance.
 	chainControlCfg := &chainreg.Config{
 		Bitcoin:                     d.cfg.Bitcoin,
-		PrimaryChain:                d.cfg.registeredChains.PrimaryChain,
 		HeightHintCacheQueryDisable: d.cfg.HeightHintCacheQueryDisable,
 		NeutrinoMode:                d.cfg.NeutrinoMode,
 		BitcoindMode:                d.cfg.BitcoindMode,
@@ -911,8 +910,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	databaseBackends, err := cfg.DB.GetBackends(
 		ctx, cfg.graphDatabaseDir(), cfg.networkDir, filepath.Join(
-			cfg.Watchtower.TowerDir,
-			cfg.registeredChains.PrimaryChain().String(),
+			cfg.Watchtower.TowerDir, BitcoinChainName,
 			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 		), cfg.WtClient.Active, cfg.Watchtower.Active, d.logger,
 	)

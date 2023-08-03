@@ -17,9 +17,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwire"
-	litecoinCfg "github.com/ltcsuite/ltcd/chaincfg"
 )
 
 var (
@@ -118,23 +116,10 @@ var (
 
 	// Must be initialized in init().
 	testDescriptionHash [32]byte
-
-	ltcTestNetParams chaincfg.Params
-	ltcMainNetParams chaincfg.Params
 )
 
 func init() {
 	copy(testDescriptionHash[:], testDescriptionHashSlice[:])
-
-	// Initialize litecoin testnet and mainnet params by applying key fields
-	// to copies of bitcoin params.
-	// TODO(sangaman): create an interface for chaincfg.params
-	ltcTestNetParams = chaincfg.TestNet3Params
-	ltcTestNetParams.Net = wire.BitcoinNet(litecoinCfg.TestNet4Params.Net)
-	ltcTestNetParams.Bech32HRPSegwit = litecoinCfg.TestNet4Params.Bech32HRPSegwit
-	ltcMainNetParams = chaincfg.MainNetParams
-	ltcMainNetParams.Net = wire.BitcoinNet(litecoinCfg.MainNetParams.Net)
-	ltcMainNetParams.Bech32HRPSegwit = litecoinCfg.MainNetParams.Bech32HRPSegwit
 }
 
 // TestDecodeEncode tests that an encoded invoice gets decoded into the expected
@@ -662,39 +647,6 @@ func TestDecodeEncode(t *testing.T) {
 			skipEncoding: true, // Skip encoding since we were given the wrong net
 		},
 		{
-			// Decode a litecoin testnet invoice
-			encodedInvoice: "lntltc241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66m2eq2fx9uctzkmj30meaghyskkgsd6geap5qg9j2ae444z24a4p8xg3a6g73p8l7d689vtrlgzj0wyx2h6atq8dfty7wmkt4frx9g9sp730h5a",
-			valid:          true,
-			decodedInvoice: func() *Invoice {
-				return &Invoice{
-					// TODO(sangaman): create an interface for chaincfg.params
-					Net:             &ltcTestNetParams,
-					MilliSat:        &testMillisat24BTC,
-					Timestamp:       time.Unix(1496314658, 0),
-					PaymentHash:     &testPaymentHash,
-					DescriptionHash: &testDescriptionHash,
-					Destination:     testPubKey,
-					Features:        emptyFeatures,
-				}
-			},
-		},
-		{
-			// Decode a litecoin mainnet invoice
-			encodedInvoice: "lnltc241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66859t2d55efrxdlgqg9hdqskfstdmyssdw4fjc8qdl522ct885pqk7acn2aczh0jeht0xhuhnkmm3h0qsrxedlwm9x86787zzn4qwwwcpjkl3t2",
-			valid:          true,
-			decodedInvoice: func() *Invoice {
-				return &Invoice{
-					Net:             &ltcMainNetParams,
-					MilliSat:        &testMillisat24BTC,
-					Timestamp:       time.Unix(1496314658, 0),
-					PaymentHash:     &testPaymentHash,
-					DescriptionHash: &testDescriptionHash,
-					Destination:     testPubKey,
-					Features:        emptyFeatures,
-				}
-			},
-		},
-		{
 			// Please send 0.01 BTC with payment metadata 0x01fafaf0.
 			encodedInvoice: "lnbc10m1pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdp9wpshjmt9de6zqmt9w3skgct5vysxjmnnd9jx2mq8q8a04uqsp5zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zyg3zygs9q2gqqqqqqsgq7hf8he7ecf7n4ffphs6awl9t6676rrclv9ckg3d3ncn7fct63p6s365duk5wrk202cfy3aj5xnnp5gs3vrdvruverwwq7yzhkf5a3xqpd05wjc",
 			valid:          true,
@@ -852,30 +804,6 @@ func TestNewInvoice(t *testing.T) {
 			},
 			valid:          true,
 			encodedInvoice: "lnbcrt241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqdqqnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66df5c8pqjjt4z4ymmuaxfx8eh5v7hmzs3wrfas8m2sz5qz56rw2lxy8mmgm4xln0ha26qkw6u3vhu22pss2udugr9g74c3x20slpcqjgq0el4h6",
-		},
-		{
-			// Create a litecoin testnet invoice
-			newInvoice: func() (*Invoice, error) {
-				return NewInvoice(&ltcTestNetParams,
-					testPaymentHash, time.Unix(1496314658, 0),
-					Amount(testMillisat24BTC),
-					DescriptionHash(testDescriptionHash),
-					Destination(testPubKey))
-			},
-			valid:          true,
-			encodedInvoice: "lntltc241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66m2eq2fx9uctzkmj30meaghyskkgsd6geap5qg9j2ae444z24a4p8xg3a6g73p8l7d689vtrlgzj0wyx2h6atq8dfty7wmkt4frx9g9sp730h5a",
-		},
-		{
-			// Create a litecoin mainnet invoice
-			newInvoice: func() (*Invoice, error) {
-				return NewInvoice(&ltcMainNetParams,
-					testPaymentHash, time.Unix(1496314658, 0),
-					Amount(testMillisat24BTC),
-					DescriptionHash(testDescriptionHash),
-					Destination(testPubKey))
-			},
-			valid:          true,
-			encodedInvoice: "lnltc241pvjluezpp5qqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqqqsyqcyq5rqwzqfqypqhp58yjmdan79s6qqdhdzgynm4zwqd5d7xmw5fk98klysy043l2ahrqsnp4q0n326hr8v9zprg8gsvezcch06gfaqqhde2aj730yg0durunfhv66859t2d55efrxdlgqg9hdqskfstdmyssdw4fjc8qdl522ct885pqk7acn2aczh0jeht0xhuhnkmm3h0qsrxedlwm9x86787zzn4qwwwcpjkl3t2",
 		},
 	}
 

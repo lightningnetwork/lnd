@@ -74,14 +74,6 @@ const (
 	// to use for its commitment transaction.
 	MaxBtcRemoteDelay uint16 = 2016
 
-	// MinLtcRemoteDelay is the minimum Litecoin CSV delay we will require
-	// the remote to use for its commitment transaction.
-	MinLtcRemoteDelay uint16 = 576
-
-	// MaxLtcRemoteDelay is the maximum Litecoin CSV delay we will require
-	// the remote to use for its commitment transaction.
-	MaxLtcRemoteDelay uint16 = 8064
-
 	// MinChanFundingSize is the smallest channel that we'll allow to be
 	// created over the RPC interface.
 	MinChanFundingSize = btcutil.Amount(20000)
@@ -97,12 +89,6 @@ const (
 	// channels. This limit is 10 BTC and is the only thing standing between
 	// you and limitless channel size (apart from 21 million cap).
 	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
-
-	// MaxLtcFundingAmount is a soft-limit of the maximum channel size
-	// currently accepted on the Litecoin chain within the Lightning
-	// Protocol.
-	MaxLtcFundingAmount = MaxBtcFundingAmount *
-		chainreg.BtcToLtcConversionRate
 
 	// TODO(roasbeef): tune.
 	msgBufferSize = 50

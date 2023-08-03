@@ -21,7 +21,6 @@ func TestShouldPeerBootstrap(t *testing.T) {
 				Bitcoin: &lncfg.Chain{
 					SimNet: true,
 				},
-				Litecoin: &lncfg.Chain{},
 			},
 		},
 
@@ -31,7 +30,6 @@ func TestShouldPeerBootstrap(t *testing.T) {
 				Bitcoin: &lncfg.Chain{
 					RegTest: true,
 				},
-				Litecoin: &lncfg.Chain{},
 			},
 		},
 
@@ -41,7 +39,6 @@ func TestShouldPeerBootstrap(t *testing.T) {
 				Bitcoin: &lncfg.Chain{
 					SigNet: true,
 				},
-				Litecoin: &lncfg.Chain{},
 			},
 		},
 
@@ -51,7 +48,6 @@ func TestShouldPeerBootstrap(t *testing.T) {
 				Bitcoin: &lncfg.Chain{
 					MainNet: true,
 				},
-				Litecoin:       &lncfg.Chain{},
 				NoNetBootstrap: true,
 			},
 		},
@@ -62,7 +58,6 @@ func TestShouldPeerBootstrap(t *testing.T) {
 				Bitcoin: &lncfg.Chain{
 					MainNet: true,
 				},
-				Litecoin: &lncfg.Chain{},
 			},
 			shouldBoostrap: true,
 		},
@@ -73,7 +68,6 @@ func TestShouldPeerBootstrap(t *testing.T) {
 				Bitcoin: &lncfg.Chain{
 					TestNet3: true,
 				},
-				Litecoin: &lncfg.Chain{},
 			},
 			shouldBoostrap: true,
 		},

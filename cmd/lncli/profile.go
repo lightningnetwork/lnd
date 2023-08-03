@@ -27,7 +27,6 @@ type profileEntry struct {
 	Name        string            `json:"name"`
 	RPCServer   string            `json:"rpcserver"`
 	LndDir      string            `json:"lnddir"`
-	Chain       string            `json:"chain"`
 	Network     string            `json:"network"`
 	NoMacaroons bool              `json:"no-macaroons,omitempty"` // nolint:tagliatelle
 	TLSCert     string            `json:"tlscert"`
@@ -153,7 +152,6 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 		LndDir: lncfg.CleanAndExpandPath(
 			ctx.GlobalString("lnddir"),
 		),
-		Chain:       ctx.GlobalString("chain"),
 		Network:     ctx.GlobalString("network"),
 		NoMacaroons: ctx.GlobalBool("no-macaroons"),
 		TLSCert:     string(tlsCert),

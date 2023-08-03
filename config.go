@@ -227,6 +227,10 @@ const (
 	defaultGrpcClientPingMinWait = 5 * time.Second
 
 	bitcoinChainName = "bitcoin"
+
+	bitcoindBackendName = "bitcoind"
+	btcdBackendName     = "btcd"
+	neutrinoBackendName = "neutrino"
 )
 
 var (
@@ -251,7 +255,7 @@ var (
 	defaultTLSKeyPath     = filepath.Join(DefaultLndDir, defaultTLSKeyFilename)
 	defaultLetsEncryptDir = filepath.Join(DefaultLndDir, defaultLetsEncryptDirname)
 
-	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
+	defaultBtcdDir         = btcutil.AppDataDir(btcdBackendName, false)
 	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
 
 	defaultBitcoindDir = btcutil.AppDataDir("bitcoin", false)
@@ -542,7 +546,7 @@ func DefaultConfig() Config {
 			FeeRate:       chainreg.DefaultBitcoinFeeRate,
 			TimeLockDelta: chainreg.DefaultBitcoinTimeLockDelta,
 			MaxLocalDelay: defaultMaxLocalCSVDelay,
-			Node:          "btcd",
+			Node:          btcdBackendName,
 		},
 		BtcdMode: &lncfg.Btcd{
 			Dir:     defaultBtcdDir,
@@ -932,26 +936,32 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// any of the autopilot params.
 	if cfg.Autopilot.MaxChannels < 0 {
 		str := "autopilot.maxchannels must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.Allocation < 0 {
 		str := "autopilot.allocation must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.MinChannelSize < 0 {
 		str := "autopilot.minchansize must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.MaxChannelSize < 0 {
 		str := "autopilot.maxchansize must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.MinConfs < 0 {
 		str := "autopilot.minconfs must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.ConfTarget < 1 {
 		str := "autopilot.conftarget must be positive"
+
 		return nil, mkErr(str)
 	}
 
@@ -1057,6 +1067,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// host:port. This would lead to lnd not starting up properly.
 	if cfg.Tor.SOCKS == cfg.Tor.Control {
 		str := "tor.socks and tor.control can not us the same host:port"
+
 		return nil, mkErr(str)
 	}
 
@@ -1192,6 +1203,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		str := "The mainnet, testnet, regtest, and simnet " +
 			"params can't be used together -- choose one " +
 			"of the four"
+
 		return nil, mkErr(str)
 	}
 
@@ -1201,6 +1213,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		str := "either --bitcoin.mainnet, or bitcoin.testnet," +
 			"bitcoin.simnet, or bitcoin.regtest " +
 			"must be specified"
+
 		return nil, mkErr(str)
 	}
 
@@ -1210,7 +1223,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	}
 
 	switch cfg.Bitcoin.Node {
-	case "btcd":
+	case btcdBackendName:
 		err := parseRPCParams(
 			cfg.Bitcoin, cfg.BtcdMode, cfg.ActiveNetParams,
 		)
@@ -1218,7 +1231,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			return nil, mkErr("unable to load RPC "+
 				"credentials for btcd: %v", err)
 		}
-	case "bitcoind":
+	case bitcoindBackendName:
 		if cfg.Bitcoin.SimNet {
 			return nil, mkErr("bitcoind does not " +
 				"support simnet")
@@ -1231,7 +1244,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			return nil, mkErr("unable to load RPC "+
 				"credentials for bitcoind: %v", err)
 		}
-	case "neutrino":
+	case neutrinoBackendName:
 		// No need to get RPC parameters.
 
 	case "nochainbackend":
@@ -1241,6 +1254,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	default:
 		str := "only btcd, bitcoind, and neutrino mode " +
 			"supported for bitcoin at this time"
+
 		return nil, mkErr(str)
 	}
 
@@ -1252,18 +1266,22 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// any of the autopilot params.
 	if cfg.Autopilot.MaxChannels < 0 {
 		str := "autopilot.maxchannels must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.Allocation < 0 {
 		str := "autopilot.allocation must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.MinChannelSize < 0 {
 		str := "autopilot.minchansize must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.MaxChannelSize < 0 {
 		str := "autopilot.maxchansize must be non-negative"
+
 		return nil, mkErr(str)
 	}
 
@@ -1753,9 +1771,9 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 		}
 
 		// Set the daemon name for displaying proper errors.
-		daemonName = "btcd"
+		daemonName = btcdBackendName
 		confDir = conf.Dir
-		confFileBase = "btcd"
+		confFileBase = btcdBackendName
 
 		// If only ONE of RPCUser or RPCPass is set, we assume the
 		// user did that unintentionally.
@@ -1786,7 +1804,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 		}
 
 		// Set the daemon name for displaying proper errors.
-		daemonName = "bitcoind"
+		daemonName = bitcoindBackendName
 		confDir = conf.Dir
 		confFile = conf.ConfigPath
 		confFileBase = "bitcoin"
@@ -1860,7 +1878,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			confFileBase))
 	}
 	switch cConfig.Node {
-	case "btcd":
+	case btcdBackendName:
 		nConf := nodeConfig.(*lncfg.Btcd)
 		rpcUser, rpcPass, err := extractBtcdRPCParams(confFile)
 		if err != nil {
@@ -1869,7 +1887,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 		}
 		nConf.RPCUser, nConf.RPCPass = rpcUser, rpcPass
 
-	case "bitcoind":
+	case bitcoindBackendName:
 		nConf := nodeConfig.(*lncfg.Bitcoind)
 		rpcUser, rpcPass, zmqBlockHost, zmqTxHost, err :=
 			extractBitcoindRPCParams(netParams.Params.Name,

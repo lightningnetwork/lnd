@@ -78,7 +78,7 @@ const (
 	// invoices. This allows LND nodes to freely update the minimum without
 	// creating incompatibilities during the upgrade process. For some time
 	// LND has used an explicit default final CLTV delta of 40 blocks for
-	// bitcoin (160 for litecoin), though we now clamp the lower end of this
+	// bitcoin, though we now clamp the lower end of this
 	// range for user-chosen deltas to 18 blocks to be conservative.
 	MinCLTVDelta = 18
 

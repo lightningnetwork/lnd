@@ -4,7 +4,6 @@ import (
 	bitcoinCfg "github.com/btcsuite/btcd/chaincfg"
 	bitcoinWire "github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
-	litecoinWire "github.com/ltcsuite/ltcd/wire"
 )
 
 // BitcoinNetParams couples the p2p parameters of a network with the
@@ -57,10 +56,5 @@ var BitcoinRegTestNetParams = BitcoinNetParams{
 // IsTestnet tests if the givern params correspond to a testnet
 // parameter configuration.
 func IsTestnet(params *BitcoinNetParams) bool {
-	switch params.Params.Net {
-	case bitcoinWire.TestNet3, bitcoinWire.BitcoinNet(litecoinWire.TestNet4):
-		return true
-	default:
-		return false
-	}
+	return params.Params.Net == bitcoinWire.TestNet3
 }

@@ -1966,8 +1966,9 @@ message GetRecoveryInfoResponse {
 }
 
 message Chain {
-    // The blockchain the node is on (eg bitcoin, litecoin)
-    string chain = 1;
+    // Deprecated. The chain is now always assumed to be bitcoin.
+    // The blockchain the node is on (must be bitcoin)
+    string chain = 1 [deprecated = true];
 
     // The network the node is on (eg regtest, testnet, mainnet)
     string network = 2;

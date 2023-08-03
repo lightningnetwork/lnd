@@ -3420,7 +3420,7 @@
       "properties": {
         "chain": {
           "type": "string",
-          "title": "The blockchain the node is on (eg bitcoin, litecoin)"
+          "title": "Deprecated. The chain is now always assumed to be bitcoin.\nThe blockchain the node is on (must be bitcoin)"
         },
         "network": {
           "type": "string",

@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1709,6 +1710,90 @@ func testCatchUpOnMissedBlocksWithReorg(miner1 *rpctest.Harness,
 	}
 }
 
+// testIncludeBlockAsymmetry tests that if the same output is registered for a
+// notification by two callers, one is able to get a notification with the
+// block and the other one without it.
+func testIncludeBlockAsymmetry(miner *rpctest.Harness,
+	notifier chainntnfs.TestChainNotifier, scriptDispatch bool,
+	t *testing.T) {
+
+	// We'll start by creating a new test transaction, waiting long enough
+	// for it to get into the mempool.
+	txid, pkScript, err := chainntnfs.GetTestTxidAndScript(miner)
+	require.NoError(t, err, "unable to create test tx")
+	if err := chainntnfs.WaitForMempoolTx(miner, txid); err != nil {
+		t.Fatalf("tx not relayed to miner: %v", err)
+	}
+
+	_, currentHeight, err := miner.Client.GetBestBlock()
+	require.NoError(t, err, "unable to get current height")
+
+	var (
+		confIntentNoBlock *chainntnfs.ConfirmationEvent
+		confIntentBlock   *chainntnfs.ConfirmationEvent
+
+		numConfsLong  = uint32(6)
+		numConfsShort = uint32(1)
+	)
+	dispatchClients := func() {
+		dispatchTxid := txid
+		if scriptDispatch {
+			dispatchTxid = nil
+		}
+
+		confIntentNoBlock, err = notifier.RegisterConfirmationsNtfn(
+			dispatchTxid, pkScript, numConfsLong,
+			uint32(currentHeight),
+		)
+		require.NoError(t, err)
+
+		confIntentBlock, err = notifier.RegisterConfirmationsNtfn(
+			dispatchTxid, pkScript, numConfsShort,
+			uint32(currentHeight), chainntnfs.WithIncludeBlock(),
+		)
+		require.NoError(t, err)
+	}
+	assertNtfns := func() {
+		// Make sure the long confirmation client receives the
+		// notification but not the block.
+		confNtfnNoBlock, err := lnutils.RecvOrTimeout(
+			confIntentNoBlock.Confirmed, time.Second*5,
+		)
+		require.NoError(t, err)
+		require.Nil(t, (*confNtfnNoBlock).Block, "block not included")
+
+		// And the short confirmation client receives the notification
+		// and the block.
+		confNtfnBlock, err := lnutils.RecvOrTimeout(
+			confIntentBlock.Confirmed, time.Second*5,
+		)
+		require.NoError(t, err)
+		require.NotNil(t, (*confNtfnBlock).Block, "block included")
+	}
+
+	// First, we start off by registering two clients for the same txid and
+	// pkScript. One of them will require 6 confirmations but not request
+	// the block, the other will just require a single confirmation and
+	// request the block.
+	dispatchClients()
+
+	// Next, we'll generate a few blocks, which should confirm the
+	// transaction created above and trigger the notifications, as it should
+	// be confirmed enough for both clients.
+	_, err = miner.Client.Generate(6)
+	require.NoError(t, err, "unable to generate single block")
+
+	// Make sure we got the notifications we expected.
+	assertNtfns()
+
+	// Now dispatch the same clients again, which should hit the same
+	// conditions as above and use the cached rescan details.
+	dispatchClients()
+
+	// And again, the notifications should be triggered as expected.
+	assertNtfns()
+}
+
 type txNtfnTestCase struct {
 	name string
 	test func(node *rpctest.Harness, notifier chainntnfs.TestChainNotifier,
@@ -1771,6 +1856,10 @@ var txNtfnTests = []txNtfnTestCase{
 	{
 		name: "cancel spend ntfn",
 		test: testCancelSpendNtfn,
+	},
+	{
+		name: "test include block asymmetry",
+		test: testIncludeBlockAsymmetry,
 	},
 }
 

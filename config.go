@@ -1767,17 +1767,10 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			return nil
 		}
 
-		// Get the daemon name for displaying proper errors.
-		switch net {
-		case chainreg.BitcoinChain:
-			daemonName = "btcd"
-			confDir = conf.Dir
-			confFileBase = "btcd"
-		case chainreg.LitecoinChain:
-			daemonName = "ltcd"
-			confDir = conf.Dir
-			confFileBase = "ltcd"
-		}
+		// Set the daemon name for displaying proper errors.
+		daemonName = "btcd"
+		confDir = conf.Dir
+		confFileBase = "btcd"
 
 		// If only ONE of RPCUser or RPCPass is set, we assume the
 		// user did that unintentionally.
@@ -1807,19 +1800,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			}
 		}
 
-		// Get the daemon name for displaying proper errors.
-		switch net {
-		case chainreg.BitcoinChain:
-			daemonName = "bitcoind"
-			confDir = conf.Dir
-			confFile = conf.ConfigPath
-			confFileBase = "bitcoin"
-		case chainreg.LitecoinChain:
-			daemonName = "litecoind"
-			confDir = conf.Dir
-			confFile = conf.ConfigPath
-			confFileBase = "litecoin"
-		}
+		// Set the daemon name for displaying proper errors.
+		daemonName = "bitcoind"
+		confDir = conf.Dir
+		confFile = conf.ConfigPath
+		confFileBase = "bitcoin"
 
 		// Check that cookie and credentials don't contradict each
 		// other.
@@ -1890,7 +1875,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			confFileBase))
 	}
 	switch cConfig.Node {
-	case "btcd", "ltcd":
+	case "btcd":
 		nConf := nodeConfig.(*lncfg.Btcd)
 		rpcUser, rpcPass, err := extractBtcdRPCParams(confFile)
 		if err != nil {
@@ -1899,7 +1884,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 		}
 		nConf.RPCUser, nConf.RPCPass = rpcUser, rpcPass
 
-	case "bitcoind", "litecoind":
+	case "bitcoind":
 		nConf := nodeConfig.(*lncfg.Bitcoind)
 		rpcUser, rpcPass, zmqBlockHost, zmqTxHost, err :=
 			extractBitcoindRPCParams(netParams.Params.Name,

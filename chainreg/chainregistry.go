@@ -130,12 +130,7 @@ const (
 	// delta.
 	DefaultBitcoinTimeLockDelta = 80
 
-	DefaultLitecoinMinHTLCInMSat  = lnwire.MilliSatoshi(1)
-	DefaultLitecoinMinHTLCOutMSat = lnwire.MilliSatoshi(1000)
-	DefaultLitecoinBaseFeeMSat    = lnwire.MilliSatoshi(1000)
-	DefaultLitecoinFeeRate        = lnwire.MilliSatoshi(1)
-	DefaultLitecoinTimeLockDelta  = 576
-	DefaultLitecoinDustLimit      = btcutil.Amount(54600)
+	DefaultLitecoinDustLimit = btcutil.Amount(54600)
 
 	// DefaultBitcoinStaticFeePerKW is the fee rate of 50 sat/vbyte
 	// expressed in sat/kw.
@@ -148,10 +143,6 @@ const (
 	// DefaultLitecoinStaticFeePerKW is the fee rate of 200 sat/vbyte
 	// expressed in sat/kw.
 	DefaultLitecoinStaticFeePerKW = chainfee.SatPerKWeight(50000)
-
-	// BtcToLtcConversionRate is a fixed ratio used in order to scale up
-	// payments when running on the Litecoin chain.
-	BtcToLtcConversionRate = 60
 )
 
 // DefaultLtcChannelConstraints is the default set of channel constraints that
@@ -355,13 +346,8 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		}
 
 	case "bitcoind", "litecoind":
-		var bitcoindMode *lncfg.Bitcoind
-		switch {
-		case cfg.Bitcoin.Active:
-			bitcoindMode = cfg.BitcoindMode
-		case cfg.Litecoin.Active:
-			bitcoindMode = cfg.LitecoindMode
-		}
+		bitcoindMode := cfg.BitcoindMode
+
 		// Otherwise, we'll be speaking directly via RPC and ZMQ to a
 		// bitcoind node. If the specified host for the btcd/ltcd RPC
 		// server already has a port specified, then we use that
@@ -617,14 +603,10 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 		// connection. If a raw cert was specified in the config, then
 		// we'll set that directly. Otherwise, we attempt to read the
 		// cert from the path specified in the config.
-		var btcdMode *lncfg.Btcd
-		switch {
-		case cfg.Bitcoin.Active:
+		var (
+			rpcCert  []byte
 			btcdMode = cfg.BtcdMode
-		case cfg.Litecoin.Active:
-			btcdMode = cfg.LtcdMode
-		}
-		var rpcCert []byte
+		)
 		if btcdMode.RawRPCCert != "" {
 			rpcCert, err = hex.DecodeString(btcdMode.RawRPCCert)
 			if err != nil {

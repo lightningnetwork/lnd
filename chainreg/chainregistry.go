@@ -11,7 +11,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -41,10 +40,6 @@ import (
 type Config struct {
 	// Bitcoin defines settings for the Bitcoin chain.
 	Bitcoin *lncfg.Chain
-
-	// PrimaryChain is a function that returns our primary chain via its
-	// ChainCode.
-	PrimaryChain func() ChainCode
 
 	// HeightHintCacheQueryDisable is a boolean that disables height hint
 	// queries if true.
@@ -224,32 +219,19 @@ func GenDefaultBtcConstraints() channeldb.ChannelConstraints {
 //
 //nolint:lll
 func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
-	// Set the RPC config from the "home" chain. Multi-chain isn't yet
-	// active, so we'll restrict usage to a particular chain for now.
-	homeChainConfig := cfg.Bitcoin
-
-	log.Infof("Primary chain is set to: %v", cfg.PrimaryChain())
-
 	cc := &PartialChainControl{
 		Cfg: cfg,
-	}
-
-	switch cfg.PrimaryChain() {
-	case BitcoinChain:
-		cc.RoutingPolicy = models.ForwardingPolicy{
+		RoutingPolicy: models.ForwardingPolicy{
 			MinHTLCOut:    cfg.Bitcoin.MinHTLCOut,
 			BaseFee:       cfg.Bitcoin.BaseFee,
 			FeeRate:       cfg.Bitcoin.FeeRate,
 			TimeLockDelta: cfg.Bitcoin.TimeLockDelta,
-		}
-		cc.MinHtlcIn = cfg.Bitcoin.MinHTLCIn
-		cc.FeeEstimator = chainfee.NewStaticEstimator(
+		},
+		MinHtlcIn: cfg.Bitcoin.MinHTLCIn,
+		FeeEstimator: chainfee.NewStaticEstimator(
 			DefaultBitcoinStaticFeePerKW,
 			DefaultBitcoinStaticMinRelayFeeRate,
-		)
-	default:
-		return nil, nil, fmt.Errorf("default routing policy for chain "+
-			"%v is unknown", cfg.PrimaryChain())
+		),
 	}
 
 	var err error
@@ -272,7 +254,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	// If spv mode is active, then we'll be using a distinct set of
 	// chainControl interfaces that interface directly with the p2p network
 	// of the selected chain.
-	switch homeChainConfig.Node {
+	switch cfg.Bitcoin.Node {
 	case "neutrino":
 		// We'll create ChainNotifier and FilteredChainView instances,
 		// along with the wallet's ChainSource, which are all backed by
@@ -682,7 +664,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 
 	default:
 		return nil, nil, fmt.Errorf("unknown node type: %s",
-			homeChainConfig.Node)
+			cfg.Bitcoin.Node)
 	}
 
 	switch {
@@ -690,7 +672,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	// we'll return an error to instruct them to set a proper fee
 	// estimator.
 	case cfg.FeeURL == "" && cfg.Bitcoin.MainNet &&
-		homeChainConfig.Node == "neutrino":
+		cfg.Bitcoin.Node == "neutrino":
 
 		return nil, nil, fmt.Errorf("--feeurl parameter required " +
 			"when running neutrino on mainnet")
@@ -834,13 +816,6 @@ var (
 		0x68, 0xd6, 0x19, 0x00, 0x00, 0x00, 0x00, 0x00,
 	})
 
-	// chainMap is a simple index that maps a chain's genesis hash to the
-	// ChainCode enum for that chain.
-	chainMap = map[chainhash.Hash]ChainCode{
-		BitcoinTestnetGenesis: BitcoinChain,
-		BitcoinMainnetGenesis: BitcoinChain,
-	}
-
 	// ChainDNSSeeds is a map of a chain's hash to the set of DNS seeds
 	// that will be use to bootstrap peers upon first startup.
 	//
@@ -878,98 +853,3 @@ var (
 		},
 	}
 )
-
-// ChainRegistry keeps track of the current chains.
-type ChainRegistry struct {
-	sync.RWMutex
-
-	activeChains map[ChainCode]*ChainControl
-	netParams    map[ChainCode]*BitcoinNetParams
-
-	primaryChain ChainCode
-}
-
-// NewChainRegistry creates a new ChainRegistry.
-func NewChainRegistry() *ChainRegistry {
-	return &ChainRegistry{
-		activeChains: make(map[ChainCode]*ChainControl),
-		netParams:    make(map[ChainCode]*BitcoinNetParams),
-	}
-}
-
-// RegisterChain assigns an active ChainControl instance to a target chain
-// identified by its ChainCode.
-func (c *ChainRegistry) RegisterChain(newChain ChainCode,
-	cc *ChainControl) {
-
-	c.Lock()
-	c.activeChains[newChain] = cc
-	c.Unlock()
-}
-
-// LookupChain attempts to lookup an active ChainControl instance for the
-// target chain.
-func (c *ChainRegistry) LookupChain(targetChain ChainCode) (
-	*ChainControl, bool) {
-
-	c.RLock()
-	cc, ok := c.activeChains[targetChain]
-	c.RUnlock()
-	return cc, ok
-}
-
-// LookupChainByHash attempts to look up an active ChainControl which
-// corresponds to the passed genesis hash.
-func (c *ChainRegistry) LookupChainByHash(
-	chainHash chainhash.Hash) (*ChainControl, bool) {
-
-	c.RLock()
-	defer c.RUnlock()
-
-	targetChain, ok := chainMap[chainHash]
-	if !ok {
-		return nil, ok
-	}
-
-	cc, ok := c.activeChains[targetChain]
-	return cc, ok
-}
-
-// RegisterPrimaryChain sets a target chain as the "home chain" for lnd.
-func (c *ChainRegistry) RegisterPrimaryChain(cc ChainCode) {
-	c.Lock()
-	defer c.Unlock()
-
-	c.primaryChain = cc
-}
-
-// PrimaryChain returns the primary chain for this running lnd instance. The
-// primary chain is considered the "home base" while the other registered
-// chains are treated as secondary chains.
-func (c *ChainRegistry) PrimaryChain() ChainCode {
-	c.RLock()
-	defer c.RUnlock()
-
-	return c.primaryChain
-}
-
-// ActiveChains returns a slice containing the active chains.
-func (c *ChainRegistry) ActiveChains() []ChainCode {
-	c.RLock()
-	defer c.RUnlock()
-
-	chains := make([]ChainCode, 0, len(c.activeChains))
-	for activeChain := range c.activeChains {
-		chains = append(chains, activeChain)
-	}
-
-	return chains
-}
-
-// NumActiveChains returns the total number of active chains.
-func (c *ChainRegistry) NumActiveChains() uint32 {
-	c.RLock()
-	defer c.RUnlock()
-
-	return uint32(len(c.activeChains))
-}

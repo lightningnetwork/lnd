@@ -2955,12 +2955,11 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	}
 
 	network := lncfg.NormalizeNetwork(r.cfg.ActiveNetParams.Name)
-	activeChains := make([]*lnrpc.Chain, r.cfg.registeredChains.NumActiveChains())
-	for i, chain := range r.cfg.registeredChains.ActiveChains() {
-		activeChains[i] = &lnrpc.Chain{
-			Chain:   chain.String(),
+	activeChains := []*lnrpc.Chain{
+		{
+			Chain:   BitcoinChainName,
 			Network: network,
-		}
+		},
 	}
 
 	// Check if external IP addresses were provided to lnd and use them

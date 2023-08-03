@@ -177,8 +177,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	ltndLog.Infof("Active chain: %v (network=%v)",
-		strings.Title(cfg.registeredChains.PrimaryChain().String()),
-		network,
+		strings.Title(BitcoinChainName), network,
 	)
 
 	ctx := context.Background()
@@ -452,12 +451,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	defer cleanUp()
-
-	// Finally before we start the server, we'll register the "holy
-	// trinity" of interface for our current "home chain" with the active
-	// chainRegistry interface.
-	primaryChain := cfg.registeredChains.PrimaryChain()
-	cfg.registeredChains.RegisterChain(primaryChain, activeChainControl)
 
 	// TODO(roasbeef): add rotation
 	idKeyDesc, err := activeChainControl.KeyRing.DeriveKey(

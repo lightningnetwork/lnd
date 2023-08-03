@@ -19,7 +19,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -517,10 +516,6 @@ type Config struct {
 	// EnableUpfrontShutdown specifies whether the upfront shutdown script
 	// is enabled.
 	EnableUpfrontShutdown bool
-
-	// RegisteredChains keeps track of all chains that have been registered
-	// with the daemon.
-	RegisteredChains *chainreg.ChainRegistry
 
 	// MaxAnchorsCommitFeeRate is the max commitment fee rate we'll use as
 	// the initiator for channels of the anchor type.

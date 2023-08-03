@@ -225,6 +225,9 @@ const (
 	// defaultGrpcClientPingMinWait is the default minimum amount of time a
 	// client should wait before sending a keepalive ping.
 	defaultGrpcClientPingMinWait = 5 * time.Second
+
+	// BitcoinChainName is a string that represents the Bitcoin blockchain.
+	BitcoinChainName = "bitcoin"
 )
 
 var (
@@ -471,10 +474,6 @@ type Config struct {
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
 
-	// registeredChains keeps track of all chains that have been registered
-	// with the daemon.
-	registeredChains *chainreg.ChainRegistry
-
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
 	// network.
@@ -670,7 +669,6 @@ func DefaultConfig() Config {
 		DB:                        lncfg.DefaultDB(),
 		Cluster:                   lncfg.DefaultCluster(),
 		RPCMiddleware:             lncfg.DefaultRPCMiddleware(),
-		registeredChains:          chainreg.NewChainRegistry(),
 		ActiveNetParams:           chainreg.BitcoinTestNetParams,
 		ChannelCommitInterval:     defaultChannelCommitInterval,
 		PendingCommitInterval:     defaultPendingCommitInterval,
@@ -1218,8 +1216,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	switch cfg.Bitcoin.Node {
 	case "btcd":
 		err := parseRPCParams(
-			cfg.Bitcoin, cfg.BtcdMode,
-			chainreg.BitcoinChain, cfg.ActiveNetParams,
+			cfg.Bitcoin, cfg.BtcdMode, cfg.ActiveNetParams,
 		)
 		if err != nil {
 			return nil, mkErr("unable to load RPC "+
@@ -1232,8 +1229,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		}
 
 		err := parseRPCParams(
-			cfg.Bitcoin, cfg.BitcoindMode,
-			chainreg.BitcoinChain, cfg.ActiveNetParams,
+			cfg.Bitcoin, cfg.BitcoindMode, cfg.ActiveNetParams,
 		)
 		if err != nil {
 			return nil, mkErr("unable to load RPC "+
@@ -1253,13 +1249,8 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	}
 
 	cfg.Bitcoin.ChainDir = filepath.Join(
-		cfg.DataDir, defaultChainSubDirname,
-		chainreg.BitcoinChain.String(),
+		cfg.DataDir, defaultChainSubDirname, BitcoinChainName,
 	)
-
-	// Finally we'll register the bitcoin chain as our current
-	// primary chain.
-	cfg.registeredChains.RegisterPrimaryChain(chainreg.BitcoinChain)
 
 	// Ensure that the user didn't attempt to specify negative values for
 	// any of the autopilot params.
@@ -1317,8 +1308,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// We'll now construct the network directory which will be where we
 	// store all the data specific to this chain/network.
 	cfg.networkDir = filepath.Join(
-		cfg.DataDir, defaultChainSubDirname,
-		cfg.registeredChains.PrimaryChain().String(),
+		cfg.DataDir, defaultChainSubDirname, BitcoinChainName,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
@@ -1342,8 +1332,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	}
 
 	towerDir := filepath.Join(
-		cfg.Watchtower.TowerDir,
-		cfg.registeredChains.PrimaryChain().String(),
+		cfg.Watchtower.TowerDir, BitcoinChainName,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
@@ -1376,7 +1365,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// Append the network type to the log directory so it is "namespaced"
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = filepath.Join(
-		cfg.LogDir, cfg.registeredChains.PrimaryChain().String(),
+		cfg.LogDir, BitcoinChainName,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
@@ -1753,7 +1742,7 @@ func CleanAndExpandPath(path string) string {
 }
 
 func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
-	net chainreg.ChainCode, netParams chainreg.BitcoinNetParams) error {
+	netParams chainreg.BitcoinNetParams) error {
 
 	// First, we'll check our node config to make sure the RPC parameters
 	// were set correctly. We'll also determine the path to the conf file

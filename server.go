@@ -1220,17 +1220,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		HtlcNotifier:                  s.htlcNotifier,
 	}, dbs.ChanStateDB)
 
-	// Select the configuration and furnding parameters for Bitcoin or
-	// Litecoin, depending on the primary registered chain.
-	primaryChain := cfg.registeredChains.PrimaryChain()
+	// Select the configuration and funding parameters for Bitcoin.
 	chainCfg := cfg.Bitcoin
 	minRemoteDelay := funding.MinBtcRemoteDelay
 	maxRemoteDelay := funding.MaxBtcRemoteDelay
-	if primaryChain == chainreg.LitecoinChain {
-		chainCfg = cfg.Litecoin
-		minRemoteDelay = funding.MinLtcRemoteDelay
-		maxRemoteDelay = funding.MaxLtcRemoteDelay
-	}
 
 	var chanIDSeed [32]byte
 	if _, err := rand.Read(chanIDSeed[:]); err != nil {
@@ -2182,30 +2175,23 @@ func (s *server) Start() error {
 		}
 
 		// Let users overwrite the DNS seed nodes. We only allow them
-		// for bitcoin mainnet/testnet and litecoin mainnet, all other
-		// combinations will just be ignored.
-		if s.cfg.Bitcoin.Active && s.cfg.Bitcoin.MainNet {
+		// for bitcoin mainnet/testnet/signet.
+		if s.cfg.Bitcoin.MainNet {
 			setSeedList(
 				s.cfg.Bitcoin.DNSSeeds,
 				chainreg.BitcoinMainnetGenesis,
 			)
 		}
-		if s.cfg.Bitcoin.Active && s.cfg.Bitcoin.TestNet3 {
+		if s.cfg.Bitcoin.TestNet3 {
 			setSeedList(
 				s.cfg.Bitcoin.DNSSeeds,
 				chainreg.BitcoinTestnetGenesis,
 			)
 		}
-		if s.cfg.Bitcoin.Active && s.cfg.Bitcoin.SigNet {
+		if s.cfg.Bitcoin.SigNet {
 			setSeedList(
 				s.cfg.Bitcoin.DNSSeeds,
 				chainreg.BitcoinSignetGenesis,
-			)
-		}
-		if s.cfg.Litecoin.Active && s.cfg.Litecoin.MainNet {
-			setSeedList(
-				s.cfg.Litecoin.DNSSeeds,
-				chainreg.LitecoinMainnetGenesis,
 			)
 		}
 
@@ -2559,7 +2545,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 
 	// If this isn't simnet mode, then one of our additional bootstrapping
 	// sources will be the set of running DNS seeds.
-	if !s.cfg.Bitcoin.SimNet || !s.cfg.Litecoin.SimNet {
+	if !s.cfg.Bitcoin.SimNet {
 		dnsSeeds, ok := chainreg.ChainDNSSeeds[*s.cfg.ActiveNetParams.GenesisHash]
 
 		// If we have a set of DNS seeds for this chain, then we'll add
@@ -4713,9 +4699,9 @@ func newSweepPkScriptGen(
 // bootstrapping to actively seek our peers using the set of active network
 // bootstrappers.
 func shouldPeerBootstrap(cfg *Config) bool {
-	isSimnet := (cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet)
-	isSignet := (cfg.Bitcoin.SigNet || cfg.Litecoin.SigNet)
-	isRegtest := (cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest)
+	isSimnet := cfg.Bitcoin.SimNet
+	isSignet := cfg.Bitcoin.SigNet
+	isRegtest := cfg.Bitcoin.RegTest
 	isDevNetwork := isSimnet || isSignet || isRegtest
 
 	// TODO(yy): remove the check on simnet/regtest such that the itest is

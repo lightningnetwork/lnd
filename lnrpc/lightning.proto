@@ -1926,13 +1926,16 @@ message GetInfoResponse {
     /*
     Whether the current node is connected to testnet. This field is
     deprecated and the network field should be used instead
-    **/
+    */
     bool testnet = 10 [deprecated = true];
 
     reserved 11;
 
-    // A list of active chains the node is connected to
-    repeated Chain chains = 16;
+    /*
+    Deprecated. The only active chain is bitcoin.
+    A list of active chains the node is connected to
+    */
+    repeated Chain chains = 16 [deprecated = true];
 
     // The URIs of the current node.
     repeated string uris = 12;

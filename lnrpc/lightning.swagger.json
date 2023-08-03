@@ -4846,7 +4846,7 @@
           "items": {
             "$ref": "#/definitions/lnrpcChain"
           },
-          "title": "A list of active chains the node is connected to"
+          "title": "Deprecated. The only active chain is bitcoin.\nA list of active chains the node is connected to"
         },
         "uris": {
           "type": "array",

@@ -135,6 +135,12 @@ unlock or create.
 * Add [`--unused`](https://github.com/lightningnetwork/lnd/pull/6387) to
   `lncli newaddr` command.
 
+* [Cleanup](https://github.com/lightningnetwork/lnd/pull/7770) of defaults 
+mentioned in [sample-lnd.conf](https://github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf). 
+It is possible to distinguish between defaults and examples now. 
+A check script has been developed and integrated into the building process to 
+compare the default values between lnd and sample-lnd.conf.
+
 ## Code Health
 
 * Updated [our fork for serializing protobuf as JSON to be based on the
@@ -224,6 +230,7 @@ unlock or create.
 * Elle Mouton
 * Erik Arvstedt
 * ErikEk
+* feelancer21
 * gabbyprecious
 * Guillermo Caracuel
 * Hampus Sjöberg

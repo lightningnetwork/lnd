@@ -167,7 +167,7 @@ jobs:
         with:
           go-version: '${{ env.GO_VERSION }}'
 
-      - name: check all command line flags exist in sample-lnd.conf file
+      - name: check default values in sample-lnd.conf file
         run: make sample-conf-check
 
   ########################

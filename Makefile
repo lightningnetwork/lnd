@@ -275,8 +275,8 @@ rpc-js-compile:
 	GOOS=js GOARCH=wasm $(GOBUILD) -tags="$(WASM_RELEASE_TAGS)" $(PKG)/lnrpc/...
 
 sample-conf-check:
-	@$(call print, "Making sure every flag has an example in the sample-lnd.conf file")
-	for flag in $$(GO_FLAGS_COMPLETION=1 go run -tags="$(RELEASE_TAGS)" $(PKG)/cmd/lnd -- | grep -v help | cut -c3-); do if ! grep -q $$flag sample-lnd.conf; then echo "Command line flag --$$flag not added to sample-lnd.conf"; exit 1; fi; done
+	@$(call print, "Checking that default values in the sample-lnd.conf file are set correctly")
+	scripts/check-sample-lnd-conf.sh "$(RELEASE_TAGS)"
 
 mobile-rpc:
 	@$(call print, "Creating mobile RPC from protos.")

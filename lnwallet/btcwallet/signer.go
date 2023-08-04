@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -765,3 +766,50 @@ func (b *BtcWallet) SignMessage(keyLoc keychain.KeyLocator,
 // A compile time check to ensure that BtcWallet implements the MessageSigner
 // interface.
 var _ lnwallet.MessageSigner = (*BtcWallet)(nil)
+
+func (b *BtcWallet) CalculateNewFeeRate(txid chainhash.Hash, targetConf int64) (btcutil.Amount, error) {
+	// Get all ancestor transactions
+	ancestors, err := b.Mempool.GetAllAncestors(txid)
+	if err != nil {
+		return 0, err
+	}
+
+	// Calculate the total size of the entire transaction package and the total fees paid
+	totalSize := 0
+	totalPaidFee := btcutil.Amount(0)
+	for _, ancestor := range ancestors {
+		totalSize += int(ancestor.Size)
+		totalPaidFee += btcutil.Amount(ancestor.Fees.Base)
+	}
+
+	// Determine the fee rate for the target block
+	estimateResult, err := b.Client.EstimateSmartFee(targetConf, &btcjson.EstimateModeConservative)
+	if err != nil {
+		return 0, err
+	}
+	targetFeeRate := estimateResult.FeeRate
+
+	// Calculate new rates
+	// New fee = total size of the transaction package multiplied by the confirmed fee rate in the target block, minus all related unconfirmed transactions paid fees
+	newFee := *targetFeeRate*float64(totalSize) - float64(totalPaidFee)
+
+	// Calculate the size of the new transaction
+	// Through the CPFP (Child-Pays-For-Parent) mechanism to increase the priority of transactions,
+	// Just create a new transaction that uses unconfirmed transactions as inputs and creates one or two new outputs.
+	newTransactionSize := calculateNewTransactionSize(ancestors)
+	// new rate = new fee / new transaction size
+	newFeeRate := newFee / float64(newTransactionSize)
+
+	return btcutil.Amount(newFeeRate), nil
+}
+
+func calculateNewTransactionSize(ancestors []*btcjson.GetMempoolEntryResult) int {
+	// Size of new transaction = one input (using P2WPKH): about 148 bytes * number of inputs
+	// + two outputs (using P2WPKH): about 68 bytes * 2
+	// + metadata: about 10 bytes
+	inputsSize := 148 * len(ancestors)
+	outputsSize := 68 * 2
+	metaDataSize := 10
+	return inputsSize + outputsSize + metaDataSize
+}
+

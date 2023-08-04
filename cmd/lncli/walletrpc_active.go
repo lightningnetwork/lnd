@@ -229,20 +229,34 @@ func bumpFee(ctx *cli.Context) error {
 		return cli.ShowCommandHelp(ctx, "bumpfee")
 	}
 
-	// Check that only the field sat_per_vbyte or the deprecated field
-	// sat_per_byte is used.
-	feeRateFlag, err := checkNotBothSet(
-		ctx, "sat_per_vbyte", "sat_per_byte",
-	)
-	if err != nil {
-		return err
-	}
-
 	// Validate and parse the relevant arguments/flags.
 	protoOutPoint, err := NewProtoOutPoint(ctx.Args().Get(0))
 	if err != nil {
 		return err
 	}
+
+	// Create an instance of BtcWallet and NetworkState.
+	// You need to replace this with your actual instances.
+	b := &BtcWallet{}
+	netState := NetworkState{}
+
+	// Determine the fee rate.
+	feeRate, err := b.DetermineFeeRate(
+		uint32(ctx.Uint64("conf_target")),
+		*protoOutPoint.Hash,
+		int64(protoOutPoint.Index),
+		netState,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Calculate the fee rate in satoshis per vbyte.
+	// 1 BTC = 100,000,000 satoshis.
+	feeRateSatPerVbyte := feeRate.ToBTC() * 100000000
+
+	client, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
 
 	client, cleanUp := getWalletClient(ctx)
 	defer cleanUp()
@@ -250,7 +264,7 @@ func bumpFee(ctx *cli.Context) error {
 	resp, err := client.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
 		Outpoint:    protoOutPoint,
 		TargetConf:  uint32(ctx.Uint64("conf_target")),
-		SatPerVbyte: ctx.Uint64(feeRateFlag),
+		SatPerVbyte: uint64(feeRateSatPerVbyte),
 		Force:       ctx.Bool("force"),
 	})
 	if err != nil {

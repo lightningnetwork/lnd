@@ -30,6 +30,8 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/btcsuite/btcd/rpcclient"
 )
 
 const (
@@ -106,6 +108,10 @@ type BtcWallet struct {
 
 	musig2Sessions    map[input.MuSig2SessionID]*muSig2State
 	musig2SessionsMtx sync.Mutex
+
+	Mempool chainntnfs.MempoolWatcher
+
+	Client *rpcclient.Client
 }
 
 // A compile time check to ensure that BtcWallet implements the

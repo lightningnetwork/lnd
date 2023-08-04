@@ -48,8 +48,7 @@ rm $FILE_TMP
 
 # OPTIONS_NO_CONF is a list of all options without any expected entries in 
 # sample-lnd.conf. There's no validation needed for these options. 
-OPTIONS_NO_CONF="help lnddir configfile version litecoin.signet \
-    litecoin.signetchallenge litecoin.signetseednode end"
+OPTIONS_NO_CONF="help lnddir configfile version end"
 
 
 # OPTIONS_NO_LND_DEFAULT_VALUE_CHECK is a list of options with default values
@@ -58,8 +57,7 @@ OPTIONS_NO_CONF="help lnddir configfile version litecoin.signet \
 OPTIONS_NO_LND_DEFAULT_VALUE_CHECK="adminmacaroonpath readonlymacaroonpath \
     invoicemacaroonpath rpclisten restlisten listen backupfilepath maxchansize \
     bitcoin.chaindir bitcoin.defaultchanconfs bitcoin.defaultremotedelay \
-    bitcoin.dnsseed litecoin.chaindir litecoin.dnsseed \
-    signrpc.signermacaroonpath walletrpc.walletkitmacaroonpath \
+    bitcoin.dnsseed signrpc.signermacaroonpath walletrpc.walletkitmacaroonpath \
     chainrpc.notifiermacaroonpath routerrpc.routermacaroonpath" 
 
 
@@ -101,8 +99,6 @@ for OPTION in $LND_OPTIONS; do
             -e "s#$HOME/Library/Application Support/Lnd#~/.lnd#g" \
             -e "s#$HOME/Library/Application Support/Bitcoin#~/.bitcoin#g" \
             -e "s#$HOME/Library/Application Support/Btcd#~/.btcd#g" \
-            -e "s#$HOME/Library/Application Support/Ltcd#~/.ltcd#g" \
-            -e "s#$HOME/Library/Application Support/Litecoin#~/.litecoin#g" \
             -e "s#$HOME#~#g" \
             -e "s#$HOSTNAME#example.com#g")"
     else

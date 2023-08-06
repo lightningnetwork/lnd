@@ -14,33 +14,37 @@ CONF_FILE=${2:-sample-lnd.conf}
 # We are reading the default values of lnd from lnd --help. To avoid formatting
 # issues the width of the terminal is set to 240. This needs a workaround for
 # CI where we don't have an interactive terminal.
+FILE_TMP=$(mktemp)
 if [ -t 0 ]; then
+    size=($(stty size))
     stty cols 240
-    LND_HELP="$(go run -tags="$TAGS" \
-        github.com/lightningnetwork/lnd/cmd/lnd --help)"" --end"
+    go run -tags="$TAGS" github.com/lightningnetwork/lnd/cmd/lnd --help > \
+        $FILE_TMP
+    stty cols ${size[1]}
 else
     tmux new-session -d -s simulated-terminal -x 240 -y 9999
     tmux send-keys -t simulated-terminal.0 "go run -tags=\"$TAGS\" \
-        github.com/lightningnetwork/lnd/cmd/lnd --help; tmux wait -S run" ENTER
+        github.com/lightningnetwork/lnd/cmd/lnd --help >"$FILE_TMP"; \
+        tmux wait -S run" ENTER
     tmux wait-for run
-    LND_HELP="$(tmux capture-pane -t simulated-terminal.0 -p)"" --end"
     tmux kill-session -t simulated-terminal
 fi
+
+LND_HELP="$(cat $FILE_TMP) --end"
 
 # LND_OPTIONS is a list of all options of lnd including the equal sign, which
 # is needed to distinguish between booleans and other variables.
 # It is created by reading the first two columns of lnd --help. 
-LND_OPTIONS="$(go run -tags="$TAGS" \
-    github.com/lightningnetwork/lnd/cmd/lnd --help | \
+LND_OPTIONS="$(cat $FILE_TMP | \
     awk '{
         option=""; 
         if ($1 ~ /^--/){option=$1};
         if ($2 ~ /^--/){option=$2}; 
-        if (match(option,  /--[^=]+[=]*/) && 
-                substr(option, length(option)) != "-")
+        if (match(option,  /--[^=]+[=]*/))
             {printf "%s ", substr(option, RSTART, RLENGTH)}
         } 
         END { printf "%s", "--end"}')"
+rm $FILE_TMP
 
 # OPTIONS_NO_CONF is a list of all options without any expected entries in 
 # sample-lnd.conf. There's no validation needed for these options. 

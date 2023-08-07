@@ -180,7 +180,9 @@ message SendPaymentRequest {
     */
     int32 final_cltv_delta = 4;
 
-    // An optional payment addr to be included within the last hop of the route.
+    /* An optional payment addr to be included within the last hop of the route.
+    This field is also called "payment_secret" in other context.
+    */
     bytes payment_addr = 20;
 
     /*
@@ -634,7 +636,11 @@ message BuildRouteRequest {
     */
     repeated bytes hop_pubkeys = 4;
 
-    // An optional payment addr to be included within the last hop of the route.
+    /*
+    An optional payment addr to be included within the last hop of the route.
+    In various situations, the payment_secret is used as an alternative term 
+    for payment_addr.
+    */
     bytes payment_addr = 5;
 }
 

@@ -6,3 +6,21 @@ package lnutils
 func Ptr[T any](v T) *T {
 	return &v
 }
+
+// ByteArray is a type constraint for type that reduces down to a fixed sized
+// array.
+type ByteArray interface {
+	~[32]byte
+}
+
+// ByteSlice takes a byte array, and returns a slice. This is useful when a
+// function returns an array, but a slice is wanted. Without this, then an
+// intermediate variable is needed.
+func ByteSlice[T ByteArray](v T) []byte {
+	return v[:]
+}
+
+func As[I any, V any](v V) (I, bool) {
+	i, ok := interface{}(v).(I)
+	return i, ok
+}

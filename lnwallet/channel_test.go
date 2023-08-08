@@ -9915,11 +9915,11 @@ func TestCreateBreachRetributionLegacy(t *testing.T) {
 	theirOp := revokedLog.CommitTx.TxOut[1]
 
 	// Create the dummy scripts.
-	ourScript := &ScriptInfo{
-		PkScript: ourOp.PkScript,
+	ourScript := &WitnessScriptDesc{
+		OutputScript: ourOp.PkScript,
 	}
-	theirScript := &ScriptInfo{
-		PkScript: theirOp.PkScript,
+	theirScript := &WitnessScriptDesc{
+		OutputScript: theirOp.PkScript,
 	}
 
 	// Create the breach retribution using the legacy format.

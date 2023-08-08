@@ -48,7 +48,7 @@ func newTestSenderHtlcScriptTree(t *testing.T) *testSenderHtlcScriptTree {
 	payHash := preImage.Hash()
 	htlcScriptTree, err := SenderHTLCScriptTaproot(
 		senderKey.PubKey(), receiverKey.PubKey(), revokeKey.PubKey(),
-		payHash[:],
+		payHash[:], false,
 	)
 	require.NoError(t, err)
 
@@ -471,7 +471,7 @@ func newTestReceiverHtlcScriptTree(t *testing.T) *testReceiverHtlcScriptTree {
 	payHash := preImage.Hash()
 	htlcScriptTree, err := ReceiverHTLCScriptTaproot(
 		cltvExpiry, senderKey.PubKey(), receiverKey.PubKey(),
-		revokeKey.PubKey(), payHash[:],
+		revokeKey.PubKey(), payHash[:], false,
 	)
 	require.NoError(t, err)
 

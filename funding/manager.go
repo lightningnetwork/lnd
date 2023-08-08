@@ -609,12 +609,6 @@ type Manager struct {
 	// requests from a local subsystem within the daemon.
 	fundingRequests chan *InitFundingMsg
 
-	// newChanBarriers is a map from a channel ID to a 'barrier' which will
-	// be signalled once the channel is fully open. This barrier acts as a
-	// synchronization point for any incoming/outgoing HTLCs before the
-	// channel has been fully opened.
-	newChanBarriers *lnutils.SyncMap[lnwire.ChannelID, chan struct{}]
-
 	localDiscoverySignals *lnutils.SyncMap[lnwire.ChannelID, chan struct{}]
 
 	handleChannelReadyBarriers *lnutils.SyncMap[lnwire.ChannelID, struct{}]
@@ -671,9 +665,6 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 		signedReservations: make(
 			map[lnwire.ChannelID][32]byte,
 		),
-		newChanBarriers: &lnutils.SyncMap[
-			lnwire.ChannelID, chan struct{},
-		]{},
 		fundingMsgs: make(
 			chan *fundingMsg, msgBufferSize,
 		),
@@ -728,7 +719,6 @@ func (f *Manager) start() error {
 				"creating chan barrier",
 				channel.FundingOutpoint)
 
-			f.newChanBarriers.Store(chanID, make(chan struct{}))
 			f.localDiscoverySignals.Store(
 				chanID, make(chan struct{}),
 			)
@@ -2192,7 +2182,6 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	// fully open.
 	channelID := lnwire.NewChanIDFromOutPoint(outPoint)
 	log.Debugf("Creating chan barrier for ChanID(%v)", channelID)
-	f.newChanBarriers.Store(channelID, make(chan struct{}))
 
 	// The next message that advances the funding flow will reference the
 	// channel via its permanent channel ID, so we'll set up this mapping
@@ -2362,7 +2351,6 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	// fully open.
 	channelID := lnwire.NewChanIDFromOutPoint(&fundingOut)
 	log.Debugf("Creating chan barrier for ChanID(%v)", channelID)
-	f.newChanBarriers.Store(channelID, make(chan struct{}))
 
 	fundingSigned := &lnwire.FundingSigned{}
 
@@ -3870,20 +3858,6 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 		return
 	}
 
-	// Launch a defer so we _ensure_ that the channel barrier is properly
-	// closed even if the target peer is no longer online at this point.
-	defer func() {
-		// Close the active channel barrier signaling the readHandler
-		// that commitment related modifications to this channel can
-		// now proceed.
-		chanBarrier, ok := f.newChanBarriers.LoadAndDelete(chanID)
-		if ok {
-			log.Tracef("Closing chan barrier for ChanID(%v)",
-				chanID)
-			close(chanBarrier)
-		}
-	}()
-
 	// Before we can add the channel to the peer, we'll need to ensure that
 	// we have an initial forwarding policy set.
 	if err := f.ensureInitialForwardingPolicy(chanID, channel); err != nil {
@@ -4889,8 +4863,6 @@ func (f *Manager) cancelReservationCtx(peerKey *btcec.PublicKey,
 func (f *Manager) deleteReservationCtx(peerKey *btcec.PublicKey,
 	pendingChanID [32]byte) {
 
-	// TODO(roasbeef): possibly cancel funding barrier in peer's
-	// channelManager?
 	peerIDKey := newSerializedKey(peerKey)
 	f.resMtx.Lock()
 	defer f.resMtx.Unlock()

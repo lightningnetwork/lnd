@@ -216,6 +216,9 @@ compare the default values between lnd and sample-lnd.conf.
   creation](https://github.com/lightningnetwork/lnd/pull/7856) that can arise
   under rare scenarios.
 
+* Make sure to [fail a channel if revoking the old channel state 
+fails](https://github.com/lightningnetwork/lnd/pull/7876).
+
 ### Tooling and documentation
 
 * Add support for [custom `RPCHOST` and

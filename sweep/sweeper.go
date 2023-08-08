@@ -1348,9 +1348,9 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	return nil
 }
 
-// waitForSpend registers a spend notification with the chain notifier. It
+// monitorSpend registers a spend notification with the chain notifier. It
 // returns a cancel function that can be used to cancel the registration.
-func (s *UtxoSweeper) waitForSpend(outpoint wire.OutPoint,
+func (s *UtxoSweeper) monitorSpend(outpoint wire.OutPoint,
 	script []byte, heightHint uint32) (func(), error) {
 
 	log.Tracef("Wait for spend of %v at heightHint=%v",
@@ -1611,7 +1611,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage,
 
 	// Start watching for spend of this input, either by us or the remote
 	// party.
-	cancel, err := s.waitForSpend(
+	cancel, err := s.monitorSpend(
 		outpoint, input.input.SignDesc().Output.PkScript,
 		input.input.HeightHint(),
 	)

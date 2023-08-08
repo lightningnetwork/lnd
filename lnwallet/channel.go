@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
@@ -824,8 +823,8 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		if err != nil {
 			return pd, err
 		}
-		ourP2WSH = scriptInfo.PkScript
-		ourWitnessScript = scriptInfo.WitnessScript
+		ourP2WSH = scriptInfo.PkScript()
+		ourWitnessScript = scriptInfo.WitnessScriptToSign()
 	}
 	isDustRemote := HtlcIsDust(
 		chanType, htlc.Incoming, false, feeRate,
@@ -839,8 +838,8 @@ func (lc *LightningChannel) diskHtlcToPayDesc(feeRate chainfee.SatPerKWeight,
 		if err != nil {
 			return pd, err
 		}
-		theirP2WSH = scriptInfo.PkScript
-		theirWitnessScript = scriptInfo.WitnessScript
+		theirP2WSH = scriptInfo.PkScript()
+		theirWitnessScript = scriptInfo.WitnessScriptToSign()
 	}
 
 	// Reconstruct the proper local/remote output indexes from the HTLC's
@@ -1578,8 +1577,8 @@ func (lc *LightningChannel) logUpdateToPayDesc(logUpdate *channeldb.LogUpdate,
 				return nil, err
 			}
 
-			pd.theirPkScript = scriptInfo.PkScript
-			pd.theirWitnessScript = scriptInfo.WitnessScript
+			pd.theirPkScript = scriptInfo.PkScript()
+			pd.theirWitnessScript = scriptInfo.WitnessScriptToSign()
 		}
 
 	// For HTLC's we're offered we'll fetch the original offered HTLC
@@ -2478,7 +2477,6 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 
 	// If the returned *RevocationLog is non-nil, use it to derive the info
 	// we need.
-	isTaproot := chanState.ChanType.IsTaproot()
 	if revokedLog != nil {
 		br, ourAmt, theirAmt, err = createBreachRetribution(
 			revokedLog, spendTx, chanState, keyRing,
@@ -2511,12 +2509,21 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// If our balance exceeds the remote party's dust limit, instantiate
 	// the sign descriptor for our output.
 	if ourAmt >= int64(chanState.RemoteChanCfg.DustLimit) {
+		// As we're about to sweep our own output w/o a delay, we'll obtain
+		// the witness script for the success/delay path.
+		witnessScript, err := ourScript.WitnessScriptForPath(
+			input.ScriptPathDelay,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		br.LocalOutputSignDesc = &input.SignDescriptor{
 			SingleTweak:   keyRing.LocalCommitKeyTweak,
 			KeyDesc:       chanState.LocalChanCfg.PaymentBasePoint,
-			WitnessScript: ourScript.WitnessScript,
+			WitnessScript: witnessScript,
 			Output: &wire.TxOut{
-				PkScript: ourScript.PkScript,
+				PkScript: ourScript.PkScript(),
 				Value:    ourAmt,
 			},
 			HashType: txscript.SigHashAll,
@@ -2525,13 +2532,16 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// For taproot channels, we'll make sure to set the script path
 		// spend (as our output on their revoked tx still needs the
 		// delay), and set the control block.
-		if isTaproot {
+		if scriptTree, ok := ourScript.(input.TapscriptDescriptor); ok {
 			br.LocalOutputSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 
-			ctrlBlock := input.MakeTaprootCtrlBlock(
-				br.LocalOutputSignDesc.WitnessScript,
-				&input.TaprootNUMSKey, ourScript.ScriptTree,
+			ctrlBlock, err := scriptTree.CtrlBlockForPath(
+				input.ScriptPathDelay,
 			)
+			if err != nil {
+				return nil, err
+			}
+
 			br.LocalOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -2542,28 +2552,44 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// Similarly, if their balance exceeds the remote party's dust limit,
 	// assemble the sign descriptor for their output, which we can sweep.
 	if theirAmt >= int64(chanState.RemoteChanCfg.DustLimit) {
+		// As we're trying to defend the channel against a breach
+		// attempt from the remote party, we want to obain the
+		// revocation witness script here.
+		witnessScript, err := theirScript.WitnessScriptForPath(
+			input.ScriptPathRevocation,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		br.RemoteOutputSignDesc = &input.SignDescriptor{
 			KeyDesc: chanState.LocalChanCfg.
 				RevocationBasePoint,
 			DoubleTweak:   commitmentSecret,
-			WitnessScript: theirScript.WitnessScript,
+			WitnessScript: witnessScript,
 			Output: &wire.TxOut{
-				PkScript: theirScript.PkScript,
+				PkScript: theirScript.PkScript(),
 				Value:    theirAmt,
 			},
 			HashType: txscript.SigHashAll,
 		}
 
-		// For taproot channels, the remote ouput (the revoked outuput)
-		// can be spent using a single key spend, now that we know the
-		// revocation key.
-		if isTaproot {
-			br.RemoteOutputSignDesc.SignMethod = input.TaprootKeySpendSignMethod
+		// For taproot channels, the remote output (the revoked output)
+		// is spent with a script path to ensure all information 3rd
+		// parties need to sweep anchors is revealed on chain.
+		if scriptTree, ok := ourScript.(input.TapscriptDescriptor); ok {
+			br.RemoteOutputSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 
-			// We'll also need to set the taptweak as we'll be
-			// signing with the full output key.
-			tapscriptRoot := theirScript.ScriptTree.RootNode.TapHash()
-			br.RemoteOutputSignDesc.TapTweak = tapscriptRoot[:]
+			ctrlBlock, err := scriptTree.CtrlBlockForPath(
+				input.ScriptPathRevocation,
+			)
+			if err != nil {
+				return nil, err
+			}
+			br.RemoteOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -2615,11 +2641,20 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 		return emptyRetribution, err
 	}
 
+	// As we're trying to defend against a breach attempt, we'll use the
+	// breach witness script.
+	htlcWitnessScript, err := scriptInfo.WitnessScriptForPath(
+		input.ScriptPathRevocation,
+	)
+	if err != nil {
+		return emptyRetribution, err
+	}
+
 	signDesc := input.SignDescriptor{
 		KeyDesc: chanState.LocalChanCfg.
 			RevocationBasePoint,
 		DoubleTweak:   commitmentSecret,
-		WitnessScript: scriptInfo.WitnessScriptToSign(),
+		WitnessScript: htlcWitnessScript,
 		Output: &wire.TxOut{
 			PkScript: scriptInfo.PkScript(),
 			Value:    int64(htlc.Amt),
@@ -2630,11 +2665,18 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	// For taproot HTLC outputs, we need to set the sign method to key
 	// spend, and also set the tap tweak root needed to derive the proper
 	// private key.
-	if chanState.ChanType.IsTaproot() {
+	if scriptTree, ok := scriptInfo.(input.TapscriptDescriptor); ok {
 		signDesc.SignMethod = input.TaprootKeySpendSignMethod
 
-		tapscriptRoot := scriptInfo.ScriptTree.RootNode.TapHash()
-		signDesc.TapTweak = tapscriptRoot[:]
+		signDesc.TapTweak = scriptTree.TapTweak()
+	}
+
+	// The second levle script we sign will always be the sucess path.
+	secondLevelWitnessScript, err := secondLevelScript.WitnessScriptForPath(
+		input.ScriptPathSuccess,
+	)
+	if err != nil {
+		return emptyRetribution, err
 	}
 
 	return HtlcRetribution{
@@ -2643,7 +2685,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 			Hash:  commitHash,
 			Index: uint32(htlc.OutputIndex),
 		},
-		SecondLevelWitnessScript: secondLevelScript.WitnessScript,
+		SecondLevelWitnessScript: secondLevelWitnessScript,
 		IsIncoming:               htlc.Incoming,
 	}, nil
 }
@@ -2766,7 +2808,7 @@ func createBreachRetribution(revokedLog *channeldb.RevocationLog,
 func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 	chanState *channeldb.OpenChannel, keyRing *CommitmentKeyRing,
 	commitmentSecret *btcec.PrivateKey,
-	ourScript, theirScript *ScriptInfo,
+	ourScript, theirScript input.ScriptDescriptor,
 	leaseExpiry uint32) (*BreachRetribution, int64, int64, error) {
 
 	commitHash := revokedLog.CommitTx.TxHash()
@@ -2781,9 +2823,9 @@ func createBreachRetributionLegacy(revokedLog *channeldb.ChannelCommitment,
 	// to find the exact index of the commitment outputs.
 	for i, txOut := range revokedLog.CommitTx.TxOut {
 		switch {
-		case bytes.Equal(txOut.PkScript, ourScript.PkScript):
+		case bytes.Equal(txOut.PkScript, ourScript.PkScript()):
 			ourOutpoint.Index = uint32(i)
-		case bytes.Equal(txOut.PkScript, theirScript.PkScript):
+		case bytes.Equal(txOut.PkScript, theirScript.PkScript()):
 			theirOutpoint.Index = uint32(i)
 		}
 	}
@@ -6386,7 +6428,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	)
 
 	for outputIndex, txOut := range commitTxBroadcast.TxOut {
-		if bytes.Equal(txOut.PkScript, selfScript.PkScript) {
+		if bytes.Equal(txOut.PkScript, selfScript.PkScript()) {
 			selfPoint = &wire.OutPoint{
 				Hash:  *commitSpend.SpenderTxHash,
 				Index: uint32(outputIndex),
@@ -6402,15 +6444,25 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 	var commitResolution *CommitOutputResolution
 	if selfPoint != nil {
 		localPayBase := chanState.LocalChanCfg.PaymentBasePoint
+
+		// As the remote party has force closed, we just need the
+		// success witness script.
+		witnessScript, err := selfScript.WitnessScriptForPath(
+			input.ScriptPathSuccess,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		commitResolution = &CommitOutputResolution{
 			SelfOutPoint: *selfPoint,
 			SelfOutputSignDesc: input.SignDescriptor{
 				KeyDesc:       localPayBase,
 				SingleTweak:   keyRing.LocalCommitKeyTweak,
-				WitnessScript: selfScript.WitnessScript,
+				WitnessScript: witnessScript,
 				Output: &wire.TxOut{
 					Value:    localBalance,
-					PkScript: selfScript.PkScript,
+					PkScript: selfScript.PkScript(),
 				},
 				HashType: txscript.SigHashAll,
 			},
@@ -6419,16 +6471,16 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 
 		// For taproot channels, we'll need to set some additional
 		// fields to ensure the output can be swept.
-		//
-		// TODO(roasbef): abstract into new func
-		if chanState.ChanType.IsTaproot() {
+		if scriptTree, ok := selfScript.(input.TapscriptDescriptor); ok {
 			commitResolution.SelfOutputSignDesc.SignMethod =
 				input.TaprootScriptSpendSignMethod
 
-			ctrlBlock := input.MakeTaprootCtrlBlock(
-				commitResolution.SelfOutputSignDesc.WitnessScript,
-				&input.TaprootNUMSKey, selfScript.ScriptTree,
+			ctrlBlock, err := scriptTree.CtrlBlockForPath(
+				input.ScriptPathSuccess,
 			)
+			if err != nil {
+				return nil, err
+			}
 			commitResolution.SelfOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -6618,8 +6670,17 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	if err != nil {
 		return nil, err
 	}
-	htlcPkScript := htlcScriptInfo.PkScript
-	htlcWitnessScript := htlcScriptInfo.WitnessScript
+	htlcPkScript := htlcScriptInfo.PkScript()
+
+	// As this is an outgoing HTLC, we just care about the timeout path
+	// here.
+	scriptPath := input.ScriptPathTimeout
+	htlcWitnessScript, err := htlcScriptInfo.WitnessScriptForPath(
+		scriptPath,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	// If we're spending this HTLC output from the remote node's
 	// commitment, then we won't need to go to the second level as our
@@ -6638,12 +6699,16 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			HashType: txscript.SigHashAll,
 		}
 
-		if chanType.IsTaproot() {
+		scriptTree, ok := htlcScriptInfo.(input.TapscriptDescriptor)
+		if ok {
 			signDesc.SignMethod = input.TaprootScriptSpendSignMethod
-			ctrlBlock := input.MakeTaprootCtrlBlock(
-				htlcWitnessScript, keyRing.RevocationKey,
-				htlcScriptInfo.ScriptTree,
+
+			ctrlBlock, err := scriptTree.CtrlBlockForPath(
+				scriptPath,
 			)
+			if err != nil {
+				return nil, err
+			}
 			signDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -6706,7 +6771,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// for the timeout transaction, and populate it as well.
 	sigHashType := HtlcSigHashType(chanType)
 	var timeoutWitness wire.TxWitness
-	if chanType.IsTaproot() {
+	if scriptTree, ok := htlcScriptInfo.(input.TapscriptDescriptor); ok {
 		// TODO(roasbeef): make sure default elsewhere
 		timeoutSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 		timeoutSignDesc.HashType = txscript.SigHashDefault
@@ -6714,7 +6779,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		timeoutWitness, err = input.SenderHTLCScriptTaprootTimeout(
 			htlcSig, sigHashType, signer, &timeoutSignDesc,
 			timeoutTx, keyRing.RevocationKey,
-			htlcScriptInfo.ScriptTree,
+			scriptTree.TapScriptTree(),
 		)
 
 		// The control block is always the final element of the witness
@@ -6746,7 +6811,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	// transaction creates so we can generate the signDesc required to
 	// complete the claim process after a delay period.
 	var (
-		htlcSweepScript *ScriptInfo
+		htlcSweepScript input.ScriptDescriptor
 		signMethod      input.SignMethod
 		ctrlBlock       []byte
 	)
@@ -6766,21 +6831,29 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 
-		htlcSweepScript = &ScriptInfo{
-			PkScript:      secondLevelScriptTree.PkScript,
-			WitnessScript: secondLevelScriptTree.SuccessTapLeaf.Script,
-		}
-
 		signMethod = input.TaprootScriptSpendSignMethod
 
-		controlBlock := input.MakeTaprootCtrlBlock(
-			htlcSweepScript.WitnessScript, keyRing.RevocationKey,
-			secondLevelScriptTree.TapscriptTree,
+		controlBlock, err := secondLevelScriptTree.CtrlBlockForPath(
+			input.ScriptPathSuccess,
 		)
+		if err != nil {
+			return nil, err
+		}
 		ctrlBlock, err = controlBlock.ToBytes()
 		if err != nil {
 			return nil, err
 		}
+
+		htlcSweepScript = secondLevelScriptTree
+	}
+
+	// In this case, the witness script that needs to be signed will always
+	// be that of the success path.
+	htlcSweepWitnessScript, err := htlcSweepScript.WitnessScriptForPath(
+		input.ScriptPathSuccess,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	localDelayTweak := input.SingleTweakBytes(
@@ -6798,9 +6871,9 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		SweepSignDesc: input.SignDescriptor{
 			KeyDesc:       localChanCfg.DelayBasePoint,
 			SingleTweak:   localDelayTweak,
-			WitnessScript: htlcSweepScript.WitnessScript,
+			WitnessScript: htlcSweepWitnessScript,
 			Output: &wire.TxOut{
-				PkScript: htlcSweepScript.PkScript,
+				PkScript: htlcSweepScript.PkScript(),
 				Value:    int64(secondLevelOutputAmt),
 			},
 			HashType:     txscript.SigHashAll,
@@ -6839,8 +6912,17 @@ func newIncomingHtlcResolution(signer input.Signer,
 		return nil, err
 	}
 
-	htlcPkScript := scriptInfo.PkScript
-	htlcWitnessScript := scriptInfo.WitnessScript
+	htlcPkScript := scriptInfo.PkScript()
+
+	// As this is an incoming HTLC, we're attempting to sweep with the
+	// success path.
+	scriptPath := input.ScriptPathSuccess
+	htlcWitnessScript, err := scriptInfo.WitnessScriptForPath(
+		scriptPath,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	// If we're spending this output from the remote node's commitment,
 	// then we can skip the second layer and spend the output directly.
@@ -6858,12 +6940,12 @@ func newIncomingHtlcResolution(signer input.Signer,
 			HashType: txscript.SigHashAll,
 		}
 
-		if chanType.IsTaproot() {
+		if scriptTree, ok := scriptInfo.(input.TapscriptDescriptor); ok {
 			signDesc.SignMethod = input.TaprootScriptSpendSignMethod
-			ctrlBlock := input.MakeTaprootCtrlBlock(
-				htlcWitnessScript, keyRing.RevocationKey,
-				scriptInfo.ScriptTree,
-			)
+			ctrlBlock, err := scriptTree.CtrlBlockForPath(scriptPath)
+			if err != nil {
+				return nil, err
+			}
 			signDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -6920,14 +7002,14 @@ func newIncomingHtlcResolution(signer input.Signer,
 	// becomes known.
 	var successWitness wire.TxWitness
 	sigHashType := HtlcSigHashType(chanType)
-	if chanType.IsTaproot() {
-		// TODO(roasbeef): make sure default elsewhere
+	if scriptTree, ok := scriptInfo.(input.TapscriptDescriptor); ok {
 		successSignDesc.HashType = txscript.SigHashDefault
 		successSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 
 		successWitness, err = input.ReceiverHTLCScriptTaprootRedeem(
 			htlcSig, sigHashType, nil, signer, &successSignDesc,
-			successTx, keyRing.RevocationKey, scriptInfo.ScriptTree,
+			successTx, keyRing.RevocationKey,
+			scriptTree.TapScriptTree(),
 		)
 		if err != nil {
 			return nil, err
@@ -6961,7 +7043,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 	// creates so we can generate the proper signDesc to sweep it after the
 	// CSV delay has passed.
 	var (
-		htlcSweepScript *ScriptInfo
+		htlcSweepScript input.ScriptDescriptor
 		signMethod      input.SignMethod
 		ctrlBlock       []byte
 	)
@@ -6981,23 +7063,31 @@ func newIncomingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 
-		htlcSweepScript = &ScriptInfo{
-			PkScript:      secondLevelScriptTree.PkScript,
-			WitnessScript: secondLevelScriptTree.SuccessTapLeaf.Script,
-		}
-
 		signMethod = input.TaprootScriptSpendSignMethod
 
-		controlBlock := input.MakeTaprootCtrlBlock(
-			htlcSweepScript.WitnessScript, keyRing.RevocationKey,
-			secondLevelScriptTree.TapscriptTree,
+		controlBlock, err := secondLevelScriptTree.CtrlBlockForPath(
+			input.ScriptPathSuccess,
 		)
+		if err != nil {
+			return nil, err
+		}
 		ctrlBlock, err = controlBlock.ToBytes()
 		if err != nil {
 			return nil, err
 		}
 
 		// TODO(roasbeef): conslidate logic to reduce vertical noise
+
+		htlcSweepScript = secondLevelScriptTree
+	}
+
+	// In this case, the witness script that needs to be signed will always
+	// be that of the success path.
+	htlcSweepWitnessScript, err := htlcSweepScript.WitnessScriptForPath(
+		input.ScriptPathSuccess,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	localDelayTweak := input.SingleTweakBytes(
@@ -7014,9 +7104,9 @@ func newIncomingHtlcResolution(signer input.Signer,
 		SweepSignDesc: input.SignDescriptor{
 			KeyDesc:       localChanCfg.DelayBasePoint,
 			SingleTweak:   localDelayTweak,
-			WitnessScript: htlcSweepScript.WitnessScript,
+			WitnessScript: htlcSweepWitnessScript,
 			Output: &wire.TxOut{
-				PkScript: htlcSweepScript.PkScript,
+				PkScript: htlcSweepScript.PkScript(),
 				Value:    int64(secondLevelOutputAmt),
 			},
 			HashType:     txscript.SigHashAll,
@@ -7266,7 +7356,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		delayOut   *wire.TxOut
 	)
 	for i, txOut := range commitTx.TxOut {
-		if !bytes.Equal(toLocalScript.PkScript, txOut.PkScript) {
+		if !bytes.Equal(toLocalScript.PkScript(), txOut.PkScript) {
 			continue
 		}
 
@@ -7283,6 +7373,16 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	// nil.
 	var commitResolution *CommitOutputResolution
 	if delayOut != nil {
+		// When attempting to sweep our own output, we only need the
+		// witness script for the delay path
+		scriptPath := input.ScriptPathDelay
+		witnessScript, err := toLocalScript.WitnessScriptForPath(
+			scriptPath,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		localBalance := delayOut.Value
 		commitResolution = &CommitOutputResolution{
 			SelfOutPoint: wire.OutPoint{
@@ -7292,7 +7392,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 			SelfOutputSignDesc: input.SignDescriptor{
 				KeyDesc:       chanState.LocalChanCfg.DelayBasePoint,
 				SingleTweak:   keyRing.LocalCommitKeyTweak,
-				WitnessScript: toLocalScript.WitnessScript,
+				WitnessScript: witnessScript,
 				Output: &wire.TxOut{
 					PkScript: delayOut.PkScript,
 					Value:    localBalance,
@@ -7306,14 +7406,17 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 		// fields to ensure the output can be swept.
 		//
 		// TODO(roasbef): abstract into new func
-		if chanState.ChanType.IsTaproot() {
+		scriptTree, ok := toLocalScript.(input.TapscriptDescriptor)
+		if ok {
 			commitResolution.SelfOutputSignDesc.SignMethod =
 				input.TaprootScriptSpendSignMethod
 
-			ctrlBlock := input.MakeTaprootCtrlBlock(
-				commitResolution.SelfOutputSignDesc.WitnessScript,
-				keyRing.RevocationKey, toLocalScript.ScriptTree,
+			ctrlBlock, err := scriptTree.CtrlBlockForPath(
+				scriptPath,
 			)
+			if err != nil {
+				return nil, err
+			}
 			commitResolution.SelfOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -7697,13 +7800,24 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 		localAnchor, remoteAnchor = remoteAnchor, localAnchor
 	}
 
+	// TODO(roasbeef): remote anchor not needed above
+
 	// Look up the script on the commitment transaction. It may not be
 	// present if there is no output paying to us.
 	found, index := input.FindScriptOutputIndex(
-		commitTx, localAnchor.PkScript,
+		commitTx, localAnchor.PkScript(),
 	)
 	if !found {
 		return nil, nil
+	}
+
+	// For anchor outputs, we'll only ever care about the success path.
+	// script (sweep after 1 block csv delay).
+	anchorWitnessScript, err := localAnchor.WitnessScriptForPath(
+		input.ScriptPathSuccess,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	outPoint := &wire.OutPoint{
@@ -7714,9 +7828,9 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 	// Instantiate the sign descriptor that allows sweeping of the anchor.
 	signDesc := &input.SignDescriptor{
 		KeyDesc:       chanState.LocalChanCfg.MultiSigKey,
-		WitnessScript: localAnchor.WitnessScript,
+		WitnessScript: anchorWitnessScript,
 		Output: &wire.TxOut{
-			PkScript: localAnchor.PkScript,
+			PkScript: localAnchor.PkScript(),
 			Value:    int64(anchorSize),
 		},
 		HashType: txscript.SigHashAll,
@@ -7724,12 +7838,12 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 
 	// For taproot outputs, we'll need to ensure that the proper sign
 	// method is used, and the tweak as well.
-	if chanState.ChanType.IsTaproot() {
+	if scriptTree, ok := localAnchor.(input.TapscriptDescriptor); ok {
 		signDesc.SignMethod = input.TaprootKeySpendSignMethod
 		signDesc.HashType = txscript.SigHashDefault
 
 		signDesc.PrevOutputFetcher = txscript.NewCannedPrevOutputFetcher(
-			localAnchor.PkScript, int64(anchorSize),
+			localAnchor.PkScript(), int64(anchorSize),
 		)
 
 		// For anchor outputs with taproot channels, the key desc is
@@ -7751,13 +7865,9 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 			signDesc.KeyDesc = chanState.LocalChanCfg.PaymentBasePoint
 		}
 
-		// TODO(roasbeef): need to be payment point if remote, delay
-		// point otherwise?
-
 		// Finally, as this is a keyspend method, we'll need to also
 		// include the taptweak as well.
-		tapscriptRoot := localAnchor.ScriptTree.RootNode.TapHash()
-		signDesc.TapTweak = tapscriptRoot[:]
+		signDesc.TapTweak = scriptTree.TapTweak()
 	}
 
 	var witnessWeight int64

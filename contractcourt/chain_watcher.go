@@ -451,10 +451,10 @@ func (c *chainWatcher) handleUnknownLocalState(
 		pkScript := output.PkScript
 
 		switch {
-		case bytes.Equal(localScript.PkScript, pkScript):
+		case bytes.Equal(localScript.PkScript(), pkScript):
 			ourCommit = true
 
-		case bytes.Equal(remoteScript.PkScript, pkScript):
+		case bytes.Equal(remoteScript.PkScript(), pkScript):
 			ourCommit = true
 		}
 	}

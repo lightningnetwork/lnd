@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -605,12 +606,31 @@ func SenderHTLCTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 	return txscript.NewBaseTapLeaf(successLeafScript), nil
 }
 
+// htlcType is an enum value that denotes what type of HTLC script this is.
+type htlcType uint8
+
+const (
+	// htlcLocalIncoming represents an incoming HTLC on the local
+	// commitment transaction.
+	htlcLocalIncoming htlcType = iota
+
+	// htlcLocalOutgoing represents an outgoing HTLC on the local
+	// commitment transaction.
+	htlcLocalOutgoing
+
+	// htlcRemoteIncoming represents an incoming HTLC on the remote
+	// commitment transaction.
+	htlcRemoteIncoming
+
+	// htlcRemoteOutgoing represents an outgoing HTLC on the remote
+	// commitment transaction.
+	htlcRemoteOutgoing
+)
+
 // HtlcScriptTree holds the taproot output key, as well as the two script path
 // leaves that every taproot HTLC script depends on.
 type HtlcScriptTree struct {
-	// TaprootKey is the key that will be used to generate the taproot
-	// output.
-	TaprootKey *btcec.PublicKey
+	ScriptTree
 
 	// SuccessTapLeaf is the tapleaf for the redemption path.
 	SuccessTapLeaf txscript.TapLeaf
@@ -618,18 +638,83 @@ type HtlcScriptTree struct {
 	// TimeoutTapLeaf is the tapleaf for the timeout path.
 	TimeoutTapLeaf txscript.TapLeaf
 
-	// TapscriptTree is the full tapscript tree that also includes the
-	// control block needed to spend each of the leaves.
-	TapscriptTree *txscript.IndexedTapScriptTree
-
-	// TapscriptTreeRoot is the root hash of the tapscript tree.
-	TapscriptRoot []byte
+	htlcType htlcType
 }
+
+// WitnessScriptToSign returns the witness script that we'll use when signing
+// for the remote party, and also verifying signatures on our transactions. As
+// an example, when we create an outgoing HTLC for the remote party, we want to
+// sign the success path for them, so we'll return the success path leaf.
+func (h *HtlcScriptTree) WitnessScriptToSign() []byte {
+	switch h.htlcType {
+	// For incoming HLTCs on our local commitment, we care about verifying
+	// the sucess path.
+	case htlcLocalIncoming:
+		return h.SuccessTapLeaf.Script
+
+	// For incoming HTLCs on the remote party's commitment, we want to sign
+	// the the timeout path for them.
+	case htlcRemoteIncoming:
+		return h.TimeoutTapLeaf.Script
+
+	// For outgoing HTLCs on our local commitment, we want to verify the
+	// timeout path.
+	case htlcLocalOutgoing:
+		return h.TimeoutTapLeaf.Script
+
+	// For outgoing HTLCs on the remote party's commitment, we want to sign
+	// the success path for them.
+	case htlcRemoteOutgoing:
+		return h.SuccessTapLeaf.Script
+
+	default:
+		panic(fmt.Sprintf("unknown htlc type: %v", h.htlcType))
+	}
+}
+
+// WitnessScriptForPath returns the witness script for the given spending path.
+// An error is returned if the path is unknown.
+func (h *HtlcScriptTree) WitnessScriptForPath(path ScriptPath) ([]byte, error) {
+	switch path {
+	case ScriptPathSuccess:
+		return h.SuccessTapLeaf.Script, nil
+	case ScriptPathTimeout:
+		return h.TimeoutTapLeaf.Script, nil
+	default:
+		return nil, fmt.Errorf("unknown script path: %v", path)
+	}
+}
+
+// CtrlBlockForPath returns the control block for the given spending path. For
+// script types that don't have a control block, nil is returned.
+func (h *HtlcScriptTree) CtrlBlockForPath(path ScriptPath,
+) (*txscript.ControlBlock, error) {
+
+	switch path {
+	case ScriptPathSuccess:
+		return lnutils.Ptr(MakeTaprootCtrlBlock(
+			h.SuccessTapLeaf.Script, h.InternalKey,
+			h.TapscriptTree,
+		)), nil
+	case ScriptPathTimeout:
+		return lnutils.Ptr(MakeTaprootCtrlBlock(
+			h.TimeoutTapLeaf.Script, h.InternalKey,
+			h.TapscriptTree,
+		)), nil
+	default:
+		return nil, fmt.Errorf("unknown script path: %v", path)
+	}
+}
+
+// A compile time check to ensure HtlcScriptTree implements the
+// TapscriptMultiplexer interface.
+var _ TapscriptDescriptor = (*HtlcScriptTree)(nil)
 
 // senderHtlcTapScriptTree builds the tapscript tree which is used to anchor
 // the HTLC key for HTLCs on the sender's commitment.
 func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
-	revokeKey *btcec.PublicKey, payHash []byte) (*HtlcScriptTree, error) {
+	revokeKey *btcec.PublicKey, payHash []byte,
+	hType htlcType) (*HtlcScriptTree, error) {
 
 	// First, we'll obtain the tap leaves for both the success and timeout
 	// path.
@@ -661,11 +746,15 @@ func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 	)
 
 	return &HtlcScriptTree{
-		TaprootKey:     htlcKey,
+		ScriptTree: ScriptTree{
+			TaprootKey:    htlcKey,
+			TapscriptTree: tapscriptTree,
+			TapscriptRoot: tapScriptRoot[:],
+			InternalKey:   revokeKey,
+		},
 		SuccessTapLeaf: successTapLeaf,
 		TimeoutTapLeaf: timeoutTapLeaf,
-		TapscriptTree:  tapscriptTree,
-		TapscriptRoot:  tapScriptRoot[:],
+		htlcType:       hType,
 	}, nil
 }
 
@@ -698,13 +787,22 @@ func senderHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 // The top level keyspend key is the revocation key, which allows a defender to
 // unilaterally spend the created output.
 func SenderHTLCScriptTaproot(senderHtlcKey, receiverHtlcKey,
-	revokeKey *btcec.PublicKey, payHash []byte) (*HtlcScriptTree, error) {
+	revokeKey *btcec.PublicKey, payHash []byte,
+	localCommit bool) (*HtlcScriptTree, error) {
+
+	var hType htlcType
+	if localCommit {
+		hType = htlcLocalOutgoing
+	} else {
+		hType = htlcRemoteIncoming
+	}
 
 	// Given all the necessary parameters, we'll return the HTLC script
 	// tree that includes the top level output script, as well as the two
 	// tap leaf paths.
 	return senderHtlcTapScriptTree(
 		senderHtlcKey, receiverHtlcKey, revokeKey, payHash,
+		hType,
 	)
 }
 
@@ -1175,7 +1273,7 @@ func ReceiverHtlcTapLeafSuccess(receiverHtlcKey *btcec.PublicKey,
 // the HTLC key for HTLCs on the receiver's commitment.
 func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 	revokeKey *btcec.PublicKey, payHash []byte,
-	cltvExpiry uint32) (*HtlcScriptTree, error) {
+	cltvExpiry uint32, hType htlcType) (*HtlcScriptTree, error) {
 
 	// First, we'll obtain the tap leaves for both the success and timeout
 	// path.
@@ -1207,11 +1305,15 @@ func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 	)
 
 	return &HtlcScriptTree{
-		TaprootKey:     htlcKey,
+		ScriptTree: ScriptTree{
+			TaprootKey:    htlcKey,
+			TapscriptTree: tapscriptTree,
+			TapscriptRoot: tapScriptRoot[:],
+			InternalKey:   revokeKey,
+		},
 		SuccessTapLeaf: successTapLeaf,
 		TimeoutTapLeaf: timeoutTapLeaf,
-		TapscriptTree:  tapscriptTree,
-		TapscriptRoot:  tapScriptRoot[:],
+		htlcType:       hType,
 	}, nil
 }
 
@@ -1245,14 +1347,21 @@ func receiverHtlcTapScriptTree(senderHtlcKey, receiverHtlcKey,
 // the tap leaf are returned.
 func ReceiverHTLCScriptTaproot(cltvExpiry uint32,
 	senderHtlcKey, receiverHtlcKey, revocationKey *btcec.PublicKey,
-	payHash []byte) (*HtlcScriptTree, error) {
+	payHash []byte, ourCommit bool) (*HtlcScriptTree, error) {
+
+	var hType htlcType
+	if ourCommit {
+		hType = htlcLocalIncoming
+	} else {
+		hType = htlcRemoteOutgoing
+	}
 
 	// Given all the necessary parameters, we'll return the HTLC script
 	// tree that includes the top level output script, as well as the two
 	// tap leaf paths.
 	return receiverHtlcTapScriptTree(
 		senderHtlcKey, receiverHtlcKey, revocationKey, payHash,
-		cltvExpiry,
+		cltvExpiry, hType,
 	)
 }
 
@@ -1540,21 +1649,10 @@ func TaprootSecondLevelHtlcScript(revokeKey, delayKey *btcec.PublicKey,
 // SecondLevelScriptTree is a tapscript tree used to spend the second level
 // HTLC output after the CSV delay has passed.
 type SecondLevelScriptTree struct {
-	// TaprootKey is the key that will be used to generate the taproot output.
-	TaprootKey *btcec.PublicKey
-
-	// PkScript is the pkScript of the second level output.
-	PkScript []byte
+	ScriptTree
 
 	// SuccessTapLeaf is the tapleaf for the redemption path.
 	SuccessTapLeaf txscript.TapLeaf
-
-	// TapscriptTree is the full tapscript tree that also includes the
-	// control block needed to spend each of the leaves.
-	TapscriptTree *txscript.IndexedTapScriptTree
-
-	// TapscriptTreeRoot is the root hash of the tapscript tree.
-	TapscriptRoot []byte
 }
 
 // TaprootSecondLevelScriptTree constructs the tapscript tree used to spend the
@@ -1577,20 +1675,64 @@ func TaprootSecondLevelScriptTree(revokeKey, delayKey *btcec.PublicKey,
 	outputKey := txscript.ComputeTaprootOutputKey(
 		revokeKey, tapScriptRoot[:],
 	)
-	pkScript, err := PayToTaprootScript(outputKey)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make taproot "+
-			"pkscript: %w", err)
-	}
 
 	return &SecondLevelScriptTree{
-		TaprootKey:     outputKey,
-		PkScript:       pkScript,
+		ScriptTree: ScriptTree{
+			TaprootKey:    outputKey,
+			TapscriptTree: tapScriptTree,
+			TapscriptRoot: tapScriptRoot[:],
+			InternalKey:   revokeKey,
+		},
 		SuccessTapLeaf: tapScriptTree.LeafMerkleProofs[0].TapLeaf,
-		TapscriptTree:  tapScriptTree,
-		TapscriptRoot:  tapScriptRoot[:],
 	}, nil
 }
+
+// WitnessScript returns the witness script that we'll use when signing for the
+// remote party, and also verifying signatures on our transactions. As an
+// example, when we create an outgoing HTLC for the remote party, we want to
+// sign their success path.
+func (s *SecondLevelScriptTree) WitnessScriptToSign() []byte {
+	return s.SuccessTapLeaf.Script
+}
+
+// WitnessScriptForPath returns the witness script for the given spending path.
+// An error is returned if the path is unknown.
+func (s *SecondLevelScriptTree) WitnessScriptForPath(path ScriptPath,
+) ([]byte, error) {
+
+	switch path {
+	case ScriptPathDelay:
+		fallthrough
+	case ScriptPathSuccess:
+		return s.SuccessTapLeaf.Script, nil
+
+	default:
+		return nil, fmt.Errorf("unknown script path: %v", path)
+	}
+}
+
+// CtrlBlockForPath returns the control block for the given spending path. For
+// script types that don't have a control block, nil is returned.
+func (s *SecondLevelScriptTree) CtrlBlockForPath(path ScriptPath,
+) (*txscript.ControlBlock, error) {
+
+	switch path {
+	case ScriptPathDelay:
+		fallthrough
+	case ScriptPathSuccess:
+		return lnutils.Ptr(MakeTaprootCtrlBlock(
+			s.SuccessTapLeaf.Script, s.InternalKey,
+			s.TapscriptTree,
+		)), nil
+
+	default:
+		return nil, fmt.Errorf("unknown script path: %v", path)
+	}
+}
+
+// A compile time check to ensure SecondLevelScriptTree implements the
+// TapscriptDescriptor interface.
+var _ TapscriptDescriptor = (*SecondLevelScriptTree)(nil)
 
 // TaprootHtlcSpendRevoke spends a second-level HTLC output via the revocation
 // path. This uses the top level keyspend path to redeem the contested output.
@@ -1910,9 +2052,7 @@ func CommitScriptToSelf(csvTimeout uint32, selfKey, revokeKey *btcec.PublicKey) 
 // key, or a NUMs point for the remote output) along with the tapscript leaf
 // that can spend the output after a delay.
 type CommitScriptTree struct {
-	// TaprootKey is the key that will be used to generate the taproot
-	// output.
-	TaprootKey *btcec.PublicKey
+	ScriptTree
 
 	// SettleLeaf is the leaf used to settle the output after the delay.
 	SettleLeaf txscript.TapLeaf
@@ -1920,13 +2060,61 @@ type CommitScriptTree struct {
 	// RevocationLeaf is the leaf used to spend the output with the
 	// revocation key signature.
 	RevocationLeaf txscript.TapLeaf
+}
 
-	// TapscriptTree is the full tapscript tree that also includes the
-	// control block needed to spend each of the leaves.
-	TapscriptTree *txscript.IndexedTapScriptTree
+// A compile time check to ensure CommitScriptTree implements the
+// TapscriptDescriptor interface.
+var _ TapscriptDescriptor = (*CommitScriptTree)(nil)
 
-	// TapscriptTreeRoot is the root hash of the tapscript tree.
-	TapscriptRoot []byte
+// WitnessScript returns the witness script that we'll use when signing for the
+// remote party, and also verifying signatures on our transactions. As an
+// example, when we create an outgoing HTLC for the remote party, we want to
+// sign their success path.
+func (s *CommitScriptTree) WitnessScriptToSign() []byte {
+	// TODO(roasbeef): abstraction leak here? always dependent
+	return nil
+}
+
+// WitnessScriptForPath returns the witness script for the given spending path.
+// An error is returned if the path is unknown.
+func (c *CommitScriptTree) WitnessScriptForPath(path ScriptPath,
+) ([]byte, error) {
+
+	switch path {
+	// For the commitment output, the delay and success path are the same,
+	// so we'll fall through here to success.
+	case ScriptPathDelay:
+		fallthrough
+	case ScriptPathSuccess:
+		return c.SettleLeaf.Script, nil
+	case ScriptPathRevocation:
+		return c.RevocationLeaf.Script, nil
+	default:
+		return nil, fmt.Errorf("unknown script path: %v", path)
+	}
+}
+
+// CtrlBlockForPath returns the control block for the given spending path. For
+// script types that don't have a control block, nil is returned.
+func (c *CommitScriptTree) CtrlBlockForPath(path ScriptPath,
+) (*txscript.ControlBlock, error) {
+
+	switch path {
+	case ScriptPathDelay:
+		fallthrough
+	case ScriptPathSuccess:
+		return lnutils.Ptr(MakeTaprootCtrlBlock(
+			c.SettleLeaf.Script, c.InternalKey,
+			c.TapscriptTree,
+		)), nil
+	case ScriptPathRevocation:
+		return lnutils.Ptr(MakeTaprootCtrlBlock(
+			c.RevocationLeaf.Script, c.InternalKey,
+			c.TapscriptTree,
+		)), nil
+	default:
+		return nil, fmt.Errorf("unknown script path: %v", path)
+	}
 }
 
 // NewLocalCommitScriptTree returns a new CommitScript tree that can be used to
@@ -1977,11 +2165,14 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 	)
 
 	return &CommitScriptTree{
+		ScriptTree: ScriptTree{
+			TaprootKey:    toLocalOutputKey,
+			TapscriptTree: tapScriptTree,
+			TapscriptRoot: tapScriptRoot[:],
+			InternalKey:   &TaprootNUMSKey,
+		},
 		SettleLeaf:     delayTapLeaf,
 		RevocationLeaf: revokeTapLeaf,
-		TaprootKey:     toLocalOutputKey,
-		TapscriptTree:  tapScriptTree,
-		TapscriptRoot:  tapScriptRoot[:],
 	}, nil
 }
 
@@ -2380,10 +2571,13 @@ func NewRemoteCommitScriptTree(remoteKey *btcec.PublicKey,
 	)
 
 	return &CommitScriptTree{
-		TaprootKey:    toRemoteOutputKey,
-		SettleLeaf:    tapLeaf,
-		TapscriptTree: tapScriptTree,
-		TapscriptRoot: tapScriptRoot[:],
+		ScriptTree: ScriptTree{
+			TaprootKey:    toRemoteOutputKey,
+			TapscriptTree: tapScriptTree,
+			TapscriptRoot: tapScriptRoot[:],
+			InternalKey:   &TaprootNUMSKey,
+		},
+		SettleLeaf: tapLeaf,
 	}, nil
 }
 
@@ -2552,19 +2746,10 @@ func CommitScriptAnchor(key *btcec.PublicKey) ([]byte, error) {
 // AnchorScriptTree holds all the contents needed to sweep a taproot anchor
 // output on chain.
 type AnchorScriptTree struct {
-	// TaprootKey is the key that will be used to generate the taproot
-	// output.
-	TaprootKey *btcec.PublicKey
+	ScriptTree
 
 	// SweepLeaf is the leaf used to settle the output after the delay.
 	SweepLeaf txscript.TapLeaf
-
-	// TapscriptTree is the full tapscript tree that also includes the
-	// control block needed to spend each of the leaves.
-	TapscriptTree *txscript.IndexedTapScriptTree
-
-	// TapscriptTreeRoot is the root hash of the tapscript tree.
-	TapscriptRoot []byte
 }
 
 // NewAnchorScriptTree makes a new script tree for an anchor output with the
@@ -2596,12 +2781,62 @@ func NewAnchorScriptTree(anchorKey *btcec.PublicKey,
 	)
 
 	return &AnchorScriptTree{
-		TaprootKey:    anchorOutputKey,
-		SweepLeaf:     tapLeaf,
-		TapscriptTree: tapScriptTree,
-		TapscriptRoot: tapScriptRoot[:],
+		ScriptTree: ScriptTree{
+			TaprootKey:    anchorOutputKey,
+			TapscriptTree: tapScriptTree,
+			TapscriptRoot: tapScriptRoot[:],
+			InternalKey:   anchorKey,
+		},
+		SweepLeaf: tapLeaf,
 	}, nil
 }
+
+// WitnessScript returns the witness script that we'll use when signing for the
+// remote party, and also verifying signatures on our transactions. As an
+// example, when we create an outgoing HTLC for the remote party, we want to
+// sign their success path.
+func (s *AnchorScriptTree) WitnessScriptToSign() []byte {
+	return s.SweepLeaf.Script
+}
+
+// WitnessScriptForPath returns the witness script for the given spending path.
+// An error is returned if the path is unknown.
+func (s *AnchorScriptTree) WitnessScriptForPath(path ScriptPath,
+) ([]byte, error) {
+
+	switch path {
+	case ScriptPathDelay:
+		fallthrough
+	case ScriptPathSuccess:
+		return s.SweepLeaf.Script, nil
+
+	default:
+		return nil, fmt.Errorf("unknown script path: %v", path)
+	}
+}
+
+// CtrlBlockForPath returns the control block for the given spending path. For
+// script types that don't have a control block, nil is returned.
+func (a *AnchorScriptTree) CtrlBlockForPath(path ScriptPath,
+) (*txscript.ControlBlock, error) {
+
+	switch path {
+	case ScriptPathDelay:
+		fallthrough
+	case ScriptPathSuccess:
+		return lnutils.Ptr(MakeTaprootCtrlBlock(
+			a.SweepLeaf.Script, a.InternalKey,
+			a.TapscriptTree,
+		)), nil
+
+	default:
+		return nil, fmt.Errorf("unknown script path: %v", path)
+	}
+}
+
+// A compile time check to ensure AnchorScriptTree implements the
+// TapscriptDescriptor interface.
+var _ TapscriptDescriptor = (*AnchorScriptTree)(nil)
 
 // TaprootOutputKeyAnchor returns the segwit v1 (taproot) witness program that
 // encodes the anchor output spending conditions: the passed key can be used

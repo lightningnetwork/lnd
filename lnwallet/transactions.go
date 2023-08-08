@@ -66,8 +66,6 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 	}
 	successTx.AddTxIn(txin)
 
-	var pkScript []byte
-
 	// Next, we'll generate the script used as the output for all second
 	// level HTLC which forces a covenant w.r.t what can be done with all
 	// HTLC outputs.
@@ -79,13 +77,11 @@ func CreateHtlcSuccessTx(chanType channeldb.ChannelType, initiator bool,
 		return nil, err
 	}
 
-	pkScript = scriptInfo.PkScript
-
 	// Finally, the output is simply the amount of the HTLC (minus the
 	// required fees), paying to the timeout script.
 	successTx.AddTxOut(&wire.TxOut{
 		Value:    int64(htlcAmt),
-		PkScript: pkScript,
+		PkScript: scriptInfo.PkScript(),
 	})
 
 	return successTx, nil
@@ -133,8 +129,6 @@ func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 	}
 	timeoutTx.AddTxIn(txin)
 
-	var pkScript []byte
-
 	// Next, we'll generate the script used as the output for all second
 	// level HTLC which forces a covenant w.r.t what can be done with all
 	// HTLC outputs.
@@ -146,13 +140,11 @@ func CreateHtlcTimeoutTx(chanType channeldb.ChannelType, initiator bool,
 		return nil, err
 	}
 
-	pkScript = scriptInfo.PkScript
-
 	// Finally, the output is simply the amount of the HTLC (minus the
 	// required fees), paying to the regular second level HTLC script.
 	timeoutTx.AddTxOut(&wire.TxOut{
 		Value:    int64(htlcAmt),
-		PkScript: pkScript,
+		PkScript: scriptInfo.PkScript(),
 	})
 
 	return timeoutTx, nil

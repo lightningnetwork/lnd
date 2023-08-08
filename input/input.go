@@ -314,7 +314,7 @@ func (i *HtlcSecondLevelAnchorInput) RequiredTxOut() *wire.TxOut {
 // of the input to be valid. For a second level HTLC timeout this will be the
 // CLTV expiry, for HTLC success it will be zero.
 func (i *HtlcSecondLevelAnchorInput) RequiredLockTime() (uint32, bool) {
-	return i.SignedTx.LockTime, true
+	return i.SignedTx.LockTime, i.SignedTx.LockTime > 0
 }
 
 // CraftInputScript returns a valid set of input scripts allowing this output

@@ -1060,7 +1060,7 @@ var witnessSizeTests = []witnessSizeTest{
 
 			htlcScriptTree, err := input.SenderHTLCScriptTaproot(
 				senderKey.PubKey(), receiverKey.PubKey(),
-				revokeKey.PubKey(), payHash[:],
+				revokeKey.PubKey(), payHash[:], false,
 			)
 
 			signDesc := &input.SignDescriptor{
@@ -1100,7 +1100,7 @@ var witnessSizeTests = []witnessSizeTest{
 			htlcScriptTree, err := input.ReceiverHTLCScriptTaproot(
 				testCLTVExpiry, senderKey.PubKey(),
 				receiverKey.PubKey(), revokeKey.PubKey(),
-				payHash[:],
+				payHash[:], false,
 			)
 
 			signDesc := &input.SignDescriptor{
@@ -1140,7 +1140,7 @@ var witnessSizeTests = []witnessSizeTest{
 			htlcScriptTree, err := input.ReceiverHTLCScriptTaproot(
 				testCLTVExpiry, senderKey.PubKey(),
 				receiverKey.PubKey(), revokeKey.PubKey(),
-				payHash[:],
+				payHash[:], false,
 			)
 
 			timeoutLeaf := htlcScriptTree.TimeoutTapLeaf
@@ -1183,7 +1183,7 @@ var witnessSizeTests = []witnessSizeTest{
 
 			htlcScriptTree, err := input.SenderHTLCScriptTaproot(
 				senderKey.PubKey(), receiverKey.PubKey(),
-				revokeKey.PubKey(), payHash[:],
+				revokeKey.PubKey(), payHash[:], false,
 			)
 			require.NoError(t, err)
 
@@ -1242,8 +1242,7 @@ var witnessSizeTests = []witnessSizeTest{
 
 			htlcScriptTree, err := input.SenderHTLCScriptTaproot(
 				senderKey.PubKey(), receiverKey.PubKey(),
-				revokeKey.PubKey(),
-				payHash[:],
+				revokeKey.PubKey(), payHash[:], false,
 			)
 			require.NoError(t, err)
 
@@ -1289,7 +1288,7 @@ var witnessSizeTests = []witnessSizeTest{
 			htlcScriptTree, err := input.ReceiverHTLCScriptTaproot(
 				testCLTVExpiry, senderKey.PubKey(),
 				receiverKey.PubKey(), revokeKey.PubKey(),
-				payHash[:],
+				payHash[:], false,
 			)
 
 			successsLeaf := htlcScriptTree.SuccessTapLeaf
@@ -1373,7 +1372,7 @@ func genTimeoutTx(t *testing.T,
 	)
 	if chanType.IsTaproot() {
 		tapscriptTree, err = input.SenderHTLCScriptTaproot(
-			testPubkey, testPubkey, testPubkey, testHash160,
+			testPubkey, testPubkey, testPubkey, testHash160, false,
 		)
 		require.NoError(t, err)
 
@@ -1442,7 +1441,7 @@ func genSuccessTx(t *testing.T, chanType channeldb.ChannelType) *wire.MsgTx {
 	if chanType.IsTaproot() {
 		tapscriptTree, err = input.ReceiverHTLCScriptTaproot(
 			testCLTVExpiry, testPubkey, testPubkey, testPubkey,
-			testHash160,
+			testHash160, false,
 		)
 		require.NoError(t, err)
 

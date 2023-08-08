@@ -19,7 +19,6 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1
 	github.com/go-errors/errors v1.0.1
 	github.com/golang-migrate/migrate/v4 v4.16.1
-	github.com/golang/protobuf v1.5.2
 	github.com/gorilla/websocket v1.4.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.3.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
@@ -36,7 +35,7 @@ require (
 	github.com/lib/pq v1.10.3
 	github.com/lightninglabs/neutrino v0.16.0
 	github.com/lightninglabs/neutrino/cache v1.1.1
-	github.com/lightningnetwork/lightning-onion v1.2.1-0.20221202012345-ca23184850a1
+	github.com/lightningnetwork/lightning-onion v1.2.1-0.20230823005744-06182b1d7d2f
 	github.com/lightningnetwork/lnd/cert v1.2.1
 	github.com/lightningnetwork/lnd/clock v1.1.0
 	github.com/lightningnetwork/lnd/healthcheck v1.2.2
@@ -49,7 +48,7 @@ require (
 	github.com/miekg/dns v1.1.43
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/prometheus/client_golang v1.11.1
-	github.com/stretchr/testify v1.8.1
+	github.com/stretchr/testify v1.8.2
 	github.com/tv42/zbase32 v0.0.0-20160707012821-501572607d02
 	github.com/urfave/cli v1.22.9
 	go.etcd.io/etcd/client/pkg/v3 v3.5.7
@@ -98,6 +97,7 @@ require (
 	github.com/fergusstrange/embedded-postgres v1.10.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang-jwt/jwt/v4 v4.4.2 // indirect
+	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect

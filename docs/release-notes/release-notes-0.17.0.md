@@ -59,8 +59,12 @@
   have to make sure to not broadcast outdated transactions which can lead to
   locked up wallet funds indefinitely in the worst case.
 
-- [Remove nil value](https://github.com/lightningnetwork/lnd/pull/7922) from
+* [Remove nil value](https://github.com/lightningnetwork/lnd/pull/7922) from
   variadic parameter list.
+
+* Make sure to [fail a channel if revoking the old channel state 
+fails](https://github.com/lightningnetwork/lnd/pull/7876).
+
 
 # New Features
 ## Functional Enhancements

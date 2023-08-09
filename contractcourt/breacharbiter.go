@@ -1217,7 +1217,9 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		case isTaproot:
 			witnessType = input.TaprootRemoteCommitSpend
 
-		case !isTaproot && breachInfo.LocalOutputSignDesc.SingleTweak == nil:
+		case !isTaproot &&
+			breachInfo.LocalOutputSignDesc.SingleTweak == nil:
+
 			witnessType = input.CommitSpendNoDelayTweakless
 
 		case !isTaproot:
@@ -1279,7 +1281,6 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		// to sweep the HTLC output.
 		var htlcWitnessType input.StandardWitnessType
 		switch {
-
 		case isTaproot && breachedHtlc.IsIncoming:
 			htlcWitnessType = input.TaprootHtlcAcceptedRevoke
 

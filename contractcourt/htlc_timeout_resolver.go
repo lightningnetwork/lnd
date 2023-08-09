@@ -253,6 +253,8 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 	// directly grab the outpoint, then also extract the witness script
 	// (the last element of the witness stack) to re-construct the pkScript
 	// we need to watch.
+	//
+	//nolint:lll
 	outPointToWatch := h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
 	witness := h.htlcResolution.SignedTimeoutTx.TxIn[0].Witness
 
@@ -285,6 +287,9 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 			ctrlBlock.InternalKey, tapscriptRoot,
 		)
 		scriptToWatch, err = txscript.PayToTaprootScript(outputKey)
+		if err != nil {
+			return nil, nil, err
+		}
 
 	// For regular channels, the witness script is the last element on the
 	// stack. We can then use this to re-derive the output that we're
@@ -303,7 +308,9 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 
 // isSuccessSpend returns true if the passed spend on the specified commitment
 // is a success spend that reveals the pre-image or not.
-func isSuccessSpend(isTaproot bool, spend *chainntnfs.SpendDetail, localCommit bool) bool {
+func isSuccessSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
+	localCommit bool) bool {
+
 	// Based on the spending input index and transaction, obtain the
 	// witness that tells us what type of spend this is.
 	spenderIndex := spend.SpenderInputIndex
@@ -324,6 +331,7 @@ func isSuccessSpend(isTaproot bool, spend *chainntnfs.SpendDetail, localCommit b
 	//     <control_block>
 	case isTaproot && !localCommit:
 		preImageIdx := taprootRemotePreimageIndex
+		//nolint:lll
 		return len(spendingWitness) == remoteTaprootWitnessSuccessSize &&
 			len(spendingWitness[preImageIdx]) == lntypes.HashSize
 
@@ -336,7 +344,8 @@ func isSuccessSpend(isTaproot bool, spend *chainntnfs.SpendDetail, localCommit b
 	//
 	//  - <receiver sig> <preimage> <success_script> <control_block>
 	case isTaproot && localCommit:
-		return len(spendingWitness[localPreimageIndex]) == lntypes.HashSize
+		return len(spendingWitness[localPreimageIndex]) ==
+			lntypes.HashSize
 
 	// If this is the non-taproot, remote commitment then the only possible
 	// spends for outgoing HTLCs are:
@@ -351,7 +360,8 @@ func isSuccessSpend(isTaproot bool, spend *chainntnfs.SpendDetail, localCommit b
 	// revoked their output.
 	case !isTaproot && !localCommit:
 		return len(spendingWitness) == expectedRemoteWitnessSuccessSize &&
-			len(spendingWitness[remotePreimageIndex]) == lntypes.HashSize
+			len(spendingWitness[remotePreimageIndex]) ==
+				lntypes.HashSize
 
 	// Otherwise, for our non-taproot commitment, the only possible spends
 	// for an outgoing HTLC are:
@@ -365,7 +375,8 @@ func isSuccessSpend(isTaproot bool, spend *chainntnfs.SpendDetail, localCommit b
 	case !isTaproot:
 		fallthrough
 	default:
-		return len(spendingWitness[localPreimageIndex]) == lntypes.HashSize
+		return len(spendingWitness[localPreimageIndex]) ==
+			lntypes.HashSize
 	}
 }
 
@@ -396,6 +407,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		h.isTaproot(), commitSpend,
 		h.htlcResolution.SignedTimeoutTx != nil,
 	) {
+
 		log.Infof("%T(%v): HTLC has been swept with pre-image by "+
 			"remote party during timeout flow! Adding pre-image to "+
 			"witness cache", h.htlcResolution.ClaimOutpoint)
@@ -449,6 +461,7 @@ func (h *htlcTimeoutResolver) spendHtlcOutput() (*chainntnfs.SpendDetail, error)
 				h.broadcastHeight,
 			))
 		} else {
+			//nolint:lll
 			inp = lnutils.Ptr(input.MakeHtlcSecondLevelTimeoutAnchorInput(
 				h.htlcResolution.SignedTimeoutTx,
 				h.htlcResolution.SignDetails,

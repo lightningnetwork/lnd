@@ -810,13 +810,6 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			}
 		}
 
-		// Every edge should have a positive time lock delta. If we
-		// encounter a zero delta, log a warning line.
-		if edge.policy.TimeLockDelta == 0 {
-			log.Warnf("Channel %v has zero cltv delta",
-				edge.policy.ChannelID)
-		}
-
 		// Calculate the total routing info size if this hop were to be
 		// included. If we are coming from the source hop, the payload
 		// size is zero, because the original htlc isn't in the onion

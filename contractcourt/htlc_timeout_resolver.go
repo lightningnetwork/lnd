@@ -161,6 +161,7 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	//   - <sender sig> <receiver sig> <preimage> <success_script>
 	//     <control_block>
 	case h.isTaproot() && h.htlcResolution.SignedTimeoutTx == nil:
+		//nolint:lll
 		preimageBytes = spendingInput.Witness[taprootRemotePreimageIndex]
 
 	// The witness stack when the remote party sweeps the output on a
@@ -174,7 +175,7 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 	// element, then we're actually on the losing side of a breach
 	// attempt...
 	case h.isTaproot() && len(spendingInput.Witness) == 1:
-		return nil, fmt.Errorf("breach attempt failed...")
+		return nil, fmt.Errorf("breach attempt failed")
 
 	// Otherwise, they'll be spending directly from our commitment output.
 	// In which case the witness stack looks like:
@@ -250,6 +251,8 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 	// points to. We can directly grab the outpoint, then also extract the
 	// witness script (the last element of the witness stack) to
 	// re-construct the pkScript we need to watch.
+	//
+	//nolint:lll
 	outPointToWatch := h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
 	witness := h.htlcResolution.SignedTimeoutTx.TxIn[0].Witness
 
@@ -263,7 +266,8 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 	// these together to reconstruct the taproot output key, then map that
 	// into a v1 witness program.
 	case h.isTaproot():
-		// First, we'll parse the control block into something we can use.
+		// First, we'll parse the control block into something we can
+		// use.
 		ctrlBlockBytes := witness[len(witness)-1]
 		ctrlBlock, err := txscript.ParseControlBlock(ctrlBlockBytes)
 		if err != nil {
@@ -282,6 +286,9 @@ func (h *htlcTimeoutResolver) chainDetailsToWatch() (*wire.OutPoint, []byte, err
 			ctrlBlock.InternalKey, tapscriptRoot,
 		)
 		scriptToWatch, err = txscript.PayToTaprootScript(outputKey)
+		if err != nil {
+			return nil, nil, err
+		}
 
 	// For regular channels, the witness script is the last element on the
 	// stack. We can then use this to re-derive the output that we're
@@ -323,6 +330,7 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	//     <control_block>
 	case isTaproot && !localCommit:
 		preImageIdx := taprootRemotePreimageIndex
+		//nolint:lll
 		return len(spendingWitness) == remoteTaprootWitnessSuccessSize &&
 			len(spendingWitness[preImageIdx]) == lntypes.HashSize
 
@@ -335,7 +343,8 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	//
 	//  - <receiver sig> <preimage> <success_script> <control_block>
 	case isTaproot && localCommit:
-		return len(spendingWitness[localPreimageIndex]) == lntypes.HashSize
+		return len(spendingWitness[localPreimageIndex]) ==
+			lntypes.HashSize
 
 	// If this is the non-taproot, remote commitment then the only possible
 	// spends for outgoing HTLCs are:
@@ -350,7 +359,8 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	// revoked their output.
 	case !isTaproot && !localCommit:
 		return len(spendingWitness) == expectedRemoteWitnessSuccessSize &&
-			len(spendingWitness[remotePreimageIndex]) == lntypes.HashSize
+			len(spendingWitness[remotePreimageIndex]) ==
+				lntypes.HashSize
 
 	// Otherwise, for our non-taproot commitment, the only possible spends
 	// for an outgoing HTLC are:
@@ -364,7 +374,8 @@ func isPreimageSpend(isTaproot bool, spend *chainntnfs.SpendDetail,
 	case !isTaproot:
 		fallthrough
 	default:
-		return len(spendingWitness[localPreimageIndex]) == lntypes.HashSize
+		return len(spendingWitness[localPreimageIndex]) ==
+			lntypes.HashSize
 	}
 }
 

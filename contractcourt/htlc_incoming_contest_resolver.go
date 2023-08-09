@@ -209,7 +209,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// If this is our commitment transaction, then we'll need to
 		// populate the witness for the second-level HTLC transaction.
 		switch {
-		// For taproot channels, the witness for sweeping with sucess
+		// For taproot channels, the witness for sweeping with success
 		// looks like:
 		//   - <sender sig> <receiver sig> <preimage> <success_script>
 		//     <control_block>

@@ -425,7 +425,8 @@ func MakeHtlcSecondLevelTimeoutAnchorInput(signedTx *wire.MsgTx,
 // transaction. The sweeper is also able to generate witnesses on demand to
 // sweep the second level HTLC aggregated with other transactions.
 func MakeHtlcSecondLevelTimeoutTaprootInput(signedTx *wire.MsgTx,
-	signDetails *SignDetails, heightHint uint32) HtlcSecondLevelAnchorInput {
+	signDetails *SignDetails,
+	heightHint uint32) HtlcSecondLevelAnchorInput {
 
 	createWitness := func(signer Signer, txn *wire.MsgTx,
 		hashCache *txscript.TxSigHashes,

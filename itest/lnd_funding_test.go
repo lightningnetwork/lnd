@@ -102,13 +102,14 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 		// Dave only supports tweakless, channel will be downgraded to
 		// this type if Carol supports anchors.
 		case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
-			if expType == lnrpc.CommitmentType_ANCHORS {
+			switch expType {
+			case lnrpc.CommitmentType_ANCHORS:
 				expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
-			} else if expType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+			case lnrpc.CommitmentType_SIMPLE_TAPROOT:
 				expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
 			}
 
-		// Dave only supoprts legacy type, channel will be downgraded
+		// Dave only supports legacy type, channel will be downgraded
 		// to this type.
 		case lnrpc.CommitmentType_LEGACY:
 			expType = lnrpc.CommitmentType_LEGACY

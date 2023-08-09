@@ -648,12 +648,12 @@ type HtlcScriptTree struct {
 func (h *HtlcScriptTree) WitnessScriptToSign() []byte {
 	switch h.htlcType {
 	// For incoming HLTCs on our local commitment, we care about verifying
-	// the sucess path.
+	// the success path.
 	case htlcLocalIncoming:
 		return h.SuccessTapLeaf.Script
 
 	// For incoming HTLCs on the remote party's commitment, we want to sign
-	// the the timeout path for them.
+	// the timeout path for them.
 	case htlcRemoteIncoming:
 		return h.TimeoutTapLeaf.Script
 
@@ -1526,7 +1526,7 @@ func SecondLevelHtlcScript(revocationKey, delayKey *btcec.PublicKey,
 	// if statement.
 	builder.AddOp(txscript.OP_IF)
 
-	// If this this is the revocation case, then we'll push the revocation
+	// If this is the revocation case, then we'll push the revocation
 	// public key on the stack.
 	builder.AddData(revocationKey.SerializeCompressed())
 
@@ -1778,8 +1778,8 @@ func TaprootHtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 
 	var ctrlBlock []byte
 	if signDesc.ControlBlock == nil {
-		// Now that we have the sweep signature, we'll construct the control
-		// block needed to spend the script path.
+		// Now that we have the sweep signature, we'll construct the
+		// control block needed to spend the script path.
 		redeemControlBlock := MakeTaprootCtrlBlock(
 			signDesc.WitnessScript, revokeKey, tapscriptTree,
 		)
@@ -1804,9 +1804,9 @@ func TaprootHtlcSpendSuccess(signer Signer, signDesc *SignDescriptor,
 	return witnessStack, nil
 }
 
-// LeaseSecondLevelHtlcScript is the uniform script that's used as the output for
-// the second-level HTLC transactions. The second level transaction acts as a
-// sort of covenant, ensuring that a 2-of-2 multi-sig output can only be
+// LeaseSecondLevelHtlcScript is the uniform script that's used as the output
+// for the second-level HTLC transactions. The second level transaction acts as
+// a sort of covenant, ensuring that a 2-of-2 multi-sig output can only be
 // spent in a particular way, and to a particular output.
 //
 // Possible Input Scripts:
@@ -2070,7 +2070,7 @@ var _ TapscriptDescriptor = (*CommitScriptTree)(nil)
 // remote party, and also verifying signatures on our transactions. As an
 // example, when we create an outgoing HTLC for the remote party, we want to
 // sign their success path.
-func (s *CommitScriptTree) WitnessScriptToSign() []byte {
+func (c *CommitScriptTree) WitnessScriptToSign() []byte {
 	// TODO(roasbeef): abstraction leak here? always dependent
 	return nil
 }
@@ -2795,20 +2795,20 @@ func NewAnchorScriptTree(anchorKey *btcec.PublicKey,
 // remote party, and also verifying signatures on our transactions. As an
 // example, when we create an outgoing HTLC for the remote party, we want to
 // sign their success path.
-func (s *AnchorScriptTree) WitnessScriptToSign() []byte {
-	return s.SweepLeaf.Script
+func (a *AnchorScriptTree) WitnessScriptToSign() []byte {
+	return a.SweepLeaf.Script
 }
 
 // WitnessScriptForPath returns the witness script for the given spending path.
 // An error is returned if the path is unknown.
-func (s *AnchorScriptTree) WitnessScriptForPath(path ScriptPath,
+func (a *AnchorScriptTree) WitnessScriptForPath(path ScriptPath,
 ) ([]byte, error) {
 
 	switch path {
 	case ScriptPathDelay:
 		fallthrough
 	case ScriptPathSuccess:
-		return s.SweepLeaf.Script, nil
+		return a.SweepLeaf.Script, nil
 
 	default:
 		return nil, fmt.Errorf("unknown script path: %v", path)

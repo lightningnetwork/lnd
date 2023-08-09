@@ -287,7 +287,7 @@ func implicitNegotiateCommitmentType(local,
 
 	// If both peers are signalling support for taproot chanenls, then
 	// we'll use that type.
-	if hasFeatures(local, remote, lnwire.AnchorsZeroFeeHtlcTxOptional) {
+	if hasFeatures(local, remote, lnwire.SimpleTaprootChannelsOptional) {
 		chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
 			lnwire.SimpleTaprootChannelsRequired,
 		))

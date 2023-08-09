@@ -565,8 +565,8 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	bo.signDesc.Output.PkScript = spendingTx.TxOut[spendInputIndex].PkScript
 
 	// For taproot outputs, the taptweak also needs to be swapped out. We
-	// do this unconditionaly as this field isn't used at all for segwit v0
-	// outputs.
+	// do this unconditionally as this field isn't used at all for segwit
+	// v0 outputs.
 	bo.signDesc.TapTweak = bo.secondLevelTapTweak[:]
 
 	// Finally, we'll need to adjust the witness program in the
@@ -1234,7 +1234,9 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		case isTaproot:
 			witnessType = input.TaprootRemoteCommitSpend
 
-		case !isTaproot && breachInfo.LocalOutputSignDesc.SingleTweak == nil:
+		case !isTaproot &&
+			breachInfo.LocalOutputSignDesc.SingleTweak == nil:
+
 			witnessType = input.CommitSpendNoDelayTweakless
 
 		case !isTaproot:
@@ -1296,7 +1298,6 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		// to sweep the HTLC output.
 		var htlcWitnessType input.StandardWitnessType
 		switch {
-
 		case isTaproot && breachedHtlc.IsIncoming:
 			htlcWitnessType = input.TaprootHtlcAcceptedRevoke
 
@@ -1652,7 +1653,9 @@ func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
 
 // applyTaprootRetInfo attaches the taproot specific inforamtion in the tapCase
 // to the passed retInfo struct.
-func applyTaprootRetInfo(tapCase *taprootBriefcase, retInfo *retributionInfo) error {
+func applyTaprootRetInfo(tapCase *taprootBriefcase,
+	retInfo *retributionInfo) error {
+
 	for i := range retInfo.breachedOutputs {
 		bo := retInfo.breachedOutputs[i]
 
@@ -1725,7 +1728,8 @@ func (rs *RetributionStore) Add(ret *retributionInfo) error {
 			return err
 		}
 
-		if retBucket.Put(outBuf.Bytes(), retBuf.Bytes()); err != nil {
+		err = retBucket.Put(outBuf.Bytes(), retBuf.Bytes())
+		if err != nil {
 			return err
 		}
 

@@ -8,8 +8,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 )
 
-// UnknownScriptTypeErr is returned when an unknown script type is encountered.
-var UnknownScriptTypeErr = errors.New("unknown script type")
+// ErrUnknownScriptType is returned when an unknown script type is encountered.
+var ErrUnknownScriptType = errors.New("unknown script type")
 
 // ScriptPath is used to indicate the spending path of a given script. Possible
 // paths include: timeout, success, revocation, and others.
@@ -28,8 +28,8 @@ const (
 	// breached.
 	ScriptPathRevocation
 
-	// ScriptPathDelay is a script path used when a contract has has
-	// relative delay that must elapse before it can be swept.
+	// ScriptPathDelay is a script path used when a contract has relative
+	// delay that must elapse before it can be swept.
 	ScriptPathDelay
 )
 
@@ -53,7 +53,7 @@ type ScriptDescriptor interface {
 
 	// WitnessScriptForPath returns the witness script for the given
 	// spending path. An error is returned if the path is unknown. This is
-	// useful as when constructing a contrl block for a given path, one
+	// useful as when constructing a control block for a given path, one
 	// also needs witness script being signed.
 	WitnessScriptForPath(path ScriptPath) ([]byte, error)
 }

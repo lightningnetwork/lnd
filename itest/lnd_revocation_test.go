@@ -37,7 +37,8 @@ func breachRetributionTestCase(ht *lntest.HarnessTest,
 		"Carol",
 		append(
 			nodeArgs,
-			[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"}...,
+			[]string{"--hodl.exit-settle", "--nolisten",
+				"--minbackoff=1h"}...,
 		),
 	)
 

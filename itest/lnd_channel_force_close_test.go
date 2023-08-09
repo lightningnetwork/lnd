@@ -719,7 +719,6 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// In case of anchors, the timeout txs will be aggregated into one.
 	if lntest.CommitTypeHasAnchors(channelType) {
-
 		expectedTxes = 1
 	}
 
@@ -733,7 +732,6 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// into one.
 	numInputs := 1
 	if lntest.CommitTypeHasAnchors(channelType) {
-
 		numInputs = numInvoices + 1
 	}
 
@@ -845,7 +843,6 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// For anchor channels thhis is one block earlier.
 	numBlocks := uint32(defaultCSV - 1)
 	if lntest.CommitTypeHasAnchors(channelType) {
-
 		numBlocks = defaultCSV - 2
 	}
 	ht.MineBlocks(numBlocks)
@@ -992,7 +989,6 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	// In addition, if this is an anchor-enabled channel, further add the
 	// anchor size.
 	if lntest.CommitTypeHasAnchors(channelType) {
-
 		carolExpectedBalance += btcutil.Amount(anchorSize)
 	}
 

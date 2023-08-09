@@ -2515,8 +2515,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 	// If our balance exceeds the remote party's dust limit, instantiate
 	// the sign descriptor for our output.
 	if ourAmt >= int64(chanState.RemoteChanCfg.DustLimit) {
-		// As we're about to sweep our own output w/o a delay, we'll obtain
-		// the witness script for the success/delay path.
+		// As we're about to sweep our own output w/o a delay, we'll
+		// obtain the witness script for the success/delay path.
 		witnessScript, err := ourScript.WitnessScriptForPath(
 			input.ScriptPathDelay,
 		)
@@ -2539,6 +2539,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// spend (as our output on their revoked tx still needs the
 		// delay), and set the control block.
 		if scriptTree, ok := ourScript.(input.TapscriptDescriptor); ok {
+			//nolint:lll
 			br.LocalOutputSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 
 			ctrlBlock, err := scriptTree.CtrlBlockForPath(
@@ -2548,6 +2549,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				return nil, err
 			}
 
+			//nolint:lll
 			br.LocalOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -2583,7 +2585,8 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		// For taproot channels, the remote output (the revoked output)
 		// is spent with a script path to ensure all information 3rd
 		// parties need to sweep anchors is revealed on chain.
-		if scriptTree, ok := theirScript.(input.TapscriptDescriptor); ok {
+		scriptTree, ok := theirScript.(input.TapscriptDescriptor)
+		if ok {
 			//nolint:lll
 			br.RemoteOutputSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 
@@ -2593,6 +2596,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 			if err != nil {
 				return nil, err
 			}
+			//nolint:lll
 			br.RemoteOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -6482,6 +6486,8 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 
 		// For taproot channels, we'll need to set some additional
 		// fields to ensure the output can be swept.
+		//
+		//nolint:lll
 		if scriptTree, ok := selfScript.(input.TapscriptDescriptor); ok {
 			commitResolution.SelfOutputSignDesc.SignMethod =
 				input.TaprootScriptSpendSignMethod
@@ -6492,6 +6498,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 			if err != nil {
 				return nil, err
 			}
+			//nolint:lll
 			commitResolution.SelfOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -6838,6 +6845,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 	} else {
+		//nolint:lll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
 		)
@@ -6954,9 +6962,12 @@ func newIncomingHtlcResolution(signer input.Signer,
 			HashType: txscript.SigHashAll,
 		}
 
+		//nolint:lll
 		if scriptTree, ok := scriptInfo.(input.TapscriptDescriptor); ok {
 			signDesc.SignMethod = input.TaprootScriptSpendSignMethod
-			ctrlBlock, err := scriptTree.CtrlBlockForPath(scriptPath)
+			ctrlBlock, err := scriptTree.CtrlBlockForPath(
+				scriptPath,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -6981,7 +6992,8 @@ func newIncomingHtlcResolution(signer input.Signer,
 	secondLevelOutputAmt := htlc.Amt.ToSatoshis() - htlcFee
 	successTx, err := CreateHtlcSuccessTx(
 		chanType, isCommitFromInitiator, op, secondLevelOutputAmt,
-		csvDelay, leaseExpiry, keyRing.RevocationKey, keyRing.ToLocalKey,
+		csvDelay, leaseExpiry, keyRing.RevocationKey,
+		keyRing.ToLocalKey,
 	)
 	if err != nil {
 		return nil, err
@@ -7070,6 +7082,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 	} else {
+		//nolint:lll
 		secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
 			keyRing.RevocationKey, keyRing.ToLocalKey, csvDelay,
 		)
@@ -7431,6 +7444,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 			if err != nil {
 				return nil, err
 			}
+			//nolint:lll
 			commitResolution.SelfOutputSignDesc.ControlBlock, err = ctrlBlock.ToBytes()
 			if err != nil {
 				return nil, err
@@ -7825,6 +7839,7 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 		return nil, err
 	}
 	if chanState.ChanType.IsTaproot() && !isLocalCommit {
+		//nolint:ineffassign
 		localAnchor, remoteAnchor = remoteAnchor, localAnchor
 	}
 
@@ -7870,6 +7885,7 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 		signDesc.SignMethod = input.TaprootKeySpendSignMethod
 		signDesc.HashType = txscript.SigHashDefault
 
+		//nolint:lll
 		signDesc.PrevOutputFetcher = txscript.NewCannedPrevOutputFetcher(
 			localAnchor.PkScript(), int64(anchorSize),
 		)
@@ -7890,6 +7906,8 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 			// When we're playing the force close of a remote
 			// commitment, as this is a "tweakless" channel type,
 			// we don't need a tweak value at all.
+			//
+			//nolint:lll
 			signDesc.KeyDesc = chanState.LocalChanCfg.PaymentBasePoint
 		}
 

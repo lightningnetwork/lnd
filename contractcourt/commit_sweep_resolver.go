@@ -283,7 +283,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// remote key (us in this case), those that don't, and a third where
 	// there is no tweak and the output is delayed. On the local commitment
 	// our output will always be delayed. We'll rely on the presence of the
-	// commitment tweak to to discern which type of commitment this is.
+	// commitment tweak to discern which type of commitment this is.
 	var witnessType input.WitnessType
 	switch {
 	// The local delayed output for a taproot channel.

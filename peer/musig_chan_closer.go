@@ -44,12 +44,12 @@ func (m *MusigChanCloser) ProposalClosingOpts() (
 
 	localKey, remoteKey := m.channel.MultiSigKeys()
 	m.musigSession = lnwallet.NewPartialMusigSession(
-		*m.localNonce, localKey, remoteKey,
+		*m.remoteNonce, localKey, remoteKey,
 		m.channel.Signer, m.channel.FundingTxOut(),
 		lnwallet.RemoteMusigCommit,
 	)
 
-	err := m.musigSession.FinalizeSession(*m.remoteNonce)
+	err := m.musigSession.FinalizeSession(*m.localNonce)
 	if err != nil {
 		return nil, err
 	}

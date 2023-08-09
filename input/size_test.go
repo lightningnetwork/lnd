@@ -858,10 +858,12 @@ var witnessSizeTests = []witnessSizeTest{
 				KeyDesc: keychain.KeyDescriptor{
 					PubKey: testKey.PubKey(),
 				},
+				//nolint:lll
 				WitnessScript: commitScriptTree.SettleLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod,
+				//nolint:lll
+				SignMethod: input.TaprootScriptSpendSignMethod,
 			}
 
 			witness, err := input.TaprootCommitSpendSuccess(
@@ -869,6 +871,7 @@ var witnessSizeTests = []witnessSizeTest{
 				commitScriptTree.TapscriptTree,
 			)
 			require.NoError(t, err)
+
 			return witness
 		},
 	},
@@ -889,6 +892,7 @@ var witnessSizeTests = []witnessSizeTest{
 				KeyDesc: keychain.KeyDescriptor{
 					PubKey: testKey.PubKey(),
 				},
+				//nolint:lll
 				WitnessScript: commitScriptTree.RevocationLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
@@ -900,6 +904,7 @@ var witnessSizeTests = []witnessSizeTest{
 				commitScriptTree.TapscriptTree,
 			)
 			require.NoError(t, err)
+
 			return witness
 		},
 	},
@@ -920,10 +925,12 @@ var witnessSizeTests = []witnessSizeTest{
 				KeyDesc: keychain.KeyDescriptor{
 					PubKey: testKey.PubKey(),
 				},
+				//nolint:lll
 				WitnessScript: commitScriptTree.SettleLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod,
+				//nolint:lll
+				SignMethod: input.TaprootScriptSpendSignMethod,
 			}
 
 			witness, err := input.TaprootCommitRemoteSpend(
@@ -1062,6 +1069,7 @@ var witnessSizeTests = []witnessSizeTest{
 				senderKey.PubKey(), receiverKey.PubKey(),
 				revokeKey.PubKey(), payHash[:], false,
 			)
+			require.NoError(t, err)
 
 			signDesc := &input.SignDescriptor{
 				KeyDesc: keychain.KeyDescriptor{
@@ -1102,6 +1110,7 @@ var witnessSizeTests = []witnessSizeTest{
 				receiverKey.PubKey(), revokeKey.PubKey(),
 				payHash[:], false,
 			)
+			require.NoError(t, err)
 
 			signDesc := &input.SignDescriptor{
 				KeyDesc: keychain.KeyDescriptor{
@@ -1142,6 +1151,7 @@ var witnessSizeTests = []witnessSizeTest{
 				receiverKey.PubKey(), revokeKey.PubKey(),
 				payHash[:], false,
 			)
+			require.NoError(t, err)
 
 			timeoutLeaf := htlcScriptTree.TimeoutTapLeaf
 
@@ -1211,7 +1221,8 @@ var witnessSizeTests = []witnessSizeTest{
 				WitnessScript: timeoutLeaf.Script,
 				HashType:      txscript.SigHashAll,
 				InputIndex:    0,
-				SignMethod:    input.TaprootScriptSpendSignMethod,
+				//nolint:lll
+				SignMethod: input.TaprootScriptSpendSignMethod,
 			}
 
 			witness, err := input.SenderHTLCScriptTaprootTimeout(
@@ -1290,6 +1301,7 @@ var witnessSizeTests = []witnessSizeTest{
 				receiverKey.PubKey(), revokeKey.PubKey(),
 				payHash[:], false,
 			)
+			require.NoError(t, err)
 
 			successsLeaf := htlcScriptTree.SuccessTapLeaf
 			scriptTree := htlcScriptTree.TapscriptTree

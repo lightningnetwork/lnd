@@ -197,13 +197,14 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// If this is our commitment transaction, then we'll need to
 		// populate the witness for the second-level HTLC transaction.
 		switch {
-		// For taproot channels, the witness for sweeping with sucess
+		// For taproot channels, the witness for sweeping with success
 		// looks like:
 		//   - <sender sig> <receiver sig> <preimage> <success_script>
 		//     <control_block>
 		//
 		// So we'll insert it at the 3rd index of the witness.
 		case isTaproot && h.htlcResolution.SignedSuccessTx != nil:
+			//nolint:lll
 			h.htlcResolution.SignedSuccessTx.TxIn[0].Witness[2] = preimage[:]
 
 		// Within the witness for the success transaction, the

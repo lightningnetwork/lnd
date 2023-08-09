@@ -425,6 +425,9 @@ func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
 		witnessScript, err := input.LeaseSecondLevelHtlcScript(
 			revocationKey, delayKey, csvDelay, leaseExpiry,
 		)
+		if err != nil {
+			return nil, err
+		}
 
 		pkScript, err := input.WitnessScriptHash(witnessScript)
 		if err != nil {
@@ -440,6 +443,9 @@ func SecondLevelHtlcScript(chanType channeldb.ChannelType, initiator bool,
 		witnessScript, err := input.SecondLevelHtlcScript(
 			revocationKey, delayKey, csvDelay,
 		)
+		if err != nil {
+			return nil, err
+		}
 
 		pkScript, err := input.WitnessScriptHash(witnessScript)
 		if err != nil {
@@ -528,6 +534,7 @@ func CommitScriptAnchors(chanType channeldb.ChannelType,
 	case chanType.IsTaproot():
 		anchorScript = func(key *btcec.PublicKey,
 		) (input.ScriptDescriptor, error) {
+
 			return input.NewAnchorScriptTree(
 				key,
 			)
@@ -1096,9 +1103,6 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 			keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
 			keyRing.RevocationKey, rHash[:], ourCommit,
 		)
-		if err != nil {
-			return nil, err
-		}
 
 	// Finally, we're paying the remote party via an HTLC, which is being
 	// added to their commitment transaction. Therefore, we use the
@@ -1108,12 +1112,9 @@ func genTaprootHtlcScript(isIncoming, ourCommit bool, timeout uint32,
 			timeout, keyRing.LocalHtlcKey, keyRing.RemoteHtlcKey,
 			keyRing.RevocationKey, rHash[:], ourCommit,
 		)
-		if err != nil {
-			return nil, err
-		}
 	}
 
-	return htlcScriptTree, nil
+	return htlcScriptTree, err
 }
 
 // genHtlcScript generates the proper P2WSH public key scripts for the HTLC
@@ -1131,11 +1132,11 @@ func genHtlcScript(chanType channeldb.ChannelType, isIncoming, ourCommit bool,
 			chanType, isIncoming, ourCommit, timeout, rHash,
 			keyRing,
 		)
-	} else {
-		return genTaprootHtlcScript(
-			isIncoming, ourCommit, timeout, rHash, keyRing,
-		)
 	}
+
+	return genTaprootHtlcScript(
+		isIncoming, ourCommit, timeout, rHash, keyRing,
+	)
 }
 
 // addHTLC adds a new HTLC to the passed commitment transaction. One of four
@@ -1174,6 +1175,7 @@ func addHTLC(commitTx *wire.MsgTx, ourCommit bool,
 	} else {
 		paymentDesc.theirPkScript = pkScript
 
+		//nolint:lll
 		paymentDesc.theirWitnessScript = scriptInfo.WitnessScriptToSign()
 	}
 

@@ -739,7 +739,6 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 			chanState.ChanType, resolver, contractResolutions,
 		)
 
-
 		unresolvedContracts[i] = resolver
 
 		htlcResolver, ok := resolver.(htlcContractResolver)

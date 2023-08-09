@@ -247,8 +247,8 @@ const (
 	//		....HTLCOutputs...
 	//	- LockTime: 4 bytes
 	BaseTaprootCommitmentTxWeight = (4 + 1 + FundingInputSize + 3 +
-		2*TaprootCommitmentOutput + 2*TaprootCommitmentAnchorOutput + 4) *
-		witnessScaleFactor
+		2*TaprootCommitmentOutput + 2*TaprootCommitmentAnchorOutput +
+		4) * witnessScaleFactor
 
 	// CommitWeight 724 weight.
 	CommitWeight = BaseCommitmentTxWeight + WitnessCommitmentTxWeight
@@ -637,7 +637,8 @@ const (
 	// 	- ctrl block size: 1 byte
 	// 	- base control block: 33 bytes
 	//	- merkle proof: 32
-	TaprootToLocalRevokeWitnessSize = 1 + 1 + 65 + 1 + TaprootToLocalRevokeScriptSize + 1 + 33 + 32
+	TaprootToLocalRevokeWitnessSize = (1 + 1 + 65 + 1 +
+		TaprootToLocalRevokeScriptSize + 1 + 33 + 32)
 
 	// TaprootToRemoteScriptSize
 	// 	- OP_DATA: 1 byte
@@ -656,8 +657,9 @@ const (
 	//      - taproot_to_local_script_size: 36 bytes
 	//      - ctrl_block_len: 1 byte
 	//      - base_control_block_size: 33 bytes
-	TaprootToRemoteWitnessSize = 1 + 1 + 65 + 1 + TaprootToRemoteScriptSize +
-		1 + TaprootBaseControlBlockWitnessSize
+	TaprootToRemoteWitnessSize = (1 + 1 + 65 + 1 +
+		TaprootToRemoteScriptSize + 1 +
+		TaprootBaseControlBlockWitnessSize)
 
 	// TaprootAnchorWitnessSize: 67 bytes
 	//
@@ -691,12 +693,14 @@ const (
 	//      - number_of_witness_elements: 1 byte
 	//      - sig_len: 1 byte
 	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//nolint:lll
 	TaprootSecondLevelRevokeWitnessSize = TaprootKeyPathCustomSighashWitnessSize
 
 	// TaprootAcceptedRevokeWitnessSize:
 	//      - number_of_witness_elements: 1 byte
 	//      - sig_len: 1 byte
 	//      - sweep_sig: 65 bytes (worst case w/o sighash default)
+	//nolint:lll
 	TaprootAcceptedRevokeWitnessSize = TaprootKeyPathCustomSighashWitnessSize
 
 	// TaprootOfferedRevokeWitnessSize:
@@ -716,7 +720,8 @@ const (
 	//      - cltv_expiry: 4 bytes
 	//      - OP_CHECKLOCKTIMEVERIFY: 1 byte
 	//      - OP_DROP: 1 byte
-	TaprootHtlcOfferedRemoteTimeoutScriptSize = 1 + 32 + 1 + 1 + 1 + 1 + 1 + 4 + 1 + 1
+	TaprootHtlcOfferedRemoteTimeoutScriptSize = (1 + 32 + 1 + 1 + 1 + 1 +
+		1 + 4 + 1 + 1)
 
 	// TaprootHtlcOfferedRemoteTimeoutwitSize: 176 bytes
 	//      - number_of_witness_elements: 1 byte

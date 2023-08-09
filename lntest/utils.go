@@ -123,6 +123,16 @@ func channelPointStr(chanPoint *lnrpc.ChannelPoint) string {
 	return cp.String()
 }
 
+// CommitTypeHasTaproot returns whether commitType is a taproot commitment.
+func CommitTypeHasTaproot(commitType lnrpc.CommitmentType) bool {
+	switch commitType {
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+		return true
+	default:
+		return false
+	}
+}
+
 // CommitTypeHasAnchors returns whether commitType uses anchor outputs.
 func CommitTypeHasAnchors(commitType lnrpc.CommitmentType) bool {
 	switch commitType {
@@ -149,6 +159,11 @@ func NodeArgsForCommitType(commitType lnrpc.CommitmentType) []string {
 			"--protocol.anchors",
 			"--protocol.script-enforced-lease",
 		}
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+		return []string{
+			"--protocol.anchors",
+			"--protocol.simple-taproot-chans",
+		}
 	}
 
 	return nil
@@ -172,11 +187,23 @@ func CalcStaticFee(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
 		feePerKw     = chainfee.SatPerKWeight(DefaultFeeRateSatPerKw)
 	)
 
+	switch {
+	// The taproot commitment type has the extra anchor outputs, but also a
+	// smaller witness field (will just be a normal key spend), so we need
+	// to account for that here as well.
+	case CommitTypeHasTaproot(c):
+		feePerKw = chainfee.SatPerKVByte(
+			defaultSatPerVByte * scale,
+		).FeePerKWeight()
+
+		commitWeight = input.TaprootCommitWeight
+		anchors = anchorSize
+
 	// The anchor commitment type is slightly heavier, and we must also add
 	// the value of the two anchors to the resulting fee the initiator
 	// pays. In addition the fee rate is capped at 10 sat/vbyte for anchor
 	// channels.
-	if CommitTypeHasAnchors(c) {
+	case CommitTypeHasAnchors(c):
 		feePerKw = chainfee.SatPerKVByte(
 			defaultSatPerVByte * scale,
 		).FeePerKWeight()

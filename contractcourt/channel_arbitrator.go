@@ -1103,15 +1103,15 @@ func (c *ChannelArbitrator) stateStep(
 			return StateError, closeTx, err
 		}
 
-		log.Debugf("ChannelArbitrator(%v): sending resolution message=%v",
-			c.cfg.ChanPoint,
-			newLogClosure(func() string {
-				return spew.Sdump(pktsToSend)
-			}))
-
 		// With the commitment broadcast, we'll then send over all
 		// messages we can send immediately.
 		if len(pktsToSend) != 0 {
+			log.Debugf("ChannelArbitrator(%v): sending "+
+				"resolution message=%v", c.cfg.ChanPoint,
+				newLogClosure(func() string {
+					return spew.Sdump(pktsToSend)
+				}))
+
 			err := c.cfg.DeliverResolutionMsg(pktsToSend...)
 			if err != nil {
 				log.Errorf("unable to send pkts: %v", err)

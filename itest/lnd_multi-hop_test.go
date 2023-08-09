@@ -1581,7 +1581,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 			),
 			CltvExpiryDelta: chainreg.DefaultBitcoinTimeLockDelta,
 		}
-		aliceRouteHints = append(carolRouteHints, &lnrpc.RouteHint{
+		aliceRouteHints = append(aliceRouteHints, &lnrpc.RouteHint{
 			HopHints: []*lnrpc.HopHint{hopHint},
 		})
 	}

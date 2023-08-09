@@ -105,7 +105,7 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 				expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
 			}
 
-		// Dave only supoprts legacy type, channel will be downgraded
+		// Dave only supports legacy type, channel will be downgraded
 		// to this type.
 		case lnrpc.CommitmentType_LEGACY:
 			expType = lnrpc.CommitmentType_LEGACY

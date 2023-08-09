@@ -542,10 +542,12 @@ func (u *UtxoNursery) NurseryReport(
 				// confirmation of the commitment transaction.
 				switch kid.WitnessType() {
 
-				case input.HtlcAcceptedSuccessSecondLevel,
-					input.TaprootHtlcAcceptedSuccessSecondLevel:
-					// An HTLC output on our commitment transaction
-					// where the second-layer transaction hasn't
+				case input.TaprootHtlcAcceptedSuccessSecondLevel:
+					fallthrough
+				case input.HtlcAcceptedSuccessSecondLevel:
+					// An HTLC output on our commitment
+					// transaction where the second-layer
+					// transaction hasn't
 					// yet confirmed.
 					report.AddLimboStage1SuccessHtlc(&kid)
 

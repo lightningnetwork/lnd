@@ -19,48 +19,6 @@ const (
 	anchorTapTweakType tlv.Type = 0
 )
 
-// tlvDecoder is an interface to support more generic decoding of TLV records.
-type tlvDecoder interface {
-	// DecodeRecords returns a slice of TLV records that should be decoded.
-	DecodeRecords() []tlv.Record
-
-	// Decode decodes the given reader into the target struct.
-	Decode(r io.Reader) error
-}
-
-// makeAndDecodeStream takes a tlvDecoder and decodes the records encoded in
-// the stream into it.
-//
-// TODO(roasbeef): use elsewhere
-func makeAndDecodeStream(r io.Reader, d tlvDecoder) error {
-	stream, err := tlv.NewStream(d.DecodeRecords()...)
-	if err != nil {
-		return err
-	}
-
-	return stream.Decode(r)
-}
-
-// tlvEncoder is an interface to support more generic encoding of TLV records.
-type tlvEncoder interface {
-	// EncodeRecords returns a slice of TLV records that should be encoded.
-	EncodeRecords() []tlv.Record
-
-	// Encode encodes the target struct into the given writer.
-	Encode(w io.Writer) error
-}
-
-// makeAnEncodeStream takes a tlvEncoder and encodes the records into the
-// target writer as a TLV stream.
-func makeAndEncodeStream[E tlvEncoder](w io.Writer, e E) error {
-	stream, err := tlv.NewStream(e.EncodeRecords()...)
-	if err != nil {
-		return err
-	}
-
-	return stream.Encode(w)
-}
-
 // taprootBriefcase is a supplemental storage struct that contains all the
 // information we need to sweep taproot outputs.
 type taprootBriefcase struct {
@@ -104,6 +62,7 @@ func (t *taprootBriefcase) Encode(w io.Writer) error {
 	if err != nil {
 		return err
 	}
+
 	return stream.Encode(w)
 }
 
@@ -113,13 +72,15 @@ func (t *taprootBriefcase) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
+
 	return stream.Decode(r)
 }
 
-// resolverCtrlBlocks is a map of resolver IDs to their corresponding control block.
+// resolverCtrlBlocks is a map of resolver IDs to their corresponding control
+// block.
 type resolverCtrlBlocks map[resolverID][]byte
 
-// newResolverCtrlBlockss returns a new instance of the resolverCtrlBlocks
+// newResolverCtrlBlockss returns a new instance of the resolverCtrlBlocks.
 func newResolverCtrlBlocks() resolverCtrlBlocks {
 	return make(resolverCtrlBlocks)
 }
@@ -167,32 +128,34 @@ func (r *resolverCtrlBlocks) Encode(w io.Writer) error {
 }
 
 // Decode decodes the given reader into the target struct.
-func (t *resolverCtrlBlocks) Decode(r io.Reader) error {
+func (r *resolverCtrlBlocks) Decode(reader io.Reader) error {
 	var buf [8]byte
 
-	numBlocks, err := tlv.ReadVarInt(r, &buf)
+	numBlocks, err := tlv.ReadVarInt(reader, &buf)
 	if err != nil {
 		return err
 	}
 
 	for i := uint64(0); i < numBlocks; i++ {
 		var id resolverID
-		if _, err := io.ReadFull(r, id[:]); err != nil {
+		if _, err := io.ReadFull(reader, id[:]); err != nil {
 			return err
 		}
 
 		var ctrlBlock []byte
-		if err := varBytesDecoder(r, &ctrlBlock, &buf, 0); err != nil {
+		err := varBytesDecoder(reader, &ctrlBlock, &buf, 0)
+		if err != nil {
 			return err
 		}
 
-		(*t)[id] = ctrlBlock
+		(*r)[id] = ctrlBlock
 	}
 
 	return nil
 }
 
-// resolverCtrlBlocksEncoder is a custom TLV encoder for the resolverCtrlBlocks
+// resolverCtrlBlocksEncoder is a custom TLV encoder for the
+// resolverCtrlBlocks.
 func resolverCtrlBlocksEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if typ, ok := val.(*resolverCtrlBlocks); ok {
 		return (*typ).Encode(w)
@@ -201,7 +164,7 @@ func resolverCtrlBlocksEncoder(w io.Writer, val any, buf *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "resolverCtrlBlocks")
 }
 
-// rsolverCtrlBlocksDecoder is a custom TLV decoder for the resolverCtrlBlocks
+// rsolverCtrlBlocksDecoder is a custom TLV decoder for the resolverCtrlBlocks.
 func resolverCtrlBlocksDecoder(r io.Reader, val any, buf *[8]byte,
 	l uint64) error {
 
@@ -215,6 +178,7 @@ func resolverCtrlBlocksDecoder(r io.Reader, val any, buf *[8]byte,
 		}
 
 		*typ = resolverBlocks
+
 		return nil
 	}
 
@@ -308,6 +272,7 @@ func ctrlBlockDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		}
 
 		*typ = &ctrlBlocks
+
 		return nil
 	}
 
@@ -326,8 +291,10 @@ func newCtrlBlocksRecord(blks **ctrlBlocks) tlv.Record {
 		if err := ctrlBlockEncoder(&b, blks, &buf); err != nil {
 			panic(err)
 		}
+
 		return uint64(len(b.Bytes()))
 	}
+
 	return tlv.MakeDynamicRecord(
 		taprootCtrlBlockType, blks, recordSize, ctrlBlockEncoder,
 		ctrlBlockDecoder,
@@ -427,7 +394,8 @@ func (c *ctrlBlocks) Decode(r io.Reader) error {
 //
 // TODO(roasbeef): instead use a map based on resolvers?
 type tapTweaks struct {
-	// AnchorTweak is the tweak used to derive the key used to spend the anchor output.
+	// AnchorTweak is the tweak used to derive the key used to spend the
+	// anchor output.
 	AnchorTweak []byte
 
 	// TODO(roasbeef): breach tweeks
@@ -459,6 +427,7 @@ func tapTweaksDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		}
 
 		*typ = &tapTweaks
+
 		return nil
 	}
 
@@ -476,8 +445,10 @@ func newTapTweaksRecord(tweaks **tapTweaks) tlv.Record {
 		if err := tapTweaksEncoder(&b, tweaks, &buf); err != nil {
 			panic(err)
 		}
+
 		return uint64(len(b.Bytes()))
 	}
+
 	return tlv.MakeDynamicRecord(
 		taprootTapTweakType, tweaks, recordSize, tapTweaksEncoder,
 		tapTweaksDecoder,

@@ -302,6 +302,16 @@ func implicitNegotiateCommitmentType(local,
 	remote *lnwire.FeatureVector) (*lnwire.ChannelType,
 	lnwallet.CommitmentType) {
 
+	// If both peers are signalling support for taproot chanenls, then
+	// we'll use that type.
+	if hasFeatures(local, remote, lnwire.SimpleTaprootChannelsOptional) {
+		chanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+			lnwire.SimpleTaprootChannelsRequired,
+		))
+
+		return &chanType, lnwallet.CommitmentTypeSimpleTaproot
+	}
+
 	// If both peers are signalling support for anchor commitments with
 	// zero-fee HTLC transactions, we'll use this type.
 	if hasFeatures(local, remote, lnwire.AnchorsZeroFeeHtlcTxOptional) {

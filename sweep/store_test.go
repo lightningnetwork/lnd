@@ -42,15 +42,6 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 		t.Fatal(err)
 	}
 
-	// Initially we expect the store not to have a last published tx.
-	retrievedTx, err := store.GetLastPublishedTx()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if retrievedTx != nil {
-		t.Fatal("expected no last published tx")
-	}
-
 	// Notify publication of tx1
 	tx1 := wire.MsgTx{}
 	tx1.AddTxIn(&wire.TxIn{
@@ -81,16 +72,6 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 	store, err = createStore()
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	// Assert that last published tx2 is present.
-	retrievedTx, err = store.GetLastPublishedTx()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if tx2.TxHash() != retrievedTx.TxHash() {
-		t.Fatal("txes do not match")
 	}
 
 	// Assert that both txes are recognized as our own.

@@ -8,7 +8,6 @@ import (
 // MockSweeperStore is a mock implementation of sweeper store. This type is
 // exported, because it is currently used in nursery tests too.
 type MockSweeperStore struct {
-	lastTx  *wire.MsgTx
 	ourTxes map[chainhash.Hash]struct{}
 }
 
@@ -30,15 +29,8 @@ func (s *MockSweeperStore) IsOurTx(hash chainhash.Hash) (bool, error) {
 func (s *MockSweeperStore) NotifyPublishTx(tx *wire.MsgTx) error {
 	txHash := tx.TxHash()
 	s.ourTxes[txHash] = struct{}{}
-	s.lastTx = tx
 
 	return nil
-}
-
-// GetLastPublishedTx returns the last tx that we called NotifyPublishTx
-// for.
-func (s *MockSweeperStore) GetLastPublishedTx() (*wire.MsgTx, error) {
-	return s.lastTx, nil
 }
 
 // ListSweeps lists all the sweeps we have successfully published.

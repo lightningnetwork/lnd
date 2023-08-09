@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
@@ -486,6 +487,194 @@ func runBasicChannelCreationAndUpdates(ht *lntest.HarnessTest,
 			lnrpc.Initiator_INITIATOR_LOCAL,
 		), "verifying alice close updates",
 	)
+}
+
+// testUpdateOnPendingOpenChannels checks that `update_add_htlc` followed by
+// `channel_ready` is properly handled. In specific, when a node is in a state
+// that it's still processing a remote `channel_ready` message, meanwhile an
+// `update_add_htlc` is received, this HTLC message is cached and settled once
+// processing `channel_ready` is complete.
+func testUpdateOnPendingOpenChannels(ht *lntest.HarnessTest) {
+	// Test funder's behavior. Funder sees the channel pending, but fundee
+	// sees it active and sends an HTLC.
+	ht.Run("pending on funder side", func(t *testing.T) {
+		st := ht.Subtest(t)
+		testUpdateOnFunderPendingOpenChannels(st)
+	})
+
+	// Test fundee's behavior. Fundee sees the channel pending, but funder
+	// sees it active and sends an HTLC.
+	ht.Run("pending on fundee side", func(t *testing.T) {
+		st := ht.Subtest(t)
+		testUpdateOnFundeePendingOpenChannels(st)
+	})
+}
+
+// testUpdateOnFunderPendingOpenChannels checks that when the fundee sends an
+// `update_add_htlc` followed by `channel_ready` while the funder is still
+// processing the fundee's `channel_ready`, the HTLC will be cached and
+// eventually settled.
+func testUpdateOnFunderPendingOpenChannels(ht *lntest.HarnessTest) {
+	// Grab the channel participants.
+	alice, bob := ht.Alice, ht.Bob
+
+	// Restart Alice with the config so she won't process Bob's
+	// channel_ready msg immediately.
+	ht.RestartNodeWithExtraArgs(alice, []string{
+		"--dev.processchannelreadywait=10s",
+	})
+
+	// Make sure Alice and Bob are connected.
+	ht.EnsureConnected(alice, bob)
+
+	// Create a new channel that requires 1 confs before it's considered
+	// open.
+	params := lntest.OpenChannelParams{
+		Amt:     funding.MaxBtcFundingAmount,
+		PushAmt: funding.MaxBtcFundingAmount / 2,
+	}
+	pendingChan := ht.OpenChannelAssertPending(alice, bob, params)
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pendingChan.Txid,
+		},
+		OutputIndex: pendingChan.OutputIndex,
+	}
+
+	// Alice and Bob should both consider the channel pending open.
+	ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
+
+	// Mine one block to confirm the funding transaction.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// TODO(yy): we've prematurely marked the channel as open before
+	// processing channel ready messages. We need to mark it as open after
+	// we've processed channel ready messages and change the check to,
+	// ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(alice, 0)
+
+	// Bob will consider the channel open as there's no wait time to send
+	// and receive Alice's channel_ready message.
+	ht.AssertNumPendingOpenChannels(bob, 0)
+
+	// Alice and Bob now have different view of the channel. For Bob,
+	// since the channel_ready messages are processed, he will have a
+	// working link to route HTLCs. For Alice, because she hasn't handled
+	// Bob's channel_ready, there's no active link yet.
+	//
+	// Alice now adds an invoice.
+	req := &lnrpc.Invoice{
+		RPreimage: ht.Random32Bytes(),
+		Value:     10_000,
+	}
+	invoice := alice.RPC.AddInvoice(req)
+
+	// Bob sends an `update_add_htlc`, which would result in this message
+	// being cached in Alice's `peer.Brontide` and the payment will stay
+	// in-flight instead of being failed by Alice.
+	bobReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: invoice.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	bobStream := bob.RPC.SendPayment(bobReq)
+	ht.AssertPaymentStatusFromStream(bobStream, lnrpc.Payment_IN_FLIGHT)
+
+	// Wait until Alice finishes processing Bob's channel_ready.
+	//
+	// NOTE: no effect before fixing the above TODO.
+	ht.AssertNumPendingOpenChannels(alice, 0)
+
+	// Once Alice sees the channel as active, she will process the cached
+	// premature `update_add_htlc` and settles the payment.
+	ht.AssertPaymentStatusFromStream(bobStream, lnrpc.Payment_SUCCEEDED)
+
+	// Close the channel.
+	ht.CloseChannel(alice, chanPoint)
+}
+
+// testUpdateOnFundeePendingOpenChannels checks that when the funder sends an
+// `update_add_htlc` followed by `channel_ready` while the fundee is still
+// processing the funder's `channel_ready`, the HTLC will be cached and
+// eventually settled.
+func testUpdateOnFundeePendingOpenChannels(ht *lntest.HarnessTest) {
+	// Grab the channel participants.
+	alice, bob := ht.Alice, ht.Bob
+
+	// Restart Bob with the config so he won't process Alice's
+	// channel_ready msg immediately.
+	ht.RestartNodeWithExtraArgs(bob, []string{
+		"--dev.processchannelreadywait=10s",
+	})
+
+	// Make sure Alice and Bob are connected.
+	ht.EnsureConnected(alice, bob)
+
+	// Create a new channel that requires 1 confs before it's considered
+	// open.
+	params := lntest.OpenChannelParams{
+		Amt: funding.MaxBtcFundingAmount,
+	}
+	pendingChan := ht.OpenChannelAssertPending(alice, bob, params)
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pendingChan.Txid,
+		},
+		OutputIndex: pendingChan.OutputIndex,
+	}
+
+	// Alice and Bob should both consider the channel pending open.
+	ht.AssertNumPendingOpenChannels(alice, 1)
+	ht.AssertNumPendingOpenChannels(bob, 1)
+
+	// Mine one block to confirm the funding transaction.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Alice will consider the channel open as there's no wait time to send
+	// and receive Bob's channel_ready message.
+	ht.AssertNumPendingOpenChannels(alice, 0)
+
+	// TODO(yy): we've prematurely marked the channel as open before
+	// processing channel ready messages. We need to mark it as open after
+	// we've processed channel ready messages and change the check to,
+	// ht.AssertNumPendingOpenChannels(bob, 1)
+	ht.AssertNumPendingOpenChannels(bob, 0)
+
+	// Alice and Bob now have different view of the channel. For Alice,
+	// since the channel_ready messages are processed, she will have a
+	// working link to route HTLCs. For Bob, because he hasn't handled
+	// Alice's channel_ready, there's no active link yet.
+	//
+	// Bob now adds an invoice.
+	req := &lnrpc.Invoice{
+		RPreimage: ht.Random32Bytes(),
+		Value:     10_000,
+	}
+	bobInvoice := bob.RPC.AddInvoice(req)
+
+	// Alice sends an `update_add_htlc`, which would result in this message
+	// being cached in Bob's `peer.Brontide` and the payment will stay
+	// in-flight instead of being failed by Bob.
+	aliceReq := &routerrpc.SendPaymentRequest{
+		PaymentRequest: bobInvoice.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+	}
+	aliceStream := alice.RPC.SendPayment(aliceReq)
+	ht.AssertPaymentStatusFromStream(aliceStream, lnrpc.Payment_IN_FLIGHT)
+
+	// Wait until Bob finishes processing Alice's channel_ready.
+	//
+	// NOTE: no effect before fixing the above TODO.
+	ht.AssertNumPendingOpenChannels(bob, 0)
+
+	// Once Bob sees the channel as active, he will process the cached
+	// premature `update_add_htlc` and settles the payment.
+	ht.AssertPaymentStatusFromStream(aliceStream, lnrpc.Payment_SUCCEEDED)
+
+	// Close the channel.
+	ht.CloseChannel(alice, chanPoint)
 }
 
 // verifyCloseUpdate is used to verify that a closed channel update is of the

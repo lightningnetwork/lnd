@@ -34,7 +34,10 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 		lnrpc.CommitmentType_LEGACY,
 		lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 		lnrpc.CommitmentType_ANCHORS,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	}
+
+	// TODO(roasbeef): only testing implicit negotiation not also explicit?
 
 	// testFunding is a function closure that takes Carol and Dave's
 	// commitment types and test the funding flow.
@@ -58,8 +61,18 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 		// connected to the funding flow can properly be executed.
 		ht.EnsureConnected(carol, dave)
 
+		var privateChan bool
+
+		// If this is to be a taproot channel type, then it needs to be
+		// private, otherwise it'll be rejected by Dave.
+		//
+		// TODO(roasbeef): lift after gossip 1.75
+		if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+			privateChan = true
+		}
+
 		carolChan, daveChan, closeChan := basicChannelFundingTest(
-			ht, carol, dave, nil,
+			ht, carol, dave, nil, privateChan,
 		)
 
 		// Both nodes should report the same commitment
@@ -74,13 +87,24 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 		expType := carolCommitType
 
 		switch daveCommitType {
+		// Dave supports taproot, type will be what Carol supports.
+		case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+
 		// Dave supports anchors, type will be what Carol supports.
 		case lnrpc.CommitmentType_ANCHORS:
+			// However if Alice wants taproot chans, then we
+			// downgrade to anchors as this is still using implicit
+			// negotiation.
+			if expType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+				expType = lnrpc.CommitmentType_ANCHORS
+			}
 
 		// Dave only supports tweakless, channel will be downgraded to
 		// this type if Carol supports anchors.
 		case lnrpc.CommitmentType_STATIC_REMOTE_KEY:
 			if expType == lnrpc.CommitmentType_ANCHORS {
+				expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
+			} else if expType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
 				expType = lnrpc.CommitmentType_STATIC_REMOTE_KEY
 			}
 
@@ -103,6 +127,9 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 
 		case expType == lnrpc.CommitmentType_LEGACY &&
 			chansCommitType == lnrpc.CommitmentType_LEGACY:
+
+		case expType == lnrpc.CommitmentType_SIMPLE_TAPROOT &&
+			chansCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT:
 
 		default:
 			ht.Fatalf("expected nodes to signal "+
@@ -145,7 +172,7 @@ test:
 // channel closure.
 func basicChannelFundingTest(ht *lntest.HarnessTest,
 	alice, bob *node.HarnessNode,
-	fundingShim *lnrpc.FundingShim) (*lnrpc.Channel,
+	fundingShim *lnrpc.FundingShim, privateChan bool) (*lnrpc.Channel,
 	*lnrpc.Channel, func()) {
 
 	chanAmt := funding.MaxBtcFundingAmount
@@ -172,6 +199,7 @@ func basicChannelFundingTest(ht *lntest.HarnessTest,
 		newResp.RemoteBalance.Msat += uint64(
 			lnwire.NewMSatFromSatoshis(remote),
 		)
+
 		// Deprecated fields.
 		newResp.Balance += int64(local) // nolint:staticcheck
 		ht.AssertChannelBalanceResp(node, newResp)
@@ -185,6 +213,7 @@ func basicChannelFundingTest(ht *lntest.HarnessTest,
 	// successfully.
 	chanPoint := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{
+			Private:     privateChan,
 			Amt:         chanAmt,
 			PushAmt:     pushAmt,
 			FundingShim: fundingShim,
@@ -528,7 +557,7 @@ func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
 	// test as everything should now proceed as normal (a regular channel
 	// funding flow).
 	carolChan, daveChan, _ := basicChannelFundingTest(
-		ht, carol, dave, fundingShim2,
+		ht, carol, dave, fundingShim2, false,
 	)
 
 	// Both channels should be marked as frozen with the proper thaw

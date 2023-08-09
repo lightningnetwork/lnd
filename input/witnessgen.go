@@ -520,8 +520,8 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 
 			// The control block bytes must be set at this point.
 			if desc.ControlBlock == nil {
-				return nil, fmt.Errorf("control block must be " +
-					"set for taproot spend")
+				return nil, fmt.Errorf("control block must " +
+					"be set for taproot spend")
 			}
 
 			witness, err := TaprootCommitSpendSuccess(
@@ -542,8 +542,8 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 
 			// The control block bytes must be set at this point.
 			if desc.ControlBlock == nil {
-				return nil, fmt.Errorf("control block must be " +
-					"set for taproot spend")
+				return nil, fmt.Errorf("control block must " +
+					"be set for taproot spend")
 			}
 
 			witness, err := TaprootCommitRemoteSpend(
@@ -587,8 +587,8 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 
 			// The control block bytes must be set at this point.
 			if desc.ControlBlock == nil {
-				return nil, fmt.Errorf("control block must be " +
-					"set for taproot spend")
+				return nil, fmt.Errorf("control block must " +
+					"be set for taproot spend")
 			}
 
 			witness, err := TaprootHtlcSpendSuccess(
@@ -675,8 +675,8 @@ func (wt StandardWitnessType) WitnessGenerator(signer Signer,
 
 			// The control block bytes must be set at this point.
 			if desc.ControlBlock == nil {
-				return nil, fmt.Errorf("control block must be " +
-					"set for taproot spend")
+				return nil, fmt.Errorf("control block " +
+					"must be set for taproot spend")
 			}
 
 			witness, err := ReceiverHTLCScriptTaprootTimeout(

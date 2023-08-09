@@ -24,7 +24,7 @@ type ProtocolOptions struct {
 
 	// TaprootChans should be set if we want to enable support for the
 	// experimental simple taproot chans commitment type.
-	TaprootChans bool `long:"taproot-chans" description:"if set, then lnd will create and accept requests for channels using the simple taproot commitment type"`
+	TaprootChans bool `long:"simple-taproot-chans" description:"if set, then lnd will create and accept requests for channels using the simple taproot commitment type"`
 
 	// NoAnchors should be set if we don't want to support opening or accepting
 	// channels having the anchor commitment type.

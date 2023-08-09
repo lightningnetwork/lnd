@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
@@ -3074,6 +3075,9 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	return c, nil
 }
 
+// fundingTxIn returns the funding output as a transaction input. The input
+// returned by this function uses a max sequence number, so it isn't able to be
+// used with RBF by default.
 func fundingTxIn(chanState *channeldb.OpenChannel) wire.TxIn {
 	return *wire.NewTxIn(&chanState.FundingOutpoint, nil, nil)
 }
@@ -7530,10 +7534,17 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 		return nil, nil, 0, err
 	}
 
+	var closeTxOpts []CloseTxOpt
+
+	// If this is a taproot channel, then we use an RBF'able funding input.
+	if lc.channelState.ChanType.IsTaproot() {
+		closeTxOpts = append(closeTxOpts, WithRBFCloseTx())
+	}
+
 	closeTx := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
 		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
-		localDeliveryScript, remoteDeliveryScript,
+		localDeliveryScript, remoteDeliveryScript, closeTxOpts...,
 	)
 
 	// Ensure that the transaction doesn't explicitly violate any
@@ -7609,13 +7620,20 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 		return nil, 0, err
 	}
 
+	var closeTxOpts []CloseTxOpt
+
+	// If this is a taproot channel, then we use an RBF'able funding input.
+	if lc.channelState.ChanType.IsTaproot() {
+		closeTxOpts = append(closeTxOpts, WithRBFCloseTx())
+	}
+
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
 	// the initiator pays full fees for the cooperative close transaction.
 	closeTx := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
 		lc.channelState.RemoteChanCfg.DustLimit, ourBalance, theirBalance,
-		localDeliveryScript, remoteDeliveryScript,
+		localDeliveryScript, remoteDeliveryScript, closeTxOpts...,
 	)
 
 	// Ensure that the transaction doesn't explicitly validate any
@@ -8229,6 +8247,32 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 	return revocationMsg, nil
 }
 
+// closeTxOpts houses the set of options that modify how the cooperative close
+// tx is to be constructed.
+type closeTxOpts struct {
+	// enableRBF indicates whether the cooperative close tx should signal
+	// RBF or not.
+	enableRBF bool
+}
+
+// defaultCloseTxOpts returns a closeTxOpts struct with default values.
+func defaultCloseTxOpts() closeTxOpts {
+	return closeTxOpts{
+		enableRBF: false,
+	}
+}
+
+// CloseTxOpt is a functional option that allows us to modify how the closing
+// transaction is created.
+type CloseTxOpt func(*closeTxOpts)
+
+// WithRBFCloseTx signals that the cooperative close tx should signal RBF.
+func WithRBFCloseTx() CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.enableRBF = true
+	}
+}
+
 // CreateCooperativeCloseTx creates a transaction which if signed by both
 // parties, then broadcast cooperatively closes an active channel. The creation
 // of the closure transaction is modified by a boolean indicating if the party
@@ -8237,7 +8281,19 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 // transaction in full.
 func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 	localDust, remoteDust, ourBalance, theirBalance btcutil.Amount,
-	ourDeliveryScript, theirDeliveryScript []byte) *wire.MsgTx {
+	ourDeliveryScript, theirDeliveryScript []byte,
+	closeOpts ...CloseTxOpt) *wire.MsgTx {
+
+	opts := defaultCloseTxOpts()
+	for _, optFunc := range closeOpts {
+		optFunc(&opts)
+	}
+
+	// If RBF is signalled, then we'll modify the sequence to permit
+	// replacement.
+	if opts.enableRBF {
+		fundingTxIn.Sequence = mempool.MaxRBFSequence
+	}
 
 	// Construct the transaction to perform a cooperative closure of the
 	// channel. In the event that one side doesn't have any settled funds

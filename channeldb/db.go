@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration27"
 	"github.com/lightningnetwork/lnd/channeldb/migration29"
 	"github.com/lightningnetwork/lnd/channeldb/migration30"
+	"github.com/lightningnetwork/lnd/channeldb/migration31"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -275,6 +276,14 @@ var (
 		{
 			number:    29,
 			migration: migration29.MigrateChanID,
+		},
+		{
+			// Removes the "sweeper-last-tx" bucket. Although we
+			// do not have a mandatory version 30 we skip this
+			// version because its naming is already used for the
+			// first optional migration.
+			number:    31,
+			migration: migration31.DeleteLastPublishedTxTLB,
 		},
 	}
 

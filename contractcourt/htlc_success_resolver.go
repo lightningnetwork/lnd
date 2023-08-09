@@ -417,20 +417,8 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 		// with the published one.
 	}
 
-	// Regardless of whether an existing transaction was found or newly
-	// constructed, we'll broadcast the sweep transaction to the network.
-	label := labels.MakeLabel(
-		labels.LabelTypeChannelClose, &h.ShortChanID,
-	)
-	err := h.PublishTx(h.sweepTx, label)
-	if err != nil {
-		log.Infof("%T(%x): unable to publish tx: %v",
-			h, h.htlc.RHash[:], err)
-		return nil, err
-	}
-
-	// With the sweep transaction broadcast, we'll wait for its
-	// confirmation.
+	// Register the confirmation notification before broadcasting the sweep
+	// transaction.
 	sweepTXID := h.sweepTx.TxHash()
 	sweepScript := h.sweepTx.TxOut[0].PkScript
 	confNtfn, err := h.Notifier.RegisterConfirmationsNtfn(
@@ -440,8 +428,22 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 		return nil, err
 	}
 
-	log.Infof("%T(%x): waiting for sweep tx (txid=%v) to be "+
-		"confirmed", h, h.htlc.RHash[:], sweepTXID)
+	// Regardless of whether an existing transaction was found or newly
+	// constructed, we'll broadcast the sweep transaction to the network.
+	label := labels.MakeLabel(
+		labels.LabelTypeChannelClose, &h.ShortChanID,
+	)
+	err = h.PublishTx(h.sweepTx, label)
+	if err != nil {
+		log.Infof("%T(%x): unable to publish tx: %v",
+			h, h.htlc.RHash[:], err)
+		confNtfn.Cancel()
+
+		return nil, err
+	}
+
+	log.Infof("%T(%x): waiting for sweep tx (txid=%v) to be confirmed", h,
+		h.htlc.RHash[:], sweepTXID)
 
 	select {
 	case _, ok := <-confNtfn.Confirmed:

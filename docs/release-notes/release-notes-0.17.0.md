@@ -230,8 +230,18 @@
   creation](https://github.com/lightningnetwork/lnd/pull/7856) that can arise
   under rare scenarios.
 
-- A race condition found between `channel_ready` and link updates is [now
+* A race condition found between `channel_ready` and link updates is [now
   fixed](https://github.com/lightningnetwork/lnd/pull/7518).
+
+* [Remove rebroadcasting of
+  the last sweep-tx](https://github.com/lightningnetwork/lnd/pull/7879). Now at
+  startup of the sweeper we do not rebroadcast the last sweep-tx anymore.
+  The "sweeper-last-tx" top level bucket in the channel.db is removed
+  (new migration version 31 of the db). The main reason is that neutrino
+  backends do not fail broadcasting invalid transactions because BIP157
+  supporting bitcoin core nodes do not reply with the reject msg anymore. So we
+  have to make sure to not broadcast outdated transactions which can lead to
+  locked up wallet funds indefinitely in the worst case.
 
 ### Tooling and documentation
 

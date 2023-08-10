@@ -2315,6 +2315,15 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	return nil
 }
 
+// CancelRebroadcast cancels the rebroadcast of the given transaction.
+func (l *LightningWallet) CancelRebroadcast(txid chainhash.Hash) {
+	// For neutrino, we don't config the rebroadcaster for the wallet as it
+	// manages the rebroadcasting logic in neutrino itself.
+	if l.Cfg.Rebroadcaster != nil {
+		l.Cfg.Rebroadcaster.MarkAsConfirmed(txid)
+	}
+}
+
 // CoinSource is a wrapper around the wallet that implements the
 // chanfunding.CoinSource interface.
 type CoinSource struct {

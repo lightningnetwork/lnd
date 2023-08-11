@@ -282,6 +282,8 @@ type server struct {
 
 	sphinx *hop.OnionProcessor
 
+	towerClientMgr *wtclient.Manager
+
 	towerClient wtclient.Client
 
 	anchorTowerClient wtclient.Client
@@ -1548,7 +1550,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		fetchClosedChannel := s.chanStateDB.FetchClosedChannelForID
 
-		s.towerClient, err = wtclient.New(&wtclient.Config{
+		s.towerClientMgr, err = wtclient.NewManager(&wtclient.Config{
 			FetchClosedChannel:     fetchClosedChannel,
 			BuildBreachRetribution: buildBreachRetribution,
 			SessionCloseRange:      cfg.WtClient.SessionCloseRange,
@@ -1565,12 +1567,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			Dial:               cfg.net.Dial,
 			AuthDial:           authDial,
 			DB:                 dbs.TowerClientDB,
-			Policy:             policy,
 			ChainHash:          *s.cfg.ActiveNetParams.GenesisHash,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
 			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
 		})
+		if err != nil {
+			return nil, err
+		}
+
+		// Register a legacy tower client.
+		s.towerClient, err = s.towerClientMgr.NewClient(policy)
 		if err != nil {
 			return nil, err
 		}
@@ -1581,29 +1588,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		anchorPolicy.TxPolicy.BlobType |=
 			blob.Type(blob.FlagAnchorChannel)
 
-		s.anchorTowerClient, err = wtclient.New(&wtclient.Config{
-			FetchClosedChannel:     fetchClosedChannel,
-			BuildBreachRetribution: buildBreachRetribution,
-			SessionCloseRange:      cfg.WtClient.SessionCloseRange,
-			ChainNotifier:          s.cc.ChainNotifier,
-			SubscribeChannelEvents: func() (subscribe.Subscription,
-				error) {
-
-				return s.channelNotifier.
-					SubscribeChannelEvents()
-			},
-			Signer:             cc.Wallet.Cfg.Signer,
-			NewAddress:         newSweepPkScriptGen(cc.Wallet),
-			SecretKeyRing:      s.cc.KeyRing,
-			Dial:               cfg.net.Dial,
-			AuthDial:           authDial,
-			DB:                 dbs.TowerClientDB,
-			Policy:             anchorPolicy,
-			ChainHash:          *s.cfg.ActiveNetParams.GenesisHash,
-			MinBackoff:         10 * time.Second,
-			MaxBackoff:         5 * time.Minute,
-			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
-		})
+		// Register an anchors tower client.
+		s.anchorTowerClient, err = s.towerClientMgr.NewClient(
+			anchorPolicy,
+		)
 		if err != nil {
 			return nil, err
 		}

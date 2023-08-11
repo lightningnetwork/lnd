@@ -395,15 +395,16 @@ func (c *mockChannel) getState(
 }
 
 type testHarness struct {
-	t         *testing.T
-	cfg       harnessCfg
-	signer    *wtmock.MockSigner
-	capacity  lnwire.MilliSatoshi
-	clientDB  *wtdb.ClientDB
-	clientCfg *wtclient.Config
-	client    wtclient.Client
-	server    *serverHarness
-	net       *mockNet
+	t            *testing.T
+	cfg          harnessCfg
+	signer       *wtmock.MockSigner
+	capacity     lnwire.MilliSatoshi
+	clientDB     *wtdb.ClientDB
+	clientCfg    *wtclient.Config
+	clientPolicy wtpolicy.Policy
+	client       wtclient.Client
+	server       *serverHarness
+	net          *mockNet
 
 	blockEvents *mockBlockSub
 	height      int32
@@ -486,6 +487,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		return &channeldb.ChannelCloseSummary{CloseHeight: height}, nil
 	}
 
+	h.clientPolicy = cfg.policy
 	h.clientCfg = &wtclient.Config{
 		Signer: signer,
 		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
@@ -497,7 +499,6 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		DB:                 clientDB,
 		AuthDial:           mockNet.AuthDial,
 		SecretKeyRing:      wtmock.NewSecretKeyRing(),
-		Policy:             cfg.policy,
 		NewAddress: func() ([]byte, error) {
 			return addrScript, nil
 		},
@@ -559,7 +560,10 @@ func (h *testHarness) startClient() {
 		Address:     towerTCPAddr,
 	}
 
-	h.client, err = wtclient.New(h.clientCfg)
+	m, err := wtclient.NewManager(h.clientCfg)
+	require.NoError(h.t, err)
+
+	h.client, err = m.NewClient(h.clientPolicy)
 	require.NoError(h.t, err)
 	require.NoError(h.t, h.client.Start())
 	require.NoError(h.t, h.client.AddTower(towerAddr))
@@ -1452,9 +1456,7 @@ var clientTests = []clientTest{
 
 			// Assert that the server has updates for the clients
 			// most recent policy.
-			h.server.assertUpdatesForPolicy(
-				hints, h.clientCfg.Policy,
-			)
+			h.server.assertUpdatesForPolicy(hints, h.clientPolicy)
 		},
 	},
 	{
@@ -1496,7 +1498,7 @@ var clientTests = []clientTest{
 			// Restart the client with a new policy, which will
 			// immediately try to overwrite the prior session with
 			// the old policy.
-			h.clientCfg.Policy.SweepFeeRate *= 2
+			h.clientPolicy.SweepFeeRate *= 2
 			h.startClient()
 
 			// Wait for all the updates to be populated in the
@@ -1505,9 +1507,7 @@ var clientTests = []clientTest{
 
 			// Assert that the server has updates for the clients
 			// most recent policy.
-			h.server.assertUpdatesForPolicy(
-				hints, h.clientCfg.Policy,
-			)
+			h.server.assertUpdatesForPolicy(hints, h.clientPolicy)
 		},
 	},
 	{
@@ -1549,10 +1549,10 @@ var clientTests = []clientTest{
 			// adjusting the MaxUpdates. The client should detect
 			// that the two policies have equivalent TxPolicies and
 			// continue using the first.
-			expPolicy := h.clientCfg.Policy
+			expPolicy := h.clientPolicy
 
 			// Restart the client with a new policy.
-			h.clientCfg.Policy.MaxUpdates = 20
+			h.clientPolicy.MaxUpdates = 20
 			h.startClient()
 
 			// Now, queue the second half of the retributions.

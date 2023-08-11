@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
@@ -736,26 +735,6 @@ func (l *channelLink) syncChanStates() error {
 			if err != nil {
 				return fmt.Errorf("unable to re-send "+
 					"ChannelReady: %v", err)
-			}
-		}
-
-		// Before we process the ChanSync message, if this is a taproot
-		// channel, then we'll init our musig2 nonces state.
-		if chanState.ChanType.IsTaproot() {
-			l.log.Infof("initializing musig2 nonces")
-
-			if remoteChanSyncMsg.LocalNonce == nil {
-				return fmt.Errorf("remote nonce is nil")
-			}
-
-			syncMsg := remoteChanSyncMsg
-			remoteNonce := &musig2.Nonces{
-				PubNonce: *syncMsg.LocalNonce,
-			}
-			err := l.channel.InitRemoteMusigNonces(remoteNonce)
-			if err != nil {
-				return fmt.Errorf("unable to init musig2 "+
-					"nonces: %w", err)
 			}
 		}
 

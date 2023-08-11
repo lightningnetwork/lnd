@@ -399,6 +399,7 @@ type testHarness struct {
 	cfg          harnessCfg
 	signer       *wtmock.MockSigner
 	capacity     lnwire.MilliSatoshi
+	clientMgr    *wtclient.Manager
 	clientDB     *wtdb.ClientDB
 	clientCfg    *wtclient.Config
 	clientPolicy wtpolicy.Policy
@@ -526,7 +527,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 
 	h.startClient()
 	t.Cleanup(func() {
-		require.NoError(t, h.client.Stop())
+		require.NoError(h.t, h.clientMgr.Stop())
 		require.NoError(t, h.clientDB.Close())
 	})
 
@@ -560,12 +561,12 @@ func (h *testHarness) startClient() {
 		Address:     towerTCPAddr,
 	}
 
-	m, err := wtclient.NewManager(h.clientCfg)
+	h.clientMgr, err = wtclient.NewManager(h.clientCfg)
 	require.NoError(h.t, err)
 
-	h.client, err = m.NewClient(h.clientPolicy)
+	h.client, err = h.clientMgr.NewClient(h.clientPolicy)
 	require.NoError(h.t, err)
-	require.NoError(h.t, h.client.Start())
+	require.NoError(h.t, h.clientMgr.Start())
 	require.NoError(h.t, h.client.AddTower(towerAddr))
 }
 
@@ -1127,7 +1128,7 @@ var clientTests = []clientTest{
 			)
 
 			// Stop the client, subsequent backups should fail.
-			h.client.Stop()
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Advance the channel and try to back up the states. We
 			// expect ErrClientExiting to be returned from
@@ -1242,7 +1243,7 @@ var clientTests = []clientTest{
 
 			// Stop the client to abort the state updates it has
 			// queued.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Restart the server and allow it to ack the updates
 			// after the client retransmits the unacked update.
@@ -1437,7 +1438,7 @@ var clientTests = []clientTest{
 			h.server.waitForUpdates(nil, waitTime)
 
 			// Stop the client since it has queued backups.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Restart the server and allow it to ack session
 			// creation.
@@ -1487,7 +1488,7 @@ var clientTests = []clientTest{
 			h.server.waitForUpdates(nil, waitTime)
 
 			// Stop the client since it has queued backups.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Restart the server and allow it to ack session
 			// creation.
@@ -1541,7 +1542,7 @@ var clientTests = []clientTest{
 			h.server.waitForUpdates(hints[:numUpdates/2], waitTime)
 
 			// Stop the client, which should have no more backups.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Record the policy that the first half was stored
 			// under. We'll expect the second half to also be
@@ -1602,7 +1603,7 @@ var clientTests = []clientTest{
 
 			// Restart the client, so we can ensure the deduping is
 			// maintained across restarts.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 			h.startClient()
 
 			// Try to back up the full range of retributions. Only
@@ -1882,7 +1883,7 @@ var clientTests = []clientTest{
 			require.False(h.t, h.isSessionClosable(sessionIDs[0]))
 
 			// Restart the client.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 			h.startClient()
 
 			// The session should now have been marked as closable.
@@ -2069,7 +2070,7 @@ var clientTests = []clientTest{
 			h.server.waitForUpdates(hints[:numUpdates/2], waitTime)
 
 			// Now stop the client and reset its database.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			db := newClientDB(h.t)
 			h.clientDB = db
@@ -2122,7 +2123,7 @@ var clientTests = []clientTest{
 			h.backupStates(chanID, 0, numUpdates/2, nil)
 
 			// Restart the Client. And also now start the server.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 			h.server.start()
 			h.startClient()
 
@@ -2395,7 +2396,7 @@ var clientTests = []clientTest{
 
 			// Now restart the client. This ensures that the
 			// updates are no longer in the pending queue.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 			h.startClient()
 
 			// Now remove the tower.

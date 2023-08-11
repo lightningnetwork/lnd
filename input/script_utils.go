@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -62,6 +63,17 @@ type Signature interface {
 	// Verify return true if the ECDSA signature is valid for the passed
 	// message digest under the provided public key.
 	Verify([]byte, *btcec.PublicKey) bool
+}
+
+// ParseSignature parses a raw signature into an input.Signature instance. This
+// routine supports parsing normal ECDSA DER encoded signatures, as well as
+// schnorr signatures.
+func ParseSignature(rawSig []byte) (Signature, error) {
+	if len(rawSig) == schnorr.SignatureSize {
+		return schnorr.ParseSignature(rawSig)
+	}
+
+	return ecdsa.ParseDERSignature(rawSig)
 }
 
 // WitnessScriptHash generates a pay-to-witness-script-hash public key script

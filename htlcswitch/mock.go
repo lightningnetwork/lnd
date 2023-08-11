@@ -672,6 +672,16 @@ func (s *mockServer) AddNewChannel(channel *channeldb.OpenChannel,
 	return nil
 }
 
+func (s *mockServer) AddPendingChannel(_ lnwire.ChannelID,
+	cancel <-chan struct{}) error {
+
+	return nil
+}
+
+func (s *mockServer) RemovePendingChannel(_ lnwire.ChannelID) error {
+	return nil
+}
+
 func (s *mockServer) WipeChannel(*wire.OutPoint) {}
 
 func (s *mockServer) LocalFeatures() *lnwire.FeatureVector {

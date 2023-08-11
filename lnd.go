@@ -901,14 +901,7 @@ func startRestProxy(cfg *Config, rpcServer *rpcServer, restDialOpts []grpc.DialO
 	)
 
 	// Register our services with the REST proxy.
-	err := lnrpc.RegisterStateHandlerFromEndpoint(
-		ctx, mux, restProxyDest, restDialOpts,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	err = rpcServer.RegisterWithRestProxy(
+	err := rpcServer.RegisterWithRestProxy(
 		ctx, mux, restDialOpts, restProxyDest,
 	)
 	if err != nil {

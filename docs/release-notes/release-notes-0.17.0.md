@@ -141,6 +141,9 @@ It is possible to distinguish between defaults and examples now.
 A check script has been developed and integrated into the building process to 
 compare the default values between lnd and sample-lnd.conf.
 
+* [Cancel rebroadcasting of a transaction when abandoning
+a channel](https://github.com/lightningnetwork/lnd/pull/7819)
+
 ## Code Health
 
 * Updated [our fork for serializing protobuf as JSON to be based on the
@@ -215,6 +218,9 @@ compare the default values between lnd and sample-lnd.conf.
 * Fix a [concurrency issue related to rapid peer teardown and
   creation](https://github.com/lightningnetwork/lnd/pull/7856) that can arise
   under rare scenarios.
+
+- A race condition found between `channel_ready` and link updates is [now
+  fixed](https://github.com/lightningnetwork/lnd/pull/7518).
 
 ### Tooling and documentation
 

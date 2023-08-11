@@ -6234,7 +6234,8 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 			lc.taprootNonceProducer,
 		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to re-derive "+
+				"verification nonce: %w", err)
 		}
 
 		// Now that we have the local nonce, we'll re-create the musig
@@ -6268,7 +6269,8 @@ func (lc *LightningChannel) getSignedCommitTx() (*wire.MsgTx, error) {
 		// half of the signature for the state. We don't capture the
 		// sig as it's stored within the session.
 		if _, err := musigSession.SignCommit(commitTx); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to sign musig2 "+
+				"commitment: %w", err)
 		}
 
 		// The final step is now to combine this signature we generated

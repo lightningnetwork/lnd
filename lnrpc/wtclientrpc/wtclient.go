@@ -413,8 +413,8 @@ func constructFunctionalOptions(includeSessions,
 }
 
 // Stats returns the in-memory statistics of the client since startup.
-func (c *WatchtowerClient) Stats(ctx context.Context,
-	req *StatsRequest) (*StatsResponse, error) {
+func (c *WatchtowerClient) Stats(_ context.Context,
+	_ *StatsRequest) (*StatsResponse, error) {
 
 	if err := c.isActive(); err != nil {
 		return nil, err
@@ -426,11 +426,7 @@ func (c *WatchtowerClient) Stats(ctx context.Context,
 	}
 
 	var stats wtclient.ClientStats
-	for i := range clientStats {
-		// Grab a reference to the slice index rather than copying bc
-		// ClientStats contains a lock which cannot be copied by value.
-		stat := &clientStats[i]
-
+	for _, stat := range clientStats {
 		stats.NumTasksAccepted += stat.NumTasksAccepted
 		stats.NumTasksIneligible += stat.NumTasksIneligible
 		stats.NumTasksPending += stat.NumTasksPending

@@ -200,7 +200,7 @@ type TowerClient struct {
 	chanInfos wtdb.ChannelInfos
 
 	statTicker *time.Ticker
-	stats      *ClientStats
+	stats      *clientStats
 
 	newTowers   chan *newTowerMsg
 	staleTowers chan *staleTowerMsg
@@ -245,7 +245,7 @@ func newTowerClient(cfg *towerClientCfg) (*TowerClient, error) {
 		chanInfos:            chanInfos,
 		closableSessionQueue: newSessionCloseMinHeap(),
 		statTicker:           time.NewTicker(DefaultStatInterval),
-		stats:                new(ClientStats),
+		stats:                new(clientStats),
 		newTowers:            make(chan *newTowerMsg),
 		staleTowers:          make(chan *staleTowerMsg),
 		quit:                 make(chan struct{}),
@@ -1637,7 +1637,7 @@ func (c *TowerClient) LookupTower(pubKey *btcec.PublicKey,
 
 // Stats returns the in-memory statistics of the client since startup.
 func (c *TowerClient) Stats() ClientStats {
-	return c.stats.Copy()
+	return c.stats.getStatsCopy()
 }
 
 // Policy returns the active client policy configuration.

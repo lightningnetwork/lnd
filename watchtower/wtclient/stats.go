@@ -8,8 +8,6 @@ import (
 // ClientStats is a collection of in-memory statistics of the actions the client
 // has performed since its creation.
 type ClientStats struct {
-	mu sync.Mutex
-
 	// NumTasksPending is the total number of backups that are pending to
 	// be acknowledged by all active and exhausted watchtower sessions.
 	NumTasksPending int
@@ -31,68 +29,77 @@ type ClientStats struct {
 	NumSessionsExhausted int
 }
 
+// clientStats wraps ClientStats with a mutex so that it's members can be
+// accessed in a thread safe manner.
+type clientStats struct {
+	mu sync.Mutex
+
+	ClientStats
+}
+
 // taskReceived increments the number of backup requests the client has received
 // from active channels.
-func (s *ClientStats) taskReceived() {
+func (s *clientStats) taskReceived() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.NumTasksPending++
 }
 
 // taskAccepted increments the number of tasks that have been assigned to active
 // session queues, and are awaiting upload to a tower.
-func (s *ClientStats) taskAccepted() {
+func (s *clientStats) taskAccepted() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.NumTasksAccepted++
 	s.NumTasksPending--
+}
+
+// getStatsCopy returns a copy of the ClientStats.
+func (s *clientStats) getStatsCopy() ClientStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.ClientStats
 }
 
 // taskIneligible increments the number of tasks that were unable to satisfy the
 // active session queue's policy. These can potentially be retried later, but
 // typically this means that the balance created dust outputs, so it may not be
 // worth backing up at all.
-func (s *ClientStats) taskIneligible() {
+func (s *clientStats) taskIneligible() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.NumTasksIneligible++
 }
 
 // sessionAcquired increments the number of sessions that have been successfully
 // negotiated by the client during this execution.
-func (s *ClientStats) sessionAcquired() {
+func (s *clientStats) sessionAcquired() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.NumSessionsAcquired++
 }
 
 // sessionExhausted increments the number of session that have become full as a
 // result of accepting backup tasks.
-func (s *ClientStats) sessionExhausted() {
+func (s *clientStats) sessionExhausted() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.NumSessionsExhausted++
 }
 
 // String returns a human-readable summary of the client's metrics.
-func (s *ClientStats) String() string {
+func (s *clientStats) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return fmt.Sprintf("tasks(received=%d accepted=%d ineligible=%d) "+
 		"sessions(acquired=%d exhausted=%d)", s.NumTasksPending,
 		s.NumTasksAccepted, s.NumTasksIneligible, s.NumSessionsAcquired,
 		s.NumSessionsExhausted)
-}
-
-// Copy returns a copy of the current stats.
-func (s *ClientStats) Copy() ClientStats {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return ClientStats{
-		NumTasksPending:      s.NumTasksPending,
-		NumTasksAccepted:     s.NumTasksAccepted,
-		NumTasksIneligible:   s.NumTasksIneligible,
-		NumSessionsAcquired:  s.NumSessionsAcquired,
-		NumSessionsExhausted: s.NumSessionsExhausted,
-	}
 }

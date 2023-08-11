@@ -6948,8 +6948,8 @@ func (r *rpcServer) UpdateChannelPolicy(ctx context.Context,
 		MinHTLC:       minHtlc,
 	}
 
-	rpcsLog.Debugf("[updatechanpolicy] updating channel policy base_fee=%v, "+
-		"rate_fixed=%v, time_lock_delta: %v, "+
+	rpcsLog.Debugf("[updatechanpolicy] updating channel policy "+
+		"base_fee=%v, rate_fixed=%v, time_lock_delta: %v, "+
 		"min_htlc=%v, max_htlc=%v, targets=%v",
 		req.BaseFeeMsat, feeRateFixed, req.TimeLockDelta,
 		minHtlc, maxHtlc,

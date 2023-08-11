@@ -2044,32 +2044,35 @@ var updateChannelPolicyCommand = cli.Command{
 	ArgsUsage: "base_fee_msat fee_rate time_lock_delta " +
 		"[--max_htlc_msat=N] [channel_point]",
 	Description: `
-	Updates the channel policy for all channels, or just a particular channel
-	identified by its channel point. The update will be committed, and
-	broadcast to the rest of the network within the next batch.
-	Channel points are encoded as: funding_txid:output_index`,
+	Updates the channel policy for all channels, or just a particular
+        channel identified by its channel point. The update will be committed, 
+	and broadcast to the rest of the network within the next batch. Channel
+        points are encoded as: funding_txid:output_index
+	`,
 	Flags: []cli.Flag{
 		cli.Int64Flag{
 			Name: "base_fee_msat",
-			Usage: "the base fee in milli-satoshis that will " +
-				"be charged for each forwarded HTLC, regardless " +
+			Usage: "the base fee in milli-satoshis that will be " +
+				"charged for each forwarded HTLC, regardless " +
 				"of payment size",
 		},
 		cli.StringFlag{
 			Name: "fee_rate",
 			Usage: "the fee rate that will be charged " +
 				"proportionally based on the value of each " +
-				"forwarded HTLC, the lowest possible rate is 0 " +
-				"with a granularity of 0.000001 (millionths). Can not " +
-				"be set at the same time as fee_rate_ppm.",
+				"forwarded HTLC, the lowest possible rate is " +
+				"0 with a granularity of 0.000001 " +
+				"(millionths). Can not be set at the same " +
+				"time as fee_rate_ppm",
 		},
 		cli.Uint64Flag{
 			Name: "fee_rate_ppm",
 			Usage: "the fee rate ppm (parts per million) that " +
-				"will be charged proportionally based on the value of each " +
-				"forwarded HTLC, the lowest possible rate is 0 " +
-				"with a granularity of 0.000001 (millionths). Can not " +
-				"be set at the same time as fee_rate.",
+				"will be charged proportionally based on the " +
+				"value of each forwarded HTLC, the lowest " +
+				"possible rate is 0 with a granularity of " +
+				"0.000001 (millionths). Can not be set at " +
+				"the same time as fee_rate",
 		},
 		cli.Uint64Flag{
 			Name: "time_lock_delta",
@@ -2078,21 +2081,22 @@ var updateChannelPolicyCommand = cli.Command{
 		},
 		cli.Uint64Flag{
 			Name: "min_htlc_msat",
-			Usage: "if set, the min HTLC size that will be applied " +
-				"to all forwarded HTLCs. If unset, the min HTLC " +
-				"is left unchanged.",
+			Usage: "if set, the min HTLC size that will be " +
+				"applied to all forwarded HTLCs. If unset, " +
+				"the min HTLC is left unchanged",
 		},
 		cli.Uint64Flag{
 			Name: "max_htlc_msat",
-			Usage: "if set, the max HTLC size that will be applied " +
-				"to all forwarded HTLCs. If unset, the max HTLC " +
-				"is left unchanged.",
+			Usage: "if set, the max HTLC size that will be " +
+				"applied to all forwarded HTLCs. If unset, " +
+				"the max HTLC is left unchanged",
 		},
 		cli.StringFlag{
 			Name: "chan_point",
-			Usage: "The channel whose fee policy should be " +
-				"updated, if nil the policies for all channels " +
-				"will be updated. Takes the form of: txid:output_index",
+			Usage: "the channel which this policy update should " +
+				"be applied to. If nil, the policies for all " +
+				"channels will be updated. Takes the form of " +
+				"txid:output_index",
 		},
 	},
 	Action: actionDecorator(updateChannelPolicy),
@@ -2122,12 +2126,10 @@ func parseChanPoint(s string) (*lnrpc.ChannelPoint, error) {
 	}, nil
 }
 
-// parseTimeLockDelta is expected to get a uint16 type of timeLockDelta,
-// which maximum value is MaxTimeLockDelta.
+// parseTimeLockDelta is expected to get a uint16 type of timeLockDelta. Its
+// maximum value is MaxTimeLockDelta.
 func parseTimeLockDelta(timeLockDeltaStr string) (uint16, error) {
-	timeLockDeltaUnCheck, err := strconv.ParseUint(
-		timeLockDeltaStr, 10, 64,
-	)
+	timeLockDeltaUnCheck, err := strconv.ParseUint(timeLockDeltaStr, 10, 64)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse time_lock_delta: %s "+
 			"to uint64, err: %v", timeLockDeltaStr, err)

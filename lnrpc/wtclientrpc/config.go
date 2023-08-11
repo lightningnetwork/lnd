@@ -17,7 +17,7 @@ type Config struct {
 
 	// ClientMgr is a tower client manager that manages a set of tower
 	// clients.
-	ClientMgr wtclient.TowerClientManager
+	ClientMgr wtclient.ClientManager
 
 	// Resolver is a custom resolver that will be used to resolve watchtower
 	// addresses to ensure we don't leak any information when running over

@@ -269,7 +269,7 @@ type Config struct {
 	HtlcNotifier *htlcswitch.HtlcNotifier
 
 	// TowerClient is used to backup revoked states.
-	TowerClient wtclient.TowerClientManager
+	TowerClient wtclient.ClientManager
 
 	// DisconnectPeer is used to disconnect this peer if the cooperative close
 	// process fails.
@@ -1036,7 +1036,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		return p.cfg.ChainArb.NotifyContractUpdate(*chanPoint, update)
 	}
 
-	var towerClient wtclient.TowerClientManager
+	var towerClient wtclient.ClientManager
 	if lnChan.ChanType().IsTaproot() {
 		// Leave the tower client as nil for now until the tower client
 		// has support for taproot channels.

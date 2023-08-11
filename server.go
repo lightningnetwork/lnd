@@ -1546,6 +1546,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		fetchClosedChannel := s.chanStateDB.FetchClosedChannelForID
 
+		// Copy the policy for legacy channels and set the blob flag
+		// signalling support for anchor channels.
+		anchorPolicy := policy
+		anchorPolicy.BlobType |= blob.Type(blob.FlagAnchorChannel)
+
 		s.towerClientMgr, err = wtclient.NewManager(&wtclient.Config{
 			FetchClosedChannel:     fetchClosedChannel,
 			BuildBreachRetribution: buildBreachRetribution,
@@ -1567,25 +1572,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
 			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		// Register a legacy tower client.
-		_, err = s.towerClientMgr.NewClient(policy)
-		if err != nil {
-			return nil, err
-		}
-
-		// Copy the policy for legacy channels and set the blob flag
-		// signalling support for anchor channels.
-		anchorPolicy := policy
-		anchorPolicy.TxPolicy.BlobType |=
-			blob.Type(blob.FlagAnchorChannel)
-
-		// Register an anchors tower client.
-		_, err = s.towerClientMgr.NewClient(anchorPolicy)
+		}, policy, anchorPolicy)
 		if err != nil {
 			return nil, err
 		}
@@ -3782,7 +3769,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	// though the underlying value is nil. To avoid this gotcha which can
 	// cause a panic, we need to explicitly pass nil to the peer.Config's
 	// TowerClient if needed.
-	var towerClient wtclient.TowerClientManager
+	var towerClient wtclient.ClientManager
 	if s.towerClientMgr != nil {
 		towerClient = s.towerClientMgr
 	}

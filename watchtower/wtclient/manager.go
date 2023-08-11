@@ -22,9 +22,9 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 )
 
-// TowerClientManager is the primary interface used by the daemon to control a
+// ClientManager is the primary interface used by the daemon to control a
 // client's lifecycle and backup revoked states.
-type TowerClientManager interface {
+type ClientManager interface {
 	// AddTower adds a new watchtower reachable at the given address and
 	// considers it for new sessions. If the watchtower already exists, then
 	// any new addresses included will be considered when dialing it for
@@ -67,7 +67,7 @@ type TowerClientManager interface {
 	BackupState(chanID *lnwire.ChannelID, stateNum uint64) error
 }
 
-// Config provides the TowerClient with access to the resources it requires to
+// Config provides the client with access to the resources it requires to
 // perform its duty. All nillable fields must be non-nil for the tower to be
 // initialized properly.
 type Config struct {
@@ -156,7 +156,7 @@ type Manager struct {
 
 	cfg *Config
 
-	clients   map[blob.Type]*TowerClient
+	clients   map[blob.Type]*client
 	clientsMu sync.Mutex
 
 	backupMu     sync.Mutex
@@ -169,10 +169,10 @@ type Manager struct {
 	quit chan struct{}
 }
 
-var _ TowerClientManager = (*Manager)(nil)
+var _ ClientManager = (*Manager)(nil)
 
 // NewManager constructs a new Manager.
-func NewManager(config *Config) (*Manager, error) {
+func NewManager(config *Config, policies ...wtpolicy.Policy) (*Manager, error) {
 	// Copy the config to prevent side effects from modifying both the
 	// internal and external version of the Config.
 	cfg := *config
@@ -192,42 +192,54 @@ func NewManager(config *Config) (*Manager, error) {
 		return nil, err
 	}
 
-	return &Manager{
+	m := &Manager{
 		cfg:                  &cfg,
-		clients:              make(map[blob.Type]*TowerClient),
+		clients:              make(map[blob.Type]*client),
 		chanBlobType:         make(map[lnwire.ChannelID]blob.Type),
 		chanInfos:            chanInfos,
 		closableSessionQueue: newSessionCloseMinHeap(),
 		quit:                 make(chan struct{}),
-	}, nil
+	}
+
+	for _, policy := range policies {
+		if err = policy.Validate(); err != nil {
+			return nil, err
+		}
+
+		if err = m.newClient(policy); err != nil {
+			return nil, err
+		}
+	}
+
+	return m, nil
 }
 
-// NewClient constructs a new TowerClient and adds it to the set of clients that
+// newClient constructs a new client and adds it to the set of clients that
 // the Manager is keeping track of.
-func (m *Manager) NewClient(policy wtpolicy.Policy) (*TowerClient, error) {
+func (m *Manager) newClient(policy wtpolicy.Policy) error {
 	m.clientsMu.Lock()
 	defer m.clientsMu.Unlock()
 
 	_, ok := m.clients[policy.BlobType]
 	if ok {
-		return nil, fmt.Errorf("a client with blob type %s has "+
+		return fmt.Errorf("a client with blob type %s has "+
 			"already been registered", policy.BlobType)
 	}
 
-	cfg := &towerClientCfg{
+	cfg := &clientCfg{
 		Config:         m.cfg,
 		Policy:         policy,
 		getSweepScript: m.getSweepScript,
 	}
 
-	client, err := newTowerClient(cfg)
+	client, err := newClient(cfg)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	m.clients[policy.BlobType] = client
 
-	return client, nil
+	return nil
 }
 
 // Start starts all the clients that have been registered with the Manager.

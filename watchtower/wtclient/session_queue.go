@@ -94,7 +94,7 @@ type sessionQueueConfig struct {
 // sessionQueue implements a reliable queue that will encrypt and send accepted
 // backups to the watchtower specified in the config's ClientSession. Calling
 // Stop will attempt to perform a clean shutdown replaying any un-committed
-// pending updates to the TowerClient's main task pipeline.
+// pending updates to the client's main task pipeline.
 type sessionQueue struct {
 	started sync.Once
 	stopped sync.Once

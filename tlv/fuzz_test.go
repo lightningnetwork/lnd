@@ -96,3 +96,42 @@ func FuzzVarBytes(f *testing.F) {
 		harness(t, data, EVarBytes, DVarBytes, &val, uint64(len(data)))
 	})
 }
+
+// bigSizeHarness works the same as harness, except that it compares decoded
+// values instead of encoded values. We do this because DBigSize may leave some
+// bytes unparsed from data, causing the encoded data to be shorter than the
+// original.
+func bigSizeHarness(t *testing.T, data []byte, val1, val2 interface{}) {
+	if len(data) > 9 {
+		return
+	}
+
+	r := bytes.NewReader(data)
+
+	var buf [8]byte
+	if err := DBigSize(r, val1, &buf, 9); err != nil {
+		return
+	}
+
+	var b bytes.Buffer
+	require.NoError(t, EBigSize(&b, val1, &buf))
+
+	r2 := bytes.NewReader(b.Bytes())
+	require.NoError(t, DBigSize(r2, val2, &buf, 9))
+
+	require.Equal(t, val1, val2)
+}
+
+func FuzzBigSize32(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var val1, val2 uint32
+		bigSizeHarness(t, data, &val1, &val2)
+	})
+}
+
+func FuzzBigSize64(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var val1, val2 uint64
+		bigSizeHarness(t, data, &val1, &val2)
+	})
+}

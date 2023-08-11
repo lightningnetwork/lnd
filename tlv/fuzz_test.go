@@ -135,3 +135,36 @@ func FuzzBigSize64(f *testing.F) {
 		bigSizeHarness(t, data, &val1, &val2)
 	})
 }
+
+func FuzzTUint16(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte, decodeLen uint8) {
+		if decodeLen > 2 {
+			return
+		}
+
+		var val uint16
+		harness(t, data, ETUint16, DTUint16, &val, uint64(decodeLen))
+	})
+}
+
+func FuzzTUint32(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte, decodeLen uint8) {
+		if decodeLen > 4 {
+			return
+		}
+
+		var val uint32
+		harness(t, data, ETUint32, DTUint32, &val, uint64(decodeLen))
+	})
+}
+
+func FuzzTUint64(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte, decodeLen uint8) {
+		if decodeLen > 8 {
+			return
+		}
+
+		var val uint64
+		harness(t, data, ETUint64, DTUint64, &val, uint64(decodeLen))
+	})
+}

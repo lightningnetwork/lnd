@@ -31,25 +31,7 @@ package](https://github.com/lightningnetwork/lnd/pull/7343)
  
 * The deprecated "wtclient.private-tower-uris" option has also been 
   [removed](https://github.com/lightningnetwork/lnd/pull/7771). This field was 
-  deprecated in v0.8.0-beta. 
- 
-## Misc
-
-* [Ensure that both the byte and string form of a TXID is populated in the 
-  lnrpc.Outpoint message](https://github.com/lightningnetwork/lnd/pull/7624). 
-  
-* [Fix Benchmark Test (BenchmarkReadMessage/Channel_Ready) in the lnwire 
-package](https://github.com/lightningnetwork/lnd/pull/7356)
-
-* [Fix unit test flake (TestLightningWallet) in the neutrino package via
-  version bump of btcsuite/btcwallet](https://github.com/lightningnetwork/lnd/pull/7049)
-
-* [HTLC serialization updated](https://github.com/lightningnetwork/lnd/pull/7710) 
-  to allow storing extra data transmitted in TLVs.
-
-* [MaxLocalCSVDelay now has a default value of 2016. It is still possible to 
-override this value with the config option --maxlocaldelay for those who rely
-on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
+  deprecated in v0.8.0-beta.
 
 ## RPC
 
@@ -124,6 +106,22 @@ on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
   (lncli walletbalance) now supports showing the balance for a specific account.
 
 ## Misc
+
+* [Ensure that both the byte and string form of a TXID is populated in the
+  lnrpc.Outpoint message](https://github.com/lightningnetwork/lnd/pull/7624).
+
+* [Fix Benchmark Test (BenchmarkReadMessage/Channel_Ready) in the lnwire
+  package](https://github.com/lightningnetwork/lnd/pull/7356)
+
+* [Fix unit test flake (TestLightningWallet) in the neutrino package via
+  version bump of btcsuite/btcwallet](https://github.com/lightningnetwork/lnd/pull/7049)
+
+* [HTLC serialization updated](https://github.com/lightningnetwork/lnd/pull/7710)
+  to allow storing extra data transmitted in TLVs.
+
+* [MaxLocalCSVDelay now has a default value of 2016. It is still possible to
+  override this value with the config option --maxlocaldelay for those who rely
+  on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
 
 * [Generate default macaroons
 independently](https://github.com/lightningnetwork/lnd/pull/7592) on wallet

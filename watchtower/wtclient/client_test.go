@@ -766,7 +766,7 @@ func (h *testHarness) addTower(addr *lnwire.NetAddress) {
 func (h *testHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr) {
 	h.t.Helper()
 
-	err := h.client.RemoveTower(pubKey, addr)
+	err := h.clientMgr.RemoveTower(pubKey, addr)
 	require.NoError(h.t, err)
 }
 
@@ -1718,7 +1718,7 @@ var clientTests = []clientTest{
 			require.NoError(h.t, err)
 
 			// Remove the old tower address from the client.
-			err = h.client.RemoveTower(
+			err = h.clientMgr.RemoveTower(
 				towerAddr.IdentityKey, oldAddr,
 			)
 			require.NoError(h.t, err)
@@ -1752,7 +1752,7 @@ var clientTests = []clientTest{
 			// negotiation with the server will be in progress, so
 			// the client should be able to remove the server.
 			err := wait.NoError(func() error {
-				return h.client.RemoveTower(
+				return h.clientMgr.RemoveTower(
 					h.server.addr.IdentityKey, nil,
 				)
 			}, waitTime)
@@ -1807,7 +1807,7 @@ var clientTests = []clientTest{
 			// address currently being locked for session
 			// negotiation.
 			err = wait.Predicate(func() bool {
-				err = h.client.RemoveTower(
+				err = h.clientMgr.RemoveTower(
 					h.server.addr.IdentityKey,
 					h.server.addr.Address,
 				)
@@ -1818,7 +1818,7 @@ var clientTests = []clientTest{
 			// Assert that the second address can be removed since
 			// it is not being used for session negotiation.
 			err = wait.NoError(func() error {
-				return h.client.RemoveTower(
+				return h.clientMgr.RemoveTower(
 					h.server.addr.IdentityKey, towerTCPAddr,
 				)
 			}, waitTime)
@@ -1830,7 +1830,7 @@ var clientTests = []clientTest{
 			// Assert that the client can now remove the first
 			// address.
 			err = wait.NoError(func() error {
-				return h.client.RemoveTower(
+				return h.clientMgr.RemoveTower(
 					h.server.addr.IdentityKey, nil,
 				)
 			}, waitTime)
@@ -2223,7 +2223,7 @@ var clientTests = []clientTest{
 
 			// Now we can remove the old one.
 			err := wait.Predicate(func() bool {
-				err := h.client.RemoveTower(
+				err := h.clientMgr.RemoveTower(
 					h.server.addr.IdentityKey, nil,
 				)
 
@@ -2309,7 +2309,7 @@ var clientTests = []clientTest{
 			require.NoError(h.t, err)
 
 			// Now remove the tower.
-			err = h.client.RemoveTower(
+			err = h.clientMgr.RemoveTower(
 				h.server.addr.IdentityKey, nil,
 			)
 			require.NoError(h.t, err)
@@ -2400,7 +2400,7 @@ var clientTests = []clientTest{
 			h.startClient()
 
 			// Now remove the tower.
-			err = h.client.RemoveTower(
+			err = h.clientMgr.RemoveTower(
 				h.server.addr.IdentityKey, nil,
 			)
 			require.NoError(h.t, err)

@@ -243,12 +243,7 @@ func (c *WatchtowerClient) RemoveTower(ctx context.Context,
 		}
 	}
 
-	// TODO(conner): make atomic via multiplexed client
-	err = c.cfg.Client.RemoveTower(pubKey, addr)
-	if err != nil {
-		return nil, err
-	}
-	err = c.cfg.AnchorClient.RemoveTower(pubKey, addr)
+	err = c.cfg.ClientMgr.RemoveTower(pubKey, addr)
 	if err != nil {
 		return nil, err
 	}

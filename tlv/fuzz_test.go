@@ -168,3 +168,111 @@ func FuzzTUint64(f *testing.F) {
 		harness(t, data, ETUint64, DTUint64, &val, uint64(decodeLen))
 	})
 }
+
+// encodeParsedTypes re-encodes TLVs decoded from a stream, using the
+// parsedTypes and decodedRecords produced during decoding.
+func encodeParsedTypes(t *testing.T, parsedTypes TypeMap,
+	decodedRecords []Record) []byte {
+
+	var encodeRecords []Record
+	for typ, val := range parsedTypes {
+		if typ < Type(len(decodedRecords)) {
+			encodeRecords = append(
+				encodeRecords, decodedRecords[typ],
+			)
+			continue
+		}
+
+		val := val
+		encodeRecords = append(
+			encodeRecords, MakePrimitiveRecord(typ, &val),
+		)
+	}
+	SortRecords(encodeRecords)
+	encodeStream := MustNewStream(encodeRecords...)
+
+	var b bytes.Buffer
+	require.NoError(t, encodeStream.Encode(&b))
+
+	return b.Bytes()
+}
+
+// FuzzStream does two stream decode-encode cycles on the fuzzer data and checks
+// that the encoded values match.
+func FuzzStream(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var (
+			u8   uint8
+			u16  uint16
+			u32  uint32
+			u64  uint64
+			b32  [32]byte
+			b33  [33]byte
+			b64  [64]byte
+			pk   *btcec.PublicKey
+			b    []byte
+			bs32 uint32
+			bs64 uint64
+			tu16 uint16
+			tu32 uint32
+			tu64 uint64
+		)
+
+		sizeTU16 := func() uint64 {
+			return SizeTUint16(tu16)
+		}
+		sizeTU32 := func() uint64 {
+			return SizeTUint32(tu32)
+		}
+		sizeTU64 := func() uint64 {
+			return SizeTUint64(tu64)
+		}
+
+		decodeRecords := []Record{
+			MakePrimitiveRecord(0, &u8),
+			MakePrimitiveRecord(1, &u16),
+			MakePrimitiveRecord(2, &u32),
+			MakePrimitiveRecord(3, &u64),
+			MakePrimitiveRecord(4, &b32),
+			MakePrimitiveRecord(5, &b33),
+			MakePrimitiveRecord(6, &b64),
+			MakePrimitiveRecord(7, &pk),
+			MakePrimitiveRecord(8, &b),
+			MakeBigSizeRecord(9, &bs32),
+			MakeBigSizeRecord(10, &bs64),
+			MakeDynamicRecord(
+				11, &tu16, sizeTU16, ETUint16, DTUint16,
+			),
+			MakeDynamicRecord(
+				12, &tu32, sizeTU32, ETUint32, DTUint32,
+			),
+			MakeDynamicRecord(
+				13, &tu64, sizeTU64, ETUint64, DTUint64,
+			),
+		}
+		decodeStream := MustNewStream(decodeRecords...)
+
+		r := bytes.NewReader(data)
+
+		// Use the P2P decoding method to avoid OOMs from large lengths
+		// in the fuzzer TLV data.
+		parsedTypes, err := decodeStream.DecodeWithParsedTypesP2P(r)
+		if err != nil {
+			return
+		}
+
+		encoded := encodeParsedTypes(t, parsedTypes, decodeRecords)
+
+		r2 := bytes.NewReader(encoded)
+		decodeStream2 := MustNewStream(decodeRecords...)
+
+		// The P2P decoding method is not required here since we're now
+		// decoding TLV data that we created (not the fuzzer).
+		parsedTypes2, err := decodeStream2.DecodeWithParsedTypes(r2)
+		require.NoError(t, err)
+
+		encoded2 := encodeParsedTypes(t, parsedTypes2, decodeRecords)
+
+		require.Equal(t, encoded, encoded2)
+	})
+}

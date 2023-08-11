@@ -137,6 +137,7 @@ func CommitTypeHasTaproot(commitType lnrpc.CommitmentType) bool {
 func CommitTypeHasAnchors(commitType lnrpc.CommitmentType) bool {
 	switch commitType {
 	case lnrpc.CommitmentType_ANCHORS,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT,
 		lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
 		return true
 	default:

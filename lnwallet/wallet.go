@@ -62,6 +62,14 @@ var (
 	ErrReservedValueInvalidated = errors.New("reserved wallet balance " +
 		"invalidated: transaction would leave insufficient funds for " +
 		"fee bumping anchor channel closings (see debug log for details)")
+
+	// ErrEmptyPendingChanID is returned when an empty value is used for
+	// the pending channel ID.
+	ErrEmptyPendingChanID = errors.New("pending channel ID is empty")
+
+	// ErrDuplicatePendingChanID is returned when an existing pending
+	// channel ID is registered again.
+	ErrDuplicatePendingChanID = errors.New("duplicate pending channel ID")
 )
 
 // PsbtFundingRequired is a type that implements the error interface and
@@ -670,9 +678,15 @@ func (l *LightningWallet) RegisterFundingIntent(expectedID [32]byte,
 	l.intentMtx.Lock()
 	defer l.intentMtx.Unlock()
 
+	// Sanity check the pending channel ID is not empty.
+	var zeroID [32]byte
+	if expectedID == zeroID {
+		return ErrEmptyPendingChanID
+	}
+
 	if _, ok := l.fundingIntents[expectedID]; ok {
-		return fmt.Errorf("pendingChanID(%x) already has intent "+
-			"registered", expectedID[:])
+		return fmt.Errorf("%w: already has intent registered: %v",
+			ErrDuplicatePendingChanID, expectedID[:])
 	}
 
 	l.fundingIntents[expectedID] = shimIntent

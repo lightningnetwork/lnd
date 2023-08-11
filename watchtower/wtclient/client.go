@@ -104,9 +104,6 @@ type Client interface {
 	LookupTower(*btcec.PublicKey,
 		...wtdb.ClientSessionListOption) (*RegisteredTower, error)
 
-	// Stats returns the in-memory statistics of the client since startup.
-	Stats() ClientStats
-
 	// Policy returns the active client policy configuration.
 	Policy() wtpolicy.Policy
 
@@ -1635,8 +1632,8 @@ func (c *TowerClient) LookupTower(pubKey *btcec.PublicKey,
 	}, nil
 }
 
-// Stats returns the in-memory statistics of the client since startup.
-func (c *TowerClient) Stats() ClientStats {
+// getStats returns the in-memory statistics of the client since startup.
+func (c *TowerClient) getStats() ClientStats {
 	return c.stats.getStatsCopy()
 }
 

@@ -420,19 +420,7 @@ func (c *WatchtowerClient) Stats(_ context.Context,
 		return nil, err
 	}
 
-	clientStats := []wtclient.ClientStats{
-		c.cfg.Client.Stats(),
-		c.cfg.AnchorClient.Stats(),
-	}
-
-	var stats wtclient.ClientStats
-	for _, stat := range clientStats {
-		stats.NumTasksAccepted += stat.NumTasksAccepted
-		stats.NumTasksIneligible += stat.NumTasksIneligible
-		stats.NumTasksPending += stat.NumTasksPending
-		stats.NumSessionsAcquired += stat.NumSessionsAcquired
-		stats.NumSessionsExhausted += stat.NumSessionsExhausted
-	}
+	stats := c.cfg.ClientMgr.Stats()
 
 	return &StatsResponse{
 		NumBackups:           uint32(stats.NumTasksAccepted),

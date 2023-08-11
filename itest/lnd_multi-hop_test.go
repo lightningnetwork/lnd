@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -49,6 +50,63 @@ var commitWithZeroConf = []struct {
 		commitType: lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
 		zeroConf:   true,
 	},
+	{
+		commitType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		zeroConf:   true,
+	},
+}
+
+// makeRouteHints creates a route hints that will allow Carol to be reached
+// using an unadvertised channel created by Bob (Bob -> Carol). If the zeroConf
+// bool is set, then the scid alias of Bob will be used in place.
+func makeRouteHints(bob, carol *node.HarnessNode,
+	zeroConf bool) []*lnrpc.RouteHint {
+
+	carolChans := carol.RPC.ListChannels(
+		&lnrpc.ListChannelsRequest{},
+	)
+
+	carolChan := carolChans.Channels[0]
+
+	hopHint := &lnrpc.HopHint{
+		NodeId: carolChan.RemotePubkey,
+		ChanId: carolChan.ChanId,
+		FeeBaseMsat: uint32(
+			chainreg.DefaultBitcoinBaseFeeMSat,
+		),
+		FeeProportionalMillionths: uint32(
+			chainreg.DefaultBitcoinFeeRate,
+		),
+		CltvExpiryDelta: chainreg.DefaultBitcoinTimeLockDelta,
+	}
+
+	if zeroConf {
+		bobChans := bob.RPC.ListChannels(
+			&lnrpc.ListChannelsRequest{},
+		)
+
+		// Now that we have Bob's channels, scan for the channel he has
+		// open to Carol so we can use the proper scid.
+		var found bool
+		for _, bobChan := range bobChans.Channels {
+			if bobChan.RemotePubkey == carol.PubKeyStr {
+				hopHint.ChanId = bobChan.AliasScids[0]
+
+				found = true
+
+				break
+			}
+		}
+		if !found {
+			bob.Fatalf("unable to create route hint")
+		}
+	}
+
+	return []*lnrpc.RouteHint{
+		{
+			HopHints: []*lnrpc.HopHint{hopHint},
+		},
+	}
 }
 
 // caseRunner defines a single test case runner.
@@ -131,6 +189,13 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	dustPayHash := ht.Random32Bytes()
 	payHash := ht.Random32Bytes()
 
+	// If this is a taproot channel, then we'll need to make some manual
+	// route hints so Alice can actually find a route.
+	var routeHints []*lnrpc.RouteHint
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		routeHints = makeRouteHints(bob, carol, zeroConf)
+	}
+
 	alice.RPC.SendPayment(&routerrpc.SendPaymentRequest{
 		Dest:           carolPubKey,
 		Amt:            int64(dustHtlcAmt),
@@ -138,6 +203,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 		FinalCltvDelta: finalCltvDelta,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
+		RouteHints:     routeHints,
 	})
 
 	alice.RPC.SendPayment(&routerrpc.SendPaymentRequest{
@@ -147,6 +213,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 		FinalCltvDelta: finalCltvDelta,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
+		RouteHints:     routeHints,
 	})
 
 	// Verify that all nodes in the path now have two HTLC's with the
@@ -286,6 +353,13 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 		ht, alice, bob, false, c, zeroConf,
 	)
 
+	// If this is a taproot channel, then we'll need to make some manual
+	// route hints so Alice can actually find a route.
+	var routeHints []*lnrpc.RouteHint
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		routeHints = makeRouteHints(bob, carol, zeroConf)
+	}
+
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
 	// won't send out the outgoing htlc.
@@ -297,6 +371,7 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 		Value:      invoiceAmt,
 		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
+		RouteHints: routeHints,
 	}
 	carolInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
 
@@ -379,7 +454,7 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	// Carol should broadcast her second level HTLC transaction and Bob
 	// should broadcast a sweep tx to sweep his output in the channel with
 	// Carol, and another sweep tx to sweep his anchor output.
-	case lnrpc.CommitmentType_ANCHORS:
+	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		expectedTxes = 3
 
 	// Carol should broadcast her second level HTLC transaction and Bob
@@ -491,6 +566,13 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	// opens up the base for out tests.
 	const htlcAmt = btcutil.Amount(300_000)
 
+	// If this is a taproot channel, then we'll need to make some manual
+	// route hints so Alice can actually find a route.
+	var routeHints []*lnrpc.RouteHint
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		routeHints = makeRouteHints(bob, carol, zeroConf)
+	}
+
 	// We'll now send a single HTLC across our multi-hop network.
 	carolPubKey := carol.PubKey[:]
 	payHash := ht.Random32Bytes()
@@ -501,6 +583,7 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 		FinalCltvDelta: finalCltvDelta,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,
+		RouteHints:     routeHints,
 	}
 	alice.RPC.SendPayment(req)
 
@@ -509,6 +592,12 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	ht.AssertActiveHtlcs(alice, payHash)
 	ht.AssertActiveHtlcs(bob, payHash)
 	ht.AssertActiveHtlcs(carol, payHash)
+
+	// If this is a private channel, and it was zero conf, then we'll need
+	// to mine one block to confirm the channels created above.
+	if zeroConf && routeHints != nil {
+		ht.MineBlocks(1)
+	}
 
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
@@ -647,6 +736,13 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	// opens up the base for out tests.
 	const htlcAmt = btcutil.Amount(30000)
 
+	// If this is a taproot channel, then we'll need to make some manual
+	// route hints so Alice can actually find a route.
+	var routeHints []*lnrpc.RouteHint
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		routeHints = makeRouteHints(bob, carol, zeroConf)
+	}
+
 	// We'll now send a single HTLC across our multi-hop network.
 	var preimage lntypes.Preimage
 	copy(preimage[:], ht.Random32Bytes())
@@ -655,6 +751,7 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 		Value:      int64(htlcAmt),
 		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
+		RouteHints: routeHints,
 	}
 	carolInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
 
@@ -667,6 +764,12 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 		FeeLimitMsat:   noFeeLimitMsat,
 	}
 	alice.RPC.SendPayment(req)
+
+	// If this is a private channel, and it was zero conf, then we'll need
+	// to mine one block to confirm the channels created above.
+	if zeroConf && routeHints != nil {
+		ht.MineBlocks(1)
+	}
 
 	// Once the HTLC has cleared, all the nodes in our mini network should
 	// show that the HTLC has been locked in.
@@ -701,7 +804,7 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 		expectedTxes = 1
 
 	// Bob can sweep his commit and anchor outputs immediately.
-	case lnrpc.CommitmentType_ANCHORS:
+	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		expectedTxes = 2
 
 	// Bob can't sweep his commit output yet as he was the initiator of a
@@ -723,8 +826,8 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	ht.MineBlocks(numBlocks)
 
 	// If we check Bob's pending channel report, it should show that he has
-	// a single HTLC that's now in the second stage, as skip the initial
-	// first stage since this is a direct HTLC.
+	// a single HTLC that's now in the second stage, as it skipped the
+	// initial first stage since this is a direct HTLC.
 	ht.AssertNumHTLCsAndStage(bob, bobChanPoint, 1, 2)
 
 	// We need to generate an additional block to trigger the sweep.
@@ -796,6 +899,13 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 		ht, alice, bob, false, c, zeroConf,
 	)
 
+	// If this is a taproot channel, then we'll need to make some manual
+	// route hints so Alice can actually find a route.
+	var routeHints []*lnrpc.RouteHint
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		routeHints = makeRouteHints(bob, carol, zeroConf)
+	}
+
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
 	// won't send out the outgoing htlc.
@@ -807,6 +917,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 		Value:      invoiceAmt,
 		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
+		RouteHints: routeHints,
 	}
 	carolInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
 
@@ -834,6 +945,12 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// hop logic.
 	ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
 
+	// If this is a private channel, and it was zero conf, then we'll need
+	// to mine one block to confirm the channels created above.
+	if zeroConf && routeHints != nil {
+		ht.MineBlocks(1)
+	}
+
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
 	ht.SetFeeEstimate(30000)
@@ -855,7 +972,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 		expectedTxes = 1
 
 	// Alice will sweep her commitment and anchor output immediately.
-	case lnrpc.CommitmentType_ANCHORS:
+	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		expectedTxes = 2
 
 	// Alice will sweep her anchor output immediately. Her commitment
@@ -918,7 +1035,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 
 	// Carol will broadcast her second level HTLC transaction and Bob will
 	// sweep his commitment and anchor output.
-	case lnrpc.CommitmentType_ANCHORS:
+	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		expectedTxes = 3
 
 	// Carol will broadcast her second level HTLC transaction, and Bob will
@@ -1090,6 +1207,13 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 		ht, alice, bob, false, c, zeroConf,
 	)
 
+	// If this is a taproot channel, then we'll need to make some manual
+	// route hints so Alice can actually find a route.
+	var routeHints []*lnrpc.RouteHint
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		routeHints = makeRouteHints(bob, carol, zeroConf)
+	}
+
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
 	// won't send out the outgoing htlc.
@@ -1101,6 +1225,7 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 		Value:      invoiceAmt,
 		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
+		RouteHints: routeHints,
 	}
 	carolInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
 
@@ -1127,6 +1252,12 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	// bridge between adding the htlc to the channel and executing the exit
 	// hop logic.
 	ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
+
+	// If this is a private channel, and it was zero conf, then we'll need
+	// to mine one block to confirm the channels created above.
+	if zeroConf && routeHints != nil {
+		ht.MineBlocks(1)
+	}
 
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
@@ -1224,7 +1355,7 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	// Carol should broadcast her second level HTLC transaction and Bob
 	// should broadcast a transaction to sweep his commitment output and
 	// another to sweep his anchor output.
-	case lnrpc.CommitmentType_ANCHORS:
+	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		expectedTxes = 3
 
 	// Carol should broadcast her second level HTLC transaction and Bob
@@ -1364,10 +1495,24 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
 	}
 
+	// If this is a taproot channel, then we'll need to make some manual
+	// route hints so Alice+Carol can actually find a route.
+	var (
+		carolRouteHints []*lnrpc.RouteHint
+		aliceRouteHints []*lnrpc.RouteHint
+	)
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		carolRouteHints = makeRouteHints(bob, carol, zeroConf)
+		aliceRouteHints = makeRouteHints(bob, alice, zeroConf)
+	}
+
 	// To ensure we have capacity in both directions of the route, we'll
 	// make a fairly large payment Alice->Carol and settle it.
 	const reBalanceAmt = 500_000
-	invoice := &lnrpc.Invoice{Value: reBalanceAmt}
+	invoice := &lnrpc.Invoice{
+		Value:      reBalanceAmt,
+		RouteHints: carolRouteHints,
+	}
 	resp := carol.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(alice, []string{resp.PaymentRequest})
 
@@ -1386,6 +1531,15 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		invoiceStreamsAlice []rpc.SingleInvoiceClient
 	)
 
+	// If we need to mine an extra block to account for the fact that we
+	// want to mine the zero conf channel before closing, then we need to
+	// tack on an extra block to the cltv expiry, otherwise the invoices we
+	// cancel early due to expiry.
+	var zeroConfDelta uint64
+	if zeroConf && carolRouteHints != nil {
+		zeroConfDelta = 1
+	}
+
 	// Add Carol invoices.
 	for i := 0; i < numInvoices; i++ {
 		var preimage lntypes.Preimage
@@ -1393,8 +1547,9 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		payHash := preimage.Hash()
 		invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 			Value:      invoiceAmt,
-			CltvExpiry: finalCltvDelta,
+			CltvExpiry: finalCltvDelta + zeroConfDelta,
 			Hash:       payHash[:],
+			RouteHints: carolRouteHints,
 		}
 		carolInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
 
@@ -1414,8 +1569,9 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		payHash := preimage.Hash()
 		invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
 			Value:      invoiceAmt,
-			CltvExpiry: thawHeightDelta - 4,
+			CltvExpiry: thawHeightDelta - 4 + zeroConfDelta,
 			Hash:       payHash[:],
+			RouteHints: aliceRouteHints,
 		}
 		aliceInvoice := alice.RPC.AddHoldInvoice(invoiceReq)
 
@@ -1467,6 +1623,12 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 
 	for _, stream := range invoiceStreamsAlice {
 		ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
+	}
+
+	// If this is a private channel, and it was zero conf, then we'll need
+	// to mine one block to confirm the channels created above.
+	if zeroConf && carolRouteHints != nil {
+		ht.MineBlocks(1)
 	}
 
 	// Increase the fee estimate so that the following force close tx will
@@ -1560,7 +1722,9 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// Carol will also sweep her commitment and anchor output as separate
 	// txs (since it will be low fee).
 	case lnrpc.CommitmentType_ANCHORS,
-		lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
+		lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT:
+
 		expectedTxes = 4
 
 	default:
@@ -1663,7 +1827,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	// Mining one additional block, Bob's second level tx is mature, and he
 	// can sweep the output. Before the blocks are mined, we should expect
 	// to see Bob's commit sweep in the mempool.
-	case lnrpc.CommitmentType_ANCHORS:
+	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Since Bob is the initiator of the Bob-Carol script-enforced leased
@@ -1790,7 +1954,13 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 		go acceptChannel(ht.T, true, acceptStream)
 	}
 
+	var privateChan bool
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		privateChan = true
+	}
+
 	aliceParams := lntest.OpenChannelParams{
+		Private:        privateChan,
 		Amt:            chanAmt,
 		CommitmentType: c,
 		FundingShim:    aliceFundingShim,
@@ -1821,6 +1991,7 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 
 	bobParams := lntest.OpenChannelParams{
 		Amt:            chanAmt,
+		Private:        privateChan,
 		CommitmentType: c,
 		FundingShim:    bobFundingShim,
 		ZeroConf:       zeroConf,
@@ -1833,8 +2004,18 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 	}
 
 	// Make sure alice and carol know each other's channels.
-	ht.AssertTopologyChannelOpen(alice, bobChanPoint)
-	ht.AssertTopologyChannelOpen(carol, aliceChanPoint)
+	//
+	// We'll only do this though if it wasn't a private channel we opened
+	// earlier.
+	if !privateChan {
+		ht.AssertTopologyChannelOpen(alice, bobChanPoint)
+		ht.AssertTopologyChannelOpen(carol, aliceChanPoint)
+	} else {
+		// Otherwise, we want to wait for all the channels to be shown
+		// as active before we proceed.
+		ht.AssertChannelExists(alice, aliceChanPoint)
+		ht.AssertChannelExists(carol, bobChanPoint)
+	}
 
 	return aliceChanPoint, bobChanPoint, carol
 }

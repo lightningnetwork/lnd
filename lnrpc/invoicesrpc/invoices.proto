@@ -157,9 +157,10 @@ enum LookupModifier {
 
     /*
     Indicates that when a look up is done using a payment_addr, then no HTLCs
-    related to the payment_addr should be returned. This is useful when one
-    wants to be able to obtain the set of associated setIDs with a given
-    invoice, then look up the sub-invoices "projected" by that set ID.
+    related to the payment_addr should be returned. This is useful 
+    when one wants to be able to obtain the set of associated 
+    setIDs with a given invoice, then look up the sub-invoices 
+    "projected" by that set ID.
     */
     HTLC_SET_BLANK = 2;
 }

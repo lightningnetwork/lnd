@@ -2667,7 +2667,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 		signDesc.TapTweak = scriptTree.TapTweak()
 	}
 
-	// The second levle script we sign will always be the sucess path.
+	// The second level script we sign will always be the success path.
 	secondLevelWitnessScript, err := secondLevelScript.WitnessScriptForPath(
 		input.ScriptPathSuccess,
 	)
@@ -2679,9 +2679,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 	// level tap tweak as well.
 	var secondLevelTapTweak [32]byte
 	if scriptTree, ok := secondLevelScript.(input.TapscriptDescriptor); ok {
-		copy(
-			secondLevelTapTweak[:], scriptTree.TapTweak(),
-		)
+		copy(secondLevelTapTweak[:], scriptTree.TapTweak())
 	}
 
 	return HtlcRetribution{
@@ -2691,8 +2689,8 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 			Index: uint32(htlc.OutputIndex),
 		},
 		SecondLevelWitnessScript: secondLevelWitnessScript,
-		SecondLevelTapTweak:      secondLevelTapTweak,
 		IsIncoming:               htlc.Incoming,
+		SecondLevelTapTweak:      secondLevelTapTweak,
 	}, nil
 }
 

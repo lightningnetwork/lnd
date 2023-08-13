@@ -17,10 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testRevokedCloseRetribution tests that Carol is able carry out
-// retribution in the event that she fails immediately after detecting Bob's
-// breach txn in the mempool.
-func testRevokedCloseRetribution(ht *lntest.HarnessTest) {
+func breachRetributionTestCase(ht *lntest.HarnessTest,
+	commitType lnrpc.CommitmentType) {
+
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		paymentAmt  = 10000
@@ -32,14 +31,18 @@ func testRevokedCloseRetribution(ht *lntest.HarnessTest) {
 	// protection logic automatically. We also can't have Carol
 	// automatically re-connect too early, otherwise DLP would be initiated
 	// instead of the breach we want to provoke.
+	nodeArgs := lntest.NodeArgsForCommitType(commitType)
 	carol := ht.NewNode(
 		"Carol",
-		[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"},
+		append(
+			nodeArgs,
+			[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"}...,
+		),
 	)
 
 	// We must let Bob communicate with Carol before they are able to open
 	// channel, so we connect Bob and Carol,
-	bob := ht.Bob
+	bob := ht.NewNode("Bob", nodeArgs)
 	ht.ConnectNodes(carol, bob)
 
 	// Before we make a channel, we'll load up Carol with some coins sent
@@ -49,8 +52,13 @@ func testRevokedCloseRetribution(ht *lntest.HarnessTest) {
 	// In order to test Carol's response to an uncooperative channel
 	// closure by Bob, we'll first open up a channel between them with a
 	// 0.5 BTC value.
+	privateChan := commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT
 	chanPoint := ht.OpenChannel(
-		carol, bob, lntest.OpenChannelParams{Amt: chanAmt},
+		carol, bob, lntest.OpenChannelParams{
+			CommitmentType: commitType,
+			Amt:            chanAmt,
+			Private:        privateChan,
+		},
 	)
 
 	// With the channel open, we'll create a few invoices for Bob that
@@ -162,10 +170,24 @@ func testRevokedCloseRetribution(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingForceClose(bob, 0)
 }
 
-// testRevokedCloseRetributionZeroValueRemoteOutput tests that Dave is able
-// carry out retribution in the event that he fails in state where the remote
-// commitment output has zero-value.
-func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
+// testRevokedCloseRetribution tests that Carol is able carry out retribution
+// in the event that she fails immediately after detecting Bob's breach txn in
+// the mempool.
+func testRevokedCloseRetribution(ht *lntest.HarnessTest) {
+	for _, commitType := range []lnrpc.CommitmentType{
+		lnrpc.CommitmentType_LEGACY,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT,
+	} {
+		testName := fmt.Sprintf("%v", commitType.String())
+		ht.Run(testName, func(t *testing.T) {
+			breachRetributionTestCase(ht, commitType)
+		})
+	}
+}
+
+func revokedCloseRetributionZeroValueRemoteOutputCase(ht *lntest.HarnessTest,
+	commitType lnrpc.CommitmentType) {
+
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		paymentAmt  = 10000
@@ -174,7 +196,11 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
 
 	// Since we'd like to test some multi-hop failure scenarios, we'll
 	// introduce another node into our test network: Carol.
-	carol := ht.NewNode("Carol", []string{"--hodl.exit-settle"})
+	nodeArgs := lntest.NodeArgsForCommitType(commitType)
+	carol := ht.NewNode(
+		"Carol",
+		append(nodeArgs, []string{"--hodl.exit-settle"}...),
+	)
 
 	// Dave will be the breached party. We set --nolisten to ensure Carol
 	// won't be able to connect to him and trigger the channel data
@@ -183,7 +209,10 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
 	// breach we want to provoke.
 	dave := ht.NewNode(
 		"Dave",
-		[]string{"--hodl.exit-settle", "--nolisten", "--minbackoff=1h"},
+		append(
+			nodeArgs,
+			[]string{"--hodl.exit-settle", "--nolisten",
+				"--minbackoff=1h"}...),
 	)
 
 	// We must let Dave have an open channel before he can send a node
@@ -197,8 +226,12 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
 	// In order to test Dave's response to an uncooperative channel
 	// closure by Carol, we'll first open up a channel between them with a
 	// 0.5 BTC value.
+	privateChan := commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT
 	chanPoint := ht.OpenChannel(
-		dave, carol, lntest.OpenChannelParams{Amt: chanAmt},
+		dave, carol, lntest.OpenChannelParams{
+			Amt:     chanAmt,
+			Private: privateChan,
+		},
 	)
 
 	// With the channel open, we'll create a few invoices for Carol that
@@ -297,10 +330,26 @@ func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
 	ht.AssertNodeNumChannels(dave, 0)
 }
 
-// testRevokedCloseRetributionRemoteHodl tests that Dave properly responds to a
-// channel breach made by the remote party, specifically in the case that the
-// remote party breaches before settling extended HTLCs.
-func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
+// testRevokedCloseRetributionZeroValueRemoteOutput tests that Dave is able
+// carry out retribution in the event that he fails in state where the remote
+// commitment output has zero-value.
+func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
+	for _, commitType := range []lnrpc.CommitmentType{
+		lnrpc.CommitmentType_LEGACY,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT,
+	} {
+		testName := fmt.Sprintf("%v", commitType.String())
+		ht.Run(testName, func(t *testing.T) {
+			revokedCloseRetributionZeroValueRemoteOutputCase(
+				ht, commitType,
+			)
+		})
+	}
+}
+
+func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
+	commitType lnrpc.CommitmentType) {
+
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
 		pushAmt     = 200000
@@ -311,7 +360,11 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 	// Since this test will result in the counterparty being left in a
 	// weird state, we will introduce another node into our test network:
 	// Carol.
-	carol := ht.NewNode("Carol", []string{"--hodl.exit-settle"})
+	nodeArgs := lntest.NodeArgsForCommitType(commitType)
+	carol := ht.NewNode(
+		"Carol",
+		append(nodeArgs, []string{"--hodl.exit-settle"}...),
+	)
 
 	// We'll also create a new node Dave, who will have a channel with
 	// Carol, and also use similar settings so we can broadcast a commit
@@ -320,7 +373,10 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 	// trigger the channel data protection logic automatically.
 	dave := ht.NewNode(
 		"Dave",
-		[]string{"--hodl.exit-settle", "--nolisten"},
+		append(
+			nodeArgs,
+			[]string{"--hodl.exit-settle", "--nolisten"}...,
+		),
 	)
 
 	// We must let Dave communicate with Carol before they are able to open
@@ -334,10 +390,12 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 	// In order to test Dave's response to an uncooperative channel closure
 	// by Carol, we'll first open up a channel between them with a
 	// funding.MaxBtcFundingAmount (2^24) satoshis value.
+	privateChan := commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT
 	chanPoint := ht.OpenChannel(
 		dave, carol, lntest.OpenChannelParams{
 			Amt:     chanAmt,
 			PushAmt: pushAmt,
+			Private: privateChan,
 		},
 	)
 
@@ -582,6 +640,23 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 
 	// Dave should have no open channels.
 	ht.AssertNodeNumChannels(dave, 0)
+}
+
+// testRevokedCloseRetributionRemoteHodl tests that Dave properly responds to a
+// channel breach made by the remote party, specifically in the case that the
+// remote party breaches before settling extended HTLCs.
+func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
+	for _, commitType := range []lnrpc.CommitmentType{
+		lnrpc.CommitmentType_LEGACY,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT,
+	} {
+		testName := fmt.Sprintf("%v", commitType.String())
+		ht.Run(testName, func(t *testing.T) {
+			revokedCloseRetributionRemoteHodlCase(
+				ht, commitType,
+			)
+		})
+	}
 }
 
 // testRevokedCloseRetributionAltruistWatchtower establishes a channel between

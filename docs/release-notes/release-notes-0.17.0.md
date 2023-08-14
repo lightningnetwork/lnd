@@ -3,53 +3,36 @@
 ## DB
 
 * Split channeldb [`UpdateInvoice`
-  implementation](https://github.com/lightningnetwork/lnd/pull/7377) logic in 
+  implementation](https://github.com/lightningnetwork/lnd/pull/7377) logic in
   different update types.
 
-* Add [invoice SQL schema and 
-  queries](https://github.com/lightningnetwork/lnd/pull/7354)
+* Add [invoice SQL schema and
+  queries](https://github.com/lightningnetwork/lnd/pull/7354).
 
-* Add new [sqldb 
-package](https://github.com/lightningnetwork/lnd/pull/7343) 
+* Add new [sqldb
+  package](https://github.com/lightningnetwork/lnd/pull/7343).
 
-## Watchtowers 
+## Watchtowers
 
-* Let the task pipeline [only carry 
-  wtdb.BackupIDs](https://github.com/lightningnetwork/lnd/pull/7623) instead of 
-  the entire retribution struct. This reduces the amount of data that needs to 
-  be held in memory. 
- 
+* Let the task pipeline [only carry
+  wtdb.BackupIDs](https://github.com/lightningnetwork/lnd/pull/7623) instead of
+  the entire retribution struct. This reduces the amount of data that needs to
+  be held in memory.
+
 * [Replace in-mem task pipeline with a disk-overflow
-  queue](https://github.com/lightningnetwork/lnd/pull/7380)
+  queue](https://github.com/lightningnetwork/lnd/pull/7380).
+
 * [Replay pending and un-acked updates onto the main task pipeline if a tower
-  is being removed](https://github.com/lightningnetwork/lnd/pull/6895)
- 
-* [Add defaults](https://github.com/lightningnetwork/lnd/pull/7771) to the 
-  wtclient and watchtower config structs and use these to populate the defaults 
-  of the main LND config struct so that the defaults appear in the `lnd --help` 
-  command output. 
- 
-* The deprecated "wtclient.private-tower-uris" option has also been 
-  [removed](https://github.com/lightningnetwork/lnd/pull/7771). This field was 
-  deprecated in v0.8.0-beta. 
- 
-## Misc
+  is being removed](https://github.com/lightningnetwork/lnd/pull/6895).
 
-* [Ensure that both the byte and string form of a TXID is populated in the 
-  lnrpc.Outpoint message](https://github.com/lightningnetwork/lnd/pull/7624). 
-  
-* [Fix Benchmark Test (BenchmarkReadMessage/Channel_Ready) in the lnwire 
-package](https://github.com/lightningnetwork/lnd/pull/7356)
+* [Add defaults](https://github.com/lightningnetwork/lnd/pull/7771) to the
+  wtclient and watchtower config structs and use these to populate the defaults
+  of the main LND config struct so that the defaults appear in the `lnd --help`
+  command output.
 
-* [Fix unit test flake (TestLightningWallet) in the neutrino package via
-  version bump of btcsuite/btcwallet](https://github.com/lightningnetwork/lnd/pull/7049)
-
-* [HTLC serialization updated](https://github.com/lightningnetwork/lnd/pull/7710) 
-  to allow storing extra data transmitted in TLVs.
-
-* [MaxLocalCSVDelay now has a default value of 2016. It is still possible to 
-override this value with the config option --maxlocaldelay for those who rely
-on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
+* The deprecated `wtclient.private-tower-uris` option has also been
+  [removed](https://github.com/lightningnetwork/lnd/pull/7771). This field was
+  deprecated in v0.8.0-beta.
 
 ## RPC
 
@@ -60,18 +43,20 @@ on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
   fee](https://github.com/lightningnetwork/lnd/pull/7645) when calling
   `OpenChannel`, `CloseChannel`, `SendCoins`, and `SendMany`.
 
-* The [UpdateNodeAnnouncement](https://github.com/lightningnetwork/lnd/pull/7568)
-  API can no longer be used to set/unset protocol features that are defined by 
-  LND.  
+* The
+  [UpdateNodeAnnouncement](https://github.com/lightningnetwork/lnd/pull/7568)
+  API can no longer be used to set/unset protocol features that are defined by
+  LND.
 
-* [Neutrinorpc getblockhash has 
-  been deprecated](https://github.com/lightningnetwork/lnd/pull/7712). Endpoint 
-  has been moved to the chainrpc sub-server.
+* The [`neutrinorpc` `GetBlockHash` has been
+  deprecated](https://github.com/lightningnetwork/lnd/pull/7712). Endpoint
+  has been moved to the `chainrpc` sub-server.
 
-  Custom node announcement feature bits can also be specified in config using 
-  the `dev` build tag and `--protocol.custom-nodeann`, `--protocol.custom-init` 
+* Custom node announcement feature bits can also be specified in config using
+  the `dev` build tag and `--protocol.custom-nodeann`, `--protocol.custom-init`
   and `--protocol.custom-invoice` flags to set feature bits for various feature
-  "sets", as defined in [BOLT 9](https://github.com/lightning/bolts/blob/master/09-features.md).
+  "sets", as defined in
+  [BOLT 9](https://github.com/lightning/bolts/blob/master/09-features.md).
 
 * `OpenChannel` now accepts an [optional `memo`
   argument](https://github.com/lightningnetwork/lnd/pull/7668) for specifying
@@ -113,8 +98,8 @@ on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
   and users can no longer create two custom accounts with the same name.
 
 * `OpenChannel` adds a new `utxo` flag that allows the specification of multiple
-  UTXOs [as a basis for funding a channel 
-  opening.](https://github.com/lightningnetwork/lnd/pull/7516)
+  UTXOs [as a basis for funding a channel
+  opening](https://github.com/lightningnetwork/lnd/pull/7516).
 
 * The [BatchOpenChannel](https://github.com/lightningnetwork/lnd/pull/7820)
   message now supports all fields that are present in the `OpenChannel` message,
@@ -125,9 +110,27 @@ on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
 
 ## Misc
 
+* [Ensure that both the byte and string form of a TXID is populated in the
+  lnrpc.Outpoint message](https://github.com/lightningnetwork/lnd/pull/7624).
+
+* [Fix Benchmark Test (BenchmarkReadMessage/Channel_Ready) in the lnwire
+  package](https://github.com/lightningnetwork/lnd/pull/7356).
+
+* [Fix unit test flake (TestLightningWallet) in the neutrino package via
+  version bump of 
+  btcsuite/btcwallet](https://github.com/lightningnetwork/lnd/pull/7049).
+
+* [HTLC serialization
+  updated](https://github.com/lightningnetwork/lnd/pull/7710) to allow storing
+  extra data transmitted in TLVs.
+
+* [MaxLocalCSVDelay now has a default value of 2016. It is still possible to
+  override this value with the config option --maxlocaldelay for those who rely
+  on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
+
 * [Generate default macaroons
-independently](https://github.com/lightningnetwork/lnd/pull/7592) on wallet
-unlock or create.
+  independently](https://github.com/lightningnetwork/lnd/pull/7592) on wallet
+  unlock or create.
 
 * [Restore support](https://github.com/lightningnetwork/lnd/pull/7678) for
   `PKCS8`-encoded cert private keys.
@@ -135,14 +138,15 @@ unlock or create.
 * Add [`--unused`](https://github.com/lightningnetwork/lnd/pull/6387) to
   `lncli newaddr` command.
 
-* [Cleanup](https://github.com/lightningnetwork/lnd/pull/7770) of defaults 
-mentioned in [sample-lnd.conf](https://github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf). 
-It is possible to distinguish between defaults and examples now. 
-A check script has been developed and integrated into the building process to 
-compare the default values between lnd and sample-lnd.conf.
+* [Cleanup](https://github.com/lightningnetwork/lnd/pull/7770) of defaults
+  mentioned in
+  [sample-lnd.conf](https://github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf).
+  It is possible to distinguish between defaults and examples now.
+  A check script has been developed and integrated into the building process to
+  compare the default values between lnd and sample-lnd.conf.
 
 * [Cancel rebroadcasting of a transaction when abandoning
-a channel](https://github.com/lightningnetwork/lnd/pull/7819)
+  a channel](https://github.com/lightningnetwork/lnd/pull/7819).
 
 ## Code Health
 
@@ -153,8 +157,8 @@ a channel](https://github.com/lightningnetwork/lnd/pull/7819)
 
 ## Neutrino
 
-* The [Neutrino version 
-  is updated](https://github.com/lightningnetwork/lnd/pull/7788) so that LND can 
+* The [Neutrino version
+  is updated](https://github.com/lightningnetwork/lnd/pull/7788) so that LND can
   take advantage of the latest filter fetching performance improvements.
 
 ## Testing
@@ -182,7 +186,9 @@ a channel](https://github.com/lightningnetwork/lnd/pull/7819)
 
 ## `lncli`
 
-* Added ability to use [ENV variables to override `lncli` global flags](https://github.com/lightningnetwork/lnd/pull/7693). Flags will have preference over ENVs.
+* Added ability to use [environment variables to override `lncli` global
+  flags](https://github.com/lightningnetwork/lnd/pull/7693). Flags will have
+  preference over environment variables.
 
 * The `lncli sendcoins` command now asks for manual confirmation when invoked
   on the command line. This can be skipped by adding the `--force` (or `-f`)
@@ -198,18 +204,20 @@ a channel](https://github.com/lightningnetwork/lnd/pull/7819)
 
 * Fixed a memory leak found in mempool management handled by
   [`btcwallet`](https://github.com/lightningnetwork/lnd/pull/7767).
-  
+
 * Make sure lnd starts up as normal in case a transaction does not meet min
   mempool fee requirements. [Handle min mempool fee backend error when a
-  transaction fails to be broadcasted by the 
-  bitcoind backend](https://github.com/lightningnetwork/lnd/pull/7746)
+  transaction fails to be broadcasted by the
+  bitcoind backend](https://github.com/lightningnetwork/lnd/pull/7746).
 
 * [Updated bbolt to v1.3.7](https://github.com/lightningnetwork/lnd/pull/7796)
   in order to address mmap issues affecting certain older iPhone devices.
 
-* [Stop rejecting payments that overpay or over-timelock the final hop](https://github.com/lightningnetwork/lnd/pull/7768)
+* [Stop rejecting payments that overpay or over-timelock the final
+  hop](https://github.com/lightningnetwork/lnd/pull/7768).
 
-* [Fix let's encrypt autocert generation](https://github.com/lightningnetwork/lnd/pull/7739)
+* [Fix let's encrypt autocert
+  generation](https://github.com/lightningnetwork/lnd/pull/7739).
 
 * Fix an issue where [IPv6 couldn't be dialed when using
   Tor](https://github.com/lightningnetwork/lnd/pull/7783), even when

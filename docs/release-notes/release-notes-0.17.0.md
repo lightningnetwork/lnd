@@ -148,6 +148,9 @@
 * [Cancel rebroadcasting of a transaction when abandoning
   a channel](https://github.com/lightningnetwork/lnd/pull/7819).
 
+* [Fixed a validation bug](https://github.com/lightningnetwork/lnd/pull/7177) in
+  `channel_type` negotiation.
+
 ## Code Health
 
 * Updated [our fork for serializing protobuf as JSON to be based on the

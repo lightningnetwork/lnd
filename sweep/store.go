@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -12,15 +11,6 @@ import (
 )
 
 var (
-	// lastTxBucketKey is the key that points to a bucket containing a
-	// single item storing the last published tx.
-	//
-	// maps: lastTxKey -> serialized_tx
-	lastTxBucketKey = []byte("sweeper-last-tx")
-
-	// lastTxKey is the fixed key under which the serialized tx is stored.
-	lastTxKey = []byte("last-tx")
-
 	// txHashesBucketKey is the key that points to a bucket containing the
 	// hashes of all sweep txes that were published successfully.
 	//
@@ -52,10 +42,6 @@ type SweeperStore interface {
 	// NotifyPublishTx signals that we are about to publish a tx.
 	NotifyPublishTx(*wire.MsgTx) error
 
-	// GetLastPublishedTx returns the last tx that we called NotifyPublishTx
-	// for.
-	GetLastPublishedTx() (*wire.MsgTx, error)
-
 	// ListSweeps lists all the sweeps we have successfully published.
 	ListSweeps() ([]chainhash.Hash, error)
 }
@@ -69,13 +55,6 @@ func NewSweeperStore(db kvdb.Backend, chainHash *chainhash.Hash) (
 	SweeperStore, error) {
 
 	err := kvdb.Update(db, func(tx kvdb.RwTx) error {
-		_, err := tx.CreateTopLevelBucket(
-			lastTxBucketKey,
-		)
-		if err != nil {
-			return err
-		}
-
 		if tx.ReadWriteBucket(txHashesBucketKey) != nil {
 			return nil
 		}
@@ -171,62 +150,16 @@ func migrateTxHashes(tx kvdb.RwTx, txHashesBucket kvdb.RwBucket,
 // NotifyPublishTx signals that we are about to publish a tx.
 func (s *sweeperStore) NotifyPublishTx(sweepTx *wire.MsgTx) error {
 	return kvdb.Update(s.db, func(tx kvdb.RwTx) error {
-		lastTxBucket := tx.ReadWriteBucket(lastTxBucketKey)
-		if lastTxBucket == nil {
-			return errors.New("last tx bucket does not exist")
-		}
 
 		txHashesBucket := tx.ReadWriteBucket(txHashesBucketKey)
 		if txHashesBucket == nil {
 			return errNoTxHashesBucket
 		}
 
-		var b bytes.Buffer
-		if err := sweepTx.Serialize(&b); err != nil {
-			return err
-		}
-
-		if err := lastTxBucket.Put(lastTxKey, b.Bytes()); err != nil {
-			return err
-		}
-
 		hash := sweepTx.TxHash()
 
 		return txHashesBucket.Put(hash[:], []byte{})
 	}, func() {})
-}
-
-// GetLastPublishedTx returns the last tx that we called NotifyPublishTx
-// for.
-func (s *sweeperStore) GetLastPublishedTx() (*wire.MsgTx, error) {
-	var sweepTx *wire.MsgTx
-
-	err := kvdb.View(s.db, func(tx kvdb.RTx) error {
-		lastTxBucket := tx.ReadBucket(lastTxBucketKey)
-		if lastTxBucket == nil {
-			return errors.New("last tx bucket does not exist")
-		}
-
-		sweepTxRaw := lastTxBucket.Get(lastTxKey)
-		if sweepTxRaw == nil {
-			return nil
-		}
-
-		sweepTx = &wire.MsgTx{}
-		txReader := bytes.NewReader(sweepTxRaw)
-		if err := sweepTx.Deserialize(txReader); err != nil {
-			return fmt.Errorf("tx deserialize: %v", err)
-		}
-
-		return nil
-	}, func() {
-		sweepTx = nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return sweepTx, nil
 }
 
 // IsOurTx determines whether a tx is published by us, based on its

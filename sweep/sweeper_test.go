@@ -404,16 +404,6 @@ func TestSuccess(t *testing.T) {
 	}
 
 	ctx.finish(1)
-
-	// Assert that last tx is stored in the database so we can republish
-	// on restart.
-	lastTx, err := ctx.store.GetLastPublishedTx()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lastTx == nil || sweepTx.TxHash() != lastTx.TxHash() {
-		t.Fatalf("last tx not stored")
-	}
 }
 
 // TestDust asserts that inputs that are not big enough to raise above the dust
@@ -780,9 +770,6 @@ func TestRestart(t *testing.T) {
 	// Restart sweeper.
 	ctx.restartSweeper()
 
-	// Expect last tx to be republished.
-	ctx.receiveTx()
-
 	// Simulate other subsystem (e.g. contract resolver) re-offering inputs.
 	spendChan1, err := ctx.sweeper.SweepInput(input1, defaultFeePref)
 	if err != nil {
@@ -830,9 +817,6 @@ func TestRestart(t *testing.T) {
 	// Restart sweeper again. No action is expected.
 	ctx.restartSweeper()
 
-	// Expect last tx to be republished.
-	ctx.receiveTx()
-
 	ctx.finish(1)
 }
 
@@ -860,9 +844,6 @@ func TestRestartRemoteSpend(t *testing.T) {
 
 	// Restart sweeper.
 	ctx.restartSweeper()
-
-	// Expect last tx to be republished.
-	ctx.receiveTx()
 
 	// Replace the sweep tx with a remote tx spending input 1.
 	ctx.backend.deleteUnconfirmed(sweepTx.TxHash())
@@ -918,9 +899,6 @@ func TestRestartConfirmed(t *testing.T) {
 	// Restart sweeper.
 	ctx.restartSweeper()
 
-	// Expect last tx to be republished.
-	ctx.receiveTx()
-
 	// Mine the sweep tx.
 	ctx.backend.mine()
 
@@ -935,35 +913,6 @@ func TestRestartConfirmed(t *testing.T) {
 
 	// Timer started but not needed because spend ntfn was sent.
 	ctx.tick()
-
-	ctx.finish(1)
-}
-
-// TestRestartRepublish asserts that sweeper republishes the last published
-// tx on restart.
-func TestRestartRepublish(t *testing.T) {
-	ctx := createSweeperTestContext(t)
-
-	_, err := ctx.sweeper.SweepInput(spendableInputs[0], defaultFeePref)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ctx.tick()
-
-	sweepTx := ctx.receiveTx()
-
-	// Restart sweeper again. No action is expected.
-	ctx.restartSweeper()
-
-	republishedTx := ctx.receiveTx()
-
-	if sweepTx.TxHash() != republishedTx.TxHash() {
-		t.Fatalf("last tx not republished")
-	}
-
-	// Mine the tx to conclude the test properly.
-	ctx.backend.mine()
 
 	ctx.finish(1)
 }

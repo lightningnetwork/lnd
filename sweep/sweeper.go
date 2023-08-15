@@ -340,30 +340,6 @@ func (s *UtxoSweeper) Start() error {
 
 	log.Info("Sweeper starting")
 
-	// Retrieve last published tx from database.
-	lastTx, err := s.cfg.Store.GetLastPublishedTx()
-	if err != nil {
-		return fmt.Errorf("get last published tx: %v", err)
-	}
-
-	// Republish in case the previous call crashed lnd. We don't care about
-	// the return value, because inputs will be re-offered and retried
-	// anyway. The only reason we republish here is to prevent the corner
-	// case where lnd goes into a restart loop because of a crashing publish
-	// tx where we keep deriving new output script. By publishing and
-	// possibly crashing already now, we haven't derived a new output script
-	// yet.
-	if lastTx != nil {
-		log.Debugf("Publishing last tx %v", lastTx.TxHash())
-
-		// Error can be ignored. Because we are starting up, there are
-		// no pending inputs to update based on the publish result.
-		err := s.cfg.Wallet.PublishTransaction(lastTx, "")
-		if err != nil && err != lnwallet.ErrDoubleSpend {
-			log.Errorf("last tx publish: %v", err)
-		}
-	}
-
 	// Retrieve relay fee for dust limit calculation. Assume that this will
 	// not change from here on.
 	s.relayFeeRate = s.cfg.FeeEstimator.RelayFeePerKW()

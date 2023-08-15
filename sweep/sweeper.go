@@ -98,8 +98,13 @@ type ParamsUpdate struct {
 
 // String returns a human readable interpretation of the sweep parameters.
 func (p Params) String() string {
-	return fmt.Sprintf("fee=%v, force=%v, exclusive_group=%v",
-		p.Fee, p.Force, p.ExclusiveGroup)
+	if p.ExclusiveGroup != nil {
+		return fmt.Sprintf("fee=%v, force=%v, exclusive_group=%v",
+			p.Fee, p.Force, *p.ExclusiveGroup)
+	}
+
+	return fmt.Sprintf("fee=%v, force=%v, exclusive_group=nil",
+		p.Fee, p.Force)
 }
 
 // pendingInput is created when an input reaches the main loop for the first
@@ -439,9 +444,10 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 	absoluteTimeLock, _ := input.RequiredLockTime()
 	log.Infof("Sweep request received: out_point=%v, witness_type=%v, "+
 		"relative_time_lock=%v, absolute_time_lock=%v, amount=%v, "+
-		"params=(%v)", input.OutPoint(), input.WitnessType(),
-		input.BlocksToMaturity(), absoluteTimeLock,
-		btcutil.Amount(input.SignDesc().Output.Value), params)
+		"parent=(%v), params=(%v)", input.OutPoint(),
+		input.WitnessType(), input.BlocksToMaturity(), absoluteTimeLock,
+		btcutil.Amount(input.SignDesc().Output.Value),
+		input.UnconfParent(), params)
 
 	sweeperInput := &sweepInputMessage{
 		input:      input,

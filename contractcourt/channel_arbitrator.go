@@ -1090,10 +1090,10 @@ func (c *ChannelArbitrator) stateStep(
 			break
 		}
 
-		// Now that we know we'll need to act, we'll process the htlc
-		// actions, then create the structures we need to resolve all
+		// Now that we know we'll need to act, we'll process all the
+		// resolvers, then create the structures we need to resolve all
 		// outstanding contracts.
-		htlcResolvers, pktsToSend, err := c.prepContractResolutions(
+		resolvers, pktsToSend, err := c.prepContractResolutions(
 			contractResolutions, triggerHeight, trigger,
 			confCommitSet,
 		)
@@ -1103,15 +1103,15 @@ func (c *ChannelArbitrator) stateStep(
 			return StateError, closeTx, err
 		}
 
-		log.Debugf("ChannelArbitrator(%v): sending resolution message=%v",
-			c.cfg.ChanPoint,
-			newLogClosure(func() string {
-				return spew.Sdump(pktsToSend)
-			}))
-
 		// With the commitment broadcast, we'll then send over all
 		// messages we can send immediately.
 		if len(pktsToSend) != 0 {
+			log.Debugf("ChannelArbitrator(%v): sending "+
+				"resolution message=%v", c.cfg.ChanPoint,
+				newLogClosure(func() string {
+					return spew.Sdump(pktsToSend)
+				}))
+
 			err := c.cfg.DeliverResolutionMsg(pktsToSend...)
 			if err != nil {
 				log.Errorf("unable to send pkts: %v", err)
@@ -1120,16 +1120,16 @@ func (c *ChannelArbitrator) stateStep(
 		}
 
 		log.Debugf("ChannelArbitrator(%v): inserting %v contract "+
-			"resolvers", c.cfg.ChanPoint, len(htlcResolvers))
+			"resolvers", c.cfg.ChanPoint, len(resolvers))
 
-		err = c.log.InsertUnresolvedContracts(nil, htlcResolvers...)
+		err = c.log.InsertUnresolvedContracts(nil, resolvers...)
 		if err != nil {
 			return StateError, closeTx, err
 		}
 
 		// Finally, we'll launch all the required contract resolvers.
 		// Once they're all resolved, we're no longer needed.
-		c.launchResolvers(htlcResolvers)
+		c.launchResolvers(resolvers)
 
 		nextState = StateWaitingFullResolution
 

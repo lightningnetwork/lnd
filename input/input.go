@@ -1,6 +1,8 @@
 package input
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -67,6 +69,11 @@ type TxInfo struct {
 
 	// Weight is the weight of the tx.
 	Weight int64
+}
+
+// String returns a human readable version of the tx info.
+func (t *TxInfo) String() string {
+	return fmt.Sprintf("fee=%v, weight=%v", t.Fee, t.Weight)
 }
 
 // SignDetails is a struct containing information needed to resign certain

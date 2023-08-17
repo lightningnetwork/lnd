@@ -201,12 +201,19 @@ type ChanCloser struct {
 
 // calcCoopCloseFee computes an "ideal" absolute co-op close fee given the
 // delivery scripts of both parties and our ideal fee rate.
-func calcCoopCloseFee(localOutput, remoteOutput *wire.TxOut,
+func calcCoopCloseFee(chanType channeldb.ChannelType,
+	localOutput, remoteOutput *wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 
 	var weightEstimator input.TxWeightEstimator
 
-	weightEstimator.AddWitnessInput(input.MultiSigWitnessSize)
+	if chanType.IsTaproot() {
+		weightEstimator.AddWitnessInput(
+			input.TaprootSignatureWitnessSize,
+		)
+	} else {
+		weightEstimator.AddWitnessInput(input.MultiSigWitnessSize)
+	}
 
 	// One of these outputs might be dust, so we'll skip adding it to our
 	// mock transaction, so the fees are more accurate.
@@ -235,7 +242,7 @@ func (d *SimpleCoopFeeEstimator) EstimateFee(chanType channeldb.ChannelType,
 	localTxOut, remoteTxOut *wire.TxOut,
 	idealFeeRate chainfee.SatPerKWeight) btcutil.Amount {
 
-	return calcCoopCloseFee(localTxOut, remoteTxOut, idealFeeRate)
+	return calcCoopCloseFee(chanType, localTxOut, remoteTxOut, idealFeeRate)
 }
 
 // NewChanCloser creates a new instance of the channel closure given the passed

@@ -937,8 +937,9 @@ func TestLightningWireProtocol(t *testing.T) {
 			//
 			// We'll allow the test to generate padding bytes up to
 			// the max message limit, factoring in the 2 bytes for
-			// the num pong bytes.
-			paddingBytes := make([]byte, r.Intn(MaxMsgBody-1))
+			// the num pong bytes and 2 bytes for encoding the
+			// length of the padding bytes.
+			paddingBytes := make([]byte, rand.Intn(MaxMsgBody-3))
 			req := Ping{
 				NumPongBytes: uint16(r.Intn(MaxPongBytes + 1)),
 				PaddingBytes: paddingBytes,

@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -61,9 +62,9 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 	pubkey := signDesc.KeyDesc.PubKey
 	switch {
 	case signDesc.SingleTweak != nil:
-		pubkey = TweakPubKeyWithTweak(pubkey, signDesc.SingleTweak)
+		pubkey = tweaks.TweakPubKeyWithTweak(pubkey, signDesc.SingleTweak)
 	case signDesc.DoubleTweak != nil:
-		pubkey = DeriveRevocationPubkey(pubkey, signDesc.DoubleTweak.PubKey())
+		pubkey = tweaks.DeriveRevocationPubkey(pubkey, signDesc.DoubleTweak.PubKey())
 	}
 
 	hash160 := btcutil.Hash160(pubkey.SerializeCompressed())
@@ -200,9 +201,9 @@ func (m *MockSigner) findKey(needleHash160 []byte, singleTweak []byte,
 		// Otherwise check if public key is derived from tweaked private key.
 		switch {
 		case singleTweak != nil:
-			privkey = TweakPrivKey(privkey, singleTweak)
+			privkey = tweaks.TweakPrivKey(privkey, singleTweak)
 		case doubleTweak != nil:
-			privkey = DeriveRevocationPrivKey(privkey, doubleTweak)
+			privkey = tweaks.DeriveRevocationPrivKey(privkey, doubleTweak)
 		default:
 			continue
 		}

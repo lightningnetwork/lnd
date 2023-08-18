@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -81,61 +82,6 @@ func assertEngineExecution(t *testing.T, testNum int, valid bool,
 	t.Fatalf("%v spend test case #%v execution ended with: %v", validity, testNum, vmErr)
 }
 
-// TestRevocationKeyDerivation tests that given a public key, and a revocation
-// hash, the homomorphic revocation public and private key derivation work
-// properly.
-func TestRevocationKeyDerivation(t *testing.T) {
-	t.Parallel()
-
-	// First, we'll generate a commitment point, and a commitment secret.
-	// These will be used to derive the ultimate revocation keys.
-	revocationPreimage := testHdSeed.CloneBytes()
-	commitSecret, commitPoint := btcec.PrivKeyFromBytes(revocationPreimage)
-
-	// With the commitment secrets generated, we'll now create the base
-	// keys we'll use to derive the revocation key from.
-	basePriv, basePub := btcec.PrivKeyFromBytes(testWalletPrivKey)
-
-	// With the point and key obtained, we can now derive the revocation
-	// key itself.
-	revocationPub := DeriveRevocationPubkey(basePub, commitPoint)
-
-	// The revocation public key derived from the original public key, and
-	// the one derived from the private key should be identical.
-	revocationPriv := DeriveRevocationPrivKey(basePriv, commitSecret)
-	if !revocationPub.IsEqual(revocationPriv.PubKey()) {
-		t.Fatalf("derived public keys don't match!")
-	}
-}
-
-// TestTweakKeyDerivation tests that given a public key, and commitment tweak,
-// then we're able to properly derive a tweaked private key that corresponds to
-// the computed tweak public key. This scenario ensure that our key derivation
-// for any of the non revocation keys on the commitment transaction is correct.
-func TestTweakKeyDerivation(t *testing.T) {
-	t.Parallel()
-
-	// First, we'll generate a base public key that we'll be "tweaking".
-	baseSecret := testHdSeed.CloneBytes()
-	basePriv, basePub := btcec.PrivKeyFromBytes(baseSecret)
-
-	// With the base key create, we'll now create a commitment point, and
-	// from that derive the bytes we'll used to tweak the base public key.
-	commitPoint := ComputeCommitmentPoint(bobsPrivKey)
-	commitTweak := SingleTweakBytes(commitPoint, basePub)
-
-	// Next, we'll modify the public key. When we apply the same operation
-	// to the private key we should get a key that matches.
-	tweakedPub := TweakPubKey(basePub, commitPoint)
-
-	// Finally, attempt to re-generate the private key that matches the
-	// tweaked public key. The derived key should match exactly.
-	derivedPriv := TweakPrivKey(basePriv, commitTweak)
-	if !derivedPriv.PubKey().IsEqual(tweakedPub) {
-		t.Fatalf("pub keys don't match")
-	}
-}
-
 // makeWitnessTestCase is a helper function used within test cases involving
 // the validity of a crafted witness. This function is a wrapper function which
 // allows constructing table-driven tests. In the case of an error while
@@ -197,15 +143,15 @@ func TestHTLCSenderSpendValidation(t *testing.T) {
 	bobKeyPriv, bobKeyPub := btcec.PrivKeyFromBytes(bobsPrivKey)
 	paymentAmt := btcutil.Amount(1 * 10e8)
 
-	aliceLocalKey := TweakPubKey(aliceKeyPub, commitPoint)
-	bobLocalKey := TweakPubKey(bobKeyPub, commitPoint)
+	aliceLocalKey := tweaks.TweakPubKey(aliceKeyPub, commitPoint)
+	bobLocalKey := tweaks.TweakPubKey(bobKeyPub, commitPoint)
 
 	// As we'll be modeling spends from Alice's commitment transaction,
 	// we'll be using Bob's base point for the revocation key.
-	revocationKey := DeriveRevocationPubkey(bobKeyPub, commitPoint)
+	revocationKey := tweaks.DeriveRevocationPubkey(bobKeyPub, commitPoint)
 
-	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
-	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
+	bobCommitTweak := tweaks.SingleTweakBytes(commitPoint, bobKeyPub)
+	aliceCommitTweak := tweaks.SingleTweakBytes(commitPoint, aliceKeyPub)
 
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
@@ -598,15 +544,15 @@ func TestHTLCReceiverSpendValidation(t *testing.T) {
 	paymentAmt := btcutil.Amount(1 * 10e8)
 	cltvTimeout := uint32(8)
 
-	aliceLocalKey := TweakPubKey(aliceKeyPub, commitPoint)
-	bobLocalKey := TweakPubKey(bobKeyPub, commitPoint)
+	aliceLocalKey := tweaks.TweakPubKey(aliceKeyPub, commitPoint)
+	bobLocalKey := tweaks.TweakPubKey(bobKeyPub, commitPoint)
 
 	// As we'll be modeling spends from Bob's commitment transaction, we'll
 	// be using Alice's base point for the revocation key.
-	revocationKey := DeriveRevocationPubkey(aliceKeyPub, commitPoint)
+	revocationKey := tweaks.DeriveRevocationPubkey(aliceKeyPub, commitPoint)
 
-	bobCommitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
-	aliceCommitTweak := SingleTweakBytes(commitPoint, aliceKeyPub)
+	bobCommitTweak := tweaks.SingleTweakBytes(commitPoint, bobKeyPub)
+	aliceCommitTweak := tweaks.SingleTweakBytes(commitPoint, aliceKeyPub)
 
 	// Finally, we'll create mock signers for both of them based on their
 	// private keys. This test simplifies a bit and uses the same key as
@@ -996,7 +942,7 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 	// As we're modeling this as Bob sweeping the HTLC on-chain from his
 	// commitment transaction after a period of time, we'll be using a
 	// revocation key derived from Alice's base point and his secret.
-	revocationKey := DeriveRevocationPubkey(aliceKeyPub, commitPoint)
+	revocationKey := tweaks.DeriveRevocationPubkey(aliceKeyPub, commitPoint)
 
 	// Next, craft a fake HTLC outpoint that we'll use to generate the
 	// sweeping transaction using.
@@ -1018,11 +964,11 @@ func TestSecondLevelHtlcSpends(t *testing.T) {
 
 	// The delay key will be crafted using Bob's public key as the output
 	// we created will be spending from Alice's commitment transaction.
-	delayKey := TweakPubKey(bobKeyPub, commitPoint)
+	delayKey := tweaks.TweakPubKey(bobKeyPub, commitPoint)
 
 	// The commit tweak will be required in order for Bob to derive the
 	// proper key need to spend the output.
-	commitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
+	commitTweak := tweaks.SingleTweakBytes(commitPoint, bobKeyPub)
 
 	// Finally we'll generate the HTLC script itself that we'll be spending
 	// from. The revocation clause can be claimed by Alice, while Bob can
@@ -1203,7 +1149,7 @@ func TestLeaseSecondLevelHtlcSpends(t *testing.T) {
 	// As we're modeling this as Bob sweeping the HTLC on-chain from his
 	// commitment transaction after a period of time, we'll be using a
 	// revocation key derived from Alice's base point and his secret.
-	revocationKey := DeriveRevocationPubkey(aliceKeyPub, commitPoint)
+	revocationKey := tweaks.DeriveRevocationPubkey(aliceKeyPub, commitPoint)
 
 	// Next, craft a fake HTLC outpoint that we'll use to generate the
 	// sweeping transaction using.
@@ -1225,11 +1171,11 @@ func TestLeaseSecondLevelHtlcSpends(t *testing.T) {
 
 	// The delay key will be crafted using Bob's public key as the output
 	// we created will be spending from Alice's commitment transaction.
-	delayKey := TweakPubKey(bobKeyPub, commitPoint)
+	delayKey := tweaks.TweakPubKey(bobKeyPub, commitPoint)
 
 	// The commit tweak will be required in order for Bob to derive the
 	// proper key need to spend the output.
-	commitTweak := SingleTweakBytes(commitPoint, bobKeyPub)
+	commitTweak := tweaks.SingleTweakBytes(commitPoint, bobKeyPub)
 
 	// Finally we'll generate the HTLC script itself that we'll be spending
 	// from. The revocation clause can be claimed by Alice, while Bob can
@@ -1434,7 +1380,7 @@ func TestLeaseCommmitSpendToSelf(t *testing.T) {
 	// We'll have Bob take the revocation path in some cases.
 	revokePreimage := testHdSeed.CloneBytes()
 	commitSecret, commitPoint := btcec.PrivKeyFromBytes(revokePreimage)
-	revocationKey := DeriveRevocationPubkey(bobKeyPub, commitPoint)
+	revocationKey := tweaks.DeriveRevocationPubkey(bobKeyPub, commitPoint)
 
 	// Construct the script enforced lease to_self commitment transaction
 	// output.
@@ -1995,7 +1941,7 @@ func TestSpecificationKeyDerivation(t *testing.T) {
 
 	// name: derivation of key from basepoint and per_commitment_point
 	const expectedLocalKeyHex = "0235f2dbfaa89b57ec7b055afe29849ef7ddfeb1cefdb9ebdc43f5494984db29e5"
-	actualLocalKey := TweakPubKey(basePoint, perCommitmentPoint)
+	actualLocalKey := tweaks.TweakPubKey(basePoint, perCommitmentPoint)
 	actualLocalKeyHex := pubkeyToHex(actualLocalKey)
 	if actualLocalKeyHex != expectedLocalKeyHex {
 		t.Errorf("Incorrect derivation of local public key: "+
@@ -2004,8 +1950,8 @@ func TestSpecificationKeyDerivation(t *testing.T) {
 
 	// name: derivation of secret key from basepoint secret and per_commitment_secret
 	const expectedLocalPrivKeyHex = "cbced912d3b21bf196a766651e436aff192362621ce317704ea2f75d87e7be0f"
-	tweak := SingleTweakBytes(perCommitmentPoint, basePoint)
-	actualLocalPrivKey := TweakPrivKey(baseSecret, tweak)
+	tweak := tweaks.SingleTweakBytes(perCommitmentPoint, basePoint)
+	actualLocalPrivKey := tweaks.TweakPrivKey(baseSecret, tweak)
 	actualLocalPrivKeyHex := privkeyToHex(actualLocalPrivKey)
 	if actualLocalPrivKeyHex != expectedLocalPrivKeyHex {
 		t.Errorf("Incorrect derivation of local private key: "+
@@ -2015,7 +1961,7 @@ func TestSpecificationKeyDerivation(t *testing.T) {
 
 	// name: derivation of revocation key from basepoint and per_commitment_point
 	const expectedRevocationKeyHex = "02916e326636d19c33f13e8c0c3a03dd157f332f3e99c317c141dd865eb01f8ff0"
-	actualRevocationKey := DeriveRevocationPubkey(basePoint, perCommitmentPoint)
+	actualRevocationKey := tweaks.DeriveRevocationPubkey(basePoint, perCommitmentPoint)
 	actualRevocationKeyHex := pubkeyToHex(actualRevocationKey)
 	if actualRevocationKeyHex != expectedRevocationKeyHex {
 		t.Errorf("Incorrect derivation of revocation public key: "+
@@ -2025,7 +1971,7 @@ func TestSpecificationKeyDerivation(t *testing.T) {
 
 	// name: derivation of revocation secret from basepoint_secret and per_commitment_secret
 	const expectedRevocationPrivKeyHex = "d09ffff62ddb2297ab000cc85bcb4283fdeb6aa052affbc9dddcf33b61078110"
-	actualRevocationPrivKey := DeriveRevocationPrivKey(baseSecret,
+	actualRevocationPrivKey := tweaks.DeriveRevocationPrivKey(baseSecret,
 		perCommitmentSecret)
 	actualRevocationPrivKeyHex := privkeyToHex(actualRevocationPrivKey)
 	if actualRevocationPrivKeyHex != expectedRevocationPrivKeyHex {

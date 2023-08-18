@@ -35,6 +35,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/labels"
@@ -1899,10 +1900,10 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 	commitPreimage := bytes.Repeat([]byte{2}, 32)
 	commitSecret, commitPoint := btcec.PrivKeyFromBytes(commitPreimage)
 
-	revocationKey := input.DeriveRevocationPubkey(pubKey.PubKey, commitPoint)
-	commitTweak := input.SingleTweakBytes(commitPoint, pubKey.PubKey)
+	revocationKey := tweaks.DeriveRevocationPubkey(pubKey.PubKey, commitPoint)
+	commitTweak := tweaks.SingleTweakBytes(commitPoint, pubKey.PubKey)
 
-	tweakedPub := input.TweakPubKey(pubKey.PubKey, commitPoint)
+	tweakedPub := tweaks.TweakPubKey(pubKey.PubKey, commitPoint)
 
 	// As we'd like to test both single and double tweaks, we'll repeat
 	// the same set up twice. The first will use a regular single tweak,

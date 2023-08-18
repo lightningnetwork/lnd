@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -325,11 +326,11 @@ func maybeTweakPrivKey(signDesc *input.SignDescriptor,
 	switch {
 
 	case signDesc.SingleTweak != nil:
-		retPriv = input.TweakPrivKey(privKey,
+		retPriv = tweaks.TweakPrivKey(privKey,
 			signDesc.SingleTweak)
 
 	case signDesc.DoubleTweak != nil:
-		retPriv = input.DeriveRevocationPrivKey(privKey,
+		retPriv = tweaks.DeriveRevocationPrivKey(privKey,
 			signDesc.DoubleTweak)
 
 	default:

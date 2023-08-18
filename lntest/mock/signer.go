@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -121,10 +122,10 @@ func (s *SingleSigner) SignOutputRaw(tx *wire.MsgTx,
 
 	switch {
 	case signDesc.SingleTweak != nil:
-		privKey = input.TweakPrivKey(privKey,
+		privKey = tweaks.TweakPrivKey(privKey,
 			signDesc.SingleTweak)
 	case signDesc.DoubleTweak != nil:
-		privKey = input.DeriveRevocationPrivKey(privKey,
+		privKey = tweaks.DeriveRevocationPrivKey(privKey,
 			signDesc.DoubleTweak)
 	}
 
@@ -147,10 +148,10 @@ func (s *SingleSigner) ComputeInputScript(tx *wire.MsgTx,
 
 	switch {
 	case signDesc.SingleTweak != nil:
-		privKey = input.TweakPrivKey(privKey,
+		privKey = tweaks.TweakPrivKey(privKey,
 			signDesc.SingleTweak)
 	case signDesc.DoubleTweak != nil:
-		privKey = input.DeriveRevocationPrivKey(privKey,
+		privKey = tweaks.DeriveRevocationPrivKey(privKey,
 			signDesc.DoubleTweak)
 	}
 

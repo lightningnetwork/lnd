@@ -19,7 +19,7 @@ import (
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
-	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1369,7 +1369,7 @@ func (c *OpenChannel) SecondCommitmentPoint() (*btcec.PublicKey, error) {
 		return nil, err
 	}
 
-	return input.ComputeCommitmentPoint(revocation[:]), nil
+	return tweaks.ComputeCommitmentPoint(revocation[:]), nil
 }
 
 // ChanSyncMsg returns the ChannelReestablish message that should be sent upon
@@ -1450,7 +1450,7 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 		NextLocalCommitHeight:  nextLocalCommitHeight,
 		RemoteCommitTailHeight: remoteChainTipHeight,
 		LastRemoteCommitSecret: lastCommitSecret,
-		LocalUnrevokedCommitPoint: input.ComputeCommitmentPoint(
+		LocalUnrevokedCommitPoint: tweaks.ComputeCommitmentPoint(
 			currentCommitSecret[:],
 		),
 	}, nil

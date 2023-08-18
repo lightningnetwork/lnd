@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
@@ -109,7 +110,7 @@ func (i testInputType) output(t *testing.T,
 		require.NoError(t, err)
 
 	case tweakedP2WKH:
-		privKey = input.TweakPrivKey(privKey, testTweakSingle)
+		privKey = tweaks.TweakPrivKey(privKey, testTweakSingle)
 
 		h := btcutil.Hash160(privKey.PubKey().SerializeCompressed())
 		addr, err = btcutil.NewAddressWitnessPubKeyHash(h, netParams)
@@ -134,7 +135,7 @@ func (i testInputType) output(t *testing.T,
 		// We're simulating a delay-to-self script which we're going to
 		// spend through the time lock path. We don't actually need to
 		// know the private key of the remote revocation base key.
-		revokeKey := input.DeriveRevocationPubkey(
+		revokeKey := tweaks.DeriveRevocationPubkey(
 			remoteRevocationBasePubKey, testCommitPoint,
 		)
 		witnessScript, err = input.CommitScriptToSelf(
@@ -152,7 +153,7 @@ func (i testInputType) output(t *testing.T,
 		// path. In that case the self key is the other party's self key
 		// and, we only know the revocation base private key and commit
 		// secret.
-		revokeKey := input.DeriveRevocationPubkey(
+		revokeKey := tweaks.DeriveRevocationPubkey(
 			privKey.PubKey(), testCommitPoint,
 		)
 		witnessScript, err = input.CommitScriptToSelf(

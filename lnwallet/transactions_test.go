@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -570,22 +571,22 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	commitSecret, commitPoint := btcec.PrivKeyFromBytes(
 		revocationPreimage,
 	)
-	revokePubKey := input.DeriveRevocationPubkey(bobKeyPub, commitPoint)
+	revokePubKey := tweaks.DeriveRevocationPubkey(bobKeyPub, commitPoint)
 
-	aliceDelayKey := input.TweakPubKey(aliceKeyPub, commitPoint)
+	aliceDelayKey := tweaks.TweakPubKey(aliceKeyPub, commitPoint)
 
 	// Bob will have the channel "force closed" on him, so for the sake of
 	// our commitments, if it's tweakless, his key will just be his regular
 	// pubkey.
-	bobPayKey := input.TweakPubKey(bobKeyPub, commitPoint)
+	bobPayKey := tweaks.TweakPubKey(bobKeyPub, commitPoint)
 	channelType := channeldb.SingleFunderBit
 	if tweakless {
 		bobPayKey = bobKeyPub
 		channelType = channeldb.SingleFunderTweaklessBit
 	}
 
-	remoteCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
-	localCommitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
+	remoteCommitTweak := tweaks.SingleTweakBytes(commitPoint, aliceKeyPub)
+	localCommitTweak := tweaks.SingleTweakBytes(commitPoint, bobKeyPub)
 
 	aliceSelfOutputSigner := &input.MockSigner{
 		Privkeys: []*btcec.PrivateKey{aliceKeyPriv},
@@ -885,14 +886,14 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	remotePreimageProducer := &mockProducer{
 		secret: chainhash.Hash(tc.localPerCommitSecret),
 	}
-	remoteCommitPoint := input.ComputeCommitmentPoint(
+	remoteCommitPoint := tweaks.ComputeCommitmentPoint(
 		tc.localPerCommitSecret[:],
 	)
 
 	localPreimageProducer := &mockProducer{
 		secret: chainhash.Hash(tc.localPerCommitSecret),
 	}
-	localCommitPoint := input.ComputeCommitmentPoint(
+	localCommitPoint := tweaks.ComputeCommitmentPoint(
 		tc.localPerCommitSecret[:],
 	)
 

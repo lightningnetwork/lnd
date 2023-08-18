@@ -9,6 +9,7 @@ import (
 	mig26 "github.com/lightningnetwork/lnd/channeldb/migration26"
 	mig "github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 )
 
 // CommitmentKeyRing holds all derived keys needed to construct commitment and
@@ -192,16 +193,16 @@ func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 	keyRing := &CommitmentKeyRing{
 		CommitPoint: commitPoint,
 
-		LocalCommitKeyTweak: input.SingleTweakBytes(
+		LocalCommitKeyTweak: tweaks.SingleTweakBytes(
 			commitPoint, localBasePoint.PubKey,
 		),
-		LocalHtlcKeyTweak: input.SingleTweakBytes(
+		LocalHtlcKeyTweak: tweaks.SingleTweakBytes(
 			commitPoint, localChanCfg.HtlcBasePoint.PubKey,
 		),
-		LocalHtlcKey: input.TweakPubKey(
+		LocalHtlcKey: tweaks.TweakPubKey(
 			localChanCfg.HtlcBasePoint.PubKey, commitPoint,
 		),
-		RemoteHtlcKey: input.TweakPubKey(
+		RemoteHtlcKey: tweaks.TweakPubKey(
 			remoteChanCfg.HtlcBasePoint.PubKey, commitPoint,
 		),
 	}
@@ -228,8 +229,8 @@ func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 
 	// With the base points assigned, we can now derive the actual keys
 	// using the base point, and the current commitment tweak.
-	keyRing.ToLocalKey = input.TweakPubKey(toLocalBasePoint, commitPoint)
-	keyRing.RevocationKey = input.DeriveRevocationPubkey(
+	keyRing.ToLocalKey = tweaks.TweakPubKey(toLocalBasePoint, commitPoint)
+	keyRing.RevocationKey = tweaks.DeriveRevocationPubkey(
 		revocationBasePoint, commitPoint,
 	)
 
@@ -245,7 +246,7 @@ func DeriveCommitmentKeys(commitPoint *btcec.PublicKey,
 			keyRing.LocalCommitKeyTweak = nil
 		}
 	} else {
-		keyRing.ToRemoteKey = input.TweakPubKey(
+		keyRing.ToRemoteKey = tweaks.TweakPubKey(
 			toRemoteBasePoint, commitPoint,
 		)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -208,7 +209,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	if err != nil {
 		return nil, nil, err
 	}
-	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
+	bobCommitPoint := tweaks.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeys[0].Serialize())
 	if err != nil {
@@ -219,7 +220,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	if err != nil {
 		return nil, nil, err
 	}
-	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
+	aliceCommitPoint := tweaks.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(
 		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,

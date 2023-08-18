@@ -26,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -216,7 +217,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	if err != nil {
 		return nil, nil, err
 	}
-	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
+	bobCommitPoint := tweaks.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeyPriv.Serialize())
 	if err != nil {
@@ -227,7 +228,7 @@ func createTestChannel(t *testing.T, alicePrivKey, bobPrivKey []byte,
 	if err != nil {
 		return nil, nil, err
 	}
-	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
+	aliceCommitPoint := tweaks.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		aliceAmount, bobAmount, &aliceCfg, &bobCfg, aliceCommitPoint,

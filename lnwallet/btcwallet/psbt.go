@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -465,14 +466,14 @@ func maybeTweakPrivKeyPsbt(unknowns []*psbt.Unknown,
 	// spec).
 	for _, u := range unknowns {
 		if bytes.Equal(u.Key, PsbtKeyTypeInputSignatureTweakSingle) {
-			return input.TweakPrivKey(privKey, u.Value)
+			return tweaks.TweakPrivKey(privKey, u.Value)
 		}
 
 		if bytes.Equal(u.Key, PsbtKeyTypeInputSignatureTweakDouble) {
 			doubleTweakKey, _ := btcec.PrivKeyFromBytes(
 				u.Value,
 			)
-			return input.DeriveRevocationPrivKey(
+			return tweaks.DeriveRevocationPrivKey(
 				privKey, doubleTweakKey,
 			)
 		}

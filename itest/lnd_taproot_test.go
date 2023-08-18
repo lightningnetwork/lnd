@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
@@ -404,7 +405,7 @@ func testTaprootSignOutputRawKeySpendBip86(ht *lntest.HarnessTest,
 	// We want to make sure we can still use a tweaked key, even if it ends
 	// up being essentially double tweaked because of the taproot root hash.
 	dummyKeyTweak := sha256.Sum256([]byte("this is a key tweak"))
-	internalKey = input.TweakPubKeyWithTweak(internalKey, dummyKeyTweak[:])
+	internalKey = tweaks.TweakPubKeyWithTweak(internalKey, dummyKeyTweak[:])
 
 	// Our taproot key is a BIP0086 key spend only construction that just
 	// commits to the internal key and no root hash.
@@ -500,7 +501,7 @@ func testTaprootSignOutputRawKeySpendRootHash(ht *lntest.HarnessTest,
 	// We want to make sure we can still use a tweaked key, even if it ends
 	// up being essentially double tweaked because of the taproot root hash.
 	dummyKeyTweak := sha256.Sum256([]byte("this is a key tweak"))
-	internalKey = input.TweakPubKeyWithTweak(internalKey, dummyKeyTweak[:])
+	internalKey = tweaks.TweakPubKeyWithTweak(internalKey, dummyKeyTweak[:])
 
 	// Let's create a taproot script output now. This is a hash lock with a
 	// simple preimage of "foobar".

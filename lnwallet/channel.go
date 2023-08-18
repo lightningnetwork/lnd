@@ -25,6 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -1745,7 +1746,7 @@ func (lc *LightningChannel) restoreCommitState(
 	if err != nil {
 		return err
 	}
-	localCommitPoint := input.ComputeCommitmentPoint(ourRevPreImage[:])
+	localCommitPoint := tweaks.ComputeCommitmentPoint(ourRevPreImage[:])
 	remoteCommitPoint := lc.channelState.RemoteCurrentRevocation
 
 	// With the revocation state reconstructed, we can now convert the disk
@@ -4577,7 +4578,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSig lnwire.Sig,
 	if err != nil {
 		return err
 	}
-	commitPoint := input.ComputeCommitmentPoint(commitSecret[:])
+	commitPoint := tweaks.ComputeCommitmentPoint(commitSecret[:])
 	keyRing := DeriveCommitmentKeys(
 		commitPoint, true, lc.channelState.ChanType,
 		&lc.channelState.LocalChanCfg, &lc.channelState.RemoteChanCfg,
@@ -4923,7 +4924,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// revealed secret to derive a revocation key with our revocation base
 	// point, then it matches the current revocation of the remote party.
 	currentCommitPoint := lc.channelState.RemoteCurrentRevocation
-	derivedCommitPoint := input.ComputeCommitmentPoint(revMsg.Revocation[:])
+	derivedCommitPoint := tweaks.ComputeCommitmentPoint(revMsg.Revocation[:])
 	if !derivedCommitPoint.IsEqual(currentCommitPoint) {
 		return nil, nil, nil, nil, fmt.Errorf("revocation key mismatch")
 	}
@@ -5190,7 +5191,7 @@ func (lc *LightningChannel) NextRevocationKey() (*btcec.PublicKey, error) {
 		return nil, err
 	}
 
-	return input.ComputeCommitmentPoint(revocation[:]), nil
+	return tweaks.ComputeCommitmentPoint(revocation[:]), nil
 }
 
 // InitNextRevocation inserts the passed commitment point as the _next_
@@ -6188,7 +6189,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		return nil, err
 	}
 
-	localDelayTweak := input.SingleTweakBytes(
+	localDelayTweak := tweaks.SingleTweakBytes(
 		keyRing.CommitPoint, localChanCfg.DelayBasePoint.PubKey,
 	)
 	return &OutgoingHtlcResolution{
@@ -6325,7 +6326,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 		return nil, err
 	}
 
-	localDelayTweak := input.SingleTweakBytes(
+	localDelayTweak := tweaks.SingleTweakBytes(
 		keyRing.CommitPoint, localChanCfg.DelayBasePoint.PubKey,
 	)
 	return &IncomingHtlcResolution{
@@ -6560,7 +6561,7 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 	if err != nil {
 		return nil, err
 	}
-	commitPoint := input.ComputeCommitmentPoint(revocation[:])
+	commitPoint := tweaks.ComputeCommitmentPoint(revocation[:])
 	keyRing := DeriveCommitmentKeys(
 		commitPoint, true, chanState.ChanType,
 		&chanState.LocalChanCfg, &chanState.RemoteChanCfg,
@@ -7235,7 +7236,7 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 		return nil, err
 	}
 
-	revocationMsg.NextRevocationKey = input.ComputeCommitmentPoint(nextCommitSecret[:])
+	revocationMsg.NextRevocationKey = tweaks.ComputeCommitmentPoint(nextCommitSecret[:])
 	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(
 		&lc.channelState.FundingOutpoint)
 

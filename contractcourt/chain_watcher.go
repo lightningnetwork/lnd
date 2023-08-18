@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
 
@@ -386,7 +387,7 @@ func (c *chainWatcher) handleUnknownLocalState(
 	if err != nil {
 		return false, err
 	}
-	commitPoint := input.ComputeCommitmentPoint(commitSecret[:])
+	commitPoint := tweaks.ComputeCommitmentPoint(commitSecret[:])
 
 	// Now that we have the commit point, we'll derive the tweaked local
 	// and remote keys for this state. We use our point as only we can

@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -2228,7 +2229,7 @@ func createInitChannels(t *testing.T, revocationWindow int) (
 	if err != nil {
 		return nil, nil, err
 	}
-	bobCommitPoint := input.ComputeCommitmentPoint(bobFirstRevoke[:])
+	bobCommitPoint := tweaks.ComputeCommitmentPoint(bobFirstRevoke[:])
 
 	aliceRoot, err := chainhash.NewHash(aliceKeyPriv.Serialize())
 	if err != nil {
@@ -2239,7 +2240,7 @@ func createInitChannels(t *testing.T, revocationWindow int) (
 	if err != nil {
 		return nil, nil, err
 	}
-	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
+	aliceCommitPoint := tweaks.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
 	aliceCommitTx, bobCommitTx, err := lnwallet.CreateCommitmentTxns(
 		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,

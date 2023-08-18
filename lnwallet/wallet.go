@@ -22,6 +22,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
@@ -1339,7 +1340,7 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	if err != nil {
 		return err
 	}
-	reservation.ourContribution.FirstCommitmentPoint = input.ComputeCommitmentPoint(
+	reservation.ourContribution.FirstCommitmentPoint = tweaks.ComputeCommitmentPoint(
 		firstPreimage[:],
 	)
 

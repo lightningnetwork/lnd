@@ -10,7 +10,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -346,7 +346,7 @@ func TestChainWatcherDataLossProtect(t *testing.T) {
 			// The resolution should have also read the DLP point
 			// we stored above, and used that to derive their sweep
 			// key for this output.
-			sweepTweak := input.SingleTweakBytes(
+			sweepTweak := tweaks.SingleTweakBytes(
 				dlpPoint,
 				aliceChannel.State().LocalChanCfg.PaymentBasePoint.PubKey,
 			)

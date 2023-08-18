@@ -2532,7 +2532,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				PkScript: ourScript.PkScript(),
 				Value:    ourAmt,
 			},
-			HashType: txscript.SigHashAll,
+			HashType: sweepSigHash(chanState.ChanType),
 		}
 
 		// For taproot channels, we'll make sure to set the script path
@@ -2579,7 +2579,7 @@ func NewBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 				PkScript: theirScript.PkScript(),
 				Value:    theirAmt,
 			},
-			HashType: txscript.SigHashAll,
+			HashType: sweepSigHash(chanState.ChanType),
 		}
 
 		// For taproot channels, the remote output (the revoked output)
@@ -2661,7 +2661,7 @@ func createHtlcRetribution(chanState *channeldb.OpenChannel,
 			PkScript: scriptInfo.PkScript(),
 			Value:    int64(htlc.Amt),
 		},
-		HashType: txscript.SigHashAll,
+		HashType: sweepSigHash(chanState.ChanType),
 	}
 
 	// For taproot HTLC outputs, we need to set the sign method to key
@@ -6479,7 +6479,7 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 					Value:    localBalance,
 					PkScript: selfScript.PkScript(),
 				},
-				HashType: txscript.SigHashAll,
+				HashType: sweepSigHash(chanState.ChanType),
 			},
 			MaturityDelay: maturityDelay,
 		}
@@ -6503,8 +6503,6 @@ func NewUnilateralCloseSummary(chanState *channeldb.OpenChannel, signer input.Si
 			if err != nil {
 				return nil, err
 			}
-
-			// TODO(roasbeef): put ctrl block in resolution?
 		}
 	}
 
@@ -6714,7 +6712,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				PkScript: htlcPkScript,
 				Value:    int64(htlc.Amt.ToSatoshis()),
 			},
-			HashType: txscript.SigHashAll,
+			HashType: sweepSigHash(chanType),
 		}
 
 		scriptTree, ok := htlcScriptInfo.(input.TapscriptDescriptor)
@@ -6774,7 +6772,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 		SingleTweak:       keyRing.LocalHtlcKeyTweak,
 		WitnessScript:     htlcWitnessScript,
 		Output:            txOut,
-		HashType:          txscript.SigHashAll,
+		HashType:          sweepSigHash(chanType),
 		PrevOutputFetcher: prevFetcher,
 		SigHashes:         hashCache,
 		InputIndex:        0,
@@ -6790,9 +6788,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	sigHashType := HtlcSigHashType(chanType)
 	var timeoutWitness wire.TxWitness
 	if scriptTree, ok := htlcScriptInfo.(input.TapscriptDescriptor); ok {
-		// TODO(roasbeef): make sure default elsewhere
 		timeoutSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
-		timeoutSignDesc.HashType = txscript.SigHashDefault
 
 		timeoutWitness, err = input.SenderHTLCScriptTaprootTimeout(
 			htlcSig, sigHashType, signer, &timeoutSignDesc,
@@ -6898,7 +6894,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				PkScript: htlcSweepScript.PkScript(),
 				Value:    int64(secondLevelOutputAmt),
 			},
-			HashType:     txscript.SigHashAll,
+			HashType:     sweepSigHash(chanType),
 			SignMethod:   signMethod,
 			ControlBlock: ctrlBlock,
 		},
@@ -6959,7 +6955,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 				PkScript: htlcPkScript,
 				Value:    int64(htlc.Amt.ToSatoshis()),
 			},
-			HashType: txscript.SigHashAll,
+			HashType: sweepSigHash(chanType),
 		}
 
 		//nolint:lll
@@ -7011,7 +7007,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 		SingleTweak:       keyRing.LocalHtlcKeyTweak,
 		WitnessScript:     htlcWitnessScript,
 		Output:            txOut,
-		HashType:          txscript.SigHashAll,
+		HashType:          sweepSigHash(chanType),
 		PrevOutputFetcher: prevFetcher,
 		SigHashes:         hashCache,
 		InputIndex:        0,
@@ -7029,7 +7025,6 @@ func newIncomingHtlcResolution(signer input.Signer,
 	var successWitness wire.TxWitness
 	sigHashType := HtlcSigHashType(chanType)
 	if scriptTree, ok := scriptInfo.(input.TapscriptDescriptor); ok {
-		successSignDesc.HashType = txscript.SigHashDefault
 		successSignDesc.SignMethod = input.TaprootScriptSpendSignMethod
 
 		successWitness, err = input.ReceiverHTLCScriptTaprootRedeem(
@@ -7103,8 +7098,6 @@ func newIncomingHtlcResolution(signer input.Signer,
 			return nil, err
 		}
 
-		// TODO(roasbeef): conslidate logic to reduce vertical noise
-
 		htlcSweepScript = secondLevelScriptTree
 	}
 
@@ -7136,7 +7129,7 @@ func newIncomingHtlcResolution(signer input.Signer,
 				PkScript: htlcSweepScript.PkScript(),
 				Value:    int64(secondLevelOutputAmt),
 			},
-			HashType:     txscript.SigHashAll,
+			HashType:     sweepSigHash(chanType),
 			SignMethod:   signMethod,
 			ControlBlock: ctrlBlock,
 		},
@@ -7424,15 +7417,13 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 					PkScript: delayOut.PkScript,
 					Value:    localBalance,
 				},
-				HashType: txscript.SigHashAll,
+				HashType: sweepSigHash(chanState.ChanType),
 			},
 			MaturityDelay: csvTimeout,
 		}
 
 		// For taproot channels, we'll need to set some additional
 		// fields to ensure the output can be swept.
-		//
-		// TODO(roasbef): abstract into new func
 		scriptTree, ok := toLocalScript.(input.TapscriptDescriptor)
 		if ok {
 			commitResolution.SelfOutputSignDesc.SignMethod =
@@ -7876,14 +7867,13 @@ func NewAnchorResolution(chanState *channeldb.OpenChannel,
 			PkScript: localAnchor.PkScript(),
 			Value:    int64(anchorSize),
 		},
-		HashType: txscript.SigHashAll,
+		HashType: sweepSigHash(chanState.ChanType),
 	}
 
 	// For taproot outputs, we'll need to ensure that the proper sign
 	// method is used, and the tweak as well.
 	if scriptTree, ok := localAnchor.(input.TapscriptDescriptor); ok {
 		signDesc.SignMethod = input.TaprootKeySpendSignMethod
-		signDesc.HashType = txscript.SigHashDefault
 
 		//nolint:lll
 		signDesc.PrevOutputFetcher = txscript.NewCannedPrevOutputFetcher(

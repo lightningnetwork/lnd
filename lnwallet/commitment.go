@@ -400,6 +400,17 @@ func HtlcSecondLevelInputSequence(chanType channeldb.ChannelType) uint32 {
 	return 0
 }
 
+// sweepSigHash returns the sign descriptor to use when signing a sweep
+// transaction. For taproot channels, we'll use this to always sweep with
+// sighash default.
+func sweepSigHash(chanType channeldb.ChannelType) txscript.SigHashType {
+	if chanType.IsTaproot() {
+		return txscript.SigHashDefault
+	}
+
+	return txscript.SigHashAll
+}
+
 // SecondLevelHtlcScript derives the appropriate second level HTLC script based
 // on the channel's commitment type. It is the uniform script that's used as the
 // output for the second-level HTLC transactions. The second level transaction

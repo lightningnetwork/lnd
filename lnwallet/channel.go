@@ -6702,6 +6702,9 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	if !localCommit {
 		// With the script generated, we can completely populated the
 		// SignDescriptor needed to sweep the output.
+		prevFetcher := txscript.NewCannedPrevOutputFetcher(
+			htlcPkScript, int64(htlc.Amt.ToSatoshis()),
+		)
 		signDesc := input.SignDescriptor{
 			KeyDesc:       localChanCfg.HtlcBasePoint,
 			SingleTweak:   keyRing.LocalHtlcKeyTweak,
@@ -6710,7 +6713,8 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				PkScript: htlcPkScript,
 				Value:    int64(htlc.Amt.ToSatoshis()),
 			},
-			HashType: sweepSigHash(chanType),
+			HashType:          sweepSigHash(chanType),
+			PrevOutputFetcher: prevFetcher,
 		}
 
 		scriptTree, ok := htlcScriptInfo.(input.TapscriptDescriptor)
@@ -6892,7 +6896,11 @@ func newOutgoingHtlcResolution(signer input.Signer,
 				PkScript: htlcSweepScript.PkScript(),
 				Value:    int64(secondLevelOutputAmt),
 			},
-			HashType:     sweepSigHash(chanType),
+			HashType: sweepSigHash(chanType),
+			PrevOutputFetcher: txscript.NewCannedPrevOutputFetcher(
+				htlcSweepScript.PkScript(),
+				int64(secondLevelOutputAmt),
+			),
 			SignMethod:   signMethod,
 			ControlBlock: ctrlBlock,
 		},
@@ -6945,6 +6953,9 @@ func newIncomingHtlcResolution(signer input.Signer,
 	if !localCommit {
 		// With the script generated, we can completely populated the
 		// SignDescriptor needed to sweep the output.
+		prevFetcher := txscript.NewCannedPrevOutputFetcher(
+			htlcPkScript, int64(htlc.Amt.ToSatoshis()),
+		)
 		signDesc := input.SignDescriptor{
 			KeyDesc:       localChanCfg.HtlcBasePoint,
 			SingleTweak:   keyRing.LocalHtlcKeyTweak,
@@ -6953,7 +6964,8 @@ func newIncomingHtlcResolution(signer input.Signer,
 				PkScript: htlcPkScript,
 				Value:    int64(htlc.Amt.ToSatoshis()),
 			},
-			HashType: sweepSigHash(chanType),
+			HashType:          sweepSigHash(chanType),
+			PrevOutputFetcher: prevFetcher,
 		}
 
 		//nolint:lll
@@ -7127,7 +7139,11 @@ func newIncomingHtlcResolution(signer input.Signer,
 				PkScript: htlcSweepScript.PkScript(),
 				Value:    int64(secondLevelOutputAmt),
 			},
-			HashType:     sweepSigHash(chanType),
+			HashType: sweepSigHash(chanType),
+			PrevOutputFetcher: txscript.NewCannedPrevOutputFetcher(
+				htlcSweepScript.PkScript(),
+				int64(secondLevelOutputAmt),
+			),
 			SignMethod:   signMethod,
 			ControlBlock: ctrlBlock,
 		},

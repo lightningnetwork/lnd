@@ -819,6 +819,15 @@ func TestForceClose(t *testing.T) {
 			anchorAmt:            anchorSize * 2,
 		})
 	})
+	t.Run("taproot", func(t *testing.T) { //nolint:paralleltest
+		testForceClose(t, &forceCloseTestCase{
+			chanType: channeldb.SingleFunderTweaklessBit |
+				channeldb.AnchorOutputsBit |
+				channeldb.SimpleTaprootFeatureBit,
+			expectedCommitWeight: input.TaprootCommitWeight,
+			anchorAmt:            anchorSize * 2,
+		})
+	})
 }
 
 type forceCloseTestCase struct {
@@ -982,13 +991,14 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// the multi-sig clause within the output on the commitment transaction
 	// that produces this HTLC.
 	timeoutTx := htlcResolution.SignedTimeoutTx
+	prevOutputFetcher := txscript.NewCannedPrevOutputFetcher(
+		senderHtlcPkScript, int64(htlcAmount.ToSatoshis()),
+	)
+	hashCache := txscript.NewTxSigHashes(timeoutTx, prevOutputFetcher)
 	vm, err := txscript.NewEngine(
 		senderHtlcPkScript,
 		timeoutTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, int64(htlcAmount.ToSatoshis()),
-		txscript.NewCannedPrevOutputFetcher(
-			senderHtlcPkScript, int64(htlcAmount.ToSatoshis()),
-		),
+		hashCache, int64(htlcAmount.ToSatoshis()), prevOutputFetcher,
 	)
 	require.NoError(t, err, "unable to create engine")
 	if err := vm.Execute(); err != nil {
@@ -1009,22 +1019,37 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 		Value:    htlcResolution.SweepSignDesc.Output.Value,
 	})
 	htlcResolution.SweepSignDesc.InputIndex = 0
-	sweepTx.TxIn[0].Witness, err = input.HtlcSpendSuccess(aliceChannel.Signer,
-		&htlcResolution.SweepSignDesc, sweepTx,
-		uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay))
+
+	csvDelay := uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay)
+	if testCase.chanType.IsTaproot() {
+		sweepTx.TxIn[0].Sequence = input.LockTimeToSequence(
+			false, csvDelay,
+		)
+		sweepTx.TxIn[0].Witness, err = input.TaprootHtlcSpendSuccess(
+			aliceChannel.Signer, &htlcResolution.SweepSignDesc,
+			sweepTx, nil, nil,
+		)
+	} else {
+		sweepTx.TxIn[0].Witness, err = input.HtlcSpendSuccess(
+			aliceChannel.Signer, &htlcResolution.SweepSignDesc,
+			sweepTx, csvDelay,
+		)
+	}
 	require.NoError(t, err, "unable to gen witness for timeout output")
 
 	// With the witness fully populated for the success spend from the
 	// second-level transaction, we ensure that the scripts properly
 	// validate given the information within the htlc resolution struct.
+	prevOutFetcher := txscript.NewCannedPrevOutputFetcher(
+		htlcResolution.SweepSignDesc.Output.PkScript,
+		htlcResolution.SweepSignDesc.Output.Value,
+	)
+	hashCache = txscript.NewTxSigHashes(sweepTx, prevOutFetcher)
 	vm, err = txscript.NewEngine(
 		htlcResolution.SweepSignDesc.Output.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, htlcResolution.SweepSignDesc.Output.Value,
-		txscript.NewCannedPrevOutputFetcher(
-			htlcResolution.SweepSignDesc.Output.PkScript,
-			htlcResolution.SweepSignDesc.Output.Value,
-		),
+		hashCache, htlcResolution.SweepSignDesc.Output.Value,
+		prevOutFetcher,
 	)
 	require.NoError(t, err, "unable to create engine")
 	if err := vm.Execute(); err != nil {
@@ -1051,14 +1076,23 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 	// preimage manually. This is usually done by the contract resolver
 	// before publication.
 	successTx := inHtlcResolution.SignedSuccessTx
-	successTx.TxIn[0].Witness[3] = preimageBob[:]
+
+	// For taproot channels, the preimage goes into a slightly different
+	// location.
+	if testCase.chanType.IsTaproot() {
+		successTx.TxIn[0].Witness[2] = preimageBob[:]
+	} else {
+		successTx.TxIn[0].Witness[3] = preimageBob[:]
+	}
+
+	prevOuts := txscript.NewCannedPrevOutputFetcher(
+		receiverHtlcScript, int64(htlcAmount.ToSatoshis()),
+	)
+	hashCache = txscript.NewTxSigHashes(successTx, prevOuts)
 	vm, err = txscript.NewEngine(
 		receiverHtlcScript,
 		successTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, int64(htlcAmount.ToSatoshis()),
-		txscript.NewCannedPrevOutputFetcher(
-			receiverHtlcScript, int64(htlcAmount.ToSatoshis()),
-		),
+		hashCache, int64(htlcAmount.ToSatoshis()), prevOuts,
 	)
 	require.NoError(t, err, "unable to create engine")
 	if err := vm.Execute(); err != nil {
@@ -1076,21 +1110,35 @@ func testForceClose(t *testing.T, testCase *forceCloseTestCase) {
 		Value:    inHtlcResolution.SweepSignDesc.Output.Value,
 	})
 	inHtlcResolution.SweepSignDesc.InputIndex = 0
-	sweepTx.TxIn[0].Witness, err = input.HtlcSpendSuccess(aliceChannel.Signer,
-		&inHtlcResolution.SweepSignDesc, sweepTx,
-		uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay))
+	if testCase.chanType.IsTaproot() {
+		sweepTx.TxIn[0].Sequence = input.LockTimeToSequence(
+			false, csvDelay,
+		)
+		sweepTx.TxIn[0].Witness, err = input.TaprootHtlcSpendSuccess(
+			aliceChannel.Signer, &inHtlcResolution.SweepSignDesc,
+			sweepTx, nil, nil,
+		)
+	} else {
+		sweepTx.TxIn[0].Witness, err = input.HtlcSpendSuccess(
+			aliceChannel.Signer, &inHtlcResolution.SweepSignDesc,
+			sweepTx,
+			uint32(aliceChannel.channelState.LocalChanCfg.CsvDelay),
+		)
+	}
 	require.NoError(t, err, "unable to gen witness for timeout output")
 
 	// The spend we create above spending the second level HTLC output
 	// should validate without any issues.
+	prevOuts = txscript.NewCannedPrevOutputFetcher(
+		inHtlcResolution.SweepSignDesc.Output.PkScript,
+		inHtlcResolution.SweepSignDesc.Output.Value,
+	)
+	hashCache = txscript.NewTxSigHashes(sweepTx, prevOuts)
 	vm, err = txscript.NewEngine(
 		inHtlcResolution.SweepSignDesc.Output.PkScript,
 		sweepTx, 0, txscript.StandardVerifyFlags, nil,
-		nil, inHtlcResolution.SweepSignDesc.Output.Value,
-		txscript.NewCannedPrevOutputFetcher(
-			inHtlcResolution.SweepSignDesc.Output.PkScript,
-			inHtlcResolution.SweepSignDesc.Output.Value,
-		),
+		hashCache, inHtlcResolution.SweepSignDesc.Output.Value,
+		prevOuts,
 	)
 	require.NoError(t, err, "unable to create engine")
 	if err := vm.Execute(); err != nil {

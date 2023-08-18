@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -74,8 +75,8 @@ func (s *SecretKeyRing) SignMessageCompact(_ keychain.KeyLocator,
 
 // SignMessageSchnorr signs the passed message and ignores the KeyDescriptor.
 func (s *SecretKeyRing) SignMessageSchnorr(_ keychain.KeyLocator,
-	msg []byte, doubleHash bool, taprootTweak []byte) (*schnorr.Signature,
-	error) {
+	msg []byte, doubleHash bool, singleTweak, taprootTweak []byte) (
+	*schnorr.Signature, error) {
 
 	var digest []byte
 	if doubleHash {
@@ -85,6 +86,10 @@ func (s *SecretKeyRing) SignMessageSchnorr(_ keychain.KeyLocator,
 	}
 
 	privKey := s.RootKey
+	if len(singleTweak) > 0 {
+		privKey = tweaks.TweakPrivKey(privKey, singleTweak)
+	}
+
 	if len(taprootTweak) > 0 {
 		privKey = txscript.TweakTaprootPrivKey(*privKey, taprootTweak)
 	}

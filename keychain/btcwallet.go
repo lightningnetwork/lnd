@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/lightningnetwork/lnd/input/tweaks"
 )
 
 const (
@@ -462,7 +463,7 @@ func (b *BtcWalletKeyRing) SignMessageCompact(keyLoc KeyLocator,
 //
 // NOTE: This is part of the keychain.MessageSignerRing interface.
 func (b *BtcWalletKeyRing) SignMessageSchnorr(keyLoc KeyLocator,
-	msg []byte, doubleHash bool, taprootTweak []byte) (*schnorr.Signature,
+	msg []byte, doubleHash bool, singleTweak, taprootTweak []byte) (*schnorr.Signature,
 	error) {
 
 	privKey, err := b.DerivePrivKey(KeyDescriptor{
@@ -470,6 +471,10 @@ func (b *BtcWalletKeyRing) SignMessageSchnorr(keyLoc KeyLocator,
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if len(singleTweak) > 0 {
+		privKey = tweaks.TweakPrivKey(privKey, singleTweak)
 	}
 
 	if len(taprootTweak) > 0 {

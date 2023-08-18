@@ -811,10 +811,15 @@
           "type": "boolean",
           "description": "Use Schnorr signature. This option cannot be used with compact format."
         },
+        "schnorr_sig_single_tweak": {
+          "type": "string",
+          "format": "byte",
+          "title": "An optional untagged tweak to apply to the private key _before_ the\ntaptweak, if present. The private key will be tweaked as:\nprivKey + sha256(tweak || pubkey)"
+        },
         "schnorr_sig_tap_tweak": {
           "type": "string",
           "format": "byte",
-          "title": "The optional Taproot tweak bytes to apply to the private key before creating\na Schnorr signature. The private key is tweaked as described in BIP-341:\nprivKey + h_tapTweak(internalKey || tapTweak)"
+          "description": "The optional Taproot tweak bytes to apply to the private key before creating\na Schnorr signature. The private key is tweaked as described in BIP-341:\nprivKey + h_tapTweak(internalKey || tapTweak)\nNote that this tweak is applied _after_ the untagged single tweak, if\npresent."
         }
       }
     },

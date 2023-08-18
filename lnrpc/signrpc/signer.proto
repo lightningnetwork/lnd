@@ -344,9 +344,18 @@ message SignMessageReq {
     bool schnorr_sig = 5;
 
     /*
+    An optional untagged tweak to apply to the private key _before_ the
+    taptweak, if present. The private key will be tweaked as:
+    privKey + sha256(tweak || pubkey)
+    */
+    bytes schnorr_sig_single_tweak = 7;
+
+    /*
     The optional Taproot tweak bytes to apply to the private key before creating
     a Schnorr signature. The private key is tweaked as described in BIP-341:
     privKey + h_tapTweak(internalKey || tapTweak)
+    Note that this tweak is applied _after_ the untagged single tweak, if
+    present.
     */
     bytes schnorr_sig_tap_tweak = 6;
 }

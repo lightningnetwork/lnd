@@ -478,9 +478,15 @@ func (s *UtxoSweeper) feeRateForPreference(
 		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
 			"rate %v, minimum is %v", feeRate, s.relayFeeRate)
 	}
+
+	// If the estimated fee rate is above the maximum allowed fee rate,
+	// default to the max fee rate.
 	if feeRate > s.cfg.MaxFeeRate.FeePerKWeight() {
-		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
-			"rate %v, maximum is %v", feeRate, s.cfg.MaxFeeRate)
+		log.Warnf("Estimated fee rate %v exceeds max allowed fee "+
+			"rate %v, using max fee rate instead", feeRate,
+			s.cfg.MaxFeeRate.FeePerKWeight())
+
+		return s.cfg.MaxFeeRate.FeePerKWeight(), nil
 	}
 
 	return feeRate, nil

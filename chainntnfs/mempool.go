@@ -223,11 +223,19 @@ func (m *MempoolNotifier) findRelevantInputs(tx *btcutil.Tx) (inputsWithTx,
 		}
 		watchedInputs[*op] = details
 
+		// Sanity check the witness stack. If it's not empty, continue
+		// to next iteration.
+		if details.HasSpenderWitness() {
+			continue
+		}
+
 		// Return an error if the witness data is not present in the
 		// spending transaction.
-		if !details.HasSpenderWitness() {
-			return nil, ErrEmptyWitnessStack
-		}
+		Log.Criticalf("Found spending tx for outpoint=%v in mempool, "+
+			"but the transaction %v does not have witness",
+			op, details.SpendingTx.TxHash())
+
+		return nil, ErrEmptyWitnessStack
 	}
 
 	return watchedInputs, nil

@@ -1305,10 +1305,13 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 	// Return an error if the witness data is not present in the spending
 	// transaction.
 	//
-	// TODO(yy): maybe we should do a panic here instead to inform the user
-	// to reindex the bitcoind since it's critical error?
-	// panic("Please re-index your bitcoind...")
+	// NOTE: if the witness stack is empty, we will do a critical log which
+	// shuts down the node.
 	if !details.HasSpenderWitness() {
+		Log.Criticalf("Found spending tx for outpoint=%v, but the "+
+			"transaction %v does not have witness",
+			spendRequest.OutPoint, details.SpendingTx.TxHash())
+
 		return ErrEmptyWitnessStack
 	}
 

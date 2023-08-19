@@ -2131,7 +2131,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 
 		channelType = new(lnwire.ChannelType)
 		fv := lnwire.NewRawFeatureVector(
-			lnwire.SimpleTaprootChannelsRequired,
+			lnwire.SimpleTaprootChannelsRequiredStaging,
 		)
 
 		// TODO(roasbeef): no need for the rest as they're now

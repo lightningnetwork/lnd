@@ -728,7 +728,7 @@ func isTaprootChanType(chanType *lnwire.ChannelType) bool {
 	featVec := lnwire.RawFeatureVector(*chanType)
 
 	return featVec.IsSet(
-		lnwire.SimpleTaprootChannelsRequired,
+		lnwire.SimpleTaprootChannelsRequiredStaging,
 	)
 }
 
@@ -1440,7 +1440,7 @@ func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 			lnwire.ExplicitChannelTypeOptional,
 			lnwire.StaticRemoteKeyOptional,
 			lnwire.AnchorsZeroFeeHtlcTxOptional,
-			lnwire.SimpleTaprootChannelsOptional,
+			lnwire.SimpleTaprootChannelsOptionalStaging,
 		}
 		alice.localFeatures = featureBits
 		alice.remoteFeatures = featureBits
@@ -1558,7 +1558,7 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	t.Parallel()
 
 	taprootChanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
-		lnwire.SimpleTaprootChannelsRequired,
+		lnwire.SimpleTaprootChannelsRequiredStaging,
 	))
 
 	testCases := []struct {
@@ -4290,7 +4290,7 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 		lnwire.ExplicitChannelTypeOptional,
 		lnwire.StaticRemoteKeyOptional,
 		lnwire.AnchorsZeroFeeHtlcTxOptional,
-		lnwire.SimpleTaprootChannelsOptional,
+		lnwire.SimpleTaprootChannelsOptionalStaging,
 	}
 	alice.localFeatures = featureBits
 	alice.remoteFeatures = featureBits
@@ -4306,7 +4306,7 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	if isTaprootChanType(chanType) {
 		channelTypeBits = []lnwire.FeatureBit{
 			lnwire.ZeroConfRequired,
-			lnwire.SimpleTaprootChannelsRequired,
+			lnwire.SimpleTaprootChannelsRequiredStaging,
 		}
 	} else {
 		channelTypeBits = []lnwire.FeatureBit{
@@ -4445,7 +4445,7 @@ func TestFundingManagerZeroConf(t *testing.T) {
 	t.Parallel()
 
 	taprootChanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
-		lnwire.SimpleTaprootChannelsRequired,
+		lnwire.SimpleTaprootChannelsRequiredStaging,
 	))
 
 	testCases := []struct {

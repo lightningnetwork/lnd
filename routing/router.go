@@ -1454,7 +1454,10 @@ func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
 	chanFeatureBits := lnwire.NewFeatureVector(
 		rawFeatures, lnwire.Features,
 	)
-	if chanFeatureBits.HasFeature(lnwire.SimpleTaprootChannelsOptional) {
+	if chanFeatureBits.HasFeature(
+		lnwire.SimpleTaprootChannelsOptionalStaging,
+	) {
+
 		pubKey1, err := btcec.ParsePubKey(bitcoinKey1)
 		if err != nil {
 			return nil, err

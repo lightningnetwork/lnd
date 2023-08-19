@@ -4077,7 +4077,9 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		log.Debugf("Applying taproot feature bit to "+
 			"ChannelAnnouncement for %v", chanID)
 
-		chanAnn.Features.Set(lnwire.SimpleTaprootChannelsRequired)
+		chanAnn.Features.Set(
+			lnwire.SimpleTaprootChannelsRequiredStaging,
+		)
 	}
 
 	// The chanFlags field indicates which directed edge of the channel is

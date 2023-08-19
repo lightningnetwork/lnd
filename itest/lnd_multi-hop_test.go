@@ -2023,6 +2023,12 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 		ZeroConf:       zeroConf,
 	}
 
+	// If the channel type is taproot, then use an explicit channel type to
+	// open it.
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		aliceParams.CommitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
+	}
+
 	// We'll create a channel from Bob to Carol. After this channel is
 	// open, our topology looks like:  A -> B -> C.
 	var bobFundingShim *lnrpc.FundingShim
@@ -2039,6 +2045,12 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 		CommitmentType: c,
 		FundingShim:    bobFundingShim,
 		ZeroConf:       zeroConf,
+	}
+
+	// If the channel type is taproot, then use an explicit channel type to
+	// open it.
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		bobParams.CommitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
 	}
 
 	var (

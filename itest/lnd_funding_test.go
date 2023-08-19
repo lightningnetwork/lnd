@@ -37,8 +37,6 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	}
 
-	// TODO(roasbeef): only testing implicit negotiation not also explicit?
-
 	// testFunding is a function closure that takes Carol and Dave's
 	// commitment types and test the funding flow.
 	testFunding := func(ht *lntest.HarnessTest, carolCommitType,
@@ -71,8 +69,28 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 			privateChan = true
 		}
 
+		// If carol wants taproot, but dave wants something
+		// else, then we'll assert that the channel negotiation
+		// attempt fails.
+		if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT &&
+			daveCommitType != lnrpc.CommitmentType_SIMPLE_TAPROOT {
+
+			expectedErr := fmt.Errorf("requested channel type " +
+				"not supported")
+			amt := funding.MaxBtcFundingAmount
+			ht.OpenChannelAssertErr(
+				carol, dave, lntest.OpenChannelParams{
+					Private:        privateChan,
+					Amt:            amt,
+					CommitmentType: carolCommitType,
+				}, expectedErr,
+			)
+
+			return
+		}
+
 		carolChan, daveChan, closeChan := basicChannelFundingTest(
-			ht, carol, dave, nil, privateChan,
+			ht, carol, dave, nil, privateChan, &carolCommitType,
 		)
 
 		// Both nodes should report the same commitment
@@ -155,6 +173,7 @@ test:
 			testName := fmt.Sprintf(
 				"carol_commit=%v,dave_commit=%v", cc, dc,
 			)
+
 			success := ht.Run(testName, func(t *testing.T) {
 				st := ht.Subtest(t)
 				testFunding(st, cc, dc)
@@ -172,8 +191,8 @@ test:
 // then return a function closure that should be called to assert proper
 // channel closure.
 func basicChannelFundingTest(ht *lntest.HarnessTest,
-	alice, bob *node.HarnessNode,
-	fundingShim *lnrpc.FundingShim, privateChan bool) (*lnrpc.Channel,
+	alice, bob *node.HarnessNode, fundingShim *lnrpc.FundingShim,
+	privateChan bool, commitType *lnrpc.CommitmentType) (*lnrpc.Channel,
 	*lnrpc.Channel, func()) {
 
 	chanAmt := funding.MaxBtcFundingAmount
@@ -206,6 +225,16 @@ func basicChannelFundingTest(ht *lntest.HarnessTest,
 		ht.AssertChannelBalanceResp(node, newResp)
 	}
 
+	// For taproot channels, the only way we can negotiate is using the
+	// explicit commitment type. This allows us to continue supporting the
+	// existing min version comparison for implicit negotiation.
+	var commitTypeParam lnrpc.CommitmentType
+	if commitType != nil &&
+		*commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+
+		commitTypeParam = *commitType
+	}
+
 	// First establish a channel with a capacity of 0.5 BTC between Alice
 	// and Bob with Alice pushing 100k satoshis to Bob's side during
 	// funding. This function will block until the channel itself is fully
@@ -214,11 +243,12 @@ func basicChannelFundingTest(ht *lntest.HarnessTest,
 	// successfully.
 	chanPoint := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{
-			Private:     privateChan,
-			Amt:         chanAmt,
-			PushAmt:     pushAmt,
-			FundingShim: fundingShim,
-			SatPerVByte: satPerVbyte,
+			Private:        privateChan,
+			Amt:            chanAmt,
+			PushAmt:        pushAmt,
+			FundingShim:    fundingShim,
+			SatPerVByte:    satPerVbyte,
+			CommitmentType: commitTypeParam,
 		},
 	)
 
@@ -558,7 +588,7 @@ func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
 	// test as everything should now proceed as normal (a regular channel
 	// funding flow).
 	carolChan, daveChan, _ := basicChannelFundingTest(
-		ht, carol, dave, fundingShim2, false,
+		ht, carol, dave, fundingShim2, false, nil,
 	)
 
 	// Both channels should be marked as frozen with the proper thaw

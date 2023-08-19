@@ -2030,6 +2030,13 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 		FundingShim:    aliceFundingShim,
 		ZeroConf:       zeroConf,
 	}
+
+	// If the channel type is taproot, then use an explicit channel type to
+	// open it.
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		aliceParams.CommitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
+	}
+
 	aliceChanPoint := ht.OpenChannel(alice, bob, aliceParams)
 
 	// Remove the ChannelAcceptor for Bob.
@@ -2060,6 +2067,13 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 		FundingShim:    bobFundingShim,
 		ZeroConf:       zeroConf,
 	}
+
+	// If the channel type is taproot, then use an explicit channel type to
+	// open it.
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		bobParams.CommitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
+	}
+
 	bobChanPoint := ht.OpenChannel(bob, carol, bobParams)
 
 	// Remove the ChannelAcceptor for Carol.

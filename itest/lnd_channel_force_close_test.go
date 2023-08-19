@@ -279,9 +279,10 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	chanPoint := ht.OpenChannel(
 		alice, carol, lntest.OpenChannelParams{
-			Private: privateChan,
-			Amt:     chanAmt,
-			PushAmt: pushAmt,
+			Private:        privateChan,
+			Amt:            chanAmt,
+			PushAmt:        pushAmt,
+			CommitmentType: channelType,
 		},
 	)
 

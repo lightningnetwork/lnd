@@ -250,8 +250,9 @@ func revokedCloseRetributionZeroValueRemoteOutputCase(ht *lntest.HarnessTest,
 	privateChan := commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT
 	chanPoint := ht.OpenChannel(
 		dave, carol, lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			Private: privateChan,
+			CommitmentType: commitType,
+			Amt:            chanAmt,
+			Private:        privateChan,
 		},
 	)
 
@@ -436,9 +437,10 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 	privateChan := commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT
 	chanPoint := ht.OpenChannel(
 		dave, carol, lntest.OpenChannelParams{
-			Amt:     chanAmt,
-			PushAmt: pushAmt,
-			Private: privateChan,
+			Amt:            chanAmt,
+			PushAmt:        pushAmt,
+			Private:        privateChan,
+			CommitmentType: commitType,
 		},
 	)
 

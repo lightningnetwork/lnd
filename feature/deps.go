@@ -75,7 +75,7 @@ var deps = depDesc{
 	lnwire.ZeroConfOptional: {
 		lnwire.ScidAliasOptional: {},
 	},
-	lnwire.SimpleTaprootChannelsOptional: {
+	lnwire.SimpleTaprootChannelsOptionalStaging: {
 		lnwire.AnchorsZeroFeeHtlcTxOptional: {},
 		lnwire.ExplicitChannelTypeOptional:  {},
 	},

@@ -155,8 +155,8 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.ShutdownAnySegwitRequired)
 		}
 		if cfg.NoTaprootChans {
-			raw.Unset(lnwire.SimpleTaprootChannelsOptional)
-			raw.Unset(lnwire.SimpleTaprootChannelsRequired)
+			raw.Unset(lnwire.SimpleTaprootChannelsOptionalStaging)
+			raw.Unset(lnwire.SimpleTaprootChannelsRequiredStaging)
 		}
 
 		// Ensure that all of our feature sets properly set any

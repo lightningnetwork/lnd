@@ -654,7 +654,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		},
 		FwdingLog:              dbs.ChanStateDB.ForwardingLog(),
 		SwitchPackager:         channeldb.NewSwitchPackager(),
-		ExtractErrorEncrypter:  s.sphinx.ExtractErrorEncrypter,
+		ExtractSharedSecret:    s.sphinx.ExtractSharedSecret,
 		FetchLastChannelUpdate: s.fetchLastChanUpdate(),
 		Notifier:               s.cc.ChainNotifier,
 		HtlcNotifier:           s.htlcNotifier,
@@ -940,6 +940,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		),
 		AttemptCostPPM: routingConfig.AttemptCostPPM,
 		MinProbability: routingConfig.MinRouteProbability,
+		AttrErrors:     routingConfig.AttrErrors,
 	}
 
 	sourceNode, err := chanGraph.SourceNode()

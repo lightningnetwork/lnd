@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
 	"github.com/davecgh/go-spew/spew"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/buffer"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -980,9 +981,17 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 
 	//nolint:lll
 	linkCfg := htlcswitch.ChannelLinkConfig{
-		Peer:                   p,
-		DecodeHopIterators:     p.cfg.Sphinx.DecodeHopIterators,
-		ExtractErrorEncrypter:  p.cfg.Sphinx.ExtractErrorEncrypter,
+		Peer:                p,
+		DecodeHopIterators:  p.cfg.Sphinx.DecodeHopIterators,
+		ExtractSharedSecret: p.cfg.Sphinx.ExtractSharedSecret,
+		CreateErrorEncrypter: func(ephemeralKey *btcec.PublicKey,
+			sharedSecret sphinx.Hash256,
+			attrError bool) hop.ErrorEncrypter {
+
+			return hop.NewSphinxErrorEncrypter(
+				ephemeralKey, sharedSecret, attrError,
+			)
+		},
 		FetchLastChannelUpdate: p.cfg.FetchLastChanUpdate,
 		HodlMask:               p.cfg.Hodl.Mask(),
 		Registry:               p.cfg.Invoices,

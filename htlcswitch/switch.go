@@ -160,10 +160,10 @@ type Config struct {
 	// forwarding packages, and ack settles and fails contained within them.
 	SwitchPackager channeldb.FwdOperator
 
-	// ExtractErrorEncrypter is an interface allowing switch to reextract
+	// ExtractSharedSecret is an interface allowing switch to reextract
 	// error encrypters stored in the circuit map on restarts, since they
 	// are not stored directly within the database.
-	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
+	ExtractSharedSecret hop.SharedSecretGenerator
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel
@@ -354,11 +354,11 @@ func New(cfg Config, currentHeight uint32) (*Switch, error) {
 	resStore := newResolutionStore(cfg.DB)
 
 	circuitMap, err := NewCircuitMap(&CircuitMapConfig{
-		DB:                    cfg.DB,
-		FetchAllOpenChannels:  cfg.FetchAllOpenChannels,
-		FetchClosedChannels:   cfg.FetchClosedChannels,
-		ExtractErrorEncrypter: cfg.ExtractErrorEncrypter,
-		CheckResolutionMsg:    resStore.checkResolutionMsg,
+		DB:                   cfg.DB,
+		FetchAllOpenChannels: cfg.FetchAllOpenChannels,
+		FetchClosedChannels:  cfg.FetchClosedChannels,
+		ExtractSharedSecret:  cfg.ExtractSharedSecret,
+		CheckResolutionMsg:   resStore.checkResolutionMsg,
 	})
 	if err != nil {
 		return nil, err
@@ -1322,16 +1322,24 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 					packet.incomingChanID, packet.incomingHTLCID,
 					packet.outgoingChanID, packet.outgoingHTLCID)
 
-				fail.Reason = circuit.ErrorEncrypter.EncryptMalformedError(
-					fail.Reason,
-				)
+				fail.Reason, err = circuit.ErrorEncrypter.
+					EncryptMalformedError(fail.Reason)
+				if err != nil {
+					err = fmt.Errorf("unable to obfuscate "+
+						"malformed error: %v", err)
+					log.Error(err)
+				}
 
 			default:
 				// Otherwise, it's a forwarded error, so we'll perform a
 				// wrapper encryption as normal.
-				fail.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
-					fail.Reason,
-				)
+				fail.Reason, err = circuit.ErrorEncrypter.
+					IntermediateEncrypt(fail.Reason)
+				if err != nil {
+					err = fmt.Errorf("unable to obfuscate "+
+						"intermediate error: %v", err)
+					log.Error(err)
+				}
 			}
 		} else if !isFail && circuit.Outgoing != nil {
 			// If this is an HTLC settle, and it wasn't from a

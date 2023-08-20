@@ -10,11 +10,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -153,9 +155,14 @@ type ChannelLinkConfig struct {
 	DecodeHopIterators func([]byte, []hop.DecodeHopIteratorRequest) (
 		[]hop.DecodeHopIteratorResponse, error)
 
-	// ExtractErrorEncrypter function is responsible for decoding HTLC
-	// Sphinx onion blob, and creating onion failure obfuscator.
-	ExtractErrorEncrypter hop.ErrorEncrypterExtracter
+	// ExtractSharedSecret function is responsible for decoding HTLC
+	// Sphinx onion blob, and deriving the shared secret.
+	ExtractSharedSecret hop.SharedSecretGenerator
+
+	// CreateErrorEncrypter instantiates an error encrypter based on the
+	// provided encryption parameters.
+	CreateErrorEncrypter func(*btcec.PublicKey,
+		sphinx.Hash256, bool) hop.ErrorEncrypter
 
 	// FetchLastChannelUpdate retrieves the latest routing policy for a
 	// target channel. This channel will typically be the outgoing channel
@@ -3006,9 +3013,8 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 
 		// Retrieve onion obfuscator from onion blob in order to
 		// produce initial obfuscation of the onion failureCode.
-		obfuscator, failureCode := chanIterator.ExtractErrorEncrypter(
-			l.cfg.ExtractErrorEncrypter,
-		)
+		ephemeralKey, sharedSecret, failureCode := chanIterator.
+			ExtractEncrypterParams(l.cfg.ExtractSharedSecret)
 		if failureCode != lnwire.CodeNone {
 			// If we're unable to process the onion blob than we
 			// should send the malformed htlc error to payment
@@ -3021,6 +3027,14 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				"obfuscator: %v", failureCode)
 			continue
 		}
+
+		// Instantiate an error encrypter based on the extracted
+		// encryption parameters. Don't assume attributable errors,
+		// because first the resolution format needs to be decoded from
+		// the onion payload.
+		obfuscator := l.cfg.CreateErrorEncrypter(
+			ephemeralKey, sharedSecret, false,
+		)
 
 		heightNow := l.cfg.BestHeight()
 
@@ -3049,6 +3063,14 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			l.log.Errorf("unable to decode forwarding "+
 				"instructions: %v", err)
 			continue
+		}
+
+		// Now that we've successfully decoded the tlv, we can upgrade
+		// to the failure message version that the sender supports.
+		if pld.AttributableError {
+			obfuscator = l.cfg.CreateErrorEncrypter(
+				ephemeralKey, sharedSecret, true,
+			)
 		}
 
 		fwdInfo := pld.ForwardingInfo()

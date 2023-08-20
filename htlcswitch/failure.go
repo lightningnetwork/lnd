@@ -2,12 +2,16 @@ package htlcswitch
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"strings"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
+
+var byteOrder = binary.BigEndian
 
 // ClearTextError is an interface which is implemented by errors that occur
 // when we know the underlying wire failure message. These errors are the
@@ -166,7 +170,25 @@ type OnionErrorDecrypter interface {
 // SphinxErrorDecrypter wraps the sphinx data SphinxErrorDecrypter and maps the
 // returned errors to concrete lnwire.FailureMessage instances.
 type SphinxErrorDecrypter struct {
-	OnionErrorDecrypter
+	decrypter interface{}
+}
+
+// NewSphinxErrorDecrypter instantiates a new error decryptor.
+func NewSphinxErrorDecrypter(circuit *sphinx.Circuit,
+	attrError bool) *SphinxErrorDecrypter {
+
+	var decrypter interface{}
+	if !attrError {
+		decrypter = sphinx.NewOnionErrorDecrypter(circuit)
+	} else {
+		decrypter = sphinx.NewOnionAttrErrorDecrypter(
+			circuit, hop.AttrErrorStruct,
+		)
+	}
+
+	return &SphinxErrorDecrypter{
+		decrypter: decrypter,
+	}
 }
 
 // DecryptError peels off each layer of onion encryption from the first hop, to
@@ -177,9 +199,42 @@ type SphinxErrorDecrypter struct {
 func (s *SphinxErrorDecrypter) DecryptError(reason lnwire.OpaqueReason) (
 	*ForwardingError, error) {
 
-	failure, err := s.OnionErrorDecrypter.DecryptError(reason)
-	if err != nil {
-		return nil, err
+	var failure *sphinx.DecryptedError
+
+	switch decrypter := s.decrypter.(type) {
+	case OnionErrorDecrypter:
+		legacyError, err := decrypter.DecryptError(reason)
+		if err != nil {
+			return nil, err
+		}
+
+		failure = legacyError
+
+	case *sphinx.OnionAttrErrorDecrypter:
+		attributableError, err := decrypter.DecryptError(reason)
+		if err != nil {
+			return nil, err
+		}
+
+		// Log hold times.
+		//
+		// TODO: Use to penalize nodes.
+		var holdTimes []string
+		for _, payload := range attributableError.Payloads {
+			// Read hold time.
+			holdTimeMs := byteOrder.Uint32(payload)
+
+			holdTimes = append(
+				holdTimes,
+				fmt.Sprintf("%v", holdTimeMs),
+			)
+		}
+		log.Debugf("Hold times: %v", strings.Join(holdTimes, "/"))
+
+		failure = &attributableError.DecryptedError
+
+	default:
+		panic("unexpected decrypter type")
 	}
 
 	// Decode the failure. If an error occurs, we leave the failure message

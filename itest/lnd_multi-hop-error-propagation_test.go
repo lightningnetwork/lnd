@@ -2,23 +2,53 @@ package itest
 
 import (
 	"math"
+	"testing"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
 func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
+	ht.Run("legacy error", func(tt *testing.T) {
+		st := ht.Subtest(tt)
+		st.EnsureConnected(st.Alice, st.Bob)
+
+		// Test legacy errors using the standby node.
+		testHtlcErrorPropagationWithNode(st, st.Alice)
+	})
+
+	ht.Run("attr error", func(tt *testing.T) {
+		st := ht.Subtest(tt)
+
+		// Create a different Alice node with attributable
+		// errors enabled. Alice will signal to Bob and Carol to
+		// return attributable errors to her.
+		alice := st.NewNode("Alice", []string{"--routerrpc.attrerrors"})
+		st.FundCoins(btcutil.SatoshiPerBitcoin, alice)
+
+		st.ConnectNodes(alice, st.Bob)
+
+		testHtlcErrorPropagationWithNode(st, alice)
+
+		st.Shutdown(alice)
+	})
+}
+
+func testHtlcErrorPropagationWithNode(ht *lntest.HarnessTest,
+	alice *node.HarnessNode) {
+
 	// In this test we wish to exercise the daemon's correct parsing,
 	// handling, and propagation of errors that occur while processing a
 	// multi-hop payment.
 	const chanAmt = funding.MaxBtcFundingAmount
 
-	alice, bob := ht.Alice, ht.Bob
-
+	bob := ht.Bob
 	// Since we'd like to test some multi-hop failure scenarios, we'll
 	// introduce another node into our test network: Carol.
 	carol := ht.NewNode("Carol", nil)

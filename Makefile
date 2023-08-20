@@ -174,7 +174,7 @@ itest-race: build-itest-race itest-only
 itest-parallel: build-itest db-instance
 	@$(call print, "Running tests")
 	rm -rf itest/*.log itest/.logs-*; date
-	EXEC_SUFFIX=$(EXEC_SUFFIX) echo "$$(seq 0 $$(expr $(ITEST_PARALLELISM) - 1))" | xargs -P $(ITEST_PARALLELISM) -n 1 -I {} scripts/itest_part.sh {} $(NUM_ITEST_TRANCHES) $(TEST_FLAGS) $(ITEST_FLAGS)
+	EXEC_SUFFIX=$(EXEC_SUFFIX) scripts/itest_parallel.sh $(ITEST_PARALLELISM) $(NUM_ITEST_TRANCHES) $(TEST_FLAGS) $(ITEST_FLAGS)
 
 itest-clean:
 	@$(call print, "Cleaning old itest processes")

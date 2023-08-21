@@ -1151,79 +1151,9 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 			return nil
 		}
 
-		var peerAlias *lnwire.ShortChannelID
-		if channel.IsZeroConf() {
-			// We'll need to wait until channel_ready has been
-			// received and the peer lets us know the alias they
-			// want to use for the channel. With this information,
-			// we can then construct a ChannelUpdate for them.
-			// If an alias does not yet exist, we'll just return,
-			// letting the next iteration of the loop check again.
-			var defaultAlias lnwire.ShortChannelID
-			chanID := lnwire.NewChanIDFromOutPoint(
-				&channel.FundingOutpoint,
-			)
-			foundAlias, _ := f.cfg.AliasManager.GetPeerAlias(
-				chanID,
-			)
-			if foundAlias == defaultAlias {
-				return nil
-			}
-
-			peerAlias = &foundAlias
-		}
-
-		err = f.addToRouterGraph(channel, shortChanID, peerAlias, nil)
-		if err != nil {
-			return fmt.Errorf("failed adding to "+
-				"router graph: %v", err)
-		}
-
-		// As the channel is now added to the ChannelRouter's topology,
-		// the channel is moved to the next state of the state machine.
-		// It will be moved to the last state (actually deleted from
-		// the database) after the channel is finally announced.
-		err = f.saveChannelOpeningState(
-			&channel.FundingOutpoint, addedToRouterGraph,
-			shortChanID,
+		return f.handleChannelReadyReceived(
+			channel, shortChanID, pendingChanID, updateChan,
 		)
-		if err != nil {
-			return fmt.Errorf("error setting channel state to"+
-				" addedToRouterGraph: %v", err)
-		}
-
-		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
-			"added to router graph", chanID, shortChanID)
-
-		// Give the caller a final update notifying them that
-		// the channel is now open.
-		// TODO(roasbeef): only notify after recv of channel_ready?
-		fundingPoint := channel.FundingOutpoint
-		cp := &lnrpc.ChannelPoint{
-			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-				FundingTxidBytes: fundingPoint.Hash[:],
-			},
-			OutputIndex: fundingPoint.Index,
-		}
-
-		if updateChan != nil {
-			upd := &lnrpc.OpenStatusUpdate{
-				Update: &lnrpc.OpenStatusUpdate_ChanOpen{
-					ChanOpen: &lnrpc.ChannelOpenUpdate{
-						ChannelPoint: cp,
-					},
-				},
-				PendingChanId: pendingChanID[:],
-			}
-
-			select {
-			case updateChan <- upd:
-			case <-f.quit:
-				return ErrFundingManagerShuttingDown
-			}
-		}
-
-		return nil
 
 	// The channel was added to the Router's topology, but the channel
 	// announcement was not sent.
@@ -3700,6 +3630,84 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 	}
 }
 
+// handleChannelReadyReceived is called once the remote's channelReady message
+// is received and processed. At this stage, we must have sent out our
+// channelReady message, once the remote's channelReady is processed, the
+// channel is now active, thus we change its state to `addedToRouterGraph` to
+// let the channel start handling routing.
+func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
+	scid *lnwire.ShortChannelID, pendingChanID [32]byte,
+	updateChan chan<- *lnrpc.OpenStatusUpdate) error {
+
+	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+
+	var peerAlias *lnwire.ShortChannelID
+	if channel.IsZeroConf() {
+		// We'll need to wait until channel_ready has been received and
+		// the peer lets us know the alias they want to use for the
+		// channel. With this information, we can then construct a
+		// ChannelUpdate for them.  If an alias does not yet exist,
+		// we'll just return, letting the next iteration of the loop
+		// check again.
+		var defaultAlias lnwire.ShortChannelID
+		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		foundAlias, _ := f.cfg.AliasManager.GetPeerAlias(chanID)
+		if foundAlias == defaultAlias {
+			return nil
+		}
+
+		peerAlias = &foundAlias
+	}
+
+	err := f.addToRouterGraph(channel, scid, peerAlias, nil)
+	if err != nil {
+		return fmt.Errorf("failed adding to router graph: %w", err)
+	}
+
+	// As the channel is now added to the ChannelRouter's topology, the
+	// channel is moved to the next state of the state machine. It will be
+	// moved to the last state (actually deleted from the database) after
+	// the channel is finally announced.
+	err = f.saveChannelOpeningState(
+		&channel.FundingOutpoint, addedToRouterGraph, scid,
+	)
+	if err != nil {
+		return fmt.Errorf("error setting channel state to"+
+			" addedToRouterGraph: %w", err)
+	}
+
+	log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
+		"added to router graph", chanID, scid)
+
+	// Give the caller a final update notifying them that the channel is
+	fundingPoint := channel.FundingOutpoint
+	cp := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: fundingPoint.Hash[:],
+		},
+		OutputIndex: fundingPoint.Index,
+	}
+
+	if updateChan != nil {
+		upd := &lnrpc.OpenStatusUpdate{
+			Update: &lnrpc.OpenStatusUpdate_ChanOpen{
+				ChanOpen: &lnrpc.ChannelOpenUpdate{
+					ChannelPoint: cp,
+				},
+			},
+			PendingChanId: pendingChanID[:],
+		}
+
+		select {
+		case updateChan <- upd:
+		case <-f.quit:
+			return ErrFundingManagerShuttingDown
+		}
+	}
+
+	return nil
+}
+
 // ensureInitialForwardingPolicy ensures that we have an initial forwarding
 // policy set for the given channel. If we don't, we'll fall back to the default
 // values.
@@ -4695,6 +4703,7 @@ func (f *Manager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 	scratch := make([]byte, 10)
 	byteOrder.PutUint16(scratch[:2], uint16(state))
 	byteOrder.PutUint64(scratch[2:], shortChanID.ToUint64())
+
 	return f.cfg.ChannelDB.SaveChannelOpeningState(
 		outpointBytes.Bytes(), scratch,
 	)

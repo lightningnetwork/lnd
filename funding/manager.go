@@ -639,7 +639,7 @@ func (c channelOpeningState) String() string {
 	case markedOpen:
 		return "markedOpen"
 	case channelReadySent:
-		return "channelReady"
+		return "channelReadySent"
 	case addedToRouterGraph:
 		return "addedToRouterGraph"
 	default:

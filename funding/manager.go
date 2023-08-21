@@ -1261,6 +1261,16 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 				err)
 		}
 
+		// After the fee parameters have been stored in the
+		// announcement we can delete them from the database. For
+		// private channels we do not announce the channel policy to
+		// the network but still need to delete them from the database.
+		err = f.deleteInitialForwardingPolicy(chanID)
+		if err != nil {
+			log.Infof("Could not delete initial policy for chanId "+
+				"%x", chanID)
+		}
+
 		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
 			"announced", chanID, shortChanID)
 
@@ -3286,15 +3296,6 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			return fmt.Errorf("unable to send node announcement "+
 				"to peer %x: %v", pubKey, err)
 		}
-
-		// For private channels we do not announce the channel policy
-		// to the network but still need to delete them from the
-		// database.
-		err = f.deleteInitialForwardingPolicy(chanID)
-		if err != nil {
-			log.Infof("Could not delete channel fees "+
-				"for chanId %x.", chanID)
-		}
 	} else {
 		// Otherwise, we'll wait until the funding transaction has
 		// reached 6 confirmations before announcing it.
@@ -3976,14 +3977,6 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)
 		return err
-	}
-
-	// After the fee parameters have been stored in the announcement
-	// we can delete them from the database.
-	err = f.deleteInitialForwardingPolicy(chanID)
-	if err != nil {
-		log.Infof("Could not delete channel fees for chanId %x.",
-			chanID)
 	}
 
 	// We only send the channel proof announcement and the node announcement

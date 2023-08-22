@@ -17,7 +17,7 @@ import (
 func TestWeightEstimator(t *testing.T) {
 	testFeeRate := chainfee.SatPerKWeight(20000)
 
-	w := newWeightEstimator(testFeeRate)
+	w := newWeightEstimator(testFeeRate, 0)
 
 	// Add an input without unconfirmed parent tx.
 	input1 := input.MakeBaseInput(
@@ -81,6 +81,46 @@ func TestWeightEstimator(t *testing.T) {
 	require.Equal(t, expectedFee, w.fee())
 }
 
+// TestWeightEstimatorMaxFee tests that the weight estimator correctly caps the
+// fee at the maximum allowed fee.
+func TestWeightEstimatorMaxFee(t *testing.T) {
+	t.Parallel()
+
+	testFeeRate := chainfee.SatPerKWeight(9_000)
+	maxFeeRate := chainfee.SatPerKWeight(10_000)
+
+	w := newWeightEstimator(testFeeRate, maxFeeRate)
+
+	// Define a parent transaction that pays a fee of 1000 sat/kw.
+	parentTxLowFee := &input.TxInfo{
+		Weight: 100,
+		Fee:    100,
+	}
+
+	// Add an output of the low-fee parent tx above.
+	childInput := input.MakeBaseInput(
+		&wire.OutPoint{}, input.CommitmentAnchor,
+		&input.SignDescriptor{}, 0, parentTxLowFee,
+	)
+	require.NoError(t, w.add(&childInput))
+
+	// The child weight should be 322 weight uints.
+	const childWeight = 322
+	require.Equal(t, childWeight, w.weight())
+
+	// Check the fee is capped at the maximum allowed fee. The
+	// calculations,
+	//
+	// totalWeight = childWeight + parentWeight = 422
+	// fee = totalWeight * testFeeRate - parentsFee =
+	// 	422 * 9_000 / 1000 - 100 = 3598
+	// maxFee = childWeight * maxFeeRate = 422 * 10_000 / 1000 = 3220
+	//
+	// Thus we cap at the maxFee.
+	expectedFee := maxFeeRate.FeeForWeight(childWeight)
+	require.Equal(t, expectedFee, w.fee())
+}
+
 // TestWeightEstimatorAddOutput tests that adding the raw P2WKH output to the
 // estimator yield the same result as an estimated add.
 func TestWeightEstimatorAddOutput(t *testing.T) {
@@ -100,10 +140,10 @@ func TestWeightEstimatorAddOutput(t *testing.T) {
 		Value:    10000,
 	}
 
-	w1 := newWeightEstimator(testFeeRate)
+	w1 := newWeightEstimator(testFeeRate, 0)
 	w1.addOutput(txOut)
 
-	w2 := newWeightEstimator(testFeeRate)
+	w2 := newWeightEstimator(testFeeRate, 0)
 	w2.addP2WKHOutput()
 
 	// Estimate hhould be the same.

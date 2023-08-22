@@ -355,7 +355,7 @@ func assertTxFeeRate(t *testing.T, tx *wire.MsgTx,
 	outputAmt := tx.TxOut[0].Value
 
 	fee := btcutil.Amount(inputAmt - outputAmt)
-	_, estimator, err := getWeightEstimate(inputs, nil, 0, changePk)
+	_, estimator, err := getWeightEstimate(inputs, nil, 0, 0, changePk)
 	require.NoError(t, err)
 
 	txWeight := estimator.weight()

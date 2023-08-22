@@ -1267,13 +1267,12 @@ func assertNoChannelState(t *testing.T, alice, bob *testNode,
 }
 
 func assertNoFwdingPolicy(t *testing.T, alice, bob *testNode,
-	fundingOutPoint *wire.OutPoint) {
+	chanID lnwire.ChannelID) {
 
 	t.Helper()
 
-	chandID := lnwire.NewChanIDFromOutPoint(fundingOutPoint)
-	assertInitialFwdingPolicyNotFound(t, alice, &chandID)
-	assertInitialFwdingPolicyNotFound(t, bob, &chandID)
+	assertInitialFwdingPolicyNotFound(t, alice, &chanID)
+	assertInitialFwdingPolicyNotFound(t, bob, &chanID)
 }
 
 func assertErrChannelNotFound(t *testing.T, node *testNode,
@@ -1306,8 +1305,16 @@ func assertInitialFwdingPolicyNotFound(t *testing.T, node *testNode,
 
 	t.Helper()
 
-	_, err := node.fundingMgr.getInitialForwardingPolicy(*chanID)
-	require.ErrorIs(t, err, channeldb.ErrChannelNotFound)
+	err := wait.NoError(func() error {
+		_, err := node.fundingMgr.getInitialForwardingPolicy(*chanID)
+		if errors.Is(err, channeldb.ErrChannelNotFound) {
+			return nil
+		}
+
+		return fmt.Errorf("expected ErrChannelNotFound, got %w", err)
+	}, wait.DefaultTimeout)
+
+	require.NoError(t, err)
 }
 
 func assertHandleChannelReady(t *testing.T, alice, bob *testNode,
@@ -1433,7 +1440,7 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerRejectCSV tests checking of local CSV values against our
@@ -1746,7 +1753,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerOfflinePeer checks that the fundingManager waits for the
@@ -1909,7 +1916,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerPeerTimeoutAfterInitFunding checks that the zombie sweeper
@@ -2367,7 +2374,7 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerRestartAfterChanAnn checks that the fundingManager properly
@@ -2466,7 +2473,7 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerRestartAfterReceivingChannelReady checks that the
@@ -2561,7 +2568,7 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerPrivateChannel tests that if we open a private channel
@@ -2685,7 +2692,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerPrivateRestart tests that the privacy guarantees granted
@@ -2834,7 +2841,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerCustomChannelParameters checks that custom requirements we
@@ -3257,22 +3264,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// After the announcement we expect Alice and Bob to have cleared
 	// the fees for the channel from the database.
-	_, err = alice.fundingMgr.getInitialForwardingPolicy(
-		fundingSigned.ChanID,
-	)
-	if err != channeldb.ErrChannelNotFound {
-		err = fmt.Errorf("channel fees were expected to be deleted" +
-			" but were not")
-		t.Fatal(err)
-	}
-	_, err = bob.fundingMgr.getInitialForwardingPolicy(
-		fundingSigned.ChanID,
-	)
-	if err != channeldb.ErrChannelNotFound {
-		err = fmt.Errorf("channel fees were expected to be deleted" +
-			" but were not")
-		t.Fatal(err)
-	}
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerInvalidChanReserve ensures proper validation is done on
@@ -4467,7 +4459,7 @@ func TestFundingManagerZeroConf(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOp)
+	assertNoFwdingPolicy(t, alice, bob, aliceChannelReady.ChanID)
 }
 
 // TestCommitmentTypeFundmaxSanityCheck was introduced as a way of reminding

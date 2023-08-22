@@ -226,18 +226,6 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	ht.AssertActiveHtlcs(bob, dustPayHash, payHash)
 	ht.AssertActiveHtlcs(carol, dustPayHash, payHash)
 
-	// blocksMined records how many blocks have mined after the creation of
-	// the invoice so it can be used to calculate how many more blocks need
-	// to be mined to trigger a force close later on.
-	var blocksMined uint32
-
-	// If this is a private channel, and it was zero conf, then we'll need
-	// to mine one block to confirm the channels created above.
-	if zeroConf && routeHints != nil {
-		ht.MineBlocksAndAssertNumTxes(1, 2)
-		blocksMined++
-	}
-
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
 	ht.SetFeeEstimate(30000)
@@ -249,7 +237,7 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	numBlocks := padCLTV(
 		uint32(finalCltvDelta - lncfg.DefaultOutgoingBroadcastDelta),
 	)
-	ht.MineBlocks(numBlocks - blocksMined)
+	ht.MineBlocks(numBlocks)
 
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
@@ -410,18 +398,6 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	ht.AssertActiveHtlcs(bob, payHash[:])
 	ht.AssertActiveHtlcs(carol, payHash[:])
 
-	// blocksMined records how many blocks have mined after the creation of
-	// the invoice so it can be used to calculate how many more blocks need
-	// to be mined to trigger a force close later on.
-	var blocksMined uint32
-
-	// If this is a private channel, and it was zero conf, then we'll need
-	// to mine one block to confirm the channels created above.
-	if zeroConf && routeHints != nil {
-		ht.MineBlocksAndAssertNumTxes(1, 2)
-		blocksMined++
-	}
-
 	// Wait for carol to mark invoice as accepted. There is a small gap to
 	// bridge between adding the htlc to the channel and executing the exit
 	// hop logic.
@@ -449,7 +425,7 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 
 	// Now we'll mine enough blocks to prompt carol to actually go to the
 	// chain in order to sweep her HTLC since the value is high enough.
-	ht.MineBlocks(numBlocks - blocksMined)
+	ht.MineBlocks(numBlocks)
 
 	// At this point, Carol should broadcast her active commitment
 	// transaction in order to go to the chain and sweep her HTLC. If there
@@ -630,13 +606,6 @@ func runMultiHopLocalForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	// to be mined to trigger a force close later on.
 	var blocksMined uint32
 
-	// If this is a private channel, and it was zero conf, then we'll need
-	// to mine one block to confirm the channels created above.
-	if zeroConf && routeHints != nil {
-		ht.MineBlocksAndAssertNumTxes(1, 2)
-		blocksMined++
-	}
-
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
 	ht.SetFeeEstimate(30000)
@@ -808,13 +777,6 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	// the invoice so it can be used to calculate how many more blocks need
 	// to be mined to trigger a force close later on.
 	var blocksMined uint32
-
-	// If this is a private channel, and it was zero conf, then we'll need
-	// to mine one block to confirm the channels created above.
-	if zeroConf && routeHints != nil {
-		ht.MineBlocksAndAssertNumTxes(1, 2)
-		blocksMined++
-	}
 
 	// Once the HTLC has cleared, all the nodes in our mini network should
 	// show that the HTLC has been locked in.
@@ -999,13 +961,6 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// the invoice so it can be used to calculate how many more blocks need
 	// to be mined to trigger a force close later on.
 	var blocksMined uint32
-
-	// If this is a private channel, and it was zero conf, then we'll need
-	// to mine one block to confirm the channels created above.
-	if zeroConf && routeHints != nil {
-		ht.MineBlocksAndAssertNumTxes(1, 2)
-		blocksMined++
-	}
 
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
@@ -1318,13 +1273,6 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 	// the invoice so it can be used to calculate how many more blocks need
 	// to be mined to trigger a force close later on.
 	var blocksMined uint32
-
-	// If this is a private channel, and it was zero conf, then we'll need
-	// to mine one block to confirm the channels created above.
-	if zeroConf && routeHints != nil {
-		ht.MineBlocksAndAssertNumTxes(1, 2)
-		blocksMined++
-	}
 
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
@@ -1686,18 +1634,6 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		ht.AssertInvoiceState(stream, lnrpc.Invoice_ACCEPTED)
 	}
 
-	// blocksMined records how many blocks have mined after the creation of
-	// the invoice so it can be used to calculate how many more blocks need
-	// to be mined to trigger a force close later on.
-	var blocksMined uint32
-
-	// If this is a private channel, and it was zero conf, then we'll need
-	// to mine one block to confirm the channels created above.
-	if zeroConf && carolRouteHints != nil {
-		ht.MineBlocksAndAssertNumTxes(1, 2)
-		blocksMined++
-	}
-
 	// Increase the fee estimate so that the following force close tx will
 	// be cpfp'ed.
 	ht.SetFeeEstimate(30000)
@@ -1714,7 +1650,7 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	numBlocks := padCLTV(
 		uint32(finalCltvDelta - lncfg.DefaultOutgoingBroadcastDelta),
 	)
-	ht.MineBlocks(numBlocks - blocksMined)
+	ht.MineBlocks(numBlocks)
 
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
@@ -2125,6 +2061,13 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 		ht, alice, bob, false, c, zeroConf,
 	)
 
+	// If this is a taproot channel, then we'll need to make some manual
+	// route hints so Alice can actually find a route.
+	var routeHints []*lnrpc.RouteHint
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		routeHints = makeRouteHints(bob, carol, zeroConf)
+	}
+
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
 	// won't send out the outgoing htlc.
@@ -2134,6 +2077,7 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 		Value:      100_000,
 		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
+		RouteHints: routeHints,
 	}
 	eveInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
 
@@ -2276,6 +2220,13 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 		ht, alice, bob, false, c, zeroConf,
 	)
 
+	// If this is a taproot channel, then we'll need to make some manual
+	// route hints so Alice can actually find a route.
+	var routeHints []*lnrpc.RouteHint
+	if c == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		routeHints = makeRouteHints(bob, carol, zeroConf)
+	}
+
 	// With the network active, we'll now add a new hodl invoice at Carol's
 	// end. Make sure the cltv expiry delta is large enough, otherwise Bob
 	// won't send out the outgoing htlc.
@@ -2285,6 +2236,7 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 		Value:      100_000,
 		CltvExpiry: finalCltvDelta,
 		Hash:       payHash[:],
+		RouteHints: routeHints,
 	}
 	eveInvoice := carol.RPC.AddHoldInvoice(invoiceReq)
 

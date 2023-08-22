@@ -155,82 +155,81 @@ func TestSparseConfFeeSource(t *testing.T) {
 // as expected.
 func TestWebAPIFeeEstimator(t *testing.T) {
 	t.Parallel()
-	feeFloor := uint32(FeePerKwFloor.FeePerKVByte())
-	testFeeRate := feeFloor * 100
+
+	var (
+		minTarget uint32 = 2
+		maxTarget uint32 = 6
+
+		// Fee rates are in sat/kb.
+		minFeeRate uint32 = 2000 // 500 sat/kw
+		maxFeeRate uint32 = 4000 // 1000 sat/kw
+	)
 
 	testCases := []struct {
-		name   string
-		target uint32
-		apiEst uint32
-		est    uint32
-		err    string
+		name            string
+		target          uint32
+		expectedFeeRate uint32
+		expectedErr     string
 	}{
 		{
-			name:   "target_below_min",
-			target: 0,
-			apiEst: 0,
-			est:    0,
-			err:    "too low, minimum",
+			// When requested target is below minBlockTarget, an
+			// error is returned.
+			name:            "target_below_min",
+			target:          0,
+			expectedFeeRate: 0,
+			expectedErr:     "too low, minimum",
 		},
 		{
-			name:   "target_w_too-low_fee",
-			target: 100,
-			apiEst: 42,
-			est:    feeFloor,
-			err:    "",
+			// When requested target is larger than the max cached
+			// target, the fee rate of the max cached target is
+			// returned.
+			name:            "target_w_too-low_fee",
+			target:          maxTarget + 100,
+			expectedFeeRate: minFeeRate,
+			expectedErr:     "",
 		},
 		{
-			name:   "API-omitted_target",
-			target: 2,
-			apiEst: 0,
-			est:    testFeeRate,
-			err:    "",
+			// When requested target is smaller than the min cahced
+			// target, the fee rate of the min cached target is
+			// returned.
+			name:            "API-omitted_target",
+			target:          minTarget - 1,
+			expectedFeeRate: maxFeeRate,
+			expectedErr:     "",
 		},
 		{
-			name:   "valid_target",
-			target: 20,
-			apiEst: testFeeRate,
-			est:    testFeeRate,
-			err:    "",
-		},
-		{
-			name:   "valid_target_extrapolated_fee",
-			target: 25,
-			apiEst: 0,
-			est:    testFeeRate,
-			err:    "",
+			// When the target is found, return it.
+			name:            "valid_target",
+			target:          maxTarget,
+			expectedFeeRate: minFeeRate,
+			expectedErr:     "",
 		},
 	}
 
 	// Construct mock fee source for the Estimator to pull fees from.
 	//
 	// This will create a `feeByBlockTarget` map with the following values,
-	// - 20: testFeeRate
-	// - 100: 42, which will be floored to feeFloor.
-	testFees := make(map[uint32]uint32)
-	for _, tc := range testCases {
-		if tc.apiEst != 0 {
-			testFees[tc.target] = tc.apiEst
-		}
+	// - 2: 4000 sat/kb
+	// - 6: 2000 sat/kb.
+	feeRateResp := map[uint32]uint32{
+		minTarget: maxFeeRate,
+		maxTarget: minFeeRate,
 	}
 
 	feeSource := mockSparseConfFeeSource{
 		url:  "https://www.github.com",
-		fees: testFees,
+		fees: feeRateResp,
 	}
 
 	estimator := NewWebAPIEstimator(feeSource, false)
 
-	// Test that requesting a fee when no fees have been cached fails.
+	// Test that requesting a fee when no fees have been cached won't fail.
 	feeRate, err := estimator.EstimateFeePerKW(5)
 	require.NoErrorf(t, err, "expected no error")
 	require.Equalf(t, FeePerKwFloor, feeRate, "expected fee rate floor "+
 		"returned when no cached fee rate found")
 
-	if err := estimator.Start(); err != nil {
-		t.Fatalf("unable to start fee estimator, got: %v", err)
-	}
-	defer estimator.Stop()
+	require.NoError(t, estimator.Start(), "unable to start fee estimator")
 
 	for _, tc := range testCases {
 		tc := tc
@@ -238,9 +237,9 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 			est, err := estimator.EstimateFeePerKW(tc.target)
 
 			// Test an error case.
-			if tc.err != "" {
+			if tc.expectedErr != "" {
 				require.Error(t, err, "expected error")
-				require.ErrorContains(t, err, tc.err)
+				require.ErrorContains(t, err, tc.expectedErr)
 
 				return
 			}
@@ -249,57 +248,78 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 			require.NoErrorf(t, err, "error from target %v",
 				tc.target)
 
-			exp := SatPerKVByte(tc.est).FeePerKWeight()
+			exp := SatPerKVByte(tc.expectedFeeRate).FeePerKWeight()
 			require.Equalf(t, exp, est, "target %v failed, fee "+
 				"map is %v", tc.target, feeSource.fees)
 		})
 	}
+
+	// Stop the estimator when test ends.
+	require.NoError(t, estimator.Stop(), "unable to stop fee estimator")
 }
 
 // TestGetCachedFee checks that the fee caching logic works as expected.
 func TestGetCachedFee(t *testing.T) {
-	target := uint32(2)
-	fee := uint32(100)
+	var (
+		minTarget uint32 = 2
+		maxTarget uint32 = 6
+
+		minFeeRate uint32 = 100
+		maxFeeRate uint32 = 1000
+	)
 
 	// Create a dummy estimator without WebAPIFeeSource.
 	estimator := NewWebAPIEstimator(nil, false)
 
 	// When the cache is empty, an error should be returned.
-	cachedFee, err := estimator.getCachedFee(target)
+	cachedFee, err := estimator.getCachedFee(minTarget)
 	require.Zero(t, cachedFee)
 	require.ErrorIs(t, err, errEmptyCache)
 
-	// Store a fee rate inside the cache.
-	estimator.feeByBlockTarget[target] = fee
+	// Store a fee rate inside the cache. The cache map now looks like,
+	// {2: 1000, 6: 100}
+	estimator.feeByBlockTarget = map[uint32]uint32{
+		minTarget: maxFeeRate,
+		maxTarget: minFeeRate,
+	}
 
 	testCases := []struct {
 		name        string
 		confTarget  uint32
 		expectedFee uint32
-		expectErr   error
 	}{
 		{
 			// When the target is cached, return it.
 			name:        "return cached fee",
-			confTarget:  target,
-			expectedFee: fee,
-			expectErr:   nil,
+			confTarget:  minTarget,
+			expectedFee: maxFeeRate,
 		},
 		{
 			// When the target is not cached, return the next
-			// lowest target that's cached.
+			// lowest target that's cached. In this case,
+			// requesting fee rate for target 7 will give the
+			// result for target 6.
+			name:        "return lowest cached fee",
+			confTarget:  maxTarget + 1,
+			expectedFee: minFeeRate,
+		},
+		{
+			// When the target is not cached, return the next
+			// lowest target that's cached. In this case,
+			// requesting fee rate for target 5 will give the
+			// result for target 2.
 			name:        "return next cached fee",
-			confTarget:  target + 1,
-			expectedFee: fee,
-			expectErr:   nil,
+			confTarget:  maxTarget - 1,
+			expectedFee: maxFeeRate,
 		},
 		{
 			// When the target is not cached, and the next lowest
 			// target is not cached, return the nearest fee rate.
+			// In this case, requesting fee rate for target 1 will
+			// give the result for target 2.
 			name:        "return highest cached fee",
-			confTarget:  target - 1,
-			expectedFee: fee,
-			expectErr:   nil,
+			confTarget:  minTarget - 1,
+			expectedFee: maxFeeRate,
 		},
 	}
 
@@ -309,8 +329,8 @@ func TestGetCachedFee(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cachedFee, err := estimator.getCachedFee(tc.confTarget)
 
+			require.NoError(t, err)
 			require.Equal(t, tc.expectedFee, cachedFee)
-			require.ErrorIs(t, err, tc.expectErr)
 		})
 	}
 }

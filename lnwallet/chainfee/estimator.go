@@ -610,7 +610,7 @@ func (w *WebAPIEstimator) EstimateFeePerKW(numBlocks uint32) (
 	// returned. We will log the error and return the fall back fee rate
 	// instead.
 	if err != nil {
-		log.Errorf("unable to query estimator: %v", err)
+		log.Errorf("Unable to query estimator: %v", err)
 	}
 
 	// If the result is too low, then we'll clamp it to our current fee

@@ -39,7 +39,7 @@ type inputSet []input.Input
 // inputs are skipped. No input sets with a total value after fees below the
 // dust limit are returned.
 func generateInputPartitionings(sweepableInputs []txInput,
-	feePerKW chainfee.SatPerKWeight, maxInputsPerTx int,
+	feePerKW, maxFeeRate chainfee.SatPerKWeight, maxInputsPerTx int,
 	wallet Wallet) ([]inputSet, error) {
 
 	// Sort input by yield. We will start constructing input sets starting
@@ -87,7 +87,9 @@ func generateInputPartitionings(sweepableInputs []txInput,
 		// Start building a set of positive-yield tx inputs under the
 		// condition that the tx will be published with the specified
 		// fee rate.
-		txInputs := newTxInputSet(wallet, feePerKW, maxInputsPerTx)
+		txInputs := newTxInputSet(
+			wallet, feePerKW, maxFeeRate, maxInputsPerTx,
+		)
 
 		// From the set of sweepable inputs, keep adding inputs to the
 		// input set until the tx output value no longer goes up or the
@@ -137,11 +139,11 @@ func generateInputPartitionings(sweepableInputs []txInput,
 // sending any leftover change to the change script.
 func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	changePkScript []byte, currentBlockHeight uint32,
-	feePerKw chainfee.SatPerKWeight, signer input.Signer) (*wire.MsgTx,
-	error) {
+	feePerKw, maxFeeRate chainfee.SatPerKWeight,
+	signer input.Signer) (*wire.MsgTx, error) {
 
 	inputs, estimator, err := getWeightEstimate(
-		inputs, outputs, feePerKw, changePkScript,
+		inputs, outputs, feePerKw, maxFeeRate, changePkScript,
 	)
 	if err != nil {
 		return nil, err
@@ -319,7 +321,8 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 // getWeightEstimate returns a weight estimate for the given inputs.
 // Additionally, it returns counts for the number of csv and cltv inputs.
 func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, outputPkScript []byte) ([]input.Input,
+	feeRate, maxFeeRate chainfee.SatPerKWeight,
+	outputPkScript []byte) ([]input.Input,
 	*weightEstimator, error) {
 
 	// We initialize a weight estimator so we can accurately asses the
@@ -327,7 +330,7 @@ func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 	//
 	// TODO(roasbeef): can be more intelligent about buffering outputs to
 	// be more efficient on-chain.
-	weightEstimate := newWeightEstimator(feeRate)
+	weightEstimate := newWeightEstimator(feeRate, maxFeeRate)
 
 	// Our sweep transaction will always pay to the given set of outputs.
 	for _, o := range outputs {

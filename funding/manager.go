@@ -3070,6 +3070,8 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 		return false, err
 	}
 
+	// If we cannot find the channel, then we haven't processed the
+	// remote's channelReady message.
 	channel, err := f.cfg.FindChannel(node, chanID)
 	if err != nil {
 		log.Errorf("Unable to locate ChannelID(%v) to determine if "+
@@ -3077,7 +3079,18 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 		return false, err
 	}
 
-	return channel.RemoteNextRevocation != nil, nil
+	// If we haven't insert the next revocation point, we haven't finished
+	// processing the channel ready message.
+	if channel.RemoteNextRevocation == nil {
+		return false, nil
+	}
+
+	// Finally, the barrier signal is removed once we finish
+	// `handleChannelReady`. If we can still find the signal, we haven't
+	// finished processing it yet.
+	_, loaded := f.handleChannelReadyBarriers.Load(chanID)
+
+	return !loaded, nil
 }
 
 // extractAnnounceParams extracts the various channel announcement and update

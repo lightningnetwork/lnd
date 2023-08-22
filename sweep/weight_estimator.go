@@ -16,13 +16,19 @@ type weightEstimator struct {
 	parents       map[chainhash.Hash]struct{}
 	parentsFee    btcutil.Amount
 	parentsWeight int64
+
+	// maxFeeRate is the max allowed fee rate configured by the user.
+	maxFeeRate chainfee.SatPerKWeight
 }
 
 // newWeightEstimator instantiates a new sweeper weight estimator.
-func newWeightEstimator(feeRate chainfee.SatPerKWeight) *weightEstimator {
+func newWeightEstimator(
+	feeRate, maxFeeRate chainfee.SatPerKWeight) *weightEstimator {
+
 	return &weightEstimator{
-		feeRate: feeRate,
-		parents: make(map[chainhash.Hash]struct{}),
+		feeRate:    feeRate,
+		maxFeeRate: maxFeeRate,
+		parents:    make(map[chainhash.Hash]struct{}),
 	}
 }
 
@@ -117,6 +123,19 @@ func (w *weightEstimator) fee() btcutil.Amount {
 	childFee := w.feeRate.FeeForWeight(childWeight)
 	if childFee > fee {
 		fee = childFee
+	}
+
+	// Exit early if maxFeeRate is not set.
+	if w.maxFeeRate == 0 {
+		return fee
+	}
+
+	// Clamp the fee to the max fee rate.
+	maxFee := w.maxFeeRate.FeeForWeight(childWeight)
+	if fee > maxFee {
+		log.Warnf("Estimated fee %v exceeds max allowed fee %v, using "+
+			"max fee instead", fee, maxFee)
+		fee = maxFee
 	}
 
 	return fee

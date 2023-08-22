@@ -184,8 +184,7 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 	blockHeight uint32, deliveryAddrs []DeliveryAddr,
 	changeAddr btcutil.Address, coinSelectLocker CoinSelectionLocker,
 	utxoSource UtxoSource, outpointLocker OutpointLocker,
-	feeEstimator chainfee.Estimator, signer input.Signer,
-	minConfs int32) (*WalletSweepPackage, error) {
+	signer input.Signer, minConfs int32) (*WalletSweepPackage, error) {
 
 	// TODO(roasbeef): turn off ATPL as well when available?
 

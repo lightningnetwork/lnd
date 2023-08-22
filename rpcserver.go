@@ -1268,6 +1268,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	var txid *chainhash.Hash
 
 	wallet := r.server.cc.Wallet
+	maxFeeRate := r.cfg.Sweeper.MaxFeeRate.FeePerKWeight()
 
 	// If the send all flag is active, then we'll attempt to sweep all the
 	// coins in the wallet in a single transaction (if possible),
@@ -1293,10 +1294,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// pay to the change address created above if we needed to
 		// reserve any value, the rest will go to targetAddr.
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
-			feePerKw, uint32(bestHeight), nil, targetAddr, wallet,
-			wallet, wallet.WalletController,
-			r.server.cc.FeeEstimator, r.server.cc.Signer,
-			minConfs,
+			maxFeeRate, feePerKw, uint32(bestHeight), nil,
+			targetAddr, wallet, wallet, wallet.WalletController,
+			r.server.cc.FeeEstimator, r.server.cc.Signer, minConfs,
 		)
 		if err != nil {
 			return nil, err
@@ -1347,8 +1347,8 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			}
 
 			sweepTxPkg, err = sweep.CraftSweepAllTx(
-				feePerKw, uint32(bestHeight), outputs,
-				targetAddr, wallet, wallet,
+				maxFeeRate, feePerKw, uint32(bestHeight),
+				outputs, targetAddr, wallet, wallet,
 				wallet.WalletController,
 				r.server.cc.FeeEstimator, r.server.cc.Signer,
 				minConfs,

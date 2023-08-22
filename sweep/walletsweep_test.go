@@ -297,7 +297,7 @@ func TestCraftSweepAllTxCoinSelectFail(t *testing.T) {
 	utxoLocker := newMockOutpointLocker()
 
 	_, err := CraftSweepAllTx(
-		0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker, nil,
+		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker, nil,
 		nil, 0,
 	)
 
@@ -323,7 +323,7 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 	utxoLocker := newMockOutpointLocker()
 
 	_, err := CraftSweepAllTx(
-		0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker, nil,
+		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker, nil,
 		nil, 0,
 	)
 
@@ -358,7 +358,7 @@ func TestCraftSweepAllTx(t *testing.T) {
 	utxoLocker := newMockOutpointLocker()
 
 	sweepPkg, err := CraftSweepAllTx(
-		0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
+		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
 		utxoLocker, feeEstimator, signer, 0,
 	)
 	require.NoError(t, err, "unable to make sweep tx")

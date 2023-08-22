@@ -1245,6 +1245,9 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 		}
 	}
 
+	// Convert the max fee rate's unit from sat/vb to sat/kw.
+	maxFeeRate := s.cfg.MaxFeeRate.FeePerKWeight()
+
 	// If there is anything to retry, combine it with the new inputs and
 	// form input sets.
 	var allSets []inputSet
@@ -1252,8 +1255,8 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 		var err error
 		allSets, err = generateInputPartitionings(
 			append(retryInputs, newInputs...),
-			cluster.sweepFeeRate, s.cfg.MaxInputsPerTx,
-			s.cfg.Wallet,
+			cluster.sweepFeeRate, maxFeeRate,
+			s.cfg.MaxInputsPerTx, s.cfg.Wallet,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("input partitionings: %v", err)
@@ -1262,8 +1265,8 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 
 	// Create sets for just the new inputs.
 	newSets, err := generateInputPartitionings(
-		newInputs, cluster.sweepFeeRate, s.cfg.MaxInputsPerTx,
-		s.cfg.Wallet,
+		newInputs, cluster.sweepFeeRate, maxFeeRate,
+		s.cfg.MaxInputsPerTx, s.cfg.Wallet,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("input partitionings: %v", err)
@@ -1294,7 +1297,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	// Create sweep tx.
 	tx, err := createSweepTx(
 		inputs, nil, s.currentOutputScript, uint32(currentHeight),
-		feeRate, s.cfg.Signer,
+		feeRate, s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
 	)
 	if err != nil {
 		return fmt.Errorf("create sweep tx: %v", err)
@@ -1603,7 +1606,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input, feePref FeePreference,
 
 	return createSweepTx(
 		inputs, nil, pkScript, currentBlockHeight, feePerKw,
-		s.cfg.Signer,
+		s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
 	)
 }
 

@@ -7,8 +7,8 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
-	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -21,7 +21,7 @@ type Manager struct {
 	// UpdateForwardingPolicies is used by the manager to update active
 	// links with a new policy.
 	UpdateForwardingPolicies func(
-		chanPolicies map[wire.OutPoint]htlcswitch.ForwardingPolicy)
+		chanPolicies map[wire.OutPoint]models.ForwardingPolicy)
 
 	// PropagateChanPolicyUpdate is called to persist a new policy to disk
 	// and broadcast it to the network.
@@ -66,7 +66,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 
 	var failedUpdates []*lnrpc.FailedUpdate
 	var edgesToUpdate []discovery.EdgeWithInfo
-	policiesToUpdate := make(map[wire.OutPoint]htlcswitch.ForwardingPolicy)
+	policiesToUpdate := make(map[wire.OutPoint]models.ForwardingPolicy)
 
 	// Next, we'll loop over all the outgoing channels the router knows of.
 	// If we have a filter then we'll only collected those channels,
@@ -106,7 +106,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 		})
 
 		// Add updated policy to list of policies to send to switch.
-		policiesToUpdate[info.ChannelPoint] = htlcswitch.ForwardingPolicy{
+		policiesToUpdate[info.ChannelPoint] = models.ForwardingPolicy{
 			BaseFee:       edge.FeeBaseMSat,
 			FeeRate:       edge.FeeProportionalMillionths,
 			TimeLockDelta: uint32(edge.TimeLockDelta),

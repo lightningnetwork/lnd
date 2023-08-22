@@ -191,7 +191,7 @@ type ChannelLink interface {
 	// UpdateForwardingPolicy updates the forwarding policy for the target
 	// ChannelLink. Once updated, the link will use the new forwarding
 	// policy to govern if it an incoming HTLC should be forwarded or not.
-	UpdateForwardingPolicy(ForwardingPolicy)
+	UpdateForwardingPolicy(models.ForwardingPolicy)
 
 	// CheckHtlcForward should return a nil error if the passed HTLC details
 	// satisfy the current forwarding policy fo the target link. Otherwise,

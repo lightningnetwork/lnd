@@ -25,7 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs/btcdnotify"
 	"github.com/lightningnetwork/lnd/chainntnfs/neutrinonotify"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -195,7 +195,7 @@ type PartialChainControl struct {
 	ChainSource chain.Interface
 
 	// RoutingPolicy is the routing policy we have decided to use.
-	RoutingPolicy htlcswitch.ForwardingPolicy
+	RoutingPolicy models.ForwardingPolicy
 
 	// MinHtlcIn is the minimum HTLC we will accept.
 	MinHtlcIn lnwire.MilliSatoshi
@@ -270,7 +270,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 
 	switch cfg.PrimaryChain() {
 	case BitcoinChain:
-		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
+		cc.RoutingPolicy = models.ForwardingPolicy{
 			MinHTLCOut:    cfg.Bitcoin.MinHTLCOut,
 			BaseFee:       cfg.Bitcoin.BaseFee,
 			FeeRate:       cfg.Bitcoin.FeeRate,
@@ -282,7 +282,7 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 			DefaultBitcoinStaticMinRelayFeeRate,
 		)
 	case LitecoinChain:
-		cc.RoutingPolicy = htlcswitch.ForwardingPolicy{
+		cc.RoutingPolicy = models.ForwardingPolicy{
 			MinHTLCOut:    cfg.Litecoin.MinHTLCOut,
 			BaseFee:       cfg.Litecoin.BaseFee,
 			FeeRate:       cfg.Litecoin.FeeRate,

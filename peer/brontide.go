@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -234,7 +235,7 @@ type Config struct {
 
 	// RoutingPolicy is used to set the forwarding policy for links created by
 	// the Brontide.
-	RoutingPolicy htlcswitch.ForwardingPolicy
+	RoutingPolicy models.ForwardingPolicy
 
 	// Sphinx is used when setting up ChannelLinks so they can decode sphinx
 	// onion blobs.
@@ -877,9 +878,9 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// If we don't yet have an advertised routing policy, then
 		// we'll use the current default, otherwise we'll translate the
 		// routing policy into a forwarding policy.
-		var forwardingPolicy *htlcswitch.ForwardingPolicy
+		var forwardingPolicy *models.ForwardingPolicy
 		if selfPolicy != nil {
-			forwardingPolicy = &htlcswitch.ForwardingPolicy{
+			forwardingPolicy = &models.ForwardingPolicy{
 				MinHTLCOut:    selfPolicy.MinHTLC,
 				MaxHTLC:       selfPolicy.MaxHTLC,
 				BaseFee:       selfPolicy.FeeBaseMSat,
@@ -934,7 +935,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 // addLink creates and adds a new ChannelLink from the specified channel.
 func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	lnChan *lnwallet.LightningChannel,
-	forwardingPolicy *htlcswitch.ForwardingPolicy,
+	forwardingPolicy *models.ForwardingPolicy,
 	chainEvents *contractcourt.ChainEventSubscription,
 	syncStates bool) error {
 
@@ -3831,26 +3832,18 @@ func (p *Brontide) addActiveChannel(c *channeldb.OpenChannel) error {
 			err)
 	}
 
-	// We'll query the localChanCfg of the new channel to determine the
-	// minimum HTLC value that can be forwarded. For the maximum HTLC value
-	// that can be forwarded and fees we'll use the default values, as they
-	// currently are always set to the default values at initial channel
-	// creation. Note that the maximum HTLC value defaults to the cap on
-	// the total value of outstanding HTLCs.
-	fwdMinHtlc := lnChan.FwdMinHtlc()
-	defaultPolicy := p.cfg.RoutingPolicy
-	forwardingPolicy := &htlcswitch.ForwardingPolicy{
-		MinHTLCOut:    fwdMinHtlc,
-		MaxHTLC:       c.LocalChanCfg.MaxPendingAmount,
-		BaseFee:       defaultPolicy.BaseFee,
-		FeeRate:       defaultPolicy.FeeRate,
-		TimeLockDelta: defaultPolicy.TimeLockDelta,
+	// We'll query the channel DB for the new channel's initial forwarding
+	// policies to determine the policy we start out with.
+	initialPolicy, err := p.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
+	if err != nil {
+		return fmt.Errorf("unable to query for initial forwarding "+
+			"policy: %v", err)
 	}
 
 	// Create the link and add it to the switch.
 	err = p.addLink(
-		chanPoint, lnChan, forwardingPolicy,
-		chainEvents, shouldReestablish,
+		chanPoint, lnChan, initialPolicy, chainEvents,
+		shouldReestablish,
 	)
 	if err != nil {
 		return fmt.Errorf("can't register new channel link(%v) with "+

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -22,15 +23,16 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	acpt "github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/discovery"
-	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -250,7 +252,6 @@ type testNode struct {
 	testDir         string
 	shutdownChannel chan struct{}
 	reportScidChan  chan struct{}
-	updatedPolicies chan map[wire.OutPoint]htlcswitch.ForwardingPolicy
 	localFeatures   []lnwire.FeatureBit
 	remoteFeatures  []lnwire.FeatureBit
 
@@ -379,9 +380,6 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	publTxChan := make(chan *wire.MsgTx, 1)
 	shutdownChan := make(chan struct{})
 	reportScidChan := make(chan struct{})
-	updatedPolicies := make(
-		chan map[wire.OutPoint]htlcswitch.ForwardingPolicy, 1,
-	)
 
 	wc := &mock.WalletController{
 		RootKey: alicePrivKey,
@@ -432,6 +430,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		IDKeyLoc:     testKeyLoc,
 		Wallet:       lnw,
 		Notifier:     chainNotifier,
+		ChannelDB:    cdb,
 		FeeEstimator: estimator,
 		SignMessage: func(_ keychain.KeyLocator,
 			_ []byte, _ bool) (*ecdsa.Signature, error) {
@@ -476,7 +475,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 			return nil, fmt.Errorf("unable to find channel")
 		},
-		DefaultRoutingPolicy: htlcswitch.ForwardingPolicy{
+		DefaultRoutingPolicy: models.ForwardingPolicy{
 			MinHTLCOut:    5,
 			BaseFee:       100,
 			FeeRate:       1000,
@@ -538,11 +537,6 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			return nil, nil
 		},
 		AliasManager: aliasMgr,
-		UpdateForwardingPolicies: func(
-			p map[wire.OutPoint]htlcswitch.ForwardingPolicy) {
-
-			updatedPolicies <- p
-		},
 	}
 
 	for _, op := range options {
@@ -567,7 +561,6 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		testDir:         tempTestDir,
 		shutdownChannel: shutdownChan,
 		reportScidChan:  reportScidChan,
-		updatedPolicies: updatedPolicies,
 		addr:            addr,
 	}
 
@@ -601,6 +594,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		IDKeyLoc:     oldCfg.IDKeyLoc,
 		Wallet:       oldCfg.Wallet,
 		Notifier:     oldCfg.Notifier,
+		ChannelDB:    oldCfg.ChannelDB,
 		FeeEstimator: oldCfg.FeeEstimator,
 		SignMessage: func(_ keychain.KeyLocator,
 			_ []byte, _ bool) (*ecdsa.Signature, error) {
@@ -631,7 +625,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		},
 		TempChanIDSeed: oldCfg.TempChanIDSeed,
 		FindChannel:    oldCfg.FindChannel,
-		DefaultRoutingPolicy: htlcswitch.ForwardingPolicy{
+		DefaultRoutingPolicy: models.ForwardingPolicy{
 			MinHTLCOut:    5,
 			BaseFee:       100,
 			FeeRate:       1000,
@@ -647,12 +641,11 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		UpdateLabel: func(chainhash.Hash, string) error {
 			return nil
 		},
-		ZombieSweeperInterval:    oldCfg.ZombieSweeperInterval,
-		ReservationTimeout:       oldCfg.ReservationTimeout,
-		OpenChannelPredicate:     chainedAcceptor,
-		DeleteAliasEdge:          oldCfg.DeleteAliasEdge,
-		AliasManager:             oldCfg.AliasManager,
-		UpdateForwardingPolicies: oldCfg.UpdateForwardingPolicies,
+		ZombieSweeperInterval: oldCfg.ZombieSweeperInterval,
+		ReservationTimeout:    oldCfg.ReservationTimeout,
+		OpenChannelPredicate:  chainedAcceptor,
+		DeleteAliasEdge:       oldCfg.DeleteAliasEdge,
+		AliasManager:          oldCfg.AliasManager,
 	})
 	require.NoError(t, err, "failed recreating aliceFundingManager")
 
@@ -1141,21 +1134,6 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 			}
 		}
 
-		// At this point we should also have gotten a policy update that
-		// was sent to the switch subsystem. Make sure it contains the
-		// same values.
-		var policyUpdate htlcswitch.ForwardingPolicy
-		select {
-		case policyUpdateMap := <-node.updatedPolicies:
-			require.Len(t, policyUpdateMap, 1)
-			for _, policy := range policyUpdateMap {
-				policyUpdate = policy
-			}
-
-		case <-time.After(time.Second * 5):
-			t.Fatalf("node didn't send policy update")
-		}
-
 		gotChannelAnnouncement := false
 		gotChannelUpdate := false
 		for _, msg := range announcements {
@@ -1184,34 +1162,24 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 					minHtlc = customMinHtlc[j]
 				}
 				require.Equal(t, minHtlc, m.HtlcMinimumMsat)
-				require.Equal(
-					t, minHtlc, policyUpdate.MinHTLCOut,
-				)
 
 				// We might expect a custom MaxHltc value.
 				if len(customMaxHtlc) > 0 {
 					maxHtlc = customMaxHtlc[j]
 				}
 				require.Equal(t, maxHtlc, m.HtlcMaximumMsat)
-				require.Equal(t, maxHtlc, policyUpdate.MaxHTLC)
 
 				// We might expect a custom baseFee value.
 				if len(baseFees) > 0 {
 					baseFee = baseFees[j]
 				}
 				require.EqualValues(t, baseFee, m.BaseFee)
-				require.EqualValues(
-					t, baseFee, policyUpdate.BaseFee,
-				)
 
 				// We might expect a custom feeRate value.
 				if len(feeRates) > 0 {
 					feeRate = feeRates[j]
 				}
 				require.EqualValues(t, feeRate, m.FeeRate)
-				require.EqualValues(
-					t, feeRate, policyUpdate.FeeRate,
-				)
 
 				gotChannelUpdate = true
 			}
@@ -1299,13 +1267,12 @@ func assertNoChannelState(t *testing.T, alice, bob *testNode,
 }
 
 func assertNoFwdingPolicy(t *testing.T, alice, bob *testNode,
-	fundingOutPoint *wire.OutPoint) {
+	chanID lnwire.ChannelID) {
 
 	t.Helper()
 
-	chandID := lnwire.NewChanIDFromOutPoint(fundingOutPoint)
-	assertInitialFwdingPolicyNotFound(t, alice, &chandID)
-	assertInitialFwdingPolicyNotFound(t, bob, &chandID)
+	assertInitialFwdingPolicyNotFound(t, alice, &chanID)
+	assertInitialFwdingPolicyNotFound(t, bob, &chanID)
 }
 
 func assertErrChannelNotFound(t *testing.T, node *testNode,
@@ -1338,42 +1305,46 @@ func assertInitialFwdingPolicyNotFound(t *testing.T, node *testNode,
 
 	t.Helper()
 
-	var fwdingPolicy *htlcswitch.ForwardingPolicy
-	var err error
-	for i := 0; i < testPollNumTries; i++ {
-		// If this is not the first try, sleep before retrying.
-		if i > 0 {
-			time.Sleep(testPollSleepMs * time.Millisecond)
+	err := wait.NoError(func() error {
+		_, err := node.fundingMgr.getInitialForwardingPolicy(*chanID)
+		if errors.Is(err, channeldb.ErrChannelNotFound) {
+			return nil
 		}
-		fwdingPolicy, err = node.fundingMgr.getInitialFwdingPolicy(
-			*chanID,
-		)
-		require.ErrorIs(t, err, channeldb.ErrChannelNotFound)
 
-		// Got expected result, return with success.
-		return
-	}
+		return fmt.Errorf("expected ErrChannelNotFound, got %w", err)
+	}, wait.DefaultTimeout)
 
-	// 10 tries without success.
-	t.Fatalf("expected to not find a forwarding policy, found policy %v",
-		fwdingPolicy)
+	require.NoError(t, err)
 }
 
-func assertHandleChannelReady(t *testing.T, alice, bob *testNode) {
+func assertHandleChannelReady(t *testing.T, alice, bob *testNode,
+	checkChannel ...func(node *testNode, msg *newChannelMsg) bool) {
+
 	t.Helper()
 
+	const timeout = time.Second * 15
 	// They should both send the new channel state to their peer.
 	select {
 	case c := <-alice.newChannels:
+		for _, check := range checkChannel {
+			require.NoError(t, wait.Predicate(func() bool {
+				return check(alice, c)
+			}, timeout))
+		}
 		close(c.err)
-	case <-time.After(time.Second * 15):
+	case <-time.After(timeout):
 		t.Fatalf("alice did not send new channel to peer")
 	}
 
 	select {
 	case c := <-bob.newChannels:
+		for _, check := range checkChannel {
+			require.NoError(t, wait.Predicate(func() bool {
+				return check(bob, c)
+			}, timeout))
+		}
 		close(c.err)
-	case <-time.After(time.Second * 15):
+	case <-time.After(timeout):
 		t.Fatalf("bob did not send new channel to peer")
 	}
 }
@@ -1469,7 +1440,7 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerRejectCSV tests checking of local CSV values against our
@@ -1782,7 +1753,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerOfflinePeer checks that the fundingManager waits for the
@@ -1945,7 +1916,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerPeerTimeoutAfterInitFunding checks that the zombie sweeper
@@ -2403,7 +2374,7 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerRestartAfterChanAnn checks that the fundingManager properly
@@ -2502,7 +2473,7 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerRestartAfterReceivingChannelReady checks that the
@@ -2597,7 +2568,7 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerPrivateChannel tests that if we open a private channel
@@ -2721,7 +2692,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerPrivateRestart tests that the privacy guarantees granted
@@ -2870,7 +2841,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database.
-	assertNoFwdingPolicy(t, alice, bob, fundingOutPoint)
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerCustomChannelParameters checks that custom requirements we
@@ -2890,12 +2861,12 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	const fundingAmt = 5000000
 	const chanReserve = 100000
 
-	// Use custom channel fees.
-	// These will show up in the channel reservation context
-	var baseFee uint64
-	var feeRate uint64
-	baseFee = 42
-	feeRate = 1337
+	// Use custom channel fees. These will show up in the channel
+	// reservation context.
+	var (
+		baseFee uint64 = 42
+		feeRate uint64 = 1337
+	)
 
 	// We will consume the channel updates as we go, so no buffering is
 	// needed.
@@ -3074,7 +3045,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// Helper method for checking baseFee and feeRate stored for a
 	// reservation.
-	assertFees := func(forwardingPolicy *htlcswitch.ForwardingPolicy,
+	assertFees := func(forwardingPolicy *models.ForwardingPolicy,
 		baseFee, feeRate lnwire.MilliSatoshi) error {
 
 		if forwardingPolicy.BaseFee != baseFee {
@@ -3171,13 +3142,13 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// After the funding is signed and before the channel announcement
 	// we expect Alice and Bob to store their respective fees in the
 	// database.
-	forwardingPolicy, err := alice.fundingMgr.getInitialFwdingPolicy(
+	forwardingPolicy, err := alice.fundingMgr.getInitialForwardingPolicy(
 		fundingSigned.ChanID,
 	)
 	require.NoError(t, err)
 	require.NoError(t, assertFees(forwardingPolicy, 42, 1337))
 
-	forwardingPolicy, err = bob.fundingMgr.getInitialFwdingPolicy(
+	forwardingPolicy, err = bob.fundingMgr.getInitialForwardingPolicy(
 		fundingSigned.ChanID,
 	)
 	require.NoError(t, err)
@@ -3216,10 +3187,6 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
 	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
 
-	// Check that they notify the breach arbiter and peer about the new
-	// channel.
-	assertHandleChannelReady(t, alice, bob)
-
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
 	// Alice should advertise the default MinHTLC value of
@@ -3236,15 +3203,45 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// Alice should have custom fees set whereas Bob should see his
 	// configured default fees announced.
+	defaultDelta := bob.fundingMgr.cfg.DefaultRoutingPolicy.TimeLockDelta
 	defaultBaseFee := bob.fundingMgr.cfg.DefaultRoutingPolicy.BaseFee
-	defaultFeerate := bob.fundingMgr.cfg.DefaultRoutingPolicy.FeeRate
+	defaultFeeRate := bob.fundingMgr.cfg.DefaultRoutingPolicy.FeeRate
 	baseFees := []lnwire.MilliSatoshi{
 		lnwire.MilliSatoshi(baseFee), defaultBaseFee,
 	}
 	feeRates := []lnwire.MilliSatoshi{
-		lnwire.MilliSatoshi(feeRate), defaultFeerate,
+		lnwire.MilliSatoshi(feeRate), defaultFeeRate,
 	}
 
+	// Check that they notify the breach arbiter and peer about the new
+	// channel.
+	assertHandleChannelReady(
+		t, alice, bob, func(node *testNode, msg *newChannelMsg) bool {
+			aliceDB := alice.fundingMgr.cfg.ChannelDB
+			chanID := lnwire.NewChanIDFromOutPoint(
+				&msg.channel.FundingOutpoint,
+			)
+
+			if node == alice {
+				p, err := aliceDB.GetInitialForwardingPolicy(
+					chanID,
+				)
+				require.NoError(t, err)
+
+				return reflect.DeepEqual(
+					p, &models.ForwardingPolicy{
+						MaxHTLC:       maxHtlcArr[0],
+						MinHTLCOut:    minHtlcArr[0],
+						BaseFee:       baseFees[0],
+						FeeRate:       feeRates[0],
+						TimeLockDelta: defaultDelta,
+					},
+				)
+			}
+
+			return true
+		},
+	)
 	assertChannelAnnouncements(
 		t, alice, bob, capacity, minHtlcArr, maxHtlcArr, baseFees,
 		feeRates,
@@ -3267,18 +3264,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 
 	// After the announcement we expect Alice and Bob to have cleared
 	// the fees for the channel from the database.
-	_, err = alice.fundingMgr.getInitialFwdingPolicy(fundingSigned.ChanID)
-	if err != channeldb.ErrChannelNotFound {
-		err = fmt.Errorf("channel fees were expected to be deleted" +
-			" but were not")
-		t.Fatal(err)
-	}
-	_, err = bob.fundingMgr.getInitialFwdingPolicy(fundingSigned.ChanID)
-	if err != channeldb.ErrChannelNotFound {
-		err = fmt.Errorf("channel fees were expected to be deleted" +
-			" but were not")
-		t.Fatal(err)
-	}
+	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
 }
 
 // TestFundingManagerInvalidChanReserve ensures proper validation is done on
@@ -4473,7 +4459,7 @@ func TestFundingManagerZeroConf(t *testing.T) {
 
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
-	assertNoFwdingPolicy(t, alice, bob, fundingOp)
+	assertNoFwdingPolicy(t, alice, bob, aliceChannelReady.ChanID)
 }
 
 // TestCommitmentTypeFundmaxSanityCheck was introduced as a way of reminding

@@ -840,7 +840,7 @@ func (f *mockChannelLink) getDustClosure() dustClosure {
 func (f *mockChannelLink) HandleChannelUpdate(lnwire.Message) {
 }
 
-func (f *mockChannelLink) UpdateForwardingPolicy(_ ForwardingPolicy) {
+func (f *mockChannelLink) UpdateForwardingPolicy(_ models.ForwardingPolicy) {
 }
 func (f *mockChannelLink) CheckHtlcForward([32]byte, lnwire.MilliSatoshi,
 	lnwire.MilliSatoshi, uint32, uint32, uint32,

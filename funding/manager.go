@@ -20,8 +20,8 @@ import (
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/discovery"
-	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/labels"
@@ -154,7 +154,7 @@ type reservationWithCtx struct {
 	chanAmt btcutil.Amount
 
 	// forwardingPolicy is the policy provided by the initFundingMsg.
-	forwardingPolicy htlcswitch.ForwardingPolicy
+	forwardingPolicy models.ForwardingPolicy
 
 	// Constraints we require for the remote.
 	remoteCsvDelay    uint16
@@ -386,6 +386,9 @@ type Config struct {
 	// so that the channel creation process can be completed.
 	Notifier chainntnfs.ChainNotifier
 
+	// ChannelDB is the database that keeps track of all channel state.
+	ChannelDB *channeldb.ChannelStateDB
+
 	// SignMessage signs an arbitrary message with a given public key. The
 	// actual digest signed is the double sha-256 of the message. In the
 	// case that the private key corresponding to the passed public key
@@ -429,7 +432,7 @@ type Config struct {
 
 	// DefaultRoutingPolicy is the default routing policy used when
 	// initially announcing channels.
-	DefaultRoutingPolicy htlcswitch.ForwardingPolicy
+	DefaultRoutingPolicy models.ForwardingPolicy
 
 	// DefaultMinHtlcIn is the default minimum incoming htlc value that is
 	// set as a channel parameter.
@@ -512,11 +515,6 @@ type Config struct {
 	// NotifyOpenChannelEvent informs the ChannelNotifier when channels
 	// transition from pending open to open.
 	NotifyOpenChannelEvent func(wire.OutPoint)
-
-	// UpdateForwardingPolicies is used by the manager to update active
-	// links with a new policy.
-	UpdateForwardingPolicies func(
-		chanPolicies map[wire.OutPoint]htlcswitch.ForwardingPolicy)
 
 	// OpenChannelPredicate is a predicate on the lnwire.OpenChannel message
 	// and on the requesting node's public key that returns a bool which
@@ -641,7 +639,7 @@ func (c channelOpeningState) String() string {
 	case markedOpen:
 		return "markedOpen"
 	case channelReadySent:
-		return "channelReady"
+		return "channelReadySent"
 	case addedToRouterGraph:
 		return "addedToRouterGraph"
 	default:
@@ -698,7 +696,7 @@ func (f *Manager) start() error {
 	// down.
 	// TODO(roasbeef): store height that funding finished?
 	//  * would then replace call below
-	allChannels, err := f.cfg.Wallet.Cfg.Database.FetchAllChannels()
+	allChannels, err := f.cfg.ChannelDB.FetchAllChannels()
 	if err != nil {
 		return err
 	}
@@ -1153,79 +1151,9 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 			return nil
 		}
 
-		var peerAlias *lnwire.ShortChannelID
-		if channel.IsZeroConf() {
-			// We'll need to wait until channel_ready has been
-			// received and the peer lets us know the alias they
-			// want to use for the channel. With this information,
-			// we can then construct a ChannelUpdate for them.
-			// If an alias does not yet exist, we'll just return,
-			// letting the next iteration of the loop check again.
-			var defaultAlias lnwire.ShortChannelID
-			chanID := lnwire.NewChanIDFromOutPoint(
-				&channel.FundingOutpoint,
-			)
-			foundAlias, _ := f.cfg.AliasManager.GetPeerAlias(
-				chanID,
-			)
-			if foundAlias == defaultAlias {
-				return nil
-			}
-
-			peerAlias = &foundAlias
-		}
-
-		err = f.addToRouterGraph(channel, shortChanID, peerAlias, nil)
-		if err != nil {
-			return fmt.Errorf("failed adding to "+
-				"router graph: %v", err)
-		}
-
-		// As the channel is now added to the ChannelRouter's topology,
-		// the channel is moved to the next state of the state machine.
-		// It will be moved to the last state (actually deleted from
-		// the database) after the channel is finally announced.
-		err = f.saveChannelOpeningState(
-			&channel.FundingOutpoint, addedToRouterGraph,
-			shortChanID,
+		return f.handleChannelReadyReceived(
+			channel, shortChanID, pendingChanID, updateChan,
 		)
-		if err != nil {
-			return fmt.Errorf("error setting channel state to"+
-				" addedToRouterGraph: %v", err)
-		}
-
-		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
-			"added to router graph", chanID, shortChanID)
-
-		// Give the caller a final update notifying them that
-		// the channel is now open.
-		// TODO(roasbeef): only notify after recv of channel_ready?
-		fundingPoint := channel.FundingOutpoint
-		cp := &lnrpc.ChannelPoint{
-			FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
-				FundingTxidBytes: fundingPoint.Hash[:],
-			},
-			OutputIndex: fundingPoint.Index,
-		}
-
-		if updateChan != nil {
-			upd := &lnrpc.OpenStatusUpdate{
-				Update: &lnrpc.OpenStatusUpdate_ChanOpen{
-					ChanOpen: &lnrpc.ChannelOpenUpdate{
-						ChannelPoint: cp,
-					},
-				},
-				PendingChanId: pendingChanID[:],
-			}
-
-			select {
-			case updateChan <- upd:
-			case <-f.quit:
-				return ErrFundingManagerShuttingDown
-			}
-		}
-
-		return nil
 
 	// The channel was added to the Router's topology, but the channel
 	// announcement was not sent.
@@ -1261,6 +1189,16 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		if err != nil {
 			return fmt.Errorf("error deleting channel state: %v",
 				err)
+		}
+
+		// After the fee parameters have been stored in the
+		// announcement we can delete them from the database. For
+		// private channels we do not announce the channel policy to
+		// the network but still need to delete them from the database.
+		err = f.deleteInitialForwardingPolicy(chanID)
+		if err != nil {
+			log.Infof("Could not delete initial policy for chanId "+
+				"%x", chanID)
 		}
 
 		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
@@ -1396,7 +1334,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 
 	// Also count the channels that are already pending. There we don't know
 	// the underlying intent anymore, unfortunately.
-	channels, err := f.cfg.Wallet.Cfg.Database.FetchOpenChannels(peerPubKey)
+	channels, err := f.cfg.ChannelDB.FetchOpenChannels(peerPubKey)
 	if err != nil {
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -1423,7 +1361,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 
 	// Ensure that the pendingChansLimit is respected.
-	pendingChans, err := f.cfg.Wallet.Cfg.Database.FetchPendingChannels()
+	pendingChans, err := f.cfg.ChannelDB.FetchPendingChannels()
 	if err != nil {
 		f.failFundingFlow(peer, cid, err)
 		return
@@ -1744,13 +1682,13 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 		minHtlc = acceptorResp.MinHtlcIn
 	}
 
-	// If we are handling a FundingOpen request then we need to
-	// specify the default channel fees since they are not provided
-	// by the responder interactively.
-	forwardingPolicy := htlcswitch.ForwardingPolicy{
-		BaseFee: f.cfg.DefaultRoutingPolicy.BaseFee,
-		FeeRate: f.cfg.DefaultRoutingPolicy.FeeRate,
-	}
+	// If we are handling a FundingOpen request then we need to specify the
+	// default channel fees since they are not provided by the responder
+	// interactively.
+	ourContribution := reservation.OurContribution()
+	forwardingPolicy := f.defaultForwardingPolicy(
+		ourContribution.ChannelConstraints,
+	)
 
 	// Once the reservation has been created successfully, we add it to
 	// this peer's map of pending reservations to track this particular
@@ -1762,7 +1700,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	resCtx := &reservationWithCtx{
 		reservation:       reservation,
 		chanAmt:           amt,
-		forwardingPolicy:  forwardingPolicy,
+		forwardingPolicy:  *forwardingPolicy,
 		remoteCsvDelay:    remoteCsvDelay,
 		remoteMinHtlc:     minHtlc,
 		remoteMaxValue:    remoteMaxValue,
@@ -1825,7 +1763,6 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 
 	// With the initiator's contribution recorded, respond with our
 	// contribution in the next message of the workflow.
-	ourContribution := reservation.OurContribution()
 	fundingAccept := lnwire.AcceptChannel{
 		PendingChannelID:      msg.PendingChannelID,
 		DustLimit:             ourContribution.DustLimit,
@@ -2370,7 +2307,7 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	// With a permanent channel id established we can save the respective
 	// forwarding policy in the database. In the channel announcement phase
 	// this forwarding policy is retrieved and applied.
-	err = f.saveInitialFwdingPolicy(cid.chanID, &forwardingPolicy)
+	err = f.saveInitialForwardingPolicy(cid.chanID, &forwardingPolicy)
 	if err != nil {
 		log.Errorf("Unable to store the forwarding policy: %v", err)
 	}
@@ -2473,7 +2410,9 @@ func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
 	// We have to store the forwardingPolicy before the reservation context
 	// is deleted. The policy will then be read and applied in
 	// newChanAnnouncement.
-	err = f.saveInitialFwdingPolicy(permChanID, &resCtx.forwardingPolicy)
+	err = f.saveInitialForwardingPolicy(
+		permChanID, &resCtx.forwardingPolicy,
+	)
 	if err != nil {
 		log.Errorf("Unable to store the forwarding policy: %v", err)
 	}
@@ -3131,6 +3070,8 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 		return false, err
 	}
 
+	// If we cannot find the channel, then we haven't processed the
+	// remote's channelReady message.
 	channel, err := f.cfg.FindChannel(node, chanID)
 	if err != nil {
 		log.Errorf("Unable to locate ChannelID(%v) to determine if "+
@@ -3138,7 +3079,18 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 		return false, err
 	}
 
-	return channel.RemoteNextRevocation != nil, nil
+	// If we haven't insert the next revocation point, we haven't finished
+	// processing the channel ready message.
+	if channel.RemoteNextRevocation == nil {
+		return false, nil
+	}
+
+	// Finally, the barrier signal is removed once we finish
+	// `handleChannelReady`. If we can still find the signal, we haven't
+	// finished processing it yet.
+	_, loaded := f.handleChannelReadyBarriers.Load(chanID)
+
+	return !loaded, nil
 }
 
 // extractAnnounceParams extracts the various channel announcement and update
@@ -3242,28 +3194,6 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 		return ErrFundingManagerShuttingDown
 	}
 
-	// The user can define non-default channel policies when opening a
-	// channel. They are stored in the database to be persisted from the
-	// moment of funding the channel to it being confirmed. We just
-	// announced those policies to the network, but we also need to update
-	// our local policy in the switch to make sure we can forward payments
-	// with the correct fees. We can't do this when creating the link
-	// initially as that only takes the static channel parameters.
-	updatedPolicy := map[wire.OutPoint]htlcswitch.ForwardingPolicy{
-		completeChan.FundingOutpoint: {
-			MinHTLCOut: ann.chanUpdateAnn.HtlcMinimumMsat,
-			MaxHTLC:    ann.chanUpdateAnn.HtlcMaximumMsat,
-			BaseFee: lnwire.MilliSatoshi(
-				ann.chanUpdateAnn.BaseFee,
-			),
-			FeeRate: lnwire.MilliSatoshi(
-				ann.chanUpdateAnn.FeeRate,
-			),
-			TimeLockDelta: uint32(ann.chanUpdateAnn.TimeLockDelta),
-		},
-	}
-	f.cfg.UpdateForwardingPolicies(updatedPolicy)
-
 	return nil
 }
 
@@ -3308,15 +3238,6 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		if err := peer.SendMessage(true, &nodeAnn); err != nil {
 			return fmt.Errorf("unable to send node announcement "+
 				"to peer %x: %v", pubKey, err)
-		}
-
-		// For private channels we do not announce the channel policy
-		// to the network but still need to delete them from the
-		// database.
-		err = f.deleteInitialFwdingPolicy(chanID)
-		if err != nil {
-			log.Infof("Could not delete channel fees "+
-				"for chanId %x.", chanID)
 		}
 	} else {
 		// Otherwise, we'll wait until the funding transaction has
@@ -3707,12 +3628,145 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer,
 		}
 	}()
 
+	// Before we can add the channel to the peer, we'll need to ensure that
+	// we have an initial forwarding policy set.
+	if err := f.ensureInitialForwardingPolicy(chanID, channel); err != nil {
+		log.Errorf("Unable to ensure initial forwarding policy: %v",
+			err)
+	}
+
 	if err := peer.AddNewChannel(channel, f.quit); err != nil {
 		log.Errorf("Unable to add new channel %v with peer %x: %v",
 			channel.FundingOutpoint,
 			peer.IdentityKey().SerializeCompressed(), err,
 		)
 	}
+}
+
+// handleChannelReadyReceived is called once the remote's channelReady message
+// is received and processed. At this stage, we must have sent out our
+// channelReady message, once the remote's channelReady is processed, the
+// channel is now active, thus we change its state to `addedToRouterGraph` to
+// let the channel start handling routing.
+func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
+	scid *lnwire.ShortChannelID, pendingChanID [32]byte,
+	updateChan chan<- *lnrpc.OpenStatusUpdate) error {
+
+	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+
+	var peerAlias *lnwire.ShortChannelID
+	if channel.IsZeroConf() {
+		// We'll need to wait until channel_ready has been received and
+		// the peer lets us know the alias they want to use for the
+		// channel. With this information, we can then construct a
+		// ChannelUpdate for them.  If an alias does not yet exist,
+		// we'll just return, letting the next iteration of the loop
+		// check again.
+		var defaultAlias lnwire.ShortChannelID
+		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		foundAlias, _ := f.cfg.AliasManager.GetPeerAlias(chanID)
+		if foundAlias == defaultAlias {
+			return nil
+		}
+
+		peerAlias = &foundAlias
+	}
+
+	err := f.addToRouterGraph(channel, scid, peerAlias, nil)
+	if err != nil {
+		return fmt.Errorf("failed adding to router graph: %w", err)
+	}
+
+	// As the channel is now added to the ChannelRouter's topology, the
+	// channel is moved to the next state of the state machine. It will be
+	// moved to the last state (actually deleted from the database) after
+	// the channel is finally announced.
+	err = f.saveChannelOpeningState(
+		&channel.FundingOutpoint, addedToRouterGraph, scid,
+	)
+	if err != nil {
+		return fmt.Errorf("error setting channel state to"+
+			" addedToRouterGraph: %w", err)
+	}
+
+	log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
+		"added to router graph", chanID, scid)
+
+	// Give the caller a final update notifying them that the channel is
+	fundingPoint := channel.FundingOutpoint
+	cp := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: fundingPoint.Hash[:],
+		},
+		OutputIndex: fundingPoint.Index,
+	}
+
+	if updateChan != nil {
+		upd := &lnrpc.OpenStatusUpdate{
+			Update: &lnrpc.OpenStatusUpdate_ChanOpen{
+				ChanOpen: &lnrpc.ChannelOpenUpdate{
+					ChannelPoint: cp,
+				},
+			},
+			PendingChanId: pendingChanID[:],
+		}
+
+		select {
+		case updateChan <- upd:
+		case <-f.quit:
+			return ErrFundingManagerShuttingDown
+		}
+	}
+
+	return nil
+}
+
+// ensureInitialForwardingPolicy ensures that we have an initial forwarding
+// policy set for the given channel. If we don't, we'll fall back to the default
+// values.
+func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
+	channel *channeldb.OpenChannel) error {
+
+	// Before we can add the channel to the peer, we'll need to ensure that
+	// we have an initial forwarding policy set. This should always be the
+	// case except for a channel that was created with lnd <= 0.15.5 and
+	// is still pending while updating to this version.
+	var needDBUpdate bool
+	forwardingPolicy, err := f.getInitialForwardingPolicy(chanID)
+	if err != nil {
+		log.Errorf("Unable to fetch initial forwarding policy, "+
+			"falling back to default values: %v", err)
+
+		forwardingPolicy = f.defaultForwardingPolicy(
+			channel.LocalChanCfg.ChannelConstraints,
+		)
+		needDBUpdate = true
+	}
+
+	// We only started storing the actual values for MinHTLCOut and MaxHTLC
+	// after 0.16.x, so if a channel was opened with such a version and is
+	// still pending while updating to this version, we'll need to set the
+	// values to the default values.
+	if forwardingPolicy.MinHTLCOut == 0 {
+		forwardingPolicy.MinHTLCOut = channel.LocalChanCfg.MinHTLC
+		needDBUpdate = true
+	}
+	if forwardingPolicy.MaxHTLC == 0 {
+		forwardingPolicy.MaxHTLC = channel.LocalChanCfg.MaxPendingAmount
+		needDBUpdate = true
+	}
+
+	// And finally, if we found that the values currently stored aren't
+	// sufficient for the link, we'll update the database.
+	if needDBUpdate {
+		err := f.saveInitialForwardingPolicy(chanID, forwardingPolicy)
+		if err != nil {
+			return fmt.Errorf("unable to update initial "+
+				"forwarding policy: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // chanAnnouncement encapsulates the two authenticated announcements that we
@@ -3816,7 +3870,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// forwarding policy to be announced. If no persisted initial policy
 	// values are found, then we will use the default policy values in the
 	// channel announcement.
-	storedFwdingPolicy, err := f.getInitialFwdingPolicy(chanID)
+	storedFwdingPolicy, err := f.getInitialForwardingPolicy(chanID)
 	if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
 		return nil, errors.Errorf("unable to generate channel "+
 			"update announcement: %v", err)
@@ -3944,14 +3998,6 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)
 		return err
-	}
-
-	// After the fee parameters have been stored in the announcement
-	// we can delete them from the database.
-	err = f.deleteInitialFwdingPolicy(chanID)
-	if err != nil {
-		log.Infof("Could not delete channel fees for chanId %x.",
-			chanID)
 	}
 
 	// We only send the channel proof announcement and the node announcement
@@ -4279,14 +4325,16 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		maxHtlcs = f.cfg.RequiredRemoteMaxHTLCs(capacity)
 	}
 
-	// Prepare the optional channel fee values from the initFundingMsg.
-	// If useBaseFee or useFeeRate are false the client did not
-	// provide fee values hence we assume default fee settings from
-	// the config.
-	forwardingPolicy := htlcswitch.ForwardingPolicy{
-		BaseFee: f.cfg.DefaultRoutingPolicy.BaseFee,
-		FeeRate: f.cfg.DefaultRoutingPolicy.FeeRate,
-	}
+	// Once the reservation has been created, and indexed, queue a funding
+	// request to the remote peer, kicking off the funding workflow.
+	ourContribution := reservation.OurContribution()
+
+	// Prepare the optional channel fee values from the initFundingMsg. If
+	// useBaseFee or useFeeRate are false the client did not provide fee
+	// values hence we assume default fee settings from the config.
+	forwardingPolicy := f.defaultForwardingPolicy(
+		ourContribution.ChannelConstraints,
+	)
 	if baseFee != nil {
 		forwardingPolicy.BaseFee = lnwire.MilliSatoshi(*baseFee)
 	}
@@ -4294,10 +4342,6 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	if feeRate != nil {
 		forwardingPolicy.FeeRate = lnwire.MilliSatoshi(*feeRate)
 	}
-
-	// Once the reservation has been created, and indexed, queue a funding
-	// request to the remote peer, kicking off the funding workflow.
-	ourContribution := reservation.OurContribution()
 
 	// Fetch our dust limit which is part of the default channel
 	// constraints, and log it.
@@ -4324,7 +4368,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 
 	resCtx := &reservationWithCtx{
 		chanAmt:           capacity,
-		forwardingPolicy:  forwardingPolicy,
+		forwardingPolicy:  *forwardingPolicy,
 		remoteCsvDelay:    remoteCsvDelay,
 		remoteMinHtlc:     minHtlcIn,
 		remoteMaxValue:    maxValue,
@@ -4618,65 +4662,43 @@ func copyPubKey(pub *btcec.PublicKey) *btcec.PublicKey {
 	return btcec.NewPublicKey(&tmp.X, &tmp.Y)
 }
 
-// saveInitialFwdingPolicy saves the forwarding policy for the provided
+// defaultForwardingPolicy returns the default forwarding policy based on the
+// default routing policy and our local channel constraints.
+func (f *Manager) defaultForwardingPolicy(
+	constraints channeldb.ChannelConstraints) *models.ForwardingPolicy {
+
+	return &models.ForwardingPolicy{
+		MinHTLCOut:    constraints.MinHTLC,
+		MaxHTLC:       constraints.MaxPendingAmount,
+		BaseFee:       f.cfg.DefaultRoutingPolicy.BaseFee,
+		FeeRate:       f.cfg.DefaultRoutingPolicy.FeeRate,
+		TimeLockDelta: f.cfg.DefaultRoutingPolicy.TimeLockDelta,
+	}
+}
+
+// saveInitialForwardingPolicy saves the forwarding policy for the provided
 // chanPoint in the channelOpeningStateBucket.
-func (f *Manager) saveInitialFwdingPolicy(permChanID lnwire.ChannelID,
-	forwardingPolicy *htlcswitch.ForwardingPolicy) error {
+func (f *Manager) saveInitialForwardingPolicy(chanID lnwire.ChannelID,
+	forwardingPolicy *models.ForwardingPolicy) error {
 
-	chanID := make([]byte, 32)
-	copy(chanID, permChanID[:])
-
-	scratch := make([]byte, 36)
-	byteOrder.PutUint64(scratch[:8], uint64(forwardingPolicy.MinHTLCOut))
-	byteOrder.PutUint64(scratch[8:16], uint64(forwardingPolicy.MaxHTLC))
-	byteOrder.PutUint64(scratch[16:24], uint64(forwardingPolicy.BaseFee))
-	byteOrder.PutUint64(scratch[24:32], uint64(forwardingPolicy.FeeRate))
-	byteOrder.PutUint32(scratch[32:], forwardingPolicy.TimeLockDelta)
-
-	return f.cfg.Wallet.Cfg.Database.SaveInitialFwdingPolicy(
-		chanID, scratch,
+	return f.cfg.ChannelDB.SaveInitialForwardingPolicy(
+		chanID, forwardingPolicy,
 	)
 }
 
-// getInitialFwdingPolicy fetches the initial forwarding policy for a given
+// getInitialForwardingPolicy fetches the initial forwarding policy for a given
 // channel id from the database which will be applied during the channel
 // announcement phase.
-func (f *Manager) getInitialFwdingPolicy(permChanID lnwire.ChannelID) (
-	*htlcswitch.ForwardingPolicy, error) {
+func (f *Manager) getInitialForwardingPolicy(
+	chanID lnwire.ChannelID) (*models.ForwardingPolicy, error) {
 
-	chanID := make([]byte, 32)
-	copy(chanID, permChanID[:])
-
-	value, err := f.cfg.Wallet.Cfg.Database.GetInitialFwdingPolicy(chanID)
-	if err != nil {
-		return nil, err
-	}
-
-	var fwdingPolicy htlcswitch.ForwardingPolicy
-	fwdingPolicy.MinHTLCOut = lnwire.MilliSatoshi(
-		byteOrder.Uint64(value[:8]),
-	)
-	fwdingPolicy.MaxHTLC = lnwire.MilliSatoshi(
-		byteOrder.Uint64(value[8:16]),
-	)
-	fwdingPolicy.BaseFee = lnwire.MilliSatoshi(
-		byteOrder.Uint64(value[16:24]),
-	)
-	fwdingPolicy.FeeRate = lnwire.MilliSatoshi(
-		byteOrder.Uint64(value[24:32]),
-	)
-	fwdingPolicy.TimeLockDelta = byteOrder.Uint32(value[32:36])
-
-	return &fwdingPolicy, nil
+	return f.cfg.ChannelDB.GetInitialForwardingPolicy(chanID)
 }
 
-// deleteInitialFwdingPolicy removes channel fees for this chanID from
+// deleteInitialForwardingPolicy removes channel fees for this chanID from
 // the database.
-func (f *Manager) deleteInitialFwdingPolicy(permChanID lnwire.ChannelID) error {
-	chanID := make([]byte, 32)
-	copy(chanID, permChanID[:])
-
-	return f.cfg.Wallet.Cfg.Database.DeleteInitialFwdingPolicy(chanID)
+func (f *Manager) deleteInitialForwardingPolicy(chanID lnwire.ChannelID) error {
+	return f.cfg.ChannelDB.DeleteInitialForwardingPolicy(chanID)
 }
 
 // saveChannelOpeningState saves the channelOpeningState for the provided
@@ -4694,7 +4716,8 @@ func (f *Manager) saveChannelOpeningState(chanPoint *wire.OutPoint,
 	scratch := make([]byte, 10)
 	byteOrder.PutUint16(scratch[:2], uint16(state))
 	byteOrder.PutUint64(scratch[2:], shortChanID.ToUint64())
-	return f.cfg.Wallet.Cfg.Database.SaveChannelOpeningState(
+
+	return f.cfg.ChannelDB.SaveChannelOpeningState(
 		outpointBytes.Bytes(), scratch,
 	)
 }
@@ -4710,7 +4733,7 @@ func (f *Manager) getChannelOpeningState(chanPoint *wire.OutPoint) (
 		return 0, nil, err
 	}
 
-	value, err := f.cfg.Wallet.Cfg.Database.GetChannelOpeningState(
+	value, err := f.cfg.ChannelDB.GetChannelOpeningState(
 		outpointBytes.Bytes(),
 	)
 	if err != nil {
@@ -4729,7 +4752,7 @@ func (f *Manager) deleteChannelOpeningState(chanPoint *wire.OutPoint) error {
 		return err
 	}
 
-	return f.cfg.Wallet.Cfg.Database.DeleteChannelOpeningState(
+	return f.cfg.ChannelDB.DeleteChannelOpeningState(
 		outpointBytes.Bytes(),
 	)
 }

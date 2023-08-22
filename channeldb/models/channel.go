@@ -90,3 +90,41 @@ func (k *CircuitKey) Decode(r io.Reader) error {
 func (k CircuitKey) String() string {
 	return fmt.Sprintf("(Chan ID=%s, HTLC ID=%d)", k.ChanID, k.HtlcID)
 }
+
+// ForwardingPolicy describes the set of constraints that a given ChannelLink
+// is to adhere to when forwarding HTLC's. For each incoming HTLC, this set of
+// constraints will be consulted in order to ensure that adequate fees are
+// paid, and our time-lock parameters are respected. In the event that an
+// incoming HTLC violates any of these constraints, it is to be _rejected_ with
+// the error possibly carrying along a ChannelUpdate message that includes the
+// latest policy.
+type ForwardingPolicy struct {
+	// MinHTLCOut is the smallest HTLC that is to be forwarded.
+	MinHTLCOut lnwire.MilliSatoshi
+
+	// MaxHTLC is the largest HTLC that is to be forwarded.
+	MaxHTLC lnwire.MilliSatoshi
+
+	// BaseFee is the base fee, expressed in milli-satoshi that must be
+	// paid for each incoming HTLC. This field, combined with FeeRate is
+	// used to compute the required fee for a given HTLC.
+	BaseFee lnwire.MilliSatoshi
+
+	// FeeRate is the fee rate, expressed in milli-satoshi that must be
+	// paid for each incoming HTLC. This field combined with BaseFee is
+	// used to compute the required fee for a given HTLC.
+	FeeRate lnwire.MilliSatoshi
+
+	// TimeLockDelta is the absolute time-lock value, expressed in blocks,
+	// that will be subtracted from an incoming HTLC's timelock value to
+	// create the time-lock value for the forwarded outgoing HTLC. The
+	// following constraint MUST hold for an HTLC to be forwarded:
+	//
+	//  * incomingHtlc.timeLock - timeLockDelta = fwdInfo.OutgoingCTLV
+	//
+	// where fwdInfo is the forwarding information extracted from the
+	// per-hop payload of the incoming HTLC's onion packet.
+	TimeLockDelta uint32
+
+	// TODO(roasbeef): add fee module inside of switch
+}

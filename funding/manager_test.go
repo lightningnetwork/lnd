@@ -4632,6 +4632,7 @@ func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
 		"STATIC_REMOTE_KEY":       2,
 		"ANCHORS":                 3,
 		"SCRIPT_ENFORCED_LEASE":   4,
+		"SIMPLE_TAPROOT":          5,
 	}
 
 	for commitmentType := range lnrpc.CommitmentType_value {

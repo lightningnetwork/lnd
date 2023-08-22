@@ -211,7 +211,7 @@ func (w *WitnessScriptDesc) WitnessScriptToSign() []byte {
 // An error is returned if the path is unknown. This is useful as when
 // constructing a contrl block for a given path, one also needs witness script
 // being signed.
-func (w *WitnessScriptDesc) WitnessScriptForPath(path input.ScriptPath,
+func (w *WitnessScriptDesc) WitnessScriptForPath(_ input.ScriptPath,
 ) ([]byte, error) {
 
 	return w.WitnessScript, nil

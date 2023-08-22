@@ -1528,6 +1528,7 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 			"channel")
 		log.Error(err)
 		f.failFundingFlow(peer, cid, err)
+
 		return
 
 	// The current variant of taproot channels can only be used with
@@ -3646,7 +3647,7 @@ func genFirstStateMusigNonce(channel *channeldb.OpenChannel,
 
 // handleChannelReady finalizes the channel funding process and enables the
 // channel to enter normal operating mode.
-func (f *Manager) handleChannelReady(peer lnpeer.Peer,
+func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 	msg *lnwire.ChannelReady) {
 
 	defer f.wg.Done()

@@ -444,7 +444,6 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
 
 	var inp input.Input
 	if h.isTaproot() {
-		//nolint:lll
 		inp = lnutils.Ptr(input.MakeHtlcSecondLevelTimeoutTaprootInput(
 			h.htlcResolution.SignedTimeoutTx,
 			h.htlcResolution.SignDetails,

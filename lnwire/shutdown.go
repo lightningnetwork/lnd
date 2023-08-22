@@ -29,7 +29,7 @@ func (s *ShutdownNonce) Record() tlv.Record {
 
 // shutdownNonceTypeEncoder is a custom TLV encoder for the Musig2Nonce type.
 func shutdownNonceTypeEncoder(w io.Writer, val interface{},
-	buf *[8]byte) error {
+	_ *[8]byte) error {
 
 	if v, ok := val.(*ShutdownNonce); ok {
 		_, err := w.Write(v[:])
@@ -40,7 +40,7 @@ func shutdownNonceTypeEncoder(w io.Writer, val interface{},
 }
 
 // shutdownNonceTypeDecoder is a custom TLV decoder for the Musig2Nonce record.
-func shutdownNonceTypeDecoder(r io.Reader, val interface{}, buf *[8]byte,
+func shutdownNonceTypeDecoder(r io.Reader, val interface{}, _ *[8]byte,
 	l uint64) error {
 
 	if v, ok := val.(*ShutdownNonce); ok {

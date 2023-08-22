@@ -26,7 +26,7 @@ func (m *Musig2Nonce) Record() tlv.Record {
 }
 
 // nonceTypeEncoder is a custom TLV encoder for the Musig2Nonce type.
-func nonceTypeEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
+func nonceTypeEncoder(w io.Writer, val interface{}, _ *[8]byte) error {
 	if v, ok := val.(*Musig2Nonce); ok {
 		_, err := w.Write(v[:])
 		return err
@@ -36,7 +36,7 @@ func nonceTypeEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
 }
 
 // nonceTypeDecoder is a custom TLV decoder for the Musig2Nonce record.
-func nonceTypeDecoder(r io.Reader, val interface{}, buf *[8]byte,
+func nonceTypeDecoder(r io.Reader, val interface{}, _ *[8]byte,
 	l uint64) error {
 
 	if v, ok := val.(*Musig2Nonce); ok {

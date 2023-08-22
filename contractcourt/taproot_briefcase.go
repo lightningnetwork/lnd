@@ -159,7 +159,7 @@ func (r *resolverCtrlBlocks) Decode(reader io.Reader) error {
 
 // resolverCtrlBlocksEncoder is a custom TLV encoder for the
 // resolverCtrlBlocks.
-func resolverCtrlBlocksEncoder(w io.Writer, val any, buf *[8]byte) error {
+func resolverCtrlBlocksEncoder(w io.Writer, val any, _ *[8]byte) error {
 	if typ, ok := val.(*resolverCtrlBlocks); ok {
 		return (*typ).Encode(w)
 	}
@@ -168,7 +168,7 @@ func resolverCtrlBlocksEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 // rsolverCtrlBlocksDecoder is a custom TLV decoder for the resolverCtrlBlocks.
-func resolverCtrlBlocksDecoder(r io.Reader, val any, buf *[8]byte,
+func resolverCtrlBlocksDecoder(r io.Reader, val any, _ *[8]byte,
 	l uint64) error {
 
 	if typ, ok := val.(*resolverCtrlBlocks); ok {
@@ -259,7 +259,7 @@ func varBytesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 }
 
 // ctrlBlockEncoder is a custom TLV encoder for the ctrlBlocks struct.
-func ctrlBlockEncoder(w io.Writer, val any, buf *[8]byte) error {
+func ctrlBlockEncoder(w io.Writer, val any, _ *[8]byte) error {
 	if t, ok := val.(**ctrlBlocks); ok {
 		return (*t).Encode(w)
 	}
@@ -268,7 +268,7 @@ func ctrlBlockEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 // ctrlBlockDecoder is a custom TLV decoder for the ctrlBlocks struct.
-func ctrlBlockDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+func ctrlBlockDecoder(r io.Reader, val any, _ *[8]byte, l uint64) error {
 	if typ, ok := val.(**ctrlBlocks); ok {
 		ctrlReader := io.LimitReader(r, int64(l))
 
@@ -458,7 +458,7 @@ func (h *htlcTapTweaks) Encode(w io.Writer) error {
 }
 
 // htlcTapTweaksEncoder is a custom TLV encoder for the htlcTapTweaks struct.
-func htlcTapTweaksEncoder(w io.Writer, val any, buf *[8]byte) error {
+func htlcTapTweaksEncoder(w io.Writer, val any, _ *[8]byte) error {
 	if t, ok := val.(*htlcTapTweaks); ok {
 		return (*t).Encode(w)
 	}
@@ -467,7 +467,7 @@ func htlcTapTweaksEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 // htlcTapTweaksDecoder is a custom TLV decoder for the htlcTapTweaks struct.
-func htlcTapTweaksDecoder(r io.Reader, val any, buf *[8]byte,
+func htlcTapTweaksDecoder(r io.Reader, val any, _ *[8]byte,
 	l uint64) error {
 
 	if typ, ok := val.(*htlcTapTweaks); ok {
@@ -538,7 +538,7 @@ func newTapTweaks() *tapTweaks {
 }
 
 // tapTweaksEncoder is a custom TLV encoder for the tapTweaks struct.
-func tapTweaksEncoder(w io.Writer, val any, buf *[8]byte) error {
+func tapTweaksEncoder(w io.Writer, val any, _ *[8]byte) error {
 	if t, ok := val.(**tapTweaks); ok {
 		return (*t).Encode(w)
 	}
@@ -547,7 +547,7 @@ func tapTweaksEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 // tapTweaksDecoder is a custom TLV decoder for the tapTweaks struct.
-func tapTweaksDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+func tapTweaksDecoder(r io.Reader, val any, _ *[8]byte, l uint64) error {
 	if typ, ok := val.(**tapTweaks); ok {
 		tweakReader := io.LimitReader(r, int64(l))
 

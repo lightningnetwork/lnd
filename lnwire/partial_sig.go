@@ -137,7 +137,7 @@ func (p *PartialSigWithNonce) Record() tlv.Record {
 // partialSigWithNonceTypeEncoder encodes 98-byte musig2 extended partial
 // signature as: s {32} || nonce {66}.
 func partialSigWithNonceTypeEncoder(w io.Writer, val interface{},
-	buf *[8]byte) error {
+	_ *[8]byte) error {
 
 	if v, ok := val.(*PartialSigWithNonce); ok {
 		sigBytes := v.Sig.Bytes()

@@ -142,7 +142,7 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 			chansCommitType == lnrpc.CommitmentType_ANCHORS:
 
 		case expType == lnrpc.CommitmentType_STATIC_REMOTE_KEY &&
-			chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY:
+			chansCommitType == lnrpc.CommitmentType_STATIC_REMOTE_KEY: //nolint:lll
 
 		case expType == lnrpc.CommitmentType_LEGACY &&
 			chansCommitType == lnrpc.CommitmentType_LEGACY:
@@ -221,7 +221,7 @@ func basicChannelFundingTest(ht *lntest.HarnessTest,
 		)
 
 		// Deprecated fields.
-		newResp.Balance += int64(local) // nolint:staticcheck
+		newResp.Balance += int64(local)
 		ht.AssertChannelBalanceResp(node, newResp)
 	}
 
@@ -393,11 +393,6 @@ func testUnconfirmedChannelFunding(ht *lntest.HarnessTest) {
 // testChannelFundingInputTypes tests that any type of supported input type can
 // be used to fund channels.
 func testChannelFundingInputTypes(ht *lntest.HarnessTest) {
-	const (
-		chanAmt  = funding.MaxBtcFundingAmount
-		burnAddr = "bcrt1qxsnqpdc842lu8c0xlllgvejt6rhy49u6fmpgyz"
-	)
-
 	// We'll start off by creating a node for Carol.
 	carol := ht.NewNode("Carol", nil)
 

@@ -657,12 +657,14 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 func (r *RPCKeyRing) MuSig2CreateSession(bipVersion input.MuSig2Version,
 	keyLoc keychain.KeyLocator, pubKeys []*btcec.PublicKey,
 	tweaks *input.MuSig2Tweaks, otherNonces [][musig2.PubNonceSize]byte,
-	sessionOpts ...musig2.SessionOption) (*input.MuSig2SessionInfo, error) {
+	_ ...musig2.SessionOption) (*input.MuSig2SessionInfo, error) {
 
 	apiVersion, err := signrpc.MarshalMuSig2Version(bipVersion)
 	if err != nil {
 		return nil, err
 	}
+
+	// TODO(roasbeef): add protos to specify session options
 
 	// We need to serialize all data for the RPC call. We can do that by
 	// putting everything directly into the request struct.

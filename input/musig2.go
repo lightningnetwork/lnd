@@ -432,7 +432,7 @@ func createContextV100RC2(privKey *btcec.PrivateKey,
 // draft version 0.4.0.
 func createContextV040(privKey *btcec.PrivateKey,
 	allSignerPubKeys []*btcec.PublicKey, tweaks *MuSig2Tweaks,
-	sessionOpts ...musig2.SessionOption,
+	_ ...musig2.SessionOption,
 ) (*musig2v040.Context, *musig2v040.Session, error) {
 
 	// The context keeps track of all signing keys and our local key.

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/txscript"
@@ -41,7 +40,7 @@ type JusticeDescriptor struct {
 
 	// JusticeKit contains the decrypted blob and information required to
 	// construct the transaction scripts and witnesses.
-	JusticeKit *blob.JusticeKit
+	JusticeKit blob.JusticeKit
 }
 
 // breachedInput contains the required information to construct and spend
@@ -56,22 +55,17 @@ type breachedInput struct {
 // commitToLocalInput extracts the information required to spend the commit
 // to-local output.
 func (p *JusticeDescriptor) commitToLocalInput() (*breachedInput, error) {
-	// Retrieve the to-local witness script from the justice kit.
-	toLocalScript, err := p.JusticeKit.CommitToLocalWitnessScript()
-	if err != nil {
-		return nil, err
-	}
+	kit := p.JusticeKit
 
-	// Compute the witness script hash, which will be used to locate the
-	// input on the breaching commitment transaction.
-	toLocalWitnessHash, err := input.WitnessScriptHash(toLocalScript)
+	// Retrieve the to-local output script and witness from the justice kit.
+	toLocalPkScript, witness, err := kit.ToLocalOutputSpendInfo()
 	if err != nil {
 		return nil, err
 	}
 
 	// Locate the to-local output on the breaching commitment transaction.
 	toLocalIndex, toLocalTxOut, err := findTxOutByPkScript(
-		p.BreachedCommitTx, toLocalWitnessHash,
+		p.BreachedCommitTx, toLocalPkScript,
 	)
 	if err != nil {
 		return nil, err
@@ -84,63 +78,28 @@ func (p *JusticeDescriptor) commitToLocalInput() (*breachedInput, error) {
 		Index: toLocalIndex,
 	}
 
-	// Retrieve to-local witness stack, which primarily includes a signature
-	// under the revocation pubkey.
-	witnessStack, err := p.JusticeKit.CommitToLocalRevokeWitnessStack()
-	if err != nil {
-		return nil, err
-	}
-
 	return &breachedInput{
 		txOut:    toLocalTxOut,
 		outPoint: toLocalOutPoint,
-		witness:  buildWitness(witnessStack, toLocalScript),
+		witness:  witness,
 	}, nil
 }
 
 // commitToRemoteInput extracts the information required to spend the commit
 // to-remote output.
 func (p *JusticeDescriptor) commitToRemoteInput() (*breachedInput, error) {
-	// Retrieve the to-remote witness script from the justice kit.
-	toRemoteScript, err := p.JusticeKit.CommitToRemoteWitnessScript()
+	kit := p.JusticeKit
+
+	// Retrieve the to-remote output script, witness script and sequence
+	// from the justice kit.
+	toRemotePkScript, witness, seq, err := kit.ToRemoteOutputSpendInfo()
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		toRemoteScriptHash []byte
-		toRemoteSequence   uint32
-	)
-	if p.JusticeKit.BlobType.IsAnchorChannel() {
-		toRemoteScriptHash, err = input.WitnessScriptHash(
-			toRemoteScript,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		toRemoteSequence = 1
-	} else {
-		// Since the to-remote witness script should just be a regular p2wkh
-		// output, we'll parse it to retrieve the public key.
-		toRemotePubKey, err := btcec.ParsePubKey(toRemoteScript)
-		if err != nil {
-			return nil, err
-		}
-
-		// Compute the witness script hash from the to-remote pubkey, which will
-		// be used to locate the input on the breach commitment transaction.
-		toRemoteScriptHash, err = input.CommitScriptUnencumbered(
-			toRemotePubKey,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	// Locate the to-remote output on the breaching commitment transaction.
 	toRemoteIndex, toRemoteTxOut, err := findTxOutByPkScript(
-		p.BreachedCommitTx, toRemoteScriptHash,
+		p.BreachedCommitTx, toRemotePkScript,
 	)
 	if err != nil {
 		return nil, err
@@ -153,18 +112,11 @@ func (p *JusticeDescriptor) commitToRemoteInput() (*breachedInput, error) {
 		Index: toRemoteIndex,
 	}
 
-	// Retrieve the to-remote witness stack, which is just a signature under
-	// the to-remote pubkey.
-	witnessStack, err := p.JusticeKit.CommitToRemoteWitnessStack()
-	if err != nil {
-		return nil, err
-	}
-
 	return &breachedInput{
 		txOut:    toRemoteTxOut,
 		outPoint: toRemoteOutPoint,
-		witness:  buildWitness(witnessStack, toRemoteScript),
-		sequence: toRemoteSequence,
+		witness:  witness,
+		sequence: seq,
 	}, nil
 }
 
@@ -193,7 +145,7 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 	// reward sweep, there will be two outputs, one of which pays back to
 	// the victim while the other gives a cut to the tower.
 	outputs, err := p.SessionInfo.Policy.ComputeJusticeTxOuts(
-		totalAmt, txWeight, p.JusticeKit.SweepAddress[:],
+		totalAmt, txWeight, p.JusticeKit.SweepAddress(),
 		p.SessionInfo.RewardAddress,
 	)
 	if err != nil {
@@ -271,7 +223,7 @@ func (p *JusticeDescriptor) CreateJusticeTxn() (*wire.MsgTx, error) {
 
 	// Add the sweep address's contribution, depending on whether it is a
 	// p2wkh or p2wsh output.
-	switch len(p.JusticeKit.SweepAddress) {
+	switch len(p.JusticeKit.SweepAddress()) {
 	case input.P2WPKHSize:
 		weightEstimate.AddP2WKHOutput()
 
@@ -352,15 +304,6 @@ func findTxOutByPkScript(txn *wire.MsgTx,
 	}
 
 	return index, txn.TxOut[index], nil
-}
-
-// buildWitness appends the witness script to a given witness stack.
-func buildWitness(witnessStack [][]byte, witnessScript []byte) [][]byte {
-	witness := make([][]byte, len(witnessStack)+1)
-	lastIdx := copy(witness, witnessStack)
-	witness[lastIdx] = witnessScript
-
-	return witness
 }
 
 // prevOutFetcher returns a txscript.MultiPrevOutFetcher for the given set

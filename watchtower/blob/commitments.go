@@ -151,3 +151,38 @@ func (c CommitmentType) ParseRawSig(witness wire.TxWitness) (lnwire.Sig,
 			c)
 	}
 }
+
+// NewJusticeKit can be used to construct a new JusticeKit depending on the
+// CommitmentType.
+func (c CommitmentType) NewJusticeKit(sweepScript []byte,
+	breachInfo *lnwallet.BreachRetribution, withToRemote bool) (JusticeKit,
+	error) {
+
+	switch c {
+	case LegacyCommitment, LegacyTweaklessCommitment:
+		return newLegacyJusticeKit(
+			sweepScript, breachInfo, withToRemote,
+		), nil
+	case AnchorCommitment:
+		return newAnchorJusticeKit(
+			sweepScript, breachInfo, withToRemote,
+		), nil
+	default:
+		return nil, fmt.Errorf("unknown commitment type: %v", c)
+	}
+}
+
+// EmptyJusticeKit returns the appropriate empty justice kit for the given
+// CommitmentType.
+func (c CommitmentType) EmptyJusticeKit() (JusticeKit, error) {
+	switch c {
+	case LegacyTweaklessCommitment, LegacyCommitment:
+		return &legacyJusticeKit{}, nil
+	case AnchorCommitment:
+		return &anchorJusticeKit{
+			legacyJusticeKit: &legacyJusticeKit{},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown commitment type: %v", c)
+	}
+}

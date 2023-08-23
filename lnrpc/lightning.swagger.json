@@ -6149,7 +6149,7 @@
         "total_limbo_balance": {
           "type": "string",
           "format": "int64",
-          "title": "The balance in satoshis encumbered in pending channels"
+          "description": "The balance in satoshis encumbered in pending channels. This does not\ninclude funds from pending_open_channels."
         },
         "pending_open_channels": {
           "type": "array",

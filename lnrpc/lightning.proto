@@ -2665,7 +2665,10 @@ message PendingChannelsResponse {
         AnchorState anchor = 9;
     }
 
-    // The balance in satoshis encumbered in pending channels
+    /*
+    The balance in satoshis encumbered in pending channels. This does not
+    include funds from pending_open_channels.
+    */
     int64 total_limbo_balance = 1;
 
     // Channels pending opening

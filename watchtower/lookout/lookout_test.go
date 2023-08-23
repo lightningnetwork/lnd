@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
@@ -30,10 +32,9 @@ func (p *mockPunisher) Punish(
 	return nil
 }
 
-func makeArray32(i uint64) [32]byte {
-	var arr [32]byte
-	binary.BigEndian.PutUint64(arr[:], i)
-	return arr
+func makeRandomPK() *btcec.PublicKey {
+	pk, _ := btcec.NewPrivateKey()
+	return pk.PubKey()
 }
 
 func makeArray33(i uint64) [33]byte {
@@ -142,32 +143,49 @@ func TestLookoutBreachMatching(t *testing.T) {
 
 	// Construct a justice kit for each possible breach transaction.
 	blobType := blob.FlagCommitOutputs.Type()
-	blob1 := &blob.JusticeKit{
-		BlobType:         blobType,
-		SweepAddress:     makeAddrSlice(22),
-		RevocationPubKey: makePubKey(1),
-		LocalDelayPubKey: makePubKey(1),
-		CSVDelay:         144,
-		CommitToLocalSig: makeTestSig(1),
+	breachInfo1 := &lnwallet.BreachRetribution{
+		RemoteDelay: 144,
+		KeyRing: &lnwallet.CommitmentKeyRing{
+			ToLocalKey:    makeRandomPK(),
+			RevocationKey: makeRandomPK(),
+		},
 	}
-	blob2 := &blob.JusticeKit{
-		BlobType:         blobType,
-		SweepAddress:     makeAddrSlice(22),
-		RevocationPubKey: makePubKey(2),
-		LocalDelayPubKey: makePubKey(2),
-		CSVDelay:         144,
-		CommitToLocalSig: makeTestSig(2),
+	commitment1, err := blobType.CommitmentType(nil)
+	require.NoError(t, err)
+
+	blob1, err := commitment1.NewJusticeKit(
+		makeAddrSlice(22), breachInfo1, false,
+	)
+	require.NoError(t, err)
+
+	blob1.AddToLocalSig(makeTestSig(1))
+
+	breachInfo2 := &lnwallet.BreachRetribution{
+		RemoteDelay: 144,
+		KeyRing: &lnwallet.CommitmentKeyRing{
+			ToLocalKey:    makeRandomPK(),
+			RevocationKey: makeRandomPK(),
+		},
 	}
+	commitment2, err := blobType.CommitmentType(nil)
+	require.NoError(t, err)
+
+	blob2, err := commitment2.NewJusticeKit(
+		makeAddrSlice(22), breachInfo2, false,
+	)
+	require.NoError(t, err)
+
+	blob2.AddToLocalSig(makeTestSig(1))
 
 	key1 := blob.NewBreachKeyFromHash(&hash1)
 	key2 := blob.NewBreachKeyFromHash(&hash2)
 
 	// Encrypt the first justice kit under breach key one.
-	encBlob1, err := blob1.Encrypt(key1)
+	encBlob1, err := blob.Encrypt(blob1, key1)
 	require.NoError(t, err, "unable to encrypt sweep detail 1")
 
 	// Encrypt the second justice kit under breach key two.
-	encBlob2, err := blob2.Encrypt(key2)
+	encBlob2, err := blob.Encrypt(blob2, key2)
 	require.NoError(t, err, "unable to encrypt sweep detail 2")
 
 	// Add both state updates to the tower's database.

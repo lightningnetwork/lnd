@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
@@ -221,16 +222,19 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 		RewardAddress: makeAddrSlice(22),
 	}
 
-	// Begin to assemble the justice kit, starting with the sweep address,
-	// pubkeys, and csv delay.
-	justiceKit := &blob.JusticeKit{
-		BlobType:     blobType,
-		SweepAddress: makeAddrSlice(22),
-		CSVDelay:     csvDelay,
+	breachInfo := &lnwallet.BreachRetribution{
+		RemoteDelay: csvDelay,
+		KeyRing: &lnwallet.CommitmentKeyRing{
+			ToLocalKey:    toLocalPK,
+			ToRemoteKey:   toRemotePK,
+			RevocationKey: revPK,
+		},
 	}
-	copy(justiceKit.RevocationPubKey[:], revPK.SerializeCompressed())
-	copy(justiceKit.LocalDelayPubKey[:], toLocalPK.SerializeCompressed())
-	copy(justiceKit.CommitToRemotePubKey[:], toRemotePK.SerializeCompressed())
+
+	justiceKit, err := commitType.NewJusticeKit(
+		makeAddrSlice(22), breachInfo, true,
+	)
+	require.NoError(t, err)
 
 	// Create a transaction spending from the outputs of the breach
 	// transaction created earlier. The inputs are always ordered w/
@@ -256,7 +260,7 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	}
 
 	outputs, err := policy.ComputeJusticeTxOuts(
-		totalAmount, int64(txWeight), justiceKit.SweepAddress,
+		totalAmount, int64(txWeight), justiceKit.SweepAddress(),
 		sessionInfo.RewardAddress,
 	)
 	require.NoError(t, err)
@@ -316,8 +320,8 @@ func testJusticeDescriptor(t *testing.T, blobType blob.Type) {
 	require.Nil(t, err)
 
 	// Complete our justice kit by copying the signatures into the payload.
-	justiceKit.CommitToLocalSig = toLocalSig
-	justiceKit.CommitToRemoteSig = toRemoteSig
+	justiceKit.AddToLocalSig(toLocalSig)
+	justiceKit.AddToRemoteSig(toRemoteSig)
 
 	justiceDesc := &lookout.JusticeDescriptor{
 		BreachedCommitTx: breachTxn,

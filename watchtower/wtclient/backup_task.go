@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -247,25 +246,11 @@ func (t *backupTask) craftSessionPayload(
 
 	var hint blob.BreachHint
 
-	// First, copy over the sweep pkscript, the pubkeys used to derive the
-	// to-local script, and the remote CSV delay.
-	keyRing := t.breachInfo.KeyRing
-	justiceKit := &blob.JusticeKit{
-		BlobType:         t.blobType,
-		SweepAddress:     t.sweepPkScript,
-		RevocationPubKey: toBlobPubKey(keyRing.RevocationKey),
-		LocalDelayPubKey: toBlobPubKey(keyRing.ToLocalKey),
-		CSVDelay:         t.breachInfo.RemoteDelay,
-	}
-
-	// If this commitment has an output that pays to us, copy the to-remote
-	// pubkey into the justice kit. This serves as the indicator to the
-	// tower that we expect the breaching transaction to have a non-dust
-	// output to spend from.
-	if t.toRemoteInput != nil {
-		justiceKit.CommitToRemotePubKey = toBlobPubKey(
-			keyRing.ToRemoteKey,
-		)
+	justiceKit, err := t.commitmentType.NewJusticeKit(
+		t.sweepPkScript, t.breachInfo, t.toRemoteInput != nil,
+	)
+	if err != nil {
+		return hint, nil, err
 	}
 
 	// Now, begin construction of the justice transaction. We'll start with
@@ -348,9 +333,9 @@ func (t *backupTask) craftSessionPayload(
 		// field
 		switch inp.WitnessType() {
 		case toLocalWitnessType:
-			justiceKit.CommitToLocalSig = signature
+			justiceKit.AddToLocalSig(signature)
 		case toRemoteWitnessType:
-			justiceKit.CommitToRemoteSig = signature
+			justiceKit.AddToRemoteSig(signature)
 		default:
 			return hint, nil, fmt.Errorf("invalid witness type: %v",
 				inp.WitnessType())
@@ -365,18 +350,10 @@ func (t *backupTask) craftSessionPayload(
 	// Then, we'll encrypt the computed justice kit using the full breach
 	// transaction id, which will allow the tower to recover the contents
 	// after the transaction is seen in the chain or mempool.
-	encBlob, err := justiceKit.Encrypt(key)
+	encBlob, err := blob.Encrypt(justiceKit, key)
 	if err != nil {
 		return hint, nil, err
 	}
 
 	return hint, encBlob, nil
-}
-
-// toBlobPubKey serializes the given pubkey into a blob.PubKey that can be set
-// as a field on a blob.JusticeKit.
-func toBlobPubKey(pubKey *btcec.PublicKey) blob.PubKey {
-	var blobPubKey blob.PubKey
-	copy(blobPubKey[:], pubKey.SerializeCompressed())
-	return blobPubKey
 }

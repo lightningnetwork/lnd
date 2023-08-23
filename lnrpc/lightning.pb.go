@@ -8604,7 +8604,8 @@ type PendingChannelsResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The balance in satoshis encumbered in pending channels
+	// The balance in satoshis encumbered in pending channels. This does not
+	// include funds from pending_open_channels.
 	TotalLimboBalance int64 `protobuf:"varint,1,opt,name=total_limbo_balance,json=totalLimboBalance,proto3" json:"total_limbo_balance,omitempty"`
 	// Channels pending opening
 	PendingOpenChannels []*PendingChannelsResponse_PendingOpenChannel `protobuf:"bytes,2,rep,name=pending_open_channels,json=pendingOpenChannels,proto3" json:"pending_open_channels,omitempty"`

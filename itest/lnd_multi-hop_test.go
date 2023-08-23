@@ -2173,9 +2173,9 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	case lnrpc.CommitmentType_LEGACY:
 		numTxesMempool++
 
-	// For non-anchor channel type, we should expect to see Bob's commit
-	// sweep and his anchor sweep tx in the mempool.
-	case lnrpc.CommitmentType_ANCHORS:
+	// For anchor channel type, we should expect to see Bob's commit sweep
+	// and his anchor sweep tx in the mempool.
+	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		numTxesMempool += 2
 
 	// For script-enforced leased channel, we should expect to see Bob's
@@ -2323,7 +2323,7 @@ func runExtraPreimageFromLocalCommit(ht *lntest.HarnessTest,
 		htlcOutpoint.Index = 0
 		ht.Miner.AssertNumTxsInMempool(2)
 
-	case lnrpc.CommitmentType_ANCHORS:
+	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		htlcOutpoint.Index = 2
 		ht.Miner.AssertNumTxsInMempool(3)
 

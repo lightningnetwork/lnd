@@ -3312,9 +3312,6 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		log.Debugf("Sending our NodeAnnouncement for "+
 			"ChannelID(%v) to %x", chanID, pubKey)
 
-		// TODO(halseth): make reliable. If the peer is not online this
-		// will fail, and the opening process will stop. Should instead
-		// block here, waiting for the peer to come online.
 		if err := peer.SendMessage(true, &nodeAnn); err != nil {
 			return fmt.Errorf("unable to send node announcement "+
 				"to peer %x: %v", pubKey, err)

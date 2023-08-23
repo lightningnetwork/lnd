@@ -2117,13 +2117,9 @@ func (c *CommitScriptTree) CtrlBlockForPath(path ScriptPath,
 	}
 }
 
-// NewLocalCommitScriptTree returns a new CommitScript tree that can be used to
-// create and spend the commitment output for the local party.
-func NewLocalCommitScriptTree(csvTimeout uint32,
-	selfKey, revokeKey *btcec.PublicKey) (*CommitScriptTree, error) {
+func NewLocalCommitDelayScript(csvTimeout uint32,
+	selfKey *btcec.PublicKey) ([]byte, error) {
 
-	// First, we'll need to construct the tapLeaf that'll be our delay CSV
-	// clause.
 	builder := txscript.NewScriptBuilder()
 	builder.AddData(schnorr.SerializePubKey(selfKey))
 	builder.AddOp(txscript.OP_CHECKSIG)
@@ -2131,20 +2127,36 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
 	builder.AddOp(txscript.OP_DROP)
 
-	delayScript, err := builder.Script()
+	return builder.Script()
+}
+
+func NewLocalCommitRevokeScript(selfKey, revokeKey *btcec.PublicKey) ([]byte,
+	error) {
+
+	builder := txscript.NewScriptBuilder()
+	builder.AddData(schnorr.SerializePubKey(selfKey))
+	builder.AddOp(txscript.OP_DROP)
+	builder.AddData(schnorr.SerializePubKey(revokeKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	return builder.Script()
+}
+
+// NewLocalCommitScriptTree returns a new CommitScript tree that can be used to
+// create and spend the commitment output for the local party.
+func NewLocalCommitScriptTree(csvTimeout uint32,
+	selfKey, revokeKey *btcec.PublicKey) (*CommitScriptTree, error) {
+
+	// First, we'll need to construct the tapLeaf that'll be our delay CSV
+	// clause.
+	delayScript, err := NewLocalCommitDelayScript(csvTimeout, selfKey)
 	if err != nil {
 		return nil, err
 	}
 
 	// Next, we'll need to construct the revocation path, which is just a
 	// simple checksig script.
-	builder = txscript.NewScriptBuilder()
-	builder.AddData(schnorr.SerializePubKey(selfKey))
-	builder.AddOp(txscript.OP_DROP)
-	builder.AddData(schnorr.SerializePubKey(revokeKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	revokeScript, err := builder.Script()
+	revokeScript, err := NewLocalCommitRevokeScript(selfKey, revokeKey)
 	if err != nil {
 		return nil, err
 	}

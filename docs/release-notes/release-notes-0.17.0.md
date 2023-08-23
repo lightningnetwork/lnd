@@ -1,7 +1,67 @@
 # Release Notes
+- [Bug Fixes](#bug-fixes)
+- [New Features](#new-features)
+  - [Functional Enhancements](#functional-enhancements)
+  - [RPC Additions](#rpc-additions)
+  - [lncli Additions](#lncli-additions)
+- [Improvements](#improvements)
+  - [Functional Updates](#functional-updates)
+  - [RPC Updates](#rpc-updates)
+  - [lncli Updates](#lncli-updates)
+  - [Breaking Changes](#breaking-changes)
+  - [Performance Improvements](#performance-improvements)
+ - [Technical and Architectural Updates](#technical-and-architectural-updates)
+   - [BOLT Spec Updates](#bolt-spec-updates)
+   - [Testing](#testing)
+   - [Database](#database)
+   - [Code Health](#code-health)
+   - [Tooling and Documentation](#tooling-and-documentation)
 
-## Protocol Features
+# Bug Fixes
+* Make sure payment stream returns all the events by [subscribing it before
+  sending](https://github.com/lightningnetwork/lnd/pull/7722).
 
+* Fixed a memory leak found in mempool management handled by
+  [`btcwallet`](https://github.com/lightningnetwork/lnd/pull/7767).
+
+* Make sure lnd starts up as normal in case a transaction does not meet min
+  mempool fee requirements. [Handle min mempool fee backend error when a
+  transaction fails to be broadcasted by the
+  bitcoind backend](https://github.com/lightningnetwork/lnd/pull/7746).
+
+* [Updated bbolt to v1.3.7](https://github.com/lightningnetwork/lnd/pull/7796)
+  in order to address mmap issues affecting certain older iPhone devices.
+
+* [Stop rejecting payments that overpay or over-timelock the final
+  hop](https://github.com/lightningnetwork/lnd/pull/7768).
+
+* [Fix let's encrypt autocert
+  generation](https://github.com/lightningnetwork/lnd/pull/7739).
+
+* Fix an issue where [IPv6 couldn't be dialed when using
+  Tor](https://github.com/lightningnetwork/lnd/pull/7783), even when
+  `tor.skip-proxy-for-clearnet-targets=true` was set.
+
+* Fix a [concurrency issue related to rapid peer teardown and
+  creation](https://github.com/lightningnetwork/lnd/pull/7856) that can arise
+  under rare scenarios.
+
+* A race condition found between `channel_ready` and link updates is [now
+  fixed](https://github.com/lightningnetwork/lnd/pull/7518).
+
+* [Remove rebroadcasting of
+  the last sweep-tx](https://github.com/lightningnetwork/lnd/pull/7879). Now at
+  startup of the sweeper we do not rebroadcast the last sweep-tx anymore.
+  The "sweeper-last-tx" top level bucket in the channel.db is removed
+  (new migration version 31 of the db). The main reason is that neutrino
+  backends do not fail broadcasting invalid transactions because BIP157
+  supporting bitcoin core nodes do not reply with the reject msg anymore. So we
+  have to make sure to not broadcast outdated transactions which can lead to
+  locked up wallet funds indefinitely in the worst case.
+
+# New Features
+## Functional Enhancements
+### Protocol Features
 * This release marks the first release that includes the new [musig2-based
   taproot channel type](https://github.com/lightningnetwork/lnd/pull/7904). As
   new protocol feature hasn't yet been finalized, users must enable taproot
@@ -10,20 +70,15 @@
   (pending support by the remote peer). For `lncli openchannel`,
   `--channel_type=taproot` should be used.
 
-## DB
+## RPC Additions
+None
 
-* Split channeldb [`UpdateInvoice`
-  implementation](https://github.com/lightningnetwork/lnd/pull/7377) logic in
-  different update types.
+## lncli Additions
+None
 
-* Add [invoice SQL schema and
-  queries](https://github.com/lightningnetwork/lnd/pull/7354).
-
-* Add new [sqldb
-  package](https://github.com/lightningnetwork/lnd/pull/7343).
-
-## Watchtowers
-
+# Improvements
+## Functional Updates
+### Watchtowers
 * Let the task pipeline [only carry
   wtdb.BackupIDs](https://github.com/lightningnetwork/lnd/pull/7623) instead of
   the entire retribution struct. This reduces the amount of data that needs to
@@ -44,8 +99,48 @@
   [removed](https://github.com/lightningnetwork/lnd/pull/7771). This field was
   deprecated in v0.8.0-beta.
 
-## RPC
+### Neutrino
+* The [Neutrino version
+  is updated](https://github.com/lightningnetwork/lnd/pull/7788) so that LND can
+  take advantage of the latest filter fetching performance improvements.
 
+### Misc
+* [Ensure that both the byte and string form of a TXID is populated in the
+  lnrpc.Outpoint message](https://github.com/lightningnetwork/lnd/pull/7624).
+
+* [HTLC serialization
+  updated](https://github.com/lightningnetwork/lnd/pull/7710) to allow storing
+  extra data transmitted in TLVs.
+
+* [MaxLocalCSVDelay now has a default value of 2016. It is still possible to
+  override this value with the config option --maxlocaldelay for those who rely
+  on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
+
+* [Generate default macaroons
+  independently](https://github.com/lightningnetwork/lnd/pull/7592) on wallet
+  unlock or create.
+
+* [Restore support](https://github.com/lightningnetwork/lnd/pull/7678) for
+  `PKCS8`-encoded cert private keys.
+
+* [Cleanup](https://github.com/lightningnetwork/lnd/pull/7770) of defaults
+  mentioned in
+  [sample-lnd.conf](https://github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf).
+  It is possible to distinguish between defaults and examples now.
+  A check script has been developed and integrated into the building process to
+  compare the default values between lnd and sample-lnd.conf.
+
+* [Cancel rebroadcasting of a transaction when abandoning
+  a channel](https://github.com/lightningnetwork/lnd/pull/7819).
+
+* [Fixed a validation bug](https://github.com/lightningnetwork/lnd/pull/7177) in
+  `channel_type` negotiation.
+
+* [The `lightning-onion` repo version was 
+  updated](https://github.com/lightningnetwork/lnd/pull/7877) in preparation for 
+  work to be done on route blinding in LND. 
+
+## RPC Updates
 * [SendOutputs](https://github.com/lightningnetwork/lnd/pull/7631) now adheres
   to the anchor channel reserve requirement.
 
@@ -117,69 +212,41 @@
 
 * The [WalletBalance](https://github.com/lightningnetwork/lnd/pull/7857) RPC
   (lncli walletbalance) now supports showing the balance for a specific account.
+  
+## lncli Updates
+* Added ability to use [environment variables to override `lncli` global
+  flags](https://github.com/lightningnetwork/lnd/pull/7693). Flags will have
+  preference over environment variables.
 
-## Misc
-
-* [Ensure that both the byte and string form of a TXID is populated in the
-  lnrpc.Outpoint message](https://github.com/lightningnetwork/lnd/pull/7624).
-
-* [Fix Benchmark Test (BenchmarkReadMessage/Channel_Ready) in the lnwire
-  package](https://github.com/lightningnetwork/lnd/pull/7356).
-
-* [Fix unit test flake (TestLightningWallet) in the neutrino package via
-  version bump of 
-  btcsuite/btcwallet](https://github.com/lightningnetwork/lnd/pull/7049).
-
-* [HTLC serialization
-  updated](https://github.com/lightningnetwork/lnd/pull/7710) to allow storing
-  extra data transmitted in TLVs.
-
-* [MaxLocalCSVDelay now has a default value of 2016. It is still possible to
-  override this value with the config option --maxlocaldelay for those who rely
-  on the old value of 10000](https://github.com/lightningnetwork/lnd/pull/7780).
-
-* [Generate default macaroons
-  independently](https://github.com/lightningnetwork/lnd/pull/7592) on wallet
-  unlock or create.
-
-* [Restore support](https://github.com/lightningnetwork/lnd/pull/7678) for
-  `PKCS8`-encoded cert private keys.
+* The `lncli sendcoins` command now asks for manual confirmation when invoked
+  on the command line. This can be skipped by adding the `--force` (or `-f`)
+  flag, similar to how `lncli payinvoice` works. To not break any existing
+  scripts the confirmation is also skipped if `stdout` is not a terminal/tty
+  (e.g. when capturing the output in a shell script variable or piping the
+  output to another program).
 
 * Add [`--unused`](https://github.com/lightningnetwork/lnd/pull/6387) to
   `lncli newaddr` command.
 
-* [Cleanup](https://github.com/lightningnetwork/lnd/pull/7770) of defaults
-  mentioned in
-  [sample-lnd.conf](https://github.com/lightningnetwork/lnd/blob/master/sample-lnd.conf).
-  It is possible to distinguish between defaults and examples now.
-  A check script has been developed and integrated into the building process to
-  compare the default values between lnd and sample-lnd.conf.
-
-* [Cancel rebroadcasting of a transaction when abandoning
-  a channel](https://github.com/lightningnetwork/lnd/pull/7819).
-
-* [Fixed a validation bug](https://github.com/lightningnetwork/lnd/pull/7177) in
-  `channel_type` negotiation.
-
-* [The `lightning-onion` repo version was 
-  updated](https://github.com/lightningnetwork/lnd/pull/7877) in preparation for 
-  work to be done on route blinding in LND. 
-
 ## Code Health
-
 * Updated [our fork for serializing protobuf as JSON to be based on the
   latest version of `google.golang.org/protobuf` instead of the deprecated
   `github.com/golang/protobuf/jsonpb`
   module](https://github.com/lightningnetwork/lnd/pull/7659).
 
 ## Neutrino
-
 * The [Neutrino version
   is updated](https://github.com/lightningnetwork/lnd/pull/7788) so that LND can
   take advantage of the latest filter fetching performance improvements.
 
+## Breaking Changes
+None
+## Performance Improvements
+None
+# Technical and Architectural Updates
+## BOLT Spec Updates
+None
 ## Testing
-
 * [Started](https://github.com/lightningnetwork/lnd/pull/7494) running fuzz
   tests in CI.
 
@@ -200,65 +267,32 @@
 
 * [Removed](https://github.com/lightningnetwork/lnd/pull/7854) need for an
   active internet connection for the network connection itest.
+  
+* [Fix Benchmark Test (BenchmarkReadMessage/Channel_Ready) in the lnwire
+  package](https://github.com/lightningnetwork/lnd/pull/7356).
 
-## `lncli`
+* [Fix unit test flake (TestLightningWallet) in the neutrino package via
+  version bump of 
+  btcsuite/btcwallet](https://github.com/lightningnetwork/lnd/pull/7049).
 
-* Added ability to use [environment variables to override `lncli` global
-  flags](https://github.com/lightningnetwork/lnd/pull/7693). Flags will have
-  preference over environment variables.
+## Database
+* Split channeldb [`UpdateInvoice`
+  implementation](https://github.com/lightningnetwork/lnd/pull/7377) logic in
+  different update types.
 
-* The `lncli sendcoins` command now asks for manual confirmation when invoked
-  on the command line. This can be skipped by adding the `--force` (or `-f`)
-  flag, similar to how `lncli payinvoice` works. To not break any existing
-  scripts the confirmation is also skipped if `stdout` is not a terminal/tty
-  (e.g. when capturing the output in a shell script variable or piping the
-  output to another program).
+* Add [invoice SQL schema and
+  queries](https://github.com/lightningnetwork/lnd/pull/7354).
 
-## Bug Fix
+* Add new [sqldb
+  package](https://github.com/lightningnetwork/lnd/pull/7343).
 
-* Make sure payment stream returns all the events by [subscribing it before
-  sending](https://github.com/lightningnetwork/lnd/pull/7722).
-
-* Fixed a memory leak found in mempool management handled by
-  [`btcwallet`](https://github.com/lightningnetwork/lnd/pull/7767).
-
-* Make sure lnd starts up as normal in case a transaction does not meet min
-  mempool fee requirements. [Handle min mempool fee backend error when a
-  transaction fails to be broadcasted by the
-  bitcoind backend](https://github.com/lightningnetwork/lnd/pull/7746).
-
-* [Updated bbolt to v1.3.7](https://github.com/lightningnetwork/lnd/pull/7796)
-  in order to address mmap issues affecting certain older iPhone devices.
-
-* [Stop rejecting payments that overpay or over-timelock the final
-  hop](https://github.com/lightningnetwork/lnd/pull/7768).
-
-* [Fix let's encrypt autocert
-  generation](https://github.com/lightningnetwork/lnd/pull/7739).
-
-* Fix an issue where [IPv6 couldn't be dialed when using
-  Tor](https://github.com/lightningnetwork/lnd/pull/7783), even when
-  `tor.skip-proxy-for-clearnet-targets=true` was set.
-
-* Fix a [concurrency issue related to rapid peer teardown and
-  creation](https://github.com/lightningnetwork/lnd/pull/7856) that can arise
-  under rare scenarios.
-
-* A race condition found between `channel_ready` and link updates is [now
-  fixed](https://github.com/lightningnetwork/lnd/pull/7518).
-
-* [Remove rebroadcasting of
-  the last sweep-tx](https://github.com/lightningnetwork/lnd/pull/7879). Now at
-  startup of the sweeper we do not rebroadcast the last sweep-tx anymore.
-  The "sweeper-last-tx" top level bucket in the channel.db is removed
-  (new migration version 31 of the db). The main reason is that neutrino
-  backends do not fail broadcasting invalid transactions because BIP157
-  supporting bitcoin core nodes do not reply with the reject msg anymore. So we
-  have to make sure to not broadcast outdated transactions which can lead to
-  locked up wallet funds indefinitely in the worst case.
-
-### Tooling and documentation
-
+## Code Health
+* Updated [our fork for serializing protobuf as JSON to be based on the
+  latest version of `google.golang.org/protobuf` instead of the deprecated
+  `github.com/golang/protobuf/jsonpb`
+  module](https://github.com/lightningnetwork/lnd/pull/7659).
+  
+## Tooling and Documentation
 * Add support for [custom `RPCHOST` and
   `RPCCRTPATH`](https://github.com/lightningnetwork/lnd/pull/7429) to the
   `lnd` Docker image main script (`/start-lnd.sh`).
@@ -295,11 +329,8 @@
 * Pierre Beugnet
 * Satarupa Deb
 * Shaurya Arora
+* Suheb
 * Torkel Rogstad
 * Yong Yu
 * ziggie1984
 * zx9r
-
-# Contributors (Alphabetical Order)
-
-* Olaoluwa Osuntokun

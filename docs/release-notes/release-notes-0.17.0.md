@@ -161,6 +161,10 @@
 * [Fixed a validation bug](https://github.com/lightningnetwork/lnd/pull/7177) in
   `channel_type` negotiation.
 
+* [The `lightning-onion` repo version was 
+  updated](https://github.com/lightningnetwork/lnd/pull/7877) in preparation for 
+  work to be done on route blinding in LND. 
+
 ## Code Health
 
 * Updated [our fork for serializing protobuf as JSON to be based on the

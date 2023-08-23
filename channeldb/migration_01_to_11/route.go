@@ -277,7 +277,7 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 				hopData.NextAddress[:], nextHop,
 			)
 
-			payload, err = sphinx.NewHopPayload(&hopData, nil)
+			payload, err = sphinx.NewLegacyHopPayload(&hopData)
 			if err != nil {
 				return nil, err
 			}
@@ -294,8 +294,7 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 				return nil, err
 			}
 
-			// TODO(roasbeef): make better API for NewHopPayload?
-			payload, err = sphinx.NewHopPayload(nil, b.Bytes())
+			payload, err = sphinx.NewTLVHopPayload(b.Bytes())
 			if err != nil {
 				return nil, err
 			}

@@ -2124,27 +2124,14 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 
 	// First, we'll need to construct the tapLeaf that'll be our delay CSV
 	// clause.
-	builder := txscript.NewScriptBuilder()
-	builder.AddData(schnorr.SerializePubKey(selfKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-	builder.AddInt64(int64(csvTimeout))
-	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
-	builder.AddOp(txscript.OP_DROP)
-
-	delayScript, err := builder.Script()
+	delayScript, err := TaprootLocalCommitDelayScript(csvTimeout, selfKey)
 	if err != nil {
 		return nil, err
 	}
 
 	// Next, we'll need to construct the revocation path, which is just a
 	// simple checksig script.
-	builder = txscript.NewScriptBuilder()
-	builder.AddData(schnorr.SerializePubKey(selfKey))
-	builder.AddOp(txscript.OP_DROP)
-	builder.AddData(schnorr.SerializePubKey(revokeKey))
-	builder.AddOp(txscript.OP_CHECKSIG)
-
-	revokeScript, err := builder.Script()
+	revokeScript, err := TaprootLocalCommitRevokeScript(selfKey, revokeKey)
 	if err != nil {
 		return nil, err
 	}
@@ -2174,6 +2161,35 @@ func NewLocalCommitScriptTree(csvTimeout uint32,
 		SettleLeaf:     delayTapLeaf,
 		RevocationLeaf: revokeTapLeaf,
 	}, nil
+}
+
+// TaprootLocalCommitDelayScript builds the tap leaf with the CSV delay script
+// for the to-local output.
+func TaprootLocalCommitDelayScript(csvTimeout uint32,
+	selfKey *btcec.PublicKey) ([]byte, error) {
+
+	builder := txscript.NewScriptBuilder()
+	builder.AddData(schnorr.SerializePubKey(selfKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+	builder.AddInt64(int64(csvTimeout))
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	return builder.Script()
+}
+
+// TaprootLocalCommitRevokeScript builds the tap leaf with the revocation path
+// for the to-local output.
+func TaprootLocalCommitRevokeScript(selfKey, revokeKey *btcec.PublicKey) (
+	[]byte, error) {
+
+	builder := txscript.NewScriptBuilder()
+	builder.AddData(schnorr.SerializePubKey(selfKey))
+	builder.AddOp(txscript.OP_DROP)
+	builder.AddData(schnorr.SerializePubKey(revokeKey))
+	builder.AddOp(txscript.OP_CHECKSIG)
+
+	return builder.Script()
 }
 
 // TaprootCommitScriptToSelf creates the taproot witness program that commits

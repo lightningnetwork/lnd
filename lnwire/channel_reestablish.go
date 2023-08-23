@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // ChannelReestablish is a message sent between peers that have an existing
@@ -62,6 +63,13 @@ type ChannelReestablish struct {
 	// current un-revoked commitment transaction of the sending party.
 	LocalUnrevokedCommitPoint *btcec.PublicKey
 
+	// LocalNonce is an optional field that stores a local musig2 nonce.
+	// This will only be populated if the simple taproot channels type was
+	// negotiated.
+	//
+	// TODO(roasbeef): rename to verification nonce
+	LocalNonce *Musig2Nonce
+
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
 	// be used to specify optional data such as custom TLV fields.
@@ -108,6 +116,16 @@ func (a *ChannelReestablish) Encode(w *bytes.Buffer, pver uint32) error {
 	if err := WritePublicKey(w, a.LocalUnrevokedCommitPoint); err != nil {
 		return err
 	}
+
+	recordProducers := make([]tlv.RecordProducer, 0, 1)
+	if a.LocalNonce != nil {
+		recordProducers = append(recordProducers, a.LocalNonce)
+	}
+	err := EncodeMessageExtraData(&a.ExtraData, recordProducers...)
+	if err != nil {
+		return err
+	}
+
 	return WriteBytes(w, a.ExtraData)
 }
 
@@ -156,7 +174,28 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	return a.ExtraData.Decode(r)
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	var localNonce Musig2Nonce
+	typeMap, err := tlvRecords.ExtractRecords(
+		&localNonce,
+	)
+	if err != nil {
+		return err
+	}
+
+	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
+		a.LocalNonce = &localNonce
+	}
+
+	if len(tlvRecords) != 0 {
+		a.ExtraData = tlvRecords
+	}
+
+	return nil
 }
 
 // MsgType returns the integer uniquely identifying this message type on the

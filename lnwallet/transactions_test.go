@@ -356,10 +356,10 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 
 	// Execute commit dance to arrive at the point where the local node has
 	// received the test commitment and the remote signature.
-	localSig, localHtlcSigs, _, err := localChannel.SignNextCommitment()
+	localNewCommit, err := localChannel.SignNextCommitment()
 	require.NoError(t, err, "local unable to sign commitment")
 
-	err = remoteChannel.ReceiveNewCommitment(localSig, localHtlcSigs)
+	err = remoteChannel.ReceiveNewCommitment(localNewCommit.CommitSigs)
 	require.NoError(t, err)
 
 	revMsg, _, _, err := remoteChannel.RevokeCurrentCommitment()
@@ -368,18 +368,24 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	_, _, _, _, err = localChannel.ReceiveRevocation(revMsg)
 	require.NoError(t, err)
 
-	remoteSig, remoteHtlcSigs, _, err := remoteChannel.SignNextCommitment()
+	remoteNewCommit, err := remoteChannel.SignNextCommitment()
 	require.NoError(t, err)
 
-	require.Equal(t, test.RemoteSigHex,
-		hex.EncodeToString(remoteSig.ToSignatureBytes()))
+	require.Equal(
+		t, test.RemoteSigHex,
+		hex.EncodeToString(
+			remoteNewCommit.CommitSig.ToSignatureBytes(),
+		),
+	)
 
-	for i, sig := range remoteHtlcSigs {
-		require.Equal(t, test.HtlcDescs[i].RemoteSigHex,
-			hex.EncodeToString(sig.ToSignatureBytes()))
+	for i, sig := range remoteNewCommit.HtlcSigs {
+		require.Equal(
+			t, test.HtlcDescs[i].RemoteSigHex,
+			hex.EncodeToString(sig.ToSignatureBytes()),
+		)
 	}
 
-	err = localChannel.ReceiveNewCommitment(remoteSig, remoteHtlcSigs)
+	err = localChannel.ReceiveNewCommitment(remoteNewCommit.CommitSigs)
 	require.NoError(t, err)
 
 	_, _, _, err = localChannel.RevokeCurrentCommitment()
@@ -394,8 +400,10 @@ func testVectors(t *testing.T, chanType channeldb.ChannelType, test testCase) {
 	var txBytes bytes.Buffer
 	require.NoError(t, forceCloseSum.CloseTx.Serialize(&txBytes))
 
-	require.Equal(t, test.ExpectedCommitmentTxHex,
-		hex.EncodeToString(txBytes.Bytes()))
+	require.Equal(
+		t, test.ExpectedCommitmentTxHex,
+		hex.EncodeToString(txBytes.Bytes()),
+	)
 
 	// Obtain the second level transactions that the local node's channel
 	// state machine has produced. Store them in a map indexed by commit tx
@@ -587,9 +595,9 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 	remoteCommitTweak := input.SingleTweakBytes(commitPoint, aliceKeyPub)
 	localCommitTweak := input.SingleTweakBytes(commitPoint, bobKeyPub)
 
-	aliceSelfOutputSigner := &input.MockSigner{
-		Privkeys: []*btcec.PrivateKey{aliceKeyPriv},
-	}
+	aliceSelfOutputSigner := input.NewMockSigner(
+		[]*btcec.PrivateKey{aliceKeyPriv}, nil,
+	)
 
 	// Calculate the dust limit we'll use for the test.
 	dustLimit := DustLimitForSize(input.UnknownWitnessSize)
@@ -679,7 +687,7 @@ func testSpendValidation(t *testing.T, tweakless bool) {
 		t.Fatalf("spend from delay output is invalid: %v", err)
 	}
 
-	localSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{bobKeyPriv}}
+	localSigner := input.NewMockSigner([]*btcec.PrivateKey{bobKeyPriv}, nil)
 
 	// Next, we'll test bob spending with the derived revocation key to
 	// simulate the scenario when Alice broadcasts this commitment
@@ -994,15 +1002,15 @@ func createTestChannelsForVectors(tc *testContext, chanType channeldb.ChannelTyp
 	}
 
 	// Create mock signers that can sign for the keys that are used.
-	localSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{
+	localSigner := input.NewMockSigner([]*btcec.PrivateKey{
 		tc.localPaymentBasepointSecret, tc.localDelayedPaymentBasepointSecret,
 		tc.localFundingPrivkey, localDummy1, localDummy2,
-	}}
+	}, nil)
 
-	remoteSigner := &input.MockSigner{Privkeys: []*btcec.PrivateKey{
+	remoteSigner := input.NewMockSigner([]*btcec.PrivateKey{
 		tc.remoteFundingPrivkey, tc.remoteRevocationBasepointSecret,
 		tc.remotePaymentBasepointSecret, remoteDummy1, remoteDummy2,
-	}}
+	}, nil)
 
 	remotePool := NewSigPool(1, remoteSigner)
 	channelRemote, err := NewLightningChannel(

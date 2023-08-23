@@ -104,8 +104,7 @@ type BtcWallet struct {
 
 	blockCache *blockcache.BlockCache
 
-	musig2Sessions    map[input.MuSig2SessionID]*muSig2State
-	musig2SessionsMtx sync.Mutex
+	*input.MusigSessionManager
 }
 
 // A compile time check to ensure that BtcWallet implements the
@@ -167,16 +166,21 @@ func New(cfg Config, blockCache *blockcache.BlockCache) (*BtcWallet, error) {
 		}
 	}
 
-	return &BtcWallet{
-		cfg:            &cfg,
-		wallet:         wallet,
-		db:             wallet.Database(),
-		chain:          cfg.ChainSource,
-		netParams:      cfg.NetParams,
-		chainKeyScope:  chainKeyScope,
-		blockCache:     blockCache,
-		musig2Sessions: make(map[input.MuSig2SessionID]*muSig2State),
-	}, nil
+	finalWallet := &BtcWallet{
+		cfg:           &cfg,
+		wallet:        wallet,
+		db:            wallet.Database(),
+		chain:         cfg.ChainSource,
+		netParams:     cfg.NetParams,
+		chainKeyScope: chainKeyScope,
+		blockCache:    blockCache,
+	}
+
+	finalWallet.MusigSessionManager = input.NewMusigSessionManager(
+		finalWallet.fetchPrivKey,
+	)
+
+	return finalWallet, nil
 }
 
 // loaderCfg holds optional wallet loader configuration.

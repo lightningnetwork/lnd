@@ -47,6 +47,12 @@ var (
 	// procedure, we can recover and continue from the persisted state.
 	retributionBucket = []byte("retribution")
 
+	// taprootRetributionBucket stores the tarpoot specific retribution
+	// information. This includes things like the control blocks for both
+	// commitment outputs, and the taptweak needed to sweep each HTLC (one
+	// for the first and one for the second level).
+	taprootRetributionBucket = []byte("tap-retribution")
+
 	// errBrarShuttingDown is an error returned if the breacharbiter has
 	// been signalled to exit.
 	errBrarShuttingDown = errors.New("breacharbiter shutting down")
@@ -532,7 +538,12 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 
 	// In this case, we'll modify the witness type of this output to
 	// actually prepare for a second level revoke.
-	bo.witnessType = input.HtlcSecondLevelRevoke
+	isTaproot := txscript.IsPayToTaproot(bo.signDesc.Output.PkScript)
+	if isTaproot {
+		bo.witnessType = input.TaprootHtlcSecondLevelRevoke
+	} else {
+		bo.witnessType = input.HtlcSecondLevelRevoke
+	}
 
 	// We'll also redirect the outpoint to this second level output, so the
 	// spending transaction updates it inputs accordingly.
@@ -552,6 +563,11 @@ func convertToSecondLevelRevoke(bo *breachedOutput, breachInfo *retributionInfo,
 	bo.amt = btcutil.Amount(newAmt)
 	bo.signDesc.Output.Value = newAmt
 	bo.signDesc.Output.PkScript = spendingTx.TxOut[spendInputIndex].PkScript
+
+	// For taproot outputs, the taptweak also needs to be swapped out. We
+	// do this unconditionally as this field isn't used at all for segwit
+	// v0 outputs.
+	bo.signDesc.TapTweak = bo.secondLevelTapTweak[:]
 
 	// Finally, we'll need to adjust the witness program in the
 	// SignDescriptor.
@@ -577,6 +593,10 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 		txIn := s.detail.SpendingTx.TxIn[s.detail.SpenderInputIndex]
 
 		switch breachedOutput.witnessType {
+		case input.TaprootHtlcAcceptedRevoke:
+			fallthrough
+		case input.TaprootHtlcOfferedRevoke:
+			fallthrough
 		case input.HtlcAcceptedRevoke:
 			fallthrough
 		case input.HtlcOfferedRevoke:
@@ -619,12 +639,13 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 		// count the total and revoked funds swept depending on the
 		// input type.
 		switch breachedOutput.witnessType {
-		// If the output being revoked is the remote commitment
-		// output or an offered HTLC output, it's amount
-		// contributes to the value of funds being revoked from
-		// the counter party.
-		case input.CommitmentRevoke, input.HtlcSecondLevelRevoke,
-			input.HtlcOfferedRevoke:
+		// If the output being revoked is the remote commitment output
+		// or an offered HTLC output, its amount contributes to the
+		// value of funds being revoked from the counter party.
+		case input.CommitmentRevoke, input.TaprootCommitmentRevoke,
+			input.HtlcSecondLevelRevoke,
+			input.TaprootHtlcSecondLevelRevoke,
+			input.TaprootHtlcOfferedRevoke, input.HtlcOfferedRevoke:
 
 			revokedFunds += breachedOutput.Amount()
 		}
@@ -859,6 +880,23 @@ Loop:
 				}
 			}
 
+			for _, tx := range justiceTxs.spendSecondLevelHTLCs {
+				tx := tx
+
+				brarLog.Debugf("Broadcasting justice tx "+
+					"spending second-level HTLC output: %v",
+					newLogClosure(func() string {
+						return spew.Sdump(tx)
+					}))
+
+				err = b.cfg.PublishTransaction(tx, label)
+				if err != nil {
+					brarLog.Warnf("Unable to broadcast "+
+						"second-level HTLC out "+
+						"spending justice tx: %v", err)
+				}
+			}
+
 		case err := <-errChan:
 			if err != errBrarShuttingDown {
 				brarLog.Errorf("error waiting for "+
@@ -1025,6 +1063,7 @@ type breachedOutput struct {
 	confHeight  uint32
 
 	secondLevelWitnessScript []byte
+	secondLevelTapTweak      [32]byte
 
 	witnessFunc input.WitnessGenerator
 }
@@ -1112,8 +1151,10 @@ func (bo *breachedOutput) CraftInputScript(signer input.Signer, txn *wire.MsgTx,
 // spent.
 func (bo *breachedOutput) BlocksToMaturity() uint32 {
 	// If the output is a to_remote output we can claim, and it's of the
-	// confirmed type, we must wait one block before claiming it.
-	if bo.witnessType == input.CommitmentToRemoteConfirmed {
+	// confirmed type (or is a taproot channel that always has the CSV 1),
+	// we must wait one block before claiming it.
+	switch bo.witnessType {
+	case input.CommitmentToRemoteConfirmed, input.TaprootRemoteCommitSpend:
 		return 1
 	}
 
@@ -1168,20 +1209,43 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	// the nil-ness of their sign descriptors.
 	breachedOutputs := make([]breachedOutput, 0, nHtlcs+2)
 
+	isTaproot := func() bool {
+		if breachInfo.LocalOutputSignDesc != nil {
+			return txscript.IsPayToTaproot(
+				breachInfo.LocalOutputSignDesc.Output.PkScript,
+			)
+		}
+
+		return txscript.IsPayToTaproot(
+			breachInfo.RemoteOutputSignDesc.Output.PkScript,
+		)
+	}()
+
 	// First, record the breach information for the local channel point if
 	// it is not considered dust, which is signaled by a non-nil sign
 	// descriptor. Here we use CommitmentNoDelay (or
 	// CommitmentNoDelayTweakless for newer commitments) since this output
-	// belongs to us and has no time-based constraints on spending.
+	// belongs to us and has no time-based constraints on spending. For
+	// taproot channels, this is a normal spend from our output on the
+	// commitment of the remote party.
 	if breachInfo.LocalOutputSignDesc != nil {
-		witnessType := input.CommitmentNoDelay
-		if breachInfo.LocalOutputSignDesc.SingleTweak == nil {
+		var witnessType input.StandardWitnessType
+		switch {
+		case isTaproot:
+			witnessType = input.TaprootRemoteCommitSpend
+
+		case !isTaproot &&
+			breachInfo.LocalOutputSignDesc.SingleTweak == nil:
+
 			witnessType = input.CommitSpendNoDelayTweakless
+
+		case !isTaproot:
+			witnessType = input.CommitmentNoDelay
 		}
 
 		// If the local delay is non-zero, it means this output is of
 		// the confirmed to_remote type.
-		if breachInfo.LocalDelay != 0 {
+		if !isTaproot && breachInfo.LocalDelay != 0 {
 			witnessType = input.CommitmentToRemoteConfirmed
 		}
 
@@ -1204,9 +1268,16 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 	// CommitmentRevoke, since we will be using a revoke key, withdrawing
 	// the funds from the commitment transaction immediately.
 	if breachInfo.RemoteOutputSignDesc != nil {
+		var witType input.StandardWitnessType
+		if isTaproot {
+			witType = input.TaprootCommitmentRevoke
+		} else {
+			witType = input.CommitmentRevoke
+		}
+
 		remoteOutput := makeBreachedOutput(
 			&breachInfo.RemoteOutpoint,
-			input.CommitmentRevoke,
+			witType,
 			// No second level script as this is a commitment
 			// output.
 			nil,
@@ -1226,9 +1297,17 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 		// appropriate witness type that needs to be generated in order
 		// to sweep the HTLC output.
 		var htlcWitnessType input.StandardWitnessType
-		if breachedHtlc.IsIncoming {
+		switch {
+		case isTaproot && breachedHtlc.IsIncoming:
+			htlcWitnessType = input.TaprootHtlcAcceptedRevoke
+
+		case isTaproot && !breachedHtlc.IsIncoming:
+			htlcWitnessType = input.TaprootHtlcOfferedRevoke
+
+		case !isTaproot && breachedHtlc.IsIncoming:
 			htlcWitnessType = input.HtlcAcceptedRevoke
-		} else {
+
+		case !isTaproot && !breachedHtlc.IsIncoming:
 			htlcWitnessType = input.HtlcOfferedRevoke
 		}
 
@@ -1237,7 +1316,13 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 			htlcWitnessType,
 			breachInfo.HtlcRetributions[i].SecondLevelWitnessScript,
 			&breachInfo.HtlcRetributions[i].SignDesc,
-			breachInfo.BreachHeight)
+			breachInfo.BreachHeight,
+		)
+
+		// For taproot outputs, we also need to hold onto the second
+		// level tap tweak as well.
+		//nolint:lll
+		htlcOutput.secondLevelTapTweak = breachedHtlc.SecondLevelTapTweak
 
 		breachedOutputs = append(breachedOutputs, htlcOutput)
 	}
@@ -1254,23 +1339,27 @@ func newRetributionInfo(chanPoint *wire.OutPoint,
 // justiceTxVariants is a struct that holds transactions which exacts "justice"
 // by sweeping ALL the funds within the channel which we are now entitled to
 // due to a breach of the channel's contract by the counterparty. There are
-// three variants of the justice transaction:
+// four variants of justice transactions:
 //
-// 1. The "normal" justice tx that spends all breached outputs
+// 1. The "normal" justice tx that spends all breached outputs.
 // 2. A tx that spends only the breached to_local output and to_remote output
-// (can be nil if none of these exist)
-// 3. A tx that spends all the breached HTLC outputs, and second-level HTLC
-// outputs (can be nil if no HTLC outputs exist).
+// (can be nil if none of these exist).
+// 3. A tx that spends all the breached commitment level HTLC outputs (can be
+// nil if none of these exist or if all have been taken to the second level).
+// 4. A set of txs that spend all the second-level HTLC outputs (can be empty if
+// no HTLC second-level txs have been confirmed).
 //
 // The reason we create these three variants, is that in certain cases (like
 // with the anchor output HTLC malleability), the channel counter party can pin
 // the HTLC outputs with low fee children, hindering our normal justice tx that
 // attempts to spend these outputs from propagating. In this case we want to
-// spend the to_local output separately, before the CSV lock expires.
+// spend the to_local output and commitment level HTLC outputs separately,
+// before the CSV locks expire.
 type justiceTxVariants struct {
-	spendAll        *wire.MsgTx
-	spendCommitOuts *wire.MsgTx
-	spendHTLCs      *wire.MsgTx
+	spendAll              *wire.MsgTx
+	spendCommitOuts       *wire.MsgTx
+	spendHTLCs            *wire.MsgTx
+	spendSecondLevelHTLCs []*wire.MsgTx
 }
 
 // createJusticeTx creates transactions which exacts "justice" by sweeping ALL
@@ -1281,9 +1370,10 @@ func (b *BreachArbiter) createJusticeTx(
 	breachedOutputs []breachedOutput) (*justiceTxVariants, error) {
 
 	var (
-		allInputs    []input.Input
-		commitInputs []input.Input
-		htlcInputs   []input.Input
+		allInputs         []input.Input
+		commitInputs      []input.Input
+		htlcInputs        []input.Input
+		secondLevelInputs []input.Input
 	)
 
 	for i := range breachedOutputs {
@@ -1291,13 +1381,21 @@ func (b *BreachArbiter) createJusticeTx(
 		inp := &breachedOutputs[i]
 		allInputs = append(allInputs, inp)
 
-		// Check if the input is from an HTLC or a commitment output.
-		if inp.WitnessType() == input.HtlcAcceptedRevoke ||
-			inp.WitnessType() == input.HtlcOfferedRevoke ||
-			inp.WitnessType() == input.HtlcSecondLevelRevoke {
+		// Check if the input is from a commitment output, a commitment
+		// level HTLC output or a second level HTLC output.
+		switch inp.WitnessType() {
+		case input.HtlcAcceptedRevoke, input.HtlcOfferedRevoke,
+			input.TaprootHtlcAcceptedRevoke,
+			input.TaprootHtlcOfferedRevoke:
 
 			htlcInputs = append(htlcInputs, inp)
-		} else {
+
+		case input.HtlcSecondLevelRevoke,
+			input.TaprootHtlcSecondLevelRevoke:
+
+			secondLevelInputs = append(secondLevelInputs, inp)
+
+		default:
 			commitInputs = append(commitInputs, inp)
 		}
 	}
@@ -1308,26 +1406,42 @@ func (b *BreachArbiter) createJusticeTx(
 	)
 
 	// For each group of inputs, create a tx that spends them.
-	txs.spendAll, err = b.createSweepTx(allInputs)
+	txs.spendAll, err = b.createSweepTx(allInputs...)
 	if err != nil {
 		return nil, err
 	}
 
-	txs.spendCommitOuts, err = b.createSweepTx(commitInputs)
+	txs.spendCommitOuts, err = b.createSweepTx(commitInputs...)
 	if err != nil {
-		return nil, err
+		brarLog.Errorf("could not create sweep tx for commitment "+
+			"outputs: %v", err)
 	}
 
-	txs.spendHTLCs, err = b.createSweepTx(htlcInputs)
+	txs.spendHTLCs, err = b.createSweepTx(htlcInputs...)
 	if err != nil {
-		return nil, err
+		brarLog.Errorf("could not create sweep tx for HTLC outputs: %v",
+			err)
 	}
+
+	secondLevelSweeps := make([]*wire.MsgTx, 0, len(secondLevelInputs))
+	for _, input := range secondLevelInputs {
+		sweepTx, err := b.createSweepTx(input)
+		if err != nil {
+			brarLog.Errorf("could not create sweep tx for "+
+				"second-level HTLC output: %v", err)
+
+			continue
+		}
+
+		secondLevelSweeps = append(secondLevelSweeps, sweepTx)
+	}
+	txs.spendSecondLevelHTLCs = secondLevelSweeps
 
 	return txs, nil
 }
 
 // createSweepTx creates a tx that sweeps the passed inputs back to our wallet.
-func (b *BreachArbiter) createSweepTx(inputs []input.Input) (*wire.MsgTx,
+func (b *BreachArbiter) createSweepTx(inputs ...input.Input) (*wire.MsgTx,
 	error) {
 
 	if len(inputs) == 0 {
@@ -1377,6 +1491,7 @@ func (b *BreachArbiter) createSweepTx(inputs []input.Input) (*wire.MsgTx,
 	}
 
 	txWeight := int64(weightEstimate.Weight())
+
 	return b.sweepSpendableOutputsTxn(txWeight, spendableOutputs...)
 }
 
@@ -1494,6 +1609,98 @@ func NewRetributionStore(db kvdb.Backend) *RetributionStore {
 	}
 }
 
+// taprootBriefcaseFromRetInfo creates a taprootBriefcase from a retribution
+// info struct. This stores all the tap tweak informatoin we need to inrder to
+// be able to hadnel breaches after a restart.
+func taprootBriefcaseFromRetInfo(retInfo *retributionInfo) *taprootBriefcase {
+	tapCase := newTaprootBriefcase()
+
+	for _, bo := range retInfo.breachedOutputs {
+		switch bo.WitnessType() {
+		// For spending from our commitment output on the remote
+		// commitment, we'll need to stash the control block.
+		case input.TaprootRemoteCommitSpend:
+			//nolint:lll
+			tapCase.CtrlBlocks.CommitSweepCtrlBlock = bo.signDesc.ControlBlock
+
+		// To spend the revoked output again, we'll store the same
+		// control block value as above, but in a different place.
+		case input.TaprootCommitmentRevoke:
+			//nolint:lll
+			tapCase.CtrlBlocks.RevokeSweepCtrlBlock = bo.signDesc.ControlBlock
+
+		// For spending the HTLC outputs, we'll store the first and
+		// second level tweak values.
+		case input.TaprootHtlcAcceptedRevoke:
+			fallthrough
+		case input.TaprootHtlcOfferedRevoke:
+			resID := newResolverID(*bo.OutPoint())
+
+			var firstLevelTweak [32]byte
+			copy(firstLevelTweak[:], bo.signDesc.TapTweak)
+			secondLevelTweak := bo.secondLevelTapTweak
+
+			//nolint:lll
+			tapCase.TapTweaks.BreachedHtlcTweaks[resID] = firstLevelTweak
+
+			//nolint:lll
+			tapCase.TapTweaks.BreachedSecondLevelHltcTweaks[resID] = secondLevelTweak
+		}
+	}
+
+	return tapCase
+}
+
+// applyTaprootRetInfo attaches the taproot specific inforamtion in the tapCase
+// to the passed retInfo struct.
+func applyTaprootRetInfo(tapCase *taprootBriefcase,
+	retInfo *retributionInfo) error {
+
+	for i := range retInfo.breachedOutputs {
+		bo := retInfo.breachedOutputs[i]
+
+		switch bo.WitnessType() {
+		// For spending from our commitment output on the remote
+		// commitment, we'll apply the control block.
+		case input.TaprootRemoteCommitSpend:
+			//nolint:lll
+			bo.signDesc.ControlBlock = tapCase.CtrlBlocks.CommitSweepCtrlBlock
+
+		// To spend the revoked output again, we'll apply the same
+		// control block value as above, but to a different place.
+		case input.TaprootCommitmentRevoke:
+			//nolint:lll
+			bo.signDesc.ControlBlock = tapCase.CtrlBlocks.RevokeSweepCtrlBlock
+
+		// For spending the HTLC outputs, we'll apply the first and
+		// second level tweak values.
+		case input.TaprootHtlcAcceptedRevoke:
+			fallthrough
+		case input.TaprootHtlcOfferedRevoke:
+			resID := newResolverID(*bo.OutPoint())
+
+			tap1, ok := tapCase.TapTweaks.BreachedHtlcTweaks[resID]
+			if !ok {
+				return fmt.Errorf("unable to find taproot "+
+					"tweak for: %v", bo.OutPoint())
+			}
+			bo.signDesc.TapTweak = tap1[:]
+
+			//nolint:lll
+			tap2, ok := tapCase.TapTweaks.BreachedSecondLevelHltcTweaks[resID]
+			if !ok {
+				return fmt.Errorf("unable to find taproot "+
+					"tweak for: %v", bo.OutPoint())
+			}
+			bo.secondLevelTapTweak = tap2
+		}
+
+		retInfo.breachedOutputs[i] = bo
+	}
+
+	return nil
+}
+
 // Add adds a retribution state to the RetributionStore, which is then persisted
 // to disk.
 func (rs *RetributionStore) Add(ret *retributionInfo) error {
@@ -1501,6 +1708,12 @@ func (rs *RetributionStore) Add(ret *retributionInfo) error {
 		// If this is our first contract breach, the retributionBucket
 		// won't exist, in which case, we just create a new bucket.
 		retBucket, err := tx.CreateTopLevelBucket(retributionBucket)
+		if err != nil {
+			return err
+		}
+		tapRetBucket, err := tx.CreateTopLevelBucket(
+			taprootRetributionBucket,
+		)
 		if err != nil {
 			return err
 		}
@@ -1515,7 +1728,32 @@ func (rs *RetributionStore) Add(ret *retributionInfo) error {
 			return err
 		}
 
-		return retBucket.Put(outBuf.Bytes(), retBuf.Bytes())
+		err = retBucket.Put(outBuf.Bytes(), retBuf.Bytes())
+		if err != nil {
+			return err
+		}
+
+		// If this isn't a taproot channel, then we can exit early here
+		// as there's no extra data to write.
+		switch {
+		case len(ret.breachedOutputs) == 0:
+			return nil
+
+		case !txscript.IsPayToTaproot(
+			ret.breachedOutputs[0].signDesc.Output.PkScript,
+		):
+			return nil
+		}
+
+		// We'll also map the ret info into the taproot storage
+		// structure we need for taproot channels.
+		var b bytes.Buffer
+		tapRetcase := taprootBriefcaseFromRetInfo(ret)
+		if err := tapRetcase.Encode(&b); err != nil {
+			return err
+		}
+
+		return tapRetBucket.Put(outBuf.Bytes(), b.Bytes())
 	}, func() {})
 }
 
@@ -1554,11 +1792,17 @@ func (rs *RetributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 func (rs *RetributionStore) Remove(chanPoint *wire.OutPoint) error {
 	return kvdb.Update(rs.db, func(tx kvdb.RwTx) error {
 		retBucket := tx.ReadWriteBucket(retributionBucket)
+		tapRetBucket, err := tx.CreateTopLevelBucket(
+			taprootRetributionBucket,
+		)
+		if err != nil {
+			return err
+		}
 
 		// We return an error if the bucket is not already created,
-		// since normal operation of the breach arbiter should never try
-		// to remove a finalized retribution state that is not already
-		// stored in the db.
+		// since normal operation of the breach arbiter should never
+		// try to remove a finalized retribution state that is not
+		// already stored in the db.
 		if retBucket == nil {
 			return errors.New("unable to remove retribution " +
 				"because the retribution bucket doesn't exist")
@@ -1573,7 +1817,11 @@ func (rs *RetributionStore) Remove(chanPoint *wire.OutPoint) error {
 
 		// Remove the persisted retribution info and finalized justice
 		// transaction.
-		return retBucket.Delete(chanBytes)
+		if err := retBucket.Delete(chanBytes); err != nil {
+			return err
+		}
+
+		return tapRetBucket.Delete(chanBytes)
 	}, func() {})
 }
 
@@ -1589,15 +1837,34 @@ func (rs *RetributionStore) ForAll(cb func(*retributionInfo) error,
 		if retBucket == nil {
 			return nil
 		}
+		tapRetBucket := tx.ReadBucket(
+			taprootRetributionBucket,
+		)
 
 		// Otherwise, we fetch each serialized retribution info,
 		// deserialize it, and execute the passed in callback function
 		// on it.
-		return retBucket.ForEach(func(_, retBytes []byte) error {
+		return retBucket.ForEach(func(k, retBytes []byte) error {
 			ret := &retributionInfo{}
 			err := ret.Decode(bytes.NewBuffer(retBytes))
 			if err != nil {
 				return err
+			}
+
+			tapInfoBytes := tapRetBucket.Get(k)
+			if tapInfoBytes != nil {
+				var tapCase taprootBriefcase
+				err := tapCase.Decode(
+					bytes.NewReader(tapInfoBytes),
+				)
+				if err != nil {
+					return err
+				}
+
+				err = applyTaprootRetInfo(&tapCase, ret)
+				if err != nil {
+					return err
+				}
 			}
 
 			return cb(ret)

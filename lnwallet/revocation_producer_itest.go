@@ -4,6 +4,7 @@ package lnwallet
 
 import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/shachain"
 )
@@ -12,14 +13,15 @@ import (
 // revocation root by applying ECDH to a new key from our revocation root family
 // and the multisig key we use for the channel.
 func (l *LightningWallet) nextRevocationProducer(res *ChannelReservation,
-	keyRing keychain.KeyRing) (shachain.Producer, error) {
+	keyRing keychain.KeyRing,
+) (shachain.Producer, shachain.Producer, error) {
 
 	// Derive the next key in the revocation root family.
 	nextRevocationKeyDesc, err := keyRing.DeriveNextKey(
 		keychain.KeyFamilyRevocationRoot,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Within our itests, we want to make sure we can still restore channel
@@ -34,17 +36,25 @@ func (l *LightningWallet) nextRevocationProducer(res *ChannelReservation,
 	if res.pendingChanID == itestLegacyFormatChanID {
 		revocationRoot, err := l.DerivePrivKey(nextRevocationKeyDesc)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		// Once we have the root, we can then generate our shachain
 		// producer and from that generate the per-commitment point.
 		revRoot, err := chainhash.NewHash(revocationRoot.Serialize())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		shaChainRoot := shachain.NewRevocationProducer(*revRoot)
+
+		taprootShaChainRoot, err := channeldb.DeriveMusig2Shachain(
+			shaChainRoot,
+		)
+		if err != nil {
+			return nil, nil, err
 		}
 
-		return shachain.NewRevocationProducer(*revRoot), nil
+		return shaChainRoot, taprootShaChainRoot, nil
 	}
 
 	// If the DeriveNextKey call returns the first key with Index 0, we need
@@ -55,7 +65,7 @@ func (l *LightningWallet) nextRevocationProducer(res *ChannelReservation,
 			keychain.KeyFamilyRevocationRoot,
 		)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -68,10 +78,18 @@ func (l *LightningWallet) nextRevocationProducer(res *ChannelReservation,
 		nextRevocationKeyDesc, res.ourContribution.MultiSigKey.PubKey,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Once we have the root, we can then generate our shachain producer
 	// and from that generate the per-commitment point.
-	return shachain.NewRevocationProducer(revRoot), nil
+	shaChainRoot := shachain.NewRevocationProducer(revRoot)
+	taprootShaChainRoot, err := channeldb.DeriveMusig2Shachain(
+		shaChainRoot,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return shaChainRoot, taprootShaChainRoot, nil
 }

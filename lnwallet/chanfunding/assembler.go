@@ -110,6 +110,11 @@ type Request struct {
 	// ChangeAddr is a closure that will provide the Assembler with a
 	// change address for the funding transaction if needed.
 	ChangeAddr func() (btcutil.Address, error)
+
+	// Musig2 if true, then musig2 will be used to generate the funding
+	// output. By definition, this'll also use segwit v1 (taproot) for the
+	// funding output.
+	Musig2 bool
 }
 
 // Intent is returned by an Assembler and represents the base functionality the

@@ -2,6 +2,7 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -303,6 +305,10 @@ const (
 	// ScidAliasFeatureBit indicates that the scid-alias feature bit was
 	// negotiated during the lifetime of this channel.
 	ScidAliasFeatureBit ChannelType = 1 << 9
+
+	// SimpleTaprootFeatureBit indicates that the simple-taproot-channels
+	// feature bit was negotiated during the lifetime of the channel.
+	SimpleTaprootFeatureBit ChannelType = 1 << 10
 )
 
 // IsSingleFunder returns true if the channel type if one of the known single
@@ -366,6 +372,11 @@ func (c ChannelType) HasScidAliasChan() bool {
 // negotiated during the lifetime of this channel.
 func (c ChannelType) HasScidAliasFeature() bool {
 	return c&ScidAliasFeatureBit == ScidAliasFeatureBit
+}
+
+// IsTaproot returns true if the channel is using taproot features.
+func (c ChannelType) IsTaproot() bool {
+	return c&SimpleTaprootFeatureBit == SimpleTaprootFeatureBit
 }
 
 // ChannelConstraints represents a set of constraints meant to allow a node to
@@ -1372,6 +1383,65 @@ func (c *OpenChannel) SecondCommitmentPoint() (*btcec.PublicKey, error) {
 	return input.ComputeCommitmentPoint(revocation[:]), nil
 }
 
+var (
+	// taprootRevRootKey is the key used to derive the revocation root for
+	// the taproot nonces. This is done via HMAC of the existing revocation
+	// root.
+	taprootRevRootKey = []byte("taproot-rev-root")
+)
+
+// DeriveMusig2Shachain derives a shachain producer for the taproot channel
+// from normal shachain revocation root.
+func DeriveMusig2Shachain(revRoot shachain.Producer) (shachain.Producer, error) { //nolint:lll
+	// In order to obtain the revocation root hash to create the taproot
+	// revocation, we'll encode the producer into a buffer, then use that
+	// to derive the shachain root needed.
+	var rootHashBuf bytes.Buffer
+	if err := revRoot.Encode(&rootHashBuf); err != nil {
+		return nil, fmt.Errorf("unable to encode producer: %w", err)
+	}
+
+	revRootHash := chainhash.HashH(rootHashBuf.Bytes())
+
+	// For taproot channel types, we'll also generate a distinct shachain
+	// root using the same seed information. We'll use this to generate
+	// verification nonces for the channel. We'll bind with this a simple
+	// hmac.
+	taprootRevHmac := hmac.New(sha256.New, taprootRevRootKey)
+	if _, err := taprootRevHmac.Write(revRootHash[:]); err != nil {
+		return nil, err
+	}
+
+	taprootRevRoot := taprootRevHmac.Sum(nil)
+
+	// Once we have the root, we can then generate our shachain producer
+	// and from that generate the per-commitment point.
+	return shachain.NewRevocationProducerFromBytes(
+		taprootRevRoot,
+	)
+}
+
+// NewMusigVerificationNonce generates the local or verification nonce for
+// another musig2 session. In order to permit our implementation to not have to
+// write any secret nonce state to disk, we'll use the _next_ shachain
+// pre-image as our primary randomness source. When used to generate the nonce
+// again to broadcast our commitment hte current height will be used.
+func NewMusigVerificationNonce(pubKey *btcec.PublicKey, targetHeight uint64,
+	shaGen shachain.Producer) (*musig2.Nonces, error) {
+
+	// Now that we know what height we need, we'll grab the shachain
+	// pre-image at the target destination.
+	nextPreimage, err := shaGen.AtIndex(targetHeight)
+	if err != nil {
+		return nil, err
+	}
+
+	shaChainRand := musig2.WithCustomRand(bytes.NewBuffer(nextPreimage[:]))
+	pubKeyOpt := musig2.WithPublicKey(pubKey)
+
+	return musig2.GenNonces(pubKeyOpt, shaChainRand)
+}
+
 // ChanSyncMsg returns the ChannelReestablish message that should be sent upon
 // reconnection with the remote peer that we're maintaining this channel with.
 // The information contained within this message is necessary to re-sync our
@@ -1443,6 +1513,30 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 		}
 	}
 
+	// If this is a taproot channel, then we'll need to generate our next
+	// verification nonce to send to the remote party. They'll use this to
+	// sign the next update to our commitment transaction.
+	var nextTaprootNonce *lnwire.Musig2Nonce
+	if c.ChanType.IsTaproot() {
+		taprootRevProducer, err := DeriveMusig2Shachain(
+			c.RevocationProducer,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		nextNonce, err := NewMusigVerificationNonce(
+			c.LocalChanCfg.MultiSigKey.PubKey,
+			nextLocalCommitHeight, taprootRevProducer,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to gen next "+
+				"nonce: %w", err)
+		}
+
+		nextTaprootNonce = (*lnwire.Musig2Nonce)(&nextNonce.PubNonce)
+	}
+
 	return &lnwire.ChannelReestablish{
 		ChanID: lnwire.NewChanIDFromOutPoint(
 			&c.FundingOutpoint,
@@ -1453,6 +1547,7 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 		LocalUnrevokedCommitPoint: input.ComputeCommitmentPoint(
 			currentCommitSecret[:],
 		),
+		LocalNonce: nextTaprootNonce,
 	}, nil
 }
 
@@ -3853,8 +3948,6 @@ func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) erro
 	if err != nil {
 		return err
 	}
-
-	// TODO(roasbeef): don't keep producer on disk
 
 	// If the next revocation is present, which is only the case after the
 	// ChannelReady message has been sent, then we'll write it to disk.

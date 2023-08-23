@@ -98,6 +98,13 @@ type SignDescriptor struct {
 	// This MUST be set when spending Taproot outputs.
 	PrevOutputFetcher txscript.PrevOutputFetcher
 
+	// ControlBlock is a fully serialized control block that contains the
+	// merkle proof necessary to spend a taproot output. This may
+	// optionally be set if the SignMethod is
+	// input.TaprootScriptSpendSignMethod. In which case, this should be an
+	// inclusion proof for the WitnessScript.
+	ControlBlock []byte
+
 	// InputIndex is the target input within the transaction that should be
 	// signed.
 	InputIndex int

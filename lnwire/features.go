@@ -231,6 +231,30 @@ const (
 	// TODO: Decide on actual feature bit value.
 	ScriptEnforcedLeaseOptional FeatureBit = 2023
 
+	// SimpleTaprootChannelsRequredFinal is a required bit that indicates
+	// the node is able to create taproot-native channels. This is the
+	// final feature bit to be used once the channel type is finalized.
+	SimpleTaprootChannelsRequiredFinal = 80
+
+	// SimpleTaprootChannelsOptionalFinal is an optional bit that indicates
+	// the node is able to create taproot-native channels. This is the
+	// final
+	// feature bit to be used once the channel type is finalized.
+	SimpleTaprootChannelsOptionalFinal = 81
+
+	// SimpleTaprootChannelsRequredStaging is a required bit that indicates
+	// the node is able to create taproot-native channels. This is a
+	// feature bit used in the wild while the channel type is still being
+	// finalized.
+	SimpleTaprootChannelsRequiredStaging = 180
+
+	// SimpleTaprootChannelsOptionalStaging is an optional bit that
+	// indicates the node is able to create taproot-native channels. This
+	// is a feature
+	// bit used in the wild while the channel type is still being
+	// finalized.
+	SimpleTaprootChannelsOptionalStaging = 181
+
 	// MaxBolt11Feature is the maximum feature bit value allowed in bolt 11
 	// invoices.
 	//
@@ -254,43 +278,47 @@ func (b FeatureBit) IsRequired() bool {
 // feature bits must be assigned a name in this mapping, and feature bit pairs
 // must be assigned together for correct behavior.
 var Features = map[FeatureBit]string{
-	DataLossProtectRequired:       "data-loss-protect",
-	DataLossProtectOptional:       "data-loss-protect",
-	InitialRoutingSync:            "initial-routing-sync",
-	UpfrontShutdownScriptRequired: "upfront-shutdown-script",
-	UpfrontShutdownScriptOptional: "upfront-shutdown-script",
-	GossipQueriesRequired:         "gossip-queries",
-	GossipQueriesOptional:         "gossip-queries",
-	TLVOnionPayloadRequired:       "tlv-onion",
-	TLVOnionPayloadOptional:       "tlv-onion",
-	StaticRemoteKeyOptional:       "static-remote-key",
-	StaticRemoteKeyRequired:       "static-remote-key",
-	PaymentAddrOptional:           "payment-addr",
-	PaymentAddrRequired:           "payment-addr",
-	MPPOptional:                   "multi-path-payments",
-	MPPRequired:                   "multi-path-payments",
-	AnchorsRequired:               "anchor-commitments",
-	AnchorsOptional:               "anchor-commitments",
-	AnchorsZeroFeeHtlcTxRequired:  "anchors-zero-fee-htlc-tx",
-	AnchorsZeroFeeHtlcTxOptional:  "anchors-zero-fee-htlc-tx",
-	WumboChannelsRequired:         "wumbo-channels",
-	WumboChannelsOptional:         "wumbo-channels",
-	AMPRequired:                   "amp",
-	AMPOptional:                   "amp",
-	PaymentMetadataOptional:       "payment-metadata",
-	PaymentMetadataRequired:       "payment-metadata",
-	ExplicitChannelTypeOptional:   "explicit-commitment-type",
-	ExplicitChannelTypeRequired:   "explicit-commitment-type",
-	KeysendOptional:               "keysend",
-	KeysendRequired:               "keysend",
-	ScriptEnforcedLeaseRequired:   "script-enforced-lease",
-	ScriptEnforcedLeaseOptional:   "script-enforced-lease",
-	ScidAliasRequired:             "scid-alias",
-	ScidAliasOptional:             "scid-alias",
-	ZeroConfRequired:              "zero-conf",
-	ZeroConfOptional:              "zero-conf",
-	ShutdownAnySegwitRequired:     "shutdown-any-segwit",
-	ShutdownAnySegwitOptional:     "shutdown-any-segwit",
+	DataLossProtectRequired:              "data-loss-protect",
+	DataLossProtectOptional:              "data-loss-protect",
+	InitialRoutingSync:                   "initial-routing-sync",
+	UpfrontShutdownScriptRequired:        "upfront-shutdown-script",
+	UpfrontShutdownScriptOptional:        "upfront-shutdown-script",
+	GossipQueriesRequired:                "gossip-queries",
+	GossipQueriesOptional:                "gossip-queries",
+	TLVOnionPayloadRequired:              "tlv-onion",
+	TLVOnionPayloadOptional:              "tlv-onion",
+	StaticRemoteKeyOptional:              "static-remote-key",
+	StaticRemoteKeyRequired:              "static-remote-key",
+	PaymentAddrOptional:                  "payment-addr",
+	PaymentAddrRequired:                  "payment-addr",
+	MPPOptional:                          "multi-path-payments",
+	MPPRequired:                          "multi-path-payments",
+	AnchorsRequired:                      "anchor-commitments",
+	AnchorsOptional:                      "anchor-commitments",
+	AnchorsZeroFeeHtlcTxRequired:         "anchors-zero-fee-htlc-tx",
+	AnchorsZeroFeeHtlcTxOptional:         "anchors-zero-fee-htlc-tx",
+	WumboChannelsRequired:                "wumbo-channels",
+	WumboChannelsOptional:                "wumbo-channels",
+	AMPRequired:                          "amp",
+	AMPOptional:                          "amp",
+	PaymentMetadataOptional:              "payment-metadata",
+	PaymentMetadataRequired:              "payment-metadata",
+	ExplicitChannelTypeOptional:          "explicit-commitment-type",
+	ExplicitChannelTypeRequired:          "explicit-commitment-type",
+	KeysendOptional:                      "keysend",
+	KeysendRequired:                      "keysend",
+	ScriptEnforcedLeaseRequired:          "script-enforced-lease",
+	ScriptEnforcedLeaseOptional:          "script-enforced-lease",
+	ScidAliasRequired:                    "scid-alias",
+	ScidAliasOptional:                    "scid-alias",
+	ZeroConfRequired:                     "zero-conf",
+	ZeroConfOptional:                     "zero-conf",
+	ShutdownAnySegwitRequired:            "shutdown-any-segwit",
+	ShutdownAnySegwitOptional:            "shutdown-any-segwit",
+	SimpleTaprootChannelsRequiredFinal:   "simple-taproot-chans",
+	SimpleTaprootChannelsOptionalFinal:   "simple-taproot-chans",
+	SimpleTaprootChannelsRequiredStaging: "simple-taproot-chans-x",
+	SimpleTaprootChannelsOptionalStaging: "simple-taproot-chans-x",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

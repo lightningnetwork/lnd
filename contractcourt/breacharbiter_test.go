@@ -978,7 +978,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 	if _, err := bob.ReceiveHTLC(htlc); err != nil {
 		t.Fatalf("bob unable to recv add htlc: %v", err)
 	}
-	if err := forceStateTransition(alice, bob); err != nil {
+	if err := lnwallet.ForceStateTransition(alice, bob); err != nil {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
@@ -996,7 +996,7 @@ func initBreachedState(t *testing.T) (*BreachArbiter,
 	if _, err := bob.ReceiveHTLC(htlc2); err != nil {
 		t.Fatalf("bob unable to recv add htlc: %v", err)
 	}
-	if err := forceStateTransition(alice, bob); err != nil {
+	if err := lnwallet.ForceStateTransition(alice, bob); err != nil {
 		t.Fatalf("Can't update the channel state: %v", err)
 	}
 
@@ -1223,14 +1223,18 @@ func TestBreachCreateJusticeTx(t *testing.T) {
 	// "regular" justice transaction type.
 	require.Len(t, justiceTxs.spendAll.TxIn, len(breachedOutputs))
 
-	// The spendCommitOuts tx should be spending the 4 typed of commit outs
+	// The spendCommitOuts tx should be spending the 4 types of commit outs
 	// (note that in practice there will be at most two commit outputs per
 	// commit, but we test all 4 types here).
 	require.Len(t, justiceTxs.spendCommitOuts.TxIn, 4)
 
-	// Finally check that the spendHTLCs tx are spending the two revoked
-	// HTLC types, and the second level type.
-	require.Len(t, justiceTxs.spendHTLCs.TxIn, 3)
+	// Check that the spendHTLCs tx is spending the two revoked commitment
+	// level HTLC output types.
+	require.Len(t, justiceTxs.spendHTLCs.TxIn, 2)
+
+	// Finally, check that the spendSecondLevelHTLCs txs are spending the
+	// second level type.
+	require.Len(t, justiceTxs.spendSecondLevelHTLCs, 1)
 }
 
 type publAssertion func(*testing.T, map[wire.OutPoint]struct{},
@@ -2112,7 +2116,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 	})
 
 	aliceKeyPriv, _ := btcec.PrivKeyFromBytes(channels.AlicesPrivKey)
-	signer := &mock.SingleSigner{Privkey: aliceKeyPriv}
+	signer := input.NewMockSigner([]*btcec.PrivateKey{aliceKeyPriv}, nil)
 
 	// Assemble our test arbiter.
 	notifier := mock.MakeMockSpendNotifier()
@@ -2339,8 +2343,10 @@ func createInitChannels(t *testing.T, revocationWindow int) (
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	aliceSigner := &mock.SingleSigner{Privkey: aliceKeyPriv}
-	bobSigner := &mock.SingleSigner{Privkey: bobKeyPriv}
+	aliceSigner := input.NewMockSigner(
+		[]*btcec.PrivateKey{aliceKeyPriv}, nil,
+	)
+	bobSigner := input.NewMockSigner([]*btcec.PrivateKey{bobKeyPriv}, nil)
 
 	alicePool := lnwallet.NewSigPool(1, aliceSigner)
 	channelAlice, err := lnwallet.NewLightningChannel(
@@ -2433,46 +2439,4 @@ func createHTLC(data int, amount lnwire.MilliSatoshi) (*lnwire.UpdateAddHTLC, [3
 		Amount:      amount,
 		Expiry:      uint32(5),
 	}, returnPreimage
-}
-
-// forceStateTransition executes the necessary interaction between the two
-// commitment state machines to transition to a new state locking in any
-// pending updates.
-// TODO(conner) remove code duplication
-func forceStateTransition(chanA, chanB *lnwallet.LightningChannel) error {
-	aliceSig, aliceHtlcSigs, _, err := chanA.SignNextCommitment()
-	if err != nil {
-		return err
-	}
-	if err = chanB.ReceiveNewCommitment(aliceSig, aliceHtlcSigs); err != nil {
-		return err
-	}
-
-	bobRevocation, _, _, err := chanB.RevokeCurrentCommitment()
-	if err != nil {
-		return err
-	}
-	bobSig, bobHtlcSigs, _, err := chanB.SignNextCommitment()
-	if err != nil {
-		return err
-	}
-
-	_, _, _, _, err = chanA.ReceiveRevocation(bobRevocation)
-	if err != nil {
-		return err
-	}
-	if err := chanA.ReceiveNewCommitment(bobSig, bobHtlcSigs); err != nil {
-		return err
-	}
-
-	aliceRevocation, _, _, err := chanA.RevokeCurrentCommitment()
-	if err != nil {
-		return err
-	}
-	_, _, _, _, err = chanB.ReceiveRevocation(aliceRevocation)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }

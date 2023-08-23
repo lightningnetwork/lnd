@@ -1782,10 +1782,12 @@ func (h *HarnessTest) OpenMultiChannelsAsync(
 		// Wait for the channel open event from the stream.
 		cp := h.WaitForChannelOpenEvent(req.stream)
 
-		// Check that both alice and bob have seen the channel
-		// from their channel watch request.
-		h.AssertTopologyChannelOpen(req.Local, cp)
-		h.AssertTopologyChannelOpen(req.Remote, cp)
+		if !req.Param.Private {
+			// Check that both alice and bob have seen the channel
+			// from their channel watch request.
+			h.AssertTopologyChannelOpen(req.Local, cp)
+			h.AssertTopologyChannelOpen(req.Remote, cp)
+		}
 
 		// Finally, check that the channel can be seen in their
 		// ListChannels.

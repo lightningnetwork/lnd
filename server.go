@@ -542,6 +542,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoZeroConf:               !cfg.ProtocolOptions.ZeroConf(),
 		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
 		CustomFeatures:           cfg.ProtocolOptions.ExperimentalProtocol.CustomFeatures(),
+		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
 	})
 	if err != nil {
 		return nil, err
@@ -843,7 +844,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			"self node announcement: %v", err)
 	}
 	selfNode.AuthSigBytes = authSig.Serialize()
-	nodeAnn.Signature, err = lnwire.NewSigFromRawSignature(
+	nodeAnn.Signature, err = lnwire.NewSigFromECDSARawSignature(
 		selfNode.AuthSigBytes,
 	)
 	if err != nil {

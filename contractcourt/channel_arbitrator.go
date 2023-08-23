@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -567,6 +568,80 @@ func (c *ChannelArbitrator) Start(state *chanArbStartState) error {
 	return nil
 }
 
+// maybeAugmentTaprootResolvers will update the contract resolution information
+// for taproot channels. This ensures that all the resolvers have the latest
+// resolution, which may also include data such as the control block and tap
+// tweaks.
+func maybeAugmentTaprootResolvers(chanType channeldb.ChannelType,
+	resolver ContractResolver,
+	contractResolutions *ContractResolutions) {
+
+	if !chanType.IsTaproot() {
+		return
+	}
+
+	// The on disk resolutions contains all the ctrl block
+	// information, so we'll set that now for the relevant
+	// resolvers.
+	switch r := resolver.(type) {
+	case *commitSweepResolver:
+		if contractResolutions.CommitResolution != nil {
+			//nolint:lll
+			r.commitResolution = *contractResolutions.CommitResolution
+		}
+	case *htlcOutgoingContestResolver:
+		//nolint:lll
+		htlcResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
+		for _, htlcRes := range htlcResolutions {
+			htlcRes := htlcRes
+
+			if r.htlcResolution.ClaimOutpoint ==
+				htlcRes.ClaimOutpoint {
+
+				r.htlcResolution = htlcRes
+			}
+		}
+
+	case *htlcTimeoutResolver:
+		//nolint:lll
+		htlcResolutions := contractResolutions.HtlcResolutions.OutgoingHTLCs
+		for _, htlcRes := range htlcResolutions {
+			htlcRes := htlcRes
+
+			if r.htlcResolution.ClaimOutpoint ==
+				htlcRes.ClaimOutpoint {
+
+				r.htlcResolution = htlcRes
+			}
+		}
+
+	case *htlcIncomingContestResolver:
+		//nolint:lll
+		htlcResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
+		for _, htlcRes := range htlcResolutions {
+			htlcRes := htlcRes
+
+			if r.htlcResolution.ClaimOutpoint ==
+				htlcRes.ClaimOutpoint {
+
+				r.htlcResolution = htlcRes
+			}
+		}
+	case *htlcSuccessResolver:
+		//nolint:lll
+		htlcResolutions := contractResolutions.HtlcResolutions.IncomingHTLCs
+		for _, htlcRes := range htlcResolutions {
+			htlcRes := htlcRes
+
+			if r.htlcResolution.ClaimOutpoint ==
+				htlcRes.ClaimOutpoint {
+
+				r.htlcResolution = htlcRes
+			}
+		}
+	}
+}
+
 // relauchResolvers relaunches the set of resolvers for unresolved contracts in
 // order to provide them with information that's not immediately available upon
 // starting the ChannelArbitrator. This information should ideally be stored in
@@ -651,10 +726,20 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	log.Infof("ChannelArbitrator(%v): relaunching %v contract "+
 		"resolvers", c.cfg.ChanPoint, len(unresolvedContracts))
 
-	for _, resolver := range unresolvedContracts {
+	for i := range unresolvedContracts {
+		resolver := unresolvedContracts[i]
+
 		if chanState != nil {
 			resolver.SupplementState(chanState)
 		}
+
+		// For taproot channels, we'll need to also make sure the
+		// control block information was set properly.
+		maybeAugmentTaprootResolvers(
+			chanState.ChanType, resolver, contractResolutions,
+		)
+
+		unresolvedContracts[i] = resolver
 
 		htlcResolver, ok := resolver.(htlcContractResolver)
 		if !ok {
@@ -682,7 +767,12 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 				ChannelArbitratorConfig: c.cfg,
 			},
 		)
+
+		anchorResolver.SupplementState(chanState)
+
 		unresolvedContracts = append(unresolvedContracts, anchorResolver)
+
+		// TODO(roasbeef): this isn't re-launched?
 	}
 
 	c.launchResolvers(unresolvedContracts)
@@ -1208,10 +1298,21 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 			"anchor of %s commit tx %v", c.cfg.ChanPoint,
 			anchorPath, anchor.CommitAnchor)
 
+		witnessType := input.CommitmentAnchor
+
+		// For taproot channels, we need to use the proper witness
+		// type.
+		if txscript.IsPayToTaproot(
+			anchor.AnchorSignDescriptor.Output.PkScript,
+		) {
+
+			witnessType = input.TaprootAnchorSweepSpend
+		}
+
 		// Prepare anchor output for sweeping.
 		anchorInput := input.MakeBaseInput(
 			&anchor.CommitAnchor,
-			input.CommitmentAnchor,
+			witnessType,
 			&anchor.AnchorSignDescriptor,
 			heightHint,
 			&input.TxInfo{
@@ -2097,6 +2198,8 @@ func (c *ChannelArbitrator) prepContractResolutions(
 			contractResolutions.AnchorResolution.CommitAnchor,
 			height, c.cfg.ChanPoint, resolverCfg,
 		)
+		anchorResolver.SupplementState(chanState)
+
 		htlcResolvers = append(htlcResolvers, anchorResolver)
 	}
 

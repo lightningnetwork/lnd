@@ -3,22 +3,25 @@
 package lnwallet
 
 import (
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/shachain"
 )
 
 // nextRevocationProducer creates a new revocation producer, deriving the
-// revocation root by applying ECDH to a new key from our revocation root family
-// and the multisig key we use for the channel.
+// revocation root by applying ECDH to a new key from our revocation root
+// family and the multisig key we use for the channel. For taproot channels a
+// related shachain revocation root is also returned.
 func (l *LightningWallet) nextRevocationProducer(res *ChannelReservation,
-	keyRing keychain.KeyRing) (shachain.Producer, error) {
+	keyRing keychain.KeyRing,
+) (shachain.Producer, shachain.Producer, error) {
 
 	// Derive the next key in the revocation root family.
 	nextRevocationKeyDesc, err := keyRing.DeriveNextKey(
 		keychain.KeyFamilyRevocationRoot,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// If the DeriveNextKey call returns the first key with Index 0, we need
@@ -29,7 +32,7 @@ func (l *LightningWallet) nextRevocationProducer(res *ChannelReservation,
 			keychain.KeyFamilyRevocationRoot,
 		)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -42,10 +45,16 @@ func (l *LightningWallet) nextRevocationProducer(res *ChannelReservation,
 		nextRevocationKeyDesc, res.ourContribution.MultiSigKey.PubKey,
 	)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Once we have the root, we can then generate our shachain producer
 	// and from that generate the per-commitment point.
-	return shachain.NewRevocationProducer(revRoot), nil
+	shaChainRoot := shachain.NewRevocationProducer(revRoot)
+	taprootShaChainRoot, err := channeldb.DeriveMusig2Shachain(shaChainRoot)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return shaChainRoot, taprootShaChainRoot, nil
 }

@@ -369,24 +369,26 @@ func (t *backupTask) craftSessionPayload(
 
 		// Re-encode the DER signature into a fixed-size 64 byte
 		// signature.
-		signature, err := lnwire.NewSigFromRawSignature(rawSignature)
+		signature, err := lnwire.NewSigFromECDSARawSignature(
+			rawSignature,
+		)
 		if err != nil {
 			return hint, nil, err
 		}
 
 		// Finally, copy the serialized signature into the justice kit,
 		// using the input's witness type to select the appropriate
-		// field.
+		// field
 		switch inp.WitnessType() {
 		case input.CommitmentRevoke:
-			copy(justiceKit.CommitToLocalSig[:], signature[:])
+			justiceKit.CommitToLocalSig = signature
 
 		case input.CommitSpendNoDelayTweakless:
 			fallthrough
 		case input.CommitmentNoDelay:
 			fallthrough
 		case input.CommitmentToRemoteConfirmed:
-			copy(justiceKit.CommitToRemoteSig[:], signature[:])
+			justiceKit.CommitToRemoteSig = signature
 		default:
 			return hint, nil, fmt.Errorf("invalid witness type: %v",
 				inp.WitnessType())

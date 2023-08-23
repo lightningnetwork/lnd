@@ -24,6 +24,10 @@ type ProtocolOptions struct {
 	// mini.
 	WumboChans bool `long:"wumbo-channels" description:"if set, then lnd will create and accept requests for channels larger chan 0.16 BTC"`
 
+	// TaprootChans should be set if we want to enable support for the
+	// experimental simple taproot chans commitment type.
+	TaprootChans bool `long:"simple-taproot-chans" description:"if set, then lnd will create and accept requests for channels using the simple taproot commitment type"`
+
 	// Anchors enables anchor commitments.
 	// TODO(halseth): transition itests to anchors instead!
 	Anchors bool `long:"anchors" description:"enable support for anchor commitments"`

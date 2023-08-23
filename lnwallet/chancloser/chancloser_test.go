@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -12,6 +15,9 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnutils"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -135,6 +141,9 @@ type mockChannel struct {
 	chanPoint wire.OutPoint
 	initiator bool
 	scid      lnwire.ShortChannelID
+	chanType  channeldb.ChannelType
+	localKey  keychain.KeyDescriptor
+	remoteKey keychain.KeyDescriptor
 }
 
 func (m *mockChannel) ChannelPoint() *wire.OutPoint {
@@ -162,15 +171,26 @@ func (m *mockChannel) RemoteUpfrontShutdownScript() lnwire.DeliveryAddress {
 }
 
 func (m *mockChannel) CreateCloseProposal(fee btcutil.Amount,
-	localScript, remoteScript []byte,
+	localScript, remoteScript []byte, _ ...lnwallet.ChanCloseOpt,
 ) (input.Signature, *chainhash.Hash, btcutil.Amount, error) {
+
+	if m.chanType.IsTaproot() {
+		return lnwallet.NewMusigPartialSig(
+			&musig2.PartialSignature{
+				S: new(btcec.ModNScalar),
+				R: new(btcec.PublicKey),
+			},
+			lnwire.Musig2Nonce{}, lnwire.Musig2Nonce{}, nil,
+		), nil, 0, nil
+	}
 
 	return nil, nil, 0, nil
 }
 
 func (m *mockChannel) CompleteCooperativeClose(localSig,
 	remoteSig input.Signature, localScript, remoteScript []byte,
-	proposedFee btcutil.Amount) (*wire.MsgTx, btcutil.Amount, error) {
+	proposedFee btcutil.Amount,
+	_ ...lnwallet.ChanCloseOpt) (*wire.MsgTx, btcutil.Amount, error) {
 
 	return nil, 0, nil
 }
@@ -181,6 +201,76 @@ func (m *mockChannel) LocalBalanceDust() bool {
 
 func (m *mockChannel) RemoteBalanceDust() bool {
 	return false
+}
+
+func (m *mockChannel) ChanType() channeldb.ChannelType {
+	return m.chanType
+}
+
+func (m *mockChannel) FundingTxOut() *wire.TxOut {
+	return nil
+}
+
+func (m *mockChannel) MultiSigKeys() (
+	keychain.KeyDescriptor, keychain.KeyDescriptor) {
+
+	return m.localKey, m.remoteKey
+}
+
+func newMockTaprootChan(t *testing.T, initiator bool) *mockChannel {
+	taprootBits := channeldb.SimpleTaprootFeatureBit |
+		channeldb.AnchorOutputsBit |
+		channeldb.ZeroHtlcTxFeeBit |
+		channeldb.SingleFunderTweaklessBit
+
+	localKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	remoteKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	return &mockChannel{
+		chanPoint: wire.OutPoint{
+			Hash:  chainhash.Hash{},
+			Index: 0,
+		},
+		initiator: initiator,
+		chanType:  taprootBits,
+		localKey: keychain.KeyDescriptor{
+			PubKey: localKey.PubKey(),
+		},
+		remoteKey: keychain.KeyDescriptor{
+			PubKey: remoteKey.PubKey(),
+		},
+	}
+}
+
+type mockMusigSession struct {
+}
+
+func newMockMusigSession() *mockMusigSession {
+	return &mockMusigSession{}
+}
+
+func (m *mockMusigSession) ProposalClosingOpts() ([]lnwallet.ChanCloseOpt,
+	error) {
+
+	return nil, nil
+}
+
+func (m *mockMusigSession) CombineClosingOpts(localSig,
+	remoteSig lnwire.PartialSig,
+) (input.Signature, input.Signature, []lnwallet.ChanCloseOpt, error) {
+
+	return &lnwallet.MusigPartialSig{}, &lnwallet.MusigPartialSig{}, nil,
+		nil
+}
+
+func (m *mockMusigSession) ClosingNonce() (*musig2.Nonces, error) {
+	return &musig2.Nonces{}, nil
+}
+
+func (m *mockMusigSession) InitRemoteNonce(nonce *musig2.Nonces) {
 }
 
 type mockCoopFeeEstimator struct {
@@ -376,4 +466,131 @@ func TestParseUpfrontShutdownAddress(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func assertType[T any](t *testing.T, typ any) T {
+	value, ok := typ.(T)
+	require.True(t, ok)
+
+	return value
+}
+
+// TestTaprootFastClose tests that we are able to properly execute a fast close
+// (skip negotiation) for taproot channels.
+func TestTaprootFastClose(t *testing.T) {
+	t.Parallel()
+
+	aliceChan := newMockTaprootChan(t, true)
+	bobChan := newMockTaprootChan(t, false)
+
+	broadcastSignal := make(chan struct{}, 2)
+
+	idealFee := chainfee.SatPerKWeight(506)
+
+	// Next, we'll make a channel for Alice and Bob, with Alice being the
+	// initiator.
+	aliceCloser := NewChanCloser(
+		ChanCloseCfg{
+			Channel:      aliceChan,
+			MusigSession: newMockMusigSession(),
+			BroadcastTx: func(_ *wire.MsgTx, _ string) error {
+				broadcastSignal <- struct{}{}
+				return nil
+			},
+			MaxFee:       chainfee.SatPerKWeight(1000),
+			FeeEstimator: &SimpleCoopFeeEstimator{},
+			DisableChannel: func(wire.OutPoint) error {
+				return nil
+			},
+		}, nil, idealFee, 0, nil, true,
+	)
+	aliceCloser.initFeeBaseline()
+
+	bobCloser := NewChanCloser(
+		ChanCloseCfg{
+			Channel:      bobChan,
+			MusigSession: newMockMusigSession(),
+			MaxFee:       chainfee.SatPerKWeight(1000),
+			BroadcastTx: func(_ *wire.MsgTx, _ string) error {
+				broadcastSignal <- struct{}{}
+				return nil
+			},
+			FeeEstimator: &SimpleCoopFeeEstimator{},
+			DisableChannel: func(wire.OutPoint) error {
+				return nil
+			},
+		}, nil, idealFee, 0, nil, false,
+	)
+	bobCloser.initFeeBaseline()
+
+	// With our set up complete, we'll now initialize the shutdown
+	// procedure kicked off by Alice.
+	msg, err := aliceCloser.ShutdownChan()
+	require.NoError(t, err)
+	require.NotNil(t, msg)
+
+	// Bob will then process this message. As he's the responder, he should
+	// only send the shutdown message back to Alice.
+	bobMsgs, closeFinished, err := bobCloser.ProcessCloseMsg(msg)
+	require.NoError(t, err)
+	require.False(t, closeFinished)
+	require.Len(t, bobMsgs, 1)
+	require.IsType(t, &lnwire.Shutdown{}, bobMsgs[0])
+
+	// Alice should process the shutdown message, and create a closing
+	// signed of her own.
+	aliceMsgs, closeFinished, err := aliceCloser.ProcessCloseMsg(bobMsgs[0])
+	require.NoError(t, err)
+	require.False(t, closeFinished)
+	require.Len(t, aliceMsgs, 1)
+	require.IsType(t, &lnwire.ClosingSigned{}, aliceMsgs[0])
+
+	// Next, Bob will process the closing signed message, and send back a
+	// new one that should match exactly the offer Alice sent.
+	bobMsgs, closeFinished, err = bobCloser.ProcessCloseMsg(aliceMsgs[0])
+	require.NoError(t, err)
+	require.True(t, closeFinished)
+	require.Len(t, aliceMsgs, 1)
+	require.IsType(t, &lnwire.ClosingSigned{}, bobMsgs[0])
+
+	// At this point, Bob has accepted the offer, so he can broadcast the
+	// closing transaction, and considers the channel closed.
+	_, err = lnutils.RecvOrTimeout(broadcastSignal, time.Second*1)
+	require.NoError(t, err)
+
+	// Bob's fee proposal should exactly match Alice's initial fee.
+	aliceOffer := assertType[*lnwire.ClosingSigned](t, aliceMsgs[0])
+	bobOffer := assertType[*lnwire.ClosingSigned](t, bobMsgs[0])
+	require.Equal(t, aliceOffer.FeeSatoshis, bobOffer.FeeSatoshis)
+
+	// If we modify Bob's offer, and try to have Alice process it, then she
+	// should reject it.
+	ogOffer := bobOffer.FeeSatoshis
+	bobOffer.FeeSatoshis /= 2
+
+	_, _, err = aliceCloser.ProcessCloseMsg(bobOffer)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "was not accepted")
+
+	// We'll now restore the original offer before passing it on to Alice.
+	bobOffer.FeeSatoshis = ogOffer
+
+	// If we use the original offer, then Alice should accept this message,
+	// and finalize the shutdown process. We expect a message here as Alice
+	// will echo back the final message.
+	aliceMsgs, closeFinished, err = aliceCloser.ProcessCloseMsg(bobMsgs[0])
+	require.NoError(t, err)
+	require.True(t, closeFinished)
+	require.Len(t, aliceMsgs, 1)
+	require.IsType(t, &lnwire.ClosingSigned{}, aliceMsgs[0])
+
+	// Alice should now also broadcast her closing transaction.
+	_, err = lnutils.RecvOrTimeout(broadcastSignal, time.Second*1)
+	require.NoError(t, err)
+
+	// Finally, Bob will process Alice's echo message, and conclude.
+	bobMsgs, closeFinished, err = bobCloser.ProcessCloseMsg(aliceMsgs[0])
+	require.NoError(t, err)
+	require.True(t, closeFinished)
+	require.Len(t, bobMsgs, 0)
 }

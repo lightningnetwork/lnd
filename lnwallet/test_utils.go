@@ -343,8 +343,8 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 		Packager:                channeldb.NewChannelPackager(shortChanID),
 	}
 
-	aliceSigner := &input.MockSigner{Privkeys: aliceKeys}
-	bobSigner := &input.MockSigner{Privkeys: bobKeys}
+	aliceSigner := input.NewMockSigner(aliceKeys, nil)
+	bobSigner := input.NewMockSigner(bobKeys, nil)
 
 	// TODO(roasbeef): make mock version of pre-image store
 
@@ -418,6 +418,27 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 // network by populating the initial revocation windows of the passed
 // commitment state machines.
 func initRevocationWindows(chanA, chanB *LightningChannel) error {
+	// If these are taproot chanenls, then we need to also simulate sending
+	// either FundingLocked or ChannelReestablish by calling
+	// InitRemoteMusigNonces for both sides.
+	if chanA.channelState.ChanType.IsTaproot() {
+		chanANonces, err := chanA.GenMusigNonces()
+		if err != nil {
+			return err
+		}
+		chanBNonces, err := chanB.GenMusigNonces()
+		if err != nil {
+			return err
+		}
+
+		if err := chanA.InitRemoteMusigNonces(chanBNonces); err != nil {
+			return err
+		}
+		if err := chanB.InitRemoteMusigNonces(chanANonces); err != nil {
+			return err
+		}
+	}
+
 	aliceNextRevoke, err := chanA.NextRevocationKey()
 	if err != nil {
 		return err
@@ -495,11 +516,12 @@ func calcStaticFee(chanType channeldb.ChannelType, numHTLCs int) btcutil.Amount 
 // pending updates. This method is useful when testing interactions between two
 // live state machines.
 func ForceStateTransition(chanA, chanB *LightningChannel) error {
-	aliceSig, aliceHtlcSigs, _, err := chanA.SignNextCommitment()
+	aliceNewCommit, err := chanA.SignNextCommitment()
 	if err != nil {
 		return err
 	}
-	if err = chanB.ReceiveNewCommitment(aliceSig, aliceHtlcSigs); err != nil {
+	err = chanB.ReceiveNewCommitment(aliceNewCommit.CommitSigs)
+	if err != nil {
 		return err
 	}
 
@@ -507,15 +529,17 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	bobSig, bobHtlcSigs, _, err := chanB.SignNextCommitment()
+	bobNewCommit, err := chanB.SignNextCommitment()
 	if err != nil {
 		return err
 	}
 
-	if _, _, _, _, err := chanA.ReceiveRevocation(bobRevocation); err != nil {
+	_, _, _, _, err = chanA.ReceiveRevocation(bobRevocation)
+	if err != nil {
 		return err
 	}
-	if err := chanA.ReceiveNewCommitment(bobSig, bobHtlcSigs); err != nil {
+	err = chanA.ReceiveNewCommitment(bobNewCommit.CommitSigs)
+	if err != nil {
 		return err
 	}
 
@@ -523,7 +547,8 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 	if err != nil {
 		return err
 	}
-	if _, _, _, _, err := chanB.ReceiveRevocation(aliceRevocation); err != nil {
+	_, _, _, _, err = chanB.ReceiveRevocation(aliceRevocation)
+	if err != nil {
 		return err
 	}
 

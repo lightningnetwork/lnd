@@ -90,6 +90,10 @@ func (e *ExtraOpaqueData) ExtractRecords(recordProducers ...tlv.RecordProducer) 
 		records = append(records, producer.Record())
 	}
 
+	// Ensure that the set of records are sorted before we attempt to
+	// decode from the stream, to ensure they're canonical.
+	tlv.SortRecords(records)
+
 	extraBytesReader := bytes.NewReader(*e)
 
 	tlvStream, err := tlv.NewStream(records...)

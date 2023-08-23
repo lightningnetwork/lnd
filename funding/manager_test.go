@@ -33,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -235,7 +236,7 @@ func (m *mockZeroConfAcceptor) Accept(
 }
 
 type newChannelMsg struct {
-	channel *channeldb.OpenChannel
+	channel *lnpeer.NewChannel
 	err     chan error
 }
 
@@ -299,7 +300,7 @@ func (n *testNode) RemoteFeatures() *lnwire.FeatureVector {
 	)
 }
 
-func (n *testNode) AddNewChannel(channel *channeldb.OpenChannel,
+func (n *testNode) AddNewChannel(channel *lnpeer.NewChannel,
 	quit <-chan struct{}) error {
 
 	errChan := make(chan error)
@@ -384,9 +385,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	wc := &mock.WalletController{
 		RootKey: alicePrivKey,
 	}
-	signer := &mock.SingleSigner{
-		Privkey: alicePrivKey,
-	}
+	signer := mock.NewSingleSigner(alicePrivKey)
 	bio := &mock.ChainIO{
 		BestHeight: fundingBroadcastHeight,
 	}
@@ -720,18 +719,31 @@ func tearDownFundingManagers(t *testing.T, a, b *testNode) {
 // transaction is confirmed on-chain. Returns the funding out point.
 func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	pushAmt btcutil.Amount, numConfs uint32,
-	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool) (
+	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool,
+	chanType *lnwire.ChannelType) (
 	*wire.OutPoint, *wire.MsgTx) {
 
 	publ := fundChannel(
 		t, alice, bob, localFundingAmt, pushAmt, false, 0, 0, numConfs,
-		updateChan, announceChan, nil,
+		updateChan, announceChan, chanType,
 	)
 	fundingOutPoint := &wire.OutPoint{
 		Hash:  publ.TxHash(),
 		Index: 0,
 	}
 	return fundingOutPoint, publ
+}
+
+func isTaprootChanType(chanType *lnwire.ChannelType) bool {
+	if chanType == nil {
+		return false
+	}
+
+	featVec := lnwire.RawFeatureVector(*chanType)
+
+	return featVec.IsSet(
+		lnwire.SimpleTaprootChannelsRequiredStaging,
+	)
 }
 
 // fundChannel takes the funding process to the point where the funding
@@ -761,6 +773,12 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		Err:             errChan,
 	}
 
+	// If this is a taproot channel, then we want to force it to be a
+	// private channel, as that's the only channel type supported for now.
+	if isTaprootChanType(chanType) {
+		initReq.Private = true
+	}
+
 	alice.fundingMgr.InitFundingWorkflow(initReq)
 
 	// Alice should have sent the OpenChannel message to Bob.
@@ -785,6 +803,11 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 			"alice, instead got %T", aliceMsg)
 	}
 
+	// For taproot channel types, the nonce should be set.
+	if isTaprootChanType(chanType) {
+		require.NotNil(t, openChannelReq.LocalNonce)
+	}
+
 	// Let Bob handle the init message.
 	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
 
@@ -792,6 +815,11 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	acceptChannelResponse := assertFundingMsgSent(
 		t, bob.msgChan, "AcceptChannel",
 	).(*lnwire.AcceptChannel)
+
+	// For taproot channel types, the nonce should be set.
+	if isTaprootChanType(chanType) {
+		require.NotNil(t, acceptChannelResponse.LocalNonce)
+	}
 
 	// They now should both have pending reservations for this channel
 	// active.
@@ -814,6 +842,11 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		t, alice.msgChan, "FundingCreated",
 	).(*lnwire.FundingCreated)
 
+	// For taproot channel types, the partial signature should be set.
+	if isTaprootChanType(chanType) {
+		require.NotNil(t, fundingCreated.PartialSig)
+	}
+
 	// Give the message to Bob.
 	bob.fundingMgr.ProcessFundingMsg(fundingCreated, alice)
 
@@ -821,6 +854,11 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	fundingSigned := assertFundingMsgSent(
 		t, bob.msgChan, "FundingSigned",
 	).(*lnwire.FundingSigned)
+
+	// For taproot channel types, the partial signature should be set.
+	if isTaprootChanType(chanType) {
+		require.NotNil(t, fundingSigned.PartialSig)
+	}
 
 	// Forward the signature to Alice.
 	alice.fundingMgr.ProcessFundingMsg(fundingSigned, bob)
@@ -1244,6 +1282,25 @@ func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 	}
 }
 
+func assertType[T any](t *testing.T, typ any) T {
+	value, ok := typ.(T)
+	require.True(t, ok)
+
+	return value
+}
+
+func assertNodeAnnSent(t *testing.T, alice, bob *testNode) {
+	t.Helper()
+
+	for _, node := range []*testNode{alice, bob} {
+		nodeAnn, err := lnutils.RecvOrTimeout(
+			node.msgChan, time.Second*5,
+		)
+		require.NoError(t, err)
+		assertType[*lnwire.NodeAnnouncement](t, *nodeAnn)
+	}
+}
+
 func waitForOpenUpdate(t *testing.T, updateChan chan *lnrpc.OpenStatusUpdate) {
 	var openUpdate *lnrpc.OpenStatusUpdate
 	select {
@@ -1349,13 +1406,30 @@ func assertHandleChannelReady(t *testing.T, alice, bob *testNode,
 	}
 }
 
-func TestFundingManagerNormalWorkflow(t *testing.T) {
-	t.Parallel()
-
+func testNormalWorkflow(t *testing.T, chanType *lnwire.ChannelType) {
 	alice, bob := setupFundingManagers(t)
 	t.Cleanup(func() {
 		tearDownFundingManagers(t, alice, bob)
 	})
+
+	// If the channel type is set, then we need to make sure both parties
+	// support explicit channel type negotiation.
+	if chanType != nil {
+		// Alice and Bob will have the same set of feature bits in our
+		// test.
+		featureBits := []lnwire.FeatureBit{
+			lnwire.ZeroConfOptional,
+			lnwire.ScidAliasOptional,
+			lnwire.ExplicitChannelTypeOptional,
+			lnwire.StaticRemoteKeyOptional,
+			lnwire.AnchorsZeroFeeHtlcTxOptional,
+			lnwire.SimpleTaprootChannelsOptionalStaging,
+		}
+		alice.localFeatures = featureBits
+		alice.remoteFeatures = featureBits
+		bob.localFeatures = featureBits
+		bob.remoteFeatures = featureBits
+	}
 
 	// We will consume the channel updates as we go, so no buffering is
 	// needed.
@@ -1368,6 +1442,7 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		chanType,
 	)
 
 	// Check that neither Alice nor Bob sent an error message.
@@ -1400,6 +1475,13 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	).(*lnwire.ChannelReady)
 	require.True(t, ok)
 
+	// For taproot channels, the funding locked messages should have the
+	// next set of verification nonces.
+	if isTaprootChanType(chanType) {
+		require.NotNil(t, channelReadyAlice.NextLocalNonce)
+		require.NotNil(t, channelReadyBob.NextLocalNonce)
+	}
+
 	// Check that the state machine is updated accordingly
 	assertChannelReadySent(t, alice, bob, fundingOutPoint)
 
@@ -1431,8 +1513,20 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	// Make sure the fundingManagers exchange announcement signatures.
-	assertAnnouncementSignatures(t, alice, bob)
+	switch {
+	// For taproot channels, we expect them to only send a node
+	// announcement message at this point. These channels aren't advertised
+	// so we don't expect the other messages.
+	case isTaprootChanType(chanType):
+		assertNodeAnnSent(t, alice, bob)
+
+	// For regular channels, we'll make sure the fundingManagers exchange
+	// announcement signatures.
+	case chanType == nil:
+		fallthrough
+	default:
+		assertAnnouncementSignatures(t, alice, bob)
+	}
 
 	// The internal state-machine should now have deleted the channelStates
 	// from the database, as the channel is announced.
@@ -1441,6 +1535,37 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 	// The forwarding policy for the channel announcement should
 	// have been deleted from the database, as the channel is announced.
 	assertNoFwdingPolicy(t, alice, bob, channelReadyAlice.ChanID)
+}
+
+// TestFundingManagerNormalWorkflow tests that the funding manager is able to
+// do a routine channel funding flow back and forth.
+func TestFundingManagerNormalWorkflow(t *testing.T) {
+	t.Parallel()
+
+	taprootChanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+		lnwire.SimpleTaprootChannelsRequiredStaging,
+	))
+
+	testCases := []struct {
+		typeName string
+		chanType *lnwire.ChannelType
+	}{
+		{
+			typeName: "normal",
+			chanType: nil,
+		},
+		{
+			typeName: "taproot",
+			chanType: &taprootChanType,
+		},
+	}
+
+	//nolint:paralleltest
+	for _, testCase := range testCases {
+		t.Run(testCase.typeName, func(t *testing.T) {
+			testNormalWorkflow(t, testCase.chanType)
+		})
+	}
 }
 
 // TestFundingManagerRejectCSV tests checking of local CSV values against our
@@ -1617,6 +1742,7 @@ func TestFundingManagerRestartBehavior(t *testing.T) {
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		nil,
 	)
 
 	// After the funding transaction gets mined, both nodes will send the
@@ -1775,6 +1901,7 @@ func TestFundingManagerOfflinePeer(t *testing.T) {
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
 	fundingOutPoint, fundingTx := openChannel(
 		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		nil,
 	)
 
 	// After the funding transaction gets mined, both nodes will send the
@@ -2160,7 +2287,7 @@ func TestFundingManagerFundingTimeout(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true)
+	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true, nil)
 
 	// Bob will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
@@ -2208,7 +2335,7 @@ func TestFundingManagerFundingNotTimeoutInitiator(t *testing.T) {
 
 	// Run through the process of opening the channel, up until the funding
 	// transaction is broadcasted.
-	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true)
+	_, _ = openChannel(t, alice, bob, 500000, 0, 1, updateChan, true, nil)
 
 	// Alice will at this point be waiting for the funding transaction to be
 	// confirmed, so the channel should be considered pending.
@@ -2285,7 +2412,7 @@ func TestFundingManagerReceiveChannelReadyTwice(t *testing.T) {
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
 	)
 
 	// Notify that transaction was mined
@@ -2398,7 +2525,7 @@ func TestFundingManagerRestartAfterChanAnn(t *testing.T) {
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
 	)
 
 	// Notify that transaction was mined
@@ -2497,7 +2624,7 @@ func TestFundingManagerRestartAfterReceivingChannelReady(t *testing.T) {
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, true, nil,
 	)
 
 	// Notify that transaction was mined
@@ -2592,7 +2719,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, false,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, false, nil,
 	)
 
 	// Notify that transaction was mined
@@ -2717,7 +2844,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	pushAmt := btcutil.Amount(0)
 	capacity := localAmt + pushAmt
 	fundingOutPoint, fundingTx := openChannel(
-		t, alice, bob, localAmt, pushAmt, 1, updateChan, false,
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, false, nil,
 	)
 
 	// Notify that transaction was mined
@@ -4320,11 +4447,7 @@ func testUpfrontFailure(t *testing.T, pkscript []byte, expectErr bool) {
 	}
 }
 
-// TestFundingManagerZeroConf tests that the fundingmanager properly handles
-// the whole flow for zero-conf channels.
-func TestFundingManagerZeroConf(t *testing.T) {
-	t.Parallel()
-
+func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	alice, bob := setupFundingManagers(t)
 	t.Cleanup(func() {
 		tearDownFundingManagers(t, alice, bob)
@@ -4337,6 +4460,7 @@ func TestFundingManagerZeroConf(t *testing.T) {
 		lnwire.ExplicitChannelTypeOptional,
 		lnwire.StaticRemoteKeyOptional,
 		lnwire.AnchorsZeroFeeHtlcTxOptional,
+		lnwire.SimpleTaprootChannelsOptionalStaging,
 	}
 	alice.localFeatures = featureBits
 	alice.remoteFeatures = featureBits
@@ -4348,11 +4472,20 @@ func TestFundingManagerZeroConf(t *testing.T) {
 	updateChan := make(chan *lnrpc.OpenStatusUpdate)
 
 	// Construct the zero-conf ChannelType for use in open_channel.
-	channelTypeBits := []lnwire.FeatureBit{
-		lnwire.ZeroConfRequired,
-		lnwire.StaticRemoteKeyRequired,
-		lnwire.AnchorsZeroFeeHtlcTxRequired,
+	var channelTypeBits []lnwire.FeatureBit
+	if isTaprootChanType(chanType) {
+		channelTypeBits = []lnwire.FeatureBit{
+			lnwire.ZeroConfRequired,
+			lnwire.SimpleTaprootChannelsRequiredStaging,
+		}
+	} else {
+		channelTypeBits = []lnwire.FeatureBit{
+			lnwire.ZeroConfRequired,
+			lnwire.StaticRemoteKeyRequired,
+			lnwire.AnchorsZeroFeeHtlcTxRequired,
+		}
 	}
+
 	channelType := lnwire.ChannelType(
 		*lnwire.NewRawFeatureVector(channelTypeBits...),
 	)
@@ -4425,9 +4558,12 @@ func TestFundingManagerZeroConf(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	assertChannelAnnouncements(
-		t, alice, bob, fundingAmt, nil, nil, nil, nil,
-	)
+	// For taproot channels, we don't expect them to be announced atm.
+	if !isTaprootChanType(chanType) {
+		assertChannelAnnouncements(
+			t, alice, bob, fundingAmt, nil, nil, nil, nil,
+		)
+	}
 
 	// Both Alice and Bob should send on reportScidChan.
 	select {
@@ -4451,7 +4587,20 @@ func TestFundingManagerZeroConf(t *testing.T) {
 		Tx: fundingTx,
 	}
 
-	assertAnnouncementSignatures(t, alice, bob)
+	switch {
+	// For taproot channels, we expect them to only send a node
+	// announcement message at this point. These channels aren't advertised
+	// so we don't expect the other messages.
+	case isTaprootChanType(chanType):
+		assertNodeAnnSent(t, alice, bob)
+
+	// For regular channels, we'll make sure the fundingManagers exchange
+	// announcement signatures.
+	case chanType == nil:
+		fallthrough
+	default:
+		assertAnnouncementSignatures(t, alice, bob)
+	}
 
 	// Assert that the channel state is deleted from the fundingmanager's
 	// datastore.
@@ -4483,6 +4632,7 @@ func TestCommitmentTypeFundmaxSanityCheck(t *testing.T) {
 		"STATIC_REMOTE_KEY":       2,
 		"ANCHORS":                 3,
 		"SCRIPT_ENFORCED_LEASE":   4,
+		"SIMPLE_TAPROOT":          5,
 	}
 
 	for commitmentType := range lnrpc.CommitmentType_value {
@@ -4551,4 +4701,35 @@ func TestFundingManagerNoEchoChanType(t *testing.T) {
 	acceptChanMsg.ChannelType = nil
 	alice.fundingMgr.ProcessFundingMsg(acceptChanMsg, bob)
 	assertFundingMsgSent(t, alice.msgChan, "Error")
+}
+
+// TestFundingManagerZeroConf tests that the fundingmanager properly handles
+// the whole flow for zero-conf channels.
+func TestFundingManagerZeroConf(t *testing.T) {
+	t.Parallel()
+
+	taprootChanType := lnwire.ChannelType(*lnwire.NewRawFeatureVector(
+		lnwire.SimpleTaprootChannelsRequiredStaging,
+	))
+
+	testCases := []struct {
+		typeName string
+		chanType *lnwire.ChannelType
+	}{
+		{
+			typeName: "normal",
+			chanType: nil,
+		},
+		{
+			typeName: "taproot",
+			chanType: &taprootChanType,
+		},
+	}
+
+	//nolint:paralleltest
+	for _, testCase := range testCases {
+		t.Run(testCase.typeName, func(t *testing.T) {
+			testZeroConf(t, testCase.chanType)
+		})
+	}
 }

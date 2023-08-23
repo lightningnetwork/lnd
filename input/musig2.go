@@ -48,9 +48,13 @@ type MuSig2Signer interface {
 	// public key of the local signing key. If nonces of other parties are
 	// already known, they can be submitted as well to reduce the number of
 	// method calls necessary later on.
+	//
+	// The set of sessionOpts are _optional_ and allow a caller to modify
+	// the generated sessions. As an example the local nonce might already
+	// be generated ahead of time.
 	MuSig2CreateSession(MuSig2Version, keychain.KeyLocator,
-		[]*btcec.PublicKey, *MuSig2Tweaks,
-		[][musig2.PubNonceSize]byte) (*MuSig2SessionInfo, error)
+		[]*btcec.PublicKey, *MuSig2Tweaks, [][musig2.PubNonceSize]byte,
+		...musig2.SessionOption) (*MuSig2SessionInfo, error)
 
 	// MuSig2RegisterNonces registers one or more public nonces of other
 	// signing participants for a session identified by its ID. This method
@@ -374,15 +378,20 @@ func combineKeysV040(allSignerPubKeys []*btcec.PublicKey, sortKeys bool,
 
 // MuSig2CreateContext creates a new MuSig2 signing context.
 func MuSig2CreateContext(bipVersion MuSig2Version, privKey *btcec.PrivateKey,
-	allSignerPubKeys []*btcec.PublicKey,
-	tweaks *MuSig2Tweaks) (MuSig2Context, MuSig2Session, error) {
+	allSignerPubKeys []*btcec.PublicKey, tweaks *MuSig2Tweaks,
+	sessionOpts ...musig2.SessionOption,
+) (MuSig2Context, MuSig2Session, error) {
 
 	switch bipVersion {
 	case MuSig2Version040:
-		return createContextV040(privKey, allSignerPubKeys, tweaks)
+		return createContextV040(
+			privKey, allSignerPubKeys, tweaks, sessionOpts...,
+		)
 
 	case MuSig2Version100RC2:
-		return createContextV100RC2(privKey, allSignerPubKeys, tweaks)
+		return createContextV100RC2(
+			privKey, allSignerPubKeys, tweaks, sessionOpts...,
+		)
 
 	default:
 		return nil, nil, fmt.Errorf("unknown MuSig2 version: <%d>",
@@ -393,8 +402,9 @@ func MuSig2CreateContext(bipVersion MuSig2Version, privKey *btcec.PrivateKey,
 // createContextV100RC2 implements the MuSig2CreateContext logic for the MuSig2
 // BIP draft version 1.0.0rc2.
 func createContextV100RC2(privKey *btcec.PrivateKey,
-	allSignerPubKeys []*btcec.PublicKey,
-	tweaks *MuSig2Tweaks) (*musig2.Context, *musig2.Session, error) {
+	allSignerPubKeys []*btcec.PublicKey, tweaks *MuSig2Tweaks,
+	sessionOpts ...musig2.SessionOption,
+) (*musig2.Context, *musig2.Session, error) {
 
 	// The context keeps track of all signing keys and our local key.
 	allOpts := append(
@@ -409,7 +419,7 @@ func createContextV100RC2(privKey *btcec.PrivateKey,
 			"context: %v", err)
 	}
 
-	muSigSession, err := muSigContext.NewSession()
+	muSigSession, err := muSigContext.NewSession(sessionOpts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error creating MuSig2 signing "+
 			"session: %v", err)
@@ -421,9 +431,9 @@ func createContextV100RC2(privKey *btcec.PrivateKey,
 // createContextV040 implements the MuSig2CreateContext logic for the MuSig2 BIP
 // draft version 0.4.0.
 func createContextV040(privKey *btcec.PrivateKey,
-	allSignerPubKeys []*btcec.PublicKey,
-	tweaks *MuSig2Tweaks) (*musig2v040.Context, *musig2v040.Session,
-	error) {
+	allSignerPubKeys []*btcec.PublicKey, tweaks *MuSig2Tweaks,
+	_ ...musig2.SessionOption,
+) (*musig2v040.Context, *musig2v040.Session, error) {
 
 	// The context keeps track of all signing keys and our local key.
 	allOpts := append(

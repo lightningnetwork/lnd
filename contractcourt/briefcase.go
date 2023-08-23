@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -363,6 +362,10 @@ var (
 	// store the confirmed active HTLC sets once we learn that a channel
 	// has closed out on chain.
 	commitSetKey = []byte("commit-set")
+
+	// taprootDataKey is the key we'll use to store taproot specific data
+	// for the set of channels we'll need to sweep/claim.
+	taprootDataKey = []byte("taproot-data")
 )
 
 var (
@@ -820,7 +823,26 @@ func (b *boltArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 			}
 		}
 
-		return nil
+		// If this isn't a taproot channel, then we can exit early here
+		// as there's no extra data to write.
+		switch {
+		case c.AnchorResolution == nil:
+			return nil
+		case !txscript.IsPayToTaproot(
+			c.AnchorResolution.AnchorSignDescriptor.Output.PkScript,
+		):
+			return nil
+		}
+
+		// With everything else encoded, we'll now populate the taproot
+		// specific items we need to store for the musig2 channels.
+		var tb bytes.Buffer
+		err = encodeTaprootAuxData(&tb, c)
+		if err != nil {
+			return err
+		}
+
+		return scopeBucket.Put(taprootDataKey, tb.Bytes())
 	})
 }
 
@@ -861,7 +883,8 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 				resReader, c.CommitResolution,
 			)
 			if err != nil {
-				return err
+				return fmt.Errorf("unable to decode "+
+					"commit res: %w", err)
 			}
 		}
 
@@ -882,7 +905,8 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 				resReader, &c.HtlcResolutions.IncomingHTLCs[i],
 			)
 			if err != nil {
-				return err
+				return fmt.Errorf("unable to decode "+
+					"incoming res: %w", err)
 			}
 		}
 
@@ -896,7 +920,8 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 				resReader, &c.HtlcResolutions.OutgoingHTLCs[i],
 			)
 			if err != nil {
-				return err
+				return fmt.Errorf("unable to decode "+
+					"outgoing res: %w", err)
 			}
 		}
 
@@ -914,7 +939,8 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 				htlc := &c.HtlcResolutions.IncomingHTLCs[i]
 				htlc.SignDetails, err = decodeSignDetails(r)
 				if err != nil {
-					return err
+					return fmt.Errorf("unable to decode "+
+						"incoming sign desc: %w", err)
 				}
 			}
 
@@ -922,7 +948,8 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 				htlc := &c.HtlcResolutions.OutgoingHTLCs[i]
 				htlc.SignDetails, err = decodeSignDetails(r)
 				if err != nil {
-					return err
+					return fmt.Errorf("unable to decode "+
+						"outgoing sign desc: %w", err)
 				}
 			}
 		}
@@ -935,7 +962,8 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 				resReader, c.AnchorResolution,
 			)
 			if err != nil {
-				return err
+				return fmt.Errorf("unable to read anchor "+
+					"data: %w", err)
 			}
 		}
 
@@ -947,10 +975,21 @@ func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, er
 				resReader, c.BreachResolution,
 			)
 			if err != nil {
-				return err
+				return fmt.Errorf("unable to read breach "+
+					"data: %w", err)
 			}
 		}
 
+		tapCaseBytes := scopeBucket.Get(taprootDataKey)
+		if tapCaseBytes != nil {
+			err = decodeTapRootAuxData(
+				bytes.NewReader(tapCaseBytes), c,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to read taproot "+
+					"data: %w", err)
+			}
+		}
 		return nil
 	}, func() {
 		c = &ContractResolutions{}
@@ -1209,11 +1248,11 @@ func decodeSignDetails(r io.Reader) (*input.SignDetails, error) {
 	if err != nil {
 		return nil, err
 	}
-	sig, err := ecdsa.ParseDERSignature(rawSig)
+
+	s.PeerSig, err = input.ParseSignature(rawSig)
 	if err != nil {
 		return nil, err
 	}
-	s.PeerSig = sig
 
 	return &s, nil
 }
@@ -1505,4 +1544,165 @@ func decodeCommitSet(r io.Reader) (*CommitSet, error) {
 	}
 
 	return c, nil
+}
+
+func encodeTaprootAuxData(w io.Writer, c *ContractResolutions) error {
+	tapCase := newTaprootBriefcase()
+
+	if c.CommitResolution != nil {
+		commitResolution := c.CommitResolution
+		commitSignDesc := commitResolution.SelfOutputSignDesc
+		//nolint:lll
+		tapCase.CtrlBlocks.CommitSweepCtrlBlock = commitSignDesc.ControlBlock
+	}
+
+	for _, htlc := range c.HtlcResolutions.IncomingHTLCs {
+		htlc := htlc
+
+		htlcSignDesc := htlc.SweepSignDesc
+		ctrlBlock := htlcSignDesc.ControlBlock
+
+		if ctrlBlock == nil {
+			continue
+		}
+
+		if htlc.SignedSuccessTx != nil {
+			resID := newResolverID(
+				htlc.SignedSuccessTx.TxIn[0].PreviousOutPoint,
+			)
+			//nolint:lll
+			tapCase.CtrlBlocks.SecondLevelCtrlBlocks[resID] = ctrlBlock
+
+			// For HTLCs we need to go to the second level for, we
+			// also need to store the control block needed to
+			// publish the second level transaction.
+			if htlc.SignDetails != nil {
+				//nolint:lll
+				bridgeCtrlBlock := htlc.SignDetails.SignDesc.ControlBlock
+				//nolint:lll
+				tapCase.CtrlBlocks.IncomingHtlcCtrlBlocks[resID] = bridgeCtrlBlock
+			}
+		} else {
+			resID := newResolverID(htlc.ClaimOutpoint)
+			//nolint:lll
+			tapCase.CtrlBlocks.IncomingHtlcCtrlBlocks[resID] = ctrlBlock
+		}
+	}
+	for _, htlc := range c.HtlcResolutions.OutgoingHTLCs {
+		htlc := htlc
+
+		htlcSignDesc := htlc.SweepSignDesc
+		ctrlBlock := htlcSignDesc.ControlBlock
+
+		if ctrlBlock == nil {
+			continue
+		}
+
+		if htlc.SignedTimeoutTx != nil {
+			resID := newResolverID(
+				htlc.SignedTimeoutTx.TxIn[0].PreviousOutPoint,
+			)
+			//nolint:lll
+			tapCase.CtrlBlocks.SecondLevelCtrlBlocks[resID] = ctrlBlock
+
+			// For HTLCs we need to go to the second level for, we
+			// also need to store the control block needed to
+			// publish the second level transaction.
+			//
+			//nolint:lll
+			if htlc.SignDetails != nil {
+				//nolint:lll
+				bridgeCtrlBlock := htlc.SignDetails.SignDesc.ControlBlock
+				//nolint:lll
+				tapCase.CtrlBlocks.OutgoingHtlcCtrlBlocks[resID] = bridgeCtrlBlock
+			}
+		} else {
+			resID := newResolverID(htlc.ClaimOutpoint)
+			//nolint:lll
+			tapCase.CtrlBlocks.OutgoingHtlcCtrlBlocks[resID] = ctrlBlock
+		}
+	}
+
+	if c.AnchorResolution != nil {
+		anchorSignDesc := c.AnchorResolution.AnchorSignDescriptor
+		tapCase.TapTweaks.AnchorTweak = anchorSignDesc.TapTweak
+	}
+
+	return tapCase.Encode(w)
+}
+
+func decodeTapRootAuxData(r io.Reader, c *ContractResolutions) error {
+	tapCase := newTaprootBriefcase()
+	if err := tapCase.Decode(r); err != nil {
+		return err
+	}
+
+	if c.CommitResolution != nil {
+		c.CommitResolution.SelfOutputSignDesc.ControlBlock =
+			tapCase.CtrlBlocks.CommitSweepCtrlBlock
+	}
+
+	for i := range c.HtlcResolutions.IncomingHTLCs {
+		htlc := c.HtlcResolutions.IncomingHTLCs[i]
+
+		var resID resolverID
+		if htlc.SignedSuccessTx != nil {
+			resID = newResolverID(
+				htlc.SignedSuccessTx.TxIn[0].PreviousOutPoint,
+			)
+
+			//nolint:lll
+			ctrlBlock := tapCase.CtrlBlocks.SecondLevelCtrlBlocks[resID]
+			htlc.SweepSignDesc.ControlBlock = ctrlBlock
+
+			//nolint:lll
+			if htlc.SignDetails != nil {
+				bridgeCtrlBlock := tapCase.CtrlBlocks.IncomingHtlcCtrlBlocks[resID]
+				htlc.SignDetails.SignDesc.ControlBlock = bridgeCtrlBlock
+			}
+		} else {
+			resID = newResolverID(htlc.ClaimOutpoint)
+
+			//nolint:lll
+			ctrlBlock := tapCase.CtrlBlocks.IncomingHtlcCtrlBlocks[resID]
+			htlc.SweepSignDesc.ControlBlock = ctrlBlock
+		}
+
+		c.HtlcResolutions.IncomingHTLCs[i] = htlc
+	}
+	for i := range c.HtlcResolutions.OutgoingHTLCs {
+		htlc := c.HtlcResolutions.OutgoingHTLCs[i]
+
+		var resID resolverID
+		if htlc.SignedTimeoutTx != nil {
+			resID = newResolverID(
+				htlc.SignedTimeoutTx.TxIn[0].PreviousOutPoint,
+			)
+
+			//nolint:lll
+			ctrlBlock := tapCase.CtrlBlocks.SecondLevelCtrlBlocks[resID]
+			htlc.SweepSignDesc.ControlBlock = ctrlBlock
+
+			//nolint:lll
+			if htlc.SignDetails != nil {
+				bridgeCtrlBlock := tapCase.CtrlBlocks.OutgoingHtlcCtrlBlocks[resID]
+				htlc.SignDetails.SignDesc.ControlBlock = bridgeCtrlBlock
+			}
+		} else {
+			resID = newResolverID(htlc.ClaimOutpoint)
+
+			//nolint:lll
+			ctrlBlock := tapCase.CtrlBlocks.OutgoingHtlcCtrlBlocks[resID]
+			htlc.SweepSignDesc.ControlBlock = ctrlBlock
+		}
+
+		c.HtlcResolutions.OutgoingHTLCs[i] = htlc
+	}
+
+	if c.AnchorResolution != nil {
+		c.AnchorResolution.AnchorSignDescriptor.TapTweak =
+			tapCase.TapTweaks.AnchorTweak
+	}
+
+	return nil
 }

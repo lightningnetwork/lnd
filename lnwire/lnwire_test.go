@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"image/color"
+	"io"
 	"math"
 	"math/rand"
 	"net"
@@ -38,6 +40,42 @@ var (
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func randLocalNonce(r *rand.Rand) *Musig2Nonce {
+	var nonce Musig2Nonce
+	_, _ = io.ReadFull(r, nonce[:])
+
+	return &nonce
+}
+
+func randPartialSig(r *rand.Rand) (*PartialSig, error) {
+	var sigBytes [32]byte
+	if _, err := r.Read(sigBytes[:]); err != nil {
+		return nil, fmt.Errorf("unable to generate sig: %w", err)
+	}
+
+	var s btcec.ModNScalar
+	s.SetByteSlice(sigBytes[:])
+
+	return &PartialSig{
+		Sig: s,
+	}, nil
+}
+
+func randPartialSigWithNonce(r *rand.Rand) (*PartialSigWithNonce, error) {
+	var sigBytes [32]byte
+	if _, err := r.Read(sigBytes[:]); err != nil {
+		return nil, fmt.Errorf("unable to generate sig: %w", err)
+	}
+
+	var s btcec.ModNScalar
+	s.SetByteSlice(sigBytes[:])
+
+	return &PartialSigWithNonce{
+		PartialSig: NewPartialSig(s),
+		Nonce:      *randLocalNonce(r),
+	}, nil
+}
 
 func randAlias(r *rand.Rand) NodeAlias {
 	var a NodeAlias
@@ -438,6 +476,8 @@ func TestLightningWireProtocol(t *testing.T) {
 
 				req.LeaseExpiry = new(LeaseExpiry)
 				*req.LeaseExpiry = LeaseExpiry(1337)
+
+				req.LocalNonce = randLocalNonce(r)
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}
@@ -510,6 +550,8 @@ func TestLightningWireProtocol(t *testing.T) {
 
 				req.LeaseExpiry = new(LeaseExpiry)
 				*req.LeaseExpiry = LeaseExpiry(1337)
+
+				req.LocalNonce = randLocalNonce(r)
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}
@@ -544,6 +586,16 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
+			// 1/2 chance to attach a partial sig.
+			if r.Intn(2) == 0 {
+				req.PartialSig, err = randPartialSigWithNonce(r)
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v",
+						err)
+					return
+				}
+			}
+
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgFundingSigned: func(v []reflect.Value, r *rand.Rand) {
@@ -564,6 +616,16 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
+			// 1/2 chance to attach a partial sig.
+			if r.Intn(2) == 0 {
+				req.PartialSig, err = randPartialSigWithNonce(r)
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v",
+						err)
+					return
+				}
+			}
+
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgChannelReady: func(v []reflect.Value, r *rand.Rand) {
@@ -581,7 +643,42 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			req := NewChannelReady(ChannelID(c), pubKey)
 
+			if r.Int31()%2 == 0 {
+				scid := NewShortChanIDFromInt(uint64(r.Int63()))
+				req.AliasScid = &scid
+				req.NextLocalNonce = randLocalNonce(r)
+			}
+
 			v[0] = reflect.ValueOf(*req)
+		},
+		MsgShutdown: func(v []reflect.Value, r *rand.Rand) {
+			var c [32]byte
+			_, err := r.Read(c[:])
+			if err != nil {
+				t.Fatalf("unable to generate chan id: %v", err)
+				return
+			}
+
+			shutdownAddr, err := randDeliveryAddress(r)
+			if err != nil {
+				t.Fatalf("unable to generate delivery "+
+					"address: %v", err)
+				return
+			}
+
+			req := Shutdown{
+				ChannelID: ChannelID(c),
+				Address:   shutdownAddr,
+				ExtraData: make([]byte, 0),
+			}
+
+			if r.Int31()%2 == 0 {
+				req.ShutdownNonce = (*ShutdownNonce)(
+					randLocalNonce(r),
+				)
+			}
+
+			v[0] = reflect.ValueOf(req)
 		},
 		MsgClosingSigned: func(v []reflect.Value, r *rand.Rand) {
 			req := ClosingSigned{
@@ -598,6 +695,15 @@ func TestLightningWireProtocol(t *testing.T) {
 			if _, err := r.Read(req.ChannelID[:]); err != nil {
 				t.Fatalf("unable to generate chan id: %v", err)
 				return
+			}
+
+			if r.Int31()%2 == 0 {
+				req.PartialSig, err = randPartialSig(r)
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v",
+						err)
+					return
+				}
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -619,7 +725,7 @@ func TestLightningWireProtocol(t *testing.T) {
 			// Only create the slice if there will be any signatures
 			// in it to prevent false positive test failures due to
 			// an empty slice versus a nil slice.
-			numSigs := uint16(r.Int31n(1020))
+			numSigs := uint16(r.Int31n(1019))
 			if numSigs > 0 {
 				req.HtlcSigs = make([]Sig, numSigs)
 			}
@@ -627,6 +733,16 @@ func TestLightningWireProtocol(t *testing.T) {
 				req.HtlcSigs[i], err = NewSigFromSignature(testSig)
 				if err != nil {
 					t.Fatalf("unable to parse sig: %v", err)
+					return
+				}
+			}
+
+			// 50/50 chance to attach a partial sig.
+			if r.Int31()%2 == 0 {
+				req.PartialSig, err = randPartialSigWithNonce(r)
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v",
+						err)
 					return
 				}
 			}
@@ -648,6 +764,11 @@ func TestLightningWireProtocol(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unable to generate key: %v", err)
 				return
+			}
+
+			// 50/50 chance to attach a local nonce.
+			if r.Int31()%2 == 0 {
+				req.LocalNonce = randLocalNonce(r)
 			}
 
 			v[0] = reflect.ValueOf(*req)
@@ -870,6 +991,8 @@ func TestLightningWireProtocol(t *testing.T) {
 					t.Fatalf("unable to generate key: %v", err)
 					return
 				}
+
+				req.LocalNonce = randLocalNonce(r)
 			}
 
 			v[0] = reflect.ValueOf(req)

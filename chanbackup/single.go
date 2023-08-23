@@ -48,6 +48,10 @@ const (
 	// commitment and HTLC outputs that pay directly to the channel
 	// initiator.
 	ScriptEnforcedLeaseVersion = 4
+
+	// SimpleTaprootVersion is a version that denotes this channel is using
+	// the musig2 based taproot commitment format.
+	SimpleTaprootVersion = 5
 )
 
 // Single is a static description of an existing channel that can be used for
@@ -213,6 +217,9 @@ func NewSingle(channel *channeldb.OpenChannel,
 	}
 
 	switch {
+	case channel.ChanType.IsTaproot():
+		single.Version = SimpleTaprootVersion
+
 	case channel.ChanType.HasLeaseExpiration():
 		single.Version = ScriptEnforcedLeaseVersion
 		single.LeaseExpiry = channel.ThawHeight
@@ -244,6 +251,7 @@ func (s *Single) Serialize(w io.Writer) error {
 	case AnchorsCommitVersion:
 	case AnchorsZeroFeeHtlcTxCommitVersion:
 	case ScriptEnforcedLeaseVersion:
+	case SimpleTaprootVersion:
 	default:
 		return fmt.Errorf("unable to serialize w/ unknown "+
 			"version: %v", s.Version)
@@ -420,6 +428,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 	case AnchorsCommitVersion:
 	case AnchorsZeroFeeHtlcTxCommitVersion:
 	case ScriptEnforcedLeaseVersion:
+	case SimpleTaprootVersion:
 	default:
 		return fmt.Errorf("unable to de-serialize w/ unknown "+
 			"version: %v", s.Version)

@@ -143,7 +143,9 @@ func ChannelUpdateFromEdge(info *channeldb.ChannelEdgeInfo,
 	update := UnsignedChannelUpdateFromEdge(info, policy)
 
 	var err error
-	update.Signature, err = lnwire.NewSigFromRawSignature(policy.SigBytes)
+	update.Signature, err = lnwire.NewSigFromECDSARawSignature(
+		policy.SigBytes,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -531,6 +531,7 @@ func (p *PsbtAssembler) ProvisionChannel(req *Request) (Intent, error) {
 	intent := &PsbtIntent{
 		ShimIntent: ShimIntent{
 			localFundingAmt: p.fundingAmt,
+			musig2:          req.Musig2,
 		},
 		State:         PsbtShimRegistered,
 		BasePsbt:      p.basePsbt,

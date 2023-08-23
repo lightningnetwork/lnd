@@ -1352,6 +1352,13 @@ enum CommitmentType {
     channel before its maturity date.
     */
     SCRIPT_ENFORCED_LEASE = 4;
+
+    /*
+    A channel that uses musig2 for the funding output, and the new tapscript
+    features where relevant.
+    */
+    // TODO(roasbeef): need script enforce mirror type for the above as well?
+    SIMPLE_TAPROOT = 5;
 }
 
 message ChannelConstraints {

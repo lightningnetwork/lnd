@@ -107,6 +107,13 @@ func newChanRestoreScenario(ht *lntest.HarnessTest, ct lnrpc.CommitmentType,
 	// with a portion pushed.
 	ht.ConnectNodes(dave, carol)
 
+	// If the commitment type is taproot, then the channel must also be
+	// private.
+	var privateChan bool
+	if ct == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		privateChan = true
+	}
+
 	return &chanRestoreScenario{
 		carol:    carol,
 		dave:     dave,
@@ -117,6 +124,7 @@ func newChanRestoreScenario(ht *lntest.HarnessTest, ct lnrpc.CommitmentType,
 			PushAmt:        pushAmt,
 			ZeroConf:       zeroConf,
 			CommitmentType: ct,
+			Private:        privateChan,
 		},
 	}
 }
@@ -564,6 +572,21 @@ func testChannelBackupRestoreCommitTypes(ht *lntest.HarnessTest) {
 			ct:       lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE,
 			zeroConf: true,
 		},
+
+		// Restore a channel back up of a taproot channel that was
+		// confirmed.
+		{
+			name:     "restore from backup taproot",
+			ct:       lnrpc.CommitmentType_SIMPLE_TAPROOT,
+			zeroConf: false,
+		},
+
+		// Restore a chanenl back up of an unconfirmed taproot channel.
+		{
+			name:     "restore from backup taproot zero conf",
+			ct:       lnrpc.CommitmentType_SIMPLE_TAPROOT,
+			zeroConf: true,
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -625,6 +648,13 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 	// channels.backup file.
 	multi, err := ioutil.ReadFile(backupFilePath)
 	require.NoError(ht, err)
+
+	// If this was a zero conf taproot channel, then since it's private,
+	// we'll need to mine an extra block (framework won't mine extra blocks
+	// otherwise).
+	if ct == lnrpc.CommitmentType_SIMPLE_TAPROOT && zeroConf {
+		ht.MineBlocksAndAssertNumTxes(1, 1)
+	}
 
 	// Now that we have Dave's backup file, we'll create a new nodeRestorer
 	// that we'll restore using the on-disk channels.backup.

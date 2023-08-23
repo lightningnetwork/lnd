@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/btcutil/txsort"
@@ -915,6 +916,7 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 					TaprootPubkey, true, DefaultAccountName,
 				)
 			},
+			Musig2: req.CommitType == CommitmentTypeSimpleTaproot,
 		}
 		fundingIntent, err = req.ChanFunder.ProvisionChannel(
 			fundingReq,
@@ -1329,8 +1331,11 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 	}
 
 	// With the above keys created, we'll also need to initialize our
-	// revocation tree state, and from that generate the per-commitment point.
-	producer, err := l.nextRevocationProducer(reservation, keyRing)
+	// revocation tree state, and from that generate the per-commitment
+	// point.
+	producer, taprootNonceProducer, err := l.nextRevocationProducer(
+		reservation, keyRing,
+	)
 	if err != nil {
 		return err
 	}
@@ -1345,6 +1350,34 @@ func (l *LightningWallet) initOurContribution(reservation *ChannelReservation,
 
 	reservation.partialState.RevocationProducer = producer
 	reservation.ourContribution.ChannelConstraints = l.Cfg.DefaultConstraints
+
+	// If taproot channels are active, then we'll generate our verification
+	// nonce here. We'll use this nonce to verify the signature for our
+	// local commitment transaction. If we need to force close, then this
+	// is also what'll be used to sign that transaction.
+	if reservation.partialState.ChanType.IsTaproot() {
+		firstNoncePreimage, err := taprootNonceProducer.AtIndex(0)
+		if err != nil {
+			return err
+		}
+
+		// As we'd like the local nonce we send over to be generated
+		// deterministically, we'll provide a custom reader that
+		// actually just uses our sha-chain pre-image as the primary
+		// randomness source.
+		shaChainRand := musig2.WithCustomRand(
+			bytes.NewBuffer(firstNoncePreimage[:]),
+		)
+		pubKeyOpt := musig2.WithPublicKey(
+			reservation.ourContribution.MultiSigKey.PubKey,
+		)
+		reservation.ourContribution.LocalNonce, err = musig2.GenNonces(
+			pubKeyOpt, shaChainRand,
+		)
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -1602,8 +1635,94 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	})
 }
 
-// handleChanPointReady continues the funding process once the channel point
-// is known and the funding transaction can be completed.
+// genMusigSession generates a new musig2 pair session that we can use to sign
+// the commitment transaction for the remote party, and verify their incoming
+// partial signature.
+func genMusigSession(ourContribution, theirContribution *ChannelContribution,
+	signer input.MuSig2Signer,
+	fundingOutput *wire.TxOut) *MusigPairSession {
+
+	return NewMusigPairSession(&MusigSessionCfg{
+		LocalKey:    ourContribution.MultiSigKey,
+		RemoteKey:   theirContribution.MultiSigKey,
+		LocalNonce:  *ourContribution.LocalNonce,
+		RemoteNonce: *theirContribution.LocalNonce,
+		Signer:      signer,
+		InputTxOut:  fundingOutput,
+	})
+}
+
+// signCommitTx generates a valid input.Signature to send to the remote party
+// for their version of the commitment transaction. For regular channels, this
+// will be a normal ECDSA signature. For taproot channels, this will instead be
+// a musig2 partial signature that also includes the nonce used to generate it.
+func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
+	commitTx *wire.MsgTx, fundingOutput *wire.TxOut,
+	fundingWitnessScript []byte) (input.Signature, error) {
+
+	ourContribution := pendingReservation.ourContribution
+	theirContribution := pendingReservation.theirContribution
+
+	var (
+		sigTheirCommit input.Signature
+		err            error
+	)
+	switch {
+	// For regular channels, we can just send over a normal ECDSA signature
+	// w/o any extra steps.
+	case !pendingReservation.partialState.ChanType.IsTaproot():
+		ourKey := ourContribution.MultiSigKey
+		signDesc := input.SignDescriptor{
+			WitnessScript: fundingWitnessScript,
+			KeyDesc:       ourKey,
+			Output:        fundingOutput,
+			HashType:      txscript.SigHashAll,
+			SigHashes: input.NewTxSigHashesV0Only(
+				commitTx,
+			),
+			InputIndex: 0,
+		}
+		sigTheirCommit, err = l.Cfg.Signer.SignOutputRaw(
+			commitTx, &signDesc,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+	// If this is a taproot channel, then we'll need to create an initial
+	// musig2 session here as we'll be sending over a _partial_ signature.
+	default:
+		// We're now ready to sign the first commitment. However, we'll
+		// only create the session if that hasn't been done already.
+		if pendingReservation.musigSessions == nil {
+			musigSessions := genMusigSession(
+				ourContribution, theirContribution,
+				l.Cfg.Signer, fundingOutput,
+			)
+			pendingReservation.musigSessions = musigSessions
+		}
+
+		// Now that we have the funding outpoint, we'll generate a
+		// musig2 signature for their version of the commitment
+		// transaction. We use the remote session as this is for the
+		// remote commitment transaction.
+		musigSessions := pendingReservation.musigSessions
+		partialSig, err := musigSessions.RemoteSession.SignCommit(
+			commitTx,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to sign "+
+				"commitment: %w", err)
+		}
+
+		sigTheirCommit = partialSig
+	}
+
+	return sigTheirCommit, nil
+}
+
+// handleChanPointReady continues the funding process once the channel point is
+// known and the funding transaction can be completed.
 func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	l.limboMtx.Lock()
 	pendingReservation, ok := l.fundingLimbo[req.pendingFundingID]
@@ -1613,6 +1732,7 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 			"funding state")
 		return
 	}
+
 	ourContribution := pendingReservation.ourContribution
 	theirContribution := pendingReservation.theirContribution
 	chanPoint := pendingReservation.partialState.FundingOutpoint
@@ -1753,26 +1873,22 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	fundingIntent := pendingReservation.fundingIntent
 	fundingWitnessScript, fundingOutput, err := fundingIntent.FundingOutput()
 	if err != nil {
-		req.err <- fmt.Errorf("unable to obtain funding output")
+		req.err <- fmt.Errorf("unable to obtain funding "+
+			"output: %w", err)
 		return
 	}
 
 	// Generate a signature for their version of the initial commitment
 	// transaction.
-	ourKey := ourContribution.MultiSigKey
-	signDesc := input.SignDescriptor{
-		WitnessScript: fundingWitnessScript,
-		KeyDesc:       ourKey,
-		Output:        fundingOutput,
-		HashType:      txscript.SigHashAll,
-		SigHashes:     input.NewTxSigHashesV0Only(theirCommitTx),
-		InputIndex:    0,
-	}
-	sigTheirCommit, err := l.Cfg.Signer.SignOutputRaw(theirCommitTx, &signDesc)
+	sigTheirCommit, err := l.signCommitTx(
+		pendingReservation, theirCommitTx, fundingOutput,
+		fundingWitnessScript,
+	)
 	if err != nil {
 		req.err <- err
 		return
 	}
+
 	pendingReservation.ourCommitmentSig = sigTheirCommit
 
 	req.err <- nil
@@ -1897,6 +2013,89 @@ func (l *LightningWallet) verifyFundingInputs(fundingTx *wire.MsgTx,
 	return nil
 }
 
+// verifyCommitSig verifies an incoming signature for our version of the
+// commitment transaction. For normal channels, this will verify that the ECDSA
+// signature is valid. For taproot channels, we'll verify that their partial
+// signature is valid, so it can properly be combined with our eventual
+// signature when we need to broadcast.
+func (l *LightningWallet) verifyCommitSig(res *ChannelReservation,
+	commitSig input.Signature, commitTx *wire.MsgTx) error {
+
+	localKey := res.ourContribution.MultiSigKey.PubKey
+	remoteKey := res.theirContribution.MultiSigKey.PubKey
+	channelValue := int64(res.partialState.Capacity)
+
+	switch {
+	// If this isn't a taproot channel, then we'll construct a segwit v0
+	// p2wsh sighash.
+	case !res.partialState.ChanType.IsTaproot():
+		hashCache := input.NewTxSigHashesV0Only(commitTx)
+		witnessScript, _, err := input.GenFundingPkScript(
+			localKey.SerializeCompressed(),
+			remoteKey.SerializeCompressed(), channelValue,
+		)
+		if err != nil {
+			return err
+		}
+
+		sigHash, err := txscript.CalcWitnessSigHash(
+			witnessScript, hashCache, txscript.SigHashAll,
+			commitTx, 0, channelValue,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Verify that we've received a valid signature from the remote
+		// party for our version of the commitment transaction.
+		if !commitSig.Verify(sigHash, remoteKey) {
+			return fmt.Errorf("counterparty's commitment " +
+				"signature is invalid")
+		}
+
+		return nil
+
+	// Otherwise for taproot channels, we'll compute the segwit v1 sighash,
+	// which is slightly different.
+	default:
+		// First, check to see if we've generated the musig session
+		// already. If we're the responder in the funding flow, we may
+		// not have generated it already.
+		if res.musigSessions == nil {
+			_, fundingOutput, err := input.GenTaprootFundingScript(
+				localKey, remoteKey, channelValue,
+			)
+			if err != nil {
+				return err
+			}
+
+			res.musigSessions = genMusigSession(
+				res.ourContribution, res.theirContribution,
+				l.Cfg.Signer, fundingOutput,
+			)
+		}
+
+		// For the musig2 based channels, we'll use the generated local
+		// musig2 session to verify the signature.
+		localSession := res.musigSessions.LocalSession
+
+		// At this point, the commitment signature passed in should
+		// actually be a wrapped musig2 signature, so we'll do a type
+		// asset to the get the signature we actually need.
+		partialSig, ok := commitSig.(*MusigPartialSig)
+		if !ok {
+			return fmt.Errorf("expected *musig2.PartialSignature, "+
+				"got: %T", commitSig)
+		}
+
+		_, err := localSession.VerifyCommitSig(
+			commitTx, partialSig.ToWireSig(),
+		)
+
+		return err
+	}
+}
+
 // handleFundingCounterPartySigs is the final step in the channel reservation
 // workflow. During this step, we validate *all* the received signatures for
 // inputs to the funding transaction. If any of these are invalid, we bail,
@@ -1939,44 +2138,15 @@ func (l *LightningWallet) handleFundingCounterPartySigs(msg *addCounterPartySigs
 	// commitment transaction.
 	res.theirCommitmentSig = msg.theirCommitmentSig
 	commitTx := res.partialState.LocalCommitment.CommitTx
-	ourKey := res.ourContribution.MultiSigKey
-	theirKey := res.theirContribution.MultiSigKey
 
-	// Re-generate both the witnessScript and p2sh output. We sign the
-	// witnessScript script, but include the p2sh output as the subscript
-	// for verification.
-	witnessScript, _, err := input.GenFundingPkScript(
-		ourKey.PubKey.SerializeCompressed(),
-		theirKey.PubKey.SerializeCompressed(),
-		int64(res.partialState.Capacity),
-	)
+	err := l.verifyCommitSig(res, msg.theirCommitmentSig, commitTx)
 	if err != nil {
-		msg.err <- err
+		msg.err <- fmt.Errorf("counterparty's commitment signature is "+
+			"invalid: %w", err)
 		msg.completeChan <- nil
 		return
 	}
 
-	// Next, create the spending scriptSig, and then verify that the script
-	// is complete, allowing us to spend from the funding transaction.
-	channelValue := int64(res.partialState.Capacity)
-	hashCache := input.NewTxSigHashesV0Only(commitTx)
-	sigHash, err := txscript.CalcWitnessSigHash(
-		witnessScript, hashCache, txscript.SigHashAll, commitTx,
-		0, channelValue,
-	)
-	if err != nil {
-		msg.err <- err
-		msg.completeChan <- nil
-		return
-	}
-
-	// Verify that we've received a valid signature from the remote party
-	// for our version of the commitment transaction.
-	if !msg.theirCommitmentSig.Verify(sigHash, theirKey.PubKey) {
-		msg.err <- fmt.Errorf("counterparty's commitment signature is invalid")
-		msg.completeChan <- nil
-		return
-	}
 	theirCommitSigBytes := msg.theirCommitmentSig.Serialize()
 	res.partialState.LocalCommitment.CommitSig = theirCommitSigBytes
 
@@ -2055,6 +2225,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	defer pendingReservation.Unlock()
 
 	chanState := pendingReservation.partialState
+	chanType := pendingReservation.partialState.ChanType
 	chanState.FundingOutpoint = *req.fundingOutpoint
 	fundingTxIn := wire.NewTxIn(req.fundingOutpoint, nil, nil)
 
@@ -2073,7 +2244,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		pendingReservation.theirContribution.ChannelConfig,
 		pendingReservation.ourContribution.FirstCommitmentPoint,
 		pendingReservation.theirContribution.FirstCommitmentPoint,
-		*fundingTxIn, pendingReservation.partialState.ChanType,
+		*fundingTxIn, chanType,
 		pendingReservation.partialState.IsInitiator, leaseExpiry,
 	)
 	if err != nil {
@@ -2109,13 +2280,10 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	walletLog.Debugf("Remote commit tx for ChannelPoint(%v): %v",
 		req.fundingOutpoint, spew.Sdump(theirCommitTx))
 
-	channelValue := int64(pendingReservation.partialState.Capacity)
-	hashCache := input.NewTxSigHashesV0Only(ourCommitTx)
-	theirKey := pendingReservation.theirContribution.MultiSigKey
-	ourKey := pendingReservation.ourContribution.MultiSigKey
-	witnessScript, _, err := input.GenFundingPkScript(
-		ourKey.PubKey.SerializeCompressed(),
-		theirKey.PubKey.SerializeCompressed(), channelValue,
+	// With both commitment transactions created, we'll now verify their
+	// signature on our commitment.
+	err = l.verifyCommitSig(
+		pendingReservation, req.theirCommitmentSig, ourCommitTx,
 	)
 	if err != nil {
 		req.err <- err
@@ -2123,53 +2291,46 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 		return
 	}
 
-	sigHash, err := txscript.CalcWitnessSigHash(
-		witnessScript, hashCache, txscript.SigHashAll, ourCommitTx, 0,
-		channelValue,
-	)
-	if err != nil {
-		req.err <- err
-		req.completeChan <- nil
-		return
-	}
-
-	// Verify that we've received a valid signature from the remote party
-	// for our version of the commitment transaction.
-	if !req.theirCommitmentSig.Verify(sigHash, theirKey.PubKey) {
-		req.err <- fmt.Errorf("counterparty's commitment signature " +
-			"is invalid")
-		req.completeChan <- nil
-		return
-	}
 	theirCommitSigBytes := req.theirCommitmentSig.Serialize()
 	chanState.LocalCommitment.CommitSig = theirCommitSigBytes
+
+	channelValue := int64(pendingReservation.partialState.Capacity)
+	theirKey := pendingReservation.theirContribution.MultiSigKey
+	ourKey := pendingReservation.ourContribution.MultiSigKey
+
+	var (
+		fundingWitnessScript []byte
+		fundingTxOut         *wire.TxOut
+	)
+	if chanType.IsTaproot() {
+		fundingWitnessScript, fundingTxOut, err = input.GenTaprootFundingScript( //nolint:lll
+			ourKey.PubKey, theirKey.PubKey, channelValue,
+		)
+	} else {
+		fundingWitnessScript, fundingTxOut, err = input.GenFundingPkScript( //nolint:lll
+			ourKey.PubKey.SerializeCompressed(),
+			theirKey.PubKey.SerializeCompressed(), channelValue,
+		)
+	}
+	if err != nil {
+		req.err <- err
+		req.completeChan <- nil
+		return
+	}
 
 	// With their signature for our version of the commitment transactions
 	// verified, we can now generate a signature for their version,
 	// allowing the funding transaction to be safely broadcast.
-	p2wsh, err := input.WitnessScriptHash(witnessScript)
+	sigTheirCommit, err := l.signCommitTx(
+		pendingReservation, theirCommitTx, fundingTxOut,
+		fundingWitnessScript,
+	)
 	if err != nil {
 		req.err <- err
 		req.completeChan <- nil
 		return
 	}
-	signDesc := input.SignDescriptor{
-		WitnessScript: witnessScript,
-		KeyDesc:       ourKey,
-		Output: &wire.TxOut{
-			PkScript: p2wsh,
-			Value:    channelValue,
-		},
-		HashType:   txscript.SigHashAll,
-		SigHashes:  input.NewTxSigHashesV0Only(theirCommitTx),
-		InputIndex: 0,
-	}
-	sigTheirCommit, err := l.Cfg.Signer.SignOutputRaw(theirCommitTx, &signDesc)
-	if err != nil {
-		req.err <- err
-		req.completeChan <- nil
-		return
-	}
+
 	pendingReservation.ourCommitmentSig = sigTheirCommit
 
 	_, bestHeight, err := l.Cfg.ChainIO.GetBestBlock()
@@ -2272,26 +2433,42 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 	if err != nil {
 		return err
 	}
-	signedCommitTx, err := channel.getSignedCommitTx()
-	if err != nil {
-		return err
-	}
+
+	localKey := channelState.LocalChanCfg.MultiSigKey.PubKey
+	remoteKey := channelState.RemoteChanCfg.MultiSigKey.PubKey
 
 	// We'll also need the multi-sig witness script itself so the
 	// chanvalidate package can check it for correctness against the
 	// funding transaction, and also commitment validity.
-	localKey := channelState.LocalChanCfg.MultiSigKey.PubKey
-	remoteKey := channelState.RemoteChanCfg.MultiSigKey.PubKey
-	witnessScript, err := input.GenMultiSigScript(
-		localKey.SerializeCompressed(),
-		remoteKey.SerializeCompressed(),
-	)
+	var fundingScript []byte
+	if channelState.ChanType.IsTaproot() {
+		fundingScript, _, err = input.GenTaprootFundingScript(
+			localKey, remoteKey, int64(channel.Capacity),
+		)
+		if err != nil {
+			return err
+		}
+	} else {
+		witnessScript, err := input.GenMultiSigScript(
+			localKey.SerializeCompressed(),
+			remoteKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return err
+		}
+		fundingScript, err = input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return err
+		}
+	}
+
+	signedCommitTx, err := channel.getSignedCommitTx()
 	if err != nil {
 		return err
 	}
-	pkScript, err := input.WitnessScriptHash(witnessScript)
-	if err != nil {
-		return err
+	commitCtx := &chanvalidate.CommitmentContext{
+		Value:               channel.Capacity,
+		FullySignedCommitTx: signedCommitTx,
 	}
 
 	// Finally, we'll pass in all the necessary context needed to fully
@@ -2301,12 +2478,9 @@ func (l *LightningWallet) ValidateChannel(channelState *channeldb.OpenChannel,
 		Locator: &chanvalidate.OutPointChanLocator{
 			ChanPoint: channelState.FundingOutpoint,
 		},
-		MultiSigPkScript: pkScript,
+		MultiSigPkScript: fundingScript,
 		FundingTx:        fundingTx,
-		CommitCtx: &chanvalidate.CommitmentContext{
-			Value:               channel.Capacity,
-			FullySignedCommitTx: signedCommitTx,
-		},
+		CommitCtx:        commitCtx,
 	})
 	if err != nil {
 		return err

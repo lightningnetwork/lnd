@@ -90,7 +90,7 @@ type outgoingMsg struct {
 // completed.
 type newChannelMsg struct {
 	// channel is used when the pending channel becomes active.
-	channel *channeldb.OpenChannel
+	channel *lnpeer.NewChannel
 
 	// channelID is used when there's a new pending channel.
 	channelID lnwire.ChannelID
@@ -973,9 +973,23 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	// okay if the clients are disabled altogether and these values are nil,
 	// as the link will check for nilness before using either.
 	var towerClient htlcswitch.TowerClient
-	if chanType.HasAnchors() {
+	switch {
+	case chanType.IsTaproot():
+		// Leave the tower client as nil for now until the tower client
+		// has support for taproot channels.
+		//
+		// If the user has activated the tower client, then add a log
+		// to explain that any taproot channel updates wil not be
+		// backed up to a tower.
+		if p.cfg.TowerClient != nil {
+			p.log.Debugf("Updates for channel %s will not be "+
+				"backed up to a watchtower as watchtowers "+
+				"are not yet taproot channel compatible",
+				chanPoint)
+		}
+	case chanType.HasAnchors():
 		towerClient = p.cfg.AnchorTowerClient
-	} else {
+	default:
 		towerClient = p.cfg.TowerClient
 	}
 
@@ -2889,6 +2903,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 	chanCloser := chancloser.NewChanCloser(
 		chancloser.ChanCloseCfg{
 			Channel:      channel,
+			MusigSession: NewMusigChanCloser(channel),
 			FeeEstimator: &chancloser.SimpleCoopFeeEstimator{},
 			BroadcastTx:  p.cfg.Wallet.PublishTransaction,
 			DisableChannel: func(op wire.OutPoint) error {
@@ -3491,12 +3506,12 @@ func (p *Brontide) Address() net.Addr {
 // added if the cancel channel is closed.
 //
 // NOTE: Part of the lnpeer.Peer interface.
-func (p *Brontide) AddNewChannel(channel *channeldb.OpenChannel,
+func (p *Brontide) AddNewChannel(newChan *lnpeer.NewChannel,
 	cancel <-chan struct{}) error {
 
 	errChan := make(chan error, 1)
 	newChanMsg := &newChannelMsg{
-		channel: channel,
+		channel: newChan,
 		err:     errChan,
 	}
 
@@ -3798,7 +3813,7 @@ func (p *Brontide) updateNextRevocation(c *channeldb.OpenChannel) error {
 // addActiveChannel adds a new active channel to the `activeChannels` map. It
 // takes a `channeldb.OpenChannel`, creates a `lnwallet.LightningChannel` from
 // it and assembles it with a channel link.
-func (p *Brontide) addActiveChannel(c *channeldb.OpenChannel) error {
+func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 	chanPoint := &c.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
@@ -3806,7 +3821,8 @@ func (p *Brontide) addActiveChannel(c *channeldb.OpenChannel) error {
 	// channels, so we can look it up later easily according to its channel
 	// ID.
 	lnChan, err := lnwallet.NewLightningChannel(
-		p.cfg.Signer, c, p.cfg.SigPool,
+		p.cfg.Signer, c.OpenChannel,
+		p.cfg.SigPool, c.ChanOpts...,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to create LightningChannel: %w", err)
@@ -3872,7 +3888,8 @@ func (p *Brontide) handleNewActiveChannel(req *newChannelMsg) {
 		close(req.err)
 
 		// Update the next revocation point.
-		if err := p.updateNextRevocation(newChan); err != nil {
+		err := p.updateNextRevocation(newChan.OpenChannel)
+		if err != nil {
 			p.log.Errorf(err.Error())
 		}
 

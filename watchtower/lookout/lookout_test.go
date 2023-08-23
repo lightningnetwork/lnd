@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
@@ -55,6 +56,12 @@ func makeArray64(i uint64) [64]byte {
 	var arr [64]byte
 	binary.BigEndian.PutUint64(arr[:], i)
 	return arr
+}
+
+func makeTestSig(i uint64) lnwire.Sig {
+	sigBytes := makeArray64(i)
+	sig, _ := lnwire.NewSigFromWireECDSA(sigBytes[:])
+	return sig
 }
 
 func makeAddrSlice(size int) []byte {
@@ -141,7 +148,7 @@ func TestLookoutBreachMatching(t *testing.T) {
 		RevocationPubKey: makePubKey(1),
 		LocalDelayPubKey: makePubKey(1),
 		CSVDelay:         144,
-		CommitToLocalSig: makeArray64(1),
+		CommitToLocalSig: makeTestSig(1),
 	}
 	blob2 := &blob.JusticeKit{
 		BlobType:         blobType,
@@ -149,7 +156,7 @@ func TestLookoutBreachMatching(t *testing.T) {
 		RevocationPubKey: makePubKey(2),
 		LocalDelayPubKey: makePubKey(2),
 		CSVDelay:         144,
-		CommitToLocalSig: makeArray64(2),
+		CommitToLocalSig: makeTestSig(2),
 	}
 
 	key1 := blob.NewBreachKeyFromHash(&hash1)

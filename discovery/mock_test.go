@@ -7,7 +7,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -42,7 +41,9 @@ func (p *mockPeer) SendMessageLazy(sync bool, msgs ...lnwire.Message) error {
 	return p.SendMessage(sync, msgs...)
 }
 
-func (p *mockPeer) AddNewChannel(_ *channeldb.OpenChannel, _ <-chan struct{}) error {
+func (p *mockPeer) AddNewChannel(_ *lnpeer.NewChannel,
+	_ <-chan struct{}) error {
+
 	return nil
 }
 func (p *mockPeer) WipeChannel(_ *wire.OutPoint)  {}

@@ -1283,7 +1283,7 @@ func marshallChannelUpdate(update *lnwire.ChannelUpdate) *lnrpc.ChannelUpdate {
 	}
 
 	return &lnrpc.ChannelUpdate{
-		Signature:       update.Signature[:],
+		Signature:       update.Signature.RawBytes(),
 		ChainHash:       update.ChainHash[:],
 		ChanId:          update.ShortChannelID.ToUint64(),
 		Timestamp:       update.Timestamp,

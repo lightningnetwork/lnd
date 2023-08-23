@@ -596,12 +596,12 @@ func FuzzCustomMessage(f *testing.F) {
 // does not mutate them.
 func FuzzParseRawSignature(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		sig, err := NewSigFromRawSignature(data)
+		sig, err := NewSigFromECDSARawSignature(data)
 		if err != nil {
 			return
 		}
 
-		sig2, err := NewSigFromRawSignature(sig.ToSignatureBytes())
+		sig2, err := NewSigFromECDSARawSignature(sig.ToSignatureBytes())
 		require.NoError(t, err, "failed to reparse signature")
 
 		require.Equal(t, sig, sig2, "signature mismatch")
@@ -614,10 +614,10 @@ func FuzzParseRawSignature(f *testing.F) {
 func FuzzConvertFixedSignature(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var sig Sig
-		if len(data) > len(sig) {
+		if len(data) > len(sig.bytes[:]) {
 			return
 		}
-		copy(sig[:], data)
+		copy(sig.bytes[:], data)
 
 		derSig, err := sig.ToSignature()
 		if err != nil {

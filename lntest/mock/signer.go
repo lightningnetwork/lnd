@@ -57,7 +57,8 @@ func (d *DummySigner) ComputeInputScript(tx *wire.MsgTx,
 // submitted as well to reduce the number of method calls necessary later on.
 func (d *DummySigner) MuSig2CreateSession(input.MuSig2Version,
 	keychain.KeyLocator, []*btcec.PublicKey, *input.MuSig2Tweaks,
-	[][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo, error) {
+	[][musig2.PubNonceSize]byte, ...musig2.SessionOption,
+) (*input.MuSig2SessionInfo, error) {
 
 	return nil, nil
 }
@@ -104,6 +105,22 @@ func (d *DummySigner) MuSig2Cleanup(input.MuSig2SessionID) error {
 type SingleSigner struct {
 	Privkey *btcec.PrivateKey
 	KeyLoc  keychain.KeyLocator
+
+	*input.MusigSessionManager
+}
+
+func NewSingleSigner(privkey *btcec.PrivateKey) *SingleSigner {
+	signer := &SingleSigner{
+		Privkey: privkey,
+		KeyLoc:  idKeyLoc,
+	}
+
+	keyFetcher := func(*keychain.KeyDescriptor) (*btcec.PrivateKey, error) {
+		return signer.Privkey, nil
+	}
+	signer.MusigSessionManager = input.NewMusigSessionManager(keyFetcher)
+
+	return signer
 }
 
 // SignOutputRaw generates a signature for the passed transaction using the
@@ -187,53 +204,4 @@ func (s *SingleSigner) SignMessage(keyLoc keychain.KeyLocator,
 		digest = chainhash.HashB(msg)
 	}
 	return ecdsa.Sign(s.Privkey, digest), nil
-}
-
-// MuSig2CreateSession creates a new MuSig2 signing session using the local
-// key identified by the key locator. The complete list of all public keys of
-// all signing parties must be provided, including the public key of the local
-// signing key. If nonces of other parties are already known, they can be
-// submitted as well to reduce the number of method calls necessary later on.
-func (s *SingleSigner) MuSig2CreateSession(input.MuSig2Version,
-	keychain.KeyLocator, []*btcec.PublicKey, *input.MuSig2Tweaks,
-	[][musig2.PubNonceSize]byte) (*input.MuSig2SessionInfo, error) {
-
-	return nil, nil
-}
-
-// MuSig2RegisterNonces registers one or more public nonces of other signing
-// participants for a session identified by its ID. This method returns true
-// once we have all nonces for all other signing participants.
-func (s *SingleSigner) MuSig2RegisterNonces(input.MuSig2SessionID,
-	[][musig2.PubNonceSize]byte) (bool, error) {
-
-	return false, nil
-}
-
-// MuSig2Sign creates a partial signature using the local signing key
-// that was specified when the session was created. This can only be
-// called when all public nonces of all participants are known and have
-// been registered with the session. If this node isn't responsible for
-// combining all the partial signatures, then the cleanup parameter
-// should be set, indicating that the session can be removed from memory
-// once the signature was produced.
-func (s *SingleSigner) MuSig2Sign(input.MuSig2SessionID,
-	[sha256.Size]byte, bool) (*musig2.PartialSignature, error) {
-
-	return nil, nil
-}
-
-// MuSig2CombineSig combines the given partial signature(s) with the
-// local one, if it already exists. Once a partial signature of all
-// participants is registered, the final signature will be combined and
-// returned.
-func (s *SingleSigner) MuSig2CombineSig(input.MuSig2SessionID,
-	[]*musig2.PartialSignature) (*schnorr.Signature, bool, error) {
-
-	return nil, false, nil
-}
-
-// MuSig2Cleanup removes a session from memory to free up resources.
-func (s *SingleSigner) MuSig2Cleanup(input.MuSig2SessionID) error {
-	return nil
 }

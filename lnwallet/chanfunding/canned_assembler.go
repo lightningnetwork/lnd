@@ -35,6 +35,11 @@ type ShimIntent struct {
 	// a normal channel. Until this height, it's considered frozen, so it
 	// can only be cooperatively closed by the responding party.
 	thawHeight uint32
+
+	// musig2 determines if the funding output should use musig2 to
+	// generate an aggregate key to use as the taproot-native multi-sig
+	// output.
+	musig2 bool
 }
 
 // FundingOutput returns the witness script, and the output that creates the
@@ -48,6 +53,19 @@ func (s *ShimIntent) FundingOutput() ([]byte, *wire.TxOut, error) {
 	}
 
 	totalAmt := s.localFundingAmt + s.remoteFundingAmt
+
+	// If musig2 is active, then we'll return a single aggregated key
+	// rather than using the "existing" funding script.
+	if s.musig2 {
+		// Similar to the existing p2wsh script, we'll always ensure
+		// the keys are sorted before use.
+		return input.GenTaprootFundingScript(
+			s.localKey.PubKey,
+			s.remoteKey,
+			int64(totalAmt),
+		)
+	}
+
 	return input.GenFundingPkScript(
 		s.localKey.PubKey.SerializeCompressed(),
 		s.remoteKey.SerializeCompressed(),
@@ -171,13 +189,20 @@ type CannedAssembler struct {
 	// a normal channel. Until this height, it's considered frozen, so it
 	// can only be cooperatively closed by the responding party.
 	thawHeight uint32
+
+	// musig2 determines if the funding output should use musig2 to
+	// generate an aggregate key to use as the taproot-native multi-sig
+	// output.
+	musig2 bool
 }
 
 // NewCannedAssembler creates a new CannedAssembler from the material required
 // to construct a funding output and channel point.
+//
+// TODO(roasbeef): pass in chan type instead?
 func NewCannedAssembler(thawHeight uint32, chanPoint wire.OutPoint,
 	fundingAmt btcutil.Amount, localKey *keychain.KeyDescriptor,
-	remoteKey *btcec.PublicKey, initiator bool) *CannedAssembler {
+	remoteKey *btcec.PublicKey, initiator, musig2 bool) *CannedAssembler {
 
 	return &CannedAssembler{
 		initiator:  initiator,
@@ -186,6 +211,7 @@ func NewCannedAssembler(thawHeight uint32, chanPoint wire.OutPoint,
 		fundingAmt: fundingAmt,
 		chanPoint:  chanPoint,
 		thawHeight: thawHeight,
+		musig2:     musig2,
 	}
 }
 
@@ -215,6 +241,7 @@ func (c *CannedAssembler) ProvisionChannel(req *Request) (Intent, error) {
 		remoteKey:  c.remoteKey,
 		chanPoint:  &c.chanPoint,
 		thawHeight: c.thawHeight,
+		musig2:     c.musig2,
 	}
 
 	if c.initiator {

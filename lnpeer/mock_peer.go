@@ -5,7 +5,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/mock"
 )
@@ -28,7 +27,7 @@ func (m *MockPeer) SendMessageLazy(sync bool, msgs ...lnwire.Message) error {
 	return args.Error(0)
 }
 
-func (m *MockPeer) AddNewChannel(channel *channeldb.OpenChannel,
+func (m *MockPeer) AddNewChannel(channel *NewChannel,
 	cancel <-chan struct{}) error {
 
 	args := m.Called(channel, cancel)

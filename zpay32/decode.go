@@ -91,8 +91,10 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 	if err != nil {
 		return nil, err
 	}
-	var sig lnwire.Sig
-	copy(sig[:], sigBase256[:64])
+	sig, err := lnwire.NewSigFromWireECDSA(sigBase256[:64])
+	if err != nil {
+		return nil, err
+	}
 	recoveryID := sigBase256[64]
 
 	// The signature is over the hrp + the data the invoice, encoded in
@@ -121,7 +123,7 @@ func Decode(invoice string, net *chaincfg.Params) (*Invoice, error) {
 		}
 	} else {
 		headerByte := recoveryID + 27 + 4
-		compactSign := append([]byte{headerByte}, sig[:]...)
+		compactSign := append([]byte{headerByte}, sig.RawBytes()...)
 		pubkey, _, err := ecdsa.RecoverCompact(compactSign, hash)
 		if err != nil {
 			return nil, err

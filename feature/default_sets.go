@@ -83,4 +83,8 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
+	lnwire.SimpleTaprootChannelsOptionalStaging: {
+		SetInit:    {}, // I
+		SetNodeAnn: {}, // N
+	},
 }

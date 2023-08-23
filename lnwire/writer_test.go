@@ -147,7 +147,9 @@ func TestWriteShortChannelID(t *testing.T) {
 
 func TestWriteSig(t *testing.T) {
 	buf := new(bytes.Buffer)
-	data := Sig{1, 2, 3}
+	data := Sig{
+		bytes: [64]byte{1, 2, 3},
+	}
 	expectedBytes := [64]byte{1, 2, 3}
 
 	err := WriteSig(buf, data)
@@ -158,14 +160,16 @@ func TestWriteSig(t *testing.T) {
 
 func TestWriteSigs(t *testing.T) {
 	buf := new(bytes.Buffer)
-	sig1, sig2, sig3 := Sig{1}, Sig{2}, Sig{3}
+	sig1 := Sig{bytes: [64]byte{1}}
+	sig2 := Sig{bytes: [64]byte{2}}
+	sig3 := Sig{bytes: [64]byte{3}}
 	data := []Sig{sig1, sig2, sig3}
 
 	// First two bytes encode the length of the slice.
 	expectedBytes := []byte{0, 3}
-	expectedBytes = append(expectedBytes, sig1[:]...)
-	expectedBytes = append(expectedBytes, sig2[:]...)
-	expectedBytes = append(expectedBytes, sig3[:]...)
+	expectedBytes = append(expectedBytes, sig1.bytes[:]...)
+	expectedBytes = append(expectedBytes, sig2.bytes[:]...)
+	expectedBytes = append(expectedBytes, sig3.bytes[:]...)
 
 	err := WriteSigs(buf, data)
 

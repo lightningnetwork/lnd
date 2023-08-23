@@ -1,5 +1,15 @@
 # Release Notes
 
+## Protocol Features
+
+* This release marks the first release that includes the new [musig2-based
+  taproot channel type](https://github.com/lightningnetwork/lnd/pull/7904). As
+  new protocol feature hasn't yet been finalized, users must enable taproot
+  channels with a new flag: `--protocol.simple-taproot-channels`. Once enabled,
+  user MUST use the explicit channel type to request the taproot channel type
+  (pending support by the remote peer). For `lncli openchannel`,
+  `--channel_type=taproot` should be used.
+
 ## DB
 
 * Split channeldb [`UpdateInvoice`
@@ -285,3 +295,7 @@
 * Yong Yu
 * ziggie1984
 * zx9r
+
+# Contributors (Alphabetical Order)
+
+* Olaoluwa Osuntokun

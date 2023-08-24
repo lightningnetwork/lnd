@@ -19,6 +19,10 @@
 
 # Bug Fixes
 
+* [Fixed a potential case](https://github.com/lightningnetwork/lnd/pull/7824)
+  that when sweeping inputs with locktime, an unexpected lower fee rate is
+  applied.
+
 # New Features
 ## Functional Enhancements
 

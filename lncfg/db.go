@@ -66,6 +66,17 @@ const (
 	NSNeutrinoDB = "neutrinodb"
 )
 
+// KVDB holds the config values for kvdb backend.
+//
+//nolint:lll
+type KVDB struct {
+	Backend  string           `long:"backend" description:"The selected database backend." hidden:"true"`
+	Bolt     *kvdb.BoltConfig `group:"kvdb.bolt" namespace:"bolt" description:"Bolt settings."`
+	Etcd     *etcd.Config     `group:"kvdb.etcd" namespace:"etcd" description:"Etcd settings."`
+	Postgres *postgres.Config `group:"kvdb.postgres" namespace:"postgres" description:"Postgres settings."`
+	Sqlite   *sqlite.Config   `group:"kvdb.sqlite" namespace:"sqlite" description:"Sqlite settings."`
+}
+
 // DB holds database configuration for LND.
 //
 //nolint:lll
@@ -74,19 +85,19 @@ type DB struct {
 
 	BatchCommitInterval time.Duration `long:"batch-commit-interval" description:"The maximum duration the channel graph batch schedulers will wait before attempting to commit a batch of pending updates. This can be tradeoff database contenion for commit latency."`
 
-	Etcd *etcd.Config `group:"etcd" namespace:"etcd" description:"Etcd settings."`
-
-	Bolt *kvdb.BoltConfig `group:"bolt" namespace:"bolt" description:"Bolt settings."`
-
-	Postgres *postgres.Config `group:"postgres" namespace:"postgres" description:"Postgres settings."`
-
-	Sqlite *sqlite.Config `group:"sqlite" namespace:"sqlite" description:"Sqlite settings."`
-
 	NoGraphCache bool `long:"no-graph-cache" description:"Don't use the in-memory graph cache for path finding. Much slower but uses less RAM. Can only be used with a bolt database backend."`
 
 	PruneRevocation bool `long:"prune-revocation" description:"Run the optional migration that prunes the revocation logs to save disk space."`
 
 	NoRevLogAmtData bool `long:"no-rev-log-amt-data" description:"If set, the to-local and to-remote output amounts of revoked commitment transactions will not be stored in the revocation log. Note that once this data is lost, a watchtower client will not be able to back up the revoked state."`
+
+	KVDB *KVDB `group:"kvdb" namespace:"kvdb" description:"key-value database settings."`
+
+	// Deprecated fields.
+	Etcd     *etcd.Config     `group:"etcd" namespace:"etcd" description:"Etcd settings." hidden:"true"`
+	Bolt     *kvdb.BoltConfig `group:"bolt" namespace:"bolt" description:"Bolt settings." hidden:"true"`
+	Postgres *postgres.Config `group:"postgres" namespace:"postgres" description:"Postgres settings." hidden:"true"`
+	Sqlite   *sqlite.Config   `group:"sqlite" namespace:"sqlite" description:"Sqlite settings." hidden:"true"`
 }
 
 // DefaultDB creates and returns a new default DB config.

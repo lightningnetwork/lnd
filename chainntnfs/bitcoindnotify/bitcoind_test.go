@@ -5,6 +5,7 @@ package bitcoindnotify
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -162,18 +164,21 @@ func testHistoricalConfDetailsTxIndex(t *testing.T, rpcPolling bool) {
 	confReq, err := chainntnfs.NewConfRequest(txid, pkScript)
 	require.NoError(t, err, "unable to create conf request")
 
-	// The transaction should be found in the mempool at this point.
-	_, txStatus, err = notifier.historicalConfDetails(confReq, 0, 0)
-	require.NoError(t, err, "unable to retrieve historical conf details")
+	// The transaction should be found in the mempool at this point. We use
+	// wait here to give miner some time to propagate the tx to our node.
+	err = wait.NoError(func() error {
+		// The call should return no error.
+		_, txStatus, err = notifier.historicalConfDetails(confReq, 0, 0)
+		require.NoError(t, err)
 
-	// Since it has yet to be included in a block, it should have been found
-	// within the mempool.
-	switch txStatus {
-	case chainntnfs.TxFoundMempool:
-	default:
-		t.Fatalf("should have found the transaction within the "+
-			"mempool, but did not: %v", txStatus)
-	}
+		if txStatus != chainntnfs.TxFoundMempool {
+			return fmt.Errorf("cannot the tx in mempool, status "+
+				"is: %v", txStatus)
+		}
+
+		return nil
+	}, wait.DefaultTimeout)
+	require.NoError(t, err, "timeout waitinfg for historicalConfDetails")
 
 	if _, err := miner.Client.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)

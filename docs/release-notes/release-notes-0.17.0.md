@@ -59,6 +59,9 @@
   have to make sure to not broadcast outdated transactions which can lead to
   locked up wallet funds indefinitely in the worst case.
 
+- [Remove nil value](https://github.com/lightningnetwork/lnd/pull/7922) from
+  variadic parameter list.
+
 # New Features
 ## Functional Enhancements
 ### Protocol Features

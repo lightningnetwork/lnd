@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb/sqlite"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/sqldb"
 )
 
 const (
@@ -33,6 +34,7 @@ const (
 	EtcdBackend                = "etcd"
 	PostgresBackend            = "postgres"
 	SqliteBackend              = "sqlite"
+	NativeSQLBackend           = "sql"
 	DefaultBatchCommitInterval = 500 * time.Millisecond
 
 	defaultPostgresMaxConnections = 50
@@ -91,7 +93,8 @@ type DB struct {
 
 	NoRevLogAmtData bool `long:"no-rev-log-amt-data" description:"If set, the to-local and to-remote output amounts of revoked commitment transactions will not be stored in the revocation log. Note that once this data is lost, a watchtower client will not be able to back up the revoked state."`
 
-	KVDB *KVDB `group:"kvdb" namespace:"kvdb" description:"key-value database settings."`
+	KVDB      *KVDB         `group:"kvdb" namespace:"kvdb" description:"key-value database settings."`
+	NativeSQL *sqldb.Config `group:"sql" namespace:"sql" description:"Native SQL settings."`
 
 	// Deprecated fields.
 	Etcd     *etcd.Config     `group:"etcd" namespace:"etcd" description:"Etcd settings." hidden:"true"`
@@ -136,6 +139,11 @@ func (db *DB) Validate() error {
 	case EtcdBackend:
 		if !db.Etcd.Embedded && db.Etcd.Host == "" {
 			return fmt.Errorf("etcd host must be set")
+		}
+
+	case NativeSQLBackend:
+		if err := db.NativeSQL.Validate(); err != nil {
+			return fmt.Errorf("native sql: %w", err)
 		}
 
 	default:

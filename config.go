@@ -1840,6 +1840,14 @@ func (c *Config) graphDatabaseDir() string {
 func (c *Config) ImplementationConfig(
 	interceptor signal.Interceptor) *ImplementationCfg {
 
+	// Create a default database builder.
+	dbBuilder := NewDefaultDatabaseBuilder(c, ltndLog)
+
+	// Use native sql db builder if specified.
+	if c.DB.Backend == lncfg.NativeSQLBackend {
+		dbBuilder = NewDefaultDatabaseBuilder(c, ltndLog)
+	}
+
 	// If we're using a remote signer, we still need the base wallet as a
 	// watch-only source of chain and address data. But we don't need any
 	// private key material in that btcwallet base wallet.
@@ -1849,12 +1857,10 @@ func (c *Config) ImplementationConfig(
 			c.RemoteSigner.MigrateWatchOnly,
 		)
 		return &ImplementationCfg{
-			GrpcRegistrar:     rpcImpl,
-			RestRegistrar:     rpcImpl,
-			ExternalValidator: rpcImpl,
-			DatabaseBuilder: NewDefaultDatabaseBuilder(
-				c, ltndLog,
-			),
+			GrpcRegistrar:       rpcImpl,
+			RestRegistrar:       rpcImpl,
+			ExternalValidator:   rpcImpl,
+			DatabaseBuilder:     dbBuilder,
 			WalletConfigBuilder: rpcImpl,
 			ChainControlBuilder: rpcImpl,
 		}
@@ -1865,7 +1871,7 @@ func (c *Config) ImplementationConfig(
 		GrpcRegistrar:       defaultImpl,
 		RestRegistrar:       defaultImpl,
 		ExternalValidator:   defaultImpl,
-		DatabaseBuilder:     NewDefaultDatabaseBuilder(c, ltndLog),
+		DatabaseBuilder:     dbBuilder,
 		WalletConfigBuilder: defaultImpl,
 		ChainControlBuilder: defaultImpl,
 	}

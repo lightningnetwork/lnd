@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
@@ -1284,6 +1285,53 @@ func (f *Manager) advancePendingChannelState(
 		return fmt.Errorf("error waiting for funding "+
 			"confirmation for ChannelPoint(%v): %v",
 			channel.FundingOutpoint, err)
+	}
+
+	if blockchain.IsCoinBaseTx(confChannel.fundingTx) {
+		// If it's a coinbase transaction, we need to wait for it to
+		// mature. We wait out an additional MinAcceptDepth on top of
+		// the coinbase maturity as an extra margin of safety.
+		maturity := f.cfg.Wallet.Cfg.NetParams.CoinbaseMaturity
+		numCoinbaseConfs := uint32(maturity)
+
+		if channel.NumConfsRequired > maturity {
+			numCoinbaseConfs = uint32(channel.NumConfsRequired)
+		}
+
+		txid := &channel.FundingOutpoint.Hash
+		fundingScript, err := makeFundingScript(channel)
+		if err != nil {
+			log.Errorf("unable to create funding script for "+
+				"ChannelPoint(%v): %v",
+				channel.FundingOutpoint, err)
+
+			return err
+		}
+
+		confNtfn, err := f.cfg.Notifier.RegisterConfirmationsNtfn(
+			txid, fundingScript, numCoinbaseConfs,
+			channel.BroadcastHeight(),
+		)
+		if err != nil {
+			log.Errorf("Unable to register for confirmation of "+
+				"ChannelPoint(%v): %v",
+				channel.FundingOutpoint, err)
+
+			return err
+		}
+
+		select {
+		case _, ok := <-confNtfn.Confirmed:
+			if !ok {
+				return fmt.Errorf("ChainNotifier shutting "+
+					"down, can't complete funding flow "+
+					"for ChannelPoint(%v)",
+					channel.FundingOutpoint)
+			}
+
+		case <-f.quit:
+			return ErrFundingManagerShuttingDown
+		}
 	}
 
 	// Success, funding transaction was confirmed.

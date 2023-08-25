@@ -3093,10 +3093,21 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 		if failure.linkErr.SendData != nil {
 			data = failure.linkErr.SendData
 		}
-		err := p.SendMessage(true, &lnwire.Error{
-			ChanID: failure.chanID,
-			Data:   data,
-		})
+
+		var networkMsg lnwire.Message
+		if failure.linkErr.Warning {
+			networkMsg = &lnwire.Warning{
+				ChanID: failure.chanID,
+				Data:   data,
+			}
+		} else {
+			networkMsg = &lnwire.Error{
+				ChanID: failure.chanID,
+				Data:   data,
+			}
+		}
+
+		err := p.SendMessage(true, networkMsg)
 		if err != nil {
 			p.log.Errorf("unable to send msg to "+
 				"remote peer: %v", err)

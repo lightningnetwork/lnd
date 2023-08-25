@@ -1950,11 +1950,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			// us to proceed with an unclean state.
 			//
 			// NOTE: We do not trigger a force close because this
-			// could resolve itself in case our db was just busy not
-			// accepting new transactions.
+			// could resolve itself in case our db was just busy
+			// not accepting new transactions.
 			l.fail(
 				LinkFailureError{
-					code: ErrInternalError,
+					code:          ErrInternalError,
+					Warning:       true,
+					FailureAction: LinkFailureDisconnect,
 				},
 				"ChannelPoint(%v): unable to accept new "+
 					"commitment: %v",
@@ -2024,8 +2026,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			ReceiveRevocation(msg)
 		if err != nil {
 			// TODO(halseth): force close?
-			l.fail(LinkFailureError{code: ErrInvalidRevocation},
-				"unable to accept revocation: %v", err)
+			l.fail(
+				LinkFailureError{
+					code:          ErrInvalidRevocation,
+					FailureAction: LinkFailureDisconnect,
+				},
+				"unable to accept revocation: %v", err,
+			)
 			return
 		}
 

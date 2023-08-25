@@ -306,7 +306,7 @@ const (
 	// negotiated during the lifetime of this channel.
 	ScidAliasFeatureBit ChannelType = 1 << 9
 
-	// SimpleTaprootFeatureBit indicates that the simple-taproot-channels
+	// SimpleTaprootFeatureBit indicates that the simple-taproot-chans
 	// feature bit was negotiated during the lifetime of the channel.
 	SimpleTaprootFeatureBit ChannelType = 1 << 10
 )

@@ -581,7 +581,7 @@ func testChannelBackupRestoreCommitTypes(ht *lntest.HarnessTest) {
 			zeroConf: false,
 		},
 
-		// Restore a chanenl back up of an unconfirmed taproot channel.
+		// Restore a channel back up of an unconfirmed taproot channel.
 		{
 			name:     "restore from backup taproot zero conf",
 			ct:       lnrpc.CommitmentType_SIMPLE_TAPROOT,

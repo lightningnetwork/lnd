@@ -32,6 +32,10 @@
   estimator used(for instance `bitcoind`), and this value is a cap on the max
   allowed value. So it's expected that this cap is rarely hit unless there's
   mempool congestion.
+* Support for [pathfinding]((https://github.com/lightningnetwork/lnd/pull/7267)
+  and payment to blinded paths has been added via the `QueryRoutes` (and 
+  SendToRouteV2) APIs. This functionality is surfaced in `lncli queryroutes` 
+  where the required flags are tagged with `(blinded paths)`.
 
 ## RPC Additions
 ## lncli Additions
@@ -65,5 +69,6 @@
 
 # Contributors (Alphabetical Order)
 
+* Carla Kirk-Cohen
 * Elle Mouton
 * Yong Yu

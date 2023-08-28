@@ -273,9 +273,9 @@ func (c *WatchtowerClient) ListTowers(ctx context.Context,
 	// for the legacy client to the existing tower.
 	rpcTowers := make(map[wtdb.TowerID]*Tower)
 	for blobType, towers := range towersPerBlobType {
-		policyType := PolicyType_LEGACY
-		if blobType.IsAnchorChannel() {
-			policyType = PolicyType_ANCHOR
+		policyType, err := blobTypeToPolicyType(blobType)
+		if err != nil {
+			return nil, err
 		}
 
 		for _, tower := range towers {
@@ -331,9 +331,9 @@ func (c *WatchtowerClient) GetTowerInfo(ctx context.Context,
 
 	var resTower *Tower
 	for blobType, tower := range towersPerBlobType {
-		policyType := PolicyType_LEGACY
-		if blobType.IsAnchorChannel() {
-			policyType = PolicyType_ANCHOR
+		policyType, err := blobTypeToPolicyType(blobType)
+		if err != nil {
+			return nil, err
 		}
 
 		rpcTower := marshallTower(
@@ -437,15 +437,9 @@ func (c *WatchtowerClient) Policy(ctx context.Context,
 		return nil, err
 	}
 
-	var blobType blob.Type
-	switch req.PolicyType {
-	case PolicyType_LEGACY:
-		blobType = blob.TypeAltruistCommit
-	case PolicyType_ANCHOR:
-		blobType = blob.TypeAltruistAnchorCommit
-	default:
-		return nil, fmt.Errorf("unknown policy type: %v",
-			req.PolicyType)
+	blobType, err := policyTypeToBlobType(req.PolicyType)
+	if err != nil {
+		return nil, err
 	}
 
 	policy, err := c.cfg.ClientMgr.Policy(blobType)
@@ -524,4 +518,36 @@ func marshallTower(tower *wtclient.RegisteredTower, policyType PolicyType,
 	}
 
 	return rpcTower
+}
+
+func blobTypeToPolicyType(t blob.Type) (PolicyType, error) {
+	switch t {
+	case blob.TypeAltruistTaprootCommit:
+		return PolicyType_TAPROOT, nil
+
+	case blob.TypeAltruistAnchorCommit:
+		return PolicyType_ANCHOR, nil
+
+	case blob.TypeAltruistCommit:
+		return PolicyType_LEGACY, nil
+
+	default:
+		return 0, fmt.Errorf("unknown blob type: %s", t)
+	}
+}
+
+func policyTypeToBlobType(t PolicyType) (blob.Type, error) {
+	switch t {
+	case PolicyType_TAPROOT:
+		return blob.TypeAltruistTaprootCommit, nil
+
+	case PolicyType_ANCHOR:
+		return blob.TypeAltruistAnchorCommit, nil
+
+	case PolicyType_LEGACY:
+		return blob.TypeAltruistCommit, nil
+
+	default:
+		return 0, fmt.Errorf("unknown policy type: %s", t)
+	}
 }

@@ -1467,6 +1467,7 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
 		SpendUnconfirmed:   p.SpendUnconfirmed,
 		MinHtlcMsat:        int64(p.MinHtlc),
 		FundingShim:        p.FundingShim,
+		CommitmentType:     p.CommitmentType,
 	}
 	respStream := srcNode.RPC.OpenChannel(req)
 
@@ -1475,6 +1476,23 @@ func (h *HarnessTest) OpenChannelPsbt(srcNode, destNode *node.HarnessNode,
 	resp := h.ReceiveOpenChannelUpdate(respStream)
 	upd, ok := resp.Update.(*lnrpc.OpenStatusUpdate_PsbtFund)
 	require.Truef(h, ok, "expected PSBT funding update, got %v", resp)
+
+	// Make sure the channel funding address has the correct type for the
+	// given commitment type.
+	fundingAddr, err := btcutil.DecodeAddress(
+		upd.PsbtFund.FundingAddress, harnessNetParams,
+	)
+	require.NoError(h, err)
+
+	switch p.CommitmentType {
+	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
+		require.IsType(h, &btcutil.AddressTaproot{}, fundingAddr)
+
+	default:
+		require.IsType(
+			h, &btcutil.AddressWitnessScriptHash{}, fundingAddr,
+		)
+	}
 
 	return respStream, upd.PsbtFund.Psbt
 }

@@ -718,30 +718,24 @@ func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 // asserts that Willy responds by broadcasting the justice transaction on
 // Carol's behalf sweeping her funds without a reward.
 func testRevokedCloseRetributionAltruistWatchtower(ht *lntest.HarnessTest) {
-	testCases := []struct {
-		name    string
-		anchors bool
-	}{{
-		name:    "anchors",
-		anchors: true,
-	}, {
-		name:    "legacy",
-		anchors: false,
-	}}
-
-	for _, tc := range testCases {
-		tc := tc
+	for _, commitType := range []lnrpc.CommitmentType{
+		lnrpc.CommitmentType_LEGACY,
+		lnrpc.CommitmentType_ANCHORS,
+		lnrpc.CommitmentType_SIMPLE_TAPROOT,
+	} {
+		testName := fmt.Sprintf("%v", commitType.String())
+		ct := commitType
 		testFunc := func(ht *lntest.HarnessTest) {
 			testRevokedCloseRetributionAltruistWatchtowerCase(
-				ht, tc.anchors,
+				ht, ct,
 			)
 		}
 
-		success := ht.Run(tc.name, func(tt *testing.T) {
+		success := ht.Run(testName, func(tt *testing.T) {
 			st := ht.Subtest(tt)
 
 			st.RunTestCase(&lntest.TestCase{
-				Name:     tc.name,
+				Name:     testName,
 				TestFunc: testFunc,
 			})
 		})
@@ -759,7 +753,7 @@ func testRevokedCloseRetributionAltruistWatchtower(ht *lntest.HarnessTest) {
 }
 
 func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
-	anchors bool) {
+	commitType lnrpc.CommitmentType) {
 
 	const (
 		chanAmt     = funding.MaxBtcFundingAmount
@@ -770,18 +764,19 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 
 	// Since we'd like to test some multi-hop failure scenarios, we'll
 	// introduce another node into our test network: Carol.
-	carolArgs := []string{"--hodl.exit-settle"}
-	if anchors {
-		carolArgs = append(carolArgs, "--protocol.anchors")
-	}
+	carolArgs := lntest.NodeArgsForCommitType(commitType)
+	carolArgs = append(carolArgs, "--hodl.exit-settle")
+
 	carol := ht.NewNode("Carol", carolArgs)
 
 	// Willy the watchtower will protect Dave from Carol's breach. He will
 	// remain online in order to punish Carol on Dave's behalf, since the
 	// breach will happen while Dave is offline.
 	willy := ht.NewNode(
-		"Willy", []string{"--watchtower.active",
-			"--watchtower.externalip=" + externalIP},
+		"Willy", []string{
+			"--watchtower.active",
+			"--watchtower.externalip=" + externalIP,
+		},
 	)
 
 	willyInfo := willy.RPC.GetInfoWatchtower()
@@ -804,13 +799,8 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	// Dave will be the breached party. We set --nolisten to ensure Carol
 	// won't be able to connect to him and trigger the channel data
 	// protection logic automatically.
-	daveArgs := []string{
-		"--nolisten",
-		"--wtclient.active",
-	}
-	if anchors {
-		daveArgs = append(daveArgs, "--protocol.anchors")
-	}
+	daveArgs := lntest.NodeArgsForCommitType(commitType)
+	daveArgs = append(daveArgs, "--nolisten", "--wtclient.active")
 	dave := ht.NewNode("Dave", daveArgs)
 
 	addTowerReq := &wtclientrpc.AddTowerRequest{
@@ -836,8 +826,10 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	// closure by Carol, we'll first open up a channel between them with a
 	// 0.5 BTC value.
 	params := lntest.OpenChannelParams{
-		Amt:     3 * (chanAmt / 4),
-		PushAmt: chanAmt / 4,
+		Amt:            3 * (chanAmt / 4),
+		PushAmt:        chanAmt / 4,
+		CommitmentType: commitType,
+		Private:        true,
 	}
 	chanPoint := ht.OpenChannel(dave, carol, params)
 
@@ -959,7 +951,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 		willyBalResp := willy.RPC.WalletBalance()
 
 		if willyBalResp.ConfirmedBalance != 0 {
-			return fmt.Errorf("Expected Willy to have no funds "+
+			return fmt.Errorf("expected Willy to have no funds "+
 				"after justice transaction was mined, found %v",
 				willyBalResp)
 		}
@@ -997,7 +989,9 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	ht.AssertNumPendingForceClose(dave, 0)
 
 	// If this is an anchor channel, Dave would sweep the anchor.
-	if anchors {
+	if commitType == lnrpc.CommitmentType_ANCHORS ||
+		commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 	}
 

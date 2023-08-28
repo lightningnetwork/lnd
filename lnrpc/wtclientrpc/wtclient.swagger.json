@@ -154,13 +154,14 @@
         "parameters": [
           {
             "name": "policy_type",
-            "description": "The client type from which to retrieve the active offering policy.\n\n - LEGACY: Selects the policy from the legacy tower client.\n - ANCHOR: Selects the policy from the anchor tower client.",
+            "description": "The client type from which to retrieve the active offering policy.\n\n - LEGACY: Selects the policy from the legacy tower client.\n - ANCHOR: Selects the policy from the anchor tower client.\n - TAPROOT: Selects the policy from the taproot tower client.",
             "in": "query",
             "required": false,
             "type": "string",
             "enum": [
               "LEGACY",
-              "ANCHOR"
+              "ANCHOR",
+              "TAPROOT"
             ],
             "default": "LEGACY"
           }
@@ -318,10 +319,11 @@
       "type": "string",
       "enum": [
         "LEGACY",
-        "ANCHOR"
+        "ANCHOR",
+        "TAPROOT"
       ],
       "default": "LEGACY",
-      "description": " - LEGACY: Selects the policy from the legacy tower client.\n - ANCHOR: Selects the policy from the anchor tower client."
+      "description": " - LEGACY: Selects the policy from the legacy tower client.\n - ANCHOR: Selects the policy from the anchor tower client.\n - TAPROOT: Selects the policy from the taproot tower client."
     },
     "wtclientrpcRemoveTowerResponse": {
       "type": "object"

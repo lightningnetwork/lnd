@@ -219,6 +219,9 @@ enum PolicyType {
 
     // Selects the policy from the anchor tower client.
     ANCHOR = 1;
+
+    // Selects the policy from the taproot tower client.
+    TAPROOT = 2;
 }
 
 message PolicyRequest {

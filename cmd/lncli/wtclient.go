@@ -284,8 +284,14 @@ var policyCommand = cli.Command{
 				"policy. (default)",
 		},
 		cli.BoolFlag{
-			Name:  "anchor",
-			Usage: "Retrieve the anchor tower client's current policy.",
+			Name: "anchor",
+			Usage: "Retrieve the anchor tower client's current " +
+				"policy.",
+		},
+		cli.BoolFlag{
+			Name: "taproot",
+			Usage: "Retrieve the taproot tower client's current " +
+				"policy.",
 		},
 	},
 }
@@ -305,6 +311,8 @@ func policy(ctx *cli.Context) error {
 		policyType = wtclientrpc.PolicyType_ANCHOR
 	case ctx.Bool("legacy"):
 		policyType = wtclientrpc.PolicyType_LEGACY
+	case ctx.Bool("taproot"):
+		policyType = wtclientrpc.PolicyType_TAPROOT
 
 	// For backwards compatibility with original rpc behavior.
 	default:

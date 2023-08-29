@@ -143,6 +143,11 @@ None
   updated](https://github.com/lightningnetwork/lnd/pull/7877) in preparation for 
   work to be done on route blinding in LND. 
 
+* [Make the recovery of anchor outputs configurable. Default behaviour stays the
+  same but to prevent the blocking of wallet funds indefinitely when mempool 
+  conditions are not in favour of confirming 1 sat/vbyte transactions node 
+  runners can turn it off](https://github.com/lightningnetwork/lnd/pull/7939).
+
 ## RPC Updates
 * [SendOutputs](https://github.com/lightningnetwork/lnd/pull/7631) now adheres
   to the anchor channel reserve requirement.

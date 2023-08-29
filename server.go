@@ -1208,6 +1208,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return s.chanStatusMgr.RequestDisable(chanPoint, false)
 		},
 		Sweeper:                       s.sweeper,
+		NotRecoverAnchorOutputs:       cfg.Sweeper.NotRecoverAnchorOutputs,
 		Registry:                      s.invoices,
 		NotifyClosedChannel:           s.channelNotifier.NotifyClosedChannelEvent,
 		NotifyFullyResolvedChannel:    s.channelNotifier.NotifyFullyResolvedChannelEvent,

@@ -731,13 +731,14 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 
 		if chanState != nil {
 			resolver.SupplementState(chanState)
-		}
 
-		// For taproot channels, we'll need to also make sure the
-		// control block information was set properly.
-		maybeAugmentTaprootResolvers(
-			chanState.ChanType, resolver, contractResolutions,
-		)
+			// For taproot channels, we'll need to also make sure
+			// the control block information was set properly.
+			maybeAugmentTaprootResolvers(
+				chanState.ChanType, resolver,
+				contractResolutions,
+			)
+		}
 
 		unresolvedContracts[i] = resolver
 

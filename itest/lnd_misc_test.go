@@ -219,7 +219,7 @@ func testSphinxReplayPersistence(ht *lntest.HarnessTest) {
 	// Assert that Fred receives the expected failure after Carol sent a
 	// duplicate packet that fails due to sphinx replay detection.
 	ht.AssertPaymentStatusFromStream(payStream, lnrpc.Payment_FAILED)
-	ht.AssertLastHTLCError(fred, lnrpc.Failure_INVALID_ONION_KEY)
+	ht.AssertLastHTLCError(fred, lnrpc.Failure_INVALID_ONION_VERSION)
 
 	// Since the payment failed, the balance should still be left
 	// unaltered.

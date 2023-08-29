@@ -270,14 +270,6 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testPsbtChanFunding,
 	},
 	{
-		Name:     "psbt channel funding external",
-		TestFunc: testPsbtChanFundingExternal,
-	},
-	{
-		Name:     "psbt channel funding single step",
-		TestFunc: testPsbtChanFundingSingleStep,
-	},
-	{
 		Name:     "sign psbt",
 		TestFunc: testSignPsbt,
 	},

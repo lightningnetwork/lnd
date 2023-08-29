@@ -1,7 +1,6 @@
 package chanfunding
 
 import (
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
@@ -178,23 +177,26 @@ func (i *PsbtIntent) FundingParams() (btcutil.Address, int64, *psbt.Packet,
 	// The funding output needs to be known already at this point, which
 	// means we need to have the local and remote multisig keys bound
 	// already.
-	witnessScript, out, err := i.FundingOutput()
+	_, out, err := i.FundingOutput()
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("unable to create funding "+
 			"output: %v", err)
 	}
-	witnessScriptHash := sha256.Sum256(witnessScript)
 
-	// Encode the address in the human readable bech32 format.
-	addr, err := btcutil.NewAddressWitnessScriptHash(
-		witnessScriptHash[:], i.netParams,
-	)
+	script, err := txscript.ParsePkScript(out.PkScript)
+	if err != nil {
+		return nil, 0, nil, fmt.Errorf("unable to parse funding "+
+			"output script: %w", err)
+	}
+
+	// Encode the address in the human-readable bech32 format.
+	addr, err := script.Address(i.netParams)
 	if err != nil {
 		return nil, 0, nil, fmt.Errorf("unable to encode address: %v",
 			err)
 	}
 
-	// We'll also encode the address/amount in a machine readable raw PSBT
+	// We'll also encode the address/amount in a machine-readable raw PSBT
 	// format. If the user supplied a base PSBT, we'll add the output to
 	// that one, otherwise we'll create a new one.
 	packet := i.BasePsbt
@@ -597,8 +599,8 @@ func verifyAllInputsSegWit(txIns []*wire.TxIn, ins []psbt.PInput) error {
 			txIn := txIns[idx]
 			txOut := utxo.TxOut[txIn.PreviousOutPoint.Index]
 
-			if !isSegWitScript(txOut.PkScript) &&
-				!isSegWitScript(in.RedeemScript) {
+			if !txscript.IsWitnessProgram(txOut.PkScript) &&
+				!txscript.IsWitnessProgram(in.RedeemScript) {
 
 				return fmt.Errorf("input %d is non-SegWit "+
 					"spend or missing redeem script", idx)
@@ -613,20 +615,4 @@ func verifyAllInputsSegWit(txIns []*wire.TxIn, ins []psbt.PInput) error {
 	}
 
 	return nil
-}
-
-// isSegWitScript returns true if the given pkScript can be parsed successfully
-// as a SegWit v0 spend.
-func isSegWitScript(pkScript []byte) bool {
-	if len(pkScript) == 0 {
-		return false
-	}
-
-	parsed, err := txscript.ParsePkScript(pkScript)
-	if err != nil {
-		return false
-	}
-
-	return parsed.Class() == txscript.WitnessV0PubKeyHashTy ||
-		parsed.Class() == txscript.WitnessV0ScriptHashTy
 }

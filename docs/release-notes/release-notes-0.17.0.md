@@ -66,6 +66,11 @@
 fails](https://github.com/lightningnetwork/lnd/pull/7876).
 
 
+* Failed `sqlite` or `postgres` transactions due to a serialization error will
+  now be [automatically
+  retried](https://github.com/lightningnetwork/lnd/pull/7927) with an
+  exponential back off.
+
 # New Features
 ## Functional Enhancements
 ### Protocol Features

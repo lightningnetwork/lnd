@@ -773,8 +773,6 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		anchorResolver.SupplementState(chanState)
 
 		unresolvedContracts = append(unresolvedContracts, anchorResolver)
-
-		// TODO(roasbeef): this isn't re-launched?
 	}
 
 	c.launchResolvers(unresolvedContracts)

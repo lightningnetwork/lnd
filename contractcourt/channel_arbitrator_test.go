@@ -761,9 +761,14 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 	// StateWaitingFullResolution.
 	chanArbCtx.AssertStateTransitions(StateWaitingFullResolution)
 
-	// One of the resolvers should be an anchor resolver and the other
-	// should be a breach resolver.
-	require.Equal(t, 2, len(chanArb.activeResolvers))
+	// Depending on whether we recover anchor outputs one of the resolvers
+	// should be an anchor resolver and the other should be a breach
+	// resovler
+	numResovlers := 1
+	if !chanArb.cfg.NotRecoverAnchorOutputs {
+		numResovlers = 2
+	}
+	require.Equal(t, numResovlers, len(chanArb.activeResolvers))
 
 	var anchorExists, breachExists bool
 	for _, resolver := range chanArb.activeResolvers {
@@ -776,14 +781,25 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 			t.Fatalf("did not expect resolver %T", resolver)
 		}
 	}
-	require.True(t, anchorExists && breachExists)
+	require.True(t, breachExists)
+	if numResovlers == 2 {
+		require.True(t, anchorExists)
 
-	// The anchor resolver is expected to re-offer the anchor input to the
-	// sweeper.
-	<-chanArbCtx.sweeper.sweptInputs
+		// The anchor resolver is expected to re-offer the anchor input
+		// to the sweeper.
+		select {
+		case <-chanArbCtx.sweeper.sweptInputs:
+		case <-time.After(defaultTimeout):
+			t.Fatalf("anchor input not re-offered to sweeper")
+		}
+	}
 
 	// Wait for SubscribeBreachComplete to be called.
-	<-chanArbCtx.breachSubscribed
+	select {
+	case <-chanArbCtx.breachSubscribed:
+	case <-time.After(defaultTimeout):
+		t.Fatalf("SubscribeBreachComplete not called")
+	}
 
 	// We'll now close the breach channel so that the state transitions to
 	// StateFullyResolved.
@@ -2633,22 +2649,27 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		StateWaitingFullResolution,
 	)
 
-	// We expect to only have the anchor resolver active.
-	if len(chanArb.activeResolvers) != 1 {
-		t.Fatalf("expected single resolver, instead got: %v",
-			len(chanArb.activeResolvers))
+	if !chanArb.cfg.NotRecoverAnchorOutputs {
+		// We expect to only have the anchor resolver active.
+		if len(chanArb.activeResolvers) != 1 {
+			t.Fatalf("expected single resolver, instead got: %v",
+				len(chanArb.activeResolvers))
+		}
+
+		resolver := chanArb.activeResolvers[0]
+		_, ok := resolver.(*anchorResolver)
+		if !ok {
+			t.Fatalf("expected anchor resolver, got %T", resolver)
+		}
+
+		// The anchor resolver is expected to re-offer the anchor input
+		// to the sweeper.
+		select {
+		case <-chanArbCtx.sweeper.sweptInputs:
+		case <-time.After(defaultTimeout):
+			t.Fatalf("anchor input not re-offered to sweeper")
+		}
 	}
-
-	resolver := chanArb.activeResolvers[0]
-	_, ok := resolver.(*anchorResolver)
-	if !ok {
-		t.Fatalf("expected anchor resolver, got %T", resolver)
-	}
-
-	// The anchor resolver is expected to re-offer the anchor input to the
-	// sweeper.
-	<-chanArbCtx.sweeper.sweptInputs
-
 	// The mock sweeper immediately signals success for that input. This
 	// should transition the channel to the resolved state.
 	chanArbCtx.AssertStateTransitions(StateFullyResolved)
@@ -2658,19 +2679,21 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		t.Fatalf("contract was not resolved")
 	}
 
-	anchorAmt := btcutil.Amount(
-		anchorResolution.AnchorSignDescriptor.Output.Value,
-	)
-	spendTx := chanArbCtx.sweeper.sweepTx.TxHash()
-	expectedReport := &channeldb.ResolverReport{
-		OutPoint:        anchorResolution.CommitAnchor,
-		Amount:          anchorAmt,
-		ResolverType:    channeldb.ResolverTypeAnchor,
-		ResolverOutcome: channeldb.ResolverOutcomeClaimed,
-		SpendTxID:       &spendTx,
-	}
+	if !chanArb.cfg.NotRecoverAnchorOutputs {
+		anchorAmt := btcutil.Amount(
+			anchorResolution.AnchorSignDescriptor.Output.Value,
+		)
+		spendTx := chanArbCtx.sweeper.sweepTx.TxHash()
+		expectedReport := &channeldb.ResolverReport{
+			OutPoint:        anchorResolution.CommitAnchor,
+			Amount:          anchorAmt,
+			ResolverType:    channeldb.ResolverTypeAnchor,
+			ResolverOutcome: channeldb.ResolverOutcomeClaimed,
+			SpendTxID:       &spendTx,
+		}
 
-	assertResolverReport(t, reports, expectedReport)
+		assertResolverReport(t, reports, expectedReport)
+	}
 
 	// We expect two anchor inputs, the local and the remote to be swept.
 	// Thus we should expect there are two deadlines used, both are equal

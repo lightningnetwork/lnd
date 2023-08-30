@@ -672,7 +672,7 @@ func (p *Brontide) Start() error {
 	//
 	// TODO(wilmer): Remove this once we're able to query for node
 	// announcements through their timestamps.
-	p.maybeSendNodeAnn(activeChans)
+	go p.maybeSendNodeAnn(activeChans)
 
 	return nil
 }

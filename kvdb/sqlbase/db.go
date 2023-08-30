@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 	"time"
 
@@ -18,6 +19,28 @@ const (
 	// kvTableName is the name of the table that will contain all the kv
 	// pairs.
 	kvTableName = "kv"
+
+	// DefaultNumTxRetries is the default number of times we'll retry a
+	// transaction if it fails with an error that permits transaction
+	// repetition.
+	DefaultNumTxRetries = 10
+
+	// DefaultInitialRetryDelay is the default initial delay between
+	// retries. This will be used to generate a random delay between -50%
+	// and +50% of this value, so 20 to 60 milliseconds. The retry will be
+	// doubled after each attempt until we reach DefaultMaxRetryDelay. We
+	// start with a random value to avoid multiple goroutines that are
+	// created at the same time to effectively retry at the same time.
+	DefaultInitialRetryDelay = time.Millisecond * 50
+
+	// DefaultMaxRetryDelay is the default maximum delay between retries.
+	DefaultMaxRetryDelay = time.Second * 5
+)
+
+var (
+	// ErrRetriesExceeded is returned when a transaction is retried more
+	// than the max allowed valued without a success.
+	ErrRetriesExceeded = errors.New("db tx retries exceeded")
 )
 
 // Config holds a set of configuration options of a sql database connection.
@@ -209,28 +232,110 @@ func (db *db) Update(f func(tx walletdb.ReadWriteTx) error,
 	return db.executeTransaction(f, reset, false)
 }
 
+// randRetryDelay returns a random retry delay between -50% and +50% of the
+// configured delay that is doubled for each attempt and capped at a max value.
+func randRetryDelay(initialRetryDelay, maxRetryDelay, attempt int) time.Duration {
+	halfDelay := initialRetryDelay / 2
+	randDelay := prand.Int63n(int64(initialRetryDelay)) //nolint:gosec
+
+	// 50% plus 0%-100% gives us the range of 50%-150%.
+	initialDelay := halfDelay + time.Duration(randDelay)
+
+	// If this is the first attempt, we just return the initial delay.
+	if attempt == 0 {
+		return initialDelay
+	}
+
+	// For each subsequent delay, we double the initial delay. This still
+	// gives us a somewhat random delay, but it still increases with each
+	// attempt. If we double something n times, that's the same as
+	// multiplying the value with 2^n. We limit the power to 32 to avoid
+	// overflows.
+	factor := time.Duration(math.Pow(2, math.Min(float64(attempt), 32)))
+	actualDelay := initialDelay * factor
+
+	// Cap the delay at the maximum configured value.
+	if actualDelay > maxRetryDelay {
+		return maxRetryDelay
+	}
+
+	return actualDelay
+}
+
 // executeTransaction creates a new read-only or read-write transaction and
 // executes the given function within it.
 func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 	reset func(), readOnly bool) error {
 
-	reset()
+	// waitBeforeRetry is a helper function that will wait for a random
+	// interval before exiting to retry the db transaction. If false is
+	// returned, then this means that daemon is shutting down so we
+	// should abort the retries.
+	waitBeforeRetry := func(attemptNumber int) bool {
+		retryDelay := randRetryDelay(
+			attemptNumber, DefaultInitialRetryDelay,
+			DefaultMaxRetryDelay,
+		)
 
-	tx, err := newReadWriteTx(db, readOnly)
-	if err != nil {
-		return err
+		log.Debugf("Retrying transaction due to tx serialization "+
+			"error, attempt_number=%v, delay=%v", attemptNumber,
+			retryDelay)
+
+		select {
+		// Before we try again, we'll wait with a random backoff based
+		// on the retry delay.
+		case time.After(retryDelay):
+			return true
+
+		// If the daemon is shutting down, then we'll exit early.
+		case <-db.Context.Done():
+			return false
+		}
 	}
 
-	err = catchPanic(func() error { return f(tx) })
-	if err != nil {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			log.Errorf("Error rolling back tx: %v", rollbackErr)
+	for i := 0; i < DefaultNumTxRetries; i++ {
+		reset()
+
+		tx, err := newReadWriteTx(db, readOnly)
+		if err != nil {
+			dbErr := MapSQLError(err)
+
+			if IsSerializationError(dbErr) {
+				// Nothing to roll back here, since we didn't
+				// even get a transaction yet.
+				if waitBeforeRetry(i) {
+					continue
+				}
+			}
+
+			return dbErr
 		}
 
-		return err
+		err = catchPanic(func() error { return f(tx) })
+		if err != nil {
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				log.Errorf("Error rolling back tx: %v",
+					rollbackErr)
+			}
+
+			return err
+		}
+
+		dbErr := tx.Commit()
+		if IsSerializationError(dbErr) {
+			_ = tx.Rollback()
+
+			if waitBeforeRetry(i) {
+				continue
+			}
+		}
+
+		return dbErr
 	}
 
-	return tx.Commit()
+	// If we get to this point, then we weren't able to successfully commit
+	// a tx given the max number of retries.
+	return ErrRetriesExceeded
 }
 
 // PrintStats returns all collected stats pretty printed into a string.

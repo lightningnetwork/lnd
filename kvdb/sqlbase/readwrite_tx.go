@@ -49,7 +49,8 @@ func newReadWriteTx(db *db, readOnly bool) (*readWriteTx, error) {
 	tx, err := db.db.BeginTx(
 		context.Background(),
 		&sql.TxOptions{
-			ReadOnly: readOnly,
+			ReadOnly:  readOnly,
+			Isolation: sql.LevelSerializable,
 		},
 	)
 	if err != nil {

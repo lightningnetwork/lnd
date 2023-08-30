@@ -86,6 +86,10 @@ type LinkFailureError struct {
 	// the channel should not be attempted loaded again.
 	PermanentFailure bool
 
+	// Warning denotes if this is a non-terminal error that doesn't warrant
+	// failing the channel all together.
+	Warning bool
+
 	// SendData is a byte slice that will be sent to the peer. If nil a
 	// generic error will be sent.
 	SendData []byte

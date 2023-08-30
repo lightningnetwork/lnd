@@ -4425,7 +4425,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	case msg.NextLocalCommitHeight == remoteTipHeight:
 		lc.log.Debugf("sync: remote's next commit height is %v, while "+
 			"we believe it is %v, we owe them a commitment",
-			msg.NextLocalCommitHeight, remoteTipHeight)
+			msg.NextLocalCommitHeight, remoteTipHeight+1)
 
 		// Grab the current remote chain tip from the database.  This
 		// commit diff contains all the information required to re-sync

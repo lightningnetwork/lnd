@@ -1943,6 +1943,25 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			l.channel.RevokeCurrentCommitment()
 		if err != nil {
 			l.log.Errorf("unable to revoke commitment: %v", err)
+
+			// We need to fail the channel in case revoking our
+			// local commitment does not succeed. We might have
+			// already advanced our channel state which would lead
+			// us to proceed with an unclean state.
+			//
+			// NOTE: We do not trigger a force close because this
+			// could resolve itself in case our db was just busy
+			// not accepting new transactions.
+			l.fail(
+				LinkFailureError{
+					code:          ErrInternalError,
+					Warning:       true,
+					FailureAction: LinkFailureDisconnect,
+				},
+				"ChannelPoint(%v): unable to accept new "+
+					"commitment: %v",
+				l.channel.ChannelPoint(), err,
+			)
 			return
 		}
 		l.cfg.Peer.SendMessage(false, nextRevocation)
@@ -2007,8 +2026,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			ReceiveRevocation(msg)
 		if err != nil {
 			// TODO(halseth): force close?
-			l.fail(LinkFailureError{code: ErrInvalidRevocation},
-				"unable to accept revocation: %v", err)
+			l.fail(
+				LinkFailureError{
+					code:          ErrInvalidRevocation,
+					FailureAction: LinkFailureDisconnect,
+				},
+				"unable to accept revocation: %v", err,
+			)
 			return
 		}
 

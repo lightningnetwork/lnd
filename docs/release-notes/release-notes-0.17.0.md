@@ -59,8 +59,17 @@
   have to make sure to not broadcast outdated transactions which can lead to
   locked up wallet funds indefinitely in the worst case.
 
-- [Remove nil value](https://github.com/lightningnetwork/lnd/pull/7922) from
+* [Remove nil value](https://github.com/lightningnetwork/lnd/pull/7922) from
   variadic parameter list.
+
+* Make sure to [fail a channel if revoking the old channel state 
+fails](https://github.com/lightningnetwork/lnd/pull/7876).
+
+
+* Failed `sqlite` or `postgres` transactions due to a serialization error will
+  now be [automatically
+  retried](https://github.com/lightningnetwork/lnd/pull/7927) with an
+  exponential back off.
 
 # New Features
 ## Functional Enhancements

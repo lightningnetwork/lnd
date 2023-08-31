@@ -1,9 +1,9 @@
-FROM golang:1.20.4-buster
+FROM golang:1.21.0-bookworm
 
 RUN apt-get update && apt-get install -y \
   git \
-  protobuf-compiler='3.6.1*' \
-  clang-format='1:7.0*'
+  protobuf-compiler='3.21.12*' \
+  clang-format='1:14.0*'
 
 # We don't want any default values for these variables to make sure they're
 # explicitly provided by parsing the go.mod file. Otherwise we might forget to

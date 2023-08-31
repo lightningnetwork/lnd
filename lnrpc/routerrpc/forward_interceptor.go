@@ -1,6 +1,8 @@
 package routerrpc
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"errors"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -120,62 +122,18 @@ func (r *forwardInterceptor) resolveFromClient(
 		})
 
 	case ResolveHoldForwardAction_FAIL:
-		// Fail with an encrypted reason.
-		if in.FailureMessage != nil {
-			if in.FailureCode != 0 {
-				return status.Errorf(
-					codes.InvalidArgument,
-					"failure message and failure code "+
-						"are mutually exclusive",
-				)
-			}
-
-			// Verify that the size is equal to the fixed failure
-			// message size + hmac + two uint16 lengths. See BOLT
-			// #4.
-			if len(in.FailureMessage) !=
-				lnwire.FailureMessageLength+32+2+2 {
-
-				return status.Errorf(
-					codes.InvalidArgument,
-					"failure message length invalid",
-				)
-			}
-
-			return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
-				Key:            circuitKey,
-				Action:         htlcswitch.FwdActionFail,
-				FailureMessage: in.FailureMessage,
-			})
+		// Instantiate the fwdRes with base fields set.
+		fwdRes := &htlcswitch.FwdResolution{
+			Key:    circuitKey,
+			Action: htlcswitch.FwdActionFail,
 		}
 
-		var code lnwire.FailCode
-		switch in.FailureCode {
-		case lnrpc.Failure_INVALID_ONION_HMAC:
-			code = lnwire.CodeInvalidOnionHmac
-
-		case lnrpc.Failure_INVALID_ONION_KEY:
-			code = lnwire.CodeInvalidOnionKey
-
-		case lnrpc.Failure_INVALID_ONION_VERSION:
-			code = lnwire.CodeInvalidOnionVersion
-
-		// Default to TemporaryChannelFailure.
-		case 0, lnrpc.Failure_TEMPORARY_CHANNEL_FAILURE:
-			code = lnwire.CodeTemporaryChannelFailure
-
-		default:
-			return status.Errorf(
-				codes.InvalidArgument,
-				"unsupported failure code: %v", in.FailureCode,
-			)
+		err := unmarshallFailureResolution(in, fwdRes)
+		if err != nil {
+			return err
 		}
 
-		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
-			Key:         circuitKey,
-			Action:      htlcswitch.FwdActionFail,
-			FailureCode: code,
-		})
+		return r.htlcSwitch.Resolve(fwdRes)
 
 	case ResolveHoldForwardAction_SETTLE:
 		if in.Preimage == nil {
@@ -198,4 +156,87 @@ func (r *forwardInterceptor) resolveFromClient(
 			"unrecognized resolve action %v", in.Action,
 		)
 	}
+}
+
+// unmarshallFailureResolution unmarshalls the rpc failure code and message into
+// a resolution struct.
+func unmarshallFailureResolution(in *ForwardHtlcInterceptResponse,
+	fwdRes *htlcswitch.FwdResolution) error {
+
+	if in.FailureMessage != nil {
+		if in.FailureCode != 0 {
+			return status.Errorf(
+				codes.InvalidArgument,
+				"failure message and failure code "+
+					"are mutually exclusive",
+			)
+		}
+
+		switch {
+		// Verify that for encrypted messages the size is equal to the
+		// fixed failure message size + hmac + two uint16 lengths. See
+		// BOLT #4.
+		case !in.FailureMessageUnencrypted:
+			if len(in.FailureMessage) !=
+				lnwire.FailureMessageLength+sha256.Size+2+2 {
+
+				return status.Errorf(
+					codes.InvalidArgument,
+					"failure message length invalid",
+				)
+			}
+
+			fwdRes.EncryptedFailureMessage = in.FailureMessage
+
+		// For unencrypted messages, verify that they are parseable.
+		case in.FailureMessageUnencrypted:
+			r := bytes.NewReader(in.FailureMessage)
+			msg, err := lnwire.DecodeFailureMessage(r, 0)
+			if err != nil {
+				return status.Errorf(
+					codes.InvalidArgument,
+					"failure message unparseable",
+				)
+			}
+
+			fwdRes.FailureMessage = msg
+		}
+	} else {
+		code, err := unmarshalFailCode(in.FailureCode)
+		if err != nil {
+			return err
+		}
+
+		fwdRes.FailureCode = code
+	}
+
+	return nil
+}
+
+func unmarshalFailCode(failureCode lnrpc.Failure_FailureCode) (lnwire.FailCode,
+	error) {
+
+	var code lnwire.FailCode
+	switch failureCode {
+	case lnrpc.Failure_INVALID_ONION_HMAC:
+		code = lnwire.CodeInvalidOnionHmac
+
+	case lnrpc.Failure_INVALID_ONION_KEY:
+		code = lnwire.CodeInvalidOnionKey
+
+	case lnrpc.Failure_INVALID_ONION_VERSION:
+		code = lnwire.CodeInvalidOnionVersion
+
+	// Default to TemporaryChannelFailure.
+	case 0, lnrpc.Failure_TEMPORARY_CHANNEL_FAILURE:
+		code = lnwire.CodeTemporaryChannelFailure
+
+	default:
+		return 0, status.Errorf(
+			codes.InvalidArgument,
+			"unsupported failure code: %v", failureCode,
+		)
+	}
+
+	return code, nil
 }

@@ -914,12 +914,20 @@ message ForwardHtlcInterceptResponse {
     // The preimage in case the resolve action is Settle.
     bytes preimage = 3;
 
-    // Encrypted failure message in case the resolve action is Fail.
+    // Failure message in case the resolve action is Fail. The field
+    // failure_message_unencrypted indicates whether this message is already
+    // encrypted for the first hop.
     //
-    // If failure_message is specified, the failure_code field must be set
-    // to zero.
+    // If failure_message is specified, the failure_code field must be set to
+    // zero.
     bytes failure_message = 4;
 
+    // Indicates whether the failure message still needs to be encrypted for the
+    // first hop.
+    bool failure_message_unencrypted = 6;
+
+    // Deprecated: use failure_message with failure_message_unencrypted.
+    //
     // Return the specified failure code in case the resolve action is Fail. The
     // message data fields are populated automatically.
     //

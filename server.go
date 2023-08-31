@@ -680,6 +680,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			CltvInterceptDelta: lncfg.DefaultCltvInterceptDelta,
 			RequireInterceptor: s.cfg.RequireInterceptor,
 			Notifier:           s.cc.ChainNotifier,
+			SignChannelUpdate:  s.signAliasUpdate,
 		},
 	)
 	if err != nil {

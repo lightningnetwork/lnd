@@ -159,6 +159,11 @@ all unconfirmed transactions are rebroadcast on start up.
   `ForwardingHistory`rpcs](https://github.com/lightningnetwork/lnd/pull/7471) to
   the rpc response.
 
+* HTLC interceptor clients can now [supply unencrypted failure
+  reasons](https://github.com/lightningnetwork/lnd/pull/7067) when failing
+  HTLCs. This allows returning any type of failure to the sender as if it
+  originates from the LND node.
+
 ## Wallet
 
 * [Allows Taproot public keys and tap scripts to be imported as watch-only

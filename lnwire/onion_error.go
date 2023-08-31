@@ -1324,9 +1324,18 @@ func EncodeFailure(w *bytes.Buffer, failure FailureMessage, pver uint32) error {
 		return err
 	}
 
+	failureMessage := failureMessageBuffer.Bytes()
+
+	return EncodeFailureHeader(w, failureMessage, pver)
+}
+
+// EncodeFailureHeader adds the necessary onion failure header information to an
+// encoded failure.
+func EncodeFailureHeader(w *bytes.Buffer, failureMessage []byte,
+	_ uint32) error {
+
 	// The combined size of this message must be below the max allowed
 	// failure message length.
-	failureMessage := failureMessageBuffer.Bytes()
 	if len(failureMessage) > FailureMessageLength {
 		return fmt.Errorf("failure message exceed max "+
 			"available size: %v", len(failureMessage))

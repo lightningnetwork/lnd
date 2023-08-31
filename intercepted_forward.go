@@ -51,9 +51,10 @@ func (f *interceptedForward) Resume() error {
 	return ErrCannotResume
 }
 
-// Fail notifies the intention to fail an existing hold forward with an
-// encrypted failure reason.
-func (f *interceptedForward) Fail(_ []byte) error {
+// Fail notifies the intention to fail an existing hold forward with a failure
+// reason. The encryptFirstHop bool indicates whether the failure reason still
+// needs to be encrypted for the first hop.
+func (f *interceptedForward) Fail(_ []byte, _ bool) error {
 	// We can't actively fail an htlc. The best we could do is abandon the
 	// resolver, but this wouldn't be a safe operation. There may be a race
 	// with the preimage beacon supplying a preimage. Therefore we don't

@@ -1370,8 +1370,8 @@ func convertPaymentStatus(dbStatus channeldb.PaymentStatus) (
 	lnrpc.Payment_PaymentStatus, error) {
 
 	switch dbStatus {
-	case channeldb.StatusUnknown:
-		return lnrpc.Payment_UNKNOWN, nil
+	case channeldb.StatusInitiated:
+		return lnrpc.Payment_INITIATED, nil
 
 	case channeldb.StatusInFlight:
 		return lnrpc.Payment_IN_FLIGHT, nil

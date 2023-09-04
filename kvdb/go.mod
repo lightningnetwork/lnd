@@ -6,6 +6,8 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/fergusstrange/embedded-postgres v1.10.0
 	github.com/google/btree v1.0.1
+	github.com/jackc/pgconn v1.14.0
+	github.com/jackc/pgerrcode v0.0.0-20220416144525-469b46aa5efa
 	github.com/jackc/pgx/v4 v4.18.1
 	github.com/lightningnetwork/lnd/healthcheck v1.0.0
 	github.com/stretchr/testify v1.8.2
@@ -37,7 +39,6 @@ require (
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
 	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
-	github.com/jackc/pgconn v1.14.0 // indirect
 	github.com/jackc/pgio v1.0.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgproto3/v2 v2.3.2 // indirect

@@ -184,6 +184,10 @@ unit: $(BTCD_BIN)
 	@$(call print, "Running unit tests.")
 	$(UNIT)
 
+unit-module:
+	@$(call print, "Running submodule unit tests.")
+	scripts/unit_test_modules.sh
+
 unit-debug: $(BTCD_BIN)
 	@$(call print, "Running debug unit tests.")
 	$(UNIT_DEBUG)

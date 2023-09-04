@@ -111,7 +111,7 @@ require (
 replace github.com/dgrijalva/jwt-go => github.com/golang-jwt/jwt v3.2.1+incompatible
 
 // This replace is for https://github.com/advisories/GHSA-25xm-hr59-7c27
-replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.8
+replace github.com/ulikunitz/xz => github.com/ulikunitz/xz v0.5.11
 
 // This replace is for
 // https://deps.dev/advisory/OSV/GO-2021-0053?from=%2Fgo%2Fgithub.com%252Fgogo%252Fprotobuf%2Fv1.3.1

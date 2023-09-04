@@ -234,7 +234,9 @@ func (db *db) Update(f func(tx walletdb.ReadWriteTx) error,
 
 // randRetryDelay returns a random retry delay between -50% and +50% of the
 // configured delay that is doubled for each attempt and capped at a max value.
-func randRetryDelay(initialRetryDelay, maxRetryDelay, attempt int) time.Duration {
+func randRetryDelay(initialRetryDelay, maxRetryDelay time.Duration,
+	attempt int) time.Duration {
+
 	halfDelay := initialRetryDelay / 2
 	randDelay := prand.Int63n(int64(initialRetryDelay)) //nolint:gosec
 
@@ -273,8 +275,8 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 	// should abort the retries.
 	waitBeforeRetry := func(attemptNumber int) bool {
 		retryDelay := randRetryDelay(
-			attemptNumber, DefaultInitialRetryDelay,
-			DefaultMaxRetryDelay,
+			DefaultInitialRetryDelay, DefaultMaxRetryDelay,
+			attemptNumber,
 		)
 
 		log.Debugf("Retrying transaction due to tx serialization "+

@@ -533,7 +533,17 @@ func TestDecipherIncorrectMnemonic(t *testing.T) {
 	// a checksum failure.
 	swapIndex1 := 9
 	swapIndex2 := 13
-	mnemonic[swapIndex1], mnemonic[swapIndex2] = mnemonic[swapIndex2], mnemonic[swapIndex1]
+
+	mnemonic[swapIndex1], mnemonic[swapIndex2] =
+		mnemonic[swapIndex2], mnemonic[swapIndex1]
+
+	// If the words happen to be the same by pure chance, we'll try again
+	// with different indexes.
+	if mnemonic[swapIndex1] == mnemonic[swapIndex2] {
+		swapIndex1 = 3
+		mnemonic[swapIndex1], mnemonic[swapIndex2] =
+			mnemonic[swapIndex2], mnemonic[swapIndex1]
+	}
 
 	// If we attempt to decrypt now, we should get a checksum failure.
 	// If we attempt to map back to the original cipher seed now, then we

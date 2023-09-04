@@ -29,8 +29,14 @@ func randResolverCtrlBlocks(t *testing.T) resolverCtrlBlocks {
 
 func randHtlcTweaks(t *testing.T) htlcTapTweaks {
 	numTweaks := rand.Int() % 256
-	tweaks := make(htlcTapTweaks, numTweaks)
 
+	// If the numTweaks happens to be zero, we return a nil to avoid
+	// initializing the map.
+	if numTweaks == 0 {
+		return nil
+	}
+
+	tweaks := make(htlcTapTweaks, numTweaks)
 	for i := 0; i < numTweaks; i++ {
 		var id resolverID
 		_, err := rand.Read(id[:])

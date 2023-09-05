@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -301,8 +302,8 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 		// lnddir/data/chain/<chain>/<network> in order to fetch the
 		// macaroon that we need.
 		macPath = filepath.Join(
-			lndDir, defaultDataDir, defaultChainSubDir, "bitcoin",
-			network, defaultMacaroonFilename,
+			lndDir, defaultDataDir, defaultChainSubDir,
+			lnd.BitcoinChainName, network, defaultMacaroonFilename,
 		)
 	}
 

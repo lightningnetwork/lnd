@@ -259,7 +259,7 @@ var (
 	defaultBtcdDir         = btcutil.AppDataDir(btcdBackendName, false)
 	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
 
-	defaultBitcoindDir = btcutil.AppDataDir("bitcoin", false)
+	defaultBitcoindDir = btcutil.AppDataDir(BitcoinChainName, false)
 
 	defaultTorSOCKS   = net.JoinHostPort("localhost", strconv.Itoa(defaultTorSOCKSPort))
 	defaultTorDNS     = net.JoinHostPort(defaultTorDNSHost, strconv.Itoa(defaultTorDNSPort))
@@ -1811,7 +1811,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 		daemonName = bitcoindBackendName
 		confDir = conf.Dir
 		confFile = conf.ConfigPath
-		confFileBase = "bitcoin"
+		confFileBase = BitcoinChainName
 
 		// Check that cookie and credentials don't contradict each
 		// other.

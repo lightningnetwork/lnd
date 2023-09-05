@@ -170,7 +170,9 @@ func (t *txInputSet) enoughInput() bool {
 // add adds a new input to the set. It returns a bool indicating whether the
 // input was added to the set. An input is rejected if it decreases the tx
 // output value after paying fees.
-func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *txInputSetState {
+func (t *txInputSet) addToState(inp input.Input,
+	constraints addConstraints) *txInputSetState {
+
 	// Stop if max inputs is reached. Do not count additional wallet inputs,
 	// because we don't know in advance how many we may need.
 	if constraints != constraintsWallet &&
@@ -191,27 +193,27 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 	}
 
 	// Clone the current set state.
-	s := t.clone()
+	newSet := t.clone()
 
 	// Add the new input.
-	s.inputs = append(s.inputs, inp)
+	newSet.inputs = append(newSet.inputs, inp)
 
 	// Add the value of the new input.
 	value := btcutil.Amount(inp.SignDesc().Output.Value)
-	s.inputTotal += value
+	newSet.inputTotal += value
 
 	// Recalculate the tx fee.
-	fee := s.weightEstimate(true).fee()
+	fee := newSet.weightEstimate(true).fee()
 
 	// Calculate the new output value.
 	if reqOut != nil {
-		s.requiredOutput += btcutil.Amount(reqOut.Value)
+		newSet.requiredOutput += btcutil.Amount(reqOut.Value)
 	}
-	s.changeOutput = s.inputTotal - s.requiredOutput - fee
+	newSet.changeOutput = newSet.inputTotal - newSet.requiredOutput - fee
 
 	// Calculate the yield of this input from the change in total tx output
 	// value.
-	inputYield := s.totalOutput() - t.totalOutput()
+	inputYield := newSet.totalOutput() - t.totalOutput()
 
 	switch constraints {
 	// Don't sweep inputs that cost us more to sweep than they give us.
@@ -222,7 +224,7 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 
 	// For force adds, no further constraints apply.
 	case constraintsForce:
-		s.force = true
+		newSet.force = true
 
 	// We are attaching a wallet input to raise the tx output value above
 	// the dust limit.
@@ -235,7 +237,7 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 
 		// Calculate the total value that we spend in this tx from the
 		// wallet if we'd add this wallet input.
-		s.walletInputTotal += value
+		newSet.walletInputTotal += value
 
 		// In any case, we don't want to lose money by sweeping. If we
 		// don't get more out of the tx then we put in ourselves, do not
@@ -250,17 +252,19 @@ func (t *txInputSet) addToState(inp input.Input, constraints addConstraints) *tx
 		// value of the wallet input and what we get out of this
 		// transaction. To prevent attaching and locking a big utxo for
 		// very little benefit.
-		if !s.force && s.walletInputTotal >= s.totalOutput() {
+		if !newSet.force &&
+			newSet.walletInputTotal >= newSet.totalOutput() {
+
 			log.Debugf("Rejecting wallet input of %v, because it "+
 				"would make a negative yielding transaction "+
-				"(%v)",
-				value, s.totalOutput()-s.walletInputTotal)
+				"(%v)", value,
+				newSet.totalOutput()-newSet.walletInputTotal)
 
 			return nil
 		}
 	}
 
-	return &s
+	return &newSet
 }
 
 // add adds a new input to the set. It returns a bool indicating whether the

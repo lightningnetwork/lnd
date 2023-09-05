@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -157,7 +158,7 @@ func (cfg BaseNodeConfig) DBPath() string {
 
 func (cfg BaseNodeConfig) ChanBackupPath() string {
 	return filepath.Join(
-		cfg.DataDir, "chain", "bitcoin",
+		cfg.DataDir, "chain", lnd.BitcoinChainName,
 		fmt.Sprintf(
 			"%v/%v", cfg.NetParams.Name,
 			chanbackup.DefaultBackupFileName,

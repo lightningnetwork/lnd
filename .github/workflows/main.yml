@@ -131,6 +131,9 @@ jobs:
       - name: check code format
         run: make fmt-check
 
+      - name: check go modules tidiness 
+        run: make tidy-module-check
+
       - name: lint
         run: GOGC=50 make lint
 
@@ -186,6 +189,8 @@ jobs:
           - unit tags="kvdb_postgres"
           - unit tags="kvdb_sqlite"
           - btcd unit-race
+          - unit-module
+
     steps:
       - name: git checkout
         uses: actions/checkout@v3
@@ -216,6 +221,7 @@ jobs:
         with:
           path-to-profile: coverage.txt
           parallel: true
+
 
   ########################
   # run ubuntu integration tests

@@ -1204,9 +1204,9 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 		cfg.ActiveNetParams.Params = &chainParams
 	}
 	if numNets > 1 {
-		str := "The mainnet, testnet, regtest, and simnet " +
+		str := "The mainnet, testnet, regtest, simnet and signet " +
 			"params can't be used together -- choose one " +
-			"of the four"
+			"of the five"
 
 		return nil, mkErr(str)
 	}
@@ -1215,7 +1215,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// know how to initialize the daemon.
 	if numNets == 0 {
 		str := "either --bitcoin.mainnet, or bitcoin.testnet," +
-			"bitcoin.simnet, or bitcoin.regtest " +
+			"bitcoin.simnet, bitcoin.regtest or bitcoin.signet " +
 			"must be specified"
 
 		return nil, mkErr(str)

@@ -131,6 +131,9 @@ jobs:
       - name: check code format
         run: make fmt-check
 
+      - name: check go modules tidiness 
+        run: make tidy-module-check
+
       - name: lint
         run: GOGC=50 make lint
 

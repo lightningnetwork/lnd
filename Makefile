@@ -246,6 +246,13 @@ lint: docker-tools
 	@$(call print, "Linting source.")
 	$(DOCKER_TOOLS) golangci-lint run -v $(LINT_WORKERS)
 
+tidy-module:
+	echo "Running 'go mod tidy' for all modules"
+	scripts/tidy_modules.sh
+
+tidy-module-check: tidy-module
+	if test -n "$$(git status --porcelain)"; then echo "modules not updated, please run `make tidy-module` again!"; git status; exit 1; fi
+
 list:
 	@$(call print, "Listing commands.")
 	@$(MAKE) -qp | \

@@ -3,6 +3,7 @@ package sweep
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
@@ -374,6 +375,15 @@ func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
 	if err != nil {
 		return err
 	}
+
+	// Sort the UTXOs by putting smaller values at the start of the slice
+	// to avoid locking large UTXO for sweeping.
+	//
+	// TODO(yy): add more choices to CoinSelectionStrategy and use the
+	// configured value here.
+	sort.Slice(utxos, func(i, j int) bool {
+		return utxos[i].Value < utxos[j].Value
+	})
 
 	for _, utxo := range utxos {
 		input, err := createWalletTxInput(utxo)

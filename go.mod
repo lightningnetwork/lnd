@@ -3,9 +3,9 @@ module github.com/lightningnetwork/lnd
 require (
 	github.com/NebulousLabs/go-upnp v0.0.0-20180202185039-29b680b06c82
 	github.com/Yawning/aez v0.0.0-20211027044916-e49e68abd344
-	github.com/btcsuite/btcd v0.23.5-0.20230711222809-7faa9b266231
+	github.com/btcsuite/btcd v0.23.5-0.20230905170901-80f5a0ffdf36
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2
-	github.com/btcsuite/btcd/btcutil v1.1.3
+	github.com/btcsuite/btcd/btcutil v1.1.4-0.20230904040416-d4f519f5dc05
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.2
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
@@ -36,14 +36,14 @@ require (
 	github.com/lightninglabs/neutrino v0.16.0
 	github.com/lightninglabs/neutrino/cache v1.1.1
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20230823005744-06182b1d7d2f
-	github.com/lightningnetwork/lnd/cert v1.2.1
-	github.com/lightningnetwork/lnd/clock v1.1.0
-	github.com/lightningnetwork/lnd/healthcheck v1.2.2
+	github.com/lightningnetwork/lnd/cert v1.2.2
+	github.com/lightningnetwork/lnd/clock v1.1.1
+	github.com/lightningnetwork/lnd/healthcheck v1.2.3
 	github.com/lightningnetwork/lnd/kvdb v1.4.3
-	github.com/lightningnetwork/lnd/queue v1.1.0
-	github.com/lightningnetwork/lnd/ticker v1.1.0
-	github.com/lightningnetwork/lnd/tlv v1.1.0
-	github.com/lightningnetwork/lnd/tor v1.1.1
+	github.com/lightningnetwork/lnd/queue v1.1.1
+	github.com/lightningnetwork/lnd/ticker v1.1.1
+	github.com/lightningnetwork/lnd/tlv v1.1.1
+	github.com/lightningnetwork/lnd/tor v1.1.2
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43
 	github.com/ory/dockertest/v3 v3.10.0

@@ -310,7 +310,8 @@ func (b *BreachArbiter) start() error {
 // the BreachArbiter have gracefully exited.
 func (b *BreachArbiter) Stop() error {
 	b.stopped.Do(func() {
-		brarLog.Infof("Breach arbiter shutting down")
+		brarLog.Infof("Breach arbiter shutting down...")
+		defer brarLog.Debug("Breach arbiter shutdown complete")
 
 		close(b.quit)
 		b.wg.Wait()

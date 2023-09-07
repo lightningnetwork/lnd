@@ -919,7 +919,8 @@ func (c *ChainArbitrator) Stop() error {
 		return nil
 	}
 
-	log.Info("ChainArbitrator shutting down")
+	log.Info("ChainArbitrator shutting down...")
+	defer log.Debug("ChainArbitrator shutdown complete")
 
 	close(c.quit)
 

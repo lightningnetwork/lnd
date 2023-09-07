@@ -52,7 +52,9 @@ func (p *PeerNotifier) Start() error {
 func (p *PeerNotifier) Stop() error {
 	var err error
 	p.stopped.Do(func() {
-		log.Info("PeerNotifier shutting down")
+		log.Info("PeerNotifier shutting down...")
+		defer log.Debug("PeerNotifier shutdown complete")
+
 		err = p.ntfnServer.Stop()
 	})
 	return err

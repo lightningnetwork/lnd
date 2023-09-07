@@ -728,7 +728,9 @@ func (d *AuthenticatedGossiper) resendFutureMessages(height uint32) {
 // Stop signals any active goroutines for a graceful closure.
 func (d *AuthenticatedGossiper) Stop() error {
 	d.stopped.Do(func() {
-		log.Info("Authenticated gossiper shutting down")
+		log.Info("Authenticated gossiper shutting down...")
+		defer log.Debug("Authenticated gossiper shutdown complete")
+
 		d.stop()
 	})
 	return nil

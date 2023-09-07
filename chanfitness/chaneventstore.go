@@ -203,7 +203,8 @@ func (c *ChannelEventStore) Start() error {
 
 // Stop terminates all goroutines started by the event store.
 func (c *ChannelEventStore) Stop() {
-	log.Info("Stopping event store")
+	log.Info("ChannelEventStore shutting down...")
+	defer log.Debug("ChannelEventStore shutdown complete")
 
 	// Stop the consume goroutine.
 	close(c.quit)

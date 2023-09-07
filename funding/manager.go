@@ -754,7 +754,9 @@ func (f *Manager) start() error {
 // method will block until all goroutines have exited.
 func (f *Manager) Stop() error {
 	f.stopped.Do(func() {
-		log.Info("Funding manager shutting down")
+		log.Info("Funding manager shutting down...")
+		defer log.Debug("Funding manager shutdown complete")
+
 		close(f.quit)
 		f.wg.Wait()
 	})

@@ -2328,8 +2328,10 @@ func (s *server) Stop() error {
 		}
 
 		// Wait for all lingering goroutines to quit.
+		srvrLog.Debug("Waiting for server to shutdown...")
 		s.wg.Wait()
 
+		srvrLog.Debug("Stopping buffer pools...")
 		s.sigPool.Stop()
 		s.writePool.Stop()
 		s.readPool.Stop()
@@ -3957,6 +3959,9 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 	// Start the peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
 	if err := p.Start(); err != nil {
+		srvrLog.Warnf("Starting peer=%v got error: %v",
+			p.IdentityKey(), err)
+
 		p.Disconnect(fmt.Errorf("unable to start peer: %v", err))
 		return
 	}

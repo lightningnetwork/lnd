@@ -240,6 +240,9 @@ func (m *MissionControl) RunStoreTicker() {
 
 // StopStoreTicker stops the mission control store's ticker.
 func (m *MissionControl) StopStoreTicker() {
+	log.Debug("Stopping mission control store ticker")
+	defer log.Debug("Mission control store ticker stopped")
+
 	m.store.stop()
 }
 

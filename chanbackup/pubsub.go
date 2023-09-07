@@ -158,7 +158,8 @@ func (s *SubSwapper) Start() error {
 // Stop signals the SubSwapper to being a graceful shutdown.
 func (s *SubSwapper) Stop() error {
 	s.stopped.Do(func() {
-		log.Infof("Stopping chanbackup.SubSwapper")
+		log.Infof("chanbackup.SubSwapper shutting down...")
+		defer log.Debug("chanbackup.SubSwapper shutdown complete")
 
 		close(s.quit)
 		s.wg.Wait()

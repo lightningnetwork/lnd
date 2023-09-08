@@ -5,6 +5,7 @@ package etcd
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func NewEtcdTestFixture(t *testing.T) *EtcdTestFixture {
 	t.Cleanup(etcdCleanup)
 
 	cli, err := clientv3.New(clientv3.Config{
-		Endpoints: []string{config.Host},
+		Endpoints: strings.Split(config.Host, ","),
 		Username:  config.User,
 		Password:  config.Pass,
 	})

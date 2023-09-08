@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -138,7 +139,7 @@ func NewEtcdClient(ctx context.Context, cfg Config) (*clientv3.Client,
 	context.Context, func(), error) {
 
 	clientCfg := clientv3.Config{
-		Endpoints:          []string{cfg.Host},
+		Endpoints:          strings.Split(cfg.Host, ","),
 		DialTimeout:        etcdConnectionTimeout,
 		Username:           cfg.User,
 		Password:           cfg.Pass,

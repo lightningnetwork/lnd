@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -36,6 +37,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -120,6 +122,24 @@ var (
 		TxPosition:  0,
 	}
 )
+
+type mockChanFunder struct {
+	fundingAmt btcutil.Amount
+	localKey   *keychain.KeyDescriptor
+	remoteKey  *btcec.PublicKey
+	chanPoint  *wire.OutPoint
+}
+
+func (m *mockChanFunder) ProvisionChannel(r *chanfunding.Request) (
+	chanfunding.Intent, error) {
+
+	shimIntent := chanfunding.NewShimIntent(
+		m.fundingAmt, 0, m.localKey, m.remoteKey, m.chanPoint, 0,
+		false,
+	)
+
+	return shimIntent, nil
+}
 
 type mockAliasMgr struct{}
 
@@ -4045,6 +4065,8 @@ func TestFundingManagerFundMax(t *testing.T) {
 // the user has provided a script and our local configuration to test that
 // GetUpfrontShutdownScript returns the expected outcome.
 func TestGetUpfrontShutdownScript(t *testing.T) {
+	t.Parallel()
+
 	upfrontScript := []byte("upfront script")
 	generatedScript := []byte("generated script")
 
@@ -4732,4 +4754,207 @@ func TestFundingManagerZeroConf(t *testing.T) {
 			testZeroConf(t, testCase.chanType)
 		})
 	}
+}
+
+// TestFundingManagerCoinbase tests that a coinbase transaction that is also a
+// funding transaction is not used until the coinbase maturity has passed.
+func TestFundingManagerCoinbase(t *testing.T) {
+	t.Parallel()
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	const chanSize = btcutil.Amount(1_000_000)
+
+	aliceKeyRing := alice.fundingMgr.cfg.Wallet.SecretKeyRing
+	bobKeyRing := bob.fundingMgr.cfg.Wallet.SecretKeyRing
+
+	// Since we want to know the multi-sig keys upfront, derive the keys
+	// at index 0.
+	multiSigKeyLoc := keychain.KeyLocator{
+		Family: keychain.KeyFamilyMultiSig,
+		Index:  0,
+	}
+
+	aliceKeyDesc, err := aliceKeyRing.DeriveKey(multiSigKeyLoc)
+	require.NoError(t, err)
+
+	bobKeyDesc, err := bobKeyRing.DeriveKey(multiSigKeyLoc)
+	require.NoError(t, err)
+
+	// Craft the coinbase transaction that will spend to the 2-of-2 p2wsh.
+	fundingTx := wire.NewMsgTx(2)
+
+	// The all-zero hash and the index of math.MaxUint32 makes this a
+	// coinbase transaction.
+	txIn := &wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{
+			Index: math.MaxUint32,
+		},
+	}
+
+	fundingTx.TxIn = append(fundingTx.TxIn, txIn)
+
+	_, txOut, err := input.GenFundingPkScript(
+		aliceKeyDesc.PubKey.SerializeCompressed(),
+		bobKeyDesc.PubKey.SerializeCompressed(), int64(chanSize),
+	)
+	require.NoError(t, err)
+
+	fundingTx.TxOut = append(fundingTx.TxOut, txOut)
+
+	fundingOp := &wire.OutPoint{
+		Hash:  fundingTx.TxHash(),
+		Index: 0,
+	}
+
+	chanFunder := &mockChanFunder{
+		fundingAmt: chanSize,
+		localKey:   &aliceKeyDesc,
+		remoteKey:  bobKeyDesc.PubKey,
+		chanPoint:  fundingOp,
+	}
+
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+	errChan := make(chan error, 1)
+
+	initReq := &InitFundingMsg{
+		Peer:            bob,
+		TargetPubkey:    bob.privKey.PubKey(),
+		ChainHash:       *fundingNetParams.GenesisHash,
+		MinConfs:        int32(1),
+		LocalFundingAmt: chanSize,
+		ChanFunder:      chanFunder,
+		Updates:         updateChan,
+		Err:             errChan,
+	}
+
+	alice.fundingMgr.InitFundingWorkflow(initReq)
+
+	// Alice should send an OpenChannel to Bob.
+	var aliceMsg lnwire.Message
+	select {
+	case aliceMsg = <-alice.msgChan:
+	case err := <-initReq.Err:
+		t.Fatalf("error init funding workflow: %v", err)
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenChannel message")
+	}
+
+	openChannelReq, ok := aliceMsg.(*lnwire.OpenChannel)
+	require.True(t, ok)
+
+	bob.fundingMgr.ProcessFundingMsg(openChannelReq, alice)
+
+	// Bob should answer with an AcceptChannel message.
+	acceptChannelResponse, ok := assertFundingMsgSent(
+		t, bob.msgChan, "AcceptChannel",
+	).(*lnwire.AcceptChannel)
+	require.True(t, ok)
+
+	// Forward the response to Alice.
+	alice.fundingMgr.ProcessFundingMsg(acceptChannelResponse, bob)
+
+	// Alice responds with a FundingCreated message.
+	fundingCreated, ok := assertFundingMsgSent(
+		t, alice.msgChan, "FundingCreated",
+	).(*lnwire.FundingCreated)
+	require.True(t, ok)
+
+	// Give the message to Bob.
+	bob.fundingMgr.ProcessFundingMsg(fundingCreated, alice)
+
+	// Finally, Bob should send the FundingSigned message.
+	fundingSigned, ok := assertFundingMsgSent(
+		t, bob.msgChan, "FundingSigned",
+	).(*lnwire.FundingSigned)
+	require.True(t, ok)
+
+	// Forward the signature to Alice.
+	alice.fundingMgr.ProcessFundingMsg(fundingSigned, bob)
+
+	var pendingUpdate *lnrpc.OpenStatusUpdate
+	select {
+	case pendingUpdate = <-updateChan:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send OpenStatusUpdate_ChanPending")
+	}
+
+	_, ok = pendingUpdate.Update.(*lnrpc.OpenStatusUpdate_ChanPending)
+	require.True(t, ok)
+
+	// Confirm the funding transaction.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+
+	// Make sure the notification about the pending channel was sent out.
+	select {
+	case <-alice.mockChanEvent.pendingOpenEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("alice did not send pending channel event")
+	}
+	select {
+	case <-bob.mockChanEvent.pendingOpenEvent:
+	case <-time.After(time.Second * 5):
+		t.Fatalf("bob did not send pending channel event")
+	}
+
+	// Assert that neither alice nor bob sees the channel as open yet. This
+	// is because the coinbase check is hit and we must wait for more
+	// confirmations.
+	select {
+	case <-alice.mockChanEvent.openEvent:
+		t.Fatalf("alice sent an open channel event")
+	case <-time.After(time.Second * 5):
+	}
+
+	select {
+	case <-bob.mockChanEvent.openEvent:
+		t.Fatalf("bob sent an open channel event")
+	case <-time.After(time.Second * 5):
+	}
+
+	// Send along the oneConfChannel again and then assert that the open
+	// event is sent. This serves as the 100 block + MinAcceptDepth
+	// confirmation.
+	alice.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+
+	bob.mockNotifier.oneConfChannel <- &chainntnfs.TxConfirmation{
+		Tx: fundingTx,
+	}
+
+	assertMarkedOpen(t, alice, bob, fundingOp)
+
+	// After the funding transaction is mined, Alice will send
+	// channelReady to Bob.
+	channelReadyAlice, ok := assertFundingMsgSent(
+		t, alice.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
+
+	// And similarly Bob will send channel_ready to Alice.
+	channelReadyBob, ok := assertFundingMsgSent(
+		t, bob.msgChan, "ChannelReady",
+	).(*lnwire.ChannelReady)
+	require.True(t, ok)
+
+	// Check that the state machine is updated accordingly
+	assertChannelReadySent(t, alice, bob, fundingOp)
+
+	// Exchange the channelReady messages.
+	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
+	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
+
+	// Check that they notify the breach arbiter and peer about the new
+	// channel.
+	assertHandleChannelReady(t, alice, bob)
 }

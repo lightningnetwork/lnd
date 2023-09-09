@@ -5861,7 +5861,18 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 		return nil, err
 	}
 
-	return lnrpc.RPCTransactionDetails(transactions), nil
+	txs := lnrpc.RPCTransactionDetails(transactions)
+
+	// If req.Reverse is false return transactions such that confirmed
+	// transactions follow unconfirmed transactions.
+	if req.Reverse {
+		for i, j := 0, len(txs.Transactions)-1; i < j; i, j = i+1, j-1 {
+			txs.Transactions[i], txs.Transactions[j] =
+				txs.Transactions[j], txs.Transactions[i]
+		}
+	}
+
+	return txs, nil
 }
 
 // DescribeGraph returns a description of the latest graph state from the PoV

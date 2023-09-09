@@ -1840,6 +1840,12 @@ var listChainTxnsCommand = cli.Command{
 				"until the chain tip, including unconfirmed, " +
 				"set this value to -1",
 		},
+		cli.BoolFlag{
+			Name: "reverse",
+			Usage: "It modifies the way the transactions are " +
+				"listed, if true, transactions are listed in " +
+				"reverse order",
+		},
 	},
 	Description: `
 	List all transactions an address of the wallet was involved in.
@@ -1848,7 +1854,8 @@ var listChainTxnsCommand = cli.Command{
 	to an address our wallet controls, or spent utxos that we held. The
 	start_height and end_height flags can be used to specify an inclusive
 	block range over which to query for transactions. If the end_height is
-	less than the start_height, transactions will be queried in reverse.
+	less than the start_height, an error will be returned. To return
+	transactions in reverse use the reverse flag.
 	To get all transactions until the chain tip, including unconfirmed
 	transactions (identifiable with BlockHeight=0), set end_height to -1.
 	By default, this call will get all transactions our wallet was involved
@@ -1864,12 +1871,33 @@ func listChainTxns(ctx *cli.Context) error {
 
 	req := &lnrpc.GetTransactionsRequest{}
 
-	if ctx.IsSet("start_height") {
+	switch {
+	case ctx.IsSet("start_height") && ctx.IsSet("end_height"):
+		startHeight := ctx.Int64("start_height")
+		endHeight := ctx.Int64("end_height")
+
+		if endHeight == -1 && startHeight != 0 {
+			return errors.New("start height should be zero " +
+				"if end height is -1")
+		}
+
+		if endHeight != -1 && startHeight > endHeight {
+			return errors.New("start Height should " +
+				"be greater than end height if end height" +
+				" is not equal to -1")
+		}
+
+		req.StartHeight = int32(startHeight)
+		req.EndHeight = int32(endHeight)
+
+	case ctx.IsSet("start_height"):
 		req.StartHeight = int32(ctx.Int64("start_height"))
-	}
-	if ctx.IsSet("end_height") {
+
+	case ctx.IsSet("end_height"):
 		req.EndHeight = int32(ctx.Int64("end_height"))
 	}
+
+	req.Reverse = ctx.Bool("reverse")
 
 	resp, err := client.GetTransactions(ctxc, req)
 	if err != nil {

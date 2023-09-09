@@ -8484,7 +8484,7 @@ func (lc *LightningChannel) IdealCommitFeeRate(netFeeRate, minRelayFeeRate,
 	// To give the transaction the best chance, we use the absolute
 	// maximum fee we have available and we log an error.
 	lc.log.Errorf("The commitment fee rate of %s is below the current "+
-		"minimum relay fee rate of %s. The max fee rate of %s will be"+
+		"minimum relay fee rate of %s. The max fee rate of %s will be "+
 		"used.", commitFeeRate, minRelayFeeRate, absoluteMaxFee)
 
 	return absoluteMaxFee

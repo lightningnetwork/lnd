@@ -266,9 +266,14 @@ lifecycle:
 			return exitWithErr(err)
 		}
 
-		// NOTE: might cause an infinite loop, see notes in
-		// `requestRoute` for details.
+		// We may not be able to find a route for current attempt. In
+		// that case, we continue the loop and move straight to the
+		// next iteration in case there are results for inflight HTLCs
+		// that still need to be collected.
 		if rt == nil {
+			log.Errorf("No route found for payment %v",
+				p.identifier)
+
 			continue lifecycle
 		}
 
@@ -363,42 +368,30 @@ func (p *paymentLifecycle) requestRoute(
 	log.Warnf("Failed to find route for payment %v: %v", p.identifier, err)
 
 	// If the error belongs to `noRouteError` set, it means a non-critical
-	// error has happened during path finding and we might be able to find
-	// another route during next HTLC attempt. Otherwise, we'll return the
-	// critical error found.
+	// error has happened during path finding and we will mark the payment
+	// failed with this reason. Otherwise, we'll return the critical error
+	// found to abort the lifecycle.
 	var routeErr noRouteError
 	if !errors.As(err, &routeErr) {
 		return nil, fmt.Errorf("requestRoute got: %w", err)
 	}
 
-	// There is no route to try, and we have no active shards. This means
-	// that there is no way for us to send the payment, so mark it failed
-	// with no route.
-	//
-	// NOTE: if we have zero `numShardsInFlight`, it means all the HTLC
-	// attempts have failed. Otherwise, if there are still inflight
-	// attempts, we might enter an infinite loop in our lifecycle if
-	// there's still remaining amount since we will keep adding new HTLC
-	// attempts and they all fail with `noRouteError`.
-	//
-	// TODO(yy): further check the error returned here. It's the
-	// `paymentSession`'s responsibility to find a route for us with best
-	// effort. When it cannot find a path, we need to treat it as a
-	// terminal condition and fail the payment no matter it has inflight
+	// It's the `paymentSession`'s responsibility to find a route for us
+	// with best effort. When it cannot find a path, we need to treat it as
+	// a terminal condition and fail the payment no matter it has inflight
 	// HTLCs or not.
-	if ps.NumAttemptsInFlight == 0 {
-		failureCode := routeErr.FailureReason()
-		log.Debugf("Marking payment %v permanently failed with no "+
-			"route: %v", p.identifier, failureCode)
+	failureCode := routeErr.FailureReason()
+	log.Warnf("Marking payment %v permanently failed with no route: %v",
+		p.identifier, failureCode)
 
-		err := p.router.cfg.Control.FailPayment(
-			p.identifier, failureCode,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("FailPayment got: %w", err)
-		}
+	err = p.router.cfg.Control.FailPayment(p.identifier, failureCode)
+	if err != nil {
+		return nil, fmt.Errorf("FailPayment got: %w", err)
 	}
 
+	// NOTE: we decide to not return the non-critical noRouteError here to
+	// avoid terminating the payment lifecycle as there might be other
+	// inflight HTLCs which we must wait for their results.
 	return nil, nil
 }
 

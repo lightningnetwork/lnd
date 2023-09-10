@@ -416,13 +416,8 @@ func TestRequestRouteHandleCriticalErr(t *testing.T) {
 func TestRequestRouteHandleNoRouteErr(t *testing.T) {
 	t.Parallel()
 
-	p := createTestPaymentLifecycle()
-
-	// Create a mock payment session.
-	paySession := &mockPaymentSession{}
-
-	// Mount the mocked payment session.
-	p.paySession = paySession
+	// Create a paymentLifecycle with mockers.
+	p, m := newTestPaymentLifecycle(t)
 
 	// Create a dummy payment state.
 	ps := &channeldb.MPPaymentState{
@@ -435,18 +430,20 @@ func TestRequestRouteHandleNoRouteErr(t *testing.T) {
 	p.feeLimit = ps.FeesPaid + 1
 
 	// Mock the paySession's `RequestRoute` method to return an error.
-	paySession.On("RequestRoute",
+	m.paySession.On("RequestRoute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return(nil, errNoTlvPayload)
+
+	// The payment should be failed with reason no route.
+	m.control.On("FailPayment",
+		p.identifier, channeldb.FailureReasonNoRoute,
+	).Return(nil).Once()
 
 	result, err := p.requestRoute(ps)
 
 	// Expect no error is returned since it's not critical.
 	require.NoError(t, err, "expected no error")
 	require.Nil(t, result, "expected no route returned")
-
-	// Assert that `RequestRoute` is called as expected.
-	paySession.AssertExpectations(t)
 }
 
 // TestRequestRouteFailPaymentSucceed checks that `requestRoute` fails the

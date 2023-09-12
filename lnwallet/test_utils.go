@@ -1,9 +1,11 @@
 package lnwallet
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"io"
 	prand "math/rand"
 	"net"
@@ -221,7 +223,7 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	}
 	aliceCommitPoint := input.ComputeCommitmentPoint(aliceFirstRevoke[:])
 
-	aliceCommitTx, bobCommitTx, err := CreateCommitmentTxns(
+	aliceCommitTx, _, bobCommitTx, _, err := CreateCommitmentTxns(
 		channelBal, channelBal, &aliceCfg, &bobCfg, aliceCommitPoint,
 		bobCommitPoint, *fundingTxIn, chanType, isAliceInitiator, 0,
 	)
@@ -344,7 +346,16 @@ func CreateTestChannels(t *testing.T, chanType channeldb.ChannelType,
 	}
 
 	aliceSigner := input.NewMockSigner(aliceKeys, nil)
+	aliceSigner.SignDescriptorChecker = &input.DefaultSignDescriptorChecker{
+		OutChecker: GetCommitmentOutChecker(t, chanType,
+			isAliceInitiator, aliceCfg, bobCfg),
+	}
+
 	bobSigner := input.NewMockSigner(bobKeys, nil)
+	bobSigner.SignDescriptorChecker = &input.DefaultSignDescriptorChecker{
+		OutChecker: GetCommitmentOutChecker(t, chanType,
+			!isAliceInitiator, bobCfg, aliceCfg),
+	}
 
 	// TODO(roasbeef): make mock version of pre-image store
 
@@ -553,4 +564,245 @@ func ForceStateTransition(chanA, chanB *LightningChannel) error {
 	}
 
 	return nil
+}
+
+// GetCommitmentOutChecker returns a function which validates that we're
+// signing an output we can derive given a remote signer's knowledge of the
+// channel from initial negotiation. It can handle the outputs of a commitment
+// or second-level HTLC transaction or a cooperative close of the channel.
+func GetCommitmentOutChecker(t *testing.T, chanType channeldb.ChannelType,
+	initiator bool, local, remote channeldb.ChannelConfig) func(
+	*wire.TxOut, map[string][]byte) error {
+
+	byteOrder := binary.LittleEndian
+
+	return func(out *wire.TxOut, unkMap map[string][]byte) error {
+		// First, check for commitment anchor output.
+		if chanType.HasAnchors() && out.Value == int64(anchorSize) &&
+			len(unkMap) == 0 {
+
+			return nil
+		}
+
+		// Next, get our info from the map for easy use in checking
+		// derivations.
+		var (
+			lease, csv, cltv                     uint32
+			commitPoint                          *btcec.PublicKey
+			keyRingOurCommit, keyRingTheirCommit *CommitmentKeyRing
+			rHash                                [32]byte
+			err                                  error
+		)
+
+		keyLeaseExpiry := string(input.PsbtKeyTypeOutputLeaseExpiry)
+		keyCsvDelay := string(input.PsbtKeyTypeOutputCsvDelay)
+		keyCltvExpiry := string(input.PsbtKeyTypeOutputCltvExpiry)
+		keyCommitPoint := string(input.PsbtKeyTypeOutputCommitPoint)
+		keyRHash := string(input.PsbtKeyTypeOutputRHash)
+
+		leaseBytes, hasLease := unkMap[keyLeaseExpiry]
+		if hasLease {
+			lease = byteOrder.Uint32(leaseBytes)
+		}
+
+		csvBytes, hasCsv := unkMap[keyCsvDelay]
+		if hasCsv {
+			csv = byteOrder.Uint32(csvBytes)
+		}
+
+		cltvBytes, hasCltv := unkMap[keyCltvExpiry]
+		if hasCltv {
+			cltv = byteOrder.Uint32(cltvBytes)
+		}
+
+		commitPointBytes, hasCommitPoint := unkMap[keyCommitPoint]
+		if hasCommitPoint {
+			commitPoint, err = btcec.ParsePubKey(commitPointBytes)
+			require.NoError(t, err)
+
+			keyRingOurCommit = DeriveCommitmentKeys(
+				commitPoint, true, chanType, &local, &remote,
+			)
+
+			keyRingTheirCommit = DeriveCommitmentKeys(
+				commitPoint, false, chanType, &local, &remote,
+			)
+		}
+
+		rHashBytes, hasRHash := unkMap[keyRHash]
+		if hasRHash {
+			copy(rHash[:], rHashBytes)
+		}
+
+		// Check if this is an HTLC for our commit. We try all four
+		// possible variations and return if we succeed at matching.
+		if hasRHash && hasCommitPoint && hasCltv {
+			scriptInfo, err := genHtlcScript(
+				chanType, true, true, cltv, rHash,
+				keyRingOurCommit,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, err = genHtlcScript(
+				chanType, false, true, cltv, rHash,
+				keyRingOurCommit,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, err = genHtlcScript(
+				chanType, true, false, cltv, rHash,
+				keyRingTheirCommit,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, err = genHtlcScript(
+				chanType, false, false, cltv, rHash,
+				keyRingTheirCommit,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+		}
+
+		if hasCsv && hasCommitPoint && hasLease {
+			// Check if this is a second-level HTLC output. We try
+			// all variations and return if we succeed at matching.
+			// Lease expiry is ignored by SecondLevelHtlcScript when
+			// unnecessary.
+			scriptInfo, err := SecondLevelHtlcScript(
+				chanType, true, keyRingOurCommit.RevocationKey,
+				keyRingOurCommit.ToLocalKey,
+				keyRingOurCommit.CommitPoint, csv, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, err = SecondLevelHtlcScript(
+				chanType, false, keyRingOurCommit.RevocationKey,
+				keyRingOurCommit.ToLocalKey,
+				keyRingOurCommit.CommitPoint, csv, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, err = SecondLevelHtlcScript(
+				chanType, true,
+				keyRingTheirCommit.RevocationKey,
+				keyRingTheirCommit.ToLocalKey,
+				keyRingTheirCommit.CommitPoint, csv, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, err = SecondLevelHtlcScript(
+				chanType, false,
+				keyRingTheirCommit.RevocationKey,
+				keyRingTheirCommit.ToLocalKey,
+				keyRingTheirCommit.CommitPoint, csv, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			// Check for the to-local output.
+			scriptInfo, err = CommitScriptToSelf(
+				chanType, initiator,
+				keyRingOurCommit.ToLocalKey,
+				keyRingOurCommit.RevocationKey, csv, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, err = CommitScriptToSelf(
+				chanType, !initiator,
+				keyRingOurCommit.ToLocalKey,
+				keyRingOurCommit.RevocationKey, csv, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, err = CommitScriptToSelf(
+				chanType, initiator,
+				keyRingTheirCommit.ToLocalKey,
+				keyRingTheirCommit.RevocationKey, csv, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, err = CommitScriptToSelf(
+				chanType, !initiator,
+				keyRingTheirCommit.ToLocalKey,
+				keyRingTheirCommit.RevocationKey, csv, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+		}
+
+		if hasCommitPoint && hasLease {
+			// Check for the P2WSH to-remote script.
+			scriptInfo, _, err := CommitScriptToRemote(
+				chanType, initiator,
+				keyRingOurCommit.ToRemoteKey, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, _, err = CommitScriptToRemote(
+				chanType, !initiator,
+				keyRingOurCommit.ToRemoteKey, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, _, err = CommitScriptToRemote(
+				chanType, initiator,
+				keyRingTheirCommit.ToRemoteKey, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+
+			scriptInfo, _, err = CommitScriptToRemote(
+				chanType, !initiator,
+				keyRingTheirCommit.ToRemoteKey, lease,
+			)
+			require.NoError(t, err)
+			if bytes.Equal(scriptInfo.PkScript(), out.PkScript) {
+				return nil
+			}
+		}
+
+		return fmt.Errorf("couldn't derive matching commitment tx " +
+			"output script")
+	}
 }

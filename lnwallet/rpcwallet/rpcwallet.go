@@ -893,6 +893,11 @@ func (r *RPCKeyRing) remoteSign(tx *wire.MsgTx, signDesc *input.SignDescriptor,
 		return nil, fmt.Errorf("error converting TX into PSBT: %v", err)
 	}
 
+	err = input.MaybeEnrichPsbt(packet, signDesc.OutSignInfo)
+	if err != nil {
+		return nil, fmt.Errorf("error enriching PSBT outputs: %w", err)
+	}
+
 	// We need to add witness information for all inputs! Otherwise, we'll
 	// have a problem when attempting to sign a taproot input!
 	for idx := range packet.Inputs {

@@ -7,8 +7,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -22,7 +24,9 @@ import (
 // Steps to final channel provisioning:
 //  1. Call BindKeys to notify the intent which keys to use when constructing
 //     the multi-sig output.
-//  2. Call CompileFundingTx afterwards to obtain the funding transaction.
+//  2. Call ConfigurePsbt to populate the channel configurations passed to the
+//     signer.
+//  3. Call CompileFundingTx afterwards to obtain the funding transaction.
 //
 // If either of these steps fail, then the Cancel method MUST be called.
 type FullIntent struct {
@@ -43,8 +47,26 @@ type FullIntent struct {
 	// coinSource is the Assembler's instance of the CoinSource interface.
 	coinSource CoinSource
 
-	// signer is the Assembler's instance of the Singer interface.
+	// signer is the Assembler's instance of the Signer interface.
 	signer input.Signer
+
+	// fingerprint is the Assembler's root key fingerprint.
+	fingerprint uint32
+
+	// coin is the Assembler's wallet's coin type.
+	coin uint32
+
+	// localConfig is the local configuration for this channel.
+	localConfig *channeldb.ChannelConfig
+
+	// remoteCOnfig is the remote configuration for this channel.
+	remoteConfig *channeldb.ChannelConfig
+
+	// chanType specifies the channel type.
+	chanType channeldb.ChannelType
+
+	// initiator specifies whether the local node initiated the channel.
+	initiator bool
 }
 
 // BindKeys is a method unique to the FullIntent variant. This allows the
@@ -57,6 +79,20 @@ func (f *FullIntent) BindKeys(localKey *keychain.KeyDescriptor,
 
 	f.localKey = localKey
 	f.remoteKey = remoteKey
+}
+
+// ConfigurePsbt is a method unique to the FullIntent variant. This allows the
+// caller to attach a local and remote channel configuration so that a remote
+// signer can be aware of the parameters used to derive commitment transaction
+// outputs. It specifically allows the signer to validate the initial commitment
+// transactions.
+func (f *FullIntent) ConfigurePsbt(local, remote *channeldb.ChannelConfig,
+	chanType channeldb.ChannelType, initiator bool) {
+
+	f.localConfig = local
+	f.remoteConfig = remote
+	f.chanType = chanType
+	f.initiator = initiator
 }
 
 // CompileFundingTx is to be called after BindKeys on the sub-intent has been
@@ -105,6 +141,45 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 		fundingTx, fundingOutput.PkScript,
 	)
 
+	// We'll also pre-compute the OutSignInfo for the SignDescriptor in case
+	// we're doing remote signing.
+	outSignInfo := make([]input.SignInfo, len(fundingTx.TxOut))
+	outSignInfo[multiSigIndex] = input.UnknownOptions(
+		input.LocalMultiSigKey(
+			f.fingerprint, f.coin, &f.localConfig.MultiSigKey,
+		),
+		input.LocalRevocationBasePoint(
+			f.fingerprint, f.coin,
+			&f.localConfig.RevocationBasePoint,
+		),
+		input.LocalPaymentBasePoint(
+			f.fingerprint, f.coin, &f.localConfig.PaymentBasePoint,
+		),
+		input.LocalDelayBasePoint(
+			f.fingerprint, f.coin, &f.localConfig.DelayBasePoint,
+		),
+		input.LocalHtlcBasePoint(
+			f.fingerprint, f.coin, &f.localConfig.HtlcBasePoint,
+		),
+		input.RemoteMultiSigKey(
+			f.remoteConfig.MultiSigKey.PubKey,
+		),
+		input.RemoteRevocationBasePoint(
+			f.remoteConfig.RevocationBasePoint.PubKey,
+		),
+		input.RemotePaymentBasePoint(
+			f.remoteConfig.PaymentBasePoint.PubKey,
+		),
+		input.RemoteDelayBasePoint(
+			f.remoteConfig.DelayBasePoint.PubKey,
+		),
+		input.RemoteHtlcBasePoint(
+			f.remoteConfig.HtlcBasePoint.PubKey,
+		),
+		input.ChannelType(uint64(f.chanType)),
+		input.Initiator(f.initiator),
+	)
+
 	// Next, sign all inputs that are ours, collecting the signatures in
 	// order of the inputs.
 	prevOutFetcher := NewSegWitV0DualFundingPrevOutputFetcher(
@@ -114,6 +189,7 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 	for i, txIn := range fundingTx.TxIn {
 		signDesc := input.SignDescriptor{
 			SigHashes:         sigHashes,
+			OutSignInfo:       outSignInfo,
 			PrevOutputFetcher: prevOutFetcher,
 		}
 		// We can only sign this input if it's ours, so we'll ask the
@@ -222,6 +298,14 @@ type WalletConfig struct {
 	// DustLimit is the current dust limit. We'll use this to ensure that
 	// we don't make dust outputs on the funding transaction.
 	DustLimit btcutil.Amount
+
+	// NetParams specifies the network parameters for the wallet, to ensure
+	// we can pass the correct coin type to the Signer.
+	NetParams chaincfg.Params
+
+	// Fingerprint specifies the root key fingerprint of the wallet. This
+	// is passed to the Signer as part of the derivation path.
+	Fingerprint uint32
 }
 
 // WalletAssembler is an instance of the Assembler interface that is backed by
@@ -478,10 +562,12 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 				remoteFundingAmt: r.RemoteAmt,
 				musig2:           r.Musig2,
 			},
-			InputCoins: selectedCoins,
-			coinLocker: w.cfg.CoinLocker,
-			coinSource: w.cfg.CoinSource,
-			signer:     w.cfg.Signer,
+			InputCoins:  selectedCoins,
+			coinLocker:  w.cfg.CoinLocker,
+			coinSource:  w.cfg.CoinSource,
+			signer:      w.cfg.Signer,
+			fingerprint: w.cfg.Fingerprint,
+			coin:        w.cfg.NetParams.HDCoinType,
 		}
 
 		if changeOutput != nil {

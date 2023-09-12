@@ -1157,6 +1157,10 @@ func serializeHop(w io.Writer, h *route.Hop) error {
 		))
 	}
 
+	if h.AMP != nil {
+		records = append(records, h.AMP.Record())
+	}
+
 	if h.Metadata != nil {
 		records = append(records, record.NewMetadataRecord(&h.Metadata))
 	}
@@ -1301,7 +1305,23 @@ func deserializeHop(r io.Reader) (*route.Hop, error) {
 		}
 	}
 
-	// If the metatdata type is present, remove it from the tlv map and
+	ampType := uint64(record.AMPOnionType)
+	if ampBytes, ok := tlvMap[ampType]; ok {
+		delete(tlvMap, ampType)
+
+		var (
+			amp    = &record.AMP{}
+			ampRec = amp.Record()
+			r      = bytes.NewReader(ampBytes)
+		)
+		err := ampRec.Decode(r, uint64(len(ampBytes)))
+		if err != nil {
+			return nil, err
+		}
+		h.AMP = amp
+	}
+
+	// If the metadata type is present, remove it from the tlv map and
 	// populate directly on the hop.
 	metadataType := uint64(record.MetadataOnionType)
 	if metadata, ok := tlvMap[metadataType]; ok {

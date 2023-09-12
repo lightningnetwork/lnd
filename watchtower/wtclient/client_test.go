@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -72,7 +73,7 @@ var (
 
 	addrScript, _ = txscript.PayToAddrScript(addr)
 
-	waitTime = 5 * time.Second
+	waitTime = 15 * time.Second
 
 	defaultTxPolicy = wtpolicy.TxPolicy{
 		BlobType:     blob.TypeAltruistCommit,
@@ -398,7 +399,7 @@ type testHarness struct {
 	cfg       harnessCfg
 	signer    *wtmock.MockSigner
 	capacity  lnwire.MilliSatoshi
-	clientDB  *wtmock.ClientDB
+	clientDB  *wtdb.ClientDB
 	clientCfg *wtclient.Config
 	client    wtclient.Client
 	server    *serverHarness
@@ -426,10 +427,26 @@ type harnessCfg struct {
 	noServerStart      bool
 }
 
+func newClientDB(t *testing.T) *wtdb.ClientDB {
+	dbCfg := &kvdb.BoltConfig{
+		DBTimeout: kvdb.DefaultDBTimeout,
+	}
+
+	// Construct the ClientDB.
+	dir := t.TempDir()
+	bdb, err := wtdb.NewBoltBackendCreator(true, dir, "wtclient.db")(dbCfg)
+	require.NoError(t, err)
+
+	clientDB, err := wtdb.OpenClientDB(bdb)
+	require.NoError(t, err)
+
+	return clientDB
+}
+
 func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	signer := wtmock.NewMockSigner()
 	mockNet := newMockNet()
-	clientDB := wtmock.NewClientDB()
+	clientDB := newClientDB(t)
 
 	server := newServerHarness(
 		t, mockNet, towerAddrStr, func(serverCfg *wtserver.Config) {
@@ -509,6 +526,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 	h.startClient()
 	t.Cleanup(func() {
 		require.NoError(t, h.client.Stop())
+		require.NoError(t, h.clientDB.Close())
 	})
 
 	h.makeChannel(0, h.cfg.localBalance, h.cfg.remoteBalance)
@@ -1342,7 +1360,7 @@ var clientTests = []clientTest{
 
 			// Wait for all the updates to be populated in the
 			// server's database.
-			h.server.waitForUpdates(hints, 3*time.Second)
+			h.server.waitForUpdates(hints, waitTime)
 		},
 	},
 	{
@@ -2053,7 +2071,7 @@ var clientTests = []clientTest{
 			// Now stop the client and reset its database.
 			require.NoError(h.t, h.client.Stop())
 
-			db := wtmock.NewClientDB()
+			db := newClientDB(h.t)
 			h.clientDB = db
 			h.clientCfg.DB = db
 

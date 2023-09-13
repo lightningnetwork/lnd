@@ -675,6 +675,98 @@ func testCommitUpdate(h *clientDBHarness) {
 	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{}, nil)
 }
 
+// testRogueUpdates asserts that rogue updates (updates for channels that are
+// backed up after the channel has been closed and the channel details deleted
+// from the DB) are handled correctly.
+func testRogueUpdates(h *clientDBHarness) {
+	const maxUpdates = 5
+
+	tower := h.newTower()
+
+	// Create and insert a new session.
+	session1 := h.randSession(h.t, tower.ID, maxUpdates)
+	h.insertSession(session1, nil)
+
+	// Create a new channel and register it.
+	chanID1 := randChannelID(h.t)
+	h.registerChan(chanID1, nil, nil)
+
+	// Num acked updates should be 0.
+	require.Zero(h.t, h.numAcked(&session1.ID, nil))
+
+	// Commit and ACK enough updates for this channel to fill the session.
+	for i := 1; i <= maxUpdates; i++ {
+		update := randCommittedUpdateForChanWithHeight(
+			h.t, chanID1, uint16(i), uint64(i),
+		)
+		lastApplied := h.commitUpdate(&session1.ID, update, nil)
+		h.ackUpdate(&session1.ID, uint16(i), lastApplied, nil)
+	}
+
+	// Num acked updates should now be 5.
+	require.EqualValues(h.t, maxUpdates, h.numAcked(&session1.ID, nil))
+
+	// Commit one more update for the channel but this time do not ACK it.
+	// This update will be put in a new session since the previous one has
+	// been exhausted.
+	session2 := h.randSession(h.t, tower.ID, maxUpdates)
+	sess2Seq := 1
+	h.insertSession(session2, nil)
+	update := randCommittedUpdateForChanWithHeight(
+		h.t, chanID1, uint16(sess2Seq), uint64(maxUpdates+1),
+	)
+	lastApplied := h.commitUpdate(&session2.ID, update, nil)
+
+	// Session 2 should not have any acked updates yet.
+	require.Zero(h.t, h.numAcked(&session2.ID, nil))
+
+	// There should currently be no closable sessions.
+	require.Empty(h.t, h.listClosableSessions(nil))
+
+	// Now mark the channel as closed.
+	h.markChannelClosed(chanID1, 1, nil)
+
+	// Assert that session 1 is now seen as closable.
+	closableSessionsMap := h.listClosableSessions(nil)
+	require.Len(h.t, closableSessionsMap, 1)
+	_, ok := closableSessionsMap[session1.ID]
+	require.True(h.t, ok)
+
+	// Delete session 1.
+	h.deleteSession(session1.ID, nil)
+
+	// Now try to ACK the update for the channel. This should succeed and
+	// the update should be considered a rogue update.
+	h.ackUpdate(&session2.ID, uint16(sess2Seq), lastApplied, nil)
+
+	// Show that the number of acked updates is now 1.
+	require.EqualValues(h.t, 1, h.numAcked(&session2.ID, nil))
+
+	// We also want to test the extreme case where all the updates for a
+	// particular session are rogue updates. In this case, the session
+	// should be seen as closable if it is saturated.
+
+	// First show that the session is not yet considered closable.
+	require.Empty(h.t, h.listClosableSessions(nil))
+
+	// Then, let's continue adding rogue updates for the closed channel to
+	// session 2.
+	for i := maxUpdates + 2; i <= maxUpdates*2; i++ {
+		sess2Seq++
+
+		update := randCommittedUpdateForChanWithHeight(
+			h.t, chanID1, uint16(sess2Seq), uint64(i),
+		)
+		lastApplied := h.commitUpdate(&session2.ID, update, nil)
+		h.ackUpdate(&session2.ID, uint16(sess2Seq), lastApplied, nil)
+	}
+
+	// At this point, session 2 is saturated with rogue updates. Assert that
+	// it is now closable.
+	closableSessionsMap = h.listClosableSessions(nil)
+	require.Len(h.t, closableSessionsMap, 1)
+}
+
 // testMarkChannelClosed asserts the behaviour of MarkChannelClosed.
 func testMarkChannelClosed(h *clientDBHarness) {
 	tower := h.newTower()
@@ -762,7 +854,7 @@ func testMarkChannelClosed(h *clientDBHarness) {
 	require.EqualValues(h.t, 4, lastApplied)
 	h.ackUpdate(&session1.ID, 5, 5, nil)
 
-	// The session is no exhausted.
+	// The session is now exhausted.
 	// If we now close channel 5, session 1 should still not be closable
 	// since it has an update for channel 6 which is still open.
 	sl = h.markChannelClosed(chanID5, 1, nil)
@@ -1001,6 +1093,10 @@ func TestClientDB(t *testing.T) {
 			name: "mark channel closed",
 			run:  testMarkChannelClosed,
 		},
+		{
+			name: "rogue updates",
+			run:  testRogueUpdates,
+		},
 	}
 
 	for _, database := range dbs {
@@ -1059,6 +1155,34 @@ func randCommittedUpdateForChannel(t *testing.T, chanID lnwire.ChannelID,
 			BackupID: wtdb.BackupID{
 				ChanID:       chanID,
 				CommitHeight: 666,
+			},
+			Hint:          hint,
+			EncryptedBlob: encBlob,
+		},
+	}
+}
+
+// randCommittedUpdateForChanWithHeight generates a random committed update for
+// the given channel ID using the given commit height.
+func randCommittedUpdateForChanWithHeight(t *testing.T, chanID lnwire.ChannelID,
+	seqNum uint16, height uint64) *wtdb.CommittedUpdate {
+
+	t.Helper()
+
+	var hint blob.BreachHint
+	_, err := io.ReadFull(crand.Reader, hint[:])
+	require.NoError(t, err)
+
+	encBlob := make([]byte, blob.Size(blob.FlagCommitOutputs.Type()))
+	_, err = io.ReadFull(crand.Reader, encBlob)
+	require.NoError(t, err)
+
+	return &wtdb.CommittedUpdate{
+		SeqNum: seqNum,
+		CommittedUpdateBody: wtdb.CommittedUpdateBody{
+			BackupID: wtdb.BackupID{
+				ChanID:       chanID,
+				CommitHeight: height,
 			},
 			Hint:          hint,
 			EncryptedBlob: encBlob,

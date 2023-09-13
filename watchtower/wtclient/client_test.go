@@ -2417,14 +2417,10 @@ var clientTests = []clientTest{
 		},
 	},
 	{
-		// This test demonstrates a bug that will be addressed in a
-		// follow-up commit. It shows that if a channel is closed while
-		// an update for that channel still exists in an in-memory queue
-		// somewhere then it is possible that all the data for that
-		// channel gets deleted from the tower client DB. This results
-		// in an error being thrown in the DB AckUpdate method since it
-		// will try to find the associated channel data but will not
-		// find it.
+		// This test shows that if a channel is closed while an update
+		// for that channel still exists in an in-memory queue
+		// somewhere then it is handled correctly by treating it as a
+		// rogue update.
 		name: "channel closed while update is un-acked",
 		cfg: harnessCfg{
 			localBalance:  localBalance,
@@ -2532,7 +2528,7 @@ var clientTests = []clientTest{
 			require.NoError(h.t, err)
 
 			// Show that the committed update for the closed channel
-			// remains in the client's DB.
+			// is cleared from the DB.
 			err = wait.Predicate(func() bool {
 				sessions, err := h.clientDB.ListClientSessions(
 					nil,
@@ -2545,11 +2541,11 @@ var clientTests = []clientTest{
 					require.NoError(h.t, err)
 
 					if len(updates) != 0 {
-						return true
+						return false
 					}
 				}
 
-				return false
+				return true
 			}, waitTime)
 			require.NoError(h.t, err)
 		},

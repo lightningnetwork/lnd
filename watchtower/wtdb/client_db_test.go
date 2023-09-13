@@ -13,7 +13,6 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
-	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/lightningnetwork/lnd/watchtower/wtpolicy"
 	"github.com/stretchr/testify/require"
 )
@@ -962,12 +961,6 @@ func TestClientDB(t *testing.T) {
 				})
 
 				return db
-			},
-		},
-		{
-			name: "mock",
-			init: func(t *testing.T) wtclient.DB {
-				return wtmock.NewClientDB()
 			},
 		},
 	}

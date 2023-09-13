@@ -18,51 +18,13 @@ const (
 	waitTime      = time.Second * 2
 )
 
-type initQueue func(t *testing.T) wtdb.Queue[*wtdb.BackupID]
-
 // TestDiskOverflowQueue tests that the DiskOverflowQueue behaves as expected.
 func TestDiskOverflowQueue(t *testing.T) {
 	t.Parallel()
 
-	dbs := []struct {
-		name string
-		init initQueue
-	}{
-		{
-			name: "kvdb",
-			init: func(t *testing.T) wtdb.Queue[*wtdb.BackupID] {
-				dbCfg := &kvdb.BoltConfig{
-					DBTimeout: kvdb.DefaultDBTimeout,
-				}
-
-				bdb, err := wtdb.NewBoltBackendCreator(
-					true, t.TempDir(), "wtclient.db",
-				)(dbCfg)
-				require.NoError(t, err)
-
-				db, err := wtdb.OpenClientDB(bdb)
-				require.NoError(t, err)
-
-				t.Cleanup(func() {
-					db.Close()
-				})
-
-				return db.GetDBQueue([]byte("test-namespace"))
-			},
-		},
-		{
-			name: "mock",
-			init: func(t *testing.T) wtdb.Queue[*wtdb.BackupID] {
-				db := wtmock.NewClientDB()
-
-				return db.GetDBQueue([]byte("test-namespace"))
-			},
-		},
-	}
-
 	tests := []struct {
 		name string
-		run  func(*testing.T, initQueue)
+		run  func(*testing.T, wtdb.Queue[*wtdb.BackupID])
 	}{
 		{
 			name: "overflow to disk",
@@ -78,28 +40,42 @@ func TestDiskOverflowQueue(t *testing.T) {
 		},
 	}
 
-	for _, database := range dbs {
-		db := database
-		t.Run(db.name, func(t *testing.T) {
-			t.Parallel()
+	initDB := func() wtdb.Queue[*wtdb.BackupID] {
+		dbCfg := &kvdb.BoltConfig{
+			DBTimeout: kvdb.DefaultDBTimeout,
+		}
 
-			for _, test := range tests {
-				t.Run(test.name, func(t *testing.T) {
-					test.run(t, db.init)
-				})
-			}
+		bdb, err := wtdb.NewBoltBackendCreator(
+			true, t.TempDir(), "wtclient.db",
+		)(dbCfg)
+		require.NoError(t, err)
+
+		db, err := wtdb.OpenClientDB(bdb)
+		require.NoError(t, err)
+
+		t.Cleanup(func() {
+			require.NoError(t, db.Close())
+		})
+
+		return db.GetDBQueue([]byte("test-namespace"))
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(tt *testing.T) {
+			tt.Parallel()
+
+			test.run(tt, initDB())
 		})
 	}
 }
 
 // testOverflowToDisk is a basic test that ensures that the queue correctly
 // overflows items to disk and then correctly reloads them.
-func testOverflowToDisk(t *testing.T, initQueue initQueue) {
+func testOverflowToDisk(t *testing.T, db wtdb.Queue[*wtdb.BackupID]) {
 	// Generate some backup IDs that we want to add to the queue.
 	tasks := genBackupIDs(10)
-
-	// Init the DB.
-	db := initQueue(t)
 
 	// New mock logger.
 	log := newMockLogger(t.Logf)
@@ -146,7 +122,9 @@ func testOverflowToDisk(t *testing.T, initQueue initQueue) {
 // testRestartWithSmallerBufferSize tests that if the queue is restarted with
 // a smaller in-memory buffer size that it was initially started with, then
 // tasks are still loaded in the correct order.
-func testRestartWithSmallerBufferSize(t *testing.T, newQueue initQueue) {
+func testRestartWithSmallerBufferSize(t *testing.T,
+	db wtdb.Queue[*wtdb.BackupID]) {
+
 	const (
 		firstMaxInMemItems  = 5
 		secondMaxInMemItems = 2
@@ -154,9 +132,6 @@ func testRestartWithSmallerBufferSize(t *testing.T, newQueue initQueue) {
 
 	// Generate some backup IDs that we want to add to the queue.
 	tasks := genBackupIDs(10)
-
-	// Create a db.
-	db := newQueue(t)
 
 	// New mock logger.
 	log := newMockLogger(t.Logf)
@@ -223,13 +198,10 @@ func testRestartWithSmallerBufferSize(t *testing.T, newQueue initQueue) {
 // testStartStopQueue is a stress test that pushes a large number of tasks
 // through the queue while also restarting the queue a couple of times
 // throughout.
-func testStartStopQueue(t *testing.T, newQueue initQueue) {
+func testStartStopQueue(t *testing.T, db wtdb.Queue[*wtdb.BackupID]) {
 	// Generate a lot of backup IDs that we want to add to the
 	// queue one after the other.
 	tasks := genBackupIDs(200_000)
-
-	// Construct the ClientDB.
-	db := newQueue(t)
 
 	// New mock logger.
 	log := newMockLogger(t.Logf)

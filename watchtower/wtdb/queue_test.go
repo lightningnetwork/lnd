@@ -4,9 +4,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/kvdb"
-	"github.com/lightningnetwork/lnd/watchtower/wtclient"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
-	"github.com/lightningnetwork/lnd/watchtower/wtmock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,53 +13,24 @@ import (
 func TestDiskQueue(t *testing.T) {
 	t.Parallel()
 
-	dbs := []struct {
-		name string
-		init clientDBInit
-	}{
-		{
-			name: "bbolt",
-			init: func(t *testing.T) wtclient.DB {
-				dbCfg := &kvdb.BoltConfig{
-					DBTimeout: kvdb.DefaultDBTimeout,
-				}
-
-				// Construct the ClientDB.
-				bdb, err := wtdb.NewBoltBackendCreator(
-					true, t.TempDir(), "wtclient.db",
-				)(dbCfg)
-				require.NoError(t, err)
-
-				db, err := wtdb.OpenClientDB(bdb)
-				require.NoError(t, err)
-
-				t.Cleanup(func() {
-					err = db.Close()
-					require.NoError(t, err)
-				})
-
-				return db
-			},
-		},
-		{
-			name: "mock",
-			init: func(t *testing.T) wtclient.DB {
-				return wtmock.NewClientDB()
-			},
-		},
+	dbCfg := &kvdb.BoltConfig{
+		DBTimeout: kvdb.DefaultDBTimeout,
 	}
 
-	for _, database := range dbs {
-		db := database
-		t.Run(db.name, func(t *testing.T) {
-			t.Parallel()
+	// Construct the ClientDB.
+	bdb, err := wtdb.NewBoltBackendCreator(
+		true, t.TempDir(), "wtclient.db",
+	)(dbCfg)
+	require.NoError(t, err)
 
-			testQueue(t, db.init(t))
-		})
-	}
-}
+	db, err := wtdb.OpenClientDB(bdb)
+	require.NoError(t, err)
 
-func testQueue(t *testing.T, db wtclient.DB) {
+	t.Cleanup(func() {
+		err = db.Close()
+		require.NoError(t, err)
+	})
+
 	namespace := []byte("test-namespace")
 	queue := db.GetDBQueue(namespace)
 

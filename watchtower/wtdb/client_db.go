@@ -980,29 +980,8 @@ func getRangesReadBucket(tx kvdb.RTx, sID SessionID, chanID lnwire.ChannelID) (
 // getRangesWriteBucket gets the range index bucket where the range index for
 // the given session-channel pair is stored. If any sub-buckets along the way do
 // not exist, then they are created.
-func getRangesWriteBucket(tx kvdb.RwTx, sID SessionID,
-	chanID lnwire.ChannelID) (kvdb.RwBucket, error) {
-
-	sessions := tx.ReadWriteBucket(cSessionBkt)
-	if sessions == nil {
-		return nil, ErrUninitializedDB
-	}
-
-	chanDetailsBkt := tx.ReadBucket(cChanDetailsBkt)
-	if chanDetailsBkt == nil {
-		return nil, ErrUninitializedDB
-	}
-
-	sessionBkt, err := sessions.CreateBucketIfNotExists(sID[:])
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the DB representation of the channel-ID.
-	_, dbChanIDBytes, err := getDBChanID(chanDetailsBkt, chanID)
-	if err != nil {
-		return nil, err
-	}
+func getRangesWriteBucket(sessionBkt kvdb.RwBucket, dbChanIDBytes []byte) (
+	kvdb.RwBucket, error) {
 
 	sessionAckRanges, err := sessionBkt.CreateBucketIfNotExists(
 		cSessionAckRangeIndex,
@@ -2029,10 +2008,18 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 		chanID := committedUpdate.BackupID.ChanID
 		height := committedUpdate.BackupID.CommitHeight
 
+		// Get the DB representation of the channel-ID.
+		_, dbChanIDBytes, err := getDBChanID(chanDetailsBkt, chanID)
+		if err != nil {
+			return err
+		}
+
 		// Get the ranges write bucket before getting the range index to
 		// ensure that the session acks sub-bucket is initialized, so
 		// that we can insert an entry.
-		rangesBkt, err := getRangesWriteBucket(tx, *id, chanID)
+		rangesBkt, err := getRangesWriteBucket(
+			sessionBkt, dbChanIDBytes,
+		)
 		if err != nil {
 			return err
 		}

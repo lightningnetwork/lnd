@@ -71,6 +71,10 @@ fails](https://github.com/lightningnetwork/lnd/pull/7876).
   retried](https://github.com/lightningnetwork/lnd/pull/7927) with an
   exponential back off.
 
+* In the watchtower client, we [now explicitly 
+  handle](https://github.com/lightningnetwork/lnd/pull/7981) the scenario where 
+  a channel is closed while we still have an in-memory update for it. 
+
 # New Features
 ## Functional Enhancements
 ### Protocol Features

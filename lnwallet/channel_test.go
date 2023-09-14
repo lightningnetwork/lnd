@@ -7417,10 +7417,7 @@ func TestForceCloseFailLocalDataLoss(t *testing.T) {
 	// channel, we should fail as it isn't safe to force close a
 	// channel that isn't in the pure default state.
 	_, err = aliceChannel.ForceClose()
-	if err == nil {
-		t.Fatalf("expected force close to fail due to non-default " +
-			"chan state")
-	}
+	require.ErrorIs(t, err, ErrForceCloseLocalDataLoss)
 }
 
 // TestForceCloseBorkedState tests that once we force close a channel, it's

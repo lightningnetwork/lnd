@@ -1996,7 +1996,7 @@ func messageSummary(msg lnwire.Message) string {
 		return fmt.Sprintf("ping_bytes=%x", msg.PaddingBytes[:])
 
 	case *lnwire.Pong:
-		return fmt.Sprintf("pong_bytes=%x", msg.PongBytes[:])
+		return fmt.Sprintf("len(pong_bytes)=%d", len(msg.PongBytes[:]))
 
 	case *lnwire.UpdateFee:
 		return fmt.Sprintf("chan_id=%v, fee_update_sat=%v",

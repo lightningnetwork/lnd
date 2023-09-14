@@ -23,10 +23,13 @@ import (
 )
 
 // testCommitmentTransactionDeadline tests that the anchor sweep transaction is
-// taking account of the deadline of the commitment transaction. It tests two
+// taking account of the deadline of the commitment transaction. It tests three
 // scenarios:
 //  1. when the CPFP is skipped, checks that the deadline is not used.
-//  2. when the CPFP is used, checks that the deadline is applied.
+//  2. when the CPFP is used, checks that the deadline is NOT applied when it's
+//     larger than 144.
+//  3. when the CPFP is used, checks that the deadline is applied when it's
+//     less than 144.
 //
 // Note that whether the deadline is used or not is implicitly checked by its
 // corresponding fee rates.
@@ -43,13 +46,13 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 		// DefaultAnchorsCommitMaxFeeRateSatPerVByte.
 		feeRateDefault = 20000
 
-		// finalCTLV is used when Alice sends payment to Bob.
-		finalCTLV = 144
+		// defaultDeadline is the anchorSweepConfTarget, which is used
+		// when the commitment has no deadline pressure.
+		defaultDeadline = 144
 
-		// deadline is used when Alice sweep the anchor. Notice there
-		// is a block padding of 3 added, such that the value of
-		// deadline is 147.
-		deadline = uint32(finalCTLV + routing.BlockPadding)
+		// deadline is one block below the default deadline. A forced
+		// anchor sweep will be performed when seeing this value.
+		deadline = defaultDeadline - 1
 	)
 
 	// feeRateSmall(sat/kw) is used when we want to skip the CPFP
@@ -91,7 +94,7 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 
 	// calculateSweepFeeRate runs multiple steps to calculate the fee rate
 	// used in sweeping the transactions.
-	calculateSweepFeeRate := func(expectedSweepTxNum int) int64 {
+	calculateSweepFeeRate := func(expectedSweepTxNum, deadline int) int64 {
 		// Create two nodes, Alice and Bob.
 		alice := setupNode("Alice")
 		defer ht.Shutdown(alice)
@@ -110,6 +113,10 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 			},
 		)
 
+		// Calculate the final ctlv delta based on the expected
+		// deadline.
+		finalCltvDelta := int32(deadline - int(routing.BlockPadding))
+
 		// Send a payment with a specified finalCTLVDelta, which will
 		// be used as our deadline later on when Alice force closes the
 		// channel.
@@ -117,7 +124,7 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 			Dest:           bob.PubKey[:],
 			Amt:            10e4,
 			PaymentHash:    ht.Random32Bytes(),
-			FinalCltvDelta: finalCTLV,
+			FinalCltvDelta: finalCltvDelta,
 			TimeoutSeconds: 60,
 			FeeLimitMsat:   noFeeLimitMsat,
 		}
@@ -154,8 +161,27 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 	// we should see only one sweep tx in the mempool.
 	ht.SetFeeEstimateWithConf(feeRateSmall, deadline)
 
-	// Calculate fee rate used.
-	feeRate := calculateSweepFeeRate(1)
+	// Calculate fee rate used and assert only the force close tx is
+	// broadcast.
+	feeRate := calculateSweepFeeRate(1, deadline)
+
+	// We expect the default max fee rate is used. Allow some deviation
+	// because weight estimates during tx generation are estimates.
+	require.InEpsilonf(
+		ht, int64(maxPerKw), feeRate, 0.01,
+		"expected fee rate:%d, got fee rate:%d", maxPerKw, feeRate,
+	)
+
+	// Setup our fee estimation for the deadline. Because the fee rate is
+	// greater than the parent tx's fee rate, this value will be used to
+	// sweep the anchor transaction. However, due to the default value
+	// being used, we should not attempt CPFP here because we are not force
+	// sweeping the anchor output.
+	ht.SetFeeEstimateWithConf(feeRateLarge, defaultDeadline)
+
+	// Calculate fee rate used and assert only the force close tx is
+	// broadcast.
+	feeRate = calculateSweepFeeRate(1, defaultDeadline)
 
 	// We expect the default max fee rate is used. Allow some deviation
 	// because weight estimates during tx generation are estimates.
@@ -170,8 +196,9 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 	// transactions in the mempool.
 	ht.SetFeeEstimateWithConf(feeRateLarge, deadline)
 
-	// Calculate fee rate used.
-	feeRate = calculateSweepFeeRate(2)
+	// Calculate fee rate used and assert both the force close tx and the
+	// anchor sweeping tx are broadcast.
+	feeRate = calculateSweepFeeRate(2, deadline)
 
 	// We expect the anchor to be swept with the deadline, which has the
 	// fee rate of feeRateLarge.

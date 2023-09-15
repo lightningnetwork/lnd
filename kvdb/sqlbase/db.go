@@ -55,10 +55,6 @@ type Config struct {
 	// commands. Note that the sqlite keywords to be replaced are
 	// case-sensitive.
 	SQLiteCmdReplacements SQLiteCmdReplacements
-
-	// WithTxLevelLock when set will ensure that there is a transaction
-	// level lock.
-	WithTxLevelLock bool
 }
 
 // db holds a reference to the sql db connection.
@@ -78,10 +74,6 @@ type db struct {
 
 	// db is the underlying database connection instance.
 	db *sql.DB
-
-	// lock is the global write lock that ensures single writer. This is
-	// only used if cfg.WithTxLevelLock is set.
-	lock sync.RWMutex
 
 	// table is the name of the table that contains the data for all
 	// top-level buckets that have keys that cannot be mapped to a distinct

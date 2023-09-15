@@ -6402,6 +6402,9 @@
         }
       }
     },
+    "lnrpcPurgeZombiesResp": {
+      "type": "object"
+    },
     "lnrpcQueryRoutesResponse": {
       "type": "object",
       "properties": {

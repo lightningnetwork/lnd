@@ -591,6 +591,17 @@ service Lightning {
     */
     rpc LookupHtlcResolution (LookupHtlcResolutionRequest)
         returns (LookupHtlcResolutionResponse);
+
+    /*
+    PurgeZombies attempts to remove all zombie channels from the database.
+    The amount of zombie channels in the DB can be determined by examining
+    the response to GetNetworkInfo. This call may be useful if a user
+    detects that they're missing portions of the channel graph due to
+    inactivity, or extended downtime. Note that after this command, resource
+    utilization may spike while old pruned channels are re-inserted in to
+    the db.
+    */
+    rpc PurgeZombies (PurgeZombiesReq) returns (PurgeZombiesResp);
 }
 
 message LookupHtlcResolutionRequest {
@@ -4842,4 +4853,10 @@ message InterceptFeedback {
     binary serialized gRPC message in the protobuf format.
     */
     bytes replacement_serialized = 3;
+}
+
+message PurgeZombiesReq {
+}
+
+message PurgeZombiesResp {
 }

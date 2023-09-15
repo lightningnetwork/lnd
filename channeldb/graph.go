@@ -3875,6 +3875,17 @@ func (c *ChannelGraph) MarkEdgeZombie(chanID uint64,
 	return nil
 }
 
+// PurgeZombies attempts to purge all zombie channels from the database.
+func (c *ChannelGraph) PurgeZombies() error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		edges := tx.ReadWriteBucket(edgeBucket)
+		if edges == nil {
+			return ErrGraphNoEdgesFound
+		}
+		return edges.DeleteNestedBucket(zombieBucket)
+	}, func() {})
+}
+
 // markEdgeZombie marks an edge as a zombie within our zombie index. The public
 // keys should represent the node public keys of the two parties involved in the
 // edge.

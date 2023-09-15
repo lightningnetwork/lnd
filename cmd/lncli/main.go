@@ -512,6 +512,7 @@ func main() {
 		subscribeCustomCommand,
 		fishCompletionCommand,
 		listAliasesCommand,
+		purgeZombiesCommand,
 	}
 
 	// Add any extra commands determined by build flags.

@@ -8124,3 +8124,19 @@ func rpcInitiator(isInitiator bool) lnrpc.Initiator {
 
 	return lnrpc.Initiator_INITIATOR_REMOTE
 }
+
+// PurgeZombies attempts to remove all zombie channels from the database.  The
+// amount of zombie channels in the DB can be determined by examining the
+// response to GetNetworkInfo. This call may be useful if a user detects that
+// they're missing portions of the channel graph due to inactivity, or extended
+// downtime. Note that after this command, resource utilization may spike while
+// old pruned channels are re-inserted in to the db.
+func (r *rpcServer) PurgeZombies(ctx context.Context,
+	req *lnrpc.PurgeZombiesReq) (*lnrpc.PurgeZombiesResp, error) {
+
+	if err := r.server.graphDB.PurgeZombies(); err != nil {
+		return nil, err
+	}
+
+	return &lnrpc.PurgeZombiesResp{}, nil
+}

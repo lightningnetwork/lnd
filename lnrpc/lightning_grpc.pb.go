@@ -408,6 +408,14 @@ type LightningClient interface {
 	// If the htlc has no final resolution yet, a NotFound grpc status code is
 	// returned.
 	LookupHtlcResolution(ctx context.Context, in *LookupHtlcResolutionRequest, opts ...grpc.CallOption) (*LookupHtlcResolutionResponse, error)
+	// PurgeZombies attempts to remove all zombie channels from the database.
+	// The amount of zombie channels in the DB can be determined by examining
+	// the response to GetNetworkInfo. This call may be useful if a user
+	// detects that they're missing portions of the channel graph due to
+	// inactivity, or extended downtime. Note that after this command, resource
+	// utilization may spike while old pruned channels are re-inserted in to
+	// the db.
+	PurgeZombies(ctx context.Context, in *PurgeZombiesReq, opts ...grpc.CallOption) (*PurgeZombiesResp, error)
 }
 
 type lightningClient struct {
@@ -1318,6 +1326,15 @@ func (c *lightningClient) LookupHtlcResolution(ctx context.Context, in *LookupHt
 	return out, nil
 }
 
+func (c *lightningClient) PurgeZombies(ctx context.Context, in *PurgeZombiesReq, opts ...grpc.CallOption) (*PurgeZombiesResp, error) {
+	out := new(PurgeZombiesResp)
+	err := c.cc.Invoke(ctx, "/lnrpc.Lightning/PurgeZombies", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // LightningServer is the server API for Lightning service.
 // All implementations must embed UnimplementedLightningServer
 // for forward compatibility
@@ -1712,6 +1729,14 @@ type LightningServer interface {
 	// If the htlc has no final resolution yet, a NotFound grpc status code is
 	// returned.
 	LookupHtlcResolution(context.Context, *LookupHtlcResolutionRequest) (*LookupHtlcResolutionResponse, error)
+	// PurgeZombies attempts to remove all zombie channels from the database.
+	// The amount of zombie channels in the DB can be determined by examining
+	// the response to GetNetworkInfo. This call may be useful if a user
+	// detects that they're missing portions of the channel graph due to
+	// inactivity, or extended downtime. Note that after this command, resource
+	// utilization may spike while old pruned channels are re-inserted in to
+	// the db.
+	PurgeZombies(context.Context, *PurgeZombiesReq) (*PurgeZombiesResp, error)
 	mustEmbedUnimplementedLightningServer()
 }
 
@@ -1919,6 +1944,9 @@ func (UnimplementedLightningServer) ListAliases(context.Context, *ListAliasesReq
 }
 func (UnimplementedLightningServer) LookupHtlcResolution(context.Context, *LookupHtlcResolutionRequest) (*LookupHtlcResolutionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LookupHtlcResolution not implemented")
+}
+func (UnimplementedLightningServer) PurgeZombies(context.Context, *PurgeZombiesReq) (*PurgeZombiesResp, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PurgeZombies not implemented")
 }
 func (UnimplementedLightningServer) mustEmbedUnimplementedLightningServer() {}
 
@@ -3198,6 +3226,24 @@ func _Lightning_LookupHtlcResolution_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Lightning_PurgeZombies_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PurgeZombiesReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(LightningServer).PurgeZombies(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/lnrpc.Lightning/PurgeZombies",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(LightningServer).PurgeZombies(ctx, req.(*PurgeZombiesReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Lightning_ServiceDesc is the grpc.ServiceDesc for Lightning service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -3420,6 +3466,10 @@ var Lightning_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LookupHtlcResolution",
 			Handler:    _Lightning_LookupHtlcResolution_Handler,
+		},
+		{
+			MethodName: "PurgeZombies",
+			Handler:    _Lightning_PurgeZombies_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

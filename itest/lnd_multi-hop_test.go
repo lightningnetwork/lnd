@@ -784,20 +784,21 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	ht.AssertActiveHtlcs(bob, payHash[:])
 	ht.AssertActiveHtlcs(carol, payHash[:])
 
-	// Increase the fee estimate so that the following force close tx will
-	// be cpfp'ed.
-	ht.SetFeeEstimate(30000)
-
 	// At this point, we'll now instruct Carol to force close the
 	// transaction. This will let us exercise that Bob is able to sweep the
-	// expired HTLC on Carol's version of the commitment transaction. If
-	// Carol has an anchor, it will be swept too.
-	hasAnchors := lntest.CommitTypeHasAnchors(c)
+	// expired HTLC on Carol's version of the commitment transaction.
 	closeStream, _ := ht.CloseChannelAssertPending(
 		carol, bobChanPoint, true,
 	)
+
+	// For anchor channels, the anchor won't be used for CPFP because
+	// channel arbitrator thinks Carol doesn't have preimage for her
+	// incoming HTLC on the commitment transaction Bob->Carol. Although
+	// Carol created this invoice, because it's a hold invoice, the
+	// preimage won't be generated automatically.
+	hasAnchorSweep := false
 	closeTx := ht.AssertStreamChannelForceClosed(
-		carol, bobChanPoint, hasAnchors, closeStream,
+		carol, bobChanPoint, hasAnchorSweep, closeStream,
 	)
 
 	// Increase the blocks mined. At this step
@@ -828,7 +829,18 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 		ht.Fatalf("unhandled commitment type %v", c)
 	}
 
-	ht.Miner.AssertNumTxsInMempool(expectedTxes)
+	// We now mine a block to clear up the mempool.
+	ht.MineBlocksAndAssertNumTxes(1, expectedTxes)
+	blocksMined++
+
+	// The above block will trigger Carol's sweeper to reconsider the
+	// anchor sweeping. Because we are now sweeping at the fee rate floor,
+	// the sweeper will consider this input has positive yield thus
+	// attempts the sweeping.
+	if lntest.CommitTypeHasAnchors(c) {
+		ht.MineBlocksAndAssertNumTxes(1, 1)
+		blocksMined++
+	}
 
 	// Next, we'll mine enough blocks for the HTLC to expire. At this
 	// point, Bob should hand off the output to his internal utxo nursery,

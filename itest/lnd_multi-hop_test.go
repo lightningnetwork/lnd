@@ -962,18 +962,20 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// to be mined to trigger a force close later on.
 	var blocksMined uint32
 
-	// Increase the fee estimate so that the following force close tx will
-	// be cpfp'ed.
-	ht.SetFeeEstimate(30000)
-
 	// At this point, Bob decides that he wants to exit the channel
 	// immediately, so he force closes his commitment transaction.
-	hasAnchors := lntest.CommitTypeHasAnchors(c)
 	closeStream, _ := ht.CloseChannelAssertPending(
 		bob, aliceChanPoint, true,
 	)
+
+	// For anchor channels, the anchor won't be used for CPFP as there's no
+	// deadline pressure for Bob on the channel Alice->Bob at the moment.
+	// For Bob's local commitment tx, there's only one incoming HTLC which
+	// he doesn't have the preimage yet. Thus this anchor won't be
+	// force-swept.
+	hasAnchorSweep := false
 	bobForceClose := ht.AssertStreamChannelForceClosed(
-		bob, aliceChanPoint, hasAnchors, closeStream,
+		bob, aliceChanPoint, hasAnchorSweep, closeStream,
 	)
 
 	// Increase the blocks mined. At this step
@@ -1050,7 +1052,12 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 		expectedTxes = 2
 
 	// Carol will broadcast her second level HTLC transaction and Bob will
-	// sweep his commitment and anchor output.
+	// sweep his commitment and anchor outputs.
+	// For anchor channels, we'd expect to see three transactions,
+	// - Carol's second level HTLC transaction
+	// - Bob's sweep tx spending his commitment output
+	// - Bob's sweep tx spending two anchor outputs, one from channel Alice
+	//   to Bob and the other from channel Bob to Carol.
 	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
 		expectedTxes = 3
 
@@ -1065,19 +1072,15 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 		ht.Fatalf("unhandled commitment type %v", c)
 	}
 
-	txes := ht.Miner.GetNumTxsFromMempool(expectedTxes)
-
-	// Both Carol's second level transaction and Bob's sweep should be
-	// spending from the commitment transaction.
-	ht.AssertAllTxesSpendFrom(txes, closingTxid)
+	// Assert transactions can be found in the mempool.
+	ht.Miner.AssertNumTxsInMempool(expectedTxes)
 
 	// At this point we suspend Alice to make sure she'll handle the
 	// on-chain settle after a restart.
 	restartAlice := ht.SuspendNode(alice)
 
 	// Mine a block to confirm the expected transactions (+ the coinbase).
-	block = ht.MineBlocksAndAssertNumTxes(1, expectedTxes)[0]
-	require.Len(ht, block.Transactions, expectedTxes+1)
+	ht.MineBlocksAndAssertNumTxes(1, expectedTxes)
 
 	// For non-anchor channel types, the nursery will handle sweeping the
 	// second level output, and it will wait one extra block before
@@ -1087,7 +1090,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// If this is a channel of the anchor type, we will subtract one block
 	// from the default CSV, as the Sweeper will handle the input, and the
 	// Sweeper sweeps the input as soon as the lock expires.
-	if hasAnchors {
+	if lntest.CommitTypeHasAnchors(c) {
 		secondLevelMaturity = defaultCSV - 1
 	}
 
@@ -1098,6 +1101,7 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// will extract the preimage and broadcast a second level tx to claim
 	// the HTLC in his (already closed) channel with Alice.
 	bobSecondLvlTx := ht.Miner.GetNumTxsFromMempool(1)[0]
+	bobSecondLvlTxid := bobSecondLvlTx.TxHash()
 
 	// It should spend from the commitment in the channel with Alice.
 	ht.AssertTxSpendFrom(bobSecondLvlTx, *bobForceClose)
@@ -1119,7 +1123,6 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	// We'll now mine a block which should confirm Bob's second layer
 	// transaction.
 	block = ht.MineBlocksAndAssertNumTxes(1, 1)[0]
-	bobSecondLvlTxid := bobSecondLvlTx.TxHash()
 	ht.Miner.AssertTxInBlock(block, &bobSecondLvlTxid)
 
 	// Keep track of Bob's second level maturity, and decrement our track

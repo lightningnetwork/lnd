@@ -521,18 +521,20 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	require.Equal(ht, testMemo,
 		pendingChannelsResp.WaitingCloseChannels[0].Channel.Memo)
 
-	// At this point, the channel is waiting close, and we have both the
-	// commitment transaction and anchor sweep in the mempool.
-	const expectedTxns = 2
-	sweepTxns := ht.Miner.GetNumTxsFromMempool(expectedTxns)
+	// At this point, the channel is waiting close so we have the
+	// commitment transaction in the mempool. Alice's anchor, however,
+	// because there's no deadline pressure, it won't be swept.
 	aliceCloseTx := waitingClose.Commitments.LocalTxid
-	_, aliceAnchor := ht.FindCommitAndAnchor(sweepTxns, aliceCloseTx)
-
-	// We'll now mine _only_ the commitment force close transaction, as we
-	// want the anchor sweep to stay unconfirmed.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 	forceCloseTxID, _ := chainhash.NewHashFromStr(aliceCloseTx)
-	commitTxn := ht.Miner.GetRawTransaction(forceCloseTxID)
-	ht.Miner.MineBlockWithTxes([]*btcutil.Tx{commitTxn})
+
+	// Mine one block to trigger Alice's sweeper to reconsider the anchor
+	// sweeping. Because we are now sweeping at the fee rate floor, the
+	// sweeper will consider this input has positive yield thus attempts
+	// the sweeping.
+	ht.MineEmptyBlocks(1)
+	sweepTxns := ht.Miner.GetNumTxsFromMempool(1)
+	_, aliceAnchor := ht.FindCommitAndAnchor(sweepTxns, aliceCloseTx)
 
 	// Assert that the channel is now in PendingForceClose.
 	//
@@ -573,7 +575,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// call, we'll generate a series of _empty_ blocks here.
 	aliceRestart := ht.SuspendNode(alice)
 	const anchorCsv = 16
-	ht.MineEmptyBlocks(anchorCsv)
+	ht.MineEmptyBlocks(anchorCsv - 1)
 
 	// Before we sweep the anchor, we'll restart Alice.
 	require.NoErrorf(ht, aliceRestart(), "unable to restart alice")

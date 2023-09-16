@@ -664,8 +664,6 @@ func (r *RPCKeyRing) MuSig2CreateSession(bipVersion input.MuSig2Version,
 		return nil, err
 	}
 
-	// TODO(roasbeef): add protos to specify session options
-
 	// We need to serialize all data for the RPC call. We can do that by
 	// putting everything directly into the request struct.
 	req := &signrpc.MuSig2SessionRequest{
@@ -706,6 +704,10 @@ func (r *RPCKeyRing) MuSig2CreateSession(bipVersion input.MuSig2Version,
 			KeySpendOnly: tweaks.TaprootBIP0086Tweak,
 			ScriptRoot:   tweaks.TaprootTweak,
 		}
+	}
+
+	if localNonces != nil {
+		req.PregeneratedLocalNonce = localNonces.SecNonce[:]
 	}
 
 	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)

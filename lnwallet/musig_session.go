@@ -260,7 +260,7 @@ func (m *MusigSession) FinalizeSession(signingNonce musig2.Nonces) error {
 	m.session, err = m.signer.MuSig2CreateSession(
 		input.MuSig2Version100RC2, m.localKey.KeyLocator, m.signerKeys,
 		&tweakDesc, [][musig2.PubNonceSize]byte{remoteNonce.PubNonce},
-		musig2.WithPreGeneratedNonce(&localNonce),
+		&localNonce,
 	)
 	if err != nil {
 		return err

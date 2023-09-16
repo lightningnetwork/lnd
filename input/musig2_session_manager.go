@@ -63,7 +63,7 @@ func NewMusigSessionManager(keyFetcher PrivKeyFetcher) *MusigSessionManager {
 func (m *MusigSessionManager) MuSig2CreateSession(bipVersion MuSig2Version,
 	keyLoc keychain.KeyLocator, allSignerPubKeys []*btcec.PublicKey,
 	tweaks *MuSig2Tweaks, otherSignerNonces [][musig2.PubNonceSize]byte,
-	sessionOpts ...musig2.SessionOption) (*MuSig2SessionInfo, error) {
+	localNonces *musig2.Nonces) (*MuSig2SessionInfo, error) {
 
 	// We need to derive the private key for signing. In the remote signing
 	// setup, this whole RPC call will be forwarded to the signing
@@ -78,7 +78,7 @@ func (m *MusigSessionManager) MuSig2CreateSession(bipVersion MuSig2Version,
 	// Create a signing context and session with the given private key and
 	// list of all known signer public keys.
 	musigContext, musigSession, err := MuSig2CreateContext(
-		bipVersion, privKey, allSignerPubKeys, tweaks, sessionOpts...,
+		bipVersion, privKey, allSignerPubKeys, tweaks, localNonces,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating signing context: %w",

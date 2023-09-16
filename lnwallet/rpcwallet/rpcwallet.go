@@ -657,7 +657,7 @@ func (r *RPCKeyRing) ComputeInputScript(tx *wire.MsgTx,
 func (r *RPCKeyRing) MuSig2CreateSession(bipVersion input.MuSig2Version,
 	keyLoc keychain.KeyLocator, pubKeys []*btcec.PublicKey,
 	tweaks *input.MuSig2Tweaks, otherNonces [][musig2.PubNonceSize]byte,
-	_ ...musig2.SessionOption) (*input.MuSig2SessionInfo, error) {
+	localNonces *musig2.Nonces) (*input.MuSig2SessionInfo, error) {
 
 	apiVersion, err := signrpc.MarshalMuSig2Version(bipVersion)
 	if err != nil {

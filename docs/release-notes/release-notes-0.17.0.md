@@ -228,6 +228,11 @@ None
 
 * The [WalletBalance](https://github.com/lightningnetwork/lnd/pull/7857) RPC
   (lncli walletbalance) now supports showing the balance for a specific account.
+
+* The [websockets proxy now uses a larger default max
+  message](https://github.com/lightningnetwork/lnd/pull/7991) size to support
+  proxying larger messages.
+
   
 ## lncli Updates
 * Added ability to use [environment variables to override `lncli` global

@@ -77,6 +77,11 @@ fails](https://github.com/lightningnetwork/lnd/pull/7876).
 
 # New Features
 ## Functional Enhancements
+
+* `lnd` can now optionally generate [blocking and mutex
+  profiles](https://github.com/lightningnetwork/lnd/pull/7983). These profiles
+  are useful to attempt to debug high mutex contention, or deadlock scenarios.
+
 ### Protocol Features
 * This release marks the first release that includes the new [musig2-based
   taproot channel type](https://github.com/lightningnetwork/lnd/pull/7904). As

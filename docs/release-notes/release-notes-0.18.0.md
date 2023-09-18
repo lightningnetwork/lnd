@@ -32,6 +32,9 @@
   `StatusUnknown` from the payment's rpc response in its status and replaced it
   with `StatusInitiated` to explicitly report its current state.
 
+* [The channel ID is now included in the `PendingChannelsResponse` RPC message
+  (`lncli pendingchannels`)](https://github.com/lightningnetwork/lnd/pull/5592).
+
 ## lncli Updates
 ## Code Health
 

@@ -228,6 +228,9 @@ None
 
 * The [WalletBalance](https://github.com/lightningnetwork/lnd/pull/7857) RPC
   (lncli walletbalance) now supports showing the balance for a specific account.
+
+* Added [reverse bool](https://github.com/lightningnetwork/lnd/pull/7496) to
+  `GettransactionRequest` message.
   
 ## lncli Updates
 * Added ability to use [environment variables to override `lncli` global
@@ -243,6 +246,11 @@ None
 
 * Add [`--unused`](https://github.com/lightningnetwork/lnd/pull/6387) to
   `lncli newaddr` command.
+
+* Added [`--reverse`](https://github.com/lightningnetwork/lnd/pull/7496) to
+  `lncli listchaintxns` command. `lncli listchaintxns` now returns an error when
+   `start_height` is less than `end_height` if end_height is not -1 and when
+    `start_height` is not zero but end_height is -1.
 
 ## Code Health
 * Updated [our fork for serializing protobuf as JSON to be based on the
@@ -342,6 +350,7 @@ None
 * MG-ng
 * Olaoluwa Osuntokun
 * Oliver Gugger
+* Ononiwu Maureen
 * Pierre Beugnet
 * Satarupa Deb
 * Shaurya Arora

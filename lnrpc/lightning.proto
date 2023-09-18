@@ -748,6 +748,9 @@ message GetTransactionsRequest {
 
     // An optional filter to only include transactions relevant to an account.
     string account = 3;
+
+    //  newest block first or otherwise, oldest block first.
+    bool reverse = 4;
 }
 
 message TransactionDetails {

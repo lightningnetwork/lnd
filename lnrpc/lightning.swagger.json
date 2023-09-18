@@ -2521,6 +2521,13 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "reverse",
+            "description": "newest block first or otherwise, oldest block first.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -2691,6 +2698,13 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "reverse",
+            "description": "newest block first or otherwise, oldest block first.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [

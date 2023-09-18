@@ -254,6 +254,13 @@ None
 * Add [`--unused`](https://github.com/lightningnetwork/lnd/pull/6387) to
   `lncli newaddr` command.
 
+* [The `MuSig2SessionRequest` proto message now contains a field to allow a
+  caller to specify a custom signing
+  nonce](https://github.com/lightningnetwork/lnd/pull/7994). This can be useful
+  for protocol where an external nonces must be pre-generated before the full
+  session can be completed.
+
+
 ## Code Health
 * Updated [our fork for serializing protobuf as JSON to be based on the
   latest version of `google.golang.org/protobuf` instead of the deprecated

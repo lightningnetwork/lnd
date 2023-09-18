@@ -233,19 +233,34 @@ func testAsyncPayments(ht *lntest.HarnessTest) {
 	ht.EnsureConnected(alice, bob)
 	ht.FundCoins(btcutil.SatoshiPerBitcoin, alice)
 
-	runAsyncPayments(ht, alice, bob)
+	runAsyncPayments(ht, alice, bob, nil)
 }
 
 // runAsyncPayments tests the performance of the async payments.
-func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
+func runAsyncPayments(ht *lntest.HarnessTest, alice, bob *node.HarnessNode,
+	commitType *lnrpc.CommitmentType) {
+
 	const paymentAmt = 100
+
+	channelCapacity := btcutil.Amount(paymentAmt * 2000)
+
+	chanArgs := lntest.OpenChannelParams{
+		Amt: channelCapacity,
+	}
+
+	if commitType != nil {
+		chanArgs.CommitmentType = *commitType
+
+		if *commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+			chanArgs.Private = true
+		}
+	}
 
 	// First establish a channel with a capacity equals to the overall
 	// amount of payments, between Alice and Bob, at the end of the test
 	// Alice should send all money from her side to Bob.
-	channelCapacity := btcutil.Amount(paymentAmt * 2000)
 	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{Amt: channelCapacity},
+		alice, bob, chanArgs,
 	)
 
 	info := ht.QueryChannelByChanPoint(alice, chanPoint)

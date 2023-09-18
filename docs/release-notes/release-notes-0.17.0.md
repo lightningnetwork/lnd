@@ -71,12 +71,21 @@ fails](https://github.com/lightningnetwork/lnd/pull/7876).
   retried](https://github.com/lightningnetwork/lnd/pull/7927) with an
   exponential back off.
 
+
 * In the watchtower client, we [now explicitly 
   handle](https://github.com/lightningnetwork/lnd/pull/7981) the scenario where 
   a channel is closed while we still have an in-memory update for it. 
 
+* `lnd` [now properly handles a case where an erroneous force close attempt
+  would impeded start up](https://github.com/lightningnetwork/lnd/pull/7985).
+
 # New Features
 ## Functional Enhancements
+
+* `lnd` can now optionally generate [blocking and mutex
+  profiles](https://github.com/lightningnetwork/lnd/pull/7983). These profiles
+  are useful to attempt to debug high mutex contention, or deadlock scenarios.
+
 ### Protocol Features
 * This release marks the first release that includes the new [musig2-based
   taproot channel type](https://github.com/lightningnetwork/lnd/pull/7904). As
@@ -228,6 +237,11 @@ None
 
 * The [WalletBalance](https://github.com/lightningnetwork/lnd/pull/7857) RPC
   (lncli walletbalance) now supports showing the balance for a specific account.
+
+* The [websockets proxy now uses a larger default max
+  message](https://github.com/lightningnetwork/lnd/pull/7991) size to support
+  proxying larger messages.
+
   
 ## lncli Updates
 * Added ability to use [environment variables to override `lncli` global
@@ -243,6 +257,13 @@ None
 
 * Add [`--unused`](https://github.com/lightningnetwork/lnd/pull/6387) to
   `lncli newaddr` command.
+
+* [The `MuSig2SessionRequest` proto message now contains a field to allow a
+  caller to specify a custom signing
+  nonce](https://github.com/lightningnetwork/lnd/pull/7994). This can be useful
+  for protocol where an external nonces must be pre-generated before the full
+  session can be completed.
+
 
 ## Code Health
 * Updated [our fork for serializing protobuf as JSON to be based on the

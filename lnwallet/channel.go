@@ -116,6 +116,12 @@ var (
 	// ErrRevLogDataMissing is returned when a certain wanted optional field
 	// in a revocation log entry is missing.
 	ErrRevLogDataMissing = errors.New("revocation log data missing")
+
+	// ErrForceCloseLocalDataLoss is returned in the case a user (or
+	// another sub-system) attempts to force close when we've detected that
+	// we've likely lost data ourselves.
+	ErrForceCloseLocalDataLoss = errors.New("cannot force close " +
+		"channel with local data loss")
 )
 
 // ErrCommitSyncLocalDataLoss is returned in the case that we receive a valid
@@ -124,7 +130,7 @@ var (
 // height. This means we have lost some critical data, and must fail the
 // channel and MUST NOT force close it. Instead we should wait for the remote
 // to force close it, such that we can attempt to sweep our funds. The
-// commitment point needed to sweep the remote's force close is encapsuled.
+// commitment point needed to sweep the remote's force close is encapsulated.
 type ErrCommitSyncLocalDataLoss struct {
 	// ChannelPoint is the identifier for the channel that experienced data
 	// loss.
@@ -7308,8 +7314,6 @@ type LocalForceCloseSummary struct {
 // outputs within the commitment transaction.
 //
 // TODO(roasbeef): all methods need to abort if in dispute state
-// TODO(roasbeef): method to generate CloseSummaries for when the remote peer
-// does a unilateral close
 func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 	lc.Lock()
 	defer lc.Unlock()
@@ -7318,8 +7322,9 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 	// allow a force close, as it may be the case that we have a dated
 	// version of the commitment, or this is actually a channel shell.
 	if lc.channelState.HasChanStatus(channeldb.ChanStatusLocalDataLoss) {
-		return nil, fmt.Errorf("cannot force close channel with "+
-			"state: %v", lc.channelState.ChanStatus())
+		return nil, fmt.Errorf("%w: channel_state=%v",
+			ErrForceCloseLocalDataLoss,
+			lc.channelState.ChanStatus())
 	}
 
 	commitTx, err := lc.getSignedCommitTx()

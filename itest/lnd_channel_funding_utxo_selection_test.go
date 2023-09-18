@@ -91,7 +91,7 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 			feeRate:            15,
 			expectedErrStr: "output amount(0.00000174 BTC) after " +
 				"subtracting fees(0.00001826 BTC) below dust " +
-				"limit(0.0000033 BTC)",
+				"limit(0.00000330 BTC)",
 		},
 		// Selected coins don't cover the minimum channel size.
 		{
@@ -102,7 +102,7 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 			feeRate:            1,
 			chanOpenShouldFail: true,
 			expectedErrStr: "available funds(0.00017877 BTC) " +
-				"below the minimum amount(0.0002 BTC)",
+				"below the minimum amount(0.00020000 BTC)",
 		},
 		// The local amount exceeds the value of the selected coins.
 		{
@@ -114,7 +114,7 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 			chanOpenShouldFail: true,
 			expectedErrStr: "not enough witness outputs to " +
 				"create funding transaction, need 0.00210337 " +
-				"BTC only have 0.001 BTC available",
+				"BTC only have 0.00100000 BTC available",
 		},
 		// We are spending two selected coins partially out of three
 		// available in the wallet and expect a change output and the

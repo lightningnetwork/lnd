@@ -60,6 +60,7 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		name       string
 		randomSeed bool
 		sendCoins  bool
+		commitType lnrpc.CommitmentType
 		fn         func(tt *lntest.HarnessTest,
 			wo, carol *node.HarnessNode)
 	}
@@ -94,8 +95,19 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 		name:      "async payments",
 		sendCoins: true,
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
-			runAsyncPayments(tt, wo, carol)
+			runAsyncPayments(tt, wo, carol, nil)
 		},
+	}, {
+		name:      "async payments taproot",
+		sendCoins: true,
+		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
+			commitType := lnrpc.CommitmentType_SIMPLE_TAPROOT
+
+			runAsyncPayments(
+				tt, wo, carol, &commitType,
+			)
+		},
+		commitType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	}, {
 		name: "shared key",
 		fn: func(tt *lntest.HarnessTest, wo, carol *node.HarnessNode) {
@@ -199,11 +211,18 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 			require.NoError(st, err)
 		}
 
+		var commitArgs []string
+		if subTest.commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+			commitArgs = lntest.NodeArgsForCommitType(
+				subTest.commitType,
+			)
+		}
+
 		// WatchOnly is the node that has a watch-only wallet and uses
 		// the Signer node for any operation that requires access to
 		// private keys.
 		watchOnly := st.NewNodeRemoteSigner(
-			"WatchOnly", []string{
+			"WatchOnly", append([]string{
 				"--remotesigner.enable",
 				fmt.Sprintf(
 					"--remotesigner.rpchost=localhost:%d",
@@ -217,7 +236,8 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 					"--remotesigner.macaroonpath=%s",
 					signer.Cfg.AdminMacPath,
 				),
-			}, password, &lnrpc.WatchOnly{
+			}, commitArgs...),
+			password, &lnrpc.WatchOnly{
 				MasterKeyBirthdayTimestamp: 0,
 				MasterKeyFingerprint:       nil,
 				Accounts:                   watchOnlyAccounts,
@@ -235,7 +255,7 @@ func testRemoteSigner(ht *lntest.HarnessTest) {
 			)
 		}
 
-		carol := st.NewNode("carol", nil)
+		carol := st.NewNode("carol", commitArgs)
 		st.EnsureConnected(watchOnly, carol)
 
 		return signer, watchOnly, carol

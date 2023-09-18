@@ -462,6 +462,7 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
 			Fee: sweep.FeePreference{
 				ConfTarget: secondLevelConfTarget,
 			},
+			Force: true,
 		},
 	)
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
+	"runtime"
 	runtimePprof "runtime/pprof"
 	"strings"
 	"sync"
@@ -193,6 +194,13 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		pprofMux.HandleFunc("/debug/pprof/profile", pprof.Profile)
 		pprofMux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 		pprofMux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+		if cfg.BlockingProfile != 0 {
+			runtime.SetBlockProfileRate(cfg.BlockingProfile)
+		}
+		if cfg.MutexProfile != 0 {
+			runtime.SetMutexProfileFraction(cfg.MutexProfile)
+		}
 
 		// Redirect all requests to the pprof handler, thus visiting
 		// `127.0.0.1:6060` will be redirected to

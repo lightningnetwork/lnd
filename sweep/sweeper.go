@@ -409,12 +409,11 @@ func (s *UtxoSweeper) Stop() error {
 		return nil
 	}
 
-	log.Info("Sweeper shutting down")
+	log.Info("Sweeper shutting down...")
+	defer log.Debug("Sweeper shutdown complete")
 
 	close(s.quit)
 	s.wg.Wait()
-
-	log.Debugf("Sweeper shut down")
 
 	return nil
 }

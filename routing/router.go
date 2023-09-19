@@ -699,7 +699,8 @@ func (r *ChannelRouter) Stop() error {
 		return nil
 	}
 
-	log.Info("Channel Router shutting down")
+	log.Info("Channel Router shutting down...")
+	defer log.Debug("Channel Router shutdown complete")
 
 	// Our filtered chain view could've only been started if
 	// AssumeChannelValid isn't present.

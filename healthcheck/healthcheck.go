@@ -87,7 +87,8 @@ func (m *Monitor) Stop() error {
 		return fmt.Errorf("monitor already stopped")
 	}
 
-	log.Info("Health monitor shutting down")
+	log.Info("Health monitor shutting down...")
+	defer log.Debug("Health monitor shutdown complete")
 
 	close(m.quit)
 	m.wg.Wait()

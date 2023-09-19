@@ -1051,6 +1051,19 @@ func TestLightningWireProtocol(t *testing.T) {
 					NewShortChanIDFromInt(uint64(r.Int63())))
 			}
 
+			// With a 50/50 chance, add some timestamps.
+			if r.Int31()%2 == 0 {
+				for i := int32(0); i < numChanIDs; i++ {
+					timestamps := ChanUpdateTimestamps{
+						Timestamp1: rand.Uint32(),
+						Timestamp2: rand.Uint32(),
+					}
+					req.Timestamps = append(
+						req.Timestamps, timestamps,
+					)
+				}
+			}
+
 			v[0] = reflect.ValueOf(req)
 		},
 		MsgQueryChannelRange: func(v []reflect.Value, r *rand.Rand) {

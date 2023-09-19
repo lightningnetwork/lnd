@@ -280,9 +280,19 @@ func (q *QueryShortChanIDs) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
+	// For both of the current encoding types, the channel ID's are to be
+	// sorted in place, so we'll do that now. The sorting is applied unless
+	// we were specifically requested not to for testing purposes.
+	if !q.noSort {
+		sort.Slice(q.ShortChanIDs, func(i, j int) bool {
+			return q.ShortChanIDs[i].ToUint64() <
+				q.ShortChanIDs[j].ToUint64()
+		})
+	}
+
 	// Base on our encoding type, we'll write out the set of short channel
 	// ID's.
-	err := encodeShortChanIDs(w, q.EncodingType, q.ShortChanIDs, q.noSort)
+	err := encodeShortChanIDs(w, q.EncodingType, q.ShortChanIDs)
 	if err != nil {
 		return err
 	}
@@ -293,17 +303,7 @@ func (q *QueryShortChanIDs) Encode(w *bytes.Buffer, pver uint32) error {
 // encodeShortChanIDs encodes the passed short channel ID's into the passed
 // io.Writer, respecting the specified encoding type.
 func encodeShortChanIDs(w *bytes.Buffer, encodingType Encoding,
-	shortChanIDs []ShortChannelID, noSort bool) error {
-
-	// For both of the current encoding types, the channel ID's are to be
-	// sorted in place, so we'll do that now. The sorting is applied unless
-	// we were specifically requested not to for testing purposes.
-	if !noSort {
-		sort.Slice(shortChanIDs, func(i, j int) bool {
-			return shortChanIDs[i].ToUint64() <
-				shortChanIDs[j].ToUint64()
-		})
-	}
+	shortChanIDs []ShortChannelID) error {
 
 	switch encodingType {
 

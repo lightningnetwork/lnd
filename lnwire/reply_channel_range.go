@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"math"
+	"sort"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
@@ -103,7 +104,17 @@ func (c *ReplyChannelRange) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
-	err := encodeShortChanIDs(w, c.EncodingType, c.ShortChanIDs, c.noSort)
+	// For both of the current encoding types, the channel ID's are to be
+	// sorted in place, so we'll do that now. The sorting is applied unless
+	// we were specifically requested not to for testing purposes.
+	if !c.noSort {
+		sort.Slice(c.ShortChanIDs, func(i, j int) bool {
+			return c.ShortChanIDs[i].ToUint64() <
+				c.ShortChanIDs[j].ToUint64()
+		})
+	}
+
+	err := encodeShortChanIDs(w, c.EncodingType, c.ShortChanIDs)
 	if err != nil {
 		return err
 	}

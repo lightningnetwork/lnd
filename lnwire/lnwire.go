@@ -85,7 +85,7 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 
-	case ShortChanIDEncoding:
+	case QueryEncoding:
 		var b [1]byte
 		b[0] = uint8(e)
 		if _, err := w.Write(b[:]); err != nil {
@@ -509,12 +509,12 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 		*e = alias
 
-	case *ShortChanIDEncoding:
+	case *QueryEncoding:
 		var b [1]uint8
 		if _, err := r.Read(b[:]); err != nil {
 			return err
 		}
-		*e = ShortChanIDEncoding(b[0])
+		*e = QueryEncoding(b[0])
 
 	case *uint8:
 		var b [1]uint8

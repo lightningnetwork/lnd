@@ -205,9 +205,8 @@ func WriteColorRGBA(buf *bytes.Buffer, e color.RGBA) error {
 	return WriteUint8(buf, e.B)
 }
 
-// WriteShortChanIDEncoding appends the ShortChanIDEncoding to the provided
-// buffer.
-func WriteShortChanIDEncoding(buf *bytes.Buffer, e ShortChanIDEncoding) error {
+// WriteQueryEncoding appends the QueryEncoding to the provided buffer.
+func WriteQueryEncoding(buf *bytes.Buffer, e QueryEncoding) error {
 	return WriteUint8(buf, uint8(e))
 }
 

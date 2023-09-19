@@ -44,7 +44,7 @@ func TestReplyChannelRangeEmpty(t *testing.T) {
 
 	emptyChannelsTests := []struct {
 		name       string
-		encType    ShortChanIDEncoding
+		encType    QueryEncoding
 		encodedHex string
 	}{
 		{

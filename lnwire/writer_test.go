@@ -225,10 +225,10 @@ func TestWriteColorRGBA(t *testing.T) {
 
 func TestWriteShortChanIDEncoding(t *testing.T) {
 	buf := new(bytes.Buffer)
-	data := ShortChanIDEncoding(1)
+	data := Encoding(1)
 	expectedBytes := []byte{1}
 
-	err := WriteShortChanIDEncoding(buf, data)
+	err := WriteEncoding(buf, data)
 
 	require.NoError(t, err)
 	require.Equal(t, expectedBytes, buf.Bytes())

@@ -185,7 +185,7 @@ var (
 	// encodingTypeToChunkSize maps an encoding type, to the max number of
 	// short chan ID's using the encoding type that we can fit into a
 	// single message safely.
-	encodingTypeToChunkSize = map[lnwire.ShortChanIDEncoding]int32{
+	encodingTypeToChunkSize = map[lnwire.Encoding]int32{
 		lnwire.EncodingSortedPlain: 8000,
 	}
 
@@ -232,7 +232,7 @@ type gossipSyncerCfg struct {
 
 	// encodingType is the current encoding type we're aware of. Requests
 	// with different encoding types will be rejected.
-	encodingType lnwire.ShortChanIDEncoding
+	encodingType lnwire.Encoding
 
 	// chunkSize is the max number of short chan IDs using the syncer's
 	// encoding type that we can fit into a single message safely.

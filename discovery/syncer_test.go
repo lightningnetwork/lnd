@@ -156,7 +156,7 @@ var _ ChannelGraphTimeSeries = (*mockChannelGraphTimeSeries)(nil)
 // ignored. If no flags are provided, both a channelGraphSyncer and replyHandler
 // will be spawned by default.
 func newTestSyncer(hID lnwire.ShortChannelID,
-	encodingType lnwire.ShortChanIDEncoding, chunkSize int32,
+	encodingType lnwire.Encoding, chunkSize int32,
 	flags ...bool) (chan []lnwire.Message,
 	*GossipSyncer, *mockChannelGraphTimeSeries) {
 

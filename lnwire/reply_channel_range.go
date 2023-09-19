@@ -33,7 +33,7 @@ type ReplyChannelRange struct {
 	// EncodingType is a signal to the receiver of the message that
 	// indicates exactly how the set of short channel ID's that follow have
 	// been encoded.
-	EncodingType ShortChanIDEncoding
+	EncodingType Encoding
 
 	// ShortChanIDs is a slice of decoded short channel ID's.
 	ShortChanIDs []ShortChannelID

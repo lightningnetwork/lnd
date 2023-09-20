@@ -23,7 +23,7 @@ COMMIT := $(shell git describe --tags --dirty)
 
 GOBUILD := go build -v
 GOINSTALL := go install -v
-GOTEST := go test
+GOTEST := GOEXPERIMENT=loopvar go test
 
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go" -not -name "*.pb.json.go")
 

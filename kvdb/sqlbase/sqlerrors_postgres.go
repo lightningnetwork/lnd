@@ -5,6 +5,7 @@ package sqlbase
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgerrcode"
@@ -13,6 +14,19 @@ import (
 // parsePostgresError attempts to parse a postgres error as a database agnostic
 // SQL error.
 func parsePostgresError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	// Sometimes the error won't be properly wrapped, so we'll need to
+	// inspect raw error itself to detect something we can wrap properly.
+	const postgresErrMsg = "could not serialize access"
+	if strings.Contains(err.Error(), postgresErrMsg) {
+		return &ErrSerializationError{
+			DBError: err,
+		}
+	}
+
 	var pqErr *pgconn.PgError
 	if !errors.As(err, &pqErr) {
 		return nil

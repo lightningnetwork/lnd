@@ -311,16 +311,23 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 			return dbErr
 		}
 
-		err = catchPanic(func() error { return f(tx) })
-		if err != nil {
+		fnErr := catchPanic(func() error { return f(tx) })
+		if fnErr != nil {
 			if rollbackErr := tx.Rollback(); rollbackErr != nil {
 				log.Errorf("Error rolling back tx: %v",
 					rollbackErr)
 			}
 
-			return err
+			dbErr := MapSQLError(fnErr)
+			if IsSerializationError(dbErr) {
+				// Nothing to roll back here, since we didn't
+				// even get a transaction yet.
+				if waitBeforeRetry(i) {
 					continue
 				}
+			}
+
+			return fnErr
 		}
 
 		dbErr := tx.Commit()

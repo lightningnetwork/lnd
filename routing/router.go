@@ -850,6 +850,31 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 	return nil
 }
 
+// IsZombieChannel takes the timestamps of the latest channel updates for a
+// channel and returns true if the channel should be considered a zombie based
+// on these timestamps.
+func (r *ChannelRouter) IsZombieChannel(updateTime1,
+	updateTime2 time.Time) bool {
+
+	chanExpiry := r.cfg.ChannelPruneExpiry
+
+	e1Zombie := updateTime1.IsZero() ||
+		time.Since(updateTime1) >= chanExpiry
+
+	e2Zombie := updateTime2.IsZero() ||
+		time.Since(updateTime2) >= chanExpiry
+
+	// If we're using strict zombie pruning, then a channel is only
+	// considered live if both edges have a recent update we know of.
+	if r.cfg.StrictZombiePruning {
+		return e1Zombie || e2Zombie
+	}
+
+	// Otherwise, if we're using the less strict variant, then a channel is
+	// considered live if either of the edges have a recent update.
+	return e1Zombie && e2Zombie
+}
+
 // pruneZombieChans is a method that will be called periodically to prune out
 // any "zombie" channels. We consider channels zombies if *both* edges haven't
 // been updated since our zombie horizon. If AssumeChannelValid is present,
@@ -885,39 +910,27 @@ func (r *ChannelRouter) pruneZombieChans() error {
 			return nil
 		}
 
-		// If either edge hasn't been updated for a period of
-		// chanExpiry, then we'll mark the channel itself as eligible
-		// for graph pruning.
-		e1Zombie := e1 == nil || time.Since(e1.LastUpdate) >= chanExpiry
-		e2Zombie := e2 == nil || time.Since(e2.LastUpdate) >= chanExpiry
-
-		if e1Zombie {
+		if e1 == nil || time.Since(e1.LastUpdate) >= chanExpiry {
 			log.Tracef("Node1 pubkey=%x of chan_id=%v is zombie",
 				info.NodeKey1Bytes, info.ChannelID)
 		}
-		if e2Zombie {
+		if e2 == nil || time.Since(e2.LastUpdate) >= chanExpiry {
 			log.Tracef("Node2 pubkey=%x of chan_id=%v is zombie",
 				info.NodeKey2Bytes, info.ChannelID)
 		}
 
-		// If we're using strict zombie pruning, then a channel is only
-		// considered live if both edges have a recent update we know
-		// of.
-		var channelIsLive bool
-		switch {
-		case r.cfg.StrictZombiePruning:
-			channelIsLive = !e1Zombie && !e2Zombie
-
-		// Otherwise, if we're using the less strict variant, then a
-		// channel is considered live if either of the edges have a
-		// recent update.
-		default:
-			channelIsLive = !e1Zombie || !e2Zombie
+		var e1Time, e2Time time.Time
+		if e1 != nil {
+			e1Time = e1.LastUpdate
+		}
+		if e2 != nil {
+			e2Time = e2.LastUpdate
 		}
 
-		// Return early if the channel is still considered to be live
-		// with the current set of configuration parameters.
-		if channelIsLive {
+		// If either edge hasn't been updated for a period of
+		// chanExpiry, then we'll mark the channel itself as eligible
+		// for graph pruning.
+		if !r.IsZombieChannel(e1Time, e2Time) {
 			return nil
 		}
 

@@ -288,6 +288,11 @@ type gossipSyncerCfg struct {
 	// maxQueryChanRangeReplies is the maximum number of replies we'll allow
 	// for a single QueryChannelRange request.
 	maxQueryChanRangeReplies uint32
+
+	// channelIsZombie takes the timestamps of the latest channel updates
+	// for a channel and returns true if the channel should be considered a
+	// zombie based on these timestamps.
+	channelIsZombie func(time.Time, time.Time) bool
 }
 
 // GossipSyncer is a struct that handles synchronizing the channel graph state

@@ -97,6 +97,11 @@ type SyncManagerCfg struct {
 	// ActiveSync upon connection. These peers will never transition to
 	// PassiveSync.
 	PinnedSyncers PinnedSyncers
+
+	// IsZombieChannel takes the timestamps of the latest channel updates
+	// for a channel and returns true if the channel should be considered
+	// a zombie based on these timestamps.
+	IsZombieChannel func(time.Time, time.Time) bool
 }
 
 // SyncManager is a subsystem of the gossiper that manages the gossip syncers
@@ -495,6 +500,7 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		bestHeight:                m.cfg.BestHeight,
 		markGraphSynced:           m.markGraphSynced,
 		maxQueryChanRangeReplies:  maxQueryChanRangeReplies,
+		channelIsZombie:           m.cfg.IsZombieChannel,
 	})
 
 	// Gossip syncers are initialized by default in a PassiveSync type

@@ -298,6 +298,11 @@ jobs:
 
       - name: run itest
         run: make itest-parallel windows=1
+        
+      - name: kill any remaining lnd processes
+        if: ${{ failure() }}
+        shell: powershell
+        run: taskkill /IM lnd-itest.exe /T /F
 
       - name: Zip log files on failure
         if: ${{ failure() }}

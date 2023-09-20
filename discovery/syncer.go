@@ -367,7 +367,7 @@ type GossipSyncer struct {
 
 	// bufferedChanRangeReplies is used in the waitingQueryChanReply to
 	// buffer all the chunked response to our query.
-	bufferedChanRangeReplies []lnwire.ShortChannelID
+	bufferedChanRangeReplies []channeldb.ChannelUpdateInfo
 
 	// numChanRangeRepliesRcvd is used to track the number of replies
 	// received as part of a QueryChannelRange. This field is primarily used
@@ -814,9 +814,31 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 	}
 
 	g.prevReplyChannelRange = msg
-	g.bufferedChanRangeReplies = append(
-		g.bufferedChanRangeReplies, msg.ShortChanIDs...,
-	)
+	if len(msg.Timestamps) != 0 &&
+		len(msg.Timestamps) != len(msg.ShortChanIDs) {
+
+		return fmt.Errorf("number of timestamps not equal to " +
+			"number of SCIDs")
+	}
+
+	for i, scid := range msg.ShortChanIDs {
+		info := channeldb.ChannelUpdateInfo{
+			ShortChannelID: scid,
+		}
+
+		if len(msg.Timestamps) != 0 {
+			t1 := time.Unix(int64(msg.Timestamps[i].Timestamp1), 0)
+			info.Node1UpdateTimestamp = t1
+
+			t2 := time.Unix(int64(msg.Timestamps[i].Timestamp2), 0)
+			info.Node2UpdateTimestamp = t2
+		}
+
+		g.bufferedChanRangeReplies = append(
+			g.bufferedChanRangeReplies, info,
+		)
+	}
+
 	switch g.cfg.encodingType {
 	case lnwire.EncodingSortedPlain:
 		g.numChanRangeRepliesRcvd++
@@ -863,6 +885,7 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 	// which channels they know of that we don't.
 	newChans, err := g.cfg.channelSeries.FilterKnownChanIDs(
 		g.cfg.chainHash, g.bufferedChanRangeReplies,
+		g.cfg.channelIsZombie,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to filter chan ids: %v", err)

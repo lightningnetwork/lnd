@@ -42,7 +42,7 @@ type mockChannelGraphTimeSeries struct {
 	horizonReq  chan horizonQuery
 	horizonResp chan []lnwire.Message
 
-	filterReq  chan []lnwire.ShortChannelID
+	filterReq  chan []channeldb.ChannelUpdateInfo
 	filterResp chan []lnwire.ShortChannelID
 
 	filterRangeReqs chan filterRangeReq
@@ -64,7 +64,7 @@ func newMockChannelGraphTimeSeries(
 		horizonReq:  make(chan horizonQuery, 1),
 		horizonResp: make(chan []lnwire.Message, 1),
 
-		filterReq:  make(chan []lnwire.ShortChannelID, 1),
+		filterReq:  make(chan []channeldb.ChannelUpdateInfo, 1),
 		filterResp: make(chan []lnwire.ShortChannelID, 1),
 
 		filterRangeReqs: make(chan filterRangeReq, 1),
@@ -90,8 +90,11 @@ func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
 
 	return <-m.horizonResp, nil
 }
+
 func (m *mockChannelGraphTimeSeries) FilterKnownChanIDs(chain chainhash.Hash,
-	superSet []lnwire.ShortChannelID) ([]lnwire.ShortChannelID, error) {
+	superSet []channeldb.ChannelUpdateInfo,
+	isZombieChan func(time.Time, time.Time) bool) (
+	[]lnwire.ShortChannelID, error) {
 
 	m.filterReq <- superSet
 

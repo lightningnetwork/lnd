@@ -1920,10 +1920,20 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
+	isZombieUpdate := func(updateTime1 time.Time,
+		updateTime2 time.Time) bool {
+
+		return true
+	}
+
 	// If we try to filter out a set of channel ID's before we even know of
 	// any channels, then we should get the entire set back.
-	preChanIDs := []uint64{1, 2, 3, 4}
-	filteredIDs, err := graph.FilterKnownChanIDs(preChanIDs)
+	preChanIDs := []ChannelUpdateInfo{
+		{ShortChannelID: lnwire.ShortChannelID{BlockHeight: 1}},
+		{ShortChannelID: lnwire.ShortChannelID{BlockHeight: 2}},
+		{ShortChannelID: lnwire.ShortChannelID{BlockHeight: 3}},
+	}
+	filteredIDs, err := graph.FilterKnownChanIDs(preChanIDs, isZombieUpdate)
 	require.NoError(t, err, "unable to filter chan IDs")
 	if !reflect.DeepEqual(preChanIDs, filteredIDs) {
 		t.Fatalf("chan IDs shouldn't have been filtered!")
@@ -1944,7 +1954,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	// Next, we'll add 5 channel ID's to the graph, each of them having a
 	// block height 10 blocks after the previous.
 	const numChans = 5
-	chanIDs := make([]uint64, 0, numChans)
+	chanIDs := make([]ChannelUpdateInfo, 0, numChans)
 	for i := 0; i < numChans; i++ {
 		channel, chanID := createEdge(
 			uint32(i*10), 0, 0, 0, node1, node2,
@@ -1954,11 +1964,13 @@ func TestFilterKnownChanIDs(t *testing.T) {
 			t.Fatalf("unable to create channel edge: %v", err)
 		}
 
-		chanIDs = append(chanIDs, chanID.ToUint64())
+		chanIDs = append(chanIDs, ChannelUpdateInfo{
+			ShortChannelID: chanID,
+		})
 	}
 
 	const numZombies = 5
-	zombieIDs := make([]uint64, 0, numZombies)
+	zombieIDs := make([]ChannelUpdateInfo, 0, numZombies)
 	for i := 0; i < numZombies; i++ {
 		channel, chanID := createEdge(
 			uint32(i*10+1), 0, 0, 0, node1, node2,
@@ -1971,13 +1983,15 @@ func TestFilterKnownChanIDs(t *testing.T) {
 			t.Fatalf("unable to mark edge zombie: %v", err)
 		}
 
-		zombieIDs = append(zombieIDs, chanID.ToUint64())
+		zombieIDs = append(
+			zombieIDs, ChannelUpdateInfo{ShortChannelID: chanID},
+		)
 	}
 
 	queryCases := []struct {
-		queryIDs []uint64
+		queryIDs []ChannelUpdateInfo
 
-		resp []uint64
+		resp []ChannelUpdateInfo
 	}{
 		// If we attempt to filter out all chanIDs we know of, the
 		// response should be the empty set.
@@ -1993,20 +2007,58 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		// If we query for a set of ID's that we didn't insert, we
 		// should get the same set back.
 		{
-			queryIDs: []uint64{99, 100},
-			resp:     []uint64{99, 100},
+			queryIDs: []ChannelUpdateInfo{
+				{ShortChannelID: lnwire.ShortChannelID{
+					BlockHeight: 99,
+				}},
+				{ShortChannelID: lnwire.ShortChannelID{
+					BlockHeight: 100,
+				}},
+			},
+			resp: []ChannelUpdateInfo{
+				{ShortChannelID: lnwire.ShortChannelID{
+					BlockHeight: 99,
+				}},
+				{ShortChannelID: lnwire.ShortChannelID{
+					BlockHeight: 100,
+				}},
+			},
 		},
 
 		// If we query for a super-set of our the chan ID's inserted,
 		// we should only get those new chanIDs back.
 		{
-			queryIDs: append(chanIDs, []uint64{99, 101}...),
-			resp:     []uint64{99, 101},
+			queryIDs: append(chanIDs, []ChannelUpdateInfo{
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 99,
+					},
+				},
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 101,
+					},
+				},
+			}...),
+			resp: []ChannelUpdateInfo{
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 99,
+					},
+				},
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 101,
+					},
+				},
+			},
 		},
 	}
 
 	for _, queryCase := range queryCases {
-		resp, err := graph.FilterKnownChanIDs(queryCase.queryIDs)
+		resp, err := graph.FilterKnownChanIDs(
+			queryCase.queryIDs, isZombieUpdate,
+		)
 		if err != nil {
 			t.Fatalf("unable to filter chan IDs: %v", err)
 		}

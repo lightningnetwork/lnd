@@ -2061,7 +2061,9 @@ func (c *ChannelGraph) NodeUpdatesInHorizon(startTime,
 // words, we perform a set difference of our set of chan ID's and the ones
 // passed in. This method can be used by callers to determine the set of
 // channels another peer knows of that we don't.
-func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
+func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
+	isZombieChan func(time.Time, time.Time) bool) ([]uint64, error) {
+
 	var newChanIDs []uint64
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
@@ -2082,8 +2084,9 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 		// We'll run through the set of chanIDs and collate only the
 		// set of channel that are unable to be found within our db.
 		var cidBytes [8]byte
-		for _, cid := range chanIDs {
-			byteOrder.PutUint64(cidBytes[:], cid)
+		for _, info := range chansInfo {
+			scid := info.ShortChannelID.ToUint64()
+			byteOrder.PutUint64(cidBytes[:], scid)
 
 			// If the edge is already known, skip it.
 			if v := edgeIndex.Get(cidBytes[:]); v != nil {
@@ -2092,13 +2095,19 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 
 			// If the edge is a known zombie, skip it.
 			if zombieIndex != nil {
-				isZombie, _, _ := isZombieEdge(zombieIndex, cid)
-				if isZombie {
+				isZombie, _, _ := isZombieEdge(
+					zombieIndex, scid,
+				)
+				if isZombie && isZombieChan(
+					info.Node1UpdateTimestamp,
+					info.Node2UpdateTimestamp,
+				) {
+
 					continue
 				}
 			}
 
-			newChanIDs = append(newChanIDs, cid)
+			newChanIDs = append(newChanIDs, scid)
 		}
 
 		return nil
@@ -2109,7 +2118,12 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 	// If we don't know of any edges yet, then we'll return the entire set
 	// of chan IDs specified.
 	case err == ErrGraphNoEdgesFound:
-		return chanIDs, nil
+		ogChanIDs := make([]uint64, len(chansInfo))
+		for i, info := range chansInfo {
+			ogChanIDs[i] = info.ShortChannelID.ToUint64()
+		}
+
+		return ogChanIDs, nil
 
 	case err != nil:
 		return nil, err

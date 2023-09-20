@@ -73,6 +73,11 @@ type SyncManagerCfg struct {
 	// gossip syncers will be passive.
 	NumActiveSyncers int
 
+	// NoTimestampQueries will prevent the GossipSyncer from querying
+	// timestamps of announcement messages from the peer and from responding
+	// to timestamp queries
+	NoTimestampQueries bool
+
 	// RotateTicker is a ticker responsible for notifying the SyncManager
 	// when it should rotate its active syncers. A single active syncer with
 	// a chansSynced state will be exchanged for a passive syncer in order
@@ -495,6 +500,7 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		bestHeight:                m.cfg.BestHeight,
 		markGraphSynced:           m.markGraphSynced,
 		maxQueryChanRangeReplies:  maxQueryChanRangeReplies,
+		noTimestampQueryOption:    m.cfg.NoTimestampQueries,
 	})
 
 	// Gossip syncers are initialized by default in a PassiveSync type

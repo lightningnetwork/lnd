@@ -261,6 +261,11 @@ type Config struct {
 	// gossip syncers will be passive.
 	NumActiveSyncers int
 
+	// NoTimestampQueries will prevent the GossipSyncer from querying
+	// timestamps of announcement messages from the peer and from replying
+	// to timestamp queries.
+	NoTimestampQueries bool
+
 	// RotateTicker is a ticker responsible for notifying the SyncManager
 	// when it should rotate its active syncers. A single active syncer with
 	// a chansSynced state will be exchanged for a passive syncer in order
@@ -510,6 +515,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		RotateTicker:            cfg.RotateTicker,
 		HistoricalSyncTicker:    cfg.HistoricalSyncTicker,
 		NumActiveSyncers:        cfg.NumActiveSyncers,
+		NoTimestampQueries:      cfg.NoTimestampQueries,
 		IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
 		BestHeight:              gossiper.latestHeight,
 		PinnedSyncers:           cfg.PinnedSyncers,

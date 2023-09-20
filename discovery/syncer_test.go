@@ -160,23 +160,30 @@ func newTestSyncer(hID lnwire.ShortChannelID,
 	flags ...bool) (chan []lnwire.Message,
 	*GossipSyncer, *mockChannelGraphTimeSeries) {
 
-	syncChannels := true
-	replyQueries := true
+	var (
+		syncChannels = true
+		replyQueries = true
+		timestamps   = false
+	)
 	if len(flags) > 0 {
 		syncChannels = flags[0]
 	}
 	if len(flags) > 1 {
 		replyQueries = flags[1]
 	}
+	if len(flags) > 2 {
+		timestamps = flags[2]
+	}
 
 	msgChan := make(chan []lnwire.Message, 20)
 	cfg := gossipSyncerCfg{
-		channelSeries:  newMockChannelGraphTimeSeries(hID),
-		encodingType:   encodingType,
-		chunkSize:      chunkSize,
-		batchSize:      chunkSize,
-		noSyncChannels: !syncChannels,
-		noReplyQueries: !replyQueries,
+		channelSeries:          newMockChannelGraphTimeSeries(hID),
+		encodingType:           encodingType,
+		chunkSize:              chunkSize,
+		batchSize:              chunkSize,
+		noSyncChannels:         !syncChannels,
+		noReplyQueries:         !replyQueries,
+		noTimestampQueryOption: !timestamps,
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			msgChan <- msgs
 			return nil
@@ -2250,7 +2257,7 @@ func TestGossipSyncerHistoricalSync(t *testing.T) {
 	// historical sync requests in this state.
 	msgChan, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultEncoding, defaultChunkSize, true, true, true,
 	)
 	syncer.setSyncType(PassiveSync)
 	syncer.setSyncState(chansSynced)
@@ -2265,6 +2272,7 @@ func TestGossipSyncerHistoricalSync(t *testing.T) {
 	expectedMsg := &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
 		NumBlocks:        latestKnownHeight,
+		QueryOptions:     lnwire.NewTimestampQueryOption(),
 	}
 
 	select {

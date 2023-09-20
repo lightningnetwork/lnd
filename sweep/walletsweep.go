@@ -180,10 +180,10 @@ type DeliveryAddr struct {
 // output, as specified by the change address. The sweep transaction will be
 // crafted with the target fee rate, and will use the utxoSource and
 // outpointLocker as sources for wallet funds.
-func CraftSweepAllTx(feeRate chainfee.SatPerKWeight, blockHeight uint32,
-	deliveryAddrs []DeliveryAddr, changeAddr btcutil.Address,
-	coinSelectLocker CoinSelectionLocker, utxoSource UtxoSource,
-	outpointLocker OutpointLocker, feeEstimator chainfee.Estimator,
+func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
+	blockHeight uint32, deliveryAddrs []DeliveryAddr,
+	changeAddr btcutil.Address, coinSelectLocker CoinSelectionLocker,
+	utxoSource UtxoSource, outpointLocker OutpointLocker,
 	signer input.Signer, minConfs int32) (*WalletSweepPackage, error) {
 
 	// TODO(roasbeef): turn off ATPL as well when available?
@@ -320,8 +320,8 @@ func CraftSweepAllTx(feeRate chainfee.SatPerKWeight, blockHeight uint32,
 	// Finally, we'll ask the sweeper to craft a sweep transaction which
 	// respects our fee preference and targets all the UTXOs of the wallet.
 	sweepTx, err := createSweepTx(
-		inputsToSweep, txOuts, changePkScript, blockHeight, feeRate,
-		signer,
+		inputsToSweep, txOuts, changePkScript, blockHeight,
+		feeRate, maxFeeRate, signer,
 	)
 	if err != nil {
 		unlockOutputs()

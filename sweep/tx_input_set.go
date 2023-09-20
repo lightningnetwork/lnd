@@ -33,6 +33,9 @@ type txInputSetState struct {
 	// feeRate is the fee rate to use for the sweep transaction.
 	feeRate chainfee.SatPerKWeight
 
+	// maxFeeRate is the max allowed fee rate configured by the user.
+	maxFeeRate chainfee.SatPerKWeight
+
 	// inputTotal is the total value of all inputs.
 	inputTotal btcutil.Amount
 
@@ -61,7 +64,7 @@ type txInputSetState struct {
 // weightEstimate is the (worst case) tx weight with the current set of
 // inputs. It takes a parameter whether to add a change output or not.
 func (t *txInputSetState) weightEstimate(change bool) *weightEstimator {
-	weightEstimate := newWeightEstimator(t.feeRate)
+	weightEstimate := newWeightEstimator(t.feeRate, t.maxFeeRate)
 	for _, i := range t.inputs {
 		// Can ignore error, because it has already been checked when
 		// calculating the yields.
@@ -118,11 +121,12 @@ type txInputSet struct {
 }
 
 // newTxInputSet constructs a new, empty input set.
-func newTxInputSet(wallet Wallet, feePerKW chainfee.SatPerKWeight,
+func newTxInputSet(wallet Wallet, feePerKW, maxFeeRate chainfee.SatPerKWeight,
 	maxInputs int) *txInputSet {
 
 	state := txInputSetState{
-		feeRate: feePerKW,
+		feeRate:    feePerKW,
+		maxFeeRate: maxFeeRate,
 	}
 
 	b := txInputSet{

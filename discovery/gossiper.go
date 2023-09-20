@@ -335,6 +335,11 @@ type Config struct {
 	// to without iterating over the entire set of open channels.
 	FindChannel func(node *btcec.PublicKey, chanID lnwire.ChannelID) (
 		*channeldb.OpenChannel, error)
+
+	// IsStillZombieChannel takes the timestamps of the latest channel
+	// updates for a channel and returns true if the channel should be
+	// considered a zombie based on these timestamps.
+	IsStillZombieChannel func(time.Time, time.Time) bool
 }
 
 // processedNetworkMsg is a wrapper around networkMsg and a boolean. It is
@@ -519,6 +524,7 @@ func New(cfg Config, selfKeyDesc *keychain.KeyDescriptor) *AuthenticatedGossiper
 		IgnoreHistoricalFilters: cfg.IgnoreHistoricalFilters,
 		BestHeight:              gossiper.latestHeight,
 		PinnedSyncers:           cfg.PinnedSyncers,
+		IsStillZombieChannel:    cfg.IsStillZombieChannel,
 	})
 
 	gossiper.reliableSender = newReliableSender(&reliableSenderCfg{

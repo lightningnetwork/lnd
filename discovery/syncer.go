@@ -922,7 +922,7 @@ func (g *GossipSyncer) genChanRangeQuery(
 	case newestChan.BlockHeight <= chanRangeQueryBuffer:
 		startHeight = 0
 	default:
-		startHeight = uint32(newestChan.BlockHeight - chanRangeQueryBuffer)
+		startHeight = newestChan.BlockHeight - chanRangeQueryBuffer
 	}
 
 	// Determine the number of blocks to request based on our best height.
@@ -944,6 +944,7 @@ func (g *GossipSyncer) genChanRangeQuery(
 		ChainHash:        g.cfg.chainHash,
 		FirstBlockHeight: startHeight,
 		NumBlocks:        numBlocks,
+		QueryOptions:     lnwire.NewTimestampQueryOption(),
 	}
 	g.curQueryRangeMsg = query
 

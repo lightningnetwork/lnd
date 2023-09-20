@@ -314,7 +314,6 @@ func (c *ChannelGraph) getChannelMap(edges kvdb.RBucket) (
 var graphTopLevelBuckets = [][]byte{
 	nodeBucket,
 	edgeBucket,
-	edgeIndexBucket,
 	graphMetaBucket,
 }
 

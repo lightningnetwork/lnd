@@ -2086,10 +2086,12 @@ func (c *ChannelGraph) NodeUpdatesInHorizon(startTime,
 // words, we perform a set difference of our set of chan ID's and the ones
 // passed in. This method can be used by callers to determine the set of
 // channels another peer knows of that we don't.
-func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
+func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
+	isZombieChan func(time.Time, time.Time) bool) ([]uint64, error) {
+
 	var newChanIDs []uint64
 
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		edges := tx.ReadBucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNoEdgesFound
@@ -2107,8 +2109,9 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 		// We'll run through the set of chanIDs and collate only the
 		// set of channel that are unable to be found within our db.
 		var cidBytes [8]byte
-		for _, cid := range chanIDs {
-			byteOrder.PutUint64(cidBytes[:], cid)
+		for _, info := range chansInfo {
+			scid := info.ShortChannelID.ToUint64()
+			byteOrder.PutUint64(cidBytes[:], scid)
 
 			// If the edge is already known, skip it.
 			if v := edgeIndex.Get(cidBytes[:]); v != nil {
@@ -2117,13 +2120,37 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 
 			// If the edge is a known zombie, skip it.
 			if zombieIndex != nil {
-				isZombie, _, _ := isZombieEdge(zombieIndex, cid)
-				if isZombie {
+				isZombie, _, _ := isZombieEdge(
+					zombieIndex, scid,
+				)
+
+				isStillZombie := isZombieChan(
+					info.Node1UpdateTimestamp,
+					info.Node2UpdateTimestamp,
+				)
+
+				switch {
+				// If the edge is a known zombie and if we
+				// would still consider it a zombie given the
+				// latest update timestamps, then we skip this
+				// channel.
+				case isZombie && isStillZombie:
 					continue
+
+				// Otherwise, if we have marked it as a zombie
+				// but the latest update timestamps could bring
+				// it back from the dead, then we mark it alive,
+				// and we let it be added to the set of IDs to
+				// query our peer for.
+				case isZombie && !isStillZombie:
+					err := c.markEdgeLive(tx, scid)
+					if err != nil {
+						return err
+					}
 				}
 			}
 
-			newChanIDs = append(newChanIDs, cid)
+			newChanIDs = append(newChanIDs, scid)
 		}
 
 		return nil
@@ -2134,7 +2161,12 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 	// If we don't know of any edges yet, then we'll return the entire set
 	// of chan IDs specified.
 	case err == ErrGraphNoEdgesFound:
-		return chanIDs, nil
+		ogChanIDs := make([]uint64, len(chansInfo))
+		for i, info := range chansInfo {
+			ogChanIDs[i] = info.ShortChannelID.ToUint64()
+		}
+
+		return ogChanIDs, nil
 
 	case err != nil:
 		return nil, err

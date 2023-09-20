@@ -98,7 +98,8 @@ func (m *mockChannelGraphTimeSeries) FilterKnownChanIDs(chain chainhash.Hash,
 	return <-m.filterResp, nil
 }
 func (m *mockChannelGraphTimeSeries) FilterChannelRange(chain chainhash.Hash,
-	startHeight, endHeight uint32) ([]channeldb.BlockChannelRange, error) {
+	startHeight, endHeight uint32, withTimestamps bool) (
+	[]channeldb.BlockChannelRange, error) {
 
 	m.filterRangeReqs <- filterRangeReq{startHeight, endHeight}
 	reply := <-m.filterRangeResp

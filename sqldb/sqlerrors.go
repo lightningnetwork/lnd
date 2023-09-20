@@ -5,6 +5,7 @@ package sqldb
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgerrcode"
@@ -21,6 +22,10 @@ var (
 // MapSQLError attempts to interpret a given error as a database agnostic SQL
 // error.
 func MapSQLError(err error) error {
+	if err == nil {
+		return nil
+	}
+
 	// Attempt to interpret the error as a sqlite error.
 	var sqliteErr *sqlite.Error
 	if errors.As(err, &sqliteErr) {
@@ -31,6 +36,26 @@ func MapSQLError(err error) error {
 	var pqErr *pgconn.PgError
 	if errors.As(err, &pqErr) {
 		return parsePostgresError(pqErr)
+	}
+
+	// Sometimes the error won't be properly wrapped, so we'll need to
+	// inspect raw error itself to detect something we can wrap properly.
+	// This handles a postgres variant of the error.
+	const postgresErrMsg = "could not serialize access"
+	if strings.Contains(err.Error(), postgresErrMsg) {
+		return &ErrSerializationError{
+			DBError: err,
+		}
+	}
+
+	// We'll also attempt to catch this for sqlite, that uses a slightly
+	// different error message. This is taken from:
+	// https://gitlab.com/cznic/sqlite/-/blob/v1.25.0/sqlite.go#L75.
+	const sqliteErrMsg = "SQLITE_BUSY"
+	if strings.Contains(err.Error(), sqliteErrMsg) {
+		return &ErrSerializationError{
+			DBError: err,
+		}
 	}
 
 	// Return original error if it could not be classified as a database

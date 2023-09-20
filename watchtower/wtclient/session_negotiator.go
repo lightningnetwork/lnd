@@ -158,7 +158,7 @@ func (n *sessionNegotiator) Start() error {
 	return nil
 }
 
-// Stop safely shutsdown the sessionNegotiator.
+// Stop safely shuts down the sessionNegotiator.
 func (n *sessionNegotiator) Stop() error {
 	n.stopped.Do(func() {
 		n.log.Debugf("Stopping session negotiator")

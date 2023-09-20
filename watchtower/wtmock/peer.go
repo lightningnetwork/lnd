@@ -95,7 +95,7 @@ func (p *MockPeer) Write(b []byte) (n int, err error) {
 	}
 }
 
-// Close tearsdown the connection, and fails any pending reads or writes.
+// Close tears down the connection, and fails any pending reads or writes.
 func (p *MockPeer) Close() error {
 	select {
 	case <-p.Quit:

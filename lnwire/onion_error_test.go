@@ -120,10 +120,10 @@ func testEncodeDecodeTlv(t *testing.T, testFailure FailureMessage) {
 	require.Equal(t, testFailure, failure)
 }
 
-// TestChannelUpdateCompatabilityParsing tests that we're able to properly read
+// TestChannelUpdateCompatibilityParsing tests that we're able to properly read
 // out channel update messages encoded in an onion error payload that was
 // written in the legacy (type prefixed) format.
-func TestChannelUpdateCompatabilityParsing(t *testing.T) {
+func TestChannelUpdateCompatibilityParsing(t *testing.T) {
 	t.Parallel()
 
 	// We'll start by taking out test channel update, and encoding it into
@@ -137,7 +137,7 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 	// able to decode it using our compatibility method, as it's a regular
 	// encoded channel update message.
 	var newChanUpdate ChannelUpdate
-	err := parseChannelUpdateCompatabilityMode(
+	err := parseChannelUpdateCompatibilityMode(
 		&b, uint16(b.Len()), &newChanUpdate, 0,
 	)
 	require.NoError(t, err, "unable to parse channel update")
@@ -164,7 +164,7 @@ func TestChannelUpdateCompatabilityParsing(t *testing.T) {
 	// We should be able to properly parse the encoded channel update
 	// message even with the extra two bytes.
 	var newChanUpdate2 ChannelUpdate
-	err = parseChannelUpdateCompatabilityMode(
+	err = parseChannelUpdateCompatibilityMode(
 		&b, uint16(b.Len()), &newChanUpdate2, 0,
 	)
 	require.NoError(t, err, "unable to parse channel update")

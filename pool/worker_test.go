@@ -125,7 +125,7 @@ func submitNonblockingGeneric(t *testing.T, p interface{}, nWorkers int) {
 	// Now, unblock them all simultaneously. All of the tasks should then be
 	// processed in parallel. Afterward, no more errors should come through.
 	close(semChan)
-	pullParllel(t, nUnblocked, errChan)
+	pullParallel(t, nUnblocked, errChan)
 	pullNothing(t, errChan)
 }
 
@@ -149,7 +149,7 @@ func submitBlockingGeneric(t *testing.T, p interface{}, nWorkers int) {
 
 	// Now, pull each blocking task sequentially from the pool. Afterwards,
 	// no more errors should come through.
-	pullSequntial(t, nBlocked, errChan, semChan)
+	pullSequential(t, nBlocked, errChan, semChan)
 	pullNothing(t, errChan)
 
 }
@@ -187,12 +187,12 @@ func submitPartialBlockingGeneric(t *testing.T, p interface{}, nWorkers int) {
 	// Now, unblock the unblocked task and pull all of them. After they have
 	// been pulled, we should see no more tasks.
 	close(semChanNB)
-	pullParllel(t, nUnblocked, errChan)
+	pullParallel(t, nUnblocked, errChan)
 	pullNothing(t, errChan)
 
 	// Finally, unblock each the blocked tasks we added initially, and
 	// assert that no further errors come through.
-	pullSequntial(t, nBlocked, errChan, semChan)
+	pullSequential(t, nBlocked, errChan, semChan)
 	pullNothing(t, errChan)
 }
 
@@ -208,7 +208,7 @@ func pullNothing(t *testing.T, errChan chan error) {
 	}
 }
 
-func pullParllel(t *testing.T, n int, errChan chan error) {
+func pullParallel(t *testing.T, n int, errChan chan error) {
 	t.Helper()
 
 	for i := 0; i < n; i++ {
@@ -224,7 +224,10 @@ func pullParllel(t *testing.T, n int, errChan chan error) {
 	}
 }
 
-func pullSequntial(t *testing.T, n int, errChan chan error, semChan chan struct{}) {
+func pullSequential(
+	t *testing.T, n int, errChan chan error, semChan chan struct{},
+) {
+
 	t.Helper()
 
 	for i := 0; i < n; i++ {

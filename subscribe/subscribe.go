@@ -72,7 +72,7 @@ type clientUpdate struct {
 	clientID uint64
 
 	// client is the new client that will receive updates. Will be nil in
-	// case this is a cancallation update.
+	// case this is a cancellation update.
 	client *Client
 }
 

@@ -7,7 +7,7 @@ package autopilot
 // where 0 is maximally costly.
 const diameterCutoff = 0.75
 
-// SimpleGraph stores a simplifed adj graph of a channel graph to speed
+// SimpleGraph stores a simplified adj graph of a channel graph to speed
 // up graph processing by eliminating all unnecessary hashing and map access.
 type SimpleGraph struct {
 	// Nodes is a map from node index to NodeID.
@@ -26,7 +26,7 @@ func NewSimpleGraph(g ChannelGraph) (*SimpleGraph, error) {
 	nextIndex := 0
 
 	// getNodeIndex returns the integer index of the passed node.
-	// The returned index is then used to create a simplifed adjacency list
+	// The returned index is then used to create a simplified adjacency list
 	// where each node is identified by its index instead of its pubkey, and
 	// also to create a mapping from node index to node pubkey.
 	getNodeIndex := func(node Node) int {

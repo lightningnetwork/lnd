@@ -308,6 +308,8 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 			}
 
 			return err
+					continue
+				}
 		}
 
 		dbErr := tx.Commit()

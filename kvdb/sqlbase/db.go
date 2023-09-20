@@ -330,16 +330,20 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 			return fnErr
 		}
 
-		dbErr := tx.Commit()
-		if IsSerializationError(dbErr) {
+		commitErr := tx.Commit()
+		if commitErr != nil {
 			_ = tx.Rollback()
 
-			if waitBeforeRetry(i) {
-				continue
+			dbErr := MapSQLError(fnErr)
+			if IsSerializationError(dbErr) {
+
+				if waitBeforeRetry(i) {
+					continue
+				}
 			}
 		}
 
-		return dbErr
+		return commitErr
 	}
 
 	// If we get to this point, then we weren't able to successfully commit

@@ -227,7 +227,7 @@ func (c *ChanSeries) FilterKnownChanIDs(chain chainhash.Hash,
 func (c *ChanSeries) FilterChannelRange(chain chainhash.Hash,
 	startHeight, endHeight uint32) ([]channeldb.BlockChannelRange, error) {
 
-	return c.graph.FilterChannelRange(startHeight, endHeight)
+	return c.graph.FilterChannelRange(startHeight, endHeight, false)
 }
 
 // FetchChanAnns returns a full set of channel announcements as well as their

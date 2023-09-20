@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/time/rate"
@@ -1035,7 +1036,7 @@ func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 	// this as there's a transport message size limit which we'll need to
 	// adhere to. We also need to make sure all of our replies cover the
 	// expected range of the query.
-	sendReplyForChunk := func(channelChunk []lnwire.ShortChannelID,
+	sendReplyForChunk := func(channelChunk []*channeldb.ChannelUpdateInfo,
 		firstHeight, lastHeight uint32, finalChunk bool) error {
 
 		// The number of blocks contained in the current chunk (the
@@ -1048,20 +1049,25 @@ func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 			complete = 1
 		}
 
+		scids := make([]lnwire.ShortChannelID, len(channelChunk))
+		for i, info := range channelChunk {
+			scids[i] = info.ShortChannelID
+		}
+
 		return g.cfg.sendToPeerSync(&lnwire.ReplyChannelRange{
 			ChainHash:        query.ChainHash,
 			NumBlocks:        numBlocks,
 			FirstBlockHeight: firstHeight,
 			Complete:         complete,
 			EncodingType:     g.cfg.encodingType,
-			ShortChanIDs:     channelChunk,
+			ShortChanIDs:     scids,
 		})
 	}
 
 	var (
 		firstHeight  = query.FirstBlockHeight
 		lastHeight   uint32
-		channelChunk []lnwire.ShortChannelID
+		channelChunk []*channeldb.ChannelUpdateInfo
 	)
 	for _, channelRange := range channelRanges {
 		channels := channelRange.Channels
@@ -1109,8 +1115,10 @@ func (g *GossipSyncer) replyChanRangeQuery(query *lnwire.QueryChannelRange) erro
 		// Sort the chunk once again if we had to shuffle it.
 		if exceedsChunkSize {
 			sort.Slice(channelChunk, func(i, j int) bool {
-				return channelChunk[i].ToUint64() <
-					channelChunk[j].ToUint64()
+				id1 := channelChunk[i].ShortChannelID.ToUint64()
+				id2 := channelChunk[j].ShortChannelID.ToUint64()
+
+				return id1 < id2
 			})
 		}
 	}

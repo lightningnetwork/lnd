@@ -2143,6 +2143,23 @@ func (c *ChannelGraph) FilterKnownChanIDs(chanIDs []uint64) ([]uint64, error) {
 	return newChanIDs, nil
 }
 
+// ChannelUpdateInfo couples the SCID of a channel with the timestamps of the
+// latest received channel updates for the channel.
+type ChannelUpdateInfo struct {
+	// ShortChannelID is the SCID identifier of the channel.
+	ShortChannelID lnwire.ShortChannelID
+
+	// Node1UpdateTimestamp is the timestamp of the latest received update
+	// from the node 1 channel peer. This will be set to zero time if no
+	// update has yet been received from this node.
+	Node1UpdateTimestamp time.Time
+
+	// Node2UpdateTimestamp is the timestamp of the latest received update
+	// from the node 2 channel peer. This will be set to zero time if no
+	// update has yet been received from this node.
+	Node2UpdateTimestamp time.Time
+}
+
 // BlockChannelRange represents a range of channels for a given block height.
 type BlockChannelRange struct {
 	// Height is the height of the block all of the channels below were
@@ -2151,17 +2168,20 @@ type BlockChannelRange struct {
 
 	// Channels is the list of channels identified by their short ID
 	// representation known to us that were included in the block height
-	// above.
-	Channels []lnwire.ShortChannelID
+	// above. The list may include channel update timestamp information if
+	// requested.
+	Channels []ChannelUpdateInfo
 }
 
 // FilterChannelRange returns the channel ID's of all known channels which were
 // mined in a block height within the passed range. The channel IDs are grouped
 // by their common block height. This method can be used to quickly share with a
 // peer the set of channels we know of within a particular range to catch them
-// up after a period of time offline.
+// up after a period of time offline. If withTimestamps is true then the
+// timestamp info of the latest received channel update messages of the channel
+// will be included in the response.
 func (c *ChannelGraph) FilterChannelRange(startHeight,
-	endHeight uint32) ([]BlockChannelRange, error) {
+	endHeight uint32, withTimestamps bool) ([]BlockChannelRange, error) {
 
 	startChanID := &lnwire.ShortChannelID{
 		BlockHeight: startHeight,
@@ -2180,7 +2200,7 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 	byteOrder.PutUint64(chanIDStart[:], startChanID.ToUint64())
 	byteOrder.PutUint64(chanIDEnd[:], endChanID.ToUint64())
 
-	var channelsPerBlock map[uint32][]lnwire.ShortChannelID
+	var channelsPerBlock map[uint32][]ChannelUpdateInfo
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
 		if edges == nil {
@@ -2212,14 +2232,60 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 			// we'll add it to our returned set.
 			rawCid := byteOrder.Uint64(k)
 			cid := lnwire.NewShortChanIDFromInt(rawCid)
+
+			chanInfo := ChannelUpdateInfo{
+				ShortChannelID: cid,
+			}
+
+			if !withTimestamps {
+				channelsPerBlock[cid.BlockHeight] = append(
+					channelsPerBlock[cid.BlockHeight],
+					chanInfo,
+				)
+
+				continue
+			}
+
+			node1Key, node2Key := computeEdgePolicyKeys(&edgeInfo)
+
+			rawPolicy := edges.Get(node1Key)
+			if len(rawPolicy) != 0 {
+				r := bytes.NewReader(rawPolicy)
+
+				edge, err := deserializeChanEdgePolicyRaw(r)
+				if err != nil && !errors.Is(
+					err, ErrEdgePolicyOptionalFieldNotFound,
+				) {
+
+					return err
+				}
+
+				chanInfo.Node1UpdateTimestamp = edge.LastUpdate
+			}
+
+			rawPolicy = edges.Get(node2Key)
+			if len(rawPolicy) != 0 {
+				r := bytes.NewReader(rawPolicy)
+
+				edge, err := deserializeChanEdgePolicyRaw(r)
+				if err != nil && !errors.Is(
+					err, ErrEdgePolicyOptionalFieldNotFound,
+				) {
+
+					return err
+				}
+
+				chanInfo.Node2UpdateTimestamp = edge.LastUpdate
+			}
+
 			channelsPerBlock[cid.BlockHeight] = append(
-				channelsPerBlock[cid.BlockHeight], cid,
+				channelsPerBlock[cid.BlockHeight], chanInfo,
 			)
 		}
 
 		return nil
 	}, func() {
-		channelsPerBlock = make(map[uint32][]lnwire.ShortChannelID)
+		channelsPerBlock = make(map[uint32][]ChannelUpdateInfo)
 	})
 
 	switch {
@@ -3116,6 +3182,24 @@ func (c *ChannelGraph) FetchOtherNode(tx kvdb.RTx,
 	}
 
 	return targetNode, err
+}
+
+// computeEdgePolicyKeys is a helper function that can be used to compute the
+// keys used to index the channel edge policy info for the two nodes of the
+// edge. The keys for node 1 and node 2 are returned respectively.
+func computeEdgePolicyKeys(info *models.ChannelEdgeInfo) ([]byte, []byte) {
+	var (
+		node1Key [33 + 8]byte
+		node2Key [33 + 8]byte
+	)
+
+	copy(node1Key[:], info.NodeKey1Bytes[:])
+	copy(node2Key[:], info.NodeKey2Bytes[:])
+
+	byteOrder.PutUint64(node1Key[33:], info.ChannelID)
+	byteOrder.PutUint64(node2Key[33:], info.ChannelID)
+
+	return node1Key[:], node2Key[:]
 }
 
 // FetchChannelEdgesByOutpoint attempts to lookup the two directed edges for

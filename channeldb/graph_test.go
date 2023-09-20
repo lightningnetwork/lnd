@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/rand"
 )
 
 var (
@@ -2045,7 +2046,7 @@ func TestFilterChannelRange(t *testing.T) {
 
 	// If we try to filter a channel range before we have any channels
 	// inserted, we should get an empty slice of results.
-	resp, err := graph.FilterChannelRange(10, 100)
+	resp, err := graph.FilterChannelRange(10, 100, false)
 	require.NoError(t, err)
 	require.Empty(t, resp)
 
@@ -2054,7 +2055,41 @@ func TestFilterChannelRange(t *testing.T) {
 	startHeight := uint32(100)
 	endHeight := startHeight
 	const numChans = 10
-	channelRanges := make([]BlockChannelRange, 0, numChans/2)
+
+	var (
+		channelRanges = make(
+			[]BlockChannelRange, 0, numChans/2,
+		)
+		channelRangesWithTimestamps = make(
+			[]BlockChannelRange, 0, numChans/2,
+		)
+	)
+
+	updateTimeSeed := int64(1)
+	maybeAddPolicy := func(chanID uint64, node *LightningNode,
+		node2 bool) time.Time {
+
+		var chanFlags lnwire.ChanUpdateChanFlags
+		if node2 {
+			chanFlags = lnwire.ChanUpdateDirection
+		}
+
+		var updateTime time.Time
+		if rand.Int31n(2) == 0 {
+			updateTime = time.Unix(updateTimeSeed, 0)
+			err = graph.UpdateEdgePolicy(&models.ChannelEdgePolicy{
+				ToNode:       node.PubKeyBytes,
+				ChannelFlags: chanFlags,
+				ChannelID:    chanID,
+				LastUpdate:   updateTime,
+			})
+			require.NoError(t, err)
+		}
+		updateTimeSeed++
+
+		return updateTime
+	}
+
 	for i := 0; i < numChans/2; i++ {
 		chanHeight := endHeight
 		channel1, chanID1 := createEdge(
@@ -2068,9 +2103,38 @@ func TestFilterChannelRange(t *testing.T) {
 		require.NoError(t, graph.AddChannelEdge(&channel2))
 
 		channelRanges = append(channelRanges, BlockChannelRange{
-			Height:   chanHeight,
-			Channels: []lnwire.ShortChannelID{chanID1, chanID2},
+			Height: chanHeight,
+			Channels: []ChannelUpdateInfo{
+				{ShortChannelID: chanID1},
+				{ShortChannelID: chanID2},
+			},
 		})
+
+		var (
+			time1 = maybeAddPolicy(channel1.ChannelID, node1, false)
+			time2 = maybeAddPolicy(channel1.ChannelID, node2, true)
+			time3 = maybeAddPolicy(channel2.ChannelID, node1, false)
+			time4 = maybeAddPolicy(channel2.ChannelID, node2, true)
+		)
+
+		channelRangesWithTimestamps = append(
+			channelRangesWithTimestamps, BlockChannelRange{
+				Height: chanHeight,
+				Channels: []ChannelUpdateInfo{
+					{
+						ShortChannelID:       chanID1,
+						Node1UpdateTimestamp: time1,
+						Node2UpdateTimestamp: time2,
+					},
+					{
+						ShortChannelID:       chanID2,
+						Node1UpdateTimestamp: time3,
+						Node2UpdateTimestamp: time4,
+					},
+				},
+			},
+		)
+
 		endHeight += 10
 	}
 
@@ -2083,7 +2147,9 @@ func TestFilterChannelRange(t *testing.T) {
 		startHeight uint32
 		endHeight   uint32
 
-		resp []BlockChannelRange
+		resp          []BlockChannelRange
+		expStartIndex int
+		expEndIndex   int
 	}{
 		// If we query for the entire range, then we should get the same
 		// set of short channel IDs back.
@@ -2092,7 +2158,9 @@ func TestFilterChannelRange(t *testing.T) {
 			startHeight: startHeight,
 			endHeight:   endHeight,
 
-			resp: channelRanges,
+			resp:          channelRanges,
+			expStartIndex: 0,
+			expEndIndex:   len(channelRanges),
 		},
 
 		// If we query for a range of channels right before our range,
@@ -2110,7 +2178,9 @@ func TestFilterChannelRange(t *testing.T) {
 			startHeight: endHeight - 10,
 			endHeight:   endHeight - 10,
 
-			resp: channelRanges[4:],
+			resp:          channelRanges[4:],
+			expStartIndex: 4,
+			expEndIndex:   len(channelRanges),
 		},
 
 		// If we query for just the first height, we should only get a
@@ -2120,7 +2190,9 @@ func TestFilterChannelRange(t *testing.T) {
 			startHeight: startHeight,
 			endHeight:   startHeight,
 
-			resp: channelRanges[:1],
+			resp:          channelRanges[:1],
+			expStartIndex: 0,
+			expEndIndex:   1,
 		},
 
 		{
@@ -2128,20 +2200,45 @@ func TestFilterChannelRange(t *testing.T) {
 			startHeight: startHeight + 10,
 			endHeight:   endHeight - 10,
 
-			resp: channelRanges[1:5],
+			resp:          channelRanges[1:5],
+			expStartIndex: 1,
+			expEndIndex:   5,
 		},
 	}
+
 	for _, test := range tests {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
+			// First, do the query without requesting timestamps.
 			resp, err := graph.FilterChannelRange(
-				test.startHeight, test.endHeight,
+				test.startHeight, test.endHeight, false,
 			)
 			require.NoError(t, err)
-			require.Equal(t, test.resp, resp)
+
+			expRes := channelRanges[test.expStartIndex:test.expEndIndex] //nolint:lll
+
+			if len(expRes) == 0 {
+				require.Nil(t, resp)
+			} else {
+				require.Equal(t, expRes, resp)
+			}
+
+			// Now, query the timestamps as well.
+			resp, err = graph.FilterChannelRange(
+				test.startHeight, test.endHeight, true,
+			)
+			require.NoError(t, err)
+
+			expRes = channelRangesWithTimestamps[test.expStartIndex:test.expEndIndex] //nolint:lll
+
+			if len(expRes) == 0 {
+				require.Nil(t, resp)
+			} else {
+				require.Equal(t, expRes, resp)
+			}
 		})
 	}
 }

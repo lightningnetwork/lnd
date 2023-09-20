@@ -103,10 +103,13 @@ func (m *mockChannelGraphTimeSeries) FilterChannelRange(chain chainhash.Hash,
 	m.filterRangeReqs <- filterRangeReq{startHeight, endHeight}
 	reply := <-m.filterRangeResp
 
-	channelsPerBlock := make(map[uint32][]lnwire.ShortChannelID)
+	channelsPerBlock := make(map[uint32][]channeldb.ChannelUpdateInfo)
 	for _, cid := range reply {
 		channelsPerBlock[cid.BlockHeight] = append(
-			channelsPerBlock[cid.BlockHeight], cid,
+			channelsPerBlock[cid.BlockHeight],
+			channeldb.ChannelUpdateInfo{
+				ShortChannelID: cid,
+			},
 		)
 	}
 
@@ -119,16 +122,21 @@ func (m *mockChannelGraphTimeSeries) FilterChannelRange(chain chainhash.Hash,
 		return blocks[i] < blocks[j]
 	})
 
-	channelRanges := make([]channeldb.BlockChannelRange, 0, len(channelsPerBlock))
+	channelRanges := make(
+		[]channeldb.BlockChannelRange, 0, len(channelsPerBlock),
+	)
 	for _, block := range blocks {
-		channelRanges = append(channelRanges, channeldb.BlockChannelRange{
-			Height:   block,
-			Channels: channelsPerBlock[block],
-		})
+		channelRanges = append(
+			channelRanges, channeldb.BlockChannelRange{
+				Height:   block,
+				Channels: channelsPerBlock[block],
+			},
+		)
 	}
 
 	return channelRanges, nil
 }
+
 func (m *mockChannelGraphTimeSeries) FetchChanAnns(chain chainhash.Hash,
 	shortChanIDs []lnwire.ShortChannelID) ([]lnwire.Message, error) {
 

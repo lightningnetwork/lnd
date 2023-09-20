@@ -2712,3 +2712,22 @@ func restoreChanBackup(ctx *cli.Context) error {
 
 	return nil
 }
+
+var purgeZombiesCommand = cli.Command{
+	Name:     "purgezombies",
+	Category: "Graph",
+	Usage:    "delete all zombie channels from the database",
+}
+
+func purgeZombies(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	_, err := client.PurgeZombies(ctxc, &lnrpc.PurgeZombiesReq{})
+	if err != nil {
+		return fmt.Errorf("unable to purge zombies: %v", err)
+	}
+
+	return nil
+}

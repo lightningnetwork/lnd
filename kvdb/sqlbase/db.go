@@ -170,14 +170,24 @@ func (db *db) getPrefixedTableName(table string) string {
 func catchPanic(f func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Criticalf("Caught unhandled error: %v", r)
-
 			switch data := r.(type) {
 			case error:
 				err = data
 
 			default:
 				err = errors.New(fmt.Sprintf("%v", data))
+			}
+
+			// Before we issue a critical log which'll cause the
+			// daemon to shut down, we'll first check if this is a
+			// DB serialization error. If so, then we don't need to
+			// log as we can retry safely and avoid tearing
+			// everything down.
+			if sqldb.IsSerializationError(sqldb.MapSQLError(err)) {
+				log.Tracef("Detected db serialization error "+
+					"via panic: %v", err)
+			} else {
+				log.Criticalf("Caught unhandled error: %v", r)
 			}
 		}
 	}()

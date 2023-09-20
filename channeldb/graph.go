@@ -1508,9 +1508,15 @@ func (c *ChannelGraph) pruneGraphNodes(nodes kvdb.RwBucket,
 		// If we reach this point, then there are no longer any edges
 		// that connect this node, so we can delete it.
 		if err := c.deleteLightningNode(nodes, nodePubKey[:]); err != nil {
-			log.Warnf("Unable to prune node %x from the "+
-				"graph: %v", nodePubKey, err)
-			continue
+			if errors.Is(err, ErrGraphNodeNotFound) ||
+				errors.Is(err, ErrGraphNodesNotFound) {
+
+				log.Warnf("Unable to prune node %x from the "+
+					"graph: %v", nodePubKey, err)
+				continue
+			}
+
+			return err
 		}
 
 		log.Infof("Pruned unconnected node %x from channel graph",

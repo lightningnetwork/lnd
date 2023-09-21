@@ -79,14 +79,14 @@ jobs:
 
             ## Verifying the Release Timestamp 
 
-            From this new version onwards, in addition time-stamping the _git tag_ with [OpenTimeStamps](https://opentimestamps.org/), we'll also now timestamp the manifest file along with its signature. Two new files are now included along with the rest of our release artifacts: ` manifest-roasbeef-${{ env.RELEASE_VERSION }}.txt.asc.ots`.
+            From this new version onwards, in addition time-stamping the _git tag_ with [OpenTimestamps](https://opentimestamps.org/), we'll also now timestamp the manifest file along with its signature. Two new files are now included along with the rest of our release artifacts: ` manifest-roasbeef-${{ env.RELEASE_VERSION }}.txt.asc.ots`.
 
             Assuming you have the opentimestamps client installed locally, the timestamps can be verified with the following commands: 
             ```
             ots verify manifest-roasbeef-${{ env.RELEASE_VERSION }}.sig.ots -f manifest-roasbeef-${{ env.RELEASE_VERSION }}.sig
             ```
 
-            Alternatively, [the open timestamps website](https://opentimestamps.org/) can be used to verify timestamps if one doesn't have a `bitcoind` instance accessible locally. 
+            Alternatively, [the OpenTimestamps website](https://opentimestamps.org/) can be used to verify timestamps if one doesn't have a `bitcoind` instance accessible locally.
 
             These timestamps should give users confidence in the integrity of this release even after the key that signed the release expires. 
 

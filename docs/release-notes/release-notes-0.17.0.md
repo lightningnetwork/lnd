@@ -79,6 +79,11 @@ fails](https://github.com/lightningnetwork/lnd/pull/7876).
 * `lnd` [now properly handles a case where an erroneous force close attempt
   would impeded start up](https://github.com/lightningnetwork/lnd/pull/7985).
 
+* A bug that could cause the invoice related sub-system to lock up (potentially
+  the entire daemon) related to [incoming HTLCs going on chain related to a
+  hodl invoice has been
+  fixed](https://github.com/lightningnetwork/lnd/pull/8024).
+
 # New Features
 ## Functional Enhancements
 

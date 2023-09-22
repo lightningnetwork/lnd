@@ -2,11 +2,16 @@ package channeldb
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"encoding/binary"
+	"math/rand"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -374,5 +379,170 @@ func FuzzChannelCommitment(f *testing.F) {
 		// slices, we must implement our own equality check rather than
 		// using require.Equal.
 		checkChannelCommitmentsEqual(t, cc, &cc2)
+	})
+}
+
+// getShortChannelID requires len(data) >= 8.
+func getShortChannelID(data []byte) lnwire.ShortChannelID {
+	return lnwire.NewShortChanIDFromInt(getUint64(data[0:8]))
+}
+
+// getInsecurePublicKey requires len(data) >= 8.
+func getInsecurePublicKey(data []byte) *btcec.PublicKey {
+	seed := int64(getUint64(data[0:8]))
+	rng := rand.New(rand.NewSource(seed))
+
+	key, err := ecdsa.GenerateKey(secp256k1.S256(), rng)
+	if err != nil {
+		panic(err)
+	}
+
+	return secp256k1.PrivKeyFromBytes(key.D.Bytes()).PubKey()
+}
+
+// getKeyDescriptor requires len(data) >= 16.
+func getKeyDescriptor(data []byte) keychain.KeyDescriptor {
+	return keychain.KeyDescriptor{
+		KeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(getUint32(data[0:4])),
+			Index:  getUint32(data[4:8]),
+		},
+		PubKey: getInsecurePublicKey(data[8:16]),
+	}
+}
+
+// getChannelConfig requires len(data) >= 116.
+func getChannelConfig(data []byte) ChannelConfig {
+	return ChannelConfig{
+		ChannelConstraints: ChannelConstraints{
+			DustLimit:        getAmount(data[0:8]),
+			ChanReserve:      getAmount(data[8:16]),
+			MaxPendingAmount: getMilliSatoshi(data[16:24]),
+			MinHTLC:          getMilliSatoshi(data[24:32]),
+			MaxAcceptedHtlcs: getUint16(data[32:34]),
+			CsvDelay:         getUint16(data[34:36]),
+		},
+		MultiSigKey:         getKeyDescriptor(data[36:52]),
+		RevocationBasePoint: getKeyDescriptor(data[52:68]),
+		PaymentBasePoint:    getKeyDescriptor(data[68:84]),
+		DelayBasePoint:      getKeyDescriptor(data[84:100]),
+		HtlcBasePoint:       getKeyDescriptor(data[100:116]),
+	}
+}
+
+// getChanInfo returns an *OpenChannel with the necessary fields populated for
+// use by serializeChanInfo and deserializeChanInfo.
+func getChanInfo(data []byte) *OpenChannel {
+	if len(data) < 397 {
+		return nil
+	}
+
+	oc := &OpenChannel{
+		ChanType:               ChannelType(getUint64(data[0:8])),
+		FundingOutpoint:        getOutPoint(data[8:44]),
+		ShortChannelID:         getShortChannelID(data[44:52]),
+		IsPending:              getBool(data[52]),
+		IsInitiator:            getBool(data[53]),
+		chanStatus:             ChannelStatus(getUint64(data[54:62])),
+		FundingBroadcastHeight: getUint32(data[62:66]),
+		NumConfsRequired:       getUint16(data[66:68]),
+		ChannelFlags:           lnwire.FundingFlag(data[68]),
+		IdentityPub:            getInsecurePublicKey(data[69:77]),
+		Capacity:               getAmount(data[77:85]),
+		TotalMSatSent:          getMilliSatoshi(data[85:93]),
+		TotalMSatReceived:      getMilliSatoshi(data[93:101]),
+		InitialLocalBalance:    getMilliSatoshi(data[101:109]),
+		InitialRemoteBalance:   getMilliSatoshi(data[109:117]),
+		LocalChanCfg:           getChannelConfig(data[117:233]),
+		RemoteChanCfg:          getChannelConfig(data[233:349]),
+		RevocationKeyLocator: keychain.KeyLocator{
+			Family: keychain.KeyFamily(getUint32(data[349:353])),
+			Index:  getUint32(data[353:357]),
+		},
+		confirmedScid: getShortChannelID(data[357:365]),
+	}
+	copy(oc.ChainHash[:], data[365:397])
+	data = data[397:]
+
+	if fundingTxPresent(oc) {
+		data, oc.FundingTxn = getTx(data)
+		if oc.FundingTxn == nil {
+			return nil
+		}
+	}
+	_, oc.Memo = getBytes(data)
+
+	return oc
+}
+
+func checkOpenChannelsEqual(t *testing.T, oc1, oc2 *OpenChannel) {
+	require.Equal(t, oc1.ChanType, oc2.ChanType)
+	require.Equal(t, oc1.ChainHash, oc2.ChainHash)
+	require.Equal(t, oc1.FundingOutpoint, oc2.FundingOutpoint)
+	require.Equal(t, oc1.ShortChannelID, oc2.ShortChannelID)
+	require.Equal(t, oc1.IsPending, oc2.IsPending)
+	require.Equal(t, oc1.IsInitiator, oc2.IsInitiator)
+	require.Equal(t, oc1.chanStatus, oc2.chanStatus)
+	require.Equal(t, oc1.FundingBroadcastHeight, oc2.FundingBroadcastHeight)
+	require.Equal(t, oc1.NumConfsRequired, oc2.NumConfsRequired)
+	require.Equal(t, oc1.ChannelFlags, oc2.ChannelFlags)
+	require.Equal(t, oc1.IdentityPub, oc2.IdentityPub)
+	require.Equal(t, oc1.Capacity, oc2.Capacity)
+	require.Equal(t, oc1.TotalMSatSent, oc2.TotalMSatSent)
+	require.Equal(t, oc1.TotalMSatReceived, oc2.TotalMSatReceived)
+	require.Equal(t, oc1.InitialLocalBalance, oc2.InitialLocalBalance)
+	require.Equal(t, oc1.InitialRemoteBalance, oc2.InitialRemoteBalance)
+	require.Equal(t, oc1.LocalChanCfg, oc2.LocalChanCfg)
+	require.Equal(t, oc1.RemoteChanCfg, oc2.RemoteChanCfg)
+	checkChannelCommitmentsEqual(
+		t, &oc1.LocalCommitment, &oc2.LocalCommitment,
+	)
+	checkChannelCommitmentsEqual(
+		t, &oc1.RemoteCommitment, &oc2.RemoteCommitment,
+	)
+	require.Equal(
+		t, oc1.RemoteCurrentRevocation, oc2.RemoteCurrentRevocation,
+	)
+	require.Equal(t, oc1.RemoteNextRevocation, oc2.RemoteNextRevocation)
+	require.Equal(t, oc1.RevocationProducer, oc2.RevocationProducer)
+	require.Equal(t, oc1.RevocationStore, oc2.RevocationStore)
+	require.Equal(t, oc1.Packager, oc2.Packager)
+	checkTxsEqual(t, oc1.FundingTxn, oc2.FundingTxn)
+	require.True(
+		t,
+		bytes.Equal(oc1.LocalShutdownScript, oc2.LocalShutdownScript),
+	)
+	require.True(
+		t,
+		bytes.Equal(oc1.RemoteShutdownScript, oc2.RemoteShutdownScript),
+	)
+	require.Equal(t, oc1.ThawHeight, oc2.ThawHeight)
+	require.Equal(t, oc1.LastWasRevoke, oc2.LastWasRevoke)
+	require.Equal(t, oc1.RevocationKeyLocator, oc2.RevocationKeyLocator)
+	require.Equal(t, oc1.confirmedScid, oc2.confirmedScid)
+	require.True(t, bytes.Equal(oc1.Memo, oc2.Memo))
+}
+
+// FuzzChanInfo tests that encoding/decoding of the channel info in OpenChannels
+// does not modify their contents.
+func FuzzChanInfo(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		oc := getChanInfo(data)
+		if oc == nil {
+			return
+		}
+
+		var b bytes.Buffer
+		err := serializeChanInfo(&b, oc)
+		require.NoError(t, err)
+
+		var oc2 OpenChannel
+		err = deserializeChanInfo(&b, &oc2)
+		require.NoError(t, err)
+
+		// Because we need nil slices to be considered equal to empty
+		// slices, we must implement our own equality check rather than
+		// using require.Equal.
+		checkOpenChannelsEqual(t, oc, &oc2)
 	})
 }

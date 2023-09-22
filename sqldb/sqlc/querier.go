@@ -9,36 +9,36 @@ import (
 )
 
 type Querier interface {
-	DeleteAMPHTLCCustomRecords(ctx context.Context, invoiceID int32) error
-	DeleteAMPHTLCs(ctx context.Context, invoiceID int32) error
+	DeleteAMPHTLCCustomRecords(ctx context.Context, invoiceID int64) error
+	DeleteAMPHTLCs(ctx context.Context, invoiceID int64) error
 	DeleteAMPInvoiceHTLC(ctx context.Context, setID []byte) error
 	DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) error
-	DeleteInvoiceEvents(ctx context.Context, invoiceID int32) error
-	DeleteInvoiceFeatures(ctx context.Context, invoiceID int32) error
+	DeleteInvoiceEvents(ctx context.Context, invoiceID int64) error
+	DeleteInvoiceFeatures(ctx context.Context, invoiceID int64) error
 	DeleteInvoiceHTLC(ctx context.Context, htlcID int64) error
-	DeleteInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int32) error
-	DeleteInvoiceHTLCs(ctx context.Context, invoiceID int32) error
+	DeleteInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int64) error
+	DeleteInvoiceHTLCs(ctx context.Context, invoiceID int64) error
 	FilterInvoicePayments(ctx context.Context, arg FilterInvoicePaymentsParams) ([]FilterInvoicePaymentsRow, error)
 	FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error)
-	GetAMPInvoiceHTLCsByInvoiceID(ctx context.Context, invoiceID int32) ([]AmpInvoiceHtlc, error)
+	GetAMPInvoiceHTLCsByInvoiceID(ctx context.Context, invoiceID int64) ([]AmpInvoiceHtlc, error)
 	GetAMPInvoiceHTLCsBySetID(ctx context.Context, setID []byte) ([]AmpInvoiceHtlc, error)
 	// This method may return more than one invoice if filter using multiple fields
 	// from different invoices. It is the caller's responsibility to ensure that
 	// we bubble up an error in those cases.
 	GetInvoice(ctx context.Context, arg GetInvoiceParams) ([]Invoice, error)
-	GetInvoiceFeatures(ctx context.Context, invoiceID int32) ([]InvoiceFeature, error)
-	GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int32) ([]GetInvoiceHTLCCustomRecordsRow, error)
-	GetInvoiceHTLCs(ctx context.Context, invoiceID int32) ([]InvoiceHtlc, error)
-	GetInvoicePayments(ctx context.Context, invoiceID int32) ([]InvoicePayment, error)
+	GetInvoiceFeatures(ctx context.Context, invoiceID int64) ([]InvoiceFeature, error)
+	GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int64) ([]GetInvoiceHTLCCustomRecordsRow, error)
+	GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]InvoiceHtlc, error)
+	GetInvoicePayments(ctx context.Context, invoiceID int64) ([]InvoicePayment, error)
 	GetSetIDHTLCsCustomRecords(ctx context.Context, setID []byte) ([]GetSetIDHTLCsCustomRecordsRow, error)
 	InsertAMPInvoiceHTLC(ctx context.Context, arg InsertAMPInvoiceHTLCParams) error
 	InsertAMPInvoicePayment(ctx context.Context, arg InsertAMPInvoicePaymentParams) error
-	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int32, error)
+	InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error)
 	InsertInvoiceEvent(ctx context.Context, arg InsertInvoiceEventParams) error
 	InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFeatureParams) error
 	InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) error
 	InsertInvoiceHTLCCustomRecord(ctx context.Context, arg InsertInvoiceHTLCCustomRecordParams) error
-	InsertInvoicePayment(ctx context.Context, arg InsertInvoicePaymentParams) (int32, error)
+	InsertInvoicePayment(ctx context.Context, arg InsertInvoicePaymentParams) (int64, error)
 	SelectAMPInvoicePayments(ctx context.Context, arg SelectAMPInvoicePaymentsParams) ([]SelectAMPInvoicePaymentsRow, error)
 	SelectInvoiceEvents(ctx context.Context, arg SelectInvoiceEventsParams) ([]InvoiceEvent, error)
 	UpdateAMPInvoiceHTLC(ctx context.Context, arg UpdateAMPInvoiceHTLCParams) error

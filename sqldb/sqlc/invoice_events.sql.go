@@ -17,7 +17,7 @@ FROM invoice_events
 WHERE invoice_id = $1
 `
 
-func (q *Queries) DeleteInvoiceEvents(ctx context.Context, invoiceID int32) error {
+func (q *Queries) DeleteInvoiceEvents(ctx context.Context, invoiceID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteInvoiceEvents, invoiceID)
 	return err
 }
@@ -32,7 +32,7 @@ INSERT INTO invoice_events (
 
 type InsertInvoiceEventParams struct {
 	CreatedAt     time.Time
-	InvoiceID     int32
+	InvoiceID     int64
 	HtlcID        sql.NullInt64
 	SetID         []byte
 	EventType     int32
@@ -77,7 +77,7 @@ LIMIT $8 OFFSET $7
 `
 
 type SelectInvoiceEventsParams struct {
-	InvoiceID     sql.NullInt32
+	InvoiceID     sql.NullInt64
 	HtlcID        sql.NullInt64
 	SetID         []byte
 	EventType     sql.NullInt32

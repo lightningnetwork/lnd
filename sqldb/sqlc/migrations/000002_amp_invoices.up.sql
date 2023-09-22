@@ -11,10 +11,10 @@ CREATE TABLE IF NOT EXISTS amp_invoice_payments (
     created_at TIMESTAMP NOT NULL,
 
     -- If settled, the invoice payment related to this set id.
-    settled_index INTEGER REFERENCES invoice_payments(id),
+    settled_index BIGINT REFERENCES invoice_payments(id),
 
     -- The invoice id this set id is related to.
-    invoice_id INTEGER NOT NULL REFERENCES invoices(id)
+    invoice_id BIGINT NOT NULL REFERENCES invoices(id)
 );
 
 CREATE INDEX IF NOT EXISTS amp_invoice_payments_invoice_id_idx ON amp_invoice_payments(invoice_id);
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS amp_invoice_htlcs (
     htlc_id BIGINT NOT NULL REFERENCES invoice_htlcs(id),
 
     -- The invoice id this entry is related to.
-    invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+    invoice_id BIGINT NOT NULL REFERENCES invoices(id),
 
     -- The root share for this amp htlc.
     root_share BLOB NOT NULL,

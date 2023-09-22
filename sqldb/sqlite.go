@@ -133,8 +133,12 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 			return nil, err
 		}
 
+		sqliteFS := newReplacerFS(sqlSchemas, map[string]string{
+			"BIGINT PRIMARY KEY": "INTEGER PRIMARY KEY",
+		})
+
 		err = applyMigrations(
-			sqlSchemas, driver, "sqlc/migrations", "sqlc",
+			sqliteFS, driver, "sqlc/migrations", "sqlc",
 		)
 		if err != nil {
 			return nil, err

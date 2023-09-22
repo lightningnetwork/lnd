@@ -1,7 +1,7 @@
 -- invoices table contains all the information shared by all the invoice types. 
 CREATE TABLE IF NOT EXISTS invoices (
     -- The id of the invoice. Translates to the AddIndex.
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     -- The hash for this invoice. The invoice hash will always identify that 
     -- invoice.
@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS invoice_features (
     feature INTEGER NOT NULL,
 
     -- The invoice id this feature belongs to.
-    invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+    invoice_id BIGINT NOT NULL REFERENCES invoices(id),
 
     -- The feature bit is unique per invoice.
     UNIQUE (feature, invoice_id)
@@ -78,7 +78,7 @@ CREATE INDEX IF NOT EXISTS invoice_feature_invoice_id_idx ON invoice_features(in
 CREATE TABLE IF NOT EXISTS invoice_htlcs (
     -- The id for this htlc. Used in foreign keys instead of the 
     -- htlc_id/chan_id combination.
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     -- The uint64 htlc id. This field is a counter so it is safe to store it as 
     -- int64 in the database. The application layer must check that there is no 
@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS invoice_htlcs (
     resolve_time TIMESTAMP,
 
     -- The id of the invoice this htlc belongs to.
-    invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+    invoice_id BIGINT NOT NULL REFERENCES invoices(id),
 
     -- The htlc_id and chan_id identify the htlc.
     UNIQUE (htlc_id, chan_id)
@@ -137,7 +137,7 @@ CREATE INDEX IF NOT EXISTS invoice_htlc_custom_records_htlc_id_idx ON invoice_ht
 -- invoice_payments contains the information of a settled invoice payment. 
 CREATE TABLE IF NOT EXISTS invoice_payments (
     -- The id for this invoice payment. Translates to SettleIndex.
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
     
     -- When the payment was settled.
     settled_at TIMESTAMP NOT NULL,
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS invoice_payments (
     amount_paid_msat BIGINT NOT NULL,
 
     -- The invoice id this payment is for.
-    invoice_id INTEGER NOT NULL REFERENCES invoices(id)
+    invoice_id BIGINT NOT NULL REFERENCES invoices(id)
 );
 
 CREATE INDEX IF NOT EXISTS invoice_payments_settled_at_idx ON invoice_payments(settled_at);

@@ -12,7 +12,7 @@ import (
 type AmpInvoiceHtlc struct {
 	SetID      []byte
 	HtlcID     int64
-	InvoiceID  int32
+	InvoiceID  int64
 	RootShare  []byte
 	ChildIndex int64
 	Hash       []byte
@@ -23,12 +23,12 @@ type AmpInvoicePayment struct {
 	SetID        []byte
 	State        int16
 	CreatedAt    time.Time
-	SettledIndex sql.NullInt32
-	InvoiceID    int32
+	SettledIndex sql.NullInt64
+	InvoiceID    int64
 }
 
 type Invoice struct {
-	ID             int32
+	ID             int64
 	Hash           []byte
 	Preimage       []byte
 	Memo           sql.NullString
@@ -46,9 +46,9 @@ type Invoice struct {
 }
 
 type InvoiceEvent struct {
-	ID            int32
+	ID            int64
 	CreatedAt     time.Time
-	InvoiceID     int32
+	InvoiceID     int64
 	HtlcID        sql.NullInt64
 	SetID         []byte
 	EventType     int32
@@ -56,17 +56,17 @@ type InvoiceEvent struct {
 }
 
 type InvoiceEventType struct {
-	ID          int32
+	ID          int64
 	Description string
 }
 
 type InvoiceFeature struct {
 	Feature   int32
-	InvoiceID int32
+	InvoiceID int64
 }
 
 type InvoiceHtlc struct {
-	ID           int32
+	ID           int64
 	HtlcID       int64
 	ChanID       string
 	AmountMsat   int64
@@ -76,7 +76,7 @@ type InvoiceHtlc struct {
 	ExpiryHeight int32
 	State        int16
 	ResolveTime  sql.NullTime
-	InvoiceID    int32
+	InvoiceID    int64
 }
 
 type InvoiceHtlcCustomRecord struct {
@@ -86,8 +86,8 @@ type InvoiceHtlcCustomRecord struct {
 }
 
 type InvoicePayment struct {
-	ID             int32
+	ID             int64
 	SettledAt      time.Time
 	AmountPaidMsat int64
-	InvoiceID      int32
+	InvoiceID      int64
 }

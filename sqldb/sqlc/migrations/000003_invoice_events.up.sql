@@ -1,20 +1,20 @@
 -- invoice_event_types stores the different types of events that can be emitted 
 -- for invoices.
 CREATE TABLE IF NOT EXISTS invoice_event_types(
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     description TEXT NOT NULL
 );
 
 -- invoice_events stores all events related to the node invoices.
 CREATE TABLE IF NOT EXISTS invoice_events (
-    id INTEGER PRIMARY KEY,
+    id BIGINT PRIMARY KEY,
 
     -- created_at is the creation time of this event.
     created_at TIMESTAMP NOT NULL,
 
     -- invoice_id is the reference to the invoice this event was emitted for.
-    invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+    invoice_id BIGINT NOT NULL REFERENCES invoices(id),
 
     -- htlc_id is the reference to the htlc this event was emitted for, may be 
     -- null.

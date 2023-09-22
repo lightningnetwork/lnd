@@ -22,7 +22,7 @@ FROM invoice_htlc_custom_records
 WHERE htlc_id IN (SELECT id FROM htlc_ids)
 `
 
-func (q *Queries) DeleteAMPHTLCCustomRecords(ctx context.Context, invoiceID int32) error {
+func (q *Queries) DeleteAMPHTLCCustomRecords(ctx context.Context, invoiceID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteAMPHTLCCustomRecords, invoiceID)
 	return err
 }
@@ -33,7 +33,7 @@ FROM amp_invoice_htlcs
 WHERE invoice_id = $1
 `
 
-func (q *Queries) DeleteAMPHTLCs(ctx context.Context, invoiceID int32) error {
+func (q *Queries) DeleteAMPHTLCs(ctx context.Context, invoiceID int64) error {
 	_, err := q.db.ExecContext(ctx, deleteAMPHTLCs, invoiceID)
 	return err
 }
@@ -55,7 +55,7 @@ FROM amp_invoice_htlcs
 WHERE invoice_id = $1
 `
 
-func (q *Queries) GetAMPInvoiceHTLCsByInvoiceID(ctx context.Context, invoiceID int32) ([]AmpInvoiceHtlc, error) {
+func (q *Queries) GetAMPInvoiceHTLCsByInvoiceID(ctx context.Context, invoiceID int64) ([]AmpInvoiceHtlc, error) {
 	rows, err := q.db.QueryContext(ctx, getAMPInvoiceHTLCsByInvoiceID, invoiceID)
 	if err != nil {
 		return nil, err
@@ -199,8 +199,8 @@ type InsertAMPInvoicePaymentParams struct {
 	SetID        []byte
 	State        int16
 	CreatedAt    time.Time
-	SettledIndex sql.NullInt32
-	InvoiceID    int32
+	SettledIndex sql.NullInt64
+	InvoiceID    int64
 }
 
 func (q *Queries) InsertAMPInvoicePayment(ctx context.Context, arg InsertAMPInvoicePaymentParams) error {
@@ -231,20 +231,20 @@ WHERE (
 
 type SelectAMPInvoicePaymentsParams struct {
 	SetID        []byte
-	SettledIndex sql.NullInt32
-	InvoiceID    sql.NullInt32
+	SettledIndex sql.NullInt64
+	InvoiceID    sql.NullInt64
 }
 
 type SelectAMPInvoicePaymentsRow struct {
 	SetID          []byte
 	State          int16
 	CreatedAt      time.Time
-	SettledIndex   sql.NullInt32
-	InvoiceID      int32
-	ID             sql.NullInt32
+	SettledIndex   sql.NullInt64
+	InvoiceID      int64
+	ID             sql.NullInt64
 	SettledAt      sql.NullTime
 	AmountPaidMsat sql.NullInt64
-	InvoiceID_2    sql.NullInt32
+	InvoiceID_2    sql.NullInt64
 }
 
 func (q *Queries) SelectAMPInvoicePayments(ctx context.Context, arg SelectAMPInvoicePaymentsParams) ([]SelectAMPInvoicePaymentsRow, error) {
@@ -310,9 +310,9 @@ WHERE state = 0 AND (
 
 type UpdateAMPPaymentParams struct {
 	State        int16
-	SettledIndex sql.NullInt32
+	SettledIndex sql.NullInt64
 	SetID        []byte
-	InvoiceID    sql.NullInt32
+	InvoiceID    sql.NullInt64
 }
 
 func (q *Queries) UpdateAMPPayment(ctx context.Context, arg UpdateAMPPaymentParams) error {

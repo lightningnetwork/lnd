@@ -100,6 +100,7 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 		postgresFS := newReplacerFS(sqlSchemas, map[string]string{
 			"BLOB":                "BYTEA",
 			"INTEGER PRIMARY KEY": "SERIAL PRIMARY KEY",
+			"BIGINT PRIMARY KEY":  "BIGSERIAL PRIMARY KEY",
 			"TIMESTAMP":           "TIMESTAMP WITHOUT TIME ZONE",
 		})
 

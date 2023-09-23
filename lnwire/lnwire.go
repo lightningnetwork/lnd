@@ -591,6 +591,14 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 		*e = pubKey
 
+	case *RawFeatureVector:
+		f := NewRawFeatureVector()
+		err = f.Decode(r)
+		if err != nil {
+			return err
+		}
+		*e = *f
+
 	case **RawFeatureVector:
 		f := NewRawFeatureVector()
 		err = f.Decode(r)

@@ -1746,7 +1746,9 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		// new edge policy to the proper directional edge within the
 		// channel graph.
 		if err = r.cfg.Graph.UpdateEdgePolicy(msg, op...); err != nil {
-			err := errors.Errorf("unable to add channel: %v", err)
+			err := errors.Errorf("unable to update channel "+
+				"policy: %v", err)
+
 			log.Error(err)
 			return err
 		}
@@ -2749,11 +2751,19 @@ func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	// A flag set of 0 indicates this is an announcement for the "first"
 	// node in the channel.
 	case flags&lnwire.ChanUpdateDirection == 0:
+		log.Trace("ChannelUpdate for edge %v, last update_time=%v, "+
+			"new update_time=%v", chanID.ToUint64(),
+			edge1Timestamp.Unix(), timestamp.Unix())
+
 		return !edge1Timestamp.Before(timestamp)
 
 	// Similarly, a flag set of 1 indicates this is an announcement for the
 	// "second" node in the channel.
 	case flags&lnwire.ChanUpdateDirection == 1:
+		log.Trace("ChannelUpdate for edge %v, last update_time=%v, "+
+			"new update_time=%v", chanID.ToUint64(),
+			edge2Timestamp.Unix(), timestamp.Unix())
+
 		return !edge2Timestamp.Before(timestamp)
 	}
 

@@ -46,6 +46,8 @@
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates
+* Make sure to [set the dont_forward msg flag in the channel update msg 
+  for unannounced channels](https://github.com/lightningnetwork/lnd/pull/7759).
 ## Testing
 ## Database
 ## Code Health
@@ -55,3 +57,5 @@
 
 * Elle Mouton
 * Yong Yu
+* ziggie1984
+

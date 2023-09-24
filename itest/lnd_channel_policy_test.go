@@ -67,11 +67,11 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 		)
 	}
 
-	// Create Carol with options to rate limit channel updates up to 2 per
+	// Create Carol with options to rate limit channel updates up to 3 per
 	// day, and create a new channel Bob->Carol.
 	carol := ht.NewNode(
 		"Carol", []string{
-			"--gossip.max-channel-update-burst=2",
+			"--gossip.max-channel-update-burst=3",
 			"--gossip.channel-update-interval=24h",
 		},
 	)
@@ -399,13 +399,17 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	req.BaseFeeMsat = baseFee2
 	assertAliceAndBob(req, expectedPolicy)
 
-	// Since Carol didn't receive the last update, she still has Alice's
-	// old policy. We validate this by checking the base fee is the older
-	// one.
-	expectedPolicy.FeeBaseMsat = baseFee1
+	// Because this is not a direct channel we anticipate the new policy.
 	ht.AssertChannelPolicy(
 		carol, alice.PubKeyStr, expectedPolicy, chanPoint,
 	)
+
+	// Since Carol didn't receive the last update, she still has Alice's
+	// old policy. We validate this by checking the base fee is the older
+	// one. This only applies to direct channels because we have an
+	// additional ChanUpdate which is sent after the channel reaches the min
+	// depth of six confirmations.
+	expectedPolicy.FeeBaseMsat = baseFee1
 	ht.AssertChannelPolicy(
 		carol, alice.PubKeyStr, expectedPolicy, chanPoint3,
 	)

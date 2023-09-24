@@ -1013,6 +1013,12 @@ func (h *HarnessTest) OpenChannel(alice, bob *node.HarnessNode,
 	// First, open the channel without announcing it.
 	cp := h.OpenChannelNoAnnounce(alice, bob, p)
 
+	// We need to make sure we wait here for 1 second so the ChanUpdate
+	// after 6 confirmations are reached is not considered stale. This
+	// ChanUpdate is important because it unsets the __dont_forward__ bit
+	// signaling the broadcasting to the network.
+	time.Sleep(time.Second)
+
 	// If this is a private channel, there's no need to mine extra blocks
 	// since it will never be announced to the network.
 	if p.Private {
@@ -1822,6 +1828,11 @@ func (h *HarnessTest) OpenMultiChannelsAsync(
 
 	// Mine one block to confirm all the funding transactions.
 	h.MineBlocksAndAssertNumTxes(1, len(reqs))
+
+	// This sleep is needed otherwise our own ChanUpdate messages might be
+	// considered as stale (same timestamp), failing to deliver a ChanUpdate
+	// to the gossiper with the unset __dont_forward__.
+	time.Sleep(time.Second)
 
 	// Mine 5 more blocks so all the public channels are announced to the
 	// network.

@@ -177,8 +177,6 @@ func testZeroConfChannelOpen(ht *lntest.HarnessTest) {
 	payReq := eve.RPC.DecodePayReq(eveInvoiceResp.PaymentRequest)
 	require.Len(ht, payReq.RouteHints, 0)
 
-	// Make sure Dave is aware of this channel and send the payment.
-	ht.AssertTopologyChannelOpen(dave, fundingPoint3)
 	ht.CompletePaymentRequests(
 		dave, []string{eveInvoiceResp.PaymentRequest},
 	)

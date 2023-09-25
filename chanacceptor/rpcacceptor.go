@@ -249,6 +249,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 	acceptRequests := make(map[[32]byte]*chanAcceptInfo)
 
 	for {
+		//nolint:lll
 		select {
 		// Consume requests passed to us from our Accept() function and
 		// send them into our stream.
@@ -330,6 +331,30 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 					lnwire.StaticRemoteKeyRequired,
 				):
 					commitmentType = lnrpc.CommitmentType_ANCHORS
+
+				case channelFeatures.OnlyContains(
+					lnwire.SimpleTaprootChannelsRequiredStaging,
+					lnwire.ZeroConfRequired,
+					lnwire.ScidAliasRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
+
+				case channelFeatures.OnlyContains(
+					lnwire.SimpleTaprootChannelsRequiredStaging,
+					lnwire.ZeroConfRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
+
+				case channelFeatures.OnlyContains(
+					lnwire.SimpleTaprootChannelsRequiredStaging,
+					lnwire.ScidAliasRequired,
+				):
+					commitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
+
+				case channelFeatures.OnlyContains(
+					lnwire.SimpleTaprootChannelsRequiredStaging,
+				):
+					commitmentType = lnrpc.CommitmentType_SIMPLE_TAPROOT
 
 				case channelFeatures.OnlyContains(
 					lnwire.StaticRemoteKeyRequired,

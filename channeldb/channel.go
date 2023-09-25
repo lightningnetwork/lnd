@@ -3943,10 +3943,9 @@ func putChanCommitments(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	)
 }
 
-func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
-	var b bytes.Buffer
+func serializeChanRevocationState(w io.Writer, channel *OpenChannel) error {
 	err := WriteElements(
-		&b, channel.RemoteCurrentRevocation, channel.RevocationProducer,
+		w, channel.RemoteCurrentRevocation, channel.RevocationProducer,
 		channel.RevocationStore,
 	)
 	if err != nil {
@@ -3956,10 +3955,18 @@ func putChanRevocationState(chanBucket kvdb.RwBucket, channel *OpenChannel) erro
 	// If the next revocation is present, which is only the case after the
 	// ChannelReady message has been sent, then we'll write it to disk.
 	if channel.RemoteNextRevocation != nil {
-		err = WriteElements(&b, channel.RemoteNextRevocation)
-		if err != nil {
-			return err
-		}
+		return WriteElements(w, channel.RemoteNextRevocation)
+	}
+
+	return nil
+}
+
+func putChanRevocationState(chanBucket kvdb.RwBucket,
+	channel *OpenChannel) error {
+
+	var b bytes.Buffer
+	if err := serializeChanRevocationState(&b, channel); err != nil {
+		return err
 	}
 
 	return chanBucket.Put(revocationStateKey, b.Bytes())
@@ -4143,12 +4150,8 @@ func fetchChanCommitments(chanBucket kvdb.RBucket, channel *OpenChannel) error {
 	return nil
 }
 
-func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) error {
-	revBytes := chanBucket.Get(revocationStateKey)
-	if revBytes == nil {
-		return ErrNoRevocationsFound
-	}
-	r := bytes.NewReader(revBytes)
+func deserializeChanRevocationState(r *bytes.Reader,
+	channel *OpenChannel) error {
 
 	err := ReadElements(
 		r, &channel.RemoteCurrentRevocation, &channel.RevocationProducer,
@@ -4167,6 +4170,18 @@ func fetchChanRevocationState(chanBucket kvdb.RBucket, channel *OpenChannel) err
 	// Otherwise we'll read the next revocation for the remote party which
 	// is always the last item within the buffer.
 	return ReadElements(r, &channel.RemoteNextRevocation)
+}
+
+func fetchChanRevocationState(chanBucket kvdb.RBucket,
+	channel *OpenChannel) error {
+
+	revBytes := chanBucket.Get(revocationStateKey)
+	if revBytes == nil {
+		return ErrNoRevocationsFound
+	}
+	r := bytes.NewReader(revBytes)
+
+	return deserializeChanRevocationState(r, channel)
 }
 
 func deleteOpenChannel(chanBucket kvdb.RwBucket) error {

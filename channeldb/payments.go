@@ -298,19 +298,20 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 		failureReason = &reason
 	}
 
-	// Now determine the payment's status.
-	paymentStatus, err := decidePaymentStatus(htlcs, failureReason)
-	if err != nil {
-		return nil, err
-	}
-
-	return &MPPayment{
+	// Create a new payment.
+	payment := &MPPayment{
 		SequenceNum:   sequenceNum,
 		Info:          creationInfo,
 		HTLCs:         htlcs,
 		FailureReason: failureReason,
-		Status:        paymentStatus,
-	}, nil
+	}
+
+	// Set its state and status.
+	if err := payment.setState(); err != nil {
+		return nil, err
+	}
+
+	return payment, nil
 }
 
 // fetchHtlcAttempts retrieves all htlc attempts made for the payment found in

@@ -69,11 +69,11 @@ func makeFakeInfo() (*PaymentCreationInfo, *HTLCAttemptInfo) {
 		PaymentRequest: []byte(""),
 	}
 
-	a := NewHtlcAttemptInfo(
+	a := NewHtlcAttempt(
 		44, priv, testRoute, time.Unix(100, 0), &hash,
 	)
 
-	return c, a
+	return c, &a.HTLCAttemptInfo
 }
 
 func TestSentPaymentSerialization(t *testing.T) {

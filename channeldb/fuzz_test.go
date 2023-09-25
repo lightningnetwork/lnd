@@ -13,6 +13,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/shachain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -538,6 +539,94 @@ func FuzzChanInfo(f *testing.F) {
 
 		var oc2 OpenChannel
 		err = deserializeChanInfo(&b, &oc2)
+		require.NoError(t, err)
+
+		// Because we need nil slices to be considered equal to empty
+		// slices, we must implement our own equality check rather than
+		// using require.Equal.
+		checkOpenChannelsEqual(t, oc, &oc2)
+	})
+}
+
+// getRevocationStore returns the unused data slice and a shachain.Store
+// populated using producer.
+func getRevocationStore(data []byte,
+	producer shachain.Producer) ([]byte, shachain.Store) {
+
+	rs := shachain.NewRevocationStore()
+	index := 0
+
+	for len(data) >= 2 {
+		if !getBool(data[0]) {
+			data = data[1:]
+			break
+		}
+
+		numHashesToAdd := int(data[1])
+		for end := index + numHashesToAdd; index < end; index++ {
+			hash, err := producer.AtIndex(uint64(index))
+			if err != nil {
+				panic(err)
+			}
+
+			if err = rs.AddNextEntry(hash); err != nil {
+				panic(err)
+			}
+		}
+
+		data = data[2:]
+	}
+
+	return data, rs
+}
+
+// getChanRevocationState returns an *OpenChannel with the necessary fields
+// populated for use by serializeChanRevocationState and
+// deserializeChanRevocationState.
+func getChanRevocationState(data []byte) *OpenChannel {
+	if len(data) < 49 {
+		return nil
+	}
+
+	oc := &OpenChannel{
+		RemoteCurrentRevocation: getInsecurePublicKey(data[0:8]),
+	}
+
+	if getBool(data[8]) {
+		oc.RemoteNextRevocation = getInsecurePublicKey(data[9:17])
+	}
+
+	var err error
+	oc.RevocationProducer, err = shachain.NewRevocationProducerFromBytes(
+		data[17:49],
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	_, oc.RevocationStore = getRevocationStore(
+		data[49:], oc.RevocationProducer,
+	)
+
+	return oc
+}
+
+// FuzzChanRevocationState tests that encoding/decoding of the channel
+// revocation state in OpenChannels does not modify their contents.
+func FuzzChanRevocationState(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		oc := getChanRevocationState(data)
+		if oc == nil {
+			return
+		}
+
+		var b bytes.Buffer
+		err := serializeChanRevocationState(&b, oc)
+		require.NoError(t, err)
+
+		var oc2 OpenChannel
+		r := bytes.NewReader(b.Bytes())
+		err = deserializeChanRevocationState(r, &oc2)
 		require.NoError(t, err)
 
 		// Because we need nil slices to be considered equal to empty

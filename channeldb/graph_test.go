@@ -2023,28 +2023,23 @@ func TestFilterChannelRange(t *testing.T) {
 	t.Parallel()
 
 	graph, err := MakeTestGraph(t)
-	require.NoError(t, err, "unable to make test database")
+	require.NoError(t, err)
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1, err := createTestVertex(graph.db)
-	require.NoError(t, err, "unable to create test node")
-	if err := graph.AddLightningNode(node1); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, graph.AddLightningNode(node1))
+
 	node2, err := createTestVertex(graph.db)
-	require.NoError(t, err, "unable to create test node")
-	if err := graph.AddLightningNode(node2); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, graph.AddLightningNode(node2))
 
 	// If we try to filter a channel range before we have any channels
 	// inserted, we should get an empty slice of results.
 	resp, err := graph.FilterChannelRange(10, 100)
-	require.NoError(t, err, "unable to filter channels")
-	if len(resp) != 0 {
-		t.Fatalf("expected zero chans, instead got %v", len(resp))
-	}
+	require.NoError(t, err)
+	require.Empty(t, resp)
 
 	// To start, we'll create a set of channels, two mined in a block 10
 	// blocks after the prior one.
@@ -2057,16 +2052,12 @@ func TestFilterChannelRange(t *testing.T) {
 		channel1, chanID1 := createEdge(
 			chanHeight, uint32(i+1), 0, 0, node1, node2,
 		)
-		if err := graph.AddChannelEdge(&channel1); err != nil {
-			t.Fatalf("unable to create channel edge: %v", err)
-		}
+		require.NoError(t, graph.AddChannelEdge(&channel1))
 
 		channel2, chanID2 := createEdge(
 			chanHeight, uint32(i+2), 0, 0, node1, node2,
 		)
-		if err := graph.AddChannelEdge(&channel2); err != nil {
-			t.Fatalf("unable to create channel edge: %v", err)
-		}
+		require.NoError(t, graph.AddChannelEdge(&channel2))
 
 		channelRanges = append(channelRanges, BlockChannelRange{
 			Height:   chanHeight,
@@ -2078,7 +2069,9 @@ func TestFilterChannelRange(t *testing.T) {
 	// With our channels inserted, we'll construct a series of queries that
 	// we'll execute below in order to exercise the features of the
 	// FilterKnownChanIDs method.
-	queryCases := []struct {
+	tests := []struct {
+		name string
+
 		startHeight uint32
 		endHeight   uint32
 
@@ -2087,15 +2080,17 @@ func TestFilterChannelRange(t *testing.T) {
 		// If we query for the entire range, then we should get the same
 		// set of short channel IDs back.
 		{
+			name:        "entire range",
 			startHeight: startHeight,
 			endHeight:   endHeight,
 
 			resp: channelRanges,
 		},
 
-		// If we query for a range of channels right before our range, we
-		// shouldn't get any results back.
+		// If we query for a range of channels right before our range,
+		// we shouldn't get any results back.
 		{
+			name:        "range before",
 			startHeight: 0,
 			endHeight:   10,
 		},
@@ -2103,6 +2098,7 @@ func TestFilterChannelRange(t *testing.T) {
 		// If we only query for the last height (range wise), we should
 		// only get that last channel.
 		{
+			name:        "last height",
 			startHeight: endHeight - 10,
 			endHeight:   endHeight - 10,
 
@@ -2112,6 +2108,7 @@ func TestFilterChannelRange(t *testing.T) {
 		// If we query for just the first height, we should only get a
 		// single channel back (the first one).
 		{
+			name:        "first height",
 			startHeight: startHeight,
 			endHeight:   startHeight,
 
@@ -2119,24 +2116,25 @@ func TestFilterChannelRange(t *testing.T) {
 		},
 
 		{
+			name:        "subset",
 			startHeight: startHeight + 10,
 			endHeight:   endHeight - 10,
 
 			resp: channelRanges[1:5],
 		},
 	}
-	for i, queryCase := range queryCases {
-		resp, err := graph.FilterChannelRange(
-			queryCase.startHeight, queryCase.endHeight,
-		)
-		if err != nil {
-			t.Fatalf("unable to issue range query: %v", err)
-		}
+	for _, test := range tests {
+		test := test
 
-		if !reflect.DeepEqual(resp, queryCase.resp) {
-			t.Fatalf("case #%v: expected %v, got %v", i,
-				queryCase.resp, resp)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			resp, err := graph.FilterChannelRange(
+				test.startHeight, test.endHeight,
+			)
+			require.NoError(t, err)
+			require.Equal(t, test.resp, resp)
+		})
 	}
 }
 

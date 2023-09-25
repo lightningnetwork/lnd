@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -241,16 +242,14 @@ func basicChannelFundingTest(ht *lntest.HarnessTest,
 	// open or an error occurs in the funding process. A series of
 	// assertions will be executed to ensure the funding process completed
 	// successfully.
-	chanPoint := ht.OpenChannel(
-		alice, bob, lntest.OpenChannelParams{
-			Private:        privateChan,
-			Amt:            chanAmt,
-			PushAmt:        pushAmt,
-			FundingShim:    fundingShim,
-			SatPerVByte:    satPerVbyte,
-			CommitmentType: commitTypeParam,
-		},
-	)
+	chanPoint := ht.OpenChannel(alice, bob, lntest.OpenChannelParams{
+		Private:        privateChan,
+		Amt:            chanAmt,
+		PushAmt:        pushAmt,
+		FundingShim:    fundingShim,
+		SatPerVByte:    satPerVbyte,
+		CommitmentType: commitTypeParam,
+	})
 
 	cType := ht.GetChannelCommitType(alice, chanPoint)
 
@@ -541,10 +540,19 @@ func sendAllCoinsConfirm(ht *lntest.HarnessTest, node *node.HarnessNode,
 // channel funding workflow given a channel point that was constructed outside
 // the main daemon.
 func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
+	runExternalFundingScriptEnforced(ht)
+	runExternalFundingTaproot(ht)
+}
+
+// runExternalFundingChanPoint runs the actual test that tests we're able to
+// carry out a normal channel funding workflow given a channel point that was
+// constructed outside the main daemon for the script enforced channel type.
+func runExternalFundingScriptEnforced(ht *lntest.HarnessTest) {
 	// First, we'll create two new nodes that we'll use to open channel
 	// between for this test.
 	carol := ht.NewNode("carol", nil)
 	dave := ht.NewNode("dave", nil)
+	commitmentType := lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE
 
 	// Carol will be funding the channel, so we'll send some coins over to
 	// her and ensure they have enough confirmations before we proceed.
@@ -560,7 +568,7 @@ func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
 	const thawHeight uint32 = 10
 	const chanSize = funding.MaxBtcFundingAmount
 	fundingShim1, chanPoint1 := deriveFundingShim(
-		ht, carol, dave, chanSize, thawHeight, false,
+		ht, carol, dave, chanSize, thawHeight, false, commitmentType,
 	)
 	ht.OpenChannelAssertPending(
 		carol, dave, lntest.OpenChannelParams{
@@ -576,7 +584,7 @@ func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
 	// do exactly that now. For this one we publish the transaction so we
 	// can mine it later.
 	fundingShim2, chanPoint2 := deriveFundingShim(
-		ht, carol, dave, chanSize, thawHeight, true,
+		ht, carol, dave, chanSize, thawHeight, true, commitmentType,
 	)
 
 	// At this point, we'll now carry out the normal basic channel funding
@@ -633,6 +641,159 @@ func testExternalFundingChanPoint(ht *lntest.HarnessTest) {
 	// As a last step, we check if we still have the pending channel
 	// hanging around because we never published the funding TX.
 	ht.AssertNodesNumPendingOpenChannels(carol, dave, 1)
+
+	// Let's make sure we can abandon it.
+	carol.RPC.AbandonChannel(&lnrpc.AbandonChannelRequest{
+		ChannelPoint:           chanPoint1,
+		PendingFundingShimOnly: true,
+	})
+	dave.RPC.AbandonChannel(&lnrpc.AbandonChannelRequest{
+		ChannelPoint:           chanPoint1,
+		PendingFundingShimOnly: true,
+	})
+
+	// It should now not appear in the pending channels anymore.
+	ht.AssertNodesNumPendingOpenChannels(carol, dave, 0)
+}
+
+// runExternalFundingTaproot runs the actual test that tests we're able to carry
+// out a normal channel funding workflow given a channel point that was
+// constructed outside the main daemon for the taproot channel type.
+func runExternalFundingTaproot(ht *lntest.HarnessTest) {
+	// First, we'll create two new nodes that we'll use to open channel
+	// between for this test.
+	commitmentType := lnrpc.CommitmentType_SIMPLE_TAPROOT
+	args := lntest.NodeArgsForCommitType(commitmentType)
+	carol := ht.NewNode("carol", args)
+
+	// We'll attempt two channels, so Dave will need to accept two pending
+	// ones.
+	dave := ht.NewNode("dave", append(args, "--maxpendingchannels=2"))
+
+	// Carol will be funding the channel, so we'll send some coins over to
+	// her and ensure they have enough confirmations before we proceed.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
+
+	// Before we start the test, we'll ensure both sides are connected to
+	// the funding flow can properly be executed.
+	ht.EnsureConnected(carol, dave)
+
+	// At this point, we're ready to simulate our external channel funding
+	// flow. To start with, we'll create a pending channel with a shim for
+	// a transaction that will never be published.
+	const thawHeight uint32 = 10
+	const chanSize = funding.MaxBtcFundingAmount
+	fundingShim1, chanPoint1 := deriveFundingShim(
+		ht, carol, dave, chanSize, thawHeight, false, commitmentType,
+	)
+	ht.OpenChannelAssertPending(carol, dave, lntest.OpenChannelParams{
+		Amt:            chanSize,
+		FundingShim:    fundingShim1,
+		CommitmentType: commitmentType,
+		Private:        true,
+	})
+	ht.AssertNodesNumPendingOpenChannels(carol, dave, 1)
+
+	// That channel is now pending forever and normally would saturate the
+	// max pending channel limit for both nodes. But because the channel is
+	// externally funded, we should still be able to open another one. Let's
+	// do exactly that now. For this one we publish the transaction so we
+	// can mine it later.
+	fundingShim2, chanPoint2 := deriveFundingShim(
+		ht, carol, dave, chanSize, thawHeight, true, commitmentType,
+	)
+
+	// At this point, we'll now carry out the normal basic channel funding
+	// test as everything should now proceed as normal (a regular channel
+	// funding flow).
+	carolChan, daveChan, _ := basicChannelFundingTest(
+		ht, carol, dave, fundingShim2, true, &commitmentType,
+	)
+
+	// The itest harness doesn't mine blocks for private channels, so we
+	// want to make sure the channel with the published and mined
+	// transaction leaves the pending state.
+	ht.MineBlocks(6)
+
+	rpcChanPointToStr := func(cp *lnrpc.ChannelPoint) string {
+		txid, err := chainhash.NewHash(cp.GetFundingTxidBytes())
+		require.NoError(ht, err)
+		return fmt.Sprintf("%v:%d", txid.String(), cp.OutputIndex)
+	}
+
+	pendingCarol := carol.RPC.PendingChannels().PendingOpenChannels
+	require.Len(ht, pendingCarol, 1)
+	require.Equal(
+		ht, rpcChanPointToStr(chanPoint1),
+		pendingCarol[0].Channel.ChannelPoint,
+	)
+	openCarol := carol.RPC.ListChannels(&lnrpc.ListChannelsRequest{
+		ActiveOnly:  true,
+		PrivateOnly: true,
+	})
+	require.Len(ht, openCarol.Channels, 1)
+	require.Equal(
+		ht, rpcChanPointToStr(chanPoint2),
+		openCarol.Channels[0].ChannelPoint,
+	)
+
+	pendingDave := dave.RPC.PendingChannels().PendingOpenChannels
+	require.Len(ht, pendingDave, 1)
+	require.Equal(
+		ht, rpcChanPointToStr(chanPoint1),
+		pendingDave[0].Channel.ChannelPoint,
+	)
+
+	openDave := dave.RPC.ListChannels(&lnrpc.ListChannelsRequest{
+		ActiveOnly:  true,
+		PrivateOnly: true,
+	})
+	require.Len(ht, openDave.Channels, 1)
+	require.Equal(
+		ht, rpcChanPointToStr(chanPoint2),
+		openDave.Channels[0].ChannelPoint,
+	)
+
+	// Both channels should be marked as frozen with the proper thaw height.
+	require.EqualValues(ht, thawHeight, carolChan.ThawHeight, "thaw height")
+	require.EqualValues(ht, thawHeight, daveChan.ThawHeight, "thaw height")
+
+	// Next, to make sure the channel functions as normal, we'll make some
+	// payments within the channel.
+	payAmt := btcutil.Amount(100000)
+	invoice := &lnrpc.Invoice{
+		Memo:  "new chans",
+		Value: int64(payAmt),
+	}
+	resp := dave.RPC.AddInvoice(invoice)
+	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
+
+	// Now that the channels are open, and we've confirmed that they're
+	// operational, we'll now ensure that the channels are frozen as
+	// intended (if requested).
+	//
+	// First, we'll try to close the channel as Carol, the initiator. This
+	// should fail as a frozen channel only allows the responder to
+	// initiate a channel close.
+	err := ht.CloseChannelAssertErr(carol, chanPoint2, false)
+	require.Contains(ht, err.Error(), "cannot co-op close frozen channel")
+
+	// Before Dave closes the channel, he needs to check the invoice is
+	// settled to avoid an error saying cannot close channel due to active
+	// HTLCs.
+	ht.AssertInvoiceSettled(dave, resp.PaymentAddr)
+
+	// TODO(yy): remove the sleep once the following bug is fixed.
+	// When the invoice is reported settled, the commitment dance is not
+	// yet finished, which can cause an error when closing the channel,
+	// saying there's active HTLCs. We need to investigate this issue and
+	// reverse the order to, first finish the commitment dance, then report
+	// the invoice as settled.
+	time.Sleep(2 * time.Second)
+
+	// Next we'll try but this time with Dave (the responder) as the
+	// initiator. This time the channel should be closed as normal.
+	ht.CloseChannel(dave, chanPoint2)
 
 	// Let's make sure we can abandon it.
 	carol.RPC.AbandonChannel(&lnrpc.AbandonChannelRequest{
@@ -977,9 +1138,9 @@ func ensurePolicy(ht *lntest.HarnessTest, alice, peer *node.HarnessNode,
 
 // deriveFundingShim creates a channel funding shim by deriving the necessary
 // keys on both sides.
-func deriveFundingShim(ht *lntest.HarnessTest,
-	carol, dave *node.HarnessNode, chanSize btcutil.Amount,
-	thawHeight uint32, publish bool) (*lnrpc.FundingShim,
+func deriveFundingShim(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
+	chanSize btcutil.Amount, thawHeight uint32, publish bool,
+	commitType lnrpc.CommitmentType) (*lnrpc.FundingShim,
 	*lnrpc.ChannelPoint) {
 
 	keyLoc := &signrpc.KeyLocator{KeyFamily: 9999}
@@ -991,11 +1152,31 @@ func deriveFundingShim(ht *lntest.HarnessTest,
 	// immediately create and broadcast a transaction paying out an exact
 	// amount. Normally this would reside in the mempool, but we just
 	// confirm it now for simplicity.
-	_, fundingOutput, err := input.GenFundingPkScript(
-		carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
-		int64(chanSize),
+	var (
+		fundingOutput *wire.TxOut
+		musig2        bool
+		err           error
 	)
-	require.NoError(ht, err)
+	if commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
+		var carolKey, daveKey *btcec.PublicKey
+		carolKey, err = btcec.ParsePubKey(carolFundingKey.RawKeyBytes)
+		require.NoError(ht, err)
+		daveKey, err = btcec.ParsePubKey(daveFundingKey.RawKeyBytes)
+		require.NoError(ht, err)
+
+		_, fundingOutput, err = input.GenTaprootFundingScript(
+			carolKey, daveKey, int64(chanSize),
+		)
+		require.NoError(ht, err)
+
+		musig2 = true
+	} else {
+		_, fundingOutput, err = input.GenFundingPkScript(
+			carolFundingKey.RawKeyBytes, daveFundingKey.RawKeyBytes,
+			int64(chanSize),
+		)
+		require.NoError(ht, err)
+	}
 
 	var txid *chainhash.Hash
 	targetOutputs := []*wire.TxOut{fundingOutput}
@@ -1034,6 +1215,7 @@ func deriveFundingShim(ht *lntest.HarnessTest,
 		RemoteKey:     carolFundingKey.RawKeyBytes,
 		PendingChanId: pendingChanID,
 		ThawHeight:    thawHeight,
+		Musig2:        musig2,
 	}
 	fundingShim := &lnrpc.FundingShim{
 		Shim: &lnrpc.FundingShim_ChanPointShim{

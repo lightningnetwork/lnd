@@ -45,9 +45,9 @@ const (
 	// AppPatch defines the application patch for this binary.
 	AppPatch uint = 0
 
-	// AppPreRelease MUST only contain characters from semanticAlphabet
-	// per the semantic versioning spec.
-	AppPreRelease = "beta.rc4"
+	// AppPreRelease MUST only contain characters from semanticAlphabet per
+	// the semantic versioning spec.
+	AppPreRelease = "beta.rc5"
 )
 
 func init() {

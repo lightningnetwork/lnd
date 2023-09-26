@@ -2453,6 +2453,11 @@ message ChanPointShim {
     the value is less than 500,000, or as an absolute height otherwise.
     */
     uint32 thaw_height = 6;
+
+    /*
+    Indicates that the funding output is using a MuSig2 multi-sig output.
+    */
+    bool musig2 = 7;
 }
 
 message PsbtShim {

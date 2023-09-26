@@ -1824,7 +1824,7 @@ func newFundingShimAssembler(chanPointShim *lnrpc.ChanPointShim, initiator bool,
 	return chanfunding.NewCannedAssembler(
 		chanPointShim.ThawHeight, *chanPoint,
 		btcutil.Amount(chanPointShim.Amt), &localKeyDesc,
-		remoteKey, initiator, false,
+		remoteKey, initiator, chanPointShim.Musig2,
 	), nil
 }
 

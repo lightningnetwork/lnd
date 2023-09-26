@@ -629,7 +629,7 @@ func runChanRestoreScenarioCommitTypes(ht *lntest.HarnessTest,
 		thawHeight := uint32(minerHeight + thawHeightDelta)
 
 		fundingShim, _ = deriveFundingShim(
-			ht, dave, carol, crs.params.Amt, thawHeight, true,
+			ht, dave, carol, crs.params.Amt, thawHeight, true, ct,
 		)
 		crs.params.FundingShim = fundingShim
 	}

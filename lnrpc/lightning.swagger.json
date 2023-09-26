@@ -3469,6 +3469,10 @@
           "type": "integer",
           "format": "int64",
           "description": "This uint32 indicates if this channel is to be considered 'frozen'. A frozen\nchannel does not allow a cooperative channel close by the initiator. The\nthaw_height is the height that this restriction stops applying to the\nchannel. The height can be interpreted in two ways: as a relative height if\nthe value is less than 500,000, or as an absolute height otherwise."
+        },
+        "musig2": {
+          "type": "boolean",
+          "description": "Indicates that the funding output is using a MuSig2 multi-sig output."
         }
       }
     },

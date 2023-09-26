@@ -1942,7 +1942,7 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 		_, minerHeight := ht.Miner.GetBestBlock()
 		thawHeight = uint32(minerHeight + thawHeightDelta)
 		aliceFundingShim, _ = deriveFundingShim(
-			ht, alice, bob, chanAmt, thawHeight, true,
+			ht, alice, bob, chanAmt, thawHeight, true, c,
 		)
 	}
 
@@ -1970,7 +1970,7 @@ func createThreeHopNetwork(ht *lntest.HarnessTest,
 	var bobFundingShim *lnrpc.FundingShim
 	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 		bobFundingShim, _ = deriveFundingShim(
-			ht, bob, carol, chanAmt, thawHeight, true,
+			ht, bob, carol, chanAmt, thawHeight, true, c,
 		)
 	}
 

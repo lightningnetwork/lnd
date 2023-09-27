@@ -732,7 +732,7 @@ func testPaymentLifecycle(t *testing.T, test paymentLifecycleTestCase,
 
 			select {
 			case err := <-paymentResult:
-				require.Equal(t, test.paymentErr, err)
+				require.ErrorIs(t, err, test.paymentErr)
 
 			case <-time.After(stepTimeout):
 				fatal("got no payment result")

@@ -3027,11 +3027,17 @@ func (lc *LightningChannel) fetchCommitmentView(remoteChain bool,
 	}
 	fee := lc.channelState.Capacity - totalOut
 
+	var witnessWeight int64
+	if lc.channelState.ChanType.IsTaproot() {
+		witnessWeight = input.TaprootKeyPathWitnessSize
+	} else {
+		witnessWeight = input.WitnessCommitmentTxWeight
+	}
+
 	// Since the transaction is not signed yet, we use the witness weight
 	// used for weight calculation.
 	uTx := btcutil.NewTx(commitTx.txn)
-	weight := blockchain.GetTransactionWeight(uTx) +
-		input.WitnessCommitmentTxWeight
+	weight := blockchain.GetTransactionWeight(uTx) + witnessWeight
 
 	effFeeRate := chainfee.SatPerKWeight(fee) * 1000 /
 		chainfee.SatPerKWeight(weight)

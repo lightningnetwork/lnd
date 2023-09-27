@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
@@ -261,9 +262,9 @@ func getHTLCs(data []byte) ([]byte, []HTLC) {
 	return data, htlcs
 }
 
-func getChannelCommitment(data []byte) *ChannelCommitment {
+func getChannelCommitment(data []byte) ([]byte, *ChannelCommitment) {
 	if len(data) < 72 {
-		return nil
+		return data, nil
 	}
 
 	cc := &ChannelCommitment{
@@ -281,13 +282,13 @@ func getChannelCommitment(data []byte) *ChannelCommitment {
 	// CommitTx is expected to never be nil.
 	data, cc.CommitTx = getTx(data[72:])
 	if cc.CommitTx == nil {
-		return nil
+		return data, nil
 	}
 
 	data, cc.CommitSig = getBytes(data)
 	data, cc.Htlcs = getHTLCs(data)
 
-	return cc
+	return data, cc
 }
 
 func checkWitnessesEqual(t *testing.T, wit1, wit2 wire.TxWitness) {
@@ -364,7 +365,7 @@ func checkChannelCommitmentsEqual(t *testing.T, cc1, cc2 *ChannelCommitment) {
 // not modify their contents.
 func FuzzChannelCommitment(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		cc := getChannelCommitment(data)
+		_, cc := getChannelCommitment(data)
 		if cc == nil {
 			return
 		}
@@ -633,5 +634,375 @@ func FuzzChanRevocationState(f *testing.F) {
 		// slices, we must implement our own equality check rather than
 		// using require.Equal.
 		checkOpenChannelsEqual(t, oc, &oc2)
+	})
+}
+
+// getSig requires len(data) >= 65.
+func getSig(data []byte) lnwire.Sig {
+	var (
+		sig lnwire.Sig
+		err error
+	)
+
+	if getBool(data[0]) {
+		sig, err = lnwire.NewSigFromWireECDSA(data[1:65])
+	} else {
+		sig, err = lnwire.NewSigFromSchnorrRawSignature(data[1:65])
+	}
+	if err != nil {
+		panic(err)
+	}
+
+	return sig
+}
+
+// getSigs returns the unused data slice and a list of lnwire.Sigs.
+func getSigs(data []byte) ([]byte, []lnwire.Sig) {
+	var sigs []lnwire.Sig
+
+	// Limit to 500 sigs so we don't hit the 64KB limit for lnwire.Message.
+	for i := 0; i < 500 && len(data) >= 66; i++ {
+		if !getBool(data[0]) {
+			data = data[1:]
+			break
+		}
+		sigs = append(sigs, getSig(data[1:66]))
+		data = data[66:]
+	}
+
+	return data, sigs
+}
+
+// getPartialSigWithNonce requires len(data) >= 99.
+func getPartialSigWithNonce(data []byte) *lnwire.PartialSigWithNonce {
+	if !getBool(data[0]) {
+		return nil
+	}
+
+	var nonce [66]byte
+	copy(nonce[:], data[1:67])
+
+	var sigBytes [32]byte
+	copy(sigBytes[:], data[67:99])
+	var sigScalar btcec.ModNScalar
+	sigScalar.SetBytes(&sigBytes)
+
+	return lnwire.NewPartialSigWithNonce(nonce, sigScalar)
+}
+
+// getCommitSig returns the unused data slice and an *lnwire.CommitSig.
+func getCommitSig(data []byte) ([]byte, *lnwire.CommitSig) {
+	if len(data) < 196 {
+		return data, nil
+	}
+
+	cs := &lnwire.CommitSig{
+		CommitSig:  getSig(data[0:65]),
+		PartialSig: getPartialSigWithNonce(data[65:164]),
+	}
+	copy(cs.ChanID[:], data[164:196])
+
+	data, cs.HtlcSigs = getSigs(data[196:])
+	data, cs.ExtraData = getBytes(data)
+
+	return data, cs
+}
+
+// getUpdateAddHTLC returns the unused data slice and an *lnwire.UpdateAddHTLC.
+func getUpdateAddHTLC(data []byte) ([]byte, lnwire.Message) {
+	if len(data) < 1450 {
+		return data, nil
+	}
+
+	u := &lnwire.UpdateAddHTLC{
+		ID:     getUint64(data[0:8]),
+		Amount: getMilliSatoshi(data[8:16]),
+		Expiry: getUint32(data[16:20]),
+	}
+	copy(u.ChanID[:], data[20:52])
+	copy(u.PaymentHash[:], data[52:84])
+	copy(u.OnionBlob[:], data[84:1450])
+	data, u.ExtraData = getBytes(data[1450:])
+
+	return data, u
+}
+
+// getUpdateFulfillHTLC returns the unused data slice and an
+// *lnwire.UpdateFulfillHTLC.
+func getUpdateFulfillHTLC(data []byte) ([]byte, lnwire.Message) {
+	if len(data) < 72 {
+		return data, nil
+	}
+
+	u := &lnwire.UpdateFulfillHTLC{
+		ID: getUint64(data[0:8]),
+	}
+	copy(u.ChanID[:], data[8:40])
+	copy(u.PaymentPreimage[:], data[40:72])
+	data, u.ExtraData = getBytes(data[72:])
+
+	return data, u
+}
+
+// getUpdateFailHTLC returns the unused data slice and an
+// *lnwire.UpdateFailHTLC.
+func getUpdateFailHTLC(data []byte) ([]byte, lnwire.Message) {
+	if len(data) < 40 {
+		return data, nil
+	}
+
+	u := &lnwire.UpdateFailHTLC{
+		ID: getUint64(data[0:8]),
+	}
+	copy(u.ChanID[:], data[8:40])
+	data, u.Reason = getBytes(data[40:])
+	data, u.ExtraData = getBytes(data)
+
+	return data, u
+}
+
+// getUpdateFailMalformedHTLC returns the unused data slice and an
+// *lnwire.UpdateFailMalformedHTLC.
+func getUpdateFailMalformedHTLC(data []byte) ([]byte, lnwire.Message) {
+	if len(data) < 74 {
+		return data, nil
+	}
+
+	u := &lnwire.UpdateFailMalformedHTLC{
+		ID:          getUint64(data[0:8]),
+		FailureCode: lnwire.FailCode(getUint16(data[8:10])),
+	}
+	copy(u.ChanID[:], data[10:42])
+	copy(u.ShaOnionBlob[:], data[42:74])
+	data, u.ExtraData = getBytes(data[74:])
+
+	return data, u
+}
+
+// getUpdateFee returns the unused data slice and an *lnwire.UpdateFee.
+func getUpdateFee(data []byte) ([]byte, lnwire.Message) {
+	if len(data) < 36 {
+		return data, nil
+	}
+
+	u := &lnwire.UpdateFee{
+		FeePerKw: getUint32(data[0:4]),
+	}
+	copy(u.ChanID[:], data[4:36])
+	data, u.ExtraData = getBytes(data[36:])
+
+	return data, u
+}
+
+// getUpdateMsg returns the unused data slice and an update message.
+func getUpdateMsg(data []byte) ([]byte, lnwire.Message) {
+	if len(data) < 1 {
+		return data, nil
+	}
+
+	switch {
+	case data[0] < 0x30:
+		return getUpdateAddHTLC(data[1:])
+	case data[0] < 0x60:
+		return getUpdateFulfillHTLC(data[1:])
+	case data[0] < 0x90:
+		return getUpdateFailHTLC(data[1:])
+	case data[0] < 0xc0:
+		return getUpdateFailMalformedHTLC(data[1:])
+	default:
+		return getUpdateFee(data[1:])
+	}
+}
+
+// getLogUpdates returns the unused data slice and a list of LogUpdates. Each
+// LogUpdate is guaranteed to have a non-nil UpdateMsg.
+func getLogUpdates(data []byte) ([]byte, []LogUpdate) {
+	var logUpdates []LogUpdate
+
+	for len(data) >= 9 {
+		if !getBool(data[0]) {
+			data = data[1:]
+			break
+		}
+
+		logUpdate := LogUpdate{
+			LogIndex: getUint64(data[1:9]),
+		}
+		data, logUpdate.UpdateMsg = getUpdateMsg(data[9:])
+		if logUpdate.UpdateMsg == nil {
+			break
+		}
+
+		logUpdates = append(logUpdates, logUpdate)
+	}
+
+	return data, logUpdates
+}
+
+// getCircuitKeys returns the unused data slice and a list of
+// models.CircuitKeys.
+func getCircuitKeys(data []byte) ([]byte, []models.CircuitKey) {
+	var circuitKeys []models.CircuitKey
+
+	for len(data) >= 17 {
+		if !getBool(data[0]) {
+			data = data[1:]
+			break
+		}
+		circuitKeys = append(circuitKeys, models.CircuitKey{
+			ChanID: getShortChannelID(data[1:9]),
+			HtlcID: getUint64(data[9:17]),
+		})
+		data = data[17:]
+	}
+
+	return data, circuitKeys
+}
+
+// getCommitDiff returns a *CommitDiff or nil. If non-nil is returned, CommitSig
+// is guaranteed to be non-nil.
+func getCommitDiff(data []byte) *CommitDiff {
+	var cd CommitDiff
+
+	data, commitment := getChannelCommitment(data)
+	if commitment == nil {
+		return nil
+	}
+	cd.Commitment = *commitment
+
+	data, cd.CommitSig = getCommitSig(data)
+	if cd.CommitSig == nil {
+		return nil
+	}
+
+	data, cd.LogUpdates = getLogUpdates(data)
+	data, cd.OpenedCircuitKeys = getCircuitKeys(data)
+	_, cd.ClosedCircuitKeys = getCircuitKeys(data)
+
+	return &cd
+}
+
+func checkMessagesEqual(t *testing.T, msg1, msg2 lnwire.Message) {
+	require.IsType(t, msg1, msg2)
+	switch m1 := msg1.(type) {
+	case *lnwire.UpdateAddHTLC:
+		m2, ok := msg2.(*lnwire.UpdateAddHTLC)
+		require.True(t, ok)
+		require.Equal(t, m1.ChanID, m2.ChanID)
+		require.Equal(t, m1.ID, m2.ID)
+		require.Equal(t, m1.Amount, m2.Amount)
+		require.Equal(t, m1.PaymentHash, m2.PaymentHash)
+		require.Equal(t, m1.Expiry, m2.Expiry)
+		require.Equal(t, m1.OnionBlob, m2.OnionBlob)
+		require.True(t, bytes.Equal(m1.ExtraData, m2.ExtraData))
+	case *lnwire.UpdateFulfillHTLC:
+		m2, ok := msg2.(*lnwire.UpdateFulfillHTLC)
+		require.True(t, ok)
+		require.Equal(t, m1.ChanID, m2.ChanID)
+		require.Equal(t, m1.ID, m2.ID)
+		require.Equal(t, m1.PaymentPreimage, m2.PaymentPreimage)
+		require.True(t, bytes.Equal(m1.ExtraData, m2.ExtraData))
+	case *lnwire.UpdateFailHTLC:
+		m2, ok := msg2.(*lnwire.UpdateFailHTLC)
+		require.True(t, ok)
+		require.Equal(t, m1.ChanID, m2.ChanID)
+		require.Equal(t, m1.ID, m2.ID)
+		require.True(t, bytes.Equal(m1.Reason, m2.Reason))
+		require.True(t, bytes.Equal(m1.ExtraData, m2.ExtraData))
+	case *lnwire.UpdateFailMalformedHTLC:
+		m2, ok := msg2.(*lnwire.UpdateFailMalformedHTLC)
+		require.True(t, ok)
+		require.Equal(t, m1.ChanID, m2.ChanID)
+		require.Equal(t, m1.ID, m2.ID)
+		require.Equal(t, m1.ShaOnionBlob, m2.ShaOnionBlob)
+		require.Equal(t, m1.FailureCode, m2.FailureCode)
+		require.True(t, bytes.Equal(m1.ExtraData, m2.ExtraData))
+	case *lnwire.UpdateFee:
+		m2, ok := msg2.(*lnwire.UpdateFee)
+		require.True(t, ok)
+		require.Equal(t, m1.ChanID, m2.ChanID)
+		require.Equal(t, m1.FeePerKw, m2.FeePerKw)
+		require.True(t, bytes.Equal(m1.ExtraData, m2.ExtraData))
+	default:
+		t.Fatalf("Invalid update type: %v", m1)
+	}
+}
+
+func checkLogUpdatesEqual(t *testing.T, updates1, updates2 []LogUpdate) {
+	require.Equal(t, len(updates1), len(updates2))
+	for i, lu1 := range updates1 {
+		lu2 := updates2[i]
+		require.Equal(t, lu1.LogIndex, lu2.LogIndex)
+		checkMessagesEqual(t, lu1.UpdateMsg, lu2.UpdateMsg)
+	}
+}
+
+func checkSigsEqual(t *testing.T, sig1, sig2 lnwire.Sig) {
+	// lnwire.Sig contains a sigType field that does not get encoded/decoded
+	// with the signature bytes. This means that the sigType is lost during
+	// encoding and can cause require.Equal() to fail. It seems users are
+	// expected to recover the sigType at higher levels using
+	// Sig.ForceSchnorr() if necessary (see commit
+	// 39d5dffd5602bc210d668d62c0a134b52c734e6b).
+	//
+	// To work around this ugliness, we ignore the sigType when checking for
+	// equality.
+	require.Equal(t, sig1.RawBytes(), sig2.RawBytes())
+}
+
+func checkHtlcSigsEqual(t *testing.T, sigs1, sigs2 []lnwire.Sig) {
+	require.Equal(t, len(sigs1), len(sigs2))
+	for i, sig1 := range sigs1 {
+		sig2 := sigs2[i]
+		checkSigsEqual(t, sig1, sig2)
+	}
+}
+
+func checkCommitSigsEqual(t *testing.T, cs1, cs2 *lnwire.CommitSig) {
+	require.Equal(t, cs1.ChanID, cs2.ChanID)
+	checkSigsEqual(t, cs1.CommitSig, cs2.CommitSig)
+	checkHtlcSigsEqual(t, cs1.HtlcSigs, cs2.HtlcSigs)
+	require.Equal(t, cs1.PartialSig, cs2.PartialSig)
+	require.True(t, bytes.Equal(cs1.ExtraData, cs2.ExtraData))
+}
+
+func checkCircuitKeysEqual(t *testing.T, keys1, keys2 []models.CircuitKey) {
+	require.Equal(t, len(keys1), len(keys2))
+	for i, ck1 := range keys1 {
+		ck2 := keys2[i]
+		require.Equal(t, ck1, ck2)
+	}
+}
+
+func checkCommitDiffsEqual(t *testing.T, cd1, cd2 *CommitDiff) {
+	checkChannelCommitmentsEqual(t, &cd1.Commitment, &cd2.Commitment)
+	checkLogUpdatesEqual(t, cd1.LogUpdates, cd2.LogUpdates)
+	checkCommitSigsEqual(t, cd1.CommitSig, cd2.CommitSig)
+	checkCircuitKeysEqual(t, cd1.OpenedCircuitKeys, cd2.OpenedCircuitKeys)
+	checkCircuitKeysEqual(t, cd1.ClosedCircuitKeys, cd2.ClosedCircuitKeys)
+	require.Equal(t, cd1.AddAcks, cd2.AddAcks)
+	require.Equal(t, cd1.SettleFailAcks, cd2.SettleFailAcks)
+}
+
+// FuzzCommitDiff tests that encoding/decoding of CommitDiffs does not modify
+// their contents.
+func FuzzCommitDiff(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		cd := getCommitDiff(data)
+		if cd == nil {
+			return
+		}
+
+		var b bytes.Buffer
+		err := serializeCommitDiff(&b, cd)
+		require.NoError(t, err)
+
+		cd2, err := deserializeCommitDiff(&b)
+		require.NoError(t, err)
+
+		// Because we need nil slices to be considered equal to empty
+		// slices, we must implement our own equality check rather than
+		// using require.Equal.
+		checkCommitDiffsEqual(t, cd, cd2)
 	})
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -159,9 +160,25 @@ func TestAMPHop(t *testing.T) {
 	}
 }
 
+// TestNoForwardingParams tests packing of a hop payload without an amount or
+// expiry height.
+func TestNoForwardingParams(t *testing.T) {
+	t.Parallel()
+
+	hop := Hop{
+		EncryptedData: []byte{1, 2, 3},
+	}
+
+	var b bytes.Buffer
+	err := hop.PackHopPayload(&b, 2)
+	require.NoError(t, err)
+}
+
 // TestPayloadSize tests the payload size calculation that is provided by Hop
 // structs.
 func TestPayloadSize(t *testing.T) {
+	t.Parallel()
+
 	hops := []*Hop{
 		{
 			PubKeyBytes:      testPubKeyBytes,
@@ -181,7 +198,9 @@ func TestPayloadSize(t *testing.T) {
 			AmtToForward:     1200,
 			OutgoingTimeLock: 700000,
 			MPP:              record.NewMPP(500, [32]byte{}),
-			AMP:              record.NewAMP([32]byte{}, [32]byte{}, 8),
+			AMP: record.NewAMP(
+				[32]byte{}, [32]byte{}, 8,
+			),
 			CustomRecords: map[uint64][]byte{
 				100000:  {1, 2, 3},
 				1000000: {4, 5},
@@ -190,6 +209,69 @@ func TestPayloadSize(t *testing.T) {
 		},
 	}
 
+	blindedHops := []*Hop{
+		{
+			// Unblinded hop to introduction node.
+			PubKeyBytes:      testPubKeyBytes,
+			AmtToForward:     1000,
+			OutgoingTimeLock: 600000,
+			ChannelID:        3432483437438,
+			LegacyPayload:    true,
+		},
+		{
+			// Payload for an introduction node in a blinded route
+			// that has the blinding point provided in the onion
+			// payload, and encrypted data pointing it to the next
+			// node.
+			PubKeyBytes:   testPubKeyBytes,
+			EncryptedData: []byte{12, 13},
+			BlindingPoint: testPubKey,
+		},
+		{
+			// Payload for a forwarding node in a blinded route
+			// that has encrypted data provided in the onion
+			// payload, but no blinding point (it's provided in
+			// update_add_htlc).
+			PubKeyBytes:   testPubKeyBytes,
+			EncryptedData: []byte{12, 13},
+		},
+		{
+			// Final hop has encrypted data and other final hop
+			// fields like metadata.
+			PubKeyBytes:      testPubKeyBytes,
+			AmtToForward:     900,
+			OutgoingTimeLock: 50000,
+			Metadata:         []byte{10, 11},
+			EncryptedData:    []byte{12, 13},
+			TotalAmtMsat:     lnwire.MilliSatoshi(900),
+		},
+	}
+
+	testCases := []struct {
+		name string
+		hops []*Hop
+	}{
+		{
+			name: "clear route",
+			hops: hops,
+		},
+		{
+			name: "blinded route",
+			hops: blindedHops,
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			testPayloadSize(t, testCase.hops)
+		})
+	}
+}
+
+func testPayloadSize(t *testing.T, hops []*Hop) {
 	rt := Route{
 		Hops: hops,
 	}
@@ -213,4 +295,43 @@ func TestPayloadSize(t *testing.T) {
 				i, expected, actual)
 		}
 	}
+}
+
+// TestBlindedHopFee tests calculation of hop fees for blinded routes.
+func TestBlindedHopFee(t *testing.T) {
+	t.Parallel()
+
+	route := &Route{
+		TotalAmount: 1500,
+		Hops: []*Hop{
+			// Start with two un-blinded hops.
+			{
+				AmtToForward: 1450,
+			},
+			{
+				AmtToForward: 1300,
+			},
+			{
+				// Our introduction node will have a zero
+				// forward amount.
+				AmtToForward: 0,
+			},
+			{
+				// An intermediate blinded hop will also have
+				// a zero forward amount.
+				AmtToForward: 0,
+			},
+			{
+				// Our final blinded hop should have a forward
+				// amount set.
+				AmtToForward: 1000,
+			},
+		},
+	}
+
+	require.Equal(t, lnwire.MilliSatoshi(50), route.HopFee(0))
+	require.Equal(t, lnwire.MilliSatoshi(150), route.HopFee(1))
+	require.Equal(t, lnwire.MilliSatoshi(300), route.HopFee(2))
+	require.Equal(t, lnwire.MilliSatoshi(0), route.HopFee(3))
+	require.Equal(t, lnwire.MilliSatoshi(0), route.HopFee(4))
 }

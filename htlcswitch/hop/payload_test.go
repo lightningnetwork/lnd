@@ -2,13 +2,21 @@ package hop_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	//nolint:lll
+	testPrivKeyBytes, _ = hex.DecodeString("e126f68f7eafcc8b74f54d269fe206be715000f94dac067d1c04a8ca3b2db734")
+	_, testPubKey       = btcec.PrivKeyFromBytes(testPrivKeyBytes)
 )
 
 const testUnknownRequiredType = 0x80
@@ -20,7 +28,10 @@ type decodePayloadTest struct {
 	expCustomRecords   map[uint64][]byte
 	shouldHaveMPP      bool
 	shouldHaveAMP      bool
+	shouldHaveEncData  bool
+	shouldHaveBlinding bool
 	shouldHaveMetadata bool
+	shouldHaveTotalAmt bool
 }
 
 var decodePayloadTests = []decodePayloadTest{
@@ -218,6 +229,33 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
+		name: "intermediate hop with encrypted data",
+		payload: []byte{
+			// amount
+			0x02, 0x00,
+			// cltv
+			0x04, 0x00,
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+		},
+		shouldHaveEncData: true,
+	},
+	{
+		name: "intermediate hop with blinding point",
+		payload: append([]byte{
+			// amount
+			0x02, 0x00,
+			// cltv
+			0x04, 0x00,
+			// blinding point (type / length)
+			0x0c, 0x21,
+		},
+			// blinding point (value)
+			testPubKey.SerializeCompressed()...,
+		),
+		shouldHaveBlinding: true,
+	},
+	{
 		name: "final hop with mpp",
 		payload: []byte{
 			// amount
@@ -271,6 +309,18 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 		shouldHaveMetadata: true,
 	},
+	{
+		name: "final hop with total amount",
+		payload: []byte{
+			// amount
+			0x02, 0x00,
+			// cltv
+			0x04, 0x00,
+			// total amount
+			0x12, 0x01, 0x01,
+		},
+		shouldHaveTotalAmt: true,
+	},
 }
 
 // TestDecodeHopPayloadRecordValidation asserts that parsing the payloads in the
@@ -306,6 +356,7 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 			0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13,
 			0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13, 0x13,
 		}
+		testEncData    = []byte{3, 2, 1}
 		testMetadata   = []byte{1, 2, 3}
 		testChildIndex = uint32(9)
 	)
@@ -352,6 +403,29 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		require.Equal(t, testMetadata, p.Metadata())
 	} else if p.Metadata() != nil {
 		t.Fatalf("unexpected metadata")
+	}
+
+	if test.shouldHaveEncData {
+		require.NotNil(t, p.EncryptedData(),
+			"payment should have encrypted data")
+
+		require.Equal(t, testEncData, p.EncryptedData())
+	} else {
+		require.Nil(t, p.EncryptedData())
+	}
+
+	if test.shouldHaveBlinding {
+		require.NotNil(t, p.BlindingPoint())
+
+		require.Equal(t, testPubKey, p.BlindingPoint())
+	} else {
+		require.Nil(t, p.BlindingPoint())
+	}
+
+	if test.shouldHaveTotalAmt {
+		require.NotZero(t, p.TotalAmtMsat())
+	} else {
+		require.Zero(t, p.TotalAmtMsat())
 	}
 
 	// Convert expected nil map to empty map, because we always expect an

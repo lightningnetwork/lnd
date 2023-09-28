@@ -131,6 +131,20 @@ type Hop struct {
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// EncryptedData is an encrypted data blob includes for hops that are
+	// part of a blinded route.
+	EncryptedData []byte
+
+	// BlindingPoint is an ephemeral public key used by introduction nodes
+	// in blinded routes to unblind their portion of the route and pass on
+	// the next ephemeral key to the next blinded node to do the same.
+	BlindingPoint *btcec.PublicKey
+
+	// TotalAmtMsat is the total amount for a blinded payment, potentially
+	// spread over more than one HTLC. This field should only be set for
+	// the final hop in a blinded path.
+	TotalAmtMsat lnwire.MilliSatoshi
 }
 
 // Copy returns a deep copy of the Hop.
@@ -145,6 +159,11 @@ func (h *Hop) Copy() *Hop {
 	if h.AMP != nil {
 		a := *h.AMP
 		c.AMP = &a
+	}
+
+	if h.BlindingPoint != nil {
+		b := *h.BlindingPoint
+		c.BlindingPoint = &b
 	}
 
 	return &c
@@ -169,12 +188,21 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 	// required routing fields, as well as these optional values.
 	var records []tlv.Record
 
-	// Every hop must have an amount to forward and CLTV expiry.
+	// Hops that are not part of a blinded path will have an amount and
+	// a CLTV expiry field. Zero values indicate that the hop is inside of
+	// a blinded route, so the TLV should not be included.
 	amt := uint64(h.AmtToForward)
-	records = append(records,
-		record.NewAmtToFwdRecord(&amt),
-		record.NewLockTimeRecord(&h.OutgoingTimeLock),
-	)
+	if amt != 0 {
+		records = append(
+			records, record.NewAmtToFwdRecord(&amt),
+		)
+	}
+
+	if h.OutgoingTimeLock != 0 {
+		records = append(
+			records, record.NewLockTimeRecord(&h.OutgoingTimeLock),
+		)
+	}
 
 	// BOLT 04 says the next_hop_id should be omitted for the final hop,
 	// but present for all others.
@@ -197,6 +225,19 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 		}
 	}
 
+	// Add encrypted data and blinding point if present.
+	if h.EncryptedData != nil {
+		records = append(records, record.NewEncryptedDataRecord(
+			&h.EncryptedData,
+		))
+	}
+
+	if h.BlindingPoint != nil {
+		records = append(records, record.NewBlindingPointRecord(
+			&h.BlindingPoint,
+		))
+	}
+
 	// If an AMP record is destined for this hop, ensure that we only ever
 	// attach it if we also have an MPP record. We can infer that this is
 	// already a final hop if MPP is non-nil otherwise we would have exited
@@ -213,6 +254,13 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 	if h.Metadata != nil {
 		records = append(records,
 			record.NewMetadataRecord(&h.Metadata),
+		)
+	}
+
+	if h.TotalAmtMsat != 0 {
+		totalAmtInt := uint64(h.TotalAmtMsat)
+		records = append(records,
+			record.NewTotalAmtMsatBlinded(&totalAmtInt),
 		)
 	}
 
@@ -247,13 +295,18 @@ func (h *Hop) PayloadSize(nextChanID uint64) uint64 {
 	}
 
 	// Add amount size.
-	addRecord(record.AmtOnionType, tlv.SizeTUint64(uint64(h.AmtToForward)))
-
+	if h.AmtToForward != 0 {
+		addRecord(record.AmtOnionType, tlv.SizeTUint64(
+			uint64(h.AmtToForward),
+		))
+	}
 	// Add lock time size.
-	addRecord(
-		record.LockTimeOnionType,
-		tlv.SizeTUint64(uint64(h.OutgoingTimeLock)),
-	)
+	if h.OutgoingTimeLock != 0 {
+		addRecord(
+			record.LockTimeOnionType,
+			tlv.SizeTUint64(uint64(h.OutgoingTimeLock)),
+		)
+	}
 
 	// Add next hop if present.
 	if nextChanID != 0 {
@@ -270,9 +323,31 @@ func (h *Hop) PayloadSize(nextChanID uint64) uint64 {
 		addRecord(record.AMPOnionType, h.AMP.PayloadSize())
 	}
 
+	// Add encrypted data and blinding point if present.
+	if h.EncryptedData != nil {
+		addRecord(
+			record.EncryptedDataOnionType,
+			uint64(len(h.EncryptedData)),
+		)
+	}
+
+	if h.BlindingPoint != nil {
+		addRecord(
+			record.BlindingPointOnionType,
+			btcec.PubKeyBytesLenCompressed,
+		)
+	}
+
 	// Add metadata if present.
 	if h.Metadata != nil {
 		addRecord(record.MetadataOnionType, uint64(len(h.Metadata)))
+	}
+
+	if h.TotalAmtMsat != 0 {
+		addRecord(
+			record.TotalAmtMsatBlindedType,
+			tlv.SizeTUint64(uint64(h.AmtToForward)),
+		)
 	}
 
 	// Add custom records.
@@ -333,6 +408,42 @@ func (r *Route) Copy() *Route {
 }
 
 // HopFee returns the fee charged by the route hop indicated by hopIndex.
+//
+// This calculation takes into account the possibility that the route contains
+// some blinded hops, that will not have the amount to forward set. We take
+// note of various points in the blinded route.
+//
+// Given the following route where Carol is the introduction node and B2 is
+// the recipient, Carol and B1's hops will not have an amount to forward set:
+// Alice --- Bob ---- Carol (introduction) ----- B1 ----- B2
+//
+// We locate ourselves in the route as follows:
+// * Regular Hop (eg Alice - Bob):
+//
+//	incomingAmt !=0
+//	outgoingAmt !=0
+//	->  Fee = incomingAmt - outgoingAmt
+//
+// * Introduction Hop (eg Bob - Carol):
+//
+//	incomingAmt !=0
+//	outgoingAmt = 0
+//	-> Fee = incomingAmt - receiverAmt
+//
+// This has the impact of attributing the full fees for the blinded route to
+// the introduction node.
+//
+// * Blinded Intermediate Hop (eg Carol - B1):
+//
+//	incomingAmt = 0
+//	outgoingAmt = 0
+//	-> Fee = 0
+//
+// * Final Blinded Hop (B1 - B2):
+//
+//	incomingAmt = 0
+//	outgoingAmt !=0
+//	-> Fee = 0
 func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
 	var incomingAmt lnwire.MilliSatoshi
 	if hopIndex == 0 {
@@ -341,8 +452,25 @@ func (r *Route) HopFee(hopIndex int) lnwire.MilliSatoshi {
 		incomingAmt = r.Hops[hopIndex-1].AmtToForward
 	}
 
-	// Fee is calculated as difference between incoming and outgoing amount.
-	return incomingAmt - r.Hops[hopIndex].AmtToForward
+	outgoingAmt := r.Hops[hopIndex].AmtToForward
+
+	switch {
+	// If both incoming and outgoing amounts are set, we're in a normal
+	// hop
+	case incomingAmt != 0 && outgoingAmt != 0:
+		return incomingAmt - outgoingAmt
+
+	// If the incoming amount is zero, we're at an intermediate hop in
+	// a blinded route, so the fee is zero.
+	case incomingAmt == 0:
+		return 0
+
+	// If we have a non-zero incoming amount and a zero outgoing amount,
+	// we're at the introduction hop so we express the fees for the full
+	// blinded route at this hop.
+	default:
+		return incomingAmt - r.ReceiverAmt()
+	}
 }
 
 // TotalFees is the sum of the fees paid at each hop within the final route. In

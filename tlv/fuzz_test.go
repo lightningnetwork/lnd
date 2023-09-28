@@ -173,12 +173,15 @@ func FuzzTUint64(f *testing.F) {
 }
 
 // encodeParsedTypes re-encodes TLVs decoded from a stream, using the
-// parsedTypes and decodedRecords produced during decoding.
+// parsedTypes and decodedRecords produced during decoding. This function
+// requires that each record in decodedRecords has a type number equivalent to
+// its index in the slice.
 func encodeParsedTypes(t *testing.T, parsedTypes TypeMap,
 	decodedRecords []Record) []byte {
 
 	var encodeRecords []Record
 	for typ, val := range parsedTypes {
+		// If typ is present in decodedRecords, use the decoded value.
 		if typ < Type(len(decodedRecords)) {
 			encodeRecords = append(
 				encodeRecords, decodedRecords[typ],
@@ -186,6 +189,8 @@ func encodeParsedTypes(t *testing.T, parsedTypes TypeMap,
 			continue
 		}
 
+		// Otherwise, typ is not present in decodedRecords, and we must
+		// create a new one.
 		val := val
 		encodeRecords = append(
 			encodeRecords, MakePrimitiveRecord(typ, &val),
@@ -231,6 +236,9 @@ func FuzzStream(f *testing.F) {
 			return SizeTUint64(tu64)
 		}
 
+		// We deliberately set each record's type number to its index in
+		// the slice, as this simplifies the re-encoding logic in
+		// encodeParsedTypes().
 		decodeRecords := []Record{
 			MakePrimitiveRecord(0, &u8),
 			MakePrimitiveRecord(1, &u16),

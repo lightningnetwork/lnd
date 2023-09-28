@@ -1006,3 +1006,130 @@ func FuzzCommitDiff(f *testing.F) {
 		checkCommitDiffsEqual(t, cd, cd2)
 	})
 }
+
+// getChannelReestablish returns the unused data slice and an
+// *lnwire.ChannelReestablish.
+func getChannelReestablish(data []byte) ([]byte, *lnwire.ChannelReestablish) {
+	if len(data) < 155 {
+		return data, nil
+	}
+
+	cr := &lnwire.ChannelReestablish{
+		NextLocalCommitHeight:     getUint64(data[0:8]),
+		RemoteCommitTailHeight:    getUint64(data[8:16]),
+		LocalUnrevokedCommitPoint: getInsecurePublicKey(data[16:24]),
+	}
+	copy(cr.ChanID[:], data[24:56])
+	copy(cr.LastRemoteCommitSecret[:], data[56:88])
+
+	if getBool(data[88]) {
+		var nonce lnwire.Musig2Nonce
+		copy(nonce[:], data[89:155])
+		cr.LocalNonce = &nonce
+	}
+
+	data, cr.ExtraData = getBytes(data[155:])
+
+	return data, cr
+}
+
+func getChannelCloseSummary(data []byte) *ChannelCloseSummary {
+	if len(data) < 281 {
+		return nil
+	}
+
+	ccs := &ChannelCloseSummary{
+		ChanPoint:         getOutPoint(data[0:36]),
+		ShortChanID:       getShortChannelID(data[36:44]),
+		RemotePub:         getInsecurePublicKey(data[44:52]),
+		Capacity:          getAmount(data[52:60]),
+		CloseHeight:       getUint32(data[60:64]),
+		SettledBalance:    getAmount(data[64:72]),
+		TimeLockedBalance: getAmount(data[72:80]),
+		CloseType:         ClosureType(data[80]),
+		IsPending:         getBool(data[81]),
+	}
+	copy(ccs.ChainHash[:], data[82:114])
+	copy(ccs.ClosingTXID[:], data[114:146])
+	if !getBool(data[146]) {
+		// Returning here creates a legacy summary with less data.
+		return ccs
+	}
+
+	ccs.RemoteCurrentRevocation = getInsecurePublicKey(data[147:155])
+	if getBool(data[155]) {
+		ccs.RemoteNextRevocation = getInsecurePublicKey(data[156:164])
+	}
+	ccs.LocalChanConfig = getChannelConfig(data[164:280])
+	if getBool(data[280]) {
+		data, ccs.LastChanSyncMsg = getChannelReestablish(data[281:])
+	}
+
+	return ccs
+}
+
+func checkChannelReestablishesEqual(t *testing.T, cr1,
+	cr2 *lnwire.ChannelReestablish) {
+
+	if cr1 == nil {
+		require.Nil(t, cr2)
+		return
+	}
+
+	require.Equal(t, cr1.ChanID, cr2.ChanID)
+	require.Equal(t, cr1.NextLocalCommitHeight, cr2.NextLocalCommitHeight)
+	require.Equal(t, cr1.RemoteCommitTailHeight, cr2.RemoteCommitTailHeight)
+	require.Equal(t, cr1.LastRemoteCommitSecret, cr2.LastRemoteCommitSecret)
+	require.Equal(
+		t, cr1.LocalUnrevokedCommitPoint, cr2.LocalUnrevokedCommitPoint,
+	)
+	require.Equal(t, cr1.LocalNonce, cr2.LocalNonce)
+	require.True(t, bytes.Equal(cr1.ExtraData, cr2.ExtraData))
+}
+
+func checkChannelCloseSummariesEqual(t *testing.T, ccs1,
+	ccs2 *ChannelCloseSummary) {
+
+	require.Equal(t, ccs1.ChanPoint, ccs2.ChanPoint)
+	require.Equal(t, ccs1.ShortChanID, ccs2.ShortChanID)
+	require.Equal(t, ccs1.ChainHash, ccs2.ChainHash)
+	require.Equal(t, ccs1.ClosingTXID, ccs2.ClosingTXID)
+	require.Equal(t, ccs1.RemotePub, ccs2.RemotePub)
+	require.Equal(t, ccs1.Capacity, ccs2.Capacity)
+	require.Equal(t, ccs1.CloseHeight, ccs2.CloseHeight)
+	require.Equal(t, ccs1.SettledBalance, ccs2.SettledBalance)
+	require.Equal(t, ccs1.TimeLockedBalance, ccs2.TimeLockedBalance)
+	require.Equal(t, ccs1.CloseType, ccs2.CloseType)
+	require.Equal(t, ccs1.IsPending, ccs2.IsPending)
+	require.Equal(
+		t, ccs1.RemoteCurrentRevocation, ccs2.RemoteCurrentRevocation,
+	)
+	require.Equal(t, ccs1.RemoteNextRevocation, ccs2.RemoteNextRevocation)
+	require.Equal(t, ccs1.LocalChanConfig, ccs2.LocalChanConfig)
+	checkChannelReestablishesEqual(
+		t, ccs1.LastChanSyncMsg, ccs2.LastChanSyncMsg,
+	)
+}
+
+// FuzzChannelCloseSummary tests that encoding/decoding of ChannelCloseSummary
+// does not modify its contents.
+func FuzzChannelCloseSummary(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		ccs := getChannelCloseSummary(data)
+		if ccs == nil {
+			return
+		}
+
+		var b bytes.Buffer
+		err := serializeChannelCloseSummary(&b, ccs)
+		require.NoError(t, err)
+
+		ccs2, err := deserializeCloseChannelSummary(&b)
+		require.NoError(t, err)
+
+		// Because we need nil slices to be considered equal to empty
+		// slices, we must implement our own equality check rather than
+		// using require.Equal.
+		checkChannelCloseSummariesEqual(t, ccs, ccs2)
+	})
+}

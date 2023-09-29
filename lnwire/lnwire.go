@@ -457,6 +457,12 @@ func WriteElement(w *bytes.Buffer, element interface{}) error {
 			return err
 		}
 
+	case PartialSig:
+		sigBytes := e.Sig.Bytes()
+		if _, err := w.Write(sigBytes[:]); err != nil {
+			return err
+		}
+
 	case ExtraOpaqueData:
 		return e.Encode(w)
 
@@ -927,6 +933,19 @@ func ReadElement(r io.Reader, element interface{}) error {
 			return err
 		}
 		*e = addrBytes[:length]
+
+	case *PartialSig:
+		var sBytes [32]byte
+		if _, err := io.ReadFull(r, sBytes[:]); err != nil {
+			return err
+		}
+
+		var s btcec.ModNScalar
+		s.SetBytes(&sBytes)
+
+		*e = PartialSig{
+			Sig: s,
+		}
 
 	case *ExtraOpaqueData:
 		return e.Decode(r)

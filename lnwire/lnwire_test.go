@@ -1068,6 +1068,35 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
+		MsgAnnouncementSignatures2: func(v []reflect.Value,
+			r *rand.Rand) {
+
+			req := AnnouncementSignatures2{
+				ShortChannelID: NewShortChanIDFromInt(
+					uint64(r.Int63()),
+				),
+				ExtraOpaqueData: make([]byte, 0),
+			}
+
+			_, err := r.Read(req.ChannelID[:])
+			require.NoError(t, err)
+
+			partialSig, err := randPartialSig(r)
+			require.NoError(t, err)
+
+			req.PartialSignature = *partialSig
+
+			numExtraBytes := r.Int31n(1000)
+			if numExtraBytes > 0 {
+				req.ExtraOpaqueData = make(
+					[]byte, numExtraBytes,
+				)
+				_, err := r.Read(req.ExtraOpaqueData[:])
+				require.NoError(t, err)
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
 	}
 
 	// With the above types defined, we'll now generate a slice of
@@ -1251,6 +1280,12 @@ func TestLightningWireProtocol(t *testing.T) {
 		{
 			msgType: MsgReplyChannelRange,
 			scenario: func(m ReplyChannelRange) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgAnnouncementSignatures2,
+			scenario: func(m AnnouncementSignatures2) bool {
 				return mainScenario(&m)
 			},
 		},

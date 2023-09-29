@@ -87,7 +87,7 @@ func (c *ChannelReady) Decode(r io.Reader, _ uint32) error {
 			ChanReadyLocalNonceType,
 		)
 	)
-	typeMap, err := tlvRecords.ExtractRecords(
+	typeMap, err := tlvRecords.ExtractRecordsFromProducers(
 		&aliasScid, localNonce,
 	)
 	if err != nil {

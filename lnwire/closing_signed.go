@@ -79,7 +79,7 @@ func (c *ClosingSigned) Decode(r io.Reader, pver uint32) error {
 	var (
 		partialSig PartialSig
 	)
-	typeMap, err := tlvRecords.ExtractRecords(&partialSig)
+	typeMap, err := tlvRecords.ExtractRecordsFromProducers(&partialSig)
 	if err != nil {
 		return err
 	}

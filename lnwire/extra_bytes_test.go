@@ -118,9 +118,8 @@ func TestExtraOpaqueDataPackUnpackRecords(t *testing.T) {
 	// Now that we have our set of sample records and types, we'll encode
 	// them into the passed ExtraOpaqueData instance.
 	var extraBytes ExtraOpaqueData
-	if err := extraBytes.PackRecords(testRecordsProducers...); err != nil {
-		t.Fatalf("unable to pack records: %v", err)
-	}
+	err := extraBytes.PackRecordsFromProducers(testRecordsProducers...)
+	require.NoError(t, err)
 
 	// We'll now simulate decoding these types _back_ into records on the
 	// other side.
@@ -128,7 +127,7 @@ func TestExtraOpaqueDataPackUnpackRecords(t *testing.T) {
 		&recordProducer{tlv.MakePrimitiveRecord(type1, &channelType2)},
 		&recordProducer{tlv.MakePrimitiveRecord(type2, &hop2)},
 	}
-	typeMap, err := extraBytes.ExtractRecords(newRecords...)
+	typeMap, err := extraBytes.ExtractRecordsFromProducers(newRecords...)
 	require.NoError(t, err, "unable to extract record")
 
 	// We should find that the new backing values have been populated with

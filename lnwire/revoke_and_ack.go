@@ -81,7 +81,7 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 	}
 
 	musigNonce := NewMusig2NonceRecordProducer(RevAndAckLocalNonceType)
-	typeMap, err := tlvRecords.ExtractRecords(musigNonce)
+	typeMap, err := tlvRecords.ExtractRecordsFromProducers(musigNonce)
 	if err != nil {
 		return err
 	}

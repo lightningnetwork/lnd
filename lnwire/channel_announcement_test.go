@@ -1,0 +1,301 @@
+package lnwire
+
+import (
+	"bytes"
+	"testing"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/require"
+)
+
+// TestChanAnnounce2Validation checks that the various forms of the
+// channel_announcement_2 message are validated correctly.
+func TestChanAnnounce2Validation(t *testing.T) {
+	t.Parallel()
+
+	t.Run(
+		"test 4-of-4 MuSig2 channel announcement",
+		test4of4MuSig2ChanAnnouncement,
+	)
+
+	t.Run(
+		"test 3-of-3 MuSig2 channel announcement",
+		test3of3MuSig2ChanAnnouncement,
+	)
+}
+
+// test4of4MuSig2ChanAnnouncement covers the case where both bitcoin keys are
+// present in the channel announcement. In this case, the signature should be
+// a 4-of-4 MuSig2.
+func test4of4MuSig2ChanAnnouncement(t *testing.T) {
+	t.Parallel()
+
+	// Generate the keys for node 1 and node2.
+	node1, node2 := genChanAnnKeys(t)
+
+	// Build the unsigned channel announcement.
+	ann := buildUnsignedChanAnnouncement(node1, node2, true)
+
+	// Serialise the bytes that need to be signed.
+	msg, err := ann.DigestToSign()
+	require.NoError(t, err)
+
+	var msgBytes [32]byte
+	copy(msgBytes[:], msg.CloneBytes())
+
+	// Generate the 4 nonces required for producing the signature.
+	var (
+		node1NodeNonce = genNonceForPubKey(t, node1.nodePub)
+		node1BtcNonce  = genNonceForPubKey(t, node1.btcPub)
+		node2NodeNonce = genNonceForPubKey(t, node2.nodePub)
+		node2BtcNonce  = genNonceForPubKey(t, node2.btcPub)
+	)
+
+	nonceAgg, err := musig2.AggregateNonces([][66]byte{
+		node1NodeNonce.PubNonce,
+		node1BtcNonce.PubNonce,
+		node2NodeNonce.PubNonce,
+		node2BtcNonce.PubNonce,
+	})
+	require.NoError(t, err)
+
+	pubKeys := []*btcec.PublicKey{
+		node1.nodePub, node2.nodePub, node1.btcPub, node2.btcPub,
+	}
+
+	// Let Node1 sign the announcement message with its node key.
+	psA1, err := musig2.Sign(
+		node1NodeNonce.SecNonce, node1.nodePriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Let Node1 sign the announcement message with its bitcoin key.
+	psA2, err := musig2.Sign(
+		node1BtcNonce.SecNonce, node1.btcPriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Let Node2 sign the announcement message with its node key.
+	psB1, err := musig2.Sign(
+		node2NodeNonce.SecNonce, node2.nodePriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Let Node2 sign the announcement message with its bitcoin key.
+	psB2, err := musig2.Sign(
+		node2BtcNonce.SecNonce, node2.btcPriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Finally, combine the partial signatures from Node1 and Node2 and add
+	// the signature to the announcement message.
+	s := musig2.CombineSigs(psA1.R, []*musig2.PartialSignature{
+		psA1, psA2, psB1, psB2,
+	})
+
+	sig, err := NewSigFromSignature(s)
+	require.NoError(t, err)
+
+	ann.Signature = sig
+
+	// Validate the announcement.
+	require.NoError(t, ann.Validate(nil))
+}
+
+// test3of3MuSig2ChanAnnouncement covers the case where no bitcoin keys are
+// present in the channel announcement. In this case, the signature should be
+// a 3-of-3 MuSig2 where the keys making up the pub key are: node1 ID, node2 ID
+// and the output key found on-chain in the funding transaction. As the
+// verifier, we don't care about the construction of the output key. We only
+// care that the channel peers were able to sign for the output key. In reality,
+// this key will likely be constructed from at least 1 key from each peer and
+// the partial signature for it will be constructed via nested MuSig2 but for
+// the sake of the test, we will just have it be backed by a single key.
+func test3of3MuSig2ChanAnnouncement(t *testing.T) {
+	// Generate the keys for node 1 and node 2.
+	node1, node2 := genChanAnnKeys(t)
+
+	// Build the unsigned channel announcement.
+	ann := buildUnsignedChanAnnouncement(node1, node2, false)
+
+	// Serialise the bytes that need to be signed.
+	msg, err := ann.DigestToSign()
+	require.NoError(t, err)
+
+	var msgBytes [32]byte
+	copy(msgBytes[:], msg.CloneBytes())
+
+	// Create a random 3rd key to be used for the output key.
+	outputKeyPriv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	outputKey := outputKeyPriv.PubKey()
+
+	// Ensure that the output key has an even Y by negating the private key
+	// if required.
+	if outputKey.SerializeCompressed()[0] ==
+		input.PubKeyFormatCompressedOdd {
+
+		outputKeyPriv.Key.Negate()
+		outputKey = outputKeyPriv.PubKey()
+	}
+
+	// Generate the nonces required for producing the partial signatures.
+	var (
+		node1NodeNonce = genNonceForPubKey(t, node1.nodePub)
+		node2NodeNonce = genNonceForPubKey(t, node2.nodePub)
+		outputKeyNonce = genNonceForPubKey(t, outputKey)
+	)
+
+	nonceAgg, err := musig2.AggregateNonces([][66]byte{
+		node1NodeNonce.PubNonce,
+		node2NodeNonce.PubNonce,
+		outputKeyNonce.PubNonce,
+	})
+	require.NoError(t, err)
+
+	pkScript, err := input.PayToTaprootScript(outputKey)
+	require.NoError(t, err)
+
+	// We'll pass in a mock tx fetcher that will return the funding output
+	// containing this key. This is needed since the output key can not be
+	// determined from the channel announcement itself.
+	fetchTx := func(chanID *ShortChannelID) ([]byte, error) {
+		return pkScript, nil
+	}
+
+	pubKeys := []*btcec.PublicKey{node1.nodePub, node2.nodePub, outputKey}
+
+	// Let Node1 sign the announcement message with its node key.
+	psA, err := musig2.Sign(
+		node1NodeNonce.SecNonce, node1.nodePriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Let Node2 sign the announcement message with its node key.
+	psB, err := musig2.Sign(
+		node2NodeNonce.SecNonce, node2.nodePriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Create a partial sig for the output key.
+	psO, err := musig2.Sign(
+		outputKeyNonce.SecNonce, outputKeyPriv, nonceAgg, pubKeys,
+		msgBytes, musig2.WithSortedKeys(),
+	)
+	require.NoError(t, err)
+
+	// Finally, combine the partial signatures from Node1 and Node2 and add
+	// the signature to the announcement message.
+	s := musig2.CombineSigs(psA.R, []*musig2.PartialSignature{
+		psA, psB, psO,
+	})
+
+	sig, err := NewSigFromSignature(s)
+	require.NoError(t, err)
+
+	ann.Signature = sig
+
+	// Validate the announcement.
+	require.NoError(t, ann.Validate(fetchTx))
+}
+
+func genNonceForPubKey(t *testing.T, pub *btcec.PublicKey) *musig2.Nonces {
+	nonce, err := musig2.GenNonces(musig2.WithPublicKey(pub))
+	require.NoError(t, err)
+
+	return nonce
+}
+
+type keyRing struct {
+	nodePriv *btcec.PrivateKey
+	nodePub  *btcec.PublicKey
+	btcPriv  *btcec.PrivateKey
+	btcPub   *btcec.PublicKey
+}
+
+func genChanAnnKeys(t *testing.T) (*keyRing, *keyRing) {
+	// Let Alice and Bob derive the various keys they need.
+	aliceNodePrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	aliceNodeID := aliceNodePrivKey.PubKey()
+
+	aliceBtcPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	bobNodePrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	bobNodeID := bobNodePrivKey.PubKey()
+
+	bobBtcPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	alice := &keyRing{
+		nodePriv: aliceNodePrivKey,
+		nodePub:  aliceNodePrivKey.PubKey(),
+		btcPriv:  aliceBtcPrivKey,
+		btcPub:   aliceBtcPrivKey.PubKey(),
+	}
+
+	bob := &keyRing{
+		nodePriv: bobNodePrivKey,
+		nodePub:  bobNodePrivKey.PubKey(),
+		btcPriv:  bobBtcPrivKey,
+		btcPub:   bobBtcPrivKey.PubKey(),
+	}
+
+	if bytes.Compare(
+		aliceNodeID.SerializeCompressed(),
+		bobNodeID.SerializeCompressed(),
+	) != -1 {
+
+		return bob, alice
+	}
+
+	return alice, bob
+}
+
+func buildUnsignedChanAnnouncement(node1, node2 *keyRing,
+	withBtcKeys bool) *ChannelAnnouncement2 {
+
+	var ann ChannelAnnouncement2
+	ann.ChainHash.Val = *chaincfg.MainNetParams.GenesisHash
+	features := NewRawFeatureVector()
+	ann.Features.Val = *features
+	ann.ShortChannelID.Val = ShortChannelID{
+		BlockHeight: 1000,
+		TxIndex:     100,
+		TxPosition:  0,
+	}
+	ann.Capacity.Val = 100000
+
+	copy(ann.NodeID1.Val[:], node1.nodePub.SerializeCompressed())
+	copy(ann.NodeID2.Val[:], node2.nodePub.SerializeCompressed())
+
+	if !withBtcKeys {
+		return &ann
+	}
+
+	btcKey1Bytes := tlv.ZeroRecordT[tlv.TlvType12, [33]byte]()
+	btcKey2Bytes := tlv.ZeroRecordT[tlv.TlvType14, [33]byte]()
+
+	copy(btcKey1Bytes.Val[:], node1.btcPub.SerializeCompressed())
+	copy(btcKey2Bytes.Val[:], node2.btcPub.SerializeCompressed())
+
+	ann.BitcoinKey1 = tlv.SomeRecordT(btcKey1Bytes)
+	ann.BitcoinKey2 = tlv.SomeRecordT(btcKey2Bytes)
+
+	return &ann
+}

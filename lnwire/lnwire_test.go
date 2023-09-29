@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn"
@@ -28,17 +29,25 @@ import (
 )
 
 var (
-	shaHash1Bytes, _ = hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-	shaHash1, _      = chainhash.NewHash(shaHash1Bytes)
-	outpoint1        = wire.NewOutPoint(shaHash1, 0)
+	shaHash1Bytes, _ = hex.DecodeString("e3b0c44298fc1c149afbf4c8996fb" +
+		"92427ae41e4649b934ca495991b7852b855")
 
-	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf0314f882d7")
-	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
-	testRScalar   = new(btcec.ModNScalar)
-	testSScalar   = new(btcec.ModNScalar)
-	_             = testRScalar.SetByteSlice(testRBytes)
-	_             = testSScalar.SetByteSlice(testSBytes)
-	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
+	shaHash1, _ = chainhash.NewHash(shaHash1Bytes)
+	outpoint1   = wire.NewOutPoint(shaHash1, 0)
+
+	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571" +
+		"319d18e949ddfa2965fb6caa1bf0314f882d7")
+	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a" +
+		"88121167221b6700d72a0ead154c03be696a292d24ae")
+	testRScalar          = new(btcec.ModNScalar)
+	testSScalar          = new(btcec.ModNScalar)
+	_                    = testRScalar.SetByteSlice(testRBytes)
+	_                    = testSScalar.SetByteSlice(testSBytes)
+	testSig              = ecdsa.NewSignature(testRScalar, testSScalar)
+	testSchnorrSigStr, _ = hex.DecodeString("04E7F9037658A92AFEB4F2" +
+		"5BAE5339E3DDCA81A353493827D26F16D92308E49E2A25E9220867" +
+		"8A2DF86970DA91B03A8AF8815A8A60498B358DAF560B347AA557")
+	testSchnorrSig, _ = NewSigFromSchnorrRawSignature(testSchnorrSigStr)
 )
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -97,17 +106,15 @@ func randPubKey() (*btcec.PublicKey, error) {
 	return priv.PubKey(), nil
 }
 
-func randRawKey() ([33]byte, error) {
+func randRawKey(t *testing.T) [33]byte {
 	var n [33]byte
 
 	priv, err := btcec.NewPrivateKey()
-	if err != nil {
-		return n, err
-	}
+	require.NoError(t, err)
 
 	copy(n[:], priv.PubKey().SerializeCompressed())
 
-	return n, nil
+	return n
 }
 
 func randDeliveryAddress(r *rand.Rand) (DeliveryAddress, error) {
@@ -892,7 +899,13 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgChannelAnnouncement: func(v []reflect.Value, r *rand.Rand) {
 			var err error
 			req := ChannelAnnouncement1{
-				ShortChannelID:  NewShortChanIDFromInt(uint64(r.Int63())),
+				ShortChannelID: NewShortChanIDFromInt(
+					uint64(r.Int63()),
+				),
+				NodeID1:         randRawKey(t),
+				NodeID2:         randRawKey(t),
+				BitcoinKey1:     randRawKey(t),
+				BitcoinKey2:     randRawKey(t),
 				Features:        randRawFeatureVector(r),
 				ExtraOpaqueData: make([]byte, 0),
 			}
@@ -917,26 +930,6 @@ func TestLightningWireProtocol(t *testing.T) {
 				return
 			}
 
-			req.NodeID1, err = randRawKey()
-			if err != nil {
-				t.Fatalf("unable to generate key: %v", err)
-				return
-			}
-			req.NodeID2, err = randRawKey()
-			if err != nil {
-				t.Fatalf("unable to generate key: %v", err)
-				return
-			}
-			req.BitcoinKey1, err = randRawKey()
-			if err != nil {
-				t.Fatalf("unable to generate key: %v", err)
-				return
-			}
-			req.BitcoinKey2, err = randRawKey()
-			if err != nil {
-				t.Fatalf("unable to generate key: %v", err)
-				return
-			}
 			if _, err := r.Read(req.ChainHash[:]); err != nil {
 				t.Fatalf("unable to generate chain hash: %v", err)
 				return
@@ -958,6 +951,7 @@ func TestLightningWireProtocol(t *testing.T) {
 		MsgNodeAnnouncement: func(v []reflect.Value, r *rand.Rand) {
 			var err error
 			req := NodeAnnouncement1{
+				NodeID:    randRawKey(t),
 				Features:  randRawFeatureVector(r),
 				Timestamp: uint32(r.Int31()),
 				Alias:     randAlias(r),
@@ -971,12 +965,6 @@ func TestLightningWireProtocol(t *testing.T) {
 			req.Signature, err = NewSigFromSignature(testSig)
 			if err != nil {
 				t.Fatalf("unable to parse sig: %v", err)
-				return
-			}
-
-			req.NodeID, err = randRawKey()
-			if err != nil {
-				t.Fatalf("unable to generate key: %v", err)
 				return
 			}
 
@@ -1013,7 +1001,9 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			req := ChannelUpdate1{
-				ShortChannelID:  NewShortChanIDFromInt(uint64(r.Int63())),
+				ShortChannelID: NewShortChanIDFromInt(
+					uint64(r.Int63()),
+				),
 				Timestamp:       uint32(r.Int31()),
 				MessageFlags:    msgFlags,
 				ChannelFlags:    ChanUpdateChanFlags(r.Int31()),
@@ -1223,6 +1213,60 @@ func TestLightningWireProtocol(t *testing.T) {
 			require.NoError(t, err)
 
 			req.PartialSignature = *partialSig
+
+			numExtraBytes := r.Int31n(1000)
+			if numExtraBytes > 0 {
+				req.ExtraOpaqueData = make(
+					[]byte, numExtraBytes,
+				)
+				_, err := r.Read(req.ExtraOpaqueData[:])
+				require.NoError(t, err)
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
+		MsgChannelAnnouncement2: func(v []reflect.Value, r *rand.Rand) {
+			req := ChannelAnnouncement2{
+				Signature: testSchnorrSig,
+				ShortChannelID: NewShortChanIDFromInt(
+					uint64(r.Int63()),
+				),
+				Capacity:        rand.Uint64(),
+				NodeID1:         randRawKey(t),
+				NodeID2:         randRawKey(t),
+				ExtraOpaqueData: make([]byte, 0),
+			}
+
+			features := randRawFeatureVector(r)
+			req.Features = *features
+
+			// Sometimes set chain hash to bitcoin mainnet genesis
+			// hash.
+			req.ChainHash = *chaincfg.MainNetParams.GenesisHash
+			if r.Int31()%2 == 0 {
+				_, err := r.Read(req.ChainHash[:])
+				require.NoError(t, err)
+			}
+
+			// Sometimes set the bitcoin keys.
+			if r.Int31()%2 == 0 {
+				btcKey1 := randRawKey(t)
+				req.BitcoinKey1 = fn.Some(btcKey1)
+
+				btcKey2 := randRawKey(t)
+				req.BitcoinKey2 = fn.Some(btcKey2)
+
+				// Occasionally also set the merkle root hash.
+				if r.Int31()%2 == 0 {
+					var merkleRootHash [32]byte
+					_, err := r.Read(merkleRootHash[:])
+					require.NoError(t, err)
+
+					req.MerkleRootHash = fn.Some(
+						merkleRootHash,
+					)
+				}
+			}
 
 			numExtraBytes := r.Int31n(1000)
 			if numExtraBytes > 0 {
@@ -1448,6 +1492,12 @@ func TestLightningWireProtocol(t *testing.T) {
 		{
 			msgType: MsgAnnounceSignatures2,
 			scenario: func(m AnnounceSignatures2) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgChannelAnnouncement2,
+			scenario: func(m ChannelAnnouncement2) bool {
 				return mainScenario(&m)
 			},
 		},

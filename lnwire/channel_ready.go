@@ -9,10 +9,18 @@ import (
 )
 
 const (
+	// ChanReadyAnnounceBtcNonce is the TLV type associated with the
+	// bitcoin nonce field in the channel_ready message.
+	ChanReadyAnnounceBtcNonce = tlv.Type(0)
+
 	// ChanReadyAliasScidType is the TLV type of the experimental record of
 	// channel_ready to denote the alias being used in an option_scid_alias
 	// channel.
 	ChanReadyAliasScidType = tlv.Type(1)
+
+	// ChanReadyAnnounceNodeNonce is the TLV type associated with the node
+	// nonce field in the channel_ready message.
+	ChanReadyAnnounceNodeNonce = tlv.Type(2)
 
 	// ChanReadyLocalNonceType is the tlv number associated with the local
 	// nonce TLV record in the channel_ready message.
@@ -37,6 +45,16 @@ type ChannelReady struct {
 	// channel. It can be used instead of the confirmed on-chain
 	// ShortChannelID for forwarding.
 	AliasScid *ShortChannelID
+
+	// AnnouncementBitcoinNonce is an optional field that stores a public
+	// nonce that will be used along with the node's bitcoin key during
+	// signing of the ChannelAnnouncement2 message.
+	AnnouncementBitcoinNonce *Musig2Nonce
+
+	// AnnouncementBitcoinNonce is an optional field that stores a public
+	// nonce that will be used along with the node's ID key during signing
+	// of the ChannelAnnouncement2 message.
+	AnnouncementNodeNonce *Musig2Nonce
 
 	// NextLocalNonce is an optional field that stores a local musig2 nonce.
 	// This will only be populated if the simple taproot channels type was
@@ -84,8 +102,7 @@ func (c *ChannelReady) Decode(r io.Reader, _ uint32) error {
 		return err
 	}
 
-	// Next we'll parse out the set of known records. For now, this is just
-	// the AliasScidRecordType.
+	// Next we'll parse out the set of known records.
 	var (
 		aliasScid = NewShortChannelIDRecordProducer(
 			ChanReadyAliasScidType,
@@ -93,21 +110,33 @@ func (c *ChannelReady) Decode(r io.Reader, _ uint32) error {
 		localNonce = NewMusig2NonceRecordProducer(
 			ChanReadyLocalNonceType,
 		)
+		btcNonce = NewMusig2NonceRecordProducer(
+			ChanReadyAnnounceBtcNonce,
+		)
+		nodeNonce = NewMusig2NonceRecordProducer(
+			ChanReadyAnnounceNodeNonce,
+		)
 	)
 	typeMap, err := tlvRecords.ExtractRecordsFromProducers(
-		aliasScid, localNonce,
+		btcNonce, aliasScid, nodeNonce, localNonce,
 	)
 	if err != nil {
 		return err
 	}
 
-	// We'll only set AliasScid if the corresponding TLV type was included
+	// We'll only set some fields if the corresponding TLV type was included
 	// in the stream.
 	if val, ok := typeMap[ChanReadyAliasScidType]; ok && val == nil {
 		c.AliasScid = &aliasScid.ShortChannelID
 	}
 	if val, ok := typeMap[ChanReadyLocalNonceType]; ok && val == nil {
 		c.NextLocalNonce = &localNonce.Musig2Nonce
+	}
+	if val, ok := typeMap[ChanReadyAnnounceBtcNonce]; ok && val == nil {
+		c.AnnouncementBitcoinNonce = &btcNonce.Musig2Nonce
+	}
+	if val, ok := typeMap[ChanReadyAnnounceNodeNonce]; ok && val == nil {
+		c.AnnouncementNodeNonce = &nodeNonce.Musig2Nonce
 	}
 
 	if len(tlvRecords) != 0 {
@@ -131,13 +160,30 @@ func (c *ChannelReady) Encode(w *bytes.Buffer, _ uint32) error {
 		return err
 	}
 
-	// We'll only encode the AliasScid in a TLV segment if it exists.
+	// We'll only encode the various optional fields in a TLV segment if
+	// they exists.
 	recordProducers := make([]tlv.RecordProducer, 0, 2)
+	if c.AnnouncementBitcoinNonce != nil {
+		recordProducers = append(
+			recordProducers, &Musig2NonceRecordProducer{
+				Type:        ChanReadyAnnounceBtcNonce,
+				Musig2Nonce: *c.AnnouncementBitcoinNonce,
+			},
+		)
+	}
 	if c.AliasScid != nil {
 		recordProducers = append(recordProducers,
 			&ShortChannelIDRecordProducer{
 				ShortChannelID: *c.AliasScid,
 				Type:           ChanReadyAliasScidType,
+			},
+		)
+	}
+	if c.AnnouncementNodeNonce != nil {
+		recordProducers = append(
+			recordProducers, &Musig2NonceRecordProducer{
+				Type:        ChanReadyAnnounceNodeNonce,
+				Musig2Nonce: *c.AnnouncementNodeNonce,
 			},
 		)
 	}

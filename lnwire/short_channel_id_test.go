@@ -46,19 +46,29 @@ func TestShortChannelIDEncoding(t *testing.T) {
 func TestScidTypeEncodeDecode(t *testing.T) {
 	t.Parallel()
 
-	aliasScid := ShortChannelID{
-		BlockHeight: (1 << 24) - 1,
-		TxIndex:     (1 << 24) - 1,
-		TxPosition:  (1 << 16) - 1,
+	aliasScidRecordProducer := &ShortChannelIDRecordProducer{
+		ShortChannelID: ShortChannelID{
+			BlockHeight: (1 << 24) - 1,
+			TxIndex:     (1 << 24) - 1,
+			TxPosition:  (1 << 16) - 1,
+		},
+		Type: ChanReadyAliasScidType,
 	}
 
 	var extraData ExtraOpaqueData
-	require.NoError(t, extraData.PackRecordsFromProducers(&aliasScid))
+	require.NoError(
+		t, extraData.PackRecordsFromProducers(aliasScidRecordProducer),
+	)
 
-	var aliasScid2 ShortChannelID
-	tlvs, err := extraData.ExtractRecordsFromProducers(&aliasScid2)
+	aliasScid2RecordProducer := NewShortChannelIDRecordProducer(
+		ChanReadyAliasScidType,
+	)
+
+	tlvs, err := extraData.ExtractRecordsFromProducers(
+		aliasScid2RecordProducer,
+	)
 	require.NoError(t, err)
 
-	require.Contains(t, tlvs, AliasScidRecordType)
-	require.Equal(t, aliasScid, aliasScid2)
+	require.Contains(t, tlvs, ChanReadyAliasScidType)
+	require.Equal(t, aliasScidRecordProducer, aliasScid2RecordProducer)
 }

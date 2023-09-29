@@ -1279,6 +1279,74 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
+		MsgChannelUpdate2: func(v []reflect.Value, r *rand.Rand) {
+			req := ChannelUpdate2{
+				Signature: testSchnorrSig,
+				ShortChannelID: NewShortChanIDFromInt(
+					uint64(r.Int63()),
+				),
+				BlockHeight:     r.Uint32(),
+				HTLCMaximumMsat: MilliSatoshi(r.Uint64()),
+				ExtraOpaqueData: make([]byte, 0),
+			}
+
+			// Sometimes set chain hash to bitcoin mainnet genesis
+			// hash.
+			req.ChainHash = *chaincfg.MainNetParams.GenesisHash
+			if r.Int31()%2 == 0 {
+				_, err := r.Read(req.ChainHash[:])
+				require.NoError(t, err)
+			}
+
+			// Sometimes use default htlc min msat.
+			req.HTLCMinimumMsat = defaultHtlcMinMsat
+			if r.Int31()%2 == 0 {
+				req.HTLCMinimumMsat = MilliSatoshi(r.Uint64())
+			}
+
+			// Sometimes set the cltv expiry delta to the default.
+			req.CLTVExpiryDelta = defaultCltvExpiryDelta
+			if r.Int31()%2 == 0 {
+				req.CLTVExpiryDelta = uint16(r.Int31())
+			}
+
+			// Sometimes use default fee base.
+			req.FeeBaseMsat = defaultFeeBaseMsat
+			if r.Int31()%2 == 0 {
+				req.FeeBaseMsat = r.Uint32()
+			}
+
+			// Sometimes use default proportional fee.
+			req.FeeProportionalMillionths =
+				defaultFeeProportionalMillionths
+			if r.Int31()%2 == 0 {
+				req.FeeProportionalMillionths = r.Uint32()
+			}
+
+			// Alternate between the two direction possibilities.
+			if r.Int31()%2 == 0 {
+				req.Direction = true
+			}
+
+			// Sometimes set the incoming disabled flag.
+			if r.Int31()%2 == 0 {
+				req.DisabledFlags |= ChanUpdateDisableIncoming
+			}
+
+			// Sometimes set the outgoing disabled flag.
+			if r.Int31()%2 == 0 {
+				req.DisabledFlags |= ChanUpdateDisableOutgoing
+			}
+
+			numExtraBytes := r.Int31n(1000)
+			if numExtraBytes > 0 {
+				req.ExtraOpaqueData = make(
+					[]byte, numExtraBytes,
+				)
+				_, err := r.Read(req.ExtraOpaqueData[:])
+				require.NoError(t, err)
+			}
+		},
 	}
 
 	// With the above types defined, we'll now generate a slice of

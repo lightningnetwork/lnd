@@ -56,6 +56,7 @@ const (
 	MsgReplyChannelRange                   = 264
 	MsgGossipTimestampRange                = 265
 	MsgChannelAnnouncement2                = 267
+	MsgNodeAnnouncement2                   = 269
 	MsgChannelUpdate2                      = 271
 	MsgKickoffSig                          = 777
 )
@@ -155,6 +156,8 @@ func (t MessageType) String() string {
 		return "ChannelAnnouncement2"
 	case MsgChannelUpdate2:
 		return "ChannelUpdate2"
+	case MsgNodeAnnouncement2:
+		return "NodeAnnouncement2"
 	default:
 		return "<unknown>"
 	}
@@ -271,6 +274,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &ChannelAnnouncement2{}
 	case MsgChannelUpdate2:
 		msg = &ChannelUpdate2{}
+	case MsgNodeAnnouncement2:
+		msg = &NodeAnnouncement2{}
 	default:
 		// If the message is not within our custom range and has not
 		// specifically been overridden, return an unknown message.

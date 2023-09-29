@@ -9,6 +9,12 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+const (
+	// AcceptChanLocalNonceType is the tlv number associated with the
+	// local nonce TLV record in the accept_channel message.
+	AcceptChanLocalNonceType = tlv.Type(4)
+)
+
 // AcceptChannel is the message Bob sends to Alice after she initiates the
 // single funder channel workflow via an AcceptChannel message. Once Alice
 // receives Bob's response, then she has all the items necessary to construct
@@ -142,7 +148,12 @@ func (a *AcceptChannel) Encode(w *bytes.Buffer, pver uint32) error {
 		recordProducers = append(recordProducers, a.LeaseExpiry)
 	}
 	if a.LocalNonce != nil {
-		recordProducers = append(recordProducers, a.LocalNonce)
+		recordProducers = append(recordProducers,
+			&Musig2NonceRecordProducer{
+				Musig2Nonce: *a.LocalNonce,
+				Type:        AcceptChanLocalNonceType,
+			},
+		)
 	}
 	err := EncodeMessageExtraData(&a.ExtraData, recordProducers...)
 	if err != nil {
@@ -248,11 +259,12 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 	var (
 		chanType    ChannelType
 		leaseExpiry LeaseExpiry
-		localNonce  Musig2Nonce
+		localNonce  = NewMusig2NonceRecordProducer(
+			AcceptChanLocalNonceType,
+		)
 	)
 	typeMap, err := tlvRecords.ExtractRecords(
-		&a.UpfrontShutdownScript, &chanType, &leaseExpiry,
-		&localNonce,
+		&a.UpfrontShutdownScript, &chanType, &leaseExpiry, localNonce,
 	)
 	if err != nil {
 		return err
@@ -265,8 +277,8 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 	if val, ok := typeMap[LeaseExpiryRecordType]; ok && val == nil {
 		a.LeaseExpiry = &leaseExpiry
 	}
-	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
-		a.LocalNonce = &localNonce
+	if val, ok := typeMap[AcceptChanLocalNonceType]; ok && val == nil {
+		a.LocalNonce = &localNonce.Musig2Nonce
 	}
 
 	a.ExtraData = tlvRecords

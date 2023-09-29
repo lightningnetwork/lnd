@@ -8,6 +8,12 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+const (
+	// RevAndAckLocalNonceType is the tlv number associated with the local
+	// nonce TLV record in the revoke_and_ack message.
+	RevAndAckLocalNonceType = tlv.Type(4)
+)
+
 // RevokeAndAck is sent by either side once a CommitSig message has been
 // received, and validated. This message serves to revoke the prior commitment
 // transaction, which was the most up to date version until a CommitSig message
@@ -74,15 +80,15 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	var musigNonce Musig2Nonce
-	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
+	musigNonce := NewMusig2NonceRecordProducer(RevAndAckLocalNonceType)
+	typeMap, err := tlvRecords.ExtractRecords(musigNonce)
 	if err != nil {
 		return err
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
-		c.LocalNonce = &musigNonce
+	if val, ok := typeMap[RevAndAckLocalNonceType]; ok && val == nil {
+		c.LocalNonce = &musigNonce.Musig2Nonce
 	}
 
 	if len(tlvRecords) != 0 {
@@ -99,7 +105,12 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 func (c *RevokeAndAck) Encode(w *bytes.Buffer, pver uint32) error {
 	recordProducers := make([]tlv.RecordProducer, 0, 1)
 	if c.LocalNonce != nil {
-		recordProducers = append(recordProducers, c.LocalNonce)
+		recordProducers = append(recordProducers,
+			&Musig2NonceRecordProducer{
+				Musig2Nonce: *c.LocalNonce,
+				Type:        RevAndAckLocalNonceType,
+			},
+		)
 	}
 	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
 	if err != nil {

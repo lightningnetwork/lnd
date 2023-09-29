@@ -8,6 +8,12 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+const (
+	// ChanReestLocalNonceType is the tlv number associated with the local
+	// nonce TLV record in the channel_reestablish message.
+	ChanReestLocalNonceType = tlv.Type(4)
+)
+
 // ChannelReestablish is a message sent between peers that have an existing
 // open channel upon connection reestablishment. This message allows both sides
 // to report their local state, and their current knowledge of the state of the
@@ -119,7 +125,12 @@ func (a *ChannelReestablish) Encode(w *bytes.Buffer, pver uint32) error {
 
 	recordProducers := make([]tlv.RecordProducer, 0, 1)
 	if a.LocalNonce != nil {
-		recordProducers = append(recordProducers, a.LocalNonce)
+		recordProducers = append(recordProducers,
+			&Musig2NonceRecordProducer{
+				Musig2Nonce: *a.LocalNonce,
+				Type:        ChanReestLocalNonceType,
+			},
+		)
 	}
 	err := EncodeMessageExtraData(&a.ExtraData, recordProducers...)
 	if err != nil {
@@ -179,16 +190,14 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	var localNonce Musig2Nonce
-	typeMap, err := tlvRecords.ExtractRecords(
-		&localNonce,
-	)
+	localNonce := NewMusig2NonceRecordProducer(ChanReestLocalNonceType)
+	typeMap, err := tlvRecords.ExtractRecords(localNonce)
 	if err != nil {
 		return err
 	}
 
-	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
-		a.LocalNonce = &localNonce
+	if val, ok := typeMap[ChanReestLocalNonceType]; ok && val == nil {
+		a.LocalNonce = &localNonce.Musig2Nonce
 	}
 
 	if len(tlvRecords) != 0 {

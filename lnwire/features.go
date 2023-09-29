@@ -737,9 +737,9 @@ type RawFeatureVectorRecordProducer struct {
 	Type tlv.Type
 }
 
-// NewRawFeatureVectorRecord constructs a new RawFeatureVectorRecordProducer
-// with the given TLV type.
-func NewRawFeatureVectorRecord(
+// NewRawFeatureVectorRecordProducer constructs a new
+// RawFeatureVectorRecordProducer with the given TLV type.
+func NewRawFeatureVectorRecordProducer(
 	tlvType tlv.Type) *RawFeatureVectorRecordProducer {
 
 	return &RawFeatureVectorRecordProducer{

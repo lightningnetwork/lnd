@@ -173,10 +173,17 @@ var _ Message = (*OpenChannel)(nil)
 // Encode serializes the target OpenChannel into the passed io.Writer
 // implementation. Serialization will observe the rules defined by the passed
 // protocol version.
-func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
+func (o *OpenChannel) Encode(w *bytes.Buffer, _ uint32) error {
 	recordProducers := []tlv.RecordProducer{&o.UpfrontShutdownScript}
 	if o.ChannelType != nil {
-		recordProducers = append(recordProducers, o.ChannelType)
+		recordProducers = append(recordProducers,
+			&RawFeatureVectorRecordProducer{
+				RawFeatureVector: RawFeatureVector(
+					*o.ChannelType,
+				),
+				Type: ChannelTypeRecordType,
+			},
+		)
 	}
 	if o.LeaseExpiry != nil {
 		recordProducers = append(recordProducers, o.LeaseExpiry)
@@ -312,14 +319,16 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 	// Next we'll parse out the set of known records, keeping the raw tlv
 	// bytes untouched to ensure we don't drop any bytes erroneously.
 	var (
-		chanType    ChannelType
+		chanType = NewRawFeatureVectorRecordProducer(
+			ChannelTypeRecordType,
+		)
 		leaseExpiry LeaseExpiry
 		localNonce  = NewMusig2NonceRecordProducer(
 			OpenChanLocalNonceType,
 		)
 	)
 	typeMap, err := tlvRecords.ExtractRecordsFromProducers(
-		&o.UpfrontShutdownScript, &chanType, &leaseExpiry, localNonce,
+		&o.UpfrontShutdownScript, chanType, &leaseExpiry, localNonce,
 	)
 	if err != nil {
 		return err
@@ -327,7 +336,8 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 
 	// Set the corresponding TLV types if they were included in the stream.
 	if val, ok := typeMap[ChannelTypeRecordType]; ok && val == nil {
-		o.ChannelType = &chanType
+		channelType := ChannelType(chanType.RawFeatureVector)
+		o.ChannelType = &channelType
 	}
 	if val, ok := typeMap[LeaseExpiryRecordType]; ok && val == nil {
 		o.LeaseExpiry = &leaseExpiry

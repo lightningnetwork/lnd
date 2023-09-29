@@ -142,7 +142,14 @@ var _ Message = (*AcceptChannel)(nil)
 func (a *AcceptChannel) Encode(w *bytes.Buffer, pver uint32) error {
 	recordProducers := []tlv.RecordProducer{&a.UpfrontShutdownScript}
 	if a.ChannelType != nil {
-		recordProducers = append(recordProducers, a.ChannelType)
+		recordProducers = append(recordProducers,
+			&RawFeatureVectorRecordProducer{
+				RawFeatureVector: RawFeatureVector(
+					*a.ChannelType,
+				),
+				Type: ChannelTypeRecordType,
+			},
+		)
 	}
 	if a.LeaseExpiry != nil {
 		recordProducers = append(recordProducers, a.LeaseExpiry)
@@ -257,14 +264,16 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 	// Next we'll parse out the set of known records, keeping the raw tlv
 	// bytes untouched to ensure we don't drop any bytes erroneously.
 	var (
-		chanType    ChannelType
+		chanType = NewRawFeatureVectorRecordProducer(
+			ChannelTypeRecordType,
+		)
 		leaseExpiry LeaseExpiry
 		localNonce  = NewMusig2NonceRecordProducer(
 			AcceptChanLocalNonceType,
 		)
 	)
 	typeMap, err := tlvRecords.ExtractRecordsFromProducers(
-		&a.UpfrontShutdownScript, &chanType, &leaseExpiry, localNonce,
+		&a.UpfrontShutdownScript, chanType, &leaseExpiry, localNonce,
 	)
 	if err != nil {
 		return err
@@ -272,7 +281,8 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 
 	// Set the corresponding TLV types if they were included in the stream.
 	if val, ok := typeMap[ChannelTypeRecordType]; ok && val == nil {
-		a.ChannelType = &chanType
+		channelType := ChannelType(chanType.RawFeatureVector)
+		a.ChannelType = &channelType
 	}
 	if val, ok := typeMap[LeaseExpiryRecordType]; ok && val == nil {
 		a.LeaseExpiry = &leaseExpiry

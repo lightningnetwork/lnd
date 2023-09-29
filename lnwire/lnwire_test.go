@@ -745,8 +745,8 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			if rand.Uint32()%2 == 0 {
-				v := ChannelType(*NewRawFeatureVector())
-				dp.ChannelType = fn.Some(v)
+				v := NewRawFeatureVector()
+				dp.ChannelType = fn.Some(*v)
 			}
 
 			if rand.Uint32()%2 == 0 {

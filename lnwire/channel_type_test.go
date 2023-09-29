@@ -11,18 +11,21 @@ import (
 func TestChannelTypeEncodeDecode(t *testing.T) {
 	t.Parallel()
 
-	chanType := ChannelType(*NewRawFeatureVector(
-		StaticRemoteKeyRequired,
-		AnchorsZeroFeeHtlcTxRequired,
-	))
+	record1 := RawFeatureVectorRecordProducer{
+		RawFeatureVector: *NewRawFeatureVector(
+			StaticRemoteKeyRequired,
+			AnchorsZeroFeeHtlcTxRequired,
+		),
+		Type: ChannelTypeRecordType,
+	}
 
 	var extraData ExtraOpaqueData
-	require.NoError(t, extraData.PackRecordsFromProducers(&chanType))
+	require.NoError(t, extraData.PackRecordsFromProducers(&record1))
 
-	var chanType2 ChannelType
-	tlvs, err := extraData.ExtractRecordsFromProducers(&chanType2)
+	record2 := NewRawFeatureVectorRecordProducer(ChannelTypeRecordType)
+	tlvs, err := extraData.ExtractRecordsFromProducers(record2)
 	require.NoError(t, err)
 
 	require.Contains(t, tlvs, ChannelTypeRecordType)
-	require.Equal(t, chanType, chanType2)
+	require.Equal(t, record1.RawFeatureVector, record2.RawFeatureVector)
 }

@@ -173,6 +173,14 @@ func WriteSigs(buf *bytes.Buffer, sigs []Sig) error {
 	return nil
 }
 
+// WritePartialSig appends the serialised partial signature to the provided
+// buffer.
+func WritePartialSig(buf *bytes.Buffer, sig PartialSig) error {
+	sigBytes := sig.Sig.Bytes()
+
+	return WriteBytes(buf, sigBytes[:])
+}
+
 // WriteFailCode appends the FailCode to the provided buffer.
 func WriteFailCode(buf *bytes.Buffer, e FailCode) error {
 	return WriteUint16(buf, uint16(e))

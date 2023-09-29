@@ -7,11 +7,28 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-const (
-	// AliasScidRecordType is the type of the experimental record to denote
-	// the alias being used in an option_scid_alias channel.
-	AliasScidRecordType tlv.Type = 1
-)
+// ShortChannelIDRecordProducer wraps a ShortChannelID with the tlv type that it
+// should be encoded with.
+type ShortChannelIDRecordProducer struct {
+	ShortChannelID
+	Type tlv.Type
+}
+
+// Record returns a TLV record that can be used to encode/decode a
+// ShortChannelID to/from a TLV stream.
+func (c *ShortChannelIDRecordProducer) Record() tlv.Record {
+	return tlv.MakeStaticRecord(
+		c.Type, &c.ShortChannelID, 8, EShortChannelID, DShortChannelID,
+	)
+}
+
+// NewShortChannelIDRecordProducer constructs a new ShortChannelIDRecordProducer
+// with the given TLV type.
+func NewShortChannelIDRecordProducer(t tlv.Type) *ShortChannelIDRecordProducer {
+	return &ShortChannelIDRecordProducer{
+		Type: t,
+	}
+}
 
 // ShortChannelID represents the set of data which is needed to retrieve all
 // necessary data to validate the channel existence.
@@ -47,21 +64,13 @@ func NewShortChanIDFromInt(chanID uint64) ShortChannelID {
 // uint64 (8 bytes).
 func (c ShortChannelID) ToUint64() uint64 {
 	// TODO(roasbeef): explicit error on overflow?
-	return ((uint64(c.BlockHeight) << 40) | (uint64(c.TxIndex) << 16) |
-		(uint64(c.TxPosition)))
+	return (uint64(c.BlockHeight) << 40) | (uint64(c.TxIndex) << 16) |
+		(uint64(c.TxPosition))
 }
 
 // String generates a human-readable representation of the channel ID.
 func (c ShortChannelID) String() string {
 	return fmt.Sprintf("%d:%d:%d", c.BlockHeight, c.TxIndex, c.TxPosition)
-}
-
-// Record returns a TLV record that can be used to encode/decode a
-// ShortChannelID to/from a TLV stream.
-func (c *ShortChannelID) Record() tlv.Record {
-	return tlv.MakeStaticRecord(
-		AliasScidRecordType, c, 8, EShortChannelID, DShortChannelID,
-	)
 }
 
 // IsDefault returns true if the ShortChannelID represents the zero value for

@@ -9,6 +9,11 @@ import (
 )
 
 const (
+	// ChanReadyAliasScidType is the TLV type of the experimental record of
+	// channel_ready to denote the alias being used in an option_scid_alias
+	// channel.
+	ChanReadyAliasScidType = tlv.Type(1)
+
 	// ChanReadyLocalNonceType is the tlv number associated with the local
 	// nonce TLV record in the channel_ready message.
 	ChanReadyLocalNonceType = tlv.Type(4)
@@ -82,13 +87,15 @@ func (c *ChannelReady) Decode(r io.Reader, _ uint32) error {
 	// Next we'll parse out the set of known records. For now, this is just
 	// the AliasScidRecordType.
 	var (
-		aliasScid  ShortChannelID
+		aliasScid = NewShortChannelIDRecordProducer(
+			ChanReadyAliasScidType,
+		)
 		localNonce = NewMusig2NonceRecordProducer(
 			ChanReadyLocalNonceType,
 		)
 	)
 	typeMap, err := tlvRecords.ExtractRecordsFromProducers(
-		&aliasScid, localNonce,
+		aliasScid, localNonce,
 	)
 	if err != nil {
 		return err
@@ -96,8 +103,8 @@ func (c *ChannelReady) Decode(r io.Reader, _ uint32) error {
 
 	// We'll only set AliasScid if the corresponding TLV type was included
 	// in the stream.
-	if val, ok := typeMap[AliasScidRecordType]; ok && val == nil {
-		c.AliasScid = &aliasScid
+	if val, ok := typeMap[ChanReadyAliasScidType]; ok && val == nil {
+		c.AliasScid = &aliasScid.ShortChannelID
 	}
 	if val, ok := typeMap[ChanReadyLocalNonceType]; ok && val == nil {
 		c.NextLocalNonce = &localNonce.Musig2Nonce
@@ -127,7 +134,12 @@ func (c *ChannelReady) Encode(w *bytes.Buffer, _ uint32) error {
 	// We'll only encode the AliasScid in a TLV segment if it exists.
 	recordProducers := make([]tlv.RecordProducer, 0, 2)
 	if c.AliasScid != nil {
-		recordProducers = append(recordProducers, c.AliasScid)
+		recordProducers = append(recordProducers,
+			&ShortChannelIDRecordProducer{
+				ShortChannelID: *c.AliasScid,
+				Type:           ChanReadyAliasScidType,
+			},
+		)
 	}
 	if c.NextLocalNonce != nil {
 		recordProducers = append(

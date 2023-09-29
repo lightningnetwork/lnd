@@ -2,6 +2,7 @@ package lnwire
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -1205,6 +1206,72 @@ func TestLightningWireProtocol(t *testing.T) {
 				require.NoError(t, err)
 			}
 		},
+		MsgNodeAnnouncement2: func(v []reflect.Value, r *rand.Rand) {
+			req := NodeAnnouncement2{
+				Signature:       testSchnorrSig,
+				BlockHeight:     r.Uint32(),
+				NodeID:          randRawKey(t),
+				ExtraOpaqueData: make([]byte, 0),
+			}
+
+			features := randRawFeatureVector(r)
+			req.Features = *features
+
+			// Sometimes set the colour field.
+			if r.Int31()%2 == 0 {
+				req.RGBColor = &color.RGBA{
+					R: uint8(r.Int31()),
+					G: uint8(r.Int31()),
+					B: uint8(r.Int31()),
+				}
+			}
+
+			n := r.Intn(33)
+			b := make([]byte, n)
+			_, err := rand.Read(b)
+			require.NoError(t, err)
+
+			if n > 0 {
+				req.Alias = []byte(
+					base64.StdEncoding.EncodeToString(b),
+				)
+				if len(req.Alias) > 32 {
+					req.Alias = req.Alias[:32]
+				}
+			}
+
+			// Sometimes add some ipv4 addrs.
+			if r.Int31()%2 == 0 {
+				ipv4Addr, err := randTCP4Addr(r)
+				require.NoError(t, err)
+				req.Addresses = append(req.Addresses, ipv4Addr)
+			}
+
+			// Sometimes add some ipv6 addrs.
+			if r.Int31()%2 == 0 {
+				ipv6Addr, err := randTCP6Addr(r)
+				require.NoError(t, err)
+				req.Addresses = append(req.Addresses, ipv6Addr)
+			}
+
+			// Sometimes add some torv3 addrs.
+			if r.Int31()%2 == 0 {
+				ipv6Addr, err := randV3OnionAddr(r)
+				require.NoError(t, err)
+				req.Addresses = append(req.Addresses, ipv6Addr)
+			}
+
+			numExtraBytes := r.Int31n(1000)
+			if numExtraBytes > 0 {
+				req.ExtraOpaqueData = make(
+					[]byte, numExtraBytes,
+				)
+				_, err := r.Read(req.ExtraOpaqueData[:])
+				require.NoError(t, err)
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
 	}
 
 	// With the above types defined, we'll now generate a slice of
@@ -1400,6 +1467,12 @@ func TestLightningWireProtocol(t *testing.T) {
 		{
 			msgType: MsgChannelAnnouncement2,
 			scenario: func(m ChannelAnnouncement2) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgNodeAnnouncement2,
+			scenario: func(m NodeAnnouncement2) bool {
 				return mainScenario(&m)
 			},
 		},

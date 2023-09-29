@@ -103,7 +103,7 @@ func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
 	}
 
 	var musigNonce ShutdownNonce
-	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
+	typeMap, err := tlvRecords.ExtractRecordsFromProducers(&musigNonce)
 	if err != nil {
 		return err
 	}

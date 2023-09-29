@@ -263,7 +263,7 @@ func (a *AcceptChannel) Decode(r io.Reader, pver uint32) error {
 			AcceptChanLocalNonceType,
 		)
 	)
-	typeMap, err := tlvRecords.ExtractRecords(
+	typeMap, err := tlvRecords.ExtractRecordsFromProducers(
 		&a.UpfrontShutdownScript, &chanType, &leaseExpiry, localNonce,
 	)
 	if err != nil {

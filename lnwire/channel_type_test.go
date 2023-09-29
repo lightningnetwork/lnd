@@ -17,10 +17,10 @@ func TestChannelTypeEncodeDecode(t *testing.T) {
 	))
 
 	var extraData ExtraOpaqueData
-	require.NoError(t, extraData.PackRecords(&chanType))
+	require.NoError(t, extraData.PackRecordsFromProducers(&chanType))
 
 	var chanType2 ChannelType
-	tlvs, err := extraData.ExtractRecords(&chanType2)
+	tlvs, err := extraData.ExtractRecordsFromProducers(&chanType2)
 	require.NoError(t, err)
 
 	require.Contains(t, tlvs, ChannelTypeRecordType)

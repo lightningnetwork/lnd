@@ -214,7 +214,7 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 
 	localNonce := NewMusig2NonceRecordProducer(ChanReestLocalNonceType)
 	var dynHeight DynHeight
-	typeMap, err := tlvRecords.ExtractRecords(
+	typeMap, err := tlvRecords.ExtractRecordsFromProducers(
 		localNonce, &dynHeight,
 	)
 	if err != nil {

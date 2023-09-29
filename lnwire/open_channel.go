@@ -318,7 +318,7 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 			OpenChanLocalNonceType,
 		)
 	)
-	typeMap, err := tlvRecords.ExtractRecords(
+	typeMap, err := tlvRecords.ExtractRecordsFromProducers(
 		&o.UpfrontShutdownScript, &chanType, &leaseExpiry, localNonce,
 	)
 	if err != nil {

@@ -52,6 +52,7 @@ const (
 	MsgQueryChannelRange                   = 263
 	MsgReplyChannelRange                   = 264
 	MsgGossipTimestampRange                = 265
+	MsgChannelAnnouncement2                = 267
 )
 
 // ErrorEncodeMessage is used when failed to encode the message payload.
@@ -137,6 +138,8 @@ func (t MessageType) String() string {
 		return "GossipTimestampRange"
 	case MsgAnnouncementSignatures2:
 		return "MsgAnnouncementSignatures2"
+	case MsgChannelAnnouncement2:
+		return "ChannelAnnouncement2"
 	default:
 		return "<unknown>"
 	}
@@ -241,6 +244,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &GossipTimestampRange{}
 	case MsgAnnouncementSignatures2:
 		msg = &AnnouncementSignatures2{}
+	case MsgChannelAnnouncement2:
+		msg = &ChannelAnnouncement2{}
 	default:
 		// If the message is not within our custom range and has not
 		// specifically been overridden, return an unknown message.

@@ -936,6 +936,19 @@ func ReadElement(r io.Reader, element interface{}) error {
 		}
 		*e = addrBytes[:length]
 
+	case *PartialSig:
+		var sBytes [32]byte
+		if _, err := io.ReadFull(r, sBytes[:]); err != nil {
+			return err
+		}
+
+		var s btcec.ModNScalar
+		s.SetBytes(&sBytes)
+
+		*e = PartialSig{
+			Sig: s,
+		}
+
 	case *ExtraOpaqueData:
 		return e.Decode(r)
 

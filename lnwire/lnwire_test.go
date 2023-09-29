@@ -632,23 +632,25 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 		MsgChannelReady: func(v []reflect.Value, r *rand.Rand) {
 			var c [32]byte
-			if _, err := r.Read(c[:]); err != nil {
-				t.Fatalf("unable to generate chan id: %v", err)
-				return
-			}
+			_, err := r.Read(c[:])
+			require.NoError(t, err)
 
 			pubKey, err := randPubKey()
-			if err != nil {
-				t.Fatalf("unable to generate key: %v", err)
-				return
-			}
+			require.NoError(t, err)
 
-			req := NewChannelReady(ChannelID(c), pubKey)
+			req := NewChannelReady(c, pubKey)
 
 			if r.Int31()%2 == 0 {
-				scid := NewShortChanIDFromInt(uint64(r.Int63()))
-				req.AliasScid = &scid
 				req.NextLocalNonce = randLocalNonce(r)
+			}
+
+			if r.Int31()%2 == 0 {
+				req.AnnouncementBitcoinNonce = fn.Some(
+					*randLocalNonce(r),
+				)
+				req.AnnouncementNodeNonce = fn.Some(
+					*randLocalNonce(r),
+				)
 			}
 
 			v[0] = reflect.ValueOf(*req)

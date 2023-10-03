@@ -20,7 +20,7 @@ file in Python before you can use it to communicate with lnd.
 3. Install dependencies (googleapis-common-protos is required due to the use of
   google/api/annotations.proto)
     ```shell
-    lnd $  pip install grpcio grpcio-tools googleapis-common-protos mypy mypy-protobuf
+    lnd $  pip install grpcio grpcio-tools googleapis-common-protos mypy-protobuf
     ```
 4. Clone the google api's repository (required due to the use of
   google/api/annotations.proto)

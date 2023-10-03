@@ -20,7 +20,7 @@ file in Python before you can use it to communicate with lnd.
 3. Install dependencies (googleapis-common-protos is required due to the use of
   google/api/annotations.proto)
     ```shell
-    lnd $  pip install grpcio grpcio-tools googleapis-common-protos mypy mypy-protobuff
+    lnd $  pip install grpcio grpcio-tools googleapis-common-protos mypy mypy-protobuf
     ```
 4. Clone the google api's repository (required due to the use of
   google/api/annotations.proto)
@@ -35,7 +35,7 @@ file in Python before you can use it to communicate with lnd.
     ```
 6. Compile the proto file
     ```shell
-    lnd $  python -m grpc_tools.protoc --proto_path=googleapis:. --mypy_out=. --python_out=. --grpc_python_out=. router.proto
+    lnd $  python -m grpc_tools.protoc --proto_path=googleapis:. --mypy_out=. --python_out=. --grpc_python_out=. lightning.proto
     ```
 
 After following these steps, three files `lightning_pb2.py`,
@@ -53,7 +53,7 @@ extra steps (after completing all 6 step described above) to get the
 
 ```shell
 lnd $  curl -o router.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/routerrpc/router.proto
-lnd $  python -m grpc_tools.protoc --proto_path=googleapis:. --mypy_out=. --python_out=. --grpc_python_out=. lightning.proto
+lnd $  python -m grpc_tools.protoc --proto_path=googleapis:. --mypy_out=. --python_out=. --grpc_python_out=. router.proto
 ```
 
 ### Imports and Client

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -2944,6 +2945,23 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 			routing.ErrVBarrierShuttingDown,
 		) {
 
+			log.Debugf("Update edge for short_chan_id(%v) got: %v",
+				shortChanID, err)
+		} else if strings.Contains(err.Error(),
+			channeldb.ErrEdgeNotFound.Error()) {
+
+			// TODO(ziggie): Remove this case when the deletion and
+			// addition for alias channels is atomic.
+			// For now we have to handle this case to prevent a race
+			// condition where the peer sends us a ChanUpdate but
+			// we are in the process of removing/adding the edge to
+			// our db (for scid alias channels). Otherwise we would
+			// throttle ChanUpdates where the peer sends us the
+			// ChanUpdate with the __dont_forward__ bit unset.
+			// This does not introduce a DoS vector because we are
+			// already checking for the __ErrEdgeNotFound__ earlier
+			// in this function so this is just an edge case
+			// prevention for now.
 			log.Debugf("Update edge for short_chan_id(%v) got: %v",
 				shortChanID, err)
 		} else {

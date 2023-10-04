@@ -163,6 +163,8 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 		return nil, err
 	}
 	for _, nodeAnn := range nodeAnnsInHorizon {
+		nodeAnn := nodeAnn
+
 		// Ensure we only forward nodes that are publicly advertised to
 		// prevent leaking information about nodes.
 		isNodePublic, err := c.graph.IsPublicNode(nodeAnn.PubKeyBytes)

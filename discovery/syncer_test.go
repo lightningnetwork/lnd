@@ -2134,18 +2134,33 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 			name:          "active to passive",
 			entrySyncType: ActiveSync,
 			finalSyncType: PassiveSync,
-			assert: func(t *testing.T, msgChan chan []lnwire.Message,
+			assert: func(t *testing.T, mChan chan []lnwire.Message,
 				g *GossipSyncer) {
+
+				// When we first boot up, we expect that we
+				// send out a message that indicates we want
+				// all the updates from here on.
+				firstTimestamp := uint32(time.Now().Unix())
+				assertMsgSent(
+					t, mChan, &lnwire.GossipTimestampRange{
+						FirstTimestamp: firstTimestamp,
+						TimestampRange: math.MaxUint32,
+					},
+				)
 
 				// When transitioning from active to passive, we
 				// should expect to see a new local update
 				// horizon sent to the remote peer indicating
 				// that it would not like to receive any future
 				// updates.
-				assertMsgSent(t, msgChan, &lnwire.GossipTimestampRange{
-					FirstTimestamp: uint32(zeroTimestamp.Unix()),
-					TimestampRange: 0,
-				})
+				assertMsgSent(
+					t, mChan, &lnwire.GossipTimestampRange{
+						FirstTimestamp: uint32(
+							zeroTimestamp.Unix(),
+						),
+						TimestampRange: 0,
+					},
+				)
 
 				syncState := g.syncState()
 				if syncState != chansSynced {
@@ -2182,6 +2197,8 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		test := test
+
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 

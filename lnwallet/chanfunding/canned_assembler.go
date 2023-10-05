@@ -10,6 +10,22 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
+// NewShimIntent creates a new ShimIntent. This is only used for testing.
+func NewShimIntent(localAmt, remoteAmt btcutil.Amount,
+	localKey *keychain.KeyDescriptor, remoteKey *btcec.PublicKey,
+	chanPoint *wire.OutPoint, thawHeight uint32, musig2 bool) *ShimIntent {
+
+	return &ShimIntent{
+		localFundingAmt:  localAmt,
+		remoteFundingAmt: remoteAmt,
+		localKey:         localKey,
+		remoteKey:        remoteKey,
+		chanPoint:        chanPoint,
+		thawHeight:       thawHeight,
+		musig2:           musig2,
+	}
+}
+
 // ShimIntent is an intent created by the CannedAssembler which represents a
 // funding output to be created that was constructed outside the wallet. This
 // might be used when a hardware wallet, or a channel factory is the entity

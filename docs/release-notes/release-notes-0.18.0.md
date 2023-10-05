@@ -42,6 +42,10 @@
 
 # Improvements
 ## Functional Updates
+### Tlv
+* [Bool was added](https://github.com/lightningnetwork/lnd/pull/8057) to the
+  primitive type of the tlv package.
+
 ## RPC Updates
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
@@ -79,3 +83,4 @@
 * Carla Kirk-Cohen
 * Elle Mouton
 * Yong Yu
+* Ononiwu Maureen Chiamaka

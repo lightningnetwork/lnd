@@ -2,6 +2,7 @@ package tlv
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 
@@ -143,6 +144,33 @@ func EUint64T(w io.Writer, val uint64, buf *[8]byte) error {
 	return err
 }
 
+// EBool encodes a boolean. An error is returned if val is not a boolean.
+func EBool(w io.Writer, val interface{}, buf *[8]byte) error {
+	if i, ok := val.(*bool); ok {
+		if *i {
+			buf[0] = 1
+		} else {
+			buf[0] = 0
+		}
+		_, err := w.Write(buf[:1])
+		return err
+	}
+	return NewTypeForEncodingErr(val, "bool")
+}
+
+// EBoolT encodes a bool val to the provided io.Writer. This method is exposed
+// so that encodings for custom bool-like types can be created without
+// incurring an extra heap allocation.
+func EBoolT(w io.Writer, val bool, buf *[8]byte) error {
+	if val {
+		buf[0] = 1
+	} else {
+		buf[0] = 0
+	}
+	_, err := w.Write(buf[:1])
+	return err
+}
+
 // DUint8 is a Decoder for uint8 values. An error is returned if val is not a
 // *uint8.
 func DUint8(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
@@ -193,6 +221,21 @@ func DUint64(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 		return nil
 	}
 	return NewTypeForDecodingErr(val, "uint64", l, 8)
+}
+
+// DBool decodes a boolean. An error is returned if val is not a boolean.
+func DBool(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
+	if i, ok := val.(*bool); ok && l == 1 {
+		if _, err := io.ReadFull(r, buf[:1]); err != nil {
+			return err
+		}
+		if buf[0] != 0 && buf[0] != 1 {
+			return errors.New("corrupted data")
+		}
+		*i = buf[0] != 0
+		return nil
+	}
+	return NewTypeForDecodingErr(val, "bool", l, 1)
 }
 
 // EBytes32 is an Encoder for 32-byte arrays. An error is returned if val is not

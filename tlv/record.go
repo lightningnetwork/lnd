@@ -104,6 +104,11 @@ func MakePrimitiveRecord(typ Type, val interface{}) Record {
 		decoder    Decoder
 	)
 	switch e := val.(type) {
+	case *bool:
+		staticSize = 1
+		encoder = EBool
+		decoder = DBool
+
 	case *uint8:
 		staticSize = 1
 		encoder = EUint8

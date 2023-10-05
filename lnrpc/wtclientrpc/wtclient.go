@@ -390,6 +390,10 @@ func constructFunctionalOptions(includeSessions,
 		return opts, ackCounts, committedUpdateCounts
 	}
 
+	perNumRogueUpdates := func(s *wtdb.ClientSession, numUpdates uint16) {
+		ackCounts[s.ID] += numUpdates
+	}
+
 	perNumAckedUpdates := func(s *wtdb.ClientSession, id lnwire.ChannelID,
 		numUpdates uint16) {
 
@@ -405,6 +409,7 @@ func constructFunctionalOptions(includeSessions,
 	opts = []wtdb.ClientSessionListOption{
 		wtdb.WithPerNumAckedUpdates(perNumAckedUpdates),
 		wtdb.WithPerCommittedUpdate(perCommittedUpdate),
+		wtdb.WithPerRogueUpdateCount(perNumRogueUpdates),
 	}
 
 	if excludeExhaustedSessions {

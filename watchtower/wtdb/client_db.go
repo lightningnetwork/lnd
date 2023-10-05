@@ -50,6 +50,7 @@ var (
 	// 		=> cSessionDBID -> db-assigned-id
 	//              => cSessionCommits => seqnum -> encoded CommittedUpdate
 	//              => cSessionAckRangeIndex => db-chan-id => start -> end
+	// 		=> cSessionRogueUpdateCount -> count
 	cSessionBkt = []byte("client-session-bucket")
 
 	// cSessionDBID is a key used in the cSessionBkt to store the
@@ -67,6 +68,12 @@ var (
 	// cSessionAckRangeIndex is a sub-bucket of cSessionBkt storing
 	//    chan-id => start -> end
 	cSessionAckRangeIndex = []byte("client-session-ack-range-index")
+
+	// cSessionRogueUpdateCount is a key in the cSessionBkt bucket storing
+	// the number of rogue updates that were backed up using the session.
+	// Rogue updates are updates for channels that have been closed already
+	// at the time of the back-up.
+	cSessionRogueUpdateCount = []byte("client-session-rogue-update-count")
 
 	// cChanIDIndexBkt is a top-level bucket storing:
 	//    db-assigned-id -> channel-ID
@@ -980,29 +987,8 @@ func getRangesReadBucket(tx kvdb.RTx, sID SessionID, chanID lnwire.ChannelID) (
 // getRangesWriteBucket gets the range index bucket where the range index for
 // the given session-channel pair is stored. If any sub-buckets along the way do
 // not exist, then they are created.
-func getRangesWriteBucket(tx kvdb.RwTx, sID SessionID,
-	chanID lnwire.ChannelID) (kvdb.RwBucket, error) {
-
-	sessions := tx.ReadWriteBucket(cSessionBkt)
-	if sessions == nil {
-		return nil, ErrUninitializedDB
-	}
-
-	chanDetailsBkt := tx.ReadBucket(cChanDetailsBkt)
-	if chanDetailsBkt == nil {
-		return nil, ErrUninitializedDB
-	}
-
-	sessionBkt, err := sessions.CreateBucketIfNotExists(sID[:])
-	if err != nil {
-		return nil, err
-	}
-
-	// Get the DB representation of the channel-ID.
-	_, dbChanIDBytes, err := getDBChanID(chanDetailsBkt, chanID)
-	if err != nil {
-		return nil, err
-	}
+func getRangesWriteBucket(sessionBkt kvdb.RwBucket, dbChanIDBytes []byte) (
+	kvdb.RwBucket, error) {
 
 	sessionAckRanges, err := sessionBkt.CreateBucketIfNotExists(
 		cSessionAckRangeIndex,
@@ -1263,10 +1249,23 @@ func (c *ClientDB) NumAckedUpdates(id *SessionID) (uint64, error) {
 		}
 
 		sessionBkt := sessions.NestedReadBucket(id[:])
-		if sessionsBkt == nil {
+		if sessionBkt == nil {
 			return nil
 		}
 
+		// First, account for any rogue updates.
+		rogueCountBytes := sessionBkt.Get(cSessionRogueUpdateCount)
+		if len(rogueCountBytes) != 0 {
+			rogueCount, err := readBigSize(rogueCountBytes)
+			if err != nil {
+				return err
+			}
+
+			numAcked += rogueCount
+		}
+
+		// Then, check if the session-ack-ranges contains any entries
+		// to account for.
 		sessionAckRanges := sessionBkt.NestedReadBucket(
 			cSessionAckRangeIndex,
 		)
@@ -1546,14 +1545,37 @@ func (c *ClientDB) DeleteSession(id SessionID) error {
 			return err
 		}
 
-		// Get the acked updates range index for the session. This is
-		// used to get the list of channels that the session has updates
-		// for.
 		ackRanges := sessionBkt.NestedReadBucket(cSessionAckRangeIndex)
+
+		// There is a small chance that the session only contains rogue
+		// updates. In that case, there will be no ack-ranges index but
+		// the rogue update count will be equal the MaxUpdates.
+		rogueCountBytes := sessionBkt.Get(cSessionRogueUpdateCount)
+		if len(rogueCountBytes) != 0 {
+			rogueCount, err := readBigSize(rogueCountBytes)
+			if err != nil {
+				return err
+			}
+
+			maxUpdates := sess.ClientSessionBody.Policy.MaxUpdates
+			if rogueCount == uint64(maxUpdates) {
+				// Do a sanity check to ensure that the acked
+				// ranges bucket does not exist in this case.
+				if ackRanges != nil {
+					return fmt.Errorf("acked updates "+
+						"exist for session with a "+
+						"max-updates(%d) rogue count",
+						rogueCount)
+				}
+
+				return sessionsBkt.DeleteNestedBucket(id[:])
+			}
+		}
+
+		// A session would only be considered closable if it was
+		// exhausted. Meaning that it should not be the case that it has
+		// no acked-updates.
 		if ackRanges == nil {
-			// A session would only be considered closable if it
-			// was exhausted. Meaning that it should not be the
-			// case that it has no acked-updates.
 			return fmt.Errorf("cannot delete session %s since it "+
 				"is not yet exhausted", id)
 		}
@@ -1782,6 +1804,22 @@ func isSessionClosable(sessionsBkt, chanDetailsBkt, chanIDIndexBkt kvdb.RBucket,
 	if session.SeqNum < session.Policy.MaxUpdates {
 		// If the session is not yet exhausted, it is not yet closable.
 		return false, nil
+	}
+
+	// Either the acked-update bucket should exist _or_ the rogue update
+	// count must be equal to the session's MaxUpdates value, otherwise
+	// something is wrong because the above check ensures that the session
+	// has been exhausted.
+	rogueCountBytes := sessBkt.Get(cSessionRogueUpdateCount)
+	if len(rogueCountBytes) != 0 {
+		rogueCount, err := readBigSize(rogueCountBytes)
+		if err != nil {
+			return false, err
+		}
+
+		if rogueCount == uint64(session.Policy.MaxUpdates) {
+			return true, nil
+		}
 	}
 
 	// If the session has no acked-updates, then something is wrong since
@@ -2026,18 +2064,92 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 			return err
 		}
 
-		chanID := committedUpdate.BackupID.ChanID
-		height := committedUpdate.BackupID.CommitHeight
-
-		// Get the ranges write bucket before getting the range index to
-		// ensure that the session acks sub-bucket is initialized, so
-		// that we can insert an entry.
-		rangesBkt, err := getRangesWriteBucket(tx, *id, chanID)
+		dbSessionID, dbSessIDBytes, err := getDBSessionID(sessions, *id)
 		if err != nil {
 			return err
 		}
 
-		dbSessionID, _, err := getDBSessionID(sessions, *id)
+		chanID := committedUpdate.BackupID.ChanID
+		height := committedUpdate.BackupID.CommitHeight
+
+		// Get the DB representation of the channel-ID. There is a
+		// chance that the channel corresponding to this update has been
+		// closed and that the details for this channel no longer exist
+		// in the tower client DB. In that case, we consider this a
+		// rogue update and all we do is make sure to keep track of the
+		// number of rogue updates for this session.
+		_, dbChanIDBytes, err := getDBChanID(chanDetailsBkt, chanID)
+		if errors.Is(err, ErrChannelNotRegistered) {
+			var (
+				count uint64
+				err   error
+			)
+
+			rogueCountBytes := sessionBkt.Get(
+				cSessionRogueUpdateCount,
+			)
+			if len(rogueCountBytes) != 0 {
+				count, err = readBigSize(rogueCountBytes)
+				if err != nil {
+					return err
+				}
+			}
+
+			rogueCount := count + 1
+			countBytes, err := writeBigSize(rogueCount)
+			if err != nil {
+				return err
+			}
+
+			err = sessionBkt.Put(
+				cSessionRogueUpdateCount, countBytes,
+			)
+			if err != nil {
+				return err
+			}
+
+			// In the rare chance that this session only has rogue
+			// updates, we check here if the count is equal to the
+			// MaxUpdate of the session. If it is, then we mark the
+			// session as closable.
+			if rogueCount != uint64(session.Policy.MaxUpdates) {
+				return nil
+			}
+
+			// Before we mark the session as closable, we do a
+			// sanity check to ensure that this session has no
+			// acked-update index.
+			sessionAckRanges := sessionBkt.NestedReadBucket(
+				cSessionAckRangeIndex,
+			)
+			if sessionAckRanges != nil {
+				return fmt.Errorf("session(%s) has an "+
+					"acked ranges index but has a rogue "+
+					"count indicating saturation",
+					session.ID)
+			}
+
+			closableSessBkt := tx.ReadWriteBucket(
+				cClosableSessionsBkt,
+			)
+			if closableSessBkt == nil {
+				return ErrUninitializedDB
+			}
+
+			var height [4]byte
+			byteOrder.PutUint32(height[:], 0)
+
+			return closableSessBkt.Put(dbSessIDBytes, height[:])
+		} else if err != nil {
+			return err
+		}
+
+		// Get the ranges write bucket before getting the range index to
+		// ensure that the session acks sub-bucket is initialized, so
+		// that we can insert an entry.
+		rangesBkt, err := getRangesWriteBucket(
+			sessionBkt, dbChanIDBytes,
+		)
 		if err != nil {
 			return err
 		}
@@ -2173,6 +2285,11 @@ type PerMaxHeightCB func(*ClientSession, lnwire.ChannelID, uint64)
 // number of updates that the session has for the channel.
 type PerNumAckedUpdatesCB func(*ClientSession, lnwire.ChannelID, uint16)
 
+// PerRogueUpdateCountCB describes the signature of a callback function that can
+// be called for each session with the number of rogue updates that the session
+// has.
+type PerRogueUpdateCountCB func(*ClientSession, uint16)
+
 // PerAckedUpdateCB describes the signature of a callback function that can be
 // called for each of a session's acked updates.
 type PerAckedUpdateCB func(*ClientSession, uint16, BackupID)
@@ -2194,6 +2311,10 @@ type ClientSessionListCfg struct {
 	// channels to communicate the number of updates stored for that
 	// channel.
 	PerNumAckedUpdates PerNumAckedUpdatesCB
+
+	// PerRogueUpdateCount will, if set, be called with the number of rogue
+	// updates that the session has backed up.
+	PerRogueUpdateCount PerRogueUpdateCountCB
 
 	// PerMaxHeight will, if set, be called for each of the session's
 	// channels to communicate the highest commit height of updates stored
@@ -2239,6 +2360,15 @@ func WithPerMaxHeight(cb PerMaxHeightCB) ClientSessionListOption {
 func WithPerNumAckedUpdates(cb PerNumAckedUpdatesCB) ClientSessionListOption {
 	return func(cfg *ClientSessionListCfg) {
 		cfg.PerNumAckedUpdates = cb
+	}
+}
+
+// WithPerRogueUpdateCount constructs a functional option that will set a
+// call-back function to be called with the number of rogue updates that the
+// session has backed up.
+func WithPerRogueUpdateCount(cb PerRogueUpdateCountCB) ClientSessionListOption {
+	return func(cfg *ClientSessionListCfg) {
+		cfg.PerRogueUpdateCount = cb
 	}
 }
 
@@ -2310,7 +2440,7 @@ func (c *ClientDB) getClientSession(sessionsBkt, chanIDIndexBkt kvdb.RBucket,
 	// provided.
 	err = c.filterClientSessionAcks(
 		sessionBkt, chanIDIndexBkt, session, cfg.PerMaxHeight,
-		cfg.PerNumAckedUpdates,
+		cfg.PerNumAckedUpdates, cfg.PerRogueUpdateCount,
 	)
 	if err != nil {
 		return nil, err
@@ -2368,7 +2498,24 @@ func getClientSessionCommits(sessionBkt kvdb.RBucket, s *ClientSession,
 // call back if one is provided.
 func (c *ClientDB) filterClientSessionAcks(sessionBkt,
 	chanIDIndexBkt kvdb.RBucket, s *ClientSession, perMaxCb PerMaxHeightCB,
-	perNumAckedUpdates PerNumAckedUpdatesCB) error {
+	perNumAckedUpdates PerNumAckedUpdatesCB,
+	perRogueUpdateCount PerRogueUpdateCountCB) error {
+
+	if perRogueUpdateCount != nil {
+		var (
+			count uint64
+			err   error
+		)
+		rogueCountBytes := sessionBkt.Get(cSessionRogueUpdateCount)
+		if len(rogueCountBytes) != 0 {
+			count, err = readBigSize(rogueCountBytes)
+			if err != nil {
+				return err
+			}
+		}
+
+		perRogueUpdateCount(s, uint16(count))
+	}
 
 	if perMaxCb == nil && perNumAckedUpdates == nil {
 		return nil

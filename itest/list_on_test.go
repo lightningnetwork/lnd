@@ -178,6 +178,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testListPayments,
 	},
 	{
+		Name:     "send direct payment",
+		TestFunc: testSendDirectPayment,
+	},
+	{
 		Name:     "immediate payment after channel opened",
 		TestFunc: testPaymentFollowingChannelOpen,
 	},

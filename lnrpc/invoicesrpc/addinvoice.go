@@ -47,8 +47,8 @@ const (
 // AddInvoiceConfig contains dependencies for invoice creation.
 type AddInvoiceConfig struct {
 	// AddInvoice is called to add the invoice to the registry.
-	AddInvoice func(invoice *invoices.Invoice, paymentHash lntypes.Hash) (
-		uint64, error)
+	AddInvoice func(ctx context.Context, invoice *invoices.Invoice,
+		paymentHash lntypes.Hash) (uint64, error)
 
 	// IsChannelActive is used to generate valid hop hints.
 	IsChannelActive func(chanID lnwire.ChannelID) bool
@@ -478,7 +478,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	)
 
 	// With all sanity checks passed, write the invoice to the database.
-	_, err = cfg.AddInvoice(newInvoice, paymentHash)
+	_, err = cfg.AddInvoice(ctx, newInvoice, paymentHash)
 	if err != nil {
 		return nil, nil, err
 	}

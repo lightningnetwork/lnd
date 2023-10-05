@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -979,16 +980,16 @@ func newMockRegistry(minDelta uint32) *mockInvoiceRegistry {
 	}
 }
 
-func (i *mockInvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (
-	invoices.Invoice, error) {
+func (i *mockInvoiceRegistry) LookupInvoice(ctx context.Context,
+	rHash lntypes.Hash) (invoices.Invoice, error) {
 
-	return i.registry.LookupInvoice(rHash)
+	return i.registry.LookupInvoice(ctx, rHash)
 }
 
 func (i *mockInvoiceRegistry) SettleHodlInvoice(
-	preimage lntypes.Preimage) error {
+	ctx context.Context, preimage lntypes.Preimage) error {
 
-	return i.registry.SettleHodlInvoice(preimage)
+	return i.registry.SettleHodlInvoice(ctx, preimage)
 }
 
 func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
@@ -1010,14 +1011,16 @@ func (i *mockInvoiceRegistry) NotifyExitHopHtlc(rhash lntypes.Hash,
 	return event, nil
 }
 
-func (i *mockInvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
-	return i.registry.CancelInvoice(payHash)
+func (i *mockInvoiceRegistry) CancelInvoice(ctx context.Context,
+	payHash lntypes.Hash) error {
+
+	return i.registry.CancelInvoice(ctx, payHash)
 }
 
-func (i *mockInvoiceRegistry) AddInvoice(invoice invoices.Invoice,
-	paymentHash lntypes.Hash) error {
+func (i *mockInvoiceRegistry) AddInvoice(ctx context.Context,
+	invoice invoices.Invoice, paymentHash lntypes.Hash) error {
 
-	_, err := i.registry.AddInvoice(&invoice, paymentHash)
+	_, err := i.registry.AddInvoice(ctx, &invoice, paymentHash)
 	return err
 }
 

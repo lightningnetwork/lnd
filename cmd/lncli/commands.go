@@ -620,7 +620,7 @@ func sendMany(ctx *cli.Context) error {
 var connectCommand = cli.Command{
 	Name:      "connect",
 	Category:  "Peers",
-	Usage:     "Connect to a remote lnd peer.",
+	Usage:     "Connect to a remote lightning peer.",
 	ArgsUsage: "<pubkey>@host",
 	Description: `
 	Connect to a peer using its <pubkey> and host.
@@ -682,7 +682,8 @@ func connectPeer(ctx *cli.Context) error {
 var disconnectCommand = cli.Command{
 	Name:      "disconnect",
 	Category:  "Peers",
-	Usage:     "Disconnect a remote lnd peer identified by public key.",
+	Usage:     "Disconnect a remote lightning peer identified by " +
+		    "public key.",
 	ArgsUsage: "<pubkey>",
 	Flags: []cli.Flag{
 		cli.StringFlag{

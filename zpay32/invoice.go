@@ -281,7 +281,7 @@ func PaymentAddr(addr [32]byte) func(*Invoice) {
 }
 
 // Metadata is a functional option that allows callers of NewInvoice to set
-// the desired payment Metadata tht is advertised on the invoice.
+// the desired payment Metadata that is advertised on the invoice.
 func Metadata(metadata []byte) func(*Invoice) {
 	return func(i *Invoice) {
 		i.Metadata = metadata

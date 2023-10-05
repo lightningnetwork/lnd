@@ -254,7 +254,7 @@ func BenchmarkReadMessage(b *testing.B) {
 // type.
 //
 // TODO(yy): the following testing messages are created somewhat arbitrary. We
-// should standardlize each of the testing messages so that a better baseline
+// should standardize each of the testing messages so that a better baseline
 // can be used.
 func makeAllMessages(t testing.TB, r *rand.Rand) []lnwire.Message {
 	msgAll := []lnwire.Message{}

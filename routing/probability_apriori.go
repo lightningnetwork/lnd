@@ -32,7 +32,7 @@ const (
 
 	// minCapacityFactor is the minimal value the capacityFactor can take.
 	// Having a too low value can lead to discarding of paths due to the
-	// enforced minimal proability or to too high pathfinding weights.
+	// enforced minimal probability or to too high pathfinding weights.
 	minCapacityFactor = 0.5
 
 	// minCapacityFraction is the minimum allowed value for

@@ -39,10 +39,10 @@ var (
 	ErrUpfrontShutdownScriptMismatch = fmt.Errorf("shutdown script does not " +
 		"match upfront shutdown script")
 
-	// ErrProposalExeceedsMaxFee is returned when as the initiator, the
+	// ErrProposalExceedsMaxFee is returned when as the initiator, the
 	// latest fee proposal sent by the responder exceed our max fee.
 	// responder.
-	ErrProposalExeceedsMaxFee = fmt.Errorf("latest fee proposal exceeds " +
+	ErrProposalExceedsMaxFee = fmt.Errorf("latest fee proposal exceeds " +
 		"max fee")
 
 	// ErrInvalidShutdownScript is returned when we receive an address from
@@ -526,7 +526,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// use this when we craft the closure transaction.
 		c.remoteDeliveryScript = shutdownMsg.Address
 
-		// Now that we know their desried delivery script, we can
+		// Now that we know their desired delivery script, we can
 		// compute what our max/ideal fee will be.
 		c.initFeeBaseline()
 
@@ -722,7 +722,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			)
 			if c.cfg.Channel.IsInitiator() && feeProposal > c.maxFee {
 				return nil, false, fmt.Errorf("%w: %v > %v",
-					ErrProposalExeceedsMaxFee, feeProposal,
+					ErrProposalExceedsMaxFee, feeProposal,
 					c.maxFee)
 			}
 
@@ -902,7 +902,7 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 	closeSignedMsg := lnwire.NewClosingSigned(c.cid, fee, parsedSig)
 
 	// For musig2 channels, the main sig is blank, and instead we'll send
-	// over a partial signature which'll be combine donce our offer is
+	// over a partial signature which'll be combined once our offer is
 	// accepted.
 	if partialSig != nil {
 		closeSignedMsg.PartialSig = &partialSig.PartialSig

@@ -31,7 +31,7 @@ type AgentConstraints interface {
 	MaxChanSize() btcutil.Amount
 }
 
-// agenConstraints is an implementation of the AgentConstraints interface that
+// agentConstraints is an implementation of the AgentConstraints interface that
 // indicate the constraints the autopilot agent must adhere to when opening
 // channels.
 type agentConstraints struct {

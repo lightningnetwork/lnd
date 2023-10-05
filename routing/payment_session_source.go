@@ -39,7 +39,7 @@ type SessionSource struct {
 	MissionControl MissionController
 
 	// PathFindingConfig defines global parameters that control the
-	// trade-off in path finding between fees and probabiity.
+	// trade-off in path finding between fees and probability.
 	PathFindingConfig PathFindingConfig
 }
 

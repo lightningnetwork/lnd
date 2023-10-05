@@ -271,7 +271,7 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	)
 
 	// Get total balance from coins which we need for reserve considerations
-	// and fee santiy checks.
+	// and fee sanity checks.
 	var totalBalance btcutil.Amount
 	for _, coin := range coins {
 		totalBalance += btcutil.Amount(coin.Value)

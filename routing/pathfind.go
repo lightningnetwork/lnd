@@ -355,7 +355,7 @@ type RestrictParams struct {
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
-// path finding between fees and probabiity.
+// path finding between fees and probability.
 type PathFindingConfig struct {
 	// AttemptCost is the fixed virtual cost in path finding of a failed
 	// payment attempt. It is used to trade off potentially better routes
@@ -1035,7 +1035,7 @@ func getProbabilityBasedDist(weight int64, probability float64,
 
 	// Avoid cast if an overflow would occur. The maxFloat constant is
 	// chosen to stay well below the maximum float64 value that is still
-	// convertable to int64.
+	// convertible to int64.
 	const maxFloat = 9000000000000000000
 	if dist > maxFloat {
 		return infinity

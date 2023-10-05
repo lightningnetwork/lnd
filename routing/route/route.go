@@ -400,7 +400,7 @@ func NewRouteFromHops(amtToSend lnwire.MilliSatoshi, timeLock uint32,
 }
 
 // ToSphinxPath converts a complete route into a sphinx PaymentPath that
-// contains the per-hop paylods used to encoding the HTLC routing data for each
+// contains the per-hop payloads used to encoding the HTLC routing data for each
 // hop in the route. This method also accepts an optional EOB payload for the
 // final hop.
 func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {

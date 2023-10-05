@@ -66,7 +66,7 @@ func testTopCentrality(t *testing.T, graph testGraph,
 	}
 }
 
-// TestTopCentrality tests that we return the correct normalized centralitiy
+// TestTopCentrality tests that we return the correct normalized centrality
 // values given a non empty graph, and given our node has an increasing amount
 // of channels from 0 to N-1 simulating the whole range from non-connected to
 // fully connected.

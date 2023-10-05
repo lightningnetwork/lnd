@@ -519,7 +519,7 @@ func (g *testGraphInstance) getLink(chanID lnwire.ShortChannelID) (
 
 // createTestGraphFromChannels returns a fully populated ChannelGraph based on a set of
 // test channels. Additional required information like keys are derived in
-// a deterministical way and added to the channel graph. A list of nodes is
+// a deterministic way and added to the channel graph. A list of nodes is
 // not required and derived from the channel data. The goal is to keep
 // instantiating a test channel graph as light weight as possible.
 func createTestGraphFromChannels(t *testing.T, useCache bool,

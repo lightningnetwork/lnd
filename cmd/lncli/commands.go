@@ -680,10 +680,10 @@ func connectPeer(ctx *cli.Context) error {
 }
 
 var disconnectCommand = cli.Command{
-	Name:      "disconnect",
-	Category:  "Peers",
-	Usage:     "Disconnect a remote lightning peer identified by " +
-		    "public key.",
+	Name:     "disconnect",
+	Category: "Peers",
+	Usage: "Disconnect a remote lightning peer identified by " +
+		"public key.",
 	ArgsUsage: "<pubkey>",
 	Flags: []cli.Flag{
 		cli.StringFlag{

@@ -152,7 +152,7 @@ func TestInvoiceWorkflow(t *testing.T) {
 }
 
 func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err, "unable to make test db")
 
 	// Create a fake invoice which we'll use several times in the tests
@@ -290,7 +290,7 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 // TestAddDuplicatePayAddr asserts that the payment addresses of inserted
 // invoices are unique.
 func TestAddDuplicatePayAddr(t *testing.T) {
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err)
 
 	// Create two invoices with the same payment addr.
@@ -318,7 +318,7 @@ func TestAddDuplicatePayAddr(t *testing.T) {
 // addresses to be inserted if they are blank to support JIT legacy keysend
 // invoices.
 func TestAddDuplicateKeysendPayAddr(t *testing.T) {
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err)
 
 	// Create two invoices with the same _blank_ payment addr.
@@ -362,7 +362,7 @@ func TestAddDuplicateKeysendPayAddr(t *testing.T) {
 // ensures that the HTLC's payment hash always matches the payment hash in the
 // returned invoice.
 func TestFailInvoiceLookupMPPPayAddrOnly(t *testing.T) {
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err)
 
 	// Create and insert a random invoice.
@@ -391,7 +391,7 @@ func TestFailInvoiceLookupMPPPayAddrOnly(t *testing.T) {
 // TestInvRefEquivocation asserts that retrieving or updating an invoice using
 // an equivocating InvoiceRef results in ErrInvRefEquivocation.
 func TestInvRefEquivocation(t *testing.T) {
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err)
 
 	// Add two random invoices.
@@ -433,7 +433,7 @@ func TestInvRefEquivocation(t *testing.T) {
 func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err, "unable to make test db")
 
 	preimage := lntypes.Preimage{1}
@@ -514,7 +514,7 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestDB(t, OptionClock(testClock))
+	db, err := MakeTestInvoiceDB(t, OptionClock(testClock))
 	require.NoError(t, err, "unable to make test db: %v", err)
 
 	// We'll start out by creating an invoice and writing it to the DB.
@@ -692,7 +692,7 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 func TestInvoiceAddTimeSeries(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestDB(t, OptionClock(testClock))
+	db, err := MakeTestInvoiceDB(t, OptionClock(testClock))
 	require.NoError(t, err, "unable to make test db")
 
 	ctxb := context.Background()
@@ -850,7 +850,7 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 	t.Parallel()
 
 	testClock := clock.NewTestClock(testNow)
-	db, err := MakeTestDB(t, OptionClock(testClock))
+	db, err := MakeTestInvoiceDB(t, OptionClock(testClock))
 	require.Nil(t, err)
 
 	// First, we'll make a sample invoice that'll be paid to several times
@@ -1018,7 +1018,7 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 func TestScanInvoices(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err, "unable to make test db")
 
 	var invoices map[lntypes.Hash]*invpkg.Invoice
@@ -1079,7 +1079,7 @@ func TestScanInvoices(t *testing.T) {
 func TestDuplicateSettleInvoice(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestDB(t, OptionClock(testClock))
+	db, err := MakeTestInvoiceDB(t, OptionClock(testClock))
 	require.NoError(t, err, "unable to make test db")
 
 	// We'll start out by creating an invoice and writing it to the DB.
@@ -1140,7 +1140,7 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 func TestQueryInvoices(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestDB(t, OptionClock(testClock))
+	db, err := MakeTestInvoiceDB(t, OptionClock(testClock))
 	require.NoError(t, err, "unable to make test db")
 
 	// To begin the test, we'll add 50 invoices to the database. We'll
@@ -1573,7 +1573,7 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) invpkg.InvoiceUpdateCallback {
 func TestCustomRecords(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err, "unable to make test db")
 
 	preimage := lntypes.Preimage{1}
@@ -1651,7 +1651,7 @@ func TestInvoiceHtlcAMPFields(t *testing.T) {
 }
 
 func testInvoiceHtlcAMPFields(t *testing.T, isAMP bool) {
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.Nil(t, err)
 
 	testInvoice, err := randInvoice(1000)
@@ -1853,7 +1853,7 @@ func TestHTLCSet(t *testing.T) {
 // TestAddInvoiceWithHTLCs asserts that you can't insert an invoice that already
 // has HTLCs.
 func TestAddInvoiceWithHTLCs(t *testing.T) {
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.Nil(t, err)
 
 	testInvoice, err := randInvoice(1000)
@@ -1872,7 +1872,7 @@ func TestAddInvoiceWithHTLCs(t *testing.T) {
 // that invoices with duplicate set ids are disallowed.
 func TestSetIDIndex(t *testing.T) {
 	testClock := clock.NewTestClock(testNow)
-	db, err := MakeTestDB(t, OptionClock(testClock))
+	db, err := MakeTestInvoiceDB(t, OptionClock(testClock))
 	require.Nil(t, err)
 
 	// We'll start out by creating an invoice and writing it to the DB.
@@ -2214,7 +2214,7 @@ func getUpdateInvoiceAMPSettle(setID *[32]byte, preimage [32]byte,
 func TestUnexpectedInvoicePreimage(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err, "unable to make test db")
 
 	invoice, err := randInvoice(lnwire.MilliSatoshi(100))
@@ -2272,7 +2272,7 @@ func TestUpdateHTLCPreimages(t *testing.T) {
 }
 
 func testUpdateHTLCPreimages(t *testing.T, test updateHTLCPreimageTestCase) {
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err, "unable to make test db")
 
 	// We'll start out by creating an invoice and writing it to the DB.
@@ -3013,7 +3013,7 @@ func testUpdateHTLC(t *testing.T, test updateHTLCTest) {
 func TestDeleteInvoices(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err, "unable to make test db")
 
 	// Add some invoices to the test db.
@@ -3097,7 +3097,7 @@ func TestDeleteInvoices(t *testing.T) {
 func TestAddInvoiceInvalidFeatureDeps(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestDB(t)
+	db, err := MakeTestInvoiceDB(t)
 	require.NoError(t, err, "unable to make test db")
 
 	invoice, err := randInvoice(500)

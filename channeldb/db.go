@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration31"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -1822,6 +1823,14 @@ func (c *ChannelStateDB) PutOnchainFinalHtlcOutcome(
 			},
 		)
 	}, func() {})
+}
+
+// MakeTestInvoiceDB is used to create a test invoice database for testing
+// purposes. It simply calls into MakeTestDB so the same modifiers can be used.
+func MakeTestInvoiceDB(t *testing.T, modifiers ...OptionModifier) (
+	invoices.InvoiceDB, error) {
+
+	return MakeTestDB(t, modifiers...)
 }
 
 // MakeTestDB creates a new instance of the ChannelDB for testing purposes.

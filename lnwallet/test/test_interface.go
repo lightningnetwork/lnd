@@ -773,6 +773,7 @@ func testReservationInitiatorBalanceBelowDustCancel(miner *rpctest.Harness,
 		PushMSat:         0,
 		Flags:            lnwire.FFAnnounceChannel,
 		CommitType:       lnwallet.CommitmentTypeTweakless,
+		PendingChanID:    [32]byte{1},
 	}
 	_, err = alice.InitChannelReservation(req)
 	switch {
@@ -2744,7 +2745,7 @@ var walletTests = []walletTestCase{
 			testSingleFunderReservationWorkflow(
 				miner, alice, bob, t,
 				lnwallet.CommitmentTypeLegacy, nil,
-				nil, [32]byte{}, 0,
+				nil, [32]byte{1}, 0,
 			)
 		},
 	},
@@ -2756,7 +2757,7 @@ var walletTests = []walletTestCase{
 			testSingleFunderReservationWorkflow(
 				miner, alice, bob, t,
 				lnwallet.CommitmentTypeTweakless, nil,
-				nil, [32]byte{}, 0,
+				nil, [32]byte{1}, 0,
 			)
 		},
 	},
@@ -2768,7 +2769,7 @@ var walletTests = []walletTestCase{
 			testSingleFunderReservationWorkflow(
 				miner, alice, bob, t,
 				lnwallet.CommitmentTypeSimpleTaproot, nil,
-				nil, [32]byte{}, 0,
+				nil, [32]byte{1}, 0,
 			)
 		},
 	},

@@ -68,7 +68,7 @@ const (
 	//
 	// NOTE: For payment requests, BOLT 11 stipulates that a final CLTV
 	// delta of 9 should be used when no value is decoded. This however
-	// leads to inflexiblity in upgrading this default parameter, since it
+	// leads to inflexibility in upgrading this default parameter, since it
 	// can create inconsistencies around the assumed value between sender
 	// and receiver. Specifically, if the receiver assumes a higher value
 	// than the sender, the receiver will always see the received HTLCs as

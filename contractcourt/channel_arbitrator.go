@@ -1050,6 +1050,20 @@ func (c *ChannelArbitrator) stateStep(
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
 				"force close: %v", c.cfg.ChanPoint, err)
+
+			// We tried to force close (HTLC may be expiring from
+			// our PoV, etc), but we think we've lost data. In this
+			// case, we'll not force close, but terminate the state
+			// machine here to wait to see what confirms on chain.
+			if errors.Is(err, lnwallet.ErrForceCloseLocalDataLoss) {
+				log.Error("ChannelArbitrator(%v): broadcast "+
+					"failed due to local data loss, "+
+					"waiting for on chain confimation...",
+					c.cfg.ChanPoint)
+
+				return StateBroadcastCommit, nil, nil
+			}
+
 			return StateError, closeTx, err
 		}
 		closeTx = closeSummary.CloseTx

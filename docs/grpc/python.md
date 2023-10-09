@@ -20,7 +20,7 @@ file in Python before you can use it to communicate with lnd.
 3. Install dependencies (googleapis-common-protos is required due to the use of
   google/api/annotations.proto)
     ```shell
-    lnd $  pip install grpcio grpcio-tools googleapis-common-protos
+    lnd $  pip install grpcio grpcio-tools googleapis-common-protos mypy-protobuf
     ```
 4. Clone the google api's repository (required due to the use of
   google/api/annotations.proto)
@@ -35,12 +35,11 @@ file in Python before you can use it to communicate with lnd.
     ```
 6. Compile the proto file
     ```shell
-    lnd $  python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --grpc_python_out=. lightning.proto
+    lnd $  python -m grpc_tools.protoc --proto_path=googleapis:. --mypy_out=. --python_out=. --grpc_python_out=. lightning.proto
     ```
 
-After following these steps, two files `lightning_pb2.py` and
-`lightning_pb2_grpc.py` will be generated. These files will be imported in your
-project anytime you use Python gRPC.
+After following these steps, three files `lightning_pb2.py`,
+`lightning_pb2_grpc.py` and `lightning_pb2.pyi` will be generated. These files will be imported in your project anytime you use Python gRPC.
 
 ### Generating RPC modules for subservers
 
@@ -50,11 +49,11 @@ generate the python modules for them.
 For example, if you want to generate the RPC modules for the `Router` subserver
 (located/defined in `routerrpc/router.proto`), you need to run the following two
 extra steps (after completing all 6 step described above) to get the
-`router_pb2.py` and `router_pb2_grpc.py`:
+`router_pb2.py`, `router_pb2_grpc.py` and `router_pb2.pyi`:
 
 ```shell
 lnd $  curl -o router.proto -s https://raw.githubusercontent.com/lightningnetwork/lnd/master/lnrpc/routerrpc/router.proto
-lnd $  python -m grpc_tools.protoc --proto_path=googleapis:. --python_out=. --grpc_python_out=. router.proto
+lnd $  python -m grpc_tools.protoc --proto_path=googleapis:. --mypy_out=. --python_out=. --grpc_python_out=. router.proto
 ```
 
 ### Imports and Client

@@ -141,7 +141,7 @@ type Agent struct {
 	// time.
 	chanOpenFailures chan *chanOpenFailureUpdate
 
-	// heuristicUpdates is a channel where updates from active heurstics
+	// heuristicUpdates is a channel where updates from active heuristics
 	// will be sent.
 	heuristicUpdates chan *heuristicUpdate
 

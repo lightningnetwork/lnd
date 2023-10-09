@@ -83,7 +83,7 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 			feeRate:              20,
 			expectedErrStr: "output amount(-0.00000435 BTC) " +
 				"after subtracting fees(0.00002435 BTC) " +
-				"below dust limit(0.0000033 BTC)",
+				"below dust limit(0.00000330 BTC)",
 		},
 		{
 			name: "wallet amount < min chan size " +
@@ -94,7 +94,7 @@ func testChannelFundMax(ht *lntest.HarnessTest) {
 			feeRate:            1,
 			chanOpenShouldFail: true,
 			expectedErrStr: "available funds(0.00017877 BTC) " +
-				"below the minimum amount(0.0002 BTC)",
+				"below the minimum amount(0.00020000 BTC)",
 		},
 		{
 			name: "wallet amount > min chan " +

@@ -189,7 +189,7 @@ func TestWebAPIFeeEstimator(t *testing.T) {
 			expectedErr:     "",
 		},
 		{
-			// When requested target is smaller than the min cahced
+			// When requested target is smaller than the min cached
 			// target, the fee rate of the min cached target is
 			// returned.
 			name:            "API-omitted_target",

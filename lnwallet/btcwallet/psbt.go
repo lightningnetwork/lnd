@@ -67,7 +67,7 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 
 	switch accountName {
 	// For default accounts and single imported public keys, we'll provide a
-	// nil key scope to FundPsbt, allowing it to select nputs from all
+	// nil key scope to FundPsbt, allowing it to select inputs from all
 	// scopes (NP2WKH, P2WKH, P2TR). By default, the change key scope for
 	// these accounts will be P2WKH.
 	case lnwallet.DefaultAccountName:

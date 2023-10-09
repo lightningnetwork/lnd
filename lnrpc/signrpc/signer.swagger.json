@@ -636,6 +636,11 @@
         "version": {
           "$ref": "#/definitions/signrpcMuSig2Version",
           "description": "The mandatory version of the MuSig2 BIP draft to use. This is necessary to\ndifferentiate between the changes that were made to the BIP while this\nexperimental RPC was already released. Some of those changes affect how the\ncombined key and nonces are created."
+        },
+        "pregenerated_local_nonce": {
+          "type": "string",
+          "format": "byte",
+          "description": "A set of pre generated secret local nonces to use in the musig2 session.\nThis field is optional. This can be useful for protocols that need to send\nnonces ahead of time before the set of signer keys are known. This value\nMUST be 97 bytes and be the concatenation of two CSPRNG generated 32 byte\nvalues and local public key used for signing as specified in the key_loc\nfield."
         }
       }
     },

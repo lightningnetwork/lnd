@@ -31,7 +31,7 @@ type paymentLifecycle struct {
 	currentHeight int32
 }
 
-// payemntState holds a number of key insights learned from a given MPPayment
+// paymentState holds a number of key insights learned from a given MPPayment
 // that we use to determine what to do on each payment loop iteration.
 type paymentState struct {
 	numShardsInFlight int

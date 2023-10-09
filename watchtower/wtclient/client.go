@@ -977,6 +977,19 @@ func (c *TowerClient) handleClosableSessions(
 				// and handle it.
 				c.closableSessionQueue.Pop()
 
+				// Stop the session and remove it from the
+				// in-memory set.
+				err := c.activeSessions.StopAndRemove(
+					item.sessionID,
+				)
+				if err != nil {
+					c.log.Errorf("could not remove "+
+						"session(%s) from in-memory "+
+						"set: %v", item.sessionID, err)
+
+					return
+				}
+
 				// Fetch the session from the DB so that we can
 				// extract the Tower info.
 				sess, err := c.cfg.DB.GetClientSession(

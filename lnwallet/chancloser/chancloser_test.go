@@ -402,12 +402,16 @@ func TestMaxFeeBailOut(t *testing.T) {
 			// If we're the initiator, then we expect an error at
 			// this point.
 			case true:
-				require.ErrorIs(t, err, ErrProposalExeceedsMaxFee)
+				require.ErrorIs(
+					t, err, ErrProposalExceedsMaxFee,
+				)
 
 			// Otherwise, we expect things to fail for some other
 			// reason (invalid sig, etc).
 			case false:
-				require.NotErrorIs(t, err, ErrProposalExeceedsMaxFee)
+				require.NotErrorIs(
+					t, err, ErrProposalExceedsMaxFee,
+				)
 			}
 		})
 	}

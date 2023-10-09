@@ -875,6 +875,41 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 	}, nil
 }
 
+// secNonceToPubNonce takes our two secret nonces, and produces their two
+// corresponding EC points, serialized in compressed format.
+//
+// NOTE: This was copied from btcsuite/btcec/musig2/nonces.go.
+func secNonceToPubNonce(secNonce [musig2.SecNonceSize]byte,
+) [musig2.PubNonceSize]byte {
+
+	var k1Mod, k2Mod btcec.ModNScalar
+	k1Mod.SetByteSlice(secNonce[:btcec.PrivKeyBytesLen])
+	k2Mod.SetByteSlice(secNonce[btcec.PrivKeyBytesLen:])
+
+	var r1, r2 btcec.JacobianPoint
+	btcec.ScalarBaseMultNonConst(&k1Mod, &r1)
+	btcec.ScalarBaseMultNonConst(&k2Mod, &r2)
+
+	// Next, we'll convert the key in jacobian format to a normal public
+	// key expressed in affine coordinates.
+	r1.ToAffine()
+	r2.ToAffine()
+	r1Pub := btcec.NewPublicKey(&r1.X, &r1.Y)
+	r2Pub := btcec.NewPublicKey(&r2.X, &r2.Y)
+
+	var pubNonce [musig2.PubNonceSize]byte
+
+	// The public nonces are serialized as: R1 || R2, where both keys are
+	// serialized in compressed format.
+	copy(pubNonce[:], r1Pub.SerializeCompressed())
+	copy(
+		pubNonce[btcec.PubKeyBytesLenCompressed:],
+		r2Pub.SerializeCompressed(),
+	)
+
+	return pubNonce
+}
+
 // MuSig2CreateSession creates a new MuSig2 signing session using the local
 // key identified by the key locator. The complete list of all public keys of
 // all signing parties must be provided, including the public key of the local
@@ -921,6 +956,26 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 			len(in.OtherSignerPublicNonces), maxNonces)
 	}
 
+	var localNonces *musig2.Nonces
+
+	// If the pre generated local nonces were specified, then check to make
+	// sure they're the correct size and format.
+	nonceLen := len(in.PregeneratedLocalNonce)
+	switch {
+	case nonceLen != 0 && nonceLen != musig2.SecNonceSize:
+		return nil, fmt.Errorf("local nonces must be %v bytes, "+
+			"instead was %v", musig2.SecNonceSize, nonceLen)
+
+	case nonceLen == musig2.SecNonceSize:
+		var secNonce [musig2.SecNonceSize]byte
+		copy(secNonce[:], in.PregeneratedLocalNonce)
+
+		localNonces = &musig2.Nonces{
+			SecNonce: secNonce,
+			PubNonce: secNonceToPubNonce(secNonce),
+		}
+	}
+
 	// Parse all other nonces we might already know.
 	otherSignerNonces, err := parseMuSig2PublicNonces(
 		in.OtherSignerPublicNonces, true,
@@ -939,6 +994,7 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 	// Register the session with the internal wallet/signer now.
 	session, err := s.cfg.Signer.MuSig2CreateSession(
 		version, keyLoc, allSignerPubKeys, tweaks, otherSignerNonces,
+		localNonces,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error registering session: %v", err)

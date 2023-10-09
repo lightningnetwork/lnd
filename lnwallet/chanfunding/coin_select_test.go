@@ -649,8 +649,8 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		minValue: minValue,
 		maxValue: fundingFee(feeRate, 1, false) + dust,
 
-		expectErr: "output amount(0.000001 BTC) after subtracting " +
-			"fees(0.00000048 BTC) below dust limit(0.00001 BTC)",
+		expectErr: "output amount(0.00000100 BTC) after subtracting " +
+			"fees(0.00000048 BTC) below dust limit(0.00001000 BTC)",
 	}, {
 		// If more than 20% of available wallet funds goes to fees, it
 		// should fail.

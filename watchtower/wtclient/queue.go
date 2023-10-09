@@ -517,7 +517,7 @@ func (q *DiskOverflowQueue[T]) feedMemQueue() {
 		// instead persist the task to disk. After the producer,
 		// drainInputList, has pushed an item to inputChan, it is
 		// guaranteed to await a response on the task's success channel
-		// before quiting. Therefore, it is not required to listen on
+		// before quitting. Therefore, it is not required to listen on
 		// the quit channel here.
 		case task := <-q.inputChan:
 			select {

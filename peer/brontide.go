@@ -551,7 +551,7 @@ func (p *Brontide) Start() error {
 	}
 
 	if len(activeChans) == 0 {
-		p.cfg.PrunePersistentPeerConnection(p.cfg.PubKeyBytes)
+		go p.cfg.PrunePersistentPeerConnection(p.cfg.PubKeyBytes)
 	}
 
 	// Quickly check if we have any existing legacy channels with this

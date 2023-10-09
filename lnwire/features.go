@@ -35,7 +35,7 @@ const (
 	// DataLossProtectRequired is a feature bit that indicates that a peer
 	// *requires* the other party know about the data-loss-protect optional
 	// feature. If the remote peer does not know of such a feature, then
-	// the sending peer SHOLUD disconnect them. The data-loss-protect
+	// the sending peer SHOULD disconnect them. The data-loss-protect
 	// feature allows a peer that's lost partial data to recover their
 	// settled funds of the latest commitment state.
 	DataLossProtectRequired FeatureBit = 0

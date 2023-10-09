@@ -79,7 +79,7 @@ func TestIsOutdatedCert(t *testing.T) {
 }
 
 // TestIsOutdatedPermutation tests that the order of listed IPs or DNS names,
-// nor dulicates in the lists, matter for whether we consider the certificate
+// nor duplicates in the lists, matter for whether we consider the certificate
 // outdated.
 func TestIsOutdatedPermutation(t *testing.T) {
 	tempDir := t.TempDir()

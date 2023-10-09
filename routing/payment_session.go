@@ -175,7 +175,7 @@ type paymentSession struct {
 	getRoutingGraph func() (routingGraph, func(), error)
 
 	// pathFindingConfig defines global parameters that control the
-	// trade-off in path finding between fees and probabiity.
+	// trade-off in path finding between fees and probability.
 	pathFindingConfig PathFindingConfig
 
 	missionControl MissionController

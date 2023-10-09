@@ -193,15 +193,37 @@ func (c *ChannelAnnouncement2) Decode(r io.Reader, _ uint32) error {
 //
 // This is part of the lnwire.Message interface.
 func (c *ChannelAnnouncement2) Encode(w *bytes.Buffer, _ uint32) error {
-	var records []tlv.Record
-
 	_, err := w.Write(c.Signature.RawBytes())
 	if err != nil {
 		return err
 	}
 
+	_, err = c.DataToSign()
+	if err != nil {
+		return err
+	}
+
+	return WriteBytes(w, c.ExtraOpaqueData)
+}
+
+// DigestToSign computes the digest of the message to be signed.
+func (c *ChannelAnnouncement2) DigestToSign() (*chainhash.Hash, error) {
+	data, err := c.DataToSign()
+	if err != nil {
+		return nil, err
+	}
+
+	hash := MsgHash(
+		"channel_announcement_2", "announcement_signature", data,
+	)
+
+	return hash, nil
+}
+
+func (c *ChannelAnnouncement2) DataToSign() ([]byte, error) {
 	// The chain-hash record is only included if it is _not_ equal to the
 	// bitcoin mainnet genisis block hash.
+	var records []tlv.Record
 	if !c.ChainHash.IsEqual(chaincfg.MainNetParams.GenesisHash) {
 		chainHash := [32]byte(c.ChainHash)
 		records = append(records, tlv.MakePrimitiveRecord(
@@ -247,12 +269,12 @@ func (c *ChannelAnnouncement2) Encode(w *bytes.Buffer, _ uint32) error {
 		}
 	}
 
-	err = EncodeMessageExtraDataFromRecords(&c.ExtraOpaqueData, records...)
+	err := EncodeMessageExtraDataFromRecords(&c.ExtraOpaqueData, records...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return WriteBytes(w, c.ExtraOpaqueData)
+	return c.ExtraOpaqueData, nil
 }
 
 // MsgType returns the integer uniquely identifying this message type on the
@@ -266,3 +288,13 @@ func (c *ChannelAnnouncement2) MsgType() MessageType {
 // A compile time check to ensure ChannelAnnouncement2 implements the
 // lnwire.Message interface.
 var _ Message = (*ChannelAnnouncement2)(nil)
+
+const MsgHashTag = "lightning"
+
+func MsgHash(msgName, fieldName string, msg []byte) *chainhash.Hash {
+	tag := []byte(MsgHashTag)
+	tag = append(tag, []byte(msgName)...)
+	tag = append(tag, []byte(fieldName)...)
+
+	return chainhash.TaggedHash(tag, msg)
+}

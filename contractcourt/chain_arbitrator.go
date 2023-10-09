@@ -152,6 +152,11 @@ type ChainArbitratorConfig struct {
 	// Sweeper allows resolvers to sweep their final outputs.
 	Sweeper UtxoSweeper
 
+	// NotRecoverAnchorOutputs stops the sweeping of anchor outputs when
+	// they were not used to fee bump (CPFP) their corresponding commitment
+	// tx.
+	NotRecoverAnchorOutputs bool
+
 	// Registry is the invoice database that is used by resolvers to lookup
 	// preimages and settle invoices.
 	Registry Registry

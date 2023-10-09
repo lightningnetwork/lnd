@@ -759,7 +759,9 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	}
 
 	// The anchor resolver is stateless and can always be re-instantiated.
-	if contractResolutions.AnchorResolution != nil {
+	if contractResolutions.AnchorResolution != nil &&
+		!c.cfg.NotRecoverAnchorOutputs {
+
 		anchorResolver := newAnchorResolver(
 			contractResolutions.AnchorResolution.AnchorSignDescriptor,
 			contractResolutions.AnchorResolution.CommitAnchor,
@@ -772,8 +774,6 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 		anchorResolver.SupplementState(chanState)
 
 		unresolvedContracts = append(unresolvedContracts, anchorResolver)
-
-		// TODO(roasbeef): this isn't re-launched?
 	}
 
 	c.launchResolvers(unresolvedContracts)
@@ -2207,7 +2207,9 @@ func (c *ChannelArbitrator) prepContractResolutions(
 
 	// We instantiate an anchor resolver if the commitment tx has an
 	// anchor.
-	if contractResolutions.AnchorResolution != nil {
+	if contractResolutions.AnchorResolution != nil &&
+		!c.cfg.NotRecoverAnchorOutputs {
+
 		anchorResolver := newAnchorResolver(
 			contractResolutions.AnchorResolution.AnchorSignDescriptor,
 			contractResolutions.AnchorResolution.CommitAnchor,

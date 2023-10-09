@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -107,7 +108,7 @@ func NewHarnessNode(t *testing.T, cfg *BaseNodeConfig) (*HarnessNode, error) {
 	cfg.TLSKeyPath = filepath.Join(cfg.BaseDir, "tls.key")
 
 	networkDir := filepath.Join(
-		cfg.DataDir, "chain", "bitcoin", cfg.NetParams.Name,
+		cfg.DataDir, "chain", lnd.BitcoinChainName, cfg.NetParams.Name,
 	)
 	cfg.AdminMacPath = filepath.Join(networkDir, "admin.macaroon")
 	cfg.ReadMacPath = filepath.Join(networkDir, "readonly.macaroon")

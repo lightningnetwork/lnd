@@ -169,7 +169,8 @@ func (b *BtcdNotifier) Stop() error {
 		return nil
 	}
 
-	chainntnfs.Log.Info("btcd notifier shutting down")
+	chainntnfs.Log.Info("btcd notifier shutting down...")
+	defer chainntnfs.Log.Debug("btcd notifier shutdown complete")
 
 	// Shutdown the rpc client, this gracefully disconnects from btcd, and
 	// cleans up all related resources.

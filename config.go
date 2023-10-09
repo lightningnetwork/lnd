@@ -225,6 +225,13 @@ const (
 	// defaultGrpcClientPingMinWait is the default minimum amount of time a
 	// client should wait before sending a keepalive ping.
 	defaultGrpcClientPingMinWait = 5 * time.Second
+
+	// BitcoinChainName is a string that represents the Bitcoin blockchain.
+	BitcoinChainName = "bitcoin"
+
+	bitcoindBackendName = "bitcoind"
+	btcdBackendName     = "btcd"
+	neutrinoBackendName = "neutrino"
 )
 
 var (
@@ -249,14 +256,10 @@ var (
 	defaultTLSKeyPath     = filepath.Join(DefaultLndDir, defaultTLSKeyFilename)
 	defaultLetsEncryptDir = filepath.Join(DefaultLndDir, defaultLetsEncryptDirname)
 
-	defaultBtcdDir         = btcutil.AppDataDir("btcd", false)
+	defaultBtcdDir         = btcutil.AppDataDir(btcdBackendName, false)
 	defaultBtcdRPCCertFile = filepath.Join(defaultBtcdDir, "rpc.cert")
 
-	defaultLtcdDir         = btcutil.AppDataDir("ltcd", false)
-	defaultLtcdRPCCertFile = filepath.Join(defaultLtcdDir, "rpc.cert")
-
-	defaultBitcoindDir  = btcutil.AppDataDir("bitcoin", false)
-	defaultLitecoindDir = btcutil.AppDataDir("litecoin", false)
+	defaultBitcoindDir = btcutil.AppDataDir(BitcoinChainName, false)
 
 	defaultTorSOCKS   = net.JoinHostPort("localhost", strconv.Itoa(defaultTorSOCKSPort))
 	defaultTorDNS     = net.JoinHostPort(defaultTorDNSHost, strconv.Itoa(defaultTorDNSPort))
@@ -351,10 +354,6 @@ type Config struct {
 	BtcdMode     *lncfg.Btcd     `group:"btcd" namespace:"btcd"`
 	BitcoindMode *lncfg.Bitcoind `group:"bitcoind" namespace:"bitcoind"`
 	NeutrinoMode *lncfg.Neutrino `group:"neutrino" namespace:"neutrino"`
-
-	Litecoin      *lncfg.Chain    `group:"Litecoin" namespace:"litecoin"`
-	LtcdMode      *lncfg.Btcd     `group:"ltcd" namespace:"ltcd"`
-	LitecoindMode *lncfg.Bitcoind `group:"litecoind" namespace:"litecoind"`
 
 	BlockCacheSize uint64 `long:"blockcachesize" description:"The maximum capacity of the block cache"`
 
@@ -479,10 +478,6 @@ type Config struct {
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
 
-	// registeredChains keeps track of all chains that have been registered
-	// with the daemon.
-	registeredChains *chainreg.ChainRegistry
-
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
 	// network.
@@ -555,7 +550,7 @@ func DefaultConfig() Config {
 			FeeRate:       chainreg.DefaultBitcoinFeeRate,
 			TimeLockDelta: chainreg.DefaultBitcoinTimeLockDelta,
 			MaxLocalDelay: defaultMaxLocalCSVDelay,
-			Node:          "btcd",
+			Node:          btcdBackendName,
 		},
 		BtcdMode: &lncfg.Btcd{
 			Dir:     defaultBtcdDir,
@@ -568,26 +563,6 @@ func DefaultConfig() Config {
 			EstimateMode:       defaultBitcoindEstimateMode,
 			PrunedNodeMaxPeers: defaultPrunedNodeMaxPeers,
 			ZMQReadDeadline:    defaultZMQReadDeadline,
-		},
-		Litecoin: &lncfg.Chain{
-			MinHTLCIn:     chainreg.DefaultLitecoinMinHTLCInMSat,
-			MinHTLCOut:    chainreg.DefaultLitecoinMinHTLCOutMSat,
-			BaseFee:       chainreg.DefaultLitecoinBaseFeeMSat,
-			FeeRate:       chainreg.DefaultLitecoinFeeRate,
-			TimeLockDelta: chainreg.DefaultLitecoinTimeLockDelta,
-			MaxLocalDelay: defaultMaxLocalCSVDelay,
-			Node:          "ltcd",
-		},
-		LtcdMode: &lncfg.Btcd{
-			Dir:     defaultLtcdDir,
-			RPCHost: defaultRPCHost,
-			RPCCert: defaultLtcdRPCCertFile,
-		},
-		LitecoindMode: &lncfg.Bitcoind{
-			Dir:                defaultLitecoindDir,
-			RPCHost:            defaultRPCHost,
-			EstimateMode:       defaultBitcoindEstimateMode,
-			PrunedNodeMaxPeers: defaultPrunedNodeMaxPeers,
 		},
 		NeutrinoMode: &lncfg.Neutrino{
 			UserAgentName:    neutrino.UserAgentName,
@@ -698,7 +673,6 @@ func DefaultConfig() Config {
 		DB:                        lncfg.DefaultDB(),
 		Cluster:                   lncfg.DefaultCluster(),
 		RPCMiddleware:             lncfg.DefaultRPCMiddleware(),
-		registeredChains:          chainreg.NewChainRegistry(),
 		ActiveNetParams:           chainreg.BitcoinTestNetParams,
 		ChannelCommitInterval:     defaultChannelCommitInterval,
 		PendingCommitInterval:     defaultPendingCommitInterval,
@@ -710,6 +684,7 @@ func DefaultConfig() Config {
 		},
 		Sweeper: &lncfg.Sweeper{
 			BatchWindowDuration: sweep.DefaultBatchWindowDuration,
+			MaxFeeRate:          sweep.DefaultMaxFeeRate,
 		},
 		Htlcswitch: &lncfg.Htlcswitch{
 			MailboxDeliveryTimeout: htlcswitch.DefaultMailboxDeliveryTimeout,
@@ -949,19 +924,11 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	cfg.InvoiceMacPath = CleanAndExpandPath(cfg.InvoiceMacPath)
 	cfg.LogDir = CleanAndExpandPath(cfg.LogDir)
 	cfg.BtcdMode.Dir = CleanAndExpandPath(cfg.BtcdMode.Dir)
-	cfg.LtcdMode.Dir = CleanAndExpandPath(cfg.LtcdMode.Dir)
 	cfg.BitcoindMode.Dir = CleanAndExpandPath(cfg.BitcoindMode.Dir)
 	cfg.BitcoindMode.ConfigPath = CleanAndExpandPath(
 		cfg.BitcoindMode.ConfigPath,
 	)
 	cfg.BitcoindMode.RPCCookie = CleanAndExpandPath(cfg.BitcoindMode.RPCCookie)
-	cfg.LitecoindMode.Dir = CleanAndExpandPath(cfg.LitecoindMode.Dir)
-	cfg.LitecoindMode.ConfigPath = CleanAndExpandPath(
-		cfg.LitecoindMode.ConfigPath,
-	)
-	cfg.LitecoindMode.RPCCookie = CleanAndExpandPath(
-		cfg.LitecoindMode.RPCCookie,
-	)
 	cfg.Tor.PrivateKeyPath = CleanAndExpandPath(cfg.Tor.PrivateKeyPath)
 	cfg.Tor.WatchtowerKeyPath = CleanAndExpandPath(cfg.Tor.WatchtowerKeyPath)
 	cfg.Watchtower.TowerDir = CleanAndExpandPath(cfg.Watchtower.TowerDir)
@@ -974,26 +941,32 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// any of the autopilot params.
 	if cfg.Autopilot.MaxChannels < 0 {
 		str := "autopilot.maxchannels must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.Allocation < 0 {
 		str := "autopilot.allocation must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.MinChannelSize < 0 {
 		str := "autopilot.minchansize must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.MaxChannelSize < 0 {
 		str := "autopilot.maxchansize must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.MinConfs < 0 {
 		str := "autopilot.minconfs must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.ConfTarget < 1 {
 		str := "autopilot.conftarget must be positive"
+
 		return nil, mkErr(str)
 	}
 
@@ -1099,6 +1072,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// host:port. This would lead to lnd not starting up properly.
 	if cfg.Tor.SOCKS == cfg.Tor.Control {
 		str := "tor.socks and tor.control can not us the same host:port"
+
 		return nil, mkErr(str)
 	}
 
@@ -1162,269 +1136,157 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 			"mutually exclusive, only one should be selected")
 	}
 
-	// Determine the active chain configuration and its parameters.
-	switch {
-	// At this moment, multiple active chains are not supported.
-	case cfg.Litecoin.Active && cfg.Bitcoin.Active:
-		str := "Currently both Bitcoin and Litecoin cannot be " +
-			"active together"
-		return nil, mkErr(str)
-
-	// Either Bitcoin must be active, or Litecoin must be active.
-	// Otherwise, we don't know which chain we're on.
-	case !cfg.Bitcoin.Active && !cfg.Litecoin.Active:
-		return nil, mkErr("either bitcoin.active or " +
-			"litecoin.active must be set to 1 (true)")
-
-	case cfg.Litecoin.Active:
-		err := cfg.Litecoin.Validate(
-			minTimeLockDelta, funding.MinLtcRemoteDelay,
-		)
-		if err != nil {
-			return nil, mkErr("error validating litecoin: %v", err)
-		}
-
-		// Multiple networks can't be selected simultaneously.  Count
-		// number of network flags passed; assign active network params
-		// while we're at it.
-		numNets := 0
-		var ltcParams chainreg.LitecoinNetParams
-		if cfg.Litecoin.MainNet {
-			numNets++
-			ltcParams = chainreg.LitecoinMainNetParams
-		}
-		if cfg.Litecoin.TestNet3 {
-			numNets++
-			ltcParams = chainreg.LitecoinTestNetParams
-		}
-		if cfg.Litecoin.RegTest {
-			numNets++
-			ltcParams = chainreg.LitecoinRegTestNetParams
-		}
-		if cfg.Litecoin.SimNet {
-			numNets++
-			ltcParams = chainreg.LitecoinSimNetParams
-		}
-		if cfg.Litecoin.SigNet {
-			return nil, mkErr("litecoin.signet is not supported")
-		}
-
-		if numNets > 1 {
-			str := "The mainnet, testnet, and simnet params " +
-				"can't be used together -- choose one of the " +
-				"three"
-			return nil, mkErr(str)
-		}
-
-		// The target network must be provided, otherwise, we won't
-		// know how to initialize the daemon.
-		if numNets == 0 {
-			str := "either --litecoin.mainnet, or " +
-				"litecoin.testnet must be specified"
-			return nil, mkErr(str)
-		}
-
-		// The litecoin chain is the current active chain. However
-		// throughout the codebase we required chaincfg.Params. So as a
-		// temporary hack, we'll mutate the default net params for
-		// bitcoin with the litecoin specific information.
-		chainreg.ApplyLitecoinParams(&cfg.ActiveNetParams, &ltcParams)
-
-		switch cfg.Litecoin.Node {
-		case "ltcd":
-			err := parseRPCParams(
-				cfg.Litecoin, cfg.LtcdMode,
-				chainreg.LitecoinChain, cfg.ActiveNetParams,
-			)
-			if err != nil {
-				return nil, mkErr("unable to load RPC "+
-					"credentials for ltcd: %v", err)
-			}
-		case "litecoind":
-			if cfg.Litecoin.SimNet {
-				return nil, mkErr("litecoind does not " +
-					"support simnet")
-			}
-			err := parseRPCParams(
-				cfg.Litecoin, cfg.LitecoindMode,
-				chainreg.LitecoinChain, cfg.ActiveNetParams,
-			)
-			if err != nil {
-				return nil, mkErr("unable to load RPC "+
-					"credentials for litecoind: %v", err)
-			}
-		default:
-			str := "only ltcd and litecoind mode supported for " +
-				"litecoin at this time"
-			return nil, mkErr(str)
-		}
-
-		cfg.Litecoin.ChainDir = filepath.Join(
-			cfg.DataDir, defaultChainSubDirname,
-			chainreg.LitecoinChain.String(),
-		)
-
-		// Finally, we'll register the litecoin chain as our current
-		// primary chain.
-		cfg.registeredChains.RegisterPrimaryChain(chainreg.LitecoinChain)
-		MaxFundingAmount = funding.MaxLtcFundingAmount
-
-	case cfg.Bitcoin.Active:
-		// Multiple networks can't be selected simultaneously.  Count
-		// number of network flags passed; assign active network params
-		// while we're at it.
-		numNets := 0
-		if cfg.Bitcoin.MainNet {
-			numNets++
-			cfg.ActiveNetParams = chainreg.BitcoinMainNetParams
-		}
-		if cfg.Bitcoin.TestNet3 {
-			numNets++
-			cfg.ActiveNetParams = chainreg.BitcoinTestNetParams
-		}
-		if cfg.Bitcoin.RegTest {
-			numNets++
-			cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
-		}
-		if cfg.Bitcoin.SimNet {
-			numNets++
-			cfg.ActiveNetParams = chainreg.BitcoinSimNetParams
-
-			// For simnet, the btcsuite chain params uses a
-			// cointype of 115. However, we override this in
-			// chainreg/chainparams.go, but the raw ChainParam
-			// field is used elsewhere. To ensure everything is
-			// consistent, we'll also override the cointype within
-			// the raw params.
-			targetCoinType := chainreg.BitcoinSigNetParams.CoinType
-			cfg.ActiveNetParams.Params.HDCoinType = targetCoinType
-		}
-		if cfg.Bitcoin.SigNet {
-			numNets++
-			cfg.ActiveNetParams = chainreg.BitcoinSigNetParams
-
-			// Let the user overwrite the default signet parameters.
-			// The challenge defines the actual signet network to
-			// join and the seed nodes are needed for network
-			// discovery.
-			sigNetChallenge := chaincfg.DefaultSignetChallenge
-			sigNetSeeds := chaincfg.DefaultSignetDNSSeeds
-			if cfg.Bitcoin.SigNetChallenge != "" {
-				challenge, err := hex.DecodeString(
-					cfg.Bitcoin.SigNetChallenge,
-				)
-				if err != nil {
-					return nil, mkErr("Invalid "+
-						"signet challenge, hex decode "+
-						"failed: %v", err)
-				}
-				sigNetChallenge = challenge
-			}
-
-			if len(cfg.Bitcoin.SigNetSeedNode) > 0 {
-				sigNetSeeds = make([]chaincfg.DNSSeed, len(
-					cfg.Bitcoin.SigNetSeedNode,
-				))
-				for idx, seed := range cfg.Bitcoin.SigNetSeedNode {
-					sigNetSeeds[idx] = chaincfg.DNSSeed{
-						Host:         seed,
-						HasFiltering: false,
-					}
-				}
-			}
-
-			chainParams := chaincfg.CustomSignetParams(
-				sigNetChallenge, sigNetSeeds,
-			)
-			cfg.ActiveNetParams.Params = &chainParams
-		}
-		if numNets > 1 {
-			str := "The mainnet, testnet, regtest, and simnet " +
-				"params can't be used together -- choose one " +
-				"of the four"
-			return nil, mkErr(str)
-		}
-
-		// The target network must be provided, otherwise, we won't
-		// know how to initialize the daemon.
-		if numNets == 0 {
-			str := "either --bitcoin.mainnet, or bitcoin.testnet," +
-				"bitcoin.simnet, or bitcoin.regtest " +
-				"must be specified"
-			return nil, mkErr(str)
-		}
-
-		err := cfg.Bitcoin.Validate(
-			minTimeLockDelta, funding.MinBtcRemoteDelay,
-		)
-		if err != nil {
-			return nil, mkErr("error validating bitcoin params: %v",
-				err)
-		}
-
-		switch cfg.Bitcoin.Node {
-		case "btcd":
-			err := parseRPCParams(
-				cfg.Bitcoin, cfg.BtcdMode,
-				chainreg.BitcoinChain, cfg.ActiveNetParams,
-			)
-			if err != nil {
-				return nil, mkErr("unable to load RPC "+
-					"credentials for btcd: %v", err)
-			}
-		case "bitcoind":
-			if cfg.Bitcoin.SimNet {
-				return nil, mkErr("bitcoind does not " +
-					"support simnet")
-			}
-
-			err := parseRPCParams(
-				cfg.Bitcoin, cfg.BitcoindMode,
-				chainreg.BitcoinChain, cfg.ActiveNetParams,
-			)
-			if err != nil {
-				return nil, mkErr("unable to load RPC "+
-					"credentials for bitcoind: %v", err)
-			}
-		case "neutrino":
-			// No need to get RPC parameters.
-
-		case "nochainbackend":
-			// Nothing to configure, we're running without any chain
-			// backend whatsoever (pure signing mode).
-
-		default:
-			str := "only btcd, bitcoind, and neutrino mode " +
-				"supported for bitcoin at this time"
-			return nil, mkErr(str)
-		}
-
-		cfg.Bitcoin.ChainDir = filepath.Join(
-			cfg.DataDir, defaultChainSubDirname,
-			chainreg.BitcoinChain.String(),
-		)
-
-		// Finally we'll register the bitcoin chain as our current
-		// primary chain.
-		cfg.registeredChains.RegisterPrimaryChain(chainreg.BitcoinChain)
+	// Multiple networks can't be selected simultaneously.  Count
+	// number of network flags passed; assign active network params
+	// while we're at it.
+	numNets := 0
+	if cfg.Bitcoin.MainNet {
+		numNets++
+		cfg.ActiveNetParams = chainreg.BitcoinMainNetParams
 	}
+	if cfg.Bitcoin.TestNet3 {
+		numNets++
+		cfg.ActiveNetParams = chainreg.BitcoinTestNetParams
+	}
+	if cfg.Bitcoin.RegTest {
+		numNets++
+		cfg.ActiveNetParams = chainreg.BitcoinRegTestNetParams
+	}
+	if cfg.Bitcoin.SimNet {
+		numNets++
+		cfg.ActiveNetParams = chainreg.BitcoinSimNetParams
+
+		// For simnet, the btcsuite chain params uses a
+		// cointype of 115. However, we override this in
+		// chainreg/chainparams.go, but the raw ChainParam
+		// field is used elsewhere. To ensure everything is
+		// consistent, we'll also override the cointype within
+		// the raw params.
+		targetCoinType := chainreg.BitcoinSigNetParams.CoinType
+		cfg.ActiveNetParams.Params.HDCoinType = targetCoinType
+	}
+	if cfg.Bitcoin.SigNet {
+		numNets++
+		cfg.ActiveNetParams = chainreg.BitcoinSigNetParams
+
+		// Let the user overwrite the default signet parameters.
+		// The challenge defines the actual signet network to
+		// join and the seed nodes are needed for network
+		// discovery.
+		sigNetChallenge := chaincfg.DefaultSignetChallenge
+		sigNetSeeds := chaincfg.DefaultSignetDNSSeeds
+		if cfg.Bitcoin.SigNetChallenge != "" {
+			challenge, err := hex.DecodeString(
+				cfg.Bitcoin.SigNetChallenge,
+			)
+			if err != nil {
+				return nil, mkErr("Invalid "+
+					"signet challenge, hex decode "+
+					"failed: %v", err)
+			}
+			sigNetChallenge = challenge
+		}
+
+		if len(cfg.Bitcoin.SigNetSeedNode) > 0 {
+			sigNetSeeds = make([]chaincfg.DNSSeed, len(
+				cfg.Bitcoin.SigNetSeedNode,
+			))
+			for idx, seed := range cfg.Bitcoin.SigNetSeedNode {
+				sigNetSeeds[idx] = chaincfg.DNSSeed{
+					Host:         seed,
+					HasFiltering: false,
+				}
+			}
+		}
+
+		chainParams := chaincfg.CustomSignetParams(
+			sigNetChallenge, sigNetSeeds,
+		)
+		cfg.ActiveNetParams.Params = &chainParams
+	}
+	if numNets > 1 {
+		str := "The mainnet, testnet, regtest, simnet and signet " +
+			"params can't be used together -- choose one " +
+			"of the five"
+
+		return nil, mkErr(str)
+	}
+
+	// The target network must be provided, otherwise, we won't
+	// know how to initialize the daemon.
+	if numNets == 0 {
+		str := "either --bitcoin.mainnet, or bitcoin.testnet," +
+			"bitcoin.simnet, bitcoin.regtest or bitcoin.signet " +
+			"must be specified"
+
+		return nil, mkErr(str)
+	}
+
+	err = cfg.Bitcoin.Validate(minTimeLockDelta, funding.MinBtcRemoteDelay)
+	if err != nil {
+		return nil, mkErr("error validating bitcoin params: %v", err)
+	}
+
+	switch cfg.Bitcoin.Node {
+	case btcdBackendName:
+		err := parseRPCParams(
+			cfg.Bitcoin, cfg.BtcdMode, cfg.ActiveNetParams,
+		)
+		if err != nil {
+			return nil, mkErr("unable to load RPC "+
+				"credentials for btcd: %v", err)
+		}
+	case bitcoindBackendName:
+		if cfg.Bitcoin.SimNet {
+			return nil, mkErr("bitcoind does not " +
+				"support simnet")
+		}
+
+		err := parseRPCParams(
+			cfg.Bitcoin, cfg.BitcoindMode, cfg.ActiveNetParams,
+		)
+		if err != nil {
+			return nil, mkErr("unable to load RPC "+
+				"credentials for bitcoind: %v", err)
+		}
+	case neutrinoBackendName:
+		// No need to get RPC parameters.
+
+	case "nochainbackend":
+		// Nothing to configure, we're running without any chain
+		// backend whatsoever (pure signing mode).
+
+	default:
+		str := "only btcd, bitcoind, and neutrino mode " +
+			"supported for bitcoin at this time"
+
+		return nil, mkErr(str)
+	}
+
+	cfg.Bitcoin.ChainDir = filepath.Join(
+		cfg.DataDir, defaultChainSubDirname, BitcoinChainName,
+	)
 
 	// Ensure that the user didn't attempt to specify negative values for
 	// any of the autopilot params.
 	if cfg.Autopilot.MaxChannels < 0 {
 		str := "autopilot.maxchannels must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.Allocation < 0 {
 		str := "autopilot.allocation must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.MinChannelSize < 0 {
 		str := "autopilot.minchansize must be non-negative"
+
 		return nil, mkErr(str)
 	}
 	if cfg.Autopilot.MaxChannelSize < 0 {
 		str := "autopilot.maxchansize must be non-negative"
+
 		return nil, mkErr(str)
 	}
 
@@ -1465,8 +1327,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// We'll now construct the network directory which will be where we
 	// store all the data specific to this chain/network.
 	cfg.networkDir = filepath.Join(
-		cfg.DataDir, defaultChainSubDirname,
-		cfg.registeredChains.PrimaryChain().String(),
+		cfg.DataDir, defaultChainSubDirname, BitcoinChainName,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
@@ -1490,8 +1351,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	}
 
 	towerDir := filepath.Join(
-		cfg.Watchtower.TowerDir,
-		cfg.registeredChains.PrimaryChain().String(),
+		cfg.Watchtower.TowerDir, BitcoinChainName,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
@@ -1524,7 +1384,7 @@ func ValidateConfig(cfg Config, interceptor signal.Interceptor, fileParser,
 	// Append the network type to the log directory so it is "namespaced"
 	// per network in the same fashion as the data directory.
 	cfg.LogDir = filepath.Join(
-		cfg.LogDir, cfg.registeredChains.PrimaryChain().String(),
+		cfg.LogDir, BitcoinChainName,
 		lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 	)
 
@@ -1901,7 +1761,7 @@ func CleanAndExpandPath(path string) string {
 }
 
 func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
-	net chainreg.ChainCode, netParams chainreg.BitcoinNetParams) error {
+	netParams chainreg.BitcoinNetParams) error {
 
 	// First, we'll check our node config to make sure the RPC parameters
 	// were set correctly. We'll also determine the path to the conf file
@@ -1915,17 +1775,10 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			return nil
 		}
 
-		// Get the daemon name for displaying proper errors.
-		switch net {
-		case chainreg.BitcoinChain:
-			daemonName = "btcd"
-			confDir = conf.Dir
-			confFileBase = "btcd"
-		case chainreg.LitecoinChain:
-			daemonName = "ltcd"
-			confDir = conf.Dir
-			confFileBase = "ltcd"
-		}
+		// Set the daemon name for displaying proper errors.
+		daemonName = btcdBackendName
+		confDir = conf.Dir
+		confFileBase = btcdBackendName
 
 		// If only ONE of RPCUser or RPCPass is set, we assume the
 		// user did that unintentionally.
@@ -1955,19 +1808,11 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			}
 		}
 
-		// Get the daemon name for displaying proper errors.
-		switch net {
-		case chainreg.BitcoinChain:
-			daemonName = "bitcoind"
-			confDir = conf.Dir
-			confFile = conf.ConfigPath
-			confFileBase = "bitcoin"
-		case chainreg.LitecoinChain:
-			daemonName = "litecoind"
-			confDir = conf.Dir
-			confFile = conf.ConfigPath
-			confFileBase = "litecoin"
-		}
+		// Set the daemon name for displaying proper errors.
+		daemonName = bitcoindBackendName
+		confDir = conf.Dir
+		confFile = conf.ConfigPath
+		confFileBase = BitcoinChainName
 
 		// Check that cookie and credentials don't contradict each
 		// other.
@@ -2038,7 +1883,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 			confFileBase))
 	}
 	switch cConfig.Node {
-	case "btcd", "ltcd":
+	case btcdBackendName:
 		nConf := nodeConfig.(*lncfg.Btcd)
 		rpcUser, rpcPass, err := extractBtcdRPCParams(confFile)
 		if err != nil {
@@ -2047,7 +1892,7 @@ func parseRPCParams(cConfig *lncfg.Chain, nodeConfig interface{},
 		}
 		nConf.RPCUser, nConf.RPCPass = rpcUser, rpcPass
 
-	case "bitcoind", "litecoind":
+	case bitcoindBackendName:
 		nConf := nodeConfig.(*lncfg.Bitcoind)
 		rpcUser, rpcPass, zmqBlockHost, zmqTxHost, err :=
 			extractBitcoindRPCParams(netParams.Params.Name,

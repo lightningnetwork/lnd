@@ -174,6 +174,8 @@ func (m *MempoolNotifier) ProcessRelevantSpendTx(tx *btcutil.Tx) {
 // TearDown stops the notifier and cleans up resources.
 func (m *MempoolNotifier) TearDown() {
 	Log.Infof("Stopping mempool notifier")
+	defer Log.Debug("mempool notifier stopped")
+
 	close(m.quit)
 	m.wg.Wait()
 }

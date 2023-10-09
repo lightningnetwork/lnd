@@ -1071,7 +1071,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,
 		MaxSweepAttempts:     sweep.DefaultMaxSweepAttempts,
 		NextAttemptDeltaFunc: sweep.DefaultNextAttemptDeltaFunc,
-		MaxFeeRate:           sweep.DefaultMaxFeeRate,
+		MaxFeeRate:           cfg.Sweeper.MaxFeeRate,
 		FeeRateBucketSize:    sweep.DefaultFeeRateBucketSize,
 	})
 
@@ -1220,17 +1220,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		HtlcNotifier:                  s.htlcNotifier,
 	}, dbs.ChanStateDB)
 
-	// Select the configuration and furnding parameters for Bitcoin or
-	// Litecoin, depending on the primary registered chain.
-	primaryChain := cfg.registeredChains.PrimaryChain()
+	// Select the configuration and funding parameters for Bitcoin.
 	chainCfg := cfg.Bitcoin
 	minRemoteDelay := funding.MinBtcRemoteDelay
 	maxRemoteDelay := funding.MaxBtcRemoteDelay
-	if primaryChain == chainreg.LitecoinChain {
-		chainCfg = cfg.Litecoin
-		minRemoteDelay = funding.MinLtcRemoteDelay
-		maxRemoteDelay = funding.MaxLtcRemoteDelay
-	}
 
 	var chanIDSeed [32]byte
 	if _, err := rand.Read(chanIDSeed[:]); err != nil {
@@ -1323,8 +1316,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// in the case this gets re-orged out, and
 			// we will require more confirmations before
 			// we consider it open.
-			// TODO(halseth): Use Litecoin params in case
-			// of LTC channels.
 
 			// In case the user has explicitly specified
 			// a default value for the number of
@@ -1364,7 +1355,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// close) linearly from minRemoteDelay blocks
 			// for small channels, to maxRemoteDelay blocks
 			// for channels of size MaxFundingAmount.
-			// TODO(halseth): Litecoin parameter for LTC.
 
 			// In case the user has explicitly specified
 			// a default value for the remote delay, we
@@ -1457,7 +1447,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		OpenChannelPredicate:          chanPredicate,
 		NotifyPendingOpenChannelEvent: s.channelNotifier.NotifyPendingOpenChannelEvent,
 		EnableUpfrontShutdown:         cfg.EnableUpfrontShutdown,
-		RegisteredChains:              cfg.registeredChains,
 		MaxAnchorsCommitFeeRate: chainfee.SatPerKVByte(
 			s.cfg.MaxCommitFeeRateAnchors * 1000).FeePerKWeight(),
 		DeleteAliasEdge: deleteAliasEdge,
@@ -2182,30 +2171,23 @@ func (s *server) Start() error {
 		}
 
 		// Let users overwrite the DNS seed nodes. We only allow them
-		// for bitcoin mainnet/testnet and litecoin mainnet, all other
-		// combinations will just be ignored.
-		if s.cfg.Bitcoin.Active && s.cfg.Bitcoin.MainNet {
+		// for bitcoin mainnet/testnet/signet.
+		if s.cfg.Bitcoin.MainNet {
 			setSeedList(
 				s.cfg.Bitcoin.DNSSeeds,
 				chainreg.BitcoinMainnetGenesis,
 			)
 		}
-		if s.cfg.Bitcoin.Active && s.cfg.Bitcoin.TestNet3 {
+		if s.cfg.Bitcoin.TestNet3 {
 			setSeedList(
 				s.cfg.Bitcoin.DNSSeeds,
 				chainreg.BitcoinTestnetGenesis,
 			)
 		}
-		if s.cfg.Bitcoin.Active && s.cfg.Bitcoin.SigNet {
+		if s.cfg.Bitcoin.SigNet {
 			setSeedList(
 				s.cfg.Bitcoin.DNSSeeds,
 				chainreg.BitcoinSignetGenesis,
-			)
-		}
-		if s.cfg.Litecoin.Active && s.cfg.Litecoin.MainNet {
-			setSeedList(
-				s.cfg.Litecoin.DNSSeeds,
-				chainreg.LitecoinMainnetGenesis,
 			)
 		}
 
@@ -2346,8 +2328,10 @@ func (s *server) Stop() error {
 		}
 
 		// Wait for all lingering goroutines to quit.
+		srvrLog.Debug("Waiting for server to shutdown...")
 		s.wg.Wait()
 
+		srvrLog.Debug("Stopping buffer pools...")
 		s.sigPool.Stop()
 		s.writePool.Stop()
 		s.readPool.Stop()
@@ -2559,7 +2543,7 @@ func initNetworkBootstrappers(s *server) ([]discovery.NetworkPeerBootstrapper, e
 
 	// If this isn't simnet mode, then one of our additional bootstrapping
 	// sources will be the set of running DNS seeds.
-	if !s.cfg.Bitcoin.SimNet || !s.cfg.Litecoin.SimNet {
+	if !s.cfg.Bitcoin.SimNet {
 		dnsSeeds, ok := chainreg.ChainDNSSeeds[*s.cfg.ActiveNetParams.GenesisHash]
 
 		// If we have a set of DNS seeds for this chain, then we'll add
@@ -3975,6 +3959,9 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 	// Start the peer! If an error occurs, we Disconnect the peer, which
 	// will unblock the peerTerminationWatcher.
 	if err := p.Start(); err != nil {
+		srvrLog.Warnf("Starting peer=%v got error: %v",
+			p.IdentityKey(), err)
+
 		p.Disconnect(fmt.Errorf("unable to start peer: %v", err))
 		return
 	}
@@ -4713,9 +4700,9 @@ func newSweepPkScriptGen(
 // bootstrapping to actively seek our peers using the set of active network
 // bootstrappers.
 func shouldPeerBootstrap(cfg *Config) bool {
-	isSimnet := (cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet)
-	isSignet := (cfg.Bitcoin.SigNet || cfg.Litecoin.SigNet)
-	isRegtest := (cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest)
+	isSimnet := cfg.Bitcoin.SimNet
+	isSignet := cfg.Bitcoin.SigNet
+	isRegtest := cfg.Bitcoin.RegTest
 	isDevNetwork := isSimnet || isSignet || isRegtest
 
 	// TODO(yy): remove the check on simnet/regtest such that the itest is

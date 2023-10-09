@@ -390,7 +390,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 				records:     p.payment.DestCustomRecords,
 				paymentAddr: p.payment.PaymentAddr,
 				metadata:    p.payment.Metadata,
-			},
+			}, nil,
 		)
 		if err != nil {
 			return nil, err

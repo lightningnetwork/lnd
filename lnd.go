@@ -160,16 +160,16 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 
 	var network string
 	switch {
-	case cfg.Bitcoin.TestNet3 || cfg.Litecoin.TestNet3:
+	case cfg.Bitcoin.TestNet3:
 		network = "testnet"
 
-	case cfg.Bitcoin.MainNet || cfg.Litecoin.MainNet:
+	case cfg.Bitcoin.MainNet:
 		network = "mainnet"
 
-	case cfg.Bitcoin.SimNet || cfg.Litecoin.SimNet:
+	case cfg.Bitcoin.SimNet:
 		network = "simnet"
 
-	case cfg.Bitcoin.RegTest || cfg.Litecoin.RegTest:
+	case cfg.Bitcoin.RegTest:
 		network = "regtest"
 
 	case cfg.Bitcoin.SigNet:
@@ -177,8 +177,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	ltndLog.Infof("Active chain: %v (network=%v)",
-		strings.Title(cfg.registeredChains.PrimaryChain().String()),
-		network,
+		strings.Title(BitcoinChainName), network,
 	)
 
 	ctx := context.Background()
@@ -452,12 +451,6 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 	}
 
 	defer cleanUp()
-
-	// Finally before we start the server, we'll register the "holy
-	// trinity" of interface for our current "home chain" with the active
-	// chainRegistry interface.
-	primaryChain := cfg.registeredChains.PrimaryChain()
-	cfg.registeredChains.RegisterChain(primaryChain, activeChainControl)
 
 	// TODO(roasbeef): add rotation
 	idKeyDesc, err := activeChainControl.KeyRing.DeriveKey(

@@ -78,7 +78,7 @@ const (
 	// invoices. This allows LND nodes to freely update the minimum without
 	// creating incompatibilities during the upgrade process. For some time
 	// LND has used an explicit default final CLTV delta of 40 blocks for
-	// bitcoin (160 for litecoin), though we now clamp the lower end of this
+	// bitcoin, though we now clamp the lower end of this
 	// range for user-chosen deltas to 18 blocks to be conservative.
 	MinCLTVDelta = 18
 
@@ -91,6 +91,34 @@ var (
 	// ErrRouterShuttingDown is returned if the router is in the process of
 	// shutting down.
 	ErrRouterShuttingDown = fmt.Errorf("router shutting down")
+
+	// ErrSelfIntro is a failure returned when the source node of a
+	// route request is also the introduction node. This is not yet
+	// supported because LND does not support blinded forwardingg.
+	ErrSelfIntro = errors.New("introduction point as own node not " +
+		"supported")
+
+	// ErrHintsAndBlinded is returned if a route request has both
+	// bolt 11 route hints and a blinded path set.
+	ErrHintsAndBlinded = errors.New("bolt 11 route hints and blinded " +
+		"paths are mutually exclusive")
+
+	// ErrExpiryAndBlinded is returned if a final cltv and a blinded path
+	// are provided, as the cltv should be provided within the blinded
+	// path.
+	ErrExpiryAndBlinded = errors.New("final cltv delta and blinded " +
+		"paths are mutually exclusive")
+
+	// ErrTargetAndBlinded is returned is a target destination and a
+	// blinded path are both set (as the target is inferred from the
+	// blinded path).
+	ErrTargetAndBlinded = errors.New("target node and blinded paths " +
+		"are mutually exclusive")
+
+	// ErrNoTarget is returned when the target node for a route is not
+	// provided by either a blinded route or a cleartext pubkey.
+	ErrNoTarget = errors.New("destination not set in target or blinded " +
+		"path")
 )
 
 // ChannelGraphSource represents the source of information about the topology
@@ -101,20 +129,24 @@ type ChannelGraphSource interface {
 	// AddNode is used to add information about a node to the router
 	// database. If the node with this pubkey is not present in an existing
 	// channel, it will be ignored.
-	AddNode(node *channeldb.LightningNode, op ...batch.SchedulerOption) error
+	AddNode(node *channeldb.LightningNode,
+		op ...batch.SchedulerOption) error
 
 	// AddEdge is used to add edge/channel to the topology of the router,
 	// after all information about channel will be gathered this
 	// edge/channel might be used in construction of payment path.
-	AddEdge(edge *channeldb.ChannelEdgeInfo, op ...batch.SchedulerOption) error
+	AddEdge(edge *channeldb.ChannelEdgeInfo,
+		op ...batch.SchedulerOption) error
 
 	// AddProof updates the channel edge info with proof which is needed to
 	// properly announce the edge to the rest of the network.
-	AddProof(chanID lnwire.ShortChannelID, proof *channeldb.ChannelAuthProof) error
+	AddProof(chanID lnwire.ShortChannelID,
+		proof *channeldb.ChannelAuthProof) error
 
 	// UpdateEdge is used to update edge information, without this message
 	// edge considered as not fully constructed.
-	UpdateEdge(policy *channeldb.ChannelEdgePolicy, op ...batch.SchedulerOption) error
+	UpdateEdge(policy *channeldb.ChannelEdgePolicy,
+		op ...batch.SchedulerOption) error
 
 	// IsStaleNode returns true if the graph source has a node announcement
 	// for the target node with a more recent timestamp. This method will
@@ -152,8 +184,9 @@ type ChannelGraphSource interface {
 	CurrentBlockHeight() (uint32, error)
 
 	// GetChannelByID return the channel by the channel id.
-	GetChannelByID(chanID lnwire.ShortChannelID) (*channeldb.ChannelEdgeInfo,
-		*channeldb.ChannelEdgePolicy, *channeldb.ChannelEdgePolicy, error)
+	GetChannelByID(chanID lnwire.ShortChannelID) (
+		*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
+		*channeldb.ChannelEdgePolicy, error)
 
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
@@ -226,8 +259,8 @@ type MissionController interface {
 		failureSourceIdx *int, failure lnwire.FailureMessage) (
 		*channeldb.FailureReason, error)
 
-	// ReportPaymentSuccess reports a successful payment to mission control as input
-	// for future probability estimates.
+	// ReportPaymentSuccess reports a successful payment to mission control
+	// as input for future probability estimates.
 	ReportPaymentSuccess(attemptID uint64, rt *route.Route) error
 
 	// GetProbability is expected to return the success probability of a
@@ -410,8 +443,8 @@ type ChannelRouter struct {
 	// when doing any path finding.
 	selfNode *channeldb.LightningNode
 
-	// cachedGraph is an instance of routingGraph that caches the source node as
-	// well as the channel graph itself in memory.
+	// cachedGraph is an instance of routingGraph that caches the source
+	// node as well as the channel graph itself in memory.
 	cachedGraph routingGraph
 
 	// newBlocks is a channel in which new blocks connected to the end of
@@ -699,7 +732,8 @@ func (r *ChannelRouter) Stop() error {
 		return nil
 	}
 
-	log.Info("Channel Router shutting down")
+	log.Info("Channel Router shutting down...")
+	defer log.Debug("Channel Router shutdown complete")
 
 	// Our filtered chain view could've only been started if
 	// AssumeChannelValid isn't present.
@@ -740,8 +774,8 @@ func (r *ChannelRouter) syncGraphWithChain() error {
 		}
 	}
 
-	log.Infof("Prune tip for Channel Graph: height=%v, hash=%v", pruneHeight,
-		pruneHash)
+	log.Infof("Prune tip for Channel Graph: height=%v, hash=%v",
+		pruneHeight, pruneHash)
 
 	switch {
 
@@ -930,9 +964,9 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		return nil
 	}
 
-	// If AssumeChannelValid is present we'll look at the disabled bit for both
-	// edges. If they're both disabled, then we can interpret this as the
-	// channel being closed and can prune it from our graph.
+	// If AssumeChannelValid is present we'll look at the disabled bit for
+	// both edges. If they're both disabled, then we can interpret this as
+	// the channel being closed and can prune it from our graph.
 	if r.cfg.AssumeChannelValid {
 		disabledChanIDs, err := r.cfg.Graph.DisabledChannelIDs()
 		if err != nil {
@@ -1803,16 +1837,178 @@ type routingMsg struct {
 	err chan error
 }
 
+// RouteRequest contains the parameters for a pathfinding request. It may
+// describe a request to make a regular payment or one to a blinded path
+// (incdicated by a non-nil BlindedPayment field).
+type RouteRequest struct {
+	// Source is the node that the path originates from.
+	Source route.Vertex
+
+	// Target is the node that the path terminates at. If the route
+	// includes a blinded path, target will be the blinded node id of the
+	// final hop in the blinded route.
+	Target route.Vertex
+
+	// Amount is the Amount in millisatoshis to be delivered to the target
+	// node.
+	Amount lnwire.MilliSatoshi
+
+	// TimePreference expresses the caller's time preference for
+	// pathfinding.
+	TimePreference float64
+
+	// Restrictions provides a set of additional Restrictions that the
+	// route must adhere to.
+	Restrictions *RestrictParams
+
+	// CustomRecords is a set of custom tlv records to include for the
+	// final hop.
+	CustomRecords record.CustomSet
+
+	// RouteHints contains an additional set of edges to include in our
+	// view of the graph. This may either be a set of hints for private
+	// channels or a "virtual" hop hint that represents a blinded route.
+	RouteHints RouteHints
+
+	// FinalExpiry is the cltv delta for the final hop. If paying to a
+	// blinded path, this value is a duplicate of the delta provided
+	// in blinded payment.
+	FinalExpiry uint16
+
+	// BlindedPayment contains an optional blinded path and parameters
+	// used to reach a target node via a blinded path. This field is
+	// mutually exclusive with the Target field.
+	BlindedPayment *BlindedPayment
+}
+
+// RouteHints is an alias type for a set of route hints, with the source node
+// as the map's key and the details of the hint(s) in the edge policy.
+type RouteHints map[route.Vertex][]*channeldb.CachedEdgePolicy
+
+// NewRouteRequest produces a new route request for a regular payment or one
+// to a blinded route, validating that the target, routeHints and finalExpiry
+// parameters are mutually exclusive with the blindedPayment parameter (which
+// contains these values for blinded payments).
+func NewRouteRequest(source route.Vertex, target *route.Vertex,
+	amount lnwire.MilliSatoshi, timePref float64,
+	restrictions *RestrictParams, customRecords record.CustomSet,
+	routeHints RouteHints, blindedPayment *BlindedPayment,
+	finalExpiry uint16) (*RouteRequest, error) {
+
+	var (
+		// Assume that we're starting off with a regular payment.
+		requestHints  = routeHints
+		requestExpiry = finalExpiry
+	)
+
+	if blindedPayment != nil {
+		if err := blindedPayment.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid blinded payment: %w",
+				err)
+		}
+
+		introVertex := route.NewVertex(
+			blindedPayment.BlindedPath.IntroductionPoint,
+		)
+		if source == introVertex {
+			return nil, ErrSelfIntro
+		}
+
+		// Check that the values for a clear path have not been set,
+		// as this is an ambiguous signal from the caller.
+		if routeHints != nil {
+			return nil, ErrHintsAndBlinded
+		}
+
+		if finalExpiry != 0 {
+			return nil, ErrExpiryAndBlinded
+		}
+
+		// If we have a blinded path with 1 hop, the cltv expiry
+		// will not be included in any hop hints (since we're just
+		// sending to the introduction node and need no blinded hints).
+		// In this case, we include it to make sure that the final
+		// cltv delta is accounted for (since it's part of the blinded
+		// delta). In the case of a multi-hop route, we set our final
+		// cltv to zero, since it's going to be accounted for in the
+		// delta for our hints.
+		if len(blindedPayment.BlindedPath.BlindedHops) == 1 {
+			requestExpiry = blindedPayment.CltvExpiryDelta
+		}
+
+		requestHints = blindedPayment.toRouteHints()
+	}
+
+	requestTarget, err := getTargetNode(target, blindedPayment)
+	if err != nil {
+		return nil, err
+	}
+
+	return &RouteRequest{
+		Source:         source,
+		Target:         requestTarget,
+		Amount:         amount,
+		TimePreference: timePref,
+		Restrictions:   restrictions,
+		CustomRecords:  customRecords,
+		RouteHints:     requestHints,
+		FinalExpiry:    requestExpiry,
+		BlindedPayment: blindedPayment,
+	}, nil
+}
+
+func getTargetNode(target *route.Vertex, blindedPayment *BlindedPayment) (
+	route.Vertex, error) {
+
+	var (
+		blinded   = blindedPayment != nil
+		targetSet = target != nil
+	)
+
+	switch {
+	case blinded && targetSet:
+		return route.Vertex{}, ErrTargetAndBlinded
+
+	case blinded:
+		// If we're dealing with an edge-case blinded path that just
+		// has an introduction node (first hop expected to be the intro
+		// hop), then we return the unblinded introduction node as our
+		// target.
+		hops := blindedPayment.BlindedPath.BlindedHops
+		if len(hops) == 1 {
+			return route.NewVertex(
+				blindedPayment.BlindedPath.IntroductionPoint,
+			), nil
+		}
+
+		return route.NewVertex(hops[len(hops)-1].BlindedNodePub), nil
+
+	case targetSet:
+		return *target, nil
+
+	default:
+		return route.Vertex{}, ErrNoTarget
+	}
+}
+
+// blindedPath returns the request's blinded path, which is set if the payment
+// is to a blinded route.
+func (r *RouteRequest) blindedPath() *sphinx.BlindedPath {
+	if r.BlindedPayment == nil {
+		return nil
+	}
+
+	return r.BlindedPayment.BlindedPath
+}
+
 // FindRoute attempts to query the ChannelRouter for the optimum path to a
 // particular target destination to which it is able to send `amt` after
 // factoring in channel capacities and cumulative fees along the route.
-func (r *ChannelRouter) FindRoute(source, target route.Vertex,
-	amt lnwire.MilliSatoshi, timePref float64, restrictions *RestrictParams,
-	destCustomRecords record.CustomSet,
-	routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-	finalExpiry uint16) (*route.Route, float64, error) {
+func (r *ChannelRouter) FindRoute(req *RouteRequest) (*route.Route, float64,
+	error) {
 
-	log.Debugf("Searching for path to %v, sending %v", target, amt)
+	log.Debugf("Searching for path to %v, sending %v", req.Target,
+		req.Amount)
 
 	// We'll attempt to obtain a set of bandwidth hints that can help us
 	// eliminate certain routes early on in the path finding process.
@@ -1832,22 +2028,22 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	// Now that we know the destination is reachable within the graph, we'll
 	// execute our path finding algorithm.
-	finalHtlcExpiry := currentHeight + int32(finalExpiry)
+	finalHtlcExpiry := currentHeight + int32(req.FinalExpiry)
 
 	// Validate time preference.
+	timePref := req.TimePreference
 	if timePref < -1 || timePref > 1 {
 		return nil, 0, errors.New("time preference out of range")
 	}
 
 	path, probability, err := findPath(
 		&graphParams{
-			additionalEdges: routeHints,
+			additionalEdges: req.RouteHints,
 			bandwidthHints:  bandwidthHints,
 			graph:           r.cachedGraph,
 		},
-		restrictions,
-		&r.cfg.PathFindingConfig,
-		source, target, amt, timePref, finalHtlcExpiry,
+		req.Restrictions, &r.cfg.PathFindingConfig, req.Source,
+		req.Target, req.Amount, req.TimePreference, finalHtlcExpiry,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -1855,20 +2051,20 @@ func (r *ChannelRouter) FindRoute(source, target route.Vertex,
 
 	// Create the route with absolute time lock values.
 	route, err := newRoute(
-		source, path, uint32(currentHeight),
+		req.Source, path, uint32(currentHeight),
 		finalHopParams{
-			amt:       amt,
-			totalAmt:  amt,
-			cltvDelta: finalExpiry,
-			records:   destCustomRecords,
-		},
+			amt:       req.Amount,
+			totalAmt:  req.Amount,
+			cltvDelta: req.FinalExpiry,
+			records:   req.CustomRecords,
+		}, req.blindedPath(),
 	)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	go log.Tracef("Obtained path to send %v to %x: %v",
-		amt, target, newLogClosure(func() string {
+		req.Amount, req.Target, newLogClosure(func() string {
 			return spew.Sdump(route)
 		}),
 	)
@@ -1904,7 +2100,9 @@ func generateSphinxPacket(rt *route.Route, paymentHash []byte,
 
 	log.Tracef("Constructed per-hop payloads for payment_hash=%x: %v",
 		paymentHash[:], newLogClosure(func() string {
-			path := make([]sphinx.OnionHop, sphinxPath.TrueRouteLength())
+			path := make(
+				[]sphinx.OnionHop, sphinxPath.TrueRouteLength(),
+			)
 			for i := range path {
 				hopCopy := sphinxPath[i]
 				path[i] = hopCopy
@@ -2276,7 +2474,8 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	switch {
 	// If this is an MPP attempt and the hash is already registered with
 	// the database, we can go on to launch the shard.
-	case err == channeldb.ErrPaymentInFlight && mpp != nil:
+	case mpp != nil && errors.Is(err, channeldb.ErrPaymentInFlight):
+	case mpp != nil && errors.Is(err, channeldb.ErrPaymentExists):
 
 	// Any other error is not tolerated.
 	case err != nil:
@@ -2356,7 +2555,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// the error to check if it maps into a terminal error code, if not use
 	// a generic NO_ROUTE error.
 	var failureReason *channeldb.FailureReason
-	err = sh.handleSendError(attempt, shardError)
+	err = sh.handleSwitchErr(attempt, shardError)
 
 	switch {
 	// If a non-terminal error is returned and `skipTempErr` is false, then
@@ -2388,10 +2587,6 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 // to reach the destination. Additionally, the payment preimage will also be
 // returned.
 //
-// The existing attempt argument should be set to nil if this is a payment that
-// haven't had any payment attempt sent to the switch yet. If it has had an
-// attempt already, it should be passed such that the result can be retrieved.
-//
 // This method relies on the ControlTower's internal payment state machine to
 // carry out its execution. After restarts it is safe, and assumed, that the
 // router will call this method for every payment still in-flight according to
@@ -2410,24 +2605,12 @@ func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
 
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
-	p := &paymentLifecycle{
-		router:        r,
-		feeLimit:      feeLimit,
-		identifier:    identifier,
-		paySession:    paySession,
-		shardTracker:  shardTracker,
-		currentHeight: currentHeight,
-	}
-
-	// If a timeout is specified, create a timeout channel. If no timeout is
-	// specified, the channel is left nil and will never abort the payment
-	// loop.
-	if timeout != 0 {
-		p.timeoutChan = time.After(timeout)
-	}
+	p := newPaymentLifecycle(
+		r, feeLimit, identifier, paySession,
+		shardTracker, timeout, currentHeight,
+	)
 
 	return p.resumePayment()
-
 }
 
 // extractChannelUpdate examines the error and extracts the channel update.
@@ -2625,10 +2808,13 @@ func (r *ChannelRouter) FetchLightningNode(
 // ForEachNode is used to iterate over every node in router topology.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) ForEachNode(cb func(*channeldb.LightningNode) error) error {
-	return r.cfg.Graph.ForEachNode(func(_ kvdb.RTx, n *channeldb.LightningNode) error {
-		return cb(n)
-	})
+func (r *ChannelRouter) ForEachNode(
+	cb func(*channeldb.LightningNode) error) error {
+
+	return r.cfg.Graph.ForEachNode(
+		func(_ kvdb.RTx, n *channeldb.LightningNode) error {
+			return cb(n)
+		})
 }
 
 // ForAllOutgoingChannels is used to iterate over all outgoing channels owned by
@@ -2697,7 +2883,9 @@ func (r *ChannelRouter) IsPublicNode(node route.Vertex) (bool, error) {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
-	_, _, exists, isZombie, _ := r.cfg.Graph.HasChannelEdge(chanID.ToUint64())
+	_, _, exists, isZombie, _ := r.cfg.Graph.HasChannelEdge(
+		chanID.ToUint64(),
+	)
 	return exists || isZombie
 }
 
@@ -2854,7 +3042,7 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 			cltvDelta:   uint16(finalCltvDelta),
 			records:     nil,
 			paymentAddr: payAddr,
-		},
+		}, nil,
 	)
 }
 

@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -278,16 +279,6 @@ func contextWithMetadata(ctx context.Context,
 // extractPathArgs parses the TLS certificate and macaroon paths from the
 // command.
 func extractPathArgs(ctx *cli.Context) (string, string, error) {
-	// We'll start off by parsing the active chain and network. These are
-	// needed to determine the correct path to the macaroon when not
-	// specified.
-	chain := strings.ToLower(ctx.GlobalString("chain"))
-	switch chain {
-	case "bitcoin", "litecoin":
-	default:
-		return "", "", fmt.Errorf("unknown chain: %v", chain)
-	}
-
 	network := strings.ToLower(ctx.GlobalString("network"))
 	switch network {
 	case "mainnet", "testnet", "regtest", "simnet", "signet":
@@ -311,8 +302,8 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 		// lnddir/data/chain/<chain>/<network> in order to fetch the
 		// macaroon that we need.
 		macPath = filepath.Join(
-			lndDir, defaultDataDir, defaultChainSubDir, chain,
-			network, defaultMacaroonFilename,
+			lndDir, defaultDataDir, defaultChainSubDir,
+			lnd.BitcoinChainName, network, defaultMacaroonFilename,
 		)
 	}
 

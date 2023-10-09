@@ -297,7 +297,7 @@ func TestCraftSweepAllTxCoinSelectFail(t *testing.T) {
 	utxoLocker := newMockOutpointLocker()
 
 	_, err := CraftSweepAllTx(
-		0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker, nil,
+		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker,
 		nil, 0,
 	)
 
@@ -323,7 +323,7 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 	utxoLocker := newMockOutpointLocker()
 
 	_, err := CraftSweepAllTx(
-		0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker, nil,
+		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker,
 		nil, 0,
 	)
 
@@ -348,7 +348,6 @@ func TestCraftSweepAllTx(t *testing.T) {
 	// First, we'll make a mock signer along with a fee estimator, We'll
 	// use zero fees to we can assert a precise output value.
 	signer := &mock.DummySigner{}
-	feeEstimator := newMockFeeEstimator(0, 0)
 
 	// For our UTXO source, we'll pass in all the UTXOs that we know of,
 	// other than the final one which is of an unknown witness type.
@@ -358,8 +357,8 @@ func TestCraftSweepAllTx(t *testing.T) {
 	utxoLocker := newMockOutpointLocker()
 
 	sweepPkg, err := CraftSweepAllTx(
-		0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
-		utxoLocker, feeEstimator, signer, 0,
+		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
+		utxoLocker, signer, 0,
 	)
 	require.NoError(t, err, "unable to make sweep tx")
 

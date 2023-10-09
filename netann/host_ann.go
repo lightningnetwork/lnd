@@ -69,7 +69,9 @@ func (h *HostAnnouncer) Start() error {
 // Stop signals the HostAnnouncer for a graceful stop.
 func (h *HostAnnouncer) Stop() error {
 	h.stopOnce.Do(func() {
-		log.Info("HostAnnouncer shutting down")
+		log.Info("HostAnnouncer shutting down...")
+		defer log.Debug("HostAnnouncer shutdown complete")
+
 		close(h.quit)
 		h.wg.Wait()
 	})

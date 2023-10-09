@@ -21,11 +21,6 @@ import (
 )
 
 const (
-	// DefaultMaxFeeRate is the default maximum fee rate allowed within the
-	// UtxoSweeper. The current value is equivalent to a fee rate of 10,000
-	// sat/vbyte.
-	DefaultMaxFeeRate = chainfee.FeePerKwFloor * 1e4
-
 	// DefaultFeeRateBucketSize is the default size of fee rate buckets
 	// we'll use when clustering inputs into buckets with similar fee rates
 	// within the UtxoSweeper.
@@ -288,7 +283,7 @@ type UtxoSweeperConfig struct {
 
 	// MaxFeeRate is the the maximum fee rate allowed within the
 	// UtxoSweeper.
-	MaxFeeRate chainfee.SatPerKWeight
+	MaxFeeRate chainfee.SatPerVByte
 
 	// FeeRateBucketSize is the default size of fee rate buckets we'll use
 	// when clustering inputs into buckets with similar fee rates within the
@@ -409,12 +404,11 @@ func (s *UtxoSweeper) Stop() error {
 		return nil
 	}
 
-	log.Info("Sweeper shutting down")
+	log.Info("Sweeper shutting down...")
+	defer log.Debug("Sweeper shutdown complete")
 
 	close(s.quit)
 	s.wg.Wait()
-
-	log.Debugf("Sweeper shut down")
 
 	return nil
 }
@@ -484,9 +478,15 @@ func (s *UtxoSweeper) feeRateForPreference(
 		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
 			"rate %v, minimum is %v", feeRate, s.relayFeeRate)
 	}
-	if feeRate > s.cfg.MaxFeeRate {
-		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
-			"rate %v, maximum is %v", feeRate, s.cfg.MaxFeeRate)
+
+	// If the estimated fee rate is above the maximum allowed fee rate,
+	// default to the max fee rate.
+	if feeRate > s.cfg.MaxFeeRate.FeePerKWeight() {
+		log.Warnf("Estimated fee rate %v exceeds max allowed fee "+
+			"rate %v, using max fee rate instead", feeRate,
+			s.cfg.MaxFeeRate.FeePerKWeight())
+
+		return s.cfg.MaxFeeRate.FeePerKWeight(), nil
 	}
 
 	return feeRate, nil
@@ -1245,6 +1245,9 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 		}
 	}
 
+	// Convert the max fee rate's unit from sat/vb to sat/kw.
+	maxFeeRate := s.cfg.MaxFeeRate.FeePerKWeight()
+
 	// If there is anything to retry, combine it with the new inputs and
 	// form input sets.
 	var allSets []inputSet
@@ -1252,8 +1255,8 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 		var err error
 		allSets, err = generateInputPartitionings(
 			append(retryInputs, newInputs...),
-			cluster.sweepFeeRate, s.cfg.MaxInputsPerTx,
-			s.cfg.Wallet,
+			cluster.sweepFeeRate, maxFeeRate,
+			s.cfg.MaxInputsPerTx, s.cfg.Wallet,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("input partitionings: %v", err)
@@ -1262,8 +1265,8 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 
 	// Create sets for just the new inputs.
 	newSets, err := generateInputPartitionings(
-		newInputs, cluster.sweepFeeRate, s.cfg.MaxInputsPerTx,
-		s.cfg.Wallet,
+		newInputs, cluster.sweepFeeRate, maxFeeRate,
+		s.cfg.MaxInputsPerTx, s.cfg.Wallet,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("input partitionings: %v", err)
@@ -1294,7 +1297,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	// Create sweep tx.
 	tx, err := createSweepTx(
 		inputs, nil, s.currentOutputScript, uint32(currentHeight),
-		feeRate, s.cfg.Signer,
+		feeRate, s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
 	)
 	if err != nil {
 		return fmt.Errorf("create sweep tx: %v", err)
@@ -1603,7 +1606,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input, feePref FeePreference,
 
 	return createSweepTx(
 		inputs, nil, pkScript, currentBlockHeight, feePerKw,
-		s.cfg.Signer,
+		s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
 	)
 }
 

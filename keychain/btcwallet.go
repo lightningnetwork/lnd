@@ -22,10 +22,6 @@ const (
 	// CoinTypeTestnet specifies the BIP44 coin type for all testnet key
 	// derivation.
 	CoinTypeTestnet = 1
-
-	// CoinTypeLitecoin specifies the BIP44 coin type for Litecoin key
-	// derivation.
-	CoinTypeLitecoin = 2
 )
 
 var (

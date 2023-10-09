@@ -2244,7 +2244,8 @@ func (s *Switch) Stop() error {
 		return errors.New("htlc switch already shutdown")
 	}
 
-	log.Info("HTLC Switch shutting down")
+	log.Info("HTLC Switch shutting down...")
+	defer log.Debug("HTLC Switch shutdown complete")
 
 	close(s.quit)
 

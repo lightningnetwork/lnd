@@ -19,7 +19,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/chanacceptor"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -74,14 +73,6 @@ const (
 	// to use for its commitment transaction.
 	MaxBtcRemoteDelay uint16 = 2016
 
-	// MinLtcRemoteDelay is the minimum Litecoin CSV delay we will require
-	// the remote to use for its commitment transaction.
-	MinLtcRemoteDelay uint16 = 576
-
-	// MaxLtcRemoteDelay is the maximum Litecoin CSV delay we will require
-	// the remote to use for its commitment transaction.
-	MaxLtcRemoteDelay uint16 = 8064
-
 	// MinChanFundingSize is the smallest channel that we'll allow to be
 	// created over the RPC interface.
 	MinChanFundingSize = btcutil.Amount(20000)
@@ -97,12 +88,6 @@ const (
 	// channels. This limit is 10 BTC and is the only thing standing between
 	// you and limitless channel size (apart from 21 million cap).
 	MaxBtcFundingAmountWumbo = btcutil.Amount(1000000000)
-
-	// MaxLtcFundingAmount is a soft-limit of the maximum channel size
-	// currently accepted on the Litecoin chain within the Lightning
-	// Protocol.
-	MaxLtcFundingAmount = MaxBtcFundingAmount *
-		chainreg.BtcToLtcConversionRate
 
 	// TODO(roasbeef): tune.
 	msgBufferSize = 50
@@ -532,10 +517,6 @@ type Config struct {
 	// is enabled.
 	EnableUpfrontShutdown bool
 
-	// RegisteredChains keeps track of all chains that have been registered
-	// with the daemon.
-	RegisteredChains *chainreg.ChainRegistry
-
 	// MaxAnchorsCommitFeeRate is the max commitment fee rate we'll use as
 	// the initiator for channels of the anchor type.
 	MaxAnchorsCommitFeeRate chainfee.SatPerKWeight
@@ -763,7 +744,9 @@ func (f *Manager) start() error {
 // method will block until all goroutines have exited.
 func (f *Manager) Stop() error {
 	f.stopped.Do(func() {
-		log.Info("Funding manager shutting down")
+		log.Info("Funding manager shutting down...")
+		defer log.Debug("Funding manager shutdown complete")
+
 		close(f.quit)
 		f.wg.Wait()
 	})

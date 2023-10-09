@@ -1926,13 +1926,16 @@ message GetInfoResponse {
     /*
     Whether the current node is connected to testnet. This field is
     deprecated and the network field should be used instead
-    **/
+    */
     bool testnet = 10 [deprecated = true];
 
     reserved 11;
 
-    // A list of active chains the node is connected to
-    repeated Chain chains = 16;
+    /*
+    Deprecated. The only active chain is bitcoin.
+    A list of active chains the node is connected to
+    */
+    repeated Chain chains = 16 [deprecated = true];
 
     // The URIs of the current node.
     repeated string uris = 12;
@@ -1966,8 +1969,9 @@ message GetRecoveryInfoResponse {
 }
 
 message Chain {
-    // The blockchain the node is on (eg bitcoin, litecoin)
-    string chain = 1;
+    // Deprecated. The chain is now always assumed to be bitcoin.
+    // The blockchain the node is on (must be bitcoin)
+    string chain = 1 [deprecated = true];
 
     // The network the node is on (eg regtest, testnet, mainnet)
     string network = 2;
@@ -2928,6 +2932,9 @@ message QueryRoutesRequest {
     not add any additional block padding on top of final_ctlv_delta. This
     padding of a few blocks needs to be added manually or otherwise failures may
     happen when a block comes in while the payment is in flight.
+
+    Note: must not be set if making a payment to a blinded path (delta is
+    set by the aggregate parameters provided by blinded_payment_paths)
     */
     int32 final_cltv_delta = 4;
 
@@ -3002,11 +3009,20 @@ message QueryRoutesRequest {
     repeated lnrpc.RouteHint route_hints = 16;
 
     /*
+    An optional blinded path(s) to reach the destination. Note that the
+    introduction node must be provided as the first hop in the route.
+    */
+    repeated BlindedPaymentPath blinded_payment_paths = 19;
+
+    /*
     Features assumed to be supported by the final node. All transitive feature
     dependencies must also be set properly. For a given feature bit pair, either
     optional or remote may be set, but not both. If this field is nil or empty,
     the router will try to load destination features from the graph as a
     fallback.
+
+    Note: must not be set if making a payment to a blinded route (features
+    are provided in blinded_payment_paths).
     */
     repeated lnrpc.FeatureBit dest_features = 17;
 
@@ -3112,6 +3128,32 @@ message Hop {
 
     // The payment metadata to send along with the payment to the payee.
     bytes metadata = 13;
+
+    /*
+    Blinding point is an optional blinding point included for introduction
+    nodes in blinded paths. This field is mandatory for hops that represents
+    the introduction point in a blinded path.
+    */
+    bytes blinding_point = 14;
+
+    /*
+    Encrypted data is a receiver-produced blob of data that provides hops
+    in a blinded route with forwarding data. As this data is encrypted by
+    the recipient, we will not be able to parse it - it is essentially an
+    arbitrary blob of data from our node's perspective. This field is
+    mandatory for all hops in a blinded path, including the introduction
+    node.
+    */
+    bytes encrypted_data = 15;
+
+    /*
+    The total amount that is sent to the recipient (possibly across multiple
+    HTLCs), as specified by the sender when making a payment to a blinded path.
+    This value is only set in the final hop payload of a blinded payment. This
+    value is analogous to the MPPRecord that is used for regular (non-blinded)
+    MPP payments.
+    */
+    uint64 total_amt_msat = 16;
 }
 
 message MPPRecord {
@@ -3455,6 +3497,61 @@ message RouteHint {
     specific destination.
     */
     repeated HopHint hop_hints = 1;
+}
+
+message BlindedPaymentPath {
+    // The blinded path to send the payment to.
+    BlindedPath blinded_path = 1;
+
+    // The base fee for the blinded path provided, expressed in msat.
+    uint64 base_fee_msat = 2;
+
+    // The proportional fee for the blinded path provided, expressed in msat.
+    uint64 proportional_fee_msat = 3;
+
+    /*
+    The total CLTV delta for the blinded path provided, including the
+    final CLTV delta for the receiving node.
+    */
+    uint32 total_cltv_delta = 4;
+
+    /*
+    The minimum hltc size that may be sent over the blinded path, expressed
+    in msat.
+    */
+    uint64 htlc_min_msat = 5;
+
+    /*
+    The maximum htlc size that may be sent over the blinded path, expressed
+    in msat.
+    */
+    uint64 htlc_max_msat = 6;
+
+    // The feature bits for the route.
+    repeated FeatureBit features = 7;
+}
+
+message BlindedPath {
+    // The unblinded pubkey of the introduction node for the route.
+    bytes introduction_node = 1;
+
+    // The ephemeral pubkey used by nodes in the blinded route.
+    bytes blinding_point = 2;
+
+    /*
+    A set of blinded node keys and data blobs for the blinded portion of the
+    route. Note that the first hop is expected to be the introduction node,
+    so the route is always expected to have at least one hop.
+    */
+    repeated BlindedHop blinded_hops = 3;
+}
+
+message BlindedHop {
+    // The blinded public key of the node.
+    bytes blinded_node = 1;
+
+    // An encrypted blob of data provided to the blinded node.
+    bytes encrypted_data = 2;
 }
 
 message AMPInvoiceState {
@@ -3903,10 +4000,20 @@ message Payment {
     string payment_request = 9;
 
     enum PaymentStatus {
-        UNKNOWN = 0;
+        // Deprecated. This status will never be returned.
+        UNKNOWN = 0 [deprecated = true];
+
+        // Payment has inflight HTLCs.
         IN_FLIGHT = 1;
+
+        // Payment is settled.
         SUCCEEDED = 2;
+
+        // Payment is failed.
         FAILED = 3;
+
+        // Payment is created and has not attempted any HTLCs.
+        INITIATED = 4;
     }
 
     // The status of the payment.

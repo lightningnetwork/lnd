@@ -48,9 +48,6 @@ NETWORK=$(set_default "$NETWORK" "simnet")
 CHAIN=$(set_default "$CHAIN" "bitcoin")
 BACKEND="btcd"
 HOSTNAME=$(hostname)
-if [[ "$CHAIN" == "litecoin" ]]; then
-    BACKEND="ltcd"
-fi
 
 # CAUTION: DO NOT use the --noseedback for production/mainnet setups, ever!
 # Also, setting --rpclisten to $HOSTNAME will cause it to listen on an IP

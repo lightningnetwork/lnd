@@ -9,6 +9,32 @@ import (
 	"github.com/lightningnetwork/lnd/queue"
 )
 
+// dbMPPayment is an interface derived from channeldb.MPPayment that is used by
+// the payment lifecycle.
+type dbMPPayment interface {
+	// GetState returns the current state of the payment.
+	GetState() *channeldb.MPPaymentState
+
+	// Terminated returns true if the payment is in a final state.
+	Terminated() bool
+
+	// GetStatus returns the current status of the payment.
+	GetStatus() channeldb.PaymentStatus
+
+	// NeedWaitAttempts specifies whether the payment needs to wait for the
+	// outcome of an attempt.
+	NeedWaitAttempts() (bool, error)
+
+	// GetHTLCs returns all HTLCs of this payment.
+	GetHTLCs() []channeldb.HTLCAttempt
+
+	// InFlightHTLCs returns all HTLCs that are in flight.
+	InFlightHTLCs() []channeldb.HTLCAttempt
+
+	// GetFailureReason returns the reason the payment failed.
+	GetFailureReason() *channeldb.FailureReason
+}
+
 // ControlTower tracks all outgoing payments made, whose primary purpose is to
 // prevent duplicate payments to the same payment hash. In production, a
 // persistent implementation is preferred so that tracking can survive across
@@ -44,7 +70,7 @@ type ControlTower interface {
 
 	// FetchPayment fetches the payment corresponding to the given payment
 	// hash.
-	FetchPayment(paymentHash lntypes.Hash) (*channeldb.MPPayment, error)
+	FetchPayment(paymentHash lntypes.Hash) (dbMPPayment, error)
 
 	// FailPayment transitions a payment into the Failed state, and records
 	// the ultimate reason the payment failed. Note that this should only
@@ -224,7 +250,7 @@ func (p *controlTower) FailAttempt(paymentHash lntypes.Hash,
 
 // FetchPayment fetches the payment corresponding to the given payment hash.
 func (p *controlTower) FetchPayment(paymentHash lntypes.Hash) (
-	*channeldb.MPPayment, error) {
+	dbMPPayment, error) {
 
 	return p.db.FetchPayment(paymentHash)
 }
@@ -280,7 +306,7 @@ func (p *controlTower) SubscribePayment(paymentHash lntypes.Hash) (
 	// updates. Otherwise this update is the final update and the incoming
 	// channel can be closed. This will close the queue's outgoing channel
 	// when all updates have been written.
-	if payment.Status == channeldb.StatusInFlight {
+	if !payment.Terminated() {
 		p.subscribersMtx.Lock()
 		p.subscribers[paymentHash] = append(
 			p.subscribers[paymentHash], subscriber,
@@ -344,7 +370,7 @@ func (p *controlTower) notifySubscribers(paymentHash lntypes.Hash,
 
 	// If the payment reached a terminal state, the subscriber list can be
 	// cleared. There won't be any more updates.
-	terminal := event.Status != channeldb.StatusInFlight
+	terminal := event.Terminated()
 	if terminal {
 		delete(p.subscribers, paymentHash)
 	}

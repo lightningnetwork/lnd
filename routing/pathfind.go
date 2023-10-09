@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"bytes"
 	"container/heap"
 	"errors"
 	"fmt"
@@ -110,14 +111,23 @@ type finalHopParams struct {
 // assuming the destination's feature vector signals support, otherwise this
 // method will fail.  If the route is too long, or the selected path cannot
 // support the fully payment including fees, then a non-nil error is returned.
+// If the route is to a blinded path, the blindedPath parameter is used to
+// back fill additional fields that are required for a blinded payment. This is
+// done in a separate pass to keep our route construction simple, as blinded
+// paths require zero expiry and amount values for intermediate hops (which
+// makes calculating the totals during route construction difficult if we
+// include blinded paths on the first pass).
 //
 // NOTE: The passed slice of ChannelHops MUST be sorted in forward order: from
 // the source to the target node of the path finding attempt. It is assumed that
 // any feature vectors on all hops have been validated for transitive
 // dependencies.
+// NOTE: If a non-nil blinded path is provided it is assumed to have been
+// validated by the caller.
 func newRoute(sourceVertex route.Vertex,
 	pathEdges []*channeldb.CachedEdgePolicy, currentHeight uint32,
-	finalHop finalHopParams) (*route.Route, error) {
+	finalHop finalHopParams, blindedPath *sphinx.BlindedPath) (
+	*route.Route, error) {
 
 	var (
 		hops []*route.Hop
@@ -146,13 +156,14 @@ func newRoute(sourceVertex route.Vertex,
 		// contributions from the preceding hops back to the sender as
 		// we compute the route in reverse.
 		var (
-			amtToForward     lnwire.MilliSatoshi
-			fee              lnwire.MilliSatoshi
-			outgoingTimeLock uint32
-			tlvPayload       bool
-			customRecords    record.CustomSet
-			mpp              *record.MPP
-			metadata         []byte
+			amtToForward        lnwire.MilliSatoshi
+			fee                 lnwire.MilliSatoshi
+			totalAmtMsatBlinded lnwire.MilliSatoshi
+			outgoingTimeLock    uint32
+			tlvPayload          bool
+			customRecords       record.CustomSet
+			mpp                 *record.MPP
+			metadata            []byte
 		)
 
 		// Define a helper function that checks this edge's feature
@@ -219,6 +230,10 @@ func newRoute(sourceVertex route.Vertex,
 			}
 
 			metadata = finalHop.metadata
+
+			if blindedPath != nil {
+				totalAmtMsatBlinded = finalHop.totalAmt
+			}
 		} else {
 			// The amount that the current hop needs to forward is
 			// equal to the incoming amount of the next hop.
@@ -250,6 +265,7 @@ func newRoute(sourceVertex route.Vertex,
 			CustomRecords:    customRecords,
 			MPP:              mpp,
 			Metadata:         metadata,
+			TotalAmtMsat:     totalAmtMsatBlinded,
 		}
 
 		hops = append([]*route.Hop{currentHop}, hops...)
@@ -258,6 +274,47 @@ func newRoute(sourceVertex route.Vertex,
 		// *next* hop, which is the amount this hop needs to forward,
 		// accounting for the fee that it takes.
 		nextIncomingAmount = amtToForward + fee
+	}
+
+	// If we are creating a route to a blinded path, we need to add some
+	// additional data to the route that is required for blinded forwarding.
+	// We do another pass on our edges to append this data.
+	if blindedPath != nil {
+		var (
+			inBlindedRoute bool
+			dataIndex      = 0
+
+			introVertex = route.NewVertex(
+				blindedPath.IntroductionPoint,
+			)
+		)
+
+		for i, hop := range hops {
+			// Once we locate our introduction node, we know that
+			// every hop after this is part of the blinded route.
+			if bytes.Equal(hop.PubKeyBytes[:], introVertex[:]) {
+				inBlindedRoute = true
+				hop.BlindingPoint = blindedPath.BlindingPoint
+			}
+
+			// We don't need to modify edges outside of our blinded
+			// route.
+			if !inBlindedRoute {
+				continue
+			}
+
+			payload := blindedPath.BlindedHops[dataIndex].CipherText
+			hop.EncryptedData = payload
+
+			// All of the hops in a blinded route *except* the
+			// final hop should have zero amounts / time locks.
+			if i != len(hops)-1 {
+				hop.AmtToForward = 0
+				hop.OutgoingTimeLock = 0
+			}
+
+			dataIndex++
+		}
 	}
 
 	// With the base routing data expressed as hops, build the full route
@@ -751,13 +808,6 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			if tempDist == current.dist && probNotBetter {
 				return
 			}
-		}
-
-		// Every edge should have a positive time lock delta. If we
-		// encounter a zero delta, log a warning line.
-		if edge.policy.TimeLockDelta == 0 {
-			log.Warnf("Channel %v has zero cltv delta",
-				edge.policy.ChannelID)
 		}
 
 		// Calculate the total routing info size if this hop were to be

@@ -1268,6 +1268,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 	var txid *chainhash.Hash
 
 	wallet := r.server.cc.Wallet
+	maxFeeRate := r.cfg.Sweeper.MaxFeeRate.FeePerKWeight()
 
 	// If the send all flag is active, then we'll attempt to sweep all the
 	// coins in the wallet in a single transaction (if possible),
@@ -1293,10 +1294,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// pay to the change address created above if we needed to
 		// reserve any value, the rest will go to targetAddr.
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
-			feePerKw, uint32(bestHeight), nil, targetAddr, wallet,
-			wallet, wallet.WalletController,
-			r.server.cc.FeeEstimator, r.server.cc.Signer,
-			minConfs,
+			maxFeeRate, feePerKw, uint32(bestHeight), nil,
+			targetAddr, wallet, wallet, wallet.WalletController,
+			r.server.cc.Signer, minConfs,
 		)
 		if err != nil {
 			return nil, err
@@ -1347,11 +1347,10 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			}
 
 			sweepTxPkg, err = sweep.CraftSweepAllTx(
-				feePerKw, uint32(bestHeight), outputs,
-				targetAddr, wallet, wallet,
+				maxFeeRate, feePerKw, uint32(bestHeight),
+				outputs, targetAddr, wallet, wallet,
 				wallet.WalletController,
-				r.server.cc.FeeEstimator, r.server.cc.Signer,
-				minConfs,
+				r.server.cc.Signer, minConfs,
 			)
 			if err != nil {
 				return nil, err
@@ -2955,12 +2954,11 @@ func (r *rpcServer) GetInfo(_ context.Context,
 	}
 
 	network := lncfg.NormalizeNetwork(r.cfg.ActiveNetParams.Name)
-	activeChains := make([]*lnrpc.Chain, r.cfg.registeredChains.NumActiveChains())
-	for i, chain := range r.cfg.registeredChains.ActiveChains() {
-		activeChains[i] = &lnrpc.Chain{
-			Chain:   chain.String(),
+	activeChains := []*lnrpc.Chain{
+		{
+			Chain:   BitcoinChainName,
 			Network: network,
-		}
+		},
 	}
 
 	// Check if external IP addresses were provided to lnd and use them
@@ -5570,9 +5568,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	invoice *lnrpc.Invoice) (*lnrpc.AddInvoiceResponse, error) {
 
 	defaultDelta := r.cfg.Bitcoin.TimeLockDelta
-	if r.cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
-		defaultDelta = r.cfg.Litecoin.TimeLockDelta
-	}
 
 	addInvoiceCfg := &invoicesrpc.AddInvoiceConfig{
 		AddInvoice:        r.server.invoices.AddInvoice,

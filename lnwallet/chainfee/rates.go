@@ -18,6 +18,24 @@ const (
 	AbsoluteFeePerKwFloor SatPerKWeight = 250
 )
 
+// SatPerVByte represents a fee rate in sat/vbyte.
+type SatPerVByte btcutil.Amount
+
+// FeePerKWeight converts the current fee rate from sat/vb to sat/kw.
+func (s SatPerVByte) FeePerKWeight() SatPerKWeight {
+	return SatPerKWeight(s * 1000 / blockchain.WitnessScaleFactor)
+}
+
+// FeePerKVByte converts the current fee rate from sat/vb to sat/kvb.
+func (s SatPerVByte) FeePerKVByte() SatPerKVByte {
+	return SatPerKVByte(s * 1000)
+}
+
+// String returns a human-readable string of the fee rate.
+func (s SatPerVByte) String() string {
+	return fmt.Sprintf("%v sat/vb", int64(s))
+}
+
 // SatPerKVByte represents a fee rate in sat/kb.
 type SatPerKVByte btcutil.Amount
 

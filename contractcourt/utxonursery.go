@@ -319,7 +319,8 @@ func (u *UtxoNursery) Stop() error {
 		return nil
 	}
 
-	utxnLog.Infof("UTXO nursery shutting down")
+	utxnLog.Infof("UTXO nursery shutting down...")
+	defer utxnLog.Debug("UTXO nursery shutdown complete")
 
 	close(u.quit)
 	u.wg.Wait()

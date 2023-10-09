@@ -1311,7 +1311,7 @@
           },
           {
             "name": "final_cltv_delta",
-            "description": "An optional CLTV delta from the current height that should be used for the\ntimelock of the final hop. Note that unlike SendPayment, QueryRoutes does\nnot add any additional block padding on top of final_ctlv_delta. This\npadding of a few blocks needs to be added manually or otherwise failures may\nhappen when a block comes in while the payment is in flight.",
+            "description": "An optional CLTV delta from the current height that should be used for the\ntimelock of the final hop. Note that unlike SendPayment, QueryRoutes does\nnot add any additional block padding on top of final_ctlv_delta. This\npadding of a few blocks needs to be added manually or otherwise failures may\nhappen when a block comes in while the payment is in flight.\n\nNote: must not be set if making a payment to a blinded path (delta is\nset by the aggregate parameters provided by blinded_payment_paths)",
             "in": "query",
             "required": false,
             "type": "integer",
@@ -1393,7 +1393,7 @@
           },
           {
             "name": "dest_features",
-            "description": "Features assumed to be supported by the final node. All transitive feature\ndependencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both. If this field is nil or empty,\nthe router will try to load destination features from the graph as a\nfallback.",
+            "description": "Features assumed to be supported by the final node. All transitive feature\ndependencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both. If this field is nil or empty,\nthe router will try to load destination features from the graph as a\nfallback.\n\nNote: must not be set if making a payment to a blinded route (features\nare provided in blinded_payment_paths).",
             "in": "query",
             "required": false,
             "type": "array",
@@ -1491,7 +1491,7 @@
                 "final_cltv_delta": {
                   "type": "integer",
                   "format": "int32",
-                  "description": "An optional CLTV delta from the current height that should be used for the\ntimelock of the final hop. Note that unlike SendPayment, QueryRoutes does\nnot add any additional block padding on top of final_ctlv_delta. This\npadding of a few blocks needs to be added manually or otherwise failures may\nhappen when a block comes in while the payment is in flight."
+                  "description": "An optional CLTV delta from the current height that should be used for the\ntimelock of the final hop. Note that unlike SendPayment, QueryRoutes does\nnot add any additional block padding on top of final_ctlv_delta. This\npadding of a few blocks needs to be added manually or otherwise failures may\nhappen when a block comes in while the payment is in flight.\n\nNote: must not be set if making a payment to a blinded path (delta is\nset by the aggregate parameters provided by blinded_payment_paths)"
                 },
                 "fee_limit": {
                   "$ref": "#/definitions/lnrpcFeeLimit",
@@ -1557,12 +1557,19 @@
                   },
                   "description": "Optional route hints to reach the destination through private channels."
                 },
+                "blinded_payment_paths": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/lnrpcBlindedPaymentPath"
+                  },
+                  "description": "An optional blinded path(s) to reach the destination. Note that the\nintroduction node must be provided as the first hop in the route."
+                },
                 "dest_features": {
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/lnrpcFeatureBit"
                   },
-                  "description": "Features assumed to be supported by the final node. All transitive feature\ndependencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both. If this field is nil or empty,\nthe router will try to load destination features from the graph as a\nfallback."
+                  "description": "Features assumed to be supported by the final node. All transitive feature\ndependencies must also be set properly. For a given feature bit pair, either\noptional or remote may be set, but not both. If this field is nil or empty,\nthe router will try to load destination features from the graph as a\nfallback.\n\nNote: must not be set if making a payment to a blinded route (features\nare provided in blinded_payment_paths)."
                 },
                 "time_pref": {
                   "type": "number",
@@ -2876,9 +2883,11 @@
         "UNKNOWN",
         "IN_FLIGHT",
         "SUCCEEDED",
-        "FAILED"
+        "FAILED",
+        "INITIATED"
       ],
-      "default": "UNKNOWN"
+      "default": "UNKNOWN",
+      "description": " - UNKNOWN: Deprecated. This status will never be returned.\n - IN_FLIGHT: Payment has inflight HTLCs.\n - SUCCEEDED: Payment is settled.\n - FAILED: Payment is failed.\n - INITIATED: Payment is created and has not attempted any HTLCs."
     },
     "PeerEventEventType": {
       "type": "string",
@@ -3413,12 +3422,90 @@
         }
       }
     },
+    "lnrpcBlindedHop": {
+      "type": "object",
+      "properties": {
+        "blinded_node": {
+          "type": "string",
+          "format": "byte",
+          "description": "The blinded public key of the node."
+        },
+        "encrypted_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "An encrypted blob of data provided to the blinded node."
+        }
+      }
+    },
+    "lnrpcBlindedPath": {
+      "type": "object",
+      "properties": {
+        "introduction_node": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unblinded pubkey of the introduction node for the route."
+        },
+        "blinding_point": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ephemeral pubkey used by nodes in the blinded route."
+        },
+        "blinded_hops": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcBlindedHop"
+          },
+          "description": "A set of blinded node keys and data blobs for the blinded portion of the\nroute. Note that the first hop is expected to be the introduction node,\nso the route is always expected to have at least one hop."
+        }
+      }
+    },
+    "lnrpcBlindedPaymentPath": {
+      "type": "object",
+      "properties": {
+        "blinded_path": {
+          "$ref": "#/definitions/lnrpcBlindedPath",
+          "description": "The blinded path to send the payment to."
+        },
+        "base_fee_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The base fee for the blinded path provided, expressed in msat."
+        },
+        "proportional_fee_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The proportional fee for the blinded path provided, expressed in msat."
+        },
+        "total_cltv_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total CLTV delta for the blinded path provided, including the\nfinal CLTV delta for the receiving node."
+        },
+        "htlc_min_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum hltc size that may be sent over the blinded path, expressed\nin msat."
+        },
+        "htlc_max_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The maximum htlc size that may be sent over the blinded path, expressed\nin msat."
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcFeatureBit"
+          },
+          "description": "The feature bits for the route."
+        }
+      }
+    },
     "lnrpcChain": {
       "type": "object",
       "properties": {
         "chain": {
           "type": "string",
-          "title": "The blockchain the node is on (eg bitcoin, litecoin)"
+          "title": "Deprecated. The chain is now always assumed to be bitcoin.\nThe blockchain the node is on (must be bitcoin)"
         },
         "network": {
           "type": "string",
@@ -4844,7 +4931,7 @@
           "items": {
             "$ref": "#/definitions/lnrpcChain"
           },
-          "title": "A list of active chains the node is connected to"
+          "title": "Deprecated. The only active chain is bitcoin.\nA list of active chains the node is connected to"
         },
         "uris": {
           "type": "array",
@@ -5043,6 +5130,21 @@
           "type": "string",
           "format": "byte",
           "description": "The payment metadata to send along with the payment to the payee."
+        },
+        "blinding_point": {
+          "type": "string",
+          "format": "byte",
+          "description": "Blinding point is an optional blinding point included for introduction\nnodes in blinded paths. This field is mandatory for hops that represents\nthe introduction point in a blinded path."
+        },
+        "encrypted_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Encrypted data is a receiver-produced blob of data that provides hops\nin a blinded route with forwarding data. As this data is encrypted by\nthe recipient, we will not be able to parse it - it is essentially an\narbitrary blob of data from our node's perspective. This field is\nmandatory for all hops in a blinded path, including the introduction\nnode."
+        },
+        "total_amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total amount that is sent to the recipient (possibly across multiple\nHTLCs), as specified by the sender when making a payment to a blinded path.\nThis value is only set in the final hop payload of a blinded payment. This\nvalue is analogous to the MPPRecord that is used for regular (non-blinded)\nMPP payments."
         }
       }
     },

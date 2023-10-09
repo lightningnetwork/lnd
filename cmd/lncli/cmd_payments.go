@@ -99,6 +99,47 @@ var (
 		Name:  "time_pref",
 		Usage: "(optional) expresses time preference (range -1 to 1)",
 	}
+
+	introductionNodeFlag = cli.StringFlag{
+		Name: "introduction_node",
+		Usage: "(blinded paths) the hex encoded, cleartext node ID " +
+			"of the node to use for queries to a blinded route",
+	}
+
+	blindingPointFlag = cli.StringFlag{
+		Name: "blinding_point",
+		Usage: "(blinded paths) the hex encoded blinding point to " +
+			"use if querying a route to a blinded path, this " +
+			"value *must* be set for queries to a blinded path",
+	}
+
+	blindedHopsFlag = cli.StringSliceFlag{
+		Name: "blinded_hops",
+		Usage: "(blinded paths) the blinded hops to include in the " +
+			"query, formatted as <blinded_node_id>:" +
+			"<hex_encrypted_data>. These hops must be provided " +
+			"*in order* starting with the introduction point and " +
+			"ending with the receiving node",
+	}
+
+	blindedBaseFlag = cli.Uint64Flag{
+		Name: "blinded_base_fee",
+		Usage: "(blinded paths) the aggregate base fee for the " +
+			"blinded portion of the route, expressed in msat",
+	}
+
+	blindedPPMFlag = cli.Uint64Flag{
+		Name: "blinded_ppm_fee",
+		Usage: "(blinded paths) the aggregate proportional fee for " +
+			"the blinded portion of the route, expressed in " +
+			"parts per million",
+	}
+
+	blindedCLTVFlag = cli.Uint64Flag{
+		Name: "blinded_cltv",
+		Usage: "(blinded paths) the total cltv delay for the " +
+			"blinded portion of the route",
+	}
 )
 
 // paymentFlags returns common flags for sendpayment and payinvoice.
@@ -662,7 +703,9 @@ func printLivePayment(ctxc context.Context,
 		}
 
 		// Terminate loop if payments state is final.
-		if payment.Status != lnrpc.Payment_IN_FLIGHT {
+		if payment.Status != lnrpc.Payment_IN_FLIGHT &&
+			payment.Status != lnrpc.Payment_INITIATED {
+
 			return payment, nil
 		}
 	}
@@ -1054,6 +1097,12 @@ var queryRoutesCommand = cli.Command{
 		},
 		timePrefFlag,
 		cltvLimitFlag,
+		introductionNodeFlag,
+		blindingPointFlag,
+		blindedHopsFlag,
+		blindedBaseFlag,
+		blindedPPMFlag,
+		blindedCLTVFlag,
 	},
 	Action: actionDecorator(queryRoutes),
 }
@@ -1074,9 +1123,15 @@ func queryRoutes(ctx *cli.Context) error {
 	switch {
 	case ctx.IsSet("dest"):
 		dest = ctx.String("dest")
+
 	case args.Present():
 		dest = args.First()
 		args = args.Tail()
+
+	// If we have a blinded path set, we don't have to specify a
+	// destination.
+	case ctx.IsSet(introductionNodeFlag.Name):
+
 	default:
 		return fmt.Errorf("dest argument missing")
 	}
@@ -1123,16 +1178,22 @@ func queryRoutes(ctx *cli.Context) error {
 		}
 	}
 
+	blindedRoutes, err := parseBlindedPaymentParameters(ctx)
+	if err != nil {
+		return err
+	}
+
 	req := &lnrpc.QueryRoutesRequest{
-		PubKey:            dest,
-		Amt:               amt,
-		FeeLimit:          feeLimit,
-		FinalCltvDelta:    int32(ctx.Int("final_cltv_delta")),
-		UseMissionControl: ctx.Bool("use_mc"),
-		CltvLimit:         uint32(ctx.Uint64(cltvLimitFlag.Name)),
-		OutgoingChanId:    ctx.Uint64("outgoing_chan_id"),
-		TimePref:          ctx.Float64(timePrefFlag.Name),
-		IgnoredPairs:      ignoredPairs,
+		PubKey:              dest,
+		Amt:                 amt,
+		FeeLimit:            feeLimit,
+		FinalCltvDelta:      int32(ctx.Int("final_cltv_delta")),
+		UseMissionControl:   ctx.Bool("use_mc"),
+		CltvLimit:           uint32(ctx.Uint64(cltvLimitFlag.Name)),
+		OutgoingChanId:      ctx.Uint64("outgoing_chan_id"),
+		TimePref:            ctx.Float64(timePrefFlag.Name),
+		IgnoredPairs:        ignoredPairs,
+		BlindedPaymentPaths: blindedRoutes,
 	}
 
 	route, err := client.QueryRoutes(ctxc, req)
@@ -1142,6 +1203,82 @@ func queryRoutes(ctx *cli.Context) error {
 
 	printRespJSON(route)
 	return nil
+}
+
+func parseBlindedPaymentParameters(ctx *cli.Context) (
+	[]*lnrpc.BlindedPaymentPath, error) {
+
+	// Return nil if we don't have a blinding set, as we don't have a
+	// blinded path.
+	if !ctx.IsSet(blindingPointFlag.Name) {
+		return nil, nil
+	}
+
+	// If any one of our blinding related flags is set, we expect the
+	// full set to be set and we'll error out accordingly.
+	introNode, err := route.NewVertexFromStr(
+		ctx.String(introductionNodeFlag.Name),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("decode introduction node: %w", err)
+	}
+
+	blindingPoint, err := route.NewVertexFromStr(ctx.String(
+		blindingPointFlag.Name,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("decode blinding point: %w", err)
+	}
+
+	blindedHops := ctx.StringSlice(blindedHopsFlag.Name)
+
+	pmt := &lnrpc.BlindedPaymentPath{
+		BlindedPath: &lnrpc.BlindedPath{
+			IntroductionNode: introNode[:],
+			BlindingPoint:    blindingPoint[:],
+			BlindedHops: make(
+				[]*lnrpc.BlindedHop, len(blindedHops),
+			),
+		},
+		BaseFeeMsat: ctx.Uint64(
+			blindedBaseFlag.Name,
+		),
+		ProportionalFeeMsat: ctx.Uint64(
+			blindedPPMFlag.Name,
+		),
+		TotalCltvDelta: uint32(ctx.Uint64(
+			blindedCLTVFlag.Name,
+		)),
+	}
+
+	for i, hop := range blindedHops {
+		parts := strings.Split(hop, ":")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("blinded hops should be "+
+				"expressed as "+
+				"blinded_node_id:hex_encrypted_data, got: %v",
+				hop)
+		}
+
+		hop, err := route.NewVertexFromStr(parts[0])
+		if err != nil {
+			return nil, fmt.Errorf("hop: %v node: %w", i, err)
+		}
+
+		data, err := hex.DecodeString(parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("hop: %v data: %w", i, err)
+		}
+
+		pmt.BlindedPath.BlindedHops[i] = &lnrpc.BlindedHop{
+			BlindedNode:   hop[:],
+			EncryptedData: data,
+		}
+	}
+
+	return []*lnrpc.BlindedPaymentPath{
+		pmt,
+	}, nil
 }
 
 // retrieveFeeLimitLegacy retrieves the fee limit based on the different fee

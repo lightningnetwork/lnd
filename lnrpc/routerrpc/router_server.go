@@ -324,6 +324,19 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 	// Init the payment in db.
 	paySession, shardTracker, err := s.cfg.Router.PreparePayment(payment)
 	if err != nil {
+		log.Errorf("SendPayment async error for payment %x: %v",
+			payment.Identifier(), err)
+
+		// Transform user errors to grpc code.
+		if errors.Is(err, channeldb.ErrPaymentExists) ||
+			errors.Is(err, channeldb.ErrPaymentInFlight) ||
+			errors.Is(err, channeldb.ErrAlreadyPaid) {
+
+			return status.Error(
+				codes.AlreadyExists, err.Error(),
+			)
+		}
+
 		return err
 	}
 
@@ -385,14 +398,19 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	// restriction for the default CLTV limit, otherwise we can find a route
 	// that exceeds it and is useless to us.
 	mc := s.cfg.RouterBackend.MissionControl
-	route, _, err := s.cfg.Router.FindRoute(
-		s.cfg.RouterBackend.SelfNode, destNode, amtMsat, 0,
+	routeReq, err := routing.NewRouteRequest(
+		s.cfg.RouterBackend.SelfNode, &destNode, amtMsat, 0,
 		&routing.RestrictParams{
 			FeeLimit:          feeLimit,
 			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
 			ProbabilitySource: mc.GetProbability,
-		}, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
+		}, nil, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	route, _, err := s.cfg.Router.FindRoute(routeReq)
 	if err != nil {
 		return nil, err
 	}
@@ -446,10 +464,17 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	}
 
 	// Transform user errors to grpc code.
-	if err == channeldb.ErrPaymentInFlight ||
-		err == channeldb.ErrAlreadyPaid {
+	switch {
+	case errors.Is(err, channeldb.ErrPaymentExists):
+		fallthrough
 
-		return nil, status.Error(codes.AlreadyExists, err.Error())
+	case errors.Is(err, channeldb.ErrPaymentInFlight):
+		fallthrough
+
+	case errors.Is(err, channeldb.ErrAlreadyPaid):
+		return nil, status.Error(
+			codes.AlreadyExists, err.Error(),
+		)
 	}
 
 	return nil, err

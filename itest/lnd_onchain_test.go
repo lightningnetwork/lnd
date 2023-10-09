@@ -229,11 +229,12 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 
 	// We'll attempt to bump the fee of this transaction by performing a
 	// CPFP from Alice's point of view.
+	maxFeeRate := uint64(sweep.DefaultMaxFeeRate)
 	bumpFeeReq := &walletrpc.BumpFeeRequest{
 		Outpoint: op,
-		SatPerVbyte: uint64(
-			sweep.DefaultMaxFeeRate.FeePerKVByte() / 2000,
-		),
+		// We use a higher fee rate than the default max and expect the
+		// sweeper to cap the fee rate at the max value.
+		SatPerVbyte: maxFeeRate * 2,
 	}
 	bob.RPC.BumpFee(bumpFeeReq)
 
@@ -251,8 +252,11 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 		"output txid not matched")
 	require.Equal(ht, pendingSweep.Outpoint.OutputIndex, op.OutputIndex,
 		"output index not matched")
-	require.Equal(ht, pendingSweep.SatPerVbyte, bumpFeeReq.SatPerVbyte,
-		"sweep sat per vbyte not matched")
+
+	// Also validate that the fee rate is capped at the max value.
+	require.Equalf(ht, maxFeeRate, pendingSweep.SatPerVbyte,
+		"sweep sat per vbyte not matched, want %v, got %v",
+		maxFeeRate, pendingSweep.SatPerVbyte)
 
 	// Mine a block to clean up the unconfirmed transactions.
 	ht.MineBlocksAndAssertNumTxes(1, 2)

@@ -3,6 +3,7 @@ package channeldb
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"time"
@@ -46,15 +47,15 @@ type HTLCAttemptInfo struct {
 	Hash *lntypes.Hash
 }
 
-// NewHtlcAttemptInfo creates a htlc attempt.
-func NewHtlcAttemptInfo(attemptID uint64, sessionKey *btcec.PrivateKey,
+// NewHtlcAttempt creates a htlc attempt.
+func NewHtlcAttempt(attemptID uint64, sessionKey *btcec.PrivateKey,
 	route route.Route, attemptTime time.Time,
-	hash *lntypes.Hash) *HTLCAttemptInfo {
+	hash *lntypes.Hash) *HTLCAttempt {
 
 	var scratch [btcec.PrivKeyBytesLen]byte
 	copy(scratch[:], sessionKey.Serialize())
 
-	return &HTLCAttemptInfo{
+	info := HTLCAttemptInfo{
 		AttemptID:        attemptID,
 		sessionKey:       scratch,
 		cachedSessionKey: sessionKey,
@@ -62,6 +63,8 @@ func NewHtlcAttemptInfo(attemptID uint64, sessionKey *btcec.PrivateKey,
 		AttemptTime:      attemptTime,
 		Hash:             hash,
 	}
+
+	return &HTLCAttempt{HTLCAttemptInfo: info}
 }
 
 // SessionKey returns the ephemeral key used for a htlc attempt. This function
@@ -147,6 +150,30 @@ type HTLCFailInfo struct {
 	FailureSourceIndex uint32
 }
 
+// MPPaymentState wraps a series of info needed for a given payment, which is
+// used by both MPP and AMP. This is a memory representation of the payment's
+// current state and is updated whenever the payment is read from disk.
+type MPPaymentState struct {
+	// NumAttemptsInFlight specifies the number of HTLCs the payment is
+	// waiting results for.
+	NumAttemptsInFlight int
+
+	// RemainingAmt specifies how much more money to be sent.
+	RemainingAmt lnwire.MilliSatoshi
+
+	// FeesPaid specifies the total fees paid so far that can be used to
+	// calculate remaining fee budget.
+	FeesPaid lnwire.MilliSatoshi
+
+	// HasSettledHTLC is true if at least one of the payment's HTLCs is
+	// settled.
+	HasSettledHTLC bool
+
+	// PaymentFailed is true if the payment has been marked as failed with
+	// a reason.
+	PaymentFailed bool
+}
+
 // MPPayment is a wrapper around a payment's PaymentCreationInfo and
 // HTLCAttempts. All payments will have the PaymentCreationInfo set, any
 // HTLCs made in attempts to be completed will populated in the HTLCs slice.
@@ -175,6 +202,18 @@ type MPPayment struct {
 
 	// Status is the current PaymentStatus of this payment.
 	Status PaymentStatus
+
+	// State is the current state of the payment that holds a number of key
+	// insights and is used to determine what to do on each payment loop
+	// iteration.
+	State *MPPaymentState
+}
+
+// Terminated returns a bool to specify whether the payment is in a terminal
+// state.
+func (m *MPPayment) Terminated() bool {
+	// If the payment is in terminal state, it cannot be updated.
+	return m.Status.updatable() != nil
 }
 
 // TerminalInfo returns any HTLC settle info recorded. If no settle info is
@@ -233,6 +272,200 @@ func (m *MPPayment) GetAttempt(id uint64) (*HTLCAttempt, error) {
 	}
 
 	return nil, errors.New("htlc attempt not found on payment")
+}
+
+// Registrable returns an error to specify whether adding more HTLCs to the
+// payment with its current status is allowed. A payment can accept new HTLC
+// registrations when it's newly created, or none of its HTLCs is in a terminal
+// state.
+func (m *MPPayment) Registrable() error {
+	// If updating the payment is not allowed, we can't register new HTLCs.
+	// Otherwise, the status must be either `StatusInitiated` or
+	// `StatusInFlight`.
+	if err := m.Status.updatable(); err != nil {
+		return err
+	}
+
+	// Exit early if this is not inflight.
+	if m.Status != StatusInFlight {
+		return nil
+	}
+
+	// There are still inflight HTLCs and we need to check whether there
+	// are settled HTLCs or the payment is failed. If we already have
+	// settled HTLCs, we won't allow adding more HTLCs.
+	if m.State.HasSettledHTLC {
+		return ErrPaymentPendingSettled
+	}
+
+	// If the payment is already failed, we won't allow adding more HTLCs.
+	if m.State.PaymentFailed {
+		return ErrPaymentPendingFailed
+	}
+
+	// Otherwise we can add more HTLCs.
+	return nil
+}
+
+// setState creates and attaches a new MPPaymentState to the payment. It also
+// updates the payment's status based on its current state.
+func (m *MPPayment) setState() error {
+	// Fetch the total amount and fees that has already been sent in
+	// settled and still in-flight shards.
+	sentAmt, fees := m.SentAmt()
+
+	// Sanity check we haven't sent a value larger than the payment amount.
+	totalAmt := m.Info.Value
+	if sentAmt > totalAmt {
+		return fmt.Errorf("%w: sent=%v, total=%v", ErrSentExceedsTotal,
+			sentAmt, totalAmt)
+	}
+
+	// Get any terminal info for this payment.
+	settle, failure := m.TerminalInfo()
+
+	// Now determine the payment's status.
+	status, err := decidePaymentStatus(m.HTLCs, m.FailureReason)
+	if err != nil {
+		return err
+	}
+
+	// Update the payment state and status.
+	m.State = &MPPaymentState{
+		NumAttemptsInFlight: len(m.InFlightHTLCs()),
+		RemainingAmt:        totalAmt - sentAmt,
+		FeesPaid:            fees,
+		HasSettledHTLC:      settle != nil,
+		PaymentFailed:       failure != nil,
+	}
+	m.Status = status
+
+	return nil
+}
+
+// SetState calls the internal method setState. This is a temporary method
+// to be used by the tests in routing. Once the tests are updated to use mocks,
+// this method can be removed.
+//
+// TODO(yy): delete.
+func (m *MPPayment) SetState() error {
+	return m.setState()
+}
+
+// NeedWaitAttempts decides whether we need to hold creating more HTLC attempts
+// and wait for the results of the payment's inflight HTLCs. Return an error if
+// the payment is in an unexpected state.
+func (m *MPPayment) NeedWaitAttempts() (bool, error) {
+	// Check when the remainingAmt is not zero, which means we have more
+	// money to be sent.
+	if m.State.RemainingAmt != 0 {
+		switch m.Status {
+		// If the payment is newly created, no need to wait for HTLC
+		// results.
+		case StatusInitiated:
+			return false, nil
+
+		// If we have inflight HTLCs, we'll check if we have terminal
+		// states to decide if we need to wait.
+		case StatusInFlight:
+			// We still have money to send, and one of the HTLCs is
+			// settled. We'd stop sending money and wait for all
+			// inflight HTLC attempts to finish.
+			if m.State.HasSettledHTLC {
+				log.Warnf("payment=%v has remaining amount "+
+					"%v, yet at least one of its HTLCs is "+
+					"settled", m.Info.PaymentIdentifier,
+					m.State.RemainingAmt)
+
+				return true, nil
+			}
+
+			// The payment has a failure reason though we still
+			// have money to send, we'd stop sending money and wait
+			// for all inflight HTLC attempts to finish.
+			if m.State.PaymentFailed {
+				return true, nil
+			}
+
+			// Otherwise we don't need to wait for inflight HTLCs
+			// since we still have money to be sent.
+			return false, nil
+
+		// We need to send more money, yet the payment is already
+		// succeeded. Return an error in this case as the receiver is
+		// violating the protocol.
+		case StatusSucceeded:
+			return false, fmt.Errorf("%w: parts of the payment "+
+				"already succeeded but still have remaining "+
+				"amount %v", ErrPaymentInternal,
+				m.State.RemainingAmt)
+
+		// The payment is failed and we have no inflight HTLCs, no need
+		// to wait.
+		case StatusFailed:
+			return false, nil
+
+		// Unknown payment status.
+		default:
+			return false, fmt.Errorf("%w: %s",
+				ErrUnknownPaymentStatus, m.Status)
+		}
+	}
+
+	// Now we determine whether we need to wait when the remainingAmt is
+	// already zero.
+	switch m.Status {
+	// When the payment is newly created, yet the payment has no remaining
+	// amount, return an error.
+	case StatusInitiated:
+		return false, fmt.Errorf("%w: %v", ErrPaymentInternal, m.Status)
+
+	// If the payment is inflight, we must wait.
+	//
+	// NOTE: an edge case is when all HTLCs are failed while the payment is
+	// not failed we'd still be in this inflight state. However, since the
+	// remainingAmt is zero here, it means we cannot be in that state as
+	// otherwise the remainingAmt would not be zero.
+	case StatusInFlight:
+		return true, nil
+
+	// If the payment is already succeeded, no need to wait.
+	case StatusSucceeded:
+		return false, nil
+
+	// If the payment is already failed, yet the remaining amount is zero,
+	// return an error as this indicates an error state. We will only each
+	// this status when there are no inflight HTLCs and the payment is
+	// marked as failed with a reason, which means the remainingAmt must
+	// not be zero because our sentAmt is zero.
+	case StatusFailed:
+		return false, fmt.Errorf("%w: %v", ErrPaymentInternal, m.Status)
+
+	// Unknown payment status.
+	default:
+		return false, fmt.Errorf("%w: %s", ErrUnknownPaymentStatus,
+			m.Status)
+	}
+}
+
+// GetState returns the internal state of the payment.
+func (m *MPPayment) GetState() *MPPaymentState {
+	return m.State
+}
+
+// Status returns the current status of the payment.
+func (m *MPPayment) GetStatus() PaymentStatus {
+	return m.Status
+}
+
+// GetPayment returns all the HTLCs for this payment.
+func (m *MPPayment) GetHTLCs() []HTLCAttempt {
+	return m.HTLCs
+}
+
+// GetFailureReason returns the failure reason.
+func (m *MPPayment) GetFailureReason() *FailureReason {
+	return m.FailureReason
 }
 
 // serializeHTLCSettleInfo serializes the details of a settled htlc.

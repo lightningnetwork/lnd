@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
+	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
@@ -55,14 +56,9 @@ type RouterBackend struct {
 	FetchChannelEndpoints func(chanID uint64) (route.Vertex,
 		route.Vertex, error)
 
-	// FindRoutes is a closure that abstracts away how we locate/query for
+	// FindRoute is a closure that abstracts away how we locate/query for
 	// routes.
-	FindRoute func(source, target route.Vertex,
-		amt lnwire.MilliSatoshi, timePref float64,
-		restrictions *routing.RestrictParams,
-		destCustomRecords record.CustomSet,
-		routeHints map[route.Vertex][]*channeldb.CachedEdgePolicy,
-		finalExpiry uint16) (*route.Route, float64, error)
+	FindRoute func(*routing.RouteRequest) (*route.Route, float64, error)
 
 	MissionControl MissionControl
 
@@ -148,21 +144,94 @@ type MissionControl interface {
 func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	in *lnrpc.QueryRoutesRequest) (*lnrpc.QueryRoutesResponse, error) {
 
-	parsePubKey := func(key string) (route.Vertex, error) {
-		pubKeyBytes, err := hex.DecodeString(key)
-		if err != nil {
-			return route.Vertex{}, err
-		}
-
-		return route.NewVertexFromBytes(pubKeyBytes)
-	}
-
-	// Parse the hex-encoded source and target public keys into full public
-	// key objects we can properly manipulate.
-	targetPubKey, err := parsePubKey(in.PubKey)
+	routeReq, err := r.parseQueryRoutesRequest(in)
 	if err != nil {
 		return nil, err
 	}
+
+	// Query the channel router for a possible path to the destination that
+	// can carry `in.Amt` satoshis _including_ the total fee required on
+	// the route
+	route, successProb, err := r.FindRoute(routeReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// For each valid route, we'll convert the result into the format
+	// required by the RPC system.
+	rpcRoute, err := r.MarshallRoute(route)
+	if err != nil {
+		return nil, err
+	}
+
+	routeResp := &lnrpc.QueryRoutesResponse{
+		Routes:      []*lnrpc.Route{rpcRoute},
+		SuccessProb: successProb,
+	}
+
+	return routeResp, nil
+}
+
+func parsePubKey(key string) (route.Vertex, error) {
+	pubKeyBytes, err := hex.DecodeString(key)
+	if err != nil {
+		return route.Vertex{}, err
+	}
+
+	return route.NewVertexFromBytes(pubKeyBytes)
+}
+
+func (r *RouterBackend) parseIgnored(in *lnrpc.QueryRoutesRequest) (
+	map[route.Vertex]struct{}, map[routing.DirectedNodePair]struct{},
+	error) {
+
+	ignoredNodes := make(map[route.Vertex]struct{})
+	for _, ignorePubKey := range in.IgnoredNodes {
+		ignoreVertex, err := route.NewVertexFromBytes(ignorePubKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		ignoredNodes[ignoreVertex] = struct{}{}
+	}
+
+	ignoredPairs := make(map[routing.DirectedNodePair]struct{})
+
+	// Convert deprecated ignoredEdges to pairs.
+	for _, ignoredEdge := range in.IgnoredEdges {
+		pair, err := r.rpcEdgeToPair(ignoredEdge)
+		if err != nil {
+			log.Warnf("Ignore channel %v skipped: %v",
+				ignoredEdge.ChannelId, err)
+
+			continue
+		}
+		ignoredPairs[pair] = struct{}{}
+	}
+
+	// Add ignored pairs to set.
+	for _, ignorePair := range in.IgnoredPairs {
+		from, err := route.NewVertexFromBytes(ignorePair.From)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		to, err := route.NewVertexFromBytes(ignorePair.To)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		pair := routing.NewDirectedNodePair(from, to)
+		ignoredPairs[pair] = struct{}{}
+	}
+
+	return ignoredNodes, ignoredPairs, nil
+}
+
+func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
+	*routing.RouteRequest, error) {
+
+	// Parse the hex-encoded source public key into a full public key that
+	// we can properly manipulate.
 
 	var sourcePubKey route.Vertex
 	if in.SourcePubKey != "" {
@@ -187,75 +256,100 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 	// Unmarshall restrictions from request.
 	feeLimit := lnrpc.CalculateFeeLimit(in.FeeLimit, amt)
 
-	ignoredNodes := make(map[route.Vertex]struct{})
-	for _, ignorePubKey := range in.IgnoredNodes {
-		ignoreVertex, err := route.NewVertexFromBytes(ignorePubKey)
-		if err != nil {
-			return nil, err
-		}
-		ignoredNodes[ignoreVertex] = struct{}{}
-	}
-
-	ignoredPairs := make(map[routing.DirectedNodePair]struct{})
-
-	// Convert deprecated ignoredEdges to pairs.
-	for _, ignoredEdge := range in.IgnoredEdges {
-		pair, err := r.rpcEdgeToPair(ignoredEdge)
-		if err != nil {
-			log.Warnf("Ignore channel %v skipped: %v",
-				ignoredEdge.ChannelId, err)
-
-			continue
-		}
-		ignoredPairs[pair] = struct{}{}
-	}
-
-	// Add ignored pairs to set.
-	for _, ignorePair := range in.IgnoredPairs {
-		from, err := route.NewVertexFromBytes(ignorePair.From)
-		if err != nil {
-			return nil, err
-		}
-
-		to, err := route.NewVertexFromBytes(ignorePair.To)
-		if err != nil {
-			return nil, err
-		}
-
-		pair := routing.NewDirectedNodePair(from, to)
-		ignoredPairs[pair] = struct{}{}
-	}
-
 	// Since QueryRoutes allows having a different source other than
 	// ourselves, we'll only apply our max time lock if we are the source.
 	maxTotalTimelock := r.MaxTotalTimelock
 	if sourcePubKey != r.SelfNode {
 		maxTotalTimelock = math.MaxUint32
 	}
+
 	cltvLimit, err := ValidateCLTVLimit(in.CltvLimit, maxTotalTimelock)
 	if err != nil {
 		return nil, err
 	}
 
+	// If we have a blinded path set, we'll get a few of our fields from
+	// inside of the path rather than the request's fields.
+	var (
+		targetPubKey   *route.Vertex
+		routeHintEdges map[route.Vertex][]*channeldb.CachedEdgePolicy
+		blindedPmt     *routing.BlindedPayment
+
+		// finalCLTVDelta varies depending on whether we're sending to
+		// a blinded route or an unblinded node. For blinded paths,
+		// our final cltv is already baked into the path so we restrict
+		// this value to zero on the API. Bolt11 invoices have a
+		// default, so we'll fill that in for the non-blinded case.
+		finalCLTVDelta uint16
+
+		// destinationFeatures is the set of features for the
+		// destination node.
+		destinationFeatures *lnwire.FeatureVector
+	)
+
+	// Validate that the fields provided in the request are sane depending
+	// on whether it is using a blinded path or not.
+	if len(in.BlindedPaymentPaths) > 0 {
+		blindedPmt, err = parseBlindedPayment(in)
+		if err != nil {
+			return nil, err
+		}
+
+		if blindedPmt.Features != nil {
+			destinationFeatures = blindedPmt.Features.Clone()
+		}
+	} else {
+		// If we do not have a blinded path, a target pubkey must be
+		// set.
+		pk, err := parsePubKey(in.PubKey)
+		if err != nil {
+			return nil, err
+		}
+		targetPubKey = &pk
+
+		// Convert route hints to an edge map.
+		routeHints, err := unmarshallRouteHints(in.RouteHints)
+		if err != nil {
+			return nil, err
+		}
+
+		routeHintEdges, err = routing.RouteHintsToEdges(
+			routeHints, *targetPubKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Set a non-zero final CLTV delta for payments that are not
+		// to blinded paths, as bolt11 has a default final cltv delta
+		// value that is used in the absence of a value.
+		finalCLTVDelta = r.DefaultFinalCltvDelta
+		if in.FinalCltvDelta != 0 {
+			finalCLTVDelta = uint16(in.FinalCltvDelta)
+		}
+
+		// Do bounds checking without block padding so we don't give
+		// routes that will leave the router in a zombie payment state.
+		err = routing.ValidateCLTVLimit(
+			cltvLimit, finalCLTVDelta, false,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse destination feature bits.
+		destinationFeatures, err = UnmarshalFeatures(in.DestFeatures)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// We need to subtract the final delta before passing it into path
 	// finding. The optimal path is independent of the final cltv delta and
 	// the path finding algorithm is unaware of this value.
-	finalCLTVDelta := r.DefaultFinalCltvDelta
-	if in.FinalCltvDelta != 0 {
-		finalCLTVDelta = uint16(in.FinalCltvDelta)
-	}
-
-	// Do bounds checking without block padding so we don't give routes
-	// that will leave the router in a zombie payment state.
-	err = routing.ValidateCLTVLimit(cltvLimit, finalCLTVDelta, false)
-	if err != nil {
-		return nil, err
-	}
-
 	cltvLimit -= uint32(finalCLTVDelta)
 
-	// Parse destination feature bits.
-	features, err := UnmarshalFeatures(in.DestFeatures)
+	ignoredNodes, ignoredPairs, err := r.parseIgnored(in)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +382,7 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		},
 		DestCustomRecords: record.CustomSet(in.DestCustomRecords),
 		CltvLimit:         cltvLimit,
-		DestFeatures:      features,
+		DestFeatures:      destinationFeatures,
 	}
 
 	// Pass along an outgoing channel restriction if specified.
@@ -315,42 +409,144 @@ func (r *RouterBackend) QueryRoutes(ctx context.Context,
 		return nil, err
 	}
 
-	// Convert route hints to an edge map.
-	routeHints, err := unmarshallRouteHints(in.RouteHints)
-	if err != nil {
-		return nil, err
-	}
-	routeHintEdges, err := routing.RouteHintsToEdges(
-		routeHints, targetPubKey,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// Query the channel router for a possible path to the destination that
-	// can carry `in.Amt` satoshis _including_ the total fee required on
-	// the route.
-	route, successProb, err := r.FindRoute(
+	return routing.NewRouteRequest(
 		sourcePubKey, targetPubKey, amt, in.TimePref, restrictions,
-		customRecords, routeHintEdges, finalCLTVDelta,
+		customRecords, routeHintEdges, blindedPmt, finalCLTVDelta,
 	)
+}
+
+func parseBlindedPayment(in *lnrpc.QueryRoutesRequest) (
+	*routing.BlindedPayment, error) {
+
+	if len(in.PubKey) != 0 {
+		return nil, fmt.Errorf("target pubkey: %x should not be set "+
+			"when blinded path is provided", in.PubKey)
+	}
+
+	if len(in.BlindedPaymentPaths) != 1 {
+		return nil, errors.New("query routes only supports a single " +
+			"blinded path")
+	}
+
+	blindedPath := in.BlindedPaymentPaths[0]
+
+	if len(in.RouteHints) > 0 {
+		return nil, errors.New("route hints and blinded path can't " +
+			"both be set")
+	}
+
+	blindedPmt, err := unmarshalBlindedPayment(blindedPath)
+	if err != nil {
+		return nil, fmt.Errorf("parse blinded payment: %w", err)
+	}
+
+	if err := blindedPmt.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid blinded path: %w", err)
+	}
+
+	if in.FinalCltvDelta != 0 {
+		return nil, errors.New("final cltv delta should be " +
+			"zero for blinded paths")
+	}
+
+	// For blinded paths, we get one set of features for the relaying
+	// intermediate nodes and the final destination. We don't allow the
+	// destination feature bit field for regular payments to be set, as
+	// this could lead to ambiguity.
+	if len(in.DestFeatures) > 0 {
+		return nil, errors.New("destination features should " +
+			"be populated in blinded path")
+	}
+
+	return blindedPmt, nil
+}
+
+func unmarshalBlindedPayment(rpcPayment *lnrpc.BlindedPaymentPath) (
+	*routing.BlindedPayment, error) {
+
+	if rpcPayment == nil {
+		return nil, errors.New("nil blinded payment")
+	}
+
+	path, err := unmarshalBlindedPaymentPaths(rpcPayment.BlindedPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// For each valid route, we'll convert the result into the format
-	// required by the RPC system.
-	rpcRoute, err := r.MarshallRoute(route)
+	features, err := UnmarshalFeatures(rpcPayment.Features)
 	if err != nil {
 		return nil, err
 	}
 
-	routeResp := &lnrpc.QueryRoutesResponse{
-		Routes:      []*lnrpc.Route{rpcRoute},
-		SuccessProb: successProb,
+	return &routing.BlindedPayment{
+		BlindedPath:     path,
+		CltvExpiryDelta: uint16(rpcPayment.TotalCltvDelta),
+		BaseFee:         uint32(rpcPayment.BaseFeeMsat),
+		ProportionalFee: uint32(
+			rpcPayment.ProportionalFeeMsat,
+		),
+		HtlcMinimum: rpcPayment.HtlcMinMsat,
+		HtlcMaximum: rpcPayment.HtlcMaxMsat,
+		Features:    features,
+	}, nil
+}
+
+func unmarshalBlindedPaymentPaths(rpcPath *lnrpc.BlindedPath) (
+	*sphinx.BlindedPath, error) {
+
+	if rpcPath == nil {
+		return nil, errors.New("blinded path required when blinded " +
+			"route is provided")
 	}
 
-	return routeResp, nil
+	introduction, err := btcec.ParsePubKey(rpcPath.IntroductionNode)
+	if err != nil {
+		return nil, err
+	}
+
+	blinding, err := btcec.ParsePubKey(rpcPath.BlindingPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(rpcPath.BlindedHops) < 1 {
+		return nil, errors.New("at least 1 blinded hops required")
+	}
+
+	path := &sphinx.BlindedPath{
+		IntroductionPoint: introduction,
+		BlindingPoint:     blinding,
+		BlindedHops: make(
+			[]*sphinx.BlindedHopInfo, len(rpcPath.BlindedHops),
+		),
+	}
+
+	for i, hop := range rpcPath.BlindedHops {
+		path.BlindedHops[i], err = unmarshalBlindedHop(hop)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return path, nil
+}
+
+func unmarshalBlindedHop(rpcHop *lnrpc.BlindedHop) (*sphinx.BlindedHopInfo,
+	error) {
+
+	pubkey, err := btcec.ParsePubKey(rpcHop.BlindedNode)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(rpcHop.EncryptedData) == 0 {
+		return nil, errors.New("empty encrypted data not allowed")
+	}
+
+	return &sphinx.BlindedHopInfo{
+		BlindedNodePub: pubkey,
+		CipherText:     rpcHop.EncryptedData,
+	}, nil
 }
 
 // rpcEdgeToPair looks up the provided channel and returns the channel endpoints
@@ -424,6 +620,13 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			TlvPayload:    !hop.LegacyPayload,
 			MppRecord:     mpp,
 			Metadata:      hop.Metadata,
+			EncryptedData: hop.EncryptedData,
+			TotalAmtMsat:  uint64(hop.TotalAmtMsat),
+		}
+
+		if hop.BlindingPoint != nil {
+			blinding := hop.BlindingPoint.SerializeCompressed()
+			resp.Hops[i].BlindingPoint = blinding
 		}
 		incomingAmt = hop.AmtToForward
 	}
@@ -451,7 +654,7 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		return nil, err
 	}
 
-	return &route.Hop{
+	hop := &route.Hop{
 		OutgoingTimeLock: rpcHop.Expiry,
 		AmtToForward:     lnwire.MilliSatoshi(rpcHop.AmtToForwardMsat),
 		PubKeyBytes:      pubkey,
@@ -460,7 +663,26 @@ func UnmarshallHopWithPubkey(rpcHop *lnrpc.Hop, pubkey route.Vertex) (*route.Hop
 		LegacyPayload:    false,
 		MPP:              mpp,
 		AMP:              amp,
-	}, nil
+		EncryptedData:    rpcHop.EncryptedData,
+		TotalAmtMsat:     lnwire.MilliSatoshi(rpcHop.TotalAmtMsat),
+	}
+
+	haveBlindingPoint := len(rpcHop.BlindingPoint) != 0
+	if haveBlindingPoint {
+		hop.BlindingPoint, err = btcec.ParsePubKey(
+			rpcHop.BlindingPoint,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("blinding point: %w", err)
+		}
+	}
+
+	if haveBlindingPoint && len(rpcHop.EncryptedData) == 0 {
+		return nil, errors.New("encrypted data should be present if " +
+			"blinding point is provided")
+	}
+
+	return hop, nil
 }
 
 // UnmarshallHop unmarshalls an rpc hop that may or may not contain a node
@@ -1370,8 +1592,8 @@ func convertPaymentStatus(dbStatus channeldb.PaymentStatus) (
 	lnrpc.Payment_PaymentStatus, error) {
 
 	switch dbStatus {
-	case channeldb.StatusUnknown:
-		return lnrpc.Payment_UNKNOWN, nil
+	case channeldb.StatusInitiated:
+		return lnrpc.Payment_INITIATED, nil
 
 	case channeldb.StatusInFlight:
 		return lnrpc.Payment_IN_FLIGHT, nil

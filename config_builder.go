@@ -257,9 +257,6 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	// light client instance, if enabled, in order to allow it to sync
 	// while the rest of the daemon continues startup.
 	mainChain := d.cfg.Bitcoin
-	if d.cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
-		mainChain = d.cfg.Litecoin
-	}
 	var neutrinoCS *neutrino.ChainService
 	if mainChain.Node == "neutrino" {
 		neutrinoBackend, neutrinoCleanUp, err := initNeutrinoBackend(
@@ -541,14 +538,10 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 	// replicated, so we'll pass in the remote channel DB instance.
 	chainControlCfg := &chainreg.Config{
 		Bitcoin:                     d.cfg.Bitcoin,
-		Litecoin:                    d.cfg.Litecoin,
-		PrimaryChain:                d.cfg.registeredChains.PrimaryChain,
 		HeightHintCacheQueryDisable: d.cfg.HeightHintCacheQueryDisable,
 		NeutrinoMode:                d.cfg.NeutrinoMode,
 		BitcoindMode:                d.cfg.BitcoindMode,
-		LitecoindMode:               d.cfg.LitecoindMode,
 		BtcdMode:                    d.cfg.BtcdMode,
-		LtcdMode:                    d.cfg.LtcdMode,
 		HeightHintDB:                dbs.HeightHintDB,
 		ChanStateDB:                 dbs.ChanStateDB.ChannelStateDB(),
 		NeutrinoCS:                  neutrinoCS,
@@ -917,8 +910,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 
 	databaseBackends, err := cfg.DB.GetBackends(
 		ctx, cfg.graphDatabaseDir(), cfg.networkDir, filepath.Join(
-			cfg.Watchtower.TowerDir,
-			cfg.registeredChains.PrimaryChain().String(),
+			cfg.Watchtower.TowerDir, BitcoinChainName,
 			lncfg.NormalizeNetwork(cfg.ActiveNetParams.Name),
 		), cfg.WtClient.Active, cfg.Watchtower.Active, d.logger,
 	)

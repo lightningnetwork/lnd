@@ -3,7 +3,9 @@ package netann
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -41,6 +43,26 @@ func (n *NodeSigner) SignMessage(keyLoc keychain.KeyLocator,
 	}
 
 	return sig, nil
+}
+
+// SignMuSig2 generates a MuSig2 partial signature given the passed key set,
+// secret nonce, public nonce, and private keys.
+func (n *NodeSigner) SignMuSig2(secNonce [musig2.SecNonceSize]byte,
+	keyLoc keychain.KeyLocator, otherNonces [][musig2.PubNonceSize]byte,
+	combinedNonce [musig2.PubNonceSize]byte, pubKeys []*btcec.PublicKey,
+	msg [32]byte, opts ...musig2.SignOption) (*musig2.PartialSignature,
+	error) {
+
+	// If this isn't our identity public key, then we'll exit early with an
+	// error as we can't sign with this key.
+	if keyLoc != n.keySigner.KeyLocator() {
+		return nil, fmt.Errorf("unknown public key locator")
+	}
+
+	return n.keySigner.SignMuSig2(
+		secNonce, keyLoc, otherNonces, combinedNonce, pubKeys, msg,
+		opts...,
+	)
 }
 
 // SignMessageCompact signs a single or double sha256 digest of the msg

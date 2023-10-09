@@ -3,6 +3,7 @@ package keychain
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
@@ -40,6 +41,17 @@ func (p *PubKeyMessageSigner) SignMessageCompact(msg []byte,
 	doubleHash bool) ([]byte, error) {
 
 	return p.digestSigner.SignMessageCompact(p.keyLoc, msg, doubleHash)
+}
+
+func (p *PubKeyMessageSigner) SignMuSig2(secNonce [97]byte, keyLoc KeyLocator,
+	otherNonces [][66]byte, combinedNonce [66]byte,
+	pubKeys []*btcec.PublicKey, msg [32]byte, opts ...musig2.SignOption) (
+	*musig2.PartialSignature, error) {
+
+	return p.digestSigner.SignMuSig2(
+		secNonce, keyLoc, otherNonces, combinedNonce, pubKeys, msg,
+		opts...,
+	)
 }
 
 func NewPrivKeyMessageSigner(privKey *btcec.PrivateKey,
@@ -86,6 +98,16 @@ func (p *PrivKeyMessageSigner) SignMessageCompact(msg []byte,
 		digest = chainhash.HashB(msg)
 	}
 	return ecdsa.SignCompact(p.privKey, digest, true)
+}
+
+func (p *PrivKeyMessageSigner) SignMuSig2(secNonce [97]byte, _ KeyLocator,
+	_ [][66]byte, combinedNonce [66]byte,
+	pubKeys []*btcec.PublicKey, msg [32]byte, opts ...musig2.SignOption) (
+	*musig2.PartialSignature, error) {
+
+	return musig2.Sign(
+		secNonce, p.privKey, combinedNonce, pubKeys, msg, opts...,
+	)
 }
 
 var _ SingleKeyMessageSigner = (*PubKeyMessageSigner)(nil)

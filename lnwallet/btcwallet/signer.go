@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -497,6 +498,30 @@ func (b *BtcWallet) SignMessage(keyLoc keychain.KeyLocator,
 		msgDigest = chainhash.HashB(msg)
 	}
 	return ecdsa.Sign(privKey, msgDigest), nil
+}
+
+// SignMuSig2 generates a MuSig2 partial signature given the passed key
+// set, secret nonce, public nonce, and private keys.
+//
+// NOTE: This is a part of the MessageSigner interface.
+func (b *BtcWallet) SignMuSig2(secNonce [musig2.SecNonceSize]byte,
+	keyLoc keychain.KeyLocator, _ [][musig2.PubNonceSize]byte,
+	combinedNonce [musig2.PubNonceSize]byte, pubKeys []*btcec.PublicKey,
+	msg [32]byte, signOpts ...musig2.SignOption) (*musig2.PartialSignature,
+	error) {
+
+	// First attempt to fetch the private key which corresponds to the
+	// specified public key.
+	privKey, err := b.fetchPrivKey(&keychain.KeyDescriptor{
+		KeyLocator: keyLoc,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return musig2.Sign(
+		secNonce, privKey, combinedNonce, pubKeys, msg, signOpts...,
+	)
 }
 
 // A compile time check to ensure that BtcWallet implements the MessageSigner

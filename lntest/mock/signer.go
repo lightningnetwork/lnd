@@ -205,3 +205,25 @@ func (s *SingleSigner) SignMessage(keyLoc keychain.KeyLocator,
 	}
 	return ecdsa.Sign(s.Privkey, digest), nil
 }
+
+// SignMuSig2 generates a MuSig2 partial signature given the passed key set,
+// secret nonce, public nonce, and private keys.
+func (s *SingleSigner) SignMuSig2(secNonce [musig2.SecNonceSize]byte,
+	keyLoc keychain.KeyLocator, _ [][musig2.PubNonceSize]byte,
+	combinedNonce [musig2.PubNonceSize]byte, pubKeys []*btcec.PublicKey,
+	msg [32]byte, opts ...musig2.SignOption) (*musig2.PartialSignature,
+	error) {
+
+	mockKeyLoc := s.KeyLoc
+	if s.KeyLoc.IsEmpty() {
+		mockKeyLoc = idKeyLoc
+	}
+
+	if keyLoc != mockKeyLoc {
+		return nil, fmt.Errorf("unknown public key")
+	}
+
+	return musig2.Sign(
+		secNonce, s.Privkey, combinedNonce, pubKeys, msg, opts...,
+	)
+}

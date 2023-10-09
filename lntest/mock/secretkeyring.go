@@ -4,6 +4,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -57,6 +58,19 @@ func (s *SecretKeyRing) SignMessage(_ keychain.KeyLocator,
 		digest = chainhash.HashB(msg)
 	}
 	return ecdsa.Sign(s.RootKey, digest), nil
+}
+
+// SignMuSig2 generates a MuSig2 partial signature given the passed key set,
+// secret nonce, public nonce, and private keys.
+func (s *SecretKeyRing) SignMuSig2(secNonce [musig2.SecNonceSize]byte,
+	_ keychain.KeyLocator, _ [][musig2.PubNonceSize]byte,
+	combinedNonce [musig2.PubNonceSize]byte, pubKeys []*btcec.PublicKey,
+	msg [32]byte, opts ...musig2.SignOption) (*musig2.PartialSignature,
+	error) {
+
+	return musig2.Sign(
+		secNonce, s.RootKey, combinedNonce, pubKeys, msg, opts...,
+	)
 }
 
 // SignMessageCompact signs the passed message.

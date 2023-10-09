@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -575,6 +576,15 @@ type MessageSigner interface {
 	// the single or double SHA-256 of the passed message.
 	SignMessage(keyLoc keychain.KeyLocator, msg []byte,
 		doubleHash bool) (*ecdsa.Signature, error)
+
+	// SignMuSig2 generates a MuSig2 partial signature given the passed key
+	// set, secret nonce, public nonce, and private keys.
+	SignMuSig2(secNonce [musig2.SecNonceSize]byte,
+		keyLoc keychain.KeyLocator,
+		otherNonces [][musig2.PubNonceSize]byte,
+		combinedNonce [musig2.PubNonceSize]byte,
+		pubKeys []*btcec.PublicKey, msg [32]byte,
+		opts ...musig2.SignOption) (*musig2.PartialSignature, error)
 }
 
 // WalletDriver represents a "driver" for a particular concrete

@@ -470,6 +470,74 @@ func (r *RPCKeyRing) SignMessage(keyLoc keychain.KeyLocator,
 	return ecdsaSig, nil
 }
 
+// SignMuSig2 generates a MuSig2 partial signature given the passed key set,
+// secret nonce, public nonce, and private keys.
+//
+// NOTE: This method is part of the keychain.MessageSignerRing interface.
+func (r *RPCKeyRing) SignMuSig2(secNonce [musig2.SecNonceSize]byte,
+	keyLoc keychain.KeyLocator, otherNonces [][musig2.PubNonceSize]byte,
+	_ [musig2.PubNonceSize]byte, pubKeys []*btcec.PublicKey, msg [32]byte,
+	_ ...musig2.SignOption) (*musig2.PartialSignature, error) {
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	serialisedPubKeys := make([][]byte, len(pubKeys))
+	for i, pub := range pubKeys {
+		serialisedPubKeys[i] = pub.SerializeCompressed()
+	}
+
+	otherSignerNonces := make([][]byte, len(otherNonces))
+	for i, nonce := range otherNonces {
+		otherSignerNonces[i] = nonce[:]
+	}
+
+	musigVersion := signrpc.MuSig2Version_MUSIG2_VERSION_V100RC2
+
+	// TODO: what to do with the musig sign options here?
+
+	resp, err := r.signerClient.MuSig2CreateSession(
+		ctxt, &signrpc.MuSig2SessionRequest{
+			KeyLoc: &signrpc.KeyLocator{
+				KeyFamily: int32(keyLoc.Family),
+				KeyIndex:  int32(keyLoc.Index),
+			},
+			OtherSignerPublicNonces: otherSignerNonces,
+			PregeneratedLocalNonce:  secNonce[:],
+			AllSignerPubkeys:        serialisedPubKeys,
+			Version:                 musigVersion,
+		},
+	)
+	if err != nil {
+		considerShutdown(err)
+		return nil, fmt.Errorf("error signing message in remote "+
+			"signer instance: %v", err)
+	}
+
+	signResp, err := r.signerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     resp.SessionId,
+			MessageDigest: msg[:],
+			Cleanup:       true,
+		},
+	)
+	if err != nil {
+		considerShutdown(err)
+		return nil, fmt.Errorf("error signing message in remote "+
+			"signer instance: %v", err)
+	}
+
+	partialSig, err := input.DeserializePartialSignature(
+		signResp.LocalPartialSignature,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing partial signature from "+
+			"remote signer: %v", err)
+	}
+
+	return partialSig, nil
+}
+
 // SignMessageCompact signs the given message, single or double SHA256 hashing
 // it first, with the private key described in the key locator and returns the
 // signature in the compact, public key recoverable format.

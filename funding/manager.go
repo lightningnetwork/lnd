@@ -386,6 +386,16 @@ type Config struct {
 	SignMessage func(keyLoc keychain.KeyLocator,
 		msg []byte, doubleHash bool) (*ecdsa.Signature, error)
 
+	// SignMuSig2 generates a MuSig2 partial signature given the passed key
+	// set, secret nonce, public nonce, and private keys.
+	SignMuSig2 func(secNonce [musig2.SecNonceSize]byte,
+		keyLoc keychain.KeyLocator,
+		otherNonces [][musig2.PubNonceSize]byte,
+		combinedNonce [musig2.PubNonceSize]byte,
+		pubKeys []*btcec.PublicKey,
+		msg [32]byte, opts ...musig2.SignOption) (
+		*musig2.PartialSignature, error)
+
 	// CurrentNodeAnnouncement should return the latest, fully signed node
 	// announcement from the backing Lightning Network node with a fresh
 	// timestamp.

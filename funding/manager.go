@@ -610,12 +610,6 @@ type Manager struct {
 	// requests from a local subsystem within the daemon.
 	fundingRequests chan *InitFundingMsg
 
-	// newChanBarriers is a map from a channel ID to a 'barrier' which will
-	// be signalled once the channel is fully open. This barrier acts as a
-	// synchronization point for any incoming/outgoing HTLCs before the
-	// channel has been fully opened.
-	newChanBarriers *lnutils.SyncMap[lnwire.ChannelID, chan struct{}]
-
 	localDiscoverySignals *lnutils.SyncMap[lnwire.ChannelID, chan struct{}]
 
 	handleChannelReadyBarriers *lnutils.SyncMap[lnwire.ChannelID, struct{}]
@@ -672,9 +666,6 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 		signedReservations: make(
 			map[lnwire.ChannelID][32]byte,
 		),
-		newChanBarriers: &lnutils.SyncMap[
-			lnwire.ChannelID, chan struct{},
-		]{},
 		fundingMsgs: make(
 			chan *fundingMsg, msgBufferSize,
 		),
@@ -729,7 +720,6 @@ func (f *Manager) start() error {
 				"creating chan barrier",
 				channel.FundingOutpoint)
 
-			f.newChanBarriers.Store(chanID, make(chan struct{}))
 			f.localDiscoverySignals.Store(
 				chanID, make(chan struct{}),
 			)
@@ -993,16 +983,16 @@ func (f *Manager) reservationCoordinator() {
 		case fmsg := <-f.fundingMsgs:
 			switch msg := fmsg.msg.(type) {
 			case *lnwire.OpenChannel:
-				f.handleFundingOpen(fmsg.peer, msg)
+				f.fundeeProcessOpenChannel(fmsg.peer, msg)
 
 			case *lnwire.AcceptChannel:
-				f.handleFundingAccept(fmsg.peer, msg)
+				f.funderProcessAcceptChannel(fmsg.peer, msg)
 
 			case *lnwire.FundingCreated:
-				f.handleFundingCreated(fmsg.peer, msg)
+				f.fundeeProcessFundingCreated(fmsg.peer, msg)
 
 			case *lnwire.FundingSigned:
-				f.handleFundingSigned(fmsg.peer, msg)
+				f.funderProcessFundingSigned(fmsg.peer, msg)
 
 			case *lnwire.ChannelReady:
 				f.wg.Add(1)
@@ -1359,13 +1349,15 @@ func (f *Manager) ProcessFundingMsg(msg lnwire.Message, peer lnpeer.Peer) {
 	}
 }
 
-// handleFundingOpen creates an initial 'ChannelReservation' within the wallet,
-// then responds to the source peer with an accept channel message progressing
-// the funding workflow.
+// fundeeProcessOpenChannel creates an initial 'ChannelReservation' within the
+// wallet, then responds to the source peer with an accept channel message
+// progressing the funding workflow.
 //
 // TODO(roasbeef): add error chan to all, let channelManager handle
 // error+propagate.
-func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
+//
+//nolint:funlen
+func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	msg *lnwire.OpenChannel) {
 
 	// Check number of pending channels to be smaller than maximum allowed
@@ -1888,10 +1880,12 @@ func (f *Manager) handleFundingOpen(peer lnpeer.Peer,
 	}
 }
 
-// handleFundingAccept processes a response to the workflow initiation sent by
-// the remote peer. This message then queues a message with the funding
+// funderProcessAcceptChannel processes a response to the workflow initiation
+// sent by the remote peer. This message then queues a message with the funding
 // outpoint, and a commitment signature to the remote peer.
-func (f *Manager) handleFundingAccept(peer lnpeer.Peer,
+//
+//nolint:funlen
+func (f *Manager) funderProcessAcceptChannel(peer lnpeer.Peer,
 	msg *lnwire.AcceptChannel) {
 
 	pendingChanID := msg.PendingChannelID
@@ -2240,7 +2234,6 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	// fully open.
 	channelID := lnwire.NewChanIDFromOutPoint(outPoint)
 	log.Debugf("Creating chan barrier for ChanID(%v)", channelID)
-	f.newChanBarriers.Store(channelID, make(chan struct{}))
 
 	// The next message that advances the funding flow will reference the
 	// channel via its permanent channel ID, so we'll set up this mapping
@@ -2303,11 +2296,14 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	}
 }
 
-// handleFundingCreated progresses the funding workflow when the daemon is on
-// the responding side of a single funder workflow. Once this message has been
-// processed, a signature is sent to the remote peer allowing it to broadcast
-// the funding transaction, progressing the workflow into the final stage.
-func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
+// fundeeProcessFundingCreated progresses the funding workflow when the daemon
+// is on the responding side of a single funder workflow. Once this message has
+// been processed, a signature is sent to the remote peer allowing it to
+// broadcast the funding transaction, progressing the workflow into the final
+// stage.
+//
+//nolint:funlen
+func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	msg *lnwire.FundingCreated) {
 
 	peerKey := peer.IdentityKey()
@@ -2410,7 +2406,6 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	// fully open.
 	channelID := lnwire.NewChanIDFromOutPoint(&fundingOut)
 	log.Debugf("Creating chan barrier for ChanID(%v)", channelID)
-	f.newChanBarriers.Store(channelID, make(chan struct{}))
 
 	fundingSigned := &lnwire.FundingSigned{}
 
@@ -2513,12 +2508,12 @@ func (f *Manager) handleFundingCreated(peer lnpeer.Peer,
 	go f.advanceFundingState(completeChan, pendingChanID, nil)
 }
 
-// handleFundingSigned processes the final message received in a single funder
-// workflow. Once this message is processed, the funding transaction is
+// funderProcessFundingSigned processes the final message received in a single
+// funder workflow. Once this message is processed, the funding transaction is
 // broadcast. Once the funding transaction reaches a sufficient number of
 // confirmations, a message is sent to the responding peer along with a compact
 // encoding of the location of the channel within the blockchain.
-func (f *Manager) handleFundingSigned(peer lnpeer.Peer,
+func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 	msg *lnwire.FundingSigned) {
 
 	// As the funding signed message will reference the reservation by its
@@ -3918,20 +3913,6 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 		return
 	}
 
-	// Launch a defer so we _ensure_ that the channel barrier is properly
-	// closed even if the target peer is no longer online at this point.
-	defer func() {
-		// Close the active channel barrier signaling the readHandler
-		// that commitment related modifications to this channel can
-		// now proceed.
-		chanBarrier, ok := f.newChanBarriers.LoadAndDelete(chanID)
-		if ok {
-			log.Tracef("Closing chan barrier for ChanID(%v)",
-				chanID)
-			close(chanBarrier)
-		}
-	}()
-
 	// Before we can add the channel to the peer, we'll need to ensure that
 	// we have an initial forwarding policy set.
 	if err := f.ensureInitialForwardingPolicy(chanID, channel); err != nil {
@@ -4937,8 +4918,6 @@ func (f *Manager) cancelReservationCtx(peerKey *btcec.PublicKey,
 func (f *Manager) deleteReservationCtx(peerKey *btcec.PublicKey,
 	pendingChanID [32]byte) {
 
-	// TODO(roasbeef): possibly cancel funding barrier in peer's
-	// channelManager?
 	peerIDKey := newSerializedKey(peerKey)
 	f.resMtx.Lock()
 	defer f.resMtx.Unlock()

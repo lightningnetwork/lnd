@@ -1067,66 +1067,6 @@ func TestFetchPendingInvoices(t *testing.T) {
 	require.Equal(t, pendingInvoices, pending)
 }
 
-// TestScanInvoices tests that ScanInvoices scans through all stored invoices
-// correctly.
-func TestScanInvoices(t *testing.T) {
-	t.Parallel()
-
-	db, err := MakeTestInvoiceDB(t)
-	require.NoError(t, err, "unable to make test db")
-
-	var invoices map[lntypes.Hash]*invpkg.Invoice
-	callCount := 0
-	resetCount := 0
-
-	// reset is used to reset/initialize results and is called once
-	// upon calling ScanInvoices and when the underlying transaction is
-	// retried.
-	reset := func() {
-		invoices = make(map[lntypes.Hash]*invpkg.Invoice)
-		callCount = 0
-		resetCount++
-	}
-
-	scanFunc := func(paymentHash lntypes.Hash,
-		invoice *invpkg.Invoice) error {
-
-		invoices[paymentHash] = invoice
-		callCount++
-
-		return nil
-	}
-
-	ctxb := context.Background()
-	// With an empty DB we expect to not scan any invoices.
-	require.NoError(t, db.ScanInvoices(ctxb, scanFunc, reset))
-	require.Equal(t, 0, len(invoices))
-	require.Equal(t, 0, callCount)
-	require.Equal(t, 1, resetCount)
-
-	numInvoices := 5
-	testInvoices := make(map[lntypes.Hash]*invpkg.Invoice)
-
-	// Now populate the DB and check if we can get all invoices with their
-	// payment hashes as expected.
-	for i := 1; i <= numInvoices; i++ {
-		invoice, err := randInvoice(lnwire.MilliSatoshi(i))
-		require.NoError(t, err)
-
-		paymentHash := invoice.Terms.PaymentPreimage.Hash()
-		testInvoices[paymentHash] = invoice
-
-		_, err = db.AddInvoice(ctxb, invoice, paymentHash)
-		require.NoError(t, err)
-	}
-
-	resetCount = 0
-	require.NoError(t, db.ScanInvoices(ctxb, scanFunc, reset))
-	require.Equal(t, numInvoices, callCount)
-	require.Equal(t, testInvoices, invoices)
-	require.Equal(t, 1, resetCount)
-}
-
 // TestDuplicateSettleInvoice tests that if we add a new invoice and settle it
 // twice, then the second time we also receive the invoice that we settled as a
 // return argument.

@@ -49,14 +49,6 @@ func (m *MockInvoiceDB) LookupInvoice(ref InvoiceRef) (Invoice, error) {
 	return invoice, args.Error(1)
 }
 
-func (m *MockInvoiceDB) ScanInvoices(scanFunc InvScanFunc,
-	reset func()) error {
-
-	args := m.Called(scanFunc, reset)
-
-	return args.Error(0)
-}
-
 func (m *MockInvoiceDB) FetchPendingInvoices(ctx context.Context) (
 	map[lntypes.Hash]Invoice, error) {
 

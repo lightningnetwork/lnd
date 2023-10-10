@@ -492,53 +492,6 @@ func (d *DB) FetchPendingInvoices(_ context.Context) (
 	return result, nil
 }
 
-// ScanInvoices scans through all invoices and calls the passed scanFunc for
-// for each invoice with its respective payment hash. Additionally a reset()
-// closure is passed which is used to reset/initialize partial results and also
-// to signal if the kvdb.View transaction has been retried.
-func (d *DB) ScanInvoices(_ context.Context, scanFunc invpkg.InvScanFunc,
-	reset func()) error {
-
-	return kvdb.View(d, func(tx kvdb.RTx) error {
-		invoices := tx.ReadBucket(invoiceBucket)
-		if invoices == nil {
-			return invpkg.ErrNoInvoicesCreated
-		}
-
-		invoiceIndex := invoices.NestedReadBucket(invoiceIndexBucket)
-		if invoiceIndex == nil {
-			// Mask the error if there's no invoice
-			// index as that simply means there are no
-			// invoices added yet to the DB. In this case
-			// we simply return an empty list.
-			return nil
-		}
-
-		return invoiceIndex.ForEach(func(k, v []byte) error {
-			// Skip the special numInvoicesKey as that does not
-			// point to a valid invoice.
-			if bytes.Equal(k, numInvoicesKey) {
-				return nil
-			}
-
-			// Skip sub-buckets.
-			if v == nil {
-				return nil
-			}
-
-			invoice, err := fetchInvoice(v, invoices)
-			if err != nil {
-				return err
-			}
-
-			var paymentHash lntypes.Hash
-			copy(paymentHash[:], k)
-
-			return scanFunc(paymentHash, &invoice)
-		})
-	}, reset)
-}
-
 // QueryInvoices allows a caller to query the invoice database for invoices
 // within the specified add index range.
 func (d *DB) QueryInvoices(_ context.Context, q invpkg.InvoiceQuery) (

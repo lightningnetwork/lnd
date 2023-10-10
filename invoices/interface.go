@@ -9,10 +9,6 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 )
 
-// InvScanFunc is a helper type used to specify the type used in the
-// ScanInvoices methods (part of the InvoiceDB interface).
-type InvScanFunc func(lntypes.Hash, *Invoice) error
-
 // InvoiceDB is the database that stores the information about invoices.
 type InvoiceDB interface {
 	// AddInvoice inserts the targeted invoice into the database.
@@ -44,17 +40,6 @@ type InvoiceDB interface {
 	// ensure the payer meets the agreed upon contractual terms of the
 	// payment.
 	LookupInvoice(ctx context.Context, ref InvoiceRef) (Invoice, error)
-
-	// ScanInvoices scans through all invoices and calls the passed scanFunc
-	// for each invoice with its respective payment hash. Additionally a
-	// reset() closure is passed which is used to reset/initialize partial
-	// results and also to signal if the kvdb.View transaction has been
-	// retried.
-	//
-	// TODO(positiveblue): abstract this functionality so it makes sense for
-	// other backends like sql.
-	ScanInvoices(ctx context.Context, scanFunc InvScanFunc,
-		reset func()) error
 
 	// FetchPendingInvoices returns all invoices that have not yet been
 	// settled or canceled.

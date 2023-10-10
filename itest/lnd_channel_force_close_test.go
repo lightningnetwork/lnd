@@ -315,18 +315,8 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 	carolBalResp := carol.RPC.WalletBalance()
 	carolStartingBalance := carolBalResp.ConfirmedBalance
 
-	// If the channel is a taproot channel, then we'll need to create a
-	// private channel.
-	//
-	// TODO(roasbeef): lift after G175
-	var privateChan bool
-	if channelType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-		privateChan = true
-	}
-
 	chanPoint := ht.OpenChannel(
 		alice, carol, lntest.OpenChannelParams{
-			Private:        privateChan,
 			Amt:            chanAmt,
 			PushAmt:        pushAmt,
 			CommitmentType: channelType,

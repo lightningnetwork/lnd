@@ -132,10 +132,6 @@ func testSendDirectPayment(ht *lntest.HarnessTest) {
 				CommitmentType: ct,
 			}
 
-			// Open private channel for taproot channels.
-			params.Private = ct ==
-				lnrpc.CommitmentType_SIMPLE_TAPROOT
-
 			testSendPayment(st, params)
 		})
 	}

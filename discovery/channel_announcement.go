@@ -145,3 +145,102 @@ func (c *chanAnn) Msg() lnwire.Message {
 }
 
 var _ ChanAnn = (*chanAnn)(nil)
+
+// chanAnn2 is an implementation of the ChanAnn interface which represents the
+// lnwire.ChannelAnnouncement2 message used for taproot channels.
+type chanAnn2 struct {
+	*lnwire.ChannelAnnouncement2
+}
+
+// SCID returns the short channel ID of the channel being announced.
+//
+// NOTE: this is part of the ChanAnn interface.
+func (c *chanAnn2) SCID() lnwire.ShortChannelID {
+	return c.ShortChannelID
+}
+
+// ChainHash returns the hash identifying the chain that the channel was opened
+// on.
+//
+// NOTE: this is part of the ChanAnn interface.
+func (c *chanAnn2) ChainHash() chainhash.Hash {
+	return c.ChannelAnnouncement2.ChainHash
+}
+
+// Name returns the underlying lnwire message name.
+//
+// NOTE: this is part of the ChanAnn interface.
+func (c *chanAnn2) Name() string {
+	return "ChannelAnnouncement2"
+}
+
+// Validate validates the message.
+//
+// NOTE: this is part of the ChanAnn interface.
+func (c *chanAnn2) Validate() error {
+	return routing.ValidateChannelAnn2(c.ChannelAnnouncement2)
+}
+
+// Create constructs a new ChanAnn from the given edge info, channel
+// proof and edge policies.
+//
+// NOTE: this is part of the ChanAnn interface.
+func (c *chanAnn2) Create(chanProof *channeldb.ChannelAuthProof,
+	chanInfo *channeldb.ChannelEdgeInfo,
+	e1, e2 *channeldb.ChannelEdgePolicy) (ChanAnn, *lnwire.ChannelUpdate,
+	*lnwire.ChannelUpdate, error) {
+
+	ann, update1, update2, err := netann.CreateChanAnnouncement2(
+		chanProof, chanInfo, e1, e2,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return &chanAnn2{ann}, update1, update2, nil
+}
+
+// BuildProof converts the lnwire.Message into a channeldb.ChannelAuthProof.
+//
+// NOTE: this is part of the ChanAnn interface.
+func (c *chanAnn2) BuildProof() *channeldb.ChannelAuthProof {
+	return &channeldb.ChannelAuthProof{
+		SchnorrSigBytes: c.Signature.ToSignatureBytes(),
+	}
+}
+
+// BuildEdgeInfo converts the lnwire.Message into a channeldb.ChannelEdgeInfo.
+//
+// NOTE: this is part of the ChanAnn interface.
+func (c *chanAnn2) BuildEdgeInfo() (*channeldb.ChannelEdgeInfo, error) {
+	var featureBuf bytes.Buffer
+	if err := c.Features.Encode(&featureBuf); err != nil {
+		return nil, fmt.Errorf("unable to encode features: %v", err)
+	}
+
+	edge := &channeldb.ChannelEdgeInfo{
+		ChannelID:       c.ShortChannelID.ToUint64(),
+		ChainHash:       c.ChainHash(),
+		NodeKey1Bytes:   c.NodeID1,
+		NodeKey2Bytes:   c.NodeID2,
+		Features:        featureBuf.Bytes(),
+		IsTaproot:       true,
+		ExtraOpaqueData: c.ExtraOpaqueData,
+	}
+
+	if c.BitcoinKey1 != nil && c.BitcoinKey2 != nil {
+		edge.BitcoinKey1Bytes = *c.BitcoinKey1
+		edge.BitcoinKey2Bytes = *c.BitcoinKey2
+	}
+
+	return edge, nil
+}
+
+// Msg returns the underlying lnwire.Message.
+//
+// NOTE: this is part of the ChanAnn interface.
+func (c *chanAnn2) Msg() lnwire.Message {
+	return c.ChannelAnnouncement2
+}
+
+var _ ChanAnn = (*chanAnn2)(nil)

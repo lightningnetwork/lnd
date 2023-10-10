@@ -17,6 +17,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -3306,6 +3307,28 @@ type ChannelAuthProof struct {
 	// BitcoinSig2Bytes are the raw bytes of the second bitcoin signature
 	// encoded in DER format.
 	BitcoinSig2Bytes []byte
+
+	// SchnorrSigBytes are the raw bytes of the encoded schnorr signature.
+	SchnorrSigBytes []byte
+
+	// schnorrSig is the cached instance of the schnorr signature.
+	schnorrSig *schnorr.Signature
+}
+
+// SchnorrSig is the schnorr signature of the channel announcement.
+func (c *ChannelAuthProof) SchnorrSig() (*schnorr.Signature, error) {
+	if c.schnorrSig != nil {
+		return c.schnorrSig, nil
+	}
+
+	sig, err := schnorr.ParseSignature(c.SchnorrSigBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	c.schnorrSig = sig
+
+	return sig, nil
 }
 
 // Node1Sig is the signature using the identity key of the node that is first
@@ -3393,10 +3416,10 @@ func (c *ChannelAuthProof) BitcoinSig2() (*ecdsa.Signature, error) {
 // IsEmpty check is the authentication proof is empty Proof is empty if at
 // least one of the signatures are equal to nil.
 func (c *ChannelAuthProof) IsEmpty() bool {
-	return len(c.NodeSig1Bytes) == 0 ||
+	return (len(c.NodeSig1Bytes) == 0 ||
 		len(c.NodeSig2Bytes) == 0 ||
 		len(c.BitcoinSig1Bytes) == 0 ||
-		len(c.BitcoinSig2Bytes) == 0
+		len(c.BitcoinSig2Bytes) == 0) && len(c.SchnorrSigBytes) == 0
 }
 
 // ChannelEdgePolicy represents a *directed* edge within the channel graph. For
@@ -4330,19 +4353,98 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 func putChanEdgeInfo(edgeIndex kvdb.RwBucket, edgeInfo *ChannelEdgeInfo,
 	chanID [8]byte) error {
 
-	var b bytes.Buffer
+	var (
+		b   bytes.Buffer
+		err error
+	)
 
 	if !edgeInfo.IsTaproot {
-		err := serializeLegacyChanEdgeInfo(&b, edgeInfo, chanID)
-		if err != nil {
-			return err
-		}
+		err = serializeLegacyChanEdgeInfo(&b, edgeInfo, chanID)
 	} else {
-		return fmt.Errorf("encoding for taproot channels has not yet " +
-			"been defined")
+		err = serializeTaprootChanEdgeInfo(&b, edgeInfo, chanID)
+	}
+	if err != nil {
+		return err
 	}
 
 	return edgeIndex.Put(chanID[:], b.Bytes())
+}
+
+// edgeInfoEncodingType indicate how the bytes for a channel edge have been
+// serialised.
+type edgeInfoEncodingType uint8
+
+const (
+	// edgeInfoTaprootEncodingType will be used as a prefix for taproot
+	// edge encodings to indicate how the bytes following should be
+	// deserialized.
+	edgeInfoTaprootEncodingType edgeInfoEncodingType = 0
+)
+
+func serializeTaprootChanEdgeInfo(w io.Writer, edgeInfo *ChannelEdgeInfo,
+	chanID [8]byte) error {
+
+	// First, write the identifying encoding byte to signal that this is not
+	// using the legacy encoding.
+	_, err := w.Write([]byte{chanEdgeNewEncodingPrefix})
+	if err != nil {
+		return err
+	}
+
+	// Now, write the taproot encoding type byte.
+	_, err = w.Write([]byte{byte(edgeInfoTaprootEncodingType)})
+	if err != nil {
+		return err
+	}
+
+	// TODO(elle): change to pure TLV. Perhaps even just write the encoded
+	// lnwire msg as is inside one TLV record and then other fields like
+	// outpoint in other tlv records.
+
+	if _, err := w.Write(edgeInfo.NodeKey1Bytes[:]); err != nil {
+		return err
+	}
+	if _, err := w.Write(edgeInfo.NodeKey2Bytes[:]); err != nil {
+		return err
+	}
+	if _, err := w.Write(edgeInfo.BitcoinKey1Bytes[:]); err != nil {
+		return err
+	}
+	if _, err := w.Write(edgeInfo.BitcoinKey2Bytes[:]); err != nil {
+		return err
+	}
+
+	if err := wire.WriteVarBytes(w, 0, edgeInfo.Features); err != nil {
+		return err
+	}
+
+	var sig []byte
+	if edgeInfo.AuthProof != nil {
+		sig = edgeInfo.AuthProof.SchnorrSigBytes
+	}
+	if err := wire.WriteVarBytes(w, 0, sig); err != nil {
+		return err
+	}
+
+	if err := writeOutpoint(w, &edgeInfo.ChannelPoint); err != nil {
+		return err
+	}
+	err = binary.Write(w, byteOrder, uint64(edgeInfo.Capacity))
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(chanID[:]); err != nil {
+		return err
+	}
+	if _, err := w.Write(edgeInfo.ChainHash[:]); err != nil {
+		return err
+	}
+
+	if len(edgeInfo.ExtraOpaqueData) > MaxAllowedExtraOpaqueBytes {
+		return ErrTooManyExtraOpaqueBytes(len(edgeInfo.ExtraOpaqueData))
+	}
+
+	return wire.WriteVarBytes(w, 0, edgeInfo.ExtraOpaqueData)
 }
 
 // serializeLegacyChanEdgeInfo encodes the given edge using the legacy encoding.
@@ -4436,8 +4538,91 @@ func deserializeChanEdgeInfo(reader io.Reader) (*ChannelEdgeInfo, error) {
 		return deserializeLegacyChanEdgeInfo(r)
 	}
 
-	return nil, fmt.Errorf("deserialisation for taproot edges has not " +
-		"been implemented yet")
+	// Pop the encoding type byte.
+	var scratch [1]byte
+	if _, err = r.Read(scratch[:]); err != nil {
+		return nil, err
+	}
+
+	// Now, read the encoding type byte.
+	if _, err = r.Read(scratch[:]); err != nil {
+		return nil, err
+	}
+
+	encoding := edgeInfoEncodingType(scratch[0])
+	switch encoding {
+	case edgeInfoTaprootEncodingType:
+		return deserializeTaprootChanEdgeInfo(r)
+
+	default:
+		return nil, fmt.Errorf("unknown edge info encoding type: %d",
+			encoding)
+	}
+}
+
+func deserializeTaprootChanEdgeInfo(r io.Reader) (*ChannelEdgeInfo, error) {
+	var (
+		err      error
+		edgeInfo ChannelEdgeInfo
+	)
+
+	if _, err := io.ReadFull(r, edgeInfo.NodeKey1Bytes[:]); err != nil {
+		return nil, err
+	}
+	if _, err := io.ReadFull(r, edgeInfo.NodeKey2Bytes[:]); err != nil {
+		return nil, err
+	}
+	if _, err := io.ReadFull(r, edgeInfo.BitcoinKey1Bytes[:]); err != nil {
+		return nil, err
+	}
+	if _, err := io.ReadFull(r, edgeInfo.BitcoinKey2Bytes[:]); err != nil {
+		return nil, err
+	}
+
+	edgeInfo.Features, err = wire.ReadVarBytes(r, 0, 900, "features")
+	if err != nil {
+		return nil, err
+	}
+
+	proof := &ChannelAuthProof{}
+
+	proof.SchnorrSigBytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
+	if err != nil {
+		return nil, err
+	}
+
+	if !proof.IsEmpty() {
+		edgeInfo.AuthProof = proof
+	}
+
+	edgeInfo.ChannelPoint = wire.OutPoint{}
+	if err := readOutpoint(r, &edgeInfo.ChannelPoint); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(r, byteOrder, &edgeInfo.Capacity); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(r, byteOrder, &edgeInfo.ChannelID); err != nil {
+		return nil, err
+	}
+
+	if _, err := io.ReadFull(r, edgeInfo.ChainHash[:]); err != nil {
+		return nil, err
+	}
+
+	// We'll try and see if there are any opaque bytes left, if not, then
+	// we'll ignore the EOF error and return the edge as is.
+	edgeInfo.ExtraOpaqueData, err = wire.ReadVarBytes(
+		r, 0, MaxAllowedExtraOpaqueBytes, "blob",
+	)
+	switch {
+	case err == io.ErrUnexpectedEOF:
+	case err == io.EOF:
+	case err != nil:
+		return nil, err
+	}
+
+	return &edgeInfo, nil
 }
 
 func deserializeLegacyChanEdgeInfo(r io.Reader) (*ChannelEdgeInfo, error) {

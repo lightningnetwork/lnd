@@ -35,13 +35,16 @@ var (
 		"[2001:db8:85a3:0:0:8a2e:370:7334]:80")
 	testAddrs = []net.Addr{testAddr, anotherAddr}
 
-	testRBytes, _ = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf0314f882d7")
-	testSBytes, _ = hex.DecodeString("299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
-	testRScalar   = new(btcec.ModNScalar)
-	testSScalar   = new(btcec.ModNScalar)
-	_             = testRScalar.SetByteSlice(testRBytes)
-	_             = testSScalar.SetByteSlice(testSBytes)
-	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
+	testRBytes, _        = hex.DecodeString("8ce2bc69281ce27da07e6683571319d18e949ddfa2965fb6caa1bf0314f882d7")
+	testSBytes, _        = hex.DecodeString("299105481d63e0f4bc2a88121167221b6700d72a0ead154c03be696a292d24ae")
+	testRScalar          = new(btcec.ModNScalar)
+	testSScalar          = new(btcec.ModNScalar)
+	_                    = testRScalar.SetByteSlice(testRBytes)
+	_                    = testSScalar.SetByteSlice(testSBytes)
+	testSig              = ecdsa.NewSignature(testRScalar, testSScalar)
+	testSchnorrSigStr, _ = hex.DecodeString("04E7F9037658A92AFEB4F2" +
+		"5BAE5339E3DDCA81A353493827D26F16D92308E49E2A25E9220867" +
+		"8A2DF86970DA91B03A8AF8815A8A60498B358DAF560B347AA557")
 
 	testFeatures = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(lnwire.GossipQueriesRequired),
@@ -351,9 +354,8 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 
 	// Ensure that both policies are returned as unknown (nil).
 	_, e1, e2, err := graph.FetchChannelEdgesByID(chanID)
-	if err != nil {
-		t.Fatalf("unable to fetch channel edge")
-	}
+	require.NoError(t, err)
+
 	if e1 != nil || e2 != nil {
 		t.Fatalf("channel edges not unknown")
 	}
@@ -387,7 +389,8 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 }
 
 func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
-	node1, node2 *LightningNode) (ChannelEdgeInfo, lnwire.ShortChannelID) {
+	node1, node2 *LightningNode, taproot bool) (ChannelEdgeInfo,
+	lnwire.ShortChannelID) {
 
 	shortChanID := lnwire.ShortChannelID{
 		BlockHeight: height,
@@ -402,16 +405,24 @@ func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
 	node1Pub, _ := node1.PubKey()
 	node2Pub, _ := node2.PubKey()
 	edgeInfo := ChannelEdgeInfo{
-		ChannelID: shortChanID.ToUint64(),
-		ChainHash: key,
-		AuthProof: &ChannelAuthProof{
+		ChannelID:    shortChanID.ToUint64(),
+		ChainHash:    key,
+		ChannelPoint: outpoint,
+		Capacity:     9000,
+	}
+
+	if taproot {
+		edgeInfo.IsTaproot = true
+		edgeInfo.AuthProof = &ChannelAuthProof{
+			SchnorrSigBytes: testSchnorrSigStr,
+		}
+	} else {
+		edgeInfo.AuthProof = &ChannelAuthProof{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
 			BitcoinSig2Bytes: testSig.Serialize(),
-		},
-		ChannelPoint: outpoint,
-		Capacity:     9000,
+		}
 	}
 
 	copy(edgeInfo.NodeKey1Bytes[:], node1Pub.SerializeCompressed())
@@ -464,7 +475,7 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 
 	// Create an edge which has its block height at 156.
 	height := uint32(156)
-	edgeInfo, _ := createEdge(height, 0, 0, 0, node1, node2)
+	edgeInfo, _ := createEdge(height, 0, 0, 0, node1, node2, false)
 
 	// Create an edge with block height 157. We give it
 	// maximum values for tx index and position, to make
@@ -472,11 +483,11 @@ func TestDisconnectBlockAtHeight(t *testing.T) {
 	// entire range.
 	edgeInfo2, _ := createEdge(
 		height+1, math.MaxUint32&0x00ffffff, math.MaxUint16, 1,
-		node1, node2,
+		node1, node2, false,
 	)
 
 	// Create a third edge, this with a block height of 155.
-	edgeInfo3, _ := createEdge(height-1, 0, 0, 2, node1, node2)
+	edgeInfo3, _ := createEdge(height-1, 0, 0, 2, node1, node2, false)
 
 	// Now add all these new edges to the database.
 	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
@@ -587,19 +598,23 @@ func assertEdgeInfoEqual(t *testing.T, e1 *ChannelEdgeInfo,
 			e2.Features)
 	}
 
-	if !bytes.Equal(e1.AuthProof.NodeSig1Bytes, e2.AuthProof.NodeSig1Bytes) {
-		t.Fatalf("nodesig1 doesn't match: %v vs %v",
-			spew.Sdump(e1.AuthProof.NodeSig1Bytes),
-			spew.Sdump(e2.AuthProof.NodeSig1Bytes))
-	}
-	if !bytes.Equal(e1.AuthProof.NodeSig2Bytes, e2.AuthProof.NodeSig2Bytes) {
-		t.Fatalf("nodesig2 doesn't match")
-	}
-	if !bytes.Equal(e1.AuthProof.BitcoinSig1Bytes, e2.AuthProof.BitcoinSig1Bytes) {
-		t.Fatalf("bitcoinsig1 doesn't match")
-	}
-	if !bytes.Equal(e1.AuthProof.BitcoinSig2Bytes, e2.AuthProof.BitcoinSig2Bytes) {
-		t.Fatalf("bitcoinsig2 doesn't match")
+	require.True(t, (e1.AuthProof == nil) == (e2.AuthProof == nil))
+
+	if e1.AuthProof != nil {
+		if !bytes.Equal(e1.AuthProof.NodeSig1Bytes, e2.AuthProof.NodeSig1Bytes) {
+			t.Fatalf("nodesig1 doesn't match: %v vs %v",
+				spew.Sdump(e1.AuthProof.NodeSig1Bytes),
+				spew.Sdump(e2.AuthProof.NodeSig1Bytes))
+		}
+		if !bytes.Equal(e1.AuthProof.NodeSig2Bytes, e2.AuthProof.NodeSig2Bytes) {
+			t.Fatalf("nodesig2 doesn't match")
+		}
+		if !bytes.Equal(e1.AuthProof.BitcoinSig1Bytes, e2.AuthProof.BitcoinSig1Bytes) {
+			t.Fatalf("bitcoinsig1 doesn't match")
+		}
+		if !bytes.Equal(e1.AuthProof.BitcoinSig2Bytes, e2.AuthProof.BitcoinSig2Bytes) {
+			t.Fatalf("bitcoinsig2 doesn't match")
+		}
 	}
 
 	if e1.ChannelPoint != e2.ChannelPoint {
@@ -1600,8 +1615,8 @@ func TestHighestChanID(t *testing.T) {
 
 	// The first channel with be at height 10, while the other will be at
 	// height 100.
-	edge1, _ := createEdge(10, 0, 0, 0, node1, node2)
-	edge2, chanID2 := createEdge(100, 0, 0, 0, node1, node2)
+	edge1, _ := createEdge(10, 0, 0, 0, node1, node2, false)
+	edge2, chanID2 := createEdge(100, 0, 0, 0, node1, node2, false)
 
 	if err := graph.AddChannelEdge(&edge1); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
@@ -1622,7 +1637,7 @@ func TestHighestChanID(t *testing.T) {
 
 	// If we add another edge, then the current best chan ID should be
 	// updated as well.
-	edge3, chanID3 := createEdge(1000, 0, 0, 0, node1, node2)
+	edge3, chanID3 := createEdge(1000, 0, 0, 0, node1, node2, false)
 	if err := graph.AddChannelEdge(&edge3); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
 	}
@@ -1675,7 +1690,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 	edges := make([]ChannelEdge, 0, numChans)
 	for i := 0; i < numChans; i++ {
 		channel, chanID := createEdge(
-			uint32(i*10), 0, 0, 0, node1, node2,
+			uint32(i*10), 0, 0, 0, node1, node2, false,
 		)
 
 		if err := graph.AddChannelEdge(&channel); err != nil {
@@ -1946,7 +1961,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	chanIDs := make([]uint64, 0, numChans)
 	for i := 0; i < numChans; i++ {
 		channel, chanID := createEdge(
-			uint32(i*10), 0, 0, 0, node1, node2,
+			uint32(i*10), 0, 0, 0, node1, node2, false,
 		)
 
 		if err := graph.AddChannelEdge(&channel); err != nil {
@@ -1960,7 +1975,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	zombieIDs := make([]uint64, 0, numZombies)
 	for i := 0; i < numZombies; i++ {
 		channel, chanID := createEdge(
-			uint32(i*10+1), 0, 0, 0, node1, node2,
+			uint32(i*10+1), 0, 0, 0, node1, node2, false,
 		)
 		if err := graph.AddChannelEdge(&channel); err != nil {
 			t.Fatalf("unable to create channel edge: %v", err)
@@ -2055,14 +2070,14 @@ func TestFilterChannelRange(t *testing.T) {
 	for i := 0; i < numChans/2; i++ {
 		chanHeight := endHeight
 		channel1, chanID1 := createEdge(
-			chanHeight, uint32(i+1), 0, 0, node1, node2,
+			chanHeight, uint32(i+1), 0, 0, node1, node2, false,
 		)
 		if err := graph.AddChannelEdge(&channel1); err != nil {
 			t.Fatalf("unable to create channel edge: %v", err)
 		}
 
 		channel2, chanID2 := createEdge(
-			chanHeight, uint32(i+2), 0, 0, node1, node2,
+			chanHeight, uint32(i+2), 0, 0, node1, node2, false,
 		)
 		if err := graph.AddChannelEdge(&channel2); err != nil {
 			t.Fatalf("unable to create channel edge: %v", err)
@@ -2168,9 +2183,15 @@ func TestFetchChanInfos(t *testing.T) {
 	endTime := startTime
 	edges := make([]ChannelEdge, 0, numChans)
 	edgeQuery := make([]uint64, 0, numChans)
+	var taproot bool
 	for i := 0; i < numChans; i++ {
+		taproot = false
+		if i%2 == 0 {
+			taproot = true
+		}
+
 		channel, chanID := createEdge(
-			uint32(i*10), 0, 0, 0, node1, node2,
+			uint32(i*10), 0, 0, 0, node1, node2, taproot,
 		)
 
 		if err := graph.AddChannelEdge(&channel); err != nil {
@@ -2186,13 +2207,13 @@ func TestFetchChanInfos(t *testing.T) {
 		edge1.ChannelFlags = 0
 		edge1.Node = node2
 		edge1.SigBytes = testSig.Serialize()
-		if err := graph.UpdateEdgePolicy(edge1); err != nil {
-			t.Fatalf("unable to update edge: %v", err)
-		}
+
+		require.NoError(t, graph.UpdateEdgePolicy(edge1))
 
 		edge2 := newEdgePolicy(
 			chanID.ToUint64(), graph.db, updateTime.Unix(),
 		)
+
 		edge2.ChannelFlags = 1
 		edge2.Node = node1
 		edge2.SigBytes = testSig.Serialize()
@@ -2216,7 +2237,7 @@ func TestFetchChanInfos(t *testing.T) {
 	// Add an another edge to the query that has been marked as a zombie
 	// edge. The query should also skip this channel.
 	zombieChan, zombieChanID := createEdge(
-		666, 0, 0, 0, node1, node2,
+		666, 0, 0, 0, node1, node2, false,
 	)
 	if err := graph.AddChannelEdge(&zombieChan); err != nil {
 		t.Fatalf("unable to create channel edge: %v", err)
@@ -2270,7 +2291,7 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	}
 
 	channel, chanID := createEdge(
-		uint32(0), 0, 0, 0, node1, node2,
+		uint32(0), 0, 0, 0, node1, node2, false,
 	)
 
 	if err := graph.AddChannelEdge(&channel); err != nil {
@@ -2377,7 +2398,7 @@ func TestChannelEdgePruningUpdateIndexDeletion(t *testing.T) {
 
 	// With the two nodes created, we'll now create a random channel, as
 	// well as two edges in the database with distinct update times.
-	edgeInfo, chanID := createEdge(100, 0, 0, 0, node1, node2)
+	edgeInfo, chanID := createEdge(100, 0, 0, 0, node1, node2, false)
 	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
@@ -2528,7 +2549,7 @@ func TestPruneGraphNodes(t *testing.T) {
 
 	// We'll now add a new edge to the graph, but only actually advertise
 	// the edge of *one* of the nodes.
-	edgeInfo, chanID := createEdge(100, 0, 0, 0, node1, node2)
+	edgeInfo, chanID := createEdge(100, 0, 0, 0, node1, node2, false)
 	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
@@ -2583,7 +2604,7 @@ func TestAddChannelEdgeShellNodes(t *testing.T) {
 
 	// We'll now create an edge between the two nodes, as a result, node2
 	// should be inserted into the database as a shell node.
-	edgeInfo, _ := createEdge(100, 0, 0, 0, node1, node2)
+	edgeInfo, _ := createEdge(100, 0, 0, 0, node1, node2, false)
 	if err := graph.AddChannelEdge(&edgeInfo); err != nil {
 		t.Fatalf("unable to add edge: %v", err)
 	}
@@ -2692,8 +2713,8 @@ func TestNodeIsPublic(t *testing.T) {
 		t.Fatalf("unable to set source node: %v", err)
 	}
 
-	aliceBobEdge, _ := createEdge(10, 0, 0, 0, aliceNode, bobNode)
-	bobCarolEdge, _ := createEdge(10, 1, 0, 1, bobNode, carolNode)
+	aliceBobEdge, _ := createEdge(10, 0, 0, 0, aliceNode, bobNode, false)
+	bobCarolEdge, _ := createEdge(10, 1, 0, 1, bobNode, carolNode, false)
 
 	// After creating all of our nodes and edges, we'll add them to each
 	// participant's graph.
@@ -3312,7 +3333,7 @@ func TestBatchedAddChannelEdge(t *testing.T) {
 
 	// Create an edge which has its block height at 156.
 	height := uint32(156)
-	edgeInfo, _ := createEdge(height, 0, 0, 0, node1, node2)
+	edgeInfo, _ := createEdge(height, 0, 0, 0, node1, node2, false)
 
 	// Create an edge with block height 157. We give it
 	// maximum values for tx index and position, to make
@@ -3320,11 +3341,11 @@ func TestBatchedAddChannelEdge(t *testing.T) {
 	// entire range.
 	edgeInfo2, _ := createEdge(
 		height+1, math.MaxUint32&0x00ffffff, math.MaxUint16, 1,
-		node1, node2,
+		node1, node2, false,
 	)
 
 	// Create a third edge, this with a block height of 155.
-	edgeInfo3, _ := createEdge(height-1, 0, 0, 2, node1, node2)
+	edgeInfo3, _ := createEdge(height-1, 0, 0, 2, node1, node2, false)
 
 	edges := []ChannelEdgeInfo{edgeInfo, edgeInfo2, edgeInfo3}
 	errChan := make(chan error, len(edges))

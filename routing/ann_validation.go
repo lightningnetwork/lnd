@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
@@ -83,6 +84,59 @@ func ValidateChannelAnn(a *lnwire.ChannelAnnouncement) error {
 
 	return nil
 
+}
+
+// ValidateChannelAnn2 validates the channel announcement 2 message and checks
+// that signature is valid.
+func ValidateChannelAnn2(a *lnwire.ChannelAnnouncement2) error {
+	dataHash, err := a.DigestToSign()
+	if err != nil {
+		return err
+	}
+
+	sig, err := a.Signature.ToSignature()
+	if err != nil {
+		return err
+	}
+
+	nodeKey1, err := btcec.ParsePubKey(a.NodeID1[:])
+	if err != nil {
+		return err
+	}
+
+	nodeKey2, err := btcec.ParsePubKey(a.NodeID2[:])
+	if err != nil {
+		return err
+	}
+
+	keys := []*btcec.PublicKey{
+		nodeKey1, nodeKey2,
+	}
+
+	if a.BitcoinKey1 != nil && a.BitcoinKey2 != nil {
+		bitcoinKey1, err := btcec.ParsePubKey(a.BitcoinKey1[:])
+		if err != nil {
+			return err
+		}
+
+		bitcoinKey2, err := btcec.ParsePubKey(a.BitcoinKey2[:])
+		if err != nil {
+			return err
+		}
+
+		keys = append(keys, bitcoinKey1, bitcoinKey2)
+	}
+
+	aggKey, _, _, err := musig2.AggregateKeys(keys, true)
+	if err != nil {
+		return err
+	}
+
+	if !sig.Verify(dataHash.CloneBytes(), aggKey.FinalKey) {
+		return fmt.Errorf("invalid sig")
+	}
+
+	return nil
 }
 
 // ValidateNodeAnn validates the node announcement by ensuring that the

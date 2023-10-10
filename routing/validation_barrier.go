@@ -122,9 +122,34 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 			v.chanAnnFinSignal[msg.ShortChannelID] = signals
 			v.chanEdgeDependencies[msg.ShortChannelID] = signals
 
-			v.nodeAnnDependencies[route.Vertex(msg.NodeID1)] = signals
-			v.nodeAnnDependencies[route.Vertex(msg.NodeID2)] = signals
+			v.nodeAnnDependencies[msg.NodeID1] = signals
+			v.nodeAnnDependencies[msg.NodeID2] = signals
 		}
+
+	case *lnwire.ChannelAnnouncement2:
+		// We ensure that we only create a new announcement signal iff,
+		// one doesn't already exist, as there may be duplicate
+		// announcements.  We'll close this signal once the
+		// ChannelAnnouncement has been validated. This will result in
+		// all the dependent jobs being unlocked so they can finish
+		// execution themselves.
+		if _, ok := v.chanAnnFinSignal[msg.ShortChannelID]; !ok {
+			// We'll create the channel that we close after we
+			// validate this announcement. All dependants will
+			// point to this same channel, so they'll be unblocked
+			// at the same time.
+			signals := &validationSignals{
+				allow: make(chan struct{}),
+				deny:  make(chan struct{}),
+			}
+
+			v.chanAnnFinSignal[msg.ShortChannelID] = signals
+			v.chanEdgeDependencies[msg.ShortChannelID] = signals
+
+			v.nodeAnnDependencies[msg.NodeID1] = signals
+			v.nodeAnnDependencies[msg.NodeID2] = signals
+		}
+
 	case *channeldb.ChannelEdgeInfo:
 
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
@@ -219,6 +244,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 		// TODO(roasbeef): need to wait on chan ann?
 	case *channeldb.ChannelEdgeInfo:
 	case *lnwire.ChannelAnnouncement:
+	case *lnwire.ChannelAnnouncement2:
 	}
 
 	// Release the lock once the above read is finished.
@@ -274,7 +300,21 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 			}
 			delete(v.chanAnnFinSignal, shortID)
 		}
+
 	case *lnwire.ChannelAnnouncement:
+		finSignals, ok := v.chanAnnFinSignal[msg.ShortChannelID]
+		if ok {
+			if allow {
+				close(finSignals.allow)
+			} else {
+				close(finSignals.deny)
+			}
+			delete(v.chanAnnFinSignal, msg.ShortChannelID)
+		}
+
+		delete(v.chanEdgeDependencies, msg.ShortChannelID)
+
+	case *lnwire.ChannelAnnouncement2:
 		finSignals, ok := v.chanAnnFinSignal[msg.ShortChannelID]
 		if ok {
 			if allow {

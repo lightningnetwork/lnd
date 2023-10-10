@@ -2778,6 +2778,8 @@ func TestRetransmit(t *testing.T) {
 			switch msg.(type) {
 			case *lnwire.ChannelAnnouncement:
 				chanAnn++
+			case *lnwire.ChannelAnnouncement2:
+				chanAnn++
 			case *lnwire.ChannelUpdate:
 				chanUpd++
 			case *lnwire.NodeAnnouncement:

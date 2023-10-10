@@ -1197,6 +1197,8 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 			switch m := msg.(type) {
 			case *lnwire.ChannelAnnouncement:
 				gotChannelAnnouncement = true
+			case *lnwire.ChannelAnnouncement2:
+				gotChannelAnnouncement = true
 			case *lnwire.ChannelUpdate:
 
 				// The channel update sent by the node should

@@ -830,6 +830,19 @@ func (d *AuthenticatedGossiper) ProcessRemoteAnnouncement(msg lnwire.Message,
 			errChan <- ownErr
 			return errChan
 		}
+
+	case *lnwire.ChannelAnnouncement2:
+		ownKey := d.selfKey.SerializeCompressed()
+		ownErr := fmt.Errorf("ignoring remote ChannelAnnouncement2 " +
+			"for own channel")
+
+		if bytes.Equal(m.NodeID1[:], ownKey) ||
+			bytes.Equal(m.NodeID2[:], ownKey) {
+
+			log.Warn(ownErr)
+			errChan <- ownErr
+			return errChan
+		}
 	}
 
 	nMsg := &networkMsg{
@@ -981,6 +994,28 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 
 	// Channel announcements are identified by the short channel id field.
 	case *lnwire.ChannelAnnouncement:
+		deDupKey := msg.ShortChannelID
+		sender := route.NewVertex(message.source)
+
+		mws, ok := d.channelAnnouncements[deDupKey]
+		if !ok {
+			mws = msgWithSenders{
+				msg:     msg,
+				isLocal: !message.isRemote,
+				senders: make(map[route.Vertex]struct{}),
+			}
+			mws.senders[sender] = struct{}{}
+
+			d.channelAnnouncements[deDupKey] = mws
+
+			return
+		}
+
+		mws.msg = msg
+		mws.senders[sender] = struct{}{}
+		d.channelAnnouncements[deDupKey] = mws
+
+	case *lnwire.ChannelAnnouncement2:
 		deDupKey := msg.ShortChannelID
 		sender := route.NewVertex(message.source)
 
@@ -1557,6 +1592,9 @@ func (d *AuthenticatedGossiper) isRecentlyRejectedMsg(msg lnwire.Message,
 	case *lnwire.ChannelAnnouncement:
 		scid = m.ShortChannelID.ToUint64()
 
+	case *lnwire.ChannelAnnouncement2:
+		scid = m.ShortChannelID.ToUint64()
+
 	default:
 		return false
 	}
@@ -2000,6 +2038,11 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	// either direction of the channel.
 	case *lnwire.ChannelAnnouncement:
 		ann := &chanAnn{msg}
+
+		return d.handleChanAnnouncement(nMsg, ann, schedulerOp)
+
+	case *lnwire.ChannelAnnouncement2:
+		ann := &chanAnn2{msg}
 
 		return d.handleChanAnnouncement(nMsg, ann, schedulerOp)
 

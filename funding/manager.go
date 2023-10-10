@@ -1615,24 +1615,11 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	}
 
 	public := msg.ChannelFlags&lnwire.FFAnnounceChannel != 0
-	switch {
-	// Sending the option-scid-alias channel type for a public channel is
-	// disallowed.
-	case public && scid:
+	if public && scid {
 		err = fmt.Errorf("option-scid-alias chantype for public " +
 			"channel")
 		log.Errorf("Cancelling funding flow for public channel %v "+
 			"with scid-alias: %v", cid, err)
-		f.failFundingFlow(peer, cid, err)
-
-		return
-
-	// The current variant of taproot channels can only be used with
-	// unadvertised channels for now.
-	case commitType.IsTaproot() && public:
-		err = fmt.Errorf("taproot channel type for public channel")
-		log.Errorf("Cancelling funding flow for public taproot "+
-			"channel %v: %v", cid, err)
 		f.failFundingFlow(peer, cid, err)
 
 		return
@@ -4975,6 +4962,22 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		log.Errorf("channel type negotiation failed: %v", err)
 		msg.Err <- err
 		return
+	}
+
+	// Announced taproot channels are only allowed if our peer also supports
+	// taproot gossip.
+	if !msg.Private && commitType.IsTaproot() {
+		if !msg.Peer.RemoteFeatures().HasFeature(
+			lnwire.TaprootGossipOptionalStaging,
+		) {
+
+			err := fmt.Errorf("peer does not support taproot " +
+				"gossip")
+			log.Errorf("%v", err)
+			msg.Err <- err
+
+			return
+		}
 	}
 
 	var (

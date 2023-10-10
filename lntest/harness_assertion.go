@@ -352,6 +352,31 @@ func (h *HarnessTest) AssertTopologyChannelOpen(hn *node.HarnessNode,
 func (h *HarnessTest) AssertChannelExists(hn *node.HarnessNode,
 	cp *lnrpc.ChannelPoint) *lnrpc.Channel {
 
+	return h.assertChannelStatus(hn, cp, true)
+}
+
+// AssertChannelActive checks if a channel identified by the specified channel
+// point is active.
+func (h *HarnessTest) AssertChannelActive(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint) *lnrpc.Channel {
+
+	return h.assertChannelStatus(hn, cp, true)
+}
+
+// AssertChannelInactive checks if a channel identified by the specified channel
+// point is inactive.
+func (h *HarnessTest) AssertChannelInactive(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint) *lnrpc.Channel {
+
+	return h.assertChannelStatus(hn, cp, false)
+}
+
+// assertChannelStatus asserts that a channel identified by the specified
+// channel point exists from the point-of-view of the node and that it is either
+// active or inactive depending on the value of the active parameter.
+func (h *HarnessTest) assertChannelStatus(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, active bool) *lnrpc.Channel {
+
 	var (
 		channel *lnrpc.Channel
 		err     error
@@ -364,11 +389,12 @@ func (h *HarnessTest) AssertChannelExists(hn *node.HarnessNode,
 		}
 
 		// Check whether the channel is active, exit early if it is.
-		if channel.Active {
+		if channel.Active == active {
 			return nil
 		}
 
-		return fmt.Errorf("channel point not active")
+		return fmt.Errorf("expected channel_active=%v, got %v",
+			active, channel.Active)
 	}, DefaultTimeout)
 
 	require.NoErrorf(h, err, "%s: timeout checking for channel point: %v",

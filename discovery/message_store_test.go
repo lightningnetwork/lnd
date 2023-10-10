@@ -118,6 +118,8 @@ func TestMessageStoreMessages(t *testing.T) {
 			switch msg := msg.(type) {
 			case *lnwire.AnnounceSignatures:
 				shortChanID = msg.ShortChannelID.ToUint64()
+			case *lnwire.AnnouncementSignatures2:
+				shortChanID = msg.ShortChannelID.ToUint64()
 			case *lnwire.ChannelUpdate:
 				shortChanID = msg.ShortChannelID.ToUint64()
 			default:

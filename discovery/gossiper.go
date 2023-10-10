@@ -1428,7 +1428,9 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			switch announcement.msg.(type) {
 			// Channel announcement signatures are amongst the only
 			// messages that we'll process serially.
-			case *lnwire.AnnounceSignatures:
+			case *lnwire.AnnounceSignatures,
+				*lnwire.AnnouncementSignatures2:
+
 				emittedAnnouncements, _ := d.processNetworkAnnouncement(
 					announcement,
 				)
@@ -2143,6 +2145,28 @@ func (d *AuthenticatedGossiper) fetchNodeAnn(
 func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 	switch msg := msg.(type) {
 	case *lnwire.AnnounceSignatures:
+		chanInfo, _, _, err := d.cfg.Router.GetChannelByID(
+			msg.ShortChannelID,
+		)
+
+		// If the channel cannot be found, it is most likely a leftover
+		// message for a channel that was closed, so we can consider it
+		// stale.
+		if err == channeldb.ErrEdgeNotFound {
+			return true
+		}
+		if err != nil {
+			log.Debugf("Unable to retrieve channel=%v from graph: "+
+				"%v", chanInfo.ChannelID, err)
+			return false
+		}
+
+		// If the proof exists in the graph, then we have successfully
+		// received the remote proof and assembled the full proof, so we
+		// can safely delete the local proof from the database.
+		return chanInfo.AuthProof != nil
+
+	case *lnwire.AnnouncementSignatures2:
 		chanInfo, _, _, err := d.cfg.Router.GetChannelByID(
 			msg.ShortChannelID,
 		)

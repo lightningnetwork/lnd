@@ -1286,7 +1286,9 @@ func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 		gotNodeAnnouncement := false
 		for _, msg := range announcements {
 			switch msg.(type) {
-			case *lnwire.AnnounceSignatures:
+			case *lnwire.AnnounceSignatures,
+				*lnwire.AnnouncementSignatures2:
+
 				gotAnnounceSignatures = true
 			case *lnwire.NodeAnnouncement:
 				gotNodeAnnouncement = true

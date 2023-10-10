@@ -3269,6 +3269,8 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 			assertMessage(t, staleChannelUpdate, msg)
 		case *lnwire.AnnounceSignatures:
 			assertMessage(t, batch.localProofAnn, msg)
+		case *lnwire.AnnouncementSignatures2:
+			assertMessage(t, batch.localProofAnn, msg)
 		default:
 			t.Fatalf("send unexpected %v message", msg.MsgType())
 		}

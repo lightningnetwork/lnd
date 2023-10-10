@@ -85,6 +85,8 @@ func msgShortChanID(msg lnwire.Message) (lnwire.ShortChannelID, error) {
 	switch msg := msg.(type) {
 	case *lnwire.AnnounceSignatures:
 		shortChanID = msg.ShortChannelID
+	case *lnwire.AnnouncementSignatures2:
+		shortChanID = msg.ShortChannelID
 	case *lnwire.ChannelUpdate:
 		shortChanID = msg.ShortChannelID
 	default:

@@ -768,3 +768,55 @@ func testFundingExpiryBlocksOnPending(ht *lntest.HarnessTest) {
 	chanPoint := lntest.ChanPointFromPendingUpdate(update)
 	ht.CloseChannel(alice, chanPoint)
 }
+
+// testSimpleTaprootChannelActivation ensures that a simple taproot channel is
+// active if the initiator disconnects and reconnects in between channel opening
+// and channel confirmation.
+func testSimpleTaprootChannelActivation(ht *lntest.HarnessTest) {
+	// Grab the channel participants.
+	alice, bob := ht.Alice, ht.Bob
+
+	// Restart Alice and Bob to activate simple taproot channel feature.
+	simpleTaprootChanArgs := lntest.NodeArgsForCommitType(
+		lnrpc.CommitmentType_SIMPLE_TAPROOT,
+	)
+	ht.RestartNodeWithExtraArgs(alice, simpleTaprootChanArgs)
+	ht.RestartNodeWithExtraArgs(bob, simpleTaprootChanArgs)
+
+	// Make sure Alice and Bob are connected.
+	ht.EnsureConnected(alice, bob)
+
+	// Create simple taproot channel opening parameters.
+	params := lntest.OpenChannelParams{
+		FundMax:        true,
+		CommitmentType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
+		Private:        true,
+	}
+
+	// Alice opens the channel to Bob.
+	pendingChan := ht.OpenChannelAssertPending(alice, bob, params)
+
+	// We'll create the channel point to be able to close the channel once
+	// our test is done.
+	chanPoint := &lnrpc.ChannelPoint{
+		FundingTxid: &lnrpc.ChannelPoint_FundingTxidBytes{
+			FundingTxidBytes: pendingChan.Txid,
+		},
+		OutputIndex: pendingChan.OutputIndex,
+	}
+
+	// We disconnect and reconnect Alice and Bob before the channel is
+	// confirmed. Our expectation is that the channel is active once the
+	// channel is confirmed.
+	ht.DisconnectNodes(alice, bob)
+	ht.EnsureConnected(alice, bob)
+
+	// Mine six blocks to confirm the channel funding transaction.
+	ht.MineBlocks(6)
+
+	// Verify that Alice sees an active channel to Bob.
+	ht.AssertChannelActive(alice, chanPoint)
+
+	// Our test is done and Alice closes her channel to Bob.
+	ht.CloseChannel(alice, chanPoint)
+}

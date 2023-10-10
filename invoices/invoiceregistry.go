@@ -181,68 +181,30 @@ func NewRegistry(idb InvoiceDB, expiryWatcher *InvoiceExpiryWatcher,
 // to the invoice expiry watcher while also attempting to delete all canceled
 // invoices.
 func (i *InvoiceRegistry) scanInvoicesOnStart(ctx context.Context) error {
-	var (
-		pending   []invoiceExpiry
-		removable []InvoiceDeleteRef
-	)
-
-	reset := func() {
-		// Zero out our results on start and if the scan is ever run
-		// more than once. This latter case can happen if the kvdb
-		// layer needs to retry the View transaction underneath (eg.
-		// using the etcd driver, where all transactions are allowed
-		// to retry for serializability).
-		pending = nil
-		removable = make([]InvoiceDeleteRef, 0)
-	}
-
-	scanFunc := func(paymentHash lntypes.Hash,
-		invoice *Invoice) error {
-
-		if invoice.IsPending() {
-			expiryRef := makeInvoiceExpiry(paymentHash, invoice)
-			if expiryRef != nil {
-				pending = append(pending, expiryRef)
-			}
-		} else if i.cfg.GcCanceledInvoicesOnStartup &&
-			invoice.State == ContractCanceled {
-
-			// Consider invoice for removal if it is already
-			// canceled. Invoices that are expired but not yet
-			// canceled, will be queued up for cancellation after
-			// startup and will be deleted afterwards.
-			ref := InvoiceDeleteRef{
-				PayHash:     paymentHash,
-				AddIndex:    invoice.AddIndex,
-				SettleIndex: invoice.SettleIndex,
-			}
-
-			if invoice.Terms.PaymentAddr != BlankPayAddr {
-				ref.PayAddr = &invoice.Terms.PaymentAddr
-			}
-
-			removable = append(removable, ref)
-		}
-		return nil
-	}
-
-	err := i.idb.ScanInvoices(ctx, scanFunc, reset)
+	pendingInvoices, err := i.idb.FetchPendingInvoices(ctx)
 	if err != nil {
 		return err
+	}
+
+	var pending []invoiceExpiry
+	for paymentHash, invoice := range pendingInvoices {
+		invoice := invoice
+		expiryRef := makeInvoiceExpiry(paymentHash, &invoice)
+		if expiryRef != nil {
+			pending = append(pending, expiryRef)
+		}
 	}
 
 	log.Debugf("Adding %d pending invoices to the expiry watcher",
 		len(pending))
 	i.expiryWatcher.AddInvoices(pending...)
 
-	if len(removable) > 0 {
-		log.Infof("Attempting to delete %v canceled invoices",
-			len(removable))
-		if err := i.idb.DeleteInvoice(ctx, removable); err != nil {
+	if i.cfg.GcCanceledInvoicesOnStartup {
+		log.Infof("Deleting canceled invoices")
+		err = i.idb.DeleteCanceledInvoices(ctx)
+		if err != nil {
 			log.Warnf("Deleting canceled invoices failed: %v", err)
-		} else {
-			log.Infof("Deleted %v canceled invoices",
-				len(removable))
+			return err
 		}
 	}
 

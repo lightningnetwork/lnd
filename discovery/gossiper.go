@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -84,6 +85,7 @@ type optionalMsgFields struct {
 	capacity     *btcutil.Amount
 	channelPoint *wire.OutPoint
 	remoteAlias  *lnwire.ShortChannelID
+	aggNonce     *btcec.PublicKey
 }
 
 // apply applies the optional fields within the functional options.
@@ -123,6 +125,12 @@ func ChannelPoint(op wire.OutPoint) OptionalMsgField {
 func RemoteAlias(alias *lnwire.ShortChannelID) OptionalMsgField {
 	return func(f *optionalMsgFields) {
 		f.remoteAlias = alias
+	}
+}
+
+func AggregateNonce(nonce *btcec.PublicKey) OptionalMsgField {
+	return func(f *optionalMsgFields) {
+		f.aggNonce = nonce
 	}
 }
 
@@ -2058,6 +2066,9 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	case *lnwire.AnnounceSignatures:
 		return d.handleAnnSig(nMsg, msg)
 
+	case *lnwire.AnnouncementSignatures2:
+		return d.handleAnnSig2(nMsg, msg)
+
 	default:
 		err := errors.New("wrong type of the announcement")
 		nMsg.err <- err
@@ -3275,6 +3286,352 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 	// With all the necessary components assembled validate the full
 	// channel announcement proof.
 	if err := routing.ValidateChannelAnn(chanAnn); err != nil {
+		err := fmt.Errorf("channel announcement proof for "+
+			"short_chan_id=%v isn't valid: %v", shortChanID, err)
+
+		log.Error(err)
+		nMsg.err <- err
+		return nil, false
+	}
+
+	// If the channel was returned by the router it means that existence of
+	// funding point and inclusion of nodes bitcoin keys in it already
+	// checked by the router. In this stage we should check that node keys
+	// attest to the bitcoin keys by validating the signatures of
+	// announcement. If proof is valid then we'll populate the channel edge
+	// with it, so we can announce it on peer connect.
+	err = d.cfg.Router.AddProof(ann.ShortChannelID, &dbProof)
+	if err != nil {
+		err := fmt.Errorf("unable add proof to the channel chanID=%v:"+
+			" %v", ann.ChannelID, err)
+		log.Error(err)
+		nMsg.err <- err
+		return nil, false
+	}
+
+	err = d.cfg.WaitingProofStore.Remove(proof.OppositeKey())
+	if err != nil {
+		err := fmt.Errorf("unable to remove opposite proof for the "+
+			"channel with chanID=%v: %v", ann.ChannelID, err)
+		log.Error(err)
+		nMsg.err <- err
+		return nil, false
+	}
+
+	// Proof was successfully created and now can announce the channel to
+	// the remain network.
+	log.Infof("Fully valid channel proof for short_chan_id=%v constructed"+
+		", adding to next ann batch", shortChanID)
+
+	// Assemble the necessary announcements to add to the next broadcasting
+	// batch.
+	var announcements []networkMsg
+	announcements = append(announcements, networkMsg{
+		peer:   nMsg.peer,
+		source: nMsg.source,
+		msg:    chanAnn,
+	})
+	if src, err := chanInfo.NodeKey1(); err == nil && e1Ann != nil {
+		announcements = append(announcements, networkMsg{
+			peer:   nMsg.peer,
+			source: src,
+			msg:    e1Ann,
+		})
+	}
+	if src, err := chanInfo.NodeKey2(); err == nil && e2Ann != nil {
+		announcements = append(announcements, networkMsg{
+			peer:   nMsg.peer,
+			source: src,
+			msg:    e2Ann,
+		})
+	}
+
+	// We'll also send along the node announcements for each channel
+	// participant if we know of them. To ensure our node announcement
+	// propagates to our channel counterparty, we'll set the source for
+	// each announcement to the node it belongs to, otherwise we won't send
+	// it since the source gets skipped. This isn't necessary for channel
+	// updates and announcement signatures since we send those directly to
+	// our channel counterparty through the gossiper's reliable sender.
+	node1Ann, err := d.fetchNodeAnn(chanInfo.NodeKey1Bytes)
+	if err != nil {
+		log.Debugf("Unable to fetch node announcement for %x: %v",
+			chanInfo.NodeKey1Bytes, err)
+	} else {
+		if nodeKey1, err := chanInfo.NodeKey1(); err == nil {
+			announcements = append(announcements, networkMsg{
+				peer:   nMsg.peer,
+				source: nodeKey1,
+				msg:    node1Ann,
+			})
+		}
+	}
+
+	node2Ann, err := d.fetchNodeAnn(chanInfo.NodeKey2Bytes)
+	if err != nil {
+		log.Debugf("Unable to fetch node announcement for %x: %v",
+			chanInfo.NodeKey2Bytes, err)
+	} else {
+		if nodeKey2, err := chanInfo.NodeKey2(); err == nil {
+			announcements = append(announcements, networkMsg{
+				peer:   nMsg.peer,
+				source: nodeKey2,
+				msg:    node2Ann,
+			})
+		}
+	}
+
+	nMsg.err <- nil
+	return announcements, true
+}
+
+// TODO: merge with handleAnnSig
+func (d *AuthenticatedGossiper) handleAnnSig2(nMsg *networkMsg,
+	ann *lnwire.AnnouncementSignatures2) ([]networkMsg, bool) {
+
+	needBlockHeight := ann.ShortChannelID.BlockHeight +
+		d.cfg.ProofMatureDelta
+	shortChanID := ann.ShortChannelID.ToUint64()
+
+	prefix := "local"
+	if nMsg.isRemote {
+		prefix = "remote"
+	}
+
+	log.Infof("Received new %v announcement signature for %v", prefix,
+		ann.ShortChannelID)
+
+	// By the specification, channel announcement proofs should be sent
+	// after some number of confirmations after channel was registered in
+	// bitcoin blockchain. Therefore, we check if the proof is mature.
+	d.Lock()
+	premature := d.isPremature(
+		ann.ShortChannelID, d.cfg.ProofMatureDelta, nMsg,
+	)
+	if premature {
+		log.Warnf("Premature proof announcement, current block height"+
+			"lower than needed: %v < %v", d.bestHeight,
+			needBlockHeight)
+		d.Unlock()
+		nMsg.err <- nil
+		return nil, false
+	}
+	d.Unlock()
+
+	// Ensure that we know of a channel with the target channel ID before
+	// proceeding further.
+	//
+	// We must acquire the mutex for this channel ID before getting the
+	// channel from the database, to ensure what we read does not change
+	// before we call AddProof() later.
+	d.channelMtx.Lock(ann.ShortChannelID.ToUint64())
+	defer d.channelMtx.Unlock(ann.ShortChannelID.ToUint64())
+
+	chanInfo, e1, e2, err := d.cfg.Router.GetChannelByID(
+		ann.ShortChannelID,
+	)
+	if err != nil {
+		_, err = d.cfg.FindChannel(nMsg.source, ann.ChannelID)
+		if err != nil {
+			err := fmt.Errorf("unable to store the proof for "+
+				"short_chan_id=%v: %v", shortChanID, err)
+			log.Error(err)
+			nMsg.err <- err
+
+			return nil, false
+		}
+
+		var aggNonce *btcec.PublicKey
+		if nMsg.optionalMsgFields != nil {
+			aggNonce = nMsg.optionalMsgFields.aggNonce
+		}
+
+		proof := channeldb.NewTaprootWaitingProof(
+			nMsg.isRemote, ann, aggNonce,
+		)
+		err := d.cfg.WaitingProofStore.Add(proof)
+		if err != nil {
+			err := fmt.Errorf("unable to store the proof for "+
+				"short_chan_id=%v: %v", shortChanID, err)
+			log.Error(err)
+			nMsg.err <- err
+			return nil, false
+		}
+
+		log.Infof("Orphan %v proof announcement with short_chan_id=%v"+
+			", adding to waiting batch", prefix, shortChanID)
+		nMsg.err <- nil
+		return nil, false
+	}
+
+	nodeID := nMsg.source.SerializeCompressed()
+	isFirstNode := bytes.Equal(nodeID, chanInfo.NodeKey1Bytes[:])
+	isSecondNode := bytes.Equal(nodeID, chanInfo.NodeKey2Bytes[:])
+
+	// Ensure that channel that was retrieved belongs to the peer which
+	// sent the proof announcement.
+	if !(isFirstNode || isSecondNode) {
+		err := fmt.Errorf("channel that was received doesn't belong "+
+			"to the peer which sent the proof, short_chan_id=%v",
+			shortChanID)
+		log.Error(err)
+		nMsg.err <- err
+		return nil, false
+	}
+
+	// If proof was sent by a local sub-system, then we'll send the
+	// announcement signature to the remote node so they can also
+	// reconstruct the full channel announcement.
+	if !nMsg.isRemote {
+		var remotePubKey [33]byte
+		if isFirstNode {
+			remotePubKey = chanInfo.NodeKey2Bytes
+		} else {
+			remotePubKey = chanInfo.NodeKey1Bytes
+		}
+
+		// Since the remote peer might not be online we'll call a
+		// method that will attempt to deliver the proof when it comes
+		// online.
+		err := d.reliableSender.sendMessage(ann, remotePubKey)
+		if err != nil {
+			err := fmt.Errorf("unable to reliably send %v for "+
+				"channel=%v to peer=%x: %v", ann.MsgType(),
+				ann.ShortChannelID, remotePubKey, err)
+			nMsg.err <- err
+			return nil, false
+		}
+	}
+
+	// Check if we already have the full proof for this channel.
+	if chanInfo.AuthProof != nil {
+		// If we already have the fully assembled proof, then the peer
+		// sending us their proof has probably not received our local
+		// proof yet. So be kind and send them the full proof.
+		if nMsg.isRemote {
+			peerID := nMsg.source.SerializeCompressed()
+			log.Debugf("Got AnnounceSignatures for channel with " +
+				"full proof.")
+
+			d.wg.Add(1)
+			go func() {
+				defer d.wg.Done()
+
+				log.Debugf("Received half proof for channel "+
+					"%v with existing full proof. Sending"+
+					" full proof to peer=%x",
+					ann.ChannelID, peerID)
+
+				ca, _, _, err := netann.CreateChanAnnouncement2(
+					chanInfo.AuthProof, chanInfo, e1, e2,
+				)
+				if err != nil {
+					log.Errorf("unable to gen ann: %v",
+						err)
+					return
+				}
+
+				err = nMsg.peer.SendMessage(false, ca)
+				if err != nil {
+					log.Errorf("Failed sending full proof"+
+						" to peer=%x: %v", peerID, err)
+					return
+				}
+
+				log.Debugf("Full proof sent to peer=%x for "+
+					"chanID=%v", peerID, ann.ChannelID)
+			}()
+		}
+
+		log.Debugf("Already have proof for channel with chanID=%v",
+			ann.ChannelID)
+		nMsg.err <- nil
+		return nil, true
+	}
+
+	var aggNonce *btcec.PublicKey
+	if nMsg.optionalMsgFields != nil {
+		aggNonce = nMsg.optionalMsgFields.aggNonce
+	}
+
+	// Check that we received the opposite proof. If so, then we're now
+	// able to construct the full proof, and create the channel
+	// announcement. If we didn't receive the opposite half of the proof
+	// then we should store this one, and wait for the opposite to be
+	// received.
+	proof := channeldb.NewTaprootWaitingProof(nMsg.isRemote, ann, aggNonce)
+	oppositeProof, err := d.cfg.WaitingProofStore.Get(proof.OppositeKey())
+	if err != nil && err != channeldb.ErrWaitingProofNotFound {
+		err := fmt.Errorf("unable to get the opposite proof for "+
+			"short_chan_id=%v: %v", shortChanID, err)
+		log.Error(err)
+		nMsg.err <- err
+		return nil, false
+	}
+
+	if err == channeldb.ErrWaitingProofNotFound {
+		err := d.cfg.WaitingProofStore.Add(proof)
+		if err != nil {
+			err := fmt.Errorf("unable to store the proof for "+
+				"short_chan_id=%v: %v", shortChanID, err)
+			log.Error(err)
+			nMsg.err <- err
+			return nil, false
+		}
+
+		log.Infof("1/2 of channel ann proof received for "+
+			"short_chan_id=%v, waiting for other half",
+			shortChanID)
+
+		nMsg.err <- nil
+		return nil, false
+	}
+
+	oppProof, ok := oppositeProof.WaitingProofInterface.(*channeldb.TaprootWaitingProof)
+	if !ok {
+		nMsg.err <- fmt.Errorf("got wrong waiting proof type")
+
+		return nil, false
+	}
+
+	// We now have both halves of the channel announcement proof, then
+	// we'll reconstruct the initial announcement so we can validate it
+	// shortly below.
+
+	// First, combine the two partial sigs to get the final sig. At least
+	// one of proofs should have an agg nonce.
+	switch {
+	case aggNonce != nil:
+	case oppProof.AggNonce != nil:
+		aggNonce = oppProof.AggNonce
+	default:
+		nMsg.err <- fmt.Errorf("didnt get an agg nonce")
+
+		return nil, false
+	}
+
+	ps1 := musig2.NewPartialSignature(&ann.PartialSignature.Sig, aggNonce)
+	ps2 := musig2.NewPartialSignature(&oppProof.PartialSignature.Sig, aggNonce)
+
+	// Now aggregate the partial sigs.
+	s := musig2.CombineSigs(aggNonce, []*musig2.PartialSignature{&ps1, &ps2})
+
+	dbProof := channeldb.ChannelAuthProof{
+		SchnorrSigBytes: s.Serialize(),
+	}
+
+	chanAnn, e1Ann, e2Ann, err := netann.CreateChanAnnouncement2(
+		&dbProof, chanInfo, e1, e2,
+	)
+	if err != nil {
+		log.Error(err)
+		nMsg.err <- err
+		return nil, false
+	}
+
+	// With all the necessary components assembled validate the full
+	// channel announcement proof.
+	if err := routing.ValidateChannelAnn2(chanAnn); err != nil {
 		err := fmt.Errorf("channel announcement proof for "+
 			"short_chan_id=%v isn't valid: %v", shortChanID, err)
 

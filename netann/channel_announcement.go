@@ -84,3 +84,59 @@ func CreateChanAnnouncement(chanProof *channeldb.ChannelAuthProof,
 
 	return chanAnn, edge1Ann, edge2Ann, nil
 }
+
+func CreateChanAnnouncement2(chanProof *channeldb.ChannelAuthProof,
+	chanInfo *channeldb.ChannelEdgeInfo,
+	e1, e2 *channeldb.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement2,
+	*lnwire.ChannelUpdate, *lnwire.ChannelUpdate, error) {
+
+	// First, using the parameters of the channel, along with the channel
+	// authentication chanProof, we'll create re-create the original
+	// authenticated channel announcement.
+	chanID := lnwire.NewShortChanIDFromInt(chanInfo.ChannelID)
+	chanAnn := &lnwire.ChannelAnnouncement2{
+		ShortChannelID:  chanID,
+		NodeID1:         chanInfo.NodeKey1Bytes,
+		NodeID2:         chanInfo.NodeKey2Bytes,
+		ChainHash:       chanInfo.ChainHash,
+		BitcoinKey1:     &chanInfo.BitcoinKey1Bytes,
+		BitcoinKey2:     &chanInfo.BitcoinKey2Bytes,
+		Features:        *lnwire.NewRawFeatureVector(),
+		ExtraOpaqueData: chanInfo.ExtraOpaqueData,
+	}
+
+	err := chanAnn.Features.Decode(bytes.NewReader(chanInfo.Features))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	chanAnn.Signature, err = lnwire.NewSigFromSchnorrRawSignature(
+		chanProof.SchnorrSigBytes,
+	)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// We'll unconditionally queue the channel's existence chanProof as it
+	// will need to be processed before either of the channel update
+	// networkMsgs.
+
+	// Since it's up to a node's policy as to whether they advertise the
+	// edge in a direction, we don't create an advertisement if the edge is
+	// nil.
+	var edge1Ann, edge2Ann *lnwire.ChannelUpdate
+	if e1 != nil {
+		edge1Ann, err = ChannelUpdateFromEdge(chanInfo, e1)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	if e2 != nil {
+		edge2Ann, err = ChannelUpdateFromEdge(chanInfo, e2)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+
+	return chanAnn, edge1Ann, edge2Ann, nil
+}

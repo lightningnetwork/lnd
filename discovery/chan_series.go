@@ -122,12 +122,28 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 			continue
 		}
 
-		chanAnn, edge1, edge2, err := netann.CreateChanAnnouncement(
-			channel.Info.AuthProof, channel.Info, channel.Policy1,
-			channel.Policy2,
+		var (
+			chanAnn      lnwire.Message
+			edge1, edge2 *lnwire.ChannelUpdate
 		)
-		if err != nil {
-			return nil, err
+		if channel.Info.IsTaproot {
+			//nolint:lll
+			chanAnn, edge1, edge2, err = netann.CreateChanAnnouncement2(
+				channel.Info.AuthProof, channel.Info, channel.Policy1,
+				channel.Policy2,
+			)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			//nolint:lll
+			chanAnn, edge1, edge2, err = netann.CreateChanAnnouncement(
+				channel.Info.AuthProof, channel.Info, channel.Policy1,
+				channel.Policy2,
+			)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		updates = append(updates, chanAnn)
@@ -264,12 +280,29 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 			continue
 		}
 
-		chanAnn, edge1, edge2, err := netann.CreateChanAnnouncement(
-			channel.Info.AuthProof, channel.Info, channel.Policy1,
-			channel.Policy2,
+		var (
+			chanAnn      lnwire.Message
+			edge1, edge2 *lnwire.ChannelUpdate
 		)
-		if err != nil {
-			return nil, err
+
+		if channel.Info.IsTaproot {
+			//nolint:lll
+			chanAnn, edge1, edge2, err = netann.CreateChanAnnouncement2(
+				channel.Info.AuthProof, channel.Info, channel.Policy1,
+				channel.Policy2,
+			)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			//nolint:lll
+			chanAnn, edge1, edge2, err = netann.CreateChanAnnouncement(
+				channel.Info.AuthProof, channel.Info, channel.Policy1,
+				channel.Policy2,
+			)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		chanAnns = append(chanAnns, chanAnn)

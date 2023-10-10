@@ -227,7 +227,7 @@ const (
 	defaultGrpcClientPingMinWait = 5 * time.Second
 
 	// defaultHTTPHeaderTimeout is the default timeout for HTTP requests.
-	defaultHTTPHeaderTimeout = 5 * time.Second
+	DefaultHTTPHeaderTimeout = 5 * time.Second
 
 	// BitcoinChainName is a string that represents the Bitcoin blockchain.
 	BitcoinChainName = "bitcoin"
@@ -702,7 +702,7 @@ func DefaultConfig() Config {
 			ClientPingMinWait: defaultGrpcClientPingMinWait,
 		},
 		WtClient:          lncfg.DefaultWtClientCfg(),
-		HTTPHeaderTimeout: defaultHTTPHeaderTimeout,
+		HTTPHeaderTimeout: DefaultHTTPHeaderTimeout,
 	}
 }
 

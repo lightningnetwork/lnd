@@ -85,3 +85,9 @@ func (m *MockInvoiceDB) DeleteInvoice(invoices []InvoiceDeleteRef) error {
 
 	return args.Error(0)
 }
+
+func (m *MockInvoiceDB) DeleteCanceledInvoices(ctx context.Context) error {
+	args := m.Called(ctx)
+
+	return args.Error(0)
+}

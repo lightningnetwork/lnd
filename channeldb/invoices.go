@@ -2761,6 +2761,102 @@ func delAMPSettleIndex(invoiceNum []byte, invoices,
 	return nil
 }
 
+// DeleteCanceledInvoices deletes all canceled invoices from the database.
+func (d *DB) DeleteCanceledInvoices(_ context.Context) error {
+	return kvdb.Update(d, func(tx kvdb.RwTx) error {
+		invoices := tx.ReadWriteBucket(invoiceBucket)
+		if invoices == nil {
+			return nil
+		}
+
+		invoiceIndex := invoices.NestedReadWriteBucket(
+			invoiceIndexBucket,
+		)
+		if invoiceIndex == nil {
+			return invpkg.ErrNoInvoicesCreated
+		}
+
+		invoiceAddIndex := invoices.NestedReadWriteBucket(
+			addIndexBucket,
+		)
+		if invoiceAddIndex == nil {
+			return invpkg.ErrNoInvoicesCreated
+		}
+
+		payAddrIndex := tx.ReadWriteBucket(payAddrIndexBucket)
+
+		return invoiceIndex.ForEach(func(k, v []byte) error {
+			// Skip the special numInvoicesKey as that does not
+			// point to a valid invoice.
+			if bytes.Equal(k, numInvoicesKey) {
+				return nil
+			}
+
+			// Skip sub-buckets.
+			if v == nil {
+				return nil
+			}
+
+			invoice, err := fetchInvoice(v, invoices)
+			if err != nil {
+				return err
+			}
+
+			if invoice.State != invpkg.ContractCanceled {
+				return nil
+			}
+
+			// Delete the payment hash from the invoice index.
+			err = invoiceIndex.Delete(k)
+			if err != nil {
+				return err
+			}
+
+			// Delete payment address index reference if there's a
+			// valid payment address.
+			if invoice.Terms.PaymentAddr != invpkg.BlankPayAddr {
+				// To ensure consistency check that the already
+				// fetched invoice key matches the one in the
+				// payment address index.
+				key := payAddrIndex.Get(
+					invoice.Terms.PaymentAddr[:],
+				)
+				if bytes.Equal(key, k) {
+					// Delete from the payment address
+					// index.
+					if err := payAddrIndex.Delete(
+						invoice.Terms.PaymentAddr[:],
+					); err != nil {
+						return err
+					}
+				}
+			}
+
+			// Remove from the add index.
+			var addIndexKey [8]byte
+			byteOrder.PutUint64(addIndexKey[:], invoice.AddIndex)
+			err = invoiceAddIndex.Delete(addIndexKey[:])
+			if err != nil {
+				return err
+			}
+
+			// Note that we don't need to delete the invoice from
+			// the settle index as it is not added until the
+			// invoice is settled.
+
+			// Now remove all sub invoices.
+			err = delAMPInvoices(k, invoices)
+			if err != nil {
+				return err
+			}
+
+			// Finally remove the serialized invoice from the
+			// invoice bucket.
+			return invoices.Delete(k)
+		})
+	}, func() {})
+}
+
 // DeleteInvoice attempts to delete the passed invoices from the database in
 // one transaction. The passed delete references hold all keys required to
 // delete the invoices without also needing to deserialze them.

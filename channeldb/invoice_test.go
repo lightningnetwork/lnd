@@ -3146,6 +3146,65 @@ func TestDeleteInvoices(t *testing.T) {
 	assertInvoiceCount(0)
 }
 
+// TestDeleteCanceledInvoices tests that deleting canceled invoices with the
+// specific DeleteCanceledInvoices method works correctly.
+func TestDeleteCanceledInvoices(t *testing.T) {
+	t.Parallel()
+
+	db, err := MakeTestInvoiceDB(t)
+	require.NoError(t, err, "unable to make test db")
+
+	// Updatefunc is used to cancel an invoice.
+	updateFunc := func(invoice *invpkg.Invoice) (
+		*invpkg.InvoiceUpdateDesc, error) {
+
+		return &invpkg.InvoiceUpdateDesc{
+			UpdateType: invpkg.CancelInvoiceUpdate,
+			State: &invpkg.InvoiceStateUpdateDesc{
+				NewState: invpkg.ContractCanceled,
+			},
+		}, nil
+	}
+
+	// Add some invoices to the test db.
+	ctxb := context.Background()
+	var invoices []invpkg.Invoice
+	for i := 0; i < 10; i++ {
+		invoice, err := randInvoice(lnwire.MilliSatoshi(i + 1))
+		require.NoError(t, err)
+
+		paymentHash := invoice.Terms.PaymentPreimage.Hash()
+		_, err = db.AddInvoice(ctxb, invoice, paymentHash)
+		require.NoError(t, err)
+
+		// Cancel every second invoice.
+		if i%2 == 0 {
+			invoice, err = db.UpdateInvoice(
+				ctxb, invpkg.InvoiceRefByHash(paymentHash), nil,
+				updateFunc,
+			)
+			require.NoError(t, err)
+		} else {
+			invoices = append(invoices, *invoice)
+		}
+	}
+
+	// Delete canceled invoices.
+	require.NoError(t, db.DeleteCanceledInvoices(ctxb))
+
+	// Query to collect all invoices.
+	query := invpkg.InvoiceQuery{
+		IndexOffset:    0,
+		NumMaxInvoices: math.MaxUint64,
+	}
+
+	dbInvoices, err := db.QueryInvoices(ctxb, query)
+	require.NoError(t, err)
+
+	// Check that we really have the expected invoices.
+	require.Equal(t, invoices, dbInvoices.Invoices)
+}
+
 // TestAddInvoiceInvalidFeatureDeps asserts that inserting an invoice with
 // invalid transitive feature dependencies fails with the appropriate error.
 func TestAddInvoiceInvalidFeatureDeps(t *testing.T) {

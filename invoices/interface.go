@@ -95,6 +95,10 @@ type InvoiceDB interface {
 	// deserialze them.
 	DeleteInvoice(ctx context.Context,
 		invoicesToDelete []InvoiceDeleteRef) error
+
+	// DeleteCanceledInvoices removes all canceled invoices from the
+	// database.
+	DeleteCanceledInvoices(ctx context.Context) error
 }
 
 // Payload abstracts access to any additional fields provided in the final hop's

@@ -4475,6 +4475,28 @@ func (s *server) OpenChannel(
 	req.Peer = peer
 	s.mu.RUnlock()
 
+	// If the desired channel is for an advertised taproot channel, then
+	// it the peer must support taproot gossip.
+	if req.ChannelType != nil {
+		rfv := lnwire.RawFeatureVector(*req.ChannelType)
+		fv := lnwire.NewFeatureVector(&rfv, lnwire.Features)
+
+		if fv.HasFeature(lnwire.SimpleTaprootChannelsOptionalStaging) &&
+			!req.Private {
+
+			if !peer.RemoteFeatures().HasFeature(
+				lnwire.TaprootGossipOptionalStaging,
+			) {
+				req.Err <- fmt.Errorf("peer %x does not "+
+					"support announced taproot channels",
+					pubKeyBytes)
+
+				return req.Updates, req.Err
+			}
+		}
+
+	}
+
 	// We'll wait until the peer is active before beginning the channel
 	// opening process.
 	select {

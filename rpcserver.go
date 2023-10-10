@@ -2143,13 +2143,6 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		*channelType = lnwire.ChannelType(*fv)
 
 	case lnrpc.CommitmentType_SIMPLE_TAPROOT:
-		// If the taproot channel type is being set, then the channel
-		// MUST be private (unadvertised) for now.
-		if !in.Private {
-			return nil, fmt.Errorf("taproot channels must be " +
-				"private")
-		}
-
 		channelType = new(lnwire.ChannelType)
 		fv := lnwire.NewRawFeatureVector(
 			lnwire.SimpleTaprootChannelsRequiredStaging,

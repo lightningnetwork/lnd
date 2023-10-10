@@ -59,6 +59,14 @@ func (o Option[A]) WhenSome(f func(A)) {
 	}
 }
 
+// WhenBothSome is used to conditionally perform a function that accepts the
+// two values of the two types that parameterize the options.
+func WhenBothSome[A, B any](o1 Option[A], o2 Option[B], f func(A, B)) {
+	if o1.IsSome() && o2.IsSome() {
+		f(o1.some, o2.some)
+	}
+}
+
 // IsSome returns true if the Option contains a value
 //
 // IsSome : Option[A] -> bool.

@@ -1455,7 +1455,7 @@ func (r *ChannelRouter) addZombieEdge(chanID uint64) error {
 //
 // TODO(roasbeef: export and use elsewhere?
 func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
-	chanFeatures []byte) ([]byte, error) {
+	isTaproot bool) ([]byte, error) {
 
 	legacyFundingScript := func() ([]byte, error) {
 		witnessScript, err := input.GenMultiSigScript(
@@ -1472,46 +1472,27 @@ func makeFundingScript(bitcoinKey1, bitcoinKey2 []byte,
 		return pkScript, nil
 	}
 
-	if len(chanFeatures) == 0 {
+	if !isTaproot {
 		return legacyFundingScript()
 	}
 
-	// In order to make the correct funding script, we'll need to parse the
-	// chanFeatures bytes into a feature vector we can interact with.
-	rawFeatures := lnwire.NewRawFeatureVector()
-	err := rawFeatures.Decode(bytes.NewReader(chanFeatures))
+	pubKey1, err := btcec.ParsePubKey(bitcoinKey1)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse chan feature "+
-			"bits: %w", err)
+		return nil, err
+	}
+	pubKey2, err := btcec.ParsePubKey(bitcoinKey2)
+	if err != nil {
+		return nil, err
 	}
 
-	chanFeatureBits := lnwire.NewFeatureVector(
-		rawFeatures, lnwire.Features,
+	fundingScript, _, err := input.GenTaprootFundingScript(
+		pubKey1, pubKey2, 0,
 	)
-	if chanFeatureBits.HasFeature(
-		lnwire.SimpleTaprootChannelsOptionalStaging,
-	) {
-
-		pubKey1, err := btcec.ParsePubKey(bitcoinKey1)
-		if err != nil {
-			return nil, err
-		}
-		pubKey2, err := btcec.ParsePubKey(bitcoinKey2)
-		if err != nil {
-			return nil, err
-		}
-
-		fundingScript, _, err := input.GenTaprootFundingScript(
-			pubKey1, pubKey2, 0,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		return fundingScript, nil
+	if err != nil {
+		return nil, err
 	}
 
-	return legacyFundingScript()
+	return fundingScript, nil
 }
 
 // processUpdate processes a new relate authenticated channel/edge, node or
@@ -1625,7 +1606,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		// reality.
 		fundingPkScript, err := makeFundingScript(
 			msg.BitcoinKey1Bytes[:], msg.BitcoinKey2Bytes[:],
-			msg.Features,
+			msg.IsTaproot,
 		)
 		if err != nil {
 			return err

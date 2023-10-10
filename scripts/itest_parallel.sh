@@ -26,13 +26,12 @@ for pid in "${pids[@]}"; do
 
     # Overwrite the exit code if current itest doesn't return 0.
     if [ $current_exit_code -ne 0 ]; then
-	# Only write the exit code of the first failing itest.
-	if [ $exit_code -eq 0 ]; then
+        # Only write the exit code of the first failing itest.
+        if [ $exit_code -eq 0 ]; then
             exit_code=$current_exit_code
-	fi
+        fi
     fi
 done
-
 
 # Exit with the exit code of the first failing itest or 0.
 exit $exit_code

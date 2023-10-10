@@ -541,6 +541,21 @@ type Config struct {
 	AliasManager aliasHandler
 }
 
+type sentNonces struct {
+	btc  *musig2.Nonces
+	node *musig2.Nonces
+}
+
+type receivedNonces struct {
+	btc  [musig2.PubNonceSize]byte
+	node [musig2.PubNonceSize]byte
+}
+
+type annSigNonces struct {
+	sent     *sentNonces
+	received *receivedNonces
+}
+
 // Manager acts as an orchestrator/bridge between the wallet's
 // 'ChannelReservation' workflow, and the wire protocol's funding initiation
 // messages. Any requests to initiate the funding workflow for a channel,
@@ -577,6 +592,8 @@ type Manager struct {
 	//
 	// TODO(roasbeef): replace w/ generic concurrent map
 	pendingMusigNonces map[lnwire.ChannelID]*musig2.Nonces
+
+	annSigNonces map[lnwire.ChannelID]annSigNonces
 
 	// activeReservations is a map which houses the state of all pending
 	// funding workflows.
@@ -672,7 +689,8 @@ func NewFundingManager(cfg Config) (*Manager, error) {
 		pendingMusigNonces: make(
 			map[lnwire.ChannelID]*musig2.Nonces,
 		),
-		quit: make(chan struct{}),
+		annSigNonces: make(map[lnwire.ChannelID]annSigNonces),
+		quit:         make(chan struct{}),
 	}, nil
 }
 
@@ -688,6 +706,20 @@ func (f *Manager) Start() error {
 }
 
 func (f *Manager) start() error {
+	nonces, err := f.cfg.ChannelDB.GetAllAnnouncementNonces()
+	if err != nil {
+		return err
+	}
+
+	for chanID, n := range nonces {
+		f.annSigNonces[chanID] = annSigNonces{
+			received: &receivedNonces{
+				btc:  n.Btc,
+				node: n.Node,
+			},
+		}
+	}
+
 	// Upon restart, the Funding Manager will check the database to load any
 	// channels that were  waiting for their funding transactions to be
 	// confirmed on the blockchain at the time when the daemon last went
@@ -1177,6 +1209,16 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		if err != nil {
 			return fmt.Errorf("error sending channel "+
 				"announcement: %v", err)
+		}
+
+		f.nonceMtx.Lock()
+		delete(f.annSigNonces, chanID)
+		f.nonceMtx.Unlock()
+
+		err = f.cfg.ChannelDB.DeleteAnnouncementNonces(chanID)
+		if err != nil {
+			log.Errorf("could not delete announcement sigs for "+
+				"chanID: %x", chanID)
 		}
 
 		// We delete the channel opening state from our internal
@@ -3135,6 +3177,8 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 	}
 	channelReadyMsg := lnwire.NewChannelReady(chanID, nextRevocation)
 
+	public := completeChan.ChannelFlags&lnwire.FFAnnounceChannel != 0
+
 	// If this is a taproot channel, then we also need to send along our
 	// set of musig2 nonces as well.
 	if completeChan.ChanType.IsTaproot() {
@@ -3160,11 +3204,46 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 			localNonce = newNonce
 			f.pendingMusigNonces[chanID] = localNonce
 		}
+
+		announceNonces, ok := f.annSigNonces[chanID]
+		if public && (!ok || announceNonces.sent == nil) {
+			btcNonce, nodeNonce, err := f.genAnnouncementNonces(
+				completeChan,
+			)
+			if err != nil {
+				f.nonceMtx.Unlock()
+
+				return err
+			}
+
+			sent := &sentNonces{
+				btc:  btcNonce,
+				node: nodeNonce,
+			}
+
+			if !ok {
+				f.annSigNonces[chanID] = annSigNonces{
+					sent: sent,
+				}
+			} else {
+				announceNonces.sent = sent
+			}
+
+			announceNonces = f.annSigNonces[chanID]
+		}
 		f.nonceMtx.Unlock()
 
 		channelReadyMsg.NextLocalNonce = (*lnwire.Musig2Nonce)(
 			&localNonce.PubNonce,
 		)
+
+		if public {
+			nodeNonce := lnwire.Musig2Nonce(announceNonces.sent.node.PubNonce)
+			channelReadyMsg.AnnouncementNodeNonce = &nodeNonce
+
+			btcNonce := lnwire.Musig2Nonce(announceNonces.sent.btc.PubNonce)
+			channelReadyMsg.AnnouncementBitcoinNonce = &btcNonce
+		}
 	}
 
 	// If the channel negotiated the option-scid-alias feature bit, we'll
@@ -3294,6 +3373,33 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 	// processing the channel ready message.
 	if channel.RemoteNextRevocation == nil {
 		return false, nil
+	}
+
+	isPublic := channel.ChannelFlags&lnwire.FFAnnounceChannel != 0
+	if channel.ChanType.IsTaproot() && isPublic {
+		node, btc, err := f.cfg.ChannelDB.GetAnnouncementNonces(chanID)
+		if errors.Is(err, channeldb.ErrChannelNotFound) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
+
+		f.nonceMtx.Lock()
+		aggNonces, ok := f.annSigNonces[chanID]
+		if !ok {
+			f.annSigNonces[chanID] = annSigNonces{
+				received: &receivedNonces{
+					node: *node,
+					btc:  *btc,
+				},
+			}
+		} else {
+			aggNonces.received = &receivedNonces{
+				node: *node,
+				btc:  *btc,
+			}
+		}
+		f.nonceMtx.Unlock()
 	}
 
 	// Finally, the barrier signal is removed once we finish
@@ -3549,6 +3655,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			&completeChan.LocalChanCfg.MultiSigKey,
 			completeChan.RemoteChanCfg.MultiSigKey.PubKey,
 			*shortChanID, chanID, completeChan.ChanType,
+			completeChan,
 		)
 		if err != nil {
 			return fmt.Errorf("channel announcement failed: %w",
@@ -3650,6 +3757,42 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
 	f.makeLabelForTx(c)
 
 	return nil
+}
+
+func (f *Manager) genAnnouncementNonces(channel *channeldb.OpenChannel) (
+	*musig2.Nonces, *musig2.Nonces, error) {
+
+	musig2ShaChain, err := channeldb.DeriveMusig2Shachain(
+		channel.RevocationProducer,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to generate musig "+
+			"announcement nonces: %v", err)
+	}
+
+	// TODO: replace with unique derivation.
+	btcNonce, err := channeldb.NewMusigVerificationNonce(
+		channel.LocalChanCfg.MultiSigKey.PubKey,
+		0,
+		musig2ShaChain,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to generate musig "+
+			"announcement nonces: %v", err)
+	}
+
+	// TODO: replace with unique derivation.
+	nodeNonce, err := channeldb.NewMusigVerificationNonce(
+		f.cfg.IDKey,
+		1,
+		musig2ShaChain,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to generate musig "+
+			"announcement nonces: %v", err)
+	}
+
+	return btcNonce, nodeNonce, nil
 }
 
 // genFirstStateMusigNonce generates a nonces for the "first" local state. This
@@ -3758,14 +3901,34 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 		return
 	}
 
+	public := channel.ChannelFlags&lnwire.FFAnnounceChannel != 0
+
 	// If this is a taproot channel, then we can generate the set of nonces
 	// the remote party needs to send the next remote commitment here.
-	var firstVerNonce *musig2.Nonces
+	var (
+		firstVerNonce *musig2.Nonces
+		annSendNonces *sentNonces
+	)
 	if channel.ChanType.IsTaproot() {
 		firstVerNonce, err = genFirstStateMusigNonce(channel)
 		if err != nil {
 			log.Error(err)
 			return
+		}
+
+		if public {
+			btcNonce, nodeNonce, err := f.genAnnouncementNonces(
+				channel,
+			)
+			if err != nil {
+				log.Error(err)
+				return
+			}
+
+			annSendNonces = &sentNonces{
+				btc:  btcNonce,
+				node: nodeNonce,
+			}
 		}
 	}
 
@@ -3840,6 +4003,14 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 				channelReadyMsg.NextLocalNonce = wireNonce
 			}
 
+			if public && annSendNonces != nil {
+				nodeNonce := lnwire.Musig2Nonce(annSendNonces.node.PubNonce)
+				channelReadyMsg.AnnouncementNodeNonce = &nodeNonce
+
+				btcNonce := lnwire.Musig2Nonce(annSendNonces.btc.PubNonce)
+				channelReadyMsg.AnnouncementBitcoinNonce = &btcNonce
+			}
+
 			err = peer.SendMessage(true, channelReadyMsg)
 			if err != nil {
 				log.Errorf("unable to send channel_ready: %v",
@@ -3877,13 +4048,39 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 			localNonce = firstVerNonce
 			f.pendingMusigNonces[chanID] = firstVerNonce
 		}
+
+		announcementSendNonces, ok := f.annSigNonces[chanID]
+		if public && !ok {
+			f.annSigNonces[chanID] = annSigNonces{
+				sent: annSendNonces,
+			}
+			announcementSendNonces = f.annSigNonces[chanID]
+		}
+
+		if public {
+			if msg.AnnouncementBitcoinNonce == nil ||
+				msg.AnnouncementNodeNonce == nil {
+
+				f.nonceMtx.Unlock()
+
+				log.Errorf("remote announcement nonces are nil")
+				return
+			}
+
+			announcementSendNonces.received = &receivedNonces{
+				btc:  *msg.AnnouncementBitcoinNonce,
+				node: *msg.AnnouncementNodeNonce,
+			}
+
+			f.annSigNonces[chanID] = announcementSendNonces
+		}
 		f.nonceMtx.Unlock()
 
 		log.Infof("ChanID(%v): applying local+remote musig2 nonces",
 			chanID)
 
 		if msg.NextLocalNonce == nil {
-			log.Errorf("remote nonces are nil")
+			log.Errorf("remote local nonces are nil")
 			return
 		}
 
@@ -3894,6 +4091,21 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 				PubNonce: *msg.NextLocalNonce,
 			}),
 		)
+	}
+
+	if msg.AnnouncementBitcoinNonce != nil &&
+		msg.AnnouncementNodeNonce != nil {
+
+		err = f.cfg.ChannelDB.SaveAnnouncementNonces(
+			chanID, *msg.AnnouncementNodeNonce,
+			*msg.AnnouncementBitcoinNonce,
+		)
+		if err != nil {
+			log.Errorf("unable to insert announcement nonces: %v",
+				err)
+
+			return
+		}
 	}
 
 	// The channel_ready message contains the next commitment point we'll
@@ -3969,6 +4181,9 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 	// channel is moved to the next state of the state machine. It will be
 	// moved to the last state (actually deleted from the database) after
 	// the channel is finally announced.
+	// TODO: need to either persist peer's announcement nonces (for tap chans)
+	// here, or we need to require that chan_ready be resent on restart.
+	// Persistence might be easier/simpler.
 	err = f.saveChannelOpeningState(
 		&channel.FundingOutpoint, addedToRouterGraph, scid,
 	)
@@ -4284,7 +4499,8 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
-	chanID lnwire.ChannelID, chanType channeldb.ChannelType) error {
+	chanID lnwire.ChannelID, chanType channeldb.ChannelType,
+	channel *channeldb.OpenChannel) error {
 
 	// First, we'll create the batch of announcements to be sent upon
 	// initial channel creation. This includes the channel announcement

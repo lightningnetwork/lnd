@@ -377,6 +377,53 @@ func (h *HarnessTest) AssertChannelExists(hn *node.HarnessNode,
 	return channel
 }
 
+// AssertChannelActive checks if a channel identified by the specified channel
+// point is active.
+func (h *HarnessTest) AssertChannelActive(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint) *lnrpc.Channel {
+
+	return h.assertChannelStatus(hn, cp, true)
+}
+
+// AssertChannelInactive checks if a channel identified by the specified channel
+// point is inactive.
+func (h *HarnessTest) AssertChannelInactive(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint) *lnrpc.Channel {
+
+	return h.assertChannelStatus(hn, cp, false)
+}
+
+// assertChannelStatus asserts that a channel identified by the specified
+// channel point exists from the point-of-view of the node and that it is either
+// active or inactive depending on the value of the active parameter.
+func (h *HarnessTest) assertChannelStatus(hn *node.HarnessNode,
+	cp *lnrpc.ChannelPoint, active bool) *lnrpc.Channel {
+
+	var (
+		channel *lnrpc.Channel
+		err     error
+	)
+
+	err = wait.NoError(func() error {
+		channel, err = h.findChannel(hn, cp)
+		if err != nil {
+			return err
+		}
+
+		// Check whether the channel is active, exit early if it is.
+		if channel.Active == active {
+			return nil
+		}
+
+		return fmt.Errorf("channel point active=%t", active)
+	}, DefaultTimeout)
+
+	require.NoErrorf(h, err, "%s: timeout checking for channel point: %v",
+		hn.Name(), cp)
+
+	return channel
+}
+
 // AssertOutputScriptClass checks that the specified transaction output has the
 // expected script class.
 func (h *HarnessTest) AssertOutputScriptClass(tx *btcutil.Tx,

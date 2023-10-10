@@ -39,9 +39,6 @@ var (
 	// - `-----BEGIN PRIVATE KEY-----`    (PKCS8).
 	// - `-----BEGIN EC PRIVATE KEY-----` (SEC1/rfc5915, the legacy format).
 	privateKeyPrefix = []byte("-----BEGIN ")
-
-	// letsEncryptTimeout sets a timeout for the Lets Encrypt server.
-	letsEncryptTimeout = 5 * time.Second
 )
 
 // TLSManagerCfg houses a set of values and methods that is passed to the
@@ -61,6 +58,8 @@ type TLSManagerCfg struct {
 	LetsEncryptListen string
 
 	DisableRestTLS bool
+
+	HTTPHeaderTimeout time.Duration
 }
 
 // TLSManager generates/renews a TLS cert/key pair when needed. When required,
@@ -424,7 +423,7 @@ func (t *TLSManager) setUpLetsEncrypt(certData *tls.Certificate,
 	srv := &http.Server{
 		Addr:              t.cfg.LetsEncryptListen,
 		Handler:           manager.HTTPHandler(nil),
-		ReadHeaderTimeout: letsEncryptTimeout,
+		ReadHeaderTimeout: t.cfg.HTTPHeaderTimeout,
 	}
 	shutdownCompleted := make(chan struct{})
 	cleanUp = func() {

@@ -214,7 +214,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		pprofServer := &http.Server{
 			Addr:              cfg.Profile,
 			Handler:           pprofMux,
-			ReadHeaderTimeout: 5 * time.Second,
+			ReadHeaderTimeout: cfg.HTTPHeaderTimeout,
 		}
 
 		// Shut the server down when lnd is shutting down.
@@ -271,6 +271,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, implCfg *ImplementationCfg,
 		LetsEncryptListen: cfg.LetsEncryptListen,
 
 		DisableRestTLS: cfg.DisableRestTLS,
+
+		HTTPHeaderTimeout: cfg.HTTPHeaderTimeout,
 	}
 	tlsManager := NewTLSManager(tlsManagerCfg)
 	serverOpts, restDialOpts, restListen, cleanUp,

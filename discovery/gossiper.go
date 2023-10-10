@@ -2266,6 +2266,10 @@ func (d *AuthenticatedGossiper) updateChannel(info *channeldb.ChannelEdgeInfo,
 		return nil, nil, err
 	}
 
+	if info.IsTaproot {
+		panic("implement me")
+	}
+
 	// We'll also create the original channel announcement so the two can
 	// be broadcast along side each other (if necessary), but only if we
 	// have a full channel announcement for this channel.

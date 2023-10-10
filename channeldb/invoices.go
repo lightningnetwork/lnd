@@ -433,6 +433,65 @@ func fetchInvoiceNumByRef(invoiceIndex, payAddrIndex, setIDIndex kvdb.RBucket,
 	}
 }
 
+// FetchPendingInvoices returns all invoices that have not yet been settled or
+// canceled. The returned map is keyed by the payment hash of each respective
+// invoice.
+func (d *DB) FetchPendingInvoices(_ context.Context) (
+	map[lntypes.Hash]invpkg.Invoice, error) {
+
+	result := make(map[lntypes.Hash]invpkg.Invoice)
+
+	err := kvdb.View(d, func(tx kvdb.RTx) error {
+		invoices := tx.ReadBucket(invoiceBucket)
+		if invoices == nil {
+			return nil
+		}
+
+		invoiceIndex := invoices.NestedReadBucket(invoiceIndexBucket)
+		if invoiceIndex == nil {
+			// Mask the error if there's no invoice
+			// index as that simply means there are no
+			// invoices added yet to the DB. In this case
+			// we simply return an empty list.
+			return nil
+		}
+
+		return invoiceIndex.ForEach(func(k, v []byte) error {
+			// Skip the special numInvoicesKey as that does not
+			// point to a valid invoice.
+			if bytes.Equal(k, numInvoicesKey) {
+				return nil
+			}
+
+			// Skip sub-buckets.
+			if v == nil {
+				return nil
+			}
+
+			invoice, err := fetchInvoice(v, invoices)
+			if err != nil {
+				return err
+			}
+
+			if invoice.IsPending() {
+				var paymentHash lntypes.Hash
+				copy(paymentHash[:], k)
+				result[paymentHash] = invoice
+			}
+
+			return nil
+		})
+	}, func() {
+		result = make(map[lntypes.Hash]invpkg.Invoice)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // ScanInvoices scans through all invoices and calls the passed scanFunc for
 // for each invoice with its respective payment hash. Additionally a reset()
 // closure is passed which is used to reset/initialize partial results and also

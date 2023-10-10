@@ -56,6 +56,11 @@ type InvoiceDB interface {
 	ScanInvoices(ctx context.Context, scanFunc InvScanFunc,
 		reset func()) error
 
+	// FetchPendingInvoices returns all invoices that have not yet been
+	// settled or canceled.
+	FetchPendingInvoices(ctx context.Context) (map[lntypes.Hash]Invoice,
+		error)
+
 	// QueryInvoices allows a caller to query the invoice database for
 	// invoices within the specified add index range.
 	QueryInvoices(ctx context.Context, q InvoiceQuery) (InvoiceSlice, error)

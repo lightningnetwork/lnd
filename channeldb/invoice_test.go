@@ -1013,6 +1013,60 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 	require.Nil(t, err)
 }
 
+// TestFetchPendingInvoices tests that we can fetch all pending invoices from
+// the database using the FetchPendingInvoices method.
+func TestFetchPendingInvoices(t *testing.T) {
+	t.Parallel()
+
+	db, err := MakeTestInvoiceDB(t, OptionClock(testClock))
+	require.NoError(t, err, "unable to make test db")
+
+	ctxb := context.Background()
+
+	// Make sure that fetching pending invoices from an empty database
+	// returns an empty result and no errors.
+	pending, err := db.FetchPendingInvoices(ctxb)
+	require.NoError(t, err)
+	require.Empty(t, pending)
+
+	const numInvoices = 20
+	var settleIndex uint64 = 1
+	pendingInvoices := make(map[lntypes.Hash]invpkg.Invoice)
+
+	for i := 1; i <= numInvoices; i++ {
+		amt := lnwire.MilliSatoshi(i * 1000)
+		invoice, err := randInvoice(amt)
+		require.NoError(t, err)
+
+		invoice.CreationDate = invoice.CreationDate.Add(
+			time.Duration(i-1) * time.Second,
+		)
+
+		paymentHash := invoice.Terms.PaymentPreimage.Hash()
+
+		_, err = db.AddInvoice(ctxb, invoice, paymentHash)
+		require.NoError(t, err)
+
+		// Settle every second invoice.
+		if i%2 == 0 {
+			pendingInvoices[paymentHash] = *invoice
+			continue
+		}
+
+		ref := invpkg.InvoiceRefByHash(paymentHash)
+		_, err = db.UpdateInvoice(ctxb, ref, nil, getUpdateInvoice(amt))
+		require.NoError(t, err)
+
+		settleTestInvoice(invoice, settleIndex)
+		settleIndex++
+	}
+
+	// Fetch all pending invoices.
+	pending, err = db.FetchPendingInvoices(ctxb)
+	require.NoError(t, err)
+	require.Equal(t, pendingInvoices, pending)
+}
+
 // TestScanInvoices tests that ScanInvoices scans through all stored invoices
 // correctly.
 func TestScanInvoices(t *testing.T) {

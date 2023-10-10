@@ -1,6 +1,8 @@
 package invoices
 
 import (
+	"context"
+
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/mock"
 )
@@ -53,6 +55,13 @@ func (m *MockInvoiceDB) ScanInvoices(scanFunc InvScanFunc,
 	args := m.Called(scanFunc, reset)
 
 	return args.Error(0)
+}
+
+func (m *MockInvoiceDB) FetchPendingInvoices(ctx context.Context) (
+	map[lntypes.Hash]Invoice, error) {
+
+	args := m.Called(ctx)
+	return args.Get(0).(map[lntypes.Hash]Invoice), args.Error(1)
 }
 
 func (m *MockInvoiceDB) QueryInvoices(q InvoiceQuery) (InvoiceSlice, error) {

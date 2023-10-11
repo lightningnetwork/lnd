@@ -2,6 +2,7 @@ package contractcourt
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -1885,7 +1886,7 @@ func (c *ChannelArbitrator) isPreimageAvailable(hash lntypes.Hash) (bool,
 	// than the invoice cltv delta. We don't want to go to chain only to
 	// have the incoming contest resolver decide that we don't want to
 	// settle this invoice.
-	invoice, err := c.cfg.Registry.LookupInvoice(hash)
+	invoice, err := c.cfg.Registry.LookupInvoice(context.Background(), hash)
 	switch err {
 	case nil:
 	case invoices.ErrInvoiceNotFound, invoices.ErrNoInvoicesCreated:

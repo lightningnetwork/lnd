@@ -1,6 +1,7 @@
 package invoices
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -179,7 +180,7 @@ func NewRegistry(idb InvoiceDB, expiryWatcher *InvoiceExpiryWatcher,
 // scanInvoicesOnStart will scan all invoices on start and add active invoices
 // to the invoice expiry watcher while also attempting to delete all canceled
 // invoices.
-func (i *InvoiceRegistry) scanInvoicesOnStart() error {
+func (i *InvoiceRegistry) scanInvoicesOnStart(ctx context.Context) error {
 	var (
 		pending   []invoiceExpiry
 		removable []InvoiceDeleteRef
@@ -225,7 +226,7 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 		return nil
 	}
 
-	err := i.idb.ScanInvoices(scanFunc, reset)
+	err := i.idb.ScanInvoices(ctx, scanFunc, reset)
 	if err != nil {
 		return err
 	}
@@ -237,7 +238,7 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 	if len(removable) > 0 {
 		log.Infof("Attempting to delete %v canceled invoices",
 			len(removable))
-		if err := i.idb.DeleteInvoice(removable); err != nil {
+		if err := i.idb.DeleteInvoice(ctx, removable); err != nil {
 			log.Warnf("Deleting canceled invoices failed: %v", err)
 		} else {
 			log.Infof("Deleted %v canceled invoices",
@@ -252,7 +253,9 @@ func (i *InvoiceRegistry) scanInvoicesOnStart() error {
 func (i *InvoiceRegistry) Start() error {
 	// Start InvoiceExpiryWatcher and prepopulate it with existing active
 	// invoices.
-	err := i.expiryWatcher.Start(i.cancelInvoiceImpl)
+	err := i.expiryWatcher.Start(func(hash lntypes.Hash, force bool) error {
+		return i.cancelInvoiceImpl(context.Background(), hash, force)
+	})
 	if err != nil {
 		return err
 	}
@@ -264,7 +267,7 @@ func (i *InvoiceRegistry) Start() error {
 
 	// Now scan all pending and removable invoices to the expiry watcher or
 	// delete them.
-	err = i.scanInvoicesOnStart()
+	err = i.scanInvoicesOnStart(context.Background())
 	if err != nil {
 		_ = i.Stop()
 		return err
@@ -484,15 +487,15 @@ func (i *InvoiceRegistry) dispatchToClients(event *invoiceEvent) {
 
 // deliverBacklogEvents will attempts to query the invoice database for any
 // notifications that the client has missed since it reconnected last.
-func (i *InvoiceRegistry) deliverBacklogEvents(
+func (i *InvoiceRegistry) deliverBacklogEvents(ctx context.Context,
 	client *InvoiceSubscription) error {
 
-	addEvents, err := i.idb.InvoicesAddedSince(client.addIndex)
+	addEvents, err := i.idb.InvoicesAddedSince(ctx, client.addIndex)
 	if err != nil {
 		return err
 	}
 
-	settleEvents, err := i.idb.InvoicesSettledSince(client.settleIndex)
+	settleEvents, err := i.idb.InvoicesSettledSince(ctx, client.settleIndex)
 	if err != nil {
 		return err
 	}
@@ -536,10 +539,10 @@ func (i *InvoiceRegistry) deliverBacklogEvents(
 // invoice subscribers will always receive the current state right after
 // subscribing. Only in case the invoice does not yet exist, nothing is sent
 // yet.
-func (i *InvoiceRegistry) deliverSingleBacklogEvents(
+func (i *InvoiceRegistry) deliverSingleBacklogEvents(ctx context.Context,
 	client *SingleInvoiceSubscription) error {
 
-	invoice, err := i.idb.LookupInvoice(client.invoiceRef)
+	invoice, err := i.idb.LookupInvoice(ctx, client.invoiceRef)
 
 	// It is possible that the invoice does not exist yet, but the client is
 	// already watching it in anticipation.
@@ -579,7 +582,7 @@ func (i *InvoiceRegistry) deliverSingleBacklogEvents(
 // addIndex of the newly created invoice which monotonically increases for each
 // new invoice added.  A side effect of this function is that it also sets
 // AddIndex on the invoice argument.
-func (i *InvoiceRegistry) AddInvoice(invoice *Invoice,
+func (i *InvoiceRegistry) AddInvoice(ctx context.Context, invoice *Invoice,
 	paymentHash lntypes.Hash) (uint64, error) {
 
 	i.Lock()
@@ -587,7 +590,7 @@ func (i *InvoiceRegistry) AddInvoice(invoice *Invoice,
 	ref := InvoiceRefByHash(paymentHash)
 	log.Debugf("Invoice%v: added with terms %v", ref, invoice.Terms)
 
-	addIndex, err := i.idb.AddInvoice(invoice, paymentHash)
+	addIndex, err := i.idb.AddInvoice(ctx, invoice, paymentHash)
 	if err != nil {
 		i.Unlock()
 		return 0, err
@@ -613,17 +616,21 @@ func (i *InvoiceRegistry) AddInvoice(invoice *Invoice,
 // then we're able to pull the funds pending within an HTLC.
 //
 // TODO(roasbeef): ignore if settled?
-func (i *InvoiceRegistry) LookupInvoice(rHash lntypes.Hash) (Invoice, error) {
+func (i *InvoiceRegistry) LookupInvoice(ctx context.Context,
+	rHash lntypes.Hash) (Invoice, error) {
+
 	// We'll check the database to see if there's an existing matching
 	// invoice.
 	ref := InvoiceRefByHash(rHash)
-	return i.idb.LookupInvoice(ref)
+	return i.idb.LookupInvoice(ctx, ref)
 }
 
 // LookupInvoiceByRef looks up an invoice by the given reference, if found
 // then we're able to pull the funds pending within an HTLC.
-func (i *InvoiceRegistry) LookupInvoiceByRef(ref InvoiceRef) (Invoice, error) {
-	return i.idb.LookupInvoice(ref)
+func (i *InvoiceRegistry) LookupInvoiceByRef(ctx context.Context,
+	ref InvoiceRef) (Invoice, error) {
+
+	return i.idb.LookupInvoice(ctx, ref)
 }
 
 // startHtlcTimer starts a new timer via the invoice registry main loop that
@@ -723,7 +730,8 @@ func (i *InvoiceRegistry) cancelSingleHtlc(invoiceRef InvoiceRef,
 	// no invoice update is performed, we can return early.
 	setID := (*SetID)(invoiceRef.SetID())
 	var updated bool
-	invoice, err := i.idb.UpdateInvoice(invoiceRef, setID,
+	invoice, err := i.idb.UpdateInvoice(
+		context.Background(), invoiceRef, setID,
 		func(invoice *Invoice) (
 			*InvoiceUpdateDesc, error) {
 
@@ -830,7 +838,7 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 
 	// Insert invoice into database. Ignore duplicates, because this
 	// may be a replay.
-	_, err = i.AddInvoice(invoice, ctx.hash)
+	_, err = i.AddInvoice(context.Background(), invoice, ctx.hash)
 	if err != nil && !errors.Is(err, ErrDuplicateInvoice) {
 		return err
 	}
@@ -888,7 +896,7 @@ func (i *InvoiceRegistry) processAMP(ctx invoiceUpdateCtx) error {
 	// Insert invoice into database. Ignore duplicates payment hashes and
 	// payment addrs, this may be a replay or a different HTLC for the AMP
 	// invoice.
-	_, err := i.AddInvoice(invoice, ctx.hash)
+	_, err := i.AddInvoice(context.Background(), invoice, ctx.hash)
 	isDuplicatedInvoice := errors.Is(err, ErrDuplicateInvoice)
 	isDuplicatedPayAddr := errors.Is(err, ErrDuplicatePayAddr)
 	switch {
@@ -1045,7 +1053,9 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 	invoiceRef := ctx.invoiceRef()
 	setID := (*SetID)(ctx.setID())
-	invoice, err := i.idb.UpdateInvoice(invoiceRef, setID, callback)
+	invoice, err := i.idb.UpdateInvoice(
+		context.Background(), invoiceRef, setID, callback,
+	)
 
 	var duplicateSetIDErr ErrDuplicateSetID
 	if errors.As(err, &duplicateSetIDErr) {
@@ -1228,7 +1238,9 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 }
 
 // SettleHodlInvoice sets the preimage of a hodl invoice.
-func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
+func (i *InvoiceRegistry) SettleHodlInvoice(ctx context.Context,
+	preimage lntypes.Preimage) error {
+
 	i.Lock()
 	defer i.Unlock()
 
@@ -1255,7 +1267,7 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 
 	hash := preimage.Hash()
 	invoiceRef := InvoiceRefByHash(hash)
-	invoice, err := i.idb.UpdateInvoice(invoiceRef, nil, updateInvoice)
+	invoice, err := i.idb.UpdateInvoice(ctx, invoiceRef, nil, updateInvoice)
 	if err != nil {
 		log.Errorf("SettleHodlInvoice with preimage %v: %v",
 			preimage, err)
@@ -1290,8 +1302,10 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 
 // CancelInvoice attempts to cancel the invoice corresponding to the passed
 // payment hash.
-func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
-	return i.cancelInvoiceImpl(payHash, true)
+func (i *InvoiceRegistry) CancelInvoice(ctx context.Context,
+	payHash lntypes.Hash) error {
+
+	return i.cancelInvoiceImpl(ctx, payHash, true)
 }
 
 // shouldCancel examines the state of an invoice and whether we want to
@@ -1312,8 +1326,8 @@ func shouldCancel(state ContractState, cancelAccepted bool) bool {
 // payment hash. Accepted invoices will only be canceled if explicitly
 // requested to do so. It notifies subscribing links and resolvers that
 // the associated htlcs were canceled if they change state.
-func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
-	cancelAccepted bool) error {
+func (i *InvoiceRegistry) cancelInvoiceImpl(ctx context.Context,
+	payHash lntypes.Hash, cancelAccepted bool) error {
 
 	i.Lock()
 	defer i.Unlock()
@@ -1338,7 +1352,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 	}
 
 	invoiceRef := InvoiceRefByHash(payHash)
-	invoice, err := i.idb.UpdateInvoice(invoiceRef, nil, updateInvoice)
+	invoice, err := i.idb.UpdateInvoice(ctx, invoiceRef, nil, updateInvoice)
 
 	// Implement idempotency by returning success if the invoice was already
 	// canceled.
@@ -1391,7 +1405,7 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 			deleteRef.PayAddr = &invoice.Terms.PaymentAddr
 		}
 
-		err = i.idb.DeleteInvoice([]InvoiceDeleteRef{deleteRef})
+		err = i.idb.DeleteInvoice(ctx, []InvoiceDeleteRef{deleteRef})
 		// If by any chance deletion failed, then log it instead of
 		// returning the error, as the invoice itself has already been
 		// canceled.
@@ -1522,7 +1536,7 @@ func (i *invoiceSubscriptionKit) notify(event *invoiceEvent) error {
 // added. The invoiceIndex parameter is a streaming "checkpoint". We'll start
 // by first sending out all new events with an invoice index _greater_ than
 // this value. Afterwards, we'll send out real-time notifications.
-func (i *InvoiceRegistry) SubscribeNotifications(
+func (i *InvoiceRegistry) SubscribeNotifications(ctx context.Context,
 	addIndex, settleIndex uint64) (*InvoiceSubscription, error) {
 
 	client := &InvoiceSubscription{
@@ -1612,7 +1626,7 @@ func (i *InvoiceRegistry) SubscribeNotifications(
 
 	// Query the database to see if based on the provided addIndex and
 	// settledIndex we need to deliver any backlog notifications.
-	err := i.deliverBacklogEvents(client)
+	err := i.deliverBacklogEvents(ctx, client)
 	if err != nil {
 		return nil, err
 	}
@@ -1624,7 +1638,7 @@ func (i *InvoiceRegistry) SubscribeNotifications(
 
 // SubscribeSingleInvoice returns an SingleInvoiceSubscription which allows the
 // caller to receive async notifications for a specific invoice.
-func (i *InvoiceRegistry) SubscribeSingleInvoice(
+func (i *InvoiceRegistry) SubscribeSingleInvoice(ctx context.Context,
 	hash lntypes.Hash) (*SingleInvoiceSubscription, error) {
 
 	client := &SingleInvoiceSubscription{
@@ -1686,7 +1700,7 @@ func (i *InvoiceRegistry) SubscribeSingleInvoice(
 	i.singleNotificationClients[client.id] = client
 	i.notificationClientMux.Unlock()
 
-	err := i.deliverSingleBacklogEvents(client)
+	err := i.deliverSingleBacklogEvents(ctx, client)
 	if err != nil {
 		return nil, err
 	}

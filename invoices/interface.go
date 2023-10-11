@@ -1,6 +1,7 @@
 package invoices
 
 import (
+	"context"
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -21,7 +22,8 @@ type InvoiceDB interface {
 	//
 	// NOTE: A side effect of this function is that it sets AddIndex on
 	// newInvoice.
-	AddInvoice(invoice *Invoice, paymentHash lntypes.Hash) (uint64, error)
+	AddInvoice(ctx context.Context, invoice *Invoice,
+		paymentHash lntypes.Hash) (uint64, error)
 
 	// InvoicesAddedSince can be used by callers to seek into the event
 	// time series of all the invoices added in the database. The specified
@@ -31,7 +33,8 @@ type InvoiceDB interface {
 	//
 	// NOTE: The index starts from 1, as a result. We enforce that
 	// specifying a value below the starting index value is a noop.
-	InvoicesAddedSince(sinceAddIndex uint64) ([]Invoice, error)
+	InvoicesAddedSince(ctx context.Context, sinceAddIndex uint64) (
+		[]Invoice, error)
 
 	// LookupInvoice attempts to look up an invoice according to its 32 byte
 	// payment hash. If an invoice which can settle the HTLC identified by
@@ -40,7 +43,7 @@ type InvoiceDB interface {
 	// Before setting the incoming HTLC, the values SHOULD be checked to
 	// ensure the payer meets the agreed upon contractual terms of the
 	// payment.
-	LookupInvoice(ref InvoiceRef) (Invoice, error)
+	LookupInvoice(ctx context.Context, ref InvoiceRef) (Invoice, error)
 
 	// ScanInvoices scans through all invoices and calls the passed scanFunc
 	// for each invoice with its respective payment hash. Additionally a
@@ -50,11 +53,12 @@ type InvoiceDB interface {
 	//
 	// TODO(positiveblue): abstract this functionality so it makes sense for
 	// other backends like sql.
-	ScanInvoices(scanFunc InvScanFunc, reset func()) error
+	ScanInvoices(ctx context.Context, scanFunc InvScanFunc,
+		reset func()) error
 
 	// QueryInvoices allows a caller to query the invoice database for
 	// invoices within the specified add index range.
-	QueryInvoices(q InvoiceQuery) (InvoiceSlice, error)
+	QueryInvoices(ctx context.Context, q InvoiceQuery) (InvoiceSlice, error)
 
 	// UpdateInvoice attempts to update an invoice corresponding to the
 	// passed payment hash. If an invoice matching the passed payment hash
@@ -67,7 +71,7 @@ type InvoiceDB interface {
 	//
 	// TODO(positiveblue): abstract this functionality so it makes sense for
 	// other backends like sql.
-	UpdateInvoice(ref InvoiceRef, setIDHint *SetID,
+	UpdateInvoice(ctx context.Context, ref InvoiceRef, setIDHint *SetID,
 		callback InvoiceUpdateCallback) (*Invoice, error)
 
 	// InvoicesSettledSince can be used by callers to catch up any settled
@@ -77,13 +81,15 @@ type InvoiceDB interface {
 	//
 	// NOTE: The index starts from 1, as a result. We enforce that
 	// specifying a value below the starting index value is a noop.
-	InvoicesSettledSince(sinceSettleIndex uint64) ([]Invoice, error)
+	InvoicesSettledSince(ctx context.Context, sinceSettleIndex uint64) (
+		[]Invoice, error)
 
 	// DeleteInvoice attempts to delete the passed invoices from the
 	// database in one transaction. The passed delete references hold all
 	// keys required to delete the invoices without also needing to
 	// deserialze them.
-	DeleteInvoice(invoicesToDelete []InvoiceDeleteRef) error
+	DeleteInvoice(ctx context.Context,
+		invoicesToDelete []InvoiceDeleteRef) error
 }
 
 // Payload abstracts access to any additional fields provided in the final hop's

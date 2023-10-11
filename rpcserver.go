@@ -5663,7 +5663,7 @@ func (r *rpcServer) LookupInvoice(ctx context.Context,
 
 	rpcsLog.Tracef("[lookupinvoice] searching for invoice %x", payHash[:])
 
-	invoice, err := r.server.invoices.LookupInvoice(payHash)
+	invoice, err := r.server.invoices.LookupInvoice(ctx, payHash)
 	switch {
 	case errors.Is(err, invoices.ErrInvoiceNotFound):
 		return nil, status.Error(codes.NotFound, err.Error())
@@ -5726,7 +5726,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		q.CreationDateEnd = time.Unix(int64(req.CreationDateEnd), 0)
 	}
 
-	invoiceSlice, err := r.server.miscDB.QueryInvoices(q)
+	invoiceSlice, err := r.server.miscDB.QueryInvoices(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query invoices: %v", err)
 	}
@@ -5757,7 +5757,7 @@ func (r *rpcServer) SubscribeInvoices(req *lnrpc.InvoiceSubscription,
 	updateStream lnrpc.Lightning_SubscribeInvoicesServer) error {
 
 	invoiceClient, err := r.server.invoices.SubscribeNotifications(
-		req.AddIndex, req.SettleIndex,
+		updateStream.Context(), req.AddIndex, req.SettleIndex,
 	)
 	if err != nil {
 		return err

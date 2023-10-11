@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -483,7 +484,9 @@ func TestChannelLinkSingleHopPayment(t *testing.T) {
 
 	// Check that alice invoice was settled and bandwidth of HTLC
 	// links was changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(
+		context.Background(), rhash,
+	)
 	require.NoError(t, err, "unable to get invoice")
 	if invoice.State != invpkg.ContractSettled {
 		t.Fatal("alice invoice wasn't settled")
@@ -601,7 +604,9 @@ func testChannelLinkMultiHopPayment(t *testing.T,
 
 	// Check that Carol invoice was settled and bandwidth of HTLC
 	// links were changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(
+		context.Background(), rhash,
+	)
 	require.NoError(t, err, "unable to get invoice")
 	if invoice.State != invpkg.ContractSettled {
 		t.Fatal("carol invoice haven't been settled")
@@ -710,7 +715,9 @@ func TestChannelLinkCancelFullCommitment(t *testing.T) {
 		// invoice registry at this point, so we poll until we are able
 		// to settle.
 		err = wait.NoError(func() error {
-			return n.bobServer.registry.SettleHodlInvoice(preimage)
+			return n.bobServer.registry.SettleHodlInvoice(
+				context.Background(), preimage,
+			)
 		}, time.Minute)
 		if err != nil {
 			t.Fatal(err)
@@ -1177,7 +1184,9 @@ func TestUpdateForwardingPolicy(t *testing.T) {
 
 	// Carol's invoice should now be shown as settled as the payment
 	// succeeded.
-	invoice, err := n.carolServer.registry.LookupInvoice(payResp)
+	invoice, err := n.carolServer.registry.LookupInvoice(
+		context.Background(), payResp,
+	)
 	require.NoError(t, err, "unable to get invoice")
 	if invoice.State != invpkg.ContractSettled {
 		t.Fatal("carol invoice haven't been settled")
@@ -1331,7 +1340,9 @@ func TestChannelLinkMultiHopInsufficientPayment(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(
+		context.Background(), rhash,
+	)
 	require.NoError(t, err, "unable to get invoice")
 	if invoice.State == invpkg.ContractSettled {
 		t.Fatal("carol invoice have been settled")
@@ -1509,7 +1520,9 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(
+		context.Background(), rhash,
+	)
 	require.NoError(t, err, "unable to get invoice")
 	if invoice.State == invpkg.ContractSettled {
 		t.Fatal("carol invoice have been settled")
@@ -1617,7 +1630,9 @@ func TestChannelLinkMultiHopDecodeError(t *testing.T) {
 
 	// Check that alice invoice wasn't settled and bandwidth of htlc
 	// links hasn't been changed.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(
+		context.Background(), rhash,
+	)
 	require.NoError(t, err, "unable to get invoice")
 	if invoice.State == invpkg.ContractSettled {
 		t.Fatal("carol invoice have been settled")
@@ -2406,10 +2421,11 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create payment")
 
+	ctxb := context.Background()
 	// We must add the invoice to the registry, such that Alice expects
 	// this payment.
 	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
-		*invoice, htlc.PaymentHash,
+		ctxb, *invoice, htlc.PaymentHash,
 	)
 	require.NoError(t, err, "unable to add invoice to registry")
 
@@ -2501,7 +2517,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create payment")
 	err = coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
-		*invoice, htlc.PaymentHash,
+		ctxb, *invoice, htlc.PaymentHash,
 	)
 	require.NoError(t, err, "unable to add invoice to registry")
 
@@ -3625,7 +3641,9 @@ func TestChannelRetransmission(t *testing.T) {
 
 			// Check that alice invoice wasn't settled and
 			// bandwidth of htlc links hasn't been changed.
-			invoice, err = receiver.registry.LookupInvoice(rhash)
+			invoice, err = receiver.registry.LookupInvoice(
+				context.Background(), rhash,
+			)
 			if err != nil {
 				err = fmt.Errorf(
 					"unable to get invoice: %w", err,
@@ -4098,7 +4116,9 @@ func TestChannelLinkAcceptDuplicatePayment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = n.carolServer.registry.AddInvoice(*invoice, htlc.PaymentHash)
+	err = n.carolServer.registry.AddInvoice(
+		context.Background(), *invoice, htlc.PaymentHash,
+	)
 	require.NoError(t, err, "unable to add invoice in carol registry")
 
 	// With the invoice now added to Carol's registry, we'll send the
@@ -4186,7 +4206,9 @@ func TestChannelLinkAcceptOverpay(t *testing.T) {
 
 	// Even though we sent 2x what was asked for, Carol should still have
 	// accepted the payment and marked it as settled.
-	invoice, err := receiver.registry.LookupInvoice(rhash)
+	invoice, err := receiver.registry.LookupInvoice(
+		context.Background(), rhash,
+	)
 	require.NoError(t, err, "unable to get invoice")
 	if invoice.State != invpkg.ContractSettled {
 		t.Fatal("carol invoice haven't been settled")
@@ -4503,7 +4525,7 @@ func generateHtlc(t *testing.T, coreLink *channelLink,
 	// We must add the invoice to the registry, such that Alice
 	// expects this payment.
 	err := coreLink.cfg.Registry.(*mockInvoiceRegistry).AddInvoice(
-		*invoice, htlc.PaymentHash,
+		context.Background(), *invoice, htlc.PaymentHash,
 	)
 	require.NoError(t, err, "unable to add invoice to registry")
 
@@ -5847,7 +5869,7 @@ func TestChannelLinkCanceledInvoice(t *testing.T) {
 
 	// Cancel the invoice at bob's end.
 	hash := invoice.Terms.PaymentPreimage.Hash()
-	err = n.bobServer.registry.CancelInvoice(hash)
+	err = n.bobServer.registry.CancelInvoice(context.Background(), hash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -5964,7 +5986,9 @@ func TestChannelLinkHoldInvoiceSettle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = ctx.n.bobServer.registry.SettleHodlInvoice(ctx.preimage)
+	err = ctx.n.bobServer.registry.SettleHodlInvoice(
+		context.Background(), ctx.preimage,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6008,7 +6032,9 @@ func TestChannelLinkHoldInvoiceCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = ctx.n.bobServer.registry.CancelInvoice(ctx.hash)
+	err = ctx.n.bobServer.registry.CancelInvoice(
+		context.Background(), ctx.hash,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6062,7 +6088,7 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 	// We must add the invoice to the registry, such that Alice
 	// expects this payment.
 	err = registry.AddInvoice(
-		*invoice, htlc.PaymentHash,
+		context.Background(), *invoice, htlc.PaymentHash,
 	)
 	require.NoError(t, err, "unable to add invoice to registry")
 
@@ -6097,7 +6123,7 @@ func TestChannelLinkHoldInvoiceRestart(t *testing.T) {
 	<-registry.settleChan
 
 	// Settle the invoice with the preimage.
-	err = registry.SettleHodlInvoice(*preimage)
+	err = registry.SettleHodlInvoice(context.Background(), *preimage)
 	require.NoError(t, err, "settle hodl invoice")
 
 	// Expect alice to send a settle and commitsig message to bob.
@@ -6154,11 +6180,12 @@ func TestChannelLinkRevocationWindowRegular(t *testing.T) {
 	htlc1, invoice1 := generateHtlcAndInvoice(t, 0)
 	htlc2, invoice2 := generateHtlcAndInvoice(t, 1)
 
+	ctxb := context.Background()
 	// We must add the invoice to the registry, such that Alice
 	// expects this payment.
-	err = registry.AddInvoice(*invoice1, htlc1.PaymentHash)
+	err = registry.AddInvoice(ctxb, *invoice1, htlc1.PaymentHash)
 	require.NoError(t, err, "unable to add invoice to registry")
-	err = registry.AddInvoice(*invoice2, htlc2.PaymentHash)
+	err = registry.AddInvoice(ctxb, *invoice2, htlc2.PaymentHash)
 	require.NoError(t, err, "unable to add invoice to registry")
 
 	// Lock in htlc 1 on both sides.
@@ -6238,11 +6265,12 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 	invoice2.Terms.PaymentPreimage = nil
 	invoice2.HodlInvoice = true
 
+	ctxb := context.Background()
 	// We must add the invoices to the registry, such that Alice
 	// expects the payments.
-	err = registry.AddInvoice(*invoice1, htlc1.PaymentHash)
+	err = registry.AddInvoice(ctxb, *invoice1, htlc1.PaymentHash)
 	require.NoError(t, err, "unable to add invoice to registry")
-	err = registry.AddInvoice(*invoice2, htlc2.PaymentHash)
+	err = registry.AddInvoice(ctxb, *invoice2, htlc2.PaymentHash)
 	require.NoError(t, err, "unable to add invoice to registry")
 
 	ctx := linkTestContext{
@@ -6281,7 +6309,7 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 	}
 
 	// Settle invoice 1 with the preimage.
-	err = registry.SettleHodlInvoice(*preimage1)
+	err = registry.SettleHodlInvoice(ctxb, *preimage1)
 	require.NoError(t, err, "settle hodl invoice")
 
 	// Expect alice to send a settle and commitsig message to bob. Bob does
@@ -6290,7 +6318,7 @@ func TestChannelLinkRevocationWindowHodl(t *testing.T) {
 	ctx.receiveCommitSigAliceToBob(1)
 
 	// Settle invoice 2 with the preimage.
-	err = registry.SettleHodlInvoice(*preimage2)
+	err = registry.SettleHodlInvoice(ctxb, *preimage2)
 	require.NoError(t, err, "settle hodl invoice")
 
 	// Expect alice to send a settle for htlc 2.
@@ -6634,7 +6662,9 @@ func TestPipelineSettle(t *testing.T) {
 
 	// Add the invoice to Alice's registry so she expects it.
 	aliceReg := alice.coreLink.cfg.Registry.(*mockInvoiceRegistry)
-	err = aliceReg.AddInvoice(*invoice1, htlc1.PaymentHash)
+	err = aliceReg.AddInvoice(
+		context.Background(), *invoice1, htlc1.PaymentHash,
+	)
 	require.NoError(t, err)
 
 	// <---add-----

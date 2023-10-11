@@ -1,6 +1,8 @@
 package contractcourt
 
 import (
+	"context"
+
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -39,8 +41,8 @@ func (r *mockRegistry) NotifyExitHopHtlc(payHash lntypes.Hash,
 
 func (r *mockRegistry) HodlUnsubscribeAll(subscriber chan<- interface{}) {}
 
-func (r *mockRegistry) LookupInvoice(lntypes.Hash) (invoices.Invoice,
-	error) {
+func (r *mockRegistry) LookupInvoice(context.Context, lntypes.Hash) (
+	invoices.Invoice, error) {
 
 	return invoices.Invoice{}, invoices.ErrInvoiceNotFound
 }

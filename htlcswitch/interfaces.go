@@ -1,6 +1,8 @@
 package htlcswitch
 
 import (
+	"context"
+
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
@@ -17,7 +19,7 @@ import (
 type InvoiceDatabase interface {
 	// LookupInvoice attempts to look up an invoice according to its 32
 	// byte payment hash.
-	LookupInvoice(lntypes.Hash) (invoices.Invoice, error)
+	LookupInvoice(context.Context, lntypes.Hash) (invoices.Invoice, error)
 
 	// NotifyExitHopHtlc attempts to mark an invoice as settled. If the
 	// invoice is a debug invoice, then this method is a noop as debug
@@ -33,10 +35,10 @@ type InvoiceDatabase interface {
 
 	// CancelInvoice attempts to cancel the invoice corresponding to the
 	// passed payment hash.
-	CancelInvoice(payHash lntypes.Hash) error
+	CancelInvoice(ctx context.Context, payHash lntypes.Hash) error
 
 	// SettleHodlInvoice settles a hold invoice.
-	SettleHodlInvoice(preimage lntypes.Preimage) error
+	SettleHodlInvoice(ctx context.Context, preimage lntypes.Preimage) error
 
 	// HodlUnsubscribeAll unsubscribes from all htlc resolutions.
 	HodlUnsubscribeAll(subscriber chan<- interface{})

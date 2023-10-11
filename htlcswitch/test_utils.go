@@ -2,6 +2,7 @@ package htlcswitch
 
 import (
 	"bytes"
+	"context"
 	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -780,7 +781,9 @@ func preparePayment(sendingPeer, receivingPeer lnpeer.Peer,
 
 	// Check who is last in the route and add invoice to server registry.
 	hash := invoice.Terms.PaymentPreimage.Hash()
-	if err := receiver.registry.AddInvoice(*invoice, hash); err != nil {
+	if err := receiver.registry.AddInvoice(
+		context.Background(), *invoice, hash,
+	); err != nil {
 		return nil, nil, err
 	}
 
@@ -1338,7 +1341,9 @@ func (n *twoHopNetwork) makeHoldPayment(sendingPeer, receivingPeer lnpeer.Peer,
 	}
 
 	// Check who is last in the route and add invoice to server registry.
-	if err := receiver.registry.AddInvoice(*invoice, rhash); err != nil {
+	if err := receiver.registry.AddInvoice(
+		context.Background(), *invoice, rhash,
+	); err != nil {
 		paymentErr <- err
 		return paymentErr
 	}

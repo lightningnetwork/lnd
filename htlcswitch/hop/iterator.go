@@ -364,7 +364,14 @@ func (p *OnionProcessor) DecodeHopIterators(id []byte,
 		if replays.Contains(uint16(i)) {
 			log.Errorf("unable to process onion packet: %v",
 				sphinx.ErrReplayedPacket)
-			resp.FailCode = lnwire.CodeTemporaryChannelFailure
+
+			// We set FailCode to CodeInvalidOnionVersion even
+			// though the ephemeral key isn't the problem. We need
+			// to set the BADONION bit since we're sending back a
+			// malformed packet, but as there isn't a specific
+			// failure code for replays, we reuse one of the
+			// failure codes that has BADONION.
+			resp.FailCode = lnwire.CodeInvalidOnionVersion
 			continue
 		}
 

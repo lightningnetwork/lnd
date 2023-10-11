@@ -64,11 +64,18 @@
 ## BOLT Spec Updates
 ## Testing
 ## Database
+
+* [Add context to InvoiceDB
+  methods](https://github.com/lightningnetwork/lnd/pull/8066). This change adds
+  a context parameter to all `InvoiceDB` methods which is a pre-requisite for
+  the SQL implementation.
+
 ## Code Health
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
 
+* Andras Banki-Horvath
 * Carla Kirk-Cohen
 * Elle Mouton
 * Yong Yu

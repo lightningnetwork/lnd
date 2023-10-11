@@ -70,6 +70,9 @@
   a context parameter to all `InvoiceDB` methods which is a pre-requisite for
   the SQL implementation.
 
+* [Refactor InvoiceDB](https://github.com/lightningnetwork/lnd/pull/8081) to
+  eliminate the use of `ScanInvoices`.
+
 ## Code Health
 ## Tooling and Documentation
 

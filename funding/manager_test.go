@@ -1579,7 +1579,6 @@ func TestFundingManagerNormalWorkflow(t *testing.T) {
 		},
 	}
 
-	//nolint:paralleltest
 	for _, testCase := range testCases {
 		t.Run(testCase.typeName, func(t *testing.T) {
 			testNormalWorkflow(t, testCase.chanType)
@@ -4747,7 +4746,6 @@ func TestFundingManagerZeroConf(t *testing.T) {
 		},
 	}
 
-	//nolint:paralleltest
 	for _, testCase := range testCases {
 		t.Run(testCase.typeName, func(t *testing.T) {
 			testZeroConf(t, testCase.chanType)

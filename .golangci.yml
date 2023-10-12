@@ -147,6 +147,7 @@ linters:
     - deadcode
     - nosnakecase
 
+
     # Disable gofumpt as it has weird behavior regarding formatting multiple
     # lines for a function which is in conflict with our contribution
     # guidelines. See https://github.com/mvdan/gofumpt/issues/235.
@@ -201,6 +202,10 @@ linters:
     # will also catch magic numbers that make sense to extract.
     - gomnd
 
+      # Some of the tests cannot be parallelized. On the other hand, we don't
+      # gain much performance with this check so we disable it for now until
+      # unit tests become our CI bottleneck.
+    - paralleltest
 
 issues:
   # Only show newly introduced problems.
@@ -257,10 +262,6 @@ issues:
     - path: lnd\.go
       linters:
         - forbidigo
-
-    - path: itest/.*
-      linters:
-        - paralleltest
 
     - path: lnmock/*
       linters:

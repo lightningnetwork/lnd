@@ -839,7 +839,7 @@ func TestTaprootReceiverHtlcSpend(t *testing.T) {
 			valid: false,
 		},
 	}
-	for i, testCase := range testCases { //nolint:paralleltest
+	for i, testCase := range testCases {
 		i := i
 		testCase := testCase
 		spendTxCopy := spendTx.Copy()
@@ -1140,7 +1140,7 @@ func TestTaprootCommitScriptToSelf(t *testing.T) {
 		},
 	}
 
-	for i, testCase := range testCases { //nolint:paralleltest
+	for i, testCase := range testCases {
 		i := i
 		testCase := testCase
 		spendTxCopy := spendTx.Copy()
@@ -1317,7 +1317,7 @@ func TestTaprootCommitScriptRemote(t *testing.T) {
 		},
 	}
 
-	for i, testCase := range testCases { //nolint:paralleltest
+	for i, testCase := range testCases {
 		i := i
 		testCase := testCase
 		spendTxCopy := spendTx.Copy()
@@ -1536,7 +1536,7 @@ func TestTaprootAnchorScript(t *testing.T) {
 		},
 	}
 
-	for i, testCase := range testCases { //nolint:paralleltest
+	for i, testCase := range testCases {
 		i := i
 		testCase := testCase
 		spendTxCopy := spendTx.Copy()
@@ -1833,7 +1833,7 @@ func TestTaprootSecondLevelHtlcScript(t *testing.T) {
 		},
 	}
 
-	for i, testCase := range testCases { //nolint:paralleltest
+	for i, testCase := range testCases {
 		i := i
 		testCase := testCase
 		spendTxCopy := spendTx.Copy()

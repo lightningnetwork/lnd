@@ -131,7 +131,7 @@ func TestWalletRebroadcaster(t *testing.T) {
 		ChainIO:          chainIO,
 	}
 
-	t.Run("rebroadcast bypass", func(t *testing.T) { //nolint:paralleltest
+	t.Run("rebroadcast bypass", func(t *testing.T) {
 		// We'll make a copy of the config, but without the
 		// broadcaster.
 		testCfg := *cfg
@@ -166,7 +166,7 @@ func TestWalletRebroadcaster(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("rebroadcast normal", func(t *testing.T) { //nolint:paralleltest
+	t.Run("rebroadcast normal", func(t *testing.T) {
 		wallet, err := NewLightningWallet(*cfg)
 		require.NoError(t, err)
 		require.NoError(t, wallet.Startup())

@@ -264,10 +264,11 @@ type UtxoSweeperConfig struct {
 	// Wallet contains the wallet functions that sweeper requires.
 	Wallet Wallet
 
-	// NewBatchTimer creates a channel that will be sent on when a certain
-	// time window has passed. During this time window, new inputs can still
-	// be added to the sweep tx that is about to be generated.
-	NewBatchTimer func() <-chan time.Time
+	// TickerDuration is used to create a channel that will be sent on when
+	// a certain time window has passed. During this time window, new
+	// inputs can still be added to the sweep tx that is about to be
+	// generated.
+	TickerDuration time.Duration
 
 	// Notifier is an instance of a chain notifier we'll use to watch for
 	// certain on-chain events.
@@ -1019,7 +1020,7 @@ func (s *UtxoSweeper) scheduleSweep(currentHeight int32) error {
 
 	// Start sweep timer to create opportunity for more inputs to be added
 	// before a tx is constructed.
-	s.timer = s.cfg.NewBatchTimer()
+	s.timer = time.NewTicker(s.cfg.TickerDuration).C
 
 	log.Debugf("Sweep timer started")
 

@@ -1059,14 +1059,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
-		FeeEstimator:      cc.FeeEstimator,
-		DetermineFeePerKw: sweep.DetermineFeePerKw,
-		GenSweepScript:    newSweepPkScriptGen(cc.Wallet),
-		Signer:            cc.Wallet.Cfg.Signer,
-		Wallet:            newSweeperWallet(cc.Wallet),
-		NewBatchTimer: func() <-chan time.Time {
-			return time.NewTimer(cfg.Sweeper.BatchWindowDuration).C
-		},
+		FeeEstimator:         cc.FeeEstimator,
+		DetermineFeePerKw:    sweep.DetermineFeePerKw,
+		GenSweepScript:       newSweepPkScriptGen(cc.Wallet),
+		Signer:               cc.Wallet.Cfg.Signer,
+		Wallet:               newSweeperWallet(cc.Wallet),
+		TickerDuration:       cfg.Sweeper.BatchWindowDuration,
 		Notifier:             cc.ChainNotifier,
 		Store:                sweeperStore,
 		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,

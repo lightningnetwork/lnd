@@ -213,7 +213,7 @@ jobs:
         run: ./scripts/install_bitcoind.sh
 
       - name: run ${{ matrix.unit_type }}
-        run: make ${{ matrix.unit_type }}
+        run: make log="stdlog debug" ${{ matrix.unit_type }}
 
       - name: Send coverage
         uses: shogo82148/actions-goveralls@v1

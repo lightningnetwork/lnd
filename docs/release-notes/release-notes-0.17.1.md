@@ -25,6 +25,16 @@
 
 # New Features
 ## Functional Enhancements
+
+- Previously, when a channel was force closed locally, its anchor was always
+  force-swept when the CPFP requirements are met. This is now
+  [changed](https://github.com/lightningnetwork/lnd/pull/7965) to only attempt
+  CPFP based on the deadline of the commitment transaction. The anchor output
+  will still be offered to the sweeper during channel force close, while the
+  actual sweeping won't be forced(CPFP) unless a relevant HTLC will timeout in
+  144 blocks. If CPFP before this deadline is needed, user can use `BumpFee`
+  instead.
+
 ## RPC Additions
 ## lncli Additions
 
@@ -44,5 +54,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
-
 * Eugene Siegel
+* Yong Yu

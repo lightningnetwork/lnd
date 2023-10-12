@@ -115,10 +115,10 @@ func generateInputPartitionings(sweepableInputs []txInput,
 		if !txInputs.enoughInput() {
 			// The change output is always a p2tr here.
 			dl := lnwallet.DustLimitForSize(input.P2TRSize)
-			log.Debugf("Set value %v (r=%v, c=%v) below dust "+
-				"limit of %v", txInputs.totalOutput(),
-				txInputs.requiredOutput, txInputs.changeOutput,
-				dl)
+			log.Debugf("Input set value %v (required=%v, "+
+				"change=%v) below dust limit of %v",
+				txInputs.totalOutput(), txInputs.requiredOutput,
+				txInputs.changeOutput, dl)
 			return sets, nil
 		}
 

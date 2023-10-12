@@ -1310,9 +1310,23 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 			return err
 		}
 
+		// Create a force flag that's used to indicate whether we
+		// should force sweeping this anchor.
+		var force bool
+
+		// Check the deadline against the default value. If it's less
+		// than the default value of 144, it means there is a deadline
+		// and we will perform a CPFP for this commitment tx.
+		if deadline < anchorSweepConfTarget {
+			// Signal that this is a force sweep, so that the
+			// anchor will be swept even if it isn't economical
+			// purely based on the anchor value.
+			force = true
+		}
+
 		log.Debugf("ChannelArbitrator(%v): pre-confirmation sweep of "+
-			"anchor of %s commit tx %v", c.cfg.ChanPoint,
-			anchorPath, anchor.CommitAnchor)
+			"anchor of %s commit tx %v, force=%v", c.cfg.ChanPoint,
+			anchorPath, anchor.CommitAnchor, force)
 
 		witnessType := input.CommitmentAnchor
 
@@ -1338,20 +1352,17 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		)
 
 		// Sweep anchor output with a confirmation target fee
-		// preference. Because this is a cpfp-operation, the anchor will
-		// only be attempted to sweep when the current fee estimate for
-		// the confirmation target exceeds the commit fee rate.
-		//
-		// Also signal that this is a force sweep, so that the anchor
-		// will be swept even if it isn't economical purely based on the
-		// anchor value.
+		// preference. Because this is a cpfp-operation, the anchor
+		// will only be attempted to sweep when the current fee
+		// estimate for the confirmation target exceeds the commit fee
+		// rate.
 		_, err = c.cfg.Sweeper.SweepInput(
 			&anchorInput,
 			sweep.Params{
 				Fee: sweep.FeePreference{
 					ConfTarget: deadline,
 				},
-				Force:          true,
+				Force:          force,
 				ExclusiveGroup: &exclusiveGroup,
 			},
 		)
@@ -1428,6 +1439,9 @@ func (c *ChannelArbitrator) findCommitmentDeadline(heightHint uint32,
 
 		if htlc.RefundTimeout < deadlineMinHeight {
 			deadlineMinHeight = htlc.RefundTimeout
+			log.Tracef("ChannelArbitrator(%v): outgoing HTLC has "+
+				"deadline: %v", c.cfg.ChanPoint,
+				deadlineMinHeight)
 		}
 	}
 
@@ -1456,6 +1470,9 @@ func (c *ChannelArbitrator) findCommitmentDeadline(heightHint uint32,
 
 		if htlc.RefundTimeout < deadlineMinHeight {
 			deadlineMinHeight = htlc.RefundTimeout
+			log.Tracef("ChannelArbitrator(%v): incoming HTLC has "+
+				"deadline: %v", c.cfg.ChanPoint,
+				deadlineMinHeight)
 		}
 	}
 

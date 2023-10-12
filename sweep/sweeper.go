@@ -635,29 +635,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		// The timer expires and we are going to (re)sweep.
 		case <-s.timer:
 			log.Debugf("Sweep timer expired")
-
-			// Set timer to nil so we know that a new timer needs to
-			// be started when new inputs arrive.
-			s.timer = nil
-
-			// We'll attempt to cluster all of our inputs with
-			// similar fee rates. Before attempting to sweep them,
-			// we'll sort them in descending fee rate order. We do
-			// this to ensure any inputs which have had their fee
-			// rate bumped are broadcast first in order enforce the
-			// RBF policy.
-			inputClusters := s.createInputClusters()
-			sort.Slice(inputClusters, func(i, j int) bool {
-				return inputClusters[i].sweepFeeRate >
-					inputClusters[j].sweepFeeRate
-			})
-			for _, cluster := range inputClusters {
-				err := s.sweepCluster(cluster, bestHeight)
-				if err != nil {
-					log.Errorf("input cluster sweep: %v",
-						err)
-				}
-			}
+			s.handleSweep(bestHeight)
 
 		// A new block comes in. Things may have changed, so we retry a
 		// sweep.
@@ -1663,6 +1641,31 @@ func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail,
 	// remaining inputs.
 	if err := s.scheduleSweep(bestHeight); err != nil {
 		log.Errorf("schedule sweep: %v", err)
+	}
+}
+
+// handleSweep is called when the ticker fires. It will create clusters and
+// attempt to create and publish the sweeping transactions.
+func (s *UtxoSweeper) handleSweep(bestHeight int32) {
+	// Set timer to nil so we know that a new timer needs to be started
+	// when new inputs arrive.
+	s.timer = nil
+
+	// We'll attempt to cluster all of our inputs with similar fee rates.
+	// Before attempting to sweep them, we'll sort them in descending fee
+	// rate order. We do this to ensure any inputs which have had their fee
+	// rate bumped are broadcast first in order enforce the RBF policy.
+	inputClusters := s.createInputClusters()
+	sort.Slice(inputClusters, func(i, j int) bool {
+		return inputClusters[i].sweepFeeRate >
+			inputClusters[j].sweepFeeRate
+	})
+
+	for _, cluster := range inputClusters {
+		err := s.sweepCluster(cluster, bestHeight)
+		if err != nil {
+			log.Errorf("input cluster sweep: %v", err)
+		}
 	}
 }
 

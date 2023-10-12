@@ -319,15 +319,17 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 		// was in fact mined.
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 
-		// Mine an additional block to prompt Bob to broadcast their
-		// second layer sweep due to the CSV on the HTLC timeout output.
-		ht.MineBlocksAndAssertNumTxes(1, 0)
+		// Mine one more block to trigger the timeout path.
+		ht.MineEmptyBlocks(1)
+
+		// Bob's sweeper should now broadcast his second layer sweep
+		// due to the CSV on the HTLC timeout output.
 		ht.Miner.AssertOutpointInMempool(htlcTimeoutOutpoint)
 	}
 
 	// Next, we'll mine a final block that should confirm the sweeping
 	// transactions left.
-	ht.MineBlocks(1)
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 
 	// Once this transaction has been confirmed, Bob should detect that he
 	// no longer has any pending channels.
@@ -482,7 +484,7 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 
 	// We'll now mine an additional block which should confirm both the
 	// second layer transactions.
-	ht.MineBlocks(1)
+	ht.MineBlocksAndAssertNumTxes(1, expectedTxes)
 
 	// Carol's pending channel report should now show two outputs under
 	// limbo: her commitment output, as well as the second-layer claim
@@ -494,16 +496,16 @@ func runMultiHopReceiverChainClaim(ht *lntest.HarnessTest,
 	// clearing the HTLC off-chain.
 	ht.AssertNumActiveHtlcs(alice, 0)
 
-	// If we mine 4 additional blocks, then Carol can sweep the second level
-	// HTLC output.
-	ht.MineBlocks(defaultCSV)
+	// If we mine 4 additional blocks, then Carol can sweep the second
+	// level HTLC output once the CSV expires.
+	ht.MineEmptyBlocks(defaultCSV)
 
 	// We should have a new transaction in the mempool.
 	ht.Miner.AssertNumTxsInMempool(1)
 
-	// Finally, if we mine an additional block to confirm these two sweep
-	// transactions, Carol should not show a pending channel in her report
-	// afterwards.
+	// Finally, if we mine an additional block to confirm Carol's second
+	// level success transaction. Carol should not show a pending channel
+	// in her report afterwards.
 	ht.MineBlocks(1)
 	ht.AssertNumPendingForceClose(carol, 0)
 
@@ -815,15 +817,16 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	case lnrpc.CommitmentType_LEGACY:
 		expectedTxes = 1
 
-	// Bob can sweep his commit and anchor outputs immediately.
+	// Bob can sweep his commit and anchor outputs immediately. Carol will
+	// also sweep her anchor.
 	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
-		expectedTxes = 2
+		expectedTxes = 3
 
 	// Bob can't sweep his commit output yet as he was the initiator of a
 	// script-enforced leased channel, so he'll always incur the additional
 	// CLTV. He can still sweep his anchor output however.
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
-		expectedTxes = 1
+		expectedTxes = 2
 
 	default:
 		ht.Fatalf("unhandled commitment type %v", c)
@@ -832,15 +835,6 @@ func runMultiHopRemoteForceCloseOnChainHtlcTimeout(ht *lntest.HarnessTest,
 	// We now mine a block to clear up the mempool.
 	ht.MineBlocksAndAssertNumTxes(1, expectedTxes)
 	blocksMined++
-
-	// The above block will trigger Carol's sweeper to reconsider the
-	// anchor sweeping. Because we are now sweeping at the fee rate floor,
-	// the sweeper will consider this input has positive yield thus
-	// attempts the sweeping.
-	if lntest.CommitTypeHasAnchors(c) {
-		ht.MineBlocksAndAssertNumTxes(1, 1)
-		blocksMined++
-	}
 
 	// Next, we'll mine enough blocks for the HTLC to expire. At this
 	// point, Bob should hand off the output to his internal utxo nursery,
@@ -1000,15 +994,16 @@ func runMultiHopHtlcLocalChainClaim(ht *lntest.HarnessTest,
 	case lnrpc.CommitmentType_LEGACY:
 		expectedTxes = 1
 
-	// Alice will sweep her commitment and anchor output immediately.
+	// Alice will sweep her commitment and anchor output immediately. Bob
+	// will also sweep his anchor.
 	case lnrpc.CommitmentType_ANCHORS, lnrpc.CommitmentType_SIMPLE_TAPROOT:
-		expectedTxes = 2
+		expectedTxes = 3
 
 	// Alice will sweep her anchor output immediately. Her commitment
 	// output cannot be swept yet as it has incurred an additional CLTV due
 	// to being the initiator of a script-enforced leased channel.
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
-		expectedTxes = 1
+		expectedTxes = 2
 
 	default:
 		ht.Fatalf("unhandled commitment type %v", c)
@@ -2162,8 +2157,9 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	numBlocks = htlc.ExpirationHeight - uint32(height) -
 		lncfg.DefaultOutgoingBroadcastDelta
 
-	// We should now have Carol's htlc suucess tx in the mempool.
+	// We should now have Carol's htlc success tx in the mempool.
 	numTxesMempool := 1
+	ht.Miner.AssertNumTxsInMempool(numTxesMempool)
 
 	// For neutrino backend, the timeout resolver needs to extract the
 	// preimage from the blocks.
@@ -2171,7 +2167,9 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 		// Mine a block to confirm Carol's 2nd level success tx.
 		ht.MineBlocksAndAssertNumTxes(1, 1)
 		numTxesMempool--
+		numBlocks--
 	}
+
 	// Mine empty blocks so Carol's htlc success tx stays in mempool. Once
 	// the height is reached, Bob's timeout resolver will resolve the htlc
 	// by extracing the preimage from the mempool.

@@ -616,87 +616,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		// A spend of one of our inputs is detected. Signal sweep
 		// results to the caller(s).
 		case spend := <-s.spendChan:
-			// For testing purposes.
-			if s.testSpendChan != nil {
-				s.testSpendChan <- *spend.SpentOutPoint
-			}
-
-			// Query store to find out if we ever published this
-			// tx.
-			spendHash := *spend.SpenderTxHash
-			isOurTx, err := s.cfg.Store.IsOurTx(spendHash)
-			if err != nil {
-				log.Errorf("cannot determine if tx %v "+
-					"is ours: %v", spendHash, err,
-				)
-				continue
-			}
-
-			// If this isn't our transaction, it means someone else
-			// swept outputs that we were attempting to sweep. This
-			// can happen for anchor outputs as well as justice
-			// transactions. In this case, we'll notify the wallet
-			// to remove any spends that a descent from this
-			// output.
-			if !isOurTx {
-				err := s.removeLastSweepDescendants(
-					spend.SpendingTx,
-				)
-				if err != nil {
-					log.Warnf("unable to remove descendant "+
-						"transactions due to tx %v: ",
-						spendHash)
-				}
-
-				log.Debugf("Detected spend related to in flight inputs "+
-					"(is_ours=%v): %v",
-					newLogClosure(func() string {
-						return spew.Sdump(spend.SpendingTx)
-					}), isOurTx,
-				)
-			}
-
-			// Signal sweep results for inputs in this confirmed
-			// tx.
-			for _, txIn := range spend.SpendingTx.TxIn {
-				outpoint := txIn.PreviousOutPoint
-
-				// Check if this input is known to us. It could
-				// probably be unknown if we canceled the
-				// registration, deleted from pendingInputs but
-				// the ntfn was in-flight already. Or this could
-				// be not one of our inputs.
-				input, ok := s.pendingInputs[outpoint]
-				if !ok {
-					continue
-				}
-
-				// Return either a nil or a remote spend result.
-				var err error
-				if !isOurTx {
-					err = ErrRemoteSpend
-				}
-
-				// Signal result channels.
-				s.signalAndRemove(&outpoint, Result{
-					Tx:  spend.SpendingTx,
-					Err: err,
-				})
-
-				// Remove all other inputs in this exclusive
-				// group.
-				if input.params.ExclusiveGroup != nil {
-					s.removeExclusiveGroup(
-						*input.params.ExclusiveGroup,
-					)
-				}
-			}
-
-			// Now that an input of ours is spent, we can try to
-			// resweep the remaining inputs.
-			if err := s.scheduleSweep(bestHeight); err != nil {
-				log.Errorf("schedule sweep: %v", err)
-			}
+			s.handleInputSpent(spend, bestHeight)
 
 		// A new external request has been received to retrieve all of
 		// the inputs we're currently attempting to sweep.
@@ -1667,6 +1587,82 @@ func (s *UtxoSweeper) handleExistingInput(input *sweepInputMessage,
 
 	if prevExclGroup != nil {
 		s.removeExclusiveGroup(*prevExclGroup)
+	}
+}
+
+// handleInputSpent takes a spend event of our input and updates the sweeper's
+// internal state to remove the input.
+func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail,
+	bestHeight int32) {
+
+	// For testing purposes.
+	if s.testSpendChan != nil {
+		s.testSpendChan <- *spend.SpentOutPoint
+	}
+
+	// Query store to find out if we ever published this tx.
+	spendHash := *spend.SpenderTxHash
+	isOurTx, err := s.cfg.Store.IsOurTx(spendHash)
+	if err != nil {
+		log.Errorf("cannot determine if tx %v is ours: %v",
+			spendHash, err)
+		return
+	}
+
+	// If this isn't our transaction, it means someone else swept outputs
+	// that we were attempting to sweep. This can happen for anchor outputs
+	// as well as justice transactions. In this case, we'll notify the
+	// wallet to remove any spends that descent from this output.
+	if !isOurTx {
+		err := s.removeLastSweepDescendants(spend.SpendingTx)
+		if err != nil {
+			log.Warnf("unable to remove descendant transactions "+
+				"due to tx %v: ", spendHash)
+		}
+
+		log.Debugf("Detected third party spend related to in flight "+
+			"inputs (is_ours=%v): %v",
+			newLogClosure(func() string {
+				return spew.Sdump(spend.SpendingTx)
+			}), isOurTx,
+		)
+	}
+
+	// Signal sweep results for inputs in this confirmed tx.
+	for _, txIn := range spend.SpendingTx.TxIn {
+		outpoint := txIn.PreviousOutPoint
+
+		// Check if this input is known to us. It could probably be
+		// unknown if we canceled the registration, deleted from
+		// pendingInputs but the ntfn was in-flight already. Or this
+		// could be not one of our inputs.
+		input, ok := s.pendingInputs[outpoint]
+		if !ok {
+			continue
+		}
+
+		// Return either a nil or a remote spend result.
+		var err error
+		if !isOurTx {
+			err = ErrRemoteSpend
+		}
+
+		// Signal result channels.
+		s.signalAndRemove(&outpoint, Result{
+			Tx:  spend.SpendingTx,
+			Err: err,
+		})
+
+		// Remove all other inputs in this exclusive group.
+		if input.params.ExclusiveGroup != nil {
+			s.removeExclusiveGroup(*input.params.ExclusiveGroup)
+		}
+	}
+
+	// Now that an input of ours is spent, we can try to resweep the
+	// remaining inputs.
+	if err := s.scheduleSweep(bestHeight); err != nil {
+		log.Errorf("schedule sweep: %v", err)
 	}
 }
 

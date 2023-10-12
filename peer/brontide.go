@@ -2982,7 +2982,10 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		// failed.
 		if err := p.tryLinkShutdown(chanID); err != nil {
 			p.log.Errorf("failed link shutdown: %v", err)
-			req.Err <- err
+
+			req.Err <- fmt.Errorf("failed handling co-op closing "+
+				"request with (try force closing "+
+				"it instead): %w", err)
 			return
 		}
 
@@ -3683,8 +3686,8 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 func (p *Brontide) HandleLocalCloseChanReqs(req *htlcswitch.ChanClose) {
 	select {
 	case p.localCloseChanReqs <- req:
-		p.log.Info("Local close channel request delivered to " +
-			"peer")
+		p.log.Info("Local close channel request is going to be " +
+			"delivered to the peer")
 	case <-p.quit:
 		p.log.Info("Unable to deliver local close channel request " +
 			"to peer")

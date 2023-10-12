@@ -4598,6 +4598,7 @@ message Failure {
         EXPIRY_TOO_FAR = 22;
         MPP_TIMEOUT = 23;
         INVALID_ONION_PAYLOAD = 24;
+        INVALID_ONION_BLINDING = 25;
 
         /*
         An internal error occurred.

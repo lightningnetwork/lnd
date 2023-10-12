@@ -62,6 +62,11 @@
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates
+
+* [Add Dynamic Commitment Wire Types](https://github.com/lightningnetwork/lnd/pull/8026).
+  This change begins the development of Dynamic Commitments allowing for the
+  negotiation of new channel parameters and the upgrading of channel types.
+
 ## Testing
 ## Database
 ## Code Health
@@ -71,4 +76,5 @@
 
 * Carla Kirk-Cohen
 * Elle Mouton
+* Keagan McClelland
 * Yong Yu

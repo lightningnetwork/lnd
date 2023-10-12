@@ -1487,6 +1487,10 @@ func marshallWireError(msg lnwire.FailureMessage,
 	case *lnwire.InvalidOnionPayload:
 		response.Code = lnrpc.Failure_INVALID_ONION_PAYLOAD
 
+	case *lnwire.FailInvalidBlinding:
+		response.Code = lnrpc.Failure_INVALID_ONION_BLINDING
+		response.OnionSha_256 = onionErr.OnionSHA256[:]
+
 	case nil:
 		response.Code = lnrpc.Failure_UNKNOWN_FAILURE
 

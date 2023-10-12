@@ -687,22 +687,64 @@ func (s *UtxoSweeper) removeExclusiveGroup(group uint64) {
 func (s *UtxoSweeper) sweepCluster(cluster inputCluster,
 	currentHeight int32) error {
 
-	// Execute the sweep within a coin select lock. Otherwise the coins that
-	// we are going to spend may be selected for other transactions like
-	// funding of a channel.
+	// Execute the sweep within a coin select lock. Otherwise the coins
+	// that we are going to spend may be selected for other transactions
+	// like funding of a channel.
 	return s.cfg.Wallet.WithCoinSelectLock(func() error {
-		// Examine pending inputs and try to construct
-		// lists of inputs.
-		inputLists, err := s.getInputLists(cluster, currentHeight)
+		// Examine pending inputs and try to construct lists of inputs.
+		allSets, newSets, err := s.getInputLists(cluster, currentHeight)
 		if err != nil {
-			return fmt.Errorf("unable to examine pending inputs: %v", err)
+			return fmt.Errorf("examine pending inputs: %w", err)
 		}
 
-		// Sweep selected inputs.
-		for _, inputs := range inputLists {
-			err := s.sweep(inputs, cluster.sweepFeeRate, currentHeight)
+		// errAllSets records the error from broadcasting the sweeping
+		// transactions for all input sets.
+		var errAllSets error
+
+		// allSets contains retried inputs and new inputs. To avoid
+		// creating an RBF for the new inputs, we'd sweep this set
+		// first.
+		for _, inputs := range allSets {
+			errAllSets = s.sweep(
+				inputs, cluster.sweepFeeRate, currentHeight,
+			)
+			// TODO(yy): we should also find out which set created
+			// this error. If there are new inputs in this set, we
+			// should give it a second chance by sweeping them
+			// below. To enable this, we need to provide richer
+			// state for each input other than just recording the
+			// publishAttempts. We'd also need to refactor how we
+			// create the input sets. Atm, the steps are,
+			// 1. create a list of input sets.
+			// 2. sweep each set by creating and publishing the tx.
+			// We should change the flow as,
+			// 1. create a list of input sets, and for each set,
+			// 2. when created, we create and publish the tx.
+			// 3. if the publish fails, find out which input is
+			//    causing the failure and retry the rest of the
+			//    inputs.
+			if errAllSets != nil {
+				log.Errorf("sweep all inputs: %w", err)
+				break
+			}
+		}
+
+		// If we have successfully swept all inputs, there's no need to
+		// sweep the new inputs as it'd create an RBF case.
+		if allSets != nil && errAllSets == nil {
+			return nil
+		}
+
+		// We'd end up there if there's no retried inputs. In this
+		// case, we'd sweep the new input sets. If there's an error
+		// when sweeping a given set, we'd log the error and sweep the
+		// next set.
+		for _, inputs := range newSets {
+			err := s.sweep(
+				inputs, cluster.sweepFeeRate, currentHeight,
+			)
 			if err != nil {
-				return fmt.Errorf("unable to sweep inputs: %v", err)
+				log.Errorf("sweep new inputs: %w", err)
 			}
 		}
 
@@ -1017,23 +1059,25 @@ func (s *UtxoSweeper) signalAndRemove(outpoint *wire.OutPoint, result Result) {
 }
 
 // getInputLists goes through the given inputs and constructs multiple distinct
-// sweep lists with the given fee rate, each up to the configured maximum number
-// of inputs. Negative yield inputs are skipped. Transactions with an output
-// below the dust limit are not published. Those inputs remain pending and will
-// be bundled with future inputs if possible.
+// sweep lists with the given fee rate, each up to the configured maximum
+// number of inputs. Negative yield inputs are skipped. Transactions with an
+// output below the dust limit are not published. Those inputs remain pending
+// and will be bundled with future inputs if possible. It returns two list -
+// one containing all inputs and the other containing only the new inputs. If
+// there's no retried inputs, the first set returned will be empty.
 func (s *UtxoSweeper) getInputLists(cluster inputCluster,
-	currentHeight int32) ([]inputSet, error) {
+	currentHeight int32) ([]inputSet, []inputSet, error) {
 
 	// Filter for inputs that need to be swept. Create two lists: all
 	// sweepable inputs and a list containing only the new, never tried
 	// inputs.
 	//
-	// We want to create as large a tx as possible, so we return a final set
-	// list that starts with sets created from all inputs. However, there is
-	// a chance that those txes will not publish, because they already
-	// contain inputs that failed before. Therefore we also add sets
-	// consisting of only new inputs to the list, to make sure that new
-	// inputs are given a good, isolated chance of being published.
+	// We want to create as large a tx as possible, so we return a final
+	// set list that starts with sets created from all inputs. However,
+	// there is a chance that those txes will not publish, because they
+	// already contain inputs that failed before. Therefore we also add
+	// sets consisting of only new inputs to the list, to make sure that
+	// new inputs are given a good, isolated chance of being published.
 	//
 	// TODO(yy): this would lead to conflict transactions as the same input
 	// can be used in two sweeping transactions, and our rebroadcaster will
@@ -1070,7 +1114,8 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 			s.cfg.MaxInputsPerTx, s.cfg.Wallet,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("input partitionings: %v", err)
+			return nil, nil, fmt.Errorf("input partitionings: %w",
+				err)
 		}
 	}
 
@@ -1080,15 +1125,13 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 		s.cfg.MaxInputsPerTx, s.cfg.Wallet,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("input partitionings: %v", err)
+		return nil, nil, fmt.Errorf("input partitionings: %w", err)
 	}
 
 	log.Debugf("Sweep candidates at height=%v: total_num_pending=%v, "+
 		"total_num_new=%v", currentHeight, len(allSets), len(newSets))
 
-	// Append the new sets at the end of the list, because those tx likely
-	// have a higher fee per input.
-	return append(allSets, newSets...), nil
+	return allSets, newSets, nil
 }
 
 // sweep takes a set of preselected inputs, creates a sweep tx and publishes the

@@ -860,10 +860,6 @@ func TestRetry(t *testing.T) {
 	// We expect a sweep to be published.
 	ctx.receiveTx()
 
-	// New block arrives. This should trigger a new sweep attempt timer
-	// start.
-	ctx.notifier.NotifyEpoch(1000)
-
 	// Offer a fresh input.
 	resultChan1, err := ctx.sweeper.SweepInput(
 		spendableInputs[1], defaultFeePref,
@@ -872,9 +868,7 @@ func TestRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Two txes are expected to be published, because new and retry inputs
-	// are separated.
-	ctx.receiveTx()
+	// A single tx is expected to be published.
 	ctx.receiveTx()
 
 	ctx.backend.mine()
@@ -2433,6 +2427,115 @@ func TestClusterByLockTime(t *testing.T) {
 			input4LockTime2.AssertExpectations(t)
 			input5NoLockTime.AssertExpectations(t)
 			input6NoLockTime.AssertExpectations(t)
+		})
+	}
+}
+
+// TestGetInputLists checks that the expected input sets are returned based on
+// whether there are retried inputs or not.
+func TestGetInputLists(t *testing.T) {
+	t.Parallel()
+
+	// Create a test param with a dummy fee preference. This is needed so
+	// `feeRateForPreference` won't throw an error.
+	param := Params{Fee: FeePreference{ConfTarget: 1}}
+
+	// Create a mock input and mock all the methods used in this test.
+	testInput := &input.MockInput{}
+	testInput.On("RequiredLockTime").Return(0, false)
+	testInput.On("WitnessType").Return(input.CommitmentAnchor)
+	testInput.On("OutPoint").Return(&wire.OutPoint{Index: 1})
+	testInput.On("RequiredTxOut").Return(nil)
+	testInput.On("UnconfParent").Return(nil)
+	testInput.On("SignDesc").Return(&input.SignDescriptor{
+		Output: &wire.TxOut{Value: 100_000},
+	})
+
+	// Create a new and a retried input.
+	//
+	// NOTE: we use the same input.Input for both pending inputs as we only
+	// test the logic of returning the correct non-nil input sets, and not
+	// the content the of sets. To validate the content of the sets, we
+	// should test `generateInputPartitionings` instead.
+	newInput := &pendingInput{
+		Input:  testInput,
+		params: param,
+	}
+	oldInput := &pendingInput{
+		Input:           testInput,
+		params:          param,
+		publishAttempts: 1,
+	}
+
+	// clusterNew contains only new inputs.
+	clusterNew := pendingInputs{
+		wire.OutPoint{Index: 1}: newInput,
+	}
+
+	// clusterMixed contains a mixed of new and retried inputs.
+	clusterMixed := pendingInputs{
+		wire.OutPoint{Index: 1}: newInput,
+		wire.OutPoint{Index: 2}: oldInput,
+	}
+
+	// clusterOld contains only retried inputs.
+	clusterOld := pendingInputs{
+		wire.OutPoint{Index: 2}: oldInput,
+	}
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		MaxInputsPerTx: DefaultMaxInputsPerTx,
+	})
+
+	testCases := []struct {
+		name              string
+		cluster           inputCluster
+		expectedNilAllSet bool
+		expectNilNewSet   bool
+	}{
+		{
+			// When there are only new inputs, we'd expect the
+			// first returned set(allSets) to be empty.
+			name:              "new inputs only",
+			cluster:           inputCluster{inputs: clusterNew},
+			expectedNilAllSet: true,
+			expectNilNewSet:   false,
+		},
+		{
+			// When there are only retried inputs, we'd expect the
+			// second returned set(newSet) to be empty.
+			name:              "retried inputs only",
+			cluster:           inputCluster{inputs: clusterOld},
+			expectedNilAllSet: false,
+			expectNilNewSet:   true,
+		},
+		{
+			// When there are mixed inputs, we'd expect two sets
+			// are returned.
+			name:              "mixed inputs",
+			cluster:           inputCluster{inputs: clusterMixed},
+			expectedNilAllSet: false,
+			expectNilNewSet:   false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			allSets, newSets, err := s.getInputLists(tc.cluster, 0)
+			require.NoError(t, err)
+
+			if tc.expectNilNewSet {
+				require.Nil(t, newSets)
+			}
+
+			if tc.expectedNilAllSet {
+				require.Nil(t, allSets)
+			}
 		})
 	}
 }

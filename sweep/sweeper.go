@@ -228,9 +228,6 @@ type UtxoSweeper struct {
 	// requested to sweep.
 	pendingInputs pendingInputs
 
-	// timer is the channel that signals expiry of the sweep batch timer.
-	timer <-chan time.Time
-
 	testSpendChan chan wire.OutPoint
 
 	currentOutputScript []byte
@@ -606,6 +603,12 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		return
 	}
 
+	// Create a ticker based on the config duration.
+	ticker := time.NewTicker(s.cfg.TickerDuration)
+	defer ticker.Stop()
+
+	log.Debugf("Sweep ticker started")
+
 	for {
 		select {
 		// A new inputs is offered to the sweeper. We check to see if
@@ -617,7 +620,7 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		// A spend of one of our inputs is detected. Signal sweep
 		// results to the caller(s).
 		case spend := <-s.spendChan:
-			s.handleInputSpent(spend, bestHeight)
+			s.handleInputSpent(spend)
 
 		// A new external request has been received to retrieve all of
 		// the inputs we're currently attempting to sweep.
@@ -634,12 +637,11 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			}
 
 		// The timer expires and we are going to (re)sweep.
-		case <-s.timer:
-			log.Debugf("Sweep timer expired")
+		case <-ticker.C:
+			log.Debugf("Sweep ticker ticks, attempt sweeping...")
 			s.handleSweep(bestHeight)
 
-		// A new block comes in. Things may have changed, so we retry a
-		// sweep.
+		// A new block comes in, update the bestHeight.
 		case epoch, ok := <-blockEpochs:
 			if !ok {
 				return
@@ -649,10 +651,6 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 
 			log.Debugf("New block: height=%v, sha=%v",
 				epoch.Height, epoch.Hash)
-
-			if err := s.scheduleSweep(bestHeight); err != nil {
-				log.Errorf("schedule sweep: %v", err)
-			}
 
 		case <-s.quit:
 			return
@@ -980,51 +978,6 @@ func mergeClusters(a, b inputCluster) []inputCluster {
 	}
 
 	return []inputCluster{newCluster}
-}
-
-// scheduleSweep starts the sweep timer to create an opportunity for more inputs
-// to be added.
-func (s *UtxoSweeper) scheduleSweep(currentHeight int32) error {
-	// The timer is already ticking, no action needed for the sweep to
-	// happen.
-	if s.timer != nil {
-		log.Debugf("Timer still ticking at height=%v", currentHeight)
-		return nil
-	}
-
-	// We'll only start our timer once we have inputs we're able to sweep.
-	startTimer := false
-	for _, cluster := range s.createInputClusters() {
-		// Examine pending inputs and try to construct lists of inputs.
-		// We don't need to obtain the coin selection lock, because we
-		// just need an indication as to whether we can sweep. More
-		// inputs may be added until we publish the transaction and
-		// coins that we select now may be used in other transactions.
-		inputLists, err := s.getInputLists(cluster, currentHeight)
-		if err != nil {
-			return fmt.Errorf("get input lists: %v", err)
-		}
-
-		log.Infof("Sweep candidates at height=%v with fee_rate=%v, "+
-			"yield %v distinct txns", currentHeight,
-			cluster.sweepFeeRate, len(inputLists))
-
-		if len(inputLists) != 0 {
-			startTimer = true
-			break
-		}
-	}
-	if !startTimer {
-		return nil
-	}
-
-	// Start sweep timer to create opportunity for more inputs to be added
-	// before a tx is constructed.
-	s.timer = time.NewTicker(s.cfg.TickerDuration).C
-
-	log.Debugf("Sweep timer started")
-
-	return nil
 }
 
 // signalAndRemove notifies the listeners of the final result of the input
@@ -1423,10 +1376,6 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq, bestHeight int32) (
 		pendingInput.minPublishHeight = bestHeight
 	}
 
-	if err := s.scheduleSweep(bestHeight); err != nil {
-		log.Errorf("Unable to schedule sweep: %v", err)
-	}
-
 	resultChan := make(chan Result, 1)
 	pendingInput.listeners = append(pendingInput.listeners, resultChan)
 
@@ -1522,13 +1471,6 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage,
 	}
 
 	pendInput.ntfnRegCancel = cancel
-
-	// Check to see if with this new input a sweep tx can be formed.
-	if err := s.scheduleSweep(bestHeight); err != nil {
-		log.Errorf("schedule sweep: %v", err)
-	}
-
-	log.Tracef("input %v scheduled", outpoint)
 }
 
 // handleExistingInput processes an input that is already known to the sweeper.
@@ -1571,9 +1513,7 @@ func (s *UtxoSweeper) handleExistingInput(input *sweepInputMessage,
 
 // handleInputSpent takes a spend event of our input and updates the sweeper's
 // internal state to remove the input.
-func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail,
-	bestHeight int32) {
-
+func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
 	// For testing purposes.
 	if s.testSpendChan != nil {
 		s.testSpendChan <- *spend.SpentOutPoint
@@ -1637,21 +1577,11 @@ func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail,
 			s.removeExclusiveGroup(*input.params.ExclusiveGroup)
 		}
 	}
-
-	// Now that an input of ours is spent, we can try to resweep the
-	// remaining inputs.
-	if err := s.scheduleSweep(bestHeight); err != nil {
-		log.Errorf("schedule sweep: %v", err)
-	}
 }
 
 // handleSweep is called when the ticker fires. It will create clusters and
 // attempt to create and publish the sweeping transactions.
 func (s *UtxoSweeper) handleSweep(bestHeight int32) {
-	// Set timer to nil so we know that a new timer needs to be started
-	// when new inputs arrive.
-	s.timer = nil
-
 	// We'll attempt to cluster all of our inputs with similar fee rates.
 	// Before attempting to sweep them, we'll sort them in descending fee
 	// rate order. We do this to ensure any inputs which have had their fee

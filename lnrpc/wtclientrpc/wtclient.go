@@ -476,15 +476,11 @@ func (c *WatchtowerClient) Policy(ctx context.Context,
 	}
 
 	return &PolicyResponse{
-		MaxUpdates: uint32(policy.MaxUpdates),
-		SweepSatPerVbyte: uint32(
-			policy.SweepFeeRate.FeePerKVByte() / 1000,
-		),
+		MaxUpdates:       uint32(policy.MaxUpdates),
+		SweepSatPerVbyte: uint32(policy.SweepFeeRate.FeePerVByte()),
 
 		// Deprecated field.
-		SweepSatPerByte: uint32(
-			policy.SweepFeeRate.FeePerKVByte() / 1000,
-		),
+		SweepSatPerByte: uint32(policy.SweepFeeRate.FeePerVByte()),
 	}, nil
 }
 
@@ -519,7 +515,7 @@ func marshallTower(tower *wtclient.RegisteredTower, policyType PolicyType,
 
 		rpcSessions = make([]*TowerSession, 0, len(tower.Sessions))
 		for _, session := range sessions {
-			satPerVByte := session.Policy.SweepFeeRate.FeePerKVByte() / 1000
+			satPerVByte := session.Policy.SweepFeeRate.FeePerVByte()
 			rpcSessions = append(rpcSessions, &TowerSession{
 				NumBackups:        uint32(ackCounts[session.ID]),
 				NumPendingBackups: uint32(pendingCounts[session.ID]),

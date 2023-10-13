@@ -1197,10 +1197,10 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 
 	resp := &lnrpc.EstimateFeeResponse{
 		FeeSat:      totalFee,
-		SatPerVbyte: uint64(feePerKw.FeePerKVByte() / 1000),
+		SatPerVbyte: uint64(feePerKw.FeePerVByte()),
 
 		// Deprecated field.
-		FeerateSatPerByte: int64(feePerKw.FeePerKVByte() / 1000),
+		FeerateSatPerByte: int64(feePerKw.FeePerVByte()),
 	}
 
 	rpcsLog.Debugf("[estimatefee] fee estimate for conf target %d: %v",

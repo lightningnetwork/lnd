@@ -782,12 +782,12 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 
 		op := lnrpc.MarshalOutPoint(&pendingInput.OutPoint)
 		amountSat := uint32(pendingInput.Amount)
-		satPerVbyte := uint64(pendingInput.LastFeeRate.FeePerKVByte() / 1000)
+		satPerVbyte := uint64(pendingInput.LastFeeRate.FeePerVByte())
 		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
 		nextBroadcastHeight := uint32(pendingInput.NextBroadcastHeight)
 
 		requestedFee := pendingInput.Params.Fee
-		requestedFeeRate := uint64(requestedFee.FeeRate.FeePerKVByte() / 1000)
+		requestedFeeRate := uint64(requestedFee.FeeRate.FeePerVByte())
 
 		rpcPendingSweeps = append(rpcPendingSweeps, &PendingSweep{
 			Outpoint:             op,

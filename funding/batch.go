@@ -331,14 +331,14 @@ func (b *Batcher) BatchFund(ctx context.Context,
 	// settings from the first request as all of them should be equal
 	// anyway.
 	firstReq := b.channels[0].fundingReq
-	feeRateSatPerKVByte := firstReq.FundingFeePerKw.FeePerKVByte()
+	feeRateSatPerVByte := firstReq.FundingFeePerKw.FeePerVByte()
 	changeType := walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
 	fundPsbtReq := &walletrpc.FundPsbtRequest{
 		Template: &walletrpc.FundPsbtRequest_Raw{
 			Raw: txTemplate,
 		},
 		Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
-			SatPerVbyte: uint64(feeRateSatPerKVByte) / 1000,
+			SatPerVbyte: uint64(feeRateSatPerVByte),
 		},
 		MinConfs:         firstReq.MinConfs,
 		SpendUnconfirmed: firstReq.MinConfs == 0,

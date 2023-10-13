@@ -9,6 +9,7 @@ import (
 	"math"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -1344,6 +1345,11 @@ type LightningChannel struct {
 	// fundingOutput is the funding output (script+value).
 	fundingOutput wire.TxOut
 
+	// skipNonceInit is set when we want to avoid calling
+	// InitRemoteMusigNonces twice. This is used in certain cases when
+	// reestablishing a channel.
+	skipNonceInit atomic.Bool
+
 	sync.RWMutex
 }
 
@@ -1468,6 +1474,11 @@ func NewLightningChannel(signer input.Signer,
 	}
 
 	return lc, nil
+}
+
+// SkipNonceInit sets the skipNonceInit variable.
+func (lc *LightningChannel) SkipNonceInit() {
+	lc.skipNonceInit.Store(true)
 }
 
 // createSignDesc derives the SignDescriptor for commitment transactions from
@@ -4263,6 +4274,12 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			"not sent")
 
 	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce != nil:
+		if lc.skipNonceInit.CompareAndSwap(true, false) {
+			// Don't call InitRemoteMusigNonces if we have already
+			// done so.
+			break
+		}
+
 		err := lc.InitRemoteMusigNonces(&musig2.Nonces{
 			PubNonce: *msg.LocalNonce,
 		})

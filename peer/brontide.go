@@ -3867,6 +3867,13 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 			"policy: %v", err)
 	}
 
+	if shouldReestablish {
+		// If we have to do the reestablish dance for this channel,
+		// ensure that we don't try to call InitRemoteMusigNonces
+		// twice by calling SkipNonceInit.
+		lnChan.SkipNonceInit()
+	}
+
 	// Create the link and add it to the switch.
 	err = p.addLink(
 		chanPoint, lnChan, initialPolicy, chainEvents,

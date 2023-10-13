@@ -28,6 +28,10 @@
 * LND will now [enforce pong responses
   ](https://github.com/lightningnetwork/lnd/pull/7828) from its peers
 
+* [Fixed a possible unintended RBF
+  attempt](https://github.com/lightningnetwork/lnd/pull/8091) when sweeping new
+  inputs with retried ones.
+
 # New Features
 ## Functional Enhancements
 

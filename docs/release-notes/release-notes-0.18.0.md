@@ -52,7 +52,9 @@
 * Support for [pathfinding]((https://github.com/lightningnetwork/lnd/pull/7267)
   and payment to blinded paths has been added via the `QueryRoutes` (and 
   SendToRouteV2) APIs. This functionality is surfaced in `lncli queryroutes` 
-  where the required flags are tagged with `(blinded paths)`.
+  where the required flags are tagged with `(blinded paths)`. Updates to mission
+  control to [handle pathfinding errors](https://github.com/lightningnetwork/lnd/pull/8095)
+  for blinded paths are also included.
 * A new config value,
   [http-header-timeout](https://github.com/lightningnetwork/lnd/pull/7715), is added so users can specify the amount of time the http server will wait for a request to complete before closing the connection. The default value is 5 seconds.
 

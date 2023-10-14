@@ -800,6 +800,13 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(dr)
 		},
+		MsgDynAck: func(v []reflect.Value, r *rand.Rand) {
+			var da DynAck
+
+			rand.Read(da.ChanID[:])
+
+			v[0] = reflect.ValueOf(da)
+		},
 		MsgCommitSig: func(v []reflect.Value, r *rand.Rand) {
 			req := NewCommitSig()
 			if _, err := r.Read(req.ChanID[:]); err != nil {
@@ -1254,6 +1261,12 @@ func TestLightningWireProtocol(t *testing.T) {
 		{
 			msgType: MsgDynReject,
 			scenario: func(m DynReject) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgDynAck,
+			scenario: func(m DynAck) bool {
 				return mainScenario(&m)
 			},
 		},

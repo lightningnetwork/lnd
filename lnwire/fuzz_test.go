@@ -576,6 +576,39 @@ func FuzzUpdateFulfillHTLC(f *testing.F) {
 	})
 }
 
+func FuzzDynPropose(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with DynPropose.
+		data = prefixWithMsgType(data, MsgDynPropose)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}
+
+func FuzzDynReject(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with DynReject.
+		data = prefixWithMsgType(data, MsgDynReject)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}
+
+func FuzzDynAck(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with DynReject.
+		data = prefixWithMsgType(data, MsgDynAck)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}
+
 func FuzzCustomMessage(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte, customMessageType uint16) {
 		if customMessageType < uint16(CustomTypeStart) {

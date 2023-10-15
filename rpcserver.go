@@ -3292,8 +3292,11 @@ func (r *rpcServer) WalletBalance(ctx context.Context,
 		// Get confirmed balance, from txs that have >= 1 confirmations.
 		// TODO(halseth): get both unconfirmed and confirmed balance in
 		// one call, as this is racy.
+		if in.MinConfs <= 0 {
+			in.MinConfs = 1
+		}
 		confirmedBal, err := r.server.cc.Wallet.ConfirmedBalance(
-			1, account.AccountName,
+			in.MinConfs, account.AccountName,
 		)
 		if err != nil {
 			return nil, err

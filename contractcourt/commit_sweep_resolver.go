@@ -25,9 +25,15 @@ const (
 )
 
 // commitSweepResolver is a resolver that will attempt to sweep the commitment
-// output paying to us, in the case that the remote party broadcasts their
-// version of the commitment transaction. We can sweep this output immediately,
-// as it doesn't have a time-lock delay.
+// output paying to us (local channel balance). In the case that the local
+// party (we) broadcasts their version of the commitment transaction, we have
+// to wait before sweeping it, as it has a CSV delay. For anchor channel
+// type, even if the remote party broadcasts the commitment transaction,
+// we have to wait one block after commitment transaction is confirmed,
+// because CSV 1 is put into the script of UTXO representing local balance.
+// Additionally, if the channel is a channel lease, we have to wait for
+// CLTV to expire.
+// https://docs.lightning.engineering/lightning-network-tools/pool/overview
 type commitSweepResolver struct {
 	// commitResolution contains all data required to successfully sweep
 	// this HTLC on-chain.

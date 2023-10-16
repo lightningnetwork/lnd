@@ -18,7 +18,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/btcsuite/btcwallet/wallet"
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
@@ -1263,7 +1262,7 @@ func extractBalanceDelta(
 // getPreviousOutpoints is a helper function which gets the previous
 // outpoints of a transaction.
 func getPreviousOutpoints(wireTx *wire.MsgTx,
-	myInputs []wallet.TransactionSummaryInput) []lnwallet.PreviousOutPoint {
+	myInputs []base.TransactionSummaryInput) []lnwallet.PreviousOutPoint {
 
 	// isOurOutput is a map containing the output indices
 	// controlled by the wallet.
@@ -1538,7 +1537,7 @@ out:
 			// Launch a goroutine to re-package and send
 			// notifications for any newly confirmed transactions.
 			//nolint:lll
-			go func(txNtfn *wallet.TransactionNotifications) {
+			go func(txNtfn *base.TransactionNotifications) {
 				for _, block := range txNtfn.AttachedBlocks {
 					details, err := minedTransactionsToDetails(
 						currentHeight, block,
@@ -1561,7 +1560,7 @@ out:
 
 			// Launch a goroutine to re-package and send
 			// notifications for any newly unconfirmed transactions.
-			go func(txNtfn *wallet.TransactionNotifications) {
+			go func(txNtfn *base.TransactionNotifications) {
 				for _, tx := range txNtfn.UnminedTransactions {
 					detail, err := unminedTransactionsToDetail(
 						tx, t.w.ChainParams(),

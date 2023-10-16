@@ -17,15 +17,16 @@ var testPK, _ = btcec.ParsePubKey([]byte{0x02,
 })
 
 type primitive struct {
-	u8    byte
-	u16   uint16
-	u32   uint32
-	u64   uint64
-	b32   [32]byte
-	b33   [33]byte
-	b64   [64]byte
-	pk    *btcec.PublicKey
-	bytes []byte
+	u8      byte
+	u16     uint16
+	u32     uint32
+	u64     uint64
+	b32     [32]byte
+	b33     [33]byte
+	b64     [64]byte
+	pk      *btcec.PublicKey
+	bytes   []byte
+	boolean bool
 }
 
 // TestWrongEncodingType asserts that all primitives encoders will fail with a
@@ -41,6 +42,7 @@ func TestWrongEncodingType(t *testing.T) {
 		tlv.EBytes64,
 		tlv.EPubKey,
 		tlv.EVarBytes,
+		tlv.EBool,
 	}
 
 	// We'll use an int32 since it is not a primitive type, which should
@@ -73,6 +75,7 @@ func TestWrongDecodingType(t *testing.T) {
 		tlv.DBytes64,
 		tlv.DPubKey,
 		tlv.DVarBytes,
+		tlv.DBool,
 	}
 
 	// We'll use an int32 since it is not a primitive type, which should
@@ -108,15 +111,16 @@ type fieldDecoder struct {
 // to decode the output and arrive at the same fields.
 func TestPrimitiveEncodings(t *testing.T) {
 	prim := primitive{
-		u8:    0x01,
-		u16:   0x0201,
-		u32:   0x02000001,
-		u64:   0x0200000000000001,
-		b32:   [32]byte{0x02, 0x01},
-		b33:   [33]byte{0x03, 0x01},
-		b64:   [64]byte{0x02, 0x01},
-		pk:    testPK,
-		bytes: []byte{0xaa, 0xbb},
+		u8:      0x01,
+		u16:     0x0201,
+		u32:     0x02000001,
+		u64:     0x0200000000000001,
+		b32:     [32]byte{0x02, 0x01},
+		b33:     [33]byte{0x03, 0x01},
+		b64:     [64]byte{0x02, 0x01},
+		pk:      testPK,
+		bytes:   []byte{0xaa, 0xbb},
+		boolean: true,
 	}
 
 	encoders := []fieldEncoder{
@@ -155,6 +159,10 @@ func TestPrimitiveEncodings(t *testing.T) {
 		{
 			val:     &prim.bytes,
 			encoder: tlv.EVarBytes,
+		},
+		{
+			val:     &prim.boolean,
+			encoder: tlv.EBool,
 		},
 	}
 
@@ -221,6 +229,11 @@ func TestPrimitiveEncodings(t *testing.T) {
 			val:     &prim2.bytes,
 			decoder: tlv.DVarBytes,
 			size:    2,
+		},
+		{
+			val:     &prim2.boolean,
+			decoder: tlv.DBool,
+			size:    1,
 		},
 	}
 

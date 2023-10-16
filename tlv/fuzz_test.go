@@ -97,6 +97,13 @@ func FuzzVarBytes(f *testing.F) {
 	})
 }
 
+func FuzzBool(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var val bool
+		harness(t, data, EBool, DBool, &val, 1)
+	})
+}
+
 // bigSizeHarness works the same as harness, except that it compares decoded
 // values instead of encoded values. We do this because DBigSize may leave some
 // bytes unparsed from data, causing the encoded data to be shorter than the
@@ -210,20 +217,21 @@ func encodeParsedTypes(t *testing.T, parsedTypes TypeMap,
 func FuzzStream(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		var (
-			u8   uint8
-			u16  uint16
-			u32  uint32
-			u64  uint64
-			b32  [32]byte
-			b33  [33]byte
-			b64  [64]byte
-			pk   *btcec.PublicKey
-			b    []byte
-			bs32 uint32
-			bs64 uint64
-			tu16 uint16
-			tu32 uint32
-			tu64 uint64
+			u8      uint8
+			u16     uint16
+			u32     uint32
+			u64     uint64
+			b32     [32]byte
+			b33     [33]byte
+			b64     [64]byte
+			pk      *btcec.PublicKey
+			b       []byte
+			bs32    uint32
+			bs64    uint64
+			tu16    uint16
+			tu32    uint32
+			tu64    uint64
+			boolean bool
 		)
 
 		sizeTU16 := func() uint64 {
@@ -260,6 +268,7 @@ func FuzzStream(f *testing.F) {
 			MakeDynamicRecord(
 				13, &tu64, sizeTU64, ETUint64, DTUint64,
 			),
+			MakePrimitiveRecord(14, &boolean),
 		}
 		decodeStream := MustNewStream(decodeRecords...)
 

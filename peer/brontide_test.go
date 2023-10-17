@@ -1267,18 +1267,6 @@ func TestHandleRemovePendingChannel(t *testing.T) {
 	chanIDNotExist := lnwire.ChannelID{1}
 	chanIDPending := lnwire.ChannelID{2}
 
-	// Create a test brontide.
-	dummyConfig := Config{}
-	peer := NewBrontide(dummyConfig)
-
-	// Create the test state.
-	peer.activeChannels.Store(chanIDActive, &lnwallet.LightningChannel{})
-	peer.activeChannels.Store(chanIDPending, nil)
-
-	// Assert test state, we should have two channels store, one active and
-	// one pending.
-	require.Equal(t, 2, peer.activeChannels.Len())
-
 	testCases := []struct {
 		name   string
 		chanID lnwire.ChannelID
@@ -1314,8 +1302,23 @@ func TestHandleRemovePendingChannel(t *testing.T) {
 			err:       errChan,
 		}
 
+		// Create a test brontide.
+		dummyConfig := Config{}
+		peer := NewBrontide(dummyConfig)
+
+		// Create the test state.
+		peer.activeChannels.Store(
+			chanIDActive, &lnwallet.LightningChannel{},
+		)
+		peer.activeChannels.Store(chanIDPending, nil)
+
+		// Assert test state, we should have two channels store, one
+		// active and one pending.
+		require.Equal(t, 2, peer.activeChannels.Len())
+
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			require := require.New(t)
 
 			// Get the number of channels before mutating the

@@ -228,7 +228,7 @@ func TestMusigSesssion(t *testing.T) {
 	// commitment, and one for the remote commitment.
 	muSessions := newMuSessionHarness(t)
 
-	t.Run("session_round_trips", func(t *testing.T) { //nolint:paralleltest
+	t.Run("session_round_trips", func(t *testing.T) {
 		const numRounds = 10
 		for i := 0; i < numRounds; i++ {
 			// We'll now simulate a full commitment dance.
@@ -262,7 +262,7 @@ func TestMusigSesssion(t *testing.T) {
 		}
 	})
 
-	t.Run("no_finalize_error", func(t *testing.T) { //nolint:paralleltest
+	t.Run("no_finalize_error", func(t *testing.T) {
 		// If a local party attempts to sign for their local commitment
 		// without finalizing first, they'll get this error.
 		_, err := muSessions.aliceSession.LocalSession.SignCommit(

@@ -371,7 +371,7 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		})
 	}
 
-	t.Run("anchors", func(t *testing.T) { //nolint:paralleltest
+	t.Run("anchors", func(t *testing.T) {
 		testAddSettleWorkflow(
 			t, true,
 			channeldb.AnchorOutputsBit|channeldb.ZeroHtlcTxFeeBit,
@@ -379,13 +379,12 @@ func TestSimpleAddSettleWorkflow(t *testing.T) {
 		)
 	})
 
-	t.Run("taproot", func(t *testing.T) { //nolint:paralleltest
+	t.Run("taproot", func(t *testing.T) {
 		testAddSettleWorkflow(
 			t, true, channeldb.SimpleTaprootFeatureBit, false,
 		)
 	})
 
-	//nolint:paralleltest
 	t.Run("storeFinalHtlcResolutions=true", func(t *testing.T) {
 		testAddSettleWorkflow(t, false, 0, true)
 	})
@@ -819,7 +818,7 @@ func TestForceClose(t *testing.T) {
 			anchorAmt:            anchorSize * 2,
 		})
 	})
-	t.Run("taproot", func(t *testing.T) { //nolint:paralleltest
+	t.Run("taproot", func(t *testing.T) {
 		testForceClose(t, &forceCloseTestCase{
 			chanType: channeldb.SingleFunderTweaklessBit |
 				channeldb.AnchorOutputsBit |
@@ -3594,10 +3593,10 @@ func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 func TestChanSyncOweRevocation(t *testing.T) {
 	t.Parallel()
 
-	t.Run("tweakless", func(t *testing.T) { //nolint:paralleltest
+	t.Run("tweakless", func(t *testing.T) {
 		testChanSyncOweRevocation(t, channeldb.SingleFunderTweaklessBit)
 	})
-	t.Run("taproot", func(t *testing.T) { //nolint:paralleltest
+	t.Run("taproot", func(t *testing.T) {
 		taprootBits := channeldb.SimpleTaprootFeatureBit |
 			channeldb.AnchorOutputsBit |
 			channeldb.ZeroHtlcTxFeeBit |
@@ -3777,12 +3776,12 @@ func testChanSyncOweRevocationAndCommit(t *testing.T,
 func TestChanSyncOweRevocationAndCommit(t *testing.T) {
 	t.Parallel()
 
-	t.Run("tweakless", func(t *testing.T) { //nolint:paralleltest
+	t.Run("tweakless", func(t *testing.T) {
 		testChanSyncOweRevocationAndCommit(
 			t, channeldb.SingleFunderTweaklessBit,
 		)
 	})
-	t.Run("taproot", func(t *testing.T) { //nolint:paralleltest
+	t.Run("taproot", func(t *testing.T) {
 		taprootBits := channeldb.SimpleTaprootFeatureBit |
 			channeldb.AnchorOutputsBit |
 			channeldb.ZeroHtlcTxFeeBit |
@@ -4006,12 +4005,12 @@ func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
 func TestChanSyncOweRevocationAndCommitForceTransition(t *testing.T) {
 	t.Parallel()
 
-	t.Run("tweakless", func(t *testing.T) { //nolint:paralleltest
+	t.Run("tweakless", func(t *testing.T) {
 		testChanSyncOweRevocationAndCommitForceTransition(
 			t, channeldb.SingleFunderTweaklessBit,
 		)
 	})
-	t.Run("taproot", func(t *testing.T) { //nolint:paralleltest
+	t.Run("taproot", func(t *testing.T) {
 		taprootBits := channeldb.SimpleTaprootFeatureBit |
 			channeldb.AnchorOutputsBit |
 			channeldb.ZeroHtlcTxFeeBit |

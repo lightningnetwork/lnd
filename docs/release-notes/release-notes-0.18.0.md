@@ -8,14 +8,16 @@
   - [Functional Updates](#functional-updates)
   - [RPC Updates](#rpc-updates)
   - [lncli Updates](#lncli-updates)
+  - [Code Health](#code-health)
   - [Breaking Changes](#breaking-changes)
   - [Performance Improvements](#performance-improvements)
- - [Technical and Architectural Updates](#technical-and-architectural-updates)
-   - [BOLT Spec Updates](#bolt-spec-updates)
-   - [Testing](#testing)
-   - [Database](#database)
-   - [Code Health](#code-health)
-   - [Tooling and Documentation](#tooling-and-documentation)
+- [Technical and Architectural Updates](#technical-and-architectural-updates)
+  - [BOLT Spec Updates](#bolt-spec-updates)
+  - [Testing](#testing)
+  - [Database](#database)
+  - [Code Health](#code-health-1)
+  - [Tooling and Documentation](#tooling-and-documentation)
+- [Contributors (Alphabetical Order)](#contributors-alphabetical-order)
 
 # Bug Fixes
 
@@ -40,6 +42,8 @@
   and payment to blinded paths has been added via the `QueryRoutes` (and 
   SendToRouteV2) APIs. This functionality is surfaced in `lncli queryroutes` 
   where the required flags are tagged with `(blinded paths)`.
+* A new config value,
+  [http-header-timeout](https://github.com/lightningnetwork/lnd/pull/7715), is added so users can specify the amount of time the http server will wait for a request to complete before closing the connection. The default value is 5 seconds.
 
 ## RPC Additions
 ## lncli Additions
@@ -83,6 +87,7 @@
 
 # Contributors (Alphabetical Order)
 
+* Amin Bashiri
 * Andras Banki-Horvath
 * Carla Kirk-Cohen
 * Elle Mouton

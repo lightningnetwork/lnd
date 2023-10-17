@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
@@ -81,8 +82,9 @@ func NewFeeService(t *testing.T) *FeeService {
 	mux.HandleFunc("/fee-estimates.json", f.handleRequest)
 
 	f.srv = &http.Server{
-		Addr:    listenAddr,
-		Handler: mux,
+		Addr:              listenAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: lnd.DefaultHTTPHeaderTimeout,
 	}
 
 	return &f

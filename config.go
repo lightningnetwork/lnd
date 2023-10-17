@@ -226,6 +226,9 @@ const (
 	// client should wait before sending a keepalive ping.
 	defaultGrpcClientPingMinWait = 5 * time.Second
 
+	// defaultHTTPHeaderTimeout is the default timeout for HTTP requests.
+	DefaultHTTPHeaderTimeout = 5 * time.Second
+
 	// BitcoinChainName is a string that represents the Bitcoin blockchain.
 	BitcoinChainName = "bitcoin"
 
@@ -492,6 +495,10 @@ type Config struct {
 	// Dev specifies configs used for integration tests, which is always
 	// empty if not built with `integration` flag.
 	Dev *lncfg.DevConfig `group:"dev" namespace:"dev"`
+
+	// HTTPHeaderTimeout is the maximum duration that the server will wait
+	// before timing out reading the headers of an HTTP request.
+	HTTPHeaderTimeout time.Duration `long:"http-header-timeout" description:"The maximum duration that the server will wait before timing out reading the headers of an HTTP request."`
 }
 
 // GRPCConfig holds the configuration options for the gRPC server.
@@ -694,7 +701,8 @@ func DefaultConfig() Config {
 			ServerPingTimeout: defaultGrpcServerPingTimeout,
 			ClientPingMinWait: defaultGrpcClientPingMinWait,
 		},
-		WtClient: lncfg.DefaultWtClientCfg(),
+		WtClient:          lncfg.DefaultWtClientCfg(),
+		HTTPHeaderTimeout: DefaultHTTPHeaderTimeout,
 	}
 }
 

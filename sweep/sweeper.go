@@ -47,6 +47,10 @@ var (
 	// request from a client whom did not specify a fee preference.
 	ErrNoFeePreference = errors.New("no fee preference specified")
 
+	// ErrFeePreferenceTooLow is returned when the fee preference gives a
+	// fee rate that's below the relay fee rate.
+	ErrFeePreferenceTooLow = errors.New("fee preference too low")
+
 	// ErrExclusiveGroupSpend is returned in case a different input of the
 	// same exclusive group was spent.
 	ErrExclusiveGroupSpend = errors.New("other member of exclusive group " +
@@ -237,11 +241,20 @@ type UtxoSweeper struct {
 	wg   sync.WaitGroup
 }
 
+// feeDeterminer defines an alias to the function signature of
+// `DetermineFeePerKw`.
+type feeDeterminer func(chainfee.Estimator,
+	FeePreference) (chainfee.SatPerKWeight, error)
+
 // UtxoSweeperConfig contains dependencies of UtxoSweeper.
 type UtxoSweeperConfig struct {
 	// GenSweepScript generates a P2WKH script belonging to the wallet where
 	// funds can be swept.
 	GenSweepScript func() ([]byte, error)
+
+	// DetermineFeePerKw determines the fee in sat/kw based on the given
+	// estimator and fee preference.
+	DetermineFeePerKw feeDeterminer
 
 	// FeeEstimator is used when crafting sweep transactions to estimate
 	// the necessary fee relative to the expected size of the sweep
@@ -470,13 +483,16 @@ func (s *UtxoSweeper) feeRateForPreference(
 		return 0, ErrNoFeePreference
 	}
 
-	feeRate, err := DetermineFeePerKw(s.cfg.FeeEstimator, feePreference)
+	feeRate, err := s.cfg.DetermineFeePerKw(
+		s.cfg.FeeEstimator, feePreference,
+	)
 	if err != nil {
 		return 0, err
 	}
+
 	if feeRate < s.relayFeeRate {
-		return 0, fmt.Errorf("fee preference resulted in invalid fee "+
-			"rate %v, minimum is %v", feeRate, s.relayFeeRate)
+		return 0, fmt.Errorf("%w: got %v, minimum is %v",
+			ErrFeePreferenceTooLow, feeRate, s.relayFeeRate)
 	}
 
 	// If the estimated fee rate is above the maximum allowed fee rate,
@@ -912,7 +928,6 @@ func (s *UtxoSweeper) clusterByLockTime(inputs pendingInputs) ([]inputCluster,
 	pendingInputs) {
 
 	locktimes := make(map[uint32]pendingInputs)
-	inputFeeRates := make(map[wire.OutPoint]chainfee.SatPerKWeight)
 	rem := make(pendingInputs)
 
 	// Go through all inputs and check if they require a certain locktime.
@@ -924,41 +939,48 @@ func (s *UtxoSweeper) clusterByLockTime(inputs pendingInputs) ([]inputCluster,
 		}
 
 		// Check if we already have inputs with this locktime.
-		p, ok := locktimes[lt]
+		cluster, ok := locktimes[lt]
 		if !ok {
-			p = make(pendingInputs)
+			cluster = make(pendingInputs)
 		}
 
-		p[op] = input
-		locktimes[lt] = p
-
-		// We also get the preferred fee rate for this input.
+		// Get the fee rate based on the fee preference. If an error is
+		// returned, we'll skip sweeping this input for this round of
+		// cluster creation and retry it when we create the clusters
+		// from the pending inputs again.
 		feeRate, err := s.feeRateForPreference(input.params.Fee)
 		if err != nil {
 			log.Warnf("Skipping input %v: %v", op, err)
 			continue
 		}
 
+		log.Debugf("Adding input %v to cluster with locktime=%v, "+
+			"feeRate=%v", op, lt, feeRate)
+
+		// Attach the fee rate to the input.
 		input.lastFeeRate = feeRate
-		inputFeeRates[op] = feeRate
+
+		// Update the cluster about the updated input.
+		cluster[op] = input
+		locktimes[lt] = cluster
 	}
 
 	// We'll then determine the sweep fee rate for each set of inputs by
 	// calculating the average fee rate of the inputs within each set.
 	inputClusters := make([]inputCluster, 0, len(locktimes))
-	for lt, inputs := range locktimes {
+	for lt, cluster := range locktimes {
 		lt := lt
 
 		var sweepFeeRate chainfee.SatPerKWeight
-		for op := range inputs {
-			sweepFeeRate += inputFeeRates[op]
+		for _, input := range cluster {
+			sweepFeeRate += input.lastFeeRate
 		}
 
-		sweepFeeRate /= chainfee.SatPerKWeight(len(inputs))
+		sweepFeeRate /= chainfee.SatPerKWeight(len(cluster))
 		inputClusters = append(inputClusters, inputCluster{
 			lockTime:     &lt,
 			sweepFeeRate: sweepFeeRate,
-			inputs:       inputs,
+			inputs:       cluster,
 		})
 	}
 
@@ -1599,7 +1621,7 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq, bestHeight int32) (
 func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input, feePref FeePreference,
 	currentBlockHeight uint32) (*wire.MsgTx, error) {
 
-	feePerKw, err := DetermineFeePerKw(s.cfg.FeeEstimator, feePref)
+	feePerKw, err := s.cfg.DetermineFeePerKw(s.cfg.FeeEstimator, feePref)
 	if err != nil {
 		return nil, err
 	}

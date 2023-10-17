@@ -1,10 +1,12 @@
 package sweep
 
 import (
+	"errors"
 	"os"
 	"reflect"
 	"runtime/debug"
 	"runtime/pprof"
+	"sort"
 	"testing"
 	"time"
 
@@ -149,6 +151,7 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 		},
 		MaxFeeRate:        DefaultMaxFeeRate,
 		FeeRateBucketSize: DefaultFeeRateBucketSize,
+		DetermineFeePerKw: DetermineFeePerKw,
 	})
 
 	ctx.sweeper.Start()
@@ -2237,4 +2240,302 @@ func TestSweeperShutdownHandling(t *testing.T) {
 		spendableInputs[0], defaultFeePref,
 	)
 	require.Error(t, err)
+}
+
+// TestFeeRateForPreference checks `feeRateForPreference` works as expected.
+func TestFeeRateForPreference(t *testing.T) {
+	t.Parallel()
+
+	dummyErr := errors.New("dummy")
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{})
+
+	// errFeeFunc is a mock over DetermineFeePerKw that always return the
+	// above dummy error.
+	errFeeFunc := func(_ chainfee.Estimator, _ FeePreference) (
+		chainfee.SatPerKWeight, error) {
+
+		return 0, dummyErr
+	}
+
+	// Set the relay fee rate to be 1.
+	s.relayFeeRate = 1
+
+	// smallFeeFunc is a mock over DetermineFeePerKw that always return a
+	// fee rate that's below the relayFeeRate.
+	smallFeeFunc := func(_ chainfee.Estimator, _ FeePreference) (
+		chainfee.SatPerKWeight, error) {
+
+		return s.relayFeeRate - 1, nil
+	}
+
+	// Set the max fee rate to be 1000 sat/vb.
+	s.cfg.MaxFeeRate = 1000
+
+	// largeFeeFunc is a mock over DetermineFeePerKw that always return a
+	// fee rate that's larger than the MaxFeeRate.
+	largeFeeFunc := func(_ chainfee.Estimator, _ FeePreference) (
+		chainfee.SatPerKWeight, error) {
+
+		return s.cfg.MaxFeeRate.FeePerKWeight() + 1, nil
+	}
+
+	// validFeeRate is used to test the success case.
+	validFeeRate := (s.cfg.MaxFeeRate.FeePerKWeight() + s.relayFeeRate) / 2
+
+	// normalFeeFunc is a mock over DetermineFeePerKw that always return a
+	// fee rate that's within the range.
+	normalFeeFunc := func(_ chainfee.Estimator, _ FeePreference) (
+		chainfee.SatPerKWeight, error) {
+
+		return validFeeRate, nil
+	}
+
+	testCases := []struct {
+		name              string
+		feePref           FeePreference
+		determineFeePerKw feeDeterminer
+		expectedFeeRate   chainfee.SatPerKWeight
+		expectedErr       error
+	}{
+		{
+			// When the fee preference is empty, we should see an
+			// error.
+			name:        "empty fee preference",
+			feePref:     FeePreference{},
+			expectedErr: ErrNoFeePreference,
+		},
+		{
+			// When an error is returned from the fee determinor,
+			// we should return it.
+			name:              "error from DetermineFeePerKw",
+			feePref:           FeePreference{FeeRate: 1},
+			determineFeePerKw: errFeeFunc,
+			expectedErr:       dummyErr,
+		},
+		{
+			// When DetermineFeePerKw gives a too small value, we
+			// should return an error.
+			name:              "fee rate below relay fee rate",
+			feePref:           FeePreference{FeeRate: 1},
+			determineFeePerKw: smallFeeFunc,
+			expectedErr:       ErrFeePreferenceTooLow,
+		},
+		{
+			// When DetermineFeePerKw gives a too large value, we
+			// should cap it at the max fee rate.
+			name:              "fee rate above max fee rate",
+			feePref:           FeePreference{FeeRate: 1},
+			determineFeePerKw: largeFeeFunc,
+			expectedFeeRate:   s.cfg.MaxFeeRate.FeePerKWeight(),
+		},
+		{
+			// When DetermineFeePerKw gives a sane fee rate, we
+			// should return it without any error.
+			name:              "success",
+			feePref:           FeePreference{FeeRate: 1},
+			determineFeePerKw: normalFeeFunc,
+			expectedFeeRate:   validFeeRate,
+		},
+	}
+
+	//nolint:paralleltest
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			// Attach the mocked method.
+			s.cfg.DetermineFeePerKw = tc.determineFeePerKw
+
+			// Call the function under test.
+			feerate, err := s.feeRateForPreference(tc.feePref)
+
+			// Assert the expected feerate.
+			require.Equal(t, tc.expectedFeeRate, feerate)
+
+			// Assert the expected error.
+			require.ErrorIs(t, err, tc.expectedErr)
+		})
+	}
+}
+
+// TestClusterByLockTime tests the method clusterByLockTime works as expected.
+func TestClusterByLockTime(t *testing.T) {
+	t.Parallel()
+
+	// Create a test param with a dummy fee preference. This is needed so
+	// `feeRateForPreference` won't throw an error.
+	param := Params{Fee: FeePreference{ConfTarget: 1}}
+
+	// We begin the test by creating three clusters of inputs, the first
+	// cluster has a locktime of 1, the second has a locktime of 2, and the
+	// final has no locktime.
+	lockTime1 := uint32(1)
+	lockTime2 := uint32(2)
+
+	// Create cluster one, which has a locktime of 1.
+	input1LockTime1 := &input.MockInput{}
+	input2LockTime1 := &input.MockInput{}
+	input1LockTime1.On("RequiredLockTime").Return(lockTime1, true)
+	input2LockTime1.On("RequiredLockTime").Return(lockTime1, true)
+
+	// Create cluster two, which has a locktime of 2.
+	input3LockTime2 := &input.MockInput{}
+	input4LockTime2 := &input.MockInput{}
+	input3LockTime2.On("RequiredLockTime").Return(lockTime2, true)
+	input4LockTime2.On("RequiredLockTime").Return(lockTime2, true)
+
+	// Create cluster three, which has no locktime.
+	input5NoLockTime := &input.MockInput{}
+	input6NoLockTime := &input.MockInput{}
+	input5NoLockTime.On("RequiredLockTime").Return(uint32(0), false)
+	input6NoLockTime.On("RequiredLockTime").Return(uint32(0), false)
+
+	// With the inner Input being mocked, we can now create the pending
+	// inputs.
+	input1 := &pendingInput{Input: input1LockTime1, params: param}
+	input2 := &pendingInput{Input: input2LockTime1, params: param}
+	input3 := &pendingInput{Input: input3LockTime2, params: param}
+	input4 := &pendingInput{Input: input4LockTime2, params: param}
+	input5 := &pendingInput{Input: input5NoLockTime, params: param}
+	input6 := &pendingInput{Input: input6NoLockTime, params: param}
+
+	// Create the pending inputs map, which will be passed to the method
+	// under test.
+	//
+	// NOTE: we don't care the actual outpoint values as long as they are
+	// unique.
+	inputs := pendingInputs{
+		wire.OutPoint{Index: 1}: input1,
+		wire.OutPoint{Index: 2}: input2,
+		wire.OutPoint{Index: 3}: input3,
+		wire.OutPoint{Index: 4}: input4,
+		wire.OutPoint{Index: 5}: input5,
+		wire.OutPoint{Index: 6}: input6,
+	}
+
+	// Create expected clusters so we can shorten the line length in the
+	// test cases below.
+	cluster1 := pendingInputs{
+		wire.OutPoint{Index: 1}: input1,
+		wire.OutPoint{Index: 2}: input2,
+	}
+	cluster2 := pendingInputs{
+		wire.OutPoint{Index: 3}: input3,
+		wire.OutPoint{Index: 4}: input4,
+	}
+
+	// cluster3 should be the remaining inputs since they don't have
+	// locktime.
+	cluster3 := pendingInputs{
+		wire.OutPoint{Index: 5}: input5,
+		wire.OutPoint{Index: 6}: input6,
+	}
+
+	// Set the min fee rate to be 1000 sat/kw.
+	const minFeeRate = chainfee.SatPerKWeight(1000)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		MaxFeeRate: minFeeRate.FeePerVByte() * 10,
+	})
+
+	// Set the relay fee to be the minFeeRate. Any fee rate below the
+	// minFeeRate will cause an error to be returned.
+	s.relayFeeRate = minFeeRate
+
+	// applyFeeRate takes a testing fee rate and makes a mocker over
+	// DetermineFeePerKw that always return the testing fee rate. This
+	// mocked method is then attached to the sweeper.
+	applyFeeRate := func(feeRate chainfee.SatPerKWeight) {
+		mockFeeFunc := func(_ chainfee.Estimator, _ FeePreference) (
+			chainfee.SatPerKWeight, error) {
+
+			return feeRate, nil
+		}
+
+		s.cfg.DetermineFeePerKw = mockFeeFunc
+	}
+
+	testCases := []struct {
+		name                    string
+		testFeeRate             chainfee.SatPerKWeight
+		expectedClusters        []inputCluster
+		expectedRemainingInputs pendingInputs
+	}{
+		{
+			// Test a successful case where the locktime clusters
+			// are created and the no-locktime cluster is returned
+			// as the remaining inputs.
+			name: "successfully create clusters",
+			// Use a fee rate above the min value so we don't hit
+			// an error when performing fee estimation.
+			//
+			// TODO(yy): we should customize the returned fee rate
+			// for each input to further test the averaging logic.
+			// Or we can split the method into two, one for
+			// grouping the clusters and the other for averaging
+			// the fee rates so it's easier to be tested.
+			testFeeRate: minFeeRate + 1,
+			expectedClusters: []inputCluster{
+				{
+					lockTime:     &lockTime1,
+					sweepFeeRate: minFeeRate + 1,
+					inputs:       cluster1,
+				},
+				{
+					lockTime:     &lockTime2,
+					sweepFeeRate: minFeeRate + 1,
+					inputs:       cluster2,
+				},
+			},
+			expectedRemainingInputs: cluster3,
+		},
+		{
+			// Test that when the input is skipped when the fee
+			// estimation returns an error.
+			name: "error from fee estimation",
+			// Use a fee rate below the min value so we hit an
+			// error when performing fee estimation.
+			testFeeRate:      minFeeRate - 1,
+			expectedClusters: []inputCluster{},
+			// Remaining inputs should stay untouched.
+			expectedRemainingInputs: cluster3,
+		},
+	}
+
+	//nolint:paralleltest
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			// Apply the test fee rate so `feeRateForPreference` is
+			// mocked to return the specified value.
+			applyFeeRate(tc.testFeeRate)
+
+			// Call the method under test.
+			clusters, remainingInputs := s.clusterByLockTime(inputs)
+
+			// Sort by locktime as the order is not guaranteed.
+			sort.Slice(clusters, func(i, j int) bool {
+				return *clusters[i].lockTime <
+					*clusters[j].lockTime
+			})
+
+			// Validate the values are returned as expected.
+			require.Equal(t, tc.expectedClusters, clusters)
+			require.Equal(t, tc.expectedRemainingInputs,
+				remainingInputs,
+			)
+
+			// Assert the mocked methods are called as expeceted.
+			input1LockTime1.AssertExpectations(t)
+			input2LockTime1.AssertExpectations(t)
+			input3LockTime2.AssertExpectations(t)
+			input4LockTime2.AssertExpectations(t)
+			input5NoLockTime.AssertExpectations(t)
+			input6NoLockTime.AssertExpectations(t)
+		})
+	}
 }

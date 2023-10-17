@@ -70,6 +70,11 @@ func (s SatPerKWeight) FeePerKVByte() SatPerKVByte {
 	return SatPerKVByte(s * blockchain.WitnessScaleFactor)
 }
 
+// FeePerVByte converts the current fee rate from sat/kw to sat/vb.
+func (s SatPerKWeight) FeePerVByte() SatPerVByte {
+	return SatPerVByte(s * blockchain.WitnessScaleFactor / 1000)
+}
+
 // String returns a human-readable string of the fee rate.
 func (s SatPerKWeight) String() string {
 	return fmt.Sprintf("%v sat/kw", int64(s))

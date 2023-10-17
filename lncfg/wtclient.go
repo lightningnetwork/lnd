@@ -39,8 +39,8 @@ func DefaultWtClientCfg() *WtClient {
 	// The sweep fee rate used internally by the tower client is in sats/kw
 	// but the config exposed to the user is in sats/byte, so we convert the
 	// default here before exposing it to the user.
-	sweepSatsPerKvB := wtpolicy.DefaultSweepFeeRate.FeePerKVByte()
-	sweepFeeRate := uint64(sweepSatsPerKvB / 1000)
+	sweepSatsPerVB := wtpolicy.DefaultSweepFeeRate.FeePerVByte()
+	sweepFeeRate := uint64(sweepSatsPerVB)
 
 	return &WtClient{
 		SweepFeeRate:       sweepFeeRate,

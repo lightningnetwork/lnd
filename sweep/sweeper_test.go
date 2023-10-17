@@ -2150,7 +2150,7 @@ func TestFeeRateForPreference(t *testing.T) {
 		return 0, dummyErr
 	}
 
-	// Set the relay fee rate to be 1.
+	// Set the relay fee rate to be 1 sat/kw.
 	s.relayFeeRate = 1
 
 	// smallFeeFunc is a mock over DetermineFeePerKw that always return a
@@ -2198,7 +2198,7 @@ func TestFeeRateForPreference(t *testing.T) {
 			expectedErr: ErrNoFeePreference,
 		},
 		{
-			// When an error is returned from the fee determinor,
+			// When an error is returned from the fee determiner,
 			// we should return it.
 			name:              "error from DetermineFeePerKw",
 			feePref:           FeePreference{FeeRate: 1},

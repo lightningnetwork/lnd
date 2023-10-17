@@ -462,8 +462,8 @@ func (b *BtcWalletKeyRing) SignMessageCompact(keyLoc KeyLocator,
 //
 // NOTE: This is part of the keychain.MessageSignerRing interface.
 func (b *BtcWalletKeyRing) SignMessageSchnorr(keyLoc KeyLocator,
-	msg []byte, doubleHash bool, taprootTweak []byte) (*schnorr.Signature,
-	error) {
+	msg []byte, doubleHash bool, noHash bool, taprootTweak []byte,
+        ) (*schnorr.Signature, error) {
 
 	privKey, err := b.DerivePrivKey(KeyDescriptor{
 		KeyLocator: keyLoc,
@@ -477,7 +477,9 @@ func (b *BtcWalletKeyRing) SignMessageSchnorr(keyLoc KeyLocator,
 	}
 
 	var digest []byte
-	if doubleHash {
+	if noHash {
+                digest = msg
+        } else if doubleHash {
 		digest = chainhash.DoubleHashB(msg)
 	} else {
 		digest = chainhash.HashB(msg)

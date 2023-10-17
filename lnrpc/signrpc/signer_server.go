@@ -615,7 +615,7 @@ func (s *Server) SignMessage(_ context.Context,
 	// Use the schnorr signature algorithm to sign the message.
 	if in.SchnorrSig {
 		sig, err := s.cfg.KeyRing.SignMessageSchnorr(
-			keyLocator, in.Msg, in.DoubleHash,
+			keyLocator, in.Msg, in.DoubleHash, in.NoHash,
 			in.SchnorrSigTapTweak,
 		)
 		if err != nil {

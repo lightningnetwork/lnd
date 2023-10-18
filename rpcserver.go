@@ -64,6 +64,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/peer"
+	"github.com/lightningnetwork/lnd/peerconn"
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
@@ -1684,7 +1685,7 @@ func (r *rpcServer) ConnectPeer(ctx context.Context,
 		)
 	}
 
-	if err := r.server.ConnectToPeer(
+	if err := r.server.pcm.ConnectToPeer(
 		peerAddr, in.Perm, timeout,
 	); err != nil {
 		rpcsLog.Errorf(
@@ -1739,7 +1740,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 
 	// With all initial validation complete, we'll now request that the
 	// server disconnects from the peer.
-	if err := r.server.DisconnectPeer(peerPubKey); err != nil {
+	if err := r.server.pcm.DisconnectPeer(peerPubKey); err != nil {
 		return nil, fmt.Errorf("unable to disconnect peer: %v", err)
 	}
 
@@ -2545,7 +2546,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		// as eligible for forwarding HTLC's. If the peer is online,
 		// then we'll also purge all of its indexes.
 		remotePub := channel.IdentityPub
-		if peer, err := r.server.FindPeer(remotePub); err == nil {
+		if peer, err := r.server.pcm.FindPeer(remotePub); err == nil {
 			// TODO(roasbeef): actually get the active channel
 			// instead too?
 			//  * so only need to grab from database
@@ -2880,7 +2881,7 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 			return nil, err
 		}
 		remotePub := dbChan.IdentityPub
-		if peer, err := r.server.FindPeer(remotePub); err == nil {
+		if peer, err := r.server.pcm.FindPeer(remotePub); err == nil {
 			peer.WipeChannel(chanPoint)
 		}
 
@@ -2902,7 +2903,7 @@ func (r *rpcServer) AbandonChannel(_ context.Context,
 func (r *rpcServer) GetInfo(_ context.Context,
 	_ *lnrpc.GetInfoRequest) (*lnrpc.GetInfoResponse, error) {
 
-	serverPeers := r.server.Peers()
+	serverPeers := r.server.pcm.Peers()
 
 	openChannels, err := r.server.chanStateDB.FetchAllOpenChannels()
 	if err != nil {
@@ -3044,7 +3045,9 @@ func (r *rpcServer) GetRecoveryInfo(ctx context.Context,
 func (r *rpcServer) ListPeers(ctx context.Context,
 	in *lnrpc.ListPeersRequest) (*lnrpc.ListPeersResponse, error) {
 
-	serverPeers := r.server.Peers()
+	rpcsLog.Tracef("[listpeers] request")
+
+	serverPeers := r.server.pcm.Peers()
 	resp := &lnrpc.ListPeersResponse{
 		Peers: make([]*lnrpc.Peer, 0, len(serverPeers)),
 	}
@@ -3178,7 +3181,7 @@ func (r *rpcServer) ListPeers(ctx context.Context,
 func (r *rpcServer) SubscribePeerEvents(req *lnrpc.PeerEventSubscription,
 	eventStream lnrpc.Lightning_SubscribePeerEventsServer) error {
 
-	peerEventSub, err := r.server.peerNotifier.SubscribePeerEvents()
+	peerEventSub, err := r.server.pcm.PeerNotifier.SubscribePeerEvents()
 	if err != nil {
 		return err
 	}
@@ -4129,7 +4132,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 		}
 
 		var peerOnline bool
-		if _, err := r.server.FindPeer(nodePub); err == nil {
+		if _, err := r.server.pcm.FindPeer(nodePub); err == nil {
 			peerOnline = true
 		}
 
@@ -8046,11 +8049,11 @@ func (r *rpcServer) SendCustomMessage(ctx context.Context, req *lnrpc.SendCustom
 		return nil, err
 	}
 
-	err = r.server.SendCustomMessage(
+	err = r.server.pcm.SendCustomMessage(
 		peer, lnwire.MessageType(req.Type), req.Data,
 	)
 	switch {
-	case err == ErrPeerNotConnected:
+	case errors.Is(err, peerconn.ErrPeerNotConnected):
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err

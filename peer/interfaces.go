@@ -9,9 +9,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// messageSwitch is an interface that abstracts managing the lifecycle of
+// MessageSwitch is an interface that abstracts managing the lifecycle of
 // abstract links. This is intended for peer package usage only.
-type messageSwitch interface {
+type MessageSwitch interface {
 	// BestHeight returns the best height known to the messageSwitch.
 	BestHeight() uint32
 

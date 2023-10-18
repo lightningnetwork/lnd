@@ -191,7 +191,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 			// First, we'll check if we're already connected to the
 			// target peer. If we are, we can exit early. Otherwise,
 			// we'll need to establish a connection.
-			if _, err := svr.FindPeer(target); err == nil {
+			if _, err := svr.pcm.FindPeer(target); err == nil {
 				return true, nil
 			}
 
@@ -223,7 +223,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 						"address type %T", addr)
 				}
 
-				err := svr.ConnectToPeer(
+				err := svr.pcm.ConnectToPeer(
 					lnAddr, false, svr.cfg.ConnectionTimeout,
 				)
 				if err != nil {
@@ -246,7 +246,7 @@ func initAutoPilot(svr *server, cfg *lncfg.AutoPilot,
 
 			return false, nil
 		},
-		DisconnectPeer: svr.DisconnectPeer,
+		DisconnectPeer: svr.pcm.DisconnectPeer,
 	}
 
 	// Create and return the autopilot.ManagerCfg that administrates this

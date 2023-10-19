@@ -804,8 +804,23 @@ func TestLightningWireProtocol(t *testing.T) {
 			var da DynAck
 
 			rand.Read(da.ChanID[:])
+			if rand.Uint32()%2 == 0 {
+				var nonce Musig2Nonce
+				rand.Read(nonce[:])
+				da.LocalNonce = fn.Some(nonce)
+			}
 
 			v[0] = reflect.ValueOf(da)
+		},
+		MsgKickoffSig: func(v []reflect.Value, r *rand.Rand) {
+			ks := KickoffSig{
+				ExtraData: make([]byte, 0),
+			}
+
+			rand.Read(ks.ChanID[:])
+			rand.Read(ks.Signature.bytes[:])
+
+			v[0] = reflect.ValueOf(ks)
 		},
 		MsgCommitSig: func(v []reflect.Value, r *rand.Rand) {
 			req := NewCommitSig()
@@ -1267,6 +1282,12 @@ func TestLightningWireProtocol(t *testing.T) {
 		{
 			msgType: MsgDynAck,
 			scenario: func(m DynAck) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgKickoffSig,
+			scenario: func(m KickoffSig) bool {
 				return mainScenario(&m)
 			},
 		},

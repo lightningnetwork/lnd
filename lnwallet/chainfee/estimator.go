@@ -35,6 +35,14 @@ const (
 	// maxFeeUpdateTimeout represents the maximum interval in which a
 	// WebAPIEstimator will request fresh fees from its API.
 	maxFeeUpdateTimeout = 20 * time.Minute
+
+	// WebAPIConnectionTimeout specifies the timeout value for connecting
+	// to the api source.
+	WebAPIConnectionTimeout = 5 * time.Second
+
+	// WebAPIResponseTimeout specifies the timeout value for receiving a
+	// fee response from the api source.
+	WebAPIResponseTimeout = 10 * time.Second
 )
 
 var (
@@ -537,12 +545,12 @@ func (s SparseConfFeeSource) GetFeeMap() (map[uint32]uint32, error) {
 	// overloaded, we can exit early and use our default fee.
 	netTransport := &http.Transport{
 		Dial: (&net.Dialer{
-			Timeout: 5 * time.Second,
+			Timeout: WebAPIConnectionTimeout,
 		}).Dial,
-		TLSHandshakeTimeout: 5 * time.Second,
+		TLSHandshakeTimeout: WebAPIConnectionTimeout,
 	}
 	netClient := &http.Client{
-		Timeout:   time.Second * 10,
+		Timeout:   WebAPIResponseTimeout,
 		Transport: netTransport,
 	}
 

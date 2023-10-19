@@ -3521,7 +3521,7 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	payment := &mockMPPayment{}
 	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
 
-	// Mock the payment to return nil failrue reason.
+	// Mock the payment to return nil failure reason.
 	payment.On("TerminalInfo").Return(nil, nil)
 
 	// Expect a successful send to route.
@@ -3602,7 +3602,7 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 		mock.Anything, rt, mock.Anything, mock.Anything,
 	).Return(nil, nil)
 
-	// Mock the payment to return nil failrue reason.
+	// Mock the payment to return nil failure reason.
 	payment.On("TerminalInfo").Return(nil, nil)
 
 	// Expect a failed send to route.
@@ -3687,7 +3687,7 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	payment := &mockMPPayment{}
 	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
 
-	// Mock the payment to return a failrue reason.
+	// Mock the payment to return a failure reason.
 	payment.On("TerminalInfo").Return(nil, &failureReason)
 
 	// Expect a failed send to route.
@@ -3765,7 +3765,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	payment := &mockMPPayment{}
 	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
 
-	// Mock the payment to return nil failrue reason.
+	// Mock the payment to return nil failure reason.
 	payment.On("TerminalInfo").Return(nil, nil)
 
 	// Return a nil reason to mock a temporary failure.

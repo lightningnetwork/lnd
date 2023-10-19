@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// errDummy is used by the mockers to return a dummy error.
 var errDummy = errors.New("dummy")
 
 // createTestPaymentLifecycle creates a `paymentLifecycle` without mocks.
@@ -304,10 +305,9 @@ func TestCheckTimeoutTimedOut(t *testing.T) {
 	// by the function too.
 	//
 	// Mock `FailPayment` to return a dummy error.
-	dummyErr := errors.New("dummy")
 	ct = &mockControlTower{}
 	ct.On("FailPayment",
-		p.identifier, channeldb.FailureReasonTimeout).Return(dummyErr)
+		p.identifier, channeldb.FailureReasonTimeout).Return(errDummy)
 
 	// Mount the mocked control tower.
 	p.router.cfg.Control = ct
@@ -320,7 +320,7 @@ func TestCheckTimeoutTimedOut(t *testing.T) {
 
 	// Call the function and expect an error.
 	err = p.checkTimeout()
-	require.ErrorIs(t, err, dummyErr)
+	require.ErrorIs(t, err, errDummy)
 
 	// Assert that `FailPayment` is called as expected.
 	ct.AssertExpectations(t)
@@ -399,15 +399,14 @@ func TestRequestRouteHandleCriticalErr(t *testing.T) {
 	p.feeLimit = ps.FeesPaid + 1
 
 	// Mock the paySession's `RequestRoute` method to return an error.
-	dummyErr := errors.New("dummy")
 	paySession.On("RequestRoute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil, dummyErr)
+	).Return(nil, errDummy)
 
 	result, err := p.requestRoute(ps)
 
 	// Expect an error is returned since it's critical.
-	require.ErrorIs(t, err, dummyErr, "error not matched")
+	require.ErrorIs(t, err, errDummy, "error not matched")
 	require.Nil(t, result, "expected no route returned")
 
 	// Assert that `RequestRoute` is called as expected.
@@ -462,10 +461,9 @@ func TestRequestRouteFailPaymentError(t *testing.T) {
 
 	// Mock the control tower's `FailPayment` method.
 	ct := &mockControlTower{}
-	dummyErr := errors.New("dummy")
 	ct.On("FailPayment",
 		p.identifier, errNoTlvPayload.FailureReason(),
-	).Return(dummyErr)
+	).Return(errDummy)
 
 	// Mount the mocked control tower and payment session.
 	p.router.cfg.Control = ct
@@ -489,7 +487,7 @@ func TestRequestRouteFailPaymentError(t *testing.T) {
 	result, err := p.requestRoute(ps)
 
 	// Expect an error is returned.
-	require.ErrorIs(t, err, dummyErr, "error not matched")
+	require.ErrorIs(t, err, errDummy, "error not matched")
 	require.Nil(t, result, "expected no route returned")
 
 	// Assert that `RequestRoute` is called as expected.
@@ -1247,18 +1245,17 @@ func TestCollectResultExitOnErr(t *testing.T) {
 	// `CancelShard` should be called with the attemptID.
 	m.shardTracker.On("CancelShard", attempt.AttemptID).Return(nil).Once()
 
-	// Mock `FailAttempt` to return a switch error.
-	switchErr := errors.New("switch err")
+	// Mock `FailAttempt` to return a dummy error.
 	m.control.On("FailAttempt",
 		p.identifier, attempt.AttemptID, mock.Anything,
-	).Return(nil, switchErr).Once()
+	).Return(nil, errDummy).Once()
 
 	// Mock the clock to return a current time.
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
 	result, err := p.collectResult(attempt)
-	require.ErrorIs(t, err, switchErr, "expected switch error")
+	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
 
@@ -1299,18 +1296,17 @@ func TestCollectResultExitOnResultErr(t *testing.T) {
 	// `CancelShard` should be called with the attemptID.
 	m.shardTracker.On("CancelShard", attempt.AttemptID).Return(nil).Once()
 
-	// Mock `FailAttempt` to return a switch error.
-	switchErr := errors.New("switch err")
+	// Mock `FailAttempt` to return a dummy error.
 	m.control.On("FailAttempt",
 		p.identifier, attempt.AttemptID, mock.Anything,
-	).Return(nil, switchErr).Once()
+	).Return(nil, errDummy).Once()
 
 	// Mock the clock to return a current time.
 	m.clock.On("Now").Return(time.Now())
 
 	// Now call the method under test.
 	result, err := p.collectResult(attempt)
-	require.ErrorIs(t, err, switchErr, "expected switch error")
+	require.ErrorIs(t, err, errDummy, "expected dummy error")
 	require.Nil(t, result, "expected nil attempt")
 }
 

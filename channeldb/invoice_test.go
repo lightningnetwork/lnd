@@ -1013,64 +1013,58 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 	require.Nil(t, err)
 }
 
-// TestScanInvoices tests that ScanInvoices scans through all stored invoices
-// correctly.
-func TestScanInvoices(t *testing.T) {
+// TestFetchPendingInvoices tests that we can fetch all pending invoices from
+// the database using the FetchPendingInvoices method.
+func TestFetchPendingInvoices(t *testing.T) {
 	t.Parallel()
 
-	db, err := MakeTestInvoiceDB(t)
+	db, err := MakeTestInvoiceDB(t, OptionClock(testClock))
 	require.NoError(t, err, "unable to make test db")
 
-	var invoices map[lntypes.Hash]*invpkg.Invoice
-	callCount := 0
-	resetCount := 0
-
-	// reset is used to reset/initialize results and is called once
-	// upon calling ScanInvoices and when the underlying transaction is
-	// retried.
-	reset := func() {
-		invoices = make(map[lntypes.Hash]*invpkg.Invoice)
-		callCount = 0
-		resetCount++
-	}
-
-	scanFunc := func(paymentHash lntypes.Hash,
-		invoice *invpkg.Invoice) error {
-
-		invoices[paymentHash] = invoice
-		callCount++
-
-		return nil
-	}
-
 	ctxb := context.Background()
-	// With an empty DB we expect to not scan any invoices.
-	require.NoError(t, db.ScanInvoices(ctxb, scanFunc, reset))
-	require.Equal(t, 0, len(invoices))
-	require.Equal(t, 0, callCount)
-	require.Equal(t, 1, resetCount)
 
-	numInvoices := 5
-	testInvoices := make(map[lntypes.Hash]*invpkg.Invoice)
+	// Make sure that fetching pending invoices from an empty database
+	// returns an empty result and no errors.
+	pending, err := db.FetchPendingInvoices(ctxb)
+	require.NoError(t, err)
+	require.Empty(t, pending)
 
-	// Now populate the DB and check if we can get all invoices with their
-	// payment hashes as expected.
+	const numInvoices = 20
+	var settleIndex uint64 = 1
+	pendingInvoices := make(map[lntypes.Hash]invpkg.Invoice)
+
 	for i := 1; i <= numInvoices; i++ {
-		invoice, err := randInvoice(lnwire.MilliSatoshi(i))
+		amt := lnwire.MilliSatoshi(i * 1000)
+		invoice, err := randInvoice(amt)
 		require.NoError(t, err)
 
+		invoice.CreationDate = invoice.CreationDate.Add(
+			time.Duration(i-1) * time.Second,
+		)
+
 		paymentHash := invoice.Terms.PaymentPreimage.Hash()
-		testInvoices[paymentHash] = invoice
 
 		_, err = db.AddInvoice(ctxb, invoice, paymentHash)
 		require.NoError(t, err)
+
+		// Settle every second invoice.
+		if i%2 == 0 {
+			pendingInvoices[paymentHash] = *invoice
+			continue
+		}
+
+		ref := invpkg.InvoiceRefByHash(paymentHash)
+		_, err = db.UpdateInvoice(ctxb, ref, nil, getUpdateInvoice(amt))
+		require.NoError(t, err)
+
+		settleTestInvoice(invoice, settleIndex)
+		settleIndex++
 	}
 
-	resetCount = 0
-	require.NoError(t, db.ScanInvoices(ctxb, scanFunc, reset))
-	require.Equal(t, numInvoices, callCount)
-	require.Equal(t, testInvoices, invoices)
-	require.Equal(t, 1, resetCount)
+	// Fetch all pending invoices.
+	pending, err = db.FetchPendingInvoices(ctxb)
+	require.NoError(t, err)
+	require.Equal(t, pendingInvoices, pending)
 }
 
 // TestDuplicateSettleInvoice tests that if we add a new invoice and settle it
@@ -3090,6 +3084,65 @@ func TestDeleteInvoices(t *testing.T) {
 	// Delete should succeed with all the valid references.
 	require.NoError(t, db.DeleteInvoice(ctxb, invoicesToDelete))
 	assertInvoiceCount(0)
+}
+
+// TestDeleteCanceledInvoices tests that deleting canceled invoices with the
+// specific DeleteCanceledInvoices method works correctly.
+func TestDeleteCanceledInvoices(t *testing.T) {
+	t.Parallel()
+
+	db, err := MakeTestInvoiceDB(t)
+	require.NoError(t, err, "unable to make test db")
+
+	// Updatefunc is used to cancel an invoice.
+	updateFunc := func(invoice *invpkg.Invoice) (
+		*invpkg.InvoiceUpdateDesc, error) {
+
+		return &invpkg.InvoiceUpdateDesc{
+			UpdateType: invpkg.CancelInvoiceUpdate,
+			State: &invpkg.InvoiceStateUpdateDesc{
+				NewState: invpkg.ContractCanceled,
+			},
+		}, nil
+	}
+
+	// Add some invoices to the test db.
+	ctxb := context.Background()
+	var invoices []invpkg.Invoice
+	for i := 0; i < 10; i++ {
+		invoice, err := randInvoice(lnwire.MilliSatoshi(i + 1))
+		require.NoError(t, err)
+
+		paymentHash := invoice.Terms.PaymentPreimage.Hash()
+		_, err = db.AddInvoice(ctxb, invoice, paymentHash)
+		require.NoError(t, err)
+
+		// Cancel every second invoice.
+		if i%2 == 0 {
+			invoice, err = db.UpdateInvoice(
+				ctxb, invpkg.InvoiceRefByHash(paymentHash), nil,
+				updateFunc,
+			)
+			require.NoError(t, err)
+		} else {
+			invoices = append(invoices, *invoice)
+		}
+	}
+
+	// Delete canceled invoices.
+	require.NoError(t, db.DeleteCanceledInvoices(ctxb))
+
+	// Query to collect all invoices.
+	query := invpkg.InvoiceQuery{
+		IndexOffset:    0,
+		NumMaxInvoices: math.MaxUint64,
+	}
+
+	dbInvoices, err := db.QueryInvoices(ctxb, query)
+	require.NoError(t, err)
+
+	// Check that we really have the expected invoices.
+	require.Equal(t, invoices, dbInvoices.Invoices)
 }
 
 // TestAddInvoiceInvalidFeatureDeps asserts that inserting an invoice with

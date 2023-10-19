@@ -3,8 +3,6 @@ package chainfee
 import (
 	"bytes"
 	"encoding/json"
-	"io"
-	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -14,14 +12,6 @@ import (
 type mockSparseConfFeeSource struct {
 	url  string
 	fees map[uint32]uint32
-}
-
-func (e mockSparseConfFeeSource) GenQueryURL() string {
-	return e.url
-}
-
-func (e mockSparseConfFeeSource) ParseResponse(r io.Reader) (map[uint32]uint32, error) {
-	return e.fees, nil
 }
 
 func (e mockSparseConfFeeSource) GetFeeMap() (map[uint32]uint32, error) {
@@ -117,10 +107,6 @@ func TestSparseConfFeeSource(t *testing.T) {
 	// Test that GenQueryURL returns the URL as is.
 	url := "test"
 	feeSource := SparseConfFeeSource{URL: url}
-	queryURL := feeSource.GenQueryURL()
-	if queryURL != url {
-		t.Fatalf("expected query URL of %v, got %v", url, queryURL)
-	}
 
 	// Test parsing a properly formatted JSON API response.
 	// First, create the response as a bytes.Reader.
@@ -129,17 +115,17 @@ func TestSparseConfFeeSource(t *testing.T) {
 		2: 42,
 		3: 54321,
 	}
-	testJSON := map[string]map[uint32]uint32{"fee_by_block_target": testFees}
+	testJSON := map[string]map[uint32]uint32{
+		"fee_by_block_target": testFees,
+	}
 	jsonResp, err := json.Marshal(testJSON)
 	require.NoError(t, err, "unable to marshal JSON API response")
 	reader := bytes.NewReader(jsonResp)
 
 	// Finally, ensure the expected map is returned without error.
-	fees, err := feeSource.ParseResponse(reader)
+	fees, err := feeSource.parseResponse(reader)
 	require.NoError(t, err, "unable to parse API response")
-	if !reflect.DeepEqual(fees, testFees) {
-		t.Fatalf("expected %v, got %v", testFees, fees)
-	}
+	require.Equal(t, testFees, fees, "unexpected fee map returned")
 
 	// Test parsing an improperly formatted JSON API response.
 	badFees := map[string]uint32{"hi": 12345, "hello": 42, "satoshi": 54321}
@@ -149,10 +135,8 @@ func TestSparseConfFeeSource(t *testing.T) {
 	reader = bytes.NewReader(jsonResp)
 
 	// Finally, ensure the improperly formatted fees error.
-	_, err = feeSource.ParseResponse(reader)
-	if err == nil {
-		t.Fatalf("expected ParseResponse to fail")
-	}
+	_, err = feeSource.parseResponse(reader)
+	require.Error(t, err, "expected error when parsing bad JSON")
 }
 
 // TestWebAPIFeeEstimator checks that the WebAPIFeeEstimator returns fee rates

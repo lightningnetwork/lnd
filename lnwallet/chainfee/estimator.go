@@ -502,6 +502,10 @@ type WebAPIFeeSource interface {
 	// by the above query URL. Typically this will be JSON, but the
 	// specifics are left to the WebAPIFeeSource implementation.
 	ParseResponse(r io.Reader) (map[uint32]uint32, error)
+
+	// GetFeeMap will query the web API, parse the response and return a
+	// map of confirmation targets to sat/kw fees.
+	GetFeeMap() (map[uint32]uint32, error)
 }
 
 // SparseConfFeeSource is an implementation of the WebAPIFeeSource that utilizes
@@ -541,6 +545,47 @@ func (s SparseConfFeeSource) ParseResponse(r io.Reader) (map[uint32]uint32, erro
 	}
 
 	return resp.FeeByBlockTarget, nil
+}
+
+// GetFeeMap will query the web API, parse the response and return a map of
+// confirmation targets to sat/kw fees.
+func (s SparseConfFeeSource) GetFeeMap() (map[uint32]uint32, error) {
+	// Rather than use the default http.Client, we'll make a custom one
+	// which will allow us to control how long we'll wait to read the
+	// response from the service. This way, if the service is down or
+	// overloaded, we can exit early and use our default fee.
+	netTransport := &http.Transport{
+		Dial: (&net.Dialer{
+			Timeout: 5 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
+	netClient := &http.Client{
+		Timeout:   time.Second * 10,
+		Transport: netTransport,
+	}
+
+	// With the client created, we'll query the API source to fetch the URL
+	// that we should use to query for the fee estimation.
+	targetURL := s.GenQueryURL()
+	resp, err := netClient.Get(targetURL)
+	if err != nil {
+		log.Errorf("unable to query web api for fee response: %v",
+			err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Once we've obtained the response, we'll instruct the WebAPIFeeSource
+	// to parse out the body to obtain our final result.
+	feesByBlockTarget, err := s.ParseResponse(resp.Body)
+	if err != nil {
+		log.Errorf("unable to parse fee api response: %v", err)
+
+		return nil, err
+	}
+
+	return feesByBlockTarget, nil
 }
 
 // A compile-time assertion to ensure that SparseConfFeeSource implements the
@@ -762,38 +807,11 @@ func (w *WebAPIEstimator) getCachedFee(numBlocks uint32) (uint32, error) {
 
 // updateFeeEstimates re-queries the API for fresh fees and caches them.
 func (w *WebAPIEstimator) updateFeeEstimates() {
-	// Rather than use the default http.Client, we'll make a custom one
-	// which will allow us to control how long we'll wait to read the
-	// response from the service. This way, if the service is down or
-	// overloaded, we can exit early and use our default fee.
-	netTransport := &http.Transport{
-		Dial: (&net.Dialer{
-			Timeout: 5 * time.Second,
-		}).Dial,
-		TLSHandshakeTimeout: 5 * time.Second,
-	}
-	netClient := &http.Client{
-		Timeout:   time.Second * 10,
-		Transport: netTransport,
-	}
-
-	// With the client created, we'll query the API source to fetch the URL
-	// that we should use to query for the fee estimation.
-	targetURL := w.apiSource.GenQueryURL()
-	resp, err := netClient.Get(targetURL)
-	if err != nil {
-		log.Errorf("unable to query web api for fee response: %v",
-			err)
-		return
-	}
-	defer resp.Body.Close()
-
 	// Once we've obtained the response, we'll instruct the WebAPIFeeSource
 	// to parse out the body to obtain our final result.
-	feesByBlockTarget, err := w.apiSource.ParseResponse(resp.Body)
+	feesByBlockTarget, err := w.apiSource.GetFeeMap()
 	if err != nil {
-		log.Errorf("unable to query web api for fee response: %v",
-			err)
+		log.Errorf("unable to get fee response: %v", err)
 		return
 	}
 

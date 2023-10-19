@@ -24,6 +24,10 @@ func (e mockSparseConfFeeSource) ParseResponse(r io.Reader) (map[uint32]uint32, 
 	return e.fees, nil
 }
 
+func (e mockSparseConfFeeSource) GetFeeMap() (map[uint32]uint32, error) {
+	return e.fees, nil
+}
+
 // TestFeeRateTypes checks that converting fee rates between the
 // different types that represent fee rates and calculating fees
 // work as expected.

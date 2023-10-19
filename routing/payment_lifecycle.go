@@ -558,7 +558,9 @@ func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 		},
 	)
 	if err != nil {
-		log.Errorf("Unable to settle payment attempt: %v", err)
+		log.Errorf("Error settling attempt %v for payment %v with "+
+			"preimage %v: %v", attempt.AttemptID, p.identifier,
+			result.Preimage, err)
 
 		// We won't mark the attempt as failed since we already have
 		// the preimage.

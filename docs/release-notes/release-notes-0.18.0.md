@@ -48,16 +48,18 @@
   where the required flags are tagged with `(blinded paths)`.
 
 ## RPC Additions
+
+* [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
+  `StatusUnknown` from the payment's rpc response in its status and added a new
+  status, `StatusInitiated`, to explicitly report its current state. Before
+  running this new version, please make sure to upgrade your client application
+  to include this new status so it can understand the RPC response properly.
+
 ## lncli Additions
 
 # Improvements
 ## Functional Updates
 ## RPC Updates
-
-* [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
-  `StatusUnknown` from the payment's rpc response in its status and replaced it
-  with `StatusInitiated` to explicitly report its current state.
-
 ## lncli Updates
 ## Code Health
 

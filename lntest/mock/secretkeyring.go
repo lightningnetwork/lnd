@@ -74,13 +74,17 @@ func (s *SecretKeyRing) SignMessageCompact(_ keychain.KeyLocator,
 
 // SignMessageSchnorr signs the passed message and ignores the KeyDescriptor.
 func (s *SecretKeyRing) SignMessageSchnorr(_ keychain.KeyLocator,
-	msg []byte, doubleHash bool, taprootTweak []byte) (*schnorr.Signature,
-	error) {
+	msg []byte, doubleHash bool, taprootTweak []byte,
+	tag []byte) (*schnorr.Signature, error) {
 
 	var digest []byte
-	if doubleHash {
+	switch {
+	case len(tag) > 0:
+		taggedHash := chainhash.TaggedHash(tag, msg)
+		digest = taggedHash[:]
+	case doubleHash:
 		digest = chainhash.DoubleHashB(msg)
-	} else {
+	default:
 		digest = chainhash.HashB(msg)
 	}
 

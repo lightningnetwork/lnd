@@ -633,7 +633,7 @@ func (s *Server) SignMessage(_ context.Context,
 	if in.SchnorrSig {
 		sig, err := s.cfg.KeyRing.SignMessageSchnorr(
 			keyLocator, in.Msg, in.DoubleHash,
-			in.SchnorrSigTapTweak,
+			in.SchnorrSigTapTweak, in.Tag,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("can't sign the hash: %v", err)

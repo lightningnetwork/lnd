@@ -263,7 +263,7 @@ release builds & installation.
 You can specify a custom set of tags when installing from source using the `tags=""` parameter. For example:
 
 ```shell
-make install tags="signrpc walletrpc routerrpc invoicesrpc"
+make install tags="signrpc walletrpc routerrpc chainrpc invoicesrpc"
 ```
 
 **Updating**

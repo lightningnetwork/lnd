@@ -200,6 +200,7 @@ func (svc *Service) ValidateMacaroon(ctx context.Context,
 func (svc *Service) CheckMacAuth(ctx context.Context, macBytes []byte,
 	requiredPermissions []bakery.Op, fullMethod string) error {
 
+	defer handlePanic()
 	// With the macaroon obtained, we'll now unmarshal it from binary into
 	// its concrete struct representation.
 	mac := &macaroon.Macaroon{}
@@ -357,4 +358,10 @@ func SafeCopyMacaroon(mac *macaroon.Macaroon) (*macaroon.Macaroon, error) {
 	}
 
 	return newMac, nil
+}
+
+func handlePanic() {
+	if r := recover(); r != nil {
+		fmt.Errorf("Recovered from panic in macaroon auth:", r)
+	}
 }

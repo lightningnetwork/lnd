@@ -3206,16 +3206,16 @@ func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
 // the target node in the channel. This is useful when one knows the pubkey of
 // one of the nodes, and wishes to obtain the full LightningNode for the other
 // end of the channel.
-func (c *ChannelEdgeInfo) FetchOtherNode(tx kvdb.RTx,
+func (c *ChannelGraph) FetchOtherNode(tx kvdb.RTx, channel *ChannelEdgeInfo,
 	thisNodeKey []byte) (*LightningNode, error) {
 
 	// Ensure that the node passed in is actually a member of the channel.
 	var targetNodeBytes [33]byte
 	switch {
-	case bytes.Equal(c.NodeKey1Bytes[:], thisNodeKey):
-		targetNodeBytes = c.NodeKey2Bytes
-	case bytes.Equal(c.NodeKey2Bytes[:], thisNodeKey):
-		targetNodeBytes = c.NodeKey1Bytes
+	case bytes.Equal(channel.NodeKey1Bytes[:], thisNodeKey):
+		targetNodeBytes = channel.NodeKey2Bytes
+	case bytes.Equal(channel.NodeKey2Bytes[:], thisNodeKey):
+		targetNodeBytes = channel.NodeKey1Bytes
 	default:
 		return nil, fmt.Errorf("node not participating in this channel")
 	}

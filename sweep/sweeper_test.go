@@ -2530,7 +2530,7 @@ func TestGetInputLists(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			allSets, newSets, err := s.getInputLists(tc.cluster, 0)
+			allSets, newSets, err := s.getInputLists(tc.cluster)
 			require.NoError(t, err)
 
 			if tc.expectNilNewSet {

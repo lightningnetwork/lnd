@@ -2824,16 +2824,19 @@ func (r *ChannelRouter) ForEachNode(
 func (r *ChannelRouter) ForAllOutgoingChannels(cb func(kvdb.RTx,
 	*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy) error) error {
 
-	return r.selfNode.ForEachChannel(nil, func(tx kvdb.RTx,
-		c *channeldb.ChannelEdgeInfo,
-		e, _ *channeldb.ChannelEdgePolicy) error {
+	return r.cfg.Graph.ForEachNodeChannel(nil, r.selfNode.PubKeyBytes,
+		func(tx kvdb.RTx, c *channeldb.ChannelEdgeInfo,
+			e *channeldb.ChannelEdgePolicy,
+			_ *channeldb.ChannelEdgePolicy) error {
 
-		if e == nil {
-			return fmt.Errorf("channel from self node has no policy")
-		}
+			if e == nil {
+				return fmt.Errorf("channel from self node " +
+					"has no policy")
+			}
 
-		return cb(tx, c, e)
-	})
+			return cb(tx, c, e)
+		},
+	)
 }
 
 // AddProof updates the channel edge info with proof which is needed to

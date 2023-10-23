@@ -459,16 +459,14 @@ func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo,
 	}, func() {})
 }
 
-// ForEachNodeChannel iterates through all channels of a given node, executing the
-// passed callback with an edge info structure and the policies of each end
-// of the channel. The first edge policy is the outgoing edge *to* the
-// connecting node, while the second is the incoming edge *from* the
-// connecting node. If the callback returns an error, then the iteration is
-// halted with the error propagated back up to the caller.
+// ForEachNodeDirectedChannel iterates through all channels of a given node,
+// executing the passed callback on the directed edge representing the channel
+// and its incoming policy. If the callback returns an error, then the iteration
+// is halted with the error propagated back up to the caller.
 //
 // Unknown policies are passed into the callback as nil values.
-func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, node route.Vertex,
-	cb func(channel *DirectedChannel) error) error {
+func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
+	node route.Vertex, cb func(channel *DirectedChannel) error) error {
 
 	if c.graphCache != nil {
 		return c.graphCache.ForEachChannel(node, cb)
@@ -557,44 +555,49 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 	return c.ForEachNode(func(tx kvdb.RTx, node *LightningNode) error {
 		channels := make(map[uint64]*DirectedChannel)
 
-		err := node.ForEachChannel(tx, func(tx kvdb.RTx,
-			e *ChannelEdgeInfo, p1 *ChannelEdgePolicy,
-			p2 *ChannelEdgePolicy) error {
+		err := c.ForEachNodeChannel(tx, node.PubKeyBytes,
+			func(tx kvdb.RTx, e *ChannelEdgeInfo,
+				p1 *ChannelEdgePolicy,
+				p2 *ChannelEdgePolicy) error {
 
-			toNodeCallback := func() route.Vertex {
-				return node.PubKeyBytes
-			}
-			toNodeFeatures, err := c.FetchNodeFeatures(
-				node.PubKeyBytes,
-			)
-			if err != nil {
-				return err
-			}
+				toNodeCallback := func() route.Vertex {
+					return node.PubKeyBytes
+				}
+				toNodeFeatures, err := c.FetchNodeFeatures(
+					node.PubKeyBytes,
+				)
+				if err != nil {
+					return err
+				}
 
-			var cachedInPolicy *CachedEdgePolicy
-			if p2 != nil {
-				cachedInPolicy := NewCachedPolicy(p2)
-				cachedInPolicy.ToNodePubKey = toNodeCallback
-				cachedInPolicy.ToNodeFeatures = toNodeFeatures
-			}
+				var cachedInPolicy *CachedEdgePolicy
+				if p2 != nil {
+					cachedInPolicy := NewCachedPolicy(p2)
+					cachedInPolicy.ToNodePubKey =
+						toNodeCallback
+					cachedInPolicy.ToNodeFeatures =
+						toNodeFeatures
+				}
 
-			directedChannel := &DirectedChannel{
-				ChannelID:    e.ChannelID,
-				IsNode1:      node.PubKeyBytes == e.NodeKey1Bytes,
-				OtherNode:    e.NodeKey2Bytes,
-				Capacity:     e.Capacity,
-				OutPolicySet: p1 != nil,
-				InPolicy:     cachedInPolicy,
-			}
+				directedChannel := &DirectedChannel{
+					ChannelID: e.ChannelID,
+					IsNode1: node.PubKeyBytes ==
+						e.NodeKey1Bytes,
+					OtherNode:    e.NodeKey2Bytes,
+					Capacity:     e.Capacity,
+					OutPolicySet: p1 != nil,
+					InPolicy:     cachedInPolicy,
+				}
 
-			if node.PubKeyBytes == e.NodeKey2Bytes {
-				directedChannel.OtherNode = e.NodeKey1Bytes
-			}
+				if node.PubKeyBytes == e.NodeKey2Bytes {
+					directedChannel.OtherNode =
+						e.NodeKey1Bytes
+				}
 
-			channels[e.ChannelID] = directedChannel
+				channels[e.ChannelID] = directedChannel
 
-			return nil
-		})
+				return nil
+			})
 		if err != nil {
 			return err
 		}
@@ -2740,15 +2743,18 @@ func (l *LightningNode) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
 // isPublic determines whether the node is seen as public within the graph from
 // the source node's point of view. An existing database transaction can also be
 // specified.
-func (l *LightningNode) isPublic(tx kvdb.RTx, sourcePubKey []byte) (bool, error) {
+func (c *ChannelGraph) isPublic(tx kvdb.RTx, nodePub route.Vertex,
+	sourcePubKey []byte) (bool, error) {
+
 	// In order to determine whether this node is publicly advertised within
 	// the graph, we'll need to look at all of its edges and check whether
 	// they extend to any other node than the source node. errDone will be
 	// used to terminate the check early.
 	nodeIsPublic := false
 	errDone := errors.New("done")
-	err := l.ForEachChannel(tx, func(_ kvdb.RTx, info *ChannelEdgeInfo,
-		_, _ *ChannelEdgePolicy) error {
+	err := c.ForEachNodeChannel(tx, nodePub, func(tx kvdb.RTx,
+		info *ChannelEdgeInfo, _ *ChannelEdgePolicy,
+		_ *ChannelEdgePolicy) error {
 
 		// If this edge doesn't extend to the source node, we'll
 		// terminate our search as we can now conclude that the node is
@@ -3003,10 +3009,10 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 	return traversal(tx)
 }
 
-// ForEachChannel iterates through all channels of this node, executing the
-// passed callback with an edge info structure and the policies of each end
-// of the channel. The first edge policy is the outgoing edge *to* the
-// connecting node, while the second is the incoming edge *from* the
+// ForEachNodeChannel iterates through all channels of the given node,
+// executing the passed callback with an edge info structure and the policies
+// of each end of the channel. The first edge policy is the outgoing edge *to*
+// the connecting node, while the second is the incoming edge *from* the
 // connecting node. If the callback returns an error, then the iteration is
 // halted with the error propagated back up to the caller.
 //
@@ -3016,14 +3022,11 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 // should be passed as the first argument.  Otherwise the first argument should
 // be nil and a fresh transaction will be created to execute the graph
 // traversal.
-func (l *LightningNode) ForEachChannel(tx kvdb.RTx,
+func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, nodePub route.Vertex,
 	cb func(kvdb.RTx, *ChannelEdgeInfo, *ChannelEdgePolicy,
 		*ChannelEdgePolicy) error) error {
 
-	nodePub := l.PubKeyBytes[:]
-	db := l.db
-
-	return nodeTraversal(tx, nodePub, db, cb)
+	return nodeTraversal(tx, nodePub[:], c.db, cb)
 }
 
 // ChannelEdgeInfo represents a fully authenticated channel along with all its
@@ -3718,7 +3721,7 @@ func (c *ChannelGraph) IsPublicNode(pubKey [33]byte) (bool, error) {
 			return err
 		}
 
-		nodeIsPublic, err = node.isPublic(tx, ourPubKey)
+		nodeIsPublic, err = c.isPublic(tx, node.PubKeyBytes, ourPubKey)
 		return err
 	}, func() {
 		nodeIsPublic = false

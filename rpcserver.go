@@ -6151,30 +6151,33 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		channels      []*lnrpc.ChannelEdge
 	)
 
-	if err := node.ForEachChannel(nil, func(_ kvdb.RTx,
-		edge *channeldb.ChannelEdgeInfo,
-		c1, c2 *channeldb.ChannelEdgePolicy) error {
+	err = graph.ForEachNodeChannel(nil, node.PubKeyBytes,
+		func(_ kvdb.RTx, edge *channeldb.ChannelEdgeInfo,
+			c1, c2 *channeldb.ChannelEdgePolicy) error {
 
-		numChannels++
-		totalCapacity += edge.Capacity
+			numChannels++
+			totalCapacity += edge.Capacity
 
-		// Only populate the node's channels if the user requested them.
-		if in.IncludeChannels {
-			// Do not include unannounced channels - private
-			// channels or public channels whose authentication
-			// proof were not confirmed yet.
-			if edge.AuthProof == nil {
-				return nil
+			// Only populate the node's channels if the user
+			// requested them.
+			if in.IncludeChannels {
+				// Do not include unannounced channels - private
+				// channels or public channels whose
+				// authentication proof were not confirmed yet.
+				if edge.AuthProof == nil {
+					return nil
+				}
+
+				// Convert the database's edge format into the
+				// network/RPC edge format.
+				channelEdge := marshalDbEdge(edge, c1, c2)
+				channels = append(channels, channelEdge)
 			}
 
-			// Convert the database's edge format into the
-			// network/RPC edge format.
-			channelEdge := marshalDbEdge(edge, c1, c2)
-			channels = append(channels, channelEdge)
-		}
-
-		return nil
-	}); err != nil {
+			return nil
+		},
+	)
+	if err != nil {
 		return nil, err
 	}
 
@@ -6763,34 +6766,39 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	}
 
 	var feeReports []*lnrpc.ChannelFeeReport
-	err = selfNode.ForEachChannel(nil, func(_ kvdb.RTx, chanInfo *channeldb.ChannelEdgeInfo,
-		edgePolicy, _ *channeldb.ChannelEdgePolicy) error {
+	err = channelGraph.ForEachNodeChannel(nil, selfNode.PubKeyBytes,
+		func(_ kvdb.RTx, chanInfo *channeldb.ChannelEdgeInfo,
+			edgePolicy, _ *channeldb.ChannelEdgePolicy) error {
 
-		// Self node should always have policies for its channels.
-		if edgePolicy == nil {
-			return fmt.Errorf("no policy for outgoing channel %v ",
-				chanInfo.ChannelID)
-		}
+			// Self node should always have policies for its
+			// channels.
+			if edgePolicy == nil {
+				return fmt.Errorf("no policy for outgoing "+
+					"channel %v ", chanInfo.ChannelID)
+			}
 
-		// We'll compute the effective fee rate by converting from a
-		// fixed point fee rate to a floating point fee rate. The fee
-		// rate field in the database the amount of mSAT charged per
-		// 1mil mSAT sent, so will divide by this to get the proper fee
-		// rate.
-		feeRateFixedPoint := edgePolicy.FeeProportionalMillionths
-		feeRate := float64(feeRateFixedPoint) / feeBase
+			// We'll compute the effective fee rate by converting
+			// from a fixed point fee rate to a floating point fee
+			// rate. The fee rate field in the database the amount
+			// of mSAT charged per 1mil mSAT sent, so will divide by
+			// this to get the proper fee rate.
+			feeRateFixedPoint :=
+				edgePolicy.FeeProportionalMillionths
+			feeRate := float64(feeRateFixedPoint) / feeBase
 
-		// TODO(roasbeef): also add stats for revenue for each channel
-		feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
-			ChanId:       chanInfo.ChannelID,
-			ChannelPoint: chanInfo.ChannelPoint.String(),
-			BaseFeeMsat:  int64(edgePolicy.FeeBaseMSat),
-			FeePerMil:    int64(feeRateFixedPoint),
-			FeeRate:      feeRate,
-		})
+			// TODO(roasbeef): also add stats for revenue for each
+			// channel
+			feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
+				ChanId:       chanInfo.ChannelID,
+				ChannelPoint: chanInfo.ChannelPoint.String(),
+				BaseFeeMsat:  int64(edgePolicy.FeeBaseMSat),
+				FeePerMil:    int64(feeRateFixedPoint),
+				FeeRate:      feeRate,
+			})
 
-		return nil
-	})
+			return nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

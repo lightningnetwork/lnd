@@ -1056,30 +1056,39 @@ func TestGraphTraversal(t *testing.T) {
 	// outgoing channels for a particular node.
 	numNodeChans := 0
 	firstNode, secondNode := nodeList[0], nodeList[1]
-	err = firstNode.ForEachChannel(nil, func(_ kvdb.RTx, _ *ChannelEdgeInfo,
-		outEdge, inEdge *ChannelEdgePolicy) error {
+	err = graph.ForEachNodeChannel(nil, firstNode.PubKeyBytes,
+		func(_ kvdb.RTx, _ *ChannelEdgeInfo, outEdge,
+			inEdge *ChannelEdgePolicy) error {
 
-		// All channels between first and second node should have fully
-		// (both sides) specified policies.
-		if inEdge == nil || outEdge == nil {
-			return fmt.Errorf("channel policy not present")
-		}
+			// All channels between first and second node should
+			// have fully (both sides) specified policies.
+			if inEdge == nil || outEdge == nil {
+				return fmt.Errorf("channel policy not present")
+			}
 
-		// Each should indicate that it's outgoing (pointed
-		// towards the second node).
-		if !bytes.Equal(outEdge.Node.PubKeyBytes[:], secondNode.PubKeyBytes[:]) {
-			return fmt.Errorf("wrong outgoing edge")
-		}
+			// Each should indicate that it's outgoing (pointed
+			// towards the second node).
+			if !bytes.Equal(
+				outEdge.Node.PubKeyBytes[:],
+				secondNode.PubKeyBytes[:],
+			) {
 
-		// The incoming edge should also indicate that it's pointing to
-		// the origin node.
-		if !bytes.Equal(inEdge.Node.PubKeyBytes[:], firstNode.PubKeyBytes[:]) {
-			return fmt.Errorf("wrong outgoing edge")
-		}
+				return fmt.Errorf("wrong outgoing edge")
+			}
 
-		numNodeChans++
-		return nil
-	})
+			// The incoming edge should also indicate that it's
+			// pointing to the origin node.
+			if !bytes.Equal(
+				inEdge.Node.PubKeyBytes[:],
+				firstNode.PubKeyBytes[:],
+			) {
+
+				return fmt.Errorf("wrong outgoing edge")
+			}
+
+			numNodeChans++
+			return nil
+		})
 	require.NoError(t, err)
 	require.Equal(t, numChannels, numNodeChans)
 }
@@ -2280,29 +2289,30 @@ func TestIncompleteChannelPolicies(t *testing.T) {
 	// Ensure that channel is reported with unknown policies.
 	checkPolicies := func(node *LightningNode, expectedIn, expectedOut bool) {
 		calls := 0
-		err := node.ForEachChannel(nil, func(_ kvdb.RTx, _ *ChannelEdgeInfo,
-			outEdge, inEdge *ChannelEdgePolicy) error {
+		err := graph.ForEachNodeChannel(nil, node.PubKeyBytes,
+			func(_ kvdb.RTx, _ *ChannelEdgeInfo, outEdge,
+				inEdge *ChannelEdgePolicy) error {
 
-			if !expectedOut && outEdge != nil {
-				t.Fatalf("Expected no outgoing policy")
-			}
+				if !expectedOut && outEdge != nil {
+					t.Fatalf("Expected no outgoing policy")
+				}
 
-			if expectedOut && outEdge == nil {
-				t.Fatalf("Expected an outgoing policy")
-			}
+				if expectedOut && outEdge == nil {
+					t.Fatalf("Expected an outgoing policy")
+				}
 
-			if !expectedIn && inEdge != nil {
-				t.Fatalf("Expected no incoming policy")
-			}
+				if !expectedIn && inEdge != nil {
+					t.Fatalf("Expected no incoming policy")
+				}
 
-			if expectedIn && inEdge == nil {
-				t.Fatalf("Expected an incoming policy")
-			}
+				if expectedIn && inEdge == nil {
+					t.Fatalf("Expected an incoming policy")
+				}
 
-			calls++
+				calls++
 
-			return nil
-		})
+				return nil
+			})
 		if err != nil {
 			t.Fatalf("unable to scan channels: %v", err)
 		}
@@ -3470,8 +3480,8 @@ func BenchmarkForEachChannel(b *testing.B) {
 	}
 }
 
-// TestGraphCacheForEachNodeChannel tests that the ForEachNodeChannel method
-// works as expected, and is able to handle nil self edges.
+// TestGraphCacheForEachNodeChannel tests that the ForEachNodeDirectedChannel
+// method works as expected, and is able to handle nil self edges.
 func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	graph, err := MakeTestGraph(t)
 	require.NoError(t, err)
@@ -3498,11 +3508,13 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	// We should be able to accumulate the single channel added, even
 	// though we have a nil edge policy here.
 	var numChans int
-	err = graph.ForEachNodeChannel(nil, node1.PubKeyBytes,
-		func(channel *DirectedChannel) error {
+	err = graph.ForEachNodeDirectedChannel(nil, node1.PubKeyBytes,
+		func(_ *DirectedChannel) error {
 			numChans++
+
 			return nil
-		})
+		},
+	)
 	require.NoError(t, err)
 
 	require.Equal(t, numChans, 1)

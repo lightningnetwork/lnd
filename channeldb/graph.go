@@ -519,7 +519,7 @@ func (c *ChannelGraph) FetchNodeFeatures(
 	}
 
 	// Fallback that uses the database.
-	targetNode, err := c.FetchLightningNode(node)
+	targetNode, err := c.FetchLightningNode(nil, node)
 	switch err {
 	// If the node exists and has features, return them directly.
 	case nil:
@@ -2779,12 +2779,13 @@ func (c *ChannelGraph) isPublic(tx kvdb.RTx, nodePub route.Vertex,
 
 // FetchLightningNode attempts to look up a target node by its identity public
 // key. If the node isn't found in the database, then ErrGraphNodeNotFound is
-// returned.
-func (c *ChannelGraph) FetchLightningNode(nodePub route.Vertex) (
+// returned. An optional transaction may be provided. If none is provided, then
+// a new one will be created.
+func (c *ChannelGraph) FetchLightningNode(tx kvdb.RTx, nodePub route.Vertex) (
 	*LightningNode, error) {
 
 	var node *LightningNode
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+	fetch := func(tx kvdb.RTx) error {
 		// First grab the nodes bucket which stores the mapping from
 		// pubKey to node information.
 		nodes := tx.ReadBucket(nodeBucket)
@@ -2810,9 +2811,22 @@ func (c *ChannelGraph) FetchLightningNode(nodePub route.Vertex) (
 		node = &n
 
 		return nil
-	}, func() {
-		node = nil
-	})
+	}
+
+	if tx == nil {
+		err := kvdb.View(
+			c.db, fetch, func() {
+				node = nil
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return node, nil
+	}
+
+	err := fetch(tx)
 	if err != nil {
 		return nil, err
 	}

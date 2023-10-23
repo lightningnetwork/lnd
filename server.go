@@ -4596,7 +4596,7 @@ func (s *server) fetchNodeAdvertisedAddrs(pub *btcec.PublicKey) ([]net.Addr, err
 		return nil, err
 	}
 
-	node, err := s.graphDB.FetchLightningNode(vertex)
+	node, err := s.graphDB.FetchLightningNode(nil, vertex)
 	if err != nil {
 		return nil, err
 	}

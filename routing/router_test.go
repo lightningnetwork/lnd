@@ -1613,14 +1613,14 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	_, _, err = ctx.router.FindRoute(req)
 	require.NoError(t, err, "unable to find any routes")
 
-	copy1, err := ctx.graph.FetchLightningNode(pub1)
+	copy1, err := ctx.graph.FetchLightningNode(nil, pub1)
 	require.NoError(t, err, "unable to fetch node")
 
 	if copy1.Alias != n1.Alias {
 		t.Fatalf("fetched node not equal to original")
 	}
 
-	copy2, err := ctx.graph.FetchLightningNode(pub2)
+	copy2, err := ctx.graph.FetchLightningNode(nil, pub2)
 	require.NoError(t, err, "unable to fetch node")
 
 	if copy2.Alias != n2.Alias {

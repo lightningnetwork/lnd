@@ -1351,7 +1351,7 @@ func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr,
 	if err != nil {
 		return nil, err
 	}
-	graphNode, err := d.graph.FetchLightningNode(pubKey)
+	graphNode, err := d.graph.FetchLightningNode(nil, pubKey)
 	if err != nil && err != ErrGraphNodeNotFound {
 		return nil, err
 	} else if err == ErrGraphNodeNotFound {

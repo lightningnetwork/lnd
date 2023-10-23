@@ -73,18 +73,12 @@ func TestGraphCacheAddNode(t *testing.T) {
 		outPolicy1 := &ChannelEdgePolicy{
 			ChannelID:    1000,
 			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagA),
-			Node: &LightningNode{
-				PubKeyBytes: nodeB,
-				Features:    lnwire.EmptyFeatureVector(),
-			},
+			ToNode:       nodeB,
 		}
 		inPolicy1 := &ChannelEdgePolicy{
 			ChannelID:    1000,
 			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagB),
-			Node: &LightningNode{
-				PubKeyBytes: nodeA,
-				Features:    lnwire.EmptyFeatureVector(),
-			},
+			ToNode:       nodeA,
 		}
 		node := &node{
 			pubKey:   nodeA,
@@ -159,9 +153,6 @@ func assertCachedPolicyEqual(t *testing.T, original *ChannelEdgePolicy,
 		cached.FeeProportionalMillionths,
 	)
 	require.Equal(
-		t,
-		route.Vertex(original.Node.PubKeyBytes),
-		cached.ToNodePubKey(),
+		t, route.Vertex(original.ToNode), cached.ToNodePubKey(),
 	)
-	require.Equal(t, original.Node.Features, cached.ToNodeFeatures)
 }

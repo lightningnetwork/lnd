@@ -1431,9 +1431,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
-		Node: &channeldb.LightningNode{
-			PubKeyBytes: edge.NodeKey2Bytes,
-		},
+		ToNode:                    edge.NodeKey2Bytes,
 	}
 	edgePolicy.ChannelFlags = 0
 
@@ -1450,9 +1448,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
-		Node: &channeldb.LightningNode{
-			PubKeyBytes: edge.NodeKey1Bytes,
-		},
+		ToNode:                    edge.NodeKey1Bytes,
 	}
 	edgePolicy.ChannelFlags = 1
 
@@ -1528,9 +1524,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
-		Node: &channeldb.LightningNode{
-			PubKeyBytes: edge.NodeKey2Bytes,
-		},
+		ToNode:                    edge.NodeKey2Bytes,
 	}
 	edgePolicy.ChannelFlags = 0
 
@@ -1546,9 +1540,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		MinHTLC:                   1,
 		FeeBaseMSat:               10,
 		FeeProportionalMillionths: 10000,
-		Node: &channeldb.LightningNode{
-			PubKeyBytes: edge.NodeKey1Bytes,
-		},
+		ToNode:                    edge.NodeKey1Bytes,
 	}
 	edgePolicy.ChannelFlags = 1
 

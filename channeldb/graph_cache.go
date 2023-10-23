@@ -271,7 +271,7 @@ func (c *GraphCache) AddChannel(info *ChannelEdgeInfo,
 	// of node 2 then we have the policy 1 as seen from node 1.
 	if policy1 != nil {
 		fromNode, toNode := info.NodeKey1Bytes, info.NodeKey2Bytes
-		if policy1.Node.PubKeyBytes != info.NodeKey2Bytes {
+		if policy1.ToNode != info.NodeKey2Bytes {
 			fromNode, toNode = toNode, fromNode
 		}
 		isEdge1 := policy1.ChannelFlags&lnwire.ChanUpdateDirection == 0
@@ -279,7 +279,7 @@ func (c *GraphCache) AddChannel(info *ChannelEdgeInfo,
 	}
 	if policy2 != nil {
 		fromNode, toNode := info.NodeKey2Bytes, info.NodeKey1Bytes
-		if policy2.Node.PubKeyBytes != info.NodeKey1Bytes {
+		if policy2.ToNode != info.NodeKey1Bytes {
 			fromNode, toNode = toNode, fromNode
 		}
 		isEdge1 := policy2.ChannelFlags&lnwire.ChanUpdateDirection == 0

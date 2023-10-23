@@ -303,16 +303,6 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 		}
 	}
 
-	aliasForNode := func(node route.Vertex) string {
-		for alias, pubKey := range aliasMap {
-			if pubKey == node {
-				return alias
-			}
-		}
-
-		return ""
-	}
-
 	// With all the vertexes inserted, we can now insert the edges into the
 	// test graph.
 	for _, edge := range g.Edges {
@@ -387,10 +377,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			MaxHTLC:                   lnwire.MilliSatoshi(edge.MaxHTLC),
 			FeeBaseMSat:               lnwire.MilliSatoshi(edge.FeeBaseMsat),
 			FeeProportionalMillionths: lnwire.MilliSatoshi(edge.FeeRate),
-			Node: &channeldb.LightningNode{
-				Alias:       aliasForNode(targetNode),
-				PubKeyBytes: targetNode,
-			},
+			ToNode:                    targetNode,
 		}
 		if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 			return nil, err
@@ -684,11 +671,6 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				channelFlags |= lnwire.ChanUpdateDisabled
 			}
 
-			node2Features := lnwire.EmptyFeatureVector()
-			if node2.testChannelPolicy != nil {
-				node2Features = node2.Features
-			}
-
 			edgePolicy := &channeldb.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
@@ -700,11 +682,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				MaxHTLC:                   node1.MaxHTLC,
 				FeeBaseMSat:               node1.FeeBaseMsat,
 				FeeProportionalMillionths: node1.FeeRate,
-				Node: &channeldb.LightningNode{
-					Alias:       node2.Alias,
-					PubKeyBytes: node2Vertex,
-					Features:    node2Features,
-				},
+				ToNode:                    node2Vertex,
 			}
 			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 				return nil, err
@@ -722,11 +700,6 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			}
 			channelFlags |= lnwire.ChanUpdateDirection
 
-			node1Features := lnwire.EmptyFeatureVector()
-			if node1.testChannelPolicy != nil {
-				node1Features = node1.Features
-			}
-
 			edgePolicy := &channeldb.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
@@ -738,11 +711,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				MaxHTLC:                   node2.MaxHTLC,
 				FeeBaseMSat:               node2.FeeBaseMsat,
 				FeeProportionalMillionths: node2.FeeRate,
-				Node: &channeldb.LightningNode{
-					Alias:       node1.Alias,
-					PubKeyBytes: node1Vertex,
-					Features:    node1Features,
-				},
+				ToNode:                    node1Vertex,
 			}
 			if err := graph.UpdateEdgePolicy(edgePolicy); err != nil {
 				return nil, err

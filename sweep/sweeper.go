@@ -1124,38 +1124,39 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 		return fmt.Errorf("notify publish tx: %v", err)
 	}
 
-	// Publish sweep tx.
+	// Reschedule the inputs that we just tried to sweep. This is done in
+	// case the following publish fails, we'd like to update the inputs'
+	// publish attempts and rescue them in the next sweep.
+	s.rescheduleInputs(tx.TxIn, currentHeight)
+
 	log.Debugf("Publishing sweep tx %v, num_inputs=%v, height=%v",
 		tx.TxHash(), len(tx.TxIn), currentHeight)
 
-	log.Tracef("Sweep tx at height=%v: %v", currentHeight,
-		newLogClosure(func() string {
-			return spew.Sdump(tx)
-		}),
-	)
-
+	// Publish the sweeping tx with customized label.
 	err = s.cfg.Wallet.PublishTransaction(
 		tx, labels.MakeLabel(labels.LabelTypeSweepTransaction, nil),
 	)
-
-	// In case of an unexpected error, don't try to recover.
-	if err != nil && err != lnwallet.ErrDoubleSpend {
-		return fmt.Errorf("publish tx: %v", err)
-	}
-
-	// Otherwise log the error.
 	if err != nil {
-		log.Errorf("Publish sweep tx %v got error: %v", tx.TxHash(),
-			err)
-	} else {
-		// If there's no error, remove the output script. Otherwise
-		// keep it so that it can be reused for the next transaction
-		// and causes no address inflation.
-		s.currentOutputScript = nil
+		return err
 	}
+
+	// If there's no error, remove the output script. Otherwise keep it so
+	// that it can be reused for the next transaction and causes no address
+	// inflation.
+	s.currentOutputScript = nil
+
+	return nil
+}
+
+// rescheduleInputs updates the pending inputs with the given tx inputs. It
+// increments the `publishAttempts` and calculates the next broadcast height
+// for each input. When the publishAttempts exceeds MaxSweepAttemps(10), this
+// input will be removed.
+func (s *UtxoSweeper) rescheduleInputs(inputs []*wire.TxIn,
+	currentHeight int32) {
 
 	// Reschedule sweep.
-	for _, input := range tx.TxIn {
+	for _, input := range inputs {
 		pi, ok := s.pendingInputs[input.PreviousOutPoint]
 		if !ok {
 			// It can be that the input has been removed because it
@@ -1196,8 +1197,6 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 			})
 		}
 	}
-
-	return nil
 }
 
 // monitorSpend registers a spend notification with the chain notifier. It

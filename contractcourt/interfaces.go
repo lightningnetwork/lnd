@@ -52,8 +52,8 @@ type UtxoSweeper interface {
 	// CreateSweepTx accepts a list of inputs and signs and generates a txn
 	// that spends from them. This method also makes an accurate fee
 	// estimate before generating the required witnesses.
-	CreateSweepTx(inputs []input.Input, feePref sweep.FeePreference,
-		currentBlockHeight uint32) (*wire.MsgTx, error)
+	CreateSweepTx(inputs []input.Input,
+		feePref sweep.FeePreference) (*wire.MsgTx, error)
 
 	// RelayFeePerKW returns the minimum fee rate required for transactions
 	// to be relayed.

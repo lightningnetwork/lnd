@@ -432,17 +432,13 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 		// transaction, that we'll use to move these coins back into
 		// the backing wallet.
 		//
-		// TODO: Set tx lock time to current block height instead of
-		// zero. Will be taken care of once sweeper implementation is
-		// complete.
-		//
 		// TODO: Use time-based sweeper and result chan.
 		var err error
 		h.sweepTx, err = h.Sweeper.CreateSweepTx(
 			[]input.Input{inp},
 			sweep.FeePreference{
 				ConfTarget: sweepConfTarget,
-			}, 0,
+			},
 		)
 		if err != nil {
 			return nil, err

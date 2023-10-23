@@ -1939,7 +1939,6 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime,
 				return fmt.Errorf("unable to fetch info for "+
 					"edge with chan_id=%v: %v", chanID, err)
 			}
-			edgeInfo.db = c.db
 
 			// With the static information obtained, we'll now
 			// fetch the dynamic policy info.
@@ -2270,7 +2269,6 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 			case err != nil:
 				return err
 			}
-			edgeInfo.db = c.db
 
 			// With the static information obtained, we'll now
 			// fetch the dynamic policy info.
@@ -2961,7 +2959,6 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 			if err != nil {
 				return err
 			}
-			edgeInfo.db = db
 
 			outgoingPolicy, err := fetchChanEdgePolicy(
 				edges, chanID, nodePub, nodes,
@@ -3082,8 +3079,6 @@ type ChannelEdgeInfo struct {
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
 	ExtraOpaqueData []byte
-
-	db kvdb.Backend
 }
 
 // AddNodeKeys is a setter-like method that can be used to replace the set of
@@ -3560,7 +3555,6 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint,
 			return err
 		}
 		edgeInfo = &edge
-		edgeInfo.db = c.db
 
 		// Once we have the information about the channels' parameters,
 		// we'll fetch the routing policies for each for the directed
@@ -3666,7 +3660,6 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64,
 		}
 
 		edgeInfo = &edge
-		edgeInfo.db = c.db
 
 		// Then we'll attempt to fetch the accompanying policies of this
 		// edge.

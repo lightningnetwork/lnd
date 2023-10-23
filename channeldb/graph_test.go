@@ -2706,16 +2706,14 @@ func TestNodeIsPublic(t *testing.T) {
 	// participant's graph.
 	nodes := []*LightningNode{aliceNode, bobNode, carolNode}
 	edges := []*ChannelEdgeInfo{&aliceBobEdge, &bobCarolEdge}
-	dbs := []kvdb.Backend{aliceGraph.db, bobGraph.db, carolGraph.db}
 	graphs := []*ChannelGraph{aliceGraph, bobGraph, carolGraph}
-	for i, graph := range graphs {
+	for _, graph := range graphs {
 		for _, node := range nodes {
 			if err := graph.AddLightningNode(node); err != nil {
 				t.Fatalf("unable to add node: %v", err)
 			}
 		}
 		for _, edge := range edges {
-			edge.db = dbs[i]
 			if err := graph.AddChannelEdge(edge); err != nil {
 				t.Fatalf("unable to add edge: %v", err)
 			}
@@ -2775,7 +2773,7 @@ func TestNodeIsPublic(t *testing.T) {
 	// that allows it to be advertised. Within Alice's graph, we'll
 	// completely remove the edge as it is not possible for her to know of
 	// it without it being advertised.
-	for i, graph := range graphs {
+	for _, graph := range graphs {
 		err := graph.DeleteChannelEdges(
 			false, true, bobCarolEdge.ChannelID,
 		)
@@ -2788,7 +2786,6 @@ func TestNodeIsPublic(t *testing.T) {
 		}
 
 		bobCarolEdge.AuthProof = nil
-		bobCarolEdge.db = dbs[i]
 		if err := graph.AddChannelEdge(&bobCarolEdge); err != nil {
 			t.Fatalf("unable to add edge: %v", err)
 		}

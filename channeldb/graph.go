@@ -682,7 +682,6 @@ func (c *ChannelGraph) ForEachNode(
 			if err != nil {
 				return err
 			}
-			node.db = c.db
 
 			// Execute the callback, the transaction will abort if
 			// this returns an error.
@@ -780,7 +779,6 @@ func (c *ChannelGraph) sourceNode(nodes kvdb.RBucket) (*LightningNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	node.db = c.db
 
 	return &node, nil
 }
@@ -2038,7 +2036,6 @@ func (c *ChannelGraph) NodeUpdatesInHorizon(startTime,
 			if err != nil {
 				return err
 			}
-			node.db = c.db
 
 			nodesInHorizon = append(nodesInHorizon, node)
 		}
@@ -2660,8 +2657,6 @@ type LightningNode struct {
 	// compatible manner.
 	ExtraOpaqueData []byte
 
-	db kvdb.Backend
-
 	// TODO(roasbeef): discovery will need storage to keep it's last IP
 	// address and re-announce if interface changes?
 
@@ -2813,7 +2808,6 @@ func (c *ChannelGraph) FetchLightningNode(nodePub route.Vertex) (
 		if err != nil {
 			return err
 		}
-		n.db = c.db
 
 		node = &n
 
@@ -3239,7 +3233,6 @@ func (c *ChannelEdgeInfo) FetchOtherNode(tx kvdb.RTx,
 		if err != nil {
 			return err
 		}
-		node.db = c.db
 
 		targetNode = &node
 
@@ -4642,7 +4635,6 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 	// only fill in the database pointers if the edge is found.
 	if edge1 != nil {
 		edge1.db = db
-		edge1.Node.db = db
 	}
 
 	// Similarly, the second node is contained within the latter
@@ -4655,7 +4647,6 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 
 	if edge2 != nil {
 		edge2.db = db
-		edge2.Node.db = db
 	}
 
 	return edge1, edge2, nil

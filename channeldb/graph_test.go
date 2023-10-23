@@ -671,7 +671,6 @@ func createChannelEdge(db kvdb.Backend, node1, node2 *LightningNode) (*ChannelEd
 		FeeProportionalMillionths: 3452352,
 		Node:                      secondNode,
 		ExtraOpaqueData:           []byte("new unknown feature2"),
-		db:                        db,
 	}
 	edge2 := &ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
@@ -686,7 +685,6 @@ func createChannelEdge(db kvdb.Backend, node1, node2 *LightningNode) (*ChannelEd
 		FeeProportionalMillionths: 90392423,
 		Node:                      firstNode,
 		ExtraOpaqueData:           []byte("new unknown feature1"),
-		db:                        db,
 	}
 
 	return edgeInfo, edge1, edge2
@@ -992,7 +990,6 @@ func newEdgePolicy(chanID uint64, db kvdb.Backend,
 		MaxHTLC:                   lnwire.MilliSatoshi(prand.Int63()),
 		FeeBaseMSat:               lnwire.MilliSatoshi(prand.Int63()),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(prand.Int63()),
-		db:                        db,
 	}
 }
 
@@ -3201,10 +3198,6 @@ func compareEdgePolicies(a, b *ChannelEdgePolicy) error {
 	}
 	if err := compareNodes(a.Node, b.Node); err != nil {
 		return err
-	}
-	if !reflect.DeepEqual(a.db, b.db) {
-		return fmt.Errorf("db doesn't match: expected %#v, \n "+
-			"got %#v", a.db, b.db)
 	}
 	return nil
 }

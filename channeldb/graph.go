@@ -3438,8 +3438,6 @@ type ChannelEdgePolicy struct {
 	// and ensure we're able to make upgrades to the network in a forwards
 	// compatible manner.
 	ExtraOpaqueData []byte
-
-	db kvdb.Backend
 }
 
 // Signature is a channel announcement signature, which is needed for proper
@@ -3821,11 +3819,6 @@ func (c *ChannelGraph) ChannelView() ([]EdgePoint, error) {
 	}
 
 	return edgePoints, nil
-}
-
-// NewChannelEdgePolicy returns a new blank ChannelEdgePolicy.
-func (c *ChannelGraph) NewChannelEdgePolicy() *ChannelEdgePolicy {
-	return &ChannelEdgePolicy{db: c.db}
 }
 
 // MarkEdgeZombie attempts to mark a channel identified by its channel ID as a
@@ -4624,22 +4617,12 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 		return nil, nil, err
 	}
 
-	// As we may have a single direction of the edge but not the other,
-	// only fill in the database pointers if the edge is found.
-	if edge1 != nil {
-		edge1.db = db
-	}
-
 	// Similarly, the second node is contained within the latter
 	// half of the edge information.
 	node2Pub := edgeInfo[33:66]
 	edge2, err := fetchChanEdgePolicy(edges, chanID, node2Pub, nodes)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	if edge2 != nil {
-		edge2.db = db
 	}
 
 	return edge1, edge2, nil

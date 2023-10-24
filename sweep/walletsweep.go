@@ -1,6 +1,7 @@
 package sweep
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
@@ -17,6 +18,12 @@ const (
 	// to issuing an estimate for if a fee pre fence doesn't specify an
 	// explicit conf target or fee rate.
 	defaultNumBlocksEstimate = 6
+)
+
+var (
+	// ErrNoFeePreference is returned when we attempt to satisfy a sweep
+	// request from a client whom did not specify a fee preference.
+	ErrNoFeePreference = errors.New("no fee preference specified")
 )
 
 // FeePreference allows callers to express their time value for inclusion of a
@@ -39,10 +46,52 @@ func (p FeePreference) String() string {
 	return p.FeeRate.String()
 }
 
+// Estimate returns a fee rate for the given fee preference. It ensures that
+// the fee rate respects the bounds of the relay fee and the specified max fee
+// rates.
+//
+// TODO(yy): add tests.
+func (f FeePreference) Estimate(estimator chainfee.Estimator,
+	maxFeeRate chainfee.SatPerKWeight) (chainfee.SatPerKWeight, error) {
+
+	// Get the relay fee as the min fee rate.
+	minFeeRate := estimator.RelayFeePerKW()
+
+	// Ensure a type of fee preference is specified to prevent using a
+	// default below.
+	if f.FeeRate == 0 && f.ConfTarget == 0 {
+		return 0, ErrNoFeePreference
+	}
+
+	feeRate, err := DetermineFeePerKw(estimator, f)
+	if err != nil {
+		return 0, err
+	}
+
+	if feeRate < minFeeRate {
+		return 0, fmt.Errorf("%w: got %v, minimum is %v",
+			ErrFeePreferenceTooLow, feeRate, minFeeRate)
+	}
+
+	// If the estimated fee rate is above the maximum allowed fee rate,
+	// default to the max fee rate.
+	if feeRate > maxFeeRate {
+		log.Warnf("Estimated fee rate %v exceeds max allowed fee "+
+			"rate %v, using max fee rate instead", feeRate,
+			maxFeeRate)
+
+		return maxFeeRate, nil
+	}
+
+	return feeRate, nil
+}
+
 // DetermineFeePerKw will determine the fee in sat/kw that should be paid given
 // an estimator, a confirmation target, and a manual value for sat/byte. A
 // value is chosen based on the two free parameters as one, or both of them can
 // be zero.
+//
+// TODO(yy): move it into the above `Estimate`.
 func DetermineFeePerKw(feeEstimator chainfee.Estimator,
 	feePref FeePreference) (chainfee.SatPerKWeight, error) {
 

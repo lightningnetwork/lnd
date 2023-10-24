@@ -1059,6 +1059,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	aggregator := sweep.NewSimpleUtxoAggregator(
+		cc.FeeEstimator, cfg.Sweeper.MaxFeeRate.FeePerKWeight(),
+	)
+
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
 		FeeEstimator:         cc.FeeEstimator,
 		GenSweepScript:       newSweepPkScriptGen(cc.Wallet),
@@ -1071,7 +1075,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		MaxSweepAttempts:     sweep.DefaultMaxSweepAttempts,
 		NextAttemptDeltaFunc: sweep.DefaultNextAttemptDeltaFunc,
 		MaxFeeRate:           cfg.Sweeper.MaxFeeRate,
-		FeeRateBucketSize:    sweep.DefaultFeeRateBucketSize,
+		Aggregator:           aggregator,
 	})
 
 	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{

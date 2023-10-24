@@ -27,3 +27,18 @@ func (m *MockFeePreference) Estimate(estimator chainfee.Estimator,
 
 	return args.Get(0).(chainfee.SatPerKWeight), args.Error(1)
 }
+
+type mockUtxoAggregator struct {
+	mock.Mock
+}
+
+// Compile-time constraint to ensure mockUtxoAggregator implements
+// UtxoAggregator.
+var _ UtxoAggregator = (*mockUtxoAggregator)(nil)
+
+// ClusterInputs takes a list of inputs and groups them into clusters.
+func (m *mockUtxoAggregator) ClusterInputs(pendingInputs) []inputCluster {
+	args := m.Called(pendingInputs{})
+
+	return args.Get(0).([]inputCluster)
+}

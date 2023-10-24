@@ -99,6 +99,8 @@ func (m *MockNotifier) sendSpend(channel chan *chainntnfs.SpendDetail,
 	outpoint *wire.OutPoint,
 	spendingTx *wire.MsgTx) {
 
+	log.Debugf("Notifying spend of outpoint %v", outpoint)
+
 	spenderTxHash := spendingTx.TxHash()
 	channel <- &chainntnfs.SpendDetail{
 		SpenderTxHash: &spenderTxHash,
@@ -187,6 +189,8 @@ func (m *MockNotifier) Stop() error {
 // RegisterSpendNtfn registers for spend notifications.
 func (m *MockNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	_ []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+
+	log.Debugf("RegisterSpendNtfn for outpoint %v", outpoint)
 
 	// Add channel to global spend ntfn map.
 	m.mutex.Lock()

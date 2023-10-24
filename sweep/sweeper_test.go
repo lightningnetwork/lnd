@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -2173,4 +2174,80 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 
 	// Assert mocked statements are executed as expected.
 	mockStore.AssertExpectations(t)
+}
+
+// TestMempoolLookup checks that the method `mempoolLookup` works as expected.
+func TestMempoolLookup(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Create a test outpoint.
+	op := wire.OutPoint{Index: 1}
+
+	// Create a mock mempool watcher.
+	mockMempool := chainntnfs.NewMockMempoolWatcher()
+
+	// Create a test sweeper without a mempool.
+	s := New(&UtxoSweeperConfig{})
+
+	// Since we don't have a mempool, we expect the call to return an empty
+	// transaction plus a false value indicating it's not found.
+	tx, found := s.mempoolLookup(op)
+	require.Nil(tx)
+	require.False(found)
+
+	// Re-create the sweeper with the mocked mempool watcher.
+	s = New(&UtxoSweeperConfig{
+		Mempool: mockMempool,
+	})
+
+	// Create a mempool spend event to be returned by the mempool watcher.
+	spendChan := make(chan *chainntnfs.SpendDetail, 1)
+	spendEvent := &chainntnfs.MempoolSpendEvent{
+		Spend: spendChan,
+	}
+
+	// Mock the cancel subscription calls.
+	mockMempool.On("CancelMempoolSpendEvent", spendEvent)
+
+	// Mock the mempool watcher to return an error.
+	dummyErr := errors.New("dummy err")
+	mockMempool.On("SubscribeMempoolSpent", op).Return(nil, dummyErr).Once()
+
+	// We expect a nil tx and a false value to be returned.
+	//
+	// TODO(yy): this means the behavior of not having a mempool is the
+	// same as an erroneous mempool. The question is should we
+	// differentiate the two from their returned values?
+	tx, found = s.mempoolLookup(op)
+	require.Nil(tx)
+	require.False(found)
+
+	// Mock the mempool to subscribe to the outpoint.
+	mockMempool.On("SubscribeMempoolSpent", op).Return(
+		spendEvent, nil).Once()
+
+	// Without sending a spending details to the `spendChan`, we still
+	// expect a nil tx and a false value to be returned.
+	tx, found = s.mempoolLookup(op)
+	require.Nil(tx)
+	require.False(found)
+
+	// Send a dummy spending details to the `spendChan`.
+	dummyTx := &wire.MsgTx{}
+	spendChan <- &chainntnfs.SpendDetail{
+		SpendingTx: dummyTx,
+	}
+
+	// Mock the mempool to subscribe to the outpoint.
+	mockMempool.On("SubscribeMempoolSpent", op).Return(
+		spendEvent, nil).Once()
+
+	// Calling the loopup again, we expect the dummyTx to be returned.
+	tx, found = s.mempoolLookup(op)
+	require.Equal(dummyTx, tx)
+	require.True(found)
+
+	mockMempool.AssertExpectations(t)
 }

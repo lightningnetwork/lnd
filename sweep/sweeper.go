@@ -304,6 +304,10 @@ type UtxoSweeperConfig struct {
 	// certain on-chain events.
 	Notifier chainntnfs.ChainNotifier
 
+	// Mempool is the mempool watcher that will be used to query whether a
+	// given input is already being spent by a transaction in the mempool.
+	Mempool chainntnfs.MempoolWatcher
+
 	// Store stores the published sweeper txes.
 	Store SweeperStore
 
@@ -1319,15 +1323,59 @@ func (s *UtxoSweeper) ListSweeps() ([]chainhash.Hash, error) {
 	return s.cfg.Store.ListSweeps()
 }
 
+// mempoolLookup takes an input's outpoint and queries the mempool to see
+// whether it's already been spent in a transaction found in the mempool.
+// Returns the transaction if found.
+func (s *UtxoSweeper) mempoolLookup(op wire.OutPoint) (*wire.MsgTx, bool) {
+	// For neutrino backend, there's no mempool available, so we exit
+	// early.
+	if s.cfg.Mempool == nil {
+		log.Debugf("Skipping mempool lookup for %v, no mempool ", op)
+
+		return nil, false
+	}
+
+	// Make a subscription to the mempool. If this outpoint is already
+	// spent in mempool, we should get a spending event back immediately.
+	mempoolSpent, err := s.cfg.Mempool.SubscribeMempoolSpent(op)
+	if err != nil {
+		log.Errorf("Unable to subscribe to mempool spend for input "+
+			"%v: %v", op, err)
+
+		return nil, false
+	}
+
+	// We want to cancel this subscription in the end as we are only
+	// interested in a one-time query and this subscription won't be
+	// listened once this method returns.
+	defer s.cfg.Mempool.CancelMempoolSpendEvent(mempoolSpent)
+
+	// Do a non-blocking read on the spent event channel.
+	select {
+	case details := <-mempoolSpent.Spend:
+		log.Debugf("Found mempool spend of input %s in tx=%s",
+			op, details.SpenderTxHash)
+
+		// Found the spending transaction in mempool. This means we
+		// need to consider RBF constraints if we want to include this
+		// input in a new sweeping transaction.
+		return details.SpendingTx, true
+
+	default:
+	}
+
+	return nil, false
+}
+
 // handleNewInput processes a new input by registering spend notification and
 // scheduling sweeping for it.
 func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 	outpoint := *input.input.OutPoint()
-	pendInput, pending := s.pendingInputs[outpoint]
+	pi, pending := s.pendingInputs[outpoint]
 	if pending {
 		log.Debugf("Already pending input %v received", outpoint)
 
-		s.handleExistingInput(input, pendInput)
+		s.handleExistingInput(input, pi)
 
 		return
 	}
@@ -1335,14 +1383,22 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 	// Create a new pendingInput and initialize the listeners slice with
 	// the passed in result channel. If this input is offered for sweep
 	// again, the result channel will be appended to this slice.
-	pendInput = &pendingInput{
+	pi = &pendingInput{
 		state:            StateInit,
 		listeners:        []chan Result{input.resultChan},
 		Input:            input.input,
 		minPublishHeight: s.currentHeight,
 		params:           input.params,
 	}
-	s.pendingInputs[outpoint] = pendInput
+
+	// If the input is already spent in the mempool, update its state to
+	// StatePublished.
+	_, spent := s.mempoolLookup(outpoint)
+	if spent {
+		pi.state = StatePublished
+	}
+
+	s.pendingInputs[outpoint] = pi
 	log.Tracef("input %v added to pendingInputs", outpoint)
 
 	// Start watching for spend of this input, either by us or the remote
@@ -1358,7 +1414,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 		return
 	}
 
-	pendInput.ntfnRegCancel = cancel
+	pi.ntfnRegCancel = cancel
 }
 
 // handleExistingInput processes an input that is already known to the sweeper.

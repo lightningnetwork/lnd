@@ -43,10 +43,6 @@ var (
 	// for the configured max number of attempts.
 	ErrTooManyAttempts = errors.New("sweep failed after max attempts")
 
-	// ErrNoFeePreference is returned when we attempt to satisfy a sweep
-	// request from a client whom did not specify a fee preference.
-	ErrNoFeePreference = errors.New("no fee preference specified")
-
 	// ErrFeePreferenceTooLow is returned when the fee preference gives a
 	// fee rate that's below the relay fee rate.
 	ErrFeePreferenceTooLow = errors.New("fee preference too low")
@@ -242,20 +238,11 @@ type UtxoSweeper struct {
 	currentHeight int32
 }
 
-// feeDeterminer defines an alias to the function signature of
-// `DetermineFeePerKw`.
-type feeDeterminer func(chainfee.Estimator,
-	FeePreference) (chainfee.SatPerKWeight, error)
-
 // UtxoSweeperConfig contains dependencies of UtxoSweeper.
 type UtxoSweeperConfig struct {
 	// GenSweepScript generates a P2WKH script belonging to the wallet where
 	// funds can be swept.
 	GenSweepScript func() ([]byte, error)
-
-	// DetermineFeePerKw determines the fee in sat/kw based on the given
-	// estimator and fee preference.
-	DetermineFeePerKw feeDeterminer
 
 	// FeeEstimator is used when crafting sweep transactions to estimate
 	// the necessary fee relative to the expected size of the sweep
@@ -446,7 +433,10 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 	}
 
 	// Ensure the client provided a sane fee preference.
-	if _, err := s.feeRateForPreference(params.Fee); err != nil {
+	_, err := params.Fee.Estimate(
+		s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),
+	)
+	if err != nil {
 		return nil, err
 	}
 
@@ -472,42 +462,6 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 	}
 
 	return sweeperInput.resultChan, nil
-}
-
-// feeRateForPreference returns a fee rate for the given fee preference. It
-// ensures that the fee rate respects the bounds of the UtxoSweeper.
-func (s *UtxoSweeper) feeRateForPreference(
-	feePreference FeePreference) (chainfee.SatPerKWeight, error) {
-
-	// Ensure a type of fee preference is specified to prevent using a
-	// default below.
-	if feePreference.FeeRate == 0 && feePreference.ConfTarget == 0 {
-		return 0, ErrNoFeePreference
-	}
-
-	feeRate, err := s.cfg.DetermineFeePerKw(
-		s.cfg.FeeEstimator, feePreference,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	if feeRate < s.relayFeeRate {
-		return 0, fmt.Errorf("%w: got %v, minimum is %v",
-			ErrFeePreferenceTooLow, feeRate, s.relayFeeRate)
-	}
-
-	// If the estimated fee rate is above the maximum allowed fee rate,
-	// default to the max fee rate.
-	if feeRate > s.cfg.MaxFeeRate.FeePerKWeight() {
-		log.Warnf("Estimated fee rate %v exceeds max allowed fee "+
-			"rate %v, using max fee rate instead", feeRate,
-			s.cfg.MaxFeeRate.FeePerKWeight())
-
-		return s.cfg.MaxFeeRate.FeePerKWeight(), nil
-	}
-
-	return feeRate, nil
 }
 
 // removeConflictSweepDescendants removes any transactions from the wallet that
@@ -829,7 +783,9 @@ func (s *UtxoSweeper) clusterByLockTime(inputs pendingInputs) ([]inputCluster,
 		// returned, we'll skip sweeping this input for this round of
 		// cluster creation and retry it when we create the clusters
 		// from the pending inputs again.
-		feeRate, err := s.feeRateForPreference(input.params.Fee)
+		feeRate, err := input.params.Fee.Estimate(
+			s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),
+		)
 		if err != nil {
 			log.Warnf("Skipping input %v: %v", op, err)
 			continue
@@ -879,7 +835,9 @@ func (s *UtxoSweeper) clusterBySweepFeeRate(inputs pendingInputs) []inputCluster
 	// First, we'll group together all inputs with similar fee rates. This
 	// is done by determining the fee rate bucket they should belong in.
 	for op, input := range inputs {
-		feeRate, err := s.feeRateForPreference(input.params.Fee)
+		feeRate, err := input.params.Fee.Estimate(
+			s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),
+		)
 		if err != nil {
 			log.Warnf("Skipping input %v: %v", op, err)
 			continue
@@ -1373,7 +1331,10 @@ func (s *UtxoSweeper) UpdateParams(input wire.OutPoint,
 	params ParamsUpdate) (chan Result, error) {
 
 	// Ensure the client provided a sane fee preference.
-	if _, err := s.feeRateForPreference(params.Fee); err != nil {
+	_, err := params.Fee.Estimate(
+		s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),
+	)
+	if err != nil {
 		return nil, err
 	}
 
@@ -1467,7 +1428,7 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input,
 	feePref FeePreference) (*wire.MsgTx, error) {
 
-	feePerKw, err := s.cfg.DetermineFeePerKw(s.cfg.FeeEstimator, feePref)
+	feePerKw, err := DetermineFeePerKw(s.cfg.FeeEstimator, feePref)
 	if err != nil {
 		return nil, err
 	}

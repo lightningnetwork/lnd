@@ -2,11 +2,13 @@ package itest
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -458,4 +460,72 @@ func runSignVerifyMessage(ht *lntest.HarnessTest, alice *node.HarnessNode) {
 	}
 	verifyResp = alice.RPC.VerifyMessageSigner(verifyReq)
 	require.True(ht, verifyResp.Valid, "failed to verify message")
+
+	// Now let's try signing and verifying a tagged hash.
+	tag := []byte("lightninginvoice_requestsignature")
+
+	signMsgReq = &signrpc.SignMessageReq{
+		Msg:        aliceMsg,
+		KeyLoc:     keyLoc,
+		SchnorrSig: true,
+		Tag:        tag,
+	}
+	signMsgResp = alice.RPC.SignMessageSigner(signMsgReq)
+	customPubKey = deriveCustomizedKey()
+
+	verifyReq = &signrpc.VerifyMessageReq{
+		Msg:          aliceMsg,
+		Signature:    signMsgResp.Signature,
+		Pubkey:       schnorr.SerializePubKey(customPubKey),
+		IsSchnorrSig: true,
+		Tag:          tag,
+	}
+	verifyResp = alice.RPC.VerifyMessageSigner(verifyReq)
+	require.True(ht, verifyResp.Valid, "failed to verify message")
+
+	// Verify that both SignMessage and VerifyMessage error if a tag is
+	// provided but the Schnorr option is not set.
+	signMsgReq = &signrpc.SignMessageReq{
+		Msg:    aliceMsg,
+		KeyLoc: keyLoc,
+		Tag:    tag,
+	}
+
+	expectedErr := "tag can only be used when the Schnorr signature " +
+		"option is set"
+	ctxt := context.Background()
+	_, err := alice.RPC.Signer.SignMessage(ctxt, signMsgReq)
+	require.ErrorContains(ht, err, expectedErr)
+
+	verifyReq = &signrpc.VerifyMessageReq{
+		Msg:       aliceMsg,
+		Signature: signMsgResp.Signature,
+		Pubkey:    schnorr.SerializePubKey(customPubKey),
+		Tag:       tag,
+	}
+
+	_, err = alice.RPC.Signer.VerifyMessage(ctxt, verifyReq)
+	require.ErrorContains(ht, err, expectedErr)
+
+	// Make sure that SignMessage throws an error if a BIP0340 or
+	// TapSighash tag is provided.
+	signMsgReq = &signrpc.SignMessageReq{
+		Msg:        aliceMsg,
+		KeyLoc:     keyLoc,
+		SchnorrSig: true,
+		Tag:        []byte("BIP0340/challenge"),
+	}
+
+	_, err = alice.RPC.Signer.SignMessage(ctxt, signMsgReq)
+	require.ErrorContains(ht, err, "tag cannot have BIP0340 prefix")
+
+	signMsgReq = &signrpc.SignMessageReq{
+		Msg:        aliceMsg,
+		KeyLoc:     keyLoc,
+		SchnorrSig: true,
+		Tag:        chainhash.TagTapSighash,
+	}
+
+	_, err = alice.RPC.Signer.SignMessage(ctxt, signMsgReq)
+	require.ErrorContains(ht, err, "tag cannot be TapSighash")
 }

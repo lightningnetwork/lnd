@@ -2251,3 +2251,60 @@ func TestMempoolLookup(t *testing.T) {
 
 	mockMempool.AssertExpectations(t)
 }
+
+// TestUpdateSweeperInputs checks that the method `updateSweeperInputs` will
+// properly update the inputs based on their states.
+func TestUpdateSweeperInputs(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Create a test sweeper.
+	s := New(nil)
+
+	// Create a list of inputs using all the states.
+	input0 := &pendingInput{state: StateInit}
+	input1 := &pendingInput{state: StatePendingPublish}
+	input2 := &pendingInput{state: StatePublished}
+	input3 := &pendingInput{state: StatePublishFailed}
+	input4 := &pendingInput{state: StateSwept}
+	input5 := &pendingInput{state: StateExcluded}
+	input6 := &pendingInput{state: StateFailed}
+
+	// Add the inputs to the sweeper. After the update, we should see the
+	// terminated inputs being removed.
+	s.pendingInputs = map[wire.OutPoint]*pendingInput{
+		{Index: 0}: input0,
+		{Index: 1}: input1,
+		{Index: 2}: input2,
+		{Index: 3}: input3,
+		{Index: 4}: input4,
+		{Index: 5}: input5,
+		{Index: 6}: input6,
+	}
+
+	// We expect the inputs with `StateSwept`, `StateExcluded`, and
+	// `StateFailed` to be removed.
+	expectedInputs := map[wire.OutPoint]*pendingInput{
+		{Index: 0}: input0,
+		{Index: 1}: input1,
+		{Index: 2}: input2,
+		{Index: 3}: input3,
+	}
+
+	// We expect only the inputs with `StateInit` and `StatePendingPublish`
+	// to be returned.
+	expectedReturn := map[wire.OutPoint]*pendingInput{
+		{Index: 0}: input0,
+		{Index: 3}: input3,
+	}
+
+	// Update the sweeper inputs.
+	inputs := s.updateSweeperInputs()
+
+	// Assert the returned inputs are as expected.
+	require.Equal(expectedReturn, inputs)
+
+	// Assert the sweeper inputs are as expected.
+	require.Equal(expectedInputs, s.pendingInputs)
+}

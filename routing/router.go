@@ -118,6 +118,10 @@ var (
 	// provided by either a blinded route or a cleartext pubkey.
 	ErrNoTarget = errors.New("destination not set in target or blinded " +
 		"path")
+
+	// ErrSkipTempErr is returned when a non-MPP is made yet the
+	// skipTempErr flag is set.
+	ErrSkipTempErr = errors.New("cannot skip temp error for non-MPP")
 )
 
 // ChannelGraphSource represents the source of information about the topology
@@ -2447,6 +2451,13 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	mpp := finalHop.MPP
 	if mpp != nil {
 		amt = mpp.TotalMsat()
+	}
+
+	// For non-MPP, there's no such thing as temp error as there's only one
+	// HTLC attempt being made. When this HTLC is failed, the payment is
+	// failed hence cannot be retried.
+	if skipTempErr && mpp == nil {
+		return nil, ErrSkipTempErr
 	}
 
 	// For non-AMP payments the overall payment identifier will be the same

@@ -3391,7 +3391,8 @@ func TestBlockDifferenceFix(t *testing.T) {
 
 	initialBlockHeight := uint32(0)
 
-	// Starting height here is set to 0, which is behind where we want to be.
+	// Starting height here is set to 0, which is behind where we want to
+	// be.
 	ctx := createTestCtxSingleNode(t, initialBlockHeight)
 
 	// Add initial block to our mini blockchain.
@@ -3461,6 +3462,8 @@ func TestBlockDifferenceFix(t *testing.T) {
 
 // TestSendToRouteSkipTempErrSuccess validates a successful payment send.
 func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
+	t.Parallel()
+
 	var (
 		payHash lntypes.Hash
 		payAmt  = lnwire.MilliSatoshi(10000)
@@ -3543,9 +3546,62 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	payment.AssertExpectations(t)
 }
 
+// TestSendToRouteSkipTempErrNonMPP checks that an error is return when
+// skipping temp error for non-MPP.
+func TestSendToRouteSkipTempErrNonMPP(t *testing.T) {
+	t.Parallel()
+
+	var (
+		payHash lntypes.Hash
+		payAmt  = lnwire.MilliSatoshi(10000)
+	)
+
+	node, err := createTestNode()
+	require.NoError(t, err)
+
+	// Create a simple 1-hop route without the MPP field.
+	hops := []*route.Hop{
+		{
+			ChannelID:    1,
+			PubKeyBytes:  node.PubKeyBytes,
+			AmtToForward: payAmt,
+		},
+	}
+	rt, err := route.NewRouteFromHops(payAmt, 100, node.PubKeyBytes, hops)
+	require.NoError(t, err)
+
+	// Create mockers.
+	controlTower := &mockControlTower{}
+	payer := &mockPaymentAttemptDispatcher{}
+	missionControl := &mockMissionControl{}
+
+	// Create the router.
+	router := &ChannelRouter{cfg: &Config{
+		Control:        controlTower,
+		Payer:          payer,
+		MissionControl: missionControl,
+		Clock:          clock.NewTestClock(time.Unix(1, 0)),
+		NextPaymentID: func() (uint64, error) {
+			return 0, nil
+		},
+	}}
+
+	// Expect an error to be returned.
+	attempt, err := router.SendToRouteSkipTempErr(payHash, rt)
+	require.ErrorIs(t, ErrSkipTempErr, err)
+	require.Nil(t, attempt)
+
+	// Assert the above methods are not called.
+	controlTower.AssertExpectations(t)
+	payer.AssertExpectations(t)
+	missionControl.AssertExpectations(t)
+}
+
 // TestSendToRouteSkipTempErrTempFailure validates a temporary failure won't
 // cause the payment to be failed.
 func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
+	t.Parallel()
+
 	var (
 		payHash lntypes.Hash
 		payAmt  = lnwire.MilliSatoshi(10000)

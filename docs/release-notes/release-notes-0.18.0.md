@@ -60,6 +60,13 @@
 # Improvements
 ## Functional Updates
 ## RPC Updates
+
+* `sendtoroute` will return an error when it's called using the flag
+  `--skip_temp_err` on a payment that's not a MPP. This is needed as a temp
+  error is defined as a routing error found in one of a MPP's HTLC attempts.
+  If, however, there's only one HTLC attempt, when it's failed, this payment is
+  considered failed, thus there's no such thing as temp error for a non-MPP.
+
 ## lncli Updates
 ## Code Health
 

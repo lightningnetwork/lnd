@@ -1163,7 +1163,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	}
 
 	// Create sweep tx.
-	tx, err := createSweepTx(
+	tx, _, err := createSweepTx(
 		inputs, nil, s.currentOutputScript, uint32(currentHeight),
 		feeRate, s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
 	)
@@ -1467,10 +1467,12 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input, feePref FeePreference,
 		return nil, err
 	}
 
-	return createSweepTx(
+	tx, _, err := createSweepTx(
 		inputs, nil, pkScript, currentBlockHeight, feePerKw,
 		s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
 	)
+
+	return tx, err
 }
 
 // DefaultNextAttemptDeltaFunc is the default calculation for next sweep attempt

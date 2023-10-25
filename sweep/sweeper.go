@@ -1176,9 +1176,9 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	// publish, we loose track of this tx. Even republication on startup
 	// doesn't prevent this, because that call returns a double spend error
 	// then and would also not add the hash to the store.
-	err = s.cfg.Store.NotifyPublishTx(tx)
+	err = s.cfg.Store.StoreTx(tx.TxHash())
 	if err != nil {
-		return fmt.Errorf("notify publish tx: %w", err)
+		return fmt.Errorf("store tx: %w", err)
 	}
 
 	// Reschedule the inputs that we just tried to sweep. This is done in

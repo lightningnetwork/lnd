@@ -41,5 +41,16 @@ func (s *MockSweeperStore) ListSweeps() ([]chainhash.Hash, error) {
 	return txns, nil
 }
 
+// GetTx queries the database to find the tx that matches the given txid.
+// Returns ErrTxNotFound if it cannot be found.
+func (s *MockSweeperStore) GetTx(hash chainhash.Hash) (*TxRecord, error) {
+	return nil, ErrTxNotFound
+}
+
+// DeleteTx removes the given tx from db.
+func (s *MockSweeperStore) DeleteTx(txid chainhash.Hash) error {
+	return nil
+}
+
 // Compile-time constraint to ensure MockSweeperStore implements SweeperStore.
 var _ SweeperStore = (*MockSweeperStore)(nil)

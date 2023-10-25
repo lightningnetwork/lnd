@@ -1163,7 +1163,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	}
 
 	// Create sweep tx.
-	tx, _, err := createSweepTx(
+	tx, fee, err := createSweepTx(
 		inputs, nil, s.currentOutputScript, uint32(currentHeight),
 		feeRate, s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
 	)
@@ -1171,12 +1171,18 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 		return fmt.Errorf("create sweep tx: %w", err)
 	}
 
+	tr := &TxRecord{
+		Txid:    tx.TxHash(),
+		FeeRate: uint64(feeRate),
+		Fee:     uint64(fee),
+	}
+
 	// Add tx before publication, so that we will always know that a spend
 	// by this tx is ours. Otherwise if the publish doesn't return, but did
 	// publish, we loose track of this tx. Even republication on startup
 	// doesn't prevent this, because that call returns a double spend error
 	// then and would also not add the hash to the store.
-	err = s.cfg.Store.StoreTx(tx.TxHash())
+	err = s.cfg.Store.StoreTx(tr)
 	if err != nil {
 		return fmt.Errorf("store tx: %w", err)
 	}
@@ -1195,6 +1201,16 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	)
 	if err != nil {
 		return err
+	}
+
+	// Mark this tx in db once successfully published.
+	//
+	// NOTE: this will behave as an overwrite, which is fine as the record
+	// is small.
+	tr.Published = true
+	err = s.cfg.Store.StoreTx(tr)
+	if err != nil {
+		return fmt.Errorf("store tx: %w", err)
 	}
 
 	// If there's no error, remove the output script. Otherwise keep it so

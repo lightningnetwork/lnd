@@ -128,6 +128,13 @@ type SweeperStore interface {
 
 	// ListSweeps lists all the sweeps we have successfully published.
 	ListSweeps() ([]chainhash.Hash, error)
+
+	// GetTx queries the database to find the tx that matches the given
+	// txid. Returns ErrTxNotFound if it cannot be found.
+	GetTx(hash chainhash.Hash) (*TxRecord, error)
+
+	// DeleteTx removes a tx specified by the hash from the store.
+	DeleteTx(hash chainhash.Hash) error
 }
 
 type sweeperStore struct {
@@ -320,6 +327,67 @@ func (s *sweeperStore) ListSweeps() ([]chainhash.Hash, error) {
 	}
 
 	return sweepTxns, nil
+}
+
+// GetTx queries the database to find the tx that matches the given txid.
+// Returns ErrTxNotFound if it cannot be found.
+func (s *sweeperStore) GetTx(txid chainhash.Hash) (*TxRecord, error) {
+	// Create a record.
+	tr := &TxRecord{}
+
+	var err error
+	err = kvdb.View(s.db, func(tx kvdb.RTx) error {
+		txHashesBucket := tx.ReadBucket(txHashesBucketKey)
+		if txHashesBucket == nil {
+			return errNoTxHashesBucket
+		}
+
+		txBytes := txHashesBucket.Get(txid[:])
+		if txBytes == nil {
+			return ErrTxNotFound
+		}
+
+		// For old records, we'd get an empty byte slice here. We can
+		// assume it's already been published. Although it's possible
+		// to calculate the fees and fee rate used here, we skip it as
+		// it's unlikely we'd perform RBF on these old sweeping
+		// transactions.
+		//
+		// TODO(yy): remove this check once migration is added.
+		if len(txBytes) == 0 {
+			tr.Published = true
+			return nil
+		}
+
+		tr, err = deserializeTxRecord(bytes.NewReader(txBytes))
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}, func() {
+		tr = &TxRecord{}
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Attach the txid to the record.
+	tr.Txid = txid
+
+	return tr, nil
+}
+
+// DeleteTx removes the given tx from db.
+func (s *sweeperStore) DeleteTx(txid chainhash.Hash) error {
+	return kvdb.Update(s.db, func(tx kvdb.RwTx) error {
+		txHashesBucket := tx.ReadWriteBucket(txHashesBucketKey)
+		if txHashesBucket == nil {
+			return errNoTxHashesBucket
+		}
+
+		return txHashesBucket.Delete(txid[:])
+	}, func() {})
 }
 
 // Compile-time constraint to ensure sweeperStore implements SweeperStore.

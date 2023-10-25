@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -137,4 +138,109 @@ func TestTxRecord(t *testing.T) {
 
 	// Assert the deserialized record is equal to the original.
 	require.Equal(t, tr, result)
+}
+
+// TestGetTx asserts that the GetTx method behaves as expected.
+func TestGetTx(t *testing.T) {
+	t.Parallel()
+
+	cdb, err := channeldb.MakeTestDB(t)
+	require.NoError(t, err)
+
+	// Create a testing store.
+	chain := chainhash.Hash{}
+	store, err := NewSweeperStore(cdb, &chain)
+	require.NoError(t, err)
+
+	// Create a testing record.
+	txid := chainhash.Hash{1, 2, 3}
+	tr := &TxRecord{
+		Txid:      txid,
+		FeeRate:   1000,
+		Fee:       10000,
+		Published: true,
+	}
+
+	// Assert we can store this tx record.
+	err = store.StoreTx(tr)
+	require.NoError(t, err)
+
+	// Assert we can query the tx record.
+	result, err := store.GetTx(txid)
+	require.NoError(t, err)
+	require.Equal(t, tr, result)
+
+	// Assert we get an error when querying a non-existing tx.
+	_, err = store.GetTx(chainhash.Hash{4, 5, 6})
+	require.ErrorIs(t, ErrTxNotFound, err)
+}
+
+// TestGetTxCompatible asserts that when there's old tx record data in the
+// database it can be successfully queried.
+func TestGetTxCompatible(t *testing.T) {
+	t.Parallel()
+
+	cdb, err := channeldb.MakeTestDB(t)
+	require.NoError(t, err)
+
+	// Create a testing store.
+	chain := chainhash.Hash{}
+	store, err := NewSweeperStore(cdb, &chain)
+	require.NoError(t, err)
+
+	// Create a testing txid.
+	txid := chainhash.Hash{0, 1, 2, 3}
+
+	// Create a record using the old format "hash -> empty byte slice".
+	err = kvdb.Update(cdb, func(tx kvdb.RwTx) error {
+		txHashesBucket := tx.ReadWriteBucket(txHashesBucketKey)
+		return txHashesBucket.Put(txid[:], []byte{})
+	}, func() {})
+	require.NoError(t, err)
+
+	// Assert we can query the tx record.
+	result, err := store.GetTx(txid)
+	require.NoError(t, err)
+	require.Equal(t, txid, result.Txid)
+
+	// Assert the Published field is true.
+	require.True(t, result.Published)
+}
+
+// TestDeleteTx asserts that the DeleteTx method behaves as expected.
+func TestDeleteTx(t *testing.T) {
+	t.Parallel()
+
+	cdb, err := channeldb.MakeTestDB(t)
+	require.NoError(t, err)
+
+	// Create a testing store.
+	chain := chainhash.Hash{}
+	store, err := NewSweeperStore(cdb, &chain)
+	require.NoError(t, err)
+
+	// Create a testing record.
+	txid := chainhash.Hash{1, 2, 3}
+	tr := &TxRecord{
+		Txid:      txid,
+		FeeRate:   1000,
+		Fee:       10000,
+		Published: true,
+	}
+
+	// Assert we can store this tx record.
+	err = store.StoreTx(tr)
+	require.NoError(t, err)
+
+	// Assert we can delete the tx record.
+	err = store.DeleteTx(txid)
+	require.NoError(t, err)
+
+	// Query it again should give us an error.
+	_, err = store.GetTx(txid)
+	require.ErrorIs(t, ErrTxNotFound, err)
+
+	// Assert deleting a non-existing tx doesn't return an error.
+	err = store.DeleteTx(chainhash.Hash{4, 5, 6})
+	require.NoError(t, err)
 }

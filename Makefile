@@ -21,9 +21,17 @@ ANDROID_BUILD := $(ANDROID_BUILD_DIR)/Lndmobile.aar
 
 COMMIT := $(shell git describe --tags --dirty)
 
-GOBUILD := go build -v
-GOINSTALL := go install -v
-GOTEST := go test
+GO_VERSION := $(shell go version | sed -nre 's/^[^0-9]*(([0-9]+\.)*[0-9]+).*/\1/p')
+GO_VERSION_MINOR := $(shell echo $(GO_VERSION) | cut -d. -f2)
+
+LOOPVARFIX :=
+ifeq ($(shell expr $(GO_VERSION_MINOR) \>= 21), 1)
+	LOOPVARFIX := GOEXPERIMENT=loopvar
+endif
+
+GOBUILD := $(LOOPVARFIX) go build -v
+GOINSTALL := $(LOOPVARFIX) go install -v
+GOTEST := $(LOOPVARFIX) go test
 
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go" -not -name "*.pb.json.go")
 

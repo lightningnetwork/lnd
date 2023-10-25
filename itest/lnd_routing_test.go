@@ -528,7 +528,6 @@ func testPrivateChannels(ht *lntest.HarnessTest) {
 			Private: true,
 		},
 	)
-	defer ht.CloseChannel(carol, chanPointPrivate)
 
 	// The channel should be available for payments between Carol and Alice.
 	// We check this by sending payments from Carol to Bob, that
@@ -602,6 +601,7 @@ func testPrivateChannels(ht *lntest.HarnessTest) {
 	ht.CloseChannel(alice, chanPointAlice)
 	ht.CloseChannel(dave, chanPointDave)
 	ht.CloseChannel(carol, chanPointCarol)
+	ht.CloseChannel(carol, chanPointPrivate)
 }
 
 // testInvoiceRoutingHints tests that the routing hints for an invoice are

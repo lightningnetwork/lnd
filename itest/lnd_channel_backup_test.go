@@ -1524,18 +1524,12 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 
 	if commitType == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 		// Dave should sweep his anchor only, since he still has the
-		// lease CLTV constraint on his commitment output.
-		ht.Miner.AssertNumTxsInMempool(1)
+		// lease CLTV constraint on his commitment output. We'd also
+		// see Carol's anchor sweep here.
+		ht.Miner.AssertNumTxsInMempool(2)
 
-		// Mine Dave's anchor sweep tx.
-		ht.MineBlocksAndAssertNumTxes(1, 1)
-		blocksMined++
-
-		// The above block will trigger Carol's sweeper to reconsider
-		// the anchor sweeping. Because we are now sweeping at the fee
-		// rate floor, the sweeper will consider this input has
-		// positive yield thus attempts the sweeping.
-		ht.MineBlocksAndAssertNumTxes(1, 1)
+		// Mine anchor sweep txes for Carol and Dave.
+		ht.MineBlocksAndAssertNumTxes(1, 2)
 		blocksMined++
 
 		// After Carol's output matures, she should also reclaim her
@@ -1564,10 +1558,10 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 		ht.AssertNumPendingForceClose(dave, 0)
 	} else {
 		// Dave should sweep his funds immediately, as they are not
-		// timelocked. We also expect Dave to sweep his anchor, if
-		// present.
+		// timelocked. We also expect Carol and Dave sweep their
+		// anchors.
 		if lntest.CommitTypeHasAnchors(commitType) {
-			ht.MineBlocksAndAssertNumTxes(1, 2)
+			ht.MineBlocksAndAssertNumTxes(1, 3)
 		} else {
 			ht.MineBlocksAndAssertNumTxes(1, 1)
 		}
@@ -1576,15 +1570,6 @@ func assertDLPExecuted(ht *lntest.HarnessTest,
 
 		// Now Dave should consider the channel fully closed.
 		ht.AssertNumPendingForceClose(dave, 0)
-
-		// The above block will trigger Carol's sweeper to reconsider
-		// the anchor sweeping. Because we are now sweeping at the fee
-		// rate floor, the sweeper will consider this input has
-		// positive yield thus attempts the sweeping.
-		if lntest.CommitTypeHasAnchors(commitType) {
-			ht.MineBlocksAndAssertNumTxes(1, 1)
-			blocksMined++
-		}
 
 		// After Carol's output matures, she should also reclaim her
 		// funds.

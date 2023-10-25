@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"reflect"
-	"runtime/debug"
 	"runtime/pprof"
 	"sort"
 	"testing"
@@ -44,7 +43,6 @@ type sweeperTestContext struct {
 	backend   *mockBackend
 	store     *MockSweeperStore
 
-	timeoutChan chan chan time.Time
 	publishChan chan wire.MsgTx
 }
 
@@ -123,19 +121,14 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 		estimator:   estimator,
 		backend:     backend,
 		store:       store,
-		timeoutChan: make(chan chan time.Time, 1),
 	}
 
 	ctx.sweeper = New(&UtxoSweeperConfig{
-		Notifier: notifier,
-		Wallet:   backend,
-		NewBatchTimer: func() <-chan time.Time {
-			c := make(chan time.Time, 1)
-			ctx.timeoutChan <- c
-			return c
-		},
-		Store:  store,
-		Signer: &mock.DummySigner{},
+		Notifier:       notifier,
+		Wallet:         backend,
+		TickerDuration: 100 * time.Millisecond,
+		Store:          store,
+		Signer:         &mock.DummySigner{},
 		GenSweepScript: func() ([]byte, error) {
 			script := make([]byte, input.P2WPKHSize)
 			script[0] = 0
@@ -165,43 +158,6 @@ func (ctx *sweeperTestContext) restartSweeper() {
 	ctx.sweeper.Stop()
 	ctx.sweeper = New(ctx.sweeper.cfg)
 	ctx.sweeper.Start()
-}
-
-func (ctx *sweeperTestContext) tick() {
-	testLog.Trace("Waiting for tick to be consumed")
-	select {
-	case c := <-ctx.timeoutChan:
-		select {
-		case c <- time.Time{}:
-			testLog.Trace("Tick")
-		case <-time.After(defaultTestTimeout):
-			debug.PrintStack()
-			ctx.t.Fatal("tick timeout - tick not consumed")
-		}
-	case <-time.After(defaultTestTimeout):
-		debug.PrintStack()
-		ctx.t.Fatal("tick timeout - no new timer created")
-	}
-}
-
-// assertNoTick asserts that the sweeper does not wait for a tick.
-func (ctx *sweeperTestContext) assertNoTick() {
-	ctx.t.Helper()
-
-	select {
-	case <-ctx.timeoutChan:
-		ctx.t.Fatal("unexpected tick")
-
-	case <-time.After(processingDelay):
-	}
-}
-
-func (ctx *sweeperTestContext) assertNoNewTimer() {
-	select {
-	case <-ctx.timeoutChan:
-		ctx.t.Fatal("no new timer expected")
-	default:
-	}
 }
 
 func (ctx *sweeperTestContext) finish(expectedGoroutineCount int) {
@@ -237,7 +193,6 @@ func (ctx *sweeperTestContext) finish(expectedGoroutineCount int) {
 	// We should have consumed and asserted all published transactions in
 	// our unit tests.
 	ctx.assertNoTx()
-	ctx.assertNoNewTimer()
 	if !ctx.backend.isDone() {
 		ctx.t.Fatal("unconfirmed txes remaining")
 	}
@@ -387,8 +342,6 @@ func TestSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx.tick()
-
 	sweepTx := ctx.receiveTx()
 
 	ctx.backend.mine()
@@ -441,8 +394,6 @@ func TestDust(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx.tick()
-
 	// The second input brings the sweep output above the dust limit. We
 	// expect a sweep tx now.
 
@@ -481,8 +432,6 @@ func TestWalletUtxo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	ctx.tick()
 
 	sweepTx := ctx.receiveTx()
 	if len(sweepTx.TxIn) != 2 {
@@ -536,8 +485,6 @@ func TestNegativeInput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx.tick()
-
 	// We expect that a sweep tx is published now, but it should only
 	// contain the large input. The negative input should stay out of sweeps
 	// until fees come down to get a positive net yield.
@@ -561,8 +508,6 @@ func TestNegativeInput(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx.tick()
-
 	sweepTx2 := ctx.receiveTx()
 	assertTxSweepsInputs(t, &sweepTx2, &secondLargeInput, &negInput)
 
@@ -585,8 +530,6 @@ func TestChunks(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-
-	ctx.tick()
 
 	// We expect two txes to be published because of the max input count of
 	// three.
@@ -649,7 +592,6 @@ func testRemoteSpend(t *testing.T, postSweep bool) {
 	}
 
 	if postSweep {
-		ctx.tick()
 
 		// Tx publication by sweeper returns ErrDoubleSpend. Sweeper
 		// will retry the inputs without reporting a result. It could be
@@ -673,7 +615,6 @@ func testRemoteSpend(t *testing.T, postSweep bool) {
 
 	if !postSweep {
 		// Assert that the sweeper sweeps the remaining input.
-		ctx.tick()
 		sweepTx := ctx.receiveTx()
 
 		if len(sweepTx.TxIn) != 1 {
@@ -714,8 +655,6 @@ func TestIdempotency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx.tick()
-
 	ctx.receiveTx()
 
 	resultChan3, err := ctx.sweeper.SweepInput(input, defaultFeePref)
@@ -743,7 +682,6 @@ func TestIdempotency(t *testing.T) {
 
 	// Timer is still running, but spend notification was delivered before
 	// it expired.
-	ctx.tick()
 
 	ctx.finish(1)
 }
@@ -766,7 +704,6 @@ func TestRestart(t *testing.T) {
 	if _, err := ctx.sweeper.SweepInput(input1, defaultFeePref); err != nil {
 		t.Fatal(err)
 	}
-	ctx.tick()
 
 	ctx.receiveTx()
 
@@ -802,8 +739,6 @@ func TestRestart(t *testing.T) {
 
 	// Timer tick should trigger republishing a sweep for the remaining
 	// input.
-	ctx.tick()
-
 	ctx.receiveTx()
 
 	ctx.backend.mine()
@@ -841,8 +776,6 @@ func TestRestartRemoteSpend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx.tick()
-
 	sweepTx := ctx.receiveTx()
 
 	// Restart sweeper.
@@ -873,8 +806,6 @@ func TestRestartRemoteSpend(t *testing.T) {
 
 	// Expect sweeper to construct a new tx, because input 1 was spend
 	// remotely.
-	ctx.tick()
-
 	ctx.receiveTx()
 
 	ctx.backend.mine()
@@ -895,8 +826,6 @@ func TestRestartConfirmed(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx.tick()
-
 	ctx.receiveTx()
 
 	// Restart sweeper.
@@ -914,9 +843,6 @@ func TestRestartConfirmed(t *testing.T) {
 	// Here we expect again a successful sweep.
 	ctx.expectResult(spendChan, nil)
 
-	// Timer started but not needed because spend ntfn was sent.
-	ctx.tick()
-
 	ctx.finish(1)
 }
 
@@ -931,14 +857,8 @@ func TestRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx.tick()
-
 	// We expect a sweep to be published.
 	ctx.receiveTx()
-
-	// New block arrives. This should trigger a new sweep attempt timer
-	// start.
-	ctx.notifier.NotifyEpoch(1000)
 
 	// Offer a fresh input.
 	resultChan1, err := ctx.sweeper.SweepInput(
@@ -948,11 +868,7 @@ func TestRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx.tick()
-
-	// Two txes are expected to be published, because new and retry inputs
-	// are separated.
-	ctx.receiveTx()
+	// A single tx is expected to be published.
 	ctx.receiveTx()
 
 	ctx.backend.mine()
@@ -975,8 +891,6 @@ func TestGiveUp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx.tick()
-
 	// We expect a sweep to be published at height 100 (mockChainIOHeight).
 	ctx.receiveTx()
 
@@ -987,12 +901,10 @@ func TestGiveUp(t *testing.T) {
 
 	// Second attempt
 	ctx.notifier.NotifyEpoch(101)
-	ctx.tick()
 	ctx.receiveTx()
 
 	// Third attempt
 	ctx.notifier.NotifyEpoch(103)
-	ctx.tick()
 	ctx.receiveTx()
 
 	ctx.expectResult(resultChan0, ErrTooManyAttempts)
@@ -1041,10 +953,6 @@ func TestDifferentFeePreferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Start the sweeper's batch ticker, which should cause the sweep
-	// transactions to be broadcast in order of high to low fee preference.
-	ctx.tick()
 
 	// Generate the same type of sweep script that was used for weight
 	// estimation.
@@ -1125,7 +1033,6 @@ func TestPendingInputs(t *testing.T) {
 	// rate sweep to ensure we can detect pending inputs after a sweep.
 	// Once the higher fee rate sweep confirms, we should no longer see
 	// those inputs pending.
-	ctx.tick()
 	ctx.receiveTx()
 	lowFeeRateTx := ctx.receiveTx()
 	ctx.backend.deleteUnconfirmed(lowFeeRateTx.TxHash())
@@ -1137,7 +1044,6 @@ func TestPendingInputs(t *testing.T) {
 	// sweep. Once again we'll ensure those inputs are no longer pending
 	// once the sweep transaction confirms.
 	ctx.backend.notifier.NotifyEpoch(101)
-	ctx.tick()
 	ctx.receiveTx()
 	ctx.backend.mine()
 	ctx.expectResult(resultChan3, nil)
@@ -1183,7 +1089,6 @@ func TestBumpFeeRBF(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ensure that a transaction is broadcast with the lower fee preference.
-	ctx.tick()
 	lowFeeTx := ctx.receiveTx()
 	assertTxFeeRate(t, &lowFeeTx, lowFeeRate, changePk, &input)
 
@@ -1204,7 +1109,6 @@ func TestBumpFeeRBF(t *testing.T) {
 	require.NoError(t, err, "unable to bump input's fee")
 
 	// A higher fee rate transaction should be immediately broadcast.
-	ctx.tick()
 	highFeeTx := ctx.receiveTx()
 	assertTxFeeRate(t, &highFeeTx, highFeeRate, changePk, &input)
 
@@ -1238,7 +1142,6 @@ func TestExclusiveGroup(t *testing.T) {
 
 	// We expect all inputs to be published in separate transactions, even
 	// though they share the same fee preference.
-	ctx.tick()
 	for i := 0; i < 3; i++ {
 		sweepTx := ctx.receiveTx()
 		if len(sweepTx.TxOut) != 1 {
@@ -1310,10 +1213,6 @@ func TestCpfp(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Because we sweep at 1000 sat/kw, the parent cannot be paid for. We
-	// expect the sweeper to remain idle.
-	ctx.assertNoTick()
-
 	// Increase the fee estimate to above the parent tx fee rate.
 	ctx.estimator.updateFees(5000, chainfee.FeePerKwFloor)
 
@@ -1323,7 +1222,6 @@ func TestCpfp(t *testing.T) {
 
 	// Now we do expect a sweep transaction to be published with our input
 	// and an attached wallet utxo.
-	ctx.tick()
 	tx := ctx.receiveTx()
 	require.Len(t, tx.TxIn, 2)
 	require.Len(t, tx.TxOut, 1)
@@ -1694,10 +1592,6 @@ func TestLockTimes(t *testing.T) {
 		op := inp.OutPoint()
 		inputs[*op] = inp
 	}
-
-	// We expect all inputs to be published in separate transactions, even
-	// though they share the same fee preference.
-	ctx.tick()
 
 	// Check the sweeps transactions, ensuring all inputs are there, and
 	// all the locktimes are satisfied.
@@ -2143,9 +2037,6 @@ func TestRequiredTxOuts(t *testing.T) {
 				inputs[*op] = inp
 			}
 
-			// Tick, which should trigger a sweep of all inputs.
-			ctx.tick()
-
 			// Check the sweeps transactions, ensuring all inputs
 			// are there, and all the locktimes are satisfied.
 			var sweeps []*wire.MsgTx
@@ -2259,7 +2150,7 @@ func TestFeeRateForPreference(t *testing.T) {
 		return 0, dummyErr
 	}
 
-	// Set the relay fee rate to be 1.
+	// Set the relay fee rate to be 1 sat/kw.
 	s.relayFeeRate = 1
 
 	// smallFeeFunc is a mock over DetermineFeePerKw that always return a
@@ -2307,7 +2198,7 @@ func TestFeeRateForPreference(t *testing.T) {
 			expectedErr: ErrNoFeePreference,
 		},
 		{
-			// When an error is returned from the fee determinor,
+			// When an error is returned from the fee determiner,
 			// we should return it.
 			name:              "error from DetermineFeePerKw",
 			feePref:           FeePreference{FeeRate: 1},
@@ -2536,6 +2427,115 @@ func TestClusterByLockTime(t *testing.T) {
 			input4LockTime2.AssertExpectations(t)
 			input5NoLockTime.AssertExpectations(t)
 			input6NoLockTime.AssertExpectations(t)
+		})
+	}
+}
+
+// TestGetInputLists checks that the expected input sets are returned based on
+// whether there are retried inputs or not.
+func TestGetInputLists(t *testing.T) {
+	t.Parallel()
+
+	// Create a test param with a dummy fee preference. This is needed so
+	// `feeRateForPreference` won't throw an error.
+	param := Params{Fee: FeePreference{ConfTarget: 1}}
+
+	// Create a mock input and mock all the methods used in this test.
+	testInput := &input.MockInput{}
+	testInput.On("RequiredLockTime").Return(0, false)
+	testInput.On("WitnessType").Return(input.CommitmentAnchor)
+	testInput.On("OutPoint").Return(&wire.OutPoint{Index: 1})
+	testInput.On("RequiredTxOut").Return(nil)
+	testInput.On("UnconfParent").Return(nil)
+	testInput.On("SignDesc").Return(&input.SignDescriptor{
+		Output: &wire.TxOut{Value: 100_000},
+	})
+
+	// Create a new and a retried input.
+	//
+	// NOTE: we use the same input.Input for both pending inputs as we only
+	// test the logic of returning the correct non-nil input sets, and not
+	// the content the of sets. To validate the content of the sets, we
+	// should test `generateInputPartitionings` instead.
+	newInput := &pendingInput{
+		Input:  testInput,
+		params: param,
+	}
+	oldInput := &pendingInput{
+		Input:           testInput,
+		params:          param,
+		publishAttempts: 1,
+	}
+
+	// clusterNew contains only new inputs.
+	clusterNew := pendingInputs{
+		wire.OutPoint{Index: 1}: newInput,
+	}
+
+	// clusterMixed contains a mixed of new and retried inputs.
+	clusterMixed := pendingInputs{
+		wire.OutPoint{Index: 1}: newInput,
+		wire.OutPoint{Index: 2}: oldInput,
+	}
+
+	// clusterOld contains only retried inputs.
+	clusterOld := pendingInputs{
+		wire.OutPoint{Index: 2}: oldInput,
+	}
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		MaxInputsPerTx: DefaultMaxInputsPerTx,
+	})
+
+	testCases := []struct {
+		name              string
+		cluster           inputCluster
+		expectedNilAllSet bool
+		expectNilNewSet   bool
+	}{
+		{
+			// When there are only new inputs, we'd expect the
+			// first returned set(allSets) to be empty.
+			name:              "new inputs only",
+			cluster:           inputCluster{inputs: clusterNew},
+			expectedNilAllSet: true,
+			expectNilNewSet:   false,
+		},
+		{
+			// When there are only retried inputs, we'd expect the
+			// second returned set(newSet) to be empty.
+			name:              "retried inputs only",
+			cluster:           inputCluster{inputs: clusterOld},
+			expectedNilAllSet: false,
+			expectNilNewSet:   true,
+		},
+		{
+			// When there are mixed inputs, we'd expect two sets
+			// are returned.
+			name:              "mixed inputs",
+			cluster:           inputCluster{inputs: clusterMixed},
+			expectedNilAllSet: false,
+			expectNilNewSet:   false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			allSets, newSets, err := s.getInputLists(tc.cluster, 0)
+			require.NoError(t, err)
+
+			if tc.expectNilNewSet {
+				require.Nil(t, newSets)
+			}
+
+			if tc.expectedNilAllSet {
+				require.Nil(t, allSets)
+			}
 		})
 	}
 }

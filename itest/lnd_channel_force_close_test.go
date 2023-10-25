@@ -94,7 +94,7 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 
 	// calculateSweepFeeRate runs multiple steps to calculate the fee rate
 	// used in sweeping the transactions.
-	calculateSweepFeeRate := func(expectedSweepTxNum, deadline int) int64 {
+	calculateSweepFeeRate := func(expectAnchor bool, deadline int) int64 {
 		// Create two nodes, Alice and Bob.
 		alice := setupNode("Alice")
 		defer ht.Shutdown(alice)
@@ -143,12 +143,32 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 		// section.
 		ht.AssertChannelWaitingClose(alice, chanPoint)
 
+		// We should see Alice's force closing tx in the mempool.
+		expectedNumTxes := 1
+
+		// If anchor is expected, we should see the anchor sweep tx in
+		// the mempool too.
+		if expectAnchor {
+			expectedNumTxes = 2
+		}
+
 		// Check our sweep transactions can be found in mempool.
-		sweepTxns := ht.Miner.GetNumTxsFromMempool(expectedSweepTxNum)
+		sweepTxns := ht.Miner.GetNumTxsFromMempool(expectedNumTxes)
 
 		// Mine a block to confirm these transactions such that they
 		// don't remain in the mempool for any subsequent tests.
-		ht.MineBlocks(1)
+		ht.MineBlocksAndAssertNumTxes(1, expectedNumTxes)
+
+		// Bob should now sweep his to_local output and anchor output.
+		expectedNumTxes = 2
+
+		// If Alice's anchor is not swept above, we should see it here.
+		if !expectAnchor {
+			expectedNumTxes = 3
+		}
+
+		// Mine one more block to assert the sweep transactions.
+		ht.MineBlocksAndAssertNumTxes(1, expectedNumTxes)
 
 		// Calculate the fee rate used.
 		feeRate := ht.CalculateTxesFeeRate(sweepTxns)
@@ -163,7 +183,7 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 
 	// Calculate fee rate used and assert only the force close tx is
 	// broadcast.
-	feeRate := calculateSweepFeeRate(1, deadline)
+	feeRate := calculateSweepFeeRate(false, deadline)
 
 	// We expect the default max fee rate is used. Allow some deviation
 	// because weight estimates during tx generation are estimates.
@@ -181,7 +201,7 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 
 	// Calculate fee rate used and assert only the force close tx is
 	// broadcast.
-	feeRate = calculateSweepFeeRate(1, defaultDeadline)
+	feeRate = calculateSweepFeeRate(false, defaultDeadline)
 
 	// We expect the default max fee rate is used. Allow some deviation
 	// because weight estimates during tx generation are estimates.
@@ -198,7 +218,7 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 
 	// Calculate fee rate used and assert both the force close tx and the
 	// anchor sweeping tx are broadcast.
-	feeRate = calculateSweepFeeRate(2, deadline)
+	feeRate = calculateSweepFeeRate(true, deadline)
 
 	// We expect the anchor to be swept with the deadline, which has the
 	// fee rate of feeRateLarge.

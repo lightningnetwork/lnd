@@ -228,9 +228,6 @@ type UtxoSweeper struct {
 	// requested to sweep.
 	pendingInputs pendingInputs
 
-	// timer is the channel that signals expiry of the sweep batch timer.
-	timer <-chan time.Time
-
 	testSpendChan chan wire.OutPoint
 
 	currentOutputScript []byte
@@ -264,10 +261,11 @@ type UtxoSweeperConfig struct {
 	// Wallet contains the wallet functions that sweeper requires.
 	Wallet Wallet
 
-	// NewBatchTimer creates a channel that will be sent on when a certain
-	// time window has passed. During this time window, new inputs can still
-	// be added to the sweep tx that is about to be generated.
-	NewBatchTimer func() <-chan time.Time
+	// TickerDuration is used to create a channel that will be sent on when
+	// a certain time window has passed. During this time window, new
+	// inputs can still be added to the sweep tx that is about to be
+	// generated.
+	TickerDuration time.Duration
 
 	// Notifier is an instance of a chain notifier we'll use to watch for
 	// certain on-chain events.
@@ -605,167 +603,24 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		return
 	}
 
+	// Create a ticker based on the config duration.
+	ticker := time.NewTicker(s.cfg.TickerDuration)
+	defer ticker.Stop()
+
+	log.Debugf("Sweep ticker started")
+
 	for {
 		select {
-		// A new inputs is offered to the sweeper. We check to see if we
-		// are already trying to sweep this input and if not, set up a
-		// listener to spend and schedule a sweep.
+		// A new inputs is offered to the sweeper. We check to see if
+		// we are already trying to sweep this input and if not, set up
+		// a listener to spend and schedule a sweep.
 		case input := <-s.newInputs:
-			outpoint := *input.input.OutPoint()
-			pendInput, pending := s.pendingInputs[outpoint]
-			if pending {
-				log.Debugf("Already pending input %v received",
-					outpoint)
-
-				// Before updating the input details, check if
-				// an exclusive group was set, and if so, assume
-				// this input as finalized and remove all other
-				// inputs belonging to the same exclusive group.
-				var prevExclGroup *uint64
-				if pendInput.params.ExclusiveGroup != nil &&
-					input.params.ExclusiveGroup == nil {
-
-					prevExclGroup = new(uint64)
-					*prevExclGroup = *pendInput.params.ExclusiveGroup
-				}
-
-				// Update input details and sweep parameters.
-				// The re-offered input details may contain a
-				// change to the unconfirmed parent tx info.
-				pendInput.params = input.params
-				pendInput.Input = input.input
-
-				// Add additional result channel to signal
-				// spend of this input.
-				pendInput.listeners = append(
-					pendInput.listeners, input.resultChan,
-				)
-
-				if prevExclGroup != nil {
-					s.removeExclusiveGroup(*prevExclGroup)
-				}
-
-				continue
-			}
-
-			// Create a new pendingInput and initialize the
-			// listeners slice with the passed in result channel. If
-			// this input is offered for sweep again, the result
-			// channel will be appended to this slice.
-			pendInput = &pendingInput{
-				listeners:        []chan Result{input.resultChan},
-				Input:            input.input,
-				minPublishHeight: bestHeight,
-				params:           input.params,
-			}
-			s.pendingInputs[outpoint] = pendInput
-			log.Tracef("input %v added to pendingInputs", outpoint)
-
-			// Start watching for spend of this input, either by us
-			// or the remote party.
-			cancel, err := s.waitForSpend(
-				outpoint,
-				input.input.SignDesc().Output.PkScript,
-				input.input.HeightHint(),
-			)
-			if err != nil {
-				err := fmt.Errorf("wait for spend: %v", err)
-				s.signalAndRemove(&outpoint, Result{Err: err})
-				continue
-			}
-			pendInput.ntfnRegCancel = cancel
-
-			// Check to see if with this new input a sweep tx can be
-			// formed.
-			if err := s.scheduleSweep(bestHeight); err != nil {
-				log.Errorf("schedule sweep: %v", err)
-			}
-			log.Tracef("input %v scheduled", outpoint)
+			s.handleNewInput(input, bestHeight)
 
 		// A spend of one of our inputs is detected. Signal sweep
 		// results to the caller(s).
 		case spend := <-s.spendChan:
-			// For testing purposes.
-			if s.testSpendChan != nil {
-				s.testSpendChan <- *spend.SpentOutPoint
-			}
-
-			// Query store to find out if we ever published this
-			// tx.
-			spendHash := *spend.SpenderTxHash
-			isOurTx, err := s.cfg.Store.IsOurTx(spendHash)
-			if err != nil {
-				log.Errorf("cannot determine if tx %v "+
-					"is ours: %v", spendHash, err,
-				)
-				continue
-			}
-
-			// If this isn't our transaction, it means someone else
-			// swept outputs that we were attempting to sweep. This
-			// can happen for anchor outputs as well as justice
-			// transactions. In this case, we'll notify the wallet
-			// to remove any spends that a descent from this
-			// output.
-			if !isOurTx {
-				err := s.removeLastSweepDescendants(
-					spend.SpendingTx,
-				)
-				if err != nil {
-					log.Warnf("unable to remove descendant "+
-						"transactions due to tx %v: ",
-						spendHash)
-				}
-
-				log.Debugf("Detected spend related to in flight inputs "+
-					"(is_ours=%v): %v",
-					newLogClosure(func() string {
-						return spew.Sdump(spend.SpendingTx)
-					}), isOurTx,
-				)
-			}
-
-			// Signal sweep results for inputs in this confirmed
-			// tx.
-			for _, txIn := range spend.SpendingTx.TxIn {
-				outpoint := txIn.PreviousOutPoint
-
-				// Check if this input is known to us. It could
-				// probably be unknown if we canceled the
-				// registration, deleted from pendingInputs but
-				// the ntfn was in-flight already. Or this could
-				// be not one of our inputs.
-				input, ok := s.pendingInputs[outpoint]
-				if !ok {
-					continue
-				}
-
-				// Return either a nil or a remote spend result.
-				var err error
-				if !isOurTx {
-					err = ErrRemoteSpend
-				}
-
-				// Signal result channels.
-				s.signalAndRemove(&outpoint, Result{
-					Tx:  spend.SpendingTx,
-					Err: err,
-				})
-
-				// Remove all other inputs in this exclusive
-				// group.
-				if input.params.ExclusiveGroup != nil {
-					s.removeExclusiveGroup(
-						*input.params.ExclusiveGroup,
-					)
-				}
-			}
-
-			// Now that an input of ours is spent, we can try to
-			// resweep the remaining inputs.
-			if err := s.scheduleSweep(bestHeight); err != nil {
-				log.Errorf("schedule sweep: %v", err)
-			}
+			s.handleInputSpent(spend)
 
 		// A new external request has been received to retrieve all of
 		// the inputs we're currently attempting to sweep.
@@ -782,34 +637,11 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			}
 
 		// The timer expires and we are going to (re)sweep.
-		case <-s.timer:
-			log.Debugf("Sweep timer expired")
+		case <-ticker.C:
+			log.Debugf("Sweep ticker ticks, attempt sweeping...")
+			s.handleSweep(bestHeight)
 
-			// Set timer to nil so we know that a new timer needs to
-			// be started when new inputs arrive.
-			s.timer = nil
-
-			// We'll attempt to cluster all of our inputs with
-			// similar fee rates. Before attempting to sweep them,
-			// we'll sort them in descending fee rate order. We do
-			// this to ensure any inputs which have had their fee
-			// rate bumped are broadcast first in order enforce the
-			// RBF policy.
-			inputClusters := s.createInputClusters()
-			sort.Slice(inputClusters, func(i, j int) bool {
-				return inputClusters[i].sweepFeeRate >
-					inputClusters[j].sweepFeeRate
-			})
-			for _, cluster := range inputClusters {
-				err := s.sweepCluster(cluster, bestHeight)
-				if err != nil {
-					log.Errorf("input cluster sweep: %v",
-						err)
-				}
-			}
-
-		// A new block comes in. Things may have changed, so we retry a
-		// sweep.
+		// A new block comes in, update the bestHeight.
 		case epoch, ok := <-blockEpochs:
 			if !ok {
 				return
@@ -819,10 +651,6 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 
 			log.Debugf("New block: height=%v, sha=%v",
 				epoch.Height, epoch.Hash)
-
-			if err := s.scheduleSweep(bestHeight); err != nil {
-				log.Errorf("schedule sweep: %v", err)
-			}
 
 		case <-s.quit:
 			return
@@ -859,22 +687,64 @@ func (s *UtxoSweeper) removeExclusiveGroup(group uint64) {
 func (s *UtxoSweeper) sweepCluster(cluster inputCluster,
 	currentHeight int32) error {
 
-	// Execute the sweep within a coin select lock. Otherwise the coins that
-	// we are going to spend may be selected for other transactions like
-	// funding of a channel.
+	// Execute the sweep within a coin select lock. Otherwise the coins
+	// that we are going to spend may be selected for other transactions
+	// like funding of a channel.
 	return s.cfg.Wallet.WithCoinSelectLock(func() error {
-		// Examine pending inputs and try to construct
-		// lists of inputs.
-		inputLists, err := s.getInputLists(cluster, currentHeight)
+		// Examine pending inputs and try to construct lists of inputs.
+		allSets, newSets, err := s.getInputLists(cluster, currentHeight)
 		if err != nil {
-			return fmt.Errorf("unable to examine pending inputs: %v", err)
+			return fmt.Errorf("examine pending inputs: %w", err)
 		}
 
-		// Sweep selected inputs.
-		for _, inputs := range inputLists {
-			err := s.sweep(inputs, cluster.sweepFeeRate, currentHeight)
+		// errAllSets records the error from broadcasting the sweeping
+		// transactions for all input sets.
+		var errAllSets error
+
+		// allSets contains retried inputs and new inputs. To avoid
+		// creating an RBF for the new inputs, we'd sweep this set
+		// first.
+		for _, inputs := range allSets {
+			errAllSets = s.sweep(
+				inputs, cluster.sweepFeeRate, currentHeight,
+			)
+			// TODO(yy): we should also find out which set created
+			// this error. If there are new inputs in this set, we
+			// should give it a second chance by sweeping them
+			// below. To enable this, we need to provide richer
+			// state for each input other than just recording the
+			// publishAttempts. We'd also need to refactor how we
+			// create the input sets. Atm, the steps are,
+			// 1. create a list of input sets.
+			// 2. sweep each set by creating and publishing the tx.
+			// We should change the flow as,
+			// 1. create a list of input sets, and for each set,
+			// 2. when created, we create and publish the tx.
+			// 3. if the publish fails, find out which input is
+			//    causing the failure and retry the rest of the
+			//    inputs.
+			if errAllSets != nil {
+				log.Errorf("sweep all inputs: %w", err)
+				break
+			}
+		}
+
+		// If we have successfully swept all inputs, there's no need to
+		// sweep the new inputs as it'd create an RBF case.
+		if allSets != nil && errAllSets == nil {
+			return nil
+		}
+
+		// We'd end up there if there's no retried inputs. In this
+		// case, we'd sweep the new input sets. If there's an error
+		// when sweeping a given set, we'd log the error and sweep the
+		// next set.
+		for _, inputs := range newSets {
+			err := s.sweep(
+				inputs, cluster.sweepFeeRate, currentHeight,
+			)
 			if err != nil {
-				return fmt.Errorf("unable to sweep inputs: %v", err)
+				log.Errorf("sweep new inputs: %w", err)
 			}
 		}
 
@@ -1152,51 +1022,6 @@ func mergeClusters(a, b inputCluster) []inputCluster {
 	return []inputCluster{newCluster}
 }
 
-// scheduleSweep starts the sweep timer to create an opportunity for more inputs
-// to be added.
-func (s *UtxoSweeper) scheduleSweep(currentHeight int32) error {
-	// The timer is already ticking, no action needed for the sweep to
-	// happen.
-	if s.timer != nil {
-		log.Debugf("Timer still ticking at height=%v", currentHeight)
-		return nil
-	}
-
-	// We'll only start our timer once we have inputs we're able to sweep.
-	startTimer := false
-	for _, cluster := range s.createInputClusters() {
-		// Examine pending inputs and try to construct lists of inputs.
-		// We don't need to obtain the coin selection lock, because we
-		// just need an indication as to whether we can sweep. More
-		// inputs may be added until we publish the transaction and
-		// coins that we select now may be used in other transactions.
-		inputLists, err := s.getInputLists(cluster, currentHeight)
-		if err != nil {
-			return fmt.Errorf("get input lists: %v", err)
-		}
-
-		log.Infof("Sweep candidates at height=%v with fee_rate=%v, "+
-			"yield %v distinct txns", currentHeight,
-			cluster.sweepFeeRate, len(inputLists))
-
-		if len(inputLists) != 0 {
-			startTimer = true
-			break
-		}
-	}
-	if !startTimer {
-		return nil
-	}
-
-	// Start sweep timer to create opportunity for more inputs to be added
-	// before a tx is constructed.
-	s.timer = s.cfg.NewBatchTimer()
-
-	log.Debugf("Sweep timer started")
-
-	return nil
-}
-
 // signalAndRemove notifies the listeners of the final result of the input
 // sweep. It cancels any pending spend notification and removes the input from
 // the list of pending inputs. When this function returns, the sweeper has
@@ -1234,23 +1059,25 @@ func (s *UtxoSweeper) signalAndRemove(outpoint *wire.OutPoint, result Result) {
 }
 
 // getInputLists goes through the given inputs and constructs multiple distinct
-// sweep lists with the given fee rate, each up to the configured maximum number
-// of inputs. Negative yield inputs are skipped. Transactions with an output
-// below the dust limit are not published. Those inputs remain pending and will
-// be bundled with future inputs if possible.
+// sweep lists with the given fee rate, each up to the configured maximum
+// number of inputs. Negative yield inputs are skipped. Transactions with an
+// output below the dust limit are not published. Those inputs remain pending
+// and will be bundled with future inputs if possible. It returns two list -
+// one containing all inputs and the other containing only the new inputs. If
+// there's no retried inputs, the first set returned will be empty.
 func (s *UtxoSweeper) getInputLists(cluster inputCluster,
-	currentHeight int32) ([]inputSet, error) {
+	currentHeight int32) ([]inputSet, []inputSet, error) {
 
 	// Filter for inputs that need to be swept. Create two lists: all
 	// sweepable inputs and a list containing only the new, never tried
 	// inputs.
 	//
-	// We want to create as large a tx as possible, so we return a final set
-	// list that starts with sets created from all inputs. However, there is
-	// a chance that those txes will not publish, because they already
-	// contain inputs that failed before. Therefore we also add sets
-	// consisting of only new inputs to the list, to make sure that new
-	// inputs are given a good, isolated chance of being published.
+	// We want to create as large a tx as possible, so we return a final
+	// set list that starts with sets created from all inputs. However,
+	// there is a chance that those txes will not publish, because they
+	// already contain inputs that failed before. Therefore we also add
+	// sets consisting of only new inputs to the list, to make sure that
+	// new inputs are given a good, isolated chance of being published.
 	//
 	// TODO(yy): this would lead to conflict transactions as the same input
 	// can be used in two sweeping transactions, and our rebroadcaster will
@@ -1287,7 +1114,8 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 			s.cfg.MaxInputsPerTx, s.cfg.Wallet,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("input partitionings: %v", err)
+			return nil, nil, fmt.Errorf("input partitionings: %w",
+				err)
 		}
 	}
 
@@ -1297,15 +1125,13 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 		s.cfg.MaxInputsPerTx, s.cfg.Wallet,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("input partitionings: %v", err)
+		return nil, nil, fmt.Errorf("input partitionings: %w", err)
 	}
 
 	log.Debugf("Sweep candidates at height=%v: total_num_pending=%v, "+
 		"total_num_new=%v", currentHeight, len(allSets), len(newSets))
 
-	// Append the new sets at the end of the list, because those tx likely
-	// have a higher fee per input.
-	return append(allSets, newSets...), nil
+	return allSets, newSets, nil
 }
 
 // sweep takes a set of preselected inputs, creates a sweep tx and publishes the
@@ -1341,38 +1167,39 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 		return fmt.Errorf("notify publish tx: %v", err)
 	}
 
-	// Publish sweep tx.
+	// Reschedule the inputs that we just tried to sweep. This is done in
+	// case the following publish fails, we'd like to update the inputs'
+	// publish attempts and rescue them in the next sweep.
+	s.rescheduleInputs(tx.TxIn, currentHeight)
+
 	log.Debugf("Publishing sweep tx %v, num_inputs=%v, height=%v",
 		tx.TxHash(), len(tx.TxIn), currentHeight)
 
-	log.Tracef("Sweep tx at height=%v: %v", currentHeight,
-		newLogClosure(func() string {
-			return spew.Sdump(tx)
-		}),
-	)
-
+	// Publish the sweeping tx with customized label.
 	err = s.cfg.Wallet.PublishTransaction(
 		tx, labels.MakeLabel(labels.LabelTypeSweepTransaction, nil),
 	)
-
-	// In case of an unexpected error, don't try to recover.
-	if err != nil && err != lnwallet.ErrDoubleSpend {
-		return fmt.Errorf("publish tx: %v", err)
-	}
-
-	// Otherwise log the error.
 	if err != nil {
-		log.Errorf("Publish sweep tx %v got error: %v", tx.TxHash(),
-			err)
-	} else {
-		// If there's no error, remove the output script. Otherwise
-		// keep it so that it can be reused for the next transaction
-		// and causes no address inflation.
-		s.currentOutputScript = nil
+		return err
 	}
+
+	// If there's no error, remove the output script. Otherwise keep it so
+	// that it can be reused for the next transaction and causes no address
+	// inflation.
+	s.currentOutputScript = nil
+
+	return nil
+}
+
+// rescheduleInputs updates the pending inputs with the given tx inputs. It
+// increments the `publishAttempts` and calculates the next broadcast height
+// for each input. When the publishAttempts exceeds MaxSweepAttemps(10), this
+// input will be removed.
+func (s *UtxoSweeper) rescheduleInputs(inputs []*wire.TxIn,
+	currentHeight int32) {
 
 	// Reschedule sweep.
-	for _, input := range tx.TxIn {
+	for _, input := range inputs {
 		pi, ok := s.pendingInputs[input.PreviousOutPoint]
 		if !ok {
 			// It can be that the input has been removed because it
@@ -1413,13 +1240,11 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 			})
 		}
 	}
-
-	return nil
 }
 
-// waitForSpend registers a spend notification with the chain notifier. It
+// monitorSpend registers a spend notification with the chain notifier. It
 // returns a cancel function that can be used to cancel the registration.
-func (s *UtxoSweeper) waitForSpend(outpoint wire.OutPoint,
+func (s *UtxoSweeper) monitorSpend(outpoint wire.OutPoint,
 	script []byte, heightHint uint32) (func(), error) {
 
 	log.Tracef("Wait for spend of %v at heightHint=%v",
@@ -1593,10 +1418,6 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq, bestHeight int32) (
 		pendingInput.minPublishHeight = bestHeight
 	}
 
-	if err := s.scheduleSweep(bestHeight); err != nil {
-		log.Errorf("Unable to schedule sweep: %v", err)
-	}
-
 	resultChan := make(chan Result, 1)
 	pendingInput.listeners = append(pendingInput.listeners, resultChan)
 
@@ -1649,6 +1470,176 @@ func DefaultNextAttemptDeltaFunc(attempts int) int32 {
 // ListSweeps returns a list of the the sweeps recorded by the sweep store.
 func (s *UtxoSweeper) ListSweeps() ([]chainhash.Hash, error) {
 	return s.cfg.Store.ListSweeps()
+}
+
+// handleNewInput processes a new input by registering spend notification and
+// scheduling sweeping for it.
+func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage,
+	bestHeight int32) {
+
+	outpoint := *input.input.OutPoint()
+	pendInput, pending := s.pendingInputs[outpoint]
+	if pending {
+		log.Debugf("Already pending input %v received", outpoint)
+
+		s.handleExistingInput(input, pendInput)
+
+		return
+	}
+
+	// Create a new pendingInput and initialize the listeners slice with
+	// the passed in result channel. If this input is offered for sweep
+	// again, the result channel will be appended to this slice.
+	pendInput = &pendingInput{
+		listeners:        []chan Result{input.resultChan},
+		Input:            input.input,
+		minPublishHeight: bestHeight,
+		params:           input.params,
+	}
+	s.pendingInputs[outpoint] = pendInput
+	log.Tracef("input %v added to pendingInputs", outpoint)
+
+	// Start watching for spend of this input, either by us or the remote
+	// party.
+	cancel, err := s.monitorSpend(
+		outpoint, input.input.SignDesc().Output.PkScript,
+		input.input.HeightHint(),
+	)
+	if err != nil {
+		err := fmt.Errorf("wait for spend: %w", err)
+		s.signalAndRemove(&outpoint, Result{Err: err})
+
+		return
+	}
+
+	pendInput.ntfnRegCancel = cancel
+}
+
+// handleExistingInput processes an input that is already known to the sweeper.
+// It will overwrite the params of the old input with the new ones.
+func (s *UtxoSweeper) handleExistingInput(input *sweepInputMessage,
+	oldInput *pendingInput) {
+
+	// Before updating the input details, check if an exclusive group was
+	// set. In case the same input is registered again without an exclusive
+	// group set, the previous input and its sweep parameters are outdated
+	// hence need to be replaced. This scenario currently only happens for
+	// anchor outputs. When a channel is force closed, in the worst case 3
+	// different sweeps with the same exclusive group are registered with
+	// the sweeper to bump the closing transaction (cpfp) when its time
+	// critical. Receiving an input which was already registered with the
+	// sweeper but now without an exclusive group means non of the previous
+	// inputs were used as CPFP, so we need to make sure we update the
+	// sweep parameters but also remove all inputs with the same exclusive
+	// group because the are outdated too.
+	var prevExclGroup *uint64
+	if oldInput.params.ExclusiveGroup != nil &&
+		input.params.ExclusiveGroup == nil {
+
+		prevExclGroup = new(uint64)
+		*prevExclGroup = *oldInput.params.ExclusiveGroup
+	}
+
+	// Update input details and sweep parameters. The re-offered input
+	// details may contain a change to the unconfirmed parent tx info.
+	oldInput.params = input.params
+	oldInput.Input = input.input
+
+	// Add additional result channel to signal spend of this input.
+	oldInput.listeners = append(oldInput.listeners, input.resultChan)
+
+	if prevExclGroup != nil {
+		s.removeExclusiveGroup(*prevExclGroup)
+	}
+}
+
+// handleInputSpent takes a spend event of our input and updates the sweeper's
+// internal state to remove the input.
+func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
+	// For testing purposes.
+	if s.testSpendChan != nil {
+		s.testSpendChan <- *spend.SpentOutPoint
+	}
+
+	// Query store to find out if we ever published this tx.
+	spendHash := *spend.SpenderTxHash
+	isOurTx, err := s.cfg.Store.IsOurTx(spendHash)
+	if err != nil {
+		log.Errorf("cannot determine if tx %v is ours: %v",
+			spendHash, err)
+		return
+	}
+
+	// If this isn't our transaction, it means someone else swept outputs
+	// that we were attempting to sweep. This can happen for anchor outputs
+	// as well as justice transactions. In this case, we'll notify the
+	// wallet to remove any spends that descent from this output.
+	if !isOurTx {
+		err := s.removeLastSweepDescendants(spend.SpendingTx)
+		if err != nil {
+			log.Warnf("unable to remove descendant transactions "+
+				"due to tx %v: ", spendHash)
+		}
+
+		log.Debugf("Detected third party spend related to in flight "+
+			"inputs (is_ours=%v): %v",
+			newLogClosure(func() string {
+				return spew.Sdump(spend.SpendingTx)
+			}), isOurTx,
+		)
+	}
+
+	// Signal sweep results for inputs in this confirmed tx.
+	for _, txIn := range spend.SpendingTx.TxIn {
+		outpoint := txIn.PreviousOutPoint
+
+		// Check if this input is known to us. It could probably be
+		// unknown if we canceled the registration, deleted from
+		// pendingInputs but the ntfn was in-flight already. Or this
+		// could be not one of our inputs.
+		input, ok := s.pendingInputs[outpoint]
+		if !ok {
+			continue
+		}
+
+		// Return either a nil or a remote spend result.
+		var err error
+		if !isOurTx {
+			err = ErrRemoteSpend
+		}
+
+		// Signal result channels.
+		s.signalAndRemove(&outpoint, Result{
+			Tx:  spend.SpendingTx,
+			Err: err,
+		})
+
+		// Remove all other inputs in this exclusive group.
+		if input.params.ExclusiveGroup != nil {
+			s.removeExclusiveGroup(*input.params.ExclusiveGroup)
+		}
+	}
+}
+
+// handleSweep is called when the ticker fires. It will create clusters and
+// attempt to create and publish the sweeping transactions.
+func (s *UtxoSweeper) handleSweep(bestHeight int32) {
+	// We'll attempt to cluster all of our inputs with similar fee rates.
+	// Before attempting to sweep them, we'll sort them in descending fee
+	// rate order. We do this to ensure any inputs which have had their fee
+	// rate bumped are broadcast first in order enforce the RBF policy.
+	inputClusters := s.createInputClusters()
+	sort.Slice(inputClusters, func(i, j int) bool {
+		return inputClusters[i].sweepFeeRate >
+			inputClusters[j].sweepFeeRate
+	})
+
+	for _, cluster := range inputClusters {
+		err := s.sweepCluster(cluster, bestHeight)
+		if err != nil {
+			log.Errorf("input cluster sweep: %v", err)
+		}
+	}
 }
 
 // init initializes the random generator for random input rescheduling.

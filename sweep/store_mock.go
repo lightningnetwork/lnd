@@ -25,8 +25,8 @@ func (s *MockSweeperStore) IsOurTx(hash chainhash.Hash) (bool, error) {
 }
 
 // StoreTx stores a tx we are about to publish.
-func (s *MockSweeperStore) StoreTx(txid chainhash.Hash) error {
-	s.ourTxes[txid] = struct{}{}
+func (s *MockSweeperStore) StoreTx(tr *TxRecord) error {
+	s.ourTxes[tr.Txid] = struct{}{}
 
 	return nil
 }

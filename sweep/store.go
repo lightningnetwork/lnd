@@ -39,8 +39,8 @@ type SweeperStore interface {
 	// hash.
 	IsOurTx(hash chainhash.Hash) (bool, error)
 
-	// NotifyPublishTx signals that we are about to publish a tx.
-	NotifyPublishTx(*wire.MsgTx) error
+	// StoreTx stores a tx hash we are about to publish.
+	StoreTx(chainhash.Hash) error
 
 	// ListSweeps lists all the sweeps we have successfully published.
 	ListSweeps() ([]chainhash.Hash, error)
@@ -147,8 +147,8 @@ func migrateTxHashes(tx kvdb.RwTx, txHashesBucket kvdb.RwBucket,
 	return nil
 }
 
-// NotifyPublishTx signals that we are about to publish a tx.
-func (s *sweeperStore) NotifyPublishTx(sweepTx *wire.MsgTx) error {
+// StoreTx stores that we are about to publish a tx.
+func (s *sweeperStore) StoreTx(txid chainhash.Hash) error {
 	return kvdb.Update(s.db, func(tx kvdb.RwTx) error {
 
 		txHashesBucket := tx.ReadWriteBucket(txHashesBucketKey)
@@ -156,9 +156,7 @@ func (s *sweeperStore) NotifyPublishTx(sweepTx *wire.MsgTx) error {
 			return errNoTxHashesBucket
 		}
 
-		hash := sweepTx.TxHash()
-
-		return txHashesBucket.Put(hash[:], []byte{})
+		return txHashesBucket.Put(txid[:], []byte{})
 	}, func() {})
 }
 

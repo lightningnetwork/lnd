@@ -50,7 +50,7 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 		},
 	})
 
-	err = store.NotifyPublishTx(&tx1)
+	err = store.StoreTx(tx1.TxHash())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 		},
 	})
 
-	err = store.NotifyPublishTx(&tx2)
+	err = store.StoreTx(tx2.TxHash())
 	if err != nil {
 		t.Fatal(err)
 	}

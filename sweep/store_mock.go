@@ -2,7 +2,6 @@ package sweep
 
 import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/wire"
 )
 
 // MockSweeperStore is a mock implementation of sweeper store. This type is
@@ -25,10 +24,9 @@ func (s *MockSweeperStore) IsOurTx(hash chainhash.Hash) (bool, error) {
 	return ok, nil
 }
 
-// NotifyPublishTx signals that we are about to publish a tx.
-func (s *MockSweeperStore) NotifyPublishTx(tx *wire.MsgTx) error {
-	txHash := tx.TxHash()
-	s.ourTxes[txHash] = struct{}{}
+// StoreTx stores a tx we are about to publish.
+func (s *MockSweeperStore) StoreTx(txid chainhash.Hash) error {
+	s.ourTxes[txid] = struct{}{}
 
 	return nil
 }

@@ -20,6 +20,14 @@ var (
 	// allowed in a single sweep tx. If more need to be swept, multiple txes
 	// are created and published.
 	DefaultMaxInputsPerTx = 100
+
+	// ErrLocktimeConflict is returned when inputs with different
+	// transaction nLockTime values are included in the same transaction.
+	//
+	// NOTE: due the SINGLE|ANYONECANPAY sighash flag, which is used in the
+	// second level success/timeout txns, only the txns sharing the same
+	// nLockTime can exist in the same tx.
+	ErrLocktimeConflict = errors.New("incompatible locktime")
 )
 
 // txInput is an interface that provides the input data required for tx
@@ -140,13 +148,13 @@ func generateInputPartitionings(sweepableInputs []txInput,
 func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	changePkScript []byte, currentBlockHeight uint32,
 	feePerKw, maxFeeRate chainfee.SatPerKWeight,
-	signer input.Signer) (*wire.MsgTx, error) {
+	signer input.Signer) (*wire.MsgTx, btcutil.Amount, error) {
 
 	inputs, estimator, err := getWeightEstimate(
 		inputs, outputs, feePerKw, maxFeeRate, changePkScript,
 	)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	txFee := estimator.fee()
@@ -188,7 +196,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 			// If another input commits to a different locktime,
 			// they cannot be combined in the same transaction.
 			if locktime != -1 && locktime != int32(lt) {
-				return nil, fmt.Errorf("incompatible locktime")
+				return nil, 0, ErrLocktimeConflict
 			}
 
 			locktime = int32(lt)
@@ -213,7 +221,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 
 		if lt, ok := o.RequiredLockTime(); ok {
 			if locktime != -1 && locktime != int32(lt) {
-				return nil, fmt.Errorf("incompatible locktime")
+				return nil, 0, ErrLocktimeConflict
 			}
 
 			locktime = int32(lt)
@@ -229,7 +237,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	}
 
 	if requiredOutput+txFee > totalInput {
-		return nil, fmt.Errorf("insufficient input to create sweep "+
+		return nil, 0, fmt.Errorf("insufficient input to create sweep "+
 			"tx: input_sum=%v, output_sum=%v", totalInput,
 			requiredOutput+txFee)
 	}
@@ -253,6 +261,10 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	} else {
 		log.Infof("Change amt %v below dustlimit %v, not adding "+
 			"change output", changeAmt, changeLimit)
+
+		// The dust amount is added to the fee as the miner will
+		// collect it.
+		txFee += changeAmt
 	}
 
 	// We'll default to using the current block height as locktime, if none
@@ -270,12 +282,12 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	// classes if fees are too low.
 	btx := btcutil.NewTx(sweepTx)
 	if err := blockchain.CheckTransactionSanity(btx); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	prevInputFetcher, err := input.MultiPrevOutFetcher(inputs)
 	if err != nil {
-		return nil, fmt.Errorf("error creating prev input fetcher "+
+		return nil, 0, fmt.Errorf("error creating prev input fetcher "+
 			"for hash cache: %v", err)
 	}
 	hashCache := txscript.NewTxSigHashes(sweepTx, prevInputFetcher)
@@ -293,7 +305,8 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		sweepTx.TxIn[idx].Witness = inputScript.Witness
 
 		if len(inputScript.SigScript) != 0 {
-			sweepTx.TxIn[idx].SignatureScript = inputScript.SigScript
+			sweepTx.TxIn[idx].SignatureScript =
+				inputScript.SigScript
 		}
 
 		return nil
@@ -301,7 +314,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 
 	for idx, inp := range idxs {
 		if err := addInputScript(idx, inp); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 	}
 
@@ -315,7 +328,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		estimator.parentsWeight,
 	)
 
-	return sweepTx, nil
+	return sweepTx, txFee, nil
 }
 
 // getWeightEstimate returns a weight estimate for the given inputs.

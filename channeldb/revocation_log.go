@@ -339,7 +339,7 @@ func serializeRevocationLog(w io.Writer, rl *RevocationLog) error {
 	}
 
 	// Write the tlv stream.
-	if err := writeTlvStream(w, tlvStream); err != nil {
+	if err := WriteTlvStream(w, tlvStream); err != nil {
 		return err
 	}
 
@@ -366,7 +366,7 @@ func serializeHTLCEntries(w io.Writer, htlcs []*HTLCEntry) error {
 		}
 
 		// Write the tlv stream.
-		if err := writeTlvStream(w, tlvStream); err != nil {
+		if err := WriteTlvStream(w, tlvStream); err != nil {
 			return err
 		}
 	}
@@ -403,7 +403,7 @@ func deserializeRevocationLog(r io.Reader) (RevocationLog, error) {
 	}
 
 	// Read the tlv stream.
-	parsedTypes, err := readTlvStream(r, tlvStream)
+	parsedTypes, err := ReadTlvStream(r, tlvStream)
 	if err != nil {
 		return rl, err
 	}
@@ -439,7 +439,7 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 		}
 
 		// Read the HTLC entry.
-		if _, err := readTlvStream(r, tlvStream); err != nil {
+		if _, err := ReadTlvStream(r, tlvStream); err != nil {
 			// We've reached the end when hitting an EOF.
 			if err == io.ErrUnexpectedEOF {
 				break
@@ -462,9 +462,9 @@ func deserializeHTLCEntries(r io.Reader) ([]*HTLCEntry, error) {
 	return htlcs, nil
 }
 
-// writeTlvStream is a helper function that encodes the tlv stream into the
+// WriteTlvStream is a helper function that encodes the tlv stream into the
 // writer.
-func writeTlvStream(w io.Writer, s *tlv.Stream) error {
+func WriteTlvStream(w io.Writer, s *tlv.Stream) error {
 	var b bytes.Buffer
 	if err := s.Encode(&b); err != nil {
 		return err
@@ -482,9 +482,9 @@ func writeTlvStream(w io.Writer, s *tlv.Stream) error {
 	return nil
 }
 
-// readTlvStream is a helper function that decodes the tlv stream from the
+// ReadTlvStream is a helper function that decodes the tlv stream from the
 // reader.
-func readTlvStream(r io.Reader, s *tlv.Stream) (tlv.TypeMap, error) {
+func ReadTlvStream(r io.Reader, s *tlv.Stream) (tlv.TypeMap, error) {
 	var bodyLen uint64
 
 	// Read the stream's length.

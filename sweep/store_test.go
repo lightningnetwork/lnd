@@ -1,6 +1,7 @@
 package sweep
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -50,10 +51,12 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 		},
 	})
 
-	err = store.StoreTx(tx1.TxHash())
-	if err != nil {
-		t.Fatal(err)
+	tr1 := &TxRecord{
+		Txid: tx1.TxHash(),
 	}
+
+	err = store.StoreTx(tr1)
+	require.NoError(t, err)
 
 	// Notify publication of tx2
 	tx2 := wire.MsgTx{}
@@ -63,10 +66,12 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 		},
 	})
 
-	err = store.StoreTx(tx2.TxHash())
-	if err != nil {
-		t.Fatal(err)
+	tr2 := &TxRecord{
+		Txid: tx2.TxHash(),
 	}
+
+	err = store.StoreTx(tr2)
+	require.NoError(t, err)
 
 	// Recreate the sweeper store
 	store, err = createStore()
@@ -76,30 +81,18 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 
 	// Assert that both txes are recognized as our own.
 	ours, err := store.IsOurTx(tx1.TxHash())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ours {
-		t.Fatal("expected tx to be ours")
-	}
+	require.NoError(t, err)
+	require.True(t, ours, "expected tx to be ours")
 
 	ours, err = store.IsOurTx(tx2.TxHash())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ours {
-		t.Fatal("expected tx to be ours")
-	}
+	require.NoError(t, err)
+	require.True(t, ours, "expected tx to be ours")
 
 	// An different hash should be reported as not being ours.
 	var unknownHash chainhash.Hash
 	ours, err = store.IsOurTx(unknownHash)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ours {
-		t.Fatal("expected tx to be not ours")
-	}
+	require.NoError(t, err)
+	require.False(t, ours, "expected tx to not be ours")
 
 	txns, err := store.ListSweeps()
 	require.NoError(t, err, "unexpected error")
@@ -110,16 +103,38 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 		tx1.TxHash(): true,
 		tx2.TxHash(): true,
 	}
-
-	if len(txns) != len(expected) {
-		t.Fatalf("expected: %v sweeps, got: %v", len(expected),
-			len(txns))
-	}
+	require.Len(t, txns, len(expected))
 
 	for _, tx := range txns {
 		_, ok := expected[tx]
-		if !ok {
-			t.Fatalf("unexpected tx: %v", tx)
-		}
+		require.Truef(t, ok, "unexpected txid returned: %v", tx)
 	}
+}
+
+// TestTxRecord asserts that the serializeTxRecord and deserializeTxRecord
+// behave as expected.
+func TestTxRecord(t *testing.T) {
+	t.Parallel()
+
+	// Create a testing record.
+	//
+	// NOTE: Txid is omitted because it is not serialized.
+	tr := &TxRecord{
+		FeeRate:   1000,
+		Fee:       10000,
+		Published: true,
+	}
+
+	var b bytes.Buffer
+
+	// Assert we can serialize the record.
+	err := serializeTxRecord(&b, tr)
+	require.NoError(t, err)
+
+	// Assert we can deserialize the record.
+	result, err := deserializeTxRecord(&b)
+	require.NoError(t, err)
+
+	// Assert the deserialized record is equal to the original.
+	require.Equal(t, tr, result)
 }

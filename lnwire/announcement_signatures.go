@@ -47,11 +47,15 @@ type AnnounceSignatures1 struct {
 // lnwire.Message interface.
 var _ Message = (*AnnounceSignatures1)(nil)
 
+// A compile time check to ensure AnnounceSignatures1 implements the
+// lnwire.AnnounceSignatures interface.
+var _ AnnounceSignatures = (*AnnounceSignatures1)(nil)
+
 // Decode deserializes a serialized AnnounceSignatures1 stored in the passed
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *AnnounceSignatures1) Decode(r io.Reader, pver uint32) error {
+func (a *AnnounceSignatures1) Decode(r io.Reader, _ uint32) error {
 	return ReadElements(r,
 		&a.ChannelID,
 		&a.ShortChannelID,
@@ -65,7 +69,7 @@ func (a *AnnounceSignatures1) Decode(r io.Reader, pver uint32) error {
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *AnnounceSignatures1) Encode(w *bytes.Buffer, pver uint32) error {
+func (a *AnnounceSignatures1) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteChannelID(w, a.ChannelID); err != nil {
 		return err
 	}
@@ -91,4 +95,18 @@ func (a *AnnounceSignatures1) Encode(w *bytes.Buffer, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (a *AnnounceSignatures1) MsgType() MessageType {
 	return MsgAnnounceSignatures
+}
+
+// SCID returns the ShortChannelID of the channel.
+//
+// This is part of the lnwire.AnnounceSignatures interface.
+func (a *AnnounceSignatures1) SCID() ShortChannelID {
+	return a.ShortChannelID
+}
+
+// ChanID returns the ChannelID identifying the channel.
+//
+// This is part of the lnwire.AnnounceSignatures interface.
+func (a *AnnounceSignatures1) ChanID() ChannelID {
+	return a.ChannelID
 }

@@ -727,11 +727,11 @@ func newMsgChannelUpdate(t testing.TB, r *rand.Rand) *lnwire.ChannelUpdate {
 }
 
 func newMsgAnnounceSignatures(t testing.TB,
-	r *rand.Rand) *lnwire.AnnounceSignatures {
+	r *rand.Rand) *lnwire.AnnounceSignatures1 {
 
 	t.Helper()
 
-	msg := &lnwire.AnnounceSignatures{
+	msg := &lnwire.AnnounceSignatures1{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(
 			uint64(r.Int63()),
 		),

@@ -52,8 +52,8 @@ func randCompressedPubKey(t *testing.T) [33]byte {
 	return compressedPubKey
 }
 
-func randAnnounceSignatures() *lnwire.AnnounceSignatures {
-	return &lnwire.AnnounceSignatures{
+func randAnnounceSignatures() *lnwire.AnnounceSignatures1 {
+	return &lnwire.AnnounceSignatures1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(rand.Uint64()),
 		ExtraOpaqueData: make([]byte, 0),
 	}
@@ -116,7 +116,7 @@ func TestMessageStoreMessages(t *testing.T) {
 		for _, msg := range peerMsgs {
 			var shortChanID uint64
 			switch msg := msg.(type) {
-			case *lnwire.AnnounceSignatures:
+			case *lnwire.AnnounceSignatures1:
 				shortChanID = msg.ShortChannelID.ToUint64()
 			case *lnwire.ChannelUpdate:
 				shortChanID = msg.ShortChannelID.ToUint64()
@@ -281,7 +281,7 @@ func TestMessageStoreDeleteMessage(t *testing.T) {
 		}
 	}
 
-	// An AnnounceSignatures message should exist within the store after
+	// An AnnounceSignatures1 message should exist within the store after
 	// adding it, and should no longer exists after deleting it.
 	peer := randCompressedPubKey(t)
 	annSig := randAnnounceSignatures()

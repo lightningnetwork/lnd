@@ -465,8 +465,8 @@ type annBatch struct {
 	chanUpdAnn1 *lnwire.ChannelUpdate
 	chanUpdAnn2 *lnwire.ChannelUpdate
 
-	localProofAnn  *lnwire.AnnounceSignatures
-	remoteProofAnn *lnwire.AnnounceSignatures
+	localProofAnn  *lnwire.AnnounceSignatures1
+	remoteProofAnn *lnwire.AnnounceSignatures1
 }
 
 func createLocalAnnouncements(blockHeight uint32) (*annBatch, error) {
@@ -497,7 +497,7 @@ func createAnnouncements(blockHeight uint32, key1, key2 *btcec.PrivateKey) (*ann
 		return nil, err
 	}
 
-	batch.remoteProofAnn = &lnwire.AnnounceSignatures{
+	batch.remoteProofAnn = &lnwire.AnnounceSignatures1{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
@@ -505,7 +505,7 @@ func createAnnouncements(blockHeight uint32, key1, key2 *btcec.PrivateKey) (*ann
 		BitcoinSignature: batch.chanAnn.BitcoinSig2,
 	}
 
-	batch.localProofAnn = &lnwire.AnnounceSignatures{
+	batch.localProofAnn = &lnwire.AnnounceSignatures1{
 		ShortChannelID: lnwire.ShortChannelID{
 			BlockHeight: blockHeight,
 		},
@@ -1327,7 +1327,7 @@ func TestOrphanSignatureAnnouncement(t *testing.T) {
 }
 
 // TestSignatureAnnouncementRetryAtStartup tests that if we restart the
-// gossiper, it will retry sending the AnnounceSignatures to the peer if it did
+// gossiper, it will retry sending the AnnounceSignatures1 to the peer if it did
 // not succeed before shutting down, and the full channel proof is not yet
 // assembled.
 func TestSignatureAnnouncementRetryAtStartup(t *testing.T) {
@@ -1511,7 +1511,7 @@ out:
 		case msg := <-sentToPeer:
 			// Since the ChannelUpdate will also be resent as it is
 			// sent reliably, we'll need to filter it out.
-			if _, ok := msg.(*lnwire.AnnounceSignatures); !ok {
+			if _, ok := msg.(*lnwire.AnnounceSignatures1); !ok {
 				continue
 			}
 
@@ -3248,7 +3248,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 
 	peerChan <- remotePeer
 
-	// At this point, we should have sent both the AnnounceSignatures and
+	// At this point, we should have sent both the AnnounceSignatures1 and
 	// stale ChannelUpdate.
 	for i := 0; i < 2; i++ {
 		var msg lnwire.Message
@@ -3261,7 +3261,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 		switch msg := msg.(type) {
 		case *lnwire.ChannelUpdate:
 			assertMessage(t, staleChannelUpdate, msg)
-		case *lnwire.AnnounceSignatures:
+		case *lnwire.AnnounceSignatures1:
 			assertMessage(t, batch.localProofAnn, msg)
 		default:
 			t.Fatalf("send unexpected %v message", msg.MsgType())

@@ -250,7 +250,7 @@ out:
 
 		// Now that the message has at least been sent once, we can
 		// check whether it's stale. This guarantees that
-		// AnnounceSignatures are sent at least once if we happen to
+		// AnnounceSignatures1 are sent at least once if we happen to
 		// already have signatures for both parties.
 		if s.cfg.IsMsgStale(msg) {
 			err := s.cfg.MessageStore.DeleteMessage(msg, peerPubKey)

@@ -445,17 +445,13 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 	chainedAcceptor := acpt.NewChainedAcceptor()
 
 	fundingCfg := Config{
-		IDKey:        privKey.PubKey(),
-		IDKeyLoc:     testKeyLoc,
-		Wallet:       lnw,
-		Notifier:     chainNotifier,
-		ChannelDB:    cdb,
-		FeeEstimator: estimator,
-		SignMessage: func(_ keychain.KeyLocator,
-			_ []byte, _ bool) (*ecdsa.Signature, error) {
-
-			return testSig, nil
-		},
+		IDKey:         privKey.PubKey(),
+		IDKeyLoc:      testKeyLoc,
+		Wallet:        lnw,
+		Notifier:      chainNotifier,
+		ChannelDB:     cdb,
+		FeeEstimator:  estimator,
+		MessageSigner: &mockSigner{},
 		SendAnnouncement: func(msg lnwire.Message,
 			_ ...discovery.OptionalMsgField) chan error {
 
@@ -608,17 +604,13 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 	chainedAcceptor := acpt.NewChainedAcceptor()
 
 	f, err := NewFundingManager(Config{
-		IDKey:        oldCfg.IDKey,
-		IDKeyLoc:     oldCfg.IDKeyLoc,
-		Wallet:       oldCfg.Wallet,
-		Notifier:     oldCfg.Notifier,
-		ChannelDB:    oldCfg.ChannelDB,
-		FeeEstimator: oldCfg.FeeEstimator,
-		SignMessage: func(_ keychain.KeyLocator,
-			_ []byte, _ bool) (*ecdsa.Signature, error) {
-
-			return testSig, nil
-		},
+		IDKey:         oldCfg.IDKey,
+		IDKeyLoc:      oldCfg.IDKeyLoc,
+		Wallet:        oldCfg.Wallet,
+		Notifier:      oldCfg.Notifier,
+		ChannelDB:     oldCfg.ChannelDB,
+		FeeEstimator:  oldCfg.FeeEstimator,
+		MessageSigner: &mockSigner{},
 		SendAnnouncement: func(msg lnwire.Message,
 			_ ...discovery.OptionalMsgField) chan error {
 
@@ -4954,4 +4946,14 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	// Check that they notify the breach arbiter and peer about the new
 	// channel.
 	assertHandleChannelReady(t, alice, bob)
+}
+
+type mockSigner struct {
+	keychain.MessageSignerRing
+}
+
+func (s *mockSigner) SignMessage(_ keychain.KeyLocator, _ []byte,
+	_ bool) (*ecdsa.Signature, error) {
+
+	return testSig, nil
 }

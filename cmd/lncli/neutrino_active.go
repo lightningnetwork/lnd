@@ -155,16 +155,16 @@ func isBanned(ctx *cli.Context) error {
 	return nil
 }
 
-var getBlockHeaderCommand = cli.Command{
+var getBlockHeaderNeutrinoCommand = cli.Command{
 	Name:        "getblockheader",
 	Usage:       "Get a block header.",
 	Category:    "Neutrino",
 	Description: "Returns a block header with a particular block hash.",
 	ArgsUsage:   "hash",
-	Action:      actionDecorator(getBlockHeader),
+	Action:      actionDecorator(getBlockHeaderNeutrino),
 }
 
-func getBlockHeader(ctx *cli.Context) error {
+func getBlockHeaderNeutrino(ctx *cli.Context) error {
 	ctxc := getContext()
 	args := ctx.Args()
 
@@ -239,7 +239,7 @@ func neutrinoCommands() []cli.Command {
 				addPeerCommand,
 				disconnectPeerCommand,
 				isBannedCommand,
-				getBlockHeaderCommand,
+				getBlockHeaderNeutrinoCommand,
 				getCFilterCommand,
 			},
 		},

@@ -631,12 +631,6 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		return
 	}
 
-	// Create a ticker based on the config duration.
-	ticker := time.NewTicker(s.cfg.TickerDuration)
-	defer ticker.Stop()
-
-	log.Debugf("Sweep ticker started")
-
 	for {
 		// Clean inputs, which will remove inputs that are swept,
 		// failed, or excluded from the sweeper and return inputs that
@@ -650,6 +644,13 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		// a listener to spend and schedule a sweep.
 		case input := <-s.newInputs:
 			s.handleNewInput(input)
+
+			// If this input is forced, we perform an sweep
+			// immediately.
+			if input.params.Force {
+				inputs = s.updateSweeperInputs()
+				s.sweepPendingInputs(inputs)
+			}
 
 		// A spend of one of our inputs is detected. Signal sweep
 		// results to the caller(s).
@@ -670,14 +671,6 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				err:        err,
 			}
 
-		// The timer expires and we are going to (re)sweep.
-		case <-ticker.C:
-			log.Debugf("Sweep ticker ticks, attempt sweeping %d "+
-				"inputs", len(inputs))
-
-			// Sweep the remaining pending inputs.
-			s.sweepPendingInputs(inputs)
-
 		// A new block comes in, update the bestHeight.
 		//
 		// TODO(yy): this is where we check our published transactions
@@ -685,13 +678,22 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 		// bumper to get an updated fee rate.
 		case epoch, ok := <-blockEpochs:
 			if !ok {
+				// We should stop the sweeper before stopping
+				// the chain service. Otherwise it indicates an
+				// error.
+				log.Error("Block epoch channel closed")
+
 				return
 			}
 
+			// Update the sweeper to the best height.
 			s.currentHeight = epoch.Height
 
-			log.Debugf("New block: height=%v, sha=%v",
-				epoch.Height, epoch.Hash)
+			log.Debugf("Received new block: height=%v, attempt "+
+				"sweeping %d inputs", epoch.Height, len(inputs))
+
+			// Attempt to sweep any pending inputs.
+			s.sweepPendingInputs(inputs)
 
 		case <-s.quit:
 			return

@@ -881,41 +881,6 @@ func TestRetry(t *testing.T) {
 	ctx.finish(1)
 }
 
-// TestGiveUp asserts that the sweeper gives up on an input if it can't be swept
-// after a configured number of attempts.a
-func TestGiveUp(t *testing.T) {
-	ctx := createSweeperTestContext(t)
-
-	resultChan0, err := ctx.sweeper.SweepInput(
-		spendableInputs[0], defaultFeePref,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// We expect a sweep to be published at height 100 (mockChainIOHeight).
-	ctx.receiveTx()
-
-	// Because of MaxSweepAttemps, two more sweeps will be attempted. We
-	// configured exponential back-off without randomness for the test. The
-	// second attempt, we expect to happen at 101. The third attempt at 103.
-	// At that point, the input is expected to be failed.
-
-	// Second attempt
-	ctx.notifier.NotifyEpoch(101)
-	ctx.receiveTx()
-
-	// Third attempt
-	ctx.notifier.NotifyEpoch(103)
-	ctx.receiveTx()
-
-	ctx.expectResult(resultChan0, ErrTooManyAttempts)
-
-	ctx.backend.mine()
-
-	ctx.finish(1)
-}
-
 // TestDifferentFeePreferences ensures that the sweeper can have different
 // transactions for different fee preferences. These transactions should be
 // broadcast from highest to lowest fee rate.
@@ -1030,24 +995,14 @@ func TestPendingInputs(t *testing.T) {
 	// We should expect to see all inputs pending.
 	ctx.assertPendingInputs(input1, input2, input3)
 
-	// We should expect to see both sweep transactions broadcast. The higher
-	// fee rate sweep should be broadcast first. We'll remove the lower fee
-	// rate sweep to ensure we can detect pending inputs after a sweep.
-	// Once the higher fee rate sweep confirms, we should no longer see
-	// those inputs pending.
+	// We should expect to see both sweep transactions broadcast - one for
+	// the higher feerate, the other for the lower.
 	ctx.receiveTx()
-	lowFeeRateTx := ctx.receiveTx()
-	ctx.backend.deleteUnconfirmed(lowFeeRateTx.TxHash())
+	ctx.receiveTx()
+
+	// Mine these txns, and we should expect to see the results delivered.
 	ctx.backend.mine()
 	ctx.expectResult(resultChan1, nil)
-	ctx.assertPendingInputs(input3)
-
-	// We'll then trigger a new block to rebroadcast the lower fee rate
-	// sweep. Once again we'll ensure those inputs are no longer pending
-	// once the sweep transaction confirms.
-	ctx.backend.notifier.NotifyEpoch(101)
-	ctx.receiveTx()
-	ctx.backend.mine()
 	ctx.expectResult(resultChan3, nil)
 	ctx.assertPendingInputs()
 

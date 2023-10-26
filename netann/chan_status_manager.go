@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -49,7 +48,7 @@ type ChanStatusConfig struct {
 	OurKeyLoc keychain.KeyLocator
 
 	// MessageSigner signs messages that validate under OurPubKey.
-	MessageSigner lnwallet.MessageSigner
+	MessageSigner keychain.MessageSignerRing
 
 	// IsChannelActive checks whether the channel identified by the provided
 	// ChannelID is considered active. This should only return true if the

@@ -450,7 +450,9 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 
 	payReqString, err := payReq.Encode(zpay32.MessageSigner{
 		SignCompact: func(msg []byte) ([]byte, error) {
-			return cfg.NodeSigner.SignMessageCompact(msg, false)
+			return cfg.NodeSigner.SignMessageCompactNoKeyLoc(
+				msg, false,
+			)
 		},
 	})
 	if err != nil {

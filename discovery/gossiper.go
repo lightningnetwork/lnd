@@ -24,7 +24,6 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnutils"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/multimutex"
 	"github.com/lightningnetwork/lnd/netann"
@@ -247,14 +246,14 @@ type Config struct {
 	// use to determine which messages need to be resent for a given peer.
 	MessageStore GossipMessageStore
 
-	// AnnSigner is an instance of the MessageSigner interface which will
-	// be used to manually sign any outgoing channel updates. The signer
-	// implementation should be backed by the public key of the backing
-	// Lightning node.
+	// AnnSigner is an instance of the MessageSignerRing interface which
+	// will be used to manually sign any outgoing channel updates. The
+	// signer implementation should be backed by the public key of the
+	// backing Lightning node.
 	//
 	// TODO(roasbeef): extract ann crafting + sign from fundingMgr into
 	// here?
-	AnnSigner lnwallet.MessageSigner
+	AnnSigner keychain.MessageSignerRing
 
 	// NumActiveSyncers is the number of peers for which we should have
 	// active syncers with. After reaching NumActiveSyncers, any future

@@ -3,7 +3,10 @@ package keychain
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 )
 
 func NewPubKeyMessageSigner(pubKey *btcec.PublicKey, keyLoc KeyLocator,
@@ -40,6 +43,25 @@ func (p *PubKeyMessageSigner) SignMessageCompact(msg []byte,
 	doubleHash bool) ([]byte, error) {
 
 	return p.digestSigner.SignMessageCompact(p.keyLoc, msg, doubleHash)
+}
+
+func (p *PubKeyMessageSigner) SignMuSig2(secNonce [97]byte, keyLoc KeyLocator,
+	otherNonces [][66]byte, combinedNonce [66]byte,
+	pubKeys []*btcec.PublicKey, msg [32]byte, opts ...musig2.SignOption) (
+	*musig2.PartialSignature, error) {
+
+	return p.digestSigner.SignMuSig2(
+		secNonce, keyLoc, otherNonces, combinedNonce, pubKeys, msg,
+		opts...,
+	)
+}
+
+func (p *PubKeyMessageSigner) SignMessageSchnorr(keyLoc KeyLocator, msg []byte,
+	doubleHash bool, taprootTweak, tag []byte) (*schnorr.Signature, error) {
+
+	return p.digestSigner.SignMessageSchnorr(
+		keyLoc, msg, doubleHash, taprootTweak, tag,
+	)
 }
 
 func NewPrivKeyMessageSigner(privKey *btcec.PrivateKey,
@@ -86,6 +108,39 @@ func (p *PrivKeyMessageSigner) SignMessageCompact(msg []byte,
 		digest = chainhash.HashB(msg)
 	}
 	return ecdsa.SignCompact(p.privKey, digest, true)
+}
+
+func (p *PrivKeyMessageSigner) SignMuSig2(secNonce [97]byte, _ KeyLocator,
+	_ [][66]byte, combinedNonce [66]byte,
+	pubKeys []*btcec.PublicKey, msg [32]byte, opts ...musig2.SignOption) (
+	*musig2.PartialSignature, error) {
+
+	return musig2.Sign(
+		secNonce, p.privKey, combinedNonce, pubKeys, msg, opts...,
+	)
+}
+
+func (p *PrivKeyMessageSigner) SignMessageSchnorr(_ KeyLocator, msg []byte,
+	doubleHash bool, taprootTweak, tag []byte) (*schnorr.Signature, error) {
+
+	// If a tag was provided, we need to take the tagged hash of the input.
+	var digest []byte
+	switch {
+	case len(tag) > 0:
+		taggedHash := chainhash.TaggedHash(tag, msg)
+		digest = taggedHash[:]
+	case doubleHash:
+		digest = chainhash.DoubleHashB(msg)
+	default:
+		digest = chainhash.HashB(msg)
+	}
+
+	privKey := p.privKey
+	if len(taprootTweak) > 0 {
+		privKey = txscript.TweakTaprootPrivKey(*privKey, taprootTweak)
+	}
+
+	return schnorr.Sign(privKey, digest)
 }
 
 var _ SingleKeyMessageSigner = (*PubKeyMessageSigner)(nil)

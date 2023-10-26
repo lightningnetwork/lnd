@@ -271,6 +271,20 @@ type SingleKeyMessageSigner interface {
 	// hashing it first, with the wrapped private key and returns the
 	// signature in the compact, public key recoverable format.
 	SignMessageCompact(message []byte, doubleHash bool) ([]byte, error)
+
+	// SignMuSig2 generates a MuSig2 partial signature given the passed key
+	// set, secret nonce, public nonce, and private keys.
+	SignMuSig2(secNonce [musig2.SecNonceSize]byte,
+		keyLoc KeyLocator, otherNonces [][musig2.PubNonceSize]byte,
+		combinedNonce [musig2.PubNonceSize]byte,
+		pubKeys []*btcec.PublicKey, msg [32]byte,
+		opts ...musig2.SignOption) (*musig2.PartialSignature, error)
+
+	// SignMessageSchnorr signs the given message, single or double SHA256
+	// hashing it first, with the private key described in the key locator
+	// and the optional Taproot tweak applied to the private key.
+	SignMessageSchnorr(keyLoc KeyLocator, msg []byte, doubleHash bool,
+		taprootTweak, tag []byte) (*schnorr.Signature, error)
 }
 
 // ECDHRing is an interface that abstracts away basic low-level ECDH shared key

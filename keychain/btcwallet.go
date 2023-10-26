@@ -506,5 +506,6 @@ func (b *BtcWalletKeyRing) SignMessageSchnorr(keyLoc KeyLocator,
 	default:
 		digest = chainhash.HashB(msg)
 	}
+
 	return schnorr.Sign(privKey, digest)
 }

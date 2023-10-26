@@ -2735,8 +2735,8 @@ func (l *LightningNode) AddPubKey(key *btcec.PublicKey) {
 }
 
 // NodeAnnouncement retrieves the latest node announcement of the node.
-func (l *LightningNode) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
-	error) {
+func (l *LightningNode) NodeAnnouncement(signed bool) (
+	*lnwire.NodeAnnouncement1, error) {
 
 	if !l.HaveNodeAnnouncement {
 		return nil, fmt.Errorf("node does not have node announcement")
@@ -2747,7 +2747,7 @@ func (l *LightningNode) NodeAnnouncement(signed bool) (*lnwire.NodeAnnouncement,
 		return nil, err
 	}
 
-	nodeAnn := &lnwire.NodeAnnouncement{
+	nodeAnn := &lnwire.NodeAnnouncement1{
 		Features:        l.Features.RawFeatureVector,
 		NodeID:          l.PubKeyBytes,
 		RGBColor:        l.Color,

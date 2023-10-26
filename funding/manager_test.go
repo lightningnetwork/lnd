@@ -468,10 +468,10 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			}
 			return errChan
 		},
-		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement,
+		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
 
-			return lnwire.NodeAnnouncement{}, nil
+			return lnwire.NodeAnnouncement1{}, nil
 		},
 		TempChanIDSeed: chanIDSeed,
 		FindChannel: func(node *btcec.PublicKey,
@@ -631,10 +631,10 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			}
 			return errChan
 		},
-		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement,
+		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
 
-			return lnwire.NodeAnnouncement{}, nil
+			return lnwire.NodeAnnouncement1{}, nil
 		},
 		NotifyWhenOnline: func(peer [33]byte,
 			connectedChan chan<- lnpeer.Peer) {
@@ -1266,9 +1266,9 @@ func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 	// by having the nodes exchange announcement signatures.
 	// Two distinct messages will be sent:
 	//	1) AnnouncementSignatures
-	//	2) NodeAnnouncement
+	//	2) NodeAnnouncement1
 	// These may arrive in no particular order.
-	// Note that sending the NodeAnnouncement at this point is an
+	// Note that sending the NodeAnnouncement1 at this point is an
 	// implementation detail, and not something required by the LN spec.
 	for j, node := range []*testNode{alice, bob} {
 		announcements := make([]lnwire.Message, 2)
@@ -1286,7 +1286,7 @@ func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 			switch msg.(type) {
 			case *lnwire.AnnounceSignatures1:
 				gotAnnounceSignatures = true
-			case *lnwire.NodeAnnouncement:
+			case *lnwire.NodeAnnouncement1:
 				gotNodeAnnouncement = true
 			}
 		}
@@ -1316,7 +1316,7 @@ func assertNodeAnnSent(t *testing.T, alice, bob *testNode) {
 			node.msgChan, time.Second*5,
 		)
 		require.NoError(t, err)
-		assertType[*lnwire.NodeAnnouncement](t, *nodeAnn)
+		assertType[*lnwire.NodeAnnouncement1](t, *nodeAnn)
 	}
 }
 
@@ -2815,7 +2815,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	// We should however receive each side's node announcement.
 	select {
 	case msg := <-alice.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+		if _, ok := msg.(*lnwire.NodeAnnouncement1); !ok {
 			t.Fatalf("expected to receive node announcement")
 		}
 	case <-time.After(time.Second):
@@ -2824,7 +2824,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	select {
 	case msg := <-bob.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+		if _, ok := msg.(*lnwire.NodeAnnouncement1); !ok {
 			t.Fatalf("expected to receive node announcement")
 		}
 	case <-time.After(time.Second):
@@ -2943,7 +2943,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	// We should however receive each side's node announcement.
 	select {
 	case msg := <-alice.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+		if _, ok := msg.(*lnwire.NodeAnnouncement1); !ok {
 			t.Fatalf("expected to receive node announcement")
 		}
 	case <-time.After(time.Second):
@@ -2952,7 +2952,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 
 	select {
 	case msg := <-bob.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+		if _, ok := msg.(*lnwire.NodeAnnouncement1); !ok {
 			t.Fatalf("expected to receive node announcement")
 		}
 	case <-time.After(time.Second):

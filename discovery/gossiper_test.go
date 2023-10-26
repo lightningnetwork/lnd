@@ -457,8 +457,8 @@ func (m *mockNotifier) Stop() error {
 }
 
 type annBatch struct {
-	nodeAnn1 *lnwire.NodeAnnouncement
-	nodeAnn2 *lnwire.NodeAnnouncement
+	nodeAnn1 *lnwire.NodeAnnouncement1
+	nodeAnn2 *lnwire.NodeAnnouncement1
 
 	chanAnn *lnwire.ChannelAnnouncement1
 
@@ -532,7 +532,8 @@ func createAnnouncements(blockHeight uint32, key1, key2 *btcec.PrivateKey) (*ann
 }
 
 func createNodeAnnouncement(priv *btcec.PrivateKey,
-	timestamp uint32, extraBytes ...[]byte) (*lnwire.NodeAnnouncement, error) {
+	timestamp uint32, extraBytes ...[]byte) (*lnwire.NodeAnnouncement1,
+	error) {
 
 	var err error
 	k := hex.EncodeToString(priv.Serialize())
@@ -541,7 +542,7 @@ func createNodeAnnouncement(priv *btcec.PrivateKey,
 		return nil, err
 	}
 
-	a := &lnwire.NodeAnnouncement{
+	a := &lnwire.NodeAnnouncement1{
 		Timestamp: timestamp,
 		Addresses: testAddrs,
 		Alias:     alias,
@@ -771,15 +772,15 @@ func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
 			c := make(chan struct{})
 			return c
 		},
-		FetchSelfAnnouncement: func() lnwire.NodeAnnouncement {
-			return lnwire.NodeAnnouncement{
+		FetchSelfAnnouncement: func() lnwire.NodeAnnouncement1 {
+			return lnwire.NodeAnnouncement1{
 				Timestamp: testTimestamp,
 			}
 		},
-		UpdateSelfAnnouncement: func() (lnwire.NodeAnnouncement,
+		UpdateSelfAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
 
-			return lnwire.NodeAnnouncement{
+			return lnwire.NodeAnnouncement1{
 				Timestamp: testTimestamp,
 			}, nil
 		},
@@ -2053,7 +2054,7 @@ func TestForwardPrivateNodeAnnouncement(t *testing.T) {
 	case <-time.After(2 * trickleDelay):
 	}
 
-	// Now, we'll attempt to forward the NodeAnnouncement for the same node
+	// Now, we'll attempt to forward the NodeAnnouncement1 for the same node
 	// by opening a public channel on the network. We'll create a
 	// ChannelAnnouncement1 and hand it off to the gossiper in order to
 	// process it.
@@ -2636,7 +2637,7 @@ func TestExtraDataChannelUpdateValidation(t *testing.T) {
 }
 
 // TestExtraDataNodeAnnouncementValidation tests that we're able to properly
-// validate a NodeAnnouncement that includes opaque bytes that we don't
+// validate a NodeAnnouncement1 that includes opaque bytes that we don't
 // currently know of.
 func TestExtraDataNodeAnnouncementValidation(t *testing.T) {
 	t.Parallel()
@@ -2777,7 +2778,7 @@ func TestRetransmit(t *testing.T) {
 				chanAnn++
 			case *lnwire.ChannelUpdate1:
 				chanUpd++
-			case *lnwire.NodeAnnouncement:
+			case *lnwire.NodeAnnouncement1:
 				nodeAnn++
 			}
 		}

@@ -48,7 +48,7 @@ type ValidationBarrier struct {
 	// itself.
 	chanEdgeDependencies map[lnwire.ShortChannelID]*validationSignals
 
-	// nodeAnnDependencies tracks any pending NodeAnnouncement validation
+	// nodeAnnDependencies tracks any pending NodeAnnouncement1 validation
 	// jobs which should wait until the completion of the
 	// ChannelAnnouncement1 before proceeding.
 	nodeAnnDependencies map[route.Vertex]*validationSignals
@@ -148,7 +148,7 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 		return
 	case *lnwire.ChannelUpdate1:
 		return
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		// TODO(roasbeef): node ann needs to wait on existing channel updates
 		return
 	case *channeldb.LightningNode:
@@ -208,10 +208,10 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 		jobDesc = fmt.Sprintf("job=lnwire.ChannelUpdate1, scid=%v",
 			msg.ShortChannelID.ToUint64())
 
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		vertex := route.Vertex(msg.NodeID)
 		signals, ok = v.nodeAnnDependencies[vertex]
-		jobDesc = fmt.Sprintf("job=lnwire.NodeAnnouncement, pub=%s",
+		jobDesc = fmt.Sprintf("job=lnwire.NodeAnnouncement1, pub=%s",
 			vertex)
 
 	// Other types of jobs can be executed immediately, so we'll just
@@ -293,7 +293,7 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 	// finished executing and we can proceed.
 	case *channeldb.LightningNode:
 		delete(v.nodeAnnDependencies, route.Vertex(msg.PubKeyBytes))
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		delete(v.nodeAnnDependencies, route.Vertex(msg.NodeID))
 	case *lnwire.ChannelUpdate1:
 		delete(v.chanEdgeDependencies, msg.ShortChannelID)

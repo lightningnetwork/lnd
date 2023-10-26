@@ -281,10 +281,10 @@ func FuzzNodeAnnouncement(f *testing.F) {
 		newMsg, err := ReadMessage(&b, 0)
 		require.NoError(t, err)
 
-		require.IsType(t, &NodeAnnouncement{}, msg)
-		first, _ := msg.(*NodeAnnouncement)
-		require.IsType(t, &NodeAnnouncement{}, newMsg)
-		second, _ := newMsg.(*NodeAnnouncement)
+		require.IsType(t, &NodeAnnouncement1{}, msg)
+		first, _ := msg.(*NodeAnnouncement1)
+		require.IsType(t, &NodeAnnouncement1{}, newMsg)
+		second, _ := newMsg.(*NodeAnnouncement1)
 
 		// We can't use require.Equal for Addresses, since the same IP
 		// can be represented by different underlying bytes. Instead, we

@@ -1354,7 +1354,7 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 
 		// Similarly, we only send node announcements if the update
 		// timestamp ifs between our set gossip filter time range.
-		case *lnwire.NodeAnnouncement:
+		case *lnwire.NodeAnnouncement1:
 			if passesFilter(msg.Timestamp) {
 				msgsToSend = append(msgsToSend, msg)
 			}

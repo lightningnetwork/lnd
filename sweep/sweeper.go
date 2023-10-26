@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -157,6 +158,19 @@ func (s SweepState) String() string {
 	}
 }
 
+// RBFInfo stores the information required to perform a RBF bump on a pending
+// sweeping tx.
+type RBFInfo struct {
+	// Txid is the txid of the sweeping tx.
+	Txid chainhash.Hash
+
+	// FeeRate is the fee rate of the sweeping tx.
+	FeeRate chainfee.SatPerKWeight
+
+	// Fee is the total fee of the sweeping tx.
+	Fee btcutil.Amount
+}
+
 // pendingInput is created when an input reaches the main loop for the first
 // time. It wraps the input and tracks all relevant state that is needed for
 // sweeping.
@@ -188,6 +202,9 @@ type pendingInput struct {
 	// lastFeeRate is the most recent fee rate used for this input within a
 	// transaction broadcast to the network.
 	lastFeeRate chainfee.SatPerKWeight
+
+	// rbf records the RBF constraints.
+	rbf fn.Option[RBFInfo]
 }
 
 // parameters returns the sweep parameters for this input.
@@ -1012,10 +1029,15 @@ func (s *UtxoSweeper) markInputsPendingPublish(tr *TxRecord,
 		}
 
 		// Update the input's state.
-		//
-		// TODO: also calculate the fees and fee rate of this tx to
-		// prepare possible RBF.
 		pi.state = StatePendingPublish
+
+		// Record the fees and fee rate of this tx to prepare possible
+		// RBF.
+		pi.rbf = fn.Some(RBFInfo{
+			Txid:    tx.TxHash(),
+			FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
+			Fee:     btcutil.Amount(tr.Fee),
+		})
 
 		// Record another publish attempt.
 		pi.publishAttempts++
@@ -1440,12 +1462,9 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 		params:           input.params,
 	}
 
-	// If the input is already spent in the mempool, update its state to
-	// StatePublished.
-	_, spent := s.mempoolLookup(outpoint)
-	if spent {
-		pi.state = StatePublished
-	}
+	// Try to find fee info for possible RBF if this input has already been
+	// spent.
+	pi = s.attachAvailableRBFInfo(pi)
 
 	s.pendingInputs[outpoint] = pi
 	log.Tracef("input %v added to pendingInputs", outpoint)
@@ -1464,6 +1483,60 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 	}
 
 	pi.ntfnRegCancel = cancel
+}
+
+// attachAvailableRBFInfo queries the mempool to see whether the given input
+// has already been spent. If so, it will query the sweeper store to fetch the
+// fee info of the spending transction, hence preparing for possible RBF.
+func (s *UtxoSweeper) attachAvailableRBFInfo(pi *pendingInput) *pendingInput {
+	// Check if we can find the spending tx of this input in mempool.
+	tx, spent := s.mempoolLookup(*pi.OutPoint())
+
+	// Exit early if it's not found.
+	//
+	// NOTE: this is not accurate for backends that don't support mempool
+	// lookup:
+	// - for neutrino we don't have a mempool.
+	// - for btcd below v0.24.1 we don't have `gettxspendingprevout`.
+	if !spent {
+		return pi
+	}
+
+	// Otherwise the input is already spent in the mempool, update its
+	// state to StatePublished.
+	pi.state = StatePublished
+
+	// We also need to update the RBF info for this input. If the sweeping
+	// transaction is broadcast by us, we can find the fee info in the
+	// sweeper store.
+	txid := tx.TxHash()
+	tr, err := s.cfg.Store.GetTx(txid)
+
+	// If the tx is not found in the store, it means it's not broadcast by
+	// us, hence we can't find the fee info. This is fine as, later on when
+	// this tx is confirmed, we will remove the input from our
+	// pendingInputs.
+	if errors.Is(err, ErrTxNotFound) {
+		log.Warnf("Spending tx %v not found in sweeper store", txid)
+		return pi
+	}
+
+	// Exit if we get an db error.
+	if err != nil {
+		log.Errorf("Unable to get tx %v from sweeper store: %v",
+			txid, err)
+
+		return pi
+	}
+
+	// Attach the fee info and return it.
+	pi.rbf = fn.Some(RBFInfo{
+		Txid:    txid,
+		Fee:     btcutil.Amount(tr.Fee),
+		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
+	})
+
+	return pi
 }
 
 // handleExistingInput processes an input that is already known to the sweeper.

@@ -40,6 +40,27 @@ func NewMockNotifier(t *testing.T) *MockNotifier {
 	}
 }
 
+// NotifyEpochNonBlocking simulates a new epoch arriving without blocking when
+// the epochChan is not read.
+func (m *MockNotifier) NotifyEpochNonBlocking(height int32) {
+	m.t.Helper()
+
+	for epochChan, chanHeight := range m.epochChan {
+		// Only send notifications if the height is greater than the
+		// height the caller passed into the register call.
+		if chanHeight >= height {
+			continue
+		}
+
+		log.Debugf("Notifying height %v to listener", height)
+
+		select {
+		case epochChan <- &chainntnfs.BlockEpoch{Height: height}:
+		default:
+		}
+	}
+}
+
 // NotifyEpoch simulates a new epoch arriving.
 func (m *MockNotifier) NotifyEpoch(height int32) {
 	m.t.Helper()

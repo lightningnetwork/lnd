@@ -43,7 +43,8 @@ type sweeperTestContext struct {
 	backend   *mockBackend
 	store     SweeperStore
 
-	publishChan chan wire.MsgTx
+	publishChan   chan wire.MsgTx
+	currentHeight int32
 }
 
 var (
@@ -125,12 +126,13 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 	)
 
 	ctx := &sweeperTestContext{
-		notifier:    notifier,
-		publishChan: backend.publishChan,
-		t:           t,
-		estimator:   estimator,
-		backend:     backend,
-		store:       store,
+		notifier:      notifier,
+		publishChan:   backend.publishChan,
+		t:             t,
+		estimator:     estimator,
+		backend:       backend,
+		store:         store,
+		currentHeight: mockChainHeight,
 	}
 
 	ctx.sweeper = New(&UtxoSweeperConfig{
@@ -214,6 +216,11 @@ func (ctx *sweeperTestContext) assertNoTx() {
 
 func (ctx *sweeperTestContext) receiveTx() wire.MsgTx {
 	ctx.t.Helper()
+
+	// Every time we want to receive a tx, we send a new block epoch to the
+	// sweeper to trigger a sweeping action.
+	ctx.notifier.NotifyEpochNonBlocking(ctx.currentHeight + 1)
+
 	var tx wire.MsgTx
 	select {
 	case tx = <-ctx.publishChan:
@@ -1774,6 +1781,10 @@ func TestRequiredTxOuts(t *testing.T) {
 				results[*op] = result
 				inputs[*op] = inp
 			}
+
+			// Send a new block epoch to trigger the sweeper to
+			// sweep the inputs.
+			ctx.notifier.NotifyEpoch(ctx.sweeper.currentHeight + 1)
 
 			// Check the sweeps transactions, ensuring all inputs
 			// are there, and all the locktimes are satisfied.

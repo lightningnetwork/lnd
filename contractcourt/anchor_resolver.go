@@ -145,17 +145,6 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 			c.log.Warnf("our anchor spent by someone else")
 			outcome = channeldb.ResolverOutcomeUnclaimed
 
-		// The sweeper gave up on sweeping the anchor. This happens
-		// after the maximum number of sweep attempts has been reached.
-		// See sweep.DefaultMaxSweepAttempts. Sweep attempts are
-		// interspaced with random delays picked from a range that
-		// increases exponentially.
-		//
-		// We consider the anchor as being lost.
-		case sweep.ErrTooManyAttempts:
-			c.log.Warnf("anchor sweep abandoned")
-			outcome = channeldb.ResolverOutcomeUnclaimed
-
 		// An unexpected error occurred.
 		default:
 			c.log.Errorf("unable to sweep anchor: %v", sweepRes.Err)

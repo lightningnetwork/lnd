@@ -882,7 +882,6 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 		amountSat := uint32(pendingInput.Amount)
 		satPerVbyte := uint64(pendingInput.LastFeeRate.FeePerVByte())
 		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
-		nextBroadcastHeight := uint32(pendingInput.NextBroadcastHeight)
 
 		feePref := pendingInput.Params.Fee
 		requestedFee, ok := feePref.(sweep.FeeEstimateInfo)
@@ -899,7 +898,6 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 			AmountSat:            amountSat,
 			SatPerVbyte:          satPerVbyte,
 			BroadcastAttempts:    broadcastAttempts,
-			NextBroadcastHeight:  nextBroadcastHeight,
 			RequestedSatPerVbyte: requestedFeeRate,
 			RequestedConfTarget:  requestedFee.ConfTarget,
 			Force:                pendingInput.Params.Force,

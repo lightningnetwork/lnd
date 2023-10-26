@@ -32,8 +32,6 @@ var (
 	)
 
 	testNow = time.Unix(1, 0)
-
-	testClock = clock.NewTestClock(testNow)
 )
 
 func randInvoice(value lnwire.MilliSatoshi) (*invpkg.Invoice, error) {
@@ -93,8 +91,122 @@ func settleTestInvoice(invoice *invpkg.Invoice, settleIndex uint64) {
 	invoice.SettleIndex = settleIndex
 }
 
-// Tests that pending invoices are those which are either in ContractOpen or
-// in ContractAccepted state.
+// TestInvoices is a master test which encompasses all tests using an InvoiceDB
+// instance. The purpose of this test is to be able to run all tests with a
+// custom DB instance, so that we can test the same logic with different DB
+// implementations.
+func TestInvoices(t *testing.T) {
+	testList := []struct {
+		name string
+		test func(t *testing.T,
+			makeDB func(t *testing.T) invpkg.InvoiceDB)
+	}{
+		{
+			name: "InvoiceWorkflow",
+			test: testInvoiceWorkflow,
+		},
+		{
+			name: "AddDuplicatePayAddr",
+			test: testAddDuplicatePayAddr,
+		},
+		{
+			name: "AddDuplicateKeysendPayAddr",
+			test: testAddDuplicateKeysendPayAddr,
+		},
+		{
+			name: "FailInvoiceLookupMPPPayAddrOnly",
+			test: testFailInvoiceLookupMPPPayAddrOnly,
+		},
+		{
+			name: "InvRefEquivocation",
+			test: testInvRefEquivocation,
+		},
+		{
+			name: "InvoiceCancelSingleHtlc",
+			test: testInvoiceCancelSingleHtlc,
+		},
+		{
+			name: "InvoiceCancelSingleHtlcAMP",
+			test: testInvoiceCancelSingleHtlcAMP,
+		},
+		{
+			name: "InvoiceAddTimeSeries",
+			test: testInvoiceAddTimeSeries,
+		},
+		{
+			name: "SettleIndexAmpPayments",
+			test: testSettleIndexAmpPayments,
+		},
+		{
+			name: "FetchPendingInvoices",
+			test: testFetchPendingInvoices,
+		},
+		{
+			name: "DuplicateSettleInvoice",
+			test: testDuplicateSettleInvoice,
+		},
+		{
+			name: "QueryInvoices",
+			test: testQueryInvoices,
+		},
+		{
+			name: "CustomRecords",
+			test: testCustomRecords,
+		},
+		{
+			name: "InvoiceHtlcAMPFields",
+			test: testInvoiceHtlcAMPFields,
+		},
+		{
+			name: "AddInvoiceWithHTLCs",
+			test: testAddInvoiceWithHTLCs,
+		},
+		{
+			name: "SetIDIndex",
+			test: testSetIDIndex,
+		},
+		{
+			name: "UnexpectedInvoicePreimage",
+			test: testUnexpectedInvoicePreimage,
+		},
+		{
+			name: "UpdateHTLCPreimages",
+			test: testUpdateHTLCPreimages,
+		},
+		{
+			name: "DeleteInvoices",
+			test: testDeleteInvoices,
+		},
+		{
+			name: "DeleteCanceledInvoices",
+			test: testDeleteCanceledInvoices,
+		},
+		{
+			name: "AddInvoiceInvalidFeatureDeps",
+			test: testAddInvoiceInvalidFeatureDeps,
+		},
+	}
+
+	makeKeyValueDB := func(t *testing.T) invpkg.InvoiceDB {
+		db, err := channeldb.MakeTestInvoiceDB(
+			t, channeldb.OptionClock(clock.NewTestClock(testNow)),
+		)
+		require.NoError(t, err, "unable to make test db")
+
+		return db
+	}
+
+	for _, test := range testList {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			test.test(t, makeKeyValueDB)
+		})
+	}
+}
+
+// TestInvoiceIsPending tests that pending invoices are those which are either
+// in ContractOpen or in ContractAccepted state.
 func TestInvoiceIsPending(t *testing.T) {
 	t.Parallel()
 
@@ -145,21 +257,24 @@ var invWorkflowTests = []invWorkflowTest{
 // TestInvoiceWorkflow asserts the basic process of inserting, fetching, and
 // updating an invoice. We assert that the flow is successful using when
 // querying with various combinations of payment hash and payment address.
-func TestInvoiceWorkflow(t *testing.T) {
+func testInvoiceWorkflow(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
+
 	t.Parallel()
 
 	for _, test := range invWorkflowTests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			testInvoiceWorkflow(t, test)
+			testInvoiceWorkflowImpl(t, test, makeDB)
 		})
 	}
 }
 
-func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err, "unable to make test db")
+func testInvoiceWorkflowImpl(t *testing.T, test invWorkflowTest,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
+
+	db := makeDB(t)
 
 	// Create a fake invoice which we'll use several times in the tests
 	// below.
@@ -293,13 +408,13 @@ func testInvoiceWorkflow(t *testing.T, test invWorkflowTest) {
 	}
 }
 
-// TestAddDuplicatePayAddr asserts that the payment addresses of inserted
+// testAddDuplicatePayAddr asserts that the payment addresses of inserted
 // invoices are unique.
-func TestAddDuplicatePayAddr(t *testing.T) {
-	t.Parallel()
+func testAddDuplicatePayAddr(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err)
+	t.Parallel()
+	db := makeDB(t)
 
 	// Create two invoices with the same payment addr.
 	invoice1, err := randInvoice(1000)
@@ -322,14 +437,14 @@ func TestAddDuplicatePayAddr(t *testing.T) {
 	require.Error(t, err, invpkg.ErrDuplicatePayAddr)
 }
 
-// TestAddDuplicateKeysendPayAddr asserts that we permit duplicate payment
+// testAddDuplicateKeysendPayAddr asserts that we permit duplicate payment
 // addresses to be inserted if they are blank to support JIT legacy keysend
 // invoices.
-func TestAddDuplicateKeysendPayAddr(t *testing.T) {
-	t.Parallel()
+func testAddDuplicateKeysendPayAddr(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err)
+	t.Parallel()
+	db := makeDB(t)
 
 	// Create two invoices with the same _blank_ payment addr.
 	invoice1, err := randInvoice(1000)
@@ -367,15 +482,15 @@ func TestAddDuplicateKeysendPayAddr(t *testing.T) {
 	require.Equal(t, invoice2, &dbInv2)
 }
 
-// TestFailInvoiceLookupMPPPayAddrOnly asserts that looking up a MPP invoice
+// testFailInvoiceLookupMPPPayAddrOnly asserts that looking up a MPP invoice
 // that matches _only_ by payment address fails with ErrInvoiceNotFound. This
 // ensures that the HTLC's payment hash always matches the payment hash in the
 // returned invoice.
-func TestFailInvoiceLookupMPPPayAddrOnly(t *testing.T) {
-	t.Parallel()
+func testFailInvoiceLookupMPPPayAddrOnly(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err)
+	t.Parallel()
+	db := makeDB(t)
 
 	// Create and insert a random invoice.
 	invoice, err := randInvoice(1000)
@@ -400,13 +515,13 @@ func TestFailInvoiceLookupMPPPayAddrOnly(t *testing.T) {
 	require.Equal(t, invpkg.ErrInvoiceNotFound, err)
 }
 
-// TestInvRefEquivocation asserts that retrieving or updating an invoice using
+// testInvRefEquivocation asserts that retrieving or updating an invoice using
 // an equivocating InvoiceRef results in ErrInvRefEquivocation.
-func TestInvRefEquivocation(t *testing.T) {
-	t.Parallel()
+func testInvRefEquivocation(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err)
+	t.Parallel()
+	db := makeDB(t)
 
 	// Add two random invoices.
 	invoice1, err := randInvoice(1000)
@@ -442,13 +557,13 @@ func TestInvRefEquivocation(t *testing.T) {
 	require.Error(t, err, invpkg.ErrInvRefEquivocation)
 }
 
-// TestInvoiceCancelSingleHtlc tests that a single htlc can be canceled on the
+// testInvoiceCancelSingleHtlc tests that a single htlc can be canceled on the
 // invoice.
-func TestInvoiceCancelSingleHtlc(t *testing.T) {
-	t.Parallel()
+func testInvoiceCancelSingleHtlc(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err, "unable to make test db")
+	t.Parallel()
+	db := makeDB(t)
 
 	preimage := lntypes.Preimage{1}
 	paymentHash := preimage.Hash()
@@ -522,16 +637,14 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 	}
 }
 
-// TestInvoiceCancelSingleHtlcAMP tests that it's possible to cancel a single
+// testInvoiceCancelSingleHtlcAMP tests that it's possible to cancel a single
 // invoice of an AMP HTLC across multiple set IDs, and also have that update
 // the amount paid and other related fields as well.
-func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
-	t.Parallel()
+func testInvoiceCancelSingleHtlcAMP(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(
-		t, channeldb.OptionClock(testClock),
-	)
-	require.NoError(t, err, "unable to make test db: %v", err)
+	t.Parallel()
+	db := makeDB(t)
 
 	// We'll start out by creating an invoice and writing it to the DB.
 	amt := lnwire.NewMSatFromSatoshis(1000)
@@ -702,19 +815,17 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	require.Equal(t, invoice, dbInvoice)
 }
 
-// TestInvoiceTimeSeries tests that newly added invoices invoices, as well as
+// testInvoiceTimeSeries tests that newly added invoices invoices, as well as
 // settled invoices are added to the database are properly placed in the add
 // or settle index which serves as an event time series.
-func TestInvoiceAddTimeSeries(t *testing.T) {
-	t.Parallel()
+func testInvoiceAddTimeSeries(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(
-		t, channeldb.OptionClock(testClock),
-	)
-	require.NoError(t, err, "unable to make test db")
+	t.Parallel()
+	db := makeDB(t)
 
 	ctxb := context.Background()
-	_, err = db.InvoicesAddedSince(ctxb, 0)
+	_, err := db.InvoicesAddedSince(ctxb, 0)
 	require.NoError(t, err)
 
 	// We'll start off by creating 20 random invoices, and inserting them
@@ -860,18 +971,15 @@ func TestInvoiceAddTimeSeries(t *testing.T) {
 	}
 }
 
-// TestSettleIndexAmpPayments tests that repeated settles of the same invoice
+// testSettleIndexAmpPayments tests that repeated settles of the same invoice
 // end up properly adding entries to the settle index, and the
 // InvoicesSettledSince will emit a "projected" version of the invoice w/
 // _just_ that HTLC information.
-func TestSettleIndexAmpPayments(t *testing.T) {
-	t.Parallel()
+func testSettleIndexAmpPayments(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	testClock := clock.NewTestClock(testNow)
-	db, err := channeldb.MakeTestInvoiceDB(
-		t, channeldb.OptionClock(testClock),
-	)
-	require.Nil(t, err)
+	t.Parallel()
+	db := makeDB(t)
 
 	// First, we'll make a sample invoice that'll be paid to several times
 	// below.
@@ -1033,15 +1141,13 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 	require.Nil(t, err)
 }
 
-// TestFetchPendingInvoices tests that we can fetch all pending invoices from
+// testFetchPendingInvoices tests that we can fetch all pending invoices from
 // the database using the FetchPendingInvoices method.
-func TestFetchPendingInvoices(t *testing.T) {
-	t.Parallel()
+func testFetchPendingInvoices(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(
-		t, channeldb.OptionClock(testClock),
-	)
-	require.NoError(t, err, "unable to make test db")
+	t.Parallel()
+	db := makeDB(t)
 
 	ctxb := context.Background()
 
@@ -1089,16 +1195,14 @@ func TestFetchPendingInvoices(t *testing.T) {
 	require.Equal(t, pendingInvoices, pending)
 }
 
-// TestDuplicateSettleInvoice tests that if we add a new invoice and settle it
+// testDuplicateSettleInvoice tests that if we add a new invoice and settle it
 // twice, then the second time we also receive the invoice that we settled as a
 // return argument.
-func TestDuplicateSettleInvoice(t *testing.T) {
-	t.Parallel()
+func testDuplicateSettleInvoice(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(
-		t, channeldb.OptionClock(testClock),
-	)
-	require.NoError(t, err, "unable to make test db")
+	t.Parallel()
+	db := makeDB(t)
 
 	// We'll start out by creating an invoice and writing it to the DB.
 	amt := lnwire.NewMSatFromSatoshis(1000)
@@ -1153,15 +1257,13 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 	)
 }
 
-// TestQueryInvoices ensures that we can properly query the invoice database for
+// testQueryInvoices ensures that we can properly query the invoice database for
 // invoices using different types of queries.
-func TestQueryInvoices(t *testing.T) {
-	t.Parallel()
+func testQueryInvoices(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(
-		t, channeldb.OptionClock(testClock),
-	)
-	require.NoError(t, err, "unable to make test db")
+	t.Parallel()
+	db := makeDB(t)
 
 	// To begin the test, we'll add 50 invoices to the database. We'll
 	// assume that the index of the invoice within the database is the same
@@ -1588,13 +1690,13 @@ func getUpdateInvoice(amt lnwire.MilliSatoshi) invpkg.InvoiceUpdateCallback {
 	}
 }
 
-// TestCustomRecords tests that custom records are properly recorded in the
+// testCustomRecords tests that custom records are properly recorded in the
 // invoice database.
-func TestCustomRecords(t *testing.T) {
-	t.Parallel()
+func testCustomRecords(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err, "unable to make test db")
+	t.Parallel()
+	db := makeDB(t)
 
 	preimage := lntypes.Preimage{1}
 	paymentHash := preimage.Hash()
@@ -1641,7 +1743,7 @@ func TestCustomRecords(t *testing.T) {
 		}, nil
 	}
 
-	_, err = db.UpdateInvoice(ctxb, ref, nil, callback)
+	_, err := db.UpdateInvoice(ctxb, ref, nil, callback)
 	require.NoError(t, err, "unable to add invoice htlc")
 
 	// Retrieve the invoice from that database and verify that the custom
@@ -1659,24 +1761,27 @@ func TestCustomRecords(t *testing.T) {
 	)
 }
 
-// TestInvoiceHtlcAMPFields asserts that the set id and preimage fields are
+// testInvoiceHtlcAMPFields asserts that the set id and preimage fields are
 // properly recorded when updating an invoice.
-func TestInvoiceHtlcAMPFields(t *testing.T) {
+func testInvoiceHtlcAMPFields(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
+
 	t.Parallel()
 
 	t.Run("amp", func(t *testing.T) {
 		t.Parallel()
-		testInvoiceHtlcAMPFields(t, true)
+		testInvoiceHtlcAMPFieldsImpl(t, true, makeDB)
 	})
 	t.Run("no amp", func(t *testing.T) {
 		t.Parallel()
-		testInvoiceHtlcAMPFields(t, false)
+		testInvoiceHtlcAMPFieldsImpl(t, false, makeDB)
 	})
 }
 
-func testInvoiceHtlcAMPFields(t *testing.T, isAMP bool) {
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.Nil(t, err)
+func testInvoiceHtlcAMPFieldsImpl(t *testing.T, isAMP bool,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
+
+	db := makeDB(t)
 
 	testInvoice, err := randInvoice(1000)
 	require.Nil(t, err)
@@ -1878,13 +1983,13 @@ func TestHTLCSet(t *testing.T) {
 	}
 }
 
-// TestAddInvoiceWithHTLCs asserts that you can't insert an invoice that already
+// testAddInvoiceWithHTLCs asserts that you can't insert an invoice that already
 // has HTLCs.
-func TestAddInvoiceWithHTLCs(t *testing.T) {
-	t.Parallel()
+func testAddInvoiceWithHTLCs(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.Nil(t, err)
+	t.Parallel()
+	db := makeDB(t)
 
 	testInvoice, err := randInvoice(1000)
 	require.Nil(t, err)
@@ -1897,17 +2002,12 @@ func TestAddInvoiceWithHTLCs(t *testing.T) {
 	require.Equal(t, invpkg.ErrInvoiceHasHtlcs, err)
 }
 
-// TestSetIDIndex asserts that the set id index properly adds new invoices as we
+// testSetIDIndex asserts that the set id index properly adds new invoices as we
 // accept HTLCs, that they can be queried by their set id after accepting, and
 // that invoices with duplicate set ids are disallowed.
-func TestSetIDIndex(t *testing.T) {
+func testSetIDIndex(t *testing.T, makeDB func(t *testing.T) invpkg.InvoiceDB) {
 	t.Parallel()
-
-	testClock := clock.NewTestClock(testNow)
-	db, err := channeldb.MakeTestInvoiceDB(
-		t, channeldb.OptionClock(testClock),
-	)
-	require.Nil(t, err)
+	db := makeDB(t)
 
 	// We'll start out by creating an invoice and writing it to the DB.
 	amt := lnwire.NewMSatFromSatoshis(1000)
@@ -2240,16 +2340,16 @@ func getUpdateInvoiceAMPSettle(setID *[32]byte, preimage [32]byte,
 	}
 }
 
-// TestUnexpectedInvoicePreimage asserts that legacy or MPP invoices cannot be
+// testUnexpectedInvoicePreimage asserts that legacy or MPP invoices cannot be
 // settled when referenced by payment address only. Since regular or MPP
 // payments do not store the payment hash explicitly (it is stored in the
 // index), this enforces that they can only be updated using a InvoiceRefByHash
 // or InvoiceRefByHashOrAddr.
-func TestUnexpectedInvoicePreimage(t *testing.T) {
-	t.Parallel()
+func testUnexpectedInvoicePreimage(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err, "unable to make test db")
+	t.Parallel()
+	db := makeDB(t)
 
 	invoice, err := randInvoice(lnwire.MilliSatoshi(100))
 	require.NoError(t, err)
@@ -2279,9 +2379,11 @@ type updateHTLCPreimageTestCase struct {
 	expError           error
 }
 
-// TestUpdateHTLCPreimages asserts various properties of setting HTLC-level
+// testUpdateHTLCPreimages asserts various properties of setting HTLC-level
 // preimages on invoice state transitions.
-func TestUpdateHTLCPreimages(t *testing.T) {
+func testUpdateHTLCPreimages(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
+
 	t.Parallel()
 
 	tests := []updateHTLCPreimageTestCase{
@@ -2301,15 +2403,15 @@ func TestUpdateHTLCPreimages(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			testUpdateHTLCPreimages(t, test)
+			testUpdateHTLCPreimagesImpl(t, test, makeDB)
 		})
 	}
 }
 
-func testUpdateHTLCPreimages(t *testing.T, test updateHTLCPreimageTestCase) {
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err, "unable to make test db")
+func testUpdateHTLCPreimagesImpl(t *testing.T, test updateHTLCPreimageTestCase,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
+	db := makeDB(t)
 	// We'll start out by creating an invoice and writing it to the DB.
 	amt := lnwire.NewMSatFromSatoshis(1000)
 	invoice, err := randInvoice(amt)
@@ -2374,13 +2476,13 @@ func testUpdateHTLCPreimages(t *testing.T, test updateHTLCPreimageTestCase) {
 	require.Equal(t, test.expError, err)
 }
 
-// TestDeleteInvoices tests that deleting a list of invoices will succeed
+// testDeleteInvoices tests that deleting a list of invoices will succeed
 // if all delete references are valid, or will fail otherwise.
-func TestDeleteInvoices(t *testing.T) {
-	t.Parallel()
+func testDeleteInvoices(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err, "unable to make test db")
+	t.Parallel()
+	db := makeDB(t)
 
 	// Add some invoices to the test db.
 	numInvoices := 3
@@ -2458,13 +2560,13 @@ func TestDeleteInvoices(t *testing.T) {
 	assertInvoiceCount(0)
 }
 
-// TestDeleteCanceledInvoices tests that deleting canceled invoices with the
+// testDeleteCanceledInvoices tests that deleting canceled invoices with the
 // specific DeleteCanceledInvoices method works correctly.
-func TestDeleteCanceledInvoices(t *testing.T) {
-	t.Parallel()
+func testDeleteCanceledInvoices(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err, "unable to make test db")
+	t.Parallel()
+	db := makeDB(t)
 
 	// Updatefunc is used to cancel an invoice.
 	updateFunc := func(invoice *invpkg.Invoice) (
@@ -2517,13 +2619,13 @@ func TestDeleteCanceledInvoices(t *testing.T) {
 	require.Equal(t, invoices, dbInvoices.Invoices)
 }
 
-// TestAddInvoiceInvalidFeatureDeps asserts that inserting an invoice with
+// testAddInvoiceInvalidFeatureDeps asserts that inserting an invoice with
 // invalid transitive feature dependencies fails with the appropriate error.
-func TestAddInvoiceInvalidFeatureDeps(t *testing.T) {
-	t.Parallel()
+func testAddInvoiceInvalidFeatureDeps(t *testing.T,
+	makeDB func(t *testing.T) invpkg.InvoiceDB) {
 
-	db, err := channeldb.MakeTestInvoiceDB(t)
-	require.NoError(t, err, "unable to make test db")
+	t.Parallel()
+	db := makeDB(t)
 
 	invoice, err := randInvoice(500)
 	require.NoError(t, err)

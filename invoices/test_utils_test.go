@@ -16,7 +16,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/chainntnfs"
-	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/clock"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -131,26 +130,8 @@ var (
 	testInvoiceCreationDate = testTime
 )
 
-func newTestChannelDB(t *testing.T, clock clock.Clock) (*channeldb.DB, error) {
-	t.Helper()
-
-	// Create channeldb for the first time.
-	cdb, err := channeldb.Open(
-		t.TempDir(), channeldb.OptionClock(clock),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	t.Cleanup(func() {
-		cdb.Close()
-	})
-
-	return cdb, nil
-}
-
 type testContext struct {
-	idb      *channeldb.DB
+	idb      invpkg.InvoiceDB
 	registry *invpkg.InvoiceRegistry
 	notifier *mockChainNotifier
 	clock    *clock.TestClock
@@ -166,17 +147,13 @@ func defaultRegistryConfig() invpkg.RegistryConfig {
 }
 
 func newTestContext(t *testing.T,
-	registryCfg *invpkg.RegistryConfig) *testContext {
+	registryCfg *invpkg.RegistryConfig,
+	makeDB func(t *testing.T) (invpkg.InvoiceDB,
+		*clock.TestClock)) *testContext {
 
 	t.Helper()
 
-	clock := clock.NewTestClock(testTime)
-
-	idb, err := newTestChannelDB(t, clock)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	idb, clock := makeDB(t)
 	notifier := newMockNotifier()
 
 	expiryWatcher := invpkg.NewInvoiceExpiryWatcher(
@@ -192,10 +169,7 @@ func newTestContext(t *testing.T,
 	// Instantiate and start the invoice ctx.registry.
 	registry := invpkg.NewRegistry(idb, expiryWatcher, &cfg)
 
-	err = registry.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, registry.Start())
 	t.Cleanup(func() {
 		require.NoError(t, registry.Stop())
 	})

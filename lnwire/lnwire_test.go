@@ -1003,14 +1003,14 @@ func TestLightningWireProtocol(t *testing.T) {
 			maxHtlc := MilliSatoshi(r.Int63())
 
 			// We make the max_htlc field zero if it is not flagged
-			// as being part of the ChannelUpdate, to pass
+			// as being part of the ChannelUpdate1, to pass
 			// serialization tests, as it will be ignored if the bit
 			// is not set.
 			if msgFlags&ChanUpdateRequiredMaxHtlc == 0 {
 				maxHtlc = 0
 			}
 
-			req := ChannelUpdate{
+			req := ChannelUpdate1{
 				ShortChannelID:  NewShortChanIDFromInt(uint64(r.Int63())),
 				Timestamp:       uint32(r.Int31()),
 				MessageFlags:    msgFlags,
@@ -1354,7 +1354,7 @@ func TestLightningWireProtocol(t *testing.T) {
 		},
 		{
 			msgType: MsgChannelUpdate,
-			scenario: func(m ChannelUpdate) bool {
+			scenario: func(m ChannelUpdate1) bool {
 				return mainScenario(&m)
 			},
 		},

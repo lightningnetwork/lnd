@@ -692,21 +692,21 @@ func newMsgNodeAnnouncement(t testing.TB,
 	return msg
 }
 
-func newMsgChannelUpdate(t testing.TB, r *rand.Rand) *lnwire.ChannelUpdate {
+func newMsgChannelUpdate(t testing.TB, r *rand.Rand) *lnwire.ChannelUpdate1 {
 	t.Helper()
 
 	msgFlags := lnwire.ChanUpdateMsgFlags(r.Int31())
 	maxHtlc := lnwire.MilliSatoshi(r.Int63())
 
 	// We make the max_htlc field zero if it is not flagged
-	// as being part of the ChannelUpdate, to pass
+	// as being part of the ChannelUpdate1, to pass
 	// serialization tests, as it will be ignored if the bit
 	// is not set.
 	if msgFlags&lnwire.ChanUpdateRequiredMaxHtlc == 0 {
 		maxHtlc = 0
 	}
 
-	msg := &lnwire.ChannelUpdate{
+	msg := &lnwire.ChannelUpdate1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(r.Uint64()),
 		Timestamp:       uint32(r.Int31()),
 		MessageFlags:    msgFlags,

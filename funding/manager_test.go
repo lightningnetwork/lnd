@@ -1144,9 +1144,9 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 }
 
 // assertChannelAnnouncements checks that alice and bob both sends the expected
-// announcements (ChannelAnnouncement1, ChannelUpdate) after the funding tx has
+// announcements (ChannelAnnouncement1, ChannelUpdate1) after the funding tx has
 // confirmed. The last arguments can be set if we expect the nodes to advertise
-// custom min_htlc values as part of their ChannelUpdate. We expect Alice to
+// custom min_htlc values as part of their ChannelUpdate1. We expect Alice to
 // advertise the value required by Bob and vice versa. If they are not set the
 // advertised value will be checked against the other node's default min_htlc,
 // base fee and fee rate values.
@@ -1176,8 +1176,8 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 	// After the ChannelReady message is sent, Alice and Bob will each send
 	// the following messages to their gossiper:
 	//	1) ChannelAnnouncement1
-	//	2) ChannelUpdate
-	// The ChannelAnnouncement1 is kept locally, while the ChannelUpdate is
+	//	2) ChannelUpdate1
+	// The ChannelAnnouncement1 is kept locally, while the ChannelUpdate1 is
 	// sent directly to the other peer, so the edge policies are known to
 	// both peers.
 	nodes := []*testNode{alice, bob}
@@ -1197,7 +1197,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 			switch m := msg.(type) {
 			case *lnwire.ChannelAnnouncement1:
 				gotChannelAnnouncement = true
-			case *lnwire.ChannelUpdate:
+			case *lnwire.ChannelUpdate1:
 
 				// The channel update sent by the node should
 				// advertise the MinHTLC value required by the
@@ -1246,7 +1246,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 			t, gotChannelAnnouncement,
 			"ChannelAnnouncement1 from %d", j,
 		)
-		require.Truef(t, gotChannelUpdate, "ChannelUpdate from %d", j)
+		require.Truef(t, gotChannelUpdate, "ChannelUpdate1 from %d", j)
 
 		// Make sure no other message is sent.
 		select {
@@ -4549,7 +4549,7 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	assertHandleChannelReady(t, alice, bob)
 
 	// We'll now assert that both sides send ChannelAnnouncement1 and
-	// ChannelUpdate messages.
+	// ChannelUpdate1 messages.
 	assertChannelAnnouncements(
 		t, alice, bob, fundingAmt, nil, nil, nil, nil,
 	)

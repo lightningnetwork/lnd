@@ -286,7 +286,7 @@ type Config struct {
 
 	// FetchLastChanUpdate fetches our latest channel update for a target
 	// channel.
-	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate,
+	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate1,
 		error)
 
 	// FundingManager is an implementation of the funding.Controller interface.
@@ -1718,7 +1718,7 @@ out:
 					nextMsg.MsgType())
 			}
 
-		case *lnwire.ChannelUpdate,
+		case *lnwire.ChannelUpdate1,
 			*lnwire.ChannelAnnouncement1,
 			*lnwire.NodeAnnouncement,
 			*lnwire.AnnounceSignatures1,
@@ -1976,7 +1976,7 @@ func messageSummary(msg lnwire.Message) string {
 		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v",
 			msg.ChainHash, msg.ShortChannelID.ToUint64())
 
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v, "+
 			"mflags=%v, cflags=%v, update_time=%v", msg.ChainHash,
 			msg.ShortChannelID.ToUint64(), msg.MessageFlags,
@@ -2507,7 +2507,7 @@ func (p *Brontide) reenableActiveChannels() {
 	retryChans := make(map[wire.OutPoint]struct{}, len(activePublicChans))
 
 	// For each of the public, non-pending channels, set the channel
-	// disabled bit to false and send out a new ChannelUpdate. If this
+	// disabled bit to false and send out a new ChannelUpdate1. If this
 	// channel is already active, the update won't be sent.
 	for _, chanPoint := range activePublicChans {
 		err := p.cfg.ChanStatusMgr.RequestEnable(chanPoint, false)

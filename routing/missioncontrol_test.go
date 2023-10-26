@@ -197,7 +197,7 @@ func TestMissionControl(t *testing.T) {
 
 	// A node level failure should bring probability of all known channels
 	// back to zero.
-	ctx.reportFailure(0, lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate{}))
+	ctx.reportFailure(0, lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate1{}))
 	ctx.expectP(1000, 0)
 
 	// Check whether history snapshot looks sane.
@@ -219,14 +219,14 @@ func TestMissionControlChannelUpdate(t *testing.T) {
 	// Report a policy related failure. Because it is the first, we don't
 	// expect a penalty.
 	ctx.reportFailure(
-		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
+		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate1{}),
 	)
 	ctx.expectP(100, testAprioriHopProbability)
 
 	// Report another failure for the same channel. We expect it to be
 	// pruned.
 	ctx.reportFailure(
-		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
+		0, lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate1{}),
 	)
 	ctx.expectP(100, 0)
 }

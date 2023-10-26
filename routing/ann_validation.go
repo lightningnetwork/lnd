@@ -127,7 +127,7 @@ func ValidateNodeAnn(a *lnwire.NodeAnnouncement) error {
 // signed by the node's private key, and (2) that the announcement's message
 // flags and optional fields are sane.
 func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
-	a *lnwire.ChannelUpdate) error {
+	a *lnwire.ChannelUpdate1) error {
 
 	if err := ValidateChannelUpdateFields(capacity, a); err != nil {
 		return err
@@ -138,7 +138,7 @@ func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
 
 // VerifyChannelUpdateSignature verifies that the channel update message was
 // signed by the party with the given node public key.
-func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate,
+func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate1,
 	pubKey *btcec.PublicKey) error {
 
 	data, err := msg.DataToSign()
@@ -163,7 +163,7 @@ func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate,
 // ValidateChannelUpdateFields validates a channel update's message flags and
 // corresponding update fields.
 func ValidateChannelUpdateFields(capacity btcutil.Amount,
-	msg *lnwire.ChannelUpdate) error {
+	msg *lnwire.ChannelUpdate1) error {
 
 	// The maxHTLC flag is mandatory.
 	if !msg.MessageFlags.HasMaxHtlc() {

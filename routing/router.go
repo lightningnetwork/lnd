@@ -291,7 +291,7 @@ type FeeSchema struct {
 
 // ChannelPolicy holds the parameters that determine the policy we enforce
 // when forwarding payments on a channel. These parameters are communicated
-// to the rest of the network in ChannelUpdate messages.
+// to the rest of the network in ChannelUpdate1 messages.
 type ChannelPolicy struct {
 	// FeeSchema holds the fee configuration for a channel.
 	FeeSchema
@@ -2660,9 +2660,9 @@ func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
 
 // extractChannelUpdate examines the error and extracts the channel update.
 func (r *ChannelRouter) extractChannelUpdate(
-	failure lnwire.FailureMessage) *lnwire.ChannelUpdate {
+	failure lnwire.FailureMessage) *lnwire.ChannelUpdate1 {
 
-	var update *lnwire.ChannelUpdate
+	var update *lnwire.ChannelUpdate1
 	switch onionErr := failure.(type) {
 	case *lnwire.FailExpiryTooSoon:
 		update = &onionErr.Update
@@ -2683,7 +2683,7 @@ func (r *ChannelRouter) extractChannelUpdate(
 
 // applyChannelUpdate validates a channel update and if valid, applies it to the
 // database. It returns a bool indicating whether the updates were successful.
-func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) bool {
+func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 	ch, _, _, err := r.GetChannelByID(msg.ShortChannelID)
 	if err != nil {
 		log.Errorf("Unable to retrieve channel by id: %v", err)

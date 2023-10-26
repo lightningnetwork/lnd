@@ -149,7 +149,7 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 	)
 
 	// Create the channel update message and sign.
-	msg := &lnwire.ChannelUpdate{
+	msg := &lnwire.ChannelUpdate1{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(testChannelID),
 		Timestamp:      uint32(time.Now().Unix()),
 		BaseFee:        newFeeBaseMSat,

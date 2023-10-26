@@ -3949,7 +3949,7 @@ func TestSwitchHoldForward(t *testing.T) {
 	// Simulate an error during the composition of the failure message.
 	currentCallback := c.s.cfg.FetchLastChannelUpdate
 	c.s.cfg.FetchLastChannelUpdate = func(
-		lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+		lnwire.ShortChannelID) (*lnwire.ChannelUpdate1, error) {
 
 		return nil, errors.New("cannot fetch update")
 	}
@@ -4820,7 +4820,7 @@ func TestSwitchResolution(t *testing.T) {
 }
 
 // TestSwitchForwardFailAlias tests that if ForwardPackets returns a failure
-// before actually forwarding, the ChannelUpdate uses the SCID from the
+// before actually forwarding, the ChannelUpdate1 uses the SCID from the
 // incoming channel and does not leak private information like the UTXO.
 func TestSwitchForwardFailAlias(t *testing.T) {
 	tests := []struct {
@@ -5170,7 +5170,7 @@ func testSwitchAliasFailAdd(t *testing.T, zeroConf, private, useAlias bool) {
 	select {
 	case failPacket := <-bobLink.packets:
 		// Assert that failPacket returns the expected SCID in the
-		// ChannelUpdate.
+		// ChannelUpdate1.
 		msg := failPacket.linkFailure.msg
 		failMsg, ok := msg.(*lnwire.FailTemporaryChannelFailure)
 		require.True(t, ok)
@@ -5369,7 +5369,7 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 
 	select {
 	case failPacket := <-bobLink.packets:
-		// Assert that failPacket returns the expected ChannelUpdate.
+		// Assert that failPacket returns the expected ChannelUpdate1.
 		msg := failPacket.linkFailure.msg
 		failMsg, ok := msg.(*lnwire.FailAmountBelowMinimum)
 		require.True(t, ok)
@@ -5514,7 +5514,7 @@ func testSwitchAliasInterceptFail(t *testing.T, zeroConf bool) {
 
 	select {
 	case failPacket := <-aliceLink.packets:
-		// Assert that failPacket returns the expected ChannelUpdate.
+		// Assert that failPacket returns the expected ChannelUpdate1.
 		failHtlc, ok := failPacket.htlc.(*lnwire.UpdateFailHTLC)
 		require.True(t, ok)
 

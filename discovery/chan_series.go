@@ -50,7 +50,7 @@ type ChannelGraphTimeSeries interface {
 	// their updates that match the set of specified short channel ID's.
 	// We'll use this to reply to a QueryShortChanIDs message sent by a
 	// remote peer. The response will contain a unique set of
-	// ChannelAnnouncements, the latest ChannelUpdate for each of the
+	// ChannelAnnouncements, the latest ChannelUpdate1 for each of the
 	// announcements, and a unique set of NodeAnnouncements.
 	FetchChanAnns(chain chainhash.Hash,
 		shortChanIDs []lnwire.ShortChannelID) ([]lnwire.Message, error)
@@ -59,7 +59,8 @@ type ChannelGraphTimeSeries interface {
 	// specified short channel ID. If no channel updates are known for the
 	// channel, then an empty slice will be returned.
 	FetchChanUpdates(chain chainhash.Hash,
-		shortChanID lnwire.ShortChannelID) ([]*lnwire.ChannelUpdate, error)
+		shortChanID lnwire.ShortChannelID) ([]*lnwire.ChannelUpdate1,
+		error)
 }
 
 // ChanSeries is an implementation of the ChannelGraphTimeSeries
@@ -235,7 +236,7 @@ func (c *ChanSeries) FilterChannelRange(chain chainhash.Hash,
 // FetchChanAnns returns a full set of channel announcements as well as their
 // updates that match the set of specified short channel ID's.  We'll use this
 // to reply to a QueryShortChanIDs message sent by a remote peer. The response
-// will contain a unique set of ChannelAnnouncements, the latest ChannelUpdate
+// will contain a unique set of ChannelAnnouncements, the latest ChannelUpdate1
 // for each of the announcements, and a unique set of NodeAnnouncements.
 //
 // NOTE: This is part of the ChannelGraphTimeSeries interface.
@@ -324,7 +325,7 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 //
 // NOTE: This is part of the ChannelGraphTimeSeries interface.
 func (c *ChanSeries) FetchChanUpdates(chain chainhash.Hash,
-	shortChanID lnwire.ShortChannelID) ([]*lnwire.ChannelUpdate, error) {
+	shortChanID lnwire.ShortChannelID) ([]*lnwire.ChannelUpdate1, error) {
 
 	chanInfo, e1, e2, err := c.graph.FetchChannelEdgesByID(
 		shortChanID.ToUint64(),
@@ -333,7 +334,7 @@ func (c *ChanSeries) FetchChanUpdates(chain chainhash.Hash,
 		return nil, err
 	}
 
-	chanUpdates := make([]*lnwire.ChannelUpdate, 0, 2)
+	chanUpdates := make([]*lnwire.ChannelUpdate1, 0, 2)
 	if e1 != nil {
 		chanUpdate, err := netann.ChannelUpdateFromEdge(chanInfo, e1)
 		if err != nil {

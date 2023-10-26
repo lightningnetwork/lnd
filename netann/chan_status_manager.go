@@ -60,7 +60,7 @@ type ChanStatusConfig struct {
 	// ApplyChannelUpdate processes new ChannelUpdates signed by our node by
 	// updating our local routing table and broadcasting the update to our
 	// peers.
-	ApplyChannelUpdate func(*lnwire.ChannelUpdate, *wire.OutPoint,
+	ApplyChannelUpdate func(*lnwire.ChannelUpdate1, *wire.OutPoint,
 		bool) error
 
 	// DB stores the set of channels that are to be monitored.
@@ -90,7 +90,7 @@ type ChanStatusConfig struct {
 }
 
 // ChanStatusManager facilitates requests to enable or disable a channel via a
-// network announcement that sets the disable bit on the ChannelUpdate
+// network announcement that sets the disable bit on the ChannelUpdate1
 // accordingly. The manager will periodically sample to detect cases where a
 // link has become inactive, and facilitate the process of disabling the channel
 // passively. The ChanStatusManager state machine is designed to reduce the
@@ -202,7 +202,7 @@ func (m *ChanStatusManager) start() error {
 			continue
 
 		// If we are in the process of opening a channel, the funding
-		// manager might not have added the ChannelUpdate to the graph
+		// manager might not have added the ChannelUpdate1 to the graph
 		// yet. We'll ignore the channel for now.
 		case err == ErrUnableToExtractChanUpdate:
 			log.Warnf("Unable to find channel policies for %v, "+
@@ -646,11 +646,11 @@ func (m *ChanStatusManager) signAndSendNextUpdate(outpoint wire.OutPoint,
 }
 
 // fetchLastChanUpdateByOutPoint fetches the latest policy for our direction of
-// a channel, and crafts a new ChannelUpdate with this policy. Returns an error
+// a channel, and crafts a new ChannelUpdate1 with this policy. Returns an error
 // in case our ChannelEdgePolicy is not found in the database. Also returns if
 // the channel is private by checking AuthProof for nil.
 func (m *ChanStatusManager) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
-	*lnwire.ChannelUpdate, bool, error) {
+	*lnwire.ChannelUpdate1, bool, error) {
 
 	// Get the edge info and policies for this channel from the graph.
 	info, edge1, edge2, err := m.cfg.Graph.FetchChannelEdgesByOutpoint(&op)

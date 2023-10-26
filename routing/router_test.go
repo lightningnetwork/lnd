@@ -237,7 +237,7 @@ func createTestCtxFromFile(t *testing.T,
 // Add valid signature to channel update simulated as error received from the
 // network.
 func signErrChanUpdate(t *testing.T, key *btcec.PrivateKey,
-	errChanUpdate *lnwire.ChannelUpdate) {
+	errChanUpdate *lnwire.ChannelUpdate1) {
 
 	chanUpdateMsg, err := errChanUpdate.DataToSign()
 	require.NoError(t, err, "failed to retrieve data to sign")
@@ -505,7 +505,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 	// Set up a channel update message with an invalid signature to be
 	// returned to the sender.
 	var invalidSignature lnwire.Sig
-	errChanUpdate := lnwire.ChannelUpdate{
+	errChanUpdate := lnwire.ChannelUpdate1{
 		Signature:       invalidSignature,
 		FeeRate:         500,
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(1),
@@ -603,7 +603,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to fetch chan id")
 
-	errChanUpdate := lnwire.ChannelUpdate{
+	errChanUpdate := lnwire.ChannelUpdate1{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(
 			songokuSophonChanID,
 		),
@@ -719,7 +719,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	// Prepare an error update for the private channel, with twice the
 	// original fee.
 	updatedFeeBaseMSat := feeBaseMSat * 2
-	errChanUpdate := lnwire.ChannelUpdate{
+	errChanUpdate := lnwire.ChannelUpdate1{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(privateChannelID),
 		Timestamp:      uint32(testTime.Add(time.Minute).Unix()),
 		BaseFee:        updatedFeeBaseMSat,
@@ -792,7 +792,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 }
 
 // TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit tests that upon receiving a
-// ChannelUpdate in a fee related error from the private channel, we won't
+// ChannelUpdate1 in a fee related error from the private channel, we won't
 // choose the route in our second attempt if the updated fee exceeds our fee
 // limit specified in the payment.
 //
@@ -845,7 +845,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 	// Prepare an error update for the private channel. The updated fee
 	// will exceeds the feeLimit.
 	updatedFeeBaseMSat := feeBaseMSat + uint32(feeLimit)
-	errChanUpdate := lnwire.ChannelUpdate{
+	errChanUpdate := lnwire.ChannelUpdate1{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(privateChannelID),
 		Timestamp:      uint32(testTime.Add(time.Minute).Unix()),
 		BaseFee:        updatedFeeBaseMSat,
@@ -946,7 +946,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	_, _, edgeUpdateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	require.NoError(t, err, "unable to fetch chan id")
 
-	errChanUpdate := lnwire.ChannelUpdate{
+	errChanUpdate := lnwire.ChannelUpdate1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(chanID),
 		Timestamp:       uint32(edgeUpdateToFail.LastUpdate.Unix()),
 		MessageFlags:    edgeUpdateToFail.MessageFlags,
@@ -2893,7 +2893,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	testCases := map[int]lnwire.FailureMessage{
 		finalHopIndex: lnwire.NewFailIncorrectDetails(payAmt, 100),
 		1: &lnwire.FailFeeInsufficient{
-			Update: lnwire.ChannelUpdate{},
+			Update: lnwire.ChannelUpdate1{},
 		},
 	}
 

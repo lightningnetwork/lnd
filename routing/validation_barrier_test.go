@@ -85,9 +85,9 @@ func TestValidationBarrierQuit(t *testing.T) {
 
 	// Create a set of channel updates, that must wait until their
 	// associated channel announcement has been verified.
-	chanUpds := make([]*lnwire.ChannelUpdate, 0, numTasks)
+	chanUpds := make([]*lnwire.ChannelUpdate1, 0, numTasks)
 	for i := 0; i < numTasks; i++ {
-		chanUpds = append(chanUpds, &lnwire.ChannelUpdate{
+		chanUpds = append(chanUpds, &lnwire.ChannelUpdate1{
 			ShortChannelID: lnwire.NewShortChanIDFromInt(uint64(i)),
 		})
 		barrier.InitJobDependencies(chanUpds[i])

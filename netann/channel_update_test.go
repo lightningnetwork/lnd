@@ -111,7 +111,7 @@ func TestUpdateDisableFlag(t *testing.T) {
 			// Create the initial update, the only fields we are
 			// concerned with in this test are the timestamp and the
 			// channel flags.
-			ogUpdate := &lnwire.ChannelUpdate{
+			ogUpdate := &lnwire.ChannelUpdate1{
 				Timestamp: uint32(tc.startTime.Unix()),
 			}
 			if !tc.startEnabled {
@@ -122,7 +122,7 @@ func TestUpdateDisableFlag(t *testing.T) {
 			// the original. UpdateDisableFlag will mutate the
 			// passed channel update, so we keep the old one to test
 			// against.
-			newUpdate := &lnwire.ChannelUpdate{
+			newUpdate := &lnwire.ChannelUpdate1{
 				Timestamp:    ogUpdate.Timestamp,
 				ChannelFlags: ogUpdate.ChannelFlags,
 			}

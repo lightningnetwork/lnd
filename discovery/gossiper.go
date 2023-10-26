@@ -141,7 +141,7 @@ type networkMsg struct {
 }
 
 // chanPolicyUpdateRequest is a request that is sent to the server when a caller
-// wishes to update a particular set of channels. New ChannelUpdate messages
+// wishes to update a particular set of channels. New ChannelUpdate1 messages
 // will be crafted to be sent out during the next broadcast epoch and the fee
 // updates committed to the lower layer.
 type chanPolicyUpdateRequest struct {
@@ -312,7 +312,7 @@ type Config struct {
 
 	// SignAliasUpdate is used to re-sign a channel update using the
 	// remote's alias if the option-scid-alias feature bit was negotiated.
-	SignAliasUpdate func(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
+	SignAliasUpdate func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 		error)
 
 	// FindBaseByAlias finds the SCID stored in the graph by an alias SCID.
@@ -885,7 +885,7 @@ func (d *AuthenticatedGossiper) ProcessLocalAnnouncement(msg lnwire.Message,
 	return nMsg.err
 }
 
-// channelUpdateID is a unique identifier for ChannelUpdate messages, as
+// channelUpdateID is a unique identifier for ChannelUpdate1 messages, as
 // channel updates can be identified by the (ShortChannelID, ChannelFlags)
 // tuple.
 type channelUpdateID struct {
@@ -1005,7 +1005,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 
 	// Channel updates are identified by the (short channel id,
 	// channelflags) tuple.
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		sender := route.NewVertex(message.source)
 		deDupKey := channelUpdateID{
 			msg.ShortChannelID,
@@ -1017,7 +1017,15 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		if ok {
 			// If we already have seen this message, record its
 			// timestamp.
-			oldTimestamp = mws.msg.(*lnwire.ChannelUpdate).Timestamp
+			update, ok := mws.msg.(*lnwire.ChannelUpdate1)
+			if !ok {
+				log.Errorf("Expected *lnwire.ChannelUpdate1, "+
+					"got: %T", mws.msg)
+
+				return
+			}
+
+			oldTimestamp = update.Timestamp
 		}
 
 		// If we already had this message with a strictly newer
@@ -1354,7 +1362,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 		select {
 		// A new policy update has arrived. We'll commit it to the
 		// sub-systems below us, then craft, sign, and broadcast a new
-		// ChannelUpdate for the set of affected clients.
+		// ChannelUpdate1 for the set of affected clients.
 		case policyUpdate := <-d.chanPolicyUpdates:
 			log.Tracef("Received channel %d policy update requests",
 				len(policyUpdate.edgesToUpdate))
@@ -1552,7 +1560,7 @@ func (d *AuthenticatedGossiper) isRecentlyRejectedMsg(msg lnwire.Message,
 
 	var scid uint64
 	switch m := msg.(type) {
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		scid = m.ShortChannelID.ToUint64()
 
 	case *lnwire.ChannelAnnouncement1:
@@ -1604,7 +1612,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 		// announcement below.
 		havePublicChannels = true
 
-		// If this edge has a ChannelUpdate that was created before the
+		// If this edge has a ChannelUpdate1 that was created before the
 		// introduction of the MaxHTLC field, then we'll update this
 		// edge to propagate this information in the network.
 		if !edge.MessageFlags.HasMaxHtlc() {
@@ -1642,7 +1650,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 	var signedUpdates []lnwire.Message
 	for _, chanToUpdate := range edgesToUpdate {
 		// Re-sign and update the channel on disk and retrieve our
-		// ChannelUpdate to broadcast.
+		// ChannelUpdate1 to broadcast.
 		chanAnn, chanUpdate, err := d.updateChannel(
 			chanToUpdate.info, chanToUpdate.edge,
 		)
@@ -1718,7 +1726,7 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 	for _, edgeInfo := range edgesToUpdate {
 		// Now that we've collected all the channels we need to update,
 		// we'll re-sign and update the backing ChannelGraphSource, and
-		// retrieve our ChannelUpdate to broadcast.
+		// retrieve our ChannelUpdate1 to broadcast.
 		_, chanUpdate, err := d.updateChannel(
 			edgeInfo.Info, edgeInfo.Edge,
 		)
@@ -2004,7 +2012,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 	// A new authenticated channel edge update has arrived. This indicates
 	// that the directional information for an already known channel has
 	// been updated.
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		return d.handleChanUpdate(nMsg, msg, schedulerOp)
 
 	// A new signature announcement has been received. This indicates
@@ -2027,7 +2035,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 // should be inspected.
 func (d *AuthenticatedGossiper) processZombieUpdate(
 	chanInfo *models.ChannelEdgeInfo, scid lnwire.ShortChannelID,
-	msg *lnwire.ChannelUpdate) error {
+	msg *lnwire.ChannelUpdate1) error {
 
 	// The least-significant bit in the flag on the channel update tells us
 	// which edge is being updated.
@@ -2120,7 +2128,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 		// can safely delete the local proof from the database.
 		return chanInfo.AuthProof != nil
 
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		_, p1, p2, err := d.cfg.Router.GetChannelByID(msg.ShortChannelID)
 
 		// If the channel cannot be found, it is most likely a leftover
@@ -2165,7 +2173,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 // the underlying graph with the new state.
 func (d *AuthenticatedGossiper) updateChannel(info *models.ChannelEdgeInfo,
 	edge *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
-	*lnwire.ChannelUpdate, error) {
+	*lnwire.ChannelUpdate1, error) {
 
 	// Parse the unsigned edge into a channel update.
 	chanUpdate := netann.UnsignedChannelUpdateFromEdge(info, edge)
@@ -2251,7 +2259,7 @@ func (d *AuthenticatedGossiper) SyncManager() *SyncManager {
 // IsKeepAliveUpdate determines whether this channel update is considered a
 // keep-alive update based on the previous channel update processed for the same
 // direction.
-func IsKeepAliveUpdate(update *lnwire.ChannelUpdate,
+func IsKeepAliveUpdate(update *lnwire.ChannelUpdate1,
 	prev *models.ChannelEdgePolicy) bool {
 
 	// Both updates should be from the same direction.
@@ -2585,7 +2593,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		channelUpdates = append(channelUpdates, chanMsgs.msgs...)
 	}
 
-	// Launch a new goroutine to handle each ChannelUpdate, this is to
+	// Launch a new goroutine to handle each ChannelUpdate1, this is to
 	// ensure we don't block here, as we can handle only one announcement
 	// at a time.
 	for _, cu := range channelUpdates {
@@ -2594,9 +2602,9 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 			continue
 		}
 
-		// Mark the ChannelUpdate as processed. This ensures that a
+		// Mark the ChannelUpdate1 as processed. This ensures that a
 		// subsequent announcement in the option-scid-alias case does
-		// not re-use an old ChannelUpdate.
+		// not re-use an old ChannelUpdate1.
 		cu.processed = true
 
 		d.wg.Add(1)
@@ -2607,8 +2615,8 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 			// Reprocess the message, making sure we return an
 			// error to the original caller in case the gossiper
 			// shuts down.
-			case *lnwire.ChannelUpdate:
-				log.Debugf("Reprocessing ChannelUpdate for "+
+			case *lnwire.ChannelUpdate1:
+				log.Debugf("Reprocessing ChannelUpdate1 for "+
 					"shortChanID=%v",
 					msg.ShortChannelID.ToUint64())
 
@@ -2619,7 +2627,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 				}
 
 			// We don't expect any other message type than
-			// ChannelUpdate to be in this cache.
+			// ChannelUpdate1 to be in this cache.
 			default:
 				log.Errorf("Unsupported message type found "+
 					"among ChannelUpdates: %T", msg)
@@ -2651,16 +2659,16 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 
 // handleChanUpdate processes a new channel update.
 func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
-	upd *lnwire.ChannelUpdate,
+	upd *lnwire.ChannelUpdate1,
 	ops []batch.SchedulerOption) ([]networkMsg, bool) {
 
-	log.Debugf("Processing ChannelUpdate: peer=%v, short_chan_id=%v, ",
+	log.Debugf("Processing ChannelUpdate1: peer=%v, short_chan_id=%v, ",
 		nMsg.peer, upd.ShortChannelID.ToUint64())
 
 	// We'll ignore any channel updates that target any chain other than
 	// the set of chains we know of.
 	if !bytes.Equal(upd.ChainHash[:], d.cfg.ChainHash[:]) {
-		err := fmt.Errorf("ignoring ChannelUpdate from chain=%v, "+
+		err := fmt.Errorf("ignoring ChannelUpdate1 from chain=%v, "+
 			"gossiper on chain=%v", upd.ChainHash, d.cfg.ChainHash)
 		log.Errorf(err.Error())
 
@@ -2760,7 +2768,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	case channeldb.ErrGraphNoEdgesFound:
 		fallthrough
 	case channeldb.ErrEdgeNotFound:
-		// If the edge corresponding to this ChannelUpdate was not
+		// If the edge corresponding to this ChannelUpdate1 was not
 		// found in the graph, this might be a channel in the process
 		// of being opened, and we haven't processed our own
 		// ChannelAnnouncement1 yet, hence it is not found in the
@@ -2800,13 +2808,13 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 				})
 		}
 
-		log.Debugf("Got ChannelUpdate for edge not found in graph"+
+		log.Debugf("Got ChannelUpdate1 for edge not found in graph"+
 			"(shortChanID=%v), saving for reprocessing later",
 			shortChanID)
 
 		// NOTE: We don't return anything on the error channel for this
 		// message, as we expect that will be done when this
-		// ChannelUpdate is later reprocessed.
+		// ChannelUpdate1 is later reprocessed.
 		return nil, false
 
 	default:
@@ -2841,7 +2849,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		edgeToUpdate = e2
 	}
 
-	log.Debugf("Validating ChannelUpdate: channel=%v, from node=%x, has "+
+	log.Debugf("Validating ChannelUpdate1: channel=%v, from node=%x, has "+
 		"edge=%v", chanInfo.ChannelID, pubKey.SerializeCompressed(),
 		edgeToUpdate != nil)
 
@@ -2912,7 +2920,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	}
 
 	// We'll use chanInfo.ChannelID rather than the peer-supplied
-	// ShortChannelID in the ChannelUpdate to avoid the router having to
+	// ShortChannelID in the ChannelUpdate1 to avoid the router having to
 	// lookup the stored SCID. If we're sending the update, we'll always
 	// use the SCID stored in the database rather than a potentially
 	// different alias. This might mean that SigBytes is incorrect as it
@@ -2958,7 +2966,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		return nil, false
 	}
 
-	// If this is a local ChannelUpdate without an AuthProof, it means it
+	// If this is a local ChannelUpdate1 without an AuthProof, it means it
 	// is an update to a channel that is not (yet) supposed to be announced
 	// to the greater network. However, our channel counter party will need
 	// to be given the update, so we'll try sending the update directly to
@@ -3031,7 +3039,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 
 	nMsg.err <- nil
 
-	log.Debugf("Processed ChannelUpdate: peer=%v, short_chan_id=%v, "+
+	log.Debugf("Processed ChannelUpdate1: peer=%v, short_chan_id=%v, "+
 		"timestamp=%v", nMsg.peer, upd.ShortChannelID.ToUint64(),
 		timestamp)
 	return announcements, true

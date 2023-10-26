@@ -126,7 +126,7 @@ type mockGraph struct {
 	chanPols2 map[wire.OutPoint]*models.ChannelEdgePolicy
 	sidToCid  map[lnwire.ShortChannelID]wire.OutPoint
 
-	updates chan *lnwire.ChannelUpdate
+	updates chan *lnwire.ChannelUpdate1
 }
 
 func newMockGraph(t *testing.T, numChannels int,
@@ -138,7 +138,7 @@ func newMockGraph(t *testing.T, numChannels int,
 		chanPols1: make(map[wire.OutPoint]*models.ChannelEdgePolicy),
 		chanPols2: make(map[wire.OutPoint]*models.ChannelEdgePolicy),
 		sidToCid:  make(map[lnwire.ShortChannelID]wire.OutPoint),
-		updates:   make(chan *lnwire.ChannelUpdate, 2*numChannels),
+		updates:   make(chan *lnwire.ChannelUpdate1, 2*numChannels),
 	}
 
 	for i := 0; i < numChannels; i++ {
@@ -177,7 +177,7 @@ func (g *mockGraph) FetchChannelEdgesByOutpoint(
 	return info, pol1, pol2, nil
 }
 
-func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate,
+func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate1,
 	op *wire.OutPoint, private bool) error {
 
 	g.mu.Lock()

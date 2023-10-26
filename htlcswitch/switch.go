@@ -170,7 +170,8 @@ type Config struct {
 	// specified when we receive an incoming HTLC.  This will be used to
 	// provide payment senders our latest policy when sending encrypted
 	// error messages.
-	FetchLastChannelUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error)
+	FetchLastChannelUpdate func(lnwire.ShortChannelID) (
+		*lnwire.ChannelUpdate1, error)
 
 	// Notifier is an instance of a chain notifier that we'll use to signal
 	// the switch when a new block has arrived.
@@ -216,8 +217,8 @@ type Config struct {
 	// SignAliasUpdate is used when sending FailureMessages backwards for
 	// option_scid_alias channels. This avoids a potential privacy leak by
 	// replacing the public, confirmed SCID with the alias in the
-	// ChannelUpdate.
-	SignAliasUpdate func(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
+	// ChannelUpdate1.
+	SignAliasUpdate func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 		error)
 
 	// IsAlias returns whether or not a given SCID is an alias.
@@ -767,7 +768,7 @@ func (s *Switch) ForwardPackets(linkQuit chan struct{},
 		incomingID := failedPackets[0].incomingChanID
 
 		// If the incoming channel is an option_scid_alias channel,
-		// then we'll need to replace the SCID in the ChannelUpdate.
+		// then we'll need to replace the SCID in the ChannelUpdate1.
 		update := s.failAliasUpdate(incomingID, true)
 		if update == nil {
 			// Fallback to the original non-option behavior.
@@ -2850,16 +2851,16 @@ func (s *Switch) failMailboxUpdate(outgoingScid,
 	return lnwire.NewTemporaryChannelFailure(update)
 }
 
-// failAliasUpdate prepares a ChannelUpdate for a failed incoming or outgoing
+// failAliasUpdate prepares a ChannelUpdate1 for a failed incoming or outgoing
 // HTLC on a channel where the option-scid-alias feature bit was negotiated. If
 // the associated channel is not one of these, this function will return nil
 // and the caller is expected to handle this properly. In this case, a return
 // to the original non-alias behavior is expected.
 func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
-	incoming bool) *lnwire.ChannelUpdate {
+	incoming bool) *lnwire.ChannelUpdate1 {
 
 	// This function does not defer the unlocking because of the database
-	// lookups for ChannelUpdate.
+	// lookups for ChannelUpdate1.
 	s.indexMtx.RLock()
 
 	if s.cfg.IsAlias(scid) {
@@ -2934,7 +2935,7 @@ func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 	}
 
 	// Fetch the link so we can get an alias to use in the ShortChannelID
-	// of the ChannelUpdate.
+	// of the ChannelUpdate1.
 	link, ok := s.forwardingIndex[baseScid]
 	s.indexMtx.RUnlock()
 	if !ok {
@@ -2949,14 +2950,14 @@ func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 		return nil
 	}
 
-	// Fetch the ChannelUpdate via the real, confirmed SCID.
+	// Fetch the ChannelUpdate1 via the real, confirmed SCID.
 	update, err := s.cfg.FetchLastChannelUpdate(scid)
 	if err != nil {
 		return nil
 	}
 
 	// The incoming case will replace the ShortChannelID in the retrieved
-	// ChannelUpdate with the alias to ensure no privacy leak occurs. This
+	// ChannelUpdate1 with the alias to ensure no privacy leak occurs. This
 	// would happen if a private non-zero-conf option-scid-alias
 	// feature-bit channel leaked its UTXO here rather than supplying an
 	// alias. In the outgoing case, the confirmed SCID was actually used

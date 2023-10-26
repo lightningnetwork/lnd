@@ -55,7 +55,7 @@ type GossipMessageStore interface {
 
 // MessageStore is an implementation of the GossipMessageStore interface backed
 // by a channeldb instance. By design, this store will only keep the latest
-// version of a message (like in the case of multiple ChannelUpdate's) for a
+// version of a message (like in the case of multiple ChannelUpdate1's) for a
 // channel with a peer.
 type MessageStore struct {
 	db kvdb.Backend
@@ -85,7 +85,7 @@ func msgShortChanID(msg lnwire.Message) (lnwire.ShortChannelID, error) {
 	switch msg := msg.(type) {
 	case *lnwire.AnnounceSignatures1:
 		shortChanID = msg.ShortChannelID
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		shortChanID = msg.ShortChannelID
 	default:
 		return shortChanID, ErrUnsupportedMessage
@@ -157,10 +157,10 @@ func (s *MessageStore) DeleteMessage(msg lnwire.Message,
 			return ErrCorruptedMessageStore
 		}
 
-		// In the event that we're attempting to delete a ChannelUpdate
+		// In the event that we're attempting to delete a ChannelUpdate1
 		// from the store, we'll make sure that we're actually deleting
 		// the correct one as it can be overwritten.
-		if msg, ok := msg.(*lnwire.ChannelUpdate); ok {
+		if msg, ok := msg.(*lnwire.ChannelUpdate1); ok {
 			// Deleting a value from a bucket that doesn't exist
 			// acts as a NOP, so we'll return if a message doesn't
 			// exist under this key.
@@ -176,7 +176,13 @@ func (s *MessageStore) DeleteMessage(msg lnwire.Message,
 
 			// If the timestamps don't match, then the update stored
 			// should be the latest one, so we'll avoid deleting it.
-			if msg.Timestamp != dbMsg.(*lnwire.ChannelUpdate).Timestamp {
+			m, ok := dbMsg.(*lnwire.ChannelUpdate1)
+			if !ok {
+				return fmt.Errorf("expected "+
+					"*lnwire.ChannelUpdate1, got: %T",
+					dbMsg)
+			}
+			if msg.Timestamp != m.Timestamp {
 				return nil
 			}
 		}

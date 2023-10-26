@@ -337,7 +337,7 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		OurPubKey:                aliceKeyPub,
 		OurKeyLoc:                testKeyLoc,
 		IsChannelActive:          func(lnwire.ChannelID) bool { return true },
-		ApplyChannelUpdate: func(*lnwire.ChannelUpdate,
+		ApplyChannelUpdate: func(*lnwire.ChannelUpdate1,
 			*wire.OutPoint, bool) error {
 
 			return nil

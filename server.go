@@ -1629,10 +1629,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	return s, nil
 }
 
-// signAliasUpdate takes a ChannelUpdate and returns the signature. This is
-// used for option_scid_alias channels where the ChannelUpdate to be sent back
+// signAliasUpdate takes a ChannelUpdate1 and returns the signature. This is
+// used for option_scid_alias channels where the ChannelUpdate1 to be sent back
 // may differ from what is on disk.
-func (s *server) signAliasUpdate(u *lnwire.ChannelUpdate) (*ecdsa.Signature,
+func (s *server) signAliasUpdate(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
 	error) {
 
 	data, err := u.DataToSign()
@@ -4578,10 +4578,10 @@ func (s *server) fetchNodeAdvertisedAddrs(pub *btcec.PublicKey) ([]net.Addr, err
 // fetchLastChanUpdate returns a function which is able to retrieve our latest
 // channel update for a target channel.
 func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
-	*lnwire.ChannelUpdate, error) {
+	*lnwire.ChannelUpdate1, error) {
 
 	ourPubKey := s.identityECDH.PubKey().SerializeCompressed()
-	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate, error) {
+	return func(cid lnwire.ShortChannelID) (*lnwire.ChannelUpdate1, error) {
 		info, edge1, edge2, err := s.chanRouter.GetChannelByID(cid)
 		if err != nil {
 			return nil, err
@@ -4596,7 +4596,7 @@ func (s *server) fetchLastChanUpdate() func(lnwire.ShortChannelID) (
 // applyChannelUpdate applies the channel update to the different sub-systems of
 // the server. The useAlias boolean denotes whether or not to send an alias in
 // place of the real SCID.
-func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate,
+func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate1,
 	op *wire.OutPoint, useAlias bool) error {
 
 	var (
@@ -4607,7 +4607,7 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate,
 	chanID := lnwire.NewChanIDFromOutPoint(op)
 
 	// Fetch the peer's alias from the lnwire.ChannelID so it can be used
-	// in the ChannelUpdate if it hasn't been announced yet.
+	// in the ChannelUpdate1 if it hasn't been announced yet.
 	if useAlias {
 		foundAlias, _ := s.aliasMgr.GetPeerAlias(chanID)
 		if foundAlias != defaultAlias {

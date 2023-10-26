@@ -139,3 +139,19 @@ func EncodeMessageExtraData(extraData *ExtraOpaqueData,
 	// are all properly sorted.
 	return extraData.PackRecordsFromProducers(recordProducers...)
 }
+
+// EncodeMessageExtraDataFromRecords encodes the given records into the given
+// extraData.
+func EncodeMessageExtraDataFromRecords(extraData *ExtraOpaqueData,
+	records ...tlv.Record) error {
+
+	// Treat extraData as a mutable reference.
+	if extraData == nil {
+		return fmt.Errorf("extra data cannot be nil")
+	}
+
+	// Pack in the series of TLV records into this message. The order we
+	// pass them in doesn't matter, as the method will ensure that things
+	// are all properly sorted.
+	return extraData.PackRecords(records...)
+}

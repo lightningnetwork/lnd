@@ -104,6 +104,39 @@
           "ChainKit"
         ]
       }
+    },
+    "/v2/chainkit/blockheader": {
+      "get": {
+        "summary": "lncli: `chain getblockheader`\nGetBlockHeader returns a block header with a particular block hash.",
+        "operationId": "ChainKit_GetBlockHeader",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/chainrpcGetBlockHeaderResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "block_hash",
+            "description": "The hash of the block with the requested header.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "ChainKit"
+        ]
+      }
     }
   },
   "definitions": {
@@ -129,6 +162,16 @@
           "type": "string",
           "format": "byte",
           "description": "The hash of the best block at the specified height."
+        }
+      }
+    },
+    "chainrpcGetBlockHeaderResponse": {
+      "type": "object",
+      "properties": {
+        "raw_block_header": {
+          "type": "string",
+          "format": "byte",
+          "description": "The header of the block with the requested hash."
         }
       }
     },

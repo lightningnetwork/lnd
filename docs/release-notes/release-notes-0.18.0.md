@@ -100,6 +100,9 @@
 * [Refactor InvoiceDB](https://github.com/lightningnetwork/lnd/pull/8081) to
   eliminate the use of `ScanInvoices`.
 
+* [Refactor UpdateInvoice](https://github.com/lightningnetwork/lnd/pull/8100) to
+  make it simpler to adjust code to also support SQL InvoiceDB implementation.
+
 ## Code Health
 ## Tooling and Documentation
 

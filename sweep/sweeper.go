@@ -26,10 +26,6 @@ var (
 	// confirmed in a tx of the remote party.
 	ErrRemoteSpend = errors.New("remote party swept utxo")
 
-	// ErrTooManyAttempts is returned in case sweeping an output has failed
-	// for the configured max number of attempts.
-	ErrTooManyAttempts = errors.New("sweep failed after max attempts")
-
 	// ErrFeePreferenceTooLow is returned when the fee preference gives a
 	// fee rate that's below the relay fee rate.
 	ErrFeePreferenceTooLow = errors.New("fee preference too low")
@@ -188,10 +184,6 @@ type pendingInput struct {
 	// notifier spend registration.
 	ntfnRegCancel func()
 
-	// minPublishHeight indicates the minimum block height at which this
-	// input may be (re)published.
-	minPublishHeight int32
-
 	// publishAttempts records the number of attempts that have already been
 	// made to sweep this tx.
 	publishAttempts int
@@ -267,10 +259,6 @@ type PendingInput struct {
 	// BroadcastAttempts is the number of attempts we've made to sweept the
 	// input.
 	BroadcastAttempts int
-
-	// NextBroadcastHeight is the next height of the chain at which we'll
-	// attempt to broadcast a transaction sweeping the input.
-	NextBroadcastHeight uint32
 
 	// Params contains the sweep parameters for this pending request.
 	Params Params
@@ -698,6 +686,10 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 			s.sweepPendingInputs(inputs)
 
 		// A new block comes in, update the bestHeight.
+		//
+		// TODO(yy): this is where we check our published transactions
+		// and perform RBF if needed. We'd also like to consult our fee
+		// bumper to get an updated fee rate.
 		case epoch, ok := <-blockEpochs:
 			if !ok {
 				return
@@ -884,12 +876,6 @@ func (s *UtxoSweeper) getInputLists(
 	// sweeper to avoid this.
 	var newInputs, retryInputs []txInput
 	for _, input := range cluster.inputs {
-		// Skip inputs that have a minimum publish height that is not
-		// yet reached.
-		if input.minPublishHeight > s.currentHeight {
-			continue
-		}
-
 		// Add input to the either one of the lists.
 		if input.publishAttempts == 0 {
 			newInputs = append(newInputs, input)
@@ -998,11 +984,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet,
 }
 
 // markInputsPendingPublish saves the sweeping tx to db and updates the pending
-// inputs with the given tx inputs. It increments the `publishAttempts` and
-// calculates the next broadcast height for each input. When the
-// publishAttempts exceeds MaxSweepAttemps(10), this input will be removed.
-//
-// TODO(yy): add unit test once done refactoring.
+// inputs with the given tx inputs. It also increments the `publishAttempts`.
 func (s *UtxoSweeper) markInputsPendingPublish(tr *TxRecord,
 	tx *wire.MsgTx) error {
 
@@ -1041,36 +1023,6 @@ func (s *UtxoSweeper) markInputsPendingPublish(tr *TxRecord,
 
 		// Record another publish attempt.
 		pi.publishAttempts++
-
-		// We don't care what the result of the publish call was. Even
-		// if it is published successfully, it can still be that it
-		// needs to be retried. Call NextAttemptDeltaFunc to calculate
-		// when to resweep this input.
-		nextAttemptDelta := s.cfg.NextAttemptDeltaFunc(
-			pi.publishAttempts,
-		)
-
-		pi.minPublishHeight = s.currentHeight + nextAttemptDelta
-
-		log.Debugf("Rescheduling input %v after %v attempts at "+
-			"height %v (delta %v)", input.PreviousOutPoint,
-			pi.publishAttempts, pi.minPublishHeight,
-			nextAttemptDelta)
-
-		if pi.publishAttempts >= s.cfg.MaxSweepAttempts {
-			log.Warnf("input %v: publishAttempts(%v) exceeds "+
-				"MaxSweepAttempts(%v), removed",
-				input.PreviousOutPoint, pi.publishAttempts,
-				s.cfg.MaxSweepAttempts)
-
-			// Signal result channels sweep result.
-			s.signalResult(pi, Result{
-				Err: ErrTooManyAttempts,
-			})
-
-			// Mark the input as failed.
-			pi.state = StateFailed
-		}
 	}
 
 	return nil
@@ -1240,10 +1192,9 @@ func (s *UtxoSweeper) handlePendingSweepsReq(
 			Amount: btcutil.Amount(
 				pendingInput.SignDesc().Output.Value,
 			),
-			LastFeeRate:         pendingInput.lastFeeRate,
-			BroadcastAttempts:   pendingInput.publishAttempts,
-			NextBroadcastHeight: uint32(pendingInput.minPublishHeight),
-			Params:              pendingInput.params,
+			LastFeeRate:       pendingInput.lastFeeRate,
+			BroadcastAttempts: pendingInput.publishAttempts,
+			Params:            pendingInput.params,
 		}
 	}
 
@@ -1319,22 +1270,16 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 	newParams.Fee = req.params.Fee
 	newParams.Force = req.params.Force
 
-	log.Debugf("Updating sweep parameters for %v from %v to %v", req.input,
-		pendingInput.params, newParams)
+	log.Debugf("Updating parameters for %v(state=%v) from (%v) to (%v)",
+		req.input, pendingInput.state, pendingInput.params, newParams)
 
 	pendingInput.params = newParams
 
-	// We'll reset the input's publish height to the current so that a new
-	// transaction can be created that replaces the transaction currently
-	// spending the input. We only do this for inputs that have been
-	// broadcast at least once to ensure we don't spend an input before its
-	// maturity height.
+	// We need to reset the state so this input will be attempted again by
+	// our sweeper.
 	//
-	// NOTE: The UtxoSweeper is not yet offered time-locked inputs, so the
-	// check for broadcast attempts is redundant at the moment.
-	if pendingInput.publishAttempts > 0 {
-		pendingInput.minPublishHeight = s.currentHeight
-	}
+	// TODO(yy): a dedicated state?
+	pendingInput.state = StateInit
 
 	resultChan := make(chan Result, 1)
 	pendingInput.listeners = append(pendingInput.listeners, resultChan)
@@ -1455,11 +1400,10 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 	// the passed in result channel. If this input is offered for sweep
 	// again, the result channel will be appended to this slice.
 	pi = &pendingInput{
-		state:            StateInit,
-		listeners:        []chan Result{input.resultChan},
-		Input:            input.input,
-		minPublishHeight: s.currentHeight,
-		params:           input.params,
+		state:     StateInit,
+		listeners: []chan Result{input.resultChan},
+		Input:     input.input,
+		params:    input.params,
 	}
 
 	// Try to find fee info for possible RBF if this input has already been

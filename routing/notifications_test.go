@@ -228,6 +228,20 @@ func (m *mockChain) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) 
 	return block, nil
 }
 
+func (m *mockChain) GetBlockHeader(
+	blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
+
+	m.RLock()
+	defer m.RUnlock()
+
+	block, ok := m.blocks[*blockHash]
+	if !ok {
+		return nil, fmt.Errorf("block not found")
+	}
+
+	return &block.Header, nil
+}
+
 type mockChainView struct {
 	sync.RWMutex
 

@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 )
 
 const (
@@ -241,6 +242,14 @@ type MessageSignerRing interface {
 	SignMessageSchnorr(keyLoc KeyLocator, msg []byte,
 		doubleHash bool, taprootTweak []byte,
 		tag []byte) (*schnorr.Signature, error)
+
+	// SignMuSig2 generates a MuSig2 partial signature given the passed key
+	// set, secret nonce, public nonce, and private keys
+	SignMuSig2(secNonce [musig2.SecNonceSize]byte,
+		keyLoc KeyLocator, otherNonces [][musig2.PubNonceSize]byte,
+		combinedNonce [musig2.PubNonceSize]byte,
+		pubKeys []*btcec.PublicKey, msg [32]byte,
+		opts ...musig2.SignOption) (*musig2.PartialSignature, error)
 }
 
 // SingleKeyMessageSigner is an abstraction interface that hides the

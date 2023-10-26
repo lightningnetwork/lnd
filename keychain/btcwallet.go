@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcwallet/waddrmgr"
@@ -449,6 +450,28 @@ func (b *BtcWalletKeyRing) SignMessageCompact(keyLoc KeyLocator,
 		digest = chainhash.HashB(msg)
 	}
 	return ecdsa.SignCompact(privKey, digest, true)
+}
+
+// SignMuSig2 generates a MuSig2 partial signature given the passed key set,
+// secret nonce, public nonce, and private keys
+//
+// NOTE: This is part of the keychain.MessageSignerRing interface.
+func (b *BtcWalletKeyRing) SignMuSig2(secNonce [musig2.SecNonceSize]byte,
+	keyLoc KeyLocator, _ [][musig2.PubNonceSize]byte,
+	combinedNonce [musig2.PubNonceSize]byte, pubKeys []*btcec.PublicKey,
+	msg [32]byte, signOpts ...musig2.SignOption) (*musig2.PartialSignature,
+	error) {
+
+	privKey, err := b.DerivePrivKey(KeyDescriptor{
+		KeyLocator: keyLoc,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return musig2.Sign(
+		secNonce, privKey, combinedNonce, pubKeys, msg, signOpts...,
+	)
 }
 
 // SignMessageSchnorr uses the Schnorr signature algorithm to sign the given

@@ -544,6 +544,100 @@ func (r *RPCKeyRing) SignMessageSchnorr(keyLoc keychain.KeyLocator,
 	return sigParsed, nil
 }
 
+// SignMuSig2 generates a MuSig2 partial signature given the passed key set,
+// secret nonce, public nonce, and private keys.
+//
+// NOTE: This method is part of the keychain.MessageSignerRing interface.
+func (r *RPCKeyRing) SignMuSig2(secNonce [musig2.SecNonceSize]byte,
+	keyLoc keychain.KeyLocator, otherNonces [][musig2.PubNonceSize]byte,
+	_ [musig2.PubNonceSize]byte, pubKeys []*btcec.PublicKey, msg [32]byte,
+	opts ...musig2.SignOption) (*musig2.PartialSignature, error) {
+
+	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
+	defer cancel()
+
+	serialisedPubKeys := make([][]byte, len(pubKeys))
+	for i, pub := range pubKeys {
+		serialisedPubKeys[i] = pub.SerializeCompressed()
+	}
+
+	otherSignerNonces := make([][]byte, len(otherNonces))
+	for i, nonce := range otherNonces {
+		otherSignerNonces[i] = nonce[:]
+	}
+
+	musigVersion := signrpc.MuSig2Version_MUSIG2_VERSION_V100RC2
+
+	var signOpts musig2.SignOptions
+	for _, o := range opts {
+		o(&signOpts)
+	}
+
+	if signOpts.FastSign {
+		return nil, fmt.Errorf("FastSign musig2 option unhandled " +
+			"by SignerClient")
+	}
+
+	var tweaks []*signrpc.TweakDesc
+	for _, tweak := range signOpts.Tweaks {
+		tweaks = append(tweaks, &signrpc.TweakDesc{
+			Tweak:   tweak.Tweak[:],
+			IsXOnly: tweak.IsXOnly,
+		})
+	}
+
+	var tapTweak *signrpc.TaprootTweakDesc
+	if len(signOpts.TaprootTweak) != 0 || signOpts.BIP86Tweak {
+		tapTweak = &signrpc.TaprootTweakDesc{
+			ScriptRoot:   signOpts.TaprootTweak,
+			KeySpendOnly: signOpts.BIP86Tweak,
+		}
+	}
+
+	resp, err := r.signerClient.MuSig2CreateSession(
+		ctxt, &signrpc.MuSig2SessionRequest{
+			KeyLoc: &signrpc.KeyLocator{
+				KeyFamily: int32(keyLoc.Family),
+				KeyIndex:  int32(keyLoc.Index),
+			},
+			OtherSignerPublicNonces: otherSignerNonces,
+			PregeneratedLocalNonce:  secNonce[:],
+			AllSignerPubkeys:        serialisedPubKeys,
+			Version:                 musigVersion,
+			Tweaks:                  tweaks,
+			TaprootTweak:            tapTweak,
+		},
+	)
+	if err != nil {
+		considerShutdown(err)
+		return nil, fmt.Errorf("error signing message in remote "+
+			"signer instance: %v", err)
+	}
+
+	signResp, err := r.signerClient.MuSig2Sign(
+		ctxt, &signrpc.MuSig2SignRequest{
+			SessionId:     resp.SessionId,
+			MessageDigest: msg[:],
+			Cleanup:       true,
+		},
+	)
+	if err != nil {
+		considerShutdown(err)
+		return nil, fmt.Errorf("error signing message in remote "+
+			"signer instance: %v", err)
+	}
+
+	partialSig, err := input.DeserializePartialSignature(
+		signResp.LocalPartialSignature,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing partial signature from "+
+			"remote signer: %v", err)
+	}
+
+	return partialSig, nil
+}
+
 // DerivePrivKey attempts to derive the private key that corresponds to the
 // passed key descriptor.  If the public key is set, then this method will
 // perform an in-order scan over the key set, with a max of MaxKeyRangeScan

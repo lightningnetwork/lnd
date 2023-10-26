@@ -7,10 +7,10 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
-// ChannelAnnouncement message is used to announce the existence of a channel
+// ChannelAnnouncement1 message is used to announce the existence of a channel
 // between two peers in the overlay, which is propagated by the discovery
 // service over broadcast handler.
-type ChannelAnnouncement struct {
+type ChannelAnnouncement1 struct {
 	// This signatures are used by nodes in order to create cross
 	// references between node's channel and node. Requiring both nodes
 	// to sign indicates they are both willing to route other payments via
@@ -58,15 +58,15 @@ type ChannelAnnouncement struct {
 	ExtraOpaqueData ExtraOpaqueData
 }
 
-// A compile time check to ensure ChannelAnnouncement implements the
+// A compile time check to ensure ChannelAnnouncement1 implements the
 // lnwire.Message interface.
-var _ Message = (*ChannelAnnouncement)(nil)
+var _ Message = (*ChannelAnnouncement1)(nil)
 
-// Decode deserializes a serialized ChannelAnnouncement stored in the passed
+// Decode deserializes a serialized ChannelAnnouncement1 stored in the passed
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
+func (a *ChannelAnnouncement1) Decode(r io.Reader, _ uint32) error {
 	return ReadElements(r,
 		&a.NodeSig1,
 		&a.NodeSig2,
@@ -83,11 +83,11 @@ func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 	)
 }
 
-// Encode serializes the target ChannelAnnouncement into the passed io.Writer
+// Encode serializes the target ChannelAnnouncement1 into the passed io.Writer
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
+func (a *ChannelAnnouncement1) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteSig(w, a.NodeSig1); err != nil {
 		return err
 	}
@@ -139,13 +139,13 @@ func (a *ChannelAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) MsgType() MessageType {
+func (a *ChannelAnnouncement1) MsgType() MessageType {
 	return MsgChannelAnnouncement
 }
 
 // DataToSign is used to retrieve part of the announcement message which should
 // be signed.
-func (a *ChannelAnnouncement) DataToSign() ([]byte, error) {
+func (a *ChannelAnnouncement1) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	b := make([]byte, 0, MaxMsgBody)
 	buf := bytes.NewBuffer(b)

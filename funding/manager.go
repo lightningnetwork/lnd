@@ -3295,7 +3295,7 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 }
 
 // extractAnnounceParams extracts the various channel announcement and update
-// parameters that will be needed to construct a ChannelAnnouncement and a
+// parameters that will be needed to construct a ChannelAnnouncement1 and a
 // ChannelUpdate.
 func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
@@ -3324,7 +3324,7 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	return fwdMinHTLC, fwdMaxHTLC
 }
 
-// addToRouterGraph sends a ChannelAnnouncement and a ChannelUpdate to the
+// addToRouterGraph sends a ChannelAnnouncement1 and a ChannelUpdate to the
 // gossiper so that the channel is added to the Router's internal graph.
 // These announcement messages are NOT broadcasted to the greater network,
 // only to the channel counter party. The proofs required to announce the
@@ -3353,7 +3353,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 			"announcement: %v", err)
 	}
 
-	// Send ChannelAnnouncement and ChannelUpdate to the gossiper to add
+	// Send ChannelAnnouncement1 and ChannelUpdate to the gossiper to add
 	// to the Router's topology.
 	errChan := f.cfg.SendAnnouncement(
 		ann.chanAnn, discovery.ChannelCapacity(completeChan.Capacity),
@@ -3366,7 +3366,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 				routing.ErrIgnored) {
 
 				log.Debugf("Router rejected "+
-					"ChannelAnnouncement: %v", err)
+					"ChannelAnnouncement1: %v", err)
 			} else {
 				return fmt.Errorf("error sending channel "+
 					"announcement: %v", err)
@@ -4050,7 +4050,7 @@ func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
 // chanAnnouncement encapsulates the two authenticated announcements that we
 // send out to the network after a new channel has been created locally.
 type chanAnnouncement struct {
-	chanAnn       *lnwire.ChannelAnnouncement
+	chanAnn       *lnwire.ChannelAnnouncement1
 	chanUpdateAnn *lnwire.ChannelUpdate
 	chanProof     *lnwire.AnnounceSignatures1
 }
@@ -4075,7 +4075,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// The unconditional section of the announcement is the ShortChannelID
 	// itself which compactly encodes the location of the funding output
 	// within the blockchain.
-	chanAnn := &lnwire.ChannelAnnouncement{
+	chanAnn := &lnwire.ChannelAnnouncement1{
 		ShortChannelID: shortChanID,
 		Features:       lnwire.NewRawFeatureVector(),
 		ChainHash:      chainHash,
@@ -4088,7 +4088,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// TODO(roasbeef): temp, remove after gossip 1.5
 	if chanType.IsTaproot() {
 		log.Debugf("Applying taproot feature bit to "+
-			"ChannelAnnouncement for %v", chanID)
+			"ChannelAnnouncement1 for %v", chanID)
 
 		chanAnn.Features.Set(
 			lnwire.SimpleTaprootChannelsRequiredStaging,
@@ -4293,7 +4293,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	}
 
 	// We only send the channel proof announcement and the node announcement
-	// because addToRouterGraph previously sent the ChannelAnnouncement and
+	// because addToRouterGraph previously sent the ChannelAnnouncement1 and
 	// the ChannelUpdate announcement messages. The channel proof and node
 	// announcements are broadcast to the greater network.
 	errChan := f.cfg.SendAnnouncement(ann.chanProof)

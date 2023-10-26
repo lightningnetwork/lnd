@@ -1144,7 +1144,7 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 }
 
 // assertChannelAnnouncements checks that alice and bob both sends the expected
-// announcements (ChannelAnnouncement, ChannelUpdate) after the funding tx has
+// announcements (ChannelAnnouncement1, ChannelUpdate) after the funding tx has
 // confirmed. The last arguments can be set if we expect the nodes to advertise
 // custom min_htlc values as part of their ChannelUpdate. We expect Alice to
 // advertise the value required by Bob and vice versa. If they are not set the
@@ -1175,9 +1175,9 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 
 	// After the ChannelReady message is sent, Alice and Bob will each send
 	// the following messages to their gossiper:
-	//	1) ChannelAnnouncement
+	//	1) ChannelAnnouncement1
 	//	2) ChannelUpdate
-	// The ChannelAnnouncement is kept locally, while the ChannelUpdate is
+	// The ChannelAnnouncement1 is kept locally, while the ChannelUpdate is
 	// sent directly to the other peer, so the edge policies are known to
 	// both peers.
 	nodes := []*testNode{alice, bob}
@@ -1195,7 +1195,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 		gotChannelUpdate := false
 		for _, msg := range announcements {
 			switch m := msg.(type) {
-			case *lnwire.ChannelAnnouncement:
+			case *lnwire.ChannelAnnouncement1:
 				gotChannelAnnouncement = true
 			case *lnwire.ChannelUpdate:
 
@@ -1244,7 +1244,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 
 		require.Truef(
 			t, gotChannelAnnouncement,
-			"ChannelAnnouncement from %d", j,
+			"ChannelAnnouncement1 from %d", j,
 		)
 		require.Truef(t, gotChannelUpdate, "ChannelUpdate from %d", j)
 
@@ -4548,7 +4548,7 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	// We'll assert that they both create new links.
 	assertHandleChannelReady(t, alice, bob)
 
-	// We'll now assert that both sides send ChannelAnnouncement and
+	// We'll now assert that both sides send ChannelAnnouncement1 and
 	// ChannelUpdate messages.
 	assertChannelAnnouncements(
 		t, alice, bob, fundingAmt, nil, nil, nil, nil,

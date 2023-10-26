@@ -36,13 +36,13 @@ type ValidationBarrier struct {
 	validationSemaphore chan struct{}
 
 	// chanAnnFinSignal is map that keep track of all the pending
-	// ChannelAnnouncement like validation job going on. Once the job has
+	// ChannelAnnouncement1 like validation job going on. Once the job has
 	// been completed, the channel will be closed unblocking any
 	// dependants.
 	chanAnnFinSignal map[lnwire.ShortChannelID]*validationSignals
 
 	// chanEdgeDependencies tracks any channel edge updates which should
-	// wait until the completion of the ChannelAnnouncement before
+	// wait until the completion of the ChannelAnnouncement1 before
 	// proceeding. This is a dependency, as we can't validate the update
 	// before we validate the announcement which creates the channel
 	// itself.
@@ -50,7 +50,7 @@ type ValidationBarrier struct {
 
 	// nodeAnnDependencies tracks any pending NodeAnnouncement validation
 	// jobs which should wait until the completion of the
-	// ChannelAnnouncement before proceeding.
+	// ChannelAnnouncement1 before proceeding.
 	nodeAnnDependencies map[route.Vertex]*validationSignals
 
 	quit chan struct{}
@@ -102,12 +102,12 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 	// ChannelUpdates for the same channel, or NodeAnnouncements of nodes
 	// that are involved in this channel. This goes for both the wire
 	// type,s and also the types that we use within the database.
-	case *lnwire.ChannelAnnouncement:
+	case *lnwire.ChannelAnnouncement1:
 
 		// We ensure that we only create a new announcement signal iff,
 		// one doesn't already exist, as there may be duplicate
 		// announcements.  We'll close this signal once the
-		// ChannelAnnouncement has been validated. This will result in
+		// ChannelAnnouncement1 has been validated. This will result in
 		// all the dependent jobs being unlocked so they can finish
 		// execution themselves.
 		if _, ok := v.chanAnnFinSignal[msg.ShortChannelID]; !ok {
@@ -219,7 +219,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	case *lnwire.AnnounceSignatures1:
 		// TODO(roasbeef): need to wait on chan ann?
 	case *models.ChannelEdgeInfo:
-	case *lnwire.ChannelAnnouncement:
+	case *lnwire.ChannelAnnouncement1:
 	}
 
 	// Release the lock once the above read is finished.
@@ -261,7 +261,7 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 
 	switch msg := job.(type) {
 
-	// If we've just finished executing a ChannelAnnouncement, then we'll
+	// If we've just finished executing a ChannelAnnouncement1, then we'll
 	// close out the signal, and remove the signal from the map of active
 	// ones. This will allow/deny any dependent jobs to continue execution.
 	case *models.ChannelEdgeInfo:
@@ -275,7 +275,7 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 			}
 			delete(v.chanAnnFinSignal, shortID)
 		}
-	case *lnwire.ChannelAnnouncement:
+	case *lnwire.ChannelAnnouncement1:
 		finSignals, ok := v.chanAnnFinSignal[msg.ShortChannelID]
 		if ok {
 			if allow {

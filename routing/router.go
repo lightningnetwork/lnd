@@ -1571,7 +1571,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		// graph. If the passed ShortChannelID is an alias, then we'll
 		// skip validation as it will not map to a legitimate tx. This
 		// is not a DoS vector as only we can add an alias
-		// ChannelAnnouncement from the gossiper.
+		// ChannelAnnouncement1 from the gossiper.
 		scid := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		if r.cfg.AssumeChannelValid || r.cfg.IsAlias(scid) {
 			if err := r.cfg.Graph.AddChannelEdge(msg, op...); err != nil {

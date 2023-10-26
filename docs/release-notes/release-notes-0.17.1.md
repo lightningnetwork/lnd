@@ -36,6 +36,10 @@
   instead.
 
 ## RPC Additions
+
+* [`chainrpc` `GetBlockHeader`](https://github.com/lightningnetwork/lnd/pull/8111)
+  can be used to get block headers with any chain backend.
+
 ## lncli Additions
 
 # Improvements

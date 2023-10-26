@@ -15,11 +15,13 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lntest/mock"
+	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -137,7 +139,7 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 		Wallet:         backend,
 		TickerDuration: 100 * time.Millisecond,
 		Store:          store,
-		Signer:         &mock.DummySigner{},
+		Signer:         &lnmock.DummySigner{},
 		GenSweepScript: func() ([]byte, error) {
 			script := make([]byte, input.P2WPKHSize)
 			script[0] = 0
@@ -2307,4 +2309,108 @@ func TestUpdateSweeperInputs(t *testing.T) {
 
 	// Assert the sweeper inputs are as expected.
 	require.Equal(expectedInputs, s.pendingInputs)
+}
+
+// TestAttachAvailableRBFInfo checks that the RBF info is attached to the
+// pending input, along with the state being marked as published, when this
+// input can be found both in mempool and the sweeper store.
+func TestAttachAvailableRBFInfo(t *testing.T) {
+	t.Parallel()
+
+	require := require.New(t)
+
+	// Create a test outpoint.
+	op := wire.OutPoint{Index: 1}
+
+	// Create a mock input.
+	testInput := &input.MockInput{}
+	testInput.On("OutPoint").Return(&op)
+	pi := &pendingInput{
+		Input: testInput,
+		state: StateInit,
+	}
+
+	// Create a mock mempool watcher and a mock sweeper store.
+	mockMempool := chainntnfs.NewMockMempoolWatcher()
+	mockStore := NewMockSweeperStore()
+
+	// Create a mempool spend event to be returned by the mempool watcher.
+	spendChan := make(chan *chainntnfs.SpendDetail, 1)
+	spendEvent := &chainntnfs.MempoolSpendEvent{
+		Spend: spendChan,
+	}
+
+	// Mock the cancel subscription calls.
+	mockMempool.On("CancelMempoolSpendEvent", spendEvent)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store:   mockStore,
+		Mempool: mockMempool,
+	})
+
+	// First, mock the mempool to return an error.
+	dummyErr := errors.New("dummy err")
+	mockMempool.On("SubscribeMempoolSpent", op).Return(nil, dummyErr).Once()
+
+	// Since the mempool lookup failed, we exepect the original pending
+	// input to stay unchanged.
+	result := s.attachAvailableRBFInfo(pi)
+	require.True(result.rbf.IsNone())
+	require.Equal(StateInit, result.state)
+
+	// Mock the mempool lookup to return a tx three times.
+	tx := &wire.MsgTx{}
+	mockMempool.On("SubscribeMempoolSpent", op).Return(
+		spendEvent, nil).Times(3).Run(func(_ mock.Arguments) {
+		// Eeac time the method is called, we send a tx to the spend
+		// channel.
+		spendChan <- &chainntnfs.SpendDetail{
+			SpendingTx: tx,
+		}
+	})
+
+	// Mock the store to return an error saying the tx cannot be found.
+	mockStore.On("GetTx", tx.TxHash()).Return(nil, ErrTxNotFound).Once()
+
+	// Although the db lookup failed, the pending input should have been
+	// marked as published without attaching any RBF info.
+	result = s.attachAvailableRBFInfo(pi)
+	require.True(result.rbf.IsNone())
+	require.Equal(StatePublished, result.state)
+
+	// Mock the store to return a db error.
+	mockStore.On("GetTx", tx.TxHash()).Return(nil, dummyErr).Once()
+
+	// Although the db lookup failed, the pending input should have been
+	// marked as published without attaching any RBF info.
+	result = s.attachAvailableRBFInfo(pi)
+	require.True(result.rbf.IsNone())
+	require.Equal(StatePublished, result.state)
+
+	// Mock the store to return a record.
+	tr := &TxRecord{
+		Fee:     100,
+		FeeRate: 100,
+	}
+	mockStore.On("GetTx", tx.TxHash()).Return(tr, nil).Once()
+
+	// Call the method again.
+	result = s.attachAvailableRBFInfo(pi)
+
+	// Assert that the RBF info is attached to the pending input.
+	rbfInfo := fn.Some(RBFInfo{
+		Txid:    tx.TxHash(),
+		Fee:     btcutil.Amount(tr.Fee),
+		FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
+	})
+	require.Equal(rbfInfo, result.rbf)
+
+	// Assert the state is updated.
+	require.Equal(StatePublished, result.state)
+
+	// Assert mocked statements.
+	testInput.AssertExpectations(t)
+	mockMempool.AssertExpectations(t)
+	mockStore.AssertExpectations(t)
 }

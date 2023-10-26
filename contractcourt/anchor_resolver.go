@@ -145,14 +145,11 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 			c.log.Warnf("our anchor spent by someone else")
 			outcome = channeldb.ResolverOutcomeUnclaimed
 
-		// The sweeper gave up on sweeping the anchor. This happens
-		// after the maximum number of sweep attempts has been reached.
-		// See sweep.DefaultMaxSweepAttempts. Sweep attempts are
-		// interspaced with random delays picked from a range that
-		// increases exponentially.
-		//
-		// We consider the anchor as being lost.
-		case sweep.ErrTooManyAttempts:
+		// This anchor has been excluded as other group has spent it.
+		// This happens when the same anchor output is swept by both
+		// remote and local force close transactions. When one
+		// confirms, the other is exlcuded.
+		case sweep.ErrExclusiveGroupSpend:
 			c.log.Warnf("anchor sweep abandoned")
 			outcome = channeldb.ResolverOutcomeUnclaimed
 

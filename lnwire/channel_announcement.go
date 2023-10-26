@@ -184,3 +184,38 @@ func (a *ChannelAnnouncement1) DataToSign() ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// Node1KeyBytes returns the bytes representing the public key of node 1 in the
+// channel.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) Node1KeyBytes() [33]byte {
+	return a.NodeID1
+}
+
+// Node2KeyBytes returns the bytes representing the public key of node 2 in the
+// channel.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) Node2KeyBytes() [33]byte {
+	return a.NodeID2
+}
+
+// GetChainHash returns the hash of the chain which this channel's funding
+// transaction is confirmed in.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) GetChainHash() chainhash.Hash {
+	return a.ChainHash
+}
+
+// SCID returns the short channel ID of the channel.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) SCID() ShortChannelID {
+	return a.ShortChannelID
+}
+
+// A compile-time check to ensure that ChannelAnnouncement1 implements the
+// ChannelAnnouncement interface.
+var _ ChannelAnnouncement = (*ChannelAnnouncement1)(nil)

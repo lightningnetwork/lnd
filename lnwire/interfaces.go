@@ -1,6 +1,9 @@
 package lnwire
 
-import "github.com/btcsuite/btcd/chaincfg/chainhash"
+import (
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/input"
+)
 
 // AnnounceSignatures is an interface that represents a message used to
 // exchange signatures of a ChannelAnnouncment message during the funding flow.
@@ -33,4 +36,74 @@ type ChannelAnnouncement interface {
 	Node2KeyBytes() [33]byte
 
 	Message
+}
+
+// ChannelUpdate is an interface that describes a message used to update the
+// forwarding rules of a channel.
+type ChannelUpdate interface {
+	// SCID returns the ShortChannelID of the channel that the update
+	// applies to.
+	SCID() ShortChannelID
+
+	// IsNode1 is true if the update was produced by node 1 of the channel
+	// peers. Node 1 is the node with the lexicographically smaller public
+	// key.
+	IsNode1() bool
+
+	// IsDisabled is true if the update is announcing that the channel
+	// should be considered disabled.
+	IsDisabled() bool
+
+	// GetChainHash returns the hash of the chain that the message is
+	// referring to.
+	GetChainHash() chainhash.Hash
+
+	// ForwardingPolicy returns the set of forwarding constraints of the
+	// update.
+	ForwardingPolicy() *ForwardingPolicy
+
+	// CmpAge can be used to determine if the update is older or newer than
+	// the passed update. It returns 1 if this update is newer, -1 if it is
+	// older and 0 if they are the same age.
+	CmpAge(update ChannelUpdate) (int, error)
+
+	// SetDisabled can be used to adjust the disabled flag of an update.
+	SetDisabled(bool)
+
+	// SetSig can be used to adjust the signature of the update.
+	SetSig(signature input.Signature) error
+
+	// SetSCID can be used to overwrite the SCID of the update.
+	SetSCID(scid ShortChannelID)
+
+	Message
+}
+
+// ForwardingPolicy defines the set of forwarding constraints advertised in a
+// ChannelUpdate message.
+type ForwardingPolicy struct {
+	// TimeLockDelta is the minimum number of blocks that the node requires
+	// to be added to the expiry of HTLCs. This is a security parameter
+	// determined by the node operator. This value represents the required
+	// gap between the time locks of the incoming and outgoing HTLC's set
+	// to this node.
+	TimeLockDelta uint16
+
+	// BaseFee is the base fee that must be used for incoming HTLC's to
+	// this particular channel. This value will be tacked onto the required
+	// for a payment independent of the size of the payment.
+	BaseFee MilliSatoshi
+
+	// FeeRate is the fee rate that will be charged per millionth of a
+	// satoshi.
+	FeeRate MilliSatoshi
+
+	// HtlcMinimumMsat is the minimum HTLC value which will be accepted.
+	MinHTLC MilliSatoshi
+
+	// HasMaxHTLC is true if the MaxHTLC field is provided in the update.
+	HasMaxHTLC bool
+
+	// HtlcMaximumMsat is the maximum HTLC value which will be accepted.
+	MaxHTLC MilliSatoshi
 }

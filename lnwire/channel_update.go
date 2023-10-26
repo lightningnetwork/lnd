@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/input"
 )
 
 // ChanUpdateMsgFlags is a bitfield that signals whether optional fields are
@@ -279,3 +280,105 @@ func (a *ChannelUpdate1) DataToSign() ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// SCID returns the ShortChannelID of the channel that the update applies to.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) SCID() ShortChannelID {
+	return a.ShortChannelID
+}
+
+// IsNode1 is true if the update was produced by node 1 of the channel peers.
+// Node 1 is the node with the lexicographically smaller public key.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) IsNode1() bool {
+	return a.ChannelFlags&ChanUpdateDirection == 0
+}
+
+// IsDisabled is true if the update is announcing that the channel should be
+// considered disabled.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) IsDisabled() bool {
+	return a.ChannelFlags&ChanUpdateDisabled == ChanUpdateDisabled
+}
+
+// GetChainHash returns the hash of the chain that the message is referring to.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) GetChainHash() chainhash.Hash {
+	return a.ChainHash
+}
+
+// ForwardingPolicy returns the set of forwarding constraints of the update.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) ForwardingPolicy() *ForwardingPolicy {
+	return &ForwardingPolicy{
+		TimeLockDelta: a.TimeLockDelta,
+		BaseFee:       MilliSatoshi(a.BaseFee),
+		FeeRate:       MilliSatoshi(a.FeeRate),
+		MinHTLC:       a.HtlcMinimumMsat,
+		HasMaxHTLC:    a.MessageFlags.HasMaxHtlc(),
+		MaxHTLC:       a.HtlcMaximumMsat,
+	}
+}
+
+// CmpAge can be used to determine if the update is older or newer than the
+// passed update. It returns 1 if this update is newer, -1 if it is older, and
+// 0 if they are the same age.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) CmpAge(update ChannelUpdate) (int, error) {
+	other, ok := update.(*ChannelUpdate1)
+	if !ok {
+		return 0, fmt.Errorf("expected *ChannelUpdate1, got: %T",
+			update)
+	}
+
+	switch {
+	case a.Timestamp > other.Timestamp:
+		return 1, nil
+	case a.Timestamp < other.Timestamp:
+		return -1, nil
+	default:
+		return 0, nil
+	}
+}
+
+// SetDisabled can be used to adjust the disabled flag of an update.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) SetDisabled(disabled bool) {
+	if disabled {
+		a.ChannelFlags |= ChanUpdateDisabled
+	} else {
+		a.ChannelFlags &= ^ChanUpdateDisabled
+	}
+}
+
+// SetSig can be used to adjust the signature of the update.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) SetSig(sig input.Signature) error {
+	s, err := NewSigFromSignature(sig)
+	if err != nil {
+		return err
+	}
+
+	a.Signature = s
+
+	return nil
+}
+
+// SetSCID can be used to overwrite the SCID of the update.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) SetSCID(scid ShortChannelID) {
+	a.ShortChannelID = scid
+}
+
+// A compile time assertion to ensure ChannelUpdate1 implements the
+// ChannelUpdate interface.
+var _ ChannelUpdate = (*ChannelUpdate1)(nil)

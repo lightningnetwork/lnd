@@ -21,6 +21,9 @@ type ChainKitClient interface {
 	// lncli: `chain getblock`
 	// GetBlock returns a block given the corresponding block hash.
 	GetBlock(ctx context.Context, in *GetBlockRequest, opts ...grpc.CallOption) (*GetBlockResponse, error)
+	// lncli: `chain getblockheader`
+	// GetBlockHeader returns a block header with a particular block hash.
+	GetBlockHeader(ctx context.Context, in *GetBlockHeaderRequest, opts ...grpc.CallOption) (*GetBlockHeaderResponse, error)
 	// lncli: `chain getbestblock`
 	// GetBestBlock returns the block hash and current height from the valid
 	// most-work chain.
@@ -42,6 +45,15 @@ func NewChainKitClient(cc grpc.ClientConnInterface) ChainKitClient {
 func (c *chainKitClient) GetBlock(ctx context.Context, in *GetBlockRequest, opts ...grpc.CallOption) (*GetBlockResponse, error) {
 	out := new(GetBlockResponse)
 	err := c.cc.Invoke(ctx, "/chainrpc.ChainKit/GetBlock", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *chainKitClient) GetBlockHeader(ctx context.Context, in *GetBlockHeaderRequest, opts ...grpc.CallOption) (*GetBlockHeaderResponse, error) {
+	out := new(GetBlockHeaderResponse)
+	err := c.cc.Invoke(ctx, "/chainrpc.ChainKit/GetBlockHeader", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +85,9 @@ type ChainKitServer interface {
 	// lncli: `chain getblock`
 	// GetBlock returns a block given the corresponding block hash.
 	GetBlock(context.Context, *GetBlockRequest) (*GetBlockResponse, error)
+	// lncli: `chain getblockheader`
+	// GetBlockHeader returns a block header with a particular block hash.
+	GetBlockHeader(context.Context, *GetBlockHeaderRequest) (*GetBlockHeaderResponse, error)
 	// lncli: `chain getbestblock`
 	// GetBestBlock returns the block hash and current height from the valid
 	// most-work chain.
@@ -90,6 +105,9 @@ type UnimplementedChainKitServer struct {
 
 func (UnimplementedChainKitServer) GetBlock(context.Context, *GetBlockRequest) (*GetBlockResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBlock not implemented")
+}
+func (UnimplementedChainKitServer) GetBlockHeader(context.Context, *GetBlockHeaderRequest) (*GetBlockHeaderResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetBlockHeader not implemented")
 }
 func (UnimplementedChainKitServer) GetBestBlock(context.Context, *GetBestBlockRequest) (*GetBestBlockResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetBestBlock not implemented")
@@ -124,6 +142,24 @@ func _ChainKit_GetBlock_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ChainKitServer).GetBlock(ctx, req.(*GetBlockRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChainKit_GetBlockHeader_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetBlockHeaderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChainKitServer).GetBlockHeader(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/chainrpc.ChainKit/GetBlockHeader",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChainKitServer).GetBlockHeader(ctx, req.(*GetBlockHeaderRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -174,6 +210,10 @@ var ChainKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBlock",
 			Handler:    _ChainKit_GetBlock_Handler,
+		},
+		{
+			MethodName: "GetBlockHeader",
+			Handler:    _ChainKit_GetBlockHeader_Handler,
 		},
 		{
 			MethodName: "GetBestBlock",

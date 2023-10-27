@@ -32,3 +32,10 @@ func (c *ChainIO) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
 func (c *ChainIO) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) {
 	return nil, nil
 }
+
+// GetBlockHeader currently returns dummy values.
+func (c *ChainIO) GetBlockHeader(blockHash *chainhash.Hash) (*wire.BlockHeader,
+	error) {
+
+	return nil, nil
+}

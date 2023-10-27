@@ -26,6 +26,7 @@ func testChainKit(ht *lntest.HarnessTest) {
 	// during execution. By calling sub-test functions as seen below we
 	// avoid the need to start separate nodes.
 	testChainKitGetBlock(ht)
+	testChainKitGetBlockHeader(ht)
 	testChainKitGetBlockHash(ht)
 	testChainKitSendOutputsAnchorReserve(ht)
 }
@@ -55,6 +56,49 @@ func testChainKitGetBlock(ht *lntest.HarnessTest) {
 	// Ensure best block hash is the same as retrieved block hash.
 	expected := bestBlockHash
 	actual := msgBlock.BlockHash()
+	require.Equal(ht, expected, actual)
+}
+
+// testChainKitGetBlockHeader ensures that given a block hash, the RPC endpoint
+// returns the correct target block header.
+func testChainKitGetBlockHeader(ht *lntest.HarnessTest) {
+	// Get best block hash.
+	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
+
+	var (
+		bestBlockHash   chainhash.Hash
+		bestBlockHeader wire.BlockHeader
+		msgBlock        = &wire.MsgBlock{}
+	)
+	err := bestBlockHash.SetBytes(bestBlockRes.BlockHash)
+	require.NoError(ht, err)
+
+	// Retrieve the best block by hash.
+	getBlockReq := &chainrpc.GetBlockRequest{
+		BlockHash: bestBlockHash[:],
+	}
+	getBlockRes := ht.Alice.RPC.GetBlock(getBlockReq)
+
+	// Deserialize the block which was retrieved by hash.
+	blockReader := bytes.NewReader(getBlockRes.RawBlock)
+	err = msgBlock.Deserialize(blockReader)
+	require.NoError(ht, err)
+
+	// Retrieve the block header for the best block.
+	getBlockHeaderReq := &chainrpc.GetBlockHeaderRequest{
+		BlockHash: bestBlockHash[:],
+	}
+	getBlockHeaderRes := ht.Alice.RPC.GetBlockHeader(getBlockHeaderReq)
+
+	// Deserialize the block header which was retrieved by hash.
+	blockHeaderReader := bytes.NewReader(getBlockHeaderRes.RawBlockHeader)
+	err = bestBlockHeader.Deserialize(blockHeaderReader)
+	require.NoError(ht, err)
+
+	// Ensure the header of the best block is the same as retrieved block
+	// header.
+	expected := bestBlockHeader
+	actual := msgBlock.Header
 	require.Equal(ht, expected, actual)
 }
 

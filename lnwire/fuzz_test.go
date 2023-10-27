@@ -675,19 +675,18 @@ func onionFailureHarnessCustom(t *testing.T, data []byte, code FailCode,
 	// decoding the message does not mutate it.
 
 	var b bytes.Buffer
-	if err := EncodeFailureMessage(&b, msg, 0); err != nil {
-		t.Fatalf("failed to encode failure message: %v", err)
-	}
+	err = EncodeFailureMessage(&b, msg, 0)
+	require.NoError(t, err, "failed to encode failure message")
 
 	newMsg, err := DecodeFailureMessage(&b, 0)
-	if err != nil {
-		t.Fatalf("failed to decode serialized failure message: %v", err)
-	}
+	require.NoError(t, err, "failed to decode serialized failure message")
 
-	if !eq(msg, newMsg) {
-		t.Fatalf("original message and deserialized message are not "+
-			"equal: %v != %v", msg, newMsg)
-	}
+	require.True(
+		t, eq(msg, newMsg),
+		"original message and deserialized message are not equal: "+
+			"%v != %v",
+		msg, newMsg,
+	)
 
 	// Now verify that encoding/decoding full packets works as expected.
 
@@ -713,19 +712,20 @@ func onionFailureHarnessCustom(t *testing.T, data []byte, code FailCode,
 	// We should use FailureMessageLength sized packets plus 2 bytes to
 	// encode the message length and 2 bytes to encode the padding length,
 	// as recommended by the spec.
-	if pktBuf.Len() != FailureMessageLength+4 {
-		t.Fatalf("wrong failure message length: %v", pktBuf.Len())
-	}
+	require.Equal(
+		t, pktBuf.Len(), FailureMessageLength+4,
+		"wrong failure message length",
+	)
 
 	pktMsg, err := DecodeFailure(&pktBuf, 0)
-	if err != nil {
-		t.Fatalf("failed to decode failure packet: %v", err)
-	}
+	require.NoError(t, err, "failed to decode failure packet")
 
-	if !eq(msg, pktMsg) {
-		t.Fatalf("original message and decoded packet message are not "+
-			"equal: %v != %v", msg, pktMsg)
-	}
+	require.True(
+		t, eq(msg, pktMsg),
+		"original message and decoded packet message are not equal: "+
+			"%v != %v",
+		msg, pktMsg,
+	)
 }
 
 func onionFailureHarness(t *testing.T, data []byte, code FailCode) {
@@ -740,14 +740,14 @@ func FuzzFailIncorrectDetails(f *testing.F) {
 		// slice, we need to use a custom equality function.
 		eq := func(x, y any) bool {
 			msg1, ok := x.(*FailIncorrectDetails)
-			if !ok {
-				t.Fatal("msg1 was not FailIncorrectDetails")
-			}
+			require.True(
+				t, ok, "msg1 was not FailIncorrectDetails",
+			)
 
 			msg2, ok := y.(*FailIncorrectDetails)
-			if !ok {
-				t.Fatalf("msg2 was not FailIncorrectDetails")
-			}
+			require.True(
+				t, ok, "msg2 was not FailIncorrectDetails",
+			)
 
 			return msg1.amount == msg2.amount &&
 				msg1.height == msg2.height &&

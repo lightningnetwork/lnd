@@ -198,3 +198,57 @@ func (c *ChannelEdgePolicy1) Sig() (input.Signature, error) {
 // A compile-time check to ensure that ChannelEdgePolicy1 implements the
 // ChannelEdgePolicy interface.
 var _ ChannelEdgePolicy = (*ChannelEdgePolicy1)(nil)
+
+type ChannelEdgePolicy2 struct {
+	lnwire.ChannelUpdate2
+
+	ToNode [33]byte
+}
+
+// Sig returns the signature of the update message.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy2) Sig() (input.Signature, error) {
+	return c.Signature.ToSignature()
+}
+
+// AfterUpdateMsg compares this update against the passed lnwire.ChannelUpdate
+// message and returns true if this update is newer than the passed one.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy2) AfterUpdateMsg(msg lnwire.ChannelUpdate) (bool,
+	error) {
+
+	upd, ok := msg.(*lnwire.ChannelUpdate2)
+	if !ok {
+		return false, fmt.Errorf("expected *lnwire.ChannelUpdate2 to "+
+			"be coupled with ChannelEdgePolicy2, got: %T", msg)
+	}
+
+	return c.BlockHeight.Val > upd.BlockHeight.Val, nil
+}
+
+// Before compares this update against the passed update and returns true if
+// this update has a lower timestamp than the passed one.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy2) Before(policy ChannelEdgePolicy) (bool, error) {
+	other, ok := policy.(*ChannelEdgePolicy2)
+	if !ok {
+		return false, fmt.Errorf("can't compare type %T to type "+
+			"ChannelEdgePolicy2", policy)
+	}
+
+	return c.BlockHeight.Val < other.BlockHeight.Val, nil
+}
+
+// GetToNode returns the pub key of the node that did not produce the update.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy2) GetToNode() [33]byte {
+	return c.ToNode
+}
+
+// A compile-time check to ensure that ChannelEdgePolicy2 implements the
+// ChannelEdgePolicy interface.
+var _ ChannelEdgePolicy = (*ChannelEdgePolicy2)(nil)

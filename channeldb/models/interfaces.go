@@ -5,6 +5,8 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // ChannelEdgeInfo is an interface that describes a channel announcement.
@@ -56,4 +58,40 @@ type ChannelAuthProof interface {
 	// explicitly inherit this interface to be considered a
 	// ChannelAuthProof type.
 	isChanAuthProof()
+}
+
+// ChannelEdgePolicy is an interface that describes an update to the forwarding
+// rules of a channel.
+type ChannelEdgePolicy interface {
+	// SCID returns the short channel ID of the channel being referred to.
+	SCID() lnwire.ShortChannelID
+
+	// IsDisabled returns true if the update is indicating that the channel
+	// should be considered disabled.
+	IsDisabled() bool
+
+	// IsNode1 returns true if the update was constructed by node 1 of the
+	// channel.
+	IsNode1() bool
+
+	// GetToNode returns the pub key of the node that did not produce the
+	// update.
+	GetToNode() [33]byte
+
+	// ForwardingPolicy return the various forwarding policy rules set by
+	// the update.
+	ForwardingPolicy() *lnwire.ForwardingPolicy
+
+	// Before compares this update against the passed update and returns
+	// true if this update has a lower timestamp than the passed one.
+	Before(policy ChannelEdgePolicy) (bool, error)
+
+	// AfterUpdateMsg compares this update against the passed
+	// lnwire.ChannelUpdate message and returns true if this update is
+	// newer than the passed one.
+	// TODO(elle): combine with Before?
+	AfterUpdateMsg(msg lnwire.ChannelUpdate) (bool, error)
+
+	// Sig returns the signature of the update message.
+	Sig() (input.Signature, error)
 }

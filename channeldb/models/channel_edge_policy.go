@@ -1,9 +1,11 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -101,6 +103,8 @@ func (c *ChannelEdgePolicy1) SetSigBytes(sig []byte) {
 }
 
 // IsDisabled determines whether the edge has the disabled bit set.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
 func (c *ChannelEdgePolicy1) IsDisabled() bool {
 	return c.ChannelFlags.IsDisabled()
 }
@@ -129,3 +133,84 @@ func (c *ChannelEdgePolicy1) ComputeFeeFromIncoming(
 		feeRateParts+c.FeeProportionalMillionths,
 	)
 }
+
+// SCID returns the short channel ID of the channel being referred to.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) SCID() lnwire.ShortChannelID {
+	return lnwire.NewShortChanIDFromInt(c.ChannelID)
+}
+
+// IsNode1 returns true if the update was constructed by node 1 of the
+// channel.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) IsNode1() bool {
+	return c.ChannelFlags&lnwire.ChanUpdateDirection == 0
+}
+
+// GetToNode returns the pub key of the node that did not produce the update.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) GetToNode() [33]byte {
+	return c.ToNode
+}
+
+// ForwardingPolicy return the various forwarding policy rules set by the
+// update.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) ForwardingPolicy() *lnwire.ForwardingPolicy {
+	return &lnwire.ForwardingPolicy{
+		TimeLockDelta: c.TimeLockDelta,
+		BaseFee:       c.FeeBaseMSat,
+		FeeRate:       c.FeeProportionalMillionths,
+		MinHTLC:       c.MinHTLC,
+		HasMaxHTLC:    c.MessageFlags.HasMaxHtlc(),
+		MaxHTLC:       c.MaxHTLC,
+	}
+}
+
+// Before compares this update against the passed update and returns true if
+// this update has a lower timestamp than the passed one.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) Before(policy ChannelEdgePolicy) (bool, error) {
+	other, ok := policy.(*ChannelEdgePolicy1)
+	if !ok {
+		return false, fmt.Errorf("can't compare type %T to type "+
+			"ChannelEdgePolicy1", policy)
+	}
+
+	return c.LastUpdate.Before(other.LastUpdate), nil
+}
+
+// AfterUpdateMsg compares this update against the passed
+// lnwire.ChannelUpdate message and returns true if this update is newer than
+// the passed one.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) AfterUpdateMsg(msg lnwire.ChannelUpdate) (bool,
+	error) {
+
+	upd, ok := msg.(*lnwire.ChannelUpdate1)
+	if !ok {
+		return false, fmt.Errorf("expected *lnwire.ChannelUpdate1 to "+
+			"be coupled with ChannelEdgePolicy1, got: %T", msg)
+	}
+
+	timestamp := time.Unix(int64(upd.Timestamp), 0)
+
+	return c.LastUpdate.After(timestamp), nil
+}
+
+// Sig returns the signature of the update message.
+//
+// NOTE: This is part of the ChannelEdgePolicy interface.
+func (c *ChannelEdgePolicy1) Sig() (input.Signature, error) {
+	return c.Signature()
+}
+
+// A compile-time check to ensure that ChannelEdgePolicy1 implements the
+// ChannelEdgePolicy interface.
+var _ ChannelEdgePolicy = (*ChannelEdgePolicy1)(nil)

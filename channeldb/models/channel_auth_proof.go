@@ -129,3 +129,13 @@ func (c *ChannelAuthProof1) IsEmpty() bool {
 		len(c.BitcoinSig1Bytes) == 0 ||
 		len(c.BitcoinSig2Bytes) == 0
 }
+
+// isChanAuthProof is a no-op method used to ensure that a struct must
+// explicitly inherit this interface to be considered a ChannelAuthProof type.
+//
+// NOTE: this is part of the ChannelAuthProof interface.
+func (c *ChannelAuthProof1) isChanAuthProof() {}
+
+// A compile-time check to ensure that ChannelAutoProof1 implements the
+// ChannelAuthProof interface.
+var _ ChannelAuthProof = (*ChannelAuthProof1)(nil)

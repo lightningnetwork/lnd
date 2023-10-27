@@ -8,6 +8,8 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // ChannelEdgeInfo1 represents a fully authenticated channel along with all its
@@ -185,3 +187,168 @@ func (c *ChannelEdgeInfo1) OtherNodeKeyBytes(thisNodeKey []byte) (
 			"this channel")
 	}
 }
+
+// Copy returns a copy of the ChannelEdgeInfo.
+//
+// NOTE: this is part of the ChannelEdgeInfo interface.
+func (c *ChannelEdgeInfo1) Copy() ChannelEdgeInfo {
+	return &ChannelEdgeInfo1{
+		ChannelID:        c.ChannelID,
+		ChainHash:        c.ChainHash,
+		NodeKey1Bytes:    c.NodeKey1Bytes,
+		NodeKey2Bytes:    c.NodeKey2Bytes,
+		BitcoinKey1Bytes: c.BitcoinKey1Bytes,
+		BitcoinKey2Bytes: c.BitcoinKey2Bytes,
+		Features:         c.Features,
+		AuthProof:        c.AuthProof,
+		ChannelPoint:     c.ChannelPoint,
+		Capacity:         c.Capacity,
+		ExtraOpaqueData:  c.ExtraOpaqueData,
+	}
+}
+
+// Node1Bytes returns bytes of the public key of node 1.
+//
+// NOTE: this is part of the ChannelEdgeInfo interface.
+func (c *ChannelEdgeInfo1) Node1Bytes() [33]byte {
+	return c.NodeKey1Bytes
+}
+
+// Node2Bytes returns bytes of the public key of node 2.
+//
+// NOTE: this is part of the ChannelEdgeInfo interface.
+func (c *ChannelEdgeInfo1) Node2Bytes() [33]byte {
+	return c.NodeKey2Bytes
+}
+
+// GetChainHash returns the hash of the genesis block of the chain that the edge
+// is on.
+//
+// NOTE: this is part of the ChannelEdgeInfo interface.
+func (c *ChannelEdgeInfo1) GetChainHash() chainhash.Hash {
+	return c.ChainHash
+}
+
+// GetChanID returns the channel ID.
+//
+// NOTE: this is part of the ChannelEdgeInfo interface.
+func (c *ChannelEdgeInfo1) GetChanID() uint64 {
+	return c.ChannelID
+}
+
+// GetAuthProof returns the ChannelAuthProof for the edge.
+//
+// NOTE: this is part of the ChannelEdgeInfo interface.
+func (c *ChannelEdgeInfo1) GetAuthProof() ChannelAuthProof {
+	// Cant just return AuthProof cause you then run into the
+	// nil interface gotcha.
+	if c.AuthProof == nil {
+		return nil
+	}
+
+	return c.AuthProof
+}
+
+// GetCapacity returns the capacity of the channel.
+//
+// NOTE: this is part of the ChannelEdgeInfo interface.
+func (c *ChannelEdgeInfo1) GetCapacity() btcutil.Amount {
+	return c.Capacity
+}
+
+// SetAuthProof sets the proof of the channel.
+//
+// NOTE: this is part of the ChannelEdgeInfo interface.
+func (c *ChannelEdgeInfo1) SetAuthProof(proof ChannelAuthProof) error {
+	if proof == nil {
+		c.AuthProof = nil
+
+		return nil
+	}
+
+	p, ok := proof.(*ChannelAuthProof1)
+	if !ok {
+		return fmt.Errorf("expected type ChannelAuthProof1 for "+
+			"ChannelEdgeInfo1, got %T", proof)
+	}
+
+	c.AuthProof = p
+
+	return nil
+}
+
+// GetChanPoint returns the outpoint of the funding transaction of the channel.
+//
+// NOTE: this is part of the ChannelEdgeInfo interface.
+func (c *ChannelEdgeInfo1) GetChanPoint() wire.OutPoint {
+	return c.ChannelPoint
+}
+
+// FundingScript returns the pk script for the funding output of the
+// channel.
+//
+// NOTE: this is part of the ChannelEdgeInfo interface.
+func (c *ChannelEdgeInfo1) FundingScript() ([]byte, error) {
+	legacyFundingScript := func() ([]byte, error) {
+		witnessScript, err := input.GenMultiSigScript(
+			c.BitcoinKey1Bytes[:], c.BitcoinKey2Bytes[:],
+		)
+		if err != nil {
+			return nil, err
+		}
+		pkScript, err := input.WitnessScriptHash(witnessScript)
+		if err != nil {
+			return nil, err
+		}
+
+		return pkScript, nil
+	}
+
+	if len(c.Features) == 0 {
+		return legacyFundingScript()
+	}
+
+	// TODO(elle): remove this taproot funding script logic once
+	//  ChannelEdgeInfo2 is being used.
+
+	// In order to make the correct funding script, we'll need to parse the
+	// chanFeatures bytes into a feature vector we can interact with.
+	rawFeatures := lnwire.NewRawFeatureVector()
+	err := rawFeatures.Decode(bytes.NewReader(c.Features))
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse chan feature "+
+			"bits: %w", err)
+	}
+
+	chanFeatureBits := lnwire.NewFeatureVector(
+		rawFeatures, lnwire.Features,
+	)
+	if chanFeatureBits.HasFeature(
+		lnwire.SimpleTaprootChannelsOptionalStaging,
+	) {
+
+		pubKey1, err := btcec.ParsePubKey(c.BitcoinKey1Bytes[:])
+		if err != nil {
+			return nil, err
+		}
+		pubKey2, err := btcec.ParsePubKey(c.BitcoinKey2Bytes[:])
+		if err != nil {
+			return nil, err
+		}
+
+		fundingScript, _, err := input.GenTaprootFundingScript(
+			pubKey1, pubKey2, 0,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return fundingScript, nil
+	}
+
+	return legacyFundingScript()
+}
+
+// A compile-time check to ensure that ChannelEdgeInfo1 implements the
+// ChannelEdgeInfo interface.
+var _ ChannelEdgeInfo = (*ChannelEdgeInfo1)(nil)

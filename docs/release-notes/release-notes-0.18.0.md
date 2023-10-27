@@ -82,6 +82,10 @@
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 ## Testing
+
+* Added fuzz tests for [onion
+  errors](https://github.com/lightningnetwork/lnd/pull/7669).
+
 ## Database
 
 * [Add context to InvoiceDB
@@ -102,5 +106,6 @@
 * Carla Kirk-Cohen
 * Elle Mouton
 * Keagan McClelland
+* Matt Morehouse
 * Ononiwu Maureen Chiamaka
 * Yong Yu

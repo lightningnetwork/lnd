@@ -143,8 +143,8 @@ func assertCachedPolicyEqual(t *testing.T, original *models.ChannelEdgePolicy1,
 	cached *models.CachedEdgePolicy) {
 
 	require.Equal(t, original.ChannelID, cached.ChannelID)
-	require.Equal(t, original.MessageFlags, cached.MessageFlags)
-	require.Equal(t, original.ChannelFlags, cached.ChannelFlags)
+	require.Equal(t, original.MessageFlags.HasMaxHtlc(), cached.HasMaxHTLC)
+	require.Equal(t, original.ChannelFlags.IsDisabled(), cached.IsDisabled)
 	require.Equal(t, original.TimeLockDelta, cached.TimeLockDelta)
 	require.Equal(t, original.MinHTLC, cached.MinHTLC)
 	require.Equal(t, original.MaxHTLC, cached.MaxHTLC)

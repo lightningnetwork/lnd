@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -84,8 +85,7 @@ func SignChannelUpdate(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator
 //
 // NOTE: The passed policies can be nil.
 func ExtractChannelUpdate(ownerPubKey []byte,
-	info *models.ChannelEdgeInfo1,
-	policies ...*models.ChannelEdgePolicy1) (
+	info models.ChannelEdgeInfo, policies ...*models.ChannelEdgePolicy1) (
 	*lnwire.ChannelUpdate1, error) {
 
 	// Helper function to extract the owner of the given policy.
@@ -115,37 +115,53 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 	return nil, ErrUnableToExtractChanUpdate
 }
 
-// UnsignedChannelUpdateFromEdge reconstructs an unsigned ChannelUpdate from the
+// UnsignedChannelUpdateFromEdge reconstructs an unsigned ChannelUpdate1 from the
 // given edge info and policy.
-func UnsignedChannelUpdateFromEdge(info *models.ChannelEdgeInfo1,
-	policy *models.ChannelEdgePolicy1) *lnwire.ChannelUpdate1 {
+func UnsignedChannelUpdateFromEdge(chainHash chainhash.Hash,
+	policy models.ChannelEdgePolicy) (*lnwire.ChannelUpdate1, error) {
 
-	return &lnwire.ChannelUpdate1{
-		ChainHash:       info.ChainHash,
-		ShortChannelID:  lnwire.NewShortChanIDFromInt(policy.ChannelID),
-		Timestamp:       uint32(policy.LastUpdate.Unix()),
-		ChannelFlags:    policy.ChannelFlags,
-		MessageFlags:    policy.MessageFlags,
-		TimeLockDelta:   policy.TimeLockDelta,
-		HtlcMinimumMsat: policy.MinHTLC,
-		HtlcMaximumMsat: policy.MaxHTLC,
-		BaseFee:         uint32(policy.FeeBaseMSat),
-		FeeRate:         uint32(policy.FeeProportionalMillionths),
-		ExtraOpaqueData: policy.ExtraOpaqueData,
+	switch p := policy.(type) {
+	case *models.ChannelEdgePolicy1:
+		return &lnwire.ChannelUpdate1{
+			ChainHash: chainHash,
+			ShortChannelID: lnwire.NewShortChanIDFromInt(
+				p.ChannelID,
+			),
+			Timestamp:       uint32(p.LastUpdate.Unix()),
+			ChannelFlags:    p.ChannelFlags,
+			MessageFlags:    p.MessageFlags,
+			TimeLockDelta:   p.TimeLockDelta,
+			HtlcMinimumMsat: p.MinHTLC,
+			HtlcMaximumMsat: p.MaxHTLC,
+			BaseFee:         uint32(p.FeeBaseMSat),
+			FeeRate:         uint32(p.FeeProportionalMillionths),
+			ExtraOpaqueData: p.ExtraOpaqueData,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unhandled implementation of the "+
+			"models.ChanelEdgePolicy interface: %T", policy)
 	}
 }
 
-// ChannelUpdateFromEdge reconstructs a signed ChannelUpdate from the given edge
-// info and policy.
-func ChannelUpdateFromEdge(info *models.ChannelEdgeInfo1,
+// ChannelUpdateFromEdge reconstructs a signed ChannelUpdate1 from the given
+// edge info and policy.
+func ChannelUpdateFromEdge(info models.ChannelEdgeInfo,
 	policy *models.ChannelEdgePolicy1) (*lnwire.ChannelUpdate1, error) {
 
-	update := UnsignedChannelUpdateFromEdge(info, policy)
-
-	var err error
-	update.Signature, err = lnwire.NewSigFromECDSARawSignature(
-		policy.SigBytes,
+	update, err := UnsignedChannelUpdateFromEdge(
+		info.GetChainHash(), policy,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	sig, err := policy.Sig()
+	if err != nil {
+		return nil, err
+	}
+
+	err = update.SetSig(sig)
 	if err != nil {
 		return nil, err
 	}

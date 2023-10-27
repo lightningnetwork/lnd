@@ -139,7 +139,7 @@ type ChannelGraphSource interface {
 	// AddEdge is used to add edge/channel to the topology of the router,
 	// after all information about channel will be gathered this
 	// edge/channel might be used in construction of payment path.
-	AddEdge(edge *models.ChannelEdgeInfo1,
+	AddEdge(edge models.ChannelEdgeInfo,
 		op ...batch.SchedulerOption) error
 
 	// AddProof updates the channel edge info with proof which is needed to
@@ -180,7 +180,7 @@ type ChannelGraphSource interface {
 	// emanating from the "source" node which is the center of the
 	// star-graph.
 	ForAllOutgoingChannels(cb func(tx kvdb.RTx,
-		c *models.ChannelEdgeInfo1,
+		c models.ChannelEdgeInfo,
 		e *models.ChannelEdgePolicy1) error) error
 
 	// CurrentBlockHeight returns the block height from POV of the router
@@ -189,7 +189,7 @@ type ChannelGraphSource interface {
 
 	// GetChannelByID return the channel by the channel id.
 	GetChannelByID(chanID lnwire.ShortChannelID) (
-		*models.ChannelEdgeInfo1, *models.ChannelEdgePolicy1,
+		models.ChannelEdgeInfo, *models.ChannelEdgePolicy1,
 		*models.ChannelEdgePolicy1, error)
 
 	// FetchLightningNode attempts to look up a target node by its identity
@@ -906,18 +906,21 @@ func (r *ChannelRouter) pruneZombieChans() error {
 	log.Infof("Examining channel graph for zombie channels")
 
 	// A helper method to detect if the channel belongs to this node
-	isSelfChannelEdge := func(info *models.ChannelEdgeInfo1) bool {
-		return info.NodeKey1Bytes == r.selfNode.PubKeyBytes ||
-			info.NodeKey2Bytes == r.selfNode.PubKeyBytes
+	isSelfChannelEdge := func(info models.ChannelEdgeInfo) bool {
+		return info.Node1Bytes() == r.selfNode.PubKeyBytes ||
+			info.Node2Bytes() == r.selfNode.PubKeyBytes
 	}
 
 	// First, we'll collect all the channels which are eligible for garbage
 	// collection due to being zombies.
-	filterPruneChans := func(info *models.ChannelEdgeInfo1,
+	filterPruneChans := func(info models.ChannelEdgeInfo,
 		e1, e2 *models.ChannelEdgePolicy1) error {
 
-		// Exit early in case this channel is already marked to be pruned
-		if _, markedToPrune := chansToPrune[info.ChannelID]; markedToPrune {
+		chanID := info.GetChanID()
+
+		// Exit early in case this channel is already marked to be
+		// pruned.
+		if _, markedToPrune := chansToPrune[chanID]; markedToPrune {
 			return nil
 		}
 
@@ -936,11 +939,11 @@ func (r *ChannelRouter) pruneZombieChans() error {
 
 		if e1Zombie {
 			log.Tracef("Node1 pubkey=%x of chan_id=%v is zombie",
-				info.NodeKey1Bytes, info.ChannelID)
+				info.Node1Bytes(), chanID)
 		}
 		if e2Zombie {
 			log.Tracef("Node2 pubkey=%x of chan_id=%v is zombie",
-				info.NodeKey2Bytes, info.ChannelID)
+				info.Node2Bytes(), chanID)
 		}
 
 		// If we're using strict zombie pruning, then a channel is only
@@ -965,10 +968,10 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		}
 
 		log.Debugf("ChannelID(%v) is a zombie, collecting to prune",
-			info.ChannelID)
+			chanID)
 
 		// TODO(roasbeef): add ability to delete single directional edge
-		chansToPrune[info.ChannelID] = struct{}{}
+		chansToPrune[chanID] = struct{}{}
 
 		return nil
 	}
@@ -992,7 +995,8 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		// Ensuring we won't prune our own channel from the graph.
 		for _, disabledEdge := range disabledEdges {
 			if !isSelfChannelEdge(disabledEdge.Info) {
-				chansToPrune[disabledEdge.Info.ChannelID] = struct{}{}
+				chanID := disabledEdge.Info.GetChanID()
+				chansToPrune[chanID] = struct{}{}
 			}
 		}
 	}
@@ -1548,14 +1552,19 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		log.Tracef("Updated vertex data for node=%x", msg.PubKeyBytes)
 		r.stats.incNumNodeUpdates()
 
-	case *models.ChannelEdgeInfo1:
-		log.Debugf("Received ChannelEdgeInfo1 for channel %v",
-			msg.ChannelID)
+	case models.ChannelEdgeInfo:
+		var (
+			chanID     = msg.GetChanID()
+			node1Bytes = msg.Node1Bytes()
+			node2Bytes = msg.Node2Bytes()
+		)
+
+		log.Debugf("Received ChannelEdgeInfo for channel %v", chanID)
 
 		// Prior to processing the announcement we first check if we
 		// already know of this channel, if so, then we can exit early.
 		_, _, exists, isZombie, err := r.cfg.Graph.HasChannelEdge(
-			msg.ChannelID,
+			chanID,
 		)
 		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 			return errors.Errorf("unable to check for edge "+
@@ -1563,11 +1572,11 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		}
 		if isZombie {
 			return newErrf(ErrIgnored, "ignoring msg for zombie "+
-				"chan_id=%v", msg.ChannelID)
+				"chan_id=%v", chanID)
 		}
 		if exists {
 			return newErrf(ErrIgnored, "ignoring msg for known "+
-				"chan_id=%v", msg.ChannelID)
+				"chan_id=%v", chanID)
 		}
 
 		// If AssumeChannelValid is present, then we are unable to
@@ -1577,15 +1586,15 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		// skip validation as it will not map to a legitimate tx. This
 		// is not a DoS vector as only we can add an alias
 		// ChannelAnnouncement1 from the gossiper.
-		scid := lnwire.NewShortChanIDFromInt(msg.ChannelID)
+		scid := lnwire.NewShortChanIDFromInt(chanID)
 		if r.cfg.AssumeChannelValid || r.cfg.IsAlias(scid) {
-			if err := r.cfg.Graph.AddChannelEdge(msg, op...); err != nil {
+			err := r.cfg.Graph.AddChannelEdge(msg, op...)
+			if err != nil {
 				return fmt.Errorf("unable to add edge: %v", err)
 			}
 			log.Tracef("New channel discovered! Link "+
 				"connects %x and %x with ChannelID(%v)",
-				msg.NodeKey1Bytes, msg.NodeKey2Bytes,
-				msg.ChannelID)
+				node1Bytes, node2Bytes, chanID)
 			r.stats.incNumEdgesDiscovered()
 
 			break
@@ -1594,7 +1603,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		// Before we can add the channel to the channel graph, we need
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
-		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
+		channelID := lnwire.NewShortChanIDFromInt(chanID)
 		fundingTx, err := r.cfg.FetchTxBySCID(&channelID, r.quit)
 		if err != nil {
 			// In order to ensure we don't erroneously mark a
@@ -1617,7 +1626,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 				// zombie so we don't continue to request it.
 				// We use the "zero key" for both node pubkeys
 				// so this edge can't be resurrected.
-				zErr := r.addZombieEdge(msg.ChannelID)
+				zErr := r.addZombieEdge(chanID)
 				if zErr != nil {
 					return zErr
 				}
@@ -1632,10 +1641,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		// Recreate witness output to be sure that declared in channel
 		// edge bitcoin keys and channel value corresponds to the
 		// reality.
-		fundingPkScript, err := makeFundingScript(
-			msg.BitcoinKey1Bytes[:], msg.BitcoinKey2Bytes[:],
-			msg.Features,
-		)
+		fundingPkScript, err := msg.FundingScript()
 		if err != nil {
 			return err
 		}
@@ -1654,7 +1660,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		if err != nil {
 			// Mark the edge as a zombie so we won't try to
 			// re-validate it on start up.
-			if err := r.addZombieEdge(msg.ChannelID); err != nil {
+			if err := r.addZombieEdge(chanID); err != nil {
 				return err
 			}
 
@@ -1671,7 +1677,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		)
 		if err != nil {
 			if errors.Is(err, btcwallet.ErrOutputSpent) {
-				zErr := r.addZombieEdge(msg.ChannelID)
+				zErr := r.addZombieEdge(chanID)
 				if zErr != nil {
 					return zErr
 				}
@@ -1679,22 +1685,30 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 
 			return newErrf(ErrChannelSpent, "unable to fetch utxo "+
 				"for chan_id=%v, chan_point=%v: %v",
-				msg.ChannelID, fundingPoint, err)
+				chanID, fundingPoint, err)
 		}
 
 		// TODO(roasbeef): this is a hack, needs to be removed
 		// after commitment fees are dynamic.
-		msg.Capacity = btcutil.Amount(chanUtxo.Value)
-		msg.ChannelPoint = *fundingPoint
+		switch m := msg.(type) {
+		case *models.ChannelEdgeInfo1:
+			m.Capacity = btcutil.Amount(chanUtxo.Value)
+			m.ChannelPoint = *fundingPoint
+		case *models.ChannelEdgeInfo2:
+			m.ChannelPoint = *fundingPoint
+		default:
+			return errors.Errorf("unhandled implementation of "+
+				"ChannelEdgeInfo: %T", msg)
+		}
+
 		if err := r.cfg.Graph.AddChannelEdge(msg, op...); err != nil {
 			return errors.Errorf("unable to add edge: %v", err)
 		}
 
 		log.Debugf("New channel discovered! Link "+
 			"connects %x and %x with ChannelPoint(%v): "+
-			"chan_id=%v, capacity=%v",
-			msg.NodeKey1Bytes, msg.NodeKey2Bytes,
-			fundingPoint, msg.ChannelID, msg.Capacity)
+			"chan_id=%v, capacity=%v", node1Bytes, node2Bytes,
+			fundingPoint, chanID, msg.GetCapacity())
 		r.stats.incNumEdgesDiscovered()
 
 		// As a new edge has been added to the channel graph, we'll
@@ -2649,7 +2663,7 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	err = ValidateChannelUpdateAnn(pubKey, ch.Capacity, msg)
+	err = ValidateChannelUpdateAnn(pubKey, ch.GetCapacity(), msg)
 	if err != nil {
 		log.Errorf("Unable to validate channel update: %v", err)
 		return false
@@ -2707,7 +2721,7 @@ func (r *ChannelRouter) AddNode(node *channeldb.LightningNode,
 // in construction of payment path.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) AddEdge(edge *models.ChannelEdgeInfo1,
+func (r *ChannelRouter) AddEdge(edge models.ChannelEdgeInfo,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{
@@ -2774,7 +2788,7 @@ func (r *ChannelRouter) SyncedHeight() uint32 {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) GetChannelByID(chanID lnwire.ShortChannelID) (
-	*models.ChannelEdgeInfo1,
+	models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy1,
 	*models.ChannelEdgePolicy1, error) {
 
@@ -2809,10 +2823,10 @@ func (r *ChannelRouter) ForEachNode(
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) ForAllOutgoingChannels(cb func(kvdb.RTx,
-	*models.ChannelEdgeInfo1, *models.ChannelEdgePolicy1) error) error {
+	models.ChannelEdgeInfo, *models.ChannelEdgePolicy1) error) error {
 
 	return r.cfg.Graph.ForEachNodeChannel(nil, r.selfNode.PubKeyBytes,
-		func(tx kvdb.RTx, c *models.ChannelEdgeInfo1,
+		func(tx kvdb.RTx, c models.ChannelEdgeInfo,
 			e *models.ChannelEdgePolicy1,
 			_ *models.ChannelEdgePolicy1) error {
 
@@ -2838,7 +2852,11 @@ func (r *ChannelRouter) AddProof(chanID lnwire.ShortChannelID,
 		return err
 	}
 
-	info.AuthProof = proof
+	err = info.SetAuthProof(proof)
+	if err != nil {
+		return err
+	}
+
 	return r.cfg.Graph.UpdateChannelEdge(info)
 }
 

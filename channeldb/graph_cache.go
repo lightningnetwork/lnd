@@ -28,7 +28,7 @@ type GraphCacheNode interface {
 	// error, then the iteration is halted with the error propagated back up
 	// to the caller.
 	ForEachChannel(kvdb.RTx,
-		func(kvdb.RTx, *models.ChannelEdgeInfo1,
+		func(kvdb.RTx, models.ChannelEdgeInfo,
 			*models.ChannelEdgePolicy1,
 			*models.ChannelEdgePolicy1) error) error
 }
@@ -139,7 +139,7 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 	c.AddNodeFeatures(node)
 
 	return node.ForEachChannel(
-		tx, func(tx kvdb.RTx, info *models.ChannelEdgeInfo1,
+		tx, func(tx kvdb.RTx, info models.ChannelEdgeInfo,
 			outPolicy *models.ChannelEdgePolicy1,
 			inPolicy *models.ChannelEdgePolicy1) error {
 
@@ -155,7 +155,7 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 // and policy flags automatically. The policy will be set as the outgoing policy
 // on one node and the incoming policy on the peer's side.
 func (c *GraphCache) AddChannel(info models.ChannelEdgeInfo,
-	policy1 models.ChannelEdgePolicy, policy2 models.ChannelEdgePolicy) {
+	policy1 *models.ChannelEdgePolicy1, policy2 *models.ChannelEdgePolicy1) {
 
 	if info == nil {
 		return

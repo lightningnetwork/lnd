@@ -154,9 +154,8 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 // and policy 2 does not matter, the directionality is extracted from the info
 // and policy flags automatically. The policy will be set as the outgoing policy
 // on one node and the incoming policy on the peer's side.
-func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo1,
-	policy1 *models.ChannelEdgePolicy1,
-	policy2 *models.ChannelEdgePolicy1) {
+func (c *GraphCache) AddChannel(info models.ChannelEdgeInfo,
+	policy1 models.ChannelEdgePolicy, policy2 models.ChannelEdgePolicy) {
 
 	if info == nil {
 		return
@@ -170,36 +169,36 @@ func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo1,
 
 	// Create the edge entry for both nodes.
 	c.mtx.Lock()
-	c.updateOrAddEdge(info.NodeKey1Bytes, &DirectedChannel{
-		ChannelID: info.ChannelID,
+	c.updateOrAddEdge(info.Node1Bytes(), &DirectedChannel{
+		ChannelID: info.GetChanID(),
 		IsNode1:   true,
-		OtherNode: info.NodeKey2Bytes,
-		Capacity:  info.Capacity,
+		OtherNode: info.Node2Bytes(),
+		Capacity:  info.GetCapacity(),
 	})
-	c.updateOrAddEdge(info.NodeKey2Bytes, &DirectedChannel{
-		ChannelID: info.ChannelID,
+	c.updateOrAddEdge(info.Node2Bytes(), &DirectedChannel{
+		ChannelID: info.GetChanID(),
 		IsNode1:   false,
-		OtherNode: info.NodeKey1Bytes,
-		Capacity:  info.Capacity,
+		OtherNode: info.Node1Bytes(),
+		Capacity:  info.GetCapacity(),
 	})
 	c.mtx.Unlock()
 
 	// The policy's node is always the to_node. So if policy 1 has to_node
 	// of node 2 then we have the policy 1 as seen from node 1.
 	if policy1 != nil {
-		fromNode, toNode := info.NodeKey1Bytes, info.NodeKey2Bytes
-		if policy1.ToNode != info.NodeKey2Bytes {
+		fromNode, toNode := info.Node1Bytes(), info.Node2Bytes()
+		if policy1.GetToNode() != info.Node2Bytes() {
 			fromNode, toNode = toNode, fromNode
 		}
-		isEdge1 := policy1.ChannelFlags&lnwire.ChanUpdateDirection == 0
+		isEdge1 := policy1.IsNode1()
 		c.UpdatePolicy(policy1, fromNode, toNode, isEdge1)
 	}
 	if policy2 != nil {
-		fromNode, toNode := info.NodeKey2Bytes, info.NodeKey1Bytes
-		if policy2.ToNode != info.NodeKey1Bytes {
+		fromNode, toNode := info.Node2Bytes(), info.Node1Bytes()
+		if policy2.GetToNode() != info.Node1Bytes() {
 			fromNode, toNode = toNode, fromNode
 		}
-		isEdge1 := policy2.ChannelFlags&lnwire.ChanUpdateDirection == 0
+		isEdge1 := policy2.IsNode1()
 		c.UpdatePolicy(policy2, fromNode, toNode, isEdge1)
 	}
 }
@@ -218,7 +217,7 @@ func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
 // of the from and to node is not strictly important. But we assume that a
 // channel edge was added beforehand so that the directed channel struct already
 // exists in the cache.
-func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy1, fromNode,
+func (c *GraphCache) UpdatePolicy(policy models.ChannelEdgePolicy, fromNode,
 	toNode route.Vertex, edge1 bool) {
 
 	c.mtx.Lock()
@@ -229,7 +228,7 @@ func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy1, fromNode,
 			return
 		}
 
-		channel, ok := c.nodeChannels[nodeKey][policy.ChannelID]
+		channel, ok := c.nodeChannels[nodeKey][policy.SCID().ToUint64()]
 		if !ok {
 			return
 		}
@@ -297,28 +296,35 @@ func (c *GraphCache) removeChannelIfFound(node route.Vertex, chanID uint64) {
 // UpdateChannel updates the channel edge information for a specific edge. We
 // expect the edge to already exist and be known. If it does not yet exist, this
 // call is a no-op.
-func (c *GraphCache) UpdateChannel(info *models.ChannelEdgeInfo1) {
+func (c *GraphCache) UpdateChannel(info models.ChannelEdgeInfo) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	if len(c.nodeChannels[info.NodeKey1Bytes]) == 0 ||
-		len(c.nodeChannels[info.NodeKey2Bytes]) == 0 {
+	var (
+		node1Bytes = info.Node1Bytes()
+		node2Bytes = info.Node2Bytes()
+		chanID     = info.GetChanID()
+		capacity   = info.GetCapacity()
+	)
+
+	if len(c.nodeChannels[node1Bytes]) == 0 ||
+		len(c.nodeChannels[node2Bytes]) == 0 {
 
 		return
 	}
 
-	channel, ok := c.nodeChannels[info.NodeKey1Bytes][info.ChannelID]
+	channel, ok := c.nodeChannels[node1Bytes][chanID]
 	if ok {
 		// We only expect to be called when the channel is already
 		// known.
-		channel.Capacity = info.Capacity
-		channel.OtherNode = info.NodeKey2Bytes
+		channel.Capacity = capacity
+		channel.OtherNode = node2Bytes
 	}
 
-	channel, ok = c.nodeChannels[info.NodeKey2Bytes][info.ChannelID]
+	channel, ok = c.nodeChannels[node2Bytes][chanID]
 	if ok {
-		channel.Capacity = info.Capacity
-		channel.OtherNode = info.NodeKey1Bytes
+		channel.Capacity = capacity
+		channel.OtherNode = node1Bytes
 	}
 }
 

@@ -458,6 +458,12 @@ the following:
   to provide a reliable delivery of notifications (e.g.
   `--zmqpubrawblock=tcp://127.0.0.1:28332` and
   `--zmqpubrawtx=tcp://127.0.0.1:28333`).
+- Make sure the config setting `-rpcserialversion` in `bitcoind` is either set
+  to 1 or NOT used because bitcoind's default behaviour is already correct
+  (see https://github.com/bitcoin/bitcoin/issues/28730 for more infos).
+  Lightning depends on segwit transactions therefore we need the witness
+  data when querying the bitcoind backend for transaction details.
+  
 - Start `bitcoind` running against testnet, and let it complete a full sync with
   the testnet chain (alternatively, use `--bitcoind.regtest` instead).
 

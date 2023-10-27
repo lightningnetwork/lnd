@@ -217,6 +217,10 @@
             "format": "byte"
           },
           "description": "Custom channel update tlv records."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64"
         }
       }
     },

@@ -139,3 +139,20 @@ func (c *ChannelAuthProof1) isChanAuthProof() {}
 // A compile-time check to ensure that ChannelAutoProof1 implements the
 // ChannelAuthProof interface.
 var _ ChannelAuthProof = (*ChannelAuthProof1)(nil)
+
+// ChannelAuthProof2 is the authentication proof required for a taproot channel
+// announcement. It contains a single Schnorr signature.
+type ChannelAuthProof2 struct {
+	// SchnorrSigBytes are the raw bytes of the encoded schnorr signature.
+	SchnorrSigBytes []byte
+}
+
+// isChanAuthProof is a no-op method used to ensure that a struct must
+// explicitly inherit this interface to be considered a ChannelAuthProof type.
+//
+// NOTE: this is part of the ChannelAuthProof interface.
+func (c *ChannelAuthProof2) isChanAuthProof() {}
+
+// A compile-time check to ensure that ChannelAutoProof2 implements the
+// ChannelAuthProof interface.
+var _ ChannelAuthProof = (*ChannelAuthProof2)(nil)

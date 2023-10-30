@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -633,5 +634,203 @@ func FuzzConvertFixedSignature(f *testing.F) {
 		derBytes := derSig.Serialize()
 		derBytes2 := derSig2.Serialize()
 		require.Equal(t, derBytes, derBytes2, "signature mismatch")
+	})
+}
+
+// prefixWithFailCode adds a failure code prefix to data.
+func prefixWithFailCode(data []byte, code FailCode) []byte {
+	var codeBytes [2]byte
+	binary.BigEndian.PutUint16(codeBytes[:], uint16(code))
+	data = append(codeBytes[:], data...)
+
+	return data
+}
+
+// equalFunc is a function used to determine whether two deserialized messages
+// are equivalent.
+type equalFunc func(x, y any) bool
+
+// onionFailureHarnessCustom performs the actual fuzz testing of the appropriate
+// onion failure message. This function will check that the passed-in message
+// passes wire length checks, is a valid message once deserialized, and passes a
+// sequence of serialization and deserialization checks.
+func onionFailureHarnessCustom(t *testing.T, data []byte, code FailCode,
+	eq equalFunc) {
+
+	data = prefixWithFailCode(data, code)
+
+	// Don't waste time fuzzing messages larger than we'll ever accept.
+	if len(data) > MaxSliceLength {
+		return
+	}
+
+	// First check whether the failure message can be decoded.
+	r := bytes.NewReader(data)
+	msg, err := DecodeFailureMessage(r, 0)
+	if err != nil {
+		return
+	}
+
+	// We now have a valid decoded message. Verify that encoding and
+	// decoding the message does not mutate it.
+
+	var b bytes.Buffer
+	err = EncodeFailureMessage(&b, msg, 0)
+	require.NoError(t, err, "failed to encode failure message")
+
+	newMsg, err := DecodeFailureMessage(&b, 0)
+	require.NoError(t, err, "failed to decode serialized failure message")
+
+	require.True(
+		t, eq(msg, newMsg),
+		"original message and deserialized message are not equal: "+
+			"%v != %v",
+		msg, newMsg,
+	)
+
+	// Now verify that encoding/decoding full packets works as expected.
+
+	var pktBuf bytes.Buffer
+	if err := EncodeFailure(&pktBuf, msg, 0); err != nil {
+		// EncodeFailure returns an error if the encoded message would
+		// exceed FailureMessageLength bytes, as LND always encodes
+		// fixed-size packets for privacy. But it is valid to decode
+		// messages longer than this, so we should not report an error
+		// if the original message was longer.
+		//
+		// We add 2 to the length of the original message since it may
+		// have omitted a channel_update type prefix of 2 bytes. When
+		// we re-encode such a message, we will add the 2-byte prefix
+		// as prescribed by the spec.
+		if len(data)+2 > FailureMessageLength {
+			return
+		}
+
+		t.Fatalf("failed to encode failure packet: %v", err)
+	}
+
+	// We should use FailureMessageLength sized packets plus 2 bytes to
+	// encode the message length and 2 bytes to encode the padding length,
+	// as recommended by the spec.
+	require.Equal(
+		t, pktBuf.Len(), FailureMessageLength+4,
+		"wrong failure message length",
+	)
+
+	pktMsg, err := DecodeFailure(&pktBuf, 0)
+	require.NoError(t, err, "failed to decode failure packet")
+
+	require.True(
+		t, eq(msg, pktMsg),
+		"original message and decoded packet message are not equal: "+
+			"%v != %v",
+		msg, pktMsg,
+	)
+}
+
+func onionFailureHarness(t *testing.T, data []byte, code FailCode) {
+	t.Helper()
+	onionFailureHarnessCustom(t, data, code, reflect.DeepEqual)
+}
+
+func FuzzFailIncorrectDetails(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Since FailIncorrectDetails.Decode can leave extraOpaqueData
+		// as nil while FailIncorrectDetails.Encode writes an empty
+		// slice, we need to use a custom equality function.
+		eq := func(x, y any) bool {
+			msg1, ok := x.(*FailIncorrectDetails)
+			require.True(
+				t, ok, "msg1 was not FailIncorrectDetails",
+			)
+
+			msg2, ok := y.(*FailIncorrectDetails)
+			require.True(
+				t, ok, "msg2 was not FailIncorrectDetails",
+			)
+
+			return msg1.amount == msg2.amount &&
+				msg1.height == msg2.height &&
+				bytes.Equal(
+					msg1.extraOpaqueData,
+					msg2.extraOpaqueData,
+				)
+		}
+
+		onionFailureHarnessCustom(
+			t, data, CodeIncorrectOrUnknownPaymentDetails, eq,
+		)
+	})
+}
+
+func FuzzFailInvalidOnionVersion(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeInvalidOnionVersion)
+	})
+}
+
+func FuzzFailInvalidOnionHmac(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeInvalidOnionHmac)
+	})
+}
+
+func FuzzFailInvalidOnionKey(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeInvalidOnionKey)
+	})
+}
+
+func FuzzFailTemporaryChannelFailure(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeTemporaryChannelFailure)
+	})
+}
+
+func FuzzFailAmountBelowMinimum(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeAmountBelowMinimum)
+	})
+}
+
+func FuzzFailFeeInsufficient(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeFeeInsufficient)
+	})
+}
+
+func FuzzFailIncorrectCltvExpiry(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeIncorrectCltvExpiry)
+	})
+}
+
+func FuzzFailExpiryTooSoon(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeExpiryTooSoon)
+	})
+}
+
+func FuzzFailChannelDisabled(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeChannelDisabled)
+	})
+}
+
+func FuzzFailFinalIncorrectCltvExpiry(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeFinalIncorrectCltvExpiry)
+	})
+}
+
+func FuzzFailFinalIncorrectHtlcAmount(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeFinalIncorrectHtlcAmount)
+	})
+}
+
+func FuzzInvalidOnionPayload(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		onionFailureHarness(t, data, CodeInvalidOnionPayload)
 	})
 }

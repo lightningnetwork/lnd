@@ -26,22 +26,16 @@ var (
 	ErrLocktimeConflict = errors.New("incompatible locktime")
 )
 
-// txInput is an interface that provides the input data required for tx
-// generation.
-type txInput interface {
-	input.Input
-	parameters() Params
-}
-
 // createSweepTx builds a signed tx spending the inputs to the given outputs,
 // sending any leftover change to the change script.
-func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
+func createSweepTx(set InputSet, outputs []*wire.TxOut,
 	changePkScript []byte, currentBlockHeight uint32,
-	feePerKw, maxFeeRate chainfee.SatPerKWeight,
+	maxFeeRate chainfee.SatPerKWeight,
 	signer input.Signer) (*wire.MsgTx, btcutil.Amount, error) {
 
 	inputs, estimator, err := getWeightEstimate(
-		inputs, outputs, feePerKw, maxFeeRate, changePkScript,
+		set.Inputs(), outputs, set.FeeRate(),
+		maxFeeRate, changePkScript,
 	)
 	if err != nil {
 		return nil, 0, err
@@ -208,7 +202,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		"using %v sat/kw, tx_weight=%v, tx_fee=%v, parents_count=%v, "+
 		"parents_fee=%v, parents_weight=%v",
 		sweepTx.TxHash(), len(inputs),
-		inputTypeSummary(inputs), int64(feePerKw),
+		inputTypeSummary(inputs), int64(set.FeeRate()),
 		estimator.weight(), txFee,
 		len(estimator.parents), estimator.parentsFee,
 		estimator.parentsWeight,
@@ -221,8 +215,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 // Additionally, it returns counts for the number of csv and cltv inputs.
 func getWeightEstimate(inputs []input.Input, outputs []*wire.TxOut,
 	feeRate, maxFeeRate chainfee.SatPerKWeight,
-	outputPkScript []byte) ([]input.Input,
-	*weightEstimator, error) {
+	outputPkScript []byte) ([]input.Input, *weightEstimator, error) {
 
 	// We initialize a weight estimator so we can accurately asses the
 	// amount of fees we need to pay for this sweep transaction.

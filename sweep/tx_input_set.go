@@ -30,6 +30,16 @@ const (
 	constraintsForce
 )
 
+// InputSet defines an interface that's responsible for filtering a set of
+// inputs that can be swept economically.
+type InputSet interface {
+	// Inputs returns the set of inputs that should be used to create a tx.
+	Inputs() []input.Input
+
+	// FeeRate returns the fee rate that should be used for the tx.
+	FeeRate() chainfee.SatPerKWeight
+}
+
 type txInputSetState struct {
 	// feeRate is the fee rate to use for the sweep transaction.
 	feeRate chainfee.SatPerKWeight
@@ -121,6 +131,9 @@ type txInputSet struct {
 	wallet Wallet
 }
 
+// Compile-time constraint to ensure txInputSet implements InputSet.
+var _ InputSet = (*txInputSet)(nil)
+
 // newTxInputSet constructs a new, empty input set.
 func newTxInputSet(wallet Wallet, feePerKW, maxFeeRate chainfee.SatPerKWeight,
 	maxInputs int) *txInputSet {
@@ -137,6 +150,16 @@ func newTxInputSet(wallet Wallet, feePerKW, maxFeeRate chainfee.SatPerKWeight,
 	}
 
 	return &b
+}
+
+// Inputs returns the inputs that should be used to create a tx.
+func (t *txInputSet) Inputs() []input.Input {
+	return t.inputs
+}
+
+// FeeRate returns the fee rate that should be used for the tx.
+func (t *txInputSet) FeeRate() chainfee.SatPerKWeight {
+	return t.feeRate
 }
 
 // enoughInput returns true if we've accumulated enough inputs to pay the fees

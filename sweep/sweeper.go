@@ -740,36 +740,6 @@ func (s *UtxoSweeper) removeExclusiveGroup(group uint64) {
 	}
 }
 
-// sweepCluster tries to sweep the given input cluster.
-func (s *UtxoSweeper) sweepCluster(cluster Cluster) error {
-	// Execute the sweep within a coin select lock. Otherwise the coins
-	// that we are going to spend may be selected for other transactions
-	// like funding of a channel.
-	//
-	// TODO(yy): decrease the lock scope.
-	return s.cfg.Wallet.WithCoinSelectLock(func() error {
-		// Examine pending inputs and try to construct lists of inputs.
-		sets, err := cluster.CreateInputSets(
-			s.cfg.Wallet,
-			s.cfg.MaxFeeRate.FeePerKWeight(),
-			s.cfg.MaxInputsPerTx,
-		)
-		if err != nil {
-			return fmt.Errorf("examine pending inputs: %w", err)
-		}
-
-		// Create sweeping transaction for each set.
-		for _, inputs := range sets {
-			err := s.sweep(inputs)
-			if err != nil {
-				log.Errorf("sweep new inputs: %w", err)
-			}
-		}
-
-		return nil
-	})
-}
-
 // signalResult notifies the listeners of the final result of the input sweep.
 // It also cancels any pending spend notification.
 func (s *UtxoSweeper) signalResult(pi *pendingInput, result Result) {
@@ -1561,17 +1531,33 @@ func (s *UtxoSweeper) updateSweeperInputs() pendingInputs {
 // sweepPendingInputs is called when the ticker fires. It will create clusters
 // and attempt to create and publish the sweeping transactions.
 func (s *UtxoSweeper) sweepPendingInputs(inputs pendingInputs) {
-	// We'll attempt to cluster all of our inputs with similar fee rates.
-	// Before attempting to sweep them, we'll sort them in descending fee
-	// rate order. We do this to ensure any inputs which have had their fee
-	// rate bumped are broadcast first in order enforce the RBF policy.
-	inputClusters := s.cfg.Aggregator.ClusterInputs(inputs)
+	// Execute the sweep within a coin select lock. Otherwise the coins
+	// that we are going to spend may be selected for other transactions
+	// like funding of a channel.
+	//
+	// TODO(yy): decrease the lock scope - we need to remove the wallet
+	// used here, which means we need to ask the aggregator to return input
+	// sets and specifying whether wallet utoxs are needed or not. Then, by
+	// calling `TxInput.NeedWalletInput`, we can then lock and add the
+	// wallet input, creating a much smaller lock scope.
+	err := s.cfg.Wallet.WithCoinSelectLock(func() error {
+		// Cluster all of our inputs based on the specific Aggregator.
+		inputSets := s.cfg.Aggregator.ClusterInputs(
+			s.cfg.Wallet, inputs,
+		)
 
-	for _, cluster := range inputClusters {
-		err := s.sweepCluster(cluster)
-		if err != nil {
-			log.Errorf("input cluster sweep: %v", err)
+		// Create sweeping transaction for each set.
+		for _, inputs := range inputSets {
+			err := s.sweep(inputs)
+			if err != nil {
+				log.Errorf("sweep new inputs: %v", err)
+			}
 		}
+
+		return nil
+	})
+	if err != nil {
+		log.Errorf("input cluster sweep: %v", err)
 	}
 }
 

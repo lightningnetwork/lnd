@@ -352,11 +352,18 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 		return nil, err
 	}
 
+	txInputs := &txInputSet{
+		txInputSetState: txInputSetState{
+			inputs:  inputsToSweep,
+			feeRate: feeRate,
+		},
+	}
+
 	// Finally, we'll ask the sweeper to craft a sweep transaction which
 	// respects our fee preference and targets all the UTXOs of the wallet.
 	sweepTx, _, err := createSweepTx(
-		inputsToSweep, txOuts, changePkScript, blockHeight,
-		feeRate, maxFeeRate, signer,
+		txInputs, txOuts, changePkScript, blockHeight,
+		maxFeeRate, signer,
 	)
 	if err != nil {
 		unlockOutputs()

@@ -421,3 +421,9 @@ func TestClusterByLockTime(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateInputSets checks that ...
+func TestCreateInputSets(t *testing.T) {
+	// TODO(yy): add it.
+	t.Parallel()
+}

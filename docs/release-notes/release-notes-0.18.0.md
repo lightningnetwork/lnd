@@ -32,6 +32,10 @@
   attempt](https://github.com/lightningnetwork/lnd/pull/8091) when sweeping new
   inputs with retried ones.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/7811) a case where `lnd`
+  might panic due to empty witness data found in a transaction. More details
+  can be found [here](https://github.com/bitcoin/bitcoin/issues/28730).
+
 # New Features
 ## Functional Enhancements
 

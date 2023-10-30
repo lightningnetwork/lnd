@@ -331,7 +331,7 @@ func (t *txInputSet) add(input input.Input, constraints addConstraints) bool {
 // up the utxo set even if it costs us some fees up front.  In the spirit of
 // minimizing any negative externalities we cause for the Bitcoin system as a
 // whole.
-func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []txInput) {
+func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []*pendingInput) {
 	for i, inp := range sweepableInputs {
 		// Apply relaxed constraints for force sweeps.
 		constraints := constraintsRegular

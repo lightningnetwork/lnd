@@ -1065,6 +1065,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	aggregator := sweep.NewSimpleUtxoAggregator(
 		cc.FeeEstimator, cfg.Sweeper.MaxFeeRate.FeePerKWeight(),
+		sweep.DefaultMaxInputsPerTx,
 	)
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{

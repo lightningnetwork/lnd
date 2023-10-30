@@ -23,22 +23,6 @@ const (
 	DefaultFeeRateBucketSize = 10
 )
 
-// inputSet is a set of inputs that can be used as the basis to generate a tx
-// on.
-type inputSet []input.Input
-
-// Cluster defines an interface that prepares inputs of a cluster to be grouped
-// into a list of sets that can be used to create sweep transactions.
-type Cluster interface {
-	// CreateInputSets goes through the cluster's inputs and constructs
-	// sets of inputs that can be used to generate a sensible transaction.
-	CreateInputSets(wallet Wallet, maxFeeRate chainfee.SatPerKWeight,
-		maxInputs int) ([]InputSet, error)
-}
-
-// Compile-time constraint to ensure inputCluster implements Cluster.
-var _ Cluster = (*inputCluster)(nil)
-
 // inputCluster is a helper struct to gather a set of pending inputs that
 // should be swept with the specified fee rate.
 type inputCluster struct {
@@ -52,7 +36,7 @@ type inputCluster struct {
 // the configured maximum number of inputs. Negative yield inputs are skipped.
 // No input sets with a total value after fees below the dust limit are
 // returned.
-func (c *inputCluster) CreateInputSets(
+func (c *inputCluster) createInputSets(
 	wallet Wallet, maxFeeRate chainfee.SatPerKWeight,
 	maxInputs int) ([]InputSet, error) {
 
@@ -160,7 +144,7 @@ func (c *inputCluster) CreateInputSets(
 // sweeping transaction.
 type UtxoAggregator interface {
 	// ClusterInputs takes a list of inputs and groups them into clusters.
-	ClusterInputs(pendingInputs) []Cluster
+	ClusterInputs(Wallet, pendingInputs) []InputSet
 }
 
 // SimpleAggregator aggregates inputs known by the Sweeper based on each
@@ -174,6 +158,11 @@ type SimpleAggregator struct {
 	// MaxFeeRate is the maximum fee rate allowed within the
 	// SimpleAggregator.
 	MaxFeeRate chainfee.SatPerKWeight
+
+	// MaxInputsPerTx specifies the default maximum number of inputs allowed
+	// in a single sweep tx. If more need to be swept, multiple txes are
+	// created and published.
+	MaxInputsPerTx int
 
 	// FeeRateBucketSize is the default size of fee rate buckets we'll use
 	// when clustering inputs into buckets with similar fee rates within
@@ -193,11 +182,12 @@ var _ UtxoAggregator = (*SimpleAggregator)(nil)
 
 // NewSimpleUtxoAggregator creates a new instance of a SimpleAggregator.
 func NewSimpleUtxoAggregator(estimator chainfee.Estimator,
-	max chainfee.SatPerKWeight) *SimpleAggregator {
+	max chainfee.SatPerKWeight, maxTx int) *SimpleAggregator {
 
 	return &SimpleAggregator{
 		FeeEstimator:      estimator,
 		MaxFeeRate:        max,
+		MaxInputsPerTx:    maxTx,
 		FeeRateBucketSize: DefaultFeeRateBucketSize,
 	}
 }
@@ -206,7 +196,9 @@ func NewSimpleUtxoAggregator(estimator chainfee.Estimator,
 // inputs known by the UtxoSweeper. It clusters inputs by
 // 1) Required tx locktime
 // 2) Similar fee rates.
-func (s *SimpleAggregator) ClusterInputs(inputs pendingInputs) []Cluster {
+func (s *SimpleAggregator) ClusterInputs(
+	wallet Wallet, inputs pendingInputs) []InputSet {
+
 	// We start by getting the inputs clusters by locktime. Since the
 	// inputs commit to the locktime, they can only be clustered together
 	// if the locktime is equal.
@@ -225,12 +217,21 @@ func (s *SimpleAggregator) ClusterInputs(inputs pendingInputs) []Cluster {
 			clusters[j].sweepFeeRate
 	})
 
-	result := make([]Cluster, 0, len(clusters))
-	for _, c := range clusters {
-		result = append(result, &c)
+	// Now that we have the clusters, we can create the input sets.
+	var inputSets []InputSet
+	for _, cluster := range clusters {
+		sets, err := cluster.createInputSets(
+			wallet, s.MaxFeeRate, s.MaxInputsPerTx,
+		)
+		if err != nil {
+			log.Errorf("Unable to create input sets: %v", err)
+			continue
+		}
+
+		inputSets = append(inputSets, sets...)
 	}
 
-	return result
+	return inputSets
 }
 
 // clusterByLockTime takes the given set of pending inputs and clusters those

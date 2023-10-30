@@ -760,7 +760,7 @@ func (s *UtxoSweeper) sweepCluster(cluster Cluster) error {
 
 		// Create sweeping transaction for each set.
 		for _, inputs := range sets {
-			err := s.sweep(inputs, cluster.FeeRate())
+			err := s.sweep(inputs)
 			if err != nil {
 				log.Errorf("sweep new inputs: %w", err)
 			}
@@ -803,9 +803,7 @@ func (s *UtxoSweeper) signalResult(pi *pendingInput, result Result) {
 
 // sweep takes a set of preselected inputs, creates a sweep tx and publishes the
 // tx. The output address is only marked as used if the publish succeeds.
-func (s *UtxoSweeper) sweep(inputs inputSet,
-	feeRate chainfee.SatPerKWeight) error {
-
+func (s *UtxoSweeper) sweep(set InputSet) error {
 	// Generate an output script if there isn't an unused script available.
 	if s.currentOutputScript == nil {
 		pkScript, err := s.cfg.GenSweepScript()
@@ -817,8 +815,9 @@ func (s *UtxoSweeper) sweep(inputs inputSet,
 
 	// Create sweep tx.
 	tx, fee, err := createSweepTx(
-		inputs, nil, s.currentOutputScript, uint32(s.currentHeight),
-		feeRate, s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
+		set.Inputs(), nil, s.currentOutputScript,
+		uint32(s.currentHeight), set.FeeRate(),
+		s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
 	)
 	if err != nil {
 		return fmt.Errorf("create sweep tx: %w", err)
@@ -826,7 +825,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet,
 
 	tr := &TxRecord{
 		Txid:    tx.TxHash(),
-		FeeRate: uint64(feeRate),
+		FeeRate: uint64(set.FeeRate()),
 		Fee:     uint64(fee),
 	}
 
@@ -1195,6 +1194,8 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 // - Make handling re-orgs easier.
 // - Thwart future possible fee sniping attempts.
 // - Make us blend in with the bitcoind wallet.
+//
+// TODO(yy): remove this method and only allow sweeping via requests.
 func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input,
 	feePref FeeEstimateInfo) (*wire.MsgTx, error) {
 

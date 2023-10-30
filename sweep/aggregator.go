@@ -4,6 +4,8 @@ import (
 	"sort"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -21,12 +23,152 @@ const (
 	DefaultFeeRateBucketSize = 10
 )
 
+// inputSet is a set of inputs that can be used as the basis to generate a tx
+// on.
+type inputSet []input.Input
+
+// Cluster defines an interface that prepares inputs of a cluster to be grouped
+// into a list of sets that can be used to create sweep transactions.
+type Cluster interface {
+	// CreateInputSets goes through the cluster's inputs and constructs
+	// sets of inputs that can be used to generate a sensible transaction.
+	CreateInputSets(wallet Wallet, maxFeeRate chainfee.SatPerKWeight,
+		maxInputs int) ([]inputSet, error)
+
+	// FeeRate returns the fee rate of the cluster.
+	FeeRate() chainfee.SatPerKWeight
+}
+
+// Compile-time constraint to ensure inputCluster implements Cluster.
+var _ Cluster = (*inputCluster)(nil)
+
+// inputCluster is a helper struct to gather a set of pending inputs that
+// should be swept with the specified fee rate.
+type inputCluster struct {
+	lockTime     *uint32
+	sweepFeeRate chainfee.SatPerKWeight
+	inputs       pendingInputs
+}
+
+// FeeRate returns the fee rate of the cluster.
+func (c *inputCluster) FeeRate() chainfee.SatPerKWeight {
+	return c.sweepFeeRate
+}
+
+// GroupInputs goes through the cluster's inputs and constructs sets of inputs
+// that can be used to generate a sensible transaction. Each set contains up to
+// the configured maximum number of inputs. Negative yield inputs are skipped.
+// No input sets with a total value after fees below the dust limit are
+// returned.
+func (c *inputCluster) CreateInputSets(
+	wallet Wallet, maxFeeRate chainfee.SatPerKWeight,
+	maxInputs int) ([]inputSet, error) {
+
+	// Turn the inputs into a slice so we can sort them.
+	inputList := make([]*pendingInput, 0, len(c.inputs))
+	for _, input := range c.inputs {
+		inputList = append(inputList, input)
+	}
+
+	// Yield is calculated as the difference between value and added fee
+	// for this input. The fee calculation excludes fee components that are
+	// common to all inputs, as those wouldn't influence the order. The
+	// single component that is differentiating is witness size.
+	//
+	// For witness size, the upper limit is taken. The actual size depends
+	// on the signature length, which is not known yet at this point.
+	calcYield := func(input *pendingInput) int64 {
+		size, _, err := input.WitnessType().SizeUpperBound()
+		if err != nil {
+			log.Errorf("Failed to get input weight: %v", err)
+
+			return 0
+		}
+
+		yield := input.SignDesc().Output.Value -
+			int64(c.sweepFeeRate.FeeForWeight(int64(size)))
+
+		return yield
+	}
+
+	// Sort input by yield. We will start constructing input sets starting
+	// with the highest yield inputs. This is to prevent the construction
+	// of a set with an output below the dust limit, causing the sweep
+	// process to stop, while there are still higher value inputs
+	// available. It also allows us to stop evaluating more inputs when the
+	// first input in this ordering is encountered with a negative yield.
+	sort.Slice(inputList, func(i, j int) bool {
+		// Because of the specific ordering and termination condition
+		// that is described above, we place force sweeps at the start
+		// of the list. Otherwise we can't be sure that they will be
+		// included in an input set.
+		if inputList[i].parameters().Force {
+			return true
+		}
+
+		return calcYield(inputList[i]) > calcYield(inputList[j])
+	})
+
+	// Select blocks of inputs up to the configured maximum number.
+	var sets []inputSet
+	for len(inputList) > 0 {
+		// Start building a set of positive-yield tx inputs under the
+		// condition that the tx will be published with the specified
+		// fee rate.
+		txInputs := newTxInputSet(
+			wallet, c.sweepFeeRate, maxFeeRate, maxInputs,
+		)
+
+		// From the set of sweepable inputs, keep adding inputs to the
+		// input set until the tx output value no longer goes up or the
+		// maximum number of inputs is reached.
+		txInputs.addPositiveYieldInputs(inputList)
+
+		// If there are no positive yield inputs, we can stop here.
+		inputCount := len(txInputs.inputs)
+		if inputCount == 0 {
+			return sets, nil
+		}
+
+		// Check the current output value and add wallet utxos if
+		// needed to push the output value to the lower limit.
+		if err := txInputs.tryAddWalletInputsIfNeeded(); err != nil {
+			return nil, err
+		}
+
+		// If the output value of this block of inputs does not reach
+		// the dust limit, stop sweeping. Because of the sorting,
+		// continuing with the remaining inputs will only lead to sets
+		// with an even lower output value.
+		if !txInputs.enoughInput() {
+			// The change output is always a p2tr here.
+			dl := lnwallet.DustLimitForSize(input.P2TRSize)
+			log.Debugf("Input set value %v (required=%v, "+
+				"change=%v) below dust limit of %v",
+				txInputs.totalOutput(), txInputs.requiredOutput,
+				txInputs.changeOutput, dl)
+			return sets, nil
+		}
+
+		log.Infof("Candidate sweep set of size=%v (+%v wallet inputs),"+
+			" has yield=%v, weight=%v",
+			inputCount, len(txInputs.inputs)-inputCount,
+			txInputs.totalOutput()-txInputs.walletInputTotal,
+			txInputs.weightEstimate(true).weight())
+
+		sets = append(sets, txInputs.inputs)
+		inputList = inputList[inputCount:]
+	}
+
+	return sets, nil
+}
+
 // UtxoAggregator defines an interface that takes a list of inputs and
 // aggregate them into groups. Each group is used as the inputs to create a
 // sweeping transaction.
 type UtxoAggregator interface {
 	// ClusterInputs takes a list of inputs and groups them into clusters.
-	ClusterInputs(pendingInputs) []inputCluster
+	ClusterInputs(pendingInputs) []Cluster
 }
 
 // SimpleAggregator aggregates inputs known by the Sweeper based on each
@@ -72,11 +214,7 @@ func NewSimpleUtxoAggregator(estimator chainfee.Estimator,
 // inputs known by the UtxoSweeper. It clusters inputs by
 // 1) Required tx locktime
 // 2) Similar fee rates.
-//
-// TODO(yy): remove this nolint once done refactoring.
-//
-//nolint:revive
-func (s *SimpleAggregator) ClusterInputs(inputs pendingInputs) []inputCluster {
+func (s *SimpleAggregator) ClusterInputs(inputs pendingInputs) []Cluster {
 	// We start by getting the inputs clusters by locktime. Since the
 	// inputs commit to the locktime, they can only be clustered together
 	// if the locktime is equal.
@@ -88,7 +226,19 @@ func (s *SimpleAggregator) ClusterInputs(inputs pendingInputs) []inputCluster {
 	// Since the inputs that we clustered by fee rate don't commit to a
 	// specific locktime, we can try to merge a locktime cluster with a fee
 	// cluster.
-	return zipClusters(lockTimeClusters, feeClusters)
+	clusters := zipClusters(lockTimeClusters, feeClusters)
+
+	sort.Slice(clusters, func(i, j int) bool {
+		return clusters[i].sweepFeeRate >
+			clusters[j].sweepFeeRate
+	})
+
+	result := make([]Cluster, 0, len(clusters))
+	for _, c := range clusters {
+		result = append(result, &c)
+	}
+
+	return result
 }
 
 // clusterByLockTime takes the given set of pending inputs and clusters those

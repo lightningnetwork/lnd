@@ -65,7 +65,7 @@ func testMacaroonAuthentication(ht *lntest.HarnessTest) {
 			defer cleanup()
 			_, err := client.GetInfo(ctxt, infoReq)
 			require.Error(t, err)
-			require.Contains(t, err.Error(), "cannot get macaroon")
+			require.Contains(t, err.Error(), "invalid ID")
 		},
 	}, {
 		// Third test: Try to access a write method with read-only

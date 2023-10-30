@@ -438,7 +438,7 @@ in `--bitcoin.simnet` if needed), and also your own `btcd` node if available:
 
 ## Using bitcoind
 
-Note that adding `--txindex` is optional, as it will take longer to sync the 
+Note that adding `-txindex` is optional, as it will take longer to sync the 
 node, but then `lnd` will generally operate faster as it can hit the index 
 directly, rather than scanning blocks or BIP 158 filters for relevant items.
 
@@ -453,11 +453,17 @@ the following:
   If you installed `bitcoind` via Homebrew in the past ZMQ may not be included 
   ([this has now been fixed](https://github.com/Homebrew/homebrew-core/pull/23088) 
   in the latest Homebrew recipe for bitcoin)
-- Configure the `bitcoind` instance for ZMQ with `--zmqpubrawblock` and
-  `--zmqpubrawtx`. These options must each use their own unique address in order
+- Configure the `bitcoind` instance for ZMQ with `-zmqpubrawblock` and
+  `-zmqpubrawtx`. These options must each use their own unique address in order
   to provide a reliable delivery of notifications (e.g.
-  `--zmqpubrawblock=tcp://127.0.0.1:28332` and
-  `--zmqpubrawtx=tcp://127.0.0.1:28333`).
+  `-zmqpubrawblock=tcp://127.0.0.1:28332` and
+  `-zmqpubrawtx=tcp://127.0.0.1:28333`).
+- Make sure the config setting `-rpcserialversion` in `bitcoind` is either set
+  to 1 or NOT used because bitcoind's default behaviour is already correct
+  (see [bitcoin/issues/28730](https://github.com/bitcoin/bitcoin/issues/28730) 
+  for more infos). Lightning depends on segwit transactions therefore we need 
+  the witness data when querying the bitcoind backend for transaction details.
+  
 - Start `bitcoind` running against testnet, and let it complete a full sync with
   the testnet chain (alternatively, use `--bitcoind.regtest` instead).
 

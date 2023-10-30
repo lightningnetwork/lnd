@@ -123,6 +123,7 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 
 	aggregator := NewSimpleUtxoAggregator(
 		estimator, DefaultMaxFeeRate.FeePerKWeight(),
+		testMaxInputsPerTx,
 	)
 
 	ctx := &sweeperTestContext{
@@ -1287,6 +1288,11 @@ func TestLockTimes(t *testing.T) {
 	// impact our test.
 	ctx.sweeper.cfg.MaxInputsPerTx = 100
 
+	// We also need to update the aggregator about this new config.
+	ctx.sweeper.cfg.Aggregator = NewSimpleUtxoAggregator(
+		ctx.estimator, DefaultMaxFeeRate.FeePerKWeight(), 100,
+	)
+
 	// We will set up the lock times in such a way that we expect the
 	// sweeper to divide the inputs into 4 diffeerent transactions.
 	const numSweeps = 4
@@ -1369,7 +1375,7 @@ func TestLockTimes(t *testing.T) {
 
 	// The should be no inputs not foud in any of the sweeps.
 	if len(inputs) != 0 {
-		t.Fatalf("had unsweeped inputs")
+		t.Fatalf("had unsweeped inputs: %v", inputs)
 	}
 
 	// Mine the first sweeps
@@ -1377,9 +1383,11 @@ func TestLockTimes(t *testing.T) {
 
 	// Results should all come back.
 	for i := range results {
-		result := <-results[i]
-		if result.Err != nil {
-			t.Fatal("expected input to be swept")
+		select {
+		case result := <-results[i]:
+			require.NoError(t, result.Err)
+		case <-time.After(1 * time.Second):
+			t.Fatalf("result %v did not come back", i)
 		}
 	}
 }

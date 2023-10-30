@@ -320,7 +320,7 @@ func TestClusterByLockTime(t *testing.T) {
 	)
 
 	// Create a test aggregator.
-	s := NewSimpleUtxoAggregator(nil, maxFeeRate)
+	s := NewSimpleUtxoAggregator(nil, maxFeeRate, 100)
 
 	testCases := []struct {
 		name string

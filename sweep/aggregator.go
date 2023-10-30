@@ -33,10 +33,7 @@ type Cluster interface {
 	// CreateInputSets goes through the cluster's inputs and constructs
 	// sets of inputs that can be used to generate a sensible transaction.
 	CreateInputSets(wallet Wallet, maxFeeRate chainfee.SatPerKWeight,
-		maxInputs int) ([]inputSet, error)
-
-	// FeeRate returns the fee rate of the cluster.
-	FeeRate() chainfee.SatPerKWeight
+		maxInputs int) ([]InputSet, error)
 }
 
 // Compile-time constraint to ensure inputCluster implements Cluster.
@@ -50,11 +47,6 @@ type inputCluster struct {
 	inputs       pendingInputs
 }
 
-// FeeRate returns the fee rate of the cluster.
-func (c *inputCluster) FeeRate() chainfee.SatPerKWeight {
-	return c.sweepFeeRate
-}
-
 // GroupInputs goes through the cluster's inputs and constructs sets of inputs
 // that can be used to generate a sensible transaction. Each set contains up to
 // the configured maximum number of inputs. Negative yield inputs are skipped.
@@ -62,7 +54,7 @@ func (c *inputCluster) FeeRate() chainfee.SatPerKWeight {
 // returned.
 func (c *inputCluster) CreateInputSets(
 	wallet Wallet, maxFeeRate chainfee.SatPerKWeight,
-	maxInputs int) ([]inputSet, error) {
+	maxInputs int) ([]InputSet, error) {
 
 	// Turn the inputs into a slice so we can sort them.
 	inputList := make([]*pendingInput, 0, len(c.inputs))
@@ -110,7 +102,7 @@ func (c *inputCluster) CreateInputSets(
 	})
 
 	// Select blocks of inputs up to the configured maximum number.
-	var sets []inputSet
+	var sets []InputSet
 	for len(inputList) > 0 {
 		// Start building a set of positive-yield tx inputs under the
 		// condition that the tx will be published with the specified
@@ -156,7 +148,7 @@ func (c *inputCluster) CreateInputSets(
 			txInputs.totalOutput()-txInputs.walletInputTotal,
 			txInputs.weightEstimate(true).weight())
 
-		sets = append(sets, txInputs.inputs)
+		sets = append(sets, txInputs)
 		inputList = inputList[inputCount:]
 	}
 

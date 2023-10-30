@@ -37,8 +37,10 @@ type mockUtxoAggregator struct {
 var _ UtxoAggregator = (*mockUtxoAggregator)(nil)
 
 // ClusterInputs takes a list of inputs and groups them into clusters.
-func (m *mockUtxoAggregator) ClusterInputs(pendingInputs) []Cluster {
-	args := m.Called(pendingInputs{})
+func (m *mockUtxoAggregator) ClusterInputs(wallet Wallet,
+	inputs pendingInputs) []InputSet {
 
-	return args.Get(0).([]Cluster)
+	args := m.Called(wallet, inputs)
+
+	return args.Get(0).([]InputSet)
 }

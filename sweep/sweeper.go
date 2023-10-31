@@ -1229,6 +1229,12 @@ func (s *UtxoSweeper) getInputLists(cluster inputCluster,
 	// contain inputs that failed before. Therefore we also add sets
 	// consisting of only new inputs to the list, to make sure that new
 	// inputs are given a good, isolated chance of being published.
+	//
+	// TODO(yy): this would lead to conflict transactions as the same input
+	// can be used in two sweeping transactions, and our rebroadcaster will
+	// retry the failed one. We should instead understand why the input is
+	// failed in the first place, and start tracking input states in
+	// sweeper to avoid this.
 	var newInputs, retryInputs []txInput
 	for _, input := range cluster.inputs {
 		// Skip inputs that have a minimum publish height that is not

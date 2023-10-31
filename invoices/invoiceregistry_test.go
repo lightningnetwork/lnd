@@ -3,6 +3,7 @@ package invoices_test
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"math"
 	"testing"
 	"testing/quick"
@@ -12,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/clock"
 	invpkg "github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -1059,9 +1061,7 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	if err := registry.Start(); err != nil {
-		t.Fatalf("cannot start registry: %v", err)
-	}
+	require.NoError(t, registry.Start(), "cannot start registry")
 
 	// Now generate pending and invoices and add them to the registry while
 	// it is up and running. We'll manipulate the clock to let them expire.
@@ -1085,10 +1085,8 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 			ctxb, invoicesThatWillCancel[i],
 		)
 		require.NoError(t, err, "cannot find invoice")
-
-		if invoice.State == invpkg.ContractCanceled {
-			t.Fatalf("expected pending invoice, got canceled")
-		}
+		require.NotEqual(t, invpkg.ContractCanceled, invoice.State,
+			"expected pending invoice, got canceled")
 	}
 
 	// Fwd time 1 day.
@@ -1101,24 +1099,28 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 
 	// canceled returns a bool to indicate whether all the invoices are
 	// canceled.
-	canceled := func() bool {
+	canceled := func() error {
 		for i := range expectedCancellations {
 			invoice, err := registry.LookupInvoice(
 				ctxb, expectedCancellations[i],
 			)
-			require.NoError(t, err)
+			if err != nil {
+				return err
+			}
 
 			if invoice.State != invpkg.ContractCanceled {
-				return false
+				return fmt.Errorf("expected state %v, got %v",
+					invpkg.ContractCanceled, invoice.State)
 			}
 		}
 
-		return true
+		return nil
 	}
 
 	// Retrospectively check that all invoices that were expected to be
 	// canceled are indeed canceled.
-	require.Eventually(t, canceled, testTimeout, 10*time.Millisecond)
+	err = wait.NoError(canceled, testTimeout)
+	require.NoError(t, err, "timeout checking invoice state")
 
 	// Finally stop the registry.
 	require.NoError(t, registry.Stop(), "failed to stop invoice registry")

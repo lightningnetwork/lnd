@@ -46,6 +46,14 @@
 ## Breaking Changes
 ## Performance Improvements
 
+- When facing a large mempool, users may experience deteriorated performance,
+  which includes slow startup and shutdown, clogging RPC response when calling
+  `getinfo`, and CPU spikes. This is now improved with [the upgrade to the
+  latest `btcwallet`](https://github.com/lightningnetwork/lnd/pull/8019). In
+  addition, it's strongly recommended to upgrade `bitcoind` to version `v24.0`
+  and above to take advantage of the new RPC method `gettxspendingprevout`,
+  which will further decrease CPU usage and memory consumption.
+
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 ## Testing

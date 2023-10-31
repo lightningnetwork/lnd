@@ -2166,7 +2166,6 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	if ht.IsNeutrinoBackend() {
 		// Mine a block to confirm Carol's 2nd level success tx.
 		ht.MineBlocksAndAssertNumTxes(1, 1)
-		numTxesMempool--
 		numBlocks--
 	}
 
@@ -2195,12 +2194,6 @@ func runExtraPreimageFromRemoteCommit(ht *lntest.HarnessTest,
 	// anchor sweep tx in the mempool.
 	case lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE:
 		numTxesMempool++
-
-		// For neutrino backend, because of the additional block mined,
-		// Bob's output is now mature.
-		if ht.IsNeutrinoBackend() {
-			numTxesMempool++
-		}
 	}
 
 	// Mine a block to clean the mempool.

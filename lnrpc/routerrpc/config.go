@@ -69,6 +69,7 @@ func DefaultConfig() *Config {
 			NodeWeight: routing.DefaultBimodalNodeWeight,
 			DecayTime:  routing.DefaultBimodalDecayTime,
 		},
+		FeeEstimationTimeout: routing.DefaultFeeEstimationTimeout,
 	}
 
 	return &Config{
@@ -96,5 +97,6 @@ func GetRoutingConfig(cfg *Config) *RoutingConfig {
 			NodeWeight: cfg.BimodalConfig.NodeWeight,
 			DecayTime:  cfg.BimodalConfig.DecayTime,
 		},
+		FeeEstimationTimeout: cfg.FeeEstimationTimeout,
 	}
 }

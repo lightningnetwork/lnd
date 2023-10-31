@@ -62,6 +62,11 @@ const (
 	// have passed since the previously recorded failure before the failure
 	// amount may be raised.
 	DefaultMinFailureRelaxInterval = time.Minute
+
+	// DefaultFeeEstimationTimeout is the default value for
+	// FeeEstimationTimeout. It defines the maximum duration that the
+	// probing fee estimation is allowed to take.
+	DefaultFeeEstimationTimeout = time.Minute
 )
 
 var (

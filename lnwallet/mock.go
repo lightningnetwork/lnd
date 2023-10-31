@@ -364,3 +364,9 @@ func (*mockChainIO) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock,
 
 	return nil, nil
 }
+
+func (*mockChainIO) GetBlockHeader(
+	blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
+
+	return nil, nil
+}

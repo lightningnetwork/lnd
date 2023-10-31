@@ -149,6 +149,15 @@ func (b *BtcWallet) GetBlock(blockHash *chainhash.Hash) (*wire.MsgBlock, error) 
 	return b.chain.GetBlock(blockHash)
 }
 
+// GetBlockHeader returns a block header for the block with the given hash.
+//
+// This method is a part of the lnwallet.BlockChainIO interface.
+func (b *BtcWallet) GetBlockHeader(
+	blockHash *chainhash.Hash) (*wire.BlockHeader, error) {
+
+	return b.chain.GetBlockHeader(blockHash)
+}
+
 // GetBlockHash returns the hash of the block in the best blockchain at the
 // given height.
 //

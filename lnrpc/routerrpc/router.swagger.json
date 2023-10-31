@@ -1642,12 +1642,21 @@
         "dest": {
           "type": "string",
           "format": "byte",
-          "description": "The destination once wishes to obtain a routing fee quote to."
+          "description": "The destination one wishes to obtain a routing fee quote to. If set, this\nparameter requires the amt_sat parameter also to be set. This parameter\ncombination triggers a graph based routing fee estimation as opposed to a\npayment probe based estimate in case a payment request is provided. The\ngraph based estimation is an algorithm that is executed on the in memory\ngraph. Hence its runtime is significantly shorter than a payment probe\nestimation that sends out actual payments to the network."
         },
         "amt_sat": {
           "type": "string",
           "format": "int64",
-          "description": "The amount one wishes to send to the target destination."
+          "description": "The amount one wishes to send to the target destination. It is only to be\nused in combination with the dest parameter."
+        },
+        "payment_request": {
+          "type": "string",
+          "description": "A payment request of the target node that the route fee request is intended\nfor. Its parameters are input to probe payments that estimate routing fees.\nThe timeout parameter can be specified to set a maximum time on the probing\nattempt. Cannot be used in combination with dest and amt_sat."
+        },
+        "timeout": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A user preference of how long a probe payment should maximally be allowed to\ntake, denoted in seconds. The probing payment loop is aborted if this\ntimeout is reached. Note that the probing process itself can take longer\nthan the timeout if the HTLC becomes delayed or stuck. Canceling the context\nof this call will not cancel the payment loop, the duration is only\ncontrolled by the timeout parameter."
         }
       }
     },
@@ -1663,6 +1672,10 @@
           "type": "string",
           "format": "int64",
           "description": "An estimate of the worst case time delay that can occur. Note that callers\nwill still need to factor in the final CLTV delta of the last hop into this\nvalue."
+        },
+        "failure_reason": {
+          "$ref": "#/definitions/lnrpcPaymentFailureReason",
+          "description": "An indication whether a probing payment succeeded or whether and why it\nfailed. FAILURE_REASON_NONE indicates success."
         }
       }
     },

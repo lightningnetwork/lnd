@@ -1344,12 +1344,23 @@ type LightningChannel struct {
 	// fundingOutput is the funding output (script+value).
 	fundingOutput wire.TxOut
 
+	// opts is the set of options that channel was initialized with.
+	opts *channelOpts
+
 	sync.RWMutex
 }
 
 // ChannelOpt is a functional option that lets callers modify how a new channel
 // is created.
 type ChannelOpt func(*channelOpts)
+
+// channelOpts is the set of options used to create a new channel.
+type channelOpts struct {
+	localNonce  *musig2.Nonces
+	remoteNonce *musig2.Nonces
+
+	skipNonceInit bool
+}
 
 // WithLocalMusigNonces is used to bind an existing verification/local nonce to
 // a new channel.
@@ -1367,10 +1378,15 @@ func WithRemoteMusigNonces(nonces *musig2.Nonces) ChannelOpt {
 	}
 }
 
-// channelOpts is the set of options used to create a new channel.
-type channelOpts struct {
-	localNonce  *musig2.Nonces
-	remoteNonce *musig2.Nonces
+// WithSkipNonceInit is used to modify the way nonces are handled during
+// channel initialization for taproot channels. If this option is specified,
+// then when we receive the chan reest message from the remote party, we won't
+// modify our nonce state. This is needed if we create a channel, get a channel
+// ready message, then also get the chan reest message after that.
+func WithSkipNonceInit() ChannelOpt {
+	return func(o *channelOpts) {
+		o.skipNonceInit = true
+	}
 }
 
 // defaultChannelOpts returns the set of default options for a new channel.
@@ -1429,6 +1445,7 @@ func NewLightningChannel(signer input.Signer,
 		RemoteFundingKey:     state.RemoteChanCfg.MultiSigKey.PubKey,
 		taprootNonceProducer: taprootNonceProducer,
 		log:                  build.NewPrefixLog(logPrefix, walletLog),
+		opts:                 opts,
 	}
 
 	switch {
@@ -4263,6 +4280,12 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			"not sent")
 
 	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce != nil:
+		if lc.opts.skipNonceInit {
+			// Don't call InitRemoteMusigNonces if we have already
+			// done so.
+			break
+		}
+
 		err := lc.InitRemoteMusigNonces(&musig2.Nonces{
 			PubNonce: *msg.LocalNonce,
 		})
@@ -8762,6 +8785,9 @@ func (lc *LightningChannel) InitRemoteMusigNonces(remoteNonce *musig2.Nonces,
 	)
 
 	lc.pendingVerificationNonce = nil
+
+	lc.opts.localNonce = nil
+	lc.opts.remoteNonce = nil
 
 	return nil
 }

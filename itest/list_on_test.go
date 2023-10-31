@@ -463,6 +463,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testTaproot,
 	},
 	{
+		Name:     "simple taproot channel activation",
+		TestFunc: testSimpleTaprootChannelActivation,
+	},
+	{
 		Name:     "wallet import account",
 		TestFunc: testWalletImportAccount,
 	},

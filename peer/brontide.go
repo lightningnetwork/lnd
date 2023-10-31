@@ -3824,23 +3824,30 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 	chanPoint := &c.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
-	// If not already active, we'll add this channel to the set of active
-	// channels, so we can look it up later easily according to its channel
-	// ID.
-	lnChan, err := lnwallet.NewLightningChannel(
-		p.cfg.Signer, c.OpenChannel,
-		p.cfg.SigPool, c.ChanOpts...,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to create LightningChannel: %w", err)
-	}
-
 	// If we've reached this point, there are two possible scenarios.  If
 	// the channel was in the active channels map as nil, then it was
 	// loaded from disk and we need to send reestablish. Else, it was not
 	// loaded from disk and we don't need to send reestablish as this is a
 	// fresh channel.
 	shouldReestablish := p.isLoadedFromDisk(chanID)
+
+	chanOpts := c.ChanOpts
+	if shouldReestablish {
+		// If we have to do the reestablish dance for this channel,
+		// ensure that we don't try to call InitRemoteMusigNonces twice
+		// by calling SkipNonceInit.
+		chanOpts = append(chanOpts, lnwallet.WithSkipNonceInit())
+	}
+
+	// If not already active, we'll add this channel to the set of active
+	// channels, so we can look it up later easily according to its channel
+	// ID.
+	lnChan, err := lnwallet.NewLightningChannel(
+		p.cfg.Signer, c.OpenChannel, p.cfg.SigPool, chanOpts...,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to create LightningChannel: %w", err)
+	}
 
 	// Store the channel in the activeChannels map.
 	p.activeChannels.Store(chanID, lnChan)

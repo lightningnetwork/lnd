@@ -39,8 +39,13 @@ journal_mode=wal
 busy_timeout=5000 // Overried with the db.sqlite.busytimeout option.
 ```
 
+Default `busy_timeout` unit is milliseconds.
+A 5s timeout could lead to `SQLITE_BUSY` errors,
+which can be prevented by setting a longer timeout.
+
 The following pragma options are set by default but can be overridden using the
 `db.sqlite.pragmaoptions` option:
+
 
 ``` 
 synchronous=full
@@ -66,7 +71,7 @@ Example as follows:
 [db]
 db.backend=sqlite
 db.sqlite.timeout=0
-db.sqlite.busytimeout=10s
+db.sqlite.busytimeout=1m
 db.sqlite.pragmaoptions=temp_store=memory
 db.sqlite.pragmaoptions=incremental_vacuum
 ```

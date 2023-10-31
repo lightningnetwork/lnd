@@ -1267,6 +1267,10 @@ func (l *channelLink) htlcManager() {
 				return
 			}
 
+			l.log.Infof("Channel is in an unclean state " +
+				"(lingering updates), graceful shutdown of " +
+				"channel link not possible")
+
 			// Otherwise, the channel has lingering updates, send
 			// an error and continue.
 			req.err <- ErrLinkFailedShutdown

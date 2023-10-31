@@ -72,6 +72,9 @@
   where the required flags are tagged with `(blinded paths)`.
 * A new config value,
   [http-header-timeout](https://github.com/lightningnetwork/lnd/pull/7715), is added so users can specify the amount of time the http server will wait for a request to complete before closing the connection. The default value is 5 seconds.
+* [Add new sweeper config
+  setting](https://github.com/lightningnetwork/lnd/pull/7535) to limit FeeRate
+  for non time sensitive sweeps of unilateral channel closures.
 
 * [`routerrpc.usestatusinitiated` is
   introduced](https://github.com/lightningnetwork/lnd/pull/8177) to signal that
@@ -206,3 +209,4 @@
 * Turtle
 * Ononiwu Maureen Chiamaka
 * Yong Yu
+* ziggie

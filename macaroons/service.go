@@ -27,6 +27,13 @@ var (
 	// same entity:action pairs. For example: uri:/lnrpc.Lightning/GetInfo
 	// only gives access to the GetInfo call.
 	PermissionEntityCustomURI = "uri"
+
+	// ErrUnknownVersion is returned when a macaroon is of an unknown
+	// is presented.
+	ErrUnknownVersion = fmt.Errorf("unknown macaroon version")
+
+	// ErrInvalidID is returned when a macaroon ID is invalid.
+	ErrInvalidID = fmt.Errorf("invalid ID")
 )
 
 // MacaroonValidator is an interface type that can check if macaroons are valid.
@@ -208,6 +215,23 @@ func (svc *Service) CheckMacAuth(ctx context.Context, macBytes []byte,
 		return err
 	}
 
+	// Ensure that the macaroon is using the exact same version as we
+	// expect. In the future, we can relax this check to phase in new
+	// versions.
+	if mac.Version() != macaroon.V2 {
+		return fmt.Errorf("%w: %v", ErrUnknownVersion,
+			mac.Version())
+	}
+
+	// Run a similar version check on the ID used for the macaroon as well.
+	const minIDLength = 1
+	if len(mac.Id()) < minIDLength {
+		return ErrInvalidID
+	}
+	if mac.Id()[0] != byte(bakery.Version3) {
+		return ErrInvalidID
+	}
+
 	// Check the method being called against the permitted operation, the
 	// expiration time and IP address and return the result.
 	authChecker := svc.Checker.Auth(macaroon.Slice{mac})
@@ -267,7 +291,7 @@ func (svc *Service) NewMacaroon(
 		return nil, ErrMissingRootKeyID
 	}
 
-	// // Pass the root key ID to context.
+	// Pass the root key ID to context.
 	ctx = ContextWithRootKeyID(ctx, rootKeyID)
 
 	return svc.Oven.NewMacaroon(ctx, bakery.LatestVersion, nil, ops...)

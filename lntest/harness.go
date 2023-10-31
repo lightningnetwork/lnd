@@ -1504,11 +1504,13 @@ func (h *HarnessTest) CleanupForceClose(hn *node.HarnessNode) {
 	h.AssertNumPendingForceClose(hn, 1)
 
 	// Mine enough blocks for the node to sweep its funds from the force
-	// closed channel.
+	// closed channel. The commit sweep resolver is able to broadcast the
+	// sweep tx up to one block before the CSV elapses, so wait until
+	// defaulCSV-1.
 	//
-	// The commit sweep resolver is able to broadcast the sweep tx up to
-	// one block before the CSV elapses, so wait until defaulCSV-1.
-	h.MineBlocks(node.DefaultCSV - 1)
+	// NOTE: we might empty blocks here as we don't know the exact number
+	// of blocks to mine. This may end up mining more blocks than needed.
+	h.MineEmptyBlocks(node.DefaultCSV - 1)
 
 	// The node should now sweep the funds, clean up by mining the sweeping
 	// tx.

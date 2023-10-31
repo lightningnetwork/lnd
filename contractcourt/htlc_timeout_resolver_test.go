@@ -24,6 +24,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	dummyBytes    = []byte{0}
+	preimageBytes = bytes.Repeat([]byte{1}, lntypes.HashSize)
+)
+
 type mockWitnessBeacon struct {
 	preImageUpdates chan lntypes.Preimage
 	newPreimages    chan []lntypes.Preimage
@@ -1322,5 +1327,148 @@ func testHtlcTimeout(t *testing.T, resolution lnwallet.OutgoingHtlcResolution,
 
 		// Run from the given checkpoint, ensuring we'll hit the rest.
 		_ = runFromCheckpoint(t, ctx, checkpoints[i+1:])
+	}
+}
+
+// TestCheckSizeAndIndex checks that the `checkSizeAndIndex` behaves as
+// expected.
+func TestCheckSizeAndIndex(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		witness  wire.TxWitness
+		size     int
+		index    int
+		expected bool
+	}{
+		{
+			// Test that a witness with the correct size and index
+			// for the preimage.
+			name: "valid preimage",
+			witness: wire.TxWitness{
+				dummyBytes, preimageBytes,
+			},
+			size:     2,
+			index:    1,
+			expected: true,
+		},
+		{
+			// Test that a witness with the wrong size.
+			name: "wrong witness size",
+			witness: wire.TxWitness{
+				dummyBytes, preimageBytes,
+			},
+			size:     3,
+			index:    1,
+			expected: false,
+		},
+		{
+			// Test that a witness with the right size but wrong
+			// preimage index.
+			name: "wrong preimage index",
+			witness: wire.TxWitness{
+				dummyBytes, preimageBytes,
+			},
+			size:     2,
+			index:    0,
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			result := checkSizeAndIndex(
+				tc.witness, tc.size, tc.index,
+			)
+			require.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// TestIsPreimageSpend tests `isPreimageSpend` can successfully detect a
+// preimage spend based on whether the commitment is local or remote.
+func TestIsPreimageSpend(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		witness     wire.TxWitness
+		isTaproot   bool
+		localCommit bool
+	}{
+		{
+			// Test a preimage spend on the remote commitment for
+			// taproot channels.
+			name: "tap preimage spend on remote",
+			witness: wire.TxWitness{
+				dummyBytes, dummyBytes, preimageBytes,
+				dummyBytes, dummyBytes,
+			},
+			isTaproot:   true,
+			localCommit: false,
+		},
+		{
+			// Test a preimage spend on the local commitment for
+			// taproot channels.
+			name: "tap preimage spend on local",
+			witness: wire.TxWitness{
+				dummyBytes, preimageBytes,
+				dummyBytes, dummyBytes,
+			},
+			isTaproot:   true,
+			localCommit: true,
+		},
+		{
+			// Test a preimage spend on the remote commitment for
+			// non-taproot channels.
+			name: "preimage spend on remote",
+			witness: wire.TxWitness{
+				dummyBytes, dummyBytes, dummyBytes,
+				preimageBytes, dummyBytes,
+			},
+			isTaproot:   false,
+			localCommit: false,
+		},
+		{
+			// Test a preimage spend on the local commitment for
+			// non-taproot channels.
+			name: "preimage spend on local",
+			witness: wire.TxWitness{
+				dummyBytes, preimageBytes, dummyBytes,
+			},
+			isTaproot:   false,
+			localCommit: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		// Run the test.
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Create a test spend detail that spends the HTLC
+			// output.
+			spend := &chainntnfs.SpendDetail{
+				SpendingTx:        &wire.MsgTx{},
+				SpenderInputIndex: 0,
+			}
+
+			// Attach the testing witness.
+			spend.SpendingTx.TxIn = []*wire.TxIn{{
+				Witness: tc.witness,
+			}}
+
+			result := isPreimageSpend(
+				tc.isTaproot, spend, tc.localCommit,
+			)
+			require.True(t, result)
+		})
 	}
 }

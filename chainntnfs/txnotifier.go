@@ -74,6 +74,11 @@ var (
 	// out of range.
 	ErrNumConfsOutOfRange = fmt.Errorf("number of confirmations must be "+
 		"between %d and %d", 1, MaxNumConfs)
+
+	// ErrEmptyWitnessStack is returned when a spending transaction has an
+	// empty witness stack. More details in,
+	// - https://github.com/bitcoin/bitcoin/issues/28730
+	ErrEmptyWitnessStack = errors.New("witness stack is empty")
 )
 
 // rescanState indicates the progression of a registration before the notifier
@@ -1295,6 +1300,19 @@ func (n *TxNotifier) updateSpendDetails(spendRequest SpendRequest,
 		Log.Debugf("Updated spend hint to height=%v for unconfirmed "+
 			"spend request %v", n.currentHeight, spendRequest)
 		return nil
+	}
+
+	// Return an error if the witness data is not present in the spending
+	// transaction.
+	//
+	// NOTE: if the witness stack is empty, we will do a critical log which
+	// shuts down the node.
+	if !details.HasSpenderWitness() {
+		Log.Criticalf("Found spending tx for outpoint=%v, but the "+
+			"transaction %v does not have witness",
+			spendRequest.OutPoint, details.SpendingTx.TxHash())
+
+		return ErrEmptyWitnessStack
 	}
 
 	// If the historical rescan found the spending transaction for this

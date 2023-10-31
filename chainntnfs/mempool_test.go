@@ -11,6 +11,9 @@ import (
 
 const testTimeout = 5 * time.Second
 
+// dummyWitness is used to fill the witness data in a transaction.
+var dummyWitness = [][]byte{{0x01}}
+
 // TestMempoolSubscribeInput tests that we can successfully subscribe an input.
 func TestMempoolSubscribeInput(t *testing.T) {
 	t.Parallel()
@@ -107,9 +110,9 @@ func TestMempoolUnsubscribeEvent(t *testing.T) {
 	require.True(t, loaded)
 }
 
-// TestMempoolFindRelevantInputs tests that the mempool notifier can find the
-// spend of subscribed inputs from a given transaction.
-func TestMempoolFindRelevantInputs(t *testing.T) {
+// TestMempoolFindRelevantInputsEmptyWitness tests that the mempool notifier
+// returns an error when the witness stack is empty.
+func TestMempoolFindRelevantInputsEmptyWitness(t *testing.T) {
 	t.Parallel()
 
 	// Create a new mempool notifier instance.
@@ -132,6 +135,37 @@ func TestMempoolFindRelevantInputs(t *testing.T) {
 	}
 	tx := btcutil.NewTx(msgTx)
 
+	// Call the method.
+	result, err := notifier.findRelevantInputs(tx)
+	require.ErrorIs(t, err, ErrEmptyWitnessStack)
+	require.Nil(t, result)
+}
+
+// TestMempoolFindRelevantInputs tests that the mempool notifier can find the
+// spend of subscribed inputs from a given transaction.
+func TestMempoolFindRelevantInputs(t *testing.T) {
+	t.Parallel()
+
+	// Create a new mempool notifier instance.
+	notifier := NewMempoolNotifier()
+
+	// Create two inputs and subscribe to the second one.
+	input1 := wire.OutPoint{Hash: [32]byte{1}}
+	input2 := wire.OutPoint{Hash: [32]byte{2}}
+
+	// Make input2 the subscribed input.
+	notifier.SubscribeInput(input2)
+
+	// Create a transaction that spends the above two inputs.
+	msgTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: input1, Witness: dummyWitness},
+			{PreviousOutPoint: input2, Witness: dummyWitness},
+		},
+		TxOut: []*wire.TxOut{},
+	}
+	tx := btcutil.NewTx(msgTx)
+
 	// Create the expected spend detail.
 	detailExp := &SpendDetail{
 		SpentOutPoint:     &input2,
@@ -141,7 +175,8 @@ func TestMempoolFindRelevantInputs(t *testing.T) {
 	}
 
 	// Call the method.
-	result := notifier.findRelevantInputs(tx)
+	result, err := notifier.findRelevantInputs(tx)
+	require.NoError(t, err)
 
 	// Verify that the result is as expected.
 	require.Contains(t, result, input2)
@@ -365,7 +400,7 @@ func TestMempoolUnsubscribeConfirmedSpentTx(t *testing.T) {
 	// Create a transaction that spends input1.
 	msgTx := &wire.MsgTx{
 		TxIn: []*wire.TxIn{
-			{PreviousOutPoint: input1},
+			{PreviousOutPoint: input1, Witness: dummyWitness},
 		},
 	}
 	tx := btcutil.NewTx(msgTx)

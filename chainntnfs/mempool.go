@@ -146,7 +146,13 @@ func (m *MempoolNotifier) UnsubsribeConfirmedSpentTx(tx *btcutil.Tx) {
 	Log.Tracef("Unsubscribe confirmed tx %s", tx.Hash())
 
 	// Get the spent inputs of interest.
-	spentInputs := m.findRelevantInputs(tx)
+	spentInputs, err := m.findRelevantInputs(tx)
+	if err != nil {
+		Log.Errorf("Unable to find relevant inputs for tx %s: %v",
+			tx.Hash(), err)
+
+		return
+	}
 
 	// Unsubscribe the subscribers.
 	for outpoint := range spentInputs {
@@ -160,15 +166,20 @@ func (m *MempoolNotifier) UnsubsribeConfirmedSpentTx(tx *btcutil.Tx) {
 // ProcessRelevantSpendTx takes a transaction and checks whether it spends any
 // of the subscribed inputs. If so, spend notifications are sent to the
 // relevant subscribers.
-func (m *MempoolNotifier) ProcessRelevantSpendTx(tx *btcutil.Tx) {
+func (m *MempoolNotifier) ProcessRelevantSpendTx(tx *btcutil.Tx) error {
 	Log.Tracef("Processing mempool tx %s", tx.Hash())
 	defer Log.Tracef("Finished processing mempool tx %s", tx.Hash())
 
 	// Get the spent inputs of interest.
-	spentInputs := m.findRelevantInputs(tx)
+	spentInputs, err := m.findRelevantInputs(tx)
+	if err != nil {
+		return err
+	}
 
 	// Notify the subscribers.
 	m.notifySpent(spentInputs)
+
+	return nil
 }
 
 // TearDown stops the notifier and cleans up resources.
@@ -182,7 +193,9 @@ func (m *MempoolNotifier) TearDown() {
 
 // findRelevantInputs takes a transaction to find the subscribed inputs and
 // returns them.
-func (m *MempoolNotifier) findRelevantInputs(tx *btcutil.Tx) inputsWithTx {
+func (m *MempoolNotifier) findRelevantInputs(tx *btcutil.Tx) (inputsWithTx,
+	error) {
+
 	txid := tx.Hash()
 	watchedInputs := make(inputsWithTx)
 
@@ -209,9 +222,23 @@ func (m *MempoolNotifier) findRelevantInputs(tx *btcutil.Tx) inputsWithTx {
 			SpendingHeight:    0,
 		}
 		watchedInputs[*op] = details
+
+		// Sanity check the witness stack. If it's not empty, continue
+		// to next iteration.
+		if details.HasSpenderWitness() {
+			continue
+		}
+
+		// Return an error if the witness data is not present in the
+		// spending transaction.
+		Log.Criticalf("Found spending tx for outpoint=%v in mempool, "+
+			"but the transaction %v does not have witness",
+			op, details.SpendingTx.TxHash())
+
+		return nil, ErrEmptyWitnessStack
 	}
 
-	return watchedInputs
+	return watchedInputs, nil
 }
 
 // notifySpent iterates all the spentInputs and notifies the subscribers about

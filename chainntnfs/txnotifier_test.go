@@ -34,6 +34,8 @@ var (
 		0x86, 0xf4, 0xcb, 0xf9, 0x8e, 0xae, 0xd2, 0x21,
 		0xb3, 0x0b, 0xd9, 0xa0, 0xb9, 0x28,
 	}
+
+	testWitness = [][]byte{{0x01}}
 )
 
 type mockHintCache struct {
@@ -747,6 +749,7 @@ func TestTxNotifierHistoricalSpendDispatch(t *testing.T) {
 	spendTx := wire.NewMsgTx(2)
 	spendTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: spentOutpoint,
+		Witness:          testWitness,
 		SignatureScript:  testSigScript,
 	})
 	spendTxHash := spendTx.TxHash()
@@ -894,10 +897,17 @@ func TestTxNotifierMultipleHistoricalSpendRescans(t *testing.T) {
 	// register another notification. We should also expect not to see a
 	// historical rescan request since the confirmation details should be
 	// cached.
+	msgTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op, Witness: testWitness},
+		},
+		TxOut: []*wire.TxOut{},
+	}
+
 	spendDetails := &chainntnfs.SpendDetail{
 		SpentOutPoint:     &op,
 		SpenderTxHash:     &chainntnfs.ZeroHash,
-		SpendingTx:        wire.NewMsgTx(2),
+		SpendingTx:        msgTx,
 		SpenderInputIndex: 0,
 		SpendingHeight:    startingHeight - 1,
 	}
@@ -1021,10 +1031,17 @@ func TestTxNotifierMultipleHistoricalNtfns(t *testing.T) {
 	// We'll assume a historical rescan was dispatched and found the
 	// following spend details. We'll let the notifier know so that it can
 	// stop watching at tip.
+	msgTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op, Witness: testWitness},
+		},
+		TxOut: []*wire.TxOut{},
+	}
+
 	expectedSpendDetails := &chainntnfs.SpendDetail{
 		SpentOutPoint:     &op,
 		SpenderTxHash:     &chainntnfs.ZeroHash,
-		SpendingTx:        wire.NewMsgTx(2),
+		SpendingTx:        msgTx,
 		SpenderInputIndex: 0,
 		SpendingHeight:    startingHeight - 1,
 	}
@@ -1744,6 +1761,7 @@ func TestTxNotifierSpendReorgMissed(t *testing.T) {
 	spendTx := wire.NewMsgTx(2)
 	spendTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: op,
+		Witness:          testWitness,
 		SignatureScript:  testSigScript,
 	})
 	spendTxHash := spendTx.TxHash()

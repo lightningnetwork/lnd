@@ -278,6 +278,34 @@ type SpendDetail struct {
 	SpendingHeight    int32
 }
 
+// HasSpenderWitness returns true if the spending transaction has non-empty
+// witness.
+func (s *SpendDetail) HasSpenderWitness() bool {
+	tx := s.SpendingTx
+
+	// If there are no inputs, then there is no witness.
+	if len(tx.TxIn) == 0 {
+		return false
+	}
+
+	// If the spender input index is larger than the number of inputs, then
+	// we don't have a witness and this is an error case so we log it.
+	if uint32(len(tx.TxIn)) <= s.SpenderInputIndex {
+		Log.Errorf("SpenderInputIndex %d is out of range for tx %v",
+			s.SpenderInputIndex, tx.TxHash())
+
+		return false
+	}
+
+	// If the witness is empty, then there is no witness.
+	if len(tx.TxIn[s.SpenderInputIndex].Witness) == 0 {
+		return false
+	}
+
+	// If the witness is non-empty, then we have a witness.
+	return true
+}
+
 // String returns a string representation of SpendDetail.
 func (s *SpendDetail) String() string {
 	return fmt.Sprintf("%v[%d] spending %v at height=%v", s.SpenderTxHash,

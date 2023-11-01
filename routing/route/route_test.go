@@ -182,21 +182,22 @@ func TestPayloadSize(t *testing.T) {
 	hops := []*Hop{
 		{
 			PubKeyBytes:      testPubKeyBytes,
-			AmtToForward:     1000,
+			AmtToForward:     2000,
 			OutgoingTimeLock: 600000,
 			ChannelID:        3432483437438,
 			LegacyPayload:    true,
 		},
 		{
 			PubKeyBytes:      testPubKeyBytes,
-			AmtToForward:     1200,
+			AmtToForward:     1500,
 			OutgoingTimeLock: 700000,
 			ChannelID:        63584534844,
 		},
 		{
 			PubKeyBytes:      testPubKeyBytes,
-			AmtToForward:     1200,
+			AmtToForward:     1000,
 			OutgoingTimeLock: 700000,
+			ChannelID:        51784534844,
 			MPP:              record.NewMPP(500, [32]byte{}),
 			AMP: record.NewAMP(
 				[32]byte{}, [32]byte{}, 8,

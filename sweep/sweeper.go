@@ -1531,33 +1531,44 @@ func (s *UtxoSweeper) updateSweeperInputs() pendingInputs {
 // sweepPendingInputs is called when the ticker fires. It will create clusters
 // and attempt to create and publish the sweeping transactions.
 func (s *UtxoSweeper) sweepPendingInputs(inputs pendingInputs) {
-	// Execute the sweep within a coin select lock. Otherwise the coins
-	// that we are going to spend may be selected for other transactions
-	// like funding of a channel.
-	//
-	// TODO(yy): decrease the lock scope - we need to remove the wallet
-	// used here, which means we need to ask the aggregator to return input
-	// sets and specifying whether wallet utoxs are needed or not. Then, by
-	// calling `TxInput.NeedWalletInput`, we can then lock and add the
-	// wallet input, creating a much smaller lock scope.
-	err := s.cfg.Wallet.WithCoinSelectLock(func() error {
-		// Cluster all of our inputs based on the specific Aggregator.
-		inputSets := s.cfg.Aggregator.ClusterInputs(
-			s.cfg.Wallet, inputs,
-		)
+	// Cluster all of our inputs based on the specific Aggregator.
+	sets := s.cfg.Aggregator.ClusterInputs(inputs)
 
-		// Create sweeping transaction for each set.
-		for _, inputs := range inputSets {
-			err := s.sweep(inputs)
+	// sweepWithLock is a helper closure that executes the sweep within a
+	// coin select lock to prevent the coins being selected for other
+	// transactions like funding of a channel.
+	sweepWithLock := func(set InputSet) error {
+		return s.cfg.Wallet.WithCoinSelectLock(func() error {
+			// Try to add inputs from our wallet.
+			err := set.AddWalletInputs(s.cfg.Wallet)
 			if err != nil {
-				log.Errorf("sweep new inputs: %v", err)
+				return err
 			}
+
+			// Create sweeping transaction for each set.
+			err = s.sweep(set)
+			if err != nil {
+				return err
+			}
+
+			return nil
+		})
+	}
+
+	for _, set := range sets {
+		var err error
+		if set.NeedWalletInput() {
+			// Sweep the set of inputs that need the wallet inputs.
+			err = sweepWithLock(set)
+		} else {
+			// Sweep the set of inputs that don't need the wallet
+			// inputs.
+			err = s.sweep(set)
 		}
 
-		return nil
-	})
-	if err != nil {
-		log.Errorf("input cluster sweep: %v", err)
+		if err != nil {
+			log.Errorf("Sweep new inputs: %v", err)
+		}
 	}
 }
 

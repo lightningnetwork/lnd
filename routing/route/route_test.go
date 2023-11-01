@@ -170,7 +170,7 @@ func TestNoForwardingParams(t *testing.T) {
 	}
 
 	var b bytes.Buffer
-	err := hop.PackHopPayload(&b, 2, false)
+	err := hop.PackHopPayload(&b, 0, false)
 	require.NoError(t, err)
 }
 

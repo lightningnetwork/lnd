@@ -30,6 +30,12 @@ const (
 	constraintsForce
 )
 
+var (
+	// ErrNotEnoughInputs is returned when there are not enough wallet
+	// inputs to construct a non-dust change output for an input set.
+	ErrNotEnoughInputs = fmt.Errorf("not enough inputs")
+)
+
 // InputSet defines an interface that's responsible for filtering a set of
 // inputs that can be swept economically.
 type InputSet interface {
@@ -38,6 +44,15 @@ type InputSet interface {
 
 	// FeeRate returns the fee rate that should be used for the tx.
 	FeeRate() chainfee.SatPerKWeight
+
+	// AddWalletInputs adds wallet inputs to the set until a non-dust
+	// change output can be made. Return an error if there are not enough
+	// wallet inputs.
+	AddWalletInputs(wallet Wallet) error
+
+	// NeedWalletInput returns true if the input set needs more wallet
+	// inputs.
+	NeedWalletInput() bool
 }
 
 type txInputSetState struct {
@@ -125,17 +140,13 @@ type txInputSet struct {
 	// maxInputs is the maximum number of inputs that will be accepted in
 	// the set.
 	maxInputs int
-
-	// wallet contains wallet functionality required by the input set to
-	// retrieve utxos.
-	wallet Wallet
 }
 
 // Compile-time constraint to ensure txInputSet implements InputSet.
 var _ InputSet = (*txInputSet)(nil)
 
 // newTxInputSet constructs a new, empty input set.
-func newTxInputSet(wallet Wallet, feePerKW, maxFeeRate chainfee.SatPerKWeight,
+func newTxInputSet(feePerKW, maxFeeRate chainfee.SatPerKWeight,
 	maxInputs int) *txInputSet {
 
 	state := txInputSetState{
@@ -145,7 +156,6 @@ func newTxInputSet(wallet Wallet, feePerKW, maxFeeRate chainfee.SatPerKWeight,
 
 	b := txInputSet{
 		maxInputs:       maxInputs,
-		wallet:          wallet,
 		txInputSetState: state,
 	}
 
@@ -160,6 +170,11 @@ func (t *txInputSet) Inputs() []input.Input {
 // FeeRate returns the fee rate that should be used for the tx.
 func (t *txInputSet) FeeRate() chainfee.SatPerKWeight {
 	return t.feeRate
+}
+
+// NeedWalletInput returns true if the input set needs more wallet inputs.
+func (t *txInputSet) NeedWalletInput() bool {
+	return !t.enoughInput()
 }
 
 // enoughInput returns true if we've accumulated enough inputs to pay the fees
@@ -384,9 +399,35 @@ func (t *txInputSet) addPositiveYieldInputs(sweepableInputs []*pendingInput) {
 	// We managed to add all inputs to the set.
 }
 
+// AddWalletInputs adds wallet inputs to the set until a non-dust change output
+// can be made. Return an error if there are not enough wallet inputs.
+func (t *txInputSet) AddWalletInputs(wallet Wallet) error {
+	// Check the current output value and add wallet utxos if needed to
+	// push the output value to the lower limit.
+	if err := t.tryAddWalletInputsIfNeeded(wallet); err != nil {
+		return err
+	}
+
+	// If the output value of this block of inputs does not reach the dust
+	// limit, stop sweeping. Because of the sorting, continuing with the
+	// remaining inputs will only lead to sets with an even lower output
+	// value.
+	if !t.enoughInput() {
+		// The change output is always a p2tr here.
+		dl := lnwallet.DustLimitForSize(input.P2TRSize)
+		log.Debugf("Input set value %v (required=%v, change=%v) "+
+			"below dust limit of %v", t.totalOutput(),
+			t.requiredOutput, t.changeOutput, dl)
+
+		return ErrNotEnoughInputs
+	}
+
+	return nil
+}
+
 // tryAddWalletInputsIfNeeded retrieves utxos from the wallet and tries adding
 // as many as required to bring the tx output value above the given minimum.
-func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
+func (t *txInputSet) tryAddWalletInputsIfNeeded(wallet Wallet) error {
 	// If we've already have enough to pay the transaction fees and have at
 	// least one output materialize, no action is needed.
 	if t.enoughInput() {
@@ -396,7 +437,7 @@ func (t *txInputSet) tryAddWalletInputsIfNeeded() error {
 	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
 	// problems around RBF rules for unconfirmed inputs. This currently
 	// ignores the configured coin selection strategy.
-	utxos, err := t.wallet.ListUnspentWitnessFromDefaultAccount(
+	utxos, err := wallet.ListUnspentWitnessFromDefaultAccount(
 		1, math.MaxInt32,
 	)
 	if err != nil {

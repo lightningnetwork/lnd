@@ -105,7 +105,7 @@ func TestMPPHop(t *testing.T) {
 	// Encoding an MPP record to an intermediate hop should result in a
 	// failure.
 	var b bytes.Buffer
-	err := hop.PackHopPayload(&b, 2)
+	err := hop.PackHopPayload(&b, 2, false)
 	if err != ErrIntermediateMPPHop {
 		t.Fatalf("expected err: %v, got: %v",
 			ErrIntermediateMPPHop, err)
@@ -113,7 +113,7 @@ func TestMPPHop(t *testing.T) {
 
 	// Encoding an MPP record to a final hop should be successful.
 	b.Reset()
-	err = hop.PackHopPayload(&b, 0)
+	err = hop.PackHopPayload(&b, 0, true)
 	if err != nil {
 		t.Fatalf("expected err: %v, got: %v", nil, err)
 	}
@@ -135,7 +135,7 @@ func TestAMPHop(t *testing.T) {
 	// Encoding an AMP record to an intermediate hop w/o an MPP record
 	// should result in a failure.
 	var b bytes.Buffer
-	err := hop.PackHopPayload(&b, 2)
+	err := hop.PackHopPayload(&b, 2, false)
 	if err != ErrAMPMissingMPP {
 		t.Fatalf("expected err: %v, got: %v",
 			ErrAMPMissingMPP, err)
@@ -144,7 +144,7 @@ func TestAMPHop(t *testing.T) {
 	// Encoding an AMP record to a final hop w/o an MPP record should result
 	// in a failure.
 	b.Reset()
-	err = hop.PackHopPayload(&b, 0)
+	err = hop.PackHopPayload(&b, 0, true)
 	if err != ErrAMPMissingMPP {
 		t.Fatalf("expected err: %v, got: %v",
 			ErrAMPMissingMPP, err)
@@ -154,7 +154,7 @@ func TestAMPHop(t *testing.T) {
 	// successful.
 	hop.MPP = record.NewMPP(testAmt, testAddr)
 	b.Reset()
-	err = hop.PackHopPayload(&b, 0)
+	err = hop.PackHopPayload(&b, 0, true)
 	if err != nil {
 		t.Fatalf("expected err: %v, got: %v", nil, err)
 	}
@@ -170,7 +170,7 @@ func TestNoForwardingParams(t *testing.T) {
 	}
 
 	var b bytes.Buffer
-	err := hop.PackHopPayload(&b, 2)
+	err := hop.PackHopPayload(&b, 2, false)
 	require.NoError(t, err)
 }
 

@@ -121,7 +121,7 @@ func fuzzPayload(f *testing.F, finalPayload bool) {
 
 		var b bytes.Buffer
 		hop, nextChanID := hopFromPayload(payload1)
-		err = hop.PackHopPayload(&b, nextChanID)
+		err = hop.PackHopPayload(&b, nextChanID, finalPayload)
 		if errors.Is(err, route.ErrAMPMissingMPP) {
 			// PackHopPayload refuses to encode an AMP record
 			// without an MPP record. However, NewPayloadFromReader

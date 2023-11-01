@@ -172,11 +172,15 @@ func (h *Hop) Copy() *Hop {
 // PackHopPayload writes to the passed io.Writer, the series of byes that can
 // be placed directly into the per-hop payload (EOB) for this hop. This will
 // include the required routing fields, as well as serializing any of the
-// passed optional TLVRecords.  nextChanID is the unique channel ID that
-// references the _outgoing_ channel ID that follows this hop. This field
-// follows the same semantics as the NextAddress field in the onion: it should
-// be set to zero to indicate the terminal hop.
-func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
+// passed optional TLVRecords. nextChanID is the unique channel ID that
+// references the _outgoing_ channel ID that follows this hop. The lastHop bool
+// is used to signal whether this hop is the final hop in a route. Previously,
+// a zero nextChanID would be used for this purpose, but with the addition of
+// blinded routes which allow zero nextChanID values for intermediate hops we
+// add an explicit signal.
+func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64,
+	finalHop bool) error {
+
 	// If this is a legacy payload, then we'll exit here as this method
 	// shouldn't be called.
 	if h.LegacyPayload == true {
@@ -218,7 +222,7 @@ func (h *Hop) PackHopPayload(w io.Writer, nextChanID uint64) error {
 	// attach it to the final hop. Otherwise the route was constructed
 	// incorrectly.
 	if h.MPP != nil {
-		if nextChanID == 0 {
+		if finalHop {
 			records = append(records, h.MPP.Record())
 		} else {
 			return ErrIntermediateMPPHop
@@ -559,7 +563,8 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 
 		// If we aren't on the last hop, then we set the "next address"
 		// field to be the channel that directly follows it.
-		if i != len(r.Hops)-1 {
+		finalHop := i == len(r.Hops)-1
+		if !finalHop {
 			nextHop = r.Hops[i+1].ChannelID
 		}
 
@@ -591,7 +596,7 @@ func (r *Route) ToSphinxPath() (*sphinx.PaymentPath, error) {
 			// channel should be forwarded to so we can construct a
 			// valid payload.
 			var b bytes.Buffer
-			err := hop.PackHopPayload(&b, nextHop)
+			err := hop.PackHopPayload(&b, nextHop, finalHop)
 			if err != nil {
 				return nil, err
 			}

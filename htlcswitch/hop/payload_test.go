@@ -247,6 +247,8 @@ var decodePayloadTests = []decodePayloadTest{
 			0x02, 0x00,
 			// cltv
 			0x04, 0x00,
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
 			// blinding point (type / length)
 			0x0c, 0x21,
 		},
@@ -254,6 +256,7 @@ var decodePayloadTests = []decodePayloadTest{
 			testPubKey.SerializeCompressed()...,
 		),
 		shouldHaveBlinding: true,
+		shouldHaveEncData:  true,
 	},
 	{
 		name: "final hop with mpp",

@@ -42,9 +42,9 @@ var (
 	// ErrMissingField is returned if a required TLV is missing.
 	ErrMissingField = errors.New("required tlv missing")
 
-	// ErrIncorrectField is returned if a tlv field is included when it
+	// ErrUnexpectedField is returned if a tlv field is included when it
 	// should not be.
-	ErrIncorrectField = errors.New("incorrect tlv included")
+	ErrUnexpectedField = errors.New("unexpected tlv included")
 )
 
 // Vertex is a simple alias for the serialization of a compressed Bitcoin
@@ -337,7 +337,7 @@ func optionalBlindedField(isZero, blindedHop, finalHop bool) error {
 
 	// In an intermediate hop in a blinded route and the field is not zero.
 	case !finalHop && !isZero:
-		return ErrIncorrectField
+		return ErrUnexpectedField
 	}
 
 	return nil
@@ -351,7 +351,7 @@ func validateNextChanID(nextChanIDIsSet, isBlinded, finalHop bool) error {
 	switch {
 	// Hops in a blinded route should not have a next channel ID set.
 	case isBlinded && nextChanIDIsSet:
-		return ErrIncorrectField
+		return ErrUnexpectedField
 
 	// Otherwise, blinded hops are allowed to have a zero value.
 	case isBlinded:
@@ -359,7 +359,7 @@ func validateNextChanID(nextChanIDIsSet, isBlinded, finalHop bool) error {
 
 	// The final hop in a regular route is expected to have a zero value.
 	case finalHop && nextChanIDIsSet:
-		return ErrIncorrectField
+		return ErrUnexpectedField
 
 	// Intermediate hops in regular routes require non-zero value.
 	case !finalHop && !nextChanIDIsSet:

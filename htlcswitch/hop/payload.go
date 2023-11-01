@@ -256,33 +256,64 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 	_, hasNextHop := parsedTypes[record.NextHopOnionType]
 	_, hasMPP := parsedTypes[record.MPPOnionType]
 	_, hasAMP := parsedTypes[record.AMPOnionType]
+	_, hasEncryptedData := parsedTypes[record.EncryptedDataOnionType]
+
+	// All cleartext hops (including final hop) and the final hop in a
+	// blinded path require the forwading amount and expiry TLVs to be set.
+	needFwdInfo := isFinalHop || !hasEncryptedData
+
+	// No blinded hops should have a next hop specified, and only the final
+	// hop in a cleartext route should exclude it.
+	needNextHop := !(hasEncryptedData || isFinalHop)
 
 	switch {
-
-	// All hops must include an amount to forward.
-	case !hasAmt:
+	// Hops that need forwarding info must include an amount to forward.
+	case needFwdInfo && !hasAmt:
 		return ErrInvalidPayload{
 			Type:      record.AmtOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
 		}
 
-	// All hops must include a cltv expiry.
-	case !hasLockTime:
+	// Hops that need forwarding info must include a cltv expiry.
+	case needFwdInfo && !hasLockTime:
 		return ErrInvalidPayload{
 			Type:      record.LockTimeOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
 		}
 
-	// The exit hop should omit the next hop id, otherwise the sender must
-	// have included a record, so we don't need to test for its
-	// inclusion at intermediate hops directly.
-	case isFinalHop && hasNextHop:
+	// Hops that don't need forwarding info shouldn't have an amount TLV.
+	case !needFwdInfo && hasAmt:
+		return ErrInvalidPayload{
+			Type:      record.AmtOnionType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	// Hops that don't need forwarding info shouldn't have a cltv TLV.
+	case !needFwdInfo && hasLockTime:
+		return ErrInvalidPayload{
+			Type:      record.LockTimeOnionType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	// The exit hop and all blinded hops should omit the next hop id.
+	case !needNextHop && hasNextHop:
 		return ErrInvalidPayload{
 			Type:      record.NextHopOnionType,
 			Violation: IncludedViolation,
-			FinalHop:  true,
+			FinalHop:  isFinalHop,
+		}
+
+	// Require that the next hop is set for intermediate hops in regular
+	// routes.
+	case needNextHop && !hasNextHop:
+		return ErrInvalidPayload{
+			Type:      record.NextHopOnionType,
+			Violation: OmittedViolation,
+			FinalHop:  isFinalHop,
 		}
 
 	// Intermediate nodes should never receive MPP fields.

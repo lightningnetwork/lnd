@@ -160,18 +160,112 @@ func TestAMPHop(t *testing.T) {
 	}
 }
 
-// TestNoForwardingParams tests packing of a hop payload without an amount or
-// expiry height.
-func TestNoForwardingParams(t *testing.T) {
+// TestBlindedHops tests packing of a hop payload for various types of hops in
+// a blinded route.
+func TestBlindedHops(t *testing.T) {
 	t.Parallel()
 
-	hop := Hop{
-		EncryptedData: []byte{1, 2, 3},
+	tests := []struct {
+		name        string
+		hop         Hop
+		nextChannel uint64
+		isFinal     bool
+		err         error
+	}{
+		{
+			name: "introduction point with next channel",
+			hop: Hop{
+				EncryptedData: []byte{1, 2, 3},
+				BlindingPoint: testPubKey,
+			},
+			nextChannel: 1,
+			isFinal:     false,
+			err:         ErrUnexpectedField,
+		},
+		{
+			name: "final node with next channel",
+			hop: Hop{
+				EncryptedData:    []byte{1, 2, 3},
+				AmtToForward:     150,
+				OutgoingTimeLock: 26,
+			},
+			nextChannel: 1,
+			isFinal:     true,
+			err:         ErrUnexpectedField,
+		},
+		{
+			name: "valid introduction point",
+			hop: Hop{
+				EncryptedData: []byte{1, 2, 3},
+				BlindingPoint: testPubKey,
+			},
+			nextChannel: 0,
+			isFinal:     false,
+		},
+		{
+			name: "valid intermediate blinding",
+			hop: Hop{
+				EncryptedData: []byte{1, 2, 3},
+			},
+			nextChannel: 0,
+			isFinal:     false,
+		},
+		{
+			name: "final blinded missing amount",
+			hop: Hop{
+				EncryptedData: []byte{1, 2, 3},
+			},
+			nextChannel: 0,
+			isFinal:     true,
+			err:         ErrMissingField,
+		},
+		{
+			name: "final blinded expiry missing",
+			hop: Hop{
+				EncryptedData: []byte{1, 2, 3},
+				AmtToForward:  100,
+			},
+			nextChannel: 0,
+			isFinal:     true,
+			err:         ErrMissingField,
+		},
+		{
+			name: "valid final blinded",
+			hop: Hop{
+				EncryptedData:    []byte{1, 2, 3},
+				AmtToForward:     100,
+				OutgoingTimeLock: 52,
+			},
+			nextChannel: 0,
+			isFinal:     true,
+		},
+		{
+			// The introduction node can also be the final hop.
+			name: "valid final intro blinded",
+			hop: Hop{
+				EncryptedData:    []byte{1, 2, 3},
+				BlindingPoint:    testPubKey,
+				AmtToForward:     100,
+				OutgoingTimeLock: 52,
+			},
+			nextChannel: 0,
+			isFinal:     true,
+		},
 	}
 
-	var b bytes.Buffer
-	err := hop.PackHopPayload(&b, 0, false)
-	require.NoError(t, err)
+	for _, testCase := range tests {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var b bytes.Buffer
+			err := testCase.hop.PackHopPayload(
+				&b, testCase.nextChannel, testCase.isFinal,
+			)
+			require.ErrorIs(t, err, testCase.err)
+		})
+	}
 }
 
 // TestPayloadSize tests the payload size calculation that is provided by Hop

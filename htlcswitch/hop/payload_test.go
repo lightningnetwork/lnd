@@ -255,6 +255,21 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
+		name:       "intermediate hop no next channel",
+		isFinalHop: false,
+		payload: []byte{
+			// amount
+			0x02, 0x00,
+			// cltv
+			0x04, 0x00,
+		},
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.NextHopOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
 		name:       "intermediate hop with encrypted data",
 		isFinalHop: false,
 		payload: []byte{
@@ -347,6 +362,81 @@ var decodePayloadTests = []decodePayloadTest{
 			0x12, 0x01, 0x01,
 		},
 		shouldHaveTotalAmt: true,
+	},
+	{
+		name:       "final blinded hop with total amount",
+		isFinalHop: true,
+		payload: []byte{
+			// amount
+			0x02, 0x00,
+			// cltv
+			0x04, 0x00,
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+		},
+		shouldHaveEncData: true,
+	},
+	{
+		name:       "final blinded missing amt",
+		isFinalHop: true,
+		payload: []byte{
+			// cltv
+			0x04, 0x00,
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+		},
+		shouldHaveEncData: true,
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.AmtOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  true,
+		},
+	},
+	{
+		name:       "final blinded missing cltv",
+		isFinalHop: true,
+		payload: []byte{
+			// amount
+			0x02, 0x00,
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+		},
+		shouldHaveEncData: true,
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.LockTimeOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  true,
+		},
+	},
+	{
+		name:       "intermediate blinded has amount",
+		isFinalHop: false,
+		payload: []byte{
+			// amount
+			0x02, 0x00,
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+		},
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.AmtOnionType,
+			Violation: hop.IncludedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name:       "intermediate blinded has expiry",
+		isFinalHop: false,
+		payload: []byte{
+			// cltv
+			0x04, 0x00,
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+		},
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.LockTimeOnionType,
+			Violation: hop.IncludedViolation,
+			FinalHop:  false,
+		},
 	},
 }
 

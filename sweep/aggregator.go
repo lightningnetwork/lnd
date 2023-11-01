@@ -4,8 +4,6 @@ import (
 	"sort"
 
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -36,9 +34,8 @@ type inputCluster struct {
 // the configured maximum number of inputs. Negative yield inputs are skipped.
 // No input sets with a total value after fees below the dust limit are
 // returned.
-func (c *inputCluster) createInputSets(
-	wallet Wallet, maxFeeRate chainfee.SatPerKWeight,
-	maxInputs int) ([]InputSet, error) {
+func (c *inputCluster) createInputSets(maxFeeRate chainfee.SatPerKWeight,
+	maxInputs int) []InputSet {
 
 	// Turn the inputs into a slice so we can sort them.
 	inputList := make([]*pendingInput, 0, len(c.inputs))
@@ -91,9 +88,7 @@ func (c *inputCluster) createInputSets(
 		// Start building a set of positive-yield tx inputs under the
 		// condition that the tx will be published with the specified
 		// fee rate.
-		txInputs := newTxInputSet(
-			wallet, c.sweepFeeRate, maxFeeRate, maxInputs,
-		)
+		txInputs := newTxInputSet(c.sweepFeeRate, maxFeeRate, maxInputs)
 
 		// From the set of sweepable inputs, keep adding inputs to the
 		// input set until the tx output value no longer goes up or the
@@ -103,27 +98,7 @@ func (c *inputCluster) createInputSets(
 		// If there are no positive yield inputs, we can stop here.
 		inputCount := len(txInputs.inputs)
 		if inputCount == 0 {
-			return sets, nil
-		}
-
-		// Check the current output value and add wallet utxos if
-		// needed to push the output value to the lower limit.
-		if err := txInputs.tryAddWalletInputsIfNeeded(); err != nil {
-			return nil, err
-		}
-
-		// If the output value of this block of inputs does not reach
-		// the dust limit, stop sweeping. Because of the sorting,
-		// continuing with the remaining inputs will only lead to sets
-		// with an even lower output value.
-		if !txInputs.enoughInput() {
-			// The change output is always a p2tr here.
-			dl := lnwallet.DustLimitForSize(input.P2TRSize)
-			log.Debugf("Input set value %v (required=%v, "+
-				"change=%v) below dust limit of %v",
-				txInputs.totalOutput(), txInputs.requiredOutput,
-				txInputs.changeOutput, dl)
-			return sets, nil
+			return sets
 		}
 
 		log.Infof("Candidate sweep set of size=%v (+%v wallet inputs),"+
@@ -136,15 +111,16 @@ func (c *inputCluster) createInputSets(
 		inputList = inputList[inputCount:]
 	}
 
-	return sets, nil
+	return sets
 }
 
 // UtxoAggregator defines an interface that takes a list of inputs and
 // aggregate them into groups. Each group is used as the inputs to create a
 // sweeping transaction.
 type UtxoAggregator interface {
-	// ClusterInputs takes a list of inputs and groups them into clusters.
-	ClusterInputs(Wallet, pendingInputs) []InputSet
+	// ClusterInputs takes a list of inputs and groups them into input
+	// sets. Each input set will be used to create a sweeping transaction.
+	ClusterInputs(pendingInputs) []InputSet
 }
 
 // SimpleAggregator aggregates inputs known by the Sweeper based on each
@@ -196,9 +172,7 @@ func NewSimpleUtxoAggregator(estimator chainfee.Estimator,
 // inputs known by the UtxoSweeper. It clusters inputs by
 // 1) Required tx locktime
 // 2) Similar fee rates.
-func (s *SimpleAggregator) ClusterInputs(
-	wallet Wallet, inputs pendingInputs) []InputSet {
-
+func (s *SimpleAggregator) ClusterInputs(inputs pendingInputs) []InputSet {
 	// We start by getting the inputs clusters by locktime. Since the
 	// inputs commit to the locktime, they can only be clustered together
 	// if the locktime is equal.
@@ -220,14 +194,9 @@ func (s *SimpleAggregator) ClusterInputs(
 	// Now that we have the clusters, we can create the input sets.
 	var inputSets []InputSet
 	for _, cluster := range clusters {
-		sets, err := cluster.createInputSets(
-			wallet, s.MaxFeeRate, s.MaxInputsPerTx,
+		sets := cluster.createInputSets(
+			s.MaxFeeRate, s.MaxInputsPerTx,
 		)
-		if err != nil {
-			log.Errorf("Unable to create input sets: %v", err)
-			continue
-		}
-
 		inputSets = append(inputSets, sets...)
 	}
 

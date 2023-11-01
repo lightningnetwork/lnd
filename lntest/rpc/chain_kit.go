@@ -45,6 +45,24 @@ func (h *HarnessRPC) GetBlock(
 	return resp
 }
 
+// GetBlockHeader makes an RPC call to chain kit client's GetBlockHeader and
+// asserts.
+func (h *HarnessRPC) GetBlockHeader(
+	req *chainrpc.GetBlockHeaderRequest) *chainrpc.GetBlockHeaderResponse {
+
+	if req == nil {
+		req = &chainrpc.GetBlockHeaderRequest{}
+	}
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.ChainKit.GetBlockHeader(ctxt, req)
+	h.NoError(err, "GetBlockHeader")
+
+	return resp
+}
+
 // GetBlockHash makes an RPC call to chain kit client's GetBlockHash and
 // asserts.
 func (h *HarnessRPC) GetBlockHash(

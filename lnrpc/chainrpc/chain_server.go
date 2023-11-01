@@ -46,6 +46,10 @@ var (
 			Entity: "onchain",
 			Action: "read",
 		}},
+		"/chainrpc.ChainKit/GetBlockHeader": {{
+			Entity: "onchain",
+			Action: "read",
+		}},
 		"/chainrpc.ChainKit/GetBestBlock": {{
 			Entity: "onchain",
 			Action: "read",
@@ -291,6 +295,31 @@ func (s *Server) GetBlock(_ context.Context,
 	rawBlock := blockBuf.Bytes()
 
 	return &GetBlockResponse{RawBlock: rawBlock}, nil
+}
+
+// GetBlockHeader returns a block header given the corresponding block hash.
+func (s *Server) GetBlockHeader(_ context.Context,
+	in *GetBlockHeaderRequest) (*GetBlockHeaderResponse, error) {
+
+	// We'll start by reconstructing the RPC request into what the
+	// underlying chain functionality expects.
+	var blockHash chainhash.Hash
+	copy(blockHash[:], in.BlockHash)
+
+	blockHeader, err := s.cfg.Chain.GetBlockHeader(&blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// Serialize block header for RPC response.
+	var headerBuf bytes.Buffer
+	err = blockHeader.Serialize(&headerBuf)
+	if err != nil {
+		return nil, err
+	}
+	rawHeader := headerBuf.Bytes()
+
+	return &GetBlockHeaderResponse{RawBlockHeader: rawHeader}, nil
 }
 
 // GetBestBlock returns the latest block hash and current height of the valid

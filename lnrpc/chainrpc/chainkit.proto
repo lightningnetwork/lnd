@@ -12,6 +12,11 @@ service ChainKit {
     */
     rpc GetBlock (GetBlockRequest) returns (GetBlockResponse);
 
+    /* lncli: `chain getblockheader`
+    GetBlockHeader returns a block header with a particular block hash.
+    */
+    rpc GetBlockHeader (GetBlockHeaderRequest) returns (GetBlockHeaderResponse);
+
     /* lncli: `chain getbestblock`
     GetBestBlock returns the block hash and current height from the valid
     most-work chain.
@@ -35,6 +40,16 @@ message GetBlockRequest {
 message GetBlockResponse {
     // The raw bytes of the requested block.
     bytes raw_block = 1;
+}
+
+message GetBlockHeaderRequest {
+    // The hash of the block with the requested header.
+    bytes block_hash = 1;
+}
+
+message GetBlockHeaderResponse {
+    // The header of the block with the requested hash.
+    bytes raw_block_header = 1;
 }
 
 message GetBestBlockRequest {

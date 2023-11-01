@@ -26,6 +26,7 @@ func testChainKit(ht *lntest.HarnessTest) {
 	// during execution. By calling sub-test functions as seen below we
 	// avoid the need to start separate nodes.
 	testChainKitGetBlock(ht)
+	testChainKitGetBlockHeader(ht)
 	testChainKitGetBlockHash(ht)
 	testChainKitSendOutputsAnchorReserve(ht)
 }
@@ -55,6 +56,49 @@ func testChainKitGetBlock(ht *lntest.HarnessTest) {
 	// Ensure best block hash is the same as retrieved block hash.
 	expected := bestBlockHash
 	actual := msgBlock.BlockHash()
+	require.Equal(ht, expected, actual)
+}
+
+// testChainKitGetBlockHeader ensures that given a block hash, the RPC endpoint
+// returns the correct target block header.
+func testChainKitGetBlockHeader(ht *lntest.HarnessTest) {
+	// Get best block hash.
+	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
+
+	var (
+		bestBlockHash   chainhash.Hash
+		bestBlockHeader wire.BlockHeader
+		msgBlock        = &wire.MsgBlock{}
+	)
+	err := bestBlockHash.SetBytes(bestBlockRes.BlockHash)
+	require.NoError(ht, err)
+
+	// Retrieve the best block by hash.
+	getBlockReq := &chainrpc.GetBlockRequest{
+		BlockHash: bestBlockHash[:],
+	}
+	getBlockRes := ht.Alice.RPC.GetBlock(getBlockReq)
+
+	// Deserialize the block which was retrieved by hash.
+	blockReader := bytes.NewReader(getBlockRes.RawBlock)
+	err = msgBlock.Deserialize(blockReader)
+	require.NoError(ht, err)
+
+	// Retrieve the block header for the best block.
+	getBlockHeaderReq := &chainrpc.GetBlockHeaderRequest{
+		BlockHash: bestBlockHash[:],
+	}
+	getBlockHeaderRes := ht.Alice.RPC.GetBlockHeader(getBlockHeaderReq)
+
+	// Deserialize the block header which was retrieved by hash.
+	blockHeaderReader := bytes.NewReader(getBlockHeaderRes.RawBlockHeader)
+	err = bestBlockHeader.Deserialize(blockHeaderReader)
+	require.NoError(ht, err)
+
+	// Ensure the header of the best block is the same as retrieved block
+	// header.
+	expected := bestBlockHeader
+	actual := msgBlock.Header
 	require.Equal(ht, expected, actual)
 }
 
@@ -517,18 +561,20 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	require.Equal(ht, testMemo,
 		pendingChannelsResp.WaitingCloseChannels[0].Channel.Memo)
 
-	// At this point, the channel is waiting close, and we have both the
-	// commitment transaction and anchor sweep in the mempool.
-	const expectedTxns = 2
-	sweepTxns := ht.Miner.GetNumTxsFromMempool(expectedTxns)
+	// At this point, the channel is waiting close so we have the
+	// commitment transaction in the mempool. Alice's anchor, however,
+	// because there's no deadline pressure, it won't be swept.
 	aliceCloseTx := waitingClose.Commitments.LocalTxid
-	_, aliceAnchor := ht.FindCommitAndAnchor(sweepTxns, aliceCloseTx)
-
-	// We'll now mine _only_ the commitment force close transaction, as we
-	// want the anchor sweep to stay unconfirmed.
+	ht.MineBlocksAndAssertNumTxes(1, 1)
 	forceCloseTxID, _ := chainhash.NewHashFromStr(aliceCloseTx)
-	commitTxn := ht.Miner.GetRawTransaction(forceCloseTxID)
-	ht.Miner.MineBlockWithTxes([]*btcutil.Tx{commitTxn})
+
+	// Mine one block to trigger Alice's sweeper to reconsider the anchor
+	// sweeping. Because we are now sweeping at the fee rate floor, the
+	// sweeper will consider this input has positive yield thus attempts
+	// the sweeping.
+	ht.MineEmptyBlocks(1)
+	sweepTxns := ht.Miner.GetNumTxsFromMempool(1)
+	_, aliceAnchor := ht.FindCommitAndAnchor(sweepTxns, aliceCloseTx)
 
 	// Assert that the channel is now in PendingForceClose.
 	//
@@ -569,7 +615,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	// call, we'll generate a series of _empty_ blocks here.
 	aliceRestart := ht.SuspendNode(alice)
 	const anchorCsv = 16
-	ht.MineEmptyBlocks(anchorCsv)
+	ht.MineEmptyBlocks(anchorCsv - 1)
 
 	// Before we sweep the anchor, we'll restart Alice.
 	require.NoErrorf(ht, aliceRestart(), "unable to restart alice")

@@ -25,6 +25,7 @@ func chainCommands() []cli.Command {
 				getBlockCommand,
 				getBestBlockCommand,
 				getBlockHashCommand,
+				getBlockHeaderCommand,
 			},
 		},
 	}
@@ -109,6 +110,45 @@ func getBlock(ctx *cli.Context) error {
 	} else {
 		printJSON(msgBlock.Header)
 	}
+
+	return nil
+}
+
+var getBlockHeaderCommand = cli.Command{
+	Name:        "getblockheader",
+	Usage:       "Get a block header.",
+	Category:    "On-chain",
+	Description: "Returns a block header with a particular block hash.",
+	ArgsUsage:   "hash",
+	Action:      actionDecorator(getBlockHeader),
+}
+
+func getBlockHeader(ctx *cli.Context) error {
+	ctxc := getContext()
+	args := ctx.Args()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if !args.Present() {
+		return cli.ShowCommandHelp(ctx, "getblockheader")
+	}
+
+	blockHash, err := chainhash.NewHashFromStr(args.First())
+	if err != nil {
+		return err
+	}
+
+	req := &chainrpc.GetBlockHeaderRequest{BlockHash: blockHash[:]}
+
+	client, cleanUp := getChainClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.GetBlockHeader(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
 
 	return nil
 }

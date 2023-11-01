@@ -122,8 +122,7 @@ func acceptHoldInvoice(ht *lntest.HarnessTest, idx int, sender,
 	invoice := receiver.RPC.AddHoldInvoice(req)
 
 	invStream := receiver.RPC.SubscribeSingleInvoice(hash[:])
-	inv := ht.ReceiveSingleInvoice(invStream)
-	require.Equal(ht, lnrpc.Invoice_OPEN, inv.State, "expect open")
+	ht.AssertInvoiceState(invStream, lnrpc.Invoice_OPEN)
 
 	sendReq := &routerrpc.SendPaymentRequest{
 		PaymentRequest: invoice.PaymentRequest,
@@ -145,9 +144,7 @@ func acceptHoldInvoice(ht *lntest.HarnessTest, idx int, sender,
 	)
 	require.Len(ht, payment.Htlcs, 1)
 
-	inv = ht.ReceiveSingleInvoice(invStream)
-	require.Equal(ht, lnrpc.Invoice_ACCEPTED, inv.State,
-		"expected accepted")
+	ht.AssertInvoiceState(invStream, lnrpc.Invoice_ACCEPTED)
 
 	return &holdSubscription{
 		recipient:           receiver,

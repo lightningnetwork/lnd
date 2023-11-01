@@ -19,6 +19,16 @@
 
 # Bug Fixes
 
+* [Fixed a potential case](https://github.com/lightningnetwork/lnd/pull/7824)
+  that when sweeping inputs with locktime, an unexpected lower fee rate is
+  applied.
+
+* LND will now [enforce pong responses
+  ](https://github.com/lightningnetwork/lnd/pull/7828) from its peers
+
+* [Fixed a case](https://github.com/lightningnetwork/lnd/pull/7503) where it's
+  possible a failed payment might be stuck in pending.
+
 # New Features
 ## Functional Enhancements
 
@@ -38,15 +48,24 @@
   where the required flags are tagged with `(blinded paths)`.
 
 ## RPC Additions
+
+* [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
+  `StatusUnknown` from the payment's rpc response in its status and added a new
+  status, `StatusInitiated`, to explicitly report its current state. Before
+  running this new version, please make sure to upgrade your client application
+  to include this new status so it can understand the RPC response properly.
+
 ## lncli Additions
 
 # Improvements
 ## Functional Updates
 ## RPC Updates
 
-* [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
-  `StatusUnknown` from the payment's rpc response in its status and replaced it
-  with `StatusInitiated` to explicitly report its current state.
+* `sendtoroute` will return an error when it's called using the flag
+  `--skip_temp_err` on a payment that's not a MPP. This is needed as a temp
+  error is defined as a routing error found in one of a MPP's HTLC attempts.
+  If, however, there's only one HTLC attempt, when it's failed, this payment is
+  considered failed, thus there's no such thing as temp error for a non-MPP.
 
 ## lncli Updates
 ## Code Health
@@ -56,6 +75,11 @@
   Bitcoin is now the only supported chain. The `chains` field in the
   `lnrpc.GetInfoResponse` message along with the `chain` field in the
   `lnrpc.Chain` message have also been deprecated for the same reason.
+
+* The payment lifecycle code has been refactored to improve its maintainablity.
+  In particular, the complexity involved in the lifecycle loop has been
+  decoupled into logical steps, with each step having its own responsibility,
+  making it easier to reason about the payment flow.
 
 ## Breaking Changes
 ## Performance Improvements

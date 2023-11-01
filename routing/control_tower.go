@@ -31,8 +31,14 @@ type dbMPPayment interface {
 	// InFlightHTLCs returns all HTLCs that are in flight.
 	InFlightHTLCs() []channeldb.HTLCAttempt
 
-	// GetFailureReason returns the reason the payment failed.
-	GetFailureReason() *channeldb.FailureReason
+	// AllowMoreAttempts is used to decide whether we can safely attempt
+	// more HTLCs for a given payment state. Return an error if the payment
+	// is in an unexpected state.
+	AllowMoreAttempts() (bool, error)
+
+	// TerminalInfo returns the settled HTLC attempt or the payment's
+	// failure reason.
+	TerminalInfo() (*channeldb.HTLCAttempt, *channeldb.FailureReason)
 }
 
 // ControlTower tracks all outgoing payments made, whose primary purpose is to

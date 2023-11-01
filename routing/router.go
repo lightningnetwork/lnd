@@ -2,7 +2,6 @@ package routing
 
 import (
 	"bytes"
-	goErrors "errors"
 	"fmt"
 	"math"
 	"runtime"
@@ -119,6 +118,10 @@ var (
 	// provided by either a blinded route or a cleartext pubkey.
 	ErrNoTarget = errors.New("destination not set in target or blinded " +
 		"path")
+
+	// ErrSkipTempErr is returned when a non-MPP is made yet the
+	// skipTempErr flag is set.
+	ErrSkipTempErr = errors.New("cannot skip temp error for non-MPP")
 )
 
 // ChannelGraphSource represents the source of information about the topology
@@ -2450,6 +2453,13 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 		amt = mpp.TotalMsat()
 	}
 
+	// For non-MPP, there's no such thing as temp error as there's only one
+	// HTLC attempt being made. When this HTLC is failed, the payment is
+	// failed hence cannot be retried.
+	if skipTempErr && mpp == nil {
+		return nil, ErrSkipTempErr
+	}
+
 	// For non-AMP payments the overall payment identifier will be the same
 	// hash as used for this HTLC.
 	paymentIdentifier := htlcHash
@@ -2495,88 +2505,92 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// shard we'll now launch.
 	shardTracker := shards.NewSimpleShardTracker(htlcHash, nil)
 
-	// Launch a shard along the given route.
-	sh := &shardHandler{
-		router:       r,
-		identifier:   paymentIdentifier,
-		shardTracker: shardTracker,
-	}
+	// Create a payment lifecycle using the given route with,
+	// - zero fee limit as we are not requesting routes.
+	// - nil payment session (since we already have a route).
+	// - no payment timeout.
+	// - no current block height.
+	p := newPaymentLifecycle(
+		r, 0, paymentIdentifier, nil, shardTracker, 0, 0,
+	)
 
-	var shardError error
-	attempt, outcome, err := sh.launchShard(rt, false)
-
-	// With SendToRoute, it can happen that the route exceeds protocol
-	// constraints. Mark the payment as failed with an internal error.
-	if err == route.ErrMaxRouteHopsExceeded ||
-		err == sphinx.ErrMaxRoutingInfoSizeExceeded {
-
-		log.Debugf("Invalid route provided for payment %x: %v",
-			paymentIdentifier, err)
-
-		controlErr := r.cfg.Control.FailPayment(
-			paymentIdentifier, channeldb.FailureReasonError,
-		)
-		if controlErr != nil {
-			return nil, controlErr
-		}
-	}
-
-	// In any case, don't continue if there is an error.
+	// We found a route to try, create a new HTLC attempt to try.
+	//
+	// NOTE: we use zero `remainingAmt` here to simulate the same effect of
+	// setting the lastShard to be false, which is used by previous
+	// implementation.
+	attempt, err := p.registerAttempt(rt, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	var htlcAttempt *channeldb.HTLCAttempt
-	switch {
-	// Failed to launch shard.
-	case outcome.err != nil:
-		shardError = outcome.err
-		htlcAttempt = outcome.attempt
+	// Once the attempt is created, send it to the htlcswitch. Notice that
+	// the `err` returned here has already been processed by
+	// `handleSwitchErr`, which means if there's a terminal failure, the
+	// payment has been failed.
+	result, err := p.sendAttempt(attempt)
+	if err != nil {
+		return nil, err
+	}
 
-	// Shard successfully launched, wait for the result to be available.
-	default:
-		result, err := sh.collectResult(attempt)
+	// We now lookup the payment to see if it's already failed.
+	payment, err := p.router.cfg.Control.FetchPayment(p.identifier)
+	if err != nil {
+		return result.attempt, err
+	}
+
+	// Exit if the above error has caused the payment to be failed, we also
+	// return the error from sending attempt to mimic the old behavior of
+	// this method.
+	_, failedReason := payment.TerminalInfo()
+	if failedReason != nil {
+		return result.attempt, result.err
+	}
+
+	// Since for SendToRoute we won't retry in case the shard fails, we'll
+	// mark the payment failed with the control tower immediately if the
+	// skipTempErr is false.
+	reason := channeldb.FailureReasonError
+
+	// If we failed to send the HTLC, we need to further decide if we want
+	// to fail the payment.
+	if result.err != nil {
+		// If skipTempErr, we'll return the attempt and the temp error.
+		if skipTempErr {
+			return result.attempt, result.err
+		}
+
+		// Otherwise we need to fail the payment.
+		err := r.cfg.Control.FailPayment(paymentIdentifier, reason)
 		if err != nil {
 			return nil, err
 		}
 
-		// We got a successful result.
-		if result.err == nil {
-			return result.attempt, nil
-		}
-
-		// The shard failed, break switch to handle it.
-		shardError = result.err
-		htlcAttempt = result.attempt
+		return result.attempt, result.err
 	}
 
-	// Since for SendToRoute we won't retry in case the shard fails, we'll
-	// mark the payment failed with the control tower immediately. Process
-	// the error to check if it maps into a terminal error code, if not use
-	// a generic NO_ROUTE error.
-	var failureReason *channeldb.FailureReason
-	err = sh.handleSwitchErr(attempt, shardError)
-
-	switch {
-	// If a non-terminal error is returned and `skipTempErr` is false, then
-	// we'll use the normal no route error.
-	case err == nil && !skipTempErr:
-		err = r.cfg.Control.FailPayment(
-			paymentIdentifier, channeldb.FailureReasonNoRoute,
-		)
-
-	// If this is a failure reason, then we'll apply the failure directly
-	// to the control tower, and return the normal response to the caller.
-	case goErrors.As(err, &failureReason):
-		err = r.cfg.Control.FailPayment(
-			paymentIdentifier, *failureReason,
-		)
-	}
+	// The attempt was successfully sent, wait for the result to be
+	// available.
+	result, err = p.collectResult(attempt)
 	if err != nil {
 		return nil, err
 	}
 
-	return htlcAttempt, shardError
+	// We got a successful result.
+	if result.err == nil {
+		return result.attempt, nil
+	}
+
+	// An error returned from collecting the result, we'll mark the payment
+	// as failed if we don't skip temp error.
+	if !skipTempErr {
+		err := r.cfg.Control.FailPayment(paymentIdentifier, reason)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return result.attempt, result.err
 }
 
 // sendPayment attempts to send a payment to the passed payment hash. This

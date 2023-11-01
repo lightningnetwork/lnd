@@ -92,7 +92,21 @@ func hopFromPayload(p *Payload) (*route.Hop, uint64) {
 	}, p.FwdInfo.NextHop.ToUint64()
 }
 
-func FuzzPayload(f *testing.F) {
+// FuzzPayloadFinal fuzzes final hop payloads, providing the additional context
+// that the hop should be final (which is usually obtained by the structure
+// of the sphinx packet).
+func FuzzPayloadFinal(f *testing.F) {
+	fuzzPayload(f, true)
+}
+
+// FuzzPayloadIntermediate fuzzes intermediate hop payloads, providing the
+// additional context that a hop should be intermediate (which is usually
+// obtained by the structure of the sphinx packet).
+func FuzzPayloadIntermediate(f *testing.F) {
+	fuzzPayload(f, false)
+}
+
+func fuzzPayload(f *testing.F, finalPayload bool) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > sphinx.MaxPayloadSize {
 			return
@@ -100,7 +114,7 @@ func FuzzPayload(f *testing.F) {
 
 		r := bytes.NewReader(data)
 
-		payload1, err := NewPayloadFromReader(r)
+		payload1, err := NewPayloadFromReader(r, finalPayload)
 		if err != nil {
 			return
 		}
@@ -118,7 +132,7 @@ func FuzzPayload(f *testing.F) {
 		}
 		require.NoError(t, err)
 
-		payload2, err := NewPayloadFromReader(&b)
+		payload2, err := NewPayloadFromReader(&b, finalPayload)
 		require.NoError(t, err)
 
 		require.Equal(t, payload1, payload2)

@@ -24,6 +24,7 @@ const testUnknownRequiredType = 0x80
 type decodePayloadTest struct {
 	name               string
 	payload            []byte
+	isFinalHop         bool
 	expErr             error
 	expCustomRecords   map[uint64][]byte
 	shouldHaveMPP      bool
@@ -36,18 +37,21 @@ type decodePayloadTest struct {
 
 var decodePayloadTests = []decodePayloadTest{
 	{
-		name:    "final hop valid",
-		payload: []byte{0x02, 0x00, 0x04, 0x00},
+		name:       "final hop valid",
+		isFinalHop: true,
+		payload:    []byte{0x02, 0x00, 0x04, 0x00},
 	},
 	{
-		name: "intermediate hop valid",
+		name:       "intermediate hop valid",
+		isFinalHop: false,
 		payload: []byte{0x02, 0x00, 0x04, 0x00, 0x06, 0x08, 0x01, 0x00,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		},
 	},
 	{
-		name:    "final hop no amount",
-		payload: []byte{0x04, 0x00},
+		name:       "final hop no amount",
+		payload:    []byte{0x04, 0x00},
+		isFinalHop: true,
 		expErr: hop.ErrInvalidPayload{
 			Type:      record.AmtOnionType,
 			Violation: hop.OmittedViolation,
@@ -55,7 +59,8 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "intermediate hop no amount",
+		name:       "intermediate hop no amount",
+		isFinalHop: false,
 		payload: []byte{0x04, 0x00, 0x06, 0x08, 0x01, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x00,
 		},
@@ -66,8 +71,9 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name:    "final hop no expiry",
-		payload: []byte{0x02, 0x00},
+		name:       "final hop no expiry",
+		isFinalHop: true,
+		payload:    []byte{0x02, 0x00},
 		expErr: hop.ErrInvalidPayload{
 			Type:      record.LockTimeOnionType,
 			Violation: hop.OmittedViolation,
@@ -75,7 +81,8 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "intermediate hop no expiry",
+		name:       "intermediate hop no expiry",
+		isFinalHop: false,
 		payload: []byte{0x02, 0x00, 0x06, 0x08, 0x01, 0x00, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x00,
 		},
@@ -86,7 +93,8 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "final hop next sid present",
+		name:       "final hop next sid present",
+		isFinalHop: true,
 		payload: []byte{0x02, 0x00, 0x04, 0x00, 0x06, 0x08, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		},
@@ -97,7 +105,8 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "required type after omitted hop id",
+		name:       "required type after omitted hop id",
+		isFinalHop: true,
 		payload: []byte{
 			0x02, 0x00, 0x04, 0x00,
 			testUnknownRequiredType, 0x00,
@@ -109,7 +118,8 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "required type after included hop id",
+		name:       "required type after included hop id",
+		isFinalHop: false,
 		payload: []byte{
 			0x02, 0x00, 0x04, 0x00, 0x06, 0x08, 0x01, 0x00, 0x00,
 			0x00, 0x00, 0x00, 0x00, 0x00,
@@ -122,8 +132,9 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name:    "required type zero final hop",
-		payload: []byte{0x00, 0x00, 0x02, 0x00, 0x04, 0x00},
+		name:       "required type zero final hop",
+		isFinalHop: true,
+		payload:    []byte{0x00, 0x00, 0x02, 0x00, 0x04, 0x00},
 		expErr: hop.ErrInvalidPayload{
 			Type:      0,
 			Violation: hop.RequiredViolation,
@@ -131,7 +142,8 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "required type zero final hop zero sid",
+		name:       "required type zero final hop zero sid",
+		isFinalHop: true,
 		payload: []byte{0x00, 0x00, 0x02, 0x00, 0x04, 0x00, 0x06, 0x08,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		},
@@ -142,7 +154,8 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "required type zero intermediate hop",
+		name:       "required type zero intermediate hop",
+		isFinalHop: false,
 		payload: []byte{0x00, 0x00, 0x02, 0x00, 0x04, 0x00, 0x06, 0x08,
 			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		},
@@ -153,7 +166,8 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "required type in custom range",
+		name:       "required type in custom range",
+		isFinalHop: false,
 		payload: []byte{0x02, 0x00, 0x04, 0x00,
 			0xfe, 0x00, 0x01, 0x00, 0x00, 0x02, 0x10, 0x11,
 		},
@@ -162,19 +176,22 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "valid intermediate hop",
+		name:       "valid intermediate hop",
+		isFinalHop: false,
 		payload: []byte{0x02, 0x00, 0x04, 0x00, 0x06, 0x08, 0x01, 0x00,
 			0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		},
 		expErr: nil,
 	},
 	{
-		name:    "valid final hop",
-		payload: []byte{0x02, 0x00, 0x04, 0x00},
-		expErr:  nil,
+		name:       "valid final hop",
+		isFinalHop: true,
+		payload:    []byte{0x02, 0x00, 0x04, 0x00},
+		expErr:     nil,
 	},
 	{
-		name: "intermediate hop with mpp",
+		name:       "intermediate hop with mpp",
+		isFinalHop: false,
 		payload: []byte{
 			// amount
 			0x02, 0x00,
@@ -198,7 +215,8 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "intermediate hop with amp",
+		name:       "intermediate hop with amp",
+		isFinalHop: false,
 		payload: []byte{
 			// amount
 			0x02, 0x00,
@@ -229,7 +247,8 @@ var decodePayloadTests = []decodePayloadTest{
 		},
 	},
 	{
-		name: "intermediate hop with encrypted data",
+		name:       "intermediate hop with encrypted data",
+		isFinalHop: false,
 		payload: []byte{
 			// encrypted data
 			0x0a, 0x03, 0x03, 0x02, 0x01,
@@ -237,7 +256,8 @@ var decodePayloadTests = []decodePayloadTest{
 		shouldHaveEncData: true,
 	},
 	{
-		name: "intermediate hop with blinding point",
+		name:       "intermediate hop with blinding point",
+		isFinalHop: false,
 		payload: append([]byte{
 			// encrypted data
 			0x0a, 0x03, 0x03, 0x02, 0x01,
@@ -251,7 +271,8 @@ var decodePayloadTests = []decodePayloadTest{
 		shouldHaveEncData:  true,
 	},
 	{
-		name: "final hop with mpp",
+		name:       "final hop with mpp",
+		isFinalHop: true,
 		payload: []byte{
 			// amount
 			0x02, 0x00,
@@ -269,7 +290,8 @@ var decodePayloadTests = []decodePayloadTest{
 		shouldHaveMPP: true,
 	},
 	{
-		name: "final hop with amp",
+		name:       "final hop with amp",
+		isFinalHop: true,
 		payload: []byte{
 			// amount
 			0x02, 0x00,
@@ -293,7 +315,8 @@ var decodePayloadTests = []decodePayloadTest{
 		shouldHaveAMP: true,
 	},
 	{
-		name: "final hop with metadata",
+		name:       "final hop with metadata",
+		isFinalHop: true,
 		payload: []byte{
 			// amount
 			0x02, 0x00,
@@ -305,7 +328,8 @@ var decodePayloadTests = []decodePayloadTest{
 		shouldHaveMetadata: true,
 	},
 	{
-		name: "final hop with total amount",
+		name:       "final hop with total amount",
+		isFinalHop: true,
 		payload: []byte{
 			// amount
 			0x02, 0x00,
@@ -356,7 +380,9 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 		testChildIndex = uint32(9)
 	)
 
-	p, err := hop.NewPayloadFromReader(bytes.NewReader(test.payload))
+	p, err := hop.NewPayloadFromReader(
+		bytes.NewReader(test.payload), test.isFinalHop,
+	)
 	if !reflect.DeepEqual(test.expErr, err) {
 		t.Fatalf("expected error mismatch, want: %v, got: %v",
 			test.expErr, err)

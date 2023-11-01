@@ -127,8 +127,10 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 }
 
 // NewPayloadFromReader builds a new Hop from the passed io.Reader. The reader
-// should correspond to the bytes encapsulated in a TLV onion payload.
-func NewPayloadFromReader(r io.Reader) (*Payload, error) {
+// should correspond to the bytes encapsulated in a TLV onion payload. The
+// final hop bool signals that this payload was the final packet parsed by
+// sphinx.
+func NewPayloadFromReader(r io.Reader, finalHop bool) (*Payload, error) {
 	var (
 		cid           uint64
 		amt           uint64
@@ -165,8 +167,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 
 	// Validate whether the sender properly included or omitted tlv records
 	// in accordance with BOLT 04.
-	nextHop := lnwire.NewShortChanIDFromInt(cid)
-	err = ValidateParsedPayloadTypes(parsedTypes, nextHop)
+	err = ValidateParsedPayloadTypes(parsedTypes, finalHop)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +178,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		return nil, ErrInvalidPayload{
 			Type:      *violatingType,
 			Violation: RequiredViolation,
-			FinalHop:  nextHop == Exit,
+			FinalHop:  finalHop,
 		}
 	}
 
@@ -210,7 +211,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 
 	return &Payload{
 		FwdInfo: ForwardingInfo{
-			NextHop:         nextHop,
+			NextHop:         lnwire.NewShortChanIDFromInt(cid),
 			AmountToForward: lnwire.MilliSatoshi(amt),
 			OutgoingCTLV:    cltv,
 		},
@@ -248,9 +249,7 @@ func NewCustomRecords(parsedTypes tlv.TypeMap) record.CustomSet {
 // boolean should be true if the payload was parsed for an exit hop. The
 // requirements for this method are described in BOLT 04.
 func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
-	nextHop lnwire.ShortChannelID) error {
-
-	isFinalHop := nextHop == Exit
+	isFinalHop bool) error {
 
 	_, hasAmt := parsedTypes[record.AmtOnionType]
 	_, hasLockTime := parsedTypes[record.LockTimeOnionType]
@@ -276,8 +275,8 @@ func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
 			FinalHop:  isFinalHop,
 		}
 
-	// The exit hop should omit the next hop id. If nextHop != Exit, the
-	// sender must have included a record, so we don't need to test for its
+	// The exit hop should omit the next hop id, otherwise the sender must
+	// have included a record, so we don't need to test for its
 	// inclusion at intermediate hops directly.
 	case isFinalHop && hasNextHop:
 		return ErrInvalidPayload{

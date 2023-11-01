@@ -65,14 +65,16 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 			},
 			expectedFwdInfo: expectedFwdInfo,
 		},
-		// A TLV payload, we can leave off the action as we'll always
-		// read the cid encoded.
+		// A TLV payload, which includes the sphinx action as
+		// cid may be zero for blinded routes (thus we require the
+		// action to signal whether we are at the final hop).
 		{
 			sphinxPacket: &sphinx.ProcessedPacket{
 				Payload: sphinx.HopPayload{
 					Type:    sphinx.PayloadTLV,
 					Payload: b.Bytes(),
 				},
+				Action: sphinx.MoreHops,
 			},
 			expectedFwdInfo: expectedFwdInfo,
 		},

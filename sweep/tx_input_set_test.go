@@ -16,7 +16,7 @@ func TestTxInputSet(t *testing.T) {
 		feeRate   = 1000
 		maxInputs = 10
 	)
-	set := newTxInputSet(nil, feeRate, 0, maxInputs)
+	set := newTxInputSet(feeRate, 0, maxInputs)
 
 	// Create a 300 sat input. The fee to sweep this input to a P2WKH output
 	// is 439 sats. That means that this input yields -139 sats and we
@@ -65,7 +65,7 @@ func TestTxInputSetFromWallet(t *testing.T) {
 	)
 
 	wallet := &mockWallet{}
-	set := newTxInputSet(wallet, feeRate, 0, maxInputs)
+	set := newTxInputSet(feeRate, 0, maxInputs)
 
 	// Add a 500 sat input to the set. It yields positively, but doesn't
 	// reach the output dust limit.
@@ -86,7 +86,7 @@ func TestTxInputSetFromWallet(t *testing.T) {
 		t.Fatal("expected forced add to succeed")
 	}
 
-	err := set.tryAddWalletInputsIfNeeded()
+	err := set.AddWalletInputs(wallet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestTxInputSetRequiredOutput(t *testing.T) {
 		feeRate   = 1000
 		maxInputs = 10
 	)
-	set := newTxInputSet(nil, feeRate, 0, maxInputs)
+	set := newTxInputSet(feeRate, 0, maxInputs)
 
 	// Attempt to add an input with a required txout below the dust limit.
 	// This should fail since we cannot trim such outputs.

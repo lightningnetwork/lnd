@@ -3471,10 +3471,11 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	// Create a simple 1-hop route.
 	hops := []*route.Hop{
 		{
-			ChannelID:    1,
-			PubKeyBytes:  node.PubKeyBytes,
-			AmtToForward: payAmt,
-			MPP:          record.NewMPP(payAmt, [32]byte{}),
+			ChannelID:        1,
+			PubKeyBytes:      node.PubKeyBytes,
+			AmtToForward:     payAmt,
+			OutgoingTimeLock: 120,
+			MPP:              record.NewMPP(payAmt, [32]byte{}),
 		},
 	}
 	rt, err := route.NewRouteFromHops(payAmt, 100, node.PubKeyBytes, hops)
@@ -3607,10 +3608,11 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 	// Create a simple 1-hop route.
 	hops := []*route.Hop{
 		{
-			ChannelID:    1,
-			PubKeyBytes:  node.PubKeyBytes,
-			AmtToForward: payAmt,
-			MPP:          record.NewMPP(payAmt, [32]byte{}),
+			ChannelID:        1,
+			PubKeyBytes:      node.PubKeyBytes,
+			AmtToForward:     payAmt,
+			OutgoingTimeLock: 120,
+			MPP:              record.NewMPP(payAmt, [32]byte{}),
 		},
 	}
 	rt, err := route.NewRouteFromHops(payAmt, 100, node.PubKeyBytes, hops)
@@ -3688,10 +3690,11 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	// Create a simple 1-hop route.
 	hops := []*route.Hop{
 		{
-			ChannelID:    1,
-			PubKeyBytes:  node.PubKeyBytes,
-			AmtToForward: payAmt,
-			MPP:          record.NewMPP(payAmt, [32]byte{}),
+			ChannelID:        1,
+			PubKeyBytes:      node.PubKeyBytes,
+			AmtToForward:     payAmt,
+			OutgoingTimeLock: 120,
+			MPP:              record.NewMPP(payAmt, [32]byte{}),
 		},
 	}
 	rt, err := route.NewRouteFromHops(payAmt, 100, node.PubKeyBytes, hops)
@@ -3773,10 +3776,11 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	// Create a simple 1-hop route.
 	hops := []*route.Hop{
 		{
-			ChannelID:    1,
-			PubKeyBytes:  node.PubKeyBytes,
-			AmtToForward: payAmt,
-			MPP:          record.NewMPP(payAmt, [32]byte{}),
+			ChannelID:        1,
+			PubKeyBytes:      node.PubKeyBytes,
+			AmtToForward:     payAmt,
+			OutgoingTimeLock: 120,
+			MPP:              record.NewMPP(payAmt, [32]byte{}),
 		},
 	}
 	rt, err := route.NewRouteFromHops(payAmt, 100, node.PubKeyBytes, hops)

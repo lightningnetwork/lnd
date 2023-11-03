@@ -115,7 +115,7 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 	resultChan, err := c.Sweeper.SweepInput(
 		&anchorInput,
 		sweep.Params{
-			Fee: sweep.FeePreference{
+			Fee: sweep.FeeEstimateInfo{
 				FeeRate: relayFeeRate,
 			},
 		},

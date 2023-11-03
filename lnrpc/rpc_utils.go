@@ -222,7 +222,7 @@ func CalculateFeeRate(satPerByte, satPerVByte uint64, targetConf uint32,
 
 	// Based on the passed fee related parameters, we'll determine an
 	// appropriate fee rate for this transaction.
-	feePref := sweep.FeePreference{
+	feePref := sweep.FeeEstimateInfo{
 		ConfTarget: targetConf,
 		FeeRate:    satPerKw,
 	}

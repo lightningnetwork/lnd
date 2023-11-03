@@ -2,6 +2,7 @@ package sweep
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -15,106 +16,133 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDetermineFeePerKw tests that given a fee preference, the
-// DetermineFeePerKw will properly map it to a concrete fee in sat/kw.
-func TestDetermineFeePerKw(t *testing.T) {
+// TestFeePreferenceEstimate checks `Estimate` method works as expected.
+func TestFeePreferenceEstimate(t *testing.T) {
 	t.Parallel()
 
-	defaultFee := chainfee.SatPerKWeight(999)
-	relayFee := chainfee.SatPerKWeight(300)
+	dummyErr := errors.New("dummy")
 
-	feeEstimator := newMockFeeEstimator(defaultFee, relayFee)
+	const (
+		// Set the relay fee rate to be 10 sat/kw.
+		relayFeeRate = 10
 
-	// We'll populate two items in the internal map which is used to query
-	// a fee based on a confirmation target: the default conf target, and
-	// an arbitrary conf target. We'll ensure below that both of these are
-	// properly
-	feeEstimator.blocksToFee[50] = 300
-	feeEstimator.blocksToFee[defaultNumBlocksEstimate] = 1000
+		// Set the max fee rate to be 1000 sat/vb.
+		maxFeeRate = 1000
+
+		// Create a valid fee rate to test the success case.
+		validFeeRate = (relayFeeRate + maxFeeRate) / 2
+
+		// Set the test conf target to be 1.
+		conf uint32 = 1
+	)
+
+	// Create a mock fee estimator.
+	estimator := &chainfee.MockEstimator{}
 
 	testCases := []struct {
-		// feePref is the target fee preference for this case.
-		feePref FeePreference
-
-		// fee is the value the DetermineFeePerKw should return given
-		// the FeePreference above
-		fee chainfee.SatPerKWeight
-
-		// fail determines if this test case should fail or not.
-		fail bool
+		name            string
+		setupMocker     func()
+		feePref         FeePreference
+		expectedFeeRate chainfee.SatPerKWeight
+		expectedErr     error
 	}{
-		// A fee rate below the floor should error out.
 		{
-			feePref: FeePreference{
-				FeeRate: chainfee.SatPerKWeight(99),
-			},
-			fail: true,
+			// When the fee preference is empty, we should see an
+			// error.
+			name:        "empty fee preference",
+			feePref:     FeePreference{},
+			expectedErr: ErrNoFeePreference,
 		},
-
-		// A fee rate below the relay fee should error out.
 		{
+			// When the fee preference has conflicts, we should see
+			// an error.
+			name: "conflict fee preference",
 			feePref: FeePreference{
-				FeeRate: chainfee.SatPerKWeight(299),
+				FeeRate:    validFeeRate,
+				ConfTarget: conf,
 			},
-			fail: true,
+			expectedErr: ErrFeePreferenceConflict,
 		},
-
-		// A fee rate above the floor, should pass through and return
-		// the target fee rate.
 		{
-			feePref: FeePreference{
-				FeeRate: 900,
+			// When an error is returned from the fee estimator, we
+			// should return it.
+			name: "error from Estimator",
+			setupMocker: func() {
+				estimator.On("EstimateFeePerKW", conf).Return(
+					chainfee.SatPerKWeight(0), dummyErr,
+				).Once()
 			},
-			fee: 900,
+			feePref:     FeePreference{ConfTarget: conf},
+			expectedErr: dummyErr,
 		},
-
-		// A specified confirmation target should cause the function to
-		// query the estimator which will return our value specified
-		// above.
 		{
-			feePref: FeePreference{
-				ConfTarget: 50,
+			// When FeePreference uses a too small value, we should
+			// return an error.
+			name: "fee rate below relay fee rate",
+			setupMocker: func() {
+				// Mock the relay fee rate.
+				estimator.On("RelayFeePerKW").Return(
+					chainfee.SatPerKWeight(relayFeeRate),
+				).Once()
 			},
-			fee: 300,
+			feePref:     FeePreference{FeeRate: relayFeeRate - 1},
+			expectedErr: ErrFeePreferenceTooLow,
 		},
-
-		// If the caller doesn't specify any values at all, then we
-		// should query for the default conf target.
 		{
-			feePref: FeePreference{},
-			fee:     1000,
-		},
-
-		// Both conf target and fee rate are set, we should return with
-		// an error.
-		{
-			feePref: FeePreference{
-				ConfTarget: 50,
-				FeeRate:    90000,
+			// When FeePreference gives a too large value, we
+			// should cap it at the max fee rate.
+			name: "fee rate above max fee rate",
+			setupMocker: func() {
+				// Mock the relay fee rate.
+				estimator.On("RelayFeePerKW").Return(
+					chainfee.SatPerKWeight(relayFeeRate),
+				).Once()
 			},
-			fee:  300,
-			fail: true,
+			feePref:         FeePreference{FeeRate: maxFeeRate + 1},
+			expectedFeeRate: maxFeeRate,
+		},
+		{
+			// When Estimator gives a sane fee rate, we should
+			// return it without any error.
+			name: "success",
+			setupMocker: func() {
+				estimator.On("EstimateFeePerKW", conf).Return(
+					chainfee.SatPerKWeight(validFeeRate),
+					nil).Once()
+
+				// Mock the relay fee rate.
+				estimator.On("RelayFeePerKW").Return(
+					chainfee.SatPerKWeight(relayFeeRate),
+				).Once()
+			},
+			feePref:         FeePreference{ConfTarget: conf},
+			expectedFeeRate: validFeeRate,
 		},
 	}
-	for i, testCase := range testCases {
-		targetFee, err := DetermineFeePerKw(
-			feeEstimator, testCase.feePref,
-		)
-		switch {
-		case testCase.fail && err != nil:
-			continue
 
-		case testCase.fail && err == nil:
-			t.Fatalf("expected failure for #%v", i)
+	for _, tc := range testCases {
+		tc := tc
 
-		case !testCase.fail && err != nil:
-			t.Fatalf("unable to estimate fee; %v", err)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup the mockers if specified.
+			if tc.setupMocker != nil {
+				tc.setupMocker()
+			}
 
-		if targetFee != testCase.fee {
-			t.Fatalf("#%v: wrong fee: expected %v got %v", i,
-				testCase.fee, targetFee)
-		}
+			// Call the function under test.
+			feerate, err := tc.feePref.Estimate(
+				estimator, maxFeeRate,
+			)
+
+			// Assert the expected error.
+			require.ErrorIs(t, err, tc.expectedErr)
+
+			// Assert the expected feerate.
+			require.Equal(t, tc.expectedFeeRate, feerate)
+
+			// Assert the mockers.
+			estimator.AssertExpectations(t)
+		})
 	}
 }
 

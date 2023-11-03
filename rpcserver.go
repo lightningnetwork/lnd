@@ -1174,11 +1174,13 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	// Query the fee estimator for the fee rate for the given confirmation
 	// target.
 	target := in.TargetConf
-	feePerKw, err := sweep.DetermineFeePerKw(
-		r.server.cc.FeeEstimator, sweep.FeePreference{
-			ConfTarget: uint32(target),
-		},
-	)
+	feePref := sweep.FeePreference{
+		ConfTarget: uint32(target),
+	}
+
+	// Since we are providing a fee estimation as an RPC response, there's
+	// no need to set a max feerate here, so we use 0.
+	feePerKw, err := feePref.Estimate(r.server.cc.FeeEstimator, 0)
 	if err != nil {
 		return nil, err
 	}

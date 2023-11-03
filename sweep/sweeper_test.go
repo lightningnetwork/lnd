@@ -1,6 +1,7 @@
 package sweep
 
 import (
+	"errors"
 	"os"
 	"reflect"
 	"runtime/pprof"
@@ -335,7 +336,9 @@ func TestSuccess(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
 	// Sweeping an input without a fee preference should result in an error.
-	_, err := ctx.sweeper.SweepInput(spendableInputs[0], Params{})
+	_, err := ctx.sweeper.SweepInput(spendableInputs[0], Params{
+		Fee: &FeeEstimateInfo{},
+	})
 	if err != ErrNoFeePreference {
 		t.Fatalf("expected ErrNoFeePreference, got %v", err)
 	}
@@ -1100,7 +1103,9 @@ func TestBumpFeeRBF(t *testing.T) {
 	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
 
 	// We should expect to see an error if a fee preference isn't provided.
-	_, err = ctx.sweeper.UpdateParams(*input.OutPoint(), ParamsUpdate{})
+	_, err = ctx.sweeper.UpdateParams(*input.OutPoint(), ParamsUpdate{
+		Fee: &FeeEstimateInfo{},
+	})
 	if err != ErrNoFeePreference {
 		t.Fatalf("expected ErrNoFeePreference, got %v", err)
 	}
@@ -2141,9 +2146,12 @@ func TestSweeperShutdownHandling(t *testing.T) {
 func TestClusterByLockTime(t *testing.T) {
 	t.Parallel()
 
+	// Create a mock FeePreference.
+	mockFeePref := &MockFeePreference{}
+
 	// Create a test param with a dummy fee preference. This is needed so
 	// `feeRateForPreference` won't throw an error.
-	param := Params{Fee: FeeEstimateInfo{ConfTarget: 1}}
+	param := Params{Fee: mockFeePref}
 
 	// We begin the test by creating three clusters of inputs, the first
 	// cluster has a locktime of 1, the second has a locktime of 2, and the
@@ -2222,15 +2230,11 @@ func TestClusterByLockTime(t *testing.T) {
 	// minFeeRate will cause an error to be returned.
 	s.relayFeeRate = minFeeRate
 
-	// applyFeeRate takes a testing fee rate and makes a mocker over
-	// DetermineFeePerKw that always return the testing fee rate. This
-	// mocked method is then attached to the sweeper.
-	applyFeeRate := func(feeRate chainfee.SatPerKWeight) {
-		// TODO(yy): fix the test here.
-	}
-
 	testCases := []struct {
-		name                    string
+		name string
+		// setupMocker takes a testing fee rate and makes a mocker over
+		// `Estimate` that always return the testing fee rate.
+		setupMocker             func()
 		testFeeRate             chainfee.SatPerKWeight
 		expectedClusters        []inputCluster
 		expectedRemainingInputs pendingInputs
@@ -2240,6 +2244,14 @@ func TestClusterByLockTime(t *testing.T) {
 			// are created and the no-locktime cluster is returned
 			// as the remaining inputs.
 			name: "successfully create clusters",
+			setupMocker: func() {
+				mockFeePref.On("Estimate",
+					s.cfg.FeeEstimator,
+					s.cfg.MaxFeeRate.FeePerKWeight(),
+				// Expect the four inputs with locktime to call
+				// this method.
+				).Return(minFeeRate+1, nil).Times(4)
+			},
 			// Use a fee rate above the min value so we don't hit
 			// an error when performing fee estimation.
 			//
@@ -2267,6 +2279,14 @@ func TestClusterByLockTime(t *testing.T) {
 			// Test that when the input is skipped when the fee
 			// estimation returns an error.
 			name: "error from fee estimation",
+			setupMocker: func() {
+				mockFeePref.On("Estimate",
+					s.cfg.FeeEstimator,
+					s.cfg.MaxFeeRate.FeePerKWeight(),
+				).Return(chainfee.SatPerKWeight(0),
+					errors.New("dummy")).Times(4)
+			},
+
 			// Use a fee rate below the min value so we hit an
 			// error when performing fee estimation.
 			testFeeRate:      minFeeRate - 1,
@@ -2283,7 +2303,10 @@ func TestClusterByLockTime(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Apply the test fee rate so `feeRateForPreference` is
 			// mocked to return the specified value.
-			applyFeeRate(tc.testFeeRate)
+			tc.setupMocker()
+
+			// Assert the mocked methods are called as expeceted.
+			defer mockFeePref.AssertExpectations(t)
 
 			// Call the method under test.
 			clusters, remainingInputs := s.clusterByLockTime(inputs)

@@ -263,7 +263,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 		_, err := h.Sweeper.SweepInput(
 			&secondLevelInput,
 			sweep.Params{
-				Fee: sweep.FeePreference{
+				Fee: sweep.FeeEstimateInfo{
 					ConfTarget: secondLevelConfTarget,
 				},
 			},
@@ -375,7 +375,7 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 	_, err = h.Sweeper.SweepInput(
 		inp,
 		sweep.Params{
-			Fee: sweep.FeePreference{
+			Fee: sweep.FeeEstimateInfo{
 				ConfTarget: sweepConfTarget,
 			},
 		},
@@ -436,7 +436,7 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 		var err error
 		h.sweepTx, err = h.Sweeper.CreateSweepTx(
 			[]input.Input{inp},
-			sweep.FeePreference{
+			sweep.FeeEstimateInfo{
 				ConfTarget: sweepConfTarget,
 			},
 		)

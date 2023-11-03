@@ -1434,7 +1434,9 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input,
 	feePref FeePreference) (*wire.MsgTx, error) {
 
-	feePerKw, err := DetermineFeePerKw(s.cfg.FeeEstimator, feePref)
+	feePerKw, err := feePref.Estimate(
+		s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),
+	)
 	if err != nil {
 		return nil, err
 	}

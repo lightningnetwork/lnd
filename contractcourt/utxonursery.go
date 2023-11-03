@@ -823,7 +823,7 @@ func (u *UtxoNursery) sweepMatureOutputs(classHeight uint32,
 	utxnLog.Infof("Sweeping %v CSV-delayed outputs with sweep tx for "+
 		"height %v", len(kgtnOutputs), classHeight)
 
-	feePref := sweep.FeePreference{ConfTarget: kgtnOutputConfTarget}
+	feePref := sweep.FeeEstimateInfo{ConfTarget: kgtnOutputConfTarget}
 	for _, output := range kgtnOutputs {
 		// Create local copy to prevent pointer to loop variable to be
 		// passed in with disastrous consequences.

@@ -30,6 +30,24 @@ var (
 	ErrFeePreferenceConflict = errors.New("fee preference conflict")
 )
 
+// FeePreference defines an interface that allows the caller to specify how the
+// fee rate should be handled. Depending on the implementation, the fee rate
+// can either be specified directly, or via a conf target which relies on the
+// chain backend(`bitcoind`) to give a fee estimation, or a customized fee
+// function which handles fee calculation based on the specified
+// urgency(deadline).
+type FeePreference interface {
+	// String returns a human-readable string of the fee preference.
+	String() string
+
+	// Estimate takes a fee estimator and a max allowed fee rate and
+	// returns a fee rate for the given fee preference. It ensures that the
+	// fee rate respects the bounds of the relay fee and the specified max
+	// fee rates.
+	Estimate(chainfee.Estimator,
+		chainfee.SatPerKWeight) (chainfee.SatPerKWeight, error)
+}
+
 // FeeEstimateInfo allows callers to express their time value for inclusion of
 // a transaction into a block via either a confirmation target, or a fee rate.
 type FeeEstimateInfo struct {
@@ -42,12 +60,16 @@ type FeeEstimateInfo struct {
 	FeeRate chainfee.SatPerKWeight
 }
 
+// Compile-time constraint to ensure FeeEstimateInfo implements FeePreference.
+var _ FeePreference = (*FeeEstimateInfo)(nil)
+
 // String returns a human-readable string of the fee preference.
-func (p FeeEstimateInfo) String() string {
-	if p.ConfTarget != 0 {
-		return fmt.Sprintf("%v blocks", p.ConfTarget)
+func (f FeeEstimateInfo) String() string {
+	if f.ConfTarget != 0 {
+		return fmt.Sprintf("%v blocks", f.ConfTarget)
 	}
-	return p.FeeRate.String()
+
+	return f.FeeRate.String()
 }
 
 // Estimate returns a fee rate for the given fee preference. It ensures that

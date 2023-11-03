@@ -889,7 +889,13 @@ func (w *WalletKit) PendingSweeps(ctx context.Context,
 		broadcastAttempts := uint32(pendingInput.BroadcastAttempts)
 		nextBroadcastHeight := uint32(pendingInput.NextBroadcastHeight)
 
-		requestedFee := pendingInput.Params.Fee
+		feePref := pendingInput.Params.Fee
+		requestedFee, ok := feePref.(sweep.FeeEstimateInfo)
+		if !ok {
+			return nil, fmt.Errorf("unknown fee preference type: "+
+				"%v", feePref)
+		}
+
 		requestedFeeRate := uint64(requestedFee.FeeRate.FeePerVByte())
 
 		rpcPendingSweeps = append(rpcPendingSweeps, &PendingSweep{

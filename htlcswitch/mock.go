@@ -81,6 +81,7 @@ func (m *mockPreimageCache) SubscribeUpdates(
 	return nil, nil
 }
 
+// TODO(yy): replace it with chainfee.MockEstimator.
 type mockFeeEstimator struct {
 	byteFeeIn chan chainfee.SatPerKWeight
 	relayFee  chan chainfee.SatPerKWeight

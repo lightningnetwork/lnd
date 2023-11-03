@@ -77,6 +77,9 @@
 
 * [Add Taproot witness types
   to rpc](https://github.com/lightningnetwork/lnd/pull/8431)
+  
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/7852) the payload size
+  calculation in our pathfinder because blinded hops introduced new tlv records.
 
 # New Features
 ## Functional Enhancements

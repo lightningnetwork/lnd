@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -40,16 +41,24 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	c1 := btcutil.Amount(7)
 	c2 := btcutil.Amount(8)
 
+	// Create a payload size function which always produces a bigger size
+	// as the default `hopPayloadSizeFuncfunction`.
+	sizeEncryptedData := 100
+	cyperText := bytes.Repeat([]byte{1}, sizeEncryptedData)
+	blindedHopSize := blindedPathSizeFunc(nil, cyperText)
+
 	unifierFilled := newNodeEdgeUnifier(source, toNode, nil)
-	unifierFilled.addPolicy(fromNode, &p1, c1)
-	unifierFilled.addPolicy(fromNode, &p2, c2)
+	unifierFilled.addPolicy(fromNode, &p1, c1, hopPayloadSizeFunc)
+	unifierFilled.addPolicy(fromNode, &p2, c2, blindedHopSize)
 
 	unifierNoCapacity := newNodeEdgeUnifier(source, toNode, nil)
-	unifierNoCapacity.addPolicy(fromNode, &p1, 0)
-	unifierNoCapacity.addPolicy(fromNode, &p2, 0)
+	unifierNoCapacity.addPolicy(fromNode, &p1, 0, hopPayloadSizeFunc)
+	unifierNoCapacity.addPolicy(fromNode, &p2, 0, blindedHopSize)
 
 	unifierNoInfo := newNodeEdgeUnifier(source, toNode, nil)
-	unifierNoInfo.addPolicy(fromNode, &channeldb.CachedEdgePolicy{}, 0)
+	unifierNoInfo.addPolicy(
+		fromNode, &channeldb.CachedEdgePolicy{}, 0, nil,
+	)
 
 	tests := []struct {
 		name             string
@@ -113,6 +122,8 @@ func TestNodeEdgeUnifier(t *testing.T) {
 			name:             "no info",
 			unifier:          unifierNoInfo,
 			expectedCapacity: 0,
+			// We use the default hop payload size function when
+			// not provided.
 		},
 	}
 

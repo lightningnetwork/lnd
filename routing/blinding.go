@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -99,7 +100,7 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 
 	hintCount := len(b.BlindedPath.BlindedHops) - 1
 	hints := make(
-		map[route.Vertex][]*channeldb.CachedEdgePolicy, hintCount,
+		map[route.Vertex][]*AdditionalEdge, hintCount,
 	)
 
 	// Start at the unblinded introduction node, because our pathfinding
@@ -116,25 +117,33 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 	// will ensure that pathfinding provides sufficient fees/delay for the
 	// blinded portion to the introduction node.
 	firstBlindedHop := b.BlindedPath.BlindedHops[1].BlindedNodePub
-	hints[fromNode] = []*channeldb.CachedEdgePolicy{
+	edgePolicy := &channeldb.CachedEdgePolicy{
+		TimeLockDelta: b.CltvExpiryDelta,
+		MinHTLC:       lnwire.MilliSatoshi(b.HtlcMinimum),
+		MaxHTLC:       lnwire.MilliSatoshi(b.HtlcMaximum),
+		FeeBaseMSat:   lnwire.MilliSatoshi(b.BaseFee),
+		FeeProportionalMillionths: lnwire.MilliSatoshi(
+			b.ProportionalFee,
+		),
+		ToNodePubKey: func() route.Vertex {
+			return route.NewVertex(
+				// The first node in this slice is
+				// the introduction node, so we start
+				// at index 1 to get the first blinded
+				// relaying node.
+				firstBlindedHop,
+			)
+		},
+		ToNodeFeatures: features,
+	}
+
+	hints[fromNode] = []*AdditionalEdge{
 		{
-			TimeLockDelta: b.CltvExpiryDelta,
-			MinHTLC:       lnwire.MilliSatoshi(b.HtlcMinimum),
-			MaxHTLC:       lnwire.MilliSatoshi(b.HtlcMaximum),
-			FeeBaseMSat:   lnwire.MilliSatoshi(b.BaseFee),
-			FeeProportionalMillionths: lnwire.MilliSatoshi(
-				b.ProportionalFee,
+			policy: edgePolicy,
+			payloadSizeFunc: blindedPathSizeFunc(
+				b.BlindedPath.BlindingPoint,
+				b.BlindedPath.BlindedHops[0].CipherText,
 			),
-			ToNodePubKey: func() route.Vertex {
-				return route.NewVertex(
-					// The first node in this slice is
-					// the introduction node, so we start
-					// at index 1 to get the first blinded
-					// relaying node.
-					firstBlindedHop,
-				)
-			},
-			ToNodeFeatures: features,
 		},
 	}
 
@@ -156,17 +165,45 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 			b.BlindedPath.BlindedHops[nextHopIdx].BlindedNodePub,
 		)
 
-		hint := &channeldb.CachedEdgePolicy{
+		edgePolicy := &channeldb.CachedEdgePolicy{
 			ToNodePubKey: func() route.Vertex {
 				return nextNode
 			},
 			ToNodeFeatures: features,
 		}
 
-		hints[fromNode] = []*channeldb.CachedEdgePolicy{
-			hint,
+		hints[fromNode] = []*AdditionalEdge{
+			{
+				policy: edgePolicy,
+				// Intermediary nodes do not include the
+				// channelID in the non-encrypted hop data
+				// therefore we set the next channelID to 0.
+				payloadSizeFunc: blindedPathSizeFunc(
+					nil,
+					b.BlindedPath.BlindedHops[i].CipherText,
+				),
+			},
 		}
 	}
 
 	return hints
+}
+
+// blindedPathSizeFunc returns a closure that can be used to calculate the
+// size of blinded hop.
+// NOTE: A blinding point should only be non-nil for the introduction point.
+func blindedPathSizeFunc(blindingPoint *btcec.PublicKey,
+	data []byte) customEdgeSizeFunc {
+
+	return func(amount lnwire.MilliSatoshi, expiry uint32, legacy bool,
+		channelID uint64) uint64 {
+
+		hop := route.Hop{
+			BlindingPoint: blindingPoint,
+			LegacyPayload: false,
+			EncryptedData: data,
+		}
+
+		return hop.PayloadSize(channelID)
+	}
 }

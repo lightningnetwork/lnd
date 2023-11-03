@@ -41,7 +41,8 @@ func newNodeEdgeUnifier(sourceNode, toNode route.Vertex,
 // addPolicy adds a single channel policy. Capacity may be zero if unknown
 // (light clients).
 func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
-	edge *channeldb.CachedEdgePolicy, capacity btcutil.Amount) {
+	edge *channeldb.CachedEdgePolicy, capacity btcutil.Amount,
+	customEdgeSize customEdgeSizeFunc) {
 
 	localChan := fromNode == u.sourceNode
 
@@ -61,9 +62,16 @@ func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
 		u.edgeUnifiers[fromNode] = unifier
 	}
 
+	// In case no custom size function was provided we use the default
+	// one for clear hops (non-blinded).
+	if customEdgeSize == nil {
+		customEdgeSize = hopPayloadSizeFunc
+	}
+
 	unifier.edges = append(unifier.edges, &unifiedEdge{
-		policy:   edge,
-		capacity: capacity,
+		policy:         edge,
+		capacity:       capacity,
+		hopPayloadSize: customEdgeSize,
 	})
 }
 
@@ -78,9 +86,12 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g routingGraph) error {
 			return nil
 		}
 
-		// Add this policy to the corresponding edgeUnifier.
+		// Add this policy to the corresponding edgeUnifier. We only
+		// set the hopPayload if the hop is part of a blinded path. This
+		// is never the case in this function.
 		u.addPolicy(
 			channel.OtherNode, channel.InPolicy, channel.Capacity,
+			hopPayloadSizeFunc,
 		)
 
 		return nil
@@ -95,6 +106,11 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g routingGraph) error {
 type unifiedEdge struct {
 	policy   *channeldb.CachedEdgePolicy
 	capacity btcutil.Amount
+	// hopPayloadSize is an optional closure that allows edges to provide
+	// their own size function. It should be nil for "cleartext" edges and
+	// non-nil for introduction and intermediate edges for blinded paths
+	// which have additional fields included for routing.
+	hopPayloadSize customEdgeSizeFunc
 }
 
 // amtInRange checks whether an amount falls within the valid range for a
@@ -219,8 +235,9 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 
 		// Update best edge.
 		bestEdge = &unifiedEdge{
-			policy:   edge.policy,
-			capacity: edge.capacity,
+			policy:         edge.policy,
+			capacity:       edge.capacity,
+			hopPayloadSize: edge.hopPayloadSize,
 		}
 	}
 
@@ -233,10 +250,12 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 // forwarding context.
 func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 	var (
-		bestPolicy  *channeldb.CachedEdgePolicy
-		maxFee      lnwire.MilliSatoshi
-		maxTimelock uint16
-		maxCapMsat  lnwire.MilliSatoshi
+		bestPolicy            *channeldb.CachedEdgePolicy
+		maxFee                lnwire.MilliSatoshi
+		maxTimelock           uint16
+		maxCapMsat            lnwire.MilliSatoshi
+		maxHopPayloadSize     uint64
+		maxHopPayloadSizeFunc customEdgeSizeFunc
 	)
 
 	for _, edge := range u.edges {
@@ -268,12 +287,30 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 		}
 		maxCapMsat = lntypes.Max(capMsat, maxCapMsat)
 
+		// We don't have the expiry and channel ID that will be used to
+		// create the hop size, but this value is only used for
+		// comparison so provided that we use the same values for our
+		// comparison it's okay. However, we do need to know whether
+		// this hop supports TLV, because this does affect the size of
+		// the payload.
+		legacy := true
+		features := edge.policy.ToNodeFeatures
+		if features != nil &&
+			features.HasFeature(lnwire.TLVOnionPayloadOptional) {
+			legacy = false
+		}
+
+		candidateEdgeSize := edge.hopPayloadSize(amt, 0, legacy, 0)
+		if candidateEdgeSize > maxHopPayloadSize {
+			maxHopPayloadSize = candidateEdgeSize
+			maxHopPayloadSizeFunc = edge.hopPayloadSize
+		}
+
 		// Track the maximum time lock of all channels that are
 		// candidate for non-strict forwarding at the routing node.
 		maxTimelock = lntypes.Max(
 			maxTimelock, edge.policy.TimeLockDelta,
 		)
-
 		// Use the policy that results in the highest fee for this
 		// specific amount.
 		fee := edge.policy.ComputeFee(amt)
@@ -307,6 +344,7 @@ func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 	modifiedEdge := unifiedEdge{policy: &policyCopy}
 	modifiedEdge.policy.TimeLockDelta = maxTimelock
 	modifiedEdge.capacity = maxCapMsat.ToSatoshis()
+	modifiedEdge.hopPayloadSize = maxHopPayloadSizeFunc
 
 	return &modifiedEdge
 }

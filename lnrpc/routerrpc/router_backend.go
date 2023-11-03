@@ -272,7 +272,7 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 	// inside of the path rather than the request's fields.
 	var (
 		targetPubKey   *route.Vertex
-		routeHintEdges map[route.Vertex][]*channeldb.CachedEdgePolicy
+		routeHintEdges map[route.Vertex][]*routing.AdditionalEdge
 		blindedPmt     *routing.BlindedPayment
 
 		// finalCLTVDelta varies depending on whether we're sending to
@@ -383,6 +383,7 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		DestCustomRecords: record.CustomSet(in.DestCustomRecords),
 		CltvLimit:         cltvLimit,
 		DestFeatures:      destinationFeatures,
+		BlindedPayment:    blindedPmt,
 	}
 
 	// Pass along an outgoing channel restriction if specified.

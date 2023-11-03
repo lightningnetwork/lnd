@@ -4723,7 +4723,7 @@ func TestNewRouteRequest(t *testing.T) {
 			name:           "hints and blinded",
 			blindedPayment: blindedMultiHop,
 			routeHints: make(
-				map[route.Vertex][]*channeldb.CachedEdgePolicy,
+				map[route.Vertex][]*AdditionalEdge,
 			),
 			err: ErrHintsAndBlinded,
 		},

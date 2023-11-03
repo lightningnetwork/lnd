@@ -777,6 +777,9 @@ func TestPathFinding(t *testing.T) {
 		name: "path finding with additional edges",
 		fn:   runPathFindingWithAdditionalEdges,
 	}, {
+		name: "path finding max payload restriction",
+		fn:   runPathFindingMaxPayloadRestriction,
+	}, {
 		name: "path finding with redundant additional edges",
 		fn:   runPathFindingWithRedundantAdditionalEdges,
 	}, {
@@ -996,6 +999,7 @@ type basicGraphPathFindingTestCase struct {
 	expectedTotalAmt      lnwire.MilliSatoshi
 	expectedTotalTimeLock uint32
 	expectedHops          []expectedHop
+	routeHints            []AdditionalEdge
 	expectFailureNoPath   bool
 }
 
@@ -1232,9 +1236,16 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	copy(doge.PubKeyBytes[:], dogePubKeyBytes)
 	graph.aliasMap["doge"] = doge.PubKeyBytes
 
+	// Create 3 Testcases
+	// First => Normal Additonal Edge => succeeds
+	// Second => Add custom record => should fail because of feature bit
+	// Third => Create an additonal hop but with a blindedpathsizeFunc so
+	// that the limit for the max payload size is breached 1300 + 1
+	// Bring the level exactly to 1300 bytes
+
 	// Create the channel edge going from songoku to doge and include it in
 	// our map of additional edges.
-	songokuToDoge := &channeldb.CachedEdgePolicy{
+	songokuToDogePolicy := &channeldb.CachedEdgePolicy{
 		ToNodePubKey: func() route.Vertex {
 			return doge.PubKeyBytes
 		},
@@ -1245,8 +1256,11 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 		TimeLockDelta:             9,
 	}
 
-	additionalEdges := map[route.Vertex][]*channeldb.CachedEdgePolicy{
-		graph.aliasMap["songoku"]: {songokuToDoge},
+	additionalEdges := map[route.Vertex][]*AdditionalEdge{
+		graph.aliasMap["songoku"]: {&AdditionalEdge{
+			policy:          songokuToDogePolicy,
+			payloadSizeFunc: hopPayloadSizeFunc,
+		}},
 	}
 
 	find := func(r *RestrictParams) (
@@ -1296,6 +1310,103 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
 }
 
+func runPathFindingMaxPayloadRestriction(t *testing.T, useCache bool) {
+	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
+	require.NoError(t, err, "unable to create graph")
+
+	sourceNode, err := graph.graph.SourceNode()
+	require.NoError(t, err, "unable to fetch source node")
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+
+	// Create a node doge which is not visible in the graph.
+	dogePubKeyHex := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281536fd7011ec59c882"
+	dogePubKeyBytes, err := hex.DecodeString(dogePubKeyHex)
+	require.NoError(t, err, "unable to decode public key")
+	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes)
+	require.NoError(t, err, "unable to parse public key from bytes")
+
+	doge := &channeldb.LightningNode{}
+	doge.AddPubKey(dogePubKey)
+	doge.Alias = "doge"
+	copy(doge.PubKeyBytes[:], dogePubKeyBytes)
+	graph.aliasMap["doge"] = doge.PubKeyBytes
+
+	tests := []struct {
+		name         string
+		encrypedData int
+		err          error
+	}{
+		{
+			// ExitHop: tlv record:
+			// HopSize(3) + Amt(2+3) + Cipher(4+591) + 32(HMAC) = 635
+			// Hop to Introduction Point:
+			// hopSize(3) + blindedPoint(2+33) + cipher(4+591)+32(hmac) = 663
+			name:         "route max payload size (1300)",
+			encrypedData: 591,
+		},
+		{
+			name:         "route 2 bytes bigger than max payload",
+			encrypedData: 592,
+			err:          errNoPathFound,
+		},
+	}
+
+	for _, testCase := range tests {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			// t.Parallel()
+
+			restrictions := *noRestrictions
+			restrictions.DestFeatures = lnwire.NewFeatureVector(
+				lnwire.NewRawFeatureVector(
+					lnwire.TLVOnionPayloadOptional,
+				),
+				lnwire.Features,
+			)
+
+			cyperText := bytes.Repeat(
+				[]byte{1}, testCase.encrypedData,
+			)
+			introPk := graph.aliasMap["songoku"]
+			_, blindedPoint := btcec.PrivKeyFromBytes([]byte{5})
+			introPoint, _ := btcec.ParsePubKey(introPk[:])
+
+			blindedPayment := &BlindedPayment{
+				BlindedPath: &sphinx.BlindedPath{
+					IntroductionPoint: introPoint,
+					BlindingPoint:     blindedPoint,
+					BlindedHops: []*sphinx.BlindedHopInfo{
+						{
+							CipherText: cyperText,
+						},
+						{
+							BlindedNodePub: dogePubKey,
+							CipherText:     cyperText,
+						},
+					},
+				},
+			}
+
+			restrictions.BlindedPayment = blindedPayment
+			additionalEdges := blindedPayment.toRouteHints()
+
+			path, err := dbFindPath(
+				graph.graph, additionalEdges, &mockBandwidthHints{},
+				&restrictions, testPathFindingConfig,
+				sourceNode.PubKeyBytes, doge.PubKeyBytes, paymentAmt,
+				0, 0,
+			)
+			require.ErrorIs(t, err, testCase.err)
+
+			if err == nil {
+				assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
+			}
+		})
+	}
+}
+
 // runPathFindingWithRedundantAdditionalEdges asserts that we are able to find
 // paths to nodes ignoring additional edges that are already known by self node.
 func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
@@ -1320,7 +1431,7 @@ func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
 
 	// Create the channel edge going from alice to bob and include it in
 	// our map of additional edges.
-	aliceToBob := &channeldb.CachedEdgePolicy{
+	aliceToBobPolicy := &channeldb.CachedEdgePolicy{
 		ToNodePubKey: func() route.Vertex {
 			return target
 		},
@@ -1331,8 +1442,11 @@ func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
 		TimeLockDelta:             9,
 	}
 
-	additionalEdges := map[route.Vertex][]*channeldb.CachedEdgePolicy{
-		ctx.source: {aliceToBob},
+	additionalEdges := map[route.Vertex][]*AdditionalEdge{
+		ctx.source: {&AdditionalEdge{
+			policy:          aliceToBobPolicy,
+			payloadSizeFunc: hopPayloadSizeFunc,
+		}},
 	}
 
 	path, err := dbFindPath(
@@ -2432,7 +2546,8 @@ func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
 	path []*channeldb.CachedEdgePolicy, nodeAliases ...string) {
 
 	if len(path) != len(nodeAliases) {
-		t.Fatal("number of hops and number of aliases do not match")
+		t.Fatalf("number of hops=(%v) and number of aliases=(%v) do "+
+			"not match", len(path), len(nodeAliases))
 	}
 
 	for i, hop := range path {
@@ -3102,7 +3217,7 @@ func (c *pathFindingTestContext) assertPath(path []*channeldb.CachedEdgePolicy,
 // dbFindPath calls findPath after getting a db transaction from the database
 // graph.
 func dbFindPath(graph *channeldb.ChannelGraph,
-	additionalEdges map[route.Vertex][]*channeldb.CachedEdgePolicy,
+	additionalEdges map[route.Vertex][]*AdditionalEdge,
 	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
@@ -3260,8 +3375,8 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	edges := []*channeldb.CachedEdgePolicy{
 		aliceBobEdge,
 		bobCarolEdge,
-		carolDaveEdge,
-		daveEveEdge,
+		carolDaveEdge.policy,
+		daveEveEdge.policy,
 	}
 
 	// Total timelock for the route should include:
@@ -3357,3 +3472,5 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expectedRoute, route)
 }
+
+// Additional TestCases where we approach the max size of the sphinx package

@@ -486,7 +486,7 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
 	_, err := h.Sweeper.SweepInput(
 		inp,
 		sweep.Params{
-			Fee: sweep.FeePreference{
+			Fee: sweep.FeeEstimateInfo{
 				ConfTarget: secondLevelConfTarget,
 			},
 			Force: true,
@@ -702,7 +702,7 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 		_, err = h.Sweeper.SweepInput(
 			inp,
 			sweep.Params{
-				Fee: sweep.FeePreference{
+				Fee: sweep.FeeEstimateInfo{
 					ConfTarget: sweepConfTarget,
 				},
 			},

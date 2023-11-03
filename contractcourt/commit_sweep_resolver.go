@@ -351,7 +351,7 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	// sweeper.
 	c.log.Infof("sweeping commit output")
 
-	feePref := sweep.FeePreference{ConfTarget: commitOutputConfTarget}
+	feePref := sweep.FeeEstimateInfo{ConfTarget: commitOutputConfTarget}
 	resultChan, err := c.Sweeper.SweepInput(inp, sweep.Params{Fee: feePref})
 	if err != nil {
 		c.log.Errorf("unable to sweep input: %v", err)

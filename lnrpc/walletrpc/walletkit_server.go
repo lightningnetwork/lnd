@@ -970,7 +970,7 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 			in.SatPerByte * 1000,
 		).FeePerKWeight()
 	}
-	feePreference := sweep.FeePreference{
+	feePreference := sweep.FeeEstimateInfo{
 		ConfTarget: uint32(in.TargetConf),
 		FeeRate:    satPerKw,
 	}

@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestFeePreferenceEstimate checks `Estimate` method works as expected.
-func TestFeePreferenceEstimate(t *testing.T) {
+// TestFeeEstimateInfo checks `Estimate` method works as expected.
+func TestFeeEstimateInfo(t *testing.T) {
 	t.Parallel()
 
 	dummyErr := errors.New("dummy")
@@ -42,7 +42,7 @@ func TestFeePreferenceEstimate(t *testing.T) {
 	testCases := []struct {
 		name            string
 		setupMocker     func()
-		feePref         FeePreference
+		feePref         FeeEstimateInfo
 		expectedFeeRate chainfee.SatPerKWeight
 		expectedErr     error
 	}{
@@ -50,14 +50,14 @@ func TestFeePreferenceEstimate(t *testing.T) {
 			// When the fee preference is empty, we should see an
 			// error.
 			name:        "empty fee preference",
-			feePref:     FeePreference{},
+			feePref:     FeeEstimateInfo{},
 			expectedErr: ErrNoFeePreference,
 		},
 		{
 			// When the fee preference has conflicts, we should see
 			// an error.
 			name: "conflict fee preference",
-			feePref: FeePreference{
+			feePref: FeeEstimateInfo{
 				FeeRate:    validFeeRate,
 				ConfTarget: conf,
 			},
@@ -72,12 +72,12 @@ func TestFeePreferenceEstimate(t *testing.T) {
 					chainfee.SatPerKWeight(0), dummyErr,
 				).Once()
 			},
-			feePref:     FeePreference{ConfTarget: conf},
+			feePref:     FeeEstimateInfo{ConfTarget: conf},
 			expectedErr: dummyErr,
 		},
 		{
-			// When FeePreference uses a too small value, we should
-			// return an error.
+			// When FeeEstimateInfo uses a too small value, we
+			// should return an error.
 			name: "fee rate below relay fee rate",
 			setupMocker: func() {
 				// Mock the relay fee rate.
@@ -85,11 +85,11 @@ func TestFeePreferenceEstimate(t *testing.T) {
 					chainfee.SatPerKWeight(relayFeeRate),
 				).Once()
 			},
-			feePref:     FeePreference{FeeRate: relayFeeRate - 1},
+			feePref:     FeeEstimateInfo{FeeRate: relayFeeRate - 1},
 			expectedErr: ErrFeePreferenceTooLow,
 		},
 		{
-			// When FeePreference gives a too large value, we
+			// When FeeEstimateInfo gives a too large value, we
 			// should cap it at the max fee rate.
 			name: "fee rate above max fee rate",
 			setupMocker: func() {
@@ -98,7 +98,9 @@ func TestFeePreferenceEstimate(t *testing.T) {
 					chainfee.SatPerKWeight(relayFeeRate),
 				).Once()
 			},
-			feePref:         FeePreference{FeeRate: maxFeeRate + 1},
+			feePref: FeeEstimateInfo{
+				FeeRate: maxFeeRate + 1,
+			},
 			expectedFeeRate: maxFeeRate,
 		},
 		{
@@ -115,7 +117,7 @@ func TestFeePreferenceEstimate(t *testing.T) {
 					chainfee.SatPerKWeight(relayFeeRate),
 				).Once()
 			},
-			feePref:         FeePreference{ConfTarget: conf},
+			feePref:         FeeEstimateInfo{ConfTarget: conf},
 			expectedFeeRate: validFeeRate,
 		},
 	}

@@ -30,9 +30,9 @@ var (
 	ErrFeePreferenceConflict = errors.New("fee preference conflict")
 )
 
-// FeePreference allows callers to express their time value for inclusion of a
-// transaction into a block via either a confirmation target, or a fee rate.
-type FeePreference struct {
+// FeeEstimateInfo allows callers to express their time value for inclusion of
+// a transaction into a block via either a confirmation target, or a fee rate.
+type FeeEstimateInfo struct {
 	// ConfTarget if non-zero, signals a fee preference expressed in the
 	// number of desired blocks between first broadcast, and confirmation.
 	ConfTarget uint32
@@ -43,7 +43,7 @@ type FeePreference struct {
 }
 
 // String returns a human-readable string of the fee preference.
-func (p FeePreference) String() string {
+func (p FeeEstimateInfo) String() string {
 	if p.ConfTarget != 0 {
 		return fmt.Sprintf("%v blocks", p.ConfTarget)
 	}
@@ -53,7 +53,7 @@ func (p FeePreference) String() string {
 // Estimate returns a fee rate for the given fee preference. It ensures that
 // the fee rate respects the bounds of the relay fee and the max fee rates, if
 // specified.
-func (f FeePreference) Estimate(estimator chainfee.Estimator,
+func (f FeeEstimateInfo) Estimate(estimator chainfee.Estimator,
 	maxFeeRate chainfee.SatPerKWeight) (chainfee.SatPerKWeight, error) {
 
 	var (

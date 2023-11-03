@@ -53,7 +53,7 @@ type UtxoSweeper interface {
 	// that spends from them. This method also makes an accurate fee
 	// estimate before generating the required witnesses.
 	CreateSweepTx(inputs []input.Input,
-		feePref sweep.FeePreference) (*wire.MsgTx, error)
+		feePref sweep.FeeEstimateInfo) (*wire.MsgTx, error)
 
 	// RelayFeePerKW returns the minimum fee rate required for transactions
 	// to be relayed.

@@ -1359,7 +1359,7 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		_, err = c.cfg.Sweeper.SweepInput(
 			&anchorInput,
 			sweep.Params{
-				Fee: sweep.FeePreference{
+				Fee: sweep.FeeEstimateInfo{
 					ConfTarget: deadline,
 				},
 				Force:          force,

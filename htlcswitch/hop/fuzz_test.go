@@ -122,15 +122,26 @@ func fuzzPayload(f *testing.F, finalPayload bool) {
 		var b bytes.Buffer
 		hop, nextChanID := hopFromPayload(payload1)
 		err = hop.PackHopPayload(&b, nextChanID, finalPayload)
-		if errors.Is(err, route.ErrAMPMissingMPP) {
-			// PackHopPayload refuses to encode an AMP record
-			// without an MPP record. However, NewPayloadFromReader
-			// does allow decoding an AMP record without an MPP
-			// record, since validation is done at a later stage. Do
-			// not report a bug for this case.
+		switch {
+		// PackHopPayload refuses to encode an AMP record
+		// without an MPP record. However, NewPayloadFromReader
+		// does allow decoding an AMP record without an MPP
+		// record, since validation is done at a later stage. Do
+		// not report a bug for this case.
+		case errors.Is(err, route.ErrAMPMissingMPP):
 			return
+
+		// PackHopPayload will not encode regular payloads or final
+		// hops in blinded routes that do not have an amount or expiry
+		// TLV set. However, NewPayloadFromReader will allow creation
+		// of payloads where these TLVs are present, but they have
+		// zero values because validation is done at a later stage.
+		case errors.Is(err, route.ErrMissingField):
+			return
+
+		default:
+			require.NoError(t, err)
 		}
-		require.NoError(t, err)
 
 		payload2, err := NewPayloadFromReader(&b, finalPayload)
 		require.NoError(t, err)

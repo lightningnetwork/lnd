@@ -68,7 +68,7 @@ type Params struct {
 	// Fee is the fee preference of the client who requested the input to be
 	// swept. If a confirmation target is specified, then we'll map it into
 	// a fee rate whenever we attempt to cluster inputs for a sweep.
-	Fee FeePreference
+	Fee FeeEstimateInfo
 
 	// Force indicates whether the input should be swept regardless of
 	// whether it is economical to do so.
@@ -84,7 +84,7 @@ type ParamsUpdate struct {
 	// Fee is the fee preference of the client who requested the input to be
 	// swept. If a confirmation target is specified, then we'll map it into
 	// a fee rate whenever we attempt to cluster inputs for a sweep.
-	Fee FeePreference
+	Fee FeeEstimateInfo
 
 	// Force indicates whether the input should be swept regardless of
 	// whether it is economical to do so.
@@ -1426,7 +1426,7 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq) (
 // - Thwart future possible fee sniping attempts.
 // - Make us blend in with the bitcoind wallet.
 func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input,
-	feePref FeePreference) (*wire.MsgTx, error) {
+	feePref FeeEstimateInfo) (*wire.MsgTx, error) {
 
 	feePerKw, err := feePref.Estimate(
 		s.cfg.FeeEstimator, s.cfg.MaxFeeRate.FeePerKWeight(),

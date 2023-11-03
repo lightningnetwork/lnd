@@ -1174,7 +1174,7 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	// Query the fee estimator for the fee rate for the given confirmation
 	// target.
 	target := in.TargetConf
-	feePref := sweep.FeePreference{
+	feePref := sweep.FeeEstimateInfo{
 		ConfTarget: uint32(target),
 	}
 

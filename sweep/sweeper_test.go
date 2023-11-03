@@ -31,7 +31,7 @@ var (
 
 	testMaxInputsPerTx = 3
 
-	defaultFeePref = Params{Fee: FeePreference{ConfTarget: 1}}
+	defaultFeePref = Params{Fee: FeeEstimateInfo{ConfTarget: 1}}
 )
 
 type sweeperTestContext struct {
@@ -432,7 +432,7 @@ func TestWalletUtxo(t *testing.T) {
 
 	_, err := ctx.sweeper.SweepInput(
 		&dustInput,
-		Params{Fee: FeePreference{FeeRate: chainfee.FeePerKwFloor}},
+		Params{Fee: FeeEstimateInfo{FeeRate: chainfee.FeePerKwFloor}},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -926,11 +926,11 @@ func TestDifferentFeePreferences(t *testing.T) {
 	// with the higher fee preference, and the last with the lower. We do
 	// this to ensure the sweeper can broadcast distinct transactions for
 	// each sweep with a different fee preference.
-	lowFeePref := FeePreference{ConfTarget: 12}
+	lowFeePref := FeeEstimateInfo{ConfTarget: 12}
 	lowFeeRate := chainfee.SatPerKWeight(5000)
 	ctx.estimator.blocksToFee[lowFeePref.ConfTarget] = lowFeeRate
 
-	highFeePref := FeePreference{ConfTarget: 6}
+	highFeePref := FeeEstimateInfo{ConfTarget: 6}
 	highFeeRate := chainfee.SatPerKWeight(10000)
 	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
 
@@ -995,12 +995,12 @@ func TestPendingInputs(t *testing.T) {
 		highFeeRate = 10000
 	)
 
-	lowFeePref := FeePreference{
+	lowFeePref := FeeEstimateInfo{
 		ConfTarget: 12,
 	}
 	ctx.estimator.blocksToFee[lowFeePref.ConfTarget] = lowFeeRate
 
-	highFeePref := FeePreference{
+	highFeePref := FeeEstimateInfo{
 		ConfTarget: 6,
 	}
 	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
@@ -1060,7 +1060,7 @@ func TestPendingInputs(t *testing.T) {
 func TestBumpFeeRBF(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
-	lowFeePref := FeePreference{ConfTarget: 144}
+	lowFeePref := FeeEstimateInfo{ConfTarget: 144}
 	lowFeeRate := chainfee.FeePerKwFloor
 	ctx.estimator.blocksToFee[lowFeePref.ConfTarget] = lowFeeRate
 
@@ -1095,7 +1095,7 @@ func TestBumpFeeRBF(t *testing.T) {
 	assertTxFeeRate(t, &lowFeeTx, lowFeeRate, changePk, &input)
 
 	// We'll then attempt to bump its fee rate.
-	highFeePref := FeePreference{ConfTarget: 6}
+	highFeePref := FeeEstimateInfo{ConfTarget: 6}
 	highFeeRate := DefaultMaxFeeRate.FeePerKWeight()
 	ctx.estimator.blocksToFee[highFeePref.ConfTarget] = highFeeRate
 
@@ -1132,7 +1132,7 @@ func TestExclusiveGroup(t *testing.T) {
 		exclusiveGroup := uint64(1)
 		result, err := ctx.sweeper.SweepInput(
 			spendableInputs[i], Params{
-				Fee:            FeePreference{ConfTarget: 6},
+				Fee:            FeeEstimateInfo{ConfTarget: 6},
 				ExclusiveGroup: &exclusiveGroup,
 			},
 		)
@@ -1209,7 +1209,7 @@ func TestCpfp(t *testing.T) {
 		},
 	)
 
-	feePref := FeePreference{ConfTarget: 6}
+	feePref := FeeEstimateInfo{ConfTarget: 6}
 	result, err := ctx.sweeper.SweepInput(
 		&input, Params{Fee: feePref, Force: true},
 	)
@@ -1564,7 +1564,7 @@ func TestLockTimes(t *testing.T) {
 
 		result, err := ctx.sweeper.SweepInput(
 			inp, Params{
-				Fee: FeePreference{ConfTarget: 6},
+				Fee: FeeEstimateInfo{ConfTarget: 6},
 			},
 		)
 		if err != nil {
@@ -1582,7 +1582,7 @@ func TestLockTimes(t *testing.T) {
 		inp := spendableInputs[i+numSweeps*2]
 		result, err := ctx.sweeper.SweepInput(
 			inp, Params{
-				Fee: FeePreference{ConfTarget: 6},
+				Fee: FeeEstimateInfo{ConfTarget: 6},
 			},
 		)
 		if err != nil {
@@ -2027,7 +2027,9 @@ func TestRequiredTxOuts(t *testing.T) {
 			for _, inp := range testCase.inputs {
 				result, err := ctx.sweeper.SweepInput(
 					inp, Params{
-						Fee: FeePreference{ConfTarget: 6},
+						Fee: FeeEstimateInfo{
+							ConfTarget: 6,
+						},
 					},
 				)
 				if err != nil {
@@ -2141,7 +2143,7 @@ func TestClusterByLockTime(t *testing.T) {
 
 	// Create a test param with a dummy fee preference. This is needed so
 	// `feeRateForPreference` won't throw an error.
-	param := Params{Fee: FeePreference{ConfTarget: 1}}
+	param := Params{Fee: FeeEstimateInfo{ConfTarget: 1}}
 
 	// We begin the test by creating three clusters of inputs, the first
 	// cluster has a locktime of 1, the second has a locktime of 2, and the
@@ -2316,7 +2318,7 @@ func TestGetInputLists(t *testing.T) {
 
 	// Create a test param with a dummy fee preference. This is needed so
 	// `feeRateForPreference` won't throw an error.
-	param := Params{Fee: FeePreference{ConfTarget: 1}}
+	param := Params{Fee: FeeEstimateInfo{ConfTarget: 1}}
 
 	// Create a mock input and mock all the methods used in this test.
 	testInput := &input.MockInput{}

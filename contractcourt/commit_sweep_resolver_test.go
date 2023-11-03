@@ -141,7 +141,7 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 }
 
 func (s *mockSweeper) CreateSweepTx(inputs []input.Input,
-	feePref sweep.FeePreference) (*wire.MsgTx, error) {
+	feePref sweep.FeeEstimateInfo) (*wire.MsgTx, error) {
 
 	// We will wait for the test to supply the sweep tx to return.
 	sweepTx := <-s.createSweepTxChan

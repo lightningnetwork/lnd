@@ -9,6 +9,8 @@ import (
 // mockFeeEstimator implements a mock fee estimator. It closely resembles
 // lnwallet.StaticFeeEstimator with the addition that fees can be changed for
 // testing purposes in a thread safe manner.
+//
+// TODO(yy): replace it with chainfee.MockEstimator once it's merged.
 type mockFeeEstimator struct {
 	feePerKW chainfee.SatPerKWeight
 

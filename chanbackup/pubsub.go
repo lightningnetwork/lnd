@@ -267,9 +267,10 @@ func (s *SubSwapper) backupUpdater() {
 				log.Debugf("Adding channel %v to backup state",
 					newChan.FundingOutpoint)
 
-				s.backupState[newChan.FundingOutpoint] = NewSingle(
+				single := NewSingle(
 					newChan.OpenChannel, newChan.Addrs,
 				)
+				s.backupState[newChan.FundingOutpoint] = single
 			}
 
 			// For all closed channels, we'll remove the prior

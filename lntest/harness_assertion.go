@@ -1328,48 +1328,6 @@ func (h *HarnessTest) assertHLTCActive(hn *node.HarnessNode,
 	return result
 }
 
-// AssertHLTCNotActive asserts the node doesn't have a pending HTLC in the
-// given channel, which mean either the HTLC never exists, or it was pending
-// and now settled. Returns the HTLC if found and active.
-//
-// NOTE: to check a pending HTLC becoming settled, first use AssertHLTCActive
-// then follow this check.
-func (h *HarnessTest) AssertHLTCNotActive(hn *node.HarnessNode,
-	cp *lnrpc.ChannelPoint, payHash []byte) *lnrpc.HTLC {
-
-	var result *lnrpc.HTLC
-	target := hex.EncodeToString(payHash)
-
-	err := wait.NoError(func() error {
-		// We require the RPC call to be succeeded and won't wait for
-		// it as it's an unexpected behavior.
-		ch := h.GetChannelByChanPoint(hn, cp)
-
-		// Check all payment hashes active for this channel.
-		for _, htlc := range ch.PendingHtlcs {
-			h := hex.EncodeToString(htlc.HashLock)
-
-			// Break if found the htlc.
-			if h == target {
-				result = htlc
-				break
-			}
-		}
-
-		// If we've found nothing, we're done.
-		if result == nil {
-			return nil
-		}
-
-		// Otherwise return an error.
-		return fmt.Errorf("node [%s:%x] still has: the payHash %x",
-			hn.Name(), hn.PubKey[:], payHash)
-	}, DefaultTimeout)
-	require.NoError(h, err, "timeout checking pending HTLC")
-
-	return result
-}
-
 // ReceiveSingleInvoice waits until a message is received on the subscribe
 // single invoice stream or the timeout is reached.
 func (h *HarnessTest) ReceiveSingleInvoice(

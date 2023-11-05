@@ -1,8 +1,6 @@
 package itest
 
 import (
-	"math"
-
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -240,55 +238,42 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	//
 	// To do so, we'll push most of the funds in the channel over to
 	// Alice's side, leaving on 10k satoshis of available balance for bob.
-	// There's a max payment amount, so we'll have to do this
-	// incrementally.
 	chanReserve := int64(chanAmt / 100)
-	amtToSend := int64(chanAmt) - chanReserve - 20000
-	amtSent := int64(0)
-	for amtSent != amtToSend {
-		// We'll send in chunks of the max payment amount. If we're
-		// about to send too much, then we'll only send the amount
-		// remaining.
-		toSend := int64(math.MaxUint32)
-		if toSend+amtSent > amtToSend {
-			toSend = amtToSend - amtSent
-		}
+	feeBuffer := lntest.CalcStaticFeeBuffer(cType, 0)
+	amtToSend := int64(chanAmt) - chanReserve - int64(feeBuffer) - 10000
 
-		invoiceReq = &lnrpc.Invoice{
-			Value: toSend,
-		}
-		carolInvoice2 := carol.RPC.AddInvoice(invoiceReq)
-
-		req := &routerrpc.SendPaymentRequest{
-			PaymentRequest: carolInvoice2.PaymentRequest,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-			MaxParts:       1,
-		}
-		ht.SendPaymentAndAssertStatus(bob, req, lnrpc.Payment_SUCCEEDED)
-
-		// For each send bob makes, we need to check that bob has a
-		// forward and settle event for his send, and carol has a
-		// settle event and a final htlc event for her receive.
-		ht.AssertHtlcEventTypes(
-			bobEvents, routerrpc.HtlcEvent_SEND,
-			lntest.HtlcEventForward,
-		)
-		ht.AssertHtlcEventTypes(
-			bobEvents, routerrpc.HtlcEvent_SEND,
-			lntest.HtlcEventSettle,
-		)
-		ht.AssertHtlcEventTypes(
-			carolEvents, routerrpc.HtlcEvent_RECEIVE,
-			lntest.HtlcEventSettle,
-		)
-		ht.AssertHtlcEventTypes(
-			carolEvents, routerrpc.HtlcEvent_UNKNOWN,
-			lntest.HtlcEventFinal,
-		)
-
-		amtSent += toSend
+	invoiceReq = &lnrpc.Invoice{
+		Value: amtToSend,
 	}
+	carolInvoice2 := carol.RPC.AddInvoice(invoiceReq)
+
+	req := &routerrpc.SendPaymentRequest{
+		PaymentRequest: carolInvoice2.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitMsat:   noFeeLimitMsat,
+		MaxParts:       1,
+	}
+	ht.SendPaymentAndAssertStatus(bob, req, lnrpc.Payment_SUCCEEDED)
+
+	// We need to check that bob has a forward and settle event for his
+	// send, and carol has a settle event and a final htlc event for her
+	// receive.
+	ht.AssertHtlcEventTypes(
+		bobEvents, routerrpc.HtlcEvent_SEND,
+		lntest.HtlcEventForward,
+	)
+	ht.AssertHtlcEventTypes(
+		bobEvents, routerrpc.HtlcEvent_SEND,
+		lntest.HtlcEventSettle,
+	)
+	ht.AssertHtlcEventTypes(
+		carolEvents, routerrpc.HtlcEvent_RECEIVE,
+		lntest.HtlcEventSettle,
+	)
+	ht.AssertHtlcEventTypes(
+		carolEvents, routerrpc.HtlcEvent_UNKNOWN,
+		lntest.HtlcEventFinal,
+	)
 
 	// At this point, Alice has 50mil satoshis on her side of the channel,
 	// but Bob only has 10k available on his side of the channel. So a
@@ -347,7 +332,7 @@ func testHtlcErrorPropagation(ht *lntest.HarnessTest) {
 	// Reset mission control to forget the temporary channel failure above.
 	alice.RPC.ResetMissionControl()
 
-	req := &routerrpc.SendPaymentRequest{
+	req = &routerrpc.SendPaymentRequest{
 		PaymentRequest: carolInvoice.PaymentRequest,
 		TimeoutSeconds: 60,
 		FeeLimitMsat:   noFeeLimitMsat,

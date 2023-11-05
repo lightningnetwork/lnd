@@ -52,7 +52,43 @@ const (
 	// SimpleTaprootVersion is a version that denotes this channel is using
 	// the musig2 based taproot commitment format.
 	SimpleTaprootVersion = 5
+
+	// closeTxVersionMask is the byte mask used that is ORed to version byte
+	// on wire indicating that the backup has CloseTxInputs.
+	closeTxVersionMask = 1 << 7
 )
+
+// Encode returns encoding of the version to put into channel backup.
+// Argument closeTx specifies of the backup includes force close transaction.
+func (v SingleBackupVersion) Encode(closeTx bool) byte {
+	encoded := byte(v)
+
+	// If the backup includes closing transaction, set this bit in the
+	// encoded version.
+	if closeTx {
+		encoded |= closeTxVersionMask
+	}
+
+	return encoded
+}
+
+// Decode decodes the encoding of the version from a channel backup.
+// It returns the version and if the backup includes force close transaction.
+func DecodeVersion(encoded byte) (SingleBackupVersion, bool) {
+	// Find if it has a closing transaction by inspecting the bit.
+	closeTx := (encoded & closeTxVersionMask) != 0
+
+	// Remove the closeTx bit.
+	version := SingleBackupVersion(encoded &^ closeTxVersionMask)
+
+	return version, closeTx
+}
+
+// IsTaproot returns if this is a backup of a taproot channel. This will also be
+// true for simple taproot overlay channels when a version is added.
+func (v SingleBackupVersion) IsTaproot() bool {
+	return v == SimpleTaprootVersion
+}
 
 // Single is a static description of an existing channel that can be used for
 // the purposes of backing up. The fields in this struct allow a node to
@@ -138,6 +174,37 @@ type Single struct {
 	//
 	// - ScriptEnforcedLeaseVersion
 	LeaseExpiry uint32
+
+	// CloseTxInputs contains data needed to produce a force close tx
+	// using "chantools scbforceclose".
+	//
+	// The field is optional.
+	//
+	// See WithCloseTxInputs.
+	CloseTxInputs *CloseTxInputs
+}
+
+// CloseTxInputs contains data needed to produce a force close transaction
+// using "chantools scbforceclose".
+type CloseTxInputs struct {
+	// CommitTx is the latest version of the commitment state, broadcast
+	// able by us, but not signed.
+	// It can be signed by "chantools scbforceclose" command.
+	CommitTx *wire.MsgTx
+
+	// CommitSig is one half of the signature required to fully complete
+	// the script for the commitment transaction above. This is the
+	// signature signed by the remote party for our version of the
+	// commitment transactions.
+	CommitSig []byte
+
+	// CommitHeight is the update number that this ChannelDelta represents
+	// the total number of commitment updates to this point. This can be
+	// viewed as sort of a "commitment height" as this number is
+	// monotonically increasing.
+	//
+	// This field is filled only for taproot channels.
+	CommitHeight uint64
 }
 
 // NewSingle creates a new static channel backup based on an existing open
@@ -320,6 +387,33 @@ func (s *Single) Serialize(w io.Writer) error {
 		}
 	}
 
+	// Encode version enum and hasCloseTx flag to version byte.
+	version := s.Version.Encode(s.CloseTxInputs != nil)
+
+	if s.CloseTxInputs != nil {
+		err := s.CloseTxInputs.CommitTx.Serialize(&singleBytes)
+		if err != nil {
+			return err
+		}
+
+		if err := lnwire.WriteElements(
+			&singleBytes,
+			uint16(len(s.CloseTxInputs.CommitSig)),
+			s.CloseTxInputs.CommitSig,
+		); err != nil {
+			return err
+		}
+
+		if s.Version.IsTaproot() {
+			if err := lnwire.WriteElements(
+				&singleBytes,
+				s.CloseTxInputs.CommitHeight,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
 	// TODO(yy): remove the type assertion when we finished refactoring db
 	// into using write buffer.
 	buf, ok := w.(*bytes.Buffer)
@@ -329,7 +423,7 @@ func (s *Single) Serialize(w io.Writer) error {
 
 	return lnwire.WriteElements(
 		buf,
-		byte(s.Version),
+		version,
 		uint16(len(singleBytes.Bytes())),
 		singleBytes.Bytes(),
 	)
@@ -420,7 +514,9 @@ func (s *Single) Deserialize(r io.Reader) error {
 		return err
 	}
 
-	s.Version = SingleBackupVersion(version)
+	// Decode version byte to version enum and hasCloseTx flag.
+	var hasCloseTx bool
+	s.Version, hasCloseTx = DecodeVersion(version)
 
 	switch s.Version {
 	case DefaultSingleVersion:
@@ -530,6 +626,36 @@ func (s *Single) Deserialize(r io.Reader) error {
 	if s.Version == ScriptEnforcedLeaseVersion {
 		if err := lnwire.ReadElement(r, &s.LeaseExpiry); err != nil {
 			return err
+		}
+	}
+
+	if hasCloseTx {
+		commitTx := &wire.MsgTx{}
+		if err := commitTx.Deserialize(r); err != nil {
+			return err
+		}
+
+		var commitSigLen uint16
+		if err := lnwire.ReadElement(r, &commitSigLen); err != nil {
+			return err
+		}
+		commitSig := make([]byte, commitSigLen)
+		if err := lnwire.ReadElement(r, commitSig); err != nil {
+			return err
+		}
+
+		var commitHeight uint64
+		if s.Version.IsTaproot() {
+			err := lnwire.ReadElement(r, &commitHeight)
+			if err != nil {
+				return err
+			}
+		}
+
+		s.CloseTxInputs = &CloseTxInputs{
+			CommitTx:     commitTx,
+			CommitSig:    commitSig,
+			CommitHeight: commitHeight,
 		}
 	}
 

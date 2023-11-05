@@ -2,6 +2,7 @@ package chanbackup
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -56,7 +58,50 @@ const (
 	// TapscriptRootVersion is a version that denotes this is a MuSig2
 	// channel with a top level tapscript commitment.
 	TapscriptRootVersion = 6
+
+	// closeTxVersionMask is the byte mask used that is ORed to version byte
+	// on wire indicating that the backup has CloseTxInputs.
+	closeTxVersionMask = 1 << 7
 )
+
+// Encode returns encoding of the version to put into channel backup.
+// Argument "closeTx" specifies if the backup includes force close transaction.
+func (v SingleBackupVersion) Encode(closeTx bool) byte {
+	encoded := byte(v)
+
+	// If the backup includes closing transaction, set this bit in the
+	// encoded version.
+	if closeTx {
+		encoded |= closeTxVersionMask
+	}
+
+	return encoded
+}
+
+// Decode decodes the encoding of the version from a channel backup.
+// It returns the version and if the backup includes the force close tx.
+func DecodeVersion(encoded byte) (SingleBackupVersion, bool) {
+	// Find if it has a closing transaction by inspecting the bit.
+	closeTx := (encoded & closeTxVersionMask) != 0
+
+	// The encoded form has version byte as bit OR of SingleBackupVersion
+	// value and closeTx bit. So here we remove closeTx bit.
+	version := SingleBackupVersion(encoded &^ closeTxVersionMask)
+
+	return version, closeTx
+}
+
+// IsTaproot returns if this is a backup of a taproot channel. This will also be
+// true for simple taproot overlay channels when a version is added.
+func (v SingleBackupVersion) IsTaproot() bool {
+	return v == SimpleTaprootVersion || v == TapscriptRootVersion
+}
+
+// HasTapscriptRoot returns true if the channel is using a top level tapscript
+// root commitment.
+func (v SingleBackupVersion) HasTapscriptRoot() bool {
+	return v == TapscriptRootVersion
+}
 
 // Single is a static description of an existing channel that can be used for
 // the purposes of backing up. The fields in this struct allow a node to
@@ -142,11 +187,47 @@ type Single struct {
 	//
 	// - ScriptEnforcedLeaseVersion
 	LeaseExpiry uint32
+
+	// CloseTxInputs contains data needed to produce a force close tx
+	// using "chantools scbforceclose".
+	//
+	// The field is optional.
+	CloseTxInputs fn.Option[CloseTxInputs]
+}
+
+// CloseTxInputs contains data needed to produce a force close transaction
+// using "chantools scbforceclose".
+type CloseTxInputs struct {
+	// CommitTx is the latest version of the commitment state, broadcast
+	// able by us, but not signed.
+	// It can be signed by "chantools scbforceclose" command.
+	CommitTx *wire.MsgTx
+
+	// CommitSig is one half of the signature required to fully complete
+	// the script for the commitment transaction above. This is the
+	// signature signed by the remote party for our version of the
+	// commitment transactions.
+	CommitSig []byte
+
+	// CommitHeight is the update number that this ChannelDelta represents
+	// the total number of commitment updates to this point. This can be
+	// viewed as sort of a "commitment height" as this number is
+	// monotonically increasing.
+	//
+	// This field is filled only for taproot channels.
+	CommitHeight uint64
+
+	// TapscriptRoot is the root of the tapscript tree that will be used to
+	// create the funding output. This is an optional field that should
+	// only be set for taproot channels (HasTapscriptRoot).
+	TapscriptRoot fn.Option[chainhash.Hash]
 }
 
 // NewSingle creates a new static channel backup based on an existing open
 // channel. We also pass in the set of addresses that we used in the past to
-// connect to the channel peer.
+// connect to the channel peer. If possible, we include the data needed to
+// produce a force close transaction from the most recent state using externally
+// provided private key.
 func NewSingle(channel *channeldb.OpenChannel,
 	nodeAddrs []net.Addr) Single {
 
@@ -245,8 +326,17 @@ func NewSingle(channel *channeldb.OpenChannel,
 		single.Version = DefaultSingleVersion
 	}
 
+	// Include unsigned force-close transaction for the most recent channel
+	// state as well as the data needed to produce the signature, given the
+	// private key is provided separately.
+	single.CloseTxInputs = buildCloseTxInputs(channel)
+
 	return single
 }
+
+// errEmptyTapscriptRoot is returned by Serialize if field TapscriptRoot is
+// empty, when it should be filled according to the channel version.
+var errEmptyTapscriptRoot = errors.New("field TapscriptRoot is not filled")
 
 // Serialize attempts to write out the serialized version of the target
 // StaticChannelBackup into the passed io.Writer.
@@ -329,6 +419,56 @@ func (s *Single) Serialize(w io.Writer) error {
 		}
 	}
 
+	// Encode version enum and hasCloseTx flag to version byte.
+	version := s.Version.Encode(s.CloseTxInputs.IsSome())
+
+	// Serialize CloseTxInputs if it is provided. Fill err if it fails.
+	var err error
+	s.CloseTxInputs.WhenSome(func(inputs CloseTxInputs) {
+		err = inputs.CommitTx.Serialize(&singleBytes)
+		if err != nil {
+			return
+		}
+
+		err = lnwire.WriteElements(
+			&singleBytes,
+			uint16(len(inputs.CommitSig)), inputs.CommitSig,
+		)
+		if err != nil {
+			return
+		}
+
+		if s.Version.IsTaproot() {
+			err = lnwire.WriteElements(
+				&singleBytes, inputs.CommitHeight,
+			)
+			if err != nil {
+				return
+			}
+
+			if s.Version.HasTapscriptRoot() {
+				opt := inputs.TapscriptRoot
+				var tapscriptRoot chainhash.Hash
+				tapscriptRoot, err = opt.UnwrapOrErr(
+					errEmptyTapscriptRoot,
+				)
+				if err != nil {
+					return
+				}
+
+				err = lnwire.WriteElements(
+					&singleBytes, tapscriptRoot[:],
+				)
+				if err != nil {
+					return
+				}
+			}
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("failed to encode CloseTxInputs: %w", err)
+	}
+
 	// TODO(yy): remove the type assertion when we finished refactoring db
 	// into using write buffer.
 	buf, ok := w.(*bytes.Buffer)
@@ -338,7 +478,7 @@ func (s *Single) Serialize(w io.Writer) error {
 
 	return lnwire.WriteElements(
 		buf,
-		byte(s.Version),
+		version,
 		uint16(len(singleBytes.Bytes())),
 		singleBytes.Bytes(),
 	)
@@ -429,7 +569,9 @@ func (s *Single) Deserialize(r io.Reader) error {
 		return err
 	}
 
-	s.Version = SingleBackupVersion(version)
+	// Decode version byte to version enum and hasCloseTx flag.
+	var hasCloseTx bool
+	s.Version, hasCloseTx = DecodeVersion(version)
 
 	switch s.Version {
 	case DefaultSingleVersion:
@@ -541,6 +683,47 @@ func (s *Single) Deserialize(r io.Reader) error {
 		if err := lnwire.ReadElement(r, &s.LeaseExpiry); err != nil {
 			return err
 		}
+	}
+
+	if hasCloseTx {
+		commitTx := &wire.MsgTx{}
+		if err := commitTx.Deserialize(r); err != nil {
+			return err
+		}
+
+		var commitSigLen uint16
+		if err := lnwire.ReadElement(r, &commitSigLen); err != nil {
+			return err
+		}
+		commitSig := make([]byte, commitSigLen)
+		if err := lnwire.ReadElement(r, commitSig); err != nil {
+			return err
+		}
+
+		var commitHeight uint64
+		if s.Version.IsTaproot() {
+			err := lnwire.ReadElement(r, &commitHeight)
+			if err != nil {
+				return err
+			}
+		}
+
+		tapscriptRootOpt := fn.None[chainhash.Hash]()
+		if s.Version.HasTapscriptRoot() {
+			var tapscriptRoot chainhash.Hash
+			err := lnwire.ReadElement(r, tapscriptRoot[:])
+			if err != nil {
+				return err
+			}
+			tapscriptRootOpt = fn.Some(tapscriptRoot)
+		}
+
+		s.CloseTxInputs = fn.Some(CloseTxInputs{
+			CommitTx:      commitTx,
+			CommitSig:     commitSig,
+			CommitHeight:  commitHeight,
+			TapscriptRoot: tapscriptRootOpt,
+		})
 	}
 
 	return nil

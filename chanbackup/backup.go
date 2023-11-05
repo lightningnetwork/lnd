@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb"
 )
 
@@ -51,6 +52,43 @@ func assembleChanBackup(addrSource AddressSource,
 	single := NewSingle(openChan, nodeAddrs)
 
 	return &single, nil
+}
+
+// buildCloseTxInputs generates inputs needed to force close a channel from
+// an open channel. Anyone having these inputs and the signer, can sign the
+// force closure transaction. Warning! If the channel state updates, an attempt
+// to close the channel using this method with outdated CloseTxInputs can result
+// in loss of funds! This may happen if an outdated channel backup is attempted
+// to be used to force close the channel.
+func buildCloseTxInputs(targetChan *channeldb.OpenChannel,
+) fn.Option[CloseTxInputs] {
+
+	log.Debugf("Crafting CloseTxInputs for ChannelPoint(%v)",
+		targetChan.FundingOutpoint)
+
+	localCommit := targetChan.LocalCommitment
+
+	if localCommit.CommitTx == nil {
+		log.Infof("CommitTx is nil for ChannelPoint(%v), "+
+			"skipping CloseTxInputs. This is possible when "+
+			"DLP is active.", targetChan.FundingOutpoint)
+
+		return fn.None[CloseTxInputs]()
+	}
+
+	// We need unsigned force close tx and the counterparty's signature.
+	inputs := CloseTxInputs{
+		CommitTx:  localCommit.CommitTx,
+		CommitSig: localCommit.CommitSig,
+	}
+
+	// In case of a taproot channel, commit height is needed as well to
+	// produce verification nonce for the taproot channel using shachain.
+	if targetChan.ChanType.IsTaproot() {
+		inputs.CommitHeight = localCommit.CommitHeight
+	}
+
+	return fn.Some(inputs)
 }
 
 // FetchBackupForChan attempts to create a plaintext static channel backup for

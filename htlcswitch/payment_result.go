@@ -90,32 +90,32 @@ type networkResultStore struct {
 	results    map[uint64][]chan *networkResult
 	resultsMtx sync.Mutex
 
-	// paymentIDMtx is a multimutex used to make sure the database and
-	// result subscribers map is consistent for each payment ID in case of
+	// attemptIDMtx is a multimutex used to make sure the database and
+	// result subscribers map is consistent for each attempt ID in case of
 	// concurrent callers.
-	paymentIDMtx *multimutex.Mutex[uint64]
+	attemptIDMtx *multimutex.Mutex[uint64]
 }
 
 func newNetworkResultStore(db kvdb.Backend) *networkResultStore {
 	return &networkResultStore{
 		backend:      db,
 		results:      make(map[uint64][]chan *networkResult),
-		paymentIDMtx: multimutex.NewMutex[uint64](),
+		attemptIDMtx: multimutex.NewMutex[uint64](),
 	}
 }
 
-// storeResult stores the networkResult for the given paymentID, and
-// notifies any subscribers.
-func (store *networkResultStore) storeResult(paymentID uint64,
+// storeResult stores the networkResult for the given attemptID, and notifies
+// any subscribers.
+func (store *networkResultStore) storeResult(attemptID uint64,
 	result *networkResult) error {
 
-	// We get a mutex for this payment ID. This is needed to ensure
+	// We get a mutex for this attempt ID. This is needed to ensure
 	// consistency between the database state and the subscribers in case
 	// of concurrent calls.
-	store.paymentIDMtx.Lock(paymentID)
-	defer store.paymentIDMtx.Unlock(paymentID)
+	store.attemptIDMtx.Lock(attemptID)
+	defer store.attemptIDMtx.Unlock(attemptID)
 
-	log.Debugf("Storing result for paymentID=%v", paymentID)
+	log.Debugf("Storing result for attemptID=%v", attemptID)
 
 	// Serialize the payment result.
 	var b bytes.Buffer
@@ -123,8 +123,8 @@ func (store *networkResultStore) storeResult(paymentID uint64,
 		return err
 	}
 
-	var paymentIDBytes [8]byte
-	binary.BigEndian.PutUint64(paymentIDBytes[:], paymentID)
+	var attemptIDBytes [8]byte
+	binary.BigEndian.PutUint64(attemptIDBytes[:], attemptID)
 
 	err := kvdb.Batch(store.backend, func(tx kvdb.RwTx) error {
 		networkResults, err := tx.CreateTopLevelBucket(
@@ -134,7 +134,7 @@ func (store *networkResultStore) storeResult(paymentID uint64,
 			return err
 		}
 
-		return networkResults.Put(paymentIDBytes[:], b.Bytes())
+		return networkResults.Put(attemptIDBytes[:], b.Bytes())
 	})
 	if err != nil {
 		return err
@@ -143,28 +143,27 @@ func (store *networkResultStore) storeResult(paymentID uint64,
 	// Now that the result is stored in the database, we can notify any
 	// active subscribers.
 	store.resultsMtx.Lock()
-	for _, res := range store.results[paymentID] {
+	for _, res := range store.results[attemptID] {
 		res <- result
 	}
-	delete(store.results, paymentID)
+	delete(store.results, attemptID)
 	store.resultsMtx.Unlock()
 
 	return nil
 }
 
-// subscribeResult is used to get the payment result for the given
-// payment ID. It returns a channel on which the result will be delivered when
-// ready.
-func (store *networkResultStore) subscribeResult(paymentID uint64) (
+// subscribeResult is used to get the HTLC attempt result for the given attempt
+// ID.  It returns a channel on which the result will be delivered when ready.
+func (store *networkResultStore) subscribeResult(attemptID uint64) (
 	<-chan *networkResult, error) {
 
 	// We get a mutex for this payment ID. This is needed to ensure
 	// consistency between the database state and the subscribers in case
 	// of concurrent calls.
-	store.paymentIDMtx.Lock(paymentID)
-	defer store.paymentIDMtx.Unlock(paymentID)
+	store.attemptIDMtx.Lock(attemptID)
+	defer store.attemptIDMtx.Unlock(attemptID)
 
-	log.Debugf("Subscribing to result for paymentID=%v", paymentID)
+	log.Debugf("Subscribing to result for attemptID=%v", attemptID)
 
 	var (
 		result     *networkResult
@@ -173,7 +172,7 @@ func (store *networkResultStore) subscribeResult(paymentID uint64) (
 
 	err := kvdb.View(store.backend, func(tx kvdb.RTx) error {
 		var err error
-		result, err = fetchResult(tx, paymentID)
+		result, err = fetchResult(tx, attemptID)
 		switch {
 
 		// Result not yet available, we will notify once a result is
@@ -205,8 +204,8 @@ func (store *networkResultStore) subscribeResult(paymentID uint64) (
 	// Otherwise we store the result channel for when the result is
 	// available.
 	store.resultsMtx.Lock()
-	store.results[paymentID] = append(
-		store.results[paymentID], resultChan,
+	store.results[attemptID] = append(
+		store.results[attemptID], resultChan,
 	)
 	store.resultsMtx.Unlock()
 
@@ -234,8 +233,8 @@ func (store *networkResultStore) getResult(pid uint64) (
 }
 
 func fetchResult(tx kvdb.RTx, pid uint64) (*networkResult, error) {
-	var paymentIDBytes [8]byte
-	binary.BigEndian.PutUint64(paymentIDBytes[:], pid)
+	var attemptIDBytes [8]byte
+	binary.BigEndian.PutUint64(attemptIDBytes[:], pid)
 
 	networkResults := tx.ReadBucket(networkResultStoreBucketKey)
 	if networkResults == nil {
@@ -243,7 +242,7 @@ func fetchResult(tx kvdb.RTx, pid uint64) (*networkResult, error) {
 	}
 
 	// Check whether a result is already available.
-	resultBytes := networkResults.Get(paymentIDBytes[:])
+	resultBytes := networkResults.Get(attemptIDBytes[:])
 	if resultBytes == nil {
 		return nil, ErrPaymentIDNotFound
 	}

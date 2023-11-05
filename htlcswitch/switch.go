@@ -431,11 +431,11 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 	}
 }
 
-// GetAttemptResult returns the result of the payment attempt with the given
+// GetAttemptResult returns the result of the HTLC attempt with the given
 // attemptID. The paymentHash should be set to the payment's overall hash, or
 // in case of AMP payments the payment's unique identifier.
 //
-// The method returns a channel where the payment result will be sent when
+// The method returns a channel where the HTLC attempt result will be sent when
 // available, or an error is encountered during forwarding. When a result is
 // received on the channel, the HTLC is guaranteed to no longer be in flight.
 // The switch shutting down is signaled by closing the channel. If the
@@ -452,9 +452,9 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 		}
 	)
 
-	// If the payment is not found in the circuit map, check whether a
-	// result is already available.
-	// Assumption: no one will add this payment ID other than the caller.
+	// If the HTLC is not found in the circuit map, check whether a result
+	// is already available.
+	// Assumption: no one will add this attempt ID other than the caller.
 	if s.circuits.LookupCircuit(inKey) == nil {
 		res, err := s.networkResults.getResult(attemptID)
 		if err != nil {
@@ -464,7 +464,7 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 		c <- res
 		nChan = c
 	} else {
-		// The payment was committed to the circuits, subscribe for a
+		// The HTLC was committed to the circuits, subscribe for a
 		// result.
 		nChan, err = s.networkResults.subscribeResult(attemptID)
 		if err != nil {
@@ -474,7 +474,7 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 
 	resultChan := make(chan *PaymentResult, 1)
 
-	// Since the payment was known, we can start a goroutine that can
+	// Since the attempt was known, we can start a goroutine that can
 	// extract the result when it is available, and pass it on to the
 	// caller.
 	s.wg.Add(1)
@@ -939,7 +939,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	// Store the result to the db. This will also notify subscribers about
 	// the result.
 	if err := s.networkResults.storeResult(attemptID, n); err != nil {
-		log.Errorf("Unable to complete payment for pid=%v: %v",
+		log.Errorf("Unable to store attempt result for pid=%v: %v",
 			attemptID, err)
 		return
 	}

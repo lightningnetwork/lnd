@@ -1596,9 +1596,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 
 		// Prior to processing the announcement we first check if we
 		// already know of this channel, if so, then we can exit early.
-		_, _, exists, isZombie, err := r.cfg.Graph.HasChannelEdge(
-			chanID,
-		)
+		exists, isZombie, err := r.cfg.Graph.HasChannelEdge(chanID)
 		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 			return errors.Errorf("unable to check for edge "+
 				"existence: %v", err)
@@ -1773,7 +1771,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		defer r.channelEdgeMtx.Unlock(msg.ChannelID)
 
 		edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
-			r.cfg.Graph.HasChannelEdge(msg.ChannelID)
+			r.cfg.Graph.HasChannelEdge1(msg.ChannelID)
 		if err != nil && err != channeldb.ErrGraphNoEdgesFound {
 			return errors.Errorf("unable to check for edge "+
 				"existence: %v", err)
@@ -2924,7 +2922,7 @@ func (r *ChannelRouter) IsPublicNode(node route.Vertex) (bool, error) {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
-	_, _, exists, isZombie, _ := r.cfg.Graph.HasChannelEdge(
+	exists, isZombie, _ := r.cfg.Graph.HasChannelEdge(
 		chanID.ToUint64(),
 	)
 	return exists || isZombie
@@ -2938,7 +2936,7 @@ func (r *ChannelRouter) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	timestamp time.Time, flags lnwire.ChanUpdateChanFlags) bool {
 
 	edge1Timestamp, edge2Timestamp, exists, isZombie, err :=
-		r.cfg.Graph.HasChannelEdge(chanID.ToUint64())
+		r.cfg.Graph.HasChannelEdge1(chanID.ToUint64())
 	if err != nil {
 		log.Debugf("Check stale edge policy got error: %v", err)
 		return false

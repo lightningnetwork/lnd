@@ -179,7 +179,7 @@ func (p *paymentLifecycle) resumePayment(ctx context.Context) ([32]byte,
 	for _, a := range payment.InFlightHTLCs() {
 		a := a
 
-		log.Infof("Resuming payment shard %v for payment %v",
+		log.Infof("Resuming HTLC attempt %v for payment %v",
 			a.AttemptID, p.identifier)
 
 		p.resultCollector(&a)
@@ -463,6 +463,8 @@ func (p *paymentLifecycle) collectResultAsync(attempt *channeldb.HTLCAttempt) {
 func (p *paymentLifecycle) collectResult(attempt *channeldb.HTLCAttempt) (
 	*attemptResult, error) {
 
+	log.Tracef("Collecting result for attempt %v", spew.Sdump(attempt))
+
 	// We'll retrieve the hash specific to this shard from the
 	// shardTracker, since it will be needed to regenerate the circuit
 	// below.
@@ -663,8 +665,8 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 func (p *paymentLifecycle) sendAttempt(
 	attempt *channeldb.HTLCAttempt) (*attemptResult, error) {
 
-	log.Debugf("Attempting to send payment %v (pid=%v)", p.identifier,
-		attempt.AttemptID)
+	log.Debugf("Sending HTLC attempt(id=%v, amt=%v) for payment %v",
+		attempt.AttemptID, attempt.Route.TotalAmount, p.identifier)
 
 	rt := attempt.Route
 

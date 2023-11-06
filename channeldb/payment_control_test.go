@@ -734,10 +734,7 @@ func TestPaymentControlMultiShard(t *testing.T) {
 		b := *attempt
 		b.AttemptID = 3
 		_, err = pControl.RegisterAttempt(info.PaymentIdentifier, &b)
-		if err != ErrValueExceedsAmt {
-			t.Fatalf("expected ErrValueExceedsAmt, got: %v",
-				err)
-		}
+		require.ErrorIs(t, err, ErrValueExceedsAmt)
 
 		// Fail the second attempt.
 		a := attempts[1]

@@ -1133,6 +1133,9 @@ func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	skipTempErr bool) (*channeldb.HTLCAttempt, error) {
 
+	log.Debugf("SendToRoute for payment %v with skipTempErr=%v",
+		htlcHash, skipTempErr)
+
 	// Calculate amount paid to receiver.
 	amt := rt.ReceiverAmt()
 

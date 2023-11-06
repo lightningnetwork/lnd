@@ -231,10 +231,6 @@ var decodePayloadTests = []decodePayloadTest{
 	{
 		name: "intermediate hop with encrypted data",
 		payload: []byte{
-			// amount
-			0x02, 0x00,
-			// cltv
-			0x04, 0x00,
 			// encrypted data
 			0x0a, 0x03, 0x03, 0x02, 0x01,
 		},
@@ -243,10 +239,6 @@ var decodePayloadTests = []decodePayloadTest{
 	{
 		name: "intermediate hop with blinding point",
 		payload: append([]byte{
-			// amount
-			0x02, 0x00,
-			// cltv
-			0x04, 0x00,
 			// encrypted data
 			0x0a, 0x03, 0x03, 0x02, 0x01,
 			// blinding point (type / length)

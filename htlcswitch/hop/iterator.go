@@ -150,12 +150,17 @@ func (p *OnionProcessor) Stop() error {
 // ReconstructHopIterator attempts to decode a valid sphinx packet from the passed io.Reader
 // instance using the rHash as the associated data when checking the relevant
 // MACs during the decoding process.
-func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte) (
-	Iterator, error) {
+func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte,
+	blindingPoint *btcec.PublicKey) (Iterator, error) {
 
 	onionPkt := &sphinx.OnionPacket{}
 	if err := onionPkt.Decode(r); err != nil {
 		return nil, err
+	}
+
+	var opts []sphinx.ProcessOnionOpt
+	if blindingPoint != nil {
+		opts = append(opts, sphinx.WithBlindingPoint(blindingPoint))
 	}
 
 	// Attempt to process the Sphinx packet. We include the payment hash of
@@ -163,7 +168,9 @@ func (p *OnionProcessor) ReconstructHopIterator(r io.Reader, rHash []byte) (
 	// associated data in order to thwart attempts a replay attacks. In the
 	// case of a replay, an attacker is *forced* to use the same payment
 	// hash twice, thereby losing their money entirely.
-	sphinxPacket, err := p.router.ReconstructOnionPacket(onionPkt, rHash)
+	sphinxPacket, err := p.router.ReconstructOnionPacket(
+		onionPkt, rHash, opts...,
+	)
 	if err != nil {
 		return nil, err
 	}

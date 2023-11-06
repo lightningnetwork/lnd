@@ -3164,7 +3164,17 @@ func compareNodes(a, b *LightningNode) error {
 
 // compareEdgePolicies is used to compare two ChannelEdgePolices using
 // compareNodes, so as to exclude comparisons of the Nodes' Features struct.
-func compareEdgePolicies(a, b *models.ChannelEdgePolicy1) error {
+func compareEdgePolicies(edgeA, edgeB models.ChannelEdgePolicy) error {
+	a, ok := edgeA.(*models.ChannelEdgePolicy1)
+	if !ok {
+		return fmt.Errorf("wanted edge policy 1")
+	}
+
+	b, ok := edgeB.(*models.ChannelEdgePolicy1)
+	if !ok {
+		return fmt.Errorf("wanted edge policy 1")
+	}
+
 	if a.ChannelID != b.ChannelID {
 		return fmt.Errorf("ChannelID doesn't match: expected %v, "+
 			"got %v", a.ChannelID, b.ChannelID)

@@ -914,7 +914,7 @@ func (r *ChannelRouter) pruneZombieChans() error {
 	// First, we'll collect all the channels which are eligible for garbage
 	// collection due to being zombies.
 	filterPruneChans := func(info models.ChannelEdgeInfo,
-		e1, e2 *models.ChannelEdgePolicy1) error {
+		edge1, edge2 models.ChannelEdgePolicy) error {
 
 		chanID := info.GetChanID()
 
@@ -934,8 +934,15 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		// If either edge hasn't been updated for a period of
 		// chanExpiry, then we'll mark the channel itself as eligible
 		// for graph pruning.
-		e1Zombie := e1 == nil || time.Since(e1.LastUpdate) >= chanExpiry
-		e2Zombie := e2 == nil || time.Since(e2.LastUpdate) >= chanExpiry
+		e1Zombie, err := r.isZombieEdge(edge1)
+		if err != nil {
+			return err
+		}
+
+		e2Zombie, err := r.isZombieEdge(edge2)
+		if err != nil {
+			return err
+		}
 
 		if e1Zombie {
 			log.Tracef("Node1 pubkey=%x of chan_id=%v is zombie",
@@ -1040,6 +1047,32 @@ func (r *ChannelRouter) pruneZombieChans() error {
 	}
 
 	return nil
+}
+
+func (r *ChannelRouter) isZombieEdge(edge models.ChannelEdgePolicy) (bool,
+	error) {
+
+	if edge == nil {
+		return true, nil
+	}
+
+	switch e := edge.(type) {
+	case *models.ChannelEdgePolicy1:
+		chanExpiry := r.cfg.ChannelPruneExpiry
+
+		return time.Since(e.LastUpdate) >= chanExpiry, nil
+
+	case *models.ChannelEdgePolicy2:
+		chanExpiryBlocks := uint32(r.cfg.ChannelPruneExpiry.Hours() * 6)
+
+		blockSince := r.SyncedHeight() - e.BlockHeight
+
+		return blockSince >= chanExpiryBlocks, nil
+
+	default:
+		return false, fmt.Errorf("unhandled implementation of "+
+			"models.ChannelEdgePolicy: %T", edge)
+	}
 }
 
 // handleNetworkUpdate is responsible for processing the update message and

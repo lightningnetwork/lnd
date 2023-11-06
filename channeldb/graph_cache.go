@@ -155,7 +155,7 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 // and policy flags automatically. The policy will be set as the outgoing policy
 // on one node and the incoming policy on the peer's side.
 func (c *GraphCache) AddChannel(info models.ChannelEdgeInfo,
-	policy1 *models.ChannelEdgePolicy1, policy2 *models.ChannelEdgePolicy1) {
+	policy1, policy2 *models.ChannelEdgePolicy1) {
 
 	if info == nil {
 		return

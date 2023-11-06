@@ -1142,10 +1142,10 @@ func (c *ChannelGraph) HasChannelEdge(
 	// We'll query the cache with the shared lock held to allow multiple
 	// readers to access values in the cache concurrently if they exist.
 	c.cacheMu.RLock()
-	if entry, ok := c.rejectCache.get(chanID); ok {
+	if entry, ok := c.rejectCache.get(chanID); ok && entry.times != nil {
 		c.cacheMu.RUnlock()
-		upd1Time = time.Unix(entry.upd1Time, 0)
-		upd2Time = time.Unix(entry.upd2Time, 0)
+		upd1Time = time.Unix(entry.times.upd1Time, 0)
+		upd2Time = time.Unix(entry.times.upd2Time, 0)
 		exists, isZombie = entry.flags.unpack()
 		return upd1Time, upd2Time, exists, isZombie, nil
 	}
@@ -1157,9 +1157,9 @@ func (c *ChannelGraph) HasChannelEdge(
 	// The item was not found with the shared lock, so we'll acquire the
 	// exclusive lock and check the cache again in case another method added
 	// the entry to the cache while no lock was held.
-	if entry, ok := c.rejectCache.get(chanID); ok {
-		upd1Time = time.Unix(entry.upd1Time, 0)
-		upd2Time = time.Unix(entry.upd2Time, 0)
+	if entry, ok := c.rejectCache.get(chanID); ok && entry.times != nil {
+		upd1Time = time.Unix(entry.times.upd1Time, 0)
+		upd2Time = time.Unix(entry.times.upd2Time, 0)
 		exists, isZombie = entry.flags.unpack()
 		return upd1Time, upd2Time, exists, isZombie, nil
 	}
@@ -1224,9 +1224,11 @@ func (c *ChannelGraph) HasChannelEdge(
 	}
 
 	c.rejectCache.insert(chanID, rejectCacheEntry{
-		upd1Time: upd1Time.Unix(),
-		upd2Time: upd2Time.Unix(),
-		flags:    packRejectFlags(exists, isZombie),
+		times: &updateTimes{
+			upd1Time: upd1Time.Unix(),
+			upd2Time: upd2Time.Unix(),
+		},
+		flags: packRejectFlags(exists, isZombie),
 	})
 
 	return upd1Time, upd2Time, exists, isZombie, nil
@@ -2612,33 +2614,39 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy1,
 	return c.chanScheduler.Execute(r)
 }
 
-func (c *ChannelGraph) updateEdgeCache(e *models.ChannelEdgePolicy1,
+func (c *ChannelGraph) updateEdgeCache(e models.ChannelEdgePolicy,
 	isUpdate1 bool) {
 
 	// If an entry for this channel is found in reject cache, we'll modify
 	// the entry with the updated timestamp for the direction that was just
 	// written. If the edge doesn't exist, we'll load the cache entry lazily
 	// during the next query for this edge.
-	if entry, ok := c.rejectCache.get(e.ChannelID); ok {
-		if isUpdate1 {
-			entry.upd1Time = e.LastUpdate.Unix()
-		} else {
-			entry.upd2Time = e.LastUpdate.Unix()
-		}
-		c.rejectCache.insert(e.ChannelID, entry)
+	chanID := e.SCID().ToUint64()
+	if entry, ok := c.rejectCache.get(chanID); ok {
+		entry.update(isUpdate1, e)
+		c.rejectCache.insert(chanID, entry)
 	}
 
 	// If an entry for this channel is found in channel cache, we'll modify
 	// the entry with the updated policy for the direction that was just
 	// written. If the edge doesn't exist, we'll defer loading the info and
 	// policies and lazily read from disk during the next query.
-	if channel, ok := c.chanCache.get(e.ChannelID); ok {
-		if isUpdate1 {
-			channel.Policy1 = e
-		} else {
-			channel.Policy2 = e
+	if channel, ok := c.chanCache.get(chanID); ok {
+		edge, ok := e.(*models.ChannelEdgePolicy1)
+		if !ok {
+			log.Errorf("expected *models.ChannelEdgePolicy1, "+
+				"got: %T", e)
+
+			return
 		}
-		c.chanCache.insert(e.ChannelID, channel)
+
+		if isUpdate1 {
+			channel.Policy1 = edge
+		} else {
+			channel.Policy2 = edge
+		}
+
+		c.chanCache.insert(chanID, channel)
 	}
 }
 

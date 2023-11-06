@@ -1,5 +1,7 @@
 package channeldb
 
+import "github.com/lightningnetwork/lnd/channeldb/models"
+
 // rejectFlags is a compact representation of various metadata stored by the
 // reject cache about a particular channel.
 type rejectFlags uint8
@@ -41,13 +43,51 @@ func (f rejectFlags) unpack() (bool, bool) {
 // including the timestamps of its latest edge policies and whether or not the
 // channel exists in the graph.
 type rejectCacheEntry struct {
+	times  *updateTimes
+	blocks *updateBlocks
+	flags  rejectFlags
+}
+
+type updateTimes struct {
 	upd1Time int64
 	upd2Time int64
-	flags    rejectFlags
+}
+
+type updateBlocks struct {
+	updBlock1 uint32
+	updBlock2 uint32
+}
+
+func (e *rejectCacheEntry) update(isUpdate1 bool,
+	policy models.ChannelEdgePolicy) {
+
+	switch pol := policy.(type) {
+	case *models.ChannelEdgePolicy1:
+		if e.times == nil {
+			e.times = &updateTimes{}
+		}
+
+		if isUpdate1 {
+			e.times.upd1Time = pol.LastUpdate.Unix()
+		} else {
+			e.times.upd2Time = pol.LastUpdate.Unix()
+		}
+
+	case *models.ChannelEdgePolicy2:
+		if e.blocks == nil {
+			e.blocks = &updateBlocks{}
+		}
+
+		if isUpdate1 {
+			e.blocks.updBlock1 = pol.BlockHeight
+		} else {
+			e.blocks.updBlock2 = pol.BlockHeight
+		}
+	}
 }
 
 // rejectCache is an in-memory cache used to improve the performance of
-// HasChannelEdge. It caches information about the whether or channel exists, as
+// HasChannelEdge1. It caches information about the whether or channel exists, as
 // well as the most recent timestamps for each policy (if they exists).
 type rejectCache struct {
 	n     int

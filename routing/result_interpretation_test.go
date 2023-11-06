@@ -105,6 +105,21 @@ var (
 			{PubKeyBytes: hops[3], AmtToForward: 58},
 		},
 	}
+
+	// blindedIntroReceiver is a blinded path where the introduction node
+	// is the recipient.
+	blindedIntroReceiver = route.Route{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*route.Hop{
+			{PubKeyBytes: hops[1], AmtToForward: 95},
+			{
+				PubKeyBytes:   hops[2],
+				AmtToForward:  90,
+				BlindingPoint: blindingPoint,
+			},
+		},
+	}
 )
 
 func getTestPair(from, to int) DirectedNodePair {
@@ -573,6 +588,41 @@ var resultTestCases = []resultTestCase{
 				getTestPair(2, 1): failPairResult(0),
 			},
 			nodeFailure: &hops[1],
+		},
+	},
+	// Non-blinded node returns a blinding related error.
+	{
+		name:          "final node unexpected blinding",
+		route:         &routeThreeHop,
+		failureSrcIdx: 3,
+		failure:       &lnwire.FailInvalidBlinding{},
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): successPairResult(100),
+				getTestPair(1, 2): successPairResult(99),
+				getTestPair(2, 3): failPairResult(0),
+				getTestPair(3, 2): failPairResult(0),
+			},
+			nodeFailure:        &hops[3],
+			finalFailureReason: &reasonError,
+		},
+	},
+	// Introduction node returns invalid blinding erroneously.
+	{
+		name:          "final node intro blinding",
+		route:         &blindedIntroReceiver,
+		failureSrcIdx: 2,
+		failure:       &lnwire.FailInvalidBlinding{},
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): successPairResult(100),
+				getTestPair(1, 2): failPairResult(0),
+				getTestPair(2, 1): failPairResult(0),
+			},
+			nodeFailure:        &hops[2],
+			finalFailureReason: &reasonError,
 		},
 	},
 }

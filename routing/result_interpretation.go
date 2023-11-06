@@ -267,6 +267,21 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		// destination correctly. Continue the payment process.
 		i.successPairRange(route, 0, n-1)
 
+	// We do not expect to receive an invalid blinding error from the final
+	// node in the route. This could erroneously happen in the following
+	// cases:
+	// 1. Unblinded node: misuses the error code.
+	// 2. A receiving introduction node: erroneously sends the error code,
+	//    as the spec indicates that receiving introduction nodes should
+	//    use regular errors.
+	//
+	// Note that we expect the case where this error is sent from a node
+	// after the introduction node to be handled elsewhere as this is part
+	// of a more general class of errors where the introduction node has
+	// failed to convert errors for the blinded route.
+	case *lnwire.FailInvalidBlinding:
+		failNode()
+
 	// All other errors are considered terminal if coming from the
 	// final hop. They indicate that something is wrong at the
 	// recipient, so we do apply a penalty.

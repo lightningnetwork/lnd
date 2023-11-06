@@ -85,7 +85,9 @@ func TestManager(t *testing.T) {
 		}
 
 		for _, edge := range edgesToUpdate {
-			policy := edge.Edge
+			policy, ok := edge.Edge.(*models.ChannelEdgePolicy1)
+			require.True(t, ok)
+
 			if !policy.MessageFlags.HasMaxHtlc() {
 				t.Fatal("expected max htlc flag")
 			}
@@ -108,7 +110,7 @@ func TestManager(t *testing.T) {
 
 	forAllOutgoingChannels := func(cb func(kvdb.RTx,
 		models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy1) error) error {
+		models.ChannelEdgePolicy) error) error {
 
 		for _, c := range channelSet {
 			if err := cb(nil, c.edgeInfo, &currentPolicy); err != nil {

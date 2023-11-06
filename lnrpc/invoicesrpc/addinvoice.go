@@ -766,7 +766,7 @@ type SelectHopHintsCfg struct {
 	// FetchChannelEdgesByID attempts to lookup the two directed edges for
 	// the channel identified by the channel ID.
 	FetchChannelEdgesByID func(chanID uint64) (models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy1, *models.ChannelEdgePolicy1,
+		models.ChannelEdgePolicy, models.ChannelEdgePolicy,
 		error)
 
 	// GetAlias allows the peer's alias SCID to be retrieved for private

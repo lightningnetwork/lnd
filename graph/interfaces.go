@@ -71,7 +71,7 @@ type ChannelGraphSource interface {
 	// star-graph.
 	ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 		c models.ChannelEdgeInfo,
-		e *models.ChannelEdgePolicy1) error) error
+		e models.ChannelEdgePolicy) error) error
 
 	// CurrentBlockHeight returns the block height from POV of the router
 	// subsystem.
@@ -79,8 +79,8 @@ type ChannelGraphSource interface {
 
 	// GetChannelByID return the channel by the channel id.
 	GetChannelByID(chanID lnwire.ShortChannelID) (
-		models.ChannelEdgeInfo, *models.ChannelEdgePolicy1,
-		*models.ChannelEdgePolicy1, error)
+		models.ChannelEdgeInfo, models.ChannelEdgePolicy,
+		models.ChannelEdgePolicy, error)
 
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
@@ -178,6 +178,7 @@ type DB interface {
 	HasChannelEdge(chanID uint64) (bool, bool, error)
 
 	HasChannelEdge1(chanID uint64) (time.Time, time.Time, bool, bool, error)
+	HasChannelEdge2(chanID uint64) (uint32, uint32, bool, bool, error)
 
 	// FetchChannelEdgesByID attempts to lookup the two directed edges for
 	// the channel identified by the channel ID. If the channel can't be
@@ -191,7 +192,7 @@ type DB interface {
 	// will be nil, and the ChannelEdgeInfo1 will only include the public
 	// keys of each node.
 	FetchChannelEdgesByID(chanID uint64) (models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy1, *models.ChannelEdgePolicy1, error)
+		models.ChannelEdgePolicy, models.ChannelEdgePolicy, error)
 
 	// AddLightningNode adds a vertex/node to the graph database. If the
 	// node is not in the database from before, this will add a new,
@@ -225,7 +226,7 @@ type DB interface {
 	// node's information. The node ordering is determined by the
 	// lexicographical ordering of the identity public keys of the nodes on
 	// either side of the channel.
-	UpdateEdgePolicy(edge *models.ChannelEdgePolicy1,
+	UpdateEdgePolicy(edge models.ChannelEdgePolicy,
 		op ...batch.SchedulerOption) error
 
 	// HasLightningNode determines if the graph has a vertex identified by
@@ -258,8 +259,8 @@ type DB interface {
 	// Unknown policies are passed into the callback as nil values.
 	ForEachNodeChannel(nodePub route.Vertex, cb func(kvdb.RTx,
 		models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy1,
-		*models.ChannelEdgePolicy1) error) error
+		models.ChannelEdgePolicy,
+		models.ChannelEdgePolicy) error) error
 
 	// UpdateChannelEdge retrieves and update edge of the graph database.
 	// Method only reserved for updating an edge info after its already been

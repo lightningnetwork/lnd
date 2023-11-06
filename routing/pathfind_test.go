@@ -2026,9 +2026,12 @@ func runRouteFailMaxHTLC(t *testing.T, useCache bool) {
 	graph := ctx.testGraphInstance.graph
 	_, midEdge, _, err := graph.FetchChannelEdgesByID(firstToSecondID)
 	require.NoError(t, err, "unable to fetch channel edges by ID")
-	midEdge.MessageFlags = 1
-	midEdge.MaxHTLC = payAmt - 1
-	if err := graph.UpdateEdgePolicy(midEdge); err != nil {
+
+	midEdgePol, ok := midEdge.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+	midEdgePol.MessageFlags = 1
+	midEdgePol.MaxHTLC = payAmt - 1
+	if err := graph.UpdateEdgePolicy(midEdgePol); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
 	}
 
@@ -2067,8 +2070,16 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	// path finding, as we don't consider the disable flag for local
 	// channels (and roasbeef is the source).
 	roasToPham := uint64(999991)
-	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToPham)
+
+	_, edge1, edge2, err := graph.graph.FetchChannelEdgesByID(roasToPham)
 	require.NoError(t, err, "unable to fetch edge")
+
+	e1, ok := edge1.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+
+	e2, ok := edge2.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+
 	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
@@ -2088,8 +2099,12 @@ func runRouteFailDisabledEdge(t *testing.T, useCache bool) {
 	// Now, we'll modify the edge from phamnuwen -> sophon, to read that
 	// it's disabled.
 	phamToSophon := uint64(99999)
-	_, e, _, err := graph.graph.FetchChannelEdgesByID(phamToSophon)
+	_, edge, _, err := graph.graph.FetchChannelEdgesByID(phamToSophon)
 	require.NoError(t, err, "unable to fetch edge")
+
+	e, ok := edge.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+
 	e.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e); err != nil {
 		t.Fatalf("unable to update edge: %v", err)
@@ -2169,8 +2184,15 @@ func runPathSourceEdgesBandwidth(t *testing.T, useCache bool) {
 	// Finally, set the roasbeef->songoku bandwidth, but also set its
 	// disable flag.
 	bandwidths.hints[roasToSongoku] = 2 * payAmt
-	_, e1, e2, err := graph.graph.FetchChannelEdgesByID(roasToSongoku)
+	_, edge1, edge2, err := graph.graph.FetchChannelEdgesByID(roasToSongoku)
 	require.NoError(t, err, "unable to fetch edge")
+
+	e1, ok := edge1.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+
+	e2, ok := edge2.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+
 	e1.ChannelFlags |= lnwire.ChanUpdateDisabled
 	if err := graph.graph.UpdateEdgePolicy(e1); err != nil {
 		t.Fatalf("unable to update edge: %v", err)

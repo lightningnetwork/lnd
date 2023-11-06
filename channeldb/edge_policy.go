@@ -97,7 +97,7 @@ func encodingInfoFromEdgePolicy(policy models.ChannelEdgePolicy) (
 	}
 }
 
-func putChanEdgePolicy(edges kvdb.RwBucket, edge *models.ChannelEdgePolicy1,
+func putChanEdgePolicy(edges kvdb.RwBucket, edge models.ChannelEdgePolicy,
 	from, to []byte) error {
 
 	encodingInfo, err := encodingInfoFromEdgePolicy(edge)

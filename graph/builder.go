@@ -1411,6 +1411,90 @@ func (b *Builder) processUpdate(msg interface{},
 			lnutils.SpewLogClosure(msg))
 		b.stats.incNumChannelUpdates()
 
+	case *models.ChannelEdgePolicy2:
+		chanID := msg.ShortChannelID.Val.ToUint64()
+
+		log.Debugf("Received ChannelEdgePolicy2 for channel %v", chanID)
+
+		// We make sure to hold the mutex for this channel ID,
+		// such that no other goroutine is concurrently doing
+		// database accesses for the same channel ID.
+		b.channelEdgeMtx.Lock(chanID)
+		defer b.channelEdgeMtx.Unlock(chanID)
+
+		edge1Height, edge2Height, exists, isZombie, err :=
+			b.cfg.Graph.HasChannelEdge2(chanID)
+		if err != nil &&
+			!errors.Is(err, channeldb.ErrGraphNoEdgesFound) {
+
+			return errors.Errorf("unable to check for edge "+
+				"existence: %v", err)
+		}
+
+		// If the channel is marked as a zombie in our database, and
+		// we consider this a stale update, then we should not apply the
+		// policy.
+		blocksSinceMsg := b.SyncedHeight() - msg.BlockHeight.Val
+		isStaleUpdate := blocksSinceMsg > uint32(
+			b.cfg.ChannelPruneExpiry.Hours()*6,
+		)
+		if isZombie && isStaleUpdate {
+			return NewErrf(ErrIgnored, "ignoring stale update "+
+				"(is_node_1=%v|disable_flags=%v) for zombie "+
+				"chan_id=%v", msg.IsNode1(), msg.DisabledFlags,
+				chanID)
+		}
+
+		// If the channel doesn't exist in our database, we cannot
+		// apply the updated policy.
+		if !exists {
+			return NewErrf(ErrIgnored, "ignoring update "+
+				"(is_node_1=%v|disable_flags=%v) for unknown "+
+				"chan_id=%v", msg.IsNode1(), msg.DisabledFlags,
+				chanID)
+		}
+
+		// As edges are directional edge node has a unique policy for
+		// the direction of the edge they control. Therefore we first
+		// check if we already have the most up to date information for
+		// that edge. If this message has a timestamp not strictly
+		// newer than what we already know of we can exit early.
+		switch {
+		case msg.IsNode1():
+			// Ignore outdated message.
+			if edge1Height >= msg.BlockHeight.Val {
+				return NewErrf(ErrOutdated, "Ignoring "+
+					"outdated update "+
+					"(is_node_1=%v|disable_flags=%v) for "+
+					"known chan_id=%v", msg.IsNode1(),
+					msg.DisabledFlags, chanID)
+			}
+
+		case !msg.IsNode1():
+			// Ignore outdated message.
+			if edge2Height >= msg.BlockHeight.Val {
+				return NewErrf(ErrOutdated, "Ignoring "+
+					"outdated update "+
+					"(is_node_1=%v|disable_flags=%v) for "+
+					"known chan_id=%v", msg.IsNode1(),
+					msg.DisabledFlags, chanID)
+			}
+		}
+
+		// Now that we know this isn't a stale update, we'll apply the
+		// new edge policy to the proper directional edge within the
+		// channel graph.
+		if err = b.cfg.Graph.UpdateEdgePolicy(msg, op...); err != nil {
+			err := errors.Errorf("unable to add channel: %v", err)
+			log.Error(err)
+			return err
+		}
+
+		log.Tracef("New channel update applied: %v",
+			lnutils.SpewLogClosure(msg))
+
+		b.stats.incNumChannelUpdates()
+
 	default:
 		return errors.Errorf("wrong routing update message type")
 	}
@@ -1579,8 +1663,8 @@ func (b *Builder) SyncedHeight() uint32 {
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) GetChannelByID(chanID lnwire.ShortChannelID) (
 	models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy1,
-	*models.ChannelEdgePolicy1, error) {
+	models.ChannelEdgePolicy,
+	models.ChannelEdgePolicy, error) {
 
 	return b.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 }
@@ -1613,12 +1697,12 @@ func (b *Builder) ForEachNode(
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (b *Builder) ForAllOutgoingChannels(cb func(kvdb.RTx,
-	models.ChannelEdgeInfo, *models.ChannelEdgePolicy1) error) error {
+	models.ChannelEdgeInfo, models.ChannelEdgePolicy) error) error {
 
 	return b.cfg.Graph.ForEachNodeChannel(b.cfg.SelfNode,
 		func(tx kvdb.RTx, c models.ChannelEdgeInfo,
-			e *models.ChannelEdgePolicy1,
-			_ *models.ChannelEdgePolicy1) error {
+			e models.ChannelEdgePolicy,
+			_ models.ChannelEdgePolicy) error {
 
 			if e == nil {
 				return fmt.Errorf("channel from self node " +

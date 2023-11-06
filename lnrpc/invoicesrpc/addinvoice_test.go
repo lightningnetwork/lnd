@@ -67,8 +67,8 @@ func (h *hopHintsConfigMock) FetchAllChannels() ([]*channeldb.OpenChannel,
 // FetchChannelEdgesByID attempts to lookup the two directed edges for
 // the channel identified by the channel ID.
 func (h *hopHintsConfigMock) FetchChannelEdgesByID(chanID uint64) (
-	models.ChannelEdgeInfo, *models.ChannelEdgePolicy1,
-	*models.ChannelEdgePolicy1, error) {
+	models.ChannelEdgeInfo, models.ChannelEdgePolicy,
+	models.ChannelEdgePolicy, error) {
 
 	args := h.Mock.Called(chanID)
 

@@ -42,8 +42,8 @@ func (n *node) Features() *lnwire.FeatureVector {
 }
 
 func (n *node) ForEachChannel(tx kvdb.RTx,
-	cb func(kvdb.RTx, models.ChannelEdgeInfo, *models.ChannelEdgePolicy1,
-		*models.ChannelEdgePolicy1) error) error {
+	cb func(kvdb.RTx, models.ChannelEdgeInfo, models.ChannelEdgePolicy,
+		models.ChannelEdgePolicy) error) error {
 
 	for idx := range n.edgeInfos {
 		err := cb(

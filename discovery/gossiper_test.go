@@ -2791,7 +2791,7 @@ func TestRetransmit(t *testing.T) {
 		var chanAnn, chanUpd, nodeAnn int
 		for _, msg := range anns {
 			switch msg.(type) {
-			case *lnwire.ChannelAnnouncement1:
+			case lnwire.ChannelAnnouncement:
 				chanAnn++
 			case *lnwire.ChannelUpdate1:
 				chanUpd++

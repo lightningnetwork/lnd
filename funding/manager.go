@@ -4050,7 +4050,7 @@ func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
 // chanAnnouncement encapsulates the two authenticated announcements that we
 // send out to the network after a new channel has been created locally.
 type chanAnnouncement struct {
-	chanAnn       *lnwire.ChannelAnnouncement1
+	chanAnn       lnwire.ChannelAnnouncement
 	chanUpdateAnn *lnwire.ChannelUpdate1
 	chanProof     *lnwire.AnnounceSignatures1
 }

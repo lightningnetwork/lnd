@@ -339,11 +339,13 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 
 	// Any new ChannelUpdateAnnouncements will generate a corresponding
 	// ChannelEdgeUpdate notification.
-	case *models.ChannelEdgePolicy1:
+	case models.ChannelEdgePolicy:
 		// We'll need to fetch the edge's information from the database
 		// in order to get the information concerning which nodes are
 		// being connected.
-		edgeInfo, _, _, err := graph.FetchChannelEdgesByID(m.ChannelID)
+		edgeInfo, _, _, err := graph.FetchChannelEdgesByID(
+			m.SCID().ToUint64(),
+		)
 		if err != nil {
 			return errors.Errorf("unable fetch channel edge: %v",
 				err)
@@ -353,7 +355,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 		// the second node.
 		sourceNode := edgeInfo.NodeKey1
 		connectingNode := edgeInfo.NodeKey2
-		if m.ChannelFlags&lnwire.ChanUpdateDirection == 1 {
+		if !m.IsNode1() {
 			sourceNode = edgeInfo.NodeKey2
 			connectingNode = edgeInfo.NodeKey1
 		}
@@ -367,18 +369,19 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 			return err
 		}
 
+		policy := m.ForwardingPolicy()
 		edgeUpdate := &ChannelEdgeUpdate{
-			ChanID:          m.ChannelID,
+			ChanID:          m.SCID().ToUint64(),
 			ChanPoint:       edgeInfo.GetChanPoint(),
-			TimeLockDelta:   m.TimeLockDelta,
+			TimeLockDelta:   policy.TimeLockDelta,
 			Capacity:        edgeInfo.GetCapacity(),
-			MinHTLC:         m.MinHTLC,
-			MaxHTLC:         m.MaxHTLC,
-			BaseFee:         m.FeeBaseMSat,
-			FeeRate:         m.FeeProportionalMillionths,
+			MinHTLC:         policy.MinHTLC,
+			MaxHTLC:         policy.MaxHTLC,
+			BaseFee:         policy.BaseFee,
+			FeeRate:         policy.FeeRate,
 			AdvertisingNode: aNode,
 			ConnectingNode:  cNode,
-			Disabled:        m.ChannelFlags&lnwire.ChanUpdateDisabled != 0,
+			Disabled:        m.IsDisabled(),
 		}
 
 		// TODO(roasbeef): add bit to toggle

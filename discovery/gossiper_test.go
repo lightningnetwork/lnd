@@ -199,7 +199,7 @@ func (r *mockGraphSource) ForEachNode(func(node *channeldb.LightningNode) error)
 
 func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 	i models.ChannelEdgeInfo,
-	c *models.ChannelEdgePolicy1) error) error {
+	c models.ChannelEdgePolicy) error) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -221,14 +221,7 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 	}
 
 	for _, channel := range chans {
-		pol, ok := channel.Policy1.(*models.ChannelEdgePolicy1)
-		if !ok {
-			return fmt.Errorf("expected "+
-				"*models.ChannelEdgePolicy1, got %T",
-				channel.Policy1)
-		}
-
-		if err := cb(nil, channel.Info, pol); err != nil {
+		if err := cb(nil, channel.Info, channel.Policy1); err != nil {
 			return err
 		}
 	}
@@ -238,8 +231,8 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 
 func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 	models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy1,
-	*models.ChannelEdgePolicy1, error) {
+	models.ChannelEdgePolicy,
+	models.ChannelEdgePolicy, error) {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -3459,7 +3452,12 @@ out:
 	err = ctx.router.ForAllOutgoingChannels(func(
 		_ kvdb.RTx,
 		info models.ChannelEdgeInfo,
-		edge *models.ChannelEdgePolicy1) error {
+		edgePolicy models.ChannelEdgePolicy) error {
+
+		edge, ok := edgePolicy.(*models.ChannelEdgePolicy1)
+		if !ok {
+			t.Fatalf("expected *models.ChannelEdgePolicy1")
+		}
 
 		edge.TimeLockDelta = uint16(newTimeLockDelta)
 		edgesToUpdate = append(edgesToUpdate, EdgeWithInfo{

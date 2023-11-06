@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -473,13 +474,19 @@ func TestChannelUpdateValidation(t *testing.T) {
 	)
 
 	// Assert that the initially configured fee is retrieved correctly.
-	_, e1, e2, err := ctx.router.GetChannelByID(
+	_, edge1, edge2, err := ctx.router.GetChannelByID(
 		lnwire.NewShortChanIDFromInt(1),
 	)
 	require.NoError(t, err, "cannot retrieve channel")
 
-	require.Equal(t, feeRate, e1.FeeProportionalMillionths, "invalid fee")
-	require.Equal(t, feeRate, e2.FeeProportionalMillionths, "invalid fee")
+	e1, ok := edge1.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+
+	e2, ok := edge2.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+
+	require.Equal(t, feeRate, e1.ForwardingPolicy().FeeRate, "invalid fee")
+	require.Equal(t, feeRate, e2.ForwardingPolicy().FeeRate, "invalid fee")
 
 	// Setup a route from source a to destination c. The route will be used
 	// in a call to SendToRoute. SendToRoute also applies channel updates,
@@ -541,10 +548,16 @@ func TestChannelUpdateValidation(t *testing.T) {
 	_, err = ctx.router.SendToRoute(payment, rt)
 	require.Error(t, err, "expected route to fail with channel update")
 
-	_, e1, e2, err = ctx.router.GetChannelByID(
+	_, edge1, edge2, err = ctx.router.GetChannelByID(
 		lnwire.NewShortChanIDFromInt(1),
 	)
 	require.NoError(t, err, "cannot retrieve channel")
+
+	e1, ok = edge1.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+
+	e2, ok = edge2.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
 
 	require.Equal(t, feeRate, e1.FeeProportionalMillionths,
 		"fee updated without valid signature")
@@ -560,10 +573,16 @@ func TestChannelUpdateValidation(t *testing.T) {
 
 	// This time a valid signature was supplied and the policy change should
 	// have been applied to the graph.
-	_, e1, e2, err = ctx.router.GetChannelByID(
+	_, edge1, edge2, err = ctx.router.GetChannelByID(
 		lnwire.NewShortChanIDFromInt(1),
 	)
 	require.NoError(t, err, "cannot retrieve channel")
+
+	e1, ok = edge1.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+
+	e2, ok = edge2.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
 
 	require.Equal(t, feeRate, e1.FeeProportionalMillionths,
 		"fee should not be updated")
@@ -606,21 +625,15 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to fetch chan id")
 
-	errChanUpdate := lnwire.ChannelUpdate1{
-		ShortChannelID: lnwire.NewShortChanIDFromInt(
-			songokuSophonChanID,
-		),
-		Timestamp:       uint32(edgeUpdateToFail.LastUpdate.Unix()),
-		MessageFlags:    edgeUpdateToFail.MessageFlags,
-		ChannelFlags:    edgeUpdateToFail.ChannelFlags,
-		TimeLockDelta:   edgeUpdateToFail.TimeLockDelta,
-		HtlcMinimumMsat: edgeUpdateToFail.MinHTLC,
-		HtlcMaximumMsat: edgeUpdateToFail.MaxHTLC,
-		BaseFee:         uint32(edgeUpdateToFail.FeeBaseMSat),
-		FeeRate:         uint32(edgeUpdateToFail.FeeProportionalMillionths),
-	}
+	edgeUpdToFail, ok := edgeUpdateToFail.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
 
-	signErrChanUpdate(t, ctx.privKeys["songoku"], &errChanUpdate)
+	errChanUpdate, err := netann.UnsignedChannelUpdateFromEdge(
+		chainhash.Hash{}, edgeUpdToFail,
+	)
+	require.NoError(t, err)
+
+	signErrChanUpdate(t, ctx.privKeys["songoku"], errChanUpdate)
 
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to Son goku. This will be a fee related error, so
@@ -638,7 +651,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 					// reflect the new fee schedule for the
 					// node/channel.
 					&lnwire.FailFeeInsufficient{
-						Update: errChanUpdate,
+						Update: *errChanUpdate,
 					}, 1,
 				)
 			}
@@ -949,17 +962,13 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	_, _, edgeUpdateToFail, err := ctx.graph.FetchChannelEdgesByID(chanID)
 	require.NoError(t, err, "unable to fetch chan id")
 
-	errChanUpdate := lnwire.ChannelUpdate1{
-		ShortChannelID:  lnwire.NewShortChanIDFromInt(chanID),
-		Timestamp:       uint32(edgeUpdateToFail.LastUpdate.Unix()),
-		MessageFlags:    edgeUpdateToFail.MessageFlags,
-		ChannelFlags:    edgeUpdateToFail.ChannelFlags,
-		TimeLockDelta:   edgeUpdateToFail.TimeLockDelta,
-		HtlcMinimumMsat: edgeUpdateToFail.MinHTLC,
-		HtlcMaximumMsat: edgeUpdateToFail.MaxHTLC,
-		BaseFee:         uint32(edgeUpdateToFail.FeeBaseMSat),
-		FeeRate:         uint32(edgeUpdateToFail.FeeProportionalMillionths),
-	}
+	edgeUpdToFail, ok := edgeUpdateToFail.(*models.ChannelEdgePolicy1)
+	require.True(t, ok)
+
+	errChanUpdate, err := netann.UnsignedChannelUpdateFromEdge(
+		chainhash.Hash{}, edgeUpdToFail,
+	)
+	require.NoError(t, err)
 
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to son goku. Since this is a time lock related
@@ -970,7 +979,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 			if firstHop == roasbeefSongoku {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailExpiryTooSoon{
-						Update: errChanUpdate,
+						Update: *errChanUpdate,
 					}, 1,
 				)
 			}
@@ -1018,7 +1027,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 			if firstHop == roasbeefSongoku {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailIncorrectCltvExpiry{
-						Update: errChanUpdate,
+						Update: *errChanUpdate,
 					}, 1,
 				)
 			}

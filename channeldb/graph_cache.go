@@ -29,8 +29,8 @@ type GraphCacheNode interface {
 	// to the caller.
 	ForEachChannel(kvdb.RTx,
 		func(kvdb.RTx, models.ChannelEdgeInfo,
-			*models.ChannelEdgePolicy1,
-			*models.ChannelEdgePolicy1) error) error
+			models.ChannelEdgePolicy,
+			models.ChannelEdgePolicy) error) error
 }
 
 // DirectedChannel is a type that stores the channel information as seen from
@@ -140,22 +140,10 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 
 	return node.ForEachChannel(
 		tx, func(tx kvdb.RTx, info models.ChannelEdgeInfo,
-			outPolicy *models.ChannelEdgePolicy1,
-			inPolicy *models.ChannelEdgePolicy1) error {
+			outPolicy models.ChannelEdgePolicy,
+			inPolicy models.ChannelEdgePolicy) error {
 
-			// TODO(elle): remove once the ForEachChannel call back
-			// passes down the interface values instead of the
-			// pointers. This is temporarily required to prevent
-			// a nil pointer dereference.
-			var in, out models.ChannelEdgePolicy
-			if outPolicy != nil {
-				out = outPolicy
-			}
-			if inPolicy != nil {
-				in = inPolicy
-			}
-
-			c.AddChannel(info, out, in)
+			c.AddChannel(info, outPolicy, inPolicy)
 
 			return nil
 		},

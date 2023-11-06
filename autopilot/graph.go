@@ -91,7 +91,7 @@ func (d *dbNode) Addrs() []net.Addr {
 func (d *dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 	return d.db.ForEachNodeChannel(d.tx, d.node.PubKeyBytes,
 		func(tx kvdb.RTx, ei models.ChannelEdgeInfo, ep,
-			_ *models.ChannelEdgePolicy1) error {
+			_ models.ChannelEdgePolicy) error {
 
 			// Skip channels for which no outgoing edge policy is
 			// available.
@@ -105,15 +105,13 @@ func (d *dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 				return nil
 			}
 
-			node, err := d.db.FetchLightningNode(tx, ep.ToNode)
+			node, err := d.db.FetchLightningNode(tx, ep.GetToNode())
 			if err != nil {
 				return err
 			}
 
 			edge := ChannelEdge{
-				ChanID: lnwire.NewShortChanIDFromInt(
-					ep.ChannelID,
-				),
+				ChanID:   ep.SCID(),
 				Capacity: ei.GetCapacity(),
 				Peer: &dbNode{
 					tx:   tx,

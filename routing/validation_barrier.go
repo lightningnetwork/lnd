@@ -145,7 +145,7 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 
 	// These other types don't have any dependants, so no further
 	// initialization needs to be done beyond just occupying a job slot.
-	case *models.ChannelEdgePolicy1:
+	case models.ChannelEdgePolicy:
 		return
 	case *lnwire.ChannelUpdate1:
 		return
@@ -187,14 +187,13 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	v.Lock()
 
 	switch msg := job.(type) {
-	// Any ChannelUpdate or NodeAnnouncement jobs will need to wait on the
-	// completion of any active ChannelAnnouncement jobs related to them.
-	case *models.ChannelEdgePolicy1:
-		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		signals, ok = v.chanEdgeDependencies[shortID]
+	// Any ChannelUpdate1 or NodeAnnouncement1 jobs will need to wait on the
+	// completion of any active ChannelAnnouncement1 jobs related to them.
+	case models.ChannelEdgePolicy:
+		signals, ok = v.chanEdgeDependencies[msg.SCID()]
 
-		jobDesc = fmt.Sprintf("job=lnwire.ChannelEdgePolicy1, scid=%v",
-			msg.ChannelID)
+		jobDesc = fmt.Sprintf("job=lnwire.ChannelEdgePolicy, scid=%v",
+			msg.SCID().ToUint64())
 
 	case *channeldb.LightningNode:
 		vertex := route.Vertex(msg.PubKeyBytes)
@@ -300,9 +299,8 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 		delete(v.nodeAnnDependencies, route.Vertex(msg.NodeID))
 	case *lnwire.ChannelUpdate1:
 		delete(v.chanEdgeDependencies, msg.ShortChannelID)
-	case *models.ChannelEdgePolicy1:
-		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		delete(v.chanEdgeDependencies, shortID)
+	case models.ChannelEdgePolicy:
+		delete(v.chanEdgeDependencies, msg.SCID())
 
 	case *lnwire.AnnounceSignatures1:
 		return

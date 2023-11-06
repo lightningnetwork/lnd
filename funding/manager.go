@@ -524,7 +524,7 @@ type Config struct {
 	// DeleteAliasEdge allows the Manager to delete an alias channel edge
 	// from the graph. It also returns our local to-be-deleted policy.
 	DeleteAliasEdge func(scid lnwire.ShortChannelID) (
-		*models.ChannelEdgePolicy1, error)
+		models.ChannelEdgePolicy, error)
 
 	// AliasManager is an implementation of the aliasHandler interface that
 	// abstracts away the handling of many alias functions.
@@ -3335,7 +3335,7 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	shortChanID *lnwire.ShortChannelID,
 	peerAlias *lnwire.ShortChannelID,
-	ourPolicy *models.ChannelEdgePolicy1) error {
+	ourPolicy models.ChannelEdgePolicy) error {
 
 	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
 
@@ -4067,8 +4067,18 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	remotePubKey *btcec.PublicKey, localFundingKey *keychain.KeyDescriptor,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID, fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi,
-	ourPolicy *models.ChannelEdgePolicy1,
+	ourEdgePolicy models.ChannelEdgePolicy,
 	chanType channeldb.ChannelType) (*chanAnnouncement, error) {
+
+	var ourPolicy *models.ChannelEdgePolicy1
+	if ourEdgePolicy != nil {
+		var ok bool
+		ourPolicy, ok = ourEdgePolicy.(*models.ChannelEdgePolicy1)
+		if !ok {
+			return nil, fmt.Errorf("expected "+
+				"ChannelEdgePolicy1, got: %T", ourEdgePolicy)
+		}
+	}
 
 	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
 

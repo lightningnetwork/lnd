@@ -32,7 +32,7 @@ type Manager struct {
 	// channels.
 	ForAllOutgoingChannels func(cb func(kvdb.RTx,
 		models.ChannelEdgeInfo,
-		*models.ChannelEdgePolicy1) error) error
+		models.ChannelEdgePolicy) error) error
 
 	// FetchChannel is used to query local channel parameters. Optionally an
 	// existing db tx can be supplied.
@@ -74,7 +74,7 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 	err := r.ForAllOutgoingChannels(func(
 		tx kvdb.RTx,
 		info models.ChannelEdgeInfo,
-		edge *models.ChannelEdgePolicy1) error {
+		edge models.ChannelEdgePolicy) error {
 
 		var chanPoint = info.GetChanPoint()
 
@@ -108,13 +108,15 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 			Edge: edge,
 		})
 
+		fwdPol := edge.ForwardingPolicy()
+
 		// Add updated policy to list of policies to send to switch.
 		policiesToUpdate[chanPoint] = models.ForwardingPolicy{
-			BaseFee:       edge.FeeBaseMSat,
-			FeeRate:       edge.FeeProportionalMillionths,
-			TimeLockDelta: uint32(edge.TimeLockDelta),
-			MinHTLCOut:    edge.MinHTLC,
-			MaxHTLC:       edge.MaxHTLC,
+			BaseFee:       fwdPol.BaseFee,
+			FeeRate:       fwdPol.FeeRate,
+			TimeLockDelta: uint32(fwdPol.TimeLockDelta),
+			MinHTLCOut:    fwdPol.MinHTLC,
+			MaxHTLC:       fwdPol.MaxHTLC,
 		}
 
 		return nil
@@ -175,72 +177,134 @@ func (r *Manager) UpdatePolicy(newSchema routing.ChannelPolicy,
 
 // updateEdge updates the given edge with the new schema.
 func (r *Manager) updateEdge(tx kvdb.RTx, chanPoint wire.OutPoint,
-	edge *models.ChannelEdgePolicy1,
+	edgePolicy models.ChannelEdgePolicy,
 	newSchema routing.ChannelPolicy) error {
 
-	// Update forwarding fee scheme and required time lock delta.
-	edge.FeeBaseMSat = newSchema.BaseFee
-	edge.FeeProportionalMillionths = lnwire.MilliSatoshi(
-		newSchema.FeeRate,
-	)
-	edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
-
-	// Retrieve negotiated channel htlc amt limits.
-	amtMin, amtMax, err := r.getHtlcAmtLimits(tx, chanPoint)
-	if err != nil {
-		return err
-	}
-
-	// We now update the edge max htlc value.
-	switch {
-	// If a non-zero max htlc was specified, use it to update the edge.
-	// Otherwise keep the value unchanged.
-	case newSchema.MaxHTLC != 0:
-		edge.MaxHTLC = newSchema.MaxHTLC
-
-	// If this edge still doesn't have a max htlc set, set it to the max.
-	// This is an on-the-fly migration.
-	case !edge.MessageFlags.HasMaxHtlc():
-		edge.MaxHTLC = amtMax
-
-	// If this edge has a max htlc that exceeds what the channel can
-	// actually carry, correct it now. This can happen, because we
-	// previously set the max htlc to the channel capacity.
-	case edge.MaxHTLC > amtMax:
-		edge.MaxHTLC = amtMax
-	}
-
-	// If a new min htlc is specified, update the edge.
-	if newSchema.MinHTLC != nil {
-		edge.MinHTLC = *newSchema.MinHTLC
-	}
-
-	// If the MaxHtlc flag wasn't already set, we can set it now.
-	edge.MessageFlags |= lnwire.ChanUpdateRequiredMaxHtlc
-
-	// Validate htlc amount constraints.
-	switch {
-	case edge.MinHTLC < amtMin:
-		return fmt.Errorf(
-			"min htlc amount of %v is below min htlc parameter of %v",
-			edge.MinHTLC, amtMin,
+	switch edge := edgePolicy.(type) {
+	case *models.ChannelEdgePolicy1:
+		// Update forwarding fee scheme and required time lock delta.
+		edge.FeeBaseMSat = newSchema.BaseFee
+		edge.FeeProportionalMillionths = lnwire.MilliSatoshi(
+			newSchema.FeeRate,
 		)
+		edge.TimeLockDelta = uint16(newSchema.TimeLockDelta)
 
-	case edge.MaxHTLC > amtMax:
-		return fmt.Errorf(
-			"max htlc size of %v is above max pending amount of %v",
-			edge.MaxHTLC, amtMax,
-		)
+		// Retrieve negotiated channel htlc amt limits.
+		amtMin, amtMax, err := r.getHtlcAmtLimits(tx, chanPoint)
+		if err != nil {
+			return err
+		}
 
-	case edge.MinHTLC > edge.MaxHTLC:
-		return fmt.Errorf(
-			"min_htlc %v greater than max_htlc %v",
-			edge.MinHTLC, edge.MaxHTLC,
-		)
+		// We now update the edge max htlc value.
+		switch {
+		// If a non-zero max htlc was specified, use it to update the edge.
+		// Otherwise keep the value unchanged.
+		case newSchema.MaxHTLC != 0:
+			edge.MaxHTLC = newSchema.MaxHTLC
+
+		// If this edge still doesn't have a max htlc set, set it to the max.
+		// This is an on-the-fly migration.
+		case !edge.MessageFlags.HasMaxHtlc():
+			edge.MaxHTLC = amtMax
+
+		// If this edge has a max htlc that exceeds what the channel can
+		// actually carry, correct it now. This can happen, because we
+		// previously set the max htlc to the channel capacity.
+		case edge.MaxHTLC > amtMax:
+			edge.MaxHTLC = amtMax
+		}
+
+		// If a new min htlc is specified, update the edge.
+		if newSchema.MinHTLC != nil {
+			edge.MinHTLC = *newSchema.MinHTLC
+		}
+
+		// If the MaxHtlc flag wasn't already set, we can set it now.
+		edge.MessageFlags |= lnwire.ChanUpdateRequiredMaxHtlc
+
+		// Validate htlc amount constraints.
+		switch {
+		case edge.MinHTLC < amtMin:
+			return fmt.Errorf(
+				"min htlc amount of %v is below min htlc parameter of %v",
+				edge.MinHTLC, amtMin,
+			)
+
+		case edge.MaxHTLC > amtMax:
+			return fmt.Errorf(
+				"max htlc size of %v is above max pending amount of %v",
+				edge.MaxHTLC, amtMax,
+			)
+
+		case edge.MinHTLC > edge.MaxHTLC:
+			return fmt.Errorf(
+				"min_htlc %v greater than max_htlc %v",
+				edge.MinHTLC, edge.MaxHTLC,
+			)
+		}
+
+		// Clear signature to help prevent usage of the previous signature.
+		edge.SetSigBytes(nil)
+
+	case *models.ChannelEdgePolicy2:
+		// Update forwarding fee scheme and required time lock delta.
+		edge.FeeBaseMsat = uint32(newSchema.BaseFee)
+		edge.FeeProportionalMillionths = newSchema.FeeRate
+		edge.CLTVExpiryDelta = uint16(newSchema.TimeLockDelta)
+
+		// Retrieve negotiated channel htlc amt limits.
+		amtMin, amtMax, err := r.getHtlcAmtLimits(tx, chanPoint)
+		if err != nil {
+			return err
+		}
+
+		// We now update the edge max htlc value.
+		switch {
+		// If a non-zero max htlc was specified, use it to update the edge.
+		// Otherwise keep the value unchanged.
+		case newSchema.MaxHTLC != 0:
+			edge.HTLCMaximumMsat = newSchema.MaxHTLC
+
+		// If this edge has a max htlc that exceeds what the channel can
+		// actually carry, correct it now. This can happen, because we
+		// previously set the max htlc to the channel capacity.
+		case edge.HTLCMaximumMsat > amtMax:
+			edge.HTLCMaximumMsat = amtMax
+		}
+
+		// If a new min htlc is specified, update the edge.
+		if newSchema.MinHTLC != nil {
+			edge.HTLCMinimumMsat = *newSchema.MinHTLC
+		}
+
+		// Validate htlc amount constraints.
+		switch {
+		case edge.HTLCMinimumMsat < amtMin:
+			return fmt.Errorf(
+				"min htlc amount of %v is below min htlc parameter of %v",
+				edge.HTLCMinimumMsat, amtMin,
+			)
+
+		case edge.HTLCMaximumMsat > amtMax:
+			return fmt.Errorf(
+				"max htlc size of %v is above max pending amount of %v",
+				edge.HTLCMaximumMsat, amtMax,
+			)
+
+		case edge.HTLCMinimumMsat > edge.HTLCMaximumMsat:
+			return fmt.Errorf(
+				"min_htlc %v greater than max_htlc %v",
+				edge.HTLCMinimumMsat, edge.HTLCMaximumMsat,
+			)
+		}
+
+		// Clear signature to help prevent usage of the previous signature.
+		edge.Signature = lnwire.Sig{}
+
+	default:
+		return fmt.Errorf("unhandled implementation of "+
+			"models.ChannelEdgePolicy: %T", edgePolicy)
 	}
-
-	// Clear signature to help prevent usage of the previous signature.
-	edge.SetSigBytes(nil)
 
 	return nil
 }

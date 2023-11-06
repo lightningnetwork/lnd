@@ -85,7 +85,7 @@ func SignChannelUpdate(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator
 //
 // NOTE: The passed policies can be nil.
 func ExtractChannelUpdate(ownerPubKey []byte,
-	info models.ChannelEdgeInfo, policies ...*models.ChannelEdgePolicy1) (
+	info models.ChannelEdgeInfo, policies ...models.ChannelEdgePolicy) (
 	*lnwire.ChannelUpdate1, error) {
 
 	// Helper function to extract the owner of the given policy.
@@ -107,7 +107,13 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 
 	// Extract the channel update from the policy we own, if any.
 	for _, edge := range policies {
-		if edge != nil && bytes.Equal(ownerPubKey, owner(edge)) {
+		e, ok := edge.(*models.ChannelEdgePolicy1)
+		if !ok {
+			return nil, fmt.Errorf("expected "+
+				"*models.ChannelEdgePolicy1, got: %T", edge)
+		}
+
+		if edge != nil && bytes.Equal(ownerPubKey, owner(e)) {
 			return ChannelUpdateFromEdge(info, edge)
 		}
 	}

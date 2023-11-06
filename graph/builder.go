@@ -474,30 +474,6 @@ func (b *Builder) syncGraphWithChain() error {
 	return nil
 }
 
-// isZombieChannel takes two edge policy updates and determines if the
-// corresponding channel should be considered a zombie. The first boolean is
-// true if the policy update from node 1 is considered a zombie, the second
-// boolean is that of node 2, and the final boolean is true if the channel
-// is considered a zombie.
-func (b *Builder) isZombieChannel(e1,
-	e2 *models.ChannelEdgePolicy1) (bool, bool, bool) {
-
-	chanExpiry := b.cfg.ChannelPruneExpiry
-
-	e1Zombie := e1 == nil || time.Since(e1.LastUpdate) >= chanExpiry
-	e2Zombie := e2 == nil || time.Since(e2.LastUpdate) >= chanExpiry
-
-	var e1Time, e2Time time.Time
-	if e1 != nil {
-		e1Time = e1.LastUpdate
-	}
-	if e2 != nil {
-		e2Time = e2.LastUpdate
-	}
-
-	return e1Zombie, e2Zombie, b.IsZombieChannel(e1Time, e2Time)
-}
-
 // IsZombieChannel takes the timestamps of the latest channel updates for a
 // channel and returns true if the channel should be considered a zombie based
 // on these timestamps.
@@ -512,6 +488,10 @@ func (b *Builder) IsZombieChannel(updateTime1,
 	e2Zombie := updateTime2.IsZero() ||
 		time.Since(updateTime2) >= chanExpiry
 
+	return b.isZombieChannel(e1Zombie, e2Zombie)
+}
+
+func (b *Builder) isZombieChannel(e1Zombie, e2Zombie bool) bool {
 	// If we're using strict zombie pruning, then a channel is only
 	// considered live if both edges have a recent update we know of.
 	if b.cfg.StrictZombiePruning {
@@ -562,7 +542,15 @@ func (b *Builder) pruneZombieChans() error {
 			return nil
 		}
 
-		e1Zombie, e2Zombie, isZombieChan := b.isZombieChannel(e1, e2)
+		e1Zombie, err := b.isZombieEdge(e1)
+		if err != nil {
+			return err
+		}
+
+		e2Zombie, err := b.isZombieEdge(e2)
+		if err != nil {
+			return err
+		}
 
 		if e1Zombie {
 			log.Tracef("Node1 pubkey=%x of chan_id=%v is zombie",
@@ -577,7 +565,7 @@ func (b *Builder) pruneZombieChans() error {
 		// If either edge hasn't been updated for a period of
 		// chanExpiry, then we'll mark the channel itself as eligible
 		// for graph pruning.
-		if !isZombieChan {
+		if !b.isZombieChannel(e1Zombie, e2Zombie) {
 			return nil
 		}
 
@@ -660,6 +648,40 @@ func (b *Builder) pruneZombieChans() error {
 	}
 
 	return nil
+}
+
+func (b *Builder) isZombieEdge(edge models.ChannelEdgePolicy) (bool,
+	error) {
+
+	if edge == nil {
+		return true, nil
+	}
+
+	switch e := edge.(type) {
+	case *models.ChannelEdgePolicy1:
+		chanExpiry := b.cfg.ChannelPruneExpiry
+
+		if e == nil {
+			return true, nil
+		}
+
+		return time.Since(e.LastUpdate) >= chanExpiry, nil
+
+	case *models.ChannelEdgePolicy2:
+		chanExpiryBlocks := uint32(b.cfg.ChannelPruneExpiry.Hours() * 6)
+
+		if e == nil {
+			return true, nil
+		}
+
+		blockSince := b.SyncedHeight() - e.BlockHeight.Val
+
+		return blockSince >= chanExpiryBlocks, nil
+
+	default:
+		return false, fmt.Errorf("unhandled implementation of "+
+			"models.ChannelEdgePolicy: %T", edge)
+	}
 }
 
 // handleNetworkUpdate is responsible for processing the update message and

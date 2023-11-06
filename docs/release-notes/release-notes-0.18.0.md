@@ -56,7 +56,7 @@
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8096) a case where `lnd`
   might dip below its channel reserve when htlcs are added concurrently. A
   fee buffer (additional balance) is now always kept on the local side ONLY
-  if the channel was opened locally. This is in accordance with the BOTL 02
+  if the channel was opened locally. This is in accordance with the BOLT 02
   specification and protects against sharp fee changes because there is always
   this buffer which can be used to increase the commitment fee and it also
   protects against the case where htlcs are added asynchronously resulting in
@@ -90,10 +90,18 @@
   precision issue when querying payments and invoices using the start and end
   date filters.
 
+<<<<<<< HEAD
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8496) an issue where
   `locked_balance` is not updated in `WalletBalanceResponse` when outputs are
   reserved for `OpenChannel` by using non-volatile leases instead of volatile
   locks.
+=======
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/7805) a case where `lnd`
+  might propose a low fee rate for the channel (when initiator) due to the
+  mempool not having enough data yet or the channel might be drained locally
+  which with the default fee allocation in place will eventually lead to the
+  downsizing to the fee floor (1 sat/vbyte) in the worst case.
+>>>>>>> ae6f11c56 (docs: add release-notes.)
 
 # New Features
 ## Functional Enhancements
@@ -328,7 +336,7 @@
   option. 
 
 * [Update min_final_cltv_expiry_delta](https://github.com/lightningnetwork/lnd/pull/8308).
-  This only effects external invoices which do not supply the 
+  This only affects external invoices which do not supply the 
   min_final_cltv_expiry parameter. LND has NOT allowed the creation of invoices
   with a lower min_final_cltv_expiry_delta value than 18 blocks since
   LND 0.11.0.

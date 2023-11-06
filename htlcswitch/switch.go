@@ -1279,6 +1279,10 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		return destination.handleSwitchPacket(packet)
 
 	case *lnwire.UpdateFailHTLC, *lnwire.UpdateFulfillHTLC:
+		// A blank IncomingChanID in a circuit indicates that it is a
+		// pending user-initiated payment.
+		localHTLC := packet.incomingChanID == hop.Source
+
 		// If the source of this packet has not been set, use the
 		// circuit map to lookup the origin.
 		circuit, err := s.closeCircuit(packet)
@@ -1286,9 +1290,22 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			return err
 		}
 
-		// closeCircuit returns a nil circuit when a settle packet returns an
-		// ErrUnknownCircuit error upon the inner call to CloseCircuit.
+		// closeCircuit returns a nil circuit when a settle packet
+		// returns an ErrUnknownCircuit error upon the inner call to
+		// CloseCircuit.
+		//
+		// TODO(yy): we should make sure the circuit it not nil here.
 		if circuit == nil {
+			// If this is a locally initiated HTLC, we need to
+			// handle the packet by storing the network result.
+			//
+			// TODO(yy): check the effect of re-storing network
+			// result.
+			if localHTLC {
+				s.wg.Add(1)
+				go s.handleLocalResponse(packet)
+			}
+
 			return nil
 		}
 
@@ -1342,7 +1359,6 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			//
 			// TODO(roasbeef): only do this once link actually
 			// fully settles?
-			localHTLC := packet.incomingChanID == hop.Source
 			if !localHTLC {
 				log.Infof("Forwarded HTLC(%x) of %v (fee: %v) "+
 					"from IncomingChanID(%v) to OutgoingChanID(%v)",
@@ -1364,9 +1380,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			}
 		}
 
-		// A blank IncomingChanID in a circuit indicates that it is a pending
-		// user-initiated payment.
-		if packet.incomingChanID == hop.Source {
+		// If this is a locally initiated HTLC, we need to handle the
+		// packet by storing the network result.
+		if localHTLC {
 			s.wg.Add(1)
 			go s.handleLocalResponse(packet)
 			return nil

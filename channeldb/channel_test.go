@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/channels"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1606,9 +1607,25 @@ func TestHTLCsExtraData(t *testing.T) {
 		OnionBlob:     lnmock.MockOnion(),
 	}
 
+	// Add a blinding point to a htlc.
+	blindingPointHTLC := HTLC{
+		Signature:     testSig.Serialize(),
+		Incoming:      false,
+		Amt:           10,
+		RHash:         key,
+		RefundTimeout: 1,
+		OnionBlob:     lnmock.MockOnion(),
+		BlindingPoint: tlv.SomeRecordT(
+			tlv.NewPrimitiveRecord[lnwire.BlindingPointTlvType](
+				pubKey,
+			),
+		),
+	}
+
 	testCases := []struct {
-		name  string
-		htlcs []HTLC
+		name        string
+		htlcs       []HTLC
+		blindingIdx int
 	}{
 		{
 			// Serialize multiple HLTCs with no extra data to
@@ -1620,30 +1637,12 @@ func TestHTLCsExtraData(t *testing.T) {
 			},
 		},
 		{
+			// Some HTLCs with extra data, some without.
 			name: "mixed extra data",
 			htlcs: []HTLC{
 				mockHtlc,
-				{
-					Signature:     testSig.Serialize(),
-					Incoming:      false,
-					Amt:           10,
-					RHash:         key,
-					RefundTimeout: 1,
-					OnionBlob:     lnmock.MockOnion(),
-					ExtraData:     []byte{1, 2, 3},
-				},
+				blindingPointHTLC,
 				mockHtlc,
-				{
-					Signature:     testSig.Serialize(),
-					Incoming:      false,
-					Amt:           10,
-					RHash:         key,
-					RefundTimeout: 1,
-					OnionBlob:     lnmock.MockOnion(),
-					ExtraData: bytes.Repeat(
-						[]byte{9}, 999,
-					),
-				},
 			},
 		},
 	}
@@ -1661,7 +1660,15 @@ func TestHTLCsExtraData(t *testing.T) {
 			r := bytes.NewReader(b.Bytes())
 			htlcs, err := DeserializeHtlcs(r)
 			require.NoError(t, err)
-			require.Equal(t, testCase.htlcs, htlcs)
+
+			require.EqualValues(t, len(testCase.htlcs), len(htlcs))
+			for i, htlc := range htlcs {
+				// We use the extra data field when we
+				// serialize, so we set to nil to be able to
+				// assert on equal for the test.
+				htlc.ExtraData = nil
+				require.Equal(t, testCase.htlcs[i], htlc)
+			}
 		})
 	}
 }

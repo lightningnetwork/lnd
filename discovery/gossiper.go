@@ -3182,7 +3182,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 			return nil, false
 		}
 
-		proof := channeldb.NewWaitingProof(nMsg.isRemote, ann)
+		proof := channeldb.NewLegacyWaitingProof(nMsg.isRemote, ann)
 		err := d.cfg.WaitingProofStore.Add(proof)
 		if err != nil {
 			err := fmt.Errorf("unable to store the proof for "+
@@ -3294,8 +3294,8 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 	// announcement. If we didn't receive the opposite half of the proof
 	// then we should store this one, and wait for the opposite to be
 	// received.
-	proof := channeldb.NewWaitingProof(nMsg.isRemote, ann)
-	oppProof, err := d.cfg.WaitingProofStore.Get(proof.OppositeKey())
+	proof := channeldb.NewLegacyWaitingProof(nMsg.isRemote, ann)
+	oppositeProof, err := d.cfg.WaitingProofStore.Get(proof.OppositeKey())
 	if err != nil && err != channeldb.ErrWaitingProofNotFound {
 		err := fmt.Errorf("unable to get the opposite proof for "+
 			"short_chan_id=%v: %v", shortChanID, err)
@@ -3319,6 +3319,14 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 			shortChanID)
 
 		nMsg.err <- nil
+		return nil, false
+	}
+
+	oppProof, ok := oppositeProof.
+		WaitingProofInterface.(*channeldb.LegacyWaitingProof)
+	if !ok {
+		nMsg.err <- fmt.Errorf("got wrong waiting proof type")
+
 		return nil, false
 	}
 

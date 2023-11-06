@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -13,6 +14,10 @@ var (
 	hops = []route.Vertex{
 		{1, 0}, {1, 1}, {1, 2}, {1, 3}, {1, 4},
 	}
+
+	// blindingPoint provides a non-nil blinding point (value is never
+	// used).
+	blindingPoint = &btcec.PublicKey{}
 
 	routeOneHop = route.Route{
 		SourcePubKey: hops[0],
@@ -49,6 +54,40 @@ var (
 			{PubKeyBytes: hops[2], AmtToForward: 97},
 			{PubKeyBytes: hops[3], AmtToForward: 94},
 			{PubKeyBytes: hops[4], AmtToForward: 90},
+		},
+	}
+
+	// blindedMultiHop is a blinded path where there are cleartext hops
+	// before the introduction node, and an intermediate blinded hop before
+	// the recipient after it.
+	blindedMultiHop = route.Route{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*route.Hop{
+			{PubKeyBytes: hops[1], AmtToForward: 99},
+			{
+				PubKeyBytes:   hops[2],
+				AmtToForward:  95,
+				BlindingPoint: blindingPoint,
+			},
+			{PubKeyBytes: hops[3], AmtToForward: 88},
+			{PubKeyBytes: hops[4], AmtToForward: 77},
+		},
+	}
+
+	// blindedMultiToIntroduction is a blinded path which goes directly
+	// to the introduction node, with multiple blinded hops after it.
+	blindedMultiToIntroduction = route.Route{
+		SourcePubKey: hops[0],
+		TotalAmount:  100,
+		Hops: []*route.Hop{
+			{
+				PubKeyBytes:   hops[1],
+				AmtToForward:  90,
+				BlindingPoint: blindingPoint,
+			},
+			{PubKeyBytes: hops[2], AmtToForward: 75},
+			{PubKeyBytes: hops[3], AmtToForward: 58},
 		},
 	}
 )
@@ -364,6 +403,52 @@ var resultTestCases = []resultTestCase{
 				getTestPair(0, 1): successPairResult(100),
 			},
 			policyFailure: getPolicyFailure(1, 2),
+		},
+	},
+	// Test the case where a node after the introduction node returns a
+	// error. In this case the introduction node is penalized because it
+	// has not followed the specification properly.
+	{
+		name:          "error after introduction",
+		route:         &blindedMultiToIntroduction,
+		failureSrcIdx: 2,
+		// Note that the failure code doesn't matter in this case -
+		// all we're worried about is errors originating after the
+		// introduction node.
+		failure: &lnwire.FailExpiryTooSoon{},
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): failPairResult(0),
+				getTestPair(1, 0): failPairResult(0),
+				getTestPair(1, 2): failPairResult(0),
+				getTestPair(2, 1): failPairResult(0),
+			},
+			// Note: introduction node is failed even though the
+			// error source is after it.
+			nodeFailure: &hops[1],
+		},
+	},
+	// Test the case where we get a blinding failure from a blinded final
+	// hop when we expected the introduction node to convert.
+	{
+		name:          "final failure expected intro",
+		route:         &blindedMultiHop,
+		failureSrcIdx: 4,
+		failure:       &lnwire.FailInvalidBlinding{},
+
+		expectedResult: &interpretedResult{
+			pairResults: map[DirectedNodePair]pairResult{
+				getTestPair(0, 1): successPairResult(100),
+				getTestPair(1, 2): failPairResult(0),
+				getTestPair(2, 1): failPairResult(0),
+				getTestPair(2, 3): failPairResult(0),
+				getTestPair(3, 2): failPairResult(0),
+			},
+			// Note that the introduction node is penalized, not
+			// the final hop.
+			nodeFailure:        &hops[2],
+			finalFailureReason: &reasonError,
 		},
 	},
 }

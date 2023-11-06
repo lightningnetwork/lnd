@@ -108,6 +108,16 @@ func (i *interpretedResult) processFail(
 		return
 	}
 
+	// If the payment was to a blinded route and we received an error from
+	// after the introduction point, handle this error separately - there
+	// has been a protocol violation from the introduction node. This
+	// penalty applies regardless of the error code that is returned.
+	introIdx, isBlinded := introductionPointIndex(rt)
+	if isBlinded && introIdx < *errSourceIdx {
+		i.processPaymentOutcomeBadIntro(rt, introIdx, *errSourceIdx)
+		return
+	}
+
 	switch *errSourceIdx {
 
 	// We are the source of the failure.
@@ -126,6 +136,33 @@ func (i *interpretedResult) processFail(
 		i.processPaymentOutcomeIntermediate(
 			rt, *errSourceIdx, failure,
 		)
+	}
+}
+
+// processPaymentOutcomeBadIntro handles the case where we have made payment
+// to a blinded route, but received an error from a node after the introduction
+// node. This indicates that the introduction node is not obeying the route
+// blinding specification, as we expect all errors from the introduction node
+// to be source from it.
+func (i *interpretedResult) processPaymentOutcomeBadIntro(route *route.Route,
+	introIdx, errSourceIdx int) {
+
+	// We fail the introduction node for not obeying the specification.
+	i.failNode(route, introIdx)
+
+	// Other preceding channels in the route forwarded correctly. Note
+	// that we do not assign success to the incoming link to the
+	// introduction node because it has not handled the error correctly.
+	if introIdx > 1 {
+		i.successPairRange(route, 0, introIdx-2)
+	}
+
+	// If the source of the failure was from the final node, we also set
+	// a final failure reason because the recipient can't process the
+	// payment (independent of the introduction failing to convert the
+	// error, we can't complete the payment if the last hop fails).
+	if errSourceIdx == len(route.Hops) {
+		i.finalFailureReason = &reasonError
 	}
 }
 
@@ -399,6 +436,20 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 	default:
 		i.failNode(route, errorSourceIdx)
 	}
+}
+
+// introductionPointIndex returns the index of an introduction point in a
+// route, using the same indexing in the route that we use for errorSourceIdx
+// (i.e., that we consider our own node to be at index zero). A boolean is
+// returned to indicate whether the route contains a blinded portion at all.
+func introductionPointIndex(route *route.Route) (int, bool) {
+	for i, hop := range route.Hops {
+		if hop.BlindingPoint != nil {
+			return i + 1, true
+		}
+	}
+
+	return 0, false
 }
 
 // processPaymentOutcomeUnknown processes a payment outcome for which no failure

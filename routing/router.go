@@ -639,6 +639,10 @@ func (r *ChannelRouter) Start() error {
 
 	// If any payments are still in flight, we resume, to make sure their
 	// results are properly handled.
+	//
+	// TODO(yy): check the HTLCs here, if there's no settled HTLCs, and the
+	// network results of the rest cannot be found, we can fail the payment
+	// here.
 	payments, err := r.cfg.Control.FetchInFlightPayments()
 	if err != nil {
 		return err

@@ -136,6 +136,20 @@ type ChannelUpdateHandler interface {
 	// clean. This can be used with dynamic commitment negotiation or coop
 	// close negotiation which require a clean channel state.
 	ShutdownIfChannelClean() error
+
+	// Flush is a method that disables htlc adds to the channel until it has
+	// reached an empty state. When we reach zero HTLCs, the supplied
+	// function will be called.
+	Flush(func()) error
+
+	// CancelFlush will abort an in-progress flush. If there is no
+	// current flush operation taking place, then this function will return
+	// an error.
+	CancelFlush() error
+
+	// IsFlushing returns true if there is a currently in-progress flush
+	// operation.
+	IsFlushing() bool
 }
 
 // ChannelLink is an interface which represents the subsystem for managing the

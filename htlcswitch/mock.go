@@ -905,6 +905,15 @@ func (f *mockChannelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 	f.eligible = true
 	return f.shortChanID, nil
 }
+func (f *mockChannelLink) Flush(onFlushed func()) error {
+	return errors.New("mockChannelLink does not support flush api")
+}
+func (f *mockChannelLink) CancelFlush() error {
+	return errors.New("mockChannelLink does not support flush api")
+}
+func (f *mockChannelLink) IsFlushing() bool {
+	return false
+}
 
 var _ ChannelLink = (*mockChannelLink)(nil)
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math/rand"
 	"net"
@@ -497,6 +498,18 @@ type mockMessageConn struct {
 
 	readMessages   chan []byte
 	curReadMessage []byte
+}
+
+func (m *mockUpdateHandler) Flush(func()) error {
+	return errors.New("mockUpdateHandler does not support flush api")
+}
+
+func (m *mockUpdateHandler) CancelFlush() error {
+	return errors.New("mockUpdateHandler does not support flush api")
+}
+
+func (m *mockUpdateHandler) IsFlushing() bool {
+	return false
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {

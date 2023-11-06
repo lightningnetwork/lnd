@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -364,6 +365,10 @@ type channelLink struct {
 	// resolving those htlcs when we receive a message on hodlQueue.
 	hodlMap map[models.CircuitKey]hodlHtlc
 
+	// flushCont is a function that is called when the channel finishes
+	// flushing.
+	flushCont fn.MVar[func()]
+
 	// log is a link-specific logging instance.
 	log btclog.Logger
 
@@ -393,6 +398,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		hodlQueue:       queue.NewConcurrentQueue(10),
 		log:             build.NewPrefixLog(logPrefix, log),
 		quit:            make(chan struct{}),
+		flushCont:       fn.Zero[func()](),
 	}
 }
 
@@ -526,6 +532,28 @@ func (l *channelLink) Stop() {
 		l.log.Errorf("unable to add preimages=%v to cache: %v",
 			l.uncommittedPreimages, err)
 	}
+}
+
+func (l *channelLink) Flush(onFlushed func()) error {
+	if !l.flushCont.TryPut(onFlushed) {
+		return errors.New(
+			"can't flush because flush already in progress",
+		)
+	}
+
+	return nil
+}
+
+func (l *channelLink) CancelFlush() error {
+	if l.flushCont.TryTake().IsNone() {
+		return errors.New("no flush in progress to cancel")
+	}
+
+	return nil
+}
+
+func (l *channelLink) IsFlushing() bool {
+	return l.flushCont.IsFull()
 }
 
 // WaitForShutdown blocks until the link finishes shutting down, which includes

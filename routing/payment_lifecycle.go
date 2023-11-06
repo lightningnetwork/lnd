@@ -183,7 +183,7 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 	for _, a := range payment.InFlightHTLCs() {
 		a := a
 
-		log.Infof("Resuming payment shard %v for payment %v",
+		log.Infof("Resuming HTLC attempt %v for payment %v",
 			a.AttemptID, p.identifier)
 
 		p.resultCollector(&a)

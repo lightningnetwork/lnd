@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"golang.org/x/time/rate"
@@ -604,8 +605,12 @@ func (g *GossipSyncer) channelGraphSyncer() {
 			if g.localUpdateHorizon == nil &&
 				syncType.IsActiveSync() {
 
+				startBlock := g.cfg.bestHeight()
+				blockRange := uint32(math.MaxUint32)
+
 				err := g.sendGossipTimestampRange(
 					time.Now(), math.MaxUint32,
+					&startBlock, &blockRange,
 				)
 				if err != nil {
 					log.Errorf("Unable to send update "+
@@ -672,11 +677,22 @@ func (g *GossipSyncer) replyHandler() {
 // sendGossipTimestampRange constructs and sets a GossipTimestampRange for the
 // syncer and sends it to the remote peer.
 func (g *GossipSyncer) sendGossipTimestampRange(firstTimestamp time.Time,
-	timestampRange uint32) error {
+	timestampRange uint32, firstBlock, blockRange *uint32) error {
 
 	endTimestamp := firstTimestamp.Add(
 		time.Duration(timestampRange) * time.Second,
 	)
+
+	if firstBlock != nil && blockRange != nil {
+		log.Infof("GossipSyncer(%x): applying "+
+			"gossipFilter(start-time=%v, end-time=%v, "+
+			"start-block=%v, block-range=%v)", g.cfg.peerPub[:],
+			firstTimestamp, endTimestamp, *firstBlock, *blockRange)
+	} else {
+		log.Infof("GossipSyncer(%x): applying "+
+			"gossipFilter(start-time=%v, end-time=%v",
+			g.cfg.peerPub[:], firstTimestamp, endTimestamp)
+	}
 
 	log.Infof("GossipSyncer(%x): applying gossipFilter(start=%v, end=%v)",
 		g.cfg.peerPub[:], firstTimestamp, endTimestamp)
@@ -687,11 +703,22 @@ func (g *GossipSyncer) sendGossipTimestampRange(firstTimestamp time.Time,
 		TimestampRange: timestampRange,
 	}
 
+	if firstBlock != nil {
+		localUpdateHorizon.FirstBlockHeight = fn.Some(*firstBlock)
+	}
+
+	if blockRange != nil {
+		localUpdateHorizon.BlockRange = fn.Some(*blockRange)
+	}
+
 	if err := g.cfg.sendToPeer(localUpdateHorizon); err != nil {
 		return err
 	}
 
-	if firstTimestamp == zeroTimestamp && timestampRange == 0 {
+	noTimeStamps := firstTimestamp == zeroTimestamp && timestampRange == 0
+	noBlockHeights := firstBlock == nil && blockRange == nil
+
+	if noTimeStamps && noBlockHeights {
 		g.localUpdateHorizon = nil
 	} else {
 		g.localUpdateHorizon = localUpdateHorizon
@@ -1511,6 +1538,8 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	var (
 		firstTimestamp time.Time
 		timestampRange uint32
+		firstBlock     *uint32
+		blockRange     *uint32
 	)
 
 	switch req.newSyncType {
@@ -1519,6 +1548,10 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 	case ActiveSync, PinnedSync:
 		firstTimestamp = time.Now()
 		timestampRange = math.MaxUint32
+		bestHeight := g.cfg.bestHeight()
+		firstBlock = &bestHeight
+		heightRange := uint32(math.MaxUint32)
+		blockRange = &heightRange
 
 	// If a PassiveSync transition has been requested, then we should no
 	// longer receive any new updates from the remote peer. We can do this
@@ -1533,7 +1566,9 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 			req.newSyncType)
 	}
 
-	err := g.sendGossipTimestampRange(firstTimestamp, timestampRange)
+	err := g.sendGossipTimestampRange(
+		firstTimestamp, timestampRange, firstBlock, blockRange,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to send local update horizon: %v", err)
 	}

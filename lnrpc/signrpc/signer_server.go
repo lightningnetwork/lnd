@@ -34,6 +34,9 @@ const (
 	// SubServerConfigDispatcher instance recognize this as the name of the
 	// config file that we need.
 	subServerName = "SignRPC"
+
+	// BIP0340 is the prefix for BIP0340-related tagged hashes.
+	BIP0340 = "BIP0340"
 )
 
 var (
@@ -605,6 +608,20 @@ func (s *Server) SignMessage(_ context.Context,
 		return nil, fmt.Errorf("compact format can not be used for " +
 			"Schnorr signatures")
 	}
+	if !in.SchnorrSig && len(in.Tag) > 0 {
+		return nil, fmt.Errorf("tag can only be used when the " +
+			"Schnorr signature option is set")
+	}
+	if bytes.HasPrefix(in.Tag, []byte(BIP0340)) {
+		return nil, fmt.Errorf("tag cannot have BIP0340 prefix")
+	}
+	if bytes.HasPrefix(in.Tag, chainhash.TagTapSighash) {
+		return nil, fmt.Errorf("tag cannot be TapSighash")
+	}
+	if in.DoubleHash && len(in.Tag) > 0 {
+		return nil, fmt.Errorf("double hash and tag can't be set at " +
+			"the same time")
+	}
 
 	// Describe the private key we'll be using for signing.
 	keyLocator := keychain.KeyLocator{
@@ -616,7 +633,7 @@ func (s *Server) SignMessage(_ context.Context,
 	if in.SchnorrSig {
 		sig, err := s.cfg.KeyRing.SignMessageSchnorr(
 			keyLocator, in.Msg, in.DoubleHash,
-			in.SchnorrSigTapTweak,
+			in.SchnorrSigTapTweak, in.Tag,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("can't sign the hash: %v", err)
@@ -682,6 +699,10 @@ func (s *Server) VerifyMessage(_ context.Context,
 	if in.Pubkey == nil {
 		return nil, fmt.Errorf("a pubkey to verify MUST be passed in")
 	}
+	if !in.IsSchnorrSig && len(in.Tag) > 0 {
+		return nil, fmt.Errorf("tag can only be used when the " +
+			"Schnorr signature option is set")
+	}
 
 	// We allow for Schnorr signatures to be verified.
 	if in.IsSchnorrSig {
@@ -699,7 +720,13 @@ func (s *Server) VerifyMessage(_ context.Context,
 				"signature: %v", err)
 		}
 
-		digest := chainhash.HashB(in.Msg)
+		var digest []byte
+		if len(in.Tag) == 0 {
+			digest = chainhash.HashB(in.Msg)
+		} else {
+			taggedHash := chainhash.TaggedHash(in.Tag, in.Msg)
+			digest = taggedHash[:]
+		}
 		valid := sigParsed.Verify(digest, pubkey)
 
 		return &VerifyMessageResp{

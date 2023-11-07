@@ -513,8 +513,8 @@ func (r *RPCKeyRing) SignMessageCompact(keyLoc keychain.KeyLocator,
 //
 // NOTE: This method is part of the keychain.MessageSignerRing interface.
 func (r *RPCKeyRing) SignMessageSchnorr(keyLoc keychain.KeyLocator,
-	msg []byte, doubleHash bool, taprootTweak []byte) (*schnorr.Signature,
-	error) {
+	msg []byte, doubleHash bool, taprootTweak []byte,
+	tag []byte) (*schnorr.Signature, error) {
 
 	ctxt, cancel := context.WithTimeout(context.Background(), r.rpcTimeout)
 	defer cancel()
@@ -528,6 +528,7 @@ func (r *RPCKeyRing) SignMessageSchnorr(keyLoc keychain.KeyLocator,
 		DoubleHash:         doubleHash,
 		SchnorrSig:         true,
 		SchnorrSigTapTweak: taprootTweak,
+		Tag:                tag,
 	})
 	if err != nil {
 		considerShutdown(err)

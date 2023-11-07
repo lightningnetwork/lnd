@@ -820,6 +820,11 @@
           "type": "string",
           "format": "byte",
           "title": "The optional Taproot tweak bytes to apply to the private key before creating\na Schnorr signature. The private key is tweaked as described in BIP-341:\nprivKey + h_tapTweak(internalKey || tapTweak)"
+        },
+        "tag": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional tag that can be provided when taking a tagged hash of a\nmessage. This option can only be used when schnorr_sig is true."
         }
       }
     },
@@ -945,6 +950,11 @@
         "is_schnorr_sig": {
           "type": "boolean",
           "description": "Specifies if the signature is a Schnorr signature."
+        },
+        "tag": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional tag that can be provided when taking a tagged hash of a\nmessage. This option can only be used when is_schnorr_sig is true."
         }
       }
     },

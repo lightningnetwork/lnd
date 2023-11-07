@@ -70,6 +70,9 @@
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
   `StatusUnknown` from the payment's rpc response in its status and replaced it
   with `StatusInitiated` to explicitly report its current state.
+* [Add an option to sign/verify a tagged
+  hash](https://github.com/lightningnetwork/lnd/pull/8106) to the
+  signer.SignMessage/signer.VerifyMessage RPCs.
 
 ## lncli Updates
 ## Code Health
@@ -111,5 +114,6 @@
 * Elle Mouton
 * Keagan McClelland
 * Matt Morehouse
+* Turtle
 * Ononiwu Maureen Chiamaka
 * Yong Yu

@@ -349,6 +349,12 @@ message SignMessageReq {
     privKey + h_tapTweak(internalKey || tapTweak)
     */
     bytes schnorr_sig_tap_tweak = 6;
+
+    /*
+    An optional tag that can be provided when taking a tagged hash of a
+    message. This option can only be used when schnorr_sig is true.
+    */
+    bytes tag = 7;
 }
 message SignMessageResp {
     /*
@@ -380,6 +386,12 @@ message VerifyMessageReq {
     Specifies if the signature is a Schnorr signature.
     */
     bool is_schnorr_sig = 4;
+
+    /*
+    An optional tag that can be provided when taking a tagged hash of a
+    message. This option can only be used when is_schnorr_sig is true.
+    */
+    bytes tag = 5;
 }
 
 message VerifyMessageResp {

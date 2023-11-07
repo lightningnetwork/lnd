@@ -722,9 +722,15 @@ func (p *Brontide) Start() error {
 	if len(msgs) > 0 {
 		p.log.Infof("Sending %d channel sync messages to peer after "+
 			"loading active channels", len(msgs))
-		if err := p.SendMessage(true, msgs...); err != nil {
-			p.log.Warnf("Failed sending channel sync "+
-				"messages to peer: %v", err)
+
+		// Send the messages directly via writeMessage and bypass the
+		// writeHandler goroutine to avoid cases where writeHandler
+		// may exit and cause a deadlock.
+		for _, msg := range msgs {
+			if err := p.writeMessage(msg); err != nil {
+				return fmt.Errorf("unable to send reestablish"+
+					"msg: %v", err)
+			}
 		}
 	}
 
@@ -2088,11 +2094,6 @@ func (p *Brontide) logWireMessage(msg lnwire.Message, read bool) {
 // with a nil message iff a timeout error is returned. This will continue to
 // flush the pending message to the wire.
 func (p *Brontide) writeMessage(msg lnwire.Message) error {
-	// Simply exit if we're shutting down.
-	if atomic.LoadInt32(&p.disconnect) != 0 {
-		return lnpeer.ErrPeerExiting
-	}
-
 	// Only log the message on the first attempt.
 	if msg != nil {
 		p.logWireMessage(msg, false)

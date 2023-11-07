@@ -701,6 +701,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		ApplyChannelUpdate:       s.applyChannelUpdate,
 		DB:                       s.chanStateDB,
 		Graph:                    dbs.GraphDB.ChannelGraph(),
+		BestBlockView:            s.cc.BestBlockTracker,
 	}
 
 	chanStatusMgr, err := netann.NewChanStatusManager(chanStatusMgrCfg)

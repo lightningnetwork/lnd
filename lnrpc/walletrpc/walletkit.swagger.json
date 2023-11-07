@@ -506,6 +506,39 @@
         ]
       }
     },
+    "/v2/wallet/removetx": {
+      "post": {
+        "summary": "lncli: `wallet removetx`\nRemoveTransaction attempts to remove the provided transaction from the\ninternal transaction store of the wallet.",
+        "operationId": "WalletKit_RemoveTransaction",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/walletrpcRemoveTransactionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/walletrpcGetTransactionRequest"
+            }
+          }
+        ],
+        "tags": [
+          "WalletKit"
+        ]
+      }
+    },
     "/v2/wallet/reserve": {
       "get": {
         "summary": "lncli: `wallet requiredreserve`\nRequiredReserve returns the minimum amount of satoshis that should be kept\nin the wallet in order to fee bump anchor channels if necessary. The value\nscales with the number of public anchor channels but is capped at a maximum.",
@@ -1432,6 +1465,15 @@
         }
       }
     },
+    "walletrpcGetTransactionRequest": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "description": "The txid of the transaction."
+        }
+      }
+    },
     "walletrpcImportAccountRequest": {
       "type": "object",
       "properties": {
@@ -1774,6 +1816,15 @@
     },
     "walletrpcReleaseOutputResponse": {
       "type": "object"
+    },
+    "walletrpcRemoveTransactionResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the remove transaction operation."
+        }
+      }
     },
     "walletrpcRequiredReserveResponse": {
       "type": "object",

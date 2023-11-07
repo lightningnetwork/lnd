@@ -156,6 +156,10 @@ type WalletKitClient interface {
 	// attempt to re-broadcast the transaction on start up, until it enters the
 	// chain.
 	PublishTransaction(ctx context.Context, in *Transaction, opts ...grpc.CallOption) (*PublishResponse, error)
+	// lncli: `wallet removetx`
+	// RemoveTransaction attempts to remove the provided transaction from the
+	// internal transaction store of the wallet.
+	RemoveTransaction(ctx context.Context, in *GetTransactionRequest, opts ...grpc.CallOption) (*RemoveTransactionResponse, error)
 	// SendOutputs is similar to the existing sendmany call in Bitcoind, and
 	// allows the caller to create a transaction that sends to several outputs at
 	// once. This is ideal when wanting to batch create a set of transactions.
@@ -420,6 +424,15 @@ func (c *walletKitClient) PublishTransaction(ctx context.Context, in *Transactio
 	return out, nil
 }
 
+func (c *walletKitClient) RemoveTransaction(ctx context.Context, in *GetTransactionRequest, opts ...grpc.CallOption) (*RemoveTransactionResponse, error) {
+	out := new(RemoveTransactionResponse)
+	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/RemoveTransaction", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *walletKitClient) SendOutputs(ctx context.Context, in *SendOutputsRequest, opts ...grpc.CallOption) (*SendOutputsResponse, error) {
 	out := new(SendOutputsResponse)
 	err := c.cc.Invoke(ctx, "/walletrpc.WalletKit/SendOutputs", in, out, opts...)
@@ -641,6 +654,10 @@ type WalletKitServer interface {
 	// attempt to re-broadcast the transaction on start up, until it enters the
 	// chain.
 	PublishTransaction(context.Context, *Transaction) (*PublishResponse, error)
+	// lncli: `wallet removetx`
+	// RemoveTransaction attempts to remove the provided transaction from the
+	// internal transaction store of the wallet.
+	RemoveTransaction(context.Context, *GetTransactionRequest) (*RemoveTransactionResponse, error)
 	// SendOutputs is similar to the existing sendmany call in Bitcoind, and
 	// allows the caller to create a transaction that sends to several outputs at
 	// once. This is ideal when wanting to batch create a set of transactions.
@@ -799,6 +816,9 @@ func (UnimplementedWalletKitServer) ImportTapscript(context.Context, *ImportTaps
 }
 func (UnimplementedWalletKitServer) PublishTransaction(context.Context, *Transaction) (*PublishResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PublishTransaction not implemented")
+}
+func (UnimplementedWalletKitServer) RemoveTransaction(context.Context, *GetTransactionRequest) (*RemoveTransactionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveTransaction not implemented")
 }
 func (UnimplementedWalletKitServer) SendOutputs(context.Context, *SendOutputsRequest) (*SendOutputsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendOutputs not implemented")
@@ -1146,6 +1166,24 @@ func _WalletKit_PublishTransaction_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _WalletKit_RemoveTransaction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetTransactionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WalletKitServer).RemoveTransaction(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/walletrpc.WalletKit/RemoveTransaction",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WalletKitServer).RemoveTransaction(ctx, req.(*GetTransactionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _WalletKit_SendOutputs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SendOutputsRequest)
 	if err := dec(in); err != nil {
@@ -1382,6 +1420,10 @@ var WalletKit_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PublishTransaction",
 			Handler:    _WalletKit_PublishTransaction_Handler,
+		},
+		{
+			MethodName: "RemoveTransaction",
+			Handler:    _WalletKit_RemoveTransaction_Handler,
 		},
 		{
 			MethodName: "SendOutputs",

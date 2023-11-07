@@ -73,3 +73,6 @@ http:
     - selector: walletrpc.WalletKit.VerifyMessageWithAddr
       post: "/v2/wallet/address/verifymessage"
       body: "*"
+    - selector: walletrpc.WalletKit.RemoveTransaction
+      post: "/v2/wallet/removetx"
+      body: "*"

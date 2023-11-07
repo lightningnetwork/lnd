@@ -2614,7 +2614,7 @@ func (s *Switch) failMailboxUpdate(outgoingScid,
 // and the caller is expected to handle this properly. In this case, a return
 // to the original non-alias behavior is expected.
 func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
-	incoming bool) *lnwire.ChannelUpdate1 {
+	incoming bool) lnwire.ChannelUpdate {
 
 	// This function does not defer the unlocking because of the database
 	// lookups for ChannelUpdate.

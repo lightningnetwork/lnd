@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
@@ -166,10 +165,20 @@ type mockServer struct {
 var _ lnpeer.Peer = (*mockServer)(nil)
 
 func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) {
-	signAliasUpdate := func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
-		error) {
+	signAliasUpdate := func(update lnwire.ChannelUpdate) error {
+		s, err := lnwire.NewSigFromSignature(testSig)
+		if err != nil {
+			return err
+		}
 
-		return testSig, nil
+		switch u := update.(type) {
+		case *lnwire.ChannelUpdate1:
+			u.Signature = s
+		case *lnwire.ChannelUpdate2:
+			u.Signature = s
+		}
+
+		return nil
 	}
 
 	cfg := Config{

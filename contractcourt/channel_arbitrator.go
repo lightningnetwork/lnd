@@ -1743,10 +1743,10 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 				int64(height)
 
 			log.Infof("ChannelArbitrator(%v): go to chain for "+
-				"outgoing htlc %x: timeout=%v, "+
+				"outgoing htlc %x: timeout=%v, amount=%v, "+
 				"blocks_until_expiry=%v, broadcast_delta=%v",
 				c.cfg.ChanPoint, htlc.RHash[:],
-				htlc.RefundTimeout, remainingBlocks,
+				htlc.RefundTimeout, htlc.Amt, remainingBlocks,
 				c.cfg.OutgoingBroadcastDelta,
 			)
 		}
@@ -1778,10 +1778,10 @@ func (c *ChannelArbitrator) checkCommitChainActions(height uint32,
 				int64(height)
 
 			log.Infof("ChannelArbitrator(%v): go to chain for "+
-				"incoming htlc %x: timeout=%v, "+
+				"incoming htlc %x: timeout=%v, amount=%v, "+
 				"blocks_until_expiry=%v, broadcast_delta=%v",
 				c.cfg.ChanPoint, htlc.RHash[:],
-				htlc.RefundTimeout, remainingBlocks,
+				htlc.RefundTimeout, htlc.Amt, remainingBlocks,
 				c.cfg.IncomingBroadcastDelta,
 			)
 		}

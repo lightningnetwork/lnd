@@ -68,7 +68,7 @@ func ChanUpdSetTimestamp(bestBlockHeight uint32) ChannelUpdateModifier {
 //
 // NOTE: This method modifies the given update.
 func SignChannelUpdate(signer keychain.MessageSignerRing,
-	keyLoc keychain.KeyLocator, update *lnwire.ChannelUpdate1,
+	keyLoc keychain.KeyLocator, update lnwire.ChannelUpdate,
 	mods ...ChannelUpdateModifier) error {
 
 	// Apply the requested changes to the channel update.
@@ -76,16 +76,45 @@ func SignChannelUpdate(signer keychain.MessageSignerRing,
 		modifier(update)
 	}
 
-	// Create the DER-encoded ECDSA signature over the message digest.
-	sig, err := SignAnnouncement(signer, keyLoc, update)
-	if err != nil {
-		return err
-	}
+	switch upd := update.(type) {
+	case *lnwire.ChannelUpdate1:
+		data, err := upd.DataToSign()
+		if err != nil {
+			return err
+		}
 
-	// Parse the DER-encoded signature into a fixed-size 64-byte array.
-	update.Signature, err = lnwire.NewSigFromSignature(sig)
-	if err != nil {
-		return err
+		sig, err := signer.SignMessage(keyLoc, data, true)
+		if err != nil {
+			return err
+		}
+
+		// Parse the DER-encoded signature into a fixed-size 64-byte
+		// array.
+		upd.Signature, err = lnwire.NewSigFromSignature(sig)
+		if err != nil {
+			return err
+		}
+
+	case *lnwire.ChannelUpdate2:
+		data, err := upd.DataToSign()
+		if err != nil {
+			return err
+		}
+
+		sig, err := signer.SignMessageSchnorr(
+			keyLoc, data, false, nil, upd.DigestTag(),
+		)
+		if err != nil {
+			return err
+		}
+
+		upd.Signature, err = lnwire.NewSigFromSignature(sig)
+		if err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unhandled implementaion of "+
+			"ChannelUpdate: %T", update)
 	}
 
 	return nil

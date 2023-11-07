@@ -59,8 +59,8 @@ type ChannelGraphSource interface {
 	// IsStaleEdgePolicy returns true if the graph source has a channel
 	// edge for the passed channel ID (and flags) that have a more recent
 	// timestamp.
-	IsStaleEdgePolicy(chanID lnwire.ShortChannelID, timestamp time.Time,
-		flags lnwire.ChanUpdateChanFlags) bool
+	IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
+		policy lnwire.ChannelUpdate) bool
 
 	// MarkEdgeLive clears an edge from our zombie index, deeming it as
 	// live.

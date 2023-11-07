@@ -583,6 +583,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		AuxLeafStore: fn.Some[lnwallet.AuxLeafStore](
 			&lnwallet.MockAuxLeafStore{},
 		),
+		BestBlockView: &mockBlockView{},
 	}
 
 	for _, op := range options {
@@ -700,6 +701,7 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 		DeleteAliasEdge:       oldCfg.DeleteAliasEdge,
 		AliasManager:          oldCfg.AliasManager,
 		AuxLeafStore:          oldCfg.AuxLeafStore,
+		BestBlockView:         &mockBlockView{},
 	})
 	require.NoError(t, err, "failed recreating aliceFundingManager")
 
@@ -5009,4 +5011,12 @@ func (m *mockSigner) SignMessageSchnorr(keyLoc keychain.KeyLocator, msg []byte,
 	error) {
 
 	return testSchnorrSig, nil
+}
+
+type mockBlockView struct {
+	chainntnfs.BestBlockView
+}
+
+func (m *mockBlockView) BestHeight() (uint32, error) {
+	return 0, nil
 }

@@ -1524,6 +1524,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		DeleteAliasEdge:   deleteAliasEdge,
 		AliasManager:      s.aliasMgr,
 		IsSweeperOutpoint: s.sweeper.IsSweeperOutpoint,
+		BestBlockView:     s.cc.BestBlockTracker,
 	})
 	if err != nil {
 		return nil, err

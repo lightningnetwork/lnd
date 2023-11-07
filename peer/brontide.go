@@ -3136,19 +3136,18 @@ func (p *Brontide) tryLinkShutdown(cid lnwire.ChannelID) error {
 		return ErrChannelNotFound
 	}
 
-	// Else, the link exists, so attempt to trigger shutdown. If this
-	// fails, we'll send an error message to the remote peer.
-	if err := chanLink.ShutdownIfChannelClean(); err != nil {
-		return err
-	}
+	return chanLink.Flush(func() {
+		// Else, the link exists, so attempt to trigger shutdown. If
+		// this fails, we'll send an error message to the remote peer.
+		chanLink.ShutdownHtlcManager()
 
-	// Next, we remove the link from the switch to shut down all of the
-	// link's goroutines and remove it from the switch's internal maps. We
-	// don't call WipeChannel as the channel must still be in the
-	// activeChannels map to process coop close messages.
-	p.cfg.Switch.RemoveLink(cid)
-
-	return nil
+		// Next, we remove the link from the switch to shut down all of
+		// the link's goroutines and remove it from the switch's
+		// internal maps. We don't call WipeChannel as the channel must
+		// still be in the activeChannels map to process coop close
+		// messages.
+		p.cfg.Switch.RemoveLink(cid)
+	})
 }
 
 // fetchLinkFromKeyAndCid fetches a link from the switch via the remote's

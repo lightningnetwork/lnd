@@ -135,7 +135,7 @@ type ChannelUpdateHandler interface {
 	// ShutdownIfChannelClean shuts the link down if the channel state is
 	// clean. This can be used with dynamic commitment negotiation or coop
 	// close negotiation which require a clean channel state.
-	ShutdownIfChannelClean() error
+	ShutdownHtlcManager()
 
 	// Flush is a method that disables htlc adds to the channel until it has
 	// reached an empty state. When we reach zero HTLCs, the supplied

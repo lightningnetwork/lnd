@@ -483,7 +483,7 @@ func (m *mockUpdateHandler) EligibleToForward() bool { return false }
 func (m *mockUpdateHandler) MayAddOutgoingHtlc(lnwire.MilliSatoshi) error { return nil }
 
 // ShutdownIfChannelClean currently returns nil.
-func (m *mockUpdateHandler) ShutdownIfChannelClean() error { return nil }
+func (m *mockUpdateHandler) ShutdownHtlcManager() {}
 
 type mockMessageConn struct {
 	t *testing.T

@@ -6490,92 +6490,99 @@ func TestPendingCommitTicker(t *testing.T) {
 	}
 }
 
-// TestShutdownIfChannelClean tests that a link will exit the htlcManager loop
-// if and only if the underlying channel state is clean.
-func TestShutdownIfChannelClean(t *testing.T) {
+func TestFlushInvokesCallbackWhenDrained(t *testing.T) {
 	t.Parallel()
 
 	const chanAmt = btcutil.SatoshiPerBitcoin * 5
-	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTicker, start, _, err :=
-		newSingleLinkTestHarness(t, chanAmt, chanReserve)
+	const reserve = btcutil.SatoshiPerBitcoin * 1
+	aliceLink, bobChannel, _, start, _, err :=
+		newSingleLinkTestHarness(t, chanAmt, reserve)
 	require.NoError(t, err)
 
-	var (
-		coreLink  = aliceLink.(*channelLink)
-		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
-	)
+	coreLink := aliceLink.(*channelLink)
+	aliceMsgs := coreLink.cfg.Peer.(*mockPeer).sentMsgs
 
-	shutdownAssert := func(expectedErr error) {
-		err = aliceLink.ShutdownIfChannelClean()
-		if expectedErr != nil {
-			require.Error(t, err, expectedErr)
-		} else {
-			require.NoError(t, err)
+	if err := start(); err != nil {
+		t.Fatalf("unable to start test harness: %v", err)
+	}
+
+	ctx := linkTestContext{
+		t: t,
+		aliceLink: aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs: aliceMsgs,
+	}
+
+	flushFinished := make(chan struct{})
+	assertFlushFinished := func(exp bool) {
+		select {
+		case <-flushFinished:
+			if !exp {
+				t.Fatal("flush callback invoked")
+			}
+		default:
+			if exp {
+				t.Fatal("flush callback not invoked")
+			}
 		}
 	}
 
-	err = start()
-	require.NoError(t, err)
 
-	ctx := linkTestContext{
-		t:          t,
-		aliceLink:  aliceLink,
-		bobChannel: bobChannel,
-		aliceMsgs:  aliceMsgs,
-	}
-
-	// First send an HTLC from Bob to Alice and assert that the link can't
-	// be shutdown while the update is outstanding.
 	htlc := generateHtlc(t, coreLink, 0)
 
-	// <---add-----
+	// <-- add ---
 	ctx.sendHtlcBobToAlice(htlc)
-	// <---sig-----
+	// <-- sig ---
 	ctx.sendCommitSigBobToAlice(1)
-	// ----rev---->
+	// --- rev -->
 	ctx.receiveRevAndAckAliceToBob()
-	shutdownAssert(ErrLinkFailedShutdown)
 
-	// ----sig---->
+	// put the link into a flush state
+	aliceLink.Flush(func() {
+		flushFinished <- struct{}{}
+	})
+	assertFlushFinished(false)
+
+	// --- sig -->
 	ctx.receiveCommitSigAliceToBob(1)
-	shutdownAssert(ErrLinkFailedShutdown)
+	assertFlushFinished(false)
 
-	// <---rev-----
+	// <-- rev ---
 	ctx.sendRevAndAckBobToAlice()
-	shutdownAssert(ErrLinkFailedShutdown)
+	assertFlushFinished(false)
 
-	// ---settle-->
+	// --- set -->
 	ctx.receiveSettleAliceToBob()
-	shutdownAssert(ErrLinkFailedShutdown)
+	assertFlushFinished(false)
 
-	// ----sig---->
+	// --- sig -->
 	ctx.receiveCommitSigAliceToBob(0)
-	shutdownAssert(ErrLinkFailedShutdown)
+	assertFlushFinished(false)
 
-	// <---rev-----
+	// <-- rev ---
 	ctx.sendRevAndAckBobToAlice()
-	shutdownAssert(ErrLinkFailedShutdown)
+	assertFlushFinished(false)
 
 	// There is currently no controllable breakpoint between Alice
 	// receiving the CommitSig and her sending out the RevokeAndAck. As
 	// soon as the RevokeAndAck is generated, the channel becomes clean.
 	// This can happen right after the CommitSig is received, so there is
 	// no shutdown assertion here.
-	// <---sig-----
+	// <-- sig ---
 	ctx.sendCommitSigBobToAlice(0)
 
-	// ----rev---->
+	// --- rev -->
 	ctx.receiveRevAndAckAliceToBob()
-	shutdownAssert(nil)
+	<-flushFinished
+}
 
-	// Now that the link has exited the htlcManager loop, attempt to
-	// trigger the batch ticker. It should not be possible.
-	select {
-	case batchTicker <- time.Now():
-		t.Fatalf("expected batch ticker to be inactive")
-	case <-time.After(5 * time.Second):
-	}
+func TestFlushBlocksAdds(t *testing.T) {
+	// TODO
+}
+
+
+func TestFlushNotEligibleToFwd(t *testing.T) {
+	// TODO
 }
 
 // TestPipelineSettle tests that a link should only pipeline a settle if the

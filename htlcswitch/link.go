@@ -2573,7 +2573,7 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
 		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
-			return lnwire.NewFeeInsufficient(amtToForward, *upd)
+			return lnwire.NewFeeInsufficient(amtToForward, upd)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
 		return NewLinkError(failure)
@@ -2602,7 +2602,7 @@ func (l *channelLink) CheckHtlcForward(payHash [32]byte,
 		// date with our current policy.
 		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
 			return lnwire.NewIncorrectCltvExpiry(
-				incomingTimeout, *upd,
+				incomingTimeout, upd,
 			)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
@@ -2650,7 +2650,7 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 		// As part of the returned error, we'll send our latest routing
 		// policy so the sending node obtains the most up to date data.
 		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
-			return lnwire.NewAmountBelowMinimum(amt, *upd)
+			return lnwire.NewAmountBelowMinimum(amt, upd)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
 		return NewLinkError(failure)
@@ -2680,7 +2680,7 @@ func (l *channelLink) canSendHtlc(policy models.ForwardingPolicy,
 			timeout, heightNow)
 
 		cb := func(upd *lnwire.ChannelUpdate1) lnwire.FailureMessage {
-			return lnwire.NewExpiryTooSoon(*upd)
+			return lnwire.NewExpiryTooSoon(upd)
 		}
 		failure := l.createFailureWithUpdate(false, originalScid, cb)
 		return NewLinkError(failure)

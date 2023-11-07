@@ -1104,7 +1104,9 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 		// sure that HTLC is not from the source node.
 		if s.cfg.RejectHTLC {
 			failure := NewDetailedLinkError(
-				&lnwire.FailChannelDisabled{},
+				&lnwire.FailChannelDisabled{
+					Update: &lnwire.ChannelUpdate1{},
+				},
 				OutgoingFailureForwardsDisabled,
 			)
 

@@ -1429,8 +1429,14 @@ func marshallWireError(msg lnwire.FailureMessage,
 		response.Code = lnrpc.Failure_INVALID_REALM
 
 	case *lnwire.FailExpiryTooSoon:
+		update1, update2, err := marshallChannelUpdate(onionErr.Update)
+		if err != nil {
+			return err
+		}
+
 		response.Code = lnrpc.Failure_EXPIRY_TOO_SOON
-		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.ChannelUpdate = update1
+		response.ChannelUpdate_2 = update2
 
 	case *lnwire.FailExpiryTooFar:
 		response.Code = lnrpc.Failure_EXPIRY_TOO_FAR
@@ -1448,28 +1454,60 @@ func marshallWireError(msg lnwire.FailureMessage,
 		response.OnionSha_256 = onionErr.OnionSHA256[:]
 
 	case *lnwire.FailAmountBelowMinimum:
+		update1, update2, err := marshallChannelUpdate(onionErr.Update)
+		if err != nil {
+			return err
+
+		}
+
 		response.Code = lnrpc.Failure_AMOUNT_BELOW_MINIMUM
-		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.ChannelUpdate = update1
+		response.ChannelUpdate_2 = update2
 		response.HtlcMsat = uint64(onionErr.HtlcMsat)
 
 	case *lnwire.FailFeeInsufficient:
+		update1, update2, err := marshallChannelUpdate(onionErr.Update)
+		if err != nil {
+			return err
+
+		}
+
 		response.Code = lnrpc.Failure_FEE_INSUFFICIENT
-		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.ChannelUpdate = update1
+		response.ChannelUpdate_2 = update2
 		response.HtlcMsat = uint64(onionErr.HtlcMsat)
 
 	case *lnwire.FailIncorrectCltvExpiry:
+		update1, update2, err := marshallChannelUpdate(onionErr.Update)
+		if err != nil {
+			return err
+		}
+
 		response.Code = lnrpc.Failure_INCORRECT_CLTV_EXPIRY
-		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.ChannelUpdate = update1
+		response.ChannelUpdate_2 = update2
 		response.CltvExpiry = onionErr.CltvExpiry
 
 	case *lnwire.FailChannelDisabled:
+		update1, update2, err := marshallChannelUpdate(onionErr.Update)
+		if err != nil {
+			return err
+		}
+
 		response.Code = lnrpc.Failure_CHANNEL_DISABLED
-		response.ChannelUpdate = marshallChannelUpdate(&onionErr.Update)
+		response.ChannelUpdate = update1
+		response.ChannelUpdate_2 = update2
 		response.Flags = uint32(onionErr.Flags)
 
 	case *lnwire.FailTemporaryChannelFailure:
+		update1, update2, err := marshallChannelUpdate(onionErr.Update)
+		if err != nil {
+			return err
+		}
+
 		response.Code = lnrpc.Failure_TEMPORARY_CHANNEL_FAILURE
-		response.ChannelUpdate = marshallChannelUpdate(onionErr.Update)
+		response.ChannelUpdate = update1
+		response.ChannelUpdate_2 = update2
 
 	case *lnwire.FailRequiredNodeFeatureMissing:
 		response.Code = lnrpc.Failure_REQUIRED_NODE_FEATURE_MISSING
@@ -1507,24 +1545,49 @@ func marshallWireError(msg lnwire.FailureMessage,
 
 // marshallChannelUpdate marshalls a channel update as received over the wire to
 // the router rpc format.
-func marshallChannelUpdate(update *lnwire.ChannelUpdate1) *lnrpc.ChannelUpdate {
+func marshallChannelUpdate(update lnwire.ChannelUpdate) (*lnrpc.ChannelUpdate,
+	*lnrpc.ChannelUpdate2, error) {
+
 	if update == nil {
-		return nil
+		return nil, nil, nil
 	}
 
-	return &lnrpc.ChannelUpdate{
-		Signature:       update.Signature.RawBytes(),
-		ChainHash:       update.ChainHash[:],
-		ChanId:          update.ShortChannelID.ToUint64(),
-		Timestamp:       update.Timestamp,
-		MessageFlags:    uint32(update.MessageFlags),
-		ChannelFlags:    uint32(update.ChannelFlags),
-		TimeLockDelta:   uint32(update.TimeLockDelta),
-		HtlcMinimumMsat: uint64(update.HtlcMinimumMsat),
-		BaseFee:         update.BaseFee,
-		FeeRate:         update.FeeRate,
-		HtlcMaximumMsat: uint64(update.HtlcMaximumMsat),
-		ExtraOpaqueData: update.ExtraOpaqueData,
+	switch upd := update.(type) {
+	case *lnwire.ChannelUpdate1:
+		return &lnrpc.ChannelUpdate{
+			Signature:       upd.Signature.RawBytes(),
+			ChainHash:       upd.ChainHash[:],
+			ChanId:          upd.ShortChannelID.ToUint64(),
+			Timestamp:       upd.Timestamp,
+			MessageFlags:    uint32(upd.MessageFlags),
+			ChannelFlags:    uint32(upd.ChannelFlags),
+			TimeLockDelta:   uint32(upd.TimeLockDelta),
+			HtlcMinimumMsat: uint64(upd.HtlcMinimumMsat),
+			BaseFee:         upd.BaseFee,
+			FeeRate:         upd.FeeRate,
+			HtlcMaximumMsat: uint64(upd.HtlcMaximumMsat),
+			ExtraOpaqueData: upd.ExtraOpaqueData,
+		}, nil, nil
+
+	case *lnwire.ChannelUpdate2:
+		return nil, &lnrpc.ChannelUpdate2{
+			Signature:       upd.Signature.RawBytes(),
+			ChainHash:       upd.ChainHash[:],
+			ChanId:          upd.ShortChannelID.ToUint64(),
+			BlockHeight:     upd.BlockHeight,
+			DisabledFlags:   uint32(upd.DisabledFlags),
+			Direction:       upd.Direction,
+			TimeLockDelta:   uint32(upd.CLTVExpiryDelta),
+			BaseFee:         upd.FeeBaseMsat,
+			FeeRate:         upd.FeeProportionalMillionths,
+			HtlcMinimumMsat: uint64(upd.HTLCMinimumMsat),
+			HtlcMaximumMsat: uint64(upd.HTLCMaximumMsat),
+			ExtraOpaqueData: upd.ExtraOpaqueData,
+		}, nil
+
+	default:
+		return nil, nil, fmt.Errorf("unhandled implementation of "+
+			"lnwire.ChannelUpdate: %T", update)
 	}
 }
 

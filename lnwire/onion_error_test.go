@@ -20,7 +20,7 @@ var (
 	testType          = uint64(3)
 	testOffset        = uint16(24)
 	sig, _            = NewSigFromSignature(testSig)
-	testChannelUpdate = ChannelUpdate1{
+	testChannelUpdate = &ChannelUpdate1{
 		Signature:       sig,
 		ShortChannelID:  NewShortChanIDFromInt(1),
 		Timestamp:       1,
@@ -46,7 +46,7 @@ var onionFailures = []FailureMessage{
 	NewInvalidOnionVersion(testOnionHash),
 	NewInvalidOnionHmac(testOnionHash),
 	NewInvalidOnionKey(testOnionHash),
-	NewTemporaryChannelFailure(&testChannelUpdate),
+	NewTemporaryChannelFailure(testChannelUpdate),
 	NewTemporaryChannelFailure(nil),
 	NewAmountBelowMinimum(testAmount, testChannelUpdate),
 	NewFeeInsufficient(testAmount, testChannelUpdate),
@@ -136,9 +136,8 @@ func TestChannelUpdateCompatibilityParsing(t *testing.T) {
 	// Now that we have the set of bytes encoded, we'll ensure that we're
 	// able to decode it using our compatibility method, as it's a regular
 	// encoded channel update message.
-	var newChanUpdate ChannelUpdate1
-	err := parseChannelUpdateCompatibilityMode(
-		&b, uint16(b.Len()), &newChanUpdate, 0,
+	newChanUpdate, err := parseChannelUpdateCompatibilityMode(
+		&b, uint16(b.Len()), 0,
 	)
 	require.NoError(t, err, "unable to parse channel update")
 
@@ -163,9 +162,8 @@ func TestChannelUpdateCompatibilityParsing(t *testing.T) {
 
 	// We should be able to properly parse the encoded channel update
 	// message even with the extra two bytes.
-	var newChanUpdate2 ChannelUpdate1
-	err = parseChannelUpdateCompatibilityMode(
-		&b, uint16(b.Len()), &newChanUpdate2, 0,
+	newChanUpdate2, err := parseChannelUpdateCompatibilityMode(
+		&b, uint16(b.Len()), 0,
 	)
 	require.NoError(t, err, "unable to parse channel update")
 
@@ -184,7 +182,7 @@ func TestWriteOnionErrorChanUpdate(t *testing.T) {
 	// raw serialized length.
 	var b bytes.Buffer
 	update := testChannelUpdate
-	trueUpdateLength, err := WriteMessage(&b, &update, 0)
+	trueUpdateLength, err := WriteMessage(&b, update, 0)
 	if err != nil {
 		t.Fatalf("unable to write update: %v", err)
 	}
@@ -192,7 +190,7 @@ func TestWriteOnionErrorChanUpdate(t *testing.T) {
 	// Next, we'll use the function to encode the update as we would in a
 	// onion error message.
 	var errorBuf bytes.Buffer
-	err = writeOnionErrorChanUpdate(&errorBuf, &update, 0)
+	err = writeOnionErrorChanUpdate(&errorBuf, update, 0)
 	require.NoError(t, err, "unable to encode onion error")
 
 	// Finally, read the length encoded and ensure that it matches the raw

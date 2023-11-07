@@ -569,7 +569,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 			return [32]byte{}, htlcswitch.NewForwardingError(
 				&lnwire.FailFeeInsufficient{
-					Update: errChanUpdate,
+					Update: &errChanUpdate,
 				},
 				1,
 			)
@@ -669,9 +669,6 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 
 	signErrChanUpdate(t, ctx.privKeys["songoku"], errChanUpdate)
 
-	chanUpd, ok := errChanUpdate.(*lnwire.ChannelUpdate1)
-	require.True(t, ok)
-
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to Son goku. This will be a fee related error, so
 	// it should only cause the edge to be pruned after the second attempt.
@@ -688,7 +685,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 					// reflect the new fee schedule for the
 					// node/channel.
 					&lnwire.FailFeeInsufficient{
-						Update: *chanUpd,
+						Update: errChanUpdate,
 					}, 1,
 				)
 			}
@@ -797,7 +794,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 				// reflect the new fee schedule for the
 				// node/channel.
 				&lnwire.FailFeeInsufficient{
-					Update: errChanUpdate,
+					Update: &errChanUpdate,
 				}, 1,
 			)
 		},
@@ -923,7 +920,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 				// reflect the new fee schedule for the
 				// node/channel.
 				&lnwire.FailFeeInsufficient{
-					Update: errChanUpdate,
+					Update: &errChanUpdate,
 				}, 1,
 			)
 		},
@@ -1007,9 +1004,6 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	chanUpd, ok := errChanUpdate.(*lnwire.ChannelUpdate1)
-	require.True(t, ok)
-
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to son goku. Since this is a time lock related
 	// error, we should fail the payment flow all together, as Goku is the
@@ -1019,7 +1013,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 			if firstHop == roasbeefSongoku {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailExpiryTooSoon{
-						Update: *chanUpd,
+						Update: errChanUpdate,
 					}, 1,
 				)
 			}
@@ -1067,7 +1061,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 			if firstHop == roasbeefSongoku {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailIncorrectCltvExpiry{
-						Update: *chanUpd,
+						Update: errChanUpdate,
 					}, 1,
 				)
 			}
@@ -2946,7 +2940,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	testCases := map[int]lnwire.FailureMessage{
 		finalHopIndex: lnwire.NewFailIncorrectDetails(payAmt, 100),
 		1: &lnwire.FailFeeInsufficient{
-			Update: lnwire.ChannelUpdate1{},
+			Update: &lnwire.ChannelUpdate1{},
 		},
 	}
 

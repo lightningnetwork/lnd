@@ -1512,28 +1512,18 @@ type routingMsg struct {
 
 // ApplyChannelUpdate validates a channel update and if valid, applies it to the
 // database. It returns a bool indicating whether the updates were successful.
-func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
-	ch, _, _, err := b.GetChannelByID(msg.ShortChannelID)
+func (b *Builder) ApplyChannelUpdate(msg lnwire.ChannelUpdate) bool {
+	ch, _, _, err := b.GetChannelByID(msg.SCID())
 	if err != nil {
 		log.Errorf("Unable to retrieve channel by id: %v", err)
 		return false
 	}
 
 	var pubKey *btcec.PublicKey
-
-	switch msg.ChannelFlags & lnwire.ChanUpdateDirection {
-	case 0:
+	if msg.IsNode1() {
 		pubKey, _ = ch.NodeKey1()
-
-	case 1:
+	} else {
 		pubKey, _ = ch.NodeKey2()
-	}
-
-	// Exit early if the pubkey cannot be decided.
-	if pubKey == nil {
-		log.Errorf("Unable to decide pubkey with ChannelFlags=%v",
-			msg.ChannelFlags)
-		return false
 	}
 
 	err = lnwire.ValidateChannelUpdateAnn(pubKey, ch.GetCapacity(), msg)
@@ -1542,19 +1532,15 @@ func (b *Builder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
 		return false
 	}
 
-	err = b.UpdateEdge(&models.ChannelEdgePolicy1{
-		SigBytes:                  msg.Signature.ToSignatureBytes(),
-		ChannelID:                 msg.ShortChannelID.ToUint64(),
-		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
-		MessageFlags:              msg.MessageFlags,
-		ChannelFlags:              msg.ChannelFlags,
-		TimeLockDelta:             msg.TimeLockDelta,
-		MinHTLC:                   msg.HtlcMinimumMsat,
-		MaxHTLC:                   msg.HtlcMaximumMsat,
-		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
-		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
-		ExtraOpaqueData:           msg.ExtraOpaqueData,
-	})
+	edgePolicy, err := models.EdgePolicyFromUpdate(msg)
+	if err != nil {
+		log.Errorf("Unable to convert update message to edge "+
+			"policy: %v", err)
+
+		return false
+	}
+
+	err = b.UpdateEdge(edgePolicy)
 	if err != nil && !IsError(err, ErrIgnored, ErrOutdated) {
 		log.Errorf("Unable to apply channel update: %v", err)
 		return false
@@ -1621,7 +1607,7 @@ func (b *Builder) AddEdge(edge models.ChannelEdgeInfo,
 // considered as not fully constructed.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (b *Builder) UpdateEdge(update *models.ChannelEdgePolicy1,
+func (b *Builder) UpdateEdge(update models.ChannelEdgePolicy,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{

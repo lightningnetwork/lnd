@@ -284,7 +284,7 @@ type Config struct {
 
 	// ApplyChannelUpdate can be called to apply a new channel update to the
 	// graph that we received from a payment failure.
-	ApplyChannelUpdate func(msg *lnwire.ChannelUpdate1) bool
+	ApplyChannelUpdate func(msg lnwire.ChannelUpdate) bool
 
 	// ClosedSCIDs is used by the router to fetch closed channels.
 	//

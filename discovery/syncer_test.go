@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -2258,12 +2259,26 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 				// send out a message that indicates we want
 				// all the updates from here on.
 				firstTimestamp := uint32(time.Now().Unix())
-				assertMsgSent(
-					t, mChan, &lnwire.GossipTimestampRange{
-						FirstTimestamp: firstTimestamp,
-						TimestampRange: math.MaxUint32,
-					},
-				)
+				firstBlock := tlv.ZeroRecordT[
+					tlv.TlvType2, uint32,
+				]()
+				firstBlock.Val = uint32(latestKnownHeight)
+
+				blockRange := tlv.ZeroRecordT[
+					tlv.TlvType4, uint32,
+				]()
+				blockRange.Val = uint32(math.MaxUint32)
+
+				assertMsgSent(t, mChan, &lnwire.GossipTimestampRange{ //nolint:lll
+					FirstTimestamp: firstTimestamp,
+					TimestampRange: math.MaxUint32,
+					FirstBlockHeight: tlv.SomeRecordT(
+						firstBlock,
+					),
+					BlockRange: tlv.SomeRecordT(
+						blockRange,
+					),
+				})
 
 				// When transitioning from active to passive, we
 				// should expect to see a new local update
@@ -2298,10 +2313,26 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 				// horizon sent to the remote peer indicating
 				// that it would like to receive any future
 				// updates.
+				firstBlock := tlv.ZeroRecordT[
+					tlv.TlvType2, uint32,
+				]()
+				firstBlock.Val = uint32(latestKnownHeight)
+
+				blockRange := tlv.ZeroRecordT[
+					tlv.TlvType4, uint32,
+				]()
+				blockRange.Val = uint32(math.MaxUint32)
+
 				firstTimestamp := uint32(time.Now().Unix())
 				assertMsgSent(t, msgChan, &lnwire.GossipTimestampRange{
 					FirstTimestamp: firstTimestamp,
 					TimestampRange: math.MaxUint32,
+					FirstBlockHeight: tlv.SomeRecordT(
+						firstBlock,
+					),
+					BlockRange: tlv.SomeRecordT(
+						blockRange,
+					),
 				})
 
 				syncState := g.syncState()

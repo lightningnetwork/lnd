@@ -500,12 +500,13 @@ type mockMessageConn struct {
 	curReadMessage []byte
 }
 
-func (m *mockUpdateHandler) Flush(func()) error {
-	return errors.New("mockUpdateHandler does not support flush api")
+func (m *mockUpdateHandler) Flush(onFlushed func()) error {
+	onFlushed()
+	return nil
 }
 
 func (m *mockUpdateHandler) CancelFlush() error {
-	return errors.New("mockUpdateHandler does not support flush api")
+	return errors.New("no flush in progress to cancel")
 }
 
 func (m *mockUpdateHandler) IsFlushing() bool {

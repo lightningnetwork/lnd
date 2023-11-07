@@ -607,7 +607,17 @@ func (b *Builder) pruneZombieChans() error {
 
 	startTime := time.Unix(0, 0)
 	endTime := time.Now().Add(-1 * chanExpiry)
-	oldEdges, err := b.cfg.Graph.ChanUpdatesInHorizon(startTime, endTime)
+
+	startBlock := 0
+	_, bestBlock, err := b.cfg.Chain.GetBestBlock()
+	if err != nil {
+		return err
+	}
+	endBlock := uint32(bestBlock) - uint32(chanExpiry.Hours()*6)
+
+	oldEdges, err := b.cfg.Graph.ChanUpdatesInHorizon(
+		startTime, endTime, uint32(startBlock), endBlock,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to fetch expired channel updates "+
 			"chans: %v", err)

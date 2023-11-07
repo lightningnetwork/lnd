@@ -147,8 +147,8 @@ type DB interface {
 	// ChanUpdatesInHorizon returns all the known channel edges which have
 	// at least one edge that has an update timestamp within the specified
 	// horizon.
-	ChanUpdatesInHorizon(startTime, endTime time.Time) (
-		[]channeldb.ChannelEdge, error)
+	ChanUpdatesInHorizon(startTime, endTime time.Time, startBlock,
+		endBlock uint32) ([]channeldb.ChannelEdge, error)
 
 	// DeleteChannelEdges removes edges with the given channel IDs from the
 	// database and marks them as zombies. This ensures that we're unable to

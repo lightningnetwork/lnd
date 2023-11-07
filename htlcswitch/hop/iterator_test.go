@@ -84,7 +84,9 @@ func TestSphinxHopIteratorForwardingInstructions(t *testing.T) {
 
 	// Finally, we'll test that we get the same set of
 	// ForwardingInstructions for each payload type.
-	iterator := sphinxHopIterator{}
+	iterator := sphinxHopIterator{
+		blindingKit: &BlindingKit{},
+	}
 	for i, testCase := range testCases {
 		iterator.processedPacket = testCase.sphinxPacket
 

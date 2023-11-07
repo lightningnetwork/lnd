@@ -2653,13 +2653,17 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 
 	// If we query for staleness before adding the edge, we should get
 	// false.
-	updateTimeStamp := time.Unix(123, 0)
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
-		t.Fatalf("router failed to detect fresh edge policy")
+	time1 := 123
+	updateTimeStamp := time.Unix(int64(time1), 0)
+	update1 := &lnwire.ChannelUpdate1{
+		Timestamp: uint32(time1),
 	}
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
-		t.Fatalf("router failed to detect fresh edge policy")
+	update2 := &lnwire.ChannelUpdate1{
+		Timestamp:    uint32(time1),
+		ChannelFlags: lnwire.ChanUpdateDirection,
 	}
+	require.False(t, ctx.router.IsStaleEdgePolicy(*chanID, update1))
+	require.False(t, ctx.router.IsStaleEdgePolicy(*chanID, update2))
 
 	edge := &models.ChannelEdgeInfo1{
 		ChannelID:        chanID.ToUint64(),
@@ -2704,20 +2708,23 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 
 	// Now that the edges have been added, an identical (chanID, flag,
 	// timestamp) tuple for each edge should be detected as a stale edge.
-	if !ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+	if !ctx.router.IsStaleEdgePolicy(*chanID, update1) {
 		t.Fatalf("router failed to detect stale edge policy")
 	}
-	if !ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+	if !ctx.router.IsStaleEdgePolicy(*chanID, update2) {
 		t.Fatalf("router failed to detect stale edge policy")
 	}
 
 	// If we now update the timestamp for both edges, the router should
 	// detect that this tuple represents a fresh edge.
-	updateTimeStamp = time.Unix(9999, 0)
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+	time2 := 9999
+	updateTimeStamp = time.Unix(int64(time2), 0)
+	update1.Timestamp = uint32(time2)
+	update2.Timestamp = uint32(time2)
+	if ctx.router.IsStaleEdgePolicy(*chanID, update1) {
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+	if ctx.router.IsStaleEdgePolicy(*chanID, update2) {
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
 }

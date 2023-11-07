@@ -2377,48 +2377,110 @@ func (d *AuthenticatedGossiper) SyncManager() *SyncManager {
 // IsKeepAliveUpdate determines whether this channel update is considered a
 // keep-alive update based on the previous channel update processed for the same
 // direction.
-func IsKeepAliveUpdate(update *lnwire.ChannelUpdate1,
-	prev *models.ChannelEdgePolicy1) bool {
+func IsKeepAliveUpdate(update lnwire.ChannelUpdate,
+	prevPolicy models.ChannelEdgePolicy) (bool, error) {
 
-	// Both updates should be from the same direction.
-	if update.ChannelFlags&lnwire.ChanUpdateDirection !=
-		prev.ChannelFlags&lnwire.ChanUpdateDirection {
+	switch upd := update.(type) {
+	case *lnwire.ChannelUpdate1:
+		prev, ok := prevPolicy.(*models.ChannelEdgePolicy1)
+		if !ok {
+			return false, fmt.Errorf("expected chan edge policy 1")
+		}
 
-		return false
-	}
+		// Both updates should be from the same direction.
+		if upd.ChannelFlags&lnwire.ChanUpdateDirection !=
+			prev.ChannelFlags&lnwire.ChanUpdateDirection {
 
-	// The timestamp should always increase for a keep-alive update.
-	timestamp := time.Unix(int64(update.Timestamp), 0)
-	if !timestamp.After(prev.LastUpdate) {
-		return false
-	}
+			return false, nil
+		}
 
-	// None of the remaining fields should change for a keep-alive update.
-	if update.ChannelFlags.IsDisabled() != prev.ChannelFlags.IsDisabled() {
-		return false
+		// The timestamp should always increase for a keep-alive update.
+		timestamp := time.Unix(int64(upd.Timestamp), 0)
+		if !timestamp.After(prev.LastUpdate) {
+			return false, nil
+		}
+
+		// None of the remaining fields should change for a keep-alive
+		// update.
+		if upd.ChannelFlags.IsDisabled() !=
+			prev.ChannelFlags.IsDisabled() {
+
+			return false, nil
+		}
+		if lnwire.MilliSatoshi(upd.BaseFee) != prev.FeeBaseMSat {
+			return false, nil
+		}
+		if lnwire.MilliSatoshi(upd.FeeRate) !=
+			prev.FeeProportionalMillionths {
+
+			return false, nil
+		}
+		if upd.TimeLockDelta != prev.TimeLockDelta {
+			return false, nil
+		}
+		if upd.HtlcMinimumMsat != prev.MinHTLC {
+			return false, nil
+		}
+		if upd.MessageFlags.HasMaxHtlc() &&
+			!prev.MessageFlags.HasMaxHtlc() {
+			return false, nil
+		}
+		if upd.HtlcMaximumMsat != prev.MaxHTLC {
+			return false, nil
+		}
+		if !bytes.Equal(upd.ExtraOpaqueData, prev.ExtraOpaqueData) {
+			return false, nil
+		}
+		return true, nil
+
+	case *lnwire.ChannelUpdate2:
+		prev, ok := prevPolicy.(*models.ChannelEdgePolicy2)
+		if !ok {
+			return false, fmt.Errorf("expected chan edge policy 2")
+		}
+
+		// Both updates should be from the same direction.
+		if upd.IsNode1() != prev.IsNode1() {
+			return false, nil
+		}
+
+		// The block-height should always increase for a keep-alive
+		// update.
+		if upd.BlockHeight <= prev.BlockHeight {
+			return false, nil
+		}
+
+		// None of the remaining fields should change for a keep-alive update.
+		if upd.IsDisabled() != prev.IsDisabled() {
+			return false, nil
+		}
+		fwd := upd.ForwardingPolicy()
+		prevFwd := upd.ForwardingPolicy()
+
+		if fwd.BaseFee != prevFwd.BaseFee {
+			return false, nil
+		}
+		if fwd.FeeRate != prevFwd.FeeRate {
+			return false, nil
+		}
+		if fwd.TimeLockDelta != prevFwd.TimeLockDelta {
+			return false, nil
+		}
+		if fwd.MinHTLC != prevFwd.MinHTLC {
+			return false, nil
+		}
+		if fwd.MaxHTLC != prevFwd.MinHTLC {
+			return false, nil
+		}
+		if !bytes.Equal(upd.ExtraOpaqueData, prev.ExtraOpaqueData) {
+			return false, nil
+		}
+		return true, nil
+
+	default:
+		return false, fmt.Errorf("unhandled implementation of "+
+			"ChannelUpdate: %T", update)
 	}
-	if lnwire.MilliSatoshi(update.BaseFee) != prev.FeeBaseMSat {
-		return false
-	}
-	if lnwire.MilliSatoshi(update.FeeRate) != prev.FeeProportionalMillionths {
-		return false
-	}
-	if update.TimeLockDelta != prev.TimeLockDelta {
-		return false
-	}
-	if update.HtlcMinimumMsat != prev.MinHTLC {
-		return false
-	}
-	if update.MessageFlags.HasMaxHtlc() && !prev.MessageFlags.HasMaxHtlc() {
-		return false
-	}
-	if update.HtlcMaximumMsat != prev.MaxHTLC {
-		return false
-	}
-	if !bytes.Equal(update.ExtraOpaqueData, prev.ExtraOpaqueData) {
-		return false
-	}
-	return true
 }
 
 // latestHeight returns the gossiper's latest height known of the chain.
@@ -2824,16 +2886,14 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		graphScid = upd.ShortChannelID
 	}
 
-	if d.cfg.Router.IsStaleEdgePolicy(
-		graphScid, timestamp, upd.ChannelFlags,
-	) {
-
+	if d.cfg.Router.IsStaleEdgePolicy(graphScid, upd) {
 		log.Debugf("Ignored stale edge policy for short_chan_id(%v): "+
 			"peer=%v, msg=%s, is_remote=%v", shortChanID,
 			nMsg.peer, nMsg.msg.MsgType(), nMsg.isRemote,
 		)
 
 		nMsg.err <- nil
+
 		return nil, true
 	}
 
@@ -2995,7 +3055,16 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		// heuristic of sending keep-alive updates after the same
 		// duration (see retransmitStaleAnns).
 		timeSinceLastUpdate := timestamp.Sub(edge.LastUpdate)
-		if IsKeepAliveUpdate(upd, edge) {
+		isKeepAlive, err := IsKeepAliveUpdate(upd, edge)
+		if err != nil {
+			log.Errorf("Could not determine if update is "+
+				"keepalive: %v", err)
+			nMsg.err <- err
+
+			return nil, false
+		}
+
+		if isKeepAlive {
 			if timeSinceLastUpdate < d.cfg.RebroadcastInterval {
 				log.Debugf("Ignoring keep alive update not "+
 					"within %v period for channel %v",

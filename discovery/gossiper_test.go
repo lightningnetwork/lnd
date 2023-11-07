@@ -345,10 +345,17 @@ func (r *mockGraphSource) IsKnownEdge(chanID lnwire.ShortChannelID) bool {
 // IsStaleEdgePolicy returns true if the graph source has a channel edge for
 // the passed channel ID (and flags) that have a more recent timestamp.
 func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
-	timestamp time.Time, flags lnwire.ChanUpdateChanFlags) bool {
+	policy lnwire.ChannelUpdate) bool {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	pol, ok := policy.(*lnwire.ChannelUpdate1)
+	if !ok {
+		panic("expected chan update 1")
+	}
+
+	timestamp := time.Unix(int64(pol.Timestamp), 0)
 
 	chanIDInt := chanID.ToUint64()
 	edges, ok := r.edges[chanIDInt]
@@ -359,7 +366,6 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 		if !isZombie {
 			return false
 		}
-
 		// Since it exists within our zombie index, we'll check that it
 		// respects the router's live edge horizon to determine whether
 		// it is stale or not.
@@ -367,7 +373,7 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 	}
 
 	switch {
-	case flags&lnwire.ChanUpdateDirection == 0 && edges[0] != nil:
+	case policy.IsNode1() && edges[0] != nil:
 		switch edge := edges[0].(type) {
 		case *models.ChannelEdgePolicy1:
 			return !timestamp.After(edge.LastUpdate)
@@ -375,7 +381,7 @@ func (r *mockGraphSource) IsStaleEdgePolicy(chanID lnwire.ShortChannelID,
 			panic(fmt.Sprintf("unhandled: %T", edges[0]))
 		}
 
-	case flags&lnwire.ChanUpdateDirection == 1 && edges[1] != nil:
+	case !policy.IsNode1() && edges[1] != nil:
 		switch edge := edges[1].(type) {
 		case *models.ChannelEdgePolicy1:
 			return !timestamp.After(edge.LastUpdate)

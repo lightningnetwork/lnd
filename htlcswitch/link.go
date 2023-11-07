@@ -125,7 +125,7 @@ type ChannelLinkConfig struct {
 	// provide payment senders our latest policy when sending encrypted
 	// error messages.
 	FetchLastChannelUpdate func(lnwire.ShortChannelID) (
-		*lnwire.ChannelUpdate1, error)
+		lnwire.ChannelUpdate, error)
 
 	// Peer is a lightning network node with which we have the channel link
 	// opened.

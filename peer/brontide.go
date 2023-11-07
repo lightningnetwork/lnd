@@ -286,7 +286,7 @@ type Config struct {
 
 	// FetchLastChanUpdate fetches our latest channel update for a target
 	// channel.
-	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate1,
+	FetchLastChanUpdate func(lnwire.ShortChannelID) (lnwire.ChannelUpdate,
 		error)
 
 	// FundingManager is an implementation of the funding.Controller interface.

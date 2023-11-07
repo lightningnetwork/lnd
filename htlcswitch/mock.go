@@ -178,7 +178,7 @@ func initSwitchWithDB(startingHeight uint32, db *channeldb.DB) (*Switch, error) 
 			events: make(map[time.Time]channeldb.ForwardingEvent),
 		},
 		FetchLastChannelUpdate: func(scid lnwire.ShortChannelID) (
-			*lnwire.ChannelUpdate1, error) {
+			lnwire.ChannelUpdate, error) {
 
 			return &lnwire.ChannelUpdate1{
 				ShortChannelID: scid,

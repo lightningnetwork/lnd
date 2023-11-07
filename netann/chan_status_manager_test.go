@@ -136,7 +136,7 @@ type mockGraph struct {
 	chanPols2 map[wire.OutPoint]*models.ChannelEdgePolicy1
 	sidToCid  map[lnwire.ShortChannelID]wire.OutPoint
 
-	updates chan *lnwire.ChannelUpdate1
+	updates chan lnwire.ChannelUpdate
 }
 
 func newMockGraph(t *testing.T, numChannels int,
@@ -148,7 +148,7 @@ func newMockGraph(t *testing.T, numChannels int,
 		chanPols1: make(map[wire.OutPoint]*models.ChannelEdgePolicy1),
 		chanPols2: make(map[wire.OutPoint]*models.ChannelEdgePolicy1),
 		sidToCid:  make(map[lnwire.ShortChannelID]wire.OutPoint),
-		updates:   make(chan *lnwire.ChannelUpdate1, 2*numChannels),
+		updates:   make(chan lnwire.ChannelUpdate, 2*numChannels),
 	}
 
 	for i := 0; i < numChannels; i++ {
@@ -187,46 +187,47 @@ func (g *mockGraph) FetchChannelEdgesByOutpoint(
 	return info, pol1, pol2, nil
 }
 
-func (g *mockGraph) ApplyChannelUpdate(update *lnwire.ChannelUpdate1,
+func (g *mockGraph) ApplyChannelUpdate(update lnwire.ChannelUpdate,
 	op *wire.OutPoint, private bool) error {
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	outpoint, ok := g.sidToCid[update.ShortChannelID]
+	outpoint, ok := g.sidToCid[update.SCID()]
 	if !ok {
 		return fmt.Errorf("unknown short channel id: %v",
-			update.ShortChannelID)
+			update.SCID())
 	}
 
 	pol1 := g.chanPols1[outpoint]
 	pol2 := g.chanPols2[outpoint]
-
 	// Determine which policy we should update by making the flags on the
 	// policies and updates, and seeing which match up.
 	var update1 bool
+
 	switch {
-	case update.ChannelFlags&lnwire.ChanUpdateDirection ==
-		pol1.ChannelFlags&lnwire.ChanUpdateDirection:
+	case update.IsNode1() == pol1.IsNode1():
 		update1 = true
 
-	case update.ChannelFlags&lnwire.ChanUpdateDirection ==
-		pol2.ChannelFlags&lnwire.ChanUpdateDirection:
+	case update.IsNode1() == pol2.IsNode1():
 		update1 = false
 
 	default:
 		return fmt.Errorf("unable to find policy to update")
 	}
 
-	timestamp := time.Unix(int64(update.Timestamp), 0)
+	upd, ok := update.(*lnwire.ChannelUpdate1)
+	if !ok {
+		return fmt.Errorf("expected channel update 1")
+	}
 
+	timestamp := time.Unix(int64(upd.Timestamp), 0)
 	policy := &models.ChannelEdgePolicy1{
-		ChannelID:    update.ShortChannelID.ToUint64(),
-		ChannelFlags: update.ChannelFlags,
+		ChannelID:    upd.ShortChannelID.ToUint64(),
+		ChannelFlags: upd.ChannelFlags,
 		LastUpdate:   timestamp,
 		SigBytes:     testSigBytes,
 	}
-
 	if update1 {
 		g.chanPols1[outpoint] = policy
 	} else {
@@ -517,23 +518,23 @@ func (h *testHarness) assertUpdates(channels []*channeldb.OpenChannel,
 	for {
 		select {
 		case upd := <-h.graph.updates:
+			scid := upd.SCID()
+
 			// Assert that the received short channel id is one that
 			// we expect. If no updates were expected, this will
 			// always fail on the first update received.
-			if _, ok := expSids[upd.ShortChannelID]; !ok {
+			if _, ok := expSids[scid]; !ok {
 				h.t.Fatalf("received update for unexpected "+
-					"short chan id: %v", upd.ShortChannelID)
+					"short chan id: %v", scid)
 			}
 
 			// Assert that the disabled bit is set properly.
-			enabled := upd.ChannelFlags&lnwire.ChanUpdateDisabled !=
-				lnwire.ChanUpdateDisabled
-			if expEnabled != enabled {
+			if expEnabled != !upd.IsDisabled() {
 				h.t.Fatalf("expected enabled: %v, actual: %v",
-					expEnabled, enabled)
+					expEnabled, !upd.IsDisabled())
 			}
 
-			recvdSids[upd.ShortChannelID] = struct{}{}
+			recvdSids[scid] = struct{}{}
 
 		case <-timeout:
 			// Time is up, assert that the correct number of unique

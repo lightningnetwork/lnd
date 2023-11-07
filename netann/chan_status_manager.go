@@ -63,7 +63,7 @@ type ChanStatusConfig struct {
 	// ApplyChannelUpdate processes new ChannelUpdates signed by our node by
 	// updating our local routing table and broadcasting the update to our
 	// peers.
-	ApplyChannelUpdate func(*lnwire.ChannelUpdate1, *wire.OutPoint,
+	ApplyChannelUpdate func(lnwire.ChannelUpdate, *wire.OutPoint,
 		bool) error
 
 	// DB stores the set of channels that are to be monitored.
@@ -658,7 +658,7 @@ func (m *ChanStatusManager) signAndSendNextUpdate(outpoint wire.OutPoint,
 // in case our ChannelEdgePolicy is not found in the database. Also returns if
 // the channel is private by checking AuthProof for nil.
 func (m *ChanStatusManager) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
-	*lnwire.ChannelUpdate1, bool, error) {
+	lnwire.ChannelUpdate, bool, error) {
 
 	// Get the edge info and policies for this channel from the graph.
 	info, edge1, edge2, err := m.cfg.Graph.FetchChannelEdgesByOutpoint(&op)
@@ -669,6 +669,7 @@ func (m *ChanStatusManager) fetchLastChanUpdateByOutPoint(op wire.OutPoint) (
 	update, err := ExtractChannelUpdate(
 		m.ourPubKeyBytes, info, edge1, edge2,
 	)
+
 	return update, info.GetAuthProof() == nil, err
 }
 
@@ -688,7 +689,7 @@ func (m *ChanStatusManager) loadInitialChanState(
 	// Determine the channel's starting status by inspecting the disable bit
 	// on last announcement we sent out.
 	var initialStatus ChanStatus
-	if lastUpdate.ChannelFlags&lnwire.ChanUpdateDisabled == 0 {
+	if !lastUpdate.IsDisabled() {
 		initialStatus = ChanStatusEnabled
 	} else {
 		initialStatus = ChanStatusDisabled

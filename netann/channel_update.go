@@ -129,9 +129,9 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 	*lnwire.ChannelUpdate1, error) {
 
 	// Helper function to extract the owner of the given policy.
-	owner := func(edge *models.ChannelEdgePolicy1) []byte {
+	owner := func(edge models.ChannelEdgePolicy) []byte {
 		var pubKey *btcec.PublicKey
-		if edge.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
+		if edge.IsNode1() {
 			pubKey, _ = info.NodeKey1()
 		} else {
 			pubKey, _ = info.NodeKey2()
@@ -147,14 +147,20 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 
 	// Extract the channel update from the policy we own, if any.
 	for _, edge := range policies {
-		e, ok := edge.(*models.ChannelEdgePolicy1)
-		if !ok {
-			return nil, fmt.Errorf("expected "+
-				"*models.ChannelEdgePolicy1, got: %T", edge)
-		}
+		if edge != nil && bytes.Equal(ownerPubKey, owner(edge)) {
+			update, err := ChannelUpdateFromEdge(info, edge)
+			if err != nil {
+				return nil, err
+			}
 
-		if edge != nil && bytes.Equal(ownerPubKey, owner(e)) {
-			return ChannelUpdateFromEdge(info, edge)
+			chanUpd1, ok := update.(*lnwire.ChannelUpdate1)
+			if !ok {
+				return nil, fmt.Errorf("expected "+
+					"*lnwire.ChannelUpdate1, got: %T",
+					chanUpd1)
+			}
+
+			return chanUpd1, nil
 		}
 	}
 
@@ -164,7 +170,7 @@ func ExtractChannelUpdate(ownerPubKey []byte,
 // UnsignedChannelUpdateFromEdge reconstructs an unsigned ChannelUpdate1 from the
 // given edge info and policy.
 func UnsignedChannelUpdateFromEdge(chainHash chainhash.Hash,
-	policy models.ChannelEdgePolicy) (*lnwire.ChannelUpdate1, error) {
+	policy models.ChannelEdgePolicy) (lnwire.ChannelUpdate, error) {
 
 	switch p := policy.(type) {
 	case *models.ChannelEdgePolicy1:
@@ -184,6 +190,21 @@ func UnsignedChannelUpdateFromEdge(chainHash chainhash.Hash,
 			ExtraOpaqueData: p.ExtraOpaqueData,
 		}, nil
 
+	case *models.ChannelEdgePolicy2:
+		return &lnwire.ChannelUpdate2{
+			ChainHash:                 chainHash,
+			ShortChannelID:            p.ShortChannelID,
+			BlockHeight:               p.BlockHeight,
+			DisabledFlags:             p.DisabledFlags,
+			Direction:                 p.Direction,
+			CLTVExpiryDelta:           p.CLTVExpiryDelta,
+			HTLCMinimumMsat:           p.HTLCMinimumMsat,
+			HTLCMaximumMsat:           p.HTLCMaximumMsat,
+			FeeBaseMsat:               p.FeeBaseMsat,
+			FeeProportionalMillionths: p.FeeProportionalMillionths,
+			ExtraOpaqueData:           p.ExtraOpaqueData,
+		}, nil
+
 	default:
 		return nil, fmt.Errorf("unhandled implementation of the "+
 			"models.ChanelEdgePolicy interface: %T", policy)
@@ -193,7 +214,7 @@ func UnsignedChannelUpdateFromEdge(chainHash chainhash.Hash,
 // ChannelUpdateFromEdge reconstructs a signed ChannelUpdate1 from the given
 // edge info and policy.
 func ChannelUpdateFromEdge(info models.ChannelEdgeInfo,
-	policy models.ChannelEdgePolicy) (*lnwire.ChannelUpdate1, error) {
+	policy models.ChannelEdgePolicy) (lnwire.ChannelUpdate, error) {
 
 	update, err := UnsignedChannelUpdateFromEdge(
 		info.GetChainHash(), policy,

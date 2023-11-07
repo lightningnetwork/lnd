@@ -1671,7 +1671,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 	// If we issue an arbitrary query before any channel updates are
 	// inserted in the database, we should get zero results.
 	chanUpdates, err := graph.ChanUpdatesInHorizon(
-		time.Unix(999, 0), time.Unix(9999, 0),
+		time.Unix(999, 0), time.Unix(9999, 0), 0, 0,
 	)
 	require.NoError(t, err, "unable to updates for updates")
 	if len(chanUpdates) != 0 {
@@ -1789,7 +1789,7 @@ func TestChanUpdatesInHorizon(t *testing.T) {
 	}
 	for _, queryCase := range queryCases {
 		resp, err := graph.ChanUpdatesInHorizon(
-			queryCase.start, queryCase.end,
+			queryCase.start, queryCase.end, 0, 0,
 		)
 		if err != nil {
 			t.Fatalf("unable to query for updates: %v", err)

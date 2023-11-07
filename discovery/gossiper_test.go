@@ -1884,7 +1884,8 @@ func TestDeDuplicatedAnnouncements(t *testing.T) {
 	assertChannelUpdate := func(channelUpdate *lnwire.ChannelUpdate1) {
 		channelKey := channelUpdateID{
 			ua3.ShortChannelID,
-			ua3.ChannelFlags,
+			ua3.IsDisabled(),
+			ua3.IsNode1(),
 		}
 
 		mws, ok := announcements.channelUpdates[channelKey]
@@ -2827,7 +2828,7 @@ func TestRetransmit(t *testing.T) {
 			switch msg.(type) {
 			case lnwire.ChannelAnnouncement:
 				chanAnn++
-			case *lnwire.ChannelUpdate1:
+			case lnwire.ChannelUpdate:
 				chanUpd++
 			case *lnwire.NodeAnnouncement:
 				nodeAnn++
@@ -3314,7 +3315,7 @@ func TestSendChannelUpdateReliably(t *testing.T) {
 		}
 
 		switch msg := msg.(type) {
-		case *lnwire.ChannelUpdate1:
+		case lnwire.ChannelUpdate:
 			assertMessage(t, staleChannelUpdate, msg)
 		case *lnwire.AnnounceSignatures1:
 			assertMessage(t, batch.localProofAnn, msg)

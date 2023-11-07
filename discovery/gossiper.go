@@ -939,10 +939,9 @@ type channelUpdateID struct {
 	// retrieve all necessary data to validate the channel existence.
 	channelID lnwire.ShortChannelID
 
-	// Flags least-significant bit must be set to 0 if the creating node
-	// corresponds to the first node in the previously sent channel
-	// announcement and 1 otherwise.
-	flags lnwire.ChanUpdateChanFlags
+	disabled bool
+
+	direction bool
 }
 
 // msgWithSenders is a wrapper struct around a message, and the set of peers
@@ -1051,32 +1050,49 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 
 	// Channel updates are identified by the (short channel id,
 	// channelflags) tuple.
-	case *lnwire.ChannelUpdate1:
+	case lnwire.ChannelUpdate:
 		sender := route.NewVertex(message.source)
 		deDupKey := channelUpdateID{
-			msg.ShortChannelID,
-			msg.ChannelFlags,
+			msg.SCID(),
+			msg.IsDisabled(),
+			msg.IsNode1(),
 		}
 
-		oldTimestamp := uint32(0)
+		var (
+			older = false
+			newer = true
+		)
 		mws, ok := d.channelUpdates[deDupKey]
 		if ok {
 			// If we already have seen this message, record its
 			// timestamp.
-			update, ok := mws.msg.(*lnwire.ChannelUpdate1)
+			oldMsg, ok := mws.msg.(lnwire.ChannelUpdate)
 			if !ok {
-				log.Errorf("Expected *lnwire.ChannelUpdate1, "+
-					"got: %T", mws.msg)
+				log.Errorf("expected type "+
+					"lnwire.ChannelUpdate, got: %T",
+					mws.msg)
 
 				return
 			}
 
-			oldTimestamp = update.Timestamp
+			cmp, err := msg.CmpAge(oldMsg)
+			if err != nil {
+				return
+			}
+
+			newer = false
+			switch cmp {
+			case lnwire.LessThan:
+				older = true
+			case lnwire.GreaterThan:
+				newer = true
+			default:
+			}
 		}
 
 		// If we already had this message with a strictly newer
 		// timestamp, then we'll just discard the message we got.
-		if oldTimestamp > msg.Timestamp {
+		if older {
 			log.Debugf("Ignored outdated network message: "+
 				"peer=%v, msg=%s", message.peer, msg.MsgType())
 			return
@@ -1085,7 +1101,7 @@ func (d *deDupedAnnouncements) addMsg(message networkMsg) {
 		// If the message we just got is newer than what we previously
 		// have seen, or this is the first time we see it, then we'll
 		// add it to our map of announcements.
-		if oldTimestamp < msg.Timestamp {
+		if newer {
 			mws = msgWithSenders{
 				msg:     msg,
 				isLocal: !message.isRemote,
@@ -1606,8 +1622,8 @@ func (d *AuthenticatedGossiper) isRecentlyRejectedMsg(msg lnwire.Message,
 
 	var scid uint64
 	switch m := msg.(type) {
-	case *lnwire.ChannelUpdate1:
-		scid = m.ShortChannelID.ToUint64()
+	case lnwire.ChannelUpdate:
+		scid = m.SCID().ToUint64()
 
 	case lnwire.ChannelAnnouncement:
 		scid = m.SCID().ToUint64()
@@ -2105,7 +2121,7 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 // ChannelEdgeInfo1 should be inspected.
 func (d *AuthenticatedGossiper) processZombieUpdate(
 	chanInfo models.ChannelEdgeInfo, scid lnwire.ShortChannelID,
-	msg *lnwire.ChannelUpdate1) error {
+	msg lnwire.ChannelUpdate) error {
 
 	// Since we've deemed the update as not stale above, before marking it
 	// live, we'll make sure it has been signed by the correct party. If we
@@ -2121,7 +2137,7 @@ func (d *AuthenticatedGossiper) processZombieUpdate(
 	}
 	if pubKey == nil {
 		return fmt.Errorf("incorrect pubkey to resurrect zombie "+
-			"with chan_id=%v", msg.ShortChannelID)
+			"with chan_id=%v", msg.SCID())
 	}
 
 	err := msg.VerifySig(pubKey)
@@ -2129,7 +2145,6 @@ func (d *AuthenticatedGossiper) processZombieUpdate(
 		return fmt.Errorf("unable to verify channel "+
 			"update signature: %v", err)
 	}
-
 	// With the signature valid, we'll proceed to mark the
 	// edge as live and wait for the channel announcement to
 	// come through again.
@@ -2144,13 +2159,13 @@ func (d *AuthenticatedGossiper) processZombieUpdate(
 	case err != nil:
 		return fmt.Errorf("unable to remove edge with "+
 			"chan_id=%v from zombie index: %v",
-			msg.ShortChannelID, err)
+			msg.SCID(), err)
 
 	default:
 	}
 
 	log.Debugf("Removed edge with chan_id=%v from zombie "+
-		"index", msg.ShortChannelID)
+		"index", msg.SCID())
 
 	return nil
 }
@@ -2849,7 +2864,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 			// Reprocess the message, making sure we return an
 			// error to the original caller in case the gossiper
 			// shuts down.
-			case *lnwire.ChannelUpdate1:
+			case lnwire.ChannelUpdate:
 				log.Debugf("Reprocessing ChannelUpdate for "+
 					"shortChanID=%v", scid.ToUint64())
 

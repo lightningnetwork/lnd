@@ -1194,6 +1194,9 @@ func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 		time.Duration(g.remoteUpdateHorizon.TimestampRange) * time.Second,
 	)
 
+	startBlock := g.remoteUpdateHorizon.FirstBlockHeight.UnwrapOr(0)
+	endBlock := g.remoteUpdateHorizon.BlockRange.UnwrapOr(0)
+
 	g.Unlock()
 
 	// If requested, don't reply with historical gossip data when the remote
@@ -1205,7 +1208,7 @@ func (g *GossipSyncer) ApplyGossipFilter(filter *lnwire.GossipTimestampRange) er
 	// Now that the remote peer has applied their filter, we'll query the
 	// database for all the messages that are beyond this filter.
 	newUpdatestoSend, err := g.cfg.channelSeries.UpdatesInHorizon(
-		g.cfg.chainHash, startTime, endTime,
+		g.cfg.chainHash, startTime, endTime, startBlock, endBlock,
 	)
 	if err != nil {
 		return err

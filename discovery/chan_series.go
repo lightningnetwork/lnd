@@ -30,8 +30,9 @@ type ChannelGraphTimeSeries interface {
 	// update timestamp between the start time and end time. We'll use this
 	// to catch up a remote node to the set of channel updates that they
 	// may have missed out on within the target chain.
-	UpdatesInHorizon(chain chainhash.Hash,
-		startTime time.Time, endTime time.Time) ([]lnwire.Message, error)
+	UpdatesInHorizon(chain chainhash.Hash, startTime time.Time,
+		endTime time.Time, startBlock,
+		endBlock uint32) ([]lnwire.Message, error)
 
 	// FilterKnownChanIDs takes a target chain, and a set of channel ID's,
 	// and returns a filtered set of chan ID's. This filtered set of chan
@@ -103,15 +104,16 @@ func (c *ChanSeries) HighestChanID(chain chainhash.Hash) (*lnwire.ShortChannelID
 // within the target chain.
 //
 // NOTE: This is part of the ChannelGraphTimeSeries interface.
-func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
-	startTime time.Time, endTime time.Time) ([]lnwire.Message, error) {
+func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash, startTime time.Time,
+	endTime time.Time, startBlock, endBlock uint32) ([]lnwire.Message,
+	error) {
 
 	var updates []lnwire.Message
 
 	// First, we'll query for all the set of channels that have an update
 	// that falls within the specified horizon.
 	chansInHorizon, err := c.graph.ChanUpdatesInHorizon(
-		startTime, endTime, 0, 0,
+		startTime, endTime, startBlock, endBlock,
 	)
 	if err != nil {
 		return nil, err

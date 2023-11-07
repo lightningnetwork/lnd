@@ -10,6 +10,7 @@ import (
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +25,9 @@ const testUnknownRequiredType = 0x80
 type decodePayloadTest struct {
 	name               string
 	payload            []byte
+	onionBlindingPoint *btcec.PublicKey
 	isFinalHop         bool
+	disableBlinding    bool
 	expErr             error
 	expCustomRecords   map[uint64][]byte
 	shouldHaveMPP      bool
@@ -438,6 +441,137 @@ var decodePayloadTests = []decodePayloadTest{
 			FinalHop:  false,
 		},
 	},
+	{
+		name:               "both blinding points set",
+		onionBlindingPoint: testPubKey,
+		isFinalHop:         false,
+		payload: append([]byte{
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+			// blinding point (type / length)
+			0x0c, 0x21,
+		},
+			// blinding point (value)
+			testPubKey.SerializeCompressed()...,
+		),
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.BlindingPointOnionType,
+			Violation: hop.IncludedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name:               "onion blinding without encrypted data",
+		onionBlindingPoint: testPubKey,
+		isFinalHop:         false,
+		payload: []byte{
+			// amount
+			0x02, 0x00,
+			// cltv
+			0x04, 0x00,
+			// next hop id
+			0x06, 0x08,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		},
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.EncryptedDataOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name:       "payload blinding without encrypted data",
+		isFinalHop: false,
+		payload: append([]byte{
+			// amount
+			0x02, 0x00,
+			// cltv
+			0x04, 0x00,
+			// next hop id
+			0x06, 0x08,
+			0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+			// blinding point (type / length)
+			0x0c, 0x21,
+		},
+			// blinding point (value)
+			testPubKey.SerializeCompressed()...,
+		),
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.EncryptedDataOnionType,
+			Violation: hop.OmittedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name:               "intermediate blinded custom record",
+		isFinalHop:         false,
+		onionBlindingPoint: testPubKey,
+		payload: []byte{
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+			// custom
+			0xfe, 0x00, 0x01, 0x00, 0x00, 0x02, 0x10, 0x11,
+		},
+		expErr: hop.ErrInvalidPayload{
+			Type:      tlv.Type(65536),
+			Violation: hop.IncludedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name:               "final blinded custom record",
+		isFinalHop:         true,
+		onionBlindingPoint: testPubKey,
+		payload: []byte{
+			// amount
+			0x02, 0x00,
+			// cltv
+			0x04, 0x00,
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+			// custom
+			0xfe, 0x00, 0x01, 0x00, 0x00, 0x02, 0x10, 0x11,
+		},
+		expErr: hop.ErrInvalidPayload{
+			Type:      tlv.Type(65536),
+			Violation: hop.IncludedViolation,
+			FinalHop:  true,
+		},
+	},
+	{
+		name:               "intermediate blinding disallowed",
+		isFinalHop:         false,
+		onionBlindingPoint: testPubKey,
+		payload: []byte{
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+		},
+		disableBlinding: true,
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.BlindingPointOnionType,
+			Violation: hop.IncludedViolation,
+			FinalHop:  false,
+		},
+	},
+	{
+		name:       "introduction blinding disabled",
+		isFinalHop: false,
+		payload: append([]byte{
+			// encrypted data
+			0x0a, 0x03, 0x03, 0x02, 0x01,
+			// blinding point (type / length)
+			0x0c, 0x21,
+		},
+			// blinding point (value)
+			testPubKey.SerializeCompressed()...,
+		),
+		disableBlinding: true,
+		expErr: hop.ErrInvalidPayload{
+			Type:      record.BlindingPointOnionType,
+			Violation: hop.IncludedViolation,
+			FinalHop:  false,
+		},
+	},
 }
 
 // TestDecodeHopPayloadRecordValidation asserts that parsing the payloads in the
@@ -480,7 +614,17 @@ func testDecodeHopPayloadValidation(t *testing.T, test decodePayloadTest) {
 
 	p, err := hop.NewPayloadFromReader(
 		bytes.NewReader(test.payload), test.isFinalHop,
-		&hop.BlindingKit{},
+		&hop.BlindingKit{
+			BlindingPoint: test.onionBlindingPoint,
+			// Provide a non-nil blinding kit which will be
+			// used for parsing blinded routes.
+			ForwardingInfo: func(*btcec.PublicKey,
+				[]byte) (*hop.ForwardingInfo, error) {
+
+				return &hop.ForwardingInfo{}, nil
+			},
+			DisableBlindedFwd: test.disableBlinding,
+		},
 	)
 	if !reflect.DeepEqual(test.expErr, err) {
 		t.Fatalf("expected error mismatch, want: %v, got: %v",

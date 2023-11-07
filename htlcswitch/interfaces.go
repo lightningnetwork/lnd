@@ -78,7 +78,7 @@ type scidAliasHandler interface {
 	// HTLCs on option_scid_alias channels.
 	attachFailAliasUpdate(failClosure func(
 		sid lnwire.ShortChannelID,
-		incoming bool) *lnwire.ChannelUpdate1)
+		incoming bool) lnwire.ChannelUpdate)
 
 	// getAliases fetches the link's underlying aliases. This is used by
 	// the Switch to determine whether to forward an HTLC and where to

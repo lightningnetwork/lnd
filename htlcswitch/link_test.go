@@ -5736,7 +5736,7 @@ func TestCheckHtlcForward(t *testing.T) {
 	}
 
 	failAliasUpdate := func(sid lnwire.ShortChannelID,
-		incoming bool) *lnwire.ChannelUpdate1 {
+		incoming bool) lnwire.ChannelUpdate {
 
 		return nil
 	}

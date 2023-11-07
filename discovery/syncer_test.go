@@ -28,10 +28,12 @@ var (
 )
 
 type horizonQuery struct {
-	chain chainhash.Hash
-	start time.Time
-	end   time.Time
+	start      time.Time
+	end        time.Time
+	startBlock uint32
+	endBlock   uint32
 }
+
 type filterRangeReq struct {
 	startHeight, endHeight uint32
 }
@@ -81,11 +83,12 @@ func newMockChannelGraphTimeSeries(
 func (m *mockChannelGraphTimeSeries) HighestChanID(chain chainhash.Hash) (*lnwire.ShortChannelID, error) {
 	return &m.highestID, nil
 }
-func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
-	startTime time.Time, endTime time.Time) ([]lnwire.Message, error) {
+func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(startTime time.Time,
+	endTime time.Time, startBlock, endBlock uint32) ([]lnwire.Message,
+	error) {
 
 	m.horizonReq <- horizonQuery{
-		chain, startTime, endTime,
+		startTime, endTime, startBlock, endBlock,
 	}
 
 	return <-m.horizonResp, nil

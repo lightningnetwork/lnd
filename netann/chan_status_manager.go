@@ -637,9 +637,14 @@ func (m *ChanStatusManager) signAndSendNextUpdate(outpoint wire.OutPoint,
 		return err
 	}
 
+	height, err := m.cfg.BestBlockView.BestHeight()
+	if err != nil {
+		return err
+	}
+
 	err = SignChannelUpdate(
 		m.cfg.MessageSigner, m.cfg.OurKeyLoc, chanUpdate,
-		ChanUpdSetDisable(disabled), ChanUpdSetTimestamp,
+		ChanUpdSetDisable(disabled), ChanUpdSetTimestamp(height),
 	)
 	if err != nil {
 		return err

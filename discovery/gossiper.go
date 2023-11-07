@@ -2250,7 +2250,7 @@ func (d *AuthenticatedGossiper) updateChannel(edgeInfo models.ChannelEdgeInfo,
 	// announcement itself and update the timestamp to ensure it propagate.
 	err = netann.SignChannelUpdate(
 		d.cfg.AnnSigner, d.selfKeyLoc, chanUpdate,
-		netann.ChanUpdSetTimestamp,
+		netann.ChanUpdSetTimestamp(d.latestHeight()),
 	)
 	if err != nil {
 		return nil, nil, err

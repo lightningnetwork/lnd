@@ -18,36 +18,47 @@ var ErrUnableToExtractChanUpdate = fmt.Errorf("unable to extract ChannelUpdate")
 
 // ChannelUpdateModifier is a closure that makes in-place modifications to an
 // lnwire.ChannelUpdate1.
-type ChannelUpdateModifier func(*lnwire.ChannelUpdate1)
+type ChannelUpdateModifier func(lnwire.ChannelUpdate)
 
 // ChanUpdSetDisable is a functional option that sets the disabled channel flag
 // if disabled is true, and clears the bit otherwise.
 func ChanUpdSetDisable(disabled bool) ChannelUpdateModifier {
-	return func(update *lnwire.ChannelUpdate1) {
-		if disabled {
-			// Set the bit responsible for marking a channel as
-			// disabled.
-			update.ChannelFlags |= lnwire.ChanUpdateDisabled
-		} else {
-			// Clear the bit responsible for marking a channel as
-			// disabled.
-			update.ChannelFlags &= ^lnwire.ChanUpdateDisabled
-		}
+	return func(update lnwire.ChannelUpdate) {
+		update.SetDisabled(disabled)
 	}
 }
 
 // ChanUpdSetTimestamp is a functional option that sets the timestamp of the
 // update to the current time, or increments it if the timestamp is already in
 // the future.
-func ChanUpdSetTimestamp(update *lnwire.ChannelUpdate1) {
-	newTimestamp := uint32(time.Now().Unix())
-	if newTimestamp <= update.Timestamp {
-		// Increment the prior value to ensure the timestamp
-		// monotonically increases, otherwise the update won't
-		// propagate.
-		newTimestamp = update.Timestamp + 1
+func ChanUpdSetTimestamp(bestBlockHeight uint32) ChannelUpdateModifier {
+	return func(update lnwire.ChannelUpdate) {
+		switch upd := update.(type) {
+		case *lnwire.ChannelUpdate1:
+			newTimestamp := uint32(time.Now().Unix())
+			if newTimestamp <= upd.Timestamp {
+				// Increment the prior value to ensure the
+				// timestamp monotonically increases, otherwise
+				// the update won't propagate.
+				newTimestamp = upd.Timestamp + 1
+			}
+			upd.Timestamp = newTimestamp
+
+		case *lnwire.ChannelUpdate2:
+			newBlockHeight := bestBlockHeight
+			if newBlockHeight <= upd.BlockHeight {
+				// Increment the prior value to ensure the
+				// blockHeight monotonically increases,
+				// otherwise the update won't propagate.
+				newBlockHeight = upd.BlockHeight + 1
+			}
+			upd.BlockHeight = newBlockHeight
+
+		default:
+			log.Errorf("unhandled implementation of "+
+				"lnwire.ChannelUpdate: %T", update)
+		}
 	}
-	update.Timestamp = newTimestamp
 }
 
 // SignChannelUpdate applies the given modifiers to the passed

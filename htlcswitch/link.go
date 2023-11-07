@@ -570,7 +570,8 @@ func (l *channelLink) WaitForShutdown() {
 func (l *channelLink) EligibleToForward() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
 		l.ShortChanID() != hop.Source &&
-		l.isReestablished()
+		l.isReestablished() &&
+		!l.IsFlushing()
 }
 
 // isReestablished returns true if the link has successfully completed the
@@ -1301,6 +1302,20 @@ func (l *channelLink) htlcManager() {
 
 		case <-l.quit:
 			return
+		}
+
+		// After we are finished processing the event, if the link is
+		// flushing, we check if the channel is clean and invoke the
+		// post-flush hook if it is.
+		if l.IsFlushing() && l.channel.IsChannelClean() {
+			// This will not block since flushCont must be full.
+			// We Read instead of Take to ensure a new flush
+			// operation can't be initiated until the continuation
+			// for the current flush has completed.
+			l.flushCont.Read()()
+
+			// Reset the flushCont MVar. This will also not block.
+			l.flushCont.Take()
 		}
 	}
 }
@@ -2166,7 +2181,6 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	default:
 		l.log.Warnf("received unknown message of type %T", msg)
 	}
-
 }
 
 // ackDownStreamPackets is responsible for removing htlcs from a link's mailbox
@@ -3080,6 +3094,25 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		}
 
 		fwdInfo := pld.ForwardingInfo()
+
+		// If we are in a flush state we need to cancel back all of the
+		// net new HTLCs rather than forwarding them. This is the first
+		// opportunity we have to bounce invalid HTLC adds without
+		// doing a force-close.
+		if l.IsFlushing() {
+			var isReceive bool
+			switch fwdInfo.NextHop {
+			case hop.Exit:
+				isReceive = true
+			default:
+				isReceive = false
+			}
+			failure := lnwire.NewTemporaryChannelFailure(nil)
+			l.sendHTLCError(
+				pd, NewLinkError(failure), obfuscator,
+				isReceive,
+			)
+		}
 
 		switch fwdInfo.NextHop {
 		case hop.Exit:

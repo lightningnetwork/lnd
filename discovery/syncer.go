@@ -15,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"golang.org/x/time/rate"
 )
 
@@ -1433,12 +1434,23 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 	endTime := startTime.Add(
 		time.Duration(g.remoteUpdateHorizon.TimestampRange) * time.Second,
 	)
+
+	var (
+		startBlock tlv.RecordT[tlv.TlvType2, uint32]
+		endBlock   tlv.RecordT[tlv.TlvType4, uint32]
+	)
+	startBlock = g.remoteUpdateHorizon.FirstBlockHeight.UnwrapOr(startBlock)
+	endBlock = g.remoteUpdateHorizon.BlockRange.UnwrapOr(endBlock)
 	g.Unlock()
 
-	passesFilter := func(timeStamp uint32) bool {
+	passesTimestampFilter := func(timeStamp uint32) bool {
 		t := time.Unix(int64(timeStamp), 0)
 		return t.Equal(startTime) ||
 			(t.After(startTime) && t.Before(endTime))
+	}
+
+	passesBlockHeightFilter := func(height uint32) bool {
+		return height >= startBlock.Val && height < endBlock.Val
 	}
 
 	msgsToSend := make([]lnwire.Message, 0, len(msgs))
@@ -1475,18 +1487,29 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 			}
 
 			for _, chanUpdate := range chanUpdates {
-				update, ok := chanUpdate.(*lnwire.ChannelUpdate1)
-				if !ok {
-					log.Errorf("expected "+
-						"*lnwire.ChannelUpdate1, "+
-						"got: %T", update)
+				switch update := chanUpdate.(type) {
+				case *lnwire.ChannelUpdate1:
+					if passesTimestampFilter(
+						update.Timestamp,
+					) {
 
-					continue
-				}
+						msgsToSend = append(
+							msgsToSend, msg,
+						)
 
-				if passesFilter(update.Timestamp) {
-					msgsToSend = append(msgsToSend, msg)
-					break
+						break
+					}
+				case *lnwire.ChannelUpdate2:
+					if passesBlockHeightFilter(
+						update.BlockHeight.Val,
+					) {
+
+						msgsToSend = append(
+							msgsToSend, msg,
+						)
+
+						break
+					}
 				}
 			}
 
@@ -1494,17 +1517,24 @@ func (g *GossipSyncer) FilterGossipMsgs(msgs ...msgWithSenders) {
 				msgsToSend = append(msgsToSend, msg)
 			}
 
-		// For each channel update, we'll only send if it the timestamp
+		// For each channel update 1, we'll only send if the timestamp
 		// is between our time range.
 		case *lnwire.ChannelUpdate1:
-			if passesFilter(msg.Timestamp) {
+			if passesTimestampFilter(msg.Timestamp) {
+				msgsToSend = append(msgsToSend, msg)
+			}
+
+		// For each channel update 2, we'll only send if the block
+		// height is between our block range.
+		case *lnwire.ChannelUpdate2:
+			if passesBlockHeightFilter(msg.BlockHeight.Val) {
 				msgsToSend = append(msgsToSend, msg)
 			}
 
 		// Similarly, we only send node announcements if the update
 		// timestamp ifs between our set gossip filter time range.
 		case *lnwire.NodeAnnouncement:
-			if passesFilter(msg.Timestamp) {
+			if passesTimestampFilter(msg.Timestamp) {
 				msgsToSend = append(msgsToSend, msg)
 			}
 		}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -50,6 +51,9 @@ type ChanStatusConfig struct {
 
 	// MessageSigner signs messages that validate under OurPubKey.
 	MessageSigner lnwallet.MessageSigner
+
+	// BestBlockView gives access to the current best block.
+	BestBlockView chainntnfs.BestBlockView
 
 	// IsChannelActive checks whether the channel identified by the provided
 	// ChannelID is considered active. This should only return true if the

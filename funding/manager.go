@@ -3382,7 +3382,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 		&completeChan.LocalChanCfg.MultiSigKey,
 		completeChan.RemoteChanCfg.MultiSigKey.PubKey, *shortChanID,
 		chanID, fwdMinHTLC, fwdMaxHTLC, ourPolicy,
-		completeChan.ChanType,
+		completeChan.ChanType, completeChan, false,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating channel "+
@@ -4152,6 +4152,8 @@ type chanAnnouncement struct {
 	chanAnn       lnwire.ChannelAnnouncement
 	chanUpdateAnn lnwire.ChannelUpdate
 	chanProof     lnwire.AnnounceSignatures
+
+	opts []discovery.OptionalMsgField
 }
 
 // newChanAnnouncement creates the authenticated channel announcement messages
@@ -4167,7 +4169,16 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
 	chanID lnwire.ChannelID, fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi,
 	ourEdgePolicy models.ChannelEdgePolicy,
-	chanType channeldb.ChannelType) (*chanAnnouncement, error) {
+	chanType channeldb.ChannelType, channel *channeldb.OpenChannel,
+	withProof bool) (*chanAnnouncement, error) {
+
+	if chanType.IsTaproot() {
+		return f.newTaprootChanAnnouncement(
+			localPubKey, remotePubKey, localFundingKey,
+			remoteFundingKey, shortChanID, chanID, fwdMinHTLC,
+			fwdMaxHTLC, ourEdgePolicy, channel, withProof,
+		)
+	}
 
 	var ourPolicy *models.ChannelEdgePolicy1
 	if ourEdgePolicy != nil {
@@ -4188,20 +4199,6 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 		ShortChannelID: shortChanID,
 		Features:       lnwire.NewRawFeatureVector(),
 		ChainHash:      chainHash,
-	}
-
-	// If this is a taproot channel, then we'll set a special bit in the
-	// feature vector to indicate to the routing layer that this needs a
-	// slightly different type of validation.
-	//
-	// TODO(roasbeef): temp, remove after gossip 1.5
-	if chanType.IsTaproot() {
-		log.Debugf("Applying taproot feature bit to "+
-			"ChannelAnnouncement1 for %v", chanID)
-
-		chanAnn.Features.Set(
-			lnwire.SimpleTaprootChannelsRequiredStaging,
-		)
 	}
 
 	// The chanFlags field indicates which directed edge of the channel is
@@ -4377,6 +4374,240 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	}, nil
 }
 
+func (f *Manager) newTaprootChanAnnouncement(localPubKey,
+	remotePubKey *btcec.PublicKey, localFundingKey *keychain.KeyDescriptor,
+	remoteFundingKey *btcec.PublicKey, shortChanID lnwire.ShortChannelID,
+	chanID lnwire.ChannelID, fwdMinHTLC, fwdMaxHTLC lnwire.MilliSatoshi,
+	ourEdgePolicy models.ChannelEdgePolicy, channel *channeldb.OpenChannel,
+	withProof bool) (*chanAnnouncement, error) {
+
+	var ourPolicy *models.ChannelEdgePolicy2
+	if ourEdgePolicy != nil {
+		var ok bool
+		ourPolicy, ok = ourEdgePolicy.(*models.ChannelEdgePolicy2)
+		if !ok {
+			return nil, fmt.Errorf("expected "+
+				"ChannelEdgePolicy1, got: %T", ourEdgePolicy)
+		}
+	}
+
+	chainHash := *f.cfg.Wallet.Cfg.NetParams.GenesisHash
+
+	chanAnn := &lnwire.ChannelAnnouncement2{
+		ShortChannelID: shortChanID,
+		Features:       *lnwire.NewRawFeatureVector(),
+		ChainHash:      chainHash,
+		Capacity:       uint64(channel.Capacity),
+	}
+
+	var direction int
+
+	// The lexicographical ordering of the two identity public keys of the
+	// nodes indicates which of the nodes is "first". If our serialized
+	// identity key is lower than theirs then we're the "first" node and
+	// second otherwise.
+	selfBytes := localPubKey.SerializeCompressed()
+	remoteBytes := remotePubKey.SerializeCompressed()
+	if bytes.Compare(selfBytes, remoteBytes) == -1 {
+		copy(chanAnn.NodeID1[:], localPubKey.SerializeCompressed())
+		copy(chanAnn.NodeID2[:], remotePubKey.SerializeCompressed())
+
+		var btc1 [33]byte
+		copy(btc1[:], localFundingKey.PubKey.SerializeCompressed())
+		chanAnn.BitcoinKey1 = fn.Some(btc1)
+
+		var btc2 [33]byte
+		copy(btc2[:], remoteFundingKey.SerializeCompressed())
+		chanAnn.BitcoinKey2 = fn.Some(btc2)
+
+		// If we're the first node then update the chanFlags to
+		// indicate the "direction" of the update.
+		direction = 0
+	} else {
+		copy(chanAnn.NodeID1[:], remotePubKey.SerializeCompressed())
+		copy(chanAnn.NodeID2[:], localPubKey.SerializeCompressed())
+
+		var btc1 [33]byte
+		copy(btc1[:], remoteFundingKey.SerializeCompressed())
+		chanAnn.BitcoinKey1 = fn.Some(btc1)
+
+		var btc2 [33]byte
+		copy(btc2[:], localFundingKey.PubKey.SerializeCompressed())
+		chanAnn.BitcoinKey2 = fn.Some(btc2)
+
+		// If we're the second node then update the chanFlags to
+		// indicate the "direction" of the update.
+		direction = 1
+	}
+
+	// We announce the channel with the default values. Some of
+	// these values can later be changed by crafting a new ChannelUpdate.
+	chanUpdateAnn := &lnwire.ChannelUpdate2{
+		ChainHash:      chainHash,
+		ShortChannelID: shortChanID,
+		BlockHeight:    shortChanID.BlockHeight,
+		Direction:      direction == 1,
+		CLTVExpiryDelta: uint16(
+			f.cfg.DefaultRoutingPolicy.TimeLockDelta,
+		),
+		HTLCMinimumMsat: fwdMinHTLC,
+		HTLCMaximumMsat: fwdMaxHTLC,
+	}
+
+	// The caller of newChanAnnouncement is expected to provide the initial
+	// forwarding policy to be announced. If no persisted initial policy
+	// values are found, then we will use the default policy values in the
+	// channel announcement.
+	storedFwdingPolicy, err := f.getInitialForwardingPolicy(chanID)
+	if err != nil && !errors.Is(err, channeldb.ErrChannelNotFound) {
+		return nil, errors.Errorf("unable to generate channel "+
+			"update announcement: %v", err)
+	}
+
+	switch {
+	case ourPolicy != nil:
+		// If ourPolicy is non-nil, modify the default parameters of the
+		// ChannelUpdate.
+		chanUpdateAnn.Direction = ourPolicy.Direction
+		chanUpdateAnn.CLTVExpiryDelta = ourPolicy.CLTVExpiryDelta
+		chanUpdateAnn.HTLCMinimumMsat = ourPolicy.HTLCMinimumMsat
+		chanUpdateAnn.HTLCMaximumMsat = ourPolicy.HTLCMaximumMsat
+		chanUpdateAnn.FeeBaseMsat = ourPolicy.FeeBaseMsat
+		chanUpdateAnn.FeeProportionalMillionths =
+			ourPolicy.FeeProportionalMillionths
+
+	case storedFwdingPolicy != nil:
+		chanUpdateAnn.FeeBaseMsat = uint32(storedFwdingPolicy.BaseFee)
+		chanUpdateAnn.FeeProportionalMillionths = uint32(storedFwdingPolicy.FeeRate)
+
+	default:
+		log.Infof("No channel forwarding policy specified for channel "+
+			"announcement of ChannelID(%v). "+
+			"Assuming default fee parameters.", chanID)
+		chanUpdateAnn.FeeBaseMsat = uint32(
+			f.cfg.DefaultRoutingPolicy.BaseFee,
+		)
+		chanUpdateAnn.FeeProportionalMillionths = uint32(
+			f.cfg.DefaultRoutingPolicy.FeeRate,
+		)
+	}
+
+	// With the channel update announcement constructed, we'll generate a
+	// signature that signs a double-sha digest of the announcement.
+	// This'll serve to authenticate this announcement and any other future
+	// updates we may send.
+	chanUpdateMsg, err := chanUpdateAnn.DataToSign()
+	if err != nil {
+		return nil, err
+	}
+	sig, err := f.cfg.MessageSigner.SignMessageSchnorr(
+		f.cfg.IDKeyLoc, chanUpdateMsg, false, nil,
+		chanUpdateAnn.DigestTag(),
+	)
+	if err != nil {
+		return nil, errors.Errorf("unable to generate channel "+
+			"update announcement signature: %v", err)
+	}
+	chanUpdateAnn.Signature, err = lnwire.NewSigFromSignature(sig)
+	if err != nil {
+		return nil, errors.Errorf("unable to generate channel "+
+			"update announcement signature: %v", err)
+	}
+
+	if !withProof {
+		return &chanAnnouncement{
+			chanAnn:       chanAnn,
+			chanUpdateAnn: chanUpdateAnn,
+		}, nil
+	}
+
+	chanAnnMsg, err := chanAnn.DigestToSign()
+	if err != nil {
+		return nil, err
+	}
+
+	pubKeys := []*btcec.PublicKey{
+		localPubKey,
+		remotePubKey,
+		localFundingKey.PubKey,
+		remoteFundingKey,
+	}
+
+	rBtc, rNode, haveReceivedNonces := f.nonceMgr.getReceivedNonces(chanID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !haveReceivedNonces {
+		return nil, fmt.Errorf("havent received all the necessary " +
+			"nonces yet")
+	}
+
+	sBtc, sNode, err := f.nonceMgr.getNoncesToSend(
+		chanID, channel.RevocationProducer,
+		channel.LocalChanCfg.MultiSigKey.PubKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	musigBtcSess, err := f.cfg.MuSig2Signer.MuSig2CreateSession(
+		input.MuSig2Version100RC2, localFundingKey.KeyLocator,
+		pubKeys, &input.MuSig2Tweaks{},
+		[][66]byte{sNode.PubNonce, rBtc, rNode}, sBtc,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	bitcoinPartialSig, err := f.cfg.MuSig2Signer.MuSig2Sign(
+		musigBtcSess.SessionID, *chanAnnMsg, true,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	musigNodeSess, err := f.cfg.MuSig2Signer.MuSig2CreateSession(
+		input.MuSig2Version100RC2, f.cfg.IDKeyLoc, pubKeys,
+		&input.MuSig2Tweaks{},
+		[][66]byte{sBtc.PubNonce, rBtc, rNode}, sNode,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	nodePartialSig, err := f.cfg.MuSig2Signer.MuSig2Sign(
+		musigNodeSess.SessionID, *chanAnnMsg, true,
+	)
+	if err != nil {
+		return nil, errors.Errorf("unable to generate node "+
+			"partial signature for channel announcement: %v", err)
+	}
+
+	// Combine the two partial signatures.
+	ps := musig2.NewPartialSignature(
+		bitcoinPartialSig.S.Add(nodePartialSig.S), bitcoinPartialSig.R,
+	)
+
+	// Finally, we'll generate the announcement proof which we'll use to
+	// provide the other side with the necessary signatures required to
+	// allow them to reconstruct the full channel announcement.
+	proof := &lnwire.AnnounceSignatures2{
+		ChannelID:        chanID,
+		ShortChannelID:   shortChanID,
+		PartialSignature: lnwire.NewPartialSig(*ps.S),
+	}
+
+	return &chanAnnouncement{
+		chanAnn:       chanAnn,
+		chanUpdateAnn: chanUpdateAnn,
+		chanProof:     proof,
+		opts: []discovery.OptionalMsgField{
+			discovery.AggregateNonce(ps.R),
+		},
+	}, nil
+}
+
 // announceChannel announces a newly created channel to the rest of the network
 // by crafting the two authenticated announcements required for the peers on
 // the network to recognize the legitimacy of the channel. The crafted
@@ -4399,7 +4630,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	// only use the channel announcement message from the returned struct.
 	ann, err := f.newChanAnnouncement(localIDKey, remoteIDKey,
 		localFundingKey, remoteFundingKey, shortChanID, chanID,
-		0, 0, nil, chanType,
+		0, 0, nil, chanType, channel, true,
 	)
 	if err != nil {
 		log.Errorf("can't generate channel announcement: %v", err)
@@ -4410,7 +4641,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	// because addToRouterGraph previously sent the ChannelAnnouncement1 and
 	// the ChannelUpdate1 announcement messages. The channel proof and node
 	// announcements are broadcast to the greater network.
-	errChan := f.cfg.SendAnnouncement(ann.chanProof)
+	errChan := f.cfg.SendAnnouncement(ann.chanProof, ann.opts...)
 	select {
 	case err := <-errChan:
 		if err != nil {

@@ -52,7 +52,7 @@ type mockChannelGraphTimeSeries struct {
 	annResp chan []lnwire.Message
 
 	updateReq  chan lnwire.ShortChannelID
-	updateResp chan []*lnwire.ChannelUpdate1
+	updateResp chan []lnwire.ChannelUpdate
 }
 
 func newMockChannelGraphTimeSeries(
@@ -74,7 +74,7 @@ func newMockChannelGraphTimeSeries(
 		annResp: make(chan []lnwire.Message, 1),
 
 		updateReq:  make(chan lnwire.ShortChannelID, 1),
-		updateResp: make(chan []*lnwire.ChannelUpdate1, 1),
+		updateResp: make(chan []lnwire.ChannelUpdate, 1),
 	}
 }
 
@@ -149,7 +149,7 @@ func (m *mockChannelGraphTimeSeries) FetchChanAnns(chain chainhash.Hash,
 	return <-m.annResp, nil
 }
 func (m *mockChannelGraphTimeSeries) FetchChanUpdates(chain chainhash.Hash,
-	shortChanID lnwire.ShortChannelID) ([]*lnwire.ChannelUpdate1, error) {
+	shortChanID lnwire.ShortChannelID) ([]lnwire.ChannelUpdate, error) {
 
 	m.updateReq <- shortChanID
 
@@ -369,8 +369,8 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 			}
 
 			// If so, then we'll send back the missing update.
-			chanSeries.updateResp <- []*lnwire.ChannelUpdate1{
-				{
+			chanSeries.updateResp <- []lnwire.ChannelUpdate{
+				&lnwire.ChannelUpdate1{
 					ShortChannelID: lnwire.NewShortChanIDFromInt(25),
 					Timestamp:      unixStamp(5),
 				},

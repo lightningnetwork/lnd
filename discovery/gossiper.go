@@ -1826,7 +1826,7 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 			var defaultAlias lnwire.ShortChannelID
 			foundAlias, _ := d.cfg.GetAlias(chanID)
 			if foundAlias != defaultAlias {
-				chanUpdate.ShortChannelID = foundAlias
+				chanUpdate.SetSCID(foundAlias)
 
 				err := d.cfg.SignAliasUpdate(chanUpdate)
 				if err != nil {
@@ -1846,7 +1846,7 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 				log.Errorf("Unable to reliably send %v for "+
 					"channel=%v to peer=%x: %v",
 					chanUpdate.MsgType(),
-					chanUpdate.ShortChannelID,
+					chanUpdate.SCID(),
 					remotePubKey, err)
 			}
 			continue
@@ -2244,21 +2244,15 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 // updateChannel creates a new fully signed update for the channel, and updates
 // the underlying graph with the new state.
 func (d *AuthenticatedGossiper) updateChannel(edgeInfo models.ChannelEdgeInfo,
-	edgePolicy models.ChannelEdgePolicy) (lnwire.ChannelAnnouncement,
-	*lnwire.ChannelUpdate1, error) {
+	edge models.ChannelEdgePolicy) (lnwire.ChannelAnnouncement,
+	lnwire.ChannelUpdate, error) {
 
 	// Parse the unsigned edge into a channel update.
 	chanUpdate, err := netann.UnsignedChannelUpdateFromEdge(
-		edgeInfo.GetChainHash(), edgePolicy,
+		edgeInfo.GetChainHash(), edge,
 	)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	edge, ok := edgePolicy.(*models.ChannelEdgePolicy1)
-	if !ok {
-		return nil, nil, fmt.Errorf("expected "+
-			"*models.ChannelEdgePolicy1, got: %T", edgePolicy)
 	}
 
 	// We'll generate a new signature over a digest of the channel
@@ -2273,8 +2267,25 @@ func (d *AuthenticatedGossiper) updateChannel(edgeInfo models.ChannelEdgeInfo,
 
 	// Next, we'll set the new signature in place, and update the reference
 	// in the backing slice.
-	edge.LastUpdate = time.Unix(int64(chanUpdate.Timestamp), 0)
-	edge.SigBytes = chanUpdate.Signature.ToSignatureBytes()
+	switch e := edge.(type) {
+	case *models.ChannelEdgePolicy1:
+		chanUpd, ok := chanUpdate.(*lnwire.ChannelUpdate1)
+		if !ok {
+			return nil, nil, fmt.Errorf("wanted chan update 1")
+		}
+
+		e.LastUpdate = time.Unix(int64(chanUpd.Timestamp), 0)
+		e.SigBytes = chanUpd.Signature.ToSignatureBytes()
+
+	case *models.ChannelEdgePolicy2:
+		chanUpd, ok := chanUpdate.(*lnwire.ChannelUpdate2)
+		if !ok {
+			return nil, nil, fmt.Errorf("wanted chan update 2")
+		}
+
+		e.BlockHeight = chanUpd.BlockHeight
+		e.Signature = chanUpd.Signature
+	}
 
 	// To ensure that our signature is valid, we'll verify it ourself
 	// before committing it to the slice returned.
@@ -2302,6 +2313,10 @@ func (d *AuthenticatedGossiper) updateChannel(edgeInfo models.ChannelEdgeInfo,
 			if err != nil {
 				return nil, nil, err
 			}
+
+		case *models.ChannelEdgeInfo2:
+			chanAnn = chanAnn2FromEdgeInfo2(info)
+
 		default:
 			return nil, nil, fmt.Errorf("unhandled "+
 				"implementation of models.ChannelEdgeInfo: "+
@@ -2354,6 +2369,15 @@ func chanAnn1FromEdgeInfo1(info *models.ChannelEdgeInfo1) (
 	}
 
 	return chanAnn, nil
+}
+
+func chanAnn2FromEdgeInfo2(
+	info *models.ChannelEdgeInfo2) *lnwire.ChannelAnnouncement2 {
+
+	chanAnn := info.ChannelAnnouncement2
+	chanAnn.Signature = info.Signature
+
+	return &chanAnn
 }
 
 // SyncManager returns the gossiper's SyncManager instance.

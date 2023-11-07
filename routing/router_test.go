@@ -15,8 +15,10 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
@@ -28,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/graph"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -146,7 +149,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		MissionControl:    mc,
 	}
 
-	graphBuilder := newMockGraphBuilder(graphInstance.graph)
+	graphBuilder := newMockGraphBuilder(t, graphInstance.graph)
 
 	router, err := New(Config{
 		SelfNode:       sourceNode.PubKeyBytes,
@@ -221,16 +224,50 @@ func createTestCtxFromFile(t *testing.T,
 // Add valid signature to channel update simulated as error received from the
 // network.
 func signErrChanUpdate(t *testing.T, key *btcec.PrivateKey,
-	errChanUpdate *lnwire.ChannelUpdate1) {
+	errChanUpdate lnwire.ChannelUpdate) {
 
-	chanUpdateMsg, err := errChanUpdate.DataToSign()
-	require.NoError(t, err, "failed to retrieve data to sign")
+	signer := &mockSigner{key: key}
+	err := netann.SignChannelUpdate(
+		signer, keychain.KeyLocator{}, errChanUpdate,
+	)
+	require.NoError(t, err)
+}
 
-	digest := chainhash.DoubleHashB(chanUpdateMsg)
-	sig := ecdsa.Sign(key, digest)
+type mockSigner struct {
+	key *btcec.PrivateKey
+	keychain.MessageSignerRing
+}
 
-	errChanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
-	require.NoError(t, err, "failed to create new signature")
+func (s *mockSigner) SignMessage(keyLoc keychain.KeyLocator, msg []byte,
+	doubleHash bool) (*ecdsa.Signature, error) {
+
+	digest := chainhash.DoubleHashB(msg)
+	sig := ecdsa.Sign(s.key, digest)
+
+	return sig, nil
+}
+
+func (s *mockSigner) SignMessageSchnorr(keyLoc keychain.KeyLocator, msg []byte,
+	doubleHash bool, taprootTweak, tag []byte) (*schnorr.Signature,
+	error) {
+
+	var digest []byte
+	switch {
+	case len(tag) > 0:
+		taggedHash := chainhash.TaggedHash(tag, msg)
+		digest = taggedHash[:]
+	case doubleHash:
+		digest = chainhash.DoubleHashB(msg)
+	default:
+		digest = chainhash.HashB(msg)
+	}
+
+	privKey := s.key
+	if len(taprootTweak) > 0 {
+		privKey = txscript.TweakTaprootPrivKey(*privKey, taprootTweak)
+	}
+
+	return schnorr.Sign(privKey, digest)
 }
 
 // TestFindRoutesWithFeeLimit asserts that routes found by the FindRoutes method
@@ -613,15 +650,15 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to fetch chan id")
 
-	edgeUpdToFail, ok := edgeUpdateToFail.(*models.ChannelEdgePolicy1)
-	require.True(t, ok)
-
 	errChanUpdate, err := netann.UnsignedChannelUpdateFromEdge(
-		chainhash.Hash{}, edgeUpdToFail,
+		chainhash.Hash{}, edgeUpdateToFail,
 	)
 	require.NoError(t, err)
 
 	signErrChanUpdate(t, ctx.privKeys["songoku"], errChanUpdate)
+
+	chanUpd, ok := errChanUpdate.(*lnwire.ChannelUpdate1)
+	require.True(t, ok)
 
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to Son goku. This will be a fee related error, so
@@ -636,15 +673,17 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 			roasbeefSongokuChanID,
 		)
 		if firstHop == roasbeefSongoku {
-			return [32]byte{}, htlcswitch.NewForwardingError(
-				// Within our error, we'll add a
-				// channel update which is meant to
-				// reflect the new fee schedule for the
-				// node/channel.
-				&lnwire.FailFeeInsufficient{
-					Update: *errChanUpdate,
-				}, 1,
-			)
+			if firstHop == roasbeefSongoku {
+				return [32]byte{}, htlcswitch.NewForwardingError(
+					// Within our error, we'll add a
+					// channel update which is meant to
+					// reflect the new fee schedule for the
+					// node/channel.
+					&lnwire.FailFeeInsufficient{
+						Update: *chanUpd,
+					}, 1,
+				)
+			}
 		}
 
 		return preImage, nil
@@ -961,6 +1000,9 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	chanUpd, ok := errChanUpdate.(*lnwire.ChannelUpdate1)
+	require.True(t, ok)
+
 	// We'll now modify the SendToSwitch method to return an error for the
 	// outgoing channel to son goku. Since this is a time lock related
 	// error, we should fail the payment flow all together, as Goku is the
@@ -970,7 +1012,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 			if firstHop == roasbeefSongoku {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailExpiryTooSoon{
-						Update: *errChanUpdate,
+						Update: *chanUpd,
 					}, 1,
 				)
 			}
@@ -1018,7 +1060,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 			if firstHop == roasbeefSongoku {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailIncorrectCltvExpiry{
-						Update: *errChanUpdate,
+						Update: *chanUpd,
 					}, 1,
 				)
 			}
@@ -2940,13 +2982,15 @@ func createDummyLightningPayment(t *testing.T,
 }
 
 type mockGraphBuilder struct {
+	t            *testing.T
 	rejectUpdate bool
-	updateEdge   func(update *models.ChannelEdgePolicy1) error
+	updateEdge   func(update models.ChannelEdgePolicy) error
 }
 
-func newMockGraphBuilder(graph graph.DB) *mockGraphBuilder {
+func newMockGraphBuilder(t *testing.T, graph graph.DB) *mockGraphBuilder {
 	return &mockGraphBuilder{
-		updateEdge: func(update *models.ChannelEdgePolicy1) error {
+		t: t,
+		updateEdge: func(update models.ChannelEdgePolicy) error {
 			return graph.UpdateEdgePolicy(update)
 		},
 	}
@@ -2956,26 +3000,15 @@ func (m *mockGraphBuilder) setNextReject(reject bool) {
 	m.rejectUpdate = reject
 }
 
-func (m *mockGraphBuilder) ApplyChannelUpdate(msg *lnwire.ChannelUpdate1) bool {
+func (m *mockGraphBuilder) ApplyChannelUpdate(msg lnwire.ChannelUpdate) bool {
 	if m.rejectUpdate {
 		return false
 	}
 
-	err := m.updateEdge(&models.ChannelEdgePolicy1{
-		SigBytes:                  msg.Signature.ToSignatureBytes(),
-		ChannelID:                 msg.ShortChannelID.ToUint64(),
-		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
-		MessageFlags:              msg.MessageFlags,
-		ChannelFlags:              msg.ChannelFlags,
-		TimeLockDelta:             msg.TimeLockDelta,
-		MinHTLC:                   msg.HtlcMinimumMsat,
-		MaxHTLC:                   msg.HtlcMaximumMsat,
-		FeeBaseMSat:               lnwire.MilliSatoshi(msg.BaseFee),
-		FeeProportionalMillionths: lnwire.MilliSatoshi(msg.FeeRate),
-		ExtraOpaqueData:           msg.ExtraOpaqueData,
-	})
+	policy, err := models.EdgePolicyFromUpdate(msg)
+	require.NoError(m.t, err)
 
-	return err == nil
+	return m.updateEdge(policy) == nil
 }
 
 type mockChain struct {

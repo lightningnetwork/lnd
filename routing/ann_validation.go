@@ -246,7 +246,7 @@ func ValidateNodeAnn(a *lnwire.NodeAnnouncement1) error {
 // signed by the node's private key, and (2) that the announcement's message
 // flags and optional fields are sane.
 func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
-	a *lnwire.ChannelUpdate1) error {
+	a lnwire.ChannelUpdate) error {
 
 	if err := ValidateChannelUpdateFields(capacity, a); err != nil {
 		return err
@@ -257,7 +257,21 @@ func ValidateChannelUpdateAnn(pubKey *btcec.PublicKey, capacity btcutil.Amount,
 
 // VerifyChannelUpdateSignature verifies that the channel update message was
 // signed by the party with the given node public key.
-func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate1,
+func VerifyChannelUpdateSignature(msg lnwire.ChannelUpdate,
+	pubKey *btcec.PublicKey) error {
+
+	switch m := msg.(type) {
+	case *lnwire.ChannelUpdate1:
+		return verifyChannelUpdate1Signature(m, pubKey)
+	case *lnwire.ChannelUpdate2:
+		return verifyChannelUpdate2Signature(m, pubKey)
+	default:
+		return fmt.Errorf("unhandled implementation of "+
+			"lnwire.ChannelUpdate: %T", msg)
+	}
+}
+
+func verifyChannelUpdate1Signature(msg *lnwire.ChannelUpdate1,
 	pubKey *btcec.PublicKey) error {
 
 	data, err := msg.DataToSign()
@@ -265,13 +279,31 @@ func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate1,
 		return fmt.Errorf("unable to reconstruct message data: %v", err)
 	}
 	dataHash := chainhash.DoubleHashB(data)
+	nodeSig, err := msg.Signature.ToSignature()
+	if err != nil {
+		return err
+	}
+	if !nodeSig.Verify(dataHash, pubKey) {
+		return fmt.Errorf("invalid signature for channel update %v",
+			spew.Sdump(msg))
+	}
+	return nil
+}
+
+func verifyChannelUpdate2Signature(msg *lnwire.ChannelUpdate2,
+	pubKey *btcec.PublicKey) error {
+
+	digest, err := msg.DigestToSign()
+	if err != nil {
+		return fmt.Errorf("unable to reconstruct message data: %v", err)
+	}
 
 	nodeSig, err := msg.Signature.ToSignature()
 	if err != nil {
 		return err
 	}
 
-	if !nodeSig.Verify(dataHash, pubKey) {
+	if !nodeSig.Verify(digest, pubKey) {
 		return fmt.Errorf("invalid signature for channel update %v",
 			spew.Sdump(msg))
 	}

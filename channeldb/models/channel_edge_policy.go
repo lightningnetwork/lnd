@@ -268,3 +268,35 @@ func (c *ChannelEdgePolicy2) GetToNode() [33]byte {
 // A compile-time check to ensure that ChannelEdgePolicy2 implements the
 // ChannelEdgePolicy interface.
 var _ ChannelEdgePolicy = (*ChannelEdgePolicy2)(nil)
+
+// EdgePolicyFromUpdate converts the given lnwire.ChannelUpdate into the
+// corresponding ChannelEdgePolicy type.
+func EdgePolicyFromUpdate(update lnwire.ChannelUpdate) (
+	ChannelEdgePolicy, error) {
+
+	switch upd := update.(type) {
+	case *lnwire.ChannelUpdate1:
+		//nolint:lll
+		return &ChannelEdgePolicy1{
+			SigBytes:                  upd.Signature.ToSignatureBytes(),
+			ChannelID:                 upd.ShortChannelID.ToUint64(),
+			LastUpdate:                time.Unix(int64(upd.Timestamp), 0),
+			MessageFlags:              upd.MessageFlags,
+			ChannelFlags:              upd.ChannelFlags,
+			TimeLockDelta:             upd.TimeLockDelta,
+			MinHTLC:                   upd.HtlcMinimumMsat,
+			MaxHTLC:                   upd.HtlcMaximumMsat,
+			FeeBaseMSat:               lnwire.MilliSatoshi(upd.BaseFee),
+			FeeProportionalMillionths: lnwire.MilliSatoshi(upd.FeeRate),
+		}, nil
+
+	case *lnwire.ChannelUpdate2:
+		return &ChannelEdgePolicy2{
+			ChannelUpdate2: *upd,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unhandled implementation of "+
+			"lnwire.ChannelUpdate: %T", update)
+	}
+}

@@ -886,7 +886,7 @@ func (p *paymentLifecycle) handleFailureMessage(rt *route.Route,
 	// SendToRoute where there's no payment lifecycle.
 	if p.paySession != nil {
 		policy = p.paySession.GetAdditionalEdgePolicy(
-			errSource, update.ShortChannelID.ToUint64(),
+			errSource, update.SCID().ToUint64(),
 		)
 		if policy != nil {
 			isAdditionalEdge = true
@@ -896,7 +896,8 @@ func (p *paymentLifecycle) handleFailureMessage(rt *route.Route,
 	// Apply channel update to additional edge policy.
 	if isAdditionalEdge {
 		if !p.paySession.UpdateAdditionalEdge(
-			update, errSource, policy) {
+			update, errSource, policy,
+		) {
 
 			log.Debugf("Invalid channel update received: node=%v",
 				errVertex)

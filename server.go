@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/connmgr"
@@ -1633,18 +1632,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	return s, nil
 }
 
-// signAliasUpdate takes a ChannelUpdate1 and returns the signature. This is
-// used for option_scid_alias channels where the ChannelUpdate1 to be sent back
-// may differ from what is on disk.
-func (s *server) signAliasUpdate(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
-	error) {
-
-	data, err := u.DataToSign()
-	if err != nil {
-		return nil, err
-	}
-
-	return s.cc.MsgSigner.SignMessage(s.identityKeyLoc, data, true)
+// signAliasUpdate takes a ChannelUpdate and re-signs it. The signature is set
+// the update accordingly. This is used for option_scid_alias channels where the
+// ChannelUpdate to be sent back may differ from what is on disk.
+func (s *server) signAliasUpdate(u lnwire.ChannelUpdate) error {
+	return netann.SignChannelUpdate(s.cc.KeyRing, s.identityKeyLoc, u)
 }
 
 // createLivenessMonitor creates a set of health checks using our configured

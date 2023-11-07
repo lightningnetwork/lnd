@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -322,8 +321,7 @@ type Config struct {
 
 	// SignAliasUpdate is used to re-sign a channel update using the
 	// remote's alias if the option-scid-alias feature bit was negotiated.
-	SignAliasUpdate func(u *lnwire.ChannelUpdate1) (*ecdsa.Signature,
-		error)
+	SignAliasUpdate func(u lnwire.ChannelUpdate) error
 
 	// FindBaseByAlias finds the SCID stored in the graph by an alias SCID.
 	// This is used for channels that have negotiated the option-scid-alias
@@ -1804,21 +1802,12 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 			if foundAlias != defaultAlias {
 				chanUpdate.ShortChannelID = foundAlias
 
-				sig, err := d.cfg.SignAliasUpdate(chanUpdate)
+				err := d.cfg.SignAliasUpdate(chanUpdate)
 				if err != nil {
 					log.Errorf("Unable to sign alias "+
 						"update: %v", err)
 					continue
 				}
-
-				lnSig, err := lnwire.NewSigFromSignature(sig)
-				if err != nil {
-					log.Errorf("Unable to create sig: %v",
-						err)
-					continue
-				}
-
-				chanUpdate.Signature = lnSig
 			}
 
 			remotePubKey := remotePubFromChanInfo(
@@ -3074,21 +3063,12 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 				// negotiated channels.
 				upd.ShortChannelID = *remoteAlias
 
-				sig, err := d.cfg.SignAliasUpdate(upd)
+				err := d.cfg.SignAliasUpdate(upd)
 				if err != nil {
 					log.Error(err)
 					nMsg.err <- err
 					return nil, false
 				}
-
-				lnSig, err := lnwire.NewSigFromSignature(sig)
-				if err != nil {
-					log.Error(err)
-					nMsg.err <- err
-					return nil, false
-				}
-
-				upd.Signature = lnSig
 			}
 		}
 

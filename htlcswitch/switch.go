@@ -173,7 +173,7 @@ type Config struct {
 	// provide payment senders our latest policy when sending encrypted
 	// error messages.
 	FetchLastChannelUpdate func(lnwire.ShortChannelID) (
-		*lnwire.ChannelUpdate1, error)
+		lnwire.ChannelUpdate, error)
 
 	// Notifier is an instance of a chain notifier that we'll use to signal
 	// the switch when a new block has arrived.
@@ -2643,7 +2643,7 @@ func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 			}
 
 			// Replace the baseScid with the passed-in alias.
-			update.ShortChannelID = scid
+			update.SetSCID(scid)
 			err = s.cfg.SignAliasUpdate(update)
 			if err != nil {
 				return nil
@@ -2664,7 +2664,7 @@ func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 		// In the incoming case, we want to ensure that we don't leak
 		// the UTXO in case the channel is private. In the outgoing
 		// case, since the alias was used, we do the same thing.
-		update.ShortChannelID = scid
+		update.SetSCID(scid)
 		err = s.cfg.SignAliasUpdate(update)
 		if err != nil {
 			return nil
@@ -2714,7 +2714,7 @@ func (s *Switch) failAliasUpdate(scid lnwire.ShortChannelID,
 		// We will replace and sign the update with the first alias.
 		// Since this happens on the incoming side, it's not actually
 		// possible to know what the sender used in the onion.
-		update.ShortChannelID = aliases[0]
+		update.SetSCID(aliases[0])
 		err := s.cfg.SignAliasUpdate(update)
 		if err != nil {
 			return nil

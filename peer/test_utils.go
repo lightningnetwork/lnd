@@ -718,8 +718,9 @@ func createTestPeer(t *testing.T) *peerTestCtx {
 			return nil
 		},
 		PongBuf: make([]byte, lnwire.MaxPongBytes),
-		FetchLastChanUpdate: func(chanID lnwire.ShortChannelID,
-		) (*lnwire.ChannelUpdate1, error) {
+		FetchLastChanUpdate: func(
+			chanID lnwire.ShortChannelID) (lnwire.ChannelUpdate,
+			error) {
 
 			return &lnwire.ChannelUpdate1{}, nil
 		},

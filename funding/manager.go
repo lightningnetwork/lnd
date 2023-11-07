@@ -4052,7 +4052,7 @@ func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
 type chanAnnouncement struct {
 	chanAnn       lnwire.ChannelAnnouncement
 	chanUpdateAnn *lnwire.ChannelUpdate1
-	chanProof     *lnwire.AnnounceSignatures1
+	chanProof     lnwire.AnnounceSignatures
 }
 
 // newChanAnnouncement creates the authenticated channel announcement messages

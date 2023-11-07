@@ -1725,6 +1725,7 @@ out:
 			*lnwire.ChannelAnnouncement2,
 			*lnwire.NodeAnnouncement1,
 			*lnwire.AnnounceSignatures1,
+			*lnwire.AnnounceSignatures2,
 			*lnwire.GossipTimestampRange,
 			*lnwire.QueryShortChanIDs,
 			*lnwire.QueryChannelRange,
@@ -1971,9 +1972,9 @@ func messageSummary(msg lnwire.Message) string {
 	case *lnwire.Error:
 		return fmt.Sprintf("%v", msg.Error())
 
-	case *lnwire.AnnounceSignatures1:
-		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.ChannelID,
-			msg.ShortChannelID.ToUint64())
+	case lnwire.AnnounceSignatures:
+		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.SCID(),
+			msg.SCID().ToUint64())
 
 	case lnwire.ChannelAnnouncement:
 		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v",

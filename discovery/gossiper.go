@@ -1422,7 +1422,7 @@ func (d *AuthenticatedGossiper) networkHandler() {
 			switch announcement.msg.(type) {
 			// Channel announcement signatures are amongst the only
 			// messages that we'll process serially.
-			case *lnwire.AnnounceSignatures1:
+			case lnwire.AnnounceSignatures:
 				emittedAnnouncements, _ := d.processNetworkAnnouncement(
 					announcement,
 				)
@@ -2156,9 +2156,9 @@ func (d *AuthenticatedGossiper) fetchNodeAnn(
 // MessageStore is seen as stale by the current graph.
 func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 	switch msg := msg.(type) {
-	case *lnwire.AnnounceSignatures1:
+	case lnwire.AnnounceSignatures:
 		chanInfo, _, _, err := d.cfg.Router.GetChannelByID(
-			msg.ShortChannelID,
+			msg.SCID(),
 		)
 
 		// If the channel cannot be found, it is most likely a leftover

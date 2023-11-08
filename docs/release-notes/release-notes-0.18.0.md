@@ -11,6 +11,7 @@
   - [Code Health](#code-health)
   - [Breaking Changes](#breaking-changes)
   - [Performance Improvements](#performance-improvements)
+  - [Misc](#misc)
 - [Technical and Architectural Updates](#technical-and-architectural-updates)
   - [BOLT Spec Updates](#bolt-spec-updates)
   - [Testing](#testing)
@@ -65,6 +66,12 @@
 * [Bool was added](https://github.com/lightningnetwork/lnd/pull/8057) to the
   primitive type of the tlv package.
 
+## Misc
+### Logging
+* [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
+  contract court logs in case of timed-out htlcs in order to easily spot dust
+  outputs.
+
 ## RPC Updates
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
@@ -114,6 +121,7 @@
 * Elle Mouton
 * Keagan McClelland
 * Matt Morehouse
+* Slyghtning
 * Turtle
 * Ononiwu Maureen Chiamaka
 * Yong Yu

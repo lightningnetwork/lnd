@@ -19,6 +19,8 @@
 
 # Bug Fixes
 
+* A bug that caused certain API calls to hang [has been fixed](https://github.com/lightningnetwork/lnd/pull/8158).
+
 * [LND now sets the `BADONION`](https://github.com/lightningnetwork/lnd/pull/7937)
   bit when sending `update_fail_malformed_htlc`. This avoids a force close
   with other implementations.

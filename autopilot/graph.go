@@ -69,7 +69,7 @@ var _ Node = (*dbNode)(nil)
 // will be returned in serialized compressed format.
 //
 // NOTE: Part of the autopilot.Node interface.
-func (d dbNode) PubKey() [33]byte {
+func (d *dbNode) PubKey() [33]byte {
 	return d.node.PubKeyBytes
 }
 
@@ -77,7 +77,7 @@ func (d dbNode) PubKey() [33]byte {
 // peer is known to be listening on.
 //
 // NOTE: Part of the autopilot.Node interface.
-func (d dbNode) Addrs() []net.Addr {
+func (d *dbNode) Addrs() []net.Addr {
 	return d.node.Addresses
 }
 
@@ -87,7 +87,7 @@ func (d dbNode) Addrs() []net.Addr {
 // describes the active channel.
 //
 // NOTE: Part of the autopilot.Node interface.
-func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
+func (d *dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 	return d.db.ForEachNodeChannel(d.tx, d.node.PubKeyBytes,
 		func(tx kvdb.RTx, ei *channeldb.ChannelEdgeInfo, ep,
 			_ *channeldb.ChannelEdgePolicy) error {
@@ -109,7 +109,7 @@ func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 					ep.ChannelID,
 				),
 				Capacity: ei.Capacity,
-				Peer: dbNode{
+				Peer: &dbNode{
 					tx:   tx,
 					db:   d.db,
 					node: ep.Node,
@@ -134,7 +134,7 @@ func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
 			return nil
 		}
 
-		node := dbNode{
+		node := &dbNode{
 			db:   d.db,
 			tx:   tx,
 			node: n,
@@ -273,7 +273,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	return &ChannelEdge{
 			ChanID:   chanID,
 			Capacity: capacity,
-			Peer: dbNode{
+			Peer: &dbNode{
 				db:   d.db,
 				node: vertex1,
 			},
@@ -281,7 +281,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 		&ChannelEdge{
 			ChanID:   chanID,
 			Capacity: capacity,
-			Peer: dbNode{
+			Peer: &dbNode{
 				db:   d.db,
 				node: vertex2,
 			},

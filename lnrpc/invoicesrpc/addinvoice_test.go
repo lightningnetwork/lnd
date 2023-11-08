@@ -16,7 +16,12 @@ import (
 )
 
 type hopHintsConfigMock struct {
+	t *testing.T
 	mock.Mock
+}
+
+func newHopHintsConfigMock(t *testing.T) *hopHintsConfigMock {
+	return &hopHintsConfigMock{t: t}
 }
 
 // IsPublicNode mocks node public state lookup.
@@ -65,9 +70,14 @@ func (h *hopHintsConfigMock) FetchChannelEdgesByID(chanID uint64) (
 		return nil, nil, nil, err
 	}
 
-	edgeInfo := args.Get(0).(*models.ChannelEdgeInfo)
-	policy1 := args.Get(1).(*models.ChannelEdgePolicy)
-	policy2 := args.Get(2).(*models.ChannelEdgePolicy)
+	edgeInfo, ok := args.Get(0).(*models.ChannelEdgeInfo)
+	require.True(h.t, ok)
+
+	policy1, ok := args.Get(1).(*models.ChannelEdgePolicy)
+	require.True(h.t, ok)
+
+	policy2, ok := args.Get(2).(*models.ChannelEdgePolicy)
+	require.True(h.t, ok)
 
 	return edgeInfo, policy1, policy2, err
 }
@@ -429,7 +439,7 @@ func TestShouldIncludeChannel(t *testing.T) {
 			t.Parallel()
 
 			// Create mock and prime it for the test case.
-			mock := &hopHintsConfigMock{}
+			mock := newHopHintsConfigMock(t)
 			if tc.setupMock != nil {
 				tc.setupMock(mock)
 			}
@@ -862,7 +872,7 @@ func TestPopulateHopHints(t *testing.T) {
 			t.Parallel()
 
 			// Create mock and prime it for the test case.
-			mock := &hopHintsConfigMock{}
+			mock := newHopHintsConfigMock(t)
 			if tc.setupMock != nil {
 				tc.setupMock(mock)
 			}

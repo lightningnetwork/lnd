@@ -385,7 +385,8 @@ func TestEdgeInsertionDeletion(t *testing.T) {
 }
 
 func createEdge(height, txIndex uint32, txPosition uint16, outPointIndex uint32,
-	node1, node2 *LightningNode) (models.ChannelEdgeInfo, lnwire.ShortChannelID) {
+	node1, node2 *LightningNode) (models.ChannelEdgeInfo,
+	lnwire.ShortChannelID) {
 
 	shortChanID := lnwire.ShortChannelID{
 		BlockHeight: height,
@@ -616,8 +617,9 @@ func assertEdgeInfoEqual(t *testing.T, e1 *models.ChannelEdgeInfo,
 	}
 }
 
-func createChannelEdge(db kvdb.Backend, node1, node2 *LightningNode) (*models.ChannelEdgeInfo,
-	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) {
+func createChannelEdge(db kvdb.Backend, node1, node2 *LightningNode) (
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy) {
 
 	var (
 		firstNode  [33]byte
@@ -1038,7 +1040,8 @@ func TestGraphTraversal(t *testing.T) {
 	// Iterate through all the known channels within the graph DB, once
 	// again if the map is empty that indicates that all edges have
 	// properly been reached.
-	err = graph.ForEachChannel(func(ei *models.ChannelEdgeInfo, _ *models.ChannelEdgePolicy,
+	err = graph.ForEachChannel(func(ei *models.ChannelEdgeInfo,
+		_ *models.ChannelEdgePolicy,
 		_ *models.ChannelEdgePolicy) error {
 
 		delete(chanIndex, ei.ChannelID)
@@ -1132,9 +1135,10 @@ func TestGraphTraversalCacheable(t *testing.T) {
 	err = graph.db.View(func(tx kvdb.RTx) error {
 		for _, node := range nodes {
 			err := node.ForEachChannel(
-				tx, func(tx kvdb.RTx, info *models.ChannelEdgeInfo,
+				tx, func(tx kvdb.RTx,
+					info *models.ChannelEdgeInfo,
 					policy *models.ChannelEdgePolicy,
-					policy2 *models.ChannelEdgePolicy) error {
+					policy2 *models.ChannelEdgePolicy) error { //nolint:lll
 
 					delete(chanIndex, info.ChannelID)
 					return nil
@@ -1316,7 +1320,8 @@ func assertPruneTip(t *testing.T, graph *ChannelGraph, blockHash *chainhash.Hash
 
 func assertNumChans(t *testing.T, graph *ChannelGraph, n int) {
 	numChans := 0
-	if err := graph.ForEachChannel(func(*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+	if err := graph.ForEachChannel(func(*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy,
 		*models.ChannelEdgePolicy) error {
 
 		numChans++
@@ -3435,24 +3440,24 @@ func BenchmarkForEachChannel(b *testing.B) {
 
 		err = graph.db.View(func(tx kvdb.RTx) error {
 			for _, n := range nodes {
-				err := n.ForEachChannel(
-					tx, func(tx kvdb.RTx,
-						info *models.ChannelEdgeInfo,
-						policy *models.ChannelEdgePolicy,
-						policy2 *models.ChannelEdgePolicy) error {
+				cb := func(tx kvdb.RTx,
+					info *models.ChannelEdgeInfo,
+					policy *models.ChannelEdgePolicy,
+					policy2 *models.ChannelEdgePolicy) error { //nolint:lll
 
-						// We need to do something with
-						// the data here, otherwise the
-						// compiler is going to optimize
-						// this away, and we get bogus
-						// results.
-						totalCapacity += info.Capacity
-						maxHTLCs += policy.MaxHTLC
-						maxHTLCs += policy2.MaxHTLC
+					// We need to do something with
+					// the data here, otherwise the
+					// compiler is going to optimize
+					// this away, and we get bogus
+					// results.
+					totalCapacity += info.Capacity
+					maxHTLCs += policy.MaxHTLC
+					maxHTLCs += policy2.MaxHTLC
 
-						return nil
-					},
-				)
+					return nil
+				}
+
+				err := n.ForEachChannel(tx, cb)
 				if err != nil {
 					return err
 				}

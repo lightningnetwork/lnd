@@ -222,11 +222,6 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 	return nil
 }
 
-func (r *mockGraphSource) ForEachChannel(func(chanInfo *models.ChannelEdgeInfo,
-	e1, e2 *models.ChannelEdgePolicy) error) error {
-	return nil
-}
-
 func (r *mockGraphSource) GetChannelByID(chanID lnwire.ShortChannelID) (
 	*models.ChannelEdgeInfo,
 	*models.ChannelEdgePolicy,

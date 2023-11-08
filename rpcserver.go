@@ -5933,7 +5933,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 			return nil
 		}
 
-		edge := marshalDbEdge(edgeInfo, c1, c2)
+		edge := marshalDBEdge(edgeInfo, c1, c2)
 		resp.Edges = append(resp.Edges, edge)
 
 		return nil
@@ -5978,7 +5978,7 @@ func marshalExtraOpaqueData(data []byte) map[uint64][]byte {
 	return records
 }
 
-func marshalDbEdge(edgeInfo *models.ChannelEdgeInfo,
+func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
 	c1, c2 *models.ChannelEdgePolicy) *lnrpc.ChannelEdge {
 
 	// Make sure the policies match the node they belong to. c1 should point
@@ -6114,7 +6114,7 @@ func (r *rpcServer) GetChanInfo(ctx context.Context,
 	// Convert the database's edge format into the network/RPC edge format
 	// which couples the edge itself along with the directional node
 	// routing policies of each node involved within the channel.
-	channelEdge := marshalDbEdge(edgeInfo, edge1, edge2)
+	channelEdge := marshalDBEdge(edgeInfo, edge1, edge2)
 
 	return channelEdge, nil
 }
@@ -6171,7 +6171,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 
 				// Convert the database's edge format into the
 				// network/RPC edge format.
-				channelEdge := marshalDbEdge(edge, c1, c2)
+				channelEdge := marshalDBEdge(edge, c1, c2)
 				channels = append(channels, channelEdge)
 			}
 

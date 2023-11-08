@@ -471,6 +471,7 @@ func TestEdgeUpdateNotification(t *testing.T) {
 
 	assertEdgeCorrect := func(t *testing.T, edgeUpdate *ChannelEdgeUpdate,
 		edgeAnn *models.ChannelEdgePolicy) {
+
 		if edgeUpdate.ChanID != edgeAnn.ChannelID {
 			t.Fatalf("channel ID of edge doesn't match: "+
 				"expected %v, got %v", chanID.ToUint64(), edgeUpdate.ChanID)

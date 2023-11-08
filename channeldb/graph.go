@@ -1187,8 +1187,9 @@ func (c *ChannelGraph) HasChannelEdge(
 			return ErrGraphNodeNotFound
 		}
 
-		e1, e2, err := fetchChanEdgePolicies(edgeIndex, edges, nodes,
-			channelID[:], c.db)
+		e1, e2, err := fetchChanEdgePolicies(
+			edgeIndex, edges, channelID[:],
+		)
 		if err != nil {
 			return err
 		}
@@ -1951,7 +1952,7 @@ func (c *ChannelGraph) ChanUpdatesInHorizon(startTime,
 			// With the static information obtained, we'll now
 			// fetch the dynamic policy info.
 			edge1, edge2, err := fetchChanEdgePolicies(
-				edgeIndex, edges, nodes, chanID, c.db,
+				edgeIndex, edges, chanID,
 			)
 			if err != nil {
 				chanID := byteOrder.Uint64(chanID)
@@ -2297,7 +2298,7 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 			// With the static information obtained, we'll now
 			// fetch the dynamic policy info.
 			edge1, edge2, err := fetchChanEdgePolicies(
-				edgeIndex, edges, nodes, cidBytes[:], c.db,
+				edgeIndex, edges, cidBytes[:],
 			)
 			if err != nil {
 				return err
@@ -2393,9 +2394,7 @@ func (c *ChannelGraph) delChannelEdge(edges, edgeIndex, chanIndex, zombieIndex,
 	// we delete the edges themselves so we can access their last update
 	// times.
 	cid := byteOrder.Uint64(chanID)
-	edge1, edge2, err := fetchChanEdgePolicies(
-		edgeIndex, edges, nodes, chanID, nil,
-	)
+	edge1, edge2, err := fetchChanEdgePolicies(edgeIndex, edges, chanID)
 	if err != nil {
 		return err
 	}
@@ -2970,10 +2969,6 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 	cb func(kvdb.RTx, *ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy) error) error {
 
 	traversal := func(tx kvdb.RTx) error {
-		nodes := tx.ReadBucket(nodeBucket)
-		if nodes == nil {
-			return ErrGraphNotFound
-		}
 		edges := tx.ReadBucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNotFound
@@ -3011,7 +3006,7 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 			}
 
 			outgoingPolicy, err := fetchChanEdgePolicy(
-				edges, chanID, nodePub, nodes,
+				edges, chanID, nodePub,
 			)
 			if err != nil {
 				return err
@@ -3023,7 +3018,7 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 			}
 
 			incomingPolicy, err := fetchChanEdgePolicy(
-				edges, chanID, otherNode[:], nodes,
+				edges, chanID, otherNode[:],
 			)
 			if err != nil {
 				return err
@@ -3607,9 +3602,7 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint,
 		// Once we have the information about the channels' parameters,
 		// we'll fetch the routing policies for each for the directed
 		// edges.
-		e1, e2, err := fetchChanEdgePolicies(
-			edgeIndex, edges, nodes, chanID, c.db,
-		)
+		e1, e2, err := fetchChanEdgePolicies(edgeIndex, edges, chanID)
 		if err != nil {
 			return err
 		}
@@ -3712,7 +3705,7 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64,
 		// Then we'll attempt to fetch the accompanying policies of this
 		// edge.
 		e1, e2, err := fetchChanEdgePolicies(
-			edgeIndex, edges, nodes, channelID[:], c.db,
+			edgeIndex, edges, channelID[:],
 		)
 		if err != nil {
 			return err
@@ -4617,7 +4610,7 @@ func putChanEdgePolicyUnknown(edges kvdb.RwBucket, channelID uint64,
 }
 
 func fetchChanEdgePolicy(edges kvdb.RBucket, chanID []byte,
-	nodePub []byte, nodes kvdb.RBucket) (*ChannelEdgePolicy, error) {
+	nodePub []byte) (*ChannelEdgePolicy, error) {
 
 	var edgeKey [33 + 8]byte
 	copy(edgeKey[:], nodePub)
@@ -4650,8 +4643,7 @@ func fetchChanEdgePolicy(edges kvdb.RBucket, chanID []byte,
 }
 
 func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
-	nodes kvdb.RBucket, chanID []byte,
-	db kvdb.Backend) (*ChannelEdgePolicy, *ChannelEdgePolicy, error) {
+	chanID []byte) (*ChannelEdgePolicy, *ChannelEdgePolicy, error) {
 
 	edgeInfo := edgeIndex.Get(chanID)
 	if edgeInfo == nil {
@@ -4662,7 +4654,7 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 	// information. We only propagate the error here and below if it's
 	// something other than edge non-existence.
 	node1Pub := edgeInfo[:33]
-	edge1, err := fetchChanEdgePolicy(edges, chanID, node1Pub, nodes)
+	edge1, err := fetchChanEdgePolicy(edges, chanID, node1Pub)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -4670,7 +4662,7 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 	// Similarly, the second node is contained within the latter
 	// half of the edge information.
 	node2Pub := edgeInfo[33:66]
-	edge2, err := fetchChanEdgePolicy(edges, chanID, node2Pub, nodes)
+	edge2, err := fetchChanEdgePolicy(edges, chanID, node2Pub)
 	if err != nil {
 		return nil, nil, err
 	}

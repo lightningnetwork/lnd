@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	sphinx "github.com/lightningnetwork/lightning-onion"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -99,7 +99,7 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 
 	hintCount := len(b.BlindedPath.BlindedHops) - 1
 	hints := make(
-		map[route.Vertex][]*channeldb.CachedEdgePolicy, hintCount,
+		map[route.Vertex][]*models.CachedEdgePolicy, hintCount,
 	)
 
 	// Start at the unblinded introduction node, because our pathfinding
@@ -116,7 +116,7 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 	// will ensure that pathfinding provides sufficient fees/delay for the
 	// blinded portion to the introduction node.
 	firstBlindedHop := b.BlindedPath.BlindedHops[1].BlindedNodePub
-	hints[fromNode] = []*channeldb.CachedEdgePolicy{
+	hints[fromNode] = []*models.CachedEdgePolicy{
 		{
 			TimeLockDelta: b.CltvExpiryDelta,
 			MinHTLC:       lnwire.MilliSatoshi(b.HtlcMinimum),
@@ -156,14 +156,14 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 			b.BlindedPath.BlindedHops[nextHopIdx].BlindedNodePub,
 		)
 
-		hint := &channeldb.CachedEdgePolicy{
+		hint := &models.CachedEdgePolicy{
 			ToNodePubKey: func() route.Vertex {
 				return nextNode
 			},
 			ToNodeFeatures: features,
 		}
 
-		hints[fromNode] = []*channeldb.CachedEdgePolicy{
+		hints[fromNode] = []*models.CachedEdgePolicy{
 			hint,
 		}
 	}

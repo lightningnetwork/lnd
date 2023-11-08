@@ -3,6 +3,8 @@ package channeldb
 import (
 	"reflect"
 	"testing"
+
+	"github.com/lightningnetwork/lnd/channeldb/models"
 )
 
 // TestChannelCache checks the behavior of the channelCache with respect to
@@ -98,7 +100,7 @@ func assertHasChanEntries(t *testing.T, c *channelCache, start, end uint64) {
 // channelForInt generates a unique ChannelEdge given an integer.
 func channelForInt(i uint64) ChannelEdge {
 	return ChannelEdge{
-		Info: &ChannelEdgeInfo{
+		Info: &models.ChannelEdgeInfo{
 			ChannelID: i,
 		},
 	}

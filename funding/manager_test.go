@@ -550,7 +550,7 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 		OpenChannelPredicate:          chainedAcceptor,
 		NotifyPendingOpenChannelEvent: evt.NotifyPendingOpenChannelEvent,
 		DeleteAliasEdge: func(scid lnwire.ShortChannelID) (
-			*channeldb.ChannelEdgePolicy, error) {
+			*models.ChannelEdgePolicy, error) {
 
 			return nil, nil
 		},

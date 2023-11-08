@@ -933,7 +933,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		//
 		// TODO(roasbeef): can add helper method to get policy for
 		// particular channel.
-		var selfPolicy *channeldb.ChannelEdgePolicy
+		var selfPolicy *models.ChannelEdgePolicy
 		if info != nil && bytes.Equal(info.NodeKey1Bytes[:],
 			p.cfg.ServerPubKey[:]) {
 

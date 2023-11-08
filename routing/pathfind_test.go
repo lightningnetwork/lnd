@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -96,7 +97,7 @@ var (
 	_             = testSScalar.SetByteSlice(testSBytes)
 	testSig       = ecdsa.NewSignature(testRScalar, testSScalar)
 
-	testAuthProof = channeldb.ChannelAuthProof{
+	testAuthProof = models.ChannelAuthProof{
 		NodeSig1Bytes:    testSig.Serialize(),
 		NodeSig2Bytes:    testSig.Serialize(),
 		BitcoinSig1Bytes: testSig.Serialize(),
@@ -335,7 +336,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 
 		// We first insert the existence of the edge between the two
 		// nodes.
-		edgeInfo := channeldb.ChannelEdgeInfo{
+		edgeInfo := models.ChannelEdgeInfo{
 			ChannelID:    edge.ChannelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: fundingPoint,
@@ -366,7 +367,7 @@ func parseTestGraph(t *testing.T, useCache bool, path string) (
 			targetNode = edgeInfo.NodeKey2Bytes
 		}
 
-		edgePolicy := &channeldb.ChannelEdgePolicy{
+		edgePolicy := &models.ChannelEdgePolicy{
 			SigBytes:                  testSig.Serialize(),
 			MessageFlags:              lnwire.ChanUpdateMsgFlags(edge.MessageFlags),
 			ChannelFlags:              channelFlags,
@@ -644,7 +645,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 
 		// We first insert the existence of the edge between the two
 		// nodes.
-		edgeInfo := channeldb.ChannelEdgeInfo{
+		edgeInfo := models.ChannelEdgeInfo{
 			ChannelID:    channelID,
 			AuthProof:    &testAuthProof,
 			ChannelPoint: *fundingPoint,
@@ -671,7 +672,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 				channelFlags |= lnwire.ChanUpdateDisabled
 			}
 
-			edgePolicy := &channeldb.ChannelEdgePolicy{
+			edgePolicy := &models.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
 				ChannelFlags:              channelFlags,
@@ -700,7 +701,7 @@ func createTestGraphFromChannels(t *testing.T, useCache bool,
 			}
 			channelFlags |= lnwire.ChanUpdateDirection
 
-			edgePolicy := &channeldb.ChannelEdgePolicy{
+			edgePolicy := &models.ChannelEdgePolicy{
 				SigBytes:                  testSig.Serialize(),
 				MessageFlags:              msgFlags,
 				ChannelFlags:              channelFlags,
@@ -1203,7 +1204,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 
 	// Create the channel edge going from songoku to doge and include it in
 	// our map of additional edges.
-	songokuToDoge := &channeldb.CachedEdgePolicy{
+	songokuToDoge := &models.CachedEdgePolicy{
 		ToNodePubKey: func() route.Vertex {
 			return doge.PubKeyBytes
 		},
@@ -1214,12 +1215,12 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 		TimeLockDelta:             9,
 	}
 
-	additionalEdges := map[route.Vertex][]*channeldb.CachedEdgePolicy{
+	additionalEdges := map[route.Vertex][]*models.CachedEdgePolicy{
 		graph.aliasMap["songoku"]: {songokuToDoge},
 	}
 
 	find := func(r *RestrictParams) (
-		[]*channeldb.CachedEdgePolicy, error) {
+		[]*models.CachedEdgePolicy, error) {
 
 		return dbFindPath(
 			graph.graph, additionalEdges, &mockBandwidthHints{},
@@ -1289,7 +1290,7 @@ func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
 
 	// Create the channel edge going from alice to bob and include it in
 	// our map of additional edges.
-	aliceToBob := &channeldb.CachedEdgePolicy{
+	aliceToBob := &models.CachedEdgePolicy{
 		ToNodePubKey: func() route.Vertex {
 			return target
 		},
@@ -1300,7 +1301,7 @@ func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
 		TimeLockDelta:             9,
 	}
 
-	additionalEdges := map[route.Vertex][]*channeldb.CachedEdgePolicy{
+	additionalEdges := map[route.Vertex][]*models.CachedEdgePolicy{
 		ctx.source: {aliceToBob},
 	}
 
@@ -1334,9 +1335,9 @@ func TestNewRoute(t *testing.T) {
 	createHop := func(baseFee lnwire.MilliSatoshi,
 		feeRate lnwire.MilliSatoshi,
 		bandwidth lnwire.MilliSatoshi,
-		timeLockDelta uint16) *channeldb.CachedEdgePolicy {
+		timeLockDelta uint16) *models.CachedEdgePolicy {
 
-		return &channeldb.CachedEdgePolicy{
+		return &models.CachedEdgePolicy{
 			ToNodePubKey: func() route.Vertex {
 				return route.Vertex{}
 			},
@@ -1353,7 +1354,7 @@ func TestNewRoute(t *testing.T) {
 
 		// hops is the list of hops (the route) that gets passed into
 		// the call to newRoute.
-		hops []*channeldb.CachedEdgePolicy
+		hops []*models.CachedEdgePolicy
 
 		// paymentAmount is the amount that is send into the route
 		// indicated by hops.
@@ -1405,7 +1406,7 @@ func TestNewRoute(t *testing.T) {
 			// For a single hop payment, no fees are expected to be paid.
 			name:          "single hop",
 			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
+			hops: []*models.CachedEdgePolicy{
 				createHop(100, 1000, 1000000, 10),
 			},
 			metadata:              []byte{1, 2, 3},
@@ -1419,7 +1420,7 @@ func TestNewRoute(t *testing.T) {
 			// a fee to receive the payment.
 			name:          "two hop",
 			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
+			hops: []*models.CachedEdgePolicy{
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
@@ -1434,7 +1435,7 @@ func TestNewRoute(t *testing.T) {
 			name:          "two hop tlv onion feature",
 			destFeatures:  tlvFeatures,
 			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
+			hops: []*models.CachedEdgePolicy{
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
@@ -1451,7 +1452,7 @@ func TestNewRoute(t *testing.T) {
 			destFeatures:  tlvPayAddrFeatures,
 			paymentAddr:   &testPaymentAddr,
 			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
+			hops: []*models.CachedEdgePolicy{
 				createHop(0, 1000, 1000000, 10),
 				createHop(30, 1000, 1000000, 5),
 			},
@@ -1471,7 +1472,7 @@ func TestNewRoute(t *testing.T) {
 			// gets rounded down to 1.
 			name:          "three hop",
 			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
+			hops: []*models.CachedEdgePolicy{
 				createHop(0, 10, 1000000, 10),
 				createHop(0, 10, 1000000, 5),
 				createHop(0, 10, 1000000, 3),
@@ -1486,7 +1487,7 @@ func TestNewRoute(t *testing.T) {
 			// because of the increase amount to forward.
 			name:          "three hop with fee carry over",
 			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
+			hops: []*models.CachedEdgePolicy{
 				createHop(0, 10000, 1000000, 10),
 				createHop(0, 10000, 1000000, 5),
 				createHop(0, 10000, 1000000, 3),
@@ -1501,7 +1502,7 @@ func TestNewRoute(t *testing.T) {
 			// effect.
 			name:          "three hop with minimal fees for carry over",
 			paymentAmount: 100000,
-			hops: []*channeldb.CachedEdgePolicy{
+			hops: []*models.CachedEdgePolicy{
 				createHop(0, 10000, 1000000, 10),
 
 				// First hop charges 0.1% so the second hop fee
@@ -1740,7 +1741,7 @@ func runDestTLVGraphFallback(t *testing.T, useCache bool) {
 	require.NoError(t, err, "unable to fetch source node")
 
 	find := func(r *RestrictParams,
-		target route.Vertex) ([]*channeldb.CachedEdgePolicy, error) {
+		target route.Vertex) ([]*models.CachedEdgePolicy, error) {
 
 		return dbFindPath(
 			ctx.graph, nil, &mockBandwidthHints{},
@@ -2398,7 +2399,7 @@ func TestPathFindSpecExample(t *testing.T) {
 }
 
 func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
-	path []*channeldb.CachedEdgePolicy, nodeAliases ...string) {
+	path []*models.CachedEdgePolicy, nodeAliases ...string) {
 
 	if len(path) != len(nodeAliases) {
 		t.Fatal("number of hops and number of aliases do not match")
@@ -3043,7 +3044,7 @@ func (c *pathFindingTestContext) aliasFromKey(pubKey route.Vertex) string {
 }
 
 func (c *pathFindingTestContext) findPath(target route.Vertex,
-	amt lnwire.MilliSatoshi) ([]*channeldb.CachedEdgePolicy,
+	amt lnwire.MilliSatoshi) ([]*models.CachedEdgePolicy,
 	error) {
 
 	return dbFindPath(
@@ -3052,7 +3053,7 @@ func (c *pathFindingTestContext) findPath(target route.Vertex,
 	)
 }
 
-func (c *pathFindingTestContext) assertPath(path []*channeldb.CachedEdgePolicy,
+func (c *pathFindingTestContext) assertPath(path []*models.CachedEdgePolicy,
 	expected []uint64) {
 
 	if len(path) != len(expected) {
@@ -3071,11 +3072,11 @@ func (c *pathFindingTestContext) assertPath(path []*channeldb.CachedEdgePolicy,
 // dbFindPath calls findPath after getting a db transaction from the database
 // graph.
 func dbFindPath(graph *channeldb.ChannelGraph,
-	additionalEdges map[route.Vertex][]*channeldb.CachedEdgePolicy,
+	additionalEdges map[route.Vertex][]*models.CachedEdgePolicy,
 	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, error) {
+	finalHtlcExpiry int32) ([]*models.CachedEdgePolicy, error) {
 
 	sourceNode, err := graph.SourceNode()
 	if err != nil {
@@ -3179,7 +3180,7 @@ func TestBlindedRouteConstruction(t *testing.T) {
 		// route. Proportional fees are omitted for easy test
 		// calculations, but non-zero base fees ensure our fee is
 		// still accounted for.
-		aliceBobEdge = &channeldb.CachedEdgePolicy{
+		aliceBobEdge = &models.CachedEdgePolicy{
 			ChannelID: 1,
 			// We won't actually use this timelock / fee (since
 			// it's the sender's outbound channel), but we include
@@ -3193,7 +3194,7 @@ func TestBlindedRouteConstruction(t *testing.T) {
 			ToNodeFeatures: tlvFeatures,
 		}
 
-		bobCarolEdge = &channeldb.CachedEdgePolicy{
+		bobCarolEdge = &models.CachedEdgePolicy{
 			ChannelID:     2,
 			TimeLockDelta: 15,
 			FeeBaseMSat:   20,
@@ -3226,7 +3227,7 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	carolDaveEdge := blindedEdges[carolVertex][0]
 	daveEveEdge := blindedEdges[daveBlindedVertex][0]
 
-	edges := []*channeldb.CachedEdgePolicy{
+	edges := []*models.CachedEdgePolicy{
 		aliceBobEdge,
 		bobCarolEdge,
 		carolDaveEdge,

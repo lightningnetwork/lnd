@@ -3,6 +3,7 @@ package routing
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -94,9 +95,9 @@ func (m *SessionSource) NewPaymentSessionEmpty() PaymentSession {
 // RouteHintsToEdges converts a list of invoice route hints to an edge map that
 // can be passed into pathfinding.
 func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
-	map[route.Vertex][]*channeldb.CachedEdgePolicy, error) {
+	map[route.Vertex][]*models.CachedEdgePolicy, error) {
 
-	edges := make(map[route.Vertex][]*channeldb.CachedEdgePolicy)
+	edges := make(map[route.Vertex][]*models.CachedEdgePolicy)
 
 	// Traverse through all of the available hop hints and include them in
 	// our edges map, indexed by the public key of the channel's starting
@@ -126,7 +127,7 @@ func RouteHintsToEdges(routeHints [][]zpay32.HopHint, target route.Vertex) (
 			// Finally, create the channel edge from the hop hint
 			// and add it to list of edges corresponding to the node
 			// at the start of the channel.
-			edge := &channeldb.CachedEdgePolicy{
+			edge := &models.CachedEdgePolicy{
 				ToNodePubKey: func() route.Vertex {
 					return endNode.PubKeyBytes
 				},

@@ -3,7 +3,7 @@ package routing
 import (
 	"container/heap"
 
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -39,7 +39,7 @@ type nodeWithDist struct {
 	weight int64
 
 	// nextHop is the edge this route comes from.
-	nextHop *channeldb.CachedEdgePolicy
+	nextHop *models.CachedEdgePolicy
 
 	// routingInfoSize is the total size requirement for the payloads field
 	// in the onion packet from this hop towards the final destination.

@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -193,7 +194,7 @@ func (m *mockGraph) forEachNodeChannel(nodePub route.Vertex,
 				OtherNode:    peer,
 				Capacity:     channel.capacity,
 				OutPolicySet: true,
-				InPolicy: &channeldb.CachedEdgePolicy{
+				InPolicy: &models.CachedEdgePolicy{
 					ChannelID: channel.id,
 					ToNodePubKey: func() route.Vertex {
 						return nodePub

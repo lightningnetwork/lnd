@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -125,7 +126,7 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 			v.nodeAnnDependencies[route.Vertex(msg.NodeID1)] = signals
 			v.nodeAnnDependencies[route.Vertex(msg.NodeID2)] = signals
 		}
-	case *channeldb.ChannelEdgeInfo:
+	case *models.ChannelEdgeInfo:
 
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		if _, ok := v.chanAnnFinSignal[shortID]; !ok {
@@ -143,7 +144,7 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 
 	// These other types don't have any dependants, so no further
 	// initialization needs to be done beyond just occupying a job slot.
-	case *channeldb.ChannelEdgePolicy:
+	case *models.ChannelEdgePolicy:
 		return
 	case *lnwire.ChannelUpdate:
 		return
@@ -187,7 +188,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	switch msg := job.(type) {
 	// Any ChannelUpdate or NodeAnnouncement jobs will need to wait on the
 	// completion of any active ChannelAnnouncement jobs related to them.
-	case *channeldb.ChannelEdgePolicy:
+	case *models.ChannelEdgePolicy:
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		signals, ok = v.chanEdgeDependencies[shortID]
 
@@ -217,7 +218,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	// return directly.
 	case *lnwire.AnnounceSignatures:
 		// TODO(roasbeef): need to wait on chan ann?
-	case *channeldb.ChannelEdgeInfo:
+	case *models.ChannelEdgeInfo:
 	case *lnwire.ChannelAnnouncement:
 	}
 
@@ -263,7 +264,7 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 	// If we've just finished executing a ChannelAnnouncement, then we'll
 	// close out the signal, and remove the signal from the map of active
 	// ones. This will allow/deny any dependent jobs to continue execution.
-	case *channeldb.ChannelEdgeInfo:
+	case *models.ChannelEdgeInfo:
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		finSignals, ok := v.chanAnnFinSignal[shortID]
 		if ok {
@@ -296,7 +297,7 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 		delete(v.nodeAnnDependencies, route.Vertex(msg.NodeID))
 	case *lnwire.ChannelUpdate:
 		delete(v.chanEdgeDependencies, msg.ShortChannelID)
-	case *channeldb.ChannelEdgePolicy:
+	case *models.ChannelEdgePolicy:
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		delete(v.chanEdgeDependencies, shortID)
 

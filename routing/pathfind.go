@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -49,7 +50,7 @@ const (
 type pathFinder = func(g *graphParams, r *RestrictParams,
 	cfg *PathFindingConfig, source, target route.Vertex,
 	amt lnwire.MilliSatoshi, timePref float64, finalHtlcExpiry int32) (
-	[]*channeldb.CachedEdgePolicy, float64, error)
+	[]*models.CachedEdgePolicy, float64, error)
 
 var (
 	// DefaultEstimator is the default estimator used for computing
@@ -87,7 +88,7 @@ var (
 // of the edge.
 type edgePolicyWithSource struct {
 	sourceNode route.Vertex
-	edge       *channeldb.CachedEdgePolicy
+	edge       *models.CachedEdgePolicy
 }
 
 // finalHopParams encapsulates various parameters for route construction that
@@ -125,7 +126,7 @@ type finalHopParams struct {
 // NOTE: If a non-nil blinded path is provided it is assumed to have been
 // validated by the caller.
 func newRoute(sourceVertex route.Vertex,
-	pathEdges []*channeldb.CachedEdgePolicy, currentHeight uint32,
+	pathEdges []*models.CachedEdgePolicy, currentHeight uint32,
 	finalHop finalHopParams, blindedPath *sphinx.BlindedPath) (
 	*route.Route, error) {
 
@@ -355,7 +356,7 @@ type graphParams struct {
 	// additionalEdges is an optional set of edges that should be
 	// considered during path finding, that is not already found in the
 	// channel graph.
-	additionalEdges map[route.Vertex][]*channeldb.CachedEdgePolicy
+	additionalEdges map[route.Vertex][]*models.CachedEdgePolicy
 
 	// bandwidthHints is an interface that provides bandwidth hints that
 	// can provide a better estimate of the current channel bandwidth than
@@ -493,7 +494,7 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 // available bandwidth.
 func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
-	finalHtlcExpiry int32) ([]*channeldb.CachedEdgePolicy, float64, error) {
+	finalHtlcExpiry int32) ([]*models.CachedEdgePolicy, float64, error) {
 
 	// Pathfinding can be a significant portion of the total payment
 	// latency, especially on low-powered devices. Log several metrics to
@@ -994,7 +995,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 	// Use the distance map to unravel the forward path from source to
 	// target.
-	var pathEdges []*channeldb.CachedEdgePolicy
+	var pathEdges []*models.CachedEdgePolicy
 	currentNode := source
 	for {
 		// Determine the next hop forward using the next map.

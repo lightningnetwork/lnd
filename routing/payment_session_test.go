@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -211,7 +212,7 @@ func TestRequestRoute(t *testing.T) {
 	// Override pathfinder with a mock.
 	session.pathFinder = func(_ *graphParams, r *RestrictParams,
 		_ *PathFindingConfig, _, _ route.Vertex, _ lnwire.MilliSatoshi,
-		_ float64, _ int32) ([]*channeldb.CachedEdgePolicy, float64,
+		_ float64, _ int32) ([]*models.CachedEdgePolicy, float64,
 		error) {
 
 		// We expect find path to receive a cltv limit excluding the
@@ -220,7 +221,7 @@ func TestRequestRoute(t *testing.T) {
 			t.Fatal("wrong cltv limit")
 		}
 
-		path := []*channeldb.CachedEdgePolicy{
+		path := []*models.CachedEdgePolicy{
 			{
 				ToNodePubKey: func() route.Vertex {
 					return route.Vertex{}

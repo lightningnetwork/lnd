@@ -9,6 +9,7 @@ import (
 	"github.com/go-errors/errors"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -874,7 +875,7 @@ func (p *shardHandler) handleFailureMessage(rt *route.Route,
 
 	var (
 		isAdditionalEdge bool
-		policy           *channeldb.CachedEdgePolicy
+		policy           *models.CachedEdgePolicy
 	)
 
 	// Before we apply the channel update, we need to decide whether the

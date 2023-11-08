@@ -16,12 +16,12 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/batch"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -161,9 +161,6 @@ const (
 	// would be possible for a node to create a ton of updates and slowly
 	// fill our disk, and also waste bandwidth due to relaying.
 	MaxAllowedExtraOpaqueBytes = 10000
-
-	// feeRateParts is the total number of parts used to express fee rates.
-	feeRateParts = 1e6
 )
 
 // ChannelGraph is a persistent, on-disk graph representation of the Lightning
@@ -231,8 +228,8 @@ func NewChannelGraph(db kvdb.Backend, rejectCacheSize, chanCacheSize int,
 			return nil, err
 		}
 
-		err = g.ForEachChannel(func(info *ChannelEdgeInfo,
-			policy1, policy2 *ChannelEdgePolicy) error {
+		err = g.ForEachChannel(func(info *models.ChannelEdgeInfo,
+			policy1, policy2 *models.ChannelEdgePolicy) error {
 
 			g.graphCache.AddChannel(info, policy1, policy2)
 
@@ -258,10 +255,10 @@ type channelMapKey struct {
 // getChannelMap loads all channel edge policies from the database and stores
 // them in a map.
 func (c *ChannelGraph) getChannelMap(edges kvdb.RBucket) (
-	map[channelMapKey]*ChannelEdgePolicy, error) {
+	map[channelMapKey]*models.ChannelEdgePolicy, error) {
 
 	// Create a map to store all channel edge policies.
-	channelMap := make(map[channelMapKey]*ChannelEdgePolicy)
+	channelMap := make(map[channelMapKey]*models.ChannelEdgePolicy)
 
 	err := kvdb.ForAll(edges, func(k, edgeBytes []byte) error {
 		// Skip embedded buckets.
@@ -411,8 +408,8 @@ func (c *ChannelGraph) NewPathFindTx() (kvdb.RTx, error) {
 // NOTE: If an edge can't be found, or wasn't advertised, then a nil pointer
 // for that particular channel edge routing policy will be passed into the
 // callback.
-func (c *ChannelGraph) ForEachChannel(cb func(*ChannelEdgeInfo,
-	*ChannelEdgePolicy, *ChannelEdgePolicy) error) error {
+func (c *ChannelGraph) ForEachChannel(cb func(*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
 
 	return c.db.View(func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
@@ -481,12 +478,12 @@ func (c *ChannelGraph) ForEachNodeDirectedChannel(tx kvdb.RTx,
 		return err
 	}
 
-	dbCallback := func(tx kvdb.RTx, e *ChannelEdgeInfo, p1,
-		p2 *ChannelEdgePolicy) error {
+	dbCallback := func(tx kvdb.RTx, e *models.ChannelEdgeInfo, p1,
+		p2 *models.ChannelEdgePolicy) error {
 
-		var cachedInPolicy *CachedEdgePolicy
+		var cachedInPolicy *models.CachedEdgePolicy
 		if p2 != nil {
-			cachedInPolicy = NewCachedPolicy(p2)
+			cachedInPolicy = models.NewCachedPolicy(p2)
 			cachedInPolicy.ToNodePubKey = toNodeCallback
 			cachedInPolicy.ToNodeFeatures = toNodeFeatures
 		}
@@ -556,9 +553,9 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 		channels := make(map[uint64]*DirectedChannel)
 
 		err := c.ForEachNodeChannel(tx, node.PubKeyBytes,
-			func(tx kvdb.RTx, e *ChannelEdgeInfo,
-				p1 *ChannelEdgePolicy,
-				p2 *ChannelEdgePolicy) error {
+			func(tx kvdb.RTx, e *models.ChannelEdgeInfo,
+				p1 *models.ChannelEdgePolicy,
+				p2 *models.ChannelEdgePolicy) error {
 
 				toNodeCallback := func() route.Vertex {
 					return node.PubKeyBytes
@@ -570,9 +567,10 @@ func (c *ChannelGraph) ForEachNodeCached(cb func(node route.Vertex,
 					return err
 				}
 
-				var cachedInPolicy *CachedEdgePolicy
+				var cachedInPolicy *models.CachedEdgePolicy
 				if p2 != nil {
-					cachedInPolicy := NewCachedPolicy(p2)
+					cachedInPolicy =
+						models.NewCachedPolicy(p2)
 					cachedInPolicy.ToNodePubKey =
 						toNodeCallback
 					cachedInPolicy.ToNodeFeatures =
@@ -968,7 +966,7 @@ func (c *ChannelGraph) deleteLightningNode(nodes kvdb.RwBucket,
 // involved in creation of the channel, and the set of features that the channel
 // supports. The chanPoint and chanID are used to uniquely identify the edge
 // globally within the database.
-func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo,
+func (c *ChannelGraph) AddChannelEdge(edge *models.ChannelEdgeInfo,
 	op ...batch.SchedulerOption) error {
 
 	var alreadyExists bool
@@ -1011,7 +1009,7 @@ func (c *ChannelGraph) AddChannelEdge(edge *ChannelEdgeInfo,
 
 // addChannelEdge is the private form of AddChannelEdge that allows callers to
 // utilize an existing db transaction.
-func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx, edge *ChannelEdgeInfo) error {
+func (c *ChannelGraph) addChannelEdge(tx kvdb.RwTx, edge *models.ChannelEdgeInfo) error {
 	// Construct the channel's primary key which is the 8-byte channel ID.
 	var chanKey [8]byte
 	binary.BigEndian.PutUint64(chanKey[:], edge.ChannelID)
@@ -1222,7 +1220,7 @@ func (c *ChannelGraph) HasChannelEdge(
 // In order to maintain this constraints, we return an error in the scenario
 // that an edge info hasn't yet been created yet, but someone attempts to update
 // it.
-func (c *ChannelGraph) UpdateChannelEdge(edge *ChannelEdgeInfo) error {
+func (c *ChannelGraph) UpdateChannelEdge(edge *models.ChannelEdgeInfo) error {
 	// Construct the channel's primary key which is the 8-byte channel ID.
 	var chanKey [8]byte
 	binary.BigEndian.PutUint64(chanKey[:], edge.ChannelID)
@@ -1267,12 +1265,12 @@ const (
 // with the current UTXO state. A slice of channels that have been closed by
 // the target block are returned if the function succeeds without error.
 func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
-	blockHash *chainhash.Hash, blockHeight uint32) ([]*ChannelEdgeInfo, error) {
+	blockHash *chainhash.Hash, blockHeight uint32) ([]*models.ChannelEdgeInfo, error) {
 
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 
-	var chansClosed []*ChannelEdgeInfo
+	var chansClosed []*models.ChannelEdgeInfo
 
 	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		// First grab the edges bucket which houses the information
@@ -1520,7 +1518,7 @@ func (c *ChannelGraph) pruneGraphNodes(nodes kvdb.RwBucket,
 // set to the last prune height valid for the remaining chain.
 // Channels that were removed from the graph resulting from the
 // disconnected block are returned.
-func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInfo,
+func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*models.ChannelEdgeInfo,
 	error) {
 
 	// Every channel having a ShortChannelID starting at 'height'
@@ -1543,7 +1541,7 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) ([]*ChannelEdgeInf
 	defer c.cacheMu.Unlock()
 
 	// Keep track of the channels that are removed from the graph.
-	var removedChans []*ChannelEdgeInfo
+	var removedChans []*models.ChannelEdgeInfo
 
 	if err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		edges, err := tx.CreateTopLevelBucket(edgeBucket)
@@ -1850,15 +1848,15 @@ func (c *ChannelGraph) HighestChanID() (uint64, error) {
 // edge as well as each of the known advertised edge policies.
 type ChannelEdge struct {
 	// Info contains all the static information describing the channel.
-	Info *ChannelEdgeInfo
+	Info *models.ChannelEdgeInfo
 
 	// Policy1 points to the "first" edge policy of the channel containing
 	// the dynamic information required to properly route through the edge.
-	Policy1 *ChannelEdgePolicy
+	Policy1 *models.ChannelEdgePolicy
 
 	// Policy2 points to the "second" edge policy of the channel containing
 	// the dynamic information required to properly route through the edge.
-	Policy2 *ChannelEdgePolicy
+	Policy2 *models.ChannelEdgePolicy
 
 	// Node1 is "node 1" in the channel. This is the node that would have
 	// produced Policy1 if it exists.
@@ -2338,7 +2336,7 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 }
 
 func delEdgeUpdateIndexEntry(edgesBucket kvdb.RwBucket, chanID uint64,
-	edge1, edge2 *ChannelEdgePolicy) error {
+	edge1, edge2 *models.ChannelEdgePolicy) error {
 
 	// First, we'll fetch the edge update index bucket which currently
 	// stores an entry for the channel we're about to delete.
@@ -2475,8 +2473,8 @@ func (c *ChannelGraph) delChannelEdge(edges, edgeIndex, chanIndex, zombieIndex,
 // the channel. If the channel were to be marked zombie again, it would be
 // marked with the correct lagging channel since we received an update from only
 // one side.
-func makeZombiePubkeys(info *ChannelEdgeInfo,
-	e1, e2 *ChannelEdgePolicy) ([33]byte, [33]byte) {
+func makeZombiePubkeys(info *models.ChannelEdgeInfo,
+	e1, e2 *models.ChannelEdgePolicy) ([33]byte, [33]byte) {
 
 	switch {
 	// If we don't have either edge policy, we'll return both pubkeys so
@@ -2506,7 +2504,7 @@ func makeZombiePubkeys(info *ChannelEdgeInfo,
 // updated, otherwise it's the second node's information. The node ordering is
 // determined by the lexicographical ordering of the identity public keys of the
 // nodes on either side of the channel.
-func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy,
+func (c *ChannelGraph) UpdateEdgePolicy(edge *models.ChannelEdgePolicy,
 	op ...batch.SchedulerOption) error {
 
 	var (
@@ -2554,7 +2552,7 @@ func (c *ChannelGraph) UpdateEdgePolicy(edge *ChannelEdgePolicy,
 	return c.chanScheduler.Execute(r)
 }
 
-func (c *ChannelGraph) updateEdgeCache(e *ChannelEdgePolicy, isUpdate1 bool) {
+func (c *ChannelGraph) updateEdgeCache(e *models.ChannelEdgePolicy, isUpdate1 bool) {
 	// If an entry for this channel is found in reject cache, we'll modify
 	// the entry with the updated timestamp for the direction that was just
 	// written. If the edge doesn't exist, we'll load the cache entry lazily
@@ -2586,7 +2584,7 @@ func (c *ChannelGraph) updateEdgeCache(e *ChannelEdgePolicy, isUpdate1 bool) {
 // buckets using an existing database transaction. The returned boolean will be
 // true if the updated policy belongs to node1, and false if the policy belonged
 // to node2.
-func updateEdgePolicy(tx kvdb.RwTx, edge *ChannelEdgePolicy,
+func updateEdgePolicy(tx kvdb.RwTx, edge *models.ChannelEdgePolicy,
 	graphCache *GraphCache) (bool, error) {
 
 	edges := tx.ReadWriteBucket(edgeBucket)
@@ -2781,8 +2779,8 @@ func (c *ChannelGraph) isPublic(tx kvdb.RTx, nodePub route.Vertex,
 	nodeIsPublic := false
 	errDone := errors.New("done")
 	err := c.ForEachNodeChannel(tx, nodePub, func(tx kvdb.RTx,
-		info *ChannelEdgeInfo, _ *ChannelEdgePolicy,
-		_ *ChannelEdgePolicy) error {
+		info *models.ChannelEdgeInfo, _ *models.ChannelEdgePolicy,
+		_ *models.ChannelEdgePolicy) error {
 
 		// If this edge doesn't extend to the source node, we'll
 		// terminate our search as we can now conclude that the node is
@@ -2905,8 +2903,8 @@ func (n *graphCacheNode) Features() *lnwire.FeatureVector {
 //
 // Unknown policies are passed into the callback as nil values.
 func (n *graphCacheNode) ForEachChannel(tx kvdb.RTx,
-	cb func(kvdb.RTx, *ChannelEdgeInfo, *ChannelEdgePolicy,
-		*ChannelEdgePolicy) error) error {
+	cb func(kvdb.RTx, *models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error) error {
 
 	return nodeTraversal(tx, n.pubKeyBytes[:], nil, cb)
 }
@@ -2966,7 +2964,7 @@ func (c *ChannelGraph) HasLightningNode(nodePub [33]byte) (time.Time, bool, erro
 // nodeTraversal is used to traverse all channels of a node given by its
 // public key and passes channel information into the specified callback.
 func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
-	cb func(kvdb.RTx, *ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy) error) error {
+	cb func(kvdb.RTx, *models.ChannelEdgeInfo, *models.ChannelEdgePolicy, *models.ChannelEdgePolicy) error) error {
 
 	traversal := func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
@@ -3059,194 +3057,17 @@ func nodeTraversal(tx kvdb.RTx, nodePub []byte, db kvdb.Backend,
 // be nil and a fresh transaction will be created to execute the graph
 // traversal.
 func (c *ChannelGraph) ForEachNodeChannel(tx kvdb.RTx, nodePub route.Vertex,
-	cb func(kvdb.RTx, *ChannelEdgeInfo, *ChannelEdgePolicy,
-		*ChannelEdgePolicy) error) error {
+	cb func(kvdb.RTx, *models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy) error) error {
 
 	return nodeTraversal(tx, nodePub[:], c.db, cb)
-}
-
-// ChannelEdgeInfo represents a fully authenticated channel along with all its
-// unique attributes. Once an authenticated channel announcement has been
-// processed on the network, then an instance of ChannelEdgeInfo encapsulating
-// the channels attributes is stored. The other portions relevant to routing
-// policy of a channel are stored within a ChannelEdgePolicy for each direction
-// of the channel.
-type ChannelEdgeInfo struct {
-	// ChannelID is the unique channel ID for the channel. The first 3
-	// bytes are the block height, the next 3 the index within the block,
-	// and the last 2 bytes are the output index for the channel.
-	ChannelID uint64
-
-	// ChainHash is the hash that uniquely identifies the chain that this
-	// channel was opened within.
-	//
-	// TODO(roasbeef): need to modify db keying for multi-chain
-	//  * must add chain hash to prefix as well
-	ChainHash chainhash.Hash
-
-	// NodeKey1Bytes is the raw public key of the first node.
-	NodeKey1Bytes [33]byte
-	nodeKey1      *btcec.PublicKey
-
-	// NodeKey2Bytes is the raw public key of the first node.
-	NodeKey2Bytes [33]byte
-	nodeKey2      *btcec.PublicKey
-
-	// BitcoinKey1Bytes is the raw public key of the first node.
-	BitcoinKey1Bytes [33]byte
-	bitcoinKey1      *btcec.PublicKey
-
-	// BitcoinKey2Bytes is the raw public key of the first node.
-	BitcoinKey2Bytes [33]byte
-	bitcoinKey2      *btcec.PublicKey
-
-	// Features is an opaque byte slice that encodes the set of channel
-	// specific features that this channel edge supports.
-	Features []byte
-
-	// AuthProof is the authentication proof for this channel. This proof
-	// contains a set of signatures binding four identities, which attests
-	// to the legitimacy of the advertised channel.
-	AuthProof *ChannelAuthProof
-
-	// ChannelPoint is the funding outpoint of the channel. This can be
-	// used to uniquely identify the channel within the channel graph.
-	ChannelPoint wire.OutPoint
-
-	// Capacity is the total capacity of the channel, this is determined by
-	// the value output in the outpoint that created this channel.
-	Capacity btcutil.Amount
-
-	// ExtraOpaqueData is the set of data that was appended to this
-	// message, some of which we may not actually know how to iterate or
-	// parse. By holding onto this data, we ensure that we're able to
-	// properly validate the set of signatures that cover these new fields,
-	// and ensure we're able to make upgrades to the network in a forwards
-	// compatible manner.
-	ExtraOpaqueData []byte
-}
-
-// AddNodeKeys is a setter-like method that can be used to replace the set of
-// keys for the target ChannelEdgeInfo.
-func (c *ChannelEdgeInfo) AddNodeKeys(nodeKey1, nodeKey2, bitcoinKey1,
-	bitcoinKey2 *btcec.PublicKey) {
-
-	c.nodeKey1 = nodeKey1
-	copy(c.NodeKey1Bytes[:], c.nodeKey1.SerializeCompressed())
-
-	c.nodeKey2 = nodeKey2
-	copy(c.NodeKey2Bytes[:], nodeKey2.SerializeCompressed())
-
-	c.bitcoinKey1 = bitcoinKey1
-	copy(c.BitcoinKey1Bytes[:], c.bitcoinKey1.SerializeCompressed())
-
-	c.bitcoinKey2 = bitcoinKey2
-	copy(c.BitcoinKey2Bytes[:], bitcoinKey2.SerializeCompressed())
-}
-
-// NodeKey1 is the identity public key of the "first" node that was involved in
-// the creation of this channel. A node is considered "first" if the
-// lexicographical ordering the its serialized public key is "smaller" than
-// that of the other node involved in channel creation.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the pubkey if absolutely necessary.
-func (c *ChannelEdgeInfo) NodeKey1() (*btcec.PublicKey, error) {
-	if c.nodeKey1 != nil {
-		return c.nodeKey1, nil
-	}
-
-	key, err := btcec.ParsePubKey(c.NodeKey1Bytes[:])
-	if err != nil {
-		return nil, err
-	}
-	c.nodeKey1 = key
-
-	return key, nil
-}
-
-// NodeKey2 is the identity public key of the "second" node that was
-// involved in the creation of this channel. A node is considered
-// "second" if the lexicographical ordering the its serialized public
-// key is "larger" than that of the other node involved in channel
-// creation.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the pubkey if absolutely necessary.
-func (c *ChannelEdgeInfo) NodeKey2() (*btcec.PublicKey, error) {
-	if c.nodeKey2 != nil {
-		return c.nodeKey2, nil
-	}
-
-	key, err := btcec.ParsePubKey(c.NodeKey2Bytes[:])
-	if err != nil {
-		return nil, err
-	}
-	c.nodeKey2 = key
-
-	return key, nil
-}
-
-// BitcoinKey1 is the Bitcoin multi-sig key belonging to the first
-// node, that was involved in the funding transaction that originally
-// created the channel that this struct represents.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the pubkey if absolutely necessary.
-func (c *ChannelEdgeInfo) BitcoinKey1() (*btcec.PublicKey, error) {
-	if c.bitcoinKey1 != nil {
-		return c.bitcoinKey1, nil
-	}
-
-	key, err := btcec.ParsePubKey(c.BitcoinKey1Bytes[:])
-	if err != nil {
-		return nil, err
-	}
-	c.bitcoinKey1 = key
-
-	return key, nil
-}
-
-// BitcoinKey2 is the Bitcoin multi-sig key belonging to the second
-// node, that was involved in the funding transaction that originally
-// created the channel that this struct represents.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the pubkey if absolutely necessary.
-func (c *ChannelEdgeInfo) BitcoinKey2() (*btcec.PublicKey, error) {
-	if c.bitcoinKey2 != nil {
-		return c.bitcoinKey2, nil
-	}
-
-	key, err := btcec.ParsePubKey(c.BitcoinKey2Bytes[:])
-	if err != nil {
-		return nil, err
-	}
-	c.bitcoinKey2 = key
-
-	return key, nil
-}
-
-// OtherNodeKeyBytes returns the node key bytes of the other end of
-// the channel.
-func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
-	[33]byte, error) {
-
-	switch {
-	case bytes.Equal(c.NodeKey1Bytes[:], thisNodeKey):
-		return c.NodeKey2Bytes, nil
-	case bytes.Equal(c.NodeKey2Bytes[:], thisNodeKey):
-		return c.NodeKey1Bytes, nil
-	default:
-		return [33]byte{}, fmt.Errorf("node not participating in this channel")
-	}
 }
 
 // FetchOtherNode attempts to fetch the full LightningNode that's opposite of
 // the target node in the channel. This is useful when one knows the pubkey of
 // one of the nodes, and wishes to obtain the full LightningNode for the other
 // end of the channel.
-func (c *ChannelGraph) FetchOtherNode(tx kvdb.RTx, channel *ChannelEdgeInfo,
+func (c *ChannelGraph) FetchOtherNode(tx kvdb.RTx, channel *models.ChannelEdgeInfo,
 	thisNodeKey []byte) (*LightningNode, error) {
 
 	// Ensure that the node passed in is actually a member of the channel.
@@ -3291,269 +3112,18 @@ func (c *ChannelGraph) FetchOtherNode(tx kvdb.RTx, channel *ChannelEdgeInfo,
 	return targetNode, err
 }
 
-// ChannelAuthProof is the authentication proof (the signature portion) for a
-// channel. Using the four signatures contained in the struct, and some
-// auxiliary knowledge (the funding script, node identities, and outpoint) nodes
-// on the network are able to validate the authenticity and existence of a
-// channel. Each of these signatures signs the following digest: chanID ||
-// nodeID1 || nodeID2 || bitcoinKey1|| bitcoinKey2 || 2-byte-feature-len ||
-// features.
-type ChannelAuthProof struct {
-	// nodeSig1 is a cached instance of the first node signature.
-	nodeSig1 *ecdsa.Signature
-
-	// NodeSig1Bytes are the raw bytes of the first node signature encoded
-	// in DER format.
-	NodeSig1Bytes []byte
-
-	// nodeSig2 is a cached instance of the second node signature.
-	nodeSig2 *ecdsa.Signature
-
-	// NodeSig2Bytes are the raw bytes of the second node signature
-	// encoded in DER format.
-	NodeSig2Bytes []byte
-
-	// bitcoinSig1 is a cached instance of the first bitcoin signature.
-	bitcoinSig1 *ecdsa.Signature
-
-	// BitcoinSig1Bytes are the raw bytes of the first bitcoin signature
-	// encoded in DER format.
-	BitcoinSig1Bytes []byte
-
-	// bitcoinSig2 is a cached instance of the second bitcoin signature.
-	bitcoinSig2 *ecdsa.Signature
-
-	// BitcoinSig2Bytes are the raw bytes of the second bitcoin signature
-	// encoded in DER format.
-	BitcoinSig2Bytes []byte
-}
-
-// Node1Sig is the signature using the identity key of the node that is first
-// in a lexicographical ordering of the serialized public keys of the two nodes
-// that created the channel.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the signature if absolutely necessary.
-func (c *ChannelAuthProof) Node1Sig() (*ecdsa.Signature, error) {
-	if c.nodeSig1 != nil {
-		return c.nodeSig1, nil
-	}
-
-	sig, err := ecdsa.ParseSignature(c.NodeSig1Bytes)
-	if err != nil {
-		return nil, err
-	}
-
-	c.nodeSig1 = sig
-
-	return sig, nil
-}
-
-// Node2Sig is the signature using the identity key of the node that is second
-// in a lexicographical ordering of the serialized public keys of the two nodes
-// that created the channel.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the signature if absolutely necessary.
-func (c *ChannelAuthProof) Node2Sig() (*ecdsa.Signature, error) {
-	if c.nodeSig2 != nil {
-		return c.nodeSig2, nil
-	}
-
-	sig, err := ecdsa.ParseSignature(c.NodeSig2Bytes)
-	if err != nil {
-		return nil, err
-	}
-
-	c.nodeSig2 = sig
-
-	return sig, nil
-}
-
-// BitcoinSig1 is the signature using the public key of the first node that was
-// used in the channel's multi-sig output.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the signature if absolutely necessary.
-func (c *ChannelAuthProof) BitcoinSig1() (*ecdsa.Signature, error) {
-	if c.bitcoinSig1 != nil {
-		return c.bitcoinSig1, nil
-	}
-
-	sig, err := ecdsa.ParseSignature(c.BitcoinSig1Bytes)
-	if err != nil {
-		return nil, err
-	}
-
-	c.bitcoinSig1 = sig
-
-	return sig, nil
-}
-
-// BitcoinSig2 is the signature using the public key of the second node that
-// was used in the channel's multi-sig output.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the signature if absolutely necessary.
-func (c *ChannelAuthProof) BitcoinSig2() (*ecdsa.Signature, error) {
-	if c.bitcoinSig2 != nil {
-		return c.bitcoinSig2, nil
-	}
-
-	sig, err := ecdsa.ParseSignature(c.BitcoinSig2Bytes)
-	if err != nil {
-		return nil, err
-	}
-
-	c.bitcoinSig2 = sig
-
-	return sig, nil
-}
-
-// IsEmpty check is the authentication proof is empty Proof is empty if at
-// least one of the signatures are equal to nil.
-func (c *ChannelAuthProof) IsEmpty() bool {
-	return len(c.NodeSig1Bytes) == 0 ||
-		len(c.NodeSig2Bytes) == 0 ||
-		len(c.BitcoinSig1Bytes) == 0 ||
-		len(c.BitcoinSig2Bytes) == 0
-}
-
-// ChannelEdgePolicy represents a *directed* edge within the channel graph. For
-// each channel in the database, there are two distinct edges: one for each
-// possible direction of travel along the channel. The edges themselves hold
-// information concerning fees, and minimum time-lock information which is
-// utilized during path finding.
-type ChannelEdgePolicy struct {
-	// SigBytes is the raw bytes of the signature of the channel edge
-	// policy. We'll only parse these if the caller needs to access the
-	// signature for validation purposes. Do not set SigBytes directly, but
-	// use SetSigBytes instead to make sure that the cache is invalidated.
-	SigBytes []byte
-
-	// sig is a cached fully parsed signature.
-	sig *ecdsa.Signature
-
-	// ChannelID is the unique channel ID for the channel. The first 3
-	// bytes are the block height, the next 3 the index within the block,
-	// and the last 2 bytes are the output index for the channel.
-	ChannelID uint64
-
-	// LastUpdate is the last time an authenticated edge for this channel
-	// was received.
-	LastUpdate time.Time
-
-	// MessageFlags is a bitfield which indicates the presence of optional
-	// fields (like max_htlc) in the policy.
-	MessageFlags lnwire.ChanUpdateMsgFlags
-
-	// ChannelFlags is a bitfield which signals the capabilities of the
-	// channel as well as the directed edge this update applies to.
-	ChannelFlags lnwire.ChanUpdateChanFlags
-
-	// TimeLockDelta is the number of blocks this node will subtract from
-	// the expiry of an incoming HTLC. This value expresses the time buffer
-	// the node would like to HTLC exchanges.
-	TimeLockDelta uint16
-
-	// MinHTLC is the smallest value HTLC this node will forward, expressed
-	// in millisatoshi.
-	MinHTLC lnwire.MilliSatoshi
-
-	// MaxHTLC is the largest value HTLC this node will forward, expressed
-	// in millisatoshi.
-	MaxHTLC lnwire.MilliSatoshi
-
-	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
-	// ANY HTLC, expressed in mSAT's.
-	FeeBaseMSat lnwire.MilliSatoshi
-
-	// FeeProportionalMillionths is the rate that the node will charge for
-	// HTLCs for each millionth of a satoshi forwarded.
-	FeeProportionalMillionths lnwire.MilliSatoshi
-
-	// ToNode is the public key of the node that this directed edge leads
-	// to. Using this pub key, the channel graph can further be traversed.
-	ToNode [33]byte
-
-	// ExtraOpaqueData is the set of data that was appended to this
-	// message, some of which we may not actually know how to iterate or
-	// parse. By holding onto this data, we ensure that we're able to
-	// properly validate the set of signatures that cover these new fields,
-	// and ensure we're able to make upgrades to the network in a forwards
-	// compatible manner.
-	ExtraOpaqueData []byte
-}
-
-// Signature is a channel announcement signature, which is needed for proper
-// edge policy announcement.
-//
-// NOTE: By having this method to access an attribute, we ensure we only need
-// to fully deserialize the signature if absolutely necessary.
-func (c *ChannelEdgePolicy) Signature() (*ecdsa.Signature, error) {
-	if c.sig != nil {
-		return c.sig, nil
-	}
-
-	sig, err := ecdsa.ParseSignature(c.SigBytes)
-	if err != nil {
-		return nil, err
-	}
-
-	c.sig = sig
-
-	return sig, nil
-}
-
-// SetSigBytes updates the signature and invalidates the cached parsed
-// signature.
-func (c *ChannelEdgePolicy) SetSigBytes(sig []byte) {
-	c.SigBytes = sig
-	c.sig = nil
-}
-
-// IsDisabled determines whether the edge has the disabled bit set.
-func (c *ChannelEdgePolicy) IsDisabled() bool {
-	return c.ChannelFlags.IsDisabled()
-}
-
-// ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
-// the passed active payment channel. This value is currently computed as
-// specified in BOLT07, but will likely change in the near future.
-func (c *ChannelEdgePolicy) ComputeFee(
-	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-
-	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
-}
-
-// divideCeil divides dividend by factor and rounds the result up.
-func divideCeil(dividend, factor lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-	return (dividend + factor - 1) / factor
-}
-
-// ComputeFeeFromIncoming computes the fee to forward an HTLC given the incoming
-// amount.
-func (c *ChannelEdgePolicy) ComputeFeeFromIncoming(
-	incomingAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-
-	return incomingAmt - divideCeil(
-		feeRateParts*(incomingAmt-c.FeeBaseMSat),
-		feeRateParts+c.FeeProportionalMillionths,
-	)
-}
-
 // FetchChannelEdgesByOutpoint attempts to lookup the two directed edges for
 // the channel identified by the funding outpoint. If the channel can't be
 // found, then ErrEdgeNotFound is returned. A struct which houses the general
 // information for the channel itself is returned as well as two structs that
 // contain the routing policies for the channel in either direction.
 func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint,
-) (*ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy, error) {
+) (*models.ChannelEdgeInfo, *models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
 
 	var (
-		edgeInfo *ChannelEdgeInfo
-		policy1  *ChannelEdgePolicy
-		policy2  *ChannelEdgePolicy
+		edgeInfo *models.ChannelEdgeInfo
+		policy1  *models.ChannelEdgePolicy
+		policy2  *models.ChannelEdgePolicy
 	)
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
@@ -3632,12 +3202,12 @@ func (c *ChannelGraph) FetchChannelEdgesByOutpoint(op *wire.OutPoint,
 // within the database. In this case, the ChannelEdgePolicy's will be nil, and
 // the ChannelEdgeInfo will only include the public keys of each node.
 func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64,
-) (*ChannelEdgeInfo, *ChannelEdgePolicy, *ChannelEdgePolicy, error) {
+) (*models.ChannelEdgeInfo, *models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
 
 	var (
-		edgeInfo  *ChannelEdgeInfo
-		policy1   *ChannelEdgePolicy
-		policy2   *ChannelEdgePolicy
+		edgeInfo  *models.ChannelEdgeInfo
+		policy1   *models.ChannelEdgePolicy
+		policy2   *models.ChannelEdgePolicy
 		channelID [8]byte
 	)
 
@@ -3688,7 +3258,7 @@ func (c *ChannelGraph) FetchChannelEdgesByID(chanID uint64,
 			// populate the edge info with the public keys of each
 			// party as this is the only information we have about
 			// it and return an error signaling so.
-			edgeInfo = &ChannelEdgeInfo{
+			edgeInfo = &models.ChannelEdgeInfo{
 				NodeKey1Bytes: pubKey1,
 				NodeKey2Bytes: pubKey2,
 			}
@@ -4334,7 +3904,7 @@ func deserializeLightningNode(r io.Reader) (LightningNode, error) {
 	return node, nil
 }
 
-func putChanEdgeInfo(edgeIndex kvdb.RwBucket, edgeInfo *ChannelEdgeInfo, chanID [8]byte) error {
+func putChanEdgeInfo(edgeIndex kvdb.RwBucket, edgeInfo *models.ChannelEdgeInfo, chanID [8]byte) error {
 	var b bytes.Buffer
 
 	if _, err := b.Write(edgeInfo.NodeKey1Bytes[:]); err != nil {
@@ -4401,58 +3971,58 @@ func putChanEdgeInfo(edgeIndex kvdb.RwBucket, edgeInfo *ChannelEdgeInfo, chanID 
 }
 
 func fetchChanEdgeInfo(edgeIndex kvdb.RBucket,
-	chanID []byte) (ChannelEdgeInfo, error) {
+	chanID []byte) (models.ChannelEdgeInfo, error) {
 
 	edgeInfoBytes := edgeIndex.Get(chanID)
 	if edgeInfoBytes == nil {
-		return ChannelEdgeInfo{}, ErrEdgeNotFound
+		return models.ChannelEdgeInfo{}, ErrEdgeNotFound
 	}
 
 	edgeInfoReader := bytes.NewReader(edgeInfoBytes)
 	return deserializeChanEdgeInfo(edgeInfoReader)
 }
 
-func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
+func deserializeChanEdgeInfo(r io.Reader) (models.ChannelEdgeInfo, error) {
 	var (
 		err      error
-		edgeInfo ChannelEdgeInfo
+		edgeInfo models.ChannelEdgeInfo
 	)
 
 	if _, err := io.ReadFull(r, edgeInfo.NodeKey1Bytes[:]); err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 	if _, err := io.ReadFull(r, edgeInfo.NodeKey2Bytes[:]); err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 	if _, err := io.ReadFull(r, edgeInfo.BitcoinKey1Bytes[:]); err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 	if _, err := io.ReadFull(r, edgeInfo.BitcoinKey2Bytes[:]); err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 
 	edgeInfo.Features, err = wire.ReadVarBytes(r, 0, 900, "features")
 	if err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 
-	proof := &ChannelAuthProof{}
+	proof := &models.ChannelAuthProof{}
 
 	proof.NodeSig1Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 	proof.NodeSig2Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 	proof.BitcoinSig1Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 	proof.BitcoinSig2Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 
 	if !proof.IsEmpty() {
@@ -4461,17 +4031,17 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 
 	edgeInfo.ChannelPoint = wire.OutPoint{}
 	if err := readOutpoint(r, &edgeInfo.ChannelPoint); err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 	if err := binary.Read(r, byteOrder, &edgeInfo.Capacity); err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 	if err := binary.Read(r, byteOrder, &edgeInfo.ChannelID); err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 
 	if _, err := io.ReadFull(r, edgeInfo.ChainHash[:]); err != nil {
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 
 	// We'll try and see if there are any opaque bytes left, if not, then
@@ -4483,13 +4053,13 @@ func deserializeChanEdgeInfo(r io.Reader) (ChannelEdgeInfo, error) {
 	case err == io.ErrUnexpectedEOF:
 	case err == io.EOF:
 	case err != nil:
-		return ChannelEdgeInfo{}, err
+		return models.ChannelEdgeInfo{}, err
 	}
 
 	return edgeInfo, nil
 }
 
-func putChanEdgePolicy(edges kvdb.RwBucket, edge *ChannelEdgePolicy, from,
+func putChanEdgePolicy(edges kvdb.RwBucket, edge *models.ChannelEdgePolicy, from,
 	to []byte) error {
 
 	var edgeKey [33 + 8]byte
@@ -4610,7 +4180,7 @@ func putChanEdgePolicyUnknown(edges kvdb.RwBucket, channelID uint64,
 }
 
 func fetchChanEdgePolicy(edges kvdb.RBucket, chanID []byte,
-	nodePub []byte) (*ChannelEdgePolicy, error) {
+	nodePub []byte) (*models.ChannelEdgePolicy, error) {
 
 	var edgeKey [33 + 8]byte
 	copy(edgeKey[:], nodePub)
@@ -4643,7 +4213,7 @@ func fetchChanEdgePolicy(edges kvdb.RBucket, chanID []byte,
 }
 
 func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
-	chanID []byte) (*ChannelEdgePolicy, *ChannelEdgePolicy, error) {
+	chanID []byte) (*models.ChannelEdgePolicy, *models.ChannelEdgePolicy, error) {
 
 	edgeInfo := edgeIndex.Get(chanID)
 	if edgeInfo == nil {
@@ -4670,7 +4240,7 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 	return edge1, edge2, nil
 }
 
-func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
+func serializeChanEdgePolicy(w io.Writer, edge *models.ChannelEdgePolicy,
 	to []byte) error {
 
 	err := wire.WriteVarBytes(w, 0, edge.SigBytes)
@@ -4737,7 +4307,7 @@ func serializeChanEdgePolicy(w io.Writer, edge *ChannelEdgePolicy,
 	return nil
 }
 
-func deserializeChanEdgePolicy(r io.Reader) (*ChannelEdgePolicy, error) {
+func deserializeChanEdgePolicy(r io.Reader) (*models.ChannelEdgePolicy, error) {
 	// Deserialize the policy. Note that in case an optional field is not
 	// found, both an error and a populated policy object are returned.
 	edge, deserializeErr := deserializeChanEdgePolicyRaw(r)
@@ -4750,8 +4320,8 @@ func deserializeChanEdgePolicy(r io.Reader) (*ChannelEdgePolicy, error) {
 	return edge, deserializeErr
 }
 
-func deserializeChanEdgePolicyRaw(r io.Reader) (*ChannelEdgePolicy, error) {
-	edge := &ChannelEdgePolicy{}
+func deserializeChanEdgePolicyRaw(r io.Reader) (*models.ChannelEdgePolicy, error) {
+	edge := &models.ChannelEdgePolicy{}
 
 	var err error
 	edge.SigBytes, err = wire.ReadVarBytes(r, 0, 80, "sig")

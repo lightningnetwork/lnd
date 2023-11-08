@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -261,7 +262,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 	for _, rpcEdge := range graph.Edges {
 		rpcEdge := rpcEdge
 
-		edge := &channeldb.ChannelEdgeInfo{
+		edge := &models.ChannelEdgeInfo{
 			ChannelID: rpcEdge.ChannelId,
 			ChainHash: *s.cfg.ActiveNetParams.GenesisHash,
 			Capacity:  btcutil.Amount(rpcEdge.Capacity),
@@ -288,8 +289,8 @@ func (s *Server) ImportGraph(ctx context.Context,
 				rpcEdge.ChanPoint, err)
 		}
 
-		makePolicy := func(rpcPolicy *lnrpc.RoutingPolicy) *channeldb.ChannelEdgePolicy {
-			policy := &channeldb.ChannelEdgePolicy{
+		makePolicy := func(rpcPolicy *lnrpc.RoutingPolicy) *models.ChannelEdgePolicy {
+			policy := &models.ChannelEdgePolicy{
 				ChannelID: rpcEdge.ChannelId,
 				LastUpdate: time.Unix(
 					int64(rpcPolicy.LastUpdate), 0,

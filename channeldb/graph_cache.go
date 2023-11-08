@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -27,94 +28,8 @@ type GraphCacheNode interface {
 	// error, then the iteration is halted with the error propagated back up
 	// to the caller.
 	ForEachChannel(kvdb.RTx,
-		func(kvdb.RTx, *ChannelEdgeInfo, *ChannelEdgePolicy,
-			*ChannelEdgePolicy) error) error
-}
-
-// CachedEdgePolicy is a struct that only caches the information of a
-// ChannelEdgePolicy that we actually use for pathfinding and therefore need to
-// store in the cache.
-type CachedEdgePolicy struct {
-	// ChannelID is the unique channel ID for the channel. The first 3
-	// bytes are the block height, the next 3 the index within the block,
-	// and the last 2 bytes are the output index for the channel.
-	ChannelID uint64
-
-	// MessageFlags is a bitfield which indicates the presence of optional
-	// fields (like max_htlc) in the policy.
-	MessageFlags lnwire.ChanUpdateMsgFlags
-
-	// ChannelFlags is a bitfield which signals the capabilities of the
-	// channel as well as the directed edge this update applies to.
-	ChannelFlags lnwire.ChanUpdateChanFlags
-
-	// TimeLockDelta is the number of blocks this node will subtract from
-	// the expiry of an incoming HTLC. This value expresses the time buffer
-	// the node would like to HTLC exchanges.
-	TimeLockDelta uint16
-
-	// MinHTLC is the smallest value HTLC this node will forward, expressed
-	// in millisatoshi.
-	MinHTLC lnwire.MilliSatoshi
-
-	// MaxHTLC is the largest value HTLC this node will forward, expressed
-	// in millisatoshi.
-	MaxHTLC lnwire.MilliSatoshi
-
-	// FeeBaseMSat is the base HTLC fee that will be charged for forwarding
-	// ANY HTLC, expressed in mSAT's.
-	FeeBaseMSat lnwire.MilliSatoshi
-
-	// FeeProportionalMillionths is the rate that the node will charge for
-	// HTLCs for each millionth of a satoshi forwarded.
-	FeeProportionalMillionths lnwire.MilliSatoshi
-
-	// ToNodePubKey is a function that returns the to node of a policy.
-	// Since we only ever store the inbound policy, this is always the node
-	// that we query the channels for in ForEachChannel(). Therefore, we can
-	// save a lot of space by not storing this information in the memory and
-	// instead just set this function when we copy the policy from cache in
-	// ForEachChannel().
-	ToNodePubKey func() route.Vertex
-
-	// ToNodeFeatures are the to node's features. They are never set while
-	// the edge is in the cache, only on the copy that is returned in
-	// ForEachChannel().
-	ToNodeFeatures *lnwire.FeatureVector
-}
-
-// ComputeFee computes the fee to forward an HTLC of `amt` milli-satoshis over
-// the passed active payment channel. This value is currently computed as
-// specified in BOLT07, but will likely change in the near future.
-func (c *CachedEdgePolicy) ComputeFee(
-	amt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-
-	return c.FeeBaseMSat + (amt*c.FeeProportionalMillionths)/feeRateParts
-}
-
-// ComputeFeeFromIncoming computes the fee to forward an HTLC given the incoming
-// amount.
-func (c *CachedEdgePolicy) ComputeFeeFromIncoming(
-	incomingAmt lnwire.MilliSatoshi) lnwire.MilliSatoshi {
-
-	return incomingAmt - divideCeil(
-		feeRateParts*(incomingAmt-c.FeeBaseMSat),
-		feeRateParts+c.FeeProportionalMillionths,
-	)
-}
-
-// NewCachedPolicy turns a full policy into a minimal one that can be cached.
-func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
-	return &CachedEdgePolicy{
-		ChannelID:                 policy.ChannelID,
-		MessageFlags:              policy.MessageFlags,
-		ChannelFlags:              policy.ChannelFlags,
-		TimeLockDelta:             policy.TimeLockDelta,
-		MinHTLC:                   policy.MinHTLC,
-		MaxHTLC:                   policy.MaxHTLC,
-		FeeBaseMSat:               policy.FeeBaseMSat,
-		FeeProportionalMillionths: policy.FeeProportionalMillionths,
-	}
+		func(kvdb.RTx, *models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+			*models.ChannelEdgePolicy) error) error
 }
 
 // DirectedChannel is a type that stores the channel information as seen from
@@ -142,7 +57,7 @@ type DirectedChannel struct {
 	// In path finding, we're walking backward from the destination to the
 	// source, so we're always interested in the edge that arrives to us
 	// from the other node.
-	InPolicy *CachedEdgePolicy
+	InPolicy *models.CachedEdgePolicy
 }
 
 // DeepCopy creates a deep copy of the channel, including the incoming policy.
@@ -223,9 +138,9 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 	c.AddNodeFeatures(node)
 
 	return node.ForEachChannel(
-		tx, func(tx kvdb.RTx, info *ChannelEdgeInfo,
-			outPolicy *ChannelEdgePolicy,
-			inPolicy *ChannelEdgePolicy) error {
+		tx, func(tx kvdb.RTx, info *models.ChannelEdgeInfo,
+			outPolicy *models.ChannelEdgePolicy,
+			inPolicy *models.ChannelEdgePolicy) error {
 
 			c.AddChannel(info, outPolicy, inPolicy)
 
@@ -238,8 +153,8 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 // and policy 2 does not matter, the directionality is extracted from the info
 // and policy flags automatically. The policy will be set as the outgoing policy
 // on one node and the incoming policy on the peer's side.
-func (c *GraphCache) AddChannel(info *ChannelEdgeInfo,
-	policy1 *ChannelEdgePolicy, policy2 *ChannelEdgePolicy) {
+func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo,
+	policy1 *models.ChannelEdgePolicy, policy2 *models.ChannelEdgePolicy) {
 
 	if info == nil {
 		return
@@ -301,7 +216,7 @@ func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
 // of the from and to node is not strictly important. But we assume that a
 // channel edge was added beforehand so that the directed channel struct already
 // exists in the cache.
-func (c *GraphCache) UpdatePolicy(policy *ChannelEdgePolicy, fromNode,
+func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 	toNode route.Vertex, edge1 bool) {
 
 	c.mtx.Lock()
@@ -333,7 +248,7 @@ func (c *GraphCache) UpdatePolicy(policy *ChannelEdgePolicy, fromNode,
 		// The other two cases left mean it's the inbound policy for the
 		// node.
 		default:
-			channel.InPolicy = NewCachedPolicy(policy)
+			channel.InPolicy = models.NewCachedPolicy(policy)
 		}
 	}
 
@@ -380,7 +295,7 @@ func (c *GraphCache) removeChannelIfFound(node route.Vertex, chanID uint64) {
 // UpdateChannel updates the channel edge information for a specific edge. We
 // expect the edge to already exist and be known. If it does not yet exist, this
 // call is a no-op.
-func (c *GraphCache) UpdateChannel(info *ChannelEdgeInfo) {
+func (c *GraphCache) UpdateChannel(info *models.ChannelEdgeInfo) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 

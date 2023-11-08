@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -89,8 +90,8 @@ func (d *dbNode) Addrs() []net.Addr {
 // NOTE: Part of the autopilot.Node interface.
 func (d *dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 	return d.db.ForEachNodeChannel(d.tx, d.node.PubKeyBytes,
-		func(tx kvdb.RTx, ei *channeldb.ChannelEdgeInfo, ep,
-			_ *channeldb.ChannelEdgePolicy) error {
+		func(tx kvdb.RTx, ei *models.ChannelEdgeInfo, ep,
+			_ *models.ChannelEdgePolicy) error {
 
 			// Skip channels for which no outgoing edge policy is
 			// available.
@@ -235,7 +236,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	}
 
 	chanID := randChanID()
-	edge := &channeldb.ChannelEdgeInfo{
+	edge := &models.ChannelEdgeInfo{
 		ChannelID: chanID.ToUint64(),
 		Capacity:  capacity,
 	}
@@ -243,7 +244,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	if err := d.db.AddChannelEdge(edge); err != nil {
 		return nil, nil, err
 	}
-	edgePolicy := &channeldb.ChannelEdgePolicy{
+	edgePolicy := &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
@@ -259,7 +260,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {
 		return nil, nil, err
 	}
-	edgePolicy = &channeldb.ChannelEdgePolicy{
+	edgePolicy = &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),

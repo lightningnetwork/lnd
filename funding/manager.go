@@ -223,6 +223,10 @@ type InitFundingMsg struct {
 	// Private determines whether or not this channel will be private.
 	Private bool
 
+	// EnableRBF is a boolen which if true sets transaction inputs
+	// to signal RBF
+	EnableRBF bool
+
 	// MinHtlcIn is the minimum incoming HTLC that we accept.
 	MinHtlcIn lnwire.MilliSatoshi
 
@@ -1580,6 +1584,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 		ZeroConf:         zeroConf,
 		OptionScidAlias:  scid,
 		ScidAliasFeature: scidFeatureVal,
+		EnableRBF:        false,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)
@@ -4564,6 +4569,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		OptionScidAlias:   scid,
 		ScidAliasFeature:  scidFeatureVal,
 		Memo:              msg.Memo,
+		EnableRBF:         msg.EnableRBF,
 	}
 
 	reservation, err := f.cfg.Wallet.InitChannelReservation(req)

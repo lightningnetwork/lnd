@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -744,7 +745,7 @@ func openChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 
 	publ := fundChannel(
 		t, alice, bob, localFundingAmt, pushAmt, false, 0, 0, numConfs,
-		updateChan, announceChan, chanType,
+		updateChan, announceChan, chanType, true,
 	)
 	fundingOutPoint := &wire.OutPoint{
 		Hash:  publ.TxHash(),
@@ -771,7 +772,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 	pushAmt btcutil.Amount, subtractFees bool, fundUpToMaxAmt,
 	minFundAmt btcutil.Amount, numConfs uint32,
 	updateChan chan *lnrpc.OpenStatusUpdate, announceChan bool,
-	chanType *lnwire.ChannelType) *wire.MsgTx {
+	chanType *lnwire.ChannelType, enableRBF bool) *wire.MsgTx {
 
 	// Create a funding request and start the workflow.
 	errChan := make(chan error, 1)
@@ -790,6 +791,7 @@ func fundChannel(t *testing.T, alice, bob *testNode, localFundingAmt,
 		ChannelType:     chanType,
 		Updates:         updateChan,
 		Err:             errChan,
+		EnableRBF:       enableRBF,
 	}
 
 	// If this is a taproot channel, then we want to force it to be a
@@ -3039,6 +3041,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		Err:               errChan,
 		BaseFee:           &baseFee,
 		FeeRate:           &feeRate,
+		EnableRBF:         true,
 	}
 
 	alice.fundingMgr.InitFundingWorkflow(initReq)
@@ -3210,6 +3213,12 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	resCtx, err := alice.fundingMgr.getReservationCtx(bobPubKey, chanID)
 	require.NoError(t, err, "unable to find ctx")
 
+	// Make sure that our funding tx inputs signal RBF
+	for _, in := range resCtx.reservation.FinalFundingTx().TxIn {
+		require.Equal(t, uint32(mempool.MaxRBFSequence), in.Sequence,
+			"input sequence does not signal RBF")
+	}
+
 	// Alice's CSV delay should be 4 since Bob sent the default value, and
 	// Bob's should be 67 since Alice sent the custom value.
 	if err := assertDelay(resCtx, 4, csvDelay); err != nil {
@@ -3331,6 +3340,12 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 	// Exchange the channelReady messages.
 	alice.fundingMgr.ProcessFundingMsg(channelReadyBob, bob)
 	bob.fundingMgr.ProcessFundingMsg(channelReadyAlice, alice)
+
+	// Make sure that the mined funding tx inputs signal RBF
+	for _, in := range fundingTx.TxIn {
+		require.Equal(t, uint32(mempool.MaxRBFSequence), in.Sequence,
+			"input sequence does not signal RBF")
+	}
 
 	// Make sure both fundingManagers send the expected channel
 	// announcements.
@@ -3877,7 +3892,7 @@ func TestFundingManagerFundAll(t *testing.T) {
 		pushAmt := btcutil.Amount(0)
 		fundingTx := fundChannel(
 			t, alice, bob, test.spendAmt, pushAmt, true, 0, 0, 1,
-			updateChan, true, nil,
+			updateChan, true, nil, true,
 		)
 
 		// Check whether the expected change output is present.
@@ -4033,7 +4048,7 @@ func TestFundingManagerFundMax(t *testing.T) {
 			fundingTx := fundChannel(
 				t, alice, bob, 0, pushAmt, false,
 				test.fundUpToMaxAmt, test.minFundAmt, 1,
-				updateChan, true, nil,
+				updateChan, true, nil, true,
 			)
 
 			// Check whether the expected change output is present.
@@ -4518,7 +4533,7 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	// Call fundChannel with the zero-conf ChannelType.
 	fundingTx := fundChannel(
 		t, alice, bob, fundingAmt, pushAmt, false, 0, 0, 1, updateChan,
-		true, &channelType,
+		true, &channelType, true,
 	)
 	fundingOp := &wire.OutPoint{
 		Hash:  fundingTx.TxHash(),

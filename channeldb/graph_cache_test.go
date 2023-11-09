@@ -30,8 +30,8 @@ type node struct {
 	features *lnwire.FeatureVector
 
 	edgeInfos   []*models.ChannelEdgeInfo
-	outPolicies []*models.ChannelEdgePolicy
-	inPolicies  []*models.ChannelEdgePolicy
+	outPolicies []*models.ChannelEdgePolicy1
+	inPolicies  []*models.ChannelEdgePolicy1
 }
 
 func (n *node) PubKey() route.Vertex {
@@ -42,8 +42,8 @@ func (n *node) Features() *lnwire.FeatureVector {
 }
 
 func (n *node) ForEachChannel(tx kvdb.RTx,
-	cb func(kvdb.RTx, *models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error) error {
+	cb func(kvdb.RTx, *models.ChannelEdgeInfo, *models.ChannelEdgePolicy1,
+		*models.ChannelEdgePolicy1) error) error {
 
 	for idx := range n.edgeInfos {
 		err := cb(
@@ -71,12 +71,12 @@ func TestGraphCacheAddNode(t *testing.T) {
 			channelFlagA, channelFlagB = 1, 0
 		}
 
-		outPolicy1 := &models.ChannelEdgePolicy{
+		outPolicy1 := &models.ChannelEdgePolicy1{
 			ChannelID:    1000,
 			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagA),
 			ToNode:       nodeB,
 		}
-		inPolicy1 := &models.ChannelEdgePolicy{
+		inPolicy1 := &models.ChannelEdgePolicy1{
 			ChannelID:    1000,
 			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagB),
 			ToNode:       nodeA,
@@ -91,8 +91,8 @@ func TestGraphCacheAddNode(t *testing.T) {
 				NodeKey2Bytes: pubKey2,
 				Capacity:      500,
 			}},
-			outPolicies: []*models.ChannelEdgePolicy{outPolicy1},
-			inPolicies:  []*models.ChannelEdgePolicy{inPolicy1},
+			outPolicies: []*models.ChannelEdgePolicy1{outPolicy1},
+			inPolicies:  []*models.ChannelEdgePolicy1{inPolicy1},
 		}
 		cache := NewGraphCache(10)
 		require.NoError(t, cache.AddNode(nil, node))
@@ -139,7 +139,7 @@ func TestGraphCacheAddNode(t *testing.T) {
 	runTest(pubKey2, pubKey1)
 }
 
-func assertCachedPolicyEqual(t *testing.T, original *models.ChannelEdgePolicy,
+func assertCachedPolicyEqual(t *testing.T, original *models.ChannelEdgePolicy1,
 	cached *models.CachedEdgePolicy) {
 
 	require.Equal(t, original.ChannelID, cached.ChannelID)

@@ -1320,7 +1320,7 @@ func TestIgnoreChannelEdgePolicyForUnknownChannel(t *testing.T) {
 		BitcoinKey2Bytes: pub2,
 		AuthProof:        nil,
 	}
-	edgePolicy := &models.ChannelEdgePolicy{
+	edgePolicy := &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -1405,7 +1405,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 
 	// We must add the edge policy to be able to use the edge for route
 	// finding.
-	edgePolicy := &models.ChannelEdgePolicy{
+	edgePolicy := &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -1422,7 +1422,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 	}
 
 	// Create edge in the other direction as well.
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -1498,7 +1498,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("unable to add edge to the channel graph: %v.", err)
 	}
 
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -1514,7 +1514,7 @@ func TestAddEdgeUnknownVertexes(t *testing.T) {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
 
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                testTime,
@@ -2627,7 +2627,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 	}
 
 	// We'll also add two edge policies, one for each direction.
-	edgePolicy := &models.ChannelEdgePolicy{
+	edgePolicy := &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                updateTimeStamp,
@@ -2641,7 +2641,7 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 		t.Fatalf("unable to update edge policy: %v", err)
 	}
 
-	edgePolicy = &models.ChannelEdgePolicy{
+	edgePolicy = &models.ChannelEdgePolicy1{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 edge.ChannelID,
 		LastUpdate:                updateTimeStamp,

@@ -531,7 +531,7 @@ type EdgeWithInfo struct {
 	Info *models.ChannelEdgeInfo
 
 	// Edge describes the policy in one direction of the channel.
-	Edge *models.ChannelEdgePolicy
+	Edge *models.ChannelEdgePolicy1
 }
 
 // PropagateChanPolicyUpdate signals the AuthenticatedGossiper to perform the
@@ -1593,7 +1593,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 	// within the prune interval or re-broadcast interval.
 	type updateTuple struct {
 		info *models.ChannelEdgeInfo
-		edge *models.ChannelEdgePolicy
+		edge *models.ChannelEdgePolicy1
 	}
 
 	var (
@@ -1603,7 +1603,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 	err := d.cfg.Router.ForAllOutgoingChannels(func(
 		_ kvdb.RTx,
 		info *models.ChannelEdgeInfo,
-		edge *models.ChannelEdgePolicy) error {
+		edge *models.ChannelEdgePolicy1) error {
 
 		// If there's no auth proof attached to this edge, it means
 		// that it is a private channel not meant to be announced to
@@ -2155,7 +2155,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 		// Otherwise, we'll retrieve the correct policy that we
 		// currently have stored within our graph to check if this
 		// message is stale by comparing its timestamp.
-		var p *models.ChannelEdgePolicy
+		var p *models.ChannelEdgePolicy1
 		if msg.ChannelFlags&lnwire.ChanUpdateDirection == 0 {
 			p = p1
 		} else {
@@ -2181,7 +2181,7 @@ func (d *AuthenticatedGossiper) isMsgStale(msg lnwire.Message) bool {
 // updateChannel creates a new fully signed update for the channel, and updates
 // the underlying graph with the new state.
 func (d *AuthenticatedGossiper) updateChannel(info *models.ChannelEdgeInfo,
-	edge *models.ChannelEdgePolicy) (*lnwire.ChannelAnnouncement1,
+	edge *models.ChannelEdgePolicy1) (*lnwire.ChannelAnnouncement1,
 	*lnwire.ChannelUpdate1, error) {
 
 	// Parse the unsigned edge into a channel update.
@@ -2269,7 +2269,7 @@ func (d *AuthenticatedGossiper) SyncManager() *SyncManager {
 // keep-alive update based on the previous channel update processed for the same
 // direction.
 func IsKeepAliveUpdate(update *lnwire.ChannelUpdate1,
-	prev *models.ChannelEdgePolicy) bool {
+	prev *models.ChannelEdgePolicy1) bool {
 
 	// Both updates should be from the same direction.
 	if update.ChannelFlags&lnwire.ChanUpdateDirection !=
@@ -2846,7 +2846,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	// being updated.
 	var (
 		pubKey       *btcec.PublicKey
-		edgeToUpdate *models.ChannelEdgePolicy
+		edgeToUpdate *models.ChannelEdgePolicy1
 	)
 	direction := upd.ChannelFlags & lnwire.ChanUpdateDirection
 	switch direction {
@@ -2935,7 +2935,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 	// different alias. This might mean that SigBytes is incorrect as it
 	// signs a different SCID than the database SCID, but since there will
 	// only be a difference if AuthProof == nil, this is fine.
-	update := &models.ChannelEdgePolicy{
+	update := &models.ChannelEdgePolicy1{
 		SigBytes:                  upd.Signature.ToSignatureBytes(),
 		ChannelID:                 chanInfo.ChannelID,
 		LastUpdate:                timestamp,

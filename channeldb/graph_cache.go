@@ -29,8 +29,8 @@ type GraphCacheNode interface {
 	// to the caller.
 	ForEachChannel(kvdb.RTx,
 		func(kvdb.RTx, *models.ChannelEdgeInfo,
-			*models.ChannelEdgePolicy,
-			*models.ChannelEdgePolicy) error) error
+			*models.ChannelEdgePolicy1,
+			*models.ChannelEdgePolicy1) error) error
 }
 
 // DirectedChannel is a type that stores the channel information as seen from
@@ -140,8 +140,8 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 
 	return node.ForEachChannel(
 		tx, func(tx kvdb.RTx, info *models.ChannelEdgeInfo,
-			outPolicy *models.ChannelEdgePolicy,
-			inPolicy *models.ChannelEdgePolicy) error {
+			outPolicy *models.ChannelEdgePolicy1,
+			inPolicy *models.ChannelEdgePolicy1) error {
 
 			c.AddChannel(info, outPolicy, inPolicy)
 
@@ -155,7 +155,8 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 // and policy flags automatically. The policy will be set as the outgoing policy
 // on one node and the incoming policy on the peer's side.
 func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo,
-	policy1 *models.ChannelEdgePolicy, policy2 *models.ChannelEdgePolicy) {
+	policy1 *models.ChannelEdgePolicy1,
+	policy2 *models.ChannelEdgePolicy1) {
 
 	if info == nil {
 		return
@@ -217,7 +218,7 @@ func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
 // of the from and to node is not strictly important. But we assume that a
 // channel edge was added beforehand so that the directed channel struct already
 // exists in the cache.
-func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
+func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy1, fromNode,
 	toNode route.Vertex, edge1 bool) {
 
 	c.mtx.Lock()

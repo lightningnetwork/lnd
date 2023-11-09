@@ -14,7 +14,7 @@ import (
 // unique attributes. Once an authenticated channel announcement has been
 // processed on the network, then an instance of ChannelEdgeInfo encapsulating
 // the channels attributes is stored. The other portions relevant to routing
-// policy of a channel are stored within a ChannelEdgePolicy for each direction
+// policy of a channel are stored within a ChannelEdgePolicy1 for each direction
 // of the channel.
 type ChannelEdgeInfo struct {
 	// ChannelID is the unique channel ID for the channel. The first 3

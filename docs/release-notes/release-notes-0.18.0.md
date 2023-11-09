@@ -107,6 +107,12 @@
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 
   from channeldb schema structs.
+* In preparation for gossip 1.75 updates, we add a `SignMuSig2` method to the
+  MessageSignerRing interface, [then we pass around the MessageSignerRing
+  interface](https://github.com/lightningnetwork/lnd/pull/8163) to various 
+  systems that will need its `SignMuSig2` and `SignMessageSchnorr` methods for 
+  signing the upcoming gossip 1.75 messages. This includes the gossiper, the 
+  funding manager and the channel status manager.
 
 ## Tooling and Documentation
 

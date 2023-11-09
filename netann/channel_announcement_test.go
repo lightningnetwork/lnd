@@ -39,7 +39,7 @@ func TestCreateChanAnnouncement(t *testing.T) {
 		ExtraOpaqueData: []byte{0x1},
 	}
 
-	chanProof := &models.ChannelAuthProof{
+	chanProof := &models.ChannelAuthProof1{
 		NodeSig1Bytes:    expChanAnn.NodeSig1.ToSignatureBytes(),
 		NodeSig2Bytes:    expChanAnn.NodeSig2.ToSignatureBytes(),
 		BitcoinSig1Bytes: expChanAnn.BitcoinSig1.ToSignatureBytes(),

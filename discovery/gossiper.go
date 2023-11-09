@@ -1831,7 +1831,7 @@ func remotePubFromChanInfo(chanInfo *models.ChannelEdgeInfo,
 // assemble the proof and craft the ChannelAnnouncement1.
 func (d *AuthenticatedGossiper) processRejectedEdge(
 	chanAnnMsg *lnwire.ChannelAnnouncement1,
-	proof *models.ChannelAuthProof) ([]networkMsg, error) {
+	proof *models.ChannelAuthProof1) ([]networkMsg, error) {
 
 	// First, we'll fetch the state of the channel as we know if from the
 	// database.
@@ -2458,7 +2458,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 
 	// If this is a remote channel announcement, then we'll validate all
 	// the signatures within the proof as it should be well formed.
-	var proof *models.ChannelAuthProof
+	var proof *models.ChannelAuthProof1
 	if nMsg.isRemote {
 		if err := routing.ValidateChannelAnn(ann); err != nil {
 			err := fmt.Errorf("unable to validate announcement: "+
@@ -2478,7 +2478,7 @@ func (d *AuthenticatedGossiper) handleChanAnnouncement(nMsg *networkMsg,
 		// If the proof checks out, then we'll save the proof itself to
 		// the database so we can fetch it later when gossiping with
 		// other nodes.
-		proof = &models.ChannelAuthProof{
+		proof = &models.ChannelAuthProof1{
 			NodeSig1Bytes:    ann.NodeSig1.ToSignatureBytes(),
 			NodeSig2Bytes:    ann.NodeSig2.ToSignatureBytes(),
 			BitcoinSig1Bytes: ann.BitcoinSig1.ToSignatureBytes(),
@@ -3247,7 +3247,7 @@ func (d *AuthenticatedGossiper) handleAnnSig(nMsg *networkMsg,
 	// We now have both halves of the channel announcement proof, then
 	// we'll reconstruct the initial announcement so we can validate it
 	// shortly below.
-	var dbProof models.ChannelAuthProof
+	var dbProof models.ChannelAuthProof1
 	if isFirstNode {
 		dbProof.NodeSig1Bytes = ann.NodeSignature.ToSignatureBytes()
 		dbProof.NodeSig2Bytes = oppProof.NodeSignature.ToSignatureBytes()

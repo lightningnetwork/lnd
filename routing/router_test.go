@@ -1688,7 +1688,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		ChannelID:     chanID1,
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models.ChannelAuthProof1{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -1706,7 +1706,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		ChannelID:     chanID2,
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models.ChannelAuthProof1{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -1898,7 +1898,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 		NodeKey2Bytes:    node2.PubKeyBytes,
 		BitcoinKey1Bytes: node1.PubKeyBytes,
 		BitcoinKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models.ChannelAuthProof1{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -1918,7 +1918,7 @@ func TestDisconnectedBlocks(t *testing.T) {
 		NodeKey2Bytes:    node2.PubKeyBytes,
 		BitcoinKey1Bytes: node1.PubKeyBytes,
 		BitcoinKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models.ChannelAuthProof1{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),
@@ -2047,7 +2047,7 @@ func TestRouterChansClosedOfflinePruneGraph(t *testing.T) {
 		ChannelID:     chanID1.ToUint64(),
 		NodeKey1Bytes: node1.PubKeyBytes,
 		NodeKey2Bytes: node2.PubKeyBytes,
-		AuthProof: &models.ChannelAuthProof{
+		AuthProof: &models.ChannelAuthProof1{
 			NodeSig1Bytes:    testSig.Serialize(),
 			NodeSig2Bytes:    testSig.Serialize(),
 			BitcoinSig1Bytes: testSig.Serialize(),

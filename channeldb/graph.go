@@ -4022,7 +4022,7 @@ func deserializeChanEdgeInfo(r io.Reader) (models.ChannelEdgeInfo, error) {
 		return models.ChannelEdgeInfo{}, err
 	}
 
-	proof := &models.ChannelAuthProof{}
+	proof := &models.ChannelAuthProof1{}
 
 	proof.NodeSig1Bytes, err = wire.ReadVarBytes(r, 0, 80, "sigs")
 	if err != nil {

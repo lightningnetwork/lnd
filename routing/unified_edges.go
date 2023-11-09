@@ -3,6 +3,7 @@ package routing
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -41,7 +42,7 @@ func newNodeEdgeUnifier(sourceNode, toNode route.Vertex,
 // addPolicy adds a single channel policy. Capacity may be zero if unknown
 // (light clients).
 func (u *nodeEdgeUnifier) addPolicy(fromNode route.Vertex,
-	edge *channeldb.CachedEdgePolicy, capacity btcutil.Amount) {
+	edge *models.CachedEdgePolicy, capacity btcutil.Amount) {
 
 	localChan := fromNode == u.sourceNode
 
@@ -93,7 +94,7 @@ func (u *nodeEdgeUnifier) addGraphPolicies(g routingGraph) error {
 // unifiedEdge is the individual channel data that is kept inside an edgeUnifier
 // object.
 type unifiedEdge struct {
-	policy   *channeldb.CachedEdgePolicy
+	policy   *models.CachedEdgePolicy
 	capacity btcutil.Amount
 }
 
@@ -233,7 +234,7 @@ func (u *edgeUnifier) getEdgeLocal(amt lnwire.MilliSatoshi,
 // forwarding context.
 func (u *edgeUnifier) getEdgeNetwork(amt lnwire.MilliSatoshi) *unifiedEdge {
 	var (
-		bestPolicy  *channeldb.CachedEdgePolicy
+		bestPolicy  *models.CachedEdgePolicy
 		maxFee      lnwire.MilliSatoshi
 		maxTimelock uint16
 		maxCapMsat  lnwire.MilliSatoshi

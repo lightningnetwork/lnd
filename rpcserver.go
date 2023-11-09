@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/chanbackup"
 	"github.com/lightningnetwork/lnd/chanfitness"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/channelnotifier"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
@@ -5921,8 +5922,8 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 	// Next, for each active channel we know of within the graph, create a
 	// similar response which details both the edge information as well as
 	// the routing policies of th nodes connecting the two edges.
-	err = graph.ForEachChannel(func(edgeInfo *channeldb.ChannelEdgeInfo,
-		c1, c2 *channeldb.ChannelEdgePolicy) error {
+	err = graph.ForEachChannel(func(edgeInfo *models.ChannelEdgeInfo,
+		c1, c2 *models.ChannelEdgePolicy) error {
 
 		// Do not include unannounced channels unless specifically
 		// requested. Unannounced channels include both private channels as
@@ -5932,7 +5933,7 @@ func (r *rpcServer) DescribeGraph(ctx context.Context,
 			return nil
 		}
 
-		edge := marshalDbEdge(edgeInfo, c1, c2)
+		edge := marshalDBEdge(edgeInfo, c1, c2)
 		resp.Edges = append(resp.Edges, edge)
 
 		return nil
@@ -5977,8 +5978,8 @@ func marshalExtraOpaqueData(data []byte) map[uint64][]byte {
 	return records
 }
 
-func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
-	c1, c2 *channeldb.ChannelEdgePolicy) *lnrpc.ChannelEdge {
+func marshalDBEdge(edgeInfo *models.ChannelEdgeInfo,
+	c1, c2 *models.ChannelEdgePolicy) *lnrpc.ChannelEdge {
 
 	// Make sure the policies match the node they belong to. c1 should point
 	// to the policy for NodeKey1, and c2 for NodeKey2.
@@ -6021,7 +6022,7 @@ func marshalDbEdge(edgeInfo *channeldb.ChannelEdgeInfo,
 }
 
 func marshalDBRoutingPolicy(
-	policy *channeldb.ChannelEdgePolicy) *lnrpc.RoutingPolicy {
+	policy *models.ChannelEdgePolicy) *lnrpc.RoutingPolicy {
 
 	disabled := policy.ChannelFlags&lnwire.ChanUpdateDisabled != 0
 
@@ -6113,7 +6114,7 @@ func (r *rpcServer) GetChanInfo(ctx context.Context,
 	// Convert the database's edge format into the network/RPC edge format
 	// which couples the edge itself along with the directional node
 	// routing policies of each node involved within the channel.
-	channelEdge := marshalDbEdge(edgeInfo, edge1, edge2)
+	channelEdge := marshalDBEdge(edgeInfo, edge1, edge2)
 
 	return channelEdge, nil
 }
@@ -6135,7 +6136,7 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 	// With the public key decoded, attempt to fetch the node corresponding
 	// to this public key. If the node cannot be found, then an error will
 	// be returned.
-	node, err := graph.FetchLightningNode(pubKey)
+	node, err := graph.FetchLightningNode(nil, pubKey)
 	switch {
 	case err == channeldb.ErrGraphNodeNotFound:
 		return nil, status.Error(codes.NotFound, err.Error())
@@ -6151,30 +6152,33 @@ func (r *rpcServer) GetNodeInfo(ctx context.Context,
 		channels      []*lnrpc.ChannelEdge
 	)
 
-	if err := node.ForEachChannel(nil, func(_ kvdb.RTx,
-		edge *channeldb.ChannelEdgeInfo,
-		c1, c2 *channeldb.ChannelEdgePolicy) error {
+	err = graph.ForEachNodeChannel(nil, node.PubKeyBytes,
+		func(_ kvdb.RTx, edge *models.ChannelEdgeInfo,
+			c1, c2 *models.ChannelEdgePolicy) error {
 
-		numChannels++
-		totalCapacity += edge.Capacity
+			numChannels++
+			totalCapacity += edge.Capacity
 
-		// Only populate the node's channels if the user requested them.
-		if in.IncludeChannels {
-			// Do not include unannounced channels - private
-			// channels or public channels whose authentication
-			// proof were not confirmed yet.
-			if edge.AuthProof == nil {
-				return nil
+			// Only populate the node's channels if the user
+			// requested them.
+			if in.IncludeChannels {
+				// Do not include unannounced channels - private
+				// channels or public channels whose
+				// authentication proof were not confirmed yet.
+				if edge.AuthProof == nil {
+					return nil
+				}
+
+				// Convert the database's edge format into the
+				// network/RPC edge format.
+				channelEdge := marshalDBEdge(edge, c1, c2)
+				channels = append(channels, channelEdge)
 			}
 
-			// Convert the database's edge format into the
-			// network/RPC edge format.
-			channelEdge := marshalDbEdge(edge, c1, c2)
-			channels = append(channels, channelEdge)
-		}
-
-		return nil
-	}); err != nil {
+			return nil
+		},
+	)
+	if err != nil {
 		return nil, err
 	}
 
@@ -6763,34 +6767,39 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	}
 
 	var feeReports []*lnrpc.ChannelFeeReport
-	err = selfNode.ForEachChannel(nil, func(_ kvdb.RTx, chanInfo *channeldb.ChannelEdgeInfo,
-		edgePolicy, _ *channeldb.ChannelEdgePolicy) error {
+	err = channelGraph.ForEachNodeChannel(nil, selfNode.PubKeyBytes,
+		func(_ kvdb.RTx, chanInfo *models.ChannelEdgeInfo,
+			edgePolicy, _ *models.ChannelEdgePolicy) error {
 
-		// Self node should always have policies for its channels.
-		if edgePolicy == nil {
-			return fmt.Errorf("no policy for outgoing channel %v ",
-				chanInfo.ChannelID)
-		}
+			// Self node should always have policies for its
+			// channels.
+			if edgePolicy == nil {
+				return fmt.Errorf("no policy for outgoing "+
+					"channel %v ", chanInfo.ChannelID)
+			}
 
-		// We'll compute the effective fee rate by converting from a
-		// fixed point fee rate to a floating point fee rate. The fee
-		// rate field in the database the amount of mSAT charged per
-		// 1mil mSAT sent, so will divide by this to get the proper fee
-		// rate.
-		feeRateFixedPoint := edgePolicy.FeeProportionalMillionths
-		feeRate := float64(feeRateFixedPoint) / feeBase
+			// We'll compute the effective fee rate by converting
+			// from a fixed point fee rate to a floating point fee
+			// rate. The fee rate field in the database the amount
+			// of mSAT charged per 1mil mSAT sent, so will divide by
+			// this to get the proper fee rate.
+			feeRateFixedPoint :=
+				edgePolicy.FeeProportionalMillionths
+			feeRate := float64(feeRateFixedPoint) / feeBase
 
-		// TODO(roasbeef): also add stats for revenue for each channel
-		feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
-			ChanId:       chanInfo.ChannelID,
-			ChannelPoint: chanInfo.ChannelPoint.String(),
-			BaseFeeMsat:  int64(edgePolicy.FeeBaseMSat),
-			FeePerMil:    int64(feeRateFixedPoint),
-			FeeRate:      feeRate,
-		})
+			// TODO(roasbeef): also add stats for revenue for each
+			// channel
+			feeReports = append(feeReports, &lnrpc.ChannelFeeReport{
+				ChanId:       chanInfo.ChannelID,
+				ChannelPoint: chanInfo.ChannelPoint.String(),
+				BaseFeeMsat:  int64(edgePolicy.FeeBaseMSat),
+				FeePerMil:    int64(feeRateFixedPoint),
+				FeeRate:      feeRate,
+			})
 
-		return nil
-	})
+			return nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -7099,7 +7108,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 			return "", err
 		}
 
-		peer, err := r.server.graphDB.FetchLightningNode(vertex)
+		peer, err := r.server.graphDB.FetchLightningNode(nil, vertex)
 		if err != nil {
 			return "", err
 		}

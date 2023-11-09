@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/batch"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -135,17 +136,17 @@ type ChannelGraphSource interface {
 	// AddEdge is used to add edge/channel to the topology of the router,
 	// after all information about channel will be gathered this
 	// edge/channel might be used in construction of payment path.
-	AddEdge(edge *channeldb.ChannelEdgeInfo,
+	AddEdge(edge *models.ChannelEdgeInfo,
 		op ...batch.SchedulerOption) error
 
 	// AddProof updates the channel edge info with proof which is needed to
 	// properly announce the edge to the rest of the network.
 	AddProof(chanID lnwire.ShortChannelID,
-		proof *channeldb.ChannelAuthProof) error
+		proof *models.ChannelAuthProof) error
 
 	// UpdateEdge is used to update edge information, without this message
 	// edge considered as not fully constructed.
-	UpdateEdge(policy *channeldb.ChannelEdgePolicy,
+	UpdateEdge(policy *models.ChannelEdgePolicy,
 		op ...batch.SchedulerOption) error
 
 	// IsStaleNode returns true if the graph source has a node announcement
@@ -176,8 +177,8 @@ type ChannelGraphSource interface {
 	// emanating from the "source" node which is the center of the
 	// star-graph.
 	ForAllOutgoingChannels(cb func(tx kvdb.RTx,
-		c *channeldb.ChannelEdgeInfo,
-		e *channeldb.ChannelEdgePolicy) error) error
+		c *models.ChannelEdgeInfo,
+		e *models.ChannelEdgePolicy) error) error
 
 	// CurrentBlockHeight returns the block height from POV of the router
 	// subsystem.
@@ -185,8 +186,8 @@ type ChannelGraphSource interface {
 
 	// GetChannelByID return the channel by the channel id.
 	GetChannelByID(chanID lnwire.ShortChannelID) (
-		*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy,
-		*channeldb.ChannelEdgePolicy, error)
+		*models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
+		*models.ChannelEdgePolicy, error)
 
 	// FetchLightningNode attempts to look up a target node by its identity
 	// public key. channeldb.ErrGraphNodeNotFound is returned if the node
@@ -897,15 +898,15 @@ func (r *ChannelRouter) pruneZombieChans() error {
 	log.Infof("Examining channel graph for zombie channels")
 
 	// A helper method to detect if the channel belongs to this node
-	isSelfChannelEdge := func(info *channeldb.ChannelEdgeInfo) bool {
+	isSelfChannelEdge := func(info *models.ChannelEdgeInfo) bool {
 		return info.NodeKey1Bytes == r.selfNode.PubKeyBytes ||
 			info.NodeKey2Bytes == r.selfNode.PubKeyBytes
 	}
 
 	// First, we'll collect all the channels which are eligible for garbage
 	// collection due to being zombies.
-	filterPruneChans := func(info *channeldb.ChannelEdgeInfo,
-		e1, e2 *channeldb.ChannelEdgePolicy) error {
+	filterPruneChans := func(info *models.ChannelEdgeInfo,
+		e1, e2 *models.ChannelEdgePolicy) error {
 
 		// Exit early in case this channel is already marked to be pruned
 		if _, markedToPrune := chansToPrune[info.ChannelID]; markedToPrune {
@@ -1539,7 +1540,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		log.Tracef("Updated vertex data for node=%x", msg.PubKeyBytes)
 		r.stats.incNumNodeUpdates()
 
-	case *channeldb.ChannelEdgeInfo:
+	case *models.ChannelEdgeInfo:
 		log.Debugf("Received ChannelEdgeInfo for channel %v",
 			msg.ChannelID)
 
@@ -1706,7 +1707,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 				"view: %v", err)
 		}
 
-	case *channeldb.ChannelEdgePolicy:
+	case *models.ChannelEdgePolicy:
 		log.Debugf("Received ChannelEdgePolicy for channel %v",
 			msg.ChannelID)
 
@@ -1883,7 +1884,7 @@ type RouteRequest struct {
 
 // RouteHints is an alias type for a set of route hints, with the source node
 // as the map's key and the details of the hint(s) in the edge policy.
-type RouteHints map[route.Vertex][]*channeldb.CachedEdgePolicy
+type RouteHints map[route.Vertex][]*models.CachedEdgePolicy
 
 // NewRouteRequest produces a new route request for a regular payment or one
 // to a blinded route, validating that the target, routeHints and finalExpiry
@@ -2668,7 +2669,7 @@ func (r *ChannelRouter) applyChannelUpdate(msg *lnwire.ChannelUpdate) bool {
 		return false
 	}
 
-	err = r.UpdateEdge(&channeldb.ChannelEdgePolicy{
+	err = r.UpdateEdge(&models.ChannelEdgePolicy{
 		SigBytes:                  msg.Signature.ToSignatureBytes(),
 		ChannelID:                 msg.ShortChannelID.ToUint64(),
 		LastUpdate:                time.Unix(int64(msg.Timestamp), 0),
@@ -2720,7 +2721,7 @@ func (r *ChannelRouter) AddNode(node *channeldb.LightningNode,
 // in construction of payment path.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo,
+func (r *ChannelRouter) AddEdge(edge *models.ChannelEdgeInfo,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{
@@ -2746,7 +2747,7 @@ func (r *ChannelRouter) AddEdge(edge *channeldb.ChannelEdgeInfo,
 // considered as not fully constructed.
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
-func (r *ChannelRouter) UpdateEdge(update *channeldb.ChannelEdgePolicy,
+func (r *ChannelRouter) UpdateEdge(update *models.ChannelEdgePolicy,
 	op ...batch.SchedulerOption) error {
 
 	rMsg := &routingMsg{
@@ -2787,9 +2788,9 @@ func (r *ChannelRouter) SyncedHeight() uint32 {
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) GetChannelByID(chanID lnwire.ShortChannelID) (
-	*channeldb.ChannelEdgeInfo,
-	*channeldb.ChannelEdgePolicy,
-	*channeldb.ChannelEdgePolicy, error) {
+	*models.ChannelEdgeInfo,
+	*models.ChannelEdgePolicy,
+	*models.ChannelEdgePolicy, error) {
 
 	return r.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 }
@@ -2802,7 +2803,7 @@ func (r *ChannelRouter) GetChannelByID(chanID lnwire.ShortChannelID) (
 func (r *ChannelRouter) FetchLightningNode(
 	node route.Vertex) (*channeldb.LightningNode, error) {
 
-	return r.cfg.Graph.FetchLightningNode(node)
+	return r.cfg.Graph.FetchLightningNode(nil, node)
 }
 
 // ForEachNode is used to iterate over every node in router topology.
@@ -2822,18 +2823,21 @@ func (r *ChannelRouter) ForEachNode(
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) ForAllOutgoingChannels(cb func(kvdb.RTx,
-	*channeldb.ChannelEdgeInfo, *channeldb.ChannelEdgePolicy) error) error {
+	*models.ChannelEdgeInfo, *models.ChannelEdgePolicy) error) error {
 
-	return r.selfNode.ForEachChannel(nil, func(tx kvdb.RTx,
-		c *channeldb.ChannelEdgeInfo,
-		e, _ *channeldb.ChannelEdgePolicy) error {
+	return r.cfg.Graph.ForEachNodeChannel(nil, r.selfNode.PubKeyBytes,
+		func(tx kvdb.RTx, c *models.ChannelEdgeInfo,
+			e *models.ChannelEdgePolicy,
+			_ *models.ChannelEdgePolicy) error {
 
-		if e == nil {
-			return fmt.Errorf("channel from self node has no policy")
-		}
+			if e == nil {
+				return fmt.Errorf("channel from self node " +
+					"has no policy")
+			}
 
-		return cb(tx, c, e)
-	})
+			return cb(tx, c, e)
+		},
+	)
 }
 
 // AddProof updates the channel edge info with proof which is needed to
@@ -2841,7 +2845,7 @@ func (r *ChannelRouter) ForAllOutgoingChannels(cb func(kvdb.RTx,
 //
 // NOTE: This method is part of the ChannelGraphSource interface.
 func (r *ChannelRouter) AddProof(chanID lnwire.ShortChannelID,
-	proof *channeldb.ChannelAuthProof) error {
+	proof *models.ChannelAuthProof) error {
 
 	info, _, _, err := r.cfg.Graph.FetchChannelEdgesByID(chanID.ToUint64())
 	if err != nil {
@@ -3126,14 +3130,14 @@ func getRouteUnifiers(source route.Vertex, hops []route.Vertex,
 // including fees, to send the payment.
 func getPathEdges(source route.Vertex, receiverAmt lnwire.MilliSatoshi,
 	unifiers []*edgeUnifier, bandwidthHints *bandwidthManager,
-	hops []route.Vertex) ([]*channeldb.CachedEdgePolicy,
+	hops []route.Vertex) ([]*models.CachedEdgePolicy,
 	lnwire.MilliSatoshi, error) {
 
 	// Now that we arrived at the start of the route and found out the route
 	// total amount, we make a forward pass. Because the amount may have
 	// been increased in the backward pass, fees need to be recalculated and
 	// amount ranges re-checked.
-	var pathEdges []*channeldb.CachedEdgePolicy
+	var pathEdges []*models.CachedEdgePolicy
 	for i, unifier := range unifiers {
 		edge := unifier.getEdge(receiverAmt, bandwidthHints)
 		if edge == nil {

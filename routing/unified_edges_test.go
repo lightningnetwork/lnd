@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -21,7 +21,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	bandwidthHints := &mockBandwidthHints{}
 
 	// Add two channels between the pair of nodes.
-	p1 := channeldb.CachedEdgePolicy{
+	p1 := models.CachedEdgePolicy{
 		FeeProportionalMillionths: 100000,
 		FeeBaseMSat:               30,
 		TimeLockDelta:             60,
@@ -29,7 +29,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 		MaxHTLC:                   5000,
 		MinHTLC:                   100,
 	}
-	p2 := channeldb.CachedEdgePolicy{
+	p2 := models.CachedEdgePolicy{
 		FeeProportionalMillionths: 190000,
 		FeeBaseMSat:               10,
 		TimeLockDelta:             40,
@@ -49,7 +49,7 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	unifierNoCapacity.addPolicy(fromNode, &p2, 0)
 
 	unifierNoInfo := newNodeEdgeUnifier(source, toNode, nil)
-	unifierNoInfo.addPolicy(fromNode, &channeldb.CachedEdgePolicy{}, 0)
+	unifierNoInfo.addPolicy(fromNode, &models.CachedEdgePolicy{}, 0)
 
 	tests := []struct {
 		name             string

@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -174,13 +175,13 @@ func (m *mockPaymentSessionOld) RequestRoute(_, _ lnwire.MilliSatoshi,
 }
 
 func (m *mockPaymentSessionOld) UpdateAdditionalEdge(_ *lnwire.ChannelUpdate,
-	_ *btcec.PublicKey, _ *channeldb.CachedEdgePolicy) bool {
+	_ *btcec.PublicKey, _ *models.CachedEdgePolicy) bool {
 
 	return false
 }
 
 func (m *mockPaymentSessionOld) GetAdditionalEdgePolicy(_ *btcec.PublicKey,
-	_ uint64) *channeldb.CachedEdgePolicy {
+	_ uint64) *models.CachedEdgePolicy {
 
 	return nil
 }
@@ -676,17 +677,17 @@ func (m *mockPaymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 }
 
 func (m *mockPaymentSession) UpdateAdditionalEdge(msg *lnwire.ChannelUpdate,
-	pubKey *btcec.PublicKey, policy *channeldb.CachedEdgePolicy) bool {
+	pubKey *btcec.PublicKey, policy *models.CachedEdgePolicy) bool {
 
 	args := m.Called(msg, pubKey, policy)
 	return args.Bool(0)
 }
 
 func (m *mockPaymentSession) GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
-	channelID uint64) *channeldb.CachedEdgePolicy {
+	channelID uint64) *models.CachedEdgePolicy {
 
 	args := m.Called(pubKey, channelID)
-	return args.Get(0).(*channeldb.CachedEdgePolicy)
+	return args.Get(0).(*models.CachedEdgePolicy)
 }
 
 type mockControlTower struct {

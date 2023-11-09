@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -53,6 +54,8 @@ func ChannelGraphFromDatabase(db *channeldb.ChannelGraph) ChannelGraph {
 // channeldb.LightningNode. The wrapper method implement the autopilot.Node
 // interface.
 type dbNode struct {
+	db *channeldb.ChannelGraph
+
 	tx kvdb.RTx
 
 	node *channeldb.LightningNode
@@ -67,7 +70,7 @@ var _ Node = (*dbNode)(nil)
 // will be returned in serialized compressed format.
 //
 // NOTE: Part of the autopilot.Node interface.
-func (d dbNode) PubKey() [33]byte {
+func (d *dbNode) PubKey() [33]byte {
 	return d.node.PubKeyBytes
 }
 
@@ -75,7 +78,7 @@ func (d dbNode) PubKey() [33]byte {
 // peer is known to be listening on.
 //
 // NOTE: Part of the autopilot.Node interface.
-func (d dbNode) Addrs() []net.Addr {
+func (d *dbNode) Addrs() []net.Addr {
 	return d.node.Addresses
 }
 
@@ -85,32 +88,42 @@ func (d dbNode) Addrs() []net.Addr {
 // describes the active channel.
 //
 // NOTE: Part of the autopilot.Node interface.
-func (d dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
-	return d.node.ForEachChannel(d.tx, func(tx kvdb.RTx,
-		ei *channeldb.ChannelEdgeInfo, ep, _ *channeldb.ChannelEdgePolicy) error {
+func (d *dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
+	return d.db.ForEachNodeChannel(d.tx, d.node.PubKeyBytes,
+		func(tx kvdb.RTx, ei *models.ChannelEdgeInfo, ep,
+			_ *models.ChannelEdgePolicy) error {
 
-		// Skip channels for which no outgoing edge policy is available.
-		//
-		// TODO(joostjager): Ideally the case where channels have a nil
-		// policy should be supported, as autopilot is not looking at
-		// the policies. For now, it is not easily possible to get a
-		// reference to the other end LightningNode object without
-		// retrieving the policy.
-		if ep == nil {
-			return nil
-		}
+			// Skip channels for which no outgoing edge policy is
+			// available.
+			//
+			// TODO(joostjager): Ideally the case where channels
+			// have a nil policy should be supported, as autopilot
+			// is not looking at the policies. For now, it is not
+			// easily possible to get a reference to the other end
+			// LightningNode object without retrieving the policy.
+			if ep == nil {
+				return nil
+			}
 
-		edge := ChannelEdge{
-			ChanID:   lnwire.NewShortChanIDFromInt(ep.ChannelID),
-			Capacity: ei.Capacity,
-			Peer: dbNode{
-				tx:   tx,
-				node: ep.Node,
-			},
-		}
+			node, err := d.db.FetchLightningNode(tx, ep.ToNode)
+			if err != nil {
+				return err
+			}
 
-		return cb(edge)
-	})
+			edge := ChannelEdge{
+				ChanID: lnwire.NewShortChanIDFromInt(
+					ep.ChannelID,
+				),
+				Capacity: ei.Capacity,
+				Peer: &dbNode{
+					tx:   tx,
+					db:   d.db,
+					node: node,
+				},
+			}
+
+			return cb(edge)
+		})
 }
 
 // ForEachNode is a higher-order function that should be called once for each
@@ -127,7 +140,8 @@ func (d *databaseChannelGraph) ForEachNode(cb func(Node) error) error {
 			return nil
 		}
 
-		node := dbNode{
+		node := &dbNode{
+			db:   d.db,
 			tx:   tx,
 			node: n,
 		}
@@ -150,7 +164,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 				return nil, err
 			}
 
-			dbNode, err := d.db.FetchLightningNode(vertex)
+			dbNode, err := d.db.FetchLightningNode(nil, vertex)
 			switch {
 			case err == channeldb.ErrGraphNodeNotFound:
 				fallthrough
@@ -222,7 +236,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	}
 
 	chanID := randChanID()
-	edge := &channeldb.ChannelEdgeInfo{
+	edge := &models.ChannelEdgeInfo{
 		ChannelID: chanID.ToUint64(),
 		Capacity:  capacity,
 	}
@@ -230,7 +244,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	if err := d.db.AddChannelEdge(edge); err != nil {
 		return nil, nil, err
 	}
-	edgePolicy := &channeldb.ChannelEdgePolicy{
+	edgePolicy := &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
@@ -246,7 +260,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	if err := d.db.UpdateEdgePolicy(edgePolicy); err != nil {
 		return nil, nil, err
 	}
-	edgePolicy = &channeldb.ChannelEdgePolicy{
+	edgePolicy = &models.ChannelEdgePolicy{
 		SigBytes:                  testSig.Serialize(),
 		ChannelID:                 chanID.ToUint64(),
 		LastUpdate:                time.Now(),
@@ -265,14 +279,16 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	return &ChannelEdge{
 			ChanID:   chanID,
 			Capacity: capacity,
-			Peer: dbNode{
+			Peer: &dbNode{
+				db:   d.db,
 				node: vertex1,
 			},
 		},
 		&ChannelEdge{
 			ChanID:   chanID,
 			Capacity: capacity,
-			Peer: dbNode{
+			Peer: &dbNode{
+				db:   d.db,
 				node: vertex2,
 			},
 		},

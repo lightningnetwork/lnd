@@ -104,6 +104,10 @@
   eliminate the use of `ScanInvoices`.
 
 ## Code Health
+
+* [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 
+  from channeldb schema structs.
+
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)

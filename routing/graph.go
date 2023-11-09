@@ -75,7 +75,7 @@ func (g *CachedGraph) Close() error {
 func (g *CachedGraph) forEachNodeChannel(nodePub route.Vertex,
 	cb func(channel *channeldb.DirectedChannel) error) error {
 
-	return g.graph.ForEachNodeChannel(g.tx, nodePub, cb)
+	return g.graph.ForEachNodeDirectedChannel(g.tx, nodePub, cb)
 }
 
 // sourceNode returns the source node of the graph.

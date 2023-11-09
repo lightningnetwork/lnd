@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -272,7 +273,7 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 	// inside of the path rather than the request's fields.
 	var (
 		targetPubKey   *route.Vertex
-		routeHintEdges map[route.Vertex][]*channeldb.CachedEdgePolicy
+		routeHintEdges map[route.Vertex][]*models.CachedEdgePolicy
 		blindedPmt     *routing.BlindedPayment
 
 		// finalCLTVDelta varies depending on whether we're sending to

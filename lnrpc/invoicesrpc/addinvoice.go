@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -489,7 +490,7 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 // chanCanBeHopHint returns true if the target channel is eligible to be a hop
 // hint.
 func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
-	*channeldb.ChannelEdgePolicy, bool) {
+	*models.ChannelEdgePolicy, bool) {
 
 	// Since we're only interested in our private channels, we'll skip
 	// public ones.
@@ -544,7 +545,7 @@ func chanCanBeHopHint(channel *HopHintInfo, cfg *SelectHopHintsCfg) (
 
 	// Now, we'll need to determine which is the correct policy for HTLCs
 	// being sent from the remote node.
-	var remotePolicy *channeldb.ChannelEdgePolicy
+	var remotePolicy *models.ChannelEdgePolicy
 	if bytes.Equal(remotePub[:], info.NodeKey1Bytes[:]) {
 		remotePolicy = p1
 	} else {
@@ -604,7 +605,7 @@ func newHopHintInfo(c *channeldb.OpenChannel, isActive bool) *HopHintInfo {
 // newHopHint returns a new hop hint using the relevant data from a hopHintInfo
 // and a ChannelEdgePolicy.
 func newHopHint(hopHintInfo *HopHintInfo,
-	chanPolicy *channeldb.ChannelEdgePolicy) zpay32.HopHint {
+	chanPolicy *models.ChannelEdgePolicy) zpay32.HopHint {
 
 	return zpay32.HopHint{
 		NodeID:      hopHintInfo.RemotePubkey,
@@ -627,8 +628,8 @@ type SelectHopHintsCfg struct {
 
 	// FetchChannelEdgesByID attempts to lookup the two directed edges for
 	// the channel identified by the channel ID.
-	FetchChannelEdgesByID func(chanID uint64) (*channeldb.ChannelEdgeInfo,
-		*channeldb.ChannelEdgePolicy, *channeldb.ChannelEdgePolicy,
+	FetchChannelEdgesByID func(chanID uint64) (*models.ChannelEdgeInfo,
+		*models.ChannelEdgePolicy, *models.ChannelEdgePolicy,
 		error)
 
 	// GetAlias allows the peer's alias SCID to be retrieved for private

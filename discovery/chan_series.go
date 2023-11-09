@@ -280,10 +280,12 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 
 			// If this edge has a validated node announcement, that
 			// we haven't yet sent, then we'll send that as well.
-			nodePub := channel.Policy1.Node.PubKeyBytes
-			hasNodeAnn := channel.Policy1.Node.HaveNodeAnnouncement
+			nodePub := channel.Node2.PubKeyBytes
+			hasNodeAnn := channel.Node2.HaveNodeAnnouncement
 			if _, ok := nodePubsSent[nodePub]; !ok && hasNodeAnn {
-				nodeAnn, err := channel.Policy1.Node.NodeAnnouncement(true)
+				nodeAnn, err := channel.Node2.NodeAnnouncement(
+					true,
+				)
 				if err != nil {
 					return nil, err
 				}
@@ -297,10 +299,12 @@ func (c *ChanSeries) FetchChanAnns(chain chainhash.Hash,
 
 			// If this edge has a validated node announcement, that
 			// we haven't yet sent, then we'll send that as well.
-			nodePub := channel.Policy2.Node.PubKeyBytes
-			hasNodeAnn := channel.Policy2.Node.HaveNodeAnnouncement
+			nodePub := channel.Node1.PubKeyBytes
+			hasNodeAnn := channel.Node1.HaveNodeAnnouncement
 			if _, ok := nodePubsSent[nodePub]; !ok && hasNodeAnn {
-				nodeAnn, err := channel.Policy2.Node.NodeAnnouncement(true)
+				nodeAnn, err := channel.Node1.NodeAnnouncement(
+					true,
+				)
 				if err != nil {
 					return nil, err
 				}

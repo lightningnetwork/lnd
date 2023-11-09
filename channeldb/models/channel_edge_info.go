@@ -10,13 +10,13 @@ import (
 	"github.com/btcsuite/btcd/wire"
 )
 
-// ChannelEdgeInfo represents a fully authenticated channel along with all its
+// ChannelEdgeInfo1 represents a fully authenticated channel along with all its
 // unique attributes. Once an authenticated channel announcement has been
-// processed on the network, then an instance of ChannelEdgeInfo encapsulating
+// processed on the network, then an instance of ChannelEdgeInfo1 encapsulating
 // the channels attributes is stored. The other portions relevant to routing
 // policy of a channel are stored within a ChannelEdgePolicy1 for each direction
 // of the channel.
-type ChannelEdgeInfo struct {
+type ChannelEdgeInfo1 struct {
 	// ChannelID is the unique channel ID for the channel. The first 3
 	// bytes are the block height, the next 3 the index within the block,
 	// and the last 2 bytes are the output index for the channel.
@@ -72,8 +72,8 @@ type ChannelEdgeInfo struct {
 }
 
 // AddNodeKeys is a setter-like method that can be used to replace the set of
-// keys for the target ChannelEdgeInfo.
-func (c *ChannelEdgeInfo) AddNodeKeys(nodeKey1, nodeKey2, bitcoinKey1,
+// keys for the target ChannelEdgeInfo1.
+func (c *ChannelEdgeInfo1) AddNodeKeys(nodeKey1, nodeKey2, bitcoinKey1,
 	bitcoinKey2 *btcec.PublicKey) {
 
 	c.nodeKey1 = nodeKey1
@@ -96,7 +96,7 @@ func (c *ChannelEdgeInfo) AddNodeKeys(nodeKey1, nodeKey2, bitcoinKey1,
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the pubkey if absolutely necessary.
-func (c *ChannelEdgeInfo) NodeKey1() (*btcec.PublicKey, error) {
+func (c *ChannelEdgeInfo1) NodeKey1() (*btcec.PublicKey, error) {
 	if c.nodeKey1 != nil {
 		return c.nodeKey1, nil
 	}
@@ -117,7 +117,7 @@ func (c *ChannelEdgeInfo) NodeKey1() (*btcec.PublicKey, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the pubkey if absolutely necessary.
-func (c *ChannelEdgeInfo) NodeKey2() (*btcec.PublicKey, error) {
+func (c *ChannelEdgeInfo1) NodeKey2() (*btcec.PublicKey, error) {
 	if c.nodeKey2 != nil {
 		return c.nodeKey2, nil
 	}
@@ -137,7 +137,7 @@ func (c *ChannelEdgeInfo) NodeKey2() (*btcec.PublicKey, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the pubkey if absolutely necessary.
-func (c *ChannelEdgeInfo) BitcoinKey1() (*btcec.PublicKey, error) {
+func (c *ChannelEdgeInfo1) BitcoinKey1() (*btcec.PublicKey, error) {
 	if c.bitcoinKey1 != nil {
 		return c.bitcoinKey1, nil
 	}
@@ -157,7 +157,7 @@ func (c *ChannelEdgeInfo) BitcoinKey1() (*btcec.PublicKey, error) {
 //
 // NOTE: By having this method to access an attribute, we ensure we only need
 // to fully deserialize the pubkey if absolutely necessary.
-func (c *ChannelEdgeInfo) BitcoinKey2() (*btcec.PublicKey, error) {
+func (c *ChannelEdgeInfo1) BitcoinKey2() (*btcec.PublicKey, error) {
 	if c.bitcoinKey2 != nil {
 		return c.bitcoinKey2, nil
 	}
@@ -172,7 +172,7 @@ func (c *ChannelEdgeInfo) BitcoinKey2() (*btcec.PublicKey, error) {
 }
 
 // OtherNodeKeyBytes returns the node key bytes of the other end of the channel.
-func (c *ChannelEdgeInfo) OtherNodeKeyBytes(thisNodeKey []byte) (
+func (c *ChannelEdgeInfo1) OtherNodeKeyBytes(thisNodeKey []byte) (
 	[33]byte, error) {
 
 	switch {

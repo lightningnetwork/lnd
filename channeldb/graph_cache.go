@@ -28,7 +28,7 @@ type GraphCacheNode interface {
 	// error, then the iteration is halted with the error propagated back up
 	// to the caller.
 	ForEachChannel(kvdb.RTx,
-		func(kvdb.RTx, *models.ChannelEdgeInfo,
+		func(kvdb.RTx, *models.ChannelEdgeInfo1,
 			*models.ChannelEdgePolicy1,
 			*models.ChannelEdgePolicy1) error) error
 }
@@ -139,7 +139,7 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 	c.AddNodeFeatures(node)
 
 	return node.ForEachChannel(
-		tx, func(tx kvdb.RTx, info *models.ChannelEdgeInfo,
+		tx, func(tx kvdb.RTx, info *models.ChannelEdgeInfo1,
 			outPolicy *models.ChannelEdgePolicy1,
 			inPolicy *models.ChannelEdgePolicy1) error {
 
@@ -154,7 +154,7 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 // and policy 2 does not matter, the directionality is extracted from the info
 // and policy flags automatically. The policy will be set as the outgoing policy
 // on one node and the incoming policy on the peer's side.
-func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo,
+func (c *GraphCache) AddChannel(info *models.ChannelEdgeInfo1,
 	policy1 *models.ChannelEdgePolicy1,
 	policy2 *models.ChannelEdgePolicy1) {
 
@@ -297,7 +297,7 @@ func (c *GraphCache) removeChannelIfFound(node route.Vertex, chanID uint64) {
 // UpdateChannel updates the channel edge information for a specific edge. We
 // expect the edge to already exist and be known. If it does not yet exist, this
 // call is a no-op.
-func (c *GraphCache) UpdateChannel(info *models.ChannelEdgeInfo) {
+func (c *GraphCache) UpdateChannel(info *models.ChannelEdgeInfo1) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 

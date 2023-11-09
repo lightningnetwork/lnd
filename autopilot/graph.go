@@ -90,7 +90,7 @@ func (d *dbNode) Addrs() []net.Addr {
 // NOTE: Part of the autopilot.Node interface.
 func (d *dbNode) ForEachChannel(cb func(ChannelEdge) error) error {
 	return d.db.ForEachNodeChannel(d.tx, d.node.PubKeyBytes,
-		func(tx kvdb.RTx, ei *models.ChannelEdgeInfo, ep,
+		func(tx kvdb.RTx, ei *models.ChannelEdgeInfo1, ep,
 			_ *models.ChannelEdgePolicy1) error {
 
 			// Skip channels for which no outgoing edge policy is
@@ -236,7 +236,7 @@ func (d *databaseChannelGraph) addRandChannel(node1, node2 *btcec.PublicKey,
 	}
 
 	chanID := randChanID()
-	edge := &models.ChannelEdgeInfo{
+	edge := &models.ChannelEdgeInfo1{
 		ChannelID: chanID.ToUint64(),
 		Capacity:  capacity,
 	}

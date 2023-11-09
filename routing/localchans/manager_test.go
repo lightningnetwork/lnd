@@ -22,7 +22,7 @@ func TestManager(t *testing.T) {
 	t.Parallel()
 
 	type channel struct {
-		edgeInfo *models.ChannelEdgeInfo
+		edgeInfo *models.ChannelEdgeInfo1
 	}
 
 	var (
@@ -107,7 +107,7 @@ func TestManager(t *testing.T) {
 	}
 
 	forAllOutgoingChannels := func(cb func(kvdb.RTx,
-		*models.ChannelEdgeInfo,
+		*models.ChannelEdgeInfo1,
 		*models.ChannelEdgePolicy1) error) error {
 
 		for _, c := range channelSet {
@@ -166,7 +166,7 @@ func TestManager(t *testing.T) {
 			newPolicy:     newPolicy,
 			channelSet: []channel{
 				{
-					edgeInfo: &models.ChannelEdgeInfo{
+					edgeInfo: &models.ChannelEdgeInfo1{
 						Capacity:     chanCap,
 						ChannelPoint: chanPointValid,
 					},
@@ -183,7 +183,7 @@ func TestManager(t *testing.T) {
 			newPolicy:     newPolicy,
 			channelSet: []channel{
 				{
-					edgeInfo: &models.ChannelEdgeInfo{
+					edgeInfo: &models.ChannelEdgeInfo1{
 						Capacity:     chanCap,
 						ChannelPoint: chanPointValid,
 					},
@@ -200,7 +200,7 @@ func TestManager(t *testing.T) {
 			newPolicy:     newPolicy,
 			channelSet: []channel{
 				{
-					edgeInfo: &models.ChannelEdgeInfo{
+					edgeInfo: &models.ChannelEdgeInfo1{
 						Capacity:     chanCap,
 						ChannelPoint: chanPointValid,
 					},
@@ -221,7 +221,7 @@ func TestManager(t *testing.T) {
 			newPolicy:     noMaxHtlcPolicy,
 			channelSet: []channel{
 				{
-					edgeInfo: &models.ChannelEdgeInfo{
+					edgeInfo: &models.ChannelEdgeInfo1{
 						Capacity:     chanCap,
 						ChannelPoint: chanPointValid,
 					},

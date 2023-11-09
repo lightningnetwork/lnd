@@ -126,7 +126,7 @@ func (v *ValidationBarrier) InitJobDependencies(job interface{}) {
 			v.nodeAnnDependencies[route.Vertex(msg.NodeID1)] = signals
 			v.nodeAnnDependencies[route.Vertex(msg.NodeID2)] = signals
 		}
-	case *models.ChannelEdgeInfo:
+	case *models.ChannelEdgeInfo1:
 
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		if _, ok := v.chanAnnFinSignal[shortID]; !ok {
@@ -218,7 +218,7 @@ func (v *ValidationBarrier) WaitForDependants(job interface{}) error {
 	// return directly.
 	case *lnwire.AnnounceSignatures1:
 		// TODO(roasbeef): need to wait on chan ann?
-	case *models.ChannelEdgeInfo:
+	case *models.ChannelEdgeInfo1:
 	case *lnwire.ChannelAnnouncement1:
 	}
 
@@ -264,7 +264,7 @@ func (v *ValidationBarrier) SignalDependants(job interface{}, allow bool) {
 	// If we've just finished executing a ChannelAnnouncement1, then we'll
 	// close out the signal, and remove the signal from the map of active
 	// ones. This will allow/deny any dependent jobs to continue execution.
-	case *models.ChannelEdgeInfo:
+	case *models.ChannelEdgeInfo1:
 		shortID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		finSignals, ok := v.chanAnnFinSignal[shortID]
 		if ok {

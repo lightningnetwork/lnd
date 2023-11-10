@@ -20,6 +20,8 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -708,6 +710,118 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
+		MsgDynPropose: func(v []reflect.Value, r *rand.Rand) {
+			var dp DynPropose
+			rand.Read(dp.ChanID[:])
+
+			if rand.Uint32()%2 == 0 {
+				v := btcutil.Amount(rand.Uint32())
+				dp.DustLimit = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := MilliSatoshi(rand.Uint32())
+				dp.MaxValueInFlight = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := btcutil.Amount(rand.Uint32())
+				dp.ChannelReserve = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := uint16(rand.Uint32())
+				dp.CsvDelay = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := uint16(rand.Uint32())
+				dp.MaxAcceptedHTLCs = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v, _ := btcec.NewPrivateKey()
+				dp.FundingKey = fn.Some(*v.PubKey())
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := ChannelType(*NewRawFeatureVector())
+				dp.ChannelType = fn.Some(v)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				v := chainfee.SatPerKWeight(rand.Uint32())
+				dp.KickoffFeerate = fn.Some(v)
+			}
+
+			v[0] = reflect.ValueOf(dp)
+		},
+		MsgDynReject: func(v []reflect.Value, r *rand.Rand) {
+			var dr DynReject
+			rand.Read(dr.ChanID[:])
+
+			features := NewRawFeatureVector()
+			if rand.Uint32()%2 == 0 {
+				features.Set(FeatureBit(DPDustLimitSatoshis))
+			}
+
+			if rand.Uint32()%2 == 0 {
+				features.Set(
+					FeatureBit(DPMaxHtlcValueInFlightMsat),
+				)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				features.Set(
+					FeatureBit(DPChannelReserveSatoshis),
+				)
+			}
+
+			if rand.Uint32()%2 == 0 {
+				features.Set(FeatureBit(DPToSelfDelay))
+			}
+
+			if rand.Uint32()%2 == 0 {
+				features.Set(FeatureBit(DPMaxAcceptedHtlcs))
+			}
+
+			if rand.Uint32()%2 == 0 {
+				features.Set(FeatureBit(DPFundingPubkey))
+			}
+
+			if rand.Uint32()%2 == 0 {
+				features.Set(FeatureBit(DPChannelType))
+			}
+
+			if rand.Uint32()%2 == 0 {
+				features.Set(FeatureBit(DPKickoffFeerate))
+			}
+			dr.UpdateRejections = *features
+
+			v[0] = reflect.ValueOf(dr)
+		},
+		MsgDynAck: func(v []reflect.Value, r *rand.Rand) {
+			var da DynAck
+
+			rand.Read(da.ChanID[:])
+			if rand.Uint32()%2 == 0 {
+				var nonce Musig2Nonce
+				rand.Read(nonce[:])
+				da.LocalNonce = fn.Some(nonce)
+			}
+
+			v[0] = reflect.ValueOf(da)
+		},
+		MsgKickoffSig: func(v []reflect.Value, r *rand.Rand) {
+			ks := KickoffSig{
+				ExtraData: make([]byte, 0),
+			}
+
+			rand.Read(ks.ChanID[:])
+			rand.Read(ks.Signature.bytes[:])
+
+			v[0] = reflect.ValueOf(ks)
+		},
 		MsgCommitSig: func(v []reflect.Value, r *rand.Rand) {
 			req := NewCommitSig()
 			if _, err := r.Read(req.ChanID[:]); err != nil {
@@ -1150,6 +1264,30 @@ func TestLightningWireProtocol(t *testing.T) {
 		{
 			msgType: MsgClosingSigned,
 			scenario: func(m ClosingSigned) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgDynPropose,
+			scenario: func(m DynPropose) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgDynReject,
+			scenario: func(m DynReject) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgDynAck,
+			scenario: func(m DynAck) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgKickoffSig,
+			scenario: func(m KickoffSig) bool {
 				return mainScenario(&m)
 			},
 		},

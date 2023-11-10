@@ -34,6 +34,9 @@ const (
 	MsgChannelReady                        = 36
 	MsgShutdown                            = 38
 	MsgClosingSigned                       = 39
+	MsgDynPropose                          = 111
+	MsgDynAck                              = 113
+	MsgDynReject                           = 115
 	MsgUpdateAddHTLC                       = 128
 	MsgUpdateFulfillHTLC                   = 130
 	MsgUpdateFailHTLC                      = 131
@@ -51,6 +54,7 @@ const (
 	MsgQueryChannelRange                   = 263
 	MsgReplyChannelRange                   = 264
 	MsgGossipTimestampRange                = 265
+	MsgKickoffSig                          = 777
 )
 
 // ErrorEncodeMessage is used when failed to encode the message payload.
@@ -94,6 +98,14 @@ func (t MessageType) String() string {
 		return "Shutdown"
 	case MsgClosingSigned:
 		return "ClosingSigned"
+	case MsgDynPropose:
+		return "DynPropose"
+	case MsgDynAck:
+		return "DynAck"
+	case MsgDynReject:
+		return "DynReject"
+	case MsgKickoffSig:
+		return "KickoffSig"
 	case MsgUpdateAddHTLC:
 		return "UpdateAddHTLC"
 	case MsgUpdateFailHTLC:
@@ -196,6 +208,14 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &Shutdown{}
 	case MsgClosingSigned:
 		msg = &ClosingSigned{}
+	case MsgDynPropose:
+		msg = &DynPropose{}
+	case MsgDynAck:
+		msg = &DynAck{}
+	case MsgDynReject:
+		msg = &DynReject{}
+	case MsgKickoffSig:
+		msg = &KickoffSig{}
 	case MsgUpdateAddHTLC:
 		msg = &UpdateAddHTLC{}
 	case MsgUpdateFailHTLC:

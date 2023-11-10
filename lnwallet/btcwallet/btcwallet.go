@@ -1028,7 +1028,7 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 
 	return b.wallet.CreateSimpleTx(
 		nil, defaultAccount, outputs, minConfs, feeSatPerKB,
-		b.cfg.CoinSelectionStrategy, dryRun,
+		b.cfg.CoinSelectionStrategy, dryRun, base.WithRBF(),
 	)
 }
 

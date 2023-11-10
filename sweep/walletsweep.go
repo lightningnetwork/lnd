@@ -184,7 +184,8 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 	blockHeight uint32, deliveryAddrs []DeliveryAddr,
 	changeAddr btcutil.Address, coinSelectLocker CoinSelectionLocker,
 	utxoSource UtxoSource, outpointLocker OutpointLocker,
-	signer input.Signer, minConfs int32) (*WalletSweepPackage, error) {
+	signer input.Signer, minConfs int32,
+	enableRBF bool) (*WalletSweepPackage, error) {
 
 	// TODO(roasbeef): turn off ATPL as well when available?
 
@@ -321,7 +322,7 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 	// respects our fee preference and targets all the UTXOs of the wallet.
 	sweepTx, err := createSweepTx(
 		inputsToSweep, txOuts, changePkScript, blockHeight,
-		feeRate, maxFeeRate, signer,
+		feeRate, maxFeeRate, signer, enableRBF,
 	)
 	if err != nil {
 		unlockOutputs()

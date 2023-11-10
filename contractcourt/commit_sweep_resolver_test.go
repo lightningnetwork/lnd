@@ -141,7 +141,7 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 }
 
 func (s *mockSweeper) CreateSweepTx(inputs []input.Input, feePref sweep.FeePreference,
-	currentBlockHeight uint32) (*wire.MsgTx, error) {
+	currentBlockHeight uint32, enableRBF bool) (*wire.MsgTx, error) {
 
 	// We will wait for the test to supply the sweep tx to return.
 	sweepTx := <-s.createSweepTxChan

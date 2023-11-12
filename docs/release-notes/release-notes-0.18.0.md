@@ -60,6 +60,10 @@
 ## RPC Additions
 ## lncli Additions
 
+* [Add `hints` flag to
+  `addinvoice`](https://github.com/lightningnetwork/lnd/pull/7489)
+  so users can set the amount of routing hints an invoice should include.
+
 # Improvements
 ## Functional Updates
 ### Tlv
@@ -128,6 +132,7 @@
 * Andras Banki-Horvath
 * Carla Kirk-Cohen
 * Elle Mouton
+* hotorb-code
 * Keagan McClelland
 * Matt Morehouse
 * Slyghtning

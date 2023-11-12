@@ -5606,6 +5606,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		CltvExpiry:      invoice.CltvExpiry,
 		Private:         invoice.Private,
 		RouteHints:      routeHints,
+		NumRouteHints:   invoice.NumRouteHints,
 		Amp:             invoice.IsAmp,
 	}
 

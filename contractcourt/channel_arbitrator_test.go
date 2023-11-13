@@ -41,6 +41,7 @@ type mockArbitratorLog struct {
 	resolutions     *ContractResolutions
 	resolvers       map[ContractResolver]struct{}
 	localFCInfo     channeldb.LocalForceCloseInitiator
+	fcChainActions  map[string][]channeldb.HTLC
 
 	commitSet *CommitSet
 
@@ -160,6 +161,24 @@ func (b *mockArbitratorLog) FetchConfirmedCommitSet(kvdb.RTx) (*CommitSet, error
 
 func (b *mockArbitratorLog) WipeHistory() error {
 	return nil
+}
+
+func (b *mockArbitratorLog) LogLocalFCChainActions(
+	chainActions ChainActionMap) {
+
+	htlcMap := make(map[string][]channeldb.HTLC)
+	for action, htlcs := range chainActions {
+		htlcMap[action.String()] = htlcs
+	}
+
+	b.fcChainActions = htlcMap
+}
+
+func (b *mockArbitratorLog) FetchLocalFCChainActions() (
+	map[string][]channeldb.HTLC,
+	error) {
+
+	return b.fcChainActions, nil
 }
 
 // testArbLog is a wrapper around an existing (ideally fully concrete

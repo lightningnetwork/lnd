@@ -3269,6 +3269,13 @@ const (
 	// localForceCloseInitiatorType is used to serialize/deserialize
 	// localForceCloseInitiator.
 	localForceCloseInitiatorType tlv.Type = 0
+
+	// chainActionType is used to serialize/deserialize chainAction.
+	chainActionType tlv.Type = 1
+
+	// ActionKeyType is used to serialize/deserialize the action key in the
+	// chain actions map.
+	ActionKeyType tlv.Type = 2
 )
 
 // String returns the human-readable format of the LocalForceCloseInitiator.
@@ -3340,6 +3347,215 @@ func DeserializeLocalForceCloseInitiator(r io.Reader) (LocalForceCloseInitiator,
 	}
 
 	return LocalForceCloseInitiator(lc), nil
+}
+
+// HtlcActionRecordSize returns the amount of bytes this TLV record will occupy
+// when encoded.
+func HtlcActionRecordSize(a *map[string][]HTLC) func() uint64 {
+	var (
+		b   bytes.Buffer
+		buf [8]byte
+	)
+
+	// We know that encoding works since the tests pass in the build this
+	// file is checked into, so we'll simplify things and simply encode it
+	// ourselves then report the total amount of bytes used.
+	if err := HtlcActionEncoder(&b, a, &buf); err != nil {
+		// This should never error out, but we log it just in case it
+		// does.
+		log.Errorf("encoding the chain action map failed: %v",
+			err)
+	}
+
+	return func() uint64 {
+		return uint64(len(b.Bytes()))
+	}
+}
+
+// HtlcActionEncoder is a custom TLV encoder for the htlcAction record.
+func HtlcActionEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
+	if v, ok := val.(*map[string][]HTLC); ok {
+		numRecords := uint64(len(*v))
+
+		// First, we'll write out the number of records as a var int.
+		if err := tlv.WriteVarInt(w, numRecords, buf); err != nil {
+			return err
+		}
+
+		// With that written out, we'll now encode the entries
+		// themselves as a sub-TLV record, which includes its _own_
+		// inner length prefix.
+		for action, htlcs := range *v {
+			action := []byte(action)
+
+			tlvstream, err := tlv.NewStream(
+				tlv.MakePrimitiveRecord(
+					ActionKeyType, &action,
+				),
+			)
+			if err != nil {
+				return err
+			}
+
+			var actionBytes bytes.Buffer
+
+			err = tlvstream.Encode(&actionBytes)
+			if err != nil {
+				return err
+			}
+			if err != nil {
+				return err
+			}
+
+			// We encode the record with a varint length followed by
+			// the _raw_ TLV bytes.
+			tlvLen := uint64(len(actionBytes.Bytes()))
+			if err := tlv.WriteVarInt(w, tlvLen, buf); err != nil {
+				return err
+			}
+
+			_, err = w.Write(actionBytes.Bytes())
+			if err != nil {
+				return err
+			}
+			err = SerializeHtlcs(w, htlcs...)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "map[string][]HTLC")
+}
+
+// HtlcActionDecoder is a custom TLV decoder for the htlcAction record.
+func HtlcActionDecoder(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	if v, ok := val.(*map[string][]HTLC); ok {
+		// First, we'll decode the varint that encodes how many actions
+		// are encoded within the map.
+		numRecords, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+		// Now that we know how many records we'll need to read, we can
+		// iterate and read them all out in series.
+		for i := uint64(0); i < numRecords; i++ {
+			// Read out the varint that encodes the size of this
+			// inner TLV record.
+			actionRecordSize, err := tlv.ReadVarInt(r, buf)
+			if err != nil {
+				return err
+			}
+
+			// Using this information, we'll create a new limited
+			// reader that'll return an EOF once the end has been
+			// reached so the stream stops consuming bytes.
+			actionTlvReader := io.LimitedReader{
+				R: r,
+				N: int64(actionRecordSize),
+			}
+
+			var action []byte
+
+			tlvStream, err := tlv.NewStream(
+				tlv.MakePrimitiveRecord(
+					ActionKeyType, &action,
+				),
+			)
+
+			if err != nil {
+				return err
+			}
+
+			err = tlvStream.Decode(&actionTlvReader)
+			if err != nil {
+				return err
+			}
+
+			htlcs, err := DeserializeHtlcs(r)
+			if err != nil {
+				return err
+			}
+			(*v)[string(action)] = htlcs
+		}
+
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(
+		val, "map[string][]HTLC", l, l,
+	)
+}
+
+// SerializeChainActions writes out the passed chain actions map to the passed
+// writer.
+func SerializeChainActions(w io.Writer, m *map[string][]HTLC) error {
+	tlvStream, err := tlv.NewStream(
+		tlv.MakeDynamicRecord(
+			chainActionType, m,
+			HtlcActionRecordSize(m),
+			HtlcActionEncoder,
+			HtlcActionDecoder,
+		),
+	)
+	if err != nil {
+		return err
+	}
+
+	var b bytes.Buffer
+	err = tlvStream.Encode(&b)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, byteOrder, uint64(b.Len()))
+	if err != nil {
+		return err
+	}
+
+	if _, err = w.Write(b.Bytes()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// DeserializeChainActions reads out the chainAction map from the passed
+// reader.
+func DeserializeChainActions(r io.Reader) (map[string][]HTLC,
+	error) {
+
+	chainAction := make(map[string][]HTLC)
+
+	tlvStream, err := tlv.NewStream(
+		tlv.MakeDynamicRecord(
+			chainActionType, &chainAction,
+			HtlcActionRecordSize(&chainAction),
+			HtlcActionEncoder,
+			HtlcActionDecoder,
+		),
+	)
+
+	if err != nil {
+		return chainAction, err
+	}
+
+	var bodyLen int64
+	err = binary.Read(r, byteOrder, &bodyLen)
+	if err != nil {
+		return chainAction, err
+	}
+
+	lr := io.LimitReader(r, bodyLen)
+	if err = tlvStream.Decode(lr); err != nil {
+		return chainAction, err
+	}
+
+	return chainAction, nil
 }
 
 // ChannelCloseSummary contains the final state of a channel at the point it

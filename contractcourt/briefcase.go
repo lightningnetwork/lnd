@@ -132,6 +132,16 @@ type ArbitratorLog interface {
 	FetchLocalForceCloseInitiator() (channeldb.LocalForceCloseInitiator,
 		error)
 
+	// LogLocalFCChainActions records the passed-in chainActionMap
+	// for the force closed channel into the ArbitratorLog for deferred
+	// consumption.
+	LogLocalFCChainActions(ChainActionMap)
+
+	// FetchLocalFCChainActions attempts to fetch the chainActionMap
+	// for the force closed channel that was previously logged in the
+	// ArbitratorLog.
+	FetchLocalFCChainActions() (map[string][]channeldb.HTLC, error)
+
 	// WipeHistory is to be called ONLY once *all* contracts have been
 	// fully resolved, and the channel closure if finalized. This method
 	// will delete all on-disk state within the persistent log.
@@ -384,6 +394,10 @@ var (
 	// localForceCloseInitiatorKey is the key that we use to store the
 	// localForceCloseInitiator object within the log, if any.
 	localForceCloseInitiatorKey = []byte("local-force-close-info")
+
+	// fcChainActionKey is the key that we use to store the chain actions
+	// during a force close.
+	fcChainActionKey = []byte("htlc-map-key")
 )
 
 var (
@@ -1122,6 +1136,74 @@ func (b *boltArbitratorLog) FetchLocalForceCloseInitiator() (
 	}
 
 	return init, nil
+}
+
+// LogLocalFCChainActions records the passed-in chainActionMap
+// for the force closed channel into the ArbitratorLog for deferred
+// consumption.
+func (b *boltArbitratorLog) LogLocalFCChainActions(
+	chainActions ChainActionMap) {
+
+	htlcMap := make(map[string][]channeldb.HTLC)
+	for action, htlcs := range chainActions {
+		htlcMap[action.String()] = htlcs
+	}
+
+	err := kvdb.Update(b.db, func(tx kvdb.RwTx) error {
+		scopeBucket, err := tx.CreateTopLevelBucket(b.scopeKey[:])
+		if err != nil {
+			return err
+		}
+		var buf bytes.Buffer
+		if err := channeldb.SerializeChainActions(&buf,
+			&htlcMap); err != nil {
+			return err
+		}
+
+		return scopeBucket.Put(fcChainActionKey, buf.Bytes())
+	}, func() {})
+
+	if err != nil {
+		log.Error(err)
+	}
+}
+
+// FetchLocalFCChainActions attempts to fetch the chainActionMap
+// for the force closed channel that was previously logged in the
+// ArbitratorLog.
+func (b *boltArbitratorLog) FetchLocalFCChainActions() (
+	map[string][]channeldb.HTLC,
+	error) {
+
+	var chainAction map[string][]channeldb.HTLC
+	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
+		scopeBucket := tx.ReadBucket(b.scopeKey[:])
+		if scopeBucket == nil {
+			return errScopeBucketNoExist
+		}
+
+		chainActionBytes := scopeBucket.Get(fcChainActionKey)
+		if len(chainActionBytes) == 0 {
+			return nil
+		}
+
+		chainActionReader := bytes.NewReader(chainActionBytes)
+		chMap, err := channeldb.DeserializeChainActions(
+			chainActionReader)
+		if err != nil {
+			return err
+		}
+
+		chainAction = chMap
+
+		return nil
+	}, func() {})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return chainAction, nil
 }
 
 // InsertConfirmedCommitSet stores the known set of active HTLCs at the time

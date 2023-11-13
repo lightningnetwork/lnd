@@ -965,10 +965,10 @@ func (c *ChannelArbitrator) stateStep(
 			// Ignore errors since logging force close info is not a
 			// critical part of the force close flow.
 			ChainTriggerForceClose(chainActions)(c)
-			fallthrough
-		case userTrigger:
 			nextState = StateBroadcastCommit
-
+		case userTrigger:
+			c.log.LogLocalFCChainActions(chainActions)
+			nextState = StateBroadcastCommit
 		// If the trigger is a cooperative close being confirmed, then
 		// we can go straight to StateFullyResolved, as there won't be
 		// any contracts to resolve.

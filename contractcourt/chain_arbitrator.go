@@ -1100,10 +1100,6 @@ func ChainTriggerForceClose(
 	chainActions ChainActionMap) ForceCloseContractOption {
 
 	return func(ca *ChannelArbitrator) {
-		htlcMap := make(map[string][]channeldb.HTLC)
-		for action, htlcs := range chainActions {
-			htlcMap[action.String()] = htlcs
-		}
 		// Ignore errors since logging force close info is not a
 		// critical part of the force close flow.
 		err := ca.log.LogLocalForceCloseInitiator(
@@ -1114,6 +1110,7 @@ func ChainTriggerForceClose(
 				"close initiator: %v",
 				err.Error())
 		}
+		ca.log.LogLocalFCChainActions(chainActions)
 
 		log.Info("Logged chain trigger initiated force close.")
 	}

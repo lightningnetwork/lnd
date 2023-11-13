@@ -654,4 +654,12 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "coop close with external delivery",
 		TestFunc: testCoopCloseWithExternalDelivery,
 	},
+	{
+		Name:     "payment failed htlc local swept",
+		TestFunc: testPaymentFailedHTLCLocalSwept,
+	},
+	{
+		Name:     "payment succeeded htlc remote swept",
+		TestFunc: testPaymentSucceededHTLCRemoteSwept,
+	},
 }

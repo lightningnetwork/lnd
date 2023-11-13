@@ -399,6 +399,8 @@ func (h *HarnessTest) resetStandbyNodes(t *testing.T) {
 		// config for the coming test. This will also inherit the
 		// test's running context.
 		h.RestartNodeWithExtraArgs(hn, hn.Cfg.OriginalExtraArgs)
+
+		hn.AddToLogf("Finished test case %v", h.manager.currentTestCase)
 	}
 }
 
@@ -1769,6 +1771,14 @@ func (h *HarnessTest) SendPaymentAssertSettled(hn *node.HarnessNode,
 	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
 
 	return h.SendPaymentAndAssertStatus(hn, req, lnrpc.Payment_SUCCEEDED)
+}
+
+// SendPaymentAssertInflight sends a payment from the passed node and asserts
+// the payment is inflight.
+func (h *HarnessTest) SendPaymentAssertInflight(hn *node.HarnessNode,
+	req *routerrpc.SendPaymentRequest) *lnrpc.Payment {
+
+	return h.SendPaymentAndAssertStatus(hn, req, lnrpc.Payment_IN_FLIGHT)
 }
 
 // OpenChannelRequest is used to open a channel using the method

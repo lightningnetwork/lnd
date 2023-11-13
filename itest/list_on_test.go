@@ -554,4 +554,12 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "query blinded route",
 		TestFunc: testQueryBlindedRoutes,
 	},
+	{
+		Name:     "payment failed htlc local swept",
+		TestFunc: testPaymentFailedHTLCLocalSwept,
+	},
+	{
+		Name:     "payment succeeded htlc remote swept",
+		TestFunc: testPaymentSucceededHTLCRemoteSwept,
+	},
 }

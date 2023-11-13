@@ -2057,10 +2057,19 @@ func (d *AuthenticatedGossiper) processZombieUpdate(
 	// come through again.
 	baseScid := lnwire.NewShortChanIDFromInt(chanInfo.ChannelID)
 	err = d.cfg.Router.MarkEdgeLive(baseScid)
-	if err != nil {
+	switch {
+	case errors.Is(err, channeldb.ErrZombieEdgeNotFound):
+		log.Errorf("edge with chan_id=%v was not found in the "+
+			"zombie index: %v", err)
+
+		return nil
+
+	case err != nil:
 		return fmt.Errorf("unable to remove edge with "+
 			"chan_id=%v from zombie index: %v",
 			msg.ShortChannelID, err)
+
+	default:
 	}
 
 	log.Debugf("Removed edge with chan_id=%v from zombie "+

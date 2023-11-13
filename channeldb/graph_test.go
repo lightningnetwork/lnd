@@ -3089,6 +3089,12 @@ func TestGraphZombieIndex(t *testing.T) {
 	// it within the index.
 	require.NoError(t, graph.MarkEdgeLive(edge.ChannelID))
 
+	// Attempting to mark the edge as live again now that it is no longer
+	// in the zombie index should fail.
+	require.ErrorIs(
+		t, graph.MarkEdgeLive(edge.ChannelID), ErrZombieEdgeNotFound,
+	)
+
 	isZombie, _, _ = graph.IsZombieEdge(edge.ChannelID)
 	require.False(t, isZombie)
 

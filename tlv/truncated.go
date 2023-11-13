@@ -32,10 +32,7 @@ func SizeTUint16(v uint16) uint64 {
 // be omitted. An error is returned if val is not a *uint16.
 func ETUint16(w io.Writer, val interface{}, buf *[8]byte) error {
 	if t, ok := val.(*uint16); ok {
-		binary.BigEndian.PutUint16(buf[:2], *t)
-		numZeros := numLeadingZeroBytes16(*t)
-		_, err := w.Write(buf[numZeros:2])
-		return err
+		return ETUint16T(w, *t, buf)
 	}
 	return NewTypeForEncodingErr(val, "uint16")
 }
@@ -93,10 +90,7 @@ func SizeTUint32(v uint32) uint64 {
 // be omitted. An error is returned if val is not a *uint32.
 func ETUint32(w io.Writer, val interface{}, buf *[8]byte) error {
 	if t, ok := val.(*uint32); ok {
-		binary.BigEndian.PutUint32(buf[:4], *t)
-		numZeros := numLeadingZeroBytes32(*t)
-		_, err := w.Write(buf[numZeros:4])
-		return err
+		return ETUint32T(w, *t, buf)
 	}
 	return NewTypeForEncodingErr(val, "uint32")
 }
@@ -164,10 +158,7 @@ func SizeTUint64(v uint64) uint64 {
 // be omitted. An error is returned if val is not a *uint64.
 func ETUint64(w io.Writer, val interface{}, buf *[8]byte) error {
 	if t, ok := val.(*uint64); ok {
-		binary.BigEndian.PutUint64(buf[:], *t)
-		numZeros := numLeadingZeroBytes64(*t)
-		_, err := w.Write(buf[numZeros:])
-		return err
+		return ETUint64T(w, *t, buf)
 	}
 	return NewTypeForEncodingErr(val, "uint64")
 }

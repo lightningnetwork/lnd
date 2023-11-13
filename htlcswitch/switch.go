@@ -1099,118 +1099,26 @@ func (s *Switch) parseFailedPayment(deobfuscator ErrorDecrypter,
 // updates back. This behaviour is achieved by creation of payment circuits.
 func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 	switch htlc := packet.htlc.(type) {
-
 	// Channel link forwarded us a new htlc, therefore we initiate the
 	// payment circuit within our internal state so we can properly forward
 	// the ultimate settle message back latter.
 	case *lnwire.UpdateAddHTLC:
 		return s.handlePacketAdd(packet, htlc)
 
-	case *lnwire.UpdateFailHTLC, *lnwire.UpdateFulfillHTLC:
-		// If the source of this packet has not been set, use the
-		// circuit map to lookup the origin.
-		circuit, err := s.closeCircuit(packet)
-		if err != nil {
-			return err
-		}
+	case *lnwire.UpdateFulfillHTLC:
+		return s.handlePacketSettle(packet)
 
-		// closeCircuit returns a nil circuit when a settle packet returns an
-		// ErrUnknownCircuit error upon the inner call to CloseCircuit.
-		if circuit == nil {
-			return nil
-		}
-
-		fail, isFail := htlc.(*lnwire.UpdateFailHTLC)
-		if isFail && !packet.hasSource {
-			// HTLC resolutions and messages restored from disk
-			// don't have the obfuscator set from the original htlc
-			// add packet - set it here for use in blinded errors.
-			packet.obfuscator = circuit.ErrorEncrypter
-
-			switch {
-			// No message to encrypt, locally sourced payment.
-			case circuit.ErrorEncrypter == nil:
-
-			// If this is a resolution message, then we'll need to
-			// encrypt it as it's actually internally sourced.
-			case packet.isResolution:
-				var err error
-				// TODO(roasbeef): don't need to pass actually?
-				failure := &lnwire.FailPermanentChannelFailure{}
-				fail.Reason, err = circuit.ErrorEncrypter.EncryptFirstHop(
-					failure,
-				)
-				if err != nil {
-					err = fmt.Errorf("unable to obfuscate "+
-						"error: %v", err)
-					log.Error(err)
-				}
-
-			// Alternatively, if the remote party send us an
-			// UpdateFailMalformedHTLC, then we'll need to convert
-			// this into a proper well formatted onion error as
-			// there's no HMAC currently.
-			case packet.convertedError:
-				log.Infof("Converting malformed HTLC error "+
-					"for circuit for Circuit(%x: "+
-					"(%s, %d) <-> (%s, %d))", packet.circuit.PaymentHash,
-					packet.incomingChanID, packet.incomingHTLCID,
-					packet.outgoingChanID, packet.outgoingHTLCID)
-
-				fail.Reason = circuit.ErrorEncrypter.EncryptMalformedError(
-					fail.Reason,
-				)
-
-			default:
-				// Otherwise, it's a forwarded error, so we'll perform a
-				// wrapper encryption as normal.
-				fail.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
-					fail.Reason,
-				)
-			}
-		} else if !isFail && circuit.Outgoing != nil {
-			// If this is an HTLC settle, and it wasn't from a
-			// locally initiated HTLC, then we'll log a forwarding
-			// event so we can flush it to disk later.
-			//
-			// TODO(roasbeef): only do this once link actually
-			// fully settles?
-			localHTLC := packet.incomingChanID == hop.Source
-			if !localHTLC {
-				log.Infof("Forwarded HTLC(%x) of %v (fee: %v) "+
-					"from IncomingChanID(%v) to OutgoingChanID(%v)",
-					circuit.PaymentHash[:], circuit.OutgoingAmount,
-					circuit.IncomingAmount-circuit.OutgoingAmount,
-					circuit.Incoming.ChanID, circuit.Outgoing.ChanID)
-				s.fwdEventMtx.Lock()
-				s.pendingFwdingEvents = append(
-					s.pendingFwdingEvents,
-					channeldb.ForwardingEvent{
-						Timestamp:      time.Now(),
-						IncomingChanID: circuit.Incoming.ChanID,
-						OutgoingChanID: circuit.Outgoing.ChanID,
-						AmtIn:          circuit.IncomingAmount,
-						AmtOut:         circuit.OutgoingAmount,
-					},
-				)
-				s.fwdEventMtx.Unlock()
-			}
-		}
-
-		// A blank IncomingChanID in a circuit indicates that it is a pending
-		// user-initiated payment.
-		if packet.incomingChanID == hop.Source {
-			s.wg.Add(1)
-			go s.handleLocalResponse(packet)
-			return nil
-		}
-
-		// Check to see that the source link is online before removing
-		// the circuit.
-		return s.mailOrchestrator.Deliver(packet.incomingChanID, packet)
+	// Channel link forwarded us an update_fail_htlc message.
+	//
+	// NOTE: when the channel link receives an update_fail_malformed_htlc
+	// from upstream, it will convert the message into update_fail_htlc and
+	// forward it. Thus there's no need to catch `UpdateFailMalformedHTLC`
+	// here.
+	case *lnwire.UpdateFailHTLC:
+		return s.handlePacketFail(packet, htlc)
 
 	default:
-		return errors.New("wrong update type")
+		return fmt.Errorf("wrong update type: %T", htlc)
 	}
 }
 
@@ -3050,4 +2958,162 @@ func (s *Switch) handlePacketAdd(packet *htlcPacket,
 	packet.outgoingChanID = destination.ShortChanID()
 
 	return destination.handleSwitchPacket(packet)
+}
+
+// handlePacketSettle handles forwarding a settle packet.
+func (s *Switch) handlePacketSettle(packet *htlcPacket) error {
+	// If the source of this packet has not been set, use the circuit map
+	// to lookup the origin.
+	circuit, err := s.closeCircuit(packet)
+	if err != nil {
+		return err
+	}
+
+	// closeCircuit returns a nil circuit when a settle packet returns an
+	// ErrUnknownCircuit error upon the inner call to CloseCircuit.
+	//
+	// NOTE: We can only get a nil circuit when it has already been deleted
+	// and when `UpdateFulfillHTLC` is received. After which `RevokeAndAck`
+	// is received, which invokes `processRemoteSettleFails` in its link.
+	if circuit == nil {
+		log.Debugf("Found nil circuit: packet=%v", spew.Sdump(packet))
+		return nil
+	}
+
+	localHTLC := packet.incomingChanID == hop.Source
+
+	// If this is a locally initiated HTLC, we need to handle the packet by
+	// storing the network result.
+	//
+	// A blank IncomingChanID in a circuit indicates that it is a pending
+	// user-initiated payment.
+	//
+	// NOTE: `closeCircuit` modifies the state of `packet`.
+	if localHTLC {
+		// TODO(yy): remove the goroutine and send back the error here.
+		s.wg.Add(1)
+		go s.handleLocalResponse(packet)
+
+		// If this is a locally initiated HTLC, there's no need to
+		// forward it so we exit.
+		return nil
+	}
+
+	// If this is an HTLC settle, and it wasn't from a locally initiated
+	// HTLC, then we'll log a forwarding event so we can flush it to disk
+	// later.
+	if circuit.Outgoing != nil {
+		log.Infof("Forwarded HTLC(%x) of %v (fee: %v) "+
+			"from IncomingChanID(%v) to OutgoingChanID(%v)",
+			circuit.PaymentHash[:], circuit.OutgoingAmount,
+			circuit.IncomingAmount-circuit.OutgoingAmount,
+			circuit.Incoming.ChanID, circuit.Outgoing.ChanID)
+
+		s.fwdEventMtx.Lock()
+		s.pendingFwdingEvents = append(
+			s.pendingFwdingEvents,
+			channeldb.ForwardingEvent{
+				Timestamp:      time.Now(),
+				IncomingChanID: circuit.Incoming.ChanID,
+				OutgoingChanID: circuit.Outgoing.ChanID,
+				AmtIn:          circuit.IncomingAmount,
+				AmtOut:         circuit.OutgoingAmount,
+			},
+		)
+		s.fwdEventMtx.Unlock()
+	}
+
+	// Deliver this packet.
+	return s.mailOrchestrator.Deliver(packet.incomingChanID, packet)
+}
+
+// handlePacketFail handles forwarding a fail packet.
+func (s *Switch) handlePacketFail(packet *htlcPacket,
+	htlc *lnwire.UpdateFailHTLC) error {
+
+	// If the source of this packet has not been set, use the circuit map
+	// to lookup the origin.
+	circuit, err := s.closeCircuit(packet)
+	if err != nil {
+		return err
+	}
+
+	// If this is a locally initiated HTLC, we need to handle the packet by
+	// storing the network result.
+	//
+	// A blank IncomingChanID in a circuit indicates that it is a pending
+	// user-initiated payment.
+	//
+	// NOTE: `closeCircuit` modifies the state of `packet`.
+	if packet.incomingChanID == hop.Source {
+		// TODO(yy): remove the goroutine and send back the error here.
+		s.wg.Add(1)
+		go s.handleLocalResponse(packet)
+
+		// If this is a locally initiated HTLC, there's no need to
+		// forward it so we exit.
+		return nil
+	}
+
+	// Exit early if this hasSource is true. This flag is only set via
+	// mailbox's `FailAdd`. This method has two callsites,
+	// - the packet has timed out after `MailboxDeliveryTimeout`, defaults
+	//   to 1 min.
+	// - the HTLC fails the validation in `channel.AddHTLC`.
+	// In either case, the `Reason` field is populated. Thus there's no
+	// need to proceed and extract the failure reason below.
+	if packet.hasSource {
+		// Deliver this packet.
+		return s.mailOrchestrator.Deliver(packet.incomingChanID, packet)
+	}
+
+	// HTLC resolutions and messages restored from disk don't have the
+	// obfuscator set from the original htlc add packet - set it here for
+	// use in blinded errors.
+	packet.obfuscator = circuit.ErrorEncrypter
+
+	switch {
+	// No message to encrypt, locally sourced payment.
+	case circuit.ErrorEncrypter == nil:
+		// TODO(yy) further check this case as we shouldn't end up here
+		// as `isLocal` is already false.
+
+	// If this is a resolution message, then we'll need to encrypt it as
+	// it's actually internally sourced.
+	case packet.isResolution:
+		var err error
+		// TODO(roasbeef): don't need to pass actually?
+		failure := &lnwire.FailPermanentChannelFailure{}
+		htlc.Reason, err = circuit.ErrorEncrypter.EncryptFirstHop(
+			failure,
+		)
+		if err != nil {
+			err = fmt.Errorf("unable to obfuscate error: %w", err)
+			log.Error(err)
+		}
+
+	// Alternatively, if the remote party sends us an
+	// UpdateFailMalformedHTLC, then we'll need to convert this into a
+	// proper well formatted onion error as there's no HMAC currently.
+	case packet.convertedError:
+		log.Infof("Converting malformed HTLC error for circuit for "+
+			"Circuit(%x: (%s, %d) <-> (%s, %d))",
+			packet.circuit.PaymentHash,
+			packet.incomingChanID, packet.incomingHTLCID,
+			packet.outgoingChanID, packet.outgoingHTLCID)
+
+		htlc.Reason = circuit.ErrorEncrypter.EncryptMalformedError(
+			htlc.Reason,
+		)
+
+	default:
+		// Otherwise, it's a forwarded error, so we'll perform a
+		// wrapper encryption as normal.
+		htlc.Reason = circuit.ErrorEncrypter.IntermediateEncrypt(
+			htlc.Reason,
+		)
+	}
+
+	// Deliver this packet.
+	return s.mailOrchestrator.Deliver(packet.incomingChanID, packet)
 }

@@ -3067,16 +3067,12 @@ func TestGraphZombieIndex(t *testing.T) {
 	}
 
 	edge, _, _ := createChannelEdge(graph.db, node1, node2)
-	if err := graph.AddChannelEdge(edge); err != nil {
-		t.Fatalf("unable to create channel edge: %v", err)
-	}
+	require.NoError(t, graph.AddChannelEdge(edge))
 
 	// Since the edge is known the graph and it isn't a zombie, IsZombieEdge
 	// should not report the channel as a zombie.
 	isZombie, _, _ := graph.IsZombieEdge(edge.ChannelID)
-	if isZombie {
-		t.Fatal("expected edge to not be marked as zombie")
-	}
+	require.False(t, isZombie)
 	assertNumZombies(t, graph, 0)
 
 	// If we delete the edge and mark it as a zombie, then we should expect
@@ -3084,28 +3080,18 @@ func TestGraphZombieIndex(t *testing.T) {
 	err = graph.DeleteChannelEdges(false, true, edge.ChannelID)
 	require.NoError(t, err, "unable to mark edge as zombie")
 	isZombie, pubKey1, pubKey2 := graph.IsZombieEdge(edge.ChannelID)
-	if !isZombie {
-		t.Fatal("expected edge to be marked as zombie")
-	}
-	if pubKey1 != node1.PubKeyBytes {
-		t.Fatalf("expected pubKey1 %x, got %x", node1.PubKeyBytes,
-			pubKey1)
-	}
-	if pubKey2 != node2.PubKeyBytes {
-		t.Fatalf("expected pubKey2 %x, got %x", node2.PubKeyBytes,
-			pubKey2)
-	}
+	require.True(t, isZombie)
+	require.Equal(t, node1.PubKeyBytes, pubKey1)
+	require.Equal(t, node2.PubKeyBytes, pubKey2)
 	assertNumZombies(t, graph, 1)
 
 	// Similarly, if we mark the same edge as live, we should no longer see
 	// it within the index.
-	if err := graph.MarkEdgeLive(edge.ChannelID); err != nil {
-		t.Fatalf("unable to mark edge as live: %v", err)
-	}
+	require.NoError(t, graph.MarkEdgeLive(edge.ChannelID))
+
 	isZombie, _, _ = graph.IsZombieEdge(edge.ChannelID)
-	if isZombie {
-		t.Fatal("expected edge to not be marked as zombie")
-	}
+	require.False(t, isZombie)
+
 	assertNumZombies(t, graph, 0)
 
 	// If we mark the edge as a zombie manually, then it should show up as
@@ -3114,10 +3100,9 @@ func TestGraphZombieIndex(t *testing.T) {
 		edge.ChannelID, node1.PubKeyBytes, node2.PubKeyBytes,
 	)
 	require.NoError(t, err, "unable to mark edge as zombie")
+
 	isZombie, _, _ = graph.IsZombieEdge(edge.ChannelID)
-	if !isZombie {
-		t.Fatal("expected edge to be marked as zombie")
-	}
+	require.True(t, isZombie)
 	assertNumZombies(t, graph, 1)
 }
 

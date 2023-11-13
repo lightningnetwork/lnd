@@ -309,14 +309,10 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
-	var payHash lntypes.Hash
 	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
-	payment := LightningPayment{
-		Target:      ctx.aliases["sophon"],
-		Amount:      paymentAmt,
-		FeeLimit:    noFeeLimit,
-		paymentHash: &payHash,
-	}
+	payment := createDummyLightningPayment(
+		t, ctx.aliases["sophon"], paymentAmt,
+	)
 
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
@@ -347,8 +343,9 @@ func TestSendPaymentRouteFailureFallback(t *testing.T) {
 
 	// Send off the payment request to the router, route through pham nuwen
 	// should've been selected as a fall back and succeeded correctly.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
-	require.NoError(t, err, "unable to send payment")
+	paymentPreImage, route, err := ctx.router.SendPayment(payment)
+	require.NoErrorf(t, err, "unable to send payment: %v",
+		payment.paymentHash)
 
 	// The route selected should have two hops
 	require.Equal(t, 2, len(route.Hops), "incorrect route length")
@@ -386,22 +383,18 @@ func TestSendPaymentRouteInfiniteLoopWithBadHopHint(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to songoku for 1000 satoshis.
-	var payHash lntypes.Hash
 	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
-	payment := LightningPayment{
-		Target:      ctx.aliases["songoku"],
-		Amount:      paymentAmt,
-		FeeLimit:    noFeeLimit,
-		paymentHash: &payHash,
-		RouteHints: [][]zpay32.HopHint{{
-			zpay32.HopHint{
-				NodeID:          sourceNodeID,
-				ChannelID:       badChannelID,
-				FeeBaseMSat:     uint32(50),
-				CLTVExpiryDelta: uint16(200),
-			},
-		}},
-	}
+	payment := createDummyLightningPayment(
+		t, ctx.aliases["songoku"], paymentAmt,
+	)
+	payment.RouteHints = [][]zpay32.HopHint{{
+		zpay32.HopHint{
+			NodeID:          sourceNodeID,
+			ChannelID:       badChannelID,
+			FeeBaseMSat:     uint32(50),
+			CLTVExpiryDelta: uint16(200),
+		},
+	}}
 
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
@@ -429,8 +422,9 @@ func TestSendPaymentRouteInfiniteLoopWithBadHopHint(t *testing.T) {
 
 	// Send off the payment request to the router, should succeed
 	// ignoring the bad channel id hint.
-	paymentPreImage, route, paymentErr := ctx.router.SendPayment(&payment)
-	require.NoError(t, paymentErr, "payment returned an error")
+	paymentPreImage, route, paymentErr := ctx.router.SendPayment(payment)
+	require.NoErrorf(t, paymentErr, "unable to send payment: %v",
+		payment.paymentHash)
 
 	// The preimage should match up with the one created above.
 	require.Equal(t, preImage[:], paymentPreImage[:], "incorrect preimage")
@@ -593,14 +587,10 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1000 satoshis.
-	var payHash lntypes.Hash
 	amt := lnwire.NewMSatFromSatoshis(1000)
-	payment := LightningPayment{
-		Target:      ctx.aliases["sophon"],
-		Amount:      amt,
-		FeeLimit:    noFeeLimit,
-		paymentHash: &payHash,
-	}
+	payment := createDummyLightningPayment(
+		t, ctx.aliases["sophon"], amt,
+	)
 
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
@@ -655,8 +645,9 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 
 	// Send off the payment request to the router, route through phamnuwen
 	// should've been selected as a fall back and succeeded correctly.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
-	require.NoError(t, err, "unable to send payment")
+	paymentPreImage, route, err := ctx.router.SendPayment(payment)
+	require.NoErrorf(t, err, "unable to send payment: %v",
+		payment.paymentHash)
 
 	// The route selected should have two hops
 	require.Equal(t, 2, len(route.Hops), "incorrect route length")
@@ -696,7 +687,6 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	)
 
 	var (
-		payHash          lntypes.Hash
 		preImage         [32]byte
 		amt              = lnwire.NewMSatFromSatoshis(1000)
 		privateChannelID = uint64(55555)
@@ -713,21 +703,18 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 	// 1000 satoshis. This route has lowest fees compared with the rest.
 	// This also holds when the private channel fee is updated to a higher
 	// value.
-	payment := LightningPayment{
-		Target:      ctx.aliases["elst"],
-		Amount:      amt,
-		FeeLimit:    noFeeLimit,
-		paymentHash: &payHash,
-		RouteHints: [][]zpay32.HopHint{{
-			// Add a private channel between songoku and elst.
-			zpay32.HopHint{
-				NodeID:          sgNodeID,
-				ChannelID:       privateChannelID,
-				FeeBaseMSat:     feeBaseMSat,
-				CLTVExpiryDelta: expiryDelta,
-			},
-		}},
-	}
+	payment := createDummyLightningPayment(
+		t, ctx.aliases["elst"], amt,
+	)
+	payment.RouteHints = [][]zpay32.HopHint{{
+		// Add a private channel between songoku and elst.
+		zpay32.HopHint{
+			NodeID:          sgNodeID,
+			ChannelID:       privateChannelID,
+			FeeBaseMSat:     feeBaseMSat,
+			CLTVExpiryDelta: expiryDelta,
+		},
+	}}
 
 	// Prepare an error update for the private channel, with twice the
 	// original fee.
@@ -765,8 +752,9 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 
 	// Send off the payment request to the router, route through son
 	// goku and then across the private channel to elst.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
-	require.NoError(t, err, "unable to send payment")
+	paymentPreImage, route, err := ctx.router.SendPayment(payment)
+	require.NoErrorf(t, err, "unable to send payment: %v",
+		payment.paymentHash)
 
 	require.True(t, errorReturned,
 		"failed to simulate error in the first payment attempt",
@@ -826,7 +814,6 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 	)
 
 	var (
-		payHash          lntypes.Hash
 		preImage         [32]byte
 		amt              = lnwire.NewMSatFromSatoshis(1000)
 		privateChannelID = uint64(55555)
@@ -842,21 +829,18 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to elst, through a private channel between songoku and elst for
 	// 1000 satoshis. This route has lowest fees compared with the rest.
-	payment := LightningPayment{
-		Target:      ctx.aliases["elst"],
-		Amount:      amt,
-		FeeLimit:    feeLimit,
-		paymentHash: &payHash,
-		RouteHints: [][]zpay32.HopHint{{
-			// Add a private channel between songoku and elst.
-			zpay32.HopHint{
-				NodeID:          sgNodeID,
-				ChannelID:       privateChannelID,
-				FeeBaseMSat:     feeBaseMSat,
-				CLTVExpiryDelta: expiryDelta,
-			},
-		}},
-	}
+	payment := createDummyLightningPayment(
+		t, ctx.aliases["elst"], amt,
+	)
+	payment.RouteHints = [][]zpay32.HopHint{{
+		// Add a private channel between songoku and elst.
+		zpay32.HopHint{
+			NodeID:          sgNodeID,
+			ChannelID:       privateChannelID,
+			FeeBaseMSat:     feeBaseMSat,
+			CLTVExpiryDelta: expiryDelta,
+		},
+	}}
 
 	// Prepare an error update for the private channel. The updated fee
 	// will exceeds the feeLimit.
@@ -894,8 +878,9 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 
 	// Send off the payment request to the router, route through son
 	// goku and then across the private channel to elst.
-	paymentPreImage, route, err := ctx.router.SendPayment(&payment)
-	require.NoError(t, err, "unable to send payment")
+	paymentPreImage, route, err := ctx.router.SendPayment(payment)
+	require.NoErrorf(t, err, "unable to send payment: %v",
+		payment.paymentHash)
 
 	require.True(t, errorReturned,
 		"failed to simulate error in the first payment attempt",
@@ -943,14 +928,10 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to sophon for 1k satoshis.
-	var payHash lntypes.Hash
 	amt := lnwire.NewMSatFromSatoshis(1000)
-	payment := LightningPayment{
-		Target:      ctx.aliases["sophon"],
-		Amount:      amt,
-		FeeLimit:    noFeeLimit,
-		paymentHash: &payHash,
-	}
+	payment := createDummyLightningPayment(
+		t, ctx.aliases["sophon"], amt,
+	)
 
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
@@ -1020,8 +1001,9 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// Send off the payment request to the router, this payment should
 	// succeed as we should actually go through Pham Nuwen in order to get
 	// to Sophon, even though he has higher fees.
-	paymentPreImage, rt, err := ctx.router.SendPayment(&payment)
-	require.NoError(t, err, "unable to send payment")
+	paymentPreImage, rt, err := ctx.router.SendPayment(payment)
+	require.NoErrorf(t, err, "unable to send payment: %v",
+		payment.paymentHash)
 
 	assertExpectedPath(paymentPreImage, rt)
 
@@ -1045,8 +1027,9 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 	// w.r.t to the block height, and instead go through Pham Nuwen. We
 	// flip a bit in the payment hash to allow resending this payment.
 	payment.paymentHash[1] ^= 1
-	paymentPreImage, rt, err = ctx.router.SendPayment(&payment)
-	require.NoError(t, err, "unable to send payment")
+	paymentPreImage, rt, err = ctx.router.SendPayment(payment)
+	require.NoErrorf(t, err, "unable to send payment: %v",
+		payment.paymentHash)
 
 	assertExpectedPath(paymentPreImage, rt)
 }
@@ -1062,14 +1045,10 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// Craft a LightningPayment struct that'll send a payment from roasbeef
 	// to luo ji for 1000 satoshis, with a maximum of 1000 satoshis in fees.
-	var payHash lntypes.Hash
 	paymentAmt := lnwire.NewMSatFromSatoshis(1000)
-	payment := LightningPayment{
-		Target:      ctx.aliases["sophon"],
-		Amount:      paymentAmt,
-		FeeLimit:    noFeeLimit,
-		paymentHash: &payHash,
-	}
+	payment := createDummyLightningPayment(
+		t, ctx.aliases["sophon"], paymentAmt,
+	)
 
 	var preImage [32]byte
 	copy(preImage[:], bytes.Repeat([]byte{9}, 32))
@@ -1113,7 +1092,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// When we try to dispatch that payment, we should receive an error as
 	// both attempts should fail and cause both routes to be pruned.
-	_, _, err := ctx.router.SendPayment(&payment)
+	_, _, err := ctx.router.SendPayment(payment)
 	require.Error(t, err, "payment didn't return error")
 
 	// The final error returned should also indicate that the peer wasn't
@@ -1121,7 +1100,7 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	require.Equal(t, channeldb.FailureReasonNoRoute, err)
 
 	// Inspect the two attempts that were made before the payment failed.
-	p, err := ctx.router.cfg.Control.FetchPayment(payHash)
+	p, err := ctx.router.cfg.Control.FetchPayment(*payment.paymentHash)
 	require.NoError(t, err)
 
 	htlcs := p.GetHTLCs()
@@ -1158,8 +1137,9 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 	// This shouldn't return an error, as we'll make a payment attempt via
 	// the pham nuwen channel based on the assumption that there might be an
 	// intermittent issue with the songoku <-> sophon channel.
-	paymentPreImage, rt, err := ctx.router.SendPayment(&payment)
-	require.NoError(t, err, "unable send payment")
+	paymentPreImage, rt, err := ctx.router.SendPayment(payment)
+	require.NoErrorf(t, err, "unable to send payment: %v",
+		payment.paymentHash)
 
 	// This path should go: roasbeef -> pham nuwen -> sophon
 	require.Equal(t, 2, len(rt.Hops), "incorrect route length")
@@ -1193,8 +1173,9 @@ func TestSendPaymentErrorPathPruning(t *testing.T) {
 
 	// We flip a bit in the payment hash to allow resending this payment.
 	payment.paymentHash[1] ^= 1
-	paymentPreImage, rt, err = ctx.router.SendPayment(&payment)
-	require.NoError(t, err, "unable send payment")
+	paymentPreImage, rt, err = ctx.router.SendPayment(payment)
+	require.NoErrorf(t, err, "unable to send payment: %v",
+		payment.paymentHash)
 
 	// This should succeed finally.  The route selected should have two
 	// hops.
@@ -2754,13 +2735,9 @@ func TestUnknownErrorSource(t *testing.T) {
 	)
 
 	// Create a payment to node c.
-	var payHash lntypes.Hash
-	payment := LightningPayment{
-		Target:      ctx.aliases["c"],
-		Amount:      lnwire.NewMSatFromSatoshis(1000),
-		FeeLimit:    noFeeLimit,
-		paymentHash: &payHash,
-	}
+	payment := createDummyLightningPayment(
+		t, ctx.aliases["c"], lnwire.NewMSatFromSatoshis(1000),
+	)
 
 	// We'll modify the SendToSwitch method so that it simulates hop b as a
 	// node that returns an unparsable failure if approached via the a->b
@@ -2784,8 +2761,9 @@ func TestUnknownErrorSource(t *testing.T) {
 	// the route a->b->c is tried first. An unreadable faiure is returned
 	// which should pruning the channel a->b. We expect the payment to
 	// succeed via a->d.
-	_, _, err = ctx.router.SendPayment(&payment)
-	require.NoError(t, err, "expected payment to succeed, but got")
+	_, _, err = ctx.router.SendPayment(payment)
+	require.NoErrorf(t, err, "unable to send payment: %v",
+		payment.paymentHash)
 
 	// Next we modify payment result to return an unknown failure.
 	ctx.router.cfg.Payer.(*mockPaymentAttemptDispatcherOld).setPaymentResult(
@@ -2804,9 +2782,8 @@ func TestUnknownErrorSource(t *testing.T) {
 
 	// Send off the payment request to the router. We expect the payment to
 	// fail because both routes have been pruned.
-	payHash = lntypes.Hash{1}
-	payment.paymentHash = &payHash
-	_, _, err = ctx.router.SendPayment(&payment)
+	payment.paymentHash[1] ^= 1
+	_, _, err = ctx.router.SendPayment(payment)
 	if err == nil {
 		t.Fatalf("expected payment to fail")
 	}
@@ -3025,8 +3002,8 @@ func TestSendToRouteMaxHops(t *testing.T) {
 
 	// Send off the payment request to the router. We expect an error back
 	// indicating that the route is too long.
-	var payment lntypes.Hash
-	_, err = ctx.router.SendToRoute(payment, rt)
+	var payHash lntypes.Hash
+	_, err = ctx.router.SendToRoute(payHash, rt)
 	if err != route.ErrMaxRouteHopsExceeded {
 		t.Fatalf("expected ErrMaxRouteHopsExceeded, but got %v", err)
 	}
@@ -3400,800 +3377,6 @@ func createDummyLightningPayment(t *testing.T,
 	}
 }
 
-// TestSendMPPaymentSucceed tests that we can successfully send a MPPayment via
-// router.SendPayment. This test mainly focuses on testing the logic of the
-// method resumePayment is implemented as expected.
-func TestSendMPPaymentSucceed(t *testing.T) {
-	const startingBlockHeight = 101
-
-	// Create mockers to initialize the router.
-	controlTower := &mockControlTower{}
-	sessionSource := &mockPaymentSessionSource{}
-	missionControl := &mockMissionControl{}
-	payer := &mockPaymentAttemptDispatcher{}
-	chain := newMockChain(startingBlockHeight)
-	chainView := newMockChainView(chain)
-	testGraph := createDummyTestGraph(t)
-
-	// Define the behavior of the mockers to the point where we can
-	// successfully start the router.
-	controlTower.On("FetchInFlightPayments").Return(
-		[]*channeldb.MPPayment{}, nil,
-	)
-	payer.On("CleanStore", mock.Anything).Return(nil)
-
-	// Create and start the router.
-	router, err := New(Config{
-		Control:        controlTower,
-		SessionSource:  sessionSource,
-		MissionControl: missionControl,
-		Payer:          payer,
-
-		// TODO(yy): create new mocks for the chain and chainview.
-		Chain:     chain,
-		ChainView: chainView,
-
-		// TODO(yy): mock the graph once it's changed into interface.
-		Graph: testGraph.graph,
-
-		Clock:              clock.NewTestClock(time.Unix(1, 0)),
-		GraphPruneInterval: time.Hour * 2,
-		NextPaymentID: func() (uint64, error) {
-			next := atomic.AddUint64(&uniquePaymentID, 1)
-			return next, nil
-		},
-
-		IsAlias: func(scid lnwire.ShortChannelID) bool {
-			return false
-		},
-	})
-	require.NoError(t, err, "failed to create router")
-
-	// Make sure the router can start and stop without error.
-	require.NoError(t, router.Start(), "router failed to start")
-	t.Cleanup(func() {
-		require.NoError(t, router.Stop(), "router failed to stop")
-	})
-
-	// Once the router is started, check that the mocked methods are called
-	// as expected.
-	controlTower.AssertExpectations(t)
-	payer.AssertExpectations(t)
-
-	// Mock the methods to the point where we are inside the function
-	// resumePayment.
-	paymentAmt := lnwire.MilliSatoshi(10000)
-	req := createDummyLightningPayment(
-		t, testGraph.aliasMap["c"], paymentAmt,
-	)
-	identifier := lntypes.Hash(req.Identifier())
-	session := &mockPaymentSession{}
-	sessionSource.On("NewPaymentSession", req).Return(session, nil)
-	controlTower.On("InitPayment", identifier, mock.Anything).Return(nil)
-
-	// Mock the InFlightHTLCs.
-	var (
-		htlcs       []channeldb.HTLCAttempt
-		numAttempts atomic.Uint32
-	)
-
-	// Make a mock MPPayment.
-	payment := &mockMPPayment{}
-	payment.On("InFlightHTLCs").Return(htlcs).
-		On("GetState").Return(&channeldb.MPPaymentState{FeesPaid: 0})
-
-	// Mock FetchPayment to return the payment.
-	controlTower.On("FetchPayment",
-		identifier,
-	).Return(payment, nil).Run(func(args mock.Arguments) {
-		// When number of attempts made is less than 4, we will mock
-		// the payment's methods to allow the lifecycle to continue.
-		if numAttempts.Load() < 4 {
-			payment.On("Terminated").Return(false).Times(2).
-				On("NeedWaitAttempts").Return(false, nil).Once()
-			return
-		}
-
-		// Otherwise, terminate the lifecycle.
-		payment.On("Terminated").Return(true).
-			On("NeedWaitAttempts").Return(true, nil)
-	})
-
-	// Mock SettleAttempt.
-	preimage := lntypes.Preimage{1, 2, 3}
-	settledAttempt := makeSettledAttempt(
-		int(paymentAmt/4), 0, preimage,
-	)
-
-	controlTower.On("SettleAttempt",
-		identifier, mock.Anything, mock.Anything,
-	).Return(&settledAttempt, nil).Run(func(args mock.Arguments) {
-		payment.On("GetHTLCs").Return(
-			[]channeldb.HTLCAttempt{settledAttempt},
-		)
-	})
-
-	// Create a route that can send 1/4 of the total amount. This value
-	// will be returned by calling RequestRoute.
-	shard, err := createTestRoute(paymentAmt/4, testGraph.aliasMap)
-	require.NoError(t, err, "failed to create route")
-
-	session.On("RequestRoute",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(shard, nil)
-
-	// Make a new htlc attempt with zero fee and append it to the payment's
-	// HTLCs when calling RegisterAttempt.
-	controlTower.On("RegisterAttempt",
-		identifier, mock.Anything,
-	).Return(nil).Run(func(args mock.Arguments) {
-		// Increase the counter whenever an attempt is made.
-		numAttempts.Add(1)
-	})
-
-	// Create a buffered chan and it will be returned by GetAttemptResult.
-	payer.resultChan = make(chan *htlcswitch.PaymentResult, 10)
-	payer.On("GetAttemptResult",
-		mock.Anything, identifier, mock.Anything,
-	).Run(func(args mock.Arguments) {
-		// Before the mock method is returned, we send the result to
-		// the read-only chan.
-		payer.resultChan <- &htlcswitch.PaymentResult{}
-	})
-
-	// Simple mocking the rest.
-	payer.On("SendHTLC",
-		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil)
-
-	missionControl.On("ReportPaymentSuccess",
-		mock.Anything, mock.Anything,
-	).Return(nil).Run(func(args mock.Arguments) {
-	})
-
-	controlTower.On("DeleteFailedAttempts", identifier).Return(nil)
-
-	// Call the actual method SendPayment on router. This is place inside a
-	// goroutine so we can set a timeout for the whole test, in case
-	// anything goes wrong and the test never finishes.
-	done := make(chan struct{})
-	var p lntypes.Hash
-	go func() {
-		p, _, err = router.SendPayment(req)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(testTimeout):
-		t.Fatalf("SendPayment didn't exit")
-	}
-
-	// Finally, validate the returned values and check that the mock
-	// methods are called as expected.
-	require.NoError(t, err, "send payment failed")
-	require.EqualValues(t, preimage, p, "preimage not match")
-
-	// Note that we also implicitly check the methods such as FailAttempt,
-	// ReportPaymentFail, etc, are not called because we never mocked them
-	// in this test. If any of the unexpected methods was called, the test
-	// would fail.
-	controlTower.AssertExpectations(t)
-	payer.AssertExpectations(t)
-	sessionSource.AssertExpectations(t)
-	session.AssertExpectations(t)
-	missionControl.AssertExpectations(t)
-	payment.AssertExpectations(t)
-}
-
-// TestSendMPPaymentSucceedOnExtraShards tests that we need extra attempts if
-// there are failed ones,so that a payment is successfully sent. This test
-// mainly focuses on testing the logic of the method resumePayment is
-// implemented as expected.
-func TestSendMPPaymentSucceedOnExtraShards(t *testing.T) {
-	const startingBlockHeight = 101
-
-	// Create mockers to initialize the router.
-	controlTower := &mockControlTower{}
-	sessionSource := &mockPaymentSessionSource{}
-	missionControl := &mockMissionControl{}
-	payer := &mockPaymentAttemptDispatcher{}
-	chain := newMockChain(startingBlockHeight)
-	chainView := newMockChainView(chain)
-	testGraph := createDummyTestGraph(t)
-
-	// Define the behavior of the mockers to the point where we can
-	// successfully start the router.
-	controlTower.On("FetchInFlightPayments").Return(
-		[]*channeldb.MPPayment{}, nil,
-	)
-	payer.On("CleanStore", mock.Anything).Return(nil)
-
-	// Create and start the router.
-	router, err := New(Config{
-		Control:        controlTower,
-		SessionSource:  sessionSource,
-		MissionControl: missionControl,
-		Payer:          payer,
-
-		// TODO(yy): create new mocks for the chain and chainview.
-		Chain:     chain,
-		ChainView: chainView,
-
-		// TODO(yy): mock the graph once it's changed into interface.
-		Graph: testGraph.graph,
-
-		Clock:              clock.NewTestClock(time.Unix(1, 0)),
-		GraphPruneInterval: time.Hour * 2,
-		NextPaymentID: func() (uint64, error) {
-			next := atomic.AddUint64(&uniquePaymentID, 1)
-			return next, nil
-		},
-
-		IsAlias: func(scid lnwire.ShortChannelID) bool {
-			return false
-		},
-	})
-	require.NoError(t, err, "failed to create router")
-
-	// Make sure the router can start and stop without error.
-	require.NoError(t, router.Start(), "router failed to start")
-	t.Cleanup(func() {
-		require.NoError(t, router.Stop(), "router failed to stop")
-	})
-
-	// Once the router is started, check that the mocked methods are called
-	// as expected.
-	controlTower.AssertExpectations(t)
-	payer.AssertExpectations(t)
-
-	// Mock the methods to the point where we are inside the function
-	// resumePayment.
-	paymentAmt := lnwire.MilliSatoshi(20000)
-	req := createDummyLightningPayment(
-		t, testGraph.aliasMap["c"], paymentAmt,
-	)
-	identifier := lntypes.Hash(req.Identifier())
-	session := &mockPaymentSession{}
-	sessionSource.On("NewPaymentSession", req).Return(session, nil)
-	controlTower.On("InitPayment", identifier, mock.Anything).Return(nil)
-
-	// Mock the InFlightHTLCs.
-	var (
-		htlcs            []channeldb.HTLCAttempt
-		numAttempts      atomic.Uint32
-		failAttemptCount atomic.Uint32
-	)
-
-	// Make a mock MPPayment.
-	payment := &mockMPPayment{}
-	payment.On("InFlightHTLCs").Return(htlcs).
-		On("GetState").Return(&channeldb.MPPaymentState{FeesPaid: 0})
-
-	// Mock FetchPayment to return the payment.
-	controlTower.On("FetchPayment",
-		identifier,
-	).Return(payment, nil).Run(func(args mock.Arguments) {
-		// When number of attempts made is less than 6, we will mock
-		// the payment's methods to allow the lifecycle to continue.
-		if numAttempts.Load() < 6 {
-			payment.On("Terminated").Return(false).Times(2).
-				On("NeedWaitAttempts").Return(false, nil).Once()
-			return
-		}
-
-		// Otherwise, terminate the lifecycle.
-		payment.On("Terminated").Return(true).
-			On("NeedWaitAttempts").Return(true, nil)
-	})
-
-	// Create a route that can send 1/4 of the total amount. This value
-	// will be returned by calling RequestRoute.
-	shard, err := createTestRoute(paymentAmt/4, testGraph.aliasMap)
-	require.NoError(t, err, "failed to create route")
-	session.On("RequestRoute",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(shard, nil)
-
-	// Make a new htlc attempt with zero fee and append it to the payment's
-	// HTLCs when calling RegisterAttempt.
-	controlTower.On("RegisterAttempt",
-		identifier, mock.Anything,
-	).Return(nil).Run(func(args mock.Arguments) {
-		// Increase the counter whenever an attempt is made.
-		numAttempts.Add(1)
-	})
-
-	// Create a buffered chan and it will be returned by GetAttemptResult.
-	payer.resultChan = make(chan *htlcswitch.PaymentResult, 10)
-
-	// We use the failAttemptCount to track how many attempts we want to
-	// fail. Each time the following mock method is called, the count gets
-	// updated.
-	payer.On("GetAttemptResult",
-		mock.Anything, identifier, mock.Anything,
-	).Run(func(args mock.Arguments) {
-		// Before the mock method is returned, we send the result to
-		// the read-only chan.
-
-		// Update the counter.
-		failAttemptCount.Add(1)
-
-		// We will make the first two attempts failed with temporary
-		// error.
-		if failAttemptCount.Load() <= 2 {
-			payer.resultChan <- &htlcswitch.PaymentResult{
-				Error: htlcswitch.NewForwardingError(
-					&lnwire.FailTemporaryChannelFailure{},
-					1,
-				),
-			}
-			return
-		}
-
-		// Otherwise we will mark the attempt succeeded.
-		payer.resultChan <- &htlcswitch.PaymentResult{}
-	})
-
-	// Mock the FailAttempt method to fail one of the attempts.
-	var failedAttempt channeldb.HTLCAttempt
-	controlTower.On("FailAttempt",
-		identifier, mock.Anything, mock.Anything,
-	).Return(&failedAttempt, nil)
-
-	// Setup ReportPaymentFail to return nil reason and error so the
-	// payment won't fail.
-	missionControl.On("ReportPaymentFail",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil, nil)
-
-	// Simple mocking the rest.
-	payer.On("SendHTLC",
-		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil)
-	missionControl.On("ReportPaymentSuccess",
-		mock.Anything, mock.Anything,
-	).Return(nil)
-
-	// Mock SettleAttempt by changing one of the HTLCs to be settled.
-	preimage := lntypes.Preimage{1, 2, 3}
-	settledAttempt := makeSettledAttempt(
-		int(paymentAmt/4), 0, preimage,
-	)
-	controlTower.On("SettleAttempt",
-		identifier, mock.Anything, mock.Anything,
-	).Return(&settledAttempt, nil).Run(func(args mock.Arguments) {
-		// Whenever this method is invoked, we will mock the payment's
-		// GetHTLCs() to return the settled htlc.
-		payment.On("GetHTLCs").Return(
-			[]channeldb.HTLCAttempt{settledAttempt},
-		)
-	})
-
-	controlTower.On("DeleteFailedAttempts", identifier).Return(nil)
-
-	// Call the actual method SendPayment on router. This is place inside a
-	// goroutine so we can set a timeout for the whole test, in case
-	// anything goes wrong and the test never finishes.
-	done := make(chan struct{})
-	var p lntypes.Hash
-	go func() {
-		p, _, err = router.SendPayment(req)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(testTimeout):
-		t.Fatalf("SendPayment didn't exit")
-	}
-
-	// Finally, validate the returned values and check that the mock
-	// methods are called as expected.
-	require.NoError(t, err, "send payment failed")
-	require.EqualValues(t, preimage, p, "preimage not match")
-
-	controlTower.AssertExpectations(t)
-	payer.AssertExpectations(t)
-	sessionSource.AssertExpectations(t)
-	session.AssertExpectations(t)
-	missionControl.AssertExpectations(t)
-	payment.AssertExpectations(t)
-}
-
-// TestSendMPPaymentFailed tests that when one of the shard fails with a
-// terminal error, the router will stop attempting and the payment will fail.
-// This test mainly focuses on testing the logic of the method resumePayment
-// is implemented as expected.
-func TestSendMPPaymentFailed(t *testing.T) {
-	const startingBlockHeight = 101
-
-	// Create mockers to initialize the router.
-	controlTower := &mockControlTower{}
-	sessionSource := &mockPaymentSessionSource{}
-	missionControl := &mockMissionControl{}
-	payer := &mockPaymentAttemptDispatcher{}
-	chain := newMockChain(startingBlockHeight)
-	chainView := newMockChainView(chain)
-	testGraph := createDummyTestGraph(t)
-
-	// Define the behavior of the mockers to the point where we can
-	// successfully start the router.
-	controlTower.On("FetchInFlightPayments").Return(
-		[]*channeldb.MPPayment{}, nil,
-	)
-	payer.On("CleanStore", mock.Anything).Return(nil)
-
-	// Create and start the router.
-	router, err := New(Config{
-		Control:        controlTower,
-		SessionSource:  sessionSource,
-		MissionControl: missionControl,
-		Payer:          payer,
-
-		// TODO(yy): create new mocks for the chain and chainview.
-		Chain:     chain,
-		ChainView: chainView,
-
-		// TODO(yy): mock the graph once it's changed into interface.
-		Graph: testGraph.graph,
-
-		Clock:              clock.NewTestClock(time.Unix(1, 0)),
-		GraphPruneInterval: time.Hour * 2,
-		NextPaymentID: func() (uint64, error) {
-			next := atomic.AddUint64(&uniquePaymentID, 1)
-			return next, nil
-		},
-
-		IsAlias: func(scid lnwire.ShortChannelID) bool {
-			return false
-		},
-	})
-	require.NoError(t, err, "failed to create router")
-
-	// Make sure the router can start and stop without error.
-	require.NoError(t, router.Start(), "router failed to start")
-	t.Cleanup(func() {
-		require.NoError(t, router.Stop(), "router failed to stop")
-	})
-
-	// Once the router is started, check that the mocked methods are called
-	// as expected.
-	controlTower.AssertExpectations(t)
-	payer.AssertExpectations(t)
-
-	// Mock the methods to the point where we are inside the function
-	// resumePayment.
-	paymentAmt := lnwire.MilliSatoshi(10000)
-	req := createDummyLightningPayment(
-		t, testGraph.aliasMap["c"], paymentAmt,
-	)
-	identifier := lntypes.Hash(req.Identifier())
-	session := &mockPaymentSession{}
-	sessionSource.On("NewPaymentSession", req).Return(session, nil)
-	controlTower.On("InitPayment", identifier, mock.Anything).Return(nil)
-
-	// Mock the InFlightHTLCs.
-	var htlcs []channeldb.HTLCAttempt
-
-	// Make a mock MPPayment.
-	payment := &mockMPPayment{}
-	payment.On("InFlightHTLCs").Return(htlcs).
-		On("GetState").Return(&channeldb.MPPaymentState{FeesPaid: 0}).
-		On("GetStatus").Return(channeldb.StatusInFlight).
-		On("Terminated").Return(false).
-		On("NeedWaitAttempts").Return(false, nil)
-
-	// Mock FetchPayment to return the payment.
-	controlTower.On("FetchPayment", identifier).Return(payment, nil)
-
-	// Create a route that can send 1/4 of the total amount. This value
-	// will be returned by calling RequestRoute.
-	shard, err := createTestRoute(paymentAmt/4, testGraph.aliasMap)
-	require.NoError(t, err, "failed to create route")
-	session.On("RequestRoute",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(shard, nil)
-
-	// Make a new htlc attempt with zero fee and append it to the payment's
-	// HTLCs when calling RegisterAttempt.
-	controlTower.On("RegisterAttempt",
-		identifier, mock.Anything,
-	).Return(nil)
-
-	// Create a buffered chan and it will be returned by GetAttemptResult.
-	payer.resultChan = make(chan *htlcswitch.PaymentResult, 10)
-
-	// We use the failAttemptCount to track how many attempts we want to
-	// fail. Each time the following mock method is called, the count gets
-	// updated.
-	failAttemptCount := 0
-	payer.On("GetAttemptResult",
-		mock.Anything, identifier, mock.Anything,
-	).Run(func(args mock.Arguments) {
-		// Before the mock method is returned, we send the result to
-		// the read-only chan.
-
-		// Update the counter.
-		failAttemptCount++
-
-		// We fail the first attempt with terminal error.
-		if failAttemptCount == 1 {
-			payer.resultChan <- &htlcswitch.PaymentResult{
-				Error: htlcswitch.NewForwardingError(
-					&lnwire.FailIncorrectDetails{},
-					1,
-				),
-			}
-			return
-		}
-
-		// We will make the rest attempts failed with temporary error.
-		payer.resultChan <- &htlcswitch.PaymentResult{
-			Error: htlcswitch.NewForwardingError(
-				&lnwire.FailTemporaryChannelFailure{},
-				1,
-			),
-		}
-	})
-
-	// Mock the FailAttempt method to fail one of the attempts.
-	var failedAttempt channeldb.HTLCAttempt
-	controlTower.On("FailAttempt",
-		identifier, mock.Anything, mock.Anything,
-	).Return(&failedAttempt, nil)
-
-	// Setup ReportPaymentFail to return nil reason and error so the
-	// payment won't fail.
-	failureReason := channeldb.FailureReasonPaymentDetails
-	missionControl.On("ReportPaymentFail",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(&failureReason, nil)
-
-	// Simple mocking the rest.
-	controlTower.On("FailPayment",
-		identifier, failureReason,
-	).Return(nil).Run(func(args mock.Arguments) {
-		// Whenever this method is invoked, we will mock the payment's
-		// Terminated() to be True.
-		payment.On("Terminated").Return(true)
-	})
-
-	payer.On("SendHTLC",
-		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil)
-
-	// Call the actual method SendPayment on router. This is place inside a
-	// goroutine so we can set a timeout for the whole test, in case
-	// anything goes wrong and the test never finishes.
-	done := make(chan struct{})
-	var p lntypes.Hash
-	go func() {
-		p, _, err = router.SendPayment(req)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(testTimeout):
-		t.Fatalf("SendPayment didn't exit")
-	}
-
-	// Finally, validate the returned values and check that the mock
-	// methods are called as expected.
-	require.Error(t, err, "expected send payment error")
-	require.EqualValues(t, [32]byte{}, p, "preimage not match")
-
-	controlTower.AssertExpectations(t)
-	payer.AssertExpectations(t)
-	sessionSource.AssertExpectations(t)
-	session.AssertExpectations(t)
-	missionControl.AssertExpectations(t)
-	payment.AssertExpectations(t)
-}
-
-// TestSendMPPaymentFailedWithShardsInFlight tests that when the payment is in
-// terminal state, even if we have shards in flight, we still fail the payment
-// and exit. This test mainly focuses on testing the logic of the method
-// resumePayment is implemented as expected.
-func TestSendMPPaymentFailedWithShardsInFlight(t *testing.T) {
-	const startingBlockHeight = 101
-
-	// Create mockers to initialize the router.
-	controlTower := &mockControlTower{}
-	sessionSource := &mockPaymentSessionSource{}
-	missionControl := &mockMissionControl{}
-	payer := &mockPaymentAttemptDispatcher{}
-	chain := newMockChain(startingBlockHeight)
-	chainView := newMockChainView(chain)
-	testGraph := createDummyTestGraph(t)
-
-	// Define the behavior of the mockers to the point where we can
-	// successfully start the router.
-	controlTower.On("FetchInFlightPayments").Return(
-		[]*channeldb.MPPayment{}, nil,
-	)
-	payer.On("CleanStore", mock.Anything).Return(nil)
-
-	// Create and start the router.
-	router, err := New(Config{
-		Control:        controlTower,
-		SessionSource:  sessionSource,
-		MissionControl: missionControl,
-		Payer:          payer,
-
-		// TODO(yy): create new mocks for the chain and chainview.
-		Chain:     chain,
-		ChainView: chainView,
-
-		// TODO(yy): mock the graph once it's changed into interface.
-		Graph: testGraph.graph,
-
-		Clock:              clock.NewTestClock(time.Unix(1, 0)),
-		GraphPruneInterval: time.Hour * 2,
-		NextPaymentID: func() (uint64, error) {
-			next := atomic.AddUint64(&uniquePaymentID, 1)
-			return next, nil
-		},
-
-		IsAlias: func(scid lnwire.ShortChannelID) bool {
-			return false
-		},
-	})
-	require.NoError(t, err, "failed to create router")
-
-	// Make sure the router can start and stop without error.
-	require.NoError(t, router.Start(), "router failed to start")
-	t.Cleanup(func() {
-		require.NoError(t, router.Stop(), "router failed to stop")
-	})
-
-	// Once the router is started, check that the mocked methods are called
-	// as expected.
-	controlTower.AssertExpectations(t)
-	payer.AssertExpectations(t)
-
-	// Mock the methods to the point where we are inside the function
-	// resumePayment.
-	paymentAmt := lnwire.MilliSatoshi(10000)
-	req := createDummyLightningPayment(
-		t, testGraph.aliasMap["c"], paymentAmt,
-	)
-	identifier := lntypes.Hash(req.Identifier())
-	session := &mockPaymentSession{}
-	sessionSource.On("NewPaymentSession", req).Return(session, nil)
-	controlTower.On("InitPayment", identifier, mock.Anything).Return(nil)
-
-	// Mock the InFlightHTLCs.
-	var htlcs []channeldb.HTLCAttempt
-
-	// Make a mock MPPayment.
-	payment := &mockMPPayment{}
-	payment.On("InFlightHTLCs").Return(htlcs).
-		On("GetStatus").Return(channeldb.StatusInFlight).
-		On("GetState").Return(&channeldb.MPPaymentState{FeesPaid: 0}).
-		On("Terminated").Return(false).
-		On("NeedWaitAttempts").Return(false, nil)
-
-	// Mock FetchPayment to return the payment.
-	controlTower.On("FetchPayment", identifier).Return(payment, nil)
-
-	// Create a route that can send 1/4 of the total amount. This value
-	// will be returned by calling RequestRoute.
-	shard, err := createTestRoute(paymentAmt/4, testGraph.aliasMap)
-	require.NoError(t, err, "failed to create route")
-	session.On("RequestRoute",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(shard, nil)
-
-	// Make a new htlc attempt with zero fee and append it to the payment's
-	// HTLCs when calling RegisterAttempt.
-	controlTower.On("RegisterAttempt",
-		identifier, mock.Anything,
-	).Return(nil)
-
-	// Create a buffered chan and it will be returned by GetAttemptResult.
-	payer.resultChan = make(chan *htlcswitch.PaymentResult, 10)
-
-	// We use the getPaymentResultCnt to track how many times we called
-	// GetAttemptResult. As shard launch is sequential, and we fail the
-	// first shard that calls GetAttemptResult, we may end up with different
-	// counts since the lifecycle itself is asynchronous. To avoid flakes
-	// due to this undeterminsitic behavior, we'll compare the final
-	// getPaymentResultCnt with other counters to create a final test
-	// expectation.
-	getPaymentResultCnt := 0
-	payer.On("GetAttemptResult",
-		mock.Anything, identifier, mock.Anything,
-	).Run(func(args mock.Arguments) {
-		// Before the mock method is returned, we send the result to
-		// the read-only chan.
-
-		// Update the counter.
-		getPaymentResultCnt++
-
-		// We fail the first attempt with terminal error.
-		if getPaymentResultCnt == 1 {
-			payer.resultChan <- &htlcswitch.PaymentResult{
-				Error: htlcswitch.NewForwardingError(
-					&lnwire.FailIncorrectDetails{},
-					1,
-				),
-			}
-			return
-		}
-
-		// For the rest of the attempts we'll simulate that a network
-		// result update_fail_htlc has been received. This way the
-		// payment will fail cleanly.
-		payer.resultChan <- &htlcswitch.PaymentResult{
-			Error: htlcswitch.NewForwardingError(
-				&lnwire.FailTemporaryChannelFailure{},
-				1,
-			),
-		}
-	})
-
-	// Mock the FailAttempt method to fail (at least once).
-	var failedAttempt channeldb.HTLCAttempt
-	controlTower.On("FailAttempt",
-		identifier, mock.Anything, mock.Anything,
-	).Return(&failedAttempt, nil)
-
-	// Setup ReportPaymentFail to return nil reason and error so the
-	// payment won't fail.
-	failureReason := channeldb.FailureReasonPaymentDetails
-	missionControl.On("ReportPaymentFail",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(&failureReason, nil)
-
-	// Simple mocking the rest.
-	cntFail := 0
-	controlTower.On("FailPayment",
-		identifier, failureReason,
-	).Return(nil).Run(func(args mock.Arguments) {
-		// Whenever this method is invoked, we will mock the payment's
-		// Terminated() to be True.
-		payment.On("Terminated").Return(true)
-	})
-
-	payer.On("SendHTLC",
-		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil).Run(func(args mock.Arguments) {
-		cntFail++
-	})
-
-	// Call the actual method SendPayment on router. This is place inside a
-	// goroutine so we can set a timeout for the whole test, in case
-	// anything goes wrong and the test never finishes.
-	done := make(chan struct{})
-	var p lntypes.Hash
-	go func() {
-		p, _, err = router.SendPayment(req)
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(testTimeout):
-		t.Fatalf("SendPayment didn't exit")
-	}
-
-	// Finally, validate the returned values and check that the mock
-	// methods are called as expected.
-	require.Error(t, err, "expected send payment error")
-	require.EqualValues(t, [32]byte{}, p, "preimage not match")
-	require.GreaterOrEqual(t, getPaymentResultCnt, 1)
-	require.Equal(t, getPaymentResultCnt, cntFail)
-
-	controlTower.AssertExpectations(t)
-	payer.AssertExpectations(t)
-	sessionSource.AssertExpectations(t)
-	session.AssertExpectations(t)
-	missionControl.AssertExpectations(t)
-	payment.AssertExpectations(t)
-}
-
 // TestBlockDifferenceFix tests if when the router is behind on blocks, the
 // router catches up to the best block head.
 func TestBlockDifferenceFix(t *testing.T) {
@@ -4201,7 +3384,8 @@ func TestBlockDifferenceFix(t *testing.T) {
 
 	initialBlockHeight := uint32(0)
 
-	// Starting height here is set to 0, which is behind where we want to be.
+	// Starting height here is set to 0, which is behind where we want to
+	// be.
 	ctx := createTestCtxSingleNode(t, initialBlockHeight)
 
 	// Add initial block to our mini blockchain.
@@ -4271,11 +3455,15 @@ func TestBlockDifferenceFix(t *testing.T) {
 
 // TestSendToRouteSkipTempErrSuccess validates a successful payment send.
 func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
+	t.Parallel()
+
 	var (
-		payHash     lntypes.Hash
-		payAmt      = lnwire.MilliSatoshi(10000)
-		testAttempt = &channeldb.HTLCAttempt{}
+		payHash lntypes.Hash
+		payAmt  = lnwire.MilliSatoshi(10000)
 	)
+
+	preimage := lntypes.Preimage{1}
+	testAttempt := makeSettledAttempt(t, int(payAmt), preimage)
 
 	node, err := createTestNode()
 	require.NoError(t, err)
@@ -4320,17 +3508,24 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	).Return(nil)
 
 	// Create a buffered chan and it will be returned by GetAttemptResult.
-	payer.resultChan = make(chan *htlcswitch.PaymentResult, 1)
+	resultChan := make(chan *htlcswitch.PaymentResult, 1)
 	payer.On("GetAttemptResult",
 		mock.Anything, mock.Anything, mock.Anything,
-	).Run(func(_ mock.Arguments) {
+	).Return(resultChan, nil).Run(func(_ mock.Arguments) {
 		// Send a successful payment result.
-		payer.resultChan <- &htlcswitch.PaymentResult{}
+		resultChan <- &htlcswitch.PaymentResult{}
 	})
 
 	missionControl.On("ReportPaymentSuccess",
 		mock.Anything, rt,
 	).Return(nil)
+
+	// Mock the control tower to return the mocked payment.
+	payment := &mockMPPayment{}
+	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
+
+	// Mock the payment to return nil failure reason.
+	payment.On("TerminalInfo").Return(nil, nil)
 
 	// Expect a successful send to route.
 	attempt, err := router.SendToRouteSkipTempErr(payHash, rt)
@@ -4341,17 +3536,71 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 	controlTower.AssertExpectations(t)
 	payer.AssertExpectations(t)
 	missionControl.AssertExpectations(t)
+	payment.AssertExpectations(t)
+}
+
+// TestSendToRouteSkipTempErrNonMPP checks that an error is return when
+// skipping temp error for non-MPP.
+func TestSendToRouteSkipTempErrNonMPP(t *testing.T) {
+	t.Parallel()
+
+	var (
+		payHash lntypes.Hash
+		payAmt  = lnwire.MilliSatoshi(10000)
+	)
+
+	node, err := createTestNode()
+	require.NoError(t, err)
+
+	// Create a simple 1-hop route without the MPP field.
+	hops := []*route.Hop{
+		{
+			ChannelID:    1,
+			PubKeyBytes:  node.PubKeyBytes,
+			AmtToForward: payAmt,
+		},
+	}
+	rt, err := route.NewRouteFromHops(payAmt, 100, node.PubKeyBytes, hops)
+	require.NoError(t, err)
+
+	// Create mockers.
+	controlTower := &mockControlTower{}
+	payer := &mockPaymentAttemptDispatcher{}
+	missionControl := &mockMissionControl{}
+
+	// Create the router.
+	router := &ChannelRouter{cfg: &Config{
+		Control:        controlTower,
+		Payer:          payer,
+		MissionControl: missionControl,
+		Clock:          clock.NewTestClock(time.Unix(1, 0)),
+		NextPaymentID: func() (uint64, error) {
+			return 0, nil
+		},
+	}}
+
+	// Expect an error to be returned.
+	attempt, err := router.SendToRouteSkipTempErr(payHash, rt)
+	require.ErrorIs(t, ErrSkipTempErr, err)
+	require.Nil(t, attempt)
+
+	// Assert the above methods are not called.
+	controlTower.AssertExpectations(t)
+	payer.AssertExpectations(t)
+	missionControl.AssertExpectations(t)
 }
 
 // TestSendToRouteSkipTempErrTempFailure validates a temporary failure won't
 // cause the payment to be failed.
 func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
+	t.Parallel()
+
 	var (
-		payHash     lntypes.Hash
-		payAmt      = lnwire.MilliSatoshi(10000)
-		testAttempt = &channeldb.HTLCAttempt{}
+		payHash lntypes.Hash
+		payAmt  = lnwire.MilliSatoshi(10000)
 	)
 
+	testAttempt := makeFailedAttempt(t, int(payAmt))
 	node, err := createTestNode()
 	require.NoError(t, err)
 
@@ -4383,6 +3632,11 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 		},
 	}}
 
+	// Create the error to be returned.
+	tempErr := htlcswitch.NewForwardingError(
+		&lnwire.FailTemporaryChannelFailure{}, 1,
+	)
+
 	// Register mockers with the expected method calls.
 	controlTower.On("InitPayment", payHash, mock.Anything).Return(nil)
 	controlTower.On("RegisterAttempt", payHash, mock.Anything).Return(nil)
@@ -4392,31 +3646,20 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil)
+	).Return(tempErr)
 
-	// Create a buffered chan and it will be returned by GetAttemptResult.
-	payer.resultChan = make(chan *htlcswitch.PaymentResult, 1)
+	// Mock the control tower to return the mocked payment.
+	payment := &mockMPPayment{}
+	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
 
-	// Create the error to be returned.
-	tempErr := htlcswitch.NewForwardingError(
-		&lnwire.FailTemporaryChannelFailure{},
-		1,
-	)
-
-	// Mock GetAttemptResult to return a failure.
-	payer.On("GetAttemptResult",
-		mock.Anything, mock.Anything, mock.Anything,
-	).Run(func(_ mock.Arguments) {
-		// Send an attempt failure.
-		payer.resultChan <- &htlcswitch.PaymentResult{
-			Error: tempErr,
-		}
-	})
-
-	// Return a nil reason to mock a temporary failure.
+	// Mock the mission control to return a nil reason from reporting the
+	// attempt failure.
 	missionControl.On("ReportPaymentFail",
 		mock.Anything, rt, mock.Anything, mock.Anything,
 	).Return(nil, nil)
+
+	// Mock the payment to return nil failure reason.
+	payment.On("TerminalInfo").Return(nil, nil)
 
 	// Expect a failed send to route.
 	attempt, err := router.SendToRouteSkipTempErr(payHash, rt)
@@ -4427,17 +3670,18 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 	controlTower.AssertExpectations(t)
 	payer.AssertExpectations(t)
 	missionControl.AssertExpectations(t)
+	payment.AssertExpectations(t)
 }
 
 // TestSendToRouteSkipTempErrPermanentFailure validates a permanent failure
 // will fail the payment.
 func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	var (
-		payHash     lntypes.Hash
-		payAmt      = lnwire.MilliSatoshi(10000)
-		testAttempt = &channeldb.HTLCAttempt{}
+		payHash lntypes.Hash
+		payAmt  = lnwire.MilliSatoshi(10000)
 	)
 
+	testAttempt := makeFailedAttempt(t, int(payAmt))
 	node, err := createTestNode()
 	require.NoError(t, err)
 
@@ -4469,9 +3713,15 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 		},
 	}}
 
+	// Create the error to be returned.
+	permErr := htlcswitch.NewForwardingError(
+		&lnwire.FailIncorrectDetails{}, 1,
+	)
+
 	// Register mockers with the expected method calls.
 	controlTower.On("InitPayment", payHash, mock.Anything).Return(nil)
 	controlTower.On("RegisterAttempt", payHash, mock.Anything).Return(nil)
+
 	controlTower.On("FailAttempt",
 		payHash, mock.Anything, mock.Anything,
 	).Return(testAttempt, nil)
@@ -4479,33 +3729,22 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	// Expect the payment to be failed.
 	controlTower.On("FailPayment", payHash, mock.Anything).Return(nil)
 
+	// Mock an error to be returned from sending the htlc.
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil)
+	).Return(permErr)
 
-	// Create a buffered chan and it will be returned by GetAttemptResult.
-	payer.resultChan = make(chan *htlcswitch.PaymentResult, 1)
-
-	// Create the error to be returned.
-	permErr := htlcswitch.NewForwardingError(
-		&lnwire.FailIncorrectDetails{}, 1,
-	)
-
-	// Mock GetAttemptResult to return a failure.
-	payer.On("GetAttemptResult",
-		mock.Anything, mock.Anything, mock.Anything,
-	).Run(func(_ mock.Arguments) {
-		// Send a permanent failure.
-		payer.resultChan <- &htlcswitch.PaymentResult{
-			Error: permErr,
-		}
-	})
-
-	// Return a reason to mock a permanent failure.
 	failureReason := channeldb.FailureReasonPaymentDetails
 	missionControl.On("ReportPaymentFail",
 		mock.Anything, rt, mock.Anything, mock.Anything,
 	).Return(&failureReason, nil)
+
+	// Mock the control tower to return the mocked payment.
+	payment := &mockMPPayment{}
+	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
+
+	// Mock the payment to return a failure reason.
+	payment.On("TerminalInfo").Return(nil, &failureReason)
 
 	// Expect a failed send to route.
 	attempt, err := router.SendToRouteSkipTempErr(payHash, rt)
@@ -4516,17 +3755,18 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 	controlTower.AssertExpectations(t)
 	payer.AssertExpectations(t)
 	missionControl.AssertExpectations(t)
+	payment.AssertExpectations(t)
 }
 
 // TestSendToRouteTempFailure validates a temporary failure will cause the
 // payment to be failed.
 func TestSendToRouteTempFailure(t *testing.T) {
 	var (
-		payHash     lntypes.Hash
-		payAmt      = lnwire.MilliSatoshi(10000)
-		testAttempt = &channeldb.HTLCAttempt{}
+		payHash lntypes.Hash
+		payAmt  = lnwire.MilliSatoshi(10000)
 	)
 
+	testAttempt := makeFailedAttempt(t, int(payAmt))
 	node, err := createTestNode()
 	require.NoError(t, err)
 
@@ -4558,6 +3798,11 @@ func TestSendToRouteTempFailure(t *testing.T) {
 		},
 	}}
 
+	// Create the error to be returned.
+	tempErr := htlcswitch.NewForwardingError(
+		&lnwire.FailTemporaryChannelFailure{}, 1,
+	)
+
 	// Register mockers with the expected method calls.
 	controlTower.On("InitPayment", payHash, mock.Anything).Return(nil)
 	controlTower.On("RegisterAttempt", payHash, mock.Anything).Return(nil)
@@ -4570,26 +3815,14 @@ func TestSendToRouteTempFailure(t *testing.T) {
 
 	payer.On("SendHTLC",
 		mock.Anything, mock.Anything, mock.Anything,
-	).Return(nil)
+	).Return(tempErr)
 
-	// Create a buffered chan and it will be returned by GetAttemptResult.
-	payer.resultChan = make(chan *htlcswitch.PaymentResult, 1)
+	// Mock the control tower to return the mocked payment.
+	payment := &mockMPPayment{}
+	controlTower.On("FetchPayment", payHash).Return(payment, nil).Once()
 
-	// Create the error to be returned.
-	tempErr := htlcswitch.NewForwardingError(
-		&lnwire.FailTemporaryChannelFailure{},
-		1,
-	)
-
-	// Mock GetAttemptResult to return a failure.
-	payer.On("GetAttemptResult",
-		mock.Anything, mock.Anything, mock.Anything,
-	).Run(func(_ mock.Arguments) {
-		// Send an attempt failure.
-		payer.resultChan <- &htlcswitch.PaymentResult{
-			Error: tempErr,
-		}
-	})
+	// Mock the payment to return nil failure reason.
+	payment.On("TerminalInfo").Return(nil, nil)
 
 	// Return a nil reason to mock a temporary failure.
 	missionControl.On("ReportPaymentFail",
@@ -4605,6 +3838,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 	controlTower.AssertExpectations(t)
 	payer.AssertExpectations(t)
 	missionControl.AssertExpectations(t)
+	payment.AssertExpectations(t)
 }
 
 // TestNewRouteRequest tests creation of route requests for blinded and

@@ -219,10 +219,10 @@ func (m *MPPayment) Terminated() bool {
 // TerminalInfo returns any HTLC settle info recorded. If no settle info is
 // recorded, any payment level failure will be returned. If neither a settle
 // nor a failure is recorded, both return values will be nil.
-func (m *MPPayment) TerminalInfo() (*HTLCSettleInfo, *FailureReason) {
+func (m *MPPayment) TerminalInfo() (*HTLCAttempt, *FailureReason) {
 	for _, h := range m.HTLCs {
 		if h.Settle != nil {
-			return h.Settle, nil
+			return &h, nil
 		}
 	}
 
@@ -264,6 +264,7 @@ func (m *MPPayment) InFlightHTLCs() []HTLCAttempt {
 
 // GetAttempt returns the specified htlc attempt on the payment.
 func (m *MPPayment) GetAttempt(id uint64) (*HTLCAttempt, error) {
+	// TODO(yy): iteration can be slow, make it into a tree or use BS.
 	for _, htlc := range m.HTLCs {
 		htlc := htlc
 		if htlc.AttemptID == id {
@@ -463,9 +464,49 @@ func (m *MPPayment) GetHTLCs() []HTLCAttempt {
 	return m.HTLCs
 }
 
-// GetFailureReason returns the failure reason.
-func (m *MPPayment) GetFailureReason() *FailureReason {
-	return m.FailureReason
+// AllowMoreAttempts is used to decide whether we can safely attempt more HTLCs
+// for a given payment state. Return an error if the payment is in an
+// unexpected state.
+func (m *MPPayment) AllowMoreAttempts() (bool, error) {
+	// Now check whether the remainingAmt is zero or not. If we don't have
+	// any remainingAmt, no more HTLCs should be made.
+	if m.State.RemainingAmt == 0 {
+		// If the payment is newly created, yet we don't have any
+		// remainingAmt, return an error.
+		if m.Status == StatusInitiated {
+			return false, fmt.Errorf("%w: initiated payment has "+
+				"zero remainingAmt", ErrPaymentInternal)
+		}
+
+		// Otherwise, exit early since all other statuses with zero
+		// remainingAmt indicate no more HTLCs can be made.
+		return false, nil
+	}
+
+	// Otherwise, the remaining amount is not zero, we now decide whether
+	// to make more attempts based on the payment's current status.
+	//
+	// If at least one of the payment's attempts is settled, yet we haven't
+	// sent all the amount, it indicates something is wrong with the peer
+	// as the preimage is received. In this case, return an error state.
+	if m.Status == StatusSucceeded {
+		return false, fmt.Errorf("%w: payment already succeeded but "+
+			"still have remaining amount %v", ErrPaymentInternal,
+			m.State.RemainingAmt)
+	}
+
+	// Now check if we can register a new HTLC.
+	err := m.Registrable()
+	if err != nil {
+		log.Warnf("Payment(%v): cannot register HTLC attempt: %v, "+
+			"current status: %s", m.Info.PaymentIdentifier,
+			err, m.Status)
+
+		return false, nil
+	}
+
+	// Now we know we can register new HTLCs.
+	return true, nil
 }
 
 // serializeHTLCSettleInfo serializes the details of a settled htlc.

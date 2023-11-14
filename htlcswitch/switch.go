@@ -967,7 +967,7 @@ func (s *Switch) handleLocalResponse(pkt *htlcPacket) {
 	// This can only happen if the circuit is still open, which is why this
 	// ordering is chosen.
 	if err := s.teardownCircuit(pkt); err != nil {
-		log.Warnf("Unable to teardown circuit %s: %v",
+		log.Errorf("Unable to teardown circuit %s: %v",
 			pkt.inKey(), err)
 		return
 	}
@@ -1359,47 +1359,34 @@ func (s *Switch) teardownCircuit(pkt *htlcPacket) error {
 	case *lnwire.UpdateFailHTLC:
 		pktType = "FAIL"
 	default:
-		err := fmt.Errorf("cannot tear down packet of type: %T", htlc)
-		log.Errorf(err.Error())
+		return fmt.Errorf("cannot tear down packet of type: %T", htlc)
+	}
+
+	var paymentHash lntypes.Hash
+
+	// Perform a defensive check to make sure we don't try to access a nil
+	// circuit.
+	circuit := pkt.circuit
+	if circuit != nil {
+		copy(paymentHash[:], circuit.PaymentHash[:])
+	}
+
+	log.Debugf("Tearing down circuit with %s pkt, removing circuit=%v "+
+		"with keystone=%v", pktType, pkt.inKey(), pkt.outKey())
+
+	err := s.circuits.DeleteCircuits(pkt.inKey())
+	if err != nil {
+		log.Warnf("Failed to tear down circuit (%s, %d) <-> (%s, %d) "+
+			"with payment_hash=%v using %s pkt", pkt.incomingChanID,
+			pkt.incomingHTLCID, pkt.outgoingChanID,
+			pkt.outgoingHTLCID, pkt.circuit.PaymentHash, pktType)
+
 		return err
 	}
 
-	switch {
-	case pkt.circuit.HasKeystone():
-		log.Debugf("Tearing down open circuit with %s pkt, removing circuit=%v "+
-			"with keystone=%v", pktType, pkt.inKey(), pkt.outKey())
-
-		err := s.circuits.DeleteCircuits(pkt.inKey())
-		if err != nil {
-			log.Warnf("Failed to tear down open circuit (%s, %d) <-> (%s, %d) "+
-				"with payment_hash-%v using %s pkt",
-				pkt.incomingChanID, pkt.incomingHTLCID,
-				pkt.outgoingChanID, pkt.outgoingHTLCID,
-				pkt.circuit.PaymentHash, pktType)
-			return err
-		}
-
-		log.Debugf("Closed completed %s circuit for %x: "+
-			"(%s, %d) <-> (%s, %d)", pktType, pkt.circuit.PaymentHash,
-			pkt.incomingChanID, pkt.incomingHTLCID,
-			pkt.outgoingChanID, pkt.outgoingHTLCID)
-
-	default:
-		log.Debugf("Tearing down incomplete circuit with %s for inkey=%v",
-			pktType, pkt.inKey())
-
-		err := s.circuits.DeleteCircuits(pkt.inKey())
-		if err != nil {
-			log.Warnf("Failed to tear down pending %s circuit for %x: "+
-				"(%s, %d)", pktType, pkt.circuit.PaymentHash,
-				pkt.incomingChanID, pkt.incomingHTLCID)
-			return err
-		}
-
-		log.Debugf("Removed pending onion circuit for %x: "+
-			"(%s, %d)", pkt.circuit.PaymentHash,
-			pkt.incomingChanID, pkt.incomingHTLCID)
-	}
+	log.Debugf("Closed %s circuit for %v: (%s, %d) <-> (%s, %d)", pktType,
+		paymentHash, pkt.incomingChanID, pkt.incomingHTLCID,
+		pkt.outgoingChanID, pkt.outgoingHTLCID)
 
 	return nil
 }

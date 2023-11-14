@@ -75,6 +75,10 @@ var (
 	// but it is marked as a zombie within the zombie index.
 	ErrZombieEdge = errors.New("edge marked as zombie")
 
+	// ErrZombieEdgeNotFound is an error returned when we attempt to find an
+	// edge in the zombie index which is not there.
+	ErrZombieEdgeNotFound = errors.New("edge not found in zombie index")
+
 	// ErrEdgeAlreadyExist is returned when edge with specific
 	// channel id can't be added because it already exist.
 	ErrEdgeAlreadyExist = fmt.Errorf("edge already exist")

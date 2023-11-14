@@ -39,6 +39,9 @@
 
 * [Fixed a case](https://github.com/lightningnetwork/lnd/pull/7503) where it's
   possible a failed payment might be stuck in pending.
+ 
+* [Ensure that a valid SCID](https://github.com/lightningnetwork/lnd/pull/8171) 
+  is used when marking a zombie edge as live.
 
 # New Features
 ## Functional Enhancements

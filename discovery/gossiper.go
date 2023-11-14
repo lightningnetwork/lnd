@@ -2022,8 +2022,12 @@ func (d *AuthenticatedGossiper) processNetworkAnnouncement(
 
 // processZombieUpdate determines whether the provided channel update should
 // resurrect a given zombie edge.
+//
+// NOTE: only the NodeKey1Bytes and NodeKey2Bytes members of the ChannelEdgeInfo
+// should be inspected.
 func (d *AuthenticatedGossiper) processZombieUpdate(
-	chanInfo *models.ChannelEdgeInfo, msg *lnwire.ChannelUpdate) error {
+	chanInfo *models.ChannelEdgeInfo, scid lnwire.ShortChannelID,
+	msg *lnwire.ChannelUpdate) error {
 
 	// The least-significant bit in the flag on the channel update tells us
 	// which edge is being updated.
@@ -2031,7 +2035,7 @@ func (d *AuthenticatedGossiper) processZombieUpdate(
 
 	// Since we've deemed the update as not stale above, before marking it
 	// live, we'll make sure it has been signed by the correct party. If we
-	// have both pubkeys, either party can resurect the channel. If we've
+	// have both pubkeys, either party can resurrect the channel. If we've
 	// already marked this with the stricter, single-sided resurrection we
 	// will only have the pubkey of the node with the oldest timestamp.
 	var pubKey *btcec.PublicKey
@@ -2055,12 +2059,20 @@ func (d *AuthenticatedGossiper) processZombieUpdate(
 	// With the signature valid, we'll proceed to mark the
 	// edge as live and wait for the channel announcement to
 	// come through again.
-	baseScid := lnwire.NewShortChanIDFromInt(chanInfo.ChannelID)
-	err = d.cfg.Router.MarkEdgeLive(baseScid)
-	if err != nil {
+	err = d.cfg.Router.MarkEdgeLive(scid)
+	switch {
+	case errors.Is(err, channeldb.ErrZombieEdgeNotFound):
+		log.Errorf("edge with chan_id=%v was not found in the "+
+			"zombie index: %v", err)
+
+		return nil
+
+	case err != nil:
 		return fmt.Errorf("unable to remove edge with "+
 			"chan_id=%v from zombie index: %v",
 			msg.ShortChannelID, err)
+
+	default:
 	}
 
 	log.Debugf("Removed edge with chan_id=%v from zombie "+
@@ -2731,7 +2743,7 @@ func (d *AuthenticatedGossiper) handleChanUpdate(nMsg *networkMsg,
 		break
 
 	case channeldb.ErrZombieEdge:
-		err = d.processZombieUpdate(chanInfo, upd)
+		err = d.processZombieUpdate(chanInfo, graphScid, upd)
 		if err != nil {
 			log.Debug(err)
 			nMsg.err <- err

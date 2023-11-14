@@ -3512,6 +3512,11 @@ func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
 
 		var k [8]byte
 		byteOrder.PutUint64(k[:], chanID)
+
+		if len(zombieIndex.Get(k[:])) == 0 {
+			return ErrZombieEdgeNotFound
+		}
+
 		return zombieIndex.Delete(k[:])
 	}, func() {})
 	if err != nil {

@@ -98,6 +98,13 @@ type RouterBackend struct {
 	// SetChannelAuto exposes the ability to restore automatic channel state
 	// management after manually setting channel status.
 	SetChannelAuto func(wire.OutPoint) error
+
+	// UseStatusInitiated is a boolean that indicates whether the router
+	// should use the new status code `Payment_INITIATED`.
+	//
+	// TODO(yy): remove this config after the new status code is fully
+	// deployed to the network(v0.20.0).
+	UseStatusInitiated bool
 }
 
 // MissionControl defines the mission control dependencies of routerrpc.
@@ -1542,7 +1549,9 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 	msatValue := int64(payment.Info.Value)
 	satValue := int64(payment.Info.Value.ToSatoshis())
 
-	status, err := convertPaymentStatus(payment.Status)
+	status, err := convertPaymentStatus(
+		payment.Status, r.UseStatusInitiated,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1589,12 +1598,18 @@ func (r *RouterBackend) MarshallPayment(payment *channeldb.MPPayment) (
 
 // convertPaymentStatus converts a channeldb.PaymentStatus to the type expected
 // by the RPC.
-func convertPaymentStatus(dbStatus channeldb.PaymentStatus) (
+func convertPaymentStatus(dbStatus channeldb.PaymentStatus, useInit bool) (
 	lnrpc.Payment_PaymentStatus, error) {
 
 	switch dbStatus {
 	case channeldb.StatusInitiated:
-		return lnrpc.Payment_INITIATED, nil
+		// If the client understands the new status, return it.
+		if useInit {
+			return lnrpc.Payment_INITIATED, nil
+		}
+
+		// Otherwise remain the old behavior.
+		return lnrpc.Payment_IN_FLIGHT, nil
 
 	case channeldb.StatusInFlight:
 		return lnrpc.Payment_IN_FLIGHT, nil

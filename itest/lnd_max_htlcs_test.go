@@ -20,6 +20,17 @@ func testMaxHtlcPathfind(ht *lntest.HarnessTest) {
 	maxHtlcs := 5
 
 	alice, bob := ht.Alice, ht.Bob
+
+	// Restart nodes with the new flag so they understand the new payment
+	// status.
+	ht.RestartNodeWithExtraArgs(alice, []string{
+		"--routerrpc.usestatusinitiated",
+	})
+	ht.RestartNodeWithExtraArgs(bob, []string{
+		"--routerrpc.usestatusinitiated",
+	})
+
+	ht.EnsureConnected(alice, bob)
 	chanPoint := ht.OpenChannel(
 		alice, bob, lntest.OpenChannelParams{
 			Amt:            1000000,

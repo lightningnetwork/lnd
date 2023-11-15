@@ -51,7 +51,7 @@
     },
     "/v2/autopilot/scores": {
       "get": {
-        "summary": "QueryScores queries all available autopilot heuristics, in addition to any\nactive combination of these heruristics, for the scores they would give to\nthe given nodes.",
+        "summary": "lncli: `autopilot query`\nQueryScores queries all available autopilot heuristics, in addition to any\nactive combination of these heruristics, for the scores they would give to\nthe given nodes.",
         "operationId": "Autopilot_QueryScores",
         "responses": {
           "200": {
@@ -124,7 +124,7 @@
     },
     "/v2/autopilot/status": {
       "get": {
-        "summary": "Status returns whether the daemon's autopilot agent is active.",
+        "summary": "lncli: `autopilot status`\nStatus returns whether the daemon's autopilot agent is active.",
         "operationId": "Autopilot_Status",
         "responses": {
           "200": {

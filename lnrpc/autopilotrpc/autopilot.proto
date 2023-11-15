@@ -4,11 +4,29 @@ package autopilotrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/autopilotrpc";
 
+/*
+ * Comments in this file will be directly parsed into the API
+ * Documentation as descriptions of the associated method, message, or field.
+ * These descriptions should go right above the definition of the object, and
+ * can be in either block or // comment format.
+ *
+ * An RPC method can be matched to an lncli command by placing a line in the
+ * beginning of the description in exactly the following format:
+ * lncli: `methodname`
+ *
+ * Failure to specify the exact name of the command will cause documentation
+ * generation to fail.
+ *
+ * More information on how exactly the gRPC documentation is generated from
+ * this proto file can be found here:
+ * https://github.com/lightninglabs/lightning-api
+ */
+
 // Autopilot is a service that can be used to get information about the current
 // state of the daemon's autopilot agent, and also supply it with information
 // that can be used when deciding where to open channels.
 service Autopilot {
-    /*
+    /* lncli: `autopilot status`
     Status returns whether the daemon's autopilot agent is active.
     */
     rpc Status (StatusRequest) returns (StatusResponse);
@@ -19,7 +37,7 @@ service Autopilot {
     */
     rpc ModifyStatus (ModifyStatusRequest) returns (ModifyStatusResponse);
 
-    /*
+    /* lncli: `autopilot query`
     QueryScores queries all available autopilot heuristics, in addition to any
     active combination of these heruristics, for the scores they would give to
     the given nodes.

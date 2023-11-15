@@ -18,11 +18,13 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AutopilotClient interface {
+	// lncli: `autopilot status`
 	// Status returns whether the daemon's autopilot agent is active.
 	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
 	// ModifyStatus is used to modify the status of the autopilot agent, like
 	// enabling or disabling it.
 	ModifyStatus(ctx context.Context, in *ModifyStatusRequest, opts ...grpc.CallOption) (*ModifyStatusResponse, error)
+	// lncli: `autopilot query`
 	// QueryScores queries all available autopilot heuristics, in addition to any
 	// active combination of these heruristics, for the scores they would give to
 	// the given nodes.
@@ -80,11 +82,13 @@ func (c *autopilotClient) SetScores(ctx context.Context, in *SetScoresRequest, o
 // All implementations must embed UnimplementedAutopilotServer
 // for forward compatibility
 type AutopilotServer interface {
+	// lncli: `autopilot status`
 	// Status returns whether the daemon's autopilot agent is active.
 	Status(context.Context, *StatusRequest) (*StatusResponse, error)
 	// ModifyStatus is used to modify the status of the autopilot agent, like
 	// enabling or disabling it.
 	ModifyStatus(context.Context, *ModifyStatusRequest) (*ModifyStatusResponse, error)
+	// lncli: `autopilot query`
 	// QueryScores queries all available autopilot heuristics, in addition to any
 	// active combination of these heruristics, for the scores they would give to
 	// the given nodes.

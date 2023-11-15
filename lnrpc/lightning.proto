@@ -341,13 +341,13 @@ service Lightning {
     */
     rpc ListPayments (ListPaymentsRequest) returns (ListPaymentsResponse);
 
-    /*
+    /* lncli: `deletepayments`
     DeletePayment deletes an outgoing payment from DB. Note that it will not
     attempt to delete an In-Flight payment, since that would be unsafe.
     */
     rpc DeletePayment (DeletePaymentRequest) returns (DeletePaymentResponse);
 
-    /*
+    /* lncli: `deletepayments --all`
     DeleteAllPayments deletes all outgoing payments from DB. Note that it will
     not attempt to delete In-Flight payments, since that would be unsafe.
     */
@@ -479,7 +479,7 @@ service Lightning {
     rpc ExportAllChannelBackups (ChanBackupExportRequest)
         returns (ChanBackupSnapshot);
 
-    /*
+    /* lncli: `verifychanbackup`
     VerifyChanBackup allows a caller to verify the integrity of a channel backup
     snapshot. This method will accept either a packed Single or a packed Multi.
     Specifying both will result in an error.

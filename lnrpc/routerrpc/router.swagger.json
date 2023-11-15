@@ -434,7 +434,7 @@
     },
     "/v2/router/track/{payment_hash}": {
       "get": {
-        "summary": "TrackPaymentV2 returns an update stream for the payment identified by the\npayment hash.",
+        "summary": "lncli: `trackpayment`\nTrackPaymentV2 returns an update stream for the payment identified by the\npayment hash.",
         "operationId": "Router_TrackPaymentV2",
         "responses": {
           "200": {

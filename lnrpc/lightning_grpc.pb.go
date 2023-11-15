@@ -241,9 +241,11 @@ type LightningClient interface {
 	// lncli: `listpayments`
 	// ListPayments returns a list of all outgoing payments.
 	ListPayments(ctx context.Context, in *ListPaymentsRequest, opts ...grpc.CallOption) (*ListPaymentsResponse, error)
+	// lncli: `deletepayments`
 	// DeletePayment deletes an outgoing payment from DB. Note that it will not
 	// attempt to delete an In-Flight payment, since that would be unsafe.
 	DeletePayment(ctx context.Context, in *DeletePaymentRequest, opts ...grpc.CallOption) (*DeletePaymentResponse, error)
+	// lncli: `deletepayments --all`
 	// DeleteAllPayments deletes all outgoing payments from DB. Note that it will
 	// not attempt to delete In-Flight payments, since that would be unsafe.
 	DeleteAllPayments(ctx context.Context, in *DeleteAllPaymentsRequest, opts ...grpc.CallOption) (*DeleteAllPaymentsResponse, error)
@@ -337,6 +339,7 @@ type LightningClient interface {
 	// as well, which contains a single encrypted blob containing the backups of
 	// each channel.
 	ExportAllChannelBackups(ctx context.Context, in *ChanBackupExportRequest, opts ...grpc.CallOption) (*ChanBackupSnapshot, error)
+	// lncli: `verifychanbackup`
 	// VerifyChanBackup allows a caller to verify the integrity of a channel backup
 	// snapshot. This method will accept either a packed Single or a packed Multi.
 	// Specifying both will result in an error.
@@ -1545,9 +1548,11 @@ type LightningServer interface {
 	// lncli: `listpayments`
 	// ListPayments returns a list of all outgoing payments.
 	ListPayments(context.Context, *ListPaymentsRequest) (*ListPaymentsResponse, error)
+	// lncli: `deletepayments`
 	// DeletePayment deletes an outgoing payment from DB. Note that it will not
 	// attempt to delete an In-Flight payment, since that would be unsafe.
 	DeletePayment(context.Context, *DeletePaymentRequest) (*DeletePaymentResponse, error)
+	// lncli: `deletepayments --all`
 	// DeleteAllPayments deletes all outgoing payments from DB. Note that it will
 	// not attempt to delete In-Flight payments, since that would be unsafe.
 	DeleteAllPayments(context.Context, *DeleteAllPaymentsRequest) (*DeleteAllPaymentsResponse, error)
@@ -1641,6 +1646,7 @@ type LightningServer interface {
 	// as well, which contains a single encrypted blob containing the backups of
 	// each channel.
 	ExportAllChannelBackups(context.Context, *ChanBackupExportRequest) (*ChanBackupSnapshot, error)
+	// lncli: `verifychanbackup`
 	// VerifyChanBackup allows a caller to verify the integrity of a channel backup
 	// snapshot. This method will accept either a packed Single or a packed Multi.
 	// Specifying both will result in an error.

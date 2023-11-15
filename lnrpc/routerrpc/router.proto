@@ -34,7 +34,7 @@ service Router {
     */
     rpc SendPaymentV2 (SendPaymentRequest) returns (stream lnrpc.Payment);
 
-    /*
+    /* lncli: `trackpayment`
     TrackPaymentV2 returns an update stream for the payment identified by the
     payment hash.
     */

@@ -23,6 +23,7 @@ type RouterClient interface {
 	// PaymentRequest to the final destination. The call returns a stream of
 	// payment updates.
 	SendPaymentV2(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (Router_SendPaymentV2Client, error)
+	// lncli: `trackpayment`
 	// TrackPaymentV2 returns an update stream for the payment identified by the
 	// payment hash.
 	TrackPaymentV2(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (Router_TrackPaymentV2Client, error)
@@ -451,6 +452,7 @@ type RouterServer interface {
 	// PaymentRequest to the final destination. The call returns a stream of
 	// payment updates.
 	SendPaymentV2(*SendPaymentRequest, Router_SendPaymentV2Server) error
+	// lncli: `trackpayment`
 	// TrackPaymentV2 returns an update stream for the payment identified by the
 	// payment hash.
 	TrackPaymentV2(*TrackPaymentRequest, Router_TrackPaymentV2Server) error

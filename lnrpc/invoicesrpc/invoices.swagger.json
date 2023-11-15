@@ -18,7 +18,7 @@
   "paths": {
     "/v2/invoices/cancel": {
       "post": {
-        "summary": "CancelInvoice cancels a currently open invoice. If the invoice is already\ncanceled, this call will succeed. If the invoice is already settled, it will\nfail.",
+        "summary": "lncli: `cancelinvoice`\nCancelInvoice cancels a currently open invoice. If the invoice is already\ncanceled, this call will succeed. If the invoice is already settled, it will\nfail.",
         "operationId": "Invoices_CancelInvoice",
         "responses": {
           "200": {
@@ -51,7 +51,7 @@
     },
     "/v2/invoices/hodl": {
       "post": {
-        "summary": "AddHoldInvoice creates a hold invoice. It ties the invoice to the hash\nsupplied in the request.",
+        "summary": "lncli: `addholdinvoice`\nAddHoldInvoice creates a hold invoice. It ties the invoice to the hash\nsupplied in the request.",
         "operationId": "Invoices_AddHoldInvoice",
         "responses": {
           "200": {
@@ -144,7 +144,7 @@
     },
     "/v2/invoices/settle": {
       "post": {
-        "summary": "SettleInvoice settles an accepted invoice. If the invoice is already\nsettled, this call will succeed.",
+        "summary": "lncli: `settleinvoice`\nSettleInvoice settles an accepted invoice. If the invoice is already\nsettled, this call will succeed.",
         "operationId": "Invoices_SettleInvoice",
         "responses": {
           "200": {

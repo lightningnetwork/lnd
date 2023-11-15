@@ -6,6 +6,24 @@ package invoicesrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/invoicesrpc";
 
+/*
+ * Comments in this file will be directly parsed into the API
+ * Documentation as descriptions of the associated method, message, or field.
+ * These descriptions should go right above the definition of the object, and
+ * can be in either block or // comment format.
+ *
+ * An RPC method can be matched to an lncli command by placing a line in the
+ * beginning of the description in exactly the following format:
+ * lncli: `methodname`
+ *
+ * Failure to specify the exact name of the command will cause documentation
+ * generation to fail.
+ *
+ * More information on how exactly the gRPC documentation is generated from
+ * this proto file can be found here:
+ * https://github.com/lightninglabs/lightning-api
+ */
+
 // Invoices is a service that can be used to create, accept, settle and cancel
 // invoices.
 service Invoices {
@@ -17,20 +35,20 @@ service Invoices {
     rpc SubscribeSingleInvoice (SubscribeSingleInvoiceRequest)
         returns (stream lnrpc.Invoice);
 
-    /*
+    /* lncli: `cancelinvoice`
     CancelInvoice cancels a currently open invoice. If the invoice is already
     canceled, this call will succeed. If the invoice is already settled, it will
     fail.
     */
     rpc CancelInvoice (CancelInvoiceMsg) returns (CancelInvoiceResp);
 
-    /*
+    /* lncli: `addholdinvoice`
     AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
     supplied in the request.
     */
     rpc AddHoldInvoice (AddHoldInvoiceRequest) returns (AddHoldInvoiceResp);
 
-    /*
+    /* lncli: `settleinvoice`
     SettleInvoice settles an accepted invoice. If the invoice is already
     settled, this call will succeed.
     */

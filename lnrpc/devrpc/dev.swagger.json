@@ -18,7 +18,7 @@
   "paths": {
     "/v2/dev/importgraph": {
       "post": {
-        "summary": "ImportGraph imports a ChannelGraph into the graph database. Should only be\nused for development.",
+        "summary": "lncli: `importgraph`\nImportGraph imports a ChannelGraph into the graph database. Should only be\nused for development.",
         "operationId": "Dev_ImportGraph",
         "responses": {
           "200": {

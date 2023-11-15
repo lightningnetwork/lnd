@@ -18,22 +18,28 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WatchtowerClientClient interface {
+	// lncli: `wtclient add`
 	// AddTower adds a new watchtower reachable at the given address and
 	// considers it for new sessions. If the watchtower already exists, then
 	// any new addresses included will be considered when dialing it for
 	// session negotiations and backups.
 	AddTower(ctx context.Context, in *AddTowerRequest, opts ...grpc.CallOption) (*AddTowerResponse, error)
+	// lncli: `wtclient remove`
 	// RemoveTower removes a watchtower from being considered for future session
 	// negotiations and from being used for any subsequent backups until it's added
 	// again. If an address is provided, then this RPC only serves as a way of
 	// removing the address from the watchtower instead.
 	RemoveTower(ctx context.Context, in *RemoveTowerRequest, opts ...grpc.CallOption) (*RemoveTowerResponse, error)
+	// lncli: `wtclient towers`
 	// ListTowers returns the list of watchtowers registered with the client.
 	ListTowers(ctx context.Context, in *ListTowersRequest, opts ...grpc.CallOption) (*ListTowersResponse, error)
+	// lncli: `wtclient tower`
 	// GetTowerInfo retrieves information for a registered watchtower.
 	GetTowerInfo(ctx context.Context, in *GetTowerInfoRequest, opts ...grpc.CallOption) (*Tower, error)
+	// lncli: `wtclient stats`
 	// Stats returns the in-memory statistics of the client since startup.
 	Stats(ctx context.Context, in *StatsRequest, opts ...grpc.CallOption) (*StatsResponse, error)
+	// lncli: `wtclient policy`
 	// Policy returns the active watchtower client policy configuration.
 	Policy(ctx context.Context, in *PolicyRequest, opts ...grpc.CallOption) (*PolicyResponse, error)
 }
@@ -104,22 +110,28 @@ func (c *watchtowerClientClient) Policy(ctx context.Context, in *PolicyRequest, 
 // All implementations must embed UnimplementedWatchtowerClientServer
 // for forward compatibility
 type WatchtowerClientServer interface {
+	// lncli: `wtclient add`
 	// AddTower adds a new watchtower reachable at the given address and
 	// considers it for new sessions. If the watchtower already exists, then
 	// any new addresses included will be considered when dialing it for
 	// session negotiations and backups.
 	AddTower(context.Context, *AddTowerRequest) (*AddTowerResponse, error)
+	// lncli: `wtclient remove`
 	// RemoveTower removes a watchtower from being considered for future session
 	// negotiations and from being used for any subsequent backups until it's added
 	// again. If an address is provided, then this RPC only serves as a way of
 	// removing the address from the watchtower instead.
 	RemoveTower(context.Context, *RemoveTowerRequest) (*RemoveTowerResponse, error)
+	// lncli: `wtclient towers`
 	// ListTowers returns the list of watchtowers registered with the client.
 	ListTowers(context.Context, *ListTowersRequest) (*ListTowersResponse, error)
+	// lncli: `wtclient tower`
 	// GetTowerInfo retrieves information for a registered watchtower.
 	GetTowerInfo(context.Context, *GetTowerInfoRequest) (*Tower, error)
+	// lncli: `wtclient stats`
 	// Stats returns the in-memory statistics of the client since startup.
 	Stats(context.Context, *StatsRequest) (*StatsResponse, error)
+	// lncli: `wtclient policy`
 	// Policy returns the active watchtower client policy configuration.
 	Policy(context.Context, *PolicyRequest) (*PolicyResponse, error)
 	mustEmbedUnimplementedWatchtowerClientServer()

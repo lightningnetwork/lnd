@@ -106,7 +106,7 @@ func (b *BtcWallet) FundPsbt(packet *psbt.Packet, minConfs int32,
 		accountNum = account
 	}
 
-	var opts []wallet.TxCreateOption
+	opts := []wallet.TxCreateOption{wallet.WithRBF()}
 	if changeScope != nil {
 		opts = append(opts, wallet.WithCustomChangeScope(changeScope))
 	}

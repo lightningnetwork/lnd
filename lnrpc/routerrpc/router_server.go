@@ -940,6 +940,9 @@ func (s *Server) trackPaymentStream(context context.Context,
 			}
 			result := item.(*channeldb.MPPayment)
 
+			log.Tracef("Payment %v updated to state %v",
+				result.Info.PaymentIdentifier, result.Status)
+
 			// Skip in-flight updates unless requested.
 			if noInflightUpdates {
 				if result.Status == channeldb.StatusInitiated {

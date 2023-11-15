@@ -93,7 +93,7 @@
     },
     "/v2/router/mc": {
       "get": {
-        "summary": "QueryMissionControl exposes the internal mission control state to callers.\nIt is a development feature.",
+        "summary": "lncli: `querymc`\nQueryMissionControl exposes the internal mission control state to callers.\nIt is a development feature.",
         "operationId": "Router_QueryMissionControl",
         "responses": {
           "200": {
@@ -116,7 +116,7 @@
     },
     "/v2/router/mc/probability/{from_node}/{to_node}/{amt_msat}": {
       "get": {
-        "summary": "Deprecated. QueryProbability returns the current success probability\nestimate for a given node pair and amount. The call returns a zero success\nprobability if no channel is available or if the amount violates min/max\nHTLC constraints.",
+        "summary": "lncli: `queryprob`\nDeprecated. QueryProbability returns the current success probability\nestimate for a given node pair and amount. The call returns a zero success\nprobability if no channel is available or if the amount violates min/max\nHTLC constraints.",
         "operationId": "Router_QueryProbability",
         "responses": {
           "200": {
@@ -165,7 +165,7 @@
     },
     "/v2/router/mc/reset": {
       "post": {
-        "summary": "ResetMissionControl clears all mission control state and starts with a clean\nslate.",
+        "summary": "lncli: `resetmc`\nResetMissionControl clears all mission control state and starts with a clean\nslate.",
         "operationId": "Router_ResetMissionControl",
         "responses": {
           "200": {
@@ -198,7 +198,7 @@
     },
     "/v2/router/mccfg": {
       "get": {
-        "summary": "GetMissionControlConfig returns mission control's current config.",
+        "summary": "lncli: `getmccfg`\nGetMissionControlConfig returns mission control's current config.",
         "operationId": "Router_GetMissionControlConfig",
         "responses": {
           "200": {
@@ -219,7 +219,7 @@
         ]
       },
       "post": {
-        "summary": "SetMissionControlConfig will set mission control's config, if the config\nprovided is valid.",
+        "summary": "lncli: `setmccfg`\nSetMissionControlConfig will set mission control's config, if the config\nprovided is valid.",
         "operationId": "Router_SetMissionControlConfig",
         "responses": {
           "200": {
@@ -293,7 +293,7 @@
     },
     "/v2/router/route": {
       "post": {
-        "summary": "BuildRoute builds a fully specified route based on a list of hop public\nkeys. It retrieves the relevant channel policies from the graph in order to\ncalculate the correct fees and time locks.",
+        "summary": "lncli: `buildroute`\nBuildRoute builds a fully specified route based on a list of hop public\nkeys. It retrieves the relevant channel policies from the graph in order to\ncalculate the correct fees and time locks.",
         "operationId": "Router_BuildRoute",
         "responses": {
           "200": {
@@ -483,7 +483,7 @@
     },
     "/v2/router/updatechanstatus": {
       "post": {
-        "summary": "UpdateChanStatus attempts to manually set the state of a channel\n(enabled, disabled, or auto). A manual \"disable\" request will cause the\nchannel to stay disabled until a subsequent manual request of either\n\"enable\" or \"auto\".",
+        "summary": "lncli: `updatechanstatus`\nUpdateChanStatus attempts to manually set the state of a channel\n(enabled, disabled, or auto). A manual \"disable\" request will cause the\nchannel to stay disabled until a subsequent manual request of either\n\"enable\" or \"auto\".",
         "operationId": "Router_UpdateChanStatus",
         "responses": {
           "200": {
@@ -516,7 +516,7 @@
     },
     "/v2/router/x/importhistory": {
       "post": {
-        "summary": "XImportMissionControl is an experimental API that imports the state provided\nto the internal mission control's state, using all results which are more\nrecent than our existing values. These values will only be imported\nin-memory, and will not be persisted across restarts.",
+        "summary": "lncli: `importmc`\nXImportMissionControl is an experimental API that imports the state provided\nto the internal mission control's state, using all results which are more\nrecent than our existing values. These values will only be imported\nin-memory, and will not be persisted across restarts.",
         "operationId": "Router_XImportMissionControl",
         "responses": {
           "200": {

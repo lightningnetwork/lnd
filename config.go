@@ -2111,3 +2111,96 @@ func checkEstimateMode(estimateMode string) error {
 	return fmt.Errorf("estimatemode must be one of the following: %v",
 		bitcoindEstimateModes[:])
 }
+
+// configToFlatMap converts the given config struct into a flat map of key/value
+// pairs using the dot notation we are used to from the config file or command
+// line flags.
+func configToFlatMap(cfg Config) (map[string]string, error) {
+	result := make(map[string]string)
+
+	// redact is the helper function that redacts sensitive values like
+	// passwords.
+	redact := func(key, value string) string {
+		sensitiveKeySuffixes := []string{
+			"pass",
+			"password",
+			"dsn",
+		}
+		for _, suffix := range sensitiveKeySuffixes {
+			if strings.HasSuffix(key, suffix) {
+				return "[redacted]"
+			}
+		}
+
+		return value
+	}
+
+	// printConfig is the helper function that goes into nested structs
+	// recursively. Because we call it recursively, we need to declare it
+	// before we define it.
+	var printConfig func(reflect.Value, string)
+	printConfig = func(obj reflect.Value, prefix string) {
+		// Turn struct pointers into the actual struct, so we can
+		// iterate over the fields as we would with a struct value.
+		if obj.Kind() == reflect.Ptr {
+			obj = obj.Elem()
+		}
+
+		// Abort on nil values.
+		if !obj.IsValid() {
+			return
+		}
+
+		// Loop over all fields of the struct and inspect the type.
+		for i := 0; i < obj.NumField(); i++ {
+			field := obj.Field(i)
+			fieldType := obj.Type().Field(i)
+
+			longName := fieldType.Tag.Get("long")
+			namespace := fieldType.Tag.Get("namespace")
+			group := fieldType.Tag.Get("group")
+			switch {
+			// We have a long name defined, this is a config value.
+			case longName != "":
+				key := longName
+				if prefix != "" {
+					key = prefix + "." + key
+				}
+
+				// Add the value directly to the flattened map.
+				result[key] = redact(key, fmt.Sprintf(
+					"%v", field.Interface(),
+				))
+
+			// We have no long name but a namespace, this is a
+			// nested struct.
+			case longName == "" && namespace != "":
+				key := namespace
+				if prefix != "" {
+					key = prefix + "." + key
+				}
+
+				printConfig(field, key)
+
+			// Just a group means this is a dummy struct to house
+			// multiple config values, the group name doesn't go
+			// into the final field name.
+			case longName == "" && group != "":
+				printConfig(field, prefix)
+
+			// Anonymous means embedded struct. We need to recurse
+			// into it but without adding anything to the prefix.
+			case fieldType.Anonymous:
+				printConfig(field, prefix)
+
+			default:
+				continue
+			}
+		}
+	}
+
+	// Turn the whole config struct into a flat map.
+	printConfig(reflect.ValueOf(cfg), "")
+
+	return result, nil
+}

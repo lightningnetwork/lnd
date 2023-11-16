@@ -10,6 +10,8 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -328,6 +330,19 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 		}},
 		"/lnrpc.Lightning/GetInfo": {{
 			Entity: "info",
+			Action: "read",
+		}},
+		"/lnrpc.Lightning/GetDebugInfo": {{
+			Entity: "info",
+			Action: "read",
+		}, {
+			Entity: "offchain",
+			Action: "read",
+		}, {
+			Entity: "onchain",
+			Action: "read",
+		}, {
+			Entity: "peers",
 			Action: "read",
 		}},
 		"/lnrpc.Lightning/GetRecoveryInfo": {{
@@ -3017,6 +3032,31 @@ func (r *rpcServer) GetInfo(_ context.Context,
 		Features:                  features,
 		RequireHtlcInterceptor:    r.cfg.RequireInterceptor,
 		StoreFinalHtlcResolutions: r.cfg.StoreFinalHtlcResolutions,
+	}, nil
+}
+
+// GetDebugInfo returns debug information concerning the state of the daemon
+// and its subsystems. This includes the full configuration and the latest log
+// entries from the log file.
+func (r *rpcServer) GetDebugInfo(_ context.Context,
+	_ *lnrpc.GetDebugInfoRequest) (*lnrpc.GetDebugInfoResponse, error) {
+
+	flatConfig, err := configToFlatMap(*r.cfg)
+	if err != nil {
+		return nil, fmt.Errorf("error converting config to flat map: "+
+			"%w", err)
+	}
+
+	logFileName := filepath.Join(r.cfg.LogDir, defaultLogFilename)
+	logContent, err := os.ReadFile(logFileName)
+	if err != nil {
+		return nil, fmt.Errorf("error reading log file '%s': %w",
+			logFileName, err)
+	}
+
+	return &lnrpc.GetDebugInfoResponse{
+		Config: flatConfig,
+		Log:    strings.Split(string(logContent), "\n"),
 	}, nil
 }
 

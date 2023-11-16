@@ -1572,7 +1572,7 @@ func (r *rpcServer) SignMessage(_ context.Context,
 	}
 
 	in.Msg = append(signedMsgPrefix, in.Msg...)
-	sigBytes, err := r.server.nodeSigner.SignMessageCompact(
+	sigBytes, err := r.server.nodeSigner.SignMessageCompactNoKeyLoc(
 		in.Msg, !in.SingleHash,
 	)
 	if err != nil {

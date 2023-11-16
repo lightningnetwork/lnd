@@ -60,6 +60,12 @@ func (m *mockPaymentAttemptDispatcherOld) SendHTLC(
 	return nil
 }
 
+func (m *mockPaymentAttemptDispatcherOld) HasAttemptResult(
+	attemptID uint64) (bool, error) {
+
+	return false, nil
+}
+
 func (m *mockPaymentAttemptDispatcherOld) GetAttemptResult(paymentID uint64,
 	_ lntypes.Hash, _ htlcswitch.ErrorDecrypter) (
 	<-chan *htlcswitch.PaymentResult, error) {
@@ -207,6 +213,10 @@ func (m *mockPayerOld) SendHTLC(_ lnwire.ShortChannelID,
 		return fmt.Errorf("test quitting")
 	}
 
+}
+
+func (m *mockPayerOld) HasAttemptResult(attemptID uint64) (bool, error) {
+	return false, nil
 }
 
 func (m *mockPayerOld) GetAttemptResult(paymentID uint64, _ lntypes.Hash,
@@ -583,6 +593,13 @@ func (m *mockPaymentAttemptDispatcher) SendHTLC(firstHop lnwire.ShortChannelID,
 
 	args := m.Called(firstHop, pid, htlcAdd)
 	return args.Error(0)
+}
+
+func (m *mockPaymentAttemptDispatcher) HasAttemptResult(
+	attemptID uint64) (bool, error) {
+
+	args := m.Called(attemptID)
+	return args.Bool(0), args.Error(1)
 }
 
 func (m *mockPaymentAttemptDispatcher) GetAttemptResult(attemptID uint64,

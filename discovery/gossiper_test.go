@@ -237,7 +237,14 @@ func (r *mockGraphSource) ForAllOutgoingChannels(cb func(tx kvdb.RTx,
 	}
 
 	for _, channel := range chans {
-		if err := cb(nil, channel.Info, channel.Policy1); err != nil {
+		pol, ok := channel.Policy1.(*models.ChannelEdgePolicy1)
+		if !ok {
+			return fmt.Errorf("expected "+
+				"*models.ChannelEdgePolicy1, got %T",
+				channel.Policy1)
+		}
+
+		if err := cb(nil, channel.Info, pol); err != nil {
 			return err
 		}
 	}

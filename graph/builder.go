@@ -524,7 +524,7 @@ func (b *Builder) pruneZombieChans() error {
 	// First, we'll collect all the channels which are eligible for garbage
 	// collection due to being zombies.
 	filterPruneChans := func(info models.ChannelEdgeInfo,
-		e1, e2 *models.ChannelEdgePolicy1) error {
+		e1, e2 models.ChannelEdgePolicy) error {
 
 		chanID := info.GetChanID()
 

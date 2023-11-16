@@ -93,6 +93,10 @@ func (c *testCtx) getChannelIDFromAlias(t *testing.T, a, b string) uint64 {
 	return channelID
 }
 
+func mockFetchClosedChannels(_ bool) ([]*channeldb.ChannelCloseSummary, error) {
+	return nil, nil
+}
+
 func createTestCtxFromGraphInstance(t *testing.T, startingHeight uint32,
 	graphInstance *testGraphInstance) *testCtx {
 
@@ -158,9 +162,10 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 			next := atomic.AddUint64(&uniquePaymentID, 1)
 			return next, nil
 		},
-		PathFindingConfig:  pathFindingConfig,
-		Clock:              clock.NewTestClock(time.Unix(1, 0)),
-		ApplyChannelUpdate: graphBuilder.ApplyChannelUpdate,
+		PathFindingConfig:   pathFindingConfig,
+		Clock:               clock.NewTestClock(time.Unix(1, 0)),
+		ApplyChannelUpdate:  graphBuilder.ApplyChannelUpdate,
+		FetchClosedChannels: mockFetchClosedChannels,
 	})
 	require.NoError(t, router.Start(), "unable to start router")
 
@@ -2170,6 +2175,7 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
+		FetchClosedChannels: mockFetchClosedChannels,
 	}}
 
 	// Register mockers with the expected method calls.
@@ -2253,6 +2259,7 @@ func TestSendToRouteSkipTempErrNonMPP(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
+		FetchClosedChannels: mockFetchClosedChannels,
 	}}
 
 	// Expect an error to be returned.
@@ -2307,6 +2314,7 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
+		FetchClosedChannels: mockFetchClosedChannels,
 	}}
 
 	// Create the error to be returned.
@@ -2389,6 +2397,7 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
+		FetchClosedChannels: mockFetchClosedChannels,
 	}}
 
 	// Create the error to be returned.
@@ -2475,6 +2484,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
+		FetchClosedChannels: mockFetchClosedChannels,
 	}}
 
 	// Create the error to be returned.

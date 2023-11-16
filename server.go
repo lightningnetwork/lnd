@@ -993,18 +993,19 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.chanRouter, err = routing.New(routing.Config{
-		SelfNode:           selfNode.PubKeyBytes,
-		RoutingGraph:       graphsession.NewRoutingGraph(chanGraph),
-		Chain:              cc.ChainIO,
-		Payer:              s.htlcSwitch,
-		Control:            s.controlTower,
-		MissionControl:     s.missionControl,
-		SessionSource:      paymentSessionSource,
-		GetLink:            s.htlcSwitch.GetLinkByShortID,
-		NextPaymentID:      sequencer.NextID,
-		PathFindingConfig:  pathFindingConfig,
-		Clock:              clock.NewDefaultClock(),
-		ApplyChannelUpdate: s.graphBuilder.ApplyChannelUpdate,
+		SelfNode:            selfNode.PubKeyBytes,
+		RoutingGraph:        graphsession.NewRoutingGraph(chanGraph),
+		Chain:               cc.ChainIO,
+		Payer:               s.htlcSwitch,
+		Control:             s.controlTower,
+		MissionControl:      s.missionControl,
+		SessionSource:       paymentSessionSource,
+		GetLink:             s.htlcSwitch.GetLinkByShortID,
+		NextPaymentID:       sequencer.NextID,
+		PathFindingConfig:   pathFindingConfig,
+		Clock:               clock.NewDefaultClock(),
+		ApplyChannelUpdate:  s.graphBuilder.ApplyChannelUpdate,
+		FetchClosedChannels: s.chanStateDB.FetchClosedChannels,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %w", err)

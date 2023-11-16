@@ -285,6 +285,13 @@ type Config struct {
 	// ApplyChannelUpdate can be called to apply a new channel update to the
 	// graph that we received from a payment failure.
 	ApplyChannelUpdate func(msg *lnwire.ChannelUpdate) bool
+
+	// FetchClosedChannels is used by the router to fetch closed channels.
+	//
+	// TODO(yy): remove this method once the root cause of stuck payments
+	// is found.
+	FetchClosedChannels func(pendingOnly bool) (
+		[]*channeldb.ChannelCloseSummary, error)
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -1384,6 +1391,19 @@ func (r *ChannelRouter) BuildRoute(amt fn.Option[lnwire.MilliSatoshi],
 // resumePayments fetches inflight payments and resumes their payment
 // lifecycles.
 func (r *ChannelRouter) resumePayments() error {
+	// Get a list of closed channels.
+	channels, err := r.cfg.FetchClosedChannels(false)
+	if err != nil {
+		return err
+	}
+
+	closedSCIDs := make(map[lnwire.ShortChannelID]struct{}, len(channels))
+	for _, c := range channels {
+		if !c.IsPending {
+			closedSCIDs[c.ShortChanID] = struct{}{}
+		}
+	}
+
 	// Get all payments that are inflight.
 	payments, err := r.cfg.Control.FetchInFlightPayments()
 	if err != nil {
@@ -1399,6 +1419,12 @@ func (r *ChannelRouter) resumePayments() error {
 	for _, p := range payments {
 		for _, a := range p.HTLCs {
 			toKeep[a.AttemptID] = struct{}{}
+
+			// Try to fail the attempt if the route contains a dead
+			// channel.
+			r.failStaleAttempt(
+				a, p.Info.PaymentIdentifier, closedSCIDs,
+			)
 		}
 	}
 
@@ -1471,6 +1497,108 @@ func (r *ChannelRouter) resumePayments() error {
 	}
 
 	return nil
+}
+
+// failStaleAttempt will fail an HTLC attempt if it's using an unknown channel
+// in its route. It first consults the switch to see if there's already a
+// network result stored for this attempt. If not, it will check whether the
+// first hop of this attempt is using an active channel known to us. If
+// inactive, this attempt will be failed.
+//
+// NOTE: there's an unknown bug that caused the network result for a particular
+// attempt to NOT be saved, resulting a payment being stuck forever. More info:
+// - https://github.com/lightningnetwork/lnd/issues/8146
+// - https://github.com/lightningnetwork/lnd/pull/8174
+func (r *ChannelRouter) failStaleAttempt(a channeldb.HTLCAttempt,
+	payHash lntypes.Hash, closedSCIDs map[lnwire.ShortChannelID]struct{}) {
+
+	// We can only fail inflight HTLCs so we skip the settled/failed ones.
+	if a.Failure != nil || a.Settle != nil {
+		return
+	}
+
+	// First, check if we've already had a network result for this attempt.
+	// If no result is found, we'll check whether the reference link is
+	// still known to us.
+	ok, err := r.cfg.Payer.HasAttemptResult(a.AttemptID)
+	if err != nil {
+		log.Errorf("Failed to fetch network result for attempt=%v",
+			a.AttemptID)
+		return
+	}
+
+	// There's already a network result, no need to fail it here as the
+	// payment lifecycle will take care of it, so we can exit early.
+	if ok {
+		log.Debugf("Already have network result for attempt=%v",
+			a.AttemptID)
+		return
+	}
+
+	// We now need to decide whether this attempt should be failed here.
+	// For very old payments, it's possible that the network results were
+	// never saved, causing the payments to be stuck inflight. We now check
+	// whether the first hop is referencing an active channel ID and, if
+	// not, we will fail the attempt as it has no way to be retried again.
+	var shouldFail bool
+
+	// Validate that the attempt has hop info. If this attempt has no hop
+	// info it indicates an error in our db.
+	if len(a.Route.Hops) == 0 {
+		log.Errorf("Found empty hop for attempt=%v", a.AttemptID)
+
+		shouldFail = true
+	} else {
+		// Get the short channel ID.
+		chanID := a.Route.Hops[0].ChannelID
+		scid := lnwire.NewShortChanIDFromInt(chanID)
+
+		// Check whether this link is active. If so, we won't fail the
+		// attempt but keep waiting for its result.
+		_, err := r.cfg.GetLink(scid)
+		if err == nil {
+			return
+		}
+
+		// We should get the link not found err. If not, we will log an
+		// error and skip failing this attempt since an unknown error
+		// occurred.
+		if !errors.Is(err, htlcswitch.ErrChannelLinkNotFound) {
+			log.Errorf("Failed to get link for attempt=%v for "+
+				"payment=%v: %v", a.AttemptID, payHash, err)
+
+			return
+		}
+
+		// The channel link is not active, we now check whether this
+		// channel is already closed. If so, we fail it as there's no
+		// need to wait for the network result because it won't be
+		// re-sent. If the channel is still pending, we'll keep waiting
+		// for the result as we may get a contract resolution for this
+		// HTLC.
+		if _, ok := closedSCIDs[scid]; ok {
+			shouldFail = true
+		}
+	}
+
+	// Exit if there's no need to fail.
+	if !shouldFail {
+		return
+	}
+
+	log.Errorf("Failing stale attempt=%v for payment=%v", a.AttemptID,
+		payHash)
+
+	// Fail the attempt in db. If there's an error, there's nothing we can
+	// do here but logging it.
+	failInfo := &channeldb.HTLCFailInfo{
+		Reason:   channeldb.HTLCFailUnknown,
+		FailTime: r.cfg.Clock.Now(),
+	}
+	_, err = r.cfg.Control.FailAttempt(payHash, a.AttemptID, failInfo)
+	if err != nil {
+		log.Errorf("Fail attempt=%v got error: %v", a.AttemptID, err)
+	}
 }
 
 // getEdgeUnifiers returns a list of edge unifiers for the given route.

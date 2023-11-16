@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 
 	"github.com/andybalholm/brotli"
@@ -58,6 +59,24 @@ var encryptDebugPackageCommand = cli.Command{
 	Because the file is encrypted, it is safe to send it over insecure
 	channels or upload it to a GitHub issue.
 
+	The file by default contains the output of the following commands:
+	- lncli getinfo
+	- lncli getdebuginfo
+	- lncli getnetworkinfo
+
+	By specifying the following flags, additional information can be added
+	to the file (usually this will be requested by the developer depending
+	on the issue at hand):
+		--peers:
+			- lncli listpeers
+		--onchain:
+			- lncli listunspent
+			- lncli listchaintxns
+		--channels:
+			- lncli listchannels
+			- lncli pendingchannels
+			- lncli closedchannels
+
 	Use 'lncli encryptdebugpackage 0xxxxxx... > package.txt' to write the
 	encrypted package to a file called package.txt.
 	`,
@@ -76,6 +95,23 @@ var encryptDebugPackageCommand = cli.Command{
 			Usage: "(optional) the file to write the encrypted " +
 				"package to; if not specified, the debug " +
 				"package is printed to stdout",
+		},
+		cli.BoolFlag{
+			Name: "peers",
+			Usage: "include information about connected peers " +
+				"(lncli listpeers)",
+		},
+		cli.BoolFlag{
+			Name: "onchain",
+			Usage: "include information about on-chain " +
+				"transactions (lncli listunspent, " +
+				"lncli listchaintxns)",
+		},
+		cli.BoolFlag{
+			Name: "channels",
+			Usage: "include information about channels " +
+				"(lncli listchannels, lncli pendingchannels, " +
+				"lncli closedchannels)",
 		},
 	},
 	Action: actionDecorator(encryptDebugPackage),
@@ -188,6 +224,7 @@ func collectDebugPackageInfo(ctx *cli.Context) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error getting info: %w", err)
 	}
+
 	debugInfo, err := client.GetDebugInfo(
 		ctxc, &lnrpc.GetDebugInfoRequest{},
 	)
@@ -195,14 +232,26 @@ func collectDebugPackageInfo(ctx *cli.Context) ([]byte, error) {
 		return nil, fmt.Errorf("error getting debug info: %w", err)
 	}
 
-	var payloadBuf bytes.Buffer
-	addToBuf := func(msg proto.Message) error {
-		jsonBytes, err := lnrpc.ProtoJSONMarshalOpts.Marshal(msg)
-		if err != nil {
-			return fmt.Errorf("error encoding response: %w", err)
-		}
+	networkInfo, err := client.GetNetworkInfo(
+		ctxc, &lnrpc.NetworkInfoRequest{},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error getting network info: %w", err)
+	}
 
-		payloadBuf.Write(jsonBytes)
+	var payloadBuf bytes.Buffer
+	addToBuf := func(msgs ...proto.Message) error {
+		for _, msg := range msgs {
+			jsonBytes, err := lnrpc.ProtoJSONMarshalOpts.Marshal(
+				msg,
+			)
+			if err != nil {
+				return fmt.Errorf("error encoding response: %w",
+					err)
+			}
+
+			payloadBuf.Write(jsonBytes)
+		}
 
 		return nil
 	}
@@ -212,6 +261,72 @@ func collectDebugPackageInfo(ctx *cli.Context) ([]byte, error) {
 	}
 	if err := addToBuf(debugInfo); err != nil {
 		return nil, err
+	}
+	if err := addToBuf(info, debugInfo, networkInfo); err != nil {
+		return nil, err
+	}
+
+	// Add optional information to the payload.
+	if ctx.Bool("peers") {
+		peers, err := client.ListPeers(ctxc, &lnrpc.ListPeersRequest{
+			LatestError: true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error getting peers: %w", err)
+		}
+		if err := addToBuf(peers); err != nil {
+			return nil, err
+		}
+	}
+
+	if ctx.Bool("onchain") {
+		unspent, err := client.ListUnspent(
+			ctxc, &lnrpc.ListUnspentRequest{
+				MaxConfs: math.MaxInt32,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error getting unspent: %w", err)
+		}
+		chainTxns, err := client.GetTransactions(
+			ctxc, &lnrpc.GetTransactionsRequest{},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error getting chain txns: %w",
+				err)
+		}
+		if err := addToBuf(unspent, chainTxns); err != nil {
+			return nil, err
+		}
+	}
+
+	if ctx.Bool("channels") {
+		channels, err := client.ListChannels(
+			ctxc, &lnrpc.ListChannelsRequest{},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error getting channels: %w",
+				err)
+		}
+		pendingChannels, err := client.PendingChannels(
+			ctxc, &lnrpc.PendingChannelsRequest{},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error getting pending "+
+				"channels: %w", err)
+		}
+		closedChannels, err := client.ClosedChannels(
+			ctxc, &lnrpc.ClosedChannelsRequest{},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error getting closed "+
+				"channels: %w", err)
+		}
+		if err := addToBuf(
+			channels, pendingChannels, closedChannels,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	return payloadBuf.Bytes(), nil

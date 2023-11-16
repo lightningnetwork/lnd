@@ -14,6 +14,8 @@ import (
 )
 
 type mockSigner struct {
+	keychain.MessageSignerRing
+
 	err error
 }
 
@@ -43,7 +45,7 @@ type updateDisableTest struct {
 	startEnabled bool
 	disable      bool
 	startTime    time.Time
-	signer       lnwallet.MessageSigner
+	signer       keychain.MessageSignerRing
 	expErr       error
 }
 

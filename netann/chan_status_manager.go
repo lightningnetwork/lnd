@@ -10,7 +10,6 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/keychain"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -50,7 +49,7 @@ type ChanStatusConfig struct {
 	OurKeyLoc keychain.KeyLocator
 
 	// MessageSigner signs messages that validate under OurPubKey.
-	MessageSigner lnwallet.MessageSigner
+	MessageSigner keychain.MessageSignerRing
 
 	// BestBlockView gives access to the current best block.
 	BestBlockView chainntnfs.BestBlockView

@@ -205,3 +205,68 @@ func (s *SingleSigner) SignMessage(keyLoc keychain.KeyLocator,
 	}
 	return ecdsa.Sign(s.Privkey, digest), nil
 }
+
+// SignMessageCompact signs the given message, single or double SHA256 hashing
+// it first, with the private key described in the key locator and returns the
+// signature in the compact, public key recoverable format.
+//
+// NOTE: This is part of the keychain.MessageSignerRing interface.
+func (s *SingleSigner) SignMessageCompact(keyLoc keychain.KeyLocator,
+	msg []byte, doubleHash bool) ([]byte, error) {
+
+	mockKeyLoc := s.KeyLoc
+	if s.KeyLoc.IsEmpty() {
+		mockKeyLoc = idKeyLoc
+	}
+
+	if keyLoc != mockKeyLoc {
+		return nil, fmt.Errorf("unknown public key")
+	}
+
+	var digest []byte
+	if doubleHash {
+		digest = chainhash.DoubleHashB(msg)
+	} else {
+		digest = chainhash.HashB(msg)
+	}
+
+	return ecdsa.SignCompact(s.Privkey, digest, true)
+}
+
+// SignMessageSchnorr signs the given message, single or double SHA256 hashing
+// it first, with the private key described in the key locator and the optional
+// Taproot tweak applied to the private key.
+//
+// NOTE: this is part of the keychain.MessageSignerRing interface.
+func (s *SingleSigner) SignMessageSchnorr(keyLoc keychain.KeyLocator,
+	msg []byte, doubleHash bool, taprootTweak, tag []byte) (
+	*schnorr.Signature, error) {
+
+	mockKeyLoc := s.KeyLoc
+	if s.KeyLoc.IsEmpty() {
+		mockKeyLoc = idKeyLoc
+	}
+
+	if keyLoc != mockKeyLoc {
+		return nil, fmt.Errorf("unknown public key")
+	}
+
+	privKey := s.Privkey
+	if len(taprootTweak) > 0 {
+		privKey = txscript.TweakTaprootPrivKey(*privKey, taprootTweak)
+	}
+
+	// If a tag was provided, we need to take the tagged hash of the input.
+	var digest []byte
+	switch {
+	case len(tag) > 0:
+		taggedHash := chainhash.TaggedHash(tag, msg)
+		digest = taggedHash[:]
+	case doubleHash:
+		digest = chainhash.DoubleHashB(msg)
+	default:
+		digest = chainhash.HashB(msg)
+	}
+
+	return schnorr.Sign(privKey, digest)
+}

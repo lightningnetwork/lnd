@@ -431,6 +431,21 @@ func (s *Switch) ProcessContractResolution(msg contractcourt.ResolutionMsg) erro
 	}
 }
 
+// HasAttemptResult reads the network result store to fetch the specified
+// attempt. Returns true if the attempt result exists.
+func (s *Switch) HasAttemptResult(attemptID uint64) (bool, error) {
+	_, err := s.networkResults.getResult(attemptID)
+	if err == nil {
+		return true, nil
+	}
+
+	if !errors.Is(err, ErrPaymentIDNotFound) {
+		return false, err
+	}
+
+	return false, nil
+}
+
 // GetAttemptResult returns the result of the HTLC attempt with the given
 // attemptID. The paymentHash should be set to the payment's overall hash, or
 // in case of AMP payments the payment's unique identifier.

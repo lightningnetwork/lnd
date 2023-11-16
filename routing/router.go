@@ -135,6 +135,16 @@ type PaymentAttemptDispatcher interface {
 	// NOTE: New payment attempts MUST NOT be made after the keepPids map
 	// has been created and this method has returned.
 	CleanStore(keepPids map[uint64]struct{}) error
+
+	// HasAttemptResult reads the network result store to fetch the
+	// specified attempt. Returns true if the attempt result exists.
+	//
+	// NOTE: This method is used and should only be used by the router to
+	// resume payments during startup. It can be viewed as a subset of
+	// `GetAttemptResult` in terms of its functionality, and can be removed
+	// once we move the construction of `UpdateAddHTLC` and
+	// `ErrorDecrypter` into `htlcswitch`.
+	HasAttemptResult(attemptID uint64) (bool, error)
 }
 
 // PaymentSessionSource is an interface that defines a source for the router to

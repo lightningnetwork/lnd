@@ -143,7 +143,19 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 			outPolicy *models.ChannelEdgePolicy1,
 			inPolicy *models.ChannelEdgePolicy1) error {
 
-			c.AddChannel(info, outPolicy, inPolicy)
+			// TODO(elle): remove once the ForEachChannel call back
+			// passes down the interface values instead of the
+			// pointers. This is temporarily required to prevent
+			// a nil pointer dereference.
+			var in, out models.ChannelEdgePolicy
+			if outPolicy != nil {
+				out = outPolicy
+			}
+			if inPolicy != nil {
+				in = inPolicy
+			}
+
+			c.AddChannel(info, out, in)
 
 			return nil
 		},
@@ -155,7 +167,7 @@ func (c *GraphCache) AddNode(tx kvdb.RTx, node GraphCacheNode) error {
 // and policy flags automatically. The policy will be set as the outgoing policy
 // on one node and the incoming policy on the peer's side.
 func (c *GraphCache) AddChannel(info models.ChannelEdgeInfo,
-	policy1, policy2 *models.ChannelEdgePolicy1) {
+	policy1, policy2 models.ChannelEdgePolicy) {
 
 	if info == nil {
 		return

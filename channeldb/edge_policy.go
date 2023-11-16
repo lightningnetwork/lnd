@@ -39,26 +39,85 @@ const (
 	edgePolicy2EncodingType edgePolicyEncodingType = 0
 )
 
-func putChanEdgePolicy(edges kvdb.RwBucket, edge *models.ChannelEdgePolicy1,
+type edgePolicyEncodingInfo struct {
+	updateBucketKey []byte
+	updateKey       []byte
+	serialize       func(w io.Writer, toNode []byte) error
+	typeByte        func() (edgePolicyEncodingType, bool)
+}
+
+func encodingInfoFromEdgePolicy(policy models.ChannelEdgePolicy) (
+	*edgePolicyEncodingInfo, error) {
+
+	switch p := policy.(type) {
+	case *models.ChannelEdgePolicy1:
+		updateUnix := uint64(p.LastUpdate.Unix())
+		var indexKey [8 + 8]byte
+		byteOrder.PutUint64(indexKey[:8], updateUnix)
+		byteOrder.PutUint64(indexKey[8:], p.ChannelID)
+
+		return &edgePolicyEncodingInfo{
+			updateBucketKey: edgeUpdateIndexBucket,
+			updateKey:       indexKey[:],
+			serialize: func(w io.Writer, toNode []byte) error {
+				copy(p.ToNode[:], toNode)
+
+				return serializeChanEdgePolicy1(w, p)
+			},
+			typeByte: func() (edgePolicyEncodingType, bool) {
+				return 0, false
+			},
+		}, nil
+
+	case *models.ChannelEdgePolicy2:
+		indexKey := make([]byte, 4+8)
+		byteOrder.PutUint32(indexKey[:4], p.BlockHeight)
+		byteOrder.PutUint64(indexKey[4:], p.ShortChannelID.ToUint64())
+
+		return &edgePolicyEncodingInfo{
+			updateBucketKey: edgeUpdate2IndexBucket,
+			updateKey:       indexKey,
+			serialize: func(w io.Writer, toNode []byte) error {
+				copy(p.ToNode[:], toNode)
+
+				return serializeChanEdgePolicy2(w, p)
+			},
+			typeByte: func() (edgePolicyEncodingType, bool) {
+				return edgePolicy2EncodingType, true
+			},
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unhandled implementation of the "+
+			"models.ChannelEdgePolicy interface: %T", policy)
+	}
+}
+
+func putChanEdgePolicy(edges kvdb.RwBucket, edge models.ChannelEdgePolicy,
 	from, to []byte) error {
+
+	encodingInfo, err := encodingInfoFromEdgePolicy(edge)
+	if err != nil {
+		return err
+	}
+
+	chanID := edge.SCID().ToUint64()
 
 	var edgeKey [33 + 8]byte
 	copy(edgeKey[:], from)
-	byteOrder.PutUint64(edgeKey[33:], edge.ChannelID)
+	byteOrder.PutUint64(edgeKey[33:], chanID)
 
 	var b bytes.Buffer
-	if err := serializeChanEdgePolicy(&b, edge, to); err != nil {
+	if err := serializeChanEdgePolicy(&b, encodingInfo, to); err != nil {
 		return err
 	}
 
 	// Before we write out the new edge, we'll create a new entry in the
 	// update index in order to keep it fresh.
-	updateUnix := uint64(edge.LastUpdate.Unix())
-	var indexKey [8 + 8]byte
-	byteOrder.PutUint64(indexKey[:8], updateUnix)
-	byteOrder.PutUint64(indexKey[8:], edge.ChannelID)
-
-	updateIndex, err := edges.CreateBucketIfNotExists(edgeUpdateIndexBucket)
+	indexKey := encodingInfo.updateKey
+	updateIndex, err := edges.CreateBucketIfNotExists(
+		encodingInfo.updateBucketKey,
+	)
 	if err != nil {
 		return err
 	}
@@ -88,19 +147,24 @@ func putChanEdgePolicy(edges kvdb.RwBucket, edge *models.ChannelEdgePolicy1,
 			return err
 		}
 
-		oldPol, ok := oldEdgePolicy.(*models.ChannelEdgePolicy1)
-		if !ok {
-			return fmt.Errorf("expected "+
-				"*models.ChannelEdgePolicy1, got: %T",
-				oldEdgePolicy)
+		info, err := encodingInfoFromEdgePolicy(oldEdgePolicy)
+		if err != nil {
+			return err
 		}
 
-		oldUpdateTime := uint64(oldPol.LastUpdate.Unix())
+		// Sanity check that the old update is assigned to the same
+		// update bucket as the new one.
+		if !bytes.Equal(
+			info.updateBucketKey, encodingInfo.updateBucketKey,
+		) {
+			return fmt.Errorf("received a new update belonging "+
+				"to bucket %s where previous update for the "+
+				"same channel belonged to bucket %s",
+				string(encodingInfo.updateBucketKey),
+				string(info.updateKey))
+		}
 
-		var oldIndexKey [8 + 8]byte
-		byteOrder.PutUint64(oldIndexKey[:8], oldUpdateTime)
-		byteOrder.PutUint64(oldIndexKey[8:], edge.ChannelID)
-
+		oldIndexKey := info.updateKey
 		if err := updateIndex.Delete(oldIndexKey[:]); err != nil {
 			return err
 		}
@@ -111,9 +175,7 @@ func putChanEdgePolicy(edges kvdb.RwBucket, edge *models.ChannelEdgePolicy1,
 	}
 
 	err = updateEdgePolicyDisabledIndex(
-		edges, edge.ChannelID,
-		edge.ChannelFlags&lnwire.ChanUpdateDirection > 0,
-		edge.IsDisabled(),
+		edges, chanID, !edge.IsNode1(), edge.IsDisabled(),
 	)
 	if err != nil {
 		return err
@@ -172,7 +234,7 @@ func putChanEdgePolicyUnknown(edges kvdb.RwBucket, channelID uint64,
 }
 
 func fetchChanEdgePolicy(edges kvdb.RBucket, chanID []byte, nodePub []byte) (
-	*models.ChannelEdgePolicy1, error) {
+	models.ChannelEdgePolicy, error) {
 
 	var edgeKey [33 + 8]byte
 	copy(edgeKey[:], nodePub)
@@ -201,17 +263,11 @@ func fetchChanEdgePolicy(edges kvdb.RBucket, chanID []byte, nodePub []byte) (
 		return nil, err
 	}
 
-	pol, ok := ep.(*models.ChannelEdgePolicy1)
-	if !ok {
-		return nil, fmt.Errorf("expected *models.ChannelEdgePolicy1, "+
-			"got: %T", ep)
-	}
-
-	return pol, nil
+	return ep, nil
 }
 
 func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
-	chanID []byte) (*models.ChannelEdgePolicy1, *models.ChannelEdgePolicy1,
+	chanID []byte) (models.ChannelEdgePolicy, models.ChannelEdgePolicy,
 	error) {
 
 	edgeInfoBytes := edgeIndex.Get(chanID)
@@ -239,37 +295,10 @@ func fetchChanEdgePolicies(edgeIndex kvdb.RBucket, edges kvdb.RBucket,
 	return edge1, edge2, nil
 }
 
-func serializeChanEdgePolicy(w io.Writer,
-	edgePolicy models.ChannelEdgePolicy, toNode []byte) error {
+func serializeChanEdgePolicy(w io.Writer, info *edgePolicyEncodingInfo,
+	toNode []byte) error {
 
-	var (
-		withTypeByte bool
-		typeByte     edgePolicyEncodingType
-		serialize    func(w io.Writer) error
-	)
-
-	switch policy := edgePolicy.(type) {
-	case *models.ChannelEdgePolicy1:
-		serialize = func(w io.Writer) error {
-			copy(policy.ToNode[:], toNode)
-
-			return serializeChanEdgePolicy1(w, policy)
-		}
-	case *models.ChannelEdgePolicy2:
-		withTypeByte = true
-		typeByte = edgePolicy2EncodingType
-
-		serialize = func(w io.Writer) error {
-			copy(policy.ToNode[:], toNode)
-
-			return serializeChanEdgePolicy2(w, policy)
-		}
-	default:
-		return fmt.Errorf("unhandled implementation of "+
-			"ChannelEdgePolicy: %T", edgePolicy)
-	}
-
-	if withTypeByte {
+	if typeByte, ok := info.typeByte(); ok {
 		// First, write the identifying encoding byte to signal that
 		// this is not using the legacy encoding.
 		_, err := w.Write([]byte{chanEdgePolicyNewEncodingPrefix})
@@ -284,7 +313,7 @@ func serializeChanEdgePolicy(w io.Writer,
 		}
 	}
 
-	return serialize(w)
+	return info.serialize(w, toNode)
 }
 
 func serializeChanEdgePolicy1(w io.Writer,

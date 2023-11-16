@@ -561,3 +561,7 @@ func (m *mockMessageConn) RemoteAddr() net.Addr {
 func (m *mockMessageConn) LocalAddr() net.Addr {
 	return nil
 }
+
+func (m *mockMessageConn) Close() error {
+	return nil
+}

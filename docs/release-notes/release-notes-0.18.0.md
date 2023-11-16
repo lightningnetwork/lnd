@@ -43,6 +43,9 @@
 * [Ensure that a valid SCID](https://github.com/lightningnetwork/lnd/pull/8171) 
   is used when marking a zombie edge as live.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8174) old payments that
+  are stuck inflight. Check more info [here](https://github.com/lightningnetwork/lnd/issues/8146).
+
 # New Features
 ## Functional Enhancements
 

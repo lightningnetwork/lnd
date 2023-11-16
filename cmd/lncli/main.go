@@ -460,6 +460,8 @@ func main() {
 		channelBalanceCommand,
 		getInfoCommand,
 		getDebugInfoCommand,
+		encryptDebugPackageCommand,
+		decryptDebugPackageCommand,
 		getRecoveryInfoCommand,
 		pendingChannelsCommand,
 		sendPaymentCommand,

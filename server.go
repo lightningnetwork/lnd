@@ -993,19 +993,19 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	s.chanRouter, err = routing.New(routing.Config{
-		SelfNode:            selfNode.PubKeyBytes,
-		RoutingGraph:        graphsession.NewRoutingGraph(chanGraph),
-		Chain:               cc.ChainIO,
-		Payer:               s.htlcSwitch,
-		Control:             s.controlTower,
-		MissionControl:      s.missionControl,
-		SessionSource:       paymentSessionSource,
-		GetLink:             s.htlcSwitch.GetLinkByShortID,
-		NextPaymentID:       sequencer.NextID,
-		PathFindingConfig:   pathFindingConfig,
-		Clock:               clock.NewDefaultClock(),
-		ApplyChannelUpdate:  s.graphBuilder.ApplyChannelUpdate,
-		FetchClosedChannels: s.chanStateDB.FetchClosedChannels,
+		SelfNode:           selfNode.PubKeyBytes,
+		RoutingGraph:       graphsession.NewRoutingGraph(chanGraph),
+		Chain:              cc.ChainIO,
+		Payer:              s.htlcSwitch,
+		Control:            s.controlTower,
+		MissionControl:     s.missionControl,
+		SessionSource:      paymentSessionSource,
+		GetLink:            s.htlcSwitch.GetLinkByShortID,
+		NextPaymentID:      sequencer.NextID,
+		PathFindingConfig:  pathFindingConfig,
+		Clock:              clock.NewDefaultClock(),
+		ApplyChannelUpdate: s.graphBuilder.ApplyChannelUpdate,
+		ClosedSCIDs:        s.fetchClosedChannelSCIDs(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %w", err)
@@ -4829,4 +4829,53 @@ func shouldPeerBootstrap(cfg *Config) bool {
 	// TODO(yy): remove the check on simnet/regtest such that the itest is
 	// covering the bootstrapping process.
 	return !cfg.NoNetBootstrap && !isDevNetwork
+}
+
+// fetchClosedChannelSCIDs returns a set of SCIDs that have their force closing
+// finished.
+func (s *server) fetchClosedChannelSCIDs() map[lnwire.ShortChannelID]struct{} {
+	// Get a list of closed channels.
+	channels, err := s.chanStateDB.FetchClosedChannels(false)
+	if err != nil {
+		srvrLog.Errorf("Failed to fetch closed channels: %v", err)
+		return nil
+	}
+
+	// Save the SCIDs in a map.
+	closedSCIDs := make(map[lnwire.ShortChannelID]struct{}, len(channels))
+	for _, c := range channels {
+		// If the channel is not pending, its FC has been finalized.
+		if !c.IsPending {
+			closedSCIDs[c.ShortChanID] = struct{}{}
+		}
+	}
+
+	// Double check whether the reported closed channel has indeed finished
+	// closing.
+	//
+	// NOTE: There are misalignments regarding when a channel's FC is
+	// marked as finalized. We double check the pending channels to make
+	// sure the returned SCIDs are indeed terminated.
+	//
+	// TODO(yy): fix the misalignments in `FetchClosedChannels`.
+	pendings, err := s.chanStateDB.FetchPendingChannels()
+	if err != nil {
+		srvrLog.Errorf("Failed to fetch pending channels: %v", err)
+		return nil
+	}
+
+	for _, c := range pendings {
+		if _, ok := closedSCIDs[c.ShortChannelID]; !ok {
+			continue
+		}
+
+		// If the channel is still reported as pending, remove it from
+		// the map.
+		delete(closedSCIDs, c.ShortChannelID)
+
+		srvrLog.Warnf("Channel=%v is prematurely marked as finalized",
+			c.ShortChannelID)
+	}
+
+	return closedSCIDs
 }

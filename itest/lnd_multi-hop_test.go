@@ -1435,7 +1435,7 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 
 	// If we then mine 3 additional blocks, Carol's second level tx will
 	// mature, and she should pull the funds.
-	ht.MineBlocks(carolSecondLevelCSV)
+	ht.MineEmptyBlocks(int(carolSecondLevelCSV))
 	carolSweep := ht.Miner.AssertNumTxsInMempool(1)[0]
 
 	// When Carol's sweep gets confirmed, she should have no more pending

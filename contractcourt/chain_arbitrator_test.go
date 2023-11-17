@@ -60,7 +60,8 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	for i := 0; i < numChans/2; i++ {
 		closeTx := channels[i].FundingTxn.Copy()
 		closeTx.TxIn[0].PreviousOutPoint = channels[i].FundingOutpoint
-		err := channels[i].MarkCommitmentBroadcasted(closeTx, true)
+		err := channels[i].MarkCommitmentBroadcasted(closeTx,
+			&channeldb.LocalForceCloseInsights{})
 		if err != nil {
 			t.Fatal(err)
 		}

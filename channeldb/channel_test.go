@@ -1087,7 +1087,8 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 			},
 		)
 
-		if err := channel.MarkCommitmentBroadcasted(closeTx, true); err != nil {
+		if err := channel.MarkCommitmentBroadcasted(closeTx,
+			&LocalForceCloseInsights{}); err != nil {
 			t.Fatalf("unable to mark commitment broadcast: %v", err)
 		}
 
@@ -1291,7 +1292,8 @@ func TestCloseInitiator(t *testing.T) {
 			// local initiator.
 			updateChannel: func(c *OpenChannel) error {
 				return c.MarkCommitmentBroadcasted(
-					&wire.MsgTx{}, true,
+					&wire.MsgTx{},
+					&LocalForceCloseInsights{},
 				)
 			},
 			expectedStatuses: []ChannelStatus{

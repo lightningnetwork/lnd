@@ -439,7 +439,9 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			resolvedChan <- struct{}{}
 			return nil
 		},
-		MarkCommitmentBroadcasted: func(_ *wire.MsgTx, _ bool) error {
+		MarkCommitmentBroadcasted: func(_ *wire.MsgTx,
+			_ *channeldb.LocalForceCloseInsights) error {
+
 			return nil
 		},
 		MarkChannelClosed: func(*channeldb.ChannelCloseSummary,

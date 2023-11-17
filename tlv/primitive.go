@@ -68,9 +68,7 @@ var (
 // *uint8.
 func EUint8(w io.Writer, val interface{}, buf *[8]byte) error {
 	if i, ok := val.(*uint8); ok {
-		buf[0] = *i
-		_, err := w.Write(buf[:1])
-		return err
+		return EUint8T(w, *i, buf)
 	}
 	return NewTypeForEncodingErr(val, "uint8")
 }
@@ -88,9 +86,7 @@ func EUint8T(w io.Writer, val uint8, buf *[8]byte) error {
 // *uint16.
 func EUint16(w io.Writer, val interface{}, buf *[8]byte) error {
 	if i, ok := val.(*uint16); ok {
-		byteOrder.PutUint16(buf[:2], *i)
-		_, err := w.Write(buf[:2])
-		return err
+		return EUint16T(w, *i, buf)
 	}
 	return NewTypeForEncodingErr(val, "uint16")
 }
@@ -108,9 +104,7 @@ func EUint16T(w io.Writer, val uint16, buf *[8]byte) error {
 // *uint32.
 func EUint32(w io.Writer, val interface{}, buf *[8]byte) error {
 	if i, ok := val.(*uint32); ok {
-		byteOrder.PutUint32(buf[:4], *i)
-		_, err := w.Write(buf[:4])
-		return err
+		return EUint32T(w, *i, buf)
 	}
 	return NewTypeForEncodingErr(val, "uint32")
 }
@@ -128,9 +122,7 @@ func EUint32T(w io.Writer, val uint32, buf *[8]byte) error {
 // *uint64.
 func EUint64(w io.Writer, val interface{}, buf *[8]byte) error {
 	if i, ok := val.(*uint64); ok {
-		byteOrder.PutUint64(buf[:], *i)
-		_, err := w.Write(buf[:])
-		return err
+		return EUint64T(w, *i, buf)
 	}
 	return NewTypeForEncodingErr(val, "uint64")
 }
@@ -147,13 +139,7 @@ func EUint64T(w io.Writer, val uint64, buf *[8]byte) error {
 // EBool encodes a boolean. An error is returned if val is not a boolean.
 func EBool(w io.Writer, val interface{}, buf *[8]byte) error {
 	if i, ok := val.(*bool); ok {
-		if *i {
-			buf[0] = 1
-		} else {
-			buf[0] = 0
-		}
-		_, err := w.Write(buf[:1])
-		return err
+		return EBoolT(w, *i, buf)
 	}
 	return NewTypeForEncodingErr(val, "bool")
 }

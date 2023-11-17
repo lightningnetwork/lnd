@@ -69,11 +69,7 @@ func (c *testCtx) getChannelIDFromAlias(t *testing.T, a, b string) uint64 {
 	return channelID
 }
 
-func mockFetchjClosedChannels(
-	pendingOnly bool) ([]*channeldb.ChannelCloseSummary, error) {
-
-	return nil, nil
-}
+var mockClosedSCIDs map[lnwire.ShortChannelID]struct{}
 
 func (c *testCtx) RestartRouter(t *testing.T) {
 	// First, we'll reset the chainView's state as it doesn't persist the
@@ -93,7 +89,7 @@ func (c *testCtx) RestartRouter(t *testing.T) {
 		IsAlias: func(scid lnwire.ShortChannelID) bool {
 			return false
 		},
-		FetchClosedChannels: mockFetchjClosedChannels,
+		ClosedSCIDs: mockClosedSCIDs,
 	})
 	require.NoError(t, err, "unable to create router")
 	require.NoError(t, router.Start(), "unable to start router")
@@ -183,7 +179,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		IsAlias: func(scid lnwire.ShortChannelID) bool {
 			return false
 		},
-		FetchClosedChannels: mockFetchjClosedChannels,
+		ClosedSCIDs: mockClosedSCIDs,
 	})
 	require.NoError(t, err, "unable to create router")
 	require.NoError(t, router.Start(), "unable to start router")
@@ -1785,7 +1781,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		IsAlias: func(scid lnwire.ShortChannelID) bool {
 			return false
 		},
-		FetchClosedChannels: mockFetchjClosedChannels,
+		ClosedSCIDs: mockClosedSCIDs,
 	})
 	if err != nil {
 		t.Fatalf("unable to create router %v", err)
@@ -3503,7 +3499,7 @@ func TestSendToRouteSkipTempErrSuccess(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
-		FetchClosedChannels: mockFetchjClosedChannels,
+		ClosedSCIDs: mockClosedSCIDs,
 	}}
 
 	// Register mockers with the expected method calls.
@@ -3587,7 +3583,7 @@ func TestSendToRouteSkipTempErrNonMPP(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
-		FetchClosedChannels: mockFetchjClosedChannels,
+		ClosedSCIDs: mockClosedSCIDs,
 	}}
 
 	// Expect an error to be returned.
@@ -3641,7 +3637,7 @@ func TestSendToRouteSkipTempErrTempFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
-		FetchClosedChannels: mockFetchjClosedChannels,
+		ClosedSCIDs: mockClosedSCIDs,
 	}}
 
 	// Create the error to be returned.
@@ -3723,7 +3719,7 @@ func TestSendToRouteSkipTempErrPermanentFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
-		FetchClosedChannels: mockFetchjClosedChannels,
+		ClosedSCIDs: mockClosedSCIDs,
 	}}
 
 	// Create the error to be returned.
@@ -3809,7 +3805,7 @@ func TestSendToRouteTempFailure(t *testing.T) {
 		NextPaymentID: func() (uint64, error) {
 			return 0, nil
 		},
-		FetchClosedChannels: mockFetchjClosedChannels,
+		ClosedSCIDs: mockClosedSCIDs,
 	}}
 
 	// Create the error to be returned.

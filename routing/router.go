@@ -416,12 +416,10 @@ type Config struct {
 	// only used for our local channels.
 	IsAlias func(scid lnwire.ShortChannelID) bool
 
-	// FetchClosedChannels is used by the router to fetch closed channels.
+	// ClosedSCIDs is used by the router to fetch closed channels.
 	//
-	// TODO(yy): remove this method once the root cause of stuck payments
-	// is found.
-	FetchClosedChannels func(pendingOnly bool) (
-		[]*channeldb.ChannelCloseSummary, error)
+	// TODO(yy): remove it once the root cause of stuck payments is found.
+	ClosedSCIDs map[lnwire.ShortChannelID]struct{}
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -3009,19 +3007,6 @@ func (r *ChannelRouter) BuildRoute(amt *lnwire.MilliSatoshi,
 // resumePayments fetches inflight payments and resumes their payment
 // lifecycles.
 func (r *ChannelRouter) resumePayments() error {
-	// Get a list of closed channels.
-	channels, err := r.cfg.FetchClosedChannels(false)
-	if err != nil {
-		return err
-	}
-
-	closedSCIDs := make(map[lnwire.ShortChannelID]struct{}, len(channels))
-	for _, c := range channels {
-		if !c.IsPending {
-			closedSCIDs[c.ShortChanID] = struct{}{}
-		}
-	}
-
 	// Get all payments that are inflight.
 	payments, err := r.cfg.Control.FetchInFlightPayments()
 	if err != nil {
@@ -3040,9 +3025,7 @@ func (r *ChannelRouter) resumePayments() error {
 
 			// Try to fail the attempt if the route contains a dead
 			// channel.
-			r.failStaleAttempt(
-				a, p.Info.PaymentIdentifier, closedSCIDs,
-			)
+			r.failStaleAttempt(a, p.Info.PaymentIdentifier)
 		}
 	}
 
@@ -3129,7 +3112,7 @@ func (r *ChannelRouter) resumePayments() error {
 // - https://github.com/lightningnetwork/lnd/issues/8146
 // - https://github.com/lightningnetwork/lnd/pull/8174
 func (r *ChannelRouter) failStaleAttempt(a channeldb.HTLCAttempt,
-	payHash lntypes.Hash, closedSCIDs map[lnwire.ShortChannelID]struct{}) {
+	payHash lntypes.Hash) {
 
 	// We can only fail inflight HTLCs so we skip the settled/failed ones.
 	if a.Failure != nil || a.Settle != nil {
@@ -3184,7 +3167,7 @@ func (r *ChannelRouter) failStaleAttempt(a channeldb.HTLCAttempt,
 		// re-sent. If the channel is still pending, we'll keep waiting
 		// for the result as we may get a contract resolution for this
 		// HTLC.
-		if _, ok := closedSCIDs[scid]; ok {
+		if _, ok := r.cfg.ClosedSCIDs[scid]; ok {
 			shouldFail = true
 		}
 	}

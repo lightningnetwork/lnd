@@ -640,6 +640,23 @@ func (p *Brontide) Start() error {
 
 	p.startTime = time.Now()
 
+	// Before launching the writeHandler goroutine, we send any channel
+	// sync messages that must be resent for borked channels. We do this to
+	// avoid data races with WriteMessage & Flush calls.
+	if len(msgs) > 0 {
+		p.log.Infof("Sending %d channel sync messages to peer after "+
+			"loading active channels", len(msgs))
+
+		// Send the messages directly via writeMessage and bypass the
+		// writeHandler goroutine.
+		for _, msg := range msgs {
+			if err := p.writeMessage(msg); err != nil {
+				return fmt.Errorf("unable to send "+
+					"reestablish msg: %v", err)
+			}
+		}
+	}
+
 	p.wg.Add(5)
 	go p.queueHandler()
 	go p.writeHandler()
@@ -649,23 +666,6 @@ func (p *Brontide) Start() error {
 
 	// Signal to any external processes that the peer is now active.
 	close(p.activeSignal)
-
-	// Now that the peer has started up, we send any channel sync messages
-	// that must be resent for borked channels.
-	if len(msgs) > 0 {
-		p.log.Infof("Sending %d channel sync messages to peer after "+
-			"loading active channels", len(msgs))
-
-		// Send the messages directly via writeMessage and bypass the
-		// writeHandler goroutine to avoid cases where writeHandler
-		// may exit and cause a deadlock.
-		for _, msg := range msgs {
-			if err := p.writeMessage(msg); err != nil {
-				return fmt.Errorf("unable to send reestablish"+
-					"msg: %v", err)
-			}
-		}
-	}
 
 	// Node announcements don't propagate very well throughout the network
 	// as there isn't a way to efficiently query for them through their
@@ -2025,6 +2025,12 @@ func (p *Brontide) logWireMessage(msg lnwire.Message, read bool) {
 // message buffered on the connection. It is safe to call this method again
 // with a nil message iff a timeout error is returned. This will continue to
 // flush the pending message to the wire.
+//
+// NOTE:
+// Besides its usage in Start, this function should not be used elsewhere
+// except in writeHandler. If multiple goroutines call writeMessage at the same
+// time, panics can occur because WriteMessage and Flush don't use any locking
+// internally.
 func (p *Brontide) writeMessage(msg lnwire.Message) error {
 	// Only log the message on the first attempt.
 	if msg != nil {

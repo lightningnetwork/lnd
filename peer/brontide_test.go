@@ -1340,3 +1340,109 @@ func TestHandleRemovePendingChannel(t *testing.T) {
 		})
 	}
 }
+
+// TestStartupWriteMessageRace checks that no data race occurs when starting up
+// a peer with an existing channel, while an outgoing message is queuing. Such
+// a race occurred in https://github.com/lightningnetwork/lnd/issues/8184, where
+// a channel reestablish message raced with another outgoing message.
+//
+// Note that races will only be detected with the Go race detector enabled.
+func TestStartupWriteMessageRace(t *testing.T) {
+	t.Parallel()
+
+	// Set up parameters for createTestPeer.
+	notifier := &mock.ChainNotifier{
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+	}
+	broadcastTxChan := make(chan *wire.MsgTx)
+	mockSwitch := &mockMessageSwitch{}
+
+	// Use a callback to extract the channel created by createTestPeer, so
+	// we can mark it borked below. We can't mark it borked within the
+	// callback, since the channel hasn't been saved to the DB yet when the
+	// callback executes.
+	var channel *channeldb.OpenChannel
+	getChannels := func(a, b *channeldb.OpenChannel) {
+		channel = a
+	}
+
+	// createTestPeer creates a peer and a channel with that peer.
+	peer, _, err := createTestPeer(
+		t, notifier, broadcastTxChan, getChannels, mockSwitch,
+	)
+	require.NoError(t, err, "unable to create test channel")
+
+	// Avoid the need to mock the channel graph by marking the channel
+	// borked. Borked channels still get a reestablish message sent on
+	// reconnect, while skipping channel graph checks and link creation.
+	require.NoError(t, channel.MarkBorked())
+
+	// Use a mock conn to detect read/write races on the conn.
+	mockConn := newMockConn(t, 2)
+	peer.cfg.Conn = mockConn
+
+	// Set up other configuration necessary to successfully execute
+	// peer.Start().
+	peer.cfg.LegacyFeatures = lnwire.EmptyFeatureVector()
+	writeBufferPool := pool.NewWriteBuffer(
+		pool.DefaultWriteBufferGCInterval,
+		pool.DefaultWriteBufferExpiryInterval,
+	)
+	writePool := pool.NewWrite(
+		writeBufferPool, 1, timeout,
+	)
+	require.NoError(t, writePool.Start())
+	peer.cfg.WritePool = writePool
+	readBufferPool := pool.NewReadBuffer(
+		pool.DefaultReadBufferGCInterval,
+		pool.DefaultReadBufferExpiryInterval,
+	)
+	readPool := pool.NewRead(
+		readBufferPool, 1, timeout,
+	)
+	require.NoError(t, readPool.Start())
+	peer.cfg.ReadPool = readPool
+
+	// Send a message while starting the peer. As the peer starts up, it
+	// should not trigger a data race between the sending of this message
+	// and the sending of the channel reestablish message.
+	sendPingDone := make(chan struct{})
+	go func() {
+		require.NoError(t, peer.SendMessage(true, lnwire.NewPing(0)))
+		close(sendPingDone)
+	}()
+
+	// Handle init messages.
+	go func() {
+		// Read init message.
+		<-mockConn.writtenMessages
+
+		// Write the init reply message.
+		initReplyMsg := lnwire.NewInitMessage(
+			lnwire.NewRawFeatureVector(
+				lnwire.DataLossProtectRequired,
+			),
+			lnwire.NewRawFeatureVector(),
+		)
+		var b bytes.Buffer
+		_, err = lnwire.WriteMessage(&b, initReplyMsg, 0)
+		require.NoError(t, err)
+
+		mockConn.readMessages <- b.Bytes()
+	}()
+
+	// Start the peer. No data race should occur.
+	require.NoError(t, peer.Start())
+
+	// Ensure messages were sent during startup.
+	<-sendPingDone
+	for i := 0; i < 2; i++ {
+		select {
+		case <-mockConn.writtenMessages:
+		default:
+			t.Fatalf("Failed to send all messages during startup")
+		}
+	}
+}

@@ -497,6 +497,16 @@ type mockMessageConn struct {
 
 	readMessages   chan []byte
 	curReadMessage []byte
+
+	// writeRaceDetectingCounter is incremented on any function call
+	// associated with writing to the connection. The race detector will
+	// trigger on this counter if a data race exists.
+	writeRaceDetectingCounter int
+
+	// readRaceDetectingCounter is incremented on any function call
+	// associated with reading from the connection. The race detector will
+	// trigger on this counter if a data race exists.
+	readRaceDetectingCounter int
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {
@@ -509,17 +519,20 @@ func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {
 
 // SetWriteDeadline mocks setting write deadline for our conn.
 func (m *mockMessageConn) SetWriteDeadline(time.Time) error {
+	m.writeRaceDetectingCounter++
 	return nil
 }
 
 // Flush mocks a message conn flush.
 func (m *mockMessageConn) Flush() (int, error) {
+	m.writeRaceDetectingCounter++
 	return 0, nil
 }
 
 // WriteMessage mocks sending of a message on our connection. It will push
 // the bytes sent into the mock's writtenMessages channel.
 func (m *mockMessageConn) WriteMessage(msg []byte) error {
+	m.writeRaceDetectingCounter++
 	select {
 	case m.writtenMessages <- msg:
 	case <-time.After(timeout):
@@ -542,15 +555,18 @@ func (m *mockMessageConn) assertWrite(expected []byte) {
 }
 
 func (m *mockMessageConn) SetReadDeadline(t time.Time) error {
+	m.readRaceDetectingCounter++
 	return nil
 }
 
 func (m *mockMessageConn) ReadNextHeader() (uint32, error) {
+	m.readRaceDetectingCounter++
 	m.curReadMessage = <-m.readMessages
 	return uint32(len(m.curReadMessage)), nil
 }
 
 func (m *mockMessageConn) ReadNextBody(buf []byte) ([]byte, error) {
+	m.readRaceDetectingCounter++
 	return m.curReadMessage, nil
 }
 
@@ -559,5 +575,9 @@ func (m *mockMessageConn) RemoteAddr() net.Addr {
 }
 
 func (m *mockMessageConn) LocalAddr() net.Addr {
+	return nil
+}
+
+func (m *mockMessageConn) Close() error {
 	return nil
 }

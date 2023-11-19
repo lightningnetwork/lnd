@@ -3934,19 +3934,24 @@ func TestGraphCacheForEachNodeChannel(t *testing.T) {
 	// Add the channel, but only insert a single edge into the graph.
 	require.NoError(t, graph.AddChannelEdge(edgeInfo))
 
+	getSingleChannel := func() *DirectedChannel {
+		var ch *DirectedChannel
+		err = graph.ForEachNodeDirectedChannel(nil, node1.PubKeyBytes,
+			func(c *DirectedChannel) error {
+				require.Nil(t, ch)
+				ch = c
+
+				return nil
+			},
+		)
+		require.NoError(t, err)
+
+		return ch
+	}
+
 	// We should be able to accumulate the single channel added, even
 	// though we have a nil edge policy here.
-	var numChans int
-	err = graph.ForEachNodeDirectedChannel(nil, node1.PubKeyBytes,
-		func(_ *DirectedChannel) error {
-			numChans++
-
-			return nil
-		},
-	)
-	require.NoError(t, err)
-
-	require.Equal(t, numChans, 1)
+	require.NotNil(t, getSingleChannel())
 }
 
 // TestGraphLoading asserts that the cache is properly reconstructed after a

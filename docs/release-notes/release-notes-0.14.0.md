@@ -28,7 +28,7 @@ healthcheck.torconnection.internal=xxx
 ```
 Read more about the usage of the flags in the `sample-lnd.conf`.
 
-## LN Peer-to-Peer Netowrk
+## LN Peer-to-Peer Network
 
 ### Bitcoin Blockheaders in Ping Messages
 

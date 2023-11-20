@@ -163,7 +163,7 @@ type PaymentSession interface {
 // loop if payment attempts take long enough. An additional set of edges can
 // also be provided to assist in reaching the payment's destination.
 type paymentSession struct {
-	additionalEdges map[route.Vertex][]*models.CachedEdgePolicy
+	additionalEdges map[route.Vertex][]AdditionalEdge
 
 	getBandwidthHints func(routingGraph) (bandwidthHints, error)
 
@@ -441,11 +441,12 @@ func (p *paymentSession) GetAdditionalEdgePolicy(pubKey *btcec.PublicKey,
 	}
 
 	for _, edge := range edges {
-		if edge.ChannelID != channelID {
+		policy := edge.EdgePolicy()
+		if policy.ChannelID != channelID {
 			continue
 		}
 
-		return edge
+		return policy
 	}
 
 	return nil

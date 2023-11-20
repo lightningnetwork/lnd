@@ -1954,7 +1954,7 @@ type RouteRequest struct {
 
 // RouteHints is an alias type for a set of route hints, with the source node
 // as the map's key and the details of the hint(s) in the edge policy.
-type RouteHints map[route.Vertex][]*models.CachedEdgePolicy
+type RouteHints map[route.Vertex][]AdditionalEdge
 
 // NewRouteRequest produces a new route request for a regular payment or one
 // to a blinded route, validating that the target, routeHints and finalExpiry

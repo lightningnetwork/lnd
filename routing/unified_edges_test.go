@@ -41,15 +41,17 @@ func TestNodeEdgeUnifier(t *testing.T) {
 	c2 := btcutil.Amount(8)
 
 	unifierFilled := newNodeEdgeUnifier(source, toNode, nil)
-	unifierFilled.addPolicy(fromNode, &p1, c1)
-	unifierFilled.addPolicy(fromNode, &p2, c2)
+	unifierFilled.addPolicy(fromNode, &p1, c1, defaultHopPayloadSize)
+	unifierFilled.addPolicy(fromNode, &p2, c2, defaultHopPayloadSize)
 
 	unifierNoCapacity := newNodeEdgeUnifier(source, toNode, nil)
-	unifierNoCapacity.addPolicy(fromNode, &p1, 0)
-	unifierNoCapacity.addPolicy(fromNode, &p2, 0)
+	unifierNoCapacity.addPolicy(fromNode, &p1, 0, defaultHopPayloadSize)
+	unifierNoCapacity.addPolicy(fromNode, &p2, 0, defaultHopPayloadSize)
 
 	unifierNoInfo := newNodeEdgeUnifier(source, toNode, nil)
-	unifierNoInfo.addPolicy(fromNode, &models.CachedEdgePolicy{}, 0)
+	unifierNoInfo.addPolicy(
+		fromNode, &models.CachedEdgePolicy{}, 0, defaultHopPayloadSize,
+	)
 
 	tests := []struct {
 		name             string

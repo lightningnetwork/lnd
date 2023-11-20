@@ -100,16 +100,16 @@ the following commands for your OS:
   <summary>Linux (x86-64)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.22.4.linux-amd64.tar.gz
-  sha256sum go1.22.4.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.22.5.linux-amd64.tar.gz
+  sha256sum go1.22.5.linux-amd64.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `ba79d4526102575196273416239cca418a651e049c2b099f3159db85e7bade7d`. If it
+  `904b924d435eaea086515bc63235b192ea441bd8c9b198c507e85009e6e4c7f0`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.4.linux-amd64.tar.gz
+  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```
 </details>
@@ -118,16 +118,16 @@ the following commands for your OS:
   <summary>Linux (ARMv6)</summary>
   
   ```
-  wget https://dl.google.com/go/go1.22.4.linux-armv6l.tar.gz
-  sha256sum go1.22.4.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
+  wget https://dl.google.com/go/go1.22.5.linux-armv6l.tar.gz
+  sha256sum go1.22.5.linux-armv6l.tar.gz | awk -F " " '{ print $1 }'
   ```
 
   The final output of the command above should be
-  `e2b143fbacbc9cbd448e9ef41ac3981f0488ce849af1cf37e2341d09670661de`. If it
+  `8c4587cf3e63c9aefbcafa92818c4d9d51683af93ea687bf6c7508d6fa36f85e`. If it
   isn't, then the target REPO HAS BEEN MODIFIED, and you shouldn't install
   this version of Go. If it matches, then proceed to install Go:
   ```
-  sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.4.linux-armv6l.tar.gz
+  sudo rm -rf /usr/local/go && tar -C /usr/local -xzf go1.22.5.linux-armv6l.tar.gz
   export PATH=$PATH:/usr/local/go/bin
   ```  
   

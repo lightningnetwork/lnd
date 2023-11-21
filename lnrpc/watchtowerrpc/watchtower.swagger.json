@@ -18,7 +18,7 @@
   "paths": {
     "/v2/watchtower/server": {
       "get": {
-        "summary": "lncli: tower info\nGetInfo returns general information concerning the companion watchtower\nincluding its public key and URIs where the server is currently\nlistening for clients.",
+        "summary": "lncli: `tower info`\nGetInfo returns general information concerning the companion watchtower\nincluding its public key and URIs where the server is currently\nlistening for clients.",
         "operationId": "Watchtower_GetInfo",
         "responses": {
           "200": {

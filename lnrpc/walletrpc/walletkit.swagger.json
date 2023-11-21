@@ -18,7 +18,7 @@
   "paths": {
     "/v2/wallet/accounts": {
       "get": {
-        "summary": "ListAccounts retrieves all accounts belonging to the wallet by default. A\nname and key scope filter can be provided to filter through all of the\nwallet accounts and return only those matching.",
+        "summary": "lncli: `wallet accounts list`\nListAccounts retrieves all accounts belonging to the wallet by default. A\nname and key scope filter can be provided to filter through all of the\nwallet accounts and return only those matching.",
         "operationId": "WalletKit_ListAccounts",
         "responses": {
           "200": {
@@ -65,7 +65,7 @@
     },
     "/v2/wallet/accounts/import": {
       "post": {
-        "summary": "ImportAccount imports an account backed by an account extended public key.\nThe master key fingerprint denotes the fingerprint of the root key\ncorresponding to the account public key (also known as the key with\nderivation path m/). This may be required by some hardware wallets for\nproper identification and signing.",
+        "summary": "lncli: `wallet accounts import`\nImportAccount imports an account backed by an account extended public key.\nThe master key fingerprint denotes the fingerprint of the root key\ncorresponding to the account public key (also known as the key with\nderivation path m/). This may be required by some hardware wallets for\nproper identification and signing.",
         "description": "The address type can usually be inferred from the key's version, but may be\nrequired for certain keys to map them into the proper scope.\n\nFor BIP-0044 keys, an address type must be specified as we intend to not\nsupport importing BIP-0044 keys into the wallet using the legacy\npay-to-pubkey-hash (P2PKH) scheme. A nested witness address type will force\nthe standard BIP-0049 derivation scheme, while a witness address type will\nforce the standard BIP-0084 derivation scheme.\n\nFor BIP-0049 keys, an address type must also be specified to make a\ndistinction between the standard BIP-0049 address schema (nested witness\npubkeys everywhere) and our own BIP-0049Plus address schema (nested pubkeys\nexternally, witness pubkeys internally).\n\nNOTE: Events (deposits/spends) for keys derived from an account will only be\ndetected by lnd if they happen after the import. Rescans to detect past\nevents will be supported later on.",
         "operationId": "WalletKit_ImportAccount",
         "responses": {
@@ -132,7 +132,7 @@
     },
     "/v2/wallet/address/signmessage": {
       "post": {
-        "summary": "SignMessageWithAddr returns the compact signature (base64 encoded) created\nwith the private key of the provided address. This requires the address\nto be solely based on a public key lock (no scripts). Obviously the internal\nlnd wallet has to possess the private key of the address otherwise\nan error is returned.",
+        "summary": "lncli: `wallet addresses signmessage`\nSignMessageWithAddr returns the compact signature (base64 encoded) created\nwith the private key of the provided address. This requires the address\nto be solely based on a public key lock (no scripts). Obviously the internal\nlnd wallet has to possess the private key of the address otherwise\nan error is returned.",
         "description": "This method aims to provide full compatibility with the bitcoin-core and\nbtcd implementation. Bitcoin-core's algorithm is not specified in a\nBIP and only applicable for legacy addresses. This method enhances the\nsigning for additional address types: P2WKH, NP2WKH, P2TR.\nFor P2TR addresses this represents a special case. ECDSA is used to create\na compact signature which makes the public key of the signature recoverable.",
         "operationId": "WalletKit_SignMessageWithAddr",
         "responses": {
@@ -166,7 +166,7 @@
     },
     "/v2/wallet/address/verifymessage": {
       "post": {
-        "summary": "VerifyMessageWithAddr returns the validity and the recovered public key of\nthe provided compact signature (base64 encoded). The verification is\ntwofold. First the validity of the signature itself is checked and then\nit is verified that the recovered public key of the signature equals\nthe public key of the provided address. There is no dependence on the\nprivate key of the address therefore also external addresses are allowed\nto verify signatures.\nSupported address types are P2PKH, P2WKH, NP2WKH, P2TR.",
+        "summary": "lncli: `wallet addresses verifymessage`\nVerifyMessageWithAddr returns the validity and the recovered public key of\nthe provided compact signature (base64 encoded). The verification is\ntwofold. First the validity of the signature itself is checked and then\nit is verified that the recovered public key of the signature equals\nthe public key of the provided address. There is no dependence on the\nprivate key of the address therefore also external addresses are allowed\nto verify signatures.\nSupported address types are P2PKH, P2WKH, NP2WKH, P2TR.",
         "description": "This method is the counterpart of the related signing method\n(SignMessageWithAddr) and aims to provide full compatibility to\nbitcoin-core's implementation. Although bitcoin-core/btcd only provide\nthis functionality for legacy addresses this function enhances it to\nthe address types: P2PKH, P2WKH, NP2WKH, P2TR.\n\nThe verification for P2TR addresses is a special case and requires the\nECDSA compact signature to compare the reovered public key to the internal\ntaproot key. The compact ECDSA signature format was used because there\nare still no known compact signature schemes for schnorr signatures.",
         "operationId": "WalletKit_VerifyMessageWithAddr",
         "responses": {
@@ -200,7 +200,7 @@
     },
     "/v2/wallet/addresses": {
       "get": {
-        "summary": "ListAddresses retrieves all the addresses along with their balance. An\naccount name filter can be provided to filter through all of the\nwallet accounts and return the addresses of only those matching.",
+        "summary": "lncli: `wallet addresses list`\nListAddresses retrieves all the addresses along with their balance. An\naccount name filter can be provided to filter through all of the\nwallet accounts and return the addresses of only those matching.",
         "operationId": "WalletKit_ListAddresses",
         "responses": {
           "200": {
@@ -239,7 +239,7 @@
     },
     "/v2/wallet/bumpfee": {
       "post": {
-        "summary": "BumpFee bumps the fee of an arbitrary input within a transaction. This RPC\ntakes a different approach than bitcoind's bumpfee command. lnd has a\ncentral batching engine in which inputs with similar fee rates are batched\ntogether to save on transaction fees. Due to this, we cannot rely on\nbumping the fee on a specific transaction, since transactions can change at\nany point with the addition of new inputs. The list of inputs that\ncurrently exist within lnd's central batching engine can be retrieved\nthrough the PendingSweeps RPC.",
+        "summary": "lncli: `wallet bumpfee`\nBumpFee bumps the fee of an arbitrary input within a transaction. This RPC\ntakes a different approach than bitcoind's bumpfee command. lnd has a\ncentral batching engine in which inputs with similar fee rates are batched\ntogether to save on transaction fees. Due to this, we cannot rely on\nbumping the fee on a specific transaction, since transactions can change at\nany point with the addition of new inputs. The list of inputs that\ncurrently exist within lnd's central batching engine can be retrieved\nthrough the PendingSweeps RPC.",
         "description": "When bumping the fee of an input that currently exists within lnd's central\nbatching engine, a higher fee transaction will be created that replaces the\nlower fee transaction through the Replace-By-Fee (RBF) policy. If it\n\nThis RPC also serves useful when wanting to perform a Child-Pays-For-Parent\n(CPFP), where the child transaction pays for its parent's fee. This can be\ndone by specifying an outpoint within the low fee transaction that is under\nthe control of the wallet.\n\nThe fee preference can be expressed either as a specific fee rate or a delta\nof blocks in which the output should be swept on-chain within. If a fee\npreference is not explicitly specified, then an error is returned.\n\nNote that this RPC currently doesn't perform any validation checks on the\nfee preference being provided. For now, the responsibility of ensuring that\nthe new fee preference is sufficient is delegated to the user.",
         "operationId": "WalletKit_BumpFee",
         "responses": {
@@ -339,7 +339,7 @@
     },
     "/v2/wallet/key/import": {
       "post": {
-        "summary": "ImportPublicKey imports a public key as watch-only into the wallet. The\npublic key is converted into a simple address of the given type and that\naddress script is watched on chain. For Taproot keys, this will only watch\nthe BIP-0086 style output script. Use ImportTapscript for more advanced key\nspend or script spend outputs.",
+        "summary": "lncli: `wallet accounts import-pubkey`\nImportPublicKey imports a public key as watch-only into the wallet. The\npublic key is converted into a simple address of the given type and that\naddress script is watched on chain. For Taproot keys, this will only watch\nthe BIP-0086 style output script. Use ImportTapscript for more advanced key\nspend or script spend outputs.",
         "description": "NOTE: Events (deposits/spends) for a key will only be detected by lnd if\nthey happen after the import. Rescans to detect past events will be\nsupported later on.",
         "operationId": "WalletKit_ImportPublicKey",
         "responses": {
@@ -406,7 +406,7 @@
     },
     "/v2/wallet/psbt/finalize": {
       "post": {
-        "summary": "FinalizePsbt expects a partial transaction with all inputs and outputs fully\ndeclared and tries to sign all inputs that belong to the wallet. Lnd must be\nthe last signer of the transaction. That means, if there are any unsigned\nnon-witness inputs or inputs without UTXO information attached or inputs\nwithout witness data that do not belong to lnd's wallet, this method will\nfail. If no error is returned, the PSBT is ready to be extracted and the\nfinal TX within to be broadcast.",
+        "summary": "lncli: `wallet psbt finalize`\nFinalizePsbt expects a partial transaction with all inputs and outputs fully\ndeclared and tries to sign all inputs that belong to the wallet. Lnd must be\nthe last signer of the transaction. That means, if there are any unsigned\nnon-witness inputs or inputs without UTXO information attached or inputs\nwithout witness data that do not belong to lnd's wallet, this method will\nfail. If no error is returned, the PSBT is ready to be extracted and the\nfinal TX within to be broadcast.",
         "description": "NOTE: This method does NOT publish the transaction once finalized. It is the\ncaller's responsibility to either publish the transaction on success or\nunlock/release any locked UTXOs in case of an error in this method.",
         "operationId": "WalletKit_FinalizePsbt",
         "responses": {
@@ -440,7 +440,7 @@
     },
     "/v2/wallet/psbt/fund": {
       "post": {
-        "summary": "FundPsbt creates a fully populated PSBT that contains enough inputs to fund\nthe outputs specified in the template. There are two ways of specifying a\ntemplate: Either by passing in a PSBT with at least one output declared or\nby passing in a raw TxTemplate message.",
+        "summary": "lncli: `wallet psbt fund`\nFundPsbt creates a fully populated PSBT that contains enough inputs to fund\nthe outputs specified in the template. There are two ways of specifying a\ntemplate: Either by passing in a PSBT with at least one output declared or\nby passing in a raw TxTemplate message.",
         "description": "If there are no inputs specified in the template, coin selection is\nperformed automatically. If the template does contain any inputs, it is\nassumed that full coin selection happened externally and no additional\ninputs are added. If the specified inputs aren't enough to fund the outputs\nwith the given fee rate, an error is returned.\n\nAfter either selecting or verifying the inputs, all input UTXOs are locked\nwith an internal app ID.\n\nNOTE: If this method returns without an error, it is the caller's\nresponsibility to either spend the locked UTXOs (by finalizing and then\npublishing the transaction) or to unlock/release the locked UTXOs in case of\nan error on the caller's side.",
         "operationId": "WalletKit_FundPsbt",
         "responses": {
@@ -508,7 +508,7 @@
     },
     "/v2/wallet/reserve": {
       "get": {
-        "summary": "RequiredReserve returns the minimum amount of satoshis that should be kept\nin the wallet in order to fee bump anchor channels if necessary. The value\nscales with the number of public anchor channels but is capped at a maximum.",
+        "summary": "lncli: `wallet requiredreserve`\nRequiredReserve returns the minimum amount of satoshis that should be kept\nin the wallet in order to fee bump anchor channels if necessary. The value\nscales with the number of public anchor channels but is capped at a maximum.",
         "operationId": "WalletKit_RequiredReserve",
         "responses": {
           "200": {
@@ -574,7 +574,7 @@
     },
     "/v2/wallet/sweeps": {
       "get": {
-        "summary": "ListSweeps returns a list of the sweep transactions our node has produced.\nNote that these sweeps may not be confirmed yet, as we record sweeps on\nbroadcast, not confirmation.",
+        "summary": "lncli: `wallet listsweeps`\nListSweeps returns a list of the sweep transactions our node has produced.\nNote that these sweeps may not be confirmed yet, as we record sweeps on\nbroadcast, not confirmation.",
         "operationId": "WalletKit_ListSweeps",
         "responses": {
           "200": {
@@ -606,7 +606,7 @@
     },
     "/v2/wallet/sweeps/pending": {
       "get": {
-        "summary": "PendingSweeps returns lists of on-chain outputs that lnd is currently\nattempting to sweep within its central batching engine. Outputs with similar\nfee rates are batched together in order to sweep them within a single\ntransaction.",
+        "summary": "lncli: `pendingsweeps`\nPendingSweeps returns lists of on-chain outputs that lnd is currently\nattempting to sweep within its central batching engine. Outputs with similar\nfee rates are batched together in order to sweep them within a single\ntransaction.",
         "description": "NOTE: Some of the fields within PendingSweepsRequest are not guaranteed to\nremain supported. This is an advanced API that depends on the internals of\nthe UtxoSweeper, so things may change.",
         "operationId": "WalletKit_PendingSweeps",
         "responses": {
@@ -664,7 +664,7 @@
     },
     "/v2/wallet/tx": {
       "post": {
-        "summary": "PublishTransaction attempts to publish the passed transaction to the\nnetwork. Once this returns without an error, the wallet will continually\nattempt to re-broadcast the transaction on start up, until it enters the\nchain.",
+        "summary": "lncli: `wallet publishtx`\nPublishTransaction attempts to publish the passed transaction to the\nnetwork. Once this returns without an error, the wallet will continually\nattempt to re-broadcast the transaction on start up, until it enters the\nchain.",
         "operationId": "WalletKit_PublishTransaction",
         "responses": {
           "200": {
@@ -697,7 +697,7 @@
     },
     "/v2/wallet/tx/label": {
       "post": {
-        "summary": "LabelTransaction adds a label to a transaction. If the transaction already\nhas a label the call will fail unless the overwrite bool is set. This will\noverwrite the exiting transaction label. Labels must not be empty, and\ncannot exceed 500 characters.",
+        "summary": "lncli: `wallet labeltx`\nLabelTransaction adds a label to a transaction. If the transaction already\nhas a label the call will fail unless the overwrite bool is set. This will\noverwrite the exiting transaction label. Labels must not be empty, and\ncannot exceed 500 characters.",
         "operationId": "WalletKit_LabelTransaction",
         "responses": {
           "200": {
@@ -763,7 +763,7 @@
     },
     "/v2/wallet/utxos/lease": {
       "post": {
-        "summary": "LeaseOutput locks an output to the given ID, preventing it from being\navailable for any future coin selection attempts. The absolute time of the\nlock's expiration is returned. The expiration of the lock can be extended by\nsuccessive invocations of this RPC. Outputs can be unlocked before their\nexpiration through `ReleaseOutput`.",
+        "summary": "lncli: `wallet leaseoutput`\nLeaseOutput locks an output to the given ID, preventing it from being\navailable for any future coin selection attempts. The absolute time of the\nlock's expiration is returned. The expiration of the lock can be extended by\nsuccessive invocations of this RPC. Outputs can be unlocked before their\nexpiration through `ReleaseOutput`.",
         "operationId": "WalletKit_LeaseOutput",
         "responses": {
           "200": {
@@ -796,7 +796,7 @@
     },
     "/v2/wallet/utxos/leases": {
       "post": {
-        "summary": "ListLeases lists all currently locked utxos.",
+        "summary": "lncli: `wallet listleases`\nListLeases lists all currently locked utxos.",
         "operationId": "WalletKit_ListLeases",
         "responses": {
           "200": {
@@ -819,7 +819,7 @@
     },
     "/v2/wallet/utxos/release": {
       "post": {
-        "summary": "ReleaseOutput unlocks an output, allowing it to be available for coin\nselection if it remains unspent. The ID should match the one used to\noriginally lock the output.",
+        "summary": "lncli: `wallet releaseoutput`\nReleaseOutput unlocks an output, allowing it to be available for coin\nselection if it remains unspent. The ID should match the one used to\noriginally lock the output.",
         "operationId": "WalletKit_ReleaseOutput",
         "responses": {
           "200": {

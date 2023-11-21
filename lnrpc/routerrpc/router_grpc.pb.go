@@ -23,6 +23,7 @@ type RouterClient interface {
 	// PaymentRequest to the final destination. The call returns a stream of
 	// payment updates.
 	SendPaymentV2(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (Router_SendPaymentV2Client, error)
+	// lncli: `trackpayment`
 	// TrackPaymentV2 returns an update stream for the payment identified by the
 	// payment hash.
 	TrackPaymentV2(ctx context.Context, in *TrackPaymentRequest, opts ...grpc.CallOption) (Router_TrackPaymentV2Client, error)
@@ -49,27 +50,34 @@ type RouterClient interface {
 	// route manually. This can be used for things like rebalancing, and atomic
 	// swaps.
 	SendToRouteV2(ctx context.Context, in *SendToRouteRequest, opts ...grpc.CallOption) (*lnrpc.HTLCAttempt, error)
+	// lncli: `resetmc`
 	// ResetMissionControl clears all mission control state and starts with a clean
 	// slate.
 	ResetMissionControl(ctx context.Context, in *ResetMissionControlRequest, opts ...grpc.CallOption) (*ResetMissionControlResponse, error)
+	// lncli: `querymc`
 	// QueryMissionControl exposes the internal mission control state to callers.
 	// It is a development feature.
 	QueryMissionControl(ctx context.Context, in *QueryMissionControlRequest, opts ...grpc.CallOption) (*QueryMissionControlResponse, error)
+	// lncli: `importmc`
 	// XImportMissionControl is an experimental API that imports the state provided
 	// to the internal mission control's state, using all results which are more
 	// recent than our existing values. These values will only be imported
 	// in-memory, and will not be persisted across restarts.
 	XImportMissionControl(ctx context.Context, in *XImportMissionControlRequest, opts ...grpc.CallOption) (*XImportMissionControlResponse, error)
+	// lncli: `getmccfg`
 	// GetMissionControlConfig returns mission control's current config.
 	GetMissionControlConfig(ctx context.Context, in *GetMissionControlConfigRequest, opts ...grpc.CallOption) (*GetMissionControlConfigResponse, error)
+	// lncli: `setmccfg`
 	// SetMissionControlConfig will set mission control's config, if the config
 	// provided is valid.
 	SetMissionControlConfig(ctx context.Context, in *SetMissionControlConfigRequest, opts ...grpc.CallOption) (*SetMissionControlConfigResponse, error)
+	// lncli: `queryprob`
 	// Deprecated. QueryProbability returns the current success probability
 	// estimate for a given node pair and amount. The call returns a zero success
 	// probability if no channel is available or if the amount violates min/max
 	// HTLC constraints.
 	QueryProbability(ctx context.Context, in *QueryProbabilityRequest, opts ...grpc.CallOption) (*QueryProbabilityResponse, error)
+	// lncli: `buildroute`
 	// BuildRoute builds a fully specified route based on a list of hop public
 	// keys. It retrieves the relevant channel policies from the graph in order to
 	// calculate the correct fees and time locks.
@@ -95,6 +103,7 @@ type RouterClient interface {
 	// In case of interception, the htlc can be either settled, cancelled or
 	// resumed later by using the ResolveHoldForward endpoint.
 	HtlcInterceptor(ctx context.Context, opts ...grpc.CallOption) (Router_HtlcInterceptorClient, error)
+	// lncli: `updatechanstatus`
 	// UpdateChanStatus attempts to manually set the state of a channel
 	// (enabled, disabled, or auto). A manual "disable" request will cause the
 	// channel to stay disabled until a subsequent manual request of either
@@ -443,6 +452,7 @@ type RouterServer interface {
 	// PaymentRequest to the final destination. The call returns a stream of
 	// payment updates.
 	SendPaymentV2(*SendPaymentRequest, Router_SendPaymentV2Server) error
+	// lncli: `trackpayment`
 	// TrackPaymentV2 returns an update stream for the payment identified by the
 	// payment hash.
 	TrackPaymentV2(*TrackPaymentRequest, Router_TrackPaymentV2Server) error
@@ -469,27 +479,34 @@ type RouterServer interface {
 	// route manually. This can be used for things like rebalancing, and atomic
 	// swaps.
 	SendToRouteV2(context.Context, *SendToRouteRequest) (*lnrpc.HTLCAttempt, error)
+	// lncli: `resetmc`
 	// ResetMissionControl clears all mission control state and starts with a clean
 	// slate.
 	ResetMissionControl(context.Context, *ResetMissionControlRequest) (*ResetMissionControlResponse, error)
+	// lncli: `querymc`
 	// QueryMissionControl exposes the internal mission control state to callers.
 	// It is a development feature.
 	QueryMissionControl(context.Context, *QueryMissionControlRequest) (*QueryMissionControlResponse, error)
+	// lncli: `importmc`
 	// XImportMissionControl is an experimental API that imports the state provided
 	// to the internal mission control's state, using all results which are more
 	// recent than our existing values. These values will only be imported
 	// in-memory, and will not be persisted across restarts.
 	XImportMissionControl(context.Context, *XImportMissionControlRequest) (*XImportMissionControlResponse, error)
+	// lncli: `getmccfg`
 	// GetMissionControlConfig returns mission control's current config.
 	GetMissionControlConfig(context.Context, *GetMissionControlConfigRequest) (*GetMissionControlConfigResponse, error)
+	// lncli: `setmccfg`
 	// SetMissionControlConfig will set mission control's config, if the config
 	// provided is valid.
 	SetMissionControlConfig(context.Context, *SetMissionControlConfigRequest) (*SetMissionControlConfigResponse, error)
+	// lncli: `queryprob`
 	// Deprecated. QueryProbability returns the current success probability
 	// estimate for a given node pair and amount. The call returns a zero success
 	// probability if no channel is available or if the amount violates min/max
 	// HTLC constraints.
 	QueryProbability(context.Context, *QueryProbabilityRequest) (*QueryProbabilityResponse, error)
+	// lncli: `buildroute`
 	// BuildRoute builds a fully specified route based on a list of hop public
 	// keys. It retrieves the relevant channel policies from the graph in order to
 	// calculate the correct fees and time locks.
@@ -515,6 +532,7 @@ type RouterServer interface {
 	// In case of interception, the htlc can be either settled, cancelled or
 	// resumed later by using the ResolveHoldForward endpoint.
 	HtlcInterceptor(Router_HtlcInterceptorServer) error
+	// lncli: `updatechanstatus`
 	// UpdateChanStatus attempts to manually set the state of a channel
 	// (enabled, disabled, or auto). A manual "disable" request will cause the
 	// channel to stay disabled until a subsequent manual request of either

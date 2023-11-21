@@ -18,7 +18,7 @@
   "paths": {
     "/v2/neutrino/addpeer": {
       "post": {
-        "summary": "AddPeer adds a new peer that has already been connected to the server.",
+        "summary": "lncli: `neutrino addpeer`\nAddPeer adds a new peer that has already been connected to the server.",
         "operationId": "NeutrinoKit_AddPeer",
         "responses": {
           "200": {
@@ -116,7 +116,7 @@
     },
     "/v2/neutrino/blockheader/{hash}": {
       "get": {
-        "summary": "GetBlockHeader returns a block header with a particular block hash.",
+        "summary": "lncli: `neutrino getblockheader`\nGetBlockHeader returns a block header with a particular block hash.",
         "operationId": "NeutrinoKit_GetBlockHeader",
         "responses": {
           "200": {
@@ -148,7 +148,7 @@
     },
     "/v2/neutrino/cfilter/{hash}": {
       "get": {
-        "summary": "GetCFilter returns a compact filter from a block.",
+        "summary": "lncli: `neutrino getcfilter`\nGetCFilter returns a compact filter from a block.",
         "operationId": "NeutrinoKit_GetCFilter",
         "responses": {
           "200": {
@@ -180,7 +180,7 @@
     },
     "/v2/neutrino/disconnect": {
       "post": {
-        "summary": "DisconnectPeer disconnects a peer by target address. Both outbound and\ninbound nodes will be searched for the target node. An error message will\nbe returned if the peer was not found.",
+        "summary": "lncli: `neutrino disconnectpeer`\nDisconnectPeer disconnects a peer by target address. Both outbound and\ninbound nodes will be searched for the target node. An error message will\nbe returned if the peer was not found.",
         "operationId": "NeutrinoKit_DisconnectPeer",
         "responses": {
           "200": {
@@ -213,7 +213,7 @@
     },
     "/v2/neutrino/isbanned": {
       "get": {
-        "summary": "IsBanned returns true if the peer is banned, otherwise false.",
+        "summary": "lncli: `neutrino isbanned`\nIsBanned returns true if the peer is banned, otherwise false.",
         "operationId": "NeutrinoKit_IsBanned",
         "responses": {
           "200": {
@@ -245,7 +245,7 @@
     },
     "/v2/neutrino/status": {
       "get": {
-        "summary": "Status returns the status of the light client neutrino instance,\nalong with height and hash of the best block, and a list of connected\npeers.",
+        "summary": "lncli: `neutrino status`\nStatus returns the status of the light client neutrino instance,\nalong with height and hash of the best block, and a list of connected\npeers.",
         "operationId": "NeutrinoKit_Status",
         "responses": {
           "200": {

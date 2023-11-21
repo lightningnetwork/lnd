@@ -7,6 +7,24 @@ package walletrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/walletrpc";
 
+/*
+ * Comments in this file will be directly parsed into the API
+ * Documentation as descriptions of the associated method, message, or field.
+ * These descriptions should go right above the definition of the object, and
+ * can be in either block or // comment format.
+ *
+ * An RPC method can be matched to an lncli command by placing a line in the
+ * beginning of the description in exactly the following format:
+ * lncli: `methodname`
+ *
+ * Failure to specify the exact name of the command will cause documentation
+ * generation to fail.
+ *
+ * More information on how exactly the gRPC documentation is generated from
+ * this proto file can be found here:
+ * https://github.com/lightninglabs/lightning-api
+ */
+
 // WalletKit is a service that gives access to the core functionalities of the
 // daemon's wallet.
 service WalletKit {
@@ -18,7 +36,7 @@ service WalletKit {
     */
     rpc ListUnspent (ListUnspentRequest) returns (ListUnspentResponse);
 
-    /*
+    /* lncli: `wallet leaseoutput`
     LeaseOutput locks an output to the given ID, preventing it from being
     available for any future coin selection attempts. The absolute time of the
     lock's expiration is returned. The expiration of the lock can be extended by
@@ -27,14 +45,14 @@ service WalletKit {
     */
     rpc LeaseOutput (LeaseOutputRequest) returns (LeaseOutputResponse);
 
-    /*
+    /* lncli: `wallet releaseoutput`
     ReleaseOutput unlocks an output, allowing it to be available for coin
     selection if it remains unspent. The ID should match the one used to
     originally lock the output.
     */
     rpc ReleaseOutput (ReleaseOutputRequest) returns (ReleaseOutputResponse);
 
-    /*
+    /* lncli: `wallet listleases`
     ListLeases lists all currently locked utxos.
     */
     rpc ListLeases (ListLeasesRequest) returns (ListLeasesResponse);
@@ -57,14 +75,14 @@ service WalletKit {
     */
     rpc NextAddr (AddrRequest) returns (AddrResponse);
 
-    /*
+    /* lncli: `wallet accounts list`
     ListAccounts retrieves all accounts belonging to the wallet by default. A
     name and key scope filter can be provided to filter through all of the
     wallet accounts and return only those matching.
     */
     rpc ListAccounts (ListAccountsRequest) returns (ListAccountsResponse);
 
-    /*
+    /* lncli: `wallet requiredreserve`
     RequiredReserve returns the minimum amount of satoshis that should be kept
     in the wallet in order to fee bump anchor channels if necessary. The value
     scales with the number of public anchor channels but is capped at a maximum.
@@ -72,14 +90,14 @@ service WalletKit {
     rpc RequiredReserve (RequiredReserveRequest)
         returns (RequiredReserveResponse);
 
-    /*
+    /* lncli: `wallet addresses list`
     ListAddresses retrieves all the addresses along with their balance. An
     account name filter can be provided to filter through all of the
     wallet accounts and return the addresses of only those matching.
     */
     rpc ListAddresses (ListAddressesRequest) returns (ListAddressesResponse);
 
-    /*
+    /* lncli: `wallet addresses signmessage`
     SignMessageWithAddr returns the compact signature (base64 encoded) created
     with the private key of the provided address. This requires the address
     to be solely based on a public key lock (no scripts). Obviously the internal
@@ -96,7 +114,7 @@ service WalletKit {
     rpc SignMessageWithAddr (SignMessageWithAddrRequest)
         returns (SignMessageWithAddrResponse);
 
-    /*
+    /* lncli: `wallet addresses verifymessage`
     VerifyMessageWithAddr returns the validity and the recovered public key of
     the provided compact signature (base64 encoded). The verification is
     twofold. First the validity of the signature itself is checked and then
@@ -120,7 +138,7 @@ service WalletKit {
     rpc VerifyMessageWithAddr (VerifyMessageWithAddrRequest)
         returns (VerifyMessageWithAddrResponse);
 
-    /*
+    /* lncli: `wallet accounts import`
     ImportAccount imports an account backed by an account extended public key.
     The master key fingerprint denotes the fingerprint of the root key
     corresponding to the account public key (also known as the key with
@@ -147,7 +165,7 @@ service WalletKit {
     */
     rpc ImportAccount (ImportAccountRequest) returns (ImportAccountResponse);
 
-    /*
+    /* lncli: `wallet accounts import-pubkey`
     ImportPublicKey imports a public key as watch-only into the wallet. The
     public key is converted into a simple address of the given type and that
     address script is watched on chain. For Taproot keys, this will only watch
@@ -177,7 +195,7 @@ service WalletKit {
     rpc ImportTapscript (ImportTapscriptRequest)
         returns (ImportTapscriptResponse);
 
-    /*
+    /* lncli: `wallet publishtx`
     PublishTransaction attempts to publish the passed transaction to the
     network. Once this returns without an error, the wallet will continually
     attempt to re-broadcast the transaction on start up, until it enters the
@@ -199,7 +217,7 @@ service WalletKit {
     */
     rpc EstimateFee (EstimateFeeRequest) returns (EstimateFeeResponse);
 
-    /*
+    /* lncli: `pendingsweeps`
     PendingSweeps returns lists of on-chain outputs that lnd is currently
     attempting to sweep within its central batching engine. Outputs with similar
     fee rates are batched together in order to sweep them within a single
@@ -211,7 +229,7 @@ service WalletKit {
     */
     rpc PendingSweeps (PendingSweepsRequest) returns (PendingSweepsResponse);
 
-    /*
+    /* lncli: `wallet bumpfee`
     BumpFee bumps the fee of an arbitrary input within a transaction. This RPC
     takes a different approach than bitcoind's bumpfee command. lnd has a
     central batching engine in which inputs with similar fee rates are batched
@@ -240,14 +258,14 @@ service WalletKit {
     */
     rpc BumpFee (BumpFeeRequest) returns (BumpFeeResponse);
 
-    /*
+    /* lncli: `wallet listsweeps`
     ListSweeps returns a list of the sweep transactions our node has produced.
     Note that these sweeps may not be confirmed yet, as we record sweeps on
     broadcast, not confirmation.
     */
     rpc ListSweeps (ListSweepsRequest) returns (ListSweepsResponse);
 
-    /*
+    /* lncli: `wallet labeltx`
     LabelTransaction adds a label to a transaction. If the transaction already
     has a label the call will fail unless the overwrite bool is set. This will
     overwrite the exiting transaction label. Labels must not be empty, and
@@ -256,7 +274,7 @@ service WalletKit {
     rpc LabelTransaction (LabelTransactionRequest)
         returns (LabelTransactionResponse);
 
-    /*
+    /* lncli: `wallet psbt fund`
     FundPsbt creates a fully populated PSBT that contains enough inputs to fund
     the outputs specified in the template. There are two ways of specifying a
     template: Either by passing in a PSBT with at least one output declared or
@@ -293,7 +311,7 @@ service WalletKit {
     */
     rpc SignPsbt (SignPsbtRequest) returns (SignPsbtResponse);
 
-    /*
+    /* lncli: `wallet psbt finalize`
     FinalizePsbt expects a partial transaction with all inputs and outputs fully
     declared and tries to sign all inputs that belong to the wallet. Lnd must be
     the last signer of the transaction. That means, if there are any unsigned

@@ -383,7 +383,7 @@
     },
     "/v1/channels/backup/verify": {
       "post": {
-        "summary": "VerifyChanBackup allows a caller to verify the integrity of a channel backup\nsnapshot. This method will accept either a packed Single or a packed Multi.\nSpecifying both will result in an error.",
+        "summary": "lncli: `verifychanbackup`\nVerifyChanBackup allows a caller to verify the integrity of a channel backup\nsnapshot. This method will accept either a packed Single or a packed Multi.\nSpecifying both will result in an error.",
         "operationId": "Lightning_VerifyChanBackup",
         "responses": {
           "200": {
@@ -2075,7 +2075,7 @@
     },
     "/v1/payment": {
       "delete": {
-        "summary": "DeletePayment deletes an outgoing payment from DB. Note that it will not\nattempt to delete an In-Flight payment, since that would be unsafe.",
+        "summary": "lncli: `deletepayments`\nDeletePayment deletes an outgoing payment from DB. Note that it will not\nattempt to delete an In-Flight payment, since that would be unsafe.",
         "operationId": "Lightning_DeletePayment",
         "responses": {
           "200": {
@@ -2191,7 +2191,7 @@
         ]
       },
       "delete": {
-        "summary": "DeleteAllPayments deletes all outgoing payments from DB. Note that it will\nnot attempt to delete In-Flight payments, since that would be unsafe.",
+        "summary": "lncli: `deletepayments --all`\nDeleteAllPayments deletes all outgoing payments from DB. Note that it will\nnot attempt to delete In-Flight payments, since that would be unsafe.",
         "operationId": "Lightning_DeleteAllPayments",
         "responses": {
           "200": {

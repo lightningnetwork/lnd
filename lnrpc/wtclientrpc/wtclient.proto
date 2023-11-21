@@ -4,10 +4,28 @@ package wtclientrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/wtclientrpc";
 
+/*
+ * Comments in this file will be directly parsed into the API
+ * Documentation as descriptions of the associated method, message, or field.
+ * These descriptions should go right above the definition of the object, and
+ * can be in either block or // comment format.
+ *
+ * An RPC method can be matched to an lncli command by placing a line in the
+ * beginning of the description in exactly the following format:
+ * lncli: `methodname`
+ *
+ * Failure to specify the exact name of the command will cause documentation
+ * generation to fail.
+ *
+ * More information on how exactly the gRPC documentation is generated from
+ * this proto file can be found here:
+ * https://github.com/lightninglabs/lightning-api
+ */
+
 // WatchtowerClient is a service that grants access to the watchtower client
 // functionality of the daemon.
 service WatchtowerClient {
-    /*
+    /* lncli: `wtclient add`
     AddTower adds a new watchtower reachable at the given address and
     considers it for new sessions. If the watchtower already exists, then
     any new addresses included will be considered when dialing it for
@@ -15,7 +33,7 @@ service WatchtowerClient {
     */
     rpc AddTower (AddTowerRequest) returns (AddTowerResponse);
 
-    /*
+    /* lncli: `wtclient remove`
     RemoveTower removes a watchtower from being considered for future session
     negotiations and from being used for any subsequent backups until it's added
     again. If an address is provided, then this RPC only serves as a way of
@@ -23,16 +41,24 @@ service WatchtowerClient {
     */
     rpc RemoveTower (RemoveTowerRequest) returns (RemoveTowerResponse);
 
-    // ListTowers returns the list of watchtowers registered with the client.
+    /* lncli: `wtclient towers`
+    ListTowers returns the list of watchtowers registered with the client.
+    */
     rpc ListTowers (ListTowersRequest) returns (ListTowersResponse);
 
-    // GetTowerInfo retrieves information for a registered watchtower.
+    /* lncli: `wtclient tower`
+    GetTowerInfo retrieves information for a registered watchtower.
+    */
     rpc GetTowerInfo (GetTowerInfoRequest) returns (Tower);
 
-    // Stats returns the in-memory statistics of the client since startup.
+    /* lncli: `wtclient stats`
+    Stats returns the in-memory statistics of the client since startup.
+    */
     rpc Stats (StatsRequest) returns (StatsResponse);
 
-    // Policy returns the active watchtower client policy configuration.
+    /* lncli: `wtclient policy`
+    Policy returns the active watchtower client policy configuration.
+    */
     rpc Policy (PolicyRequest) returns (PolicyResponse);
 }
 

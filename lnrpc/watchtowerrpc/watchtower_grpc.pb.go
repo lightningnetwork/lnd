@@ -18,7 +18,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type WatchtowerClient interface {
-	// lncli: tower info
+	// lncli: `tower info`
 	// GetInfo returns general information concerning the companion watchtower
 	// including its public key and URIs where the server is currently
 	// listening for clients.
@@ -46,7 +46,7 @@ func (c *watchtowerClient) GetInfo(ctx context.Context, in *GetInfoRequest, opts
 // All implementations must embed UnimplementedWatchtowerServer
 // for forward compatibility
 type WatchtowerServer interface {
-	// lncli: tower info
+	// lncli: `tower info`
 	// GetInfo returns general information concerning the companion watchtower
 	// including its public key and URIs where the server is currently
 	// listening for clients.

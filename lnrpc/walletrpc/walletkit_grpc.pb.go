@@ -24,16 +24,19 @@ type WalletKitClient interface {
 	// default, all utxos are listed. To list only the unconfirmed utxos, set
 	// the unconfirmed_only to true.
 	ListUnspent(ctx context.Context, in *ListUnspentRequest, opts ...grpc.CallOption) (*ListUnspentResponse, error)
+	// lncli: `wallet leaseoutput`
 	// LeaseOutput locks an output to the given ID, preventing it from being
 	// available for any future coin selection attempts. The absolute time of the
 	// lock's expiration is returned. The expiration of the lock can be extended by
 	// successive invocations of this RPC. Outputs can be unlocked before their
 	// expiration through `ReleaseOutput`.
 	LeaseOutput(ctx context.Context, in *LeaseOutputRequest, opts ...grpc.CallOption) (*LeaseOutputResponse, error)
+	// lncli: `wallet releaseoutput`
 	// ReleaseOutput unlocks an output, allowing it to be available for coin
 	// selection if it remains unspent. The ID should match the one used to
 	// originally lock the output.
 	ReleaseOutput(ctx context.Context, in *ReleaseOutputRequest, opts ...grpc.CallOption) (*ReleaseOutputResponse, error)
+	// lncli: `wallet listleases`
 	// ListLeases lists all currently locked utxos.
 	ListLeases(ctx context.Context, in *ListLeasesRequest, opts ...grpc.CallOption) (*ListLeasesResponse, error)
 	// DeriveNextKey attempts to derive the *next* key within the key family
@@ -45,18 +48,22 @@ type WalletKitClient interface {
 	DeriveKey(ctx context.Context, in *signrpc.KeyLocator, opts ...grpc.CallOption) (*signrpc.KeyDescriptor, error)
 	// NextAddr returns the next unused address within the wallet.
 	NextAddr(ctx context.Context, in *AddrRequest, opts ...grpc.CallOption) (*AddrResponse, error)
+	// lncli: `wallet accounts list`
 	// ListAccounts retrieves all accounts belonging to the wallet by default. A
 	// name and key scope filter can be provided to filter through all of the
 	// wallet accounts and return only those matching.
 	ListAccounts(ctx context.Context, in *ListAccountsRequest, opts ...grpc.CallOption) (*ListAccountsResponse, error)
+	// lncli: `wallet requiredreserve`
 	// RequiredReserve returns the minimum amount of satoshis that should be kept
 	// in the wallet in order to fee bump anchor channels if necessary. The value
 	// scales with the number of public anchor channels but is capped at a maximum.
 	RequiredReserve(ctx context.Context, in *RequiredReserveRequest, opts ...grpc.CallOption) (*RequiredReserveResponse, error)
+	// lncli: `wallet addresses list`
 	// ListAddresses retrieves all the addresses along with their balance. An
 	// account name filter can be provided to filter through all of the
 	// wallet accounts and return the addresses of only those matching.
 	ListAddresses(ctx context.Context, in *ListAddressesRequest, opts ...grpc.CallOption) (*ListAddressesResponse, error)
+	// lncli: `wallet addresses signmessage`
 	// SignMessageWithAddr returns the compact signature (base64 encoded) created
 	// with the private key of the provided address. This requires the address
 	// to be solely based on a public key lock (no scripts). Obviously the internal
@@ -70,6 +77,7 @@ type WalletKitClient interface {
 	// For P2TR addresses this represents a special case. ECDSA is used to create
 	// a compact signature which makes the public key of the signature recoverable.
 	SignMessageWithAddr(ctx context.Context, in *SignMessageWithAddrRequest, opts ...grpc.CallOption) (*SignMessageWithAddrResponse, error)
+	// lncli: `wallet addresses verifymessage`
 	// VerifyMessageWithAddr returns the validity and the recovered public key of
 	// the provided compact signature (base64 encoded). The verification is
 	// twofold. First the validity of the signature itself is checked and then
@@ -90,6 +98,7 @@ type WalletKitClient interface {
 	// taproot key. The compact ECDSA signature format was used because there
 	// are still no known compact signature schemes for schnorr signatures.
 	VerifyMessageWithAddr(ctx context.Context, in *VerifyMessageWithAddrRequest, opts ...grpc.CallOption) (*VerifyMessageWithAddrResponse, error)
+	// lncli: `wallet accounts import`
 	// ImportAccount imports an account backed by an account extended public key.
 	// The master key fingerprint denotes the fingerprint of the root key
 	// corresponding to the account public key (also known as the key with
@@ -114,6 +123,7 @@ type WalletKitClient interface {
 	// detected by lnd if they happen after the import. Rescans to detect past
 	// events will be supported later on.
 	ImportAccount(ctx context.Context, in *ImportAccountRequest, opts ...grpc.CallOption) (*ImportAccountResponse, error)
+	// lncli: `wallet accounts import-pubkey`
 	// ImportPublicKey imports a public key as watch-only into the wallet. The
 	// public key is converted into a simple address of the given type and that
 	// address script is watched on chain. For Taproot keys, this will only watch
@@ -136,6 +146,7 @@ type WalletKitClient interface {
 	// NOTE: Taproot keys imported through this RPC currently _cannot_ be used for
 	// funding PSBTs. Only tracking the balance and UTXOs is currently supported.
 	ImportTapscript(ctx context.Context, in *ImportTapscriptRequest, opts ...grpc.CallOption) (*ImportTapscriptResponse, error)
+	// lncli: `wallet publishtx`
 	// PublishTransaction attempts to publish the passed transaction to the
 	// network. Once this returns without an error, the wallet will continually
 	// attempt to re-broadcast the transaction on start up, until it enters the
@@ -149,6 +160,7 @@ type WalletKitClient interface {
 	// determine the fee (in sat/kw) to attach to a transaction in order to
 	// achieve the confirmation target.
 	EstimateFee(ctx context.Context, in *EstimateFeeRequest, opts ...grpc.CallOption) (*EstimateFeeResponse, error)
+	// lncli: `pendingsweeps`
 	// PendingSweeps returns lists of on-chain outputs that lnd is currently
 	// attempting to sweep within its central batching engine. Outputs with similar
 	// fee rates are batched together in order to sweep them within a single
@@ -158,6 +170,7 @@ type WalletKitClient interface {
 	// remain supported. This is an advanced API that depends on the internals of
 	// the UtxoSweeper, so things may change.
 	PendingSweeps(ctx context.Context, in *PendingSweepsRequest, opts ...grpc.CallOption) (*PendingSweepsResponse, error)
+	// lncli: `wallet bumpfee`
 	// BumpFee bumps the fee of an arbitrary input within a transaction. This RPC
 	// takes a different approach than bitcoind's bumpfee command. lnd has a
 	// central batching engine in which inputs with similar fee rates are batched
@@ -184,15 +197,18 @@ type WalletKitClient interface {
 	// fee preference being provided. For now, the responsibility of ensuring that
 	// the new fee preference is sufficient is delegated to the user.
 	BumpFee(ctx context.Context, in *BumpFeeRequest, opts ...grpc.CallOption) (*BumpFeeResponse, error)
+	// lncli: `wallet listsweeps`
 	// ListSweeps returns a list of the sweep transactions our node has produced.
 	// Note that these sweeps may not be confirmed yet, as we record sweeps on
 	// broadcast, not confirmation.
 	ListSweeps(ctx context.Context, in *ListSweepsRequest, opts ...grpc.CallOption) (*ListSweepsResponse, error)
+	// lncli: `wallet labeltx`
 	// LabelTransaction adds a label to a transaction. If the transaction already
 	// has a label the call will fail unless the overwrite bool is set. This will
 	// overwrite the exiting transaction label. Labels must not be empty, and
 	// cannot exceed 500 characters.
 	LabelTransaction(ctx context.Context, in *LabelTransactionRequest, opts ...grpc.CallOption) (*LabelTransactionResponse, error)
+	// lncli: `wallet psbt fund`
 	// FundPsbt creates a fully populated PSBT that contains enough inputs to fund
 	// the outputs specified in the template. There are two ways of specifying a
 	// template: Either by passing in a PSBT with at least one output declared or
@@ -224,6 +240,7 @@ type WalletKitClient interface {
 	// input/output/fee value validation, PSBT finalization). Any input that is
 	// incomplete will be skipped.
 	SignPsbt(ctx context.Context, in *SignPsbtRequest, opts ...grpc.CallOption) (*SignPsbtResponse, error)
+	// lncli: `wallet psbt finalize`
 	// FinalizePsbt expects a partial transaction with all inputs and outputs fully
 	// declared and tries to sign all inputs that belong to the wallet. Lnd must be
 	// the last signer of the transaction. That means, if there are any unsigned
@@ -480,16 +497,19 @@ type WalletKitServer interface {
 	// default, all utxos are listed. To list only the unconfirmed utxos, set
 	// the unconfirmed_only to true.
 	ListUnspent(context.Context, *ListUnspentRequest) (*ListUnspentResponse, error)
+	// lncli: `wallet leaseoutput`
 	// LeaseOutput locks an output to the given ID, preventing it from being
 	// available for any future coin selection attempts. The absolute time of the
 	// lock's expiration is returned. The expiration of the lock can be extended by
 	// successive invocations of this RPC. Outputs can be unlocked before their
 	// expiration through `ReleaseOutput`.
 	LeaseOutput(context.Context, *LeaseOutputRequest) (*LeaseOutputResponse, error)
+	// lncli: `wallet releaseoutput`
 	// ReleaseOutput unlocks an output, allowing it to be available for coin
 	// selection if it remains unspent. The ID should match the one used to
 	// originally lock the output.
 	ReleaseOutput(context.Context, *ReleaseOutputRequest) (*ReleaseOutputResponse, error)
+	// lncli: `wallet listleases`
 	// ListLeases lists all currently locked utxos.
 	ListLeases(context.Context, *ListLeasesRequest) (*ListLeasesResponse, error)
 	// DeriveNextKey attempts to derive the *next* key within the key family
@@ -501,18 +521,22 @@ type WalletKitServer interface {
 	DeriveKey(context.Context, *signrpc.KeyLocator) (*signrpc.KeyDescriptor, error)
 	// NextAddr returns the next unused address within the wallet.
 	NextAddr(context.Context, *AddrRequest) (*AddrResponse, error)
+	// lncli: `wallet accounts list`
 	// ListAccounts retrieves all accounts belonging to the wallet by default. A
 	// name and key scope filter can be provided to filter through all of the
 	// wallet accounts and return only those matching.
 	ListAccounts(context.Context, *ListAccountsRequest) (*ListAccountsResponse, error)
+	// lncli: `wallet requiredreserve`
 	// RequiredReserve returns the minimum amount of satoshis that should be kept
 	// in the wallet in order to fee bump anchor channels if necessary. The value
 	// scales with the number of public anchor channels but is capped at a maximum.
 	RequiredReserve(context.Context, *RequiredReserveRequest) (*RequiredReserveResponse, error)
+	// lncli: `wallet addresses list`
 	// ListAddresses retrieves all the addresses along with their balance. An
 	// account name filter can be provided to filter through all of the
 	// wallet accounts and return the addresses of only those matching.
 	ListAddresses(context.Context, *ListAddressesRequest) (*ListAddressesResponse, error)
+	// lncli: `wallet addresses signmessage`
 	// SignMessageWithAddr returns the compact signature (base64 encoded) created
 	// with the private key of the provided address. This requires the address
 	// to be solely based on a public key lock (no scripts). Obviously the internal
@@ -526,6 +550,7 @@ type WalletKitServer interface {
 	// For P2TR addresses this represents a special case. ECDSA is used to create
 	// a compact signature which makes the public key of the signature recoverable.
 	SignMessageWithAddr(context.Context, *SignMessageWithAddrRequest) (*SignMessageWithAddrResponse, error)
+	// lncli: `wallet addresses verifymessage`
 	// VerifyMessageWithAddr returns the validity and the recovered public key of
 	// the provided compact signature (base64 encoded). The verification is
 	// twofold. First the validity of the signature itself is checked and then
@@ -546,6 +571,7 @@ type WalletKitServer interface {
 	// taproot key. The compact ECDSA signature format was used because there
 	// are still no known compact signature schemes for schnorr signatures.
 	VerifyMessageWithAddr(context.Context, *VerifyMessageWithAddrRequest) (*VerifyMessageWithAddrResponse, error)
+	// lncli: `wallet accounts import`
 	// ImportAccount imports an account backed by an account extended public key.
 	// The master key fingerprint denotes the fingerprint of the root key
 	// corresponding to the account public key (also known as the key with
@@ -570,6 +596,7 @@ type WalletKitServer interface {
 	// detected by lnd if they happen after the import. Rescans to detect past
 	// events will be supported later on.
 	ImportAccount(context.Context, *ImportAccountRequest) (*ImportAccountResponse, error)
+	// lncli: `wallet accounts import-pubkey`
 	// ImportPublicKey imports a public key as watch-only into the wallet. The
 	// public key is converted into a simple address of the given type and that
 	// address script is watched on chain. For Taproot keys, this will only watch
@@ -592,6 +619,7 @@ type WalletKitServer interface {
 	// NOTE: Taproot keys imported through this RPC currently _cannot_ be used for
 	// funding PSBTs. Only tracking the balance and UTXOs is currently supported.
 	ImportTapscript(context.Context, *ImportTapscriptRequest) (*ImportTapscriptResponse, error)
+	// lncli: `wallet publishtx`
 	// PublishTransaction attempts to publish the passed transaction to the
 	// network. Once this returns without an error, the wallet will continually
 	// attempt to re-broadcast the transaction on start up, until it enters the
@@ -605,6 +633,7 @@ type WalletKitServer interface {
 	// determine the fee (in sat/kw) to attach to a transaction in order to
 	// achieve the confirmation target.
 	EstimateFee(context.Context, *EstimateFeeRequest) (*EstimateFeeResponse, error)
+	// lncli: `pendingsweeps`
 	// PendingSweeps returns lists of on-chain outputs that lnd is currently
 	// attempting to sweep within its central batching engine. Outputs with similar
 	// fee rates are batched together in order to sweep them within a single
@@ -614,6 +643,7 @@ type WalletKitServer interface {
 	// remain supported. This is an advanced API that depends on the internals of
 	// the UtxoSweeper, so things may change.
 	PendingSweeps(context.Context, *PendingSweepsRequest) (*PendingSweepsResponse, error)
+	// lncli: `wallet bumpfee`
 	// BumpFee bumps the fee of an arbitrary input within a transaction. This RPC
 	// takes a different approach than bitcoind's bumpfee command. lnd has a
 	// central batching engine in which inputs with similar fee rates are batched
@@ -640,15 +670,18 @@ type WalletKitServer interface {
 	// fee preference being provided. For now, the responsibility of ensuring that
 	// the new fee preference is sufficient is delegated to the user.
 	BumpFee(context.Context, *BumpFeeRequest) (*BumpFeeResponse, error)
+	// lncli: `wallet listsweeps`
 	// ListSweeps returns a list of the sweep transactions our node has produced.
 	// Note that these sweeps may not be confirmed yet, as we record sweeps on
 	// broadcast, not confirmation.
 	ListSweeps(context.Context, *ListSweepsRequest) (*ListSweepsResponse, error)
+	// lncli: `wallet labeltx`
 	// LabelTransaction adds a label to a transaction. If the transaction already
 	// has a label the call will fail unless the overwrite bool is set. This will
 	// overwrite the exiting transaction label. Labels must not be empty, and
 	// cannot exceed 500 characters.
 	LabelTransaction(context.Context, *LabelTransactionRequest) (*LabelTransactionResponse, error)
+	// lncli: `wallet psbt fund`
 	// FundPsbt creates a fully populated PSBT that contains enough inputs to fund
 	// the outputs specified in the template. There are two ways of specifying a
 	// template: Either by passing in a PSBT with at least one output declared or
@@ -680,6 +713,7 @@ type WalletKitServer interface {
 	// input/output/fee value validation, PSBT finalization). Any input that is
 	// incomplete will be skipped.
 	SignPsbt(context.Context, *SignPsbtRequest) (*SignPsbtResponse, error)
+	// lncli: `wallet psbt finalize`
 	// FinalizePsbt expects a partial transaction with all inputs and outputs fully
 	// declared and tries to sign all inputs that belong to the wallet. Lnd must be
 	// the last signer of the transaction. That means, if there are any unsigned

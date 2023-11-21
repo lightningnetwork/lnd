@@ -2480,7 +2480,7 @@ var verifyChanBackupCommand = cli.Command{
 
        * A packed multi-channel SCB, which couples several individual
 	 static channel backups in single blob.
-	
+
        * A file path which points to a packed single-channel backup within a
          file, using the same format that lnd does in its channel.backup file.
 

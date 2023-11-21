@@ -1,4 +1,7 @@
 {
     "editor.tabSize": 8,
-    "editor.rulers": [80]
+    "editor.rulers": [
+        80
+    ],
+    "go.buildTags": "autopilotrpc chainrpc dev invoicesrpc neutrinorpc peersrpc signrpc walletrpc watchtowerrpc"
 }

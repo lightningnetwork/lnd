@@ -23,13 +23,16 @@ type InvoicesClient interface {
 	// to notify the client of state transitions of the specified invoice.
 	// Initially the current invoice state is always sent out.
 	SubscribeSingleInvoice(ctx context.Context, in *SubscribeSingleInvoiceRequest, opts ...grpc.CallOption) (Invoices_SubscribeSingleInvoiceClient, error)
+	// lncli: `cancelinvoice`
 	// CancelInvoice cancels a currently open invoice. If the invoice is already
 	// canceled, this call will succeed. If the invoice is already settled, it will
 	// fail.
 	CancelInvoice(ctx context.Context, in *CancelInvoiceMsg, opts ...grpc.CallOption) (*CancelInvoiceResp, error)
+	// lncli: `addholdinvoice`
 	// AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
 	// supplied in the request.
 	AddHoldInvoice(ctx context.Context, in *AddHoldInvoiceRequest, opts ...grpc.CallOption) (*AddHoldInvoiceResp, error)
+	// lncli: `settleinvoice`
 	// SettleInvoice settles an accepted invoice. If the invoice is already
 	// settled, this call will succeed.
 	SettleInvoice(ctx context.Context, in *SettleInvoiceMsg, opts ...grpc.CallOption) (*SettleInvoiceResp, error)
@@ -122,13 +125,16 @@ type InvoicesServer interface {
 	// to notify the client of state transitions of the specified invoice.
 	// Initially the current invoice state is always sent out.
 	SubscribeSingleInvoice(*SubscribeSingleInvoiceRequest, Invoices_SubscribeSingleInvoiceServer) error
+	// lncli: `cancelinvoice`
 	// CancelInvoice cancels a currently open invoice. If the invoice is already
 	// canceled, this call will succeed. If the invoice is already settled, it will
 	// fail.
 	CancelInvoice(context.Context, *CancelInvoiceMsg) (*CancelInvoiceResp, error)
+	// lncli: `addholdinvoice`
 	// AddHoldInvoice creates a hold invoice. It ties the invoice to the hash
 	// supplied in the request.
 	AddHoldInvoice(context.Context, *AddHoldInvoiceRequest) (*AddHoldInvoiceResp, error)
+	// lncli: `settleinvoice`
 	// SettleInvoice settles an accepted invoice. If the invoice is already
 	// settled, this call will succeed.
 	SettleInvoice(context.Context, *SettleInvoiceMsg) (*SettleInvoiceResp, error)

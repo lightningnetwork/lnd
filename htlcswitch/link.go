@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -545,6 +546,83 @@ func (l *channelLink) EligibleToForward() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
 		l.ShortChanID() != hop.Source &&
 		l.isReestablished()
+}
+
+// EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
+// the specified direction. It returns an error if the state already allowed
+// those adds.
+func (l *channelLink) EnableAdds(LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+
+// DiableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
+// the specified direction. It returns an error if the state already disallowed
+// those adds.
+func (l *channelLink) DisableAdds(LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+
+// IsFlushing returns true when UpdateAddHtlc's are disabled in the direction of
+// the argument.
+func (l *channelLink) IsFlushing(LinkDirection) bool {
+	// TODO(proofofkeags): Implement
+	return false
+}
+
+// OnFlushedOnce is a method that adds a hook to be called the next time the
+// channel state reaches zero htlcs. This hook will only ever be called once.
+// This function returns a FlushHookID that can be used to preemptively remove
+// this hook. If the channel state is already flushed -- no HTLCs and no
+// commitments owed by either party -- then we will call this hook synchronously
+// and will not return a FlushHookID.
+func (l *channelLink) OnFlushedOnce(func()) fn.Option[FlushHookID] {
+	// TODO(proofofkeags): Implement
+	return fn.None[FlushHookID]()
+}
+
+// OnFlushedMany is a method that adds a hook to be called every time the
+// channel state reaches zero htlcs. This function returns a FlushHookID that
+// can be used to preemptively remove this hook.
+func (l *channelLink) OnFlushedMany(func()) FlushHookID {
+	// TODO(proofofkeags): Implement
+	return FlushHookID(0)
+}
+
+// RemoveFlushHook will remove a hook previously added by OnFlushedOnce or
+// OnFlushedMany. It returns an error if the supplied FlushHookID was not found.
+func (l *channelLink) RemoveFlushHook(FlushHookID) error {
+	// TODO(proofofkeags): Implement
+	return errors.New("no flush in progress to cancel")
+}
+
+// OnCommitOnce adds a hook that will be called the next time a CommitSig
+// message is sent in the argument's LinkDirection. This hook will only ever be
+// called once. This function returns a CommitHookID that can be used to
+// preemptively remove this hook. If no CommitSig is owed in the argument's
+// LinkDirection, then we will call this hook synchronously and will not return
+// a CommitHookID.
+func (l *channelLink) OnCommitOnce(
+	LinkDirection, func(),
+) fn.Option[CommitHookID] {
+
+	// TODO(proofofkeags): Implement
+	return fn.None[CommitHookID]()
+}
+
+// OnCommitMany adds a hook that will be called every time a CommitSig message
+// is sent in the argument's LinkDirection.
+func (l *channelLink) OnCommitMany(LinkDirection, func()) CommitHookID {
+	// TODO(proofofkeags): Implement
+	return CommitHookID(0)
+}
+
+// RemoveCommitHook will remove a hook previously added by OnCommitOnce or
+// OnCommitMany. It returns an error if the supplied CommitHookId was not found.
+func (l *channelLink) RemoveCommitHook(CommitHookID) error {
+	// TODO(proofofkeags): Implement
+	return errors.New("could not remove commit hook: not found")
 }
 
 // isReestablished returns true if the link has successfully completed the

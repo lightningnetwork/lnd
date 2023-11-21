@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnpeer"
@@ -905,6 +906,46 @@ func (f *mockChannelLink) IsUnadvertised() bool                         { return
 func (f *mockChannelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 	f.eligible = true
 	return f.shortChanID, nil
+}
+
+func (f *mockChannelLink) EnableAdds(linkDirection LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (f *mockChannelLink) DisableAdds(linkDirection LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (f *mockChannelLink) IsFlushing(linkDirection LinkDirection) bool {
+	// TODO(proofofkeags): Implement
+	return false
+}
+func (f *mockChannelLink) OnFlushedOnce(func()) fn.Option[FlushHookID] {
+	// TODO(proofofkeags): Implement
+	return fn.None[FlushHookID]()
+}
+func (f *mockChannelLink) OnFlushedMany(func()) FlushHookID {
+	// TODO(proofofkeags): Implement
+	return FlushHookID(0)
+}
+func (f *mockChannelLink) RemoveFlushHook(FlushHookID) error {
+	// TODO(proofofkeags): Implement
+	return errors.New("no flush in progress to cancel")
+}
+func (f *mockChannelLink) OnCommitOnce(
+	LinkDirection, func(),
+) fn.Option[CommitHookID] {
+
+	// TODO(proofofkeags): Implement
+	return fn.None[CommitHookID]()
+}
+func (f *mockChannelLink) OnCommitMany(LinkDirection, func()) CommitHookID {
+	// TODO(proofofkeags): Implement
+	return CommitHookID(0)
+}
+func (f *mockChannelLink) RemoveCommitHook(CommitHookID) error {
+	// TODO(proofofkeags): Implement
+	return nil
 }
 
 var _ ChannelLink = (*mockChannelLink)(nil)

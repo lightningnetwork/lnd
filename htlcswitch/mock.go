@@ -907,6 +907,43 @@ func (f *mockChannelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 	return f.shortChanID, nil
 }
 
+func (f *mockChannelLink) EnableAdds(linkDirection LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (f *mockChannelLink) DisableAdds(linkDirection LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (f *mockChannelLink) IsDraining(linkDirection LinkDirection) bool {
+	// TODO(proofofkeags): Implement
+	return false
+}
+func (f *mockChannelLink) OnFlushedOnce(func()) FlushHookID {
+	// TODO(proofofkeags): Implement
+	return FlushHookID(0)
+}
+func (f *mockChannelLink) OnFlushedMany(func()) FlushHookID {
+	// TODO(proofofkeags): Implement
+	return FlushHookID(0)
+}
+func (f *mockChannelLink) RemoveFlushHook(FlushHookID) error {
+	// TODO(proofofkeags): Implement
+	return errors.New("no flush in progress to cancel")
+}
+func (f *mockChannelLink) OnCommitOnce(LinkDirection, func()) CommitHookID {
+	// TODO(proofofkeags): Implement
+	return CommitHookID(0)
+}
+func (f *mockChannelLink) OnCommitMany(LinkDirection, func()) CommitHookID {
+	// TODO(proofofkeags): Implement
+	return CommitHookID(0)
+}
+func (f *mockChannelLink) RemoveCommitHook(CommitHookID) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+
 var _ ChannelLink = (*mockChannelLink)(nil)
 
 func newDB() (*channeldb.DB, func(), error) {

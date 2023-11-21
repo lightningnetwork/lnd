@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math/rand"
 	"net"
@@ -497,6 +498,59 @@ type mockMessageConn struct {
 
 	readMessages   chan []byte
 	curReadMessage []byte
+}
+
+func (m *mockUpdateHandler) EnableAdds(
+	direction htlcswitch.LinkDirection,
+) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (m *mockUpdateHandler) DisableAdds(
+	direction htlcswitch.LinkDirection,
+) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (m *mockUpdateHandler) IsDraining(
+	direction htlcswitch.LinkDirection,
+) bool {
+	// TODO(proofofkeags): Implement
+	return false
+}
+func (m *mockUpdateHandler) OnFlushedOnce(
+	onFlushed func(),
+) htlcswitch.FlushHookID {
+	// TODO(proofofkeags): Implement
+	return htlcswitch.FlushHookID(0)
+}
+func (m *mockUpdateHandler) OnFlushedMany(
+	onFlushed func(),
+) htlcswitch.FlushHookID {
+	// TODO(proofofkeags): Implement
+	return htlcswitch.FlushHookID(0)
+}
+func (m *mockUpdateHandler) RemoveFlushHook(
+	flushID htlcswitch.FlushHookID,
+) error {
+	// TODO(proofofkeags): Implement
+	return errors.New("no flush in progress to cancel")
+}
+func (m *mockUpdateHandler) OnCommitOnce(
+	htlcswitch.LinkDirection, func(),
+) htlcswitch.CommitHookID {
+	// TODO(proofofkeags): Implement
+	return htlcswitch.CommitHookID(0)
+}
+func (m *mockUpdateHandler) OnCommitMany(
+	htlcswitch.LinkDirection, func(),
+) htlcswitch.CommitHookID {
+	// TODO(proofofkeags): Implement
+	return htlcswitch.CommitHookID(0)
+}
+func (m *mockUpdateHandler) RemoveCommitHook(htlcswitch.CommitHookID) error {
+	// TODO(proofofkeags): Implement
+	return errors.New("no flush in progress to cancel")
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {

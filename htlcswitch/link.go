@@ -545,6 +545,43 @@ func (l *channelLink) EligibleToForward() bool {
 		l.isReestablished()
 }
 
+func (l *channelLink) EnableAdds(linkDirection LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (l *channelLink) DisableAdds(linkDirection LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (l *channelLink) IsDraining(linkDirection LinkDirection) bool {
+	// TODO(proofofkeags): Implement
+	return false
+}
+func (l *channelLink) OnFlushedOnce(func()) FlushHookID {
+	// TODO(proofofkeags): Implement
+	return FlushHookID(0)
+}
+func (l *channelLink) OnFlushedMany(func()) FlushHookID {
+	// TODO(proofofkeags): Implement
+	return FlushHookID(0)
+}
+func (l *channelLink) RemoveFlushHook(FlushHookID) error {
+	// TODO(proofofkeags): Implement
+	return errors.New("no flush in progress to cancel")
+}
+func (l *channelLink) OnCommitOnce(LinkDirection, func()) CommitHookID {
+	// TODO(proofofkeags): Implement
+	return CommitHookID(0)
+}
+func (l *channelLink) OnCommitMany(LinkDirection, func()) CommitHookID {
+	// TODO(proofofkeags): Implement
+	return CommitHookID(0)
+}
+func (l *channelLink) RemoveCommitHook(CommitHookID) error {
+	// TODO(proofofkeags): Implement
+	return errors.New("could not remove commit hook: not found")
+}
+
 // isReestablished returns true if the link has successfully completed the
 // channel reestablishment dance.
 func (l *channelLink) isReestablished() bool {

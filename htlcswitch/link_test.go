@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	prand "math/rand"
 	"net"
 	"reflect"
 	"runtime"
@@ -7040,4 +7041,225 @@ func TestChannelLinkShortFailureRelay(t *testing.T) {
 
 	default:
 	}
+}
+
+// TestLinkFlushApiDirectionIsolation tests whether the calls to EnableAdds and
+// DisableAdds are correctly isolated based off of direction (Incoming and
+// Outgoing). This means that the state of the Outgoing flush should always be
+// unaffected by calls to EnableAdds/DisableAdds on the Incoming direction and
+// vice-versa.
+func TestLinkFlushApiDirectionIsolation(t *testing.T) {
+	aliceLink, _, _, _, _, _ :=
+		newSingleLinkTestHarness(
+			t, 5*btcutil.SatoshiPerBitcoin,
+			1*btcutil.SatoshiPerBitcoin,
+		)
+
+	for i := 0; i < 10; i++ {
+		if prand.Uint64()%2 == 0 {
+			//nolint:errcheck
+			aliceLink.EnableAdds(Outgoing)
+			require.False(t, aliceLink.IsFlushing(Outgoing))
+		} else {
+			//nolint:errcheck
+			aliceLink.DisableAdds(Outgoing)
+			require.True(t, aliceLink.IsFlushing(Outgoing))
+		}
+		require.False(t, aliceLink.IsFlushing(Incoming))
+	}
+
+	//nolint:errcheck
+	aliceLink.EnableAdds(Outgoing)
+
+	for i := 0; i < 10; i++ {
+		if prand.Uint64()%2 == 0 {
+			//nolint:errcheck
+			aliceLink.EnableAdds(Incoming)
+			require.False(t, aliceLink.IsFlushing(Incoming))
+		} else {
+			//nolint:errcheck
+			aliceLink.DisableAdds(Incoming)
+			require.True(t, aliceLink.IsFlushing(Incoming))
+		}
+		require.False(t, aliceLink.IsFlushing(Outgoing))
+	}
+}
+
+// TestLinkFlushApiGateStateIdempotence tests whether successive calls to
+// EnableAdds or DisableAdds (without the other one in between) result in both
+// no state change in the flush state AND that the second call results in an
+// error (to inform the caller that the call was unnecessary in case it implies
+// a bug in their logic).
+func TestLinkFlushApiGateStateIdempotence(t *testing.T) {
+	aliceLink, _, _, _, _, _ :=
+		newSingleLinkTestHarness(
+			t, 5*btcutil.SatoshiPerBitcoin,
+			1*btcutil.SatoshiPerBitcoin,
+		)
+
+	for _, dir := range []LinkDirection{Incoming, Outgoing} {
+		require.Nil(t, aliceLink.DisableAdds(dir))
+		require.True(t, aliceLink.IsFlushing(dir))
+
+		require.NotNil(t, aliceLink.DisableAdds(dir))
+		require.True(t, aliceLink.IsFlushing(dir))
+
+		require.Nil(t, aliceLink.EnableAdds(dir))
+		require.False(t, aliceLink.IsFlushing(dir))
+
+		require.NotNil(t, aliceLink.EnableAdds(dir))
+		require.False(t, aliceLink.IsFlushing(dir))
+	}
+}
+
+func TestLinkOutgoingCommitHooksCalled(t *testing.T) {
+	aliceLink, _, batchTicker, start, _, err :=
+		newSingleLinkTestHarness(
+			t, 5*btcutil.SatoshiPerBitcoin,
+			btcutil.SatoshiPerBitcoin,
+		)
+	if err != nil {
+		t.Fatal()
+	}
+
+	if err = start(); err != nil {
+		t.Fatal("could not start link")
+	}
+
+	hookCalled := make(chan struct{})
+	aliceLink.OnCommitOnce(Outgoing, func() {
+		close(hookCalled)
+	})
+
+	select {
+	case <-hookCalled:
+		t.Fatal("hook called prematurely")
+	case <-time.NewTimer(time.Second).C:
+	}
+
+	batchTicker <- time.Now()
+
+	// Send a second tick just to ensure the hook isn't called more than
+	// once.
+	batchTicker <- time.Now()
+
+	select {
+	case <-hookCalled:
+	case <-time.NewTimer(time.Second).C:
+		t.Fatal("hook not called")
+	}
+}
+
+func TestLinkCommitHooksRemovable(t *testing.T) {
+	aliceLink, _, batchTicker, start, _, err :=
+		newSingleLinkTestHarness(
+			t, 5*btcutil.SatoshiPerBitcoin,
+			btcutil.SatoshiPerBitcoin,
+		)
+	require.NoError(t, err)
+
+	require.NoError(t, start(), "could not start link")
+
+	hookCalled := make(chan struct{})
+	hid := aliceLink.OnCommitOnce(Outgoing, func() {
+		close(hookCalled)
+	}).UnsafeFromSome()
+
+	select {
+	case <-hookCalled:
+		t.Fatal("hook called prematurely")
+	case <-time.NewTimer(time.Second).C:
+	}
+
+	require.Nil(t, aliceLink.RemoveCommitHook(hid))
+
+	batchTicker <- time.Now()
+
+	select {
+	case <-hookCalled:
+		t.Fatal("hook called after removed")
+	case <-time.NewTimer(time.Second).C:
+	}
+}
+
+func TestLinkFlushHooksCalled(t *testing.T) {
+	aliceLink, bobChannel, _, start, _, err :=
+		newSingleLinkTestHarness(
+			t, 5*btcutil.SatoshiPerBitcoin,
+			btcutil.SatoshiPerBitcoin,
+		)
+	require.NoError(t, err)
+
+	require.NoError(t, start(), "could not start link")
+
+	//nolint:forcetypeassert
+	aliceMsgs := aliceLink.(*channelLink).cfg.Peer.(*mockPeer).sentMsgs
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	hookCalled := make(chan struct{})
+
+	assertHookCalled := func(shouldBeCalled bool) {
+		select {
+		case <-hookCalled:
+			require.False(
+				t, shouldBeCalled, "hook called prematurely",
+			)
+		case <-time.NewTimer(time.Millisecond).C:
+			require.True(t, shouldBeCalled, "hook not called")
+		}
+	}
+
+	//nolint:forcetypeassert
+	htlc := generateHtlc(t, aliceLink.(*channelLink), 0)
+
+	// A <- add -- B
+	ctx.sendHtlcBobToAlice(htlc)
+
+	// A <- sig -- B
+	ctx.sendCommitSigBobToAlice(1)
+
+	// A -- rev -> B
+	ctx.receiveRevAndAckAliceToBob()
+
+	// Register flush hook
+	aliceLink.OnFlushedOnce(func() {
+		close(hookCalled)
+	})
+
+	// Channel is not clean, hook should not be called
+	assertHookCalled(false)
+
+	// A -- sig -> B
+	ctx.receiveCommitSigAliceToBob(1)
+	assertHookCalled(false)
+
+	// A <- rev -- B
+	ctx.sendRevAndAckBobToAlice()
+	assertHookCalled(false)
+
+	// A -- set -> B
+	ctx.receiveSettleAliceToBob()
+	assertHookCalled(false)
+
+	// A -- sig -> B
+	ctx.receiveCommitSigAliceToBob(0)
+	assertHookCalled(false)
+
+	// A <- rev -- B
+	ctx.sendRevAndAckBobToAlice()
+	assertHookCalled(false)
+
+	// A <- sig -- B
+	ctx.sendCommitSigBobToAlice(0)
+	assertHookCalled(false)
+
+	// A -- rev -> B
+	ctx.receiveRevAndAckAliceToBob()
+	assertHookCalled(true)
 }

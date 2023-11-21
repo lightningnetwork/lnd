@@ -547,6 +547,45 @@ func (l *channelLink) EligibleToForward() bool {
 		l.isReestablished()
 }
 
+// EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
+// the specified direction. It returns an error if the state already allowed
+// those adds.
+func (l *channelLink) EnableAdds(LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+
+// DiableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
+// the specified direction. It returns an error if the state already disallowed
+// those adds.
+func (l *channelLink) DisableAdds(LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+
+// IsFlushing returns true when UpdateAddHtlc's are disabled in the direction of
+// the argument.
+func (l *channelLink) IsFlushing(LinkDirection) bool {
+	// TODO(proofofkeags): Implement
+	return false
+}
+
+// OnFlushedOnce adds a hook that will be called the next time the
+// channel state reaches zero htlcs. This hook will only ever be called
+// once. If the channel state already has zero htlcs, then this will be
+// called immediately.
+func (l *channelLink) OnFlushedOnce(func()) {
+	// TODO(proofofkeags): Implement
+}
+
+// OnCommitOnce adds a hook that will be called the next time a CommitSig
+// message is sent in the argument's LinkDirection. This hook will only ever be
+// called once. If no CommitSig is owed in the argument's LinkDirection, then
+// we will call this hook immediately.
+func (l *channelLink) OnCommitOnce(LinkDirection, func()) {
+	// TODO(proofofkeags): Implement
+}
+
 // isReestablished returns true if the link has successfully completed the
 // channel reestablishment dance.
 func (l *channelLink) isReestablished() bool {

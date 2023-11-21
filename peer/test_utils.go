@@ -509,6 +509,27 @@ type mockMessageConn struct {
 	readRaceDetectingCounter int
 }
 
+func (m *mockUpdateHandler) EnableAdds(
+	htlcswitch.LinkDirection,
+) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (m *mockUpdateHandler) DisableAdds(htlcswitch.LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (m *mockUpdateHandler) IsFlushing(htlcswitch.LinkDirection) bool {
+	// TODO(proofofkeags): Implement
+	return false
+}
+func (m *mockUpdateHandler) OnFlushedOnce(func()) {
+	// TODO(proofofkeags): Implement
+}
+func (m *mockUpdateHandler) OnCommitOnce(htlcswitch.LinkDirection, func()) {
+	// TODO(proofofkeags): Implement
+}
+
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {
 	return &mockMessageConn{
 		t:               t,

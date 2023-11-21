@@ -907,6 +907,25 @@ func (f *mockChannelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 	return f.shortChanID, nil
 }
 
+func (f *mockChannelLink) EnableAdds(linkDirection LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (f *mockChannelLink) DisableAdds(linkDirection LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (f *mockChannelLink) IsFlushing(linkDirection LinkDirection) bool {
+	// TODO(proofofkeags): Implement
+	return false
+}
+func (f *mockChannelLink) OnFlushedOnce(func()) {
+	// TODO(proofofkeags): Implement
+}
+func (f *mockChannelLink) OnCommitOnce(LinkDirection, func()) {
+	// TODO(proofofkeags): Implement
+}
+
 var _ ChannelLink = (*mockChannelLink)(nil)
 
 func newDB() (*channeldb.DB, func(), error) {

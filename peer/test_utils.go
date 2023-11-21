@@ -4,6 +4,7 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"errors"
 	"io"
 	"math/rand"
 	"net"
@@ -17,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channelnotifier"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -507,6 +509,55 @@ type mockMessageConn struct {
 	// associated with reading from the connection. The race detector will
 	// trigger on this counter if a data race exists.
 	readRaceDetectingCounter int
+}
+
+func (m *mockUpdateHandler) EnableAdds(
+	htlcswitch.LinkDirection,
+) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (m *mockUpdateHandler) DisableAdds(htlcswitch.LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (m *mockUpdateHandler) IsDraining(htlcswitch.LinkDirection) bool {
+	// TODO(proofofkeags): Implement
+	return false
+}
+func (m *mockUpdateHandler) OnFlushedOnce(
+	func(),
+) fn.Option[htlcswitch.FlushHookID] {
+	// TODO(proofofkeags): Implement
+	return fn.None[htlcswitch.FlushHookID]()
+}
+func (m *mockUpdateHandler) OnFlushedMany(
+	func(),
+) htlcswitch.FlushHookID {
+	// TODO(proofofkeags): Implement
+	return htlcswitch.FlushHookID(0)
+}
+func (m *mockUpdateHandler) RemoveFlushHook(
+	htlcswitch.FlushHookID,
+) error {
+	// TODO(proofofkeags): Implement
+	return errors.New("no flush in progress to cancel")
+}
+func (m *mockUpdateHandler) OnCommitOnce(
+	htlcswitch.LinkDirection, func(),
+) fn.Option[htlcswitch.CommitHookID] {
+	// TODO(proofofkeags): Implement
+	return fn.None[htlcswitch.CommitHookID]()
+}
+func (m *mockUpdateHandler) OnCommitMany(
+	htlcswitch.LinkDirection, func(),
+) htlcswitch.CommitHookID {
+	// TODO(proofofkeags): Implement
+	return htlcswitch.CommitHookID(0)
+}
+func (m *mockUpdateHandler) RemoveCommitHook(htlcswitch.CommitHookID) error {
+	// TODO(proofofkeags): Implement
+	return errors.New("no flush in progress to cancel")
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {

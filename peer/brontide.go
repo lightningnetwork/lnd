@@ -1941,7 +1941,8 @@ func messageSummary(msg lnwire.Message) string {
 			msg.ChanID, int64(msg.FeePerKw))
 
 	case *lnwire.ChannelReestablish:
-		return fmt.Sprintf("next_local_height=%v, remote_tail_height=%v",
+		return fmt.Sprintf("chan_id=%v, next_local_height=%v, "+
+			"remote_tail_height=%v", msg.ChanID,
 			msg.NextLocalCommitHeight, msg.RemoteCommitTailHeight)
 
 	case *lnwire.ReplyShortChanIDsEnd:

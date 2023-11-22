@@ -3,6 +3,7 @@ package invoices_test
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"fmt"
 	"math"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -198,11 +200,29 @@ func TestInvoices(t *testing.T) {
 		return db
 	}
 
+	makeSQLDB := func(t *testing.T) invpkg.InvoiceDB {
+		db := sqldb.NewTestSqliteDB(t)
+
+		executor := sqldb.NewTransactionExecutor(
+			db, func(tx *sql.Tx) sqldb.InvoiceQueries {
+				return db.BaseDB.WithTx(tx)
+			},
+		)
+
+		return sqldb.NewInvoiceStore(
+			executor, clock.NewTestClock(testNow),
+		)
+	}
+
 	for _, test := range testList {
 		test := test
 
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(test.name+"_KV", func(t *testing.T) {
 			test.test(t, makeKeyValueDB)
+		})
+
+		t.Run(test.name+"_SQL", func(t *testing.T) {
+			test.test(t, makeSQLDB)
 		})
 	}
 }
@@ -2113,7 +2133,10 @@ func testSetIDIndex(t *testing.T, makeDB func(t *testing.T) invpkg.InvoiceDB) {
 	)
 	_, err = db.UpdateInvoice(
 		ctxb, ref2, (*invpkg.SetID)(setID),
-		updateAcceptAMPHtlc(0, amt, setID, true),
+		// Note: we need a unique HTLC ID here otherwise the update will
+		// be rejected as a duplicate (due to SQL unique constraint
+		// violation).
+		updateAcceptAMPHtlc(55, amt, setID, true),
 	)
 	require.Equal(t, invpkg.ErrDuplicateSetID{SetID: *setID}, err)
 

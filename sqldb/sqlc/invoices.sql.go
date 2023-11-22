@@ -11,7 +11,17 @@ import (
 	"time"
 )
 
-const deleteInvoice = `-- name: DeleteInvoice :exec
+const deleteCanceledInvoices = `-- name: DeleteCanceledInvoices :execresult
+DELETE
+FROM invoices
+WHERE state = 2
+`
+
+func (q *Queries) DeleteCanceledInvoices(ctx context.Context) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteCanceledInvoices)
+}
+
+const deleteInvoice = `-- name: DeleteInvoice :execresult
 DELETE 
 FROM invoices 
 WHERE (
@@ -21,7 +31,7 @@ WHERE (
     hash = $2 OR 
     $2 IS NULL
 ) AND (
-    preimage = $3 OR 
+    settle_index = $3 OR 
     $3 IS NULL
 ) AND (
     payment_addr = $4 OR
@@ -30,174 +40,24 @@ WHERE (
 `
 
 type DeleteInvoiceParams struct {
-	AddIndex    sql.NullInt32
+	AddIndex    sql.NullInt64
 	Hash        []byte
-	Preimage    []byte
+	SettleIndex sql.NullInt64
 	PaymentAddr []byte
 }
 
-func (q *Queries) DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) error {
-	_, err := q.db.ExecContext(ctx, deleteInvoice,
+func (q *Queries) DeleteInvoice(ctx context.Context, arg DeleteInvoiceParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, deleteInvoice,
 		arg.AddIndex,
 		arg.Hash,
-		arg.Preimage,
+		arg.SettleIndex,
 		arg.PaymentAddr,
 	)
-	return err
-}
-
-const deleteInvoiceFeatures = `-- name: DeleteInvoiceFeatures :exec
-DELETE 
-FROM invoice_features
-WHERE invoice_id = $1
-`
-
-func (q *Queries) DeleteInvoiceFeatures(ctx context.Context, invoiceID int32) error {
-	_, err := q.db.ExecContext(ctx, deleteInvoiceFeatures, invoiceID)
-	return err
-}
-
-const deleteInvoiceHTLC = `-- name: DeleteInvoiceHTLC :exec
-DELETE
-FROM invoice_htlcs
-WHERE htlc_id = $1
-`
-
-func (q *Queries) DeleteInvoiceHTLC(ctx context.Context, htlcID int64) error {
-	_, err := q.db.ExecContext(ctx, deleteInvoiceHTLC, htlcID)
-	return err
-}
-
-const deleteInvoiceHTLCCustomRecords = `-- name: DeleteInvoiceHTLCCustomRecords :exec
-WITH htlc_ids AS (
-    SELECT ih.id
-    FROM invoice_htlcs ih JOIN invoice_htlc_custom_records ihcr ON ih.id=ihcr.htlc_id 
-    WHERE ih.invoice_id = $1
-)
-DELETE
-FROM invoice_htlc_custom_records
-WHERE htlc_id IN (SELECT id FROM htlc_ids)
-`
-
-func (q *Queries) DeleteInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int32) error {
-	_, err := q.db.ExecContext(ctx, deleteInvoiceHTLCCustomRecords, invoiceID)
-	return err
-}
-
-const deleteInvoiceHTLCs = `-- name: DeleteInvoiceHTLCs :exec
-DELETE
-FROM invoice_htlcs
-WHERE invoice_id = $1
-`
-
-func (q *Queries) DeleteInvoiceHTLCs(ctx context.Context, invoiceID int32) error {
-	_, err := q.db.ExecContext(ctx, deleteInvoiceHTLCs, invoiceID)
-	return err
-}
-
-const filterInvoicePayments = `-- name: FilterInvoicePayments :many
-SELECT  
-    ip.id AS settle_index, ip.amount_paid_msat, ip.settled_at AS settle_date, 
-    i.id, i.hash, i.preimage, i.memo, i.amount_msat, i.cltv_delta, i.expiry, i.payment_addr, i.payment_request, i.state, i.amount_paid_msat, i.is_amp, i.is_hodl, i.is_keysend, i.created_at 
-FROM invoice_payments ip JOIN invoices i ON ip.invoice_id = i.id
-WHERE (
-    ip.id >= $1 OR 
-    $1 IS NULL
-) AND (
-    ip.settled_at >= $2 OR 
-    $2 IS NULL
-)
-ORDER BY
-    CASE
-        WHEN $3 = FALSE THEN ip.id  
-        ELSE NULL
-    END ASC,
-    CASE
-        WHEN $3 = TRUE THEN ip.id  
-        ELSE NULL
-    END DESC
-LIMIT $5 OFFSET $4
-`
-
-type FilterInvoicePaymentsParams struct {
-	SettleIndexGet sql.NullInt32
-	SettledAfter   sql.NullTime
-	Reverse        interface{}
-	NumOffset      int32
-	NumLimit       int32
-}
-
-type FilterInvoicePaymentsRow struct {
-	SettleIndex      int32
-	AmountPaidMsat   int64
-	SettleDate       time.Time
-	ID               int32
-	Hash             []byte
-	Preimage         []byte
-	Memo             sql.NullString
-	AmountMsat       int64
-	CltvDelta        sql.NullInt32
-	Expiry           int32
-	PaymentAddr      []byte
-	PaymentRequest   sql.NullString
-	State            int16
-	AmountPaidMsat_2 int64
-	IsAmp            bool
-	IsHodl           bool
-	IsKeysend        bool
-	CreatedAt        time.Time
-}
-
-func (q *Queries) FilterInvoicePayments(ctx context.Context, arg FilterInvoicePaymentsParams) ([]FilterInvoicePaymentsRow, error) {
-	rows, err := q.db.QueryContext(ctx, filterInvoicePayments,
-		arg.SettleIndexGet,
-		arg.SettledAfter,
-		arg.Reverse,
-		arg.NumOffset,
-		arg.NumLimit,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []FilterInvoicePaymentsRow
-	for rows.Next() {
-		var i FilterInvoicePaymentsRow
-		if err := rows.Scan(
-			&i.SettleIndex,
-			&i.AmountPaidMsat,
-			&i.SettleDate,
-			&i.ID,
-			&i.Hash,
-			&i.Preimage,
-			&i.Memo,
-			&i.AmountMsat,
-			&i.CltvDelta,
-			&i.Expiry,
-			&i.PaymentAddr,
-			&i.PaymentRequest,
-			&i.State,
-			&i.AmountPaidMsat_2,
-			&i.IsAmp,
-			&i.IsHodl,
-			&i.IsKeysend,
-			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }
 
 const filterInvoices = `-- name: FilterInvoices :many
-SELECT id, hash, preimage, memo, amount_msat, cltv_delta, expiry, payment_addr, payment_request, state, amount_paid_msat, is_amp, is_hodl, is_keysend, created_at 
+SELECT
+    invoices.id, invoices.hash, invoices.preimage, invoices.settle_index, invoices.settled_at, invoices.memo, invoices.amount_msat, invoices.cltv_delta, invoices.expiry, invoices.payment_addr, invoices.payment_request, invoices.payment_request_hash, invoices.state, invoices.amount_paid_msat, invoices.is_amp, invoices.is_hodl, invoices.is_keysend, invoices.created_at
 FROM invoices
 WHERE (
     id >= $1 OR 
@@ -206,48 +66,58 @@ WHERE (
     id <= $2 OR 
     $2 IS NULL
 ) AND (
-    state = $3 OR 
+    settle_index >= $3 OR
     $3 IS NULL
 ) AND (
-    created_at >= $4 OR
+    settle_index <= $4 OR
     $4 IS NULL
 ) AND (
-    created_at <= $5 OR 
+    state = $5 OR 
     $5 IS NULL
 ) AND (
+    created_at >= $6 OR
+    $6 IS NULL
+) AND (
+    created_at <= $7 OR 
+    $7 IS NULL
+) AND (
     CASE
-        WHEN $6=TRUE THEN (state = 0 OR state = 3)
+        WHEN $8=TRUE THEN (state = 0 OR state = 3)
         ELSE TRUE 
     END
 )
 ORDER BY
     CASE
-        WHEN $7 = FALSE THEN id  
+        WHEN $9 = FALSE THEN id  
         ELSE NULL
     END ASC,
     CASE
-        WHEN $7 = TRUE  THEN id  
+        WHEN $9 = TRUE  THEN id  
         ELSE NULL
     END DESC
-LIMIT $9 OFFSET $8
+LIMIT $11 OFFSET $10
 `
 
 type FilterInvoicesParams struct {
-	AddIndexGet   sql.NullInt32
-	AddIndexLet   sql.NullInt32
-	State         sql.NullInt16
-	CreatedAfter  sql.NullTime
-	CreatedBefore sql.NullTime
-	PendingOnly   interface{}
-	Reverse       interface{}
-	NumOffset     int32
-	NumLimit      int32
+	AddIndexGet    sql.NullInt64
+	AddIndexLet    sql.NullInt64
+	SettleIndexGet sql.NullInt64
+	SettleIndexLet sql.NullInt64
+	State          sql.NullInt16
+	CreatedAfter   sql.NullTime
+	CreatedBefore  sql.NullTime
+	PendingOnly    interface{}
+	Reverse        interface{}
+	NumOffset      int32
+	NumLimit       int32
 }
 
 func (q *Queries) FilterInvoices(ctx context.Context, arg FilterInvoicesParams) ([]Invoice, error) {
 	rows, err := q.db.QueryContext(ctx, filterInvoices,
 		arg.AddIndexGet,
 		arg.AddIndexLet,
+		arg.SettleIndexGet,
+		arg.SettleIndexLet,
 		arg.State,
 		arg.CreatedAfter,
 		arg.CreatedBefore,
@@ -267,12 +137,15 @@ func (q *Queries) FilterInvoices(ctx context.Context, arg FilterInvoicesParams) 
 			&i.ID,
 			&i.Hash,
 			&i.Preimage,
+			&i.SettleIndex,
+			&i.SettledAt,
 			&i.Memo,
 			&i.AmountMsat,
 			&i.CltvDelta,
 			&i.Expiry,
 			&i.PaymentAddr,
 			&i.PaymentRequest,
+			&i.PaymentRequestHash,
 			&i.State,
 			&i.AmountPaidMsat,
 			&i.IsAmp,
@@ -295,29 +168,35 @@ func (q *Queries) FilterInvoices(ctx context.Context, arg FilterInvoicesParams) 
 
 const getInvoice = `-- name: GetInvoice :many
 
-SELECT id, hash, preimage, memo, amount_msat, cltv_delta, expiry, payment_addr, payment_request, state, amount_paid_msat, is_amp, is_hodl, is_keysend, created_at
-FROM invoices
+SELECT i.id, i.hash, i.preimage, i.settle_index, i.settled_at, i.memo, i.amount_msat, i.cltv_delta, i.expiry, i.payment_addr, i.payment_request, i.payment_request_hash, i.state, i.amount_paid_msat, i.is_amp, i.is_hodl, i.is_keysend, i.created_at
+FROM invoices i
+LEFT JOIN amp_sub_invoices a on i.id = a.invoice_id
 WHERE (
-    id = $1 OR 
+    i.id = $1 OR 
     $1 IS NULL
 ) AND (
-    hash = $2 OR 
+    i.hash = $2 OR 
     $2 IS NULL
 ) AND (
-    preimage = $3 OR 
+    i.preimage = $3 OR 
     $3 IS NULL
 ) AND (
-    payment_addr = $4 OR 
+    i.payment_addr = $4 OR 
     $4 IS NULL
+) AND (
+    a.set_id = $5 OR
+    $5 IS NULL
 )
+GROUP BY i.id
 LIMIT 2
 `
 
 type GetInvoiceParams struct {
-	AddIndex    sql.NullInt32
+	AddIndex    sql.NullInt64
 	Hash        []byte
 	Preimage    []byte
 	PaymentAddr []byte
+	SetID       []byte
 }
 
 // This method may return more than one invoice if filter using multiple fields
@@ -329,6 +208,7 @@ func (q *Queries) GetInvoice(ctx context.Context, arg GetInvoiceParams) ([]Invoi
 		arg.Hash,
 		arg.Preimage,
 		arg.PaymentAddr,
+		arg.SetID,
 	)
 	if err != nil {
 		return nil, err
@@ -341,12 +221,15 @@ func (q *Queries) GetInvoice(ctx context.Context, arg GetInvoiceParams) ([]Invoi
 			&i.ID,
 			&i.Hash,
 			&i.Preimage,
+			&i.SettleIndex,
+			&i.SettledAt,
 			&i.Memo,
 			&i.AmountMsat,
 			&i.CltvDelta,
 			&i.Expiry,
 			&i.PaymentAddr,
 			&i.PaymentRequest,
+			&i.PaymentRequestHash,
 			&i.State,
 			&i.AmountPaidMsat,
 			&i.IsAmp,
@@ -373,7 +256,7 @@ FROM invoice_features
 WHERE invoice_id = $1
 `
 
-func (q *Queries) GetInvoiceFeatures(ctx context.Context, invoiceID int32) ([]InvoiceFeature, error) {
+func (q *Queries) GetInvoiceFeatures(ctx context.Context, invoiceID int64) ([]InvoiceFeature, error) {
 	rows, err := q.db.QueryContext(ctx, getInvoiceFeatures, invoiceID)
 	if err != nil {
 		return nil, err
@@ -408,7 +291,7 @@ type GetInvoiceHTLCCustomRecordsRow struct {
 	Value  []byte
 }
 
-func (q *Queries) GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int32) ([]GetInvoiceHTLCCustomRecordsRow, error) {
+func (q *Queries) GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int64) ([]GetInvoiceHTLCCustomRecordsRow, error) {
 	rows, err := q.db.QueryContext(ctx, getInvoiceHTLCCustomRecords, invoiceID)
 	if err != nil {
 		return nil, err
@@ -432,12 +315,12 @@ func (q *Queries) GetInvoiceHTLCCustomRecords(ctx context.Context, invoiceID int
 }
 
 const getInvoiceHTLCs = `-- name: GetInvoiceHTLCs :many
-SELECT id, htlc_id, chan_id, amount_msat, total_mpp_msat, accept_height, accept_time, expiry_height, state, resolve_time, invoice_id
+SELECT id, chan_id, htlc_id, amount_msat, total_mpp_msat, accept_height, accept_time, expiry_height, state, resolve_time, invoice_id
 FROM invoice_htlcs
 WHERE invoice_id = $1
 `
 
-func (q *Queries) GetInvoiceHTLCs(ctx context.Context, invoiceID int32) ([]InvoiceHtlc, error) {
+func (q *Queries) GetInvoiceHTLCs(ctx context.Context, invoiceID int64) ([]InvoiceHtlc, error) {
 	rows, err := q.db.QueryContext(ctx, getInvoiceHTLCs, invoiceID)
 	if err != nil {
 		return nil, err
@@ -448,8 +331,8 @@ func (q *Queries) GetInvoiceHTLCs(ctx context.Context, invoiceID int32) ([]Invoi
 		var i InvoiceHtlc
 		if err := rows.Scan(
 			&i.ID,
-			&i.HtlcID,
 			&i.ChanID,
+			&i.HtlcID,
 			&i.AmountMsat,
 			&i.TotalMppMsat,
 			&i.AcceptHeight,
@@ -472,68 +355,35 @@ func (q *Queries) GetInvoiceHTLCs(ctx context.Context, invoiceID int32) ([]Invoi
 	return items, nil
 }
 
-const getInvoicePayments = `-- name: GetInvoicePayments :many
-SELECT id, settled_at, amount_paid_msat, invoice_id
-FROM invoice_payments
-WHERE invoice_id = $1
-`
-
-func (q *Queries) GetInvoicePayments(ctx context.Context, invoiceID int32) ([]InvoicePayment, error) {
-	rows, err := q.db.QueryContext(ctx, getInvoicePayments, invoiceID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []InvoicePayment
-	for rows.Next() {
-		var i InvoicePayment
-		if err := rows.Scan(
-			&i.ID,
-			&i.SettledAt,
-			&i.AmountPaidMsat,
-			&i.InvoiceID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const insertInvoice = `-- name: InsertInvoice :one
 INSERT INTO invoices (
     hash, preimage, memo, amount_msat, cltv_delta, expiry, payment_addr, 
-    payment_request, state, amount_paid_msat, is_amp, is_hodl, is_keysend, 
-    created_at
+    payment_request, payment_request_hash, state, amount_paid_msat, is_amp,
+    is_hodl, is_keysend, created_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 ) RETURNING id
 `
 
 type InsertInvoiceParams struct {
-	Hash           []byte
-	Preimage       []byte
-	Memo           sql.NullString
-	AmountMsat     int64
-	CltvDelta      sql.NullInt32
-	Expiry         int32
-	PaymentAddr    []byte
-	PaymentRequest sql.NullString
-	State          int16
-	AmountPaidMsat int64
-	IsAmp          bool
-	IsHodl         bool
-	IsKeysend      bool
-	CreatedAt      time.Time
+	Hash               []byte
+	Preimage           []byte
+	Memo               sql.NullString
+	AmountMsat         int64
+	CltvDelta          sql.NullInt32
+	Expiry             int32
+	PaymentAddr        []byte
+	PaymentRequest     sql.NullString
+	PaymentRequestHash []byte
+	State              int16
+	AmountPaidMsat     int64
+	IsAmp              bool
+	IsHodl             bool
+	IsKeysend          bool
+	CreatedAt          time.Time
 }
 
-func (q *Queries) InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int32, error) {
+func (q *Queries) InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, insertInvoice,
 		arg.Hash,
 		arg.Preimage,
@@ -543,6 +393,7 @@ func (q *Queries) InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (i
 		arg.Expiry,
 		arg.PaymentAddr,
 		arg.PaymentRequest,
+		arg.PaymentRequestHash,
 		arg.State,
 		arg.AmountPaidMsat,
 		arg.IsAmp,
@@ -550,7 +401,7 @@ func (q *Queries) InsertInvoice(ctx context.Context, arg InsertInvoiceParams) (i
 		arg.IsKeysend,
 		arg.CreatedAt,
 	)
-	var id int32
+	var id int64
 	err := row.Scan(&id)
 	return id, err
 }
@@ -564,7 +415,7 @@ INSERT INTO invoice_features (
 `
 
 type InsertInvoiceFeatureParams struct {
-	InvoiceID int32
+	InvoiceID int64
 	Feature   int32
 }
 
@@ -573,13 +424,13 @@ func (q *Queries) InsertInvoiceFeature(ctx context.Context, arg InsertInvoiceFea
 	return err
 }
 
-const insertInvoiceHTLC = `-- name: InsertInvoiceHTLC :exec
+const insertInvoiceHTLC = `-- name: InsertInvoiceHTLC :one
 INSERT INTO invoice_htlcs (
     htlc_id, chan_id, amount_msat, total_mpp_msat, accept_height, accept_time,
     expiry_height, state, resolve_time, invoice_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-)
+) RETURNING id
 `
 
 type InsertInvoiceHTLCParams struct {
@@ -592,11 +443,11 @@ type InsertInvoiceHTLCParams struct {
 	ExpiryHeight int32
 	State        int16
 	ResolveTime  sql.NullTime
-	InvoiceID    int32
+	InvoiceID    int64
 }
 
-func (q *Queries) InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) error {
-	_, err := q.db.ExecContext(ctx, insertInvoiceHTLC,
+func (q *Queries) InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertInvoiceHTLC,
 		arg.HtlcID,
 		arg.ChanID,
 		arg.AmountMsat,
@@ -608,7 +459,9 @@ func (q *Queries) InsertInvoiceHTLC(ctx context.Context, arg InsertInvoiceHTLCPa
 		arg.ResolveTime,
 		arg.InvoiceID,
 	)
-	return err
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertInvoiceHTLCCustomRecord = `-- name: InsertInvoiceHTLCCustomRecord :exec
@@ -630,64 +483,56 @@ func (q *Queries) InsertInvoiceHTLCCustomRecord(ctx context.Context, arg InsertI
 	return err
 }
 
-const insertInvoicePayment = `-- name: InsertInvoicePayment :one
-INSERT INTO invoice_payments (
-    invoice_id, amount_paid_msat, settled_at 
-) VALUES (
-    $1, $2, $3
-) RETURNING id
+const nextInvoiceSettleIndex = `-- name: NextInvoiceSettleIndex :one
+UPDATE invoice_sequences SET current_value = current_value + 1
+WHERE name = 'settle_index'
+RETURNING current_value
 `
 
-type InsertInvoicePaymentParams struct {
-	InvoiceID      int32
-	AmountPaidMsat int64
-	SettledAt      time.Time
+func (q *Queries) NextInvoiceSettleIndex(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, nextInvoiceSettleIndex)
+	var current_value int64
+	err := row.Scan(&current_value)
+	return current_value, err
 }
 
-func (q *Queries) InsertInvoicePayment(ctx context.Context, arg InsertInvoicePaymentParams) (int32, error) {
-	row := q.db.QueryRowContext(ctx, insertInvoicePayment, arg.InvoiceID, arg.AmountPaidMsat, arg.SettledAt)
-	var id int32
-	err := row.Scan(&id)
-	return id, err
-}
-
-const updateInvoice = `-- name: UpdateInvoice :exec
-UPDATE invoices 
-SET preimage=$2, state=$3, amount_paid_msat=$4
-WHERE id=$1
+const updateInvoiceAmountPaid = `-- name: UpdateInvoiceAmountPaid :execresult
+UPDATE invoices
+SET amount_paid_msat = $2
+WHERE id = $1
 `
 
-type UpdateInvoiceParams struct {
-	ID             int32
-	Preimage       []byte
-	State          int16
+type UpdateInvoiceAmountPaidParams struct {
+	ID             int64
 	AmountPaidMsat int64
 }
 
-func (q *Queries) UpdateInvoice(ctx context.Context, arg UpdateInvoiceParams) error {
-	_, err := q.db.ExecContext(ctx, updateInvoice,
-		arg.ID,
-		arg.Preimage,
-		arg.State,
-		arg.AmountPaidMsat,
-	)
-	return err
+func (q *Queries) UpdateInvoiceAmountPaid(ctx context.Context, arg UpdateInvoiceAmountPaidParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, updateInvoiceAmountPaid, arg.ID, arg.AmountPaidMsat)
 }
 
 const updateInvoiceHTLC = `-- name: UpdateInvoiceHTLC :exec
 UPDATE invoice_htlcs 
-SET state=$2, resolve_time=$3
-WHERE id = $1
+SET state=$4, resolve_time=$5
+WHERE htlc_id = $1 AND chan_id = $2 AND invoice_id = $3
 `
 
 type UpdateInvoiceHTLCParams struct {
-	ID          int32
+	HtlcID      int64
+	ChanID      string
+	InvoiceID   int64
 	State       int16
 	ResolveTime sql.NullTime
 }
 
 func (q *Queries) UpdateInvoiceHTLC(ctx context.Context, arg UpdateInvoiceHTLCParams) error {
-	_, err := q.db.ExecContext(ctx, updateInvoiceHTLC, arg.ID, arg.State, arg.ResolveTime)
+	_, err := q.db.ExecContext(ctx, updateInvoiceHTLC,
+		arg.HtlcID,
+		arg.ChanID,
+		arg.InvoiceID,
+		arg.State,
+		arg.ResolveTime,
+	)
 	return err
 }
 
@@ -698,7 +543,7 @@ WHERE invoice_id = $1 AND resolve_time IS NULL
 `
 
 type UpdateInvoiceHTLCsParams struct {
-	InvoiceID   int32
+	InvoiceID   int64
 	State       int16
 	ResolveTime sql.NullTime
 }
@@ -706,4 +551,31 @@ type UpdateInvoiceHTLCsParams struct {
 func (q *Queries) UpdateInvoiceHTLCs(ctx context.Context, arg UpdateInvoiceHTLCsParams) error {
 	_, err := q.db.ExecContext(ctx, updateInvoiceHTLCs, arg.InvoiceID, arg.State, arg.ResolveTime)
 	return err
+}
+
+const updateInvoiceState = `-- name: UpdateInvoiceState :execresult
+UPDATE invoices
+SET state = $2,
+    preimage = COALESCE(preimage, $3),
+    settle_index = COALESCE(settle_index, $4),
+    settled_at = COALESCE(settled_at, $5)
+WHERE id = $1
+`
+
+type UpdateInvoiceStateParams struct {
+	ID          int64
+	State       int16
+	Preimage    []byte
+	SettleIndex sql.NullInt64
+	SettledAt   sql.NullTime
+}
+
+func (q *Queries) UpdateInvoiceState(ctx context.Context, arg UpdateInvoiceStateParams) (sql.Result, error) {
+	return q.db.ExecContext(ctx, updateInvoiceState,
+		arg.ID,
+		arg.State,
+		arg.Preimage,
+		arg.SettleIndex,
+		arg.SettledAt,
+	)
 }

@@ -133,8 +133,16 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 			return nil, err
 		}
 
+		// We use INTEGER PRIMARY KEY for sqlite, because it acts as a
+		// ROWID alias which is 8 bytes big and also autoincrements.
+		// It's important to use the ROWID as a primary key because the
+		// key look ups are almost twice as fast
+		sqliteFS := newReplacerFS(sqlSchemas, map[string]string{
+			"BIGINT PRIMARY KEY": "INTEGER PRIMARY KEY",
+		})
+
 		err = applyMigrations(
-			sqlSchemas, driver, "sqlc/migrations", "sqlc",
+			sqliteFS, driver, "sqlc/migrations", "sqlc",
 		)
 		if err != nil {
 			return nil, err

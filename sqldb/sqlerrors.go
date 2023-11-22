@@ -46,6 +46,11 @@ func parseSqliteError(sqliteErr *sqlite.Error) error {
 			DBError: sqliteErr,
 		}
 
+	case sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY:
+		return &ErrSQLUniqueConstraintViolation{
+			DBError: sqliteErr,
+		}
+
 	// Database is currently busy, so we'll need to try again.
 	case sqlite3.SQLITE_BUSY:
 		return &ErrSerializationError{

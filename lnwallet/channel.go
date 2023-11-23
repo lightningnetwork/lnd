@@ -904,6 +904,8 @@ func (lc *LightningChannel) extractPayDescs(commitHeight uint64,
 		// persist state w.r.t to if forwarded or not, or can
 		// inadvertently trigger replays
 
+		htlc := htlc
+
 		payDesc, err := lc.diskHtlcToPayDesc(
 			feeRate, commitHeight, &htlc,
 			localCommitKeys, remoteCommitKeys,

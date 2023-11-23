@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -1308,11 +1309,11 @@ func (c *ClientDB) NumAckedUpdates(id *SessionID) (uint64, error) {
 	return numAcked, nil
 }
 
-// FetchChanSummaries loads a mapping from all registered channels to their
-// channel summaries. Only the channels that have not yet been marked as closed
-// will be loaded.
-func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
-	var summaries map[lnwire.ChannelID]ClientChanSummary
+// FetchChanInfos loads a mapping from all registered channels to their
+// ChannelInfo. Only the channels that have not yet been marked as closed will
+// be loaded.
+func (c *ClientDB) FetchChanInfos() (ChannelInfos, error) {
+	var infos ChannelInfos
 
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		chanDetailsBkt := tx.ReadBucket(cChanDetailsBkt)
@@ -1325,34 +1326,47 @@ func (c *ClientDB) FetchChanSummaries() (ChannelSummaries, error) {
 			if chanDetails == nil {
 				return ErrCorruptChanDetails
 			}
-
 			// If this channel has already been marked as closed,
 			// then its summary does not need to be loaded.
 			closedHeight := chanDetails.Get(cChanClosedHeight)
 			if len(closedHeight) > 0 {
 				return nil
 			}
-
 			var chanID lnwire.ChannelID
 			copy(chanID[:], k)
-
 			summary, err := getChanSummary(chanDetails)
 			if err != nil {
 				return err
 			}
 
-			summaries[chanID] = *summary
+			info := &ChannelInfo{
+				ClientChanSummary: *summary,
+			}
+
+			maxHeightBytes := chanDetails.Get(
+				cChanMaxCommitmentHeight,
+			)
+			if len(maxHeightBytes) != 0 {
+				height, err := readBigSize(maxHeightBytes)
+				if err != nil {
+					return err
+				}
+
+				info.MaxHeight = fn.Some(height)
+			}
+
+			infos[chanID] = info
 
 			return nil
 		})
 	}, func() {
-		summaries = make(map[lnwire.ChannelID]ClientChanSummary)
+		infos = make(ChannelInfos)
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return summaries, nil
+	return infos, nil
 }
 
 // RegisterChannel registers a channel for use within the client database. For

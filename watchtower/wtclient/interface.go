@@ -81,10 +81,10 @@ type DB interface {
 	// successfully backed up using the given session.
 	NumAckedUpdates(id *wtdb.SessionID) (uint64, error)
 
-	// FetchChanSummaries loads a mapping from all registered channels to
-	// their channel summaries. Only the channels that have not yet been
+	// FetchChanInfos loads a mapping from all registered channels to
+	// their wtdb.ChannelInfo. Only the channels that have not yet been
 	// marked as closed will be loaded.
-	FetchChanSummaries() (wtdb.ChannelSummaries, error)
+	FetchChanInfos() (wtdb.ChannelInfos, error)
 
 	// MarkChannelClosed will mark a registered channel as closed by setting
 	// its closed-height as the given block height. It returns a list of

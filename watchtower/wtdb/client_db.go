@@ -25,6 +25,7 @@ var (
 	//  		=> cChanDBID -> db-assigned-id
 	// 		=> cChanSessions => db-session-id -> 1
 	// 		=> cChanClosedHeight -> block-height
+	// 		=> cChanMaxCommitmentHeight -> commitment-height
 	cChanDetailsBkt = []byte("client-channel-detail-bucket")
 
 	// cChanSessions is a sub-bucket of cChanDetailsBkt which stores:
@@ -44,6 +45,13 @@ var (
 	// cChannelSummary is a key used in cChanDetailsBkt to store the encoded
 	// body of ClientChanSummary.
 	cChannelSummary = []byte("client-channel-summary")
+
+	// cChanMaxCommitmentHeight is a key used in the cChanDetailsBkt used
+	// to store the highest commitment height for this channel that the
+	// tower has been handed.
+	cChanMaxCommitmentHeight = []byte(
+		"client-channel-max-commitment-height",
+	)
 
 	// cSessionBkt is a top-level bucket storing:
 	//   session-id => cSessionBody -> encoded ClientSessionBody
@@ -1963,6 +1971,12 @@ func (c *ClientDB) CommitUpdate(id *SessionID,
 			return err
 		}
 
+		// Update the channel's max commitment height if needed.
+		err = maybeUpdateMaxCommitHeight(tx, update.BackupID)
+		if err != nil {
+			return err
+		}
+
 		// Finally, capture the session's last applied value so it can
 		// be sent in the next state update to the tower.
 		lastApplied = session.TowerLastApplied
@@ -2178,9 +2192,11 @@ func (c *ClientDB) AckUpdate(id *SessionID, seqNum uint16,
 
 // GetDBQueue returns a BackupID Queue instance under the given namespace.
 func (c *ClientDB) GetDBQueue(namespace []byte) Queue[*BackupID] {
-	return NewQueueDB[*BackupID](
+	return NewQueueDB(
 		c.db, namespace, func() *BackupID {
 			return &BackupID{}
+		}, func(tx kvdb.RwTx, item *BackupID) error {
+			return maybeUpdateMaxCommitHeight(tx, *item)
 		},
 	)
 }
@@ -2718,6 +2734,58 @@ func getDBSessionID(sessionsBkt kvdb.RBucket, sessionID SessionID) (uint64,
 	}
 
 	return id, idBytes, nil
+}
+
+// maybeUpdateMaxCommitHeight updates the given channel details bucket with the
+// given height if it is larger than the current max height stored for the
+// channel.
+func maybeUpdateMaxCommitHeight(tx kvdb.RwTx, backupID BackupID) error {
+	chanDetailsBkt := tx.ReadWriteBucket(cChanDetailsBkt)
+	if chanDetailsBkt == nil {
+		return ErrUninitializedDB
+	}
+
+	// If an entry for this channel does not exist in the channel details
+	// bucket then we exit here as this means that the channel has been
+	// closed.
+	chanDetails := chanDetailsBkt.NestedReadWriteBucket(backupID.ChanID[:])
+	if chanDetails == nil {
+		return nil
+	}
+
+	putHeight := func() error {
+		b, err := writeBigSize(backupID.CommitHeight)
+		if err != nil {
+			return err
+		}
+
+		return chanDetails.Put(
+			cChanMaxCommitmentHeight, b,
+		)
+	}
+
+	// Get current height.
+	heightBytes := chanDetails.Get(cChanMaxCommitmentHeight)
+
+	// The height might have not been set yet, in which case
+	// we can just write the new height.
+	if len(heightBytes) == 0 {
+		return putHeight()
+	}
+
+	// Otherwise, read in the current max commitment height for the channel.
+	currentHeight, err := readBigSize(heightBytes)
+	if err != nil {
+		return err
+	}
+
+	// If the new height is not larger than the current persisted height,
+	// then there is nothing left for us to do.
+	if backupID.CommitHeight <= currentHeight {
+		return nil
+	}
+
+	return putHeight()
 }
 
 func getRealSessionID(sessIDIndexBkt kvdb.RBucket, dbID uint64) (*SessionID,

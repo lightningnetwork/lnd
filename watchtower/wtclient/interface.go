@@ -41,8 +41,9 @@ type DB interface {
 	LoadTowerByID(wtdb.TowerID) (*wtdb.Tower, error)
 
 	// ListTowers retrieves the list of towers available within the
-	// database.
-	ListTowers() ([]*wtdb.Tower, error)
+	// database. The filter function may be set in order to filter out the
+	// towers to be returned.
+	ListTowers(filter wtdb.TowerFilterFn) ([]*wtdb.Tower, error)
 
 	// NextSessionKeyIndex reserves a new session key derivation index for a
 	// particular tower id and blob type. The index is reserved for that

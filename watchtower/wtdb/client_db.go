@@ -632,8 +632,14 @@ func (c *ClientDB) LoadTower(pubKey *btcec.PublicKey) (*Tower, error) {
 	return tower, nil
 }
 
-// ListTowers retrieves the list of towers available within the database.
-func (c *ClientDB) ListTowers() ([]*Tower, error) {
+// TowerFilterFn is the signature of a call-back function that can be used to
+// skip certain towers in the ListTowers method.
+type TowerFilterFn func(*Tower) bool
+
+// ListTowers retrieves the list of towers available within the database that
+// have a status matching the given status. The filter function may be set in
+// order to filter out the towers to be returned.
+func (c *ClientDB) ListTowers(filter TowerFilterFn) ([]*Tower, error) {
 	var towers []*Tower
 	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
 		towerBucket := tx.ReadBucket(cTowerBkt)
@@ -646,7 +652,13 @@ func (c *ClientDB) ListTowers() ([]*Tower, error) {
 			if err != nil {
 				return err
 			}
+
+			if filter != nil && !filter(tower) {
+				return nil
+			}
+
 			towers = append(towers, tower)
+
 			return nil
 		})
 	}, func() {

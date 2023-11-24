@@ -455,7 +455,7 @@ func (m *Manager) Stats() ClientStats {
 func (m *Manager) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
 	map[blob.Type][]*RegisteredTower, error) {
 
-	towers, err := m.cfg.DB.ListTowers()
+	towers, err := m.cfg.DB.ListTowers(nil)
 	if err != nil {
 		return nil, err
 	}

@@ -261,7 +261,10 @@ func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 	opts ...wtdb.ClientSessionListOption) (
 	map[wtdb.SessionID]*ClientSession, error) {
 
-	towers, err := db.ListTowers()
+	// Fetch all active towers from the DB.
+	towers, err := db.ListTowers(func(tower *wtdb.Tower) bool {
+		return tower.Status == wtdb.TowerStatusActive
+	})
 	if err != nil {
 		return nil, err
 	}

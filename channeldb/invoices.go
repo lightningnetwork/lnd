@@ -2050,7 +2050,7 @@ func (d *DB) addHTLCs(invoices, settleIndex, //nolint:funlen
 	// change, which depends on having an accurate view of the accepted
 	// HTLCs.
 	if update.State != nil {
-		newState, err := updateInvoiceState(
+		newState, preimage, err := getUpdatedInvoiceState(
 			invoice, hash, *update.State,
 		)
 		if err != nil {
@@ -2064,6 +2064,10 @@ func (d *DB) addHTLCs(invoices, settleIndex, //nolint:funlen
 		// transition to the cancelled state regardless.
 		if !invoiceIsAMP || *newState == invpkg.ContractCanceled {
 			invoice.State = *newState
+
+			if invoice.State == invpkg.ContractSettled {
+				invoice.Terms.PaymentPreimage = preimage
+			}
 		}
 	}
 
@@ -2286,7 +2290,9 @@ func (d *DB) settleHodlInvoice(invoices, settleIndex kvdb.RwBucket,
 	}
 
 	// TODO(positiveblue): create a invoice.CanSettleHodlInvoice func.
-	newState, err := updateInvoiceState(invoice, hash, *update)
+	newState, preimage, err := getUpdatedInvoiceState(
+		invoice, hash, *update,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2297,6 +2303,7 @@ func (d *DB) settleHodlInvoice(invoices, settleIndex kvdb.RwBucket,
 	}
 
 	invoice.State = invpkg.ContractSettled
+	invoice.Terms.PaymentPreimage = preimage
 	timestamp := d.clock.Now()
 
 	// TODO(positiveblue): this logic can be further simplified.
@@ -2375,7 +2382,7 @@ func (d *DB) cancelInvoice(invoices kvdb.RwBucket, invoiceNum []byte,
 		setID = update.SetID
 	}
 
-	newState, err := updateInvoiceState(invoice, hash, *update)
+	newState, _, err := getUpdatedInvoiceState(invoice, hash, *update)
 	if err != nil {
 		return nil, err
 	}
@@ -2418,15 +2425,17 @@ func (d *DB) cancelInvoiceStoreUpdate(invoices kvdb.RwBucket, invoiceNum []byte,
 	return d.serializeAndStoreInvoice(invoices, invoiceNum, invoice)
 }
 
-// updateInvoiceState validates and processes an invoice state update. The new
-// state to transition to is returned, so the caller is able to select exactly
-// how the invoice state is updated.
-func updateInvoiceState(invoice *invpkg.Invoice, hash *lntypes.Hash,
-	update invpkg.InvoiceStateUpdateDesc) (*invpkg.ContractState, error) {
+// getUpdatedInvoiceState validates and processes an invoice state update. The
+// new state to transition to is returned, along with the preimage if the the
+// new state is settled so the caller is able to select exactly how the invoice
+// state is updated.
+func getUpdatedInvoiceState(invoice *invpkg.Invoice, hash *lntypes.Hash,
+	update invpkg.InvoiceStateUpdateDesc) (*invpkg.ContractState,
+	*lntypes.Preimage, error) {
 
 	// Returning to open is never allowed from any state.
 	if update.NewState == invpkg.ContractOpen {
-		return nil, invpkg.ErrInvoiceCannotOpen
+		return nil, nil, invpkg.ErrInvoiceCannotOpen
 	}
 
 	switch invoice.State {
@@ -2436,7 +2445,7 @@ func updateInvoiceState(invoice *invpkg.Invoice, hash *lntypes.Hash,
 	// same checks that we apply to open invoices.
 	case invpkg.ContractAccepted:
 		if update.NewState == invpkg.ContractAccepted {
-			return nil, invpkg.ErrInvoiceCannotAccept
+			return nil, nil, invpkg.ErrInvoiceCannotAccept
 		}
 
 		fallthrough
@@ -2446,14 +2455,14 @@ func updateInvoiceState(invoice *invpkg.Invoice, hash *lntypes.Hash,
 	// where we ensure the preimage is valid.
 	case invpkg.ContractOpen:
 		if update.NewState == invpkg.ContractCanceled {
-			return &update.NewState, nil
+			return &update.NewState, nil, nil
 		}
 
 		// Sanity check that the user isn't trying to settle or accept a
 		// non-existent HTLC set.
 		set := invoice.HTLCSet(update.SetID, invpkg.HtlcStateAccepted)
 		if len(set) == 0 {
-			return nil, invpkg.ErrEmptyHTLCSet
+			return nil, nil, invpkg.ErrEmptyHTLCSet
 		}
 
 		// For AMP invoices, there are no invoice-level preimage checks.
@@ -2461,24 +2470,27 @@ func updateInvoiceState(invoice *invpkg.Invoice, hash *lntypes.Hash,
 		// settle an AMP invoice with a preimage.
 		if update.SetID != nil {
 			if update.Preimage != nil {
-				return nil, errors.New("AMP set cannot have " +
-					"preimage")
+				return nil, nil, errors.New("AMP set cannot " +
+					"have preimage")
 			}
-			return &update.NewState, nil
+
+			return &update.NewState, nil, nil
 		}
+
+		var preimage *lntypes.Preimage
 
 		switch {
 		// If an invoice-level preimage was supplied, but the InvoiceRef
 		// doesn't specify a hash (e.g. AMP invoices) we fail.
 		case update.Preimage != nil && hash == nil:
-			return nil, invpkg.ErrUnexpectedInvoicePreimage
+			return nil, preimage, invpkg.ErrUnexpectedInvoicePreimage
 
 		// Validate the supplied preimage for non-AMP invoices.
 		case update.Preimage != nil:
 			if update.Preimage.Hash() != *hash {
-				return nil, invpkg.ErrInvoicePreimageMismatch
+				return nil, nil, invpkg.ErrInvoicePreimageMismatch
 			}
-			invoice.Terms.PaymentPreimage = update.Preimage
+			preimage = update.Preimage
 
 		// Permit non-AMP invoices to be accepted without knowing the
 		// preimage. When trying to settle we'll have to pass through
@@ -2490,21 +2502,21 @@ func updateInvoiceState(invoice *invpkg.Invoice, hash *lntypes.Hash,
 		case update.NewState == invpkg.ContractSettled &&
 			invoice.Terms.PaymentPreimage == nil:
 
-			return nil, errors.New("unknown preimage")
+			return nil, nil, errors.New("unknown preimage")
 		}
 
-		return &update.NewState, nil
+		return &update.NewState, preimage, nil
 
 	// Once settled, we are in a terminal state.
 	case invpkg.ContractSettled:
-		return nil, invpkg.ErrInvoiceAlreadySettled
+		return nil, nil, invpkg.ErrInvoiceAlreadySettled
 
 	// Once canceled, we are in a terminal state.
 	case invpkg.ContractCanceled:
-		return nil, invpkg.ErrInvoiceAlreadyCanceled
+		return nil, nil, invpkg.ErrInvoiceAlreadyCanceled
 
 	default:
-		return nil, errors.New("unknown state transition")
+		return nil, nil, errors.New("unknown state transition")
 	}
 }
 

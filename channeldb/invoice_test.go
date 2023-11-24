@@ -2997,7 +2997,14 @@ func TestUpdateHTLC(t *testing.T) {
 
 func testUpdateHTLC(t *testing.T, test updateHTLCTest) {
 	htlc := test.input.Copy()
-	_, err := updateHtlc(testNow, htlc, test.invState, test.setID)
+	stateChanged, state, err := getUpdatedHtlcState(
+		htlc, test.invState, test.setID,
+	)
+	if stateChanged {
+		htlc.State = state
+		htlc.ResolveTime = testNow
+	}
+
 	require.Equal(t, test.expErr, err)
 	require.Equal(t, test.output, *htlc)
 }

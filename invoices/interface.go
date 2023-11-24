@@ -6,6 +6,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 )
 
@@ -163,3 +164,45 @@ type InvoiceSlice struct {
 // CircuitKey is a tuple of channel ID and HTLC ID, used to uniquely identify
 // HTLCs in a circuit.
 type CircuitKey = models.CircuitKey
+
+// InvoiceUpdater is an interface to abstract away the details of updating an
+// invoice in the database. The methods of this interface are called during the
+// in-memory update of an invoice when the database needs to be updated or the
+// updated state needs to be marked as needing to be written to the database.
+type InvoiceUpdater interface {
+	// AddHtlc adds a new htlc to the invoice.
+	AddHtlc(circuitKey CircuitKey, newHtlc *InvoiceHTLC) error
+
+	// ResolveHtlc marks an htlc as resolved with the given state.
+	ResolveHtlc(circuitKey CircuitKey, state HtlcState,
+		resolveTime time.Time) error
+
+	// AddAmpHtlcPreimage adds a preimage of an AMP htlc to the AMP invoice
+	// identified by the setID.
+	AddAmpHtlcPreimage(setID [32]byte, circuitKey CircuitKey,
+		preimage lntypes.Preimage) error
+
+	// UpdateInvoiceState updates the invoice state to the new state.
+	UpdateInvoiceState(newState ContractState,
+		preimage *lntypes.Preimage) error
+
+	// UpdateInvoiceAmtPaid updates the invoice amount paid to the new
+	// amount.
+	UpdateInvoiceAmtPaid(amtPaid lnwire.MilliSatoshi) error
+
+	// UpdateAmpState updates the state of the AMP invoice identified by
+	// the setID.
+	UpdateAmpState(setID [32]byte, newState InvoiceStateAMP) error
+
+	// AcceptHtlcAmp marks an AMP htlc as accepted.
+	AcceptHtlcAmp(setID [32]byte, circuitKey CircuitKey) error
+
+	// SettleHtlcAmp marks an AMP htlc as settled.
+	SettleHtlcAmp(setID [32]byte, circuitKey CircuitKey) error
+
+	// CancelHtlcAmp marks an AMP htlc as canceled.
+	CancelHtlcAmp(setID [32]byte, circuitKey CircuitKey) error
+
+	// Commit finalizes the update before it is written to the database.
+	Commit(updateType UpdateType) error
+}

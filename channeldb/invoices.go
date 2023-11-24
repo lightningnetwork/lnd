@@ -1930,10 +1930,13 @@ func (d *DB) cancelHTLCs(invoices kvdb.RwBucket, invoiceNum []byte,
 			return nil, fmt.Errorf("cancel of non-existent htlc")
 		}
 
-		err := cancelSingleHtlc(timestamp, htlc, invoice.State)
+		err := canCancelSingleHtlc(timestamp, htlc, invoice.State)
 		if err != nil {
 			return nil, err
 		}
+
+		htlc.State = invpkg.HtlcStateCanceled
+		htlc.ResolveTime = timestamp
 
 		// Tally this into the set of HTLCs that need to be updated on
 		// disk, but once again, only if this is an AMP invoice.
@@ -2560,25 +2563,21 @@ func updateInvoiceAmpState(invoice *invpkg.Invoice, setID invpkg.SetID,
 	invoice.AMPState[setID] = ampState
 }
 
-// cancelSingleHtlc validates cancellation of a single htlc and update its
-// state.
-func cancelSingleHtlc(resolveTime time.Time, htlc *invpkg.InvoiceHTLC,
-	invState invpkg.ContractState) error {
+// canCancelSingleHtlc validates cancellation of a single HTLC. If nil is
+// returned, then the HTLC can be cancelled.
+func canCancelSingleHtlc(resolveTime time.Time, htlc *invpkg.InvoiceHTLC,
+	invoiceState invpkg.ContractState) error {
 
 	// It is only possible to cancel individual htlcs on an open invoice.
-	if invState != invpkg.ContractOpen {
-		return fmt.Errorf("htlc canceled on invoice in "+
-			"state %v", invState)
+	if invoiceState != invpkg.ContractOpen {
+		return fmt.Errorf("htlc canceled on invoice in state %v",
+			invoiceState)
 	}
 
 	// It is only possible if the htlc is still pending.
 	if htlc.State != invpkg.HtlcStateAccepted {
-		return fmt.Errorf("htlc canceled in state %v",
-			htlc.State)
+		return fmt.Errorf("htlc canceled in state %v", htlc.State)
 	}
-
-	htlc.State = invpkg.HtlcStateCanceled
-	htlc.ResolveTime = resolveTime
 
 	return nil
 }

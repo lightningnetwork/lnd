@@ -1770,29 +1770,19 @@ func updateAMPInvoices(invoiceBucket kvdb.RwBucket, invoiceNum []byte,
 }
 
 // updateHtlcsAmp takes an invoice, and a new HTLC to be added (along with its
-// set ID), and update sthe internal AMP state of an invoice, and also tallies
+// set ID), and updates the internal AMP state of an invoice, and also tallies
 // the set of HTLCs to be updated on disk.
 func updateHtlcsAmp(invoice *invpkg.Invoice,
 	updateMap map[invpkg.SetID]map[models.CircuitKey]*invpkg.InvoiceHTLC,
 	htlc *invpkg.InvoiceHTLC, setID invpkg.SetID,
-	circuitKey models.CircuitKey) {
+	circuitKey models.CircuitKey) error {
 
-	ampState, ok := invoice.AMPState[setID]
-	if !ok {
-		// If an entry for this set ID doesn't already exist, then
-		// we'll need to create it.
-		ampState = invpkg.InvoiceStateAMP{
-			State:       invpkg.HtlcStateAccepted,
-			InvoiceKeys: make(map[models.CircuitKey]struct{}),
-		}
+	err := updateInvoiceAmpState(
+		invoice, setID, circuitKey, invpkg.HtlcStateAccepted, htlc.Amt,
+	)
+	if err != nil {
+		return err
 	}
-
-	ampState.AmtPaid += htlc.Amt
-	ampState.InvoiceKeys[circuitKey] = struct{}{}
-
-	// Due to the way maps work, we need to read out the value, update it,
-	// then re-assign it into the map.
-	invoice.AMPState[setID] = ampState
 
 	// Now that we've updated the invoice state, we'll inform the caller of
 	// the _neitre_ HTLC set they need to write for this new set ID.
@@ -1805,6 +1795,8 @@ func updateHtlcsAmp(invoice *invpkg.Invoice,
 		)
 	}
 	updateMap[setID][circuitKey] = htlc
+
+	return nil
 }
 
 // cancelHtlcsAmp processes a cancellation of an HTLC that belongs to an AMP
@@ -1813,20 +1805,17 @@ func updateHtlcsAmp(invoice *invpkg.Invoice,
 // set need to be written in-line with each other.
 func cancelHtlcsAmp(invoice *invpkg.Invoice,
 	updateMap map[invpkg.SetID]map[models.CircuitKey]*invpkg.InvoiceHTLC,
-	htlc *invpkg.InvoiceHTLC, circuitKey models.CircuitKey) {
+	htlc *invpkg.InvoiceHTLC, circuitKey models.CircuitKey) error {
 
 	setID := htlc.AMP.Record.SetID()
 
 	// First, we'll update the state of the entire HTLC set to cancelled.
-	ampState := invoice.AMPState[setID]
-	ampState.State = invpkg.HtlcStateCanceled
-
-	ampState.InvoiceKeys[circuitKey] = struct{}{}
-	ampState.AmtPaid -= htlc.Amt
-
-	// With the state update,d we'll set the new value so the struct
-	// changes are propagated.
-	invoice.AMPState[setID] = ampState
+	err := updateInvoiceAmpState(
+		invoice, setID, circuitKey, invpkg.HtlcStateCanceled, htlc.Amt,
+	)
+	if err != nil {
+		return err
+	}
 
 	if _, ok := updateMap[setID]; !ok {
 		// Only HTLCs in the accepted state, can be cancelled, but we
@@ -1853,6 +1842,8 @@ func cancelHtlcsAmp(invoice *invpkg.Invoice,
 	if invoice.AmtPaid != 0 {
 		invoice.AmtPaid -= htlc.Amt
 	}
+
+	return nil
 }
 
 // settleHtlcsAmp processes a new settle operation on an HTLC set for an AMP
@@ -1861,7 +1852,7 @@ func cancelHtlcsAmp(invoice *invpkg.Invoice,
 func settleHtlcsAmp(invoice *invpkg.Invoice,
 	settledSetIDs map[invpkg.SetID]struct{},
 	updateMap map[invpkg.SetID]map[models.CircuitKey]*invpkg.InvoiceHTLC,
-	htlc *invpkg.InvoiceHTLC, circuitKey models.CircuitKey) {
+	htlc *invpkg.InvoiceHTLC, circuitKey models.CircuitKey) error {
 
 	// First, add the set ID to the set that was settled in this invoice
 	// update. We'll use this later to update the settle index.
@@ -1870,12 +1861,12 @@ func settleHtlcsAmp(invoice *invpkg.Invoice,
 
 	// Next update the main AMP meta-data to indicate that this HTLC set
 	// has been fully settled.
-	ampState := invoice.AMPState[setID]
-	ampState.State = invpkg.HtlcStateSettled
-
-	ampState.InvoiceKeys[circuitKey] = struct{}{}
-
-	invoice.AMPState[setID] = ampState
+	err := updateInvoiceAmpState(
+		invoice, setID, circuitKey, invpkg.HtlcStateSettled, 0,
+	)
+	if err != nil {
+		return err
+	}
 
 	// Finally, we'll add this to the set of HTLCs that need to be updated.
 	if _, ok := updateMap[setID]; !ok {
@@ -1883,6 +1874,8 @@ func settleHtlcsAmp(invoice *invpkg.Invoice,
 		updateMap[setID] = mapEntry
 	}
 	updateMap[setID][circuitKey] = htlc
+
+	return nil
 }
 
 // updateInvoice fetches the invoice, obtains the update descriptor from the
@@ -1974,7 +1967,12 @@ func (d *DB) cancelHTLCs(invoices kvdb.RwBucket, invoiceNum []byte,
 		// Tally this into the set of HTLCs that need to be updated on
 		// disk, but once again, only if this is an AMP invoice.
 		if invoice.IsAMP() {
-			cancelHtlcsAmp(invoice, htlcsAmpUpdate, htlc, key)
+			err := cancelHtlcsAmp(
+				invoice, htlcsAmpUpdate, htlc, key,
+			)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -2084,10 +2082,13 @@ func (d *DB) addHTLCs(invoices, settleIndex, //nolint:funlen
 		// Collect the set of new HTLCs so we can write them properly
 		// below, but only if this is an AMP invoice.
 		if invoiceIsAMP {
-			updateHtlcsAmp(
+			err := updateHtlcsAmp(
 				invoice, htlcsAmpUpdate, htlc,
 				htlcUpdate.AMP.Record.SetID(), key,
 			)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -2170,10 +2171,13 @@ func (d *DB) addHTLCs(invoices, settleIndex, //nolint:funlen
 		// is an AMP invoice, then we'll need to update some additional
 		// meta data state.
 		if htlcSettled && invoiceIsAMP {
-			settleHtlcsAmp(
+			err = settleHtlcsAmp(
 				invoice, settledSetIDs, htlcsAmpUpdate, htlc,
 				key,
 			)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		accepted := htlc.State == invpkg.HtlcStateAccepted
@@ -2539,6 +2543,52 @@ func updateInvoiceState(invoice *invpkg.Invoice, hash *lntypes.Hash,
 	default:
 		return nil, errors.New("unknown state transition")
 	}
+}
+
+// updateInvoiceAmpState updates the AMP state of an invoice, given the new
+// state, and the amount of the HTLC that is being updated.
+func updateInvoiceAmpState(invoice *invpkg.Invoice, setID invpkg.SetID,
+	circuitKey models.CircuitKey, state invpkg.HtlcState,
+	amt lnwire.MilliSatoshi) error {
+
+	// Retrieve the AMP state for this set ID.
+	ampState, ok := invoice.AMPState[setID]
+
+	// If the state is accepted then we may need to create a new entry for
+	// this set ID, otherwise we expect that the entry already exists and
+	// we can update it.
+	if !ok && state != invpkg.HtlcStateAccepted {
+		return fmt.Errorf("unable to update AMP state for setID=%x ",
+			setID)
+	}
+
+	switch state {
+	case invpkg.HtlcStateAccepted:
+		if !ok {
+			// If an entry for this set ID doesn't already exist,
+			// then we'll need to create it.
+			ampState = invpkg.InvoiceStateAMP{
+				State: invpkg.HtlcStateAccepted,
+				InvoiceKeys: make(
+					map[models.CircuitKey]struct{},
+				),
+			}
+		}
+
+		ampState.AmtPaid += amt
+
+	case invpkg.HtlcStateCanceled:
+		ampState.State = invpkg.HtlcStateCanceled
+		ampState.AmtPaid -= amt
+
+	case invpkg.HtlcStateSettled:
+		ampState.State = invpkg.HtlcStateSettled
+	}
+
+	ampState.InvoiceKeys[circuitKey] = struct{}{}
+	invoice.AMPState[setID] = ampState
+
+	return nil
 }
 
 // cancelSingleHtlc validates cancellation of a single htlc and update its

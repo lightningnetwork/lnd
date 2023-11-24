@@ -1922,15 +1922,12 @@ func (d *DB) cancelHTLCs(invoices kvdb.RwBucket, invoiceNum []byte,
 	htlcsAmpUpdate := make(map[invpkg.SetID]map[models.CircuitKey]*invpkg.InvoiceHTLC) //nolint:lll
 
 	// Process cancel actions from update descriptor.
-	cancelHtlcs := update.CancelHtlcs
-	for key, htlc := range invoice.Htlcs {
-		htlc := htlc
-
-		// Check whether this htlc needs to be canceled. If it does,
-		// update the htlc state to Canceled.
-		_, cancel := cancelHtlcs[key]
-		if !cancel {
-			continue
+	for key := range update.CancelHtlcs {
+		htlc, exists := invoice.Htlcs[key]
+		// Verify that we don't get an action for htlcs that are not
+		// present on the invoice.
+		if !exists {
+			return nil, fmt.Errorf("cancel of non-existent htlc")
 		}
 
 		err := cancelSingleHtlc(timestamp, htlc, invoice.State)
@@ -1938,21 +1935,11 @@ func (d *DB) cancelHTLCs(invoices kvdb.RwBucket, invoiceNum []byte,
 			return nil, err
 		}
 
-		// Delete processed cancel action, so that we can check later
-		// that there are no actions left.
-		delete(cancelHtlcs, key)
-
 		// Tally this into the set of HTLCs that need to be updated on
 		// disk, but once again, only if this is an AMP invoice.
 		if invoice.IsAMP() {
 			cancelHtlcsAmp(invoice, htlcsAmpUpdate, htlc, key)
 		}
-	}
-
-	// Verify that we didn't get an action for htlcs that are not present on
-	// the invoice.
-	if len(cancelHtlcs) > 0 {
-		return nil, errors.New("cancel action on non-existent htlc(s)")
 	}
 
 	err := d.cancelHTLCsStoreUpdate(

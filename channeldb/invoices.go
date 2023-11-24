@@ -1771,9 +1771,10 @@ func updateHtlcsAmp(invoice *invpkg.Invoice,
 	htlc *invpkg.InvoiceHTLC, setID invpkg.SetID,
 	circuitKey models.CircuitKey) {
 
-	updateInvoiceAmpState(
+	newAmpState := getUpdatedInvoiceAmpState(
 		invoice, setID, circuitKey, invpkg.HtlcStateAccepted, htlc.Amt,
 	)
+	invoice.AMPState[setID] = newAmpState
 
 	// Now that we've updated the invoice state, we'll inform the caller of
 	// the _neitre_ HTLC set they need to write for this new set ID.
@@ -1799,9 +1800,10 @@ func cancelHtlcsAmp(invoice *invpkg.Invoice,
 	setID := htlc.AMP.Record.SetID()
 
 	// First, we'll update the state of the entire HTLC set to cancelled.
-	updateInvoiceAmpState(
+	newAmpState := getUpdatedInvoiceAmpState(
 		invoice, setID, circuitKey, invpkg.HtlcStateCanceled, htlc.Amt,
 	)
+	invoice.AMPState[setID] = newAmpState
 
 	if _, ok := updateMap[setID]; !ok {
 		// Only HTLCs in the accepted state, can be cancelled, but we
@@ -1845,9 +1847,11 @@ func settleHtlcsAmp(invoice *invpkg.Invoice,
 
 	// Next update the main AMP meta-data to indicate that this HTLC set
 	// has been fully settled.
-	updateInvoiceAmpState(
+	newAmpState := getUpdatedInvoiceAmpState(
 		invoice, setID, circuitKey, invpkg.HtlcStateSettled, 0,
 	)
+	invoice.AMPState[setID] = newAmpState
+
 	// Finally, we'll add this to the set of HTLCs that need to be updated.
 	if _, ok := updateMap[setID]; !ok {
 		mapEntry := make(map[models.CircuitKey]*invpkg.InvoiceHTLC)
@@ -2523,11 +2527,12 @@ func getUpdatedInvoiceState(invoice *invpkg.Invoice, hash *lntypes.Hash,
 	}
 }
 
-// updateInvoiceAmpState updates the AMP state of an invoice, given the new
-// state, and the amount of the HTLC that is being updated.
-func updateInvoiceAmpState(invoice *invpkg.Invoice, setID invpkg.SetID,
+// getUpdatedInvoiceAmpState returns the AMP state of an invoice (without
+// applying it), given the new state, and the amount of the HTLC that is
+// being updated.
+func getUpdatedInvoiceAmpState(invoice *invpkg.Invoice, setID invpkg.SetID,
 	circuitKey models.CircuitKey, state invpkg.HtlcState,
-	amt lnwire.MilliSatoshi) {
+	amt lnwire.MilliSatoshi) invpkg.InvoiceStateAMP {
 
 	// Retrieve the AMP state for this set ID.
 	ampState, ok := invoice.AMPState[setID]
@@ -2558,9 +2563,7 @@ func updateInvoiceAmpState(invoice *invpkg.Invoice, setID invpkg.SetID,
 
 	ampState.InvoiceKeys[circuitKey] = struct{}{}
 
-	// Due to the way maps work, we need to read out the value, update it,
-	// then re-assign it into the map.
-	invoice.AMPState[setID] = ampState
+	return ampState
 }
 
 // canCancelSingleHtlc validates cancellation of a single HTLC. If nil is

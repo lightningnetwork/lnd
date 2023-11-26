@@ -1482,6 +1482,17 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 		return errors.New("not an UpdateAddHTLC packet")
 	}
 
+	// If we are draining the link in the outgoing direction we can't add
+	// new htlcs to the link and we need to bounce it
+	if l.IsDraining(Outgoing) {
+		l.mailBox.FailAdd(pkt)
+
+		return NewDetailedLinkError(
+			&lnwire.FailPermanentChannelFailure{},
+			OutgoingFailureLinkNotEligible,
+		)
+	}
+
 	// If hodl.AddOutgoing mode is active, we exit early to simulate
 	// arbitrary delays between the switch adding an ADD to the
 	// mailbox, and the HTLC being added to the commitment state.

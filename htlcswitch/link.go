@@ -538,10 +538,19 @@ func (l *channelLink) WaitForShutdown() {
 
 // EligibleToForward returns a bool indicating if the channel is able to
 // actively accept requests to forward HTLC's. We're able to forward HTLC's if
-// we know the remote party's next revocation point. Otherwise, we can't
-// initiate new channel state. We also require that the short channel ID not be
-// the all-zero source ID, meaning that the channel has had its ID finalized.
+// we are eligible to update AND the channel isn't currently flushing the
+// outgoing half of the channel.
 func (l *channelLink) EligibleToForward() bool {
+	return l.EligibleToUpdate() &&
+		!l.IsFlushing(Outgoing)
+}
+
+// EligibleToUpdate returns a bool indicating if the channel is able to update
+// channel state. We're able to update channel state if we know the remote
+// party's next revocation point. Otherwise, we can't initiate new channel
+// state. We also require that the short channel ID not be the all-zero source
+// ID, meaning that the channel has had its ID finalized.
+func (l *channelLink) EligibleToUpdate() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
 		l.ShortChanID() != hop.Source &&
 		l.isReestablished()
@@ -2831,7 +2840,7 @@ func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
 
 	// We skip sending the UpdateFee message if the channel is not
 	// currently eligible to forward messages.
-	if !l.EligibleToForward() {
+	if !l.EligibleToUpdate() {
 		l.log.Debugf("skipping fee update for inactive channel")
 		return nil
 	}

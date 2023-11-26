@@ -3612,6 +3612,18 @@ func (p *Brontide) StartTime() time.Time {
 // message is received from the remote peer. We'll use this message to advance
 // the chan closer state machine.
 func (p *Brontide) handleCloseMsg(msg *closeMsg) {
+	link := p.fetchLinkFromKeyAndCid(msg.cid)
+
+	// If the message we are receiving is a Shutdown, then we need to
+	// disable incoming adds immediately.
+	if link != nil && msg.msg.MsgType() == lnwire.MsgShutdown {
+		err := link.DisableAdds(htlcswitch.Incoming)
+		if err != nil {
+			p.log.Warnf("incoming link adds already disabled: %v",
+				link.ChanID())
+		}
+	}
+
 	// We'll now fetch the matching closing state machine in order to continue,
 	// or finalize the channel closure process.
 	chanCloser, err := p.fetchActiveChanCloser(msg.cid)
@@ -3658,18 +3670,49 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		}
 
 		oShutdown.WhenSome(func(msg lnwire.Shutdown) {
-			p.queueMsg(&msg, nil)
+			// if the link is nil it means we can immediately queue
+			// the Shutdown message since we don't have to wait for
+			// commitment transaction synchronization
+			if link == nil {
+				p.queueMsg(typed, nil)
+				return
+			}
+			// When we have a Shutdown to send, we defer it til the
+			// next time we send a CommitSig to remain spec
+			// compliant.
+			link.OnCommitOnce(htlcswitch.Outgoing, func() {
+				err := link.DisableAdds(htlcswitch.Outgoing)
+				if err != nil {
+					p.log.Warn(err.Error())
+				}
+				p.queueMsg(&msg, nil)
+			})
 		})
 
-		oClosingSigned, err := chanCloser.BeginNegotiation()
-		if err != nil {
-			handleErr(err)
-			return
+		beginNegotiation := func() {
+			oClosingSigned, err := chanCloser.BeginNegotiation()
+			if err != nil {
+				handleErr(err)
+				return
+			}
+
+			oClosingSigned.WhenSome(func(msg lnwire.ClosingSigned) {
+				p.queueMsg(&msg, nil)
+			})
 		}
 
-		oClosingSigned.WhenSome(func(msg lnwire.ClosingSigned) {
-			p.queueMsg(&msg, nil)
-		})
+		if link == nil {
+			beginNegotiation()
+		} else {
+			// Now we register a flush hook to advance the
+			// ChanCloser and possibly send out a ClosingSigned
+			// when the link finishes draining.
+			link.OnFlushedOnce(func() {
+				// Remove link in goroutine to prevent deadlock.
+				go p.cfg.Switch.RemoveLink(msg.cid)
+				beginNegotiation()
+			})
+		}
 
 	case *lnwire.ClosingSigned:
 		oClosingSigned, err := chanCloser.ReceiveClosingSigned(*typed)

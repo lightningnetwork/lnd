@@ -2957,17 +2957,6 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			}
 		}
 
-		// Optimistically try a link shutdown, erroring out if it
-		// failed.
-		if err := p.tryLinkShutdown(chanID); err != nil {
-			p.log.Errorf("failed link shutdown: %v", err)
-
-			req.Err <- fmt.Errorf("failed handling co-op closing "+
-				"request with (try force closing "+
-				"it instead): %w", err)
-			return
-		}
-
 		chanCloser, err := p.createChanCloser(
 			channel, deliveryScript, req.TargetFeePerKw, req, true,
 		)
@@ -2994,7 +2983,28 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
-		p.queueMsg(shutdownMsg, nil)
+		link := p.fetchLinkFromKeyAndCid(chanID)
+		if link == nil {
+			// If the link is nil then it means it was already
+			// removed from the switch or it never existed in the
+			// first place. The latter case is handled at the
+			// beginning of this function, so in the case where it
+			// has already been removed, we can skip adding the
+			// commit hook to queue a Shutdown message.
+			p.log.Warnf("link not found during attempted closure: "+
+				"%v", chanID)
+			return
+		}
+
+		link.OnCommitOnce(htlcswitch.Outgoing, func() {
+			err := link.DisableAdds(htlcswitch.Outgoing)
+			if err != nil {
+				p.log.Warnf("outgoing link adds already "+
+					"disabled: %v", link.ChanID())
+			}
+
+			p.queueMsg(shutdownMsg, nil)
+		})
 
 	// A type of CloseBreach indicates that the counterparty has breached
 	// the channel therefore we need to clean up our local state.
@@ -3647,8 +3657,8 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		if link != nil {
 			err := link.DisableAdds(htlcswitch.Incoming)
 			if err != nil {
-				p.log.Warnf("incoming link adds already disabled: %v",
-					link.ChanID())
+				p.log.Warnf("incoming link adds already "+
+					"disabled: %v", link.ChanID())
 			}
 		}
 

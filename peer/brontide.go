@@ -2575,12 +2575,6 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		return nil, ErrChannelNotFound
 	}
 
-	// Optimistically try a link shutdown, erroring out if it failed.
-	if err := p.tryLinkShutdown(chanID); err != nil {
-		p.log.Errorf("failed link shutdown: %v", err)
-		return nil, err
-	}
-
 	// We'll create a valid closing state machine in order to respond to
 	// the initiated cooperative channel closure. First, we set the
 	// delivery script that our funds will be paid out to. If an upfront
@@ -3112,35 +3106,6 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 	if failure.linkErr.FailureAction == htlcswitch.LinkFailureDisconnect {
 		p.Disconnect(fmt.Errorf("link requested disconnect"))
 	}
-}
-
-// tryLinkShutdown attempts to fetch a target link from the switch, calls
-// ShutdownIfChannelClean to optimistically trigger a link shutdown, and
-// removes the link from the switch. It returns an error if any step failed.
-func (p *Brontide) tryLinkShutdown(cid lnwire.ChannelID) error {
-	// Fetch the appropriate link and call ShutdownIfChannelClean to ensure
-	// no other updates can occur.
-	chanLink := p.fetchLinkFromKeyAndCid(cid)
-
-	// If the link happens to be nil, return ErrChannelNotFound so we can
-	// ignore the close message.
-	if chanLink == nil {
-		return ErrChannelNotFound
-	}
-
-	// Else, the link exists, so attempt to trigger shutdown. If this
-	// fails, we'll send an error message to the remote peer.
-	if err := chanLink.ShutdownIfChannelClean(); err != nil {
-		return err
-	}
-
-	// Next, we remove the link from the switch to shut down all of the
-	// link's goroutines and remove it from the switch's internal maps. We
-	// don't call WipeChannel as the channel must still be in the
-	// activeChannels map to process coop close messages.
-	p.cfg.Switch.RemoveLink(cid)
-
-	return nil
 }
 
 // fetchLinkFromKeyAndCid fetches a link from the switch via the remote's

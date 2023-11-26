@@ -545,7 +545,8 @@ func (l *channelLink) WaitForShutdown() {
 func (l *channelLink) EligibleToForward() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
 		l.ShortChanID() != hop.Source &&
-		l.isReestablished()
+		l.isReestablished() &&
+		!l.IsDraining(Outgoing)
 }
 
 // EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in

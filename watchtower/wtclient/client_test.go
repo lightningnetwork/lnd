@@ -2418,6 +2418,97 @@ var clientTests = []clientTest{
 		},
 	},
 	{
+		// Demonstrate that a client is un-able to remove a tower if
+		// there are persisted un-acked updates in a session that is
+		// not loaded as a candidate session on start-up.
+		//
+		// NOTE: This is a bug and will be fixed in a followup commit.
+		name: "can't remove tower with un-acked update in " +
+			"non-candidate session",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				numUpdates = 5
+				chanID     = 0
+			)
+
+			// Generate numUpdates retributions.
+			hints := h.advanceChannelN(chanID, numUpdates)
+
+			// Back up all but one of the updates so that the
+			// session is almost full.
+			h.backupStates(chanID, 0, numUpdates-1, nil)
+
+			// Wait for the updates to be populated in the server's
+			// database.
+			h.server.waitForUpdates(hints[:numUpdates-1], waitTime)
+
+			// Now stop the server and restart it with the
+			// NoAckUpdates set to true.
+			h.server.restart(func(cfg *wtserver.Config) {
+				cfg.NoAckUpdates = true
+			})
+
+			// Back up the remaining task. This will bind the
+			// backup task to the session with the server. The
+			// client will also attempt to get the ack for one
+			// update which will cause a CommittedUpdate to be
+			// persisted which will also mean that the SeqNum of the
+			// session is now equal to MaxUpdates of the session
+			// policy. This means that on start-up of the client,
+			// the session will not be loaded as a candidate.
+			h.backupStates(chanID, numUpdates-1, numUpdates, nil)
+
+			tower, err := h.clientDB.LoadTower(
+				h.server.addr.IdentityKey,
+			)
+			require.NoError(h.t, err)
+
+			// Wait till the updates have been persisted.
+			err = wait.Predicate(func() bool {
+				var numCommittedUpdates int
+				countUpdates := func(_ *wtdb.ClientSession,
+					update *wtdb.CommittedUpdate) {
+
+					numCommittedUpdates++
+				}
+
+				_, err := h.clientDB.ListClientSessions(
+					&tower.ID, wtdb.WithPerCommittedUpdate(
+						countUpdates,
+					),
+				)
+				require.NoError(h.t, err)
+
+				return numCommittedUpdates == 1
+
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Now restart the client. On restart, the previous
+			// session will no longer be loaded as a candidate since
+			// it is now seen as exhausted.
+			require.NoError(h.t, h.clientMgr.Stop())
+			h.startClient()
+
+			// Attempt to remove the tower. This will fail due to
+			// there still being un-acked updates for the tower
+			// since these are only (currently) properly handled for
+			// sessions loaded as candidate sessions on start-up.
+			err = h.clientMgr.RemoveTower(
+				h.server.addr.IdentityKey, nil,
+			)
+			require.ErrorIs(h.t, err, wtdb.ErrTowerUnackedUpdates)
+		},
+	},
+	{
 		// This test shows that if a channel is closed while an update
 		// for that channel still exists in an in-memory queue
 		// somewhere then it is handled correctly by treating it as a

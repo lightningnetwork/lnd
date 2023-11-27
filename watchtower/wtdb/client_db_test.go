@@ -145,12 +145,9 @@ func (h *clientDBHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr,
 			return
 		}
 
-		for _, session := range h.listSessions(&tower.ID) {
-			require.Equal(h.t, wtdb.CSessionTerminal,
-				session.Status, "expected status for session "+
-					"%v to be %v, got %v", session.ID,
-				wtdb.CSessionTerminal, session.Status)
-		}
+		require.EqualValues(
+			h.t, wtdb.TowerStatusInactive, tower.Status,
+		)
 	}
 }
 
@@ -551,20 +548,13 @@ func testRemoveTower(h *clientDBHarness) {
 	h.commitUpdate(&session.ID, update, nil)
 
 	// We should not be able to fully remove it from the database since
-	// there's a session and it has unacked updates.
+	// there's a session, and it has unacked updates.
 	h.removeTower(pk, nil, true, wtdb.ErrTowerUnackedUpdates)
 
 	// Removing the tower after all sessions no longer have unacked updates
-	// should result in the sessions becoming inactive.
+	// should succeed.
 	h.ackUpdate(&session.ID, 1, 1, nil)
 	h.removeTower(pk, nil, true, nil)
-
-	// Creating the tower again should mark all of the sessions active once
-	// again.
-	h.createTower(&lnwire.NetAddress{
-		IdentityKey: pk,
-		Address:     addr1,
-	}, nil)
 }
 
 // testTowerStatusChange tests that the Tower status is updated accordingly
@@ -613,11 +603,11 @@ func testTowerStatusChange(h *clientDBHarness) {
 	assertTowerStatus(wtdb.TowerStatusActive)
 	assertSessionStatus(wtdb.CSessionActive)
 
-	// Removing the tower should change its status and its session status
-	// to inactive.
+	// Removing the tower should change its status but its session
+	// status should remain active.
 	h.removeTower(tower.IdentityKey, nil, true, nil)
 	assertTowerStatus(wtdb.TowerStatusInactive)
-	assertSessionStatus(wtdb.CSessionTerminal)
+	assertSessionStatus(wtdb.CSessionActive)
 
 	// Re-adding the tower in some way should re-active it and its session.
 	h.createTower(towerAddr, nil)

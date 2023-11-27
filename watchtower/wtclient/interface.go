@@ -26,10 +26,9 @@ type DB interface {
 	// RemoveTower modifies a tower's record within the database. If an
 	// address is provided, then _only_ the address record should be removed
 	// from the tower's persisted state. Otherwise, we'll attempt to mark
-	// the tower as inactive by marking all of its sessions inactive. If any
-	// of its sessions has unacked updates, then ErrTowerUnackedUpdates is
-	// returned. If the tower doesn't have any sessions at all, it'll be
-	// completely removed from the database.
+	// the tower as inactive. If any of its sessions have unacked updates,
+	// then ErrTowerUnackedUpdates is returned. If the tower doesn't have
+	// any sessions at all, it'll be completely removed from the database.
 	//
 	// NOTE: An error is not returned if the tower doesn't exist.
 	RemoveTower(*btcec.PublicKey, net.Addr) error

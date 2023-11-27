@@ -394,37 +394,6 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 			// address is a duplicate, this will result in no
 			// change.
 			tower.AddAddress(lnAddr.Address)
-
-			// If there are any client sessions that correspond to
-			// this tower, we'll mark them as active to ensure we
-			// load them upon restarts.
-			towerSessIndex := towerToSessionIndex.NestedReadBucket(
-				tower.ID.Bytes(),
-			)
-			if towerSessIndex == nil {
-				return ErrTowerNotFound
-			}
-
-			sessions := tx.ReadWriteBucket(cSessionBkt)
-			if sessions == nil {
-				return ErrUninitializedDB
-			}
-
-			err = towerSessIndex.ForEach(func(k, _ []byte) error {
-				session, err := getClientSessionBody(
-					sessions, k,
-				)
-				if err != nil {
-					return err
-				}
-
-				return markSessionStatus(
-					sessions, session, CSessionActive,
-				)
-			})
-			if err != nil {
-				return err
-			}
 		} else {
 			// No such tower exists, create a new tower id for our
 			// new tower. The error is unhandled since NextSequence
@@ -435,6 +404,7 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 				ID:          TowerID(towerID),
 				IdentityKey: lnAddr.IdentityKey,
 				Addresses:   []net.Addr{lnAddr.Address},
+				Status:      TowerStatusActive,
 			}
 
 			towerIDBytes = tower.ID.Bytes()
@@ -468,10 +438,10 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 
 // RemoveTower modifies a tower's record within the database. If an address is
 // provided, then _only_ the address record should be removed from the tower's
-// persisted state. Otherwise, we'll attempt to mark the tower as inactive by
-// marking all of its sessions inactive. If any of its sessions has unacked
-// updates, then ErrTowerUnackedUpdates is returned. If the tower doesn't have
-// any sessions at all, it'll be completely removed from the database.
+// persisted state. Otherwise, we'll attempt to mark the tower as inactive. If
+// any of its sessions has unacked updates, then ErrTowerUnackedUpdates is
+// returned. If the tower doesn't have any sessions at all, it'll be completely
+// removed from the database.
 //
 // NOTE: An error is not returned if the tower doesn't exist.
 func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
@@ -570,18 +540,11 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 			return err
 		}
 
-		// We'll mark its sessions as inactive as long as they don't
-		// have any pending updates to ensure we don't load them upon
-		// restarts.
+		// We'll do a check to ensure that the tower's sessions don't
+		// have any pending back-ups.
 		for _, session := range towerSessions {
 			if committedUpdateCount[session.ID] > 0 {
 				return ErrTowerUnackedUpdates
-			}
-			err := markSessionStatus(
-				sessions, session, CSessionTerminal,
-			)
-			if err != nil {
-				return err
 			}
 		}
 

@@ -89,6 +89,26 @@ func (h *clientDBHarness) createTower(lnAddr *lnwire.NetAddress,
 	return tower
 }
 
+func (h *clientDBHarness) deactivateTower(pubKey *btcec.PublicKey,
+	expErr error) {
+
+	h.t.Helper()
+
+	err := h.db.DeactivateTower(pubKey)
+	require.ErrorIs(h.t, err, expErr)
+}
+
+func (h *clientDBHarness) listTowers(filterFn wtdb.TowerFilterFn,
+	expErr error) []*wtdb.Tower {
+
+	h.t.Helper()
+
+	towers, err := h.db.ListTowers(filterFn)
+	require.ErrorIs(h.t, err, expErr)
+
+	return towers
+}
+
 func (h *clientDBHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr,
 	hasSessions bool, expErr error) {
 
@@ -545,6 +565,70 @@ func testRemoveTower(h *clientDBHarness) {
 		IdentityKey: pk,
 		Address:     addr1,
 	}, nil)
+}
+
+// testTowerStatusChange tests that the Tower status is updated accordingly
+// given a variety of commands.
+func testTowerStatusChange(h *clientDBHarness) {
+	// Create a new tower.
+	pk, err := randPubKey()
+	require.NoError(h.t, err)
+
+	towerAddr := &lnwire.NetAddress{
+		IdentityKey: pk,
+		Address: &net.TCPAddr{
+			IP: []byte{0x01, 0x00, 0x00, 0x00}, Port: 9911,
+		},
+	}
+
+	tower := h.createTower(towerAddr, nil)
+
+	// Add a new session.
+	session := h.randSession(h.t, tower.ID, 100)
+	h.insertSession(session, nil)
+
+	// assertTowerStatus is a helper function that will assert that the
+	// tower's status is as expected.
+	assertTowerStatus := func(status wtdb.TowerStatus) {
+		activeFilter := func(tower *wtdb.Tower) bool {
+			return tower.Status == status
+		}
+
+		towers := h.listTowers(activeFilter, nil)
+		require.Len(h.t, towers, 1)
+		require.EqualValues(h.t, towers[0].Status, status)
+	}
+
+	// assertSessionStatus is a helper that will assert that the session's
+	// status is as expected
+	assertSessionStatus := func(status wtdb.CSessionStatus) {
+		sessions := h.listSessions(&tower.ID)
+		require.Len(h.t, sessions, 1)
+		for _, sess := range sessions {
+			require.EqualValues(h.t, sess.Status, status)
+		}
+	}
+
+	// Initially, the tower and session should be active.
+	assertTowerStatus(wtdb.TowerStatusActive)
+	assertSessionStatus(wtdb.CSessionActive)
+
+	// Removing the tower should change its status and its session status
+	// to inactive.
+	h.removeTower(tower.IdentityKey, nil, true, nil)
+	assertTowerStatus(wtdb.TowerStatusInactive)
+	assertSessionStatus(wtdb.CSessionInactive)
+
+	// Re-adding the tower in some way should re-active it and its session.
+	h.createTower(towerAddr, nil)
+	assertTowerStatus(wtdb.TowerStatusActive)
+	assertSessionStatus(wtdb.CSessionActive)
+
+	// Deactivating the tower should change its status but its session
+	// status should remain active.
+	h.deactivateTower(tower.IdentityKey, nil)
+	assertTowerStatus(wtdb.TowerStatusInactive)
+	assertSessionStatus(wtdb.CSessionActive)
 }
 
 // testChanSummaries tests the process of a registering a channel and its
@@ -1141,6 +1225,10 @@ func TestClientDB(t *testing.T) {
 		{
 			name: "max commitment heights",
 			run:  testMaxCommitmentHeights,
+		},
+		{
+			name: "test tower status change",
+			run:  testTowerStatusChange,
 		},
 	}
 

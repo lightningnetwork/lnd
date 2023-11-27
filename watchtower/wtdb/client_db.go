@@ -387,6 +387,9 @@ func (c *ClientDB) CreateTower(lnAddr *lnwire.NetAddress) (*Tower, error) {
 				return err
 			}
 
+			// Set its status to active.
+			tower.Status = TowerStatusActive
+
 			// Add the new address to the existing tower. If the
 			// address is a duplicate, this will result in no
 			// change.
@@ -503,14 +506,14 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 			return nil
 		}
 
+		tower, err := getTower(towers, towerIDBytes)
+		if err != nil {
+			return err
+		}
+
 		// If an address is provided, then we should _only_ remove the
 		// address record from the database.
 		if addr != nil {
-			tower, err := getTower(towers, towerIDBytes)
-			if err != nil {
-				return err
-			}
-
 			// Towers should always have at least one address saved.
 			tower.RemoveAddress(addr)
 			if len(tower.Addresses) == 0 {
@@ -560,6 +563,13 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 			)
 		}
 
+		// Otherwise, we mark the tower as inactive.
+		tower.Status = TowerStatusInactive
+		err = putTower(towers, tower)
+		if err != nil {
+			return err
+		}
+
 		// We'll mark its sessions as inactive as long as they don't
 		// have any pending updates to ensure we don't load them upon
 		// restarts.
@@ -576,6 +586,57 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 		}
 
 		return nil
+	}, func() {})
+}
+
+// DeactivateTower sets the given tower's status to inactive. This means that
+// this tower's sessions won't be loaded and used for backups. CreateTower can
+// be used to reactivate the tower again.
+func (c *ClientDB) DeactivateTower(pubKey *btcec.PublicKey) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		towers := tx.ReadWriteBucket(cTowerBkt)
+		if towers == nil {
+			return ErrUninitializedDB
+		}
+
+		towerIndex := tx.ReadWriteBucket(cTowerIndexBkt)
+		if towerIndex == nil {
+			return ErrUninitializedDB
+		}
+
+		towersToSessionsIndex := tx.ReadWriteBucket(
+			cTowerToSessionIndexBkt,
+		)
+		if towersToSessionsIndex == nil {
+			return ErrUninitializedDB
+		}
+
+		chanIDIndexBkt := tx.ReadBucket(cChanIDIndexBkt)
+		if chanIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		pubKeyBytes := pubKey.SerializeCompressed()
+		towerIDBytes := towerIndex.Get(pubKeyBytes)
+		if towerIDBytes == nil {
+			return ErrTowerNotFound
+		}
+
+		tower, err := getTower(towers, towerIDBytes)
+		if err != nil {
+			return err
+		}
+
+		// If the tower already has the desired status, then we can exit
+		// here.
+		if tower.Status == TowerStatusInactive {
+			return nil
+		}
+
+		// Otherwise, we update the status and re-store the tower.
+		tower.Status = TowerStatusInactive
+
+		return putTower(towers, tower)
 	}, func() {})
 }
 

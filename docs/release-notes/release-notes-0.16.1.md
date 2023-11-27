@@ -76,7 +76,7 @@ https://github.com/lightningnetwork/lnd/pull/7359)
   renamed](https://github.com/lightningnetwork/lnd/pull/7517) to
   `channel_ready` internally to match the specs update. This should not change
   anything for the users since the message type(36) stays unchanged, except in
-  the logging all the appearance of `funding_locked` replated experssion is
+  the logging all the appearance of `funding_locked` replated expression is
   replaced with `channel_ready`.
 
 ## Bug Fixes

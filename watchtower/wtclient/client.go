@@ -66,10 +66,14 @@ func (c *client) genSessionFilter(
 }
 
 // ExhaustedSessionFilter constructs a wtdb.ClientSessionFilterFn filter
-// function that will filter out any sessions that have been exhausted.
+// function that will filter out any sessions that have been exhausted. A
+// session is considered exhausted only if it has no un-acked updates and the
+// sequence number of the session is equal to the max updates of the session
+// policy.
 func ExhaustedSessionFilter() wtdb.ClientSessWithNumCommittedUpdatesFilterFn {
-	return func(session *wtdb.ClientSession, _ uint16) bool {
-		return session.SeqNum < session.Policy.MaxUpdates
+	return func(session *wtdb.ClientSession, numUnAcked uint16) bool {
+		return session.SeqNum < session.Policy.MaxUpdates ||
+			numUnAcked > 0
 	}
 }
 

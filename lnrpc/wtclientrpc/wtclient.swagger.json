@@ -194,6 +194,39 @@
         ]
       }
     },
+    "/v2/watchtower/client/tower/deactivate/{pubkey}": {
+      "post": {
+        "summary": "lncli: `wtclient deactivate`\nDeactivateTower sets the given tower's status to inactive so that it\nis not considered for session negotiation. Its sessions will also not\nbe used while the tower is inactive.",
+        "operationId": "WatchtowerClient_DeactivateTower",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcDeactivateTowerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pubkey",
+            "description": "The identifying public key of the watchtower to deactivate.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "WatchtowerClient"
+        ]
+      }
+    },
     "/v2/watchtower/client/{pubkey}": {
       "delete": {
         "summary": "lncli: `wtclient remove`\nRemoveTower removes a watchtower from being considered for future session\nnegotiations and from being used for any subsequent backups until it's added\nagain. If an address is provided, then this RPC only serves as a way of\nremoving the address from the watchtower instead.",
@@ -282,6 +315,15 @@
     },
     "wtclientrpcAddTowerResponse": {
       "type": "object"
+    },
+    "wtclientrpcDeactivateTowerResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "A string describing the action that took place."
+        }
+      }
     },
     "wtclientrpcListTowersResponse": {
       "type": "object",

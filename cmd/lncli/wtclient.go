@@ -20,6 +20,7 @@ func wtclientCommands() []cli.Command {
 			Subcommands: []cli.Command{
 				addTowerCommand,
 				removeTowerCommand,
+				deactivateTowerCommand,
 				listTowersCommand,
 				getTowerCommand,
 				statsCommand,
@@ -81,6 +82,44 @@ func addTower(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+	return nil
+}
+
+var deactivateTowerCommand = cli.Command{
+	Name: "deactivate",
+	Usage: "Deactivate a watchtower to temporarily prevent its use for " +
+		"sessions/backups.",
+	ArgsUsage: "pubkey",
+	Action:    actionDecorator(deactivateTower),
+}
+
+func deactivateTower(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if the number of arguments/flags
+	// is not what we expect.
+	if ctx.NArg() != 1 || ctx.NumFlags() > 0 {
+		return cli.ShowCommandHelp(ctx, "deactivate")
+	}
+
+	pubKey, err := hex.DecodeString(ctx.Args().First())
+	if err != nil {
+		return fmt.Errorf("invalid public key: %w", err)
+	}
+
+	client, cleanUp := getWtclient(ctx)
+	defer cleanUp()
+
+	req := &wtclientrpc.DeactivateTowerRequest{
+		Pubkey: pubKey,
+	}
+	resp, err := client.DeactivateTower(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
 	return nil
 }
 

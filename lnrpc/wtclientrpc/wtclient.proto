@@ -41,6 +41,14 @@ service WatchtowerClient {
     */
     rpc RemoveTower (RemoveTowerRequest) returns (RemoveTowerResponse);
 
+    /* lncli: `wtclient deactivate`
+    DeactivateTower sets the given tower's status to inactive so that it
+    is not considered for session negotiation. Its sessions will also not
+    be used while the tower is inactive.
+    */
+    rpc DeactivateTower (DeactivateTowerRequest)
+        returns (DeactivateTowerResponse);
+
     /* lncli: `wtclient towers`
     ListTowers returns the list of watchtowers registered with the client.
     */
@@ -86,6 +94,16 @@ message RemoveTowerRequest {
 }
 
 message RemoveTowerResponse {
+}
+
+message DeactivateTowerRequest {
+    // The identifying public key of the watchtower to deactivate.
+    bytes pubkey = 1;
+}
+
+message DeactivateTowerResponse {
+    // A string describing the action that took place.
+    string status = 1;
 }
 
 message GetTowerInfoRequest {

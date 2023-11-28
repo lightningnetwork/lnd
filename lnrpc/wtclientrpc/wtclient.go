@@ -44,6 +44,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/wtclientrpc.WatchtowerClient/DeactivateTower": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 		"/wtclientrpc.WatchtowerClient/ListTowers": {{
 			Entity: "offchain",
 			Action: "read",
@@ -249,6 +253,32 @@ func (c *WatchtowerClient) RemoveTower(ctx context.Context,
 	}
 
 	return &RemoveTowerResponse{}, nil
+}
+
+// DeactivateTower sets the given tower's status to inactive so that it is not
+// considered for session negotiation. Its sessions will also not be used while
+// the tower is inactive.
+func (c *WatchtowerClient) DeactivateTower(_ context.Context,
+	req *DeactivateTowerRequest) (*DeactivateTowerResponse, error) {
+
+	if err := c.isActive(); err != nil {
+		return nil, err
+	}
+
+	pubKey, err := btcec.ParsePubKey(req.Pubkey)
+	if err != nil {
+		return nil, err
+	}
+
+	err = c.cfg.ClientMgr.DeactivateTower(pubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return &DeactivateTowerResponse{
+		Status: fmt.Sprintf("Successful deactivation of tower: %x",
+			req.Pubkey),
+	}, nil
 }
 
 // ListTowers returns the list of watchtowers registered with the client.

@@ -7113,7 +7113,7 @@ func TestLinkFlushApiGateStateIdempotence(t *testing.T) {
 }
 
 func TestLinkOutgoingCommitHooksCalled(t *testing.T) {
-	aliceLink, _, batchTicker, start, _, err :=
+	aliceLink, bobChannel, batchTicker, start, _, err :=
 		newSingleLinkTestHarness(
 			t, 5*btcutil.SatoshiPerBitcoin,
 			btcutil.SatoshiPerBitcoin,
@@ -7123,6 +7123,23 @@ func TestLinkOutgoingCommitHooksCalled(t *testing.T) {
 	require.NoError(t, start(), "could not start link")
 
 	hookCalled := make(chan struct{})
+
+	//nolint:forcetypeassert
+	aliceMsgs := aliceLink.(*channelLink).cfg.Peer.(*mockPeer).sentMsgs
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	// Set up a pending HTLC on the link.
+	//nolint:forcetypeassert
+	htlc := generateHtlc(t, aliceLink.(*channelLink), 0)
+	ctx.sendHtlcAliceToBob(0, htlc)
+	ctx.receiveHtlcAliceToBob()
+
 	aliceLink.OnCommitOnce(Outgoing, func() {
 		close(hookCalled)
 	})

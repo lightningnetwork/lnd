@@ -375,8 +375,70 @@ type channelLink struct {
 	// UpdateAddHTLC.
 	isIncomingAddBlocked atomic.Bool
 
+	// flushHooks is a hookMap that is triggered when we reach a channel
+	// state with no live HTLCs.
+	flushHooks hookMap
+
+	// outgoingCommitHooks is a hookMap that is triggered after we send our
+	// next CommitSig.
+	outgoingCommitHooks hookMap
+
+	// incomingCommitHooks is a hookMap that is triggered after we receive
+	// our next CommitSig.
+	incomingCommitHooks hookMap
+
 	wg   sync.WaitGroup
 	quit chan struct{}
+}
+
+// hookMap is a data structure that is used to track the hooks that need to be
+// called in various parts of the channelLink's lifecycle.
+//
+// WARNING: NOT thread-safe.
+type hookMap struct {
+	// allocIdx keeps track of the next id we haven't yet allocated.
+	allocIdx atomic.Uint64
+
+	// transient is a map of hooks that are only called the next time invoke
+	// is called. These hooks are deleted during invoke.
+	transient map[uint64]func()
+
+	// newTransients is a channel that we use to accept new hooks into the
+	// hookMap.
+	newTransients chan func()
+}
+
+// newHookMap initializes a new empty hookMap.
+func newHookMap() hookMap {
+	return hookMap{
+		allocIdx:      atomic.Uint64{},
+		transient:     make(map[uint64]func()),
+		newTransients: make(chan func()),
+	}
+}
+
+// alloc allocates space in the hook map for the supplied hook, the second
+// argument determines whether it goes into the transient or persistent part
+// of the hookMap.
+func (m *hookMap) alloc(hook func()) uint64 {
+	// We assume we never overflow a uint64. Seems OK.
+	hookID := m.allocIdx.Add(1)
+	if hookID == 0 {
+		panic("hookMap allocIdx overflow")
+	}
+	m.transient[hookID] = hook
+
+	return hookID
+}
+
+// invoke is used on a hook map to call all the registered hooks and then clear
+// out the transient hooks so they are not called again.
+func (m *hookMap) invoke() {
+	for _, hook := range m.transient {
+		hook()
+	}
+
+	m.transient = make(map[uint64]func())
 }
 
 // hodlHtlc contains htlc data that is required for resolution.
@@ -393,14 +455,17 @@ func NewChannelLink(cfg ChannelLinkConfig,
 	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ChannelPoint())
 
 	return &channelLink{
-		cfg:             cfg,
-		channel:         channel,
-		shortChanID:     channel.ShortChanID(),
-		shutdownRequest: make(chan *shutdownReq),
-		hodlMap:         make(map[models.CircuitKey]hodlHtlc),
-		hodlQueue:       queue.NewConcurrentQueue(10),
-		log:             build.NewPrefixLog(logPrefix, log),
-		quit:            make(chan struct{}),
+		cfg:                 cfg,
+		channel:             channel,
+		shortChanID:         channel.ShortChanID(),
+		shutdownRequest:     make(chan *shutdownReq),
+		hodlMap:             make(map[models.CircuitKey]hodlHtlc),
+		hodlQueue:           queue.NewConcurrentQueue(10),
+		log:                 build.NewPrefixLog(logPrefix, log),
+		flushHooks:          newHookMap(),
+		outgoingCommitHooks: newHookMap(),
+		incomingCommitHooks: newHookMap(),
+		quit:                make(chan struct{}),
 	}
 }
 
@@ -612,20 +677,33 @@ func (l *channelLink) IsFlushing(linkDirection LinkDirection) bool {
 	return l.isIncomingAddBlocked.Load()
 }
 
-// OnFlushedOnce adds a hook that will be called the next time the
-// channel state reaches zero htlcs. This hook will only ever be called
-// once. If the channel state already has zero htlcs, then this will be
-// called immediately.
-func (l *channelLink) OnFlushedOnce(func()) {
-	// TODO(proofofkeags): Implement
+// OnFlushedOnce adds a hook that will be called the next time the channel
+// state reaches zero htlcs. This hook will only ever be called once. If the
+// channel state already has zero htlcs, then this will be called immediately.
+func (l *channelLink) OnFlushedOnce(hook func()) {
+	select {
+	case l.flushHooks.newTransients <- hook:
+	case <-l.quit:
+	}
 }
 
 // OnCommitOnce adds a hook that will be called the next time a CommitSig
 // message is sent in the argument's LinkDirection. This hook will only ever be
 // called once. If no CommitSig is owed in the argument's LinkDirection, then
-// we will call this hook immediately.
-func (l *channelLink) OnCommitOnce(LinkDirection, func()) {
-	// TODO(proofofkeags): Implement
+// we will call this hook be run immediately.
+func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
+	var queue chan func()
+
+	if direction == Outgoing {
+		queue = l.outgoingCommitHooks.newTransients
+	} else {
+		queue = l.incomingCommitHooks.newTransients
+	}
+
+	select {
+	case queue <- hook:
+	case <-l.quit:
+	}
 }
 
 // isReestablished returns true if the link has successfully completed the
@@ -1216,6 +1294,33 @@ func (l *channelLink) htlcManager() {
 		}
 
 		select {
+		// We have a new hook that needs to be run when we reach a clean
+		// channel state.
+		case hook := <-l.flushHooks.newTransients:
+			if l.channel.IsChannelClean() {
+				hook()
+			} else {
+				l.flushHooks.alloc(hook)
+			}
+
+		// We have a new hook that needs to be run when we have
+		// committed all of our updates.
+		case hook := <-l.outgoingCommitHooks.newTransients:
+			if !l.channel.OweCommitment() {
+				hook()
+			} else {
+				l.outgoingCommitHooks.alloc(hook)
+			}
+
+		// We have a new hook that needs to be run when our peer has
+		// committed all of their updates.
+		case hook := <-l.incomingCommitHooks.newTransients:
+			if !l.channel.NeedCommitment() {
+				hook()
+			} else {
+				l.incomingCommitHooks.alloc(hook)
+			}
+
 		// Our update fee timer has fired, so we'll check the network
 		// fee to see if we should adjust our commitment fee.
 		case <-l.updateFeeTimer.C:
@@ -2101,6 +2206,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			)
 			return
 		}
+
+		// As soon as we are ready to send our next revocation, we can
+		// invoke the incoming commit hooks.
+		l.RWMutex.Lock()
+		l.incomingCommitHooks.invoke()
+		l.RWMutex.Unlock()
+
 		l.cfg.Peer.SendMessage(false, nextRevocation)
 
 		// Notify the incoming htlcs of which the resolutions were
@@ -2138,19 +2250,26 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		default:
 		}
 
-		// If both commitment chains are fully synced from our PoV,
-		// then we don't need to reply with a signature as both sides
-		// already have a commitment with the latest accepted.
-		if !l.channel.OweCommitment() {
-			return
+		// If the remote party initiated the state transition,
+		// we'll reply with a signature to provide them with their
+		// version of the latest commitment. Otherwise, both commitment
+		// chains are fully synced from our PoV, then we don't need to
+		// reply with a signature as both sides already have a
+		// commitment with the latest accepted.
+		if l.channel.OweCommitment() {
+			if !l.updateCommitTxOrFail() {
+				return
+			}
 		}
 
-		// Otherwise, the remote party initiated the state transition,
-		// so we'll reply with a signature to provide them with their
-		// version of the latest commitment.
-		if !l.updateCommitTxOrFail() {
-			return
+		// Now that we have finished processing the incoming CommitSig
+		// and sent out our RevokeAndAck, we invoke the flushHooks if
+		// the channel state is clean.
+		l.RWMutex.Lock()
+		if l.channel.IsChannelClean() {
+			l.flushHooks.invoke()
 		}
+		l.RWMutex.Unlock()
 
 	case *lnwire.RevokeAndAck:
 		// We've received a revocation from the remote chain, if valid,
@@ -2232,6 +2351,14 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				return
 			}
 		}
+
+		// Now that we have finished processing the RevokeAndAck, we
+		// can invoke the flushHooks if the channel state is clean.
+		l.RWMutex.Lock()
+		if l.channel.IsChannelClean() {
+			l.flushHooks.invoke()
+		}
+		l.RWMutex.Unlock()
 
 	case *lnwire.UpdateFee:
 		// We received fee update from peer. If we are the initiator we
@@ -2440,6 +2567,12 @@ func (l *channelLink) updateCommitTx() error {
 		PartialSig: newCommit.PartialSig,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
+
+	// Now that we have sent out a new CommitSig, we invoke the outgoing set
+	// of commit hooks.
+	l.RWMutex.Lock()
+	l.outgoingCommitHooks.invoke()
+	l.RWMutex.Unlock()
 
 	return nil
 }

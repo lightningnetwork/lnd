@@ -4,9 +4,11 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math/rand"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -456,7 +458,9 @@ func (m *mockMessageSwitch) GetLinksByInterface(pub [33]byte) (
 // mockUpdateHandler is a mock implementation of the ChannelUpdateHandler
 // interface. It is used in mockMessageSwitch's GetLinksByInterface method.
 type mockUpdateHandler struct {
-	cid lnwire.ChannelID
+	cid                  lnwire.ChannelID
+	isOutgoingAddBlocked atomic.Bool
+	isIncomingAddBlocked atomic.Bool
 }
 
 // newMockUpdateHandler creates a new mockUpdateHandler.
@@ -509,25 +513,55 @@ type mockMessageConn struct {
 	readRaceDetectingCounter int
 }
 
-func (m *mockUpdateHandler) EnableAdds(
-	htlcswitch.LinkDirection,
-) error {
-	// TODO(proofofkeags): Implement
+func (m *mockUpdateHandler) EnableAdds(dir htlcswitch.LinkDirection) error {
+	switch dir {
+	case htlcswitch.Outgoing:
+		if !m.isOutgoingAddBlocked.Swap(false) {
+			return fmt.Errorf("%v adds already enabled", dir)
+		}
+	case htlcswitch.Incoming:
+		if !m.isIncomingAddBlocked.Swap(false) {
+			return fmt.Errorf("%v adds already enabled", dir)
+		}
+	}
+
 	return nil
 }
-func (m *mockUpdateHandler) DisableAdds(htlcswitch.LinkDirection) error {
-	// TODO(proofofkeags): Implement
+
+func (m *mockUpdateHandler) DisableAdds(dir htlcswitch.LinkDirection) error {
+	switch dir {
+	case htlcswitch.Outgoing:
+		if m.isOutgoingAddBlocked.Swap(true) {
+			return fmt.Errorf("%v adds already disabled", dir)
+		}
+	case htlcswitch.Incoming:
+		if m.isIncomingAddBlocked.Swap(true) {
+			return fmt.Errorf("%v adds already disabled", dir)
+		}
+	}
+
 	return nil
 }
-func (m *mockUpdateHandler) IsFlushing(htlcswitch.LinkDirection) bool {
-	// TODO(proofofkeags): Implement
+
+func (m *mockUpdateHandler) IsFlushing(dir htlcswitch.LinkDirection) bool {
+	switch dir {
+	case htlcswitch.Outgoing:
+		return m.isOutgoingAddBlocked.Load()
+	case htlcswitch.Incoming:
+		return m.isIncomingAddBlocked.Load()
+	}
+
 	return false
 }
-func (m *mockUpdateHandler) OnFlushedOnce(func()) {
-	// TODO(proofofkeags): Implement
+
+func (m *mockUpdateHandler) OnFlushedOnce(hook func()) {
+	hook()
 }
-func (m *mockUpdateHandler) OnCommitOnce(htlcswitch.LinkDirection, func()) {
-	// TODO(proofofkeags): Implement
+func (m *mockUpdateHandler) OnCommitOnce(
+	_ htlcswitch.LinkDirection, hook func(),
+) {
+
+	hook()
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {

@@ -5466,6 +5466,17 @@ func (lc *LightningChannel) OweCommitment() bool {
 	return lc.oweCommitment(true)
 }
 
+// NeedCommitment returns a boolean value reflecting whether we are waiting on
+// a commitment signature because there are outstanding remote updates and/or
+// updates in the remote commit tx that aren't reflected in the local commit tx
+// yet.
+func (lc *LightningChannel) NeedCommitment() bool {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	return lc.oweCommitment(false)
+}
+
 // oweCommitment is the internal version of OweCommitment. This function expects
 // to be executed with a lock held.
 func (lc *LightningChannel) oweCommitment(local bool) bool {

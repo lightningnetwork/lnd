@@ -376,8 +376,97 @@ type channelLink struct {
 	// UpdateAddHTLC.
 	isIncomingAddBlocked atomic.Bool
 
+	// flushHooks is a hookMap that is triggered when we reach a channel
+	// state with no live HTLCs.
+	flushHooks hookMap
+
+	// outgoingCommitHooks is a hookMap that is triggered after we send our
+	// next CommitSig.
+	outgoingCommitHooks hookMap
+
+	// incomingCommitHooks is a hookMap that is triggered after we receive
+	// our next CommitSig.
+	incomingCommitHooks hookMap
+
 	wg   sync.WaitGroup
 	quit chan struct{}
+}
+
+// hookMap is a data structure that is used to track the hooks that need to be
+// called in various parts of the channelLink's lifecycle.
+//
+// WARNING: NOT thread-safe.
+type hookMap struct {
+	// allocIdx keeps track of the next id we haven't yet allocated.
+	allocIdx atomic.Uint64
+
+	// transient is a map of hooks that are only called the next time invoke
+	// is called. These hooks are deleted during invoke.
+	transient map[uint64]func()
+
+	// persistent is a map of hooks that are called every time invoke is
+	// called.
+	persistent map[uint64]func()
+}
+
+// newHookMap initializes a new empty hookMap.
+func newHookMap() hookMap {
+	return hookMap{
+		allocIdx:   atomic.Uint64{},
+		transient:  make(map[uint64]func()),
+		persistent: make(map[uint64]func()),
+	}
+}
+
+// alloc allocates space in the hook map for the supplied hook, the second
+// argument determines whether it goes into the transient or persistent part
+// of the hookMap.
+func (m *hookMap) alloc(hook func(), persistent bool) uint64 {
+	var relevant map[uint64]func()
+	if persistent {
+		relevant = m.persistent
+	} else {
+		relevant = m.transient
+	}
+
+	// We assume we never overflow a uint64. Seems OK.
+	hookID := m.allocIdx.Add(1)
+	if hookID == 0 {
+		panic("hookMap allocIdx overflow")
+	}
+	relevant[hookID] = hook
+
+	return hookID
+}
+
+// delete removes a hook from the hookMap. If this function returns true it
+// means we found the hook. If it returns false, then it wasn't found.
+func (m *hookMap) delete(hookID uint64) bool {
+	if _, ok := m.transient[hookID]; ok {
+		delete(m.transient, hookID)
+		return true
+	}
+
+	if _, ok := m.persistent[hookID]; ok {
+		delete(m.persistent, hookID)
+		return true
+	}
+
+	return false
+}
+
+// invoke is used on a hook map to call all the registered hooks and then clear
+// out the transient hooks so they are not called again.
+func (m *hookMap) invoke() {
+	for _, hook := range m.persistent {
+		hook()
+	}
+
+	for _, hook := range m.transient {
+		hook()
+	}
+
+	m.transient = make(map[uint64]func())
 }
 
 // hodlHtlc contains htlc data that is required for resolution.
@@ -394,14 +483,17 @@ func NewChannelLink(cfg ChannelLinkConfig,
 	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ChannelPoint())
 
 	return &channelLink{
-		cfg:             cfg,
-		channel:         channel,
-		shortChanID:     channel.ShortChanID(),
-		shutdownRequest: make(chan *shutdownReq),
-		hodlMap:         make(map[models.CircuitKey]hodlHtlc),
-		hodlQueue:       queue.NewConcurrentQueue(10),
-		log:             build.NewPrefixLog(logPrefix, log),
-		quit:            make(chan struct{}),
+		cfg:                 cfg,
+		channel:             channel,
+		shortChanID:         channel.ShortChanID(),
+		shutdownRequest:     make(chan *shutdownReq),
+		hodlMap:             make(map[models.CircuitKey]hodlHtlc),
+		hodlQueue:           queue.NewConcurrentQueue(10),
+		log:                 build.NewPrefixLog(logPrefix, log),
+		flushHooks:          newHookMap(),
+		outgoingCommitHooks: newHookMap(),
+		incomingCommitHooks: newHookMap(),
+		quit:                make(chan struct{}),
 	}
 }
 
@@ -609,47 +701,107 @@ func (l *channelLink) IsDraining(linkDirection LinkDirection) bool {
 // channel state reaches zero htlcs. This hook will only ever be called once.
 // This function returns a FlushId that can be used to preemptively remove this
 // hook.
-func (l *channelLink) OnFlushedOnce(func()) fn.Option[FlushHookID] {
-	// TODO(proofofkeags): Implement
-	return fn.None[FlushHookID]()
+func (l *channelLink) OnFlushedOnce(hook func()) fn.Option[FlushHookID] {
+	// If the channel state is clean, meaning there are no HTLCs, and both
+	// peers have irrevocably committed that state, then we can call this
+	// hook synchronously and not add it to the map at all.
+	if l.channel.IsChannelClean() {
+		hook()
+		return fn.None[FlushHookID]()
+	}
+
+	l.RWMutex.Lock()
+	defer l.RWMutex.Unlock()
+
+	return fn.Some(FlushHookID(l.flushHooks.alloc(hook, false)))
 }
 
 // OnFlushedMany is a method that adds a hook to be called every time the
 // channel state reaches zero htlcs. This function returns a FlushId that can be
 // used to preemptively remove this hook.
-func (l *channelLink) OnFlushedMany(func()) FlushHookID {
-	// TODO(proofofkeags): Implement
-	return FlushHookID(0)
+func (l *channelLink) OnFlushedMany(hook func()) FlushHookID {
+	l.RWMutex.Lock()
+	defer l.RWMutex.Unlock()
+
+	return FlushHookID(l.flushHooks.alloc(hook, true))
 }
 
 // RemoveFlushHook will remove a hook previously added by OnFlushedOnce or
 // OnFlushedMany. It returns an error if the supplied FlushId was not found.
-func (l *channelLink) RemoveFlushHook(FlushHookID) error {
-	// TODO(proofofkeags): Implement
-	return errors.New("no flush in progress to cancel")
+func (l *channelLink) RemoveFlushHook(hid FlushHookID) error {
+	l.RWMutex.Lock()
+	defer l.RWMutex.Unlock()
+
+	if l.flushHooks.delete(uint64(hid)) {
+		return nil
+	}
+
+	return errors.New("could not remove flush hook: not found")
 }
 
 // OnCommitOnce adds a hook that will be called the next time a CommitSig
 // message is sent in the argument's LinkDirection.
 func (l *channelLink) OnCommitOnce(
-	LinkDirection, func(),
+	direction LinkDirection, hook func(),
 ) fn.Option[CommitHookID] {
 
-	// TODO(proofofkeags): Implement
-	return fn.None[CommitHookID]()
+	// If we want to run the hook once on the next fully committed state,
+	// and we don't currently need/owe a commitment, it means we don't have
+	// any pending updates and we can run the hook synchronously. If we call
+	// it syncrhonously we will not add it to the map at all.
+	runSync := direction == Outgoing && !l.channel.OweCommitment() ||
+		direction == Incoming && !l.channel.NeedCommitment()
+	if runSync {
+		hook()
+		return fn.None[CommitHookID]()
+	}
+
+	l.RWMutex.Lock()
+	defer l.RWMutex.Unlock()
+
+	var hm *hookMap
+	if direction == Outgoing {
+		hm = &l.outgoingCommitHooks
+	} else {
+		hm = &l.incomingCommitHooks
+	}
+
+	return fn.Some(CommitHookID(hm.alloc(hook, false)))
 }
 
 // OnCommitMany adds a hook that will be called every time a CommitSig message
 // is sent in the argument's LinkDirection.
-func (l *channelLink) OnCommitMany(LinkDirection, func()) CommitHookID {
-	// TODO(proofofkeags): Implement
-	return CommitHookID(0)
+func (l *channelLink) OnCommitMany(
+	direction LinkDirection, hook func(),
+) CommitHookID {
+
+	l.RWMutex.Lock()
+	defer l.RWMutex.Unlock()
+
+	var hm *hookMap
+	if direction == Outgoing {
+		hm = &l.outgoingCommitHooks
+	} else {
+		hm = &l.incomingCommitHooks
+	}
+
+	return CommitHookID(hm.alloc(hook, true))
 }
 
 // RemoveCommitHook will remove a hook previously added by OnCommitOnce or
 // OnCommitMany. It returns an error if the supplied CommitHookId was not found.
-func (l *channelLink) RemoveCommitHook(CommitHookID) error {
-	// TODO(proofofkeags): Implement
+func (l *channelLink) RemoveCommitHook(hid CommitHookID) error {
+	l.RWMutex.Lock()
+	defer l.RWMutex.Unlock()
+
+	if l.outgoingCommitHooks.delete(uint64(hid)) {
+		return nil
+	}
+
+	if l.incomingCommitHooks.delete(uint64(hid)) {
+		return nil
+	}
+
 	return errors.New("could not remove commit hook: not found")
 }
 
@@ -2115,6 +2267,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			)
 			return
 		}
+
+		// As soon as we are ready to send our next revocation, we can
+		// invoke the incoming commit hooks.
+		l.RWMutex.Lock()
+		l.incomingCommitHooks.invoke()
+		l.RWMutex.Unlock()
+
 		l.cfg.Peer.SendMessage(false, nextRevocation)
 
 		// Notify the incoming htlcs of which the resolutions were
@@ -2152,19 +2311,26 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		default:
 		}
 
-		// If both commitment chains are fully synced from our PoV,
-		// then we don't need to reply with a signature as both sides
-		// already have a commitment with the latest accepted.
-		if !l.channel.OweCommitment() {
-			return
+		// If the remote party initiated the state transition,
+		// we'll reply with a signature to provide them with their
+		// version of the latest commitment. Otherwise, both commitment
+		// chains are fully synced from our PoV, then we don't need to
+		// reply with a signature as both sides already have a
+		// commitment with the latest accepted.
+		if l.channel.OweCommitment() {
+			if !l.updateCommitTxOrFail() {
+				return
+			}
 		}
 
-		// Otherwise, the remote party initiated the state transition,
-		// so we'll reply with a signature to provide them with their
-		// version of the latest commitment.
-		if !l.updateCommitTxOrFail() {
-			return
+		// Now that we have finished processing the incoming CommitSig
+		// and sent out our RevokeAndAck, we invoke the flushHooks if
+		// the channel state is clean.
+		l.RWMutex.Lock()
+		if l.channel.IsChannelClean() {
+			l.flushHooks.invoke()
 		}
+		l.RWMutex.Unlock()
 
 	case *lnwire.RevokeAndAck:
 		// We've received a revocation from the remote chain, if valid,
@@ -2246,6 +2412,14 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				return
 			}
 		}
+
+		// Now that we have finished processing the RevokeAndAck, we
+		// can invoke the flushHooks if the channel state is clean.
+		l.RWMutex.Lock()
+		if l.channel.IsChannelClean() {
+			l.flushHooks.invoke()
+		}
+		l.RWMutex.Unlock()
 
 	case *lnwire.UpdateFee:
 		// We received fee update from peer. If we are the initiator we
@@ -2454,6 +2628,12 @@ func (l *channelLink) updateCommitTx() error {
 		PartialSig: newCommit.PartialSig,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
+
+	// Now that we have sent out a new CommitSig, we invoke the outgoing set
+	// of commit hooks.
+	l.RWMutex.Lock()
+	l.outgoingCommitHooks.invoke()
+	l.RWMutex.Unlock()
 
 	return nil
 }

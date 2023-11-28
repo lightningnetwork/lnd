@@ -146,10 +146,10 @@ func (h *clientDBHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr,
 		}
 
 		for _, session := range h.listSessions(&tower.ID) {
-			require.Equal(h.t, wtdb.CSessionInactive,
+			require.Equal(h.t, wtdb.CSessionTerminal,
 				session.Status, "expected status for session "+
 					"%v to be %v, got %v", session.ID,
-				wtdb.CSessionInactive, session.Status)
+				wtdb.CSessionTerminal, session.Status)
 		}
 	}
 }
@@ -617,7 +617,7 @@ func testTowerStatusChange(h *clientDBHarness) {
 	// to inactive.
 	h.removeTower(tower.IdentityKey, nil, true, nil)
 	assertTowerStatus(wtdb.TowerStatusInactive)
-	assertSessionStatus(wtdb.CSessionInactive)
+	assertSessionStatus(wtdb.CSessionTerminal)
 
 	// Re-adding the tower in some way should re-active it and its session.
 	h.createTower(towerAddr, nil)

@@ -578,7 +578,7 @@ func (c *ClientDB) RemoveTower(pubKey *btcec.PublicKey, addr net.Addr) error {
 				return ErrTowerUnackedUpdates
 			}
 			err := markSessionStatus(
-				sessions, session, CSessionInactive,
+				sessions, session, CSessionTerminal,
 			)
 			if err != nil {
 				return err

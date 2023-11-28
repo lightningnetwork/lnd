@@ -18,9 +18,9 @@ const (
 	// used for backups.
 	CSessionActive CSessionStatus = 0
 
-	// CSessionInactive indicates that the ClientSession is inactive and
-	// cannot be used for backups.
-	CSessionInactive CSessionStatus = 1
+	// CSessionTerminal indicates that the ClientSession is in a terminal
+	// state and cannot be used for backups.
+	CSessionTerminal CSessionStatus = 1
 )
 
 // ClientSession encapsulates a SessionInfo returned from a successful

@@ -41,6 +41,10 @@
 ## Breaking Changes
 ## Performance Improvements
 
+* [Optimized](https://github.com/lightningnetwork/lnd/pull/8232) the memoray
+  usage of `btcwallet`'s mempool. Users would need to use `bitcoind v25.0.0`
+  and above to take the advantage of this optimization. 
+
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 ## Testing

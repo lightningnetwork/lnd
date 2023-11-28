@@ -368,6 +368,14 @@ type channelLink struct {
 	// log is a link-specific logging instance.
 	log btclog.Logger
 
+	// isOutgoingAddBlocked tracks whether the channelLink can send an
+	// UpdateAddHTLC.
+	isOutgoingAddBlocked atomic.Bool
+
+	// isIncomingAddBlocked tracks whether the channelLink can receive an
+	// UpdateAddHTLC.
+	isIncomingAddBlocked atomic.Bool
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -552,24 +560,49 @@ func (l *channelLink) EligibleToForward() bool {
 // EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
 // the specified direction. It returns an error if the state already allowed
 // those adds.
-func (l *channelLink) EnableAdds(LinkDirection) error {
-	// TODO(proofofkeags): Implement
+func (l *channelLink) EnableAdds(linkDirection LinkDirection) error {
+	if linkDirection == Outgoing {
+		if !l.isOutgoingAddBlocked.Swap(false) {
+			return errors.New("outgoing adds already enabled")
+		}
+	}
+
+	if linkDirection == Incoming {
+		if !l.isIncomingAddBlocked.Swap(false) {
+			return errors.New("incoming adds already enabled")
+		}
+	}
+
 	return nil
 }
 
 // DiableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
 // the specified direction. It returns an error if the state already disallowed
 // those adds.
-func (l *channelLink) DisableAdds(LinkDirection) error {
-	// TODO(proofofkeags): Implement
+func (l *channelLink) DisableAdds(linkDirection LinkDirection) error {
+	if linkDirection == Outgoing {
+		if l.isOutgoingAddBlocked.Swap(true) {
+			return errors.New("outgoing adds already disabled")
+		}
+	}
+
+	if linkDirection == Incoming {
+		if l.isIncomingAddBlocked.Swap(true) {
+			return errors.New("incoming adds already disabled")
+		}
+	}
+
 	return nil
 }
 
 // IsDraining returns true when UpdateAddHtlc's are disabled in the direction of
 // the argument.
-func (l *channelLink) IsDraining(LinkDirection) bool {
-	// TODO(proofofkeags): Implement
-	return false
+func (l *channelLink) IsDraining(linkDirection LinkDirection) bool {
+	if linkDirection == Outgoing {
+		return l.isOutgoingAddBlocked.Load()
+	}
+
+	return l.isIncomingAddBlocked.Load()
 }
 
 // OnFlushedOnce is a method that adds a hook to be called the next time the

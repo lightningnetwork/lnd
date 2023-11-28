@@ -23,6 +23,9 @@
   `musig2Sessions` with a `SyncMap` used in `input` package to avoid concurrent
   write to this map.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8220) a loop variable
+  issue which may affect programs built using go `v1.20` and below. 
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

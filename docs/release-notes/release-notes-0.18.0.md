@@ -123,6 +123,9 @@
 ## Breaking Changes
 ## Performance Improvements
 
+* Watchtower client DB migration to massively [improve the start-up 
+  performance](https://github.com/lightningnetwork/lnd/pull/8222) of a client.
+
 # Technical and Architectural Updates
 ## BOLT Spec Updates
 

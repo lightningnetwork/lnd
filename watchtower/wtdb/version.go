@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration5"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration6"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration7"
+	"github.com/lightningnetwork/lnd/watchtower/wtdb/migration8"
 )
 
 // txMigration is a function which takes a prior outdated version of the
@@ -66,6 +67,9 @@ var clientDBVersions = []version{
 	},
 	{
 		txMigration: migration7.MigrateChannelToSessionIndex,
+	},
+	{
+		txMigration: migration8.MigrateChannelMaxHeights,
 	},
 }
 

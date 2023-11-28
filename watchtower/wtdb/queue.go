@@ -80,6 +80,7 @@ type DiskQueueDB[T Serializable] struct {
 	db          kvdb.Backend
 	topLevelBkt []byte
 	constructor func() T
+	onItemWrite func(tx kvdb.RwTx, item T) error
 }
 
 // A compile-time check to ensure that DiskQueueDB implements the Queue
@@ -89,12 +90,14 @@ var _ Queue[Serializable] = (*DiskQueueDB[Serializable])(nil)
 // NewQueueDB constructs a new DiskQueueDB. A queueBktName must be provided so
 // that the DiskQueueDB can create its own namespace in the bolt db.
 func NewQueueDB[T Serializable](db kvdb.Backend, queueBktName []byte,
-	constructor func() T) Queue[T] {
+	constructor func() T,
+	onItemWrite func(tx kvdb.RwTx, item T) error) Queue[T] {
 
 	return &DiskQueueDB[T]{
 		db:          db,
 		topLevelBkt: queueBktName,
 		constructor: constructor,
+		onItemWrite: onItemWrite,
 	}
 }
 
@@ -277,6 +280,13 @@ func (d *DiskQueueDB[T]) addItem(tx kvdb.RwTx, queueName []byte, item T) error {
 	bucket, err := mainTasksBucket.CreateBucketIfNotExists(queueName)
 	if err != nil {
 		return err
+	}
+
+	if d.onItemWrite != nil {
+		err = d.onItemWrite(tx, item)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Find the index to use for placing this new item at the back of the

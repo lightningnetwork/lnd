@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/lightningnetwork/lnd/kvdb"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/watchtower/wtdb"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +31,14 @@ func TestDiskQueue(t *testing.T) {
 		err = db.Close()
 		require.NoError(t, err)
 	})
+
+	// In order to test that the queue's `onItemWrite` call back (which in
+	// this case will be set to maybeUpdateMaxCommitHeight) is executed as
+	// expected, we need to register a channel so that we can later assert
+	// that it's max height field was updated properly.
+	var chanID lnwire.ChannelID
+	err = db.RegisterChannel(chanID, []byte{})
+	require.NoError(t, err)
 
 	namespace := []byte("test-namespace")
 	queue := db.GetDBQueue(namespace)
@@ -110,4 +119,19 @@ func TestDiskQueue(t *testing.T) {
 	// This should not have changed the order of the tasks, they should
 	// still appear in the correct order.
 	popAndAssert(task1, task2, task3, task4, task5, task6)
+
+	// Finally, we check that the `onItemWrite` call back was executed by
+	// the queue. We do this by checking that the channel's recorded max
+	// commitment height was set correctly. It should be equal to the height
+	// recorded in task6.
+	infos, err := db.FetchChanInfos()
+	require.NoError(t, err)
+	require.Len(t, infos, 1)
+
+	info, ok := infos[chanID]
+	require.True(t, ok)
+	require.True(t, info.MaxHeight.IsSome())
+	info.MaxHeight.WhenSome(func(height uint64) {
+		require.EqualValues(t, task6.CommitHeight, height)
+	})
 }

@@ -156,13 +156,13 @@ func (h *clientDBHarness) loadTowerByID(id wtdb.TowerID,
 	return tower
 }
 
-func (h *clientDBHarness) fetchChanSummaries() map[lnwire.ChannelID]wtdb.ClientChanSummary {
+func (h *clientDBHarness) fetchChanInfos() wtdb.ChannelInfos {
 	h.t.Helper()
 
-	summaries, err := h.db.FetchChanSummaries()
+	infos, err := h.db.FetchChanInfos()
 	require.NoError(h.t, err)
 
-	return summaries
+	return infos
 }
 
 func (h *clientDBHarness) registerChan(chanID lnwire.ChannelID,
@@ -552,7 +552,7 @@ func testRemoveTower(h *clientDBHarness) {
 func testChanSummaries(h *clientDBHarness) {
 	// First, assert that this channel is not already registered.
 	var chanID lnwire.ChannelID
-	_, ok := h.fetchChanSummaries()[chanID]
+	_, ok := h.fetchChanInfos()[chanID]
 	require.Falsef(h.t, ok, "pkscript for channel %x should not exist yet",
 		chanID)
 
@@ -565,7 +565,7 @@ func testChanSummaries(h *clientDBHarness) {
 
 	// Assert that the channel exists and that its sweep pkscript matches
 	// the one we registered.
-	summary, ok := h.fetchChanSummaries()[chanID]
+	summary, ok := h.fetchChanInfos()[chanID]
 	require.Truef(h.t, ok, "pkscript for channel %x should not exist yet",
 		chanID)
 	require.Equal(h.t, expPkScript, summary.SweepPkScript)
@@ -765,6 +765,58 @@ func testRogueUpdates(h *clientDBHarness) {
 	// it is now closable.
 	closableSessionsMap = h.listClosableSessions(nil)
 	require.Len(h.t, closableSessionsMap, 1)
+}
+
+// testMaxCommitmentHeights tests that the max known commitment height of a
+// channel is properly persisted.
+func testMaxCommitmentHeights(h *clientDBHarness) {
+	const maxUpdates = 5
+	t := h.t
+
+	// Initially, we expect no channels.
+	infos := h.fetchChanInfos()
+	require.Empty(t, infos)
+
+	// Create a new tower.
+	tower := h.newTower()
+
+	// Create and insert a new session.
+	session1 := h.randSession(t, tower.ID, maxUpdates)
+	h.insertSession(session1, nil)
+
+	// Create a new channel and register it.
+	chanID1 := randChannelID(t)
+	h.registerChan(chanID1, nil, nil)
+
+	// At this point, we expect one channel to be returned from
+	// fetchChanInfos but with an unset max height.
+	infos = h.fetchChanInfos()
+	require.Len(t, infos, 1)
+
+	info, ok := infos[chanID1]
+	require.True(t, ok)
+	require.True(t, info.MaxHeight.IsNone())
+
+	// Commit and ACK some updates for this channel.
+	for i := 1; i <= maxUpdates; i++ {
+		update := randCommittedUpdateForChanWithHeight(
+			t, chanID1, uint16(i), uint64(i-1),
+		)
+		lastApplied := h.commitUpdate(&session1.ID, update, nil)
+		h.ackUpdate(&session1.ID, uint16(i), lastApplied, nil)
+	}
+
+	// Assert that the max height has now been set accordingly for this
+	// channel.
+	infos = h.fetchChanInfos()
+	require.Len(t, infos, 1)
+
+	info, ok = infos[chanID1]
+	require.True(t, ok)
+	require.True(t, info.MaxHeight.IsSome())
+	info.MaxHeight.WhenSome(func(u uint64) {
+		require.EqualValues(t, maxUpdates-1, u)
+	})
 }
 
 // testMarkChannelClosed asserts the behaviour of MarkChannelClosed.
@@ -1096,6 +1148,10 @@ func TestClientDB(t *testing.T) {
 		{
 			name: "rogue updates",
 			run:  testRogueUpdates,
+		},
+		{
+			name: "max commitment heights",
+			run:  testMaxCommitmentHeights,
 		},
 	}
 

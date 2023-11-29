@@ -135,11 +135,6 @@ type ChannelUpdateHandler interface {
 	// parameter.
 	MayAddOutgoingHtlc(lnwire.MilliSatoshi) error
 
-	// ShutdownIfChannelClean shuts the link down if the channel state is
-	// clean. This can be used with dynamic commitment negotiation or coop
-	// close negotiation which require a clean channel state.
-	ShutdownIfChannelClean() error
-
 	// EnableAdds sets the ChannelUpdateHandler state to allow
 	// UpdateAddHtlc's in the specified direction. It returns an error if
 	// the state already allowed those adds.

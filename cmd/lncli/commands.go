@@ -373,11 +373,31 @@ func sendCoins(ctx *cli.Context) error {
 			"sweep all coins out of the wallet")
 	}
 
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+	minConfs := int32(ctx.Uint64("min_confs"))
+
+	// In case that the user has specified the sweepall flag, we'll
+	// calculate the amount to send based on the current wallet balance.
+	displayAmt := amt
+	if ctx.Bool("sweepall") {
+		balanceResponse, err := client.WalletBalance(
+			ctxc, &lnrpc.WalletBalanceRequest{
+				MinConfs: minConfs,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to retrieve wallet balance:"+
+				" %w", err)
+		}
+		displayAmt = balanceResponse.GetConfirmedBalance()
+	}
+
 	// Ask for confirmation if we're on an actual terminal and the output is
 	// not being redirected to another command. This prevents existing shell
 	// scripts from breaking.
 	if !ctx.Bool("force") && term.IsTerminal(int(os.Stdout.Fd())) {
-		fmt.Printf("Amount: %d\n", amt)
+		fmt.Printf("Amount: %d\n", displayAmt)
 		fmt.Printf("Destination address: %v\n", addr)
 
 		confirm := promptForConfirmation("Confirm payment (yes/no): ")
@@ -386,10 +406,6 @@ func sendCoins(ctx *cli.Context) error {
 		}
 	}
 
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
-
-	minConfs := int32(ctx.Uint64("min_confs"))
 	req := &lnrpc.SendCoinsRequest{
 		Addr:             addr,
 		Amount:           amt,

@@ -10,7 +10,8 @@ import (
 	"github.com/urfave/cli"
 )
 
-// wtclientCommands will return nil for non-wtclientrpc builds.
+// wtclientCommands is a list of commands that can be used to interact with the
+// watchtower client.
 func wtclientCommands() []cli.Command {
 	return []cli.Command{
 		{
@@ -25,6 +26,7 @@ func wtclientCommands() []cli.Command {
 				getTowerCommand,
 				statsCommand,
 				policyCommand,
+				sessionCommands,
 			},
 		},
 	}
@@ -370,5 +372,49 @@ func policy(ctx *cli.Context) error {
 	}
 
 	printRespJSON(resp)
+	return nil
+}
+
+var sessionCommands = cli.Command{
+	Name: "session",
+	Subcommands: []cli.Command{
+		terminateSessionCommand,
+	},
+}
+
+var terminateSessionCommand = cli.Command{
+	Name:      "terminate",
+	ArgsUsage: "id",
+	Action:    actionDecorator(terminateSession),
+}
+
+func terminateSession(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if the number of arguments/flags
+	// is not what we expect.
+	if ctx.NArg() > 1 || ctx.NumFlags() != 0 {
+		return cli.ShowCommandHelp(ctx, "terminate")
+	}
+
+	client, cleanUp := getWtclient(ctx)
+	defer cleanUp()
+
+	sessionID, err := hex.DecodeString(ctx.Args().First())
+	if err != nil {
+		return fmt.Errorf("invalid session ID: %w", err)
+	}
+
+	resp, err := client.TerminateSession(
+		ctxc, &wtclientrpc.TerminateSessionRequest{
+			SessionId: sessionID,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
 	return nil
 }

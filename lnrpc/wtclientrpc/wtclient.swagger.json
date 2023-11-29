@@ -171,6 +171,39 @@
         ]
       }
     },
+    "/v2/watchtower/client/sessions/terminate/{session_id}": {
+      "post": {
+        "summary": "lncli: `wtclient session terminate`\nTerminate terminates the given session and marks it as terminal so that\nit is not used for backups anymore.",
+        "operationId": "WatchtowerClient_TerminateSession",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcTerminateSessionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "session_id",
+            "description": "The ID of the session that should be terminated.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "WatchtowerClient"
+        ]
+      }
+    },
     "/v2/watchtower/client/stats": {
       "get": {
         "summary": "lncli: `wtclient stats`\nStats returns the in-memory statistics of the client since startup.",
@@ -397,6 +430,15 @@
           "type": "integer",
           "format": "int64",
           "description": "The total number of watchtower sessions that have been exhausted."
+        }
+      }
+    },
+    "wtclientrpcTerminateSessionResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "A string describing the action that took place."
         }
       }
     },

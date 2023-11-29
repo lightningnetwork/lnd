@@ -48,6 +48,10 @@ var (
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/wtclientrpc.WatchtowerClient/TerminateSession": {{
+			Entity: "offchain",
+			Action: "write",
+		}},
 		"/wtclientrpc.WatchtowerClient/ListTowers": {{
 			Entity: "offchain",
 			Action: "read",
@@ -278,6 +282,33 @@ func (c *WatchtowerClient) DeactivateTower(_ context.Context,
 	return &DeactivateTowerResponse{
 		Status: fmt.Sprintf("Successful deactivation of tower: %x",
 			req.Pubkey),
+	}, nil
+}
+
+// TerminateSession terminates the given session and marks it as terminal so
+// that it is never used again.
+func (c *WatchtowerClient) TerminateSession(_ context.Context,
+	req *TerminateSessionRequest) (*TerminateSessionResponse, error) {
+
+	if err := c.isActive(); err != nil {
+		return nil, err
+	}
+
+	pubKey, err := btcec.ParsePubKey(req.SessionId)
+	if err != nil {
+		return nil, err
+	}
+
+	sessionID := wtdb.NewSessionIDFromPubKey(pubKey)
+
+	err = c.cfg.ClientMgr.TerminateSession(sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TerminateSessionResponse{
+		Status: fmt.Sprintf("Successful termination of session: %s",
+			sessionID),
 	}, nil
 }
 

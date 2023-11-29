@@ -2259,6 +2259,53 @@ func (c *ClientDB) GetDBQueue(namespace []byte) Queue[*BackupID] {
 	)
 }
 
+// TerminateSession sets the given session's status to CSessionTerminal meaning
+// that it will not be usable again. An error will be returned if the given
+// session still has un-acked updates that should be attended to.
+func (c *ClientDB) TerminateSession(id SessionID) error {
+	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
+		sessions := tx.ReadWriteBucket(cSessionBkt)
+		if sessions == nil {
+			return ErrUninitializedDB
+		}
+
+		sessionsBkt := tx.ReadBucket(cSessionBkt)
+		if sessionsBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		chanIDIndexBkt := tx.ReadBucket(cChanIDIndexBkt)
+		if chanIDIndexBkt == nil {
+			return ErrUninitializedDB
+		}
+
+		// Collect any un-acked updates for this session.
+		committedUpdateCount := make(map[SessionID]uint16)
+		perCommittedUpdate := func(s *ClientSession,
+			_ *CommittedUpdate) {
+
+			committedUpdateCount[s.ID]++
+		}
+
+		session, err := c.getClientSession(
+			sessionsBkt, chanIDIndexBkt, id[:],
+			WithPerCommittedUpdate(perCommittedUpdate),
+		)
+		if err != nil {
+			return err
+		}
+
+		// If there are any un-acked updates for this session then
+		// we don't allow the change of status as these updates must
+		// first be dealt with somehow.
+		if committedUpdateCount[id] > 0 {
+			return ErrSessionHasUnackedUpdates
+		}
+
+		return markSessionStatus(sessions, session, CSessionTerminal)
+	}, func() {})
+}
+
 // DeleteCommittedUpdates deletes all the committed updates for the given
 // session.
 func (c *ClientDB) DeleteCommittedUpdates(id *SessionID) error {

@@ -33,6 +33,10 @@ type DB interface {
 	// NOTE: An error is not returned if the tower doesn't exist.
 	RemoveTower(*btcec.PublicKey, net.Addr) error
 
+	// TerminateSession sets the given session's status to CSessionTerminal
+	// meaning that it will not be usable again.
+	TerminateSession(id wtdb.SessionID) error
+
 	// LoadTower retrieves a tower by its public key.
 	LoadTower(*btcec.PublicKey) (*wtdb.Tower, error)
 

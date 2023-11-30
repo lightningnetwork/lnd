@@ -194,12 +194,12 @@ func (h *clientDBHarness) ackUpdate(id *wtdb.SessionID, seqNum uint16,
 	require.ErrorIs(h.t, err, expErr)
 }
 
-func (h *clientDBHarness) deleteCommittedUpdate(id *wtdb.SessionID,
-	seqNum uint16, expErr error) {
+func (h *clientDBHarness) deleteCommittedUpdates(id *wtdb.SessionID,
+	expErr error) {
 
 	h.t.Helper()
 
-	err := h.db.DeleteCommittedUpdate(id, seqNum)
+	err := h.db.DeleteCommittedUpdates(id)
 	require.ErrorIs(h.t, err, expErr)
 }
 
@@ -660,18 +660,7 @@ func testCommitUpdate(h *clientDBHarness) {
 
 	// We will now also test that the DeleteCommittedUpdates method also
 	// works.
-	// First, try to delete a committed update that does not exist.
-	h.deleteCommittedUpdate(
-		&session.ID, update4.SeqNum, wtdb.ErrCommittedUpdateNotFound,
-	)
-
-	// Now delete an existing committed update and ensure that it succeeds.
-	h.deleteCommittedUpdate(&session.ID, update1.SeqNum, nil)
-	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{
-		*update2,
-	}, nil)
-
-	h.deleteCommittedUpdate(&session.ID, update2.SeqNum, nil)
+	h.deleteCommittedUpdates(&session.ID, nil)
 	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{}, nil)
 }
 

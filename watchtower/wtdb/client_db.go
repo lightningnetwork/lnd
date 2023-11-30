@@ -196,9 +196,9 @@ var (
 	// session has updates for channels that are still open.
 	errSessionHasOpenChannels = errors.New("session has open channels")
 
-	// errSessionHasUnackedUpdates is an error used to indicate that a
+	// ErrSessionHasUnackedUpdates is an error used to indicate that a
 	// session has un-acked updates.
-	errSessionHasUnackedUpdates = errors.New("session has un-acked updates")
+	ErrSessionHasUnackedUpdates = errors.New("session has un-acked updates")
 
 	// errChannelHasMoreSessions is an error used to indicate that a channel
 	// has updates in other non-closed sessions.
@@ -1798,22 +1798,21 @@ func isSessionClosable(sessionsBkt, chanDetailsBkt, chanIDIndexBkt kvdb.RBucket,
 		return false, ErrSessionNotFound
 	}
 
+	// Since the DeleteCommittedUpdates method deletes the cSessionCommits
+	// bucket in one go, it is possible for the session to be closable even
+	// if this bucket no longer exists.
 	commitsBkt := sessBkt.NestedReadBucket(cSessionCommits)
-	if commitsBkt == nil {
-		// If the session has no cSessionCommits bucket then we can be
-		// sure that no updates have ever been committed to the session
-		// and so it is not yet exhausted.
-		return false, nil
-	}
-
-	// If the session has any un-acked updates, then it is not yet closable.
-	err := commitsBkt.ForEach(func(_, _ []byte) error {
-		return errSessionHasUnackedUpdates
-	})
-	if errors.Is(err, errSessionHasUnackedUpdates) {
-		return false, nil
-	} else if err != nil {
-		return false, err
+	if commitsBkt != nil {
+		// If the session has any un-acked updates, then it is not yet
+		// closable.
+		err := commitsBkt.ForEach(func(_, _ []byte) error {
+			return ErrSessionHasUnackedUpdates
+		})
+		if errors.Is(err, ErrSessionHasUnackedUpdates) {
+			return false, nil
+		} else if err != nil {
+			return false, err
+		}
 	}
 
 	session, err := getClientSessionBody(sessionsBkt, id[:])
@@ -2215,9 +2214,9 @@ func (c *ClientDB) GetDBQueue(namespace []byte) Queue[*BackupID] {
 	)
 }
 
-// DeleteCommittedUpdate deletes the committed update with the given sequence
-// number from the given session.
-func (c *ClientDB) DeleteCommittedUpdate(id *SessionID, seqNum uint16) error {
+// DeleteCommittedUpdates deletes all the committed updates for the given
+// session.
+func (c *ClientDB) DeleteCommittedUpdates(id *SessionID) error {
 	return kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		sessions := tx.ReadWriteBucket(cSessionBkt)
 		if sessions == nil {
@@ -2231,23 +2230,40 @@ func (c *ClientDB) DeleteCommittedUpdate(id *SessionID, seqNum uint16) error {
 		}
 
 		// If the commits sub-bucket doesn't exist, there can't possibly
-		// be a corresponding update to remove.
+		// be corresponding updates to remove.
 		sessionCommits := sessionBkt.NestedReadWriteBucket(
 			cSessionCommits,
 		)
 		if sessionCommits == nil {
-			return ErrCommittedUpdateNotFound
+			return nil
 		}
 
-		var seqNumBuf [2]byte
-		byteOrder.PutUint16(seqNumBuf[:], seqNum)
+		// errFoundUpdates is an error we will use to exit early from
+		// the ForEach loop. The return of this error means that at
+		// least one committed update exists.
+		var errFoundUpdates = fmt.Errorf("found committed updates")
+		err := sessionCommits.ForEach(func(k, v []byte) error {
+			return errFoundUpdates
+		})
+		switch {
+		// If the errFoundUpdates signal error was returned then there
+		// are some updates that need to be deleted.
+		case errors.Is(err, errFoundUpdates):
 
-		if sessionCommits.Get(seqNumBuf[:]) == nil {
-			return ErrCommittedUpdateNotFound
+		// If no error is returned then the ForEach call back was never
+		// entered meaning that there are no un-acked committed updates.
+		// So we can exit now as there is nothing left to do.
+		case err == nil:
+			return nil
+
+		// If an expected error is returned, return that error.
+		default:
+			return err
 		}
 
-		// Remove the corresponding committed update.
-		return sessionCommits.Delete(seqNumBuf[:])
+		// Delete all the committed updates in one go by deleting the
+		// session commits bucket.
+		return sessionBkt.DeleteNestedBucket(cSessionCommits)
 	}, func() {})
 }
 

@@ -211,14 +211,13 @@ func (q *sessionQueue) Stop(final bool) error {
 					update.BackupID, err)
 				continue
 			}
+		}
 
-			err = q.cfg.DB.DeleteCommittedUpdate(
-				q.ID(), update.SeqNum,
-			)
+		if final {
+			err = q.cfg.DB.DeleteCommittedUpdates(q.ID())
 			if err != nil {
 				log.Errorf("could not delete committed "+
-					"update %d for session %s",
-					update.SeqNum, q.ID())
+					"updates for session %s", q.ID())
 			}
 		}
 

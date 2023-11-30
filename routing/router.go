@@ -1552,7 +1552,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		fundingTx, err := r.fetchFundingTx(&channelID)
+		fundingTx, err := r.fetchFundingTxWrapper(&channelID)
 		if err != nil {
 			// In order to ensure we don't erroneously mark a
 			// channel as a zombie due to an RPC failure, we'll
@@ -1760,6 +1760,36 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 	}
 
 	return nil
+}
+
+// fetchFundingTxWrapper is a wrapper around fetchFundingTx, except that it
+// will exit if the router has stopped.
+func (r *ChannelRouter) fetchFundingTxWrapper(chanID *lnwire.ShortChannelID) (
+	*wire.MsgTx, error) {
+
+	txChan := make(chan *wire.MsgTx, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		tx, err := r.fetchFundingTx(chanID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		txChan <- tx
+	}()
+
+	select {
+	case tx := <-txChan:
+		return tx, nil
+
+	case err := <-errChan:
+		return nil, err
+
+	case <-r.quit:
+		return nil, ErrRouterShuttingDown
+	}
 }
 
 // fetchFundingTx returns the funding transaction identified by the passed

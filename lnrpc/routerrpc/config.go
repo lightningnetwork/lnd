@@ -10,8 +10,17 @@ import (
 // The fields with struct tags are meant to be parsed as normal configuration
 // options, while if able to be populated, the latter fields MUST also be
 // specified.
+//
+//nolint:lll
 type Config struct {
 	RoutingConfig
+
+	// UseStatusInitiated is a boolean that indicates whether the router
+	// should use the new status code `Payment_INITIATED`.
+	//
+	// TODO(yy): remove this config after the new status code is fully
+	// deployed to the network(v0.20.0).
+	UseStatusInitiated bool `long:"usestatusinitiated" description:"If true, the router will send Payment_INITIATED for new payments, otherwise Payment_In_FLIGHT will be sent for compatibility concerns."`
 
 	// RouterMacPath is the path for the router macaroon. If unspecified
 	// then we assume that the macaroon will be found under the network

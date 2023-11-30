@@ -940,11 +940,17 @@ func (s *Server) trackPaymentStream(context context.Context,
 			}
 			result := item.(*channeldb.MPPayment)
 
-			// Skip in-flight updates unless requested.
-			if noInflightUpdates &&
-				result.Status == channeldb.StatusInFlight {
+			log.Tracef("Payment %v updated to state %v",
+				result.Info.PaymentIdentifier, result.Status)
 
-				continue
+			// Skip in-flight updates unless requested.
+			if noInflightUpdates {
+				if result.Status == channeldb.StatusInitiated {
+					continue
+				}
+				if result.Status == channeldb.StatusInFlight {
+					continue
+				}
 			}
 
 			rpcPayment, err := s.cfg.RouterBackend.MarshallPayment(

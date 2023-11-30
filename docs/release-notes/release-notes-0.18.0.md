@@ -63,6 +63,11 @@
 * A new config value,
   [http-header-timeout](https://github.com/lightningnetwork/lnd/pull/7715), is added so users can specify the amount of time the http server will wait for a request to complete before closing the connection. The default value is 5 seconds.
 
+* [`routerrpc.usestatusinitiated` is
+  introduced](https://github.com/lightningnetwork/lnd/pull/8177) to signal that
+  the new payment status `Payment_INITIATED` should be used for payment-related
+  RPCs. It's recommended to use it to provide granular controls over payments.
+
 ## RPC Additions
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)

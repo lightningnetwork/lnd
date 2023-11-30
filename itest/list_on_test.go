@@ -491,6 +491,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testTrackPayments,
 	},
 	{
+		Name:     "trackpayments compatible",
+		TestFunc: testTrackPaymentsCompatible,
+	},
+	{
 		Name:     "open channel fee policy",
 		TestFunc: testOpenChannelUpdateFeePolicy,
 	},

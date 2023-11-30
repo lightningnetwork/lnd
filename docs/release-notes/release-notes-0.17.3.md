@@ -26,6 +26,8 @@
 * [Fixed](https://github.com/lightningnetwork/lnd/pull/8220) a loop variable
   issue which may affect programs built using go `v1.20` and below. 
 
+* [An issue where LND would hang on shutdown has been fixed.](https://github.com/lightningnetwork/lnd/pull/8151)
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions
@@ -47,4 +49,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+* Eugene Siegel
 * Yong Yu

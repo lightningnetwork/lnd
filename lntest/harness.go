@@ -495,7 +495,8 @@ func (h *HarnessTest) Shutdown(node *node.HarnessNode) {
 		return h.manager.shutdownNode(node)
 	}, DefaultTimeout)
 
-	require.NoErrorf(h, err, "unable to shutdown %v", node.Name())
+	require.NoErrorf(h, err, "unable to shutdown %v in %v", node.Name(),
+		h.manager.currentTestCase)
 }
 
 // SuspendNode stops the given node and returns a callback that can be used to

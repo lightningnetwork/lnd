@@ -69,6 +69,14 @@ var addInvoiceCommand = cli.Command{
 				"these channels can be included, which " +
 				"might not be desirable.",
 		},
+		cli.Int64Flag{
+			Name: "hints",
+			Usage: "the number of routing hints the invoice " +
+				"should include. Poor channel liquidity may " +
+				"result in more hints being added, lack of " +
+				"private channels in less. The maximum is " +
+				"20 hints.",
+		},
 		cli.BoolFlag{
 			Name: "amp",
 			Usage: "creates an AMP invoice. If true, preimage " +
@@ -127,6 +135,7 @@ func addInvoice(ctx *cli.Context) error {
 		FallbackAddr:    ctx.String("fallback_addr"),
 		Expiry:          ctx.Int64("expiry"),
 		Private:         ctx.Bool("private"),
+		NumRouteHints:   ctx.Int64("hints"),
 		IsAmp:           ctx.Bool("amp"),
 	}
 

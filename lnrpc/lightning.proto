@@ -3762,6 +3762,13 @@ message Invoice {
     Note: Output only, don't specify for creating an invoice.
     */
     map<string, AMPInvoiceState> amp_invoice_state = 28;
+
+    /*
+    The number of routing hints the invoice should include. Poor channel
+    liquidity may result in more hints being added, lack of private channels
+    in less. The maximum is 20 hints.
+    */
+    int64 num_route_hints = 29;
 }
 
 enum InvoiceHTLCState {

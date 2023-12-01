@@ -137,6 +137,9 @@ type AddInvoiceData struct {
 	// RouteHints are optional route hints that can each be individually
 	// used to assist in reaching the invoice's destination.
 	RouteHints [][]zpay32.HopHint
+
+	// The number of route hints the invoice should include. Default is 0.
+	NumRouteHints int64
 }
 
 // paymentHashAndPreimage returns the payment hash and preimage for this invoice
@@ -387,7 +390,8 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 	}
 
 	// Include route hints if needed.
-	if len(invoice.RouteHints) > 0 || invoice.Private {
+	if len(invoice.RouteHints) > 0 || invoice.Private ||
+		invoice.NumRouteHints > 0 {
 		// Validate provided hop hints.
 		for _, hint := range invoice.RouteHints {
 			if len(hint) == 0 {
@@ -397,11 +401,11 @@ func AddInvoice(ctx context.Context, cfg *AddInvoiceConfig,
 		}
 
 		totalHopHints := len(invoice.RouteHints)
-		if invoice.Private {
+		if invoice.Private || invoice.NumRouteHints > 0 {
 			totalHopHints = maxHopHints
 		}
 
-		hopHintsCfg := newSelectHopHintsCfg(cfg, totalHopHints)
+		hopHintsCfg := newSelectHopHintsCfg(cfg, totalHopHints, invoice)
 		hopHints, err := PopulateHopHints(
 			hopHintsCfg, amtMSat, invoice.RouteHints,
 		)
@@ -646,10 +650,13 @@ type SelectHopHintsCfg struct {
 
 	// MaxHopHints is the maximum number of hop hints we are interested in.
 	MaxHopHints int
+
+	// The number of route hints the invoice should include. Default is 0.
+	NumRouteHints int
 }
 
 func newSelectHopHintsCfg(invoicesCfg *AddInvoiceConfig,
-	maxHopHints int) *SelectHopHintsCfg {
+	maxHopHints int, invoice *AddInvoiceData) *SelectHopHintsCfg {
 
 	return &SelectHopHintsCfg{
 		FetchAllChannels:      invoicesCfg.ChanDB.FetchAllChannels,
@@ -658,29 +665,43 @@ func newSelectHopHintsCfg(invoicesCfg *AddInvoiceConfig,
 		FetchChannelEdgesByID: invoicesCfg.Graph.FetchChannelEdgesByID,
 		GetAlias:              invoicesCfg.GetAlias,
 		MaxHopHints:           maxHopHints,
+		NumRouteHints:         int(invoice.NumRouteHints),
 	}
 }
 
 // sufficientHints checks whether we have sufficient hop hints, based on the
-// any of the following criteria:
-//   - Hop hint count: the number of hints have reach our max target.
+// following criteria:
+//   - Hop hint count: the number of hints have not reached our min target or
+//     have reached our max target.
 //   - Total incoming capacity (for non-zero invoice amounts): the sum of the
-//     remote balance amount in the hints is bigger of equal than our target
-//     (currently twice the invoice amount)
+//     remote balance amount in the hints is bigger or equal than our target
+//     (currently twice the invoice amount).
 //
 // We limit our number of hop hints like this to keep our invoice size down,
 // and to avoid leaking all our private channels when we don't need to.
-func sufficientHints(nHintsLeft int, currentAmount,
+func sufficientHints(nHintsLeft int, nHintsTarget int, currentAmount,
 	targetAmount lnwire.MilliSatoshi) bool {
 
 	if nHintsLeft <= 0 {
-		log.Debugf("Reached targeted number of hop hints")
+		log.Debugf("Reached maximum number of hop hints")
 		return true
+	}
+
+	// The hint target is not reached yet.
+	if nHintsTarget != 0 && (nHintsLeft > (maxHopHints - nHintsTarget)) {
+		return false
 	}
 
 	if targetAmount != 0 && currentAmount >= targetAmount {
 		log.Debugf("Total hint amount: %v has reached target hint "+
 			"bandwidth: %v", currentAmount, targetAmount)
+		return true
+	}
+
+	if targetAmount == 0 && nHintsTarget != 0 &&
+		(nHintsLeft <= (maxHopHints - nHintsTarget)) {
+
+		log.Debugf("Reached targeted number of hop hints")
 		return true
 	}
 
@@ -775,7 +796,8 @@ func selectHopHints(cfg *SelectHopHintsCfg, nHintsLeft int,
 	hopHints := make([][]zpay32.HopHint, 0, nHintsLeft)
 	for _, channel := range potentialHints {
 		enoughHopHints := sufficientHints(
-			nHintsLeft, currentBandwidth, targetBandwidth,
+			nHintsLeft, cfg.NumRouteHints, currentBandwidth,
+			targetBandwidth,
 		)
 		if enoughHopHints {
 			return hopHints

@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -69,6 +70,11 @@ const (
 	// shutdown message. After which, they'll both enter the fee negotiation
 	// phase.
 	closeShutdownInitiated
+
+	// closeAwaitingFlush is the state that's transitioned to once both
+	// Shutdown messages have been exchanged but we are waiting for the
+	// HTLCs to clear out of the channel.
+	closeAwaitingFlush
 
 	// closeFeeNegotiation is the third, and most persistent state. Both
 	// parties enter this state after they've sent and received a shutdown
@@ -468,6 +474,373 @@ func validateShutdownScript(disconnect func() error, upfrontScript,
 	}
 
 	return nil
+}
+
+func (c *ChanCloser) ReceiveShutdown(
+	msg lnwire.Shutdown,
+) (fn.Option[lnwire.Shutdown], error) {
+
+	noShutdown := fn.None[lnwire.Shutdown]()
+
+	switch c.state {
+	case closeIdle:
+		// As we're the responder to this shutdown (the other party
+		// wants to close), we'll check if this is a frozen channel or
+		// not. If the channel is frozen and we were not also the
+		// initiator of the channel opening, then we'll deny their close
+		// attempt.
+		chanInitiator := c.cfg.Channel.IsInitiator()
+		if !chanInitiator {
+			absoluteThawHeight, err :=
+				c.cfg.Channel.AbsoluteThawHeight()
+			if err != nil {
+				return noShutdown, err
+			}
+			if c.negotiationHeight < absoluteThawHeight {
+				return noShutdown,
+					fmt.Errorf("initiator "+
+						"attempting to co-op close "+
+						"frozen ChannelPoint(%v) "+
+						"(current_height=%v, "+
+						"thaw_height=%v)", c.chanPoint,
+						c.negotiationHeight,
+						absoluteThawHeight)
+			}
+		}
+
+		// If the remote node opened the channel with option upfront
+		// shutdown script, check that the script they provided matches.
+		if err := validateShutdownScript(
+			c.cfg.Disconnect,
+			c.cfg.Channel.RemoteUpfrontShutdownScript(),
+			msg.Address, c.cfg.ChainParams,
+		); err != nil {
+			return noShutdown, err
+		}
+
+		// Once we have checked that the other party has not violated
+		// option upfront shutdown we set their preference for delivery
+		// address. We'll use this when we craft the closure
+		// transaction.
+		c.remoteDeliveryScript = msg.Address
+
+		// We'll generate a shutdown message of our own to send across
+		// the wire.
+		localShutdown, err := c.initChanShutdown()
+		if err != nil {
+			return noShutdown, err
+		}
+
+		// If this is a taproot channel, then we'll want to stash the
+		// remote nonces so we can properly create a new musig
+		// session for signing.
+		if c.cfg.Channel.ChanType().IsTaproot() {
+			if msg.ShutdownNonce == nil {
+				return noShutdown,
+					fmt.Errorf(
+						"shutdown nonce not populated",
+					)
+			}
+
+			c.cfg.MusigSession.InitRemoteNonce(&musig2.Nonces{
+				PubNonce: *msg.ShutdownNonce,
+			})
+		}
+
+		chancloserLog.Infof("ChannelPoint(%v): responding to shutdown",
+			c.chanPoint)
+
+		// After the other party receives this message, we'll actually
+		// start the final stage of the closure process: fee
+		// negotiation. So we'll update our internal state to reflect
+		// this, so we can handle the next message sent.
+		c.state = closeAwaitingFlush
+
+		return fn.Some(*localShutdown), err
+
+	case closeShutdownInitiated:
+		// If the remote node opened the channel with option upfront
+		// shutdown script, check that the script they provided matches.
+		if err := validateShutdownScript(
+			c.cfg.Disconnect,
+			c.cfg.Channel.RemoteUpfrontShutdownScript(),
+			msg.Address,
+			c.cfg.ChainParams,
+		); err != nil {
+			return noShutdown, err
+		}
+
+		// Now that we know this is a valid shutdown message and
+		// address, we'll record their preferred delivery closing
+		// script.
+		c.remoteDeliveryScript = msg.Address
+
+		// At this point, we can now start the fee negotiation state, by
+		// constructing and sending our initial signature for what we
+		// think the closing transaction should look like.
+		c.state = closeAwaitingFlush
+
+		// If this is a taproot channel, then we'll want to stash the
+		// local+remote nonces so we can properly create a new musig
+		// session for signing.
+		if c.cfg.Channel.ChanType().IsTaproot() {
+			if msg.ShutdownNonce == nil {
+				return noShutdown,
+					fmt.Errorf("shutdown " +
+						"nonce not populated")
+			}
+
+			c.cfg.MusigSession.InitRemoteNonce(&musig2.Nonces{
+				PubNonce: *msg.ShutdownNonce,
+			})
+		}
+
+		chancloserLog.Infof("ChannelPoint(%v): shutdown response "+
+			"received, entering fee negotiation", c.chanPoint)
+
+		return noShutdown, nil
+
+	default:
+		// Otherwise we are not in a state where we can accept this
+		// message.
+		return noShutdown, ErrInvalidState
+	}
+}
+
+func (c *ChanCloser) BeginNegotiation() (
+	fn.Option[lnwire.ClosingSigned], error,
+) {
+
+	noClosingSigned := fn.None[lnwire.ClosingSigned]()
+
+	// Now that we are ready to begin negotiations, we can compute what our
+	// max/ideal fee will be.
+	c.initFeeBaseline()
+
+	switch c.state {
+	case closeAwaitingFlush:
+		// At this point, we can now start the fee negotiation state, by
+		// constructing and sending our initial signature for what we
+		// think the closing transaction should look like.
+		c.state = closeFeeNegotiation
+
+		if !c.cfg.Channel.IsInitiator() {
+			return noClosingSigned, nil
+		}
+
+		// We'll craft our initial close proposal in order to keep the
+		// negotiation moving, but only if we're the initiator.
+		closingSigned, err := c.proposeCloseSigned(c.idealFeeSat)
+		if err != nil {
+			return noClosingSigned,
+				fmt.Errorf("unable to sign new co op "+
+					"close offer: %w", err)
+		}
+
+		return fn.Some(*closingSigned), nil
+
+	default:
+		return noClosingSigned, ErrInvalidState
+	}
+}
+
+func (c *ChanCloser) ReceiveClosingSigned(
+	msg lnwire.ClosingSigned,
+) (fn.Option[lnwire.ClosingSigned], error) {
+
+	noClosingSigned := fn.None[lnwire.ClosingSigned]()
+
+	switch c.state {
+	case closeFeeNegotiation:
+		// If this is a taproot channel, then it MUST have a partial
+		// signature set at this point.
+		isTaproot := c.cfg.Channel.ChanType().IsTaproot()
+		if isTaproot && msg.PartialSig == nil {
+			return noClosingSigned,
+				fmt.Errorf("partial sig not set " +
+					"for taproot chan")
+		}
+
+		isInitiator := c.cfg.Channel.IsInitiator()
+
+		// We'll compare the proposed total fee, to what we've proposed
+		// during the negotiations. If it doesn't match any of our
+		// prior offers, then we'll attempt to ratchet the fee closer
+		// to our ideal fee.
+		remoteProposedFee := msg.FeeSatoshis
+
+		_, feeMatchesOffer := c.priorFeeOffers[remoteProposedFee]
+		switch {
+		// For taproot channels, since nonces are involved, we can't do
+		// the existing co-op close negotiation process without going
+		// to a fully round based model. Rather than do this, we'll
+		// just accept the very first offer by the initiator.
+		case isTaproot && !isInitiator:
+			chancloserLog.Infof("ChannelPoint(%v) accepting "+
+				"initiator fee of %v", c.chanPoint,
+				remoteProposedFee)
+
+			// To auto-accept the initiators proposal, we'll just
+			// send back a signature w/ the same offer. We don't
+			// send the message here, as we can drop down and
+			// finalize the closure and broadcast, then echo back
+			// to Alice the final signature.
+			_, err := c.proposeCloseSigned(remoteProposedFee)
+			if err != nil {
+				return noClosingSigned,
+					fmt.Errorf("unable to sign new co op "+
+						"close offer: %w", err)
+			}
+
+		// Otherwise, if we are the initiator, and we just sent a
+		// signature for a taproot channel, then we'll ensure that the
+		// fee rate matches up exactly.
+		case isTaproot && isInitiator && !feeMatchesOffer:
+			return noClosingSigned,
+				fmt.Errorf("fee rate for "+
+					"taproot channels was not accepted: "+
+					"sent %v, got %v",
+					c.idealFeeSat, remoteProposedFee)
+
+		// If we're the initiator of the taproot channel, and we had
+		// our fee echo'd back, then it's all good, and we can proceed
+		// with final broadcast.
+		case isTaproot && isInitiator && feeMatchesOffer:
+			break
+
+		// Otherwise, if this is a normal segwit v0 channel, and the
+		// fee doesn't match our offer, then we'll try to "negotiate" a
+		// new fee.
+		case !feeMatchesOffer:
+			// We'll now attempt to ratchet towards a fee deemed
+			// acceptable by both parties, factoring in our ideal
+			// fee rate, and the last proposed fee by both sides.
+			proposal := calcCompromiseFee(
+				c.chanPoint, c.idealFeeSat, c.lastFeeProposal,
+				remoteProposedFee,
+			)
+			if c.cfg.Channel.IsInitiator() && proposal > c.maxFee {
+				return noClosingSigned, fmt.Errorf(
+					"%w: %v > %v",
+					ErrProposalExceedsMaxFee,
+					proposal, c.maxFee)
+			}
+
+			// With our new fee proposal calculated, we'll craft a
+			// new close signed signature to send to the other
+			// party so we can continue the fee negotiation
+			// process.
+			closeSigned, err := c.proposeCloseSigned(proposal)
+			if err != nil {
+				return noClosingSigned, fmt.Errorf(
+					"unable to sign new co op close offer:"+
+						" %w", err)
+			}
+
+			// If the compromise fee doesn't match what the peer
+			// proposed, then we'll return this latest close signed
+			// message so we can continue negotiation.
+			if proposal != remoteProposedFee {
+				chancloserLog.Debugf("ChannelPoint(%v): close "+
+					"tx fee disagreement, continuing "+
+					"negotiation", c.chanPoint)
+
+				return fn.Some(*closeSigned), nil
+			}
+		}
+
+		chancloserLog.Infof("ChannelPoint(%v) fee of %v accepted, "+
+			"ending negotiation", c.chanPoint, remoteProposedFee)
+
+		// Otherwise, we've agreed on a fee for the closing
+		// transaction! We'll craft the final closing transaction so we
+		// can broadcast it to the network.
+		var (
+			localSig, remoteSig input.Signature
+			closeOpts           []lnwallet.ChanCloseOpt
+			err                 error
+		)
+		matchingSig := c.priorFeeOffers[remoteProposedFee]
+		if c.cfg.Channel.ChanType().IsTaproot() {
+			muSession := c.cfg.MusigSession
+			localSig, remoteSig, closeOpts, err =
+				muSession.CombineClosingOpts(
+					*matchingSig.PartialSig,
+					*msg.PartialSig,
+				)
+			if err != nil {
+				return noClosingSigned, err
+			}
+		} else {
+			localSig, err = matchingSig.Signature.ToSignature()
+			if err != nil {
+				return noClosingSigned, err
+			}
+			remoteSig, err = msg.Signature.ToSignature()
+			if err != nil {
+				return noClosingSigned, err
+			}
+		}
+
+		closeTx, _, err := c.cfg.Channel.CompleteCooperativeClose(
+			localSig, remoteSig, c.localDeliveryScript,
+			c.remoteDeliveryScript, remoteProposedFee, closeOpts...,
+		)
+		if err != nil {
+			return noClosingSigned, err
+		}
+		c.closingTx = closeTx
+
+		// Before publishing the closing tx, we persist it to the
+		// database, such that it can be republished if something goes
+		// wrong.
+		err = c.cfg.Channel.MarkCoopBroadcasted(
+			closeTx, c.locallyInitiated,
+		)
+		if err != nil {
+			return noClosingSigned, err
+		}
+
+		// With the closing transaction crafted, we'll now broadcast it
+		// to the network.
+		chancloserLog.Infof("Broadcasting cooperative close tx: %v",
+			newLogClosure(func() string {
+				return spew.Sdump(closeTx)
+			}),
+		)
+
+		// Create a close channel label.
+		chanID := c.cfg.Channel.ShortChanID()
+		closeLabel := labels.MakeLabel(
+			labels.LabelTypeChannelClose, &chanID,
+		)
+
+		if err := c.cfg.BroadcastTx(closeTx, closeLabel); err != nil {
+			return noClosingSigned, err
+		}
+
+		// Finally, we'll transition to the closeFinished state, and
+		// also return the final close signed message we sent.
+		// Additionally, we return true for the second argument to
+		// indicate we're finished with the channel closing
+		// negotiation.
+		c.state = closeFinished
+		matchingOffer := c.priorFeeOffers[remoteProposedFee]
+
+		return fn.Some(*matchingOffer), nil
+
+	// If we received a message while in the closeFinished state, then this
+	// should only be the remote party echoing the last ClosingSigned
+	// message that we agreed on.
+	case closeFinished:
+
+		// There's no more to do as both sides should have already
+		// broadcast the closing transaction at this state.
+		return noClosingSigned, nil
+
+	default:
+		return noClosingSigned, ErrInvalidState
+	}
 }
 
 // ProcessCloseMsg attempts to process the next message in the closing series.

@@ -3621,13 +3621,8 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		return
 	}
 
-	// Next, we'll process the next message using the target state machine.
-	// We'll either continue negotiation, or halt.
-	msgs, closeFin, err := chanCloser.ProcessCloseMsg(
-		msg.msg,
-	)
-	if err != nil {
-		err := fmt.Errorf("unable to process close msg: %v", err)
+	handleErr := func(err error) {
+		err = fmt.Errorf("unable to process close msg: %w", err)
 		p.log.Error(err)
 
 		// As the negotiations failed, we'll reset the channel state machine to
@@ -3638,18 +3633,52 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			chanCloser.CloseRequest().Err <- err
 		}
 		delete(p.activeChanCloses, msg.cid)
-		return
+
+		p.Disconnect(err)
 	}
 
-	// Queue any messages to the remote peer that need to be sent as a part of
-	// this latest round of negotiations.
-	for _, msg := range msgs {
-		p.queueMsg(msg, nil)
+	// Next, we'll process the next message using the target state machine.
+	// We'll either continue negotiation, or halt.
+	switch typed := msg.msg.(type) {
+	case *lnwire.Shutdown:
+		oShutdown, err := chanCloser.ReceiveShutdown(*typed)
+		if err != nil {
+			handleErr(err)
+			return
+		}
+
+		oShutdown.WhenSome(func(msg lnwire.Shutdown) {
+			p.queueMsg(&msg, nil)
+		})
+
+		oClosingSigned, err := chanCloser.BeginNegotiation()
+		if err != nil {
+			handleErr(err)
+			return
+		}
+
+		oClosingSigned.WhenSome(func(msg lnwire.ClosingSigned) {
+			p.queueMsg(&msg, nil)
+		})
+
+	case *lnwire.ClosingSigned:
+		oClosingSigned, err := chanCloser.ReceiveClosingSigned(*typed)
+		if err != nil {
+			handleErr(err)
+			return
+		}
+
+		oClosingSigned.WhenSome(func(msg lnwire.ClosingSigned) {
+			p.queueMsg(&msg, nil)
+		})
+
+	default:
+		panic("impossible closeMsg type")
 	}
 
 	// If we haven't finished close negotiations, then we'll continue as we
 	// can't yet finalize the closure.
-	if !closeFin {
+	if _, err := chanCloser.ClosingTx(); err != nil {
 		return
 	}
 

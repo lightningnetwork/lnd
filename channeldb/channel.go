@@ -849,6 +849,30 @@ type OpenChannel struct {
 	sync.RWMutex
 }
 
+// String returns a string representation of the channel.
+func (c *OpenChannel) String() string {
+	indexStr := "height=%v, local_htlc_index=%v, local_log_index=%v, " +
+		"remote_htlc_index=%v, remote_log_index=%v"
+
+	commit := c.LocalCommitment
+	local := fmt.Sprintf(indexStr, commit.CommitHeight,
+		commit.LocalHtlcIndex, commit.LocalLogIndex,
+		commit.RemoteHtlcIndex, commit.RemoteLogIndex,
+	)
+
+	commit = c.RemoteCommitment
+	remote := fmt.Sprintf(indexStr, commit.CommitHeight,
+		commit.LocalHtlcIndex, commit.LocalLogIndex,
+		commit.RemoteHtlcIndex, commit.RemoteLogIndex,
+	)
+
+	return fmt.Sprintf("SCID=%v, status=%v, initiator=%v, pending=%v, "+
+		"local commitment has %s, remote commitment has %s",
+		c.ShortChannelID, c.chanStatus, c.IsInitiator, c.IsPending,
+		local, remote,
+	)
+}
+
 // ShortChanID returns the current ShortChannelID of this channel.
 func (c *OpenChannel) ShortChanID() lnwire.ShortChannelID {
 	c.RLock()
@@ -2100,6 +2124,10 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 	// which ones are present on their commitment.
 	remoteHtlcs := make(map[[32]byte]struct{})
 	for _, htlc := range c.RemoteCommitment.Htlcs {
+		log.Tracef("RemoteCommitment has htlc: id=%v, update=%v "+
+			"incoming=%v", htlc.HtlcIndex, htlc.LogIndex,
+			htlc.Incoming)
+
 		onionHash := sha256.Sum256(htlc.OnionBlob[:])
 		remoteHtlcs[onionHash] = struct{}{}
 	}
@@ -2108,8 +2136,16 @@ func (c *OpenChannel) ActiveHtlcs() []HTLC {
 	// as active if *we* know them as well.
 	activeHtlcs := make([]HTLC, 0, len(remoteHtlcs))
 	for _, htlc := range c.LocalCommitment.Htlcs {
+		log.Tracef("LocalCommitment has htlc: id=%v, update=%v "+
+			"incoming=%v", htlc.HtlcIndex, htlc.LogIndex,
+			htlc.Incoming)
+
 		onionHash := sha256.Sum256(htlc.OnionBlob[:])
 		if _, ok := remoteHtlcs[onionHash]; !ok {
+			log.Tracef("Skipped htlc due to onion mismatched: "+
+				"id=%v, update=%v incoming=%v",
+				htlc.HtlcIndex, htlc.LogIndex, htlc.Incoming)
+
 			continue
 		}
 

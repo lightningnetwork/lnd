@@ -147,3 +147,12 @@ func (o Option[A]) Alt(o2 Option[A]) Option[A] {
 
 	return o2
 }
+
+// UnsafeFromSome can be used to extract the internal value. This will panic
+// if the value is None() though.
+func (o Option[A]) UnsafeFromSome() A {
+	if o.isSome {
+		return o.some
+	}
+	panic("Option was None()")
+}

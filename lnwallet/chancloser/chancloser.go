@@ -854,20 +854,6 @@ func (c *ChanCloser) ReceiveClosingSigned(
 	}
 }
 
-// ProcessCloseMsg attempts to process the next message in the closing series.
-// This method will update the state accordingly and return two primary values:
-// the next set of messages to be sent, and a bool indicating if the fee
-// negotiation process has completed. If the second value is true, then this
-// means the ChanCloser can be garbage collected.
-func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
-	bool, error) {
-
-	switch c.state {
-	default:
-		return nil, false, ErrInvalidState
-	}
-}
-
 // proposeCloseSigned attempts to propose a new signature for the closing
 // transaction for a channel based on the prior fee negotiations and our current
 // compromise fee.

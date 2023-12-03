@@ -41,6 +41,10 @@
 # New Features
 ## Functional Enhancements
 ## RPC Additions
+
+* [Allow callers of ListSweeps to specify the start height](
+  https://github.com/lightningnetwork/lnd/pull/7372).
+
 ## lncli Additions
 
 # Improvements
@@ -59,6 +63,7 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+* Andras Banki-Horvath
 * Elle Mouton
 * Yong Yu
 * ziggie1984

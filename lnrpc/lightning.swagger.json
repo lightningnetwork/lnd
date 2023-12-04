@@ -64,6 +64,14 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "min_confs",
+            "description": "The minimum number of confirmations each one of your outputs used for the\nfunding transaction must satisfy. If this is not specified, the default\nvalue of 1 is used.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
           }
         ],
         "tags": [

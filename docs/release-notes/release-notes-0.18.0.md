@@ -21,6 +21,8 @@
 - [Contributors (Alphabetical Order)](#contributors-alphabetical-order)
 
 # Bug Fixes
+* [Fix a bug](https://github.com/lightningnetwork/lnd/pull/8097) where
+  `sendcoins` command with `--sweepall` flag would not show the correct amount.
 
 * [Fixed a potential case](https://github.com/lightningnetwork/lnd/pull/7824)
   that when sweeping inputs with locktime, an unexpected lower fee rate is
@@ -104,6 +106,9 @@
   error is defined as a routing error found in one of a MPP's HTLC attempts.
   If, however, there's only one HTLC attempt, when it's failed, this payment is
   considered failed, thus there's no such thing as temp error for a non-MPP.
+* Support for
+  [MinConf](https://github.com/lightningnetwork/lnd/pull/8097)(minimum number
+  of confirmations) has been added to the `WalletBalance` RPC call.
 
 ## lncli Updates
 
@@ -167,6 +172,7 @@
 * Carla Kirk-Cohen
 * Elle Mouton
 * Keagan McClelland
+* Marcos Fernandez Perez
 * Matt Morehouse
 * Slyghtning
 * Turtle

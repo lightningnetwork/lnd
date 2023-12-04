@@ -2847,6 +2847,11 @@ message WalletBalanceRequest {
     // The wallet account the balance is shown for.
     // If this is not specified, the balance of the "default" account is shown.
     string account = 1;
+
+    // The minimum number of confirmations each one of your outputs used for the
+    // funding transaction must satisfy. If this is not specified, the default
+    // value of 1 is used.
+    int32 min_confs = 2;
 }
 
 message WalletBalanceResponse {

@@ -1034,15 +1034,19 @@ func (s *serverHarness) waitForUpdates(hints []blob.BreachHint,
 	// Closure to assert the server's matches are consistent with the hint
 	// set.
 	serverHasHints := func(matches []wtdb.Match) bool {
-		if len(hintSet) != len(matches) {
+		// De-dup the server matches since it might very well have
+		// multiple matches for a hint if that update was backed up on
+		// more than one session.
+		matchHints := make(map[blob.BreachHint]struct{})
+		for _, match := range matches {
+			matchHints[match.Hint] = struct{}{}
+		}
+
+		if len(hintSet) != len(matchHints) {
 			return false
 		}
 
-		for _, match := range matches {
-			_, ok := hintSet[match.Hint]
-			require.Truef(s.t, ok, "match %v in db is not in "+
-				"hint set", match.Hint)
-		}
+		require.EqualValues(s.t, hintSet, matchHints)
 
 		return true
 	}
@@ -2768,6 +2772,123 @@ var clientTests = []clientTest{
 			// on the first tower.
 			h.backupStates(chanIDInt, numUpdates-1, numUpdates, nil)
 			h.server.waitForUpdates(hints[numUpdates-1:], waitTime)
+		},
+	},
+	{
+		name: "terminate session",
+		cfg: harnessCfg{
+			localBalance:  localBalance,
+			remoteBalance: remoteBalance,
+			policy: wtpolicy.Policy{
+				TxPolicy:   defaultTxPolicy,
+				MaxUpdates: 5,
+			},
+		},
+		fn: func(h *testHarness) {
+			const (
+				numUpdates = 10
+				chanIDInt  = 0
+			)
+
+			// Advance the channel with a few updates.
+			hints := h.advanceChannelN(chanIDInt, numUpdates)
+
+			// Backup one of these updates and wait for it to
+			// arrive at the server.
+			h.backupStates(chanIDInt, 0, 1, nil)
+			h.server.waitForUpdates(hints[:1], waitTime)
+
+			// Now, restart the server in a state where it will not
+			// ack updates. This will allow us to wait for an update
+			// to be un-acked and persisted.
+			h.server.restart(func(cfg *wtserver.Config) {
+				cfg.NoAckUpdates = true
+			})
+
+			// Backup another update. These should remain in the
+			// client as un-acked.
+			h.backupStates(chanIDInt, 1, 2, nil)
+
+			// Wait for the update to be persisted.
+			fetchUnacked := h.clientDB.FetchSessionCommittedUpdates
+			var sessID wtdb.SessionID
+			err := wait.Predicate(func() bool {
+				sessions, err := h.clientDB.ListClientSessions(
+					nil,
+				)
+				require.NoError(h.t, err)
+
+				var updates []wtdb.CommittedUpdate
+				for id := range sessions {
+					sessID = id
+					updates, err = fetchUnacked(&id)
+					require.NoError(h.t, err)
+
+					return len(updates) == 1
+				}
+
+				return false
+			}, waitTime)
+			require.NoError(h.t, err)
+
+			// Now try to terminate the session by directly calling
+			// the DB terminate method. This is expected to fail
+			// since the session still has un-acked updates.
+			err = h.clientDB.TerminateSession(sessID)
+			require.ErrorIs(
+				h.t, err, wtdb.ErrSessionHasUnackedUpdates,
+			)
+
+			// If we try to terminate the session through the client
+			// interface though, it should succeed since the client
+			// will handle the un-acked updates of the session.
+			err = h.clientMgr.TerminateSession(sessID)
+			require.NoError(h.t, err)
+
+			// Fetch the session from the DB and assert that it is
+			// in the terminal state and that it is not exhausted.
+			sess, err := h.clientDB.GetClientSession(sessID)
+			require.NoError(h.t, err)
+
+			require.Equal(h.t, wtdb.CSessionTerminal, sess.Status)
+			require.NotEqual(
+				h.t, sess.Policy.MaxUpdates, sess.SeqNum,
+			)
+
+			// Restart the server and allow it to ack updates again.
+			h.server.restart(func(cfg *wtserver.Config) {
+				cfg.NoAckUpdates = false
+			})
+
+			// Wait for the update from before to appear on the
+			// server. The server will actually have this back-up
+			// stored twice now since it would have stored it for
+			// the first session even though it did not send an ACK
+			// for it.
+			h.server.waitForUpdates(hints[1:2], waitTime)
+
+			// Now we want to assert that this update was definitely
+			// not sent on the terminated session but was instead
+			// sent in a new session.
+			var (
+				updateCounts = make(map[wtdb.SessionID]uint16)
+				totalUpdates uint16
+			)
+			sessions, err := h.clientDB.ListClientSessions(nil,
+				wtdb.WithPerNumAckedUpdates(
+					func(s *wtdb.ClientSession,
+						_ lnwire.ChannelID,
+						num uint16) {
+
+						updateCounts[s.ID] += num
+						totalUpdates += num
+					},
+				),
+			)
+			require.NoError(h.t, err)
+			require.Len(h.t, sessions, 2)
+			require.EqualValues(h.t, 1, updateCounts[sessID])
+			require.EqualValues(h.t, 2, totalUpdates)
 		},
 	},
 }

@@ -148,6 +148,19 @@ type deactivateTowerMsg struct {
 	errChan chan error
 }
 
+// terminateSessMsg is an internal message we'll use within the TowerClient to
+// signal that a session should be terminated.
+type terminateSessMsg struct {
+	// id is the session identifier.
+	id wtdb.SessionID
+
+	// errChan is the channel through which we'll send a response back to
+	// the caller when handling their request.
+	//
+	// NOTE: This channel must be buffered.
+	errChan chan error
+}
+
 // clientCfg holds the configuration values required by a client.
 type clientCfg struct {
 	*Config
@@ -181,9 +194,10 @@ type client struct {
 	statTicker *time.Ticker
 	stats      *clientStats
 
-	newTowers        chan *newTowerMsg
-	staleTowers      chan *staleTowerMsg
-	deactivateTowers chan *deactivateTowerMsg
+	newTowers         chan *newTowerMsg
+	staleTowers       chan *staleTowerMsg
+	deactivateTowers  chan *deactivateTowerMsg
+	terminateSessions chan *terminateSessMsg
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -209,16 +223,17 @@ func newClient(cfg *clientCfg) (*client, error) {
 	}
 
 	c := &client{
-		cfg:              cfg,
-		log:              plog,
-		pipeline:         queue,
-		activeSessions:   newSessionQueueSet(),
-		statTicker:       time.NewTicker(DefaultStatInterval),
-		stats:            new(clientStats),
-		newTowers:        make(chan *newTowerMsg),
-		staleTowers:      make(chan *staleTowerMsg),
-		deactivateTowers: make(chan *deactivateTowerMsg),
-		quit:             make(chan struct{}),
+		cfg:               cfg,
+		log:               plog,
+		pipeline:          queue,
+		activeSessions:    newSessionQueueSet(),
+		statTicker:        time.NewTicker(DefaultStatInterval),
+		stats:             new(clientStats),
+		newTowers:         make(chan *newTowerMsg),
+		staleTowers:       make(chan *staleTowerMsg),
+		deactivateTowers:  make(chan *deactivateTowerMsg),
+		terminateSessions: make(chan *terminateSessMsg),
+		quit:              make(chan struct{}),
 	}
 
 	candidateTowers := newTowerListIterator()
@@ -718,6 +733,10 @@ func (c *client) backupDispatcher() {
 			case msg := <-c.deactivateTowers:
 				msg.errChan <- c.handleDeactivateTower(msg)
 
+			// A request has come through to terminate a session.
+			case msg := <-c.terminateSessions:
+				msg.errChan <- c.handleTerminateSession(msg)
+
 			case <-c.quit:
 				return
 			}
@@ -806,6 +825,10 @@ func (c *client) backupDispatcher() {
 			// A tower has been requested to be de-activated.
 			case msg := <-c.deactivateTowers:
 				msg.errChan <- c.handleDeactivateTower(msg)
+
+			// A request has come through to terminate a session.
+			case msg := <-c.terminateSessions:
+				msg.errChan <- c.handleTerminateSession(msg)
 
 			case <-c.quit:
 				return
@@ -1072,6 +1095,53 @@ func (c *client) initActiveQueue(s *ClientSession,
 	c.activeSessions.AddAndStart(sq)
 
 	return sq
+}
+
+// terminateSession sets the given session's status to CSessionTerminal meaning
+// that it will not be used again.
+func (c *client) terminateSession(id wtdb.SessionID) error {
+	errChan := make(chan error, 1)
+
+	select {
+	case c.terminateSessions <- &terminateSessMsg{
+		id:      id,
+		errChan: errChan,
+	}:
+	case <-c.pipeline.quit:
+		return ErrClientExiting
+	}
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-c.pipeline.quit:
+		return ErrClientExiting
+	}
+}
+
+// handleTerminateSession handles a request to terminate a session. It will
+// first shut down the session if it is part of the active session set, then
+// it will ensure that the active session queue is set reset if it is using the
+// session in question. Finally, the session's status in the DB will be updated.
+func (c *client) handleTerminateSession(msg *terminateSessMsg) error {
+	id := msg.id
+
+	delete(c.candidateSessions, id)
+
+	err := c.activeSessions.StopAndRemove(id, true)
+	if err != nil {
+		return fmt.Errorf("could not stop session %s: %w", id, err)
+	}
+
+	// If our active session queue corresponds to the session being
+	// terminated, then we'll proceed to negotiate a new one.
+	if c.sessionQueue != nil {
+		if bytes.Equal(c.sessionQueue.ID()[:], id[:]) {
+			c.sessionQueue = nil
+		}
+	}
+
+	return nil
 }
 
 // deactivateTower sends a tower deactivation request to the backupDispatcher

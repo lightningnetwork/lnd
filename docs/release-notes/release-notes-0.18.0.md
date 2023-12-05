@@ -129,6 +129,10 @@
   In particular, the complexity involved in the lifecycle loop has been
   decoupled into logical steps, with each step having its own responsibility,
   making it easier to reason about the payment flow.
+ 
+* [Add a watchtower tower client
+  multiplexer](https://github.com/lightningnetwork/lnd/pull/7702) to manage
+  tower clients of different types.
 
 ## Breaking Changes
 ## Performance Improvements

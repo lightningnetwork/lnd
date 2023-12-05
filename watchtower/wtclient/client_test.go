@@ -395,15 +395,16 @@ func (c *mockChannel) getState(
 }
 
 type testHarness struct {
-	t         *testing.T
-	cfg       harnessCfg
-	signer    *wtmock.MockSigner
-	capacity  lnwire.MilliSatoshi
-	clientDB  *wtdb.ClientDB
-	clientCfg *wtclient.Config
-	client    wtclient.Client
-	server    *serverHarness
-	net       *mockNet
+	t            *testing.T
+	cfg          harnessCfg
+	signer       *wtmock.MockSigner
+	capacity     lnwire.MilliSatoshi
+	clientMgr    *wtclient.Manager
+	clientDB     *wtdb.ClientDB
+	clientCfg    *wtclient.Config
+	clientPolicy wtpolicy.Policy
+	server       *serverHarness
+	net          *mockNet
 
 	blockEvents *mockBlockSub
 	height      int32
@@ -486,6 +487,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		return &channeldb.ChannelCloseSummary{CloseHeight: height}, nil
 	}
 
+	h.clientPolicy = cfg.policy
 	h.clientCfg = &wtclient.Config{
 		Signer: signer,
 		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
@@ -497,7 +499,6 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 		DB:                 clientDB,
 		AuthDial:           mockNet.AuthDial,
 		SecretKeyRing:      wtmock.NewSecretKeyRing(),
-		Policy:             cfg.policy,
 		NewAddress: func() ([]byte, error) {
 			return addrScript, nil
 		},
@@ -525,7 +526,7 @@ func newHarness(t *testing.T, cfg harnessCfg) *testHarness {
 
 	h.startClient()
 	t.Cleanup(func() {
-		require.NoError(t, h.client.Stop())
+		require.NoError(h.t, h.clientMgr.Stop())
 		require.NoError(t, h.clientDB.Close())
 	})
 
@@ -559,10 +560,10 @@ func (h *testHarness) startClient() {
 		Address:     towerTCPAddr,
 	}
 
-	h.client, err = wtclient.New(h.clientCfg)
+	h.clientMgr, err = wtclient.NewManager(h.clientCfg, h.clientPolicy)
 	require.NoError(h.t, err)
-	require.NoError(h.t, h.client.Start())
-	require.NoError(h.t, h.client.AddTower(towerAddr))
+	require.NoError(h.t, h.clientMgr.Start())
+	require.NoError(h.t, h.clientMgr.AddTower(towerAddr))
 }
 
 // chanIDFromInt creates a unique channel id given a unique integral id.
@@ -663,7 +664,7 @@ func (h *testHarness) registerChannel(id uint64) {
 	h.t.Helper()
 
 	chanID := chanIDFromInt(id)
-	err := h.client.RegisterChannel(chanID)
+	err := h.clientMgr.RegisterChannel(chanID, channeldb.SingleFunderBit)
 	require.NoError(h.t, err)
 }
 
@@ -704,8 +705,8 @@ func (h *testHarness) backupState(id, i uint64, expErr error) {
 
 	chanID := chanIDFromInt(id)
 
-	err := h.client.BackupState(&chanID, retribution.RevokedStateNum)
-	require.ErrorIs(h.t, expErr, err)
+	err := h.clientMgr.BackupState(&chanID, retribution.RevokedStateNum)
+	require.ErrorIs(h.t, err, expErr)
 }
 
 // sendPayments instructs the channel identified by id to send amt to the remote
@@ -752,7 +753,7 @@ func (h *testHarness) recvPayments(id, from, to uint64,
 func (h *testHarness) addTower(addr *lnwire.NetAddress) {
 	h.t.Helper()
 
-	err := h.client.AddTower(addr)
+	err := h.clientMgr.AddTower(addr)
 	require.NoError(h.t, err)
 }
 
@@ -761,7 +762,7 @@ func (h *testHarness) addTower(addr *lnwire.NetAddress) {
 func (h *testHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr) {
 	h.t.Helper()
 
-	err := h.client.RemoveTower(pubKey, addr)
+	err := h.clientMgr.RemoveTower(pubKey, addr)
 	require.NoError(h.t, err)
 }
 
@@ -1123,7 +1124,7 @@ var clientTests = []clientTest{
 			)
 
 			// Stop the client, subsequent backups should fail.
-			h.client.Stop()
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Advance the channel and try to back up the states. We
 			// expect ErrClientExiting to be returned from
@@ -1238,7 +1239,7 @@ var clientTests = []clientTest{
 
 			// Stop the client to abort the state updates it has
 			// queued.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Restart the server and allow it to ack the updates
 			// after the client retransmits the unacked update.
@@ -1249,6 +1250,7 @@ var clientTests = []clientTest{
 			// Restart the client and allow it to process the
 			// committed update.
 			h.startClient()
+			h.registerChannel(chanID)
 
 			// Wait for the committed update to be accepted by the
 			// tower.
@@ -1433,7 +1435,7 @@ var clientTests = []clientTest{
 			h.server.waitForUpdates(nil, waitTime)
 
 			// Stop the client since it has queued backups.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Restart the server and allow it to ack session
 			// creation.
@@ -1452,9 +1454,7 @@ var clientTests = []clientTest{
 
 			// Assert that the server has updates for the clients
 			// most recent policy.
-			h.server.assertUpdatesForPolicy(
-				hints, h.clientCfg.Policy,
-			)
+			h.server.assertUpdatesForPolicy(hints, h.clientPolicy)
 		},
 	},
 	{
@@ -1485,7 +1485,7 @@ var clientTests = []clientTest{
 			h.server.waitForUpdates(nil, waitTime)
 
 			// Stop the client since it has queued backups.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Restart the server and allow it to ack session
 			// creation.
@@ -1496,7 +1496,7 @@ var clientTests = []clientTest{
 			// Restart the client with a new policy, which will
 			// immediately try to overwrite the prior session with
 			// the old policy.
-			h.clientCfg.Policy.SweepFeeRate *= 2
+			h.clientPolicy.SweepFeeRate *= 2
 			h.startClient()
 
 			// Wait for all the updates to be populated in the
@@ -1505,9 +1505,7 @@ var clientTests = []clientTest{
 
 			// Assert that the server has updates for the clients
 			// most recent policy.
-			h.server.assertUpdatesForPolicy(
-				hints, h.clientCfg.Policy,
-			)
+			h.server.assertUpdatesForPolicy(hints, h.clientPolicy)
 		},
 	},
 	{
@@ -1541,7 +1539,7 @@ var clientTests = []clientTest{
 			h.server.waitForUpdates(hints[:numUpdates/2], waitTime)
 
 			// Stop the client, which should have no more backups.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			// Record the policy that the first half was stored
 			// under. We'll expect the second half to also be
@@ -1549,11 +1547,12 @@ var clientTests = []clientTest{
 			// adjusting the MaxUpdates. The client should detect
 			// that the two policies have equivalent TxPolicies and
 			// continue using the first.
-			expPolicy := h.clientCfg.Policy
+			expPolicy := h.clientPolicy
 
 			// Restart the client with a new policy.
-			h.clientCfg.Policy.MaxUpdates = 20
+			h.clientPolicy.MaxUpdates = 20
 			h.startClient()
+			h.registerChannel(chanID)
 
 			// Now, queue the second half of the retributions.
 			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
@@ -1602,8 +1601,9 @@ var clientTests = []clientTest{
 
 			// Restart the client, so we can ensure the deduping is
 			// maintained across restarts.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 			h.startClient()
+			h.registerChannel(chanID)
 
 			// Try to back up the full range of retributions. Only
 			// the second half should actually be sent.
@@ -1713,11 +1713,11 @@ var clientTests = []clientTest{
 			h.server.addr = towerAddr
 
 			// Add the new tower address to the client.
-			err = h.client.AddTower(towerAddr)
+			err = h.clientMgr.AddTower(towerAddr)
 			require.NoError(h.t, err)
 
 			// Remove the old tower address from the client.
-			err = h.client.RemoveTower(
+			err = h.clientMgr.RemoveTower(
 				towerAddr.IdentityKey, oldAddr,
 			)
 			require.NoError(h.t, err)
@@ -1751,7 +1751,7 @@ var clientTests = []clientTest{
 			// negotiation with the server will be in progress, so
 			// the client should be able to remove the server.
 			err := wait.NoError(func() error {
-				return h.client.RemoveTower(
+				return h.clientMgr.RemoveTower(
 					h.server.addr.IdentityKey, nil,
 				)
 			}, waitTime)
@@ -1794,11 +1794,11 @@ var clientTests = []clientTest{
 			require.NoError(h.t, h.server.server.Start())
 
 			// Re-add the server to the client
-			err = h.client.AddTower(h.server.addr)
+			err = h.clientMgr.AddTower(h.server.addr)
 			require.NoError(h.t, err)
 
 			// Also add the new tower address.
-			err = h.client.AddTower(towerAddr)
+			err = h.clientMgr.AddTower(towerAddr)
 			require.NoError(h.t, err)
 
 			// Assert that if the client attempts to remove the
@@ -1806,7 +1806,7 @@ var clientTests = []clientTest{
 			// address currently being locked for session
 			// negotiation.
 			err = wait.Predicate(func() bool {
-				err = h.client.RemoveTower(
+				err = h.clientMgr.RemoveTower(
 					h.server.addr.IdentityKey,
 					h.server.addr.Address,
 				)
@@ -1817,7 +1817,7 @@ var clientTests = []clientTest{
 			// Assert that the second address can be removed since
 			// it is not being used for session negotiation.
 			err = wait.NoError(func() error {
-				return h.client.RemoveTower(
+				return h.clientMgr.RemoveTower(
 					h.server.addr.IdentityKey, towerTCPAddr,
 				)
 			}, waitTime)
@@ -1829,7 +1829,7 @@ var clientTests = []clientTest{
 			// Assert that the client can now remove the first
 			// address.
 			err = wait.NoError(func() error {
-				return h.client.RemoveTower(
+				return h.clientMgr.RemoveTower(
 					h.server.addr.IdentityKey, nil,
 				)
 			}, waitTime)
@@ -1882,7 +1882,7 @@ var clientTests = []clientTest{
 			require.False(h.t, h.isSessionClosable(sessionIDs[0]))
 
 			// Restart the client.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 			h.startClient()
 
 			// The session should now have been marked as closable.
@@ -2069,7 +2069,7 @@ var clientTests = []clientTest{
 			h.server.waitForUpdates(hints[:numUpdates/2], waitTime)
 
 			// Now stop the client and reset its database.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 
 			db := newClientDB(h.t)
 			h.clientDB = db
@@ -2122,9 +2122,10 @@ var clientTests = []clientTest{
 			h.backupStates(chanID, 0, numUpdates/2, nil)
 
 			// Restart the Client. And also now start the server.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 			h.server.start()
 			h.startClient()
+			h.registerChannel(chanID)
 
 			// Back up a few more states.
 			h.backupStates(chanID, numUpdates/2, numUpdates, nil)
@@ -2222,7 +2223,7 @@ var clientTests = []clientTest{
 
 			// Now we can remove the old one.
 			err := wait.Predicate(func() bool {
-				err := h.client.RemoveTower(
+				err := h.clientMgr.RemoveTower(
 					h.server.addr.IdentityKey, nil,
 				)
 
@@ -2308,7 +2309,7 @@ var clientTests = []clientTest{
 			require.NoError(h.t, err)
 
 			// Now remove the tower.
-			err = h.client.RemoveTower(
+			err = h.clientMgr.RemoveTower(
 				h.server.addr.IdentityKey, nil,
 			)
 			require.NoError(h.t, err)
@@ -2395,11 +2396,11 @@ var clientTests = []clientTest{
 
 			// Now restart the client. This ensures that the
 			// updates are no longer in the pending queue.
-			require.NoError(h.t, h.client.Stop())
+			require.NoError(h.t, h.clientMgr.Stop())
 			h.startClient()
 
 			// Now remove the tower.
-			err = h.client.RemoveTower(
+			err = h.clientMgr.RemoveTower(
 				h.server.addr.IdentityKey, nil,
 			)
 			require.NoError(h.t, err)
@@ -2519,7 +2520,7 @@ var clientTests = []clientTest{
 			// Wait for channel to be "unregistered".
 			chanID := chanIDFromInt(chanIDInt)
 			err = wait.Predicate(func() bool {
-				err := h.client.BackupState(&chanID, 0)
+				err := h.clientMgr.BackupState(&chanID, 0)
 
 				return errors.Is(
 					err, wtclient.ErrUnregisteredChannel,

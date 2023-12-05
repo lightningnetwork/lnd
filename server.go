@@ -282,9 +282,7 @@ type server struct {
 
 	sphinx *hop.OnionProcessor
 
-	towerClient wtclient.Client
-
-	anchorTowerClient wtclient.Client
+	towerClientMgr *wtclient.Manager
 
 	connMgr *connmgr.ConnManager
 
@@ -1548,40 +1546,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 		fetchClosedChannel := s.chanStateDB.FetchClosedChannelForID
 
-		s.towerClient, err = wtclient.New(&wtclient.Config{
-			FetchClosedChannel:     fetchClosedChannel,
-			BuildBreachRetribution: buildBreachRetribution,
-			SessionCloseRange:      cfg.WtClient.SessionCloseRange,
-			ChainNotifier:          s.cc.ChainNotifier,
-			SubscribeChannelEvents: func() (subscribe.Subscription,
-				error) {
-
-				return s.channelNotifier.
-					SubscribeChannelEvents()
-			},
-			Signer:             cc.Wallet.Cfg.Signer,
-			NewAddress:         newSweepPkScriptGen(cc.Wallet),
-			SecretKeyRing:      s.cc.KeyRing,
-			Dial:               cfg.net.Dial,
-			AuthDial:           authDial,
-			DB:                 dbs.TowerClientDB,
-			Policy:             policy,
-			ChainHash:          *s.cfg.ActiveNetParams.GenesisHash,
-			MinBackoff:         10 * time.Second,
-			MaxBackoff:         5 * time.Minute,
-			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
-		})
-		if err != nil {
-			return nil, err
-		}
-
 		// Copy the policy for legacy channels and set the blob flag
 		// signalling support for anchor channels.
 		anchorPolicy := policy
-		anchorPolicy.TxPolicy.BlobType |=
-			blob.Type(blob.FlagAnchorChannel)
+		anchorPolicy.BlobType |= blob.Type(blob.FlagAnchorChannel)
 
-		s.anchorTowerClient, err = wtclient.New(&wtclient.Config{
+		s.towerClientMgr, err = wtclient.NewManager(&wtclient.Config{
 			FetchClosedChannel:     fetchClosedChannel,
 			BuildBreachRetribution: buildBreachRetribution,
 			SessionCloseRange:      cfg.WtClient.SessionCloseRange,
@@ -1598,12 +1568,11 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			Dial:               cfg.net.Dial,
 			AuthDial:           authDial,
 			DB:                 dbs.TowerClientDB,
-			Policy:             anchorPolicy,
 			ChainHash:          *s.cfg.ActiveNetParams.GenesisHash,
 			MinBackoff:         10 * time.Second,
 			MaxBackoff:         5 * time.Minute,
 			MaxTasksInMemQueue: cfg.WtClient.MaxTasksInMemQueue,
-		})
+		}, policy, anchorPolicy)
 		if err != nil {
 			return nil, err
 		}
@@ -1925,19 +1894,12 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.htlcNotifier.Stop)
 
-		if s.towerClient != nil {
-			if err := s.towerClient.Start(); err != nil {
+		if s.towerClientMgr != nil {
+			if err := s.towerClientMgr.Start(); err != nil {
 				startErr = err
 				return
 			}
-			cleanup = cleanup.add(s.towerClient.Stop)
-		}
-		if s.anchorTowerClient != nil {
-			if err := s.anchorTowerClient.Start(); err != nil {
-				startErr = err
-				return
-			}
-			cleanup = cleanup.add(s.anchorTowerClient.Stop)
+			cleanup = cleanup.add(s.towerClientMgr.Stop)
 		}
 
 		if err := s.sweeper.Start(); err != nil {
@@ -2310,16 +2272,10 @@ func (s *server) Stop() error {
 		// client which will reliably flush all queued states to the
 		// tower. If this is halted for any reason, the force quit timer
 		// will kick in and abort to allow this method to return.
-		if s.towerClient != nil {
-			if err := s.towerClient.Stop(); err != nil {
+		if s.towerClientMgr != nil {
+			if err := s.towerClientMgr.Stop(); err != nil {
 				srvrLog.Warnf("Unable to shut down tower "+
-					"client: %v", err)
-			}
-		}
-		if s.anchorTowerClient != nil {
-			if err := s.anchorTowerClient.Stop(); err != nil {
-				srvrLog.Warnf("Unable to shut down anchor "+
-					"tower client: %v", err)
+					"client manager: %v", err)
 			}
 		}
 
@@ -3807,6 +3763,17 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		}
 	}
 
+	// If we directly set the peer.Config TowerClient member to the
+	// s.towerClientMgr then in the case that the s.towerClientMgr is nil,
+	// the peer.Config's TowerClient member will not evaluate to nil even
+	// though the underlying value is nil. To avoid this gotcha which can
+	// cause a panic, we need to explicitly pass nil to the peer.Config's
+	// TowerClient if needed.
+	var towerClient wtclient.ClientManager
+	if s.towerClientMgr != nil {
+		towerClient = s.towerClientMgr
+	}
+
 	// Now that we've established a connection, create a peer, and it to the
 	// set of currently active peers. Configure the peer with the incoming
 	// and outgoing broadcast deltas to prevent htlcs from being accepted or
@@ -3845,8 +3812,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		Invoices:                s.invoices,
 		ChannelNotifier:         s.channelNotifier,
 		HtlcNotifier:            s.htlcNotifier,
-		TowerClient:             s.towerClient,
-		AnchorTowerClient:       s.anchorTowerClient,
+		TowerClient:             towerClient,
 		DisconnectPeer:          s.DisconnectPeer,
 		GenNodeAnnouncement: func(...netann.NodeAnnModifier) (
 			lnwire.NodeAnnouncement, error) {

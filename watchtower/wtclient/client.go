@@ -132,6 +132,22 @@ type staleTowerMsg struct {
 	errChan chan error
 }
 
+// deactivateTowerMsg is an internal message we'll use within the TowerClient
+// to signal that a tower should be marked as inactive.
+type deactivateTowerMsg struct {
+	// id is the unique database identifier for the tower.
+	id wtdb.TowerID
+
+	// pubKey is the identifying public key of the watchtower.
+	pubKey *btcec.PublicKey
+
+	// errChan is the channel through which we'll send a response back to
+	// the caller when handling their request.
+	//
+	// NOTE: This channel must be buffered.
+	errChan chan error
+}
+
 // clientCfg holds the configuration values required by a client.
 type clientCfg struct {
 	*Config
@@ -165,8 +181,9 @@ type client struct {
 	statTicker *time.Ticker
 	stats      *clientStats
 
-	newTowers   chan *newTowerMsg
-	staleTowers chan *staleTowerMsg
+	newTowers        chan *newTowerMsg
+	staleTowers      chan *staleTowerMsg
+	deactivateTowers chan *deactivateTowerMsg
 
 	wg   sync.WaitGroup
 	quit chan struct{}
@@ -192,15 +209,16 @@ func newClient(cfg *clientCfg) (*client, error) {
 	}
 
 	c := &client{
-		cfg:            cfg,
-		log:            plog,
-		pipeline:       queue,
-		activeSessions: newSessionQueueSet(),
-		statTicker:     time.NewTicker(DefaultStatInterval),
-		stats:          new(clientStats),
-		newTowers:      make(chan *newTowerMsg),
-		staleTowers:    make(chan *staleTowerMsg),
-		quit:           make(chan struct{}),
+		cfg:              cfg,
+		log:              plog,
+		pipeline:         queue,
+		activeSessions:   newSessionQueueSet(),
+		statTicker:       time.NewTicker(DefaultStatInterval),
+		stats:            new(clientStats),
+		newTowers:        make(chan *newTowerMsg),
+		staleTowers:      make(chan *staleTowerMsg),
+		deactivateTowers: make(chan *deactivateTowerMsg),
+		quit:             make(chan struct{}),
 	}
 
 	candidateTowers := newTowerListIterator()
@@ -514,8 +532,8 @@ func (c *client) nextSessionQueue() (*sessionQueue, error) {
 
 // stopAndRemoveSession stops the session with the given ID and removes it from
 // the in-memory active sessions set.
-func (c *client) stopAndRemoveSession(id wtdb.SessionID) error {
-	return c.activeSessions.StopAndRemove(id)
+func (c *client) stopAndRemoveSession(id wtdb.SessionID, final bool) error {
+	return c.activeSessions.StopAndRemove(id, final)
 }
 
 // deleteSessionFromTower dials the tower that we created the session with and
@@ -694,6 +712,12 @@ func (c *client) backupDispatcher() {
 			case msg := <-c.staleTowers:
 				msg.errChan <- c.handleStaleTower(msg)
 
+			// A tower has been requested to be de-activated. We'll
+			// only allow this if the tower is not currently being
+			// used for session negotiation.
+			case msg := <-c.deactivateTowers:
+				msg.errChan <- c.handleDeactivateTower(msg)
+
 			case <-c.quit:
 				return
 			}
@@ -778,6 +802,10 @@ func (c *client) backupDispatcher() {
 			// of its corresponding candidate sessions as inactive.
 			case msg := <-c.staleTowers:
 				msg.errChan <- c.handleStaleTower(msg)
+
+			// A tower has been requested to be de-activated.
+			case msg := <-c.deactivateTowers:
+				msg.errChan <- c.handleDeactivateTower(msg)
 
 			case <-c.quit:
 				return
@@ -1046,6 +1074,77 @@ func (c *client) initActiveQueue(s *ClientSession,
 	return sq
 }
 
+// deactivateTower sends a tower deactivation request to the backupDispatcher
+// where it will be handled synchronously. The request should result in all the
+// sessions that we have with the given tower being shutdown and removed from
+// our in-memory set of active sessions.
+func (c *client) deactivateTower(id wtdb.TowerID,
+	pubKey *btcec.PublicKey) error {
+
+	errChan := make(chan error, 1)
+
+	select {
+	case c.deactivateTowers <- &deactivateTowerMsg{
+		id:      id,
+		pubKey:  pubKey,
+		errChan: errChan,
+	}:
+	case <-c.pipeline.quit:
+		return ErrClientExiting
+	}
+
+	select {
+	case err := <-errChan:
+		return err
+	case <-c.pipeline.quit:
+		return ErrClientExiting
+	}
+}
+
+// handleDeactivateTower handles a request to deactivate a tower. We will remove
+// it from the in-memory candidate set, and we will also stop any active
+// sessions we have with this tower.
+func (c *client) handleDeactivateTower(msg *deactivateTowerMsg) error {
+	// Remove the tower from our in-memory candidate set so that it is not
+	// used for any new session negotiations.
+	err := c.candidateTowers.RemoveCandidate(msg.id, nil)
+	if err != nil {
+		return err
+	}
+
+	pubKey := msg.pubKey.SerializeCompressed()
+	sessions, err := c.cfg.DB.ListClientSessions(&msg.id)
+	if err != nil {
+		return fmt.Errorf("unable to retrieve sessions for tower %x: "+
+			"%v", pubKey, err)
+	}
+
+	// Iterate over all the sessions we have for this tower and remove them
+	// from our candidate set and also from our set of started, active
+	// sessions.
+	for sessionID := range sessions {
+		delete(c.candidateSessions, sessionID)
+
+		err = c.activeSessions.StopAndRemove(sessionID, false)
+		if err != nil {
+			return fmt.Errorf("could not stop session %s: %w",
+				sessionID, err)
+		}
+	}
+
+	// If our active session queue corresponds to the stale tower, we'll
+	// proceed to negotiate a new one.
+	if c.sessionQueue != nil {
+		towerKey := c.sessionQueue.tower.IdentityKey
+
+		if bytes.Equal(pubKey, towerKey.SerializeCompressed()) {
+			c.sessionQueue = nil
+		}
+	}
+
+	return nil
+}
+
 // addTower adds a new watchtower reachable at the given address and considers
 // it for new sessions. If the watchtower already exists, then any new addresses
 // included will be considered when dialing it for session negotiations and
@@ -1152,7 +1251,7 @@ func (c *client) handleStaleTower(msg *staleTowerMsg) error {
 
 		// Shutdown the session so that any pending updates are
 		// replayed back onto the main task pipeline.
-		err = c.activeSessions.StopAndRemove(sessionID)
+		err = c.activeSessions.StopAndRemove(sessionID, true)
 		if err != nil {
 			c.log.Errorf("could not stop session %s: %w", sessionID,
 				err)

@@ -5,17 +5,38 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/lnwallet/chanvalidate"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// ValidateChannelAnn validates the channel announcement message and checks
+// ValidateChannelAnn validates the signature(s) of a channel announcement
+// message.
+func ValidateChannelAnn(a lnwire.ChannelAnnouncement,
+	fetchTx func(id *lnwire.ShortChannelID) (*wire.MsgTx, error)) error {
+
+	switch ann := a.(type) {
+	case *lnwire.ChannelAnnouncement1:
+		return validateChannelAnn1(ann)
+	case *lnwire.ChannelAnnouncement2:
+		return validateChannelAnn2(ann, fetchTx)
+	default:
+		return fmt.Errorf("unhandled lnwire.ChannelAnnouncement "+
+			"implementation: %T", ann)
+	}
+}
+
+// validateChannelAnn1 validates the channel announcement message and checks
 // that node signatures covers the announcement message, and that the bitcoin
 // signatures covers the node keys.
-func ValidateChannelAnn(a *lnwire.ChannelAnnouncement1) error {
+func validateChannelAnn1(a *lnwire.ChannelAnnouncement1) error {
 	// First, we'll compute the digest (h) which is to be signed by each of
 	// the keys included within the node announcement message. This hash
 	// digest includes all the keys, so the (up to 4 signatures) will
@@ -83,6 +104,104 @@ func ValidateChannelAnn(a *lnwire.ChannelAnnouncement1) error {
 
 	return nil
 
+}
+
+// validateChannelAnn2 validates the channel announcement 2 message and checks
+// that schnorr signature is valid.
+func validateChannelAnn2(a *lnwire.ChannelAnnouncement2,
+	fetchTx func(id *lnwire.ShortChannelID) (*wire.MsgTx, error)) error {
+
+	dataHash, err := a.DigestToSign()
+	if err != nil {
+		return err
+	}
+
+	sig, err := a.Signature.ToSignature()
+	if err != nil {
+		return err
+	}
+
+	nodeKey1, err := btcec.ParsePubKey(a.NodeID1[:])
+	if err != nil {
+		return err
+	}
+
+	nodeKey2, err := btcec.ParsePubKey(a.NodeID2[:])
+	if err != nil {
+		return err
+	}
+
+	keys := []*btcec.PublicKey{
+		nodeKey1, nodeKey2,
+	}
+
+	var (
+		btcKey1 [33]byte
+		btcKey2 [33]byte
+	)
+	// If the bitcoin keys are provided in the announcement, then it is
+	// assumed that the signature of the announcement is a 4-of-4 MuSig2
+	// over the bitcoin keys and node ID keys
+	if a.BitcoinKey1.IsSome() && a.BitcoinKey2.IsSome() {
+		btcKey1 = a.BitcoinKey1.UnwrapOr(btcKey1)
+		btcKey2 = a.BitcoinKey2.UnwrapOr(btcKey2)
+
+		bitcoinKey1, err := btcec.ParsePubKey(btcKey1[:])
+		if err != nil {
+			return err
+		}
+
+		bitcoinKey2, err := btcec.ParsePubKey(btcKey2[:])
+		if err != nil {
+			return err
+		}
+
+		keys = append(keys, bitcoinKey1, bitcoinKey2)
+
+	} else {
+		// TODO(elle): ensure that this is covered by a test.
+
+		// If bitcoin keys are not provided, then we need to get the
+		// on-chain output key since this will be the 3rd key in the
+		// 3-of-3 MuSig2 signature.
+		tx, err := fetchTx(&a.ShortChannelID)
+		if err != nil {
+			return err
+		}
+
+		outputLocator := chanvalidate.ShortChanIDChanLocator{
+			ID: a.ShortChannelID,
+		}
+
+		output, _, err := outputLocator.Locate(tx)
+		if err != nil {
+			return err
+		}
+
+		// Taproot PkScripts should be 33 bytes: OP_1 + 32-byte key.
+		pkScript := output.PkScript
+		if len(pkScript) != 33 || pkScript[0] != txscript.OP_1 {
+			return fmt.Errorf("not a taproot output")
+		}
+
+		outputKey, err := schnorr.ParsePubKey(pkScript[1:])
+		if err != nil {
+			return err
+		}
+
+		keys = append(keys, outputKey)
+	}
+
+	aggKey, _, _, err := musig2.AggregateKeys(keys, true)
+	if err != nil {
+		return err
+	}
+
+	if !sig.Verify(dataHash.CloneBytes(), aggKey.FinalKey) {
+		return fmt.Errorf("invalid sig")
+	}
+
+	return nil
 }
 
 // ValidateNodeAnn validates the node announcement by ensuring that the
@@ -163,12 +282,30 @@ func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate1,
 // ValidateChannelUpdateFields validates a channel update's message flags and
 // corresponding update fields.
 func ValidateChannelUpdateFields(capacity btcutil.Amount,
+	msg lnwire.ChannelUpdate) error {
+
+	switch m := msg.(type) {
+	case *lnwire.ChannelUpdate1:
+		return validateChannelUpdate1Fields(capacity, m)
+
+	case *lnwire.ChannelUpdate2:
+		return validateChannelUpdate2Fields(capacity, m)
+
+	default:
+		return fmt.Errorf("unhandled implementation of "+
+			"lnwire.ChannelUpdate: %T", msg)
+	}
+
+	return nil
+}
+
+func validateChannelUpdate1Fields(capacity btcutil.Amount,
 	msg *lnwire.ChannelUpdate1) error {
 
 	// The maxHTLC flag is mandatory.
 	if !msg.MessageFlags.HasMaxHtlc() {
-		return errors.Errorf("max htlc flag not set for channel "+
-			"update %v", spew.Sdump(msg))
+		return errors.Errorf("max htlc flag not set for "+
+			"channel update %v", spew.Sdump(msg))
 	}
 
 	maxHtlc := msg.HtlcMaximumMsat
@@ -182,8 +319,30 @@ func ValidateChannelUpdateFields(capacity btcutil.Amount,
 	// capacity.
 	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
 	if capacityMsat != 0 && maxHtlc > capacityMsat {
-		return errors.Errorf("max_htlc (%v) for channel update "+
-			"greater than capacity (%v)", maxHtlc, capacityMsat)
+		return errors.Errorf("max_htlc (%v) for channel "+
+			"update greater than capacity (%v)", maxHtlc,
+			capacityMsat)
+	}
+
+	return nil
+}
+
+func validateChannelUpdate2Fields(capacity btcutil.Amount,
+	msg *lnwire.ChannelUpdate2) error {
+
+	maxHtlc := msg.HTLCMaximumMsat
+	if maxHtlc == 0 || maxHtlc < msg.HTLCMinimumMsat {
+		return errors.Errorf("invalid max htlc for channel "+
+			"update %v", spew.Sdump(msg))
+	}
+
+	// Checking whether the MaxHTLC value respects the channel's
+	// capacity.
+	capacityMsat := lnwire.NewMSatFromSatoshis(capacity)
+	if maxHtlc > capacityMsat {
+		return errors.Errorf("max_htlc (%v) for channel "+
+			"update greater than capacity (%v)", maxHtlc,
+			capacityMsat)
 	}
 
 	return nil

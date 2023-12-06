@@ -1,7 +1,6 @@
 package sqldb
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"strconv"
@@ -75,7 +74,7 @@ func NewTestPgFixture(t *testing.T, expiry time.Duration) *TestPgFixture {
 		host: host,
 		port: int(port),
 	}
-	databaseURL := fixture.GetDSN()
+	databaseURL := fixture.GetConfig(testPgDBName).Dsn
 	log.Infof("Connecting to Postgres fixture: %v\n", databaseURL)
 
 	// Tell docker to hard kill the container in "expiry" seconds.
@@ -104,20 +103,13 @@ func NewTestPgFixture(t *testing.T, expiry time.Duration) *TestPgFixture {
 	return fixture
 }
 
-// GetDSN returns the DSN (Data Source Name) for the started Postgres node.
-func (f *TestPgFixture) GetDSN() string {
-	return f.GetConfig().DSN(false)
-}
-
 // GetConfig returns the full config of the Postgres node.
-func (f *TestPgFixture) GetConfig() *PostgresConfig {
+func (f *TestPgFixture) GetConfig(dbName string) *PostgresConfig {
 	return &PostgresConfig{
-		Host:       f.host,
-		Port:       f.port,
-		User:       testPgUser,
-		Password:   testPgPass,
-		DBName:     testPgDBName,
-		RequireSSL: false,
+		Dsn: fmt.Sprintf(
+			"postgres://%v:%v@%v:%v/%v?sslmode=disable",
+			testPgUser, testPgPass, f.host, f.port, dbName,
+		),
 	}
 }
 
@@ -125,17 +117,4 @@ func (f *TestPgFixture) GetConfig() *PostgresConfig {
 func (f *TestPgFixture) TearDown(t *testing.T) {
 	err := f.pool.Purge(f.resource)
 	require.NoError(t, err, "Could not purge resource")
-}
-
-// ClearDB clears the database.
-func (f *TestPgFixture) ClearDB(t *testing.T) {
-	dbConn, err := sql.Open("postgres", f.GetDSN())
-	require.NoError(t, err)
-
-	_, err = dbConn.ExecContext(
-		context.Background(),
-		`DROP SCHEMA IF EXISTS public CASCADE;
-		 CREATE SCHEMA public;`,
-	)
-	require.NoError(t, err)
 }

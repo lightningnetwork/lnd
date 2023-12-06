@@ -40,13 +40,11 @@ const (
 //
 //nolint:lll
 type SqliteConfig struct {
-	// SkipMigrations if true, then all the tables will be created on start
-	// up if they don't already exist.
-	SkipMigrations bool `long:"skipmigrations" description:"Skip applying migrations on startup."`
-
-	// DatabaseFileName is the full file path where the database file can be
-	// found.
-	DatabaseFileName string `long:"dbfile" description:"The full path to the database."`
+	Timeout        time.Duration `long:"timeout" description:"The time after which a database query should be timed out."`
+	BusyTimeout    time.Duration `long:"busytimeout" description:"The maximum amount of time to wait for a database connection to become available for a query."`
+	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
+	PragmaOptions  []string      `long:"pragmaoptions" description:"A list of pragma options to set on a database connection. For example, 'auto_vacuum=incremental'. Note that the flag must be specified multiple times if multiple options are to be set."`
+	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
 }
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
@@ -58,7 +56,7 @@ type SqliteStore struct {
 
 // NewSqliteStore attempts to open a new sqlite database based on the passed
 // config.
-func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
+func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 	// The set of pragma options are accepted using query options. For now
 	// we only want to ensure that foreign key constraints are properly
 	// enforced.
@@ -107,7 +105,7 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	// details on the formatting here, see the modernc.org/sqlite docs:
 	// https://pkg.go.dev/modernc.org/sqlite#Driver.Open.
 	dsn := fmt.Sprintf(
-		"%v?%v&%v", cfg.DatabaseFileName, sqliteOptions.Encode(),
+		"%v?%v&%v", dbPath, sqliteOptions.Encode(),
 		sqliteTxLockImmediate,
 	)
 	db, err := sql.Open("sqlite", dsn)
@@ -171,9 +169,8 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 	// an in mem version to speed up tests
 	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
-		DatabaseFileName: dbFileName,
-		SkipMigrations:   false,
-	})
+		SkipMigrations: false,
+	}, dbFileName)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

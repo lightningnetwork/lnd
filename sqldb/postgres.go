@@ -6,6 +6,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"net/url"
+	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,10 +16,6 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:lll
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
 	"github.com/stretchr/testify/require"
-)
-
-const (
-	dsnTemplate = "postgres://%v:%v@%v:%d/%v?sslmode=%v"
 )
 
 var (
@@ -32,31 +31,65 @@ var (
 //
 //nolint:lll
 type PostgresConfig struct {
-	SkipMigrations     bool   `long:"skipmigrations" description:"Skip applying migrations on startup."`
-	Host               string `long:"host" description:"Database server hostname."`
-	Port               int    `long:"port" description:"Database server port."`
-	User               string `long:"user" description:"Database user."`
-	Password           string `long:"password" description:"Database user's password."`
-	DBName             string `long:"dbname" description:"Database name to use."`
-	MaxOpenConnections int    `long:"maxconnections" description:"Max open connections to keep alive to the database server."`
-	RequireSSL         bool   `long:"requiressl" description:"Whether to require using SSL (mode: require) when connecting to the server."`
+	Dsn            string        `long:"dsn" description:"Database connection string."`
+	Timeout        time.Duration `long:"timeout" description:"Database connection timeout. Set to zero to disable."`
+	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
+	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
 }
 
-// DSN returns the dns to connect to the database.
-func (s *PostgresConfig) DSN(hidePassword bool) string {
-	var sslMode = "disable"
-	if s.RequireSSL {
-		sslMode = "require"
+func (p *PostgresConfig) Validate() error {
+	if p.Dsn == "" {
+		return fmt.Errorf("DSN is required")
 	}
 
-	password := s.Password
-	if hidePassword {
-		// Placeholder used for logging the DSN safely.
-		password = "****"
+	// Parse the DSN as a URL.
+	_, err := url.Parse(p.Dsn)
+	if err != nil {
+		return fmt.Errorf("invalid DSN: %w", err)
 	}
 
-	return fmt.Sprintf(dsnTemplate, s.User, password, s.Host, s.Port,
-		s.DBName, sslMode)
+	return nil
+}
+
+// replacePasswordInDSN takes a DSN string and returns it with the password
+// replaced by "***".
+func replacePasswordInDSN(dsn string) (string, error) {
+	// Parse the DSN as a URL
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return "", err
+	}
+
+	// Check if the URL has a user info part
+	if u.User != nil {
+		username := u.User.Username()
+
+		// Reconstruct user info with "***" as password
+		userInfo := username + ":***@"
+
+		// Rebuild the DSN with the modified user info
+		sanitizeDSN := strings.Replace(
+			dsn, u.User.String()+"@", userInfo, 1,
+		)
+
+		return sanitizeDSN, nil
+	}
+
+	// Return the original DSN if no user info is present
+	return dsn, nil
+}
+
+// getDatabaseNameFromDSN extracts the database name from a DSN string.
+func getDatabaseNameFromDSN(dsn string) (string, error) {
+	// Parse the DSN as a URL
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return "", err
+	}
+
+	// The database name is the last segment of the path. Trim leading slash
+	// and return the last segment.
+	return path.Base(u.Path), nil
 }
 
 // PostgresStore is a database store implementation that uses a Postgres
@@ -70,16 +103,25 @@ type PostgresStore struct {
 // NewPostgresStore creates a new store that is backed by a Postgres database
 // backend.
 func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
-	log.Infof("Using SQL database '%s'", cfg.DSN(true))
+	sanitizedDSN, err := replacePasswordInDSN(cfg.Dsn)
+	if err != nil {
+		return nil, err
+	}
+	log.Infof("Using SQL database '%s'", sanitizedDSN)
 
-	rawDB, err := sql.Open("pgx", cfg.DSN(false))
+	dbName, err := getDatabaseNameFromDSN(cfg.Dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	rawDB, err := sql.Open("pgx", cfg.Dsn)
 	if err != nil {
 		return nil, err
 	}
 
 	maxConns := defaultMaxConns
-	if cfg.MaxOpenConnections > 0 {
-		maxConns = cfg.MaxOpenConnections
+	if cfg.MaxConnections > 0 {
+		maxConns = cfg.MaxConnections
 	}
 
 	rawDB.SetMaxOpenConns(maxConns)
@@ -108,7 +150,7 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 		})
 
 		err = applyMigrations(
-			postgresFS, driver, "sqlc/migrations", cfg.DBName,
+			postgresFS, driver, "sqlc/migrations", dbName,
 		)
 		if err != nil {
 			return nil, err
@@ -149,9 +191,7 @@ func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
 		t.Fatal(err)
 	}
 
-	cfg := fixture.GetConfig()
-	cfg.DBName = dbName
-
+	cfg := fixture.GetConfig(dbName)
 	store, err := NewPostgresStore(cfg)
 	require.NoError(t, err)
 

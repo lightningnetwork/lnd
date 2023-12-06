@@ -405,6 +405,11 @@ type Config struct {
 	// IsAlias returns whether a passed ShortChannelID is an alias. This is
 	// only used for our local channels.
 	IsAlias func(scid lnwire.ShortChannelID) bool
+
+	// FetchTxBySCID queries the chain for the transaction with the given
+	// SCID. A quit channel can be passed in to cancel the query.
+	FetchTxBySCID func(chanID *lnwire.ShortChannelID, quit chan struct{}) (
+		*wire.MsgTx, error)
 }
 
 // EdgeLocator is a struct used to identify a specific edge.
@@ -1590,7 +1595,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		// to obtain the full funding outpoint that's encoded within
 		// the channel ID.
 		channelID := lnwire.NewShortChanIDFromInt(msg.ChannelID)
-		fundingTx, err := r.fetchFundingTxWrapper(&channelID)
+		fundingTx, err := r.cfg.FetchTxBySCID(&channelID, r.quit)
 		if err != nil {
 			// In order to ensure we don't erroneously mark a
 			// channel as a zombie due to an RPC failure, we'll
@@ -1798,69 +1803,6 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 	}
 
 	return nil
-}
-
-// fetchFundingTxWrapper is a wrapper around fetchFundingTx, except that it
-// will exit if the router has stopped.
-func (r *ChannelRouter) fetchFundingTxWrapper(chanID *lnwire.ShortChannelID) (
-	*wire.MsgTx, error) {
-
-	txChan := make(chan *wire.MsgTx, 1)
-	errChan := make(chan error, 1)
-
-	go func() {
-		tx, err := r.fetchFundingTx(chanID)
-		if err != nil {
-			errChan <- err
-			return
-		}
-
-		txChan <- tx
-	}()
-
-	select {
-	case tx := <-txChan:
-		return tx, nil
-
-	case err := <-errChan:
-		return nil, err
-
-	case <-r.quit:
-		return nil, ErrRouterShuttingDown
-	}
-}
-
-// fetchFundingTx returns the funding transaction identified by the passed
-// short channel ID.
-//
-// TODO(roasbeef): replace with call to GetBlockTransaction? (would allow to
-// later use getblocktxn)
-func (r *ChannelRouter) fetchFundingTx(
-	chanID *lnwire.ShortChannelID) (*wire.MsgTx, error) {
-
-	// First fetch the block hash by the block number encoded, then use
-	// that hash to fetch the block itself.
-	blockNum := int64(chanID.BlockHeight)
-	blockHash, err := r.cfg.Chain.GetBlockHash(blockNum)
-	if err != nil {
-		return nil, err
-	}
-	fundingBlock, err := r.cfg.Chain.GetBlock(blockHash)
-	if err != nil {
-		return nil, err
-	}
-
-	// As a sanity check, ensure that the advertised transaction index is
-	// within the bounds of the total number of transactions within a
-	// block.
-	numTxns := uint32(len(fundingBlock.Transactions))
-	if chanID.TxIndex > numTxns-1 {
-		return nil, fmt.Errorf("tx_index=#%v "+
-			"is out of range (max_index=%v), network_chan_id=%v",
-			chanID.TxIndex, numTxns-1, chanID)
-	}
-
-	return fundingBlock.Transactions[chanID.TxIndex], nil
 }
 
 // routingMsg couples a routing related routing topology update to the

@@ -979,6 +979,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		Clock:               clock.NewDefaultClock(),
 		StrictZombiePruning: strictPruning,
 		IsAlias:             aliasmgr.IsAlias,
+		FetchTxBySCID:       s.fetchTxBySCID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("can't create router: %v", err)
@@ -4653,6 +4654,73 @@ func (s *server) SendCustomMessage(peerPub [33]byte, msgType lnwire.MessageType,
 	// Send the message as low-priority. For now we assume that all
 	// application-defined message are low priority.
 	return peer.SendMessageLazy(true, msg)
+}
+
+// fetchFundingTxWrapper is a wrapper around fetchFundingTx, except that it
+// will exit if the server has stopped or if the passed in quit channel has
+// been closed.
+func (s *server) fetchTxBySCID(chanID *lnwire.ShortChannelID,
+	quit chan struct{}) (*wire.MsgTx, error) {
+
+	txChan := make(chan *wire.MsgTx, 1)
+	errChan := make(chan error, 1)
+
+	go func() {
+		tx, err := s.fetchFundingTx(chanID)
+		if err != nil {
+			errChan <- err
+			return
+		}
+
+		txChan <- tx
+	}()
+
+	select {
+	case tx := <-txChan:
+		return tx, nil
+
+	case err := <-errChan:
+		return nil, err
+
+	case <-quit:
+		return nil, fmt.Errorf("subsystem shutting down")
+
+	case <-s.quit:
+		return nil, ErrServerShuttingDown
+	}
+}
+
+// fetchFundingTx returns the funding transaction identified by the passed
+// short channel ID.
+//
+// TODO(roasbeef): replace with call to GetBlockTransaction? (would allow to
+// later use getblocktxn)
+func (s *server) fetchFundingTx(chanID *lnwire.ShortChannelID) (*wire.MsgTx,
+	error) {
+
+	// First fetch the block hash by the block number encoded, then use
+	// that hash to fetch the block itself.
+	blockNum := int64(chanID.BlockHeight)
+	blockHash, err := s.cc.ChainIO.GetBlockHash(blockNum)
+	if err != nil {
+		return nil, err
+	}
+	fundingBlock, err := s.cc.ChainIO.GetBlock(blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// As a sanity check, ensure that the advertised transaction index is
+	// within the bounds of the total number of transactions within a
+	// block.
+	numTxns := uint32(len(fundingBlock.Transactions))
+	if chanID.TxIndex > numTxns-1 {
+		return nil, fmt.Errorf("tx_index=#%v "+
+			"is out of range (max_index=%v), network_chan_id=%v",
+			chanID.TxIndex, numTxns-1, chanID)
+	}
+
+	return fundingBlock.Transactions[chanID.TxIndex], nil
 }
 
 // newSweepPkScriptGen creates closure that generates a new public key script

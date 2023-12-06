@@ -25,6 +25,7 @@ import (
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -87,6 +88,7 @@ func (c *testCtx) RestartRouter(t *testing.T) {
 		IsAlias: func(scid lnwire.ShortChannelID) bool {
 			return false
 		},
+		FetchTxBySCID: newTxFetcher(c.chain),
 	})
 	require.NoError(t, err, "unable to create router")
 	require.NoError(t, router.Start(), "unable to start router")
@@ -176,6 +178,7 @@ func createTestCtxFromGraphInstanceAssumeValid(t *testing.T,
 		IsAlias: func(scid lnwire.ShortChannelID) bool {
 			return false
 		},
+		FetchTxBySCID: newTxFetcher(chain),
 	})
 	require.NoError(t, err, "unable to create router")
 	require.NoError(t, router.Start(), "unable to start router")
@@ -1777,6 +1780,7 @@ func TestWakeUpOnStaleBranch(t *testing.T) {
 		IsAlias: func(scid lnwire.ShortChannelID) bool {
 			return false
 		},
+		FetchTxBySCID: newTxFetcher(ctx.chain),
 	})
 	if err != nil {
 		t.Fatalf("unable to create router %v", err)
@@ -3990,5 +3994,26 @@ func TestNewRouteRequest(t *testing.T) {
 				t, req.FinalExpiry, testCase.expectedCltv,
 			)
 		})
+	}
+}
+
+func newTxFetcher(chain lnwallet.BlockChainIO) func(
+	chanID *lnwire.ShortChannelID, quit chan struct{}) (*wire.MsgTx,
+	error) {
+
+	return func(chanID *lnwire.ShortChannelID, quit chan struct{}) (
+		*wire.MsgTx, error) {
+
+		blockNum := int64(chanID.BlockHeight)
+		blockHash, err := chain.GetBlockHash(blockNum)
+		if err != nil {
+			return nil, err
+		}
+		fundingBlock, err := chain.GetBlock(blockHash)
+		if err != nil {
+			return nil, err
+		}
+
+		return fundingBlock.Transactions[chanID.TxIndex], nil
 	}
 }

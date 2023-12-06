@@ -3,6 +3,7 @@ package discovery
 import (
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -132,11 +133,16 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 			return nil, err
 		}
 
+		var capacity btcutil.Amount
+		if ann, ok := chanAnn.(*lnwire.ChannelAnnouncement2); ok {
+			capacity = btcutil.Amount(ann.Capacity.Val)
+		}
+
 		updates = append(updates, chanAnn)
 		if edge1 != nil {
 			// We don't want to send channel updates that don't
 			// conform to the spec (anymore).
-			err := edge1.Validate(0)
+			err := edge1.Validate(capacity)
 			if err != nil {
 				log.Errorf("not sending invalid channel "+
 					"update %v: %v", edge1, err)
@@ -145,7 +151,7 @@ func (c *ChanSeries) UpdatesInHorizon(chain chainhash.Hash,
 			}
 		}
 		if edge2 != nil {
-			err := edge2.Validate(0)
+			err := edge2.Validate(capacity)
 			if err != nil {
 				log.Errorf("not sending invalid channel "+
 					"update %v: %v", edge2, err)

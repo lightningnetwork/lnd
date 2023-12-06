@@ -152,20 +152,27 @@ func unsignedChanPolicy1ToUpdate(chainHash chainhash.Hash,
 // ChannelUpdateFromEdge reconstructs a signed ChannelUpdate from the given
 // edge info and policy.
 func ChannelUpdateFromEdge(info models.ChannelEdgeInfo,
-	policy *models.ChannelEdgePolicy1) (*lnwire.ChannelUpdate1, error) {
+	policy models.ChannelEdgePolicy) (*lnwire.ChannelUpdate1, error) {
 
-	sig, err := policy.Signature()
-	if err != nil {
-		return nil, err
+	switch p := policy.(type) {
+	case *models.ChannelEdgePolicy1:
+		sig, err := p.Signature()
+		if err != nil {
+			return nil, err
+		}
+
+		s, err := lnwire.NewSigFromSignature(sig)
+		if err != nil {
+			return nil, err
+		}
+
+		update := unsignedChanPolicy1ToUpdate(info.GetChainHash(), p)
+		update.Signature = s
+
+		return update, nil
+
+	default:
+		return nil, fmt.Errorf("unhandled implementation of the "+
+			"models.ChanelEdgePolicy interface: %T", policy)
 	}
-
-	s, err := lnwire.NewSigFromSignature(sig)
-	if err != nil {
-		return nil, err
-	}
-
-	update := unsignedChanPolicy1ToUpdate(info.GetChainHash(), policy)
-	update.Signature = s
-
-	return update, nil
 }

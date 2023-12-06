@@ -3,6 +3,7 @@ package lncfg
 import (
 	"context"
 	"fmt"
+	"path"
 	"path/filepath"
 	"time"
 
@@ -29,6 +30,7 @@ const (
 	SqliteChainDBName    = "chain.sqlite"
 	SqliteNeutrinoDBName = "neutrino.sqlite"
 	SqliteTowerDBName    = "watchtower.sqlite"
+	SqliteNativeDBName   = "lnd.sqlite"
 
 	BoltBackend                = "bolt"
 	EtcdBackend                = "etcd"
@@ -83,6 +85,8 @@ type DB struct {
 
 	Sqlite *sqldb.SqliteConfig `group:"sqlite" namespace:"sqlite" description:"Sqlite settings."`
 
+	UseNativeSQL bool `long:"use-native-sql" description:"Use native SQL for tables that already support it."`
+
 	NoGraphCache bool `long:"no-graph-cache" description:"Don't use the in-memory graph cache for path finding. Much slower but uses less RAM. Can only be used with a bolt database backend."`
 
 	PruneRevocation bool `long:"prune-revocation" description:"Run the optional migration that prunes the revocation logs to save disk space."`
@@ -111,6 +115,7 @@ func DefaultDB() *DB {
 			MaxConnections: defaultSqliteMaxConnections,
 			BusyTimeout:    defaultSqliteBusyTimeout,
 		},
+		UseNativeSQL: false,
 	}
 }
 
@@ -214,6 +219,11 @@ type DatabaseBackends struct {
 	// WalletDB is an option that instructs the wallet loader where to load
 	// the underlying wallet database from.
 	WalletDB btcwallet.LoaderOption
+
+	// NativeSQLStore is a pointer to a native SQL store that can be used
+	// for native SQL queries for tables that already support it. This may
+	// be nil if the use-native-sql flag was not set.
+	NativeSQLStore *sqldb.BaseDB
 
 	// Remote indicates whether the database backends are remote, possibly
 	// replicated instances or local bbolt or sqlite backed databases.
@@ -428,6 +438,20 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 		closeFuncs[NSWalletDB] = postgresWalletBackend.Close
 
+		var nativeSQLStore *sqldb.BaseDB
+		if db.UseNativeSQL {
+			nativePostgresStore, err := sqldb.NewPostgresStore(
+				db.Postgres,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error opening "+
+					"native postgres store: %v", err)
+			}
+
+			nativeSQLStore = nativePostgresStore.BaseDB
+			closeFuncs[PostgresBackend] = nativePostgresStore.Close
+		}
+
 		// Warn if the user is trying to switch over to a Postgres DB
 		// while there is a wallet or channel bbolt DB still present.
 		warnExistingBoltDBs(
@@ -455,8 +479,9 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			WalletDB: btcwallet.LoaderWithExternalWalletDB(
 				postgresWalletBackend,
 			),
-			Remote:     true,
-			CloseFuncs: closeFuncs,
+			NativeSQLStore: nativeSQLStore,
+			Remote:         true,
+			CloseFuncs:     closeFuncs,
 		}, nil
 
 	case SqliteBackend:
@@ -535,6 +560,21 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 		closeFuncs[NSWalletDB] = sqliteWalletBackend.Close
 
+		var nativeSQLStore *sqldb.BaseDB
+		if db.UseNativeSQL {
+			nativeSQLiteStore, err := sqldb.NewSqliteStore(
+				db.Sqlite,
+				path.Join(chanDBPath, SqliteNativeDBName),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error opening "+
+					"native SQLite store: %v", err)
+			}
+
+			nativeSQLStore = nativeSQLiteStore.BaseDB
+			closeFuncs[SqliteBackend] = nativeSQLiteStore.Close
+		}
+
 		// Warn if the user is trying to switch over to a sqlite DB
 		// while there is a wallet or channel bbolt DB still present.
 		warnExistingBoltDBs(
@@ -562,7 +602,8 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			WalletDB: btcwallet.LoaderWithExternalWalletDB(
 				sqliteWalletBackend,
 			),
-			CloseFuncs: closeFuncs,
+			NativeSQLStore: nativeSQLStore,
+			CloseFuncs:     closeFuncs,
 		}, nil
 	}
 

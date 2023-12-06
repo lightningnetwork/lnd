@@ -35,7 +35,7 @@ type ChannelGraphSource interface {
 	// AddProof updates the channel edge info with proof which is needed to
 	// properly announce the edge to the rest of the network.
 	AddProof(chanID lnwire.ShortChannelID,
-		proof *models.ChannelAuthProof1) error
+		proof models.ChannelAuthProof) error
 
 	// UpdateEdge is used to update edge information, without this message
 	// edge considered as not fully constructed.

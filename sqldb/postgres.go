@@ -1,21 +1,15 @@
 package sqldb
 
 import (
-	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
-	"fmt"
 	"net/url"
 	"path"
 	"strings"
-	"testing"
 	"time"
 
 	postgres_migrate "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file" // Read migrations from files. // nolint:lll
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -26,30 +20,6 @@ var (
 	// longer than the longest expected individual test run time.
 	DefaultPostgresFixtureLifetime = 10 * time.Minute
 )
-
-// PostgresConfig holds the postgres database configuration.
-//
-//nolint:lll
-type PostgresConfig struct {
-	Dsn            string        `long:"dsn" description:"Database connection string."`
-	Timeout        time.Duration `long:"timeout" description:"Database connection timeout. Set to zero to disable."`
-	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
-	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
-}
-
-func (p *PostgresConfig) Validate() error {
-	if p.Dsn == "" {
-		return fmt.Errorf("DSN is required")
-	}
-
-	// Parse the DSN as a URL.
-	_, err := url.Parse(p.Dsn)
-	if err != nil {
-		return fmt.Errorf("invalid DSN: %w", err)
-	}
-
-	return nil
-}
 
 // replacePasswordInDSN takes a DSN string and returns it with the password
 // replaced by "***".
@@ -166,34 +136,4 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 			Queries: queries,
 		},
 	}, nil
-}
-
-// NewTestPostgresDB is a helper function that creates a Postgres database for
-// testing using the given fixture.
-func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
-	t.Helper()
-
-	// Create random database name.
-	randBytes := make([]byte, 8)
-	_, err := rand.Read(randBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	dbName := "test_" + hex.EncodeToString(randBytes)
-
-	t.Logf("Creating new Postgres DB '%s' for testing", dbName)
-
-	_, err = fixture.db.ExecContext(
-		context.Background(), "CREATE DATABASE "+dbName,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := fixture.GetConfig(dbName)
-	store, err := NewPostgresStore(cfg)
-	require.NoError(t, err)
-
-	return store
 }

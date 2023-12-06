@@ -1,7 +1,12 @@
+//go:build !js && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)) && !(netbsd || openbsd)
+
 package sqldb
 
 import (
+	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -117,4 +122,34 @@ func (f *TestPgFixture) GetConfig(dbName string) *PostgresConfig {
 func (f *TestPgFixture) TearDown(t *testing.T) {
 	err := f.pool.Purge(f.resource)
 	require.NoError(t, err, "Could not purge resource")
+}
+
+// NewTestPostgresDB is a helper function that creates a Postgres database for
+// testing using the given fixture.
+func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
+	t.Helper()
+
+	// Create random database name.
+	randBytes := make([]byte, 8)
+	_, err := rand.Read(randBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dbName := "test_" + hex.EncodeToString(randBytes)
+
+	t.Logf("Creating new Postgres DB '%s' for testing", dbName)
+
+	_, err = fixture.db.ExecContext(
+		context.Background(), "CREATE DATABASE "+dbName,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := fixture.GetConfig(dbName)
+	store, err := NewPostgresStore(cfg)
+	require.NoError(t, err)
+
+	return store
 }

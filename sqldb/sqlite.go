@@ -1,3 +1,5 @@
+//go:build !js && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64))
+
 package sqldb
 
 import (
@@ -6,7 +8,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"testing"
-	"time"
 
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
@@ -23,29 +24,7 @@ const (
 	// sqliteTxLockImmediate is a dsn option used to ensure that write
 	// transactions are started immediately.
 	sqliteTxLockImmediate = "_txlock=immediate"
-
-	// defaultMaxConns is the number of permitted active and idle
-	// connections. We want to limit this so it isn't unlimited. We use the
-	// same value for the number of idle connections as, this can speed up
-	// queries given a new connection doesn't need to be established each
-	// time.
-	defaultMaxConns = 25
-
-	// connIdleLifetime is the amount of time a connection can be idle.
-	connIdleLifetime = 5 * time.Minute
 )
-
-// SqliteConfig holds all the config arguments needed to interact with our
-// sqlite DB.
-//
-//nolint:lll
-type SqliteConfig struct {
-	Timeout        time.Duration `long:"timeout" description:"The time after which a database query should be timed out."`
-	BusyTimeout    time.Duration `long:"busytimeout" description:"The maximum amount of time to wait for a database connection to become available for a query."`
-	MaxConnections int           `long:"maxconnections" description:"The maximum number of open connections to the database. Set to zero for unlimited."`
-	PragmaOptions  []string      `long:"pragmaoptions" description:"A list of pragma options to set on a database connection. For example, 'auto_vacuum=incremental'. Note that the flag must be specified multiple times if multiple options are to be set."`
-	SkipMigrations bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
-}
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
 type SqliteStore struct {

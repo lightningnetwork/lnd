@@ -147,7 +147,7 @@ func UnsignedChannelUpdateFromEdge(chainHash chainhash.Hash,
 // ChannelUpdateFromEdge reconstructs a signed ChannelUpdate1 from the given
 // edge info and policy.
 func ChannelUpdateFromEdge(info models.ChannelEdgeInfo,
-	policy *models.ChannelEdgePolicy1) (*lnwire.ChannelUpdate1, error) {
+	policy models.ChannelEdgePolicy) (*lnwire.ChannelUpdate1, error) {
 
 	update, err := UnsignedChannelUpdateFromEdge(
 		info.GetChainHash(), policy,

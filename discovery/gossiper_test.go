@@ -170,7 +170,7 @@ func (r *mockGraphSource) CurrentBlockHeight() (uint32, error) {
 }
 
 func (r *mockGraphSource) AddProof(chanID lnwire.ShortChannelID,
-	proof *models.ChannelAuthProof1) error {
+	proof models.ChannelAuthProof) error {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()

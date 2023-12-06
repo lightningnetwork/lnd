@@ -1298,8 +1298,9 @@ func initNeutrinoBackend(ctx context.Context, cfg *Config, chainDir string,
 	)
 	switch {
 	case cfg.DB.Backend == kvdb.SqliteBackendName:
+		sqliteConfig := lncfg.GetSqliteConfigKVDB(cfg.DB.Sqlite)
 		db, err = kvdb.Open(
-			kvdb.SqliteBackendName, ctx, cfg.DB.Sqlite, dbPath,
+			kvdb.SqliteBackendName, ctx, sqliteConfig, dbPath,
 			lncfg.SqliteNeutrinoDBName, lncfg.NSNeutrinoDB,
 		)
 

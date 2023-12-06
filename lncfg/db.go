@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/kvdb/sqlite"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"github.com/lightningnetwork/lnd/sqldb"
 )
 
 const (
@@ -78,9 +79,9 @@ type DB struct {
 
 	Bolt *kvdb.BoltConfig `group:"bolt" namespace:"bolt" description:"Bolt settings."`
 
-	Postgres *postgres.Config `group:"postgres" namespace:"postgres" description:"Postgres settings."`
+	Postgres *sqldb.PostgresConfig `group:"postgres" namespace:"postgres" description:"Postgres settings."`
 
-	Sqlite *sqlite.Config `group:"sqlite" namespace:"sqlite" description:"Sqlite settings."`
+	Sqlite *sqldb.SqliteConfig `group:"sqlite" namespace:"sqlite" description:"Sqlite settings."`
 
 	NoGraphCache bool `long:"no-graph-cache" description:"Don't use the in-memory graph cache for path finding. Much slower but uses less RAM. Can only be used with a bolt database backend."`
 
@@ -103,10 +104,10 @@ func DefaultDB() *DB {
 			// Allow at most 32 MiB messages by default.
 			MaxMsgSize: 32768 * 1024,
 		},
-		Postgres: &postgres.Config{
+		Postgres: &sqldb.PostgresConfig{
 			MaxConnections: defaultPostgresMaxConnections,
 		},
-		Sqlite: &sqlite.Config{
+		Sqlite: &sqldb.SqliteConfig{
 			MaxConnections: defaultSqliteMaxConnections,
 			BusyTimeout:    defaultSqliteBusyTimeout,
 		},
@@ -118,8 +119,8 @@ func (db *DB) Validate() error {
 	switch db.Backend {
 	case BoltBackend, SqliteBackend:
 	case PostgresBackend:
-		if db.Postgres.Dsn == "" {
-			return fmt.Errorf("postgres dsn must be set")
+		if err := db.Postgres.Validate(); err != nil {
+			return err
 		}
 
 	case EtcdBackend:
@@ -221,6 +222,26 @@ type DatabaseBackends struct {
 	// CloseFuncs is a map of close functions for each of the initialized
 	// DB backends keyed by their namespace name.
 	CloseFuncs map[string]func() error
+}
+
+// GetPostgresConfigKVDB converts a sqldb.PostgresConfig to a kvdb
+// postgres.Config.
+func GetPostgresConfigKVDB(cfg *sqldb.PostgresConfig) *postgres.Config {
+	return &postgres.Config{
+		Dsn:            cfg.Dsn,
+		Timeout:        cfg.Timeout,
+		MaxConnections: cfg.MaxConnections,
+	}
+}
+
+// GetSqliteConfigKVDB converts a sqldb.SqliteConfig to a kvdb sqlite.Config.
+func GetSqliteConfigKVDB(cfg *sqldb.SqliteConfig) *sqlite.Config {
+	return &sqlite.Config{
+		Timeout:        cfg.Timeout,
+		BusyTimeout:    cfg.BusyTimeout,
+		MaxConnections: cfg.MaxConnections,
+		PragmaOptions:  cfg.PragmaOptions,
+	}
 }
 
 // GetBackends returns a set of kvdb.Backends as set in the DB config.
@@ -342,9 +363,14 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}, nil
 
 	case PostgresBackend:
+		// Convert the sqldb PostgresConfig to a kvdb postgres.Config.
+		// This is a temporary measure until we migrate all kvdb SQL
+		// users to native SQL.
+		postgresConfig := GetPostgresConfigKVDB(db.Postgres)
+
 		postgresBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,
-			db.Postgres, NSChannelDB,
+			postgresConfig, NSChannelDB,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error opening postgres graph "+
@@ -354,7 +380,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 
 		postgresMacaroonBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,
-			db.Postgres, NSMacaroonDB,
+			postgresConfig, NSMacaroonDB,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error opening postgres "+
@@ -364,7 +390,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 
 		postgresDecayedLogBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,
-			db.Postgres, NSDecayedLogDB,
+			postgresConfig, NSDecayedLogDB,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error opening postgres "+
@@ -374,7 +400,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 
 		postgresTowerClientBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,
-			db.Postgres, NSTowerClientDB,
+			postgresConfig, NSTowerClientDB,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error opening postgres tower "+
@@ -384,7 +410,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 
 		postgresTowerServerBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,
-			db.Postgres, NSTowerServerDB,
+			postgresConfig, NSTowerServerDB,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error opening postgres tower "+
@@ -394,7 +420,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 
 		postgresWalletBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,
-			db.Postgres, NSWalletDB,
+			postgresConfig, NSWalletDB,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error opening postgres macaroon "+
@@ -434,6 +460,11 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}, nil
 
 	case SqliteBackend:
+		// Convert the sqldb SqliteConfig to a kvdb sqlite.Config.
+		// This is a temporary measure until we migrate all kvdb SQL
+		// users to native SQL.
+		sqliteConfig := GetSqliteConfigKVDB(db.Sqlite)
+
 		// Note that for sqlite, we put kv tables for the channel.db,
 		// wtclient.db and sphinxreplay.db all in the channel.sqlite db.
 		// The tables for wallet.db and macaroon.db are in the
@@ -445,7 +476,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		// would cause deadlocks in the code due to the wallet db often
 		// being accessed during a write to another db.
 		sqliteBackend, err := kvdb.Open(
-			kvdb.SqliteBackendName, ctx, db.Sqlite, chanDBPath,
+			kvdb.SqliteBackendName, ctx, sqliteConfig, chanDBPath,
 			SqliteChannelDBName, NSChannelDB,
 		)
 		if err != nil {
@@ -455,7 +486,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		closeFuncs[NSChannelDB] = sqliteBackend.Close
 
 		sqliteMacaroonBackend, err := kvdb.Open(
-			kvdb.SqliteBackendName, ctx, db.Sqlite, walletDBPath,
+			kvdb.SqliteBackendName, ctx, sqliteConfig, walletDBPath,
 			SqliteChainDBName, NSMacaroonDB,
 		)
 		if err != nil {
@@ -465,7 +496,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		closeFuncs[NSMacaroonDB] = sqliteMacaroonBackend.Close
 
 		sqliteDecayedLogBackend, err := kvdb.Open(
-			kvdb.SqliteBackendName, ctx, db.Sqlite, chanDBPath,
+			kvdb.SqliteBackendName, ctx, sqliteConfig, chanDBPath,
 			SqliteChannelDBName, NSDecayedLogDB,
 		)
 		if err != nil {
@@ -475,7 +506,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		closeFuncs[NSDecayedLogDB] = sqliteDecayedLogBackend.Close
 
 		sqliteTowerClientBackend, err := kvdb.Open(
-			kvdb.SqliteBackendName, ctx, db.Sqlite, chanDBPath,
+			kvdb.SqliteBackendName, ctx, sqliteConfig, chanDBPath,
 			SqliteChannelDBName, NSTowerClientDB,
 		)
 		if err != nil {
@@ -485,7 +516,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		closeFuncs[NSTowerClientDB] = sqliteTowerClientBackend.Close
 
 		sqliteTowerServerBackend, err := kvdb.Open(
-			kvdb.SqliteBackendName, ctx, db.Sqlite,
+			kvdb.SqliteBackendName, ctx, sqliteConfig,
 			towerServerDBPath, SqliteTowerDBName, NSTowerServerDB,
 		)
 		if err != nil {
@@ -495,7 +526,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		closeFuncs[NSTowerServerDB] = sqliteTowerServerBackend.Close
 
 		sqliteWalletBackend, err := kvdb.Open(
-			kvdb.SqliteBackendName, ctx, db.Sqlite, walletDBPath,
+			kvdb.SqliteBackendName, ctx, sqliteConfig, walletDBPath,
 			SqliteChainDBName, NSWalletDB,
 		)
 		if err != nil {

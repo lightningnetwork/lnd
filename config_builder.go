@@ -3,6 +3,7 @@ package lnd
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -31,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/kvdb"
@@ -42,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/lightningnetwork/lnd/walletunlocker"
 	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/watchtower/wtclient"
@@ -869,6 +872,11 @@ type DatabaseInstances struct {
 	// WalletDB is the configuration for loading the wallet database using
 	// the btcwallet's loader.
 	WalletDB btcwallet.LoaderOption
+
+	// NativeSQLStore is a pointer to a native SQL store that can be used
+	// for native SQL queries for tables that already support it. This may
+	// be nil if the use-native-sql flag was not set.
+	NativeSQLStore *sqldb.BaseDB
 }
 
 // DefaultDatabaseBuilder is a type that builds the default database backends
@@ -923,10 +931,11 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	// state DB point to the same local or remote DB and the same namespace
 	// within that DB.
 	dbs := &DatabaseInstances{
-		HeightHintDB: databaseBackends.HeightHintDB,
-		MacaroonDB:   databaseBackends.MacaroonDB,
-		DecayedLogDB: databaseBackends.DecayedLogDB,
-		WalletDB:     databaseBackends.WalletDB,
+		HeightHintDB:   databaseBackends.HeightHintDB,
+		MacaroonDB:     databaseBackends.MacaroonDB,
+		DecayedLogDB:   databaseBackends.DecayedLogDB,
+		WalletDB:       databaseBackends.WalletDB,
+		NativeSQLStore: databaseBackends.NativeSQLStore,
 	}
 	cleanUp := func() {
 		// We can just close the returned close functions directly. Even
@@ -1011,11 +1020,21 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	// using the same struct (and DB backend) instance.
 	dbs.ChanStateDB = dbs.GraphDB
 
-	// For now the only InvoiceDB implementation is the *channeldb.DB.
-	//
-	// TODO(positiveblue): use a sql first implementation for this
-	// interface.
-	dbs.InvoiceDB = dbs.GraphDB
+	// Instantiate a native SQL invoice store if the flag is set.
+	if d.cfg.DB.UseNativeSQL {
+		executor := sqldb.NewTransactionExecutor(
+			dbs.NativeSQLStore,
+			func(tx *sql.Tx) sqldb.InvoiceQueries {
+				return dbs.NativeSQLStore.WithTx(tx)
+			},
+		)
+
+		dbs.InvoiceDB = sqldb.NewInvoiceStore(
+			executor, clock.NewDefaultClock(),
+		)
+	} else {
+		dbs.InvoiceDB = dbs.GraphDB
+	}
 
 	// Wrap the watchtower client DB and make sure we clean up.
 	if cfg.WtClient.Active {

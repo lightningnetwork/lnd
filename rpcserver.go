@@ -5806,7 +5806,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 		CreationDateEnd:   int64(req.CreationDateEnd),
 	}
 
-	invoiceSlice, err := r.server.miscDB.QueryInvoices(ctx, q)
+	invoiceSlice, err := r.server.invoicesDB.QueryInvoices(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("unable to query invoices: %w", err)
 	}

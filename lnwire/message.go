@@ -23,6 +23,7 @@ type MessageType uint16
 // Lightning protocol.
 const (
 	MsgWarning                 MessageType = 1
+	MsgStfu                                = 2
 	MsgInit                                = 16
 	MsgError                               = 17
 	MsgPing                                = 18

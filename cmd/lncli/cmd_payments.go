@@ -169,11 +169,13 @@ func paymentFlags() []cli.Flag {
 		},
 		cltvLimitFlag,
 		lastHopFlag,
-		cli.Uint64Flag{
+		cli.Int64SliceFlag{
 			Name: "outgoing_chan_id",
 			Usage: "short channel id of the outgoing channel to " +
-				"use for the first hop of the payment",
-			Value: 0,
+				"use for the first hop of the payment; can " +
+				"be specified multiple times in the same " +
+				"command",
+			Value: &cli.Int64Slice{},
 		},
 		cli.BoolFlag{
 			Name:  "force, f",
@@ -463,10 +465,14 @@ func sendPaymentRequest(ctx *cli.Context,
 	client := lnrpc.NewLightningClient(conn)
 	routerClient := routerrpc.NewRouterClient(conn)
 
-	outChan := ctx.Uint64("outgoing_chan_id")
-	if outChan != 0 {
-		req.OutgoingChanIds = []uint64{outChan}
+	outChan := ctx.Int64Slice("outgoing_chan_id")
+	if len(outChan) != 0 {
+		req.OutgoingChanIds = make([]uint64, len(outChan))
+		for i, c := range outChan {
+			req.OutgoingChanIds[i] = uint64(c)
+		}
 	}
+
 	if ctx.IsSet(lastHopFlag.Name) {
 		lastHop, err := route.NewVertexFromStr(
 			ctx.String(lastHopFlag.Name),

@@ -1806,6 +1806,33 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	switch msg := msg.(type) {
 
 	case *lnwire.UpdateAddHTLC:
+		if l.IsDraining(Incoming) {
+			// This is forbidden by the protocol specification.
+			// The best chance we have to deal with this is to drop
+			// the connection. This should roll back the channel
+			// state to the last CommitSig. If the remote has
+			// already sent a CommitSig we haven't received yet,
+			// channel state will be re-synchronized with a
+			// ChannelReestablish message upon reconnection and the
+			// protocol state that caused us to drain the link will
+			// be rolled back. In the event that there was some
+			// non-deterministic behavior in the remote that caused
+			// them to violate the protocol, we have a decent shot
+			// at correcting it this way, since reconnecting will
+			// put us in the cleanest possible state to try again.
+			l.fail(
+				LinkFailureError{
+					code:             ErrInvalidUpdate,
+					FailureAction:    LinkFailureDisconnect,
+					PermanentFailure: false,
+					Warning:          true,
+				},
+				"received add while link is draining",
+			)
+
+			return
+		}
+
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
 		// "settle" list in the event that we know the preimage.

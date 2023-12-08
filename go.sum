@@ -449,6 +449,8 @@ github.com/lightningnetwork/lnd/cert v1.2.2/go.mod h1:jQmFn/Ez4zhDgq2hnYSw8r35bq
 github.com/lightningnetwork/lnd/clock v1.0.1/go.mod h1:KnQudQ6w0IAMZi1SgvecLZQZ43ra2vpDNj7H/aasemg=
 github.com/lightningnetwork/lnd/clock v1.1.1 h1:OfR3/zcJd2RhH0RU+zX/77c0ZiOnIMsDIBjgjWdZgA0=
 github.com/lightningnetwork/lnd/clock v1.1.1/go.mod h1:mGnAhPyjYZQJmebS7aevElXKTFDuO+uNFFfMXK1W8xQ=
+github.com/lightningnetwork/lnd/fn v1.0.0 h1:I5VG9AD63mOQ89RMQEu7HRI1r68wn8yz539LoylUIKM=
+github.com/lightningnetwork/lnd/fn v1.0.0/go.mod h1:XV+0vBXSnh3aUjskJUv58TOpsveiXQ+ac8rEnXZDGFc=
 github.com/lightningnetwork/lnd/healthcheck v1.2.3 h1:oqhOOy8WmIEa6RBkYKC0mmYZkhl8T2kGD97n9jpML8o=
 github.com/lightningnetwork/lnd/healthcheck v1.2.3/go.mod h1:eDxH3dEwV9DeBW/6inrmlVh1qBOFV0AI14EEPnGt9gc=
 github.com/lightningnetwork/lnd/kvdb v1.4.4 h1:bCv63rVCvzqj1BkagN/EWTov6NDDgYEG/t0z2HepRMk=

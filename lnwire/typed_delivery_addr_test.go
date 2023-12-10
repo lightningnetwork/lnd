@@ -15,13 +15,13 @@ func TestDeliveryAddressEncodeDecode(t *testing.T) {
 	)
 
 	var extraData ExtraOpaqueData
-	err := extraData.PackRecords(&addr)
+	err := extraData.PackRecordsFromProducers(&addr)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var addr2 DeliveryAddress
-	tlvs, err := extraData.ExtractRecords(&addr2)
+	tlvs, err := extraData.ExtractRecordsFromProducers(&addr2)
 	if err != nil {
 		t.Fatal(err)
 	}

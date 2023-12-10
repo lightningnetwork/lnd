@@ -7,20 +7,31 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-const (
-	// NonceRecordType is the TLV type used to encode a local musig2 nonce.
-	NonceRecordType tlv.Type = 4
-)
-
 // Musig2Nonce represents a musig2 public nonce, which is the concatenation of
 // two EC points serialized in compressed format.
 type Musig2Nonce [musig2.PubNonceSize]byte
 
+// Musig2NonceRecordProducer wraps a Musig2Nonce with the tlv type it should be
+// encoded under. This can then be used to produce a TLV record.
+type Musig2NonceRecordProducer struct {
+	Musig2Nonce
+
+	Type tlv.Type
+}
+
+// NewMusig2NonceRecordProducer constructs a new Musig2NonceRecordProducer with
+// the given tlv type set.
+func NewMusig2NonceRecordProducer(tlvType tlv.Type) *Musig2NonceRecordProducer {
+	return &Musig2NonceRecordProducer{
+		Type: tlvType,
+	}
+}
+
 // Record returns a TLV record that can be used to encode/decode the musig2
 // nonce from a given TLV stream.
-func (m *Musig2Nonce) Record() tlv.Record {
+func (m *Musig2NonceRecordProducer) Record() tlv.Record {
 	return tlv.MakeStaticRecord(
-		NonceRecordType, m, musig2.PubNonceSize, nonceTypeEncoder,
+		m.Type, &m.Musig2Nonce, musig2.PubNonceSize, nonceTypeEncoder,
 		nonceTypeDecoder,
 	)
 }

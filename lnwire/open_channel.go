@@ -21,6 +21,12 @@ const (
 	FFAnnounceChannel FundingFlag = 1 << iota
 )
 
+const (
+	// OpenChanLocalNonceType is the tlv number associated with the local
+	// nonce TLV record in the open_channel message.
+	OpenChanLocalNonceType = tlv.Type(4)
+)
+
 // OpenChannel is the message Alice sends to Bob if we should like to create a
 // channel with Bob where she's the sole provider of funds to the channel.
 // Single funder channels simplify the initial funding workflow, are supported
@@ -167,17 +173,30 @@ var _ Message = (*OpenChannel)(nil)
 // Encode serializes the target OpenChannel into the passed io.Writer
 // implementation. Serialization will observe the rules defined by the passed
 // protocol version.
-func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
+func (o *OpenChannel) Encode(w *bytes.Buffer, _ uint32) error {
 	recordProducers := []tlv.RecordProducer{&o.UpfrontShutdownScript}
 	if o.ChannelType != nil {
-		recordProducers = append(recordProducers, o.ChannelType)
+		recordProducers = append(recordProducers,
+			&RawFeatureVectorRecordProducer{
+				RawFeatureVector: RawFeatureVector(
+					*o.ChannelType,
+				),
+				Type: ChannelTypeRecordType,
+			},
+		)
 	}
 	if o.LeaseExpiry != nil {
 		recordProducers = append(recordProducers, o.LeaseExpiry)
 	}
 	if o.LocalNonce != nil {
-		recordProducers = append(recordProducers, o.LocalNonce)
+		recordProducers = append(recordProducers,
+			&Musig2NonceRecordProducer{
+				Musig2Nonce: *o.LocalNonce,
+				Type:        OpenChanLocalNonceType,
+			},
+		)
 	}
+
 	err := EncodeMessageExtraData(&o.ExtraData, recordProducers...)
 	if err != nil {
 		return err
@@ -300,13 +319,16 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 	// Next we'll parse out the set of known records, keeping the raw tlv
 	// bytes untouched to ensure we don't drop any bytes erroneously.
 	var (
-		chanType    ChannelType
+		chanType = NewRawFeatureVectorRecordProducer(
+			ChannelTypeRecordType,
+		)
 		leaseExpiry LeaseExpiry
-		localNonce  Musig2Nonce
+		localNonce  = NewMusig2NonceRecordProducer(
+			OpenChanLocalNonceType,
+		)
 	)
-	typeMap, err := tlvRecords.ExtractRecords(
-		&o.UpfrontShutdownScript, &chanType, &leaseExpiry,
-		&localNonce,
+	typeMap, err := tlvRecords.ExtractRecordsFromProducers(
+		&o.UpfrontShutdownScript, chanType, &leaseExpiry, localNonce,
 	)
 	if err != nil {
 		return err
@@ -314,13 +336,14 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 
 	// Set the corresponding TLV types if they were included in the stream.
 	if val, ok := typeMap[ChannelTypeRecordType]; ok && val == nil {
-		o.ChannelType = &chanType
+		channelType := ChannelType(chanType.RawFeatureVector)
+		o.ChannelType = &channelType
 	}
 	if val, ok := typeMap[LeaseExpiryRecordType]; ok && val == nil {
 		o.LeaseExpiry = &leaseExpiry
 	}
-	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
-		o.LocalNonce = &localNonce
+	if val, ok := typeMap[OpenChanLocalNonceType]; ok && val == nil {
+		o.LocalNonce = &localNonce.Musig2Nonce
 	}
 
 	o.ExtraData = tlvRecords

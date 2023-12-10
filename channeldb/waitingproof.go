@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/go-errors/errors"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -20,11 +21,6 @@ var (
 	// found by db.
 	ErrWaitingProofNotFound = errors.New("waiting proofs haven't been " +
 		"found")
-
-	// ErrWaitingProofAlreadyExist is returned if waiting proofs haven't been
-	// found by db.
-	ErrWaitingProofAlreadyExist = errors.New("waiting proof with such " +
-		"key already exist")
 )
 
 // WaitingProofStore is the bold db map-like storage for half announcement
@@ -186,27 +182,191 @@ func (s *WaitingProofStore) Get(key WaitingProofKey) (*WaitingProof, error) {
 // proof for the same channel id.
 type WaitingProofKey [9]byte
 
+// WaitingProofType represents the type of the encoded waiting proof.
+type WaitingProofType uint8
+
+const (
+	// WaitingProofTypeLegacy represents a waiting proof for legacy P2WSH
+	// channels.
+	WaitingProofTypeLegacy WaitingProofType = 0
+
+	// WaitingProofTypeTaproot represents a waiting proof for taproot
+	// channels.
+	WaitingProofTypeTaproot WaitingProofType = 1
+)
+
+// typeToWaitingProofType is a map from WaitingProofType to an empty
+// instantiation of the associated type.
+func typeToWaitingProof(pt WaitingProofType) (WaitingProofInterface, bool) {
+	switch pt {
+	case WaitingProofTypeLegacy:
+		return &LegacyWaitingProof{}, true
+	case WaitingProofTypeTaproot:
+		return &TaprootWaitingProof{}, true
+
+	default:
+		return nil, false
+	}
+}
+
+// WaitingProofInterface is an interface that must be implemented by any waiting
+// proof to be stored in the waiting proof DB.
+type WaitingProofInterface interface {
+	// SCID returns the short channel ID of the channel that the waiting
+	// proof is for.
+	SCID() lnwire.ShortChannelID
+
+	// Encode encodes the waiting proof to the given buffer.
+	Encode(w *bytes.Buffer, pver uint32) error
+
+	// Decode parses the bytes from the given reader to reconstruct the
+	// waiting proof.
+	Decode(r io.Reader, pver uint32) error
+
+	// Type returns the waiting proof type.
+	Type() WaitingProofType
+}
+
+// LegacyWaitingProof is an implementation of the WaitingProofInterface to be
+// used for legacy, P2WSH channels.
+type LegacyWaitingProof struct {
+	lnwire.AnnounceSignatures1
+}
+
+// SCID returns the short channel ID of the channel that the waiting
+// proof is for.
+//
+// NOTE: this is part of the WaitingProofInterface.
+func (l *LegacyWaitingProof) SCID() lnwire.ShortChannelID {
+	return l.ShortChannelID
+}
+
+// Type returns the waiting proof type.
+//
+// NOTE: this is part of the WaitingProofInterface.
+func (l *LegacyWaitingProof) Type() WaitingProofType {
+	return WaitingProofTypeLegacy
+}
+
+var _ WaitingProofInterface = (*LegacyWaitingProof)(nil)
+
+// TaprootWaitingProof is an implementation of the WaitingProofInterface to be
+// used for taproot channels.
+type TaprootWaitingProof struct {
+	lnwire.AnnounceSignatures2
+
+	// AggNonce is the aggregate nonce used to construct the partial
+	// signatures. It will be used as the R value in the final signature.
+	AggNonce *btcec.PublicKey
+}
+
+// SCID returns the short channel ID of the channel that the waiting
+// proof is for.
+//
+// NOTE: this is part of the WaitingProofInterface.
+func (t *TaprootWaitingProof) SCID() lnwire.ShortChannelID {
+	return t.ShortChannelID
+}
+
+// Decode parses the bytes from the given reader to reconstruct the
+// waiting proof.
+//
+// NOTE: this is part of the WaitingProofInterface.
+func (t *TaprootWaitingProof) Decode(r io.Reader, pver uint32) error {
+	// Read byte to see if agg nonce is present.
+	var aggNoncePresent bool
+	if err := binary.Read(r, byteOrder, &aggNoncePresent); err != nil {
+		return err
+	}
+
+	// If agg nonce is present, read it in.
+	if aggNoncePresent {
+		var nonceBytes [btcec.PubKeyBytesLenCompressed]byte
+		if err := binary.Read(r, byteOrder, &nonceBytes); err != nil {
+			return err
+		}
+
+		nonce, err := btcec.ParsePubKey(nonceBytes[:])
+		if err != nil {
+			return err
+		}
+
+		t.AggNonce = nonce
+	}
+
+	return t.AnnounceSignatures2.Decode(r, pver)
+}
+
+// Encode encodes the waiting proof to the given buffer.
+//
+// NOTE: this is part of the WaitingProofInterface.
+func (t *TaprootWaitingProof) Encode(w *bytes.Buffer, pver uint32) error {
+	// If agg nonce is present, write a signaling byte for that.
+	aggNoncePresent := t.AggNonce != nil
+	if err := binary.Write(w, byteOrder, aggNoncePresent); err != nil {
+		return err
+	}
+
+	// Now follow with the actual nonce if present.
+	if aggNoncePresent {
+		err := binary.Write(
+			w, byteOrder, t.AggNonce.SerializeCompressed(),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return t.AnnounceSignatures2.Encode(w, pver)
+}
+
+// Type returns the waiting proof type.
+//
+// NOTE: this is part of the WaitingProofInterface.
+func (t *TaprootWaitingProof) Type() WaitingProofType {
+	return WaitingProofTypeTaproot
+}
+
+var _ WaitingProofInterface = (*TaprootWaitingProof)(nil)
+
 // WaitingProof is the storable object, which encapsulate the half proof and
 // the information about from which side this proof came. This structure is
 // needed to make channel proof exchange persistent, so that after client
 // restart we may receive remote/local half proof and process it.
 type WaitingProof struct {
-	*lnwire.AnnounceSignatures
+	WaitingProofInterface
 	isRemote bool
 }
 
-// NewWaitingProof constructs a new waiting prof instance.
-func NewWaitingProof(isRemote bool, proof *lnwire.AnnounceSignatures) *WaitingProof {
+// NewLegacyWaitingProof constructs a new waiting prof instance for a legacy,
+// P2WSH channel.
+func NewLegacyWaitingProof(isRemote bool,
+	proof *lnwire.AnnounceSignatures1) *WaitingProof {
+
 	return &WaitingProof{
-		AnnounceSignatures: proof,
-		isRemote:           isRemote,
+		WaitingProofInterface: &LegacyWaitingProof{*proof},
+		isRemote:              isRemote,
+	}
+}
+
+// NewTaprootWaitingProof constructs a new waiting prof instance for a taproot
+// channel.
+func NewTaprootWaitingProof(isRemote bool, proof *lnwire.AnnounceSignatures2,
+	aggNonce *btcec.PublicKey) *WaitingProof {
+
+	return &WaitingProof{
+		WaitingProofInterface: &TaprootWaitingProof{
+			AnnounceSignatures2: *proof,
+			AggNonce:            aggNonce,
+		},
+		isRemote: isRemote,
 	}
 }
 
 // OppositeKey returns the key which uniquely identifies opposite waiting proof.
 func (p *WaitingProof) OppositeKey() WaitingProofKey {
 	var key [9]byte
-	binary.BigEndian.PutUint64(key[:8], p.ShortChannelID.ToUint64())
+	binary.BigEndian.PutUint64(key[:8], p.SCID().ToUint64())
 
 	if !p.isRemote {
 		key[8] = 1
@@ -217,7 +377,7 @@ func (p *WaitingProof) OppositeKey() WaitingProofKey {
 // Key returns the key which uniquely identifies waiting proof.
 func (p *WaitingProof) Key() WaitingProofKey {
 	var key [9]byte
-	binary.BigEndian.PutUint64(key[:8], p.ShortChannelID.ToUint64())
+	binary.BigEndian.PutUint64(key[:8], p.SCID().ToUint64())
 
 	if p.isRemote {
 		key[8] = 1
@@ -227,6 +387,11 @@ func (p *WaitingProof) Key() WaitingProofKey {
 
 // Encode writes the internal representation of waiting proof in byte stream.
 func (p *WaitingProof) Encode(w io.Writer) error {
+	// Write the type byte.
+	if err := binary.Write(w, byteOrder, p.Type()); err != nil {
+		return err
+	}
+
 	if err := binary.Write(w, byteOrder, p.isRemote); err != nil {
 		return err
 	}
@@ -238,25 +403,31 @@ func (p *WaitingProof) Encode(w io.Writer) error {
 		return fmt.Errorf("expect io.Writer to be *bytes.Buffer")
 	}
 
-	if err := p.AnnounceSignatures.Encode(buf, 0); err != nil {
-		return err
-	}
-
-	return nil
+	return p.WaitingProofInterface.Encode(buf, 0)
 }
 
 // Decode reads the data from the byte stream and initializes the
 // waiting proof object with it.
 func (p *WaitingProof) Decode(r io.Reader) error {
+	var proofType WaitingProofType
+	if err := binary.Read(r, byteOrder, &proofType); err != nil {
+		return err
+	}
+
 	if err := binary.Read(r, byteOrder, &p.isRemote); err != nil {
 		return err
 	}
 
-	msg := &lnwire.AnnounceSignatures{}
-	if err := msg.Decode(r, 0); err != nil {
+	proof, ok := typeToWaitingProof(proofType)
+	if !ok {
+		return fmt.Errorf("unknown proof type")
+	}
+
+	if err := proof.Decode(r, 0); err != nil {
 		return err
 	}
 
-	(*p).AnnounceSignatures = msg
+	p.WaitingProofInterface = proof
+
 	return nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -28,10 +29,13 @@ var (
 )
 
 type horizonQuery struct {
-	chain chainhash.Hash
-	start time.Time
-	end   time.Time
+	chain      chainhash.Hash
+	start      time.Time
+	end        time.Time
+	startBlock uint32
+	endBlock   uint32
 }
+
 type filterRangeReq struct {
 	startHeight, endHeight uint32
 }
@@ -52,7 +56,7 @@ type mockChannelGraphTimeSeries struct {
 	annResp chan []lnwire.Message
 
 	updateReq  chan lnwire.ShortChannelID
-	updateResp chan []*lnwire.ChannelUpdate
+	updateResp chan []lnwire.ChannelUpdate
 }
 
 func newMockChannelGraphTimeSeries(
@@ -74,7 +78,7 @@ func newMockChannelGraphTimeSeries(
 		annResp: make(chan []lnwire.Message, 1),
 
 		updateReq:  make(chan lnwire.ShortChannelID, 1),
-		updateResp: make(chan []*lnwire.ChannelUpdate, 1),
+		updateResp: make(chan []lnwire.ChannelUpdate, 1),
 	}
 }
 
@@ -82,10 +86,11 @@ func (m *mockChannelGraphTimeSeries) HighestChanID(chain chainhash.Hash) (*lnwir
 	return &m.highestID, nil
 }
 func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
-	startTime time.Time, endTime time.Time) ([]lnwire.Message, error) {
+	startTime time.Time, endTime time.Time, startBlock, endBlock uint32) (
+	[]lnwire.Message, error) {
 
 	m.horizonReq <- horizonQuery{
-		chain, startTime, endTime,
+		chain, startTime, endTime, startBlock, endBlock,
 	}
 
 	return <-m.horizonResp, nil
@@ -137,7 +142,7 @@ func (m *mockChannelGraphTimeSeries) FetchChanAnns(chain chainhash.Hash,
 	return <-m.annResp, nil
 }
 func (m *mockChannelGraphTimeSeries) FetchChanUpdates(chain chainhash.Hash,
-	shortChanID lnwire.ShortChannelID) ([]*lnwire.ChannelUpdate, error) {
+	shortChanID lnwire.ShortChannelID) ([]lnwire.ChannelUpdate, error) {
 
 	m.updateReq <- shortChanID
 
@@ -213,10 +218,14 @@ func TestGossipSyncerFilterGossipMsgsNoHorizon(t *testing.T) {
 	// through the gossiper to the target peer.
 	msgs := []msgWithSenders{
 		{
-			msg: &lnwire.NodeAnnouncement{Timestamp: uint32(time.Now().Unix())},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: uint32(time.Now().Unix()),
+			},
 		},
 		{
-			msg: &lnwire.NodeAnnouncement{Timestamp: uint32(time.Now().Unix())},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: uint32(time.Now().Unix()),
+			},
 		},
 	}
 
@@ -271,48 +280,52 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 	msgs := []msgWithSenders{
 		{
 			// Node ann above horizon.
-			msg: &lnwire.NodeAnnouncement{Timestamp: unixStamp(25001)},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: unixStamp(25001),
+			},
 		},
 		{
 			// Node ann below horizon.
-			msg: &lnwire.NodeAnnouncement{Timestamp: unixStamp(5)},
+			msg: &lnwire.NodeAnnouncement1{Timestamp: unixStamp(5)},
 		},
 		{
 			// Node ann above horizon.
-			msg: &lnwire.NodeAnnouncement{Timestamp: unixStamp(999999)},
+			msg: &lnwire.NodeAnnouncement1{
+				Timestamp: unixStamp(999999),
+			},
 		},
 		{
 			// Ann tuple below horizon.
-			msg: &lnwire.ChannelAnnouncement{
+			msg: &lnwire.ChannelAnnouncement1{
 				ShortChannelID: lnwire.NewShortChanIDFromInt(10),
 			},
 		},
 		{
-			msg: &lnwire.ChannelUpdate{
+			msg: &lnwire.ChannelUpdate1{
 				ShortChannelID: lnwire.NewShortChanIDFromInt(10),
 				Timestamp:      unixStamp(5),
 			},
 		},
 		{
 			// Ann tuple above horizon.
-			msg: &lnwire.ChannelAnnouncement{
+			msg: &lnwire.ChannelAnnouncement1{
 				ShortChannelID: lnwire.NewShortChanIDFromInt(15),
 			},
 		},
 		{
-			msg: &lnwire.ChannelUpdate{
+			msg: &lnwire.ChannelUpdate1{
 				ShortChannelID: lnwire.NewShortChanIDFromInt(15),
 				Timestamp:      unixStamp(25002),
 			},
 		},
 		{
 			// Ann tuple beyond horizon.
-			msg: &lnwire.ChannelAnnouncement{
+			msg: &lnwire.ChannelAnnouncement1{
 				ShortChannelID: lnwire.NewShortChanIDFromInt(20),
 			},
 		},
 		{
-			msg: &lnwire.ChannelUpdate{
+			msg: &lnwire.ChannelUpdate1{
 				ShortChannelID: lnwire.NewShortChanIDFromInt(20),
 				Timestamp:      unixStamp(999999),
 			},
@@ -320,7 +333,7 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 		{
 			// Ann w/o an update at all, the update in the DB will
 			// be below the horizon.
-			msg: &lnwire.ChannelAnnouncement{
+			msg: &lnwire.ChannelAnnouncement1{
 				ShortChannelID: lnwire.NewShortChanIDFromInt(25),
 			},
 		},
@@ -346,8 +359,8 @@ func TestGossipSyncerFilterGossipMsgsAllInMemory(t *testing.T) {
 			}
 
 			// If so, then we'll send back the missing update.
-			chanSeries.updateResp <- []*lnwire.ChannelUpdate{
-				{
+			chanSeries.updateResp <- []lnwire.ChannelUpdate{
+				&lnwire.ChannelUpdate1{
 					ShortChannelID: lnwire.NewShortChanIDFromInt(25),
 					Timestamp:      unixStamp(5),
 				},
@@ -528,7 +541,7 @@ func TestGossipSyncerApplyGossipFilter(t *testing.T) {
 			// For this first response, we'll send back a proper
 			// set of messages that should be echoed back.
 			chanSeries.horizonResp <- []lnwire.Message{
-				&lnwire.ChannelUpdate{
+				&lnwire.ChannelUpdate1{
 					ShortChannelID: lnwire.NewShortChanIDFromInt(25),
 					Timestamp:      unixStamp(5),
 				},
@@ -683,14 +696,14 @@ func TestGossipSyncerReplyShortChanIDs(t *testing.T) {
 	}
 
 	queryReply := []lnwire.Message{
-		&lnwire.ChannelAnnouncement{
+		&lnwire.ChannelAnnouncement1{
 			ShortChannelID: lnwire.NewShortChanIDFromInt(20),
 		},
-		&lnwire.ChannelUpdate{
+		&lnwire.ChannelUpdate1{
 			ShortChannelID: lnwire.NewShortChanIDFromInt(20),
 			Timestamp:      unixStamp(999999),
 		},
-		&lnwire.NodeAnnouncement{Timestamp: unixStamp(25001)},
+		&lnwire.NodeAnnouncement1{Timestamp: unixStamp(25001)},
 	}
 
 	// We'll then craft a reply to the upcoming query for all the matching
@@ -2141,12 +2154,14 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 				// send out a message that indicates we want
 				// all the updates from here on.
 				firstTimestamp := uint32(time.Now().Unix())
-				assertMsgSent(
-					t, mChan, &lnwire.GossipTimestampRange{
-						FirstTimestamp: firstTimestamp,
-						TimestampRange: math.MaxUint32,
-					},
-				)
+				firstBlock := uint32(latestKnownHeight)
+				blockRange := uint32(math.MaxUint32)
+				assertMsgSent(t, mChan, &lnwire.GossipTimestampRange{
+					FirstTimestamp:   firstTimestamp,
+					TimestampRange:   math.MaxUint32,
+					FirstBlockHeight: fn.Some(firstBlock),
+					BlockRange:       fn.Some(blockRange),
+				})
 
 				// When transitioning from active to passive, we
 				// should expect to see a new local update
@@ -2181,10 +2196,14 @@ func TestGossipSyncerSyncTransitions(t *testing.T) {
 				// horizon sent to the remote peer indicating
 				// that it would like to receive any future
 				// updates.
+				firstBlock := uint32(latestKnownHeight)
+				blockRange := uint32(math.MaxUint32)
 				firstTimestamp := uint32(time.Now().Unix())
 				assertMsgSent(t, msgChan, &lnwire.GossipTimestampRange{
-					FirstTimestamp: firstTimestamp,
-					TimestampRange: math.MaxUint32,
+					FirstTimestamp:   firstTimestamp,
+					TimestampRange:   math.MaxUint32,
+					FirstBlockHeight: fn.Some(firstBlock),
+					BlockRange:       fn.Some(blockRange),
 				})
 
 				syncState := g.syncState()

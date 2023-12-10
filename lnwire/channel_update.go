@@ -6,15 +6,16 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/input"
 )
 
 // ChanUpdateMsgFlags is a bitfield that signals whether optional fields are
-// present in the ChannelUpdate.
+// present in the ChannelUpdate1.
 type ChanUpdateMsgFlags uint8
 
 const (
 	// ChanUpdateRequiredMaxHtlc is a bit that indicates whether the
-	// required htlc_maximum_msat field is present in this ChannelUpdate.
+	// required htlc_maximum_msat field is present in this ChannelUpdate1.
 	ChanUpdateRequiredMaxHtlc ChanUpdateMsgFlags = 1 << iota
 )
 
@@ -31,7 +32,7 @@ func (c ChanUpdateMsgFlags) HasMaxHtlc() bool {
 
 // ChanUpdateChanFlags is a bitfield that signals various options concerning a
 // particular channel edge. Each bit is to be examined in order to determine
-// how the ChannelUpdate message is to be interpreted.
+// how the ChannelUpdate1 message is to be interpreted.
 type ChanUpdateChanFlags uint8
 
 const (
@@ -56,11 +57,11 @@ func (c ChanUpdateChanFlags) String() string {
 	return fmt.Sprintf("%08b", c)
 }
 
-// ChannelUpdate message is used after channel has been initially announced.
+// ChannelUpdate1 message is used after channel has been initially announced.
 // Each side independently announces its fees and minimum expiry for HTLCs and
 // other parameters. Also this message is used to redeclare initially set
 // channel parameters.
-type ChannelUpdate struct {
+type ChannelUpdate1 struct {
 	// Signature is used to validate the announced data and prove the
 	// ownership of node id.
 	Signature Sig
@@ -120,15 +121,15 @@ type ChannelUpdate struct {
 	ExtraOpaqueData ExtraOpaqueData
 }
 
-// A compile time check to ensure ChannelUpdate implements the lnwire.Message
+// A compile time check to ensure ChannelUpdate1 implements the lnwire.Message
 // interface.
-var _ Message = (*ChannelUpdate)(nil)
+var _ Message = (*ChannelUpdate1)(nil)
 
-// Decode deserializes a serialized ChannelUpdate stored in the passed
+// Decode deserializes a serialized ChannelUpdate1 stored in the passed
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
+func (a *ChannelUpdate1) Decode(r io.Reader, _ uint32) error {
 	err := ReadElements(r,
 		&a.Signature,
 		a.ChainHash[:],
@@ -155,11 +156,11 @@ func (a *ChannelUpdate) Decode(r io.Reader, pver uint32) error {
 	return a.ExtraOpaqueData.Decode(r)
 }
 
-// Encode serializes the target ChannelUpdate into the passed io.Writer
+// Encode serializes the target ChannelUpdate1 into the passed io.Writer
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
+func (a *ChannelUpdate1) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteSig(w, a.Signature); err != nil {
 		return err
 	}
@@ -217,13 +218,13 @@ func (a *ChannelUpdate) Encode(w *bytes.Buffer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelUpdate) MsgType() MessageType {
+func (a *ChannelUpdate1) MsgType() MessageType {
 	return MsgChannelUpdate
 }
 
 // DataToSign is used to retrieve part of the announcement message which should
 // be signed.
-func (a *ChannelUpdate) DataToSign() ([]byte, error) {
+func (a *ChannelUpdate1) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	b := make([]byte, 0, MaxMsgBody)
 	buf := bytes.NewBuffer(b)
@@ -279,3 +280,105 @@ func (a *ChannelUpdate) DataToSign() ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// SCID returns the ShortChannelID of the channel that the update applies to.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) SCID() ShortChannelID {
+	return a.ShortChannelID
+}
+
+// IsNode1 is true if the update was produced by node 1 of the channel peers.
+// Node 1 is the node with the lexicographically smaller public key.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) IsNode1() bool {
+	return a.ChannelFlags&ChanUpdateDirection == 0
+}
+
+// IsDisabled is true if the update is announcing that the channel should be
+// considered disabled.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) IsDisabled() bool {
+	return a.ChannelFlags&ChanUpdateDisabled == ChanUpdateDisabled
+}
+
+// GetChainHash returns the hash of the chain that the message is referring to.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) GetChainHash() chainhash.Hash {
+	return a.ChainHash
+}
+
+// ForwardingPolicy returns the set of forwarding constraints of the update.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) ForwardingPolicy() *ForwardingPolicy {
+	return &ForwardingPolicy{
+		TimeLockDelta: a.TimeLockDelta,
+		BaseFee:       MilliSatoshi(a.BaseFee),
+		FeeRate:       MilliSatoshi(a.FeeRate),
+		MinHTLC:       a.HtlcMinimumMsat,
+		HasMaxHTLC:    a.MessageFlags.HasMaxHtlc(),
+		MaxHTLC:       a.HtlcMaximumMsat,
+	}
+}
+
+// CmpAge can be used to determine if the update is older or newer than the
+// passed update. It returns 1 if this update is newer, -1 if it is older, and
+// 0 if they are the same age.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) CmpAge(update ChannelUpdate) (int, error) {
+	other, ok := update.(*ChannelUpdate1)
+	if !ok {
+		return 0, fmt.Errorf("expected *ChannelUpdate1, got: %T",
+			update)
+	}
+
+	switch {
+	case a.Timestamp > other.Timestamp:
+		return 1, nil
+	case a.Timestamp < other.Timestamp:
+		return -1, nil
+	default:
+		return 0, nil
+	}
+}
+
+// SetDisabled can be used to adjust the disabled flag of an update.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) SetDisabled(disabled bool) {
+	if disabled {
+		a.ChannelFlags |= ChanUpdateDisabled
+	} else {
+		a.ChannelFlags &= ^ChanUpdateDisabled
+	}
+}
+
+// SetSig can be used to adjust the signature of the update.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) SetSig(sig input.Signature) error {
+	s, err := NewSigFromSignature(sig)
+	if err != nil {
+		return err
+	}
+
+	a.Signature = s
+
+	return nil
+}
+
+// SetSCID can be used to overwrite the SCID of the update.
+//
+// NOTE: this is part of the ChannelUpdate interface.
+func (a *ChannelUpdate1) SetSCID(scid ShortChannelID) {
+	a.ShortChannelID = scid
+}
+
+// A compile time assertion to ensure ChannelUpdate1 implements the
+// ChannelUpdate interface.
+var _ ChannelUpdate = (*ChannelUpdate1)(nil)

@@ -35,20 +35,14 @@ func testPsbtChanFunding(ht *lntest.HarnessTest) {
 	testCases := []struct {
 		name           string
 		commitmentType lnrpc.CommitmentType
-		private        bool
 	}{
 		{
 			name:           "anchors",
 			commitmentType: lnrpc.CommitmentType_ANCHORS,
-			private:        false,
 		},
 		{
 			name:           "simple taproot",
 			commitmentType: lnrpc.CommitmentType_SIMPLE_TAPROOT,
-
-			// Set this to true once simple taproot channels can be
-			// announced to the network.
-			private: true,
 		},
 	}
 
@@ -76,7 +70,7 @@ func testPsbtChanFunding(ht *lntest.HarnessTest) {
 				Name: tc.name,
 				TestFunc: func(sst *lntest.HarnessTest) {
 					runPsbtChanFunding(
-						sst, carol, dave, tc.private,
+						sst, carol, dave, false,
 						tc.commitmentType,
 					)
 				},
@@ -97,7 +91,7 @@ func testPsbtChanFunding(ht *lntest.HarnessTest) {
 				Name: tc.name,
 				TestFunc: func(sst *lntest.HarnessTest) {
 					runPsbtChanFundingExternal(
-						sst, carol, dave, tc.private,
+						sst, carol, dave, false,
 						tc.commitmentType,
 					)
 				},
@@ -114,7 +108,7 @@ func testPsbtChanFunding(ht *lntest.HarnessTest) {
 				Name: tc.name,
 				TestFunc: func(sst *lntest.HarnessTest) {
 					runPsbtChanFundingSingleStep(
-						sst, carol, dave, tc.private,
+						sst, carol, dave, false,
 						tc.commitmentType,
 					)
 				},

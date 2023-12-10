@@ -29,9 +29,9 @@ type node struct {
 	pubKey   route.Vertex
 	features *lnwire.FeatureVector
 
-	edgeInfos   []*models.ChannelEdgeInfo
-	outPolicies []*models.ChannelEdgePolicy
-	inPolicies  []*models.ChannelEdgePolicy
+	edgeInfos   []*models.ChannelEdgeInfo1
+	outPolicies []*models.ChannelEdgePolicy1
+	inPolicies  []*models.ChannelEdgePolicy1
 }
 
 func (n *node) PubKey() route.Vertex {
@@ -42,8 +42,8 @@ func (n *node) Features() *lnwire.FeatureVector {
 }
 
 func (n *node) ForEachChannel(tx kvdb.RTx,
-	cb func(kvdb.RTx, *models.ChannelEdgeInfo, *models.ChannelEdgePolicy,
-		*models.ChannelEdgePolicy) error) error {
+	cb func(kvdb.RTx, models.ChannelEdgeInfo, models.ChannelEdgePolicy,
+		models.ChannelEdgePolicy) error) error {
 
 	for idx := range n.edgeInfos {
 		err := cb(
@@ -71,12 +71,12 @@ func TestGraphCacheAddNode(t *testing.T) {
 			channelFlagA, channelFlagB = 1, 0
 		}
 
-		outPolicy1 := &models.ChannelEdgePolicy{
+		outPolicy1 := &models.ChannelEdgePolicy1{
 			ChannelID:    1000,
 			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagA),
 			ToNode:       nodeB,
 		}
-		inPolicy1 := &models.ChannelEdgePolicy{
+		inPolicy1 := &models.ChannelEdgePolicy1{
 			ChannelID:    1000,
 			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagB),
 			ToNode:       nodeA,
@@ -84,15 +84,15 @@ func TestGraphCacheAddNode(t *testing.T) {
 		node := &node{
 			pubKey:   nodeA,
 			features: lnwire.EmptyFeatureVector(),
-			edgeInfos: []*models.ChannelEdgeInfo{{
+			edgeInfos: []*models.ChannelEdgeInfo1{{
 				ChannelID: 1000,
 				// Those are direction independent!
 				NodeKey1Bytes: pubKey1,
 				NodeKey2Bytes: pubKey2,
 				Capacity:      500,
 			}},
-			outPolicies: []*models.ChannelEdgePolicy{outPolicy1},
-			inPolicies:  []*models.ChannelEdgePolicy{inPolicy1},
+			outPolicies: []*models.ChannelEdgePolicy1{outPolicy1},
+			inPolicies:  []*models.ChannelEdgePolicy1{inPolicy1},
 		}
 		cache := NewGraphCache(10)
 		require.NoError(t, cache.AddNode(nil, node))
@@ -139,21 +139,19 @@ func TestGraphCacheAddNode(t *testing.T) {
 	runTest(pubKey2, pubKey1)
 }
 
-func assertCachedPolicyEqual(t *testing.T, original *models.ChannelEdgePolicy,
+func assertCachedPolicyEqual(t *testing.T, original models.ChannelEdgePolicy,
 	cached *models.CachedEdgePolicy) {
 
-	require.Equal(t, original.ChannelID, cached.ChannelID)
-	require.Equal(t, original.MessageFlags, cached.MessageFlags)
-	require.Equal(t, original.ChannelFlags, cached.ChannelFlags)
-	require.Equal(t, original.TimeLockDelta, cached.TimeLockDelta)
-	require.Equal(t, original.MinHTLC, cached.MinHTLC)
-	require.Equal(t, original.MaxHTLC, cached.MaxHTLC)
-	require.Equal(t, original.FeeBaseMSat, cached.FeeBaseMSat)
+	ogFwd := original.ForwardingPolicy()
+
+	require.Equal(t, original.SCID().ToUint64(), cached.ChannelID)
+	require.Equal(t, ogFwd.HasMaxHTLC, cached.HasMaxHTLC)
+	require.Equal(t, original.IsDisabled(), cached.IsDisabled)
+	require.Equal(t, ogFwd.TimeLockDelta, cached.TimeLockDelta)
+	require.Equal(t, ogFwd.MinHTLC, cached.MinHTLC)
+	require.Equal(t, ogFwd.MaxHTLC, cached.MaxHTLC)
+	require.Equal(t, ogFwd.BaseFee, cached.FeeBaseMSat)
 	require.Equal(
-		t, original.FeeProportionalMillionths,
-		cached.FeeProportionalMillionths,
-	)
-	require.Equal(
-		t, route.Vertex(original.ToNode), cached.ToNodePubKey(),
+		t, route.Vertex(original.GetToNode()), cached.ToNodePubKey(),
 	)
 }

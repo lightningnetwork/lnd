@@ -52,15 +52,15 @@ func randCompressedPubKey(t *testing.T) [33]byte {
 	return compressedPubKey
 }
 
-func randAnnounceSignatures() *lnwire.AnnounceSignatures {
-	return &lnwire.AnnounceSignatures{
+func randAnnounceSignatures() *lnwire.AnnounceSignatures1 {
+	return &lnwire.AnnounceSignatures1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(rand.Uint64()),
 		ExtraOpaqueData: make([]byte, 0),
 	}
 }
 
-func randChannelUpdate() *lnwire.ChannelUpdate {
-	return &lnwire.ChannelUpdate{
+func randChannelUpdate() *lnwire.ChannelUpdate1 {
+	return &lnwire.ChannelUpdate1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(rand.Uint64()),
 		ExtraOpaqueData: make([]byte, 0),
 	}
@@ -116,10 +116,10 @@ func TestMessageStoreMessages(t *testing.T) {
 		for _, msg := range peerMsgs {
 			var shortChanID uint64
 			switch msg := msg.(type) {
-			case *lnwire.AnnounceSignatures:
-				shortChanID = msg.ShortChannelID.ToUint64()
-			case *lnwire.ChannelUpdate:
-				shortChanID = msg.ShortChannelID.ToUint64()
+			case lnwire.AnnounceSignatures:
+				shortChanID = msg.SCID().ToUint64()
+			case lnwire.ChannelUpdate:
+				shortChanID = msg.SCID().ToUint64()
 			default:
 				t.Fatalf("found unexpected message type %T", msg)
 			}
@@ -281,7 +281,7 @@ func TestMessageStoreDeleteMessage(t *testing.T) {
 		}
 	}
 
-	// An AnnounceSignatures message should exist within the store after
+	// An AnnounceSignatures1 message should exist within the store after
 	// adding it, and should no longer exists after deleting it.
 	peer := randCompressedPubKey(t)
 	annSig := randAnnounceSignatures()
@@ -297,7 +297,7 @@ func TestMessageStoreDeleteMessage(t *testing.T) {
 	// The store allows overwriting ChannelUpdates, since there can be
 	// multiple versions, so we'll test things slightly different.
 	//
-	// The ChannelUpdate message should exist within the store after adding
+	// The ChannelUpdate1 message should exist within the store after adding
 	// it.
 	chanUpdate := randChannelUpdate()
 	if err := msgStore.AddMessage(chanUpdate, peer); err != nil {
@@ -305,7 +305,7 @@ func TestMessageStoreDeleteMessage(t *testing.T) {
 	}
 	assertMsg(chanUpdate, peer, true)
 
-	// Now, we'll create a new version for the same ChannelUpdate message.
+	// Now, we'll create a new version for the same ChannelUpdate1 message.
 	// Adding this one to the store will overwrite the previous one, so only
 	// the new one should exist.
 	newChanUpdate := randChannelUpdate()

@@ -282,8 +282,8 @@ func TestReliableSenderStaleMessages(t *testing.T) {
 	}
 
 	// Finally, notifying the peer is online should prompt the message to be
-	// sent. Only the ChannelUpdate will be sent in this case since the
-	// AnnounceSignatures message above was seen as stale.
+	// sent. Only the ChannelUpdate1 will be sent in this case since the
+	// AnnounceSignatures1 message above was seen as stale.
 	peerChan <- peer
 
 	assertMsgsSent(t, peer.sentMsgs, msg2)

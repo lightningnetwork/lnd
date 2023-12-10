@@ -488,7 +488,7 @@ func testPrivateUpdateAlias(ht *lntest.HarnessTest,
 	ht.EnsureConnected(carol, dave)
 
 	// We'll open a regular public channel between Eve and Carol here. Eve
-	// will be the one receiving the onion-encrypted ChannelUpdate.
+	// will be the one receiving the onion-encrypted ChannelUpdate1.
 	ht.EnsureConnected(eve, carol)
 
 	chanAmt := btcutil.Amount(1_000_000)

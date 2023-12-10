@@ -84,7 +84,7 @@ type DynPropose struct {
 
 	// ChannelType, if not nil, proposes a change to the channel_type
 	// parameter.
-	ChannelType fn.Option[ChannelType]
+	ChannelType fn.Option[RawFeatureVector]
 
 	// KickoffFeerate proposes the fee rate in satoshis per kw that it
 	// is offering for a ChannelType conversion that requires a kickoff
@@ -157,12 +157,13 @@ func (dp *DynPropose) Encode(w *bytes.Buffer, _ uint32) error {
 			),
 		)
 	})
-	dp.ChannelType.WhenSome(func(ty ChannelType) {
+	dp.ChannelType.WhenSome(func(ty RawFeatureVector) {
 		tlvRecords = append(
 			tlvRecords, tlv.MakeDynamicRecord(
 				DPChannelType, &ty,
 				ty.featureBitLen,
-				channelTypeEncoder, channelTypeDecoder,
+				rawFeatureVectorEncoder,
+				rawFeatureVectorDecoder,
 			),
 		)
 	})
@@ -244,10 +245,10 @@ func (dp *DynPropose) Decode(r io.Reader, _ uint32) error {
 		DPFundingPubkey, &fundingKeyScratch,
 	)
 
-	var chanTypeScratch ChannelType
+	var chanTypeScratch RawFeatureVector
 	chanType := tlv.MakeDynamicRecord(
 		DPChannelType, &chanTypeScratch, chanTypeScratch.featureBitLen,
-		channelTypeEncoder, channelTypeDecoder,
+		rawFeatureVectorEncoder, rawFeatureVectorDecoder,
 	)
 
 	var kickoffFeerateScratch uint32

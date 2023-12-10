@@ -60,16 +60,6 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 		// connected to the funding flow can properly be executed.
 		ht.EnsureConnected(carol, dave)
 
-		var privateChan bool
-
-		// If this is to be a taproot channel type, then it needs to be
-		// private, otherwise it'll be rejected by Dave.
-		//
-		// TODO(roasbeef): lift after gossip 1.75
-		if carolCommitType == lnrpc.CommitmentType_SIMPLE_TAPROOT {
-			privateChan = true
-		}
-
 		// If carol wants taproot, but dave wants something
 		// else, then we'll assert that the channel negotiation
 		// attempt fails.
@@ -81,7 +71,6 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 			amt := funding.MaxBtcFundingAmount
 			ht.OpenChannelAssertErr(
 				carol, dave, lntest.OpenChannelParams{
-					Private:        privateChan,
 					Amt:            amt,
 					CommitmentType: carolCommitType,
 				}, expectedErr,
@@ -91,7 +80,7 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 		}
 
 		carolChan, daveChan, closeChan := basicChannelFundingTest(
-			ht, carol, dave, nil, privateChan, &carolCommitType,
+			ht, carol, dave, nil, false, &carolCommitType,
 		)
 
 		// Both nodes should report the same commitment

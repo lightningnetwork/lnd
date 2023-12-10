@@ -278,7 +278,7 @@ type Config struct {
 	// GenNodeAnnouncement is used to send our node announcement to the remote
 	// on startup.
 	GenNodeAnnouncement func(...netann.NodeAnnModifier) (
-		lnwire.NodeAnnouncement, error)
+		lnwire.NodeAnnouncement1, error)
 
 	// PrunePersistentPeerConnection is used to remove all internal state
 	// related to this peer in the server.
@@ -286,7 +286,7 @@ type Config struct {
 
 	// FetchLastChanUpdate fetches our latest channel update for a target
 	// channel.
-	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate,
+	FetchLastChanUpdate func(lnwire.ShortChannelID) (lnwire.ChannelUpdate,
 		error)
 
 	// FundingManager is an implementation of the funding.Controller interface.
@@ -935,13 +935,14 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		//
 		// TODO(roasbeef): can add helper method to get policy for
 		// particular channel.
-		var selfPolicy *models.ChannelEdgePolicy
-		if info != nil && bytes.Equal(info.NodeKey1Bytes[:],
-			p.cfg.ServerPubKey[:]) {
+		selfPolicy := p2
+		if info != nil {
+			node1Bytes := info.Node1Bytes()
+			if bytes.Equal(node1Bytes[:],
+				p.cfg.ServerPubKey[:]) {
 
-			selfPolicy = p1
-		} else {
-			selfPolicy = p2
+				selfPolicy = p1
+			}
 		}
 
 		// If we don't yet have an advertised routing policy, then
@@ -949,12 +950,13 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// routing policy into a forwarding policy.
 		var forwardingPolicy *models.ForwardingPolicy
 		if selfPolicy != nil {
+			pol := selfPolicy.ForwardingPolicy()
 			forwardingPolicy = &models.ForwardingPolicy{
-				MinHTLCOut:    selfPolicy.MinHTLC,
-				MaxHTLC:       selfPolicy.MaxHTLC,
-				BaseFee:       selfPolicy.FeeBaseMSat,
-				FeeRate:       selfPolicy.FeeProportionalMillionths,
-				TimeLockDelta: uint32(selfPolicy.TimeLockDelta),
+				MinHTLCOut:    pol.MinHTLC,
+				MaxHTLC:       pol.MaxHTLC,
+				BaseFee:       pol.BaseFee,
+				FeeRate:       pol.FeeRate,
+				TimeLockDelta: uint32(pol.TimeLockDelta),
 			}
 		} else {
 			p.log.Warnf("Unable to find our forwarding policy "+
@@ -1615,7 +1617,7 @@ out:
 				idleTimer.Reset(idleTimeout)
 				continue
 
-			// If the NodeAnnouncement has an invalid alias, then
+			// If the NodeAnnouncement1 has an invalid alias, then
 			// we'll log that error above and continue so we can
 			// continue to read messages from the peer. We do not
 			// store this error because it is of little debugging
@@ -1718,10 +1720,13 @@ out:
 					nextMsg.MsgType())
 			}
 
-		case *lnwire.ChannelUpdate,
-			*lnwire.ChannelAnnouncement,
-			*lnwire.NodeAnnouncement,
-			*lnwire.AnnounceSignatures,
+		case *lnwire.ChannelUpdate1,
+			*lnwire.ChannelUpdate2,
+			*lnwire.ChannelAnnouncement1,
+			*lnwire.ChannelAnnouncement2,
+			*lnwire.NodeAnnouncement1,
+			*lnwire.AnnounceSignatures1,
+			*lnwire.AnnounceSignatures2,
 			*lnwire.GossipTimestampRange,
 			*lnwire.QueryShortChanIDs,
 			*lnwire.QueryChannelRange,
@@ -1968,21 +1973,27 @@ func messageSummary(msg lnwire.Message) string {
 	case *lnwire.Error:
 		return fmt.Sprintf("%v", msg.Error())
 
-	case *lnwire.AnnounceSignatures:
-		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.ChannelID,
-			msg.ShortChannelID.ToUint64())
+	case lnwire.AnnounceSignatures:
+		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.SCID(),
+			msg.SCID().ToUint64())
 
-	case *lnwire.ChannelAnnouncement:
+	case lnwire.ChannelAnnouncement:
 		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v",
-			msg.ChainHash, msg.ShortChannelID.ToUint64())
+			msg.GetChainHash(), msg.SCID().ToUint64())
 
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v, "+
 			"mflags=%v, cflags=%v, update_time=%v", msg.ChainHash,
 			msg.ShortChannelID.ToUint64(), msg.MessageFlags,
 			msg.ChannelFlags, time.Unix(int64(msg.Timestamp), 0))
 
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.ChannelUpdate2:
+		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v, "+
+			"is_disabled=%v, is_node_1=%v, block_height=%v",
+			msg.ChainHash, msg.ShortChannelID.ToUint64(),
+			msg.IsDisabled(), msg.IsNode1(), msg.BlockHeight)
+
+	case *lnwire.NodeAnnouncement1:
 		return fmt.Sprintf("node=%x, update_time=%v",
 			msg.NodeID, time.Unix(int64(msg.Timestamp), 0))
 
@@ -2507,7 +2518,7 @@ func (p *Brontide) reenableActiveChannels() {
 	retryChans := make(map[wire.OutPoint]struct{}, len(activePublicChans))
 
 	// For each of the public, non-pending channels, set the channel
-	// disabled bit to false and send out a new ChannelUpdate. If this
+	// disabled bit to false and send out a new ChannelUpdate1. If this
 	// channel is already active, the update won't be sent.
 	for _, chanPoint := range activePublicChans {
 		err := p.cfg.ChanStatusMgr.RequestEnable(chanPoint, false)

@@ -65,7 +65,7 @@ func TestLongFailureMessage(t *testing.T) {
 	var value varBytesRecordProducer
 
 	extraData := incorrectDetails.ExtraOpaqueData()
-	typeMap, err := extraData.ExtractRecords(&value)
+	typeMap, err := extraData.ExtractRecordsFromProducers(&value)
 	require.NoError(t, err)
 	require.Len(t, typeMap, 1)
 

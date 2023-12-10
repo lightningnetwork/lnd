@@ -54,12 +54,10 @@ func breachRetributionTestCase(ht *lntest.HarnessTest,
 	// In order to test Carol's response to an uncooperative channel
 	// closure by Bob, we'll first open up a channel between them with a
 	// 0.5 BTC value.
-	privateChan := commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT
 	chanPoint := ht.OpenChannel(
 		carol, bob, lntest.OpenChannelParams{
 			CommitmentType: commitType,
 			Amt:            chanAmt,
-			Private:        privateChan,
 		},
 	)
 
@@ -247,12 +245,10 @@ func revokedCloseRetributionZeroValueRemoteOutputCase(ht *lntest.HarnessTest,
 	// In order to test Dave's response to an uncooperative channel
 	// closure by Carol, we'll first open up a channel between them with a
 	// 0.5 BTC value.
-	privateChan := commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT
 	chanPoint := ht.OpenChannel(
 		dave, carol, lntest.OpenChannelParams{
 			CommitmentType: commitType,
 			Amt:            chanAmt,
-			Private:        privateChan,
 		},
 	)
 
@@ -434,12 +430,10 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 	// In order to test Dave's response to an uncooperative channel closure
 	// by Carol, we'll first open up a channel between them with a
 	// funding.MaxBtcFundingAmount (2^24) satoshis value.
-	privateChan := commitType == lnrpc.CommitmentType_SIMPLE_TAPROOT
 	chanPoint := ht.OpenChannel(
 		dave, carol, lntest.OpenChannelParams{
 			Amt:            chanAmt,
 			PushAmt:        pushAmt,
-			Private:        privateChan,
 			CommitmentType: commitType,
 		},
 	)

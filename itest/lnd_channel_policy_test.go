@@ -84,7 +84,7 @@ func testUpdateChannelPolicy(ht *lntest.HarnessTest) {
 	// Open the channel Carol->Bob with a custom min_htlc value set. Since
 	// Carol is opening the channel, she will require Bob to not forward
 	// HTLCs smaller than this value, and hence he should advertise it as
-	// part of his ChannelUpdate.
+	// part of his ChannelUpdate1.
 	const customMinHtlc = 5000
 	chanPoint2 := ht.OpenChannel(
 		carol, bob, lntest.OpenChannelParams{
@@ -540,7 +540,7 @@ func testSendUpdateDisableChannel(ht *lntest.HarnessTest) {
 	assertPolicyUpdate(eve, expectedPolicy, chanPointEveCarol, 2)
 
 	// We restart Carol. Since the channel now becomes active again, Eve
-	// should send a ChannelUpdate setting the channel no longer disabled.
+	// should send a ChannelUpdate1 setting the channel no longer disabled.
 	require.NoError(ht, restartCarol(), "unable to restart carol")
 
 	expectedPolicy.Disabled = false

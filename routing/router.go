@@ -1807,10 +1807,17 @@ func (r *ChannelRouter) fetchFundingTx(
 	if err != nil {
 		return nil, err
 	}
+
+	log.Infof("Fetching block with hash=%v for short chan_id=%v(%v)",
+		blockHash, chanID, chanID.ToUint64())
+
 	fundingBlock, err := r.cfg.Chain.GetBlock(blockHash)
 	if err != nil {
 		return nil, err
 	}
+
+	log.Infof("Successfully fetched block with hash=%v for short "+
+		"chan_id=%v(%v)", blockHash, chanID, chanID.ToUint64())
 
 	// As a sanity check, ensure that the advertised transaction index is
 	// within the bounds of the total number of transactions within a

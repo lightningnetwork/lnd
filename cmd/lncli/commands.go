@@ -1853,9 +1853,9 @@ var listChainTxnsCommand = cli.Command{
 		cli.Int64Flag{
 			Name: "end_height",
 			Usage: "the block height until which to list " +
-				"transactions, inclusive, to get transactions " +
-				"until the chain tip, including unconfirmed, " +
-				"set this value to -1",
+				"transactions, inclusive, to get " +
+				"transactions until the chain tip, including " +
+				"unconfirmed, set this value to -1",
 		},
 	},
 	Description: `

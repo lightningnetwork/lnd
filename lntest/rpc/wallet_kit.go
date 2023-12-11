@@ -3,6 +3,7 @@ package rpc
 import (
 	"context"
 
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/stretchr/testify/require"
@@ -192,6 +193,19 @@ func (h *HarnessRPC) PublishTransaction(
 
 	resp, err := h.WalletKit.PublishTransaction(ctxt, req)
 	h.NoError(err, "PublishTransaction")
+
+	return resp
+}
+
+// GetTransaction makes a RPC call to the node's WalletKitClient and asserts.
+func (h *HarnessRPC) GetTransaction(
+	req *walletrpc.GetTransactionRequest) *lnrpc.Transaction {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.GetTransaction(ctxt, req)
+	h.NoError(err, "GetTransaction")
 
 	return resp
 }

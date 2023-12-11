@@ -829,32 +829,22 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// assertTxLabel is a helper function which finds a target tx in our
 	// set of transactions and checks that it has the desired label.
 	assertTxLabel := func(targetTx, label string) error {
-		// List all transactions relevant to our wallet, and find the
-		// tx so that we can check the correct label has been set.
-		txResp := ainz.RPC.GetTransactions(nil)
+		// Get the transaction from our wallet so that we can check
+		// that the correct label has been set.
+		txResp := ainz.RPC.GetTransaction(
+			&walletrpc.GetTransactionRequest{
+				Txid: targetTx,
+			},
+		)
+		require.NotNilf(ht, txResp, "target tx %v not found", targetTx)
 
-		var target *lnrpc.Transaction
-
-		// First we need to find the target tx.
-		for _, txn := range txResp.Transactions {
-			if txn.TxHash == targetTx {
-				target = txn
-				break
-			}
-		}
-
-		// If we cannot find it, return an error.
-		if target == nil {
-			return fmt.Errorf("target tx %v not found", targetTx)
-		}
-
-		// Otherwise, check the labels are matched.
-		if target.Label == label {
+		// Make sure the labels match.
+		if txResp.Label == label {
 			return nil
 		}
 
 		return fmt.Errorf("labels not match, want: "+
-			"%v, got %v", label, target.Label)
+			"%v, got %v", label, txResp.Label)
 	}
 
 	// waitTxLabel waits until the desired tx label is found or timeout.

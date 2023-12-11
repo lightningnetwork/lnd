@@ -1285,6 +1285,45 @@ func getPreviousOutpoints(wireTx *wire.MsgTx,
 	return previousOutpoints
 }
 
+// GetTransactionDetails returns details of a transaction given its
+// transaction hash.
+func (b *BtcWallet) GetTransactionDetails(
+	txHash *chainhash.Hash) (*lnwallet.TransactionDetail, error) {
+
+	// Grab the best block the wallet knows of, we'll use this to calculate
+	// # of confirmations shortly below.
+	bestBlock := b.wallet.Manager.SyncedTo()
+	currentHeight := bestBlock.Height
+	tx, err := b.wallet.GetTransaction(*txHash)
+	if err != nil {
+		return nil, err
+	}
+
+	// For both confirmed and unconfirmed transactions, create a
+	// TransactionDetail which re-packages the data returned by the base
+	// wallet.
+	if tx.Confirmations > 0 {
+		txDetails, err := minedTransactionsToDetails(
+			currentHeight,
+			base.Block{
+				Transactions: []base.TransactionSummary{
+					tx.Summary,
+				},
+				Hash:      tx.BlockHash,
+				Height:    tx.Height,
+				Timestamp: tx.Summary.Timestamp},
+			b.netParams,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return txDetails[0], nil
+	}
+
+	return unminedTransactionsToDetail(tx.Summary, b.netParams)
+}
+
 // minedTransactionsToDetails is a helper function which converts a summary
 // information about mined transactions to a TransactionDetail.
 func minedTransactionsToDetails(

@@ -243,6 +243,13 @@ func (w *mockWalletController) PublishTransaction(tx *wire.MsgTx,
 	return nil
 }
 
+// GetTransactionDetails currently does nothing.
+func (w *mockWalletController) GetTransactionDetails(*chainhash.Hash) (
+	*TransactionDetail, error) {
+
+	return nil, nil
+}
+
 // LabelTransaction currently does nothing.
 func (w *mockWalletController) LabelTransaction(chainhash.Hash, string,
 	bool) error {

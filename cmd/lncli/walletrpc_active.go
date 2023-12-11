@@ -74,6 +74,7 @@ func walletCommands() []cli.Command {
 				listSweepsCommand,
 				labelTxCommand,
 				publishTxCommand,
+				getTxCommand,
 				releaseOutputCommand,
 				leaseOutputCommand,
 				listLeasesCommand,
@@ -557,6 +558,43 @@ func publishTransaction(ctx *cli.Context) error {
 	}{
 		TXID: msgTx.TxHash().String(),
 	})
+
+	return nil
+}
+
+var getTxCommand = cli.Command{
+	Name:      "gettx",
+	Usage:     "Returns details of a transaction.",
+	ArgsUsage: "txid",
+	Description: `
+	Query the transaction using the given transaction id and return its 
+	details. An error is returned if the transaction is not found.
+	`,
+	Action: actionDecorator(getTransaction),
+}
+
+func getTransaction(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, "gettx")
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	req := &walletrpc.GetTransactionRequest{
+		Txid: ctx.Args().First(),
+	}
+
+	res, err := walletClient.GetTransaction(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(res)
 
 	return nil
 }

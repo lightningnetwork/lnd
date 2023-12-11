@@ -77,6 +77,9 @@
   status, `StatusInitiated`, to explicitly report its current state. Before
   running this new version, please make sure to upgrade your client application
   to include this new status so it can understand the RPC response properly.
+  
+* Adds a new rpc endpoint gettx to the walletrpc sub-server to [fetch 
+  transaction details](https://github.com/lightningnetwork/lnd/pull/7654).
 
 ## lncli Additions
 
@@ -175,6 +178,7 @@
 * Andras Banki-Horvath
 * Carla Kirk-Cohen
 * Elle Mouton
+* ErikEk
 * Keagan McClelland
 * Marcos Fernandez Perez
 * Matt Morehouse

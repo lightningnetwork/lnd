@@ -356,6 +356,11 @@ type WalletController interface {
 	CreateSimpleTx(outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
 		minConfs int32, dryRun bool) (*txauthor.AuthoredTx, error)
 
+	// GetTransactionDetails returns a detailed description of a transaction
+	// given its transaction hash.
+	GetTransactionDetails(txHash *chainhash.Hash) (
+		*TransactionDetail, error)
+
 	// ListUnspentWitness returns all unspent outputs which are version 0
 	// witness programs. The 'minConfs' and 'maxConfs' parameters
 	// indicate the minimum and maximum number of confirmations an output

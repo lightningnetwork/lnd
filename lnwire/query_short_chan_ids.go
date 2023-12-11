@@ -11,23 +11,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
-// ShortChanIDEncoding is an enum-like type that represents exactly how a set
-// of short channel ID's is encoded on the wire. The set of encodings allows us
-// to take advantage of the structure of a list of short channel ID's to
-// achieving a high degree of compression.
-type ShortChanIDEncoding uint8
-
-const (
-	// EncodingSortedPlain signals that the set of short channel ID's is
-	// encoded using the regular encoding, in a sorted order.
-	EncodingSortedPlain ShortChanIDEncoding = 0
-
-	// EncodingSortedZlib signals that the set of short channel ID's is
-	// encoded by first sorting the set of channel ID's, as then
-	// compressing them using zlib.
-	EncodingSortedZlib ShortChanIDEncoding = 1
-)
-
 const (
 	// maxZlibBufSize is the max number of bytes that we'll accept from a
 	// zlib decoding instance. We do this in order to limit the total
@@ -56,7 +39,7 @@ var zlibDecodeMtx sync.Mutex
 // ErrUnknownShortChanIDEncoding is a parametrized error that indicates that we
 // came across an unknown short channel ID encoding, and therefore were unable
 // to continue parsing.
-func ErrUnknownShortChanIDEncoding(encoding ShortChanIDEncoding) error {
+func ErrUnknownShortChanIDEncoding(encoding QueryEncoding) error {
 	return fmt.Errorf("unknown short chan id encoding: %v", encoding)
 }
 
@@ -76,7 +59,7 @@ type QueryShortChanIDs struct {
 	// EncodingType is a signal to the receiver of the message that
 	// indicates exactly how the set of short channel ID's that follow have
 	// been encoded.
-	EncodingType ShortChanIDEncoding
+	EncodingType QueryEncoding
 
 	// ShortChanIDs is a slice of decoded short channel ID's.
 	ShortChanIDs []ShortChannelID
@@ -94,7 +77,7 @@ type QueryShortChanIDs struct {
 }
 
 // NewQueryShortChanIDs creates a new QueryShortChanIDs message.
-func NewQueryShortChanIDs(h chainhash.Hash, e ShortChanIDEncoding,
+func NewQueryShortChanIDs(h chainhash.Hash, e QueryEncoding,
 	s []ShortChannelID) *QueryShortChanIDs {
 
 	return &QueryShortChanIDs{
@@ -130,7 +113,7 @@ func (q *QueryShortChanIDs) Decode(r io.Reader, pver uint32) error {
 // encoded. The first byte of the body details how the short chan ID's were
 // encoded. We'll use this type to govern exactly how we go about encoding the
 // set of short channel ID's.
-func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, error) {
+func decodeShortChanIDs(r io.Reader) (QueryEncoding, []ShortChannelID, error) {
 	// First, we'll attempt to read the number of bytes in the body of the
 	// set of encoded short channel ID's.
 	var numBytesResp uint16
@@ -150,7 +133,7 @@ func decodeShortChanIDs(r io.Reader) (ShortChanIDEncoding, []ShortChannelID, err
 
 	// The first byte is the encoding type, so we'll extract that so we can
 	// continue our parsing.
-	encodingType := ShortChanIDEncoding(queryBody[0])
+	encodingType := QueryEncoding(queryBody[0])
 
 	// Before continuing, we'll snip off the first byte of the query body
 	// as that was just the encoding type.
@@ -297,9 +280,19 @@ func (q *QueryShortChanIDs) Encode(w *bytes.Buffer, pver uint32) error {
 		return err
 	}
 
+	// For both of the current encoding types, the channel ID's are to be
+	// sorted in place, so we'll do that now. The sorting is applied unless
+	// we were specifically requested not to for testing purposes.
+	if !q.noSort {
+		sort.Slice(q.ShortChanIDs, func(i, j int) bool {
+			return q.ShortChanIDs[i].ToUint64() <
+				q.ShortChanIDs[j].ToUint64()
+		})
+	}
+
 	// Base on our encoding type, we'll write out the set of short channel
 	// ID's.
-	err := encodeShortChanIDs(w, q.EncodingType, q.ShortChanIDs, q.noSort)
+	err := encodeShortChanIDs(w, q.EncodingType, q.ShortChanIDs)
 	if err != nil {
 		return err
 	}
@@ -309,18 +302,8 @@ func (q *QueryShortChanIDs) Encode(w *bytes.Buffer, pver uint32) error {
 
 // encodeShortChanIDs encodes the passed short channel ID's into the passed
 // io.Writer, respecting the specified encoding type.
-func encodeShortChanIDs(w *bytes.Buffer, encodingType ShortChanIDEncoding,
-	shortChanIDs []ShortChannelID, noSort bool) error {
-
-	// For both of the current encoding types, the channel ID's are to be
-	// sorted in place, so we'll do that now. The sorting is applied unless
-	// we were specifically requested not to for testing purposes.
-	if !noSort {
-		sort.Slice(shortChanIDs, func(i, j int) bool {
-			return shortChanIDs[i].ToUint64() <
-				shortChanIDs[j].ToUint64()
-		})
-	}
+func encodeShortChanIDs(w *bytes.Buffer, encodingType QueryEncoding,
+	shortChanIDs []ShortChannelID) error {
 
 	switch encodingType {
 
@@ -337,7 +320,7 @@ func encodeShortChanIDs(w *bytes.Buffer, encodingType ShortChanIDEncoding,
 
 		// We'll then write out the encoding that that follows the
 		// actual encoded short channel ID's.
-		err := WriteShortChanIDEncoding(w, encodingType)
+		err := WriteQueryEncoding(w, encodingType)
 		if err != nil {
 			return err
 		}
@@ -421,7 +404,7 @@ func encodeShortChanIDs(w *bytes.Buffer, encodingType ShortChanIDEncoding,
 		if err := WriteUint16(w, uint16(numBytesBody)); err != nil {
 			return err
 		}
-		err := WriteShortChanIDEncoding(w, encodingType)
+		err := WriteQueryEncoding(w, encodingType)
 		if err != nil {
 			return err
 		}

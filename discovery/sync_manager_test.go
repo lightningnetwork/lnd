@@ -277,6 +277,7 @@ func TestSyncManagerInitialHistoricalSync(t *testing.T) {
 	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
 		NumBlocks:        latestKnownHeight,
+		QueryOptions:     lnwire.NewTimestampQueryOption(),
 	})
 
 	// The graph should not be considered as synced since the initial
@@ -379,6 +380,7 @@ func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
 		NumBlocks:        latestKnownHeight,
+		QueryOptions:     lnwire.NewTimestampQueryOption(),
 	})
 
 	// If an additional peer connects, then a historical sync should not be
@@ -394,6 +396,7 @@ func TestSyncManagerForceHistoricalSync(t *testing.T) {
 	assertMsgSent(t, extraPeer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
 		NumBlocks:        latestKnownHeight,
+		QueryOptions:     lnwire.NewTimestampQueryOption(),
 	})
 }
 
@@ -415,6 +418,7 @@ func TestSyncManagerGraphSyncedAfterHistoricalSyncReplacement(t *testing.T) {
 	assertMsgSent(t, peer, &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
 		NumBlocks:        latestKnownHeight,
+		QueryOptions:     lnwire.NewTimestampQueryOption(),
 	})
 
 	// The graph should not be considered as synced since the initial
@@ -620,6 +624,7 @@ func assertTransitionToChansSynced(t *testing.T, s *GossipSyncer, peer *mockPeer
 	query := &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
 		NumBlocks:        latestKnownHeight,
+		QueryOptions:     lnwire.NewTimestampQueryOption(),
 	}
 	assertMsgSent(t, peer, query)
 

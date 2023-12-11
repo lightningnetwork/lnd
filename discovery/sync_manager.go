@@ -73,6 +73,11 @@ type SyncManagerCfg struct {
 	// gossip syncers will be passive.
 	NumActiveSyncers int
 
+	// NoTimestampQueries will prevent the GossipSyncer from querying
+	// timestamps of announcement messages from the peer and from responding
+	// to timestamp queries
+	NoTimestampQueries bool
+
 	// RotateTicker is a ticker responsible for notifying the SyncManager
 	// when it should rotate its active syncers. A single active syncer with
 	// a chansSynced state will be exchanged for a passive syncer in order
@@ -97,6 +102,11 @@ type SyncManagerCfg struct {
 	// ActiveSync upon connection. These peers will never transition to
 	// PassiveSync.
 	PinnedSyncers PinnedSyncers
+
+	// IsStillZombieChannel takes the timestamps of the latest channel
+	// updates for a channel and returns true if the channel should be
+	// considered a zombie based on these timestamps.
+	IsStillZombieChannel func(time.Time, time.Time) bool
 }
 
 // SyncManager is a subsystem of the gossiper that manages the gossip syncers
@@ -495,6 +505,8 @@ func (m *SyncManager) createGossipSyncer(peer lnpeer.Peer) *GossipSyncer {
 		bestHeight:                m.cfg.BestHeight,
 		markGraphSynced:           m.markGraphSynced,
 		maxQueryChanRangeReplies:  maxQueryChanRangeReplies,
+		noTimestampQueryOption:    m.cfg.NoTimestampQueries,
+		isStillZombieChannel:      m.cfg.IsStillZombieChannel,
 	})
 
 	// Gossip syncers are initialized by default in a PassiveSync type

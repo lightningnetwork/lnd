@@ -1159,10 +1159,40 @@ func TestLightningWireProtocol(t *testing.T) {
 				req.EncodingType = EncodingSortedPlain
 			}
 
-			numChanIDs := rand.Int31n(5000)
+			numChanIDs := rand.Int31n(4000)
 			for i := int32(0); i < numChanIDs; i++ {
 				req.ShortChanIDs = append(req.ShortChanIDs,
 					NewShortChanIDFromInt(uint64(r.Int63())))
+			}
+
+			// With a 50/50 chance, add some timestamps.
+			if r.Int31()%2 == 0 {
+				for i := int32(0); i < numChanIDs; i++ {
+					timestamps := ChanUpdateTimestamps{
+						Timestamp1: rand.Uint32(),
+						Timestamp2: rand.Uint32(),
+					}
+					req.Timestamps = append(
+						req.Timestamps, timestamps,
+					)
+				}
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
+		MsgQueryChannelRange: func(v []reflect.Value, r *rand.Rand) {
+			req := QueryChannelRange{
+				FirstBlockHeight: uint32(r.Int31()),
+				NumBlocks:        uint32(r.Int31()),
+				ExtraData:        make([]byte, 0),
+			}
+
+			_, err := rand.Read(req.ChainHash[:])
+			require.NoError(t, err)
+
+			// With a 50/50 change, we'll set a query option.
+			if r.Int31()%2 == 0 {
+				req.QueryOptions = NewTimestampQueryOption()
 			}
 
 			v[0] = reflect.ValueOf(req)

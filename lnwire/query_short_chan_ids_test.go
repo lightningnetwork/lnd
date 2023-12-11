@@ -7,7 +7,7 @@ import (
 
 type unsortedSidTest struct {
 	name    string
-	encType ShortChanIDEncoding
+	encType QueryEncoding
 	sids    []ShortChannelID
 }
 
@@ -79,7 +79,7 @@ func TestQueryShortChanIDsUnsorted(t *testing.T) {
 func TestQueryShortChanIDsZero(t *testing.T) {
 	testCases := []struct {
 		name     string
-		encoding ShortChanIDEncoding
+		encoding QueryEncoding
 	}{
 		{
 			name:     "plain",

@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/rand"
 )
 
 var (
@@ -1927,14 +1928,32 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	graph, err := MakeTestGraph(t)
 	require.NoError(t, err, "unable to make test database")
 
+	isZombieUpdate := func(updateTime1 time.Time,
+		updateTime2 time.Time) bool {
+
+		return true
+	}
+
+	var (
+		scid1 = lnwire.ShortChannelID{BlockHeight: 1}
+		scid2 = lnwire.ShortChannelID{BlockHeight: 2}
+		scid3 = lnwire.ShortChannelID{BlockHeight: 3}
+	)
+
 	// If we try to filter out a set of channel ID's before we even know of
 	// any channels, then we should get the entire set back.
-	preChanIDs := []uint64{1, 2, 3, 4}
-	filteredIDs, err := graph.FilterKnownChanIDs(preChanIDs)
-	require.NoError(t, err, "unable to filter chan IDs")
-	if !reflect.DeepEqual(preChanIDs, filteredIDs) {
-		t.Fatalf("chan IDs shouldn't have been filtered!")
+	preChanIDs := []ChannelUpdateInfo{
+		{ShortChannelID: scid1},
+		{ShortChannelID: scid2},
+		{ShortChannelID: scid3},
 	}
+	filteredIDs, err := graph.FilterKnownChanIDs(preChanIDs, isZombieUpdate)
+	require.NoError(t, err, "unable to filter chan IDs")
+	require.EqualValues(t, []uint64{
+		scid1.ToUint64(),
+		scid2.ToUint64(),
+		scid3.ToUint64(),
+	}, filteredIDs)
 
 	// We'll start by creating two nodes which will seed our test graph.
 	node1, err := createTestVertex(graph.db)
@@ -1951,7 +1970,7 @@ func TestFilterKnownChanIDs(t *testing.T) {
 	// Next, we'll add 5 channel ID's to the graph, each of them having a
 	// block height 10 blocks after the previous.
 	const numChans = 5
-	chanIDs := make([]uint64, 0, numChans)
+	chanIDs := make([]ChannelUpdateInfo, 0, numChans)
 	for i := 0; i < numChans; i++ {
 		channel, chanID := createEdge(
 			uint32(i*10), 0, 0, 0, node1, node2,
@@ -1961,11 +1980,13 @@ func TestFilterKnownChanIDs(t *testing.T) {
 			t.Fatalf("unable to create channel edge: %v", err)
 		}
 
-		chanIDs = append(chanIDs, chanID.ToUint64())
+		chanIDs = append(chanIDs, ChannelUpdateInfo{
+			ShortChannelID: chanID,
+		})
 	}
 
 	const numZombies = 5
-	zombieIDs := make([]uint64, 0, numZombies)
+	zombieIDs := make([]ChannelUpdateInfo, 0, numZombies)
 	for i := 0; i < numZombies; i++ {
 		channel, chanID := createEdge(
 			uint32(i*10+1), 0, 0, 0, node1, node2,
@@ -1978,13 +1999,15 @@ func TestFilterKnownChanIDs(t *testing.T) {
 			t.Fatalf("unable to mark edge zombie: %v", err)
 		}
 
-		zombieIDs = append(zombieIDs, chanID.ToUint64())
+		zombieIDs = append(
+			zombieIDs, ChannelUpdateInfo{ShortChannelID: chanID},
+		)
 	}
 
 	queryCases := []struct {
-		queryIDs []uint64
+		queryIDs []ChannelUpdateInfo
 
-		resp []uint64
+		resp []ChannelUpdateInfo
 	}{
 		// If we attempt to filter out all chanIDs we know of, the
 		// response should be the empty set.
@@ -2000,28 +2023,70 @@ func TestFilterKnownChanIDs(t *testing.T) {
 		// If we query for a set of ID's that we didn't insert, we
 		// should get the same set back.
 		{
-			queryIDs: []uint64{99, 100},
-			resp:     []uint64{99, 100},
+			queryIDs: []ChannelUpdateInfo{
+				{ShortChannelID: lnwire.ShortChannelID{
+					BlockHeight: 99,
+				}},
+				{ShortChannelID: lnwire.ShortChannelID{
+					BlockHeight: 100,
+				}},
+			},
+			resp: []ChannelUpdateInfo{
+				{ShortChannelID: lnwire.ShortChannelID{
+					BlockHeight: 99,
+				}},
+				{ShortChannelID: lnwire.ShortChannelID{
+					BlockHeight: 100,
+				}},
+			},
 		},
 
 		// If we query for a super-set of our the chan ID's inserted,
 		// we should only get those new chanIDs back.
 		{
-			queryIDs: append(chanIDs, []uint64{99, 101}...),
-			resp:     []uint64{99, 101},
+			queryIDs: append(chanIDs, []ChannelUpdateInfo{
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 99,
+					},
+				},
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 101,
+					},
+				},
+			}...),
+			resp: []ChannelUpdateInfo{
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 99,
+					},
+				},
+				{
+					ShortChannelID: lnwire.ShortChannelID{
+						BlockHeight: 101,
+					},
+				},
+			},
 		},
 	}
 
 	for _, queryCase := range queryCases {
-		resp, err := graph.FilterKnownChanIDs(queryCase.queryIDs)
-		if err != nil {
-			t.Fatalf("unable to filter chan IDs: %v", err)
+		resp, err := graph.FilterKnownChanIDs(
+			queryCase.queryIDs, isZombieUpdate,
+		)
+		require.NoError(t, err)
+
+		expectedSCIDs := make([]uint64, len(queryCase.resp))
+		for i, info := range queryCase.resp {
+			expectedSCIDs[i] = info.ShortChannelID.ToUint64()
 		}
 
-		if !reflect.DeepEqual(resp, queryCase.resp) {
-			t.Fatalf("expected %v, got %v", spew.Sdump(queryCase.resp),
-				spew.Sdump(resp))
+		if len(expectedSCIDs) == 0 {
+			expectedSCIDs = nil
 		}
+
+		require.EqualValues(t, expectedSCIDs, resp)
 	}
 }
 
@@ -2031,79 +2096,141 @@ func TestFilterChannelRange(t *testing.T) {
 	t.Parallel()
 
 	graph, err := MakeTestGraph(t)
-	require.NoError(t, err, "unable to make test database")
+	require.NoError(t, err)
 
 	// We'll first populate our graph with two nodes. All channels created
 	// below will be made between these two nodes.
 	node1, err := createTestVertex(graph.db)
-	require.NoError(t, err, "unable to create test node")
-	if err := graph.AddLightningNode(node1); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, graph.AddLightningNode(node1))
+
 	node2, err := createTestVertex(graph.db)
-	require.NoError(t, err, "unable to create test node")
-	if err := graph.AddLightningNode(node2); err != nil {
-		t.Fatalf("unable to add node: %v", err)
-	}
+	require.NoError(t, err)
+	require.NoError(t, graph.AddLightningNode(node2))
 
 	// If we try to filter a channel range before we have any channels
 	// inserted, we should get an empty slice of results.
-	resp, err := graph.FilterChannelRange(10, 100)
-	require.NoError(t, err, "unable to filter channels")
-	if len(resp) != 0 {
-		t.Fatalf("expected zero chans, instead got %v", len(resp))
-	}
+	resp, err := graph.FilterChannelRange(10, 100, false)
+	require.NoError(t, err)
+	require.Empty(t, resp)
 
 	// To start, we'll create a set of channels, two mined in a block 10
 	// blocks after the prior one.
 	startHeight := uint32(100)
 	endHeight := startHeight
 	const numChans = 10
-	channelRanges := make([]BlockChannelRange, 0, numChans/2)
+
+	var (
+		channelRanges = make(
+			[]BlockChannelRange, 0, numChans/2,
+		)
+		channelRangesWithTimestamps = make(
+			[]BlockChannelRange, 0, numChans/2,
+		)
+	)
+
+	updateTimeSeed := int64(1)
+	maybeAddPolicy := func(chanID uint64, node *LightningNode,
+		node2 bool) time.Time {
+
+		var chanFlags lnwire.ChanUpdateChanFlags
+		if node2 {
+			chanFlags = lnwire.ChanUpdateDirection
+		}
+
+		var updateTime time.Time
+		if rand.Int31n(2) == 0 {
+			updateTime = time.Unix(updateTimeSeed, 0)
+			err = graph.UpdateEdgePolicy(&models.ChannelEdgePolicy{
+				ToNode:       node.PubKeyBytes,
+				ChannelFlags: chanFlags,
+				ChannelID:    chanID,
+				LastUpdate:   updateTime,
+			})
+			require.NoError(t, err)
+		}
+		updateTimeSeed++
+
+		return updateTime
+	}
+
 	for i := 0; i < numChans/2; i++ {
 		chanHeight := endHeight
 		channel1, chanID1 := createEdge(
 			chanHeight, uint32(i+1), 0, 0, node1, node2,
 		)
-		if err := graph.AddChannelEdge(&channel1); err != nil {
-			t.Fatalf("unable to create channel edge: %v", err)
-		}
+		require.NoError(t, graph.AddChannelEdge(&channel1))
 
 		channel2, chanID2 := createEdge(
 			chanHeight, uint32(i+2), 0, 0, node1, node2,
 		)
-		if err := graph.AddChannelEdge(&channel2); err != nil {
-			t.Fatalf("unable to create channel edge: %v", err)
-		}
+		require.NoError(t, graph.AddChannelEdge(&channel2))
 
 		channelRanges = append(channelRanges, BlockChannelRange{
-			Height:   chanHeight,
-			Channels: []lnwire.ShortChannelID{chanID1, chanID2},
+			Height: chanHeight,
+			Channels: []ChannelUpdateInfo{
+				{ShortChannelID: chanID1},
+				{ShortChannelID: chanID2},
+			},
 		})
+
+		var (
+			time1 = maybeAddPolicy(channel1.ChannelID, node1, false)
+			time2 = maybeAddPolicy(channel1.ChannelID, node2, true)
+			time3 = maybeAddPolicy(channel2.ChannelID, node1, false)
+			time4 = maybeAddPolicy(channel2.ChannelID, node2, true)
+		)
+
+		channelRangesWithTimestamps = append(
+			channelRangesWithTimestamps, BlockChannelRange{
+				Height: chanHeight,
+				Channels: []ChannelUpdateInfo{
+					{
+						ShortChannelID:       chanID1,
+						Node1UpdateTimestamp: time1,
+						Node2UpdateTimestamp: time2,
+					},
+					{
+						ShortChannelID:       chanID2,
+						Node1UpdateTimestamp: time3,
+						Node2UpdateTimestamp: time4,
+					},
+				},
+			},
+		)
+
 		endHeight += 10
 	}
 
 	// With our channels inserted, we'll construct a series of queries that
 	// we'll execute below in order to exercise the features of the
 	// FilterKnownChanIDs method.
-	queryCases := []struct {
+	tests := []struct {
+		name string
+
 		startHeight uint32
 		endHeight   uint32
 
-		resp []BlockChannelRange
+		resp          []BlockChannelRange
+		expStartIndex int
+		expEndIndex   int
 	}{
 		// If we query for the entire range, then we should get the same
 		// set of short channel IDs back.
 		{
+			name:        "entire range",
 			startHeight: startHeight,
 			endHeight:   endHeight,
 
-			resp: channelRanges,
+			resp:          channelRanges,
+			expStartIndex: 0,
+			expEndIndex:   len(channelRanges),
 		},
 
-		// If we query for a range of channels right before our range, we
-		// shouldn't get any results back.
+		// If we query for a range of channels right before our range,
+		// we shouldn't get any results back.
 		{
+			name:        "range before",
 			startHeight: 0,
 			endHeight:   10,
 		},
@@ -2111,40 +2238,72 @@ func TestFilterChannelRange(t *testing.T) {
 		// If we only query for the last height (range wise), we should
 		// only get that last channel.
 		{
+			name:        "last height",
 			startHeight: endHeight - 10,
 			endHeight:   endHeight - 10,
 
-			resp: channelRanges[4:],
+			resp:          channelRanges[4:],
+			expStartIndex: 4,
+			expEndIndex:   len(channelRanges),
 		},
 
 		// If we query for just the first height, we should only get a
 		// single channel back (the first one).
 		{
+			name:        "first height",
 			startHeight: startHeight,
 			endHeight:   startHeight,
 
-			resp: channelRanges[:1],
+			resp:          channelRanges[:1],
+			expStartIndex: 0,
+			expEndIndex:   1,
 		},
 
 		{
+			name:        "subset",
 			startHeight: startHeight + 10,
 			endHeight:   endHeight - 10,
 
-			resp: channelRanges[1:5],
+			resp:          channelRanges[1:5],
+			expStartIndex: 1,
+			expEndIndex:   5,
 		},
 	}
-	for i, queryCase := range queryCases {
-		resp, err := graph.FilterChannelRange(
-			queryCase.startHeight, queryCase.endHeight,
-		)
-		if err != nil {
-			t.Fatalf("unable to issue range query: %v", err)
-		}
 
-		if !reflect.DeepEqual(resp, queryCase.resp) {
-			t.Fatalf("case #%v: expected %v, got %v", i,
-				queryCase.resp, resp)
-		}
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			// First, do the query without requesting timestamps.
+			resp, err := graph.FilterChannelRange(
+				test.startHeight, test.endHeight, false,
+			)
+			require.NoError(t, err)
+
+			expRes := channelRanges[test.expStartIndex:test.expEndIndex] //nolint:lll
+
+			if len(expRes) == 0 {
+				require.Nil(t, resp)
+			} else {
+				require.Equal(t, expRes, resp)
+			}
+
+			// Now, query the timestamps as well.
+			resp, err = graph.FilterChannelRange(
+				test.startHeight, test.endHeight, true,
+			)
+			require.NoError(t, err)
+
+			expRes = channelRangesWithTimestamps[test.expStartIndex:test.expEndIndex] //nolint:lll
+
+			if len(expRes) == 0 {
+				require.Nil(t, resp)
+			} else {
+				require.Equal(t, expRes, resp)
+			}
+		})
 	}
 }
 

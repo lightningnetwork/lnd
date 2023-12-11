@@ -42,7 +42,7 @@ type mockChannelGraphTimeSeries struct {
 	horizonReq  chan horizonQuery
 	horizonResp chan []lnwire.Message
 
-	filterReq  chan []lnwire.ShortChannelID
+	filterReq  chan []channeldb.ChannelUpdateInfo
 	filterResp chan []lnwire.ShortChannelID
 
 	filterRangeReqs chan filterRangeReq
@@ -64,7 +64,7 @@ func newMockChannelGraphTimeSeries(
 		horizonReq:  make(chan horizonQuery, 1),
 		horizonResp: make(chan []lnwire.Message, 1),
 
-		filterReq:  make(chan []lnwire.ShortChannelID, 1),
+		filterReq:  make(chan []channeldb.ChannelUpdateInfo, 1),
 		filterResp: make(chan []lnwire.ShortChannelID, 1),
 
 		filterRangeReqs: make(chan filterRangeReq, 1),
@@ -90,23 +90,30 @@ func (m *mockChannelGraphTimeSeries) UpdatesInHorizon(chain chainhash.Hash,
 
 	return <-m.horizonResp, nil
 }
+
 func (m *mockChannelGraphTimeSeries) FilterKnownChanIDs(chain chainhash.Hash,
-	superSet []lnwire.ShortChannelID) ([]lnwire.ShortChannelID, error) {
+	superSet []channeldb.ChannelUpdateInfo,
+	isZombieChan func(time.Time, time.Time) bool) (
+	[]lnwire.ShortChannelID, error) {
 
 	m.filterReq <- superSet
 
 	return <-m.filterResp, nil
 }
 func (m *mockChannelGraphTimeSeries) FilterChannelRange(chain chainhash.Hash,
-	startHeight, endHeight uint32) ([]channeldb.BlockChannelRange, error) {
+	startHeight, endHeight uint32, withTimestamps bool) (
+	[]channeldb.BlockChannelRange, error) {
 
 	m.filterRangeReqs <- filterRangeReq{startHeight, endHeight}
 	reply := <-m.filterRangeResp
 
-	channelsPerBlock := make(map[uint32][]lnwire.ShortChannelID)
+	channelsPerBlock := make(map[uint32][]channeldb.ChannelUpdateInfo)
 	for _, cid := range reply {
 		channelsPerBlock[cid.BlockHeight] = append(
-			channelsPerBlock[cid.BlockHeight], cid,
+			channelsPerBlock[cid.BlockHeight],
+			channeldb.ChannelUpdateInfo{
+				ShortChannelID: cid,
+			},
 		)
 	}
 
@@ -119,16 +126,21 @@ func (m *mockChannelGraphTimeSeries) FilterChannelRange(chain chainhash.Hash,
 		return blocks[i] < blocks[j]
 	})
 
-	channelRanges := make([]channeldb.BlockChannelRange, 0, len(channelsPerBlock))
+	channelRanges := make(
+		[]channeldb.BlockChannelRange, 0, len(channelsPerBlock),
+	)
 	for _, block := range blocks {
-		channelRanges = append(channelRanges, channeldb.BlockChannelRange{
-			Height:   block,
-			Channels: channelsPerBlock[block],
-		})
+		channelRanges = append(
+			channelRanges, channeldb.BlockChannelRange{
+				Height:   block,
+				Channels: channelsPerBlock[block],
+			},
+		)
 	}
 
 	return channelRanges, nil
 }
+
 func (m *mockChannelGraphTimeSeries) FetchChanAnns(chain chainhash.Hash,
 	shortChanIDs []lnwire.ShortChannelID) ([]lnwire.Message, error) {
 
@@ -156,27 +168,34 @@ var _ ChannelGraphTimeSeries = (*mockChannelGraphTimeSeries)(nil)
 // ignored. If no flags are provided, both a channelGraphSyncer and replyHandler
 // will be spawned by default.
 func newTestSyncer(hID lnwire.ShortChannelID,
-	encodingType lnwire.ShortChanIDEncoding, chunkSize int32,
+	encodingType lnwire.QueryEncoding, chunkSize int32,
 	flags ...bool) (chan []lnwire.Message,
 	*GossipSyncer, *mockChannelGraphTimeSeries) {
 
-	syncChannels := true
-	replyQueries := true
+	var (
+		syncChannels = true
+		replyQueries = true
+		timestamps   = false
+	)
 	if len(flags) > 0 {
 		syncChannels = flags[0]
 	}
 	if len(flags) > 1 {
 		replyQueries = flags[1]
 	}
+	if len(flags) > 2 {
+		timestamps = flags[2]
+	}
 
 	msgChan := make(chan []lnwire.Message, 20)
 	cfg := gossipSyncerCfg{
-		channelSeries:  newMockChannelGraphTimeSeries(hID),
-		encodingType:   encodingType,
-		chunkSize:      chunkSize,
-		batchSize:      chunkSize,
-		noSyncChannels: !syncChannels,
-		noReplyQueries: !replyQueries,
+		channelSeries:          newMockChannelGraphTimeSeries(hID),
+		encodingType:           encodingType,
+		chunkSize:              chunkSize,
+		batchSize:              chunkSize,
+		noSyncChannels:         !syncChannels,
+		noReplyQueries:         !replyQueries,
+		noTimestampQueryOption: !timestamps,
 		sendToPeer: func(msgs ...lnwire.Message) error {
 			msgChan <- msgs
 			return nil
@@ -1293,11 +1312,17 @@ func testGossipSyncerProcessChanRangeReply(t *testing.T, legacy bool) {
 			return
 
 		case req := <-chanSeries.filterReq:
+			scids := make([]lnwire.ShortChannelID, len(req))
+			for i, scid := range req {
+				scids[i] = scid.ShortChannelID
+			}
+
 			// We should get a request for the entire range of short
 			// chan ID's.
-			if !reflect.DeepEqual(expectedReq, req) {
-				errCh <- fmt.Errorf("wrong request: expected %v, got %v",
-					expectedReq, req)
+			if !reflect.DeepEqual(expectedReq, scids) {
+				errCh <- fmt.Errorf("wrong request: "+
+					"expected %v, got %v", expectedReq, req)
+
 				return
 			}
 
@@ -2250,7 +2275,7 @@ func TestGossipSyncerHistoricalSync(t *testing.T) {
 	// historical sync requests in this state.
 	msgChan, syncer, _ := newTestSyncer(
 		lnwire.ShortChannelID{BlockHeight: latestKnownHeight},
-		defaultEncoding, defaultChunkSize,
+		defaultEncoding, defaultChunkSize, true, true, true,
 	)
 	syncer.setSyncType(PassiveSync)
 	syncer.setSyncState(chansSynced)
@@ -2265,6 +2290,7 @@ func TestGossipSyncerHistoricalSync(t *testing.T) {
 	expectedMsg := &lnwire.QueryChannelRange{
 		FirstBlockHeight: 0,
 		NumBlocks:        latestKnownHeight,
+		QueryOptions:     lnwire.NewTimestampQueryOption(),
 	}
 
 	select {

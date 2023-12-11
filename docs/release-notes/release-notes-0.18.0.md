@@ -149,6 +149,13 @@
 * [Add Dynamic Commitment Wire Types](https://github.com/lightningnetwork/lnd/pull/8026).
   This change begins the development of Dynamic Commitments allowing for the
   negotiation of new channel parameters and the upgrading of channel types.
+ 
+* Start using the [timestamps query 
+  option](https://github.com/lightningnetwork/lnd/pull/8030) in the 
+  `query_channel_range` message. This will allow us to know if our peer has a 
+  newer update for a channel that we have marked as a zombie. This addition can 
+  be switched off using the new `protocol.no-timestamp-query-option` config 
+  option. 
 
 ## Testing
 

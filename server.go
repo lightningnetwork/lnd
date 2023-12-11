@@ -1018,6 +1018,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		RotateTicker:            ticker.New(discovery.DefaultSyncerRotationInterval),
 		HistoricalSyncTicker:    ticker.New(cfg.HistoricalSyncInterval),
 		NumActiveSyncers:        cfg.NumGraphSyncPeers,
+		NoTimestampQueries:      cfg.ProtocolOptions.NoTimestampQueryOption, //nolint:lll
 		MinimumBatchSize:        10,
 		SubBatchDelay:           cfg.Gossip.SubBatchDelay,
 		IgnoreHistoricalFilters: cfg.IgnoreHistoricalGossipFilters,
@@ -1029,6 +1030,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FindBaseByAlias:         s.aliasMgr.FindBaseSCID,
 		GetAlias:                s.aliasMgr.GetPeerAlias,
 		FindChannel:             s.findChannel,
+		IsStillZombieChannel:    s.chanRouter.IsZombieChannel,
 	}, nodeKeyDesc)
 
 	s.localChanMgr = &localchans.Manager{

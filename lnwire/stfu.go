@@ -70,3 +70,11 @@ func (shh *Stfu) Decode(r io.Reader, _ uint32) error {
 func (shh *Stfu) MsgType() MessageType {
 	return MsgStfu
 }
+
+// TargetChanID returns the channel id of the link for which this message is
+// intended.
+//
+// NOTE: Part of peer.LinkUpdater interface.
+func (shh *Stfu) TargetChanID() ChannelID {
+	return shh.ChanID
+}

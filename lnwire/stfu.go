@@ -67,3 +67,15 @@ func (s *Stfu) Decode(r io.Reader, _ uint32) error {
 func (s *Stfu) MsgType() MessageType {
 	return MsgStfu
 }
+
+// A compile time check to ensure Stfu implements the
+// lnwire.LinkUpdater interface.
+var _ LinkUpdater = (*Stfu)(nil)
+
+// TargetChanID returns the channel id of the link for which this message is
+// intended.
+//
+// NOTE: Part of peer.LinkUpdater interface.
+func (s *Stfu) TargetChanID() ChannelID {
+	return s.ChanID
+}

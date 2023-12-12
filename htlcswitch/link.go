@@ -391,6 +391,19 @@ type channelLink struct {
 	// respect to the quiescence protocol.
 	quiescer quiescer
 
+	// stateQueries is a channel that is used to query the current state of
+	// the channelLink in a thread-safe manner by delegating the state reads
+	// to the main event loop.
+	//
+	// WARNING: closures passed over this channel must be safe to run in the
+	// main event loop as that is the context in which they will be
+	// executed. The most obvious problem that can arise from using this is
+	// if the closure itself attempts to send over this chan. This will
+	// create deadlock opportunities as we cannot ensure that there is
+	// available buffer space on this channel in the presence of other
+	// threads calling APIs that depend on this component.
+	stateQueries chan func()
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -485,6 +498,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		outgoingCommitHooks: newHookMap(),
 		incomingCommitHooks: newHookMap(),
 		quiescer:            qsm,
+		stateQueries:        make(chan func(), 1),
 		quit:                make(chan struct{}),
 	}
 }
@@ -637,9 +651,22 @@ func (l *channelLink) WaitForShutdown() {
 // actively accept requests to forward HTLC's. We're able to forward HTLC's if
 // we are eligible to update AND the channel isn't currently flushing the
 // outgoing half of the channel.
+//
+// NOTE: MUST NOT be called from the main event loop.
 func (l *channelLink) EligibleToForward() bool {
-	return l.EligibleToUpdate() &&
-		!l.IsFlushing(Outgoing)
+	return runInEventLoop(l, fn.Unit{}, func(_ fn.Unit) bool {
+		return l.eligibleToForward()
+	}).UnwrapLeftOr(false)
+}
+
+// eligibleToForward returns a bool indicating if the channel is able to
+// actively accept requests to forward HTLC's. We're able to forward HTLC's if
+// we are eligible to update AND the channel isn't currently flushing the
+// outgoing half of the channel.
+//
+// NOTE: MUST be called from the main event loop.
+func (l *channelLink) eligibleToForward() bool {
+	return l.eligibleToUpdate() && !l.IsFlushing(Outgoing)
 }
 
 // EligibleToUpdate returns a bool indicating if the channel is able to update
@@ -647,10 +674,26 @@ func (l *channelLink) EligibleToForward() bool {
 // party's next revocation point. Otherwise, we can't initiate new channel
 // state. We also require that the short channel ID not be the all-zero source
 // ID, meaning that the channel has had its ID finalized.
+//
+// NOTE: MUST be called from the main event loop.
 func (l *channelLink) EligibleToUpdate() bool {
+	return runInEventLoop(l, fn.Unit{}, func(_ fn.Unit) bool {
+		return l.eligibleToUpdate()
+	}).UnwrapLeftOr(false)
+}
+
+// eligibleToUpdate returns a bool indicating if the channel is able to update
+// channel state. We're able to update channel state if we know the remote
+// party's next revocation point. Otherwise, we can't initiate new channel
+// state. We also require that the short channel ID not be the all-zero source
+// ID, meaning that the channel has had its ID finalized.
+//
+// NOTE: MUST be called from the main event loop.
+func (l *channelLink) eligibleToUpdate() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
-		l.ShortChanID() != hop.Source &&
-		l.isReestablished()
+		l.channel.ShortChanID() != hop.Source &&
+		l.isReestablished() &&
+		l.quiescer.canSendUpdates()
 }
 
 // EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
@@ -1457,6 +1500,9 @@ func (l *channelLink) htlcManager() {
 				)
 			}
 
+		case runQuery := <-l.stateQueries:
+			runQuery()
+
 		case <-l.quit:
 			return
 		}
@@ -1591,13 +1637,14 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 		return errors.New("not an UpdateAddHTLC packet")
 	}
 
-	// If we are flushing the link in the outgoing direction we can't add
-	// new htlcs to the link and we need to bounce it
-	if l.IsFlushing(Outgoing) {
+	// If we are flushing the link in the outgoing direction or we have
+	// already sent Stfu, then we can't add new htlcs to the link and we
+	// need to bounce it.
+	if l.IsFlushing(Outgoing) || !l.quiescer.canSendUpdates() {
 		l.mailBox.FailAdd(pkt)
 
 		return NewDetailedLinkError(
-			&lnwire.FailPermanentChannelFailure{},
+			&lnwire.FailTemporaryChannelFailure{},
 			OutgoingFailureLinkNotEligible,
 		)
 	}
@@ -1700,6 +1747,15 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 //
 // TODO(roasbeef): add sync ntfn to ensure switch always has consistent view?
 func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
+	if pkt.htlc.MsgType().IsChannelUpdate() &&
+		!l.quiescer.canRecvUpdates() {
+
+		l.log.Warnf("unable to process channel update. "+
+			"ChannelID=%v is quiescent.", l.ChanID)
+
+		return
+	}
+
 	switch htlc := pkt.htlc.(type) {
 	case *lnwire.UpdateAddHTLC:
 		// Handle add message. The returned error can be ignored,
@@ -3307,7 +3363,7 @@ func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
 
 	// We skip sending the UpdateFee message if the channel is not
 	// currently eligible to forward messages.
-	if !l.EligibleToUpdate() {
+	if !l.eligibleToUpdate() {
 		l.log.Debugf("skipping fee update for inactive channel")
 		return nil
 	}
@@ -4203,4 +4259,24 @@ func (l *channelLink) CommitmentCustomBlob() fn.Option[tlv.Blob] {
 	}
 
 	return l.channel.LocalCommitmentBlob()
+}
+
+// runInEventLoop is a helper function that runs the given function on the
+// provided argument inside the main event loop of the channel link.
+func runInEventLoop[A, B any](l *channelLink, a A, f func(A) B) fn.Result[B] {
+	req, res := fn.NewReq[A, B](a)
+
+	// Build a closure that reads the state we care about. This is done so
+	// we can get a fully consistent read of state.
+	query := func() {
+		req.Resolve(f(a))
+	}
+
+	// Chuck that closure into the event loop to ensure it is executed by
+	// the thread that writes this state.
+	if !fn.SendOrQuit(l.stateQueries, query, l.quit) {
+		return fn.Errf[B]("channel link is shutting down")
+	}
+
+	return fn.NewResult(fn.RecvResp(res, nil, l.quit))
 }

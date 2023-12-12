@@ -5357,16 +5357,18 @@ func (lc *LightningChannel) oweCommitment(issuer lntypes.ChannelParty) bool {
 	return oweCommitment
 }
 
-// PendingLocalUpdateCount returns the number of local updates that still need
-// to be applied to the remote commitment tx.
-func (lc *LightningChannel) PendingLocalUpdateCount() uint64 {
+// NumPendingUpdates returns the number of updates originated by whoseUpdates
+// that have not been committed to the *tip* of whoseCommit's commitment chain.
+func (lc *LightningChannel) NumPendingUpdates(whoseUpdates lntypes.ChannelParty,
+	whoseCommit lntypes.ChannelParty) uint64 {
+
 	lc.RLock()
 	defer lc.RUnlock()
 
-	lastRemoteCommit := lc.commitChains.Remote.tip()
+	lastCommit := lc.commitChains.GetForParty(whoseCommit).tip()
+	updateIndex := lc.updateLogs.GetForParty(whoseUpdates).logIndex
 
-	return lc.updateLogs.Local.logIndex -
-		lastRemoteCommit.messageIndices.Local
+	return updateIndex - lastCommit.messageIndices.GetForParty(whoseUpdates)
 }
 
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment

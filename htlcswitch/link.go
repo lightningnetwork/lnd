@@ -1753,7 +1753,7 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		if !l.quiescer.canSendUpdates() {
 			l.log.Warn(
 				"unable to process channel update. "+
-				"ChannelID=%v is quiescent.", l.chanID,
+					"ChannelID=%v is quiescent.", l.chanID,
 			)
 
 			return
@@ -1828,7 +1828,7 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		if !l.quiescer.canSendUpdates() {
 			l.log.Warn(
 				"unable to process channel update. "+
-				"ChannelID=%v is quiescent.", l.chanID,
+					"ChannelID=%v is quiescent.", l.chanID,
 			)
 
 			return
@@ -2021,6 +2021,20 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
+		if !l.quiescer.canRecvUpdates() {
+			l.fail(
+				LinkFailureError{
+					code:             ErrInvalidUpdate,
+					FailureAction:    LinkFailureDisconnect,
+					PermanentFailure: false,
+					Warning:          true,
+				},
+				"received update after stfu",
+			)
+
+			return
+		}
+
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
 		// "settle" list in the event that we know the preimage.
@@ -2035,6 +2049,20 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			"assigning index: %v", msg.PaymentHash[:], index)
 
 	case *lnwire.UpdateFulfillHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.fail(
+				LinkFailureError{
+					code:             ErrInvalidUpdate,
+					FailureAction:    LinkFailureDisconnect,
+					PermanentFailure: false,
+					Warning:          true,
+				},
+				"received update after stfu",
+			)
+
+			return
+		}
+
 		pre := msg.PaymentPreimage
 		idx := msg.ID
 
@@ -2088,6 +2116,20 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		go l.forwardBatch(false, settlePacket)
 
 	case *lnwire.UpdateFailMalformedHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.fail(
+				LinkFailureError{
+					code:             ErrInvalidUpdate,
+					FailureAction:    LinkFailureDisconnect,
+					PermanentFailure: false,
+					Warning:          true,
+				},
+				"received update after stfu",
+			)
+
+			return
+		}
+
 		// Convert the failure type encoded within the HTLC fail
 		// message to the proper generic lnwire error code.
 		var failure lnwire.FailureMessage
@@ -2142,6 +2184,20 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 	case *lnwire.UpdateFailHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.fail(
+				LinkFailureError{
+					code:             ErrInvalidUpdate,
+					FailureAction:    LinkFailureDisconnect,
+					PermanentFailure: false,
+					Warning:          true,
+				},
+				"received update after stfu",
+			)
+
+			return
+		}
+
 		// Verify that the failure reason is at least 256 bytes plus
 		// overhead.
 		const minimumFailReasonLength = lnwire.FailureMessageLength +
@@ -2455,6 +2511,20 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.RWMutex.Unlock()
 
 	case *lnwire.UpdateFee:
+		if !l.quiescer.canRecvUpdates() {
+			l.fail(
+				LinkFailureError{
+					code:             ErrInvalidUpdate,
+					FailureAction:    LinkFailureDisconnect,
+					PermanentFailure: false,
+					Warning:          true,
+				},
+				"received update after stfu",
+			)
+
+			return
+		}
+
 		// We received fee update from peer. If we are the initiator we
 		// will fail the channel, if not we will apply the update.
 		fee := chainfee.SatPerKWeight(msg.FeePerKw)

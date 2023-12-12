@@ -5532,6 +5532,39 @@ func (lc *LightningChannel) NumLocalUpdatesPendingOnRemote() uint64 {
 	return lc.localUpdateLog.logIndex - lastRemoteCommit.ourMessageIndex
 }
 
+// NumLocalUpdatesPendingOnLocal returns the number of local updates that still
+// need to be applied to the local commitment tx.
+func (lc *LightningChannel) NumLocalUpdatesPendingOnLocal() uint64 {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	lastLocalCommit := lc.localCommitChain.tip()
+
+	return lc.localUpdateLog.logIndex - lastLocalCommit.ourMessageIndex
+}
+
+// NumRemoteUpdatesPendingOnLocal returns the number of remote updates that
+// still need to be applied to the local commitment tx.
+func (lc *LightningChannel) NumRemoteUpdatesPendingOnLocal() uint64 {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	lastLocalCommit := lc.localCommitChain.tip()
+
+	return lc.remoteUpdateLog.logIndex - lastLocalCommit.theirMessageIndex
+}
+
+// NumRemoteUpdatesPendingOnRemote returns the number of remote updates that
+// still need to be applied to the remote commitment tx.
+func (lc *LightningChannel) NumRemoteUpdatesPendingOnRemote() uint64 {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	lastRemoteCommit := lc.remoteCommitChain.tip()
+
+	return lc.remoteUpdateLog.logIndex - lastRemoteCommit.theirMessageIndex
+}
+
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment
 // transaction in the local commitment chain. As a result the edge of our
 // revocation window is extended by one, and the tail of our local commitment

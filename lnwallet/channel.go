@@ -5521,9 +5521,9 @@ func (lc *LightningChannel) oweCommitment(local bool) bool {
 	return oweCommitment
 }
 
-// PendingLocalUpdateCount returns the number of local updates that still need
-// to be applied to the remote commitment tx.
-func (lc *LightningChannel) PendingLocalUpdateCount() uint64 {
+// NumLocalUpdatesPendingOnRemote returns the number of local updates that still
+// need to be applied to the remote commitment tx.
+func (lc *LightningChannel) NumLocalUpdatesPendingOnRemote() uint64 {
 	lc.RLock()
 	defer lc.RUnlock()
 

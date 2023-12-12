@@ -385,6 +385,10 @@ type channelLink struct {
 	// our next CommitSig.
 	incomingCommitHooks hookMap
 
+	// quiescer is the state machine that tracks where this channel is with
+	// respect to the quiescence protocol.
+	quiescer quiescer
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -457,6 +461,13 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		cfg.MaxFeeExposure = DefaultMaxFeeExposure
 	}
 
+	qsm := quiescer{
+		chanID: lnwire.NewChanIDFromOutPoint(
+			channel.ChannelPoint(),
+		),
+		channelInitiator: channel.Initiator(),
+	}
+
 	return &channelLink{
 		cfg:                 cfg,
 		channel:             channel,
@@ -466,6 +477,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		flushHooks:          newHookMap(),
 		outgoingCommitHooks: newHookMap(),
 		incomingCommitHooks: newHookMap(),
+		quiescer:            qsm,
 		quit:                make(chan struct{}),
 	}
 }
@@ -2316,6 +2328,22 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		}
 
+		// If we need to send out an Stfu, this would be the time to do
+		// so.
+		err = l.drivePendingStfuSends()
+		if err != nil {
+			l.log.Error(err.Error())
+			l.fail(
+				LinkFailureError{
+					code:             ErrStfuViolation,
+					FailureAction:    LinkFailureDisconnect,
+					PermanentFailure: false,
+					Warning:          true,
+				},
+				err.Error(),
+			)
+		}
+
 		// Now that we have finished processing the incoming CommitSig
 		// and sent out our RevokeAndAck, we invoke the flushHooks if
 		// the channel state is clean.
@@ -2450,6 +2478,21 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// Update the mailbox's feerate as well.
 		l.mailBox.SetFeeRate(fee)
 
+	case *lnwire.Stfu:
+		err := l.handleStfu(msg)
+		if err != nil {
+			l.log.Error(err.Error())
+			l.fail(
+				LinkFailureError{
+					code:             ErrStfuViolation,
+					FailureAction:    LinkFailureDisconnect,
+					PermanentFailure: false,
+					Warning:          true,
+				},
+				err.Error(),
+			)
+		}
+
 	// In the case where we receive a warning message from our peer, just
 	// log it and move on. We choose not to disconnect from our peer,
 	// although we "MAY" do so according to the specification.
@@ -2480,6 +2523,56 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.log.Warnf("received unknown message of type %T", msg)
 	}
 
+}
+
+// handleStfu implements the top-level logic for handling the Stfu message from
+// our peer.
+func (l *channelLink) handleStfu(stfu *lnwire.Stfu) error {
+	remoteOnLocal := l.channel.NumRemoteUpdatesPendingOnLocal()
+	remoteOnRemote := l.channel.NumRemoteUpdatesPendingOnRemote()
+	if remoteOnLocal > 0 || remoteOnRemote > 0 {
+		// This is invalid according to the spec, drop the connection.
+		return fmt.Errorf(
+			"received stfu while remote updates pending "+
+				"on Local (%d) or Remote (%d)",
+			remoteOnLocal,
+			remoteOnRemote,
+		)
+	}
+
+	err := l.quiescer.recvStfu(*stfu)
+	if err != nil {
+		return err
+	}
+
+	// If we can immediately send an Stfu response back, we will.
+	return l.drivePendingStfuSends()
+}
+
+// drivePendingStfuSends checks to see if we owe any Stfu messages to our peer.
+// If we do then we will send them and record that send. We can owe our peer an
+// Stfu either if we have a pending request to quiesce the channel or our peer
+// has sent us an Stfu to which we haven't yet responded.
+func (l *channelLink) drivePendingStfuSends() error {
+	if !l.quiescer.oweStfu() {
+		return nil
+	}
+
+	l.log.Debug("stfu owed")
+
+	localOnRemote := l.channel.NumLocalUpdatesPendingOnRemote()
+	localOnLocal := l.channel.NumLocalUpdatesPendingOnLocal()
+	if localOnRemote == 0 && localOnLocal == 0 {
+		l.log.Debug("all local updates synced, sending stfu")
+		stfu, err := l.quiescer.sendStfu().Unpack()
+		if err != nil {
+			return err
+		}
+
+		return l.cfg.Peer.SendMessage(false, &stfu)
+	}
+
+	return nil
 }
 
 // ackDownStreamPackets is responsible for removing htlcs from a link's mailbox

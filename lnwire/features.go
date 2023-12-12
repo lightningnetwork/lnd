@@ -171,6 +171,16 @@ const (
 	// sender-generated preimages according to BOLT XX.
 	AMPOptional FeatureBit = 31
 
+	// QuiescenceRequired is a required feature bit that denotes that a
+	// connection established with this node must support the quiescence
+	// protocol if it wants to have a channel relationship.
+	QuiescenceRequired FeatureBit = 34
+
+	// QuiescenceOptional is an optional feature bit that denotes that a
+	// connection established with this node is permitted to use the
+	// quiescence protocol.
+	QuiescenceOptional FeatureBit = 35
+
 	// ExplicitChannelTypeRequired is a required bit that denotes that a
 	// connection established with this node is to use explicit channel
 	// commitment types for negotiation instead of the existing implicit
@@ -335,6 +345,8 @@ var Features = map[FeatureBit]string{
 	WumboChannelsOptional:                "wumbo-channels",
 	AMPRequired:                          "amp",
 	AMPOptional:                          "amp",
+	QuiescenceRequired:                   "quiescence",
+	QuiescenceOptional:                   "quiescence",
 	PaymentMetadataOptional:              "payment-metadata",
 	PaymentMetadataRequired:              "payment-metadata",
 	ExplicitChannelTypeOptional:          "explicit-commitment-type",

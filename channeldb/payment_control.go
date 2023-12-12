@@ -67,12 +67,12 @@ var (
 
 	// ErrValueMismatch is returned if we try to register a non-MPP attempt
 	// with an amount that doesn't match the payment amount.
-	ErrValueMismatch = errors.New("attempted value doesn't match payment" +
+	ErrValueMismatch = errors.New("attempted value doesn't match payment " +
 		"amount")
 
 	// ErrValueExceedsAmt is returned if we try to register an attempt that
 	// would take the total sent amount above the payment amount.
-	ErrValueExceedsAmt = errors.New("attempted value exceeds payment" +
+	ErrValueExceedsAmt = errors.New("attempted value exceeds payment " +
 		"amount")
 
 	// ErrNonMPPayment is returned if we try to register an MPP attempt for
@@ -376,7 +376,9 @@ func (p *PaymentControl) RegisterAttempt(paymentHash lntypes.Hash,
 		// Ensure we aren't sending more than the total payment amount.
 		sentAmt, _ := payment.SentAmt()
 		if sentAmt+amt > payment.Info.Value {
-			return ErrValueExceedsAmt
+			return fmt.Errorf("%w: attempted=%v, payment amount="+
+				"%v", ErrValueExceedsAmt, sentAmt+amt,
+				payment.Info.Value)
 		}
 
 		htlcsBucket, err := bucket.CreateBucketIfNotExists(

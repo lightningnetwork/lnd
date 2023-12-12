@@ -2822,7 +2822,7 @@ func (l *channelLink) processRemoteSettleFails(fwdPkg *channeldb.FwdPkg,
 		return
 	}
 
-	l.log.Debugf("settle-fail-filter %v", fwdPkg.SettleFailFilter)
+	l.log.Debugf("settle-fail-filter: %v", fwdPkg.SettleFailFilter)
 
 	var switchPackets []*htlcPacket
 	for i, pd := range settleFails {

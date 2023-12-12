@@ -958,7 +958,7 @@ func (l *channelLink) resolveFwdPkgs() error {
 
 	// If any of our reprocessing steps require an update to the commitment
 	// txn, we initiate a state transition to capture all relevant changes.
-	if l.channel.PendingLocalUpdateCount() > 0 {
+	if l.channel.NumLocalUpdatesPendingOnRemote() > 0 {
 		return l.updateCommitTx()
 	}
 
@@ -1290,15 +1290,15 @@ func (l *channelLink) htlcManager() {
 		// the batch ticker so that it can be cleared. Otherwise pause
 		// the ticker to prevent waking up the htlcManager while the
 		// batch is empty.
-		if l.channel.PendingLocalUpdateCount() > 0 {
+		if l.channel.NumLocalUpdatesPendingOnRemote() > 0 {
 			l.cfg.BatchTicker.Resume()
 			l.log.Tracef("BatchTicker resumed, "+
-				"PendingLocalUpdateCount=%d",
-				l.channel.PendingLocalUpdateCount())
+				"NumLocalUpdatesPendingOnRemote=%d",
+				l.channel.NumLocalUpdatesPendingOnRemote())
 		} else {
 			l.cfg.BatchTicker.Pause()
 			l.log.Trace("BatchTicker paused due to zero " +
-				"PendingLocalUpdateCount")
+				"NumLocalUpdatesPendingOnRemote")
 		}
 
 		select {
@@ -1656,7 +1656,7 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 	l.log.Tracef("received downstream htlc: payment_hash=%x, "+
 		"local_log_index=%v, pend_updates=%v",
 		htlc.PaymentHash[:], index,
-		l.channel.PendingLocalUpdateCount())
+		l.channel.NumLocalUpdatesPendingOnRemote())
 
 	pkt.outgoingChanID = l.ShortChanID()
 	pkt.outgoingHTLCID = index
@@ -1862,7 +1862,8 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 // tryBatchUpdateCommitTx updates the commitment transaction if the batch is
 // full.
 func (l *channelLink) tryBatchUpdateCommitTx() {
-	if l.channel.PendingLocalUpdateCount() < uint64(l.cfg.BatchSize) {
+	pending := l.channel.NumLocalUpdatesPendingOnRemote()
+	if pending < uint64(l.cfg.BatchSize) {
 		return
 	}
 
@@ -1938,7 +1939,6 @@ func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
 // direct channel with, updating our respective commitment chains.
 func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	switch msg := msg.(type) {
-
 	case *lnwire.UpdateAddHTLC:
 		if l.IsFlushing(Incoming) {
 			// This is forbidden by the protocol specification.
@@ -2598,7 +2598,7 @@ func (l *channelLink) updateCommitTx() error {
 
 		l.log.Tracef("revocation window exhausted, unable to send: "+
 			"%v, pend_updates=%v, dangling_closes%v",
-			l.channel.PendingLocalUpdateCount(),
+			l.channel.NumLocalUpdatesPendingOnRemote(),
 			lnutils.SpewLogClosure(l.openedCircuits),
 			lnutils.SpewLogClosure(l.closedCircuits))
 

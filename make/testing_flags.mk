@@ -60,10 +60,16 @@ DEV_TAGS += kvdb_etcd
 endif
 
 ifeq ($(dbbackend),postgres)
+ifneq ($(nativesql),)
+ITEST_FLAGS += -nativesql
+endif
 DEV_TAGS += kvdb_postgres
 endif
 
 ifeq ($(dbbackend),sqlite)
+ifneq ($(nativesql),)
+ITEST_FLAGS += -nativesql
+endif
 DEV_TAGS += kvdb_sqlite
 endif
 

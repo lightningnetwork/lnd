@@ -119,6 +119,7 @@ type BaseNodeConfig struct {
 
 	DBBackend   DatabaseBackend
 	PostgresDsn string
+	NativeSQL   bool
 
 	// NodeID is a unique ID used to identify the node.
 	NodeID uint32
@@ -277,11 +278,17 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	case BackendPostgres:
 		args = append(args, "--db.backend=postgres")
 		args = append(args, "--db.postgres.dsn="+cfg.PostgresDsn)
+		if cfg.NativeSQL {
+			args = append(args, "--db.use-native-sql")
+		}
 
 	case BackendSqlite:
 		args = append(args, "--db.backend=sqlite")
 		args = append(args, fmt.Sprintf("--db.sqlite.busytimeout=%v",
 			wait.SqliteBusyTimeout))
+		if cfg.NativeSQL {
+			args = append(args, "--db.use-native-sql")
+		}
 	}
 
 	if cfg.FeeURL != "" {

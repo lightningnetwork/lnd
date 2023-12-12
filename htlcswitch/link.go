@@ -392,6 +392,10 @@ type channelLink struct {
 	// our next CommitSig.
 	incomingCommitHooks hookMap
 
+	// quiescer is the state machine that tracks where this channel is with
+	// respect to the quiescence protocol.
+	quiescer Quiescer
+
 	// ContextGuard is a helper that encapsulates a wait group and quit
 	// channel and allows contexts that either block or cancel on those
 	// depending on the use case.
@@ -467,6 +471,16 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		cfg.MaxFeeExposure = DefaultMaxFeeExposure
 	}
 
+	quiescerCfg := QuiescerCfg{
+		chanID: lnwire.NewChanIDFromOutPoint(
+			channel.ChannelPoint(),
+		),
+		channelInitiator: channel.Initiator(),
+		sendMsg: func(s lnwire.Stfu) error {
+			return cfg.Peer.SendMessage(false, &s)
+		},
+	}
+
 	return &channelLink{
 		cfg:                 cfg,
 		channel:             channel,
@@ -476,6 +490,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		flushHooks:          newHookMap(),
 		outgoingCommitHooks: newHookMap(),
 		incomingCommitHooks: newHookMap(),
+		quiescer:            NewQuiescer(quiescerCfg),
 		ContextGuard:        fn.NewContextGuard(),
 	}
 }
@@ -2325,6 +2340,19 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		}
 
+		// If we need to send out an Stfu, this would be the time to do
+		// so.
+		pendingOnLocal := l.channel.NumPendingUpdates(
+			lntypes.Local, lntypes.Local,
+		)
+		pendingOnRemote := l.channel.NumPendingUpdates(
+			lntypes.Local, lntypes.Remote,
+		)
+		err = l.quiescer.SendOwedStfu(pendingOnLocal + pendingOnRemote)
+		if err != nil {
+			l.stfuFailf("sendOwedStfu: %v", err.Error())
+		}
+
 		// Now that we have finished processing the incoming CommitSig
 		// and sent out our RevokeAndAck, we invoke the flushHooks if
 		// the channel state is clean.
@@ -2458,6 +2486,12 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// Update the mailbox's feerate as well.
 		l.mailBox.SetFeeRate(fee)
 
+	case *lnwire.Stfu:
+		err := l.handleStfu(msg)
+		if err != nil {
+			l.stfuFailf("handleStfu: %v", err.Error())
+		}
+
 	// In the case where we receive a warning message from our peer, just
 	// log it and move on. We choose not to disconnect from our peer,
 	// although we "MAY" do so according to the specification.
@@ -2488,6 +2522,43 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.log.Warnf("received unknown message of type %T", msg)
 	}
 
+}
+
+// handleStfu implements the top-level logic for handling the Stfu message from
+// our peer.
+func (l *channelLink) handleStfu(stfu *lnwire.Stfu) error {
+	pendingOnLocal := l.channel.NumPendingUpdates(
+		lntypes.Remote, lntypes.Local,
+	)
+	pendingOnRemote := l.channel.NumPendingUpdates(
+		lntypes.Remote, lntypes.Remote,
+	)
+	err := l.quiescer.RecvStfu(*stfu, pendingOnLocal+pendingOnRemote)
+	if err != nil {
+		return err
+	}
+
+	// If we can immediately send an Stfu response back, we will.
+	pendingOnLocal = l.channel.NumPendingUpdates(
+		lntypes.Local, lntypes.Local,
+	)
+	pendingOnRemote = l.channel.NumPendingUpdates(
+		lntypes.Local, lntypes.Remote,
+	)
+
+	return l.quiescer.SendOwedStfu(pendingOnLocal + pendingOnRemote)
+}
+
+// stfuFailf fails the link in the case where the requirements of the quiescence
+// protocol are violated. In all cases we opt to drop the connection as only
+// link state (as opposed to channel state) is affected.
+func (l *channelLink) stfuFailf(format string, args ...interface{}) {
+	l.failf(LinkFailureError{
+		code:             ErrStfuViolation,
+		FailureAction:    LinkFailureDisconnect,
+		PermanentFailure: false,
+		Warning:          true,
+	}, format, args...)
 }
 
 // ackDownStreamPackets is responsible for removing htlcs from a link's mailbox

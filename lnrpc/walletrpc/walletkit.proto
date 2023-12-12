@@ -208,6 +208,13 @@ service WalletKit {
     */
     rpc PublishTransaction (Transaction) returns (PublishResponse);
 
+    /* lncli: `wallet removetx`
+    RemoveTransaction attempts to remove the provided transaction from the
+    internal transaction store of the wallet.
+    */
+    rpc RemoveTransaction (GetTransactionRequest)
+        returns (RemoveTransactionResponse);
+
     /*
     SendOutputs is similar to the existing sendmany call in Bitcoind, and
     allows the caller to create a transaction that sends to several outputs at
@@ -751,6 +758,7 @@ message Transaction {
     */
     string label = 2;
 }
+
 message PublishResponse {
     /*
     If blank, then no error occurred and the transaction was successfully
@@ -760,6 +768,11 @@ message PublishResponse {
     TODO(roasbeef): map to a proper enum type
     */
     string publish_error = 1;
+}
+
+message RemoveTransactionResponse {
+    // The status of the remove transaction operation.
+    string status = 1;
 }
 
 message SendOutputsRequest {

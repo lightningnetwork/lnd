@@ -210,6 +210,22 @@ func (h *HarnessRPC) GetTransaction(
 	return resp
 }
 
+// RemoveTransaction makes an RPC call to the node's WalletKitClient and
+// asserts.
+//
+//nolint:lll
+func (h *HarnessRPC) RemoveTransaction(
+	req *walletrpc.GetTransactionRequest) *walletrpc.RemoveTransactionResponse {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	resp, err := h.WalletKit.RemoveTransaction(ctxt, req)
+	h.NoError(err, "RemoveTransaction")
+
+	return resp
+}
+
 // BumpFee makes a RPC call to the node's WalletKitClient and asserts.
 func (h *HarnessRPC) BumpFee(
 	req *walletrpc.BumpFeeRequest) *walletrpc.BumpFeeResponse {

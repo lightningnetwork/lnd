@@ -172,6 +172,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/RemoveTransaction": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
@@ -670,6 +674,64 @@ func (w *WalletKit) PublishTransaction(ctx context.Context,
 	}
 
 	return &PublishResponse{}, nil
+}
+
+// RemoveTransaction attempts to remove the transaction and all of its
+// descendants resulting from further spends of the outputs of the provided
+// transaction id.
+// NOTE: We do not remove the transaction from the rebroadcaster which might
+// run in the background rebroadcasting not yet confirmed transactions. We do
+// not have access to the rebroadcaster here nor should we. This command is not
+// a way to remove transactions from the network. It is a way to shortcircuit
+// wallet utxo housekeeping while transactions are still unconfirmed and we know
+// that a transaction will never confirm because a replacement already pays
+// higher fees.
+func (w *WalletKit) RemoveTransaction(_ context.Context,
+	req *GetTransactionRequest) (*RemoveTransactionResponse, error) {
+
+	// If the client doesn't specify a hash, then there's nothing to
+	// return.
+	if req.Txid == "" {
+		return nil, fmt.Errorf("must provide a transaction hash")
+	}
+
+	txHash, err := chainhash.NewHashFromStr(req.Txid)
+	if err != nil {
+		return nil, err
+	}
+
+	// Query the tx store of our internal wallet for the specified
+	// transaction.
+	res, err := w.cfg.Wallet.GetTransactionDetails(txHash)
+	if err != nil {
+		return nil, fmt.Errorf("transaction with txid=%v not found "+
+			"in the internal wallet store", txHash)
+	}
+
+	// Only allow unconfirmed transactions to be removed because as soon
+	// as a transaction is confirmed it will be evaluated by the wallet
+	// again and the wallet state would be updated in case the user had
+	// removed the transaction accidentally.
+	if res.NumConfirmations > 0 {
+		return nil, fmt.Errorf("transaction with txid=%v is already "+
+			"confirmed (numConfs=%d) cannot be removed", txHash,
+			res.NumConfirmations)
+	}
+
+	tx := &wire.MsgTx{}
+	txReader := bytes.NewReader(res.RawTx)
+	if err := tx.Deserialize(txReader); err != nil {
+		return nil, err
+	}
+
+	err = w.cfg.Wallet.RemoveDescendants(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &RemoveTransactionResponse{
+		Status: "Successfully removed transaction",
+	}, nil
 }
 
 // SendOutputs is similar to the existing sendmany call in Bitcoind, and allows

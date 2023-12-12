@@ -203,6 +203,9 @@ func foo(a, b,
 
 func baz(a, b, c) (d,
 	error) {
+
+func longFunctionName(
+	a, b, c) (d, error) {
 ```
 
 If a function declaration spans multiple lines the body should start with an

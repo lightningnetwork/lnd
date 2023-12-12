@@ -44,6 +44,14 @@
  
 * [Ensure that a valid SCID](https://github.com/lightningnetwork/lnd/pull/8171) 
   is used when marking a zombie edge as live.
+  
+* [Remove sweep transactions of the
+  same exclusive group](https://github.com/lightningnetwork/lnd/pull/7800).
+  When using neutrino as a backend unconfirmed transactions have to be
+  removed from the wallet when a conflicting tx is confirmed. For other backends
+  these unconfirmed transactions are already removed. In addition a new 
+  walletrpc endpoint `RemoveTransaction` is introduced which let one easily
+  remove unconfirmed transaction manually.
 
 # New Features
 ## Functional Enhancements

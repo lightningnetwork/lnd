@@ -252,6 +252,10 @@ jobs:
             args: backend=bitcoind dbbackend=postgres
           - name: bitcoind-sqlite
             args: backend=bitcoind dbbackend=sqlite
+          - name: bitcoind-postgres-nativesql
+            args: backend=bitcoind dbbackend=postgres nativesql=true
+          - name: bitcoind-sqlite-nativesql
+            args: backend=bitcoind dbbackend=sqlite nativesql=true
           - name: neutrino
             args: backend=neutrino
     steps:

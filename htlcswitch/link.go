@@ -2000,6 +2000,13 @@ func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
 // updates from the upstream peer. The upstream peer is the peer whom we have a
 // direct channel with, updating our respective commitment chains.
 func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
+	// First check if the message is an update and we are capable of
+	// receiving updates right now.
+	if msg.MsgType().IsChannelUpdate() && !l.quiescer.canRecvUpdates() {
+		l.stfuFailf("update received after stfu: %T", msg)
+		return
+	}
+
 	switch msg := msg.(type) {
 	case *lnwire.UpdateAddHTLC:
 		if l.IsFlushing(Incoming) {

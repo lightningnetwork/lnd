@@ -1963,6 +1963,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu")
+			return
+		}
+
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
 		// "settle" list in the event that we know the preimage.
@@ -1977,6 +1982,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			"assigning index: %v", msg.PaymentHash[:], index)
 
 	case *lnwire.UpdateFulfillHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu")
+			return
+		}
+
 		pre := msg.PaymentPreimage
 		idx := msg.ID
 
@@ -2030,6 +2040,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		go l.forwardBatch(false, settlePacket)
 
 	case *lnwire.UpdateFailMalformedHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu")
+			return
+		}
+
 		// Convert the failure type encoded within the HTLC fail
 		// message to the proper generic lnwire error code.
 		var failure lnwire.FailureMessage
@@ -2084,6 +2099,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 	case *lnwire.UpdateFailHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu")
+			return
+		}
+
 		// Verify that the failure reason is at least 256 bytes plus
 		// overhead.
 		const minimumFailReasonLength = lnwire.FailureMessageLength +
@@ -2371,6 +2391,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.RWMutex.Unlock()
 
 	case *lnwire.UpdateFee:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu")
+			return
+		}
+
 		// We received fee update from peer. If we are the initiator we
 		// will fail the channel, if not we will apply the update.
 		fee := chainfee.SatPerKWeight(msg.FeePerKw)
@@ -2386,15 +2411,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	case *lnwire.Stfu:
 		handleErr := func(err error) {
 			l.log.Error(err.Error())
-			l.fail(
-				LinkFailureError{
-					code:             ErrInvalidUpdate,
-					FailureAction:    LinkFailureDisconnect,
-					PermanentFailure: false,
-					Warning:          true,
-				},
-				err.Error(),
-			)
+			l.stfuFailf(err.Error())
 		}
 
 		remoteOnLocal := l.channel.NumRemoteUpdatesPendingOnLocal()
@@ -2467,15 +2484,7 @@ func (l *channelLink) drivePendingStfuSends() {
 
 	handleErr := func(err error) {
 		l.log.Error(err.Error())
-		l.fail(
-			LinkFailureError{
-				code:             ErrInvalidUpdate,
-				FailureAction:    LinkFailureDisconnect,
-				PermanentFailure: false,
-				Warning:          true,
-			},
-			err.Error(),
-		)
+		l.stfuFailf(err.Error())
 	}
 
 	localOnRemote := l.channel.NumLocalUpdatesPendingOnRemote()
@@ -2495,6 +2504,18 @@ func (l *channelLink) drivePendingStfuSends() {
 			}
 		})
 	}
+}
+
+// stfuFailf fails the link in the case where the requirements of the quiescence
+// protocol are violated. In all cases we opt to drop the connection as only
+// link state (as opposed to channel state) is affected.
+func (l *channelLink) stfuFailf(format string, args ...interface{}) {
+	l.fail(LinkFailureError{
+		code:             ErrInvalidUpdate,
+		FailureAction:    LinkFailureDisconnect,
+		PermanentFailure: false,
+		Warning:          true,
+	}, format, args...)
 }
 
 // ackDownStreamPackets is responsible for removing htlcs from a link's mailbox

@@ -627,7 +627,8 @@ func (l *channelLink) EligibleToForward() bool {
 func (l *channelLink) EligibleToUpdate() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
 		l.ShortChanID() != hop.Source &&
-		l.isReestablished()
+		l.isReestablished() &&
+		l.quiescer.canSendUpdates()
 }
 
 // EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
@@ -1592,6 +1593,17 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 		)
 	}
 
+	// If the channel is quiescent then we issue a temporary channel failure
+	// and bounce it.
+	if !l.quiescer.canSendUpdates() {
+		l.mailBox.FailAdd(pkt)
+
+		return NewDetailedLinkError(
+			&lnwire.FailTemporaryChannelFailure{},
+			OutgoingFailureLinkNotEligible,
+		)
+	}
+
 	// If hodl.AddOutgoing mode is active, we exit early to simulate
 	// arbitrary delays between the switch adding an ADD to the
 	// mailbox, and the HTLC being added to the commitment state.
@@ -1683,6 +1695,12 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		_ = l.handleDownstreamUpdateAdd(pkt)
 
 	case *lnwire.UpdateFulfillHTLC:
+		if !l.quiescer.canSendUpdates() {
+			l.log.Warn("unable to process channel update. "+
+				"ChannelID=%v is quiescent.", l.chanID)
+
+			return
+		}
 		// If hodl.SettleOutgoing mode is active, we exit early to
 		// simulate arbitrary delays between the switch adding the
 		// SETTLE to the mailbox, and the HTLC being added to the
@@ -1750,6 +1768,13 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		l.updateCommitTxOrFail()
 
 	case *lnwire.UpdateFailHTLC:
+		if !l.quiescer.canSendUpdates() {
+			l.log.Warn("unable to process channel update. "+
+				"ChannelID=%v is quiescent.", l.chanID)
+
+			return
+		}
+
 		// If hodl.FailOutgoing mode is active, we exit early to
 		// simulate arbitrary delays between the switch adding a FAIL to
 		// the mailbox, and the HTLC being added to the commitment

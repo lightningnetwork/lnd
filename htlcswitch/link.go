@@ -2037,6 +2037,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu: %T", msg)
+			return
+		}
+
 		// Disallow htlcs with blinding points set if we haven't
 		// enabled the feature. This saves us from having to process
 		// the onion at all, but will only catch blinded payments
@@ -2076,6 +2081,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			"assigning index: %v", msg.PaymentHash[:], index)
 
 	case *lnwire.UpdateFulfillHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu: %T", msg)
+			return
+		}
+
 		pre := msg.PaymentPreimage
 		idx := msg.ID
 
@@ -2129,6 +2139,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		go l.forwardBatch(false, settlePacket)
 
 	case *lnwire.UpdateFailMalformedHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu: %T", msg)
+			return
+		}
+
 		// Convert the failure type encoded within the HTLC fail
 		// message to the proper generic lnwire error code.
 		var failure lnwire.FailureMessage
@@ -2196,6 +2211,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 	case *lnwire.UpdateFailHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu: %T", msg)
+			return
+		}
+
 		// Verify that the failure reason is at least 256 bytes plus
 		// overhead.
 		const minimumFailReasonLength = lnwire.FailureMessageLength +
@@ -2385,15 +2405,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		err = l.drivePendingStfuSends()
 		if err != nil {
 			l.log.Error(err.Error())
-			l.fail(
-				LinkFailureError{
-					code:             ErrStfuViolation,
-					FailureAction:    LinkFailureDisconnect,
-					PermanentFailure: false,
-					Warning:          true,
-				},
-				err.Error(),
-			)
+			l.stfuFailf(err.Error())
 		}
 
 		// Now that we have finished processing the incoming CommitSig
@@ -2495,6 +2507,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.RWMutex.Unlock()
 
 	case *lnwire.UpdateFee:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu: %T", msg)
+			return
+		}
+
 		// Check and see if their proposed fee-rate would make us
 		// exceed the fee threshold.
 		fee := chainfee.SatPerKWeight(msg.FeePerKw)
@@ -2516,7 +2533,6 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			// threshold.
 			l.fail(LinkFailureError{code: ErrInternalError},
 				"fee threshold exceeded: %v", err)
-			return
 		}
 
 		// We received fee update from peer. If we are the initiator we
@@ -2534,15 +2550,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		err := l.handleStfu(msg)
 		if err != nil {
 			l.log.Error(err.Error())
-			l.fail(
-				LinkFailureError{
-					code:             ErrStfuViolation,
-					FailureAction:    LinkFailureDisconnect,
-					PermanentFailure: false,
-					Warning:          true,
-				},
-				err.Error(),
-			)
+			l.stfuFailf(err.Error())
 		}
 
 	// In the case where we receive a warning message from our peer, just
@@ -2625,6 +2633,18 @@ func (l *channelLink) drivePendingStfuSends() error {
 	}
 
 	return nil
+}
+
+// stfuFailf fails the link in the case where the requirements of the quiescence
+// protocol are violated. In all cases we opt to drop the connection as only
+// link state (as opposed to channel state) is affected.
+func (l *channelLink) stfuFailf(format string, args ...interface{}) {
+	l.fail(LinkFailureError{
+		code:             ErrStfuViolation,
+		FailureAction:    LinkFailureDisconnect,
+		PermanentFailure: false,
+		Warning:          true,
+	}, format, args...)
 }
 
 // ackDownStreamPackets is responsible for removing htlcs from a link's mailbox

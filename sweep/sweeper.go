@@ -446,13 +446,21 @@ func (s *UtxoSweeper) SweepInput(input input.Input,
 		return nil, err
 	}
 
-	absoluteTimeLock, _ := input.RequiredLockTime()
+	var (
+		parentInfo          = ""
+		unconfParent        = input.UnconfParent()
+		absoluteTimeLock, _ = input.RequiredLockTime()
+	)
+	if unconfParent != nil {
+		parentInfo = fmt.Sprintf("parent=(%v), ", unconfParent)
+	}
+
 	log.Infof("Sweep request received: out_point=%v, witness_type=%v, "+
-		"relative_time_lock=%v, absolute_time_lock=%v, amount=%v, "+
-		"parent=(%v), params=(%v)", input.OutPoint(),
+		"relative_time_lock=%v, absolute_time_lock=%v, amount=%v, %s"+
+		"params=(%v)", input.OutPoint(),
 		input.WitnessType(), input.BlocksToMaturity(), absoluteTimeLock,
-		btcutil.Amount(input.SignDesc().Output.Value),
-		input.UnconfParent(), params)
+		btcutil.Amount(input.SignDesc().Output.Value), parentInfo,
+		params)
 
 	sweeperInput := &sweepInputMessage{
 		input:      input,

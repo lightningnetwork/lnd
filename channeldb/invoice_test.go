@@ -24,7 +24,7 @@ var (
 	emptyFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
 	ampFeatures   = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(
-			lnwire.TLVOnionPayloadOptional,
+			lnwire.TLVOnionPayloadRequired,
 			lnwire.PaymentAddrOptional,
 			lnwire.AMPRequired,
 		),
@@ -3158,7 +3158,7 @@ func TestAddInvoiceInvalidFeatureDeps(t *testing.T) {
 
 	invoice.Terms.Features = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(
-			lnwire.TLVOnionPayloadOptional,
+			lnwire.TLVOnionPayloadRequired,
 			lnwire.MPPOptional,
 		),
 		lnwire.Features,

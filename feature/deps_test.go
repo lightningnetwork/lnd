@@ -33,7 +33,7 @@ var depTests = []depTest{
 	{
 		name: "one dep optional",
 		raw: lnwire.NewRawFeatureVector(
-			lnwire.TLVOnionPayloadOptional,
+			lnwire.TLVOnionPayloadRequired,
 			lnwire.PaymentAddrOptional,
 		),
 	},
@@ -61,7 +61,7 @@ var depTests = []depTest{
 	{
 		name: "two dep optional",
 		raw: lnwire.NewRawFeatureVector(
-			lnwire.TLVOnionPayloadOptional,
+			lnwire.TLVOnionPayloadRequired,
 			lnwire.PaymentAddrOptional,
 			lnwire.MPPOptional,
 		),
@@ -93,7 +93,7 @@ var depTests = []depTest{
 	{
 		name: "two dep first missing optional",
 		raw: lnwire.NewRawFeatureVector(
-			lnwire.TLVOnionPayloadOptional,
+			lnwire.TLVOnionPayloadRequired,
 			lnwire.MPPOptional,
 		),
 		expErr: ErrMissingFeatureDep{lnwire.PaymentAddrOptional},
@@ -110,7 +110,7 @@ var depTests = []depTest{
 		name: "forest optional",
 		raw: lnwire.NewRawFeatureVector(
 			lnwire.GossipQueriesOptional,
-			lnwire.TLVOnionPayloadOptional,
+			lnwire.TLVOnionPayloadRequired,
 			lnwire.PaymentAddrOptional,
 			lnwire.MPPOptional,
 		),
@@ -128,7 +128,7 @@ var depTests = []depTest{
 		name: "broken forest optional",
 		raw: lnwire.NewRawFeatureVector(
 			lnwire.GossipQueriesOptional,
-			lnwire.TLVOnionPayloadOptional,
+			lnwire.TLVOnionPayloadRequired,
 			lnwire.MPPOptional,
 		),
 		expErr: ErrMissingFeatureDep{lnwire.PaymentAddrOptional},

@@ -181,11 +181,13 @@ func (c *integratedRoutingContext) testPayment(maxParts uint32,
 		FeeLimit:       lnwire.MaxMilliSatoshi,
 		Target:         c.target.pubkey,
 		PaymentAddr:    &paymentAddr,
-		DestFeatures:   lnwire.NewFeatureVector(baseFeatureBits, nil),
-		Amount:         c.amt,
-		CltvLimit:      math.MaxUint32,
-		MaxParts:       maxParts,
-		RouteHints:     c.routeHints,
+		DestFeatures: lnwire.NewFeatureVector(
+			baseFeatureBits, lnwire.Features,
+		),
+		Amount:     c.amt,
+		CltvLimit:  math.MaxUint32,
+		MaxParts:   maxParts,
+		RouteHints: c.routeHints,
 	}
 
 	var paymentHash [32]byte

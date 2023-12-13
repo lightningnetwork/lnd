@@ -379,7 +379,7 @@ func TestPaymentAddrOnlyNoSplit(t *testing.T) {
 	twoPathGraph(ctx.graph, chanSize, chanSize)
 
 	payAddrOnlyFeatures := []lnwire.FeatureBit{
-		lnwire.TLVOnionPayloadOptional,
+		lnwire.TLVOnionPayloadRequired,
 		lnwire.PaymentAddrOptional,
 	}
 

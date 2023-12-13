@@ -19,7 +19,7 @@ var testSetDesc = setDesc{
 	lnwire.DataLossProtectRequired: {
 		SetNodeAnn: {}, // I
 	},
-	lnwire.TLVOnionPayloadOptional: {
+	lnwire.TLVOnionPayloadRequired: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
@@ -104,6 +104,7 @@ func testManager(t *testing.T, test managerTest) {
 		// Assert that the manager properly unset the configured feature
 		// bits from all sets.
 		if test.cfg.NoTLVOnion {
+			assertUnset(lnwire.TLVOnionPayloadRequired)
 			assertUnset(lnwire.TLVOnionPayloadOptional)
 		}
 		if test.cfg.NoStaticRemoteKey {

@@ -18,7 +18,7 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
-	lnwire.TLVOnionPayloadOptional: {
+	lnwire.TLVOnionPayloadRequired: {
 		SetInit:         {}, // I
 		SetNodeAnn:      {}, // N
 		SetInvoice:      {}, // 9

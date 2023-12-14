@@ -150,7 +150,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 			SetInit:    {}, // I
 			SetNodeAnn: {}, // N
 		},
-		lnwire.GossipQueriesOptional: {
+		lnwire.GossipQueriesRequired: {
 			SetNodeAnn: {}, // N
 		},
 	}
@@ -200,7 +200,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 				),
 				SetNodeAnn: lnwire.NewRawFeatureVector(
 					lnwire.DataLossProtectRequired,
-					lnwire.GossipQueriesOptional,
+					lnwire.GossipQueriesRequired,
 					lnwire.FeatureBit(1000),
 				),
 			},
@@ -221,7 +221,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 				),
 				SetNodeAnn: lnwire.NewRawFeatureVector(
 					lnwire.DataLossProtectRequired,
-					lnwire.GossipQueriesOptional,
+					lnwire.GossipQueriesRequired,
 				),
 			},
 			config: Config{
@@ -241,7 +241,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 				),
 				SetNodeAnn: lnwire.NewRawFeatureVector(
 					lnwire.DataLossProtectRequired,
-					lnwire.GossipQueriesOptional,
+					lnwire.GossipQueriesRequired,
 					lnwire.FeatureBit(500),
 				),
 				SetInvoice: lnwire.NewRawFeatureVector(

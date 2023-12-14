@@ -1080,6 +1080,7 @@ func TestPeerCustomMessage(t *testing.T) {
 		initReplyMsg := lnwire.NewInitMessage(
 			lnwire.NewRawFeatureVector(
 				lnwire.DataLossProtectRequired,
+				lnwire.GossipQueriesOptional,
 			),
 			lnwire.NewRawFeatureVector(),
 		)

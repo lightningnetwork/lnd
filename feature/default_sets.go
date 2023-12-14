@@ -14,7 +14,7 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
-	lnwire.GossipQueriesOptional: {
+	lnwire.GossipQueriesRequired: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},

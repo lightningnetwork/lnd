@@ -4955,3 +4955,66 @@ func TestFundingManagerCoinbase(t *testing.T) {
 	// channel.
 	assertHandleChannelReady(t, alice, bob)
 }
+
+// TestFundingManagerAnchorsMinRelay tests that anchor channel opens will at
+// least use a commitment fee rate of min relay fee.
+func TestFundingManagerAnchorsMinRelay(t *testing.T) {
+	t.Parallel()
+
+	const (
+		minRelayFee = 100000
+		localAmt    = btcutil.Amount(500000)
+		pushAmt     = btcutil.Amount(0)
+	)
+
+	alice, bob := setupFundingManagers(t)
+	t.Cleanup(func() {
+		tearDownFundingManagers(t, alice, bob)
+	})
+
+	// Enable the anchors feature bit.
+	featureBits := []lnwire.FeatureBit{
+		lnwire.ExplicitChannelTypeOptional,
+		lnwire.StaticRemoteKeyOptional,
+		lnwire.AnchorsZeroFeeHtlcTxOptional,
+	}
+
+	alice.localFeatures = featureBits
+	alice.remoteFeatures = featureBits
+	bob.localFeatures = featureBits
+	bob.remoteFeatures = featureBits
+
+	// Use a new fee estimator for Alice so that the minimum relay fee is
+	// used as the commitment feerate.
+	alice.fundingMgr.cfg.FeeEstimator = chainfee.NewStaticEstimator(
+		62500, minRelayFee,
+	)
+
+	// Set the MaxAnchorsCommitFeeRate config variable.
+	maxAnchorsFeeRate := chainfee.SatPerKWeight(4000)
+	alice.fundingMgr.cfg.MaxAnchorsCommitFeeRate = maxAnchorsFeeRate
+
+	chanType := (*lnwire.ChannelType)(lnwire.NewRawFeatureVector(
+		lnwire.StaticRemoteKeyRequired,
+		lnwire.AnchorsZeroFeeHtlcTxRequired,
+	))
+
+	updateChan := make(chan *lnrpc.OpenStatusUpdate)
+
+	fundingOutPoint, _ := openChannel(
+		t, alice, bob, localAmt, pushAmt, 1, updateChan, true,
+		chanType,
+	)
+
+	// Fetch the channel from the database.
+	anchorChan, err := alice.fundingMgr.cfg.ChannelDB.FetchChannel(
+		nil, *fundingOutPoint,
+	)
+	require.NoError(t, err)
+
+	// Assert that the minimum relay fee was used.
+	require.Equal(
+		t, anchorChan.LocalCommitment.FeePerKw,
+		btcutil.Amount(minRelayFee),
+	)
+}

@@ -4532,6 +4532,12 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 		commitFeePerKw = f.cfg.MaxAnchorsCommitFeeRate
 	}
 
+	// Ensure that the commitment feerate is above the minimum relay fee.
+	minRelayFee := f.cfg.FeeEstimator.RelayFeePerKW()
+	if commitFeePerKw < minRelayFee {
+		commitFeePerKw = minRelayFee
+	}
+
 	var scidFeatureVal bool
 	if hasFeatures(
 		msg.Peer.LocalFeatures(), msg.Peer.RemoteFeatures(),

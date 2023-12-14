@@ -128,7 +128,7 @@ func testManager(t *testing.T, test managerTest) {
 		}
 	}
 
-	assertSet(lnwire.DataLossProtectOptional)
+	assertSet(lnwire.DataLossProtectRequired)
 	if !test.cfg.NoTLVOnion {
 		assertSet(lnwire.TLVOnionPayloadRequired)
 	}

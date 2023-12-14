@@ -23,7 +23,7 @@ var testSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
-	lnwire.StaticRemoteKeyOptional: {
+	lnwire.StaticRemoteKeyRequired: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
@@ -108,6 +108,7 @@ func testManager(t *testing.T, test managerTest) {
 			assertUnset(lnwire.TLVOnionPayloadOptional)
 		}
 		if test.cfg.NoStaticRemoteKey {
+			assertUnset(lnwire.StaticRemoteKeyRequired)
 			assertUnset(lnwire.StaticRemoteKeyOptional)
 		}
 		if test.cfg.NoAnchors {
@@ -133,7 +134,7 @@ func testManager(t *testing.T, test managerTest) {
 		assertSet(lnwire.TLVOnionPayloadRequired)
 	}
 	if !test.cfg.NoStaticRemoteKey {
-		assertSet(lnwire.StaticRemoteKeyOptional)
+		assertSet(lnwire.StaticRemoteKeyRequired)
 	}
 }
 

@@ -245,7 +245,6 @@ func testChannelForceClosure(ht *lntest.HarnessTest) {
 	// We'll test the scenario for some of the commitment types, to ensure
 	// outputs can be swept.
 	commitTypes := []lnrpc.CommitmentType{
-		lnrpc.CommitmentType_LEGACY,
 		lnrpc.CommitmentType_ANCHORS,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	}

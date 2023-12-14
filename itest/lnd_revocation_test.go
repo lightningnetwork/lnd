@@ -195,7 +195,6 @@ func breachRetributionTestCase(ht *lntest.HarnessTest,
 // the mempool.
 func testRevokedCloseRetribution(ht *lntest.HarnessTest) {
 	for _, commitType := range []lnrpc.CommitmentType{
-		lnrpc.CommitmentType_LEGACY,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	} {
 		testName := fmt.Sprintf("%v", commitType.String())
@@ -378,7 +377,6 @@ func revokedCloseRetributionZeroValueRemoteOutputCase(ht *lntest.HarnessTest,
 // commitment output has zero-value.
 func testRevokedCloseRetributionZeroValueRemoteOutput(ht *lntest.HarnessTest) {
 	for _, commitType := range []lnrpc.CommitmentType{
-		lnrpc.CommitmentType_LEGACY,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	} {
 		testName := fmt.Sprintf("%v", commitType.String())
@@ -700,7 +698,6 @@ func revokedCloseRetributionRemoteHodlCase(ht *lntest.HarnessTest,
 // remote party breaches before settling extended HTLCs.
 func testRevokedCloseRetributionRemoteHodl(ht *lntest.HarnessTest) {
 	for _, commitType := range []lnrpc.CommitmentType{
-		lnrpc.CommitmentType_LEGACY,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	} {
 		testName := fmt.Sprintf("%v", commitType.String())

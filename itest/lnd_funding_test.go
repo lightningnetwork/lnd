@@ -32,7 +32,6 @@ func testBasicChannelFunding(ht *lntest.HarnessTest) {
 	// Run through the test with combinations of all the different
 	// commitment types.
 	allTypes := []lnrpc.CommitmentType{
-		lnrpc.CommitmentType_LEGACY,
 		lnrpc.CommitmentType_STATIC_REMOTE_KEY,
 		lnrpc.CommitmentType_ANCHORS,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,

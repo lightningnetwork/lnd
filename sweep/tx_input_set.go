@@ -79,7 +79,7 @@ func (t *txInputSetState) weightEstimate(change bool) *weightEstimator {
 
 	// Add a change output to the weight estimate if requested.
 	if change {
-		weightEstimate.addP2WKHOutput()
+		weightEstimate.addP2TROutput()
 	}
 
 	return weightEstimate

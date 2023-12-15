@@ -616,6 +616,46 @@ func (c *ChanCloser) ReceiveShutdown(
 	}
 }
 
+// BeginNegotiation should be called when we have definitively reached a clean
+// channel state and are ready to cooperatively arrive at a closing transaction.
+// If it is our responsibility to kick off the negotiation, this method will
+// generate a ClosingSigned message. If it is the remote's responsibility, then
+// it will not. In either case it will transition the ChanCloser state machine
+// to the negotiation phase wherein ClosingSigned messages are exchanged until
+// a mutually agreeable result is achieved.
+func (c *ChanCloser) BeginNegotiation() (
+	fn.Option[lnwire.ClosingSigned], error,
+) {
+
+	noClosingSigned := fn.None[lnwire.ClosingSigned]()
+
+	switch c.state {
+	case closeAwaitingFlush:
+		// At this point, we can now start the fee negotiation state, by
+		// constructing and sending our initial signature for what we
+		// think the closing transaction should look like.
+		c.state = closeFeeNegotiation
+
+		if !c.cfg.Channel.IsInitiator() {
+			return noClosingSigned, nil
+		}
+
+		// We'll craft our initial close proposal in order to keep the
+		// negotiation moving, but only if we're the initiator.
+		closingSigned, err := c.proposeCloseSigned(c.idealFeeSat)
+		if err != nil {
+			return noClosingSigned,
+				fmt.Errorf("unable to sign new co op "+
+					"close offer: %w", err)
+		}
+
+		return fn.Some(*closingSigned), nil
+
+	default:
+		return noClosingSigned, ErrInvalidState
+	}
+}
+
 // ReceiveClosingSigned is a method that should be called whenever we receive a
 // ClosingSigned message from the wire. It may or may not return a ClosingSigned
 // of our own to send back to the remote.

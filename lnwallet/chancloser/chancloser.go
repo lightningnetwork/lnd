@@ -529,10 +529,6 @@ func (c *ChanCloser) ReceiveShutdown(
 		// transaction.
 		c.remoteDeliveryScript = msg.Address
 
-		// Now that we know their desired delivery script, we can
-		// compute what our max/ideal fee will be.
-		c.initFeeBaseline()
-
 		// We'll generate a shutdown message of our own to send across
 		// the wire.
 		localShutdown, err := c.initChanShutdown()
@@ -586,10 +582,6 @@ func (c *ChanCloser) ReceiveShutdown(
 		// think the closing transaction should look like.
 		c.state = closeAwaitingFlush
 
-		// Now that we know their desired delivery script, we can
-		// compute what our max/ideal fee will be.
-		c.initFeeBaseline()
-
 		// If this is a taproot channel, then we'll want to stash the
 		// local+remote nonces so we can properly create a new musig
 		// session for signing.
@@ -631,6 +623,10 @@ func (c *ChanCloser) BeginNegotiation() (
 
 	switch c.state {
 	case closeAwaitingFlush:
+		// Now that we know their desired delivery script, we can
+		// compute what our max/ideal fee will be.
+		c.initFeeBaseline()
+
 		// At this point, we can now start the fee negotiation state, by
 		// constructing and sending our initial signature for what we
 		// think the closing transaction should look like.

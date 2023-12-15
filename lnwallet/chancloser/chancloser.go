@@ -616,33 +616,24 @@ func (c *ChanCloser) ReceiveShutdown(
 	}
 }
 
-// ProcessCloseMsg attempts to process the next message in the closing series.
-// This method will update the state accordingly and return two primary values:
-// the next set of messages to be sent, and a bool indicating if the fee
-// negotiation process has completed. If the second value is true, then this
-// means the ChanCloser can be garbage collected.
-func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
-	bool, error) {
+// ReceiveClosingSigned is a method that should be called whenever we receive a
+// ClosingSigned message from the wire. It may or may not return a ClosingSigned
+// of our own to send back to the remote.
+func (c *ChanCloser) ReceiveClosingSigned(
+	msg lnwire.ClosingSigned,
+) (fn.Option[lnwire.ClosingSigned], error) {
+
+	noClosing := fn.None[lnwire.ClosingSigned]()
 
 	switch c.state {
-	// If we're receiving a message while we're in the fee negotiation phase,
-	// then this indicates the remote party is responding to a close signed
-	// message we sent, or kicking off the process with their own.
 	case closeFeeNegotiation:
-		// First, we'll assert that we're actually getting a ClosingSigned
-		// message, otherwise an invalid state transition was attempted.
-		closeSignedMsg, ok := msg.(*lnwire.ClosingSigned)
-		if !ok {
-			return nil, false, fmt.Errorf("expected lnwire.ClosingSigned, "+
-				"instead have %v", spew.Sdump(msg))
-		}
-
 		// If this is a taproot channel, then it MUST have a partial
 		// signature set at this point.
 		isTaproot := c.cfg.Channel.ChanType().IsTaproot()
-		if isTaproot && closeSignedMsg.PartialSig == nil {
-			return nil, false, fmt.Errorf("partial sig not set " +
-				"for taproot chan")
+		if isTaproot && msg.PartialSig == nil {
+			return noClosing,
+				fmt.Errorf("partial sig not set " +
+					"for taproot chan")
 		}
 
 		isInitiator := c.cfg.Channel.IsInitiator()
@@ -651,7 +642,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// during the negotiations. If it doesn't match any of our
 		// prior offers, then we'll attempt to ratchet the fee closer
 		// to our ideal fee.
-		remoteProposedFee := closeSignedMsg.FeeSatoshis
+		remoteProposedFee := msg.FeeSatoshis
 
 		_, feeMatchesOffer := c.priorFeeOffers[remoteProposedFee]
 		switch {
@@ -671,7 +662,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			// to Alice the final signature.
 			_, err := c.proposeCloseSigned(remoteProposedFee)
 			if err != nil {
-				return nil, false, fmt.Errorf("unable to sign "+
+				return noClosing, fmt.Errorf("unable to sign "+
 					"new co op close offer: %w", err)
 			}
 
@@ -679,10 +670,11 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// signature for a taproot channel, then we'll ensure that the
 		// fee rate matches up exactly.
 		case isTaproot && isInitiator && !feeMatchesOffer:
-			return nil, false, fmt.Errorf("fee rate for "+
-				"taproot channels was not accepted: "+
-				"sent %v, got %v",
-				c.idealFeeSat, remoteProposedFee)
+			return noClosing,
+				fmt.Errorf("fee rate for "+
+					"taproot channels was not accepted: "+
+					"sent %v, got %v",
+					c.idealFeeSat, remoteProposedFee)
 
 		// If we're the initiator of the taproot channel, and we had
 		// our fee echo'd back, then it's all good, and we can proceed
@@ -697,37 +689,41 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			// We'll now attempt to ratchet towards a fee deemed
 			// acceptable by both parties, factoring in our ideal
 			// fee rate, and the last proposed fee by both sides.
-			feeProposal := calcCompromiseFee(c.chanPoint, c.idealFeeSat,
-				c.lastFeeProposal, remoteProposedFee,
+			proposal := calcCompromiseFee(
+				c.chanPoint, c.idealFeeSat, c.lastFeeProposal,
+				remoteProposedFee,
 			)
-			if c.cfg.Channel.IsInitiator() && feeProposal > c.maxFee {
-				return nil, false, fmt.Errorf("%w: %v > %v",
-					ErrProposalExceedsMaxFee, feeProposal,
-					c.maxFee)
+			if c.cfg.Channel.IsInitiator() && proposal > c.maxFee {
+				return noClosing, fmt.Errorf(
+					"%w: %v > %v",
+					ErrProposalExceedsMaxFee,
+					proposal, c.maxFee)
 			}
 
 			// With our new fee proposal calculated, we'll craft a
 			// new close signed signature to send to the other
 			// party so we can continue the fee negotiation
 			// process.
-			closeSigned, err := c.proposeCloseSigned(feeProposal)
+			closeSigned, err := c.proposeCloseSigned(proposal)
 			if err != nil {
-				return nil, false, fmt.Errorf("unable to sign "+
+				return noClosing, fmt.Errorf("unable to sign "+
 					"new co op close offer: %w", err)
 			}
 
 			// If the compromise fee doesn't match what the peer
 			// proposed, then we'll return this latest close signed
 			// message so we can continue negotiation.
-			if feeProposal != remoteProposedFee {
-				chancloserLog.Debugf("ChannelPoint(%v): close tx fee "+
-					"disagreement, continuing negotiation", c.chanPoint)
-				return []lnwire.Message{closeSigned}, false, nil
+			if proposal != remoteProposedFee {
+				chancloserLog.Debugf("ChannelPoint(%v): close "+
+					"tx fee disagreement, continuing "+
+					"negotiation", c.chanPoint)
+
+				return fn.Some(*closeSigned), nil
 			}
 		}
 
-		chancloserLog.Infof("ChannelPoint(%v) fee of %v accepted, ending "+
-			"negotiation", c.chanPoint, remoteProposedFee)
+		chancloserLog.Infof("ChannelPoint(%v) fee of %v accepted, "+
+			"ending negotiation", c.chanPoint, remoteProposedFee)
 
 		// Otherwise, we've agreed on a fee for the closing
 		// transaction! We'll craft the final closing transaction so we
@@ -740,21 +736,22 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		matchingSig := c.priorFeeOffers[remoteProposedFee]
 		if c.cfg.Channel.ChanType().IsTaproot() {
 			muSession := c.cfg.MusigSession
-			localSig, remoteSig, closeOpts, err = muSession.CombineClosingOpts( //nolint:lll
-				*matchingSig.PartialSig,
-				*closeSignedMsg.PartialSig,
-			)
+			localSig, remoteSig, closeOpts, err =
+				muSession.CombineClosingOpts(
+					*matchingSig.PartialSig,
+					*msg.PartialSig,
+				)
 			if err != nil {
-				return nil, false, err
+				return noClosing, err
 			}
 		} else {
 			localSig, err = matchingSig.Signature.ToSignature()
 			if err != nil {
-				return nil, false, err
+				return noClosing, err
 			}
-			remoteSig, err = closeSignedMsg.Signature.ToSignature()
+			remoteSig, err = msg.Signature.ToSignature()
 			if err != nil {
-				return nil, false, err
+				return noClosing, err
 			}
 		}
 
@@ -763,7 +760,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			c.remoteDeliveryScript, remoteProposedFee, closeOpts...,
 		)
 		if err != nil {
-			return nil, false, err
+			return noClosing, err
 		}
 		c.closingTx = closeTx
 
@@ -774,7 +771,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			closeTx, c.locallyInitiated,
 		)
 		if err != nil {
-			return nil, false, err
+			return noClosing, err
 		}
 
 		// With the closing transaction crafted, we'll now broadcast it
@@ -792,7 +789,7 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		)
 
 		if err := c.cfg.BroadcastTx(closeTx, closeLabel); err != nil {
-			return nil, false, err
+			return noClosing, err
 		}
 
 		// Finally, we'll transition to the closeFinished state, and
@@ -802,22 +799,32 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// negotiation.
 		c.state = closeFinished
 		matchingOffer := c.priorFeeOffers[remoteProposedFee]
-		return []lnwire.Message{matchingOffer}, true, nil
+
+		return fn.Some(*matchingOffer), nil
 
 	// If we received a message while in the closeFinished state, then this
-	// should only be the remote party echoing the last ClosingSigned message
-	// that we agreed on.
+	// should only be the remote party echoing the last ClosingSigned
+	// message that we agreed on.
 	case closeFinished:
-		if _, ok := msg.(*lnwire.ClosingSigned); !ok {
-			return nil, false, fmt.Errorf("expected lnwire.ClosingSigned, "+
-				"instead have %v", spew.Sdump(msg))
-		}
 
-		// There's no more to do as both sides should have already broadcast
-		// the closing transaction at this state.
-		return nil, true, nil
+		// There's no more to do as both sides should have already
+		// broadcast the closing transaction at this state.
+		return noClosing, nil
 
-	// Otherwise, we're in an unknown state, and can't proceed.
+	default:
+		return noClosing, ErrInvalidState
+	}
+}
+
+// ProcessCloseMsg attempts to process the next message in the closing series.
+// This method will update the state accordingly and return two primary values:
+// the next set of messages to be sent, and a bool indicating if the fee
+// negotiation process has completed. If the second value is true, then this
+// means the ChanCloser can be garbage collected.
+func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
+	bool, error) {
+
+	switch c.state {
 	default:
 		return nil, false, ErrInvalidState
 	}

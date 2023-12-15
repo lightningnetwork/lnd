@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
@@ -475,28 +476,22 @@ func validateShutdownScript(disconnect func() error, upfrontScript,
 	return nil
 }
 
-// ProcessCloseMsg attempts to process the next message in the closing series.
-// This method will update the state accordingly and return two primary values:
-// the next set of messages to be sent, and a bool indicating if the fee
-// negotiation process has completed. If the second value is true, then this
-// means the ChanCloser can be garbage collected.
-func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
-	bool, error) {
+// ReceiveShutdown takes a raw Shutdown message and uses it to try and advance
+// the ChanCloser state machine, failing if it is coming in at an invalid time.
+// If appropriate, it will also generate a Shutdown message of its own to send
+// out to the peer. It is possible for this method to return None when no error
+// occurred.
+func (c *ChanCloser) ReceiveShutdown(
+	msg lnwire.Shutdown,
+) (fn.Option[lnwire.Shutdown], error) {
+
+	noShutdown := fn.None[lnwire.Shutdown]()
 
 	switch c.state {
-	// If we're in the close idle state, and we're receiving a channel closure
-	// related message, then this indicates that we're on the receiving side of
-	// an initiated channel closure.
+	// If we're in the close idle state, and we're receiving a channel
+	// closure related message, then this indicates that we're on the
+	// receiving side of an initiated channel closure.
 	case closeIdle:
-		// First, we'll assert that we have a channel shutdown message,
-		// as otherwise, this is an attempted invalid state transition.
-		shutdownMsg, ok := msg.(*lnwire.Shutdown)
-		if !ok {
-			return nil, false, fmt.Errorf("expected "+
-				"lnwire.Shutdown, instead have %v",
-				spew.Sdump(msg))
-		}
-
 		// As we're the responder to this shutdown (the other party
 		// wants to close), we'll check if this is a frozen channel or
 		// not. If the channel is frozen and we were not also the
@@ -504,12 +499,13 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// attempt.
 		chanInitiator := c.cfg.Channel.IsInitiator()
 		if !chanInitiator {
-			absoluteThawHeight, err := c.cfg.Channel.AbsoluteThawHeight()
+			absoluteThawHeight, err :=
+				c.cfg.Channel.AbsoluteThawHeight()
 			if err != nil {
-				return nil, false, err
+				return noShutdown, err
 			}
 			if c.negotiationHeight < absoluteThawHeight {
-				return nil, false, fmt.Errorf("initiator "+
+				return noShutdown, fmt.Errorf("initiator "+
 					"attempting to co-op close frozen "+
 					"ChannelPoint(%v) (current_height=%v, "+
 					"thaw_height=%v)", c.chanPoint,
@@ -517,102 +513,78 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 			}
 		}
 
-		// If the remote node opened the channel with option upfront shutdown
-		// script, check that the script they provided matches.
+		// If the remote node opened the channel with option upfront
+		// shutdown script, check that the script they provided matches.
 		if err := validateShutdownScript(
-			c.cfg.Disconnect, c.cfg.Channel.RemoteUpfrontShutdownScript(),
-			shutdownMsg.Address, c.cfg.ChainParams,
+			c.cfg.Disconnect,
+			c.cfg.Channel.RemoteUpfrontShutdownScript(),
+			msg.Address, c.cfg.ChainParams,
 		); err != nil {
-			return nil, false, err
+			return noShutdown, err
 		}
 
-		// Once we have checked that the other party has not violated option
-		// upfront shutdown we set their preference for delivery address. We'll
-		// use this when we craft the closure transaction.
-		c.remoteDeliveryScript = shutdownMsg.Address
+		// Once we have checked that the other party has not violated
+		// option upfront shutdown we set their preference for delivery
+		// address. We'll use this when we craft the closure
+		// transaction.
+		c.remoteDeliveryScript = msg.Address
 
 		// Now that we know their desired delivery script, we can
 		// compute what our max/ideal fee will be.
 		c.initFeeBaseline()
 
-		// We'll generate a shutdown message of our own to send across the
-		// wire.
+		// We'll generate a shutdown message of our own to send across
+		// the wire.
 		localShutdown, err := c.initChanShutdown()
 		if err != nil {
-			return nil, false, err
+			return noShutdown, err
 		}
 
 		// If this is a taproot channel, then we'll want to stash the
 		// remote nonces so we can properly create a new musig
 		// session for signing.
 		if c.cfg.Channel.ChanType().IsTaproot() {
-			if shutdownMsg.ShutdownNonce == nil {
-				return nil, false, fmt.Errorf("shutdown " +
+			if msg.ShutdownNonce == nil {
+				return noShutdown, fmt.Errorf("shutdown " +
 					"nonce not populated")
 			}
 
 			c.cfg.MusigSession.InitRemoteNonce(&musig2.Nonces{
-				PubNonce: *shutdownMsg.ShutdownNonce,
+				PubNonce: *msg.ShutdownNonce,
 			})
 		}
 
 		chancloserLog.Infof("ChannelPoint(%v): responding to shutdown",
 			c.chanPoint)
 
-		msgsToSend := make([]lnwire.Message, 0, 2)
-		msgsToSend = append(msgsToSend, localShutdown)
+		// After the other party receives this message, we'll actually
+		// start the final stage of the closure process: fee
+		// negotiation. So we'll update our internal state to reflect
+		// this, so we can handle the next message sent.
+		c.state = closeAwaitingFlush
 
-		// After the other party receives this message, we'll actually start
-		// the final stage of the closure process: fee negotiation. So we'll
-		// update our internal state to reflect this, so we can handle the next
-		// message sent.
-		c.state = closeFeeNegotiation
+		return fn.Some(*localShutdown), err
 
-		// We'll also craft our initial close proposal in order to keep the
-		// negotiation moving, but only if we're the negotiator.
-		if chanInitiator {
-			closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
-			if err != nil {
-				return nil, false, fmt.Errorf("unable to sign "+
-					"new co op close offer: %w", err)
-			}
-			msgsToSend = append(msgsToSend, closeSigned)
-		}
-
-		// We'll return both sets of messages to send to the remote party to
-		// kick off the fee negotiation process.
-		return msgsToSend, false, nil
-
-	// If we just initiated a channel shutdown, and we receive a new message,
-	// then this indicates the other party is ready to shutdown as well. In
-	// this state we'll send our first signature.
 	case closeShutdownInitiated:
-		// First, we'll assert that we have a channel shutdown message.
-		// Otherwise, this is an attempted invalid state transition.
-		shutdownMsg, ok := msg.(*lnwire.Shutdown)
-		if !ok {
-			return nil, false, fmt.Errorf("expected lnwire.Shutdown, instead "+
-				"have %v", spew.Sdump(msg))
-		}
-
-		// If the remote node opened the channel with option upfront shutdown
-		// script, check that the script they provided matches.
+		// If the remote node opened the channel with option upfront
+		// shutdown script, check that the script they provided matches.
 		if err := validateShutdownScript(
 			c.cfg.Disconnect,
-			c.cfg.Channel.RemoteUpfrontShutdownScript(), shutdownMsg.Address,
-			c.cfg.ChainParams,
+			c.cfg.Channel.RemoteUpfrontShutdownScript(),
+			msg.Address, c.cfg.ChainParams,
 		); err != nil {
-			return nil, false, err
+			return noShutdown, err
 		}
 
-		// Now that we know this is a valid shutdown message and address, we'll
-		// record their preferred delivery closing script.
-		c.remoteDeliveryScript = shutdownMsg.Address
+		// Now that we know this is a valid shutdown message and
+		// address, we'll record their preferred delivery closing
+		// script.
+		c.remoteDeliveryScript = msg.Address
 
 		// At this point, we can now start the fee negotiation state, by
-		// constructing and sending our initial signature for what we think the
-		// closing transaction should look like.
-		c.state = closeFeeNegotiation
+		// constructing and sending our initial signature for what we
+		// think the closing transaction should look like.
+		c.state = closeAwaitingFlush
 
 		// Now that we know their desired delivery script, we can
 		// compute what our max/ideal fee will be.
@@ -622,34 +594,37 @@ func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
 		// local+remote nonces so we can properly create a new musig
 		// session for signing.
 		if c.cfg.Channel.ChanType().IsTaproot() {
-			if shutdownMsg.ShutdownNonce == nil {
-				return nil, false, fmt.Errorf("shutdown " +
+			if msg.ShutdownNonce == nil {
+				return noShutdown, fmt.Errorf("shutdown " +
 					"nonce not populated")
 			}
 
 			c.cfg.MusigSession.InitRemoteNonce(&musig2.Nonces{
-				PubNonce: *shutdownMsg.ShutdownNonce,
+				PubNonce: *msg.ShutdownNonce,
 			})
 		}
 
-		chancloserLog.Infof("ChannelPoint(%v): shutdown response received, "+
-			"entering fee negotiation", c.chanPoint)
+		chancloserLog.Infof("ChannelPoint(%v): shutdown response "+
+			"received, entering fee negotiation", c.chanPoint)
 
-		// Starting with our ideal fee rate, we'll create an initial closing
-		// proposal, but only if we're the initiator, as otherwise, the other
-		// party will send their initial proposal first.
-		if c.cfg.Channel.IsInitiator() {
-			closeSigned, err := c.proposeCloseSigned(c.idealFeeSat)
-			if err != nil {
-				return nil, false, fmt.Errorf("unable to sign "+
-					"new co op close offer: %w", err)
-			}
+		return noShutdown, nil
 
-			return []lnwire.Message{closeSigned}, false, nil
-		}
+	default:
+		// Otherwise we are not in a state where we can accept this
+		// message.
+		return noShutdown, ErrInvalidState
+	}
+}
 
-		return nil, false, nil
+// ProcessCloseMsg attempts to process the next message in the closing series.
+// This method will update the state accordingly and return two primary values:
+// the next set of messages to be sent, and a bool indicating if the fee
+// negotiation process has completed. If the second value is true, then this
+// means the ChanCloser can be garbage collected.
+func (c *ChanCloser) ProcessCloseMsg(msg lnwire.Message) ([]lnwire.Message,
+	bool, error) {
 
+	switch c.state {
 	// If we're receiving a message while we're in the fee negotiation phase,
 	// then this indicates the remote party is responding to a close signed
 	// message we sent, or kicking off the process with their own.

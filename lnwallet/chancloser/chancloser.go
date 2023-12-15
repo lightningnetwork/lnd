@@ -345,16 +345,6 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 			c.chanPoint, err)
 	}
 
-	// Before continuing, mark the channel as cooperatively closed with a
-	// nil txn. Even though we haven't negotiated the final txn, this
-	// guarantees that our listchannels rpc will be externally consistent,
-	// and reflect that the channel is being shutdown by the time the
-	// closing request returns.
-	err := c.cfg.Channel.MarkCoopBroadcasted(nil, c.locallyInitiated)
-	if err != nil {
-		return nil, err
-	}
-
 	chancloserLog.Infof("ChannelPoint(%v): sending shutdown message",
 		c.chanPoint)
 
@@ -626,6 +616,18 @@ func (c *ChanCloser) BeginNegotiation() (
 		// Now that we know their desired delivery script, we can
 		// compute what our max/ideal fee will be.
 		c.initFeeBaseline()
+
+		// Before continuing, mark the channel as cooperatively closed
+		// with a nil txn. Even though we haven't negotiated the final
+		// txn, this guarantees that our listchannels rpc will be
+		// externally consistent, and reflect that the channel is being
+		// shutdown by the time the closing request returns.
+		err := c.cfg.Channel.MarkCoopBroadcasted(
+			nil, c.locallyInitiated,
+		)
+		if err != nil {
+			return noClosingSigned, err
+		}
 
 		// At this point, we can now start the fee negotiation state, by
 		// constructing and sending our initial signature for what we

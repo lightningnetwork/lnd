@@ -70,6 +70,11 @@ const (
 	// phase.
 	closeShutdownInitiated
 
+	// closeAwaitingFlush is the state that's transitioned to once both
+	// Shutdown messages have been exchanged but we are waiting for the
+	// HTLCs to clear out of the channel.
+	closeAwaitingFlush
+
 	// closeFeeNegotiation is the third, and most persistent state. Both
 	// parties enter this state after they've sent and received a shutdown
 	// message. During this phase, both sides will send monotonically

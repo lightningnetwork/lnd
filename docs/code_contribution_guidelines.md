@@ -331,7 +331,7 @@ Examples of common patterns w.r.t commit structures within the project:
   * Project or package wide file renamings should be in their own commit.
   * Ideally if a new package/struct/sub-system is added in a PR, there should
     be a single commit which adds the new functionality, with follow up
-    induvidual commits that begin to intergrate the functionality within the
+    individual commits that begin to integrate the functionality within the
     codebase.
   * If a PR only fixes a trivial issue, such as updating documentation on a
     small scale, fix typos, or any changes that do not modify the code, the

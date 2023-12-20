@@ -4801,6 +4801,19 @@ func (lc *LightningChannel) computeView(view *htlcView, remoteChain bool,
 	}
 	feePerKw := filteredHTLCView.feePerKw
 
+	// We need to first check ourBalance and theirBalance to be negative
+	// because MilliSathoshi is a unsigned type and can underflow in
+	// `evaluateHTLCView`. This should never happen for views which do not
+	// include new updates (remote or local).
+	if int64(ourBalance) < 0 {
+		err := fmt.Errorf("%w: our balance", ErrBelowChanReserve)
+		return 0, 0, 0, nil, err
+	}
+	if int64(theirBalance) < 0 {
+		err := fmt.Errorf("%w: their balance", ErrBelowChanReserve)
+		return 0, 0, 0, nil, err
+	}
+
 	// Now go through all HTLCs at this stage, to calculate the total
 	// weight, needed to calculate the transaction fee.
 	var totalHtlcWeight int64

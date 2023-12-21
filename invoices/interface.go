@@ -77,7 +77,7 @@ type InvoiceDB interface {
 	// DeleteInvoice attempts to delete the passed invoices from the
 	// database in one transaction. The passed delete references hold all
 	// keys required to delete the invoices without also needing to
-	// deserialze them.
+	// deserialize them.
 	DeleteInvoice(ctx context.Context,
 		invoicesToDelete []InvoiceDeleteRef) error
 

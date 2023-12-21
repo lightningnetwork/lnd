@@ -143,7 +143,7 @@ func initSupported(features featureSet) supportedFeatures {
 }
 
 // mapToOptional returns the optional variant of a given feature bit pair. Our
-// dependendency graph is described using only optional feature bits, which
+// dependency graph is described using only optional feature bits, which
 // reduces the number of constraints we need to express in the descriptor.
 func mapToOptional(bit lnwire.FeatureBit) lnwire.FeatureBit {
 	if bit.IsRequired() {

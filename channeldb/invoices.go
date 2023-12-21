@@ -2812,7 +2812,7 @@ func (d *DB) DeleteCanceledInvoices(_ context.Context) error {
 
 // DeleteInvoice attempts to delete the passed invoices from the database in
 // one transaction. The passed delete references hold all keys required to
-// delete the invoices without also needing to deserialze them.
+// delete the invoices without also needing to deserialize them.
 func (d *DB) DeleteInvoice(_ context.Context,
 	invoicesToDelete []invpkg.InvoiceDeleteRef) error {
 

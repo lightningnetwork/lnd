@@ -1932,7 +1932,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 	// if both are set.
 	if in.FundingShim != nil && in.FundMax {
 		return nil, fmt.Errorf("cannot provide a psbt funding shim " +
-			"while committing the maxium wallet balance towards " +
+			"while committing the maximum wallet balance towards " +
 			"the channel opening")
 	}
 

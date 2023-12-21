@@ -2883,7 +2883,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 		return nil, fmt.Errorf("cannot obtain best block")
 	}
 
-	// The req will only be set if we initaited the co-op closing flow.
+	// The req will only be set if we initiated the co-op closing flow.
 	var maxFee chainfee.SatPerKWeight
 	if req != nil {
 		maxFee = req.MaxFee

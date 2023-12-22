@@ -242,6 +242,39 @@ func TestSuccessProbability(t *testing.T) {
 	})
 }
 
+// TestSmallScale tests that the probability formula works with small scale
+// values.
+func TestSmallScale(t *testing.T) {
+	var (
+		// We use the smallest possible scale value together with a
+		// large capacity. This is an extreme form of a bimodal
+		// distribution.
+		scale    lnwire.MilliSatoshi = 1
+		capacity lnwire.MilliSatoshi = 7e+09
+
+		// Success and failure amounts are chosen such that the expected
+		// balance must be somewhere in the middle of the channel, a
+		// value not expected when dealing with a bimodal distribution.
+		// In this case, the bimodal model fails to give good forecasts
+		// due to the numerics of the exponential functions, which get
+		// evaluated to exact zero floats.
+		successAmount lnwire.MilliSatoshi = 1.0e+09
+		failAmount    lnwire.MilliSatoshi = 4.0e+09
+	)
+
+	estimator := BimodalEstimator{
+		BimodalConfig: BimodalConfig{BimodalScaleMsat: scale},
+	}
+
+	// An amount that's close to the success amount should have a very high
+	// probability.
+	amtCloseSuccess := successAmount + 1
+	_, err := estimator.probabilityFormula(
+		capacity, successAmount, failAmount, amtCloseSuccess,
+	)
+	require.ErrorContains(t, err, "normalization factor is zero")
+}
+
 // TestIntegral tests certain limits of the probability distribution integral.
 func TestIntegral(t *testing.T) {
 	t.Parallel()

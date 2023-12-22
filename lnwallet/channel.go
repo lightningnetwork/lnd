@@ -4438,7 +4438,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	case msg.NextLocalCommitHeight > remoteTipHeight+1:
 		lc.log.Errorf("sync failed: remote's next commit height is %v, "+
 			"while we believe it is %v!",
-			msg.NextLocalCommitHeight, remoteTipHeight)
+			msg.NextLocalCommitHeight, remoteTipHeight+1)
 
 		return nil, nil, nil, ErrCannotSyncCommitChains
 
@@ -4446,7 +4446,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	case msg.NextLocalCommitHeight <= remoteTailHeight:
 		lc.log.Errorf("sync failed: remote's next commit height is %v, "+
 			"while we believe it is %v!",
-			msg.NextLocalCommitHeight, remoteTipHeight)
+			msg.NextLocalCommitHeight, remoteTipHeight+1)
 
 		// They previously ACKed our current tail, and now they are
 		// waiting for it. They probably lost state.

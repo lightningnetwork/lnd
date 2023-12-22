@@ -416,34 +416,38 @@ func cannotSend(failAmount, capacity lnwire.MilliSatoshi, now,
 
 // primitive computes the indefinite integral of our assumed (normalized)
 // liquidity probability distribution. The distribution of liquidity x here is
-// the function P(x) ~ exp(-x/s) + exp((x-c)/s), i.e., two exponentials residing
-// at the ends of channels. This means that we expect liquidity to be at either
-// side of the channel with capacity c. The s parameter (scale) defines how far
-// the liquidity leaks into the channel. A very low scale assumes completely
-// unbalanced channels, a very high scale assumes a random distribution. More
-// details can be found in
+// the function P(x) ~ exp(-x/s) + exp((x-c)/s) + 1/c, i.e., two exponentials
+// residing at the ends of channels. This means that we expect liquidity to be
+// at either side of the channel with capacity c. The s parameter (scale)
+// defines how far the liquidity leaks into the channel. A very low scale
+// assumes completely unbalanced channels, a very high scale assumes a random
+// distribution. More details can be found in
 // https://github.com/lightningnetwork/lnd/issues/5988#issuecomment-1131234858.
+// Additionally, we add a constant term 1/c to the distribution to avoid
+// normalization issues and to fall back to a uniform distribution should the
+// previous success and fail amounts contradict a bimodal distribution.
 func (p *BimodalEstimator) primitive(c, x float64) float64 {
 	s := float64(p.BimodalScaleMsat)
 
 	// The indefinite integral of P(x) is given by
-	// Int P(x) dx = H(x) = s * (-e(-x/s) + e((x-c)/s)),
+	// Int P(x) dx = H(x) = s * (-e(-x/s) + e((x-c)/s) + x/(c*s)),
 	// and its norm from 0 to c can be computed from it,
-	// norm = [H(x)]_0^c = s * (-e(-c/s) + 1 -(1 + e(-c/s))).
+	// norm = [H(x)]_0^c = s * (-e(-c/s) + 1 + 1/s -(-1 + e(-c/s))) =
+	// = s * (-2*e(-c/s) + 2 + 1/s).
+	// The prefactors s are left out, as they cancel out in the end.
+	// norm can only become zero, if c is zero, which we sorted out before
+	// calling this method.
 	ecs := math.Exp(-c / s)
-	exs := math.Exp(-x / s)
+	norm := -2*ecs + 2 + 1/s
 
 	// It would be possible to split the next term and reuse the factors
 	// from before, but this can lead to numerical issues with large
 	// numbers.
 	excs := math.Exp((x - c) / s)
-
-	// norm can only become zero, if c is zero, which we sorted out before
-	// calling this method.
-	norm := -2*ecs + 2
+	exs := math.Exp(-x / s)
 
 	// We end up with the primitive function of the normalized P(x).
-	return (-exs + excs) / norm
+	return (-exs + excs + x/(c*s)) / norm
 }
 
 // integral computes the integral of our liquidity distribution from the lower

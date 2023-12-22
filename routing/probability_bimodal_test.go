@@ -269,10 +269,30 @@ func TestSmallScale(t *testing.T) {
 	// An amount that's close to the success amount should have a very high
 	// probability.
 	amtCloseSuccess := successAmount + 1
-	_, err := estimator.probabilityFormula(
+	p, err := estimator.probabilityFormula(
 		capacity, successAmount, failAmount, amtCloseSuccess,
 	)
-	require.ErrorContains(t, err, "normalization factor is zero")
+	require.NoError(t, err)
+	require.InDelta(t, 1.0, p, defaultTolerance)
+
+	// An amount that's close to the fail amount should have a very low
+	// probability.
+	amtCloseFail := failAmount - 1
+	p, err = estimator.probabilityFormula(
+		capacity, successAmount, failAmount, amtCloseFail,
+	)
+	require.NoError(t, err)
+	require.InDelta(t, 0.0, p, defaultTolerance)
+
+	// In the region where the bimodal model doesn't give good forecasts, we
+	// fall back to a uniform model, which interpolates probabilities
+	// linearly.
+	amtLinear := successAmount + (failAmount-successAmount)*1/4
+	p, err = estimator.probabilityFormula(
+		capacity, successAmount, failAmount, amtLinear,
+	)
+	require.NoError(t, err)
+	require.InDelta(t, 0.75, p, defaultTolerance)
 }
 
 // TestIntegral tests certain limits of the probability distribution integral.

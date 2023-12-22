@@ -525,6 +525,11 @@ func (p *BimodalEstimator) probabilityFormula(capacityMsat, successAmountMsat,
 		return 0.0, nil
 	}
 
+	// We can send the amount if it is smaller than the success amount.
+	if amount <= successAmount {
+		return 1.0, nil
+	}
+
 	// The success probability for payment amount a is the integral over the
 	// prior distribution P(x), the probability to find liquidity between
 	// the amount a and channel capacity c (or failAmount a_f):

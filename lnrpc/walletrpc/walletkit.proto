@@ -1,9 +1,9 @@
 syntax = "proto3";
 
+package walletrpc;
+
 import "lightning.proto";
 import "signrpc/signer.proto";
-
-package walletrpc;
 
 option go_package = "github.com/lightningnetwork/lnd/lnrpc/walletrpc";
 

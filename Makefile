@@ -280,6 +280,11 @@ lint: docker-tools
 	@$(call print, "Linting source.")
 	$(DOCKER_TOOLS) golangci-lint run -v $(LINT_WORKERS)
 
+#? protolint: Lint proto files using protolint
+protolint:
+	@$(call print, "Linting proto files.")
+	docker run --rm --volume "$$(pwd):/workspace" --workdir /workspace yoheimuta/protolint lint lnrpc/
+
 #? tidy-module: Run `go mod` tidy for all modules
 tidy-module:
 	echo "Running 'go mod tidy' for all modules"

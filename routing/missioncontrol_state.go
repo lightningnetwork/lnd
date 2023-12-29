@@ -16,10 +16,6 @@ type missionControlState struct {
 	// particular node.
 	lastPairResult map[route.Vertex]NodeResults
 
-	// lastSecondChance tracks the last time a second chance was granted for
-	// a directed node pair.
-	lastSecondChance map[DirectedNodePair]time.Time
-
 	// minFailureRelaxInterval is the minimum time that must have passed
 	// since the previously recorded failure before the failure amount may
 	// be raised.
@@ -32,7 +28,6 @@ func newMissionControlState(
 
 	return &missionControlState{
 		lastPairResult:          make(map[route.Vertex]NodeResults),
-		lastSecondChance:        make(map[DirectedNodePair]time.Time),
 		minFailureRelaxInterval: minFailureRelaxInterval,
 	}
 }
@@ -49,7 +44,6 @@ func (m *missionControlState) getLastPairResult(node route.Vertex) (NodeResults,
 // if no payment attempts have been made.
 func (m *missionControlState) resetHistory() {
 	m.lastPairResult = make(map[route.Vertex]NodeResults)
-	m.lastSecondChance = make(map[DirectedNodePair]time.Time)
 }
 
 // setLastPairResult stores a result for a node pair.
@@ -151,37 +145,6 @@ func (m *missionControlState) setAllFail(node route.Vertex,
 			}
 		}
 	}
-}
-
-// requestSecondChance checks whether the node fromNode can have a second chance
-// at providing a channel update for its channel with toNode.
-func (m *missionControlState) requestSecondChance(timestamp time.Time,
-	fromNode, toNode route.Vertex) bool {
-
-	// Look up previous second chance time.
-	pair := DirectedNodePair{
-		From: fromNode,
-		To:   toNode,
-	}
-	lastSecondChance, ok := m.lastSecondChance[pair]
-
-	// If the channel hasn't already be given a second chance or its last
-	// second chance was long ago, we give it another chance.
-	if !ok || timestamp.Sub(lastSecondChance) > minSecondChanceInterval {
-		m.lastSecondChance[pair] = timestamp
-
-		log.Debugf("Second chance granted for %v->%v", fromNode, toNode)
-
-		return true
-	}
-
-	// Otherwise penalize the channel, because we don't allow channel
-	// updates that are that frequent. This is to prevent nodes from keeping
-	// us busy by continuously sending new channel updates.
-	log.Debugf("Second chance denied for %v->%v, remaining interval: %v",
-		fromNode, toNode, timestamp.Sub(lastSecondChance))
-
-	return false
 }
 
 // GetHistorySnapshot takes a snapshot from the current mission control state

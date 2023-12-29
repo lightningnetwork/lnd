@@ -67,11 +67,6 @@ type interpretedResult struct {
 	// sense to start another payment attempt. It will contain the reason
 	// why.
 	finalFailureReason *channeldb.FailureReason
-
-	// policyFailure is set to a node pair if there is a policy failure on
-	// that connection. This is used to control the second chance logic for
-	// policy failures.
-	policyFailure *DirectedNodePair
 }
 
 // interpretResult interprets a payment outcome and returns an object that
@@ -338,14 +333,6 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 	// Some implementations use this error when the next hop is offline, so we
 	// do the same as FailUnknownNextPeer and also process the channel update.
 	case *lnwire.FailChannelDisabled:
-
-		// Set the node pair for which a channel update may be out of
-		// date. The second chance logic uses the policyFailure field.
-		i.policyFailure = &DirectedNodePair{
-			From: route.Hops[errorSourceIdx-1].PubKeyBytes,
-			To:   route.Hops[errorSourceIdx].PubKeyBytes,
-		}
-
 		reportOutgoing()
 
 		// All nodes up to the failing pair must have forwarded
@@ -367,13 +354,6 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 	case *lnwire.FailAmountBelowMinimum,
 		*lnwire.FailFeeInsufficient,
 		*lnwire.FailIncorrectCltvExpiry:
-
-		// Set the node pair for which a channel update may be out of
-		// date. The second chance logic uses the policyFailure field.
-		i.policyFailure = &DirectedNodePair{
-			From: route.Hops[errorSourceIdx-1].PubKeyBytes,
-			To:   route.Hops[errorSourceIdx].PubKeyBytes,
-		}
 
 		// We report incoming channel. If a second pair is granted in
 		// mission control, this report is ignored.

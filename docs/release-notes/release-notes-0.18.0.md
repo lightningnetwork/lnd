@@ -170,6 +170,13 @@
   be switched off using the new `protocol.no-timestamp-query-option` config 
   option. 
 
+* [Update min_final_cltv_expiry_delta](https://github.com/lightningnetwork/lnd/pull/8308).
+  This only effects external invoices which do not supply the 
+  min_final_cltv_expiry parameter. LND has NOT allowed the creation of invoices
+  with a lower min_final_cltv_expiry_delta value than 18 blocks since
+  LND 0.11.0.
+
+
 ## Testing
 
 * Added fuzz tests for [onion

@@ -380,7 +380,7 @@ func testKeyClash(t *testing.T, db walletdb.DB) {
 }
 
 // TestBucketCreateDelete tests that creating then deleting then creating a
-// bucket suceeds.
+// bucket succeeds.
 func testBucketCreateDelete(t *testing.T, db walletdb.DB) {
 	err := Update(db, func(tx walletdb.ReadWriteTx) error {
 		apple, err := tx.CreateTopLevelBucket([]byte("apple"))

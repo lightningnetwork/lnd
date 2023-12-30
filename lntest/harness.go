@@ -175,7 +175,7 @@ func (h *HarnessTest) Context() context.Context {
 // node's wallets will be funded wallets with 10x10 BTC outputs each.
 func (h *HarnessTest) SetupStandbyNodes() {
 	h.Log("Setting up standby nodes Alice and Bob...")
-	defer h.Log("Finshed the setup, now running tests...")
+	defer h.Log("Finished the setup, now running tests...")
 
 	lndArgs := []string{
 		"--default-remote-max-htlcs=483",

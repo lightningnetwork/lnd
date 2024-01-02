@@ -15,6 +15,10 @@ const (
 	largeAmount = lnwire.MilliSatoshi(5_000_000_000)
 	capacity    = lnwire.MilliSatoshi(10_000_000_000)
 	scale       = lnwire.MilliSatoshi(400_000_000)
+
+	// defaultTolerance is the default absolute tolerance for comparing
+	// probability calculations to expected values.
+	defaultTolerance = 0.001
 )
 
 // TestSuccessProbability tests that we get correct probability estimates for
@@ -25,7 +29,6 @@ func TestSuccessProbability(t *testing.T) {
 	tests := []struct {
 		name                string
 		expectedProbability float64
-		tolerance           float64
 		successAmount       lnwire.MilliSatoshi
 		failAmount          lnwire.MilliSatoshi
 		amount              lnwire.MilliSatoshi
@@ -78,7 +81,6 @@ func TestSuccessProbability(t *testing.T) {
 			failAmount:          capacity,
 			amount:              smallAmount,
 			expectedProbability: 0.684,
-			tolerance:           0.001,
 		},
 		// If we had an unsettled success, we are sure we can send a
 		// lower amount.
@@ -110,7 +112,6 @@ func TestSuccessProbability(t *testing.T) {
 			failAmount:          capacity,
 			amount:              smallAmount,
 			expectedProbability: 0.851,
-			tolerance:           0.001,
 		},
 		// If we had a large unsettled success before, we know we can
 		// send even larger payments with high probability.
@@ -122,7 +123,6 @@ func TestSuccessProbability(t *testing.T) {
 			failAmount:          capacity,
 			amount:              largeAmount,
 			expectedProbability: 0.998,
-			tolerance:           0.001,
 		},
 		// If we had a failure before, we can't send with the fail
 		// amount.
@@ -151,7 +151,6 @@ func TestSuccessProbability(t *testing.T) {
 			failAmount:          largeAmount,
 			amount:              smallAmount,
 			expectedProbability: 0.368,
-			tolerance:           0.001,
 		},
 		// From here on we deal with mixed previous successes and
 		// failures.
@@ -183,7 +182,6 @@ func TestSuccessProbability(t *testing.T) {
 			successAmount:       smallAmount,
 			amount:              smallAmount + largeAmount/10,
 			expectedProbability: 0.287,
-			tolerance:           0.001,
 		},
 		// We still can't send the fail amount.
 		{
@@ -228,7 +226,7 @@ func TestSuccessProbability(t *testing.T) {
 				test.failAmount, test.amount,
 			)
 			require.InDelta(t, test.expectedProbability, p,
-				test.tolerance)
+				defaultTolerance)
 			require.NoError(t, err)
 		})
 	}

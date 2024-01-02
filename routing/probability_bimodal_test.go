@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	smallAmount = lnwire.MilliSatoshi(400_000)
-	largeAmount = lnwire.MilliSatoshi(5_000_000)
-	capacity    = lnwire.MilliSatoshi(10_000_000)
-	scale       = lnwire.MilliSatoshi(400_000)
+	smallAmount = lnwire.MilliSatoshi(400_000_000)
+	largeAmount = lnwire.MilliSatoshi(5_000_000_000)
+	capacity    = lnwire.MilliSatoshi(10_000_000_000)
+	scale       = lnwire.MilliSatoshi(400_000_000)
 )
 
 // TestSuccessProbability tests that we get correct probability estimates for
@@ -689,7 +689,7 @@ func TestLocalPairProbability(t *testing.T) {
 // FuzzProbability checks that we don't encounter errors related to NaNs.
 func FuzzProbability(f *testing.F) {
 	estimator := BimodalEstimator{
-		BimodalConfig: BimodalConfig{BimodalScaleMsat: scale},
+		BimodalConfig: BimodalConfig{BimodalScaleMsat: 400_000},
 	}
 
 	f.Fuzz(func(t *testing.T, capacity, successAmt, failAmt, amt uint64) {

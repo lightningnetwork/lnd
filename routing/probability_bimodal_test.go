@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	smallAmount = lnwire.MilliSatoshi(400_000)
-	largeAmount = lnwire.MilliSatoshi(5_000_000)
-	capacity    = lnwire.MilliSatoshi(10_000_000)
-	scale       = lnwire.MilliSatoshi(400_000)
+	smallAmount = lnwire.MilliSatoshi(400_000_000)
+	largeAmount = lnwire.MilliSatoshi(5_000_000_000)
+	capacity    = lnwire.MilliSatoshi(10_000_000_000)
+	scale       = lnwire.MilliSatoshi(400_000_000)
 )
 
 // TestSuccessProbability tests that we get correct probability estimates for

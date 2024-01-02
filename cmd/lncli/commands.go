@@ -766,7 +766,7 @@ var closeChannelCommand = cli.Command{
 	To view which funding_txids/output_indexes can be used for a channel close,
 	see the channel_point values within the listchannels command output.
 	The format for a channel_point is 'funding_txid:output_index'.`,
-	ArgsUsage: "funding_txid [output_index]",
+	ArgsUsage: "funding_txid output_index",
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name:  "funding_txid",

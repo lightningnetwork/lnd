@@ -66,6 +66,10 @@ type UtxoSweeper interface {
 	// original sweeping transaction, if any.
 	UpdateParams(input wire.OutPoint, params sweep.ParamsUpdate) (
 		chan sweep.Result, error)
+
+	// MaxSweepFeeRate returns the maximum feerate for a given input witness
+	// type.
+	MaxSweepFeeRate(witnessType input.WitnessType) chainfee.SatPerKWeight
 }
 
 // HtlcNotifier defines the notification functions that contract court requires.

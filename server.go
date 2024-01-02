@@ -1058,21 +1058,24 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		srvrLog.Errorf("unable to create sweeper store: %v", err)
 		return nil, err
 	}
-
+	//nolint:lll
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
-		FeeEstimator:         cc.FeeEstimator,
-		DetermineFeePerKw:    sweep.DetermineFeePerKw,
-		GenSweepScript:       newSweepPkScriptGen(cc.Wallet),
-		Signer:               cc.Wallet.Cfg.Signer,
-		Wallet:               newSweeperWallet(cc.Wallet),
-		TickerDuration:       cfg.Sweeper.BatchWindowDuration,
-		Notifier:             cc.ChainNotifier,
-		Store:                sweeperStore,
-		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,
-		MaxSweepAttempts:     sweep.DefaultMaxSweepAttempts,
-		NextAttemptDeltaFunc: sweep.DefaultNextAttemptDeltaFunc,
-		MaxFeeRate:           cfg.Sweeper.MaxFeeRate,
-		FeeRateBucketSize:    sweep.DefaultFeeRateBucketSize,
+		FeeEstimator:               cc.FeeEstimator,
+		DetermineFeePerKw:          sweep.DetermineFeePerKw,
+		GenSweepScript:             newSweepPkScriptGen(cc.Wallet),
+		Signer:                     cc.Wallet.Cfg.Signer,
+		Wallet:                     newSweeperWallet(cc.Wallet),
+		TickerDuration:             cfg.Sweeper.BatchWindowDuration,
+		Notifier:                   cc.ChainNotifier,
+		Store:                      sweeperStore,
+		MaxInputsPerTx:             sweep.DefaultMaxInputsPerTx,
+		MaxSweepAttempts:           sweep.DefaultMaxSweepAttempts,
+		NextAttemptDeltaFunc:       sweep.DefaultNextAttemptDeltaFunc,
+		MaxFeeRate:                 cfg.Sweeper.MaxFeeRate,
+		FeeRateBucketSize:          sweep.DefaultFeeRateBucketSize,
+		MaxNonTimeSensitiveFeeRate: cfg.Sweeper.MaxNonTimeSensitiveSweepFeeRate.FeePerKWeight(),
+		MaxTimeSensitiveFeeRate:    cfg.Sweeper.MaxTimeSensitiveSweepFeeRate.FeePerKWeight(),
+		MaxAnchorFeerate:           cfg.Sweeper.MaxAnchorFeerate.FeePerKWeight(),
 	})
 
 	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{
@@ -1084,6 +1087,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PublishTransaction:  cc.Wallet.PublishTransaction,
 		Store:               utxnStore,
 		SweepInput:          s.sweeper.SweepInput,
+		MaxSweepFeeRate:     s.sweeper.MaxSweepFeeRate,
 	})
 
 	// Construct a closure that wraps the htlcswitch's CloseLink method.

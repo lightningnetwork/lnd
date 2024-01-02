@@ -164,6 +164,24 @@ func (s *mockSweeper) UpdateParams(input wire.OutPoint,
 	return result, nil
 }
 
+func (s *mockSweeper) MaxSweepFeeRate(
+	witnessType input.WitnessType) chainfee.SatPerKWeight {
+
+	var maxFeeRate = sweep.DefaultMaxFeeRate.FeePerKWeight()
+
+	switch witnessType {
+	// For non timesensitive sweeps we cap the maximum feerate.
+	case input.CommitSpendNoDelayTweakless,
+		input.CommitmentNoDelay, input.CommitmentToRemoteConfirmed,
+		input.CommitmentTimeLock, input.HtlcOfferedTimeoutSecondLevel,
+		input.HtlcAcceptedSuccessSecondLevel:
+
+		maxFeeRate = 2500
+	}
+
+	return maxFeeRate
+}
+
 var _ UtxoSweeper = &mockSweeper{}
 
 // TestCommitSweepResolverNoDelay tests resolution of a direct commitment output

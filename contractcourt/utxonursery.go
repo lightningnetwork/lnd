@@ -18,6 +18,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
@@ -204,6 +205,10 @@ type NurseryConfig struct {
 
 	// Sweep sweeps an input back to the wallet.
 	SweepInput func(input.Input, sweep.Params) (chan sweep.Result, error)
+
+	// MaxSweepFeeRate gets the max feerate for sweeping a specific input
+	// type.
+	MaxSweepFeeRate func(input.WitnessType) chainfee.SatPerKWeight
 }
 
 // UtxoNursery is a system dedicated to incubating time-locked outputs created
@@ -355,7 +360,7 @@ func (u *UtxoNursery) IncubateOutputs(chanPoint wire.OutPoint,
 	numHtlcs := len(incomingHtlcs) + len(outgoingHtlcs)
 	var (
 		// Kid outputs can be swept after an initial confirmation
-		// followed by a maturity period.Baby outputs are two stage and
+		// followed by a maturity period. Baby outputs are two stage and
 		// will need to wait for an absolute time out to reach a
 		// confirmation, then require a relative confirmation delay.
 		kidOutputs  = make([]kidOutput, 0, 1+len(incomingHtlcs))
@@ -828,11 +833,17 @@ func (u *UtxoNursery) sweepMatureOutputs(classHeight uint32,
 		// Create local copy to prevent pointer to loop variable to be
 		// passed in with disastrous consequences.
 		local := output
+		// Add a feelimit for the specific input types.
+		maxSweepFeeRate := u.cfg.MaxSweepFeeRate(local.WitnessType())
 
-		resultChan, err := u.cfg.SweepInput(&local, sweep.Params{
-			Fee:   feePref,
-			Force: true,
-		})
+		// Fee force the sweep to make sure htlcs on the remote commit
+		// tx are sweept freeing potential incoming htlcs.
+		resultChan, err := u.cfg.SweepInput(
+			&local, sweep.Params{Fee: feePref,
+				MaxSweepFeeRate: maxSweepFeeRate,
+				Force:           true,
+			},
+		)
 		if err != nil {
 			return err
 		}

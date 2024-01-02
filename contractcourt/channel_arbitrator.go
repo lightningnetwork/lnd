@@ -1356,14 +1356,18 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 		// will only be attempted to sweep when the current fee
 		// estimate for the confirmation target exceeds the commit fee
 		// rate.
+		maxFeeRate := c.cfg.Sweeper.MaxSweepFeeRate(
+			anchorInput.WitnessType(),
+		)
 		_, err = c.cfg.Sweeper.SweepInput(
 			&anchorInput,
 			sweep.Params{
 				Fee: sweep.FeePreference{
 					ConfTarget: deadline,
 				},
-				Force:          force,
-				ExclusiveGroup: &exclusiveGroup,
+				MaxSweepFeeRate: maxFeeRate,
+				Force:           force,
+				ExclusiveGroup:  &exclusiveGroup,
 			},
 		)
 		if err != nil {

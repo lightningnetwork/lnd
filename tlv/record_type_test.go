@@ -63,6 +63,10 @@ type coolWireMsg struct {
 	CsvDelay RecordT[TlvType1, wireCsv]
 }
 
+type coolWireMsgDiffContext struct {
+	CsvDelay RecordT[TlvType3, wireCsv]
+}
+
 // TestRecordTFromRecord tests that we can create a RecordT type from an
 // existing record type and encode/decode as normal.
 func TestRecordTFromRecord(t *testing.T) {
@@ -90,4 +94,25 @@ func TestRecordTFromRecord(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, wireMsg, wireMsg2)
+}
+
+// TestRecordTFromRecordTypeOverride tests that we can create a RecordT type
+// from an existing record type and encode/decode as normal. In this variant,
+// we make sure that we can use the type system to override the type of an
+// original record.
+func TestRecordTFromRecordTypeOverride(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll make a new wire message. Instead of using the TLV type
+	// of 1 (hard coded in the Record() method defined above), we'll
+	// instead use TLvType3, as we want to use the same encode/decode, but
+	// in a context with a different integer type.
+	val := wireCsv(5)
+	wireMsg := coolWireMsgDiffContext{
+		CsvDelay: NewRecordT[TlvType3](val),
+	}
+
+	// If we extract the record, we should see that the type is now 3.
+	tlvRecord := wireMsg.CsvDelay.Record()
+	require.Equal(t, tlvRecord.Type(), Type(3))
 }

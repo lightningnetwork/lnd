@@ -40,6 +40,8 @@ type mockArbitratorLog struct {
 	failCommitState ArbitratorState
 	resolutions     *ContractResolutions
 	resolvers       map[ContractResolver]struct{}
+	localFCInfo     channeldb.LocalForceCloseInitiator
+	fcChainActions  map[string][]channeldb.HTLC
 
 	commitSet *CommitSet
 
@@ -134,6 +136,20 @@ func (b *mockArbitratorLog) FetchChainActions() (ChainActionMap, error) {
 	return nil, nil
 }
 
+func (b *mockArbitratorLog) LogLocalForceCloseInitiator(
+	init channeldb.LocalForceCloseInitiator) error {
+
+	b.localFCInfo = init
+	return nil
+}
+
+func (b *mockArbitratorLog) FetchLocalForceCloseInitiator() (
+	channeldb.LocalForceCloseInitiator,
+	error) {
+
+	return b.localFCInfo, nil
+}
+
 func (b *mockArbitratorLog) InsertConfirmedCommitSet(c *CommitSet) error {
 	b.commitSet = c
 	return nil
@@ -145,6 +161,24 @@ func (b *mockArbitratorLog) FetchConfirmedCommitSet(kvdb.RTx) (*CommitSet, error
 
 func (b *mockArbitratorLog) WipeHistory() error {
 	return nil
+}
+
+func (b *mockArbitratorLog) LogLocalFCChainActions(
+	chainActions ChainActionMap) {
+
+	htlcMap := make(map[string][]channeldb.HTLC)
+	for action, htlcs := range chainActions {
+		htlcMap[action.String()] = htlcs
+	}
+
+	b.fcChainActions = htlcMap
+}
+
+func (b *mockArbitratorLog) FetchLocalFCChainActions() (
+	map[string][]channeldb.HTLC,
+	error) {
+
+	return b.fcChainActions, nil
 }
 
 // testArbLog is a wrapper around an existing (ideally fully concrete
@@ -405,7 +439,9 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 			resolvedChan <- struct{}{}
 			return nil
 		},
-		MarkCommitmentBroadcasted: func(_ *wire.MsgTx, _ bool) error {
+		MarkCommitmentBroadcasted: func(_ *wire.MsgTx,
+			_ *channeldb.LocalForceCloseInsights) error {
+
 			return nil
 		},
 		MarkChannelClosed: func(*channeldb.ChannelCloseSummary,

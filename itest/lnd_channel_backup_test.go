@@ -191,8 +191,8 @@ func (c *chanRestoreScenario) testScenario(ht *lntest.HarnessTest,
 	// peer was established yet. We should also not be able to close the
 	// channel.
 	channel := ht.AssertNumWaitingClose(dave, 1)[0]
+	require.Nil(ht, channel.Channel.LocalFirstCloseInsights)
 	chanPointStr := channel.Channel.ChannelPoint
-
 	// We also want to make sure we cannot force close in this state. That
 	// would get the state machine in a weird state.
 	chanPointParts := strings.Split(chanPointStr, ":")

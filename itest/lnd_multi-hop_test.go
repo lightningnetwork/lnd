@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainreg"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -239,6 +240,8 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	)
 	ht.MineBlocks(numBlocks)
 
+	_, expectedBroadcastHeight := ht.Miner.GetBestBlock()
+
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
 	expectedTxes := 1
@@ -292,6 +295,24 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	require.Equal(ht, 1, len(forceCloseChan.PendingHtlcs))
 	require.Equal(ht, uint32(2), forceCloseChan.PendingHtlcs[0].Stage)
 
+	// Test force close insights.
+	require.NotNil(ht, forceCloseChan.Channel.LocalFirstCloseInsights)
+	localFCInfo := forceCloseChan.Channel.LocalFirstCloseInsights.
+		LocalForceCloseInitiator
+	chainActions := forceCloseChan.Channel.LocalFirstCloseInsights.
+		LocalForceCloseChainActions
+	chainInitiated := channeldb.ChainActionsInitiated
+	require.Equal(ht, chainInitiated.String(), localFCInfo)
+	require.Equal(ht, len(chainActions), 2)
+	require.Contains(ht, chainActions, "HtlcTimeoutAction")
+	require.Contains(ht, chainActions["HtlcTimeoutAction"].Hash, payHash)
+	require.Contains(ht, chainActions, "HtlcFailNowAction")
+	require.Contains(ht, chainActions["HtlcFailNowAction"].Hash,
+		dustPayHash)
+	require.Equal(ht, uint32(expectedBroadcastHeight),
+		forceCloseChan.Channel.LocalFirstCloseInsights.
+			LocalForceCloseBroadcastHeight)
+
 	htlcTimeoutOutpoint := wire.OutPoint{Hash: htlcTimeoutTxid, Index: 0}
 	if c == lnrpc.CommitmentType_SCRIPT_ENFORCED_LEASE {
 		// Since Bob is the initiator of the script-enforced leased
@@ -334,6 +355,17 @@ func runMultiHopHtlcLocalTimeout(ht *lntest.HarnessTest,
 	// Once this transaction has been confirmed, Bob should detect that he
 	// no longer has any pending channels.
 	ht.AssertNumPendingForceClose(bob, 0)
+
+	// Bob's closed channels data entry should have the correct local force
+	// close insights
+	closedChanReq := &lnrpc.ClosedChannelsRequest{Abandoned: false}
+	closedChans := bob.RPC.ClosedChannels(closedChanReq)
+
+	// Assert the local force close insights is as expected.
+	ht.AssertCloseSummaryContainsLocalFCInsights(closedChans.Channels,
+		forceCloseChan.Channel.ChannelPoint,
+		chainInitiated.String(), []string{"HtlcTimeoutAction",
+			"HtlcFailNowAction"})
 
 	// Coop close channel, expect no anchors.
 	ht.CloseChannel(alice, aliceChanPoint)
@@ -1457,6 +1489,20 @@ func runMultiHopHtlcRemoteChainClaim(ht *lntest.HarnessTest,
 		forceCloseChan := resp.PendingForceClosingChannels[0]
 		require.Positive(ht, forceCloseChan.BlocksTilMaturity)
 
+		// Check for force close insights
+		userInitiated := channeldb.UserInitiated
+		require.Equal(ht, forceCloseChan.Channel.
+			LocalFirstCloseInsights.LocalForceCloseInitiator,
+			userInitiated.String())
+		require.Equal(ht, len(forceCloseChan.Channel.
+			LocalFirstCloseInsights.LocalForceCloseChainActions),
+			1)
+		require.Contains(ht, forceCloseChan.Channel.
+			LocalFirstCloseInsights.LocalForceCloseChainActions,
+			"HtlcOutgoingWatchAction")
+		require.NotZero(ht, forceCloseChan.Channel.
+			LocalFirstCloseInsights.LocalForceCloseBroadcastHeight)
+
 		// Mine enough blocks for the timelock to expire.
 		numBlocks := uint32(forceCloseChan.BlocksTilMaturity)
 		ht.MineBlocks(numBlocks)
@@ -1662,6 +1708,8 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 	)
 	ht.MineBlocks(numBlocks)
 
+	_, expectedBroadcastHeight := ht.Miner.GetBestBlock()
+
 	// Bob's force close transaction should now be found in the mempool. If
 	// there are anchors, we also expect Bob's anchor sweep.
 	hasAnchors := lntest.CommitTypeHasAnchors(c)
@@ -1852,6 +1900,32 @@ func runMultiHopHtlcAggregation(ht *lntest.HarnessTest,
 		require.Len(ht, resp.PendingForceClosingChannels, 1)
 		forceCloseChan := resp.PendingForceClosingChannels[0]
 		require.Positive(ht, forceCloseChan.BlocksTilMaturity)
+
+		// Check for force close insights
+		chainInitiated := channeldb.ChainActionsInitiated
+		require.Equal(ht, forceCloseChan.Channel.
+			LocalFirstCloseInsights.LocalForceCloseInitiator,
+			chainInitiated.String())
+
+		require.Len(ht, forceCloseChan.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions, 2)
+		require.Contains(ht, forceCloseChan.Channel.
+			LocalFirstCloseInsights.LocalForceCloseChainActions,
+			"HtlcIncomingWatchAction")
+		require.Contains(ht, forceCloseChan.Channel.
+			LocalFirstCloseInsights.LocalForceCloseChainActions,
+			"HtlcTimeoutAction")
+		require.Len(ht, forceCloseChan.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcIncomingWatchAction"].
+			Hash,
+			numInvoices)
+		require.Len(ht, forceCloseChan.Channel.LocalFirstCloseInsights.
+			LocalForceCloseChainActions["HtlcTimeoutAction"].
+			Hash,
+			numInvoices)
+		require.Equal(ht, forceCloseChan.Channel.
+			LocalFirstCloseInsights.LocalForceCloseBroadcastHeight,
+			uint32(expectedBroadcastHeight))
 		numBlocks := uint32(forceCloseChan.BlocksTilMaturity)
 
 		// Add debug log.

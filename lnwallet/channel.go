@@ -8594,12 +8594,12 @@ func (lc *LightningChannel) MarkBorked() error {
 // for it to confirm before taking any further action. It takes a boolean which
 // indicates whether we initiated the close.
 func (lc *LightningChannel) MarkCommitmentBroadcasted(tx *wire.MsgTx,
-	locallyInitiated bool) error {
+	lFCInsight *channeldb.LocalForceCloseInsights) error {
 
 	lc.Lock()
 	defer lc.Unlock()
 
-	return lc.channelState.MarkCommitmentBroadcasted(tx, locallyInitiated)
+	return lc.channelState.MarkCommitmentBroadcasted(tx, lFCInsight)
 }
 
 // MarkCoopBroadcasted marks the channel as a cooperative close transaction has

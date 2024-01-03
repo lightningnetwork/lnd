@@ -1608,6 +1608,25 @@ enum Initiator {
     INITIATOR_BOTH = 3;
 }
 
+message ListHTLCHash {
+    // Hash of HTLC
+    repeated bytes hash = 1;
+}
+
+message localForceCloseInsights {
+    // LocalForceCloseInitiator indicates what initiated a force close, it could
+    // be user initiated, due to chain trigger or due to any of link failure
+    // errors.
+    string local_force_close_initiator = 16;
+
+    // The height in which the commitment transaction during a local force
+    // close is broadcasted.
+    uint32 local_force_close_broadcast_height = 17;
+
+    // The map of reason => list of HTLCs (hashes), during a local force close.
+    map<string, ListHTLCHash> local_force_close_chain_actions = 18;
+}
+
 message ChannelCloseSummary {
     // The outpoint (txid:index) of the funding transaction.
     string channel_point = 1;
@@ -1674,6 +1693,9 @@ message ChannelCloseSummary {
 
     //  The confirmed SCID for a zero-conf channel.
     uint64 zero_conf_confirmed_scid = 15 [jstype = JS_STRING];
+
+    // The insights related to a local force close.
+    localForceCloseInsights local_first_close_insights = 16;
 }
 
 enum ResolutionType {
@@ -2654,6 +2676,9 @@ message PendingChannelsResponse {
         impacts the channel's operation.
         */
         string memo = 13;
+
+        // The insights related to a local force close.
+        localForceCloseInsights local_first_close_insights = 14;
     }
 
     message PendingOpenChannel {

@@ -1087,7 +1087,8 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 			},
 		)
 
-		if err := channel.MarkCommitmentBroadcasted(closeTx, true); err != nil {
+		if err := channel.MarkCommitmentBroadcasted(closeTx,
+			&LocalForceCloseInsights{}); err != nil {
 			t.Fatalf("unable to mark commitment broadcast: %v", err)
 		}
 
@@ -1291,7 +1292,8 @@ func TestCloseInitiator(t *testing.T) {
 			// local initiator.
 			updateChannel: func(c *OpenChannel) error {
 				return c.MarkCommitmentBroadcasted(
-					&wire.MsgTx{}, true,
+					&wire.MsgTx{},
+					&LocalForceCloseInsights{},
 				)
 			},
 			expectedStatuses: []ChannelStatus{
@@ -1632,4 +1634,46 @@ func TestOnionBlobIncorrectLength(t *testing.T) {
 
 	_, err := DeserializeHtlcs(&b)
 	require.ErrorIs(t, err, ErrOnionBlobLength)
+}
+
+// TestLocalForceCloseInitiatorEncoding tests serializing and deserializing
+// LocalForceCloseInitiator.
+func TestLocalForceCloseInitiatorEncoding(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		data LocalForceCloseInitiator
+	}{
+		{
+			name: "chain action initiated",
+			data: ChainActionsInitiated,
+		},
+		{
+			name: "user initiated",
+			data: ChainActionsInitiated,
+		},
+		{
+			name: "custom initiator",
+			data: LocalForceCloseInitiator("invalid update"),
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			var b bytes.Buffer
+			err := SerializeLocalForceCloseInitiator(&b,
+				&testCase.data)
+			require.NoError(t, err)
+
+			r := bytes.NewReader(b.Bytes())
+			data, err := DeserializeLocalForceCloseInitiator(r)
+			require.NoError(t, err)
+			require.Equal(t, testCase.data, data)
+		})
+	}
 }

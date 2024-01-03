@@ -1057,13 +1057,74 @@ type forceCloseReq struct {
 	closeTx chan *wire.MsgTx
 }
 
+// ForceCloseContractOption is used for providing functional options to callers
+// of ForceCloseContract().
+type ForceCloseContractOption func(*ChannelArbitrator)
+
+// UserInitiatedForceClose is a functional option for ForceCloseContract() that
+// signifies that the force close is purely user-initiated.
+func UserInitiatedForceClose(ca *ChannelArbitrator) {
+	// Just log errors since this is not a critical part of the force close
+	// flow.
+	err := ca.log.LogLocalForceCloseInitiator(channeldb.UserInitiated)
+	if err != nil {
+		log.Errorf("Error logging user initiated force "+
+			"close initiator: %v", err.Error())
+	}
+
+	log.Info("Logged user initiated force close.")
+}
+
+// LinkFailureErrorForceClose is a functional option for ForceCloseContract()
+// that signifies that the force close is due to a link failure. Requires the
+// error message of the link failure to be specified.
+func LinkFailureErrorForceClose(errorMsg string) ForceCloseContractOption {
+	return func(ca *ChannelArbitrator) {
+		// Just log errors since this is not a critical part of the
+		// force close flow.
+		err := ca.log.LogLocalForceCloseInitiator(
+			channeldb.LocalForceCloseInitiator(errorMsg))
+
+		if err != nil {
+			log.Errorf("Error logging link failure error force "+
+				"close initiator: %v",
+				err.Error())
+		}
+		log.Infof("Logged link failure error force close: %v", errorMsg)
+	}
+}
+
+// ChainTriggerForceClose is a functional option for ForceCloseContract() that
+// signifies that the force close is due to a chain trigger.
+func ChainTriggerForceClose(
+	chainActions ChainActionMap) ForceCloseContractOption {
+
+	return func(ca *ChannelArbitrator) {
+		// Ignore errors since logging force close info is not a
+		// critical part of the force close flow.
+		err := ca.log.LogLocalForceCloseInitiator(
+			channeldb.ChainActionsInitiated)
+
+		if err != nil {
+			log.Errorf("Error logging chain action force "+
+				"close initiator: %v",
+				err.Error())
+		}
+		ca.log.LogLocalFCChainActions(chainActions)
+
+		log.Info("Logged chain trigger initiated force close.")
+	}
+}
+
 // ForceCloseContract attempts to force close the channel infield by the passed
 // channel point. A force close will immediately terminate the contract,
 // causing it to enter the resolution phase. If the force close was successful,
 // then the force close transaction itself will be returned.
 //
 // TODO(roasbeef): just return the summary itself?
-func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.MsgTx, error) {
+func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint,
+	opt ForceCloseContractOption) (*wire.MsgTx, error) {
+
 	c.Lock()
 	arbitrator, ok := c.activeChannels[chanPoint]
 	c.Unlock()
@@ -1072,6 +1133,7 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 	}
 
 	log.Infof("Attempting to force close ChannelPoint(%v)", chanPoint)
+	opt(arbitrator)
 
 	// Before closing, we'll attempt to send a disable update for the
 	// channel. We do so before closing the channel as otherwise the current

@@ -128,7 +128,8 @@ type ChannelArbitratorConfig struct {
 
 	// MarkCommitmentBroadcasted should mark the channel as the commitment
 	// being broadcast, and we are waiting for the commitment to confirm.
-	MarkCommitmentBroadcasted func(*wire.MsgTx, bool) error
+	MarkCommitmentBroadcasted func(*wire.MsgTx,
+		*channeldb.LocalForceCloseInsights) error
 
 	// MarkChannelClosed marks the channel closed in the database, with the
 	// passed close summary. After this method successfully returns we can
@@ -962,10 +963,13 @@ func (c *ChannelArbitrator) stateStep(
 		// next state, as we still need to broadcast the commitment
 		// transaction.
 		case chainTrigger:
-			fallthrough
-		case userTrigger:
+			// Ignore errors since logging force close info is not a
+			// critical part of the force close flow.
+			ChainTriggerForceClose(chainActions)(c)
 			nextState = StateBroadcastCommit
-
+		case userTrigger:
+			c.log.LogLocalFCChainActions(chainActions)
+			nextState = StateBroadcastCommit
 		// If the trigger is a cooperative close being confirmed, then
 		// we can go straight to StateFullyResolved, as there won't be
 		// any contracts to resolve.
@@ -1069,11 +1073,14 @@ func (c *ChannelArbitrator) stateStep(
 		}
 		closeTx = closeSummary.CloseTx
 
-		// Before publishing the transaction, we store it to the
-		// database, such that we can re-publish later in case it
-		// didn't propagate. We initiated the force close, so we
-		// mark broadcast with local initiator set to true.
-		err = c.cfg.MarkCommitmentBroadcasted(closeTx, true)
+		// Before publishing the transaction, we store it along with
+		// the local force close insights to the database, such that
+		// we can re-publish later in case it didn't propagate. We
+		// initiated the force close, so we mark broadcast with local
+		// initiator set to true.
+		in := c.fetchLocalForceCloseInsights()
+		in.BroadcastHeight = triggerHeight
+		err = c.cfg.MarkCommitmentBroadcasted(closeTx, in)
 		if err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to "+
 				"mark commitment broadcasted: %v",
@@ -3047,4 +3054,33 @@ func (c *ChannelArbitrator) checkLegacyBreach() (ArbitratorState, error) {
 
 	// This is a modern breach close with resolvers.
 	return StateContractClosed, nil
+}
+
+// fetchLocalForceCloseInsight fetches the details stored about the local
+// force close previously stored in the arbitrator log and returns it as
+// LocalForceCloseInsights.
+func (c *ChannelArbitrator) fetchLocalForceCloseInsights() *channeldb.
+	LocalForceCloseInsights {
+
+	initiator, err := c.log.FetchLocalForceCloseInitiator()
+	if err != nil {
+		log.Warnf("Error fetching local force close initiator: %v",
+			err)
+		return nil
+	}
+
+	chainActions, err :=
+		c.log.FetchLocalFCChainActions()
+	if err != nil {
+		log.Warnf("Error fetching local force close chain actions"+
+			": %v", err)
+		return nil
+	}
+
+	fcInsight := channeldb.LocalForceCloseInsights{
+		Initiator:    initiator,
+		ChainActions: chainActions,
+	}
+
+	return &fcInsight
 }

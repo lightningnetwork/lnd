@@ -121,6 +121,10 @@ var (
 	// broadcasted when moving the channel to state CoopBroadcasted.
 	coopCloseTxKey = []byte("coop-closing-tx-key")
 
+	// localFCInsightsKe points to the insights gotten about a local
+	// force closure.
+	localFCInsightsKey = []byte("local-fc-insights-key")
+
 	// commitDiffKey stores the current pending commitment state we've
 	// extended to the remote party (if any). Each time we propose a new
 	// state, we store the information necessary to reconstruct this state
@@ -840,6 +844,9 @@ type OpenChannel struct {
 	// Memo is any arbitrary information we wish to store locally about the
 	// channel that will be useful to our future selves.
 	Memo []byte
+
+	// LocalFCInsights stores insights about a local force closure.
+	LocalFCInsights *LocalForceCloseInsights
 
 	// TODO(roasbeef): eww
 	Db *ChannelStateDB
@@ -1596,7 +1603,38 @@ func (c *OpenChannel) isBorked(chanBucket kvdb.RBucket) (bool, error) {
 // republish this tx at startup to ensure propagation, and we should still
 // handle the case where a different tx actually hits the chain.
 func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx,
-	locallyInitiated bool) error {
+	lFCInsight *LocalForceCloseInsights) error {
+
+	locallyInitiated := lFCInsight != nil
+	// If we have any insights about the local force close we store it.
+	if locallyInitiated {
+		err := kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+			chanBucket, err := fetchChanBucketRw(
+				tx, c.IdentityPub, &c.FundingOutpoint,
+				c.ChainHash,
+			)
+			if err != nil {
+				return err
+			}
+			var b bytes.Buffer
+			err = serializeLocalForceCloseInsights(&b,
+				lFCInsight)
+			if err != nil {
+				return err
+			}
+
+			return chanBucket.Put(localFCInsightsKey, b.Bytes())
+		}, func() {})
+
+		if err != nil {
+			log.Warnf("Error storing local force close"+
+				" insights %v", err.Error())
+		}
+		log.Infof("Logged local force close insight, initiator=%v, "+
+			"broadcast_height=%v, chainActions=%v",
+			lFCInsight.Initiator, lFCInsight.BroadcastHeight,
+			lFCInsight.ChainActions)
+	}
 
 	return c.markBroadcasted(
 		ChanStatusCommitBroadcasted, forceCloseTxKey, closeTx,
@@ -1854,6 +1892,17 @@ func fetchOpenChannel(chanBucket kvdb.RBucket,
 	}
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)
+
+	// If the channel's commit has been broadcast, fetch local force close
+	// insights, if present.
+	if channel.HasChanStatus(ChanStatusCommitBroadcasted) {
+		if err := attachLocalForceCloseInsights(chanBucket,
+			channel); err != nil {
+			log.Warnf("Err: %v fetching local force close "+
+				"insights for chanpoint %v", err,
+				chanPoint.String())
+		}
+	}
 
 	return channel, nil
 }
@@ -3252,6 +3301,441 @@ const (
 	Abandoned ClosureType = 5
 )
 
+// LocalForceCloseInsights holds information about a local force close.
+type LocalForceCloseInsights struct {
+	// Initiator indicates what initiated the local force close.
+	Initiator LocalForceCloseInitiator
+
+	// ChainActions holds the HTLC action chain map associated with the
+	// local force close.
+	ChainActions map[string][]HTLC
+
+	// BroadcastHeight is the height in which the close transaction
+	// associated force close is broadcasted.
+	BroadcastHeight uint32
+}
+
+// LocalForceCloseInitiator is a type that gives information about what led to a
+// channel being force closed locally.
+type LocalForceCloseInitiator string
+
+const (
+	// UserInitiated indicates that the force close was specifically
+	// initiated by the user.
+	UserInitiated LocalForceCloseInitiator = "user initiated"
+
+	// ChainActionsInitiated indicates that the force close was
+	// automatically initiated by an on-chain trigger such as HTLC timeout.
+	ChainActionsInitiated LocalForceCloseInitiator = "chain action" +
+		" initiated"
+
+	// localForceCloseInitiatorType is used to serialize/deserialize
+	// localForceCloseInitiator.
+	localForceCloseInitiatorType tlv.Type = 0
+
+	// chainActionType is used to serialize/deserialize chainAction.
+	chainActionType tlv.Type = 1
+
+	// ActionKeyType is used to serialize/deserialize the action key in the
+	// chain actions map.
+	ActionKeyType tlv.Type = 2
+
+	// broadCastHeightType is used to serialize/deserialize the broadcast
+	// height in localForceCloseInsights.
+	broadCastHeightType tlv.Type = 3
+)
+
+// String returns the human-readable format of the LocalForceCloseInitiator.
+func (l *LocalForceCloseInitiator) String() string {
+	return string(*l)
+}
+
+// SerializeLocalForceCloseInitiator writes out the passed set of
+// LocalForceCloseInitiator to the passed writer.
+func SerializeLocalForceCloseInitiator(w io.Writer,
+	lc *LocalForceCloseInitiator) error {
+
+	localForceCloseReasonByte := []byte(*lc)
+
+	tlvStream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(localForceCloseInitiatorType,
+			&localForceCloseReasonByte),
+	)
+
+	if err != nil {
+		return err
+	}
+	var b bytes.Buffer
+	err = tlvStream.Encode(&b)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, byteOrder, uint64(b.Len()))
+	if err != nil {
+		return err
+	}
+
+	if _, err = w.Write(b.Bytes()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// DeserializeLocalForceCloseInitiator reads out the ForceCloseInitiator from
+// the reader.
+func DeserializeLocalForceCloseInitiator(r io.Reader) (LocalForceCloseInitiator,
+	error) {
+
+	var (
+		lc []byte
+	)
+
+	tlvStream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(
+			localForceCloseInitiatorType, &lc,
+		),
+	)
+
+	if err != nil {
+		return LocalForceCloseInitiator(lc), err
+	}
+
+	var bodyLen int64
+	err = binary.Read(r, byteOrder, &bodyLen)
+	if err != nil {
+		return LocalForceCloseInitiator(lc), err
+	}
+
+	lr := io.LimitReader(r, bodyLen)
+	if err = tlvStream.Decode(lr); err != nil {
+		return LocalForceCloseInitiator(lc), err
+	}
+
+	return LocalForceCloseInitiator(lc), nil
+}
+
+// HtlcActionRecordSize returns the amount of bytes this TLV record will occupy
+// when encoded.
+func HtlcActionRecordSize(a *map[string][]HTLC) func() uint64 {
+	var (
+		b   bytes.Buffer
+		buf [8]byte
+	)
+
+	// We know that encoding works since the tests pass in the build this
+	// file is checked into, so we'll simplify things and simply encode it
+	// ourselves then report the total amount of bytes used.
+	if err := HtlcActionEncoder(&b, a, &buf); err != nil {
+		// This should never error out, but we log it just in case it
+		// does.
+		log.Errorf("encoding the chain action map failed: %v",
+			err)
+	}
+
+	return func() uint64 {
+		return uint64(len(b.Bytes()))
+	}
+}
+
+// HtlcActionEncoder is a custom TLV encoder for the htlcAction record.
+func HtlcActionEncoder(w io.Writer, val interface{}, buf *[8]byte) error {
+	if v, ok := val.(*map[string][]HTLC); ok {
+		numRecords := uint64(len(*v))
+
+		// First, we'll write out the number of records as a var int.
+		if err := tlv.WriteVarInt(w, numRecords, buf); err != nil {
+			return err
+		}
+
+		// With that written out, we'll now encode the entries
+		// themselves as a sub-TLV record, which includes its _own_
+		// inner length prefix.
+		for action, htlcs := range *v {
+			action := []byte(action)
+
+			tlvstream, err := tlv.NewStream(
+				tlv.MakePrimitiveRecord(
+					ActionKeyType, &action,
+				),
+			)
+			if err != nil {
+				return err
+			}
+
+			var actionBytes bytes.Buffer
+
+			err = tlvstream.Encode(&actionBytes)
+			if err != nil {
+				return err
+			}
+			if err != nil {
+				return err
+			}
+
+			// We encode the record with a varint length followed by
+			// the _raw_ TLV bytes.
+			tlvLen := uint64(len(actionBytes.Bytes()))
+			if err := tlv.WriteVarInt(w, tlvLen, buf); err != nil {
+				return err
+			}
+
+			_, err = w.Write(actionBytes.Bytes())
+			if err != nil {
+				return err
+			}
+			err = SerializeHtlcs(w, htlcs...)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "map[string][]HTLC")
+}
+
+// HtlcActionDecoder is a custom TLV decoder for the htlcAction record.
+func HtlcActionDecoder(r io.Reader, val interface{}, buf *[8]byte,
+	l uint64) error {
+
+	if v, ok := val.(*map[string][]HTLC); ok {
+		// First, we'll decode the varint that encodes how many actions
+		// are encoded within the map.
+		numRecords, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+		// Now that we know how many records we'll need to read, we can
+		// iterate and read them all out in series.
+		for i := uint64(0); i < numRecords; i++ {
+			// Read out the varint that encodes the size of this
+			// inner TLV record.
+			actionRecordSize, err := tlv.ReadVarInt(r, buf)
+			if err != nil {
+				return err
+			}
+
+			// Using this information, we'll create a new limited
+			// reader that'll return an EOF once the end has been
+			// reached so the stream stops consuming bytes.
+			actionTlvReader := io.LimitedReader{
+				R: r,
+				N: int64(actionRecordSize),
+			}
+
+			var action []byte
+
+			tlvStream, err := tlv.NewStream(
+				tlv.MakePrimitiveRecord(
+					ActionKeyType, &action,
+				),
+			)
+
+			if err != nil {
+				return err
+			}
+
+			err = tlvStream.Decode(&actionTlvReader)
+			if err != nil {
+				return err
+			}
+
+			htlcs, err := DeserializeHtlcs(r)
+			if err != nil {
+				return err
+			}
+			(*v)[string(action)] = htlcs
+		}
+
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(
+		val, "map[string][]HTLC", l, l,
+	)
+}
+
+// SerializeChainActions writes out the passed chain actions map to the passed
+// writer.
+func SerializeChainActions(w io.Writer, m *map[string][]HTLC) error {
+	tlvStream, err := tlv.NewStream(
+		tlv.MakeDynamicRecord(
+			chainActionType, m,
+			HtlcActionRecordSize(m),
+			HtlcActionEncoder,
+			HtlcActionDecoder,
+		),
+	)
+	if err != nil {
+		return err
+	}
+
+	var b bytes.Buffer
+	err = tlvStream.Encode(&b)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, byteOrder, uint64(b.Len()))
+	if err != nil {
+		return err
+	}
+
+	if _, err = w.Write(b.Bytes()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// DeserializeChainActions reads out the chainAction map from the passed
+// reader.
+func DeserializeChainActions(r io.Reader) (map[string][]HTLC,
+	error) {
+
+	chainAction := make(map[string][]HTLC)
+
+	tlvStream, err := tlv.NewStream(
+		tlv.MakeDynamicRecord(
+			chainActionType, &chainAction,
+			HtlcActionRecordSize(&chainAction),
+			HtlcActionEncoder,
+			HtlcActionDecoder,
+		),
+	)
+
+	if err != nil {
+		return chainAction, err
+	}
+
+	var bodyLen int64
+	err = binary.Read(r, byteOrder, &bodyLen)
+	if err != nil {
+		return chainAction, err
+	}
+
+	lr := io.LimitReader(r, bodyLen)
+	if err = tlvStream.Decode(lr); err != nil {
+		return chainAction, err
+	}
+
+	return chainAction, nil
+}
+
+// serializeLocalForceCloseInsights writes out the passed
+// localForceCloseInsights to the writer.
+func serializeLocalForceCloseInsights(w io.Writer,
+	lc *LocalForceCloseInsights) error {
+
+	localForceCloseReasonByte := []byte(lc.Initiator)
+
+	tlvStream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(localForceCloseInitiatorType,
+			&localForceCloseReasonByte),
+		tlv.MakeDynamicRecord(
+			chainActionType, &lc.ChainActions,
+			HtlcActionRecordSize(&lc.ChainActions),
+			HtlcActionEncoder,
+			HtlcActionDecoder,
+		),
+		tlv.MakePrimitiveRecord(broadCastHeightType,
+			&lc.BroadcastHeight),
+	)
+
+	if err != nil {
+		return err
+	}
+	var b bytes.Buffer
+	err = tlvStream.Encode(&b)
+	if err != nil {
+		return err
+	}
+
+	err = binary.Write(w, byteOrder, uint64(b.Len()))
+	if err != nil {
+		return err
+	}
+
+	if _, err = w.Write(b.Bytes()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// deSerializeLocalForceCloseInsights reads out the LocalForceCloseInsights from
+// the passed reader.
+func deSerializeLocalForceCloseInsights(r io.Reader) (*LocalForceCloseInsights,
+	error) {
+
+	var (
+		initiator []byte
+		height    uint32
+	)
+
+	chainAction := make(map[string][]HTLC)
+	tlvStream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(localForceCloseInitiatorType,
+			&initiator),
+		tlv.MakeDynamicRecord(
+			chainActionType, &chainAction,
+			HtlcActionRecordSize(&chainAction),
+			HtlcActionEncoder,
+			HtlcActionDecoder,
+		),
+		tlv.MakePrimitiveRecord(broadCastHeightType,
+			&height),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var bodyLen int64
+	err = binary.Read(r, byteOrder, &bodyLen)
+	if err != nil {
+		return nil, err
+	}
+
+	lr := io.LimitReader(r, bodyLen)
+	if err = tlvStream.Decode(lr); err != nil {
+		return nil, err
+	}
+
+	fcInsights := LocalForceCloseInsights{
+		Initiator:       LocalForceCloseInitiator(initiator),
+		ChainActions:    chainAction,
+		BroadcastHeight: height,
+	}
+
+	return &fcInsights, nil
+}
+
+// attachLocalForceCloseInsights fetches the local force close insights
+// previously stored when commitment was broadcast.
+func attachLocalForceCloseInsights(chanBucket kvdb.RBucket,
+	channel *OpenChannel) error {
+
+	insightBytes := chanBucket.Get(localFCInsightsKey)
+	if insightBytes == nil {
+		// return if no value was found,
+		// this means no insight has been logged yet.
+		return nil
+	}
+
+	r := bytes.NewReader(insightBytes)
+	insight, err := deSerializeLocalForceCloseInsights(r)
+
+	if insight != nil {
+		channel.LocalFCInsights = insight
+	}
+
+	return err
+}
+
 // ChannelCloseSummary contains the final state of a channel at the point it
 // was closed. Once a channel is closed, all the information pertaining to that
 // channel within the openChannelBucket is deleted, and a compact summary is
@@ -3331,6 +3815,9 @@ type ChannelCloseSummary struct {
 	// LastChanSyncMsg is the ChannelReestablish message for this channel
 	// for the state at the point where it was closed.
 	LastChanSyncMsg *lnwire.ChannelReestablish
+
+	// LocalFCInsights stores insights about a local force closure.
+	LocalFCInsights *LocalForceCloseInsights
 }
 
 // CloseChannel closes a previously active Lightning channel. Closing a channel
@@ -3645,6 +4132,7 @@ func putChannelCloseSummary(tx kvdb.RwTx, chanID []byte,
 	summary.RemoteCurrentRevocation = lastChanState.RemoteCurrentRevocation
 	summary.RemoteNextRevocation = lastChanState.RemoteNextRevocation
 	summary.LocalChanConfig = lastChanState.LocalChanCfg
+	summary.LocalFCInsights = lastChanState.LocalFCInsights
 
 	var b bytes.Buffer
 	if err := serializeChannelCloseSummary(&b, summary); err != nil {
@@ -3707,6 +4195,15 @@ func serializeChannelCloseSummary(w io.Writer, cs *ChannelCloseSummary) error {
 	if cs.LastChanSyncMsg != nil {
 		if err := WriteElements(w, cs.LastChanSyncMsg); err != nil {
 			return err
+		}
+	}
+
+	// Write force close insights if present.
+	if cs.LocalFCInsights != nil {
+		if err := serializeLocalForceCloseInsights(w,
+			cs.LocalFCInsights); err != nil {
+			log.Warnf("Error serializing channel close "+
+				"summary's local force close insights: %v", err)
 		}
 	}
 
@@ -3790,6 +4287,17 @@ func deserializeCloseChannelSummary(r io.Reader) (*ChannelCloseSummary, error) {
 		}
 		c.LastChanSyncMsg = chanSync
 	}
+
+	// Read local force close insight, only log a warning message if
+	// there was an insight to read but there was an error while reading.
+	localFCInsights, err := deSerializeLocalForceCloseInsights(r)
+
+	if err != nil && !errors.Is(err, io.EOF) {
+		log.Warnf("Error reading channel close "+
+			"summary's local force close insights: %v", err)
+	}
+
+	c.LocalFCInsights = localFCInsights
 
 	return c, nil
 }
@@ -4213,6 +4721,10 @@ func deleteOpenChannel(chanBucket kvdb.RwBucket) error {
 
 	if diff := chanBucket.Get(commitDiffKey); diff != nil {
 		return chanBucket.Delete(commitDiffKey)
+	}
+
+	if lfcInsight := chanBucket.Get(localFCInsightsKey); lfcInsight != nil {
+		return chanBucket.Delete(localFCInsightsKey)
 	}
 
 	return nil

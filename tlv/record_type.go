@@ -66,7 +66,18 @@ func (t *RecordT[T, V]) Record() Record {
 		)
 	}
 
-	return tlvRecord.Record()
+	// To enforce proper usage of the RecordT type, we'll make a wrapper
+	// record that uses the proper internal type value.
+	ogRecord := tlvRecord.Record()
+
+	return Record{
+		value:      ogRecord.value,
+		typ:        t.recordType.typeVal(),
+		staticSize: ogRecord.staticSize,
+		sizeFunc:   ogRecord.sizeFunc,
+		encoder:    ogRecord.encoder,
+		decoder:    ogRecord.decoder,
+	}
 }
 
 // OptionalRecordT is a high-order type that represents an optional TLV record.

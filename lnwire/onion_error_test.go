@@ -56,6 +56,7 @@ var onionFailures = []FailureMessage{
 	NewFinalIncorrectCltvExpiry(testCtlvExpiry),
 	NewFinalIncorrectHtlcAmount(testAmount),
 	NewInvalidOnionPayload(testType, testOffset),
+	NewInvalidBlinding(testOnionHash),
 }
 
 // TestEncodeDecodeCode tests the ability of onion errors to be properly encoded

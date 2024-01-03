@@ -108,6 +108,16 @@ func (i *interpretedResult) processFail(
 		return
 	}
 
+	// If the payment was to a blinded route and we received an error from
+	// after the introduction point, handle this error separately - there
+	// has been a protocol violation from the introduction node. This
+	// penalty applies regardless of the error code that is returned.
+	introIdx, isBlinded := introductionPointIndex(rt)
+	if isBlinded && introIdx < *errSourceIdx {
+		i.processPaymentOutcomeBadIntro(rt, introIdx, *errSourceIdx)
+		return
+	}
+
 	switch *errSourceIdx {
 
 	// We are the source of the failure.
@@ -126,6 +136,33 @@ func (i *interpretedResult) processFail(
 		i.processPaymentOutcomeIntermediate(
 			rt, *errSourceIdx, failure,
 		)
+	}
+}
+
+// processPaymentOutcomeBadIntro handles the case where we have made payment
+// to a blinded route, but received an error from a node after the introduction
+// node. This indicates that the introduction node is not obeying the route
+// blinding specification, as we expect all errors from the introduction node
+// to be source from it.
+func (i *interpretedResult) processPaymentOutcomeBadIntro(route *route.Route,
+	introIdx, errSourceIdx int) {
+
+	// We fail the introduction node for not obeying the specification.
+	i.failNode(route, introIdx)
+
+	// Other preceding channels in the route forwarded correctly. Note
+	// that we do not assign success to the incoming link to the
+	// introduction node because it has not handled the error correctly.
+	if introIdx > 1 {
+		i.successPairRange(route, 0, introIdx-2)
+	}
+
+	// If the source of the failure was from the final node, we also set
+	// a final failure reason because the recipient can't process the
+	// payment (independent of the introduction failing to convert the
+	// error, we can't complete the payment if the last hop fails).
+	if errSourceIdx == len(route.Hops) {
+		i.finalFailureReason = &reasonError
 	}
 }
 
@@ -163,6 +200,17 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 	route *route.Route, failure lnwire.FailureMessage) {
 
 	n := len(route.Hops)
+
+	failNode := func() {
+		i.failNode(route, n)
+
+		// Other channels in the route forwarded correctly.
+		if n > 1 {
+			i.successPairRange(route, 0, n-2)
+		}
+
+		i.finalFailureReason = &reasonError
+	}
 
 	// If a failure from the final node is received, we will fail the
 	// payment in almost all cases. Only when the penultimate node sends an
@@ -219,18 +267,26 @@ func (i *interpretedResult) processPaymentOutcomeFinal(
 		// destination correctly. Continue the payment process.
 		i.successPairRange(route, 0, n-1)
 
+	// We do not expect to receive an invalid blinding error from the final
+	// node in the route. This could erroneously happen in the following
+	// cases:
+	// 1. Unblinded node: misuses the error code.
+	// 2. A receiving introduction node: erroneously sends the error code,
+	//    as the spec indicates that receiving introduction nodes should
+	//    use regular errors.
+	//
+	// Note that we expect the case where this error is sent from a node
+	// after the introduction node to be handled elsewhere as this is part
+	// of a more general class of errors where the introduction node has
+	// failed to convert errors for the blinded route.
+	case *lnwire.FailInvalidBlinding:
+		failNode()
+
+	// All other errors are considered terminal if coming from the
+	// final hop. They indicate that something is wrong at the
+	// recipient, so we do apply a penalty.
 	default:
-		// All other errors are considered terminal if coming from the
-		// final hop. They indicate that something is wrong at the
-		// recipient, so we do apply a penalty.
-		i.failNode(route, n)
-
-		// Other channels in the route forwarded correctly.
-		if n >= 2 {
-			i.successPairRange(route, 0, n-2)
-		}
-
-		i.finalFailureReason = &reasonError
+		failNode()
 	}
 }
 
@@ -394,11 +450,89 @@ func (i *interpretedResult) processPaymentOutcomeIntermediate(
 	case *lnwire.FailExpiryTooSoon:
 		reportAll()
 
+	// We only expect to get FailInvalidBlinding from an introduction node
+	// in a blinded route. The introduction node in a blinded route is
+	// always responsible for reporting errors for the blinded portion of
+	// the route (to protect the privacy of the members of the route), so
+	// we need to be careful not to unfairly "shoot the messenger".
+	//
+	// The introduction node has no incentive to falsely report errors to
+	// sabotage the blinded route because:
+	//   1. Its ability to route this payment is strictly tied to the
+	//      blinded route.
+	//   2. The pubkeys in the blinded route are ephemeral, so doing so
+	//      will have no impact on the nodes beyond the individual payment.
+	//
+	// Here we handle a few cases where we could unexpectedly receive this
+	// error:
+	// 1. Outside of a blinded route: erring node is not spec compliant.
+	// 2. Before the introduction point: erring node is not spec compliant.
+	//
+	// Note that we expect the case where this error is sent from a node
+	// after the introduction node to be handled elsewhere as this is part
+	// of a more general class of errors where the introduction node has
+	// failed to convert errors for the blinded route.
+	case *lnwire.FailInvalidBlinding:
+		introIdx, isBlinded := introductionPointIndex(route)
+
+		// Deal with cases where a node has incorrectly returned a
+		// blinding error:
+		// 1. A node before the introduction point returned it.
+		// 2. A node in a non-blinded route returned it.
+		if errorSourceIdx < introIdx || !isBlinded {
+			reportNode()
+			return
+		}
+
+		// Otherwise, the error was at the introduction node. All
+		// nodes up until the introduction node forwarded correctly,
+		// so we award them as successful.
+		if introIdx >= 1 {
+			i.successPairRange(route, 0, introIdx-1)
+		}
+
+		// If the hop after the introduction node that sent us an
+		// error is the final recipient, then we finally fail the
+		// payment because the receiver has generated a blinded route
+		// that they're unable to use. We have this special case so
+		// that we don't penalize the introduction node, and there is
+		// no point in retrying the payment while LND only supports
+		// one blinded route per payment.
+		//
+		// Note that if LND is extended to support multiple blinded
+		// routes, this will terminate the payment without re-trying
+		// the other routes.
+		if introIdx == len(route.Hops)-1 {
+			i.finalFailureReason = &reasonError
+		} else {
+			// If there are other hops between the recipient and
+			// introduction node, then we just penalize the last
+			// hop in the blinded route to minimize the storage of
+			// results for ephemeral keys.
+			i.failPairBalance(
+				route, len(route.Hops)-1,
+			)
+		}
+
 	// In all other cases, we penalize the reporting node. These are all
 	// failures that should not happen.
 	default:
 		i.failNode(route, errorSourceIdx)
 	}
+}
+
+// introductionPointIndex returns the index of an introduction point in a
+// route, using the same indexing in the route that we use for errorSourceIdx
+// (i.e., that we consider our own node to be at index zero). A boolean is
+// returned to indicate whether the route contains a blinded portion at all.
+func introductionPointIndex(route *route.Route) (int, bool) {
+	for i, hop := range route.Hops {
+		if hop.BlindingPoint != nil {
+			return i + 1, true
+		}
+	}
+
+	return 0, false
 }
 
 // processPaymentOutcomeUnknown processes a payment outcome for which no failure

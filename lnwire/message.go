@@ -34,6 +34,8 @@ const (
 	MsgChannelReady                        = 36
 	MsgShutdown                            = 38
 	MsgClosingSigned                       = 39
+	MsgClosingComplete                     = 40
+	MsgClosingSig                          = 41
 	MsgDynPropose                          = 111
 	MsgDynAck                              = 113
 	MsgDynReject                           = 115
@@ -146,6 +148,10 @@ func (t MessageType) String() string {
 		return "ReplyChannelRange"
 	case MsgGossipTimestampRange:
 		return "GossipTimestampRange"
+	case MsgClosingComplete:
+		return "ClosingComplete"
+	case MsgClosingSig:
+		return "ClosingSig"
 	default:
 		return "<unknown>"
 	}
@@ -256,6 +262,10 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &ReplyChannelRange{}
 	case MsgGossipTimestampRange:
 		msg = &GossipTimestampRange{}
+	case MsgClosingComplete:
+		msg = &ClosingComplete{}
+	case MsgClosingSig:
+		msg = &ClosingSig{}
 	default:
 		// If the message is not within our custom range and has not
 		// specifically been overridden, return an unknown message.

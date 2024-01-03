@@ -48,6 +48,22 @@ func (o Option[A]) UnwrapOr(a A) A {
 	return a
 }
 
+// UnwrapOrFunc is used to extract a value from an option, and we supply a
+// thunk to be evaluated in the case when the Option is empty.
+func (o Option[A]) UnwrapOrFunc(f func() A) A {
+	return ElimOption(o, f, func(a A) A { return a })
+}
+
+// UnwrapOrFuncErr is used to extract a value from an option, and we supply a
+// thunk to be evaluated in the case when the Option is empty.
+func (o Option[A]) UnwrapOrFuncErr(f func() (A, error)) (A, error) {
+	if o.isSome {
+		return o.some, nil
+	}
+
+	return f()
+}
+
 // WhenSome is used to conditionally perform a side-effecting function that
 // accepts a value of the type that parameterizes the option. If this function
 // performs no side effects, WhenSome is useless.
@@ -115,6 +131,19 @@ func MapOption[A, B any](f func(A) B) func(Option[A]) Option[B] {
 
 		return None[B]()
 	}
+}
+
+// MapOptionZero transforms a pure function A -> B into one that will operate
+// inside the Option context. Unlike MapOption, this function will return the
+// default/zero argument of the return type if the Option is empty.
+func MapOptionZero[A, B any](o Option[A], f func(A) B) B {
+	var zero B
+
+	if o.IsNone() {
+		return zero
+	}
+
+	return f(o.some)
 }
 
 // LiftA2Option transforms a pure function (A, B) -> C into one that will

@@ -741,7 +741,7 @@ func (l *LightningWallet) PsbtFundingVerify(pendingChanID [32]byte,
 			"reservation ID %v", pid)
 	}
 
-	// Now the the PSBT has been populated and verified, we can again check
+	// Now the PSBT has been populated and verified, we can again check
 	// whether the value reserved for anchor fee bumping is respected.
 	isPublic := pendingReservation.partialState.ChannelFlags&lnwire.FFAnnounceChannel != 0
 	hasAnchors := pendingReservation.partialState.ChanType.HasAnchors()
@@ -1145,7 +1145,7 @@ func (l *LightningWallet) CurrentNumAnchorChans() (int, error) {
 // CheckReservedValue checks whether publishing a transaction with the given
 // inputs and outputs would violate the value we reserve in the wallet for
 // bumping the fee of anchor channels. The numAnchorChans argument should be
-// set the the number of open anchor channels controlled by the wallet after
+// set the number of open anchor channels controlled by the wallet after
 // the transaction has been published.
 //
 // If the reserved value is violated, the returned error will be

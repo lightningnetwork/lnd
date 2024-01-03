@@ -62,7 +62,7 @@ func (t *RecordT[T, V]) Record() Record {
 	tlvRecord, ok := any(&t.Val).(RecordProducer)
 	if !ok {
 		return MakePrimitiveRecord(
-			t.recordType.typeVal(), &t.Val,
+			t.recordType.TypeVal(), &t.Val,
 		)
 	}
 
@@ -72,7 +72,7 @@ func (t *RecordT[T, V]) Record() Record {
 
 	return Record{
 		value:      ogRecord.value,
-		typ:        t.recordType.typeVal(),
+		typ:        t.recordType.TypeVal(),
 		staticSize: ogRecord.staticSize,
 		sizeFunc:   ogRecord.sizeFunc,
 		encoder:    ogRecord.encoder,

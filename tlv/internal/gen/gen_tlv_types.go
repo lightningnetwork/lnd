@@ -20,9 +20,11 @@ package tlv
 
 type tlvType{{ $index }} struct{}
 
-func (t *tlvType{{ $index }}) typeVal() Type {
+func (t *tlvType{{ $index }}) TypeVal() Type {
 	return {{ $index }}
 }
+
+func (t *tlvType{{ $index }}) tlv() {}
 
 type TlvType{{ $index }} = *tlvType{{ $index }}
 {{- end }}

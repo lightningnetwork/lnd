@@ -4,808 +4,1010 @@ package tlv
 
 type tlvType0 struct{}
 
-func (t *tlvType0) typeVal() Type {
+func (t *tlvType0) TypeVal() Type {
 	return 0
 }
+
+func (t *tlvType0) tlv() {}
 
 type TlvType0 = *tlvType0
 
 type tlvType1 struct{}
 
-func (t *tlvType1) typeVal() Type {
+func (t *tlvType1) TypeVal() Type {
 	return 1
 }
+
+func (t *tlvType1) tlv() {}
 
 type TlvType1 = *tlvType1
 
 type tlvType2 struct{}
 
-func (t *tlvType2) typeVal() Type {
+func (t *tlvType2) TypeVal() Type {
 	return 2
 }
+
+func (t *tlvType2) tlv() {}
 
 type TlvType2 = *tlvType2
 
 type tlvType3 struct{}
 
-func (t *tlvType3) typeVal() Type {
+func (t *tlvType3) TypeVal() Type {
 	return 3
 }
+
+func (t *tlvType3) tlv() {}
 
 type TlvType3 = *tlvType3
 
 type tlvType4 struct{}
 
-func (t *tlvType4) typeVal() Type {
+func (t *tlvType4) TypeVal() Type {
 	return 4
 }
+
+func (t *tlvType4) tlv() {}
 
 type TlvType4 = *tlvType4
 
 type tlvType5 struct{}
 
-func (t *tlvType5) typeVal() Type {
+func (t *tlvType5) TypeVal() Type {
 	return 5
 }
+
+func (t *tlvType5) tlv() {}
 
 type TlvType5 = *tlvType5
 
 type tlvType6 struct{}
 
-func (t *tlvType6) typeVal() Type {
+func (t *tlvType6) TypeVal() Type {
 	return 6
 }
+
+func (t *tlvType6) tlv() {}
 
 type TlvType6 = *tlvType6
 
 type tlvType7 struct{}
 
-func (t *tlvType7) typeVal() Type {
+func (t *tlvType7) TypeVal() Type {
 	return 7
 }
+
+func (t *tlvType7) tlv() {}
 
 type TlvType7 = *tlvType7
 
 type tlvType8 struct{}
 
-func (t *tlvType8) typeVal() Type {
+func (t *tlvType8) TypeVal() Type {
 	return 8
 }
+
+func (t *tlvType8) tlv() {}
 
 type TlvType8 = *tlvType8
 
 type tlvType9 struct{}
 
-func (t *tlvType9) typeVal() Type {
+func (t *tlvType9) TypeVal() Type {
 	return 9
 }
+
+func (t *tlvType9) tlv() {}
 
 type TlvType9 = *tlvType9
 
 type tlvType10 struct{}
 
-func (t *tlvType10) typeVal() Type {
+func (t *tlvType10) TypeVal() Type {
 	return 10
 }
+
+func (t *tlvType10) tlv() {}
 
 type TlvType10 = *tlvType10
 
 type tlvType11 struct{}
 
-func (t *tlvType11) typeVal() Type {
+func (t *tlvType11) TypeVal() Type {
 	return 11
 }
+
+func (t *tlvType11) tlv() {}
 
 type TlvType11 = *tlvType11
 
 type tlvType12 struct{}
 
-func (t *tlvType12) typeVal() Type {
+func (t *tlvType12) TypeVal() Type {
 	return 12
 }
+
+func (t *tlvType12) tlv() {}
 
 type TlvType12 = *tlvType12
 
 type tlvType13 struct{}
 
-func (t *tlvType13) typeVal() Type {
+func (t *tlvType13) TypeVal() Type {
 	return 13
 }
+
+func (t *tlvType13) tlv() {}
 
 type TlvType13 = *tlvType13
 
 type tlvType14 struct{}
 
-func (t *tlvType14) typeVal() Type {
+func (t *tlvType14) TypeVal() Type {
 	return 14
 }
+
+func (t *tlvType14) tlv() {}
 
 type TlvType14 = *tlvType14
 
 type tlvType15 struct{}
 
-func (t *tlvType15) typeVal() Type {
+func (t *tlvType15) TypeVal() Type {
 	return 15
 }
+
+func (t *tlvType15) tlv() {}
 
 type TlvType15 = *tlvType15
 
 type tlvType16 struct{}
 
-func (t *tlvType16) typeVal() Type {
+func (t *tlvType16) TypeVal() Type {
 	return 16
 }
+
+func (t *tlvType16) tlv() {}
 
 type TlvType16 = *tlvType16
 
 type tlvType17 struct{}
 
-func (t *tlvType17) typeVal() Type {
+func (t *tlvType17) TypeVal() Type {
 	return 17
 }
+
+func (t *tlvType17) tlv() {}
 
 type TlvType17 = *tlvType17
 
 type tlvType18 struct{}
 
-func (t *tlvType18) typeVal() Type {
+func (t *tlvType18) TypeVal() Type {
 	return 18
 }
+
+func (t *tlvType18) tlv() {}
 
 type TlvType18 = *tlvType18
 
 type tlvType19 struct{}
 
-func (t *tlvType19) typeVal() Type {
+func (t *tlvType19) TypeVal() Type {
 	return 19
 }
+
+func (t *tlvType19) tlv() {}
 
 type TlvType19 = *tlvType19
 
 type tlvType20 struct{}
 
-func (t *tlvType20) typeVal() Type {
+func (t *tlvType20) TypeVal() Type {
 	return 20
 }
+
+func (t *tlvType20) tlv() {}
 
 type TlvType20 = *tlvType20
 
 type tlvType21 struct{}
 
-func (t *tlvType21) typeVal() Type {
+func (t *tlvType21) TypeVal() Type {
 	return 21
 }
+
+func (t *tlvType21) tlv() {}
 
 type TlvType21 = *tlvType21
 
 type tlvType22 struct{}
 
-func (t *tlvType22) typeVal() Type {
+func (t *tlvType22) TypeVal() Type {
 	return 22
 }
+
+func (t *tlvType22) tlv() {}
 
 type TlvType22 = *tlvType22
 
 type tlvType23 struct{}
 
-func (t *tlvType23) typeVal() Type {
+func (t *tlvType23) TypeVal() Type {
 	return 23
 }
+
+func (t *tlvType23) tlv() {}
 
 type TlvType23 = *tlvType23
 
 type tlvType24 struct{}
 
-func (t *tlvType24) typeVal() Type {
+func (t *tlvType24) TypeVal() Type {
 	return 24
 }
+
+func (t *tlvType24) tlv() {}
 
 type TlvType24 = *tlvType24
 
 type tlvType25 struct{}
 
-func (t *tlvType25) typeVal() Type {
+func (t *tlvType25) TypeVal() Type {
 	return 25
 }
+
+func (t *tlvType25) tlv() {}
 
 type TlvType25 = *tlvType25
 
 type tlvType26 struct{}
 
-func (t *tlvType26) typeVal() Type {
+func (t *tlvType26) TypeVal() Type {
 	return 26
 }
+
+func (t *tlvType26) tlv() {}
 
 type TlvType26 = *tlvType26
 
 type tlvType27 struct{}
 
-func (t *tlvType27) typeVal() Type {
+func (t *tlvType27) TypeVal() Type {
 	return 27
 }
+
+func (t *tlvType27) tlv() {}
 
 type TlvType27 = *tlvType27
 
 type tlvType28 struct{}
 
-func (t *tlvType28) typeVal() Type {
+func (t *tlvType28) TypeVal() Type {
 	return 28
 }
+
+func (t *tlvType28) tlv() {}
 
 type TlvType28 = *tlvType28
 
 type tlvType29 struct{}
 
-func (t *tlvType29) typeVal() Type {
+func (t *tlvType29) TypeVal() Type {
 	return 29
 }
+
+func (t *tlvType29) tlv() {}
 
 type TlvType29 = *tlvType29
 
 type tlvType30 struct{}
 
-func (t *tlvType30) typeVal() Type {
+func (t *tlvType30) TypeVal() Type {
 	return 30
 }
+
+func (t *tlvType30) tlv() {}
 
 type TlvType30 = *tlvType30
 
 type tlvType31 struct{}
 
-func (t *tlvType31) typeVal() Type {
+func (t *tlvType31) TypeVal() Type {
 	return 31
 }
+
+func (t *tlvType31) tlv() {}
 
 type TlvType31 = *tlvType31
 
 type tlvType32 struct{}
 
-func (t *tlvType32) typeVal() Type {
+func (t *tlvType32) TypeVal() Type {
 	return 32
 }
+
+func (t *tlvType32) tlv() {}
 
 type TlvType32 = *tlvType32
 
 type tlvType33 struct{}
 
-func (t *tlvType33) typeVal() Type {
+func (t *tlvType33) TypeVal() Type {
 	return 33
 }
+
+func (t *tlvType33) tlv() {}
 
 type TlvType33 = *tlvType33
 
 type tlvType34 struct{}
 
-func (t *tlvType34) typeVal() Type {
+func (t *tlvType34) TypeVal() Type {
 	return 34
 }
+
+func (t *tlvType34) tlv() {}
 
 type TlvType34 = *tlvType34
 
 type tlvType35 struct{}
 
-func (t *tlvType35) typeVal() Type {
+func (t *tlvType35) TypeVal() Type {
 	return 35
 }
+
+func (t *tlvType35) tlv() {}
 
 type TlvType35 = *tlvType35
 
 type tlvType36 struct{}
 
-func (t *tlvType36) typeVal() Type {
+func (t *tlvType36) TypeVal() Type {
 	return 36
 }
+
+func (t *tlvType36) tlv() {}
 
 type TlvType36 = *tlvType36
 
 type tlvType37 struct{}
 
-func (t *tlvType37) typeVal() Type {
+func (t *tlvType37) TypeVal() Type {
 	return 37
 }
+
+func (t *tlvType37) tlv() {}
 
 type TlvType37 = *tlvType37
 
 type tlvType38 struct{}
 
-func (t *tlvType38) typeVal() Type {
+func (t *tlvType38) TypeVal() Type {
 	return 38
 }
+
+func (t *tlvType38) tlv() {}
 
 type TlvType38 = *tlvType38
 
 type tlvType39 struct{}
 
-func (t *tlvType39) typeVal() Type {
+func (t *tlvType39) TypeVal() Type {
 	return 39
 }
+
+func (t *tlvType39) tlv() {}
 
 type TlvType39 = *tlvType39
 
 type tlvType40 struct{}
 
-func (t *tlvType40) typeVal() Type {
+func (t *tlvType40) TypeVal() Type {
 	return 40
 }
+
+func (t *tlvType40) tlv() {}
 
 type TlvType40 = *tlvType40
 
 type tlvType41 struct{}
 
-func (t *tlvType41) typeVal() Type {
+func (t *tlvType41) TypeVal() Type {
 	return 41
 }
+
+func (t *tlvType41) tlv() {}
 
 type TlvType41 = *tlvType41
 
 type tlvType42 struct{}
 
-func (t *tlvType42) typeVal() Type {
+func (t *tlvType42) TypeVal() Type {
 	return 42
 }
+
+func (t *tlvType42) tlv() {}
 
 type TlvType42 = *tlvType42
 
 type tlvType43 struct{}
 
-func (t *tlvType43) typeVal() Type {
+func (t *tlvType43) TypeVal() Type {
 	return 43
 }
+
+func (t *tlvType43) tlv() {}
 
 type TlvType43 = *tlvType43
 
 type tlvType44 struct{}
 
-func (t *tlvType44) typeVal() Type {
+func (t *tlvType44) TypeVal() Type {
 	return 44
 }
+
+func (t *tlvType44) tlv() {}
 
 type TlvType44 = *tlvType44
 
 type tlvType45 struct{}
 
-func (t *tlvType45) typeVal() Type {
+func (t *tlvType45) TypeVal() Type {
 	return 45
 }
+
+func (t *tlvType45) tlv() {}
 
 type TlvType45 = *tlvType45
 
 type tlvType46 struct{}
 
-func (t *tlvType46) typeVal() Type {
+func (t *tlvType46) TypeVal() Type {
 	return 46
 }
+
+func (t *tlvType46) tlv() {}
 
 type TlvType46 = *tlvType46
 
 type tlvType47 struct{}
 
-func (t *tlvType47) typeVal() Type {
+func (t *tlvType47) TypeVal() Type {
 	return 47
 }
+
+func (t *tlvType47) tlv() {}
 
 type TlvType47 = *tlvType47
 
 type tlvType48 struct{}
 
-func (t *tlvType48) typeVal() Type {
+func (t *tlvType48) TypeVal() Type {
 	return 48
 }
+
+func (t *tlvType48) tlv() {}
 
 type TlvType48 = *tlvType48
 
 type tlvType49 struct{}
 
-func (t *tlvType49) typeVal() Type {
+func (t *tlvType49) TypeVal() Type {
 	return 49
 }
+
+func (t *tlvType49) tlv() {}
 
 type TlvType49 = *tlvType49
 
 type tlvType50 struct{}
 
-func (t *tlvType50) typeVal() Type {
+func (t *tlvType50) TypeVal() Type {
 	return 50
 }
+
+func (t *tlvType50) tlv() {}
 
 type TlvType50 = *tlvType50
 
 type tlvType51 struct{}
 
-func (t *tlvType51) typeVal() Type {
+func (t *tlvType51) TypeVal() Type {
 	return 51
 }
+
+func (t *tlvType51) tlv() {}
 
 type TlvType51 = *tlvType51
 
 type tlvType52 struct{}
 
-func (t *tlvType52) typeVal() Type {
+func (t *tlvType52) TypeVal() Type {
 	return 52
 }
+
+func (t *tlvType52) tlv() {}
 
 type TlvType52 = *tlvType52
 
 type tlvType53 struct{}
 
-func (t *tlvType53) typeVal() Type {
+func (t *tlvType53) TypeVal() Type {
 	return 53
 }
+
+func (t *tlvType53) tlv() {}
 
 type TlvType53 = *tlvType53
 
 type tlvType54 struct{}
 
-func (t *tlvType54) typeVal() Type {
+func (t *tlvType54) TypeVal() Type {
 	return 54
 }
+
+func (t *tlvType54) tlv() {}
 
 type TlvType54 = *tlvType54
 
 type tlvType55 struct{}
 
-func (t *tlvType55) typeVal() Type {
+func (t *tlvType55) TypeVal() Type {
 	return 55
 }
+
+func (t *tlvType55) tlv() {}
 
 type TlvType55 = *tlvType55
 
 type tlvType56 struct{}
 
-func (t *tlvType56) typeVal() Type {
+func (t *tlvType56) TypeVal() Type {
 	return 56
 }
+
+func (t *tlvType56) tlv() {}
 
 type TlvType56 = *tlvType56
 
 type tlvType57 struct{}
 
-func (t *tlvType57) typeVal() Type {
+func (t *tlvType57) TypeVal() Type {
 	return 57
 }
+
+func (t *tlvType57) tlv() {}
 
 type TlvType57 = *tlvType57
 
 type tlvType58 struct{}
 
-func (t *tlvType58) typeVal() Type {
+func (t *tlvType58) TypeVal() Type {
 	return 58
 }
+
+func (t *tlvType58) tlv() {}
 
 type TlvType58 = *tlvType58
 
 type tlvType59 struct{}
 
-func (t *tlvType59) typeVal() Type {
+func (t *tlvType59) TypeVal() Type {
 	return 59
 }
+
+func (t *tlvType59) tlv() {}
 
 type TlvType59 = *tlvType59
 
 type tlvType60 struct{}
 
-func (t *tlvType60) typeVal() Type {
+func (t *tlvType60) TypeVal() Type {
 	return 60
 }
+
+func (t *tlvType60) tlv() {}
 
 type TlvType60 = *tlvType60
 
 type tlvType61 struct{}
 
-func (t *tlvType61) typeVal() Type {
+func (t *tlvType61) TypeVal() Type {
 	return 61
 }
+
+func (t *tlvType61) tlv() {}
 
 type TlvType61 = *tlvType61
 
 type tlvType62 struct{}
 
-func (t *tlvType62) typeVal() Type {
+func (t *tlvType62) TypeVal() Type {
 	return 62
 }
+
+func (t *tlvType62) tlv() {}
 
 type TlvType62 = *tlvType62
 
 type tlvType63 struct{}
 
-func (t *tlvType63) typeVal() Type {
+func (t *tlvType63) TypeVal() Type {
 	return 63
 }
+
+func (t *tlvType63) tlv() {}
 
 type TlvType63 = *tlvType63
 
 type tlvType64 struct{}
 
-func (t *tlvType64) typeVal() Type {
+func (t *tlvType64) TypeVal() Type {
 	return 64
 }
+
+func (t *tlvType64) tlv() {}
 
 type TlvType64 = *tlvType64
 
 type tlvType65 struct{}
 
-func (t *tlvType65) typeVal() Type {
+func (t *tlvType65) TypeVal() Type {
 	return 65
 }
+
+func (t *tlvType65) tlv() {}
 
 type TlvType65 = *tlvType65
 
 type tlvType66 struct{}
 
-func (t *tlvType66) typeVal() Type {
+func (t *tlvType66) TypeVal() Type {
 	return 66
 }
+
+func (t *tlvType66) tlv() {}
 
 type TlvType66 = *tlvType66
 
 type tlvType67 struct{}
 
-func (t *tlvType67) typeVal() Type {
+func (t *tlvType67) TypeVal() Type {
 	return 67
 }
+
+func (t *tlvType67) tlv() {}
 
 type TlvType67 = *tlvType67
 
 type tlvType68 struct{}
 
-func (t *tlvType68) typeVal() Type {
+func (t *tlvType68) TypeVal() Type {
 	return 68
 }
+
+func (t *tlvType68) tlv() {}
 
 type TlvType68 = *tlvType68
 
 type tlvType69 struct{}
 
-func (t *tlvType69) typeVal() Type {
+func (t *tlvType69) TypeVal() Type {
 	return 69
 }
+
+func (t *tlvType69) tlv() {}
 
 type TlvType69 = *tlvType69
 
 type tlvType70 struct{}
 
-func (t *tlvType70) typeVal() Type {
+func (t *tlvType70) TypeVal() Type {
 	return 70
 }
+
+func (t *tlvType70) tlv() {}
 
 type TlvType70 = *tlvType70
 
 type tlvType71 struct{}
 
-func (t *tlvType71) typeVal() Type {
+func (t *tlvType71) TypeVal() Type {
 	return 71
 }
+
+func (t *tlvType71) tlv() {}
 
 type TlvType71 = *tlvType71
 
 type tlvType72 struct{}
 
-func (t *tlvType72) typeVal() Type {
+func (t *tlvType72) TypeVal() Type {
 	return 72
 }
+
+func (t *tlvType72) tlv() {}
 
 type TlvType72 = *tlvType72
 
 type tlvType73 struct{}
 
-func (t *tlvType73) typeVal() Type {
+func (t *tlvType73) TypeVal() Type {
 	return 73
 }
+
+func (t *tlvType73) tlv() {}
 
 type TlvType73 = *tlvType73
 
 type tlvType74 struct{}
 
-func (t *tlvType74) typeVal() Type {
+func (t *tlvType74) TypeVal() Type {
 	return 74
 }
+
+func (t *tlvType74) tlv() {}
 
 type TlvType74 = *tlvType74
 
 type tlvType75 struct{}
 
-func (t *tlvType75) typeVal() Type {
+func (t *tlvType75) TypeVal() Type {
 	return 75
 }
+
+func (t *tlvType75) tlv() {}
 
 type TlvType75 = *tlvType75
 
 type tlvType76 struct{}
 
-func (t *tlvType76) typeVal() Type {
+func (t *tlvType76) TypeVal() Type {
 	return 76
 }
+
+func (t *tlvType76) tlv() {}
 
 type TlvType76 = *tlvType76
 
 type tlvType77 struct{}
 
-func (t *tlvType77) typeVal() Type {
+func (t *tlvType77) TypeVal() Type {
 	return 77
 }
+
+func (t *tlvType77) tlv() {}
 
 type TlvType77 = *tlvType77
 
 type tlvType78 struct{}
 
-func (t *tlvType78) typeVal() Type {
+func (t *tlvType78) TypeVal() Type {
 	return 78
 }
+
+func (t *tlvType78) tlv() {}
 
 type TlvType78 = *tlvType78
 
 type tlvType79 struct{}
 
-func (t *tlvType79) typeVal() Type {
+func (t *tlvType79) TypeVal() Type {
 	return 79
 }
+
+func (t *tlvType79) tlv() {}
 
 type TlvType79 = *tlvType79
 
 type tlvType80 struct{}
 
-func (t *tlvType80) typeVal() Type {
+func (t *tlvType80) TypeVal() Type {
 	return 80
 }
+
+func (t *tlvType80) tlv() {}
 
 type TlvType80 = *tlvType80
 
 type tlvType81 struct{}
 
-func (t *tlvType81) typeVal() Type {
+func (t *tlvType81) TypeVal() Type {
 	return 81
 }
+
+func (t *tlvType81) tlv() {}
 
 type TlvType81 = *tlvType81
 
 type tlvType82 struct{}
 
-func (t *tlvType82) typeVal() Type {
+func (t *tlvType82) TypeVal() Type {
 	return 82
 }
+
+func (t *tlvType82) tlv() {}
 
 type TlvType82 = *tlvType82
 
 type tlvType83 struct{}
 
-func (t *tlvType83) typeVal() Type {
+func (t *tlvType83) TypeVal() Type {
 	return 83
 }
+
+func (t *tlvType83) tlv() {}
 
 type TlvType83 = *tlvType83
 
 type tlvType84 struct{}
 
-func (t *tlvType84) typeVal() Type {
+func (t *tlvType84) TypeVal() Type {
 	return 84
 }
+
+func (t *tlvType84) tlv() {}
 
 type TlvType84 = *tlvType84
 
 type tlvType85 struct{}
 
-func (t *tlvType85) typeVal() Type {
+func (t *tlvType85) TypeVal() Type {
 	return 85
 }
+
+func (t *tlvType85) tlv() {}
 
 type TlvType85 = *tlvType85
 
 type tlvType86 struct{}
 
-func (t *tlvType86) typeVal() Type {
+func (t *tlvType86) TypeVal() Type {
 	return 86
 }
+
+func (t *tlvType86) tlv() {}
 
 type TlvType86 = *tlvType86
 
 type tlvType87 struct{}
 
-func (t *tlvType87) typeVal() Type {
+func (t *tlvType87) TypeVal() Type {
 	return 87
 }
+
+func (t *tlvType87) tlv() {}
 
 type TlvType87 = *tlvType87
 
 type tlvType88 struct{}
 
-func (t *tlvType88) typeVal() Type {
+func (t *tlvType88) TypeVal() Type {
 	return 88
 }
+
+func (t *tlvType88) tlv() {}
 
 type TlvType88 = *tlvType88
 
 type tlvType89 struct{}
 
-func (t *tlvType89) typeVal() Type {
+func (t *tlvType89) TypeVal() Type {
 	return 89
 }
+
+func (t *tlvType89) tlv() {}
 
 type TlvType89 = *tlvType89
 
 type tlvType90 struct{}
 
-func (t *tlvType90) typeVal() Type {
+func (t *tlvType90) TypeVal() Type {
 	return 90
 }
+
+func (t *tlvType90) tlv() {}
 
 type TlvType90 = *tlvType90
 
 type tlvType91 struct{}
 
-func (t *tlvType91) typeVal() Type {
+func (t *tlvType91) TypeVal() Type {
 	return 91
 }
+
+func (t *tlvType91) tlv() {}
 
 type TlvType91 = *tlvType91
 
 type tlvType92 struct{}
 
-func (t *tlvType92) typeVal() Type {
+func (t *tlvType92) TypeVal() Type {
 	return 92
 }
+
+func (t *tlvType92) tlv() {}
 
 type TlvType92 = *tlvType92
 
 type tlvType93 struct{}
 
-func (t *tlvType93) typeVal() Type {
+func (t *tlvType93) TypeVal() Type {
 	return 93
 }
+
+func (t *tlvType93) tlv() {}
 
 type TlvType93 = *tlvType93
 
 type tlvType94 struct{}
 
-func (t *tlvType94) typeVal() Type {
+func (t *tlvType94) TypeVal() Type {
 	return 94
 }
+
+func (t *tlvType94) tlv() {}
 
 type TlvType94 = *tlvType94
 
 type tlvType95 struct{}
 
-func (t *tlvType95) typeVal() Type {
+func (t *tlvType95) TypeVal() Type {
 	return 95
 }
+
+func (t *tlvType95) tlv() {}
 
 type TlvType95 = *tlvType95
 
 type tlvType96 struct{}
 
-func (t *tlvType96) typeVal() Type {
+func (t *tlvType96) TypeVal() Type {
 	return 96
 }
+
+func (t *tlvType96) tlv() {}
 
 type TlvType96 = *tlvType96
 
 type tlvType97 struct{}
 
-func (t *tlvType97) typeVal() Type {
+func (t *tlvType97) TypeVal() Type {
 	return 97
 }
+
+func (t *tlvType97) tlv() {}
 
 type TlvType97 = *tlvType97
 
 type tlvType98 struct{}
 
-func (t *tlvType98) typeVal() Type {
+func (t *tlvType98) TypeVal() Type {
 	return 98
 }
+
+func (t *tlvType98) tlv() {}
 
 type TlvType98 = *tlvType98
 
 type tlvType99 struct{}
 
-func (t *tlvType99) typeVal() Type {
+func (t *tlvType99) TypeVal() Type {
 	return 99
 }
+
+func (t *tlvType99) tlv() {}
 
 type TlvType99 = *tlvType99
 
 type tlvType100 struct{}
 
-func (t *tlvType100) typeVal() Type {
+func (t *tlvType100) TypeVal() Type {
 	return 100
 }
+
+func (t *tlvType100) tlv() {}
 
 type TlvType100 = *tlvType100

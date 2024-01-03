@@ -80,11 +80,26 @@ func (t *RecordT[T, V]) Record() Record {
 	}
 }
 
+// TlvType returns the type of the record. This is the value used to identify
+// this type on the wire. This value is bound to the specified TlvType type
+// param.
+func (t *RecordT[T, V]) TlvType() Type {
+	return t.recordType.TypeVal()
+}
+
 // OptionalRecordT is a high-order type that represents an optional TLV record.
 // This can be used when a TLV record doesn't always need to be present (ok to
 // be odd).
 type OptionalRecordT[T TlvType, V any] struct {
 	fn.Option[RecordT[T, V]]
+}
+
+// TlvType returns the type of the record. This is the value used to identify
+// this type on the wire. This value is bound to the specified TlvType type
+// param.
+func (t *OptionalRecordT[T, V]) TlvType() Type {
+	zeroRecord := ZeroRecordT[T, V]()
+	return zeroRecord.TlvType()
 }
 
 // ZeroRecordT returns a zero value of the RecordT type.

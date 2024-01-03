@@ -92,7 +92,21 @@ func hopFromPayload(p *Payload) (*route.Hop, uint64) {
 	}, p.FwdInfo.NextHop.ToUint64()
 }
 
-func FuzzPayload(f *testing.F) {
+// FuzzPayloadFinal fuzzes final hop payloads, providing the additional context
+// that the hop should be final (which is usually obtained by the structure
+// of the sphinx packet).
+func FuzzPayloadFinal(f *testing.F) {
+	fuzzPayload(f, true)
+}
+
+// FuzzPayloadIntermediate fuzzes intermediate hop payloads, providing the
+// additional context that a hop should be intermediate (which is usually
+// obtained by the structure of the sphinx packet).
+func FuzzPayloadIntermediate(f *testing.F) {
+	fuzzPayload(f, false)
+}
+
+func fuzzPayload(f *testing.F, finalPayload bool) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > sphinx.MaxPayloadSize {
 			return
@@ -100,25 +114,36 @@ func FuzzPayload(f *testing.F) {
 
 		r := bytes.NewReader(data)
 
-		payload1, err := NewPayloadFromReader(r)
+		payload1, err := NewPayloadFromReader(r, finalPayload)
 		if err != nil {
 			return
 		}
 
 		var b bytes.Buffer
 		hop, nextChanID := hopFromPayload(payload1)
-		err = hop.PackHopPayload(&b, nextChanID)
-		if errors.Is(err, route.ErrAMPMissingMPP) {
-			// PackHopPayload refuses to encode an AMP record
-			// without an MPP record. However, NewPayloadFromReader
-			// does allow decoding an AMP record without an MPP
-			// record, since validation is done at a later stage. Do
-			// not report a bug for this case.
+		err = hop.PackHopPayload(&b, nextChanID, finalPayload)
+		switch {
+		// PackHopPayload refuses to encode an AMP record
+		// without an MPP record. However, NewPayloadFromReader
+		// does allow decoding an AMP record without an MPP
+		// record, since validation is done at a later stage. Do
+		// not report a bug for this case.
+		case errors.Is(err, route.ErrAMPMissingMPP):
 			return
-		}
-		require.NoError(t, err)
 
-		payload2, err := NewPayloadFromReader(&b)
+		// PackHopPayload will not encode regular payloads or final
+		// hops in blinded routes that do not have an amount or expiry
+		// TLV set. However, NewPayloadFromReader will allow creation
+		// of payloads where these TLVs are present, but they have
+		// zero values because validation is done at a later stage.
+		case errors.Is(err, route.ErrMissingField):
+			return
+
+		default:
+			require.NoError(t, err)
+		}
+
+		payload2, err := NewPayloadFromReader(&b, finalPayload)
 		require.NoError(t, err)
 
 		require.Equal(t, payload1, payload2)

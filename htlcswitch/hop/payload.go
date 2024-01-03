@@ -127,8 +127,10 @@ func NewLegacyPayload(f *sphinx.HopData) *Payload {
 }
 
 // NewPayloadFromReader builds a new Hop from the passed io.Reader. The reader
-// should correspond to the bytes encapsulated in a TLV onion payload.
-func NewPayloadFromReader(r io.Reader) (*Payload, error) {
+// should correspond to the bytes encapsulated in a TLV onion payload. The
+// final hop bool signals that this payload was the final packet parsed by
+// sphinx.
+func NewPayloadFromReader(r io.Reader, finalHop bool) (*Payload, error) {
 	var (
 		cid           uint64
 		amt           uint64
@@ -165,8 +167,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 
 	// Validate whether the sender properly included or omitted tlv records
 	// in accordance with BOLT 04.
-	nextHop := lnwire.NewShortChanIDFromInt(cid)
-	err = ValidateParsedPayloadTypes(parsedTypes, nextHop)
+	err = ValidateParsedPayloadTypes(parsedTypes, finalHop)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +178,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 		return nil, ErrInvalidPayload{
 			Type:      *violatingType,
 			Violation: RequiredViolation,
-			FinalHop:  nextHop == Exit,
+			FinalHop:  finalHop,
 		}
 	}
 
@@ -210,7 +211,7 @@ func NewPayloadFromReader(r io.Reader) (*Payload, error) {
 
 	return &Payload{
 		FwdInfo: ForwardingInfo{
-			NextHop:         nextHop,
+			NextHop:         lnwire.NewShortChanIDFromInt(cid),
 			AmountToForward: lnwire.MilliSatoshi(amt),
 			OutgoingCTLV:    cltv,
 		},
@@ -248,42 +249,71 @@ func NewCustomRecords(parsedTypes tlv.TypeMap) record.CustomSet {
 // boolean should be true if the payload was parsed for an exit hop. The
 // requirements for this method are described in BOLT 04.
 func ValidateParsedPayloadTypes(parsedTypes tlv.TypeMap,
-	nextHop lnwire.ShortChannelID) error {
-
-	isFinalHop := nextHop == Exit
+	isFinalHop bool) error {
 
 	_, hasAmt := parsedTypes[record.AmtOnionType]
 	_, hasLockTime := parsedTypes[record.LockTimeOnionType]
 	_, hasNextHop := parsedTypes[record.NextHopOnionType]
 	_, hasMPP := parsedTypes[record.MPPOnionType]
 	_, hasAMP := parsedTypes[record.AMPOnionType]
+	_, hasEncryptedData := parsedTypes[record.EncryptedDataOnionType]
+
+	// All cleartext hops (including final hop) and the final hop in a
+	// blinded path require the forwading amount and expiry TLVs to be set.
+	needFwdInfo := isFinalHop || !hasEncryptedData
+
+	// No blinded hops should have a next hop specified, and only the final
+	// hop in a cleartext route should exclude it.
+	needNextHop := !(hasEncryptedData || isFinalHop)
 
 	switch {
-
-	// All hops must include an amount to forward.
-	case !hasAmt:
+	// Hops that need forwarding info must include an amount to forward.
+	case needFwdInfo && !hasAmt:
 		return ErrInvalidPayload{
 			Type:      record.AmtOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
 		}
 
-	// All hops must include a cltv expiry.
-	case !hasLockTime:
+	// Hops that need forwarding info must include a cltv expiry.
+	case needFwdInfo && !hasLockTime:
 		return ErrInvalidPayload{
 			Type:      record.LockTimeOnionType,
 			Violation: OmittedViolation,
 			FinalHop:  isFinalHop,
 		}
 
-	// The exit hop should omit the next hop id. If nextHop != Exit, the
-	// sender must have included a record, so we don't need to test for its
-	// inclusion at intermediate hops directly.
-	case isFinalHop && hasNextHop:
+	// Hops that don't need forwarding info shouldn't have an amount TLV.
+	case !needFwdInfo && hasAmt:
+		return ErrInvalidPayload{
+			Type:      record.AmtOnionType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	// Hops that don't need forwarding info shouldn't have a cltv TLV.
+	case !needFwdInfo && hasLockTime:
+		return ErrInvalidPayload{
+			Type:      record.LockTimeOnionType,
+			Violation: IncludedViolation,
+			FinalHop:  isFinalHop,
+		}
+
+	// The exit hop and all blinded hops should omit the next hop id.
+	case !needNextHop && hasNextHop:
 		return ErrInvalidPayload{
 			Type:      record.NextHopOnionType,
 			Violation: IncludedViolation,
-			FinalHop:  true,
+			FinalHop:  isFinalHop,
+		}
+
+	// Require that the next hop is set for intermediate hops in regular
+	// routes.
+	case needNextHop && !hasNextHop:
+		return ErrInvalidPayload{
+			Type:      record.NextHopOnionType,
+			Violation: OmittedViolation,
+			FinalHop:  isFinalHop,
 		}
 
 	// Intermediate nodes should never receive MPP fields.

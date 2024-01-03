@@ -100,6 +100,10 @@
   primitive type of the tlv package.
 
 ## Misc
+* [Added](https://github.com/lightningnetwork/lnd/pull/8142) full validation 
+  for blinded path payloads to allow fuzzing before LND fully supports 
+  blinded payment relay.
+
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
   contract court logs in case of timed-out htlcs in order to easily spot dust

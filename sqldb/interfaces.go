@@ -27,7 +27,7 @@ const (
 )
 
 // TxOptions represents a set of options one can use to control what type of
-// database transaction is created. Transaction can wither be read or write.
+// database transaction is created. Transaction can be either read or write.
 type TxOptions interface {
 	// ReadOnly returns true if the transaction should be read only.
 	ReadOnly() bool

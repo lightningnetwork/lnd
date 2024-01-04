@@ -30,7 +30,10 @@ var (
 
 	testnetChainHash = *chaincfg.TestNet3Params.GenesisHash
 
-	testBlob = make([]byte, blob.Size(blob.TypeAltruistCommit))
+	testBlob = make(
+		[]byte, blob.NonceSize+blob.V0PlaintextSize+
+			blob.CiphertextExpansion,
+	)
 )
 
 // randPubKey generates a new secp keypair, and returns the public key.

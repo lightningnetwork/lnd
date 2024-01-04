@@ -240,9 +240,19 @@ func (t *TowerDB) InsertStateUpdate(update *SessionStateUpdate) (uint16, error) 
 			return err
 		}
 
+		commitType, err := session.Policy.BlobType.CommitmentType(nil)
+		if err != nil {
+			return err
+		}
+
+		kit, err := commitType.EmptyJusticeKit()
+		if err != nil {
+			return err
+		}
+
 		// Assert that the blob is the correct size for the session's
 		// blob type.
-		expBlobSize := blob.Size(session.Policy.BlobType)
+		expBlobSize := blob.Size(kit)
 		if len(update.EncryptedBlob) != expBlobSize {
 			return ErrInvalidBlobSize
 		}

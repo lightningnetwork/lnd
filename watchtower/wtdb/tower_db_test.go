@@ -17,7 +17,10 @@ import (
 )
 
 var (
-	testBlob = make([]byte, blob.Size(blob.TypeAltruistCommit))
+	testBlob = make(
+		[]byte, blob.NonceSize+blob.V0PlaintextSize+
+			blob.CiphertextExpansion,
+	)
 )
 
 // dbInit is a closure used to initialize a watchtower.DB instance.
@@ -737,7 +740,8 @@ func updateFromInt(id *wtdb.SessionID, i int,
 	copy(hint[:4], id[:4])
 	binary.BigEndian.PutUint16(hint[4:6], uint16(i))
 
-	blobSize := blob.Size(blob.TypeAltruistCommit)
+	kit, _ := blob.AnchorCommitment.EmptyJusticeKit()
+	blobSize := blob.Size(kit)
 
 	return &wtdb.SessionStateUpdate{
 		ID:            *id,

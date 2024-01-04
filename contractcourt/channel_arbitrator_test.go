@@ -1058,7 +1058,9 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	}
 
 	// Notify resolver that the HTLC output of the commitment has been
-	// spent.
+	// spent. We need to send two events here, one for the contest
+	// resolver, the other for the timeout resolver.
+	oldNotifier.SpendChan <- &chainntnfs.SpendDetail{SpendingTx: closeTx}
 	oldNotifier.SpendChan <- &chainntnfs.SpendDetail{SpendingTx: closeTx}
 
 	// Finally, we should also receive a resolution message instructing the

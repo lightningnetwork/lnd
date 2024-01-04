@@ -186,7 +186,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 
 		if lt, ok := o.RequiredLockTime(); ok {
 			// If another input commits to a different locktime,
-			// they cannot be combined in the same transcation.
+			// they cannot be combined in the same transaction.
 			if locktime != -1 && locktime != int32(lt) {
 				return nil, fmt.Errorf("incompatible locktime")
 			}

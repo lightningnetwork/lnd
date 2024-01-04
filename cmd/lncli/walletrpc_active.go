@@ -1298,8 +1298,8 @@ var listAddressesCommand = cli.Command{
 	Flags: []cli.Flag{
 		cli.StringFlag{
 			Name: "account_name",
-			Usage: "(optional) only addreses matching this account " +
-				"are returned",
+			Usage: "(optional) only addresses matching this " +
+				"account are returned",
 		},
 		cli.BoolFlag{
 			Name: "show_custom_accounts",

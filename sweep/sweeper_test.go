@@ -2420,7 +2420,7 @@ func TestClusterByLockTime(t *testing.T) {
 				remainingInputs,
 			)
 
-			// Assert the mocked methods are called as expeceted.
+			// Assert the mocked methods are called as expected.
 			input1LockTime1.AssertExpectations(t)
 			input2LockTime1.AssertExpectations(t)
 			input3LockTime2.AssertExpectations(t)

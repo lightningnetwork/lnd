@@ -123,7 +123,7 @@ invoice.
 
 This example has a few dependencies:
 ```shell
-$  npm install --save async lodash bytebuffer
+$  npm install --save async lodash
 ```
 
 You can run the following in your shell or put it in a program and run it like
@@ -133,10 +133,9 @@ You can run the following in your shell or put it in a program and run it like
 // Load some libraries specific to this example
 const async = require('async');
 const _ = require('lodash');
-const ByteBuffer = require('bytebuffer');
 
 let dest_pubkey = <RECEIVER_ID_PUBKEY>;
-let dest_pubkey_bytes = ByteBuffer.fromHex(dest_pubkey);
+let dest_pubkey_bytes = new Buffer(dest_pubkey, "hex");
 
 // Set a listener on the bidirectional stream
 let call = lightning.sendPayment();

@@ -347,30 +347,13 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 		return err
 	}
 
-	// Send the payment.
-	err = s.cfg.Router.SendPaymentAsync(payment, paySession, shardTracker)
-	if err == nil {
-		// If the payment was sent successfully, we can start tracking
-		// the events.
-		return s.trackPayment(
-			sub, payHash, stream, req.NoInflightUpdates,
-		)
-	}
+	// Send the payment asynchronously.
+	s.cfg.Router.SendPaymentAsync(payment, paySession, shardTracker)
 
-	// Otherwise, transform user errors to grpc code.
-	if errors.Is(err, channeldb.ErrPaymentInFlight) ||
-		errors.Is(err, channeldb.ErrAlreadyPaid) {
-
-		log.Debugf("SendPayment async result for payment %x: %v",
-			payment.Identifier(), err)
-
-		return status.Error(codes.AlreadyExists, err.Error())
-	}
-
-	log.Errorf("SendPayment async error for payment %x: %v",
-		payment.Identifier(), err)
-
-	return err
+	// Track the payment and return.
+	return s.trackPayment(
+		sub, payHash, stream, req.NoInflightUpdates,
+	)
 }
 
 // EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it

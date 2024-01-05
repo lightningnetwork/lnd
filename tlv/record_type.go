@@ -62,11 +62,29 @@ func (t *RecordT[T, V]) Record() Record {
 	tlvRecord, ok := any(&t.Val).(RecordProducer)
 	if !ok {
 		return MakePrimitiveRecord(
-			t.recordType.typeVal(), &t.Val,
+			t.recordType.TypeVal(), &t.Val,
 		)
 	}
 
-	return tlvRecord.Record()
+	// To enforce proper usage of the RecordT type, we'll make a wrapper
+	// record that uses the proper internal type value.
+	ogRecord := tlvRecord.Record()
+
+	return Record{
+		value:      ogRecord.value,
+		typ:        t.recordType.TypeVal(),
+		staticSize: ogRecord.staticSize,
+		sizeFunc:   ogRecord.sizeFunc,
+		encoder:    ogRecord.encoder,
+		decoder:    ogRecord.decoder,
+	}
+}
+
+// TlvType returns the type of the record. This is the value used to identify
+// this type on the wire. This value is bound to the specified TlvType type
+// param.
+func (t *RecordT[T, V]) TlvType() Type {
+	return t.recordType.TypeVal()
 }
 
 // OptionalRecordT is a high-order type that represents an optional TLV record.
@@ -74,6 +92,29 @@ func (t *RecordT[T, V]) Record() Record {
 // be odd).
 type OptionalRecordT[T TlvType, V any] struct {
 	fn.Option[RecordT[T, V]]
+}
+
+// TlvType returns the type of the record. This is the value used to identify
+// this type on the wire. This value is bound to the specified TlvType type
+// param.
+func (t *OptionalRecordT[T, V]) TlvType() Type {
+	zeroRecord := ZeroRecordT[T, V]()
+	return zeroRecord.TlvType()
+}
+
+// WhenSomeV executes the given function if the optional record is present.
+// This operates on the inner most type, V, which is the value of the record.
+func (t *OptionalRecordT[T, V]) WhenSomeV(f func(V)) {
+	t.Option.WhenSome(func(r RecordT[T, V]) {
+		f(r.Val)
+	})
+}
+
+// SomeRecordT creates a new OptionalRecordT type from a given RecordT type.
+func SomeRecordT[T TlvType, V any](record RecordT[T, V]) OptionalRecordT[T, V] {
+	return OptionalRecordT[T, V]{
+		Option: fn.Some(record),
+	}
 }
 
 // ZeroRecordT returns a zero value of the RecordT type.

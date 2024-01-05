@@ -548,9 +548,10 @@ func (c *ChainArbitrator) Start() error {
 		c.activeChannels[chanPoint] = channelArb
 
 		// Republish any closing transactions for this channel.
-		err = c.publishClosingTxs(channel)
+		err = c.republishClosingTxs(channel)
 		if err != nil {
-			return err
+			log.Errorf("Failed to republish closing txs for "+
+				"channel %v", chanPoint)
 		}
 	}
 
@@ -825,10 +826,10 @@ func (c *ChainArbitrator) dispatchBlocks(
 	}
 }
 
-// publishClosingTxs will load any stored cooperative or unilater closing
+// republishClosingTxs will load any stored cooperative or unilateral closing
 // transactions and republish them. This helps ensure propagation of the
 // transactions in the event that prior publications failed.
-func (c *ChainArbitrator) publishClosingTxs(
+func (c *ChainArbitrator) republishClosingTxs(
 	channel *channeldb.OpenChannel) error {
 
 	// If the channel has had its unilateral close broadcasted already,

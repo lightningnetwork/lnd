@@ -756,7 +756,10 @@ var closeChannelCommand = cli.Command{
 	In the case of a cooperative closure, one can manually set the fee to
 	be used for the closing transaction via either the --conf_target or
 	--sat_per_vbyte arguments. This will be the starting value used during
-	fee negotiation. This is optional.
+	fee negotiation. This is optional. The parameter --max_fee_rate in
+	comparison is the end boundary of the fee negotiation, if not specified
+	it's always x3 of the starting value. Increasing this value increases
+	the chance of a successful negotiation.
 
 	In the case of a cooperative closure, one can manually set the address
 	to deliver funds to upon closure. This is optional, and may only be used
@@ -808,7 +811,8 @@ var closeChannelCommand = cli.Command{
 			Name: "sat_per_vbyte",
 			Usage: "(optional) a manual fee expressed in " +
 				"sat/vbyte that should be used when crafting " +
-				"the transaction",
+				"the transaction; default is a conf-target " +
+				"of 6 blocks",
 		},
 		cli.StringFlag{
 			Name: "delivery_addr",
@@ -816,6 +820,14 @@ var closeChannelCommand = cli.Command{
 				"upon cooperative channel closing, may only " +
 				"be used if an upfront shutdown address is not " +
 				"already set",
+		},
+		cli.Uint64Flag{
+			Name: "max_fee_rate",
+			Usage: "(optional) maximum fee rate in sat/vbyte " +
+				"accepted during the negotiation (default is " +
+				"x3 of the desired fee rate); increases the " +
+				"success pobability of the negotiation if " +
+				"set higher",
 		},
 	},
 	Action: actionDecorator(closeChannel),
@@ -853,6 +865,7 @@ func closeChannel(ctx *cli.Context) error {
 		TargetConf:      int32(ctx.Int64("conf_target")),
 		SatPerVbyte:     ctx.Uint64(feeRateFlag),
 		DeliveryAddress: ctx.String("delivery_addr"),
+		MaxFeePerVbyte:  ctx.Uint64("max_fee_rate"),
 	}
 
 	// After parsing the request, we'll spin up a goroutine that will

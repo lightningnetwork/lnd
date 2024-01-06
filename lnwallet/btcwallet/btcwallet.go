@@ -1224,33 +1224,16 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 		case lnutils.ErrorAs[*base.ErrMempoolFee](err):
 			return fmt.Errorf("%w: %v", lnwallet.ErrMempoolFee,
 				err.Error())
-
-		//nolint:lll
-		// These two errors are ignored inside `PublishTransaction`:
-		// https://github.com/btcsuite/btcwallet/blob/master/wallet/wallet.go#L3763
-		// To keep our current behavior, we need to ignore the same
-		// errors returned from TestMempoolAccept.
-		//
-		// TODO(yy): since `LightningWallet.PublishTransaction` always
-		// publish the same tx twice, we'd always get ErrInMempool. We
-		// should instead create a new rebroadcaster that monitors the
-		// mempool, and only rebroadcast when the tx is evicted. This
-		// way we don't need to broadcast twice, and can instead return
-		// these errors here.
-		case lnutils.ErrorAs[*base.ErrInMempool](err),
-			lnutils.ErrorAs[*base.ErrAlreadyConfirmed](err):
-
-			return nil
-
-		default:
-			return err
 		}
+
+		return err
 	}
 
 	// For neutrino backend there's no mempool, so we return early by
 	// publishing the transaction.
 	if b.chain.BackEnd() == "neutrino" {
 		err := b.wallet.PublishTransaction(tx, label)
+
 		return handleErr(err)
 	}
 
@@ -1273,23 +1256,46 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	result := results[0]
 	log.Debugf("TestMempoolAccept result: %s", spew.Sdump(result))
 
-	// If the check failed, there's no need to publish it. We'll
-	// handle the error and return.
-	if !result.Allowed {
-		log.Warnf("Transaction %v not accepted by mempool: %v",
-			tx.TxHash(), result.RejectReason)
-
-		// We need to use the string to create an error type
-		// and map it to a btcwallet error.
-		err := base.MapBroadcastBackendError(
-			errors.New(result.RejectReason),
-		)
+	// Once mempool check passed, we can publish the transaction.
+	if result.Allowed {
+		err = b.wallet.PublishTransaction(tx, label)
 
 		return handleErr(err)
 	}
 
-	// Once mempool check passed, we can publish the transaction.
-	err = b.wallet.PublishTransaction(tx, label)
+	// If the check failed, there's no need to publish it. We'll handle the
+	// error and return.
+	log.Warnf("Transaction %v not accepted by mempool: %v",
+		tx.TxHash(), result.RejectReason)
+
+	// We need to use the string to create an error type and map it to a
+	// btcwallet error.
+	err = base.MapBroadcastBackendError(errors.New(result.RejectReason))
+
+	//nolint:lll
+	// These two errors are ignored inside `PublishTransaction`:
+	// https://github.com/btcsuite/btcwallet/blob/master/wallet/wallet.go#L3763
+	// To keep our current behavior, we need to ignore the same errors
+	// returned from TestMempoolAccept.
+	//
+	// TODO(yy): since `LightningWallet.PublishTransaction` always publish
+	// the same tx twice, we'd always get ErrInMempool. We should instead
+	// create a new rebroadcaster that monitors the mempool, and only
+	// rebroadcast when the tx is evicted. This way we don't need to
+	// broadcast twice, and can instead return these errors here.
+	switch {
+	// NOTE: In addition to ignoring these errors, we need to call
+	// `PublishTransaction` again because we need to mark the label in the
+	// wallet. We can remove this exception once we have the above TODO
+	// fixed.
+	case lnutils.ErrorAs[*base.ErrInMempool](err),
+		lnutils.ErrorAs[*base.ErrAlreadyConfirmed](err):
+
+		err := b.wallet.PublishTransaction(tx, label)
+
+		return handleErr(err)
+	}
+
 	return handleErr(err)
 }
 

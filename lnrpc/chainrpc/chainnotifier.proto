@@ -22,7 +22,7 @@ service ChainNotifier {
 
     /*
     RegisterSpendNtfn is a synchronous response-streaming RPC that registers an
-    intent for a client to be notification once a spend request has been spent
+    intent for a client to be notified once a spend request has been spent
     by a transaction that has confirmed on-chain.
 
     A client can specify whether the spend request should be for a particular

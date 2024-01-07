@@ -425,6 +425,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * [Fix a bug](https://github.com/lightningnetwork/lnd/pull/8595) when retrying
   SQL InvoiceDB transactions due to database errors.
 
+* [Expanded SweeperStore](https://github.com/lightningnetwork/lnd/pull/8147) to
+  also store the feerate, fees paid, and whether it's published or not for a
+  given sweeping transaction.
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

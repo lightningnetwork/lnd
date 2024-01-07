@@ -261,6 +261,10 @@
 * [Refactor InvoiceDB](https://github.com/lightningnetwork/lnd/pull/8081) to
   eliminate the use of `ScanInvoices`.
 
+* [Expanded SweeperStore](https://github.com/lightningnetwork/lnd/pull/8147) to
+  also store the feerate, fees paid, and whether it's published or not for a
+  given sweeping transaction.
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

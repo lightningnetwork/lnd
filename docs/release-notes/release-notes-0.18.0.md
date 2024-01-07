@@ -440,6 +440,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * [Turn `sqldb` into a separate Go
   module](https://github.com/lightningnetwork/lnd/pull/8603).
 
+* [Expanded SweeperStore](https://github.com/lightningnetwork/lnd/pull/8147) to
+  also store the feerate, fees paid, and whether it's published or not for a
+  given sweeping transaction.
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

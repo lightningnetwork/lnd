@@ -451,6 +451,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
   retry](https://github.com/lightningnetwork/lnd/pull/8611) logic and isolation
   settings between `sqldb` and `kvdb` packages.
 
+* [Expanded SweeperStore](https://github.com/lightningnetwork/lnd/pull/8147) to
+  also store the feerate, fees paid, and whether it's published or not for a
+  given sweeping transaction.
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

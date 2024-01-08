@@ -1067,6 +1067,8 @@ message BumpFeeRequest {
 }
 
 message BumpFeeResponse {
+    // The status of the bump fee operation.
+    string status = 1;
 }
 
 message ListSweepsRequest {

@@ -1352,7 +1352,13 @@
       }
     },
     "walletrpcBumpFeeResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "The status of the bump fee operation."
+        }
+      }
     },
     "walletrpcChangeAddressType": {
       "type": "string",

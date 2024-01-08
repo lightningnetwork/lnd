@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // GossipTimestampRange is a message that allows the sender to restrict the set
@@ -17,14 +18,30 @@ type GossipTimestampRange struct {
 	ChainHash chainhash.Hash
 
 	// FirstTimestamp is the timestamp of the earliest announcement message
-	// that should be sent by the receiver.
+	// that should be sent by the receiver. This is only to be used for
+	// querying message of gossip 1.0 which are timestamped using Unix
+	// timestamps. FirstBlockHeight and BlockRange should be used to
+	// query for announcement messages timestamped using block heights.
 	FirstTimestamp uint32
 
 	// TimestampRange is the horizon beyond the FirstTimestamp that any
 	// announcement messages should be sent for. The receiving node MUST
 	// NOT send any announcements that have a timestamp greater than
-	// FirstTimestamp + TimestampRange.
+	// FirstTimestamp + TimestampRange. This is used together with
+	// FirstTimestamp to query for gossip 1.0 messages timestamped with
+	// Unix timestamps.
 	TimestampRange uint32
+
+	// FirstBlockHeight is the height of earliest announcement message that
+	// should be sent by the receiver. This is used only for querying
+	// announcement messages that use block heights as a timestamp.
+	FirstBlockHeight tlv.OptionalRecordT[tlv.TlvType2, uint32]
+
+	// BlockRange is the horizon beyond FirstBlockHeight that any
+	// announcement messages should be sent for. The receiving node MUST NOT
+	// send any announcements that have a timestamp greater than
+	// FirstBlockHeight + BlockRange.
+	BlockRange tlv.OptionalRecordT[tlv.TlvType4, uint32]
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -45,13 +62,42 @@ var _ Message = (*GossipTimestampRange)(nil)
 // passed io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (g *GossipTimestampRange) Decode(r io.Reader, pver uint32) error {
-	return ReadElements(r,
+func (g *GossipTimestampRange) Decode(r io.Reader, _ uint32) error {
+	err := ReadElements(r,
 		g.ChainHash[:],
 		&g.FirstTimestamp,
 		&g.TimestampRange,
-		&g.ExtraData,
 	)
+	if err != nil {
+		return err
+	}
+
+	var tlvRecords ExtraOpaqueData
+	if err := ReadElements(r, &tlvRecords); err != nil {
+		return err
+	}
+
+	var (
+		firstBlock = tlv.ZeroRecordT[tlv.TlvType2, uint32]()
+		blockRange = tlv.ZeroRecordT[tlv.TlvType4, uint32]()
+	)
+	typeMap, err := tlvRecords.ExtractRecords(&firstBlock, &blockRange)
+	if err != nil {
+		return err
+	}
+
+	if val, ok := typeMap[g.FirstBlockHeight.TlvType()]; ok && val == nil {
+		g.FirstBlockHeight = tlv.SomeRecordT(firstBlock)
+	}
+	if val, ok := typeMap[g.BlockRange.TlvType()]; ok && val == nil {
+		g.BlockRange = tlv.SomeRecordT(blockRange)
+	}
+
+	if len(tlvRecords) != 0 {
+		g.ExtraData = tlvRecords
+	}
+
+	return nil
 }
 
 // Encode serializes the target GossipTimestampRange into the passed io.Writer
@@ -68,6 +114,22 @@ func (g *GossipTimestampRange) Encode(w *bytes.Buffer, pver uint32) error {
 	}
 
 	if err := WriteUint32(w, g.TimestampRange); err != nil {
+		return err
+	}
+
+	recordProducers := make([]tlv.RecordProducer, 0, 2)
+	g.FirstBlockHeight.WhenSome(
+		func(height tlv.RecordT[tlv.TlvType2, uint32]) {
+			recordProducers = append(recordProducers, &height)
+		},
+	)
+	g.BlockRange.WhenSome(
+		func(blockRange tlv.RecordT[tlv.TlvType4, uint32]) {
+			recordProducers = append(recordProducers, &blockRange)
+		},
+	)
+	err := EncodeMessageExtraData(&g.ExtraData, recordProducers...)
+	if err != nil {
 		return err
 	}
 

@@ -1656,7 +1656,10 @@ func TestChannelBalanceDustLimit(t *testing.T) {
 	htlcAmount := lnwire.NewMSatFromSatoshis(htlcSat)
 
 	htlc, preimage := createHTLC(0, htlcAmount)
-	aliceHtlcIndex, err := aliceChannel.AddHTLC(htlc, nil)
+
+	// We need to use `addHTLC` instead of `AddHTLC` so that we do not
+	// enforce the FeeBuffer on alice side.
+	aliceHtlcIndex, err := aliceChannel.addHTLC(htlc, nil, NoBuffer)
 	require.NoError(t, err, "alice unable to add htlc")
 	bobHtlcIndex, err := bobChannel.ReceiveHTLC(htlc)
 	require.NoError(t, err, "bob unable to receive htlc")
@@ -4783,6 +4786,8 @@ func TestChanSyncInvalidLastSecret(t *testing.T) {
 func TestChanAvailableBandwidth(t *testing.T) {
 	t.Parallel()
 
+	cType := channeldb.SingleFunderTweaklessBit
+
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
@@ -4797,11 +4802,10 @@ func TestChanAvailableBandwidth(t *testing.T) {
 	feeRate := chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	)
-	htlcFee := lnwire.NewMSatFromSatoshis(
-		feeRate.FeeForWeight(input.HTLCWeight),
-	)
 
-	assertBandwidthEstimateCorrect := func(aliceInitiate bool) {
+	assertBandwidthEstimateCorrect := func(aliceInitiate bool,
+		numNonDustHtlcsOnCommit int64) {
+
 		// With the HTLC's added, we'll now query the AvailableBalance
 		// method for the current available channel bandwidth from
 		// Alice's PoV.
@@ -4826,12 +4830,23 @@ func TestChanAvailableBandwidth(t *testing.T) {
 
 		// Now, we'll obtain the current available bandwidth in Alice's
 		// latest commitment and compare that to the prior estimate.
-		aliceBalance := aliceChannel.channelState.LocalCommitment.LocalBalance
+		aliceState := aliceChannel.State().Snapshot()
+		aliceBalance := aliceState.LocalBalance
+		commitFee := lnwire.NewMSatFromSatoshis(aliceState.CommitFee)
+		commitWeight := CommitWeight(cType)
+		commitWeight += numNonDustHtlcsOnCommit * input.HTLCWeight
+
+		// Add weight for an additional htlc because this is also done
+		// when evaluating the current balance.
+		feeBuffer := CalcFeeBuffer(
+			feeRate, commitWeight+input.HTLCWeight,
+		)
 
 		// The balance we have available for new HTLCs should be the
 		// current local commitment balance, minus the channel reserve
-		// and the fee for adding an HTLC.
-		expBalance := aliceBalance - aliceReserve - htlcFee
+		// and the fee buffer we have to account for.
+		expBalance := aliceBalance + commitFee - aliceReserve -
+			feeBuffer
 		if expBalance != aliceAvailableBalance {
 			_, _, line, _ := runtime.Caller(1)
 			t.Fatalf("line: %v, incorrect balance: expected %v, "+
@@ -4841,10 +4856,10 @@ func TestChanAvailableBandwidth(t *testing.T) {
 
 	// First, we'll add 3 outgoing HTLC's from Alice to Bob.
 	const numHtlcs = 3
-	var htlcAmt lnwire.MilliSatoshi = 100000
+	var dustAmt lnwire.MilliSatoshi = 100000
 	alicePreimages := make([][32]byte, numHtlcs)
 	for i := 0; i < numHtlcs; i++ {
-		htlc, preImage := createHTLC(i, htlcAmt)
+		htlc, preImage := createHTLC(i, dustAmt)
 		if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
 			t.Fatalf("unable to add htlc: %v", err)
 		}
@@ -4855,12 +4870,12 @@ func TestChanAvailableBandwidth(t *testing.T) {
 		alicePreimages[i] = preImage
 	}
 
-	assertBandwidthEstimateCorrect(true)
+	assertBandwidthEstimateCorrect(true, 0)
 
 	// We'll repeat the same exercise, but with non-dust HTLCs. So we'll
 	// crank up the value of the HTLC's we're adding to the commitment
 	// transaction.
-	htlcAmt = lnwire.NewMSatFromSatoshis(30000)
+	htlcAmt := lnwire.NewMSatFromSatoshis(30000)
 	for i := 0; i < numHtlcs; i++ {
 		htlc, preImage := createHTLC(numHtlcs+i, htlcAmt)
 		if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
@@ -4873,10 +4888,10 @@ func TestChanAvailableBandwidth(t *testing.T) {
 		alicePreimages = append(alicePreimages, preImage)
 	}
 
-	assertBandwidthEstimateCorrect(true)
+	assertBandwidthEstimateCorrect(true, 3)
 
-	// Next, we'll have Bob 5 of Alice's HTLC's, and cancel one of them (in
-	// the update log).
+	// Next, we'll have Bob settle 5 of Alice's HTLC's, and cancel one of
+	// them (in the update log).
 	for i := 0; i < (numHtlcs*2)-1; i++ {
 		preImage := alicePreimages[i]
 		err := bobChannel.SettleHTLC(preImage, uint64(i), nil, nil, nil)
@@ -4904,21 +4919,22 @@ func TestChanAvailableBandwidth(t *testing.T) {
 
 	// With the HTLC's settled in the log, we'll now assert that if we
 	// initiate a state transition, then our guess was correct.
-	assertBandwidthEstimateCorrect(false)
+	assertBandwidthEstimateCorrect(true, 0)
 
 	// TODO(roasbeef): additional tests from diff starting conditions
 }
 
 // TestChanAvailableBalanceNearHtlcFee checks that we get the expected reported
-// balance when it is close to the htlc fee.
+// balance when it is close to the fee buffer.
 func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	t.Parallel()
 
 	// Create a test channel which will be used for the duration of this
 	// unittest. The channel will be funded evenly with Alice having 5 BTC,
 	// and Bob having 5 BTC.
+	cType := channeldb.SingleFunderTweaklessBit
 	aliceChannel, bobChannel, err := CreateTestChannels(
-		t, channeldb.SingleFunderTweaklessBit,
+		t, cType,
 	)
 	require.NoError(t, err, "unable to create test channels")
 
@@ -4939,6 +4955,13 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	feeRate := chainfee.SatPerKWeight(
 		aliceChannel.channelState.LocalCommitment.FeePerKw,
 	)
+
+	// When calculating the fee buffer sending an htlc we need to account
+	// for an additional output on the commitment tx which this send will
+	// generate.
+	commitWeight := CommitWeight(cType)
+	feeBuffer := CalcFeeBuffer(feeRate, commitWeight+input.HTLCWeight)
+
 	htlcFee := lnwire.NewMSatFromSatoshis(
 		feeRate.FeeForWeight(input.HTLCWeight),
 	)
@@ -4977,7 +5000,12 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 		t.Helper()
 
 		htlc, preImage := createHTLC(int(htlcIndex), htlcAmt)
-		if _, err := aliceChannel.AddHTLC(htlc, nil); err != nil {
+
+		// For this testcase we don't want to enforce the FeeBuffer
+		// so that we can verify the edge cases when our balance reaches
+		// the channel reserve limit.
+		_, err := aliceChannel.addHTLC(htlc, nil, NoBuffer)
+		if err != nil {
 			t.Fatalf("unable to add htlc: %v", err)
 		}
 		if _, err := bobChannel.ReceiveHTLC(htlc); err != nil {
@@ -5009,11 +5037,9 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	}
 
 	// Balance should start out equal to half the channel capacity minus
-	// the commitment fee Alice must pay and the channel reserve. In
-	// addition the HTLC fee will be subtracted fromt the balance to
-	// reflect that this value must be reserved for any payment above the
-	// dust limit.
-	expAliceBalance := aliceBalance - commitFee - aliceReserve - htlcFee
+	// the reserve and the fee buffer because alice is the initiator of
+	// the channel.
+	expAliceBalance := aliceBalance - aliceReserve - feeBuffer
 
 	// Bob is not the initiator, so he will have all his balance available,
 	// since Alice pays for fees. Bob only need to keep his balance above
@@ -5026,7 +5052,7 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 
 	// Send a HTLC leaving Alice's remaining balance just enough to have
 	// nonDustHtlc left after paying the commit fee and htlc fee.
-	htlcAmt := aliceBalance - (commitFee + aliceReserve + htlcFee + aliceNonDustHtlc)
+	htlcAmt := aliceBalance - (aliceReserve + feeBuffer + aliceNonDustHtlc)
 	sendHtlc(htlcAmt)
 
 	// Now the real balance left will be
@@ -5037,7 +5063,7 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	expBobBalance = bobBalance - bobReserve
 	checkBalance(t, expAliceBalance, expBobBalance)
 
-	// Send an HTLC using all but one msat of the reported balance.
+	// Send an dust HTLC using all but one msat of the reported balance.
 	htlcAmt = aliceNonDustHtlc - 1
 	sendHtlc(htlcAmt)
 
@@ -5063,12 +5089,15 @@ func TestChanAvailableBalanceNearHtlcFee(t *testing.T) {
 	expBobBalance = bobBalance - bobReserve
 	checkBalance(t, expAliceBalance, expBobBalance)
 
-	// Even though Alice has a reported balance of 0, this is because we
-	// try to avoid getting into the position where she cannot pay the fee
-	// for Bob adding another HTLC. This means she actually _has_ some
-	// balance left, and we now force the channel into this situation by
-	// sending yet another HTLC. In practice this can also happen if a fee
-	// update eats into Alice's balance.
+	// The available balance is zero for alice but there is still the
+	// fee buffer left (which includes the current commitment weight).
+	// We send the buffer to bob but also keep the funds for the htlc
+	// available otherwise we would not able to send this amount.
+	htlcAmt = feeBuffer - commitFee - htlcFee
+	sendHtlc(htlcAmt)
+
+	// Now we send a dust htlc of 1 msat to bob so that we cannot afford
+	// to put another non-dust htlc on this commitment.
 	htlcAmt = 1
 	sendHtlc(htlcAmt)
 
@@ -5159,13 +5188,15 @@ func TestChanCommitWeightDustHtlcs(t *testing.T) {
 
 	// Helper method that fetches the current remote commitment weight
 	// fromt the given channel's POV.
+	// When sending htlcs we enforce the feebuffer on the commitment
+	// transaction.
 	remoteCommitWeight := func(lc *LightningChannel) int64 {
 		remoteACKedIndex := lc.localCommitChain.tip().theirMessageIndex
 		htlcView := lc.fetchHTLCView(remoteACKedIndex,
 			lc.localUpdateLog.logIndex)
 
 		_, w := lc.availableCommitmentBalance(
-			htlcView, true,
+			htlcView, true, FeeBuffer,
 		)
 
 		return w
@@ -10208,4 +10239,568 @@ func createRandomHTLC(t *testing.T, incoming bool) channeldb.HTLC {
 		LogIndex:      rand.Uint64(),
 		ExtraData:     extra,
 	}
+}
+
+// TestApplyCommitmentFee tests that depending on the buffer type the correct
+// commitment fee is calculated which includes the buffer amount which will be
+// kept and is not usable hence not considered part of the usable local balance.
+func TestApplyCommitmentFee(t *testing.T) {
+	var (
+		balance = lnwire.NewMSatFromSatoshis(5_000_000)
+
+		// balance used to test the case where the commitment fee
+		// including the buffer is greater than the balance.
+		balanceBelowReserve = lnwire.NewMSatFromSatoshis(5_000)
+
+		// commitment weight with an additional htlc.
+		commitWeight int64 = input.BaseAnchorCommitmentTxWeight +
+			input.HTLCWeight
+
+		// fee rate of 10 sat/vbyte.
+		feePerKw  = chainfee.SatPerKWeight(2500)
+		commitFee = lnwire.NewMSatFromSatoshis(
+			feePerKw.FeeForWeight(commitWeight),
+		)
+		additionalHtlc = lnwire.NewMSatFromSatoshis(
+			feePerKw.FeeForWeight(input.HTLCWeight),
+		)
+		feeBuffer = CalcFeeBuffer(feePerKw, commitWeight)
+	)
+
+	// Create test channels so that we can use the `applyCommitFee`
+	// function.
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name              string
+		channel           *LightningChannel
+		buffer            BufferType
+		balance           lnwire.MilliSatoshi
+		expectedBalance   lnwire.MilliSatoshi
+		expectedBufferAmt lnwire.MilliSatoshi
+		bufferAmt         lnwire.MilliSatoshi
+		expectedErr       error
+	}{
+		{
+			name:              "apply feebuffer local initiator",
+			channel:           aliceChannel,
+			buffer:            FeeBuffer,
+			balance:           balance,
+			expectedBalance:   balance - feeBuffer,
+			expectedBufferAmt: feeBuffer - commitFee,
+		},
+		{
+			name:        "apply feebuffer remote initiator",
+			channel:     bobChannel,
+			buffer:      FeeBuffer,
+			balance:     balance,
+			expectedErr: ErrFeeBufferNotInitiator,
+		},
+		{
+			name:              "apply AdditionalHtlc buffer",
+			channel:           aliceChannel,
+			buffer:            AdditionalHtlc,
+			balance:           balance,
+			expectedBalance:   balance - commitFee - additionalHtlc,
+			expectedBufferAmt: additionalHtlc,
+		},
+		{
+			name:              "apply NoBuffer",
+			channel:           aliceChannel,
+			buffer:            NoBuffer,
+			balance:           balance,
+			expectedBalance:   balance - commitFee,
+			expectedBufferAmt: 0,
+		},
+		{
+			name:              "apply FeeBuffer balance negative",
+			channel:           aliceChannel,
+			buffer:            FeeBuffer,
+			balance:           balanceBelowReserve,
+			expectedBalance:   balanceBelowReserve,
+			expectedErr:       ErrBelowChanReserve,
+			expectedBufferAmt: feeBuffer,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			balance, bufferAmt, err := tc.channel.applyCommitFee(
+				tc.balance, commitWeight, feePerKw, tc.buffer)
+
+			require.ErrorIs(t, err, tc.expectedErr)
+			require.Equal(t, tc.expectedBalance, balance)
+			require.Equal(t, tc.expectedBufferAmt, bufferAmt)
+		})
+	}
+}
+
+// TestAsynchronousSendingContraint tests that when both peers add htlcs to
+// their commitment asynchronously and the channel opener does not account for
+// an additional buffer locally an unusable channel state can be the worst case
+// consequence when the channel is locally drained.
+// NOTE: This edge case can only be solved at the protocol level because
+// currently both parties can add htlcs to their commitments in simultaneously
+// which can lead to a situation where the channel opener cannot pay the fees
+// for the additional htlc outputs which were added in parallel. A solution for
+// this can either be a fee buffer or a new protocol improvement called
+// __option_simplified_update__.
+//
+// The full state transition of this test is:
+// The vertical mark in the middle is the connection which separates alice and
+// bob. When a line only goes to this mark it means the signal was only added
+// to one side of the channel parties.
+//
+//
+// Alice                  		Bob
+//			|
+// 	-----add------>	|
+// 			|<----add-------
+//	Add htlcs asynchronously.
+// 	<----add------- |
+// 			|-----add------>
+//	<----sig-------	|---------------
+//	-----rev------>	|
+//	-----sig------>	|
+// 	(Alice fails with ErrBelowChanReserve)
+
+func TestAsynchronousSendingContraint(t *testing.T) {
+	t.Parallel()
+
+	// Create test channels to test out this state transition. The channel
+	// capactiy is 10 BTC with every side having 5 BTC at start. The fee
+	// rate is static and 6000 sats/kw.
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+
+	aliceReserve := aliceChannel.channelState.LocalChanCfg.ChanReserve
+
+	capacity := aliceChannel.channelState.Capacity
+
+	// Static fee rate of 6000 sats/kw.
+	feePerKw := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
+
+	additionalHtlc := feePerKw.FeeForWeight(input.HTLCWeight)
+	commitFee := feePerKw.FeeForWeight(input.CommitWeight)
+
+	// We add an htlc to alice commitment with the amount so that everything
+	// will be used up and the remote party cannot add another htlc because
+	// alice (the opener of the channel) will not be able to afford the
+	// additional onchain cost of the htlc output on the commitment tx.
+	htlcAmount := capacity/2 - aliceReserve - commitFee - additionalHtlc
+
+	// Create an HTLC that alice will send to Bob which let's alice use up
+	// all its local funds.
+	// -----add------>|
+	htlc1, _ := createHTLC(0, lnwire.NewMSatFromSatoshis(htlcAmount))
+	_, err = aliceChannel.addHTLC(htlc1, nil, NoBuffer)
+	require.NoError(t, err)
+
+	// Before making bob aware of this new htlc, let bob add an HTLC on the
+	// commitment as well. Because bob does not know yet about the htlc
+	// alice is going to add to the state his adding will succeed as well.
+
+	// |<----add-------
+	// make sure this htlc is non-dust for alice.
+	htlcFee := HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw)
+	// We need to take the remote dustlimit amount, because it the greater
+	// one.
+	htlcAmt2 := lnwire.NewMSatFromSatoshis(
+		aliceChannel.channelState.RemoteChanCfg.DustLimit + htlcFee,
+	)
+	htlc2, _ := createHTLC(0, htlcAmt2)
+
+	// We could also use AddHTLC here because bob is not the initiator but
+	// we stay consistent in this test and use addHTLC instead.
+	_, err = bobChannel.addHTLC(htlc2, nil, NoBuffer)
+	require.NoError(t, err)
+
+	// Now lets both channel parties know about these new htlcs.
+	// <----add-------|
+	// 		  |-----add------>
+	_, err = aliceChannel.ReceiveHTLC(htlc2)
+	require.NoError(t, err)
+	_, err = bobChannel.ReceiveHTLC(htlc1)
+	require.NoError(t, err)
+
+	// Bob signs the new state for alice, which ONLY has his htlc on it
+	// because he only includes acked updates of alice.
+	// <----sig-------|---------------
+	bobNewCommit, err := bobChannel.SignNextCommitment()
+	require.NoError(t, err)
+
+	err = aliceChannel.ReceiveNewCommitment(bobNewCommit.CommitSigs)
+	require.NoError(t, err)
+
+	// Alice revokes her local commitment which will lead her to include
+	// Bobs htlc into the commitment when signing the new state for bob.
+	// -----rev------>|
+	_, _, _, err = aliceChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+
+	// Because alice revoked her local commitment she will now include bob's
+	// incoming htlc in her commitment sig to bob, but this will dip her
+	// local balance below her reserve because she already used everything
+	// up when adding her htlc.
+	_, err = aliceChannel.SignNextCommitment()
+	require.ErrorIs(t, err, ErrBelowChanReserve)
+}
+
+// TestAsynchronousSendingWithFeeBuffer tests that in case of asynchronous
+// adding of htlcs to the channel state a fee buffer will prevent the channel
+// from becoming unusable because the channel opener will always keep an
+// additional buffer to account either for fee updates or for the asynchronous
+// adding of htlcs from both parties.
+// The full state transition of this test is:
+// The vertical mark in the middle is the connection which separates alice and
+// bob. When a line only goes to this mark it means the signal was only added
+// to one side of the channel parties.
+//
+// Alice 		                Bob
+// (keeps a feeBuffer)
+//
+//			|
+//	-----add------>	|
+//			|<----add-------
+//			|
+//	<----add------- |
+//			|-----add------>
+//	---------------	|-----sig------>
+//	<----rev-------	|---------------
+//	<----sig-------	|---------------
+//	---------------	|-----rev------>
+// 	alice's htlc is locked-in bob
+//	---------------	|-----sig------>
+//	<----rev-------	|---------------
+// 	bob's htlc is locked-in for alice
+//	---------------	|-----fail----->
+//	---------------	|-----sig------>
+//	<----rev-------	|---------------
+//	<----sig-------	|---------------
+//	---------------	|-----rev------>
+// 	bob's htlc is failed now.
+//	use the fee buffer to increase
+// 	the fee of the commitment tx:
+//	---------------	|----updFee---->
+//	---------------	|-----sig------>
+//	<----rev-------	|---------------
+//	<----sig-------	|---------------
+//	---------------	|-----rev------>
+// 	let bob add another htlc:
+//	<----add------- |<--------------
+//	<----sig-------	|---------------
+//	---------------	|-----rev------>
+//	---------------	|-----sig------>
+//	<----rev-------	|---------------
+
+func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
+	t.Parallel()
+
+	// Create test channels to test out this state transition. The channel
+	// capactiy is 10 BTC with every side having 5 BTC at start. The fee
+	// rate is static and 6000 sats/kw.
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+
+	aliceReserve := aliceChannel.channelState.LocalChanCfg.ChanReserve
+
+	capacity := aliceChannel.channelState.Capacity
+
+	// Static fee rate of 6000 sats/kw.
+	feePerKw := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
+
+	// Calculate the fee buffer for the current commitment tx including
+	// the htlc we are going to add to alice's commitment tx.
+	feeBuffer := CalcFeeBuffer(
+		feePerKw, input.CommitWeight+input.HTLCWeight,
+	)
+
+	htlcAmount := capacity/2 - aliceReserve - feeBuffer.ToSatoshis()
+
+	// Create an HTLC that alice will send to bob which uses all the local
+	// balance except the fee buffer (including the commitment fee) and the
+	// channel reserve.
+	htlc1, _ := createHTLC(0, lnwire.NewMSatFromSatoshis(htlcAmount))
+
+	// Add this HTLC only to alice channel for now only including a fee
+	// buffer.
+	// -----add------>|
+	_, err = aliceChannel.AddHTLC(htlc1, nil)
+	require.NoError(t, err)
+
+	// Before making bob aware of this new htlc, let bob add an HTLC on the
+	// commitment as well.
+	// |<----add-------
+	// make sure this htlc is non-dust for alice.
+	htlcFee := HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw)
+	htlcAmt2 := lnwire.NewMSatFromSatoshis(
+		aliceChannel.channelState.LocalChanCfg.DustLimit + htlcFee,
+	)
+	htlc2, _ := createHTLC(0, htlcAmt2)
+	_, err = bobChannel.AddHTLC(htlc2, nil)
+	require.NoError(t, err)
+
+	// Now lets both channel parties know about these new htlcs.
+	// 	<----add-------	|
+	// 			|-----add------>
+	_, err = aliceChannel.ReceiveHTLC(htlc2)
+	require.NoError(t, err)
+	_, err = bobChannel.ReceiveHTLC(htlc1)
+	require.NoError(t, err)
+
+	// Now force the state transisiton. Both sides will succeed although
+	// we added htlcs asynchronously because we kept a buffer on alice side
+	// We start the state transition with alice.
+	// Force a state transition, this will lock-in the htlc of alice.
+	// -----sig-----> (includes alice htlc)
+	// <----rev------
+	// <----sig------ (includes alice and bobs htlc)
+	// -----rev-----> (locks in alice's htlc for bob)
+	// bob's htlc is still not fully locked in.
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	// Force a state transition, this will lock-in the htlc of bob.
+	// ------sig-----> (includes bob's htlc)
+	// <----rev------ (locks in bob's htlc for alice)
+	aliceNewCommit, err := aliceChannel.SignNextCommitment()
+	require.NoError(t, err)
+	err = bobChannel.ReceiveNewCommitment(aliceNewCommit.CommitSigs)
+	require.NoError(t, err)
+
+	bobRevocation, _, _, err := bobChannel.RevokeCurrentCommitment()
+	require.NoError(t, err)
+	_, _, _, _, err = aliceChannel.ReceiveRevocation(bobRevocation)
+	require.NoError(t, err)
+
+	// Before testing the behavior of the fee buffer, we are going to fail
+	// back bob's htlc so that we only have 1 htlc on the commitment tx
+	// (alice htlc to bob) this makes it possible to exactly increase the
+	// fee of the commitment by 100%.
+	//	---------------	|-----fail----->
+	//	---------------	|-----sig------>
+	//	<----rev-------	|---------------
+	//	<----sig-------	|---------------
+	//	---------------	|-----rev------>
+	err = aliceChannel.FailHTLC(0, []byte{}, nil, nil, nil)
+	require.NoError(t, err)
+
+	err = bobChannel.ReceiveFailHTLC(0, []byte{})
+	require.NoError(t, err)
+
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	// Use the fee buffer to react to a potential fee rate increase and
+	// update the fee rate by 100%.
+	//	---------------	|----updFee---->
+	//	---------------	|-----sig------>
+	//	<----rev-------	|---------------
+	//	<----sig-------	|---------------
+	//	---------------	|-----rev------>
+	err = aliceChannel.UpdateFee(feePerKw * 2)
+	require.NoError(t, err)
+
+	err = bobChannel.ReceiveUpdateFee(feePerKw * 2)
+	require.NoError(t, err)
+
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	// Now let bob add an htlc to the commitment tx and make sure that
+	// despite the fee update bob can still add an htlc and alice still
+	// reserved funds for an additional htlc output on the commitment tx.
+	//	<----add------- |<--------------
+	//	<----sig-------	|---------------
+	//	---------------	|-----rev------>
+	//	---------------	|-----sig------>
+	//	<----rev-------	|---------------
+	// Update the non-dust amount because we updated the fee by 100%.
+	htlcFee = HtlcSuccessFee(channeldb.SingleFunderTweaklessBit, feePerKw*2)
+	htlcAmt3 := lnwire.NewMSatFromSatoshis(
+		aliceChannel.channelState.LocalChanCfg.DustLimit + htlcFee,
+	)
+	htlc3, _ := createHTLC(1, htlcAmt3)
+	_, err = bobChannel.AddHTLC(htlc3, nil)
+	require.NoError(t, err)
+
+	_, err = aliceChannel.ReceiveHTLC(htlc3)
+	require.NoError(t, err)
+
+	err = ForceStateTransition(bobChannel, aliceChannel)
+	require.NoError(t, err)
+
+	// Adding an HTLC from Alice side should not be possible because
+	// all funds are used up, even dust amounts.
+	htlc4, _ := createHTLC(2, 100)
+	// First try adding this htlc which should fail because the FeeBuffer
+	// cannot be kept while sending this HTLC.
+	_, err = aliceChannel.AddHTLC(htlc4, nil)
+	require.ErrorIs(t, err, ErrBelowChanReserve)
+	// Even without enforcing the FeeBuffer we used all of our usable funds
+	// on this channel and cannot even add a dust-htlc.
+	_, err = aliceChannel.addHTLC(htlc4, nil, NoBuffer)
+	require.ErrorIs(t, err, ErrBelowChanReserve)
+
+	// All of alice's balance is used up in fees and htlcs so the local
+	// balance equals exactly the local reserve.
+	require.Equal(t, aliceChannel.channelState.LocalCommitment.LocalBalance,
+		lnwire.NewMSatFromSatoshis(aliceReserve))
+}
+
+// TestEnforceFeeBuffer tests that in case the channel initiator does NOT have
+// enough local balance to pay for the FeeBuffer, adding new HTLCs by the
+// initiator will fail. Receiving HTLCs will still work because no FeeBuffer is
+// enforced when receiving HTLCs.
+//
+// The full state transition of this test is:
+// The vertical mark in the middle is the connection which separates alice and
+// bob. When a line only goes to this mark it means the signal was only added
+// to one side of the channel parties.
+//
+// Alice 		                Bob
+// (keeps a feeBuffer)
+//
+//	--------------- |-----add------>
+//	---------------	|-----sig------>
+//	<----rev-------	|---------------
+//	<----sig-------	|---------------
+//	---------------	|-----rev------>
+//	alice sends all usable funds to bob
+//	<----add------- |---------------
+//	<----sig-------	|---------------
+//	---------------	|-----rev------>
+//	---------------	|-----sig------>
+//	<----rev-------	|---------------
+//	bob adds an HTLC to the channel
+//	-----add------> |
+//	adding another HTLC fails because
+//	the FeeBuffer cannot be paid.
+//	<----add------- |<--------------
+//	<----sig-------	|---------------
+//	---------------	|-----rev------>
+//	---------------	|-----sig------>
+//	<----rev-------	|---------------
+//	bob adds another HTLC to the channel,
+//	alice can still pay the fee for the
+//	new commitment tx.
+func TestEnforceFeeBuffer(t *testing.T) {
+	t.Parallel()
+
+	// Create test channels to test out this state transition. The channel
+	// capactiy is 10 BTC with every side having 5 BTC at start. The fee
+	// rate is static and 6000 sats/kw.
+	aliceChannel, bobChannel, err := CreateTestChannels(
+		t, channeldb.SingleFunderTweaklessBit,
+	)
+	require.NoError(t, err)
+
+	aliceReserve := aliceChannel.channelState.LocalChanCfg.ChanReserve
+
+	capacity := aliceChannel.channelState.Capacity
+
+	// Static fee rate of 6000 sats/kw.
+	feePerKw := chainfee.SatPerKWeight(
+		aliceChannel.channelState.LocalCommitment.FeePerKw,
+	)
+
+	// Commitment Fee of the channel state (with  1 pending htlc).
+	commitFee := feePerKw.FeeForWeight(
+		input.CommitWeight + input.HTLCWeight,
+	)
+	commitFeeMsat := lnwire.NewMSatFromSatoshis(commitFee)
+
+	// Calculate the FeeBuffer for the current commitment tx (non-anchor)
+	// including the htlc alice is going to add to the commitment tx.
+	feeBuffer := CalcFeeBuffer(
+		feePerKw, input.CommitWeight+input.HTLCWeight,
+	)
+
+	// The bufferAmt is the FeeBuffer excluding the commitment fee.
+	bufferAmt := feeBuffer - commitFeeMsat
+
+	htlcAmt1 := capacity/2 - aliceReserve - feeBuffer.ToSatoshis()
+
+	// Create an HTLC that alice will send to bob which uses all the local
+	// balance except the fee buffer (including the commitment fee) and the
+	// channel reserve.
+	//	--------------- |-----add------>
+	//	---------------	|-----sig------>
+	//	<----rev-------	|---------------
+	//	<----sig-------	|---------------
+	//	---------------	|-----rev------>
+	htlc1, _ := createHTLC(0, lnwire.NewMSatFromSatoshis(htlcAmt1))
+
+	_, err = aliceChannel.AddHTLC(htlc1, nil)
+	require.NoError(t, err)
+	_, err = bobChannel.ReceiveHTLC(htlc1)
+	require.NoError(t, err)
+
+	err = ForceStateTransition(aliceChannel, bobChannel)
+	require.NoError(t, err)
+
+	// Now bob sends a 1 btc htlc to alice.
+	//	<----add------- |---------------
+	//	<----sig-------	|---------------
+	//	---------------	|-----rev------>
+	//	---------------	|-----sig------>
+	//	<----rev-------	|---------------
+	htlcAmt2 := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcent)
+	htlc2, _ := createHTLC(0, htlcAmt2)
+
+	_, err = bobChannel.AddHTLC(htlc2, nil)
+	require.NoError(t, err)
+	_, err = aliceChannel.ReceiveHTLC(htlc2)
+	require.NoError(t, err)
+
+	err = ForceStateTransition(bobChannel, aliceChannel)
+	require.NoError(t, err)
+
+	// Alice has the buffer amount left trying to send this amount will
+	// fail.
+	htlc3, _ := createHTLC(1, bufferAmt)
+
+	_, err = aliceChannel.AddHTLC(htlc3, nil)
+	require.ErrorIs(t, err, ErrBelowChanReserve)
+
+	// Now bob sends another 1 btc htlc to alice.
+	//	<----add------- |---------------
+	//	<----sig-------	|---------------
+	//	---------------	|-----rev------>
+	//	---------------	|-----sig------>
+	//	<----rev-------	|---------------
+	htlc4, _ := createHTLC(1, htlcAmt2)
+
+	_, err = bobChannel.AddHTLC(htlc4, nil)
+	require.NoError(t, err)
+	_, err = aliceChannel.ReceiveHTLC(htlc4)
+	require.NoError(t, err)
+
+	err = ForceStateTransition(bobChannel, aliceChannel)
+	require.NoError(t, err)
+
+	// Check that alice has the expected local balance left.
+	aliceReserveMsat := lnwire.NewMSatFromSatoshis(aliceReserve)
+
+	// The bufferAmt has to pay for the 2 additional incoming htlcs added
+	// by bob.
+	feeHTLC := feePerKw.FeeForWeight(input.HTLCWeight)
+	feeHTLCMsat := lnwire.NewMSatFromSatoshis(feeHTLC)
+
+	aliceBalance := aliceReserveMsat + bufferAmt - 2*feeHTLCMsat
+	expectedAmt := aliceChannel.channelState.LocalCommitment.LocalBalance
+
+	require.Equal(t, aliceBalance, expectedAmt)
 }

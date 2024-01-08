@@ -52,6 +52,15 @@
   these unconfirmed transactions are already removed. In addition a new 
   walletrpc endpoint `RemoveTransaction` is introduced which let one easily
   remove unconfirmed transaction manually.
+  
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8096) a case where `lnd`
+  might dip below its channel reserve when htlcs are added concurrently. A
+  fee buffer (additional balance) is now always kept on the local side ONLY
+  if the channel was opened locally. This is in accordance with the BOTL 02
+  specification and protects against sharp fee changes because there is always
+  this buffer which can be used to increase the commitment fee and it also
+  protects against the case where htlcs are added asynchronously resulting in
+  stuck channels.
 
 # New Features
 ## Functional Enhancements
@@ -223,3 +232,4 @@
 * Turtle
 * Ononiwu Maureen Chiamaka
 * Yong Yu
+* Ziggie

@@ -2231,14 +2231,23 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 
 	var (
-		carolChanID            = lnwire.NewShortChanIDFromInt(3)
-		mockBlob               [lnwire.OnionPacketSize]byte
-		coreChan               = aliceLink.(*channelLink).channel
-		coreLink               = aliceLink.(*channelLink)
-		defaultCommitFee       = coreChan.StateSnapshot().CommitFee
-		aliceStartingBandwidth = aliceLink.Bandwidth()
-		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+		carolChanID  = lnwire.NewShortChanIDFromInt(3)
+		mockBlob     [lnwire.OnionPacketSize]byte
+		coreLink     *channelLink
+		aliceMsgs    chan lnwire.Message
+		chanAmtMSat  = lnwire.NewMSatFromSatoshis(chanAmt)
+		cType        = channeldb.SingleFunderTweaklessBit
+		commitWeight = lnwallet.CommitWeight(cType)
 	)
+
+	link, ok := aliceLink.(*channelLink)
+	require.True(t, ok)
+	coreLink = link
+	mockedPeer := coreLink.cfg.Peer
+
+	peer, ok := mockedPeer.(*mockPeer)
+	require.True(t, ok)
+	aliceMsgs = peer.sentMsgs
 
 	// We put Alice into hodl.ExitSettle mode, such that she won't settle
 	// incoming HTLCs automatically.
@@ -2247,16 +2256,17 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	estimator := chainfee.NewStaticEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	require.NoError(t, err, "unable to query fee estimator")
-	htlcFee := lnwire.NewMSatFromSatoshis(
-		feePerKw.FeeForWeight(input.HTLCWeight),
+
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight := int64(1) * input.HTLCWeight
+	feeBuffer := lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
 	)
 
 	// The starting bandwidth of the channel should be exactly the amount
-	// that we created the channel between her and Bob, minus the
-	// commitment fee and fee for adding an additional HTLC.
-	expectedBandwidth := lnwire.NewMSatFromSatoshis(
-		chanAmt-defaultCommitFee,
-	) - htlcFee
+	// that we created the channel between her and Bob, minus the feebuffer.
+	expectedBandwidth := chanAmtMSat - feeBuffer
 	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
 
 	// Next, we'll create an HTLC worth 1 BTC, and send it into the link as
@@ -2284,9 +2294,16 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 	time.Sleep(time.Millisecond * 500)
 
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight = int64(2) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
 	// The resulting bandwidth should reflect that Alice is paying the
-	// htlc amount in addition to the htlc fee.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+	// htlc amount in addition to the fee buffer.
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer-htlcAmt)
 
 	// Alice should send the HTLC to Bob.
 	var msg lnwire.Message
@@ -2309,7 +2326,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		t.Fatalf("unable to update state: %v", err)
 	}
 	// Locking in the HTLC should not change Alice's bandwidth.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer-htlcAmt)
 
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
@@ -2324,16 +2341,23 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	time.Sleep(time.Millisecond * 500)
 
 	// Since the settle is not locked in yet, Alice's bandwidth should still
-	// reflect that she has to pay the fee.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+	// reflect that she has to account for the fee buffer.
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer-htlcAmt)
 
 	// Lock in the settle.
 	if err := updateState(tmr, coreLink, bobChannel, false); err != nil {
 		t.Fatalf("unable to update state: %v", err)
 	}
 
-	// Now that it is settled, Alice should have gotten the htlc fee back.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight = int64(1) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
+	// Now that it is settled, Alice fee buffer should have been decreased.
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer-htlcAmt)
 
 	// Next, we'll add another HTLC initiated by the switch (of the same
 	// amount as the prior one).
@@ -2356,8 +2380,15 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 	time.Sleep(time.Millisecond * 500)
 
-	// Again, Alice's bandwidth decreases by htlcAmt+htlcFee.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-2*htlcAmt-htlcFee)
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight = int64(2) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
+	// Again, Alice's bandwidth decreases by htlcAmt and fee buffer.
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer-2*htlcAmt)
 
 	// Alice will send the HTLC to Bob.
 	select {
@@ -2379,7 +2410,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 		t.Fatalf("unable to update state: %v", err)
 	}
 
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt*2-htlcFee)
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer-htlcAmt*2)
 
 	// With that processed, we'll now generate an HTLC fail (sent by the
 	// remote peer) to cancel the HTLC we just added. This should return us
@@ -2398,15 +2429,22 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	time.Sleep(time.Millisecond * 500)
 
 	// Before the Fail gets locked in, the bandwidth should remain unchanged.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt*2-htlcFee)
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer-htlcAmt*2)
 
 	// Lock in the Fail.
 	if err := updateState(tmr, coreLink, bobChannel, false); err != nil {
 		t.Fatalf("unable to update state: %v", err)
 	}
 
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight = int64(1) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
 	// Now the bandwidth should reflect the failed HTLC.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer-htlcAmt)
 
 	// Moving along, we'll now receive a new HTLC from the remote peer,
 	// with an ID of 0 as this is their first HTLC. The bandwidth should
@@ -2435,15 +2473,23 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	aliceLink.HandleChannelUpdate(htlc)
 
 	// Alice's balance remains unchanged until this HTLC is locked in.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer-htlcAmt)
 
 	// Lock in the HTLC.
 	if err := updateState(tmr, coreLink, bobChannel, false); err != nil {
 		t.Fatalf("unable to update state: %v", err)
 	}
 
-	// Since Bob is adding this HTLC, Alice only needs to pay the fee.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight = int64(2) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
+	// Since Bob is adding this HTLC, Alice will only have an increased fee
+	// buffer.
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer-htlcAmt)
 	time.Sleep(time.Millisecond * 500)
 
 	addPkt = htlcPacket{
@@ -2484,8 +2530,15 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 	time.Sleep(time.Millisecond * 500)
 
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight = int64(1) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
 	// Settling this HTLC gives Alice all her original bandwidth back.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer)
 
 	select {
 	case msg = <-aliceMsgs:
@@ -2532,13 +2585,20 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	time.Sleep(time.Millisecond * 500)
 
 	// No changes before the HTLC is locked in.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer)
 	if err := updateState(tmr, coreLink, bobChannel, false); err != nil {
 		t.Fatalf("unable to update state: %v", err)
 	}
 
-	// After lock-in, Alice will have to pay the htlc fee.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcFee)
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight = int64(2) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
+	// After lock-in, Alice will have to account for a fee buffer.
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer)
 
 	addPkt = htlcPacket{
 		htlc:           htlc,
@@ -2575,8 +2635,15 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	}
 	time.Sleep(time.Millisecond * 500)
 
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight = int64(1) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
 	// Alice should get all her bandwidth back.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer)
 
 	// Message should be sent to Bob.
 	select {
@@ -2596,7 +2663,7 @@ func TestChannelLinkBandwidthConsistency(t *testing.T) {
 	if err := handleStateUpdate(coreLink, bobChannel); err != nil {
 		t.Fatalf("unable to update state: %v", err)
 	}
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth)
+	assertLinkBandwidth(t, aliceLink, chanAmtMSat-feeBuffer)
 }
 
 // genAddsAndCircuits creates `numHtlcs` sequential ADD packets and there
@@ -2636,6 +2703,12 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 		halfHtlcs = numHtlcs / 2
 	)
 
+	var (
+		chanAmtMSat  = lnwire.NewMSatFromSatoshis(chanAmt)
+		cType        = channeldb.SingleFunderTweaklessBit
+		commitWeight = lnwallet.CommitWeight(cType)
+	)
+
 	// We'll start by creating a new link with our chanAmt (5 BTC). We will
 	// only be testing Alice's behavior, so the reference to Bob's channel
 	// state is unnecessary.
@@ -2657,22 +2730,18 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	require.NoError(t, err, "unable to query fee estimator")
 
-	defaultCommitFee := alice.channel.StateSnapshot().CommitFee
-	htlcFee := lnwire.NewMSatFromSatoshis(
-		feePerKw.FeeForWeight(input.HTLCWeight),
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight := int64(1) * input.HTLCWeight
+	feeBuffer := lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
 	)
 
 	// The starting bandwidth of the channel should be exactly the amount
-	// that we created the channel between her and Bob, minus the commitment
-	// fee and fee of adding an HTLC.
-	expectedBandwidth := lnwire.NewMSatFromSatoshis(
-		chanAmt-defaultCommitFee,
-	) - htlcFee
+	// that we created the channel between her and Bob, minus the fee
+	// buffer.
+	expectedBandwidth := chanAmtMSat - feeBuffer
 	assertLinkBandwidth(t, alice.link, expectedBandwidth)
-
-	// Capture Alice's starting bandwidth to perform later, relative
-	// bandwidth assertions.
-	aliceStartingBandwidth := alice.link.Bandwidth()
 
 	// Next, we'll create an HTLC worth 1 BTC that will be used as a dummy
 	// message for the test.
@@ -2707,10 +2776,17 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// Wait until Alice's link has sent both HTLCs via the peer.
 	alice.checkSent(addPkts[:halfHtlcs])
 
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight = int64(1+halfHtlcs) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
 	// The resulting bandwidth should reflect that Alice is paying both
-	// htlc amounts, in addition to both htlc fees.
+	// htlc amounts, in addition to the new fee buffer.
 	assertLinkBandwidth(t, alice.link,
-		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+		chanAmtMSat-feeBuffer-halfHtlcs*(htlcAmt),
 	)
 
 	// Now, initiate a state transition by Alice so that the pending HTLCs
@@ -2740,9 +2816,9 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 
 	// The resulting bandwidth should remain unchanged from before,
 	// reflecting that Alice is paying both htlc amounts, in addition to
-	// both htlc fees.
+	// the fee buffer.
 	assertLinkBandwidth(t, alice.link,
-		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+		chanAmtMSat-feeBuffer-halfHtlcs*(htlcAmt),
 	)
 
 	// Now, restart Alice's link *and* the entire switch. This will ensure
@@ -2793,8 +2869,12 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// With two HTLCs on the pending commit, and two added to the in-memory
 	// commitment state, the resulting bandwidth should reflect that Alice
 	// is paying the all htlc amounts in addition to all htlc fees.
+	htlcWeight = int64(1+numHtlcs) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
 	assertLinkBandwidth(t, alice.link,
-		aliceStartingBandwidth-numHtlcs*(htlcAmt+htlcFee),
+		chanAmtMSat-feeBuffer-numHtlcs*(htlcAmt),
 	)
 
 	// We will try to initiate a state transition for Alice, which will
@@ -2834,7 +2914,7 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// reflect that Alice is paying the all htlc amounts in addition to all
 	// htlc fees.
 	assertLinkBandwidth(t, alice.link,
-		aliceStartingBandwidth-numHtlcs*(htlcAmt+htlcFee),
+		chanAmtMSat-feeBuffer-numHtlcs*(htlcAmt),
 	)
 
 	// Again, we will try to initiate a state transition for Alice, which
@@ -2881,8 +2961,12 @@ func TestChannelLinkTrimCircuitsPending(t *testing.T) {
 	// Since the latter two HTLCs have been completely dropped from memory,
 	// only the first two HTLCs we added should still be reflected in the
 	// channel bandwidth.
+	htlcWeight = int64(1+halfHtlcs) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
 	assertLinkBandwidth(t, alice.link,
-		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+		chanAmtMSat-feeBuffer-halfHtlcs*(htlcAmt),
 	)
 }
 
@@ -2899,6 +2983,12 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 		chanAmt   = btcutil.SatoshiPerBitcoin * 5
 		numHtlcs  = 4
 		halfHtlcs = numHtlcs / 2
+	)
+
+	var (
+		chanAmtMSat  = lnwire.NewMSatFromSatoshis(chanAmt)
+		cType        = channeldb.SingleFunderTweaklessBit
+		commitWeight = lnwallet.CommitWeight(cType)
 	)
 
 	// We'll start by creating a new link with our chanAmt (5 BTC). We will
@@ -2927,22 +3017,18 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	require.NoError(t, err, "unable to query fee estimator")
 
-	defaultCommitFee := alice.channel.StateSnapshot().CommitFee
-	htlcFee := lnwire.NewMSatFromSatoshis(
-		feePerKw.FeeForWeight(input.HTLCWeight),
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight := int64(1) * input.HTLCWeight
+	feeBuffer := lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
 	)
 
 	// The starting bandwidth of the channel should be exactly the amount
-	// that we created the channel between her and Bob, minus the commitment
-	// fee and fee for adding an additional HTLC.
-	expectedBandwidth := lnwire.NewMSatFromSatoshis(
-		chanAmt-defaultCommitFee,
-	) - htlcFee
+	// that we created the channel between her and Bob, minus the fee
+	// buffer.
+	expectedBandwidth := chanAmtMSat - feeBuffer
 	assertLinkBandwidth(t, alice.link, expectedBandwidth)
-
-	// Capture Alice's starting bandwidth to perform later, relative
-	// bandwidth assertions.
-	aliceStartingBandwidth := alice.link.Bandwidth()
 
 	// Next, we'll create an HTLC worth 1 BTC that will be used as a dummy
 	// message for the test.
@@ -2976,10 +3062,17 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// Wait until Alice's link has sent both HTLCs via the peer.
 	alice.checkSent(addPkts[:halfHtlcs])
 
+	// We account for the 2 htlcs and the additional one which would be
+	// needed when sending and htlc.
+	htlcWeight = int64(1+halfHtlcs) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
 	// The resulting bandwidth should reflect that Alice is paying both
 	// htlc amounts, in addition to both htlc fees.
-	assertLinkBandwidth(t, alice.link,
-		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+	assertLinkBandwidth(
+		t, alice.link, chanAmtMSat-feeBuffer-halfHtlcs*(htlcAmt),
 	)
 
 	alice.assertNumPendingNumOpenCircuits(2, 0)
@@ -3012,9 +3105,10 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	alice.checkSent(addPkts[:halfHtlcs])
 
 	// The resulting bandwidth should reflect that Alice is paying both htlc
-	// amounts, in addition to both htlc fees.
-	assertLinkBandwidth(t, alice.link,
-		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+	// amounts, in addition to both htlc fees. The fee buffer remains the
+	// same as before.
+	assertLinkBandwidth(
+		t, alice.link, chanAmtMSat-feeBuffer-halfHtlcs*(htlcAmt),
 	)
 
 	// Again, initiate another state transition by Alice to try and commit
@@ -3023,7 +3117,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	alice.trySignNextCommitment()
 	alice.assertNumPendingNumOpenCircuits(2, 2)
 
-	// Now, we we will do a full restart of the link and switch, configuring
+	// Now, we will do a full restart of the link and switch, configuring
 	// Alice again in hodl.Commit mode. Since none of the HTLCs were
 	// actually committed, the previously opened circuits should be trimmed
 	// by both the link and switch.
@@ -3048,7 +3142,12 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	}
 
 	// Alice's bandwidth should have reverted back to her starting value.
-	assertLinkBandwidth(t, alice.link, aliceStartingBandwidth)
+	htlcWeight = int64(1) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
+	assertLinkBandwidth(t, alice.link, chanAmtMSat-feeBuffer)
 
 	// Now, try to commit the last two payment circuits, which are unused
 	// thus far. These should succeed without hesitation.
@@ -3068,10 +3167,17 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 	// peer.
 	alice.checkSent(addPkts[halfHtlcs:])
 
+	// We account for the 2 htlcs and the additional one which would be
+	// needed when sending and htlc.
+	htlcWeight = int64(1+halfHtlcs) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
 	// The resulting bandwidth should reflect that Alice is paying both htlc
 	// amounts, in addition to both htlc fees.
 	assertLinkBandwidth(t, alice.link,
-		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+		chanAmtMSat-feeBuffer-halfHtlcs*(htlcAmt),
 	)
 
 	// Now, initiate a state transition for Alice. Since we are hodl.Commit
@@ -3109,7 +3215,7 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 
 	// Her bandwidth should now reflect having sent only those two HTLCs.
 	assertLinkBandwidth(t, alice.link,
-		aliceStartingBandwidth-halfHtlcs*(htlcAmt+htlcFee),
+		chanAmtMSat-feeBuffer-halfHtlcs*(htlcAmt),
 	)
 
 	// Now, initiate a state transition for Alice. Since we are hodl.Commit
@@ -3141,8 +3247,13 @@ func TestChannelLinkTrimCircuitsNoCommit(t *testing.T) {
 		t.Fatalf("expected %d packet to be failed", halfHtlcs)
 	}
 
+	htlcWeight = int64(1) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
 	// Alice balance should not have changed since the start.
-	assertLinkBandwidth(t, alice.link, aliceStartingBandwidth)
+	assertLinkBandwidth(t, alice.link, chanAmtMSat-feeBuffer)
 }
 
 // TestChannelLinkTrimCircuitsRemoteCommit checks that the switch and link
@@ -3154,6 +3265,12 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 	const (
 		chanAmt  = btcutil.SatoshiPerBitcoin * 5
 		numHtlcs = 2
+	)
+
+	var (
+		chanAmtMSat  = lnwire.NewMSatFromSatoshis(chanAmt)
+		cType        = channeldb.SingleFunderTweaklessBit
+		commitWeight = lnwallet.CommitWeight(cType)
 	)
 
 	// We'll start by creating a new link with our chanAmt (5 BTC).
@@ -3175,22 +3292,19 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	require.NoError(t, err, "unable to query fee estimator")
 
-	defaultCommitFee := alice.channel.StateSnapshot().CommitFee
-	htlcFee := lnwire.NewMSatFromSatoshis(
-		feePerKw.FeeForWeight(input.HTLCWeight),
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight := int64(1) * input.HTLCWeight
+	feeBuffer := lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
 	)
 
-	// The starting bandwidth of the channel should be exactly the amount
-	// that we created the channel between her and Bob, minus the commitment
-	// fee and fee of adding an HTLC.
-	expectedBandwidth := lnwire.NewMSatFromSatoshis(
-		chanAmt-defaultCommitFee,
-	) - htlcFee
-	assertLinkBandwidth(t, alice.link, expectedBandwidth)
+	expectedBandwidth := chanAmtMSat - feeBuffer
 
-	// Capture Alice's starting bandwidth to perform later, relative
-	// bandwidth assertions.
-	aliceStartingBandwidth := alice.link.Bandwidth()
+	// The starting bandwidth of the channel should be exactly the amount
+	// that we created the channel between her and Bob, minus the fee
+	// buffer.
+	assertLinkBandwidth(t, alice.link, expectedBandwidth)
 
 	// Next, we'll create an HTLC worth 1 BTC that will be used as a dummy
 	// message for the test.
@@ -3242,8 +3356,13 @@ func TestChannelLinkTrimCircuitsRemoteCommit(t *testing.T) {
 
 	// The resulting bandwidth should reflect that Alice is paying both
 	// htlc amounts, in addition to both htlc fees.
+	htlcWeight = int64(1+numHtlcs) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+
 	assertLinkBandwidth(t, alice.link,
-		aliceStartingBandwidth-numHtlcs*(htlcAmt+htlcFee),
+		chanAmtMSat-feeBuffer-numHtlcs*(htlcAmt),
 	)
 
 	// Now, initiate a state transition by Alice so that the pending HTLCs
@@ -3309,26 +3428,37 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 	}
 
 	var (
-		mockBlob               [lnwire.OnionPacketSize]byte
-		coreLink               = aliceLink.(*channelLink)
-		coreChan               = coreLink.channel
-		defaultCommitFee       = coreChan.StateSnapshot().CommitFee
-		aliceStartingBandwidth = aliceLink.Bandwidth()
-		aliceMsgs              = coreLink.cfg.Peer.(*mockPeer).sentMsgs
+		mockBlob        [lnwire.OnionPacketSize]byte
+		coreLink        *channelLink
+		aliceMsgs       chan lnwire.Message
+		chanAmtMSat     = lnwire.NewMSatFromSatoshis(chanAmt)
+		chanReserveMSat = lnwire.NewMSatFromSatoshis(chanReserve)
+		cType           = channeldb.SingleFunderTweaklessBit
+		commitWeight    = lnwallet.CommitWeight(cType)
 	)
+
+	link, ok := aliceLink.(*channelLink)
+	require.True(t, ok)
+	coreLink = link
+	mockedPeer := coreLink.cfg.Peer
+
+	peer, ok := mockedPeer.(*mockPeer)
+	require.True(t, ok)
+	aliceMsgs = peer.sentMsgs
 
 	estimator := chainfee.NewStaticEstimator(6000, 0)
 	feePerKw, err := estimator.EstimateFeePerKW(1)
 	require.NoError(t, err, "unable to query fee estimator")
-	htlcFee := lnwire.NewMSatFromSatoshis(
-		feePerKw.FeeForWeight(input.HTLCWeight),
-	)
+
+	// Calculate the fee buffer for a channel state. Account for htlcs on
+	// the potential channel state as well.
+	htlcWeight := int64(1) * input.HTLCWeight
+	feeBuffer := lnwallet.CalcFeeBuffer(feePerKw, commitWeight+htlcWeight)
 
 	// The starting bandwidth of the channel should be exactly the amount
 	// that we created the channel between her and Bob, minus the channel
-	// reserve, commitment fee and fee for adding an additional HTLC.
-	expectedBandwidth := lnwire.NewMSatFromSatoshis(
-		chanAmt-defaultCommitFee-chanReserve) - htlcFee
+	// reserve and the fee buffer.
+	expectedBandwidth := chanAmtMSat - feeBuffer - chanReserveMSat
 	assertLinkBandwidth(t, aliceLink, expectedBandwidth)
 
 	// Next, we'll create an HTLC worth 3 BTC, and send it into the link as
@@ -3348,7 +3478,14 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 
 	_ = aliceLink.handleSwitchPacket(addPkt)
 	time.Sleep(time.Millisecond * 100)
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+
+	htlcWeight = int64(2) * input.HTLCWeight
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+htlcWeight,
+	)
+	assertLinkBandwidth(
+		t, aliceLink, chanAmtMSat-htlcAmt-feeBuffer-chanReserveMSat,
+	)
 
 	// Alice should send the HTLC to Bob.
 	var msg lnwire.Message
@@ -3371,7 +3508,9 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 		t.Fatalf("unable to update state: %v", err)
 	}
 
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+	assertLinkBandwidth(
+		t, aliceLink, chanAmtMSat-htlcAmt-feeBuffer-chanReserveMSat,
+	)
 
 	// If we now send in a valid HTLC settle for the prior HTLC we added,
 	// then the bandwidth should remain unchanged as the remote party will
@@ -3387,15 +3526,23 @@ func TestChannelLinkBandwidthChanReserve(t *testing.T) {
 
 	// Since the settle is not locked in yet, Alice's bandwidth should still
 	// reflect that she has to pay the fee.
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt-htlcFee)
+	assertLinkBandwidth(
+		t, aliceLink, chanAmtMSat-htlcAmt-feeBuffer-chanReserveMSat,
+	)
 
 	// Lock in the settle.
 	if err := updateState(batchTimer, coreLink, bobChannel, false); err != nil {
 		t.Fatalf("unable to update state: %v", err)
 	}
 
+	feeBuffer = lnwallet.CalcFeeBuffer(
+		feePerKw, commitWeight+input.HTLCWeight,
+	)
+
 	time.Sleep(time.Millisecond * 100)
-	assertLinkBandwidth(t, aliceLink, aliceStartingBandwidth-htlcAmt)
+	assertLinkBandwidth(
+		t, aliceLink, chanAmtMSat-htlcAmt-feeBuffer-chanReserveMSat,
+	)
 
 	// Now we create a channel that has a channel reserve that is
 	// greater than it's balance. In these case only payments can

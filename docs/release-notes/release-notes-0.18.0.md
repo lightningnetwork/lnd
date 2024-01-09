@@ -179,6 +179,8 @@
   [MinConf](https://github.com/lightningnetwork/lnd/pull/8097)(minimum number
   of confirmations) has been added to the `WalletBalance` RPC call.
 
+* TODO
+
 ## lncli Updates
 
 * [Documented all available lncli commands](https://github.com/lightningnetwork/lnd/pull/8181).

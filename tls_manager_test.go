@@ -17,6 +17,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/cert"
+	"github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnencrypt"
 	"github.com/lightningnetwork/lnd/lntest/channels"
@@ -350,9 +351,13 @@ func writeTestCertFiles(t *testing.T, expiredCert, encryptTLSKey bool,
 		require.NoError(t, err, "failed to encrypt private key")
 	}
 
-	err = ioutil.WriteFile(tempDir+"/tls.cert", certBuf.Bytes(), 0644)
+	err = io.WriteFileToDisk(
+		tempDir+"/tls.cert", certBuf.Bytes(), 0644, io.Default,
+	)
 	require.NoError(t, err, "failed to write cert file")
-	err = ioutil.WriteFile(tempDir+"/tls.key", keyBuf.Bytes(), 0600)
+	err = io.WriteFileToDisk(
+		tempDir+"/tls.key", keyBuf.Bytes(), 0600, io.Default,
+	)
 	require.NoError(t, err, "failed to write key file")
 
 	return certPath, keyPath, parsedCert

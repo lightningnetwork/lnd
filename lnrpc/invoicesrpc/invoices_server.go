@@ -7,12 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
-	"os"
 	"path/filepath"
 
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/invoices"
+	"github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/macaroons"
@@ -132,9 +131,13 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 		if err != nil {
 			return nil, nil, err
 		}
-		err = ioutil.WriteFile(macFilePath, invoicesMacBytes, 0644)
+		err = io.WriteFileToDisk(
+			macFilePath,
+			invoicesMacBytes,
+			0644,
+			io.RemoveOnFailure,
+		)
 		if err != nil {
-			_ = os.Remove(macFilePath)
 			return nil, nil, err
 		}
 	}

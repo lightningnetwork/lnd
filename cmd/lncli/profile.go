@@ -10,6 +10,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/walletunlocker"
@@ -243,7 +244,8 @@ func saveProfileFile(file string, f *profileFile) error {
 	if err != nil {
 		return fmt.Errorf("could not marshal profile: %v", err)
 	}
-	return ioutil.WriteFile(file, content, 0644)
+
+	return io.WriteFileToDisk(file, content, 0644, io.Default)
 }
 
 // profileFile is a struct that represents the whole content of a profile file.

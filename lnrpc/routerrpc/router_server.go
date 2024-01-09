@@ -1,7 +1,9 @@
 package routerrpc
 
 import (
+	"bytes"
 	"context"
+	crand "crypto/rand"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -15,11 +17,13 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/zpay32"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -31,15 +35,21 @@ const (
 	// to register ourselves, and we also require that the main
 	// SubServerConfigDispatcher instance recognize as the name of our
 	subServerName = "RouterRPC"
+
+	// routeFeeLimitSat is the maximum routing fee that we allow to occur
+	// when estimating a routing fee.
+	routeFeeLimitSat = 100_000_000
 )
 
 var (
 	errServerShuttingDown = errors.New("routerrpc server shutting down")
 
-	// ErrInterceptorAlreadyExists is an error returned when the a new stream
-	// is opened and there is already one active interceptor.
-	// The user must disconnect prior to open another stream.
+	// ErrInterceptorAlreadyExists is an error returned when a new stream is
+	// opened and there is already one active interceptor. The user must
+	// disconnect prior to open another stream.
 	ErrInterceptorAlreadyExists = errors.New("interceptor already exists")
+
+	errUnexpectedFailureSource = errors.New("unexpected failure source")
 
 	// macaroonOps are the set of capabilities that our minted macaroon (if
 	// it doesn't already exist) will have.
@@ -356,25 +366,58 @@ func (s *Server) SendPaymentV2(req *SendPaymentRequest,
 	)
 }
 
-// EstimateRouteFee allows callers to obtain a lower bound w.r.t how much it
-// may cost to send an HTLC to the target end destination.
+// EstimateRouteFee allows callers to obtain an expected value w.r.t how much it
+// may cost to send an HTLC to the target end destination. This method sends
+// probe payments to the target node, based on target invoice parameters and a
+// random payment hash that makes it impossible for the target to settle the
+// htlc. The probing stops if a user-provided timeout is reached. If provided
+// with a destination key and amount, this method will perform a local graph
+// based fee estimation.
 func (s *Server) EstimateRouteFee(ctx context.Context,
 	req *RouteFeeRequest) (*RouteFeeResponse, error) {
 
-	if len(req.Dest) != 33 {
-		return nil, errors.New("invalid length destination key")
+	isProbeDestination := len(req.Dest) > 0
+	isProbeInvoice := len(req.PaymentRequest) > 0
+
+	switch {
+	case isProbeDestination == isProbeInvoice:
+		return nil, errors.New("specify either a destination or an " +
+			"invoice")
+
+	case isProbeDestination:
+		switch {
+		case len(req.Dest) != 33:
+			return nil, errors.New("invalid length destination key")
+
+		case req.AmtSat <= 0:
+			return nil, errors.New("amount must be greater than 0")
+
+		default:
+			return s.probeDestination(req.Dest, req.AmtSat)
+		}
+
+	case isProbeInvoice:
+		return s.probePaymentRequest(
+			ctx, req.PaymentRequest, req.Timeout,
+		)
 	}
-	var destNode route.Vertex
-	copy(destNode[:], req.Dest)
+
+	return &RouteFeeResponse{}, nil
+}
+
+// probeDestination estimates fees along a route to a destination based on the
+// contents of the local graph.
+func (s *Server) probeDestination(dest []byte, amtSat int64) (*RouteFeeResponse,
+	error) {
+
+	destNode, err := route.NewVertexFromBytes(dest)
+	if err != nil {
+		return nil, err
+	}
 
 	// Next, we'll convert the amount in satoshis to mSAT, which are the
 	// native unit of LN.
-	amtMsat := lnwire.NewMSatFromSatoshis(btcutil.Amount(req.AmtSat))
-
-	// Pick a fee limit
-	//
-	// TODO: Change this into behaviour that makes more sense.
-	feeLimit := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin)
+	amtMsat := lnwire.NewMSatFromSatoshis(btcutil.Amount(amtSat))
 
 	// Finally, we'll query for a route to the destination that can carry
 	// that target amount, we'll only request a single route. Set a
@@ -384,7 +427,7 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 	routeReq, err := routing.NewRouteRequest(
 		s.cfg.RouterBackend.SelfNode, &destNode, amtMsat, 0,
 		&routing.RestrictParams{
-			FeeLimit:          feeLimit,
+			FeeLimit:          routeFeeLimitSat,
 			CltvLimit:         s.cfg.RouterBackend.MaxTotalTimelock,
 			ProbabilitySource: mc.GetProbability,
 		}, nil, nil, nil, s.cfg.RouterBackend.DefaultFinalCltvDelta,
@@ -398,14 +441,350 @@ func (s *Server) EstimateRouteFee(ctx context.Context,
 		return nil, err
 	}
 
+	timeLockDelay := route.TotalTimeLock + uint32(routing.BlockPadding)
 	return &RouteFeeResponse{
 		RoutingFeeMsat: int64(route.TotalFees()),
-		TimeLockDelay:  int64(route.TotalTimeLock),
+		TimeLockDelay:  int64(timeLockDelay),
+		FailureReason:  lnrpc.PaymentFailureReason_FAILURE_REASON_NONE,
 	}, nil
 }
 
-// SendToRouteV2 sends a payment through a predefined route. The response of this
-// call contains structured error information.
+// probePaymentRequest estimates fees along a route to a destination that is
+// specified in an invoice. The estimation duration is limited by a timeout. In
+// case that route hints are provided, this method applies a heuristic to
+// identify LSPs which might block probe payments. In that case, fees are
+// manually calculated and added to the probed fee estimation up until the LSP
+// node. If the route hints don't indicate an LSP, they are passed as arguments
+// to the SendPayment_V2 method, which enable it to send probe payments to the
+// payment request destination.
+func (s *Server) probePaymentRequest(ctx context.Context, paymentRequest string,
+	timeout uint32) (*RouteFeeResponse, error) {
+
+	payReq, err := zpay32.Decode(
+		paymentRequest, s.cfg.RouterBackend.ActiveNetParams,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if *payReq.MilliSat <= 0 {
+		return nil, errors.New("payment request amount must be " +
+			"greater than 0")
+	}
+
+	// Generate random payment hash, so we can be sure that the target of
+	// the probe payment doesn't have the preimage to settle the htlc.
+	var paymentHash lntypes.Hash
+	_, err = crand.Read(paymentHash[:])
+	if err != nil {
+		return nil, fmt.Errorf("cannot generate random probe "+
+			"preimage: %w", err)
+	}
+
+	amtMsat := int64(*payReq.MilliSat)
+	probeRequest := &SendPaymentRequest{
+		TimeoutSeconds:   int32(timeout),
+		Dest:             payReq.Destination.SerializeCompressed(),
+		MaxParts:         1,
+		AllowSelfPayment: false,
+		AmtMsat:          amtMsat,
+		PaymentHash:      paymentHash[:],
+		FeeLimitSat:      routeFeeLimitSat,
+		PaymentAddr:      payReq.PaymentAddr[:],
+		FinalCltvDelta:   int32(payReq.MinFinalCLTVExpiry()),
+	}
+
+	hints := payReq.RouteHints
+	isLsp, lspAdjustedRouteHints, lspHopHint := isLSP(
+		hints, lnwire.MilliSatoshi(amtMsat),
+	)
+	if !isLsp {
+		probeRequest.RouteHints = invoicesrpc.CreateRPCRouteHints(hints)
+		return s.sendProbePayment(ctx, probeRequest)
+	}
+
+	if len(lspAdjustedRouteHints) == 0 && lspHopHint == nil {
+		return nil, errors.New("invalid lsp route hints")
+	}
+
+	// The adjusted route hints serve the payment probe to find the last
+	// public hop to the LSP on the route.
+	probeRequest.Dest = lspHopHint.NodeID.SerializeCompressed()
+	if len(lspAdjustedRouteHints) > 0 {
+		probeRequest.RouteHints = invoicesrpc.CreateRPCRouteHints(
+			lspAdjustedRouteHints,
+		)
+	}
+
+	// The payment probe will be able to calculate the fee up until the LSP
+	// node. The fee of the last hop has to be calculated manually. Since
+	// the last hop's fee amount has to be sent across the payment path we
+	// have to add it to the original payment amount. Only then will the
+	// payment probe be able to determine the correct fee to the last hop
+	// prior to the private destination. For example, if the user wants to
+	// send 1000 sats to a private destination and the last hop's fee is 10
+	// sats, then 1010 sats will have to arrive at the last hop. This means
+	// that the probe has to be dispatched with 1010 sats to correctly
+	// calculate the routing fee.
+	//
+	// Calculate the hop fee for the last hop manually.
+	hopFee := lspHopHint.HopFee(*payReq.MilliSat)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the last hop's fee to the requested payment amount that we want
+	// to get an estimate for.
+	probeRequest.AmtMsat += int64(hopFee)
+
+	// Dispatch the payment probe with adjusted fee amount.
+	resp, err := s.sendProbePayment(ctx, probeRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	// The probe succeeded, so we can add the last hop's fee to fee the
+	// payment probe returned.
+	resp.RoutingFeeMsat += int64(hopFee)
+
+	lastHopTimeLock := int64(lspHopHint.CLTVExpiryDelta)
+	if lastHopTimeLock < int64(payReq.MinFinalCLTVExpiry()) {
+		lastHopTimeLock = int64(payReq.MinFinalCLTVExpiry())
+	}
+	resp.TimeLockDelay += lastHopTimeLock
+
+	return resp, nil
+}
+
+// isLSP checks if the route hints indicate an LSP. An LSP is indicated in the
+// first return value if the last node in each route hint has the same node id.
+// If an LSP is indicated, the remaining hops in each route hint are returned
+// to the caller to be considered by the caller as route hints to the LSP node.
+// Additionally, the identified LSP node is returned as a separate hop hint.
+// This hop hint also contains the maximum fee setting if LSP hop hints contain
+// different fee settings. This is to heuristically determine a worst-case
+// estimate.
+func isLSP(routeHints [][]zpay32.HopHint, amt lnwire.MilliSatoshi) (bool,
+	[][]zpay32.HopHint, *zpay32.HopHint) {
+
+	if len(routeHints) == 0 || len(routeHints[0]) == 0 {
+		return false, [][]zpay32.HopHint{}, nil
+	}
+
+	// In case we are dealing with an LSP, we construct a modified list of
+	// route hints that allows the caller to probe the LSP, which itself is
+	// returned as a separate hop hint.
+	adjustedRouteHints := make([][]zpay32.HopHint, 0, len(routeHints))
+
+	// If the final pubkey of each route hint is the same, we can assume
+	// that this identifies an LSP node. The first candidate is our
+	// reference hop hint.
+	refHopHint := routeHints[0][len(routeHints[0])-1]
+
+	// Strip off the potential LSP hop hint from the reference route hint,
+	// and add the remaining hop hints to the adjusted route hints.
+	if len(routeHints[0]) > 1 {
+		adjustedRouteHints = append(
+			adjustedRouteHints,
+			routeHints[0][:len(routeHints[0])-1],
+		)
+	}
+	for i := 1; i < len(routeHints); i++ {
+		rh := routeHints[i]
+
+		// Skip empty route hints.
+		if len(rh) == 0 {
+			continue
+		}
+
+		// If the last hop hint is not the same as the reference hop
+		// hint, we might not be dealing with an LSP.
+		rhLastHop := rh[len(rh)-1]
+		idMatchesRefNode := bytes.Equal(
+			rhLastHop.NodeID.SerializeCompressed(),
+			refHopHint.NodeID.SerializeCompressed(),
+		)
+		if !idMatchesRefNode {
+			return false, [][]zpay32.HopHint{}, nil
+		}
+
+		// We are interested in the maximum of a fee estimate when
+		// paying an LSP invoice. If the LSP hop hints indicate
+		// different final hop fees we track the highest and also store
+		// the maximum cltv expiry delta amongst the candidate hints.
+		refFee := refHopHint.HopFee(amt)
+		rhLastFee := rhLastHop.HopFee(amt)
+		if refFee < rhLastFee {
+			refHopHint.FeeBaseMSat = rhLastHop.FeeBaseMSat
+			refHopHint.FeeProportionalMillionths =
+				rhLastHop.FeeProportionalMillionths
+		}
+		refCltvDelta := refHopHint.CLTVExpiryDelta
+		rhLastCltvDelta := rhLastHop.CLTVExpiryDelta
+		if refCltvDelta < rhLastCltvDelta {
+			refHopHint.CLTVExpiryDelta = rhLastCltvDelta
+		}
+
+		// As long as we could be dealing with an LSP, strip off the
+		// last hop hint, since this is the LSP node which we will probe
+		// separately.
+		if len(rh) > 1 {
+			adjustedRouteHints = append(
+				adjustedRouteHints, rh[:len(rh)-1],
+			)
+		}
+	}
+
+	return true, adjustedRouteHints, &refHopHint
+}
+
+// probePaymentStream is a custom implementation of the grpc.ServerStream
+// interface. It is used to send payment status updates to the caller on the
+// stream channel.
+type probePaymentStream struct {
+	Router_SendPaymentV2Server
+
+	stream chan *lnrpc.Payment
+	ctx    context.Context //nolint:containedctx
+}
+
+// Send sends a payment status update to a payment stream that the caller can
+// evaluate.
+func (p *probePaymentStream) Send(response *lnrpc.Payment) error {
+	select {
+	case p.stream <- response:
+
+	case <-p.ctx.Done():
+		return p.ctx.Err()
+	}
+
+	return nil
+}
+
+// Context returns the context of the stream.
+func (p *probePaymentStream) Context() context.Context {
+	return p.ctx
+}
+
+// sendProbePayment sends a payment to a target node in order to obtain
+// potential routing fees for it. The payment request has to contain a payment
+// hash that is guaranteed to be unknown to the target node, so it cannot settle
+// the payment. This method invokes a payment request loop in a goroutine and
+// awaits payment status updates.
+func (s *Server) sendProbePayment(ctx context.Context,
+	req *SendPaymentRequest) (*RouteFeeResponse, error) {
+
+	// We'll launch a goroutine to send the payment probes.
+	errChan := make(chan error, 1)
+	defer close(errChan)
+
+	paymentStream := &probePaymentStream{
+		stream: make(chan *lnrpc.Payment),
+		ctx:    ctx,
+	}
+	go func() {
+		err := s.SendPaymentV2(req, paymentStream)
+		if err != nil {
+			select {
+			case errChan <- err:
+
+			case <-paymentStream.ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Consider a user provided timeout, otherwise use default timeout.
+	deadline := time.Now().Add(s.cfg.FeeEstimationTimeout)
+	if req.TimeoutSeconds > 0 {
+		deadline = time.Now().Add(
+			time.Duration(req.TimeoutSeconds) * time.Second,
+		)
+	}
+	probeCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+
+	for {
+		select {
+		case payment := <-paymentStream.stream:
+			switch payment.Status {
+			case lnrpc.Payment_SUCCEEDED:
+				return nil, errors.New("warning, the fee " +
+					"estimation payment probe " +
+					"unexpectedly succeeded. Please reach" +
+					"out to the probe destination to " +
+					"negotiate a refund. Otherwise the " +
+					"payment probe amount is lost forever")
+
+			case lnrpc.Payment_FAILED:
+				// Incorrect payment details point to a
+				// successful probe.
+				//nolint:lll
+				switch payment.FailureReason {
+				case lnrpc.PaymentFailureReason_FAILURE_REASON_INCORRECT_PAYMENT_DETAILS:
+					return paymentDetails(payment)
+
+				default:
+					return &RouteFeeResponse{
+						FailureReason: payment.FailureReason,
+					}, nil
+				}
+			}
+
+		case err := <-errChan:
+			return nil, err
+
+		case <-probeCtx.Done():
+			return nil, probeCtx.Err()
+
+		case <-s.quit:
+			return nil, errServerShuttingDown
+		}
+	}
+}
+
+func paymentDetails(payment *lnrpc.Payment) (*RouteFeeResponse, error) {
+	fee, timeLock, err := timelockAndFee(payment)
+	if errors.Is(err, errUnexpectedFailureSource) {
+		return &RouteFeeResponse{
+			FailureReason: lnrpc.PaymentFailureReason_FAILURE_REASON_ERROR, //nolint:lll
+		}, nil
+	}
+
+	return &RouteFeeResponse{
+		RoutingFeeMsat: fee,
+		TimeLockDelay:  timeLock,
+		FailureReason:  lnrpc.PaymentFailureReason_FAILURE_REASON_NONE,
+	}, nil
+}
+
+// timelockAndFee returns the fee and total time lock of the last payment
+// attempt.
+func timelockAndFee(p *lnrpc.Payment) (int64, int64, error) {
+	if len(p.Htlcs) == 0 {
+		return 0, 0, nil
+	}
+
+	lastAttempt := p.Htlcs[len(p.Htlcs)-1]
+	lastRoute := lastAttempt.Route
+	hopFailureIndex := lastAttempt.Failure.FailureSourceIndex
+	finalHopIndex := uint32(len(lastRoute.Hops))
+
+	switch {
+	case hopFailureIndex != finalHopIndex:
+		return 0, 0, errUnexpectedFailureSource
+
+	case lastAttempt.Route != nil:
+		return lastRoute.TotalFeesMsat, int64(lastRoute.TotalTimeLock),
+			nil
+
+	default:
+		return 0, 0, nil
+	}
+}
+
+// SendToRouteV2 sends a payment through a predefined route. The response of
+// this call contains structured error information.
 func (s *Server) SendToRouteV2(ctx context.Context,
 	req *SendToRouteRequest) (*lnrpc.HTLCAttempt, error) {
 
@@ -867,7 +1246,6 @@ func (s *Server) trackPayment(subscription routing.ControlTowerSubscriber,
 	identifier lntypes.Hash, stream Router_TrackPaymentV2Server,
 	noInflightUpdates bool) error {
 
-	// Stream updates to the client.
 	err := s.trackPaymentStream(
 		stream.Context(), subscription, noInflightUpdates, stream.Send,
 	)

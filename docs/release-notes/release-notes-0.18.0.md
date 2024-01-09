@@ -229,6 +229,10 @@
   interface](https://github.com/lightningnetwork/lnd/pull/7736) to simplify the
   code. 
 
+* The pending inputs in the sweeper is now
+  [stateful](https://github.com/lightningnetwork/lnd/pull/8423) to better
+  manage the lifecycle of the inputs.
+
 ## Breaking Changes
 ## Performance Improvements
 

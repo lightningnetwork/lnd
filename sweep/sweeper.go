@@ -302,8 +302,6 @@ type UtxoSweeper struct {
 	// requested to sweep.
 	pendingInputs pendingInputs
 
-	testSpendChan chan wire.OutPoint
-
 	currentOutputScript []byte
 
 	relayFeeRate chainfee.SatPerKWeight
@@ -1535,11 +1533,6 @@ func (s *UtxoSweeper) handleExistingInput(input *sweepInputMessage,
 // handleInputSpent takes a spend event of our input and updates the sweeper's
 // internal state to remove the input.
 func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
-	// For testing purposes.
-	if s.testSpendChan != nil {
-		s.testSpendChan <- *spend.SpentOutPoint
-	}
-
 	// Query store to find out if we ever published this tx.
 	spendHash := *spend.SpenderTxHash
 	isOurTx, err := s.cfg.Store.IsOurTx(spendHash)

@@ -789,7 +789,8 @@ func (s *UtxoSweeper) sweepCluster(cluster inputCluster) error {
 			//    causing the failure and retry the rest of the
 			//    inputs.
 			if errAllSets != nil {
-				log.Errorf("sweep all inputs: %w", err)
+				log.Errorf("Sweep all inputs got error: %v",
+					errAllSets)
 				break
 			}
 		}
@@ -800,10 +801,10 @@ func (s *UtxoSweeper) sweepCluster(cluster inputCluster) error {
 			return nil
 		}
 
-		// We'd end up there if there's no retried inputs. In this
-		// case, we'd sweep the new input sets. If there's an error
-		// when sweeping a given set, we'd log the error and sweep the
-		// next set.
+		// We'd end up there if there's no retried inputs or the above
+		// sweeping tx failed. In this case, we'd sweep the new input
+		// sets. If there's an error when sweeping a given set, we'd
+		// log the error and sweep the next set.
 		for _, inputs := range newSets {
 			err := s.sweep(inputs, cluster.sweepFeeRate)
 			if err != nil {
@@ -1397,7 +1398,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 	outpoint := *input.input.OutPoint()
 	pi, pending := s.pendingInputs[outpoint]
 	if pending {
-		log.Debugf("Already pending input %v received", outpoint)
+		log.Debugf("Already has pending input %v received", outpoint)
 
 		s.handleExistingInput(input, pi)
 
@@ -1419,7 +1420,8 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 	pi = s.attachAvailableRBFInfo(pi)
 
 	s.pendingInputs[outpoint] = pi
-	log.Tracef("input %v added to pendingInputs", outpoint)
+	log.Tracef("input %v, state=%v, added to pendingInputs", outpoint,
+		pi.state)
 
 	// Start watching for spend of this input, either by us or the remote
 	// party.

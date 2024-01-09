@@ -364,6 +364,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * Bump sqlite version to [fix a data 
   race](https://github.com/lightningnetwork/lnd/pull/8567).
 
+* The pending inputs in the sweeper is now
+  [stateful](https://github.com/lightningnetwork/lnd/pull/8423) to better
+  manage the lifecycle of the inputs.
+
 ## Breaking Changes
 ## Performance Improvements
 

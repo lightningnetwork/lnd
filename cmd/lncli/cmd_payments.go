@@ -1797,6 +1797,96 @@ func deletePayments(ctx *cli.Context) error {
 	return nil
 }
 
+var estimateRouteFeeCommand = cli.Command{
+	Name:     "estimateroutefee",
+	Category: "Payments",
+	Usage:    "Estimate routing fees based on a destination or an invoice.",
+	Action:   actionDecorator(estimateRouteFee),
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "dest",
+			Usage: "the 33-byte hex-encoded public key for the " +
+				"probe destination. If it is specified then " +
+				"the amt flag is required. If it isn't " +
+				"specified then the pay_req field has to.",
+		},
+		cli.Int64Flag{
+			Name: "amt",
+			Usage: "the payment amount expressed in satoshis " +
+				"that should be probed for. This field is " +
+				"mandatory if dest is specified.",
+		},
+		cli.StringFlag{
+			Name: "pay_req",
+			Usage: "a zpay32 encoded payment request which is " +
+				"used to probe. If the destination is " +
+				"not public then route hints are scanned for " +
+				"a public node.",
+		},
+		cli.DurationFlag{
+			Name: "timeout",
+			Usage: "a deadline for the probe attempt. Only " +
+				"applicable if pay_req is specified. ",
+			Value: paymentTimeout,
+		},
+	},
+}
+
+func estimateRouteFee(ctx *cli.Context) error {
+	ctxc := getContext()
+	conn := getClientConn(ctx, false)
+	defer conn.Close()
+
+	client := routerrpc.NewRouterClient(conn)
+
+	req := &routerrpc.RouteFeeRequest{}
+
+	switch {
+	case ctx.IsSet("dest") && ctx.IsSet("pay_req"):
+		return fmt.Errorf("either dest or pay_req can be set")
+
+	case ctx.IsSet("dest") && !ctx.IsSet("amt"):
+		return fmt.Errorf("amt is required when dest is set")
+
+	case ctx.IsSet("dest"):
+		dest, err := hex.DecodeString(ctx.String("dest"))
+		if err != nil {
+			return err
+		}
+
+		if len(dest) != 33 {
+			return fmt.Errorf("dest node pubkey must be exactly "+
+				"33 bytes, is instead: %v", len(dest))
+		}
+
+		amtSat := ctx.Int64("amt")
+		if amtSat == 0 {
+			return fmt.Errorf("non-zero amount required")
+		}
+
+		req.Dest = dest
+		req.AmtSat = amtSat
+
+	case ctx.IsSet("pay_req"):
+		req.PaymentRequest = stripPrefix(ctx.String("pay_req"))
+		if ctx.IsSet("timeout") {
+			req.Timeout = uint32(ctx.Duration("timeout").Seconds())
+		}
+
+	default:
+		return fmt.Errorf("fee estimation arguments missing")
+	}
+
+	resp, err := client.EstimateRouteFee(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+
+	return nil
+}
+
 // ESC is the ASCII code for escape character.
 const ESC = 27
 

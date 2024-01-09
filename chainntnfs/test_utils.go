@@ -196,8 +196,6 @@ func NewMiner(t *testing.T, extraArgs []string, createChain bool,
 func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 	rpcpolling bool) *chain.BitcoindConn {
 
-	t.Helper()
-
 	// We use ioutil.TempDir here instead of t.TempDir because some versions
 	// of bitcoind complain about the zmq connection string formats when the
 	// t.TempDir directory string is used.
@@ -267,9 +265,9 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 		}
 
 		return conn.Start()
-	}, 10*time.Second)
+	}, 30*time.Second)
 	if err != nil {
-		t.Fatalf("unable to establish connection to bitcoind: %v", err)
+		t.Fatalf("timeout establishing connection to bitcoind: %v", err)
 	}
 	t.Cleanup(conn.Stop)
 

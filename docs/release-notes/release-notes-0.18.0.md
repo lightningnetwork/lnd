@@ -62,6 +62,11 @@
   protects against the case where htlcs are added asynchronously resulting in
   stuck channels.
 
+* [Allow `shutdown`s while HTLCs are in-flight](https://github.com/lightningnetwork/lnd/pull/8167).
+  This change fixes an issue where we would force-close channels when receiving
+  a `shutdown` message if there were currently HTLCs on the channel. After this
+  change, the shutdown procedure should be compliant with BOLT2 requirements.
+
 # New Features
 ## Functional Enhancements
 

@@ -3636,12 +3636,13 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		oShutdown.WhenSome(func(msg lnwire.Shutdown) {
 			// if the link is nil it means we can immediately queue
 			// the Shutdown message since we don't have to wait for
-			// commitment transaction synchronization
+			// commitment transaction synchronization.
 			if link == nil {
 				p.queueMsg(typed, nil)
 				return
 			}
-			// When we have a Shutdown to send, we defer it til the
+
+			// When we have a Shutdown to send, we defer it till the
 			// next time we send a CommitSig to remain spec
 			// compliant.
 			link.OnCommitOnce(htlcswitch.Outgoing, func() {

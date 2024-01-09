@@ -209,6 +209,10 @@
   with a lower min_final_cltv_expiry_delta value than 18 blocks since
   LND 0.11.0.
 
+* [Make Legacy Features Compulsory](https://github.com/lightningnetwork/lnd/pull/8275).
+  This change implements changes codified in [bolts#1092](https://github.com/lightning/bolts/pull/1092)
+  and makes TLV Onions, Static Remote Keys, Gossip Queries, compulsory features for
+  LND's peers. Data Loss Protection has been compulsory for years.
 
 ## Testing
 

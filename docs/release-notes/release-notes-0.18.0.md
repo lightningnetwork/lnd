@@ -89,6 +89,15 @@
   the new payment status `Payment_INITIATED` should be used for payment-related
   RPCs. It's recommended to use it to provide granular controls over payments.
 
+* A [helper command (`lncli encryptdebugpackage`) for collecting and encrypting
+  useful debug information](https://github.com/lightningnetwork/lnd/pull/8188)
+  was added. This allows a user to collect the most relevant information about
+  their node with a single command and securely encrypt it to the public key of
+  a developer or support person. That way the person supporting the user with
+  their issue has an eas way to get all the information they usually require
+  without the user needing to publicly give away a lot of privacy-sensitive
+  data.
+
 ## RPC Additions
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
@@ -99,6 +108,11 @@
   
 * Adds a new rpc endpoint gettx to the walletrpc sub-server to [fetch 
   transaction details](https://github.com/lightningnetwork/lnd/pull/7654).
+
+* [The new `GetDebugInfo` RPC method was added that returns the full runtime
+  configuration of the node as well as the complete log
+  file](https://github.com/lightningnetwork/lnd/pull/8188). The corresponding
+  `lncli getdebuginfo` command was also added.
 
 ## lncli Additions
 

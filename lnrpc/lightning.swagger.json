@@ -1061,6 +1061,29 @@
         ]
       }
     },
+    "/v1/getdebuginfo": {
+      "get": {
+        "summary": "lncli: 'getdebuginfo'\nGetDebugInfo returns debug information concerning the state of the daemon\nand its subsystems. This includes the full configuration and the latest log\nentries from the log file.",
+        "operationId": "Lightning_GetDebugInfo",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/lnrpcGetDebugInfoResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "Lightning"
+        ]
+      }
+    },
     "/v1/getinfo": {
       "get": {
         "summary": "lncli: `getinfo`\nGetInfo returns general information concerning the lightning node including\nit's identity pubkey, alias, the chains it is connected to, and information\nconcerning the number of open+pending channels.",
@@ -4863,6 +4886,23 @@
         "psbt_finalize": {
           "$ref": "#/definitions/lnrpcFundingPsbtFinalize",
           "description": "Used to continue a funding flow that was initiated to be executed\nthrough a PSBT. This step finalizes the funded and signed PSBT, finishes\nnegotiation with the peer and finally publishes the resulting funding\ntransaction."
+        }
+      }
+    },
+    "lnrpcGetDebugInfoResponse": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "log": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     },

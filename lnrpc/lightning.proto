@@ -143,6 +143,13 @@ service Lightning {
     */
     rpc GetInfo (GetInfoRequest) returns (GetInfoResponse);
 
+    /* lncli: 'getdebuginfo'
+    GetDebugInfo returns debug information concerning the state of the daemon
+    and its subsystems. This includes the full configuration and the latest log
+    entries from the log file.
+    */
+    rpc GetDebugInfo (GetDebugInfoRequest) returns (GetDebugInfoResponse);
+
     /** lncli: `getrecoveryinfo`
     GetRecoveryInfo returns information concerning the recovery mode including
     whether it's in a recovery mode, whether the recovery is finished, and the
@@ -1953,6 +1960,14 @@ message GetInfoResponse {
 
     // Indicates whether final htlc resolutions are stored on disk.
     bool store_final_htlc_resolutions = 22;
+}
+
+message GetDebugInfoRequest {
+}
+
+message GetDebugInfoResponse {
+    map<string, string> config = 1;
+    repeated string log = 2;
 }
 
 message GetRecoveryInfoRequest {

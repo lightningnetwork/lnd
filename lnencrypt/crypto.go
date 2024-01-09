@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
-	"io/ioutil"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -69,6 +69,25 @@ func KeyRingEncrypter(keyRing keychain.KeyRing) (*Encrypter, error) {
 	}, nil
 }
 
+// ECDHEncrypter derives an encryption key by performing an ECDH operation on
+// the passed keys. The resulting key is used to encrypt or decrypt files with
+// sensitive content.
+func ECDHEncrypter(localKey *btcec.PrivateKey,
+	remoteKey *btcec.PublicKey) (*Encrypter, error) {
+
+	ecdh := keychain.PrivKeyECDH{
+		PrivKey: localKey,
+	}
+	encryptionKey, err := ecdh.ECDH(remoteKey)
+	if err != nil {
+		return nil, fmt.Errorf("error deriving encryption key: %w", err)
+	}
+
+	return &Encrypter{
+		encryptionKey: encryptionKey[:],
+	}, nil
+}
+
 // EncryptPayloadToWriter attempts to write the set of provided bytes into the
 // passed io.Writer in an encrypted form. We use a 24-byte chachapoly AEAD
 // instance with a randomized nonce that's pre-pended to the final payload and
@@ -112,7 +131,7 @@ func (e Encrypter) DecryptPayloadFromReader(payload io.Reader) ([]byte,
 
 	// Next, we'll read out the entire blob as we need to isolate the nonce
 	// from the rest of the ciphertext.
-	packedPayload, err := ioutil.ReadAll(payload)
+	packedPayload, err := io.ReadAll(payload)
 	if err != nil {
 		return nil, err
 	}

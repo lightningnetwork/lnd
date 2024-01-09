@@ -185,6 +185,14 @@
   [MinConf](https://github.com/lightningnetwork/lnd/pull/8097)(minimum number
   of confirmations) has been added to the `WalletBalance` RPC call.
 
+* Previously when callng `SendCoins`, `SendMany`, `OpenChannel` and
+  `CloseChannel` for coop close, it is allowed to specify both an empty
+  `SatPerVbyte` and `TargetConf`, and a default conf target of 6 will be used.
+  This is [no longer allowed](
+  https://github.com/lightningnetwork/lnd/pull/8422) and the caller must
+  specify either `SatPerVbyte` or `TargetConf` so he fee estimator can do a
+  proper fee estimation.
+
 ## lncli Updates
 
 * [Documented all available lncli commands](https://github.com/lightningnetwork/lnd/pull/8181).

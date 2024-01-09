@@ -115,6 +115,8 @@
   without the user needing to publicly give away a lot of privacy-sensitive
   data.
 
+* TODO
+
 ## RPC Additions
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)

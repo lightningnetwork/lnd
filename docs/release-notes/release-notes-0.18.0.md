@@ -289,6 +289,14 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 * [Allow callers of `ListSweeps` to specify the start
   height](https://github.com/lightningnetwork/lnd/pull/7372).
 
+* Previously when callng `SendCoins`, `SendMany`, `OpenChannel` and
+  `CloseChannel` for coop close, it is allowed to specify both an empty
+  `SatPerVbyte` and `TargetConf`, and a default conf target of 6 will be used.
+  This is [no longer allowed](
+  https://github.com/lightningnetwork/lnd/pull/8422) and the caller must
+  specify either `SatPerVbyte` or `TargetConf` so the fee estimator can do a
+  proper fee estimation.
+
 ## lncli Updates
 
 * [Documented all available `lncli`

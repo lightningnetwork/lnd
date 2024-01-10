@@ -14,35 +14,13 @@ import (
 // TestStore asserts that the store persists the presented data to disk and is
 // able to retrieve it again.
 func TestStore(t *testing.T) {
-	t.Run("bolt", func(t *testing.T) {
+	// Create new store.
+	cdb, err := channeldb.MakeTestDB(t)
+	require.NoError(t, err)
 
-		// Create new store.
-		cdb, err := channeldb.MakeTestDB(t)
-		if err != nil {
-			t.Fatalf("unable to open channel db: %v", err)
-		}
-
-		testStore(t, func() (SweeperStore, error) {
-			var chain chainhash.Hash
-			return NewSweeperStore(cdb, &chain)
-		})
-	})
-	t.Run("mock", func(t *testing.T) {
-		store := NewMockSweeperStore()
-
-		testStore(t, func() (SweeperStore, error) {
-			// Return same store, because the mock has no real
-			// persistence.
-			return store, nil
-		})
-	})
-}
-
-func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
-	store, err := createStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	var chain chainhash.Hash
+	store, err := NewSweeperStore(cdb, &chain)
+	require.NoError(t, err)
 
 	// Notify publication of tx1
 	tx1 := wire.MsgTx{}
@@ -75,10 +53,8 @@ func testStore(t *testing.T, createStore func() (SweeperStore, error)) {
 	require.NoError(t, err)
 
 	// Recreate the sweeper store
-	store, err = createStore()
-	if err != nil {
-		t.Fatal(err)
-	}
+	store, err = NewSweeperStore(cdb, &chain)
+	require.NoError(t, err)
 
 	// Assert that both txes are recognized as our own.
 	ours, err := store.IsOurTx(tx1.TxHash())

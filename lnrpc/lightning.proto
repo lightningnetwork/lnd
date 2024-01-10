@@ -2046,6 +2046,11 @@ message CloseChannelRequest {
     //
     // NOTE: This field is only respected if we're the initiator of the channel.
     uint64 max_fee_per_vbyte = 7;
+
+    // If true, then the rpc call will not block while it awaits a closing txid.
+    // Consequently this RPC call will not return a closing txid if this value
+    // is set.
+    bool no_wait = 8;
 }
 
 message CloseStatusUpdate {

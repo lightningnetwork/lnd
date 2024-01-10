@@ -2643,14 +2643,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 		rpcsLog.Debugf("Target sat/kw for closing transaction: %v",
 			int64(feeRate))
 
-		// Before we attempt the cooperative channel closure, we'll
-		// examine the channel to ensure that it doesn't have a
-		// lingering HTLC.
-		if len(channel.ActiveHtlcs()) != 0 {
-			return fmt.Errorf("cannot co-op close channel " +
-				"with active htlcs")
-		}
-
 		// Otherwise, the caller has requested a regular interactive
 		// cooperative channel closure. So we'll forward the request to
 		// the htlc switch which will handle the negotiation and
@@ -2689,6 +2681,12 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			chanPoint, contractcourt.CloseRegular, feeRate,
 			maxFee, deliveryScript,
 		)
+	}
+
+	// If the user doesn't want to wait for the txid to come back then we
+	// will exit early.
+	if in.NoWait {
+		return nil
 	}
 out:
 	for {

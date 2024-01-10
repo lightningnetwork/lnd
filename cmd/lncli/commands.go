@@ -921,6 +921,10 @@ func executeChannelClose(ctxc context.Context, client lnrpc.LightningClient,
 		}
 
 		switch update := resp.Update.(type) {
+		case *lnrpc.CloseStatusUpdate_CloseInstant:
+			if req.NoWait {
+				return nil
+			}
 		case *lnrpc.CloseStatusUpdate_ClosePending:
 			closingHash := update.ClosePending.Txid
 			txid, err := chainhash.NewHash(closingHash)

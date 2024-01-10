@@ -866,6 +866,13 @@
             "required": false,
             "type": "string",
             "format": "uint64"
+          },
+          {
+            "name": "no_wait",
+            "description": "If true, then the rpc call will not block while it awaits a closing txid.\nConsequently this RPC call will not return a closing txid if this value\nis set.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -4367,6 +4374,9 @@
         },
         "chan_close": {
           "$ref": "#/definitions/lnrpcChannelCloseUpdate"
+        },
+        "close_instant": {
+          "$ref": "#/definitions/lnrpcInstantUpdate"
         }
       }
     },
@@ -5235,6 +5245,9 @@
         "INITIATOR_BOTH"
       ],
       "default": "INITIATOR_UNKNOWN"
+    },
+    "lnrpcInstantUpdate": {
+      "type": "object"
     },
     "lnrpcInterceptFeedback": {
       "type": "object",

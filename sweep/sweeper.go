@@ -950,7 +950,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet,
 	// Reschedule the inputs that we just tried to sweep. This is done in
 	// case the following publish fails, we'd like to update the inputs'
 	// publish attempts and rescue them in the next sweep.
-	err = s.markInputsPendingPublish(tr, tx)
+	err = s.markInputsPendingPublish(tr, tx.TxIn)
 	if err != nil {
 		return err
 	}
@@ -986,7 +986,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet,
 // markInputsPendingPublish saves the sweeping tx to db and updates the pending
 // inputs with the given tx inputs. It also increments the `publishAttempts`.
 func (s *UtxoSweeper) markInputsPendingPublish(tr *TxRecord,
-	tx *wire.MsgTx) error {
+	inputs []*wire.TxIn) error {
 
 	// Add tx to db before publication, so that we will always know that a
 	// spend by this tx is ours. Otherwise if the publish doesn't return,
@@ -999,14 +999,28 @@ func (s *UtxoSweeper) markInputsPendingPublish(tr *TxRecord,
 	}
 
 	// Reschedule sweep.
-	for _, input := range tx.TxIn {
+	for _, input := range inputs {
 		pi, ok := s.pendingInputs[input.PreviousOutPoint]
 		if !ok {
-			// It can be that the input has been removed because it
-			// exceed the maximum number of attempts in a previous
-			// input set. It could also be that this input is an
-			// additional wallet input that was attached. In that
-			// case there also isn't a pending input to update.
+			// It could be that this input is an additional wallet
+			// input that was attached. In that case there also
+			// isn't a pending input to update.
+			log.Debugf("Skipped marking input as pending "+
+				"published: %v not found in pending inputs",
+				input.PreviousOutPoint)
+
+			continue
+		}
+
+		// If this input has already terminated, there's clearly
+		// something wrong as it would have been removed. In this case
+		// we log an error and skip marking this input as pending
+		// publish.
+		if pi.terminated() {
+			log.Errorf("Expect input %v to not have terminated "+
+				"state, instead it has %v",
+				input.PreviousOutPoint, pi.state)
+
 			continue
 		}
 
@@ -1016,7 +1030,7 @@ func (s *UtxoSweeper) markInputsPendingPublish(tr *TxRecord,
 		// Record the fees and fee rate of this tx to prepare possible
 		// RBF.
 		pi.rbf = fn.Some(RBFInfo{
-			Txid:    tx.TxHash(),
+			Txid:    tr.Txid,
 			FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
 			Fee:     btcutil.Amount(tr.Fee),
 		})
@@ -1047,11 +1061,9 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord,
 	for _, input := range inputs {
 		pi, ok := s.pendingInputs[input.PreviousOutPoint]
 		if !ok {
-			// It can be that the input has been removed because it
-			// exceed the maximum number of attempts in a previous
-			// input set. It could also be that this input is an
-			// additional wallet input that was attached. In that
-			// case there also isn't a pending input to update.
+			// It could be that this input is an additional wallet
+			// input that was attached. In that case there also
+			// isn't a pending input to update.
 			log.Debugf("Skipped marking input as published: %v "+
 				"not found in pending inputs",
 				input.PreviousOutPoint)
@@ -1081,11 +1093,9 @@ func (s *UtxoSweeper) markInputsPublishFailed(inputs []*wire.TxIn) {
 	for _, input := range inputs {
 		pi, ok := s.pendingInputs[input.PreviousOutPoint]
 		if !ok {
-			// It can be that the input has been removed because it
-			// exceed the maximum number of attempts in a previous
-			// input set. It could also be that this input is an
-			// additional wallet input that was attached. In that
-			// case there also isn't a pending input to update.
+			// It could be that this input is an additional wallet
+			// input that was attached. In that case there also
+			// isn't a pending input to update.
 			log.Debugf("Skipped marking input as publish failed: "+
 				"%v not found in pending inputs",
 				input.PreviousOutPoint)
@@ -1576,7 +1586,7 @@ func (s *UtxoSweeper) handleInputSpent(spend *chainntnfs.SpendDetail) {
 
 // markInputsSwept marks all inputs swept by the spending transaction as swept.
 // It will also notify all the subscribers of this input.
-func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) error {
+func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) {
 	for _, txIn := range tx.TxIn {
 		outpoint := txIn.PreviousOutPoint
 
@@ -1586,6 +1596,11 @@ func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) error {
 		// could be not one of our inputs.
 		input, ok := s.pendingInputs[outpoint]
 		if !ok {
+			// It's very likely that a spending tx contains inputs
+			// that we don't know.
+			log.Debugf("Skipped marking input as swept: %v not "+
+				"found in pending inputs", outpoint)
+
 			continue
 		}
 
@@ -1593,8 +1608,8 @@ func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) error {
 		// spend notification, which is likely to happen as one sweep
 		// transaction usually sweeps multiple inputs.
 		if input.terminated() {
-			log.Tracef("Skipped sending swept result for input %v,"+
-				" state=%v", outpoint, input.state)
+			log.Debugf("Skipped marking input as swept: %v "+
+				"state=%v", outpoint, input.state)
 
 			continue
 		}
@@ -1620,8 +1635,6 @@ func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) error {
 			s.removeExclusiveGroup(*input.params.ExclusiveGroup)
 		}
 	}
-
-	return nil
 }
 
 // markInputFailed marks the given input as failed and won't be retried. It

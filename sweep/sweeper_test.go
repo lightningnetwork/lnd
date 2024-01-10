@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -41,7 +42,7 @@ type sweeperTestContext struct {
 	notifier  *MockNotifier
 	estimator *mockFeeEstimator
 	backend   *mockBackend
-	store     *MockSweeperStore
+	store     SweeperStore
 
 	publishChan chan wire.MsgTx
 }
@@ -102,7 +103,13 @@ func init() {
 func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 	notifier := NewMockNotifier(t)
 
-	store := NewMockSweeperStore()
+	// Create new store.
+	cdb, err := channeldb.MakeTestDB(t)
+	require.NoError(t, err)
+
+	var chain chainhash.Hash
+	store, err := NewSweeperStore(cdb, &chain)
+	require.NoError(t, err)
 
 	backend := newMockBackend(t, notifier)
 	backend.walletUtxos = []*lnwallet.Utxo{
@@ -682,7 +689,6 @@ func TestIdempotency(t *testing.T) {
 
 	// Timer is still running, but spend notification was delivered before
 	// it expired.
-
 	ctx.finish(1)
 }
 
@@ -701,9 +707,8 @@ func TestRestart(t *testing.T) {
 
 	// Sweep input and expect sweep tx.
 	input1 := spendableInputs[0]
-	if _, err := ctx.sweeper.SweepInput(input1, defaultFeePref); err != nil {
-		t.Fatal(err)
-	}
+	_, err := ctx.sweeper.SweepInput(input1, defaultFeePref)
+	require.NoError(t, err)
 
 	ctx.receiveTx()
 
@@ -758,23 +763,20 @@ func TestRestart(t *testing.T) {
 	ctx.finish(1)
 }
 
-// TestRestartRemoteSpend asserts that the sweeper picks up sweeping properly after
-// a restart with remote spend.
+// TestRestartRemoteSpend asserts that the sweeper picks up sweeping properly
+// after a restart with remote spend.
 func TestRestartRemoteSpend(t *testing.T) {
-
 	ctx := createSweeperTestContext(t)
 
 	// Sweep input.
 	input1 := spendableInputs[0]
-	if _, err := ctx.sweeper.SweepInput(input1, defaultFeePref); err != nil {
-		t.Fatal(err)
-	}
+	_, err := ctx.sweeper.SweepInput(input1, defaultFeePref)
+	require.NoError(t, err)
 
 	// Sweep another input.
 	input2 := spendableInputs[1]
-	if _, err := ctx.sweeper.SweepInput(input2, defaultFeePref); err != nil {
-		t.Fatal(err)
-	}
+	_, err = ctx.sweeper.SweepInput(input2, defaultFeePref)
+	require.NoError(t, err)
 
 	sweepTx := ctx.receiveTx()
 
@@ -798,7 +800,8 @@ func TestRestartRemoteSpend(t *testing.T) {
 	// Mine remote spending tx.
 	ctx.backend.mine()
 
-	// Simulate other subsystem (e.g. contract resolver) re-offering input 0.
+	// Simulate other subsystem (e.g. contract resolver) re-offering input
+	// 0.
 	spendChan, err := ctx.sweeper.SweepInput(input1, defaultFeePref)
 	if err != nil {
 		t.Fatal(err)
@@ -815,8 +818,8 @@ func TestRestartRemoteSpend(t *testing.T) {
 	ctx.finish(1)
 }
 
-// TestRestartConfirmed asserts that the sweeper picks up sweeping properly after
-// a restart with a confirm of our own sweep tx.
+// TestRestartConfirmed asserts that the sweeper picks up sweeping properly
+// after a restart with a confirm of our own sweep tx.
 func TestRestartConfirmed(t *testing.T) {
 	ctx := createSweeperTestContext(t)
 
@@ -834,7 +837,8 @@ func TestRestartConfirmed(t *testing.T) {
 	// Mine the sweep tx.
 	ctx.backend.mine()
 
-	// Simulate other subsystem (e.g. contract resolver) re-offering input 0.
+	// Simulate other subsystem (e.g. contract resolver) re-offering input
+	// 0.
 	spendChan, err := ctx.sweeper.SweepInput(input, defaultFeePref)
 	if err != nil {
 		t.Fatal(err)

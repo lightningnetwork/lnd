@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -18,6 +19,14 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"golang.org/x/sync/errgroup"
+)
+
+const (
+	// DefaultBatchFundingTimeout is the default timeout for a batch channel
+	// funding operation. If the whole operation takes longer than this
+	// timeout, it will be aborted. During the timeout period the user can
+	// send Ctrl+C to the process to abort the funding process manually.
+	DefaultBatchFundingTimeout = 60 * time.Second
 )
 
 var (
@@ -293,7 +302,13 @@ func (b *Batcher) BatchFund(ctx context.Context,
 	// channel funding negotiation with the peers. Because we specified a
 	// PSBT assembler, we'll get a special response in the channel once the
 	// funding output script is known (which we need to craft the TX).
-	eg := &errgroup.Group{}
+	// In case one or more of the peers fail to respond within a timeout
+	// period, we'll abort the whole process. During the timeout period, the
+	// user can abort the funding process manually by sending Ctrl+C to the
+	// process which called the rpc command.
+
+	// Kick off the channel funding negotiation with each of the peers.
+	eg, egCtx := errgroup.WithContext(ctx)
 	for _, channel := range b.channels {
 		channel.updateChan, channel.errChan = b.cfg.ChannelOpener(
 			channel.fundingReq,
@@ -303,7 +318,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 		// either the update or error chan.
 		channel := channel
 		eg.Go(func() error {
-			return b.waitForUpdate(channel, true)
+			return b.waitForUpdate(egCtx, channel, true)
 		})
 	}
 
@@ -411,13 +426,13 @@ func (b *Batcher) BatchFund(ctx context.Context,
 	// Now every channel should be ready for the funding transaction to be
 	// broadcast. Let's wait for the updates that actually confirm this
 	// state.
-	eg = &errgroup.Group{}
+	eg, egCtx = errgroup.WithContext(ctx)
 	for _, channel := range b.channels {
 		// Launch another goroutine that waits for the channel pending
 		// response on the update chan.
 		channel := channel
 		eg.Go(func() error {
-			return b.waitForUpdate(channel, false)
+			return b.waitForUpdate(egCtx, channel, false)
 		})
 	}
 
@@ -447,17 +462,27 @@ func (b *Batcher) BatchFund(ctx context.Context,
 }
 
 // waitForUpdate waits for an incoming channel update (or error) for a single
-// channel.
+// channel. If no updates are received within the DefaultBatchFundingTimeout
+// period, the method is aborted and an error is returned.
 //
 // NOTE: Must be called in a goroutine as this blocks until an update or error
 // is received.
-func (b *Batcher) waitForUpdate(channel *batchChannel, firstUpdate bool) error {
+func (b *Batcher) waitForUpdate(ctx context.Context, channel *batchChannel,
+	firstUpdate bool) error {
+
+	// Create the timeout context.
+	deadlineCtx, cancel := context.WithTimeout(
+		ctx, DefaultBatchFundingTimeout,
+	)
+	defer cancel()
+
+	targetPubKey := channel.fundingReq.TargetPubkey.SerializeCompressed()
+
 	select {
 	// If an error occurs then immediately return the error to the client.
 	case err := <-channel.errChan:
 		log.Errorf("unable to open channel to NodeKey(%x): %v",
-			channel.fundingReq.TargetPubkey.SerializeCompressed(),
-			err)
+			targetPubKey, err)
 		return err
 
 	// Otherwise, wait for the next channel update. The first update sent
@@ -478,6 +503,19 @@ func (b *Batcher) waitForUpdate(channel *batchChannel, firstUpdate bool) error {
 
 	case <-b.cfg.Quit:
 		return errShuttingDown
+
+	case <-deadlineCtx.Done():
+		// If we haven't received any updates within the timeout period,
+		// we'll return an error indicating the peer that failed to
+		// respond in time.
+		log.Infof("Cancelled batch channel opening for peer %x due to "+
+			"timeout. The peer didn't provide any funding updates"+
+			" within the timeout period.", targetPubKey)
+
+		return fmt.Errorf("cancelled batch channel opening for peer "+
+			"%x due to timeout. The peer didn't provide any "+
+			"funding updates within the timeout period, %w",
+			targetPubKey, deadlineCtx.Err())
 	}
 }
 

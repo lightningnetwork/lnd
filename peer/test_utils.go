@@ -557,9 +557,10 @@ func (m *mockUpdateHandler) IsFlushing(dir htlcswitch.LinkDirection) bool {
 }
 
 func (m *mockUpdateHandler) OnFlushedOnce(
-	func(),
+	hook func(),
 ) fn.Option[htlcswitch.FlushHookID] {
 	// TODO(proofofkeags): Implement
+	hook()
 	return fn.None[htlcswitch.FlushHookID]()
 }
 func (m *mockUpdateHandler) OnFlushedMany(
@@ -572,12 +573,13 @@ func (m *mockUpdateHandler) RemoveFlushHook(
 	htlcswitch.FlushHookID,
 ) error {
 	// TODO(proofofkeags): Implement
-	return errors.New("no flush in progress to cancel")
+	return errors.New("FlushHookID could not be removed: not found")
 }
 func (m *mockUpdateHandler) OnCommitOnce(
-	htlcswitch.LinkDirection, func(),
+	_ htlcswitch.LinkDirection, hook func(),
 ) fn.Option[htlcswitch.CommitHookID] {
 	// TODO(proofofkeags): Implement
+	hook()
 	return fn.None[htlcswitch.CommitHookID]()
 }
 func (m *mockUpdateHandler) OnCommitMany(
@@ -588,7 +590,7 @@ func (m *mockUpdateHandler) OnCommitMany(
 }
 func (m *mockUpdateHandler) RemoveCommitHook(htlcswitch.CommitHookID) error {
 	// TODO(proofofkeags): Implement
-	return errors.New("no flush in progress to cancel")
+	return errors.New("CommitHookID could not be removed: not found")
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {

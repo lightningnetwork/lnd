@@ -904,7 +904,8 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, cid *chanIdentifier,
 		err := peer.RemovePendingChannel(cid.chanID)
 		if err != nil {
 			log.Errorf("Unable to remove channel %v with peer %x: "+
-				"%v", cid, peer.IdentityKey(), err)
+				"%v", cid,
+				peer.IdentityKey().SerializeCompressed(), err)
 		}
 	}
 

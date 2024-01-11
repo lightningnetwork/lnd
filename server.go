@@ -1064,19 +1064,18 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	)
 
 	s.sweeper = sweep.New(&sweep.UtxoSweeperConfig{
-		FeeEstimator:         cc.FeeEstimator,
-		GenSweepScript:       newSweepPkScriptGen(cc.Wallet),
-		Signer:               cc.Wallet.Cfg.Signer,
-		Wallet:               newSweeperWallet(cc.Wallet),
-		TickerDuration:       cfg.Sweeper.BatchWindowDuration,
-		Mempool:              cc.MempoolNotifier,
-		Notifier:             cc.ChainNotifier,
-		Store:                sweeperStore,
-		MaxInputsPerTx:       sweep.DefaultMaxInputsPerTx,
-		MaxSweepAttempts:     sweep.DefaultMaxSweepAttempts,
-		NextAttemptDeltaFunc: sweep.DefaultNextAttemptDeltaFunc,
-		MaxFeeRate:           cfg.Sweeper.MaxFeeRate,
-		Aggregator:           aggregator,
+		FeeEstimator:     cc.FeeEstimator,
+		GenSweepScript:   newSweepPkScriptGen(cc.Wallet),
+		Signer:           cc.Wallet.Cfg.Signer,
+		Wallet:           newSweeperWallet(cc.Wallet),
+		TickerDuration:   cfg.Sweeper.BatchWindowDuration,
+		Mempool:          cc.MempoolNotifier,
+		Notifier:         cc.ChainNotifier,
+		Store:            sweeperStore,
+		MaxInputsPerTx:   sweep.DefaultMaxInputsPerTx,
+		MaxSweepAttempts: sweep.DefaultMaxSweepAttempts,
+		MaxFeeRate:       cfg.Sweeper.MaxFeeRate,
+		Aggregator:       aggregator,
 	})
 
 	s.utxoNursery = contractcourt.NewUtxoNursery(&contractcourt.NurseryConfig{

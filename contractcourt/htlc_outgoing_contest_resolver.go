@@ -124,11 +124,11 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 			// fail.
 			newHeight := uint32(newBlock.Height)
 			if newHeight >= h.htlcResolution.Expiry {
-				log.Infof("%T(%v): HTLC has expired "+
+				log.Infof("%T(hash=%x): HTLC has expired "+
 					"(height=%v, expiry=%v), transforming "+
 					"into timeout resolver", h,
-					h.htlcResolution.ClaimOutpoint,
-					newHeight, h.htlcResolution.Expiry)
+					h.htlc.RHash, newHeight,
+					h.htlcResolution.Expiry)
 				return h.htlcTimeoutResolver, nil
 			}
 
@@ -155,15 +155,26 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 func (h *htlcOutgoingContestResolver) report() *ContractReport {
 	// No locking needed as these values are read-only.
 
+	// The ClaimOutpoint for zero fee htlcs and htlcs on our local
+	// commitment is not the final outpoint which will hit the chain
+	// therefore we use the htlc outpoint. This also effects non-anchor
+	// channels where the ClaimOutpoint does not change during the lifetime
+	// but we treat both in the same to be consistent.
+	outpoint := h.htlcResolution.ClaimOutpoint
+
 	finalAmt := h.htlc.Amt.ToSatoshis()
 	if h.htlcResolution.SignedTimeoutTx != nil {
 		finalAmt = btcutil.Amount(
 			h.htlcResolution.SignedTimeoutTx.TxOut[0].Value,
 		)
+
+		// We use the htlc outpoint for the report.
+		//nolint:lll
+		outpoint = h.htlcResolution.SignedTimeoutTx.TxIn[0].PreviousOutPoint
 	}
 
 	return &ContractReport{
-		Outpoint:       h.htlcResolution.ClaimOutpoint,
+		Outpoint:       outpoint,
 		Type:           ReportOutputOutgoingHtlc,
 		Amount:         finalAmt,
 		MaturityHeight: h.htlcResolution.Expiry,

@@ -85,6 +85,7 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 	ctx.notifier.SpendChan <- &chainntnfs.SpendDetail{
 		SpendingTx:    spendTx,
 		SpenderTxHash: &spendHash,
+		SpentOutPoint: &wire.OutPoint{Index: 0},
 	}
 
 	// We expect the extracted preimage to be added to the witness beacon.

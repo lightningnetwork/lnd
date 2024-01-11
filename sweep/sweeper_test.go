@@ -149,12 +149,8 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 		FeeEstimator:     estimator,
 		MaxInputsPerTx:   testMaxInputsPerTx,
 		MaxSweepAttempts: testMaxSweepAttempts,
-		NextAttemptDeltaFunc: func(attempts int) int32 {
-			// Use delta func without random factor.
-			return 1 << uint(attempts-1)
-		},
-		MaxFeeRate: DefaultMaxFeeRate,
-		Aggregator: aggregator,
+		MaxFeeRate:       DefaultMaxFeeRate,
+		Aggregator:       aggregator,
 	})
 
 	ctx.sweeper.Start()

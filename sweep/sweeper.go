@@ -359,12 +359,7 @@ type UtxoSweeperConfig struct {
 	// to the caller.
 	MaxSweepAttempts int
 
-	// NextAttemptDeltaFunc returns given the number of already attempted
-	// sweeps, how many blocks to wait before retrying to sweep.
-	NextAttemptDeltaFunc func(int) int32
-
-	// MaxFeeRate is the maximum fee rate allowed within the
-	// UtxoSweeper.
+	// MaxFeeRate is the maximum fee rate allowed within the UtxoSweeper.
 	MaxFeeRate chainfee.SatPerVByte
 
 	// Aggregator is used to group inputs into clusters based on its
@@ -1333,14 +1328,6 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input,
 	)
 
 	return tx, err
-}
-
-// DefaultNextAttemptDeltaFunc is the default calculation for next sweep attempt
-// scheduling. It implements exponential back-off with some randomness. This is
-// to prevent a stuck tx (for example because fee is too low and can't be bumped
-// in btcd) from blocking all other retried inputs in the same tx.
-func DefaultNextAttemptDeltaFunc(attempts int) int32 {
-	return 1 + rand.Int31n(1<<uint(attempts-1))
 }
 
 // ListSweeps returns a list of the sweeps recorded by the sweep store.

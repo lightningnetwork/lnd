@@ -667,7 +667,7 @@ func (b *BtcdNotifier) confDetailsManually(confRequest chainntnfs.ConfRequest,
 			}
 
 			return &chainntnfs.TxConfirmation{
-				Tx:          tx,
+				Tx:          tx.Copy(),
 				BlockHash:   blockHash,
 				BlockHeight: height,
 				TxIndex:     uint32(txIndex),

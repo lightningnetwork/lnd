@@ -283,7 +283,7 @@ func (b *BtcdFilteredChainView) chainFilterer() {
 					continue
 				}
 
-				filteredTxns = append(filteredTxns, tx)
+				filteredTxns = append(filteredTxns, tx.Copy())
 				txAlreadyFiltered = true
 
 			}

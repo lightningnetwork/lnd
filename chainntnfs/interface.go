@@ -788,7 +788,7 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 		}
 
 		return &TxConfirmation{
-			Tx:          &tx,
+			Tx:          tx.Copy(),
 			BlockHash:   blockHash,
 			BlockHeight: uint32(blockHeight),
 			TxIndex:     uint32(txIndex),

@@ -1894,7 +1894,7 @@ func (r *ChannelRouter) fetchFundingTx(
 			chanID.TxIndex, numTxns-1, chanID)
 	}
 
-	return fundingBlock.Transactions[chanID.TxIndex], nil
+	return fundingBlock.Transactions[chanID.TxIndex].Copy(), nil
 }
 
 // routingMsg couples a routing related routing topology update to the

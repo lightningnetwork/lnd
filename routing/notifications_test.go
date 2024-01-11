@@ -378,7 +378,7 @@ func (m *mockChainView) FilterBlock(blockHash *chainhash.Hash) (*chainview.Filte
 			prevOp := txIn.PreviousOutPoint
 			if _, ok := m.filter[prevOp]; ok {
 				filteredBlock.Transactions = append(
-					filteredBlock.Transactions, tx,
+					filteredBlock.Transactions, tx.Copy(),
 				)
 
 				m.Lock()

@@ -296,7 +296,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 			if ok {
 				filteredBlock.Transactions = append(
 					filteredBlock.Transactions,
-					tx.MsgTx(),
+					tx.MsgTx().Copy(),
 				)
 
 				c.filterMtx.Lock()

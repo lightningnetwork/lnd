@@ -165,7 +165,7 @@ func (l *Lookout) processEpoch(epoch *chainntnfs.BlockEpoch,
 		hint := blob.NewBreachHintFromHash(&hash)
 
 		txHints = append(txHints, hint)
-		hintToTx[hint] = tx
+		hintToTx[hint] = tx.Copy()
 	}
 
 	// Query the database to see if any of the breach hints cause a match

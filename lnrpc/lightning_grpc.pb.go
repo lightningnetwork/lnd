@@ -233,7 +233,7 @@ type LightningClient interface {
 	// optionally specify the add_index and/or the settle_index. If the add_index
 	// is specified, then we'll first start by sending add invoice events for all
 	// invoices with an add_index greater than the specified value. If the
-	// settle_index is specified, the next, we'll send out all settle events for
+	// settle_index is specified, then next, we'll send out all settle events for
 	// invoices with a settle_index greater than the specified value. One or both
 	// of these fields can be set. If no fields are set, then we'll only send out
 	// the latest add/settle events.
@@ -1554,7 +1554,7 @@ type LightningServer interface {
 	// optionally specify the add_index and/or the settle_index. If the add_index
 	// is specified, then we'll first start by sending add invoice events for all
 	// invoices with an add_index greater than the specified value. If the
-	// settle_index is specified, the next, we'll send out all settle events for
+	// settle_index is specified, then next, we'll send out all settle events for
 	// invoices with a settle_index greater than the specified value. One or both
 	// of these fields can be set. If no fields are set, then we'll only send out
 	// the latest add/settle events.

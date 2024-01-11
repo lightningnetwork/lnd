@@ -62,6 +62,11 @@
   protects against the case where htlcs are added asynchronously resulting in
   stuck channels.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8369) a case where `lnd`
+  would show the wrong transaction outpoint for zero-fee htlcs when calling
+  `pendingchannels`. Now depending on the resolving stage the right outpoint
+  will be shown.
+
 # New Features
 ## Functional Enhancements
 

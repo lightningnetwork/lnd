@@ -2987,7 +2987,10 @@ func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
 	default:
 	}
 
-	l.mailBox.AddMessage(message)
+	err := l.mailBox.AddMessage(message)
+	if err != nil {
+		l.log.Errorf("failed to add Message to mailbox: %v", err)
+	}
 }
 
 // updateChannelFee updates the commitment fee-per-kw on this channel by

@@ -566,4 +566,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "fail funding flow psbt",
 		TestFunc: testPsbtChanFundingFailFlow,
 	},
+	{
+		Name:     "coop close with htlcs",
+		TestFunc: testCoopCloseWithHtlcs,
+	},
 }

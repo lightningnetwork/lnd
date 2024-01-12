@@ -5,6 +5,7 @@ package walletrpc
 
 import (
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -71,4 +72,8 @@ type Config struct {
 	// CurrentNumAnchorChans returns the current number of non-private
 	// anchor channels the wallet should be ready to fee bump if needed.
 	CurrentNumAnchorChans func() (int, error)
+
+	// CoinSelectionStrategy is the strategy that is used for selecting
+	// coins when funding a transaction.
+	CoinSelectionStrategy wallet.CoinSelectionStrategy
 }

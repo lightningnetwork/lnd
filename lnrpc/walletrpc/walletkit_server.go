@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/sweep"
 	"google.golang.org/grpc"
@@ -1205,10 +1206,11 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		account = req.Account
 	}
 
-	// There are two ways a user can specify what we call the template (a
+	// There are three ways a user can specify what we call the template (a
 	// list of inputs and outputs to use in the PSBT): Either as a PSBT
-	// packet directly or as a special RPC message. Find out which one the
-	// user wants to use, they are mutually exclusive.
+	// packet directly with no coin selection, a PSBT with coin selection or
+	// as a special RPC message. Find out which one the user wants to use,
+	// they are mutually exclusive.
 	switch {
 	// The template is specified as a PSBT. All we have to do is parse it.
 	case req.GetPsbt() != nil:
@@ -1223,6 +1225,46 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		return w.fundPsbtInternalWallet(
 			account, keyScopeFromChangeAddressType(req.ChangeType),
 			packet, minConfs, feeSatPerKW,
+		)
+
+	// The template is specified as a PSBT with the intention to perform
+	// coin selection even if inputs are already present.
+	case req.GetCoinSelect() != nil:
+		coinSelectRequest := req.GetCoinSelect()
+		r := bytes.NewReader(coinSelectRequest.Psbt)
+		packet, err := psbt.NewFromRawBytes(r, false)
+		if err != nil {
+			return nil, fmt.Errorf("could not parse PSBT: %w", err)
+		}
+
+		numOutputs := int32(len(packet.UnsignedTx.TxOut))
+
+		changeIndex := int32(-1)
+		switch t := coinSelectRequest.ChangeOutput.(type) {
+		// The user wants to use an existing output as change output.
+		case *PsbtCoinSelect_ExistingOutputIndex:
+			if t.ExistingOutputIndex < 0 ||
+				t.ExistingOutputIndex >= numOutputs {
+
+				return nil, fmt.Errorf("change output index "+
+					"out of range: %d",
+					t.ExistingOutputIndex)
+			}
+
+			changeIndex = t.ExistingOutputIndex
+
+		// The user wants to use a new output as change output.
+		case *PsbtCoinSelect_Add:
+			// We already set the change index to -1 above to
+			// indicate no change output should be used if possible
+			// or a new one should be created if needed.
+		}
+
+		// Run the actual funding process now, using the channel funding
+		// coin selection algorithm.
+		return w.fundPsbtCoinSelect(
+			account, changeIndex, packet, minConfs, req.ChangeType,
+			feeSatPerKW,
 		)
 
 	// The template is specified as a RPC message. We need to create a new
@@ -1378,6 +1420,180 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 	}, nil
 }
 
+// fundPsbtCoinSelect uses the "new" PSBT funding method using the channel
+// funding coin selection algorithm that allows specifying custom inputs while
+// selecting coins.
+func (w *WalletKit) fundPsbtCoinSelect(account string, changeIndex int32,
+	packet *psbt.Packet, minConfs int32, changeType ChangeAddressType,
+	feeRate chainfee.SatPerKWeight) (*FundPsbtResponse, error) {
+
+	// Before we select anything, we need to calculate the input, output and
+	// current weight amounts. While doing that we also ensure the PSBT has
+	// all the required information we require at this step.
+	var (
+		inputSum, outputSum btcutil.Amount
+		estimator           input.TxWeightEstimator
+	)
+	for i := range packet.Inputs {
+		in := packet.Inputs[i]
+
+		err := btcwallet.EstimateInputWeight(&in, &estimator)
+		if err != nil {
+			return nil, fmt.Errorf("error estimating input "+
+				"weight: %w", err)
+		}
+
+		inputSum += btcutil.Amount(in.WitnessUtxo.Value)
+	}
+	for i := range packet.UnsignedTx.TxOut {
+		out := packet.UnsignedTx.TxOut[i]
+
+		err := estimator.AddOutputWeight(out.PkScript)
+		if err != nil {
+			return nil, fmt.Errorf("error estimating output "+
+				"weight: %w", err)
+		}
+
+		outputSum += btcutil.Amount(out.Value)
+	}
+
+	// The amount we want to fund is the total output sum plus the current
+	// fee estimate. Since we pass the estimator of the current transaction
+	// into the coin selection algorithm, we don't need to subtract the fees
+	// here.
+	fundingAmount := outputSum - inputSum
+
+	var changeScriptLen int
+	switch {
+	case changeIndex >= 0:
+		changeOutput := packet.UnsignedTx.TxOut[changeIndex]
+		changeScriptLen = len(changeOutput.PkScript)
+
+	case changeType == ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR:
+		changeScriptLen = input.P2TRSize
+
+	default:
+		changeScriptLen = input.P2WPKHSize
+	}
+	changeDustLimit := lnwallet.DustLimitForSize(changeScriptLen)
+
+	// The RPC parsing part is now over. Several of the following operations
+	// require us to hold the global coin selection lock, so we do the rest
+	// of the tasks while holding the lock. The result is a list of locked
+	// UTXOs.
+	var (
+		buf   bytes.Buffer
+		locks []*base.ListLeasedOutputResult
+	)
+	err := w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
+		// Get a list of all unspent witness outputs.
+		utxos, err := w.cfg.Wallet.ListUnspentWitness(
+			minConfs, defaultMaxConf, account,
+		)
+		if err != nil {
+			return err
+		}
+
+		coins := make([]chanfunding.Coin, len(utxos))
+		for i, utxo := range utxos {
+			coins[i] = chanfunding.Coin{
+				TxOut: wire.TxOut{
+					Value:    int64(utxo.Value),
+					PkScript: utxo.PkScript,
+				},
+				OutPoint: utxo.OutPoint,
+			}
+		}
+
+		selectedCoins, changeAmount, err := chanfunding.CoinSelect(
+			feeRate, fundingAmount, changeDustLimit, coins,
+			w.cfg.CoinSelectionStrategy, estimator,
+			changeScriptLen,
+		)
+		if err != nil {
+			return fmt.Errorf("error selecting coins: %w", err)
+		}
+
+		if changeAmount > 0 {
+			if changeIndex >= 0 {
+				packet.UnsignedTx.TxOut[changeIndex].Value +=
+					int64(changeAmount)
+			} else {
+				addrType := addrTypeFromChangeAddressType(
+					changeType,
+				)
+				changeAddr, err := w.cfg.Wallet.NewAddress(
+					addrType, true, account,
+				)
+				if err != nil {
+					return fmt.Errorf("could not derive "+
+						"change address: %w", err)
+				}
+
+				changeScript, err := txscript.PayToAddrScript(
+					changeAddr,
+				)
+				if err != nil {
+					return fmt.Errorf("could not derive "+
+						"change script: %w", err)
+				}
+				packet.UnsignedTx.TxOut = append(
+					packet.UnsignedTx.TxOut, &wire.TxOut{
+						Value:    int64(changeAmount),
+						PkScript: changeScript,
+					},
+				)
+				packet.Outputs = append(
+					packet.Outputs, psbt.POutput{},
+				)
+			}
+		}
+
+		addedOutpoints := make([]wire.OutPoint, len(selectedCoins))
+		for i := range selectedCoins {
+			coin := selectedCoins[i]
+			addedOutpoints[i] = coin.OutPoint
+
+			packet.UnsignedTx.TxIn = append(
+				packet.UnsignedTx.TxIn, &wire.TxIn{
+					PreviousOutPoint: coin.OutPoint,
+				},
+			)
+			packet.Inputs = append(packet.Inputs, psbt.PInput{
+				WitnessUtxo: &coin.TxOut,
+			})
+		}
+
+		// Make sure we can properly serialize the packet. If this goes
+		// wrong then something isn't right with the inputs, and we
+		// probably shouldn't try to lock any of them.
+		err = packet.Serialize(&buf)
+		if err != nil {
+			return fmt.Errorf("error serializing funded PSBT: %w",
+				err)
+		}
+
+		locks, err = lockInputs(w.cfg.Wallet, addedOutpoints)
+		if err != nil {
+			return fmt.Errorf("could not lock inputs: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert the lock leases to the RPC format.
+	rpcLocks := marshallLeases(locks)
+
+	return &FundPsbtResponse{
+		FundedPsbt:        buf.Bytes(),
+		ChangeOutputIndex: changeIndex,
+		LockedUtxos:       rpcLocks,
+	}, nil
+}
+
 // marshallLeases converts the lock leases to the RPC format.
 func marshallLeases(locks []*base.ListLeasedOutputResult) []*UtxoLease {
 	rpcLocks := make([]*UtxoLease, len(locks))
@@ -1408,6 +1624,22 @@ func keyScopeFromChangeAddressType(
 
 	default:
 		return nil
+	}
+}
+
+// addrTypeFromChangeAddressType maps a ChangeAddressType from protobuf to an
+// lnwallet.AddressType. If the type is
+// ChangeAddressType_CHANGE_ADDRESS_TYPE_UNSPECIFIED, it returns
+// lnwallet.WitnessPubKey.
+func addrTypeFromChangeAddressType(
+	changeAddressType ChangeAddressType) lnwallet.AddressType {
+
+	switch changeAddressType {
+	case ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR:
+		return lnwallet.TaprootPubkey
+
+	default:
+		return lnwallet.WitnessPubKey
 	}
 }
 

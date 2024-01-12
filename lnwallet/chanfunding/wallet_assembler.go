@@ -308,6 +308,16 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			}
 		}
 
+		// The coin selection algorithm requires to know what
+		// inputs/outputs are already present in the funding
+		// transaction and what a change output would look like. Since
+		// a channel funding is always either a P2WSH or P2TR output,
+		// we can use just P2WSH here. And we currently don't support
+		// specifying a change output type, so we always use P2TR.
+		var fundingOutputWeight input.TxWeightEstimator
+		fundingOutputWeight.AddP2WSHOutput()
+		changeScriptLen := input.P2TRSize
+
 		var (
 			coins                []Coin
 			selectedCoins        []Coin
@@ -391,6 +401,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 				r.FeeRate, r.MinFundAmt, r.FundUpToMaxAmt,
 				reserve, w.cfg.DustLimit, coins,
 				w.cfg.CoinSelectionStrategy,
+				fundingOutputWeight, changeScriptLen,
 			)
 			if err != nil {
 				return err
@@ -425,6 +436,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 				err = CoinSelectSubtractFees(
 				r.FeeRate, r.LocalAmt, dustLimit, coins,
 				w.cfg.CoinSelectionStrategy,
+				fundingOutputWeight, changeScriptLen,
 			)
 			if err != nil {
 				return err
@@ -438,6 +450,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			selectedCoins, changeAmt, err = CoinSelect(
 				r.FeeRate, r.LocalAmt, dustLimit, coins,
 				w.cfg.CoinSelectionStrategy,
+				fundingOutputWeight, changeScriptLen,
 			)
 			if err != nil {
 				return err

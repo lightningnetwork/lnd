@@ -352,6 +352,71 @@ func validateSigningMethod(in *psbt.PInput) (input.SignMethod, error) {
 	}
 }
 
+// EstimateInputWeight estimates the weight of a PSBT input and adds it to the
+// passed in TxWeightEstimator. It returns an error if the input type is
+// unknown or unsupported. Only inputs that have a known witness size are
+// supported, which is P2WKH, NP2WKH and P2TR (key spend path).
+func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator) error {
+	if in.WitnessUtxo == nil {
+		return fmt.Errorf("input doesn't specify any UTXO info")
+	}
+
+	pkScript := in.WitnessUtxo.PkScript
+	switch {
+	case txscript.IsPayToScriptHash(pkScript):
+		w.AddNestedP2WKHInput()
+
+	case txscript.IsPayToWitnessPubKeyHash(pkScript):
+		w.AddP2WKHInput()
+
+	case txscript.IsPayToWitnessScriptHash(pkScript):
+		if len(in.FinalScriptWitness) == 0 {
+			return fmt.Errorf("P2WSH inputs are only supported " +
+				"if witness data is already present, " +
+				"otherwise estimating the witness size is " +
+				"not possible")
+		}
+
+		w.AddWitnessInput(len(in.FinalScriptWitness))
+
+	case txscript.IsPayToTaproot(pkScript):
+		signMethod, err := validateSigningMethod(in)
+		if err != nil {
+			return fmt.Errorf("error determining p2tr signing "+
+				"method: %w", err)
+		}
+
+		switch signMethod {
+		// For p2tr key spend paths.
+		case input.TaprootKeySpendBIP0086SignMethod,
+			input.TaprootKeySpendSignMethod:
+
+			w.AddTaprootKeySpendInput(in.SighashType)
+
+		// For p2tr script spend path.
+		case input.TaprootScriptSpendSignMethod:
+			if len(in.FinalScriptWitness) == 0 {
+				return fmt.Errorf("P2TR script spend inputs " +
+					"are only supported if witness data " +
+					"is already present, otherwise " +
+					"estimating the witness size is not " +
+					"possible")
+			}
+
+			w.AddWitnessInput(len(in.FinalScriptWitness))
+
+		default:
+			return fmt.Errorf("unsupported signing method for "+
+				"PSBT signing: %v", signMethod)
+		}
+
+	default:
+		return fmt.Errorf("unknown input type for script %x", pkScript)
+	}
+
+	return nil
+}
+
 // SignSegWitV0 attempts to generate a signature for a SegWit version 0 input
 // and stores it in the PartialSigs (and FinalScriptSig for np2wkh addresses)
 // field.

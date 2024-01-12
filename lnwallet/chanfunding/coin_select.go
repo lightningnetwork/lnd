@@ -87,10 +87,11 @@ func selectInputs(amt btcutil.Amount, coins []Coin,
 // calculateFees returns for the specified utxos and fee rate two fee
 // estimates, one calculated using a change output and one without. The weight
 // added to the estimator from a change output is for a P2WKH output.
-func calculateFees(utxos []Coin, feeRate chainfee.SatPerKWeight) (btcutil.Amount,
-	btcutil.Amount, error) {
+func calculateFees(utxos []Coin, feeRate chainfee.SatPerKWeight,
+	existingWeight input.TxWeightEstimator,
+	changeScriptLen int) (btcutil.Amount, btcutil.Amount, error) {
 
-	var weightEstimate input.TxWeightEstimator
+	weightEstimate := existingWeight
 	for _, utxo := range utxos {
 		switch {
 		case txscript.IsPayToWitnessPubKeyHash(utxo.PkScript):
@@ -109,9 +110,6 @@ func calculateFees(utxos []Coin, feeRate chainfee.SatPerKWeight) (btcutil.Amount
 		}
 	}
 
-	// Channel funding multisig output is P2WSH.
-	weightEstimate.AddP2WSHOutput()
-
 	// Estimate the fee required for a transaction without a change
 	// output.
 	totalWeight := int64(weightEstimate.Weight())
@@ -119,7 +117,7 @@ func calculateFees(utxos []Coin, feeRate chainfee.SatPerKWeight) (btcutil.Amount
 
 	// Estimate the fee required for a transaction with a change output.
 	// Assume that change output is a P2TR output.
-	weightEstimate.AddP2TROutput()
+	weightEstimate.AddOutputWithScriptLength(changeScriptLen)
 
 	// Now that we have added the change output, redo the fee
 	// estimate.
@@ -147,7 +145,8 @@ func sanityCheckFee(totalOut, fee btcutil.Amount) error {
 // specified fee rate should be expressed in sat/kw for coin selection to
 // function properly.
 func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
-	coins []Coin, strategy wallet.CoinSelectionStrategy) ([]Coin,
+	coins []Coin, strategy wallet.CoinSelectionStrategy,
+	existingWeight input.TxWeightEstimator, changeScriptLen int) ([]Coin,
 	btcutil.Amount, error) {
 
 	amtNeeded := amt
@@ -164,7 +163,7 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 		// Obtain fee estimates both with and without using a change
 		// output.
 		requiredFeeNoChange, requiredFeeWithChange, err := calculateFees(
-			selectedUtxos, feeRate,
+			selectedUtxos, feeRate, existingWeight, changeScriptLen,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -220,8 +219,9 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 // coins, the final output and change values are returned.
 func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	dustLimit btcutil.Amount, coins []Coin,
-	strategy wallet.CoinSelectionStrategy) ([]Coin, btcutil.Amount,
-	btcutil.Amount, error) {
+	strategy wallet.CoinSelectionStrategy,
+	existingWeight input.TxWeightEstimator, changeScriptLen int) ([]Coin,
+	btcutil.Amount, btcutil.Amount, error) {
 
 	// First perform an initial round of coin selection to estimate
 	// the required fee.
@@ -235,7 +235,7 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	// Obtain fee estimates both with and without using a change
 	// output.
 	requiredFeeNoChange, requiredFeeWithChange, err := calculateFees(
-		selectedUtxos, feeRate,
+		selectedUtxos, feeRate, existingWeight, changeScriptLen,
 	)
 	if err != nil {
 		return nil, 0, 0, err
@@ -284,8 +284,9 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 // available coins.
 func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	reserved, dustLimit btcutil.Amount, coins []Coin,
-	strategy wallet.CoinSelectionStrategy) ([]Coin, btcutil.Amount,
-	btcutil.Amount, error) {
+	strategy wallet.CoinSelectionStrategy,
+	existingWeight input.TxWeightEstimator, changeScriptLen int) ([]Coin,
+	btcutil.Amount, btcutil.Amount, error) {
 
 	var (
 		// selectSubtractFee is tracking if our coin selection was
@@ -305,7 +306,8 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	// First we try to select coins to create an output of the specified
 	// maxAmount with or without a change output that covers the miner fee.
 	selected, changeAmt, err := CoinSelect(
-		feeRate, maxAmount, dustLimit, coins, strategy,
+		feeRate, maxAmount, dustLimit, coins, strategy, existingWeight,
+		changeScriptLen,
 	)
 
 	var errInsufficientFunds *ErrInsufficientFunds
@@ -345,7 +347,7 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	if selectSubtractFee {
 		selected, outputAmount, changeAmt, err = CoinSelectSubtractFees(
 			feeRate, totalBalance-reserved, dustLimit, coins,
-			strategy,
+			strategy, existingWeight, changeScriptLen,
 		)
 		if err != nil {
 			return nil, 0, 0, err

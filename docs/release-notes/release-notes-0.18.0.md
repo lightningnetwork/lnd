@@ -49,7 +49,7 @@
   same exclusive group](https://github.com/lightningnetwork/lnd/pull/7800).
   When using neutrino as a backend unconfirmed transactions have to be
   removed from the wallet when a conflicting tx is confirmed. For other backends
-  these unconfirmed transactions are already removed. In addition a new 
+  these unconfirmed transactions are already removed. In addition, a new 
   walletrpc endpoint `RemoveTransaction` is introduced which let one easily
   remove unconfirmed transaction manually.
   
@@ -61,6 +61,9 @@
   this buffer which can be used to increase the commitment fee and it also
   protects against the case where htlcs are added asynchronously resulting in
   stuck channels.
+ 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8377) a watchtower client
+  test flake that prevented new tasks from overflowing to disk. 
 
 * [Properly handle un-acked updates for exhausted watchtower 
   sessions](https://github.com/lightningnetwork/lnd/pull/8233)

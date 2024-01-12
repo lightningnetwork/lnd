@@ -75,9 +75,9 @@ func TestDiskOverflowQueue(t *testing.T) {
 	}
 }
 
-// demoFlake is a temporary test demonstrating race condition that currently
-// exists in the DiskOverflowQueue. It contrives a scenario that results in
-// the queue being in memory mode when it really should be in disk mode.
+// demoFlake is a temporary test demonstrating the fix of a race condition that
+// existed in the DiskOverflowQueue. It contrives a scenario that once resulted
+// in the queue being in memory mode when it really should be in disk mode.
 func demoFlake(t *testing.T, db wtdb.Queue[*wtdb.BackupID]) {
 	// Generate some backup IDs that we want to add to the queue.
 	tasks := genBackupIDs(10)
@@ -147,21 +147,25 @@ func demoFlake(t *testing.T, db wtdb.Queue[*wtdb.BackupID]) {
 	}, waitTime)
 	require.NoError(t, err)
 
-	// Now, we allow task 4 to be written to disk. NOTE that this is
-	// happening while the mode is memory mode! This is the bug! This will
-	// result in a newDiskItemsSignal being sent meaning that feedMemQueue
-	// will read from disk and block on pushing the new item to memQueue.
+	// Now, we allow task 4 to be written to disk. This will result in a
+	// newDiskItemsSignal being sent meaning that feedMemQueue will read
+	// from disk and block on pushing the new item to memQueue.
 	q.allowDiskWrite()
 
-	// Now, if we enqueue task 5, it will _not_ be written to disk since the
-	// queue is currently in memory mode. This is the bug that needs to be
-	// fixed.
+	// The above will result in feeMemQueue switching the mode to disk-mode.
+	err = wait.Predicate(func() bool {
+		return q.toDisk.Load()
+	}, waitTime)
+	require.NoError(t, err)
+
+	// Now, if we enqueue task 5, it _will_ be written to disk since the
+	// queue is currently in disk mode.
 	enqueue(t, q, tasks[5])
 	q.allowDiskWrite()
 
-	// Show that there are no items on disk at this point. When the bug is
-	// fixed, this should be changed to 1.
-	waitForNumDisk(t, db, 0)
+	// Show that there is an item on disk at this point. This demonstrates
+	// that the bug has been fixed.
+	waitForNumDisk(t, db, 1)
 
 	require.NoError(t, q.Stop())
 }

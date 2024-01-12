@@ -62,6 +62,9 @@
   protects against the case where htlcs are added asynchronously resulting in
   stuck channels.
 
+* [Properly handle un-acked updates for exhausted watchtower 
+  sessions](https://github.com/lightningnetwork/lnd/pull/8233)
+
 # New Features
 ## Functional Enhancements
 

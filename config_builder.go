@@ -686,15 +686,16 @@ func (d *DefaultWalletImpl) BuildChainControl(
 	// Create, and start the lnwallet, which handles the core payment
 	// channel logic, and exposes control via proxy state machines.
 	lnWalletConfig := lnwallet.Config{
-		Database:           partialChainControl.Cfg.ChanStateDB,
-		Notifier:           partialChainControl.ChainNotifier,
-		WalletController:   walletController,
-		Signer:             walletController,
-		FeeEstimator:       partialChainControl.FeeEstimator,
-		SecretKeyRing:      keyRing,
-		ChainIO:            walletController,
-		DefaultConstraints: partialChainControl.ChannelConstraints,
-		NetParams:          *walletConfig.NetParams,
+		Database:              partialChainControl.Cfg.ChanStateDB,
+		Notifier:              partialChainControl.ChainNotifier,
+		WalletController:      walletController,
+		Signer:                walletController,
+		FeeEstimator:          partialChainControl.FeeEstimator,
+		SecretKeyRing:         keyRing,
+		ChainIO:               walletController,
+		DefaultConstraints:    partialChainControl.ChannelConstraints,
+		NetParams:             *walletConfig.NetParams,
+		CoinSelectionStrategy: walletConfig.CoinSelectionStrategy,
 	}
 
 	// The broadcast is already always active for neutrino nodes, so we

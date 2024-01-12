@@ -390,6 +390,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 				err = CoinSelectUpToAmount(
 				r.FeeRate, r.MinFundAmt, r.FundUpToMaxAmt,
 				reserve, w.cfg.DustLimit, coins,
+				w.cfg.CoinSelectionStrategy,
 			)
 			if err != nil {
 				return err
@@ -423,6 +424,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			selectedCoins, localContributionAmt, changeAmt,
 				err = CoinSelectSubtractFees(
 				r.FeeRate, r.LocalAmt, dustLimit, coins,
+				w.cfg.CoinSelectionStrategy,
 			)
 			if err != nil {
 				return err
@@ -435,6 +437,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			localContributionAmt = r.LocalAmt
 			selectedCoins, changeAmt, err = CoinSelect(
 				r.FeeRate, r.LocalAmt, dustLimit, coins,
+				w.cfg.CoinSelectionStrategy,
 			)
 			if err != nil {
 				return err

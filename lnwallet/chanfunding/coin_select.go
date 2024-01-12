@@ -7,19 +7,20 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 // ErrInsufficientFunds is a type matching the error interface which is
-// returned when coin selection for a new funding transaction fails to due
+// returned when coin selection for a new funding transaction fails due to
 // having an insufficient amount of confirmed funds.
 type ErrInsufficientFunds struct {
 	amountAvailable btcutil.Amount
 	amountSelected  btcutil.Amount
 }
 
-// Error returns a human readable string describing the error.
+// Error returns a human-readable string describing the error.
 func (e *ErrInsufficientFunds) Error() string {
 	return fmt.Sprintf("not enough witness outputs to create funding "+
 		"transaction, need %v only have %v available",
@@ -33,7 +34,7 @@ type errUnsupportedInput struct {
 	PkScript []byte
 }
 
-// Error returns a human readable string describing the error.
+// Error returns a human-readable string describing the error.
 func (e *errUnsupportedInput) Error() string {
 	return fmt.Sprintf("unsupported address type: %x", e.PkScript)
 }
@@ -48,18 +49,35 @@ type Coin struct {
 	wire.OutPoint
 }
 
+// Output returns the transaction output of the coin.
+//
+// NOTE: This implements the wallet.SelectableCoin interface.
+func (c Coin) Output() *wire.TxOut {
+	return &c.TxOut
+}
+
 // selectInputs selects a slice of inputs necessary to meet the specified
 // selection amount. If input selection is unable to succeed due to insufficient
 // funds, a non-nil error is returned. Additionally, the total amount of the
 // selected coins are returned in order for the caller to properly handle
 // change+fees.
-func selectInputs(amt btcutil.Amount, coins []Coin) (btcutil.Amount, []Coin, error) {
+func selectInputs(amt btcutil.Amount, coins []Coin,
+	strategy wallet.CoinSelectionStrategy,
+	feeRate chainfee.SatPerKWeight) (btcutil.Amount, []Coin, error) {
+
+	// All coin selection code in the btcwallet library requires sat/KB.
+	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
+
+	arrangedCoins, err := wallet.ArrangeCoins(strategy, coins, feeSatPerKB)
+	if err != nil {
+		return 0, nil, err
+	}
 
 	satSelected := btcutil.Amount(0)
-	for i, coin := range coins {
+	for i, coin := range arrangedCoins {
 		satSelected += btcutil.Amount(coin.Value)
 		if satSelected >= amt {
-			return satSelected, coins[:i+1], nil
+			return satSelected, arrangedCoins[:i+1], nil
 		}
 	}
 
@@ -129,13 +147,16 @@ func sanityCheckFee(totalOut, fee btcutil.Amount) error {
 // specified fee rate should be expressed in sat/kw for coin selection to
 // function properly.
 func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
-	coins []Coin) ([]Coin, btcutil.Amount, error) {
+	coins []Coin, strategy wallet.CoinSelectionStrategy) ([]Coin,
+	btcutil.Amount, error) {
 
 	amtNeeded := amt
 	for {
 		// First perform an initial round of coin selection to estimate
 		// the required fee.
-		totalSat, selectedUtxos, err := selectInputs(amtNeeded, coins)
+		totalSat, selectedUtxos, err := selectInputs(
+			amtNeeded, coins, strategy, feeRate,
+		)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -198,12 +219,15 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 // amt in total after fees, adhering to the specified fee rate. The selected
 // coins, the final output and change values are returned.
 func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
-	dustLimit btcutil.Amount, coins []Coin) ([]Coin, btcutil.Amount,
+	dustLimit btcutil.Amount, coins []Coin,
+	strategy wallet.CoinSelectionStrategy) ([]Coin, btcutil.Amount,
 	btcutil.Amount, error) {
 
 	// First perform an initial round of coin selection to estimate
 	// the required fee.
-	totalSat, selectedUtxos, err := selectInputs(amt, coins)
+	totalSat, selectedUtxos, err := selectInputs(
+		amt, coins, strategy, feeRate,
+	)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -259,8 +283,9 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 // available. If insufficient funds are available this method selects all
 // available coins.
 func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
-	reserved, dustLimit btcutil.Amount, coins []Coin) ([]Coin,
-	btcutil.Amount, btcutil.Amount, error) {
+	reserved, dustLimit btcutil.Amount, coins []Coin,
+	strategy wallet.CoinSelectionStrategy) ([]Coin, btcutil.Amount,
+	btcutil.Amount, error) {
 
 	var (
 		// selectSubtractFee is tracking if our coin selection was
@@ -280,7 +305,7 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	// First we try to select coins to create an output of the specified
 	// maxAmount with or without a change output that covers the miner fee.
 	selected, changeAmt, err := CoinSelect(
-		feeRate, maxAmount, dustLimit, coins,
+		feeRate, maxAmount, dustLimit, coins, strategy,
 	)
 
 	var errInsufficientFunds *ErrInsufficientFunds
@@ -320,6 +345,7 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	if selectSubtractFee {
 		selected, outputAmount, changeAmt, err = CoinSelectSubtractFees(
 			feeRate, totalBalance-reserved, dustLimit, coins,
+			strategy,
 		)
 		if err != nil {
 			return nil, 0, 0, err

@@ -95,8 +95,6 @@ github.com/btcsuite/btcd/chaincfg/chainhash v1.0.2/go.mod h1:7SFka0XMvUgj3hfZtyd
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f h1:bAs4lUbRJpnnkd9VhRV3jjAVU7DJVjMaK+IsvSeZvFo=
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f/go.mod h1:TdznJufoqS23FtqVCzL0ZqgP5MqXbb4fg/WgDys70nA=
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
-github.com/btcsuite/btcwallet v0.16.10-0.20231129183218-5df09dd43358 h1:lZUSo6TISHUJQxpn/AniW5gqaN1iRNS87SDWvV3AHfg=
-github.com/btcsuite/btcwallet v0.16.10-0.20231129183218-5df09dd43358/go.mod h1:WSKhOJWUmUOHKCKEzdt+jWAHFAE/t4RqVbCwL2pEdiU=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.2 h1:etuLgGEojecsDOYTII8rYiGHjGyV5xTqsXi+ZQ715UU=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.2/go.mod h1:Zpk/LOb2sKqwP2lmHjaZT9AdaKsHPSbNLm2Uql5IQ/0=
 github.com/btcsuite/btcwallet/wallet/txrules v1.2.0 h1:BtEN5Empw62/RVnZ0VcJaVtVlBijnLlJY+dwjAye2Bg=
@@ -305,6 +303,8 @@ github.com/grpc-ecosystem/grpc-gateway v1.16.0 h1:gmcG1KaJ57LophUzW0Hy8NmPhnMZb4
 github.com/grpc-ecosystem/grpc-gateway v1.16.0/go.mod h1:BDjrQk3hbvj6Nolgz8mAMFbcEtjT1g+wF4CSlocrBnw=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.5.0 h1:ajue7SzQMywqRjg2fK7dcpc0QhFGpTR2plWfV4EZWR4=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.5.0/go.mod h1:r1hZAcvfFXuYmcKyCJI9wlyOPIZUJl6FCB8Cpca/NLE=
+github.com/guggero/btcwallet v0.13.1-0.20240112141127-132809065fc6 h1:hzu/mFOJnqO4AbhdIOpxyq5VYKMRBbo5J7dXqxA4ByI=
+github.com/guggero/btcwallet v0.13.1-0.20240112141127-132809065fc6/go.mod h1:WSKhOJWUmUOHKCKEzdt+jWAHFAE/t4RqVbCwL2pEdiU=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
 github.com/hashicorp/errwrap v1.1.0 h1:OxrOeh75EUXMY8TBjag2fzXGZ40LB6IKw45YeGUDY2I=
 github.com/hashicorp/errwrap v1.1.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=

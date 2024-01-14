@@ -1423,6 +1423,11 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 	// commitment chains.
 	htlc.ChanID = l.ChanID()
 	openCircuitRef := pkt.inKey()
+
+	// We enforce the fee buffer for the commitment transaction because
+	// we are in control of adding this htlc. Nothing has locked-in yet so
+	// we can securely enforce the fee buffer which is only relevant if we
+	// are the initiator of the channel.
 	index, err := l.channel.AddHTLC(htlc, &openCircuitRef)
 	if err != nil {
 		// The HTLC was unable to be added to the state machine,

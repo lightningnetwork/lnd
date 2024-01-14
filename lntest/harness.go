@@ -171,48 +171,87 @@ func (h *HarnessTest) Context() context.Context {
 	return h.runCtx
 }
 
-// SetUp starts the initial seeder nodes within the test harness. The initial
-// node's wallets will be funded wallets with 10x10 BTC outputs each.
-func (h *HarnessTest) SetupStandbyNodes() {
-	h.Log("Setting up standby nodes Alice and Bob...")
+// setupWatchOnlyNode initializes a node with the watch-only accounts of an
+// associated remote signing instance.
+func (h *HarnessTest) setupWatchOnlyNode(name string,
+	signerNode *node.HarnessNode, password []byte) *node.HarnessNode {
+
+	// Prepare arguments for watch-only node connected to the remote signer.
+	remoteSignerArgs := []string{
+		"--remotesigner.enable",
+		fmt.Sprintf("--remotesigner.rpchost=localhost:%d",
+			signerNode.Cfg.RPCPort),
+		fmt.Sprintf("--remotesigner.tlscertpath=%s",
+			signerNode.Cfg.TLSCertPath),
+		fmt.Sprintf("--remotesigner.macaroonpath=%s",
+			signerNode.Cfg.AdminMacPath),
+	}
+
+	// Fetch watch-only accounts from the signer node.
+	resp := signerNode.RPC.ListAccounts(&walletrpc.ListAccountsRequest{})
+	watchOnlyAccounts, err := walletrpc.AccountsToWatchOnly(resp.Accounts)
+	require.NoErrorf(h, err, "unable to find watch only accounts for %s",
+		name)
+
+	// Create a new watch-only node with remote signer configuration.
+	return h.NewNodeRemoteSigner(
+		name, remoteSignerArgs, password,
+		&lnrpc.WatchOnly{
+			MasterKeyBirthdayTimestamp: 0,
+			MasterKeyFingerprint:       nil,
+			Accounts:                   watchOnlyAccounts,
+		},
+	)
+}
+
+// createAndSendOutput send amt satoshis from the internal mining node to the
+// targeted lightning node using a P2WKH address. No blocks are mined so
+// transactions will sit unconfirmed in mempool.
+func (h *HarnessTest) createAndSendOutput(target *node.HarnessNode,
+	amt btcutil.Amount, addrType lnrpc.AddressType) {
+
+	req := &lnrpc.NewAddressRequest{Type: addrType}
+	resp := target.RPC.NewAddress(req)
+	addr := h.DecodeAddress(resp.Address)
+	addrScript := h.PayToAddrScript(addr)
+
+	output := &wire.TxOut{
+		PkScript: addrScript,
+		Value:    int64(amt),
+	}
+	h.Miner.SendOutput(output, defaultMinerFeeRate)
+}
+
+// SetupRemoteSigningStandbyNodes starts the initial seeder nodes within the
+// test harness in a remote signing configuration. The initial node's wallets
+// will be funded wallets with 100x1 BTC outputs each.
+func (h *HarnessTest) SetupRemoteSigningStandbyNodes() {
+	h.Log("Setting up standby nodes Alice and Bob with remote " +
+		"signing configurations...")
 	defer h.Log("Finished the setup, now running tests...")
 
-	lndArgs := []string{
-		"--default-remote-max-htlcs=483",
-		"--dust-threshold=5000000",
-	}
-	// Start the initial seeder nodes within the test network, then connect
-	// their respective RPC clients.
-	h.Alice = h.NewNode("Alice", lndArgs)
-	h.Bob = h.NewNode("Bob", lndArgs)
+	password := []byte("itestpassword")
 
-	addrReq := &lnrpc.NewAddressRequest{
-		Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH,
-	}
+	// Setup remote signing nodes for Alice and Bob.
+	signerAlice := h.NewNode("SignerAlice", nil)
+	signerBob := h.NewNode("SignerBob", nil)
 
-	const initialFund = 1 * btcutil.SatoshiPerBitcoin
+	// Setup watch-only nodes for Alice and Bob, each configured with their
+	// own remote signing instance.
+	h.Alice = h.setupWatchOnlyNode("Alice", signerAlice, password)
+	h.Bob = h.setupWatchOnlyNode("Bob", signerBob, password)
 
-	// Load up the wallets of the seeder nodes with 100 outputs of 1 BTC
-	// each.
-	nodes := []*node.HarnessNode{h.Alice, h.Bob}
-	for _, hn := range nodes {
-		h.manager.standbyNodes[hn.Cfg.NodeID] = hn
-		for i := 0; i < 100; i++ {
-			resp := hn.RPC.NewAddress(addrReq)
-
-			addr, err := btcutil.DecodeAddress(
-				resp.Address, h.Miner.ActiveNet,
+	// Fund each node with 100 BTC (using 100 separate transactions).
+	const fundAmount = 1 * btcutil.SatoshiPerBitcoin
+	const numOutputs = 100
+	const totalAmount = fundAmount * numOutputs
+	for _, node := range []*node.HarnessNode{h.Alice, h.Bob} {
+		h.manager.standbyNodes[node.Cfg.NodeID] = node
+		for i := 0; i < numOutputs; i++ {
+			h.createAndSendOutput(
+				node, fundAmount,
+				lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 			)
-			require.NoError(h, err)
-
-			addrScript, err := txscript.PayToAddrScript(addr)
-			require.NoError(h, err)
-
-			output := &wire.TxOut{
-				PkScript: addrScript,
-				Value:    initialFund,
-			}
-			h.Miner.SendOutput(output, defaultMinerFeeRate)
 		}
 	}
 
@@ -226,24 +265,52 @@ func (h *HarnessTest) SetupStandbyNodes() {
 	h.WaitForBlockchainSync(h.Bob)
 
 	// Now block until both wallets have fully synced up.
-	const expectedBalance = 100 * initialFund
-	err := wait.NoError(func() error {
-		aliceResp := h.Alice.RPC.WalletBalance()
-		bobResp := h.Bob.RPC.WalletBalance()
+	h.WaitForBalanceConfirmed(h.Alice, totalAmount)
+	h.WaitForBalanceConfirmed(h.Bob, totalAmount)
+}
 
-		if aliceResp.ConfirmedBalance != expectedBalance {
-			return fmt.Errorf("expected 10 BTC, instead "+
-				"alice has %d", aliceResp.ConfirmedBalance)
+// SetUp starts the initial seeder nodes within the test harness. The initial
+// node's wallets will be funded wallets with 10x10 BTC outputs each.
+func (h *HarnessTest) SetupStandbyNodes() {
+	h.Log("Setting up standby nodes Alice and Bob...")
+	defer h.Log("Finished the setup, now running tests...")
+
+	lndArgs := []string{
+		"--default-remote-max-htlcs=483",
+		"--dust-threshold=5000000",
+	}
+
+	// Start the initial seeder nodes within the test network.
+	h.Alice = h.NewNode("Alice", lndArgs)
+	h.Bob = h.NewNode("Bob", lndArgs)
+
+	// Load up the wallets of the seeder nodes with 100 outputs of 1 BTC
+	// each.
+	const fundAmount = 1 * btcutil.SatoshiPerBitcoin
+	const numOutputs = 100
+	const totalAmount = fundAmount * numOutputs
+	for _, node := range []*node.HarnessNode{h.Alice, h.Bob} {
+		h.manager.standbyNodes[node.Cfg.NodeID] = node
+		for i := 0; i < numOutputs; i++ {
+			h.createAndSendOutput(
+				node, fundAmount,
+				lnrpc.AddressType_WITNESS_PUBKEY_HASH,
+			)
 		}
+	}
 
-		if bobResp.ConfirmedBalance != expectedBalance {
-			return fmt.Errorf("expected 10 BTC, instead "+
-				"bob has %d", bobResp.ConfirmedBalance)
-		}
+	// We generate several blocks in order to give the outputs created
+	// above a good number of confirmations.
+	const totalTxes = 200
+	h.MineBlocksAndAssertNumTxes(numBlocksSendOutput, totalTxes)
 
-		return nil
-	}, DefaultTimeout)
-	require.NoError(h, err, "timeout checking balance for node")
+	// Now we want to wait for the nodes to catch up.
+	h.WaitForBlockchainSync(h.Alice)
+	h.WaitForBlockchainSync(h.Bob)
+
+	// Now block until both wallets have fully synced up.
+	h.WaitForBalanceConfirmed(h.Alice, totalAmount)
+	h.WaitForBalanceConfirmed(h.Bob, totalAmount)
 }
 
 // Stop stops the test harness.

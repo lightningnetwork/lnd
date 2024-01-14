@@ -143,6 +143,13 @@ service Lightning {
     */
     rpc GetInfo (GetInfoRequest) returns (GetInfoResponse);
 
+    /* lncli: 'getdebuginfo'
+    GetDebugInfo returns debug information concerning the state of the daemon
+    and its subsystems. This includes the full configuration and the latest log
+    entries from the log file.
+    */
+    rpc GetDebugInfo (GetDebugInfoRequest) returns (GetDebugInfoResponse);
+
     /** lncli: `getrecoveryinfo`
     GetRecoveryInfo returns information concerning the recovery mode including
     whether it's in a recovery mode, whether the recovery is finished, and the
@@ -322,7 +329,7 @@ service Lightning {
     optionally specify the add_index and/or the settle_index. If the add_index
     is specified, then we'll first start by sending add invoice events for all
     invoices with an add_index greater than the specified value. If the
-    settle_index is specified, the next, we'll send out all settle events for
+    settle_index is specified, then next, we'll send out all settle events for
     invoices with a settle_index greater than the specified value. One or both
     of these fields can be set. If no fields are set, then we'll only send out
     the latest add/settle events.
@@ -1953,6 +1960,14 @@ message GetInfoResponse {
 
     // Indicates whether final htlc resolutions are stored on disk.
     bool store_final_htlc_resolutions = 22;
+}
+
+message GetDebugInfoRequest {
+}
+
+message GetDebugInfoResponse {
+    map<string, string> config = 1;
+    repeated string log = 2;
 }
 
 message GetRecoveryInfoRequest {

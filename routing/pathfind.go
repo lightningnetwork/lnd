@@ -586,6 +586,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// If the total outgoing balance isn't sufficient, it will be
 		// impossible to complete the payment.
 		if total < amt {
+			log.Warnf("Not enough outbound balance to send "+
+				"htlc of amount: %v, only have local "+
+				"balance: %v", amt, total)
+
 			return nil, 0, errInsufficientBalance
 		}
 

@@ -124,8 +124,8 @@ myKey := "0214cd678a565041d00e6cf8d62ef8add33b4af4786fb2beb87b366a2e1" +
 ### Wrapping long function calls
 
 When wrapping a line that contains a function call as the unwrapped line exceeds
-the column limit, the close paren should be placed on its own line.
-Additionally, all arguments should begin in a new line after the open paren.
+the column limit, the close parenthesis should be placed on its own line.
+Additionally, all arguments should begin in a new line after the open parenthesis.
 
 **WRONG**
 ```go

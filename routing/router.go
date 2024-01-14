@@ -2386,7 +2386,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 // SendPaymentAsync is the non-blocking version of SendPayment. The payment
 // result needs to be retrieved via the control tower.
 func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment,
-	ps PaymentSession, st shards.ShardTracker) error {
+	ps PaymentSession, st shards.ShardTracker) {
 
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
@@ -2406,8 +2406,6 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment,
 				payment.Identifier(), err)
 		}
 	}()
-
-	return nil
 }
 
 // spewPayment returns a log closures that provides a spewed string

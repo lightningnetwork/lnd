@@ -226,3 +226,49 @@ func CalculateMaxHtlc(chanCap btcutil.Amount) uint64 {
 
 	return uint64(max)
 }
+
+// CalcStaticFeeBuffer calculates appropriate fee buffer which must be taken
+// into account when sending htlcs.
+func CalcStaticFeeBuffer(c lnrpc.CommitmentType, numHTLCs int) btcutil.Amount {
+	//nolint:lll
+	const (
+		htlcWeight         = input.HTLCWeight
+		defaultSatPerVByte = lnwallet.DefaultAnchorsCommitMaxFeeRateSatPerVByte
+		scale              = 1000
+	)
+
+	var (
+		commitWeight = input.CommitWeight
+		feePerKw     = chainfee.SatPerKWeight(DefaultFeeRateSatPerKw)
+	)
+
+	switch {
+	// The taproot commitment type has the extra anchor outputs, but also a
+	// smaller witness field (will just be a normal key spend), so we need
+	// to account for that here as well.
+	case CommitTypeHasTaproot(c):
+		feePerKw = chainfee.SatPerKVByte(
+			defaultSatPerVByte * scale,
+		).FeePerKWeight()
+
+		commitWeight = input.TaprootCommitWeight
+
+	// The anchor commitment type is slightly heavier, and we must also add
+	// the value of the two anchors to the resulting fee the initiator
+	// pays. In addition the fee rate is capped at 10 sat/vbyte for anchor
+	// channels.
+	case CommitTypeHasAnchors(c):
+		feePerKw = chainfee.SatPerKVByte(
+			defaultSatPerVByte * scale,
+		).FeePerKWeight()
+		commitWeight = input.AnchorCommitWeight
+	}
+
+	// Account for the HTLC which will be required when sending an htlc.
+	numHTLCs++
+	feeBuffer := lnwallet.CalcFeeBuffer(
+		feePerKw, int64(commitWeight+numHTLCs*htlcWeight),
+	)
+
+	return feeBuffer.ToSatoshis()
+}

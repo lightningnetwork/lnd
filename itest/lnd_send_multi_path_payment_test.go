@@ -28,12 +28,12 @@ func testSendMultiPathPayment(ht *lntest.HarnessTest) {
 	//       \__ Dave ____/
 	//
 	req := &mppOpenChannelRequest{
-		amtAliceCarol: 235000,
-		amtAliceDave:  135000,
-		amtCarolBob:   135000,
-		amtCarolEve:   135000,
-		amtDaveBob:    135000,
-		amtEveBob:     135000,
+		amtAliceCarol: 285000,
+		amtAliceDave:  155000,
+		amtCarolBob:   200000,
+		amtCarolEve:   155000,
+		amtDaveBob:    155000,
+		amtEveBob:     155000,
 	}
 	mts.openChannels(req)
 	chanPointAliceDave := mts.channelPoints[1]

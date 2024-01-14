@@ -60,12 +60,12 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	//       \__ Dave ____/
 	//
 	mppReq := &mppOpenChannelRequest{
-		amtAliceCarol: 235000,
-		amtAliceDave:  135000,
-		amtCarolBob:   135000,
-		amtCarolEve:   135000,
-		amtDaveBob:    135000,
-		amtEveBob:     135000,
+		amtAliceCarol: 285000,
+		amtAliceDave:  155000,
+		amtCarolBob:   200000,
+		amtCarolEve:   155000,
+		amtDaveBob:    155000,
+		amtEveBob:     155000,
 	}
 	mts.openChannels(mppReq)
 	chanPointAliceDave := mts.channelPoints[1]
@@ -368,12 +368,12 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 	//       \__ Dave ____/
 	//
 	mppReq := &mppOpenChannelRequest{
-		amtAliceCarol: 235000,
-		amtAliceDave:  135000,
-		amtCarolBob:   135000,
-		amtCarolEve:   135000,
-		amtDaveBob:    135000,
-		amtEveBob:     135000,
+		amtAliceCarol: 285000,
+		amtAliceDave:  155000,
+		amtCarolBob:   200000,
+		amtCarolEve:   155000,
+		amtDaveBob:    155000,
+		amtEveBob:     155000,
 	}
 	mts.openChannels(mppReq)
 	chanPointAliceDave := mts.channelPoints[1]

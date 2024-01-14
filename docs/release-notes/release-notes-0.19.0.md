@@ -10,6 +10,7 @@
     - [lncli Updates](#lncli-updates)
     - [Breaking Changes](#breaking-changes)
     - [Performance Improvements](#performance-improvements)
+    - [Misc](#misc)
 - [Technical and Architectural Updates](#technical-and-architectural-updates)
     - [BOLT Spec Updates](#bolt-spec-updates)
     - [Testing](#testing)
@@ -48,6 +49,11 @@
 ## Performance Improvements
 
 * Log rotation can now use ZSTD 
+## Misc
+
+* [Add retry logic for block fetching](https://github.com/lightningnetwork/lnd/pull/8381)
+  block fetching to retry indefinitely with an exponential back-off between
+  retries for watchtower server.
 
 # Technical and Architectural Updates
 ## BOLT Spec Updates
@@ -68,3 +74,4 @@
 * CharlieZKSmith
 * Pins
 * Ziggie
+* Animesh Bilthare

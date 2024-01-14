@@ -1,13 +1,21 @@
 package lookout
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/watchtower/blob"
 )
+
+// ErrLookoutExiting is an error that is returned when the lookout server is
+// in the process of shutting down.
+var ErrLookoutExiting = errors.New("lookout server is shutting down")
 
 // Config houses the Lookout's required resources to properly fulfill it's duty,
 // including block fetching, querying accepted state updates, and construction
@@ -29,6 +37,18 @@ type Config struct {
 	// Punisher handles the responsibility of crafting and broadcasting
 	// justice transaction for any breached transactions.
 	Punisher Punisher
+
+	// MinBackoff is the minimum amount of time to back-off before
+	// re-attempting to fetch a block.
+	MinBackoff time.Duration
+
+	// MaxBackoff is the maximum amount of time to back-off before
+	// re-attempting to fetch a block.
+	MaxBackoff time.Duration
+
+	// MaxNumRetries is the maximum number of times that we should
+	// re-attempt fetching a block before moving on.
+	MaxNumRetries int
 }
 
 // Lookout will check any incoming blocks against the transactions found in the
@@ -102,6 +122,49 @@ func (l *Lookout) Stop() error {
 	return nil
 }
 
+// fetchBlockWithRetries attempts to fetch a block from the blockchain using
+// its hash. If it fails to fetch the block, it will back-off and retry up to
+// MaxNumRetries times.
+func (l *Lookout) fetchBlockWithRetries(hash *chainhash.Hash) (*wire.MsgBlock,
+	error) {
+
+	backoff := l.cfg.MinBackoff
+
+	updateBackoff := func() {
+		backoff *= 2
+		if backoff > l.cfg.MaxBackoff {
+			backoff = l.cfg.MaxBackoff
+		}
+	}
+
+	var attempt int
+	for {
+		attempt++
+
+		block, err := l.cfg.BlockFetcher.GetBlock(hash)
+		if err == nil {
+			return block, nil
+		}
+
+		if attempt > l.cfg.MaxNumRetries {
+			return nil, fmt.Errorf("failed to fetch block %s "+
+				"after %d attempts: %v", hash, attempt, err)
+		}
+
+		log.Errorf("Failed to fetch block %s (attempt %d): %v. "+
+			"Retrying in %v seconds", hash, attempt, err,
+			backoff.Seconds())
+
+		select {
+		case <-time.After(backoff):
+		case <-l.quit:
+			return nil, ErrLookoutExiting
+		}
+
+		updateBackoff()
+	}
+}
+
 // watchBlocks serially pulls incoming epochs from the epoch source and searches
 // our accepted state updates for any breached transactions. If any are found,
 // we will attempt to decrypt the state updates' encrypted blobs and exact
@@ -118,11 +181,10 @@ func (l *Lookout) watchBlocks(epochs *chainntnfs.BlockEpochEvent) {
 			log.Debugf("Fetching block for (height=%d, hash=%s)",
 				epoch.Height, epoch.Hash)
 
-			// Fetch the full block from the backend corresponding
-			// to the newly arriving epoch.
-			block, err := l.cfg.BlockFetcher.GetBlock(epoch.Hash)
+			// Fetch the full block corresponding to the newly
+			// arriving epoch from the backend.
+			block, err := l.fetchBlockWithRetries(epoch.Hash)
 			if err != nil {
-				// TODO(conner): add retry logic?
 				log.Errorf("Unable to fetch block for "+
 					"(height=%x, hash=%s): %v",
 					epoch.Height, epoch.Hash, err)

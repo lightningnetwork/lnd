@@ -577,7 +577,7 @@ func NewBrontide(cfg Config) *Brontide {
 			eStr := "pong response failure for %s: %v " +
 				"-- disconnecting"
 			p.log.Warnf(eStr, p, err)
-			p.Disconnect(fmt.Errorf(eStr, p, err))
+			go p.Disconnect(fmt.Errorf(eStr, p, err))
 		},
 	})
 

@@ -13,7 +13,6 @@ import (
 // PingManagerConfig is a structure containing various parameters that govern
 // how the PingManager behaves.
 type PingManagerConfig struct {
-
 	// NewPingPayload is a closure that returns the payload to be packaged
 	// in the Ping message.
 	NewPingPayload func() []byte
@@ -144,6 +143,7 @@ func (m *PingManager) start() error {
 
 				// Set up our bookkeeping for the new Ping.
 				if err := m.setPingState(pongSize); err != nil {
+
 					m.cfg.OnPongFailure(err)
 
 					return
@@ -157,6 +157,7 @@ func (m *PingManager) start() error {
 				e := errors.New("timeout while waiting for " +
 					"pong response",
 				)
+
 				m.cfg.OnPongFailure(e)
 
 				return
@@ -177,6 +178,7 @@ func (m *PingManager) start() error {
 					e := errors.New("pong response does " +
 						"not match expected size",
 					)
+
 					m.cfg.OnPongFailure(e)
 
 					return
@@ -188,6 +190,7 @@ func (m *PingManager) start() error {
 					rtt := time.Since(*lastPing)
 					m.pingTime.Store(&rtt)
 				}
+
 			case <-m.quit:
 				return
 			}

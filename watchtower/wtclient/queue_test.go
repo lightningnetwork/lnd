@@ -38,6 +38,10 @@ func TestDiskOverflowQueue(t *testing.T) {
 			name: "start stop queue",
 			run:  testStartStopQueue,
 		},
+		{
+			name: "demo flake",
+			run:  demoFlake,
+		},
 	}
 
 	initDB := func() wtdb.Queue[*wtdb.BackupID] {
@@ -69,6 +73,97 @@ func TestDiskOverflowQueue(t *testing.T) {
 			test.run(tt, initDB())
 		})
 	}
+}
+
+// demoFlake is a temporary test demonstrating race condition that currently
+// exists in the DiskOverflowQueue. It contrives a scenario that results in
+// the queue being in memory mode when it really should be in disk mode.
+func demoFlake(t *testing.T, db wtdb.Queue[*wtdb.BackupID]) {
+	// Generate some backup IDs that we want to add to the queue.
+	tasks := genBackupIDs(10)
+
+	// New mock logger.
+	log := newMockLogger(t.Logf)
+
+	// Init the queue with the mock DB.
+	q, err := NewDiskOverflowQueue[*wtdb.BackupID](
+		db, maxInMemItems, log,
+	)
+	require.NoError(t, err)
+
+	// Set the two test variables to true so that we have more control over
+	// the feedOutput goroutine and disk writes from the test.
+	q.waitForDiskWriteSignal = true
+	q.waitForFeedOutputSignal = true
+
+	// Start the queue.
+	require.NoError(t, q.Start())
+
+	// Initially there should be no items on disk.
+	assertNumDisk(t, db, 0)
+
+	// Start filling up the queue. The maxInMemItems is 5, meaning that the
+	// memQueue capacity is 3. Since the feedOutput goroutine has not yet
+	// started, these first 3 items (tasks 0-2) will fill the memQueue.
+	enqueue(t, q, tasks[0])
+	enqueue(t, q, tasks[1])
+	enqueue(t, q, tasks[2])
+
+	// Adding task 3 is expected to result in the mode being changed to disk
+	// mode.
+	enqueue(t, q, tasks[3])
+
+	// Show that the mode does actually change to disk mode.
+	err = wait.Predicate(func() bool {
+		return q.toDisk.Load()
+	}, waitTime)
+	require.NoError(t, err)
+
+	// Allow task 3 to be written to disk. This will send a signal on
+	// newDiskItemsSignal.
+	q.allowDiskWrite()
+
+	// Task 3 will almost immediately be popped from disk again due to
+	// the newDiskItemsSignal causing feedMemQueue to call feedFromDisk.
+	waitForNumDisk(t, db, 0)
+
+	// Enqueue task 4 but don't allow it to be written to disk yet.
+	enqueue(t, q, tasks[4])
+
+	// Wait a bit just to make sure that task 4 has passed the
+	// if q.toDisk.Load() check in pushToActiveQueue and is waiting on the
+	// allowDiskWrite signal.
+	time.Sleep(time.Second)
+
+	// Now, start the feedOutput goroutine. This will pop 1 item from the
+	// memQueue meaning that feedMemQueue will now manage to push an item
+	// onto the memQueue & will go onto the next iteration of feedFromDisk
+	// which will then see that there are no items on disk and so will
+	// change the mode to memory-mode.
+	q.startFeedOutput()
+
+	err = wait.Predicate(func() bool {
+		return !q.toDisk.Load()
+	}, waitTime)
+	require.NoError(t, err)
+
+	// Now, we allow task 4 to be written to disk. NOTE that this is
+	// happening while the mode is memory mode! This is the bug! This will
+	// result in a newDiskItemsSignal being sent meaning that feedMemQueue
+	// will read from disk and block on pushing the new item to memQueue.
+	q.allowDiskWrite()
+
+	// Now, if we enqueue task 5, it will _not_ be written to disk since the
+	// queue is currently in memory mode. This is the bug that needs to be
+	// fixed.
+	enqueue(t, q, tasks[5])
+	q.allowDiskWrite()
+
+	// Show that there are no items on disk at this point. When the bug is
+	// fixed, this should be changed to 1.
+	waitForNumDisk(t, db, 0)
+
+	require.NoError(t, q.Stop())
 }
 
 // testOverflowToDisk is a basic test that ensures that the queue correctly

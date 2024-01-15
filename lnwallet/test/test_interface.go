@@ -1168,10 +1168,12 @@ func testListTransactionDetails(miner *rpctest.Harness,
 				t.Fatalf("err fetching block: %s", err)
 			}
 
-			transactions :=
-				make(map[chainhash.Hash][]*wire.TxOut, len(fetchedBlock.Transactions))
+			transactions := make(
+				map[chainhash.Hash][]*wire.TxOut,
+				len(fetchedBlock.Transactions),
+			)
 			for _, tx := range fetchedBlock.Transactions {
-				transactions[tx.TxHash()] = tx.TxOut
+				transactions[tx.TxHash()] = tx.Copy().TxOut
 			}
 
 			blockTxOuts[fetchedBlock.BlockHash()] = transactions

@@ -613,7 +613,7 @@ func (b *BitcoindNotifier) confDetailsManually(confRequest chainntnfs.ConfReques
 			}
 
 			return &chainntnfs.TxConfirmation{
-				Tx:          tx,
+				Tx:          tx.Copy(),
 				BlockHash:   blockHash,
 				BlockHeight: height,
 				TxIndex:     uint32(txIndex),
@@ -874,11 +874,13 @@ func (b *BitcoindNotifier) historicalSpendDetails(
 				continue
 			}
 
-			txHash := tx.TxHash()
+			txCopy := tx.Copy()
+			txHash := txCopy.TxHash()
+			spendOutPoint := &txCopy.TxIn[inputIdx].PreviousOutPoint
 			return &chainntnfs.SpendDetail{
-				SpentOutPoint:     &tx.TxIn[inputIdx].PreviousOutPoint,
+				SpentOutPoint:     spendOutPoint,
 				SpenderTxHash:     &txHash,
-				SpendingTx:        tx,
+				SpendingTx:        txCopy,
 				SpenderInputIndex: inputIdx,
 				SpendingHeight:    int32(height),
 			}, nil

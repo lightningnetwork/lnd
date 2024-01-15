@@ -92,21 +92,6 @@ type DiskOverflowQueue[T any] struct {
 	// task.
 	leftOverItem3 *T
 
-	// waitForDiskWriteSignal is true if blockDiskWrite should be used to
-	// wait for an explicit signal before writing an item to disk. This is
-	// for the purpose of testing only and will be removed after the fix of
-	// a test flake has been demonstrated.
-	waitForDiskWriteSignal bool
-	blockDiskWrite         chan struct{}
-
-	// waitForFeedOutputSignal is true if startFeedOutputChan should be used
-	// to wait for an explicit signal before allowing the feedOutput
-	// goroutine to begin its duties. This is for the purpose of testing
-	// only and will be removed after the fix of a test flake has been
-	// demonstrated.
-	waitForFeedOutputSignal bool
-	startFeedOutputChan     chan struct{}
-
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -121,16 +106,14 @@ func NewDiskOverflowQueue[T any](db wtdb.Queue[T], maxQueueSize uint64,
 	}
 
 	q := &DiskOverflowQueue[T]{
-		log:                 logger,
-		db:                  db,
-		inputList:           list.New(),
-		newDiskItemSignal:   make(chan struct{}, 1),
-		inputChan:           make(chan *internalTask[T]),
-		memQueue:            make(chan T, maxQueueSize-2),
-		outputChan:          make(chan T),
-		blockDiskWrite:      make(chan struct{}, 1),
-		startFeedOutputChan: make(chan struct{}, 1),
-		quit:                make(chan struct{}),
+		log:               logger,
+		db:                db,
+		inputList:         list.New(),
+		newDiskItemSignal: make(chan struct{}, 1),
+		inputChan:         make(chan *internalTask[T]),
+		memQueue:          make(chan T, maxQueueSize-2),
+		outputChan:        make(chan T),
+		quit:              make(chan struct{}),
 	}
 	q.inputListCond = sync.NewCond(&q.inputListMu)
 
@@ -145,27 +128,6 @@ func (q *DiskOverflowQueue[T]) Start() error {
 	})
 
 	return err
-}
-
-// allowDiskWrite is used to explicitly signal that a disk write may take place.
-// This is for the purposes of testing only and will be removed once a specific
-// test flake fix has been demonstrated.
-func (q *DiskOverflowQueue[T]) allowDiskWrite() {
-	select {
-	case q.blockDiskWrite <- struct{}{}:
-	default:
-	}
-}
-
-// startFeedOutput is used to explicitly signal that the feedOutput goroutine
-// may start.
-// This is for the purposes of testing only and will be removed once a specific
-// test flake fix has been demonstrated.
-func (q *DiskOverflowQueue[T]) startFeedOutput() {
-	select {
-	case q.startFeedOutputChan <- struct{}{}:
-	default:
-	}
 }
 
 // start kicks off all the goroutines that are required to manage the queue.
@@ -383,21 +345,6 @@ func (q *DiskOverflowQueue[T]) pushToActiveQueue(task T) bool {
 	// If the queue is in disk mode then any new items should be put
 	// straight into the disk queue.
 	if q.toDisk.Load() {
-
-		// If waitForDiskWriteSignal is true, then we wait here for
-		// an explicit signal before writing the item to disk. This is
-		// for testing only and will be removed once a specific test
-		// flake fix has been demonstrated.
-		if q.waitForDiskWriteSignal {
-			select {
-			case <-q.blockDiskWrite:
-			case <-q.quit:
-				q.leftOverItem3 = &task
-
-				return false
-			}
-		}
-
 		err := q.db.Push(task)
 		if err != nil {
 			// Log and back off for a few seconds and then
@@ -604,18 +551,6 @@ func (q *DiskOverflowQueue[T]) feedOutputChan() {
 		close(q.outputChan)
 		q.wg.Done()
 	}()
-
-	// If waitForFeedOutputSignal is true, then we wait here for an explicit
-	// signal before starting the main loop of the function. This is for
-	// testing only and will be removed once a specific test flake fix has
-	// been demonstrated.
-	if q.waitForFeedOutputSignal {
-		select {
-		case <-q.startFeedOutputChan:
-		case <-q.quit:
-			return
-		}
-	}
 
 	for {
 		select {

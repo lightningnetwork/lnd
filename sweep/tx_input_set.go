@@ -53,6 +53,17 @@ type InputSet interface {
 	// NeedWalletInput returns true if the input set needs more wallet
 	// inputs.
 	NeedWalletInput() bool
+
+	// DeadlineHeight gives the block height that this set must be
+	// confirmed by.
+	DeadlineHeight() int32
+
+	// Budget givens the total amount that can be used as fees by this
+	// input set.
+	Budget() btcutil.Amount
+
+	// OutPoints returns the outpoints of the inputs in this set.
+	OutPoints() []wire.OutPoint
 }
 
 type txInputSetState struct {
@@ -165,6 +176,27 @@ func newTxInputSet(feePerKW, maxFeeRate chainfee.SatPerKWeight,
 // Inputs returns the inputs that should be used to create a tx.
 func (t *txInputSet) Inputs() []input.Input {
 	return t.inputs
+}
+
+// OutPoints returns the outpoints of the inputs in this set.
+func (t *txInputSet) OutPoints() []wire.OutPoint {
+	outpoints := make([]wire.OutPoint, 0, len(t.inputs))
+
+	for _, inp := range t.inputs {
+		outpoints = append(outpoints, *inp.OutPoint())
+	}
+
+	return outpoints
+}
+
+// Budget gives the total amount that can be used as fees by this input set.
+func (t *txInputSet) Budget() btcutil.Amount {
+	return t.totalOutput()
+}
+
+// DeadlineHeight gives the block height that this set must be confirmed by.
+func (t *txInputSet) DeadlineHeight() int32 {
+	return 0
 }
 
 // FeeRate returns the fee rate that should be used for the tx.

@@ -999,6 +999,12 @@ func (s *Server) BuildRoute(ctx context.Context,
 		payAddr = &backingPayAddr
 	}
 
+	if req.FinalCltvDelta == 0 {
+		req.FinalCltvDelta = int32(
+			s.cfg.RouterBackend.DefaultFinalCltvDelta,
+		)
+	}
+
 	// Build the route and return it to the caller.
 	route, err := s.cfg.Router.BuildRoute(
 		amt, hops, outgoingChan, req.FinalCltvDelta, payAddr,

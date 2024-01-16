@@ -81,6 +81,10 @@ type RouterClient interface {
 	// BuildRoute builds a fully specified route based on a list of hop public
 	// keys. It retrieves the relevant channel policies from the graph in order to
 	// calculate the correct fees and time locks.
+	// Note that LND will use its default final_cltv_delta if no value is supplied.
+	// Make sure to add the correct final_cltv_delta depending on the invoice
+	// restriction. Moreover the caller has to make sure to provide the
+	// payment_addr if the route is paying an invoice which signaled it.
 	BuildRoute(ctx context.Context, in *BuildRouteRequest, opts ...grpc.CallOption) (*BuildRouteResponse, error)
 	// SubscribeHtlcEvents creates a uni-directional stream from the server to
 	// the client which delivers a stream of htlc events.
@@ -510,6 +514,10 @@ type RouterServer interface {
 	// BuildRoute builds a fully specified route based on a list of hop public
 	// keys. It retrieves the relevant channel policies from the graph in order to
 	// calculate the correct fees and time locks.
+	// Note that LND will use its default final_cltv_delta if no value is supplied.
+	// Make sure to add the correct final_cltv_delta depending on the invoice
+	// restriction. Moreover the caller has to make sure to provide the
+	// payment_addr if the route is paying an invoice which signaled it.
 	BuildRoute(context.Context, *BuildRouteRequest) (*BuildRouteResponse, error)
 	// SubscribeHtlcEvents creates a uni-directional stream from the server to
 	// the client which delivers a stream of htlc events.

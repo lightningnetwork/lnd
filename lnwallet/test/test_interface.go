@@ -3137,6 +3137,8 @@ func TestLightningWallet(t *testing.T, targetBackEnd string) {
 // chain back-end combination. This makes it easier to use `defer` as well as
 // factoring out the test logic from the loop which cycles through the
 // interface implementations.
+//
+//nolint:lll
 func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 	backEnd string, miningNode *rpctest.Harness,
 	rpcConfig rpcclient.ConnConfig,
@@ -3363,7 +3365,7 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 					Pass:        "weks",
 					PollingConfig: &chain.PollingConfig{
 						BlockPollingInterval: time.Millisecond * 20,
-						TxPollingInterval:    time.Millisecond * 20,
+						TxPollingInterval:    time.Millisecond * 200,
 					},
 					// Fields only required for pruned nodes, not
 					// needed for these tests.

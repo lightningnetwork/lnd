@@ -248,7 +248,7 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 	if rpcpolling {
 		cfg.PollingConfig = &chain.PollingConfig{
 			BlockPollingInterval: time.Millisecond * 20,
-			TxPollingInterval:    time.Millisecond * 20,
+			TxPollingInterval:    time.Millisecond * 200,
 		}
 	} else {
 		cfg.ZMQConfig = &chain.ZMQConfig{

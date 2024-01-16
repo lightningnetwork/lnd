@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -53,6 +54,24 @@ type InputSet interface {
 	// NeedWalletInput returns true if the input set needs more wallet
 	// inputs.
 	NeedWalletInput() bool
+
+	// DeadlineHeight returns an optional absolute block height to express
+	// the time-sensitivity of the input set. The outputs from a force
+	// close tx have different time preferences:
+	// - to_local: no time pressure as it can only be swept by us.
+	// - first level outgoing HTLC: must be swept before its corresponding
+	//   incoming HTLC's CLTV is reached.
+	// - first level incoming HTLC: must be swept before its CLTV is
+	//   reached.
+	// - second level HTLCs: no time pressure.
+	// - anchor: for CPFP-purpose anchor, it must be swept before any of
+	//   the above CLTVs is reached. For non-CPFP purpose anchor, there's
+	//   no time pressure.
+	DeadlineHeight() fn.Option[int32]
+
+	// Budget givens the total amount that can be used as fees by this
+	// input set.
+	Budget() btcutil.Amount
 }
 
 type txInputSetState struct {
@@ -165,6 +184,20 @@ func newTxInputSet(feePerKW, maxFeeRate chainfee.SatPerKWeight,
 // Inputs returns the inputs that should be used to create a tx.
 func (t *txInputSet) Inputs() []input.Input {
 	return t.inputs
+}
+
+// Budget gives the total amount that can be used as fees by this input set.
+//
+// NOTE: this field is only used for `BudgetInputSet`.
+func (t *txInputSet) Budget() btcutil.Amount {
+	return t.totalOutput()
+}
+
+// DeadlineHeight gives the block height that this set must be confirmed by.
+//
+// NOTE: this field is only used for `BudgetInputSet`.
+func (t *txInputSet) DeadlineHeight() fn.Option[int32] {
+	return fn.None[int32]()
 }
 
 // FeeRate returns the fee rate that should be used for the tx.

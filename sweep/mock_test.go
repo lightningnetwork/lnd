@@ -5,8 +5,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -445,4 +447,18 @@ func (m *MockInputSet) NeedWalletInput() bool {
 	args := m.Called()
 
 	return args.Bool(0)
+}
+
+// DeadlineHeight returns the deadline height for the set.
+func (m *MockInputSet) DeadlineHeight() fn.Option[int32] {
+	args := m.Called()
+
+	return args.Get(0).(fn.Option[int32])
+}
+
+// Budget givens the total amount that can be used as fees by this input set.
+func (m *MockInputSet) Budget() btcutil.Amount {
+	args := m.Called()
+
+	return args.Get(0).(btcutil.Amount)
 }

@@ -2108,8 +2108,10 @@ func TestMarkInputsPublishFailed(t *testing.T) {
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputInit to be skipped, and the final input to be marked as
 	// published.
-	s.markInputsPublishFailed([]*wire.TxIn{
-		inputNotExist, inputInit, inputPendingPublish,
+	s.markInputsPublishFailed([]wire.OutPoint{
+		inputNotExist.PreviousOutPoint,
+		inputInit.PreviousOutPoint,
+		inputPendingPublish.PreviousOutPoint,
 	})
 
 	// We expect unchanged number of pending inputs.

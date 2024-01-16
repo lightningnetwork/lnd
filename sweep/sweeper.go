@@ -807,8 +807,13 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 		tx, labels.MakeLabel(labels.LabelTypeSweepTransaction, nil),
 	)
 	if err != nil {
+		outpoints := make([]wire.OutPoint, len(set.Inputs()))
+		for i, inp := range set.Inputs() {
+			outpoints[i] = *inp.OutPoint()
+		}
+
 		// TODO(yy): find out which input is causing the failure.
-		s.markInputsPublishFailed(tx.TxIn)
+		s.markInputsPublishFailed(outpoints)
 
 		return err
 	}
@@ -932,17 +937,16 @@ func (s *UtxoSweeper) markInputsPublished(tr *TxRecord,
 }
 
 // markInputsPublishFailed marks the list of inputs as failed to be published.
-func (s *UtxoSweeper) markInputsPublishFailed(inputs []*wire.TxIn) {
+func (s *UtxoSweeper) markInputsPublishFailed(outpoints []wire.OutPoint) {
 	// Reschedule sweep.
-	for _, input := range inputs {
-		pi, ok := s.pendingInputs[input.PreviousOutPoint]
+	for _, op := range outpoints {
+		pi, ok := s.pendingInputs[op]
 		if !ok {
 			// It could be that this input is an additional wallet
 			// input that was attached. In that case there also
 			// isn't a pending input to update.
 			log.Debugf("Skipped marking input as publish failed: "+
-				"%v not found in pending inputs",
-				input.PreviousOutPoint)
+				"%v not found in pending inputs", op)
 
 			continue
 		}
@@ -950,13 +954,12 @@ func (s *UtxoSweeper) markInputsPublishFailed(inputs []*wire.TxIn) {
 		// Valdiate that the input is in an expected state.
 		if pi.state != StatePendingPublish {
 			log.Errorf("Expect input %v to have %v, instead it "+
-				"has %v", input.PreviousOutPoint,
-				StatePendingPublish, pi.state)
+				"has %v", op, StatePendingPublish, pi.state)
 
 			continue
 		}
 
-		log.Warnf("Failed to publish input %v", input.PreviousOutPoint)
+		log.Warnf("Failed to publish input %v", op)
 
 		// Update the input's state.
 		pi.state = StatePublishFailed

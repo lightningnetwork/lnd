@@ -31,7 +31,7 @@ endif
 
 GOBUILD := $(LOOPVARFIX) go build -v
 GOINSTALL := $(LOOPVARFIX) go install -v
-GOTEST := $(LOOPVARFIX) go test
+GOTEST := go test
 
 GOFILES_NOVENDOR = $(shell find . -type f -name '*.go' -not -path "./vendor/*" -not -name "*pb.go" -not -name "*pb.gw.go" -not -name "*.pb.json.go")
 

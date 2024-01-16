@@ -71,6 +71,7 @@ func walletCommands() []cli.Command {
 				pendingSweepsCommand,
 				bumpFeeCommand,
 				bumpCloseFeeCommand,
+				bumpForceCloseFeeCommand,
 				listSweepsCommand,
 				labelTxCommand,
 				publishTxCommand,
@@ -266,14 +267,19 @@ func bumpFee(ctx *cli.Context) error {
 
 var bumpCloseFeeCommand = cli.Command{
 	Name:      "bumpclosefee",
-	Usage:     "Bumps the fee of a channel closing transaction.",
+	Usage:     "Bumps the fee of a channel force closing transaction.",
 	ArgsUsage: "channel_point",
+	Hidden:    true,
 	Description: `
-	This command allows the fee of a channel closing transaction to be
-	increased by using the child-pays-for-parent mechanism. It will instruct
-	the sweeper to sweep the anchor outputs of transactions in the set
-	of valid commitments for the specified channel at the requested fee
-	rate or confirmation target.
+	This command works only for unilateral closes of anchor channels. It
+	allows the fee of a channel force closing transaction to be increased by
+	using the child-pays-for-parent mechanism. It will instruct the sweeper
+	to sweep the anchor outputs of the closing transaction at the requested
+	fee rate or confirmation target. The specified fee rate will be the
+	effective fee rate taking the parent fee into account.
+	Depending on the sweeper configuration (batchwindowduration) the sweeptx
+	will not be published immediately.
+	NOTE: This cmd is DEPRECATED please use bumpforceclosefee instead.
 	`,
 	Flags: []cli.Flag{
 		cli.Uint64Flag{
@@ -292,10 +298,44 @@ var bumpCloseFeeCommand = cli.Command{
 				"should be used when sweeping the output",
 		},
 	},
-	Action: actionDecorator(bumpCloseFee),
+	Action: actionDecorator(bumpForceCloseFee),
 }
 
-func bumpCloseFee(ctx *cli.Context) error {
+var bumpForceCloseFeeCommand = cli.Command{
+	Name:      "bumpforceclosefee",
+	Usage:     "Bumps the fee of a channel force closing transaction.",
+	ArgsUsage: "channel_point",
+	Description: `
+	This command works only for unilateral closes of anchor channels. It
+	allows the fee of a channel force closing transaction to be increased by
+	using the child-pays-for-parent mechanism. It will instruct the sweeper
+	to sweep the anchor outputs of the closing transaction at the requested
+	fee rate or confirmation target. The specified fee rate will be the
+	effective fee rate taking the parent fee into account.
+	Depending on the sweeper configuration (batchwindowduration) the sweeptx
+	will not be published immediately.
+	`,
+	Flags: []cli.Flag{
+		cli.Uint64Flag{
+			Name: "conf_target",
+			Usage: "the number of blocks that the output should " +
+				"be swept on-chain within",
+		},
+		cli.Uint64Flag{
+			Name:   "sat_per_byte",
+			Usage:  "Deprecated, use sat_per_vbyte instead.",
+			Hidden: true,
+		},
+		cli.Uint64Flag{
+			Name: "sat_per_vbyte",
+			Usage: "a manual fee expressed in sat/vbyte that " +
+				"should be used when sweeping the output",
+		},
+	},
+	Action: actionDecorator(bumpForceCloseFee),
+}
+
+func bumpForceCloseFee(ctx *cli.Context) error {
 	ctxc := getContext()
 
 	// Display the command's help message if we do not have the expected
@@ -368,19 +408,20 @@ func bumpCloseFee(ctx *cli.Context) error {
 			continue
 		}
 
-		// Bump fee of the anchor sweep.
-		fmt.Printf("Bumping fee of %v:%v\n",
-			sweepTxID, sweep.Outpoint.OutputIndex)
-
-		_, err = walletClient.BumpFee(ctxc, &walletrpc.BumpFeeRequest{
-			Outpoint:    sweep.Outpoint,
-			TargetConf:  uint32(ctx.Uint64("conf_target")),
-			SatPerVbyte: ctx.Uint64(feeRateFlag),
-			Force:       true,
-		})
+		resp, err := walletClient.BumpFee(
+			ctxc, &walletrpc.BumpFeeRequest{
+				Outpoint:    sweep.Outpoint,
+				TargetConf:  uint32(ctx.Uint64("conf_target")),
+				SatPerVbyte: ctx.Uint64(feeRateFlag),
+				Force:       true,
+			})
 		if err != nil {
 			return err
 		}
+
+		// Bump fee of the anchor sweep.
+		fmt.Printf("Bumping fee of %v:%v: %v\n",
+			sweepTxID, sweep.Outpoint.OutputIndex, resp.GetStatus())
 	}
 
 	return nil

@@ -974,7 +974,9 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	_, err = w.cfg.Sweeper.UpdateParams(*op, params)
 	switch err {
 	case nil:
-		return &BumpFeeResponse{}, nil
+		return &BumpFeeResponse{
+			Status: "Successfully registered rbf-tx with sweeper",
+		}, nil
 	case lnwallet.ErrNotMine:
 		break
 	default:
@@ -1040,7 +1042,9 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 		return nil, err
 	}
 
-	return &BumpFeeResponse{}, nil
+	return &BumpFeeResponse{
+		Status: "Successfully registered cpfp-tx with the sweeper",
+	}, nil
 }
 
 // ListSweeps returns a list of the sweeps that our node has published.

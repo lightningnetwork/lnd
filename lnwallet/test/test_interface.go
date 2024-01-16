@@ -1468,15 +1468,20 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 	// We'll also ensure that the client is able to send our new
 	// notifications when we _create_ transactions ourselves that spend our
 	// own outputs.
-	b := txscript.NewScriptBuilder()
-	b.AddOp(txscript.OP_RETURN)
-	outputScript, err := b.Script()
-	require.NoError(t, err, "unable to make output script")
+	addr, err := alice.NewAddress(
+		lnwallet.WitnessPubKey, false,
+		lnwallet.DefaultAccountName,
+	)
+	require.NoError(t, err)
+
+	outputScript, err := txscript.PayToAddrScript(addr)
+	require.NoError(t, err)
+
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
 	tx, err := alice.SendOutputs(
 		[]*wire.TxOut{burnOutput}, 2500, 1, labels.External,
 	)
-	require.NoError(t, err, "unable to create burn tx")
+	require.NoError(t, err, "unable to create tx")
 	txid := tx.TxHash()
 	err = waitForMempoolTx(miner, &txid)
 	require.NoError(t, err, "tx not relayed to miner")

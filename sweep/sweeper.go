@@ -52,11 +52,22 @@ type Params struct {
 
 	// Force indicates whether the input should be swept regardless of
 	// whether it is economical to do so.
+	//
+	// TODO(yy): Remove this param once deadline based sweeping is in place.
 	Force bool
 
 	// ExclusiveGroup is an identifier that, if set, prevents other inputs
 	// with the same identifier from being batched together.
 	ExclusiveGroup *uint64
+
+	// DeadlineHeight specifies an absolute block height that this input
+	// should be confirmed by. This value is used by the fee bumper to
+	// decide its urgency and adjust its feerate used.
+	DeadlineHeight int32
+
+	// Budget specifies the maximum amount of satoshis that can be spent on
+	// fees for this sweep.
+	Budget btcutil.Amount
 }
 
 // ParamsUpdate contains a new set of parameters to update a pending sweep with.

@@ -1,8 +1,10 @@
 package sweep
 
 import (
+	"math"
 	"sort"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -458,4 +460,166 @@ func zipClusters(as, bs []inputCluster) []inputCluster {
 	}
 
 	return finalClusters
+}
+
+// BudgetAggregator is a budget-based aggregator that creates clusters based on
+// deadlines and budgets of inputs.
+type BudgetAggregator struct {
+	// estimator is used when crafting sweep transactions to estimate the
+	// necessary fee relative to the expected size of the sweep
+	// transaction.
+	estimator chainfee.Estimator
+
+	// minFeeRate is used to calculate the cost of adding inputs to the
+	// set. We use min feerate to make sure we don't end up creating a tx
+	// that cannot even be relayed.
+	minFeeRate chainfee.SatPerKWeight
+
+	// maxInputs specifies the maximum number of inputs allowed in a single
+	// sweep tx.
+	maxInputs int
+}
+
+// Compile-time constraint to ensure BudgetAggregator implements UtxoAggregator.
+var _ UtxoAggregator = (*BudgetAggregator)(nil)
+
+// NewBudgetAggregator creates a new instance of a BudgetAggregator.
+func NewBudgetAggregator(estimator chainfee.Estimator,
+	minFeeRate chainfee.SatPerKWeight, maxInputs int) *BudgetAggregator {
+
+	return &BudgetAggregator{
+		estimator:  estimator,
+		minFeeRate: minFeeRate,
+		maxInputs:  maxInputs,
+	}
+}
+
+// ClusterInputs creates a list of input sets from pending inputs. It groups
+// the inputs based on their deadline heights, and sort each input on a
+// descending budget within each group. The group is then passed to
+// budgetInputSet which creates an InputSet by further selecting inputs based
+// on their economical value.
+func (b *BudgetAggregator) ClusterInputs(inputs pendingInputs) []InputSet {
+	clusters := make(map[int32][]*pendingInput)
+
+	// Iterate all the inputs and group them based on their specified
+	// deadline heights.
+	for _, input := range inputs {
+		height := input.params.DeadlineHeight
+		inputs, ok := clusters[height]
+		if !ok {
+			inputs = make([]*pendingInput, 0)
+			clusters[height] = inputs
+		}
+
+		// Skip inputs if the max allowed number is reached.
+		//
+		// TODO(yy): we can further cluster these inputs into a new
+		// set here instead of waiting for next round.
+		if len(inputs) >= b.maxInputs {
+			log.Warnf("Cluster(deadline=%v) has %v inputs, max is "+
+				"%v, waiting for next round", height,
+				len(inputs), b.maxInputs)
+
+			continue
+		}
+
+		inputs = append(inputs, input)
+	}
+
+	// Now that we have the clusters, we can create the input sets.
+	inputSets := make([]InputSet, 0, len(clusters))
+	for deadline, inputs := range clusters {
+		set := b.createInputSet(inputs, deadline)
+		inputSets = append(inputSets, set)
+	}
+
+	return inputSets
+
+}
+
+// createInputSet takes a set of inputs which share the same deadline height
+// and turns them into an InputSet which can be used to create a sweep
+// transaction.
+func (b *BudgetAggregator) createInputSet(inputs []*pendingInput,
+	deadline int32) InputSet {
+
+	// Sort the inputs by their economical value.
+	sortedInputs := b.filterAndSort(inputs)
+
+	// Create the input set and add the inputs conditionally based on their
+	// economical contribution.
+	set := newBudgetInputSet(deadline)
+	for _, pi := range sortedInputs {
+		// Exit early if this input is not added to the set as these
+		// inputs are already sorted based their costs.
+		if !set.addInput(pi) {
+			break
+		}
+	}
+
+	return set
+}
+
+// filterAndSort...
+func (b *BudgetAggregator) filterAndSort(
+	inputs []*pendingInput) []*pendingInput {
+
+	// filterInputs stores a map of inputs that has a budget that at least
+	// can pay the minimal fee.
+	filteredInputs := make(map[btcutil.Amount]*pendingInput)
+
+	// budgetList is a slice of all the budgets for the filtered inputs and
+	// is used for sorting inputs based on budget left.
+	budgetList := make([]btcutil.Amount, 0, len(filteredInputs))
+
+	// sortedInputs is the final list of inputs sorted by their economical
+	// value.
+	sortedInputs := make([]*pendingInput, 0, len(filteredInputs))
+
+	// Iterate all the inputs and filter out the ones whose budget cannot
+	// cover the min fee.
+	for _, pi := range inputs {
+		op := pi.OutPoint()
+
+		// Get the size and skip if there's an error.
+		size, _, err := pi.WitnessType().SizeUpperBound()
+		if err != nil {
+			log.Errorf("Get weight for input=%v: %v", op, err)
+			continue
+		}
+
+		// Skip inputs that has too little budget.
+		minFee := b.minFeeRate.FeeForWeight(int64(size))
+		if pi.params.Budget < minFee {
+			log.Errorf("Input=%v has budget=%v, but the min fee "+
+				"requires %v", op, pi.params.Budget, minFee)
+			continue
+		}
+
+		// Calculate the budget left after paying the min fee.
+		budgetLeft := pi.params.Budget - minFee
+
+		// Make sure forced inputs are always put in the front.
+		if pi.params.Force {
+			budgetLeft = btcutil.Amount(math.MaxInt64)
+		}
+
+		budgetList = append(budgetList, budgetLeft)
+		filteredInputs[budgetLeft] = pi
+	}
+
+	// TODO(yy): need more sophisticated algorithm as the budget left is a
+	// function over the feerate used:
+	// b1 - s1 * r > b2 - s2 * r
+	sort.Slice(budgetList, func(i, j int) bool {
+		return budgetList[i] > budgetList[j]
+	})
+
+	// Now that the keys are sorted, construct the final sorted slice.
+	for _, b := range budgetList {
+		sortedInputs = append(sortedInputs, filteredInputs[b])
+	}
+
+	return sortedInputs
 }

@@ -540,3 +540,194 @@ func createWalletTxInput(utxo *lnwallet.Utxo) (input.Input, error) {
 		&utxo.OutPoint, witnessType, signDesc, heightHint,
 	), nil
 }
+
+// budgetInputSet implements the interface `InputSet`. It takes a list of
+// pending inputs which share the same deadline height and groups them into a
+// set conditionally based on their economical values.
+type budgetInputSet struct {
+	// inputs is the set of inputs that have been added to the set after
+	// considering their economical contribution.
+	inputs []*pendingInput
+
+	// budget is the total budget that can be spent as fees.
+	budget btcutil.Amount
+
+	// deadlineHeight is the height which the inputs in this set must be
+	// confirmed by.
+	deadlineHeight int32
+}
+
+// Compile-time constraint to ensure budgetInputSet implements InputSet.
+var _ InputSet = (*budgetInputSet)(nil)
+
+// newBudgetInputSet creates a new budgetInputSet.
+func newBudgetInputSet(deadlineHeight int32) *budgetInputSet {
+	return &budgetInputSet{
+		deadlineHeight: deadlineHeight,
+	}
+}
+
+// addInput adds an input to the set if it is economically viable. It returns
+// true if the input was added to the set.
+func (b *budgetInputSet) addInput(pi *pendingInput) bool {
+	// If the input comes with a required tx out that is below dust, we
+	// won't add it.
+	//
+	// NOTE: only HtlcSecondLevelAnchorInput returns non-nil RequiredTxOut.
+	reqOut := pi.RequiredTxOut()
+	if reqOut != nil {
+		// Fetch the dust limit for this output.
+		dustLimit := lnwallet.DustLimitForSize(len(reqOut.PkScript))
+		if btcutil.Amount(reqOut.Value) < dustLimit {
+			log.Errorf("Rejected input=%v due to dust required "+
+				"output=%v, limit=%v", pi, reqOut.Value,
+				dustLimit)
+
+			return false
+		}
+	}
+
+	// Make sure the deadlines can be matched to make sure the fee bumper
+	// can given accurate feerates. More importantly, for second-level HTLC
+	// txns, the same tx-level `nLockTime` must be the same in order for
+	// them to be aggregated into the same sweeping tx. This `nLockTime`
+	// value is implicitly expressed as the deadline height.
+	if b.deadlineHeight != pi.params.DeadlineHeight {
+		log.Errorf("Rejected input=%v due to deadline mismatch "+
+			"required=%v, has=%v", pi, pi.params.DeadlineHeight)
+
+		return false
+	}
+
+	// All checks passed, update the budget and inputs.
+	b.budget += pi.params.Budget
+	b.inputs = append(b.inputs, pi)
+
+	return true
+}
+
+// NeedWalletInput returns true if the input set needs more wallet inputs.
+func (b *budgetInputSet) NeedWalletInput() bool {
+	var (
+		// budgetNeeded is the amount that needs to be covered from
+		// other inputs.
+		budgetNeeded btcutil.Amount
+
+		// budgetBorrowable is the amount that can be borrowed from
+		// other inputs.
+		budgetBorrowable btcutil.Amount
+	)
+
+	for _, inp := range b.inputs {
+		// If this input has a required output, we can assume it's a
+		// second-level htlc txns input. Although this input must have
+		// a value that can cover its budget, it cannot be used to pay
+		// fees. Instead, we need to borrow budget from other inputs to
+		// make the sweep happen. Once swept, the input value will be
+		// credited to the wallet.
+		if inp.RequiredTxOut() != nil {
+			budgetNeeded += inp.params.Budget
+			continue
+		}
+
+		// Get the amount left after covering the input's own budget.
+		// This amount can then be lent to the above input.
+		output := btcutil.Amount(inp.SignDesc().Output.Value)
+		budgetBorrowable += output - inp.params.Budget
+	}
+
+	// If we have extra budget to borrow, we don't need more wallet inputs.
+	return budgetBorrowable > budgetNeeded
+}
+
+// AddWalletInputs adds wallet inputs to the set until a non-dust change output
+// can be made. Return an error if there are not enough wallet inputs.
+func (b *budgetInputSet) AddWalletInputs(wallet Wallet) error {
+	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
+	// problems around RBF rules for unconfirmed inputs. This currently
+	// ignores the configured coin selection strategy.
+	utxos, err := wallet.ListUnspentWitnessFromDefaultAccount(
+		1, math.MaxInt32,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Sort the UTXOs by putting smaller values at the start of the slice
+	// to avoid locking large UTXO for sweeping.
+	//
+	// TODO(yy): add more choices to CoinSelectionStrategy and use the
+	// configured value here.
+	sort.Slice(utxos, func(i, j int) bool {
+		return utxos[i].Value < utxos[j].Value
+	})
+
+	for _, utxo := range utxos {
+		input, err := createWalletTxInput(utxo)
+		if err != nil {
+			return err
+		}
+
+		pi := &pendingInput{
+			Input: input,
+		}
+
+		b.addInput(pi)
+
+		// Return if we've reached the minimum output amount.
+		if !b.NeedWalletInput() {
+			return nil
+		}
+
+	}
+
+	return ErrNotEnoughInputs
+}
+
+// Budget returns the total budget of the set.
+//
+// NOTE: part of the InputSet interface.
+func (b *budgetInputSet) Budget() btcutil.Amount {
+	return b.budget
+}
+
+// DeadlineHeight returns the deadline height of the set.
+//
+// NOTE: part of the InputSet interface.
+func (b *budgetInputSet) DeadlineHeight() int32 {
+	return b.deadlineHeight
+}
+
+// OutPoints returns the outpoints of the inputs in the set.
+//
+// NOTE: part of the InputSet interface.
+func (b *budgetInputSet) OutPoints() []wire.OutPoint {
+	outpoints := make([]wire.OutPoint, 0, len(b.inputs))
+
+	for _, inp := range b.inputs {
+		outpoints = append(outpoints, *inp.OutPoint())
+	}
+
+	return outpoints
+}
+
+// Inputs returns the inputs that should be used to create a tx.
+//
+// NOTE: part of the InputSet interface.
+func (b *budgetInputSet) Inputs() []input.Input {
+	inputs := make([]input.Input, 0, len(b.inputs))
+	for _, inp := range b.inputs {
+		inputs = append(inputs, inp.Input)
+	}
+
+	return inputs
+}
+
+// FeeRate returns the fee rate that should be used for the tx.
+//
+// NOTE: part of the InputSet interface.
+//
+// TODO(yy): will be removed once fee bumper is implemented.
+func (b *budgetInputSet) FeeRate() chainfee.SatPerKWeight {
+	return 0
+}

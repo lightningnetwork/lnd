@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
-	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -1556,7 +1555,18 @@ var buildRouteCommand = cli.Command{
 	Name:     "buildroute",
 	Category: "Payments",
 	Usage:    "Build a route from a list of hop pubkeys.",
-	Action:   actionDecorator(buildRoute),
+	Description: `
+	Builds a sphinx route for the supplied hops (public keys). Make sure to
+	use a custom final_cltv_delta to create the route depending on the
+	restrictions in the invoice otherwise LND will use its default specified
+	via the bitcoin.timelockdelta setting (default 80).
+	If the final_cltv_delta mismatch you will likely see the error
+	INCORRECT_OR_UNKNOWN_PAYMENT_DETAILS returned by the receiving node.
+
+	Moreover a payment_addr has to be provided if the invoice supplied it as
+	well otherwise the payment will be rejected by the receiving node.
+	`,
+	Action: actionDecorator(buildRoute),
 	Flags: []cli.Flag{
 		cli.Int64Flag{
 			Name: "amt",
@@ -1566,8 +1576,8 @@ var buildRouteCommand = cli.Command{
 		cli.Int64Flag{
 			Name: "final_cltv_delta",
 			Usage: "number of blocks the last hop has to reveal " +
-				"the preimage",
-			Value: chainreg.DefaultBitcoinTimeLockDelta,
+				"the preimage; if not set the default lnd " +
+				"final_cltv_delta is used",
 		},
 		cli.StringFlag{
 			Name:  "hops",
@@ -1622,10 +1632,11 @@ func buildRoute(ctx *cli.Context) error {
 		payAddr []byte
 		err     error
 	)
+
 	if ctx.IsSet("payment_addr") {
 		payAddr, err = hex.DecodeString(ctx.String("payment_addr"))
 		if err != nil {
-			return fmt.Errorf("error parsing payment_addr: %v", err)
+			return fmt.Errorf("error parsing payment_addr: %w", err)
 		}
 	}
 

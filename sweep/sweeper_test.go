@@ -33,6 +33,8 @@ var (
 	testMaxInputsPerTx = uint32(3)
 
 	defaultFeePref = Params{Fee: FeeEstimateInfo{ConfTarget: 1}}
+
+	errDummy = errors.New("dummy error")
 )
 
 type sweeperTestContext struct {
@@ -137,6 +139,12 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 		currentHeight: mockChainHeight,
 	}
 
+	// Create a mock fee bumper.
+	mockBumper := &MockBumper{}
+	t.Cleanup(func() {
+		mockBumper.AssertExpectations(t)
+	})
+
 	ctx.sweeper = New(&UtxoSweeperConfig{
 		Notifier: notifier,
 		Wallet:   backend,
@@ -153,6 +161,7 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 		MaxSweepAttempts: testMaxSweepAttempts,
 		MaxFeeRate:       DefaultMaxFeeRate,
 		Aggregator:       aggregator,
+		Publisher:        mockBumper,
 	})
 
 	ctx.sweeper.Start()
@@ -2410,16 +2419,27 @@ func TestSweepPendingInputs(t *testing.T) {
 
 	// Create a mock wallet and aggregator.
 	wallet := &MockWallet{}
+	defer wallet.AssertExpectations(t)
+
 	aggregator := &mockUtxoAggregator{}
+	defer aggregator.AssertExpectations(t)
+
+	publisher := &MockBumper{}
+	defer publisher.AssertExpectations(t)
 
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
 		Wallet:     wallet,
 		Aggregator: aggregator,
+		Publisher:  publisher,
+		GenSweepScript: func() ([]byte, error) {
+			return testPubKey.SerializeCompressed(), nil
+		},
 	})
 
 	// Create an input set that needs wallet inputs.
 	setNeedWallet := &MockInputSet{}
+	defer setNeedWallet.AssertExpectations(t)
 
 	// Mock this set to ask for wallet input.
 	setNeedWallet.On("NeedWalletInput").Return(true).Once()
@@ -2430,15 +2450,18 @@ func TestSweepPendingInputs(t *testing.T) {
 
 	// Create an input set that doesn't need wallet inputs.
 	normalSet := &MockInputSet{}
+	defer normalSet.AssertExpectations(t)
+
 	normalSet.On("NeedWalletInput").Return(false).Once()
 
 	// Mock the methods used in `sweep`. This is not important for this
 	// unit test.
-	feeRate := chainfee.SatPerKWeight(1000)
-	setNeedWallet.On("Inputs").Return(nil).Once()
-	setNeedWallet.On("FeeRate").Return(feeRate).Once()
-	normalSet.On("Inputs").Return(nil).Once()
-	normalSet.On("FeeRate").Return(feeRate).Once()
+	setNeedWallet.On("Inputs").Return(nil).Times(4)
+	setNeedWallet.On("DeadlineHeight").Return(fn.None[int32]()).Once()
+	setNeedWallet.On("Budget").Return(btcutil.Amount(1)).Once()
+	normalSet.On("Inputs").Return(nil).Times(4)
+	normalSet.On("DeadlineHeight").Return(fn.None[int32]()).Once()
+	normalSet.On("Budget").Return(btcutil.Amount(1)).Once()
 
 	// Make pending inputs for testing. We don't need real values here as
 	// the returned clusters are mocked.
@@ -2449,19 +2472,369 @@ func TestSweepPendingInputs(t *testing.T) {
 		setNeedWallet, normalSet,
 	})
 
-	// Set change output script to an invalid value. This should cause the
+	// Mock `Broadcast` to return an error. This should cause the
 	// `createSweepTx` inside `sweep` to fail. This is done so we can
 	// terminate the method early as we are only interested in testing the
 	// workflow in `sweepPendingInputs`. We don't need to test `sweep` here
 	// as it should be tested in its own unit test.
-	s.currentOutputScript = []byte{1}
+	dummyErr := errors.New("dummy error")
+	publisher.On("Broadcast", mock.Anything).Return(nil, dummyErr).Twice()
 
 	// Call the method under test.
 	s.sweepPendingInputs(pis)
+}
 
-	// Assert mocked methods are called as expected.
-	wallet.AssertExpectations(t)
-	aggregator.AssertExpectations(t)
-	setNeedWallet.AssertExpectations(t)
-	normalSet.AssertExpectations(t)
+// TestHandleBumpEventTxFailed checks that the sweeper correctly handles the
+// case where the bump event tx fails to be published.
+func TestHandleBumpEventTxFailed(t *testing.T) {
+	t.Parallel()
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{})
+
+	var (
+		// Create four testing outpoints.
+		op1        = wire.OutPoint{Hash: chainhash.Hash{1}}
+		op2        = wire.OutPoint{Hash: chainhash.Hash{2}}
+		op3        = wire.OutPoint{Hash: chainhash.Hash{3}}
+		opNotExist = wire.OutPoint{Hash: chainhash.Hash{4}}
+	)
+
+	// Create three mock inputs.
+	input1 := &input.MockInput{}
+	defer input1.AssertExpectations(t)
+
+	input2 := &input.MockInput{}
+	defer input2.AssertExpectations(t)
+
+	input3 := &input.MockInput{}
+	defer input3.AssertExpectations(t)
+
+	// Construct the initial state for the sweeper.
+	s.pendingInputs = pendingInputs{
+		op1: &pendingInput{Input: input1, state: StatePendingPublish},
+		op2: &pendingInput{Input: input2, state: StatePendingPublish},
+		op3: &pendingInput{Input: input3, state: StatePendingPublish},
+	}
+
+	// Create a testing tx that spends the first two inputs.
+	tx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op1},
+			{PreviousOutPoint: op2},
+			{PreviousOutPoint: opNotExist},
+		},
+	}
+
+	// Create a testing bump result.
+	br := &BumpResult{
+		Tx:    tx,
+		Event: TxFailed,
+		Err:   errDummy,
+	}
+
+	// Call the method under test.
+	err := s.handleBumpEvent(br)
+	require.ErrorIs(t, err, errDummy)
+
+	// Assert the states of the first two inputs are updated.
+	require.Equal(t, StatePublishFailed, s.pendingInputs[op1].state)
+	require.Equal(t, StatePublishFailed, s.pendingInputs[op2].state)
+
+	// Assert the state of the third input is not updated.
+	require.Equal(t, StatePendingPublish, s.pendingInputs[op3].state)
+
+	// Assert the non-existing input is not added to the pending inputs.
+	require.NotContains(t, s.pendingInputs, opNotExist)
+}
+
+// TestHandleBumpEventTxReplaced checks that the sweeper correctly handles the
+// case where the bump event tx is replaced.
+func TestHandleBumpEventTxReplaced(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store: store,
+	})
+
+	// Create a testing outpoint.
+	op := wire.OutPoint{Hash: chainhash.Hash{1}}
+
+	// Create a mock input.
+	inp := &input.MockInput{}
+	defer inp.AssertExpectations(t)
+
+	// Construct the initial state for the sweeper.
+	s.pendingInputs = pendingInputs{
+		op: &pendingInput{Input: inp, state: StatePendingPublish},
+	}
+
+	// Create a testing tx that spends the input.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+
+	// Create a replacement tx.
+	replacementTx := &wire.MsgTx{
+		LockTime: 2,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+
+	// Create a testing bump result.
+	br := &BumpResult{
+		Tx:         replacementTx,
+		ReplacedTx: tx,
+		Event:      TxReplaced,
+	}
+
+	// Mock the store to return an error.
+	dummyErr := errors.New("dummy error")
+	store.On("GetTx", tx.TxHash()).Return(nil, dummyErr).Once()
+
+	// Call the method under test and assert the error is returned.
+	err := s.handleBumpEventTxReplaced(br)
+	require.ErrorIs(t, err, dummyErr)
+
+	// Mock the store to return the old tx record.
+	store.On("GetTx", tx.TxHash()).Return(&TxRecord{
+		Txid: tx.TxHash(),
+	}, nil).Once()
+
+	// Mock an error returned when deleting the old tx record.
+	store.On("DeleteTx", tx.TxHash()).Return(dummyErr).Once()
+
+	// Call the method under test and assert the error is returned.
+	err = s.handleBumpEventTxReplaced(br)
+	require.ErrorIs(t, err, dummyErr)
+
+	// Mock the store to return the old tx record and delete it without
+	// error.
+	store.On("GetTx", tx.TxHash()).Return(&TxRecord{
+		Txid: tx.TxHash(),
+	}, nil).Once()
+	store.On("DeleteTx", tx.TxHash()).Return(nil).Once()
+
+	// Mock the store to save the new tx record.
+	store.On("StoreTx", &TxRecord{
+		Txid:      replacementTx.TxHash(),
+		Published: true,
+	}).Return(nil).Once()
+
+	// Call the method under test.
+	err = s.handleBumpEventTxReplaced(br)
+	require.NoError(t, err)
+
+	// Assert the state of the input is updated.
+	require.Equal(t, StatePublished, s.pendingInputs[op].state)
+}
+
+// TestHandleBumpEventTxPublished checks that the sweeper correctly handles the
+// case where the bump event tx is published.
+func TestHandleBumpEventTxPublished(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store: store,
+	})
+
+	// Create a testing outpoint.
+	op := wire.OutPoint{Hash: chainhash.Hash{1}}
+
+	// Create a mock input.
+	inp := &input.MockInput{}
+	defer inp.AssertExpectations(t)
+
+	// Construct the initial state for the sweeper.
+	s.pendingInputs = pendingInputs{
+		op: &pendingInput{Input: inp, state: StatePendingPublish},
+	}
+
+	// Create a testing tx that spends the input.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+
+	// Create a testing bump result.
+	br := &BumpResult{
+		Tx:    tx,
+		Event: TxPublished,
+	}
+
+	// Mock the store to save the new tx record.
+	store.On("StoreTx", &TxRecord{
+		Txid:      tx.TxHash(),
+		Published: true,
+	}).Return(nil).Once()
+
+	// Call the method under test.
+	err := s.handleBumpEventTxPublished(br)
+	require.NoError(t, err)
+
+	// Assert the state of the input is updated.
+	require.Equal(t, StatePublished, s.pendingInputs[op].state)
+}
+
+// TestMonitorFeeBumpResult checks that the fee bump monitor loop correctly
+// exits when the sweeper is stopped, the tx is confirmed or failed.
+func TestMonitorFeeBumpResult(t *testing.T) {
+	// Create a mock store.
+	store := &MockSweeperStore{}
+	defer store.AssertExpectations(t)
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Store: store,
+	})
+
+	// Create a testing outpoint.
+	op := wire.OutPoint{Hash: chainhash.Hash{1}}
+
+	// Create a mock input.
+	inp := &input.MockInput{}
+	defer inp.AssertExpectations(t)
+
+	// Construct the initial state for the sweeper.
+	s.pendingInputs = pendingInputs{
+		op: &pendingInput{Input: inp, state: StatePendingPublish},
+	}
+
+	// Create a testing tx that spends the input.
+	tx := &wire.MsgTx{
+		LockTime: 1,
+		TxIn: []*wire.TxIn{
+			{PreviousOutPoint: op},
+		},
+	}
+
+	testCases := []struct {
+		name            string
+		setupResultChan func() <-chan *BumpResult
+		shouldExit      bool
+	}{
+		{
+			// When a tx confirmed event is received, we expect to
+			// exit the monitor loop.
+			name: "tx confirmed",
+			// We send a result with TxConfirmed event to the
+			// result channel.
+			setupResultChan: func() <-chan *BumpResult {
+				// Create a result chan.
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Tx:      tx,
+					Event:   TxConfirmed,
+					Fee:     10000,
+					FeeRate: 100,
+				}
+
+				return resultChan
+			},
+			shouldExit: true,
+		},
+		{
+			// When a tx failed event is received, we expect to
+			// exit the monitor loop.
+			name: "tx failed",
+			// We send a result with TxConfirmed event to the
+			// result channel.
+			setupResultChan: func() <-chan *BumpResult {
+				// Create a result chan.
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Tx:    tx,
+					Event: TxFailed,
+					Err:   errDummy,
+				}
+
+				return resultChan
+			},
+			shouldExit: true,
+		},
+		{
+			// When processing non-confirmed events, the monitor
+			// should not exit.
+			name: "no exit on normal event",
+			// We send a result with TxPublished and mock the
+			// method `StoreTx` to return nil.
+			setupResultChan: func() <-chan *BumpResult {
+				// Create a result chan.
+				resultChan := make(chan *BumpResult, 1)
+				resultChan <- &BumpResult{
+					Tx:    tx,
+					Event: TxPublished,
+				}
+
+				return resultChan
+			},
+			shouldExit: false,
+		}, {
+			// When the sweeper is shutting down, the monitor loop
+			// should exit.
+			name: "exit on sweeper shutdown",
+			// We don't send anything but quit the sweeper.
+			setupResultChan: func() <-chan *BumpResult {
+				close(s.quit)
+
+				return nil
+			},
+			shouldExit: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup the testing result channel.
+			resultChan := tc.setupResultChan()
+
+			// Create a done chan that's used to signal the monitor
+			// has exited.
+			done := make(chan struct{})
+
+			s.wg.Add(1)
+			go func() {
+				s.monitorFeeBumpResult(resultChan)
+				close(done)
+			}()
+
+			// The monitor is expected to exit, we check it's done
+			// in one second or fail.
+			if tc.shouldExit {
+				select {
+				case <-done:
+				case <-time.After(1 * time.Second):
+					require.Fail(t, "monitor not exited")
+				}
+
+				return
+			}
+
+			// The monitor should not exit, check it doesn't close
+			// the `done` channel within one second.
+			select {
+			case <-done:
+				require.Fail(t, "monitor exited")
+			case <-time.After(1 * time.Second):
+			}
+		})
+	}
 }

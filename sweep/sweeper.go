@@ -13,7 +13,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -369,6 +368,10 @@ type UtxoSweeperConfig struct {
 	// Aggregator is used to group inputs into clusters based on its
 	// implemention-specific strategy.
 	Aggregator UtxoAggregator
+
+	// Publisher is used to publish the sweep tx crafted here and monitors
+	// it for potential fee bump.
+	Publisher Bumper
 }
 
 // Result is the struct that is pushed through the result channel. Callers can
@@ -673,11 +676,8 @@ func (s *UtxoSweeper) collector(blockEpochs <-chan *chainntnfs.BlockEpoch) {
 				err:        err,
 			}
 
-		// A new block comes in, update the bestHeight.
-		//
-		// TODO(yy): this is where we check our published transactions
-		// and perform RBF if needed. We'd also like to consult our fee
-		// bumper to get an updated fee rate.
+		// A new block comes in, update the bestHeight, perform a check
+		// over all pending inputs and publish sweeping txns if needed.
 		case epoch, ok := <-blockEpochs:
 			if !ok {
 				// We should stop the sweeper before stopping
@@ -787,8 +787,8 @@ func (s *UtxoSweeper) signalResult(outpoint *wire.OutPoint, result Result) {
 	}
 }
 
-// sweep takes a set of preselected inputs, creates a sweep tx and publishes the
-// tx. The output address is only marked as used if the publish succeeds.
+// sweep takes a set of preselected inputs, creates a sweep tx and publishes
+// the tx. The output address is only marked as used if the publish succeeds.
 func (s *UtxoSweeper) sweep(set InputSet) error {
 	// Generate an output script if there isn't an unused script available.
 	if s.currentOutputScript == nil {
@@ -799,36 +799,19 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 		s.currentOutputScript = pkScript
 	}
 
-	// Create sweep tx.
-	tx, fee, err := createSweepTx(
-		set, nil, s.currentOutputScript, uint32(s.currentHeight),
-		s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
-	)
-	if err != nil {
-		return fmt.Errorf("create sweep tx: %v", err)
+	// Create a fee bump request and ask the publisher to broadcast it. The
+	// publisher will then take over and start monitoring the tx for
+	// potential fee bump.
+	req := &BumpRequest{
+		Inputs:       set,
+		ChangeScript: s.currentOutputScript,
+		MaxFeeRate:   s.cfg.MaxFeeRate.FeePerKWeight(),
+		// TODO(yy): pass the strategy here.
 	}
 
-	tr := &TxRecord{
-		Txid:    tx.TxHash(),
-		FeeRate: uint64(set.FeeRate()),
-		Fee:     uint64(fee),
-	}
-
-	// Reschedule the inputs that we just tried to sweep. This is done in
-	// case the following publish fails, we'd like to update the inputs'
-	// publish attempts and rescue them in the next sweep.
-	err = s.markInputsPendingPublish(tr, tx.TxIn)
-	if err != nil {
-		return err
-	}
-
-	log.Debugf("Publishing sweep tx %v, num_inputs=%v, height=%v",
-		tx.TxHash(), len(tx.TxIn), s.currentHeight)
-
-	// Publish the sweeping tx with customized label.
-	err = s.cfg.Wallet.PublishTransaction(
-		tx, labels.MakeLabel(labels.LabelTypeSweepTransaction, nil),
-	)
+	// Broadcast will return a read-only chan that we will listen to for
+	// this publish result and future RBF attempt.
+	resp, err := s.cfg.Publisher.Broadcast(req)
 	if err != nil {
 		// TODO(yy): find out which input is causing the failure.
 		s.markInputsPublishFailed(set.OutPoints())
@@ -836,15 +819,167 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 		return err
 	}
 
+	if err := s.handleBroadcastResult(resp); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// handleBroadcastResult handles the result sent from the fee bumper for a
+// given set of inputs that are meant to be swept in a single tx. It first
+// performs a block read on the passed result chan, as it's expected to have a
+// result being sent by the fee bumper immediately after the initial broadcast.
+// It then subscribes to this read-only chan in a goroutine to listen for
+// future updates about this sweeping tx.
+func (s *UtxoSweeper) handleBroadcastResult(
+	resultChan <-chan *BumpResult) error {
+
+	var result *BumpResult
+
+	// Perform a blocking-read on the chan.
+	select {
+	case result = <-resultChan:
+		// This should never happen, but we check it just in case.
+		if result.Err != nil {
+			log.Errorf("Unexpected error from publisher: %v",
+				result.Err)
+
+			return result.Err
+		}
+
+	case <-s.quit:
+		log.Debugf("Sweeper shutting down, exit broadcast result " +
+			"handler")
+
+		return nil
+	}
+
+	// Successfully published, we now create a record to be stored in the
+	// sweeper db.
+	tx := result.CurrentTx
+	tr := &TxRecord{
+		Txid:    tx.TxHash(),
+		FeeRate: uint64(result.FeeRate),
+		Fee:     uint64(result.Fee),
+	}
+
 	// Inputs have been successfully published so we update their states.
 	s.markInputsPublished(tr, tx.TxIn)
+
+	log.Debugf("Published sweep tx %v, num_inputs=%v, height=%v",
+		tx.TxHash(), len(tx.TxIn), s.currentHeight)
 
 	// If there's no error, remove the output script. Otherwise keep it so
 	// that it can be reused for the next transaction and causes no address
 	// inflation.
 	s.currentOutputScript = nil
 
+	// Subscribe to the result chan to listen for future updates about this
+	// tx.
+	s.monitorFeeBumpResult(resultChan)
+
 	return nil
+}
+
+// monitorFeeBumpResult subscribes to the passed result chan to listen for
+// future updates about the sweeping tx.
+func (s *UtxoSweeper) monitorFeeBumpResult(resultChan <-chan *BumpResult) {
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+
+		for {
+			select {
+			case result := <-resultChan:
+				// If this is not a confirmed notification, we
+				// need to handle its result by updating the
+				// sweeping tx record as an RBF case just
+				// happened.
+				if !result.Confirmed {
+					s.handleFeeBumpResult(result)
+				}
+
+				// The sweeping tx has been confirmed, we can
+				// exit the monitor now.
+				log.Debugf("Sweep tx %v confirmed, exit fee "+
+					"bump monitor",
+					result.PreviousTx.TxHash())
+
+			case <-s.quit:
+				log.Debugf("Sweeper shutting down, exit fee " +
+					"bump handler")
+
+				return
+			}
+		}
+	}()
+}
+
+// handleFeeBumpResult handles the result of a fee bump attempt. It will update
+// the stored tx if an RBF was attempted, or mark inputs as PublishFailed if
+// there's an error.
+func (s *UtxoSweeper) handleFeeBumpResult(result *BumpResult) {
+	currentTx := result.CurrentTx
+	replacedTx := result.PreviousTx
+
+	// An error has been returned from the fee bumper, we will mark all the
+	// inputs found in this tx as publish fail so they can be retried.
+	if result.Err != nil {
+		log.Errorf("Fee bump attempt failed: %v", result.Err)
+
+		tx := currentTx
+		if tx == nil {
+			tx = replacedTx
+		}
+
+		outpoints := make([]wire.OutPoint, 0, len(tx.TxIn))
+		for _, inp := range tx.TxIn {
+			outpoints = append(outpoints, inp.PreviousOutPoint)
+		}
+
+		s.markInputsPublishFailed(outpoints)
+		return
+	}
+
+	// If there's no replaced tx, this is the initial broadcast attempt so
+	// we can exit early.
+	if replacedTx == nil {
+		return
+	}
+
+	// If there's a previous tx, we should always have a new tx. If not, we
+	// log an error.
+	if currentTx == nil {
+		log.Errorf("FeeBumper returned unexpected result: old_tx=%v",
+			replacedTx.TxHash())
+
+		return
+	}
+
+	// Prepare a new record to replace the old one.
+	tr := &TxRecord{
+		Txid:    currentTx.TxHash(),
+		FeeRate: uint64(result.FeeRate),
+		Fee:     uint64(result.Fee),
+	}
+
+	// Get the old record for logging purpose.
+	oldTxid := replacedTx.TxHash()
+	r, err := s.cfg.Store.GetTx(oldTxid)
+	if err != nil {
+		log.Errorf("Unable to fetch tx record for %v: %v", oldTxid, err)
+	} else {
+		log.Infof("RBFed tx=%v(fee=%v, feerate=%v) with new "+
+			"tx=%v(fee=%v, feerate=%v)", r.Txid, r.Fee, r.FeeRate,
+			tr.Txid, tr.Fee, tr.FeeRate)
+	}
+
+	// The old sweeping tx has been replaced by a new one, we will update
+	// the tx record in the sweeper db.
+	s.cfg.Store.DeleteTx(oldTxid)
+
+	s.markInputsPublished(tr, currentTx.TxIn)
 }
 
 // markInputsPendingPublish saves the sweeping tx to db and updates the pending

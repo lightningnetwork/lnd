@@ -462,3 +462,22 @@ func (m *MockInputSet) Budget() btcutil.Amount {
 
 	return args.Get(0).(btcutil.Amount)
 }
+
+// MockBumper is a mock implementation of the interface Bumper.
+type MockBumper struct {
+	mock.Mock
+}
+
+// Compile-time constraint to ensure MockBumper implements Bumper.
+var _ Bumper = (*MockBumper)(nil)
+
+// Broadcast broadcasts the transaction to the network.
+func (m *MockBumper) Broadcast(req *BumpRequest) (<-chan *BumpResult, error) {
+	args := m.Called(req)
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(chan *BumpResult), args.Error(1)
+}

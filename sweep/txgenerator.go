@@ -30,11 +30,11 @@ var (
 // sending any leftover change to the change script.
 func createSweepTx(set InputSet, outputs []*wire.TxOut,
 	changePkScript []byte, currentBlockHeight uint32,
-	maxFeeRate chainfee.SatPerKWeight,
+	feeRate, maxFeeRate chainfee.SatPerKWeight,
 	signer input.Signer) (*wire.MsgTx, btcutil.Amount, error) {
 
 	inputs, estimator, err := getWeightEstimate(
-		set.Inputs(), outputs, set.FeeRate(),
+		set.Inputs(), outputs, feeRate,
 		maxFeeRate, changePkScript,
 	)
 	if err != nil {
@@ -202,7 +202,7 @@ func createSweepTx(set InputSet, outputs []*wire.TxOut,
 		"using %v sat/kw, tx_weight=%v, tx_fee=%v, parents_count=%v, "+
 		"parents_fee=%v, parents_weight=%v",
 		sweepTx.TxHash(), len(inputs),
-		inputTypeSummary(inputs), int64(set.FeeRate()),
+		inputTypeSummary(inputs), int64(feeRate),
 		estimator.weight(), txFee,
 		len(estimator.parents), estimator.parentsFee,
 		estimator.parentsWeight,

@@ -1336,7 +1336,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input,
 
 	tx, _, err := createSweepTx(
 		txInputs, nil, pkScript, uint32(s.currentHeight),
-		s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
+		feePerKw, s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
 	)
 
 	return tx, err

@@ -42,9 +42,6 @@ type InputSet interface {
 	// Inputs returns the set of inputs that should be used to create a tx.
 	Inputs() []input.Input
 
-	// FeeRate returns the fee rate that should be used for the tx.
-	FeeRate() chainfee.SatPerKWeight
-
 	// AddWalletInputs adds wallet inputs to the set until a non-dust
 	// change output can be made. Return an error if there are not enough
 	// wallet inputs.
@@ -197,11 +194,6 @@ func (t *txInputSet) Budget() btcutil.Amount {
 // DeadlineHeight gives the block height that this set must be confirmed by.
 func (t *txInputSet) DeadlineHeight() int32 {
 	return 0
-}
-
-// FeeRate returns the fee rate that should be used for the tx.
-func (t *txInputSet) FeeRate() chainfee.SatPerKWeight {
-	return t.feeRate
 }
 
 // NeedWalletInput returns true if the input set needs more wallet inputs.
@@ -721,13 +713,4 @@ func (b *budgetInputSet) Inputs() []input.Input {
 	}
 
 	return inputs
-}
-
-// FeeRate returns the fee rate that should be used for the tx.
-//
-// NOTE: part of the InputSet interface.
-//
-// TODO(yy): will be removed once fee bumper is implemented.
-func (b *budgetInputSet) FeeRate() chainfee.SatPerKWeight {
-	return 0
 }

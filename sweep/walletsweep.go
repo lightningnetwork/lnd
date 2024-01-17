@@ -363,7 +363,7 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 	// respects our fee preference and targets all the UTXOs of the wallet.
 	sweepTx, _, err := createSweepTx(
 		txInputs, txOuts, changePkScript, blockHeight,
-		maxFeeRate, signer,
+		feeRate, maxFeeRate, signer,
 	)
 	if err != nil {
 		unlockOutputs()

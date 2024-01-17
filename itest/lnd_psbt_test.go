@@ -312,15 +312,6 @@ func runPsbtChanFunding(ht *lntest.HarnessTest, carol, dave *node.HarnessNode,
 	resp := dave.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
 
-	// TODO(yy): remove the sleep once the following bug is fixed. When the
-	// payment is reported as settled by Carol, it's expected the
-	// commitment dance is finished and all subsequent states have been
-	// updated. Yet we'd receive the error `cannot co-op close channel with
-	// active htlcs` or `link failed to shutdown` if we close the channel.
-	// We need to investigate the order of settling the payments and
-	// updating commitments to understand and fix .
-	time.Sleep(2 * time.Second)
-
 	// To conclude, we'll close the newly created channel between Carol and
 	// Dave. This function will also block until the channel is closed and
 	// will additionally assert the relevant channel closing post
@@ -496,15 +487,6 @@ func runPsbtChanFundingExternal(ht *lntest.HarnessTest, carol,
 	resp := dave.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
 
-	// TODO(yy): remove the sleep once the following bug is fixed. When the
-	// payment is reported as settled by Carol, it's expected the
-	// commitment dance is finished and all subsequent states have been
-	// updated. Yet we'd receive the error `cannot co-op close channel with
-	// active htlcs` or `link failed to shutdown` if we close the channel.
-	// We need to investigate the order of settling the payments and
-	// updating commitments to understand and fix .
-	time.Sleep(2 * time.Second)
-
 	// To conclude, we'll close the newly created channel between Carol and
 	// Dave. This function will also block until the channels are closed and
 	// will additionally assert the relevant channel closing post
@@ -655,15 +637,6 @@ func runPsbtChanFundingSingleStep(ht *lntest.HarnessTest, carol,
 	}
 	resp := dave.RPC.AddInvoice(invoice)
 	ht.CompletePaymentRequests(carol, []string{resp.PaymentRequest})
-
-	// TODO(yy): remove the sleep once the following bug is fixed. When the
-	// payment is reported as settled by Carol, it's expected the
-	// commitment dance is finished and all subsequent states have been
-	// updated. Yet we'd receive the error `cannot co-op close channel with
-	// active htlcs` or `link failed to shutdown` if we close the channel.
-	// We need to investigate the order of settling the payments and
-	// updating commitments to understand and fix .
-	time.Sleep(2 * time.Second)
 
 	// To conclude, we'll close the newly created channel between Carol and
 	// Dave. This function will also block until the channel is closed and

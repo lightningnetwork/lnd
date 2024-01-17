@@ -426,15 +426,6 @@ func fundChanAndCloseFromImportedAccount(ht *lntest.HarnessTest, srcNode,
 
 	ht.CompletePaymentRequests(srcNode, []string{resp.PaymentRequest})
 
-	// TODO(yy): remove the sleep once the following bug is fixed. When the
-	// payment is reported as settled by srcNode, it's expected the
-	// commitment dance is finished and all subsequent states have been
-	// updated. Yet we'd receive the error `cannot co-op close channel with
-	// active htlcs` or `link failed to shutdown` if we close the channel.
-	// We need to investigate the order of settling the payments and
-	// updating commitments to understand and fix .
-	time.Sleep(2 * time.Second)
-
 	// Now that we've confirmed the opened channel works, we'll close it.
 	ht.CloseChannel(srcNode, chanPoint)
 

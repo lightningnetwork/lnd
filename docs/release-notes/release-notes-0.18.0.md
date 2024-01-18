@@ -171,6 +171,9 @@
   the ability to specify multiple outgoing channel ids for the `sendpayment`
   command.
 
+* [Use the default LND value in the buildroute rpc command for the
+  final cltv delta](https://github.com/lightningnetwork/lnd/pull/8387).
+
 ## Code Health
 
 * [Remove Litecoin code](https://github.com/lightningnetwork/lnd/pull/7867).

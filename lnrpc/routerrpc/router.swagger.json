@@ -293,7 +293,7 @@
     },
     "/v2/router/route": {
       "post": {
-        "summary": "lncli: `buildroute`\nBuildRoute builds a fully specified route based on a list of hop public\nkeys. It retrieves the relevant channel policies from the graph in order to\ncalculate the correct fees and time locks.",
+        "summary": "lncli: `buildroute`\nBuildRoute builds a fully specified route based on a list of hop public\nkeys. It retrieves the relevant channel policies from the graph in order to\ncalculate the correct fees and time locks.\nNote that LND will use its default final_cltv_delta if no value is supplied.\nMake sure to add the correct final_cltv_delta depending on the invoice\nrestriction. Moreover the caller has to make sure to provide the\npayment_addr if the route is paying an invoice which signaled it.",
         "operationId": "Router_BuildRoute",
         "responses": {
           "200": {

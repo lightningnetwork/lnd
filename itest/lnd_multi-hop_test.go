@@ -31,10 +31,6 @@ var commitWithZeroConf = []struct {
 	zeroConf   bool
 }{
 	{
-		commitType: lnrpc.CommitmentType_LEGACY,
-		zeroConf:   false,
-	},
-	{
 		commitType: lnrpc.CommitmentType_ANCHORS,
 		zeroConf:   false,
 	},

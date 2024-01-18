@@ -31,7 +31,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.AnchorsZeroFeeHtlcTxRequired,
 			),
 			localFeatures: lnwire.NewRawFeatureVector(
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
@@ -39,6 +39,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyOptional,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
+			//nolint:lll
 			expectsCommitType: lnwallet.CommitmentTypeAnchorsZeroFeeHtlcTx,
 			expectsChanType:   nil,
 			expectsErr:        nil,
@@ -50,7 +51,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.AnchorsZeroFeeHtlcTxRequired,
 			),
 			localFeatures: lnwire.NewRawFeatureVector(
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
@@ -70,7 +71,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			),
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.ZeroConfOptional,
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ScriptEnforcedLeaseOptional,
 				lnwire.ExplicitChannelTypeOptional,
@@ -103,7 +104,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			),
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.ZeroConfOptional,
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
@@ -134,7 +135,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			),
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.ScidAliasOptional,
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ScriptEnforcedLeaseOptional,
 				lnwire.ExplicitChannelTypeOptional,
@@ -167,7 +168,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			),
 			localFeatures: lnwire.NewRawFeatureVector(
 				lnwire.ScidAliasOptional,
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
@@ -195,7 +196,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.AnchorsZeroFeeHtlcTxRequired,
 			),
 			localFeatures: lnwire.NewRawFeatureVector(
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
@@ -219,7 +220,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 				lnwire.StaticRemoteKeyRequired,
 			),
 			localFeatures: lnwire.NewRawFeatureVector(
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
@@ -240,7 +241,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			name:            "explicit legacy",
 			channelFeatures: lnwire.NewRawFeatureVector(),
 			localFeatures: lnwire.NewRawFeatureVector(
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
@@ -262,7 +263,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			name:            "default explicit anchors",
 			channelFeatures: nil,
 			localFeatures: lnwire.NewRawFeatureVector(
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 				lnwire.ExplicitChannelTypeOptional,
 			),
@@ -284,7 +285,7 @@ func TestCommitmentTypeNegotiation(t *testing.T) {
 			name:            "implicit tweakless",
 			channelFeatures: nil,
 			localFeatures: lnwire.NewRawFeatureVector(
-				lnwire.StaticRemoteKeyOptional,
+				lnwire.StaticRemoteKeyRequired,
 				lnwire.AnchorsZeroFeeHtlcTxOptional,
 			),
 			remoteFeatures: lnwire.NewRawFeatureVector(

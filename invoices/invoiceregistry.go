@@ -756,10 +756,10 @@ func (i *InvoiceRegistry) processKeySend(ctx invoiceUpdateCtx) error {
 	// Create an invoice for the htlc amount.
 	amt := ctx.amtPaid
 
-	// Set tlv optional feature vector on the invoice. Otherwise we wouldn't
+	// Set tlv required feature vector on the invoice. Otherwise we wouldn't
 	// be able to pay to it with keysend.
 	rawFeatures := lnwire.NewRawFeatureVector(
-		lnwire.TLVOnionPayloadOptional,
+		lnwire.TLVOnionPayloadRequired,
 	)
 	features := lnwire.NewFeatureVector(rawFeatures, lnwire.Features)
 
@@ -820,11 +820,11 @@ func (i *InvoiceRegistry) processAMP(ctx invoiceUpdateCtx) error {
 	// record.
 	amt := ctx.mpp.TotalMsat()
 
-	// Set the TLV and MPP optional features on the invoice. We'll also make
-	// the AMP features required so that it can't be paid by legacy or MPP
-	// htlcs.
+	// Set the TLV required and MPP optional features on the invoice. We'll
+	// also make the AMP features required so that it can't be paid by
+	// legacy or MPP htlcs.
 	rawFeatures := lnwire.NewRawFeatureVector(
-		lnwire.TLVOnionPayloadOptional,
+		lnwire.TLVOnionPayloadRequired,
 		lnwire.PaymentAddrOptional,
 		lnwire.AMPRequired,
 	)

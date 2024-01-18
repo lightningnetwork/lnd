@@ -1460,7 +1460,7 @@ func TestSettleInvoicePaymentAddrRequired(t *testing.T) {
 			Expiry:          time.Hour,
 			Features: lnwire.NewFeatureVector(
 				lnwire.NewRawFeatureVector(
-					lnwire.TLVOnionPayloadOptional,
+					lnwire.TLVOnionPayloadRequired,
 					lnwire.PaymentAddrRequired,
 				),
 				lnwire.Features,
@@ -1549,7 +1549,7 @@ func TestSettleInvoicePaymentAddrRequiredOptionalGrace(t *testing.T) {
 			Expiry:          time.Hour,
 			Features: lnwire.NewFeatureVector(
 				lnwire.NewRawFeatureVector(
-					lnwire.TLVOnionPayloadOptional,
+					lnwire.TLVOnionPayloadRequired,
 					lnwire.PaymentAddrOptional,
 				),
 				lnwire.Features,

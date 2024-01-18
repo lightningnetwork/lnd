@@ -19,11 +19,11 @@ var testSetDesc = setDesc{
 	lnwire.DataLossProtectRequired: {
 		SetNodeAnn: {}, // I
 	},
-	lnwire.TLVOnionPayloadOptional: {
+	lnwire.TLVOnionPayloadRequired: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
-	lnwire.StaticRemoteKeyOptional: {
+	lnwire.StaticRemoteKeyRequired: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
@@ -104,9 +104,11 @@ func testManager(t *testing.T, test managerTest) {
 		// Assert that the manager properly unset the configured feature
 		// bits from all sets.
 		if test.cfg.NoTLVOnion {
+			assertUnset(lnwire.TLVOnionPayloadRequired)
 			assertUnset(lnwire.TLVOnionPayloadOptional)
 		}
 		if test.cfg.NoStaticRemoteKey {
+			assertUnset(lnwire.StaticRemoteKeyRequired)
 			assertUnset(lnwire.StaticRemoteKeyOptional)
 		}
 		if test.cfg.NoAnchors {
@@ -127,12 +129,12 @@ func testManager(t *testing.T, test managerTest) {
 		}
 	}
 
-	assertSet(lnwire.DataLossProtectOptional)
+	assertSet(lnwire.DataLossProtectRequired)
 	if !test.cfg.NoTLVOnion {
 		assertSet(lnwire.TLVOnionPayloadRequired)
 	}
 	if !test.cfg.NoStaticRemoteKey {
-		assertSet(lnwire.StaticRemoteKeyOptional)
+		assertSet(lnwire.StaticRemoteKeyRequired)
 	}
 }
 
@@ -149,7 +151,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 			SetInit:    {}, // I
 			SetNodeAnn: {}, // N
 		},
-		lnwire.GossipQueriesOptional: {
+		lnwire.GossipQueriesRequired: {
 			SetNodeAnn: {}, // N
 		},
 	}
@@ -199,7 +201,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 				),
 				SetNodeAnn: lnwire.NewRawFeatureVector(
 					lnwire.DataLossProtectRequired,
-					lnwire.GossipQueriesOptional,
+					lnwire.GossipQueriesRequired,
 					lnwire.FeatureBit(1000),
 				),
 			},
@@ -220,7 +222,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 				),
 				SetNodeAnn: lnwire.NewRawFeatureVector(
 					lnwire.DataLossProtectRequired,
-					lnwire.GossipQueriesOptional,
+					lnwire.GossipQueriesRequired,
 				),
 			},
 			config: Config{
@@ -240,7 +242,7 @@ func TestUpdateFeatureSets(t *testing.T) {
 				),
 				SetNodeAnn: lnwire.NewRawFeatureVector(
 					lnwire.DataLossProtectRequired,
-					lnwire.GossipQueriesOptional,
+					lnwire.GossipQueriesRequired,
 					lnwire.FeatureBit(500),
 				),
 				SetInvoice: lnwire.NewRawFeatureVector(

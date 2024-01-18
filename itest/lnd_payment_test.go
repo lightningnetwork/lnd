@@ -26,7 +26,6 @@ func testSendDirectPayment(ht *lntest.HarnessTest) {
 
 	// Create a list of commitment types we want to test.
 	commitTyes := []lnrpc.CommitmentType{
-		lnrpc.CommitmentType_LEGACY,
 		lnrpc.CommitmentType_ANCHORS,
 		lnrpc.CommitmentType_SIMPLE_TAPROOT,
 	}

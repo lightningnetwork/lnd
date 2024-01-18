@@ -60,7 +60,7 @@ var (
 
 	tlvFeatures = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(
-			lnwire.TLVOnionPayloadOptional,
+			lnwire.TLVOnionPayloadRequired,
 		), lnwire.Features,
 	)
 
@@ -72,13 +72,13 @@ var (
 
 	tlvPayAddrFeatures = lnwire.NewFeatureVector(
 		lnwire.NewRawFeatureVector(
-			lnwire.TLVOnionPayloadOptional,
+			lnwire.TLVOnionPayloadRequired,
 			lnwire.PaymentAddrOptional,
 		), lnwire.Features,
 	)
 
 	mppFeatures = lnwire.NewRawFeatureVector(
-		lnwire.TLVOnionPayloadOptional,
+		lnwire.TLVOnionPayloadRequired,
 		lnwire.PaymentAddrOptional,
 		lnwire.MPPOptional,
 	)

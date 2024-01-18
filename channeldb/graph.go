@@ -176,6 +176,9 @@ const (
 type ChannelGraph struct {
 	db kvdb.Backend
 
+	// cacheMu guards all caches (rejectCache, chanCache, graphCache). If
+	// this mutex will be acquired at the same time as the DB mutex then
+	// the cacheMu MUST be acquired first to prevent deadlock.
 	cacheMu     sync.RWMutex
 	rejectCache *rejectCache
 	chanCache   *channelCache
@@ -2091,6 +2094,9 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 
 	var newChanIDs []uint64
 
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
 	err := kvdb.Update(c.db, func(tx kvdb.RwTx) error {
 		edges := tx.ReadBucket(edgeBucket)
 		if edges == nil {
@@ -2143,7 +2149,7 @@ func (c *ChannelGraph) FilterKnownChanIDs(chansInfo []ChannelUpdateInfo,
 				// and we let it be added to the set of IDs to
 				// query our peer for.
 				case isZombie && !isStillZombie:
-					err := c.markEdgeLive(tx, scid)
+					err := c.markEdgeLiveUnsafe(tx, scid)
 					if err != nil {
 						return err
 					}
@@ -3612,16 +3618,19 @@ func markEdgeZombie(zombieIndex kvdb.RwBucket, chanID uint64, pubKey1,
 
 // MarkEdgeLive clears an edge from our zombie index, deeming it as live.
 func (c *ChannelGraph) MarkEdgeLive(chanID uint64) error {
-	return c.markEdgeLive(nil, chanID)
-}
-
-// markEdgeLive clears an edge from the zombie index. This method can be called
-// with an existing kvdb.RwTx or the argument can be set to nil in which case a
-// new transaction will be created.
-func (c *ChannelGraph) markEdgeLive(tx kvdb.RwTx, chanID uint64) error {
 	c.cacheMu.Lock()
 	defer c.cacheMu.Unlock()
 
+	return c.markEdgeLiveUnsafe(nil, chanID)
+}
+
+// markEdgeLiveUnsafe clears an edge from the zombie index. This method can be
+// called with an existing kvdb.RwTx or the argument can be set to nil in which
+// case a new transaction will be created.
+//
+// NOTE: this method MUST only be called if the cacheMu has already been
+// acquired.
+func (c *ChannelGraph) markEdgeLiveUnsafe(tx kvdb.RwTx, chanID uint64) error {
 	dbFn := func(tx kvdb.RwTx) error {
 		edges := tx.ReadWriteBucket(edgeBucket)
 		if edges == nil {

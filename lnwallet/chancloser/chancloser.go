@@ -203,6 +203,11 @@ type ChanCloser struct {
 
 	// locallyInitiated is true if we initiated the channel close.
 	locallyInitiated bool
+
+	// cachedClosingSigned is a cached copy of a received ClosingSigned that
+	// we use to handle a specific race condition caused by the independent
+	// message processing queues.
+	cachedClosingSigned fn.Option[lnwire.ClosingSigned]
 }
 
 // calcCoopCloseFee computes an "ideal" absolute co-op close fee given the
@@ -635,7 +640,18 @@ func (c *ChanCloser) BeginNegotiation() (
 		c.state = closeFeeNegotiation
 
 		if !c.cfg.Channel.IsInitiator() {
-			return noClosingSigned, nil
+			// By default this means we do nothing, but we do want
+			// to check if we have a cached remote offer to process.
+			// If we do, we'll process it here.
+			res := noClosingSigned
+			err = nil
+			c.cachedClosingSigned.WhenSome(
+				func(cs lnwire.ClosingSigned) {
+					res, err = c.ReceiveClosingSigned(cs)
+				},
+			)
+
+			return res, err
 		}
 
 		// We'll craft our initial close proposal in order to keep the
@@ -657,6 +673,8 @@ func (c *ChanCloser) BeginNegotiation() (
 // ReceiveClosingSigned is a method that should be called whenever we receive a
 // ClosingSigned message from the wire. It may or may not return a ClosingSigned
 // of our own to send back to the remote.
+//
+//nolint:funlen
 func (c *ChanCloser) ReceiveClosingSigned(
 	msg lnwire.ClosingSigned,
 ) (fn.Option[lnwire.ClosingSigned], error) {
@@ -664,6 +682,13 @@ func (c *ChanCloser) ReceiveClosingSigned(
 	noClosing := fn.None[lnwire.ClosingSigned]()
 
 	switch c.state {
+	case closeAwaitingFlush:
+		// If we hit this case it either means there's a protocol
+		// violation or that our chanCloser received the remote offer
+		// before the link finished processing the channel flush.
+		c.cachedClosingSigned = fn.Some(msg)
+		return fn.None[lnwire.ClosingSigned](), nil
+
 	case closeFeeNegotiation:
 		// If this is a taproot channel, then it MUST have a partial
 		// signature set at this point.

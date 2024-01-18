@@ -32,23 +32,23 @@ func TestTxInputSet(t *testing.T) {
 	}
 
 	fee := set.weightEstimate(true).fee()
-	require.Equal(t, btcutil.Amount(439), fee)
+	require.Equal(t, btcutil.Amount(487), fee)
 
-	// The tx output should now be 700-439 = 261 sats. The dust limit isn't
+	// The tx output should now be 700-487 = 213 sats. The dust limit isn't
 	// reached yet.
-	if set.totalOutput() != 261 {
+	if set.totalOutput() != 213 {
 		t.Fatal("unexpected output value")
 	}
 	if set.enoughInput() {
 		t.Fatal("expected dust limit not yet to be reached")
 	}
 
-	// Add a 1000 sat input. This increases the tx fee to 712 sats. The tx
-	// output should now be 1000+700 - 712 = 988 sats.
+	// Add a 1000 sat input. This increases the tx fee to 760 sats. The tx
+	// output should now be 1000+700 - 760 = 940 sats.
 	if !set.add(createP2WKHInput(1000), constraintsRegular) {
 		t.Fatal("expected add of positively yielding input to succeed")
 	}
-	if set.totalOutput() != 988 {
+	if set.totalOutput() != 940 {
 		t.Fatal("unexpected output value")
 	}
 	if !set.enoughInput() {

@@ -88,7 +88,10 @@ func hopFromPayload(p *Payload) (*route.Hop, uint64) {
 		MPP:              p.MPP,
 		AMP:              p.AMP,
 		Metadata:         p.metadata,
+		EncryptedData:    p.encryptedData,
+		BlindingPoint:    p.blindingPoint,
 		CustomRecords:    p.customRecords,
+		TotalAmtMsat:     p.totalAmtMsat,
 	}, p.FwdInfo.NextHop.ToUint64()
 }
 

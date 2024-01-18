@@ -1281,7 +1281,7 @@ func TestMuSigEarlyNonce(t *testing.T) {
 
 	msg := sha256.Sum256([]byte("let's get taprooty, LN style"))
 
-	// If we try to sign before we have the combined nonce, we shoudl get
+	// If we try to sign before we have the combined nonce, we should get
 	// an error.
 	_, err = session1.Sign(msg)
 	if !errors.Is(err, ErrCombinedNonceUnavailable) {

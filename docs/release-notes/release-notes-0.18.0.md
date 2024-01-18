@@ -119,7 +119,7 @@
 
 ## lncli Additions
 
-* Deprecate `bumpclosefee` for `bumpforceclosefee` to accomodate for the fact 
+* Deprecate `bumpclosefee` for `bumpforceclosefee` to accommodate for the fact 
   that only force closing transactions can be bumped to avoid confusion. 
   Moreover allow to specify a max fee rate range when coop closing a channel.
   [Deprecate bumpclosefee for bumpforceclosefee and add `max_fee_rate` option

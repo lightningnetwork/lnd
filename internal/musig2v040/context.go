@@ -562,7 +562,7 @@ func (s *Session) Sign(msg [32]byte,
 		return nil, ErrSigningContextReuse
 
 	// We also need to make sure we have the combined nonce, otherwise this
-	// funciton was called too early.
+	// function was called too early.
 	case s.combinedNonce == nil:
 		return nil, ErrCombinedNonceUnavailable
 	}

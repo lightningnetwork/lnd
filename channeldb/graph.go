@@ -1334,8 +1334,8 @@ func (c *ChannelGraph) PruneGraph(spentOutputs []*wire.OutPoint,
 			// will be returned if that outpoint isn't known to be
 			// a channel. If no error is returned, then a channel
 			// was successfully pruned.
-			err = c.delChannelEdge(
-				edges, edgeIndex, chanIndex, zombieIndex, nodes,
+			err = c.delChannelEdgeUnsafe(
+				edges, edgeIndex, chanIndex, zombieIndex,
 				chanID, false, false,
 			)
 			if err != nil && err != ErrEdgeNotFound {
@@ -1565,10 +1565,6 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
 		if err != nil {
 			return err
 		}
-		nodes, err := tx.CreateTopLevelBucket(nodeBucket)
-		if err != nil {
-			return err
-		}
 
 		// Scan from chanIDStart to chanIDEnd, deleting every
 		// found edge.
@@ -1593,8 +1589,8 @@ func (c *ChannelGraph) DisconnectBlockAtHeight(height uint32) (
 		}
 
 		for _, k := range keys {
-			err = c.delChannelEdge(
-				edges, edgeIndex, chanIndex, zombieIndex, nodes,
+			err = c.delChannelEdgeUnsafe(
+				edges, edgeIndex, chanIndex, zombieIndex,
 				k, false, false,
 			)
 			if err != nil && err != ErrEdgeNotFound {
@@ -1737,8 +1733,8 @@ func (c *ChannelGraph) DeleteChannelEdges(strictZombiePruning, markZombie bool,
 		var rawChanID [8]byte
 		for _, chanID := range chanIDs {
 			byteOrder.PutUint64(rawChanID[:], chanID)
-			err := c.delChannelEdge(
-				edges, edgeIndex, chanIndex, zombieIndex, nodes,
+			err := c.delChannelEdgeUnsafe(
+				edges, edgeIndex, chanIndex, zombieIndex,
 				rawChanID[:], markZombie, strictZombiePruning,
 			)
 			if err != nil {
@@ -2479,8 +2475,16 @@ func delEdgeUpdateIndexEntry(edgesBucket kvdb.RwBucket, chanID uint64,
 	return nil
 }
 
-func (c *ChannelGraph) delChannelEdge(edges, edgeIndex, chanIndex, zombieIndex,
-	nodes kvdb.RwBucket, chanID []byte, isZombie, strictZombie bool) error {
+// delChannelEdgeUnsafe deletes the edge with the given chanID from the graph
+// cache. It then goes on to delete any policy info and edge info for this
+// channel from the DB and finally, if isZombie is true, it will add an entry
+// for this channel in the zombie index.
+//
+// NOTE: this method MUST only be called if the cacheMu has already been
+// acquired.
+func (c *ChannelGraph) delChannelEdgeUnsafe(edges, edgeIndex, chanIndex,
+	zombieIndex kvdb.RwBucket, chanID []byte, isZombie,
+	strictZombie bool) error {
 
 	edgeInfo, err := fetchChanEdgeInfo(edgeIndex, chanID)
 	if err != nil {

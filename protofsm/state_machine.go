@@ -101,7 +101,7 @@ type stateQuery[Event any, Env Environment] struct {
 //
 // TODO(roasbeef): terminal check, daemon event execution, init?
 type StateMachine[Event any, Env Environment] struct {
-	currentState State[Event, Env]
+	initialState State[Event, Env]
 	env          Env
 
 	daemon DaemonAdapters
@@ -129,7 +129,7 @@ func NewStateMachine[Event any, Env Environment](adapters DaemonAdapters,
 	return StateMachine[Event, Env]{
 		daemon:         adapters,
 		events:         make(chan Event),
-		currentState:   initialState,
+		initialState:   initialState,
 		stateQuery:     make(chan stateQuery[Event, Env]),
 		quit:           make(chan struct{}),
 		env:            env,
@@ -304,9 +304,9 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 // applyEvents applies a new event to the state machine. This will continue
 // until no further events are emitted by the state machine. Along the way,
 // we'll also ensure to execute any daemon events that are emitted.
-func (s *StateMachine[Event, Env]) applyEvents(newEvent Event) (State[Event, Env], error) {
-	// TODO(roasbeef): make starting state as part of env?
-	currentState := s.currentState
+func (s *StateMachine[Event, Env]) applyEvents(
+	currentState State[Event, Env], newEvent Event,
+) (State[Event, Env], error) {
 
 	eventQueue := fn.NewQueue(newEvent)
 
@@ -380,7 +380,7 @@ func (s *StateMachine[Event, Env]) driveMachine() {
 	defer s.wg.Done()
 
 	// TODO(roasbeef): move into env? read only to start with
-	currentState := s.currentState
+	currentState := s.initialState
 
 	// We just started driving the state machine, so we'll notify our
 	// subscribers of this starting state.
@@ -392,7 +392,7 @@ func (s *StateMachine[Event, Env]) driveMachine() {
 		// machine forward until we either run out of internal events,
 		// or we reach a terminal state.
 		case newEvent := <-s.events:
-			newState, err := s.applyEvents(newEvent)
+			newState, err := s.applyEvents(currentState, newEvent)
 			if err != nil {
 				// TODO(roasbeef): hard error?
 				log.Errorf("unable to apply event: %v", err)

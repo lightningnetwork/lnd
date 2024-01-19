@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
@@ -16,6 +17,8 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
+
+const csvDelay = uint32(144)
 
 func makePubKey() *btcec.PublicKey {
 	priv, _ := btcec.NewPrivateKey()
@@ -39,6 +42,15 @@ func makeAddr(size int) []byte {
 	return addr
 }
 
+func makeSchnorrSig(i int) lnwire.Sig {
+	var sigBytes [64]byte
+	binary.BigEndian.PutUint64(sigBytes[:8], uint64(i))
+
+	sig, _ := lnwire.NewSigFromSchnorrRawSignature(sigBytes[:])
+
+	return sig
+}
+
 type descriptorTest struct {
 	name                 string
 	encVersion           Type
@@ -46,7 +58,6 @@ type descriptorTest struct {
 	sweepAddr            []byte
 	revPubKey            *btcec.PublicKey
 	delayPubKey          *btcec.PublicKey
-	csvDelay             uint32
 	commitToLocalSig     lnwire.Sig
 	hasCommitToRemote    bool
 	commitToRemotePubKey *btcec.PublicKey
@@ -63,7 +74,6 @@ var descriptorTests = []descriptorTest{
 		sweepAddr:        makeAddr(22),
 		revPubKey:        makePubKey(),
 		delayPubKey:      makePubKey(),
-		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
 	},
 	{
@@ -73,7 +83,6 @@ var descriptorTests = []descriptorTest{
 		sweepAddr:            makeAddr(22),
 		revPubKey:            makePubKey(),
 		delayPubKey:          makePubKey(),
-		csvDelay:             144,
 		commitToLocalSig:     makeSig(1),
 		hasCommitToRemote:    true,
 		commitToRemotePubKey: makePubKey(),
@@ -86,7 +95,6 @@ var descriptorTests = []descriptorTest{
 		sweepAddr:        makeAddr(34),
 		revPubKey:        makePubKey(),
 		delayPubKey:      makePubKey(),
-		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
 		encErr:           ErrUnknownBlobType,
 	},
@@ -97,7 +105,6 @@ var descriptorTests = []descriptorTest{
 		sweepAddr:        makeAddr(34),
 		revPubKey:        makePubKey(),
 		delayPubKey:      makePubKey(),
-		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
 		decErr:           ErrUnknownBlobType,
 	},
@@ -108,7 +115,6 @@ var descriptorTests = []descriptorTest{
 		sweepAddr:        makeAddr(0),
 		revPubKey:        makePubKey(),
 		delayPubKey:      makePubKey(),
-		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
 	},
 	{
@@ -118,7 +124,6 @@ var descriptorTests = []descriptorTest{
 		sweepAddr:        makeAddr(MaxSweepAddrSize),
 		revPubKey:        makePubKey(),
 		delayPubKey:      makePubKey(),
-		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
 	},
 	{
@@ -128,9 +133,29 @@ var descriptorTests = []descriptorTest{
 		sweepAddr:        makeAddr(MaxSweepAddrSize + 1),
 		revPubKey:        makePubKey(),
 		delayPubKey:      makePubKey(),
-		csvDelay:         144,
 		commitToLocalSig: makeSig(1),
 		encErr:           ErrSweepAddressToLong,
+	},
+	{
+		name:             "taproot to-local only",
+		encVersion:       TypeAltruistTaprootCommit,
+		decVersion:       TypeAltruistTaprootCommit,
+		sweepAddr:        makeAddr(34),
+		revPubKey:        makePubKey(),
+		delayPubKey:      makePubKey(),
+		commitToLocalSig: makeSchnorrSig(1),
+	},
+	{
+		name:                 "taproot to-local and to-remote",
+		encVersion:           TypeAltruistTaprootCommit,
+		decVersion:           TypeAltruistTaprootCommit,
+		sweepAddr:            makeAddr(34),
+		revPubKey:            makePubKey(),
+		delayPubKey:          makePubKey(),
+		commitToLocalSig:     makeSchnorrSig(1),
+		hasCommitToRemote:    true,
+		commitToRemotePubKey: makePubKey(),
+		commitToRemoteSig:    makeSchnorrSig(2),
 	},
 }
 
@@ -154,7 +179,7 @@ func testBlobJusticeKitEncryptDecrypt(t *testing.T, test descriptorTest) {
 	}
 
 	breachInfo := &lnwallet.BreachRetribution{
-		RemoteDelay: test.csvDelay,
+		RemoteDelay: csvDelay,
 		KeyRing: &lnwallet.CommitmentKeyRing{
 			ToLocalKey:    test.delayPubKey,
 			ToRemoteKey:   test.commitToRemotePubKey,
@@ -221,6 +246,8 @@ type remoteWitnessTest struct {
 	name             string
 	blobType         Type
 	expWitnessScript func(pk *btcec.PublicKey) []byte
+	expWitnessStack  func(sig input.Signature) wire.TxWitness
+	createSig        func(*btcec.PrivateKey, []byte) input.Signature
 }
 
 // TestJusticeKitRemoteWitnessConstruction tests that a JusticeKit returns the
@@ -234,6 +261,21 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 			expWitnessScript: func(pk *btcec.PublicKey) []byte {
 				return pk.SerializeCompressed()
 			},
+			expWitnessStack: func(
+				sig input.Signature) wire.TxWitness {
+
+				sigBytes := append(
+					sig.Serialize(),
+					byte(txscript.SigHashAll),
+				)
+
+				return [][]byte{sigBytes}
+			},
+			createSig: func(priv *btcec.PrivateKey,
+				digest []byte) input.Signature {
+
+				return ecdsa.Sign(priv, digest)
+			},
 		},
 		{
 			name:     "anchor commitment",
@@ -241,6 +283,42 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 			expWitnessScript: func(pk *btcec.PublicKey) []byte {
 				script, _ := input.CommitScriptToRemoteConfirmed(pk)
 				return script
+			},
+			expWitnessStack: func(
+				sig input.Signature) wire.TxWitness {
+
+				sigBytes := append(
+					sig.Serialize(),
+					byte(txscript.SigHashAll),
+				)
+
+				return [][]byte{sigBytes}
+			},
+			createSig: func(priv *btcec.PrivateKey,
+				digest []byte) input.Signature {
+
+				return ecdsa.Sign(priv, digest)
+			},
+		},
+		{
+			name:     "taproot commitment",
+			blobType: TypeAltruistTaprootCommit,
+			expWitnessScript: func(pk *btcec.PublicKey) []byte {
+				tree, _ := input.NewRemoteCommitScriptTree(pk)
+
+				return tree.SettleLeaf.Script
+			},
+			expWitnessStack: func(
+				sig input.Signature) wire.TxWitness {
+
+				return [][]byte{sig.Serialize()}
+			},
+			createSig: func(priv *btcec.PrivateKey,
+				digest []byte) input.Signature {
+
+				sig, _ := schnorr.Sign(priv, digest)
+
+				return sig
 			},
 		},
 	}
@@ -252,8 +330,8 @@ func TestJusticeKitRemoteWitnessConstruction(t *testing.T) {
 	}
 }
 
-func testJusticeKitRemoteWitnessConstruction(
-	t *testing.T, test remoteWitnessTest) {
+func testJusticeKitRemoteWitnessConstruction(t *testing.T,
+	test remoteWitnessTest) {
 
 	// Generate the to-remote pubkey.
 	toRemotePrivKey, err := btcec.NewPrivateKey()
@@ -268,7 +346,7 @@ func testJusticeKitRemoteWitnessConstruction(
 	// Sign a message using the to-remote private key. The exact message
 	// doesn't matter as we won't be validating the signature's validity.
 	digest := bytes.Repeat([]byte("a"), 32)
-	rawToRemoteSig := ecdsa.Sign(toRemotePrivKey, digest)
+	rawToRemoteSig := test.createSig(toRemotePrivKey, digest)
 
 	// Convert the DER-encoded signature into a fixed-size sig.
 	commitToRemoteSig, err := lnwire.NewSigFromSignature(rawToRemoteSig)
@@ -298,24 +376,122 @@ func testJusticeKitRemoteWitnessConstruction(
 	expToRemoteScript := test.expWitnessScript(toRemotePrivKey.PubKey())
 	require.Equal(t, expToRemoteScript, witness[1])
 
-	// Compute the expected first element, by appending a sighash all byte
-	// to our raw DER-encoded signature.
-	rawToRemoteSigWithSigHash := append(
-		rawToRemoteSig.Serialize(), byte(txscript.SigHashAll),
-	)
-
-	// Assert that the expected witness stack is returned.
-	expWitnessStack := wire.TxWitness{
-		rawToRemoteSigWithSigHash,
-	}
+	// Compute the expected signature.
+	expWitnessStack := test.expWitnessStack(rawToRemoteSig)
 	require.Equal(t, expWitnessStack, witness[:1])
+}
+
+type localWitnessTest struct {
+	name               string
+	blobType           Type
+	expWitnessScript   func(delay, rev *btcec.PublicKey) []byte
+	expWitnessStack    func(sig input.Signature) wire.TxWitness
+	witnessScriptIndex int
+	createSig          func(*btcec.PrivateKey, []byte) input.Signature
 }
 
 // TestJusticeKitToLocalWitnessConstruction tests that a JusticeKit returns the
 // proper to-local witness script and to-local witness stack for spending the
 // revocation path.
 func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
-	csvDelay := uint32(144)
+	tests := []localWitnessTest{
+		{
+			name:     "legacy commitment",
+			blobType: TypeAltruistCommit,
+			expWitnessScript: func(delay,
+				rev *btcec.PublicKey) []byte {
+
+				script, _ := input.CommitScriptToSelf(
+					csvDelay, delay, rev,
+				)
+
+				return script
+			},
+			expWitnessStack: func(
+				sig input.Signature) wire.TxWitness {
+
+				sigBytes := append(
+					sig.Serialize(),
+					byte(txscript.SigHashAll),
+				)
+
+				return [][]byte{sigBytes, {1}}
+			},
+			witnessScriptIndex: 2,
+			createSig: func(priv *btcec.PrivateKey,
+				digest []byte) input.Signature {
+
+				return ecdsa.Sign(priv, digest)
+			},
+		},
+		{
+			name:     "anchor commitment",
+			blobType: TypeAltruistAnchorCommit,
+			expWitnessScript: func(delay,
+				rev *btcec.PublicKey) []byte {
+
+				script, _ := input.CommitScriptToSelf(
+					csvDelay, delay, rev,
+				)
+
+				return script
+			},
+			witnessScriptIndex: 2,
+			expWitnessStack: func(
+				sig input.Signature) wire.TxWitness {
+
+				sigBytes := append(
+					sig.Serialize(),
+					byte(txscript.SigHashAll),
+				)
+
+				return [][]byte{sigBytes, {1}}
+			},
+			createSig: func(priv *btcec.PrivateKey,
+				digest []byte) input.Signature {
+
+				return ecdsa.Sign(priv, digest)
+			},
+		},
+		{
+			name:     "taproot commitment",
+			blobType: TypeAltruistTaprootCommit,
+			expWitnessScript: func(delay,
+				rev *btcec.PublicKey) []byte {
+
+				script, _ := input.NewLocalCommitScriptTree(
+					csvDelay, delay, rev,
+				)
+
+				return script.RevocationLeaf.Script
+			},
+			witnessScriptIndex: 1,
+			expWitnessStack: func(
+				sig input.Signature) wire.TxWitness {
+
+				return [][]byte{sig.Serialize()}
+			},
+			createSig: func(priv *btcec.PrivateKey,
+				digest []byte) input.Signature {
+
+				sig, _ := schnorr.Sign(priv, digest)
+
+				return sig
+			},
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			testJusticeKitToLocalWitnessConstruction(t, test)
+		})
+	}
+}
+
+func testJusticeKitToLocalWitnessConstruction(t *testing.T,
+	test localWitnessTest) {
 
 	// Generate the revocation and delay private keys.
 	revPrivKey, err := btcec.NewPrivateKey()
@@ -327,13 +503,13 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 	// Sign a message using the revocation private key. The exact message
 	// doesn't matter as we won't be validating the signature's validity.
 	digest := bytes.Repeat([]byte("a"), 32)
-	rawRevSig := ecdsa.Sign(revPrivKey, digest)
+	rawRevSig := test.createSig(revPrivKey, digest)
 
 	// Convert the DER-encoded signature into a fixed-size sig.
 	commitToLocalSig, err := lnwire.NewSigFromSignature(rawRevSig)
 	require.NoError(t, err)
 
-	commitType, err := TypeAltruistCommit.CommitmentType(nil)
+	commitType, err := test.blobType.CommitmentType(nil)
 	require.NoError(t, err)
 
 	breachInfo := &lnwallet.BreachRetribution{
@@ -350,28 +526,18 @@ func TestJusticeKitToLocalWitnessConstruction(t *testing.T) {
 
 	// Compute the expected to-local script, which is a function of the CSV
 	// delay, revocation pubkey and delay pubkey.
-	expToLocalScript, err := input.CommitScriptToSelf(
-		csvDelay, delayPrivKey.PubKey(), revPrivKey.PubKey(),
+	expToLocalScript := test.expWitnessScript(
+		delayPrivKey.PubKey(), revPrivKey.PubKey(),
 	)
-	require.NoError(t, err)
 
 	// Compute the to-local script that is returned by the justice kit.
 	_, witness, err := justiceKit.ToLocalOutputSpendInfo()
 	require.NoError(t, err)
 
 	// Assert that the expected to-local script matches the actual script.
-	require.Equal(t, expToLocalScript, witness[2])
+	require.Equal(t, expToLocalScript, witness[test.witnessScriptIndex])
 
-	// Compute the expected signature in the bottom element of the stack, by
-	// appending a sighash all flag to the raw DER signature.
-	rawRevSigWithSigHash := append(
-		rawRevSig.Serialize(), byte(txscript.SigHashAll),
-	)
-
-	// Finally, validate against our expected witness stack.
-	expWitnessStack := wire.TxWitness{
-		rawRevSigWithSigHash,
-		{1},
-	}
-	require.Equal(t, expWitnessStack, witness[:2])
+	// Finally, validate the witness.
+	expWitnessStack := test.expWitnessStack(rawRevSig)
+	require.Equal(t, expWitnessStack, witness[:test.witnessScriptIndex])
 }

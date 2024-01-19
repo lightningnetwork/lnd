@@ -120,15 +120,8 @@ var _ SessionNegotiator = (*sessionNegotiator)(nil)
 // newSessionNegotiator initializes a fresh sessionNegotiator instance.
 func newSessionNegotiator(cfg *NegotiatorConfig) *sessionNegotiator {
 	// Generate the set of features the negotiator will present to the tower
-	// upon connection. For anchor channels, we'll conditionally signal that
-	// we require support for anchor channels depending on the requested
-	// policy.
-	features := []lnwire.FeatureBit{
-		wtwire.AltruistSessionsRequired,
-	}
-	if cfg.Policy.IsAnchorChannel() {
-		features = append(features, wtwire.AnchorCommitRequired)
-	}
+	// upon connection.
+	features := cfg.Policy.FeatureBits()
 
 	localInit := wtwire.NewInitMessage(
 		lnwire.NewRawFeatureVector(features...),

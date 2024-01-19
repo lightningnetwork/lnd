@@ -9,6 +9,8 @@ var FeatureNames = map[lnwire.FeatureBit]string{
 	AltruistSessionsOptional: "altruist-sessions",
 	AnchorCommitRequired:     "anchor-commit",
 	AnchorCommitOptional:     "anchor-commit",
+	TaprootCommitRequired:    "taproot-commit",
+	TaprootCommitOptional:    "taproot-commit",
 }
 
 const (
@@ -30,4 +32,13 @@ const (
 	// AnchorCommitOptional specifies that the advertising tower allows the
 	// remote party to negotiate sessions for protecting anchor channels.
 	AnchorCommitOptional lnwire.FeatureBit = 3
+
+	// TaprootCommitRequired specifies that the advertising tower requires
+	// the remote party to negotiate sessions for protecting taproot
+	// channels.
+	TaprootCommitRequired lnwire.FeatureBit = 4
+
+	// TaprootCommitOptional specifies that the advertising tower allows the
+	// remote party to negotiate sessions for protecting taproot channels.
+	TaprootCommitOptional lnwire.FeatureBit = 5
 )

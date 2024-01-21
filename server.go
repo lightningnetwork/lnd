@@ -1277,6 +1277,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return ourPolicy, err
 	}
 
+	// For the reservationTimeout and the zombieSweeperInterval different
+	// values are set in case we are in a dev environment so enhance test
+	// capacilities.
+	reservationTimeout := lncfg.DefaultReservationTimeout
+	zombieSweeperInterval := lncfg.DefaultZombieSweeperInterval
+
 	// Get the development config for funding manager. If we are not in
 	// development mode, this would be nil.
 	var devCfg *funding.DevConfig
@@ -1284,6 +1290,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		devCfg = &funding.DevConfig{
 			ProcessChannelReadyWait: cfg.Dev.ChannelReadyWait(),
 		}
+
+		reservationTimeout = cfg.Dev.GetReservationTimeout()
+		zombieSweeperInterval = cfg.Dev.GetZombieSweeperInterval()
+
+		srvrLog.Debugf("Using the dev config for the fundingMgr: %v, "+
+			"reservationTimeout=%v, zombieSweeperInterval=%v",
+			devCfg, reservationTimeout, zombieSweeperInterval)
 	}
 
 	//nolint:lll
@@ -1446,8 +1459,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// channel bandwidth.
 			return uint16(input.MaxHTLCNumber / 2)
 		},
-		ZombieSweeperInterval:         1 * time.Minute,
-		ReservationTimeout:            10 * time.Minute,
+		ZombieSweeperInterval:         zombieSweeperInterval,
+		ReservationTimeout:            reservationTimeout,
 		MinChanSize:                   btcutil.Amount(cfg.MinChanSize),
 		MaxChanSize:                   btcutil.Amount(cfg.MaxChanSize),
 		MaxPendingChannels:            cfg.MaxPendingChannels,

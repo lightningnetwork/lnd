@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1339,4 +1340,51 @@ func sendAllCoinsToAddrType(ht *lntest.HarnessTest,
 
 	ht.MineBlocksAndAssertNumTxes(1, 1)
 	ht.WaitForBlockchainSync(hn)
+}
+
+// testPsbtChanFundingFailFlow tests the failing of a funding flow by the
+// remote peer and that the initiator receives the expected error and aborts
+// the channel opening. The psbt funding flow is used to simulate this behavior
+// because we can easily let the remote peer run into the timeout.
+func testPsbtChanFundingFailFlow(ht *lntest.HarnessTest) {
+	const chanSize = funding.MaxBtcFundingAmount
+
+	// Decrease the timeout window for the remote peer to accelerate the
+	// funding fail process.
+	args := []string{
+		"--dev.reservationtimeout=1s",
+		"--dev.zombiesweeperinterval=1s",
+	}
+	ht.RestartNodeWithExtraArgs(ht.Bob, args)
+
+	// Before we start the test, we'll ensure both sides are connected so
+	// the funding flow can be properly executed.
+	alice := ht.Alice
+	bob := ht.Bob
+	ht.EnsureConnected(alice, bob)
+
+	// At this point, we can begin our PSBT channel funding workflow. We'll
+	// start by generating a pending channel ID externally that will be used
+	// to track this new funding type.
+	pendingChanID := ht.Random32Bytes()
+
+	// Now that we have the pending channel ID, Alice will open the channel
+	// by specifying a PSBT shim.
+	chanUpdates, _ := ht.OpenChannelPsbt(
+		alice, bob, lntest.OpenChannelParams{
+			Amt: chanSize,
+			FundingShim: &lnrpc.FundingShim{
+				Shim: &lnrpc.FundingShim_PsbtShim{
+					PsbtShim: &lnrpc.PsbtShim{
+						PendingChanId: pendingChanID,
+					},
+				},
+			},
+		},
+	)
+
+	// We received the AcceptChannel msg from our peer but we are not going
+	// to fund this channel but instead wait for our peer to fail the
+	// funding workflow with an internal error.
+	ht.ReceiveOpenChannelError(chanUpdates, chanfunding.ErrRemoteCanceled)
 }

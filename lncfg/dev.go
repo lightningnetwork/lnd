@@ -2,7 +2,9 @@
 
 package lncfg
 
-import "time"
+import (
+	"time"
+)
 
 // IsDevBuild returns a bool to indicate whether we are in a development
 // environment.
@@ -20,4 +22,14 @@ type DevConfig struct{}
 // build.
 func (d *DevConfig) ChannelReadyWait() time.Duration {
 	return 0
+}
+
+// GetReservationTimeout returns the config value for `ReservationTimeout`.
+func (d *DevConfig) GetReservationTimeout() time.Duration {
+	return DefaultReservationTimeout
+}
+
+// GetZombieSweeperInterval returns the config value for`ZombieSweeperInterval`.
+func (d *DevConfig) GetZombieSweeperInterval() time.Duration {
+	return DefaultZombieSweeperInterval
 }

@@ -19,6 +19,12 @@
 
 # Bug Fixes
 
+* [Fix the removal of failed
+  channels](https://github.com/lightningnetwork/lnd/pull/8406). When a pending
+  channel opening was pruned from memory no more channels were able to be
+  created nor accepted. This PR fixes this issue and enhances the test suite
+  for this behavior.
+
 # New Features
 ## Functional Enhancements
 ## RPC Additions

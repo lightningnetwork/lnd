@@ -52,22 +52,26 @@ func (bc *BlockCache) GetBlock(hash *chainhash.Hash,
 	}
 
 	// Fetch the block from the chain backends.
-	block, err := getBlockImpl(hash)
+	msgBlock, err := getBlockImpl(hash)
 	if err != nil {
 		return nil, err
 	}
+
+	// Make a copy of the block so it won't escape to the heap.
+	msgBlockCopy := msgBlock.Copy()
+	block := btcutil.NewBlock(msgBlockCopy)
 
 	// Add the new block to blockCache. If the Cache is at its maximum
 	// capacity then the LFU item will be evicted in favour of this new
 	// block.
 	_, err = bc.Cache.Put(
 		*inv, &neutrino.CacheableBlock{
-			Block: btcutil.NewBlock(block),
+			Block: block,
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return block, nil
+	return msgBlockCopy, nil
 }

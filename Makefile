@@ -24,6 +24,9 @@ COMMIT := $(shell git describe --tags --dirty)
 GO_VERSION := $(shell go version | sed -nre 's/^[^0-9]*(([0-9]+\.)*[0-9]+).*/\1/p')
 GO_VERSION_MINOR := $(shell echo $(GO_VERSION) | cut -d. -f2)
 
+# The GO version we expect to see in Dockerfile files and YAML files.
+EXPECTED_GO_VERSION := "1.21.0"
+
 LOOPVARFIX :=
 ifeq ($(shell expr $(GO_VERSION_MINOR) \>= 21), 1)
 	LOOPVARFIX := GOEXPERIMENT=loopvar
@@ -250,9 +253,19 @@ fmt-check: fmt
 	@$(call print, "Checking fmt results.")
 	if test -n "$$(git status --porcelain)"; then echo "code not formatted correctly, please run `make fmt` again!"; git status; git diff; exit 1; fi
 
-lint: docker-tools
+check-go-version-yaml:
+	@$(call print, "Checking for target Go version (v$(EXPECTED_GO_VERSION)) in YAML files (*.yml, *.yaml)")
+	./tools/check-go-version-yaml.sh $(EXPECTED_GO_VERSION)
+
+check-go-version-dockerfile:
+	@$(call print, "Checking for target Go version (v$(EXPECTED_GO_VERSION)) in Dockerfile files (*Dockerfile)")
+	./tools/check-go-version-dockerfile.sh $(EXPECTED_GO_VERSION)
+
+lint-source: docker-tools
 	@$(call print, "Linting source.")
 	$(DOCKER_TOOLS) golangci-lint run -v $(LINT_WORKERS)
+
+lint: lint-source check-go-version-dockerfile check-go-version-yaml
 
 tidy-module:
 	echo "Running 'go mod tidy' for all modules"

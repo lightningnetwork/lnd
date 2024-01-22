@@ -1,7 +1,10 @@
 package sqldb
 
 import (
+	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -124,19 +127,33 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 }
 
 // NewTestPostgresDB is a helper function that creates a Postgres database for
-// testing.
-func NewTestPostgresDB(t *testing.T) *PostgresStore {
+// testing using the given fixture.
+func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
 	t.Helper()
 
-	t.Logf("Creating new Postgres DB for testing")
+	// Create random database name.
+	randBytes := make([]byte, 8)
+	_, err := rand.Read(randBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	sqlFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime)
-	store, err := NewPostgresStore(sqlFixture.GetConfig())
+	dbName := "test_" + hex.EncodeToString(randBytes)
+
+	t.Logf("Creating new Postgres DB '%s' for testing", dbName)
+
+	_, err = fixture.db.ExecContext(
+		context.Background(), "CREATE DATABASE "+dbName,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := fixture.GetConfig()
+	cfg.DBName = dbName
+
+	store, err := NewPostgresStore(cfg)
 	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		sqlFixture.TearDown(t)
-	})
 
 	return store
 }

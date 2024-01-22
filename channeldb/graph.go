@@ -2357,7 +2357,11 @@ func (c *ChannelGraph) FilterChannelRange(startHeight,
 // skipped and the result will contain only those edges that exist at the time
 // of the query. This can be used to respond to peer queries that are seeking to
 // fill in gaps in their view of the channel graph.
-func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
+//
+// NOTE: An optional transaction may be provided. If none is provided, then a
+// new one will be created.
+func (c *ChannelGraph) FetchChanInfos(tx kvdb.RTx, chanIDs []uint64) (
+	[]ChannelEdge, error) {
 	// TODO(roasbeef): sort cids?
 
 	var (
@@ -2365,7 +2369,7 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 		cidBytes  [8]byte
 	)
 
-	err := kvdb.View(c.db, func(tx kvdb.RTx) error {
+	fetchChanInfos := func(tx kvdb.RTx) error {
 		edges := tx.ReadBucket(edgeBucket)
 		if edges == nil {
 			return ErrGraphNoEdgesFound
@@ -2427,9 +2431,20 @@ func (c *ChannelGraph) FetchChanInfos(chanIDs []uint64) ([]ChannelEdge, error) {
 			})
 		}
 		return nil
-	}, func() {
-		chanEdges = nil
-	})
+	}
+
+	if tx == nil {
+		err := kvdb.View(c.db, fetchChanInfos, func() {
+			chanEdges = nil
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return chanEdges, nil
+	}
+
+	err := fetchChanInfos(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -3673,7 +3688,7 @@ func (c *ChannelGraph) markEdgeLiveUnsafe(tx kvdb.RwTx, chanID uint64) error {
 	// We need to add the channel back into our graph cache, otherwise we
 	// won't use it for path finding.
 	if c.graphCache != nil {
-		edgeInfos, err := c.FetchChanInfos([]uint64{chanID})
+		edgeInfos, err := c.FetchChanInfos(tx, []uint64{chanID})
 		if err != nil {
 			return err
 		}

@@ -1008,20 +1008,23 @@ func (r *ChannelRouter) pruneZombieChans() error {
 	if r.cfg.AssumeChannelValid {
 		disabledChanIDs, err := r.cfg.Graph.DisabledChannelIDs()
 		if err != nil {
-			return fmt.Errorf("unable to get disabled channels ids "+
-				"chans: %v", err)
+			return fmt.Errorf("unable to get disabled channels "+
+				"ids chans: %v", err)
 		}
 
-		disabledEdges, err := r.cfg.Graph.FetchChanInfos(disabledChanIDs)
+		disabledEdges, err := r.cfg.Graph.FetchChanInfos(
+			nil, disabledChanIDs,
+		)
 		if err != nil {
-			return fmt.Errorf("unable to fetch disabled channels edges "+
-				"chans: %v", err)
+			return fmt.Errorf("unable to fetch disabled channels "+
+				"edges chans: %v", err)
 		}
 
 		// Ensuring we won't prune our own channel from the graph.
 		for _, disabledEdge := range disabledEdges {
 			if !isSelfChannelEdge(disabledEdge.Info) {
-				chansToPrune[disabledEdge.Info.ChannelID] = struct{}{}
+				chansToPrune[disabledEdge.Info.ChannelID] =
+					struct{}{}
 			}
 		}
 	}

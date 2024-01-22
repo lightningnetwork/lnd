@@ -24,6 +24,10 @@
   channel opening was pruned from memory no more channels were able to be
   created nor accepted. This PR fixes this issue and enhances the test suite
   for this behavior.
+ 
+* [Fix deadlock possibility in
+  FilterKnownChanIDs](https://github.com/lightningnetwork/lnd/pull/8400) by
+  ensuring the `cacheMu` mutex is acquired before the main database lock.
 
 # New Features
 ## Functional Enhancements
@@ -46,3 +50,5 @@
 ## Tooling and Documentation
 
 # Contributors (Alphabetical Order)
+* Elle Mouton
+* ziggie1984

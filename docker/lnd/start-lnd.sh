@@ -38,15 +38,22 @@ set_default() {
    return "$VARIABLE"
 }
 
+
+# Set the default network and default RPC path (if any).
+DEFAULT_NETWORK="regtest"
+if [ "$BACKEND" == "btcd" ]; then
+    DEFAULT_NETWORK="simnet"
+    DEFAULT_RPCCRTPATH="/rpc/rpc.cert"
+fi
+
 # Set default variables if needed.
-RPCCRTPATH=$(set_default "$RPCCRTPATH" "/rpc/rpc.cert")
+NETWORK=$(set_default "$NETWORK" "$DEFAULT_NETWORK")
+RPCCRTPATH=$(set_default "$RPCCRTPATH" "$DEFAULT_RPCCRTPATH")
 RPCHOST=$(set_default "$RPCHOST" "blockchain")
 RPCUSER=$(set_default "$RPCUSER" "devuser")
 RPCPASS=$(set_default "$RPCPASS" "devpass")
-DEBUG=$(set_default "$DEBUG" "debug")
-NETWORK=$(set_default "$NETWORK" "simnet")
+DEBUG=$(set_default "$LND_DEBUG" "debug")
 CHAIN=$(set_default "$CHAIN" "bitcoin")
-BACKEND="btcd"
 HOSTNAME=$(hostname)
 
 # CAUTION: DO NOT use the --noseedback for production/mainnet setups, ever!
@@ -54,16 +61,36 @@ HOSTNAME=$(hostname)
 # address that is reachable on the internal network. If you do this outside of
 # docker, this might be a security concern!
 
-exec lnd \
-    --noseedbackup \
-    "--$CHAIN.active" \
-    "--$CHAIN.$NETWORK" \
-    "--$CHAIN.node"="$BACKEND" \
-    "--$BACKEND.rpccert"="$RPCCRTPATH" \
-    "--$BACKEND.rpchost"="$RPCHOST" \
-    "--$BACKEND.rpcuser"="$RPCUSER" \
-    "--$BACKEND.rpcpass"="$RPCPASS" \
-    "--rpclisten=$HOSTNAME:10009" \
-    "--rpclisten=localhost:10009" \
-    --debuglevel="$DEBUG" \
-    "$@"
+if [ "$BACKEND" == "bitcoind" ]; then
+    exec lnd \
+        --noseedbackup \
+        "--$CHAIN.active" \
+        "--$CHAIN.$NETWORK" \
+        "--$CHAIN.node"="$BACKEND" \
+        "--$BACKEND.rpchost"="$RPCHOST" \
+        "--$BACKEND.rpcuser"="$RPCUSER" \
+        "--$BACKEND.rpcpass"="$RPCPASS" \
+        "--$BACKEND.zmqpubrawblock"="tcp://$RPCHOST:28332" \
+        "--$BACKEND.zmqpubrawtx"="tcp://$RPCHOST:28333" \
+        "--rpclisten=$HOSTNAME:10009" \
+        "--rpclisten=localhost:10009" \
+        --debuglevel="$DEBUG" \
+        "$@"
+elif [ "$BACKEND" == "btcd" ]; then
+    exec lnd \
+        --noseedbackup \
+        "--$CHAIN.active" \
+        "--$CHAIN.$NETWORK" \
+        "--$CHAIN.node"="$BACKEND" \
+        "--$BACKEND.rpccert"="$RPCCRTPATH" \
+        "--$BACKEND.rpchost"="$RPCHOST" \
+        "--$BACKEND.rpcuser"="$RPCUSER" \
+        "--$BACKEND.rpcpass"="$RPCPASS" \
+        "--rpclisten=$HOSTNAME:10009" \
+        "--rpclisten=localhost:10009" \
+        --debuglevel="$DEBUG" \
+        "$@"
+else
+    echo "Unknown backend: $BACKEND"
+    exit 1
+fi

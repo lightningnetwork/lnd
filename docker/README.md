@@ -13,6 +13,11 @@ docker | 1.13.0
 ### Table of content
  * [Create lightning network cluster](#create-lightning-network-cluster)
  * [Connect to faucet lightning node](#connect-to-faucet-lightning-node)
+ * [Building standalone docker images](#building-standalone-docker-images)
+ * [Using bitcoind version](#using-bitcoind-version)
+   * [Start Bitcoin Node with bitcoind using Docker Compose](#start-bitcoin-node-with-bitcoind-using-docker-compose)
+   * [Generating RPCAUTH](#generating-rpcauth)
+   * [Mining in regtest using bitcoin-cli](#mining-in-regtest-using-bitcoin-cli)
  * [Questions](#questions)
 
 ### Create lightning network cluster
@@ -327,10 +332,49 @@ Instructions on how to build standalone docker images (for development or
 production), outside of `docker-compose`, see the
 [docker docs](../docs/DOCKER.md).
 
+### Using bitcoind version
+If you are using the bitcoind version of the compose file i.e `docker-compose-bitcoind.yml`, follow these additional instructions:
+
+#### Start Bitcoin Node with bitcoind using Docker Compose
+To launch the Bitcoin node using bitcoind in the regtest network using Docker Compose, use the following command:
+```shell
+$  NETWORK="regtest" docker-compose -f docker-compose-bitcoind.yml up
+```
+
+#### Generating RPCAUTH
+In bitcoind, the usage of `rpcuser` and `rpcpassword` for server-side authentication has been deprecated. To address this, we now use `rpcauth` instead. You can generate the necessary rpcauth credentials using the [rpcauth.py script](https://github.com/bitcoin/bitcoin/blob/master/share/rpcauth/rpcauth.py) from the Bitcoin Core repository.
+
+Note: When using any RPC client, such as `lnd` or `bitcoin-cli`, It is crucial to either provide a clear text password with username or employ cookie authentication.
+
+#### Mining in regtest using bitcoin-cli
+1. Log into the `lnd` container:
+```shell
+$  docker exec -it lnd bash
+```
+2. Generate a new backward compatible nested p2sh address:
+```shell
+lnd$  lncli --network=regtest newaddress np2wkh
+```
+3. Log into the `bitcoind` container:
+```shell
+$  docker exec -it bitcoind bash
+```
+4. Generate 101 blocks:
+```shell
+# Note: We need at least "100 >=" blocks because of coinbase block maturity.
+bitcoind$  bitcoin-cli -chain=regtest -rpcuser=devuser -rpcpassword=devpass generatetoaddress 101 2N1NQzFjCy1NnpAH3cT4h4GoByrAAkiH7zu
+```
+5. Check your lnd wallet balance in regtest network:
+```shell
+lnd$ lncli --network=regtest walletbalance
+```
+
+Note: The address `2N1NQzFjCy1NnpAH3cT4h4GoByrAAkiH7zu` is just a random example. Feel free to use an address generated from your `lnd` wallet to send coins to yourself.
+
 ### Questions
 [![Irc](https://img.shields.io/badge/chat-on%20libera-brightgreen.svg)](https://web.libera.chat/#lnd)
 
-* How to see `alice` | `bob` | `btcd` logs?
+* How to see `alice` | `bob` | `btcd` | `lnd` | `bitcoind` logs?
 ```shell
-$  docker-compose logs <alice|bob|btcd>
+$  docker-compose logs <alice|bob|btcd|lnd|bitcoind>
 ```

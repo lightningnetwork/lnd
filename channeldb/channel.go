@@ -2214,7 +2214,7 @@ type HTLC struct {
 	// - 8 bytes (id)
 	// - 8 bytes (amount_msat)
 	// - 32 bytes (payment_hash)
-	// - 4 bytes (cltv_expiry
+	// - 4 bytes (cltv_expiry)
 	// - 1366 bytes (onion_routing_packet)
 	// = 64083 bytes maximum possible TLV stream
 	//

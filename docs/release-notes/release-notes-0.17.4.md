@@ -33,6 +33,10 @@
   from [deadlocking](https://github.com/lightningnetwork/lnd/issues/8379)
   the peer connection.
 
+* [Fix](https://github.com/lightningnetwork/lnd/pull/8401) an issue that
+  caused memory leak for users running `lnd` with `bitcoind.rpcpolling=1`
+  mode.
+
 
 # New Features
 ## Functional Enhancements
@@ -59,4 +63,5 @@
 * Elle Mouton
 * Keagan McClelland
 * Olaoluwa Osuntokun
+* Yong Yu
 * ziggie1984

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +36,23 @@ var (
 
 	testNow = time.Unix(1, 0)
 )
+
+// randBytesToString will return a "safe" string from a byte slice. This is
+// used to generate random strings for the invoice payment request.
+func randBytesToString(buf []byte) (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	var stringBuilder strings.Builder
+
+	stringBuilder.Grow(len(buf))
+	for i := 0; i < len(buf); i++ {
+		ch := charset[int(buf[i])%len(charset)]
+		if err := stringBuilder.WriteByte(ch); err != nil {
+			return "", err
+		}
+	}
+
+	return stringBuilder.String(), nil
+}
 
 func randInvoice(value lnwire.MilliSatoshi) (*invpkg.Invoice, error) {
 	var (
@@ -70,7 +88,11 @@ func randInvoice(value lnwire.MilliSatoshi) (*invpkg.Invoice, error) {
 		return nil, err
 	}
 	if r[0]&1 == 0 {
-		i.PaymentRequest = r[:]
+		paymentReq, err := randBytesToString(r[:])
+		if err != nil {
+			return nil, err
+		}
+		i.PaymentRequest = []byte(paymentReq)
 	} else {
 		i.PaymentRequest = []byte("")
 	}
@@ -200,29 +222,52 @@ func TestInvoices(t *testing.T) {
 		return db
 	}
 
-	makeSQLDB := func(t *testing.T) invpkg.InvoiceDB {
-		db := sqldb.NewTestSqliteDB(t)
+	// First create a shared Postgres instance so we don't spawn a new
+	// docker container for each test.
+	pgFixture := sqldb.NewTestPgFixture(
+		t, sqldb.DefaultPostgresFixtureLifetime,
+	)
+	t.Cleanup(func() {
+		pgFixture.TearDown(t)
+	})
+
+	makeSQLDB := func(t *testing.T, sqlite bool) invpkg.InvoiceDB {
+		var db *sqldb.BaseDB
+		if sqlite {
+			db = sqldb.NewTestSqliteDB(t).BaseDB
+		} else {
+			db = sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
+		}
 
 		executor := sqldb.NewTransactionExecutor(
 			db, func(tx *sql.Tx) sqldb.InvoiceQueries {
-				return db.BaseDB.WithTx(tx)
+				return db.WithTx(tx)
 			},
 		)
 
-		return sqldb.NewInvoiceStore(
-			executor, clock.NewTestClock(testNow),
-		)
+		testClock := clock.NewTestClock(testNow)
+
+		return sqldb.NewInvoiceStore(executor, testClock)
 	}
 
 	for _, test := range testList {
 		test := test
-
 		t.Run(test.name+"_KV", func(t *testing.T) {
 			test.test(t, makeKeyValueDB)
 		})
 
-		t.Run(test.name+"_SQL", func(t *testing.T) {
-			test.test(t, makeSQLDB)
+		t.Run(test.name+"_SQLite", func(t *testing.T) {
+			test.test(t,
+				func(t *testing.T) invpkg.InvoiceDB {
+					return makeSQLDB(t, true)
+				})
+		})
+
+		t.Run(test.name+"_Postgres", func(t *testing.T) {
+			test.test(t,
+				func(t *testing.T) invpkg.InvoiceDB {
+					return makeSQLDB(t, false)
+				})
 		})
 	}
 }

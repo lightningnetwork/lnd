@@ -116,12 +116,28 @@ func TestInvoiceRegistry(t *testing.T) {
 		return db, testClock
 	}
 
-	makeSQLDB := func(t *testing.T) (invpkg.InvoiceDB, *clock.TestClock) {
-		db := sqldb.NewTestSqliteDB(t)
+	// First create a shared Postgres instance so we don't spawn a new
+	// docker container for each test.
+	pgFixture := sqldb.NewTestPgFixture(
+		t, sqldb.DefaultPostgresFixtureLifetime,
+	)
+	t.Cleanup(func() {
+		pgFixture.TearDown(t)
+	})
+
+	makeSQLDB := func(t *testing.T, sqlite bool) (invpkg.InvoiceDB,
+		*clock.TestClock) {
+
+		var db *sqldb.BaseDB
+		if sqlite {
+			db = sqldb.NewTestSqliteDB(t).BaseDB
+		} else {
+			db = sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
+		}
 
 		executor := sqldb.NewTransactionExecutor(
 			db, func(tx *sql.Tx) sqldb.InvoiceQueries {
-				return db.BaseDB.WithTx(tx)
+				return db.WithTx(tx)
 			},
 		)
 
@@ -137,8 +153,22 @@ func TestInvoiceRegistry(t *testing.T) {
 			test.test(t, makeKeyValueDB)
 		})
 
-		t.Run(test.name+"_SQL", func(t *testing.T) {
-			test.test(t, makeSQLDB)
+		t.Run(test.name+"_SQLite", func(t *testing.T) {
+			test.test(t,
+				func(t *testing.T) (
+					invpkg.InvoiceDB, *clock.TestClock) {
+
+					return makeSQLDB(t, true)
+				})
+		})
+
+		t.Run(test.name+"_Postgres", func(t *testing.T) {
+			test.test(t,
+				func(t *testing.T) (
+					invpkg.InvoiceDB, *clock.TestClock) {
+
+					return makeSQLDB(t, false)
+				})
 		})
 	}
 }

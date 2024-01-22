@@ -231,7 +231,7 @@ func timeout() func() {
 
 	go func() {
 		select {
-		case <-time.After(5 * time.Second):
+		case <-time.After(10 * time.Second):
 			err := pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 			if err != nil {
 				panic(fmt.Sprintf("error writing to std out "+

@@ -476,6 +476,13 @@ func (q *DiskOverflowQueue[T]) feedMemQueue() {
 				}
 			}
 
+			// If we did manage to fetch a task from disk, we make
+			// sure to set the toDisk mode to true since we may
+			// block indefinitely while trying to push the tasks to
+			// the memQueue in which case we want the drainInputList
+			// goroutine to write any new tasks to disk.
+			q.toDisk.Store(true)
+
 			for i, task := range tasks {
 				select {
 				case q.memQueue <- task:

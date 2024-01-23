@@ -327,6 +327,10 @@
 * [Refactor UpdateInvoice](https://github.com/lightningnetwork/lnd/pull/8100) to
   make it simpler to adjust code to also support SQL InvoiceDB implementation.
 
+* [InvoiceDB implementation](https://github.com/lightningnetwork/lnd/pull/8052)
+  for SQL backends enabling new users to optionally use  an experimental native
+  SQL invoices database.
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

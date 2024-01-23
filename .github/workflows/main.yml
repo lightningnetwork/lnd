@@ -134,6 +134,9 @@ jobs:
       - name: check go modules tidiness 
         run: make tidy-module-check
 
+      - name: lint proto files
+        run: make protolint
+
       - name: lint
         run: GOGC=50 make lint
 

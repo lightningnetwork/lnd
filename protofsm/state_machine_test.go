@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/mock"
@@ -160,6 +162,16 @@ func assertStateTransitions[Event any, Env Environment](
 
 type dummyAdapters struct {
 	mock.Mock
+
+	confChan  chan *chainntnfs.TxConfirmation
+	spendChan chan *chainntnfs.SpendDetail
+}
+
+func newDaemonAdapters() *dummyAdapters {
+	return &dummyAdapters{
+		confChan:  make(chan *chainntnfs.TxConfirmation, 1),
+		spendChan: make(chan *chainntnfs.SpendDetail, 1),
+	}
 }
 
 func (d *dummyAdapters) SendMessages(pub btcec.PublicKey, msgs []lnwire.Message) error {
@@ -172,6 +184,31 @@ func (d *dummyAdapters) BroadcastTransaction(tx *wire.MsgTx, label string) error
 	args := d.Called(tx, label)
 
 	return args.Error(0)
+}
+
+func (d *dummyAdapters) RegisterConfirmationsNtfn(txid *chainhash.Hash,
+	pkScript []byte, numConfs, heightHint uint32,
+	opts ...chainntnfs.NotifierOption,
+) (*chainntnfs.ConfirmationEvent, error) {
+
+	args := d.Called(txid, pkScript, numConfs)
+
+	err := args.Error(0)
+	return &chainntnfs.ConfirmationEvent{
+		Confirmed: d.confChan,
+	}, err
+}
+
+func (d *dummyAdapters) RegisterSpendNtfn(outpoint *wire.OutPoint,
+	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
+
+	args := d.Called(outpoint, pkScript, heightHint)
+
+	err := args.Error(0)
+
+	return &chainntnfs.SpendEvent{
+		Spend: d.spendChan,
+	}, err
 }
 
 // TestStateMachineInternalEvents tests that the state machine is able to add

@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -77,6 +79,28 @@ type DaemonAdapters interface {
 
 	// BroadcastTransaction broadcasts a transaction with the target label.
 	BroadcastTransaction(*wire.MsgTx, string) error
+
+	// RegisterConfirmationsNtfn registers an intent to be notified once
+	// txid reaches numConfs confirmations. We also pass in the pkScript as
+	// the default light client instead needs to match on scripts created
+	// in the block. If a nil txid is passed in, then not only should we
+	// match on the script, but we should also dispatch once the
+	// transaction containing the script reaches numConfs confirmations.
+	// This can be useful in instances where we only know the script in
+	// advance, but not the transaction containing it.
+	//
+	// TODO(roasbeef): could abstract further?
+	RegisterConfirmationsNtfn(txid *chainhash.Hash, pkScript []byte,
+		numConfs, heightHint uint32,
+		opts ...chainntnfs.NotifierOption,
+	) (*chainntnfs.ConfirmationEvent, error)
+
+	// RegisterSpendNtfn registers an intent to be notified once the target
+	// outpoint is successfully spent within a transaction. The script that
+	// the outpoint creates must also be specified. This allows this
+	// interface to be implemented by BIP 158-like filtering.
+	RegisterSpendNtfn(outpoint *wire.OutPoint, pkScript []byte,
+		heightHint uint32) (*chainntnfs.SpendEvent, error)
 }
 
 // stateQuery is used by outside callers to query the internal state of the
@@ -282,6 +306,78 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 		}
 
 		return nil
+
+	// The state machine has requested a new event to be sent once a
+	// transaction spending a specified outpoint has confirmed.
+	case *RegisterSpend[Event]:
+		spendEvent, err := s.daemon.RegisterSpendNtfn(
+			&daemonEvent.OutPoint, daemonEvent.PkScript,
+			daemonEvent.HeightHint,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to register spend: %w", err)
+		}
+
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			for {
+				select {
+				case <-spendEvent.Spend:
+					// If there's a post-send event, then
+					// we'll send that into the current
+					// state now.
+					postSpend := daemonEvent.PostSpendEvent
+					postSpend.WhenSome(func(e Event) {
+						s.SendEvent(e)
+					})
+
+					return
+
+				case <-s.quit:
+					return
+				}
+			}
+		}()
+
+		return nil
+
+	// The state machine has requested a new event to be sent once a
+	// specified txid+pkScript pair has confirmed.
+	case *RegisterConf[Event]:
+		numConfs := daemonEvent.NumConfs.UnwrapOr(1)
+		confEvent, err := s.daemon.RegisterConfirmationsNtfn(
+			&daemonEvent.Txid, daemonEvent.PkScript,
+			numConfs, daemonEvent.HeightHint,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to register conf: %w", err)
+		}
+
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			for {
+				select {
+				case <-confEvent.Confirmed:
+					// If there's a post-conf event, then
+					// we'll send that into the current
+					// state now.
+					//
+					// TODO(roasbeef): refactor to
+					// dispatchAfterRecv w/ above
+					postConf := daemonEvent.PostConfEvent
+					postConf.WhenSome(func(e Event) {
+						s.SendEvent(e)
+					})
+
+					return
+
+				case <-s.quit:
+					return
+				}
+			}
+		}()
 	}
 
 	return fmt.Errorf("unknown daemon event: %T", event)

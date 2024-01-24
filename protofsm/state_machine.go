@@ -138,6 +138,8 @@ type StateMachine[Event any, Env Environment] struct {
 
 	stateQuery chan stateQuery[Event, Env]
 
+	initEvent fn.Option[DaemonEvent]
+
 	startOnce sync.Once
 	stopOnce  sync.Once
 
@@ -145,10 +147,12 @@ type StateMachine[Event any, Env Environment] struct {
 }
 
 // NewStateMachine creates a new state machine given a set of daemon adapters,
-// an initial state, and an environment.
+// an initial state, an environment, and an event to process as if emitted at
+// the onset of the state machine. Such an event can be used to set up tracking
+// state such as a txid confirmation event.
 func NewStateMachine[Event any, Env Environment](adapters DaemonAdapters,
-	initialState State[Event, Env],
-	env Env) StateMachine[Event, Env] {
+	initialState State[Event, Env], env Env,
+	initEvent fn.Option[DaemonEvent]) StateMachine[Event, Env] {
 
 	return StateMachine[Event, Env]{
 		daemon:         adapters,
@@ -157,6 +161,7 @@ func NewStateMachine[Event any, Env Environment](adapters DaemonAdapters,
 		stateQuery:     make(chan stateQuery[Event, Env]),
 		quit:           make(chan struct{}),
 		env:            env,
+		initEvent:      initEvent,
 		newStateEvents: fn.NewEventDistributor[State[Event, Env]](),
 	}
 }
@@ -446,6 +451,9 @@ func (s *StateMachine[Event, Env]) applyEvents(newEvent Event) (State[Event, Env
 			currentState = transition.NextState
 
 			// Notify our subscribers of the new state transition.
+			//
+			// TODO(roasbeef): will only give us the outer state?
+			//  * let FSMs choose which state to emit?
 			s.newStateEvents.NotifySubscribers(currentState)
 
 			return nil
@@ -466,6 +474,16 @@ func (s *StateMachine[Event, Env]) driveMachine() {
 
 	// TODO(roasbeef): move into env? read only to start with
 	currentState := s.currentState
+
+	// Before we start, if we have an init daemon event specified, then
+	// we'll handle that now.
+	err := fn.MapOptionZ(s.initEvent, func(event DaemonEvent) error {
+		return s.executeDaemonEvent(event)
+	})
+	if err != nil {
+		log.Errorf("unable to execute init event: %w", err)
+		return
+	}
 
 	// We just started driving the state machine, so we'll notify our
 	// subscribers of this starting state.

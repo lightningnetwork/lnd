@@ -211,6 +211,52 @@ func (d *dummyAdapters) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	}, err
 }
 
+// TestStateMachineOnInitDaemonEvent tests that the state machine will properly
+// execute any init-level daemon events passed into it.
+func TestStateMachineOnInitDaemonEvent(t *testing.T) {
+	// First, we'll create our state machine given the env, and our
+	// starting state.
+	env := &dummyEnv{}
+	startingState := &dummyStateStart{}
+
+	adapters := newDaemonAdapters()
+
+	// We'll make an init event that'll send to a peer, then transition us
+	// to our terminal state.
+	initEvent := &SendMsgEvent[dummyEvents]{
+		TargetPeer:    *pub1,
+		PostSendEvent: fn.Some(dummyEvents(&goToFin{})),
+	}
+
+	stateMachine := NewStateMachine[dummyEvents, *dummyEnv](
+		adapters, startingState, env, fn.Some[DaemonEvent](initEvent),
+	)
+
+	// Before we start up the state machine, we'll assert that the send
+	// message adapter is called on start up.
+	adapters.On("SendMessages", *pub1, mock.Anything).Return(nil)
+
+	stateMachine.Start()
+	defer stateMachine.Stop()
+
+	// As we're triggering internal events, we'll also subscribe to the set
+	// of new states so we can assert as we go.
+	stateSub := stateMachine.RegisterStateEvents()
+	defer stateMachine.RemoveStateSub(stateSub)
+
+	// Assert that we go from the starting state to the final state.  The
+	// state machine should now also be on the final terminal state.
+	expectedStates := []State[dummyEvents, *dummyEnv]{
+		&dummyStateStart{}, &dummyStateFin{},
+	}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	// We'll now assert that after the daemon was started, the send message
+	// adapter was called above as specified in the init event.
+	adapters.AssertExpectations(t)
+	env.AssertExpectations(t)
+}
+
 // TestStateMachineInternalEvents tests that the state machine is able to add
 // new internal events to the event queue for further processing during a state
 // transition.
@@ -222,10 +268,10 @@ func TestStateMachineInternalEvents(t *testing.T) {
 	env := &dummyEnv{}
 	startingState := &dummyStateStart{}
 
-	adapters := &dummyAdapters{}
+	adapters := newDaemonAdapters()
 
 	stateMachine := NewStateMachine[dummyEvents, *dummyEnv](
-		adapters, startingState, env,
+		adapters, startingState, env, fn.None[DaemonEvent](),
 	)
 	stateMachine.Start()
 	defer stateMachine.Stop()
@@ -269,10 +315,10 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 		canSend: &boolTrigger,
 	}
 
-	adapters := &dummyAdapters{}
+	adapters := newDaemonAdapters()
 
 	stateMachine := NewStateMachine[dummyEvents, *dummyEnv](
-		adapters, startingState, env,
+		adapters, startingState, env, fn.None[DaemonEvent](),
 	)
 	stateMachine.Start()
 	defer stateMachine.Stop()

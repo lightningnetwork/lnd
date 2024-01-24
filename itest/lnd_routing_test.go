@@ -1323,15 +1323,6 @@ func testRouteFeeCutoff(ht *lntest.HarnessTest) {
 	}
 	testFeeCutoff(feeLimitFixed)
 
-	// TODO(yy): remove the sleep once the following bug is fixed. When the
-	// payment is reported as settled by Carol, it's expected the
-	// commitment dance is finished and all subsequent states have been
-	// updated. Yet we'd receive the error `cannot co-op close channel with
-	// active htlcs` or `link failed to shutdown` if we close the channel.
-	// We need to investigate the order of settling the payments and
-	// updating commitments to understand and fix .
-	time.Sleep(2 * time.Second)
-
 	// Once we're done, close the channels and shut down the nodes created
 	// throughout this test.
 	ht.CloseChannel(alice, chanPointAliceBob)

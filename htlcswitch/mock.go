@@ -899,12 +899,30 @@ func (f *mockChannelLink) ChannelPoint() *wire.OutPoint                 { return
 func (f *mockChannelLink) Stop()                                        {}
 func (f *mockChannelLink) EligibleToForward() bool                      { return f.eligible }
 func (f *mockChannelLink) MayAddOutgoingHtlc(lnwire.MilliSatoshi) error { return nil }
-func (f *mockChannelLink) ShutdownIfChannelClean() error                { return nil }
 func (f *mockChannelLink) setLiveShortChanID(sid lnwire.ShortChannelID) { f.shortChanID = sid }
 func (f *mockChannelLink) IsUnadvertised() bool                         { return f.unadvertised }
 func (f *mockChannelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 	f.eligible = true
 	return f.shortChanID, nil
+}
+
+func (f *mockChannelLink) EnableAdds(linkDirection LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (f *mockChannelLink) DisableAdds(linkDirection LinkDirection) error {
+	// TODO(proofofkeags): Implement
+	return nil
+}
+func (f *mockChannelLink) IsFlushing(linkDirection LinkDirection) bool {
+	// TODO(proofofkeags): Implement
+	return false
+}
+func (f *mockChannelLink) OnFlushedOnce(func()) {
+	// TODO(proofofkeags): Implement
+}
+func (f *mockChannelLink) OnCommitOnce(LinkDirection, func()) {
+	// TODO(proofofkeags): Implement
 }
 
 var _ ChannelLink = (*mockChannelLink)(nil)

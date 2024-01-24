@@ -4,9 +4,11 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math/rand"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -456,7 +458,9 @@ func (m *mockMessageSwitch) GetLinksByInterface(pub [33]byte) (
 // mockUpdateHandler is a mock implementation of the ChannelUpdateHandler
 // interface. It is used in mockMessageSwitch's GetLinksByInterface method.
 type mockUpdateHandler struct {
-	cid lnwire.ChannelID
+	cid                  lnwire.ChannelID
+	isOutgoingAddBlocked atomic.Bool
+	isIncomingAddBlocked atomic.Bool
 }
 
 // newMockUpdateHandler creates a new mockUpdateHandler.
@@ -481,9 +485,6 @@ func (m *mockUpdateHandler) EligibleToForward() bool { return false }
 // MayAddOutgoingHtlc currently returns nil.
 func (m *mockUpdateHandler) MayAddOutgoingHtlc(lnwire.MilliSatoshi) error { return nil }
 
-// ShutdownIfChannelClean currently returns nil.
-func (m *mockUpdateHandler) ShutdownIfChannelClean() error { return nil }
-
 type mockMessageConn struct {
 	t *testing.T
 
@@ -507,6 +508,57 @@ type mockMessageConn struct {
 	// associated with reading from the connection. The race detector will
 	// trigger on this counter if a data race exists.
 	readRaceDetectingCounter int
+}
+
+func (m *mockUpdateHandler) EnableAdds(dir htlcswitch.LinkDirection) error {
+	switch dir {
+	case htlcswitch.Outgoing:
+		if !m.isOutgoingAddBlocked.Swap(false) {
+			return fmt.Errorf("%v adds already enabled", dir)
+		}
+	case htlcswitch.Incoming:
+		if !m.isIncomingAddBlocked.Swap(false) {
+			return fmt.Errorf("%v adds already enabled", dir)
+		}
+	}
+
+	return nil
+}
+
+func (m *mockUpdateHandler) DisableAdds(dir htlcswitch.LinkDirection) error {
+	switch dir {
+	case htlcswitch.Outgoing:
+		if m.isOutgoingAddBlocked.Swap(true) {
+			return fmt.Errorf("%v adds already disabled", dir)
+		}
+	case htlcswitch.Incoming:
+		if m.isIncomingAddBlocked.Swap(true) {
+			return fmt.Errorf("%v adds already disabled", dir)
+		}
+	}
+
+	return nil
+}
+
+func (m *mockUpdateHandler) IsFlushing(dir htlcswitch.LinkDirection) bool {
+	switch dir {
+	case htlcswitch.Outgoing:
+		return m.isOutgoingAddBlocked.Load()
+	case htlcswitch.Incoming:
+		return m.isIncomingAddBlocked.Load()
+	}
+
+	return false
+}
+
+func (m *mockUpdateHandler) OnFlushedOnce(hook func()) {
+	hook()
+}
+func (m *mockUpdateHandler) OnCommitOnce(
+	_ htlcswitch.LinkDirection, hook func(),
+) {
+
+	hook()
 }
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {

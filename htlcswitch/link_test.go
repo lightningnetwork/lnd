@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	prand "math/rand"
 	"net"
 	"reflect"
 	"runtime"
@@ -6665,94 +6666,6 @@ func TestPendingCommitTicker(t *testing.T) {
 	}
 }
 
-// TestShutdownIfChannelClean tests that a link will exit the htlcManager loop
-// if and only if the underlying channel state is clean.
-func TestShutdownIfChannelClean(t *testing.T) {
-	t.Parallel()
-
-	const chanAmt = btcutil.SatoshiPerBitcoin * 5
-	const chanReserve = btcutil.SatoshiPerBitcoin * 1
-	aliceLink, bobChannel, batchTicker, start, _, err :=
-		newSingleLinkTestHarness(t, chanAmt, chanReserve)
-	require.NoError(t, err)
-
-	var (
-		coreLink  = aliceLink.(*channelLink)
-		aliceMsgs = coreLink.cfg.Peer.(*mockPeer).sentMsgs
-	)
-
-	shutdownAssert := func(expectedErr error) {
-		err = aliceLink.ShutdownIfChannelClean()
-		if expectedErr != nil {
-			require.Error(t, err, expectedErr)
-		} else {
-			require.NoError(t, err)
-		}
-	}
-
-	err = start()
-	require.NoError(t, err)
-
-	ctx := linkTestContext{
-		t:          t,
-		aliceLink:  aliceLink,
-		bobChannel: bobChannel,
-		aliceMsgs:  aliceMsgs,
-	}
-
-	// First send an HTLC from Bob to Alice and assert that the link can't
-	// be shutdown while the update is outstanding.
-	htlc := generateHtlc(t, coreLink, 0)
-
-	// <---add-----
-	ctx.sendHtlcBobToAlice(htlc)
-	// <---sig-----
-	ctx.sendCommitSigBobToAlice(1)
-	// ----rev---->
-	ctx.receiveRevAndAckAliceToBob()
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// ----sig---->
-	ctx.receiveCommitSigAliceToBob(1)
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// <---rev-----
-	ctx.sendRevAndAckBobToAlice()
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// ---settle-->
-	ctx.receiveSettleAliceToBob()
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// ----sig---->
-	ctx.receiveCommitSigAliceToBob(0)
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// <---rev-----
-	ctx.sendRevAndAckBobToAlice()
-	shutdownAssert(ErrLinkFailedShutdown)
-
-	// There is currently no controllable breakpoint between Alice
-	// receiving the CommitSig and her sending out the RevokeAndAck. As
-	// soon as the RevokeAndAck is generated, the channel becomes clean.
-	// This can happen right after the CommitSig is received, so there is
-	// no shutdown assertion here.
-	// <---sig-----
-	ctx.sendCommitSigBobToAlice(0)
-
-	// ----rev---->
-	ctx.receiveRevAndAckAliceToBob()
-	shutdownAssert(nil)
-
-	// Now that the link has exited the htlcManager loop, attempt to
-	// trigger the batch ticker. It should not be possible.
-	select {
-	case batchTicker <- time.Now():
-		t.Fatalf("expected batch ticker to be inactive")
-	case <-time.After(5 * time.Second):
-	}
-}
-
 // TestPipelineSettle tests that a link should only pipeline a settle if the
 // related add is fully locked-in meaning it is on both sides' commitment txns.
 func TestPipelineSettle(t *testing.T) {
@@ -7040,4 +6953,208 @@ func TestChannelLinkShortFailureRelay(t *testing.T) {
 
 	default:
 	}
+}
+
+// TestLinkFlushApiDirectionIsolation tests whether the calls to EnableAdds and
+// DisableAdds are correctly isolated based off of direction (Incoming and
+// Outgoing). This means that the state of the Outgoing flush should always be
+// unaffected by calls to EnableAdds/DisableAdds on the Incoming direction and
+// vice-versa.
+func TestLinkFlushApiDirectionIsolation(t *testing.T) {
+	aliceLink, _, _, _, _, _ :=
+		newSingleLinkTestHarness(
+			t, 5*btcutil.SatoshiPerBitcoin,
+			1*btcutil.SatoshiPerBitcoin,
+		)
+
+	for i := 0; i < 10; i++ {
+		if prand.Uint64()%2 == 0 {
+			//nolint:errcheck
+			aliceLink.EnableAdds(Outgoing)
+			require.False(t, aliceLink.IsFlushing(Outgoing))
+		} else {
+			//nolint:errcheck
+			aliceLink.DisableAdds(Outgoing)
+			require.True(t, aliceLink.IsFlushing(Outgoing))
+		}
+		require.False(t, aliceLink.IsFlushing(Incoming))
+	}
+
+	//nolint:errcheck
+	aliceLink.EnableAdds(Outgoing)
+
+	for i := 0; i < 10; i++ {
+		if prand.Uint64()%2 == 0 {
+			//nolint:errcheck
+			aliceLink.EnableAdds(Incoming)
+			require.False(t, aliceLink.IsFlushing(Incoming))
+		} else {
+			//nolint:errcheck
+			aliceLink.DisableAdds(Incoming)
+			require.True(t, aliceLink.IsFlushing(Incoming))
+		}
+		require.False(t, aliceLink.IsFlushing(Outgoing))
+	}
+}
+
+// TestLinkFlushApiGateStateIdempotence tests whether successive calls to
+// EnableAdds or DisableAdds (without the other one in between) result in both
+// no state change in the flush state AND that the second call results in an
+// error (to inform the caller that the call was unnecessary in case it implies
+// a bug in their logic).
+func TestLinkFlushApiGateStateIdempotence(t *testing.T) {
+	aliceLink, _, _, _, _, _ :=
+		newSingleLinkTestHarness(
+			t, 5*btcutil.SatoshiPerBitcoin,
+			1*btcutil.SatoshiPerBitcoin,
+		)
+
+	for _, dir := range []LinkDirection{Incoming, Outgoing} {
+		require.Nil(t, aliceLink.DisableAdds(dir))
+		require.True(t, aliceLink.IsFlushing(dir))
+
+		require.NotNil(t, aliceLink.DisableAdds(dir))
+		require.True(t, aliceLink.IsFlushing(dir))
+
+		require.Nil(t, aliceLink.EnableAdds(dir))
+		require.False(t, aliceLink.IsFlushing(dir))
+
+		require.NotNil(t, aliceLink.EnableAdds(dir))
+		require.False(t, aliceLink.IsFlushing(dir))
+	}
+}
+
+func TestLinkOutgoingCommitHooksCalled(t *testing.T) {
+	aliceLink, bobChannel, batchTicker, start, _, err :=
+		newSingleLinkTestHarness(
+			t, 5*btcutil.SatoshiPerBitcoin,
+			btcutil.SatoshiPerBitcoin,
+		)
+	require.NoError(t, err)
+
+	require.NoError(t, start(), "could not start link")
+
+	hookCalled := make(chan struct{})
+
+	//nolint:forcetypeassert
+	aliceMsgs := aliceLink.(*channelLink).cfg.Peer.(*mockPeer).sentMsgs
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	// Set up a pending HTLC on the link.
+	//nolint:forcetypeassert
+	htlc := generateHtlc(t, aliceLink.(*channelLink), 0)
+	ctx.sendHtlcAliceToBob(0, htlc)
+	ctx.receiveHtlcAliceToBob()
+
+	aliceLink.OnCommitOnce(Outgoing, func() {
+		close(hookCalled)
+	})
+
+	select {
+	case <-hookCalled:
+		t.Fatal("hook called prematurely")
+	case <-time.NewTimer(time.Second).C:
+	}
+
+	batchTicker <- time.Now()
+
+	// Send a second tick just to ensure the hook isn't called more than
+	// once.
+	batchTicker <- time.Now()
+
+	select {
+	case <-hookCalled:
+	case <-time.NewTimer(time.Second).C:
+		t.Fatal("hook not called")
+	}
+}
+
+func TestLinkFlushHooksCalled(t *testing.T) {
+	aliceLink, bobChannel, _, start, _, err :=
+		newSingleLinkTestHarness(
+			t, 5*btcutil.SatoshiPerBitcoin,
+			btcutil.SatoshiPerBitcoin,
+		)
+	require.NoError(t, err)
+
+	require.NoError(t, start(), "could not start link")
+
+	//nolint:forcetypeassert
+	aliceMsgs := aliceLink.(*channelLink).cfg.Peer.(*mockPeer).sentMsgs
+
+	ctx := linkTestContext{
+		t:          t,
+		aliceLink:  aliceLink,
+		bobChannel: bobChannel,
+		aliceMsgs:  aliceMsgs,
+	}
+
+	hookCalled := make(chan struct{})
+
+	assertHookCalled := func(shouldBeCalled bool) {
+		select {
+		case <-hookCalled:
+			require.True(
+				t, shouldBeCalled, "hook called prematurely",
+			)
+		case <-time.NewTimer(time.Millisecond).C:
+			require.False(t, shouldBeCalled, "hook not called")
+		}
+	}
+
+	//nolint:forcetypeassert
+	htlc := generateHtlc(t, aliceLink.(*channelLink), 0)
+
+	// A <- add -- B
+	ctx.sendHtlcBobToAlice(htlc)
+
+	// A <- sig -- B
+	ctx.sendCommitSigBobToAlice(1)
+
+	// A -- rev -> B
+	ctx.receiveRevAndAckAliceToBob()
+
+	// Register flush hook
+	aliceLink.OnFlushedOnce(func() {
+		close(hookCalled)
+	})
+
+	// Channel is not clean, hook should not be called
+	assertHookCalled(false)
+
+	// A -- sig -> B
+	ctx.receiveCommitSigAliceToBob(1)
+	assertHookCalled(false)
+
+	// A <- rev -- B
+	ctx.sendRevAndAckBobToAlice()
+	assertHookCalled(false)
+
+	// A -- set -> B
+	ctx.receiveSettleAliceToBob()
+	assertHookCalled(false)
+
+	// A -- sig -> B
+	ctx.receiveCommitSigAliceToBob(0)
+	assertHookCalled(false)
+
+	// A <- rev -- B
+	ctx.sendRevAndAckBobToAlice()
+	assertHookCalled(false)
+
+	// A <- sig -- B
+	ctx.sendCommitSigBobToAlice(0)
+	// since there is no pause point between alice receiving CommitSig and
+	// sending RevokeAndAck, we don't assert the hook hasn't been called
+	// here.
+
+	// A -- rev -> B
+	ctx.receiveRevAndAckAliceToBob()
+	assertHookCalled(true)
 }

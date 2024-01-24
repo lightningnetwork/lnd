@@ -2575,12 +2575,6 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		return nil, ErrChannelNotFound
 	}
 
-	// Optimistically try a link shutdown, erroring out if it failed.
-	if err := p.tryLinkShutdown(chanID); err != nil {
-		p.log.Errorf("failed link shutdown: %v", err)
-		return nil, err
-	}
-
 	// We'll create a valid closing state machine in order to respond to
 	// the initiated cooperative channel closure. First, we set the
 	// delivery script that our funds will be paid out to. If an upfront
@@ -2957,17 +2951,6 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			}
 		}
 
-		// Optimistically try a link shutdown, erroring out if it
-		// failed.
-		if err := p.tryLinkShutdown(chanID); err != nil {
-			p.log.Errorf("failed link shutdown: %v", err)
-
-			req.Err <- fmt.Errorf("failed handling co-op closing "+
-				"request with (try force closing "+
-				"it instead): %w", err)
-			return
-		}
-
 		chanCloser, err := p.createChanCloser(
 			channel, deliveryScript, req.TargetFeePerKw, req, true,
 		)
@@ -2994,7 +2977,28 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
-		p.queueMsg(shutdownMsg, nil)
+		link := p.fetchLinkFromKeyAndCid(chanID)
+		if link == nil {
+			// If the link is nil then it means it was already
+			// removed from the switch or it never existed in the
+			// first place. The latter case is handled at the
+			// beginning of this function, so in the case where it
+			// has already been removed, we can skip adding the
+			// commit hook to queue a Shutdown message.
+			p.log.Warnf("link not found during attempted closure: "+
+				"%v", chanID)
+			return
+		}
+
+		link.OnCommitOnce(htlcswitch.Outgoing, func() {
+			err := link.DisableAdds(htlcswitch.Outgoing)
+			if err != nil {
+				p.log.Warnf("outgoing link adds already "+
+					"disabled: %v", link.ChanID())
+			}
+
+			p.queueMsg(shutdownMsg, nil)
+		})
 
 	// A type of CloseBreach indicates that the counterparty has breached
 	// the channel therefore we need to clean up our local state.
@@ -3102,35 +3106,6 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 	if failure.linkErr.FailureAction == htlcswitch.LinkFailureDisconnect {
 		p.Disconnect(fmt.Errorf("link requested disconnect"))
 	}
-}
-
-// tryLinkShutdown attempts to fetch a target link from the switch, calls
-// ShutdownIfChannelClean to optimistically trigger a link shutdown, and
-// removes the link from the switch. It returns an error if any step failed.
-func (p *Brontide) tryLinkShutdown(cid lnwire.ChannelID) error {
-	// Fetch the appropriate link and call ShutdownIfChannelClean to ensure
-	// no other updates can occur.
-	chanLink := p.fetchLinkFromKeyAndCid(cid)
-
-	// If the link happens to be nil, return ErrChannelNotFound so we can
-	// ignore the close message.
-	if chanLink == nil {
-		return ErrChannelNotFound
-	}
-
-	// Else, the link exists, so attempt to trigger shutdown. If this
-	// fails, we'll send an error message to the remote peer.
-	if err := chanLink.ShutdownIfChannelClean(); err != nil {
-		return err
-	}
-
-	// Next, we remove the link from the switch to shut down all of the
-	// link's goroutines and remove it from the switch's internal maps. We
-	// don't call WipeChannel as the channel must still be in the
-	// activeChannels map to process coop close messages.
-	p.cfg.Switch.RemoveLink(cid)
-
-	return nil
 }
 
 // fetchLinkFromKeyAndCid fetches a link from the switch via the remote's
@@ -3602,6 +3577,8 @@ func (p *Brontide) StartTime() time.Time {
 // message is received from the remote peer. We'll use this message to advance
 // the chan closer state machine.
 func (p *Brontide) handleCloseMsg(msg *closeMsg) {
+	link := p.fetchLinkFromKeyAndCid(msg.cid)
+
 	// We'll now fetch the matching closing state machine in order to continue,
 	// or finalize the channel closure process.
 	chanCloser, err := p.fetchActiveChanCloser(msg.cid)
@@ -3621,13 +3598,8 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		return
 	}
 
-	// Next, we'll process the next message using the target state machine.
-	// We'll either continue negotiation, or halt.
-	msgs, closeFin, err := chanCloser.ProcessCloseMsg(
-		msg.msg,
-	)
-	if err != nil {
-		err := fmt.Errorf("unable to process close msg: %v", err)
+	handleErr := func(err error) {
+		err = fmt.Errorf("unable to process close msg: %w", err)
 		p.log.Error(err)
 
 		// As the negotiations failed, we'll reset the channel state machine to
@@ -3638,18 +3610,93 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			chanCloser.CloseRequest().Err <- err
 		}
 		delete(p.activeChanCloses, msg.cid)
-		return
+
+		p.Disconnect(err)
 	}
 
-	// Queue any messages to the remote peer that need to be sent as a part of
-	// this latest round of negotiations.
-	for _, msg := range msgs {
-		p.queueMsg(msg, nil)
+	// Next, we'll process the next message using the target state machine.
+	// We'll either continue negotiation, or halt.
+	switch typed := msg.msg.(type) {
+	case *lnwire.Shutdown:
+		// Disable incoming adds immediately.
+		if link != nil {
+			err := link.DisableAdds(htlcswitch.Incoming)
+			if err != nil {
+				p.log.Warnf("incoming link adds already "+
+					"disabled: %v", link.ChanID())
+			}
+		}
+
+		oShutdown, err := chanCloser.ReceiveShutdown(*typed)
+		if err != nil {
+			handleErr(err)
+			return
+		}
+
+		oShutdown.WhenSome(func(msg lnwire.Shutdown) {
+			// if the link is nil it means we can immediately queue
+			// the Shutdown message since we don't have to wait for
+			// commitment transaction synchronization.
+			if link == nil {
+				p.queueMsg(typed, nil)
+				return
+			}
+
+			// When we have a Shutdown to send, we defer it till the
+			// next time we send a CommitSig to remain spec
+			// compliant.
+			link.OnCommitOnce(htlcswitch.Outgoing, func() {
+				err := link.DisableAdds(htlcswitch.Outgoing)
+				if err != nil {
+					p.log.Warn(err.Error())
+				}
+				p.queueMsg(&msg, nil)
+			})
+		})
+
+		beginNegotiation := func() {
+			oClosingSigned, err := chanCloser.BeginNegotiation()
+			if err != nil {
+				handleErr(err)
+				return
+			}
+
+			oClosingSigned.WhenSome(func(msg lnwire.ClosingSigned) {
+				p.queueMsg(&msg, nil)
+			})
+		}
+
+		if link == nil {
+			beginNegotiation()
+		} else {
+			// Now we register a flush hook to advance the
+			// ChanCloser and possibly send out a ClosingSigned
+			// when the link finishes draining.
+			link.OnFlushedOnce(func() {
+				// Remove link in goroutine to prevent deadlock.
+				go p.cfg.Switch.RemoveLink(msg.cid)
+				beginNegotiation()
+			})
+		}
+
+	case *lnwire.ClosingSigned:
+		oClosingSigned, err := chanCloser.ReceiveClosingSigned(*typed)
+		if err != nil {
+			handleErr(err)
+			return
+		}
+
+		oClosingSigned.WhenSome(func(msg lnwire.ClosingSigned) {
+			p.queueMsg(&msg, nil)
+		})
+
+	default:
+		panic("impossible closeMsg type")
 	}
 
 	// If we haven't finished close negotiations, then we'll continue as we
 	// can't yet finalize the closure.
-	if !closeFin {
+	if _, err := chanCloser.ClosingTx(); err != nil {
 		return
 	}
 

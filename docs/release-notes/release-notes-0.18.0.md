@@ -68,6 +68,11 @@
 * [Properly handle un-acked updates for exhausted watchtower 
   sessions](https://github.com/lightningnetwork/lnd/pull/8233)
 
+* [Allow `shutdown`s while HTLCs are in-flight](https://github.com/lightningnetwork/lnd/pull/8167).
+  This change fixes an issue where we would force-close channels when receiving
+  a `shutdown` message if there were currently HTLCs on the channel. After this
+  change, the shutdown procedure should be compliant with BOLT2 requirements.
+
 # New Features
 ## Functional Enhancements
 
@@ -125,6 +130,12 @@
   configuration of the node as well as the complete log
   file](https://github.com/lightningnetwork/lnd/pull/8188). The corresponding
   `lncli getdebuginfo` command was also added.
+
+* Add a [new flag](https://github.com/lightningnetwork/lnd/pull/8167) to the
+  `CloseChannel` RPC method that instructs the client to not wait for the
+  closing transaction to be negotiated. This should be used if you don't care
+  about the txid and don't want the calling code to block while the channel
+  drains the active HTLCs.
 
 ## lncli Additions
 

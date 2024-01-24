@@ -134,11 +134,54 @@ type ChannelUpdateHandler interface {
 	// parameter.
 	MayAddOutgoingHtlc(lnwire.MilliSatoshi) error
 
-	// ShutdownIfChannelClean shuts the link down if the channel state is
-	// clean. This can be used with dynamic commitment negotiation or coop
-	// close negotiation which require a clean channel state.
-	ShutdownIfChannelClean() error
+	// EnableAdds sets the ChannelUpdateHandler state to allow
+	// UpdateAddHtlc's in the specified direction. It returns an error if
+	// the state already allowed those adds.
+	EnableAdds(direction LinkDirection) error
+
+	// DiableAdds sets the ChannelUpdateHandler state to allow
+	// UpdateAddHtlc's in the specified direction. It returns an error if
+	// the state already disallowed those adds.
+	DisableAdds(direction LinkDirection) error
+
+	// IsFlushing returns true when UpdateAddHtlc's are disabled in the
+	// direction of the argument.
+	IsFlushing(direction LinkDirection) bool
+
+	// OnFlushedOnce adds a hook that will be called the next time the
+	// channel state reaches zero htlcs. This hook will only ever be called
+	// once. If the channel state already has zero htlcs, then this will be
+	// called immediately.
+	OnFlushedOnce(func())
+
+	// OnCommitOnce adds a hook that will be called the next time a
+	// CommitSig message is sent in the argument's LinkDirection. This hook
+	// will only ever be called once. If no CommitSig is owed in the
+	// argument's LinkDirection, then we will call this hook immediately.
+	OnCommitOnce(LinkDirection, func())
 }
+
+// CommitHookID is a value that is used to uniquely identify hooks in the
+// ChannelUpdateHandler's commitment update lifecycle. You should never need to
+// construct one of these by hand, nor should you try.
+type CommitHookID uint64
+
+// FlushHookID is a value that is used to uniquely identify hooks in the
+// ChannelUpdateHandler's flush lifecycle. You should never need to construct
+// one of these by hand, nor should you try.
+type FlushHookID uint64
+
+// LinkDirection is used to query and change any link state on a per-direction
+// basis.
+type LinkDirection bool
+
+const (
+	// Incoming is the direction from the remote peer to our node.
+	Incoming LinkDirection = false
+
+	// Outgoing is the direction from our node to the remote peer.
+	Outgoing LinkDirection = true
+)
 
 // ChannelLink is an interface which represents the subsystem for managing the
 // incoming htlc requests, applying the changes to the channel, and also

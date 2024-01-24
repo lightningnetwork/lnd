@@ -273,13 +273,6 @@ type ChannelLinkConfig struct {
 	GetAliases func(base lnwire.ShortChannelID) []lnwire.ShortChannelID
 }
 
-// shutdownReq contains an error channel that will be used by the channelLink
-// to send an error if shutdown failed. If shutdown succeeded, the channel will
-// be closed.
-type shutdownReq struct {
-	err chan error
-}
-
 // channelLink is the service which drives a channel's commitment update
 // state-machine. In the event that an HTLC needs to be propagated to another
 // link, the forward handler from config is used which sends HTLC to the
@@ -340,10 +333,6 @@ type channelLink struct {
 	// by the HTLC switch.
 	downstream chan *htlcPacket
 
-	// shutdownRequest is a channel that the channelLink will listen on to
-	// service shutdown requests from ShutdownIfChannelClean calls.
-	shutdownRequest chan *shutdownReq
-
 	// updateFeeTimer is the timer responsible for updating the link's
 	// commitment fee every time it fires.
 	updateFeeTimer *time.Timer
@@ -367,8 +356,78 @@ type channelLink struct {
 	// log is a link-specific logging instance.
 	log btclog.Logger
 
+	// isOutgoingAddBlocked tracks whether the channelLink can send an
+	// UpdateAddHTLC.
+	isOutgoingAddBlocked atomic.Bool
+
+	// isIncomingAddBlocked tracks whether the channelLink can receive an
+	// UpdateAddHTLC.
+	isIncomingAddBlocked atomic.Bool
+
+	// flushHooks is a hookMap that is triggered when we reach a channel
+	// state with no live HTLCs.
+	flushHooks hookMap
+
+	// outgoingCommitHooks is a hookMap that is triggered after we send our
+	// next CommitSig.
+	outgoingCommitHooks hookMap
+
+	// incomingCommitHooks is a hookMap that is triggered after we receive
+	// our next CommitSig.
+	incomingCommitHooks hookMap
+
 	wg   sync.WaitGroup
 	quit chan struct{}
+}
+
+// hookMap is a data structure that is used to track the hooks that need to be
+// called in various parts of the channelLink's lifecycle.
+//
+// WARNING: NOT thread-safe.
+type hookMap struct {
+	// allocIdx keeps track of the next id we haven't yet allocated.
+	allocIdx atomic.Uint64
+
+	// transient is a map of hooks that are only called the next time invoke
+	// is called. These hooks are deleted during invoke.
+	transient map[uint64]func()
+
+	// newTransients is a channel that we use to accept new hooks into the
+	// hookMap.
+	newTransients chan func()
+}
+
+// newHookMap initializes a new empty hookMap.
+func newHookMap() hookMap {
+	return hookMap{
+		allocIdx:      atomic.Uint64{},
+		transient:     make(map[uint64]func()),
+		newTransients: make(chan func()),
+	}
+}
+
+// alloc allocates space in the hook map for the supplied hook, the second
+// argument determines whether it goes into the transient or persistent part
+// of the hookMap.
+func (m *hookMap) alloc(hook func()) uint64 {
+	// We assume we never overflow a uint64. Seems OK.
+	hookID := m.allocIdx.Add(1)
+	if hookID == 0 {
+		panic("hookMap allocIdx overflow")
+	}
+	m.transient[hookID] = hook
+
+	return hookID
+}
+
+// invoke is used on a hook map to call all the registered hooks and then clear
+// out the transient hooks so they are not called again.
+func (m *hookMap) invoke() {
+	for _, hook := range m.transient {
+		hook()
+	}
+
+	m.transient = make(map[uint64]func())
 }
 
 // hodlHtlc contains htlc data that is required for resolution.
@@ -385,14 +444,16 @@ func NewChannelLink(cfg ChannelLinkConfig,
 	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ChannelPoint())
 
 	return &channelLink{
-		cfg:             cfg,
-		channel:         channel,
-		shortChanID:     channel.ShortChanID(),
-		shutdownRequest: make(chan *shutdownReq),
-		hodlMap:         make(map[models.CircuitKey]hodlHtlc),
-		hodlQueue:       queue.NewConcurrentQueue(10),
-		log:             build.NewPrefixLog(logPrefix, log),
-		quit:            make(chan struct{}),
+		cfg:                 cfg,
+		channel:             channel,
+		shortChanID:         channel.ShortChanID(),
+		hodlMap:             make(map[models.CircuitKey]hodlHtlc),
+		hodlQueue:           queue.NewConcurrentQueue(10),
+		log:                 build.NewPrefixLog(logPrefix, log),
+		flushHooks:          newHookMap(),
+		outgoingCommitHooks: newHookMap(),
+		incomingCommitHooks: newHookMap(),
+		quit:                make(chan struct{}),
 	}
 }
 
@@ -538,13 +599,99 @@ func (l *channelLink) WaitForShutdown() {
 
 // EligibleToForward returns a bool indicating if the channel is able to
 // actively accept requests to forward HTLC's. We're able to forward HTLC's if
-// we know the remote party's next revocation point. Otherwise, we can't
-// initiate new channel state. We also require that the short channel ID not be
-// the all-zero source ID, meaning that the channel has had its ID finalized.
+// we are eligible to update AND the channel isn't currently flushing the
+// outgoing half of the channel.
 func (l *channelLink) EligibleToForward() bool {
+	return l.EligibleToUpdate() &&
+		!l.IsFlushing(Outgoing)
+}
+
+// EligibleToUpdate returns a bool indicating if the channel is able to update
+// channel state. We're able to update channel state if we know the remote
+// party's next revocation point. Otherwise, we can't initiate new channel
+// state. We also require that the short channel ID not be the all-zero source
+// ID, meaning that the channel has had its ID finalized.
+func (l *channelLink) EligibleToUpdate() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
 		l.ShortChanID() != hop.Source &&
 		l.isReestablished()
+}
+
+// EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
+// the specified direction. It returns an error if the state already allowed
+// those adds.
+func (l *channelLink) EnableAdds(linkDirection LinkDirection) error {
+	if linkDirection == Outgoing {
+		if !l.isOutgoingAddBlocked.Swap(false) {
+			return errors.New("outgoing adds already enabled")
+		}
+	}
+
+	if linkDirection == Incoming {
+		if !l.isIncomingAddBlocked.Swap(false) {
+			return errors.New("incoming adds already enabled")
+		}
+	}
+
+	return nil
+}
+
+// DiableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
+// the specified direction. It returns an error if the state already disallowed
+// those adds.
+func (l *channelLink) DisableAdds(linkDirection LinkDirection) error {
+	if linkDirection == Outgoing {
+		if l.isOutgoingAddBlocked.Swap(true) {
+			return errors.New("outgoing adds already disabled")
+		}
+	}
+
+	if linkDirection == Incoming {
+		if l.isIncomingAddBlocked.Swap(true) {
+			return errors.New("incoming adds already disabled")
+		}
+	}
+
+	return nil
+}
+
+// IsFlushing returns true when UpdateAddHtlc's are disabled in the direction of
+// the argument.
+func (l *channelLink) IsFlushing(linkDirection LinkDirection) bool {
+	if linkDirection == Outgoing {
+		return l.isOutgoingAddBlocked.Load()
+	}
+
+	return l.isIncomingAddBlocked.Load()
+}
+
+// OnFlushedOnce adds a hook that will be called the next time the channel
+// state reaches zero htlcs. This hook will only ever be called once. If the
+// channel state already has zero htlcs, then this will be called immediately.
+func (l *channelLink) OnFlushedOnce(hook func()) {
+	select {
+	case l.flushHooks.newTransients <- hook:
+	case <-l.quit:
+	}
+}
+
+// OnCommitOnce adds a hook that will be called the next time a CommitSig
+// message is sent in the argument's LinkDirection. This hook will only ever be
+// called once. If no CommitSig is owed in the argument's LinkDirection, then
+// we will call this hook be run immediately.
+func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
+	var queue chan func()
+
+	if direction == Outgoing {
+		queue = l.outgoingCommitHooks.newTransients
+	} else {
+		queue = l.incomingCommitHooks.newTransients
+	}
+
+	select {
+	case queue <- hook:
+	case <-l.quit:
+	}
 }
 
 // isReestablished returns true if the link has successfully completed the
@@ -1135,6 +1282,33 @@ func (l *channelLink) htlcManager() {
 		}
 
 		select {
+		// We have a new hook that needs to be run when we reach a clean
+		// channel state.
+		case hook := <-l.flushHooks.newTransients:
+			if l.channel.IsChannelClean() {
+				hook()
+			} else {
+				l.flushHooks.alloc(hook)
+			}
+
+		// We have a new hook that needs to be run when we have
+		// committed all of our updates.
+		case hook := <-l.outgoingCommitHooks.newTransients:
+			if !l.channel.OweCommitment() {
+				hook()
+			} else {
+				l.outgoingCommitHooks.alloc(hook)
+			}
+
+		// We have a new hook that needs to be run when our peer has
+		// committed all of their updates.
+		case hook := <-l.incomingCommitHooks.newTransients:
+			if !l.channel.NeedCommitment() {
+				hook()
+			} else {
+				l.incomingCommitHooks.alloc(hook)
+			}
+
 		// Our update fee timer has fired, so we'll check the network
 		// fee to see if we should adjust our commitment fee.
 		case <-l.updateFeeTimer.C:
@@ -1259,24 +1433,6 @@ func (l *channelLink) htlcManager() {
 						" %v", err),
 				)
 			}
-
-		case req := <-l.shutdownRequest:
-			// If the channel is clean, we send nil on the err chan
-			// and return to prevent the htlcManager goroutine from
-			// processing any more updates. The full link shutdown
-			// will be triggered by RemoveLink in the peer.
-			if l.channel.IsChannelClean() {
-				req.err <- nil
-				return
-			}
-
-			l.log.Infof("Channel is in an unclean state " +
-				"(lingering updates), graceful shutdown of " +
-				"channel link not possible")
-
-			// Otherwise, the channel has lingering updates, send
-			// an error and continue.
-			req.err <- ErrLinkFailedShutdown
 
 		case <-l.quit:
 			return
@@ -1407,6 +1563,17 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 	htlc, ok := pkt.htlc.(*lnwire.UpdateAddHTLC)
 	if !ok {
 		return errors.New("not an UpdateAddHTLC packet")
+	}
+
+	// If we are flushing the link in the outgoing direction we can't add
+	// new htlcs to the link and we need to bounce it
+	if l.IsFlushing(Outgoing) {
+		l.mailBox.FailAdd(pkt)
+
+		return NewDetailedLinkError(
+			&lnwire.FailPermanentChannelFailure{},
+			OutgoingFailureLinkNotEligible,
+		)
 	}
 
 	// If hodl.AddOutgoing mode is active, we exit early to simulate
@@ -1727,6 +1894,39 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	switch msg := msg.(type) {
 
 	case *lnwire.UpdateAddHTLC:
+		if l.IsFlushing(Incoming) {
+			// This is forbidden by the protocol specification.
+			// The best chance we have to deal with this is to drop
+			// the connection. This should roll back the channel
+			// state to the last CommitSig. If the remote has
+			// already sent a CommitSig we haven't received yet,
+			// channel state will be re-synchronized with a
+			// ChannelReestablish message upon reconnection and the
+			// protocol state that caused us to flush the link will
+			// be rolled back. In the event that there was some
+			// non-deterministic behavior in the remote that caused
+			// them to violate the protocol, we have a decent shot
+			// at correcting it this way, since reconnecting will
+			// put us in the cleanest possible state to try again.
+			//
+			// In addition to the above, it is possible for us to
+			// hit this case in situations where we improperly
+			// handle message ordering due to concurrency choices.
+			// An issue has been filed to address this here:
+			// https://github.com/lightningnetwork/lnd/issues/8393
+			l.fail(
+				LinkFailureError{
+					code:             ErrInvalidUpdate,
+					FailureAction:    LinkFailureDisconnect,
+					PermanentFailure: false,
+					Warning:          true,
+				},
+				"received add while link is flushing",
+			)
+
+			return
+		}
+
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
 		// "settle" list in the event that we know the preimage.
@@ -1976,6 +2176,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			)
 			return
 		}
+
+		// As soon as we are ready to send our next revocation, we can
+		// invoke the incoming commit hooks.
+		l.RWMutex.Lock()
+		l.incomingCommitHooks.invoke()
+		l.RWMutex.Unlock()
+
 		l.cfg.Peer.SendMessage(false, nextRevocation)
 
 		// Notify the incoming htlcs of which the resolutions were
@@ -2013,19 +2220,26 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		default:
 		}
 
-		// If both commitment chains are fully synced from our PoV,
-		// then we don't need to reply with a signature as both sides
-		// already have a commitment with the latest accepted.
-		if !l.channel.OweCommitment() {
-			return
+		// If the remote party initiated the state transition,
+		// we'll reply with a signature to provide them with their
+		// version of the latest commitment. Otherwise, both commitment
+		// chains are fully synced from our PoV, then we don't need to
+		// reply with a signature as both sides already have a
+		// commitment with the latest accepted.
+		if l.channel.OweCommitment() {
+			if !l.updateCommitTxOrFail() {
+				return
+			}
 		}
 
-		// Otherwise, the remote party initiated the state transition,
-		// so we'll reply with a signature to provide them with their
-		// version of the latest commitment.
-		if !l.updateCommitTxOrFail() {
-			return
+		// Now that we have finished processing the incoming CommitSig
+		// and sent out our RevokeAndAck, we invoke the flushHooks if
+		// the channel state is clean.
+		l.RWMutex.Lock()
+		if l.channel.IsChannelClean() {
+			l.flushHooks.invoke()
 		}
+		l.RWMutex.Unlock()
 
 	case *lnwire.RevokeAndAck:
 		// We've received a revocation from the remote chain, if valid,
@@ -2107,6 +2321,14 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				return
 			}
 		}
+
+		// Now that we have finished processing the RevokeAndAck, we
+		// can invoke the flushHooks if the channel state is clean.
+		l.RWMutex.Lock()
+		if l.channel.IsChannelClean() {
+			l.flushHooks.invoke()
+		}
+		l.RWMutex.Unlock()
 
 	case *lnwire.UpdateFee:
 		// We received fee update from peer. If we are the initiator we
@@ -2315,6 +2537,12 @@ func (l *channelLink) updateCommitTx() error {
 		PartialSig: newCommit.PartialSig,
 	}
 	l.cfg.Peer.SendMessage(false, commitSig)
+
+	// Now that we have sent out a new CommitSig, we invoke the outgoing set
+	// of commit hooks.
+	l.RWMutex.Lock()
+	l.outgoingCommitHooks.invoke()
+	l.RWMutex.Unlock()
 
 	return nil
 }
@@ -2759,29 +2987,9 @@ func (l *channelLink) HandleChannelUpdate(message lnwire.Message) {
 	default:
 	}
 
-	l.mailBox.AddMessage(message)
-}
-
-// ShutdownIfChannelClean triggers a link shutdown if the channel is in a clean
-// state and errors if the channel has lingering updates.
-//
-// NOTE: Part of the ChannelUpdateHandler interface.
-func (l *channelLink) ShutdownIfChannelClean() error {
-	errChan := make(chan error, 1)
-
-	select {
-	case l.shutdownRequest <- &shutdownReq{
-		err: errChan,
-	}:
-	case <-l.quit:
-		return ErrLinkShuttingDown
-	}
-
-	select {
-	case err := <-errChan:
-		return err
-	case <-l.quit:
-		return ErrLinkShuttingDown
+	err := l.mailBox.AddMessage(message)
+	if err != nil {
+		l.log.Errorf("failed to add Message to mailbox: %v", err)
 	}
 }
 
@@ -2792,7 +3000,7 @@ func (l *channelLink) updateChannelFee(feePerKw chainfee.SatPerKWeight) error {
 
 	// We skip sending the UpdateFee message if the channel is not
 	// currently eligible to forward messages.
-	if !l.EligibleToForward() {
+	if !l.EligibleToUpdate() {
 		l.log.Debugf("skipping fee update for inactive channel")
 		return nil
 	}

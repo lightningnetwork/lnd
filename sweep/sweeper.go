@@ -3,7 +3,6 @@ package sweep
 import (
 	"errors"
 	"fmt"
-	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1576,9 +1575,4 @@ func (s *UtxoSweeper) sweepPendingInputs(inputs pendingInputs) {
 			}
 		}
 	}
-}
-
-// init initializes the random generator for random input rescheduling.
-func init() {
-	rand.Seed(time.Now().Unix())
 }

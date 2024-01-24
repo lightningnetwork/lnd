@@ -43,6 +43,16 @@ const (
 	// WebAPIResponseTimeout specifies the timeout value for receiving a
 	// fee response from the api source.
 	WebAPIResponseTimeout = 10 * time.Second
+
+	// economicalFeeMode is a mode that bitcoind uses to serve
+	// non-conservative fee estimates. These fee estimates are less
+	// resistant to shocks.
+	economicalFeeMode = "ECONOMICAL"
+
+	// filterCapConfTarget is the conf target that will be used to cap our
+	// minimum feerate if we used the median of our peers' feefilter
+	// values.
+	filterCapConfTarget = uint32(1)
 )
 
 var (
@@ -150,6 +160,11 @@ type BtcdEstimator struct {
 	minFeeManager *minFeeManager
 
 	btcdConn *rpcclient.Client
+
+	// filterManager uses our peer's feefilter values to determine a
+	// suitable feerate to use that will allow successful transaction
+	// propagation.
+	filterManager *filterManager
 }
 
 // NewBtcdEstimator creates a new BtcdEstimator given a fully populated
@@ -167,9 +182,14 @@ func NewBtcdEstimator(rpcConfig rpcclient.ConnConfig,
 		return nil, err
 	}
 
+	fetchCb := func() ([]SatPerKWeight, error) {
+		return fetchBtcdFilters(chainConn)
+	}
+
 	return &BtcdEstimator{
 		fallbackFeePerKW: fallBackFeeRate,
 		btcdConn:         chainConn,
+		filterManager:    newFilterManager(fetchCb),
 	}, nil
 }
 
@@ -192,6 +212,8 @@ func (b *BtcdEstimator) Start() error {
 		return err
 	}
 	b.minFeeManager = minRelayFeeManager
+
+	b.filterManager.Start()
 
 	return nil
 }
@@ -219,6 +241,8 @@ func (b *BtcdEstimator) fetchMinRelayFee() (SatPerKWeight, error) {
 //
 // NOTE: This method is part of the Estimator interface.
 func (b *BtcdEstimator) Stop() error {
+	b.filterManager.Stop()
+
 	b.btcdConn.Shutdown()
 
 	return nil
@@ -250,12 +274,47 @@ func (b *BtcdEstimator) EstimateFeePerKW(numBlocks uint32) (SatPerKWeight, error
 //
 // NOTE: This method is part of the Estimator interface.
 func (b *BtcdEstimator) RelayFeePerKW() SatPerKWeight {
-	return b.minFeeManager.fetchMinFee()
+	// Get a suitable minimum feerate to use. This may optionally use the
+	// median of our peers' feefilter values.
+	feeCapClosure := func() (SatPerKWeight, error) {
+		return b.fetchEstimateInner(filterCapConfTarget)
+	}
+
+	return chooseMinFee(
+		b.minFeeManager.fetchMinFee, b.filterManager.FetchMedianFilter,
+		feeCapClosure,
+	)
 }
 
 // fetchEstimate returns a fee estimate for a transaction to be confirmed in
 // confTarget blocks. The estimate is returned in sat/kw.
 func (b *BtcdEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, error) {
+	satPerKw, err := b.fetchEstimateInner(confTarget)
+	if err != nil {
+		return 0, err
+	}
+
+	// Finally, we'll enforce our fee floor by choosing the higher of the
+	// minimum relay fee and the feerate returned by the filterManager.
+	absoluteMinFee := b.RelayFeePerKW()
+
+	if satPerKw < absoluteMinFee {
+		log.Debugf("Estimated fee rate of %v sat/kw is too low, "+
+			"using fee floor of %v sat/kw instead", satPerKw,
+			absoluteMinFee)
+
+		satPerKw = absoluteMinFee
+	}
+
+	log.Debugf("Returning %v sat/kw for conf target of %v",
+		int64(satPerKw), confTarget)
+
+	return satPerKw, nil
+}
+
+func (b *BtcdEstimator) fetchEstimateInner(confTarget uint32) (SatPerKWeight,
+	error) {
+
 	// First, we'll fetch the estimate for our confirmation target.
 	btcPerKB, err := b.btcdConn.EstimateFee(int64(confTarget))
 	if err != nil {
@@ -271,20 +330,7 @@ func (b *BtcdEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, error) 
 
 	// Since we use fee rates in sat/kw internally, we'll convert the
 	// estimated fee rate from its sat/kb representation to sat/kw.
-	satPerKw := SatPerKVByte(satPerKB).FeePerKWeight()
-
-	// Finally, we'll enforce our fee floor.
-	if satPerKw < b.minFeeManager.fetchMinFee() {
-		log.Debugf("Estimated fee rate of %v sat/kw is too low, "+
-			"using fee floor of %v sat/kw instead", satPerKw,
-			b.minFeeManager)
-		satPerKw = b.minFeeManager.fetchMinFee()
-	}
-
-	log.Debugf("Returning %v sat/kw for conf target of %v",
-		int64(satPerKw), confTarget)
-
-	return satPerKw, nil
+	return SatPerKVByte(satPerKB).FeePerKWeight(), nil
 }
 
 // A compile-time assertion to ensure that BtcdEstimator implements the
@@ -314,6 +360,11 @@ type BitcoindEstimator struct {
 	// TODO(ziggie): introduce an interface for the client to enhance
 	// testability of the estimator.
 	bitcoindConn *rpcclient.Client
+
+	// filterManager uses our peer's feefilter values to determine a
+	// suitable feerate to use that will allow successful transaction
+	// propagation.
+	filterManager *filterManager
 }
 
 // NewBitcoindEstimator creates a new BitcoindEstimator given a fully populated
@@ -333,10 +384,15 @@ func NewBitcoindEstimator(rpcConfig rpcclient.ConnConfig, feeMode string,
 		return nil, err
 	}
 
+	fetchCb := func() ([]SatPerKWeight, error) {
+		return fetchBitcoindFilters(chainConn)
+	}
+
 	return &BitcoindEstimator{
 		fallbackFeePerKW: fallBackFeeRate,
 		bitcoindConn:     chainConn,
 		feeMode:          feeMode,
+		filterManager:    newFilterManager(fetchCb),
 	}, nil
 }
 
@@ -356,6 +412,8 @@ func (b *BitcoindEstimator) Start() error {
 		return err
 	}
 	b.minFeeManager = relayFeeManager
+
+	b.filterManager.Start()
 
 	return nil
 }
@@ -394,6 +452,7 @@ func (b *BitcoindEstimator) fetchMinMempoolFee() (SatPerKWeight, error) {
 //
 // NOTE: This method is part of the Estimator interface.
 func (b *BitcoindEstimator) Stop() error {
+	b.filterManager.Stop()
 	return nil
 }
 
@@ -411,7 +470,7 @@ func (b *BitcoindEstimator) EstimateFeePerKW(
 		numBlocks = maxBlockTarget
 	}
 
-	feeEstimate, err := b.fetchEstimate(numBlocks)
+	feeEstimate, err := b.fetchEstimate(numBlocks, b.feeMode)
 	switch {
 	// If the estimator doesn't have enough data, or returns an error, then
 	// to return a proper value, then we'll return the default fall back
@@ -432,12 +491,51 @@ func (b *BitcoindEstimator) EstimateFeePerKW(
 //
 // NOTE: This method is part of the Estimator interface.
 func (b *BitcoindEstimator) RelayFeePerKW() SatPerKWeight {
-	return b.minFeeManager.fetchMinFee()
+	// Get a suitable minimum feerate to use. This may optionally use the
+	// median of our peers' feefilter values.
+	feeCapClosure := func() (SatPerKWeight, error) {
+		return b.fetchEstimateInner(
+			filterCapConfTarget, economicalFeeMode,
+		)
+	}
+
+	return chooseMinFee(
+		b.minFeeManager.fetchMinFee, b.filterManager.FetchMedianFilter,
+		feeCapClosure,
+	)
 }
 
 // fetchEstimate returns a fee estimate for a transaction to be confirmed in
 // confTarget blocks. The estimate is returned in sat/kw.
-func (b *BitcoindEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, error) {
+func (b *BitcoindEstimator) fetchEstimate(confTarget uint32, feeMode string) (
+	SatPerKWeight, error) {
+
+	satPerKw, err := b.fetchEstimateInner(confTarget, feeMode)
+	if err != nil {
+		return 0, err
+	}
+
+	// Finally, we'll enforce our fee floor by choosing the higher of the
+	// minimum relay fee and the feerate returned by the filterManager.
+	absoluteMinFee := b.RelayFeePerKW()
+
+	if satPerKw < absoluteMinFee {
+		log.Debugf("Estimated fee rate of %v sat/kw is too low, "+
+			"using fee floor of %v sat/kw instead", satPerKw,
+			absoluteMinFee)
+
+		satPerKw = absoluteMinFee
+	}
+
+	log.Debugf("Returning %v sat/kw for conf target of %v",
+		int64(satPerKw), confTarget)
+
+	return satPerKw, nil
+}
+
+func (b *BitcoindEstimator) fetchEstimateInner(confTarget uint32,
+	feeMode string) (SatPerKWeight, error) {
+
 	// First, we'll send an "estimatesmartfee" command as a raw request,
 	// since it isn't supported by btcd but is available in bitcoind.
 	target, err := json.Marshal(uint64(confTarget))
@@ -446,7 +544,7 @@ func (b *BitcoindEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, err
 	}
 
 	// The mode must be either ECONOMICAL or CONSERVATIVE.
-	mode, err := json.Marshal(b.feeMode)
+	mode, err := json.Marshal(feeMode)
 	if err != nil {
 		return 0, err
 	}
@@ -483,22 +581,50 @@ func (b *BitcoindEstimator) fetchEstimate(confTarget uint32) (SatPerKWeight, err
 
 	// Since we use fee rates in sat/kw internally, we'll convert the
 	// estimated fee rate from its sat/kb representation to sat/kw.
-	satPerKw := SatPerKVByte(satPerKB).FeePerKWeight()
+	return SatPerKVByte(satPerKB).FeePerKWeight(), nil
+}
 
-	// Finally, we'll enforce our fee floor.
-	minRelayFee := b.minFeeManager.fetchMinFee()
-	if satPerKw < minRelayFee {
-		log.Debugf("Estimated fee rate of %v is too low, "+
-			"using fee floor of %v instead", satPerKw,
-			minRelayFee)
+// chooseMinFee takes the minimum relay fee and the median of our peers'
+// feefilter values and takes the higher of the two. It then compares the value
+// against a maximum fee and caps it if the value is higher than the maximum
+// fee. This function is only called if we have data for our peers' feefilter.
+// The returned value will be used as the fee floor for calls to
+// RelayFeePerKW.
+func chooseMinFee(minRelayFeeFunc func() SatPerKWeight,
+	medianFilterFunc func() (SatPerKWeight, error),
+	feeCapFunc func() (SatPerKWeight, error)) SatPerKWeight {
 
-		satPerKw = minRelayFee
+	minRelayFee := minRelayFeeFunc()
+
+	medianFilter, err := medianFilterFunc()
+	if err != nil {
+		// If we don't have feefilter data, we fallback to using our
+		// minimum relay fee.
+		return minRelayFee
 	}
 
-	log.Debugf("Returning %v for conf target of %v",
-		int64(satPerKw), confTarget)
+	feeCap, err := feeCapFunc()
+	if err != nil {
+		// If we encountered an error, don't use the medianFilter and
+		// instead fallback to using our minimum relay fee.
+		return minRelayFee
+	}
 
-	return satPerKw, nil
+	// If the median feefilter is higher than our minimum relay fee, use it
+	// instead.
+	if medianFilter > minRelayFee {
+		// Only apply the cap if the median filter was used. This is
+		// to prevent an adversary from taking up the majority of our
+		// outbound peer slots and forcing us to use a high median
+		// filter value.
+		if medianFilter > feeCap {
+			return feeCap
+		}
+
+		return medianFilter
+	}
+
+	return minRelayFee
 }
 
 // A compile-time assertion to ensure that BitcoindEstimator implements the

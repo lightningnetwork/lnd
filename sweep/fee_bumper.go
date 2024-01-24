@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
@@ -516,6 +517,207 @@ type monitorRecord struct {
 
 	// fee is the fee paid by the tx.
 	fee btcutil.Amount
+}
+
+// Start starts the publisher by subscribing to block epoch updates and kicking
+// off the monitor loop.
+func (t *TxPublisher) Start() error {
+	log.Info("TxPublisher starting...")
+
+	blockEvent, err := t.cfg.Notifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		return fmt.Errorf("register block epoch ntfn: %v", err)
+	}
+
+	select {
+	case bestBlock := <-blockEvent.Epochs:
+		t.currentHeight = bestBlock.Height
+
+	case <-t.quit:
+		log.Debugf("TxPublisher shutting down, exit start process")
+		return nil
+	}
+
+	t.wg.Add(1)
+	go t.monitor(blockEvent)
+
+	return nil
+}
+
+// Stop stops the publisher and waits for the monitor loop to exit.
+func (t *TxPublisher) Stop() {
+	log.Info("TxPublisher stopping...")
+
+	t.wg.Wait()
+	close(t.quit)
+}
+
+// monitor is the main loop driven by new blocks. Whevenr a new block arrives,
+// it will examine all the txns being monitored, and check if any of them needs
+// to be bumped. If so, it will attempt to bump the fee of the tx.
+func (t *TxPublisher) monitor(blockEvent *chainntnfs.BlockEpochEvent) {
+	defer blockEvent.Cancel()
+	defer t.wg.Done()
+
+	select {
+	case epoch, ok := <-blockEvent.Epochs:
+		if !ok {
+			// We should stop the publisher before stopping the
+			// chain service. Otherwise it indicates an error.
+			log.Error("Block epoch channel closed, exit monitor")
+
+			return
+		}
+
+		// Update the best known height for the publisher.
+		t.currentHeight = epoch.Height
+
+		// Check all monitored txns to see if any of them needs to be
+		// bumped.
+		t.processRecords()
+
+	case <-t.quit:
+		log.Debug("Fee bumper stopped, exit monitor")
+		return
+	}
+}
+
+// processRecords checks all the txns being monitored, and check if any of them
+// needs to be bumped. If so, it will attempt to bump the fee of the tx.
+func (t *TxPublisher) processRecords() {
+	// confirmed is a helper closure that returns a boolean indicating
+	// whether the tx is confirmed.
+	confirmed := func(txid chainhash.Hash,
+		event *chainntnfs.ConfirmationEvent) bool {
+
+		select {
+		case event := <-event.Confirmed:
+			log.Debugf("Sweep tx %v confirmed in block %v", txid,
+				event.BlockHeight)
+
+			return true
+
+		default:
+			return false
+		}
+	}
+
+	// visitor is a helper closure that visits each record and performs an
+	// RBF if necessary.
+	visitor := func(requestID uint64, r *monitorRecord) error {
+		oldTxid := r.tx.TxHash()
+		log.Tracef("Checking monitor record=%v for tx=%v", requestID,
+			oldTxid)
+
+		// If the tx is already confirmed, we can stop monitoring it.
+		if confirmed(oldTxid, r.confEvent) {
+			// Create a result that will be sent to the resultChan
+			// which is listened by the caller.
+			result := &BumpResult{
+				CurrentTx: r.tx,
+				Confirmed: true,
+				requestID: requestID,
+			}
+
+			// Notify that this tx is confirmed and remove the
+			// record from the map.
+			t.notifyAndRemove(result)
+
+			// Move to the next record.
+			return nil
+		}
+
+		// Get the current conf target for this record.
+		confTarget := t.calcCurrentConfTarget(r.set.DeadlineHeight())
+
+		// Ask the fee function whether a bump is needed. We expect the
+		// fee function to increase its returned fee rate after calling
+		// this method.
+		if r.feeFunction.SkipFeeBump(confTarget) {
+			log.Debugf("Skip bumping tx %v at height=%v", oldTxid,
+				t.currentHeight)
+
+			return nil
+		}
+
+		// The fee function now has a new fee rate, we will use it to
+		// bump the fee of the tx.
+		result, err := t.createAndPublishTx(requestID, r)
+		if err != nil {
+			log.Errorf("Failed to bump tx %v: %v", oldTxid, err)
+
+			// Return nil so the visitor can continue to the next
+			// record.
+			return nil
+		}
+
+		// Notify the new result.
+		t.notifyAndRemove(result)
+
+		return nil
+	}
+
+	// TODO(yy): need to double check as the above `visitor` will put data
+	// in the sync map, so we may need to do a read first.
+	t.records.ForEach(visitor)
+}
+
+// createAndPublishTx creates a new tx with a higher fee rate and publishes it
+// to the network. It will update the record with the new tx and fee rate if
+// successfully created, and return the result when published successfully.
+func (t *TxPublisher) createAndPublishTx(requestID uint64,
+	r *monitorRecord) (*BumpResult, error) {
+
+	// Fetch the old tx.
+	oldTx := r.tx
+
+	// Create a new tx with the new fee rate.
+	tx, fee, err := t.createAndCheckTx(r.set, r.changeScript, r.feeFunction)
+
+	// If the tx doesn't not have enought budget, we will return a result
+	// so the sweeper can handle it by re-clustering the utxos.
+	if errors.Is(err, ErrNotEnoughBudget) {
+		return &BumpResult{
+			PreviousTx: oldTx,
+			Err:        err,
+			requestID:  requestID,
+		}, nil
+
+	}
+
+	// If the error is not budget related, we will return an error and let
+	// the fee bumper retry it at next block.
+	//
+	// NOTE: we can check the RBF error here and ask the fee function to
+	// recalculate the fee rate. However, this would defeat the purpose of
+	// using a deadline based fee function:
+	// - if the deadline is far away, there's no rush to RBF the tx.
+	// - if the deadline is close, we expect the fee function to give us a
+	//   higher fee rate. If the fee rate cannot satisfy the RBF rules, it
+	//   means the budget is not enough.
+	if err != nil {
+		return nil, err
+	}
+
+	// Register a new record by overwriting the same requestID.
+	t.records.Store(requestID, &monitorRecord{
+		tx:           tx,
+		set:          r.set,
+		changeScript: r.changeScript,
+		feeFunction:  r.feeFunction,
+		fee:          fee,
+	})
+
+	// Attempt to broadcast this new tx.
+	result, err := t.broadcast(requestID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Attach the old tx and return.
+	result.PreviousTx = oldTx
+
+	return result, nil
 }
 
 // TODO(yy): temp, remove this placeholder once the TestMempoolAccept PR is

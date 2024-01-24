@@ -830,8 +830,14 @@ func (u *UtxoNursery) sweepMatureOutputs(classHeight uint32,
 		local := output
 
 		resultChan, err := u.cfg.SweepInput(&local, sweep.Params{
-			Fee:   feePref,
-			Force: true,
+			Fee:    feePref,
+			Force:  true,
+			Budget: local.Amount(),
+			// TODO(yy): specify a default deadline here as there's
+			// no time pressure.
+			//
+			// TODO(yy): unify UtxoSweeper and UtxoNursery.
+			// DeadlineHeight: ,
 		})
 		if err != nil {
 			return err

@@ -266,6 +266,16 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 				Fee: sweep.FeeEstimateInfo{
 					ConfTarget: secondLevelConfTarget,
 				},
+
+				// TODO(yy): make this a user-config option.
+				Budget: btcutil.Amount(
+					secondLevelInput.SignDesc().Output.Value,
+				),
+
+				// TODO(yy): find the deadline - for first
+				// level success tx, it needs to be confirmed
+				// before the to remote CLTV.
+				// DeadlineHeight:
 			},
 		)
 		if err != nil {
@@ -378,6 +388,13 @@ func (h *htlcSuccessResolver) broadcastReSignedSuccessTx() (
 			Fee: sweep.FeeEstimateInfo{
 				ConfTarget: sweepConfTarget,
 			},
+
+			// TODO(yy): make this a user-config option.
+			Budget: btcutil.Amount(inp.SignDesc().Output.Value),
+
+			// TODO(yy): find the deadline here - for second level
+			// success tx, there's no rush to get it confirmed.
+			// DeadlineHeight:
 		},
 	)
 	if err != nil {

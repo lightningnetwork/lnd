@@ -938,6 +938,8 @@ func UnmarshallOutPoint(op *lnrpc.OutPoint) (*wire.OutPoint, error) {
 // the output should be swept on-chain within. If a fee preference is not
 // explicitly specified, then an error is returned. The status of the input
 // sweep can be checked through the PendingSweeps RPC.
+//
+// TODO(yy): redefine this method to provide a guaranteed fee bumping.
 func (w *WalletKit) BumpFee(ctx context.Context,
 	in *BumpFeeRequest) (*BumpFeeResponse, error) {
 

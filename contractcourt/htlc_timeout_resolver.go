@@ -483,6 +483,7 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
 			h.broadcastHeight,
 		))
 	}
+
 	_, err := h.Sweeper.SweepInput(
 		inp,
 		sweep.Params{
@@ -490,6 +491,12 @@ func (h *htlcTimeoutResolver) sweepSecondLevelTx() error {
 				ConfTarget: secondLevelConfTarget,
 			},
 			Force: true,
+
+			// TODO(yy): make this a user-config option.
+			Budget: btcutil.Amount(inp.SignDesc().Output.Value),
+
+			// TODO(yy): specify a no-deadline here.
+			// DeadlineHeight:
 		},
 	)
 	if err != nil {
@@ -699,12 +706,38 @@ func (h *htlcTimeoutResolver) handleCommitSpend(
 			h.htlcResolution.CsvDelay, h.broadcastHeight,
 			h.htlc.RHash,
 		)
+		// Get the tx-level nLocktime for this HTLC.
+		nLocktime, required := inp.RequiredLockTime()
+		if !required {
+			log.Errorf("%T(%x): second level tx not timelocked", h,
+				h.htlc.RHash[:])
+		}
+
 		_, err = h.Sweeper.SweepInput(
 			inp,
 			sweep.Params{
 				Fee: sweep.FeeEstimateInfo{
 					ConfTarget: sweepConfTarget,
 				},
+
+				// TODO(yy): make this a user-config option.
+				Budget: btcutil.Amount(
+					inp.SignDesc().Output.Value,
+				),
+
+				// For first level timeout tx, we'll use the
+				// nLocktime as the deadline, tho the actual
+				// deadline should be the CTLV inside this
+				// HTLC's corresponding incoming HTLC. It's ok
+				// if the tx is not cofnirmed by nLocktime, as
+				// if the remote decides to go with the
+				// preimage path, we will notice the preimage
+				// and settled the incoming HTLC anyway. We
+				// still need to set a deadline here, as it's
+				// required that when grouping
+				// SINGLE|ANYONECANPAY txes, the nLocktime of
+				// all inputs must be the same.
+				DeadlineHeight: int32(nLocktime),
 			},
 		)
 		if err != nil {

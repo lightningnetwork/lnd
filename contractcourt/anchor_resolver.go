@@ -118,6 +118,13 @@ func (c *anchorResolver) Resolve() (ContractResolver, error) {
 			Fee: sweep.FeeEstimateInfo{
 				FeeRate: relayFeeRate,
 			},
+			// For normal anchor sweeping ,the budget is 330 sats.
+			Budget: btcutil.Amount(
+				anchorInput.SignDesc().Output.Value,
+			),
+
+			// TODO(yy): specify a no deadline here.
+			// DeadlineHeight: ,
 		},
 	)
 	if err != nil {

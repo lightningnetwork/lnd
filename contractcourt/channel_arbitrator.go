@@ -1364,6 +1364,16 @@ func (c *ChannelArbitrator) sweepAnchors(anchors *lnwallet.AnchorResolutions,
 				},
 				Force:          force,
 				ExclusiveGroup: &exclusiveGroup,
+
+				// TODO(yy): we need to figure out what the
+				// budget is here based on the context - for
+				// CPFP purpose, the budget is the total value
+				// under protection.
+				Budget: anchor.CommitFee,
+
+				// For CPFP purpose anchors, the deadline is
+				// defined above.
+				DeadlineHeight: int32(deadline + heightHint),
 			},
 		)
 		if err != nil {

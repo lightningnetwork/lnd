@@ -352,7 +352,19 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	c.log.Infof("sweeping commit output")
 
 	feePref := sweep.FeeEstimateInfo{ConfTarget: commitOutputConfTarget}
-	resultChan, err := c.Sweeper.SweepInput(inp, sweep.Params{Fee: feePref})
+	resultChan, err := c.Sweeper.SweepInput(
+		inp, sweep.Params{
+			Fee: feePref,
+
+			// TODO(yy): make this configurable as the budget can
+			// be large here.
+			Budget: btcutil.Amount(inp.SignDesc().Output.Value),
+
+			// TODO(yy): specify a default deadline here as there's
+			// no time pressure.
+			// DeadlineHeight: ,
+		},
+	)
 	if err != nil {
 		c.log.Errorf("unable to sweep input: %v", err)
 

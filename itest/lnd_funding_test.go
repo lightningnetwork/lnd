@@ -528,8 +528,9 @@ func sendAllCoinsConfirm(ht *lntest.HarnessTest, node *node.HarnessNode,
 	addr string) {
 
 	sweepReq := &lnrpc.SendCoinsRequest{
-		Addr:    addr,
-		SendAll: true,
+		Addr:       addr,
+		SendAll:    true,
+		TargetConf: 6,
 	}
 	node.RPC.SendCoins(sweepReq)
 	ht.MineBlocksAndAssertNumTxes(1, 1)

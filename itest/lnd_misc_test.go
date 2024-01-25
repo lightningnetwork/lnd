@@ -777,16 +777,18 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 
 	// Ensure that we can't send coins to our own Pubkey.
 	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
-		Addr:    ainz.RPC.GetInfo().IdentityPubkey,
-		SendAll: true,
-		Label:   sendCoinsLabel,
+		Addr:       ainz.RPC.GetInfo().IdentityPubkey,
+		SendAll:    true,
+		Label:      sendCoinsLabel,
+		TargetConf: 6,
 	})
 
 	// Ensure that we can't send coins to another user's Pubkey.
 	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
-		Addr:    ht.Alice.RPC.GetInfo().IdentityPubkey,
-		SendAll: true,
-		Label:   sendCoinsLabel,
+		Addr:       ht.Alice.RPC.GetInfo().IdentityPubkey,
+		SendAll:    true,
+		Label:      sendCoinsLabel,
+		TargetConf: 6,
 	})
 
 	// With the two coins above mined, we'll now instruct Ainz to sweep all
@@ -798,23 +800,34 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 
 	// Send coins to a testnet3 address.
 	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
-		Addr:    "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
-		SendAll: true,
-		Label:   sendCoinsLabel,
+		Addr:       "tb1qfc8fusa98jx8uvnhzavxccqlzvg749tvjw82tg",
+		SendAll:    true,
+		Label:      sendCoinsLabel,
+		TargetConf: 6,
 	})
 
 	// Send coins to a mainnet address.
 	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
-		Addr:    "1MPaXKp5HhsLNjVSqaL7fChE3TVyrTMRT3",
+		Addr:       "1MPaXKp5HhsLNjVSqaL7fChE3TVyrTMRT3",
+		SendAll:    true,
+		Label:      sendCoinsLabel,
+		TargetConf: 6,
+	})
+
+	// Send coins to a compatible address without specifying fee rate or
+	// conf target.
+	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
+		Addr:    ht.Miner.NewMinerAddress().String(),
 		SendAll: true,
 		Label:   sendCoinsLabel,
 	})
 
 	// Send coins to a compatible address.
 	ainz.RPC.SendCoins(&lnrpc.SendCoinsRequest{
-		Addr:    ht.Miner.NewMinerAddress().String(),
-		SendAll: true,
-		Label:   sendCoinsLabel,
+		Addr:       ht.Miner.NewMinerAddress().String(),
+		SendAll:    true,
+		Label:      sendCoinsLabel,
+		TargetConf: 6,
 	})
 
 	// We'll mine a block which should include the sweep transaction we
@@ -911,10 +924,11 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 	// If we try again, but this time specifying an amount, then the call
 	// should fail.
 	ainz.RPC.SendCoinsAssertErr(&lnrpc.SendCoinsRequest{
-		Addr:    ht.Miner.NewMinerAddress().String(),
-		Amount:  10000,
-		SendAll: true,
-		Label:   sendCoinsLabel,
+		Addr:       ht.Miner.NewMinerAddress().String(),
+		Amount:     10000,
+		SendAll:    true,
+		Label:      sendCoinsLabel,
+		TargetConf: 6,
 	})
 
 	// With all the edge cases tested, we'll now test the happy paths of
@@ -940,8 +954,9 @@ func testSweepAllCoins(ht *lntest.HarnessTest) {
 		// Let's send some coins to the main address.
 		const amt = 123456
 		resp := ainz.RPC.SendCoins(&lnrpc.SendCoinsRequest{
-			Addr:   mainAddrResp.Address,
-			Amount: amt,
+			Addr:       mainAddrResp.Address,
+			Amount:     amt,
+			TargetConf: 6,
 		})
 		block := ht.MineBlocksAndAssertNumTxes(1, 1)[0]
 		sweepTx := block.Transactions[1]
@@ -1024,6 +1039,7 @@ func testListAddresses(ht *lntest.HarnessTest) {
 			Addr:             addr,
 			Amount:           addressDetail.Balance,
 			SpendUnconfirmed: true,
+			TargetConf:       6,
 		})
 	}
 

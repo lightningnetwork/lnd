@@ -65,6 +65,7 @@ func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
 	closeClient := alice.RPC.CloseChannel(&lnrpc.CloseChannelRequest{
 		ChannelPoint: chanPoint,
 		NoWait:       true,
+		TargetConf:   6,
 	})
 	ht.AssertChannelInactive(bob, chanPoint)
 

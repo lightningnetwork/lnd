@@ -1539,6 +1539,7 @@ func sendAllCoinsToAddrType(ht *lntest.HarnessTest,
 		Addr:             resp.Address,
 		SendAll:          true,
 		SpendUnconfirmed: true,
+		TargetConf:       6,
 	})
 
 	ht.MineBlocksAndAssertNumTxes(1, 1)

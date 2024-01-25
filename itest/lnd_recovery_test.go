@@ -254,8 +254,9 @@ func testOnchainFundRecovery(ht *lntest.HarnessTest) {
 
 		minerAddr := ht.Miner.NewMinerAddress()
 		req := &lnrpc.SendCoinsRequest{
-			Addr:   minerAddr.String(),
-			Amount: minerAmt,
+			Addr:       minerAddr.String(),
+			Amount:     minerAmt,
+			TargetConf: 6,
 		}
 		resp := node.RPC.SendCoins(req)
 

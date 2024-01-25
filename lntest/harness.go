@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -922,6 +923,10 @@ type OpenChannelParams struct {
 	// virtual byte of the transaction.
 	SatPerVByte btcutil.Amount
 
+	// ConfTarget is the number of blocks that the funding transaction
+	// should be confirmed in.
+	ConfTarget fn.Option[int32]
+
 	// CommitmentType is the commitment type that should be used for the
 	// channel to be opened.
 	CommitmentType lnrpc.CommitmentType
@@ -992,18 +997,27 @@ func (h *HarnessTest) prepareOpenChannel(srcNode, destNode *node.HarnessNode,
 		minConfs = 0
 	}
 
+	// Get the requested conf target. If not set, default to 6.
+	confTarget := p.ConfTarget.UnwrapOr(6)
+
+	// If there's fee rate set, unset the conf target.
+	if p.SatPerVByte != 0 {
+		confTarget = 0
+	}
+
 	// Prepare the request.
 	return &lnrpc.OpenChannelRequest{
 		NodePubkey:         destNode.PubKey[:],
 		LocalFundingAmount: int64(p.Amt),
 		PushSat:            int64(p.PushAmt),
 		Private:            p.Private,
+		TargetConf:         confTarget,
 		MinConfs:           minConfs,
 		SpendUnconfirmed:   p.SpendUnconfirmed,
 		MinHtlcMsat:        int64(p.MinHtlc),
 		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
-		SatPerByte:         int64(p.SatPerVByte),
+		SatPerVbyte:        uint64(p.SatPerVByte),
 		CommitmentType:     p.CommitmentType,
 		ZeroConf:           p.ZeroConf,
 		ScidAlias:          p.ScidAlias,
@@ -1208,6 +1222,11 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		ChannelPoint: cp,
 		Force:        force,
 		NoWait:       true,
+	}
+
+	// For coop close, we use a default confg target of 6.
+	if !force {
+		closeReq.TargetConf = 6
 	}
 
 	var (

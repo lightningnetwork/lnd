@@ -101,8 +101,9 @@ func testTaprootSendCoinsKeySpendBip86(ht *lntest.HarnessTest,
 	// Send the coins from Alice's wallet to her own, but to the new p2tr
 	// address.
 	alice.RPC.SendCoins(&lnrpc.SendCoinsRequest{
-		Addr:   p2trResp.Address,
-		Amount: 0.5 * btcutil.SatoshiPerBitcoin,
+		Addr:       p2trResp.Address,
+		Amount:     0.5 * btcutil.SatoshiPerBitcoin,
+		TargetConf: 6,
 	})
 
 	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
@@ -125,8 +126,9 @@ func testTaprootSendCoinsKeySpendBip86(ht *lntest.HarnessTest,
 	})
 
 	alice.RPC.SendCoins(&lnrpc.SendCoinsRequest{
-		Addr:    p2trResp.Address,
-		SendAll: true,
+		Addr:       p2trResp.Address,
+		SendAll:    true,
+		TargetConf: 6,
 	})
 
 	// Make sure the coins sent to the address are confirmed correctly,
@@ -152,8 +154,9 @@ func testTaprootComputeInputScriptKeySpendBip86(ht *lntest.HarnessTest,
 	// Send the coins from Alice's wallet to her own, but to the new p2tr
 	// address.
 	req := &lnrpc.SendCoinsRequest{
-		Addr:   p2trAddr.String(),
-		Amount: testAmount,
+		Addr:       p2trAddr.String(),
+		Amount:     testAmount,
+		TargetConf: 6,
 	}
 	alice.RPC.SendCoins(req)
 
@@ -1469,8 +1472,9 @@ func sendToTaprootOutput(ht *lntest.HarnessTest, hn *node.HarnessNode,
 
 	// Send some coins to the generated tapscript address.
 	req := &lnrpc.SendCoinsRequest{
-		Addr:   tapScriptAddr.String(),
-		Amount: testAmount,
+		Addr:       tapScriptAddr.String(),
+		Amount:     testAmount,
+		TargetConf: 6,
 	}
 	hn.RPC.SendCoins(req)
 

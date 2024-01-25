@@ -1445,7 +1445,14 @@ var pendingChannelsCommand = cli.Command{
 	Name:     "pendingchannels",
 	Category: "Channels",
 	Usage:    "Display information pertaining to pending channels.",
-	Action:   actionDecorator(pendingChannels),
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: "include_raw_tx",
+			Usage: "include the raw transaction hex for " +
+				"waiting_close_channels.",
+		},
+	},
+	Action: actionDecorator(pendingChannels),
 }
 
 func pendingChannels(ctx *cli.Context) error {
@@ -1453,7 +1460,10 @@ func pendingChannels(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	req := &lnrpc.PendingChannelsRequest{}
+	includeRawTx := ctx.Bool("include_raw_tx")
+	req := &lnrpc.PendingChannelsRequest{
+		IncludeRawTx: includeRawTx,
+	}
 	resp, err := client.PendingChannels(ctxc, req)
 	if err != nil {
 		return err

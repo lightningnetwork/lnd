@@ -240,8 +240,9 @@ func runCPFP(ht *lntest.HarnessTest, alice, bob *node.HarnessNode) {
 	// Send the coins from Alice to Bob. We should expect a transaction to
 	// be broadcast and seen in the mempool.
 	sendReq := &lnrpc.SendCoinsRequest{
-		Addr:   resp.Address,
-		Amount: btcutil.SatoshiPerBitcoin,
+		Addr:       resp.Address,
+		Amount:     btcutil.SatoshiPerBitcoin,
+		TargetConf: 6,
 	}
 	alice.RPC.SendCoins(sendReq)
 	txid := ht.Miner.AssertNumTxsInMempool(1)[0]
@@ -383,8 +384,9 @@ func testAnchorReservedValue(ht *lntest.HarnessTest) {
 	resp := alice.RPC.NewAddress(req)
 
 	sweepReq := &lnrpc.SendCoinsRequest{
-		Addr:    resp.Address,
-		SendAll: true,
+		Addr:       resp.Address,
+		SendAll:    true,
+		TargetConf: 6,
 	}
 	alice.RPC.SendCoins(sweepReq)
 
@@ -432,8 +434,9 @@ func testAnchorReservedValue(ht *lntest.HarnessTest) {
 	minerAddr := ht.Miner.NewMinerAddress()
 
 	sweepReq = &lnrpc.SendCoinsRequest{
-		Addr:    minerAddr.String(),
-		SendAll: true,
+		Addr:       minerAddr.String(),
+		SendAll:    true,
+		TargetConf: 6,
 	}
 	alice.RPC.SendCoins(sweepReq)
 
@@ -469,8 +472,9 @@ func testAnchorReservedValue(ht *lntest.HarnessTest) {
 	// We'll wait for the balance to reflect that the channel has been
 	// closed and the funds are in the wallet.
 	sweepReq = &lnrpc.SendCoinsRequest{
-		Addr:    minerAddr.String(),
-		SendAll: true,
+		Addr:       minerAddr.String(),
+		SendAll:    true,
+		TargetConf: 6,
 	}
 	alice.RPC.SendCoins(sweepReq)
 
@@ -602,6 +606,7 @@ func testAnchorThirdPartySpend(ht *lntest.HarnessTest) {
 	sweepReq := &lnrpc.SendCoinsRequest{
 		Addr:             minerAddr.String(),
 		SendAll:          true,
+		TargetConf:       6,
 		MinConfs:         0,
 		SpendUnconfirmed: true,
 	}
@@ -755,8 +760,9 @@ func testRemoveTx(ht *lntest.HarnessTest) {
 	// We send half the amount to that address generating two unconfirmed
 	// outpoints in our internal wallet.
 	sendReq := &lnrpc.SendCoinsRequest{
-		Addr:   resp.Address,
-		Amount: initialWalletAmt / 2,
+		Addr:       resp.Address,
+		Amount:     initialWalletAmt / 2,
+		TargetConf: 6,
 	}
 	alice.RPC.SendCoins(sendReq)
 	txID := ht.Miner.AssertNumTxsInMempool(1)[0]

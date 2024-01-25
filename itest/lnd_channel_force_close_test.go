@@ -2,6 +2,7 @@ package itest
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"testing"
 
@@ -141,7 +142,24 @@ func testCommitmentTransactionDeadline(ht *lntest.HarnessTest) {
 		// Now that the channel has been force closed, it should show
 		// up in the PendingChannels RPC under the waiting close
 		// section.
-		ht.AssertChannelWaitingClose(alice, chanPoint)
+		waitingClose := ht.AssertChannelWaitingClose(alice, chanPoint)
+
+		// The waiting close channel closing tx hex should be set and
+		// be valid.
+		require.NotEmpty(ht, waitingClose.ClosingTxHex)
+		rawTxBytes, err := hex.DecodeString(waitingClose.ClosingTxHex)
+		require.NoError(
+			ht, err,
+			"waiting close channel closingTxHex invalid hex",
+		)
+		rawTx := &wire.MsgTx{}
+		err = rawTx.Deserialize(bytes.NewReader(rawTxBytes))
+		require.NoError(
+			ht, err, "waiting close channel ClosingTxHex invalid",
+		)
+		require.Equal(
+			ht, waitingClose.ClosingTxid, rawTx.TxHash().String(),
+		)
 
 		// We should see Alice's force closing tx in the mempool.
 		expectedNumTxes := 1

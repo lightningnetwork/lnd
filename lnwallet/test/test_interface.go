@@ -1915,7 +1915,17 @@ func testPublishTransaction(r *rpctest.Harness,
 		// TODO(roasbeef): we can't use Unwrap() here as TxRuleError
 		// doesn't define it
 		err := alice.PublishTransaction(testTx, labels.External)
-		require.Contains(t, err.Error(), "bad-txns-oversize")
+
+		errStr := "bad-txns-oversize"
+
+		// For neutrino backend, the error string in not mapped.
+		//
+		// TODO(yy): unify error matching in neutrino too.
+		if alice.BackEnd() == "neutrino" {
+			errStr = "serialized transaction is too big"
+		}
+
+		require.Contains(t, err.Error(), errStr)
 	})
 }
 

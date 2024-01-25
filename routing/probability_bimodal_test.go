@@ -11,10 +11,12 @@ import (
 )
 
 const (
-	smallAmount = lnwire.MilliSatoshi(400_000)
-	largeAmount = lnwire.MilliSatoshi(5_000_000)
-	capacity    = lnwire.MilliSatoshi(10_000_000)
-	scale       = lnwire.MilliSatoshi(400_000)
+	smallAmount = lnwire.MilliSatoshi(400_000_000)
+	largeAmount = lnwire.MilliSatoshi(5_000_000_000)
+	capacity    = lnwire.MilliSatoshi(10_000_000_000)
+	scale       = lnwire.MilliSatoshi(400_000_000)
+
+	defaultTolerance = 0.001
 )
 
 // TestSuccessProbability tests that we get correct probability estimates for
@@ -25,7 +27,6 @@ func TestSuccessProbability(t *testing.T) {
 	tests := []struct {
 		name                string
 		expectedProbability float64
-		tolerance           float64
 		successAmount       lnwire.MilliSatoshi
 		failAmount          lnwire.MilliSatoshi
 		amount              lnwire.MilliSatoshi
@@ -78,7 +79,6 @@ func TestSuccessProbability(t *testing.T) {
 			failAmount:          capacity,
 			amount:              smallAmount,
 			expectedProbability: 0.684,
-			tolerance:           0.001,
 		},
 		// If we had an unsettled success, we are sure we can send a
 		// lower amount.
@@ -110,7 +110,6 @@ func TestSuccessProbability(t *testing.T) {
 			failAmount:          capacity,
 			amount:              smallAmount,
 			expectedProbability: 0.851,
-			tolerance:           0.001,
 		},
 		// If we had a large unsettled success before, we know we can
 		// send even larger payments with high probability.
@@ -122,7 +121,6 @@ func TestSuccessProbability(t *testing.T) {
 			failAmount:          capacity,
 			amount:              largeAmount,
 			expectedProbability: 0.998,
-			tolerance:           0.001,
 		},
 		// If we had a failure before, we can't send with the fail
 		// amount.
@@ -151,7 +149,6 @@ func TestSuccessProbability(t *testing.T) {
 			failAmount:          largeAmount,
 			amount:              smallAmount,
 			expectedProbability: 0.368,
-			tolerance:           0.001,
 		},
 		// From here on we deal with mixed previous successes and
 		// failures.
@@ -183,7 +180,6 @@ func TestSuccessProbability(t *testing.T) {
 			successAmount:       smallAmount,
 			amount:              smallAmount + largeAmount/10,
 			expectedProbability: 0.287,
-			tolerance:           0.001,
 		},
 		// We still can't send the fail amount.
 		{
@@ -194,22 +190,25 @@ func TestSuccessProbability(t *testing.T) {
 			amount:              largeAmount,
 			expectedProbability: 0.0,
 		},
-		// Same success and failure amounts (illogical).
+		// Same success and failure amounts (illogical), which gets
+		// reset to no knowledge.
 		{
 			name:                "previous f/s, same",
 			capacity:            capacity,
 			failAmount:          largeAmount,
 			successAmount:       largeAmount,
 			amount:              largeAmount,
-			expectedProbability: 0.0,
+			expectedProbability: 0.5,
 		},
-		// Higher success than failure amount (illogical).
+		// Higher success than failure amount (illogical), which gets
+		// reset to no knowledge.
 		{
 			name:                "previous f/s, higher success",
 			capacity:            capacity,
 			failAmount:          smallAmount,
 			successAmount:       largeAmount,
-			expectedProbability: 0.0,
+			amount:              largeAmount,
+			expectedProbability: 0.5,
 		},
 	}
 
@@ -228,7 +227,7 @@ func TestSuccessProbability(t *testing.T) {
 				test.failAmount, test.amount,
 			)
 			require.InDelta(t, test.expectedProbability, p,
-				test.tolerance)
+				defaultTolerance)
 			require.NoError(t, err)
 		})
 	}
@@ -242,6 +241,58 @@ func TestSuccessProbability(t *testing.T) {
 		)
 		require.ErrorIs(t, err, ErrZeroCapacity)
 	})
+}
+
+// TestSmallScale tests that the probability formula works with small scale
+// values.
+func TestSmallScale(t *testing.T) {
+	var (
+		// We use the smallest possible scale value.
+		scale    lnwire.MilliSatoshi = 1
+		capacity lnwire.MilliSatoshi = 7e+09
+
+		// Success and failure amounts are chosen such that they lie in
+		// regions where we would not expect them given a bimodal model.
+		// The true balance must lie rather somewhere within the
+		// channel, not at the boundaries. In this case, the bimodal
+		// model fails to give good forecasts due to the numerics of the
+		// exponential functions, which get evaluated to exact zero
+		// floats.
+		successAmount lnwire.MilliSatoshi = 1.04746209e+09
+		failAmount    lnwire.MilliSatoshi = 4.207965044e+09
+	)
+
+	estimator := BimodalEstimator{
+		BimodalConfig: BimodalConfig{BimodalScaleMsat: scale},
+	}
+
+	// An amount that's close to the success amount should have a very high
+	// probability.
+	amtCloseSuccess := successAmount + 1
+	p, err := estimator.probabilityFormula(
+		capacity, successAmount, failAmount, amtCloseSuccess,
+	)
+	require.NoError(t, err)
+	require.InDelta(t, 1.0, p, defaultTolerance)
+
+	// An amount that's close to the fail amount should have a very low
+	// probability.
+	amtCloseFail := failAmount - 1
+	p, err = estimator.probabilityFormula(
+		capacity, successAmount, failAmount, amtCloseFail,
+	)
+	require.NoError(t, err)
+	require.InDelta(t, 0.0, p, defaultTolerance)
+
+	// In the region where the bimodal model doesn't give good forecasts, we
+	// fall back to a uniform model, which interpolates probabilities
+	// linearly.
+	amtLinear := successAmount + (failAmount-successAmount)*1/4
+	p, err = estimator.probabilityFormula(
+		capacity, successAmount, failAmount, amtLinear,
+	)
+	require.NoError(t, err)
+	require.InDelta(t, 0.75, p, defaultTolerance)
 }
 
 // TestIntegral tests certain limits of the probability distribution integral.

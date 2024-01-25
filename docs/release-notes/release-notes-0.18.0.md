@@ -73,6 +73,12 @@
   a `shutdown` message if there were currently HTLCs on the channel. After this
   change, the shutdown procedure should be compliant with BOLT2 requirements.
 
+* [Bimodal pathfinding probability 
+  improvements](https://github.com/lightningnetwork/lnd/pull/8329). A fallback
+  probability is used if the bimodal model is not applicable. Fixes are added
+  such that the probability is evaluated quicker and to be more accurate in
+  outdated scenarios.
+
 # New Features
 ## Functional Enhancements
 
@@ -275,6 +281,7 @@
 
 * Amin Bashiri
 * Andras Banki-Horvath
+* bitromortac
 * Carla Kirk-Cohen
 * Elle Mouton
 * ErikEk

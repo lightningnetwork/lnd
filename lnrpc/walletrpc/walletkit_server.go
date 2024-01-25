@@ -227,6 +227,19 @@ var (
 		input.LeaseHtlcOfferedTimeoutSecondLevel:           WitnessType_LEASE_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL,
 		input.LeaseHtlcAcceptedSuccessSecondLevel:          WitnessType_LEASE_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL,
 		input.TaprootPubKeySpend:                           WitnessType_TAPROOT_PUB_KEY_SPEND,
+		input.TaprootLocalCommitSpend:                      WitnessType_TAPROOT_LOCAL_COMMIT_SPEND,
+		input.TaprootRemoteCommitSpend:                     WitnessType_TAPROOT_REMOTE_COMMIT_SPEND,
+		input.TaprootAnchorSweepSpend:                      WitnessType_TAPROOT_ANCHOR_SWEEP_SPEND,
+		input.TaprootHtlcOfferedTimeoutSecondLevel:         WitnessType_TAPROOT_HTLC_OFFERED_TIMEOUT_SECOND_LEVEL,
+		input.TaprootHtlcAcceptedSuccessSecondLevel:        WitnessType_TAPROOT_HTLC_ACCEPTED_SUCCESS_SECOND_LEVEL,
+		input.TaprootHtlcSecondLevelRevoke:                 WitnessType_TAPROOT_HTLC_SECOND_LEVEL_REVOKE,
+		input.TaprootHtlcAcceptedRevoke:                    WitnessType_TAPROOT_HTLC_ACCEPTED_REVOKE,
+		input.TaprootHtlcOfferedRevoke:                     WitnessType_TAPROOT_HTLC_OFFERED_REVOKE,
+		input.TaprootHtlcOfferedRemoteTimeout:              WitnessType_TAPROOT_HTLC_OFFERED_REMOTE_TIMEOUT,
+		input.TaprootHtlcLocalOfferedTimeout:               WitnessType_TAPROOT_HTLC_LOCAL_OFFERED_TIMEOUT,
+		input.TaprootHtlcAcceptedRemoteSuccess:             WitnessType_TAPROOT_HTLC_ACCEPTED_REMOTE_SUCCESS,
+		input.TaprootHtlcAcceptedLocalSuccess:              WitnessType_TAPROOT_HTLC_ACCEPTED_LOCAL_SUCCESS,
+		input.TaprootCommitmentRevoke:                      WitnessType_TAPROOT_COMMITMENT_REVOKE,
 	}
 )
 

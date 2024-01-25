@@ -1323,15 +1323,6 @@ type LightningChannel struct {
 	localUpdateLog  *updateLog
 	remoteUpdateLog *updateLog
 
-	// LocalFundingKey is the public key under control by the wallet that
-	// was used for the 2-of-2 funding output which created this channel.
-	LocalFundingKey *btcec.PublicKey
-
-	// RemoteFundingKey is the public key for the remote channel counter
-	// party  which used for the 2-of-2 funding output which created this
-	// channel.
-	RemoteFundingKey *btcec.PublicKey
-
 	// log is a channel-specific logging instance.
 	log btclog.Logger
 
@@ -1448,8 +1439,6 @@ func NewLightningChannel(signer input.Signer,
 		remoteUpdateLog:      remoteUpdateLog,
 		ChanPoint:            &state.FundingOutpoint,
 		Capacity:             state.Capacity,
-		LocalFundingKey:      state.LocalChanCfg.MultiSigKey.PubKey,
-		RemoteFundingKey:     state.RemoteChanCfg.MultiSigKey.PubKey,
 		taprootNonceProducer: taprootNonceProducer,
 		log:                  build.NewPrefixLog(logPrefix, walletLog),
 		opts:                 opts,

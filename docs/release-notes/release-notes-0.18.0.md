@@ -345,7 +345,10 @@ bitcoin peers' feefilter values into account](https://github.com/lightningnetwor
 
 * The pending inputs in the sweeper is now
   [stateful](https://github.com/lightningnetwork/lnd/pull/8423) to better
-  manage the lifecycle of the inputs.
+  manage the lifecycle of the inputs. [In
+  addition](https://github.com/lightningnetwork/lnd/pull/8148), timestamp-based
+  batch ticker is replaced by blockstamp-based batch ticker, and a new
+  interface `UtxoAggregator` is added to manage aggregation logic. 
 
 ## Breaking Changes
 ## Performance Improvements

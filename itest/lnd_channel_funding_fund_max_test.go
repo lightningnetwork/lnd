@@ -322,8 +322,9 @@ func sweepNodeWalletAndAssert(ht *lntest.HarnessTest, node *node.HarnessNode) {
 
 	// Send all funds back to the miner node.
 	node.RPC.SendCoins(&lnrpc.SendCoinsRequest{
-		Addr:    minerAddr.String(),
-		SendAll: true,
+		Addr:       minerAddr.String(),
+		SendAll:    true,
+		TargetConf: 6,
 	})
 
 	// Ensures we don't leave any transaction in the mempool after sweeping.

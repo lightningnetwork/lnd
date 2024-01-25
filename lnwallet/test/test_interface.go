@@ -3259,9 +3259,15 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		case "bitcoind":
 			// Start a bitcoind instance.
 			tempBitcoindDir := t.TempDir()
-			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
+
 			rpcPort := getFreePort()
+			zmqBlockPort := getFreePort()
+			zmqTxPort := getFreePort()
+			zmqBlockHost := fmt.Sprintf("tcp://127.0.0.1:%d",
+				zmqBlockPort)
+			zmqTxHost := fmt.Sprintf("tcp://127.0.0.1:%d",
+				zmqTxPort)
+
 			bitcoind := exec.Command(
 				"bitcoind",
 				"-datadir="+tempBitcoindDir,

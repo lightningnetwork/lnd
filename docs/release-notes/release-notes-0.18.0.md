@@ -261,6 +261,9 @@
 * [Refactor InvoiceDB](https://github.com/lightningnetwork/lnd/pull/8081) to
   eliminate the use of `ScanInvoices`.
 
+* [Update](https://github.com/lightningnetwork/lnd/pull/8419) the embedded
+  Postgres version and raise max connections.
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

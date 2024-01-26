@@ -6637,20 +6637,8 @@ func (r *rpcServer) ListPayments(ctx context.Context,
 		Reversed:          req.Reversed,
 		IncludeIncomplete: req.IncludeIncomplete,
 		CountTotal:        req.CountTotalPayments,
-	}
-
-	// Attach the start date if set.
-	if req.CreationDateStart != 0 {
-		query.CreationDateStart = time.Unix(
-			int64(req.CreationDateStart), 0,
-		)
-	}
-
-	// Attach the end date if set.
-	if req.CreationDateEnd != 0 {
-		query.CreationDateEnd = time.Unix(
-			int64(req.CreationDateEnd), 0,
-		)
+		CreationDateStart: int64(req.CreationDateStart),
+		CreationDateEnd:   int64(req.CreationDateEnd),
 	}
 
 	// If the maximum number of payments wasn't specified, then we'll

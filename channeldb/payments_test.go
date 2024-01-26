@@ -438,7 +438,7 @@ func TestQueryPayments(t *testing.T) {
 				MaxPayments:       2,
 				Reversed:          false,
 				IncludeIncomplete: true,
-				CreationDateStart: time.Unix(0, 5),
+				CreationDateStart: 5,
 			},
 			firstIndex:     5,
 			lastIndex:      6,
@@ -452,7 +452,7 @@ func TestQueryPayments(t *testing.T) {
 				MaxPayments:       2,
 				Reversed:          false,
 				IncludeIncomplete: true,
-				CreationDateStart: time.Unix(0, 7),
+				CreationDateStart: 7,
 			},
 			firstIndex:     7,
 			lastIndex:      7,
@@ -465,8 +465,8 @@ func TestQueryPayments(t *testing.T) {
 				MaxPayments:       math.MaxUint64,
 				Reversed:          true,
 				IncludeIncomplete: true,
-				CreationDateStart: time.Unix(0, 3),
-				CreationDateEnd:   time.Unix(0, 5),
+				CreationDateStart: 3,
+				CreationDateEnd:   5,
 			},
 			firstIndex:     3,
 			lastIndex:      5,
@@ -509,7 +509,7 @@ func TestQueryPayments(t *testing.T) {
 				}
 				// Override creation time to allow for testing
 				// of CreationDateStart and CreationDateEnd.
-				info.CreationTime = time.Unix(0, int64(i+1))
+				info.CreationTime = time.Unix(int64(i+1), 0)
 
 				// Create a new payment entry in the database.
 				err = pControl.InitPayment(info.PaymentIdentifier, info)

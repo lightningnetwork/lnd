@@ -122,46 +122,60 @@ type stateQuery[Event any, Env Environment] struct {
 //
 // TODO(roasbeef): terminal check, daemon event execution, init?
 type StateMachine[Event any, Env Environment] struct {
-	currentState State[Event, Env]
-	env          Env
+	cfg StateMachineCfg[Event, Env]
 
-	daemon DaemonAdapters
-
+	// events is the channel that will be used to send new events to the
+	// FSM.
 	events chan Event
-
-	quit chan struct{}
-	wg   sync.WaitGroup
 
 	// newStateEvents is an EventDistributor that will be used to notify
 	// any relevant callers of new state transitions that occur.
 	newStateEvents *fn.EventDistributor[State[Event, Env]]
 
+	// stateQuery is a channel that will be used by outside callers to
+	// query the internal state machine state.
 	stateQuery chan stateQuery[Event, Env]
-
-	initEvent fn.Option[DaemonEvent]
 
 	startOnce sync.Once
 	stopOnce  sync.Once
 
 	// TODO(roasbeef): also use that context guard here?
+	quit chan struct{}
+	wg   sync.WaitGroup
+}
+
+// StateMachineCfg is a configuration struct that's used to create a new state
+// machine.
+type StateMachineCfg[Event any, Env Environment] struct {
+	// Daemon is a set of adapters that will be used to bridge the FSM to
+	// the daemon.
+	Daemon DaemonAdapters
+
+	// InitialState is the initial state of the state machine.
+	InitialState State[Event, Env]
+
+	// Env is the environment that the state machine will use to execute.
+	Env Env
+
+	// InitEvent is an optional event that will be sent to the state
+	// machine as if it was emitted at the onset of the state machine. This
+	// can be used to set up tracking state such as a txid confirmation
+	// event.
+	InitEvent fn.Option[DaemonEvent]
 }
 
 // NewStateMachine creates a new state machine given a set of daemon adapters,
 // an initial state, an environment, and an event to process as if emitted at
 // the onset of the state machine. Such an event can be used to set up tracking
 // state such as a txid confirmation event.
-func NewStateMachine[Event any, Env Environment](adapters DaemonAdapters,
-	initialState State[Event, Env], env Env,
-	initEvent fn.Option[DaemonEvent]) StateMachine[Event, Env] {
+func NewStateMachine[Event any, Env Environment](cfg StateMachineCfg[Event, Env],
+) StateMachine[Event, Env] {
 
 	return StateMachine[Event, Env]{
-		daemon:         adapters,
+		cfg:            cfg,
 		events:         make(chan Event, 1),
-		currentState:   initialState,
 		stateQuery:     make(chan stateQuery[Event, Env]),
 		quit:           make(chan struct{}),
-		env:            env,
-		initEvent:      initEvent,
 		newStateEvents: fn.NewEventDistributor[State[Event, Env]](),
 	}
 }
@@ -240,7 +254,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 	// any preconditions as well as post-send events.
 	case *SendMsgEvent[Event]:
 		sendAndCleanUp := func() error {
-			err := s.daemon.SendMessages(
+			err := s.cfg.Daemon.SendMessages(
 				daemonEvent.TargetPeer, daemonEvent.Msgs,
 			)
 			if err != nil {
@@ -304,7 +318,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 	// If this is a broadcast transaction event, then we'll broadcast with
 	// the label attached.
 	case *BroadcastTxn:
-		err := s.daemon.BroadcastTransaction(
+		err := s.cfg.Daemon.BroadcastTransaction(
 			daemonEvent.Tx, daemonEvent.Label,
 		)
 		if err != nil {
@@ -318,7 +332,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 	// The state machine has requested a new event to be sent once a
 	// transaction spending a specified outpoint has confirmed.
 	case *RegisterSpend[Event]:
-		spendEvent, err := s.daemon.RegisterSpendNtfn(
+		spendEvent, err := s.cfg.Daemon.RegisterSpendNtfn(
 			&daemonEvent.OutPoint, daemonEvent.PkScript,
 			daemonEvent.HeightHint,
 		)
@@ -354,7 +368,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 	// specified txid+pkScript pair has confirmed.
 	case *RegisterConf[Event]:
 		numConfs := daemonEvent.NumConfs.UnwrapOr(1)
-		confEvent, err := s.daemon.RegisterConfirmationsNtfn(
+		confEvent, err := s.cfg.Daemon.RegisterConfirmationsNtfn(
 			&daemonEvent.Txid, daemonEvent.PkScript,
 			numConfs, daemonEvent.HeightHint,
 		)
@@ -394,9 +408,8 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 // applyEvents applies a new event to the state machine. This will continue
 // until no further events are emitted by the state machine. Along the way,
 // we'll also ensure to execute any daemon events that are emitted.
-func (s *StateMachine[Event, Env]) applyEvents(newEvent Event) (State[Event, Env], error) {
-	// TODO(roasbeef): make starting state as part of env?
-	currentState := s.currentState
+func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
+	newEvent Event) (State[Event, Env], error) {
 
 	eventQueue := fn.NewQueue(newEvent)
 
@@ -409,7 +422,7 @@ func (s *StateMachine[Event, Env]) applyEvents(newEvent Event) (State[Event, Env
 			// Apply the state transition function of the current
 			// state given this new event and our existing env.
 			transition, err := currentState.ProcessEvent(
-				event, s.env,
+				event, s.cfg.Env,
 			)
 			if err != nil {
 				return err
@@ -472,12 +485,11 @@ func (s *StateMachine[Event, Env]) applyEvents(newEvent Event) (State[Event, Env
 func (s *StateMachine[Event, Env]) driveMachine() {
 	defer s.wg.Done()
 
-	// TODO(roasbeef): move into env? read only to start with
-	currentState := s.currentState
+	currentState := s.cfg.InitialState
 
 	// Before we start, if we have an init daemon event specified, then
 	// we'll handle that now.
-	err := fn.MapOptionZ(s.initEvent, func(event DaemonEvent) error {
+	err := fn.MapOptionZ(s.cfg.InitEvent, func(event DaemonEvent) error {
 		return s.executeDaemonEvent(event)
 	})
 	if err != nil {
@@ -495,7 +507,7 @@ func (s *StateMachine[Event, Env]) driveMachine() {
 		// machine forward until we either run out of internal events,
 		// or we reach a terminal state.
 		case newEvent := <-s.events:
-			newState, err := s.applyEvents(newEvent)
+			newState, err := s.applyEvents(currentState, newEvent)
 			if err != nil {
 				// TODO(roasbeef): hard error?
 				log.Errorf("unable to apply event: %v", err)
@@ -508,7 +520,7 @@ func (s *StateMachine[Event, Env]) driveMachine() {
 			// state machine and call any relevant clean up call
 			// backs that might have been registered.
 			if currentState.IsTerminal() {
-				err := s.env.CleanUp()
+				err := s.cfg.Env.CleanUp()
 				if err != nil {
 					log.Errorf("unable to clean up "+
 						"env: %v", err)

@@ -53,6 +53,10 @@ type Environment interface {
 	// state machine.
 	CleanUp() error
 
+	// Name returns the name of the environment. This is used to uniquely
+	// identify the environment of related state machines.
+	Name() string
+
 	// TODO(roasbeef): also add checkpointing?
 }
 
@@ -221,6 +225,11 @@ func (s *StateMachine[Event, Env]) CanHandle(msg lnwire.Message) bool {
 	return fn.MapOptionZ(cfgMapper, func(mapper MsgMapper[Event]) bool {
 		return mapper.MapMsg(msg).IsSome()
 	})
+}
+
+// Name returns the name of the state machine's environment.
+func (s *StateMachine[Event, Env]) Name() string {
+	return s.cfg.Env.Name()
 }
 
 // SendMessage attempts to send a wire message to the state machine. If the

@@ -48,6 +48,10 @@ func (d *dummyEnv) CleanUp() error {
 	return args.Error(0)
 }
 
+func (d *dummyEnv) Name() string {
+	return "test"
+}
+
 type dummyStateStart struct {
 	canSend *atomic.Bool
 }

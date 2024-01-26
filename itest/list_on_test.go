@@ -174,7 +174,7 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testUpdateNodeAnnouncement,
 	},
 	{
-		Name:     "list outgoing payments",
+		Name:     "list payments",
 		TestFunc: testListPayments,
 	},
 	{

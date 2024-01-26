@@ -1407,7 +1407,7 @@ func TestQueryInvoices(t *testing.T) {
 		{
 			query: invpkg.InvoiceQuery{
 				NumMaxInvoices:  numInvoices,
-				CreationDateEnd: time.Unix(25, 0),
+				CreationDateEnd: 25,
 			},
 			expected: invoices[:25],
 		},
@@ -1415,7 +1415,7 @@ func TestQueryInvoices(t *testing.T) {
 		{
 			query: invpkg.InvoiceQuery{
 				NumMaxInvoices:    numInvoices,
-				CreationDateStart: time.Unix(26, 0),
+				CreationDateStart: 26,
 			},
 			expected: invoices[25:],
 		},
@@ -1424,7 +1424,7 @@ func TestQueryInvoices(t *testing.T) {
 			query: invpkg.InvoiceQuery{
 				PendingOnly:     true,
 				NumMaxInvoices:  numInvoices,
-				CreationDateEnd: time.Unix(25, 0),
+				CreationDateEnd: 25,
 			},
 			expected: pendingInvoices[:13],
 		},
@@ -1433,7 +1433,7 @@ func TestQueryInvoices(t *testing.T) {
 			query: invpkg.InvoiceQuery{
 				PendingOnly:       true,
 				NumMaxInvoices:    numInvoices,
-				CreationDateStart: time.Unix(26, 0),
+				CreationDateStart: 26,
 			},
 			expected: pendingInvoices[13:],
 		},
@@ -1442,7 +1442,7 @@ func TestQueryInvoices(t *testing.T) {
 			query: invpkg.InvoiceQuery{
 				IndexOffset:     20,
 				NumMaxInvoices:  numInvoices,
-				CreationDateEnd: time.Unix(30, 0),
+				CreationDateEnd: 30,
 			},
 			// Since we're skipping to invoice 20 and iterating
 			// to invoice 30, we'll expect those invoices.
@@ -1455,7 +1455,7 @@ func TestQueryInvoices(t *testing.T) {
 				IndexOffset:       21,
 				Reversed:          true,
 				NumMaxInvoices:    numInvoices,
-				CreationDateStart: time.Unix(11, 0),
+				CreationDateStart: 11,
 			},
 			// Since we're skipping to invoice 20 and iterating
 			// backward to invoice 10, we'll expect those invoices.
@@ -1465,8 +1465,8 @@ func TestQueryInvoices(t *testing.T) {
 		{
 			query: invpkg.InvoiceQuery{
 				NumMaxInvoices:    numInvoices,
-				CreationDateStart: time.Unix(11, 0),
-				CreationDateEnd:   time.Unix(20, 0),
+				CreationDateStart: 11,
+				CreationDateEnd:   20,
 			},
 			expected: invoices[10:20],
 		},
@@ -1475,8 +1475,8 @@ func TestQueryInvoices(t *testing.T) {
 			query: invpkg.InvoiceQuery{
 				PendingOnly:       true,
 				NumMaxInvoices:    numInvoices,
-				CreationDateStart: time.Unix(11, 0),
-				CreationDateEnd:   time.Unix(20, 0),
+				CreationDateStart: 11,
+				CreationDateEnd:   20,
 			},
 			expected: pendingInvoices[5:10],
 		},
@@ -1486,8 +1486,8 @@ func TestQueryInvoices(t *testing.T) {
 			query: invpkg.InvoiceQuery{
 				Reversed:          true,
 				NumMaxInvoices:    numInvoices,
-				CreationDateStart: time.Unix(11, 0),
-				CreationDateEnd:   time.Unix(20, 0),
+				CreationDateStart: 11,
+				CreationDateEnd:   20,
 			},
 			expected: invoices[10:20],
 		},
@@ -1498,8 +1498,8 @@ func TestQueryInvoices(t *testing.T) {
 				PendingOnly:       true,
 				Reversed:          true,
 				NumMaxInvoices:    numInvoices,
-				CreationDateStart: time.Unix(11, 0),
-				CreationDateEnd:   time.Unix(20, 0),
+				CreationDateStart: 11,
+				CreationDateEnd:   20,
 			},
 			expected: pendingInvoices[5:10],
 		},
@@ -1508,8 +1508,8 @@ func TestQueryInvoices(t *testing.T) {
 		{
 			query: invpkg.InvoiceQuery{
 				NumMaxInvoices:    numInvoices,
-				CreationDateStart: time.Unix(20, 0),
-				CreationDateEnd:   time.Unix(11, 0),
+				CreationDateStart: 20,
+				CreationDateEnd:   11,
 			},
 			expected: nil,
 		},

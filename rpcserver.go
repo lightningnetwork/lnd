@@ -5796,20 +5796,12 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 	// Next, we'll map the proto request into a format that is understood by
 	// the database.
 	q := invoices.InvoiceQuery{
-		IndexOffset:    req.IndexOffset,
-		NumMaxInvoices: req.NumMaxInvoices,
-		PendingOnly:    req.PendingOnly,
-		Reversed:       req.Reversed,
-	}
-
-	// Attach the start date if set.
-	if req.CreationDateStart != 0 {
-		q.CreationDateStart = time.Unix(int64(req.CreationDateStart), 0)
-	}
-
-	// Attach the end date if set.
-	if req.CreationDateEnd != 0 {
-		q.CreationDateEnd = time.Unix(int64(req.CreationDateEnd), 0)
+		IndexOffset:       req.IndexOffset,
+		NumMaxInvoices:    req.NumMaxInvoices,
+		PendingOnly:       req.PendingOnly,
+		Reversed:          req.Reversed,
+		CreationDateStart: int64(req.CreationDateStart),
+		CreationDateEnd:   int64(req.CreationDateEnd),
 	}
 
 	invoiceSlice, err := r.server.miscDB.QueryInvoices(ctx, q)

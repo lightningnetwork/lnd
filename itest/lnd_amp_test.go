@@ -410,6 +410,16 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 		if htlc.Status == lnrpc.HTLCAttempt_SUCCEEDED {
 			succeeded++
 		}
+
+		// When an AMP record is expected, it will only be seen on the
+		// last hop of a route. So we make sure it isn't set on any of
+		// the hops except the last one
+		for _, hop := range htlc.Route.Hops[:len(htlc.Route.Hops)-1] {
+			require.Nil(ht, hop.AmpRecord)
+		}
+
+		lastHop := htlc.Route.Hops[len(htlc.Route.Hops)-1]
+		require.NotNil(ht, lastHop.AmpRecord)
 	}
 
 	const minExpectedShards = 3

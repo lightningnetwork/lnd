@@ -53,6 +53,10 @@ type Environment interface {
 	// state machine.
 	CleanUp() error
 
+	// Name returns the name of the environment. This is used to uniquely
+	// identify the environment of related state machines.
+	Name() string
+
 	// TODO(roasbeef): also add checkpointing?
 }
 

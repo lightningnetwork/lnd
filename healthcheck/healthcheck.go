@@ -96,6 +96,19 @@ func (m *Monitor) Stop() error {
 	return nil
 }
 
+// AddCheck adds a new healthcheck to our monitor.
+func (m *Monitor) AddCheck(check *Observation) error {
+
+	m.wg.Add(1)
+	go func(check *Observation) {
+		defer m.wg.Done()
+
+		check.monitor(m.cfg.Shutdown, m.quit)
+	}(check)
+
+	return nil
+}
+
 // CreateCheck is a helper function that takes a function that produces an error
 // and wraps it in a function that returns its result on an error channel.
 // We do not wait group the goroutine running our checkFunc because we expect

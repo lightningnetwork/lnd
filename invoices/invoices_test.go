@@ -517,7 +517,9 @@ func TestInvoiceCancelSingleHtlc(t *testing.T) {
 func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 	t.Parallel()
 
-	db, err := channeldb.MakeTestInvoiceDB(t, channeldb.OptionClock(testClock))
+	db, err := channeldb.MakeTestInvoiceDB(
+		t, channeldb.OptionClock(testClock),
+	)
 	require.NoError(t, err, "unable to make test db: %v", err)
 
 	// We'll start out by creating an invoice and writing it to the DB.
@@ -691,11 +693,13 @@ func TestInvoiceCancelSingleHtlcAMP(t *testing.T) {
 
 // TestInvoiceTimeSeries tests that newly added invoices invoices, as well as
 // settled invoices are added to the database are properly placed in the add
-// add or settle index which serves as an event time series.
+// or settle index which serves as an event time series.
 func TestInvoiceAddTimeSeries(t *testing.T) {
 	t.Parallel()
 
-	db, err := channeldb.MakeTestInvoiceDB(t, channeldb.OptionClock(testClock))
+	db, err := channeldb.MakeTestInvoiceDB(
+		t, channeldb.OptionClock(testClock),
+	)
 	require.NoError(t, err, "unable to make test db")
 
 	ctxb := context.Background()
@@ -853,7 +857,9 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 	t.Parallel()
 
 	testClock := clock.NewTestClock(testNow)
-	db, err := channeldb.MakeTestInvoiceDB(t, channeldb.OptionClock(testClock))
+	db, err := channeldb.MakeTestInvoiceDB(
+		t, channeldb.OptionClock(testClock),
+	)
 	require.Nil(t, err)
 
 	// First, we'll make a sample invoice that'll be paid to several times
@@ -1021,7 +1027,9 @@ func TestSettleIndexAmpPayments(t *testing.T) {
 func TestFetchPendingInvoices(t *testing.T) {
 	t.Parallel()
 
-	db, err := channeldb.MakeTestInvoiceDB(t, channeldb.OptionClock(testClock))
+	db, err := channeldb.MakeTestInvoiceDB(
+		t, channeldb.OptionClock(testClock),
+	)
 	require.NoError(t, err, "unable to make test db")
 
 	ctxb := context.Background()
@@ -1076,7 +1084,9 @@ func TestFetchPendingInvoices(t *testing.T) {
 func TestDuplicateSettleInvoice(t *testing.T) {
 	t.Parallel()
 
-	db, err := channeldb.MakeTestInvoiceDB(t, channeldb.OptionClock(testClock))
+	db, err := channeldb.MakeTestInvoiceDB(
+		t, channeldb.OptionClock(testClock),
+	)
 	require.NoError(t, err, "unable to make test db")
 
 	// We'll start out by creating an invoice and writing it to the DB.
@@ -1137,7 +1147,9 @@ func TestDuplicateSettleInvoice(t *testing.T) {
 func TestQueryInvoices(t *testing.T) {
 	t.Parallel()
 
-	db, err := channeldb.MakeTestInvoiceDB(t, channeldb.OptionClock(testClock))
+	db, err := channeldb.MakeTestInvoiceDB(
+		t, channeldb.OptionClock(testClock),
+	)
 	require.NoError(t, err, "unable to make test db")
 
 	// To begin the test, we'll add 50 invoices to the database. We'll
@@ -1869,7 +1881,9 @@ func TestAddInvoiceWithHTLCs(t *testing.T) {
 // that invoices with duplicate set ids are disallowed.
 func TestSetIDIndex(t *testing.T) {
 	testClock := clock.NewTestClock(testNow)
-	db, err := channeldb.MakeTestInvoiceDB(t, channeldb.OptionClock(testClock))
+	db, err := channeldb.MakeTestInvoiceDB(
+		t, channeldb.OptionClock(testClock),
+	)
 	require.Nil(t, err)
 
 	// We'll start out by creating an invoice and writing it to the DB.

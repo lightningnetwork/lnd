@@ -199,6 +199,8 @@ func cancelHTLCs(invoice *Invoice, updateTime time.Time,
 }
 
 // addHTLCs tries to add the htlcs in the given InvoiceUpdateDesc.
+//
+//nolint:funlen
 func addHTLCs(invoice *Invoice, hash *lntypes.Hash, updateTime time.Time,
 	update *InvoiceUpdateDesc, updater InvoiceUpdater) error {
 

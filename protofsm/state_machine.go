@@ -220,6 +220,11 @@ func (s *StateMachine[Event, Env]) CanHandle(msg lnwire.Message) bool {
 	})
 }
 
+// Name returns the name of the state machine's environment.
+func (s *StateMachine[Event, Env]) Name() string {
+	return s.cfg.Env.Name()
+}
+
 // SendMessage attempts to send a wire message to the state machine. If the
 // message can be mapped using the default message mapper, then true is
 // returned indicating that the message was processed. Otherwise, false is

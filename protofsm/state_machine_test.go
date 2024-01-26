@@ -228,9 +228,13 @@ func TestStateMachineOnInitDaemonEvent(t *testing.T) {
 		PostSendEvent: fn.Some(dummyEvents(&goToFin{})),
 	}
 
-	stateMachine := NewStateMachine[dummyEvents, *dummyEnv](
-		adapters, startingState, env, fn.Some[DaemonEvent](initEvent),
-	)
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+		InitEvent:    fn.Some[DaemonEvent](initEvent),
+	}
+	stateMachine := NewStateMachine(cfg)
 
 	// Before we start up the state machine, we'll assert that the send
 	// message adapter is called on start up.
@@ -270,9 +274,13 @@ func TestStateMachineInternalEvents(t *testing.T) {
 
 	adapters := newDaemonAdapters()
 
-	stateMachine := NewStateMachine[dummyEvents, *dummyEnv](
-		adapters, startingState, env, fn.None[DaemonEvent](),
-	)
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+		InitEvent:    fn.None[DaemonEvent](),
+	}
+	stateMachine := NewStateMachine(cfg)
 	stateMachine.Start()
 	defer stateMachine.Stop()
 
@@ -317,9 +325,13 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 
 	adapters := newDaemonAdapters()
 
-	stateMachine := NewStateMachine[dummyEvents, *dummyEnv](
-		adapters, startingState, env, fn.None[DaemonEvent](),
-	)
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+		InitEvent:    fn.None[DaemonEvent](),
+	}
+	stateMachine := NewStateMachine(cfg)
 	stateMachine.Start()
 	defer stateMachine.Stop()
 

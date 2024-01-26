@@ -8,7 +8,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
-// DaemonEvent is a special event that can be emmitted by a state transition
+// DaemonEvent is a special event that can be emitted by a state transition
 // function. A state machine can use this to perform side effects, such as
 // sending a message to a peer, or broadcasting a transaction.
 type DaemonEvent interface {

@@ -176,13 +176,17 @@ func newDaemonAdapters() *dummyAdapters {
 	}
 }
 
-func (d *dummyAdapters) SendMessages(pub btcec.PublicKey, msgs []lnwire.Message) error {
+func (d *dummyAdapters) SendMessages(pub btcec.PublicKey,
+	msgs []lnwire.Message) error {
+
 	args := d.Called(pub, msgs)
 
 	return args.Error(0)
 }
 
-func (d *dummyAdapters) BroadcastTransaction(tx *wire.MsgTx, label string) error {
+func (d *dummyAdapters) BroadcastTransaction(tx *wire.MsgTx,
+	label string) error {
+
 	args := d.Called(tx, label)
 
 	return args.Error(0)
@@ -196,6 +200,7 @@ func (d *dummyAdapters) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	args := d.Called(txid, pkScript, numConfs)
 
 	err := args.Error(0)
+
 	return &chainntnfs.ConfirmationEvent{
 		Confirmed: d.confChan,
 	}, err
@@ -388,7 +393,9 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 
 	// As soon as we send in the daemon event, we expect the
 	// disable+broadcast events to be processed, as they are unconditional.
-	adapters.On("BroadcastTransaction", mock.Anything, mock.Anything).Return(nil)
+	adapters.On(
+		"BroadcastTransaction", mock.Anything, mock.Anything,
+	).Return(nil)
 	adapters.On("SendMessages", *pub2, mock.Anything).Return(nil)
 
 	// We'll start off by sending in the daemon event, which'll trigger the
@@ -417,6 +424,77 @@ func TestStateMachineDaemonEvents(t *testing.T) {
 	expectedStates = []State[dummyEvents, *dummyEnv]{&dummyStateFin{}}
 	assertStateTransitions(t, stateSub, expectedStates)
 
+	adapters.AssertExpectations(t)
+	env.AssertExpectations(t)
+}
+
+type dummyMsgMapper struct {
+	mock.Mock
+}
+
+func (d *dummyMsgMapper) MapMsg(wireMsg lnwire.Message) fn.Option[dummyEvents] {
+	args := d.Called(wireMsg)
+
+	//nolint:forcetypeassert
+	return args.Get(0).(fn.Option[dummyEvents])
+}
+
+// TestStateMachineMsgMapper tests that given a message mapper, we can properly
+// send in wire messages get mapped to FSM events.
+func TestStateMachineMsgMapper(t *testing.T) {
+	// First, we'll create our state machine given the env, and our
+	// starting state.
+	env := &dummyEnv{}
+	startingState := &dummyStateStart{}
+	adapters := newDaemonAdapters()
+
+	// We'll also provide a message mapper that only knows how to map a
+	// single wire message (error).
+	dummyMapper := &dummyMsgMapper{}
+
+	// The only thing we know how to map is the error message, which'll
+	// terminate the state machine.
+	wireError := &lnwire.Error{}
+	initMsg := &lnwire.Init{}
+	dummyMapper.On("MapMsg", wireError).Return(
+		fn.Some(dummyEvents(&goToFin{})),
+	)
+	dummyMapper.On("MapMsg", initMsg).Return(fn.None[dummyEvents]())
+
+	cfg := StateMachineCfg[dummyEvents, *dummyEnv]{
+		Daemon:       adapters,
+		InitialState: startingState,
+		Env:          env,
+		MsgMapper:    fn.Some[MsgMapper[dummyEvents]](dummyMapper),
+	}
+	stateMachine := NewStateMachine(cfg)
+	stateMachine.Start()
+	defer stateMachine.Stop()
+
+	// As we're triggering internal events, we'll also subscribe to the set
+	// of new states so we can assert as we go.
+	stateSub := stateMachine.RegisterStateEvents()
+	defer stateMachine.RemoveStateSub(stateSub)
+
+	// We'll still be going to a terminal state, so we expect that the
+	// clean up method will be called.
+	env.On("CleanUp").Return(nil)
+
+	// First, we'll verify that the CanHandle method works as expected.
+	require.True(t, stateMachine.CanHandle(wireError))
+	require.False(t, stateMachine.CanHandle(&lnwire.Init{}))
+
+	// Next, we'll attempt to send the wire message into the state machine.
+	// We should transition to the final state.
+	require.True(t, stateMachine.SendMessage(wireError))
+
+	// We should transition to the final state.
+	expectedStates := []State[dummyEvents, *dummyEnv]{
+		&dummyStateStart{}, &dummyStateFin{},
+	}
+	assertStateTransitions(t, stateSub, expectedStates)
+
+	dummyMapper.AssertExpectations(t)
 	adapters.AssertExpectations(t)
 	env.AssertExpectations(t)
 }

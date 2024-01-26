@@ -64,7 +64,8 @@ type State[Event any, Env Environment] interface {
 	// emitted.
 	ProcessEvent(event Event, env Env) (*StateTransition[Event, Env], error)
 
-	// IsTerminal returns true if this state is terminal, and false otherwise.
+	// IsTerminal returns true if this state is terminal, and false
+	// otherwise.
 	IsTerminal() bool
 
 	// TODO(roasbeef): also add state serialization?
@@ -159,13 +160,17 @@ type StateMachineCfg[Event any, Env Environment] struct {
 	// can be used to set up tracking state such as a txid confirmation
 	// event.
 	InitEvent fn.Option[DaemonEvent]
+
+	// MsgMapper is an optional message mapper that can be used to map
+	// normal wire messages into FSM events.
+	MsgMapper fn.Option[MsgMapper[Event]]
 }
 
 // NewStateMachine creates a new state machine given a set of daemon adapters,
 // an initial state, an environment, and an event to process as if emitted at
 // the onset of the state machine. Such an event can be used to set up tracking
 // state such as a txid confirmation event.
-func NewStateMachine[Event any, Env Environment](cfg StateMachineCfg[Event, Env],
+func NewStateMachine[Event any, Env Environment](cfg StateMachineCfg[Event, Env], //nolint:lll
 ) StateMachine[Event, Env] {
 
 	return StateMachine[Event, Env]{
@@ -206,6 +211,43 @@ func (s *StateMachine[Event, Env]) SendEvent(event Event) {
 	}
 }
 
+// CanHandle returns true if the target message can be routed to the state
+// machine.
+func (s *StateMachine[Event, Env]) CanHandle(msg lnwire.Message) bool {
+	cfgMapper := s.cfg.MsgMapper
+	return fn.MapOptionZ(cfgMapper, func(mapper MsgMapper[Event]) bool {
+		return mapper.MapMsg(msg).IsSome()
+	})
+}
+
+// SendMessage attempts to send a wire message to the state machine. If the
+// message can be mapped using the default message mapper, then true is
+// returned indicating that the message was processed. Otherwise, false is
+// returned.
+func (s *StateMachine[Event, Env]) SendMessage(msg lnwire.Message) bool {
+	// If we have no message mapper, then return false as we can't process
+	// this message.
+	if !s.cfg.MsgMapper.IsSome() {
+		return false
+	}
+
+	// Otherwise, try to map the message using the default message mapper.
+	// If we can't extract an event, then we'll return false to indicate
+	// that the message wasn't processed.
+	var processed bool
+	s.cfg.MsgMapper.WhenSome(func(mapper MsgMapper[Event]) {
+		event := mapper.MapMsg(msg)
+
+		event.WhenSome(func(event Event) {
+			s.SendEvent(event)
+
+			processed = true
+		})
+	})
+
+	return processed
+}
+
 // CurrentState returns the current state of the state machine.
 func (s *StateMachine[Event, Env]) CurrentState() (State[Event, Env], error) {
 	query := stateQuery[Event, Env]{
@@ -225,7 +267,9 @@ type StateSubscriber[E any, F Environment] *fn.EventReceiver[State[E, F]]
 
 // RegisterStateEvents registers a new event listener that will be notified of
 // new state transitions.
-func (s *StateMachine[Event, Env]) RegisterStateEvents() StateSubscriber[Event, Env] {
+func (s *StateMachine[Event, Env]) RegisterStateEvents() StateSubscriber[
+	Event, Env] {
+
 	subscriber := fn.NewEventReceiver[State[Event, Env]](10)
 
 	// TODO(roasbeef): instead give the state and the input event?
@@ -237,8 +281,10 @@ func (s *StateMachine[Event, Env]) RegisterStateEvents() StateSubscriber[Event, 
 
 // RemoveStateSub removes the target state subscriber from the set of active
 // subscribers.
-func (s *StateMachine[Event, Env]) RemoveStateSub(sub StateSubscriber[Event, Env]) {
-	s.newStateEvents.RemoveSubscriber(sub)
+func (s *StateMachine[Event, Env]) RemoveStateSub(sub StateSubscriber[
+	Event, Env]) {
+
+	_ = s.newStateEvents.RemoveSubscriber(sub)
 }
 
 // executeDaemonEvent executes a daemon event, which is a special type of event
@@ -246,7 +292,6 @@ func (s *StateMachine[Event, Env]) RemoveStateSub(sub StateSubscriber[Event, Env
 // machine. An error is returned if the type of event is unknown.
 func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 	switch daemonEvent := event.(type) {
-
 	// This is a send message event, so we'll send the event, and also mind
 	// any preconditions as well as post-send events.
 	case *SendMsgEvent[Event]:
@@ -255,7 +300,8 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 				daemonEvent.TargetPeer, daemonEvent.Msgs,
 			)
 			if err != nil {
-				return fmt.Errorf("unable to send msgs: %w", err)
+				return fmt.Errorf("unable to send msgs: %w",
+					err)
 			}
 
 			// If a post-send event was specified, then we'll
@@ -300,7 +346,12 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 					)
 
 					if canSend {
-						sendAndCleanUp()
+						err := sendAndCleanUp()
+						if err != nil {
+							//nolint:lll
+							log.Errorf("FSM(%v): unable to send message: %v", err)
+						}
+
 						return
 					}
 
@@ -319,8 +370,6 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(event DaemonEvent) error {
 			daemonEvent.Tx, daemonEvent.Label,
 		)
 		if err != nil {
-			// TODO(roasbeef): hook has channel read event event is
-			// hit?
 			return fmt.Errorf("unable to broadcast txn: %w", err)
 		}
 
@@ -414,6 +463,8 @@ func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
 	// any new emitted internal events to our event queue. This continues
 	// until we reach a terminal state, or we run out of internal events to
 	// process.
+	//
+	//nolint:lll
 	for nextEvent := eventQueue.Dequeue(); nextEvent.IsSome(); nextEvent = eventQueue.Dequeue() {
 		err := fn.MapOptionZ(nextEvent, func(event Event) error {
 			// Apply the state transition function of the current
@@ -426,13 +477,17 @@ func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
 			}
 
 			newEvents := transition.NewEvents
-			err = fn.MapOptionZ(newEvents, func(events EmittedEvent[Event]) error {
+			err = fn.MapOptionZ(newEvents, func(events EmittedEvent[Event]) error { //nolint:lll
 				// With the event processed, we'll process any
 				// new daemon events that were emitted as part
 				// of this new state transition.
+				//
+				//nolint:lll
 				err := fn.MapOptionZ(events.ExternalEvents, func(dEvents DaemonEventSet) error {
 					for _, dEvent := range dEvents {
-						err := s.executeDaemonEvent(dEvent)
+						err := s.executeDaemonEvent(
+							dEvent,
+						)
 						if err != nil {
 							return err
 						}
@@ -446,6 +501,8 @@ func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
 
 				// Next, we'll add any new emitted events to
 				// our event queue.
+				//
+				//nolint:lll
 				events.InternalEvent.WhenSome(func(inEvent Event) {
 					eventQueue.Enqueue(inEvent)
 				})
@@ -516,7 +573,10 @@ func (s *StateMachine[Event, Env]) driveMachine() {
 		// An outside caller is querying our state, so we'll return the
 		// latest state.
 		case stateQuery := <-s.stateQuery:
-			if !fn.SendOrQuit(stateQuery.CurrentState, currentState, s.quit) {
+			if !fn.SendOrQuit(
+				stateQuery.CurrentState, currentState, s.quit,
+			) {
+
 				return
 			}
 

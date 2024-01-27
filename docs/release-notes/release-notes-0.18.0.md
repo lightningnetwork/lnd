@@ -115,6 +115,12 @@
   without the user needing to publicly give away a lot of privacy-sensitive
   data.
 
+* When publishing transactions in `lnd`, all the transactions will now go
+  through [mempool acceptance
+  check](https://github.com/lightningnetwork/lnd/pull/8345) before being
+  broadcast. This means when a transaction has failed the `testmempoolaccept`
+  check by bitcoind or btcd, the broadcast won't be attempted.
+
 ## RPC Additions
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)

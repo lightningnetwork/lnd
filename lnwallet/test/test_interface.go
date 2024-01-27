@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
@@ -1471,15 +1472,20 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 	// We'll also ensure that the client is able to send our new
 	// notifications when we _create_ transactions ourselves that spend our
 	// own outputs.
-	b := txscript.NewScriptBuilder()
-	b.AddOp(txscript.OP_RETURN)
-	outputScript, err := b.Script()
-	require.NoError(t, err, "unable to make output script")
+	addr, err := alice.NewAddress(
+		lnwallet.WitnessPubKey, false,
+		lnwallet.DefaultAccountName,
+	)
+	require.NoError(t, err)
+
+	outputScript, err := txscript.PayToAddrScript(addr)
+	require.NoError(t, err)
+
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
 	tx, err := alice.SendOutputs(
 		[]*wire.TxOut{burnOutput}, 2500, 1, labels.External,
 	)
-	require.NoError(t, err, "unable to create burn tx")
+	require.NoError(t, err, "unable to create tx")
 	txid := tx.TxHash()
 	err = waitForMempoolTx(miner, &txid)
 	require.NoError(t, err, "tx not relayed to miner")
@@ -1721,187 +1727,206 @@ func testPublishTransaction(r *rpctest.Harness,
 	keyDesc, err := alice.DeriveNextKey(keychain.KeyFamilyMultiSig)
 	require.NoError(t, err, "unable to obtain public key")
 
-	// We will first check that publishing a transaction already in the
-	// mempool does NOT return an error. Create the tx.
-	tx1 := newTx(t, r, keyDesc.PubKey, alice, false)
+	t.Run("no_error_on_duplicate_tx", func(t *testing.T) {
+		// We will first check that publishing a transaction already in
+		// the mempool does NOT return an error. Create the tx.
+		tx1 := newTx(t, r, keyDesc.PubKey, alice, false)
 
-	// Publish the transaction.
-	err = alice.PublishTransaction(tx1, labels.External)
-	require.NoError(t, err, "unable to publish")
+		// Publish the transaction.
+		err = alice.PublishTransaction(tx1, labels.External)
+		require.NoError(t, err)
 
-	txid1 := tx1.TxHash()
-	err = waitForMempoolTx(r, &txid1)
-	require.NoError(t, err, "tx not relayed to miner")
+		txid1 := tx1.TxHash()
+		err = waitForMempoolTx(r, &txid1)
+		require.NoError(t, err, "tx not relayed to miner")
 
-	// Publish the exact same transaction again. This should not return an
-	// error, even though the transaction is already in the mempool.
-	err = alice.PublishTransaction(tx1, labels.External)
-	require.NoError(t, err, "unable to publish")
-
-	// Mine the transaction.
-	if _, err := r.Client.Generate(1); err != nil {
-		t.Fatalf("unable to generate block: %v", err)
-	}
-
-	// We'll now test that we don't get an error if we try to publish a
-	// transaction that is already mined.
-	//
-	// Create a new transaction. We must do this to properly test the
-	// reject messages from our peers. They might only send us a reject
-	// message for a given tx once, so we create a new to make sure it is
-	// not just immediately rejected.
-	tx2 := newTx(t, r, keyDesc.PubKey, alice, false)
-
-	// Publish this tx.
-	err = alice.PublishTransaction(tx2, labels.External)
-	require.NoError(t, err, "unable to publish")
-
-	// Mine the transaction.
-	if err := mineAndAssert(r, tx2); err != nil {
-		t.Fatalf("unable to mine tx: %v", err)
-	}
-
-	// Publish the transaction again. It is already mined, and we don't
-	// expect this to return an error.
-	err = alice.PublishTransaction(tx2, labels.External)
-	require.NoError(t, err, "unable to publish")
-
-	// We'll do the next mempool check on both RBF and non-RBF enabled
-	// transactions.
-	var (
-		txFee         = btcutil.Amount(0.005 * btcutil.SatoshiPerBitcoin)
-		tx3, tx3Spend *wire.MsgTx
-	)
-
-	for _, rbf := range []bool{false, true} {
-		// Now we'll try to double spend an output with a different
-		// transaction. Create a new tx and publish it. This is the
-		// output we'll try to double spend.
-		tx3 = newTx(t, r, keyDesc.PubKey, alice, false)
-		err := alice.PublishTransaction(tx3, labels.External)
-		if err != nil {
-			t.Fatalf("unable to publish: %v", err)
-		}
+		// Publish the exact same transaction again. This should not
+		// return an error, even though the transaction is already in
+		// the mempool.
+		err = alice.PublishTransaction(tx1, labels.External)
+		require.NoError(t, err)
 
 		// Mine the transaction.
-		if err := mineAndAssert(r, tx3); err != nil {
-			t.Fatalf("unable to mine tx: %v", err)
-		}
+		_, err := r.Client.Generate(1)
+		require.NoError(t, err)
+	})
 
-		// Now we create a transaction that spends the output from the
-		// tx just mined.
-		tx4, err := txFromOutput(
-			tx3, alice.Cfg.Signer, keyDesc.PubKey,
-			keyDesc.PubKey, txFee, rbf,
+	t.Run("no_error_on_minged_tx", func(t *testing.T) {
+		// We'll now test that we don't get an error if we try to
+		// publish a transaction that is already mined.
+		//
+		// Create a new transaction. We must do this to properly test
+		// the reject messages from our peers. They might only send us
+		// a reject message for a given tx once, so we create a new to
+		// make sure it is not just immediately rejected.
+		tx2 := newTx(t, r, keyDesc.PubKey, alice, false)
+
+		// Publish this tx.
+		err = alice.PublishTransaction(tx2, labels.External)
+		require.NoError(t, err)
+
+		// Mine the transaction.
+		err := mineAndAssert(r, tx2)
+		require.NoError(t, err)
+
+		// Publish the transaction again. It is already mined, and we
+		// don't expect this to return an error.
+		err = alice.PublishTransaction(tx2, labels.External)
+		require.NoError(t, err)
+	})
+
+	// We'll do the next mempool check on both RBF and non-RBF
+	// enabled transactions.
+	var (
+		txFee = btcutil.Amount(
+			0.005 * btcutil.SatoshiPerBitcoin,
 		)
-		if err != nil {
-			t.Fatal(err)
+		tx3, tx3Spend *wire.MsgTx
+	)
+	t.Run("rbf_tests", func(t *testing.T) {
+		for _, rbf := range []bool{false, true} {
+			// Now we'll try to double spend an output with a
+			// different transaction. Create a new tx and publish
+			// it. This is the output we'll try to double spend.
+			tx3 = newTx(t, r, keyDesc.PubKey, alice, false)
+			err := alice.PublishTransaction(tx3, labels.External)
+			require.NoError(t, err)
+
+			// Mine the transaction.
+			err = mineAndAssert(r, tx3)
+			require.NoError(t, err)
+
+			// Now we create a transaction that spends the output
+			// from the tx just mined.
+			tx4, err := txFromOutput(
+				tx3, alice.Cfg.Signer, keyDesc.PubKey,
+				keyDesc.PubKey, txFee, rbf,
+			)
+			require.NoError(t, err)
+
+			// This should be accepted into the mempool.
+			err = alice.PublishTransaction(tx4, labels.External)
+			require.NoError(t, err)
+
+			// Keep track of the last successfully published tx to
+			// spend tx3.
+			tx3Spend = tx4
+
+			txid4 := tx4.TxHash()
+			err = waitForMempoolTx(r, &txid4)
+			require.NoError(t, err, "tx not relayed to miner")
+
+			// Create a new key we'll pay to, to ensure we create a
+			// unique transaction.
+			keyDesc2, err := alice.DeriveNextKey(
+				keychain.KeyFamilyMultiSig,
+			)
+			require.NoError(t, err, "unable to obtain public key")
+
+			// Create a new transaction that spends the output from
+			// tx3, and that pays to a different address. We expect
+			// this to be rejected because it is a double spend.
+			tx5, err := txFromOutput(
+				tx3, alice.Cfg.Signer, keyDesc.PubKey,
+				keyDesc2.PubKey, txFee, rbf,
+			)
+			require.NoError(t, err)
+
+			err = alice.PublishTransaction(tx5, labels.External)
+			require.ErrorIs(t, err, lnwallet.ErrDoubleSpend)
+
+			// Create another transaction that spends the same
+			// output, but has a higher fee. We expect also this tx
+			// to be rejected for non-RBF enabled transactions,
+			// while it should succeed otherwise.
+			pubKey3, err := alice.DeriveNextKey(
+				keychain.KeyFamilyMultiSig,
+			)
+			require.NoError(t, err, "unable to obtain public key")
+
+			tx6, err := txFromOutput(
+				tx3, alice.Cfg.Signer, keyDesc.PubKey,
+				pubKey3.PubKey, 2*txFee, rbf,
+			)
+			require.NoError(t, err)
+
+			// Expect rejection in non-RBF case.
+			expErr := lnwallet.ErrDoubleSpend
+			if rbf {
+				// Expect success in rbf case.
+				expErr = nil
+				tx3Spend = tx6
+			}
+			err = alice.PublishTransaction(tx6, labels.External)
+			require.ErrorIs(t, err, expErr)
+
+			// Mine the tx spending tx3.
+			err = mineAndAssert(r, tx3Spend)
+			require.NoError(t, err)
+		}
+	})
+
+	t.Run("tx_double_spend", func(t *testing.T) {
+		// At last we try to spend an output already spent by a
+		// confirmed transaction.
+		//
+		// TODO(halseth): we currently skip this test for neutrino, as
+		// the backing btcd node will consider the tx being an orphan,
+		// and will accept it. Should look into if this is the behavior
+		// also for bitcoind, and update test accordingly.
+		if alice.BackEnd() != "neutrino" {
+			// Create another tx spending tx3.
+			pubKey4, err := alice.DeriveNextKey(
+				keychain.KeyFamilyMultiSig,
+			)
+			require.NoError(t, err, "unable to obtain public key")
+
+			tx7, err := txFromOutput(
+				tx3, alice.Cfg.Signer, keyDesc.PubKey,
+				pubKey4.PubKey, txFee, false,
+			)
+			require.NoError(t, err)
+
+			// Expect rejection.
+			err = alice.PublishTransaction(tx7, labels.External)
+			require.ErrorIs(t, err, lnwallet.ErrDoubleSpend)
+		}
+	})
+
+	t.Run("test_tx_size_limit", func(t *testing.T) {
+		// In this test, we'll try to create a massive transaction that
+		// can't be mined as dictacted by widely deployed transaction
+		// policy.
+		//
+		// To do this, we'll take out of the prior transactions, and
+		// add a bunch of outputs, putting it over the max weight
+		// limit.
+		testTx := tx3.Copy()
+		for i := 0; i < blockchain.MaxOutputsPerBlock; i++ {
+			testTx.AddTxOut(&wire.TxOut{
+				Value:    tx3.TxOut[0].Value,
+				PkScript: tx3.TxOut[0].PkScript,
+			})
 		}
 
-		// This should be accepted into the mempool.
-		err = alice.PublishTransaction(tx4, labels.External)
-		if err != nil {
-			t.Fatalf("unable to publish: %v", err)
+		// Now broadcast the transaction, we should get an error that
+		// the weight is too large.
+		//
+		// TODO(roasbeef): we can't use Unwrap() here as TxRuleError
+		// doesn't define it
+		err := alice.PublishTransaction(testTx, labels.External)
+
+		errStr := "bad-txns-oversize"
+
+		// For neutrino backend, the error string in not mapped.
+		//
+		// TODO(yy): unify error matching in neutrino too.
+		if alice.BackEnd() == "neutrino" {
+			errStr = "serialized transaction is too big"
 		}
 
-		// Keep track of the last successfully published tx to spend
-		// tx3.
-		tx3Spend = tx4
-
-		txid4 := tx4.TxHash()
-		err = waitForMempoolTx(r, &txid4)
-		if err != nil {
-			t.Fatalf("tx not relayed to miner: %v", err)
-		}
-
-		// Create a new key we'll pay to, to ensure we create a unique
-		// transaction.
-		keyDesc2, err := alice.DeriveNextKey(
-			keychain.KeyFamilyMultiSig,
-		)
-		if err != nil {
-			t.Fatalf("unable to obtain public key: %v", err)
-		}
-
-		// Create a new transaction that spends the output from tx3,
-		// and that pays to a different address. We expect this to be
-		// rejected because it is a double spend.
-		tx5, err := txFromOutput(
-			tx3, alice.Cfg.Signer, keyDesc.PubKey,
-			keyDesc2.PubKey, txFee, rbf,
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		err = alice.PublishTransaction(tx5, labels.External)
-		if err != lnwallet.ErrDoubleSpend {
-			t.Fatalf("expected ErrDoubleSpend, got: %v", err)
-		}
-
-		// Create another transaction that spends the same output, but
-		// has a higher fee. We expect also this tx to be rejected for
-		// non-RBF enabled transactions, while it should succeed
-		// otherwise.
-		pubKey3, err := alice.DeriveNextKey(keychain.KeyFamilyMultiSig)
-		if err != nil {
-			t.Fatalf("unable to obtain public key: %v", err)
-		}
-		tx6, err := txFromOutput(
-			tx3, alice.Cfg.Signer, keyDesc.PubKey,
-			pubKey3.PubKey, 2*txFee, rbf,
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Expect rejection in non-RBF case.
-		expErr := lnwallet.ErrDoubleSpend
-		if rbf {
-			// Expect success in rbf case.
-			expErr = nil
-			tx3Spend = tx6
-		}
-		err = alice.PublishTransaction(tx6, labels.External)
-		if err != expErr {
-			t.Fatalf("expected ErrDoubleSpend, got: %v", err)
-		}
-
-		// Mine the tx spending tx3.
-		if err := mineAndAssert(r, tx3Spend); err != nil {
-			t.Fatalf("unable to mine tx: %v", err)
-		}
-	}
-
-	// At last we try to spend an output already spent by a confirmed
-	// transaction.
-	// TODO(halseth): we currently skip this test for neutrino, as the
-	// backing btcd node will consider the tx being an orphan, and will
-	// accept it. Should look into if this is the behavior also for
-	// bitcoind, and update test accordingly.
-	if alice.BackEnd() != "neutrino" {
-		// Create another tx spending tx3.
-		pubKey4, err := alice.DeriveNextKey(
-			keychain.KeyFamilyMultiSig,
-		)
-		if err != nil {
-			t.Fatalf("unable to obtain public key: %v", err)
-		}
-		tx7, err := txFromOutput(
-			tx3, alice.Cfg.Signer, keyDesc.PubKey,
-			pubKey4.PubKey, txFee, false,
-		)
-
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		// Expect rejection.
-		err = alice.PublishTransaction(tx7, labels.External)
-		if err != lnwallet.ErrDoubleSpend {
-			t.Fatalf("expected ErrDoubleSpend, got: %v", err)
-		}
-	}
+		require.Contains(t, err.Error(), errStr)
+	})
 }
 
 func testSignOutputUsingTweaks(r *rpctest.Harness,
@@ -3244,9 +3269,15 @@ func runTests(t *testing.T, walletDriver *lnwallet.WalletDriver,
 		case "bitcoind":
 			// Start a bitcoind instance.
 			tempBitcoindDir := t.TempDir()
-			zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
-			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
+
 			rpcPort := getFreePort()
+			zmqBlockPort := getFreePort()
+			zmqTxPort := getFreePort()
+			zmqBlockHost := fmt.Sprintf("tcp://127.0.0.1:%d",
+				zmqBlockPort)
+			zmqTxHost := fmt.Sprintf("tcp://127.0.0.1:%d",
+				zmqTxPort)
+
 			bitcoind := exec.Command(
 				"bitcoind",
 				"-datadir="+tempBitcoindDir,

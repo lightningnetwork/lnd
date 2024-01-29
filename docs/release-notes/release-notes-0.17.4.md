@@ -41,7 +41,10 @@
   nodes where the chain sync got lost because fetching of already pruned blocks
   from our peers was not garbage collected when the request failed.
 
-
+* Let the REST proxy [skip TLS 
+  verification](https://github.com/lightningnetwork/lnd/pull/8437) when 
+  connecting to the gRPC server to prevent invalid cert use when the ephemeral 
+  cert (used with the  `--tlsencryptkey` flag) expires. 
 
 # New Features
 ## Functional Enhancements

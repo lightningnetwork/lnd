@@ -37,6 +37,11 @@
   caused memory leak for users running `lnd` with `bitcoind.rpcpolling=1`
   mode.
 
+* [Fix](https://github.com/lightningnetwork/lnd/pull/8428) an issue for pruned
+  nodes where the chain sync got lost because fetching of already pruned blocks
+  from our peers was not garbage collected when the request failed.
+
+
 
 # New Features
 ## Functional Enhancements

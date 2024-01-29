@@ -1010,7 +1010,7 @@ func initBreachedState(t *testing.T) (*BreachArbitrator,
 func TestBreachHandoffSuccess(t *testing.T) {
 	brar, alice, _, bobClose, contractBreaches := initBreachedState(t)
 
-	chanPoint := alice.ChanPoint
+	chanPoint := alice.ChannelPoint()
 
 	// Signal a spend of the funding transaction and wait for the close
 	// observer to exit.
@@ -1096,7 +1096,7 @@ func TestBreachHandoffFail(t *testing.T) {
 
 	// Signal the notifier to dispatch spend notifications of the funding
 	// transaction using the transaction from bob's closing summary.
-	chanPoint := alice.ChanPoint
+	chanPoint := alice.ChannelPoint()
 	processACK := make(chan error)
 	breach := &ContractBreachEvent{
 		ChanPoint: *chanPoint,
@@ -1560,7 +1560,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	var (
 		height       = bobClose.ChanSnapshot.CommitHeight
 		forceCloseTx = bobClose.CloseTx
-		chanPoint    = alice.ChanPoint
+		chanPoint    = alice.ChannelPoint()
 		publTx       = make(chan *wire.MsgTx)
 		publErr      error
 		publMtx      sync.Mutex
@@ -1764,7 +1764,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	}
 
 	// Assert that the channel is fully resolved.
-	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
+	assertBrarCleanup(t, brar, alice.ChannelPoint(), alice.State().Db)
 }
 
 // TestBreachDelayedJusticeConfirmation tests that the breach arbiter will
@@ -1777,7 +1777,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		height       = bobClose.ChanSnapshot.CommitHeight
 		blockHeight  = int32(10)
 		forceCloseTx = bobClose.CloseTx
-		chanPoint    = alice.ChanPoint
+		chanPoint    = alice.ChannelPoint()
 		publTx       = make(chan *wire.MsgTx)
 	)
 
@@ -1965,7 +1965,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	}
 
 	// Assert that the channel is fully resolved.
-	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
+	assertBrarCleanup(t, brar, alice.ChannelPoint(), alice.State().Db)
 }
 
 // findInputIndex returns the index of the input that spends from the given
@@ -2081,12 +2081,12 @@ func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	require.NoError(t, err, "unable to load pending closed channels")
 
 	for _, chanSummary := range closedChans {
-		if chanSummary.ChanPoint == *c.ChanPoint {
+		if chanSummary.ChanPoint == *c.ChannelPoint() {
 			return
 		}
 	}
 
-	t.Fatalf("channel %v was not marked pending closed", c.ChanPoint)
+	t.Fatalf("channel %v was not marked pending closed", c.ChannelPoint())
 }
 
 // assertNotPendingClosed checks that the channel has not been marked pending
@@ -2098,9 +2098,9 @@ func assertNotPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	require.NoError(t, err, "unable to load pending closed channels")
 
 	for _, chanSummary := range closedChans {
-		if chanSummary.ChanPoint == *c.ChanPoint {
+		if chanSummary.ChanPoint == *c.ChannelPoint() {
 			t.Fatalf("channel %v was marked pending closed",
-				c.ChanPoint)
+				c.ChannelPoint())
 		}
 	}
 }

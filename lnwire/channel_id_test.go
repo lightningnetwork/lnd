@@ -17,7 +17,7 @@ func TestChannelIDOutPointConversion(t *testing.T) {
 
 		// With the output index mutated, we'll convert it into a
 		// ChannelID.
-		cid := NewChanIDFromOutPoint(&testChanPoint)
+		cid := NewChanIDFromOutPoint(testChanPoint)
 
 		// Once the channel point has been converted to a channelID, it
 		// should recognize its original outpoint.
@@ -48,7 +48,7 @@ func TestGenPossibleOutPoints(t *testing.T) {
 	// We'll first convert out test outpoint into a ChannelID.
 	testChanPoint := *outpoint1
 	testChanPoint.Index = 24
-	chanID := NewChanIDFromOutPoint(&testChanPoint)
+	chanID := NewChanIDFromOutPoint(testChanPoint)
 
 	// With the chan ID created, we'll generate all possible root outpoints
 	// given this channel ID.

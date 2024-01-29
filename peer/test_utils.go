@@ -412,8 +412,7 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 	alicePeer := NewBrontide(*cfg)
 	alicePeer.remoteFeatures = lnwire.NewFeatureVector(nil, lnwire.Features)
 
-	chanPoint := channelAlice.ChannelPoint()
-	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(channelAlice.ChannelPoint())
 	alicePeer.activeChannels.Store(chanID, channelAlice)
 
 	alicePeer.wg.Add(1)

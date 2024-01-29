@@ -269,8 +269,7 @@ func addTestHtlcs(t *testing.T, remote, local *LightningChannel,
 		hash160map[hash160] = preimage
 
 		// Add htlc to the channel.
-		chanPoint := remote.ChannelPoint()
-		chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+		chanID := lnwire.NewChanIDFromOutPoint(remote.ChannelPoint())
 
 		msg := &lnwire.UpdateAddHTLC{
 			Amount:      htlc.amount,

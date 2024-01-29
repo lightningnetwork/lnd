@@ -780,7 +780,7 @@ func (m *Manager) handleChannelCloses(chanSub subscribe.Subscription) {
 			}
 
 			chanID := lnwire.NewChanIDFromOutPoint(
-				&event.CloseSummary.ChanPoint,
+				event.CloseSummary.ChanPoint,
 			)
 
 			log.Debugf("Received ClosedChannelEvent for "+

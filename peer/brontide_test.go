@@ -54,7 +54,7 @@ func TestPeerChannelClosureShutdownResponseLinkRemoved(t *testing.T) {
 	require.NoError(t, err, "unable to create test channels")
 
 	chanPoint := bobChan.ChannelPoint()
-	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	dummyDeliveryScript := genScript(t, p2wshAddress)
 
@@ -102,7 +102,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	require.NoError(t, err, "unable to create test channels")
 
 	chanPoint := bobChan.ChannelPoint()
-	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
@@ -207,7 +207,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	require.NoError(t, err, "unable to create test channels")
 
 	chanPoint := bobChan.ChannelPoint()
-	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
 
@@ -331,7 +331,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	require.NoError(t, err, "unable to create test channels")
 
 	chanPoint := bobChan.ChannelPoint()
-	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
@@ -518,7 +518,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	require.NoError(t, err, "unable to create test channels")
 
 	chanPoint := bobChan.ChannelPoint()
-	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
 
@@ -849,7 +849,7 @@ func TestCustomShutdownScript(t *testing.T) {
 			}
 
 			chanPoint := bobChan.ChannelPoint()
-			chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 			mockLink := newMockUpdateHandler(chanID)
 			mockSwitch.links = append(mockSwitch.links, mockLink)
 
@@ -1218,7 +1218,7 @@ func TestUpdateNextRevocation(t *testing.T) {
 	// Test an error is returned when the chanID's corresponding channel is
 	// nil.
 	testChannel.FundingOutpoint = wire.OutPoint{Index: 1}
-	chanID := lnwire.NewChanIDFromOutPoint(&testChannel.FundingOutpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(testChannel.FundingOutpoint)
 	alicePeer.activeChannels.Store(chanID, nil)
 
 	err = alicePeer.updateNextRevocation(testChannel)

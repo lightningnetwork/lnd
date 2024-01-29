@@ -2580,7 +2580,9 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			//  * so only need to grab from database
 			peer.WipeChannel(&channel.FundingOutpoint)
 		} else {
-			chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+			chanID := lnwire.NewChanIDFromOutPoint(
+				channel.FundingOutpoint,
+			)
 			r.server.htlcSwitch.RemoveLink(chanID)
 		}
 
@@ -2634,7 +2636,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 
 		// If the link is not known by the switch, we cannot gracefully close
 		// the channel.
-		channelID := lnwire.NewChanIDFromOutPoint(chanPoint)
+		channelID := lnwire.NewChanIDFromOutPoint(*chanPoint)
 		if _, err := r.server.htlcSwitch.GetLink(channelID); err != nil {
 			rpcsLog.Debugf("Trying to non-force close offline channel with "+
 				"chan_point=%v", chanPoint)
@@ -2953,7 +2955,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 
 	var activeChannels uint32
 	for _, channel := range openChannels {
-		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 		if r.server.htlcSwitch.HasActiveLink(chanID) {
 			activeChannels++
 		}
@@ -4221,7 +4223,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 			peerOnline = true
 		}
 
-		channelID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+		channelID := lnwire.NewChanIDFromOutPoint(chanPoint)
 		var linkActive bool
 		if link, err := r.server.htlcSwitch.GetLink(channelID); err == nil {
 			// A channel is only considered active if it is known
@@ -4313,7 +4315,7 @@ func createRPCOpenChannel(r *rpcServer, dbChannel *channeldb.OpenChannel,
 	nodePub := dbChannel.IdentityPub
 	nodeID := hex.EncodeToString(nodePub.SerializeCompressed())
 	chanPoint := dbChannel.FundingOutpoint
-	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	// As this is required for display purposes, we'll calculate
 	// the weight of the commitment transaction. We also add on the

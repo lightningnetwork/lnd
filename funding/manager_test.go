@@ -3365,7 +3365,7 @@ func TestFundingManagerCustomChannelParameters(t *testing.T) {
 		t, alice, bob, func(node *testNode, msg *newChannelMsg) bool {
 			aliceDB := alice.fundingMgr.cfg.ChannelDB
 			chanID := lnwire.NewChanIDFromOutPoint(
-				&msg.channel.FundingOutpoint,
+				msg.channel.FundingOutpoint,
 			)
 
 			if node == alice {

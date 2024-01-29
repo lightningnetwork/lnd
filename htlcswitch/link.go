@@ -2602,8 +2602,7 @@ func (l *channelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) ChanID() lnwire.ChannelID {
-	chanPoint := l.channel.ChannelPoint()
-	return lnwire.NewChanIDFromOutPoint(&chanPoint)
+	return lnwire.NewChanIDFromOutPoint(l.channel.ChannelPoint())
 }
 
 // Bandwidth returns the total amount that can flow through the channel link at

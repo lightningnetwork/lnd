@@ -269,7 +269,7 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 	closeReq *htlcswitch.ChanClose, locallyInitiated bool) *ChanCloser {
 
 	chanPoint := cfg.Channel.ChannelPoint()
-	cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
+	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
 	return &ChanCloser{
 		closeReq:            closeReq,
 		state:               closeIdle,

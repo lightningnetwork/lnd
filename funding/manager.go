@@ -698,7 +698,7 @@ func (f *Manager) start() error {
 	}
 
 	for _, channel := range allChannels {
-		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 
 		// For any channels that were in a pending state when the
 		// daemon was last connected, the Funding Manager will
@@ -1113,7 +1113,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	channelState channelOpeningState,
 	updateChan chan<- *lnrpc.OpenStatusUpdate) error {
 
-	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 	log.Debugf("Channel(%v) with ShortChanID %v has opening state %v",
 		chanID, shortChanID, channelState)
 
@@ -1273,7 +1273,7 @@ func (f *Manager) advancePendingChannelState(
 
 		// Find and close the discoverySignal for this channel such
 		// that ChannelReady messages will be processed.
-		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 		discoverySignal, ok := f.localDiscoverySignals.Load(chanID)
 		if ok {
 			close(discoverySignal)
@@ -1339,7 +1339,7 @@ func (f *Manager) advancePendingChannelState(
 	}
 
 	// Success, funding transaction was confirmed.
-	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 	log.Debugf("ChannelID(%v) is now fully confirmed! "+
 		"(shortChanID=%v)", chanID, confChannel.shortChanID)
 
@@ -2246,7 +2246,7 @@ func (f *Manager) continueFundingAccept(resCtx *reservationWithCtx,
 	// properly synchronize with the writeHandler goroutine, we add a new
 	// channel to the barriers map which will be closed once the channel is
 	// fully open.
-	channelID := lnwire.NewChanIDFromOutPoint(outPoint)
+	channelID := lnwire.NewChanIDFromOutPoint(*outPoint)
 	log.Debugf("Creating chan barrier for ChanID(%v)", channelID)
 
 	// The next message that advances the funding flow will reference the
@@ -2421,7 +2421,7 @@ func (f *Manager) fundeeProcessFundingCreated(peer lnpeer.Peer,
 	// properly synchronize with the writeHandler goroutine, we add a new
 	// channel to the barriers map which will be closed once the channel is
 	// fully open.
-	channelID := lnwire.NewChanIDFromOutPoint(&fundingOut)
+	channelID := lnwire.NewChanIDFromOutPoint(fundingOut)
 	log.Debugf("Creating chan barrier for ChanID(%v)", channelID)
 
 	fundingSigned := &lnwire.FundingSigned{}
@@ -2582,7 +2582,7 @@ func (f *Manager) funderProcessFundingSigned(peer lnpeer.Peer,
 	// process the channel confirmation fully before we receive a
 	// channel_ready message.
 	fundingPoint := resCtx.reservation.FundingOutpoint()
-	permChanID := lnwire.NewChanIDFromOutPoint(fundingPoint)
+	permChanID := lnwire.NewChanIDFromOutPoint(*fundingPoint)
 	f.localDiscoverySignals.Store(permChanID, make(chan struct{}))
 
 	// We have to store the forwardingPolicy before the reservation context
@@ -2788,7 +2788,7 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 
 		// Create channel identifier and set the channel ID.
 		cid := newChanIdentifier(pendingID)
-		cid.setChanID(lnwire.NewChanIDFromOutPoint(&c.FundingOutpoint))
+		cid.setChanID(lnwire.NewChanIDFromOutPoint(c.FundingOutpoint))
 
 		// TODO(halseth): should this send be made
 		// reliable?
@@ -2953,7 +2953,7 @@ func (f *Manager) waitForFundingConfirmation(
 
 	fundingPoint := completeChan.FundingOutpoint
 	log.Infof("ChannelPoint(%v) is now active: ChannelID(%v)",
-		fundingPoint, lnwire.NewChanIDFromOutPoint(&fundingPoint))
+		fundingPoint, lnwire.NewChanIDFromOutPoint(fundingPoint))
 
 	// With the block height and the transaction index known, we can
 	// construct the compact chanID which is used on the network to unique
@@ -3071,7 +3071,7 @@ func (f *Manager) handleFundingConfirmation(
 	confChannel *confirmedChannel) error {
 
 	fundingPoint := completeChan.FundingOutpoint
-	chanID := lnwire.NewChanIDFromOutPoint(&fundingPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(fundingPoint)
 
 	// TODO(roasbeef): ideally persistent state update for chan above
 	// should be abstracted
@@ -3147,7 +3147,7 @@ func (f *Manager) handleFundingConfirmation(
 func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 	channel *lnwallet.LightningChannel) error {
 
-	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(completeChan.FundingOutpoint)
 
 	var peerKey [33]byte
 	copy(peerKey[:], completeChan.IdentityPub.SerializeCompressed())
@@ -3374,7 +3374,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	peerAlias *lnwire.ShortChannelID,
 	ourPolicy *models.ChannelEdgePolicy) error {
 
-	chanID := lnwire.NewChanIDFromOutPoint(&completeChan.FundingOutpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(completeChan.FundingOutpoint)
 
 	fwdMinHTLC, fwdMaxHTLC := f.extractAnnounceParams(completeChan)
 
@@ -3465,7 +3465,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		}
 
 		chanID := lnwire.NewChanIDFromOutPoint(
-			&completeChan.FundingOutpoint,
+			completeChan.FundingOutpoint,
 		)
 		pubKey := peer.PubKey()
 		log.Debugf("Sending our NodeAnnouncement for "+
@@ -3530,7 +3530,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 		}
 
 		fundingPoint := completeChan.FundingOutpoint
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingPoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingPoint)
 
 		log.Infof("Announcing ChannelPoint(%v), short_chan_id=%v",
 			&fundingPoint, shortChanID)
@@ -3964,7 +3964,7 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 	scid *lnwire.ShortChannelID, pendingChanID [32]byte,
 	updateChan chan<- *lnrpc.OpenStatusUpdate) error {
 
-	chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 
 	// Since we've sent+received funding locked at this point, we
 	// can clean up the pending musig2 nonce state.
@@ -3981,7 +3981,7 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 		// we'll just return, letting the next iteration of the loop
 		// check again.
 		var defaultAlias lnwire.ShortChannelID
-		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 		foundAlias, _ := f.cfg.AliasManager.GetPeerAlias(chanID)
 		if foundAlias == defaultAlias {
 			return nil
@@ -4876,7 +4876,7 @@ func (f *Manager) pruneZombieReservations() {
 		log.Warnf(err.Error())
 
 		chanID := lnwire.NewChanIDFromOutPoint(
-			resCtx.reservation.FundingOutpoint(),
+			*resCtx.reservation.FundingOutpoint(),
 		)
 
 		// Create channel identifier and set the channel ID.

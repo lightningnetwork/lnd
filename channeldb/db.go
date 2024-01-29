@@ -704,7 +704,7 @@ func (c *ChannelStateDB) FetchChannelByID(tx kvdb.RTx, id lnwire.ChannelID) (
 				return err
 			}
 
-			chanID := lnwire.NewChanIDFromOutPoint(&outPoint)
+			chanID := lnwire.NewChanIDFromOutPoint(outPoint)
 			if chanID != id {
 				return nil
 			}

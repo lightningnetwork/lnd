@@ -391,7 +391,7 @@ func (h *testHarness) markActive(channels []*channeldb.OpenChannel) {
 	h.t.Helper()
 
 	for _, channel := range channels {
-		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 		h.htlcSwitch.SetStatus(chanID, true)
 	}
 }
@@ -402,7 +402,7 @@ func (h *testHarness) markInactive(channels []*channeldb.OpenChannel) {
 	h.t.Helper()
 
 	for _, channel := range channels {
-		chanID := lnwire.NewChanIDFromOutPoint(&channel.FundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(channel.FundingOutpoint)
 		h.htlcSwitch.SetStatus(chanID, false)
 	}
 }

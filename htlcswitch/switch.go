@@ -621,7 +621,7 @@ func (s *Switch) UpdateForwardingPolicies(
 
 	// Update each link in chanPolicies.
 	for targetLink, policy := range chanPolicies {
-		cid := lnwire.NewChanIDFromOutPoint(&targetLink)
+		cid := lnwire.NewChanIDFromOutPoint(targetLink)
 
 		link, ok := s.linkIndex[cid]
 		if !ok {
@@ -1797,7 +1797,7 @@ out:
 		// relevant link (if it exists) so the channel can be
 		// cooperatively closed (if possible).
 		case req := <-s.chanCloseRequests:
-			chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
+			chanID := lnwire.NewChanIDFromOutPoint(*req.ChanPoint)
 
 			s.indexMtx.RLock()
 			link, ok := s.linkIndex[chanID]

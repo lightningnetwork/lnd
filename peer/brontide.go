@@ -834,7 +834,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				}
 
 				chanID := lnwire.NewChanIDFromOutPoint(
-					&dbChan.FundingOutpoint,
+					dbChan.FundingOutpoint,
 				)
 
 				// Fetch the second commitment point to send in
@@ -870,7 +870,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			return nil, err
 		}
 
-		chanPoint := &dbChan.FundingOutpoint
+		chanPoint := dbChan.FundingOutpoint
 
 		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
@@ -932,7 +932,9 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 		// need to fetch its current link-layer forwarding policy from
 		// the database.
 		graph := p.cfg.ChannelGraph
-		info, p1, p2, err := graph.FetchChannelEdgesByOutpoint(chanPoint)
+		info, p1, p2, err := graph.FetchChannelEdgesByOutpoint(
+			&chanPoint,
+		)
 		if err != nil && err != channeldb.ErrEdgeNotFound {
 			return nil, err
 		}
@@ -1020,7 +1022,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			}
 
 			chanID := lnwire.NewChanIDFromOutPoint(
-				&lnChan.State().FundingOutpoint,
+				lnChan.State().FundingOutpoint,
 			)
 
 			p.activeChanCloses[chanID] = chanCloser
@@ -1042,14 +1044,14 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 		// Subscribe to the set of on-chain events for this channel.
 		chainEvents, err := p.cfg.ChainArb.SubscribeChannelEvents(
-			*chanPoint,
+			chanPoint,
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		err = p.addLink(
-			chanPoint, lnChan, forwardingPolicy, chainEvents,
+			&chanPoint, lnChan, forwardingPolicy, chainEvents,
 			true, shutdownMsg,
 		)
 		if err != nil {
@@ -1144,7 +1146,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	// links going by the same channel id. If one is found, we'll shut it
 	// down to ensure that the mailboxes are only ever under the control of
 	// one link.
-	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(*chanPoint)
 	p.cfg.Switch.RemoveLink(chanID)
 
 	// With the channel link created, we'll now notify the htlc switch so
@@ -2912,7 +2914,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	// This does not need a mutex even though it is in a different
 	// goroutine since this is done before the channelManager goroutine is
 	// created.
-	chanID := lnwire.NewChanIDFromOutPoint(&c.FundingOutpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(c.FundingOutpoint)
 	p.activeChanCloses[chanID] = chanCloser
 
 	// Create the Shutdown message.
@@ -2976,7 +2978,7 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 // handleLocalCloseReq kicks-off the workflow to execute a cooperative or
 // forced unilateral closure of the channel initiated by a local subsystem.
 func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
-	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(*req.ChanPoint)
 
 	channel, ok := p.activeChannels.Load(chanID)
 
@@ -3099,7 +3101,7 @@ type linkFailureReport struct {
 func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 	// Retrieve the channel from the map of active channels. We do this to
 	// have access to it even after WipeChannel remove it from the map.
-	chanID := lnwire.NewChanIDFromOutPoint(&failure.chanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(failure.chanPoint)
 	lnChan, _ := p.activeChannels.Load(chanID)
 
 	// We begin by wiping the link, which will remove it from the switch,
@@ -3212,7 +3214,7 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	p.WipeChannel(&chanPoint)
 
 	// Also clear the activeChanCloses map of this channel.
-	cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
+	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
 	delete(p.activeChanCloses, cid)
 
 	// Next, we'll launch a goroutine which will request to be notified by
@@ -3302,7 +3304,7 @@ func WaitForChanToClose(bestHeight uint32, notifier chainntnfs.ChainNotifier,
 // WipeChannel removes the passed channel point from all indexes associated with
 // the peer and the switch.
 func (p *Brontide) WipeChannel(chanPoint *wire.OutPoint) {
-	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(*chanPoint)
 
 	p.activeChannels.Delete(chanID)
 
@@ -3881,7 +3883,7 @@ func (p *Brontide) attachChannelEventSubscription() error {
 // updateNextRevocation updates the existing channel's next revocation if it's
 // nil.
 func (p *Brontide) updateNextRevocation(c *channeldb.OpenChannel) error {
-	chanPoint := &c.FundingOutpoint
+	chanPoint := c.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	// Read the current channel.
@@ -3925,7 +3927,7 @@ func (p *Brontide) updateNextRevocation(c *channeldb.OpenChannel) error {
 // takes a `channeldb.OpenChannel`, creates a `lnwallet.LightningChannel` from
 // it and assembles it with a channel link.
 func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
-	chanPoint := &c.FundingOutpoint
+	chanPoint := c.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	// If we've reached this point, there are two possible scenarios.  If
@@ -3960,7 +3962,7 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 
 	// Next, we'll assemble a ChannelLink along with the necessary items it
 	// needs to function.
-	chainEvents, err := p.cfg.ChainArb.SubscribeChannelEvents(*chanPoint)
+	chainEvents, err := p.cfg.ChainArb.SubscribeChannelEvents(chanPoint)
 	if err != nil {
 		return fmt.Errorf("unable to subscribe to chain events: %w",
 			err)
@@ -3976,7 +3978,7 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 
 	// Create the link and add it to the switch.
 	err = p.addLink(
-		chanPoint, lnChan, initialPolicy, chainEvents,
+		&chanPoint, lnChan, initialPolicy, chainEvents,
 		shouldReestablish, fn.None[lnwire.Shutdown](),
 	)
 	if err != nil {
@@ -3992,7 +3994,7 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 // or init the next revocation for it.
 func (p *Brontide) handleNewActiveChannel(req *newChannelMsg) {
 	newChan := req.channel
-	chanPoint := &newChan.FundingOutpoint
+	chanPoint := newChan.FundingOutpoint
 	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 
 	// Only update RemoteNextRevocation if the channel is in the

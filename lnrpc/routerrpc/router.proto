@@ -30,7 +30,10 @@ service Router {
     /*
     SendPaymentV2 attempts to route a payment described by the passed
     PaymentRequest to the final destination. The call returns a stream of
-    payment updates.
+    payment updates. When using this RPC, make sure to set a fee limit, as the
+    default routing fee limit is 0 sats. Without a non-zero fee limit only
+    routes without fees will be attempted which often fails with
+    FAILURE_REASON_NO_ROUTE.
     */
     rpc SendPaymentV2 (SendPaymentRequest) returns (stream lnrpc.Payment);
 

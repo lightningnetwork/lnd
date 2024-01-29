@@ -392,7 +392,7 @@
     },
     "/v2/router/send": {
       "post": {
-        "summary": "SendPaymentV2 attempts to route a payment described by the passed\nPaymentRequest to the final destination. The call returns a stream of\npayment updates.",
+        "summary": "SendPaymentV2 attempts to route a payment described by the passed\nPaymentRequest to the final destination. The call returns a stream of\npayment updates. When using this RPC, make sure to set a fee limit, as the\ndefault routing fee limit is 0 sats. Without a non-zero fee limit only\nroutes without fees will be attempted which often fails with\nFAILURE_REASON_NO_ROUTE.",
         "operationId": "Router_SendPaymentV2",
         "responses": {
           "200": {

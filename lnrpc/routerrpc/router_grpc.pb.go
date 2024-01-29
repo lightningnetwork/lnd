@@ -21,7 +21,10 @@ const _ = grpc.SupportPackageIsVersion7
 type RouterClient interface {
 	// SendPaymentV2 attempts to route a payment described by the passed
 	// PaymentRequest to the final destination. The call returns a stream of
-	// payment updates.
+	// payment updates. When using this RPC, make sure to set a fee limit, as the
+	// default routing fee limit is 0 sats. Without a non-zero fee limit only
+	// routes without fees will be attempted which often fails with
+	// FAILURE_REASON_NO_ROUTE.
 	SendPaymentV2(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (Router_SendPaymentV2Client, error)
 	// lncli: `trackpayment`
 	// TrackPaymentV2 returns an update stream for the payment identified by the
@@ -454,7 +457,10 @@ func (c *routerClient) UpdateChanStatus(ctx context.Context, in *UpdateChanStatu
 type RouterServer interface {
 	// SendPaymentV2 attempts to route a payment described by the passed
 	// PaymentRequest to the final destination. The call returns a stream of
-	// payment updates.
+	// payment updates. When using this RPC, make sure to set a fee limit, as the
+	// default routing fee limit is 0 sats. Without a non-zero fee limit only
+	// routes without fees will be attempted which often fails with
+	// FAILURE_REASON_NO_ROUTE.
 	SendPaymentV2(*SendPaymentRequest, Router_SendPaymentV2Server) error
 	// lncli: `trackpayment`
 	// TrackPaymentV2 returns an update stream for the payment identified by the

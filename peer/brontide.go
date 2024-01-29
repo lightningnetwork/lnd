@@ -3209,10 +3209,10 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 
 	// First, we'll clear all indexes related to the channel in question.
 	chanPoint := chanCloser.Channel().ChannelPoint()
-	p.WipeChannel(chanPoint)
+	p.WipeChannel(&chanPoint)
 
 	// Also clear the activeChanCloses map of this channel.
-	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
+	cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
 	delete(p.activeChanCloses, cid)
 
 	// Next, we'll launch a goroutine which will request to be notified by
@@ -3247,7 +3247,7 @@ func (p *Brontide) finalizeChanClosure(chanCloser *chancloser.ChanCloser) {
 	}
 
 	go WaitForChanToClose(chanCloser.NegotiationHeight(), notifier, errChan,
-		chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
+		&chanPoint, &closingTxid, closingTx.TxOut[0].PkScript, func() {
 			// Respond to the local subsystem which requested the
 			// channel closure.
 			if closeReq != nil {

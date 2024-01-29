@@ -146,8 +146,8 @@ type mockChannel struct {
 	remoteKey keychain.KeyDescriptor
 }
 
-func (m *mockChannel) ChannelPoint() *wire.OutPoint {
-	return &m.chanPoint
+func (m *mockChannel) ChannelPoint() wire.OutPoint {
+	return m.chanPoint
 }
 
 func (m *mockChannel) MarkCoopBroadcasted(*wire.MsgTx, bool) error {

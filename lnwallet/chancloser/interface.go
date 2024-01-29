@@ -29,7 +29,7 @@ type CoopFeeEstimator interface {
 // closing process.
 type Channel interface { //nolint:interfacebloat
 	// ChannelPoint returns the channel point of the target channel.
-	ChannelPoint() *wire.OutPoint
+	ChannelPoint() wire.OutPoint
 
 	// MarkCoopBroadcasted persistently marks that the channel close
 	// transaction has been broadcast.

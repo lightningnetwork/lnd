@@ -6426,8 +6426,8 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 // ChannelPoint returns the outpoint of the original funding transaction which
 // created this active channel. This outpoint is used throughout various
 // subsystems to uniquely identify an open channel.
-func (lc *LightningChannel) ChannelPoint() *wire.OutPoint {
-	return &lc.channelState.FundingOutpoint
+func (lc *LightningChannel) ChannelPoint() wire.OutPoint {
+	return lc.channelState.FundingOutpoint
 }
 
 // ShortChanID returns the short channel ID for the channel. The short channel

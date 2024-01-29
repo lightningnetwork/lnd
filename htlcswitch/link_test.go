@@ -3762,7 +3762,8 @@ func TestChannelRetransmission(t *testing.T) {
 			t.Fatalf("unable to create channel: %v", err)
 		}
 
-		chanID := lnwire.NewChanIDFromOutPoint(channels.aliceToBob.ChannelPoint())
+		chanPoint := channels.aliceToBob.ChannelPoint()
+		chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 		serverErr := make(chan error, 4)
 
 		aliceInterceptor := createInterceptorFunc("[alice] <-- [bob]",

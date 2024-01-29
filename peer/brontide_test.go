@@ -53,7 +53,8 @@ func TestPeerChannelClosureShutdownResponseLinkRemoved(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create test channels")
 
-	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 
 	dummyDeliveryScript := genScript(t, p2wshAddress)
 
@@ -100,7 +101,8 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create test channels")
 
-	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
@@ -204,7 +206,8 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create test channels")
 
-	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
 
@@ -215,7 +218,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      contractcourt.CloseRegular,
-		ChanPoint:      bobChan.ChannelPoint(),
+		ChanPoint:      &chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
 		Err:            errChan,
@@ -327,7 +330,8 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create test channels")
 
-	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
@@ -513,7 +517,8 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to create test channels")
 
-	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
+	chanPoint := bobChan.ChannelPoint()
+	chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 	mockLink := newMockUpdateHandler(chanID)
 	mockSwitch.links = append(mockSwitch.links, mockLink)
 
@@ -522,7 +527,7 @@ func TestPeerChannelClosureFeeNegotiationsInitiator(t *testing.T) {
 	errChan := make(chan error, 1)
 	closeCommand := &htlcswitch.ChanClose{
 		CloseType:      contractcourt.CloseRegular,
-		ChanPoint:      bobChan.ChannelPoint(),
+		ChanPoint:      &chanPoint,
 		Updates:        updateChan,
 		TargetFeePerKw: 12500,
 		Err:            errChan,
@@ -844,7 +849,7 @@ func TestCustomShutdownScript(t *testing.T) {
 			}
 
 			chanPoint := bobChan.ChannelPoint()
-			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+			chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
 			mockLink := newMockUpdateHandler(chanID)
 			mockSwitch.links = append(mockSwitch.links, mockLink)
 
@@ -854,7 +859,7 @@ func TestCustomShutdownScript(t *testing.T) {
 			errChan := make(chan error, 1)
 			closeCommand := htlcswitch.ChanClose{
 				CloseType:      contractcourt.CloseRegular,
-				ChanPoint:      chanPoint,
+				ChanPoint:      &chanPoint,
 				Updates:        updateChan,
 				TargetFeePerKw: 12500,
 				DeliveryScript: test.userCloseScript,

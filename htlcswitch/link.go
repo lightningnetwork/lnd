@@ -1371,7 +1371,7 @@ func (l *channelLink) htlcManager() {
 			// TODO(roasbeef): remove all together
 			go func() {
 				chanPoint := l.channel.ChannelPoint()
-				l.cfg.Peer.WipeChannel(chanPoint)
+				l.cfg.Peer.WipeChannel(&chanPoint)
 			}()
 
 			return
@@ -2559,7 +2559,8 @@ func (l *channelLink) PeerPubKey() [33]byte {
 // ChannelPoint returns the channel outpoint for the channel link.
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) ChannelPoint() *wire.OutPoint {
-	return l.channel.ChannelPoint()
+	chanPoint := l.channel.ChannelPoint()
+	return &chanPoint
 }
 
 // ShortChanID returns the short channel ID for the channel link. The short
@@ -2601,7 +2602,8 @@ func (l *channelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 //
 // NOTE: Part of the ChannelLink interface.
 func (l *channelLink) ChanID() lnwire.ChannelID {
-	return lnwire.NewChanIDFromOutPoint(l.channel.ChannelPoint())
+	chanPoint := l.channel.ChannelPoint()
+	return lnwire.NewChanIDFromOutPoint(&chanPoint)
 }
 
 // Bandwidth returns the total amount that can flow through the channel link at

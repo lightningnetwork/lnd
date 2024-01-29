@@ -613,6 +613,18 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			}
 		}
 
+		var amp *lnrpc.AMPRecord
+		if hop.AMP != nil {
+			rootShare := hop.AMP.RootShare()
+			setID := hop.AMP.SetID()
+
+			amp = &lnrpc.AMPRecord{
+				RootShare:  rootShare[:],
+				SetId:      setID[:],
+				ChildIndex: hop.AMP.ChildIndex(),
+			}
+		}
+
 		resp.Hops[i] = &lnrpc.Hop{
 			ChanId:           hop.ChannelID,
 			ChanCapacity:     int64(chanCapacity),
@@ -627,6 +639,7 @@ func (r *RouterBackend) MarshallRoute(route *route.Route) (*lnrpc.Route, error) 
 			CustomRecords: hop.CustomRecords,
 			TlvPayload:    !hop.LegacyPayload,
 			MppRecord:     mpp,
+			AmpRecord:     amp,
 			Metadata:      hop.Metadata,
 			EncryptedData: hop.EncryptedData,
 			TotalAmtMsat:  uint64(hop.TotalAmtMsat),

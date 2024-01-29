@@ -73,6 +73,8 @@
   a `shutdown` message if there were currently HTLCs on the channel. After this
   change, the shutdown procedure should be compliant with BOLT2 requirements.
 
+* The AMP struct in payment hops will [now be populated](https://github.com/lightningnetwork/lnd/pull/7976) when the AMP TLV is set.
+
 # New Features
 ## Functional Enhancements
 
@@ -281,6 +283,7 @@
 
 * Amin Bashiri
 * Andras Banki-Horvath
+* BitcoinerCoderBob
 * Carla Kirk-Cohen
 * Elle Mouton
 * ErikEk
@@ -288,7 +291,9 @@
 * Marcos Fernandez Perez
 * Matt Morehouse
 * Slyghtning
+* Tee8z
 * Turtle
 * Ononiwu Maureen Chiamaka
+* w3irdrobot
 * Yong Yu
 * Ziggie

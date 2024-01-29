@@ -161,6 +161,9 @@
 * [Added](https://github.com/lightningnetwork/lnd/pull/8142) full validation 
   for blinded path payloads to allow fuzzing before LND fully supports 
   blinded payment relay.
+* [Add retry logic for block fetching](https://github.com/lightningnetwork/lnd/pull/8381)
+  block fetching to retry indefinitely with an exponential back-off between
+  retries.
 
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
@@ -281,6 +284,7 @@
 
 * Amin Bashiri
 * Andras Banki-Horvath
+* Animesh Bilthare
 * Carla Kirk-Cohen
 * Elle Mouton
 * ErikEk

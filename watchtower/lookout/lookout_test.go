@@ -90,6 +90,9 @@ func TestLookoutBreachMatching(t *testing.T) {
 		DB:             db,
 		EpochRegistrar: backend,
 		Punisher:       punisher,
+		MinBackoff:     time.Second,
+		MaxBackoff:     time.Minute,
+		MaxNumRetries:  1,
 	})
 	if err := watcher.Start(); err != nil {
 		t.Fatalf("unable to start watcher: %v", err)

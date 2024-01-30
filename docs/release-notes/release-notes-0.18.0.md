@@ -75,6 +75,9 @@
 
 * The AMP struct in payment hops will [now be populated](https://github.com/lightningnetwork/lnd/pull/7976) when the AMP TLV is set.
 
+* [Add Taproot witness types
+  to rpc](https://github.com/lightningnetwork/lnd/pull/8431)
+
 # New Features
 ## Functional Enhancements
 

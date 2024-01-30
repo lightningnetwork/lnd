@@ -3718,8 +3718,8 @@ func (r *rpcServer) fetchPendingForceCloseChannels() (pendingForceClose,
 // fetchWaitingCloseChannels queries the database for a list of channels
 // that have their closing transactions broadcast but not confirmed yet.
 // The returned result is used in the response of the PendingChannels RPC.
-func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
-	int64, error) {
+func (r *rpcServer) fetchWaitingCloseChannels(
+	includeRawTx bool) (waitingCloseChannels, int64, error) {
 
 	// We'll also fetch all channels that are open, but have had their
 	// commitment broadcasted, meaning they are waiting for the closing
@@ -3734,43 +3734,42 @@ func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
 	result := make(waitingCloseChannels, 0)
 	limboBalance := int64(0)
 
-	// getClosingTx is a helper closure that tries to find the closing txid
-	// of a given waiting close channel. Notice that if the remote closes
-	// the channel, we may not have the closing txid.
-	getClosingTx := func(c *channeldb.OpenChannel) (string, error) {
+	// getClosingTx is a helper closure that tries to find the closing tx of
+	// a given waiting close channel. Notice that if the remote closes the
+	// channel, we may not have the closing tx.
+	getClosingTx := func(c *channeldb.OpenChannel) (*wire.MsgTx, error) {
 		var (
 			tx  *wire.MsgTx
 			err error
 		)
 
-		// First, we try to locate the force closing txid. If not
-		// found, we will then try to find its coop closing txid.
+		// First, we try to locate the force closing tx. If not found,
+		// we will then try to find its coop closing tx.
 		tx, err = c.BroadcastedCommitment()
 		if err == nil {
-			return tx.TxHash().String(), nil
+			return tx, nil
 		}
 
 		// If the error returned is not ErrNoCloseTx, something
 		// unexpected happened and we will return the error.
 		if err != channeldb.ErrNoCloseTx {
-			return "", err
+			return nil, err
 		}
 
-		// Otherwise, we continue to locate its coop closing txid.
+		// Otherwise, we continue to locate its coop closing tx.
 		tx, err = c.BroadcastedCooperative()
 		if err == nil {
-			return tx.TxHash().String(), nil
+			return tx, nil
 		}
 
 		// Return the error if it's not ErrNoCloseTx.
 		if err != channeldb.ErrNoCloseTx {
-			return "", err
+			return nil, err
 		}
 
-		// Otherwise return an empty txid. This can happen if the
-		// remote broadcast the closing txid and we haven't recorded it
-		// yet.
-		return "", nil
+		// Otherwise return an empty tx. This can happen if the remote
+		// broadcast the closing tx and we haven't recorded it yet.
+		return nil, nil
 	}
 
 	for _, waitingClose := range channels {
@@ -3830,12 +3829,12 @@ func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
 			return nil, 0, err
 		}
 
-		// Get the closing txid.
-		// NOTE: the closing txid could be empty here if it's the
-		// remote broadcasted the closing tx.
-		closingTxid, err := getClosingTx(waitingClose)
+		// Get the closing tx.
+		// NOTE: the closing tx could be nil here if it's the remote
+		// that broadcasted the closing tx.
+		closingTx, err := getClosingTx(waitingClose)
 		if err != nil {
-			rpcsLog.Errorf("unable to find closing txid for "+
+			rpcsLog.Errorf("unable to find closing tx for "+
 				"channel:%s, %v",
 				waitingClose.ShortChannelID, err)
 			return nil, 0, err
@@ -3857,11 +3856,27 @@ func (r *rpcServer) fetchWaitingCloseChannels() (waitingCloseChannels,
 			Memo:                  string(waitingClose.Memo),
 		}
 
+		var closingTxid, closingTxHex string
+		if closingTx != nil {
+			closingTxid = closingTx.TxHash().String()
+			if includeRawTx {
+				var txBuf bytes.Buffer
+				err = closingTx.Serialize(&txBuf)
+				if err != nil {
+					return nil, 0, fmt.Errorf("failed to "+
+						"serialize closing transaction"+
+						": %w", err)
+				}
+				closingTxHex = hex.EncodeToString(txBuf.Bytes())
+			}
+		}
+
 		waitingCloseResp := &lnrpc.PendingChannelsResponse_WaitingCloseChannel{
 			Channel:      channel,
 			LimboBalance: channel.LocalBalance,
 			Commitments:  &commitments,
 			ClosingTxid:  closingTxid,
+			ClosingTxHex: closingTxHex,
 		}
 
 		// A close tx has been broadcasted, all our balance will be in
@@ -3904,7 +3919,9 @@ func (r *rpcServer) PendingChannels(ctx context.Context,
 	// Third, we fetch all channels that are open, but have had their
 	// commitment broadcasted, meaning they are waiting for the closing
 	// transaction to confirm.
-	waitingCloseChannels, limbo, err := r.fetchWaitingCloseChannels()
+	waitingCloseChannels, limbo, err := r.fetchWaitingCloseChannels(
+		in.IncludeRawTx,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -187,6 +187,10 @@
   [MinConf](https://github.com/lightningnetwork/lnd/pull/8097)(minimum number
   of confirmations) has been added to the `WalletBalance` RPC call.
 
+* `PendingChannels` now optionally returns the 
+  [raw hex of the closing tx](https://github.com/lightningnetwork/lnd/pull/8426)
+  in `waiting_close_channels`.
+
 ## lncli Updates
 
 * [Documented all available lncli commands](https://github.com/lightningnetwork/lnd/pull/8181).
@@ -201,6 +205,10 @@
 
 * [Use the default LND value in the buildroute rpc command for the
   final cltv delta](https://github.com/lightningnetwork/lnd/pull/8387).
+
+* `pendingchannels` now optionally returns the 
+  [raw hex of the closing tx](https://github.com/lightningnetwork/lnd/pull/8426)
+  in `waiting_close_channels`.
 
 ## Code Health
 
@@ -287,6 +295,7 @@
 * Carla Kirk-Cohen
 * Elle Mouton
 * ErikEk
+* Jesse de Wit
 * Keagan McClelland
 * Marcos Fernandez Perez
 * Matt Morehouse

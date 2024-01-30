@@ -582,6 +582,15 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "include_raw_tx",
+            "description": "Indicates whether to include the raw transaction hex for\nwaiting_close_channels.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
         "tags": [
           "Lightning"
         ]
@@ -3140,6 +3149,10 @@
         "closing_txid": {
           "type": "string",
           "title": "The transaction id of the closing transaction"
+        },
+        "closing_tx_hex": {
+          "type": "string",
+          "description": "The raw hex encoded bytes of the closing transaction. Included if\ninclude_raw_tx in the request is true."
         }
       }
     },

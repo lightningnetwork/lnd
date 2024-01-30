@@ -2,6 +2,7 @@ package peer
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lntest/mock"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1445,4 +1447,89 @@ func TestStartupWriteMessageRace(t *testing.T) {
 			t.Fatalf("Failed to send all messages during startup")
 		}
 	}
+}
+
+// TestRemovePendingChannel checks that we are able to remove a pending channel
+// successfully from the peers channel map. This also makes sure the
+// removePendingChannel is initialized so we don't send to a nil channel and
+// get stuck.
+func TestRemovePendingChannel(t *testing.T) {
+	t.Parallel()
+
+	// Set up parameters for createTestPeer.
+	notifier := &mock.ChainNotifier{
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+	}
+	broadcastTxChan := make(chan *wire.MsgTx)
+	mockSwitch := &mockMessageSwitch{}
+
+	// createTestPeer creates a peer and a channel with that peer.
+	peer, _, err := createTestPeer(
+		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
+	)
+	require.NoError(t, err, "unable to create test channel")
+
+	// Add a pending channel to the peer Alice.
+	errChan := make(chan error, 1)
+	pendingChanID := lnwire.ChannelID{1}
+	req := &newChannelMsg{
+		channelID: pendingChanID,
+		err:       errChan,
+	}
+
+	select {
+	case peer.newPendingChannel <- req:
+		// Operation completed successfully
+	case <-time.After(timeout):
+		t.Fatalf("not able to remove pending channel")
+	}
+
+	// Make sure the channel was added as a pending channel.
+	// The peer was already created with one active channel therefore the
+	// `activeChannels` had already one channel prior to adding the new one.
+	// The `addedChannels` map only tracks new channels in the current life
+	// cycle therefore the initial channel is not part of it.
+	err = wait.NoError(func() error {
+		if peer.activeChannels.Len() == 2 &&
+			peer.addedChannels.Len() == 1 {
+
+			return nil
+		}
+
+		return fmt.Errorf("pending channel not successfully added")
+	}, wait.DefaultTimeout)
+
+	require.NoError(t, err)
+
+	// Now try to remove it, the errChan needs to be reopened because it was
+	// closed during the pending channel registration above.
+	errChan = make(chan error, 1)
+	req = &newChannelMsg{
+		channelID: pendingChanID,
+		err:       errChan,
+	}
+
+	select {
+	case peer.removePendingChannel <- req:
+		// Operation completed successfully
+	case <-time.After(timeout):
+		t.Fatalf("not able to remove pending channel")
+	}
+
+	// Make sure the pending channel is successfully removed from both
+	// channel maps.
+	// The initial channel between the peer is still active at this point.
+	err = wait.NoError(func() error {
+		if peer.activeChannels.Len() == 1 &&
+			peer.addedChannels.Len() == 0 {
+
+			return nil
+		}
+
+		return fmt.Errorf("pending channel not successfully removed")
+	}, wait.DefaultTimeout)
+
+	require.NoError(t, err)
 }

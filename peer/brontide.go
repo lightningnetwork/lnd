@@ -507,8 +507,9 @@ func NewBrontide(cfg Config) *Brontide {
 		activeChannels: &lnutils.SyncMap[
 			lnwire.ChannelID, *lnwallet.LightningChannel,
 		]{},
-		newActiveChannel:  make(chan *newChannelMsg, 1),
-		newPendingChannel: make(chan *newChannelMsg, 1),
+		newActiveChannel:     make(chan *newChannelMsg, 1),
+		newPendingChannel:    make(chan *newChannelMsg, 1),
+		removePendingChannel: make(chan *newChannelMsg),
 
 		activeMsgStreams:   make(map[lnwire.ChannelID]*msgStream),
 		activeChanCloses:   make(map[lnwire.ChannelID]*chancloser.ChanCloser),

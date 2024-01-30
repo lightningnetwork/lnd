@@ -288,6 +288,16 @@ func (h *HarnessTest) ReceiveOpenChannelUpdate(
 	return update
 }
 
+// ReceiveOpenChannelError waits for the expected error during the open channel
+// flow from the peer or times out.
+func (h *HarnessTest) ReceiveOpenChannelError(
+	stream rpc.OpenChanClient, expectedErr error) {
+
+	_, err := h.receiveOpenChannelUpdate(stream)
+	require.Contains(h, err.Error(), expectedErr.Error(),
+		"error not matched")
+}
+
 // receiveOpenChannelUpdate waits until a message or an error is received on
 // the stream or the timeout is reached.
 //

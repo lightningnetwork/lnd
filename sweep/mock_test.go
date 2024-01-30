@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/mock"
@@ -331,4 +332,117 @@ func (m *mockUtxoAggregator) ClusterInputs(inputs pendingInputs) []InputSet {
 	args := m.Called(inputs)
 
 	return args.Get(0).([]InputSet)
+}
+
+// MockWallet is a mock implementation of the Wallet interface.
+type MockWallet struct {
+	mock.Mock
+}
+
+// Compile-time constraint to ensure MockWallet implements Wallet.
+var _ Wallet = (*MockWallet)(nil)
+
+// PublishTransaction performs cursory validation (dust checks, etc) and
+// broadcasts the passed transaction to the Bitcoin network.
+func (m *MockWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
+	args := m.Called(tx, label)
+
+	return args.Error(0)
+}
+
+// ListUnspentWitnessFromDefaultAccount returns all unspent outputs which are
+// version 0 witness programs from the default wallet account.  The 'minConfs'
+// and 'maxConfs' parameters indicate the minimum and maximum number of
+// confirmations an output needs in order to be returned by this method.
+func (m *MockWallet) ListUnspentWitnessFromDefaultAccount(
+	minConfs, maxConfs int32) ([]*lnwallet.Utxo, error) {
+
+	args := m.Called(minConfs, maxConfs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).([]*lnwallet.Utxo), args.Error(1)
+}
+
+// WithCoinSelectLock will execute the passed function closure in a
+// synchronized manner preventing any coin selection operations from proceeding
+// while the closure is executing. This can be seen as the ability to execute a
+// function closure under an exclusive coin selection lock.
+func (m *MockWallet) WithCoinSelectLock(f func() error) error {
+	m.Called(f)
+
+	return f()
+}
+
+// RemoveDescendants removes any wallet transactions that spends
+// outputs created by the specified transaction.
+func (m *MockWallet) RemoveDescendants(tx *wire.MsgTx) error {
+	args := m.Called(tx)
+
+	return args.Error(0)
+}
+
+// FetchTx returns the transaction that corresponds to the transaction
+// hash passed in. If the transaction can't be found then a nil
+// transaction pointer is returned.
+func (m *MockWallet) FetchTx(txid chainhash.Hash) (*wire.MsgTx, error) {
+	args := m.Called(txid)
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*wire.MsgTx), args.Error(1)
+}
+
+// CancelRebroadcast is used to inform the rebroadcaster sub-system
+// that it no longer needs to try to rebroadcast a transaction. This is
+// used to ensure that invalid transactions (inputs spent) aren't
+// retried in the background.
+func (m *MockWallet) CancelRebroadcast(tx chainhash.Hash) {
+	m.Called(tx)
+}
+
+// MockInputSet is a mock implementation of the InputSet interface.
+type MockInputSet struct {
+	mock.Mock
+}
+
+// Compile-time constraint to ensure MockInputSet implements InputSet.
+var _ InputSet = (*MockInputSet)(nil)
+
+// Inputs returns the set of inputs that should be used to create a tx.
+func (m *MockInputSet) Inputs() []input.Input {
+	args := m.Called()
+
+	if args.Get(0) == nil {
+		return nil
+	}
+
+	return args.Get(0).([]input.Input)
+}
+
+// FeeRate returns the fee rate that should be used for the tx.
+func (m *MockInputSet) FeeRate() chainfee.SatPerKWeight {
+	args := m.Called()
+
+	return args.Get(0).(chainfee.SatPerKWeight)
+}
+
+// AddWalletInputs adds wallet inputs to the set until a non-dust
+// change output can be made. Return an error if there are not enough
+// wallet inputs.
+func (m *MockInputSet) AddWalletInputs(wallet Wallet) error {
+	args := m.Called(wallet)
+
+	return args.Error(0)
+}
+
+// NeedWalletInput returns true if the input set needs more wallet
+// inputs.
+func (m *MockInputSet) NeedWalletInput() bool {
+	args := m.Called()
+
+	return args.Bool(0)
 }

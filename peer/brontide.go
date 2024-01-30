@@ -3638,7 +3638,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			// the Shutdown message since we don't have to wait for
 			// commitment transaction synchronization.
 			if link == nil {
-				p.queueMsg(typed, nil)
+				p.queueMsg(&msg, nil)
 				return
 			}
 

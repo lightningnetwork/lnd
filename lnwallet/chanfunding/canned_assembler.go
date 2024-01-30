@@ -6,6 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -56,6 +57,18 @@ type ShimIntent struct {
 	// generate an aggregate key to use as the taproot-native multi-sig
 	// output.
 	musig2 bool
+
+	// localConfig is the local configuration for this channel.
+	localConfig *channeldb.ChannelConfig
+
+	// remoteCOnfig is the remote configuration for this channel.
+	remoteConfig *channeldb.ChannelConfig
+
+	// chanType specifies the channel type.
+	chanType channeldb.ChannelType
+
+	// initiator specifies whether the local node initiated the channel.
+	initiator bool
 }
 
 // FundingOutput returns the witness script, and the output that creates the
@@ -176,6 +189,21 @@ func (s *ShimIntent) MultiSigKeys() (*FundingKeys, error) {
 		LocalKey:  s.localKey,
 		RemoteKey: s.remoteKey,
 	}, nil
+}
+
+// ConfigurePsbt allows the caller to attach a local and remote channel
+// configuration so that a remote signer can be aware of the parameters used to
+// derive commitment transaction outputs. It specifically allows the signer
+// to validate the initial commitment transactions.
+//
+// NOTE: This method satisfies the chanfunding.Intent interface.
+func (s *ShimIntent) ConfigurePsbt(local, remote *channeldb.ChannelConfig,
+	chanType channeldb.ChannelType, initiator bool) {
+
+	s.localConfig = local
+	s.remoteConfig = remote
+	s.chanType = chanType
+	s.initiator = initiator
 }
 
 // A compile-time check to ensure ShimIntent adheres to the Intent interface.

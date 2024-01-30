@@ -42,6 +42,10 @@ type ScriptDescriptor interface {
 	// contract.
 	PkScript() []byte
 
+	// SignInfo is the metadata to attach to PSBTs for external signers to
+	// verify the PkScript was generated correctly.
+	SignInfo() SignInfo
+
 	// WitnessScript returns the witness script that we'll use when signing
 	// for the remote party, and also verifying signatures on our
 	// transactions. As an example, when we create an outgoing HTLC for the
@@ -91,6 +95,10 @@ type ScriptTree struct {
 
 	// TapscriptTreeRoot is the root hash of the tapscript tree.
 	TapscriptRoot []byte
+
+	// PsbtSignInfo is the metadata to attach to PSBTs for external signers
+	// to verify the PkScript was generated correctly.
+	PsbtSignInfo SignInfo
 }
 
 // PkScript is the public key script that commits to the final contract.
@@ -99,6 +107,12 @@ func (s *ScriptTree) PkScript() []byte {
 	// the error to simplify the interface.
 	pkScript, _ := PayToTaprootScript(s.TaprootKey)
 	return pkScript
+}
+
+// SignInfo is the metadata to attach to PSBTs for external signers to verify
+// the PkScript was generated correctly.
+func (s *ScriptTree) SignInfo() SignInfo {
+	return s.PsbtSignInfo
 }
 
 // TapTweak returns the top-level taproot tweak for the script.

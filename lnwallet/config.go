@@ -57,6 +57,10 @@ type Config struct {
 	// it will be operating on.
 	NetParams chaincfg.Params
 
+	// Fingerprint is the root key fingerprint of the wallet. It's used to
+	// construct the derivation path sent to the Signer.
+	Fingerprint uint32
+
 	// Rebroadcaster is an optional config param that can be used to
 	// passively rebroadcast transactions in the background until they're
 	// detected as being confirmed.

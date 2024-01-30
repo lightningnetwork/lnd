@@ -679,6 +679,12 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		return nil, nil, err
 	}
 
+	fingerprint, err := getWalletFingerprint(walletController)
+	if err != nil {
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
 	keyRing := keychain.NewBtcWalletKeyRing(
 		walletController.InternalWallet(), walletConfig.CoinType,
 	)
@@ -695,6 +701,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		ChainIO:            walletController,
 		DefaultConstraints: partialChainControl.ChannelConstraints,
 		NetParams:          *walletConfig.NetParams,
+		Fingerprint:        fingerprint,
 	}
 
 	// The broadcast is already always active for neutrino nodes, so we
@@ -787,6 +794,12 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 		walletController.InternalWallet(), walletConfig.CoinType,
 	)
 
+	fingerprint, err := getWalletFingerprint(walletController)
+	if err != nil {
+		d.logger.Error(err)
+		return nil, nil, err
+	}
+
 	rpcKeyRing, err := rpcwallet.NewRPCKeyRing(
 		baseKeyRing, walletController,
 		d.DefaultWalletImpl.cfg.RemoteSigner, walletConfig.NetParams,
@@ -810,6 +823,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 		ChainIO:            walletController,
 		DefaultConstraints: partialChainControl.ChannelConstraints,
 		NetParams:          *walletConfig.NetParams,
+		Fingerprint:        fingerprint,
 	}
 
 	// We've created the wallet configuration now, so we can finish
@@ -1463,4 +1477,23 @@ func broadcastErrorMapper(err error) error {
 	}
 
 	return returnErr
+}
+
+// getWalletFingerprint gets the root key fingerprint for the "default" account
+// of the wallet. This is used to create the lnwallet configuration for the
+// chain control, to send onto the signer when funding channels.
+func getWalletFingerprint(wc *btcwallet.BtcWallet) (uint32, error) {
+	scope, account, err := wc.InternalWallet().LookupAccount("default")
+	if err != nil {
+		return 0, fmt.Errorf("unable to look up default account: "+
+			"%w", err)
+	}
+
+	props, err := wc.InternalWallet().AccountProperties(scope, account)
+	if err != nil {
+		return 0, fmt.Errorf("unable to get default account "+
+			"properties: %w", err)
+	}
+
+	return props.MasterKeyFingerprint, nil
 }

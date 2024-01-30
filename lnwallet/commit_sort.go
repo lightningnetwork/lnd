@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/input"
 )
 
 // InPlaceCommitSort performs an in-place sort of a commitment transaction,
@@ -22,13 +23,15 @@ import (
 //
 // NOTE: Commitment outputs should have a 0 CLTV corresponding to their index on
 // the unsorted commitment transaction.
-func InPlaceCommitSort(tx *wire.MsgTx, cltvs []uint32) {
+func InPlaceCommitSort(tx *wire.MsgTx, cltvs []uint32,
+	signInfo []input.SignInfo) {
+
 	if len(tx.TxOut) != len(cltvs) {
 		panic("output and cltv list size mismatch")
 	}
 
 	sort.Sort(sortableInputSlice(tx.TxIn))
-	sort.Sort(sortableCommitOutputSlice{tx.TxOut, cltvs})
+	sort.Sort(sortableCommitOutputSlice{tx.TxOut, cltvs, signInfo})
 }
 
 // sortableInputSlice is a slice of transaction inputs that supports sorting via
@@ -74,8 +77,9 @@ func (s sortableInputSlice) Less(i, j int) bool {
 // transaction and the corresponding CLTV values of any HTLCs. Commitment
 // outputs should have a CLTV of 0 and the same index in cltvs.
 type sortableCommitOutputSlice struct {
-	txouts []*wire.TxOut
-	cltvs  []uint32
+	txouts   []*wire.TxOut
+	cltvs    []uint32
+	signInfo []input.SignInfo
 }
 
 // Len returns the length of the sortableCommitOutputSlice.
@@ -92,6 +96,7 @@ func (s sortableCommitOutputSlice) Len() int {
 func (s sortableCommitOutputSlice) Swap(i, j int) {
 	s.txouts[i], s.txouts[j] = s.txouts[j], s.txouts[i]
 	s.cltvs[i], s.cltvs[j] = s.cltvs[j], s.cltvs[i]
+	s.signInfo[i], s.signInfo[j] = s.signInfo[j], s.signInfo[i]
 }
 
 // Less is a modified BIP69 output comparison, that sorts based on value, then

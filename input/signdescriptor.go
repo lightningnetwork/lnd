@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -17,6 +18,10 @@ var (
 	// SingleTweak and DoubleTweak are non-nil.
 	ErrTweakOverdose = errors.New("sign descriptor should only have one tweak")
 )
+
+// SignInfo is a type alias for the []*psbt.Unknown assigned to a single tx
+// output used to represent derivation info for the signer.
+type SignInfo = []*psbt.Unknown
 
 // SignDescriptor houses the necessary information required to successfully
 // sign a given segwit output. This struct is used by the Signer interface in
@@ -79,6 +84,13 @@ type SignDescriptor struct {
 	// selected method, either the TapTweak, WitnessScript or both need to
 	// be specified.
 	SignMethod SignMethod
+
+	// OutSignInfo specifies an optional field that can be used to pass
+	// derivation information for the PSBT to be generated. These must
+	// match exactly the outputs of the transaction that is to be signed,
+	// and should contain any derivation information required by the signer
+	// to authorize the signature in the Unknowns field.
+	OutSignInfo []SignInfo
 
 	// Output is the target output which should be signed. The PkScript and
 	// Value fields within the output should be properly populated,
@@ -311,6 +323,28 @@ func ReadSignDescriptor(r io.Reader, sd *SignDescriptor) error {
 		return err
 	}
 	sd.HashType = txscript.SigHashType(binary.BigEndian.Uint32(hashType[:]))
+
+	return nil
+}
+
+// MaybeEnrichPsbt populates a PSBT packet's partial outputs with extra data
+// provided in a sign descriptor, if any.
+func MaybeEnrichPsbt(packet *psbt.Packet, outSignInfo []SignInfo) error {
+	if len(outSignInfo) == 0 {
+		return nil
+	}
+
+	if len(packet.Outputs) != len(outSignInfo) {
+		return fmt.Errorf("partial output count mismatch: need %d, "+
+			"got %d", len(packet.Outputs), len(outSignInfo))
+	}
+
+	for i := range outSignInfo {
+		packet.Outputs[i].Unknowns = append(
+			packet.Outputs[i].Unknowns,
+			outSignInfo[i]...,
+		)
+	}
 
 	return nil
 }

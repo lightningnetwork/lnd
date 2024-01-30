@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -43,14 +44,26 @@ var (
 	}
 )
 
+// SignDescriptorChecker is an interface that allows the MockSigner to check
+// the correctness of the SignDescriptor passed to the SignOutputRaw and
+// ComputeInputScript methods.
+type SignDescriptorChecker interface {
+	// CheckSignDescriptor checks the passed SignDescriptor against the
+	// passed transaction.
+	CheckSignDescriptor(*wire.MsgTx, *SignDescriptor) error
+}
+
 // MockSigner is a simple implementation of the Signer interface. Each one has
 // a set of private keys in a slice and can sign messages using the appropriate
-// one.
+// one. It also has an optional SignDescriptorChecker to allow packages using
+// this signer to check that the scripts they require are annotated correctly.
 type MockSigner struct {
 	Privkeys  []*btcec.PrivateKey
 	NetParams *chaincfg.Params
 
 	*MusigSessionManager
+
+	SignDescriptorChecker SignDescriptorChecker
 }
 
 // NewMockSigner returns a new instance of the MockSigner given a set of
@@ -158,6 +171,13 @@ func (m *MockSigner) SignOutputRaw(tx *wire.MsgTx,
 		return nil, err
 	}
 
+	if m.SignDescriptorChecker != nil {
+		err = m.SignDescriptorChecker.CheckSignDescriptor(tx, signDesc)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return ecdsa.ParseDERSignature(sig[:len(sig)-1])
 }
 
@@ -170,6 +190,13 @@ func (m *MockSigner) ComputeInputScript(tx *wire.MsgTx, signDesc *SignDescriptor
 		signDesc.Output.PkScript, m.NetParams)
 	if err != nil {
 		return nil, err
+	}
+
+	if m.SignDescriptorChecker != nil {
+		err = m.SignDescriptorChecker.CheckSignDescriptor(tx, signDesc)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	switch scriptType {
@@ -274,4 +301,70 @@ func pubkeyToHex(key *btcec.PublicKey) string {
 // privkeyFromHex serializes a Bitcoin private key to a hex encoded string.
 func privkeyToHex(key *btcec.PrivateKey) string {
 	return hex.EncodeToString(key.Serialize())
+}
+
+// DefaultSignDescriptorChecker checks the SignDescriptor against the AllowedOut
+// slice of explicitly allowed PkScript and the OutChecker per-TXO validator.
+type DefaultSignDescriptorChecker struct {
+	OutChecker func(*wire.TxOut, map[string][]byte) error
+	AllowedOut [][]byte
+}
+
+// CheckSignDescriptor ensures that the SignDescriptor's OutSignInfo, if they
+// exist, can be directly used to derive the output scripts. This ensures that
+// any policy enforcement done by a remote signer can be done with a full view
+// of where the money is going, and match the components against policy.
+func (c *DefaultSignDescriptorChecker) CheckSignDescriptor(tx *wire.MsgTx,
+	signDesc *SignDescriptor) error {
+
+	if len(signDesc.OutSignInfo) != len(tx.TxOut) {
+		return fmt.Errorf("partial output count mismatch: expected "+
+			"%d, got %d", len(tx.TxOut), len(signDesc.OutSignInfo))
+	}
+
+checkOut:
+	for i, out := range tx.TxOut {
+		// First, check if we explicitly allow the output script.
+		for _, allowed := range c.AllowedOut {
+			if bytes.Equal(allowed, out.PkScript) {
+				continue checkOut
+			}
+		}
+
+		// Next, we make a map of the passed unknowns for the output
+		// for easy access.
+		unkMap := make(map[string][]byte)
+		for _, unk := range signDesc.OutSignInfo[i] {
+			unkMap[string(unk.Key)] = unk.Value
+		}
+
+		// Then we check that we can derive the PkScript from the passed
+		// unknowns.
+		err := c.OutChecker(out, unkMap)
+		if err != nil {
+			return fmt.Errorf("got error checking POutput %d: %v"+
+				"\nTx: %+v\nUnknowns: %+v", i, err,
+				spew.Sdump(tx), unkMap)
+		}
+	}
+
+	return nil
+}
+
+// AddAllowedOut adds an explicitly allowed PkScript for when we fudge it in
+// tests. It only works for the MockSigner and does nothing otherwise. It should
+// only be called from the same goroutine where the signer is created.
+func AddAllowedOut(signer Signer, script []byte) {
+	mock, ok := signer.(*MockSigner)
+	if !ok {
+		return
+	}
+
+	checker, ok := mock.
+		SignDescriptorChecker.(*DefaultSignDescriptorChecker)
+	if !ok {
+		return
+	}
+
+	checker.AllowedOut = append(checker.AllowedOut, script)
 }

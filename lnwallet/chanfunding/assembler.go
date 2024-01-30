@@ -3,6 +3,7 @@ package chanfunding
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -149,6 +150,13 @@ type Intent interface {
 	// know about. Note that there might be more, but we are not (yet)
 	// aware of.
 	Outputs() []*wire.TxOut
+
+	// ConfigurePsbt allows the caller to attach a local and remote channel
+	// configuration so that a remote signer can be aware of the parameters
+	// used to derive commitment transaction outputs. It specifically allows
+	// the signer to validate the initial commitment transactions.
+	ConfigurePsbt(local, remote *channeldb.ChannelConfig,
+		chanType channeldb.ChannelType, initiator bool)
 
 	// Cancel allows the caller to cancel a funding Intent at any time.
 	// This will return any resources such as coins back to the eligible

@@ -853,6 +853,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			CoinLocker:       l,
 			Signer:           l.Cfg.Signer,
 			DustLimit:        DustLimitForSize(input.P2WSHSize),
+			Fingerprint:      l.Cfg.Fingerprint,
+			NetParams:        l.Cfg.NetParams,
 		}
 		req.ChanFunder = chanfunding.NewWalletAssembler(cfg)
 	} else {
@@ -1453,7 +1455,8 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 	ourChanCfg, theirChanCfg *channeldb.ChannelConfig,
 	localCommitPoint, remoteCommitPoint *btcec.PublicKey,
 	fundingTxIn wire.TxIn, chanType channeldb.ChannelType, initiator bool,
-	leaseExpiry uint32) (*wire.MsgTx, *wire.MsgTx, error) {
+	leaseExpiry uint32) (
+	*wire.MsgTx, []input.SignInfo, *wire.MsgTx, []input.SignInfo, error) {
 
 	localCommitmentKeys := DeriveCommitmentKeys(
 		localCommitPoint, true, chanType, ourChanCfg, theirChanCfg,
@@ -1462,35 +1465,35 @@ func CreateCommitmentTxns(localBalance, remoteBalance btcutil.Amount,
 		remoteCommitPoint, false, chanType, ourChanCfg, theirChanCfg,
 	)
 
-	ourCommitTx, err := CreateCommitTx(
+	ourCommitTx, ourSignInfo, err := CreateCommitTx(
 		chanType, fundingTxIn, localCommitmentKeys, ourChanCfg,
 		theirChanCfg, localBalance, remoteBalance, 0, initiator,
 		leaseExpiry,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	otxn := btcutil.NewTx(ourCommitTx)
 	if err := blockchain.CheckTransactionSanity(otxn); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	theirCommitTx, err := CreateCommitTx(
+	theirCommitTx, theirSignInfo, err := CreateCommitTx(
 		chanType, fundingTxIn, remoteCommitmentKeys, theirChanCfg,
 		ourChanCfg, remoteBalance, localBalance, 0, !initiator,
 		leaseExpiry,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	ttxn := btcutil.NewTx(theirCommitTx)
 	if err := blockchain.CheckTransactionSanity(ttxn); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
-	return ourCommitTx, theirCommitTx, nil
+	return ourCommitTx, ourSignInfo, theirCommitTx, theirSignInfo, nil
 }
 
 // handleContributionMsg processes the second workflow step for the lifetime of
@@ -1537,6 +1540,16 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	var (
 		chanPoint *wire.OutPoint
 		err       error
+	)
+
+	// We bind the channel configurations to send to the signer so that a
+	// validating remote signer can validate commitment and second-level
+	// HTLC transactions.
+	pendingReservation.fundingIntent.ConfigurePsbt(
+		pendingReservation.ourContribution.ChannelConfig,
+		pendingReservation.theirContribution.ChannelConfig,
+		pendingReservation.partialState.ChanType,
+		pendingReservation.partialState.IsInitiator,
 	)
 
 	// At this point, we can now construct our channel point. Depending on
@@ -1671,8 +1684,9 @@ func genMusigSession(ourContribution, theirContribution *ChannelContribution,
 // will be a normal ECDSA signature. For taproot channels, this will instead be
 // a musig2 partial signature that also includes the nonce used to generate it.
 func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
-	commitTx *wire.MsgTx, fundingOutput *wire.TxOut,
-	fundingWitnessScript []byte) (input.Signature, error) {
+	commitTx *wire.MsgTx, theirSignInfo []input.SignInfo,
+	fundingOutput *wire.TxOut, fundingWitnessScript []byte) (
+	input.Signature, error) {
 
 	ourContribution := pendingReservation.ourContribution
 	theirContribution := pendingReservation.theirContribution
@@ -1689,6 +1703,7 @@ func (l *LightningWallet) signCommitTx(pendingReservation *ChannelReservation,
 		signDesc := input.SignDescriptor{
 			WitnessScript: fundingWitnessScript,
 			KeyDesc:       ourKey,
+			OutSignInfo:   theirSignInfo,
 			Output:        fundingOutput,
 			HashType:      txscript.SigHashAll,
 			SigHashes: input.NewTxSigHashesV0Only(
@@ -1821,7 +1836,8 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
 	}
-	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
+	ourCommitTx, _, theirCommitTx, theirSignInfo,
+		err := CreateCommitmentTxns(
 		localBalance, remoteBalance, ourContribution.ChannelConfig,
 		theirContribution.ChannelConfig,
 		ourContribution.FirstCommitmentPoint,
@@ -1869,7 +1885,11 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	// ordering. This lets us skip sending the entire transaction over,
 	// instead we'll just send signatures.
 	txsort.InPlaceSort(ourCommitTx)
-	txsort.InPlaceSort(theirCommitTx)
+	InPlaceCommitSort(
+		theirCommitTx,
+		make([]uint32, len(theirSignInfo)),
+		theirSignInfo,
+	)
 
 	walletLog.Tracef("Local commit tx for ChannelPoint(%v): %v",
 		chanPoint, spew.Sdump(ourCommitTx))
@@ -1895,7 +1915,7 @@ func (l *LightningWallet) handleChanPointReady(req *continueContributionMsg) {
 	// Generate a signature for their version of the initial commitment
 	// transaction.
 	sigTheirCommit, err := l.signCommitTx(
-		pendingReservation, theirCommitTx, fundingOutput,
+		pendingReservation, theirCommitTx, theirSignInfo, fundingOutput,
 		fundingWitnessScript,
 	)
 	if err != nil {
@@ -2252,7 +2272,8 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	if pendingReservation.partialState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = pendingReservation.partialState.ThawHeight
 	}
-	ourCommitTx, theirCommitTx, err := CreateCommitmentTxns(
+	ourCommitTx, _, theirCommitTx, theirSignInfo,
+		err := CreateCommitmentTxns(
 		localBalance, remoteBalance,
 		pendingReservation.ourContribution.ChannelConfig,
 		pendingReservation.theirContribution.ChannelConfig,
@@ -2285,7 +2306,11 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// ordering. This ensures that both parties sign the same sighash
 	// without further synchronization.
 	txsort.InPlaceSort(ourCommitTx)
-	txsort.InPlaceSort(theirCommitTx)
+	InPlaceCommitSort(
+		theirCommitTx,
+		make([]uint32, len(theirSignInfo)),
+		theirSignInfo,
+	)
 	chanState.LocalCommitment.CommitTx = ourCommitTx
 	chanState.RemoteCommitment.CommitTx = theirCommitTx
 
@@ -2336,7 +2361,7 @@ func (l *LightningWallet) handleSingleFunderSigs(req *addSingleFunderSigsMsg) {
 	// verified, we can now generate a signature for their version,
 	// allowing the funding transaction to be safely broadcast.
 	sigTheirCommit, err := l.signCommitTx(
-		pendingReservation, theirCommitTx, fundingTxOut,
+		pendingReservation, theirCommitTx, theirSignInfo, fundingTxOut,
 		fundingWitnessScript,
 	)
 	if err != nil {

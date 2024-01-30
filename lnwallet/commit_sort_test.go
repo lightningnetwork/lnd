@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -237,7 +238,10 @@ func TestCommitSort(t *testing.T) {
 			expTxIns := test.expTxIns()
 			expTxOuts := test.expTxOuts()
 
-			lnwallet.InPlaceCommitSort(test.tx, test.cltvs)
+			lnwallet.InPlaceCommitSort(
+				test.tx, test.cltvs,
+				make([][]*psbt.Unknown, len(expTxOuts)),
+			)
 
 			if !reflect.DeepEqual(test.tx.TxIn, expTxIns) {
 				t.Fatalf("commit inputs mismatch, want: %v, "+

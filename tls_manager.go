@@ -132,32 +132,27 @@ func (t *TLSManager) getConfig() ([]grpc.ServerOption, []grpc.DialOption,
 	// and override the TLS config's GetCertificate function.
 	cleanUp := t.setUpLetsEncrypt(&certData, tlsCfg)
 
-	// If we're using the ephemeral certificate, we need to use the
-	// ephemeral cert path.
-	certPath := t.cfg.TLSCertPath
-	if t.ephemeralCertPath != "" {
-		certPath = t.ephemeralCertPath
-	}
-
 	// Now that we know that we have a certificate, let's generate the
 	// required config options.
-	restCreds, err := credentials.NewClientTLSFromFile(
-		certPath, "",
-	)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
 	serverCreds := credentials.NewTLS(tlsCfg)
 	serverOpts := []grpc.ServerOption{grpc.Creds(serverCreds)}
 
-	// For our REST dial options, we'll still use TLS, but also increase
-	// the max message size that we'll decode to allow clients to hit
-	// endpoints which return more data such as the DescribeGraph call.
+	// For our REST dial options, we skip TLS verification, and we also
+	// increase the max message size that we'll decode to allow clients to
+	// hit endpoints which return more data such as the DescribeGraph call.
 	// We set this to 200MiB atm. Should be the same value as maxMsgRecvSize
 	// in cmd/lncli/main.go.
 	restDialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(restCreds),
+		// We are forwarding the requests directly to the address of our
+		// own local listener. To not need to mess with the TLS
+		// certificate (which might be tricky if we're using Let's
+		// Encrypt or if the ephemeral tls cert is being used), we just
+		// skip the certificate verification. Injecting a malicious
+		// hostname into the listener address will result in an error
+		// on startup so this should be quite safe.
+		grpc.WithTransportCredentials(credentials.NewTLS(
+			&tls.Config{InsecureSkipVerify: true},
+		)),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize),
 		),

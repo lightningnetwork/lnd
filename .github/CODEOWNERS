@@ -1,0 +1,201 @@
+# This file lists the owners of code in different areas of the lnd codebase
+# Codeowners will own the review for the changes being merged into their
+# respective areas
+
+# aezeed
+/aezeed/ @guggero @yyforyongyu
+
+# alias manager
+/aliasmgr/ @Crypt-iQ
+
+# amp
+/amp/ @yyforyongyu
+
+# auto pilot
+/autopilot/ @bitromortac
+
+# batch
+/batch/ @bhandras
+
+# block cache
+/blockcache/ @yyforyongyu @ellemouton
+
+# brontide
+/brontide/ @Roasbeef @yyforyongyu
+
+# buffer
+/buffer/ @yyforyongyu
+
+# build
+/build/ @Roasbeef @guggero
+
+# certificates
+/cert/ @guggero
+
+# chain notifications
+/chainntnfs/ @Roasbeef @yyforyongyu
+
+# chain registry
+/chainreg/ @ellemouton
+
+# channel acceptor
+/chanacceptor/ @Crypt-iQ
+
+# channel backup
+/chanbackup/ @guggero @ellemouton
+
+# channel fitness
+/chanfitness/ @yyforyongyu
+
+# channel db
+/channeldb/ @Roasbeef @yyforyongyu
+
+# channel notifier
+/channelnotifier/ @yyforyongyu
+
+# clock
+/clock/ @bhandras
+
+# cluster
+/cluster/ @bhandras
+
+# command line
+/cmd/ @ellemouton
+
+# contract court
+/contractcourt/ @yyforyongyu
+
+# contrib
+/contrib/ @guggero
+
+# discovery
+/discovery/ @ellemouton @yyforyongyu
+
+# docker
+/docker/ @guggero
+
+# feature
+/feature/ @ProofOfKeags
+
+# functions/methods
+/fn/ @Roasbeef @ProofOfKeags
+
+# funding
+/funding/ @Crypt-iQ
+
+# health check
+/healthcheck/ @guggero
+
+# htlc switch
+/htlcswitch/ @Roasbeef @yyforyongyu
+
+# musig2
+/internal/musig2v040/ @guggero
+
+# invoices
+/invoices/ @yyforyongyu @bhandras
+
+#itest
+/itest/ @yyforyongyu @ellemouton
+
+# key chain
+/keychain/ @guggero
+
+# kvdb
+/kvdb/ @bhandras
+
+# lncfg
+/lncfg/ @Roasbeef
+
+# lnencrypt
+/lnencrypt/ @guggero
+
+# lnpeer
+/lnpeer/ @Roasbeef
+
+# lnrpc
+/lnrpc/ @guggero @ellemouton
+
+#lntest
+/lntest/ @yyforyongyu
+
+# lntypes
+/lntypes/ @bitromortac
+
+# lnutils
+/lnutils/ @yyforyongyu
+
+# lnwallet
+/lnwallet/ @Roasbeef @yyforyongyu
+
+# lnwire
+/lnwire/ @ellemouton
+
+# macaroons
+/macaroons/ @guggero
+
+# mobile
+/mobile/ @guggero
+
+# monitoring
+/monitoring/ @guggero
+
+# multimutex
+/multimutex/ @Roasbeef
+
+# nat
+/nat/ @Roasbeef
+
+# network announcements
+/netann/ @ellemouton @yyforyongyu
+
+# peer
+/peer/ @ProofOfKeags @Crypt-iQ
+
+# peernotifier
+/peernotifier/ @yyforyongyu
+
+# pool
+/pool/ @yyforyongyu
+
+# queue
+/queue/ @bhandras
+
+# record
+/record/ @guggero
+
+# routing
+/routing/ @bitromortac @ellemouton @yyforyongyu
+
+# rpcperms
+/rpcperms/ @guggero
+
+# shachain
+/shachain/ @Roasbeef
+
+# signal
+/signal/ @Roasbeef
+
+# sqldb
+/sqldb/ @bhandras
+
+# sweep
+/sweep/ @yyforyongyu @ziggie1984
+
+# ticker
+/ticker/ @guggero
+
+# tlv
+/tlv/ @Roasbeef
+
+# tor
+/tor/ @yyforyongyu
+
+# walletunlocker
+/walletunlocker/ @guggero
+
+# watchtower
+/watchtower/ @ellemouton
+
+# zpay32
+/zpay32/ @Roasbeef

@@ -21,6 +21,7 @@ import (
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -2412,4 +2413,67 @@ func TestMarkInputFailed(t *testing.T) {
 
 	// Assert the state is updated.
 	require.Equal(t, StateFailed, pi.state)
+}
+
+// TestSweepPendingInputs checks that `sweepPendingInputs` correctly executes
+// its workflow based on the returned values from the interfaces.
+func TestSweepPendingInputs(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock wallet and aggregator.
+	wallet := &MockWallet{}
+	aggregator := &mockUtxoAggregator{}
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{
+		Wallet:     wallet,
+		Aggregator: aggregator,
+	})
+
+	// Create an input set that needs wallet inputs.
+	setNeedWallet := &MockInputSet{}
+
+	// Mock this set to ask for wallet input.
+	setNeedWallet.On("NeedWalletInput").Return(true).Once()
+	setNeedWallet.On("AddWalletInputs", wallet).Return(nil).Once()
+
+	// Mock the wallet to require the lock once.
+	wallet.On("WithCoinSelectLock", mock.Anything).Return(nil).Once()
+
+	// Create an input set that doesn't need wallet inputs.
+	normalSet := &MockInputSet{}
+	normalSet.On("NeedWalletInput").Return(false).Once()
+
+	// Mock the methods used in `sweep`. This is not important for this
+	// unit test.
+	feeRate := chainfee.SatPerKWeight(1000)
+	setNeedWallet.On("Inputs").Return(nil).Once()
+	setNeedWallet.On("FeeRate").Return(feeRate).Once()
+	normalSet.On("Inputs").Return(nil).Once()
+	normalSet.On("FeeRate").Return(feeRate).Once()
+
+	// Make pending inputs for testing. We don't need real values here as
+	// the returned clusters are mocked.
+	pis := make(pendingInputs)
+
+	// Mock the aggregator to return the mocked input sets.
+	aggregator.On("ClusterInputs", pis).Return([]InputSet{
+		setNeedWallet, normalSet,
+	})
+
+	// Set change output script to an invalid value. This should cause the
+	// `createSweepTx` inside `sweep` to fail. This is done so we can
+	// terminate the method early as we are only interested in testing the
+	// workflow in `sweepPendingInputs`. We don't need to test `sweep` here
+	// as it should be tested in its own unit test.
+	s.currentOutputScript = []byte{1}
+
+	// Call the method under test.
+	s.sweepPendingInputs(pis)
+
+	// Assert mocked methods are called as expected.
+	wallet.AssertExpectations(t)
+	aggregator.AssertExpectations(t)
+	setNeedWallet.AssertExpectations(t)
+	normalSet.AssertExpectations(t)
 }

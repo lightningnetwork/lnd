@@ -2817,16 +2817,16 @@ func chooseDeliveryScript(upfront,
 		return requested, nil
 	}
 
-	// If an upfront shutdown script was provided, and the user did not request
-	// a custom shutdown script, return the upfront address.
+	// If an upfront shutdown script was provided, and the user did not
+	// request a custom shutdown script, return the upfront address.
 	if len(requested) == 0 {
 		return upfront, nil
 	}
 
 	// If both an upfront shutdown script and a custom close script were
 	// provided, error if the user provided shutdown script does not match
-	// the upfront shutdown script (because closing out to a different script
-	// would violate upfront shutdown).
+	// the upfront shutdown script (because closing out to a different
+	// script would violate upfront shutdown).
 	if !bytes.Equal(upfront, requested) {
 		return nil, chancloser.ErrUpfrontShutdownScriptMismatch
 	}

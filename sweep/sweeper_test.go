@@ -138,11 +138,10 @@ func createSweeperTestContext(t *testing.T) *sweeperTestContext {
 	}
 
 	ctx.sweeper = New(&UtxoSweeperConfig{
-		Notifier:       notifier,
-		Wallet:         backend,
-		TickerDuration: 100 * time.Millisecond,
-		Store:          store,
-		Signer:         &lnmock.DummySigner{},
+		Notifier: notifier,
+		Wallet:   backend,
+		Store:    store,
+		Signer:   &lnmock.DummySigner{},
 		GenSweepScript: func() ([]byte, error) {
 			script := make([]byte, input.P2WPKHSize)
 			script[0] = 0

@@ -689,8 +689,7 @@ func DefaultConfig() Config {
 			Timeout: lncfg.DefaultRemoteSignerRPCTimeout,
 		},
 		Sweeper: &lncfg.Sweeper{
-			BatchWindowDuration: sweep.DefaultBatchWindowDuration,
-			MaxFeeRate:          sweep.DefaultMaxFeeRate,
+			MaxFeeRate: sweep.DefaultMaxFeeRate,
 		},
 		Htlcswitch: &lncfg.Htlcswitch{
 			MailboxDeliveryTimeout: htlcswitch.DefaultMailboxDeliveryTimeout,

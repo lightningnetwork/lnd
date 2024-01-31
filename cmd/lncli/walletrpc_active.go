@@ -286,8 +286,6 @@ var bumpCloseFeeCommand = cli.Command{
 	to sweep the anchor outputs of the closing transaction at the requested
 	fee rate or confirmation target. The specified fee rate will be the
 	effective fee rate taking the parent fee into account.
-	Depending on the sweeper configuration (batchwindowduration) the sweeptx
-	will not be published immediately.
 	NOTE: This cmd is DEPRECATED please use bumpforceclosefee instead.
 	`,
 	Flags: []cli.Flag{
@@ -321,8 +319,6 @@ var bumpForceCloseFeeCommand = cli.Command{
 	to sweep the anchor outputs of the closing transaction at the requested
 	fee rate or confirmation target. The specified fee rate will be the
 	effective fee rate taking the parent fee into account.
-	Depending on the sweeper configuration (batchwindowduration) the sweeptx
-	will not be published immediately.
 	`,
 	Flags: []cli.Flag{
 		cli.Uint64Flag{

@@ -153,22 +153,6 @@ func (e *ErrCommitSyncLocalDataLoss) Error() string {
 		e.CommitPoint.SerializeCompressed())
 }
 
-// channelState is an enum like type which represents the current state of a
-// particular channel.
-// TODO(roasbeef): actually update state
-type channelState uint8
-
-const (
-	// channelOpen represents an open, active channel capable of
-	// sending/receiving HTLCs.
-	channelOpen channelState = iota
-
-	// channelClosed represents a channel which has been fully closed. Note
-	// that before a channel can be closed, ALL pending HTLCs must be
-	// settled/removed.
-	channelClosed
-)
-
 // PaymentHash represents the sha256 of a random value. This hash is used to
 // uniquely track incoming/outgoing payments within this channel, as well as
 // payments requested by the wallet/daemon.
@@ -1267,7 +1251,7 @@ type LightningChannel struct {
 	// the commitment transaction that spends the multi-sig output.
 	signDesc *input.SignDescriptor
 
-	status channelState
+	isClosed bool
 
 	// ChanPoint is the funding outpoint of this channel.
 	ChanPoint *wire.OutPoint
@@ -1522,7 +1506,7 @@ func (lc *LightningChannel) createSignDesc() error {
 // events do so properly.
 func (lc *LightningChannel) ResetState() {
 	lc.Lock()
-	lc.status = channelOpen
+	lc.isClosed = false
 	lc.Unlock()
 }
 
@@ -7577,9 +7561,8 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 			"summary: %w", err)
 	}
 
-	// Set the channel state to indicate that the channel is now in a
-	// contested state.
-	lc.status = channelClosed
+	// Mark the channel as closed to block future closure requests.
+	lc.isClosed = true
 
 	return summary, nil
 }
@@ -7773,8 +7756,8 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	lc.Lock()
 	defer lc.Unlock()
 
-	// If we've already closed the channel, then ignore this request.
-	if lc.status == channelClosed {
+	// If we're already closing the channel, then ignore this request.
+	if lc.isClosed {
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, nil, 0, ErrChanClosing
 	}
@@ -7857,8 +7840,8 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	lc.Lock()
 	defer lc.Unlock()
 
-	// If the channel is already closed, then ignore this request.
-	if lc.status == channelClosed {
+	// If the channel is already closing, then ignore this request.
+	if lc.isClosed {
 		// TODO(roasbeef): check to ensure no pending payments
 		return nil, 0, ErrChanClosing
 	}
@@ -7962,7 +7945,7 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	// As the transaction is sane, and the scripts are valid we'll mark the
 	// channel now as closed as the closure transaction should get into the
 	// chain in a timely manner and possibly be re-broadcast by the wallet.
-	lc.status = channelClosed
+	lc.isClosed = true
 
 	return closeTx, ourBalance, nil
 }

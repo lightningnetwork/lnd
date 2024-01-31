@@ -22,6 +22,7 @@ type DevConfig struct {
 	ProcessChannelReadyWait time.Duration `long:"processchannelreadywait" description:"Time to sleep before processing remote node's channel_ready message."`
 	ReservationTimeout      time.Duration `long:"reservationtimeout" description:"The maximum time we keep a pending channel open flow in memory."`
 	ZombieSweeperInterval   time.Duration `long:"zombiesweeperinterval" description:"The time interval at which channel opening flows are evaluated for zombie status."`
+	UnsafeDisconnect        bool          `long:"unsafedisconnect" description:"Allows the rpcserver to intentionally disconnect from peers with open channels."`
 }
 
 // ChannelReadyWait returns the config value `ProcessChannelReadyWait`.
@@ -45,4 +46,9 @@ func (d *DevConfig) GetZombieSweeperInterval() time.Duration {
 	}
 
 	return d.ZombieSweeperInterval
+}
+
+// ChannelReadyWait returns the config value `UnsafeDisconnect`.
+func (d *DevConfig) GetUnsafeDisconnect() bool {
+	return d.UnsafeDisconnect
 }

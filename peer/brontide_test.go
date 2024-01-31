@@ -33,6 +33,54 @@ var (
 	p2wshAddress = "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3"
 )
 
+// TestPeerChannelClosureShutdownResponseLinkRemoved tests the shutdown
+// response we get if the link for the channel can't be found in the
+// switch. This test was added due to a regression.
+func TestPeerChannelClosureShutdownResponseLinkRemoved(t *testing.T) {
+	t.Parallel()
+
+	notifier := &mock.ChainNotifier{
+		SpendChan: make(chan *chainntnfs.SpendDetail),
+		EpochChan: make(chan *chainntnfs.BlockEpoch),
+		ConfChan:  make(chan *chainntnfs.TxConfirmation),
+	}
+	broadcastTxChan := make(chan *wire.MsgTx)
+
+	mockSwitch := &mockMessageSwitch{}
+
+	alicePeer, bobChan, err := createTestPeer(
+		t, notifier, broadcastTxChan, noUpdate, mockSwitch,
+	)
+	require.NoError(t, err, "unable to create test channels")
+
+	chanID := lnwire.NewChanIDFromOutPoint(bobChan.ChannelPoint())
+
+	dummyDeliveryScript := genScript(t, p2wshAddress)
+
+	// We send a shutdown request to Alice. She will now be the responding
+	// node in this shutdown procedure. We first expect Alice to answer
+	// this shutdown request with a Shutdown message.
+	alicePeer.chanCloseMsgs <- &closeMsg{
+		cid: chanID,
+		msg: lnwire.NewShutdown(chanID, dummyDeliveryScript),
+	}
+
+	var msg lnwire.Message
+	select {
+	case outMsg := <-alicePeer.outgoingQueue:
+		msg = outMsg.msg
+	case <-time.After(timeout):
+		t.Fatalf("did not receive shutdown message")
+	}
+
+	shutdownMsg, ok := msg.(*lnwire.Shutdown)
+	if !ok {
+		t.Fatalf("expected Shutdown message, got %T", msg)
+	}
+
+	require.NotEqualValues(t, shutdownMsg.Address, dummyDeliveryScript)
+}
+
 // TestPeerChannelClosureAcceptFeeResponder tests the shutdown responder's
 // behavior if we can agree on the fee immediately.
 func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
@@ -81,6 +129,7 @@ func TestPeerChannelClosureAcceptFeeResponder(t *testing.T) {
 	}
 
 	respDeliveryScript := shutdownMsg.Address
+	require.NotEqualValues(t, respDeliveryScript, dummyDeliveryScript)
 
 	// Alice will then send a ClosingSigned message, indicating her proposed
 	// closing transaction fee. Alice sends the ClosingSigned message as she is
@@ -188,6 +237,7 @@ func TestPeerChannelClosureAcceptFeeInitiator(t *testing.T) {
 	}
 
 	aliceDeliveryScript := shutdownMsg.Address
+	require.NotEqualValues(t, aliceDeliveryScript, dummyDeliveryScript)
 
 	// Bob will respond with his own Shutdown message.
 	alicePeer.chanCloseMsgs <- &closeMsg{
@@ -306,6 +356,7 @@ func TestPeerChannelClosureFeeNegotiationsResponder(t *testing.T) {
 	}
 
 	aliceDeliveryScript := shutdownMsg.Address
+	require.NotEqualValues(t, aliceDeliveryScript, dummyDeliveryScript)
 
 	// As Alice is the channel initiator, she will send her ClosingSigned
 	// message.

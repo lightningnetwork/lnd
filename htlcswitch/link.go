@@ -636,7 +636,7 @@ func (l *channelLink) EnableAdds(linkDirection LinkDirection) error {
 	return nil
 }
 
-// DiableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
+// DisableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
 // the specified direction. It returns an error if the state already disallowed
 // those adds.
 func (l *channelLink) DisableAdds(linkDirection LinkDirection) error {

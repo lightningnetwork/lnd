@@ -975,11 +975,11 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			spew.Sdump(forwardingPolicy))
 
 		// If the channel is pending, set the value to nil in the
-		// activeChannels map. This is done to signify that the channel is
-		// pending. We don't add the link to the switch here - it's the funding
-		// manager's responsibility to spin up pending channels. Adding them
-		// here would just be extra work as we'll tear them down when creating
-		// + adding the final link.
+		// activeChannels map. This is done to signify that the channel
+		// is pending. We don't add the link to the switch here - it's
+		// the funding manager's responsibility to spin up pending
+		// channels. Adding them here would just be extra work as we'll
+		// tear them down when creating + adding the final link.
 		if lnChan.IsPending() {
 			p.activeChannels.Store(chanID, nil)
 

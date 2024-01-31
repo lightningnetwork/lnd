@@ -21,13 +21,13 @@ import (
 )
 
 var (
-	// ErrChanAlreadyClosing is returned when a channel shutdown is attempted
-	// more than once.
+	// ErrChanAlreadyClosing is returned when a channel shutdown is
+	// attempted more than once.
 	ErrChanAlreadyClosing = fmt.Errorf("channel shutdown already initiated")
 
 	// ErrChanCloseNotFinished is returned when a caller attempts to access
-	// a field or function that is contingent on the channel closure negotiation
-	// already being completed.
+	// a field or function that is contingent on the channel closure
+	// negotiation already being completed.
 	ErrChanCloseNotFinished = fmt.Errorf("close negotiation not finished")
 
 	// ErrInvalidState is returned when the closing state machine receives a
@@ -79,16 +79,16 @@ const (
 	// closeFeeNegotiation is the third, and most persistent state. Both
 	// parties enter this state after they've sent and received a shutdown
 	// message. During this phase, both sides will send monotonically
-	// increasing fee requests until one side accepts the last fee rate offered
-	// by the other party. In this case, the party will broadcast the closing
-	// transaction, and send the accepted fee to the remote party. This then
-	// causes a shift into the closeFinished state.
+	// increasing fee requests until one side accepts the last fee rate
+	// offered by the other party. In this case, the party will broadcast
+	// the closing transaction, and send the accepted fee to the remote
+	// party. This then causes a shift into the closeFinished state.
 	closeFeeNegotiation
 
-	// closeFinished is the final state of the state machine. In this state, a
-	// side has accepted a fee offer and has broadcast the valid closing
-	// transaction to the network. During this phase, the closing transaction
-	// becomes available for examination.
+	// closeFinished is the final state of the state machine. In this state,
+	// a side has accepted a fee offer and has broadcast the valid closing
+	// transaction to the network. During this phase, the closing
+	// transaction becomes available for examination.
 	closeFinished
 )
 
@@ -156,8 +156,9 @@ type ChanCloser struct {
 	// negotiationHeight is the height that the fee negotiation begun at.
 	negotiationHeight uint32
 
-	// closingTx is the final, fully signed closing transaction. This will only
-	// be populated once the state machine shifts to the closeFinished state.
+	// closingTx is the final, fully signed closing transaction. This will
+	// only be populated once the state machine shifts to the closeFinished
+	// state.
 	closingTx *wire.MsgTx
 
 	// idealFeeSat is the ideal fee that the state machine should initially
@@ -173,22 +174,22 @@ type ChanCloser struct {
 	idealFeeRate chainfee.SatPerKWeight
 
 	// lastFeeProposal is the last fee that we proposed to the remote party.
-	// We'll use this as a pivot point to ratchet our next offer up, down, or
-	// simply accept the remote party's prior offer.
+	// We'll use this as a pivot point to ratchet our next offer up, down,
+	// or simply accept the remote party's prior offer.
 	lastFeeProposal btcutil.Amount
 
-	// priorFeeOffers is a map that keeps track of all the proposed fees that
-	// we've offered during the fee negotiation. We use this map to cut the
-	// negotiation early if the remote party ever sends an offer that we've
-	// sent in the past. Once negotiation terminates, we can extract the prior
-	// signature of our accepted offer from this map.
+	// priorFeeOffers is a map that keeps track of all the proposed fees
+	// that we've offered during the fee negotiation. We use this map to cut
+	// the negotiation early if the remote party ever sends an offer that
+	// we've sent in the past. Once negotiation terminates, we can extract
+	// the prior signature of our accepted offer from this map.
 	//
 	// TODO(roasbeef): need to ensure if they broadcast w/ any of our prior
 	// sigs, we are aware of
 	priorFeeOffers map[btcutil.Amount]*lnwire.ClosingSigned
 
-	// closeReq is the initial closing request. This will only be populated if
-	// we're the initiator of this closing negotiation.
+	// closeReq is the initial closing request. This will only be populated
+	// if we're the initiator of this closing negotiation.
 	//
 	// TODO(roasbeef): abstract away
 	closeReq *htlcswitch.ChanClose
@@ -273,8 +274,10 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 		negotiationHeight:   negotiationHeight,
 		idealFeeRate:        idealFeePerKw,
 		localDeliveryScript: deliveryScript,
-		priorFeeOffers:      make(map[btcutil.Amount]*lnwire.ClosingSigned),
-		locallyInitiated:    locallyInitiated,
+		priorFeeOffers: make(
+			map[btcutil.Amount]*lnwire.ClosingSigned,
+		),
+		locallyInitiated: locallyInitiated,
 	}
 }
 
@@ -321,9 +324,9 @@ func (c *ChanCloser) initFeeBaseline() {
 // initChanShutdown begins the shutdown process by un-registering the channel,
 // and creating a valid shutdown message to our target delivery address.
 func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
-	// With both items constructed we'll now send the shutdown message for this
-	// particular channel, advertising a shutdown request to our desired
-	// closing script.
+	// With both items constructed we'll now send the shutdown message for
+	// this particular channel, advertising a shutdown request to our
+	// desired closing script.
 	shutdown := lnwire.NewShutdown(c.cid, c.localDeliveryScript)
 
 	// If this is a taproot channel, then we'll need to also generate a
@@ -375,12 +378,12 @@ func (c *ChanCloser) ShutdownChan() (*lnwire.Shutdown, error) {
 	}
 
 	// With the opening steps complete, we'll transition into the
-	// closeShutdownInitiated state. In this state, we'll wait until the other
-	// party sends their version of the shutdown message.
+	// closeShutdownInitiated state. In this state, we'll wait until the
+	// other party sends their version of the shutdown message.
 	c.state = closeShutdownInitiated
 
-	// Finally, we'll return the shutdown message to the caller so it can send
-	// it to the remote peer.
+	// Finally, we'll return the shutdown message to the caller so it can
+	// send it to the remote peer.
 	return shutdownMsg, nil
 }
 
@@ -476,9 +479,8 @@ func validateShutdownScript(disconnect func() error, upfrontScript,
 // If appropriate, it will also generate a Shutdown message of its own to send
 // out to the peer. It is possible for this method to return None when no error
 // occurred.
-func (c *ChanCloser) ReceiveShutdown(
-	msg lnwire.Shutdown,
-) (fn.Option[lnwire.Shutdown], error) {
+func (c *ChanCloser) ReceiveShutdown(msg lnwire.Shutdown) (
+	fn.Option[lnwire.Shutdown], error) {
 
 	noShutdown := fn.None[lnwire.Shutdown]()
 
@@ -610,9 +612,8 @@ func (c *ChanCloser) ReceiveShutdown(
 // it will not. In either case it will transition the ChanCloser state machine
 // to the negotiation phase wherein ClosingSigned messages are exchanged until
 // a mutually agreeable result is achieved.
-func (c *ChanCloser) BeginNegotiation() (
-	fn.Option[lnwire.ClosingSigned], error,
-) {
+func (c *ChanCloser) BeginNegotiation() (fn.Option[lnwire.ClosingSigned],
+	error) {
 
 	noClosingSigned := fn.None[lnwire.ClosingSigned]()
 
@@ -673,11 +674,8 @@ func (c *ChanCloser) BeginNegotiation() (
 // ReceiveClosingSigned is a method that should be called whenever we receive a
 // ClosingSigned message from the wire. It may or may not return a ClosingSigned
 // of our own to send back to the remote.
-//
-//nolint:funlen
-func (c *ChanCloser) ReceiveClosingSigned(
-	msg lnwire.ClosingSigned,
-) (fn.Option[lnwire.ClosingSigned], error) {
+func (c *ChanCloser) ReceiveClosingSigned(msg lnwire.ClosingSigned) (
+	fn.Option[lnwire.ClosingSigned], error) {
 
 	noClosing := fn.None[lnwire.ClosingSigned]()
 
@@ -882,7 +880,9 @@ func (c *ChanCloser) ReceiveClosingSigned(
 // proposeCloseSigned attempts to propose a new signature for the closing
 // transaction for a channel based on the prior fee negotiations and our current
 // compromise fee.
-func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSigned, error) {
+func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (
+	*lnwire.ClosingSigned, error) {
+
 	var (
 		closeOpts []lnwallet.ChanCloseOpt
 		err       error
@@ -956,8 +956,8 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (*lnwire.ClosingSign
 // compromise and to ensure that the fee negotiation has a stopping point. We
 // consider their fee acceptable if it's within 30% of our fee.
 func feeInAcceptableRange(localFee, remoteFee btcutil.Amount) bool {
-	// If our offer is lower than theirs, then we'll accept their offer if it's
-	// no more than 30% *greater* than our current offer.
+	// If our offer is lower than theirs, then we'll accept their offer if
+	// it's no more than 30% *greater* than our current offer.
 	if localFee < remoteFee {
 		acceptableRange := localFee + ((localFee * 3) / 10)
 		return remoteFee <= acceptableRange
@@ -991,51 +991,59 @@ func calcCompromiseFee(chanPoint wire.OutPoint, ourIdealFee, lastSentFee,
 
 	// TODO(roasbeef): take in number of rounds as well?
 
-	chancloserLog.Infof("ChannelPoint(%v): computing fee compromise, ideal="+
-		"%v, last_sent=%v, remote_offer=%v", chanPoint, int64(ourIdealFee),
-		int64(lastSentFee), int64(remoteFee))
+	chancloserLog.Infof("ChannelPoint(%v): computing fee compromise, "+
+		"ideal=%v, last_sent=%v, remote_offer=%v", chanPoint,
+		int64(ourIdealFee), int64(lastSentFee), int64(remoteFee))
 
-	// Otherwise, we'll need to attempt to make a fee compromise if this is the
-	// second round, and neither side has agreed on fees.
+	// Otherwise, we'll need to attempt to make a fee compromise if this is
+	// the second round, and neither side has agreed on fees.
 	switch {
-	// If their proposed fee is identical to our ideal fee, then we'll go with
-	// that as we can short circuit the fee negotiation. Similarly, if we
-	// haven't sent an offer yet, we'll default to our ideal fee.
+	// If their proposed fee is identical to our ideal fee, then we'll go
+	// with that as we can short circuit the fee negotiation. Similarly, if
+	// we haven't sent an offer yet, we'll default to our ideal fee.
 	case ourIdealFee == remoteFee || lastSentFee == 0:
 		return ourIdealFee
 
 	// If the last fee we sent, is equal to the fee the remote party is
-	// offering, then we can simply return this fee as the negotiation is over.
+	// offering, then we can simply return this fee as the negotiation is
+	// over.
 	case remoteFee == lastSentFee:
 		return lastSentFee
 
 	// If the fee the remote party is offering is less than the last one we
-	// sent, then we'll need to ratchet down in order to move our offer closer
-	// to theirs.
+	// sent, then we'll need to ratchet down in order to move our offer
+	// closer to theirs.
 	case remoteFee < lastSentFee:
-		// If the fee is lower, but still acceptable, then we'll just return
-		// this fee and end the negotiation.
+		// If the fee is lower, but still acceptable, then we'll just
+		// return this fee and end the negotiation.
 		if feeInAcceptableRange(lastSentFee, remoteFee) {
-			chancloserLog.Infof("ChannelPoint(%v): proposed remote fee is "+
-				"close enough, capitulating", chanPoint)
+			chancloserLog.Infof("ChannelPoint(%v): proposed "+
+				"remote fee is close enough, capitulating",
+				chanPoint)
+
 			return remoteFee
 		}
 
-		// Otherwise, we'll ratchet the fee *down* using our current algorithm.
+		// Otherwise, we'll ratchet the fee *down* using our current
+		// algorithm.
 		return ratchetFee(lastSentFee, false)
 
-	// If the fee the remote party is offering is greater than the last one we
-	// sent, then we'll ratchet up in order to ensure we terminate eventually.
+	// If the fee the remote party is offering is greater than the last one
+	// we sent, then we'll ratchet up in order to ensure we terminate
+	// eventually.
 	case remoteFee > lastSentFee:
-		// If the fee is greater, but still acceptable, then we'll just return
-		// this fee in order to put an end to the negotiation.
+		// If the fee is greater, but still acceptable, then we'll just
+		// return this fee in order to put an end to the negotiation.
 		if feeInAcceptableRange(lastSentFee, remoteFee) {
-			chancloserLog.Infof("ChannelPoint(%v): proposed remote fee is "+
-				"close enough, capitulating", chanPoint)
+			chancloserLog.Infof("ChannelPoint(%v): proposed "+
+				"remote fee is close enough, capitulating",
+				chanPoint)
+
 			return remoteFee
 		}
 
-		// Otherwise, we'll ratchet the fee up using our current algorithm.
+		// Otherwise, we'll ratchet the fee up using our current
+		// algorithm.
 		return ratchetFee(lastSentFee, true)
 
 	default:

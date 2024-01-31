@@ -11,12 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testCoopCloseWithHtlcs tests whether or not we can successfully issue a coop
-// close request whilt there are still active htlcs on the link. Here we will
-// set up an HODL invoice to suspend settlement. Then we will attempt to close
-// the channel which should appear as a noop for the time being. Then we will
-// have the receiver settle the invoice and observe that the channel gets torn
-// down after settlement.
+// testCoopCloseWithHtlcs tests whether we can successfully issue a coop close
+// request while there are still active htlcs on the link. Here we will set up
+// an HODL invoice to suspend settlement. Then we will attempt to close the
+// channel which should appear as a noop for the time being. Then we will have
+// the receiver settle the invoice and observe that the channel gets torn down
+// after settlement.
 func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
 	alice, bob := ht.Alice, ht.Bob
 

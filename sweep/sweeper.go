@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -317,12 +316,6 @@ type UtxoSweeperConfig struct {
 
 	// Wallet contains the wallet functions that sweeper requires.
 	Wallet Wallet
-
-	// TickerDuration is used to create a channel that will be sent on when
-	// a certain time window has passed. During this time window, new
-	// inputs can still be added to the sweep tx that is about to be
-	// generated.
-	TickerDuration time.Duration
 
 	// Notifier is an instance of a chain notifier we'll use to watch for
 	// certain on-chain events.

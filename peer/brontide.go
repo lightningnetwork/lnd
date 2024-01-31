@@ -3303,6 +3303,93 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 	return chanCloser, nil
 }
 
+// initNegotiateChanCloser initializes the channel closer for a channel that is
+// using the original "negotiation" based protocol.
+//
+// TODO(roasbeef): can make a MsgEndpoint for existing handling logic to
+// further abstract.
+func (p *Brontide) initNegotiateChanCloser(req *htlcswitch.ChanClose,
+	channel *lnwallet.LightningChannel) error {
+
+	// First, we'll choose a delivery address that we'll use to send the
+	// funds to in the case of a successful negotiation.
+
+	// An upfront shutdown and user provided script are both optional, but
+	// must be equal if both set  (because we cannot serve a request to
+	// close out to a script which violates upfront shutdown). Get the
+	// appropriate address to close out to (which may be nil if neither are
+	// set) and error if they are both set and do not match.
+	deliveryScript, err := chooseDeliveryScript(
+		channel.LocalUpfrontShutdownScript(), req.DeliveryScript,
+	)
+	if err != nil {
+		return fmt.Errorf("cannot close channel %v: %w",
+			req.ChanPoint, err)
+	}
+
+	// If neither an upfront address or a user set address was
+	// provided, generate a fresh script.
+	if len(deliveryScript) == 0 {
+		deliveryScript, err = p.genDeliveryScript()
+		if err != nil {
+			return fmt.Errorf("can't make delivery script: %w", err)
+		}
+	}
+
+	addr, err := p.addrWithInternalKey(deliveryScript)
+	if err != nil {
+		return fmt.Errorf("unable to parse addr for channel "+
+			"%v: %w", req.ChanPoint, err)
+	}
+
+	chanCloser, err := p.createChanCloser(
+		channel, addr, req.TargetFeePerKw, req, lntypes.Local,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to make chan closer: %w", err)
+	}
+
+	chanID := lnwire.NewChanIDFromOutPoint(*req.ChanPoint)
+	p.activeChanCloses[chanID] = chanCloser
+
+	// Finally, we'll initiate the channel shutdown within the
+	// chanCloser, and send the shutdown message to the remote
+	// party to kick things off.
+	shutdownMsg, err := chanCloser.ShutdownChan()
+	if err != nil {
+		// As we were unable to shutdown the channel, we'll return it
+		// back to its normal state.
+		defer channel.ResetState()
+
+		delete(p.activeChanCloses, chanID)
+
+		return fmt.Errorf("unable to shutdown channel: %w", err)
+	}
+
+	link := p.fetchLinkFromKeyAndCid(chanID)
+	if link == nil {
+		// If the link is nil then it means it was already removed from
+		// the switch or it never existed in the first place. The
+		// latter case is handled at the beginning of this function, so
+		// in the case where it has already been removed, we can skip
+		// adding the commit hook to queue a Shutdown message.
+		p.log.Warnf("link not found during attempted closure: "+
+			"%v", chanID)
+		return nil
+	}
+
+	if !link.DisableAdds(htlcswitch.Outgoing) {
+		p.log.Warnf("Outgoing link adds already "+
+			"disabled: %v", link.ChanID())
+	}
+
+	link.OnCommitOnce(htlcswitch.Outgoing, func() {
+		p.queueMsg(shutdownMsg, nil)
+	})
+
+	return nil
+}
+
 // handleLocalCloseReq kicks-off the workflow to execute a cooperative or
 // forced unilateral closure of the channel initiated by a local subsystem.
 func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
@@ -3325,89 +3412,11 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	// out this channel on-chain, so we execute the cooperative channel
 	// closure workflow.
 	case contractcourt.CloseRegular:
-		// First, we'll choose a delivery address that we'll use to send the
-		// funds to in the case of a successful negotiation.
-
-		// An upfront shutdown and user provided script are both optional,
-		// but must be equal if both set  (because we cannot serve a request
-		// to close out to a script which violates upfront shutdown). Get the
-		// appropriate address to close out to (which may be nil if neither
-		// are set) and error if they are both set and do not match.
-		deliveryScript, err := chooseDeliveryScript(
-			channel.LocalUpfrontShutdownScript(), req.DeliveryScript,
-		)
-		if err != nil {
-			p.log.Errorf("cannot close channel %v: %v", req.ChanPoint, err)
-			req.Err <- err
-			return
-		}
-
-		// If neither an upfront address or a user set address was
-		// provided, generate a fresh script.
-		if len(deliveryScript) == 0 {
-			deliveryScript, err = p.genDeliveryScript()
-			if err != nil {
-				p.log.Errorf(err.Error())
-				req.Err <- err
-				return
-			}
-		}
-		addr, err := p.addrWithInternalKey(deliveryScript)
-		if err != nil {
-			err = fmt.Errorf("unable to parse addr for channel "+
-				"%v: %w", req.ChanPoint, err)
-			p.log.Errorf(err.Error())
-			req.Err <- err
-
-			return
-		}
-		chanCloser, err := p.createChanCloser(
-			channel, addr, req.TargetFeePerKw, req, lntypes.Local,
-		)
+		err := p.initNegotiateChanCloser(req, channel)
 		if err != nil {
 			p.log.Errorf(err.Error())
 			req.Err <- err
-			return
 		}
-
-		p.activeChanCloses[chanID] = chanCloser
-
-		// Finally, we'll initiate the channel shutdown within the
-		// chanCloser, and send the shutdown message to the remote
-		// party to kick things off.
-		shutdownMsg, err := chanCloser.ShutdownChan()
-		if err != nil {
-			p.log.Errorf(err.Error())
-			req.Err <- err
-			delete(p.activeChanCloses, chanID)
-
-			// As we were unable to shutdown the channel, we'll
-			// return it back to its normal state.
-			channel.ResetState()
-			return
-		}
-
-		link := p.fetchLinkFromKeyAndCid(chanID)
-		if link == nil {
-			// If the link is nil then it means it was already
-			// removed from the switch or it never existed in the
-			// first place. The latter case is handled at the
-			// beginning of this function, so in the case where it
-			// has already been removed, we can skip adding the
-			// commit hook to queue a Shutdown message.
-			p.log.Warnf("link not found during attempted closure: "+
-				"%v", chanID)
-			return
-		}
-
-		if !link.DisableAdds(htlcswitch.Outgoing) {
-			p.log.Warnf("Outgoing link adds already "+
-				"disabled: %v", link.ChanID())
-		}
-
-		link.OnCommitOnce(htlcswitch.Outgoing, func() {
-			p.queueMsg(shutdownMsg, nil)
-		})
 
 	// A type of CloseBreach indicates that the counterparty has breached
 	// the channel therefore we need to clean up our local state.

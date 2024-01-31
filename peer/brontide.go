@@ -493,6 +493,10 @@ type Brontide struct {
 	// potentially holding lots of un-consumed events.
 	channelEventClient *subscribe.Client
 
+	// msgRouter is an instance of the MsgRouter which is used to send off
+	// new wire messages for handing.
+	msgRouter fn.Option[MsgRouter]
+
 	startReady chan struct{}
 	quit       chan struct{}
 	wg         sync.WaitGroup
@@ -530,6 +534,7 @@ func NewBrontide(cfg Config) *Brontide {
 		startReady:         make(chan struct{}),
 		quit:               make(chan struct{}),
 		log:                build.NewPrefixLog(logPrefix, peerLog),
+		msgRouter:          fn.Some[MsgRouter](NewMultiMsgRouter()),
 	}
 
 	var (
@@ -1706,6 +1711,19 @@ out:
 			default:
 				break out
 			}
+		}
+
+		// If a message router is active, then we'll try to have it
+		// handle this message. If it can, then we're able to skip the
+		// rest of the message handling logic.
+		ok := fn.MapOptionZ(p.msgRouter, func(r MsgRouter) error {
+			return r.RouteMsg(nextMsg)
+		})
+
+		// No error occurred, and the message was handled by the
+		// router.
+		if ok == nil {
+			continue
 		}
 
 		var (

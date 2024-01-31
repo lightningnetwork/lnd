@@ -860,8 +860,10 @@ func TestCustomShutdownScript(t *testing.T) {
 				t.Fatalf("did not receive shutdown message")
 			case err := <-errChan:
 				// Fail if we do not expect an error.
-				if err != test.expectedError {
-					t.Fatalf("error closing channel: %v", err)
+				if test.expectedError != nil {
+					require.ErrorIs(
+						t, err, test.expectedError,
+					)
 				}
 
 				// Terminate the test early if have received an error, no

@@ -159,30 +159,14 @@ func (e *ErrCommitSyncLocalDataLoss) Error() string {
 type channelState uint8
 
 const (
-	// channelPending indicates this channel is still going through the
-	// funding workflow, and isn't yet open.
-	channelPending channelState = iota // nolint: unused
-
 	// channelOpen represents an open, active channel capable of
 	// sending/receiving HTLCs.
-	channelOpen
-
-	// channelClosing represents a channel which is in the process of being
-	// closed.
-	channelClosing
+	channelOpen channelState = iota
 
 	// channelClosed represents a channel which has been fully closed. Note
 	// that before a channel can be closed, ALL pending HTLCs must be
 	// settled/removed.
 	channelClosed
-
-	// channelDispute indicates that an un-cooperative closure has been
-	// detected within the channel.
-	channelDispute
-
-	// channelPendingPayment indicates that there a currently outstanding
-	// HTLCs within the channel.
-	channelPendingPayment // nolint:unused
 )
 
 // PaymentHash represents the sha256 of a random value. This hash is used to
@@ -7852,10 +7836,6 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 			return nil, nil, 0, err
 		}
 	}
-
-	// As everything checks out, indicate in the channel status that a
-	// channel closure has been initiated.
-	lc.status = channelClosing
 
 	closeTXID := closeTx.TxHash()
 	return sig, &closeTXID, ourBalance, nil

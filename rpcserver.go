@@ -3054,7 +3054,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 func (r *rpcServer) GetDebugInfo(_ context.Context,
 	_ *lnrpc.GetDebugInfoRequest) (*lnrpc.GetDebugInfoResponse, error) {
 
-	flatConfig, err := configToFlatMap(*r.cfg)
+	flatConfig, _, err := configToFlatMap(*r.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("error converting config to flat map: "+
 			"%w", err)

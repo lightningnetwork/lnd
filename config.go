@@ -813,6 +813,9 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, error) {
 		ltndLog.Warnf("%v", configFileError)
 	}
 
+	// Finally, log warnings for deprecated config options if they are set.
+	logWarningsForDeprecation(*cleanCfg)
+
 	return cleanCfg, nil
 }
 
@@ -2112,11 +2115,19 @@ func checkEstimateMode(estimateMode string) error {
 		bitcoindEstimateModes[:])
 }
 
-// configToFlatMap converts the given config struct into a flat map of key/value
-// pairs using the dot notation we are used to from the config file or command
-// line flags.
-func configToFlatMap(cfg Config) (map[string]string, error) {
+// configToFlatMap converts the given config struct into a flat map of
+// key/value pairs using the dot notation we are used to from the config file
+// or command line flags. It also returns a map containing deprecated config
+// options.
+func configToFlatMap(cfg Config) (map[string]string,
+	map[string]struct{}, error) {
+
 	result := make(map[string]string)
+
+	// deprecated stores a map of deprecated options found in the config
+	// that are set by the users. A config option is considered as
+	// deprecated if it has a `hidden` flag.
+	deprecated := make(map[string]struct{})
 
 	// redact is the helper function that redacts sensitive values like
 	// passwords.
@@ -2159,6 +2170,8 @@ func configToFlatMap(cfg Config) (map[string]string, error) {
 			longName := fieldType.Tag.Get("long")
 			namespace := fieldType.Tag.Get("namespace")
 			group := fieldType.Tag.Get("group")
+			hidden := fieldType.Tag.Get("hidden")
+
 			switch {
 			// We have a long name defined, this is a config value.
 			case longName != "":
@@ -2171,6 +2184,11 @@ func configToFlatMap(cfg Config) (map[string]string, error) {
 				result[key] = redact(key, fmt.Sprintf(
 					"%v", field.Interface(),
 				))
+
+				// If there's a hidden flag, it's deprecated.
+				if hidden == "true" && !field.IsZero() {
+					deprecated[key] = struct{}{}
+				}
 
 			// We have no long name but a namespace, this is a
 			// nested struct.
@@ -2202,5 +2220,18 @@ func configToFlatMap(cfg Config) (map[string]string, error) {
 	// Turn the whole config struct into a flat map.
 	printConfig(reflect.ValueOf(cfg), "")
 
-	return result, nil
+	return result, deprecated, nil
+}
+
+// logWarningsForDeprecation logs a warning if a deprecated config option is
+// set.
+func logWarningsForDeprecation(cfg Config) {
+	_, deprecated, err := configToFlatMap(cfg)
+	if err != nil {
+		ltndLog.Errorf("Convert configs to map: %v", err)
+	}
+
+	for k := range deprecated {
+		ltndLog.Warnf("Config '%s' is deprecated, please remove it", k)
+	}
 }

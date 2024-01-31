@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -207,6 +208,14 @@ func NewBitcoindBackend(t *testing.T, minerAddr string, txindex,
 	rpcPort := rand.Intn(65536-1024) + 1024
 	zmqBlockHost := "ipc:///" + tempBitcoindDir + "/blocks.socket"
 	zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
+
+	// since MacOS can't address domain sockets using this convention, to
+	// allow for running the unit tests on a local Mac environment, we opt
+	// to connect to a free local tcp port.
+	if runtime.GOOS == "darwin" {
+		zmqBlockHost = fmt.Sprintf("tcp://localhost:%d", rpcPort+1)
+		zmqTxHost = fmt.Sprintf("tcp://localhost:%d", rpcPort+2)
+	}
 
 	args := []string{
 		"-connect=" + minerAddr,

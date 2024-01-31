@@ -121,6 +121,11 @@ var (
 	// broadcasted when moving the channel to state CoopBroadcasted.
 	coopCloseTxKey = []byte("coop-closing-tx-key")
 
+	// deliveryScriptKey points to the delivery script to be sent along in
+	// the Shutdown message. This is committed when moving the channel to
+	// state ShutdownSent.
+	deliveryScriptKey = []byte("delivery-script-key")
+
 	// commitDiffKey stores the current pending commitment state we've
 	// extended to the remote party (if any). Each time we propose a new
 	// state, we store the information necessary to reconstruct this state
@@ -187,6 +192,10 @@ var (
 	// ErrNoCloseTx is returned when no closing tx is found for a channel
 	// in the state CommitBroadcasted.
 	ErrNoCloseTx = fmt.Errorf("no closing tx found")
+
+	// ErrNoDeliveryScript is returned when no closing delivery script has
+	// been persisted for a channel.
+	ErrNoDeliveryScript = fmt.Errorf("no delivery script")
 
 	// ErrNoRestoredChannelMutation is returned when a caller attempts to
 	// mutate a channel that's been recovered.
@@ -597,6 +606,11 @@ var (
 	// ChanStatusRemoteCloseInitiator indicates that the remote node
 	// initiated closing the channel.
 	ChanStatusRemoteCloseInitiator ChannelStatus = 1 << 6
+
+	// ChanStatusShutdownSent indicates that a shutdown has been initiated.
+	// The ChanStatusLocalCloseInitiator and ChanStatusRemoteCloseInitiator
+	// flags are used to determine which party initiated the shutdown.
+	ChanStatusShutdownSent ChannelStatus = 1 << 7
 )
 
 // chanStatusStrings maps a ChannelStatus to a human friendly string that
@@ -607,6 +621,7 @@ var chanStatusStrings = map[ChannelStatus]string{
 	ChanStatusCommitBroadcasted:    "ChanStatusCommitBroadcasted",
 	ChanStatusLocalDataLoss:        "ChanStatusLocalDataLoss",
 	ChanStatusRestored:             "ChanStatusRestored",
+	ChanStatusShutdownSent:         "ChanStatusShutdownSent",
 	ChanStatusCoopBroadcasted:      "ChanStatusCoopBroadcasted",
 	ChanStatusLocalCloseInitiator:  "ChanStatusLocalCloseInitiator",
 	ChanStatusRemoteCloseInitiator: "ChanStatusRemoteCloseInitiator",
@@ -618,6 +633,7 @@ var orderedChanStatusFlags = []ChannelStatus{
 	ChanStatusCommitBroadcasted,
 	ChanStatusLocalDataLoss,
 	ChanStatusRestored,
+	ChanStatusShutdownSent,
 	ChanStatusCoopBroadcasted,
 	ChanStatusLocalCloseInitiator,
 	ChanStatusRemoteCloseInitiator,
@@ -1587,6 +1603,83 @@ func (c *OpenChannel) isBorked(chanBucket kvdb.RBucket) (bool, error) {
 	}
 
 	return channel.chanStatus != ChanStatusDefault, nil
+}
+
+// MarkShutdownSent updates the channel status to indicate that a shutdown has
+// been initiated. It also persists the delivery script that we will use in
+// the Shutdown message so that we can guarantee that the same delivery script
+// is used if a re-connect happens.
+func (c *OpenChannel) MarkShutdownSent(localDeliveryScript []byte,
+	locallyInitiated bool) error {
+
+	return c.markShutdownSent(localDeliveryScript, locallyInitiated)
+}
+
+// markShutdownSent is a helper function which modifies the channel status of
+// the receiving channel and inserts a delivery script under the delivery script
+// key. It adds a status which indicates the party that initiated the channel
+// close.
+func (c *OpenChannel) markShutdownSent(deliveryScript []byte,
+	locallyInitiated bool) error {
+
+	c.Lock()
+	defer c.Unlock()
+
+	putDeliveryScript := func(chanBucket kvdb.RwBucket) error {
+		return chanBucket.Put(deliveryScriptKey, deliveryScript)
+	}
+
+	status := ChanStatusShutdownSent
+	if locallyInitiated {
+		status |= ChanStatusLocalCloseInitiator
+	} else {
+		status |= ChanStatusRemoteCloseInitiator
+	}
+
+	return c.putChanStatus(status, putDeliveryScript)
+}
+
+// DeliveryScript returns the delivery script to use in the channel's Shutdown
+// message. ErrNoDeliveryScript is returned if no such delivery script has been
+// persisted yet.
+func (c *OpenChannel) DeliveryScript() ([]byte, error) {
+	var deliveryScript []byte
+
+	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+		chanBucket, err := fetchChanBucket(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return ErrNoDeliveryScript
+		default:
+			return err
+		}
+
+		delScriptBytes := chanBucket.Get(deliveryScriptKey)
+		if delScriptBytes == nil {
+			return ErrNoDeliveryScript
+		}
+
+		// Make a copy of the returned address bytes here since the
+		// value returned by Get is not safe to use outside of this
+		// transaction.
+		deliveryScript = make([]byte, len(delScriptBytes))
+		copy(deliveryScript, delScriptBytes)
+
+		return nil
+	}, func() {
+		deliveryScript = nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return deliveryScript, nil
 }
 
 // MarkCommitmentBroadcasted marks the channel as a commitment transaction has

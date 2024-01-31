@@ -1158,6 +1158,43 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 	}
 }
 
+// TestDeliveryScript tests that a channel's delivery script can be set when
+// its status is updated to ChanStatusShutdownSent and that this delivery script
+// can then be retrieved.
+func TestDeliveryScript(t *testing.T) {
+	t.Parallel()
+
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to make test database")
+
+	cdb := fullDB.ChannelStateDB()
+
+	// First a test channel.
+	channel := createTestChannel(t, cdb)
+
+	// We haven't set a delivery script for this channel yet.
+	_, err = channel.DeliveryScript()
+	require.Error(t, err, ErrNoDeliveryScript)
+
+	// Show that the channel status has not yet been updated.
+	require.False(t, channel.HasChanStatus(ChanStatusShutdownSent))
+	require.False(t, channel.HasChanStatus(ChanStatusLocalCloseInitiator))
+
+	// Construct a new delivery script.
+	script := []byte{1, 3, 4, 5}
+
+	require.NoError(t, channel.MarkShutdownSent(script, true))
+
+	// Assert that the status has been updated accordingly.
+	require.True(t, channel.HasChanStatus(ChanStatusShutdownSent))
+	require.True(t, channel.HasChanStatus(ChanStatusLocalCloseInitiator))
+
+	// Finally, check that the delivery script has been persisted.
+	resScript, err := channel.DeliveryScript()
+	require.NoError(t, err)
+	require.Equal(t, script, resScript)
+}
+
 // TestRefresh asserts that Refresh updates the in-memory state of another
 // OpenChannel to reflect a preceding call to MarkOpen on a different
 // OpenChannel.

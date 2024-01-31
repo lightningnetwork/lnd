@@ -7136,6 +7136,7 @@ func newOutgoingHtlcResolution(signer input.Signer,
 	localDelayTweak := input.SingleTweakBytes(
 		keyRing.CommitPoint, localChanCfg.DelayBasePoint.PubKey,
 	)
+
 	return &OutgoingHtlcResolution{
 		Expiry:          htlc.RefundTimeout,
 		SignedTimeoutTx: timeoutTx,
@@ -8858,6 +8859,19 @@ func (lc *LightningChannel) MarkCoopBroadcasted(tx *wire.MsgTx,
 	defer lc.Unlock()
 
 	return lc.channelState.MarkCoopBroadcasted(tx, localInitiated)
+}
+
+// MarkShutdownSent updates the channel's status to indicate that shutdown has
+// been initiated. It also persists the delivery address that we intend to use
+// during shutdown in order to ensure that the same delivery address is used
+// across reconnects.
+func (lc *LightningChannel) MarkShutdownSent(deliveryAddr []byte,
+	localInitiated bool) error {
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.channelState.MarkShutdownSent(deliveryAddr, localInitiated)
 }
 
 // MarkDataLoss marks sets the channel status to LocalDataLoss and stores the

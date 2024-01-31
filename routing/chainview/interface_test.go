@@ -717,6 +717,20 @@ var interfaceImpls = []struct {
 			zmqTxHost := "ipc:///" + tempBitcoindDir + "/tx.socket"
 
 			rpcPort := getFreePort()
+
+			// since MacOS can't address domain sockets using this
+			// convention, to allow for running the unit tests on a
+			// local Mac environment, we opt to connect to a free
+			// local tcp port.
+			if runtime.GOOS == "darwin" {
+				zmqBlockHost = fmt.Sprintf(
+					"tcp://localhost:%d", getFreePort(),
+				)
+				zmqTxHost = fmt.Sprintf(
+					"tcp://localhost:%d", getFreePort(),
+				)
+			}
+
 			bitcoind := exec.Command(
 				"bitcoind",
 				"-datadir="+tempBitcoindDir,

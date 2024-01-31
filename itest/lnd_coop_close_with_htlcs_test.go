@@ -186,9 +186,9 @@ func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
 		DeliveryAddress: newAddr.Address,
 	})
 
-	// Assert that both nodes now see this channel as inactive.
-	ht.AssertChannelInactive(bob, chanPoint)
-	ht.AssertChannelInactive(alice, chanPoint)
+	// Assert that both nodes see the channel as waiting for close.
+	ht.AssertChannelWaitingClose(bob, chanPoint)
+	ht.AssertChannelWaitingClose(alice, chanPoint)
 
 	// Now restart Alice and Bob.
 	ht.RestartNode(alice)
@@ -196,42 +196,45 @@ func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
 
 	ht.AssertConnected(alice, bob)
 
-	// Show that the channel is seen as active again by Alice and Bob.
-	//
-	// NOTE: This is a bug and will be fixed in an upcoming commit.
-	ht.AssertChannelActive(alice, chanPoint)
-	ht.AssertChannelActive(bob, chanPoint)
+	// Show that both nodes still see the channel as waiting for close after
+	// the restart.
+	ht.AssertChannelWaitingClose(bob, chanPoint)
+	ht.AssertChannelWaitingClose(alice, chanPoint)
 
-	// Let's settle the invoice.
+	// Settle the invoice.
 	alice.RPC.SettleInvoice(preimage[:])
 
 	// Wait for the channel to appear in the waiting closed list.
-	//
-	// NOTE: this will time out at the moment since there is a bug that
-	// results in shutdown not properly being re-started after a reconnect.
+	var closingTxid string
 	err := wait.Predicate(func() bool {
 		pendingChansResp := alice.RPC.PendingChannels()
 		waitingClosed := pendingChansResp.WaitingCloseChannels
 
-		return len(waitingClosed) == 1
+		if len(waitingClosed) != 1 {
+			return false
+		}
+
+		closingTxid = waitingClosed[0].ClosingTxid
+
+		return true
 	}, defaultTimeout)
+	require.NoError(ht, err)
 
-	// We assert here that there is a timeout error. This will be fixed in
-	// an upcoming commit.
-	require.Error(ht, err)
+	// Convert the txid we get from the PendingUpdate to a Hash so we can
+	// wait for it to be mined.
+	closeTxid, err := chainhash.NewHashFromStr(closingTxid)
+	require.NoError(ht, err)
 
-	// Since the channel closure did not continue, we need to re-init the
-	// close.
-	closingTXID := ht.CloseChannel(alice, chanPoint)
+	// Wait for the close tx to be in the Mempool and then mine 6 blocks
+	// to confirm the close.
+	ht.Miner.AssertTxInMempool(closeTxid)
+	ht.MineBlocksAndAssertNumTxes(6, 1)
 
-	// To further demonstrate the extent of the bug, we inspect the closing
-	// transaction here to show that the delivery address that Alice
-	// specified in her original close request is not the one that ended up
-	// being used.
-	//
-	// NOTE: this is a bug that will be fixed in an upcoming commit.
+	// Finally, we inspect the closing transaction here to show that the
+	// delivery address that Alice specified in her original close request
+	// is the one that ended up being used in the final closing transaction.
 	tx := alice.RPC.GetTransaction(&walletrpc.GetTransactionRequest{
-		Txid: closingTXID.String(),
+		Txid: closingTxid,
 	})
 	require.Len(ht, tx.OutputDetails, 2)
 
@@ -245,6 +248,6 @@ func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
 	}
 	require.NotNil(ht, outputDetail)
 
-	// Show that the address used is not the one she requested.
-	require.NotEqual(ht, outputDetail.Address, newAddr.Address)
+	// Show that the address used is the one she requested.
+	require.Equal(ht, outputDetail.Address, newAddr.Address)
 }

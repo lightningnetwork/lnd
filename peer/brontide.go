@@ -903,10 +903,14 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			// Check if this channel needs to have the cooperative
 			// close process restarted. If so, we'll need to send
 			// the Shutdown message that is returned.
-			if dbChan.HasChanStatus(
+			sentShutdown := dbChan.HasChanStatus(
+				channeldb.ChanStatusShutdownSent,
+			)
+			coopCloseBroadcast := dbChan.HasChanStatus(
 				channeldb.ChanStatusCoopBroadcasted,
-			) {
+			)
 
+			if sentShutdown || coopCloseBroadcast {
 				shutdownMsg, err := p.restartCoopClose(lnChan)
 				if err != nil {
 					p.log.Errorf("Unable to restart "+
@@ -2760,16 +2764,16 @@ func chooseDeliveryScript(upfront,
 		return requested, nil
 	}
 
-	// If an upfront shutdown script was provided, and the user did not request
-	// a custom shutdown script, return the upfront address.
+	// If an upfront shutdown script was provided, and the user did not
+	// request a custom shutdown script, return the upfront address.
 	if len(requested) == 0 {
 		return upfront, nil
 	}
 
 	// If both an upfront shutdown script and a custom close script were
 	// provided, error if the user provided shutdown script does not match
-	// the upfront shutdown script (because closing out to a different script
-	// would violate upfront shutdown).
+	// the upfront shutdown script (because closing out to a different
+	// script would violate upfront shutdown).
 	if !bytes.Equal(upfront, requested) {
 		return nil, chancloser.ErrUpfrontShutdownScriptMismatch
 	}
@@ -2787,10 +2791,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	// If this channel has status ChanStatusCoopBroadcasted and does not
 	// have a closing transaction, then the cooperative close process was
 	// started but never finished. We'll re-create the chanCloser state
-	// machine and resend Shutdown. BOLT#2 requires that we retransmit
-	// Shutdown exactly, but doing so would mean persisting the RPC
-	// provided close script. Instead use the LocalUpfrontShutdownScript
-	// or generate a script.
+	// machine and resend Shutdown.
 	c := lnChan.State()
 	_, err := c.BroadcastedCooperative()
 	if err != nil && err != channeldb.ErrNoCloseTx {
@@ -2802,15 +2803,28 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		return nil, nil
 	}
 
-	// As mentioned above, we don't re-create the delivery script.
-	deliveryScript := c.LocalShutdownScript
-	if len(deliveryScript) == 0 {
-		var err error
-		deliveryScript, err = p.genDeliveryScript()
-		if err != nil {
-			p.log.Errorf("unable to gen delivery script: %v",
-				err)
-			return nil, fmt.Errorf("close addr unavailable")
+	// If the channel has status ChanStatusShutdownSent, then we have
+	// persisted the delivery script that we should use in the Shutdown
+	// message.
+	deliveryScript, err := c.DeliveryScript()
+	switch {
+	// An error other than ErrNoDeliveryScript was encountered.
+	case err != nil && !errors.Is(err, channeldb.ErrNoDeliveryScript):
+		return nil, err
+
+	// No delivery script was found. This means that we have not yet sent
+	// shutdown, and so we choose an appropriate script here.
+	case errors.Is(err, channeldb.ErrNoDeliveryScript):
+		deliveryScript = c.LocalShutdownScript
+		if len(deliveryScript) == 0 {
+			var err error
+			deliveryScript, err = p.genDeliveryScript()
+			if err != nil {
+				p.log.Errorf("unable to gen delivery script: "+
+					"%v", err)
+
+				return nil, fmt.Errorf("close addr unavailable")
+			}
 		}
 	}
 

@@ -1747,7 +1747,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	// In order to avoid erroneously disconnecting from a peer that we have
 	// an active channel with, if we have any channels active with this
 	// peer, then we'll disallow disconnecting from them.
-	if len(nodeChannels) > 0 && !r.cfg.UnsafeDisconnect {
+	if len(nodeChannels) > 0 {
 		return nil, fmt.Errorf("cannot disconnect from peer(%x), "+
 			"all active channels with the peer need to be closed "+
 			"first", pubKeyBytes)

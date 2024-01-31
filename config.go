@@ -346,7 +346,7 @@ type Config struct {
 	BlockingProfile int `long:"blockingprofile" description:"Used to enable a blocking profile to be served on the profiling port. This takes a value from 0 to 1, with 1 including every blocking event, and 0 including no events."`
 	MutexProfile    int `long:"mutexprofile" description:"Used to Enable a mutex profile to be served on the profiling port. This takes a value from 0 to 1, with 1 including every mutex event, and 0 including no events."`
 
-	UnsafeDisconnect   bool   `long:"unsafe-disconnect" description:"DEPRECATED: Allows the rpcserver to intentionally disconnect from peers with open channels. THIS FLAG WILL BE REMOVED IN 0.10.0"`
+	UnsafeDisconnect   bool   `long:"unsafe-disconnect" description:"DEPRECATED: Allows the rpcserver to intentionally disconnect from peers with open channels. THIS FLAG WILL BE REMOVED IN 0.10.0" hidden:"true"`
 	UnsafeReplay       bool   `long:"unsafe-replay" description:"Causes a link to replay the adds on its commitment txn after starting up, this enables testing of the sphinx replay logic."`
 	MaxPendingChannels int    `long:"maxpendingchannels" description:"The maximum number of incoming pending channels permitted per peer."`
 	BackupFilePath     string `long:"backupfilepath" description:"The target location of the channel backup file"`
@@ -576,7 +576,6 @@ func DefaultConfig() Config {
 			UserAgentVersion: neutrino.UserAgentVersion,
 		},
 		BlockCacheSize:     defaultBlockCacheSize,
-		UnsafeDisconnect:   true,
 		MaxPendingChannels: lncfg.DefaultMaxPendingChannels,
 		NoSeedBackup:       defaultNoSeedBackup,
 		MinBackoff:         defaultMinBackoff,

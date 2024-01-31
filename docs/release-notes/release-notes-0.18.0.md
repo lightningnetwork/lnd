@@ -172,6 +172,9 @@
   contract court logs in case of timed-out htlcs in order to easily spot dust
   outputs.
 
+* [Add warning logs](https://github.com/lightningnetwork/lnd/pull/8446) during
+  startup when deprecated config options are used.
+
 ## RPC Updates
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)

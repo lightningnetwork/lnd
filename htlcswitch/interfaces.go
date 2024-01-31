@@ -139,7 +139,7 @@ type ChannelUpdateHandler interface {
 	// the state already allowed those adds.
 	EnableAdds(direction LinkDirection) error
 
-	// DiableAdds sets the ChannelUpdateHandler state to allow
+	// DisableAdds sets the ChannelUpdateHandler state to allow
 	// UpdateAddHtlc's in the specified direction. It returns an error if
 	// the state already disallowed those adds.
 	DisableAdds(direction LinkDirection) error

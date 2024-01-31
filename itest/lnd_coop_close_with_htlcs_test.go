@@ -1,24 +1,44 @@
 package itest
 
 import (
+	"testing"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
 )
 
 // testCoopCloseWithHtlcs tests whether we can successfully issue a coop close
-// request while there are still active htlcs on the link. Here we will set up
-// an HODL invoice to suspend settlement. Then we will attempt to close the
-// channel which should appear as a noop for the time being. Then we will have
-// the receiver settle the invoice and observe that the channel gets torn down
-// after settlement.
+// request while there are still active htlcs on the link. In all the tests, we
+// will set up an HODL invoice to suspend settlement. Then we will attempt to
+// close the channel which should appear as a noop for the time being. Then we
+// will have the receiver settle the invoice and observe that the channel gets
+// torn down after settlement.
 func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
+	ht.Run("no restart", func(t *testing.T) {
+		tt := ht.Subtest(t)
+		coopCloseWithHTLCs(tt)
+	})
+
+	ht.Run("with restart", func(t *testing.T) {
+		tt := ht.Subtest(t)
+		coopCloseWithHTLCsWithRestart(tt)
+	})
+}
+
+// coopCloseWithHTLCs tests the basic coop close scenario which occurs when one
+// channel party initiates a channel shutdown while an HTLC is still pending on
+// the channel.
+func coopCloseWithHTLCs(ht *lntest.HarnessTest) {
 	alice, bob := ht.Alice, ht.Bob
+	ht.ConnectNodes(alice, bob)
 
 	// Here we set up a channel between Alice and Bob, beginning with a
 	// balance on Bob's side.
@@ -100,4 +120,131 @@ func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
 
 	// Wait for it to get mined and finish tearing down.
 	ht.AssertStreamChannelCoopClosed(alice, chanPoint, false, closeClient)
+}
+
+// coopCloseWithHTLCsWithRestart also tests the coop close flow when an HTLC
+// is still pending on the channel but this time it ensures that the shutdown
+// process continues as expected even if a channel re-establish happens after
+// one party has already initiated the shutdown.
+func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
+	alice, bob := ht.Alice, ht.Bob
+	ht.ConnectNodes(alice, bob)
+
+	// Open a channel between Alice and Bob with the balance split equally.
+	// We do this to ensure that the close transaction will have 2 outputs
+	// so that we can assert that the correct delivery address gets used by
+	// the channel close initiator.
+	chanPoint := ht.OpenChannel(bob, alice, lntest.OpenChannelParams{
+		Amt:     btcutil.Amount(1000000),
+		PushAmt: btcutil.Amount(1000000 / 2),
+	})
+
+	// Wait for Bob to understand that the channel is ready to use.
+	ht.AssertTopologyChannelOpen(bob, chanPoint)
+
+	// Set up a HODL invoice so that we can be sure that an HTLC is pending
+	// on the channel at the time that shutdown is requested.
+	var preimage lntypes.Preimage
+	copy(preimage[:], ht.Random32Bytes())
+	payHash := preimage.Hash()
+
+	invoiceReq := &invoicesrpc.AddHoldInvoiceRequest{
+		Memo:  "testing close",
+		Value: 400,
+		Hash:  payHash[:],
+	}
+	resp := alice.RPC.AddHoldInvoice(invoiceReq)
+	invoiceStream := alice.RPC.SubscribeSingleInvoice(payHash[:])
+
+	// Wait for the invoice to be ready and payable.
+	ht.AssertInvoiceState(invoiceStream, lnrpc.Invoice_OPEN)
+
+	// Now that the invoice is ready to be paid, let's have Bob open an HTLC
+	// for it.
+	req := &routerrpc.SendPaymentRequest{
+		PaymentRequest: resp.PaymentRequest,
+		TimeoutSeconds: 60,
+		FeeLimitSat:    1000000,
+	}
+	ht.SendPaymentAndAssertStatus(bob, req, lnrpc.Payment_IN_FLIGHT)
+	ht.AssertNumActiveHtlcs(bob, 1)
+
+	// Assert at this point that the HTLC is open but not yet settled.
+	ht.AssertInvoiceState(invoiceStream, lnrpc.Invoice_ACCEPTED)
+
+	// We will now let Alice initiate the closure of the channel. We will
+	// also let her specify a specific delivery address to be used since we
+	// want to test that this same address is used in the Shutdown message
+	// on reconnection.
+	newAddr := alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: AddrTypeWitnessPubkeyHash,
+	})
+
+	_ = alice.RPC.CloseChannel(&lnrpc.CloseChannelRequest{
+		ChannelPoint:    chanPoint,
+		NoWait:          true,
+		DeliveryAddress: newAddr.Address,
+	})
+
+	// Assert that both nodes now see this channel as inactive.
+	ht.AssertChannelInactive(bob, chanPoint)
+	ht.AssertChannelInactive(alice, chanPoint)
+
+	// Now restart Alice and Bob.
+	ht.RestartNode(alice)
+	ht.RestartNode(bob)
+
+	ht.AssertConnected(alice, bob)
+
+	// Show that the channel is seen as active again by Alice and Bob.
+	//
+	// NOTE: This is a bug and will be fixed in an upcoming commit.
+	ht.AssertChannelActive(alice, chanPoint)
+	ht.AssertChannelActive(bob, chanPoint)
+
+	// Let's settle the invoice.
+	alice.RPC.SettleInvoice(preimage[:])
+
+	// Wait for the channel to appear in the waiting closed list.
+	//
+	// NOTE: this will time out at the moment since there is a bug that
+	// results in shutdown not properly being re-started after a reconnect.
+	err := wait.Predicate(func() bool {
+		pendingChansResp := alice.RPC.PendingChannels()
+		waitingClosed := pendingChansResp.WaitingCloseChannels
+
+		return len(waitingClosed) == 1
+	}, defaultTimeout)
+
+	// We assert here that there is a timeout error. This will be fixed in
+	// an upcoming commit.
+	require.Error(ht, err)
+
+	// Since the channel closure did not continue, we need to re-init the
+	// close.
+	closingTXID := ht.CloseChannel(alice, chanPoint)
+
+	// To further demonstrate the extent of the bug, we inspect the closing
+	// transaction here to show that the delivery address that Alice
+	// specified in her original close request is not the one that ended up
+	// being used.
+	//
+	// NOTE: this is a bug that will be fixed in an upcoming commit.
+	tx := alice.RPC.GetTransaction(&walletrpc.GetTransactionRequest{
+		Txid: closingTXID.String(),
+	})
+	require.Len(ht, tx.OutputDetails, 2)
+
+	// Find Alice's output in the coop-close transaction.
+	var outputDetail *lnrpc.OutputDetail
+	for _, output := range tx.OutputDetails {
+		if output.IsOurAddress {
+			outputDetail = output
+			break
+		}
+	}
+	require.NotNil(ht, outputDetail)
+
+	// Show that the address used is not the one she requested.
+	require.NotEqual(ht, outputDetail.Address, newAddr.Address)
 }

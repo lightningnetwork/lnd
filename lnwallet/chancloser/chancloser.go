@@ -539,8 +539,8 @@ func (c *ChanCloser) AuxOutputs() fn.Option[AuxCloseOutputs] {
 // upfront script is set, we check whether it matches the script provided by
 // our peer. If they do not match, we use the disconnect function provided to
 // disconnect from the peer.
-func validateShutdownScript(disconnect func() error, upfrontScript,
-	peerScript lnwire.DeliveryAddress, netParams *chaincfg.Params) error {
+func validateShutdownScript(upfrontScript, peerScript lnwire.DeliveryAddress,
+	netParams *chaincfg.Params) error {
 
 	// Either way, we'll make sure that the script passed meets our
 	// standards. The upfrontScript should have already been checked at an
@@ -567,12 +567,6 @@ func validateShutdownScript(disconnect func() error, upfrontScript,
 	if !bytes.Equal(upfrontScript, peerScript) {
 		chancloserLog.Warnf("peer's script: %x does not match upfront "+
 			"shutdown script: %x", peerScript, upfrontScript)
-
-		// Disconnect from the peer because they have violated option upfront
-		// shutdown.
-		if err := disconnect(); err != nil {
-			return err
-		}
 
 		return ErrUpfrontShutdownScriptMismatch
 	}
@@ -630,7 +624,6 @@ func (c *ChanCloser) ReceiveShutdown(msg lnwire.Shutdown) (
 		// If the remote node opened the channel with option upfront
 		// shutdown script, check that the script they provided matches.
 		if err := validateShutdownScript(
-			c.cfg.Disconnect,
 			c.cfg.Channel.RemoteUpfrontShutdownScript(),
 			msg.Address, c.cfg.ChainParams,
 		); err != nil {
@@ -681,7 +674,6 @@ func (c *ChanCloser) ReceiveShutdown(msg lnwire.Shutdown) (
 		// If the remote node opened the channel with option upfront
 		// shutdown script, check that the script they provided matches.
 		if err := validateShutdownScript(
-			c.cfg.Disconnect,
 			c.cfg.Channel.RemoteUpfrontShutdownScript(),
 			msg.Address, c.cfg.ChainParams,
 		); err != nil {

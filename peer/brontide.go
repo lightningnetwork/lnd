@@ -3,6 +3,7 @@ package peer
 import (
 	"bytes"
 	"container/list"
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -46,6 +47,7 @@ import (
 	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/pool"
+	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -908,6 +910,16 @@ func (p *Brontide) initGossipSync() {
 func (p *Brontide) taprootShutdownAllowed() bool {
 	return p.RemoteFeatures().HasFeature(lnwire.ShutdownAnySegwitOptional) &&
 		p.LocalFeatures().HasFeature(lnwire.ShutdownAnySegwitOptional)
+}
+
+// rbfCoopCloseAllowed returns true if both parties have negotiated the new RBF
+// coop close feature.
+func (p *Brontide) rbfCoopCloseAllowed() bool {
+	return p.RemoteFeatures().HasFeature(
+		lnwire.RbfCoopCloseOptionalStaging,
+	) && p.LocalFeatures().HasFeature(
+		lnwire.RbfCoopCloseOptionalStaging,
+	)
 }
 
 // QuitSignal is a method that should return a channel which will be sent upon
@@ -3311,7 +3323,8 @@ func (p *Brontide) createChanCloser(channel *lnwallet.LightningChannel,
 }
 
 // initNegotiateChanCloser initializes the channel closer for a channel that is
-// using the original "negotiation" based protocol.
+// using the original "negotiation" based protocol. This path is used when
+// we're the one initiating the channel close.
 //
 // TODO(roasbeef): can make a MsgEndpoint for existing handling logic to
 // further abstract.
@@ -3384,6 +3397,149 @@ func (p *Brontide) initNegotiateChanCloser(req *htlcswitch.ChanClose,
 
 	link.OnCommitOnce(htlcswitch.Outgoing, func() {
 		p.queueMsg(shutdownMsg, nil)
+	})
+
+	return nil
+}
+
+func chooseAddr(addr lnwire.DeliveryAddress) fn.Option[lnwire.DeliveryAddress] {
+	if len(addr) == 0 {
+		return fn.None[lnwire.DeliveryAddress]()
+	}
+
+	return fn.Some(addr)
+}
+
+// initRbfChanCloser initializes the channel closer for a channel that
+// is using the new RBF based co-op close protocol. This only creates the chan
+// closer, but doesn't attempt to trigger any manual state transitions.
+func (p *Brontide) initRbfChanCloser(
+	channel *lnwallet.LightningChannel) (*chancloser.RbfChanCloser, error) {
+
+	chanID := lnwire.NewChanIDFromOutPoint(channel.ChannelPoint())
+
+	link := p.fetchLinkFromKeyAndCid(chanID)
+
+	_, startingHeight, err := p.cfg.ChainIO.GetBestBlock()
+	if err != nil {
+		return nil, fmt.Errorf("cannot obtain best block: %w", err)
+	}
+
+	defaultFeePerKw, err := p.cfg.FeeEstimator.EstimateFeePerKW(
+		p.cfg.CoopCloseTargetConfs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to estimate fee: %w", err)
+	}
+
+	thawHeight, err := channel.AbsoluteThawHeight()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get thaw height: %w", err)
+	}
+
+	peerPub := *p.IdentityKey()
+
+	msgMapper := chancloser.NewRbfMsgMapper(uint32(startingHeight), chanID, peerPub)
+
+	initialState := chancloser.ChannelActive{}
+
+	scid := channel.ZeroConfRealScid().UnwrapOr(
+		channel.ShortChanID(),
+	)
+
+	env := chancloser.Environment{
+		ChainParams:    p.cfg.Wallet.Cfg.NetParams,
+		ChanPeer:       peerPub,
+		ChanPoint:      channel.ChannelPoint(),
+		ChanID:         chanID,
+		Scid:           scid,
+		ChanType:       channel.ChanType(),
+		DefaultFeeRate: defaultFeePerKw.FeePerVByte(),
+		ThawHeight:     fn.Some(thawHeight),
+		RemoteUpfrontShutdown: chooseAddr(
+			channel.RemoteUpfrontShutdownScript(),
+		),
+		LocalUpfrontShutdown: chooseAddr(
+			channel.LocalUpfrontShutdownScript(),
+		),
+		NewDeliveryScript: func() (lnwire.DeliveryAddress, error) {
+			return p.genDeliveryScript()
+		},
+		FeeEstimator: &chancloser.SimpleCoopFeeEstimator{},
+		ChanObserver: newChanObserver(
+			channel, link, p.cfg.ChanStatusMgr,
+		),
+	}
+
+	spendEvent := protofsm.RegisterSpend[chancloser.ProtocolEvent]{
+		OutPoint:   channel.ChannelPoint(),
+		PkScript:   channel.FundingTxOut().PkScript,
+		HeightHint: scid.BlockHeight,
+		PostSpendEvent: fn.Some[chancloser.RbfSpendMapper](
+			chancloser.SpendMapper,
+		),
+	}
+
+	// TODO(roasbeef): edge case here to re-enable a channel before both
+	// shutdown sent?
+
+	daemonAdapters := NewLndDaemonAdapters(LndAdapterCfg{
+		MsgSender:     newPeerMsgSender(peerPub, p),
+		TxBroadcaster: p.cfg.Wallet,
+		ChainNotifier: p.cfg.ChainNotifier,
+	})
+
+	protoCfg := chancloser.RbfChanCloserCfg{
+		Daemon:       daemonAdapters,
+		InitialState: &initialState,
+		Env:          &env,
+		InitEvent:    fn.Some[protofsm.DaemonEvent](&spendEvent),
+		MsgMapper: fn.Some[protofsm.MsgMapper[chancloser.ProtocolEvent]]( //nolint:ll
+			msgMapper,
+		),
+	}
+
+	chanCloser := protofsm.NewStateMachine(protoCfg)
+
+	// Now that we've created the channel state machine, we'll register for
+	// a hook to be sent once the channel has been flushed.
+	link.OnFlushedOnce(func() {
+		commitState := channel.StateSnapshot()
+
+		ctx := context.Background()
+		chanCloser.SendEvent(ctx, &chancloser.ChannelFlushed{
+			ShutdownBalances: chancloser.ShutdownBalances{
+				LocalBalance:  commitState.LocalBalance,
+				RemoteBalance: commitState.RemoteBalance,
+			},
+		})
+	})
+
+	return &chanCloser, nil
+}
+
+// initAndStartRbfChanCloser initializes the channel closer for a channel that
+// is using the new RBF based co-op close protocol. This is called when we're
+// the one that's initiating the cooperative channel close.
+func (p *Brontide) initAndStartRbfChanCloser(req *htlcswitch.ChanClose,
+	channel *lnwallet.LightningChannel) error {
+
+	// TODO(roasbeef): either kick off sent shutdown or shutdown recv'd
+	//  * can also send the NoDangling in as new event?
+
+	// First, we'll create the channel closer for this channel.
+	chanCloser, err := p.initRbfChanCloser(channel)
+	if err != nil {
+		return err
+	}
+
+	// With the chan closer created, we'll now kick off the co-op close
+	// process by instructing it to send a shutdown message to the remote
+	// party.
+	ctx := context.Background()
+	chanCloser.SendEvent(ctx, &chancloser.SendShutdown{
+		IdealFeeRate: req.TargetFeePerKw.FeePerVByte(),
+		DeliveryAddr: chooseAddr(req.DeliveryScript),
 	})
 
 	return nil

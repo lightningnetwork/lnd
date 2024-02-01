@@ -10,7 +10,7 @@ import (
 //
 //nolint:lll
 type Chain struct {
-	Active   bool   `long:"active" description:"DEPRECATED: If the chain should be active or not. This field is now ignored since only the Bitcoin chain is supported"`
+	Active   bool   `long:"active" description:"DEPRECATED: If the chain should be active or not. This field is now ignored since only the Bitcoin chain is supported" hidden:"true"`
 	ChainDir string `long:"chaindir" description:"The directory to store the chain's data within."`
 
 	Node string `long:"node" description:"The blockchain interface to use." choice:"btcd" choice:"bitcoind" choice:"neutrino" choice:"nochainbackend"`

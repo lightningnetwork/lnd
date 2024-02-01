@@ -1747,15 +1747,27 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	// In order to avoid erroneously disconnecting from a peer that we have
 	// an active channel with, if we have any channels active with this
 	// peer, then we'll disallow disconnecting from them.
-	if len(nodeChannels) > 0 && !r.cfg.UnsafeDisconnect {
-		return nil, fmt.Errorf("cannot disconnect from peer(%x), "+
-			"all active channels with the peer need to be closed "+
-			"first", pubKeyBytes)
+	if len(nodeChannels) != 0 {
+		// If we are not in a dev environment or the configed dev value
+		// `unsafedisconnect` is false, we return an error since there
+		// are active channels.
+		if !r.cfg.Dev.GetUnsafeDisconnect() {
+			return nil, fmt.Errorf("cannot disconnect from "+
+				"peer(%x), still has %d active channels",
+				pubKeyBytes, len(nodeChannels))
+		}
+
+		// We are in a dev environment, print a warning log and
+		// disconnect.
+		rpcsLog.Warnf("UnsafeDisconnect mode, disconnecting from "+
+			"peer(%x) while there are %d active channels",
+			pubKeyBytes, len(nodeChannels))
 	}
 
 	// With all initial validation complete, we'll now request that the
 	// server disconnects from the peer.
-	if err := r.server.DisconnectPeer(peerPubKey); err != nil {
+	err = r.server.DisconnectPeer(peerPubKey)
+	if err != nil {
 		return nil, fmt.Errorf("unable to disconnect peer: %v", err)
 	}
 
@@ -3054,7 +3066,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 func (r *rpcServer) GetDebugInfo(_ context.Context,
 	_ *lnrpc.GetDebugInfoRequest) (*lnrpc.GetDebugInfoResponse, error) {
 
-	flatConfig, err := configToFlatMap(*r.cfg)
+	flatConfig, _, err := configToFlatMap(*r.cfg)
 	if err != nil {
 		return nil, fmt.Errorf("error converting config to flat map: "+
 			"%w", err)

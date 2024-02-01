@@ -206,7 +206,6 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 	args = append(args, backendArgs...)
 
 	nodeArgs := []string{
-		"--bitcoin.active",
 		"--nobootstrap",
 		"--debuglevel=debug,DISC=trace",
 		"--bitcoin.defaultchanconfs=1",
@@ -241,6 +240,9 @@ func (cfg *BaseNodeConfig) GenArgs() []string {
 		// Speed up the tests for bitcoind backend.
 		"--bitcoind.blockpollinginterval=100ms",
 		"--bitcoind.txpollinginterval=100ms",
+
+		// Allow unsafe disconnect in itest.
+		"--dev.unsafedisconnect",
 	}
 
 	args = append(args, nodeArgs...)

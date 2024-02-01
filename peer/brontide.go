@@ -441,6 +441,18 @@ type Config struct {
 	Quit chan struct{}
 }
 
+// chanCloserFsm is a union-like type that can hold the two versions of co-op
+// close we support: negotiation, and RBF based.
+//
+// TODO(roasbeef): rename to chancloser.Negotiator and chancloser.RBF?
+type chanCloserFsm = fn.Either[*chancloser.ChanCloser, *chancloser.RbfChanCloser]
+
+func makeNegotiateCloser(chanCloser *chancloser.ChanCloser) chanCloserFsm {
+	return fn.NewLeft[*chancloser.ChanCloser, *chancloser.RbfChanCloser](
+		chanCloser,
+	)
+}
+
 // Brontide is an active peer on the Lightning Network. This struct is responsible
 // for managing any channel state related to this peer. To do so, it has
 // several helper goroutines to handle events such as HTLC timeouts, new
@@ -539,7 +551,7 @@ type Brontide struct {
 	// cooperative channel closures. Any channel closing messages are directed
 	// to one of these active state machines. Once the channel has been closed,
 	// the state machine will be deleted from the map.
-	activeChanCloses map[lnwire.ChannelID]*chancloser.ChanCloser
+	activeChanCloses map[lnwire.ChannelID]chanCloserFsm
 
 	// localCloseChanReqs is a channel in which any local requests to close
 	// a particular channel are sent over.
@@ -622,7 +634,7 @@ func NewBrontide(cfg Config) *Brontide {
 		removePendingChannel: make(chan *newChannelMsg),
 
 		activeMsgStreams:   make(map[lnwire.ChannelID]*msgStream),
-		activeChanCloses:   make(map[lnwire.ChannelID]*chancloser.ChanCloser),
+		activeChanCloses:   make(map[lnwire.ChannelID]chanCloserFsm),
 		localCloseChanReqs: make(chan *htlcswitch.ChanClose),
 		linkFailures:       make(chan linkFailureReport),
 		chanCloseMsgs:      make(chan *closeMsg),
@@ -1208,8 +1220,9 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 					"delivery addr: %w", err)
 				return
 			}
-			chanCloser, err := p.createChanCloser(
-				lnChan, addr, feePerKw, nil, info.Closer(),
+			negotiateChanCloser, err := p.createChanCloser(
+				lnChan, addr, feePerKw, nil,
+				info.Closer(),
 			)
 			if err != nil {
 				shutdownInfoErr = fmt.Errorf("unable to "+
@@ -1222,10 +1235,14 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 				lnChan.State().FundingOutpoint,
 			)
 
+			chanCloser := makeNegotiateCloser(
+				negotiateChanCloser,
+			)
+
 			p.activeChanCloses[chanID] = chanCloser
 
 			// Create the Shutdown message.
-			shutdown, err := chanCloser.ShutdownChan()
+			shutdown, err := negotiateChanCloser.ShutdownChan()
 			if err != nil {
 				delete(p.activeChanCloses, chanID)
 				shutdownInfoErr = err
@@ -2937,7 +2954,7 @@ func (p *Brontide) reenableActiveChannels() {
 // Otherwise, either an existing state machine will be returned, or a new one
 // will be created.
 func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
-	*chancloser.ChanCloser, error) {
+	*chanCloserFsm, error) {
 
 	chanCloser, found := p.activeChanCloses[chanID]
 	if found {
@@ -2945,7 +2962,7 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		// created for a non-pending channel or for a channel that had
 		// previously started the shutdown process but the connection
 		// was restarted.
-		return chanCloser, nil
+		return &chanCloser, nil
 	}
 
 	// First, we'll ensure that we actually know of the target channel. If
@@ -2991,7 +3008,7 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse addr: %w", err)
 	}
-	chanCloser, err = p.createChanCloser(
+	negotiateChanCloser, err := p.createChanCloser(
 		channel, addr, feePerKw, nil, lntypes.Remote,
 	)
 	if err != nil {
@@ -2999,9 +3016,11 @@ func (p *Brontide) fetchActiveChanCloser(chanID lnwire.ChannelID) (
 		return nil, fmt.Errorf("unable to create chan closer")
 	}
 
+	chanCloser = makeNegotiateCloser(negotiateChanCloser)
+
 	p.activeChanCloses[chanID] = chanCloser
 
-	return chanCloser, nil
+	return &chanCloser, nil
 }
 
 // filterChannelsToEnable filters a list of channels to be enabled upon start.
@@ -3250,7 +3269,7 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 	// goroutine since this is done before the channelManager goroutine is
 	// created.
 	chanID := lnwire.NewChanIDFromOutPoint(c.FundingOutpoint)
-	p.activeChanCloses[chanID] = chanCloser
+	p.activeChanCloses[chanID] = makeNegotiateCloser(chanCloser)
 
 	// Create the Shutdown message.
 	shutdownMsg, err := chanCloser.ShutdownChan()
@@ -3359,7 +3378,7 @@ func (p *Brontide) initNegotiateChanCloser(req *htlcswitch.ChanClose,
 	}
 
 	chanID := lnwire.NewChanIDFromOutPoint(*req.ChanPoint)
-	p.activeChanCloses[chanID] = chanCloser
+	p.activeChanCloses[chanID] = makeNegotiateCloser(chanCloser)
 
 	// Finally, we'll initiate the channel shutdown within the
 	// chanCloser, and send the shutdown message to the remote
@@ -3413,7 +3432,7 @@ func chooseAddr(addr lnwire.DeliveryAddress) fn.Option[lnwire.DeliveryAddress] {
 func (p *Brontide) initRbfChanCloser(req *htlcswitch.ChanClose,
 	channel *lnwallet.LightningChannel) (*chancloser.RbfChanCloser, error) {
 
-	chanID := lnwire.NewChanIDFromOutPoint(req.ChanPoint)
+	chanID := lnwire.NewChanIDFromOutPoint(*req.ChanPoint)
 
 	link := p.fetchLinkFromKeyAndCid(chanID)
 
@@ -3434,7 +3453,7 @@ func (p *Brontide) initRbfChanCloser(req *htlcswitch.ChanClose,
 		return nil, fmt.Errorf("unable to get thaw height: %w", err)
 	}
 
-	msgMapper := chancloser.NewRbfMsgMapper(uint32(startingHeight))
+	msgMapper := chancloser.NewRbfMsgMapper(uint32(startingHeight), chanID)
 
 	initialState := chancloser.ChannelActive{}
 
@@ -3464,14 +3483,16 @@ func (p *Brontide) initRbfChanCloser(req *htlcswitch.ChanClose,
 			return p.genDeliveryScript()
 		},
 		FeeEstimator: &chancloser.SimpleCoopFeeEstimator{},
-		ChanObserver: newChanObserver(channel, link),
+		ChanObserver: newChanObserver(channel, link, p.cfg.ChanStatusMgr),
 	}
 
-	spendEvent := protofsm.RegisterSpend[chancloser.SpendEvent]{
-		OutPoint:       *req.ChanPoint,
-		PkScript:       channel.FundingTxOut().PkScript,
-		HeightHint:     scid.BlockHeight,
-		PostSpendEvent: fn.Some(chancloser.SpendEvent{}),
+	spendEvent := protofsm.RegisterSpend[chancloser.ProtocolEvent]{
+		OutPoint:   channel.ChannelPoint(),
+		PkScript:   channel.FundingTxOut().PkScript,
+		HeightHint: scid.BlockHeight,
+		PostSpendEvent: fn.Some[chancloser.RbfSpendMapper](
+			chancloser.SpendMapper,
+		),
 	}
 
 	// TODO(roasbeef): edge case here to re-enable a channel before both
@@ -4159,7 +4180,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 
 	// We'll now fetch the matching closing state machine in order to continue,
 	// or finalize the channel closure process.
-	chanCloser, err := p.fetchActiveChanCloser(msg.cid)
+	chanCloserE, err := p.fetchActiveChanCloser(msg.cid)
 	if err != nil {
 		// If the channel is not known to us, we'll simply ignore this message.
 		if err == ErrChannelNotFound {
@@ -4176,17 +4197,31 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		return
 	}
 
+	if chanCloserE.IsRight() {
+		// TODO(roasbeef): assert?
+		return
+	}
+
+	// At this point, we'll only enter this call path if a negotiate chan
+	// closer was used. So we'll extract that from the either now.
+	//
+	// TODO(roabeef): need extra helper func for either to make cleaner
+	var chanCloser *chancloser.ChanCloser
+	chanCloserE.WhenLeft(func(c *chancloser.ChanCloser) {
+		chanCloser = c
+	})
+
 	handleErr := func(err error) {
 		err = fmt.Errorf("unable to process close msg: %w", err)
 		p.log.Error(err)
 
-		// As the negotiations failed, we'll reset the channel state machine to
-		// ensure we act to on-chain events as normal.
+		// As the negotiations failed, we'll reset the channel state
+		// machine to ensure we act to on-chain events as normal.
 		chanCloser.Channel().ResetState()
-
 		if chanCloser.CloseRequest() != nil {
 			chanCloser.CloseRequest().Err <- err
 		}
+
 		delete(p.activeChanCloses, msg.cid)
 
 		p.Disconnect(err)

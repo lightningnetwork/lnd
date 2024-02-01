@@ -7313,7 +7313,8 @@ func NewLocalForceCloseSummary(chanState *channeldb.OpenChannel,
 // chanCloseOpt is a functional option that can be used to modify the co-op
 // close process.
 type chanCloseOpt struct {
-	musigSession *MusigSession
+	musigSession   *MusigSession
+	customSequence fn.Option[uint32]
 }
 
 // ChanCloseOpt is a closure type that cen be used to modify the set of default
@@ -7331,6 +7332,16 @@ func defaultCloseOpts() *chanCloseOpt {
 func WithCoopCloseMusigSession(session *MusigSession) ChanCloseOpt {
 	return func(opts *chanCloseOpt) {
 		opts.musigSession = session
+	}
+}
+
+// WithCustomSequence can be used to specify a custom sequence number for the
+// co-op close process. Otherwise, a default non-final sequence will be used.
+//
+// TODO(roasbeef): why is this useful at all?
+func WithCustomSequence(sequence uint32) ChanCloseOpt {
+	return func(opts *chanCloseOpt) {
+		opts.customSequence = fn.Some(sequence)
 	}
 }
 
@@ -7380,6 +7391,12 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	if lc.channelState.ChanType.IsTaproot() {
 		closeTxOpts = append(closeTxOpts, WithRBFCloseTx())
 	}
+
+	opts.customSequence.WhenSome(func(sequence uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxInSequence(
+			sequence,
+		))
+	})
 
 	closeTx := CreateCooperativeCloseTx(
 		fundingTxIn(lc.channelState), lc.channelState.LocalChanCfg.DustLimit,
@@ -7462,6 +7479,12 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 	if lc.channelState.ChanType.IsTaproot() {
 		closeTxOpts = append(closeTxOpts, WithRBFCloseTx())
 	}
+
+	opts.customSequence.WhenSome(func(sequence uint32) {
+		closeTxOpts = append(closeTxOpts, WithCustomTxInSequence(
+			sequence,
+		))
+	})
 
 	// Create the transaction used to return the current settled balance
 	// on this active channel back to both parties. In this current model,
@@ -8166,6 +8189,11 @@ type closeTxOpts struct {
 	// enableRBF indicates whether the cooperative close tx should signal
 	// RBF or not.
 	enableRBF bool
+
+	// customSequence is an optional custom sequence to set on the co-op
+	// close transaction. This gives slighty more control compared to the
+	// enableRBF option.
+	customSequence fn.Option[uint32]
 }
 
 // defaultCloseTxOpts returns a closeTxOpts struct with default values.
@@ -8183,6 +8211,14 @@ type CloseTxOpt func(*closeTxOpts)
 func WithRBFCloseTx() CloseTxOpt {
 	return func(o *closeTxOpts) {
 		o.enableRBF = true
+	}
+}
+
+// WithCustomTxInSequence allows a caller to set a custom sequence on the sole
+// input of the co-op close tx.
+func WithCustomTxInSequence(sequence uint32) CloseTxOpt {
+	return func(o *closeTxOpts) {
+		o.customSequence = fn.Some(sequence)
 	}
 }
 
@@ -8208,12 +8244,19 @@ func CreateCooperativeCloseTx(fundingTxIn wire.TxIn,
 		fundingTxIn.Sequence = mempool.MaxRBFSequence
 	}
 
+	// Otherwise, a custom sequence might be specified.
+	opts.customSequence.WhenSome(func(sequence uint32) {
+		fundingTxIn.Sequence = sequence
+	})
+
 	// Construct the transaction to perform a cooperative closure of the
 	// channel. In the event that one side doesn't have any settled funds
 	// within the channel then a refund output for that particular side can
 	// be omitted.
 	closeTx := wire.NewMsgTx(2)
 	closeTx.AddTxIn(&fundingTxIn)
+
+	// TODO(roasbeef): needs support for dropping inputs
 
 	// Create both cooperative closure outputs, properly respecting the
 	// dust limits of both parties.

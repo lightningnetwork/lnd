@@ -196,7 +196,7 @@ type FlushHookID uint64
 
 // LinkDirection is used to query and change any link state on a per-direction
 // basis.
-type LinkDirection bool
+type LinkDirection = bool
 
 const (
 	// Incoming is the direction from the remote peer to our node.

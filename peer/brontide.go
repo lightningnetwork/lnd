@@ -453,6 +453,12 @@ func makeNegotiateCloser(chanCloser *chancloser.ChanCloser) chanCloserFsm {
 	)
 }
 
+func makeRbfCloser(rbfCloser *chancloser.RbfChanCloser) chanCloserFsm {
+	return fn.NewRight[*chancloser.ChanCloser, *chancloser.RbfChanCloser](
+		rbfCloser,
+	)
+}
+
 // Brontide is an active peer on the Lightning Network. This struct is responsible
 // for managing any channel state related to this peer. To do so, it has
 // several helper goroutines to handle events such as HTLC timeouts, new
@@ -3524,6 +3530,8 @@ func (p *Brontide) initRbfChanCloser(req *htlcswitch.ChanClose,
 
 	chanCloser := protofsm.NewStateMachine(protoCfg)
 
+	p.activeChanCloses[chanID] = makeRbfCloser(&chanCloser)
+
 	// Now that we've created the channel state machine, we'll register for
 	// a hook to be sent once the channel has been flushed.
 	link.OnFlushedOnce(func() {
@@ -3589,7 +3597,14 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 	// out this channel on-chain, so we execute the cooperative channel
 	// closure workflow.
 	case contractcourt.CloseRegular:
-		err := p.initNegotiateChanCloser(req, channel)
+		var err error
+		switch {
+		case p.rbfCoopCloseAllowed():
+			err = p.initAndStartRbfChanCloser(req, channel)
+		default:
+			err = p.initNegotiateChanCloser(req, channel)
+		}
+
 		if err != nil {
 			p.log.Errorf(err.Error())
 			req.Err <- err

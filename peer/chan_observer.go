@@ -5,6 +5,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/htlcswitch"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 )
 
@@ -24,7 +25,7 @@ type channelView interface {
 
 	// MarkCoopBroadcasted persistently marks that the channel close
 	// transaction has been broadcast.
-	MarkCoopBroadcasted(*wire.MsgTx, bool) error
+	MarkCoopBroadcasted(*wire.MsgTx, lntypes.ChannelParty) error
 
 	// StateSnapshot returns a snapshot of the current fully committed
 	// state within the channel.
@@ -50,21 +51,31 @@ type linkController interface {
 	IsFlushing(direction bool) bool
 }
 
+// linkNetworkController is an interface that represents an object capable of
+// managing interactions with the active channel links from the PoV of the
+// gossip network.
+type linkNetworkController interface {
+	// RequestDisable disables a channel by its channel point.
+	RequestDisable(wire.OutPoint, bool) error
+}
+
 // chanObserver implements the chancloser.ChanObserver interface for the
 // existing LightningChannel struct/instance.
 type chanObserver struct {
-	chanView channelView
-	link     linkController
+	chanView    channelView
+	link        linkController
+	linkNetwork linkNetworkController
 }
 
 // newChanObserver creates a new instance of a chanObserver from an active
 // channelView.
 func newChanObserver(chanView channelView,
-	link linkController) *chanObserver {
+	link linkController, linkNetwork linkNetworkController) *chanObserver {
 
 	return &chanObserver{
-		chanView: chanView,
-		link:     link,
+		chanView:    chanView,
+		link:        link,
+		linkNetwork: linkNetwork,
 	}
 }
 
@@ -104,7 +115,7 @@ func (l *chanObserver) DisableOutgoingAdds() error {
 // MarkCoopBroadcasted persistently marks that the channel close transaction
 // has been broadcast.
 func (l *chanObserver) MarkCoopBroadcasted(tx *wire.MsgTx, local bool) error {
-	return l.chanView.MarkCoopBroadcasted(tx, local)
+	return l.chanView.MarkCoopBroadcasted(tx, lntypes.Local)
 }
 
 // MarkShutdownSent persists the given ShutdownInfo. The existence of the
@@ -148,6 +159,12 @@ func (l *chanObserver) FinalBalances() fn.Option[chancloser.ShutdownBalances] {
 	default:
 		return fn.None[chancloser.ShutdownBalances]()
 	}
+}
+
+// DisableChannel disables the target channel.
+func (l *chanObserver) DisableChannel() error {
+	op := l.chanView.StateSnapshot().ChannelPoint
+	return l.linkNetwork.RequestDisable(op, false)
 }
 
 // A compile-time assertion to ensure that chanObserver meets the

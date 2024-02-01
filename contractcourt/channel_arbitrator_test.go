@@ -1430,7 +1430,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 // is breached by the remote node. In these cases we expect the
 // ChannelArbitrator to properly execute the breachResolver flow and then
 // gracefully exit once the breachResolver receives the signal from what would
-// normally be the breacharbiter.
+// normally be the BreachArbitrator.
 func TestChannelArbitratorForceCloseBreachedChannel(t *testing.T) {
 	log := &mockArbitratorLog{
 		state:     StateDefault,

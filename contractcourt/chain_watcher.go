@@ -175,7 +175,7 @@ type chainWatcherConfig struct {
 
 	// contractBreach is a method that will be called by the watcher if it
 	// detects that a contract breach transaction has been confirmed. It
-	// will only return a non-nil error when the breachArbiter has
+	// will only return a non-nil error when the BreachArbitrator has
 	// preserved the necessary breach info for this channel point.
 	contractBreach func(*lnwallet.BreachRetribution) error
 
@@ -1243,14 +1243,14 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		closeSummary.LastChanSyncMsg = chanSync
 	}
 
-	// Hand the retribution info over to the breach arbiter. This function
+	// Hand the retribution info over to the BreachArbitrator. This function
 	// will wait for a response from the breach arbiter and then proceed to
 	// send a BreachCloseInfo to the channel arbitrator. The channel arb
 	// will then mark the channel as closed after resolutions and the
 	// commit set are logged in the arbitrator log.
 	if err := c.cfg.contractBreach(retribution); err != nil {
 		log.Errorf("unable to hand breached contract off to "+
-			"breachArbiter: %v", err)
+			"BreachArbitrator: %v", err)
 		return err
 	}
 

@@ -8,13 +8,14 @@ import (
 )
 
 // breachResolver is a resolver that will handle breached closes. In the
-// future, this will likely take over the duties the current breacharbiter has.
+// future, this will likely take over the duties the current BreachArbitrator
+// has.
 type breachResolver struct {
 	// resolved reflects if the contract has been fully resolved or not.
 	resolved bool
 
 	// subscribed denotes whether or not the breach resolver has subscribed
-	// to the breacharbiter for breach resolution.
+	// to the BreachArbitrator for breach resolution.
 	subscribed bool
 
 	// replyChan is closed when the breach arbiter has completed serving
@@ -42,8 +43,8 @@ func (b *breachResolver) ResolverKey() []byte {
 	return key[:]
 }
 
-// Resolve queries the breacharbiter to see if the justice transaction has been
-// broadcast.
+// Resolve queries the BreachArbitrator to see if the justice transaction has
+// been broadcast.
 func (b *breachResolver) Resolve() (ContractResolver, error) {
 	if !b.subscribed {
 		complete, err := b.SubscribeBreachComplete(

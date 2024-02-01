@@ -53,12 +53,12 @@ var (
 	// for the first and one for the second level).
 	taprootRetributionBucket = []byte("tap-retribution")
 
-	// errBrarShuttingDown is an error returned if the breacharbiter has
+	// errBrarShuttingDown is an error returned if the BreachArbitrator has
 	// been signalled to exit.
-	errBrarShuttingDown = errors.New("breacharbiter shutting down")
+	errBrarShuttingDown = errors.New("BreachArbitrator shutting down")
 )
 
-// ContractBreachEvent is an event the BreachArbiter will receive in case a
+// ContractBreachEvent is an event the BreachArbitrator will receive in case a
 // contract breach is observed on-chain. It contains the necessary information
 // to handle the breach, and a ProcessACK closure we will use to ACK the event
 // when we have safely stored all the necessary information.
@@ -71,7 +71,7 @@ type ContractBreachEvent struct {
 	// store. In case storing the information to the store fails, a non-nil
 	// error should be used. When this closure returns, it means that the
 	// contract court has marked the channel pending close in the DB, and
-	// it is safe for the BreachArbiter to carry on its duty.
+	// it is safe for the BreachArbitrator to carry on its duty.
 	ProcessACK func(error)
 
 	// BreachRetribution is the information needed to act on this contract
@@ -94,11 +94,12 @@ const (
 )
 
 // RetributionStorer provides an interface for managing a persistent map from
-// wire.OutPoint -> retributionInfo. Upon learning of a breach, a BreachArbiter
-// should record the retributionInfo for the breached channel, which serves a
-// checkpoint in the event that retribution needs to be resumed after failure.
-// A RetributionStore provides an interface for managing the persisted set, as
-// well as mapping user defined functions over the entire on-disk contents.
+// wire.OutPoint -> retributionInfo. Upon learning of a breach, a
+// BreachArbitrator should record the retributionInfo for the breached channel,
+// which serves a checkpoint in the event that retribution needs to be resumed
+// after failure. A RetributionStore provides an interface for managing the
+// persisted set, as well as mapping user defined functions over the entire
+// on-disk contents.
 //
 // Calls to RetributionStore may occur concurrently. A concrete instance of
 // RetributionStore should use appropriate synchronization primitives, or
@@ -125,7 +126,8 @@ type RetributionStorer interface {
 }
 
 // BreachConfig bundles the required subsystems used by the breach arbiter. An
-// instance of BreachConfig is passed to newBreachArbiter during instantiation.
+// instance of BreachConfig is passed to NewBreachArbitrator during
+// instantiation.
 type BreachConfig struct {
 	// CloseLink allows the breach arbiter to shutdown any channel links for
 	// which it detects a breach, ensuring now further activity will
@@ -154,9 +156,9 @@ type BreachConfig struct {
 	// transaction to the network.
 	PublishTransaction func(*wire.MsgTx, string) error
 
-	// ContractBreaches is a channel where the BreachArbiter will receive
+	// ContractBreaches is a channel where the BreachArbitrator will receive
 	// notifications in the event of a contract breach being observed. A
-	// ContractBreachEvent must be ACKed by the BreachArbiter, such that
+	// ContractBreachEvent must be ACKed by the BreachArbitrator, such that
 	// the sending subsystem knows that the event is properly handed off.
 	ContractBreaches <-chan *ContractBreachEvent
 
@@ -171,7 +173,7 @@ type BreachConfig struct {
 	Store RetributionStorer
 }
 
-// BreachArbiter is a special subsystem which is responsible for watching and
+// BreachArbitrator is a special subsystem which is responsible for watching and
 // acting on the detection of any attempted uncooperative channel breaches by
 // channel counterparties. This file essentially acts as deterrence code for
 // those attempting to launch attacks against the daemon. In practice it's
@@ -179,7 +181,7 @@ type BreachConfig struct {
 // important to have it in place just in case we encounter cheating channel
 // counterparties.
 // TODO(roasbeef): closures in config for subsystem pointers to decouple?
-type BreachArbiter struct {
+type BreachArbitrator struct {
 	started sync.Once
 	stopped sync.Once
 
@@ -192,19 +194,19 @@ type BreachArbiter struct {
 	sync.Mutex
 }
 
-// NewBreachArbiter creates a new instance of a BreachArbiter initialized with
-// its dependent objects.
-func NewBreachArbiter(cfg *BreachConfig) *BreachArbiter {
-	return &BreachArbiter{
+// NewBreachArbitrator creates a new instance of a BreachArbitrator initialized
+// with its dependent objects.
+func NewBreachArbitrator(cfg *BreachConfig) *BreachArbitrator {
+	return &BreachArbitrator{
 		cfg:           cfg,
 		subscriptions: make(map[wire.OutPoint]chan struct{}),
 		quit:          make(chan struct{}),
 	}
 }
 
-// Start is an idempotent method that officially starts the BreachArbiter along
-// with all other goroutines it needs to perform its functions.
-func (b *BreachArbiter) Start() error {
+// Start is an idempotent method that officially starts the BreachArbitrator
+// along with all other goroutines it needs to perform its functions.
+func (b *BreachArbitrator) Start() error {
 	var err error
 	b.started.Do(func() {
 		brarLog.Info("Breach arbiter starting")
@@ -213,7 +215,7 @@ func (b *BreachArbiter) Start() error {
 	return err
 }
 
-func (b *BreachArbiter) start() error {
+func (b *BreachArbitrator) start() error {
 	// Load all retributions currently persisted in the retribution store.
 	var breachRetInfos map[wire.OutPoint]retributionInfo
 	if err := b.cfg.Store.ForAll(func(ret *retributionInfo) error {
@@ -305,10 +307,10 @@ func (b *BreachArbiter) start() error {
 	return nil
 }
 
-// Stop is an idempotent method that signals the BreachArbiter to execute a
+// Stop is an idempotent method that signals the BreachArbitrator to execute a
 // graceful shutdown. This function will block until all goroutines spawned by
-// the BreachArbiter have gracefully exited.
-func (b *BreachArbiter) Stop() error {
+// the BreachArbitrator have gracefully exited.
+func (b *BreachArbitrator) Stop() error {
 	b.stopped.Do(func() {
 		brarLog.Infof("Breach arbiter shutting down...")
 		defer brarLog.Debug("Breach arbiter shutdown complete")
@@ -321,13 +323,13 @@ func (b *BreachArbiter) Stop() error {
 
 // IsBreached queries the breach arbiter's retribution store to see if it is
 // aware of any channel breaches for a particular channel point.
-func (b *BreachArbiter) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
+func (b *BreachArbitrator) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
 	return b.cfg.Store.IsBreached(chanPoint)
 }
 
 // SubscribeBreachComplete is used by outside subsystems to be notified of a
 // successful breach resolution.
-func (b *BreachArbiter) SubscribeBreachComplete(chanPoint *wire.OutPoint,
+func (b *BreachArbitrator) SubscribeBreachComplete(chanPoint *wire.OutPoint,
 	c chan struct{}) (bool, error) {
 
 	breached, err := b.cfg.Store.IsBreached(chanPoint)
@@ -353,9 +355,9 @@ func (b *BreachArbiter) SubscribeBreachComplete(chanPoint *wire.OutPoint,
 	return false, nil
 }
 
-// notifyBreachComplete is used by the BreachArbiter to notify outside
+// notifyBreachComplete is used by the BreachArbitrator to notify outside
 // subsystems that the breach resolution process is complete.
-func (b *BreachArbiter) notifyBreachComplete(chanPoint *wire.OutPoint) {
+func (b *BreachArbitrator) notifyBreachComplete(chanPoint *wire.OutPoint) {
 	b.Lock()
 	defer b.Unlock()
 	if c, ok := b.subscriptions[*chanPoint]; ok {
@@ -366,7 +368,7 @@ func (b *BreachArbiter) notifyBreachComplete(chanPoint *wire.OutPoint) {
 	delete(b.subscriptions, *chanPoint)
 }
 
-// contractObserver is the primary goroutine for the BreachArbiter. This
+// contractObserver is the primary goroutine for the BreachArbitrator. This
 // goroutine is responsible for handling breach events coming from the
 // contractcourt on the ContractBreaches channel. If a channel breach is
 // detected, then the contractObserver will execute the retribution logic
@@ -374,7 +376,7 @@ func (b *BreachArbiter) notifyBreachComplete(chanPoint *wire.OutPoint) {
 // wallet.
 //
 // NOTE: This MUST be run as a goroutine.
-func (b *BreachArbiter) contractObserver() {
+func (b *BreachArbitrator) contractObserver() {
 	defer b.wg.Done()
 
 	brarLog.Infof("Starting contract observer, watching for breaches.")
@@ -406,7 +408,7 @@ type spend struct {
 // returns the spend details for those outputs. The spendNtfns map is a cache
 // used to store registered spend subscriptions, in case we must call this
 // method multiple times.
-func (b *BreachArbiter) waitForSpendEvent(breachInfo *retributionInfo,
+func (b *BreachArbitrator) waitForSpendEvent(breachInfo *retributionInfo,
 	spendNtfns map[wire.OutPoint]*chainntnfs.SpendEvent) ([]spend, error) {
 
 	inputs := breachInfo.breachedOutputs
@@ -684,8 +686,10 @@ func updateBreachInfo(breachInfo *retributionInfo, spends []spend) (
 // the lingering funds within the channel into the daemon's wallet.
 //
 // NOTE: This MUST be run as a goroutine.
-func (b *BreachArbiter) exactRetribution(confChan *chainntnfs.ConfirmationEvent,
-	breachInfo *retributionInfo) {
+//
+//nolint:funlen
+func (b *BreachArbitrator) exactRetribution(
+	confChan *chainntnfs.ConfirmationEvent, breachInfo *retributionInfo) {
 
 	defer b.wg.Done()
 
@@ -916,7 +920,7 @@ Loop:
 
 // cleanupBreach marks the given channel point as fully resolved and removes the
 // retribution for that the channel from the retribution store.
-func (b *BreachArbiter) cleanupBreach(chanPoint *wire.OutPoint) error {
+func (b *BreachArbitrator) cleanupBreach(chanPoint *wire.OutPoint) error {
 	// With the channel closed, mark it in the database as such.
 	err := b.cfg.DB.MarkChanFullyClosed(chanPoint)
 	if err != nil {
@@ -943,15 +947,17 @@ func (b *BreachArbiter) cleanupBreach(chanPoint *wire.OutPoint) error {
 }
 
 // handleBreachHandoff handles a new breach event, by writing it to disk, then
-// notifies the BreachArbiter contract observer goroutine that a channel's
+// notifies the BreachArbitrator contract observer goroutine that a channel's
 // contract has been breached by the prior counterparty. Once notified the
-// BreachArbiter will attempt to sweep ALL funds within the channel using the
+// BreachArbitrator will attempt to sweep ALL funds within the channel using the
 // information provided within the BreachRetribution generated due to the
 // breach of channel contract. The funds will be swept only after the breaching
 // transaction receives a necessary number of confirmations.
 //
 // NOTE: This MUST be run as a goroutine.
-func (b *BreachArbiter) handleBreachHandoff(breachEvent *ContractBreachEvent) {
+func (b *BreachArbitrator) handleBreachHandoff(
+	breachEvent *ContractBreachEvent) {
+
 	defer b.wg.Done()
 
 	chanPoint := breachEvent.ChanPoint
@@ -1367,7 +1373,7 @@ type justiceTxVariants struct {
 // the funds within the channel which we are now entitled to due to a breach of
 // the channel's contract by the counterparty. This function returns a *fully*
 // signed transaction with the witness for each input fully in place.
-func (b *BreachArbiter) createJusticeTx(
+func (b *BreachArbitrator) createJusticeTx(
 	breachedOutputs []breachedOutput) (*justiceTxVariants, error) {
 
 	var (
@@ -1442,7 +1448,7 @@ func (b *BreachArbiter) createJusticeTx(
 }
 
 // createSweepTx creates a tx that sweeps the passed inputs back to our wallet.
-func (b *BreachArbiter) createSweepTx(inputs ...input.Input) (*wire.MsgTx,
+func (b *BreachArbitrator) createSweepTx(inputs ...input.Input) (*wire.MsgTx,
 	error) {
 
 	if len(inputs) == 0 {
@@ -1498,7 +1504,7 @@ func (b *BreachArbiter) createSweepTx(inputs ...input.Input) (*wire.MsgTx,
 
 // sweepSpendableOutputsTxn creates a signed transaction from a sequence of
 // spendable outputs by sweeping the funds into a single p2wkh output.
-func (b *BreachArbiter) sweepSpendableOutputsTxn(txWeight int64,
+func (b *BreachArbitrator) sweepSpendableOutputsTxn(txWeight int64,
 	inputs ...input.Input) (*wire.MsgTx, error) {
 
 	// First, we obtain a new public key script from the wallet which we'll

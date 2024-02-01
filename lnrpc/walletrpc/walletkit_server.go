@@ -201,7 +201,7 @@ var (
 	// are numbered differently. The protobuf enum cannot be renumbered
 	// because this would break backwards compatibility with older clients,
 	// and the native enum cannot be renumbered because it is stored in the
-	// watchtower and breacharbiter databases.
+	// watchtower and BreachArbitrator databases.
 	//
 	//nolint:lll
 	allWitnessTypes = map[input.WitnessType]WitnessType{

@@ -262,7 +262,7 @@ type server struct {
 
 	witnessBeacon contractcourt.WitnessBeacon
 
-	breachArbiter *contractcourt.BreachArbiter
+	breachArbitrator *contractcourt.BreachArbitrator
 
 	missionControl *routing.MissionControl
 
@@ -1099,22 +1099,24 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	}
 
 	// We will use the following channel to reliably hand off contract
-	// breach events from the ChannelArbitrator to the breachArbiter,
+	// breach events from the ChannelArbitrator to the BreachArbitrator,
 	contractBreaches := make(chan *contractcourt.ContractBreachEvent, 1)
 
-	s.breachArbiter = contractcourt.NewBreachArbiter(&contractcourt.BreachConfig{
-		CloseLink:          closeLink,
-		DB:                 s.chanStateDB,
-		Estimator:          s.cc.FeeEstimator,
-		GenSweepScript:     newSweepPkScriptGen(cc.Wallet),
-		Notifier:           cc.ChainNotifier,
-		PublishTransaction: cc.Wallet.PublishTransaction,
-		ContractBreaches:   contractBreaches,
-		Signer:             cc.Wallet.Cfg.Signer,
-		Store: contractcourt.NewRetributionStore(
-			dbs.ChanStateDB,
-		),
-	})
+	s.breachArbitrator = contractcourt.NewBreachArbitrator(
+		&contractcourt.BreachConfig{
+			CloseLink:          closeLink,
+			DB:                 s.chanStateDB,
+			Estimator:          s.cc.FeeEstimator,
+			GenSweepScript:     newSweepPkScriptGen(cc.Wallet),
+			Notifier:           cc.ChainNotifier,
+			PublishTransaction: cc.Wallet.PublishTransaction,
+			ContractBreaches:   contractBreaches,
+			Signer:             cc.Wallet.Cfg.Signer,
+			Store: contractcourt.NewRetributionStore(
+				dbs.ChanStateDB,
+			),
+		},
+	)
 
 	s.chainArb = contractcourt.NewChainArbitrator(contractcourt.ChainArbitratorConfig{
 		ChainHash:              *s.cfg.ActiveNetParams.GenesisHash,
@@ -1167,8 +1169,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		ContractBreach: func(chanPoint wire.OutPoint,
 			breachRet *lnwallet.BreachRetribution) error {
 
-			// processACK will handle the breachArbiter ACKing the
-			// event.
+			// processACK will handle the BreachArbitrator ACKing
+			// the event.
 			finalErr := make(chan error, 1)
 			processACK := func(brarErr error) {
 				if brarErr != nil {
@@ -1176,7 +1178,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 					return
 				}
 
-				// If the breachArbiter successfully handled
+				// If the BreachArbitrator successfully handled
 				// the event, we can signal that the handoff
 				// was successful.
 				finalErr <- nil
@@ -1188,7 +1190,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 				BreachRetribution: breachRet,
 			}
 
-			// Send the contract breach event to the breachArbiter.
+			// Send the contract breach event to the
+			// BreachArbitrator.
 			select {
 			case contractBreaches <- event:
 			case <-s.quit:
@@ -1196,7 +1199,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			}
 
 			// We'll wait for a final error to be available from
-			// the breachArbiter.
+			// the BreachArbitrator.
 			select {
 			case err := <-finalErr:
 				return err
@@ -1215,8 +1218,8 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		PaymentsExpirationGracePeriod: cfg.PaymentsExpirationGracePeriod,
 		IsForwardedHTLC:               s.htlcSwitch.IsForwardedHTLC,
 		Clock:                         clock.NewDefaultClock(),
-		SubscribeBreachComplete:       s.breachArbiter.SubscribeBreachComplete,
-		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome, //nolint: lll
+		SubscribeBreachComplete:       s.breachArbitrator.SubscribeBreachComplete, //nolint:lll
+		PutFinalHtlcOutcome:           s.chanStateDB.PutOnchainFinalHtlcOutcome,   //nolint: lll
 		HtlcNotifier:                  s.htlcNotifier,
 	}, dbs.ChanStateDB)
 
@@ -1936,11 +1939,11 @@ func (s *server) Start() error {
 		}
 		cleanup = cleanup.add(s.utxoNursery.Stop)
 
-		if err := s.breachArbiter.Start(); err != nil {
+		if err := s.breachArbitrator.Start(); err != nil {
 			startErr = err
 			return
 		}
-		cleanup = cleanup.add(s.breachArbiter.Stop)
+		cleanup = cleanup.add(s.breachArbitrator.Stop)
 
 		if err := s.fundingMgr.Start(); err != nil {
 			startErr = err
@@ -2244,8 +2247,9 @@ func (s *server) Stop() error {
 		if err := s.fundingMgr.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop fundingMgr: %v", err)
 		}
-		if err := s.breachArbiter.Stop(); err != nil {
-			srvrLog.Warnf("failed to stop breachArbiter: %v", err)
+		if err := s.breachArbitrator.Stop(); err != nil {
+			srvrLog.Warnf("failed to stop breachArbitrator: %v",
+				err)
 		}
 		if err := s.utxoNursery.Stop(); err != nil {
 			srvrLog.Warnf("failed to stop utxoNursery: %v", err)

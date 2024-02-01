@@ -860,7 +860,7 @@ const (
 
 	// breachCloseTrigger is a transition trigger driven by a remote breach
 	// being confirmed. In this case the channel arbitrator will wait for
-	// the breacharbiter to finish and then clean up gracefully.
+	// the BreachArbitrator to finish and then clean up gracefully.
 	breachCloseTrigger
 )
 
@@ -2891,7 +2891,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 
 		// The remote has breached the channel. As this is handled by
-		// the ChainWatcher and BreachArbiter, we don't have to do
+		// the ChainWatcher and BreachArbitrator, we don't have to do
 		// anything in particular, so just advance our state and
 		// gracefully exit.
 		case breachInfo := <-c.cfg.ChainEvents.ContractBreach:
@@ -2926,7 +2926,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 
 			// The channel is finally marked pending closed here as
-			// the breacharbiter and channel arbitrator have
+			// the BreachArbitrator and channel arbitrator have
 			// persisted the relevant states.
 			closeSummary := &breachInfo.CloseSummary
 			err = c.cfg.MarkChannelClosed(

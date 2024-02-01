@@ -951,7 +951,7 @@ restartCheck:
 	}
 }
 
-func initBreachedState(t *testing.T) (*BreachArbiter,
+func initBreachedState(t *testing.T) (*BreachArbitrator,
 	*lnwallet.LightningChannel, *lnwallet.LightningChannel,
 	*lnwallet.LocalForceCloseSummary, chan *ContractBreachEvent) {
 
@@ -1338,7 +1338,7 @@ func getSpendTransactions(signer input.Signer, chanPoint *wire.OutPoint,
 		},
 	}
 
-	// In order for  the breacharbiter to detect that it is being spent
+	// In order for  the BreachArbitrator to detect that it is being spent
 	// using the revocation key, it will inspect the witness. Therefore
 	// sign and add the witness to the HTLC sweep.
 	retInfo := newRetributionInfo(chanPoint, retribution)
@@ -1684,7 +1684,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	}
 
 	// We also keep a map of those remaining outputs we expect the
-	// breacharbiter to try and sweep.
+	// BreachArbitrator to try and sweep.
 	inputsToSweep := map[wire.OutPoint]struct{}{
 		htlcOutpoint:   {},
 		localOutpoint:  {},
@@ -1892,7 +1892,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	}
 
 	// Now mine another block without the justice tx confirming. This
-	// should lead to the breacharbiter publishing the split justice tx
+	// should lead to the BreachArbitrator publishing the split justice tx
 	// variants.
 	notifier.EpochChan <- &chainntnfs.BlockEpoch{
 		Height: blockHeight + 4,
@@ -1988,7 +1988,7 @@ func findInputIndex(t *testing.T, op wire.OutPoint, tx *wire.MsgTx) int {
 
 // assertArbiterBreach checks that the breach arbiter has persisted the breach
 // information for a particular channel.
-func assertArbiterBreach(t *testing.T, brar *BreachArbiter,
+func assertArbiterBreach(t *testing.T, brar *BreachArbitrator,
 	chanPoint *wire.OutPoint) {
 
 	t.Helper()
@@ -2008,7 +2008,7 @@ func assertArbiterBreach(t *testing.T, brar *BreachArbiter,
 
 // assertNoArbiterBreach checks that the breach arbiter has not persisted the
 // breach information for a particular channel.
-func assertNoArbiterBreach(t *testing.T, brar *BreachArbiter,
+func assertNoArbiterBreach(t *testing.T, brar *BreachArbitrator,
 	chanPoint *wire.OutPoint) {
 
 	t.Helper()
@@ -2027,7 +2027,7 @@ func assertNoArbiterBreach(t *testing.T, brar *BreachArbiter,
 
 // assertBrarCleanup blocks until the given channel point has been removed the
 // retribution store and the channel is fully closed in the database.
-func assertBrarCleanup(t *testing.T, brar *BreachArbiter,
+func assertBrarCleanup(t *testing.T, brar *BreachArbitrator,
 	chanPoint *wire.OutPoint, db *channeldb.ChannelStateDB) {
 
 	t.Helper()
@@ -2108,7 +2108,7 @@ func assertNotPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 // createTestArbiter instantiates a breach arbiter with a failing retribution
 // store, so that controlled failures can be tested.
 func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
-	db *channeldb.DB) (*BreachArbiter, error) {
+	db *channeldb.DB) (*BreachArbitrator, error) {
 
 	// Create a failing retribution store, that wraps a normal one.
 	store := newFailingRetributionStore(func() RetributionStorer {
@@ -2120,7 +2120,7 @@ func createTestArbiter(t *testing.T, contractBreaches chan *ContractBreachEvent,
 
 	// Assemble our test arbiter.
 	notifier := mock.MakeMockSpendNotifier()
-	ba := NewBreachArbiter(&BreachConfig{
+	ba := NewBreachArbitrator(&BreachConfig{
 		CloseLink:          func(_ *wire.OutPoint, _ ChannelCloseType) {},
 		DB:                 db.ChannelStateDB(),
 		Estimator:          chainfee.NewStaticEstimator(12500, 0),

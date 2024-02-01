@@ -129,8 +129,8 @@ func TestMaybeMatchScript(t *testing.T) {
 			t.Parallel()
 
 			err := validateShutdownScript(
-				func() error { return nil }, test.upfrontScript,
-				test.shutdownScript, &chaincfg.SimNetParams,
+				test.upfrontScript, test.shutdownScript,
+				&chaincfg.SimNetParams,
 			)
 
 			if err != test.expectedErr {

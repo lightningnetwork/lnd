@@ -250,6 +250,11 @@ type ChanStateObserver interface {
 	// new outgoing add messages.
 	DisableOutgoingAdds() error
 
+	// DisableChannel attempts to disable a channel (marking it ineligible
+	// to forward), and also sends out a network update to disable the
+	// channel.
+	DisableChannel() error
+
 	// MarkCoopBroadcasted persistently marks that the channel close
 	// transaction has been broadcast.
 	MarkCoopBroadcasted(*wire.MsgTx, bool) error

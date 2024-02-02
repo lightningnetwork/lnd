@@ -197,6 +197,9 @@
   [raw hex of the closing tx](https://github.com/lightningnetwork/lnd/pull/8426)
   in `waiting_close_channels`.
 
+* [Allow callers of ListSweeps to specify the start height](
+  https://github.com/lightningnetwork/lnd/pull/7372).
+
 ## lncli Updates
 
 * [Documented all available lncli commands](https://github.com/lightningnetwork/lnd/pull/8181).

@@ -7595,7 +7595,7 @@ func (lc *LightningChannel) ForceClose() (*LocalForceCloseSummary, error) {
 
 	// Set the channel state to indicate that the channel is now in a
 	// contested state.
-	lc.status = channelDispute
+	lc.status = channelClosed
 
 	return summary, nil
 }

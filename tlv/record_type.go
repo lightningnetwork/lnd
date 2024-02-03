@@ -87,6 +87,11 @@ func (t *RecordT[T, V]) TlvType() Type {
 	return t.recordType.TypeVal()
 }
 
+// Zero returns a zero value of the record type.
+func (t *RecordT[T, V]) Zero() RecordT[T, V] {
+	return ZeroRecordT[T, V]()
+}
+
 // OptionalRecordT is a high-order type that represents an optional TLV record.
 // This can be used when a TLV record doesn't always need to be present (ok to
 // be odd).

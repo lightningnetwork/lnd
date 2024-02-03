@@ -1326,10 +1326,10 @@ func runPathFindingMaxPayloadRestriction(t *testing.T, useCache bool) {
 	}{
 		{
 			// The final hop payload size needs to be considered
-			// as well and because its treated differently than the
-			// intermediate hops this tests choose to use the legacy
-			// payload format to have a constant final hop payload
-			// size.
+			// as well and because it's treated differently than the
+			// intermediate hops the following tests choose to use
+			// the legacy payload format to have a constant final
+			// hop payload size.
 			name:              "route max payload size (1300)",
 			mockedPayloadSize: 1300 - sphinx.LegacyHopDataSize,
 		},
@@ -3450,4 +3450,158 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, expectedRoute, route)
+}
+
+// TestLastHopPayloadSize tests the final hop payload size. The final hop
+// payload structure differes from the intermediate hop payload for both the
+// non-blinded and blinded case.
+func TestLastHopPayloadSize(t *testing.T) {
+	t.Parallel()
+
+	var (
+		metadata      = []byte{21, 22}
+		customRecords = map[uint64][]byte{
+			record.CustomTypeStart: {1, 2, 3},
+		}
+		sizeEncryptedData = 100
+		encrypedData      = bytes.Repeat(
+			[]byte{1}, sizeEncryptedData,
+		)
+		_, blindedPoint       = btcec.PrivKeyFromBytes([]byte{5})
+		paymentAddr           = &[32]byte{1}
+		amtToForward          = lnwire.MilliSatoshi(10000)
+		finalHopExpiry  int32 = 144
+
+		oneHopBlindedPayment = &BlindedPayment{
+			BlindedPath: &sphinx.BlindedPath{
+				BlindedHops: []*sphinx.BlindedHopInfo{
+					{
+						CipherText: encrypedData,
+					},
+				},
+				BlindingPoint: blindedPoint,
+			},
+		}
+		twoHopBlindedPayment = &BlindedPayment{
+			BlindedPath: &sphinx.BlindedPath{
+				BlindedHops: []*sphinx.BlindedHopInfo{
+					{
+						CipherText: encrypedData,
+					},
+					{
+						CipherText: encrypedData,
+					},
+				},
+				BlindingPoint: blindedPoint,
+			},
+		}
+	)
+
+	testCases := []struct {
+		name           string
+		restrictions   *RestrictParams
+		finalHopExpiry int32
+		amount         lnwire.MilliSatoshi
+		legacy         bool
+	}{
+		{
+			name: "Non blinded final hop",
+			restrictions: &RestrictParams{
+				PaymentAddr:       paymentAddr,
+				DestCustomRecords: customRecords,
+				Metadata:          metadata,
+			},
+			amount:         amtToForward,
+			finalHopExpiry: finalHopExpiry,
+			legacy:         false,
+		},
+		{
+			name: "Non blinded final hop legacy",
+			restrictions: &RestrictParams{
+				// The legacy encoding has no ability to include
+				// those extra data we expect that this data is
+				// ignored.
+				PaymentAddr:       paymentAddr,
+				DestCustomRecords: customRecords,
+				Metadata:          metadata,
+			},
+			amount:         amtToForward,
+			finalHopExpiry: finalHopExpiry,
+			legacy:         true,
+		},
+		{
+			name: "Blinded final hop introduction point",
+			restrictions: &RestrictParams{
+				BlindedPayment: oneHopBlindedPayment,
+			},
+			amount:         amtToForward,
+			finalHopExpiry: finalHopExpiry,
+		},
+		{
+			name: "Blinded final hop of a two hop payment",
+			restrictions: &RestrictParams{
+				BlindedPayment: twoHopBlindedPayment,
+			},
+			amount:         amtToForward,
+			finalHopExpiry: finalHopExpiry,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var mpp *record.MPP
+			if tc.restrictions.PaymentAddr != nil {
+				mpp = record.NewMPP(
+					tc.amount, *tc.restrictions.PaymentAddr,
+				)
+			}
+
+			var finalHop route.Hop
+			if tc.restrictions.BlindedPayment != nil {
+				blindedPath := tc.restrictions.BlindedPayment.
+					BlindedPath.BlindedHops
+
+				blindedPoint := tc.restrictions.BlindedPayment.
+					BlindedPath.BlindingPoint
+
+				//nolint:lll
+				finalHop = route.Hop{
+					AmtToForward:     tc.amount,
+					OutgoingTimeLock: uint32(tc.finalHopExpiry),
+					LegacyPayload:    false,
+					EncryptedData:    blindedPath[len(blindedPath)-1].CipherText,
+				}
+				if len(blindedPath) == 1 {
+					finalHop.BlindingPoint = blindedPoint
+				}
+			} else {
+				//nolint:lll
+				finalHop = route.Hop{
+					LegacyPayload:    tc.legacy,
+					AmtToForward:     tc.amount,
+					OutgoingTimeLock: uint32(tc.finalHopExpiry),
+					Metadata:         tc.restrictions.Metadata,
+					MPP:              mpp,
+					CustomRecords:    tc.restrictions.DestCustomRecords,
+				}
+			}
+
+			payLoad, err := createHopPayload(finalHop, 0, true)
+			require.NoErrorf(t, err, "failed to create hop payload")
+
+			expectedPayloadSize := lastHopPayloadSize(
+				tc.restrictions, tc.finalHopExpiry,
+				tc.amount, tc.legacy,
+			)
+
+			require.Equal(
+				t, expectedPayloadSize,
+				uint64(payLoad.NumBytes()),
+			)
+		})
+	}
 }

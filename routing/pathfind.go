@@ -411,6 +411,10 @@ type RestrictParams struct {
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// BlindedPayment is necessary to determine the hop size of the
+	// last/exit hop.
+	BlindedPayment *BlindedPayment
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
@@ -635,23 +639,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 	}
 
-	// Build a preliminary destination hop structure to obtain the payload
-	// size.
-	var mpp *record.MPP
-	if r.PaymentAddr != nil {
-		mpp = record.NewMPP(amt, *r.PaymentAddr)
-	}
-
-	finalHop := route.Hop{
-		AmtToForward:     amt,
-		OutgoingTimeLock: uint32(finalHtlcExpiry),
-		CustomRecords:    r.DestCustomRecords,
-		LegacyPayload: !features.HasFeature(
-			lnwire.TLVOnionPayloadOptional,
-		),
-		MPP:      mpp,
-		Metadata: r.Metadata,
-	}
+	// The payload size of the final hop differ from intermediate hops
+	// and depends on whether the destination is blinded or not.
+	lastHopPayloadSize := lastHopPayloadSize(r, finalHtlcExpiry, amt,
+		!features.HasFeature(lnwire.TLVOnionPayloadOptional))
 
 	// We can't always assume that the end destination is publicly
 	// advertised to the network so we'll manually include the target node.
@@ -669,7 +660,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		amountToReceive: amt,
 		incomingCltv:    finalHtlcExpiry,
 		probability:     1,
-		routingInfoSize: finalHop.PayloadSize(0),
+		routingInfoSize: lastHopPayloadSize,
 	}
 
 	// Calculate the absolute cltv limit. Use uint64 to prevent an overflow
@@ -1111,4 +1102,47 @@ func getProbabilityBasedDist(weight int64, probability float64,
 	}
 
 	return int64(dist)
+}
+
+// lastHopPayloadSize calculates the payload size of the final hop in a route.
+// It depends on the tlv types which are present and also whether the hop is
+// part of a blinded route or not.
+func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
+	amount lnwire.MilliSatoshi, legacy bool) uint64 {
+
+	if r.BlindedPayment != nil {
+		blindedPath := r.BlindedPayment.BlindedPath.BlindedHops
+		blindedPoint := r.BlindedPayment.BlindedPath.BlindingPoint
+
+		encryptedData := blindedPath[len(blindedPath)-1].CipherText
+		finalHop := route.Hop{
+			AmtToForward:     amount,
+			OutgoingTimeLock: uint32(finalHtlcExpiry),
+			LegacyPayload:    false,
+			EncryptedData:    encryptedData,
+		}
+		if len(blindedPath) == 1 {
+			finalHop.BlindingPoint = blindedPoint
+		}
+
+		// The final hop does not have a short chanID set.
+		return finalHop.PayloadSize(0)
+	}
+
+	var mpp *record.MPP
+	if r.PaymentAddr != nil {
+		mpp = record.NewMPP(amount, *r.PaymentAddr)
+	}
+
+	finalHop := route.Hop{
+		AmtToForward:     amount,
+		OutgoingTimeLock: uint32(finalHtlcExpiry),
+		CustomRecords:    r.DestCustomRecords,
+		LegacyPayload:    legacy,
+		MPP:              mpp,
+		Metadata:         r.Metadata,
+	}
+
+	// The final hop does not have a short chanID set.
+	return finalHop.PayloadSize(0)
 }

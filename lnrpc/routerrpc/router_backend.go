@@ -390,6 +390,7 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		DestCustomRecords: record.CustomSet(in.DestCustomRecords),
 		CltvLimit:         cltvLimit,
 		DestFeatures:      destinationFeatures,
+		BlindedPayment:    blindedPmt,
 	}
 
 	// Pass along an outgoing channel restriction if specified.

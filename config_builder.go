@@ -693,7 +693,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		FeeEstimator:       partialChainControl.FeeEstimator,
 		SecretKeyRing:      keyRing,
 		ChainIO:            walletController,
-		DefaultConstraints: partialChainControl.ChannelConstraints,
+		DefaultConstraints: chainreg.GenDefaultBtcConstraints(),
 		NetParams:          *walletConfig.NetParams,
 	}
 
@@ -808,7 +808,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 		FeeEstimator:       partialChainControl.FeeEstimator,
 		SecretKeyRing:      rpcKeyRing,
 		ChainIO:            walletController,
-		DefaultConstraints: partialChainControl.ChannelConstraints,
+		DefaultConstraints: chainreg.GenDefaultBtcConstraints(),
 		NetParams:          *walletConfig.NetParams,
 	}
 

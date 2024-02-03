@@ -166,10 +166,6 @@ type PartialChainControl struct {
 
 	// MinHtlcIn is the minimum HTLC we will accept.
 	MinHtlcIn lnwire.MilliSatoshi
-
-	// ChannelConstraints is the set of default constraints that will be
-	// used for any incoming or outgoing channel reservation requests.
-	ChannelConstraints channeldb.ChannelConstraints
 }
 
 // ChainControl couples the three primary interfaces lnd utilizes for a
@@ -714,9 +710,6 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	if err := cc.FeeEstimator.Start(); err != nil {
 		return nil, nil, err
 	}
-
-	// Select the default channel constraints for the primary chain.
-	cc.ChannelConstraints = GenDefaultBtcConstraints()
 
 	return cc, ccCleanup, nil
 }

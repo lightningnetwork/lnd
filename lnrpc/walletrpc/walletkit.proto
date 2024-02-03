@@ -1035,6 +1035,13 @@ message ListSweepsRequest {
     replaced-by-fee, so will not be included in this output.
     */
     bool verbose = 1;
+
+    /*
+    The start height to use when fetching sweeps. If not specified (0), the
+    result will start from the earliest sweep. If set to -1 the result will
+    only include unconfirmed sweeps (at the time of the call).
+    */
+    int32 start_height = 2;
 }
 
 message ListSweepsResponse {

@@ -624,7 +624,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Check that we can find the commitment sweep in our set of known
 	// sweeps, using the simple transaction id ListSweeps output.
-	ht.AssertSweepFound(alice, sweepingTXID.String(), false)
+	ht.AssertSweepFound(alice, sweepingTXID.String(), false, 0)
 
 	// Restart Alice to ensure that she resumes watching the finalized
 	// commitment sweep txid.
@@ -952,7 +952,7 @@ func channelForceClosureTest(ht *lntest.HarnessTest,
 
 	// Check that we can find the htlc sweep in our set of sweeps using
 	// the verbose output of the listsweeps output.
-	ht.AssertSweepFound(alice, htlcSweepTx.Hash().String(), true)
+	ht.AssertSweepFound(alice, htlcSweepTx.Hash().String(), true, 0)
 
 	// The following restart checks to ensure that the nursery store is
 	// storing the txid of the previously broadcast htlc sweep txn, and that

@@ -104,6 +104,10 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	// expect an extra invoice to appear in the ListInvoices response, since
 	// a new invoice will be JIT inserted under a different payment address
 	// than the one in the invoice.
+	//
+	// NOTE: This will only work when the peer has spontaneous AMP payments
+	// enabled otherwise no invoice under a different payment_addr will be
+	// found.
 	var (
 		expNumInvoices  = 1
 		externalPayAddr []byte

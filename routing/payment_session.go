@@ -258,6 +258,7 @@ func (p *paymentSession) RequestRoute(maxAmt, feeLimit lnwire.MilliSatoshi,
 		DestCustomRecords:  p.payment.DestCustomRecords,
 		DestFeatures:       p.payment.DestFeatures,
 		PaymentAddr:        p.payment.PaymentAddr,
+		Amp:                p.payment.amp,
 		Metadata:           p.payment.Metadata,
 	}
 

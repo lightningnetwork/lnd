@@ -3469,6 +3469,7 @@ func TestLastHopPayloadSize(t *testing.T) {
 		)
 		_, blindedPoint       = btcec.PrivKeyFromBytes([]byte{5})
 		paymentAddr           = &[32]byte{1}
+		ampOptions            = &AMPOptions{}
 		amtToForward          = lnwire.MilliSatoshi(10000)
 		finalHopExpiry  int32 = 144
 
@@ -3510,6 +3511,7 @@ func TestLastHopPayloadSize(t *testing.T) {
 				PaymentAddr:       paymentAddr,
 				DestCustomRecords: customRecords,
 				Metadata:          metadata,
+				Amp:               ampOptions,
 			},
 			amount:         amtToForward,
 			finalHopExpiry: finalHopExpiry,
@@ -3524,6 +3526,7 @@ func TestLastHopPayloadSize(t *testing.T) {
 				PaymentAddr:       paymentAddr,
 				DestCustomRecords: customRecords,
 				Metadata:          metadata,
+				Amp:               ampOptions,
 			},
 			amount:         amtToForward,
 			finalHopExpiry: finalHopExpiry,
@@ -3560,6 +3563,13 @@ func TestLastHopPayloadSize(t *testing.T) {
 				)
 			}
 
+			// In case it's an AMP payment we use the max AMP record
+			// size to estimate the final hop size.
+			var amp *record.AMP
+			if tc.restrictions.Amp != nil {
+				amp = &record.MaxAmpPayLoadSize
+			}
+
 			var finalHop route.Hop
 			if tc.restrictions.BlindedPayment != nil {
 				blindedPath := tc.restrictions.BlindedPayment.
@@ -3586,6 +3596,7 @@ func TestLastHopPayloadSize(t *testing.T) {
 					OutgoingTimeLock: uint32(tc.finalHopExpiry),
 					Metadata:         tc.restrictions.Metadata,
 					MPP:              mpp,
+					AMP:              amp,
 					CustomRecords:    tc.restrictions.DestCustomRecords,
 				}
 			}

@@ -408,6 +408,11 @@ type RestrictParams struct {
 	// invoices.
 	PaymentAddr *[32]byte
 
+	// Amp signals to the pathfinder that this payment is an AMP payment
+	// and therefore it needs to account for additional AMP data in the
+	// final hop payload size calculation.
+	Amp *AMPOptions
+
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
@@ -1134,12 +1139,21 @@ func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
 		mpp = record.NewMPP(amount, *r.PaymentAddr)
 	}
 
+	var amp *record.AMP
+	if r.Amp != nil {
+		// The AMP payload is not easy accessible at this point but we
+		// are only interested in the size of the payload so we just use
+		// the AMP record dummy.
+		amp = &record.MaxAmpPayLoadSize
+	}
+
 	finalHop := route.Hop{
 		AmtToForward:     amount,
 		OutgoingTimeLock: uint32(finalHtlcExpiry),
 		CustomRecords:    r.DestCustomRecords,
 		LegacyPayload:    legacy,
 		MPP:              mpp,
+		AMP:              amp,
 		Metadata:         r.Metadata,
 	}
 

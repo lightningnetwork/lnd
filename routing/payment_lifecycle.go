@@ -628,7 +628,7 @@ func (p *paymentLifecycle) createNewPaymentAttempt(rt *route.Route,
 		return nil, err
 	}
 
-	// It this shard carries MPP or AMP options, add them to the last hop
+	// If this shard carries MPP or AMP options, add them to the last hop
 	// on the route.
 	hop := rt.Hops[len(rt.Hops)-1]
 	if shard.MPP() != nil {

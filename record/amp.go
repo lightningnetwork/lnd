@@ -19,6 +19,16 @@ type AMP struct {
 	childIndex uint32
 }
 
+// MaxAmpPayLoadSize is an AMP Record which when serialized to a tlv record uses
+// the maximum payload size. The `childIndex` is created randomly and is a
+// 4 byte `varint` type so we make sure we use an index which will be encoded in
+// 4 bytes.
+var MaxAmpPayLoadSize = AMP{
+	rootShare:  [32]byte{},
+	setID:      [32]byte{},
+	childIndex: 0x80000000,
+}
+
 // NewAMP generate a new AMP record with the given root_share, set_id, and
 // child_index.
 func NewAMP(rootShare, setID [32]byte, childIndex uint32) *AMP {

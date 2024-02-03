@@ -967,6 +967,9 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			// pseudo-reusable, e.g. the invoice parameters are
 			// reused (amt, cltv, hop hints, etc) even though the
 			// payments will share different payment hashes.
+			//
+			// NOTE: This will only work when the peer has
+			// spontaneous AMP payments enabled.
 			if len(rpcPayReq.PaymentAddr) > 0 {
 				var addr [32]byte
 				copy(addr[:], rpcPayReq.PaymentAddr)

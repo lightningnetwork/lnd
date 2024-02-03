@@ -2147,8 +2147,8 @@ func TestCooperativeCloseDustAdherence(t *testing.T) {
 	}
 
 	resetChannelState := func() {
-		aliceChannel.status = channelOpen
-		bobChannel.status = channelOpen
+		aliceChannel.ResetState()
+		bobChannel.ResetState()
 	}
 
 	setBalances := func(aliceBalance, bobBalance lnwire.MilliSatoshi) {

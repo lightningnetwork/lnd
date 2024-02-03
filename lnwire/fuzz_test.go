@@ -878,3 +878,25 @@ func FuzzInvalidOnionPayload(f *testing.F) {
 		onionFailureHarness(t, data, CodeInvalidOnionPayload)
 	})
 }
+
+func FuzzClosingSig(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with ClosingSig.
+		data = prefixWithMsgType(data, MsgClosingSig)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}
+
+func FuzzClosingComplete(f *testing.F) {
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Prefix with ClosingComplete.
+		data = prefixWithMsgType(data, MsgClosingComplete)
+
+		// Pass the message into our general fuzz harness for wire
+		// messages!
+		harness(t, data)
+	})
+}

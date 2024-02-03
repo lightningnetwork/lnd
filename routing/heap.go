@@ -3,7 +3,6 @@ package routing
 import (
 	"container/heap"
 
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
@@ -19,10 +18,16 @@ type nodeWithDist struct {
 	// outgoing edges (channels) emanating from a node.
 	node route.Vertex
 
-	// amountToReceive is the amount that should be received by this node.
+	// netAmountReceived is the amount that should be received by this node.
 	// Either as final payment to the final node or as an intermediate
-	// amount that includes also the fees for subsequent hops.
-	amountToReceive lnwire.MilliSatoshi
+	// amount that includes also the fees for subsequent hops. This node's
+	// inbound fee is already subtracted from the htlc amount - if
+	// applicable.
+	netAmountReceived lnwire.MilliSatoshi
+
+	// outboundFee is the fee that this node charges on the outgoing
+	// channel.
+	outboundFee lnwire.MilliSatoshi
 
 	// incomingCltv is the expected absolute expiry height for the incoming
 	// htlc of this node. This value should already include the final cltv
@@ -39,7 +44,7 @@ type nodeWithDist struct {
 	weight int64
 
 	// nextHop is the edge this route comes from.
-	nextHop *models.CachedEdgePolicy
+	nextHop *unifiedEdge
 
 	// routingInfoSize is the total size requirement for the payloads field
 	// in the onion packet from this hop towards the final destination.

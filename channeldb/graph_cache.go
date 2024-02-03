@@ -59,6 +59,9 @@ type DirectedChannel struct {
 	// source, so we're always interested in the edge that arrives to us
 	// from the other node.
 	InPolicy *models.CachedEdgePolicy
+
+	// Inbound fees of this node.
+	InboundFee lnwire.Fee
 }
 
 // DeepCopy creates a deep copy of the channel, including the incoming policy.
@@ -220,6 +223,14 @@ func (c *GraphCache) updateOrAddEdge(node route.Vertex, edge *DirectedChannel) {
 func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 	toNode route.Vertex, edge1 bool) {
 
+	// Extract inbound fee if possible and available. If there is a decoding
+	// error, ignore this policy.
+	var inboundFee lnwire.Fee
+	_, err := policy.ExtraOpaqueData.ExtractRecords(&inboundFee)
+	if err != nil {
+		return
+	}
+
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
@@ -240,11 +251,13 @@ func (c *GraphCache) UpdatePolicy(policy *models.ChannelEdgePolicy, fromNode,
 		// policy for node 1.
 		case channel.IsNode1 && edge1:
 			channel.OutPolicySet = true
+			channel.InboundFee = inboundFee
 
 		// This is node 2, and it is edge 2, so this is the outgoing
 		// policy for node 2.
 		case !channel.IsNode1 && !edge1:
 			channel.OutPolicySet = true
+			channel.InboundFee = inboundFee
 
 		// The other two cases left mean it's the inbound policy for the
 		// node.

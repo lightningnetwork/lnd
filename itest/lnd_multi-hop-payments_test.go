@@ -70,18 +70,33 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	// channel edges to relatively large non default values. This makes it
 	// possible to pick up more subtle fee calculation errors.
 	maxHtlc := lntest.CalculateMaxHtlc(chanAmt)
-	const aliceBaseFeeSat = 1
+	const aliceBaseFeeSat = 20
 	const aliceFeeRatePPM = 100000
 	updateChannelPolicy(
 		ht, alice, chanPointAlice, aliceBaseFeeSat*1000,
-		aliceFeeRatePPM, chainreg.DefaultBitcoinTimeLockDelta,
+		aliceFeeRatePPM, 0, 0, chainreg.DefaultBitcoinTimeLockDelta,
 		maxHtlc, carol,
+	)
+
+	// Define a negative inbound fee for Alice, to verify that this is
+	// backwards compatible with an older sender ignoring the discount.
+	const (
+		aliceInboundBaseFeeMsat = -2000
+		aliceInboundFeeRate     = -50000 // 5%
+	)
+
+	updateChannelPolicy(
+		ht, alice, chanPointDave, 0, 0,
+		aliceInboundBaseFeeMsat, aliceInboundFeeRate,
+		chainreg.DefaultBitcoinTimeLockDelta, maxHtlc,
+		dave,
 	)
 
 	const daveBaseFeeSat = 5
 	const daveFeeRatePPM = 150000
 	updateChannelPolicy(
 		ht, dave, chanPointDave, daveBaseFeeSat*1000, daveFeeRatePPM,
+		0, 0,
 		chainreg.DefaultBitcoinTimeLockDelta, maxHtlc, carol,
 	)
 
@@ -104,11 +119,11 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	ht.AssertAmountPaid("Alice(local) => Bob(remote)", alice,
 		chanPointAlice, expectedAmountPaidAtoB, int64(0))
 
-	// To forward a payment of 1000 sat, Alice is charging a fee of
-	// 1 sat + 10% = 101 sat.
-	const aliceFeePerPayment = aliceBaseFeeSat +
-		(paymentAmt * aliceFeeRatePPM / 1_000_000)
-	const expectedFeeAlice = numPayments * aliceFeePerPayment
+	// To forward a payment of 1000 sat, Alice is charging a fee of 20 sat +
+	// 10% = 120 sat, plus the inbound fee over 1120 (= 1000 + 120) sat of
+	// -2 sat - 5% = -58 sat. This makes a total of 62 sat per payment. For
+	// 5 payments, it works out to 310 sat.
+	const expectedFeeAlice = 310
 
 	// Dave needs to pay what Alice pays plus Alice's fee.
 	expectedAmountPaidDtoA := expectedAmountPaidAtoB + expectedFeeAlice
@@ -118,12 +133,10 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 	ht.AssertAmountPaid("Dave(local) => Alice(remote)", dave,
 		chanPointDave, expectedAmountPaidDtoA, int64(0))
 
-	// To forward a payment of 1101 sat, Dave is charging a fee of
-	// 5 sat + 15% = 170.15 sat. This is rounded down in rpcserver to 170.
-	const davePaymentAmt = paymentAmt + aliceFeePerPayment
-	const daveFeePerPayment = daveBaseFeeSat +
-		(davePaymentAmt * daveFeeRatePPM / 1_000_000)
-	const expectedFeeDave = numPayments * daveFeePerPayment
+	// To forward a payment of 1062 sat, Dave is charging a fee of 5 sat +
+	// 15% = 164.3 sat. For 5 payments this is 821.5 sat. This test works
+	// with sats, so we need to round down to 821.
+	const expectedFeeDave = 821
 
 	// Carol needs to pay what Dave pays plus Dave's fee.
 	expectedAmountPaidCtoD := expectedAmountPaidDtoA + expectedFeeDave
@@ -224,15 +237,17 @@ func testMultiHopPayments(ht *lntest.HarnessTest) {
 // NOTE: only used in current test.
 func updateChannelPolicy(ht *lntest.HarnessTest, hn *node.HarnessNode,
 	chanPoint *lnrpc.ChannelPoint, baseFee int64,
-	feeRate int64, timeLockDelta uint32,
-	maxHtlc uint64, listenerNode *node.HarnessNode) {
+	feeRate int64, inboundBaseFee, inboundFeeRate int32,
+	timeLockDelta uint32, maxHtlc uint64, listenerNode *node.HarnessNode) {
 
 	expectedPolicy := &lnrpc.RoutingPolicy{
-		FeeBaseMsat:      baseFee,
-		FeeRateMilliMsat: feeRate,
-		TimeLockDelta:    timeLockDelta,
-		MinHtlc:          1000, // default value
-		MaxHtlcMsat:      maxHtlc,
+		FeeBaseMsat:             baseFee,
+		FeeRateMilliMsat:        feeRate,
+		TimeLockDelta:           timeLockDelta,
+		MinHtlc:                 1000, // default value
+		MaxHtlcMsat:             maxHtlc,
+		InboundFeeBaseMsat:      inboundBaseFee,
+		InboundFeeRateMilliMsat: inboundFeeRate,
 	}
 
 	updateFeeReq := &lnrpc.PolicyUpdateRequest{
@@ -242,7 +257,9 @@ func updateChannelPolicy(ht *lntest.HarnessTest, hn *node.HarnessNode,
 		Scope: &lnrpc.PolicyUpdateRequest_ChanPoint{
 			ChanPoint: chanPoint,
 		},
-		MaxHtlcMsat: maxHtlc,
+		MaxHtlcMsat:        maxHtlc,
+		InboundBaseFeeMsat: inboundBaseFee,
+		InboundFeeRatePpm:  inboundFeeRate,
 	}
 
 	hn.RPC.UpdateChannelPolicy(updateFeeReq)

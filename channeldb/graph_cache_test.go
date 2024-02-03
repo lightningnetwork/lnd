@@ -75,6 +75,10 @@ func TestGraphCacheAddNode(t *testing.T) {
 			ChannelID:    1000,
 			ChannelFlags: lnwire.ChanUpdateChanFlags(channelFlagA),
 			ToNode:       nodeB,
+			// Define an inbound fee.
+			ExtraOpaqueData: []byte{
+				253, 217, 3, 8, 0, 0, 0, 10, 0, 0, 0, 20,
+			},
 		}
 		inPolicy1 := &models.ChannelEdgePolicy{
 			ChannelID:    1000,
@@ -124,8 +128,18 @@ func TestGraphCacheAddNode(t *testing.T) {
 			edges map[uint64]*DirectedChannel) error {
 
 			nodes[node] = struct{}{}
-			for chanID := range edges {
+			for chanID, directedChannel := range edges {
 				chans[chanID] = struct{}{}
+
+				if node == nodeA {
+					require.NotZero(
+						t, directedChannel.InboundFee,
+					)
+				} else {
+					require.Zero(
+						t, directedChannel.InboundFee,
+					)
+				}
 			}
 
 			return nil

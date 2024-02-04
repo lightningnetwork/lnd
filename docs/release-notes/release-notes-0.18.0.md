@@ -78,6 +78,11 @@
 * [Add Taproot witness types
   to rpc](https://github.com/lightningnetwork/lnd/pull/8431)
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8369) a case where `lnd`
+  would show the wrong transaction outpoint for zero-fee htlcs when calling
+  `pendingchannels`. Now depending on the resolving stage the right outpoint
+  will be shown.
+
 # New Features
 ## Functional Enhancements
 

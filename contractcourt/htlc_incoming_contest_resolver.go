@@ -142,8 +142,8 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		return nil, errResolverShuttingDown
 	}
 
-	log.Debugf("%T(%v): Resolving incoming HTLC(expiry=%v, height=%v)", h,
-		h.htlcResolution.ClaimOutpoint, h.htlcExpiry, currentHeight)
+	log.Debugf("%T(hash=%x): Resolving incoming HTLC(expiry=%v, height=%v)",
+		h, h.htlc.RHash, h.htlcExpiry, currentHeight)
 
 	// We'll first check if this HTLC has been timed out, if so, we can
 	// return now and mark ourselves as resolved. If we're past the point of
@@ -158,9 +158,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		//  * may need to hook into the circuit map
 		//  * can't timeout before the outgoing has been
 
-		log.Infof("%T(%v): HTLC has timed out (expiry=%v, height=%v), "+
-			"abandoning", h, h.htlcResolution.ClaimOutpoint,
-			h.htlcExpiry, currentHeight)
+		log.Infof("%T(hash=%x): HTLC has timed out (expiry=%v, "+
+			"height=%v), abandoning", h, h.htlc.RHash, h.htlcExpiry,
+			currentHeight)
 		h.resolved = true
 
 		if err := h.processFinalHtlcFail(); err != nil {
@@ -191,8 +191,8 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// Update htlcResolution with the matching preimage.
 		h.htlcResolution.Preimage = preimage
 
-		log.Infof("%T(%v): applied preimage=%v", h,
-			h.htlcResolution.ClaimOutpoint, preimage)
+		log.Infof("%T(hash=%x): applied preimage=%v", h, h.htlc.RHash,
+			preimage)
 
 		isSecondLevel := h.htlcResolution.SignedSuccessTx != nil
 
@@ -256,10 +256,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// If the htlc was failed, mark the htlc as
 		// resolved.
 		case *invoices.HtlcFailResolution:
-			log.Infof("%T(%v): Exit hop HTLC canceled "+
+			log.Infof("%T(hash=%x): Exit hop HTLC canceled "+
 				"(expiry=%v, height=%v), abandoning", h,
-				h.htlcResolution.ClaimOutpoint,
-				h.htlcExpiry, currentHeight)
+				h.htlc.RHash, h.htlcExpiry, currentHeight)
 
 			h.resolved = true
 
@@ -410,10 +409,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// resolved and exit.
 			newHeight := uint32(newBlock.Height)
 			if newHeight >= h.htlcExpiry {
-				log.Infof("%T(%v): HTLC has timed out "+
+				log.Infof("%T(hash=%v): HTLC has timed out "+
 					"(expiry=%v, height=%v), abandoning", h,
-					h.htlcResolution.ClaimOutpoint,
-					h.htlcExpiry, currentHeight)
+					h.htlc.RHash, h.htlcExpiry,
+					currentHeight)
 				h.resolved = true
 
 				if err := h.processFinalHtlcFail(); err != nil {
@@ -438,15 +437,26 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 func (h *htlcIncomingContestResolver) report() *ContractReport {
 	// No locking needed as these values are read-only.
 
+	// The ClaimOutpoint for zero fee htlcs and htlcs on our local
+	// commitment is not the final outpoint which will hit the chain
+	// therefore we use the htlc outpoint. This also effects non-anchor
+	// channels where the ClaimOutpoint does not change during the lifetime
+	// but we treat both in the same to be consistent.
+	outpoint := h.htlcResolution.ClaimOutpoint
+
 	finalAmt := h.htlc.Amt.ToSatoshis()
 	if h.htlcResolution.SignedSuccessTx != nil {
 		finalAmt = btcutil.Amount(
 			h.htlcResolution.SignedSuccessTx.TxOut[0].Value,
 		)
+
+		// We use the htlc outpoint for the report.
+		//nolint:lll
+		outpoint = h.htlcResolution.SignedSuccessTx.TxIn[0].PreviousOutPoint
 	}
 
 	return &ContractReport{
-		Outpoint:       h.htlcResolution.ClaimOutpoint,
+		Outpoint:       outpoint,
 		Type:           ReportOutputIncomingHtlc,
 		Amount:         finalAmt,
 		MaturityHeight: h.htlcExpiry,

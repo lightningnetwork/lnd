@@ -49,10 +49,6 @@ type Config struct {
 	// used to lookup the existence of outputs within the UTXO set.
 	ChainIO BlockChainIO
 
-	// DefaultConstraints is the set of default constraints that will be
-	// used for any incoming or outgoing channel reservation requests.
-	DefaultConstraints channeldb.ChannelConstraints
-
 	// NetParams is the set of parameters that tells the wallet which chain
 	// it will be operating on.
 	NetParams chaincfg.Params

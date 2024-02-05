@@ -200,19 +200,6 @@ type ChainControl struct {
 	Wallet *lnwallet.LightningWallet
 }
 
-// GenDefaultBtcConstraints generates the default set of channel constraints
-// that are to be used when funding a Bitcoin channel.
-func GenDefaultBtcConstraints() channeldb.ChannelConstraints {
-	// We use the dust limit for the maximally sized witness program with
-	// a 40-byte data push.
-	dustLimit := lnwallet.DustLimitForSize(input.UnknownWitnessSize)
-
-	return channeldb.ChannelConstraints{
-		DustLimit:        dustLimit,
-		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-	}
-}
-
 // NewPartialChainControl creates a new partial chain control that contains all
 // the parts that can be purely constructed from the passed in global
 // configuration and doesn't need any wallet instance yet.

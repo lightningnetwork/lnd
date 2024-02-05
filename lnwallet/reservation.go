@@ -262,7 +262,7 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	}
 
 	// Used to cut down on verbosity.
-	defaultDust := wallet.Cfg.DefaultConstraints.DustLimit
+	defaultDust := DustLimitUnknownWitness()
 
 	// If we're the responder to a single-funder reservation, then we have
 	// no initial balance in the channel unless the remote party is pushing

@@ -80,3 +80,8 @@ func DustLimitForSize(scriptSize int) btcutil.Amount {
 
 	return dustlimit
 }
+
+// DustLimitUnknownWitness returns the dust limit for an UnknownWitnessSize.
+func DustLimitUnknownWitness() btcutil.Amount {
+	return DustLimitForSize(input.UnknownWitnessSize)
+}

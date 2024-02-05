@@ -283,6 +283,9 @@
 * Added fuzz tests for [onion
   errors](https://github.com/lightningnetwork/lnd/pull/7669).
 
+* Fixed the db name [in a channeldb
+  test](https://github.com/lightningnetwork/lnd/pull/8462).
+
 ## Database
 
 * [Add context to InvoiceDB

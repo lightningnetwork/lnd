@@ -471,13 +471,13 @@ type PaymentsQuery struct {
 	// payment index (complete and incomplete) should be counted.
 	CountTotal bool
 
-	// CreationDateStart, if set, filters out all payments with a creation
-	// date greater than or euqal to it.
-	CreationDateStart time.Time
+	// CreationDateStart, expressed in Unix seconds, if set, filters out
+	// all payments with a creation date greater than or equal to it.
+	CreationDateStart int64
 
-	// CreationDateEnd, if set, filters out all payments with a creation
-	// date less than or euqal to it.
-	CreationDateEnd time.Time
+	// CreationDateEnd, expressed in Unix seconds, if set, filters out all
+	// payments with a creation date less than or equal to it.
+	CreationDateEnd int64
 }
 
 // PaymentsResponse contains the result of a query to the payments database.
@@ -512,11 +512,7 @@ type PaymentsResponse struct {
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
 func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
-	var (
-		resp         PaymentsResponse
-		startDateSet = !query.CreationDateStart.IsZero()
-		endDateSet   = !query.CreationDateEnd.IsZero()
-	)
+	var resp PaymentsResponse
 
 	if err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// Get the root payments bucket.
@@ -561,20 +557,20 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 				return false, err
 			}
 
+			// Get the creation time in Unix seconds, this always
+			// rounds down the nanoseconds to full seconds.
+			createTime := payment.Info.CreationTime.Unix()
+
 			// Skip any payments that were created before the
 			// specified time.
-			if startDateSet && payment.Info.CreationTime.Before(
-				query.CreationDateStart,
-			) {
-
+			if createTime < query.CreationDateStart {
 				return false, nil
 			}
 
 			// Skip any payments that were created after the
 			// specified time.
-			if endDateSet && payment.Info.CreationTime.After(
-				query.CreationDateEnd,
-			) {
+			if query.CreationDateEnd != 0 &&
+				createTime > query.CreationDateEnd {
 
 				return false, nil
 			}

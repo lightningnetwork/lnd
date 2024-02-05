@@ -153,13 +153,6 @@ func testListPayments(ht *lntest.HarnessTest) {
 		alice, bob, lntest.OpenChannelParams{Amt: chanAmt},
 	)
 
-	// Get the number of invoices Bob already has.
-	//
-	// TODO(yy): we can remove this check once the `DeleteAllInvoices` rpc
-	// is added.
-	invResp := bob.RPC.ListInvoices(nil)
-	numOldInvoices := len(invResp.Invoices)
-
 	// Now that the channel is open, create an invoice for Bob which
 	// expects a payment of 1000 satoshis from Alice paid via a particular
 	// preimage.
@@ -173,8 +166,7 @@ func testListPayments(ht *lntest.HarnessTest) {
 	invoiceResp := bob.RPC.AddInvoice(invoice)
 
 	// Check that Bob has added the invoice.
-	numInvoices := numOldInvoices + 1
-	ht.AssertNumInvoices(bob, 1)
+	invoice = ht.AssertNumInvoices(bob, 1)[0]
 
 	// With the invoice for Bob added, send a payment towards Alice paying
 	// to the above generated invoice.
@@ -210,65 +202,108 @@ func testListPayments(ht *lntest.HarnessTest) {
 	require.Equal(ht, invoiceResp.PaymentRequest, p.PaymentRequest,
 		"incorrect payreq")
 
+	// testCase holds a case to be used by both the payment and the invoice
+	// tests.
+	type testCase struct {
+		name      string
+		startDate uint64
+		endDate   uint64
+		expected  bool
+	}
+
+	// Create test cases to check the timestamp filters.
+	createCases := func(createTimeSeconds uint64) []testCase {
+		return []testCase{
+			{
+				// Use a start date same as the creation date
+				// should return us the item.
+				name:      "exact start date",
+				startDate: createTimeSeconds,
+				expected:  true,
+			},
+			{
+				// Use an earlier start date should return us
+				// the item.
+				name:      "earlier start date",
+				startDate: createTimeSeconds - 1,
+				expected:  true,
+			},
+			{
+				// Use a future start date should return us
+				// nothing.
+				name:      "future start date",
+				startDate: createTimeSeconds + 1,
+				expected:  false,
+			},
+			{
+				// Use an end date same as the creation date
+				// should return us the item.
+				name:     "exact end date",
+				endDate:  createTimeSeconds,
+				expected: true,
+			},
+			{
+				// Use an end date in the future should return
+				// us the item.
+				name:     "future end date",
+				endDate:  createTimeSeconds + 1,
+				expected: true,
+			},
+			{
+				// Use an earlier end date should return us
+				// nothing.
+				name:     "earlier end date",
+				endDate:  createTimeSeconds - 1,
+				expected: false,
+			},
+		}
+	}
+
+	// Get the payment creation time in seconds.
+	paymentCreateSeconds := uint64(
+		p.CreationTimeNs / time.Second.Nanoseconds(),
+	)
+
+	// Create test cases from the payment creation time.
+	testCases := createCases(paymentCreateSeconds)
+
 	// We now check the timestamp filters in `ListPayments`.
-	//
-	// Use a start date long time ago should return us the payment.
-	req := &lnrpc.ListPaymentsRequest{
-		CreationDateStart: 1227035905,
-	}
-	resp := alice.RPC.ListPayments(req)
-	require.Len(ht, resp.Payments, 1)
+	for _, tc := range testCases {
+		ht.Run("payment_"+tc.name, func(t *testing.T) {
+			req := &lnrpc.ListPaymentsRequest{
+				CreationDateStart: tc.startDate,
+				CreationDateEnd:   tc.endDate,
+			}
+			resp := alice.RPC.ListPayments(req)
 
-	// Use an end date long time ago should return us nothing.
-	req = &lnrpc.ListPaymentsRequest{
-		CreationDateEnd: 1227035905,
+			if tc.expected {
+				require.Lenf(t, resp.Payments, 1, "req=%v", req)
+			} else {
+				require.Emptyf(t, resp.Payments, "req=%v", req)
+			}
+		})
 	}
-	resp = alice.RPC.ListPayments(req)
-	require.Empty(ht, resp.Payments)
 
-	// Use a start date far in the future should return us nothing.
-	req = &lnrpc.ListPaymentsRequest{
-		CreationDateStart: 5392552705,
-	}
-	resp = alice.RPC.ListPayments(req)
-	require.Empty(ht, resp.Payments)
+	// Create test cases from the invoice creation time.
+	testCases = createCases(uint64(invoice.CreationDate))
 
-	// Use an end date far in the future should return us the payment.
-	req = &lnrpc.ListPaymentsRequest{
-		CreationDateEnd: 5392552705,
-	}
-	resp = alice.RPC.ListPayments(req)
-	require.Len(ht, resp.Payments, 1)
+	// We now do the same check for `ListInvoices`.
+	for _, tc := range testCases {
+		ht.Run("invoice_"+tc.name, func(t *testing.T) {
+			req := &lnrpc.ListInvoiceRequest{
+				CreationDateStart: tc.startDate,
+				CreationDateEnd:   tc.endDate,
+			}
+			resp := bob.RPC.ListInvoices(req)
 
-	// We now do the same check for `ListInvoices`
-	//
-	// Use a start date long time ago should return us the invoice.
-	invReq := &lnrpc.ListInvoiceRequest{
-		CreationDateStart: 1227035905,
+			if tc.expected {
+				require.Lenf(t, resp.Invoices, 1, "req: %v",
+					req)
+			} else {
+				require.Emptyf(t, resp.Invoices, "req: %v", req)
+			}
+		})
 	}
-	invResp = bob.RPC.ListInvoices(invReq)
-	require.Len(ht, invResp.Invoices, numInvoices)
-
-	// Use an end date long time ago should return us nothing.
-	invReq = &lnrpc.ListInvoiceRequest{
-		CreationDateEnd: 1227035905,
-	}
-	invResp = bob.RPC.ListInvoices(invReq)
-	require.Empty(ht, invResp.Invoices)
-
-	// Use a start date far in the future should return us nothing.
-	invReq = &lnrpc.ListInvoiceRequest{
-		CreationDateStart: 5392552705,
-	}
-	invResp = bob.RPC.ListInvoices(invReq)
-	require.Empty(ht, invResp.Invoices)
-
-	// Use an end date far in the future should return us the invoice.
-	invReq = &lnrpc.ListInvoiceRequest{
-		CreationDateEnd: 5392552705,
-	}
-	invResp = bob.RPC.ListInvoices(invReq)
-	require.Len(ht, invResp.Invoices, numInvoices)
 
 	// Delete all payments from Alice. DB should have no payments.
 	alice.RPC.DeleteAllPayments()

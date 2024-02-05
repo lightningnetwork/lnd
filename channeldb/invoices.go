@@ -497,11 +497,7 @@ func (d *DB) FetchPendingInvoices(_ context.Context) (
 func (d *DB) QueryInvoices(_ context.Context, q invpkg.InvoiceQuery) (
 	invpkg.InvoiceSlice, error) {
 
-	var (
-		resp         invpkg.InvoiceSlice
-		startDateSet = !q.CreationDateStart.IsZero()
-		endDateSet   = !q.CreationDateEnd.IsZero()
-	)
+	var resp invpkg.InvoiceSlice
 
 	err := kvdb.View(d, func(tx kvdb.RTx) error {
 		// If the bucket wasn't found, then there aren't any invoices
@@ -541,20 +537,20 @@ func (d *DB) QueryInvoices(_ context.Context, q invpkg.InvoiceQuery) (
 				return false, nil
 			}
 
+			// Get the creation time in Unix seconds, this always
+			// rounds down the nanoseconds to full seconds.
+			createTime := invoice.CreationDate.Unix()
+
 			// Skip any invoices that were created before the
 			// specified time.
-			if startDateSet && invoice.CreationDate.Before(
-				q.CreationDateStart,
-			) {
-
+			if createTime < q.CreationDateStart {
 				return false, nil
 			}
 
 			// Skip any invoices that were created after the
 			// specified time.
-			if endDateSet && invoice.CreationDate.After(
-				q.CreationDateEnd,
-			) {
+			if q.CreationDateEnd != 0 &&
+				createTime > q.CreationDateEnd {
 
 				return false, nil
 			}

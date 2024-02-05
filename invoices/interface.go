@@ -2,7 +2,6 @@ package invoices
 
 import (
 	"context"
-	"time"
 
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -126,13 +125,13 @@ type InvoiceQuery struct {
 	// from the IndexOffset and go backwards.
 	Reversed bool
 
-	// CreationDateStart, if set, filters out all invoices with a creation
-	// date greater than or euqal to it.
-	CreationDateStart time.Time
+	// CreationDateStart, expressed in Unix seconds, if set, filters out
+	// all invoices with a creation date greater than or equal to it.
+	CreationDateStart int64
 
 	// CreationDateEnd, if set, filters out all invoices with a creation
-	// date less than or euqal to it.
-	CreationDateEnd time.Time
+	// date less than or equal to it.
+	CreationDateEnd int64
 }
 
 // InvoiceSlice is the response to a invoice query. It includes the original

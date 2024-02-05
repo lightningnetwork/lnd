@@ -138,7 +138,7 @@ func TestUpdateAdditionalEdge(t *testing.T) {
 	require.Equal(t, 1, len(policies), "should have 1 edge policy")
 
 	// Check that the policy has been created as expected.
-	policy := policies[0]
+	policy := policies[0].EdgePolicy()
 	require.Equal(t, testChannelID, policy.ChannelID, "channel ID mismatch")
 	require.Equal(t,
 		oldExpiryDelta, policy.TimeLockDelta, "timelock delta mismatch",

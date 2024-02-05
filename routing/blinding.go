@@ -99,7 +99,7 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 
 	hintCount := len(b.BlindedPath.BlindedHops) - 1
 	hints := make(
-		map[route.Vertex][]*models.CachedEdgePolicy, hintCount,
+		RouteHints, hintCount,
 	)
 
 	// Start at the unblinded introduction node, because our pathfinding
@@ -116,25 +116,31 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 	// will ensure that pathfinding provides sufficient fees/delay for the
 	// blinded portion to the introduction node.
 	firstBlindedHop := b.BlindedPath.BlindedHops[1].BlindedNodePub
-	hints[fromNode] = []*models.CachedEdgePolicy{
-		{
-			TimeLockDelta: b.CltvExpiryDelta,
-			MinHTLC:       lnwire.MilliSatoshi(b.HtlcMinimum),
-			MaxHTLC:       lnwire.MilliSatoshi(b.HtlcMaximum),
-			FeeBaseMSat:   lnwire.MilliSatoshi(b.BaseFee),
-			FeeProportionalMillionths: lnwire.MilliSatoshi(
-				b.ProportionalFee,
-			),
-			ToNodePubKey: func() route.Vertex {
-				return route.NewVertex(
-					// The first node in this slice is
-					// the introduction node, so we start
-					// at index 1 to get the first blinded
-					// relaying node.
-					firstBlindedHop,
-				)
-			},
-			ToNodeFeatures: features,
+	edgePolicy := &models.CachedEdgePolicy{
+		TimeLockDelta: b.CltvExpiryDelta,
+		MinHTLC:       lnwire.MilliSatoshi(b.HtlcMinimum),
+		MaxHTLC:       lnwire.MilliSatoshi(b.HtlcMaximum),
+		FeeBaseMSat:   lnwire.MilliSatoshi(b.BaseFee),
+		FeeProportionalMillionths: lnwire.MilliSatoshi(
+			b.ProportionalFee,
+		),
+		ToNodePubKey: func() route.Vertex {
+			return route.NewVertex(
+				// The first node in this slice is
+				// the introduction node, so we start
+				// at index 1 to get the first blinded
+				// relaying node.
+				firstBlindedHop,
+			)
+		},
+		ToNodeFeatures: features,
+	}
+
+	hints[fromNode] = []AdditionalEdge{
+		&BlindedEdge{
+			policy:        edgePolicy,
+			cipherText:    b.BlindedPath.BlindedHops[0].CipherText,
+			blindingPoint: b.BlindedPath.BlindingPoint,
 		},
 	}
 
@@ -156,15 +162,19 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 			b.BlindedPath.BlindedHops[nextHopIdx].BlindedNodePub,
 		)
 
-		hint := &models.CachedEdgePolicy{
+		edgePolicy := &models.CachedEdgePolicy{
 			ToNodePubKey: func() route.Vertex {
 				return nextNode
 			},
 			ToNodeFeatures: features,
 		}
 
-		hints[fromNode] = []*models.CachedEdgePolicy{
-			hint,
+		hints[fromNode] = []AdditionalEdge{
+			&BlindedEdge{
+				policy: edgePolicy,
+				cipherText: b.BlindedPath.BlindedHops[i].
+					CipherText,
+			},
 		}
 	}
 

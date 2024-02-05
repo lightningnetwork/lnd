@@ -1,10 +1,12 @@
 package routing
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	sphinx "github.com/lightningnetwork/lightning-onion"
+	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
@@ -94,6 +96,12 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		htlcMin   uint64 = 100
 		htlcMax   uint64 = 100_000_000
 
+		sizeEncryptedData = 100
+		cipherText        = bytes.Repeat(
+			[]byte{1}, sizeEncryptedData,
+		)
+		_, blindedPoint = btcec.PrivKeyFromBytes([]byte{5})
+
 		rawFeatures = lnwire.NewRawFeatureVector(
 			lnwire.AMPOptional,
 		)
@@ -108,6 +116,7 @@ func TestBlindedPaymentToHints(t *testing.T) {
 	blindedPayment := &BlindedPayment{
 		BlindedPath: &sphinx.BlindedPath{
 			IntroductionPoint: pk1,
+			BlindingPoint:     blindedPoint,
 			BlindedHops: []*sphinx.BlindedHopInfo{
 				{},
 			},
@@ -125,40 +134,52 @@ func TestBlindedPaymentToHints(t *testing.T) {
 	blindedPayment.BlindedPath.BlindedHops = []*sphinx.BlindedHopInfo{
 		{
 			BlindedNodePub: pkb1,
+			CipherText:     cipherText,
 		},
 		{
 			BlindedNodePub: pkb2,
+			CipherText:     cipherText,
 		},
 		{
 			BlindedNodePub: pkb3,
+			CipherText:     cipherText,
 		},
 	}
 
 	expected := RouteHints{
 		v1: {
-			{
-				TimeLockDelta: cltvDelta,
-				MinHTLC:       lnwire.MilliSatoshi(htlcMin),
-				MaxHTLC:       lnwire.MilliSatoshi(htlcMax),
-				FeeBaseMSat:   lnwire.MilliSatoshi(baseFee),
-				FeeProportionalMillionths: lnwire.MilliSatoshi(
-					ppmFee,
-				),
-				ToNodePubKey: func() route.Vertex {
-					return vb2
+			//nolint:lll
+			&BlindedEdge{
+				policy: &models.CachedEdgePolicy{
+					TimeLockDelta: cltvDelta,
+					MinHTLC:       lnwire.MilliSatoshi(htlcMin),
+					MaxHTLC:       lnwire.MilliSatoshi(htlcMax),
+					FeeBaseMSat:   lnwire.MilliSatoshi(baseFee),
+					FeeProportionalMillionths: lnwire.MilliSatoshi(
+						ppmFee,
+					),
+					ToNodePubKey: func() route.Vertex {
+						return vb2
+					},
+					ToNodeFeatures: features,
 				},
-				ToNodeFeatures: features,
+				blindingPoint: blindedPoint,
+				cipherText:    cipherText,
 			},
 		},
 		vb2: {
-			{
-				ToNodePubKey: func() route.Vertex {
-					return vb3
+			&BlindedEdge{
+				policy: &models.CachedEdgePolicy{
+					ToNodePubKey: func() route.Vertex {
+						return vb3
+					},
+					ToNodeFeatures: features,
 				},
-				ToNodeFeatures: features,
+				cipherText: cipherText,
 			},
 		},
 	}
+
 	actual := blindedPayment.toRouteHints()
 
 	require.Equal(t, len(expected), len(actual))
@@ -170,13 +191,24 @@ func TestBlindedPaymentToHints(t *testing.T) {
 		require.Len(t, actualHint, 1)
 
 		// We can't assert that our functions are equal, so we check
-		// their output and then mark as nil so that we can use
+		// their output and then mark them as nil so that we can use
 		// require.Equal for all our other fields.
-		require.Equal(t, expectedHint[0].ToNodePubKey(),
-			actualHint[0].ToNodePubKey())
+		require.Equal(t, expectedHint[0].EdgePolicy().ToNodePubKey(),
+			actualHint[0].EdgePolicy().ToNodePubKey())
 
-		actualHint[0].ToNodePubKey = nil
-		expectedHint[0].ToNodePubKey = nil
+		actualHint[0].EdgePolicy().ToNodePubKey = nil
+		expectedHint[0].EdgePolicy().ToNodePubKey = nil
+
+		// The arguments we use for the payload do not matter as long as
+		// both functions return the same payload.
+		expectedPayloadSize := expectedHint[0].IntermediatePayloadSize(
+			0, 0, false, 0,
+		)
+		actualPayloadSize := actualHint[0].IntermediatePayloadSize(
+			0, 0, false, 0,
+		)
+
+		require.Equal(t, expectedPayloadSize, actualPayloadSize)
 
 		require.Equal(t, expectedHint[0], actualHint[0])
 	}

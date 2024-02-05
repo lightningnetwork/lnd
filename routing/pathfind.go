@@ -88,7 +88,7 @@ var (
 // of the edge.
 type edgePolicyWithSource struct {
 	sourceNode route.Vertex
-	edge       *models.CachedEdgePolicy
+	edge       AdditionalEdge
 }
 
 // finalHopParams encapsulates various parameters for route construction that
@@ -355,8 +355,9 @@ type graphParams struct {
 
 	// additionalEdges is an optional set of edges that should be
 	// considered during path finding, that is not already found in the
-	// channel graph.
-	additionalEdges map[route.Vertex][]*models.CachedEdgePolicy
+	// channel graph. These can either be private edges for bolt 11 invoices
+	// or blinded edges when a payment to a blinded path is made.
+	additionalEdges map[route.Vertex][]AdditionalEdge
 
 	// bandwidthHints is an interface that provides bandwidth hints that
 	// can provide a better estimate of the current channel bandwidth than
@@ -407,9 +408,18 @@ type RestrictParams struct {
 	// invoices.
 	PaymentAddr *[32]byte
 
+	// Amp signals to the pathfinder that this payment is an AMP payment
+	// and therefore it needs to account for additional AMP data in the
+	// final hop payload size calculation.
+	Amp *AMPOptions
+
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// BlindedPayment is necessary to determine the hop size of the
+	// last/exit hop.
+	BlindedPayment *BlindedPayment
 }
 
 // PathFindingConfig defines global parameters that control the trade-off in
@@ -609,7 +619,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	distance := make(map[route.Vertex]*nodeWithDist, estimatedNodeCount)
 
 	additionalEdgesWithSrc := make(map[route.Vertex][]*edgePolicyWithSource)
-	for vertex, outgoingEdgePolicies := range g.additionalEdges {
+	for vertex, additionalEdges := range g.additionalEdges {
 		// Edges connected to self are always included in the graph,
 		// therefore can be skipped. This prevents us from trying
 		// routes to malformed hop hints.
@@ -619,12 +629,13 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 
 		// Build reverse lookup to find incoming edges. Needed because
 		// search is taken place from target to source.
-		for _, outgoingEdgePolicy := range outgoingEdgePolicies {
+		for _, additionalEdge := range additionalEdges {
+			outgoingEdgePolicy := additionalEdge.EdgePolicy()
 			toVertex := outgoingEdgePolicy.ToNodePubKey()
 
 			incomingEdgePolicy := &edgePolicyWithSource{
 				sourceNode: vertex,
-				edge:       outgoingEdgePolicy,
+				edge:       additionalEdge,
 			}
 
 			additionalEdgesWithSrc[toVertex] =
@@ -633,23 +644,10 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		}
 	}
 
-	// Build a preliminary destination hop structure to obtain the payload
-	// size.
-	var mpp *record.MPP
-	if r.PaymentAddr != nil {
-		mpp = record.NewMPP(amt, *r.PaymentAddr)
-	}
-
-	finalHop := route.Hop{
-		AmtToForward:     amt,
-		OutgoingTimeLock: uint32(finalHtlcExpiry),
-		CustomRecords:    r.DestCustomRecords,
-		LegacyPayload: !features.HasFeature(
-			lnwire.TLVOnionPayloadOptional,
-		),
-		MPP:      mpp,
-		Metadata: r.Metadata,
-	}
+	// The payload size of the final hop differ from intermediate hops
+	// and depends on whether the destination is blinded or not.
+	lastHopPayloadSize := lastHopPayloadSize(r, finalHtlcExpiry, amt,
+		!features.HasFeature(lnwire.TLVOnionPayloadOptional))
 
 	// We can't always assume that the end destination is publicly
 	// advertised to the network so we'll manually include the target node.
@@ -667,7 +665,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		amountToReceive: amt,
 		incomingCltv:    finalHtlcExpiry,
 		probability:     1,
-		routingInfoSize: finalHop.PayloadSize(0),
+		routingInfoSize: lastHopPayloadSize,
 	}
 
 	// Calculate the absolute cltv limit. Use uint64 to prevent an overflow
@@ -821,23 +819,30 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 		// blob.
 		var payloadSize uint64
 		if fromVertex != source {
+			// In case the unifiedEdge does not have a payload size
+			// function supplied we request a graceful shutdown
+			// because this should never happen.
+			if edge.hopPayloadSizeFn == nil {
+				log.Criticalf("No payload size function "+
+					"available for edge=%v unable to "+
+					"determine payload size: %v", edge,
+					ErrNoPayLoadSizeFunc)
+
+				return
+			}
+
 			supportsTlv := fromFeatures.HasFeature(
 				lnwire.TLVOnionPayloadOptional,
 			)
 
-			hop := route.Hop{
-				AmtToForward: amountToSend,
-				OutgoingTimeLock: uint32(
-					toNodeDist.incomingCltv,
-				),
-				LegacyPayload: !supportsTlv,
-			}
-
-			payloadSize = hop.PayloadSize(edge.policy.ChannelID)
+			payloadSize = edge.hopPayloadSizeFn(
+				amountToSend,
+				uint32(toNodeDist.incomingCltv),
+				!supportsTlv, edge.policy.ChannelID,
+			)
 		}
 
 		routingInfoSize := toNodeDist.routingInfoSize + payloadSize
-
 		// Skip paths that would exceed the maximum routing info size.
 		if routingInfoSize > sphinx.MaxPayloadSize {
 			return
@@ -930,9 +935,14 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 			// calculations. We set a high capacity to act as if
 			// there is enough liquidity, otherwise the hint would
 			// not have been added by a wallet.
+			// We also pass the payload size function to the
+			// graph data so that we calculate the exact payload
+			// size when evaluating this hop for a route.
 			u.addPolicy(
-				reverseEdge.sourceNode, reverseEdge.edge,
+				reverseEdge.sourceNode,
+				reverseEdge.edge.EdgePolicy(),
 				fakeHopHintCapacity,
+				reverseEdge.edge.IntermediatePayloadSize,
 			)
 		}
 
@@ -1097,4 +1107,56 @@ func getProbabilityBasedDist(weight int64, probability float64,
 	}
 
 	return int64(dist)
+}
+
+// lastHopPayloadSize calculates the payload size of the final hop in a route.
+// It depends on the tlv types which are present and also whether the hop is
+// part of a blinded route or not.
+func lastHopPayloadSize(r *RestrictParams, finalHtlcExpiry int32,
+	amount lnwire.MilliSatoshi, legacy bool) uint64 {
+
+	if r.BlindedPayment != nil {
+		blindedPath := r.BlindedPayment.BlindedPath.BlindedHops
+		blindedPoint := r.BlindedPayment.BlindedPath.BlindingPoint
+
+		encryptedData := blindedPath[len(blindedPath)-1].CipherText
+		finalHop := route.Hop{
+			AmtToForward:     amount,
+			OutgoingTimeLock: uint32(finalHtlcExpiry),
+			LegacyPayload:    false,
+			EncryptedData:    encryptedData,
+		}
+		if len(blindedPath) == 1 {
+			finalHop.BlindingPoint = blindedPoint
+		}
+
+		// The final hop does not have a short chanID set.
+		return finalHop.PayloadSize(0)
+	}
+
+	var mpp *record.MPP
+	if r.PaymentAddr != nil {
+		mpp = record.NewMPP(amount, *r.PaymentAddr)
+	}
+
+	var amp *record.AMP
+	if r.Amp != nil {
+		// The AMP payload is not easy accessible at this point but we
+		// are only interested in the size of the payload so we just use
+		// the AMP record dummy.
+		amp = &record.MaxAmpPayLoadSize
+	}
+
+	finalHop := route.Hop{
+		AmtToForward:     amount,
+		OutgoingTimeLock: uint32(finalHtlcExpiry),
+		CustomRecords:    r.DestCustomRecords,
+		LegacyPayload:    legacy,
+		MPP:              mpp,
+		AMP:              amp,
+		Metadata:         r.Metadata,
+	}
+
+	// The final hop does not have a short chanID set.
+	return finalHop.PayloadSize(0)
 }

@@ -747,6 +747,9 @@ func TestPathFinding(t *testing.T) {
 		name: "path finding with additional edges",
 		fn:   runPathFindingWithAdditionalEdges,
 	}, {
+		name: "path finding max payload restriction",
+		fn:   runPathFindingMaxPayloadRestriction,
+	}, {
 		name: "path finding with redundant additional edges",
 		fn:   runPathFindingWithRedundantAdditionalEdges,
 	}, {
@@ -1204,7 +1207,7 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 
 	// Create the channel edge going from songoku to doge and include it in
 	// our map of additional edges.
-	songokuToDoge := &models.CachedEdgePolicy{
+	songokuToDogePolicy := &models.CachedEdgePolicy{
 		ToNodePubKey: func() route.Vertex {
 			return doge.PubKeyBytes
 		},
@@ -1215,8 +1218,10 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 		TimeLockDelta:             9,
 	}
 
-	additionalEdges := map[route.Vertex][]*models.CachedEdgePolicy{
-		graph.aliasMap["songoku"]: {songokuToDoge},
+	additionalEdges := map[route.Vertex][]AdditionalEdge{
+		graph.aliasMap["songoku"]: {&PrivateEdge{
+			policy: songokuToDogePolicy,
+		}},
 	}
 
 	find := func(r *RestrictParams) (
@@ -1266,6 +1271,122 @@ func runPathFindingWithAdditionalEdges(t *testing.T, useCache bool) {
 	assertExpectedPath(t, graph.aliasMap, path, "songoku", "doge")
 }
 
+// runPathFindingMaxPayloadRestriction tests the maximum size of a sphinx
+// package when creating a route. So we make sure the pathfinder does not return
+// a route which is greater than the maximum sphinx package size of 1300 bytes
+// defined in BOLT04.
+func runPathFindingMaxPayloadRestriction(t *testing.T, useCache bool) {
+	graph, err := parseTestGraph(t, useCache, basicGraphFilePath)
+	require.NoError(t, err, "unable to create graph")
+
+	sourceNode, err := graph.graph.SourceNode()
+	require.NoError(t, err, "unable to fetch source node")
+
+	paymentAmt := lnwire.NewMSatFromSatoshis(100)
+
+	// Create a node doge which is not visible in the graph.
+	dogePubKeyHex := "03dd46ff29a6941b4a2607525b043ec9b020b3f318a1bf281" +
+		"536fd7011ec59c882"
+	dogePubKeyBytes, err := hex.DecodeString(dogePubKeyHex)
+	require.NoError(t, err, "unable to decode public key")
+	dogePubKey, err := btcec.ParsePubKey(dogePubKeyBytes)
+	require.NoError(t, err, "unable to parse public key from bytes")
+
+	doge := &channeldb.LightningNode{}
+	doge.AddPubKey(dogePubKey)
+	doge.Alias = "doge"
+	copy(doge.PubKeyBytes[:], dogePubKeyBytes)
+	graph.aliasMap["doge"] = doge.PubKeyBytes
+
+	const (
+		chanID          uint64 = 1337
+		finalHtlcExpiry int32  = 0
+	)
+
+	// Create the channel edge going from songoku to doge and later add it
+	// with the mocked size function to the graph data.
+	songokuToDogePolicy := &models.CachedEdgePolicy{
+		ToNodePubKey: func() route.Vertex {
+			return doge.PubKeyBytes
+		},
+		ToNodeFeatures:            lnwire.EmptyFeatureVector(),
+		ChannelID:                 chanID,
+		FeeBaseMSat:               1,
+		FeeProportionalMillionths: 1000,
+		TimeLockDelta:             9,
+	}
+
+	// The route has 2 hops. The exit hop (doge) and the hop
+	// (songoku -> doge). The desired path looks like this:
+	// source -> songoku -> doge
+	tests := []struct {
+		name              string
+		mockedPayloadSize uint64
+		err               error
+	}{
+		{
+			// The final hop payload size needs to be considered
+			// as well and because it's treated differently than the
+			// intermediate hops the following tests choose to use
+			// the legacy payload format to have a constant final
+			// hop payload size.
+			name:              "route max payload size (1300)",
+			mockedPayloadSize: 1300 - sphinx.LegacyHopDataSize,
+		},
+		{
+			// We increase the enrypted data size by one byte.
+			name: "route 1 bytes bigger than max " +
+				"payload",
+			mockedPayloadSize: 1300 - sphinx.LegacyHopDataSize + 1,
+			err:               errNoPathFound,
+		},
+	}
+
+	for _, testCase := range tests {
+		testCase := testCase
+
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			restrictions := *noRestrictions
+			// No tlv payload, this makes sure the final hop uses
+			// the legacy payload.
+			restrictions.DestFeatures = lnwire.EmptyFeatureVector()
+
+			// Create the mocked AdditionalEdge and mock the
+			// corresponding calls.
+			mockedEdge := &mockAdditionalEdge{}
+
+			mockedEdge.On("EdgePolicy").Return(songokuToDogePolicy)
+
+			mockedEdge.On("IntermediatePayloadSize",
+				paymentAmt, uint32(finalHtlcExpiry), true,
+				chanID).Once().
+				Return(testCase.mockedPayloadSize)
+
+			additionalEdges := map[route.Vertex][]AdditionalEdge{
+				graph.aliasMap["songoku"]: {mockedEdge},
+			}
+
+			path, err := dbFindPath(
+				graph.graph, additionalEdges,
+				&mockBandwidthHints{}, &restrictions,
+				testPathFindingConfig, sourceNode.PubKeyBytes,
+				doge.PubKeyBytes, paymentAmt, 0,
+				finalHtlcExpiry,
+			)
+			require.ErrorIs(t, err, testCase.err)
+
+			if err == nil {
+				assertExpectedPath(t, graph.aliasMap, path,
+					"songoku", "doge")
+			}
+
+			mockedEdge.AssertExpectations(t)
+		})
+	}
+}
+
 // runPathFindingWithRedundantAdditionalEdges asserts that we are able to find
 // paths to nodes ignoring additional edges that are already known by self node.
 func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
@@ -1290,7 +1411,7 @@ func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
 
 	// Create the channel edge going from alice to bob and include it in
 	// our map of additional edges.
-	aliceToBob := &models.CachedEdgePolicy{
+	aliceToBobPolicy := &models.CachedEdgePolicy{
 		ToNodePubKey: func() route.Vertex {
 			return target
 		},
@@ -1301,8 +1422,10 @@ func runPathFindingWithRedundantAdditionalEdges(t *testing.T, useCache bool) {
 		TimeLockDelta:             9,
 	}
 
-	additionalEdges := map[route.Vertex][]*models.CachedEdgePolicy{
-		ctx.source: {aliceToBob},
+	additionalEdges := map[route.Vertex][]AdditionalEdge{
+		ctx.source: {&PrivateEdge{
+			policy: aliceToBobPolicy,
+		}},
 	}
 
 	path, err := dbFindPath(
@@ -2402,7 +2525,8 @@ func assertExpectedPath(t *testing.T, aliasMap map[string]route.Vertex,
 	path []*models.CachedEdgePolicy, nodeAliases ...string) {
 
 	if len(path) != len(nodeAliases) {
-		t.Fatal("number of hops and number of aliases do not match")
+		t.Fatalf("number of hops=(%v) and number of aliases=(%v) do "+
+			"not match", len(path), len(nodeAliases))
 	}
 
 	for i, hop := range path {
@@ -3072,7 +3196,7 @@ func (c *pathFindingTestContext) assertPath(path []*models.CachedEdgePolicy,
 // dbFindPath calls findPath after getting a db transaction from the database
 // graph.
 func dbFindPath(graph *channeldb.ChannelGraph,
-	additionalEdges map[route.Vertex][]*models.CachedEdgePolicy,
+	additionalEdges map[route.Vertex][]AdditionalEdge,
 	bandwidthHints bandwidthHints,
 	r *RestrictParams, cfg *PathFindingConfig,
 	source, target route.Vertex, amt lnwire.MilliSatoshi, timePref float64,
@@ -3230,8 +3354,8 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	edges := []*models.CachedEdgePolicy{
 		aliceBobEdge,
 		bobCarolEdge,
-		carolDaveEdge,
-		daveEveEdge,
+		carolDaveEdge.EdgePolicy(),
+		daveEveEdge.EdgePolicy(),
 	}
 
 	// Total timelock for the route should include:
@@ -3326,4 +3450,169 @@ func TestBlindedRouteConstruction(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Equal(t, expectedRoute, route)
+}
+
+// TestLastHopPayloadSize tests the final hop payload size. The final hop
+// payload structure differes from the intermediate hop payload for both the
+// non-blinded and blinded case.
+func TestLastHopPayloadSize(t *testing.T) {
+	t.Parallel()
+
+	var (
+		metadata      = []byte{21, 22}
+		customRecords = map[uint64][]byte{
+			record.CustomTypeStart: {1, 2, 3},
+		}
+		sizeEncryptedData = 100
+		encrypedData      = bytes.Repeat(
+			[]byte{1}, sizeEncryptedData,
+		)
+		_, blindedPoint       = btcec.PrivKeyFromBytes([]byte{5})
+		paymentAddr           = &[32]byte{1}
+		ampOptions            = &AMPOptions{}
+		amtToForward          = lnwire.MilliSatoshi(10000)
+		finalHopExpiry  int32 = 144
+
+		oneHopBlindedPayment = &BlindedPayment{
+			BlindedPath: &sphinx.BlindedPath{
+				BlindedHops: []*sphinx.BlindedHopInfo{
+					{
+						CipherText: encrypedData,
+					},
+				},
+				BlindingPoint: blindedPoint,
+			},
+		}
+		twoHopBlindedPayment = &BlindedPayment{
+			BlindedPath: &sphinx.BlindedPath{
+				BlindedHops: []*sphinx.BlindedHopInfo{
+					{
+						CipherText: encrypedData,
+					},
+					{
+						CipherText: encrypedData,
+					},
+				},
+				BlindingPoint: blindedPoint,
+			},
+		}
+	)
+
+	testCases := []struct {
+		name           string
+		restrictions   *RestrictParams
+		finalHopExpiry int32
+		amount         lnwire.MilliSatoshi
+		legacy         bool
+	}{
+		{
+			name: "Non blinded final hop",
+			restrictions: &RestrictParams{
+				PaymentAddr:       paymentAddr,
+				DestCustomRecords: customRecords,
+				Metadata:          metadata,
+				Amp:               ampOptions,
+			},
+			amount:         amtToForward,
+			finalHopExpiry: finalHopExpiry,
+			legacy:         false,
+		},
+		{
+			name: "Non blinded final hop legacy",
+			restrictions: &RestrictParams{
+				// The legacy encoding has no ability to include
+				// those extra data we expect that this data is
+				// ignored.
+				PaymentAddr:       paymentAddr,
+				DestCustomRecords: customRecords,
+				Metadata:          metadata,
+				Amp:               ampOptions,
+			},
+			amount:         amtToForward,
+			finalHopExpiry: finalHopExpiry,
+			legacy:         true,
+		},
+		{
+			name: "Blinded final hop introduction point",
+			restrictions: &RestrictParams{
+				BlindedPayment: oneHopBlindedPayment,
+			},
+			amount:         amtToForward,
+			finalHopExpiry: finalHopExpiry,
+		},
+		{
+			name: "Blinded final hop of a two hop payment",
+			restrictions: &RestrictParams{
+				BlindedPayment: twoHopBlindedPayment,
+			},
+			amount:         amtToForward,
+			finalHopExpiry: finalHopExpiry,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var mpp *record.MPP
+			if tc.restrictions.PaymentAddr != nil {
+				mpp = record.NewMPP(
+					tc.amount, *tc.restrictions.PaymentAddr,
+				)
+			}
+
+			// In case it's an AMP payment we use the max AMP record
+			// size to estimate the final hop size.
+			var amp *record.AMP
+			if tc.restrictions.Amp != nil {
+				amp = &record.MaxAmpPayLoadSize
+			}
+
+			var finalHop route.Hop
+			if tc.restrictions.BlindedPayment != nil {
+				blindedPath := tc.restrictions.BlindedPayment.
+					BlindedPath.BlindedHops
+
+				blindedPoint := tc.restrictions.BlindedPayment.
+					BlindedPath.BlindingPoint
+
+				//nolint:lll
+				finalHop = route.Hop{
+					AmtToForward:     tc.amount,
+					OutgoingTimeLock: uint32(tc.finalHopExpiry),
+					LegacyPayload:    false,
+					EncryptedData:    blindedPath[len(blindedPath)-1].CipherText,
+				}
+				if len(blindedPath) == 1 {
+					finalHop.BlindingPoint = blindedPoint
+				}
+			} else {
+				//nolint:lll
+				finalHop = route.Hop{
+					LegacyPayload:    tc.legacy,
+					AmtToForward:     tc.amount,
+					OutgoingTimeLock: uint32(tc.finalHopExpiry),
+					Metadata:         tc.restrictions.Metadata,
+					MPP:              mpp,
+					AMP:              amp,
+					CustomRecords:    tc.restrictions.DestCustomRecords,
+				}
+			}
+
+			payLoad, err := createHopPayload(finalHop, 0, true)
+			require.NoErrorf(t, err, "failed to create hop payload")
+
+			expectedPayloadSize := lastHopPayloadSize(
+				tc.restrictions, tc.finalHopExpiry,
+				tc.amount, tc.legacy,
+			)
+
+			require.Equal(
+				t, expectedPayloadSize,
+				uint64(payLoad.NumBytes()),
+			)
+		})
+	}
 }

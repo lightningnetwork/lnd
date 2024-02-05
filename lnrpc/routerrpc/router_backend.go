@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/channeldb"
-	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/feature"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -280,7 +279,7 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 	// inside of the path rather than the request's fields.
 	var (
 		targetPubKey   *route.Vertex
-		routeHintEdges map[route.Vertex][]*models.CachedEdgePolicy
+		routeHintEdges map[route.Vertex][]routing.AdditionalEdge
 		blindedPmt     *routing.BlindedPayment
 
 		// finalCLTVDelta varies depending on whether we're sending to
@@ -391,6 +390,7 @@ func (r *RouterBackend) parseQueryRoutesRequest(in *lnrpc.QueryRoutesRequest) (
 		DestCustomRecords: record.CustomSet(in.DestCustomRecords),
 		CltvLimit:         cltvLimit,
 		DestFeatures:      destinationFeatures,
+		BlindedPayment:    blindedPmt,
 	}
 
 	// Pass along an outgoing channel restriction if specified.
@@ -967,6 +967,9 @@ func (r *RouterBackend) extractIntentFromSendRequest(
 			// pseudo-reusable, e.g. the invoice parameters are
 			// reused (amt, cltv, hop hints, etc) even though the
 			// payments will share different payment hashes.
+			//
+			// NOTE: This will only work when the peer has
+			// spontaneous AMP payments enabled.
 			if len(rpcPayReq.PaymentAddr) > 0 {
 				var addr [32]byte
 				copy(addr[:], rpcPayReq.PaymentAddr)

@@ -727,3 +727,100 @@ func genAnchorSweep(ht *lntest.HarnessTest,
 
 	return btcutil.NewTx(tx)
 }
+
+// testListSweeps tests that we are able to:
+// - list only those sweeps that are currently in the mempool,
+// - list sweeps given a starting block height,
+// - list all sweeps.
+func testListSweeps(ht *lntest.HarnessTest) {
+	// Skip this test for neutrino, as it's not aware of mempool
+	// transactions.
+	if ht.IsNeutrinoBackend() {
+		ht.Skipf("skipping ListSweeps test for neutrino backend")
+	}
+
+	// Create nodes so that we start with no funds on the internal wallet.
+	alice := ht.NewNode("Alice", nil)
+	bob := ht.NewNode("Bob", nil)
+
+	const initialWalletAmt = btcutil.SatoshiPerBitcoin
+
+	// Fund Alice with an initial balance.
+	ht.FundCoins(initialWalletAmt, alice)
+
+	// Connect Alice to Bob.
+	ht.ConnectNodes(alice, bob)
+
+	// Open a few channels between Alice and Bob.
+	var chanPoints []*lnrpc.ChannelPoint
+	for i := 0; i < 3; i++ {
+		chanPoint := ht.OpenChannel(
+			alice, bob, lntest.OpenChannelParams{
+				Amt:     1e6,
+				PushAmt: 5e5,
+			},
+		)
+
+		chanPoints = append(chanPoints, chanPoint)
+	}
+
+	ht.Shutdown(bob)
+
+	// Close the first channel and sweep the funds.
+	ht.ForceCloseChannel(alice, chanPoints[0])
+
+	// Jump a block.
+	ht.MineBlocks(1)
+
+	// Get the current block height.
+	bestBlockRes := ht.Alice.RPC.GetBestBlock(nil)
+	blockHeight := bestBlockRes.BlockHeight
+
+	// Close the second channel and also sweep the funds.
+	ht.ForceCloseChannel(alice, chanPoints[1])
+
+	// Now close the third channel but don't sweep the funds just yet.
+	closeStream, _ := ht.CloseChannelAssertPending(
+		alice, chanPoints[2], true,
+	)
+
+	ht.AssertStreamChannelForceClosed(
+		alice, chanPoints[2], false, closeStream,
+	)
+
+	// Mine enough blocks for the node to sweep its funds from the force
+	// closed channel. The commit sweep resolver is able to broadcast the
+	// sweep tx up to one block before the CSV elapses, so wait until
+	// defaulCSV-1.
+	ht.MineEmptyBlocks(node.DefaultCSV - 1)
+
+	// Now we can expect that the sweep has been broadcast.
+	pendingTxHash := ht.Miner.AssertNumTxsInMempool(1)
+
+	// List all unconfirmed sweeps that alice's node had broadcast.
+	sweepResp := alice.RPC.ListSweeps(false, -1)
+	txIDs := sweepResp.GetTransactionIds().TransactionIds
+
+	require.Lenf(ht, txIDs, 1, "number of pending sweeps, starting from "+
+		"height -1")
+	require.Equal(ht, pendingTxHash[0].String(), txIDs[0])
+
+	// Now list sweeps from the closing of the first channel. We should
+	// only see the sweep from the second channel and the pending one.
+	sweepResp = alice.RPC.ListSweeps(false, blockHeight)
+	txIDs = sweepResp.GetTransactionIds().TransactionIds
+	require.Lenf(ht, txIDs, 2, "number of sweeps, starting from height %d",
+		blockHeight)
+
+	// Finally list all sweeps from the closing of the second channel. We
+	// should see all sweeps, including the pending one.
+	sweepResp = alice.RPC.ListSweeps(false, 0)
+	txIDs = sweepResp.GetTransactionIds().TransactionIds
+	require.Lenf(ht, txIDs, 3, "number of sweeps, starting from height 0")
+
+	// Mine the pending sweep and make sure it is no longer returned.
+	ht.MineBlocks(1)
+	sweepResp = alice.RPC.ListSweeps(false, -1)
+	txIDs = sweepResp.GetTransactionIds().TransactionIds
+	require.Empty(ht, txIDs, "pending sweep should not be returned")
+}

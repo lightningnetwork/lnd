@@ -342,6 +342,106 @@ func TestCoinSelect(t *testing.T) {
 	}
 }
 
+// TestCalculateChangeAmount tests that the change amount calculation performs
+// correctly, taking into account the type of change output and whether we want
+// to create a change output in the first place.
+func TestCalculateChangeAmount(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		totalInputAmt btcutil.Amount
+		requiredAmt   btcutil.Amount
+		feeNoChange   btcutil.Amount
+		feeWithChange btcutil.Amount
+		dustLimit     btcutil.Amount
+		changeType    ChangeAddressType
+
+		expectErr       string
+		expectChangeAmt btcutil.Amount
+		expectNeedMore  btcutil.Amount
+	}{{
+		// Coin selection returned a coin larger than the required
+		// amount, but still not enough to pay for the fees. This should
+		// trigger another round of coin selection with a larger
+		// required amount.
+		name:          "need to select more",
+		totalInputAmt: 500,
+		requiredAmt:   490,
+		feeNoChange:   12,
+
+		expectNeedMore: 502,
+	}, {
+		// We are using an existing change output, so we'll only want
+		// to make sure to select enough for a TX _without_ a change
+		// output added. Because we're using an existing output, the
+		// dust limit calculation should also be skipped.
+		name:          "sufficiently large for existing change output",
+		totalInputAmt: 500,
+		requiredAmt:   400,
+		feeNoChange:   10,
+		feeWithChange: 10,
+		dustLimit:     100,
+		changeType:    ExistingChangeAddress,
+
+		expectChangeAmt: 90,
+	}, {
+		name:          "sufficiently large for adding a change output",
+		totalInputAmt: 500,
+		requiredAmt:   300,
+		feeNoChange:   40,
+		feeWithChange: 50,
+		dustLimit:     100,
+
+		expectChangeAmt: 150,
+	}, {
+		name: "sufficiently large for tx without change " +
+			"amount",
+		totalInputAmt: 500,
+		requiredAmt:   460,
+		feeNoChange:   40,
+		feeWithChange: 50,
+
+		expectChangeAmt: 0,
+	}, {
+		name:          "fee percent too large",
+		totalInputAmt: 100,
+		requiredAmt:   50,
+		feeNoChange:   10,
+		feeWithChange: 45,
+		dustLimit:     5,
+
+		expectErr: "fee 0.00000045 BTC on total output value " +
+			"0.00000055",
+	}, {
+		name:          "invalid usage of function",
+		feeNoChange:   5,
+		feeWithChange: 10,
+		changeType:    ExistingChangeAddress,
+
+		expectErr: "fees for with or without change must be the same",
+	}}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(tt *testing.T) {
+			changeAmt, needMore, err := CalculateChangeAmount(
+				tc.totalInputAmt, tc.requiredAmt,
+				tc.feeNoChange, tc.feeWithChange, tc.dustLimit,
+				tc.changeType,
+			)
+
+			if tc.expectErr != "" {
+				require.ErrorContains(tt, err, tc.expectErr)
+				return
+			}
+
+			require.EqualValues(tt, tc.expectChangeAmt, changeAmt)
+			require.EqualValues(tt, tc.expectNeedMore, needMore)
+		})
+	}
+}
+
 // TestCoinSelectSubtractFees tests that we pick coins adding up to the
 // expected amount when creating a funding transaction, and that a change
 // output is created only when necessary.

@@ -3,6 +3,7 @@ package btcwallet
 import (
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -30,6 +31,22 @@ var (
 	// the key before signing the input. The value d0 is leet speak for
 	// "do", short for "double".
 	PsbtKeyTypeInputSignatureTweakDouble = []byte{0xd0}
+
+	// ErrInputMissingUTXOInfo is returned if a PSBT input is supplied that
+	// does not specify the witness UTXO info.
+	ErrInputMissingUTXOInfo = errors.New(
+		"input doesn't specify any UTXO info",
+	)
+
+	// ErrScriptSpendFeeEstimationUnsupported is returned if a PSBT input is
+	// of a script spend type.
+	ErrScriptSpendFeeEstimationUnsupported = errors.New(
+		"cannot estimate fee for script spend inputs",
+	)
+
+	// ErrUnsupportedScript is returned if a supplied pk script is not
+	// known or supported.
+	ErrUnsupportedScript = errors.New("unsupported or unknown pk script")
 )
 
 // FundPsbt creates a fully populated PSBT packet that contains enough inputs to
@@ -350,6 +367,62 @@ func validateSigningMethod(in *psbt.PInput) (input.SignMethod, error) {
 		return 0, fmt.Errorf("unsupported script class for signing "+
 			"PSBT: %v", script.Class())
 	}
+}
+
+// EstimateInputWeight estimates the weight of a PSBT input and adds it to the
+// passed in TxWeightEstimator. It returns an error if the input type is
+// unknown or unsupported. Only inputs that have a known witness size are
+// supported, which is P2WKH, NP2WKH and P2TR (key spend path).
+func EstimateInputWeight(in *psbt.PInput, w *input.TxWeightEstimator) error {
+	if in.WitnessUtxo == nil {
+		return ErrInputMissingUTXOInfo
+	}
+
+	pkScript := in.WitnessUtxo.PkScript
+	switch {
+	case txscript.IsPayToScriptHash(pkScript):
+		w.AddNestedP2WKHInput()
+
+	case txscript.IsPayToWitnessPubKeyHash(pkScript):
+		w.AddP2WKHInput()
+
+	case txscript.IsPayToWitnessScriptHash(pkScript):
+		return fmt.Errorf("P2WSH inputs are not supported, cannot "+
+			"estimate witness size for script spend: %w",
+			ErrScriptSpendFeeEstimationUnsupported)
+
+	case txscript.IsPayToTaproot(pkScript):
+		signMethod, err := validateSigningMethod(in)
+		if err != nil {
+			return fmt.Errorf("error determining p2tr signing "+
+				"method: %w", err)
+		}
+
+		switch signMethod {
+		// For p2tr key spend paths.
+		case input.TaprootKeySpendBIP0086SignMethod,
+			input.TaprootKeySpendSignMethod:
+
+			w.AddTaprootKeySpendInput(in.SighashType)
+
+		// For p2tr script spend path.
+		case input.TaprootScriptSpendSignMethod:
+			return fmt.Errorf("P2TR inputs are not supported, "+
+				"cannot estimate witness size for script "+
+				"spend: %w",
+				ErrScriptSpendFeeEstimationUnsupported)
+
+		default:
+			return fmt.Errorf("unsupported signing method for "+
+				"PSBT signing: %v", signMethod)
+		}
+
+	default:
+		return fmt.Errorf("unknown input type for script %x: %w",
+			pkScript, ErrUnsupportedScript)
+	}
+
+	return nil
 }
 
 // SignSegWitV0 attempts to generate a signature for a SegWit version 0 input

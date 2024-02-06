@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -341,5 +342,156 @@ func TestSignPsbt(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.NoError(t, vm.Execute())
+	}
+}
+
+// TestEstimateInputWeight tests that we correctly estimate the weight of a
+// PSBT input if it supplies all required information.
+func TestEstimateInputWeight(t *testing.T) {
+	genScript := func(f func([]byte) ([]byte, error)) []byte {
+		pkScript, _ := f([]byte{})
+		return pkScript
+	}
+
+	var (
+		witnessScaleFactor = blockchain.WitnessScaleFactor
+		p2trScript, _      = txscript.PayToTaprootScript(
+			&input.TaprootNUMSKey,
+		)
+		dummyLeaf = txscript.TapLeaf{
+			LeafVersion: txscript.BaseLeafVersion,
+			Script:      []byte("some bitcoin script"),
+		}
+		dummyLeafHash = dummyLeaf.TapHash()
+	)
+
+	testCases := []struct {
+		name string
+		in   *psbt.PInput
+
+		expectedErr       error
+		expectedErrString string
+
+		// expectedWitnessWeight is the expected weight of the content
+		// of the witness of the input (without the base input size that
+		// is constant for all types of inputs).
+		expectedWitnessWeight int
+	}{{
+		name:        "empty input",
+		in:          &psbt.PInput{},
+		expectedErr: ErrInputMissingUTXOInfo,
+	}, {
+		name: "empty pkScript",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{},
+		},
+		expectedErr: ErrUnsupportedScript,
+	}, {
+		name: "nested p2wpkh input",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: genScript(input.GenerateP2SH),
+			},
+		},
+		expectedWitnessWeight: input.P2WKHWitnessSize +
+			input.NestedP2WPKHSize*witnessScaleFactor,
+	}, {
+		name: "p2wpkh input",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: genScript(input.WitnessPubKeyHash),
+			},
+		},
+		expectedWitnessWeight: input.P2WKHWitnessSize,
+	}, {
+		name: "p2wsh input",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: genScript(input.WitnessScriptHash),
+			},
+		},
+		expectedErr: ErrScriptSpendFeeEstimationUnsupported,
+	}, {
+		name: "p2tr with no derivation info",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: p2trScript,
+			},
+		},
+		expectedErrString: "cannot sign for taproot input " +
+			"without taproot BIP0032 derivation info",
+	}, {
+		name: "p2tr key spend",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: p2trScript,
+			},
+			SighashType: txscript.SigHashSingle,
+			TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+				{},
+			},
+		},
+		//nolint:lll
+		expectedWitnessWeight: input.TaprootKeyPathCustomSighashWitnessSize,
+	}, {
+		name: "p2tr script spend",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: p2trScript,
+			},
+			TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+				{
+					LeafHashes: [][]byte{
+						dummyLeafHash[:],
+					},
+				},
+			},
+			TaprootLeafScript: []*psbt.TaprootTapLeafScript{
+				{
+					LeafVersion: dummyLeaf.LeafVersion,
+					Script:      dummyLeaf.Script,
+				},
+			},
+		},
+		expectedErr: ErrScriptSpendFeeEstimationUnsupported,
+	}}
+
+	// The non-witness weight for a TX with a single input.
+	nonWitnessWeight := input.BaseTxSize + 1 + 1 + input.InputSize
+
+	// The base weight of a witness TX.
+	baseWeight := (nonWitnessWeight * witnessScaleFactor) +
+		input.WitnessHeaderSize
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(tt *testing.T) {
+			estimator := input.TxWeightEstimator{}
+			err := EstimateInputWeight(tc.in, &estimator)
+
+			if tc.expectedErr != nil {
+				require.Error(tt, err)
+				require.ErrorIs(tt, err, tc.expectedErr)
+
+				return
+			}
+
+			if tc.expectedErrString != "" {
+				require.Error(tt, err)
+				require.Contains(
+					tt, err.Error(), tc.expectedErrString,
+				)
+
+				return
+			}
+
+			require.NoError(tt, err)
+
+			require.EqualValues(
+				tt, baseWeight+tc.expectedWitnessWeight,
+				estimator.Weight(),
+			)
+		})
 	}
 }

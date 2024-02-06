@@ -596,6 +596,18 @@ func (b *BtcWallet) FinalizePsbt(packet *psbt.Packet, accountName string) error 
 	return b.wallet.FinalizePsbt(keyScope, accountNum, packet)
 }
 
+// DecorateInputs fetches the UTXO information of all inputs it can identify and
+// adds the required information to the package's inputs. The failOnUnknown
+// boolean controls whether the method should return an error if it cannot
+// identify an input or if it should just skip it.
+//
+// This is a part of the WalletController interface.
+func (b *BtcWallet) DecorateInputs(packet *psbt.Packet,
+	failOnUnknown bool) error {
+
+	return b.wallet.DecorateInputs(packet, failOnUnknown)
+}
+
 // lookupFirstCustomAccount returns the first custom account found. In theory,
 // there should be only one custom account for the given name. However, due to a
 // lack of check, users could have created custom accounts with various key

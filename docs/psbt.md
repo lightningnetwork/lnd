@@ -258,6 +258,44 @@ $  bitcoin-cli  decodepsbt cHNidP8BAJoCAAAAAkiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8V
 }
 ```
 
+In newer versions of `lnd` (`v0.18.0-beta` and later), there is also the new
+`lncli wallet psbt fundtemplate` command that offers a few advantages over the
+previous `lncli wallet psbt fund` command:
+1. The `fundtemplate` sub command allows users to specify only some inputs, even
+   if they aren't enough to pay for all the outputs. `lnd` will then select more
+   inputs and calculate the change amount and fee correctly (whereas the `fund`
+   command would return an error, complaining about not enough inputs being
+   specified).
+2. The `fundtemplate` sub command allows users to specify that an existing
+   output should be used for any left-over change after selecting coins.
+
+Here's the above example with the new sub command, where we only specify one
+input:
+
+```shell
+$  LOCK_ID=$(cat /dev/urandom | head -c32 | xxd -p -c999)
+$  lncli wallet leaseoutput --outpoint 3597b451ff56bc901eb806e8c644a004e934b4c208679756b4cddc455c768c48:1 \
+    --lockid $LOCK_ID --expiry 600
+$  lncli wallet psbt fundtemplate --outputs='["bcrt1qjrdns4f5zwkv29ln86plqzs092yd5fg6nsz8re:50000000"]' \
+    --inputs='["3597b451ff56bc901eb806e8c644a004e934b4c208679756b4cddc455c768c48:1"]'
+{
+        "psbt": "cHNidP8BAJoCAAAAAkiMdlxF3M20VpdnCMK0NOkEoETG6Aa4HpC8Vv9RtJc1AQAAAAAAAAAA4lBjZUtG260qBBgVRqMQqmMV+XRTKubrHbc66YOl7/gBAAAAAAAAAAACgPD6AgAAAAAWABSQ2zhVNBOsxRfzPoPwCg8qiNolGtIkCAcAAAAAFgAUuvRP5r7qAvj0egDxyX9/FH+vukgAAAAAAAEA3gIAAAAAAQEr9IZcho/gV/6fH8C8P+yhNRZP+l3YuxsyatdYcS0S6AEAAAAA/v///wLI/8+yAAAAABYAFDXoRFwgXNO5VVtVq2WpaENh6blAAOH1BQAAAAAWABTcAR0NeNdDHb96kMnH5EVUcr1YwwJHMEQCIDqugtYLp4ebJAZvOdieshLi1lLuPl2tHQG4jM4ybwEGAiBeMpCkbHBmzYvljxb1JBQyVAMuoco0xIfi+5OQdHuXaAEhAnH96NhTW09X0npE983YBsHUoMPI4U4xBtHenpZVTEqpVwAAAAEBHwDh9QUAAAAAFgAU3AEdDXjXQx2/epDJx+RFVHK9WMMBAwQBAAAAAAEA6wIAAAAAAQFvGpeAR/0OXNyqo0zrXSzmkvVfbnytrr4onbZ61vscBwEAAAAAAAAAAAIAJPQAAAAAACIAILtTVbSIkaFDqjsJ7EOHmTfpXq/fbnrGkD3/GYHYHJtMVl0NBAAAAAAWABQqnZOHOGzDIzZAeXK+YwHq1AHtXQJIMEUCIQDgx3xEhlioV1Q+yAPKiaXMwkv1snoejbckZOKFe0R6WAIgB41dEvK3zxI665YVWfcih0IThTkPoOiMgd6xGaKQXbwBIQMdgXMwQDF+Z+r3x5JKdm1TBvXDuYC0cbrnLyqJEU2ciQAAAAABAR9WXQ0EAAAAABYAFCqdk4c4bMMjNkB5cr5jAerUAe1dAQMEAQAAAAAAAA==",
+        "change_output_index": 1,
+        "locks": [
+                {
+                        "id": "ede19a92ed321a4705f8a1cccc1d4f6182545d4bb4fae08bd5937831b7e38f98",
+                        "outpoint": "f8efa583e93ab71debe62a5374f91563aa10a3461518042aaddb464b656350e2:1",
+                        "expiration": 1601560626
+                }
+        ]
+}
+```
+
+Note that the format of the `--outputs` parameter is slightly different from the
+one in `lncli wallet psbt fund`. The order of the outputs is important in the
+template, so the new command uses an array notation, where the old command used
+a map (which doesn't guarantee preservation of the order of the elements).
+
 ## Signing and finalizing a PSBT
 
 Assuming we now want to sign the transaction that we created in the previous

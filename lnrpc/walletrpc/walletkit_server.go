@@ -2058,6 +2058,7 @@ func marshalWalletAddressList(w *WalletKit, account *waddrmgr.AccountProperties,
 			Address:    addr.Address,
 			IsInternal: addr.Internal,
 			Balance:    int64(addr.Balance),
+			Index:      addr.Index,
 		}
 	}
 

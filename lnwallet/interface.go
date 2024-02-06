@@ -96,6 +96,9 @@ type AddressProperty struct {
 
 	// Balance returns the total balance of an address.
 	Balance btcutil.Amount
+
+	// Index indicates the index of the address in the derivation path.
+	Index uint32
 }
 
 // AccountIdentifier contains information to uniquely identify an account.

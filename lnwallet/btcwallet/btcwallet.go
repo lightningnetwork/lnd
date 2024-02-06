@@ -815,17 +815,25 @@ func (b *BtcWallet) ListAddresses(name string,
 
 			// Hex-encode the compressed public key for custom lnd
 			// keys, addresses don't make a lot of sense.
+			var index uint32
 			pubKey, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
 			if ok && isLndCustom {
 				addressString = hex.EncodeToString(
 					pubKey.PubKey().SerializeCompressed(),
 				)
 			}
+			if ok {
+				_, path, haveInfo := pubKey.DerivationInfo()
+				if haveInfo {
+					index = path.Index
+				}
+			}
 
 			addressProperties[idx] = lnwallet.AddressProperty{
 				Address:  addressString,
 				Internal: managedAddr.Internal(),
 				Balance:  addressBalance[addressString],
+				Index:    index,
 			}
 		}
 

@@ -1317,6 +1317,11 @@
           "type": "string",
           "format": "int64",
           "description": "The balance of the address."
+        },
+        "index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the address in the derivation path."
         }
       }
     },

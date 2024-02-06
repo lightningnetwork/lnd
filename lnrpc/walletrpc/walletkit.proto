@@ -517,6 +517,9 @@ message AddressProperty {
 
     // The balance of the address.
     int64 balance = 3;
+
+    // The index of the address in the derivation path.
+    uint32 index = 4;
 }
 
 message AccountWithAddresses {

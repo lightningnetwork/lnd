@@ -1158,6 +1158,70 @@ func TestFetchWaitingCloseChannels(t *testing.T) {
 	}
 }
 
+// TestShutdownInfo tests that a channel's shutdown info can correctly be
+// persisted and retrieved.
+func TestShutdownInfo(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		localInit bool
+	}{
+		{
+			name:      "local node initiated",
+			localInit: true,
+		},
+		{
+			name:      "remote node initiated",
+			localInit: false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			testShutdownInfo(t, test.localInit)
+		})
+	}
+}
+
+func testShutdownInfo(t *testing.T, locallyInitiated bool) {
+	fullDB, err := MakeTestDB(t)
+	require.NoError(t, err, "unable to make test database")
+
+	cdb := fullDB.ChannelStateDB()
+
+	// First a test channel.
+	channel := createTestChannel(t, cdb)
+
+	// We haven't persisted any shutdown info for this channel yet.
+	_, err = channel.ShutdownInfo()
+	require.Error(t, err, ErrNoShutdownInfo)
+
+	// Construct a new delivery script and create a new ShutdownInfo object.
+	script := []byte{1, 3, 4, 5}
+
+	// Create a ShutdownInfo struct.
+	shutdownInfo := NewShutdownInfo(script, locallyInitiated)
+
+	// Persist the shutdown info.
+	require.NoError(t, channel.MarkShutdownSent(shutdownInfo))
+
+	// We should now be able to retrieve the shutdown info.
+	info, err := channel.ShutdownInfo()
+	require.NoError(t, err)
+	require.True(t, info.IsSome())
+
+	// Assert that the decoded values of the shutdown info are correct.
+	info.WhenSome(func(info ShutdownInfo) {
+		require.EqualValues(t, script, info.DeliveryScript.Val)
+		require.Equal(t, locallyInitiated, info.LocalInitiator.Val)
+	})
+}
+
 // TestRefresh asserts that Refresh updates the in-memory state of another
 // OpenChannel to reflect a preceding call to MarkOpen on a different
 // OpenChannel.

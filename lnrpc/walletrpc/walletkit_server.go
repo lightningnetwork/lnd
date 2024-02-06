@@ -1152,13 +1152,24 @@ func (w *WalletKit) LabelTransaction(ctx context.Context,
 }
 
 // FundPsbt creates a fully populated PSBT that contains enough inputs to fund
-// the outputs specified in the template. There are two ways of specifying a
-// template: Either by passing in a PSBT with at least one output declared or
-// by passing in a raw TxTemplate message. If there are no inputs specified in
-// the template, coin selection is performed automatically. If the template does
-// contain any inputs, it is assumed that full coin selection happened
-// externally and no additional inputs are added. If the specified inputs aren't
-// enough to fund the outputs with the given fee rate, an error is returned.
+// the outputs specified in the template. There are three ways a user can
+// specify what we call the template (a list of inputs and outputs to use in the
+// PSBT): Either as a PSBT packet directly with no coin selection (using the
+// legacy "psbt" field), a PSBT with advanced coin selection support (using the
+// new "coin_select" field) or as a raw RPC message (using the "raw" field).
+// The legacy "psbt" and "raw" modes, the following restrictions apply:
+//  1. If there are no inputs specified in the template, coin selection is
+//     performed automatically.
+//  2. If the template does contain any inputs, it is assumed that full coin
+//     selection happened externally and no additional inputs are added. If the
+//     specified inputs aren't enough to fund the outputs with the given fee
+//     rate, an error is returned.
+//
+// The new "coin_select" mode does not have these restrictions and allows the
+// user to specify a PSBT with inputs and outputs and still perform coin
+// selection on top of that.
+// For all modes this RPC requires any inputs that are specified to be locked by
+// the user (if they belong to this node in the first place).
 // After either selecting or verifying the inputs, all input UTXOs are locked
 // with an internal app ID. A custom address type for change can be specified
 // for default accounts and single imported public keys (only P2TR for now).

@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 var (
@@ -62,6 +63,17 @@ func (s *Sig) Copy() Sig {
 	sCopy.sigType = s.sigType
 
 	return sCopy
+}
+
+// Record returns a Record that can be used to encode or decode the backing
+// object.
+//
+// This returns a record that serializes the sig as a 64-byte fixed size
+// signature.
+func (s *Sig) Record() tlv.Record {
+	// We set a type here as zero as it isn't needed when used as a
+	// RecordT.
+	return tlv.MakePrimitiveRecord(0, &s.bytes)
 }
 
 // NewSigFromWireECDSA returns a Sig instance based on an ECDSA signature

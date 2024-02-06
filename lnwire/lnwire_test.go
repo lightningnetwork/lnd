@@ -22,6 +22,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1214,6 +1215,107 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			v[0] = reflect.ValueOf(req)
 		},
+		MsgClosingComplete: func(v []reflect.Value, r *rand.Rand) {
+			var c [32]byte
+			_, err := r.Read(c[:])
+			if err != nil {
+				t.Fatalf("unable to generate chan id: %v",
+					err)
+				return
+			}
+
+			req := ClosingComplete{
+				ChannelID:   ChannelID(c),
+				FeeSatoshis: btcutil.Amount(r.Int63()),
+				Sequence:    uint32(r.Int63()),
+				ClosingSigs: ClosingSigs{},
+			}
+
+			if r.Intn(2) == 0 {
+				sig := tlv.ZeroRecordT[tlv.TlvType1, Sig]()
+				_, err := r.Read(sig.Val.bytes[:])
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v",
+						err)
+					return
+				}
+
+				req.CloserNoClosee = tlv.SomeRecordT(sig)
+			}
+			if r.Intn(2) == 0 {
+				sig := tlv.ZeroRecordT[tlv.TlvType2, Sig]()
+				_, err := r.Read(sig.Val.bytes[:])
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v",
+						err)
+					return
+				}
+
+				req.NoCloserClosee = tlv.SomeRecordT(sig)
+			}
+			if r.Intn(2) == 0 {
+				sig := tlv.ZeroRecordT[tlv.TlvType3, Sig]()
+				_, err := r.Read(sig.Val.bytes[:])
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v",
+						err)
+					return
+				}
+
+				req.CloserAndClosee = tlv.SomeRecordT(sig)
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
+		MsgClosingSig: func(v []reflect.Value, r *rand.Rand) {
+			var c [32]byte
+			_, err := r.Read(c[:])
+			if err != nil {
+				t.Fatalf("unable to generate chan id: %v", err)
+				return
+			}
+
+			req := ClosingSig{
+				ChannelID:   ChannelID(c),
+				ClosingSigs: ClosingSigs{},
+			}
+
+			if r.Intn(2) == 0 {
+				sig := tlv.ZeroRecordT[tlv.TlvType1, Sig]()
+				_, err := r.Read(sig.Val.bytes[:])
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v",
+						err)
+					return
+				}
+
+				req.CloserNoClosee = tlv.SomeRecordT(sig)
+			}
+			if r.Intn(2) == 0 {
+				sig := tlv.ZeroRecordT[tlv.TlvType2, Sig]()
+				_, err := r.Read(sig.Val.bytes[:])
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v",
+						err)
+					return
+				}
+
+				req.NoCloserClosee = tlv.SomeRecordT(sig)
+			}
+			if r.Intn(2) == 0 {
+				sig := tlv.ZeroRecordT[tlv.TlvType3, Sig]()
+				_, err := r.Read(sig.Val.bytes[:])
+				if err != nil {
+					t.Fatalf("unable to generate sig: %v",
+						err)
+					return
+				}
+
+				req.CloserAndClosee = tlv.SomeRecordT(sig)
+			}
+
+			v[0] = reflect.ValueOf(req)
+		},
 	}
 
 	// With the above types defined, we'll now generate a slice of
@@ -1421,6 +1523,18 @@ func TestLightningWireProtocol(t *testing.T) {
 		{
 			msgType: MsgReplyChannelRange,
 			scenario: func(m ReplyChannelRange) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgClosingComplete,
+			scenario: func(m ClosingComplete) bool {
+				return mainScenario(&m)
+			},
+		},
+		{
+			msgType: MsgClosingSig,
+			scenario: func(m ClosingSig) bool {
 				return mainScenario(&m)
 			},
 		},

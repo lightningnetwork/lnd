@@ -3,13 +3,13 @@
 # respective areas
 
 # aezeed
-/aezeed/ @guggero @yyforyongyu
+/aezeed/ @guggero @yyforyongyu @roasbeef
 
 # alias manager
 /aliasmgr/ @Crypt-iQ
 
 # amp
-/amp/ @yyforyongyu
+/amp/ @yyforyongyu @roasbeef
 
 # auto pilot
 /autopilot/ @bitromortac
@@ -63,7 +63,7 @@
 /cmd/ @ellemouton
 
 # contract court
-/contractcourt/ @yyforyongyu
+/contractcourt/ @yyforyongyu @Roasbeef @Crypt-iQ
 
 # contrib
 /contrib/ @guggero
@@ -95,11 +95,8 @@
 # invoices
 /invoices/ @yyforyongyu @bhandras
 
-#itest
-/itest/ @yyforyongyu @ellemouton
-
 # key chain
-/keychain/ @guggero
+/keychain/ @guggero @roasbeef
 
 # kvdb
 /kvdb/ @bhandras
@@ -113,9 +110,6 @@
 # lnpeer
 /lnpeer/ @Roasbeef
 
-# lnrpc
-/lnrpc/ @guggero @ellemouton
-
 #lntest
 /lntest/ @yyforyongyu
 
@@ -126,7 +120,7 @@
 /lnutils/ @yyforyongyu
 
 # lnwallet
-/lnwallet/ @Roasbeef @yyforyongyu
+/lnwallet/ @Roasbeef @yyforyongyu @Crypt-iQ
 
 # lnwire
 /lnwire/ @ellemouton

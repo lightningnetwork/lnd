@@ -31,7 +31,7 @@ type FullIntent struct {
 
 	// InputCoins are the set of coins selected as inputs to this funding
 	// transaction.
-	InputCoins []Coin
+	InputCoins []wallet.Coin
 
 	// ChangeOutputs are the set of outputs that the Assembler will use as
 	// change from the main funding transaction.
@@ -268,12 +268,12 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		var (
 			// allCoins refers to the entirety of coins in our
 			// wallet that are available for funding a channel.
-			allCoins []Coin
+			allCoins []wallet.Coin
 
 			// manuallySelectedCoins refers to the client-side
 			// selected coins that should be considered available
 			// for funding a channel.
-			manuallySelectedCoins []Coin
+			manuallySelectedCoins []wallet.Coin
 			err                   error
 		)
 
@@ -309,8 +309,8 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		}
 
 		var (
-			coins                []Coin
-			selectedCoins        []Coin
+			coins                []wallet.Coin
+			selectedCoins        []wallet.Coin
 			localContributionAmt btcutil.Amount
 			changeAmt            btcutil.Amount
 		)
@@ -357,7 +357,9 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			// enough funds in the wallet to cover for a reserve.
 			reserve := r.WalletReserve
 			if len(manuallySelectedCoins) > 0 {
-				sumCoins := func(coins []Coin) btcutil.Amount {
+				sumCoins := func(
+					coins []wallet.Coin) btcutil.Amount {
+
 					var sum btcutil.Amount
 					for _, coin := range coins {
 						sum += btcutil.Amount(
@@ -390,6 +392,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 				err = CoinSelectUpToAmount(
 				r.FeeRate, r.MinFundAmt, r.FundUpToMaxAmt,
 				reserve, w.cfg.DustLimit, coins,
+				w.cfg.CoinSelectionStrategy,
 			)
 			if err != nil {
 				return err
@@ -423,6 +426,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			selectedCoins, localContributionAmt, changeAmt,
 				err = CoinSelectSubtractFees(
 				r.FeeRate, r.LocalAmt, dustLimit, coins,
+				w.cfg.CoinSelectionStrategy,
 			)
 			if err != nil {
 				return err
@@ -435,6 +439,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			localContributionAmt = r.LocalAmt
 			selectedCoins, changeAmt, err = CoinSelect(
 				r.FeeRate, r.LocalAmt, dustLimit, coins,
+				w.cfg.CoinSelectionStrategy,
 			)
 			if err != nil {
 				return err
@@ -507,9 +512,10 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 // outpointsToCoins maps outpoints to coins in our wallet iff these coins are
 // existent and returns an error otherwise.
 func outpointsToCoins(outpoints []wire.OutPoint,
-	coinFromOutPoint func(wire.OutPoint) (*Coin, error)) ([]Coin, error) {
+	coinFromOutPoint func(wire.OutPoint) (*wallet.Coin, error)) (
+	[]wallet.Coin, error) {
 
-	var selectedCoins []Coin
+	var selectedCoins []wallet.Coin
 	for _, outpoint := range outpoints {
 		coin, err := coinFromOutPoint(
 			outpoint,

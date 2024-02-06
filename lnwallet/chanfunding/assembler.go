@@ -3,6 +3,7 @@ package chanfunding
 import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -11,12 +12,12 @@ import (
 type CoinSource interface {
 	// ListCoins returns all UTXOs from the source that have between
 	// minConfs and maxConfs number of confirmations.
-	ListCoins(minConfs, maxConfs int32) ([]Coin, error)
+	ListCoins(minConfs, maxConfs int32) ([]wallet.Coin, error)
 
 	// CoinFromOutPoint attempts to locate details pertaining to a coin
 	// based on its outpoint. If the coin isn't under the control of the
 	// backing CoinSource, then an error should be returned.
-	CoinFromOutPoint(wire.OutPoint) (*Coin, error)
+	CoinFromOutPoint(wire.OutPoint) (*wallet.Coin, error)
 }
 
 // CoinSelectionLocker is an interface that allows the caller to perform an

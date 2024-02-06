@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
@@ -61,7 +62,7 @@ func TestCalculateFees(t *testing.T) {
 
 	type testCase struct {
 		name  string
-		utxos []Coin
+		utxos []wallet.Coin
 
 		expectedFeeNoChange   btcutil.Amount
 		expectedFeeWithChange btcutil.Amount
@@ -71,7 +72,7 @@ func TestCalculateFees(t *testing.T) {
 	testCases := []testCase{
 		{
 			name: "one P2WKH input",
-			utxos: []Coin{
+			utxos: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -87,7 +88,7 @@ func TestCalculateFees(t *testing.T) {
 
 		{
 			name: "one NP2WKH input",
-			utxos: []Coin{
+			utxos: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: np2wkhScript,
@@ -103,7 +104,7 @@ func TestCalculateFees(t *testing.T) {
 
 		{
 			name: "not supported P2KH input",
-			utxos: []Coin{
+			utxos: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2khScript,
@@ -148,7 +149,7 @@ func TestCoinSelect(t *testing.T) {
 	type testCase struct {
 		name        string
 		outputValue btcutil.Amount
-		coins       []Coin
+		coins       []wallet.Coin
 
 		expectedInput  []btcutil.Amount
 		expectedChange btcutil.Amount
@@ -161,7 +162,7 @@ func TestCoinSelect(t *testing.T) {
 			// This will obviously lead to a change output of
 			// almost 0.5 BTC.
 			name: "big change",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -183,7 +184,7 @@ func TestCoinSelect(t *testing.T) {
 			// This should lead to an error, as we don't have
 			// enough funds to pay the fee.
 			name: "nothing left for fees",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -199,7 +200,7 @@ func TestCoinSelect(t *testing.T) {
 			// as big as possible, such that the remaining change
 			// would be dust but instead goes to fees.
 			name: "dust change",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -222,7 +223,7 @@ func TestCoinSelect(t *testing.T) {
 			// We got just enough funds to create a change output above the
 			// dust limit.
 			name: "change right above dustlimit",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -244,7 +245,7 @@ func TestCoinSelect(t *testing.T) {
 		{
 			// If more than 20% of funds goes to fees, it should fail.
 			name: "high fee",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -265,6 +266,7 @@ func TestCoinSelect(t *testing.T) {
 
 			selected, changeAmt, err := CoinSelect(
 				feeRate, test.outputValue, dustLimit, test.coins,
+				wallet.CoinSelectionLargest,
 			)
 			if !test.expectErr && err != nil {
 				t.Fatalf(err.Error())
@@ -323,7 +325,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 		name       string
 		highFee    bool
 		spendValue btcutil.Amount
-		coins      []Coin
+		coins      []wallet.Coin
 
 		expectedInput      []btcutil.Amount
 		expectedFundingAmt btcutil.Amount
@@ -337,7 +339,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			// should lead to a funding TX with one output, the
 			// rest goes to fees.
 			name: "spend all",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -358,7 +360,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			// We have 1.0 BTC available and spend half of it. This
 			// should lead to a funding TX with a change output.
 			name: "spend with change",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -379,7 +381,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			// The total funds available is below the dust limit
 			// after paying fees.
 			name: "dust output",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -397,7 +399,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			// is below the dust limit. The remainder should go
 			// towards the funding output.
 			name: "dust change",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -416,7 +418,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 		{
 			// We got just enough funds to create an output above the dust limit.
 			name: "output right above dustlimit",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -436,7 +438,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			// Amount left is below dust limit after paying fee for
 			// a change output, resulting in a no-change tx.
 			name: "no amount to pay fee for change",
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -456,7 +458,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			// If more than 20% of funds goes to fees, it should fail.
 			name:    "high fee",
 			highFee: true,
-			coins: []Coin{
+			coins: []wallet.Coin{
 				{
 					TxOut: wire.TxOut{
 						PkScript: p2wkhScript,
@@ -481,6 +483,7 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 
 			selected, localFundingAmt, changeAmt, err := CoinSelectSubtractFees(
 				feeRate, test.spendValue, dustLimit, test.coins,
+				wallet.CoinSelectionLargest,
 			)
 			if err != nil {
 				switch {
@@ -551,7 +554,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		minValue btcutil.Amount
 		maxValue btcutil.Amount
 		reserved btcutil.Amount
-		coins    []Coin
+		coins    []wallet.Coin
 
 		expectedInput      []btcutil.Amount
 		expectedFundingAmt btcutil.Amount
@@ -564,7 +567,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		// This should lead to a funding TX with one output, the rest
 		// goes to fees.
 		name: "spend exactly all",
-		coins: []Coin{{
+		coins: []wallet.Coin{{
 			TxOut: wire.TxOut{
 				PkScript: p2wkhScript,
 				Value:    1 * coin,
@@ -582,7 +585,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		// This should lead to a funding TX with one output, the rest
 		// goes to fees.
 		name: "spend more",
-		coins: []Coin{{
+		coins: []wallet.Coin{{
 			TxOut: wire.TxOut{
 				PkScript: p2wkhScript,
 				Value:    1 * coin,
@@ -600,7 +603,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		// This should lead to a funding TX with one output and a
 		// change to subtract the fees from.
 		name: "spend far below",
-		coins: []Coin{{
+		coins: []wallet.Coin{{
 			TxOut: wire.TxOut{
 				PkScript: p2wkhScript,
 				Value:    1 * coin,
@@ -619,7 +622,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		// This should lead to a funding TX with one output where the
 		// fee is subtracted from the total 1 BTC input value.
 		name: "spend little below",
-		coins: []Coin{{
+		coins: []wallet.Coin{{
 			TxOut: wire.TxOut{
 				PkScript: p2wkhScript,
 				Value:    1 * coin,
@@ -638,7 +641,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		// The total funds available is below the dust limit after
 		// paying fees.
 		name: "dust output",
-		coins: []Coin{{
+		coins: []wallet.Coin{{
 			TxOut: wire.TxOut{
 				PkScript: p2wkhScript,
 				Value: int64(
@@ -655,7 +658,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		// If more than 20% of available wallet funds goes to fees, it
 		// should fail.
 		name: "high fee",
-		coins: []Coin{{
+		coins: []wallet.Coin{{
 			TxOut: wire.TxOut{
 				PkScript: p2wkhScript,
 				Value: int64(
@@ -677,7 +680,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		// check could result in a local amount higher than the maximum
 		// amount that was expected.
 		name: "sanity check for correct maximum amount",
-		coins: []Coin{{
+		coins: []wallet.Coin{{
 			TxOut: wire.TxOut{
 				PkScript: p2wkhScript,
 				Value:    1 * coin,
@@ -695,7 +698,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		// value as change and still maxing out the funding amount.
 		name: "sanity check for correct reserved amount subtract " +
 			"from total",
-		coins: []Coin{{
+		coins: []wallet.Coin{{
 			TxOut: wire.TxOut{
 				PkScript: p2wkhScript,
 				Value:    1 * coin,
@@ -720,6 +723,7 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 				err := CoinSelectUpToAmount(
 				feeRate, test.minValue, test.maxValue,
 				test.reserved, dustLimit, test.coins,
+				wallet.CoinSelectionLargest,
 			)
 			if len(test.expectErr) == 0 && err != nil {
 				t.Fatalf(err.Error())

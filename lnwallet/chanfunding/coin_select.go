@@ -185,53 +185,93 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 			return nil, 0, err
 		}
 
-		// The difference between the selected amount and the amount
-		// requested will be used to pay fees, and generate a change
-		// output with the remaining.
-		overShootAmt := totalSat - amt
-
-		var changeAmt btcutil.Amount
-
-		switch {
-		// If the excess amount isn't enough to pay for fees based on
-		// fee rate and estimated size without using a change output,
-		// then increase the requested coin amount by the estimate
-		// required fee without using change, performing another round
-		// of coin selection.
-		case overShootAmt < requiredFeeNoChange:
-			amtNeeded = amt + requiredFeeNoChange
-			continue
-
-		// If sufficient funds were selected to cover the fee required
-		// to include a change output, the remainder will be our change
-		// amount.
-		case overShootAmt > requiredFeeWithChange:
-			changeAmt = overShootAmt - requiredFeeWithChange
-
-		// Otherwise we have selected enough to pay for a tx without a
-		// change output.
-		default:
-			changeAmt = 0
-		}
-
-		// In case we would end up with a dust output if we created a
-		// change output, we instead just let the dust amount go to
-		// fees. Unless we want the change to go to an existing output,
-		// in that case we can increase that output value by any amount.
-		if changeAmt < dustLimit && changeType != ExistingChangeAddress {
-			changeAmt = 0
-		}
-
-		// Sanity check the resulting output values to make sure we
-		// don't burn a great part to fees.
-		totalOut := amt + changeAmt
-		err = sanityCheckFee(totalOut, totalSat-totalOut)
+		changeAmount, newAmtNeeded, err := CalculateChangeAmount(
+			totalSat, amt, requiredFeeNoChange,
+			requiredFeeWithChange, dustLimit, changeType,
+		)
 		if err != nil {
 			return nil, 0, err
 		}
 
-		return selectedUtxos, changeAmt, nil
+		// Need another round, the selected coins aren't enough to pay
+		// for the fees.
+		if newAmtNeeded != 0 {
+			amtNeeded = newAmtNeeded
+
+			continue
+		}
+
+		// Coin selection was successful.
+		return selectedUtxos, changeAmount, nil
 	}
+}
+
+// CalculateChangeAmount calculates the change amount being left over when the
+// given total amount of sats is provided as inputs for the required output
+// amount. The calculation takes into account that we might not want to add a
+// change output if the change amount is below the dust limit. The first amount
+// returned is the change amount. If that is non-zero, change is left over and
+// should be dealt with. The second amount, if non-zero, indicates that the
+// total input amount was just not enough to pay for the required amount and
+// fees and that more coins need to be selected.
+func CalculateChangeAmount(totalInputAmt, requiredAmt, requiredFeeNoChange,
+	requiredFeeWithChange, dustLimit btcutil.Amount,
+	changeType ChangeAddressType) (btcutil.Amount, btcutil.Amount, error) {
+
+	// This is just a sanity check to make sure the function is used
+	// correctly.
+	if changeType == ExistingChangeAddress &&
+		requiredFeeNoChange != requiredFeeWithChange {
+
+		return 0, 0, fmt.Errorf("when using existing change address, " +
+			"the fees for with or without change must be the same")
+	}
+
+	// The difference between the selected amount and the amount
+	// requested will be used to pay fees, and generate a change
+	// output with the remaining.
+	overShootAmt := totalInputAmt - requiredAmt
+
+	var changeAmt btcutil.Amount
+
+	switch {
+	// If the excess amount isn't enough to pay for fees based on
+	// fee rate and estimated size without using a change output,
+	// then increase the requested coin amount by the estimate
+	// required fee without using change, performing another round
+	// of coin selection.
+	case overShootAmt < requiredFeeNoChange:
+		return 0, requiredAmt + requiredFeeNoChange, nil
+
+	// If sufficient funds were selected to cover the fee required
+	// to include a change output, the remainder will be our change
+	// amount.
+	case overShootAmt > requiredFeeWithChange:
+		changeAmt = overShootAmt - requiredFeeWithChange
+
+	// Otherwise we have selected enough to pay for a tx without a
+	// change output.
+	default:
+		changeAmt = 0
+	}
+
+	// In case we would end up with a dust output if we created a
+	// change output, we instead just let the dust amount go to
+	// fees. Unless we want the change to go to an existing output,
+	// in that case we can increase that output value by any amount.
+	if changeAmt < dustLimit && changeType != ExistingChangeAddress {
+		changeAmt = 0
+	}
+
+	// Sanity check the resulting output values to make sure we
+	// don't burn a great part to fees.
+	totalOut := requiredAmt + changeAmt
+	err := sanityCheckFee(totalOut, totalInputAmt-totalOut)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return changeAmt, 0, nil
 }
 
 // CoinSelectSubtractFees attempts to select coins such that we'll spend up to

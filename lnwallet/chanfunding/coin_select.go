@@ -50,6 +50,14 @@ const (
 	// P2TRChangeAddress indicates that the change output should be a
 	// P2TR output.
 	P2TRChangeAddress ChangeAddressType = 1
+
+	// ExistingChangeAddress indicates that the coin selection algorithm
+	// should assume an existing output will be used for any change, meaning
+	// that the change amount calculated will be added to an existing output
+	// and no weight for a new change output should be assumed. The caller
+	// must assert that the output value of the selected existing output
+	// already is above dust when using this change address type.
+	ExistingChangeAddress ChangeAddressType = 2
 )
 
 // selectInputs selects a slice of inputs necessary to meet the specified
@@ -118,6 +126,9 @@ func calculateFees(utxos []wallet.Coin, feeRate chainfee.SatPerKWeight,
 
 	case P2TRChangeAddress:
 		weightEstimate.AddP2TROutput()
+
+	case ExistingChangeAddress:
+		// Don't add an extra output.
 
 	default:
 		return 0, 0, fmt.Errorf("unknown change address type: %v",
@@ -203,7 +214,11 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 			changeAmt = 0
 		}
 
-		if changeAmt < dustLimit {
+		// In case we would end up with a dust output if we created a
+		// change output, we instead just let the dust amount go to
+		// fees. Unless we want the change to go to an existing output,
+		// in that case we can increase that output value by any amount.
+		if changeAmt < dustLimit && changeType != ExistingChangeAddress {
 			changeAmt = 0
 		}
 

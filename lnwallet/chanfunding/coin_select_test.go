@@ -25,6 +25,8 @@ var (
 	p2khScript, _ = hex.DecodeString(
 		"76a91411034bdcb6ccb7744fdfdeea958a6fb0b415a03288ac",
 	)
+
+	defaultChanFundingChangeType = P2TRChangeAddress
 )
 
 // fundingFee is a helper method that returns the fee estimate used for a tx
@@ -117,11 +119,15 @@ func TestCalculateFees(t *testing.T) {
 		},
 	}
 
+	fundingOutputEstimate := input.TxWeightEstimator{}
+	fundingOutputEstimate.AddP2WSHOutput()
+
 	for _, test := range testCases {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			feeNoChange, feeWithChange, err := calculateFees(
-				test.utxos, feeRate,
+				test.utxos, feeRate, fundingOutputEstimate,
+				defaultChanFundingChangeType,
 			)
 			require.Equal(t, test.expectedErr, err)
 
@@ -259,6 +265,9 @@ func TestCoinSelect(t *testing.T) {
 		},
 	}
 
+	fundingOutputEstimate := input.TxWeightEstimator{}
+	fundingOutputEstimate.AddP2WSHOutput()
+
 	for _, test := range testCases {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
@@ -267,6 +276,8 @@ func TestCoinSelect(t *testing.T) {
 			selected, changeAmt, err := CoinSelect(
 				feeRate, test.outputValue, dustLimit, test.coins,
 				wallet.CoinSelectionLargest,
+				fundingOutputEstimate,
+				defaultChanFundingChangeType,
 			)
 			if !test.expectErr && err != nil {
 				t.Fatalf(err.Error())
@@ -472,6 +483,9 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 		},
 	}
 
+	fundingOutputEstimate := input.TxWeightEstimator{}
+	fundingOutputEstimate.AddP2WSHOutput()
+
 	for _, test := range testCases {
 		test := test
 
@@ -484,6 +498,8 @@ func TestCoinSelectSubtractFees(t *testing.T) {
 			selected, localFundingAmt, changeAmt, err := CoinSelectSubtractFees(
 				feeRate, test.spendValue, dustLimit, test.coins,
 				wallet.CoinSelectionLargest,
+				fundingOutputEstimate,
+				defaultChanFundingChangeType,
 			)
 			if err != nil {
 				switch {
@@ -714,6 +730,9 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 		expectedChange: 10000,
 	}}
 
+	fundingOutputEstimate := input.TxWeightEstimator{}
+	fundingOutputEstimate.AddP2WSHOutput()
+
 	for _, test := range testCases {
 		test := test
 
@@ -724,6 +743,8 @@ func TestCoinSelectUpToAmount(t *testing.T) {
 				feeRate, test.minValue, test.maxValue,
 				test.reserved, dustLimit, test.coins,
 				wallet.CoinSelectionLargest,
+				fundingOutputEstimate,
+				defaultChanFundingChangeType,
 			)
 			if len(test.expectErr) == 0 && err != nil {
 				t.Fatalf(err.Error())

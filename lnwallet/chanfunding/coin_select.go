@@ -38,6 +38,20 @@ func (e *errUnsupportedInput) Error() string {
 	return fmt.Sprintf("unsupported address type: %x", e.PkScript)
 }
 
+// ChangeAddressType is an enum-like type that describes the type of change
+// address that should be generated for a transaction.
+type ChangeAddressType uint8
+
+const (
+	// P2WKHChangeAddress indicates that the change output should be a
+	// P2WKH output.
+	P2WKHChangeAddress ChangeAddressType = 0
+
+	// P2TRChangeAddress indicates that the change output should be a
+	// P2TR output.
+	P2TRChangeAddress ChangeAddressType = 1
+)
+
 // selectInputs selects a slice of inputs necessary to meet the specified
 // selection amount. If input selection is unable to succeed due to insufficient
 // funds, a non-nil error is returned. Additionally, the total amount of the
@@ -69,11 +83,11 @@ func selectInputs(amt btcutil.Amount, coins []wallet.Coin,
 // calculateFees returns for the specified utxos and fee rate two fee
 // estimates, one calculated using a change output and one without. The weight
 // added to the estimator from a change output is for a P2WKH output.
-func calculateFees(utxos []wallet.Coin,
-	feeRate chainfee.SatPerKWeight) (btcutil.Amount, btcutil.Amount,
-	error) {
+func calculateFees(utxos []wallet.Coin, feeRate chainfee.SatPerKWeight,
+	existingWeight input.TxWeightEstimator,
+	changeType ChangeAddressType) (btcutil.Amount, btcutil.Amount, error) {
 
-	var weightEstimate input.TxWeightEstimator
+	weightEstimate := existingWeight
 	for _, utxo := range utxos {
 		switch {
 		case txscript.IsPayToWitnessPubKeyHash(utxo.PkScript):
@@ -92,17 +106,23 @@ func calculateFees(utxos []wallet.Coin,
 		}
 	}
 
-	// Channel funding multisig output is P2WSH.
-	weightEstimate.AddP2WSHOutput()
-
 	// Estimate the fee required for a transaction without a change
 	// output.
 	totalWeight := int64(weightEstimate.Weight())
 	requiredFeeNoChange := feeRate.FeeForWeight(totalWeight)
 
 	// Estimate the fee required for a transaction with a change output.
-	// Assume that change output is a P2TR output.
-	weightEstimate.AddP2TROutput()
+	switch changeType {
+	case P2WKHChangeAddress:
+		weightEstimate.AddP2WKHOutput()
+
+	case P2TRChangeAddress:
+		weightEstimate.AddP2TROutput()
+
+	default:
+		return 0, 0, fmt.Errorf("unknown change address type: %v",
+			changeType)
+	}
 
 	// Now that we have added the change output, redo the fee
 	// estimate.
@@ -130,9 +150,9 @@ func sanityCheckFee(totalOut, fee btcutil.Amount) error {
 // specified fee rate should be expressed in sat/kw for coin selection to
 // function properly.
 func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
-	coins []wallet.Coin,
-	strategy wallet.CoinSelectionStrategy) ([]wallet.Coin, btcutil.Amount,
-	error) {
+	coins []wallet.Coin, strategy wallet.CoinSelectionStrategy,
+	existingWeight input.TxWeightEstimator,
+	changeType ChangeAddressType) ([]wallet.Coin, btcutil.Amount, error) {
 
 	amtNeeded := amt
 	for {
@@ -148,7 +168,7 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 		// Obtain fee estimates both with and without using a change
 		// output.
 		requiredFeeNoChange, requiredFeeWithChange, err := calculateFees(
-			selectedUtxos, feeRate,
+			selectedUtxos, feeRate, existingWeight, changeType,
 		)
 		if err != nil {
 			return nil, 0, err
@@ -204,7 +224,9 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 // coins, the final output and change values are returned.
 func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	dustLimit btcutil.Amount, coins []wallet.Coin,
-	strategy wallet.CoinSelectionStrategy) ([]wallet.Coin, btcutil.Amount,
+	strategy wallet.CoinSelectionStrategy,
+	existingWeight input.TxWeightEstimator,
+	changeType ChangeAddressType) ([]wallet.Coin, btcutil.Amount,
 	btcutil.Amount, error) {
 
 	// First perform an initial round of coin selection to estimate
@@ -219,7 +241,7 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	// Obtain fee estimates both with and without using a change
 	// output.
 	requiredFeeNoChange, requiredFeeWithChange, err := calculateFees(
-		selectedUtxos, feeRate,
+		selectedUtxos, feeRate, existingWeight, changeType,
 	)
 	if err != nil {
 		return nil, 0, 0, err
@@ -268,7 +290,9 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 // available coins.
 func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	reserved, dustLimit btcutil.Amount, coins []wallet.Coin,
-	strategy wallet.CoinSelectionStrategy) ([]wallet.Coin, btcutil.Amount,
+	strategy wallet.CoinSelectionStrategy,
+	existingWeight input.TxWeightEstimator,
+	changeType ChangeAddressType) ([]wallet.Coin, btcutil.Amount,
 	btcutil.Amount, error) {
 
 	var (
@@ -289,7 +313,8 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	// First we try to select coins to create an output of the specified
 	// maxAmount with or without a change output that covers the miner fee.
 	selected, changeAmt, err := CoinSelect(
-		feeRate, maxAmount, dustLimit, coins, strategy,
+		feeRate, maxAmount, dustLimit, coins, strategy, existingWeight,
+		changeType,
 	)
 
 	var errInsufficientFunds *ErrInsufficientFunds
@@ -329,7 +354,7 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	if selectSubtractFee {
 		selected, outputAmount, changeAmt, err = CoinSelectSubtractFees(
 			feeRate, totalBalance-reserved, dustLimit, coins,
-			strategy,
+			strategy, existingWeight, changeType,
 		)
 		if err != nil {
 			return nil, 0, 0, err

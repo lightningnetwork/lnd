@@ -356,6 +356,17 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 	chancloserLog.Infof("ChannelPoint(%v): sending shutdown message",
 		c.chanPoint)
 
+	// At this point, we persist any relevant info regarding the Shutdown
+	// message we are about to send in order to ensure that if a
+	// re-establish occurs then we will re-send the same Shutdown message.
+	shutdownInfo := channeldb.NewShutdownInfo(
+		c.localDeliveryScript, c.locallyInitiated,
+	)
+	err := c.cfg.Channel.MarkShutdownSent(shutdownInfo)
+	if err != nil {
+		return nil, err
+	}
+
 	return shutdown, nil
 }
 

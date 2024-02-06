@@ -133,6 +133,10 @@
   broadcast. This means when a transaction has failed the `testmempoolaccept`
   check by bitcoind or btcd, the broadcast won't be attempted.
 
+* The `coin-selection-strategy` config option [now also applies to channel
+  funding operations and the new `PsbtCoinSelect` option of the `FundPsbt`
+  RPC](https://github.com/lightningnetwork/lnd/pull/8378).
+
 ## RPC Additions
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)
@@ -154,6 +158,15 @@
   closing transaction to be negotiated. This should be used if you don't care
   about the txid and don't want the calling code to block while the channel
   drains the active HTLCs.
+
+* [The `FundPsbt` RPC method now has a third option for specifying a 
+  template](https://github.com/lightningnetwork/lnd/pull/8378) to fund. This
+  new option will instruct the wallet to perform coin selection even if some
+  inputs are already specified in the template (which wasn't the case with
+  the previous options). Also, users have the option to specify whether a new
+  change output should be added or an existing output should be used for the
+  change. And the fee estimation is correct even if no change output is
+  required.
 
 ## lncli Additions
 

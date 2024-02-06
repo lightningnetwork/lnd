@@ -27,6 +27,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/walletdb"
 	_ "github.com/btcsuite/btcwallet/walletdb/bdb"
 	"github.com/davecgh/go-spew/spew"
@@ -349,14 +350,15 @@ func createTestWallet(tempTestDir string, miningNode *rpctest.Harness,
 	}
 
 	cfg := lnwallet.Config{
-		Database:         fullDB.ChannelStateDB(),
-		Notifier:         notifier,
-		SecretKeyRing:    keyRing,
-		WalletController: wc,
-		Signer:           signer,
-		ChainIO:          bio,
-		FeeEstimator:     chainfee.NewStaticEstimator(2500, 0),
-		NetParams:        *netParams,
+		Database:              fullDB.ChannelStateDB(),
+		Notifier:              notifier,
+		SecretKeyRing:         keyRing,
+		WalletController:      wc,
+		Signer:                signer,
+		ChainIO:               bio,
+		FeeEstimator:          chainfee.NewStaticEstimator(2500, 0),
+		NetParams:             *netParams,
+		CoinSelectionStrategy: wallet.CoinSelectionLargest,
 	}
 
 	wallet, err := lnwallet.NewLightningWallet(cfg)
@@ -2984,28 +2986,33 @@ func testSingleFunderExternalFundingTx(miner *rpctest.Harness,
 	// Simulating external funding negotiation, we'll now create the
 	// funding transaction for both parties. Utilizing existing tools,
 	// we'll create a new chanfunding.Assembler hacked by Alice's wallet.
-	aliceChanFunder := chanfunding.NewWalletAssembler(chanfunding.WalletConfig{
-		CoinSource:       lnwallet.NewCoinSource(alice),
-		CoinSelectLocker: alice,
-		CoinLocker:       alice,
-		Signer:           alice.Cfg.Signer,
-		DustLimit:        600,
-	})
+	aliceChanFunder := chanfunding.NewWalletAssembler(
+		chanfunding.WalletConfig{
+			CoinSource:            lnwallet.NewCoinSource(alice),
+			CoinSelectLocker:      alice,
+			CoinLocker:            alice,
+			Signer:                alice.Cfg.Signer,
+			DustLimit:             600,
+			CoinSelectionStrategy: wallet.CoinSelectionLargest,
+		},
+	)
 
 	// With the chan funder created, we'll now provision a funding intent,
 	// bind the keys we obtained above, and finally obtain our funding
 	// transaction and outpoint.
-	fundingIntent, err := aliceChanFunder.ProvisionChannel(&chanfunding.Request{
-		LocalAmt: btcutil.Amount(chanAmt),
-		MinConfs: 1,
-		FeeRate:  253,
-		ChangeAddr: func() (btcutil.Address, error) {
-			return alice.NewAddress(
-				lnwallet.WitnessPubKey, true,
-				lnwallet.DefaultAccountName,
-			)
+	fundingIntent, err := aliceChanFunder.ProvisionChannel(
+		&chanfunding.Request{
+			LocalAmt: btcutil.Amount(chanAmt),
+			MinConfs: 1,
+			FeeRate:  253,
+			ChangeAddr: func() (btcutil.Address, error) {
+				return alice.NewAddress(
+					lnwallet.WitnessPubKey, true,
+					lnwallet.DefaultAccountName,
+				)
+			},
 		},
-	})
+	)
 	require.NoError(t, err, "unable to perform coin selection")
 
 	// With our intent created, we'll instruct it to finalize the funding

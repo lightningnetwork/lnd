@@ -278,6 +278,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testSignPsbt,
 	},
 	{
+		Name:     "fund psbt",
+		TestFunc: testFundPsbt,
+	},
+	{
 		Name:     "resolution handoff",
 		TestFunc: testResHandoff,
 	},

@@ -1175,11 +1175,53 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 
 	var (
 		err         error
-		packet      *psbt.Packet
 		feeSatPerKW chainfee.SatPerKWeight
-		locks       []*base.ListLeasedOutputResult
-		rawPsbt     bytes.Buffer
 	)
+
+	// Determine the desired transaction fee.
+	switch {
+	// Estimate the fee by the target number of blocks to confirmation.
+	case req.GetTargetConf() != 0:
+		targetConf := req.GetTargetConf()
+		if targetConf < 2 {
+			return nil, fmt.Errorf("confirmation target must be " +
+				"greater than 1")
+		}
+
+		feeSatPerKW, err = w.cfg.FeeEstimator.EstimateFeePerKW(
+			targetConf,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("could not estimate fee: %w",
+				err)
+		}
+
+	// Convert the fee to sat/kW from the specified sat/vByte.
+	case req.GetSatPerVbyte() != 0:
+		feeSatPerKW = chainfee.SatPerKVByte(
+			req.GetSatPerVbyte() * 1000,
+		).FeePerKWeight()
+
+	default:
+		return nil, fmt.Errorf("fee definition missing, need to " +
+			"specify either target_conf or sat_per_vbyte")
+	}
+
+	// Then, we'll extract the minimum number of confirmations that each
+	// output we use to fund the transaction should satisfy.
+	minConfs, err := lnrpc.ExtractMinConfs(
+		req.GetMinConfs(), req.GetSpendUnconfirmed(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// We'll assume the PSBT will be funded by the default account unless
+	// otherwise specified.
+	account := lnwallet.DefaultAccountName
+	if req.Account != "" {
+		account = req.Account
+	}
 
 	// There are two ways a user can specify what we call the template (a
 	// list of inputs and outputs to use in the PSBT): Either as a PSBT
@@ -1189,10 +1231,17 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 	// The template is specified as a PSBT. All we have to do is parse it.
 	case req.GetPsbt() != nil:
 		r := bytes.NewReader(req.GetPsbt())
-		packet, err = psbt.NewFromRawBytes(r, false)
+		packet, err := psbt.NewFromRawBytes(r, false)
 		if err != nil {
-			return nil, fmt.Errorf("could not parse PSBT: %v", err)
+			return nil, fmt.Errorf("could not parse PSBT: %w", err)
 		}
+
+		// Run the actual funding process now, using the internal
+		// wallet.
+		return w.fundPsbtInternalWallet(
+			account, keyScopeFromChangeAddressType(req.ChangeType),
+			packet, minConfs, feeSatPerKW,
+		)
 
 	// The template is specified as a RPC message. We need to create a new
 	// PSBT and copy the RPC information over.
@@ -1218,7 +1267,7 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			pkScript, err := txscript.PayToAddrScript(addr)
 			if err != nil {
 				return nil, fmt.Errorf("error getting pk "+
-					"script for address %s: %v", addrStr,
+					"script for address %s: %w", addrStr,
 					err)
 			}
 
@@ -1233,73 +1282,42 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 			op, err := UnmarshallOutPoint(in)
 			if err != nil {
 				return nil, fmt.Errorf("error parsing "+
-					"outpoint: %v", err)
+					"outpoint: %w", err)
 			}
 			txIn[idx] = op
 		}
 
 		sequences := make([]uint32, len(txIn))
-		packet, err = psbt.New(txIn, txOut, 2, 0, sequences)
+		packet, err := psbt.New(txIn, txOut, 2, 0, sequences)
 		if err != nil {
-			return nil, fmt.Errorf("could not create PSBT: %v", err)
+			return nil, fmt.Errorf("could not create PSBT: %w", err)
 		}
+
+		// Run the actual funding process now, using the internal
+		// wallet.
+		return w.fundPsbtInternalWallet(
+			account, keyScopeFromChangeAddressType(req.ChangeType),
+			packet, minConfs, feeSatPerKW,
+		)
 
 	default:
 		return nil, fmt.Errorf("transaction template missing, need " +
 			"to specify either PSBT or raw TX template")
 	}
+}
 
-	// Determine the desired transaction fee.
-	switch {
-	// Estimate the fee by the target number of blocks to confirmation.
-	case req.GetTargetConf() != 0:
-		targetConf := req.GetTargetConf()
-		if targetConf < 2 {
-			return nil, fmt.Errorf("confirmation target must be " +
-				"greater than 1")
-		}
-
-		feeSatPerKW, err = w.cfg.FeeEstimator.EstimateFeePerKW(
-			targetConf,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("could not estimate fee: %v",
-				err)
-		}
-
-	// Convert the fee to sat/kW from the specified sat/vByte.
-	case req.GetSatPerVbyte() != 0:
-		feeSatPerKW = chainfee.SatPerKVByte(
-			req.GetSatPerVbyte() * 1000,
-		).FeePerKWeight()
-
-	default:
-		return nil, fmt.Errorf("fee definition missing, need to " +
-			"specify either target_conf or sat_per_vbyte")
-	}
-
-	// Then, we'll extract the minimum number of confirmations that each
-	// output we use to fund the transaction should satisfy.
-	minConfs, err := lnrpc.ExtractMinConfs(
-		req.GetMinConfs(), req.GetSpendUnconfirmed(),
-	)
-	if err != nil {
-		return nil, err
-	}
+// fundPsbtInternalWallet uses the "old" PSBT funding method of the internal
+// wallet that does not allow specifying custom inputs while selecting coins.
+func (w *WalletKit) fundPsbtInternalWallet(account string,
+	keyScope *waddrmgr.KeyScope, packet *psbt.Packet, minConfs int32,
+	feeSatPerKW chainfee.SatPerKWeight) (*FundPsbtResponse, error) {
 
 	// The RPC parsing part is now over. Several of the following operations
-	// require us to hold the global coin selection lock so we do the rest
+	// require us to hold the global coin selection lock, so we do the rest
 	// of the tasks while holding the lock. The result is a list of locked
 	// UTXOs.
-	changeIndex := int32(-1)
-	err = w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
-		// We'll assume the PSBT will be funded by the default account
-		// unless otherwise specified.
-		account := lnwallet.DefaultAccountName
-		if req.Account != "" {
-			account = req.Account
-		}
-
+	var response *FundPsbtResponse
+	err := w.cfg.CoinSelectionLocker.WithCoinSelectLock(func() error {
 		// In case the user did specify inputs, we need to make sure
 		// they are known to us, still unspent and not yet locked.
 		if len(packet.UnsignedTx.TxIn) > 0 {
@@ -1323,47 +1341,64 @@ func (w *WalletKit) FundPsbt(_ context.Context,
 		// We can now ask the wallet to fund the TX. This will not yet
 		// lock any coins but might still change the wallet DB by
 		// generating a new change address.
-		changeIndex, err = w.cfg.Wallet.FundPsbt(
-			packet, minConfs, feeSatPerKW, account,
-			keyScopeFromChangeAddressType(req.ChangeType),
+		changeIndex, err := w.cfg.Wallet.FundPsbt(
+			packet, minConfs, feeSatPerKW, account, keyScope,
 		)
 		if err != nil {
 			return fmt.Errorf("wallet couldn't fund PSBT: %v", err)
 		}
 
-		// Make sure we can properly serialize the packet. If this goes
-		// wrong then something isn't right with the inputs and we
-		// probably shouldn't try to lock any of them.
-		err = packet.Serialize(&rawPsbt)
-		if err != nil {
-			return fmt.Errorf("error serializing funded PSBT: %v",
-				err)
-		}
-
 		// Now we have obtained a set of coins that can be used to fund
 		// the TX. Let's lock them to be sure they aren't spent by the
 		// time the PSBT is published. This is the action we do here
-		// that could cause an error. Therefore if some of the UTXOs
+		// that could cause an error. Therefore, if some of the UTXOs
 		// cannot be locked, the rollback of the other's locks also
 		// happens in this function. If we ever need to do more after
 		// this function, we need to extract the rollback needs to be
 		// extracted into a defer.
-		locks, err = lockInputs(w.cfg.Wallet, packet)
-		if err != nil {
-			return fmt.Errorf("could not lock inputs: %v", err)
+		outpoints := make([]wire.OutPoint, len(packet.UnsignedTx.TxIn))
+		for i, txIn := range packet.UnsignedTx.TxIn {
+			outpoints[i] = txIn.PreviousOutPoint
 		}
 
-		return nil
+		response, err = w.lockAndCreateFundingResponse(
+			packet, outpoints, changeIndex,
+		)
+
+		return err
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	return response, nil
+}
+
+// lockAndCreateFundingResponse locks the given outpoints and creates a funding
+// response with the serialized PSBT, the change index and the locked UTXOs.
+func (w *WalletKit) lockAndCreateFundingResponse(packet *psbt.Packet,
+	newOutpoints []wire.OutPoint, changeIndex int32) (*FundPsbtResponse,
+	error) {
+
+	// Make sure we can properly serialize the packet. If this goes wrong
+	// then something isn't right with the inputs, and we probably shouldn't
+	// try to lock any of them.
+	var buf bytes.Buffer
+	err := packet.Serialize(&buf)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing funded PSBT: %w", err)
+	}
+
+	locks, err := lockInputs(w.cfg.Wallet, newOutpoints)
+	if err != nil {
+		return nil, fmt.Errorf("could not lock inputs: %w", err)
 	}
 
 	// Convert the lock leases to the RPC format.
 	rpcLocks := marshallLeases(locks)
 
 	return &FundPsbtResponse{
-		FundedPsbt:        rawPsbt.Bytes(),
+		FundedPsbt:        buf.Bytes(),
 		ChangeOutputIndex: changeIndex,
 		LockedUtxos:       rpcLocks,
 	}, nil

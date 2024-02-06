@@ -501,6 +501,12 @@ type WalletController interface {
 	// finalized successfully.
 	FinalizePsbt(packet *psbt.Packet, account string) error
 
+	// DecorateInputs fetches the UTXO information of all inputs it can
+	// identify and adds the required information to the package's inputs.
+	// The failOnUnknown boolean controls whether the method should return
+	// an error if it cannot identify an input or if it should just skip it.
+	DecorateInputs(packet *psbt.Packet, failOnUnknown bool) error
+
 	// SubscribeTransactions returns a TransactionSubscription client which
 	// is capable of receiving async notifications as new transactions
 	// related to the wallet are seen within the network, or found in

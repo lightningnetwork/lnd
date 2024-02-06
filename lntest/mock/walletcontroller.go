@@ -227,6 +227,11 @@ func (w *WalletController) FinalizePsbt(_ *psbt.Packet, _ string) error {
 	return nil
 }
 
+// DecorateInputs currently does nothing.
+func (w *WalletController) DecorateInputs(*psbt.Packet, bool) error {
+	return nil
+}
+
 // PublishTransaction sends a transaction to the PublishedTransactions chan.
 func (w *WalletController) PublishTransaction(tx *wire.MsgTx, _ string) error {
 	w.PublishedTransactions <- tx

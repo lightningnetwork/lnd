@@ -517,6 +517,13 @@ message AddressProperty {
 
     // The balance of the address.
     int64 balance = 3;
+
+    // The full derivation path of the address. This will be empty for imported
+    // addresses.
+    string derivation_path = 4;
+
+    // The public key of the address. This will be empty for imported addresses.
+    bytes public_key = 5;
 }
 
 message AccountWithAddresses {

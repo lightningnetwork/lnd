@@ -1317,6 +1317,15 @@
           "type": "string",
           "format": "int64",
           "description": "The balance of the address."
+        },
+        "derivation_path": {
+          "type": "string",
+          "description": "The full derivation path of the address. This will be empty for imported\naddresses."
+        },
+        "public_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The public key of the address. This will be empty for imported addresses."
         }
       }
     },

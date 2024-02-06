@@ -96,6 +96,12 @@ type AddressProperty struct {
 
 	// Balance returns the total balance of an address.
 	Balance btcutil.Amount
+
+	// DerivationPath is the derivation path of the address.
+	DerivationPath string
+
+	// PublicKey is the public key of the address.
+	PublicKey *btcec.PublicKey
 }
 
 // AccountIdentifier contains information to uniquely identify an account.

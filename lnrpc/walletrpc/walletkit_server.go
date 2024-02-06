@@ -2054,10 +2054,16 @@ func marshalWalletAddressList(w *WalletKit, account *waddrmgr.AccountProperties,
 
 	addresses := make([]*AddressProperty, len(addressList))
 	for idx, addr := range addressList {
+		var pubKeyBytes []byte
+		if addr.PublicKey != nil {
+			pubKeyBytes = addr.PublicKey.SerializeCompressed()
+		}
 		addresses[idx] = &AddressProperty{
-			Address:    addr.Address,
-			IsInternal: addr.Internal,
-			Balance:    int64(addr.Balance),
+			Address:        addr.Address,
+			IsInternal:     addr.Internal,
+			Balance:        int64(addr.Balance),
+			DerivationPath: addr.DerivationPath,
+			PublicKey:      pubKeyBytes,
 		}
 	}
 

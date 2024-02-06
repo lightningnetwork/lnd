@@ -8,7 +8,6 @@ import (
 	"math"
 	"time"
 
-	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wtxmgr"
@@ -49,16 +48,16 @@ func verifyInputsUnspent(inputs []*wire.TxIn, utxos []*lnwallet.Utxo) error {
 // lockInputs requests a lock lease for all inputs specified in a PSBT packet
 // by using the internal, static lock ID of lnd's wallet.
 func lockInputs(w lnwallet.WalletController,
-	packet *psbt.Packet) ([]*base.ListLeasedOutputResult, error) {
+	outpoints []wire.OutPoint) ([]*base.ListLeasedOutputResult, error) {
 
 	locks := make(
-		[]*base.ListLeasedOutputResult, len(packet.UnsignedTx.TxIn),
+		[]*base.ListLeasedOutputResult, len(outpoints),
 	)
-	for idx, rawInput := range packet.UnsignedTx.TxIn {
+	for idx := range outpoints {
 		lock := &base.ListLeasedOutputResult{
 			LockedOutput: &wtxmgr.LockedOutput{
 				LockID:   LndInternalLockID,
-				Outpoint: rawInput.PreviousOutPoint,
+				Outpoint: outpoints[idx],
 			},
 		}
 

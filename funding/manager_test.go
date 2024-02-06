@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/chainreg"
 	acpt "github.com/lightningnetwork/lnd/chanacceptor"
@@ -360,15 +361,16 @@ func createTestWallet(cdb *channeldb.ChannelStateDB, netParams *chaincfg.Params,
 	estimator chainfee.Estimator) (*lnwallet.LightningWallet, error) {
 
 	wallet, err := lnwallet.NewLightningWallet(lnwallet.Config{
-		Database:           cdb,
-		Notifier:           notifier,
-		SecretKeyRing:      keyRing,
-		WalletController:   wc,
-		Signer:             signer,
-		ChainIO:            bio,
-		FeeEstimator:       estimator,
-		NetParams:          *netParams,
-		DefaultConstraints: chainreg.GenDefaultBtcConstraints(),
+		Database:              cdb,
+		Notifier:              notifier,
+		SecretKeyRing:         keyRing,
+		WalletController:      wc,
+		Signer:                signer,
+		ChainIO:               bio,
+		FeeEstimator:          estimator,
+		NetParams:             *netParams,
+		DefaultConstraints:    chainreg.GenDefaultBtcConstraints(),
+		CoinSelectionStrategy: wallet.CoinSelectionLargest,
 	})
 	if err != nil {
 		return nil, err

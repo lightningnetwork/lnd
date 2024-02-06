@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/txsort"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -206,6 +207,10 @@ var _ Intent = (*FullIntent)(nil)
 type WalletConfig struct {
 	// CoinSource is what the WalletAssembler uses to list/locate coins.
 	CoinSource CoinSource
+
+	// CoinSelectionStrategy is the strategy that is used for selecting
+	// coins when funding a transaction.
+	CoinSelectionStrategy wallet.CoinSelectionStrategy
 
 	// CoinSelectionLocker allows the WalletAssembler to gain exclusive
 	// access to the current set of coins returned by the CoinSource.

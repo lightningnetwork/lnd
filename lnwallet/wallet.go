@@ -852,7 +852,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			CoinSelectLocker: l,
 			CoinLocker:       l,
 			Signer:           l.Cfg.Signer,
-			DustLimit:        DustLimitForSize(input.P2WSHSize),
+			DustLimit: DustLimitForSize(
+				input.P2WSHSize,
+			),
+			CoinSelectionStrategy: l.Cfg.CoinSelectionStrategy,
 		}
 		req.ChanFunder = chanfunding.NewWalletAssembler(cfg)
 	} else {

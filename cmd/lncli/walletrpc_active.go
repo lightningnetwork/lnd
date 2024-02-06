@@ -12,8 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
@@ -29,6 +34,7 @@ var (
 			"(PSBTs).",
 		Subcommands: []cli.Command{
 			fundPsbtCommand,
+			fundTemplatePsbtCommand,
 			finalizePsbtCommand,
 		},
 	}
@@ -56,6 +62,8 @@ var (
 			verifyMessageWithAddrCommand,
 		},
 	}
+
+	p2TrChangeType = walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
 )
 
 // walletCommands will return the set of commands to enable for walletrpc
@@ -726,6 +734,349 @@ type fundPsbtResponse struct {
 	Locks             []*utxoLease `json:"locks"`
 }
 
+var fundTemplatePsbtCommand = cli.Command{
+	Name: "fundtemplate",
+	Usage: "Fund a Partially Signed Bitcoin Transaction (PSBT) from a " +
+		"template.",
+	ArgsUsage: "[--template_psbt=T | [--outputs=O [--inputs=I]]] " +
+		"[--conf_target=C | --sat_per_vbyte=S] " +
+		"[--change_type=A] [--change_output_index=I]",
+	Description: `
+	The fund command creates a fully populated PSBT that contains enough
+	inputs to fund the outputs specified in either the template.
+
+	The main difference to the 'fund' command is that the template PSBT
+	is allowed to already contain both inputs and outputs and coin selection
+	and fee estimation is still performed.
+
+	If '--inputs' and '--outputs' are provided instead of a template, then
+	those are used to create a new PSBT template.
+
+	The 'outputs' flag decodes addresses and the amount to send respectively
+	in the following JSON format:
+
+	    --outputs='["ExampleAddr:NumCoinsInSatoshis", "SecondAddr:Sats"]'
+
+	The 'outputs' format is different from the 'fund' command as the order
+	is important for being able to specify the change output index, so an
+	array is used rather than a map.
+
+	The optional 'inputs' flag decodes a JSON list of UTXO outpoints as
+	returned by the listunspent command for example:
+
+	    --inputs='["<txid1>:<output-index1>","<txid2>:<output-index2>",...]
+
+	Any inputs specified that belong to this lnd node MUST be locked/leased
+	(by using 'lncli wallet leaseoutput') manually to make sure they aren't
+	selected again by the coin selection algorithm.
+
+	After verifying and possibly adding new inputs, all input UTXOs added by
+	the command are locked with an internal app ID. Inputs already present
+	in the template are NOT locked, as they must already be locked when
+	invoking the command.
+
+	The '--change_output_index' flag can be used to specify the index of the
+	output in the PSBT that should be used as the change output. If '-1' is
+	specified, the wallet will automatically add a change output if one is
+	required!
+
+	The optional '--change-type' flag permits to choose the address type
+	for the change for default accounts and single imported public keys.
+	The custom address type can only be p2tr at the moment (p2wkh will be
+	used by default). No custom address type should be provided for custom
+	accounts as we will always generate the change address using the coin
+	selection key scope.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "template_psbt",
+			Usage: "the outputs to fund and optional inputs to " +
+				"spend provided in the base64 PSBT format",
+		},
+		cli.StringFlag{
+			Name: "outputs",
+			Usage: "a JSON compatible map of destination " +
+				"addresses to amounts to send, must not " +
+				"include a change address as that will be " +
+				"added automatically by the wallet",
+		},
+		cli.StringFlag{
+			Name: "inputs",
+			Usage: "an optional JSON compatible list of UTXO " +
+				"outpoints to use as the PSBT's inputs",
+		},
+		cli.Uint64Flag{
+			Name: "conf_target",
+			Usage: "the number of blocks that the transaction " +
+				"should be confirmed on-chain within",
+			Value: 6,
+		},
+		cli.Uint64Flag{
+			Name: "sat_per_vbyte",
+			Usage: "a manual fee expressed in sat/vbyte that " +
+				"should be used when creating the transaction",
+		},
+		cli.StringFlag{
+			Name: "account",
+			Usage: "(optional) the name of the account to use to " +
+				"create/fund the PSBT",
+		},
+		cli.StringFlag{
+			Name: "change_type",
+			Usage: "(optional) the type of the change address to " +
+				"use to create/fund the PSBT. If no address " +
+				"type is provided, p2wpkh will be used for " +
+				"default accounts and single imported public " +
+				"keys. No custom address type should be " +
+				"provided for custom accounts as we will " +
+				"always use the coin selection key scope to " +
+				"generate the change address",
+		},
+		cli.Uint64Flag{
+			Name: "min_confs",
+			Usage: "(optional) the minimum number of " +
+				"confirmations each input used for the PSBT " +
+				"transaction must satisfy",
+			Value: defaultUtxoMinConf,
+		},
+		cli.IntFlag{
+			Name: "change_output_index",
+			Usage: "(optional) define an existing output in the " +
+				"PSBT template that should be used as the " +
+				"change output. The value of -1 means a " +
+				"change output will be added automatically " +
+				"if required",
+			Value: -1,
+		},
+	},
+	Action: actionDecorator(fundTemplatePsbt),
+}
+
+// fundTemplatePsbt implements the fundtemplate sub command.
+//
+//nolint:funlen
+func fundTemplatePsbt(ctx *cli.Context) error {
+	ctxc := getContext()
+
+	// Display the command's help message if there aren't any flags
+	// specified.
+	if ctx.NumFlags() == 0 {
+		return cli.ShowCommandHelp(ctx, "fund")
+	}
+
+	chainParams, err := networkParams(ctx)
+	if err != nil {
+		return err
+	}
+
+	coinSelect := &walletrpc.PsbtCoinSelect{}
+
+	// Parse template flags.
+	switch {
+	// The PSBT flag is mutually exclusive with the outputs/inputs flags.
+	case ctx.IsSet("template_psbt") &&
+		(ctx.IsSet("inputs") || ctx.IsSet("outputs")):
+
+		return fmt.Errorf("cannot set template_psbt and inputs/" +
+			"outputs flags at the same time")
+
+	// Use a pre-existing PSBT as the transaction template.
+	case len(ctx.String("template_psbt")) > 0:
+		psbtBase64 := ctx.String("template_psbt")
+		psbtBytes, err := base64.StdEncoding.DecodeString(psbtBase64)
+		if err != nil {
+			return err
+		}
+
+		coinSelect.Psbt = psbtBytes
+
+	// The user manually specified outputs and/or inputs in JSON
+	// format.
+	case len(ctx.String("outputs")) > 0 || len(ctx.String("inputs")) > 0:
+		var (
+			inputs  []*wire.OutPoint
+			outputs []*wire.TxOut
+		)
+
+		if len(ctx.String("outputs")) > 0 {
+			var outputStrings []string
+
+			// Parse the address to amount map as JSON now. At least
+			// one entry must be present.
+			jsonMap := []byte(ctx.String("outputs"))
+			err := json.Unmarshal(jsonMap, &outputStrings)
+			if err != nil {
+				return fmt.Errorf("error parsing outputs "+
+					"JSON: %w", err)
+			}
+
+			// Parse the addresses and amounts into a slice of
+			// transaction outputs.
+			for idx, addrAndAmount := range outputStrings {
+				parts := strings.Split(addrAndAmount, ":")
+				if len(parts) != 2 {
+					return fmt.Errorf("invalid output "+
+						"format at index %d", idx)
+				}
+
+				addrStr, amountStr := parts[0], parts[1]
+				amount, err := strconv.ParseInt(
+					amountStr, 10, 64,
+				)
+				if err != nil {
+					return fmt.Errorf("error parsing "+
+						"amount at index %d: %w", idx,
+						err)
+				}
+
+				addr, err := btcutil.DecodeAddress(
+					addrStr, chainParams,
+				)
+				if err != nil {
+					return fmt.Errorf("error parsing "+
+						"address at index %d: %w", idx,
+						err)
+				}
+
+				pkScript, err := txscript.PayToAddrScript(addr)
+				if err != nil {
+					return fmt.Errorf("error creating pk "+
+						"script for address at index "+
+						"%d: %w", idx, err)
+				}
+
+				outputs = append(outputs, &wire.TxOut{
+					PkScript: pkScript,
+					Value:    amount,
+				})
+			}
+		}
+
+		// Inputs are optional.
+		if len(ctx.String("inputs")) > 0 {
+			var inputStrings []string
+
+			jsonList := []byte(ctx.String("inputs"))
+			err := json.Unmarshal(jsonList, &inputStrings)
+			if err != nil {
+				return fmt.Errorf("error parsing inputs JSON: "+
+					"%w", err)
+			}
+
+			for idx, input := range inputStrings {
+				op, err := wire.NewOutPointFromString(input)
+				if err != nil {
+					return fmt.Errorf("error parsing "+
+						"UTXO outpoint %d: %w", idx,
+						err)
+				}
+				inputs = append(inputs, op)
+			}
+		}
+
+		packet, err := psbt.New(
+			inputs, outputs, 2, 0, make([]uint32, len(inputs)),
+		)
+		if err != nil {
+			return fmt.Errorf("error creating template PSBT: %w",
+				err)
+		}
+
+		var buf bytes.Buffer
+		err = packet.Serialize(&buf)
+		if err != nil {
+			return fmt.Errorf("error serializing template PSBT: %w",
+				err)
+		}
+
+		coinSelect.Psbt = buf.Bytes()
+
+	default:
+		return fmt.Errorf("must specify either template_psbt or " +
+			"inputs/outputs flag")
+	}
+
+	minConfs := int32(ctx.Uint64("min_confs"))
+	req := &walletrpc.FundPsbtRequest{
+		Account:          ctx.String("account"),
+		MinConfs:         minConfs,
+		SpendUnconfirmed: minConfs == 0,
+		Template: &walletrpc.FundPsbtRequest_CoinSelect{
+			CoinSelect: coinSelect,
+		},
+	}
+
+	// Parse fee flags.
+	switch {
+	case ctx.IsSet("conf_target") && ctx.IsSet("sat_per_vbyte"):
+		return fmt.Errorf("cannot set conf_target and sat_per_vbyte " +
+			"at the same time")
+
+	case ctx.Uint64("sat_per_vbyte") > 0:
+		req.Fees = &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: ctx.Uint64("sat_per_vbyte"),
+		}
+
+	// Check conf_target last because it has a default value.
+	case ctx.Uint64("conf_target") > 0:
+		req.Fees = &walletrpc.FundPsbtRequest_TargetConf{
+			TargetConf: uint32(ctx.Uint64("conf_target")),
+		}
+	}
+
+	type existingIndex = walletrpc.PsbtCoinSelect_ExistingOutputIndex
+
+	// Parse change type flag.
+	changeOutputIndex := ctx.Int("change_output_index")
+	switch {
+	case changeOutputIndex == -1:
+		coinSelect.ChangeOutput = &walletrpc.PsbtCoinSelect_Add{
+			Add: true,
+		}
+	case changeOutputIndex >= 0:
+		coinSelect.ChangeOutput = &existingIndex{
+			ExistingOutputIndex: int32(changeOutputIndex),
+		}
+
+	default:
+		return fmt.Errorf("invalid change_output_index: %d",
+			changeOutputIndex)
+	}
+
+	if ctx.IsSet("change_type") {
+		switch addressType := ctx.String("change_type"); addressType {
+		case "p2tr":
+			req.ChangeType = p2TrChangeType
+
+		default:
+			return fmt.Errorf("invalid type for the change type: "+
+				"%s. At the moment, the only address type "+
+				"supported is p2tr (default to p2wkh)",
+				addressType)
+		}
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	response, err := walletClient.FundPsbt(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	jsonLocks := marshallLocks(response.LockedUtxos)
+
+	printJSON(&fundPsbtResponse{
+		Psbt: base64.StdEncoding.EncodeToString(
+			response.FundedPsbt,
+		),
+		ChangeOutputIndex: response.ChangeOutputIndex,
+		Locks:             jsonLocks,
+	})
+
+	return nil
+}
+
 var fundPsbtCommand = cli.Command{
 	Name:  "fund",
 	Usage: "Fund a Partially Signed Bitcoin Transaction (PSBT).",
@@ -837,7 +1188,7 @@ func fundPsbt(ctx *cli.Context) error {
 
 	// Parse template flags.
 	switch {
-	// The PSBT flag is mutally exclusive with the outputs/inputs flags.
+	// The PSBT flag is mutually exclusive with the outputs/inputs flags.
 	case ctx.IsSet("template_psbt") &&
 		(ctx.IsSet("inputs") || ctx.IsSet("outputs")):
 
@@ -926,8 +1277,7 @@ func fundPsbt(ctx *cli.Context) error {
 	if ctx.IsSet("change_type") {
 		switch addressType := ctx.String("change_type"); addressType {
 		case "p2tr":
-			//nolint:lll
-			req.ChangeType = walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
+			req.ChangeType = p2TrChangeType
 
 		default:
 			return fmt.Errorf("invalid type for the "+

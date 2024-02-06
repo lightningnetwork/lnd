@@ -120,7 +120,10 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
 				ExternalEvents: fn.Some(DaemonEventSet{
 					sendEvent, &DisableChannelEvent{},
-					&BroadcastTxn{}, sendEvent2,
+					&BroadcastTxn{
+						Tx:    &wire.MsgTx{},
+						Label: "test",
+					}, sendEvent2,
 				}),
 			}),
 		}, nil

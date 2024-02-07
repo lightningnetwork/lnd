@@ -100,10 +100,10 @@ type ChainArbitratorConfig struct {
 	MarkLinkInactive func(wire.OutPoint) error
 
 	// ContractBreach is a function closure that the ChainArbitrator will
-	// use to notify the breachArbiter about a contract breach. It should
-	// only return a non-nil error when the breachArbiter has preserved
+	// use to notify the BreachArbitrator about a contract breach. It should
+	// only return a non-nil error when the BreachArbitrator has preserved
 	// the necessary breach info for this channel point. Once the breach
-	// resolution is persisted in the channel arbitrator, it will be safe
+	// resolution is persisted in the ChannelArbitrator, it will be safe
 	// to mark the channel closed.
 	ContractBreach func(wire.OutPoint, *lnwallet.BreachRetribution) error
 

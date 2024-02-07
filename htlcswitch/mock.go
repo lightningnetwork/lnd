@@ -906,13 +906,14 @@ func (f *mockChannelLink) UpdateShortChanID() (lnwire.ShortChannelID, error) {
 	return f.shortChanID, nil
 }
 
-func (f *mockChannelLink) EnableAdds(linkDirection LinkDirection) error {
+func (f *mockChannelLink) EnableAdds(linkDirection LinkDirection) bool {
 	// TODO(proofofkeags): Implement
-	return nil
+	return true
 }
-func (f *mockChannelLink) DisableAdds(linkDirection LinkDirection) error {
+
+func (f *mockChannelLink) DisableAdds(linkDirection LinkDirection) bool {
 	// TODO(proofofkeags): Implement
-	return nil
+	return true
 }
 func (f *mockChannelLink) IsFlushing(linkDirection LinkDirection) bool {
 	// TODO(proofofkeags): Implement

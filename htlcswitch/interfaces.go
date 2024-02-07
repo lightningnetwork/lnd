@@ -135,14 +135,16 @@ type ChannelUpdateHandler interface {
 	MayAddOutgoingHtlc(lnwire.MilliSatoshi) error
 
 	// EnableAdds sets the ChannelUpdateHandler state to allow
-	// UpdateAddHtlc's in the specified direction. It returns an error if
-	// the state already allowed those adds.
-	EnableAdds(direction LinkDirection) error
+	// UpdateAddHtlc's in the specified direction. It returns true if the
+	// state was changed and false if the desired state was already set
+	// before the method was called.
+	EnableAdds(direction LinkDirection) bool
 
 	// DisableAdds sets the ChannelUpdateHandler state to allow
-	// UpdateAddHtlc's in the specified direction. It returns an error if
-	// the state already disallowed those adds.
-	DisableAdds(direction LinkDirection) error
+	// UpdateAddHtlc's in the specified direction. It returns true if the
+	// state was changed and false if the desired state was already set
+	// before the method was called.
+	DisableAdds(direction LinkDirection) bool
 
 	// IsFlushing returns true when UpdateAddHtlc's are disabled in the
 	// direction of the argument.

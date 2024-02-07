@@ -618,41 +618,25 @@ func (l *channelLink) EligibleToUpdate() bool {
 }
 
 // EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
-// the specified direction. It returns an error if the state already allowed
-// those adds.
-func (l *channelLink) EnableAdds(linkDirection LinkDirection) error {
+// the specified direction. It returns true if the state was changed and false
+// if the desired state was already set before the method was called.
+func (l *channelLink) EnableAdds(linkDirection LinkDirection) bool {
 	if linkDirection == Outgoing {
-		if !l.isOutgoingAddBlocked.Swap(false) {
-			return errors.New("outgoing adds already enabled")
-		}
+		return l.isOutgoingAddBlocked.Swap(false)
 	}
 
-	if linkDirection == Incoming {
-		if !l.isIncomingAddBlocked.Swap(false) {
-			return errors.New("incoming adds already enabled")
-		}
-	}
-
-	return nil
+	return l.isIncomingAddBlocked.Swap(false)
 }
 
 // DisableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
-// the specified direction. It returns an error if the state already disallowed
-// those adds.
-func (l *channelLink) DisableAdds(linkDirection LinkDirection) error {
+// the specified direction. It returns true if the state was changed and false
+// if the desired state was already set before the method was called.
+func (l *channelLink) DisableAdds(linkDirection LinkDirection) bool {
 	if linkDirection == Outgoing {
-		if l.isOutgoingAddBlocked.Swap(true) {
-			return errors.New("outgoing adds already disabled")
-		}
+		return !l.isOutgoingAddBlocked.Swap(true)
 	}
 
-	if linkDirection == Incoming {
-		if l.isIncomingAddBlocked.Swap(true) {
-			return errors.New("incoming adds already disabled")
-		}
-	}
-
-	return nil
+	return !l.isIncomingAddBlocked.Swap(true)
 }
 
 // IsFlushing returns true when UpdateAddHtlc's are disabled in the direction of

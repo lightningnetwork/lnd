@@ -2991,9 +2991,8 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 		}
 
 		link.OnCommitOnce(htlcswitch.Outgoing, func() {
-			err := link.DisableAdds(htlcswitch.Outgoing)
-			if err != nil {
-				p.log.Warnf("outgoing link adds already "+
+			if !link.DisableAdds(htlcswitch.Outgoing) {
+				p.log.Warnf("Outgoing link adds already "+
 					"disabled: %v", link.ChanID())
 			}
 
@@ -3619,12 +3618,9 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 	switch typed := msg.msg.(type) {
 	case *lnwire.Shutdown:
 		// Disable incoming adds immediately.
-		if link != nil {
-			err := link.DisableAdds(htlcswitch.Incoming)
-			if err != nil {
-				p.log.Warnf("incoming link adds already "+
-					"disabled: %v", link.ChanID())
-			}
+		if link != nil && !link.DisableAdds(htlcswitch.Incoming) {
+			p.log.Warnf("Incoming link adds already disabled: %v",
+				link.ChanID())
 		}
 
 		oShutdown, err := chanCloser.ReceiveShutdown(*typed)
@@ -3646,10 +3642,12 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 			// next time we send a CommitSig to remain spec
 			// compliant.
 			link.OnCommitOnce(htlcswitch.Outgoing, func() {
-				err := link.DisableAdds(htlcswitch.Outgoing)
-				if err != nil {
-					p.log.Warn(err.Error())
+				if !link.DisableAdds(htlcswitch.Outgoing) {
+					p.log.Warnf("Outgoing link adds "+
+						"already disabled: %v",
+						link.ChanID())
 				}
+
 				p.queueMsg(&msg, nil)
 			})
 		})

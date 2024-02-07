@@ -2990,12 +2990,12 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
-		link.OnCommitOnce(htlcswitch.Outgoing, func() {
-			if !link.DisableAdds(htlcswitch.Outgoing) {
-				p.log.Warnf("Outgoing link adds already "+
-					"disabled: %v", link.ChanID())
-			}
+		if !link.DisableAdds(htlcswitch.Outgoing) {
+			p.log.Warnf("Outgoing link adds already "+
+				"disabled: %v", link.ChanID())
+		}
 
+		link.OnCommitOnce(htlcswitch.Outgoing, func() {
 			p.queueMsg(shutdownMsg, nil)
 		})
 
@@ -3630,7 +3630,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		}
 
 		oShutdown.WhenSome(func(msg lnwire.Shutdown) {
-			// if the link is nil it means we can immediately queue
+			// If the link is nil it means we can immediately queue
 			// the Shutdown message since we don't have to wait for
 			// commitment transaction synchronization.
 			if link == nil {
@@ -3638,16 +3638,17 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 				return
 			}
 
+			// Immediately disallow any new HTLC's from being added
+			// in the outgoing direction.
+			if !link.DisableAdds(htlcswitch.Outgoing) {
+				p.log.Warnf("Outgoing link adds already "+
+					"disabled: %v", link.ChanID())
+			}
+
 			// When we have a Shutdown to send, we defer it till the
 			// next time we send a CommitSig to remain spec
 			// compliant.
 			link.OnCommitOnce(htlcswitch.Outgoing, func() {
-				if !link.DisableAdds(htlcswitch.Outgoing) {
-					p.log.Warnf("Outgoing link adds "+
-						"already disabled: %v",
-						link.ChanID())
-				}
-
 				p.queueMsg(&msg, nil)
 			})
 		})

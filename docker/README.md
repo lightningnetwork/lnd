@@ -80,7 +80,8 @@ $  docker exec -i -t alice bash
 alice $  lncli --network=simnet newaddress np2wkh 
 
 # Recreate "btcd" node and set Alice's address as mining address:
-$  MINING_ADDRESS=<alice_address> docker-compose up -d btcd
+$  export MINING_ADDRESS=<alice_address>
+$  docker-compose up -d btcd
 
 # Generate 400 blocks (we need at least "100 >=" blocks because of coinbase 
 # block maturity and "300 ~=" in order to activate segwit):

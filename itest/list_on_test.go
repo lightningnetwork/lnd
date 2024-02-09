@@ -519,16 +519,8 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testLookupHtlcResolution,
 	},
 	{
-		Name:     "watchtower session management",
-		TestFunc: testWatchtowerSessionManagement,
-	},
-	{
-		// NOTE: this test must be put in the same tranche as
-		// `testWatchtowerSessionManagement` to avoid parallel use of
-		// the default watchtower port.
-		Name: "revoked uncooperative close retribution altruist " +
-			"watchtower",
-		TestFunc: testRevokedCloseRetributionAltruistWatchtower,
+		Name:     "watchtower",
+		TestFunc: testWatchtower,
 	},
 	{
 		Name:     "channel fundmax",

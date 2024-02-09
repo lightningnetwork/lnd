@@ -36,7 +36,6 @@ func testWatchtower(ht *lntest.HarnessTest) {
 func testTowerClientSessionDeletion(ht *lntest.HarnessTest) {
 	const (
 		chanAmt           = funding.MaxBtcFundingAmount
-		paymentAmt        = 10_000
 		numInvoices       = 5
 		maxUpdates        = numInvoices * 2
 		externalIP        = "1.2.3.4"
@@ -98,61 +97,10 @@ func testTowerClientSessionDeletion(ht *lntest.HarnessTest) {
 	// Since there are 2 updates made for every payment and the maximum
 	// number of updates per session has been set to 10, make 5 payments
 	// between the pair so that the session is exhausted.
-	alicePayReqs, _, _ := ht.CreatePayReqs(
-		ht.Alice, paymentAmt, numInvoices,
-	)
-
-	send := func(node *node.HarnessNode, payReq string) {
-		stream := node.RPC.SendPayment(&routerrpc.SendPaymentRequest{
-			PaymentRequest: payReq,
-			TimeoutSeconds: 60,
-			FeeLimitMsat:   noFeeLimitMsat,
-		})
-
-		ht.AssertPaymentStatusFromStream(
-			stream, lnrpc.Payment_SUCCEEDED,
-		)
-	}
-
-	for i := 0; i < numInvoices; i++ {
-		send(dave, alicePayReqs[i])
-	}
-
-	// assertNumBackups is a closure that asserts that Dave has a certain
-	// number of backups backed up to the tower. If mineOnFail is true,
-	// then a block will be mined each time the assertion fails.
-	assertNumBackups := func(expected int, mineOnFail bool) {
-		err = wait.NoError(func() error {
-			info := dave.RPC.GetTowerInfo(
-				&wtclientrpc.GetTowerInfoRequest{
-					Pubkey:          wallisPk,
-					IncludeSessions: true,
-				},
-			)
-
-			var numBackups uint32
-			for _, sessionType := range info.SessionInfo {
-				for _, session := range sessionType.Sessions {
-					numBackups += session.NumBackups
-				}
-			}
-
-			if numBackups == uint32(expected) {
-				return nil
-			}
-
-			if mineOnFail {
-				ht.Miner.MineBlocksSlow(1)
-			}
-
-			return fmt.Errorf("expected %d backups, got %d",
-				expected, numBackups)
-		}, defaultTimeout)
-		require.NoError(ht, err)
-	}
+	generateBackups(ht, dave, ht.Alice, maxUpdates)
 
 	// Assert that one of the sessions now has 10 backups.
-	assertNumBackups(10, false)
+	assertNumBackups(ht, dave.RPC, wallisPk, 10, false)
 
 	// Now close the channel and wait for the close transaction to appear
 	// in the mempool so that it is included in a block when we mine.
@@ -168,7 +116,7 @@ func testTowerClientSessionDeletion(ht *lntest.HarnessTest) {
 	// would immediately negotiate another session after deleting the
 	// exhausted one. This time we set the "mineOnFail" parameter to true to
 	// ensure that the session deleting logic is run.
-	assertNumBackups(0, true)
+	assertNumBackups(ht, dave.RPC, wallisPk, 0, true)
 }
 
 // testRevokedCloseRetributionAltruistWatchtower establishes a channel between
@@ -478,4 +426,77 @@ func setUpNewTower(ht *lntest.HarnessTest, name, externalIP string) ([]byte,
 	require.Contains(ht, towerInfo.Uris[0], externalIP)
 
 	return towerInfo.Pubkey, towerInfo.Listeners[0], tower.RPC
+}
+
+// generateBackups is a helper function that can be used to create a number of
+// watchtower back-ups.
+func generateBackups(ht *lntest.HarnessTest, srcNode,
+	dstNode *node.HarnessNode, numBackups int64) {
+
+	const paymentAmt = 10_000
+
+	require.EqualValuesf(ht, numBackups%2, 0, "the number of desired "+
+		"back-ups must be even")
+
+	// Two updates are made for every payment.
+	numPayments := int(numBackups / 2)
+
+	// Create the required number of invoices.
+	alicePayReqs, _, _ := ht.CreatePayReqs(
+		dstNode, paymentAmt, numPayments,
+	)
+
+	send := func(node *node.HarnessNode, payReq string) {
+		stream := node.RPC.SendPayment(
+			&routerrpc.SendPaymentRequest{
+				PaymentRequest: payReq,
+				TimeoutSeconds: 60,
+				FeeLimitMsat:   noFeeLimitMsat,
+			},
+		)
+
+		ht.AssertPaymentStatusFromStream(
+			stream, lnrpc.Payment_SUCCEEDED,
+		)
+	}
+
+	// Pay each invoice.
+	for i := 0; i < numPayments; i++ {
+		send(srcNode, alicePayReqs[i])
+	}
+}
+
+// assertNumBackups is a helper that asserts that the given node has a certain
+// number of backups backed up to the tower. If mineOnFail is true, then a block
+// will be mined each time the assertion fails.
+func assertNumBackups(ht *lntest.HarnessTest, node *rpc.HarnessRPC,
+	towerPk []byte, expectedNumBackups int, mineOnFail bool) {
+
+	err := wait.NoError(func() error {
+		info := node.GetTowerInfo(
+			&wtclientrpc.GetTowerInfoRequest{
+				Pubkey:          towerPk,
+				IncludeSessions: true,
+			},
+		)
+
+		var numBackups uint32
+		for _, sessionType := range info.SessionInfo {
+			for _, session := range sessionType.Sessions {
+				numBackups += session.NumBackups
+			}
+		}
+
+		if numBackups == uint32(expectedNumBackups) {
+			return nil
+		}
+
+		if mineOnFail {
+			ht.Miner.MineBlocksSlow(1)
+		}
+
+		return fmt.Errorf("expected %d backups, got %d",
+			expectedNumBackups, numBackups)
+	}, defaultTimeout)
+	require.NoError(ht, err)
 }

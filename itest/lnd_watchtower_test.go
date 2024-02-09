@@ -29,6 +29,200 @@ func testWatchtower(ht *lntest.HarnessTest) {
 		tt := ht.Subtest(t)
 		testTowerClientSessionDeletion(tt)
 	})
+
+	ht.Run("tower and session activation", func(t *testing.T) {
+		tt := ht.Subtest(t)
+		testTowerClientTowerAndSessionManagement(tt)
+	})
+}
+
+// testTowerClientTowerAndSessionManagement tests the various control commands
+// that a user has over the client's set of active towers and sessions.
+func testTowerClientTowerAndSessionManagement(ht *lntest.HarnessTest) {
+	const (
+		chanAmt           = funding.MaxBtcFundingAmount
+		externalIP        = "1.2.3.4"
+		externalIP2       = "1.2.3.5"
+		sessionCloseRange = 1
+	)
+
+	// Set up Wallis the watchtower who will be used by Dave to watch over
+	// his channel commitment transactions.
+	wallisPk, wallisListener, _ := setUpNewTower(ht, "Wallis", externalIP)
+
+	// Dave will be the tower client.
+	daveArgs := []string{
+		"--wtclient.active",
+		fmt.Sprintf(
+			"--wtclient.session-close-range=%d", sessionCloseRange,
+		),
+	}
+	dave := ht.NewNode("Dave", daveArgs)
+
+	addWallisReq := &wtclientrpc.AddTowerRequest{
+		Pubkey:  wallisPk,
+		Address: wallisListener,
+	}
+	dave.RPC.AddTower(addWallisReq)
+
+	assertNumSessions := func(towerPk []byte, expectedNum int) {
+		err := wait.NoError(func() error {
+			info := dave.RPC.GetTowerInfo(
+				&wtclientrpc.GetTowerInfoRequest{
+					Pubkey:          towerPk,
+					IncludeSessions: true,
+				},
+			)
+
+			var numSessions uint32
+			for _, sessionType := range info.SessionInfo {
+				numSessions += sessionType.NumSessions
+			}
+			if numSessions == uint32(expectedNum) {
+				return nil
+			}
+
+			return fmt.Errorf("expected %d sessions, got %d",
+				expectedNum, numSessions)
+		}, defaultTimeout)
+		require.NoError(ht, err)
+	}
+
+	// Assert that there are a few sessions between Dave and Wallis. There
+	// should be one per client. There are currently 3 types of clients, so
+	// we expect 3 sessions.
+	assertNumSessions(wallisPk, 3)
+
+	// Before we make a channel, we'll load up Dave with some coins sent
+	// directly from the miner.
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, dave)
+
+	// Connect Dave and Alice.
+	ht.ConnectNodes(dave, ht.Alice)
+
+	// Open a channel between Dave and Alice.
+	params := lntest.OpenChannelParams{
+		Amt: chanAmt,
+	}
+	chanPoint := ht.OpenChannel(dave, ht.Alice, params)
+
+	// Show that the Wallis tower is currently seen as an active session
+	// candidate.
+	info := dave.RPC.GetTowerInfo(&wtclientrpc.GetTowerInfoRequest{
+		Pubkey: wallisPk,
+	})
+	require.GreaterOrEqual(ht, len(info.SessionInfo), 1)
+	require.True(ht, info.SessionInfo[0].ActiveSessionCandidate)
+
+	// Make some back-ups and assert that they are added to a session with
+	// the tower.
+	generateBackups(ht, dave, ht.Alice, 4)
+
+	// Assert that one of the sessions now has 4 backups.
+	assertNumBackups(ht, dave.RPC, wallisPk, 4, false)
+
+	// Now, deactivate the tower and show that it is no longer considered
+	// an active session candidate.
+	dave.RPC.DeactivateTower(&wtclientrpc.DeactivateTowerRequest{
+		Pubkey: wallisPk,
+	})
+	info = dave.RPC.GetTowerInfo(&wtclientrpc.GetTowerInfoRequest{
+		Pubkey: wallisPk,
+	})
+	require.GreaterOrEqual(ht, len(info.SessionInfo), 1)
+	require.False(ht, info.SessionInfo[0].ActiveSessionCandidate)
+
+	// Back up a few more states.
+	generateBackups(ht, dave, ht.Alice, 4)
+
+	// These should _not_ be on the tower. Therefore, the number of
+	// back-ups on the tower should be the same as before.
+	assertNumBackups(ht, dave.RPC, wallisPk, 4, false)
+
+	// Add new tower and connect Dave to it.
+	wilmaPk, wilmaListener, _ := setUpNewTower(ht, "Wilma", externalIP2)
+	dave.RPC.AddTower(&wtclientrpc.AddTowerRequest{
+		Pubkey:  wilmaPk,
+		Address: wilmaListener,
+	})
+	assertNumSessions(wilmaPk, 3)
+
+	// The updates from before should now appear on the new watchtower.
+	assertNumBackups(ht, dave.RPC, wilmaPk, 4, false)
+
+	// Reactivate the Wallis tower and then deactivate the Wilma one.
+	dave.RPC.AddTower(addWallisReq)
+	dave.RPC.DeactivateTower(&wtclientrpc.DeactivateTowerRequest{
+		Pubkey: wilmaPk,
+	})
+
+	// Generate some more back-ups.
+	generateBackups(ht, dave, ht.Alice, 4)
+
+	// Assert that they get added to the first tower (Wallis) and that the
+	// number of sessions with Wallis has not changed - in other words, the
+	// previously used session was re-used.
+	assertNumBackups(ht, dave.RPC, wallisPk, 8, false)
+	assertNumSessions(wallisPk, 3)
+
+	findSession := func(towerPk []byte, numBackups uint32) []byte {
+		info := dave.RPC.GetTowerInfo(&wtclientrpc.GetTowerInfoRequest{
+			Pubkey:          towerPk,
+			IncludeSessions: true,
+		})
+
+		for _, sessionType := range info.SessionInfo {
+			for _, session := range sessionType.Sessions {
+				if session.NumBackups == numBackups {
+					return session.Id
+				}
+			}
+		}
+		ht.Fatalf("session with %d backups not found", numBackups)
+
+		return nil
+	}
+
+	// Now we will test the termination of a session.
+	// First, we need to figure out the ID of the session that has been used
+	// for back-ups.
+	sessionID := findSession(wallisPk, 8)
+
+	// Now, terminate the session.
+	dave.RPC.TerminateSession(&wtclientrpc.TerminateSessionRequest{
+		SessionId: sessionID,
+	})
+
+	// This should force the client to negotiate a new session. The old
+	// session still remains in our session list since the channel for which
+	// it has updates for is still open.
+	assertNumSessions(wallisPk, 4)
+
+	// Any new back-ups should now be backed up on a different session.
+	generateBackups(ht, dave, ht.Alice, 2)
+	assertNumBackups(ht, dave.RPC, wallisPk, 10, false)
+	findSession(wallisPk, 2)
+
+	// Close the channel.
+	ht.CloseChannelAssertPending(dave, chanPoint, false)
+
+	// Mine enough blocks to surpass the session close range buffer.
+	ht.MineBlocksAndAssertNumTxes(sessionCloseRange+6, 1)
+
+	// The session that was previously terminated now gets deleted since
+	// the channel for which it has updates has now been closed. All the
+	// remaining sessions are not yet closable since they are not yet
+	// exhausted and are all still active.
+	assertNumSessions(wallisPk, 3)
+
+	// For the sake of completion, we call RemoveTower here for both towers
+	// to show that this should never error.
+	dave.RPC.RemoveTower(&wtclientrpc.RemoveTowerRequest{
+		Pubkey: wallisPk,
+	})
+	dave.RPC.RemoveTower(&wtclientrpc.RemoveTowerRequest{
+		Pubkey: wilmaPk,
+	})
 }
 
 // testTowerClientSessionDeletion tests that sessions are correctly deleted

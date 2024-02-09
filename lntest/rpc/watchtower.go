@@ -52,6 +52,38 @@ func (h *HarnessRPC) AddTower(
 	return resp
 }
 
+// DeactivateTower makes an RPC call to the WatchtowerClient of the given node
+// and asserts.
+func (h *HarnessRPC) DeactivateTower(req *wtclientrpc.DeactivateTowerRequest) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WatchtowerClient.DeactivateTower(ctxt, req)
+	h.NoError(err, "DeactivateTower")
+}
+
+// TerminateSession makes an RPC call to the WatchtowerClient of the given node
+// and asserts.
+func (h *HarnessRPC) TerminateSession(
+	req *wtclientrpc.TerminateSessionRequest) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WatchtowerClient.TerminateSession(ctxt, req)
+	h.NoError(err, "TerminateSession")
+}
+
+// RemoveTower makes an RPC call to the WatchtowerClient of the given node
+// and asserts.
+func (h *HarnessRPC) RemoveTower(req *wtclientrpc.RemoveTowerRequest) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.WatchtowerClient.RemoveTower(ctxt, req)
+	h.NoError(err, "RemoveTower")
+}
+
 // WatchtowerStats makes a RPC call to the WatchtowerClient of the given node
 // and asserts.
 func (h *HarnessRPC) WatchtowerStats() *wtclientrpc.StatsResponse {

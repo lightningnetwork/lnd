@@ -1614,8 +1614,8 @@ func (h *HarnessTest) mineTillForceCloseResolved(hn *node.HarnessNode) {
 // CreatePayReqs is a helper method that will create a slice of payment
 // requests for the given node.
 func (h *HarnessTest) CreatePayReqs(hn *node.HarnessNode,
-	paymentAmt btcutil.Amount, numInvoices int) ([]string,
-	[][]byte, []*lnrpc.Invoice) {
+	paymentAmt btcutil.Amount, numInvoices int,
+	routeHints ...*lnrpc.RouteHint) ([]string, [][]byte, []*lnrpc.Invoice) {
 
 	payReqs := make([]string, numInvoices)
 	rHashes := make([][]byte, numInvoices)
@@ -1624,9 +1624,10 @@ func (h *HarnessTest) CreatePayReqs(hn *node.HarnessNode,
 		preimage := h.Random32Bytes()
 
 		invoice := &lnrpc.Invoice{
-			Memo:      "testing",
-			RPreimage: preimage,
-			Value:     int64(paymentAmt),
+			Memo:       "testing",
+			RPreimage:  preimage,
+			Value:      int64(paymentAmt),
+			RouteHints: routeHints,
 		}
 		resp := hn.RPC.AddInvoice(invoice)
 

@@ -204,3 +204,13 @@ func (h *HarnessRPC) TrackPayments(
 
 	return resp
 }
+
+// EstimateRouteFee makes an RPC call to the node's RouterClient and asserts.
+func (h *HarnessRPC) EstimateRouteFee(
+	req *routerrpc.RouteFeeRequest) *routerrpc.RouteFeeResponse {
+
+	resp, err := h.Router.EstimateRouteFee(h.runCtx, req)
+	h.NoError(err, "EstimateRouteFee")
+
+	return resp
+}

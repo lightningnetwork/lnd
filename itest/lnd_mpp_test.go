@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -44,6 +45,7 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 		amtCarolEve:   chanAmt,
 		amtDaveBob:    chanAmt,
 		amtEveBob:     chanAmt,
+		amtBobPaula:   chanAmt,
 	}
 	mts.openChannels(req)
 
@@ -164,8 +166,8 @@ func testSendToRouteMultiPath(ht *lntest.HarnessTest) {
 type mppTestScenario struct {
 	ht *lntest.HarnessTest
 
-	alice, bob, carol, dave, eve *node.HarnessNode
-	nodes                        []*node.HarnessNode
+	alice, bob, carol, dave, eve, paula *node.HarnessNode
+	nodes                               []*node.HarnessNode
 
 	// Keep a list of all our active channels.
 	channelPoints []*lnrpc.ChannelPoint
@@ -176,8 +178,8 @@ type mppTestScenario struct {
 //
 //	            _ Eve _
 //	           /       \
-//	Alice -- Carol ---- Bob
-//	    \              /
+//	Alice -- Carol ---- Bob ---------- Paula
+//	    \              /     (private)
 //	     \__ Dave ____/
 func newMppTestScenario(ht *lntest.HarnessTest) *mppTestScenario {
 	alice, bob := ht.Alice, ht.Bob
@@ -194,6 +196,7 @@ func newMppTestScenario(ht *lntest.HarnessTest) *mppTestScenario {
 	})
 	dave := ht.NewNode("dave", nil)
 	eve := ht.NewNode("eve", nil)
+	paula := ht.NewNode("paula", nil)
 
 	// Connect nodes to ensure propagation of channels.
 	ht.EnsureConnected(alice, carol)
@@ -202,6 +205,7 @@ func newMppTestScenario(ht *lntest.HarnessTest) *mppTestScenario {
 	ht.EnsureConnected(carol, eve)
 	ht.EnsureConnected(dave, bob)
 	ht.EnsureConnected(eve, bob)
+	ht.EnsureConnected(bob, paula)
 
 	// Send coins to the nodes and mine 1 blocks to confirm them.
 	for i := 0; i < 2; i++ {
@@ -218,7 +222,8 @@ func newMppTestScenario(ht *lntest.HarnessTest) *mppTestScenario {
 		carol: carol,
 		dave:  dave,
 		eve:   eve,
-		nodes: []*node.HarnessNode{alice, bob, carol, dave, eve},
+		paula: paula,
+		nodes: []*node.HarnessNode{alice, bob, carol, dave, eve, paula},
 	}
 
 	return mts
@@ -243,16 +248,19 @@ type mppOpenChannelRequest struct {
 
 	// Channel Eve=>Bob.
 	amtEveBob btcutil.Amount
+
+	// Channel Bob=>Paula.
+	amtBobPaula btcutil.Amount
 }
 
 // openChannels is a helper to open channels that sets up a network topology
 // with three different paths Alice <-> Bob as following,
 //
-//		 _ Eve _
-//		/       \
-//	 Alice -- Carol ---- Bob
-//		\              /
-//		 \__ Dave ____/
+//	            _ Eve _
+//	           /       \
+//	Alice -- Carol ---- Bob ---------- Paula
+//	    \              /     (private)
+//	     \__ Dave ____/
 //
 // NOTE: all the channels are open together to save blocks mined.
 func (m *mppTestScenario) openChannels(r *mppOpenChannelRequest) {
@@ -260,7 +268,9 @@ func (m *mppTestScenario) openChannels(r *mppOpenChannelRequest) {
 		{
 			Local:  m.alice,
 			Remote: m.carol,
-			Param:  lntest.OpenChannelParams{Amt: r.amtAliceCarol},
+			Param: lntest.OpenChannelParams{
+				Amt: r.amtAliceCarol,
+			},
 		},
 		{
 			Local:  m.alice,
@@ -287,18 +297,43 @@ func (m *mppTestScenario) openChannels(r *mppOpenChannelRequest) {
 			Remote: m.bob,
 			Param:  lntest.OpenChannelParams{Amt: r.amtEveBob},
 		},
+
+		{
+			Local:  m.bob,
+			Remote: m.paula,
+			Param: lntest.OpenChannelParams{
+				Amt:     r.amtBobPaula,
+				Private: true,
+			},
+		},
 	}
 
 	m.channelPoints = m.ht.OpenMultiChannelsAsync(reqs)
 
-	// Make sure every node has heard every channel.
+	// A function to check if a channel point is Paula's. This helps us to
+	// skip channel announcements for Paula's channel.
+	paulasChannels := m.paula.RPC.ListChannels(&lnrpc.ListChannelsRequest{})
+	isPaulasChannel := func(cp string) bool {
+		require.Len(m.ht, paulasChannels.Channels, 1)
+		paulasChannel := paulasChannels.Channels[0].ChannelPoint
+
+		return strings.EqualFold(paulasChannel, cp)
+	}
+
+	// Make sure every node has heard every channel, except for the private
+	// ones.
 	for _, hn := range m.nodes {
 		for _, cp := range m.channelPoints {
+			outpoint := m.paula.RPC.MakeOutpoint(cp).String()
+			if isPaulasChannel(outpoint) {
+				continue
+			}
+
 			m.ht.AssertTopologyChannelOpen(hn, cp)
 		}
 
-		// Each node should have exactly 6 edges.
-		m.ht.AssertNumEdges(hn, len(m.channelPoints), false)
+		// Each node should have exactly 7 (minus paula's) edges.
+		m.ht.AssertNumEdges(hn, len(m.channelPoints)-1, false)
 	}
 }
 
@@ -316,6 +351,7 @@ func (m *mppTestScenario) closeChannels() {
 	m.ht.CloseChannelAssertPending(m.carol, m.channelPoints[3], false)
 	m.ht.CloseChannelAssertPending(m.dave, m.channelPoints[4], false)
 	m.ht.CloseChannelAssertPending(m.eve, m.channelPoints[5], false)
+	m.ht.CloseChannelAssertPending(m.bob, m.channelPoints[6], false)
 
 	// Now mine a block to include all the closing transactions.
 	m.ht.MineBlocks(1)
@@ -346,34 +382,4 @@ func (m *mppTestScenario) buildRoute(amt btcutil.Amount,
 	routeResp := sender.RPC.BuildRoute(req)
 
 	return routeResp.Route
-}
-
-// updatePolicy updates a Dave's global channel policy and returns the expected
-// policy for further check. It changes Dave's `FeeBaseMsat` from 1000 msat to
-// 500,000 msat, and `FeeProportionalMillonths` from 1 msat to 1000 msat.
-func (m *mppTestScenario) updateDaveGlobalPolicy() *lnrpc.RoutingPolicy {
-	const (
-		baseFeeMsat = 500_000
-		feeRate     = 0.001
-		maxHtlcMsat = 133_650_000
-	)
-
-	expectedPolicy := &lnrpc.RoutingPolicy{
-		FeeBaseMsat:      baseFeeMsat,
-		FeeRateMilliMsat: feeRate * testFeeBase,
-		TimeLockDelta:    40,
-		MinHtlc:          1000, // default value
-		MaxHtlcMsat:      maxHtlcMsat,
-	}
-
-	updateFeeReq := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:   baseFeeMsat,
-		FeeRate:       feeRate,
-		TimeLockDelta: 40,
-		Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
-		MaxHtlcMsat:   maxHtlcMsat,
-	}
-	m.dave.RPC.UpdateChannelPolicy(updateFeeReq)
-
-	return expectedPolicy
 }

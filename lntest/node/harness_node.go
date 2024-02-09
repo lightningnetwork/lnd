@@ -876,6 +876,33 @@ func (hn *HarnessNode) RestoreDB() error {
 	return nil
 }
 
+// UpdateGlobalPolicy updates a node's global channel policy and returns the
+// expected policy for further check. It changes the node's `FeeBaseMsat` from
+// 1000 msat to 500,000 msat, and `FeeProportionalMillonths` from 1 msat to 1000
+// msat.
+func (hn *HarnessNode) UpdateGlobalPolicy(baseFeeMsat int64, feeRate float64,
+	maxHtlcMsat uint64) *lnrpc.RoutingPolicy {
+
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      baseFeeMsat,
+		FeeRateMilliMsat: int64(feeRate * 1_000_000),
+		TimeLockDelta:    40,
+		MinHtlc:          1000, // default value
+		MaxHtlcMsat:      maxHtlcMsat,
+	}
+
+	updateFeeReq := &lnrpc.PolicyUpdateRequest{
+		BaseFeeMsat:   baseFeeMsat,
+		FeeRate:       feeRate,
+		TimeLockDelta: 40,
+		Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
+		MaxHtlcMsat:   maxHtlcMsat,
+	}
+	hn.RPC.UpdateChannelPolicy(updateFeeReq)
+
+	return expectedPolicy
+}
+
 func postgresDatabaseDsn(dbName string) string {
 	return fmt.Sprintf(postgresDsn, dbName)
 }

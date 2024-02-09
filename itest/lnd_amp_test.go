@@ -55,8 +55,8 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	//
 	//              _ Eve _
 	//             /       \
-	// Alice -- Carol ---- Bob
-	//      \              /
+	// Alice -- Carol ---- Bob ------------ Paula
+	//      \              /     (private)
 	//       \__ Dave ____/
 	//
 	mppReq := &mppOpenChannelRequest{
@@ -66,6 +66,7 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 		amtCarolEve:   155000,
 		amtDaveBob:    155000,
 		amtEveBob:     155000,
+		amtBobPaula:   155000,
 	}
 	mts.openChannels(mppReq)
 	chanPointAliceDave := mts.channelPoints[1]
@@ -89,7 +90,9 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	expectedPolicy := mts.updateDaveGlobalPolicy()
+	expectedPolicy := mts.dave.UpdateGlobalPolicy(
+		500_000, 0.001, 133_650_000,
+	)
 
 	// Make sure Alice has heard it for both Dave's channels.
 	ht.AssertChannelPolicyUpdate(
@@ -367,8 +370,8 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 	//
 	//              _ Eve _
 	//             /       \
-	// Alice -- Carol ---- Bob
-	//      \              /
+	// Alice -- Carol ---- Bob ------------ Paula
+	//      \              /     (private)
 	//       \__ Dave ____/
 	//
 	mppReq := &mppOpenChannelRequest{
@@ -378,6 +381,7 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 		amtCarolEve:   155000,
 		amtDaveBob:    155000,
 		amtEveBob:     155000,
+		amtBobPaula:   155000,
 	}
 	mts.openChannels(mppReq)
 	chanPointAliceDave := mts.channelPoints[1]
@@ -385,7 +389,9 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	expectedPolicy := mts.updateDaveGlobalPolicy()
+	expectedPolicy := mts.dave.UpdateGlobalPolicy(
+		500_000, 0.001, 133_650_000,
+	)
 
 	// Make sure Alice has heard it.
 	ht.AssertChannelPolicyUpdate(
@@ -490,10 +496,10 @@ func testSendToRouteAMP(ht *lntest.HarnessTest) {
 	// Set up a network with three different paths Alice <-> Bob.
 	//              _ Eve _
 	//             /       \
-	// Alice -- Carol ---- Bob
-	//      \              /
+	// Alice -- Carol ---- Bob ------------ Paula
+	//      \              /     (private)
 	//       \__ Dave ____/
-	///
+	//
 	mppReq := &mppOpenChannelRequest{
 		// Since the channel Alice-> Carol will have to carry two
 		// shards, we make it larger.
@@ -503,6 +509,7 @@ func testSendToRouteAMP(ht *lntest.HarnessTest) {
 		amtCarolEve:   chanAmt,
 		amtDaveBob:    chanAmt,
 		amtEveBob:     chanAmt,
+		amtBobPaula:   chanAmt,
 	}
 	mts.openChannels(mppReq)
 

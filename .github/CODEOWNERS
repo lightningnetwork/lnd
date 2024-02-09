@@ -21,7 +21,7 @@
 /blockcache/ @yyforyongyu @ellemouton
 
 # brontide
-/brontide/ @Roasbeef @yyforyongyu
+/brontide/ @Roasbeef @yyforyongyu @morehouse
 
 # buffer
 /buffer/ @yyforyongyu
@@ -81,7 +81,7 @@
 /fn/ @Roasbeef @ProofOfKeags
 
 # funding
-/funding/ @Crypt-iQ
+/funding/ @Crypt-iQ @morehouse
 
 # health check
 /healthcheck/ @guggero
@@ -123,7 +123,7 @@
 /lnwallet/ @Roasbeef @yyforyongyu @Crypt-iQ
 
 # lnwire
-/lnwire/ @ellemouton
+/lnwire/ @ellemouton @morehouse
 
 # macaroons
 /macaroons/ @guggero
@@ -144,7 +144,7 @@
 /netann/ @ellemouton @yyforyongyu
 
 # peer
-/peer/ @ProofOfKeags @Crypt-iQ
+/peer/ @ProofOfKeags @Crypt-iQ @morehouse
 
 # peernotifier
 /peernotifier/ @yyforyongyu
@@ -192,4 +192,4 @@
 /watchtower/ @ellemouton
 
 # zpay32
-/zpay32/ @Roasbeef
+/zpay32/ @Roasbeef @morehouse

@@ -1758,6 +1758,34 @@ func (w *WalletKit) handleChange(packet *psbt.Packet, changeIndex int32,
 		return 0, fmt.Errorf("could not derive change script: %w", err)
 	}
 
+	// We need to add the derivation info for the change address in case it
+	// is a P2TR address. This is mostly to prove it's a bare BIP-0086
+	// address, which is required for some protocols (such as Taproot
+	// Assets).
+	pOut := psbt.POutput{}
+	_, isTaprootChangeAddr := changeAddr.(*btcutil.AddressTaproot)
+	if isTaprootChangeAddr {
+		changeAddrInfo, err := w.cfg.Wallet.AddressInfo(changeAddr)
+		if err != nil {
+			return 0, fmt.Errorf("could not get address info: %w",
+				err)
+		}
+
+		deriv, trDeriv, _, err := btcwallet.Bip32DerivationFromAddress(
+			changeAddrInfo,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("could not get derivation info: "+
+				"%w", err)
+		}
+
+		pOut.TaprootInternalKey = trDeriv.XOnlyPubKey
+		pOut.Bip32Derivation = []*psbt.Bip32Derivation{deriv}
+		pOut.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+			trDeriv,
+		}
+	}
+
 	newChangeIndex := int32(len(packet.Outputs))
 	packet.UnsignedTx.TxOut = append(
 		packet.UnsignedTx.TxOut, &wire.TxOut{
@@ -1765,7 +1793,7 @@ func (w *WalletKit) handleChange(packet *psbt.Packet, changeIndex int32,
 			PkScript: changeScript,
 		},
 	)
-	packet.Outputs = append(packet.Outputs, psbt.POutput{})
+	packet.Outputs = append(packet.Outputs, pOut)
 
 	return newChangeIndex, nil
 }

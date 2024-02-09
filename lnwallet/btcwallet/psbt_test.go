@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
 
@@ -493,5 +494,138 @@ func TestEstimateInputWeight(t *testing.T) {
 				estimator.Weight(),
 			)
 		})
+	}
+}
+
+// TestBip32DerivationFromKeyDesc tests that we can correctly extract a BIP32
+// derivation path from a key descriptor.
+func TestBip32DerivationFromKeyDesc(t *testing.T) {
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name              string
+		keyDesc           keychain.KeyDescriptor
+		coinType          uint32
+		expectedPath      string
+		expectedBip32Path []uint32
+	}{
+		{
+			name: "testnet multi-sig family",
+			keyDesc: keychain.KeyDescriptor{
+				PubKey: privKey.PubKey(),
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamilyMultiSig,
+					Index:  123,
+				},
+			},
+			coinType:     chaincfg.TestNet3Params.HDCoinType,
+			expectedPath: "m/1017'/1'/0'/0/123",
+			expectedBip32Path: []uint32{
+				hardenedKey(keychain.BIP0043Purpose),
+				hardenedKey(chaincfg.TestNet3Params.HDCoinType),
+				hardenedKey(uint32(keychain.KeyFamilyMultiSig)),
+				0, 123,
+			},
+		},
+		{
+			name: "mainnet watchtower family",
+			keyDesc: keychain.KeyDescriptor{
+				PubKey: privKey.PubKey(),
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamilyTowerSession,
+					Index:  456,
+				},
+			},
+			coinType:     chaincfg.MainNetParams.HDCoinType,
+			expectedPath: "m/1017'/0'/8'/0/456",
+			expectedBip32Path: []uint32{
+				hardenedKey(keychain.BIP0043Purpose),
+				hardenedKey(chaincfg.MainNetParams.HDCoinType),
+				hardenedKey(
+					uint32(keychain.KeyFamilyTowerSession),
+				),
+				0, 456,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(tt *testing.T) {
+			d, trD, path := Bip32DerivationFromKeyDesc(
+				tc.keyDesc, tc.coinType,
+			)
+			require.NoError(tt, err)
+
+			require.Equal(tt, tc.expectedPath, path)
+			require.Equal(tt, tc.expectedBip32Path, d.Bip32Path)
+			require.Equal(tt, tc.expectedBip32Path, trD.Bip32Path)
+
+			serializedKey := tc.keyDesc.PubKey.SerializeCompressed()
+			require.Equal(tt, serializedKey, d.PubKey)
+			require.Equal(tt, serializedKey[1:], trD.XOnlyPubKey)
+		})
+	}
+}
+
+// TestBip32DerivationFromAddress tests that we can correctly extract a BIP32
+// derivation path from an address.
+func TestBip32DerivationFromAddress(t *testing.T) {
+	testCases := []struct {
+		name              string
+		addrType          lnwallet.AddressType
+		expectedAddr      string
+		expectedPath      string
+		expectedBip32Path []uint32
+		expectedPubKey    string
+	}{
+		{
+			name:         "p2wkh",
+			addrType:     lnwallet.WitnessPubKey,
+			expectedAddr: firstAddress,
+			expectedPath: "m/84'/0'/0'/0/0",
+			expectedBip32Path: []uint32{
+				hardenedKey(waddrmgr.KeyScopeBIP0084.Purpose),
+				hardenedKey(0), hardenedKey(0), 0, 0,
+			},
+			expectedPubKey: firstAddressPubKey,
+		},
+		{
+			name:         "p2tr",
+			addrType:     lnwallet.TaprootPubkey,
+			expectedAddr: firstAddressTaproot,
+			expectedPath: "m/86'/0'/0'/0/0",
+			expectedBip32Path: []uint32{
+				hardenedKey(waddrmgr.KeyScopeBIP0086.Purpose),
+				hardenedKey(0), hardenedKey(0), 0, 0,
+			},
+			expectedPubKey: firstAddressTaprootPubKey,
+		},
+	}
+
+	w, _ := newTestWallet(t, netParams, seedBytes)
+	for _, tc := range testCases {
+		tc := tc
+
+		addr, err := w.NewAddress(
+			tc.addrType, false, lnwallet.DefaultAccountName,
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, tc.expectedAddr, addr.String())
+
+		addrInfo, err := w.AddressInfo(addr)
+		require.NoError(t, err)
+		managedAddr, ok := addrInfo.(waddrmgr.ManagedPubKeyAddress)
+		require.True(t, ok)
+
+		d, trD, path, err := Bip32DerivationFromAddress(managedAddr)
+		require.NoError(t, err)
+
+		require.Equal(t, tc.expectedPath, path)
+		require.Equal(t, tc.expectedBip32Path, d.Bip32Path)
+		require.Equal(t, tc.expectedBip32Path, trD.Bip32Path)
 	}
 }

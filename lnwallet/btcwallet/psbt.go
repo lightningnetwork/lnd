@@ -9,12 +9,14 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -639,4 +641,79 @@ func (b *BtcWallet) lookupFirstCustomAccount(
 	}
 
 	return keyScope, account.AccountNumber, nil
+}
+
+// Bip32DerivationFromKeyDesc returns the default and Taproot BIP-0032 key
+// derivation information from the given key descriptor information.
+func Bip32DerivationFromKeyDesc(keyDesc keychain.KeyDescriptor,
+	coinType uint32) (*psbt.Bip32Derivation, *psbt.TaprootBip32Derivation,
+	string) {
+
+	bip32Derivation := &psbt.Bip32Derivation{
+		PubKey: keyDesc.PubKey.SerializeCompressed(),
+		Bip32Path: []uint32{
+			keychain.BIP0043Purpose + hdkeychain.HardenedKeyStart,
+			coinType + hdkeychain.HardenedKeyStart,
+			uint32(keyDesc.Family) +
+				uint32(hdkeychain.HardenedKeyStart),
+			0,
+			keyDesc.Index,
+		},
+	}
+
+	derivationPath := fmt.Sprintf(
+		"m/%d'/%d'/%d'/%d/%d", keychain.BIP0043Purpose, coinType,
+		keyDesc.Family, 0, keyDesc.Index,
+	)
+
+	return bip32Derivation, &psbt.TaprootBip32Derivation{
+		XOnlyPubKey:          bip32Derivation.PubKey[1:],
+		MasterKeyFingerprint: bip32Derivation.MasterKeyFingerprint,
+		Bip32Path:            bip32Derivation.Bip32Path,
+		LeafHashes:           make([][]byte, 0),
+	}, derivationPath
+}
+
+// Bip32DerivationFromAddress returns the default and Taproot BIP-0032 key
+// derivation information from the given managed address.
+func Bip32DerivationFromAddress(
+	addr waddrmgr.ManagedAddress) (*psbt.Bip32Derivation,
+	*psbt.TaprootBip32Derivation, string, error) {
+
+	pubKeyAddr, ok := addr.(waddrmgr.ManagedPubKeyAddress)
+	if !ok {
+		return nil, nil, "", fmt.Errorf("address is not a pubkey " +
+			"address")
+	}
+
+	scope, derivationInfo, haveInfo := pubKeyAddr.DerivationInfo()
+	if !haveInfo {
+		return nil, nil, "", fmt.Errorf("address is an imported " +
+			"public key, can't derive BIP32 path")
+	}
+
+	bip32Derivation := &psbt.Bip32Derivation{
+		PubKey: pubKeyAddr.PubKey().SerializeCompressed(),
+		Bip32Path: []uint32{
+			scope.Purpose + hdkeychain.HardenedKeyStart,
+			scope.Coin + hdkeychain.HardenedKeyStart,
+			derivationInfo.InternalAccount +
+				hdkeychain.HardenedKeyStart,
+			derivationInfo.Branch,
+			derivationInfo.Index,
+		},
+	}
+
+	derivationPath := fmt.Sprintf(
+		"m/%d'/%d'/%d'/%d/%d", scope.Purpose, scope.Coin,
+		derivationInfo.InternalAccount, derivationInfo.Branch,
+		derivationInfo.Index,
+	)
+
+	return bip32Derivation, &psbt.TaprootBip32Derivation{
+		XOnlyPubKey:          bip32Derivation.PubKey[1:],
+		MasterKeyFingerprint: bip32Derivation.MasterKeyFingerprint,
+		Bip32Path:            bip32Derivation.Bip32Path,
+		LeafHashes:           make([][]byte, 0),
+	}, derivationPath, nil
 }

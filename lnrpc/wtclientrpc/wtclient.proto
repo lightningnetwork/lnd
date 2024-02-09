@@ -163,6 +163,11 @@ message TowerSession {
     the justice transaction in the event of a channel breach.
     */
     uint32 sweep_sat_per_vbyte = 5;
+
+    /*
+    The ID of the session.
+    */
+    bytes id = 6;
 }
 
 message Tower {

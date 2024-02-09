@@ -550,6 +550,7 @@ func marshallTower(tower *wtclient.RegisteredTower, policyType PolicyType,
 		for _, session := range sessions {
 			satPerVByte := session.Policy.SweepFeeRate.FeePerVByte()
 			rpcSessions = append(rpcSessions, &TowerSession{
+				Id:                session.ID[:],
 				NumBackups:        uint32(ackCounts[session.ID]),
 				NumPendingBackups: uint32(pendingCounts[session.ID]),
 				MaxBackups:        uint32(session.Policy.MaxUpdates),

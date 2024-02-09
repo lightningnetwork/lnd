@@ -509,6 +509,11 @@
           "type": "integer",
           "format": "int64",
           "description": "The fee rate, in satoshis per vbyte, that will be used by the watchtower for\nthe justice transaction in the event of a channel breach."
+        },
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ID of the session."
         }
       }
     },

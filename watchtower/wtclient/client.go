@@ -324,9 +324,9 @@ func getTowerAndSessionCandidates(db DB, keyRing ECDHKeyRing,
 
 			// Add the session to the set of candidate sessions.
 			candidateSessions[s.ID] = cs
-
-			perActiveTower(tower)
 		}
+
+		perActiveTower(tower)
 	}
 
 	return candidateSessions, nil

@@ -293,6 +293,9 @@
   protocol](https://github.com/lightningnetwork/lnd/pull/8255) to be able to 
   gossip new Gossip 1.75 messages. 
 
+* Add the new [feature bit](https://github.com/lightningnetwork/lnd/pull/8256) 
+  for Gossip 1.75 and allow creation of public channels from lncli.
+
 ## Testing
 
 * Added fuzz tests for [onion

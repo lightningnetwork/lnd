@@ -848,7 +848,7 @@ func VerifyConstraints(c *channeldb.ChannelConstraints,
 
 	// Fail if we consider maxHtlcs too small. If this is too small we
 	// cannot offer many HTLCs to the remote.
-	const minNumHtlc = 5
+	const minNumHtlc = 3
 	if c.MaxAcceptedHtlcs < minNumHtlc {
 		return ErrMaxHtlcNumTooSmall(c.MaxAcceptedHtlcs, minNumHtlc)
 	}

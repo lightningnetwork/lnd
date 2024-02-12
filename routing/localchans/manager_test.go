@@ -107,7 +107,7 @@ func TestManager(t *testing.T) {
 	}
 
 	forAllOutgoingChannels := func(cb func(kvdb.RTx,
-		*models.ChannelEdgeInfo1,
+		models.ChannelEdgeInfo,
 		*models.ChannelEdgePolicy1) error) error {
 
 		for _, c := range channelSet {

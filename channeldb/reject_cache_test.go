@@ -100,8 +100,10 @@ func entryForInt(i uint64) rejectCacheEntry {
 	exists := i%2 == 0
 	isZombie := i%3 == 0
 	return rejectCacheEntry{
-		upd1Time: int64(2 * i),
-		upd2Time: int64(2*i + 1),
-		flags:    packRejectFlags(exists, isZombie),
+		times: &updateTimes{
+			upd1Time: int64(2 * i),
+			upd2Time: int64(2*i + 1),
+		},
+		flags: packRejectFlags(exists, isZombie),
 	}
 }

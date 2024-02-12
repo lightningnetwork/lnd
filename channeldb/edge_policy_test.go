@@ -25,7 +25,10 @@ func TestEdgePolicySerialisation(t *testing.T) {
 			toNode = info.GetToNode()
 		)
 
-		err := serializeChanEdgePolicy(&b, info, toNode[:])
+		encodingInfo, err := encodingInfoFromEdgePolicy(info)
+		require.NoError(t, err)
+
+		err = serializeChanEdgePolicy(&b, encodingInfo, toNode[:])
 		require.NoError(t, err)
 
 		newInfo, err := deserializeChanEdgePolicy(&b)

@@ -104,14 +104,25 @@ func createChannelEdge(ctx *testCtx, bitcoinKey1, bitcoinKey2 []byte,
 		return nil, nil, nil, err
 	}
 
-	fundingTx.TxOut = append(fundingTx.TxOut, tx)
+	chanUtxo, chanID := addFundingTxToChain(
+		ctx, fundingTx, tx, fundingHeight,
+	)
+
+	return fundingTx, chanUtxo, chanID, nil
+}
+
+func addFundingTxToChain(ctx *testCtx, fundingTx *wire.MsgTx,
+	fundingOutput *wire.TxOut, fundingHeight uint32) (*wire.OutPoint,
+	*lnwire.ShortChannelID) {
+
+	fundingTx.TxOut = append(fundingTx.TxOut, fundingOutput)
 	chanUtxo := wire.OutPoint{
 		Hash:  fundingTx.TxHash(),
 		Index: 0,
 	}
 
 	// With the utxo constructed, we'll mark it as closed.
-	ctx.chain.addUtxo(chanUtxo, tx)
+	ctx.chain.addUtxo(chanUtxo, fundingOutput)
 
 	// Our fake channel will be "confirmed" at height 101.
 	chanID := &lnwire.ShortChannelID{
@@ -120,7 +131,7 @@ func createChannelEdge(ctx *testCtx, bitcoinKey1, bitcoinKey2 []byte,
 		TxPosition:  0,
 	}
 
-	return fundingTx, &chanUtxo, chanID, nil
+	return &chanUtxo, chanID
 }
 
 type mockChain struct {

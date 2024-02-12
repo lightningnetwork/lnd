@@ -213,15 +213,15 @@ type ClosedChanSummary struct {
 // createCloseSummaries takes in a slice of channels closed at the target block
 // height and creates a slice of summaries which of each channel closure.
 func createCloseSummaries(blockHeight uint32,
-	closedChans ...*models.ChannelEdgeInfo1) []*ClosedChanSummary {
+	closedChans ...models.ChannelEdgeInfo) []*ClosedChanSummary {
 
 	closeSummaries := make([]*ClosedChanSummary, len(closedChans))
 	for i, closedChan := range closedChans {
 		closeSummaries[i] = &ClosedChanSummary{
-			ChanID:       closedChan.ChannelID,
-			Capacity:     closedChan.Capacity,
+			ChanID:       closedChan.GetChanID(),
+			Capacity:     closedChan.GetCapacity(),
 			ClosedHeight: blockHeight,
-			ChanPoint:    closedChan.ChannelPoint,
+			ChanPoint:    closedChan.GetChanPoint(),
 		}
 	}
 
@@ -334,7 +334,7 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 
 	// We ignore initial channel announcements as we'll only send out
 	// updates once the individual edges themselves have been updated.
-	case *models.ChannelEdgeInfo1:
+	case models.ChannelEdgeInfo:
 		return nil
 
 	// Any new ChannelUpdateAnnouncements will generate a corresponding
@@ -369,9 +369,9 @@ func addToTopologyChange(graph *channeldb.ChannelGraph, update *TopologyChange,
 
 		edgeUpdate := &ChannelEdgeUpdate{
 			ChanID:          m.ChannelID,
-			ChanPoint:       edgeInfo.ChannelPoint,
+			ChanPoint:       edgeInfo.GetChanPoint(),
 			TimeLockDelta:   m.TimeLockDelta,
-			Capacity:        edgeInfo.Capacity,
+			Capacity:        edgeInfo.GetCapacity(),
 			MinHTLC:         m.MinHTLC,
 			MaxHTLC:         m.MaxHTLC,
 			BaseFee:         m.FeeBaseMSat,

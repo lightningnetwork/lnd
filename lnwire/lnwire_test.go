@@ -1857,6 +1857,12 @@ func TestLightningWireProtocol(t *testing.T) {
 				return mainScenario(&m)
 			},
 		},
+		{
+			msgType: MsgChannelUpdate2,
+			scenario: func(m ChannelUpdate2) bool {
+				return mainScenario(&m)
+			},
+		},
 	}
 	for _, test := range tests {
 		var config *quick.Config

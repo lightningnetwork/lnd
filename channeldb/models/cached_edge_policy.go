@@ -11,7 +11,7 @@ const (
 )
 
 // CachedEdgePolicy is a struct that only caches the information of a
-// ChannelEdgePolicy that we actually use for pathfinding and therefore need to
+// ChannelEdgePolicy1 that we actually use for pathfinding and therefore need to
 // store in the cache.
 type CachedEdgePolicy struct {
 	// ChannelID is the unique channel ID for the channel. The first 3
@@ -83,7 +83,7 @@ func (c *CachedEdgePolicy) ComputeFeeFromIncoming(
 }
 
 // NewCachedPolicy turns a full policy into a minimal one that can be cached.
-func NewCachedPolicy(policy *ChannelEdgePolicy) *CachedEdgePolicy {
+func NewCachedPolicy(policy *ChannelEdgePolicy1) *CachedEdgePolicy {
 	return &CachedEdgePolicy{
 		ChannelID:                 policy.ChannelID,
 		MessageFlags:              policy.MessageFlags,

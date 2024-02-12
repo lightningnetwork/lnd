@@ -84,7 +84,7 @@ var (
 )
 
 // edgePolicyWithSource is a helper struct to keep track of the source node
-// of a channel edge. ChannelEdgePolicy only contains to destination node
+// of a channel edge. ChannelEdgePolicy1 only contains to destination node
 // of the edge.
 type edgePolicyWithSource struct {
 	sourceNode route.Vertex
@@ -1044,7 +1044,7 @@ func findPath(g *graphParams, r *RestrictParams, cfg *PathFindingConfig,
 	// destination features were provided. This is fine though, since our
 	// route construction does not care where the features are actually
 	// taken from. In the future we may wish to do route construction within
-	// findPath, and avoid using ChannelEdgePolicy altogether.
+	// findPath, and avoid using ChannelEdgePolicy1 altogether.
 	pathEdges[len(pathEdges)-1].ToNodeFeatures = features
 
 	log.Debugf("Found route: probability=%v, hops=%v, fee=%v",

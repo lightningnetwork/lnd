@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	sphinx "github.com/lightningnetwork/lightning-onion"
@@ -25,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -245,16 +247,50 @@ func createTestCtxFromFile(t *testing.T,
 // Add valid signature to channel update simulated as error received from the
 // network.
 func signErrChanUpdate(t *testing.T, key *btcec.PrivateKey,
-	errChanUpdate *lnwire.ChannelUpdate1) {
+	errChanUpdate lnwire.ChannelUpdate) {
 
-	chanUpdateMsg, err := errChanUpdate.DataToSign()
-	require.NoError(t, err, "failed to retrieve data to sign")
+	signer := &mockSigner{key: key}
+	err := netann.SignChannelUpdate(
+		signer, keychain.KeyLocator{}, errChanUpdate,
+	)
+	require.NoError(t, err)
+}
 
-	digest := chainhash.DoubleHashB(chanUpdateMsg)
-	sig := ecdsa.Sign(key, digest)
+type mockSigner struct {
+	key *btcec.PrivateKey
+	keychain.MessageSignerRing
+}
 
-	errChanUpdate.Signature, err = lnwire.NewSigFromSignature(sig)
-	require.NoError(t, err, "failed to create new signature")
+func (s *mockSigner) SignMessage(keyLoc keychain.KeyLocator, msg []byte,
+	doubleHash bool) (*ecdsa.Signature, error) {
+
+	digest := chainhash.DoubleHashB(msg)
+	sig := ecdsa.Sign(s.key, digest)
+
+	return sig, nil
+}
+
+func (s *mockSigner) SignMessageSchnorr(keyLoc keychain.KeyLocator, msg []byte,
+	doubleHash bool, taprootTweak, tag []byte) (*schnorr.Signature,
+	error) {
+
+	var digest []byte
+	switch {
+	case len(tag) > 0:
+		taggedHash := chainhash.TaggedHash(tag, msg)
+		digest = taggedHash[:]
+	case doubleHash:
+		digest = chainhash.DoubleHashB(msg)
+	default:
+		digest = chainhash.HashB(msg)
+	}
+
+	privKey := s.key
+	if len(taprootTweak) > 0 {
+		privKey = txscript.TweakTaprootPrivKey(*privKey, taprootTweak)
+	}
+
+	return schnorr.Sign(privKey, digest)
 }
 
 // TestFindRoutesWithFeeLimit asserts that routes found by the FindRoutes method
@@ -536,7 +572,7 @@ func TestChannelUpdateValidation(t *testing.T) {
 		func(firstHop lnwire.ShortChannelID) ([32]byte, error) {
 			return [32]byte{}, htlcswitch.NewForwardingError(
 				&lnwire.FailFeeInsufficient{
-					Update: errChanUpdate,
+					Update: &errChanUpdate,
 				},
 				1,
 			)
@@ -629,11 +665,8 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 	)
 	require.NoError(t, err, "unable to fetch chan id")
 
-	edgeUpdToFail, ok := edgeUpdateToFail.(*models.ChannelEdgePolicy1)
-	require.True(t, ok)
-
 	errChanUpdate, err := netann.UnsignedChannelUpdateFromEdge(
-		chainhash.Hash{}, edgeUpdToFail,
+		chainhash.Hash{}, edgeUpdateToFail,
 	)
 	require.NoError(t, err)
 
@@ -655,7 +688,7 @@ func TestSendPaymentErrorRepeatedFeeInsufficient(t *testing.T) {
 					// reflect the new fee schedule for the
 					// node/channel.
 					&lnwire.FailFeeInsufficient{
-						Update: *errChanUpdate,
+						Update: errChanUpdate,
 					}, 1,
 				)
 			}
@@ -764,7 +797,7 @@ func TestSendPaymentErrorFeeInsufficientPrivateEdge(t *testing.T) {
 				// reflect the new fee schedule for the
 				// node/channel.
 				&lnwire.FailFeeInsufficient{
-					Update: errChanUpdate,
+					Update: &errChanUpdate,
 				}, 1,
 			)
 		},
@@ -890,7 +923,7 @@ func TestSendPaymentPrivateEdgeUpdateFeeExceedsLimit(t *testing.T) {
 				// reflect the new fee schedule for the
 				// node/channel.
 				&lnwire.FailFeeInsufficient{
-					Update: errChanUpdate,
+					Update: &errChanUpdate,
 				}, 1,
 			)
 		},
@@ -983,7 +1016,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 			if firstHop == roasbeefSongoku {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailExpiryTooSoon{
-						Update: *errChanUpdate,
+						Update: errChanUpdate,
 					}, 1,
 				)
 			}
@@ -1031,7 +1064,7 @@ func TestSendPaymentErrorNonFinalTimeLockErrors(t *testing.T) {
 			if firstHop == roasbeefSongoku {
 				return [32]byte{}, htlcswitch.NewForwardingError(
 					&lnwire.FailIncorrectCltvExpiry{
-						Update: *errChanUpdate,
+						Update: errChanUpdate,
 					}, 1,
 				)
 			}
@@ -2623,13 +2656,17 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 
 	// If we query for staleness before adding the edge, we should get
 	// false.
-	updateTimeStamp := time.Unix(123, 0)
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
-		t.Fatalf("router failed to detect fresh edge policy")
+	time1 := 123
+	updateTimeStamp := time.Unix(int64(time1), 0)
+	update1 := &lnwire.ChannelUpdate1{
+		Timestamp: uint32(time1),
 	}
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
-		t.Fatalf("router failed to detect fresh edge policy")
+	update2 := &lnwire.ChannelUpdate1{
+		Timestamp:    uint32(time1),
+		ChannelFlags: lnwire.ChanUpdateDirection,
 	}
+	require.False(t, ctx.router.IsStaleEdgePolicy(*chanID, update1))
+	require.False(t, ctx.router.IsStaleEdgePolicy(*chanID, update2))
 
 	edge := &models.ChannelEdgeInfo1{
 		ChannelID:        chanID.ToUint64(),
@@ -2674,20 +2711,22 @@ func TestIsStaleEdgePolicy(t *testing.T) {
 
 	// Now that the edges have been added, an identical (chanID, flag,
 	// timestamp) tuple for each edge should be detected as a stale edge.
-	if !ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+	if !ctx.router.IsStaleEdgePolicy(*chanID, update1) {
 		t.Fatalf("router failed to detect stale edge policy")
 	}
-	if !ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+	if !ctx.router.IsStaleEdgePolicy(*chanID, update2) {
 		t.Fatalf("router failed to detect stale edge policy")
 	}
 
 	// If we now update the timestamp for both edges, the router should
 	// detect that this tuple represents a fresh edge.
-	updateTimeStamp = time.Unix(9999, 0)
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 0) {
+	time2 := 9999
+	update1.Timestamp = uint32(time2)
+	update2.Timestamp = uint32(time2)
+	if ctx.router.IsStaleEdgePolicy(*chanID, update1) {
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
-	if ctx.router.IsStaleEdgePolicy(*chanID, updateTimeStamp, 1) {
+	if ctx.router.IsStaleEdgePolicy(*chanID, update2) {
 		t.Fatalf("router failed to detect fresh edge policy")
 	}
 }
@@ -2910,7 +2949,7 @@ func TestSendToRouteStructuredError(t *testing.T) {
 	testCases := map[int]lnwire.FailureMessage{
 		finalHopIndex: lnwire.NewFailIncorrectDetails(payAmt, 100),
 		1: &lnwire.FailFeeInsufficient{
-			Update: lnwire.ChannelUpdate1{},
+			Update: &lnwire.ChannelUpdate1{},
 		},
 	}
 

@@ -1197,7 +1197,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 			switch m := msg.(type) {
 			case lnwire.ChannelAnnouncement:
 				gotChannelAnnouncement = true
-			case *lnwire.ChannelUpdate1:
+			case lnwire.ChannelUpdate:
 
 				// The channel update sent by the node should
 				// advertise the MinHTLC value required by the
@@ -1212,31 +1212,33 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 				baseFee := aliceCfg.DefaultRoutingPolicy.BaseFee
 				feeRate := aliceCfg.DefaultRoutingPolicy.FeeRate
 
-				require.EqualValues(t, 1, m.MessageFlags)
+				pol := m.ForwardingPolicy()
+
+				require.True(t, pol.HasMaxHTLC)
 
 				// We might expect a custom MinHTLC value.
 				if len(customMinHtlc) > 0 {
 					minHtlc = customMinHtlc[j]
 				}
-				require.Equal(t, minHtlc, m.HtlcMinimumMsat)
+				require.Equal(t, minHtlc, pol.MinHTLC)
 
 				// We might expect a custom MaxHltc value.
 				if len(customMaxHtlc) > 0 {
 					maxHtlc = customMaxHtlc[j]
 				}
-				require.Equal(t, maxHtlc, m.HtlcMaximumMsat)
+				require.Equal(t, maxHtlc, pol.MaxHTLC)
 
 				// We might expect a custom baseFee value.
 				if len(baseFees) > 0 {
 					baseFee = baseFees[j]
 				}
-				require.EqualValues(t, baseFee, m.BaseFee)
+				require.EqualValues(t, baseFee, pol.BaseFee)
 
 				// We might expect a custom feeRate value.
 				if len(feeRates) > 0 {
 					feeRate = feeRates[j]
 				}
-				require.EqualValues(t, feeRate, m.FeeRate)
+				require.EqualValues(t, feeRate, pol.FeeRate)
 
 				gotChannelUpdate = true
 			}

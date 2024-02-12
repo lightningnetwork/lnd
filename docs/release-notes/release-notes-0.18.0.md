@@ -285,8 +285,9 @@
   required for the Gossip 1.75 protocol.
 
 * Use the new interfaces added for Gossip 1.75 throughout the codebase 
-  [1](https://github.com/lightningnetwork/lnd/pull/8252/) 
+  [1](https://github.com/lightningnetwork/lnd/pull/8252) 
   [2](https://github.com/lightningnetwork/lnd/pull/8253).
+  [3](https://github.com/lightningnetwork/lnd/pull/8254).
 
 ## Testing
 

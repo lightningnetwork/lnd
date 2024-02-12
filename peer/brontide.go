@@ -286,7 +286,7 @@ type Config struct {
 
 	// FetchLastChanUpdate fetches our latest channel update for a target
 	// channel.
-	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate1,
+	FetchLastChanUpdate func(lnwire.ShortChannelID) (lnwire.ChannelUpdate,
 		error)
 
 	// FundingManager is an implementation of the funding.Controller interface.
@@ -1711,6 +1711,7 @@ out:
 			}
 
 		case *lnwire.ChannelUpdate1,
+			*lnwire.ChannelUpdate2,
 			*lnwire.ChannelAnnouncement1,
 			*lnwire.ChannelAnnouncement2,
 			*lnwire.NodeAnnouncement1,
@@ -1975,6 +1976,12 @@ func messageSummary(msg lnwire.Message) string {
 			"mflags=%v, cflags=%v, update_time=%v", msg.ChainHash,
 			msg.ShortChannelID.ToUint64(), msg.MessageFlags,
 			msg.ChannelFlags, time.Unix(int64(msg.Timestamp), 0))
+
+	case *lnwire.ChannelUpdate2:
+		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v, "+
+			"is_disabled=%v, is_node_1=%v, block_height=%v",
+			msg.ChainHash, msg.ShortChannelID.Val.ToUint64(),
+			msg.IsDisabled(), msg.IsNode1(), msg.BlockHeight)
 
 	case *lnwire.NodeAnnouncement1:
 		return fmt.Sprintf("node=%x, update_time=%v",

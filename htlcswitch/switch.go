@@ -1319,8 +1319,8 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 			// this into a proper well formatted onion error as
 			// there's no HMAC currently.
 			case packet.convertedError:
-				log.Infof("Converting malformed HTLC error "+
-					"for circuit for Circuit(%x: "+
+				log.Infof("Converting malformed/blinded HTLC "+
+					"error for circuit for Circuit(%x: "+
 					"(%s, %d) <-> (%s, %d))", packet.circuit.PaymentHash,
 					packet.incomingChanID, packet.incomingHTLCID,
 					packet.outgoingChanID, packet.outgoingHTLCID)

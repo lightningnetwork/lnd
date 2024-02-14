@@ -6481,6 +6481,22 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 	return nil
 }
 
+// LookupBlindingPoint performs a lookup in our update log, returning the
+// blinding point associated with the htlc add (if any).
+func (lc *LightningChannel) LookupBlindingPoint(htlcIndex uint64) (
+	*btcec.PublicKey, error) {
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
+	if htlc == nil {
+		return nil, ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+	}
+
+	return htlc.BlindingPoint, nil
+}
+
 // ChannelPoint returns the outpoint of the original funding transaction which
 // created this active channel. This outpoint is used throughout various
 // subsystems to uniquely identify an open channel.

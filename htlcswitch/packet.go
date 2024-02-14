@@ -61,11 +61,11 @@ type htlcPacket struct {
 	linkFailure *LinkError
 
 	// convertedError is set to true if this is an HTLC fail that was
-	// created using an UpdateFailMalformedHTLC from the remote party. If
-	// this is true, then when forwarding this failure packet, we'll need
-	// to wrap it as if we were the first hop if it's a multi-hop HTLC. If
-	// it's a direct HTLC, then we'll decode the error as no encryption has
-	// taken place.
+	// created using an UpdateFailMalformedHTLC from the remote party, or
+	// was switched out as part of a blinded route. If this is true, then
+	// when forwarding this failure packet, we'll need to wrap it as if we
+	// were the first hop if it's a multi-hop HTLC. If it's a direct HTLC,
+	// then we'll decode the error as no encryption has taken place.
 	convertedError bool
 
 	// hasSource is set to true if the incomingChanID and incomingHTLCID

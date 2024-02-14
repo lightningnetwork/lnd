@@ -884,7 +884,8 @@ message SendRequest {
     repeated FeatureBit dest_features = 15;
 
     /*
-    The payment address of the generated invoice.
+    The payment address of the generated invoice.  This is also called
+    payment secret in specifications (e.g. BOLT 11).
     */
     bytes payment_addr = 16;
 }
@@ -3197,7 +3198,8 @@ message MPPRecord {
     A unique, random identifier used to authenticate the sender as the intended
     payer of a multi-path payment. The payment_addr must be the same for all
     subpayments, and match the payment_addr provided in the receiver's invoice.
-    The same payment_addr must be used on all subpayments.
+    The same payment_addr must be used on all subpayments. This is also called
+    payment secret in specifications (e.g. BOLT 11).
     */
     bytes payment_addr = 11;
 
@@ -3776,9 +3778,10 @@ message Invoice {
     bool is_keysend = 25;
 
     /*
-    The payment address of this invoice. This value will be used in MPP
-    payments, and also for newer invoices that always require the MPP payload
-    for added end-to-end security.
+    The payment address of this invoice. This is also called payment secret in
+    specifications (e.g. BOLT 11). This value will be used in MPP payments, and
+    also for newer invoices that always require the MPP payload for added
+    end-to-end security.
     Note: Output only, don't specify for creating an invoice.
     */
     bytes payment_addr = 26;
@@ -3883,9 +3886,9 @@ message AddInvoiceResponse {
     uint64 add_index = 16;
 
     /*
-    The payment address of the generated invoice. This value should be used
-    in all payments for this invoice as we require it for end to end
-    security.
+    The payment address of the generated invoice. This is also called
+    payment secret in specifications (e.g. BOLT 11). This value should be used
+    in all payments for this invoice as we require it for end to end security.
     */
     bytes payment_addr = 17;
 }

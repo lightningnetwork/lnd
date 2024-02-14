@@ -306,7 +306,10 @@ message SendPaymentRequest {
     */
     repeated uint64 outgoing_chan_ids = 19;
 
-    // An optional payment addr to be included within the last hop of the route.
+    /*
+    An optional payment addr to be included within the last hop of the route.
+    This is also called payment secret in specifications (e.g. BOLT 11).
+    */
     bytes payment_addr = 20;
 
     /*
@@ -659,7 +662,10 @@ message BuildRouteRequest {
     */
     repeated bytes hop_pubkeys = 4;
 
-    // An optional payment addr to be included within the last hop of the route.
+    /*
+    An optional payment addr to be included within the last hop of the route.
+    This is also called payment secret in specifications (e.g. BOLT 11).
+    */
     bytes payment_addr = 5;
 }
 

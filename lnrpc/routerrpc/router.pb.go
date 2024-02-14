@@ -480,6 +480,7 @@ type SendPaymentRequest struct {
 	// any channel may be used.
 	OutgoingChanIds []uint64 `protobuf:"varint,19,rep,packed,name=outgoing_chan_ids,json=outgoingChanIds,proto3" json:"outgoing_chan_ids,omitempty"`
 	// An optional payment addr to be included within the last hop of the route.
+	// This is also called payment secret in specifications (e.g. BOLT 11).
 	PaymentAddr []byte `protobuf:"bytes,20,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 	// The largest payment split that should be attempted when making a payment if
 	// splitting is necessary. Setting this value will effectively cause lnd to
@@ -2099,6 +2100,7 @@ type BuildRouteRequest struct {
 	// pubkey.
 	HopPubkeys [][]byte `protobuf:"bytes,4,rep,name=hop_pubkeys,json=hopPubkeys,proto3" json:"hop_pubkeys,omitempty"`
 	// An optional payment addr to be included within the last hop of the route.
+	// This is also called payment secret in specifications (e.g. BOLT 11).
 	PaymentAddr []byte `protobuf:"bytes,5,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 }
 

@@ -2258,7 +2258,8 @@ type SendRequest struct {
 	// the router will try to load destination features from the graph as a
 	// fallback.
 	DestFeatures []FeatureBit `protobuf:"varint,15,rep,packed,name=dest_features,json=destFeatures,proto3,enum=lnrpc.FeatureBit" json:"dest_features,omitempty"`
-	// The payment address of the generated invoice.
+	// The payment address of the generated invoice.  This is also called
+	// payment secret in specifications (e.g. BOLT 11).
 	PaymentAddr []byte `protobuf:"bytes,16,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 }
 
@@ -10128,7 +10129,8 @@ type MPPRecord struct {
 	// A unique, random identifier used to authenticate the sender as the intended
 	// payer of a multi-path payment. The payment_addr must be the same for all
 	// subpayments, and match the payment_addr provided in the receiver's invoice.
-	// The same payment_addr must be used on all subpayments.
+	// The same payment_addr must be used on all subpayments. This is also called
+	// payment secret in specifications (e.g. BOLT 11).
 	PaymentAddr []byte `protobuf:"bytes,11,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 	// The total amount in milli-satoshis being sent as part of a larger multi-path
 	// payment. The caller is responsible for ensuring subpayments to the same node
@@ -12396,9 +12398,10 @@ type Invoice struct {
 	// [EXPERIMENTAL].
 	// Note: Output only, don't specify for creating an invoice.
 	IsKeysend bool `protobuf:"varint,25,opt,name=is_keysend,json=isKeysend,proto3" json:"is_keysend,omitempty"`
-	// The payment address of this invoice. This value will be used in MPP
-	// payments, and also for newer invoices that always require the MPP payload
-	// for added end-to-end security.
+	// The payment address of this invoice. This is also called payment secret in
+	// specifications (e.g. BOLT 11). This value will be used in MPP payments, and
+	// also for newer invoices that always require the MPP payload for added
+	// end-to-end security.
 	// Note: Output only, don't specify for creating an invoice.
 	PaymentAddr []byte `protobuf:"bytes,26,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 	// Signals whether or not this is an AMP invoice.
@@ -12879,9 +12882,9 @@ type AddInvoiceResponse struct {
 	// SubscribeInvoices call can use this to instantly get notified of all added
 	// invoices with an add_index greater than this one.
 	AddIndex uint64 `protobuf:"varint,16,opt,name=add_index,json=addIndex,proto3" json:"add_index,omitempty"`
-	// The payment address of the generated invoice. This value should be used
-	// in all payments for this invoice as we require it for end to end
-	// security.
+	// The payment address of the generated invoice. This is also called
+	// payment secret in specifications (e.g. BOLT 11). This value should be used
+	// in all payments for this invoice as we require it for end to end security.
 	PaymentAddr []byte `protobuf:"bytes,17,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 }
 

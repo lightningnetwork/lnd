@@ -927,7 +927,7 @@
         "payment_addr": {
           "type": "string",
           "format": "byte",
-          "description": "A unique, random identifier used to authenticate the sender as the intended\npayer of a multi-path payment. The payment_addr must be the same for all\nsubpayments, and match the payment_addr provided in the receiver's invoice.\nThe same payment_addr must be used on all subpayments."
+          "description": "A unique, random identifier used to authenticate the sender as the intended\npayer of a multi-path payment. The payment_addr must be the same for all\nsubpayments, and match the payment_addr provided in the receiver's invoice.\nThe same payment_addr must be used on all subpayments. This is also called\npayment secret in specifications (e.g. BOLT 11)."
         },
         "total_amt_msat": {
           "type": "string",
@@ -1173,7 +1173,7 @@
         "payment_addr": {
           "type": "string",
           "format": "byte",
-          "description": "An optional payment addr to be included within the last hop of the route."
+          "description": "An optional payment addr to be included within the last hop of the route.\nThis is also called payment secret in specifications (e.g. BOLT 11)."
         }
       }
     },
@@ -1774,7 +1774,7 @@
         "payment_addr": {
           "type": "string",
           "format": "byte",
-          "description": "An optional payment addr to be included within the last hop of the route."
+          "description": "An optional payment addr to be included within the last hop of the route.\nThis is also called payment secret in specifications (e.g. BOLT 11)."
         },
         "max_shard_size_msat": {
           "type": "string",

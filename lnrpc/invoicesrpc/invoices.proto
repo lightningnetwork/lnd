@@ -138,8 +138,9 @@ message AddHoldInvoiceResp {
     uint64 add_index = 2;
 
     /*
-    The payment address of the generated invoice. This value should be used
-    in all payments for this invoice as we require it for end to end
+    The payment address of the generated invoice. This is also called
+    the payment secret in specifications (e.g. BOLT 11). This value should
+    be used in all payments for this invoice as we require it for end to end
     security.
     */
     bytes payment_addr = 3;

@@ -317,8 +317,9 @@ type AddHoldInvoiceResp struct {
 	// SubscribeInvoices call can use this to instantly get notified of all added
 	// invoices with an add_index greater than this one.
 	AddIndex uint64 `protobuf:"varint,2,opt,name=add_index,json=addIndex,proto3" json:"add_index,omitempty"`
-	// The payment address of the generated invoice. This value should be used
-	// in all payments for this invoice as we require it for end to end
+	// The payment address of the generated invoice. This is also called
+	// the payment secret in specifications (e.g. BOLT 11). This value should
+	// be used in all payments for this invoice as we require it for end to end
 	// security.
 	PaymentAddr []byte `protobuf:"bytes,3,opt,name=payment_addr,json=paymentAddr,proto3" json:"payment_addr,omitempty"`
 }

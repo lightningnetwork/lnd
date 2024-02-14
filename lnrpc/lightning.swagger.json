@@ -3250,7 +3250,7 @@
         "payment_addr": {
           "type": "string",
           "format": "byte",
-          "description": "The payment address of the generated invoice. This value should be used\nin all payments for this invoice as we require it for end to end\nsecurity."
+          "description": "The payment address of the generated invoice. This is also called\npayment secret in specifications (e.g. BOLT 11). This value should be used\nin all payments for this invoice as we require it for end to end security."
         }
       }
     },
@@ -5407,7 +5407,7 @@
         "payment_addr": {
           "type": "string",
           "format": "byte",
-          "description": "The payment address of this invoice. This value will be used in MPP\npayments, and also for newer invoices that always require the MPP payload\nfor added end-to-end security.\nNote: Output only, don't specify for creating an invoice."
+          "description": "The payment address of this invoice. This is also called payment secret in\nspecifications (e.g. BOLT 11). This value will be used in MPP payments, and\nalso for newer invoices that always require the MPP payload for added\nend-to-end security.\nNote: Output only, don't specify for creating an invoice."
         },
         "is_amp": {
           "type": "boolean",
@@ -5715,7 +5715,7 @@
         "payment_addr": {
           "type": "string",
           "format": "byte",
-          "description": "A unique, random identifier used to authenticate the sender as the intended\npayer of a multi-path payment. The payment_addr must be the same for all\nsubpayments, and match the payment_addr provided in the receiver's invoice.\nThe same payment_addr must be used on all subpayments."
+          "description": "A unique, random identifier used to authenticate the sender as the intended\npayer of a multi-path payment. The payment_addr must be the same for all\nsubpayments, and match the payment_addr provided in the receiver's invoice.\nThe same payment_addr must be used on all subpayments. This is also called\npayment secret in specifications (e.g. BOLT 11)."
         },
         "total_amt_msat": {
           "type": "string",
@@ -7052,7 +7052,7 @@
         "payment_addr": {
           "type": "string",
           "format": "byte",
-          "description": "The payment address of the generated invoice."
+          "description": "The payment address of the generated invoice.  This is also called\npayment secret in specifications (e.g. BOLT 11)."
         }
       }
     },

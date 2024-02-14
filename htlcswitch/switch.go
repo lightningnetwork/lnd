@@ -1456,10 +1456,31 @@ func (s *Switch) checkCircularForward(incoming, outgoing lnwire.ShortChannelID,
 // The ciphertext will be derived from the failure message proivded by context.
 // This method returns the failErr if all other steps complete successfully.
 func (s *Switch) failAddPacket(packet *htlcPacket, failure *LinkError) error {
+	// Get the update add htlc that we're failing back.
+	htlc, ok := packet.htlc.(*lnwire.UpdateAddHTLC)
+	if !ok {
+		return fmt.Errorf("expected UpdateAddHTLC failure, got: %T",
+			packet.htlc)
+	}
+
+	// If the incoming HTLC has a blinding point set, override our error
+	// with invalid onion blinding, logging the actual error so that we
+	// have a sense of what actually happened.
+	failureMsg := failure.WireMessage()
+	if htlc.BlindingPoint.IsSome() {
+		log.Debugf("Incoming htlc (%v:%v) in blinded route failed "+
+			"back with failure code: %v, replaced with %v.",
+			htlc.ChanID, htlc.ID, failure.msg.Code(),
+			lnwire.CodeInvalidBlinding)
+
+		// The specification allows an all-zero onion hash.
+		failureMsg = lnwire.NewInvalidBlinding(nil)
+	}
+
 	// Encrypt the failure so that the sender will be able to read the error
 	// message. Since we failed this packet, we use EncryptFirstHop to
 	// obfuscate the failure for their eyes only.
-	reason, err := packet.obfuscator.EncryptFirstHop(failure.WireMessage())
+	reason, err := packet.obfuscator.EncryptFirstHop(failureMsg)
 	if err != nil {
 		err := fmt.Errorf("unable to obfuscate "+
 			"error: %v", err)

@@ -575,6 +575,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testRelayingBlindedError,
 	},
 	{
+		Name:     "introduction blinded error",
+		TestFunc: testIntroductionNodeError,
+	},
+	{
 		Name:     "removetx",
 		TestFunc: testRemoveTx,
 	},

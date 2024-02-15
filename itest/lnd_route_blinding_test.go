@@ -841,7 +841,7 @@ func testReceiverBlindedError(ht *lntest.HarnessTest) {
 	defer testCase.cleanup()
 	route := testCase.setup(ctx)
 
-	sendAndResumeBlindedPayment(ctx, ht, testCase, route)
+	sendAndResumeBlindedPayment(ctx, ht, testCase, route, true)
 }
 
 // testRelayingBlindedError tests handling of errors from relaying nodes in a
@@ -861,7 +861,7 @@ func testRelayingBlindedError(ht *lntest.HarnessTest) {
 	// a lack of liquidity. This check only happens _after_ the interceptor
 	// has given the instruction to resume so we can use test
 	// infrastructure that will go ahead and intercept the payment.
-	sendAndResumeBlindedPayment(ctx, ht, testCase, route)
+	sendAndResumeBlindedPayment(ctx, ht, testCase, route, true)
 }
 
 // sendAndResumeBlindedPayment sends a blinded payment through the test
@@ -870,14 +870,18 @@ func testRelayingBlindedError(ht *lntest.HarnessTest) {
 // reach Carol and asserts that all errors appear to originate from the
 // introduction node.
 func sendAndResumeBlindedPayment(ctx context.Context, ht *lntest.HarnessTest,
-	testCase *blindedForwardTest, route *routing.BlindedPayment) {
+	testCase *blindedForwardTest, route *routing.BlindedPayment,
+	interceptAtCarol bool) {
 
 	blindedRoute := testCase.createRouteToBlinded(10_000_000, route)
 
 	// Before we dispatch the payment, spin up a goroutine that will
 	// intercept the HTLC on Carol's forward. This allows us to ensure
 	// that the HTLC actually reaches the location we expect it to.
-	resolveHTLC := testCase.interceptFinalHop()
+	var resolveHTLC func(routerrpc.ResolveHoldForwardAction)
+	if interceptAtCarol {
+		resolveHTLC = testCase.interceptFinalHop()
+	}
 
 	// First, test sending the payment all the way through to Dave. We
 	// expect this payment to fail, because he does not know how to
@@ -886,7 +890,9 @@ func sendAndResumeBlindedPayment(ctx context.Context, ht *lntest.HarnessTest,
 
 	// When Carol intercepts the HTLC, instruct her to resume the payment
 	// so that it'll reach Dave and fail.
-	resolveHTLC(routerrpc.ResolveHoldForwardAction_RESUME)
+	if interceptAtCarol {
+		resolveHTLC(routerrpc.ResolveHoldForwardAction_RESUME)
+	}
 
 	// Wait for the HTLC to reflect as failed for Alice.
 	preimage, err := lntypes.MakePreimage(testCase.preimage[:])
@@ -900,4 +906,22 @@ func sendAndResumeBlindedPayment(ctx context.Context, ht *lntest.HarnessTest,
 		ht, lnrpc.Failure_INVALID_ONION_BLINDING,
 		pmt.Htlcs[0].Failure.Code,
 	)
+}
+
+// testIntroductionNodeError tests handling of errors in a blinded route when
+// the introduction node is the source of the error. This test sends a payment
+// over Alice -- Bob -- Carol -- Dave, where Bob is the introduction node and
+// has insufficient outgoing liquidity to forward on to carol.
+func testIntroductionNodeError(ht *lntest.HarnessTest) {
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+	route := testCase.setup(ctx)
+
+	// Before we send our payment, drain all of Carol's incoming liquidity
+	// so that she can't receive the forward from Bob, causing a failure
+	// at the introduction node.
+	testCase.drainCarolLiquidity(true)
+
+	// Send the payment, but do not expect it to reach Carol at all.
+	sendAndResumeBlindedPayment(ctx, ht, testCase, route, false)
 }

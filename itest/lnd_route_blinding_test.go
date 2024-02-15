@@ -524,6 +524,43 @@ func (b *blindedForwardTest) interceptFinalHop() func(routerrpc.ResolveHoldForwa
 	return resolve
 }
 
+// drainCarolLiquidity will drain all of the liquidity in Carol's channel in
+// the direction requested:
+// - incoming: Carol has no incoming liquidity from Bob
+// - outgoing: Carol has no outgoing liquidity to Dave.
+func (b *blindedForwardTest) drainCarolLiquidity(incoming bool) {
+	sendingNode := b.carol
+	receivingNode := b.dave
+
+	if incoming {
+		sendingNode = b.ht.Bob
+		receivingNode = b.carol
+	}
+
+	resp := sendingNode.RPC.ListChannels(&lnrpc.ListChannelsRequest{
+		Peer: receivingNode.PubKey[:],
+	})
+	require.Len(b.ht, resp.Channels, 1)
+
+	// We can't send our channel reserve, and leave some buffer for fees.
+	paymentAmt := resp.Channels[0].LocalBalance -
+		int64(resp.Channels[0].RemoteConstraints.ChanReserveSat) - 25000
+
+	invoice := receivingNode.RPC.AddInvoice(&lnrpc.Invoice{
+		// Leave some leeway for fees for the HTLC.
+		Value: paymentAmt,
+	})
+
+	pmtClient := sendingNode.RPC.SendPayment(
+		&routerrpc.SendPaymentRequest{
+			PaymentRequest: invoice.PaymentRequest,
+			TimeoutSeconds: 60,
+		},
+	)
+
+	b.ht.AssertPaymentStatusFromStream(pmtClient, lnrpc.Payment_SUCCEEDED)
+}
+
 // setupFourHopNetwork creates a network with the following topology and
 // liquidity:
 // Alice (100k)----- Bob (100k) ----- Carol (100k) ----- Dave
@@ -804,6 +841,26 @@ func testReceiverBlindedError(ht *lntest.HarnessTest) {
 	defer testCase.cleanup()
 	route := testCase.setup(ctx)
 
+	sendAndResumeBlindedPayment(ctx, ht, testCase, route)
+}
+
+// testRelayingBlindedError tests handling of errors from relaying nodes in a
+// blinded route, testing a failure over on Carol's outgoing link in the
+// following topology: Alice -- Bob -- Carol -- Dave, where Bob is the
+// introduction node.
+func testRelayingBlindedError(ht *lntest.HarnessTest) {
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+	route := testCase.setup(ctx)
+
+	// Before we send our payment, drain all of Carol's liquidity
+	// so that she can't forward the payment to Dave.
+	testCase.drainCarolLiquidity(false)
+
+	// Then dispatch the payment through Carol which will fail due to
+	// a lack of liquidity. This check only happens _after_ the interceptor
+	// has given the instruction to resume so we can use test
+	// infrastructure that will go ahead and intercept the payment.
 	sendAndResumeBlindedPayment(ctx, ht, testCase, route)
 }
 

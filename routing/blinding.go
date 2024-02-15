@@ -36,9 +36,9 @@ type BlindedPayment struct {
 	// blinded path.
 	BaseFee uint32
 
-	// ProportionalFee is the aggregated proportional fee for payments
-	// made over the blinded path.
-	ProportionalFee uint32
+	// ProportionalFeeRate is the aggregated proportional fee rate for
+	// payments made over the blinded path.
+	ProportionalFeeRate uint32
 
 	// CltvExpiryDelta is the total expiry delta for the blinded path. Note
 	// this does not include the final cltv delta for the receiving node
@@ -122,7 +122,7 @@ func (b *BlindedPayment) toRouteHints() RouteHints {
 		MaxHTLC:       lnwire.MilliSatoshi(b.HtlcMaximum),
 		FeeBaseMSat:   lnwire.MilliSatoshi(b.BaseFee),
 		FeeProportionalMillionths: lnwire.MilliSatoshi(
-			b.ProportionalFee,
+			b.ProportionalFeeRate,
 		),
 		ToNodePubKey: func() route.Vertex {
 			return route.NewVertex(

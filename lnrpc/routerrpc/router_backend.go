@@ -490,7 +490,7 @@ func unmarshalBlindedPayment(rpcPayment *lnrpc.BlindedPaymentPath) (
 		BlindedPath:     path,
 		CltvExpiryDelta: uint16(rpcPayment.TotalCltvDelta),
 		BaseFee:         uint32(rpcPayment.BaseFeeMsat),
-		ProportionalFee: uint32(
+		ProportionalFeeRate: uint32(
 			rpcPayment.ProportionalFeeMsat,
 		),
 		HtlcMinimum: rpcPayment.HtlcMinMsat,

@@ -794,3 +794,64 @@ func testForwardBlindedRoute(ht *lntest.HarnessTest) {
 	ht.AssertHLTCNotActive(ht.Bob, testCase.channels[1], hash[:])
 	ht.AssertHLTCNotActive(ht.Alice, testCase.channels[0], hash[:])
 }
+
+// Tests handling of errors from the receiving node in a blinded route, testing
+// a payment over: Alice -- Bob -- Carol -- Dave, where Bob is the introduction
+// node.
+//
+// Note that at present the payment fails at Dave because we do not yet support
+// receiving to blinded routes. In future, we can substitute this test out to
+// trigger an IncorrectPaymentDetails failure. In the meantime, this test
+// provides valuable coverage for the case where a node in the route is not
+// spec compliant (ie, does not return the blinded failure and just uses a
+// normal one) because Dave will not appropriately convert the error.
+func testReceiverBlindedError(ht *lntest.HarnessTest) {
+	ctx, testCase := newBlindedForwardTest(ht)
+	defer testCase.cleanup()
+	route := testCase.setup(ctx)
+
+	sendAndResumeBlindedPayment(ctx, ht, testCase, route)
+}
+
+// sendAndResumeBlindedPayment sends a blinded payment through the test
+// network provided, intercepting the payment at Carol and allowing it to
+// resume. This utility function allows us to ensure that payments at least
+// reach Carol and asserts that all errors appear to originate from the
+// introduction node.
+func sendAndResumeBlindedPayment(ctx context.Context, ht *lntest.HarnessTest,
+	testCase *blindedForwardTest, route *routing.BlindedPayment) {
+
+	blindedRoute := testCase.createRouteToBlinded(10_000_000, route)
+
+	// Before we dispatch the payment, spin up a goroutine that will
+	// intercept the HTLC on Carol's forward. This allows us to ensure
+	// that the HTLC actually reaches the location we expect it to.
+	resolveHTLC := testCase.interceptFinalHop()
+
+	// First, test sending the payment all the way through to Dave. We
+	// expect this payment to fail, because he does not know how to
+	// process payments to a blinded route (not yet supported).
+	sendClient, cancel := testCase.sendBlindedPayment(ctx, blindedRoute)
+	defer cancel()
+
+	// When Carol intercepts the HTLC, instruct her to resume the payment
+	// so that it'll reach Dave and fail.
+	resolveHTLC(routerrpc.ResolveHoldForwardAction_RESUME)
+
+	// Make sure that the payment has registered before we try to track it.
+	_, err := sendClient.Recv()
+	require.NoError(ht, err)
+
+	// Wait for the HTLC to reflect as failed for Alice.
+	preimage, err := lntypes.MakePreimage(testCase.preimage[:])
+	require.NoError(ht, err)
+	pmt := ht.AssertPaymentStatus(ht.Alice, preimage, lnrpc.Payment_FAILED)
+	require.Len(ht, pmt.Htlcs, 1)
+	require.EqualValues(
+		ht, 1, pmt.Htlcs[0].Failure.FailureSourceIndex,
+	)
+	require.Equal(
+		ht, lnrpc.Failure_INVALID_ONION_BLINDING,
+		pmt.Htlcs[0].Failure.Code,
+	)
+}

@@ -550,6 +550,11 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		NeutrinoCS:                  neutrinoCS,
 		ActiveNetParams:             d.cfg.ActiveNetParams,
 		FeeURL:                      d.cfg.FeeURL,
+		Fee: &lncfg.Fee{
+			URL:              d.cfg.Fee.URL,
+			MinUpdateTimeout: d.cfg.Fee.MinUpdateTimeout,
+			MaxUpdateTimeout: d.cfg.Fee.MaxUpdateTimeout,
+		},
 		Dialer: func(addr string) (net.Conn, error) {
 			return d.cfg.net.Dial(
 				"tcp", addr, d.cfg.ConnectionTimeout,

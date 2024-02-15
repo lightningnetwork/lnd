@@ -17,7 +17,7 @@ import (
 
 // WebFeeService defines an interface that's used to provide fee estimation
 // service used in the integration tests. It must provide an URL so that a lnd
-// node can be started with the flag `--feeurl` and uses the customized fee
+// node can be started with the flag `--fee.url` and uses the customized fee
 // estimator.
 type WebFeeService interface {
 	// Start starts the service.

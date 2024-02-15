@@ -487,15 +487,13 @@ func unmarshalBlindedPayment(rpcPayment *lnrpc.BlindedPaymentPath) (
 	}
 
 	return &routing.BlindedPayment{
-		BlindedPath:     path,
-		CltvExpiryDelta: uint16(rpcPayment.TotalCltvDelta),
-		BaseFee:         uint32(rpcPayment.BaseFeeMsat),
-		ProportionalFeeRate: uint32(
-			rpcPayment.ProportionalFeeMsat,
-		),
-		HtlcMinimum: rpcPayment.HtlcMinMsat,
-		HtlcMaximum: rpcPayment.HtlcMaxMsat,
-		Features:    features,
+		BlindedPath:         path,
+		CltvExpiryDelta:     uint16(rpcPayment.TotalCltvDelta),
+		BaseFee:             uint32(rpcPayment.BaseFeeMsat),
+		ProportionalFeeRate: rpcPayment.ProportionalFeeRate,
+		HtlcMinimum:         rpcPayment.HtlcMinMsat,
+		HtlcMaximum:         rpcPayment.HtlcMaxMsat,
+		Features:            features,
 	}, nil
 }
 

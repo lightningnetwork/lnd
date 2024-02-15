@@ -1250,9 +1250,9 @@ func parseBlindedPaymentParameters(ctx *cli.Context) (
 		BaseFeeMsat: ctx.Uint64(
 			blindedBaseFlag.Name,
 		),
-		ProportionalFeeMsat: ctx.Uint64(
+		ProportionalFeeRate: uint32(ctx.Uint64(
 			blindedPPMFlag.Name,
-		),
+		)),
 		TotalCltvDelta: uint32(ctx.Uint64(
 			blindedCLTVFlag.Name,
 		)),

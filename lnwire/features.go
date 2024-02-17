@@ -141,6 +141,14 @@ const (
 	// transactions, which also imply anchor commitments.
 	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
 
+	// RouteBlindingRequired is a required feature bit that signals that
+	// the node supports blinded payments.
+	RouteBlindingRequired FeatureBit = 24
+
+	// RouteBlindingOptional is an optional feature bit that signals that
+	// the node supports blinded payments.
+	RouteBlindingOptional FeatureBit = 25
+
 	// ShutdownAnySegwitRequired is an required feature bit that signals
 	// that the sender is able to properly handle/parse segwit witness
 	// programs up to version 16. This enables utilization of Taproot
@@ -315,6 +323,8 @@ var Features = map[FeatureBit]string{
 	ScidAliasOptional:                    "scid-alias",
 	ZeroConfRequired:                     "zero-conf",
 	ZeroConfOptional:                     "zero-conf",
+	RouteBlindingRequired:                "route-blinding",
+	RouteBlindingOptional:                "route-blinding",
 	ShutdownAnySegwitRequired:            "shutdown-any-segwit",
 	ShutdownAnySegwitOptional:            "shutdown-any-segwit",
 	SimpleTaprootChannelsRequiredFinal:   "simple-taproot-chans",

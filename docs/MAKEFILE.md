@@ -95,7 +95,7 @@ Related: [`unit`](#unit)
 
 `flakehunter`
 -------------
-Runs the itegration test suite endlessly until a failure is detected.
+Runs the integration test suite endlessly until a failure is detected.
 
 Arguments:
 - `icase=<itestcase>`

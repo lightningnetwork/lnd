@@ -548,6 +548,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
 		CustomFeatures:           cfg.ProtocolOptions.ExperimentalProtocol.CustomFeatures(),
 		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
+		NoPeerStorage:            !cfg.ProtocolOptions.NoPeerStorage(),
 	})
 	if err != nil {
 		return nil, err

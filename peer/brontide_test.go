@@ -1434,6 +1434,9 @@ func TestHandlePeerStorage(t *testing.T) {
 	peer := params.peer
 	peerDataStore := peer.cfg.PeerDataStore
 
+	// Set the feature bit for this functionality.
+	peer.cfg.Features.Set(lnwire.ProvideStorageOptional)
+
 	// Buffer outgoingQueue to prevent blocking.
 	peer.outgoingQueue = make(chan outgoingMsg, 1)
 
@@ -1479,6 +1482,9 @@ func TestPeerBackupReconnect(t *testing.T) {
 
 	alicePeer := params.peer
 	mockConn := params.mockConn
+
+	// Set the feature bit for this functionality.
+	alicePeer.cfg.Features.Set(lnwire.ProvideStorageOptional)
 
 	// Create sample backup data.
 	sampleData := []byte{0, 1, 2}

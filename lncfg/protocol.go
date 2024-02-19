@@ -54,6 +54,10 @@ type ProtocolOptions struct {
 	// also mean that we won't respond with timestamps if requested by our
 	// peers.
 	NoTimestampQueryOption bool `long:"no-timestamp-query-option" description:"do not query syncing peers for announcement timestamps and do not respond with timestamps if requested"`
+
+	// OptionPeerStorage, when set to true, enables storage of backup data
+	// shared by peers.
+	OptionPeerStorage bool `long:"peer-storage" description:"store peer's backup data'"`
 }
 
 // Wumbo returns true if lnd should permit the creation and acceptance of wumbo
@@ -96,4 +100,10 @@ func (l *ProtocolOptions) NoAnySegwit() bool {
 // requested by our peer.
 func (l *ProtocolOptions) NoTimestampsQuery() bool {
 	return l.NoTimestampQueryOption
+}
+
+// NoPeerStorage returns true if we want to enable storage of backup data
+// shared by peers.
+func (l *ProtocolOptions) NoPeerStorage() bool {
+	return l.OptionPeerStorage
 }

@@ -739,25 +739,30 @@ func (p *Brontide) Start() error {
 		}
 	}
 
-	data, err := p.cfg.PeerDataStore.Retrieve()
-	if err != nil {
-		return fmt.Errorf("unable to retrieve peer backup data: "+
-			"%v", err)
-	}
-
-	if data != nil {
-		if err := p.writeMessage(
-			lnwire.NewYourPeerStorageMsg(data),
-		); err != nil {
-			return fmt.Errorf("unable to send "+
-				"YourPeerStorage msg to peer on connection"+
-				": %v", err)
+	// Check if we have the feature to store peer backup enabled. If we do,
+	// we check if we have any backup data to send the peer.
+	if p.cfg.Features.HasFeature(lnwire.ProvideStorageOptional) {
+		data, err := p.cfg.PeerDataStore.Retrieve()
+		if err != nil {
+			return fmt.Errorf("unable to retrieve peer backup "+
+				"data: %v", err)
 		}
-	}
 
-	err = p.pingManager.Start()
-	if err != nil {
-		return fmt.Errorf("could not start ping manager %w", err)
+		if data != nil {
+			if err := p.writeMessage(
+				lnwire.NewYourPeerStorageMsg(data),
+			); err != nil {
+				return fmt.Errorf("unable to send "+
+					"YourPeerStorage msg to peer on "+
+					"connection: %v", err)
+			}
+		}
+
+		err = p.pingManager.Start()
+		if err != nil {
+			return fmt.Errorf("could not start ping manager "+
+				"%w", err)
+		}
 	}
 
 	p.wg.Add(4)
@@ -4137,6 +4142,11 @@ func (p *Brontide) handleRemovePendingChannel(req *newChannelMsg) {
 // handlePeerStorageMessage handles `PeerStorage` message, it stores the message
 // and sends it back to the peer as an ack.
 func (p *Brontide) handlePeerStorageMessage(msg *lnwire.PeerStorage) error {
+	// Check if we have the feature to store peer backup enabled.
+	if !p.cfg.Features.HasFeature(lnwire.ProvideStorageOptional) {
+		return nil
+	}
+
 	err := p.cfg.PeerDataStore.Store(msg.Blob)
 	if err != nil {
 		return err

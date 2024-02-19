@@ -184,6 +184,14 @@ var addHoldInvoiceCommand = cli.Command{
 				"specified, an expiry of " +
 				"86400 seconds (24 hours) is implied.",
 		},
+		cli.Uint64Flag{
+			Name: "cltv_expiry_delta",
+			Usage: "The minimum CLTV delta to use for the final " +
+				"hop. If this is set to 0, the default value " +
+				"is used. The default value for " +
+				"cltv_expiry_delta is configured by the " +
+				"'bitcoin.timelockdelta' option.",
+		},
 		cli.BoolFlag{
 			Name: "private",
 			Usage: "encode routing hints in the invoice with " +
@@ -241,6 +249,7 @@ func addHoldInvoice(ctx *cli.Context) error {
 		DescriptionHash: descHash,
 		FallbackAddr:    ctx.String("fallback_addr"),
 		Expiry:          ctx.Int64("expiry"),
+		CltvExpiry:      ctx.Uint64("cltv_expiry_delta"),
 		Private:         ctx.Bool("private"),
 	}
 

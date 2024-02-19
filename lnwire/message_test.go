@@ -290,6 +290,8 @@ func makeAllMessages(t testing.TB, r *rand.Rand) []lnwire.Message {
 	msgAll = append(msgAll, newMsgGossipTimestampRange(t, r))
 	msgAll = append(msgAll, newMsgQueryShortChanIDsZlib(t, r))
 	msgAll = append(msgAll, newMsgReplyChannelRangeZlib(t, r))
+	msgAll = append(msgAll, newMsgPeerStorage(t, r))
+	msgAll = append(msgAll, newMsgYourPeerStorage(t, r))
 
 	return msgAll
 }
@@ -881,6 +883,34 @@ func newMsgGossipTimestampRange(t testing.TB,
 	require.NoError(t, err, "unable to read chain hash")
 
 	return msg
+}
+
+func newMsgPeerStorage(t testing.TB, r *rand.Rand) *lnwire.PeerStorage {
+	t.Helper()
+
+	// Read random bytes.
+	data := make([]byte, r.Intn(lnwire.MaxPeerStorageBytes))
+	_, err := r.Read(data)
+	require.NoError(t, err, "unable to generate peer storage "+
+		"blob")
+
+	return &lnwire.PeerStorage{
+		Blob: data,
+	}
+}
+
+func newMsgYourPeerStorage(t testing.TB, r *rand.Rand) *lnwire.YourPeerStorage {
+	t.Helper()
+
+	// Read random bytes.
+	data := make([]byte, r.Intn(lnwire.MaxPeerStorageBytes))
+	_, err := r.Read(data)
+	require.NoError(t, err, "unable to generate peer storage "+
+		"blob")
+
+	return &lnwire.YourPeerStorage{
+		Blob: data,
+	}
 }
 
 func randRawKey(t testing.TB) [33]byte {

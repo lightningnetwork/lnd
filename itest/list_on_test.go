@@ -190,6 +190,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testInvoiceSubscriptions,
 	},
 	{
+		Name:     "invoice cltv expiry flag",
+		TestFunc: testInvoiceCltvExpiryFlag,
+	},
+	{
 		Name:     "streaming channel backup update",
 		TestFunc: testChannelBackupUpdates,
 	},

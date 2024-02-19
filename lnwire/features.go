@@ -171,6 +171,16 @@ const (
 	// sender-generated preimages according to BOLT XX.
 	AMPOptional FeatureBit = 31
 
+	// ProvideStorageRequired is a required feature bit that
+	// indicates that a node offers storing arbitrary data for their peers.
+	// See: https://github.com/lightning/bolts/pull/1110/
+	ProvideStorageRequired FeatureBit = 42
+
+	// ProvideStorageOptional is an optional feature bit that
+	// indicates that a node offers storing arbitrary data for their peers.
+	// See: https://github.com/lightning/bolts/pull/1110/
+	ProvideStorageOptional FeatureBit = 43
+
 	// ExplicitChannelTypeRequired is a required bit that denotes that a
 	// connection established with this node is to use explicit channel
 	// commitment types for negotiation instead of the existing implicit
@@ -331,6 +341,8 @@ var Features = map[FeatureBit]string{
 	SimpleTaprootChannelsOptionalFinal:   "simple-taproot-chans",
 	SimpleTaprootChannelsRequiredStaging: "simple-taproot-chans-x",
 	SimpleTaprootChannelsOptionalStaging: "simple-taproot-chans-x",
+	ProvideStorageOptional:               "provide-storage",
+	ProvideStorageRequired:               "provide-storage",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

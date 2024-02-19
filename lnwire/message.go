@@ -23,6 +23,8 @@ type MessageType uint16
 // Lightning protocol.
 const (
 	MsgWarning                 MessageType = 1
+	MsgPeerStorage                         = 7
+	MsgPeerStorageRetrieval                = 9
 	MsgInit                                = 16
 	MsgError                               = 17
 	MsgPing                                = 18
@@ -152,6 +154,10 @@ func (t MessageType) String() string {
 		return "ClosingComplete"
 	case MsgClosingSig:
 		return "ClosingSig"
+	case MsgPeerStorage:
+		return "PeerStorage"
+	case MsgPeerStorageRetrieval:
+		return "PeerStorageRetrieval"
 	default:
 		return "<unknown>"
 	}
@@ -279,6 +285,10 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &ClosingComplete{}
 	case MsgClosingSig:
 		msg = &ClosingSig{}
+	case MsgPeerStorage:
+		msg = &PeerStorage{}
+	case MsgPeerStorageRetrieval:
+		msg = &PeerStorageRetrieval{}
 	default:
 		// If the message is not within our custom range and has not
 		// specifically been overridden, return an unknown message.

@@ -487,6 +487,12 @@
   [spec change](https://github.com/lightning/bolts/pull/1092/commits/e0ee59f3c92b7c98be8dfc47b7db358b45baf9de)
   that meant we shouldn't require it.
 
+* [Implement feature bits, message and functionality to backup peer data in the 
+peer backup proposal](https://github.com/lightningnetwork/lnd/pull/8490)
+  This PR implements the feature bits, messages and functionality to backup 
+  peer data referenced in the peer backup proposal here: 
+  https://github.com/lightning/bolts/pull/1110
+
 ## Testing
 
 * Added fuzz tests for [onion

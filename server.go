@@ -550,6 +550,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		CustomFeatures:           cfg.ProtocolOptions.ExperimentalProtocol.CustomFeatures(),
 		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
 		NoRouteBlinding:          cfg.ProtocolOptions.NoRouteBlinding(),
+		NoPeerStorage:            !cfg.ProtocolOptions.PeerStorage(),
 	})
 	if err != nil {
 		return nil, err

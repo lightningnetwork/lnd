@@ -3,13 +3,16 @@ package sweep
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwallet/chanfunding"
 )
 
 const (
@@ -134,17 +137,18 @@ type CoinSelectionLocker interface {
 	WithCoinSelectLock(func() error) error
 }
 
-// OutpointLocker allows a caller to lock/unlock an outpoint. When locked, the
-// outpoints shouldn't be used for any sort of channel funding of coin
-// selection. Locked outpoints are not expected to be persisted between restarts.
-type OutpointLocker interface {
-	// LockOutpoint locks a target outpoint, rendering it unusable for coin
+// OutputLeaser allows a caller to lease/release an output. When leased, the
+// outputs shouldn't be used for any sort of channel funding or coin selection.
+// Leased outputs are expected to be persisted between restarts.
+type OutputLeaser interface {
+	// LeaseOutput leases a target output, rendering it unusable for coin
 	// selection.
-	LockOutpoint(o wire.OutPoint)
+	LeaseOutput(i wtxmgr.LockID, o wire.OutPoint, d time.Duration) (
+		time.Time, []byte, btcutil.Amount, error)
 
-	// UnlockOutpoint unlocks a target outpoint, allowing it to be used for
+	// ReleaseOutput releases a target output, allowing it to be used for
 	// coin selection once again.
-	UnlockOutpoint(o wire.OutPoint)
+	ReleaseOutput(i wtxmgr.LockID, o wire.OutPoint) error
 }
 
 // WalletSweepPackage is a package that gives the caller the ability to sweep
@@ -179,11 +183,11 @@ type DeliveryAddr struct {
 // leftover amount after these outputs and transaction fee, is sent to a single
 // output, as specified by the change address. The sweep transaction will be
 // crafted with the target fee rate, and will use the utxoSource and
-// outpointLocker as sources for wallet funds.
+// outputLeaser as sources for wallet funds.
 func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 	blockHeight uint32, deliveryAddrs []DeliveryAddr,
 	changeAddr btcutil.Address, coinSelectLocker CoinSelectionLocker,
-	utxoSource UtxoSource, outpointLocker OutpointLocker,
+	utxoSource UtxoSource, outputLeaser OutputLeaser,
 	signer input.Signer, minConfs int32) (*WalletSweepPackage, error) {
 
 	// TODO(roasbeef): turn off ATPL as well when available?
@@ -196,7 +200,15 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 	// can actually craft a sweeping transaction.
 	unlockOutputs := func() {
 		for _, utxo := range allOutputs {
-			outpointLocker.UnlockOutpoint(utxo.OutPoint)
+			// Log the error but continue since we're already
+			// handling an error.
+			err := outputLeaser.ReleaseOutput(
+				chanfunding.LndInternalLockID, utxo.OutPoint,
+			)
+			if err != nil {
+				log.Warnf("Failed to release UTXO %s (%v))",
+					utxo.OutPoint, err)
+			}
 		}
 	}
 
@@ -219,7 +231,13 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 		// attempt to use these UTXOs in transactions while we're
 		// crafting out sweep all transaction.
 		for _, utxo := range utxos {
-			outpointLocker.LockOutpoint(utxo.OutPoint)
+			_, _, _, err = outputLeaser.LeaseOutput(
+				chanfunding.LndInternalLockID, utxo.OutPoint,
+				chanfunding.DefaultLockDuration,
+			)
+			if err != nil {
+				return err
+			}
 		}
 
 		allOutputs = append(allOutputs, utxos...)

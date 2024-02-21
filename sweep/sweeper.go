@@ -794,10 +794,7 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 	// Reschedule the inputs that we just tried to sweep. This is done in
 	// case the following publish fails, we'd like to update the inputs'
 	// publish attempts and rescue them in the next sweep.
-	err = s.markInputsPendingPublish(tr, tx.TxIn)
-	if err != nil {
-		return err
-	}
+	s.markInputsPendingPublish(set)
 
 	log.Debugf("Publishing sweep tx %v, num_inputs=%v, height=%v",
 		tx.TxHash(), len(tx.TxIn), s.currentHeight)
@@ -832,31 +829,19 @@ func (s *UtxoSweeper) sweep(set InputSet) error {
 	return nil
 }
 
-// markInputsPendingPublish saves the sweeping tx to db and updates the pending
-// inputs with the given tx inputs. It also increments the `publishAttempts`.
-func (s *UtxoSweeper) markInputsPendingPublish(tr *TxRecord,
-	inputs []*wire.TxIn) error {
-
-	// Add tx to db before publication, so that we will always know that a
-	// spend by this tx is ours. Otherwise if the publish doesn't return,
-	// but did publish, we'd lose track of this tx. Even republication on
-	// startup doesn't prevent this, because that call returns a double
-	// spend error then and would also not add the hash to the store.
-	err := s.cfg.Store.StoreTx(tr)
-	if err != nil {
-		return fmt.Errorf("store tx: %w", err)
-	}
-
+// markInputsPendingPublish updates the pending inputs with the given tx
+// inputs. It also increments the `publishAttempts`.
+func (s *UtxoSweeper) markInputsPendingPublish(set InputSet) {
 	// Reschedule sweep.
-	for _, input := range inputs {
-		pi, ok := s.pendingInputs[input.PreviousOutPoint]
+	for _, input := range set.Inputs() {
+		pi, ok := s.pendingInputs[*input.OutPoint()]
 		if !ok {
 			// It could be that this input is an additional wallet
 			// input that was attached. In that case there also
 			// isn't a pending input to update.
 			log.Debugf("Skipped marking input as pending "+
 				"published: %v not found in pending inputs",
-				input.PreviousOutPoint)
+				input.OutPoint())
 
 			continue
 		}
@@ -868,7 +853,7 @@ func (s *UtxoSweeper) markInputsPendingPublish(tr *TxRecord,
 		if pi.terminated() {
 			log.Errorf("Expect input %v to not have terminated "+
 				"state, instead it has %v",
-				input.PreviousOutPoint, pi.state)
+				input.OutPoint, pi.state)
 
 			continue
 		}
@@ -876,19 +861,9 @@ func (s *UtxoSweeper) markInputsPendingPublish(tr *TxRecord,
 		// Update the input's state.
 		pi.state = StatePendingPublish
 
-		// Record the fees and fee rate of this tx to prepare possible
-		// RBF.
-		pi.rbf = fn.Some(RBFInfo{
-			Txid:    tr.Txid,
-			FeeRate: chainfee.SatPerKWeight(tr.FeeRate),
-			Fee:     btcutil.Amount(tr.Fee),
-		})
-
 		// Record another publish attempt.
 		pi.publishAttempts++
 	}
-
-	return nil
 }
 
 // markInputsPublished updates the sweeping tx in db and marks the list of

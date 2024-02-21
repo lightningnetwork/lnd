@@ -3,6 +3,7 @@ package chanfunding
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -10,8 +11,32 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+)
+
+const (
+	// DefaultReservationTimeout is the default time we wait until we remove
+	// an unfinished (zombiestate) open channel flow from memory.
+	DefaultReservationTimeout = 10 * time.Minute
+
+	// DefaultLockDuration is the default duration used to lock outputs.
+	DefaultLockDuration = 10 * time.Minute
+)
+
+var (
+	// LndInternalLockID is the binary representation of the SHA256 hash of
+	// the string "lnd-internal-lock-id" and is used for UTXO lock leases to
+	// identify that we ourselves are locking an UTXO, for example when
+	// giving out a funded PSBT. The ID corresponds to the hex value of
+	// ede19a92ed321a4705f8a1cccc1d4f6182545d4bb4fae08bd5937831b7e38f98.
+	LndInternalLockID = wtxmgr.LockID{
+		0xed, 0xe1, 0x9a, 0x92, 0xed, 0x32, 0x1a, 0x47,
+		0x05, 0xf8, 0xa1, 0xcc, 0xcc, 0x1d, 0x4f, 0x61,
+		0x82, 0x54, 0x5d, 0x4b, 0xb4, 0xfa, 0xe0, 0x8b,
+		0xd5, 0x93, 0x78, 0x31, 0xb7, 0xe3, 0x8f, 0x98,
+	}
 )
 
 // FullIntent is an intent that is fully backed by the internal wallet. This

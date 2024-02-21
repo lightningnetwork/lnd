@@ -184,18 +184,6 @@ var (
 	// configuration file in this package.
 	DefaultWalletKitMacFilename = "walletkit.macaroon"
 
-	// LndInternalLockID is the binary representation of the SHA256 hash of
-	// the string "lnd-internal-lock-id" and is used for UTXO lock leases to
-	// identify that we ourselves are locking an UTXO, for example when
-	// giving out a funded PSBT. The ID corresponds to the hex value of
-	// ede19a92ed321a4705f8a1cccc1d4f6182545d4bb4fae08bd5937831b7e38f98.
-	LndInternalLockID = wtxmgr.LockID{
-		0xed, 0xe1, 0x9a, 0x92, 0xed, 0x32, 0x1a, 0x47,
-		0x05, 0xf8, 0xa1, 0xcc, 0xcc, 0x1d, 0x4f, 0x61,
-		0x82, 0x54, 0x5d, 0x4b, 0xb4, 0xfa, 0xe0, 0x8b,
-		0xd5, 0x93, 0x78, 0x31, 0xb7, 0xe3, 0x8f, 0x98,
-	}
-
 	// allWitnessTypes is a mapping between the witness types defined in the
 	// `input` package, and the witness types in the protobuf definition.
 	// This map is necessary because the native enum and the protobuf enum
@@ -482,7 +470,7 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 
 	// Don't allow our internal ID to be used externally for locking. Only
 	// unlocking is allowed.
-	if lockID == LndInternalLockID {
+	if lockID == chanfunding.LndInternalLockID {
 		return nil, errors.New("reserved id cannot be used")
 	}
 
@@ -492,7 +480,7 @@ func (w *WalletKit) LeaseOutput(ctx context.Context,
 	}
 
 	// Use the specified lock duration or fall back to the default.
-	duration := DefaultLockDuration
+	duration := chanfunding.DefaultLockDuration
 	if req.ExpirationSeconds != 0 {
 		duration = time.Duration(req.ExpirationSeconds) * time.Second
 	}

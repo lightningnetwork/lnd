@@ -69,10 +69,6 @@ const (
 	// closure.
 	DefaultOutgoingCltvRejectDelta = DefaultOutgoingBroadcastDelta + 3
 
-	// DefaultReservationTimeout is the default time we wait until we remove
-	// an unfinished (zombiestate) open channel flow from memory.
-	DefaultReservationTimeout = 10 * time.Minute
-
 	// DefaultZombieSweeperInterval is the default time interval at which
 	// unfinished (zombiestate) open channel flows are purged from memory.
 	DefaultZombieSweeperInterval = 1 * time.Minute

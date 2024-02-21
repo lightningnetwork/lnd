@@ -1897,87 +1897,74 @@ func TestMarkInputsPendingPublish(t *testing.T) {
 
 	require := require.New(t)
 
-	// Create a mock sweeper store.
-	mockStore := NewMockSweeperStore()
-
-	// Create a test TxRecord and a dummy error.
-	dummyTR := &TxRecord{}
-	dummyErr := errors.New("dummy error")
-
 	// Create a test sweeper.
-	s := New(&UtxoSweeperConfig{
-		Store: mockStore,
-	})
+	s := New(&UtxoSweeperConfig{})
+
+	// Create a mock input set.
+	set := &MockInputSet{}
+	defer set.AssertExpectations(t)
 
 	// Create three testing inputs.
 	//
 	// inputNotExist specifies an input that's not found in the sweeper's
 	// `pendingInputs` map.
-	inputNotExist := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 1},
-	}
+	inputNotExist := &input.MockInput{}
+	defer inputNotExist.AssertExpectations(t)
+
+	inputNotExist.On("OutPoint").Return(&wire.OutPoint{Index: 0})
 
 	// inputInit specifies a newly created input.
-	inputInit := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 2},
-	}
-	s.pendingInputs[inputInit.PreviousOutPoint] = &pendingInput{
+	inputInit := &input.MockInput{}
+	defer inputInit.AssertExpectations(t)
+
+	inputInit.On("OutPoint").Return(&wire.OutPoint{Index: 1})
+
+	s.pendingInputs[*inputInit.OutPoint()] = &pendingInput{
 		state: StateInit,
 	}
 
 	// inputPendingPublish specifies an input that's about to be published.
-	inputPendingPublish := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 3},
-	}
-	s.pendingInputs[inputPendingPublish.PreviousOutPoint] = &pendingInput{
+	inputPendingPublish := &input.MockInput{}
+	defer inputPendingPublish.AssertExpectations(t)
+
+	inputPendingPublish.On("OutPoint").Return(&wire.OutPoint{Index: 2})
+
+	s.pendingInputs[*inputPendingPublish.OutPoint()] = &pendingInput{
 		state: StatePendingPublish,
 	}
 
 	// inputTerminated specifies an input that's terminated.
-	inputTerminated := &wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{Index: 4},
-	}
-	s.pendingInputs[inputTerminated.PreviousOutPoint] = &pendingInput{
+	inputTerminated := &input.MockInput{}
+	defer inputTerminated.AssertExpectations(t)
+
+	inputTerminated.On("OutPoint").Return(&wire.OutPoint{Index: 3})
+
+	s.pendingInputs[*inputTerminated.OutPoint()] = &pendingInput{
 		state: StateExcluded,
 	}
-
-	// First, check that when an error is returned from db, it's properly
-	// returned here.
-	mockStore.On("StoreTx", dummyTR).Return(dummyErr).Once()
-	err := s.markInputsPendingPublish(dummyTR, nil)
-	require.ErrorIs(err, dummyErr)
-
-	// Then, check that the target input has will be correctly marked as
-	// published.
-	//
-	// Mock the store to return nil
-	mockStore.On("StoreTx", dummyTR).Return(nil).Once()
 
 	// Mark the test inputs. We expect the non-exist input and the
 	// inputTerminated to be skipped, and the rest to be marked as pending
 	// publish.
-	err = s.markInputsPendingPublish(dummyTR, []*wire.TxIn{
+	set.On("Inputs").Return([]input.Input{
 		inputNotExist, inputInit, inputPendingPublish, inputTerminated,
 	})
-	require.NoError(err)
+	s.markInputsPendingPublish(set)
 
 	// We expect unchanged number of pending inputs.
 	require.Len(s.pendingInputs, 3)
 
 	// We expect the init input's state to become pending publish.
 	require.Equal(StatePendingPublish,
-		s.pendingInputs[inputInit.PreviousOutPoint].state)
+		s.pendingInputs[*inputInit.OutPoint()].state)
 
 	// We expect the pending-publish to stay unchanged.
 	require.Equal(StatePendingPublish,
-		s.pendingInputs[inputPendingPublish.PreviousOutPoint].state)
+		s.pendingInputs[*inputPendingPublish.OutPoint()].state)
 
 	// We expect the terminated to stay unchanged.
 	require.Equal(StateExcluded,
-		s.pendingInputs[inputTerminated.PreviousOutPoint].state)
-
-	// Assert mocked statements are executed as expected.
-	mockStore.AssertExpectations(t)
+		s.pendingInputs[*inputTerminated.OutPoint()].state)
 }
 
 // TestMarkInputsPublished checks that given a list of inputs with different

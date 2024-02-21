@@ -73,6 +73,11 @@
   a `shutdown` message if there were currently HTLCs on the channel. After this
   change, the shutdown procedure should be compliant with BOLT2 requirements.
 
+* If HTLCs are in-flight at the same time that a `shutdown` is sent and then 
+  a re-connect happens before the coop-close is completed we now [ensure that 
+  we re-init the `shutdown` 
+  exchange](https://github.com/lightningnetwork/lnd/pull/8464)
+
 * The AMP struct in payment hops will [now be populated](https://github.com/lightningnetwork/lnd/pull/7976) when the AMP TLV is set.
 
 * [Add Taproot witness types

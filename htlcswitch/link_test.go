@@ -6969,27 +6969,22 @@ func TestLinkFlushApiDirectionIsolation(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		if prand.Uint64()%2 == 0 {
-			//nolint:errcheck
 			aliceLink.EnableAdds(Outgoing)
 			require.False(t, aliceLink.IsFlushing(Outgoing))
 		} else {
-			//nolint:errcheck
 			aliceLink.DisableAdds(Outgoing)
 			require.True(t, aliceLink.IsFlushing(Outgoing))
 		}
 		require.False(t, aliceLink.IsFlushing(Incoming))
 	}
 
-	//nolint:errcheck
 	aliceLink.EnableAdds(Outgoing)
 
 	for i := 0; i < 10; i++ {
 		if prand.Uint64()%2 == 0 {
-			//nolint:errcheck
 			aliceLink.EnableAdds(Incoming)
 			require.False(t, aliceLink.IsFlushing(Incoming))
 		} else {
-			//nolint:errcheck
 			aliceLink.DisableAdds(Incoming)
 			require.True(t, aliceLink.IsFlushing(Incoming))
 		}
@@ -7010,16 +7005,16 @@ func TestLinkFlushApiGateStateIdempotence(t *testing.T) {
 		)
 
 	for _, dir := range []LinkDirection{Incoming, Outgoing} {
-		require.Nil(t, aliceLink.DisableAdds(dir))
+		require.True(t, aliceLink.DisableAdds(dir))
 		require.True(t, aliceLink.IsFlushing(dir))
 
-		require.NotNil(t, aliceLink.DisableAdds(dir))
+		require.False(t, aliceLink.DisableAdds(dir))
 		require.True(t, aliceLink.IsFlushing(dir))
 
-		require.Nil(t, aliceLink.EnableAdds(dir))
+		require.True(t, aliceLink.EnableAdds(dir))
 		require.False(t, aliceLink.IsFlushing(dir))
 
-		require.NotNil(t, aliceLink.EnableAdds(dir))
+		require.False(t, aliceLink.EnableAdds(dir))
 		require.False(t, aliceLink.IsFlushing(dir))
 	}
 }

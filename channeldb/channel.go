@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -121,6 +122,12 @@ var (
 	// broadcasted when moving the channel to state CoopBroadcasted.
 	coopCloseTxKey = []byte("coop-closing-tx-key")
 
+	// shutdownInfoKey points to the serialised shutdown info that has been
+	// persisted for a channel. The existence of this info means that we
+	// have sent the Shutdown message before and so should re-initiate the
+	// shutdown on re-establish.
+	shutdownInfoKey = []byte("shutdown-info-key")
+
 	// commitDiffKey stores the current pending commitment state we've
 	// extended to the remote party (if any). Each time we propose a new
 	// state, we store the information necessary to reconstruct this state
@@ -187,6 +194,10 @@ var (
 	// ErrNoCloseTx is returned when no closing tx is found for a channel
 	// in the state CommitBroadcasted.
 	ErrNoCloseTx = fmt.Errorf("no closing tx found")
+
+	// ErrNoShutdownInfo is returned when no shutdown info has been
+	// persisted for a channel.
+	ErrNoShutdownInfo = errors.New("no shutdown info")
 
 	// ErrNoRestoredChannelMutation is returned when a caller attempts to
 	// mutate a channel that's been recovered.
@@ -1573,6 +1584,79 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 		),
 		LocalNonce: nextTaprootNonce,
 	}, nil
+}
+
+// MarkShutdownSent serialises and persist the given ShutdownInfo for this
+// channel. Persisting this info represents the fact that we have sent the
+// Shutdown message to the remote side and hence that we should re-transmit the
+// same Shutdown message on re-establish.
+func (c *OpenChannel) MarkShutdownSent(info *ShutdownInfo) error {
+	c.Lock()
+	defer c.Unlock()
+
+	return c.storeShutdownInfo(info)
+}
+
+// storeShutdownInfo serialises the ShutdownInfo and persists it under the
+// shutdownInfoKey.
+func (c *OpenChannel) storeShutdownInfo(info *ShutdownInfo) error {
+	var b bytes.Buffer
+	err := info.encode(&b)
+	if err != nil {
+		return err
+	}
+
+	return kvdb.Update(c.Db.backend, func(tx kvdb.RwTx) error {
+		chanBucket, err := fetchChanBucketRw(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		if err != nil {
+			return err
+		}
+
+		return chanBucket.Put(shutdownInfoKey, b.Bytes())
+	}, func() {})
+}
+
+// ShutdownInfo decodes the shutdown info stored for this channel and returns
+// the result. If no shutdown info has been persisted for this channel then the
+// ErrNoShutdownInfo error is returned.
+func (c *OpenChannel) ShutdownInfo() (fn.Option[ShutdownInfo], error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	var shutdownInfo *ShutdownInfo
+	err := kvdb.View(c.Db.backend, func(tx kvdb.RTx) error {
+		chanBucket, err := fetchChanBucket(
+			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+		)
+		switch {
+		case err == nil:
+		case errors.Is(err, ErrNoChanDBExists),
+			errors.Is(err, ErrNoActiveChannels),
+			errors.Is(err, ErrChannelNotFound):
+
+			return ErrNoShutdownInfo
+		default:
+			return err
+		}
+
+		shutdownInfoBytes := chanBucket.Get(shutdownInfoKey)
+		if shutdownInfoBytes == nil {
+			return ErrNoShutdownInfo
+		}
+
+		shutdownInfo, err = decodeShutdownInfo(shutdownInfoBytes)
+
+		return err
+	}, func() {
+		shutdownInfo = nil
+	})
+	if err != nil {
+		return fn.None[ShutdownInfo](), err
+	}
+
+	return fn.Some[ShutdownInfo](*shutdownInfo), nil
 }
 
 // isBorked returns true if the channel has been marked as borked in the
@@ -4293,4 +4377,60 @@ func MakeScidRecord(typ tlv.Type, scid *lnwire.ShortChannelID) tlv.Record {
 	return tlv.MakeStaticRecord(
 		typ, scid, 8, lnwire.EShortChannelID, lnwire.DShortChannelID,
 	)
+}
+
+// ShutdownInfo contains various info about the shutdown initiation of a
+// channel.
+type ShutdownInfo struct {
+	// DeliveryScript is the address that we have included in any previous
+	// Shutdown message for a particular channel and so should include in
+	// any future re-sends of the Shutdown message.
+	DeliveryScript tlv.RecordT[tlv.TlvType0, lnwire.DeliveryAddress]
+
+	// LocalInitiator is true if we sent a Shutdown message before ever
+	// receiving a Shutdown message from the remote peer.
+	LocalInitiator tlv.RecordT[tlv.TlvType1, bool]
+}
+
+// NewShutdownInfo constructs a new ShutdownInfo object.
+func NewShutdownInfo(deliveryScript lnwire.DeliveryAddress,
+	locallyInitiated bool) *ShutdownInfo {
+
+	return &ShutdownInfo{
+		DeliveryScript: tlv.NewRecordT[tlv.TlvType0](deliveryScript),
+		LocalInitiator: tlv.NewPrimitiveRecord[tlv.TlvType1](
+			locallyInitiated,
+		),
+	}
+}
+
+// encode serialises the ShutdownInfo to the given io.Writer.
+func (s *ShutdownInfo) encode(w io.Writer) error {
+	records := []tlv.Record{
+		s.DeliveryScript.Record(),
+		s.LocalInitiator.Record(),
+	}
+
+	stream, err := tlv.NewStream(records...)
+	if err != nil {
+		return err
+	}
+
+	return stream.Encode(w)
+}
+
+// decodeShutdownInfo constructs a ShutdownInfo struct by decoding the given
+// byte slice.
+func decodeShutdownInfo(b []byte) (*ShutdownInfo, error) {
+	tlvStream := lnwire.ExtraOpaqueData(b)
+
+	var info ShutdownInfo
+	records := []tlv.RecordProducer{
+		&info.DeliveryScript,
+		&info.LocalInitiator,
+	}
+
+	_, err := tlvStream.ExtractRecords(records...)
+
+	return &info, err
 }

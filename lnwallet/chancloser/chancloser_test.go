@@ -154,6 +154,10 @@ func (m *mockChannel) MarkCoopBroadcasted(*wire.MsgTx, bool) error {
 	return nil
 }
 
+func (m *mockChannel) MarkShutdownSent(*channeldb.ShutdownInfo) error {
+	return nil
+}
+
 func (m *mockChannel) IsInitiator() bool {
 	return m.initiator
 }

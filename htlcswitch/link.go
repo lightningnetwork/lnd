@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/contractcourt"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
@@ -271,6 +272,14 @@ type ChannelLinkConfig struct {
 	// GetAliases is used by the link and switch to fetch the set of
 	// aliases for a given link.
 	GetAliases func(base lnwire.ShortChannelID) []lnwire.ShortChannelID
+
+	// PreviouslySentShutdown is an optional value that is set if, at the
+	// time of the link being started, persisted shutdown info was found for
+	// the channel. This value being set means that we previously sent a
+	// Shutdown message to our peer, and so we should do so again on
+	// re-establish and should not allow anymore HTLC adds on the outgoing
+	// direction of the link.
+	PreviouslySentShutdown fn.Option[lnwire.Shutdown]
 }
 
 // channelLink is the service which drives a channel's commitment update
@@ -618,41 +627,25 @@ func (l *channelLink) EligibleToUpdate() bool {
 }
 
 // EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
-// the specified direction. It returns an error if the state already allowed
-// those adds.
-func (l *channelLink) EnableAdds(linkDirection LinkDirection) error {
+// the specified direction. It returns true if the state was changed and false
+// if the desired state was already set before the method was called.
+func (l *channelLink) EnableAdds(linkDirection LinkDirection) bool {
 	if linkDirection == Outgoing {
-		if !l.isOutgoingAddBlocked.Swap(false) {
-			return errors.New("outgoing adds already enabled")
-		}
+		return l.isOutgoingAddBlocked.Swap(false)
 	}
 
-	if linkDirection == Incoming {
-		if !l.isIncomingAddBlocked.Swap(false) {
-			return errors.New("incoming adds already enabled")
-		}
-	}
-
-	return nil
+	return l.isIncomingAddBlocked.Swap(false)
 }
 
-// DiableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
-// the specified direction. It returns an error if the state already disallowed
-// those adds.
-func (l *channelLink) DisableAdds(linkDirection LinkDirection) error {
+// DisableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
+// the specified direction. It returns true if the state was changed and false
+// if the desired state was already set before the method was called.
+func (l *channelLink) DisableAdds(linkDirection LinkDirection) bool {
 	if linkDirection == Outgoing {
-		if l.isOutgoingAddBlocked.Swap(true) {
-			return errors.New("outgoing adds already disabled")
-		}
+		return !l.isOutgoingAddBlocked.Swap(true)
 	}
 
-	if linkDirection == Incoming {
-		if l.isIncomingAddBlocked.Swap(true) {
-			return errors.New("incoming adds already disabled")
-		}
-	}
-
-	return nil
+	return !l.isIncomingAddBlocked.Swap(true)
 }
 
 // IsFlushing returns true when UpdateAddHtlc's are disabled in the direction of
@@ -1205,6 +1198,25 @@ func (l *channelLink) htlcManager() {
 			return
 		}
 	}
+
+	// If a shutdown message has previously been sent on this link, then we
+	// need to make sure that we have disabled any HTLC adds on the outgoing
+	// direction of the link and that we re-resend the same shutdown message
+	// that we previously sent.
+	l.cfg.PreviouslySentShutdown.WhenSome(func(shutdown lnwire.Shutdown) {
+		// Immediately disallow any new outgoing HTLCs.
+		if !l.DisableAdds(Outgoing) {
+			l.log.Warnf("Outgoing link adds already disabled")
+		}
+
+		// Re-send the shutdown message the peer. Since syncChanStates
+		// would have sent any outstanding CommitSig, it is fine for us
+		// to immediately queue the shutdown message now.
+		err := l.cfg.Peer.SendMessage(false, &shutdown)
+		if err != nil {
+			l.log.Warnf("Error sending shutdown message: %v", err)
+		}
+	})
 
 	// We've successfully reestablished the channel, mark it as such to
 	// allow the switch to forward HTLCs in the outbound direction.

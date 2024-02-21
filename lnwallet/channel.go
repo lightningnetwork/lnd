@@ -8823,6 +8823,18 @@ func (lc *LightningChannel) MarkCoopBroadcasted(tx *wire.MsgTx,
 	return lc.channelState.MarkCoopBroadcasted(tx, localInitiated)
 }
 
+// MarkShutdownSent persists the given ShutdownInfo. The existence of the
+// ShutdownInfo represents the fact that the Shutdown message has been sent by
+// us and so should be re-sent on re-establish.
+func (lc *LightningChannel) MarkShutdownSent(
+	info *channeldb.ShutdownInfo) error {
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	return lc.channelState.MarkShutdownSent(info)
+}
+
 // MarkDataLoss marks sets the channel status to LocalDataLoss and stores the
 // passed commitPoint for use to retrieve funds in case the remote force closes
 // the channel.

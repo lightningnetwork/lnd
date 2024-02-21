@@ -4,7 +4,6 @@ import (
 	"bytes"
 	crand "crypto/rand"
 	"encoding/binary"
-	"fmt"
 	"io"
 	"math/rand"
 	"net"
@@ -510,34 +509,20 @@ type mockMessageConn struct {
 	readRaceDetectingCounter int
 }
 
-func (m *mockUpdateHandler) EnableAdds(dir htlcswitch.LinkDirection) error {
-	switch dir {
-	case htlcswitch.Outgoing:
-		if !m.isOutgoingAddBlocked.Swap(false) {
-			return fmt.Errorf("%v adds already enabled", dir)
-		}
-	case htlcswitch.Incoming:
-		if !m.isIncomingAddBlocked.Swap(false) {
-			return fmt.Errorf("%v adds already enabled", dir)
-		}
+func (m *mockUpdateHandler) EnableAdds(dir htlcswitch.LinkDirection) bool {
+	if dir == htlcswitch.Outgoing {
+		return m.isOutgoingAddBlocked.Swap(false)
 	}
 
-	return nil
+	return m.isIncomingAddBlocked.Swap(false)
 }
 
-func (m *mockUpdateHandler) DisableAdds(dir htlcswitch.LinkDirection) error {
-	switch dir {
-	case htlcswitch.Outgoing:
-		if m.isOutgoingAddBlocked.Swap(true) {
-			return fmt.Errorf("%v adds already disabled", dir)
-		}
-	case htlcswitch.Incoming:
-		if m.isIncomingAddBlocked.Swap(true) {
-			return fmt.Errorf("%v adds already disabled", dir)
-		}
+func (m *mockUpdateHandler) DisableAdds(dir htlcswitch.LinkDirection) bool {
+	if dir == htlcswitch.Outgoing {
+		return !m.isOutgoingAddBlocked.Swap(true)
 	}
 
-	return nil
+	return !m.isIncomingAddBlocked.Swap(true)
 }
 
 func (m *mockUpdateHandler) IsFlushing(dir htlcswitch.LinkDirection) bool {

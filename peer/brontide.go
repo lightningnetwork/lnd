@@ -27,6 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hodl"
@@ -975,15 +976,68 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 			spew.Sdump(forwardingPolicy))
 
 		// If the channel is pending, set the value to nil in the
-		// activeChannels map. This is done to signify that the channel is
-		// pending. We don't add the link to the switch here - it's the funding
-		// manager's responsibility to spin up pending channels. Adding them
-		// here would just be extra work as we'll tear them down when creating
-		// + adding the final link.
+		// activeChannels map. This is done to signify that the channel
+		// is pending. We don't add the link to the switch here - it's
+		// the funding manager's responsibility to spin up pending
+		// channels. Adding them here would just be extra work as we'll
+		// tear them down when creating + adding the final link.
 		if lnChan.IsPending() {
 			p.activeChannels.Store(chanID, nil)
 
 			continue
+		}
+
+		shutdownInfo, err := lnChan.State().ShutdownInfo()
+		if err != nil && !errors.Is(err, channeldb.ErrNoShutdownInfo) {
+			return nil, err
+		}
+
+		var (
+			shutdownMsg     fn.Option[lnwire.Shutdown]
+			shutdownInfoErr error
+		)
+		shutdownInfo.WhenSome(func(info channeldb.ShutdownInfo) {
+			// Compute an ideal fee.
+			feePerKw, err := p.cfg.FeeEstimator.EstimateFeePerKW(
+				p.cfg.CoopCloseTargetConfs,
+			)
+			if err != nil {
+				shutdownInfoErr = fmt.Errorf("unable to "+
+					"estimate fee: %w", err)
+
+				return
+			}
+
+			chanCloser, err := p.createChanCloser(
+				lnChan, info.DeliveryScript.Val, feePerKw, nil,
+				info.LocalInitiator.Val,
+			)
+			if err != nil {
+				shutdownInfoErr = fmt.Errorf("unable to "+
+					"create chan closer: %w", err)
+
+				return
+			}
+
+			chanID := lnwire.NewChanIDFromOutPoint(
+				&lnChan.State().FundingOutpoint,
+			)
+
+			p.activeChanCloses[chanID] = chanCloser
+
+			// Create the Shutdown message.
+			shutdown, err := chanCloser.ShutdownChan()
+			if err != nil {
+				delete(p.activeChanCloses, chanID)
+				shutdownInfoErr = err
+
+				return
+			}
+
+			shutdownMsg = fn.Some[lnwire.Shutdown](*shutdown)
+		})
+		if shutdownInfoErr != nil {
+			return nil, shutdownInfoErr
 		}
 
 		// Subscribe to the set of on-chain events for this channel.
@@ -996,7 +1050,7 @@ func (p *Brontide) loadActiveChannels(chans []*channeldb.OpenChannel) (
 
 		err = p.addLink(
 			chanPoint, lnChan, forwardingPolicy, chainEvents,
-			true,
+			true, shutdownMsg,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to add link %v to "+
@@ -1014,7 +1068,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	lnChan *lnwallet.LightningChannel,
 	forwardingPolicy *models.ForwardingPolicy,
 	chainEvents *contractcourt.ChainEventSubscription,
-	syncStates bool) error {
+	syncStates bool, shutdownMsg fn.Option[lnwire.Shutdown]) error {
 
 	// onChannelFailure will be called by the link in case the channel
 	// fails for some reason.
@@ -1083,6 +1137,7 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 		NotifyInactiveLinkEvent: p.cfg.ChannelNotifier.NotifyInactiveLinkEvent,
 		HtlcNotifier:            p.cfg.HtlcNotifier,
 		GetAliases:              p.cfg.GetAliases,
+		PreviouslySentShutdown:  shutdownMsg,
 	}
 
 	// Before adding our new link, purge the switch of any pending or live
@@ -2802,15 +2857,32 @@ func (p *Brontide) restartCoopClose(lnChan *lnwallet.LightningChannel) (
 		return nil, nil
 	}
 
-	// As mentioned above, we don't re-create the delivery script.
-	deliveryScript := c.LocalShutdownScript
-	if len(deliveryScript) == 0 {
-		var err error
-		deliveryScript, err = p.genDeliveryScript()
-		if err != nil {
-			p.log.Errorf("unable to gen delivery script: %v",
-				err)
-			return nil, fmt.Errorf("close addr unavailable")
+	var deliveryScript []byte
+
+	shutdownInfo, err := c.ShutdownInfo()
+	switch {
+	// We have previously stored the delivery script that we need to use
+	// in the shutdown message. Re-use this script.
+	case err == nil:
+		shutdownInfo.WhenSome(func(info channeldb.ShutdownInfo) {
+			deliveryScript = info.DeliveryScript.Val
+		})
+
+	// An error other than ErrNoShutdownInfo was returned
+	case err != nil && !errors.Is(err, channeldb.ErrNoShutdownInfo):
+		return nil, err
+
+	case errors.Is(err, channeldb.ErrNoShutdownInfo):
+		deliveryScript = c.LocalShutdownScript
+		if len(deliveryScript) == 0 {
+			var err error
+			deliveryScript, err = p.genDeliveryScript()
+			if err != nil {
+				p.log.Errorf("unable to gen delivery script: "+
+					"%v", err)
+
+				return nil, fmt.Errorf("close addr unavailable")
+			}
 		}
 	}
 
@@ -2990,13 +3062,12 @@ func (p *Brontide) handleLocalCloseReq(req *htlcswitch.ChanClose) {
 			return
 		}
 
-		link.OnCommitOnce(htlcswitch.Outgoing, func() {
-			err := link.DisableAdds(htlcswitch.Outgoing)
-			if err != nil {
-				p.log.Warnf("outgoing link adds already "+
-					"disabled: %v", link.ChanID())
-			}
+		if !link.DisableAdds(htlcswitch.Outgoing) {
+			p.log.Warnf("Outgoing link adds already "+
+				"disabled: %v", link.ChanID())
+		}
 
+		link.OnCommitOnce(htlcswitch.Outgoing, func() {
 			p.queueMsg(shutdownMsg, nil)
 		})
 
@@ -3619,12 +3690,9 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 	switch typed := msg.msg.(type) {
 	case *lnwire.Shutdown:
 		// Disable incoming adds immediately.
-		if link != nil {
-			err := link.DisableAdds(htlcswitch.Incoming)
-			if err != nil {
-				p.log.Warnf("incoming link adds already "+
-					"disabled: %v", link.ChanID())
-			}
+		if link != nil && !link.DisableAdds(htlcswitch.Incoming) {
+			p.log.Warnf("Incoming link adds already disabled: %v",
+				link.ChanID())
 		}
 
 		oShutdown, err := chanCloser.ReceiveShutdown(*typed)
@@ -3634,7 +3702,7 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		}
 
 		oShutdown.WhenSome(func(msg lnwire.Shutdown) {
-			// if the link is nil it means we can immediately queue
+			// If the link is nil it means we can immediately queue
 			// the Shutdown message since we don't have to wait for
 			// commitment transaction synchronization.
 			if link == nil {
@@ -3642,14 +3710,17 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 				return
 			}
 
+			// Immediately disallow any new HTLC's from being added
+			// in the outgoing direction.
+			if !link.DisableAdds(htlcswitch.Outgoing) {
+				p.log.Warnf("Outgoing link adds already "+
+					"disabled: %v", link.ChanID())
+			}
+
 			// When we have a Shutdown to send, we defer it till the
 			// next time we send a CommitSig to remain spec
 			// compliant.
 			link.OnCommitOnce(htlcswitch.Outgoing, func() {
-				err := link.DisableAdds(htlcswitch.Outgoing)
-				if err != nil {
-					p.log.Warn(err.Error())
-				}
 				p.queueMsg(&msg, nil)
 			})
 		})
@@ -3906,7 +3977,7 @@ func (p *Brontide) addActiveChannel(c *lnpeer.NewChannel) error {
 	// Create the link and add it to the switch.
 	err = p.addLink(
 		chanPoint, lnChan, initialPolicy, chainEvents,
-		shouldReestablish,
+		shouldReestablish, fn.None[lnwire.Shutdown](),
 	)
 	if err != nil {
 		return fmt.Errorf("can't register new channel link(%v) with "+

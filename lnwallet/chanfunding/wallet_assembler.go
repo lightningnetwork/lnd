@@ -62,9 +62,9 @@ type FullIntent struct {
 	// change from the main funding transaction.
 	ChangeOutputs []*wire.TxOut
 
-	// coinLocker is the Assembler's instance of the OutpointLocker
+	// coinLeaser is the Assembler's instance of the OutputLeaser
 	// interface.
-	coinLocker OutpointLocker
+	coinLeaser OutputLeaser
 
 	// coinSource is the Assembler's instance of the CoinSource interface.
 	coinSource CoinSource
@@ -219,7 +219,13 @@ func (f *FullIntent) Outputs() []*wire.TxOut {
 // NOTE: Part of the chanfunding.Intent interface.
 func (f *FullIntent) Cancel() {
 	for _, coin := range f.InputCoins {
-		f.coinLocker.UnlockOutpoint(coin.OutPoint)
+		err := f.coinLeaser.ReleaseOutput(
+			LndInternalLockID, coin.OutPoint,
+		)
+		if err != nil {
+			log.Warnf("Failed to release UTXO %s (%v))",
+				coin.OutPoint, err)
+		}
 	}
 
 	f.ShimIntent.Cancel()
@@ -241,9 +247,9 @@ type WalletConfig struct {
 	// access to the current set of coins returned by the CoinSource.
 	CoinSelectLocker CoinSelectionLocker
 
-	// CoinLocker is what the WalletAssembler uses to lock coins that may
+	// CoinLeaser is what the WalletAssembler uses to lease coins that may
 	// be used as inputs for a new funding transaction.
-	CoinLocker OutpointLocker
+	CoinLeaser OutputLeaser
 
 	// Signer allows the WalletAssembler to sign inputs on any potential
 	// funding transactions.
@@ -518,7 +524,13 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 		for _, coin := range selectedCoins {
 			outpoint := coin.OutPoint
 
-			w.cfg.CoinLocker.LockOutpoint(outpoint)
+			_, _, _, err = w.cfg.CoinLeaser.LeaseOutput(
+				LndInternalLockID, outpoint,
+				DefaultReservationTimeout,
+			)
+			if err != nil {
+				return err
+			}
 		}
 
 		newIntent := &FullIntent{
@@ -528,7 +540,7 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 				musig2:           r.Musig2,
 			},
 			InputCoins: selectedCoins,
-			coinLocker: w.cfg.CoinLocker,
+			coinLeaser: w.cfg.CoinLeaser,
 			coinSource: w.cfg.CoinSource,
 			signer:     w.cfg.Signer,
 		}

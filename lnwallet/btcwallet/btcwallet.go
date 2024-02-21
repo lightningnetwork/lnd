@@ -1052,28 +1052,6 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 	)
 }
 
-// LockOutpoint marks an outpoint as locked meaning it will no longer be deemed
-// as eligible for coin selection. Locking outputs are utilized in order to
-// avoid race conditions when selecting inputs for usage when funding a
-// channel.
-//
-// NOTE: This method requires the global coin selection lock to be held.
-//
-// This is a part of the WalletController interface.
-func (b *BtcWallet) LockOutpoint(o wire.OutPoint) {
-	b.wallet.LockOutpoint(o)
-}
-
-// UnlockOutpoint unlocks a previously locked output, marking it eligible for
-// coin selection.
-//
-// NOTE: This method requires the global coin selection lock to be held.
-//
-// This is a part of the WalletController interface.
-func (b *BtcWallet) UnlockOutpoint(o wire.OutPoint) {
-	b.wallet.UnlockOutpoint(o)
-}
-
 // LeaseOutput locks an output to the given ID, preventing it from being
 // available for any future coin selection attempts. The absolute time of the
 // lock's expiration is returned. The expiration of the lock can be extended by

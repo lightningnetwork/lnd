@@ -211,14 +211,13 @@ func (q *sessionQueue) Stop(final bool) error {
 					update.BackupID, err)
 				continue
 			}
+		}
 
-			err = q.cfg.DB.DeleteCommittedUpdate(
-				q.ID(), update.SeqNum,
-			)
+		if final {
+			err = q.cfg.DB.DeleteCommittedUpdates(q.ID())
 			if err != nil {
 				log.Errorf("could not delete committed "+
-					"update %d for session %s",
-					update.SeqNum, q.ID())
+					"updates for session %s", q.ID())
 			}
 		}
 
@@ -766,7 +765,7 @@ func (s *sessionQueueSet) AddAndStart(sessionQueue *sessionQueue) {
 
 // StopAndRemove stops the given session queue and removes it from the
 // sessionQueueSet.
-func (s *sessionQueueSet) StopAndRemove(id wtdb.SessionID) error {
+func (s *sessionQueueSet) StopAndRemove(id wtdb.SessionID, final bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -777,7 +776,7 @@ func (s *sessionQueueSet) StopAndRemove(id wtdb.SessionID) error {
 
 	delete(s.queues, id)
 
-	return queue.Stop(true)
+	return queue.Stop(final)
 }
 
 // Get fetches and returns the sessionQueue with the given ID.

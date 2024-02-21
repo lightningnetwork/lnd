@@ -8,6 +8,10 @@ http:
       body: "*"
     - selector: wtclientrpc.WatchtowerClient.RemoveTower
       delete: "/v2/watchtower/client/{pubkey}"
+    - selector: wtclientrpc.WatchtowerClient.DeactivateTower
+      post: "/v2/watchtower/client/tower/deactivate/{pubkey}"
+    - selector: wtclientrpc.WatchtowerClient.TerminateSession
+      post: "/v2/watchtower/client/sessions/terminate/{session_id}"
     - selector: wtclientrpc.WatchtowerClient.ListTowers
       get: "/v2/watchtower/client"
     - selector: wtclientrpc.WatchtowerClient.GetTowerInfo

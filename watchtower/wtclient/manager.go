@@ -38,6 +38,15 @@ type ClientManager interface {
 	// instead.
 	RemoveTower(*btcec.PublicKey, net.Addr) error
 
+	// DeactivateTower sets the given tower's status to inactive so that it
+	// is not considered for session negotiation. Its sessions will also not
+	// be used while the tower is inactive.
+	DeactivateTower(pubKey *btcec.PublicKey) error
+
+	// TerminateSession sets the given session's status to CSessionTerminal
+	// meaning that it will not be used again.
+	TerminateSession(id wtdb.SessionID) error
+
 	// Stats returns the in-memory statistics of the client since startup.
 	Stats() ClientStats
 
@@ -431,6 +440,73 @@ func (m *Manager) RemoveTower(key *btcec.PublicKey, addr net.Addr) error {
 	return nil
 }
 
+// TerminateSession sets the given session's status to CSessionTerminal meaning
+// that it will not be used again.
+func (m *Manager) TerminateSession(id wtdb.SessionID) error {
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+
+	for _, client := range m.clients {
+		err := client.terminateSession(id)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Finally, mark the session as terminated in the DB.
+	return m.cfg.DB.TerminateSession(id)
+}
+
+// DeactivateTower sets the given tower's status to inactive so that it is not
+// considered for session negotiation. Its sessions will also not be used while
+// the tower is inactive.
+func (m *Manager) DeactivateTower(key *btcec.PublicKey) error {
+	// We'll load the tower in order to retrieve its ID within the database.
+	tower, err := m.cfg.DB.LoadTower(key)
+	if err != nil {
+		return err
+	}
+
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+
+	for _, client := range m.clients {
+		err := client.deactivateTower(tower.ID, tower.IdentityKey)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Finally, mark the tower as inactive in the DB.
+	err = m.cfg.DB.DeactivateTower(key)
+	if err != nil {
+		log.Errorf("Could not deactivate the tower. Re-activating. %v",
+			err)
+
+		// If the persisted state update fails, re-add the address to
+		// our client's in-memory state.
+		tower, newTowerErr := NewTowerFromDBTower(tower)
+		if newTowerErr != nil {
+			log.Errorf("Could not create new in-memory tower: %v",
+				newTowerErr)
+
+			return err
+		}
+
+		for _, client := range m.clients {
+			addTowerErr := client.addTower(tower)
+			if addTowerErr != nil {
+				log.Errorf("Could not re-add tower: %v",
+					addTowerErr)
+			}
+		}
+
+		return err
+	}
+
+	return nil
+}
+
 // Stats returns the in-memory statistics of the clients managed by the Manager
 // since startup.
 func (m *Manager) Stats() ClientStats {
@@ -455,7 +531,7 @@ func (m *Manager) Stats() ClientStats {
 func (m *Manager) RegisteredTowers(opts ...wtdb.ClientSessionListOption) (
 	map[blob.Type][]*RegisteredTower, error) {
 
-	towers, err := m.cfg.DB.ListTowers()
+	towers, err := m.cfg.DB.ListTowers(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -850,7 +926,7 @@ func (m *Manager) handleClosableSessions(
 				// Stop the session and remove it from the
 				// in-memory set.
 				err = client.stopAndRemoveSession(
-					item.sessionID,
+					item.sessionID, true,
 				)
 				if err != nil {
 					log.Errorf("could not remove "+

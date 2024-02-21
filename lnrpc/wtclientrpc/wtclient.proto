@@ -41,6 +41,21 @@ service WatchtowerClient {
     */
     rpc RemoveTower (RemoveTowerRequest) returns (RemoveTowerResponse);
 
+    /* lncli: `wtclient deactivate`
+    DeactivateTower sets the given tower's status to inactive so that it
+    is not considered for session negotiation. Its sessions will also not
+    be used while the tower is inactive.
+    */
+    rpc DeactivateTower (DeactivateTowerRequest)
+        returns (DeactivateTowerResponse);
+
+    /* lncli: `wtclient session terminate`
+    Terminate terminates the given session and marks it as terminal so that
+    it is not used for backups anymore.
+    */
+    rpc TerminateSession (TerminateSessionRequest)
+        returns (TerminateSessionResponse);
+
     /* lncli: `wtclient towers`
     ListTowers returns the list of watchtowers registered with the client.
     */
@@ -88,6 +103,26 @@ message RemoveTowerRequest {
 message RemoveTowerResponse {
 }
 
+message DeactivateTowerRequest {
+    // The identifying public key of the watchtower to deactivate.
+    bytes pubkey = 1;
+}
+
+message DeactivateTowerResponse {
+    // A string describing the action that took place.
+    string status = 1;
+}
+
+message TerminateSessionRequest {
+    // The ID of the session that should be terminated.
+    bytes session_id = 1;
+}
+
+message TerminateSessionResponse {
+    // A string describing the action that took place.
+    string status = 1;
+}
+
 message GetTowerInfoRequest {
     // The identifying public key of the watchtower to retrieve information for.
     bytes pubkey = 1;
@@ -128,6 +163,11 @@ message TowerSession {
     the justice transaction in the event of a channel breach.
     */
     uint32 sweep_sat_per_vbyte = 5;
+
+    /*
+    The ID of the session.
+    */
+    bytes id = 6;
 }
 
 message Tower {

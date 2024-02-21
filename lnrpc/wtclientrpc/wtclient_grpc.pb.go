@@ -30,6 +30,15 @@ type WatchtowerClientClient interface {
 	// again. If an address is provided, then this RPC only serves as a way of
 	// removing the address from the watchtower instead.
 	RemoveTower(ctx context.Context, in *RemoveTowerRequest, opts ...grpc.CallOption) (*RemoveTowerResponse, error)
+	// lncli: `wtclient deactivate`
+	// DeactivateTower sets the given tower's status to inactive so that it
+	// is not considered for session negotiation. Its sessions will also not
+	// be used while the tower is inactive.
+	DeactivateTower(ctx context.Context, in *DeactivateTowerRequest, opts ...grpc.CallOption) (*DeactivateTowerResponse, error)
+	// lncli: `wtclient session terminate`
+	// Terminate terminates the given session and marks it as terminal so that
+	// it is not used for backups anymore.
+	TerminateSession(ctx context.Context, in *TerminateSessionRequest, opts ...grpc.CallOption) (*TerminateSessionResponse, error)
 	// lncli: `wtclient towers`
 	// ListTowers returns the list of watchtowers registered with the client.
 	ListTowers(ctx context.Context, in *ListTowersRequest, opts ...grpc.CallOption) (*ListTowersResponse, error)
@@ -64,6 +73,24 @@ func (c *watchtowerClientClient) AddTower(ctx context.Context, in *AddTowerReque
 func (c *watchtowerClientClient) RemoveTower(ctx context.Context, in *RemoveTowerRequest, opts ...grpc.CallOption) (*RemoveTowerResponse, error) {
 	out := new(RemoveTowerResponse)
 	err := c.cc.Invoke(ctx, "/wtclientrpc.WatchtowerClient/RemoveTower", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *watchtowerClientClient) DeactivateTower(ctx context.Context, in *DeactivateTowerRequest, opts ...grpc.CallOption) (*DeactivateTowerResponse, error) {
+	out := new(DeactivateTowerResponse)
+	err := c.cc.Invoke(ctx, "/wtclientrpc.WatchtowerClient/DeactivateTower", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *watchtowerClientClient) TerminateSession(ctx context.Context, in *TerminateSessionRequest, opts ...grpc.CallOption) (*TerminateSessionResponse, error) {
+	out := new(TerminateSessionResponse)
+	err := c.cc.Invoke(ctx, "/wtclientrpc.WatchtowerClient/TerminateSession", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +149,15 @@ type WatchtowerClientServer interface {
 	// again. If an address is provided, then this RPC only serves as a way of
 	// removing the address from the watchtower instead.
 	RemoveTower(context.Context, *RemoveTowerRequest) (*RemoveTowerResponse, error)
+	// lncli: `wtclient deactivate`
+	// DeactivateTower sets the given tower's status to inactive so that it
+	// is not considered for session negotiation. Its sessions will also not
+	// be used while the tower is inactive.
+	DeactivateTower(context.Context, *DeactivateTowerRequest) (*DeactivateTowerResponse, error)
+	// lncli: `wtclient session terminate`
+	// Terminate terminates the given session and marks it as terminal so that
+	// it is not used for backups anymore.
+	TerminateSession(context.Context, *TerminateSessionRequest) (*TerminateSessionResponse, error)
 	// lncli: `wtclient towers`
 	// ListTowers returns the list of watchtowers registered with the client.
 	ListTowers(context.Context, *ListTowersRequest) (*ListTowersResponse, error)
@@ -146,6 +182,12 @@ func (UnimplementedWatchtowerClientServer) AddTower(context.Context, *AddTowerRe
 }
 func (UnimplementedWatchtowerClientServer) RemoveTower(context.Context, *RemoveTowerRequest) (*RemoveTowerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveTower not implemented")
+}
+func (UnimplementedWatchtowerClientServer) DeactivateTower(context.Context, *DeactivateTowerRequest) (*DeactivateTowerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeactivateTower not implemented")
+}
+func (UnimplementedWatchtowerClientServer) TerminateSession(context.Context, *TerminateSessionRequest) (*TerminateSessionResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TerminateSession not implemented")
 }
 func (UnimplementedWatchtowerClientServer) ListTowers(context.Context, *ListTowersRequest) (*ListTowersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTowers not implemented")
@@ -204,6 +246,42 @@ func _WatchtowerClient_RemoveTower_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(WatchtowerClientServer).RemoveTower(ctx, req.(*RemoveTowerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WatchtowerClient_DeactivateTower_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeactivateTowerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WatchtowerClientServer).DeactivateTower(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/wtclientrpc.WatchtowerClient/DeactivateTower",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WatchtowerClientServer).DeactivateTower(ctx, req.(*DeactivateTowerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _WatchtowerClient_TerminateSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TerminateSessionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WatchtowerClientServer).TerminateSession(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/wtclientrpc.WatchtowerClient/TerminateSession",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WatchtowerClientServer).TerminateSession(ctx, req.(*TerminateSessionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -294,6 +372,14 @@ var WatchtowerClient_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveTower",
 			Handler:    _WatchtowerClient_RemoveTower_Handler,
+		},
+		{
+			MethodName: "DeactivateTower",
+			Handler:    _WatchtowerClient_DeactivateTower_Handler,
+		},
+		{
+			MethodName: "TerminateSession",
+			Handler:    _WatchtowerClient_TerminateSession_Handler,
 		},
 		{
 			MethodName: "ListTowers",

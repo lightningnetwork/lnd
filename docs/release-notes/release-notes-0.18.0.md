@@ -155,6 +155,13 @@
   about the txid and don't want the calling code to block while the channel
   drains the active HTLCs.
 
+* [New watchtower client DeactivateTower and 
+  TerminateSession](https://github.com/lightningnetwork/lnd/pull/8239) commands 
+  have been added. The DeactivateTower command can be used to mark a tower as 
+  inactive so that its sessions are not loaded on startup and so that the tower 
+  is not considered for session negotiation. TerminateSession can be used to 
+  mark a specific session as terminal so that that specific is never used again.
+
 ## lncli Additions
 
 * Deprecate `bumpclosefee` for `bumpforceclosefee` to accommodate for the fact 

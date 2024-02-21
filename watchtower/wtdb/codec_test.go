@@ -179,6 +179,7 @@ func TestCodec(tt *testing.T) {
 			obj := wtdb.Tower{
 				IdentityKey: pk,
 				Addresses:   addrs,
+				Status:      wtdb.TowerStatus(r.Uint32()),
 			}
 
 			v[0] = reflect.ValueOf(obj)

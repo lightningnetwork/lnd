@@ -89,6 +89,26 @@ func (h *clientDBHarness) createTower(lnAddr *lnwire.NetAddress,
 	return tower
 }
 
+func (h *clientDBHarness) deactivateTower(pubKey *btcec.PublicKey,
+	expErr error) {
+
+	h.t.Helper()
+
+	err := h.db.DeactivateTower(pubKey)
+	require.ErrorIs(h.t, err, expErr)
+}
+
+func (h *clientDBHarness) listTowers(filterFn wtdb.TowerFilterFn,
+	expErr error) []*wtdb.Tower {
+
+	h.t.Helper()
+
+	towers, err := h.db.ListTowers(filterFn)
+	require.ErrorIs(h.t, err, expErr)
+
+	return towers
+}
+
 func (h *clientDBHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr,
 	hasSessions bool, expErr error) {
 
@@ -125,12 +145,9 @@ func (h *clientDBHarness) removeTower(pubKey *btcec.PublicKey, addr net.Addr,
 			return
 		}
 
-		for _, session := range h.listSessions(&tower.ID) {
-			require.Equal(h.t, wtdb.CSessionInactive,
-				session.Status, "expected status for session "+
-					"%v to be %v, got %v", session.ID,
-				wtdb.CSessionInactive, session.Status)
-		}
+		require.EqualValues(
+			h.t, wtdb.TowerStatusInactive, tower.Status,
+		)
 	}
 }
 
@@ -154,6 +171,24 @@ func (h *clientDBHarness) loadTowerByID(id wtdb.TowerID,
 	require.ErrorIs(h.t, err, expErr)
 
 	return tower
+}
+
+func (h *clientDBHarness) terminateSession(id wtdb.SessionID, expErr error) {
+	h.t.Helper()
+
+	err := h.db.TerminateSession(id)
+	require.ErrorIs(h.t, err, expErr)
+}
+
+func (h *clientDBHarness) getClientSession(id wtdb.SessionID,
+	expErr error) *wtdb.ClientSession {
+
+	h.t.Helper()
+
+	session, err := h.db.GetClientSession(id)
+	require.ErrorIs(h.t, err, expErr)
+
+	return session
 }
 
 func (h *clientDBHarness) fetchChanInfos() wtdb.ChannelInfos {
@@ -194,12 +229,12 @@ func (h *clientDBHarness) ackUpdate(id *wtdb.SessionID, seqNum uint16,
 	require.ErrorIs(h.t, err, expErr)
 }
 
-func (h *clientDBHarness) deleteCommittedUpdate(id *wtdb.SessionID,
-	seqNum uint16, expErr error) {
+func (h *clientDBHarness) deleteCommittedUpdates(id *wtdb.SessionID,
+	expErr error) {
 
 	h.t.Helper()
 
-	err := h.db.DeleteCommittedUpdate(id, seqNum)
+	err := h.db.DeleteCommittedUpdates(id)
 	require.ErrorIs(h.t, err, expErr)
 }
 
@@ -531,20 +566,126 @@ func testRemoveTower(h *clientDBHarness) {
 	h.commitUpdate(&session.ID, update, nil)
 
 	// We should not be able to fully remove it from the database since
-	// there's a session and it has unacked updates.
+	// there's a session, and it has unacked updates.
 	h.removeTower(pk, nil, true, wtdb.ErrTowerUnackedUpdates)
 
 	// Removing the tower after all sessions no longer have unacked updates
-	// should result in the sessions becoming inactive.
+	// should succeed.
 	h.ackUpdate(&session.ID, 1, 1, nil)
 	h.removeTower(pk, nil, true, nil)
+}
 
-	// Creating the tower again should mark all of the sessions active once
-	// again.
-	h.createTower(&lnwire.NetAddress{
+func testTerminateSession(h *clientDBHarness) {
+	const blobType = blob.TypeAltruistCommit
+
+	tower := h.newTower()
+
+	// Create a new session that the updates in this will be tied to.
+	session := &wtdb.ClientSession{
+		ClientSessionBody: wtdb.ClientSessionBody{
+			TowerID: tower.ID,
+			Policy: wtpolicy.Policy{
+				TxPolicy: wtpolicy.TxPolicy{
+					BlobType: blobType,
+				},
+				MaxUpdates: 100,
+			},
+			RewardPkScript: []byte{0x01, 0x02, 0x03},
+		},
+		ID: wtdb.SessionID([33]byte{0x03}),
+	}
+
+	// Reserve a session key and insert the client session.
+	session.KeyIndex = h.nextKeyIndex(session.TowerID, blobType, false)
+	h.insertSession(session, nil)
+
+	// Commit to a random update at seqnum 1.
+	update1 := randCommittedUpdate(h.t, 1)
+	h.registerChan(update1.BackupID.ChanID, nil, nil)
+	lastApplied := h.commitUpdate(&session.ID, update1, nil)
+	require.Zero(h.t, lastApplied)
+
+	// Terminating the session now should fail since the session has an
+	// un-acked update.
+	h.terminateSession(session.ID, wtdb.ErrSessionHasUnackedUpdates)
+
+	// Fetch the session and assert that the status is still active.
+	sess := h.getClientSession(session.ID, nil)
+	require.Equal(h.t, wtdb.CSessionActive, sess.Status)
+
+	// Delete the update.
+	h.deleteCommittedUpdates(&session.ID, nil)
+
+	// Terminating the session now should succeed.
+	h.terminateSession(session.ID, nil)
+
+	// Fetch the session again and assert that its status is now Terminal.
+	sess = h.getClientSession(session.ID, nil)
+	require.Equal(h.t, wtdb.CSessionTerminal, sess.Status)
+}
+
+// testTowerStatusChange tests that the Tower status is updated accordingly
+// given a variety of commands.
+func testTowerStatusChange(h *clientDBHarness) {
+	// Create a new tower.
+	pk, err := randPubKey()
+	require.NoError(h.t, err)
+
+	towerAddr := &lnwire.NetAddress{
 		IdentityKey: pk,
-		Address:     addr1,
-	}, nil)
+		Address: &net.TCPAddr{
+			IP: []byte{0x01, 0x00, 0x00, 0x00}, Port: 9911,
+		},
+	}
+
+	tower := h.createTower(towerAddr, nil)
+
+	// Add a new session.
+	session := h.randSession(h.t, tower.ID, 100)
+	h.insertSession(session, nil)
+
+	// assertTowerStatus is a helper function that will assert that the
+	// tower's status is as expected.
+	assertTowerStatus := func(status wtdb.TowerStatus) {
+		activeFilter := func(tower *wtdb.Tower) bool {
+			return tower.Status == status
+		}
+
+		towers := h.listTowers(activeFilter, nil)
+		require.Len(h.t, towers, 1)
+		require.EqualValues(h.t, towers[0].Status, status)
+	}
+
+	// assertSessionStatus is a helper that will assert that the session's
+	// status is as expected
+	assertSessionStatus := func(status wtdb.CSessionStatus) {
+		sessions := h.listSessions(&tower.ID)
+		require.Len(h.t, sessions, 1)
+		for _, sess := range sessions {
+			require.EqualValues(h.t, sess.Status, status)
+		}
+	}
+
+	// Initially, the tower and session should be active.
+	assertTowerStatus(wtdb.TowerStatusActive)
+	assertSessionStatus(wtdb.CSessionActive)
+
+	// Removing the tower should change its status but its session
+	// status should remain active.
+	h.removeTower(tower.IdentityKey, nil, true, nil)
+	assertTowerStatus(wtdb.TowerStatusInactive)
+	assertSessionStatus(wtdb.CSessionActive)
+
+	// Re-adding the tower in some way should re-active it and its session.
+	h.createTower(towerAddr, nil)
+	assertTowerStatus(wtdb.TowerStatusActive)
+	assertSessionStatus(wtdb.CSessionActive)
+
+	// Deactivating the tower should change its status but its session
+	// status should remain active.
+	h.deactivateTower(tower.IdentityKey, nil)
+	assertTowerStatus(wtdb.TowerStatusInactive)
+	assertSessionStatus(wtdb.CSessionActive)
 }
 
 // testChanSummaries tests the process of a registering a channel and its
@@ -660,18 +801,7 @@ func testCommitUpdate(h *clientDBHarness) {
 
 	// We will now also test that the DeleteCommittedUpdates method also
 	// works.
-	// First, try to delete a committed update that does not exist.
-	h.deleteCommittedUpdate(
-		&session.ID, update4.SeqNum, wtdb.ErrCommittedUpdateNotFound,
-	)
-
-	// Now delete an existing committed update and ensure that it succeeds.
-	h.deleteCommittedUpdate(&session.ID, update1.SeqNum, nil)
-	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{
-		*update2,
-	}, nil)
-
-	h.deleteCommittedUpdate(&session.ID, update2.SeqNum, nil)
+	h.deleteCommittedUpdates(&session.ID, nil)
 	h.assertUpdates(session.ID, []wtdb.CommittedUpdate{}, nil)
 }
 
@@ -929,6 +1059,44 @@ func testMarkChannelClosed(h *clientDBHarness) {
 	// Assert that we now can delete the session.
 	h.deleteSession(session1.ID, nil)
 	require.Empty(h.t, h.listClosableSessions(nil))
+
+	// We also want to test that a session can be deleted if it has been
+	// marked as terminal.
+
+	// Create session2 with MaxUpdates set to 5.
+	session2 := h.randSession(h.t, tower.ID, 5)
+	h.insertSession(session2, nil)
+
+	// Create and register channel 7.
+	chanID7 := randChannelID(h.t)
+	h.registerChan(chanID7, nil, nil)
+
+	// Add two updates for channel 7 in session 2. Ack one of them so that
+	// the mapping from this channel to this session is created but don't
+	// ack the other since we want to delete the committed update later.
+	update = randCommittedUpdateForChannel(h.t, chanID7, 1)
+	h.commitUpdate(&session2.ID, update, nil)
+	h.ackUpdate(&session2.ID, 1, 1, nil)
+
+	update = randCommittedUpdateForChannel(h.t, chanID7, 2)
+	h.commitUpdate(&session2.ID, update, nil)
+
+	// Check that attempting to delete the session will fail since it is not
+	// yet considered closable.
+	h.deleteSession(session2.ID, wtdb.ErrSessionNotClosable)
+
+	// Now delete the added committed updates. This should put the
+	// session in the terminal state after which we should be able to
+	// delete the session.
+	h.deleteCommittedUpdates(&session2.ID, nil)
+
+	// Marking channel 7 as closed will now return session 2 since it has
+	// been marked as terminal.
+	sl = h.markChannelClosed(chanID7, 1, nil)
+	require.ElementsMatch(h.t, sl, []wtdb.SessionID{session2.ID})
+
+	// We should now be able to delete the session.
+	h.deleteSession(session2.ID, nil)
 }
 
 // testAckUpdate asserts the behavior of AckUpdate.
@@ -1152,6 +1320,14 @@ func TestClientDB(t *testing.T) {
 		{
 			name: "max commitment heights",
 			run:  testMaxCommitmentHeights,
+		},
+		{
+			name: "test tower status change",
+			run:  testTowerStatusChange,
+		},
+		{
+			name: "terminate session",
+			run:  testTerminateSession,
 		},
 	}
 

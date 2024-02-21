@@ -171,6 +171,39 @@
         ]
       }
     },
+    "/v2/watchtower/client/sessions/terminate/{session_id}": {
+      "post": {
+        "summary": "lncli: `wtclient session terminate`\nTerminate terminates the given session and marks it as terminal so that\nit is not used for backups anymore.",
+        "operationId": "WatchtowerClient_TerminateSession",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcTerminateSessionResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "session_id",
+            "description": "The ID of the session that should be terminated.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "WatchtowerClient"
+        ]
+      }
+    },
     "/v2/watchtower/client/stats": {
       "get": {
         "summary": "lncli: `wtclient stats`\nStats returns the in-memory statistics of the client since startup.",
@@ -189,6 +222,39 @@
             }
           }
         },
+        "tags": [
+          "WatchtowerClient"
+        ]
+      }
+    },
+    "/v2/watchtower/client/tower/deactivate/{pubkey}": {
+      "post": {
+        "summary": "lncli: `wtclient deactivate`\nDeactivateTower sets the given tower's status to inactive so that it\nis not considered for session negotiation. Its sessions will also not\nbe used while the tower is inactive.",
+        "operationId": "WatchtowerClient_DeactivateTower",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/wtclientrpcDeactivateTowerResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "pubkey",
+            "description": "The identifying public key of the watchtower to deactivate.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
         "tags": [
           "WatchtowerClient"
         ]
@@ -283,6 +349,15 @@
     "wtclientrpcAddTowerResponse": {
       "type": "object"
     },
+    "wtclientrpcDeactivateTowerResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "A string describing the action that took place."
+        }
+      }
+    },
     "wtclientrpcListTowersResponse": {
       "type": "object",
       "properties": {
@@ -358,6 +433,15 @@
         }
       }
     },
+    "wtclientrpcTerminateSessionResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "description": "A string describing the action that took place."
+        }
+      }
+    },
     "wtclientrpcTower": {
       "type": "object",
       "properties": {
@@ -425,6 +509,11 @@
           "type": "integer",
           "format": "int64",
           "description": "The fee rate, in satoshis per vbyte, that will be used by the watchtower for\nthe justice transaction in the event of a channel breach."
+        },
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ID of the session."
         }
       }
     },

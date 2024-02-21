@@ -26,13 +26,16 @@ type DB interface {
 	// RemoveTower modifies a tower's record within the database. If an
 	// address is provided, then _only_ the address record should be removed
 	// from the tower's persisted state. Otherwise, we'll attempt to mark
-	// the tower as inactive by marking all of its sessions inactive. If any
-	// of its sessions has unacked updates, then ErrTowerUnackedUpdates is
-	// returned. If the tower doesn't have any sessions at all, it'll be
-	// completely removed from the database.
+	// the tower as inactive. If any of its sessions have unacked updates,
+	// then ErrTowerUnackedUpdates is returned. If the tower doesn't have
+	// any sessions at all, it'll be completely removed from the database.
 	//
 	// NOTE: An error is not returned if the tower doesn't exist.
 	RemoveTower(*btcec.PublicKey, net.Addr) error
+
+	// TerminateSession sets the given session's status to CSessionTerminal
+	// meaning that it will not be usable again.
+	TerminateSession(id wtdb.SessionID) error
 
 	// LoadTower retrieves a tower by its public key.
 	LoadTower(*btcec.PublicKey) (*wtdb.Tower, error)
@@ -41,8 +44,9 @@ type DB interface {
 	LoadTowerByID(wtdb.TowerID) (*wtdb.Tower, error)
 
 	// ListTowers retrieves the list of towers available within the
-	// database.
-	ListTowers() ([]*wtdb.Tower, error)
+	// database. The filter function may be set in order to filter out the
+	// towers to be returned.
+	ListTowers(filter wtdb.TowerFilterFn) ([]*wtdb.Tower, error)
 
 	// NextSessionKeyIndex reserves a new session key derivation index for a
 	// particular tower id and blob type. The index is reserved for that
@@ -136,9 +140,14 @@ type DB interface {
 	// space.
 	GetDBQueue(namespace []byte) wtdb.Queue[*wtdb.BackupID]
 
-	// DeleteCommittedUpdate deletes the committed update belonging to the
-	// given session and with the given sequence number from the db.
-	DeleteCommittedUpdate(id *wtdb.SessionID, seqNum uint16) error
+	// DeleteCommittedUpdates deletes all the committed updates belonging to
+	// the given session from the db.
+	DeleteCommittedUpdates(id *wtdb.SessionID) error
+
+	// DeactivateTower sets the given tower's status to inactive. This means
+	// that this tower's sessions won't be loaded and used for backups.
+	// CreateTower can be used to reactivate the tower again.
+	DeactivateTower(pubKey *btcec.PublicKey) error
 }
 
 // AuthDialer connects to a remote node using an authenticated transport, such

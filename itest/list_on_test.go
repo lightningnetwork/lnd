@@ -570,4 +570,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "coop close with htlcs",
 		TestFunc: testCoopCloseWithHtlcs,
 	},
+	{
+		Name:     "open channel locked balance",
+		TestFunc: testOpenChannelLockedBalance,
+	},
 }

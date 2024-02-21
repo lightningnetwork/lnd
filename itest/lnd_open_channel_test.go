@@ -14,6 +14,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -821,4 +822,60 @@ func testSimpleTaprootChannelActivation(ht *lntest.HarnessTest) {
 
 	// Our test is done and Alice closes her channel to Bob.
 	ht.CloseChannel(alice, chanPoint)
+}
+
+// testOpenChannelLockedBalance tests that when a funding reservation is
+// made for opening a channel, the balance of the required outputs shows
+// up as locked balance in the WalletBalance response.
+func testOpenChannelLockedBalance(ht *lntest.HarnessTest) {
+	var (
+		alice = ht.Alice
+		bob   = ht.Bob
+		req   *lnrpc.ChannelAcceptRequest
+		err   error
+	)
+
+	// We first make sure Alice has no locked wallet balance.
+	balance := alice.RPC.WalletBalance()
+	require.EqualValues(ht, 0, balance.LockedBalance)
+
+	// Next, we register a ChannelAcceptor on Bob. This way, we can get
+	// Alice's wallet balance after coin selection is done and outpoints
+	// are locked.
+	stream, cancel := bob.RPC.ChannelAcceptor()
+	defer cancel()
+
+	// Then, we request creation of a channel from Alice to Bob. We don't
+	// use OpenChannelSync since we want to receive Bob's message in the
+	// same goroutine.
+	openChannelReq := &lnrpc.OpenChannelRequest{
+		NodePubkey:         bob.PubKey[:],
+		LocalFundingAmount: int64(funding.MaxBtcFundingAmount),
+	}
+	_ = alice.RPC.OpenChannel(openChannelReq)
+
+	// After that, we receive the request on Bob's side, get the wallet
+	// balance from Alice, and ensure the locked balance is non-zero.
+	err = wait.NoError(func() error {
+		req, err = stream.Recv()
+		return err
+	}, defaultTimeout)
+	require.NoError(ht, err)
+
+	balance = alice.RPC.WalletBalance()
+	require.NotEqualValues(ht, 0, balance.LockedBalance)
+
+	// Next, we let Bob deny the request.
+	resp := &lnrpc.ChannelAcceptResponse{
+		Accept:        false,
+		PendingChanId: req.PendingChanId,
+	}
+	err = wait.NoError(func() error {
+		return stream.Send(resp)
+	}, defaultTimeout)
+	require.NoError(ht, err)
+
+	// Finally, we check to make sure the balance is unlocked again.
+	balance = alice.RPC.WalletBalance()
+	require.EqualValues(ht, 0, balance.LockedBalance)
 }

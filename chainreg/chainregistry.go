@@ -166,10 +166,6 @@ type PartialChainControl struct {
 
 	// MinHtlcIn is the minimum HTLC we will accept.
 	MinHtlcIn lnwire.MilliSatoshi
-
-	// ChannelConstraints is the set of default constraints that will be
-	// used for any incoming or outgoing channel reservation requests.
-	ChannelConstraints channeldb.ChannelConstraints
 }
 
 // ChainControl couples the three primary interfaces lnd utilizes for a
@@ -202,19 +198,6 @@ type ChainControl struct {
 	// Wallet is our LightningWallet that also contains the abstract Wc
 	// above. This wallet handles all of the lightning operations.
 	Wallet *lnwallet.LightningWallet
-}
-
-// GenDefaultBtcConstraints generates the default set of channel constraints
-// that are to be used when funding a Bitcoin channel.
-func GenDefaultBtcConstraints() channeldb.ChannelConstraints {
-	// We use the dust limit for the maximally sized witness program with
-	// a 40-byte data push.
-	dustLimit := lnwallet.DustLimitForSize(input.UnknownWitnessSize)
-
-	return channeldb.ChannelConstraints{
-		DustLimit:        dustLimit,
-		MaxAcceptedHtlcs: input.MaxHTLCNumber / 2,
-	}
 }
 
 // NewPartialChainControl creates a new partial chain control that contains all
@@ -714,9 +697,6 @@ func NewPartialChainControl(cfg *Config) (*PartialChainControl, func(), error) {
 	if err := cc.FeeEstimator.Start(); err != nil {
 		return nil, nil, err
 	}
-
-	// Select the default channel constraints for the primary chain.
-	cc.ChannelConstraints = GenDefaultBtcConstraints()
 
 	return cc, ccCleanup, nil
 }

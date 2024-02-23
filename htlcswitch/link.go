@@ -320,9 +320,6 @@ type channelLink struct {
 	// updates.
 	channel *lnwallet.LightningChannel
 
-	// shortChanID is the most up to date short channel ID for the link.
-	shortChanID lnwire.ShortChannelID
-
 	// cfg is a structure which carries all dependable fields/handlers
 	// which may affect behaviour of the service.
 	cfg ChannelLinkConfig
@@ -455,7 +452,6 @@ func NewChannelLink(cfg ChannelLinkConfig,
 	return &channelLink{
 		cfg:                 cfg,
 		channel:             channel,
-		shortChanID:         channel.ShortChanID(),
 		hodlMap:             make(map[models.CircuitKey]hodlHtlc),
 		hodlQueue:           queue.NewConcurrentQueue(10),
 		log:                 build.NewPrefixLog(logPrefix, log),
@@ -2202,7 +2198,7 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		for id, settled := range finalHTLCs {
 			l.cfg.HtlcNotifier.NotifyFinalHtlcEvent(
 				models.CircuitKey{
-					ChanID: l.shortChanID,
+					ChanID: l.ShortChanID(),
 					HtlcID: id,
 				},
 				channeldb.FinalHtlcInfo{
@@ -2582,7 +2578,7 @@ func (l *channelLink) ShortChanID() lnwire.ShortChannelID {
 	l.RLock()
 	defer l.RUnlock()
 
-	return l.shortChanID
+	return l.channel.ShortChanID()
 }
 
 // UpdateShortChanID updates the short channel ID for a link. This may be

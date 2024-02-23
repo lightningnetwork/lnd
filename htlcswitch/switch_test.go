@@ -5313,7 +5313,6 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 	if zeroConf {
 		// Store the alias in the shortChanID field and mark the real
 		// scid in the database.
-		aliceChannelLink.shortChanID = aliceAlias
 		err = aliceChannelState.MarkRealScid(aliceScid)
 		require.NoError(t, err)
 

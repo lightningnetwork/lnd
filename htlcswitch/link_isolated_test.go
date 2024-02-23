@@ -13,9 +13,10 @@ import (
 type linkTestContext struct {
 	t *testing.T
 
-	aliceLink  ChannelLink
-	bobChannel *lnwallet.LightningChannel
-	aliceMsgs  <-chan lnwire.Message
+	aliceSwitch *Switch
+	aliceLink   ChannelLink
+	bobChannel  *lnwallet.LightningChannel
+	aliceMsgs   <-chan lnwire.Message
 }
 
 // sendHtlcBobToAlice sends an HTLC from Bob to Alice, that pays to a preimage
@@ -39,7 +40,7 @@ func (l *linkTestContext) sendHtlcAliceToBob(htlcID int,
 
 	l.t.Helper()
 
-	circuitMap := l.aliceLink.(*channelLink).cfg.Switch.circuits
+	circuitMap := l.aliceSwitch.circuits
 	fwdActions, err := circuitMap.CommitCircuits(
 		&PaymentCircuit{
 			Incoming: CircuitKey{

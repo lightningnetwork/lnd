@@ -92,13 +92,6 @@ type ChannelLinkConfig struct {
 	// allowing the link to open and close circuits.
 	Circuits CircuitModifier
 
-	// Switch provides a reference to the HTLC switch, we only use this in
-	// testing to access circuit operations not typically exposed by the
-	// CircuitModifier.
-	//
-	// TODO(conner): remove after refactoring htlcswitch testing framework.
-	Switch *Switch
-
 	// BestHeight returns the best known height.
 	BestHeight func() uint32
 

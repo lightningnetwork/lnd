@@ -5263,9 +5263,11 @@ func testSwitchHandlePacketForward(t *testing.T, zeroConf, private,
 	t.Parallel()
 
 	// Create a link for Alice that we'll add to the switch.
-	aliceLink, _, _, _, _, err :=
+	harness, err :=
 		newSingleLinkTestHarness(t, btcutil.SatoshiPerBitcoin, 0)
 	require.NoError(t, err)
+
+	aliceLink := harness.aliceLink
 
 	s, err := initSwitchWithTempDB(t, testStartingHeight)
 	if err != nil {

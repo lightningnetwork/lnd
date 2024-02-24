@@ -4,52 +4,21 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-const (
-	// ShutdownNonceRecordType is the type of the shutdown nonce TLV record.
-	ShutdownNonceRecordType = 8
+type (
+	// ShutdownNonceType is the type of the shutdown nonce TLV record.
+	ShutdownNonceType = tlv.TlvType8
+
+	// ShutdownNonceTLV is the TLV record that contains the shutdown nonce.
+	ShutdownNonceTLV = tlv.OptionalRecordT[ShutdownNonceType, Musig2Nonce]
 )
 
-// ShutdownNonce is the type of the nonce we send during the shutdown flow.
-// Unlike the other nonces, this nonce is symmetric w.r.t the message being
-// signed (there's only one message for shutdown: the co-op close txn).
-type ShutdownNonce Musig2Nonce
-
-// Record returns a TLV record that can be used to encode/decode the musig2
-// nonce from a given TLV stream.
-func (s *ShutdownNonce) Record() tlv.Record {
-	return tlv.MakeStaticRecord(
-		ShutdownNonceRecordType, s, musig2.PubNonceSize,
-		shutdownNonceTypeEncoder, shutdownNonceTypeDecoder,
-	)
-}
-
-// shutdownNonceTypeEncoder is a custom TLV encoder for the Musig2Nonce type.
-func shutdownNonceTypeEncoder(w io.Writer, val interface{},
-	_ *[8]byte) error {
-
-	if v, ok := val.(*ShutdownNonce); ok {
-		_, err := w.Write(v[:])
-		return err
-	}
-
-	return tlv.NewTypeForEncodingErr(val, "lnwire.Musig2Nonce")
-}
-
-// shutdownNonceTypeDecoder is a custom TLV decoder for the Musig2Nonce record.
-func shutdownNonceTypeDecoder(r io.Reader, val interface{}, _ *[8]byte,
-	l uint64) error {
-
-	if v, ok := val.(*ShutdownNonce); ok {
-		_, err := io.ReadFull(r, v[:])
-		return err
-	}
-
-	return tlv.NewTypeForDecodingErr(
-		val, "lnwire.ShutdownNonce", l, musig2.PubNonceSize,
+// SomeShutdownNonce returns a ShutdownNonceTLV with the given nonce.
+func SomeShutdownNonce(nonce Musig2Nonce) ShutdownNonceTLV {
+	return tlv.SomeRecordT(
+		tlv.NewRecordT[ShutdownNonceType, Musig2Nonce](nonce),
 	)
 }
 
@@ -67,7 +36,7 @@ type Shutdown struct {
 
 	// ShutdownNonce is the nonce the sender will use to sign the first
 	// co-op sign offer.
-	ShutdownNonce *ShutdownNonce
+	ShutdownNonce ShutdownNonceTLV
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -102,15 +71,15 @@ func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	var musigNonce ShutdownNonce
+	musigNonce := s.ShutdownNonce.Zero()
 	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
 	if err != nil {
 		return err
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[ShutdownNonceRecordType]; ok && val == nil {
-		s.ShutdownNonce = &musigNonce
+	if val, ok := typeMap[s.ShutdownNonce.TlvType()]; ok && val == nil {
+		s.ShutdownNonce = tlv.SomeRecordT(musigNonce)
 	}
 
 	if len(tlvRecords) != 0 {
@@ -126,9 +95,11 @@ func (s *Shutdown) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (s *Shutdown) Encode(w *bytes.Buffer, pver uint32) error {
 	recordProducers := make([]tlv.RecordProducer, 0, 1)
-	if s.ShutdownNonce != nil {
-		recordProducers = append(recordProducers, s.ShutdownNonce)
-	}
+	s.ShutdownNonce.WhenSome(
+		func(nonce tlv.RecordT[ShutdownNonceType, Musig2Nonce]) {
+			recordProducers = append(recordProducers, &nonce)
+		},
+	)
 	err := EncodeMessageExtraData(&s.ExtraData, recordProducers...)
 	if err != nil {
 		return err

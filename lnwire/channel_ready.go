@@ -31,7 +31,7 @@ type ChannelReady struct {
 	// This will only be populated if the simple taproot channels type was
 	// negotiated. This is the local nonce that will be used by the sender
 	// to accept a new commitment state transition.
-	NextLocalNonce *Musig2Nonce
+	NextLocalNonce OptMusig2NonceTLV
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -77,7 +77,7 @@ func (c *ChannelReady) Decode(r io.Reader, _ uint32) error {
 	// the AliasScidRecordType.
 	var (
 		aliasScid  ShortChannelID
-		localNonce Musig2Nonce
+		localNonce = c.NextLocalNonce.Zero()
 	)
 	typeMap, err := tlvRecords.ExtractRecords(
 		&aliasScid, &localNonce,
@@ -91,8 +91,8 @@ func (c *ChannelReady) Decode(r io.Reader, _ uint32) error {
 	if val, ok := typeMap[AliasScidRecordType]; ok && val == nil {
 		c.AliasScid = &aliasScid
 	}
-	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
-		c.NextLocalNonce = &localNonce
+	if val, ok := typeMap[c.NextLocalNonce.TlvType()]; ok && val == nil {
+		c.NextLocalNonce = tlv.SomeRecordT(localNonce)
 	}
 
 	if len(tlvRecords) != 0 {
@@ -121,9 +121,9 @@ func (c *ChannelReady) Encode(w *bytes.Buffer, _ uint32) error {
 	if c.AliasScid != nil {
 		recordProducers = append(recordProducers, c.AliasScid)
 	}
-	if c.NextLocalNonce != nil {
-		recordProducers = append(recordProducers, c.NextLocalNonce)
-	}
+	c.NextLocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
+		recordProducers = append(recordProducers, &localNonce)
+	})
 	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
 	if err != nil {
 		return err

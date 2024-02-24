@@ -50,9 +50,9 @@ type ClosingComplete struct {
 // decodeClosingSigs decodes the closing sig TLV records in the passed
 // ExtraOpaqueData.
 func decodeClosingSigs(c *ClosingSigs, tlvRecords ExtraOpaqueData) error {
-	sig1 := tlv.ZeroRecordT[tlv.TlvType1, Sig]()
-	sig2 := tlv.ZeroRecordT[tlv.TlvType2, Sig]()
-	sig3 := tlv.ZeroRecordT[tlv.TlvType3, Sig]()
+	sig1 := c.CloserNoClosee.Zero()
+	sig2 := c.NoCloserClosee.Zero()
+	sig3 := c.CloserAndClosee.Zero()
 
 	typeMap, err := tlvRecords.ExtractRecords(&sig1, &sig2, &sig3)
 	if err != nil {

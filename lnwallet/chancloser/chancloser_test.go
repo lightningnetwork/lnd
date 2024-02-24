@@ -541,11 +541,9 @@ func TestTaprootFastClose(t *testing.T) {
 	require.True(t, oShutdown.IsSome())
 	require.True(t, oClosingSigned.IsNone())
 
-	bobShutdown := oShutdown.UnsafeFromSome()
-
 	// Alice should process the shutdown message, and create a closing
 	// signed of her own.
-	oShutdown, err = aliceCloser.ReceiveShutdown(bobShutdown)
+	oShutdown, err = aliceCloser.ReceiveShutdown(oShutdown.UnwrapOrFail(t))
 	require.NoError(t, err)
 	oClosingSigned, err = aliceCloser.BeginNegotiation()
 	require.NoError(t, err)
@@ -554,7 +552,7 @@ func TestTaprootFastClose(t *testing.T) {
 	require.True(t, oShutdown.IsNone())
 	require.True(t, oClosingSigned.IsSome())
 
-	aliceClosingSigned := oClosingSigned.UnsafeFromSome()
+	aliceClosingSigned := oClosingSigned.UnwrapOrFail(t)
 
 	// Next, Bob will process the closing signed message, and send back a
 	// new one that should match exactly the offer Alice sent.
@@ -564,7 +562,7 @@ func TestTaprootFastClose(t *testing.T) {
 	require.NotNil(t, tx)
 	require.True(t, oClosingSigned.IsSome())
 
-	bobClosingSigned := oClosingSigned.UnsafeFromSome()
+	bobClosingSigned := oClosingSigned.UnwrapOrFail(t)
 
 	// At this point, Bob has accepted the offer, so he can broadcast the
 	// closing transaction, and considers the channel closed.
@@ -597,7 +595,7 @@ func TestTaprootFastClose(t *testing.T) {
 	require.NotNil(t, tx)
 	require.True(t, oClosingSigned.IsSome())
 
-	aliceClosingSigned = oClosingSigned.UnsafeFromSome()
+	aliceClosingSigned = oClosingSigned.UnwrapOrFail(t)
 
 	// Alice should now also broadcast her closing transaction.
 	_, err = lnutils.RecvOrTimeout(broadcastSignal, time.Second*1)

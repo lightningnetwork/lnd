@@ -138,6 +138,23 @@ type TimestampedError struct {
 	Timestamp time.Time
 }
 
+// PeerDataStore is an interface representing the struture enabling the node
+// to carry out operations to store other peer's data.
+//
+//nolint:revive
+type PeerDataStore interface {
+	// Store persists the backup data given to us by peers.
+	Store(data []byte) error
+
+	// Delete removes the data of the peer with the PeerPub public key
+	// passed to the function.
+	Delete() error
+
+	// Retrieve obtains data for peer with peerPub public key
+	// from the storage layer.
+	Retrieve() ([]byte, error)
+}
+
 // Config defines configuration fields that are necessary for a peer object
 // to function.
 type Config struct {
@@ -366,6 +383,10 @@ type Config struct {
 
 	// Quit is the server's quit channel. If this is closed, we halt operation.
 	Quit chan struct{}
+
+	// PeerDataStore is the storage layer that helps us store other peer's
+	// data.
+	PeerDataStore PeerDataStore
 }
 
 // Brontide is an active peer on the Lightning Network. This struct is responsible

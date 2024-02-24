@@ -21,7 +21,6 @@ import (
 	lnmock "github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -2309,69 +2308,38 @@ func TestMempoolLookup(t *testing.T) {
 
 	// Create a mock mempool watcher.
 	mockMempool := chainntnfs.NewMockMempoolWatcher()
+	defer mockMempool.AssertExpectations(t)
 
 	// Create a test sweeper without a mempool.
 	s := New(&UtxoSweeperConfig{})
 
-	// Since we don't have a mempool, we expect the call to return an empty
-	// transaction plus a false value indicating it's not found.
-	tx, found := s.mempoolLookup(op)
-	require.Nil(tx)
-	require.False(found)
+	// Since we don't have a mempool, we expect the call to return a
+	// fn.None indicating it's not found.
+	tx := s.mempoolLookup(op)
+	require.True(tx.IsNone())
 
 	// Re-create the sweeper with the mocked mempool watcher.
 	s = New(&UtxoSweeperConfig{
 		Mempool: mockMempool,
 	})
 
-	// Create a mempool spend event to be returned by the mempool watcher.
-	spendChan := make(chan *chainntnfs.SpendDetail, 1)
-	spendEvent := &chainntnfs.MempoolSpendEvent{
-		Spend: spendChan,
-	}
+	// Mock the mempool watcher to return not found.
+	mockMempool.On("LookupInputMempoolSpend", op).Return(
+		fn.None[wire.MsgTx]()).Once()
 
-	// Mock the cancel subscription calls.
-	mockMempool.On("CancelMempoolSpendEvent", spendEvent)
+	// We expect a fn.None tx to be returned.
+	tx = s.mempoolLookup(op)
+	require.True(tx.IsNone())
 
-	// Mock the mempool watcher to return an error.
-	dummyErr := errors.New("dummy err")
-	mockMempool.On("SubscribeMempoolSpent", op).Return(nil, dummyErr).Once()
-
-	// We expect a nil tx and a false value to be returned.
-	//
-	// TODO(yy): this means the behavior of not having a mempool is the
-	// same as an erroneous mempool. The question is should we
-	// differentiate the two from their returned values?
-	tx, found = s.mempoolLookup(op)
-	require.Nil(tx)
-	require.False(found)
-
-	// Mock the mempool to subscribe to the outpoint.
-	mockMempool.On("SubscribeMempoolSpent", op).Return(
-		spendEvent, nil).Once()
-
-	// Without sending a spending details to the `spendChan`, we still
-	// expect a nil tx and a false value to be returned.
-	tx, found = s.mempoolLookup(op)
-	require.Nil(tx)
-	require.False(found)
-
-	// Send a dummy spending details to the `spendChan`.
-	dummyTx := &wire.MsgTx{}
-	spendChan <- &chainntnfs.SpendDetail{
-		SpendingTx: dummyTx,
-	}
-
-	// Mock the mempool to subscribe to the outpoint.
-	mockMempool.On("SubscribeMempoolSpent", op).Return(
-		spendEvent, nil).Once()
+	// Mock the mempool to return a spending tx.
+	dummyTx := wire.MsgTx{}
+	mockMempool.On("LookupInputMempoolSpend", op).Return(
+		fn.Some(dummyTx)).Once()
 
 	// Calling the loopup again, we expect the dummyTx to be returned.
-	tx, found = s.mempoolLookup(op)
-	require.Equal(dummyTx, tx)
-	require.True(found)
-
-	mockMempool.AssertExpectations(t)
+	tx = s.mempoolLookup(op)
+	require.False(tx.IsNone())
+	require.Equal(dummyTx, tx.UnsafeFromSome())
 }
 
 // TestUpdateSweeperInputs checks that the method `updateSweeperInputs` will
@@ -2444,6 +2412,8 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 
 	// Create a mock input.
 	testInput := &input.MockInput{}
+	defer testInput.AssertExpectations(t)
+
 	testInput.On("OutPoint").Return(&op)
 	pi := &pendingInput{
 		Input: testInput,
@@ -2452,16 +2422,9 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 
 	// Create a mock mempool watcher and a mock sweeper store.
 	mockMempool := chainntnfs.NewMockMempoolWatcher()
+	defer mockMempool.AssertExpectations(t)
 	mockStore := NewMockSweeperStore()
-
-	// Create a mempool spend event to be returned by the mempool watcher.
-	spendChan := make(chan *chainntnfs.SpendDetail, 1)
-	spendEvent := &chainntnfs.MempoolSpendEvent{
-		Spend: spendChan,
-	}
-
-	// Mock the cancel subscription calls.
-	mockMempool.On("CancelMempoolSpendEvent", spendEvent)
+	defer mockStore.AssertExpectations(t)
 
 	// Create a test sweeper.
 	s := New(&UtxoSweeperConfig{
@@ -2469,9 +2432,9 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 		Mempool: mockMempool,
 	})
 
-	// First, mock the mempool to return an error.
-	dummyErr := errors.New("dummy err")
-	mockMempool.On("SubscribeMempoolSpent", op).Return(nil, dummyErr).Once()
+	// First, mock the mempool to return false.
+	mockMempool.On("LookupInputMempoolSpend", op).Return(
+		fn.None[wire.MsgTx]()).Once()
 
 	// Since the mempool lookup failed, we exepect the original pending
 	// input to stay unchanged.
@@ -2479,16 +2442,11 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 	require.True(result.rbf.IsNone())
 	require.Equal(StateInit, result.state)
 
-	// Mock the mempool lookup to return a tx three times.
-	tx := &wire.MsgTx{}
-	mockMempool.On("SubscribeMempoolSpent", op).Return(
-		spendEvent, nil).Times(3).Run(func(_ mock.Arguments) {
-		// Eeac time the method is called, we send a tx to the spend
-		// channel.
-		spendChan <- &chainntnfs.SpendDetail{
-			SpendingTx: tx,
-		}
-	})
+	// Mock the mempool lookup to return a tx three times as we are calling
+	// attachAvailableRBFInfo three times.
+	tx := wire.MsgTx{}
+	mockMempool.On("LookupInputMempoolSpend", op).Return(
+		fn.Some(tx)).Times(3)
 
 	// Mock the store to return an error saying the tx cannot be found.
 	mockStore.On("GetTx", tx.TxHash()).Return(nil, ErrTxNotFound).Once()
@@ -2500,6 +2458,7 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 	require.Equal(StatePublished, result.state)
 
 	// Mock the store to return a db error.
+	dummyErr := errors.New("dummy error")
 	mockStore.On("GetTx", tx.TxHash()).Return(nil, dummyErr).Once()
 
 	// Although the db lookup failed, the pending input should have been
@@ -2528,11 +2487,6 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 
 	// Assert the state is updated.
 	require.Equal(StatePublished, result.state)
-
-	// Assert mocked statements.
-	testInput.AssertExpectations(t)
-	mockMempool.AssertExpectations(t)
-	mockStore.AssertExpectations(t)
 }
 
 // TestMarkInputFailed checks that the input is marked as failed as expected.

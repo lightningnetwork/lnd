@@ -1338,45 +1338,18 @@ func (s *UtxoSweeper) ListSweeps() ([]chainhash.Hash, error) {
 // mempoolLookup takes an input's outpoint and queries the mempool to see
 // whether it's already been spent in a transaction found in the mempool.
 // Returns the transaction if found.
-func (s *UtxoSweeper) mempoolLookup(op wire.OutPoint) (*wire.MsgTx, bool) {
+func (s *UtxoSweeper) mempoolLookup(op wire.OutPoint) fn.Option[wire.MsgTx] {
 	// For neutrino backend, there's no mempool available, so we exit
 	// early.
 	if s.cfg.Mempool == nil {
 		log.Debugf("Skipping mempool lookup for %v, no mempool ", op)
 
-		return nil, false
+		return fn.None[wire.MsgTx]()
 	}
 
-	// Make a subscription to the mempool. If this outpoint is already
-	// spent in mempool, we should get a spending event back immediately.
-	mempoolSpent, err := s.cfg.Mempool.SubscribeMempoolSpent(op)
-	if err != nil {
-		log.Errorf("Unable to subscribe to mempool spend for input "+
-			"%v: %v", op, err)
-
-		return nil, false
-	}
-
-	// We want to cancel this subscription in the end as we are only
-	// interested in a one-time query and this subscription won't be
-	// listened once this method returns.
-	defer s.cfg.Mempool.CancelMempoolSpendEvent(mempoolSpent)
-
-	// Do a non-blocking read on the spent event channel.
-	select {
-	case details := <-mempoolSpent.Spend:
-		log.Debugf("Found mempool spend of input %s in tx=%s",
-			op, details.SpenderTxHash)
-
-		// Found the spending transaction in mempool. This means we
-		// need to consider RBF constraints if we want to include this
-		// input in a new sweeping transaction.
-		return details.SpendingTx, true
-
-	default:
-	}
-
-	return nil, false
+	// Query this input in the mempool. If this outpoint is already spent
+	// in mempool, we should get a spending event back immediately.
+	return s.cfg.Mempool.LookupInputMempoolSpend(op)
 }
 
 // handleNewInput processes a new input by registering spend notification and
@@ -1431,7 +1404,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 // fee info of the spending transction, hence preparing for possible RBF.
 func (s *UtxoSweeper) attachAvailableRBFInfo(pi *pendingInput) *pendingInput {
 	// Check if we can find the spending tx of this input in mempool.
-	tx, spent := s.mempoolLookup(*pi.OutPoint())
+	txOption := s.mempoolLookup(*pi.OutPoint())
 
 	// Exit early if it's not found.
 	//
@@ -1439,9 +1412,13 @@ func (s *UtxoSweeper) attachAvailableRBFInfo(pi *pendingInput) *pendingInput {
 	// lookup:
 	// - for neutrino we don't have a mempool.
 	// - for btcd below v0.24.1 we don't have `gettxspendingprevout`.
-	if !spent {
+	if txOption.IsNone() {
 		return pi
 	}
+
+	// NOTE: we use UnsafeFromSome for here because we are sure this option
+	// is NOT none.
+	tx := txOption.UnsafeFromSome()
 
 	// Otherwise the input is already spent in the mempool, update its
 	// state to StatePublished.

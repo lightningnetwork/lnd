@@ -2,6 +2,7 @@ package chainntnfs
 
 import (
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -38,4 +39,14 @@ func (m *MockMempoolWatcher) CancelMempoolSpendEvent(
 	sub *MempoolSpendEvent) {
 
 	m.Called(sub)
+}
+
+// LookupInputMempoolSpend looks up the mempool to find a spending tx which
+// spends the given outpoint.
+func (m *MockMempoolWatcher) LookupInputMempoolSpend(
+	op wire.OutPoint) fn.Option[wire.MsgTx] {
+
+	args := m.Called(op)
+
+	return args.Get(0).(fn.Option[wire.MsgTx])
 }

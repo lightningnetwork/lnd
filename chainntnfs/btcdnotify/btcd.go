@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/queue"
@@ -58,7 +59,7 @@ type BtcdNotifier struct {
 	active  int32 // To be used atomically.
 	stopped int32 // To be used atomically.
 
-	chainConn   *rpcclient.Client
+	chainConn   *chain.RPCClient
 	chainParams *chaincfg.Params
 
 	notificationCancels  chan interface{}
@@ -127,21 +128,30 @@ func New(config *rpcclient.ConnConfig, chainParams *chaincfg.Params,
 		quit: make(chan struct{}),
 	}
 
+	// Disable connecting to btcd within the rpcclient.New method. We
+	// defer establishing the connection to our .Start() method.
+	config.DisableConnectOnNew = true
+	config.DisableAutoReconnect = false
+
 	ntfnCallbacks := &rpcclient.NotificationHandlers{
 		OnBlockConnected:    notifier.onBlockConnected,
 		OnBlockDisconnected: notifier.onBlockDisconnected,
 		OnRedeemingTx:       notifier.onRedeemingTx,
 	}
 
-	// Disable connecting to btcd within the rpcclient.New method. We
-	// defer establishing the connection to our .Start() method.
-	config.DisableConnectOnNew = true
-	config.DisableAutoReconnect = false
-	chainConn, err := rpcclient.New(config, ntfnCallbacks)
+	rpcCfg := &chain.RPCClientConfig{
+		ReconnectAttempts:    20,
+		Conn:                 config,
+		Chain:                chainParams,
+		NotificationHandlers: ntfnCallbacks,
+	}
+
+	chainRPC, err := chain.NewRPCClientWithConfig(rpcCfg)
 	if err != nil {
 		return nil, err
 	}
-	notifier.chainConn = chainConn
+
+	notifier.chainConn = chainRPC
 
 	return notifier, nil
 }

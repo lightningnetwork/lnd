@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/lightningnetwork/lnd/blockcache"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/queue"
 )
 
@@ -1069,4 +1070,27 @@ func (b *BitcoindNotifier) CancelMempoolSpendEvent(
 	sub *chainntnfs.MempoolSpendEvent) {
 
 	b.memNotifier.UnsubscribeEvent(sub)
+}
+
+// LookupInputMempoolSpend takes an outpoint and queries the mempool to find
+// its spending tx. Returns the tx if found, otherwise fn.None.
+//
+// NOTE: part of the MempoolWatcher interface.
+func (b *BitcoindNotifier) LookupInputMempoolSpend(
+	op wire.OutPoint) fn.Option[wire.MsgTx] {
+
+	// Find the spending txid.
+	txid, found := b.chainConn.LookupInputMempoolSpend(op)
+	if !found {
+		return fn.None[wire.MsgTx]()
+	}
+
+	// Query the spending tx using the id.
+	tx, err := b.chainConn.GetRawTransaction(&txid)
+	if err != nil {
+		// TODO(yy): enable logging errors in this package.
+		return fn.None[wire.MsgTx]()
+	}
+
+	return fn.Some(*tx.MsgTx().Copy())
 }

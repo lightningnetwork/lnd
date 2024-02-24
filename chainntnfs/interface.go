@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn"
 )
 
 var (
@@ -848,4 +849,9 @@ type MempoolWatcher interface {
 	// CancelMempoolSpendEvent allows the caller to cancel a subscription to
 	// watch for a spend of an outpoint in the mempool.
 	CancelMempoolSpendEvent(sub *MempoolSpendEvent)
+
+	// LookupInputMempoolSpend looks up the mempool to find a spending tx
+	// which spends the given outpoint. A fn.None is returned if it's not
+	// found.
+	LookupInputMempoolSpend(op wire.OutPoint) fn.Option[wire.MsgTx]
 }

@@ -140,6 +140,11 @@ func (o *OptionalRecordT[T, V]) UnwrapOrErrV(err error) (V, error) {
 	return inner.Val, nil
 }
 
+// Zero returns a zero value of the record type.
+func (t *OptionalRecordT[T, V]) Zero() RecordT[T, V] {
+	return ZeroRecordT[T, V]()
+}
+
 // SomeRecordT creates a new OptionalRecordT type from a given RecordT type.
 func SomeRecordT[T TlvType, V any](record RecordT[T, V]) OptionalRecordT[T, V] {
 	return OptionalRecordT[T, V]{

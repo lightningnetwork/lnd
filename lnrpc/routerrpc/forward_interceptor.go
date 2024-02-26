@@ -93,6 +93,12 @@ func (r *forwardInterceptor) onIntercept(
 		AutoFailHeight:          htlc.AutoFailHeight,
 	}
 
+	if htlc.IncomingEndorsed {
+		interceptionRequest.Endorsed = HTLCEndorsement_ENDORSEMENT_TRUE
+	} else {
+		interceptionRequest.Endorsed = HTLCEndorsement_ENDORSEMENT_FALSE //nolint:lll
+	}
+
 	return r.stream.Send(interceptionRequest)
 }
 
@@ -112,12 +118,34 @@ func (r *forwardInterceptor) resolveFromClient(
 		HtlcID: in.IncomingCircuitKey.HtlcId,
 	}
 
+	if in.Endorsed != HTLCEndorsement_ENDORSEMENT_UNKNOWN &&
+		in.Action != ResolveHoldForwardAction_RESUME {
+
+		return status.Errorf(
+			codes.InvalidArgument, "Outgoing endorsed signal can "+
+				"only be set for resumed HTLCs",
+		)
+	}
+
 	switch in.Action {
 	case ResolveHoldForwardAction_RESUME:
-		return r.htlcSwitch.Resolve(&htlcswitch.FwdResolution{
+		resolution := &htlcswitch.FwdResolution{
 			Key:    circuitKey,
 			Action: htlcswitch.FwdActionResume,
-		})
+		}
+
+		// Optionally set endorsement signal.
+		switch in.Endorsed {
+		case HTLCEndorsement_ENDORSEMENT_TRUE:
+			var endorsed = true
+			resolution.Endorsed = &endorsed
+
+		case HTLCEndorsement_ENDORSEMENT_FALSE:
+			var endorsed = false
+			resolution.Endorsed = &endorsed
+		}
+
+		return r.htlcSwitch.Resolve(resolution)
 
 	case ResolveHoldForwardAction_FAIL:
 		// Fail with an encrypted reason.

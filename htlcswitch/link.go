@@ -3327,6 +3327,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 					Expiry:      fwdInfo.OutgoingCTLV,
 					Amount:      fwdInfo.AmountToForward,
 					PaymentHash: pd.RHash,
+					// Note: we simply copy endorsement
+					// signal from the incoming link to
+					// propagate the experimental signal.
+					Endorsed: lnwire.EndorsementSignal(
+						pd.IncomingEndorsed,
+					),
 				}
 
 				// Finally, we'll encode the onion packet for
@@ -3340,17 +3346,18 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				chanIterator.EncodeNextHop(buf)
 
 				updatePacket := &htlcPacket{
-					incomingChanID:  l.ShortChanID(),
-					incomingHTLCID:  pd.HtlcIndex,
-					outgoingChanID:  fwdInfo.NextHop,
-					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
-					htlc:            addMsg,
-					obfuscator:      obfuscator,
-					incomingTimeout: pd.Timeout,
-					outgoingTimeout: fwdInfo.OutgoingCTLV,
-					customRecords:   pld.CustomRecords(),
+					incomingChanID:   l.ShortChanID(),
+					incomingHTLCID:   pd.HtlcIndex,
+					outgoingChanID:   fwdInfo.NextHop,
+					sourceRef:        pd.SourceRef,
+					incomingAmount:   pd.Amount,
+					amount:           addMsg.Amount,
+					htlc:             addMsg,
+					obfuscator:       obfuscator,
+					incomingTimeout:  pd.Timeout,
+					outgoingTimeout:  fwdInfo.OutgoingCTLV,
+					incomingEndorsed: pd.IncomingEndorsed,
+					customRecords:    pld.CustomRecords(),
 				}
 				switchPackets = append(
 					switchPackets, updatePacket,
@@ -3369,6 +3376,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				Expiry:      fwdInfo.OutgoingCTLV,
 				Amount:      fwdInfo.AmountToForward,
 				PaymentHash: pd.RHash,
+				// Note: we simply copy endorsement signal
+				// from the incoming link to propagate the
+				// experimental signal.
+				Endorsed: lnwire.EndorsementSignal(
+					pd.IncomingEndorsed,
+				),
 			}
 
 			// Finally, we'll encode the onion packet for the
@@ -3404,17 +3417,18 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 			// section.
 			if fwdPkg.State == channeldb.FwdStateLockedIn {
 				updatePacket := &htlcPacket{
-					incomingChanID:  l.ShortChanID(),
-					incomingHTLCID:  pd.HtlcIndex,
-					outgoingChanID:  fwdInfo.NextHop,
-					sourceRef:       pd.SourceRef,
-					incomingAmount:  pd.Amount,
-					amount:          addMsg.Amount,
-					htlc:            addMsg,
-					obfuscator:      obfuscator,
-					incomingTimeout: pd.Timeout,
-					outgoingTimeout: fwdInfo.OutgoingCTLV,
-					customRecords:   pld.CustomRecords(),
+					incomingChanID:   l.ShortChanID(),
+					incomingHTLCID:   pd.HtlcIndex,
+					outgoingChanID:   fwdInfo.NextHop,
+					sourceRef:        pd.SourceRef,
+					incomingAmount:   pd.Amount,
+					amount:           addMsg.Amount,
+					htlc:             addMsg,
+					obfuscator:       obfuscator,
+					incomingTimeout:  pd.Timeout,
+					outgoingTimeout:  fwdInfo.OutgoingCTLV,
+					incomingEndorsed: pd.IncomingEndorsed,
+					customRecords:    pld.CustomRecords(),
 				}
 
 				fwdPkg.FwdFilter.Set(idx)

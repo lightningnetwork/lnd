@@ -775,13 +775,33 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 	return route, nil
 }
 
+func extractHTLCEndorsement(request HTLCEndorsement) bool {
+	switch request {
+	case HTLCEndorsement_ENDORSEMENT_UNKNOWN:
+		// TODO: add coin flip to set endorsement with some probability
+		// P when the user has not explicitly requested an endorsement
+		// signal.
+		return false
+
+	case HTLCEndorsement_ENDORSEMENT_TRUE:
+		return true
+
+	case HTLCEndorsement_ENDORSEMENT_FALSE:
+		return false
+	}
+
+	return false
+}
+
 // extractIntentFromSendRequest attempts to parse the SendRequest details
 // required to dispatch a client from the information presented by an RPC
 // client.
 func (r *RouterBackend) extractIntentFromSendRequest(
 	rpcPayReq *SendPaymentRequest) (*routing.LightningPayment, error) {
 
-	payIntent := &routing.LightningPayment{}
+	payIntent := &routing.LightningPayment{
+		Endorsed: extractHTLCEndorsement(rpcPayReq.Endorsed),
+	}
 
 	// Pass along time preference.
 	if rpcPayReq.TimePref < -1 || rpcPayReq.TimePref > 1 {

@@ -13,14 +13,22 @@ var (
 	// resumed. This is the case in the on-chain resolution flow.
 	ErrCannotResume = errors.New("cannot resume in the on-chain flow")
 
-	// ErrCannotFail is returned when an intercepted forward cannot be failed.
-	// This is the case in the on-chain resolution flow.
+	// ErrNoEndorseOnChain is returns when an on chain HTLC is resumed
+	// with an endorsement signal when it has gone to chain since it's
+	// impossible to send this message once the HTLC is on chain.
+	ErrNoEndorseOnChain = errors.New("cannot provide endorsement signal " +
+		"on-chain")
+
+	// ErrCannotFail is returned when an intercepted forward cannot be
+	// failed. This is the case in the on-chain resolution flow.
 	ErrCannotFail = errors.New("cannot fail in the on-chain flow")
 
-	// ErrPreimageMismatch is returned when the preimage that is specified to
-	// settle an htlc doesn't match the htlc hash.
+	// ErrPreimageMismatch is returned when the preimage that is specified
+	// to settle an htlc doesn't match the htlc hash.
 	ErrPreimageMismatch = errors.New("preimage does not match hash")
 )
+
+var _ htlcswitch.InterceptedForward = (*interceptedForward)(nil)
 
 // interceptedForward implements the on-chain behavior for the resolution of
 // a forwarded htlc.
@@ -47,7 +55,11 @@ func (f *interceptedForward) Packet() htlcswitch.InterceptedPacket {
 // Resume notifies the intention to resume an existing hold forward. This
 // basically means the caller wants to resume with the default behavior for this
 // htlc which usually means forward it.
-func (f *interceptedForward) Resume() error {
+func (f *interceptedForward) Resume(endorse *bool) error {
+	if endorse != nil {
+		return ErrNoEndorseOnChain
+	}
+
 	return ErrCannotResume
 }
 

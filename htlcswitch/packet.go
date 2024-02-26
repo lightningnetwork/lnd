@@ -93,6 +93,10 @@ type htlcPacket struct {
 	// link.
 	outgoingTimeout uint32
 
+	// incomingEndorsed indicates whether the incoming updateAddHtlc was
+	// endorsed. If no signal was provided, this value will be false.
+	incomingEndorsed bool
+
 	// customRecords are user-defined records in the custom type range that
 	// were included in the payload.
 	customRecords record.CustomSet

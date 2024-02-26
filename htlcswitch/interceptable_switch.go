@@ -126,6 +126,9 @@ type FwdResolution struct {
 	// FailureCode is the failure code that is to be passed back to the
 	// sender if action is FwdActionFail.
 	FailureCode lnwire.FailCode
+
+	// Endorsed is an optional endorsement signal.
+	Endorsed *bool
 }
 
 type fwdResolution struct {
@@ -356,7 +359,7 @@ func (s *InterceptableSwitch) setInterceptor(interceptor ForwardInterceptor) {
 	log.Infof("Interceptor disconnected, resolving held packets")
 
 	s.heldHtlcSet.popAll(func(fwd InterceptedForward) {
-		err := fwd.Resume()
+		err := fwd.Resume(nil)
 		if err != nil {
 			log.Errorf("Failed to resume hold forward %v", err)
 		}
@@ -371,7 +374,7 @@ func (s *InterceptableSwitch) resolve(res *FwdResolution) error {
 
 	switch res.Action {
 	case FwdActionResume:
-		return intercepted.Resume()
+		return intercepted.Resume(res.Endorsed)
 
 	case FwdActionSettle:
 		return intercepted.Settle(res.Preimage)
@@ -464,9 +467,9 @@ func (s *InterceptableSwitch) interceptForward(packet *htlcPacket,
 		}
 
 		intercepted := &interceptedForward{
-			htlc:       htlc,
-			packet:     packet,
-			htlcSwitch: s.htlcSwitch,
+			updateAddHTLC: htlc,
+			packet:        packet,
+			htlcSwitch:    s.htlcSwitch,
 			autoFailHeight: int32(packet.incomingTimeout -
 				s.cltvRejectDelta),
 		}
@@ -579,11 +582,19 @@ func (s *InterceptableSwitch) handleExpired(fwd *interceptedForward) (
 	return true, nil
 }
 
+// Compile time check that interceptedForward implements InterceptedForward.
+var _ InterceptedForward = (*interceptedForward)(nil)
+
 // interceptedForward implements the InterceptedForward interface.
 // It is passed from the switch to external interceptors that are interested
 // in holding forwards and resolve them manually.
 type interceptedForward struct {
-	htlc           *lnwire.UpdateAddHTLC
+	// updateAddHTLC is the underlying HTLC that is contained in the
+	// packet's htlc type (which is a lnwire.Message interface type). This
+	// value is stored here for convenience so that we do not have to
+	// keep casting the interface. As this is a pointer, modifying this
+	// value *will* modify the HLTC stored in packet.
+	updateAddHTLC  *lnwire.UpdateAddHTLC
 	packet         *htlcPacket
 	htlcSwitch     *Switch
 	autoFailHeight int32
@@ -596,20 +607,27 @@ func (f *interceptedForward) Packet() InterceptedPacket {
 			ChanID: f.packet.incomingChanID,
 			HtlcID: f.packet.incomingHTLCID,
 		},
-		OutgoingChanID: f.packet.outgoingChanID,
-		Hash:           f.htlc.PaymentHash,
-		OutgoingExpiry: f.htlc.Expiry,
-		OutgoingAmount: f.htlc.Amount,
-		IncomingAmount: f.packet.incomingAmount,
-		IncomingExpiry: f.packet.incomingTimeout,
-		CustomRecords:  f.packet.customRecords,
-		OnionBlob:      f.htlc.OnionBlob,
-		AutoFailHeight: f.autoFailHeight,
+		OutgoingChanID:   f.packet.outgoingChanID,
+		Hash:             f.updateAddHTLC.PaymentHash,
+		OutgoingExpiry:   f.updateAddHTLC.Expiry,
+		OutgoingAmount:   f.updateAddHTLC.Amount,
+		IncomingAmount:   f.packet.incomingAmount,
+		IncomingExpiry:   f.packet.incomingTimeout,
+		IncomingEndorsed: f.packet.incomingEndorsed,
+		CustomRecords:    f.packet.customRecords,
+		OnionBlob:        f.updateAddHTLC.OnionBlob,
+		AutoFailHeight:   f.autoFailHeight,
 	}
 }
 
 // Resume resumes the default behavior as if the packet was not intercepted.
-func (f *interceptedForward) Resume() error {
+// UpdateAddTLVs can optionally be provided to pack additional custom TLV
+// records into the UpdateAddHTLC message that is forwarded.
+func (f *interceptedForward) Resume(endorse *bool) error {
+	if endorse != nil {
+		f.updateAddHTLC.Endorsed = lnwire.EndorsementSignal(*endorse)
+	}
+
 	// Forward to the switch. A link quit channel isn't needed, because we
 	// are on a different thread now.
 	return f.htlcSwitch.ForwardPackets(nil, f.packet)
@@ -629,7 +647,7 @@ func (f *interceptedForward) Fail(reason []byte) error {
 // specified failure code.
 func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 	shaOnionBlob := func() [32]byte {
-		return sha256.Sum256(f.htlc.OnionBlob[:])
+		return sha256.Sum256(f.updateAddHTLC.OnionBlob[:])
 	}
 
 	// Create a local failure.
@@ -696,7 +714,7 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 
 // Settle forwards a settled packet to the switch.
 func (f *interceptedForward) Settle(preimage lntypes.Preimage) error {
-	if !preimage.Matches(f.htlc.PaymentHash) {
+	if !preimage.Matches(f.updateAddHTLC.PaymentHash) {
 		return errors.New("preimage does not match hash")
 	}
 	return f.resolve(&lnwire.UpdateFulfillHTLC{

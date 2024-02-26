@@ -706,9 +706,11 @@ func (r *ChannelRouter) Start() error {
 			// don't need it to timeout. It will stop immediately
 			// after the existing attempt has finished anyway. We
 			// also set a zero fee limit, as no more routes should
-			// be tried.
+			// be tried. We also don't endorse the payment, since
+			// we're not dispatching any more htlcs.
 			_, _, err := r.sendPayment(
-				0, payment.Info.PaymentIdentifier, 0,
+				0, false,
+				payment.Info.PaymentIdentifier, 0,
 				paySession, shardTracker,
 			)
 			if err != nil {
@@ -2318,6 +2320,9 @@ type LightningPayment struct {
 	// Metadata is additional data that is sent along with the payment to
 	// the payee.
 	Metadata []byte
+
+	// Endorsed indicates whether to endorse the payment.
+	Endorsed bool
 }
 
 // AMPOptions houses information that must be known in order to send an AMP
@@ -2381,7 +2386,7 @@ func (r *ChannelRouter) SendPayment(payment *LightningPayment) ([32]byte,
 	// Since this is the first time this payment is being made, we pass nil
 	// for the existing attempt.
 	return r.sendPayment(
-		payment.FeeLimit, payment.Identifier(),
+		payment.FeeLimit, payment.Endorsed, payment.Identifier(),
 		payment.PayAttemptTimeout, paySession, shardTracker,
 	)
 }
@@ -2401,8 +2406,9 @@ func (r *ChannelRouter) SendPaymentAsync(payment *LightningPayment,
 			spewPayment(payment))
 
 		_, _, err := r.sendPayment(
-			payment.FeeLimit, payment.Identifier(),
-			payment.PayAttemptTimeout, ps, st,
+			payment.FeeLimit, payment.Endorsed,
+			payment.Identifier(), payment.PayAttemptTimeout, ps,
+			st,
 		)
 		if err != nil {
 			log.Errorf("Payment %x failed: %v",
@@ -2485,18 +2491,19 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 
 // SendToRoute sends a payment using the provided route and fails the payment
 // when an error is returned from the attempt.
-func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash,
+func (r *ChannelRouter) SendToRoute(htlcHash lntypes.Hash, endorsed bool,
 	rt *route.Route) (*channeldb.HTLCAttempt, error) {
 
-	return r.sendToRoute(htlcHash, rt, false)
+	return r.sendToRoute(htlcHash, endorsed, rt, false)
 }
 
 // SendToRouteSkipTempErr sends a payment using the provided route and fails
 // the payment ONLY when a terminal error is returned from the attempt.
 func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
+	endorsed bool,
 	rt *route.Route) (*channeldb.HTLCAttempt, error) {
 
-	return r.sendToRoute(htlcHash, rt, true)
+	return r.sendToRoute(htlcHash, endorsed, rt, true)
 }
 
 // sendToRoute attempts to send a payment with the given hash through the
@@ -2505,8 +2512,8 @@ func (r *ChannelRouter) SendToRouteSkipTempErr(htlcHash lntypes.Hash,
 // information will contain the preimage. If an error occurs after the attempt
 // was initiated, both return values will be non-nil. If skipTempErr is true,
 // the payment won't be failed unless a terminal error has occurred.
-func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
-	skipTempErr bool) (*channeldb.HTLCAttempt, error) {
+func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, endorsed bool,
+	rt *route.Route, skipTempErr bool) (*channeldb.HTLCAttempt, error) {
 
 	// Calculate amount paid to receiver.
 	amt := rt.ReceiverAmt()
@@ -2577,7 +2584,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 	// - no payment timeout.
 	// - no current block height.
 	p := newPaymentLifecycle(
-		r, 0, paymentIdentifier, nil, shardTracker, 0, 0,
+		r, 0, endorsed, paymentIdentifier, nil, shardTracker, 0, 0,
 	)
 
 	// We found a route to try, create a new HTLC attempt to try.
@@ -2672,7 +2679,7 @@ func (r *ChannelRouter) sendToRoute(htlcHash lntypes.Hash, rt *route.Route,
 // router will call this method for every payment still in-flight according to
 // the ControlTower.
 func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
-	identifier lntypes.Hash, timeout time.Duration,
+	endorsed bool, identifier lntypes.Hash, timeout time.Duration,
 	paySession PaymentSession,
 	shardTracker shards.ShardTracker) ([32]byte, *route.Route, error) {
 
@@ -2686,7 +2693,7 @@ func (r *ChannelRouter) sendPayment(feeLimit lnwire.MilliSatoshi,
 	// Now set up a paymentLifecycle struct with these params, such that we
 	// can resume the payment from the current state.
 	p := newPaymentLifecycle(
-		r, feeLimit, identifier, paySession,
+		r, feeLimit, endorsed, identifier, paySession,
 		shardTracker, timeout, currentHeight,
 	)
 

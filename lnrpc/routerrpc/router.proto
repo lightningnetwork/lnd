@@ -178,6 +178,12 @@ service Router {
         returns (UpdateChanStatusResponse);
 }
 
+enum HTLCEndorsement {
+    ENDORSEMENT_UNKNOWN = 0;
+    ENDORSEMENT_TRUE = 1;
+    ENDORSEMENT_FALSE = 2;
+}
+
 message SendPaymentRequest {
     // The identity pubkey of the payment recipient
     bytes dest = 1;
@@ -330,6 +336,13 @@ message SendPaymentRequest {
     only, to 1 to optimize for reliability only or a value inbetween for a mix.
     */
     double time_pref = 23;
+
+    /*
+    EXPERIMENTAL: Field may be subject to change.
+
+    Signals whether to endorse the outgoing payment.
+    */
+    HTLCEndorsement endorsed = 24;
 }
 
 message TrackPaymentRequest {
@@ -392,6 +405,13 @@ message SendToRouteRequest {
     routes, incorrect payment details, or insufficient funds.
     */
     bool skip_temp_err = 3;
+
+    /*
+    EXPERIMENTAL: Field may be subject to change.
+
+    Signals whether to endorse the outgoing payment.
+    */
+    HTLCEndorsement endorsed = 4;
 }
 
 message SendToRouteResponse {
@@ -914,7 +934,10 @@ message ForwardHtlcInterceptRequest {
     // The outgoing htlc expiry.
     uint32 outgoing_expiry = 4;
 
-    // Any custom records that were present in the payload.
+    /*
+    Any custom records that were present in the payload, as supplied by the
+    original sender of the HTLC.
+    */
     map<uint64, bytes> custom_records = 8;
 
     // The onion blob for the next hop
@@ -923,6 +946,15 @@ message ForwardHtlcInterceptRequest {
     // The block height at which this htlc will be auto-failed to prevent the
     // channel from force-closing.
     int32 auto_fail_height = 10;
+
+    /*
+    EXPERIMENTAL: Field may be subject to change.
+
+    Whether the incoming peer endorsed the HTLC. This value will also be false
+    if no endorsement signal is present, or LND has restarted since the HTLC
+    was committed to the incoming link.
+    */
+    HTLCEndorsement endorsed = 11;
 }
 
 /**
@@ -959,6 +991,15 @@ message ForwardHtlcInterceptResponse {
     // For backwards-compatibility reasons, TEMPORARY_CHANNEL_FAILURE is the
     // default value for this field.
     lnrpc.Failure.FailureCode failure_code = 5;
+
+    /*
+    EXPERIMENTAL: Field may be subject to change.
+
+    An optional endorsement signal for the HTLC. LND will copy the value
+    received by the incoming link if this value is not set. Should only be
+    set for HTLC resumes.
+    */
+    HTLCEndorsement endorsed = 6;
 }
 
 enum ResolveHoldForwardAction {

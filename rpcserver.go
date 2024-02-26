@@ -5327,7 +5327,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 	} else {
 		var attempt *channeldb.HTLCAttempt
 		attempt, routerErr = r.server.chanRouter.SendToRoute(
-			payIntent.rHash, payIntent.route,
+			payIntent.rHash, false, payIntent.route,
 		)
 
 		if routerErr == nil {
@@ -6040,9 +6040,7 @@ func marshalExtraOpaqueData(data []byte) map[uint64][]byte {
 		return nil
 	}
 
-	// Since ExtraOpaqueData is provided by a potentially malicious peer,
-	// pass it into the P2P decoding variant.
-	parsedTypes, err := tlvStream.DecodeWithParsedTypesP2P(r)
+	parsedTypes, err := tlvStream.DecodeWithParsedTypes(r)
 	if err != nil || len(parsedTypes) == 0 {
 		return nil
 	}

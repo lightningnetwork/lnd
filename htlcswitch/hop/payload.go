@@ -158,9 +158,7 @@ func NewPayloadFromReader(r io.Reader, finalHop bool) (*Payload, error) {
 		return nil, err
 	}
 
-	// Since this data is provided by a potentially malicious peer, pass it
-	// into the P2P decoding variant.
-	parsedTypes, err := tlvStream.DecodeWithParsedTypesP2P(r)
+	parsedTypes, err := tlvStream.DecodeWithParsedTypes(r)
 	if err != nil {
 		return nil, err
 	}

@@ -415,8 +415,12 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testForwardInterceptorDedupHtlc,
 	},
 	{
-		Name:     "forward interceptor",
+		Name:     "basic forward interceptor",
 		TestFunc: testForwardInterceptorBasic,
+	},
+	{
+		Name:     "endorsement signal",
+		TestFunc: testHTLCEndorsement,
 	},
 	{
 		Name:     "zero conf channel open",

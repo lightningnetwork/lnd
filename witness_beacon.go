@@ -104,7 +104,8 @@ func (p *preimageBeacon) SubscribeUpdates(
 		OutgoingChanID: payload.FwdInfo.NextHop,
 		OutgoingExpiry: payload.FwdInfo.OutgoingCTLV,
 		OutgoingAmount: payload.FwdInfo.AmountToForward,
-		CustomRecords:  payload.CustomRecords(),
+		// TODO: set custom records here
+		CustomRecords: payload.CustomRecords(),
 	}
 	copy(packet.OnionBlob[:], nextHopOnionBlob)
 

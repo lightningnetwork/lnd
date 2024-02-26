@@ -1983,8 +1983,9 @@ func messageSummary(msg lnwire.Message) string {
 			msg.FeeSatoshis)
 
 	case *lnwire.UpdateAddHTLC:
-		return fmt.Sprintf("chan_id=%v, id=%v, amt=%v, expiry=%v, hash=%x",
-			msg.ChanID, msg.ID, msg.Amount, msg.Expiry, msg.PaymentHash[:])
+		return fmt.Sprintf("chan_id=%v, id=%v, amt=%v, expiry=%v, "+
+			"hash=%x, endorsed=%v", msg.ChanID, msg.ID, msg.Amount,
+			msg.Expiry, msg.PaymentHash[:], msg.Endorsed)
 
 	case *lnwire.UpdateFailHTLC:
 		return fmt.Sprintf("chan_id=%v, id=%v, reason=%x", msg.ChanID,

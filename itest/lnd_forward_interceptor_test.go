@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -35,7 +36,8 @@ type interceptorTestCase struct {
 // testForwardInterceptorDedupHtlc tests that upon reconnection, duplicate
 // HTLCs aren't re-notified using the HTLC interceptor API.
 func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
-	// Initialize the test context with 3 connected nodes.
+	// Initialize the test context with 4 connected nodes, our test will
+	// make use of 3 of them.
 	ts := newInterceptorTestScenario(ht)
 
 	alice, bob, carol := ts.alice, ts.bob, ts.carol
@@ -66,13 +68,15 @@ func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 		payAddr:    invoice.PaymentAddr,
 	}
 
-	// We initiate a payment from Alice.
+	// We initiate a payment from Alice to Carol.
 	done := make(chan struct{})
 	go func() {
 		// Signal that all the payments have been sent.
 		defer close(done)
 
-		ts.sendPaymentAndAssertAction(tc)
+		ts.sendPaymentAndAssertAction(
+			tc, []*node.HarnessNode{ts.bob, ts.carol},
+		)
 	}()
 
 	// We start the htlc interceptor with a simple implementation that
@@ -177,8 +181,10 @@ func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 }
 
 // testForwardInterceptorBasic tests the forward interceptor RPC layer.
-// The test creates a cluster of 3 connected nodes: Alice -> Bob -> Carol
-// Alice sends 4 different payments to Carol while the interceptor handles
+// The test creates a cluster of 4 connected nodes: Alice -> Bob -> Carol ->
+// Dave.
+//
+// Alice sends 4 different payments to Dave while the interceptor handles
 // differently the htlcs.
 // The test ensures that:
 //  1. Intercepted failed htlcs result in no payment (invoice is not settled).
@@ -189,7 +195,7 @@ func testForwardInterceptorDedupHtlc(ht *lntest.HarnessTest) {
 func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	ts := newInterceptorTestScenario(ht)
 
-	alice, bob, carol := ts.alice, ts.bob, ts.carol
+	alice, bob, carol, dave := ts.alice, ts.bob, ts.carol, ts.dave
 
 	// Open and wait for channels.
 	const chanAmt = btcutil.Amount(300000)
@@ -197,30 +203,39 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 	reqs := []*lntest.OpenChannelRequest{
 		{Local: alice, Remote: bob, Param: p},
 		{Local: bob, Remote: carol, Param: p},
+		{Local: carol, Remote: dave, Param: p},
 	}
 	resp := ht.OpenMultiChannelsAsync(reqs)
-	cpAB, cpBC := resp[0], resp[1]
+	cpAB, cpBC, cpCD := resp[0], resp[1], resp[2]
 
-	// Make sure Alice is aware of channel Bob=>Carol.
+	// Make sure Alice is aware of channel Bob=>Carol and Carol=>Dave.
 	ht.AssertTopologyChannelOpen(alice, cpBC)
+	ht.AssertTopologyChannelOpen(alice, cpCD)
 
 	// Connect the interceptor.
 	interceptor, cancelInterceptor := bob.RPC.HtlcInterceptor()
+
+	// Connect Carol's interceptor.
+	carolInterceptor, cancelCarol := carol.RPC.HtlcInterceptor()
 
 	// Prepare the test cases.
 	testCases := ts.prepareTestCases()
 
 	// For each test case make sure we initiate a payment from Alice to
-	// Carol routed through Bob. For each payment we also test its final
-	// status according to the interceptorAction specified in the test
-	// case.
+	// Dave routed through Bob and Carol. For each payment we also test
+	// its final status according to the interceptorAction specified
+	// the test case.
 	done := make(chan struct{})
 	go func() {
 		// Signal that all the payments have been sent.
 		defer close(done)
 
 		for _, tc := range testCases {
-			attempt := ts.sendPaymentAndAssertAction(tc)
+			attempt := ts.sendPaymentAndAssertAction(
+				tc, []*node.HarnessNode{
+					ts.bob, ts.carol, ts.dave,
+				},
+			)
 			ts.assertAction(tc, attempt)
 		}
 	}()
@@ -250,13 +265,46 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 		}
 
 		// For all other packets we resolve according to the test case.
+		// We do not set any explicit endorsement signal on the
+		// interceptor response.
 		err := interceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
 			IncomingCircuitKey: request.IncomingCircuitKey,
 			Action:             tc.interceptorAction,
 			Preimage:           tc.invoice.RPreimage,
 		})
 		require.NoError(ht, err, "failed to send request")
+
+		// If the HTLC was resumed by bob, assert that Carol receives
+		// the HTLC with the appropriate endorsement signal.
+		if tc.interceptorAction !=
+			routerrpc.ResolveHoldForwardAction_RESUME {
+
+			continue
+		}
+
+		// Assert that the positive endorsement signal is propagated
+		// passively along the route.
+		carolHTLC := ht.ReceiveHtlcInterceptor(carolInterceptor)
+		require.Equal(
+			ht, routerrpc.HTLCEndorsement_ENDORSEMENT_TRUE,
+			carolHTLC.Endorsed,
+		)
+
+		// Once we've checked this value, just resume so that the HTLC
+		// will proceed as before.
+		err = carolInterceptor.Send(
+			//nolint:lll
+			&routerrpc.ForwardHtlcInterceptResponse{
+				IncomingCircuitKey: carolHTLC.IncomingCircuitKey,
+				Action:             routerrpc.ResolveHoldForwardAction_RESUME,
+			},
+		)
+		require.NoError(ht, err, "carol interceptor send")
 	}
+
+	// Once we've checked the HTLC carol received, we can cancel her
+	// interceptor.
+	cancelCarol()
 
 	// At this point we are left with the held packets, we want to make
 	// sure each one of them has a corresponding 'in-flight' payment at
@@ -347,30 +395,36 @@ func testForwardInterceptorBasic(ht *lntest.HarnessTest) {
 // interceptorTestScenario is a helper struct to hold the test context and
 // provide the needed functionality.
 type interceptorTestScenario struct {
-	ht                *lntest.HarnessTest
-	alice, bob, carol *node.HarnessNode
+	ht                      *lntest.HarnessTest
+	alice, bob, carol, dave *node.HarnessNode
 }
 
 // newInterceptorTestScenario initializes a new test scenario with three nodes
 // and connects them to have the following topology,
 //
-//	Alice --> Bob --> Carol
+//	Alice --> Bob --> Carol --> Dave
 //
-// Among them, Alice and Bob are standby nodes and Carol is a new node.
+// Among them, Alice and Bob are standby nodes and Carol and Dave are a new
+// nodes.
 func newInterceptorTestScenario(
 	ht *lntest.HarnessTest) *interceptorTestScenario {
 
 	alice, bob := ht.Alice, ht.Bob
 	carol := ht.NewNode("carol", nil)
+	dave := ht.NewNode("dave", nil)
+
+	ht.FundCoins(btcutil.SatoshiPerBitcoin, carol)
 
 	ht.EnsureConnected(alice, bob)
 	ht.EnsureConnected(bob, carol)
+	ht.EnsureConnected(carol, dave)
 
 	return &interceptorTestScenario{
 		ht:    ht,
 		alice: alice,
 		bob:   bob,
 		carol: carol,
+		dave:  dave,
 	}
 }
 
@@ -407,13 +461,13 @@ func (c *interceptorTestScenario) prepareTestCases() []*interceptorTestCase {
 
 	for _, t := range cases {
 		inv := &lnrpc.Invoice{ValueMsat: t.amountMsat}
-		addResponse := c.carol.RPC.AddInvoice(inv)
-		invoice := c.carol.RPC.LookupInvoice(addResponse.RHash)
+		addResponse := c.dave.RPC.AddInvoice(inv)
+		invoice := c.dave.RPC.LookupInvoice(addResponse.RHash)
 
 		// We'll need to also decode the returned invoice so we can
 		// grab the payment address which is now required for ALL
 		// payments.
-		payReq := c.carol.RPC.DecodePayReq(invoice.PaymentRequest)
+		payReq := c.dave.RPC.DecodePayReq(invoice.PaymentRequest)
 
 		t.invoice = invoice
 		t.payAddr = payReq.PaymentAddr
@@ -422,25 +476,25 @@ func (c *interceptorTestScenario) prepareTestCases() []*interceptorTestCase {
 	return cases
 }
 
-// sendPaymentAndAssertAction sends a payment from alice to carol and asserts
+// sendPaymentAndAssertAction sends a payment from alice to dave and asserts
 // that the specified interceptor action is taken.
 func (c *interceptorTestScenario) sendPaymentAndAssertAction(
-	tc *interceptorTestCase) *lnrpc.HTLCAttempt {
+	tc *interceptorTestCase,
+	hops []*node.HarnessNode) *lnrpc.HTLCAttempt {
 
-	// Build a route from alice to carol.
-	route := c.buildRoute(
-		tc.amountMsat, []*node.HarnessNode{c.bob, c.carol}, tc.payAddr,
-	)
+	// Build a route with the hops provided.
+	route := c.buildRoute(tc.amountMsat, hops, tc.payAddr)
 
 	// Send a custom record to the forwarding node.
 	route.Hops[0].CustomRecords = map[uint64][]byte{
 		customTestKey: customTestValue,
 	}
 
-	// Send the payment.
+	// Send the payment, endorsing the outgoing htlc.
 	sendReq := &routerrpc.SendToRouteRequest{
 		PaymentHash: tc.invoice.RHash,
 		Route:       route,
+		Endorsed:    routerrpc.HTLCEndorsement_ENDORSEMENT_TRUE,
 	}
 
 	return c.alice.RPC.SendToRouteV2(sendReq)
@@ -496,4 +550,109 @@ func (c *interceptorTestScenario) buildRoute(amtMsat int64,
 	routeResp := c.alice.RPC.BuildRoute(req)
 
 	return routeResp.Route
+}
+
+// testHTLCEndorsement tests the interceptor's ability to modify endorsement
+// signals on HTLCs, testing that intercepted alterations are correctly
+// propagated to the receiving node.
+func testHTLCEndorsement(ht *lntest.HarnessTest) {
+	ts := newInterceptorTestScenario(ht)
+	alice, bob, carol, dave := ts.alice, ts.bob, ts.carol, ts.dave
+
+	// Open and wait for channels.
+	const chanAmt = btcutil.Amount(300000)
+	p := lntest.OpenChannelParams{Amt: chanAmt}
+	reqs := []*lntest.OpenChannelRequest{
+		{Local: alice, Remote: bob, Param: p},
+		{Local: bob, Remote: carol, Param: p},
+		{Local: carol, Remote: dave, Param: p},
+	}
+	resp := ht.OpenMultiChannelsAsync(reqs)
+	cpAB, cpBC, cpCD := resp[0], resp[1], resp[2]
+
+	// Make sure Alice is aware of all channels.
+	ht.AssertTopologyChannelOpen(alice, cpAB)
+	ht.AssertTopologyChannelOpen(alice, cpBC)
+	ht.AssertTopologyChannelOpen(alice, cpCD)
+
+	// Connect the bobInterceptor.
+	bobInterceptor, cancelBob := bob.RPC.HtlcInterceptor()
+	defer cancelBob()
+
+	// Subscribe to the interceptor for Carol so that we can see the
+	// HTLC that is forwarded on by Bob with correct values.
+	carolInterceptor, cancelCarol := carol.RPC.HtlcInterceptor()
+	defer cancelCarol()
+
+	invReq := &lnrpc.Invoice{ValueMsat: 1000}
+	addResponse := dave.RPC.AddInvoice(invReq)
+
+	// Send an endorsed payment from Alice to Dave.
+	paymentClient := alice.RPC.SendPayment(&routerrpc.SendPaymentRequest{
+		PaymentRequest:    addResponse.PaymentRequest,
+		NoInflightUpdates: true,
+		TimeoutSeconds:    120,
+		Endorsed:          routerrpc.HTLCEndorsement_ENDORSEMENT_TRUE,
+		FeeLimitMsat:      noFeeLimitMsat,
+	})
+
+	// Assert that Bob receives an endorsed HTLC, and drop the endorsement
+	// signal on the outgoing link.
+	interceptAndCheckEndorsed(
+		ht,
+		bobInterceptor,
+		routerrpc.HTLCEndorsement_ENDORSEMENT_TRUE,
+		routerrpc.HTLCEndorsement_ENDORSEMENT_FALSE,
+	)
+
+	// Assert that Carol receives the HTLC with the endorsement signal
+	// dropped, and take no action to set her outgoing value.
+	interceptAndCheckEndorsed(
+		ht,
+		carolInterceptor,
+		routerrpc.HTLCEndorsement_ENDORSEMENT_FALSE,
+		routerrpc.HTLCEndorsement_ENDORSEMENT_UNKNOWN,
+	)
+
+	pmt, err := paymentClient.Recv()
+	require.NoError(ht, err)
+
+	require.Equal(ht, lnrpc.Payment_SUCCEEDED, pmt.Status)
+
+	// Finally, close channels.
+	ht.CloseChannel(alice, cpAB)
+	ht.CloseChannel(bob, cpBC)
+	ht.CloseChannel(carol, cpCD)
+}
+
+func interceptAndCheckEndorsed(ht *lntest.HarnessTest,
+	interceptor rpc.InterceptorClient, incomingEndorsed,
+	outgoingEndorsed routerrpc.HTLCEndorsement) {
+
+	respChan := make(chan *routerrpc.ForwardHtlcInterceptRequest, 1)
+	go func() {
+		defer close(respChan)
+
+		request, err := interceptor.Recv()
+		require.NoError(ht, err)
+
+		respChan <- request
+	}()
+
+	var request *routerrpc.ForwardHtlcInterceptRequest
+	select {
+	case request = <-respChan:
+		require.NotNil(ht, request)
+		require.Equal(ht, incomingEndorsed, request.Endorsed)
+
+	case <-time.After(defaultTimeout):
+		ht.Fatal("timeout waiting for interceptor")
+	}
+
+	err := interceptor.Send(&routerrpc.ForwardHtlcInterceptResponse{
+		IncomingCircuitKey: request.IncomingCircuitKey,
+		Action:             routerrpc.ResolveHoldForwardAction_RESUME,
+		Endorsed:           outgoingEndorsed,
+	})
+	require.NoError(ht, err, "interceptor resume request")
 }

@@ -26,6 +26,7 @@ var ErrPaymentLifecycleExiting = errors.New("payment lifecycle exiting")
 type paymentLifecycle struct {
 	router        *ChannelRouter
 	feeLimit      lnwire.MilliSatoshi
+	endorsed      bool
 	identifier    lntypes.Hash
 	paySession    PaymentSession
 	shardTracker  shards.ShardTracker
@@ -51,13 +52,14 @@ type paymentLifecycle struct {
 
 // newPaymentLifecycle initiates a new payment lifecycle and returns it.
 func newPaymentLifecycle(r *ChannelRouter, feeLimit lnwire.MilliSatoshi,
-	identifier lntypes.Hash, paySession PaymentSession,
+	endorsed bool, identifier lntypes.Hash, paySession PaymentSession,
 	shardTracker shards.ShardTracker, timeout time.Duration,
 	currentHeight int32) *paymentLifecycle {
 
 	p := &paymentLifecycle{
 		router:          r,
 		feeLimit:        feeLimit,
+		endorsed:        endorsed,
 		identifier:      identifier,
 		paySession:      paySession,
 		shardTracker:    shardTracker,
@@ -671,6 +673,7 @@ func (p *paymentLifecycle) sendAttempt(
 		Amount:      rt.TotalAmount,
 		Expiry:      rt.TotalTimeLock,
 		PaymentHash: *attempt.Hash,
+		Endorsed:    lnwire.EndorsementSignal(p.endorsed),
 	}
 
 	// Generate the raw encoded sphinx packet to be included along

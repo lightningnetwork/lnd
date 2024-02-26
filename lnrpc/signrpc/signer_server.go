@@ -293,7 +293,7 @@ func (s *Server) SignOutputRaw(_ context.Context, in *SignReq) (*SignResp,
 	)
 	txReader := bytes.NewReader(in.RawTxBytes)
 	if err := txToSign.Deserialize(txReader); err != nil {
-		return nil, fmt.Errorf("unable to decode tx: %v", err)
+		return nil, fmt.Errorf("unable to decode tx: %w", err)
 	}
 
 	var (
@@ -520,7 +520,7 @@ func (s *Server) ComputeInputScript(ctx context.Context,
 	var txToSign wire.MsgTx
 	txReader := bytes.NewReader(in.RawTxBytes)
 	if err := txToSign.Deserialize(txReader); err != nil {
-		return nil, fmt.Errorf("unable to decode tx: %v", err)
+		return nil, fmt.Errorf("unable to decode tx: %w", err)
 	}
 
 	var (
@@ -636,7 +636,7 @@ func (s *Server) SignMessage(_ context.Context,
 			in.SchnorrSigTapTweak, in.Tag,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("can't sign the hash: %v", err)
+			return nil, fmt.Errorf("can't sign the hash: %w", err)
 		}
 
 		sigParsed, err := schnorr.ParseSignature(sig.Serialize())
@@ -659,7 +659,7 @@ func (s *Server) SignMessage(_ context.Context,
 			keyLocator, in.Msg, in.DoubleHash,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("can't sign the hash: %v", err)
+			return nil, fmt.Errorf("can't sign the hash: %w", err)
 		}
 
 		return &SignMessageResp{
@@ -673,11 +673,11 @@ func (s *Server) SignMessage(_ context.Context,
 		keyLocator, in.Msg, in.DoubleHash,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("can't sign the hash: %v", err)
+		return nil, fmt.Errorf("can't sign the hash: %w", err)
 	}
 	wireSig, err := lnwire.NewSigFromSignature(sig)
 	if err != nil {
-		return nil, fmt.Errorf("can't convert to wire format: %v", err)
+		return nil, fmt.Errorf("can't convert to wire format: %w", err)
 	}
 	return &SignMessageResp{
 		Signature: wireSig.ToSignatureBytes(),
@@ -736,13 +736,13 @@ func (s *Server) VerifyMessage(_ context.Context,
 
 	pubkey, err := btcec.ParsePubKey(in.Pubkey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse pubkey: %v", err)
+		return nil, fmt.Errorf("unable to parse pubkey: %w", err)
 	}
 
 	// The signature must be fixed-size LN wire format encoded.
 	wireSig, err := lnwire.NewSigFromECDSARawSignature(in.Signature)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode signature: %v", err)
+		return nil, fmt.Errorf("failed to decode signature: %w", err)
 	}
 	sig, err := wireSig.ToSignature()
 	if err != nil {
@@ -772,7 +772,7 @@ func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 	// Check that EphemeralPubkey is valid.
 	ephemeralPubkey, err := parseRawKeyBytes(in.EphemeralPubkey)
 	if err != nil {
-		return nil, fmt.Errorf("error in ephemeral pubkey: %v", err)
+		return nil, fmt.Errorf("error in ephemeral pubkey: %w", err)
 	}
 	if ephemeralPubkey == nil {
 		return nil, fmt.Errorf("must provide ephemeral pubkey")
@@ -820,7 +820,7 @@ func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 	// *btcec.PublicKey is returned instead.
 	pk, err := parseRawKeyBytes(rawKeyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("error in raw pubkey: %v", err)
+		return nil, fmt.Errorf("error in raw pubkey: %w", err)
 	}
 
 	// Create a key descriptor. When the KeyIndex is not specified, it uses
@@ -838,7 +838,7 @@ func (s *Server) DeriveSharedKey(_ context.Context, in *SharedKeyRequest) (
 	// compressed shared point.
 	sharedKeyHash, err := s.cfg.KeyRing.ECDH(keyDescriptor, ephemeralPubkey)
 	if err != nil {
-		err := fmt.Errorf("unable to derive shared key: %v", err)
+		err := fmt.Errorf("unable to derive shared key: %w", err)
 		log.Error(err)
 		return nil, err
 	}
@@ -883,7 +883,7 @@ func (s *Server) MuSig2CombineKeys(_ context.Context,
 		version, allSignerPubKeys, true, tweaks,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error combining keys: %v", err)
+		return nil, fmt.Errorf("error combining keys: %w", err)
 	}
 
 	var internalKeyBytes []byte
@@ -1008,7 +1008,7 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 		in.OtherSignerPublicNonces, true,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing other nonces: %v", err)
+		return nil, fmt.Errorf("error parsing other nonces: %w", err)
 	}
 
 	// Are there any tweaks to apply to the combined public key?
@@ -1024,7 +1024,7 @@ func (s *Server) MuSig2CreateSession(_ context.Context,
 		localNonces,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error registering session: %v", err)
+		return nil, fmt.Errorf("error registering session: %w", err)
 	}
 
 	var internalKeyBytes []byte
@@ -1054,7 +1054,7 @@ func (s *Server) MuSig2RegisterNonces(_ context.Context,
 	// Check session ID length.
 	sessionID, err := parseMuSig2SessionID(in.SessionId)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing session ID: %v", err)
+		return nil, fmt.Errorf("error parsing session ID: %w", err)
 	}
 
 	// Parse the other signing participants' nonces. We can't validate the
@@ -1067,7 +1067,7 @@ func (s *Server) MuSig2RegisterNonces(_ context.Context,
 		in.OtherSignerPublicNonces, false,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing other nonces: %v", err)
+		return nil, fmt.Errorf("error parsing other nonces: %w", err)
 	}
 
 	// Register the nonces now.
@@ -1075,7 +1075,7 @@ func (s *Server) MuSig2RegisterNonces(_ context.Context,
 		sessionID, otherSignerNonces,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error registering nonces: %v", err)
+		return nil, fmt.Errorf("error registering nonces: %w", err)
 	}
 
 	return &MuSig2RegisterNoncesResponse{HaveAllNonces: haveAllNonces}, nil
@@ -1093,7 +1093,7 @@ func (s *Server) MuSig2Sign(_ context.Context,
 	// Check session ID length.
 	sessionID, err := parseMuSig2SessionID(in.SessionId)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing session ID: %v", err)
+		return nil, fmt.Errorf("error parsing session ID: %w", err)
 	}
 
 	// Schnorr signatures only work reliably if the message is 32 bytes.
@@ -1107,12 +1107,12 @@ func (s *Server) MuSig2Sign(_ context.Context,
 	// Create our own partial signature with the local signing key.
 	partialSig, err := s.cfg.Signer.MuSig2Sign(sessionID, msg, in.Cleanup)
 	if err != nil {
-		return nil, fmt.Errorf("error signing: %v", err)
+		return nil, fmt.Errorf("error signing: %w", err)
 	}
 
 	serializedPartialSig, err := input.SerializePartialSignature(partialSig)
 	if err != nil {
-		return nil, fmt.Errorf("error serializing sig: %v", err)
+		return nil, fmt.Errorf("error serializing sig: %w", err)
 	}
 
 	return &MuSig2SignResponse{
@@ -1129,7 +1129,7 @@ func (s *Server) MuSig2CombineSig(_ context.Context,
 	// Check session ID length.
 	sessionID, err := parseMuSig2SessionID(in.SessionId)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing session ID: %v", err)
+		return nil, fmt.Errorf("error parsing session ID: %w", err)
 	}
 
 	// Parse all other signatures. This can be called multiple times, so we
@@ -1149,7 +1149,7 @@ func (s *Server) MuSig2CombineSig(_ context.Context,
 		sessionID, partialSigs,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error combining signatures: %v", err)
+		return nil, fmt.Errorf("error combining signatures: %w", err)
 	}
 
 	resp := &MuSig2CombineSigResponse{
@@ -1170,12 +1170,12 @@ func (s *Server) MuSig2Cleanup(_ context.Context,
 	// Check session ID length.
 	sessionID, err := parseMuSig2SessionID(in.SessionId)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing session ID: %v", err)
+		return nil, fmt.Errorf("error parsing session ID: %w", err)
 	}
 
 	err = s.cfg.Signer.MuSig2Cleanup(sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("error cleaning up session: %v", err)
+		return nil, fmt.Errorf("error cleaning up session: %w", err)
 	}
 
 	return &MuSig2CleanupResponse{}, nil

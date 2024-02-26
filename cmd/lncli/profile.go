@@ -174,7 +174,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	}
 	mac := &macaroon.Macaroon{}
 	if err = mac.UnmarshalBinary(macBytes); err != nil {
-		return nil, fmt.Errorf("unable to decode macaroon: %v", err)
+		return nil, fmt.Errorf("unable to decode macaroon: %w", err)
 	}
 
 	var pw []byte
@@ -193,7 +193,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	}
 	macEntry := &macaroonEntry{}
 	if err = macEntry.storeMacaroon(mac, pw); err != nil {
-		return nil, fmt.Errorf("unable to store macaroon: %v", err)
+		return nil, fmt.Errorf("unable to store macaroon: %w", err)
 	}
 
 	// We determine the name of the macaroon from the file itself but cut
@@ -241,7 +241,7 @@ func loadProfileFile(file string) (*profileFile, error) {
 func saveProfileFile(file string, f *profileFile) error {
 	content, err := f.marshalJSON()
 	if err != nil {
-		return fmt.Errorf("could not marshal profile: %v", err)
+		return fmt.Errorf("could not marshal profile: %w", err)
 	}
 	return ioutil.WriteFile(file, content, 0644)
 }
@@ -269,7 +269,7 @@ func (f *profileFile) marshalJSON() ([]byte, error) {
 	var out bytes.Buffer
 	err = json.Indent(&out, b, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("error indenting profile JSON: %v", err)
+		return nil, fmt.Errorf("error indenting profile JSON: %w", err)
 	}
 	out.WriteString("\n")
 	return out.Bytes(), nil

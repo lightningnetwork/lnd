@@ -609,7 +609,8 @@ func (n *NeutrinoNotifier) historicalConfDetails(confRequest chainntnfs.ConfRequ
 		key := builder.DeriveKey(blockHash)
 		match, err := regFilter.Match(key, confRequest.PkScript.Script())
 		if err != nil {
-			return nil, fmt.Errorf("unable to query filter: %v", err)
+			return nil, fmt.Errorf("unable to query filter: %w",
+				err)
 		}
 
 		// If there's no match, then we can continue forward to the
@@ -623,7 +624,8 @@ func (n *NeutrinoNotifier) historicalConfDetails(confRequest chainntnfs.ConfRequ
 		// to send the proper response.
 		block, err := n.GetBlock(*blockHash)
 		if err != nil {
-			return nil, fmt.Errorf("unable to get block from network: %v", err)
+			return nil, fmt.Errorf("unable to get block from "+
+				"network: %w", err)
 		}
 
 		// For every transaction in the block, check which one matches
@@ -663,11 +665,11 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 	// result in the items we care about being dispatched.
 	rawBlock, err := n.GetBlock(newBlock.hash)
 	if err != nil {
-		return fmt.Errorf("unable to get full block: %v", err)
+		return fmt.Errorf("unable to get full block: %w", err)
 	}
 	err = n.txNotifier.ConnectTip(rawBlock, newBlock.height)
 	if err != nil {
-		return fmt.Errorf("unable to connect tip: %v", err)
+		return fmt.Errorf("unable to connect tip: %w", err)
 	}
 
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", newBlock.height,
@@ -692,7 +694,7 @@ func (n *NeutrinoNotifier) handleBlockConnected(newBlock *filteredBlock) error {
 func (n *NeutrinoNotifier) getFilteredBlock(epoch chainntnfs.BlockEpoch) (*filteredBlock, error) {
 	rawBlock, err := n.GetBlock(*epoch.Hash)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get block: %v", err)
+		return nil, fmt.Errorf("unable to get block: %w", err)
 	}
 
 	txns := rawBlock.Transactions()
@@ -800,7 +802,7 @@ func (n *NeutrinoNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 	if err != nil {
-		return nil, fmt.Errorf("unable to update filter: %v", err)
+		return nil, fmt.Errorf("unable to update filter: %w", err)
 	}
 
 	// If the txNotifier didn't return any details to perform a historical
@@ -937,7 +939,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	params := n.p2pNode.ChainParams()
 	_, addrs, _, err := txscript.ExtractPkScriptAddrs(pkScript, &params)
 	if err != nil {
-		return nil, fmt.Errorf("unable to extract script: %v", err)
+		return nil, fmt.Errorf("unable to extract script: %w", err)
 	}
 
 	// We'll send the filter update request to the notifier's main event
@@ -962,7 +964,7 @@ func (n *NeutrinoNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 		return nil, chainntnfs.ErrChainNotifierShuttingDown
 	}
 	if err != nil {
-		return nil, fmt.Errorf("unable to update filter: %v", err)
+		return nil, fmt.Errorf("unable to update filter: %w", err)
 	}
 
 	// If a historical rescan was not requested by the txNotifier, then we

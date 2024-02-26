@@ -360,7 +360,7 @@ func (s *UtxoSweeper) Start() error {
 	// if we don't provide any epoch. We'll wait for that in the collector.
 	blockEpochs, err := s.cfg.Notifier.RegisterBlockEpochNtfn(nil)
 	if err != nil {
-		return fmt.Errorf("register block epoch ntfn: %v", err)
+		return fmt.Errorf("register block epoch ntfn: %w", err)
 	}
 
 	// Start sweeper main loop.
@@ -1157,7 +1157,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	if s.currentOutputScript == nil {
 		pkScript, err := s.cfg.GenSweepScript()
 		if err != nil {
-			return fmt.Errorf("gen sweep script: %v", err)
+			return fmt.Errorf("gen sweep script: %w", err)
 		}
 		s.currentOutputScript = pkScript
 	}
@@ -1168,7 +1168,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 		feeRate, s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
 	)
 	if err != nil {
-		return fmt.Errorf("create sweep tx: %v", err)
+		return fmt.Errorf("create sweep tx: %w", err)
 	}
 
 	// Add tx before publication, so that we will always know that a spend
@@ -1178,7 +1178,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	// then and would also not add the hash to the store.
 	err = s.cfg.Store.NotifyPublishTx(tx)
 	if err != nil {
-		return fmt.Errorf("notify publish tx: %v", err)
+		return fmt.Errorf("notify publish tx: %w", err)
 	}
 
 	// Reschedule the inputs that we just tried to sweep. This is done in
@@ -1268,7 +1268,7 @@ func (s *UtxoSweeper) monitorSpend(outpoint wire.OutPoint,
 		&outpoint, script, heightHint,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("register spend ntfn: %v", err)
+		return nil, fmt.Errorf("register spend ntfn: %w", err)
 	}
 
 	s.wg.Add(1)

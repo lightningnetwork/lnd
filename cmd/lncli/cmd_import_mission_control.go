@@ -43,12 +43,12 @@ func importMissionControl(ctx *cli.Context) error {
 
 	sourceNode, err := route.NewVertexFromStr(args[0])
 	if err != nil {
-		return fmt.Errorf("please provide valid source node: %v", err)
+		return fmt.Errorf("please provide valid source node: %w", err)
 	}
 
 	destNode, err := route.NewVertexFromStr(args[1])
 	if err != nil {
-		return fmt.Errorf("please provide valid dest node: %v", err)
+		return fmt.Errorf("please provide valid dest node: %w", err)
 	}
 
 	ts, err := strconv.ParseInt(args[2], 10, 64)
@@ -63,7 +63,7 @@ func importMissionControl(ctx *cli.Context) error {
 
 	amt, err := strconv.ParseInt(args[3], 10, 64)
 	if err != nil {
-		return fmt.Errorf("please provide amount in msat: %v", err)
+		return fmt.Errorf("please provide amount in msat: %w", err)
 	}
 
 	if amt <= 0 {

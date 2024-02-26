@@ -334,18 +334,18 @@ func setupTestLogs(db kvdb.Backend, c *mig26.OpenChannel,
 
 		// Save channel info.
 		if err := mig26.PutChanInfo(chanBucket, c, false); err != nil {
-			return fmt.Errorf("PutChanInfo got %v", err)
+			return fmt.Errorf("PutChanInfo got %w", err)
 		}
 
 		// Save revocation state.
 		if err := putChanRevocationState(chanBucket, c); err != nil {
-			return fmt.Errorf("putChanRevocationState got %v", err)
+			return fmt.Errorf("putChanRevocationState got %w", err)
 		}
 
 		// Create old logs.
 		err = writeOldRevocationLogs(chanBucket, oldLogs)
 		if err != nil {
-			return fmt.Errorf("write old logs: %v", err)
+			return fmt.Errorf("write old logs: %w", err)
 		}
 
 		// Create new logs.

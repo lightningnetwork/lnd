@@ -99,7 +99,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	// created from the global options in the CLI context.
 	profile, err := getGlobalOptions(ctx, skipMacaroons)
 	if err != nil {
-		fatal(fmt.Errorf("could not load global options: %v", err))
+		fatal(fmt.Errorf("could not load global options: %w", err))
 	}
 
 	// Create a dial options array.
@@ -118,7 +118,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		// Load the specified TLS certificate.
 		certPool, err := profile.cert()
 		if err != nil {
-			fatal(fmt.Errorf("could not create cert pool: %v", err))
+			fatal(fmt.Errorf("could not create cert pool: %w", err))
 		}
 
 		// Build transport credentials from the certificate pool. If
@@ -164,7 +164,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		// don't need to ask for it every time.
 		mac, err := macEntry.loadMacaroon(readPassword)
 		if err != nil {
-			fatal(fmt.Errorf("could not load macaroon: %v", err))
+			fatal(fmt.Errorf("could not load macaroon: %w", err))
 		}
 
 		macConstraints := []macaroons.Constraint{
@@ -199,7 +199,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		// Now we append the macaroon credentials to the dial options.
 		cred, err := macaroons.NewMacaroonCredential(constrainedMac)
 		if err != nil {
-			fatal(fmt.Errorf("error cloning mac: %v", err))
+			fatal(fmt.Errorf("error cloning mac: %w", err))
 		}
 		opts = append(opts, grpc.WithPerRPCCredentials(cred))
 	}
@@ -228,7 +228,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 
 	conn, err := grpc.Dial(profile.RPCServer, opts...)
 	if err != nil {
-		fatal(fmt.Errorf("unable to connect to RPC server: %v", err))
+		fatal(fmt.Errorf("unable to connect to RPC server: %w", err))
 	}
 
 	return conn

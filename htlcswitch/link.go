@@ -3545,7 +3545,7 @@ func (l *channelLink) settleHTLC(preimage lntypes.Preimage,
 		preimage, pd.HtlcIndex, pd.SourceRef, nil, nil,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to settle htlc: %v", err)
+		return fmt.Errorf("unable to settle htlc: %w", err)
 	}
 
 	// If the link is in hodl.BogusSettle mode, replace the preimage with a

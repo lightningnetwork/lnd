@@ -1045,7 +1045,8 @@ func TestGossipSyncerReplyChanRangeQueryBlockRange(t *testing.T) {
 	go func() {
 		for _, query := range queryReqs {
 			if err := syncer.replyChanRangeQuery(query); err != nil {
-				errCh <- fmt.Errorf("unable to issue query: %v", err)
+				errCh <- fmt.Errorf("unable to issue query: %w",
+					err)
 				return
 			}
 		}

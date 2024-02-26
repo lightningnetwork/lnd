@@ -72,7 +72,7 @@ func FetchBackupForChan(chanPoint wire.OutPoint, chanSource LiveChannelSource,
 	// the source to obtain any extra information that we may need.
 	staticChanBackup, err := assembleChanBackup(addrSource, targetChan)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create chan backup: %v", err)
+		return nil, fmt.Errorf("unable to create chan backup: %w", err)
 	}
 
 	return staticChanBackup, nil

@@ -92,7 +92,7 @@ func (m Multi) PackToWriter(w io.Writer, keyRing keychain.KeyRing) error {
 	// directly to the passed writer.
 	e, err := lnencrypt.KeyRingEncrypter(keyRing)
 	if err != nil {
-		return fmt.Errorf("unable to generate encrypt key %v", err)
+		return fmt.Errorf("unable to generate encrypt key %w", err)
 	}
 
 	return e.EncryptPayloadToWriter(multiBackupBuffer.Bytes(), w)
@@ -107,7 +107,7 @@ func (m *Multi) UnpackFromReader(r io.Reader, keyRing keychain.KeyRing) error {
 	// encryption keys.
 	e, err := lnencrypt.KeyRingEncrypter(keyRing)
 	if err != nil {
-		return fmt.Errorf("unable to generate encrypt key %v", err)
+		return fmt.Errorf("unable to generate encrypt key %w", err)
 	}
 	plaintextBackup, err := e.DecryptPayloadFromReader(r)
 	if err != nil {

@@ -413,13 +413,13 @@ func (n *sessionNegotiator) tryAddress(sessionKey keychain.SingleKeyECDH,
 	// Send local Init message.
 	err = n.cfg.SendMessage(conn, n.localInit)
 	if err != nil {
-		return fmt.Errorf("unable to send Init: %v", err)
+		return fmt.Errorf("unable to send Init: %w", err)
 	}
 
 	// Receive remote Init message.
 	remoteMsg, err := n.cfg.ReadMessage(conn)
 	if err != nil {
-		return fmt.Errorf("unable to read Init: %v", err)
+		return fmt.Errorf("unable to read Init: %w", err)
 	}
 
 	// Check that returned message is wtwire.Init.
@@ -446,13 +446,13 @@ func (n *sessionNegotiator) tryAddress(sessionKey keychain.SingleKeyECDH,
 	// Send CreateSession message.
 	err = n.cfg.SendMessage(conn, createSession)
 	if err != nil {
-		return fmt.Errorf("unable to send CreateSession: %v", err)
+		return fmt.Errorf("unable to send CreateSession: %w", err)
 	}
 
 	// Receive CreateSessionReply message.
 	remoteMsg, err = n.cfg.ReadMessage(conn)
 	if err != nil {
-		return fmt.Errorf("unable to read CreateSessionReply: %v", err)
+		return fmt.Errorf("unable to read CreateSessionReply: %w", err)
 	}
 
 	// Check that returned message is wtwire.CreateSessionReply.

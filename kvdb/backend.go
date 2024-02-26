@@ -157,10 +157,10 @@ func compactAndSwap(cfg *BoltBackendConfig) error {
 	// temporary DB file and close it before we write the new DB to it.
 	tempFile, err := os.Create(tempDestFilePath)
 	if err != nil {
-		return fmt.Errorf("unable to create temp DB file: %v", err)
+		return fmt.Errorf("unable to create temp DB file: %w", err)
 	}
 	if err := tempFile.Close(); err != nil {
-		return fmt.Errorf("unable to close file: %v", err)
+		return fmt.Errorf("unable to close file: %w", err)
 	}
 
 	// With the file created, we'll start the compaction and remove the
@@ -178,7 +178,7 @@ func compactAndSwap(cfg *BoltBackendConfig) error {
 	}
 	initialSize, newSize, err := c.execute()
 	if err != nil {
-		return fmt.Errorf("error during compact: %v", err)
+		return fmt.Errorf("error during compact: %w", err)
 	}
 
 	log.Infof("DB compaction of %v successful, %d -> %d bytes (gain=%.2fx)",

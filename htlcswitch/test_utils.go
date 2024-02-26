@@ -1173,7 +1173,7 @@ func (h *hopNetwork) createChannelLink(server, peer *mockServer,
 		channel,
 	)
 	if err := server.htlcSwitch.AddLink(link); err != nil {
-		return nil, fmt.Errorf("unable to add channel link: %v", err)
+		return nil, fmt.Errorf("unable to add channel link: %w", err)
 	}
 
 	go func() {

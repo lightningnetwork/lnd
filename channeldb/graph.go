@@ -385,7 +385,7 @@ func initChannelGraph(db kvdb.Backend) error {
 		return err
 	}, func() {})
 	if err != nil {
-		return fmt.Errorf("unable to create new channel graph: %v", err)
+		return fmt.Errorf("unable to create new channel graph: %w", err)
 	}
 
 	return nil

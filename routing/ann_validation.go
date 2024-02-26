@@ -143,7 +143,7 @@ func VerifyChannelUpdateSignature(msg *lnwire.ChannelUpdate,
 
 	data, err := msg.DataToSign()
 	if err != nil {
-		return fmt.Errorf("unable to reconstruct message data: %v", err)
+		return fmt.Errorf("unable to reconstruct message data: %w", err)
 	}
 	dataHash := chainhash.DoubleHashB(data)
 

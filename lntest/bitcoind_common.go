@@ -107,7 +107,7 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 	tempBitcoindDir, err := ioutil.TempDir("", "bitcoind")
 	if err != nil {
 		return nil, nil,
-			fmt.Errorf("unable to create temp directory: %v", err)
+			fmt.Errorf("unable to create temp directory: %w", err)
 	}
 
 	zmqBlockAddr := fmt.Sprintf("tcp://127.0.0.1:%d",
@@ -138,7 +138,7 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 			fmt.Printf("unable to remote temp dir %v: %v",
 				tempBitcoindDir, err)
 		}
-		return nil, nil, fmt.Errorf("couldn't start bitcoind: %v", err)
+		return nil, nil, fmt.Errorf("couldn't start bitcoind: %w", err)
 	}
 
 	cleanUp := func() error {

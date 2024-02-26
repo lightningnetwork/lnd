@@ -6796,10 +6796,10 @@ func compareLogs(a, b *updateLog) error {
 	}
 
 	if err := compareIndexes(a.updateIndex, b.updateIndex); err != nil {
-		return fmt.Errorf("update indexes don't match: %v", err)
+		return fmt.Errorf("update indexes don't match: %w", err)
 	}
 	if err := compareIndexes(a.htlcIndex, b.htlcIndex); err != nil {
-		return fmt.Errorf("htlc indexes don't match: %v", err)
+		return fmt.Errorf("htlc indexes don't match: %w", err)
 	}
 
 	if a.Len() != b.Len() {

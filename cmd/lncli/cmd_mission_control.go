@@ -312,17 +312,17 @@ func queryProb(ctx *cli.Context) error {
 
 	fromNode, err := route.NewVertexFromStr(args.Get(0))
 	if err != nil {
-		return fmt.Errorf("invalid from node key: %v", err)
+		return fmt.Errorf("invalid from node key: %w", err)
 	}
 
 	toNode, err := route.NewVertexFromStr(args.Get(1))
 	if err != nil {
-		return fmt.Errorf("invalid to node key: %v", err)
+		return fmt.Errorf("invalid to node key: %w", err)
 	}
 
 	amtSat, err := strconv.ParseUint(args.Get(2), 10, 64)
 	if err != nil {
-		return fmt.Errorf("invalid amt: %v", err)
+		return fmt.Errorf("invalid amt: %w", err)
 	}
 
 	amtMsat := lnwire.NewMSatFromSatoshis(

@@ -1434,7 +1434,7 @@ func (w *WalletKit) fundPsbtInternalWallet(account string,
 			packet, minConfs, feeSatPerKW, account, keyScope,
 		)
 		if err != nil {
-			return fmt.Errorf("wallet couldn't fund PSBT: %v", err)
+			return fmt.Errorf("wallet couldn't fund PSBT: %w", err)
 		}
 
 		// Now we have obtained a set of coins that can be used to fund
@@ -1865,7 +1865,7 @@ func (w *WalletKit) SignPsbt(_ context.Context, req *SignPsbtRequest) (
 	if err != nil {
 		log.Debugf("Error parsing PSBT: %v, raw input: %x", err,
 			req.FundedPsbt)
-		return nil, fmt.Errorf("error parsing PSBT: %v", err)
+		return nil, fmt.Errorf("error parsing PSBT: %w", err)
 	}
 
 	// Before we attempt to sign the packet, ensure that every input either
@@ -1886,14 +1886,14 @@ func (w *WalletKit) SignPsbt(_ context.Context, req *SignPsbtRequest) (
 	// witness data attached, they will just be skipped.
 	signedInputs, err := w.cfg.Wallet.SignPsbt(packet)
 	if err != nil {
-		return nil, fmt.Errorf("error signing PSBT: %v", err)
+		return nil, fmt.Errorf("error signing PSBT: %w", err)
 	}
 
 	// Serialize the signed PSBT in both the packet and wire format.
 	var signedPsbtBytes bytes.Buffer
 	err = packet.Serialize(&signedPsbtBytes)
 	if err != nil {
-		return nil, fmt.Errorf("error serializing PSBT: %v", err)
+		return nil, fmt.Errorf("error serializing PSBT: %w", err)
 	}
 
 	return &SignPsbtResponse{
@@ -1928,7 +1928,7 @@ func (w *WalletKit) FinalizePsbt(_ context.Context,
 		bytes.NewReader(req.FundedPsbt), false,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing PSBT: %v", err)
+		return nil, fmt.Errorf("error parsing PSBT: %w", err)
 	}
 
 	// The only check done at this level is to validate that the PSBT is
@@ -1942,7 +1942,7 @@ func (w *WalletKit) FinalizePsbt(_ context.Context,
 	// witness data attached, this will fail.
 	err = w.cfg.Wallet.FinalizePsbt(packet, account)
 	if err != nil {
-		return nil, fmt.Errorf("error finalizing PSBT: %v", err)
+		return nil, fmt.Errorf("error finalizing PSBT: %w", err)
 	}
 
 	var (
@@ -1953,15 +1953,15 @@ func (w *WalletKit) FinalizePsbt(_ context.Context,
 	// Serialize the finalized PSBT in both the packet and wire format.
 	err = packet.Serialize(&finalPsbtBytes)
 	if err != nil {
-		return nil, fmt.Errorf("error serializing PSBT: %v", err)
+		return nil, fmt.Errorf("error serializing PSBT: %w", err)
 	}
 	finalTx, err := psbt.Extract(packet)
 	if err != nil {
-		return nil, fmt.Errorf("unable to extract final TX: %v", err)
+		return nil, fmt.Errorf("unable to extract final TX: %w", err)
 	}
 	err = finalTx.Serialize(&finalTxBytes)
 	if err != nil {
-		return nil, fmt.Errorf("error serializing final TX: %v", err)
+		return nil, fmt.Errorf("error serializing final TX: %w", err)
 	}
 
 	return &FinalizePsbtResponse{
@@ -2544,7 +2544,7 @@ func (w *WalletKit) ImportTapscript(_ context.Context,
 
 	internalKey, err := schnorr.ParsePubKey(req.InternalPublicKey)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing internal key: %v", err)
+		return nil, fmt.Errorf("error parsing internal key: %w", err)
 	}
 
 	var tapscript *waddrmgr.Tapscript

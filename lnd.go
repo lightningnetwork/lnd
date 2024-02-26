@@ -72,7 +72,7 @@ func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption,
 
 	creds, err := credentials.NewClientTLSFromFile(cfg.TLSCertPath, "")
 	if err != nil {
-		return nil, fmt.Errorf("unable to read TLS cert: %v", err)
+		return nil, fmt.Errorf("unable to read TLS cert: %w", err)
 	}
 
 	// Create a dial options array.
@@ -98,7 +98,7 @@ func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption,
 		// Now we append the macaroon credentials to the dial options.
 		cred, err := macaroons.NewMacaroonCredential(mac)
 		if err != nil {
-			return nil, fmt.Errorf("error cloning mac: %v", err)
+			return nil, fmt.Errorf("error cloning mac: %w", err)
 		}
 		opts = append(opts, grpc.WithPerRPCCredentials(cred))
 	}

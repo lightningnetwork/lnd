@@ -72,7 +72,7 @@ func (c *batchChannel) processPendingUpdate(u *lnrpc.OpenStatusUpdate) error {
 
 	hash, err := chainhash.NewHash(pendingUpd.Txid)
 	if err != nil {
-		return fmt.Errorf("could not parse outpoint TX hash: %v", err)
+		return fmt.Errorf("could not parse outpoint TX hash: %w", err)
 	}
 
 	c.chanPoint = &wire.OutPoint{
@@ -373,7 +373,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 			channel.pendingChanID, unsignedPacket, false,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error verifying PSBT: %v", err)
+			return nil, fmt.Errorf("error verifying PSBT: %w", err)
 		}
 	}
 
@@ -391,7 +391,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 	finalTx := &wire.MsgTx{}
 	txReader := bytes.NewReader(finalizePsbtResp.RawFinalTx)
 	if err := finalTx.Deserialize(txReader); err != nil {
-		return nil, fmt.Errorf("error parsing signed raw TX: %v", err)
+		return nil, fmt.Errorf("error parsing signed raw TX: %w", err)
 	}
 	log.Tracef("[batchopenchannel] signed PSBT: %s",
 		base64.StdEncoding.EncodeToString(finalizePsbtResp.SignedPsbt))
@@ -403,7 +403,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 			channel.pendingChanID, nil, finalTx,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error finalizing PSBT: %v", err)
+			return nil, fmt.Errorf("error finalizing PSBT: %w", err)
 		}
 	}
 

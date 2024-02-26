@@ -37,7 +37,7 @@ func (n *NodeSigner) SignMessage(keyLoc keychain.KeyLocator,
 	// Otherwise, we'll sign the double-sha256 of the target message.
 	sig, err := n.keySigner.SignMessage(msg, doubleHash)
 	if err != nil {
-		return nil, fmt.Errorf("can't sign the message: %v", err)
+		return nil, fmt.Errorf("can't sign the message: %w", err)
 	}
 
 	return sig, nil

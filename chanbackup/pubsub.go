@@ -226,7 +226,7 @@ func (s *SubSwapper) updateBackupFile(closedChans ...wire.OutPoint) error {
 	var b bytes.Buffer
 	err = newMulti.PackToWriter(&b, s.keyRing)
 	if err != nil {
-		return fmt.Errorf("unable to pack multi backup: %v", err)
+		return fmt.Errorf("unable to pack multi backup: %w", err)
 	}
 
 	// Finally, we'll swap out the old backup for this new one in a single
@@ -234,7 +234,7 @@ func (s *SubSwapper) updateBackupFile(closedChans ...wire.OutPoint) error {
 	// channels.
 	err = s.Swapper.UpdateAndSwap(PackedMulti(b.Bytes()))
 	if err != nil {
-		return fmt.Errorf("unable to update multi backup: %v", err)
+		return fmt.Errorf("unable to update multi backup: %w", err)
 	}
 
 	return nil

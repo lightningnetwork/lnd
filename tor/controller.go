@@ -161,7 +161,7 @@ func (c *Controller) Start() error {
 
 	conn, err := textproto.Dial("tcp", c.controlAddr)
 	if err != nil {
-		return fmt.Errorf("unable to connect to Tor server: %v", err)
+		return fmt.Errorf("unable to connect to Tor server: %w", err)
 	}
 
 	c.conn = conn
@@ -507,7 +507,7 @@ func (c *Controller) authenticateViaSafeCookie(info protocolInfo) error {
 	// the AUTHCHALLENGE command followed by a hex-encoded 32-byte nonce.
 	clientNonce := make([]byte, nonceLen)
 	if _, err := rand.Read(clientNonce); err != nil {
-		return fmt.Errorf("unable to generate client nonce: %v", err)
+		return fmt.Errorf("unable to generate client nonce: %w", err)
 	}
 
 	cmd := fmt.Sprintf("AUTHCHALLENGE SAFECOOKIE %x", clientNonce)
@@ -536,7 +536,7 @@ func (c *Controller) authenticateViaSafeCookie(info protocolInfo) error {
 	}
 	decodedServerHash, err := hex.DecodeString(serverHash)
 	if err != nil {
-		return fmt.Errorf("unable to decode server hash: %v", err)
+		return fmt.Errorf("unable to decode server hash: %w", err)
 	}
 	if len(decodedServerHash) != sha256.Size {
 		return errors.New("invalid server hash length")
@@ -548,7 +548,7 @@ func (c *Controller) authenticateViaSafeCookie(info protocolInfo) error {
 	}
 	decodedServerNonce, err := hex.DecodeString(serverNonce)
 	if err != nil {
-		return fmt.Errorf("unable to decode server nonce: %v", err)
+		return fmt.Errorf("unable to decode server nonce: %w", err)
 	}
 	if len(decodedServerNonce) != nonceLen {
 		return errors.New("invalid server nonce length")

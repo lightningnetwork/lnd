@@ -34,7 +34,7 @@ func NewProtoOutPoint(op string) (*lnrpc.OutPoint, error) {
 	}
 	outputIndex, err := strconv.Atoi(parts[1])
 	if err != nil {
-		return nil, fmt.Errorf("invalid output index: %v", err)
+		return nil, fmt.Errorf("invalid output index: %w", err)
 	}
 	return &lnrpc.OutPoint{
 		TxidStr:     txid,

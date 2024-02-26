@@ -67,7 +67,8 @@ func randPubKeyHashScript() ([]byte, *btcec.PrivateKey, error) {
 func GetTestTxidAndScript(h *rpctest.Harness) (*chainhash.Hash, []byte, error) {
 	pkScript, _, err := randPubKeyHashScript()
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to generate pkScript: %v", err)
+		return nil, nil, fmt.Errorf("unable to generate pkScript: %w",
+			err)
 	}
 	output := &wire.TxOut{Value: 2e8, PkScript: pkScript}
 	txid, err := h.SendOutputs([]*wire.TxOut{output}, 10)

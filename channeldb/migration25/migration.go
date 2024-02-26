@@ -86,7 +86,7 @@ func findOpenChannels(openChanBucket kvdb.RBucket) ([]*OpenChannel, error) {
 		}
 		// Get the old channel info.
 		if err := fetchChanInfo(chanBucket, c, true); err != nil {
-			return fmt.Errorf("unable to fetch chan info: %v", err)
+			return fmt.Errorf("unable to fetch chan info: %w", err)
 		}
 
 		// Fetch the channel commitments, which are useful for freshly
@@ -154,7 +154,7 @@ func migrateBalances(tx kvdb.RwTx, c *OpenChannel) error {
 	// Get the initial balances.
 	localAmt, remoteAmt, err := c.balancesAtHeight(chanBucket, 0)
 	if err != nil {
-		return fmt.Errorf("unable to get initial balances: %v", err)
+		return fmt.Errorf("unable to get initial balances: %w", err)
 	}
 
 	c.InitialLocalBalance = localAmt
@@ -162,7 +162,7 @@ func migrateBalances(tx kvdb.RwTx, c *OpenChannel) error {
 
 	// Update the channel info.
 	if err := putChanInfo(chanBucket, c, false); err != nil {
-		return fmt.Errorf("unable to put chan info: %v", err)
+		return fmt.Errorf("unable to put chan info: %w", err)
 	}
 
 	return nil

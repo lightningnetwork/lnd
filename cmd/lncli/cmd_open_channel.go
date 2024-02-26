@@ -382,7 +382,7 @@ func openChannel(ctx *cli.Context) error {
 			args.First(), 10, 64,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to decode local amt: %v", err)
+			return fmt.Errorf("unable to decode local amt: %w", err)
 		}
 		args = args.Tail()
 	case !ctx.Bool("fundmax"):
@@ -420,7 +420,7 @@ func openChannel(ctx *cli.Context) error {
 	} else if args.Present() {
 		req.PushSat, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			return fmt.Errorf("unable to decode push amt: %v", err)
+			return fmt.Errorf("unable to decode push amt: %w", err)
 		}
 	}
 
@@ -534,14 +534,14 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 	if basePsbt != "" {
 		basePsbtBytes, err = base64.StdEncoding.DecodeString(basePsbt)
 		if err != nil {
-			return fmt.Errorf("error parsing base PSBT: %v", err)
+			return fmt.Errorf("error parsing base PSBT: %w", err)
 		}
 	}
 
 	// Generate a new, random pending channel ID that we'll use as the main
 	// identifier when sending update messages to the RPC server.
 	if _, err := rand.Read(pendingChanID[:]); err != nil {
-		return fmt.Errorf("unable to generate random chan ID: %v", err)
+		return fmt.Errorf("unable to generate random chan ID: %w", err)
 	}
 	fmt.Printf("Starting PSBT funding flow with pending channel ID %x.\n",
 		pendingChanID)
@@ -591,7 +591,7 @@ func openChannelPsbt(rpcCtx context.Context, ctx *cli.Context,
 	// explicitly capture the signal.
 	stream, err := client.OpenChannel(ctxc, req)
 	if err != nil {
-		return fmt.Errorf("opening stream to server failed: %v", err)
+		return fmt.Errorf("opening stream to server failed: %w", err)
 	}
 
 	// We also need to spawn a goroutine that reads from the server. This
@@ -859,7 +859,7 @@ func batchOpenChannel(ctx *cli.Context) error {
 	// marshaler that keeps the original snake case.
 	var jsonChannels []*batchChannelJSON
 	if err := json.Unmarshal([]byte(args.First()), &jsonChannels); err != nil {
-		return fmt.Errorf("error parsing channels JSON: %v", err)
+		return fmt.Errorf("error parsing channels JSON: %w", err)
 	}
 
 	req.Channels = make([]*lnrpc.BatchOpenChannel, len(jsonChannels))

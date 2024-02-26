@@ -1659,7 +1659,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 			chanToUpdate.info, chanToUpdate.edge,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to update channel: %v", err)
+			return fmt.Errorf("unable to update channel: %w", err)
 		}
 
 		// If we have a valid announcement to transmit, then we'll send
@@ -1715,7 +1715,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 	// With all the wire announcements properly crafted, we'll broadcast
 	// our known outgoing channels to all our immediate peers.
 	if err := d.cfg.Broadcast(nil, signedUpdates...); err != nil {
-		return fmt.Errorf("unable to re-broadcast channels: %v", err)
+		return fmt.Errorf("unable to re-broadcast channels: %w", err)
 	}
 
 	return nil

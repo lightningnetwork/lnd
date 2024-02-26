@@ -264,7 +264,7 @@ func loadTestCredits(miner *rpctest.Harness, w *lnwallet.LightningWallet,
 	// give us btcPerOutput with each output.
 	satoshiPerOutput, err := btcutil.NewAmount(btcPerOutput)
 	if err != nil {
-		return fmt.Errorf("unable to create amt: %v", err)
+		return fmt.Errorf("unable to create amt: %w", err)
 	}
 	expectedBalance, err := w.ConfirmedBalance(1, lnwallet.DefaultAccountName)
 	if err != nil {
@@ -1511,11 +1511,11 @@ func scriptFromKey(pubkey *btcec.PublicKey) ([]byte, error) {
 		pubkeyHash, &chaincfg.RegressionNetParams,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create addr: %v", err)
+		return nil, fmt.Errorf("unable to create addr: %w", err)
 	}
 	keyScript, err := txscript.PayToAddrScript(keyAddr)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate script: %v", err)
+		return nil, fmt.Errorf("unable to generate script: %w", err)
 	}
 
 	return keyScript, nil
@@ -1526,17 +1526,17 @@ func mineAndAssert(r *rpctest.Harness, tx *wire.MsgTx) error {
 	txid := tx.TxHash()
 	err := waitForMempoolTx(r, &txid)
 	if err != nil {
-		return fmt.Errorf("tx not relayed to miner: %v", err)
+		return fmt.Errorf("tx not relayed to miner: %w", err)
 	}
 
 	blockHashes, err := r.Client.Generate(1)
 	if err != nil {
-		return fmt.Errorf("unable to generate block: %v", err)
+		return fmt.Errorf("unable to generate block: %w", err)
 	}
 
 	block, err := r.Client.GetBlock(blockHashes[0])
 	if err != nil {
-		return fmt.Errorf("unable to find block: %v", err)
+		return fmt.Errorf("unable to find block: %w", err)
 	}
 
 	if len(block.Transactions) != 2 {
@@ -1564,7 +1564,7 @@ func txFromOutput(tx *wire.MsgTx, signer input.Signer, fromPubKey,
 	// Generate the script we want to spend from.
 	keyScript, err := scriptFromKey(fromPubKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate script: %v", err)
+		return nil, fmt.Errorf("unable to generate script: %w", err)
 	}
 
 	// We assume the output was paid to the keyScript made earlier.
@@ -1599,7 +1599,7 @@ func txFromOutput(tx *wire.MsgTx, signer input.Signer, fromPubKey,
 	// Create a script to pay to.
 	payToScript, err := scriptFromKey(payToPubKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate script: %v", err)
+		return nil, fmt.Errorf("unable to generate script: %w", err)
 	}
 	tx1.AddTxOut(&wire.TxOut{
 		Value:    outputValue - int64(txFee),
@@ -1623,7 +1623,7 @@ func txFromOutput(tx *wire.MsgTx, signer input.Signer, fromPubKey,
 	// manually create a valid witness stack we'll use for signing.
 	spendSig, err := signer.SignOutputRaw(tx1, signDesc)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate signature: %v", err)
+		return nil, fmt.Errorf("unable to generate signature: %w", err)
 	}
 	witness := make([][]byte, 2)
 	witness[0] = append(spendSig.Serialize(), byte(txscript.SigHashAll))
@@ -1640,10 +1640,10 @@ func txFromOutput(tx *wire.MsgTx, signer input.Signer, fromPubKey,
 		),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to create engine: %v", err)
+		return nil, fmt.Errorf("unable to create engine: %w", err)
 	}
 	if err := vm.Execute(); err != nil {
-		return nil, fmt.Errorf("spend is invalid: %v", err)
+		return nil, fmt.Errorf("spend is invalid: %w", err)
 	}
 
 	return tx1, nil

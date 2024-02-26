@@ -287,7 +287,8 @@ func ParseLNAddressString(strAddress string, defaultPort string,
 	// Finally, parse the address string using our generic address parser.
 	addr, err := ParseAddressString(parsedAddr, defaultPort, tcpResolver)
 	if err != nil {
-		return nil, fmt.Errorf("invalid lightning address address: %v", err)
+		return nil, fmt.Errorf("invalid lightning address address: %w",
+			err)
 	}
 
 	return &lnwire.NetAddress{
@@ -316,7 +317,8 @@ func ParseLNAddressPubkey(strAddress string) (*btcec.PublicKey, string, error) {
 	// Decode the hex pubkey to get the raw compressed pubkey bytes.
 	pubKeyBytes, err := hex.DecodeString(parsedPubKey)
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid lightning address pubkey: %v", err)
+		return nil, "", fmt.Errorf("invalid lightning address "+
+			"pubkey: %w", err)
 	}
 
 	// The compressed pubkey should have a length of exactly 33 bytes.
@@ -329,7 +331,8 @@ func ParseLNAddressPubkey(strAddress string) (*btcec.PublicKey, string, error) {
 	// key on the secp256k1 curve.
 	pubKey, err := btcec.ParsePubKey(pubKeyBytes)
 	if err != nil {
-		return nil, "", fmt.Errorf("invalid lightning address pubkey: %v", err)
+		return nil, "", fmt.Errorf("invalid lightning address "+
+			"pubkey: %w", err)
 	}
 
 	return pubKey, parsedAddr, nil

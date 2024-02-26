@@ -63,7 +63,7 @@ func NewBoltBackendCreator(dbPath,
 
 		db, err := kvdb.GetBoltBackend(cfg)
 		if err != nil {
-			return nil, fmt.Errorf("could not open boltdb: %v", err)
+			return nil, fmt.Errorf("could not open boltdb: %w", err)
 		}
 
 		return db, nil

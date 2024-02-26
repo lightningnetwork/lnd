@@ -117,7 +117,7 @@ func MigrateRevocationLog(db kvdb.Backend, cfg MigrateRevLogConfig) error {
 	// make sure the logs are migrated as expected.
 	err = kvdb.Update(db, validateMigration, func() {})
 	if err != nil {
-		return fmt.Errorf("validate migration failed: %v", err)
+		return fmt.Errorf("validate migration failed: %w", err)
 	}
 
 	log.Info("Migration check passed, now deleting the old logs...")
@@ -125,7 +125,7 @@ func MigrateRevocationLog(db kvdb.Backend, cfg MigrateRevLogConfig) error {
 	// Once the migration completes, we can now safety delete the old
 	// revocation logs.
 	if err := deleteOldBuckets(db); err != nil {
-		return fmt.Errorf("deleteOldBuckets err: %v", err)
+		return fmt.Errorf("deleteOldBuckets err: %w", err)
 	}
 
 	log.Info("Old revocation log buckets removed!")
@@ -146,7 +146,7 @@ func processMigration(tx kvdb.RwTx, cfg MigrateRevLogConfig) (bool, error) {
 	// Locate the next migration height.
 	locator, err := locateNextUpdateNum(openChanBucket)
 	if err != nil {
-		return false, fmt.Errorf("locator got error: %v", err)
+		return false, fmt.Errorf("locator got error: %w", err)
 	}
 
 	// If the returned locator is nil, we've done migrating the logs.
@@ -157,7 +157,7 @@ func processMigration(tx kvdb.RwTx, cfg MigrateRevLogConfig) (bool, error) {
 	// Read a list of old revocation logs.
 	entryMap, err := readOldRevocationLogs(openChanBucket, locator, cfg)
 	if err != nil {
-		return false, fmt.Errorf("read old logs err: %v", err)
+		return false, fmt.Errorf("read old logs err: %w", err)
 	}
 
 	// Migrate the revocation logs.
@@ -232,7 +232,7 @@ func writeRevocationLogs(openChanBucket kvdb.RwBucket,
 		// Find the channel bucket.
 		chanBucket, err := locator.locateChanBucket(openChanBucket)
 		if err != nil {
-			return fmt.Errorf("locateChanBucket err: %v", err)
+			return fmt.Errorf("locateChanBucket err: %w", err)
 		}
 
 		// Create the new log bucket.
@@ -240,7 +240,7 @@ func writeRevocationLogs(openChanBucket kvdb.RwBucket,
 			revocationLogBucket,
 		)
 		if err != nil {
-			return fmt.Errorf("create log bucket err: %v", err)
+			return fmt.Errorf("create log bucket err: %w", err)
 		}
 
 		// Write the new logs.
@@ -345,7 +345,7 @@ func fetchLogStats(tx kvdb.RwTx) (uint64, uint64, error) {
 	// Locate the next migration height.
 	locator, err := locateNextUpdateNum(openChanBucket)
 	if err != nil {
-		return 0, 0, fmt.Errorf("locator got error: %v", err)
+		return 0, 0, fmt.Errorf("locator got error: %w", err)
 	}
 
 	// If the returned locator is not nil, we still have un-migrated
@@ -491,7 +491,7 @@ func readOldRevocationLogs(openChanBucket kvdb.RwBucket,
 		c := &mig26.OpenChannel{}
 		err := mig26.FetchChanInfo(chanBucket, c, false)
 		if err != nil {
-			return fmt.Errorf("unable to fetch chan info: %v", err)
+			return fmt.Errorf("unable to fetch chan info: %w", err)
 		}
 
 		err = fetchChanRevocationState(chanBucket, c)

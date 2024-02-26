@@ -313,7 +313,7 @@ func (s *Server) readMessage(peer Peer) (wtwire.Message, error) {
 	// timely manner.
 	err := peer.SetReadDeadline(time.Now().Add(s.cfg.ReadTimeout))
 	if err != nil {
-		err = fmt.Errorf("unable to set read deadline: %v", err)
+		err = fmt.Errorf("unable to set read deadline: %w", err)
 		return nil, err
 	}
 
@@ -321,14 +321,14 @@ func (s *Server) readMessage(peer Peer) (wtwire.Message, error) {
 	// watchtower wire specification.
 	rawMsg, err := peer.ReadNextMessage()
 	if err != nil {
-		err = fmt.Errorf("unable to read message: %v", err)
+		err = fmt.Errorf("unable to read message: %w", err)
 		return nil, err
 	}
 
 	msgReader := bytes.NewReader(rawMsg)
 	msg, err := wtwire.ReadMessage(msgReader, 0)
 	if err != nil {
-		err = fmt.Errorf("unable to parse message: %v", err)
+		err = fmt.Errorf("unable to parse message: %w", err)
 		return nil, err
 	}
 
@@ -344,13 +344,13 @@ func (s *Server) sendMessage(peer Peer, msg wtwire.Message) error {
 	var b bytes.Buffer
 	_, err := wtwire.WriteMessage(&b, msg, 0)
 	if err != nil {
-		err = fmt.Errorf("unable to encode msg: %v", err)
+		err = fmt.Errorf("unable to encode msg: %w", err)
 		return err
 	}
 
 	err = peer.SetWriteDeadline(time.Now().Add(s.cfg.WriteTimeout))
 	if err != nil {
-		err = fmt.Errorf("unable to set write deadline: %v", err)
+		err = fmt.Errorf("unable to set write deadline: %w", err)
 		return err
 	}
 

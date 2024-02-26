@@ -904,7 +904,7 @@ func (g *GossipSyncer) processChanRangeReply(msg *lnwire.ReplyChannelRange) erro
 		g.cfg.isStillZombieChannel,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to filter chan ids: %v", err)
+		return fmt.Errorf("unable to filter chan ids: %w", err)
 	}
 
 	// As we've received the entirety of the reply, we no longer need to
@@ -1599,7 +1599,8 @@ func (g *GossipSyncer) handleSyncTransition(req *syncTransitionReq) error {
 
 	err := g.sendGossipTimestampRange(firstTimestamp, timestampRange)
 	if err != nil {
-		return fmt.Errorf("unable to send local update horizon: %v", err)
+		return fmt.Errorf("unable to send local update horizon: %w",
+			err)
 	}
 
 	g.setSyncType(req.newSyncType)

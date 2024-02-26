@@ -307,7 +307,7 @@ func createTestCircuit(ks htlcswitch.Keystone, cm htlcswitch.CircuitMap) error {
 	// should succeed.
 	_, err := cm.CommitCircuits(circuit)
 	if err != nil {
-		return fmt.Errorf("failed to commit circuits: %v", err)
+		return fmt.Errorf("failed to commit circuits: %w", err)
 	}
 
 	// If the keystone has no outgoing key, we won't open it.
@@ -318,7 +318,7 @@ func createTestCircuit(ks htlcswitch.Keystone, cm htlcswitch.CircuitMap) error {
 	// Open the circuit, implicitly creates a keystone on disk.
 	err = cm.OpenCircuits(ks)
 	if err != nil {
-		return fmt.Errorf("failed to open circuits: %v", err)
+		return fmt.Errorf("failed to open circuits: %w", err)
 	}
 
 	return nil

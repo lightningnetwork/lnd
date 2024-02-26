@@ -1057,14 +1057,14 @@ func (r *ChannelRouter) pruneZombieChans() error {
 		r.cfg.StrictZombiePruning, true, toPrune...,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to delete zombie channels: %v", err)
+		return fmt.Errorf("unable to delete zombie channels: %w", err)
 	}
 
 	// With the channels pruned, we'll also attempt to prune any nodes that
 	// were a part of them.
 	err = r.cfg.Graph.PruneGraphNodes()
 	if err != nil && err != channeldb.ErrGraphNodesNotFound {
-		return fmt.Errorf("unable to prune graph nodes: %v", err)
+		return fmt.Errorf("unable to prune graph nodes: %w", err)
 	}
 
 	return nil
@@ -1612,7 +1612,7 @@ func (r *ChannelRouter) processUpdate(msg interface{},
 		scid := lnwire.NewShortChanIDFromInt(msg.ChannelID)
 		if r.cfg.AssumeChannelValid || r.cfg.IsAlias(scid) {
 			if err := r.cfg.Graph.AddChannelEdge(msg, op...); err != nil {
-				return fmt.Errorf("unable to add edge: %v", err)
+				return fmt.Errorf("unable to add edge: %w", err)
 			}
 			log.Tracef("New channel discovered! Link "+
 				"connects %x and %x with ChannelID(%v)",

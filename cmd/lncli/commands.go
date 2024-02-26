@@ -365,7 +365,7 @@ func sendCoins(ctx *cli.Context) error {
 		return fmt.Errorf("Amount argument missing")
 	}
 	if err != nil {
-		return fmt.Errorf("unable to decode amount: %v", err)
+		return fmt.Errorf("unable to decode amount: %w", err)
 	}
 
 	if amt != 0 && ctx.Bool("sweepall") {
@@ -1015,7 +1015,7 @@ func closeAllChannels(ctx *cli.Context) error {
 	listReq := &lnrpc.ListChannelsRequest{}
 	openChannels, err := client.ListChannels(ctxc, listReq)
 	if err != nil {
-		return fmt.Errorf("unable to fetch open channels: %v", err)
+		return fmt.Errorf("unable to fetch open channels: %w", err)
 	}
 
 	if len(openChannels.Channels) == 0 {
@@ -1302,7 +1302,8 @@ func parseChannelPoint(ctx *cli.Context) (*lnrpc.ChannelPoint, error) {
 	case args.Present():
 		index, err := strconv.ParseUint(args.First(), 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("unable to decode output index: %v", err)
+			return nil, fmt.Errorf("unable to decode output "+
+				"index: %w", err)
 		}
 		channelPoint.OutputIndex = uint32(index)
 	default:
@@ -1548,7 +1549,7 @@ func listChannels(ctx *cli.Context) error {
 	if len(peer) > 0 {
 		pk, err := route.NewVertexFromStr(peer)
 		if err != nil {
-			return fmt.Errorf("invalid --peer pubkey: %v", err)
+			return fmt.Errorf("invalid --peer pubkey: %w", err)
 		}
 
 		peerKey = pk[:]
@@ -2154,12 +2155,12 @@ func parseChanPoint(s string) (*lnrpc.ChannelPoint, error) {
 
 	index, err := strconv.ParseInt(split[1], 10, 64)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode output index: %v", err)
+		return nil, fmt.Errorf("unable to decode output index: %w", err)
 	}
 
 	txid, err := chainhash.NewHashFromStr(split[0])
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse hex string: %v", err)
+		return nil, fmt.Errorf("unable to parse hex string: %w", err)
 	}
 
 	return &lnrpc.ChannelPoint{
@@ -2207,7 +2208,8 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	case args.Present():
 		baseFee, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			return fmt.Errorf("unable to decode base_fee_msat: %v", err)
+			return fmt.Errorf("unable to decode base_fee_msat: %w",
+				err)
 		}
 		args = args.Tail()
 	default:
@@ -2224,7 +2226,7 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	case args.Present():
 		feeRate, err = strconv.ParseFloat(args.First(), 64)
 		if err != nil {
-			return fmt.Errorf("unable to decode fee_rate: %v", err)
+			return fmt.Errorf("unable to decode fee_rate: %w", err)
 		}
 
 		args = args.Tail()
@@ -2265,7 +2267,7 @@ func updateChannelPolicy(ctx *cli.Context) error {
 	if chanPointStr != "" {
 		chanPoint, err = parseChanPoint(chanPointStr)
 		if err != nil {
-			return fmt.Errorf("unable to parse chan_point: %v", err)
+			return fmt.Errorf("unable to parse chan_point: %w", err)
 		}
 	}
 
@@ -2425,7 +2427,7 @@ func exportChanBackup(ctx *cli.Context) error {
 	if chanPointStr != "" {
 		chanPointRPC, err := parseChanPoint(chanPointStr)
 		if err != nil {
-			return fmt.Errorf("unable to parse chan_point: %v", err)
+			return fmt.Errorf("unable to parse chan_point: %w", err)
 		}
 
 		chanBackup, err := client.ExportChannelBackup(
@@ -2751,7 +2753,7 @@ func restoreChanBackup(ctx *cli.Context) error {
 
 	_, err = client.RestoreChannelBackups(ctxc, &req)
 	if err != nil {
-		return fmt.Errorf("unable to restore chan backups: %v", err)
+		return fmt.Errorf("unable to restore chan backups: %w", err)
 	}
 
 	return nil

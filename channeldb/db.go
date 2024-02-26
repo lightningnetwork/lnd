@@ -497,7 +497,7 @@ func initChannelDB(db kvdb.Backend) error {
 		return putMeta(meta, tx)
 	}, func() {})
 	if err != nil {
-		return fmt.Errorf("unable to create new channeldb: %v", err)
+		return fmt.Errorf("unable to create new channeldb: %w", err)
 	}
 
 	return nil

@@ -82,7 +82,7 @@ func FetchChanInfo(chanBucket kvdb.RBucket, c *OpenChannel, legacy bool) error {
 		&c.IdentityPub, &c.Capacity, &c.TotalMSatSent,
 		&c.TotalMSatReceived,
 	); err != nil {
-		return fmt.Errorf("ReadElements got: %v", err)
+		return fmt.Errorf("ReadElements got: %w", err)
 	}
 
 	c.ChanType = mig25.ChannelType(chanType)
@@ -92,15 +92,15 @@ func FetchChanInfo(chanBucket kvdb.RBucket, c *OpenChannel, legacy bool) error {
 	// transaction to, read the funding txn.
 	if c.FundingTxPresent() {
 		if err := mig.ReadElement(r, &c.FundingTxn); err != nil {
-			return fmt.Errorf("read FundingTxn got: %v", err)
+			return fmt.Errorf("read FundingTxn got: %w", err)
 		}
 	}
 
 	if err := mig.ReadChanConfig(r, &c.LocalChanCfg); err != nil {
-		return fmt.Errorf("read LocalChanCfg got: %v", err)
+		return fmt.Errorf("read LocalChanCfg got: %w", err)
 	}
 	if err := mig.ReadChanConfig(r, &c.RemoteChanCfg); err != nil {
-		return fmt.Errorf("read RemoteChanCfg got: %v", err)
+		return fmt.Errorf("read RemoteChanCfg got: %w", err)
 	}
 
 	// Retrieve the boolean stored under lastWasRevokeKey.
@@ -114,7 +114,7 @@ func FetchChanInfo(chanBucket kvdb.RBucket, c *OpenChannel, legacy bool) error {
 		revokeReader := bytes.NewReader(lastWasRevokeBytes)
 		err := mig.ReadElements(revokeReader, &c.LastWasRevoke)
 		if err != nil {
-			return fmt.Errorf("read LastWasRevoke got: %v", err)
+			return fmt.Errorf("read LastWasRevoke got: %w", err)
 		}
 	}
 
@@ -147,11 +147,11 @@ func FetchChanInfo(chanBucket kvdb.RBucket, c *OpenChannel, legacy bool) error {
 		)
 	}
 	if err != nil {
-		return fmt.Errorf("create tlv stream got: %v", err)
+		return fmt.Errorf("create tlv stream got: %w", err)
 	}
 
 	if err := ts.Decode(r); err != nil {
-		return fmt.Errorf("decode tlv stream got: %v", err)
+		return fmt.Errorf("decode tlv stream got: %w", err)
 	}
 
 	// For the new format, attach the balance fields.
@@ -164,7 +164,7 @@ func FetchChanInfo(chanBucket kvdb.RBucket, c *OpenChannel, legacy bool) error {
 	if err := mig25.GetOptionalUpfrontShutdownScript(
 		chanBucket, localUpfrontShutdownKey, &c.LocalShutdownScript,
 	); err != nil {
-		return fmt.Errorf("local shutdown script got: %v", err)
+		return fmt.Errorf("local shutdown script got: %w", err)
 	}
 
 	return mig25.GetOptionalUpfrontShutdownScript(

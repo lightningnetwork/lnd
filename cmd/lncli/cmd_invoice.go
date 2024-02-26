@@ -98,7 +98,8 @@ func addInvoice(ctx *cli.Context) error {
 		amt, err = strconv.ParseInt(args.First(), 10, 64)
 		args = args.Tail()
 		if err != nil {
-			return fmt.Errorf("unable to decode amt argument: %v", err)
+			return fmt.Errorf("unable to decode amt argument: %w",
+				err)
 		}
 	}
 
@@ -110,12 +111,12 @@ func addInvoice(ctx *cli.Context) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("unable to parse preimage: %v", err)
+		return fmt.Errorf("unable to parse preimage: %w", err)
 	}
 
 	descHash, err = hex.DecodeString(ctx.String("description_hash"))
 	if err != nil {
-		return fmt.Errorf("unable to parse description_hash: %v", err)
+		return fmt.Errorf("unable to parse description_hash: %w", err)
 	}
 
 	invoice := &lnrpc.Invoice{
@@ -175,7 +176,7 @@ func lookupInvoice(ctx *cli.Context) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("unable to decode rhash argument: %v", err)
+		return fmt.Errorf("unable to decode rhash argument: %w", err)
 	}
 
 	req := &lnrpc.PaymentHash{

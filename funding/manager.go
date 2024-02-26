@@ -1656,7 +1656,7 @@ func (f *Manager) fundeeProcessOpenChannel(peer lnpeer.Peer,
 	if err != nil {
 		f.failFundingFlow(
 			peer, cid,
-			fmt.Errorf("getUpfrontShutdownScript error: %v", err),
+			fmt.Errorf("getUpfrontShutdownScript error: %w", err),
 		)
 		return
 	}
@@ -3046,7 +3046,7 @@ func (f *Manager) handleFundingConfirmation(
 	err := f.cfg.Wallet.ValidateChannel(completeChan, confChannel.fundingTx)
 	if err != nil {
 		// TODO(roasbeef): delete chan state?
-		return fmt.Errorf("unable to validate channel: %v", err)
+		return fmt.Errorf("unable to validate channel: %w", err)
 	}
 
 	// Now that the channel has been validated, we'll persist an alias for
@@ -3054,14 +3054,14 @@ func (f *Manager) handleFundingConfirmation(
 	if completeChan.NegotiatedAliasFeature() {
 		aliasScid, err := f.cfg.AliasManager.RequestAlias()
 		if err != nil {
-			return fmt.Errorf("unable to request alias: %v", err)
+			return fmt.Errorf("unable to request alias: %w", err)
 		}
 
 		err = f.cfg.AliasManager.AddLocalAlias(
 			aliasScid, confChannel.shortChanID, true,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to request alias: %v", err)
+			return fmt.Errorf("unable to request alias: %w", err)
 		}
 	}
 
@@ -3122,7 +3122,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 	// will be unable to propose state transitions.
 	nextRevocation, err := channel.NextRevocationKey()
 	if err != nil {
-		return fmt.Errorf("unable to create next revocation: %v", err)
+		return fmt.Errorf("unable to create next revocation: %w", err)
 	}
 	channelReadyMsg := lnwire.NewChannelReady(chanID, nextRevocation)
 
@@ -3574,7 +3574,7 @@ func (f *Manager) waitForZeroConfChannel(c *channeldb.OpenChannel,
 	// occur due to inconsistency in the OpenChannel struct.
 	err = c.Refresh()
 	if err != nil {
-		return fmt.Errorf("unable to refresh channel state: %v", err)
+		return fmt.Errorf("unable to refresh channel state: %w", err)
 	}
 
 	// Now that we have the confirmed transaction and the proper SCID,

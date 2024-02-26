@@ -30,7 +30,7 @@ func SignAnnouncement(signer lnwallet.MessageSigner, keyLoc keychain.KeyLocator,
 		return nil, fmt.Errorf("can't sign %T message", m)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("unable to get data to sign: %v", err)
+		return nil, fmt.Errorf("unable to get data to sign: %w", err)
 	}
 
 	return signer.SignMessage(keyLoc, data, true)

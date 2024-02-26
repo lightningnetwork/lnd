@@ -1202,7 +1202,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		c.cfg.chanState.FundingOutpoint, broadcastStateNum)
 
 	if err := c.cfg.chanState.MarkBorked(); err != nil {
-		return fmt.Errorf("unable to mark channel as borked: %v", err)
+		return fmt.Errorf("unable to mark channel as borked: %w", err)
 	}
 
 	spendHeight := uint32(spendEvent.SpendingHeight)

@@ -246,7 +246,7 @@ func serializeTxWitness(txWitness wire.TxWitness) ([]byte, error) {
 	var witnessBytes bytes.Buffer
 	err := psbt.WriteTxWitness(&witnessBytes, txWitness)
 	if err != nil {
-		return nil, fmt.Errorf("error serializing witness: %v", err)
+		return nil, fmt.Errorf("error serializing witness: %w", err)
 	}
 
 	return witnessBytes.Bytes(), nil

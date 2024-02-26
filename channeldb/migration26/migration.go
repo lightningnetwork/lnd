@@ -76,7 +76,7 @@ func findOpenChannels(openChanBucket kvdb.RBucket) ([]*OpenChannel, error) {
 
 		// Get the old channel info.
 		if err := FetchChanInfo(chanBucket, c, true); err != nil {
-			return fmt.Errorf("unable to fetch chan info: %v", err)
+			return fmt.Errorf("unable to fetch chan info: %w", err)
 		}
 
 		channels = append(channels, c)
@@ -139,7 +139,7 @@ func migrateBalances(tx kvdb.RwTx, c *OpenChannel) error {
 	// `c.InitialRemoteBalance` then create the new tlv stream as
 	// requested.
 	if err := PutChanInfo(chanBucket, c, false); err != nil {
-		return fmt.Errorf("unable to put chan info: %v", err)
+		return fmt.Errorf("unable to put chan info: %w", err)
 	}
 
 	return nil

@@ -50,7 +50,7 @@ func importGraph(ctx *cli.Context) error {
 	jsonGraph := &lnrpc.ChannelGraph{}
 	err = lnrpc.ProtoJSONUnmarshalOpts.Unmarshal(jsonBytes, jsonGraph)
 	if err != nil {
-		return fmt.Errorf("error parsing JSON: %v", err)
+		return fmt.Errorf("error parsing JSON: %w", err)
 	}
 	res, err := client.ImportGraph(ctxc, jsonGraph)
 	if err != nil {

@@ -2552,8 +2552,8 @@ func (l *channelLink) updateCommitTx() error {
 // channel link opened.
 //
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) Peer() lnpeer.Peer {
-	return l.cfg.Peer
+func (l *channelLink) PeerPubKey() [33]byte {
+	return l.cfg.Peer.PubKey()
 }
 
 // ChannelPoint returns the channel outpoint for the channel link.

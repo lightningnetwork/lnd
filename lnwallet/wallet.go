@@ -195,6 +195,10 @@ type InitFundingReserveMsg struct {
 	// negotiated.
 	ScidAliasFeature bool
 
+	// EnableRBF is a boolen which if true sets transaction inputs
+	// to signal RBF
+	EnableRBF bool
+
 	// Memo is any arbitrary information we wish to store locally about the
 	// channel that will be useful to our future selves.
 	Memo []byte
@@ -930,7 +934,8 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 					TaprootPubkey, true, DefaultAccountName,
 				)
 			},
-			Musig2: req.CommitType == CommitmentTypeSimpleTaproot,
+			Musig2:    req.CommitType == CommitmentTypeSimpleTaproot,
+			EnableRBF: req.EnableRBF,
 		}
 		fundingIntent, err = req.ChanFunder.ProvisionChannel(
 			fundingReq,

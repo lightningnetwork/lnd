@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
@@ -140,7 +141,7 @@ func generateInputPartitionings(sweepableInputs []txInput,
 func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 	changePkScript []byte, currentBlockHeight uint32,
 	feePerKw, maxFeeRate chainfee.SatPerKWeight,
-	signer input.Signer) (*wire.MsgTx, error) {
+	signer input.Signer, enableRBF bool) (*wire.MsgTx, error) {
 
 	inputs, estimator, err := getWeightEstimate(
 		inputs, outputs, feePerKw, maxFeeRate, changePkScript,
@@ -198,6 +199,14 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		requiredOutput += btcutil.Amount(o.RequiredTxOut().Value)
 	}
 
+	inputSequence := func(in input.Input) (s uint32) {
+		s = in.BlocksToMaturity()
+		if enableRBF && s == 0 {
+			s = mempool.MaxRBFSequence
+		}
+		return
+	}
+
 	// Sum up the value contained in the remaining inputs, and add them to
 	// the sweep transaction.
 	for _, o := range inputs {
@@ -208,7 +217,7 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		idxs = append(idxs, o)
 		sweepTx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: *o.OutPoint(),
-			Sequence:         o.BlocksToMaturity(),
+			Sequence:         inputSequence(o),
 		})
 
 		if lt, ok := o.RequiredLockTime(); ok {

@@ -115,6 +115,10 @@ type Request struct {
 	// output. By definition, this'll also use segwit v1 (taproot) for the
 	// funding output.
 	Musig2 bool
+
+	// EnableRBF is a boolen which if true sets transaction inputs
+	// to signal RBF
+	EnableRBF bool
 }
 
 // Intent is returned by an Assembler and represents the base functionality the

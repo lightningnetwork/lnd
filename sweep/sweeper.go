@@ -1166,6 +1166,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 	tx, err := createSweepTx(
 		inputs, nil, s.currentOutputScript, uint32(currentHeight),
 		feeRate, s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
+		false,
 	)
 	if err != nil {
 		return fmt.Errorf("create sweep tx: %v", err)
@@ -1454,7 +1455,7 @@ func (s *UtxoSweeper) handleUpdateReq(req *updateReq, bestHeight int32) (
 // - Thwart future possible fee sniping attempts.
 // - Make us blend in with the bitcoind wallet.
 func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input, feePref FeePreference,
-	currentBlockHeight uint32) (*wire.MsgTx, error) {
+	currentBlockHeight uint32, enableRBF bool) (*wire.MsgTx, error) {
 
 	feePerKw, err := s.cfg.DetermineFeePerKw(s.cfg.FeeEstimator, feePref)
 	if err != nil {
@@ -1469,7 +1470,7 @@ func (s *UtxoSweeper) CreateSweepTx(inputs []input.Input, feePref FeePreference,
 
 	return createSweepTx(
 		inputs, nil, pkScript, currentBlockHeight, feePerKw,
-		s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer,
+		s.cfg.MaxFeeRate.FeePerKWeight(), s.cfg.Signer, enableRBF,
 	)
 }
 

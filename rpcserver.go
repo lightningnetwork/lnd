@@ -1303,6 +1303,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 			return nil, err
 		}
 
+		// Set input sequences of sweep tx to signal RBF
+		enableRBF := true
+
 		// With the sweeper instance created, we can now generate a
 		// transaction that will sweep ALL outputs from the wallet in a
 		// single transaction. This will be generated in a concurrent
@@ -1312,7 +1315,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		sweepTxPkg, err := sweep.CraftSweepAllTx(
 			maxFeeRate, feePerKw, uint32(bestHeight), nil,
 			targetAddr, wallet, wallet, wallet.WalletController,
-			r.server.cc.Signer, minConfs,
+			r.server.cc.Signer, minConfs, enableRBF,
 		)
 		if err != nil {
 			return nil, err
@@ -1366,7 +1369,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 				maxFeeRate, feePerKw, uint32(bestHeight),
 				outputs, targetAddr, wallet, wallet,
 				wallet.WalletController,
-				r.server.cc.Signer, minConfs,
+				r.server.cc.Signer, minConfs, true,
 			)
 			if err != nil {
 				return nil, err
@@ -2245,6 +2248,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		MinFundAmt:        minFundAmt,
 		Memo:              []byte(in.Memo),
 		Outpoints:         outpoints,
+		EnableRBF:         true,
 	}, nil
 }
 

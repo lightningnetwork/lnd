@@ -437,12 +437,13 @@ func (h *htlcSuccessResolver) resolveRemoteCommitOutput() (
 		// complete.
 		//
 		// TODO: Use time-based sweeper and result chan.
+
 		var err error
 		h.sweepTx, err = h.Sweeper.CreateSweepTx(
 			[]input.Input{inp},
 			sweep.FeePreference{
 				ConfTarget: sweepConfTarget,
-			}, 0,
+			}, 0, false,
 		)
 		if err != nil {
 			return nil, err

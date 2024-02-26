@@ -119,6 +119,7 @@ func (h *testHarness) parseRequest(
 		RemoteCsvDelay: uint16(in.RemoteCsvDelay),
 		MinConfs:       in.MinConfs,
 		MaxLocalCsv:    uint16(in.MaxLocalCsv),
+		EnableRBF:      true,
 	}, nil
 }
 

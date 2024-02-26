@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/lntest/mock"
@@ -298,7 +299,7 @@ func TestCraftSweepAllTxCoinSelectFail(t *testing.T) {
 
 	_, err := CraftSweepAllTx(
 		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker,
-		nil, 0,
+		nil, 0, true,
 	)
 
 	// Since we instructed the coin select locker to fail above, we should
@@ -324,7 +325,7 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 
 	_, err := CraftSweepAllTx(
 		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker,
-		nil, 0,
+		nil, 0, true,
 	)
 
 	// Since passed in a p2wsh output, which is unknown, we should fail to
@@ -358,7 +359,7 @@ func TestCraftSweepAllTx(t *testing.T) {
 
 	sweepPkg, err := CraftSweepAllTx(
 		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
-		utxoLocker, signer, 0,
+		utxoLocker, signer, 0, true,
 	)
 	require.NoError(t, err, "unable to make sweep tx")
 
@@ -374,6 +375,11 @@ func TestCraftSweepAllTx(t *testing.T) {
 	if len(sweepTx.TxIn) != len(targetUTXOs) {
 		t.Fatalf("expected %v utxo, got %v", len(targetUTXOs),
 			len(sweepTx.TxIn))
+	}
+
+	for _, in := range sweepTx.TxIn {
+		require.Equal(t, uint32(mempool.MaxRBFSequence), in.Sequence,
+			"input sequence does not signal RBF")
 	}
 
 	// We should have a single output that pays to our sweep script

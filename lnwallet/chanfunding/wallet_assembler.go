@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/txsort"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/input"
@@ -45,6 +46,9 @@ type FullIntent struct {
 
 	// signer is the Assembler's instance of the Singer interface.
 	signer input.Signer
+
+	// the sequence assigned to inputs in CompileFundingTx (for RBF signalling)
+	inputSequence uint32
 }
 
 // BindKeys is a method unique to the FullIntent variant. This allows the
@@ -75,6 +79,7 @@ func (f *FullIntent) CompileFundingTx(extraInputs []*wire.TxIn,
 	for _, coin := range f.InputCoins {
 		fundingTx.AddTxIn(&wire.TxIn{
 			PreviousOutPoint: coin.OutPoint,
+			Sequence:         f.inputSequence,
 		})
 	}
 	for _, theirInput := range extraInputs {
@@ -472,16 +477,22 @@ func (w *WalletAssembler) ProvisionChannel(r *Request) (Intent, error) {
 			w.cfg.CoinLocker.LockOutpoint(outpoint)
 		}
 
+		var inputSequence uint32
+		if r.EnableRBF {
+			inputSequence = mempool.MaxRBFSequence
+		}
+
 		newIntent := &FullIntent{
 			ShimIntent: ShimIntent{
 				localFundingAmt:  localContributionAmt,
 				remoteFundingAmt: r.RemoteAmt,
 				musig2:           r.Musig2,
 			},
-			InputCoins: selectedCoins,
-			coinLocker: w.cfg.CoinLocker,
-			coinSource: w.cfg.CoinSource,
-			signer:     w.cfg.Signer,
+			InputCoins:    selectedCoins,
+			coinLocker:    w.cfg.CoinLocker,
+			coinSource:    w.cfg.CoinSource,
+			signer:        w.cfg.Signer,
+			inputSequence: inputSequence,
 		}
 
 		if changeOutput != nil {

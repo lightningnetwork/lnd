@@ -30,6 +30,10 @@ run:
     - integration
 
 linters-settings:
+  errorlint:
+    # Check for incorrect fmt.Errorf error wrapping.
+    errorf: true
+
   govet:
     # Don't report about shadowed variables
     check-shadowing: false

@@ -1,5 +1,7 @@
 package fn
 
+import "testing"
+
 // Option[A] represents a value which may or may not be there. This is very
 // often preferable to nil-able pointers.
 type Option[A any] struct {
@@ -52,6 +54,32 @@ func (o Option[A]) UnwrapOr(a A) A {
 // thunk to be evaluated in the case when the Option is empty.
 func (o Option[A]) UnwrapOrFunc(f func() A) A {
 	return ElimOption(o, f, func(a A) A { return a })
+}
+
+// UnwrapOrFail is used to extract a value from an option within a test
+// context. If the option is None, then the test fails.
+func (o Option[A]) UnwrapOrFail(t *testing.T) A {
+	t.Helper()
+
+	if o.isSome {
+		return o.some
+	}
+
+	t.Fatalf("Option[%T] was None()", o.some)
+
+	var zero A
+	return zero
+}
+
+// UnwrapOrErr is used to extract a value from an option, if the option is
+// empty, then the specified error is returned directly.
+func (o Option[A]) UnwrapOrErr(err error) (A, error) {
+	if !o.isSome {
+		var zero A
+		return zero, err
+	}
+
+	return o.some, nil
 }
 
 // UnwrapOrFuncErr is used to extract a value from an option, and we supply a

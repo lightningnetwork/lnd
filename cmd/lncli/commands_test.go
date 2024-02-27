@@ -1,7 +1,7 @@
 package main
 
 import (
-	"errors"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strconv"
@@ -52,19 +52,18 @@ func TestParseChanPoint(t *testing.T) {
 				"3a5a467dc0bc:string",
 			true,
 			0,
-			errors.New("unable to decode output index: strconv." +
-				"ParseInt: parsing \"string\": invalid syntax"),
+			strconv.ErrSyntax,
 		}, {
 			"not_hex:0",
 			true,
 			0,
-			errors.New("unable to parse hex string: encoding/hex:" +
-				" invalid byte: U+006E 'n'"),
+			hex.InvalidByteError('n'),
 		},
 	}
 	for _, tc := range testCases {
 		cp, err := parseChanPoint(tc.channelPoinStr)
-		require.Equal(t, tc.err, err)
+		require.ErrorIs(t, err, tc.err)
+
 		require.Equal(t, tc.channelPointIsNil, cp == nil)
 		if !tc.channelPointIsNil {
 			require.Equal(t, tc.outputIndex, cp.OutputIndex)

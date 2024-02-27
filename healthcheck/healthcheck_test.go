@@ -55,11 +55,13 @@ func TestMonitor(t *testing.T) {
 	cfg := &Config{
 		Checks: []*Observation{
 			{
-				Check:    mock.call,
-				Interval: intervalTicker,
-				Attempts: 2,
-				Backoff:  0,
-				Timeout:  time.Hour,
+				Check:     mock.call,
+				Interval:  intervalTicker,
+				Attempts:  2,
+				Backoff:   0,
+				Timeout:   time.Hour,
+				OnSuccess: noOpCallback,
+				OnFailure: noOpCallback,
 			},
 		},
 		Shutdown: func(string, ...interface{}) {
@@ -202,10 +204,12 @@ func TestRetryCheck(t *testing.T) {
 			// function. We set a zero back off so that the test
 			// will not wait.
 			observation := &Observation{
-				Check:    mock.call,
-				Attempts: test.attempts,
-				Timeout:  test.timeout,
-				Backoff:  0,
+				Check:     mock.call,
+				Attempts:  test.attempts,
+				Timeout:   test.timeout,
+				Backoff:   0,
+				OnSuccess: noOpCallback,
+				OnFailure: noOpCallback,
 			}
 			quit := make(chan struct{})
 
@@ -237,4 +241,188 @@ func TestRetryCheck(t *testing.T) {
 				"unexpected shutdown state")
 		})
 	}
+}
+
+// TestCallbacks verifies that we fire the OnSuccess/OnFailure callbacks
+// as expected.
+//
+// - When the health check succeeds, the OnSuccess callback should fire.
+// - When the failure threshold is reached, the OnFailure callback should fire.
+func TestCallbacks(t *testing.T) {
+	intervalTicker := ticker.NewForce(time.Hour)
+
+	mock := newMockCheck(t)
+	failureThreshold := 3
+
+	successChan := make(chan struct{})
+	failChan := make(chan struct{})
+	shutdown := make(chan struct{})
+
+	// Create our config for monitoring. We will use a 0 back off so that
+	// out test does not need to wait.
+	observation := &Observation{
+		Check:    mock.call,
+		Interval: intervalTicker,
+		Attempts: failureThreshold,
+		Backoff:  0,
+		Timeout:  time.Hour,
+		OnSuccess: func() {
+			select {
+			case successChan <- struct{}{}:
+			case <-time.After(timeout):
+				t.Fatal("unable to fire onSuccess callback")
+			}
+		},
+		OnFailure: func() {
+			close(failChan)
+		},
+	}
+
+	cfg := &Config{
+		Checks: []*Observation{observation},
+		Shutdown: func(string, ...interface{}) {
+			shutdown <- struct{}{}
+		},
+	}
+	monitor := NewMonitor(cfg)
+	require.NoError(t, monitor.Start(), "could not start monitor")
+
+	// Tick is a helper we will use to tick our interval.
+	tick := func() {
+		select {
+		case intervalTicker.Force <- testTime:
+		case <-time.After(timeout):
+			t.Fatal("could not tick timer")
+		}
+	}
+
+	// We expect that the onSuccess callback is fired after each successful
+	// check.
+	for i := 0; i < failureThreshold; i++ {
+		tick()
+		mock.sendError(nil)
+
+		// We expect that the onSuccess callback will have fired.
+		select {
+		case <-successChan:
+		case <-time.After(timeout):
+			t.Fatal("expected success callback")
+		}
+
+	}
+
+	// Kick off another health check iteration. The monitor's internal
+	// retry mechanism will re-attempt the check until it has reached
+	// the configured maximum # of attempts.
+	//
+	// This mocks our check function failing the maximum # of times
+	// consecutively that it is allowed.
+	tick()
+	for i := 1; i <= failureThreshold; i++ {
+		mock.sendError(errNonNil)
+
+		// Verify that the onFailure callback does not fire unless
+		// the failure threshold (maximum # of attempts) is reached.
+		if i < failureThreshold {
+			select {
+			case <-failChan:
+				t.Fatal("unexpected onFailure callback")
+			default:
+			}
+		}
+	}
+
+	// After reaching the failure threshold for this health check,
+	// we expect that the onFailure callback will have fired.
+	select {
+	case <-failChan:
+	case <-time.After(timeout):
+		t.Fatal("expected onFailure callback")
+	}
+
+	// Since we have failed within our allowed number of retries, we now
+	// expect a call to our shutdown function.
+	select {
+	case <-shutdown:
+	case <-time.After(timeout):
+		t.Fatal("expected shutdown")
+	}
+	require.NoError(t, monitor.Stop(), "could not stop monitor")
+}
+
+// TestDynamicChecks verifies that we actually kick off health check routines
+// for observations that are added after starting the monitor.
+func TestDynamicChecks(t *testing.T) {
+	intervalTicker := ticker.NewForce(time.Hour)
+
+	mock := newMockCheck(t)
+
+	successChan := make(chan struct{})
+	shutdown := make(chan struct{})
+
+	// Don't configure any health checks for this monitor.
+	// We'd like to verify that we can add checks after startup.
+	cfg := &Config{
+		Checks: []*Observation{},
+		Shutdown: func(string, ...interface{}) {
+			shutdown <- struct{}{}
+		},
+	}
+	monitor := NewMonitor(cfg)
+	require.NoError(t, monitor.Start(), "could not start monitor")
+
+	// Tick is a helper we will use to tick our interval.
+	tick := func() {
+		select {
+		case intervalTicker.Force <- testTime:
+		case <-time.After(timeout):
+			t.Fatal("could not tick timer")
+		}
+	}
+
+	observation := &Observation{
+		Check:    mock.call,
+		Interval: intervalTicker,
+		Attempts: 2,
+		Backoff:  0,
+		Timeout:  time.Hour,
+		OnSuccess: func() {
+			select {
+			case successChan <- struct{}{}:
+			case <-time.After(timeout):
+				t.Fatal("unable to fire onSuccess callback")
+			}
+		},
+		OnFailure: noOpCallback,
+	}
+
+	// Add the check after having started the monitor.
+	err := monitor.AddCheck(observation)
+	require.NoError(t, err, "could not add new observation")
+
+	// This should initiate the check we dynamically added above.
+	tick()
+
+	// Verify that we can fire the OnSuccess callback.
+	mock.sendError(errNonNil)
+	mock.sendError(nil)
+	select {
+	case <-successChan:
+	case <-time.After(timeout):
+		t.Fatal("expected success callback")
+	}
+
+	// Verify that we correctly shutdown if the added health check fails.
+	tick()
+	mock.sendError(errNonNil)
+	mock.sendError(errNonNil)
+
+	// Since we have failed within our allowed number of retries, we now
+	// expect a call to our shutdown function.
+	select {
+	case <-shutdown:
+	case <-time.After(timeout):
+		t.Fatal("expected shutdown")
+	}
+	require.NoError(t, monitor.Stop(), "could not stop monitor")
 }

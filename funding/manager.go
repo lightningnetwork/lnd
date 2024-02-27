@@ -960,6 +960,28 @@ func (f *Manager) failFundingFlow(peer lnpeer.Peer, cid *chanIdentifier,
 	}
 }
 
+// sendWarning sends a new warning message to the target peer, targeting the
+// specified cid with the passed funding error.
+func (f *Manager) sendWarning(peer lnpeer.Peer, cid *chanIdentifier,
+	fundingErr error) {
+
+	msg := fundingErr.Error()
+
+	errMsg := &lnwire.Warning{
+		ChanID: cid.tempChanID,
+		Data:   lnwire.WarningData(msg),
+	}
+
+	log.Debugf("Sending funding warning to peer (%x): %v",
+		peer.IdentityKey().SerializeCompressed(),
+		spew.Sdump(errMsg),
+	)
+
+	if err := peer.SendMessage(false, errMsg); err != nil {
+		log.Errorf("unable to send error message to peer %v", err)
+	}
+}
+
 // reservationCoordinator is the primary goroutine tasked with progressing the
 // funding workflow between the wallet, and any outside peers or local callers.
 //
@@ -3890,7 +3912,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 		)
 		if err != nil {
 			cid := newChanIdentifier(msg.ChanID)
-			f.failFundingFlow(peer, cid, err)
+			f.sendWarning(peer, cid, err)
 
 			return
 		}

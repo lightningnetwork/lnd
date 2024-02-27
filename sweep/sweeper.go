@@ -1421,7 +1421,7 @@ func (s *UtxoSweeper) handleNewInput(input *sweepInputMessage) {
 	)
 	if err != nil {
 		err := fmt.Errorf("wait for spend: %w", err)
-		s.signalResult(pi, Result{Err: err})
+		s.markInputFailed(pi, err)
 
 		return
 	}
@@ -1623,6 +1623,21 @@ func (s *UtxoSweeper) markInputsSwept(tx *wire.MsgTx, isOurTx bool) error {
 	}
 
 	return nil
+}
+
+// markInputFailed marks the given input as failed and won't be retried. It
+// will also notify all the subscribers of this input.
+func (s *UtxoSweeper) markInputFailed(pi *pendingInput, err error) {
+	log.Errorf("Failed to sweep input: %v, error: %v", pi, err)
+
+	pi.state = StateFailed
+
+	// Remove all other inputs in this exclusive group.
+	if pi.params.ExclusiveGroup != nil {
+		s.removeExclusiveGroup(*pi.params.ExclusiveGroup)
+	}
+
+	s.signalResult(pi, Result{Err: err})
 }
 
 // updateSweeperInputs updates the sweeper's internal state and returns a map

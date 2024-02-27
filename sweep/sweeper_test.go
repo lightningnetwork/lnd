@@ -2369,3 +2369,30 @@ func TestAttachAvailableRBFInfo(t *testing.T) {
 	mockMempool.AssertExpectations(t)
 	mockStore.AssertExpectations(t)
 }
+
+// TestMarkInputFailed checks that the input is marked as failed as expected.
+func TestMarkInputFailed(t *testing.T) {
+	t.Parallel()
+
+	// Create a mock input.
+	mockInput := &input.MockInput{}
+	defer mockInput.AssertExpectations(t)
+
+	// Mock the `OutPoint` to return a dummy outpoint.
+	mockInput.On("OutPoint").Return(&wire.OutPoint{Hash: chainhash.Hash{1}})
+
+	// Create a test sweeper.
+	s := New(&UtxoSweeperConfig{})
+
+	// Create a testing pending input.
+	pi := &pendingInput{
+		state: StateInit,
+		Input: mockInput,
+	}
+
+	// Call the method under test.
+	s.markInputFailed(pi, errors.New("dummy error"))
+
+	// Assert the state is updated.
+	require.Equal(t, StateFailed, pi.state)
+}

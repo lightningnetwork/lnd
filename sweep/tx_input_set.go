@@ -35,6 +35,14 @@ var (
 	// ErrNotEnoughInputs is returned when there are not enough wallet
 	// inputs to construct a non-dust change output for an input set.
 	ErrNotEnoughInputs = fmt.Errorf("not enough inputs")
+
+	// ErrDeadlinesMismatch is returned when the deadlines of the input
+	// sets do not match.
+	ErrDeadlinesMismatch = fmt.Errorf("deadlines mismatch")
+
+	// ErrDustOutput is returned when the output value is below the dust
+	// limit.
+	ErrDustOutput = fmt.Errorf("dust output")
 )
 
 // InputSet defines an interface that's responsible for filtering a set of
@@ -541,4 +549,270 @@ func createWalletTxInput(utxo *lnwallet.Utxo) (input.Input, error) {
 	return input.NewBaseInput(
 		&utxo.OutPoint, witnessType, signDesc, heightHint,
 	), nil
+}
+
+// BudgetInputSet implements the interface `InputSet`. It takes a list of
+// pending inputs which share the same deadline height and groups them into a
+// set conditionally based on their economical values.
+type BudgetInputSet struct {
+	// inputs is the set of inputs that have been added to the set after
+	// considering their economical contribution.
+	inputs []*pendingInput
+
+	// deadlineHeight is the height which the inputs in this set must be
+	// confirmed by.
+	deadlineHeight fn.Option[int32]
+}
+
+// Compile-time constraint to ensure budgetInputSet implements InputSet.
+var _ InputSet = (*BudgetInputSet)(nil)
+
+// validateInputs is used when creating new BudgetInputSet to ensure there are
+// no duplicate inputs and they all share the same deadline heights, if set.
+func validateInputs(inputs []pendingInput) error {
+	// Sanity check the input slice to ensure it's non-empty.
+	if len(inputs) == 0 {
+		return fmt.Errorf("inputs slice is empty")
+	}
+
+	// dedupInputs is a map used to track unique outpoints of the inputs.
+	dedupInputs := make(map[*wire.OutPoint]struct{})
+
+	// deadlineSet stores unique deadline heights.
+	deadlineSet := make(map[fn.Option[int32]]struct{})
+
+	for _, input := range inputs {
+		input.params.DeadlineHeight.WhenSome(func(h int32) {
+			deadlineSet[input.params.DeadlineHeight] = struct{}{}
+		})
+
+		dedupInputs[input.OutPoint()] = struct{}{}
+	}
+
+	// Make sure the inputs share the same deadline height when there is
+	// one.
+	if len(deadlineSet) > 1 {
+		return fmt.Errorf("inputs have different deadline heights")
+	}
+
+	// Provide a defensive check to ensure that we don't have any duplicate
+	// inputs within the set.
+	if len(dedupInputs) != len(inputs) {
+		return fmt.Errorf("duplicate inputs")
+	}
+
+	return nil
+}
+
+// NewBudgetInputSet creates a new BudgetInputSet.
+func NewBudgetInputSet(inputs []pendingInput) (*BudgetInputSet, error) {
+	// Validate the supplied inputs.
+	if err := validateInputs(inputs); err != nil {
+		return nil, err
+	}
+
+	// TODO(yy): all the inputs share the same deadline height, which means
+	// there exists an opportunity to refactor the deadline height to be
+	// tracked on the set-level, not per input. This would allow us to
+	// avoid the overhead of tracking the same height for each input in the
+	// set.
+	deadlineHeight := inputs[0].params.DeadlineHeight
+	bi := &BudgetInputSet{
+		deadlineHeight: deadlineHeight,
+		inputs:         make([]*pendingInput, 0, len(inputs)),
+	}
+
+	for _, input := range inputs {
+		bi.addInput(input)
+	}
+
+	log.Tracef("Created %v", bi.String())
+
+	return bi, nil
+}
+
+// String returns a human-readable description of the input set.
+func (b *BudgetInputSet) String() string {
+	deadlineDesc := "none"
+	b.deadlineHeight.WhenSome(func(h int32) {
+		deadlineDesc = fmt.Sprintf("%d", h)
+	})
+
+	inputsDesc := ""
+	for _, input := range b.inputs {
+		inputsDesc += fmt.Sprintf("\n%v", input)
+	}
+
+	return fmt.Sprintf("BudgetInputSet(budget=%v, deadline=%v, "+
+		"inputs=[%v])", b.Budget(), deadlineDesc, inputsDesc)
+}
+
+// addInput adds an input to the input set.
+func (b *BudgetInputSet) addInput(input pendingInput) {
+	b.inputs = append(b.inputs, &input)
+}
+
+// NeedWalletInput returns true if the input set needs more wallet inputs.
+//
+// A set may need wallet inputs when it has a required output or its total
+// value cannot cover its total budget.
+func (b *BudgetInputSet) NeedWalletInput() bool {
+	var (
+		// budgetNeeded is the amount that needs to be covered from
+		// other inputs.
+		budgetNeeded btcutil.Amount
+
+		// budgetBorrowable is the amount that can be borrowed from
+		// other inputs.
+		budgetBorrowable btcutil.Amount
+	)
+
+	for _, inp := range b.inputs {
+		// If this input has a required output, we can assume it's a
+		// second-level htlc txns input. Although this input must have
+		// a value that can cover its budget, it cannot be used to pay
+		// fees. Instead, we need to borrow budget from other inputs to
+		// make the sweep happen. Once swept, the input value will be
+		// credited to the wallet.
+		if inp.RequiredTxOut() != nil {
+			budgetNeeded += inp.params.Budget
+			continue
+		}
+
+		// Get the amount left after covering the input's own budget.
+		// This amount can then be lent to the above input.
+		budget := inp.params.Budget
+		output := btcutil.Amount(inp.SignDesc().Output.Value)
+		budgetBorrowable += output - budget
+
+		// If the input's budget is not even covered by itself, we need
+		// to borrow outputs from other inputs.
+		if budgetBorrowable < 0 {
+			log.Debugf("Input %v specified a budget that exceeds "+
+				"its output value: %v > %v", inp, budget,
+				output)
+		}
+	}
+
+	log.Tracef("NeedWalletInput: budgetNeeded=%v, budgetBorrowable=%v",
+		budgetNeeded, budgetBorrowable)
+
+	// If we don't have enough extra budget to borrow, we need wallet
+	// inputs.
+	return budgetBorrowable < budgetNeeded
+}
+
+// copyInputs returns a copy of the slice of the inputs in the set.
+func (b *BudgetInputSet) copyInputs() []*pendingInput {
+	inputs := make([]*pendingInput, len(b.inputs))
+	copy(inputs, b.inputs)
+	return inputs
+}
+
+// AddWalletInputs adds wallet inputs to the set until the specified budget is
+// met. When sweeping inputs with required outputs, although there's budget
+// specified, it cannot be directly spent from these required outputs. Instead,
+// we need to borrow budget from other inputs to make the sweep happen.
+// There are two sources to borrow from: 1) other inputs, 2) wallet utxos. If
+// we are calling this method, it means other inputs cannot cover the specified
+// budget, so we need to borrow from wallet utxos.
+//
+// Return an error if there are not enough wallet inputs, and the budget set is
+// set to its initial state by removing any wallet inputs added.
+//
+// NOTE: must be called with the wallet lock held via `WithCoinSelectLock`.
+func (b *BudgetInputSet) AddWalletInputs(wallet Wallet) error {
+	// Retrieve wallet utxos. Only consider confirmed utxos to prevent
+	// problems around RBF rules for unconfirmed inputs. This currently
+	// ignores the configured coin selection strategy.
+	utxos, err := wallet.ListUnspentWitnessFromDefaultAccount(
+		1, math.MaxInt32,
+	)
+	if err != nil {
+		return fmt.Errorf("list unspent witness: %w", err)
+	}
+
+	// Sort the UTXOs by putting smaller values at the start of the slice
+	// to avoid locking large UTXO for sweeping.
+	//
+	// TODO(yy): add more choices to CoinSelectionStrategy and use the
+	// configured value here.
+	sort.Slice(utxos, func(i, j int) bool {
+		return utxos[i].Value < utxos[j].Value
+	})
+
+	// Make a copy of the current inputs. If the wallet doesn't have enough
+	// utxos to cover the budget, we will revert the current set to its
+	// original state by removing the added wallet inputs.
+	originalInputs := b.copyInputs()
+
+	// Add wallet inputs to the set until the specified budget is covered.
+	for _, utxo := range utxos {
+		input, err := createWalletTxInput(utxo)
+		if err != nil {
+			return err
+		}
+
+		pi := pendingInput{
+			Input: input,
+			params: Params{
+				// Inherit the deadline height from the input
+				// set.
+				DeadlineHeight: b.deadlineHeight,
+			},
+		}
+
+		b.addInput(pi)
+
+		// Return if we've reached the minimum output amount.
+		if !b.NeedWalletInput() {
+			return nil
+		}
+	}
+
+	// The wallet doesn't have enough utxos to cover the budget. Revert the
+	// input set to its original state.
+	b.inputs = originalInputs
+
+	return ErrNotEnoughInputs
+}
+
+// Budget returns the total budget of the set.
+//
+// NOTE: part of the InputSet interface.
+func (b *BudgetInputSet) Budget() btcutil.Amount {
+	budget := btcutil.Amount(0)
+	for _, input := range b.inputs {
+		budget += input.params.Budget
+	}
+
+	return budget
+}
+
+// DeadlineHeight returns the deadline height of the set.
+//
+// NOTE: part of the InputSet interface.
+func (b *BudgetInputSet) DeadlineHeight() fn.Option[int32] {
+	return b.deadlineHeight
+}
+
+// Inputs returns the inputs that should be used to create a tx.
+//
+// NOTE: part of the InputSet interface.
+func (b *BudgetInputSet) Inputs() []input.Input {
+	inputs := make([]input.Input, 0, len(b.inputs))
+	for _, inp := range b.inputs {
+		inputs = append(inputs, inp.Input)
+	}
+
+	return inputs
+}
+
+// FeeRate returns the fee rate that should be used for the tx.
+//
+// NOTE: part of the InputSet interface.
+//
+// TODO(yy): will be removed once fee bumper is implemented.
+func (b *BudgetInputSet) FeeRate() chainfee.SatPerKWeight {
+	return 0
 }

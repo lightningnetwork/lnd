@@ -1,6 +1,8 @@
 package tlv
 
 import (
+	"testing"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/fn"
 	"golang.org/x/exp/constraints"
@@ -113,6 +115,34 @@ func (t *OptionalRecordT[T, V]) WhenSomeV(f func(V)) {
 	t.Option.WhenSome(func(r RecordT[T, V]) {
 		f(r.Val)
 	})
+}
+
+// UnwrapOrFailV is used to extract a value from an option within a test
+// context. If the option is None, then the test fails. This gives the
+// underlying value of the record, rather then the record itself.
+func (o *OptionalRecordT[T, V]) UnwrapOrFailV(t *testing.T) V {
+	inner := o.Option.UnwrapOrFail(t)
+
+	return inner.Val
+}
+
+// UnwrapOrErr is used to extract a value from an option, if the option is
+// empty, then the specified error is returned directly. This gives the
+// underlying value of the record, instead of the record itself.
+func (o *OptionalRecordT[T, V]) UnwrapOrErrV(err error) (V, error) {
+	var zero V
+
+	inner, err := o.Option.UnwrapOrErr(err)
+	if err != nil {
+		return zero, err
+	}
+
+	return inner.Val, nil
+}
+
+// Zero returns a zero value of the record type.
+func (t *OptionalRecordT[T, V]) Zero() RecordT[T, V] {
+	return ZeroRecordT[T, V]()
 }
 
 // SomeRecordT creates a new OptionalRecordT type from a given RecordT type.

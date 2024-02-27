@@ -5,14 +5,15 @@ require (
 	github.com/btcsuite/btcd/btcec/v2 v2.1.3
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1
-	github.com/lightningnetwork/lnd/fn v1.0.0
+	github.com/lightningnetwork/lnd/fn v1.0.4
 	github.com/stretchr/testify v1.8.2
-	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
+	golang.org/x/exp v0.0.0-20231226003508-02704c960a9b
 )
 
 require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.1 // indirect
 	github.com/kr/pretty v0.3.0 // indirect
+	github.com/lightninglabs/neutrino/cache v1.1.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.9.0 // indirect
 	golang.org/x/crypto v0.7.0 // indirect

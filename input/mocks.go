@@ -123,3 +123,48 @@ func (m *MockInput) UnconfParent() *TxInfo {
 
 	return info.(*TxInfo)
 }
+
+// MockWitnessType implements the `WitnessType` interface and is used by other
+// packages for mock testing.
+type MockWitnessType struct {
+	mock.Mock
+}
+
+// Compile time assertion that MockWitnessType implements WitnessType.
+var _ WitnessType = (*MockWitnessType)(nil)
+
+// String returns a human readable version of the WitnessType.
+func (m *MockWitnessType) String() string {
+	args := m.Called()
+
+	return args.String(0)
+}
+
+// WitnessGenerator will return a WitnessGenerator function that an output uses
+// to generate the witness and optionally the sigScript for a sweep
+// transaction.
+func (m *MockWitnessType) WitnessGenerator(signer Signer,
+	descriptor *SignDescriptor) WitnessGenerator {
+
+	args := m.Called()
+
+	return args.Get(0).(WitnessGenerator)
+}
+
+// SizeUpperBound returns the maximum length of the witness of this WitnessType
+// if it would be included in a tx. It also returns if the output itself is a
+// nested p2sh output, if so then we need to take into account the extra
+// sigScript data size.
+func (m *MockWitnessType) SizeUpperBound() (int, bool, error) {
+	args := m.Called()
+
+	return args.Int(0), args.Bool(1), args.Error(2)
+}
+
+// AddWeightEstimation adds the estimated size of the witness in bytes to the
+// given weight estimator.
+func (m *MockWitnessType) AddWeightEstimation(e *TxWeightEstimator) error {
+	args := m.Called()
+
+	return args.Error(0)
+}

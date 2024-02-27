@@ -2,15 +2,17 @@ package lnwire
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
-// ChannelAnnouncement message is used to announce the existence of a channel
+// ChannelAnnouncement1 message is used to announce the existence of a channel
 // between two peers in the overlay, which is propagated by the discovery
 // service over broadcast handler.
-type ChannelAnnouncement struct {
+type ChannelAnnouncement1 struct {
 	// This signatures are used by nodes in order to create cross
 	// references between node's channel and node. Requiring both nodes
 	// to sign indicates they are both willing to route other payments via
@@ -58,15 +60,15 @@ type ChannelAnnouncement struct {
 	ExtraOpaqueData ExtraOpaqueData
 }
 
-// A compile time check to ensure ChannelAnnouncement implements the
+// A compile time check to ensure ChannelAnnouncement1 implements the
 // lnwire.Message interface.
-var _ Message = (*ChannelAnnouncement)(nil)
+var _ Message = (*ChannelAnnouncement1)(nil)
 
-// Decode deserializes a serialized ChannelAnnouncement stored in the passed
+// Decode deserializes a serialized ChannelAnnouncement1 stored in the passed
 // io.Reader observing the specified protocol version.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
+func (a *ChannelAnnouncement1) Decode(r io.Reader, _ uint32) error {
 	return ReadElements(r,
 		&a.NodeSig1,
 		&a.NodeSig2,
@@ -83,11 +85,11 @@ func (a *ChannelAnnouncement) Decode(r io.Reader, pver uint32) error {
 	)
 }
 
-// Encode serializes the target ChannelAnnouncement into the passed io.Writer
+// Encode serializes the target ChannelAnnouncement1 into the passed io.Writer
 // observing the protocol version specified.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
+func (a *ChannelAnnouncement1) Encode(w *bytes.Buffer, _ uint32) error {
 	if err := WriteSig(w, a.NodeSig1); err != nil {
 		return err
 	}
@@ -139,13 +141,13 @@ func (a *ChannelAnnouncement) Encode(w *bytes.Buffer, pver uint32) error {
 // wire.
 //
 // This is part of the lnwire.Message interface.
-func (a *ChannelAnnouncement) MsgType() MessageType {
+func (a *ChannelAnnouncement1) MsgType() MessageType {
 	return MsgChannelAnnouncement
 }
 
 // DataToSign is used to retrieve part of the announcement message which should
 // be signed.
-func (a *ChannelAnnouncement) DataToSign() ([]byte, error) {
+func (a *ChannelAnnouncement1) DataToSign() ([]byte, error) {
 	// We should not include the signatures itself.
 	b := make([]byte, 0, MaxMsgBody)
 	buf := bytes.NewBuffer(b)
@@ -184,3 +186,114 @@ func (a *ChannelAnnouncement) DataToSign() ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// Validate validates the channel announcement message and checks that node
+// signatures covers the announcement message, and that the bitcoin signatures
+// covers the node keys.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) Validate(_ func(id *ShortChannelID) (
+	[]byte, error)) error {
+
+	// First, we'll compute the digest (h) which is to be signed by each of
+	// the keys included within the node announcement message. This hash
+	// digest includes all the keys, so the (up to 4 signatures) will
+	// attest to the validity of each of the keys.
+	data, err := a.DataToSign()
+	if err != nil {
+		return err
+	}
+	dataHash := chainhash.DoubleHashB(data)
+
+	// First we'll verify that the passed bitcoin key signature is indeed a
+	// signature over the computed hash digest.
+	bitcoinSig1, err := a.BitcoinSig1.ToSignature()
+	if err != nil {
+		return err
+	}
+	bitcoinKey1, err := btcec.ParsePubKey(a.BitcoinKey1[:])
+	if err != nil {
+		return err
+	}
+	if !bitcoinSig1.Verify(dataHash, bitcoinKey1) {
+		return fmt.Errorf("can't verify first bitcoin signature")
+	}
+
+	// If that checks out, then we'll verify that the second bitcoin
+	// signature is a valid signature of the bitcoin public key over hash
+	// digest as well.
+	bitcoinSig2, err := a.BitcoinSig2.ToSignature()
+	if err != nil {
+		return err
+	}
+	bitcoinKey2, err := btcec.ParsePubKey(a.BitcoinKey2[:])
+	if err != nil {
+		return err
+	}
+	if !bitcoinSig2.Verify(dataHash, bitcoinKey2) {
+		return fmt.Errorf("can't verify second bitcoin signature")
+	}
+
+	// Both node signatures attached should indeed be a valid signature
+	// over the selected digest of the channel announcement signature.
+	nodeSig1, err := a.NodeSig1.ToSignature()
+	if err != nil {
+		return err
+	}
+	nodeKey1, err := btcec.ParsePubKey(a.NodeID1[:])
+	if err != nil {
+		return err
+	}
+	if !nodeSig1.Verify(dataHash, nodeKey1) {
+		return fmt.Errorf("can't verify data in first node signature")
+	}
+
+	nodeSig2, err := a.NodeSig2.ToSignature()
+	if err != nil {
+		return err
+	}
+	nodeKey2, err := btcec.ParsePubKey(a.NodeID2[:])
+	if err != nil {
+		return err
+	}
+	if !nodeSig2.Verify(dataHash, nodeKey2) {
+		return fmt.Errorf("can't verify data in second node signature")
+	}
+
+	return nil
+}
+
+// Node1KeyBytes returns the bytes representing the public key of node 1 in the
+// channel.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) Node1KeyBytes() [33]byte {
+	return a.NodeID1
+}
+
+// Node2KeyBytes returns the bytes representing the public key of node 2 in the
+// channel.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) Node2KeyBytes() [33]byte {
+	return a.NodeID2
+}
+
+// GetChainHash returns the hash of the chain which this channel's funding
+// transaction is confirmed in.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) GetChainHash() chainhash.Hash {
+	return a.ChainHash
+}
+
+// SCID returns the short channel ID of the channel.
+//
+// NOTE: This is part of the ChannelAnnouncement interface.
+func (a *ChannelAnnouncement1) SCID() ShortChannelID {
+	return a.ShortChannelID
+}
+
+// A compile-time check to ensure that ChannelAnnouncement1 implements the
+// ChannelAnnouncement interface.
+var _ ChannelAnnouncement = (*ChannelAnnouncement1)(nil)

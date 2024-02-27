@@ -96,7 +96,7 @@ func (k CircuitKey) String() string {
 // constraints will be consulted in order to ensure that adequate fees are
 // paid, and our time-lock parameters are respected. In the event that an
 // incoming HTLC violates any of these constraints, it is to be _rejected_ with
-// the error possibly carrying along a ChannelUpdate message that includes the
+// the error possibly carrying along a ChannelUpdate1 message that includes the
 // latest policy.
 type ForwardingPolicy struct {
 	// MinHTLCOut is the smallest HTLC that is to be forwarded.

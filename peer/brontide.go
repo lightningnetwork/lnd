@@ -279,7 +279,7 @@ type Config struct {
 	// GenNodeAnnouncement is used to send our node announcement to the remote
 	// on startup.
 	GenNodeAnnouncement func(...netann.NodeAnnModifier) (
-		lnwire.NodeAnnouncement, error)
+		lnwire.NodeAnnouncement1, error)
 
 	// PrunePersistentPeerConnection is used to remove all internal state
 	// related to this peer in the server.
@@ -287,7 +287,7 @@ type Config struct {
 
 	// FetchLastChanUpdate fetches our latest channel update for a target
 	// channel.
-	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate,
+	FetchLastChanUpdate func(lnwire.ShortChannelID) (*lnwire.ChannelUpdate1,
 		error)
 
 	// FundingManager is an implementation of the funding.Controller interface.
@@ -1660,7 +1660,7 @@ out:
 				idleTimer.Reset(idleTimeout)
 				continue
 
-			// If the NodeAnnouncement has an invalid alias, then
+			// If the NodeAnnouncement1 has an invalid alias, then
 			// we'll log that error above and continue so we can
 			// continue to read messages from the peer. We do not
 			// store this error because it is of little debugging
@@ -1763,10 +1763,10 @@ out:
 					nextMsg.MsgType())
 			}
 
-		case *lnwire.ChannelUpdate,
-			*lnwire.ChannelAnnouncement,
-			*lnwire.NodeAnnouncement,
-			*lnwire.AnnounceSignatures,
+		case *lnwire.ChannelUpdate1,
+			*lnwire.ChannelAnnouncement1,
+			*lnwire.NodeAnnouncement1,
+			*lnwire.AnnounceSignatures1,
 			*lnwire.GossipTimestampRange,
 			*lnwire.QueryShortChanIDs,
 			*lnwire.QueryChannelRange,
@@ -2013,21 +2013,21 @@ func messageSummary(msg lnwire.Message) string {
 	case *lnwire.Error:
 		return fmt.Sprintf("%v", msg.Error())
 
-	case *lnwire.AnnounceSignatures:
+	case *lnwire.AnnounceSignatures1:
 		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.ChannelID,
 			msg.ShortChannelID.ToUint64())
 
-	case *lnwire.ChannelAnnouncement:
+	case *lnwire.ChannelAnnouncement1:
 		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v",
 			msg.ChainHash, msg.ShortChannelID.ToUint64())
 
-	case *lnwire.ChannelUpdate:
+	case *lnwire.ChannelUpdate1:
 		return fmt.Sprintf("chain_hash=%v, short_chan_id=%v, "+
 			"mflags=%v, cflags=%v, update_time=%v", msg.ChainHash,
 			msg.ShortChannelID.ToUint64(), msg.MessageFlags,
 			msg.ChannelFlags, time.Unix(int64(msg.Timestamp), 0))
 
-	case *lnwire.NodeAnnouncement:
+	case *lnwire.NodeAnnouncement1:
 		return fmt.Sprintf("node=%x, update_time=%v",
 			msg.NodeID, time.Unix(int64(msg.Timestamp), 0))
 
@@ -2552,7 +2552,7 @@ func (p *Brontide) reenableActiveChannels() {
 	retryChans := make(map[wire.OutPoint]struct{}, len(activePublicChans))
 
 	// For each of the public, non-pending channels, set the channel
-	// disabled bit to false and send out a new ChannelUpdate. If this
+	// disabled bit to false and send out a new ChannelUpdate1. If this
 	// channel is already active, the update won't be sent.
 	for _, chanPoint := range activePublicChans {
 		err := p.cfg.ChanStatusMgr.RequestEnable(chanPoint, false)
@@ -2815,16 +2815,16 @@ func chooseDeliveryScript(upfront,
 		return requested, nil
 	}
 
-	// If an upfront shutdown script was provided, and the user did not request
-	// a custom shutdown script, return the upfront address.
+	// If an upfront shutdown script was provided, and the user did not
+	// request a custom shutdown script, return the upfront address.
 	if len(requested) == 0 {
 		return upfront, nil
 	}
 
 	// If both an upfront shutdown script and a custom close script were
 	// provided, error if the user provided shutdown script does not match
-	// the upfront shutdown script (because closing out to a different script
-	// would violate upfront shutdown).
+	// the upfront shutdown script (because closing out to a different
+	// script would violate upfront shutdown).
 	if !bytes.Equal(upfront, requested) {
 		return nil, chancloser.ErrUpfrontShutdownScriptMismatch
 	}

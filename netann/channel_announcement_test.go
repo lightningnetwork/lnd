@@ -24,7 +24,7 @@ func TestCreateChanAnnouncement(t *testing.T) {
 		t.Fatalf("unable to encode features: %v", err)
 	}
 
-	expChanAnn := &lnwire.ChannelAnnouncement{
+	expChanAnn := &lnwire.ChannelAnnouncement1{
 		ChainHash:       chainhash.Hash{0x1},
 		ShortChannelID:  lnwire.ShortChannelID{BlockHeight: 1},
 		NodeID1:         key,

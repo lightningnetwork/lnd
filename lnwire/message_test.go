@@ -645,11 +645,11 @@ func newMsgChannelReestablish(t testing.TB,
 }
 
 func newMsgChannelAnnouncement(t testing.TB,
-	r *rand.Rand) *lnwire.ChannelAnnouncement {
+	r *rand.Rand) *lnwire.ChannelAnnouncement1 {
 
 	t.Helper()
 
-	msg := &lnwire.ChannelAnnouncement{
+	msg := &lnwire.ChannelAnnouncement1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(uint64(r.Int63())),
 		Features:        rawFeatureVector(),
 		NodeID1:         randRawKey(t),
@@ -670,11 +670,11 @@ func newMsgChannelAnnouncement(t testing.TB,
 }
 
 func newMsgNodeAnnouncement(t testing.TB,
-	r *rand.Rand) *lnwire.NodeAnnouncement {
+	r *rand.Rand) *lnwire.NodeAnnouncement1 {
 
 	t.Helper()
 
-	msg := &lnwire.NodeAnnouncement{
+	msg := &lnwire.NodeAnnouncement1{
 		Features:  rawFeatureVector(),
 		Timestamp: uint32(r.Int31()),
 		Alias:     randAlias(r),
@@ -692,21 +692,21 @@ func newMsgNodeAnnouncement(t testing.TB,
 	return msg
 }
 
-func newMsgChannelUpdate(t testing.TB, r *rand.Rand) *lnwire.ChannelUpdate {
+func newMsgChannelUpdate(t testing.TB, r *rand.Rand) *lnwire.ChannelUpdate1 {
 	t.Helper()
 
 	msgFlags := lnwire.ChanUpdateMsgFlags(r.Int31())
 	maxHtlc := lnwire.MilliSatoshi(r.Int63())
 
 	// We make the max_htlc field zero if it is not flagged
-	// as being part of the ChannelUpdate, to pass
+	// as being part of the ChannelUpdate1, to pass
 	// serialization tests, as it will be ignored if the bit
 	// is not set.
 	if msgFlags&lnwire.ChanUpdateRequiredMaxHtlc == 0 {
 		maxHtlc = 0
 	}
 
-	msg := &lnwire.ChannelUpdate{
+	msg := &lnwire.ChannelUpdate1{
 		ShortChannelID:  lnwire.NewShortChanIDFromInt(r.Uint64()),
 		Timestamp:       uint32(r.Int31()),
 		MessageFlags:    msgFlags,
@@ -727,11 +727,11 @@ func newMsgChannelUpdate(t testing.TB, r *rand.Rand) *lnwire.ChannelUpdate {
 }
 
 func newMsgAnnounceSignatures(t testing.TB,
-	r *rand.Rand) *lnwire.AnnounceSignatures {
+	r *rand.Rand) *lnwire.AnnounceSignatures1 {
 
 	t.Helper()
 
-	msg := &lnwire.AnnounceSignatures{
+	msg := &lnwire.AnnounceSignatures1{
 		ShortChannelID: lnwire.NewShortChanIDFromInt(
 			uint64(r.Int63()),
 		),

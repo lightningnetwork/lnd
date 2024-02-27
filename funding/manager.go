@@ -389,7 +389,7 @@ type Config struct {
 	// CurrentNodeAnnouncement should return the latest, fully signed node
 	// announcement from the backing Lightning Network node with a fresh
 	// timestamp.
-	CurrentNodeAnnouncement func() (lnwire.NodeAnnouncement, error)
+	CurrentNodeAnnouncement func() (lnwire.NodeAnnouncement1, error)
 
 	// SendAnnouncement is used by the FundingManager to send announcement
 	// messages to the Gossiper to possibly broadcast to the greater
@@ -3296,13 +3296,13 @@ func (f *Manager) receivedChannelReady(node *btcec.PublicKey,
 }
 
 // extractAnnounceParams extracts the various channel announcement and update
-// parameters that will be needed to construct a ChannelAnnouncement and a
-// ChannelUpdate.
+// parameters that will be needed to construct a ChannelAnnouncement1 and a
+// ChannelUpdate1.
 func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	lnwire.MilliSatoshi, lnwire.MilliSatoshi) {
 
 	// We'll obtain the min HTLC value we can forward in our direction, as
-	// we'll use this value within our ChannelUpdate. This constraint is
+	// we'll use this value within our ChannelUpdate1. This constraint is
 	// originally set by the remote node, as it will be the one that will
 	// need to determine the smallest HTLC it deems economically relevant.
 	fwdMinHTLC := c.LocalChanCfg.MinHTLC
@@ -3314,7 +3314,7 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	}
 
 	// We'll obtain the max HTLC value we can forward in our direction, as
-	// we'll use this value within our ChannelUpdate. This value must be <=
+	// we'll use this value within our ChannelUpdate1. This value must be <=
 	// channel capacity and <= the maximum in-flight msats set by the peer.
 	fwdMaxHTLC := c.LocalChanCfg.MaxPendingAmount
 	capacityMSat := lnwire.NewMSatFromSatoshis(c.Capacity)
@@ -3325,13 +3325,13 @@ func (f *Manager) extractAnnounceParams(c *channeldb.OpenChannel) (
 	return fwdMinHTLC, fwdMaxHTLC
 }
 
-// addToRouterGraph sends a ChannelAnnouncement and a ChannelUpdate to the
+// addToRouterGraph sends a ChannelAnnouncement1 and a ChannelUpdate1 to the
 // gossiper so that the channel is added to the Router's internal graph.
 // These announcement messages are NOT broadcasted to the greater network,
 // only to the channel counter party. The proofs required to announce the
 // channel to the greater network will be created and sent in annAfterSixConfs.
 // The peerAlias is used for zero-conf channels to give the counter-party a
-// ChannelUpdate they understand. ourPolicy may be set for various
+// ChannelUpdate1 they understand. ourPolicy may be set for various
 // option-scid-alias channels to re-use the same policy.
 func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 	shortChanID *lnwire.ShortChannelID,
@@ -3354,7 +3354,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 			"announcement: %v", err)
 	}
 
-	// Send ChannelAnnouncement and ChannelUpdate to the gossiper to add
+	// Send ChannelAnnouncement1 and ChannelUpdate1 to the gossiper to add
 	// to the Router's topology.
 	errChan := f.cfg.SendAnnouncement(
 		ann.chanAnn, discovery.ChannelCapacity(completeChan.Capacity),
@@ -3367,7 +3367,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 				routing.ErrIgnored) {
 
 				log.Debugf("Router rejected "+
-					"ChannelAnnouncement: %v", err)
+					"ChannelAnnouncement1: %v", err)
 			} else {
 				return fmt.Errorf("error sending channel "+
 					"announcement: %v", err)
@@ -3387,7 +3387,7 @@ func (f *Manager) addToRouterGraph(completeChan *channeldb.OpenChannel,
 				routing.ErrIgnored) {
 
 				log.Debugf("Router rejected "+
-					"ChannelUpdate: %v", err)
+					"ChannelUpdate1: %v", err)
 			} else {
 				return fmt.Errorf("error sending channel "+
 					"update: %v", err)
@@ -3432,7 +3432,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 			&completeChan.FundingOutpoint,
 		)
 		pubKey := peer.PubKey()
-		log.Debugf("Sending our NodeAnnouncement for "+
+		log.Debugf("Sending our NodeAnnouncement1 for "+
 			"ChannelID(%v) to %x", chanID, pubKey)
 
 		// TODO(halseth): make reliable. If the peer is not online this
@@ -3515,7 +3515,7 @@ func (f *Manager) annAfterSixConfs(completeChan *channeldb.OpenChannel,
 
 			// We'll delete the edge and add it again via
 			// addToRouterGraph. This is because the peer may have
-			// sent us a ChannelUpdate with an alias and we don't
+			// sent us a ChannelUpdate1 with an alias and we don't
 			// want to relay this.
 			ourPolicy, err := f.cfg.DeleteAliasEdge(baseScid)
 			if err != nil {
@@ -3763,7 +3763,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 	// We'll need to store the received TLV alias if the option_scid_alias
 	// feature was negotiated. This will be used to provide route hints
 	// during invoice creation. In the zero-conf case, it is also used to
-	// provide a ChannelUpdate to the remote peer. This is done before the
+	// provide a ChannelUpdate1 to the remote peer. This is done before the
 	// call to InsertNextRevocation in case the call to PutPeerAlias fails.
 	// If it were to fail on the first call to handleChannelReady, we
 	// wouldn't want the channel to be usable yet.
@@ -3938,7 +3938,7 @@ func (f *Manager) handleChannelReadyReceived(channel *channeldb.OpenChannel,
 		// We'll need to wait until channel_ready has been received and
 		// the peer lets us know the alias they want to use for the
 		// channel. With this information, we can then construct a
-		// ChannelUpdate for them.  If an alias does not yet exist,
+		// ChannelUpdate1 for them.  If an alias does not yet exist,
 		// we'll just return, letting the next iteration of the loop
 		// check again.
 		var defaultAlias lnwire.ShortChannelID
@@ -4051,9 +4051,9 @@ func (f *Manager) ensureInitialForwardingPolicy(chanID lnwire.ChannelID,
 // chanAnnouncement encapsulates the two authenticated announcements that we
 // send out to the network after a new channel has been created locally.
 type chanAnnouncement struct {
-	chanAnn       *lnwire.ChannelAnnouncement
-	chanUpdateAnn *lnwire.ChannelUpdate
-	chanProof     *lnwire.AnnounceSignatures
+	chanAnn       *lnwire.ChannelAnnouncement1
+	chanUpdateAnn *lnwire.ChannelUpdate1
+	chanProof     *lnwire.AnnounceSignatures1
 }
 
 // newChanAnnouncement creates the authenticated channel announcement messages
@@ -4076,7 +4076,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// The unconditional section of the announcement is the ShortChannelID
 	// itself which compactly encodes the location of the funding output
 	// within the blockchain.
-	chanAnn := &lnwire.ChannelAnnouncement{
+	chanAnn := &lnwire.ChannelAnnouncement1{
 		ShortChannelID: shortChanID,
 		Features:       lnwire.NewRawFeatureVector(),
 		ChainHash:      chainHash,
@@ -4089,7 +4089,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// TODO(roasbeef): temp, remove after gossip 1.5
 	if chanType.IsTaproot() {
 		log.Debugf("Applying taproot feature bit to "+
-			"ChannelAnnouncement for %v", chanID)
+			"ChannelAnnouncement1 for %v", chanID)
 
 		chanAnn.Features.Set(
 			lnwire.SimpleTaprootChannelsRequiredStaging,
@@ -4145,8 +4145,8 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	msgFlags := lnwire.ChanUpdateRequiredMaxHtlc
 
 	// We announce the channel with the default values. Some of
-	// these values can later be changed by crafting a new ChannelUpdate.
-	chanUpdateAnn := &lnwire.ChannelUpdate{
+	// these values can later be changed by crafting a new ChannelUpdate1.
+	chanUpdateAnn := &lnwire.ChannelUpdate1{
 		ShortChannelID: shortChanID,
 		ChainHash:      chainHash,
 		Timestamp:      uint32(time.Now().Unix()),
@@ -4172,7 +4172,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	switch {
 	case ourPolicy != nil:
 		// If ourPolicy is non-nil, modify the default parameters of the
-		// ChannelUpdate.
+		// ChannelUpdate1.
 		chanUpdateAnn.MessageFlags = ourPolicy.MessageFlags
 		chanUpdateAnn.ChannelFlags = ourPolicy.ChannelFlags
 		chanUpdateAnn.TimeLockDelta = ourPolicy.TimeLockDelta
@@ -4245,7 +4245,7 @@ func (f *Manager) newChanAnnouncement(localPubKey,
 	// Finally, we'll generate the announcement proof which we'll use to
 	// provide the other side with the necessary signatures required to
 	// allow them to reconstruct the full channel announcement.
-	proof := &lnwire.AnnounceSignatures{
+	proof := &lnwire.AnnounceSignatures1{
 		ChannelID:      chanID,
 		ShortChannelID: shortChanID,
 	}
@@ -4294,8 +4294,8 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 	}
 
 	// We only send the channel proof announcement and the node announcement
-	// because addToRouterGraph previously sent the ChannelAnnouncement and
-	// the ChannelUpdate announcement messages. The channel proof and node
+	// because addToRouterGraph previously sent the ChannelAnnouncement1 and
+	// the ChannelUpdate1 announcement messages. The channel proof and node
 	// announcements are broadcast to the greater network.
 	errChan := f.cfg.SendAnnouncement(ann.chanProof)
 	select {
@@ -4305,7 +4305,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 				routing.ErrIgnored) {
 
 				log.Debugf("Router rejected "+
-					"AnnounceSignatures: %v", err)
+					"AnnounceSignatures1: %v", err)
 			} else {
 				log.Errorf("Unable to send channel "+
 					"proof: %v", err)
@@ -4335,7 +4335,7 @@ func (f *Manager) announceChannel(localIDKey, remoteIDKey *btcec.PublicKey,
 				routing.ErrIgnored) {
 
 				log.Debugf("Router rejected "+
-					"NodeAnnouncement: %v", err)
+					"NodeAnnouncement1: %v", err)
 			} else {
 				log.Errorf("Unable to send node "+
 					"announcement: %v", err)

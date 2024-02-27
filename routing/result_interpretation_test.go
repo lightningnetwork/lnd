@@ -164,7 +164,7 @@ var resultTestCases = []resultTestCase{
 		name:          "fail expiry too soon",
 		route:         &routeFourHop,
 		failureSrcIdx: 3,
-		failure:       lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate{}),
+		failure:       lnwire.NewExpiryTooSoon(lnwire.ChannelUpdate1{}),
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{
@@ -266,7 +266,9 @@ var resultTestCases = []resultTestCase{
 		name:          "fail fee insufficient intermediate",
 		route:         &routeFourHop,
 		failureSrcIdx: 2,
-		failure:       lnwire.NewFeeInsufficient(0, lnwire.ChannelUpdate{}),
+		failure: lnwire.NewFeeInsufficient(
+			0, lnwire.ChannelUpdate1{},
+		),
 
 		expectedResult: &interpretedResult{
 			pairResults: map[DirectedNodePair]pairResult{

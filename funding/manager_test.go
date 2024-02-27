@@ -469,10 +469,10 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			}
 			return errChan
 		},
-		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement,
+		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
 
-			return lnwire.NodeAnnouncement{}, nil
+			return lnwire.NodeAnnouncement1{}, nil
 		},
 		TempChanIDSeed: chanIDSeed,
 		FindChannel: func(node *btcec.PublicKey,
@@ -632,10 +632,10 @@ func recreateAliceFundingManager(t *testing.T, alice *testNode) {
 			}
 			return errChan
 		},
-		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement,
+		CurrentNodeAnnouncement: func() (lnwire.NodeAnnouncement1,
 			error) {
 
-			return lnwire.NodeAnnouncement{}, nil
+			return lnwire.NodeAnnouncement1{}, nil
 		},
 		NotifyWhenOnline: func(peer [33]byte,
 			connectedChan chan<- lnpeer.Peer) {
@@ -1145,9 +1145,9 @@ func assertAddedToRouterGraph(t *testing.T, alice, bob *testNode,
 }
 
 // assertChannelAnnouncements checks that alice and bob both sends the expected
-// announcements (ChannelAnnouncement, ChannelUpdate) after the funding tx has
+// announcements (ChannelAnnouncement1, ChannelUpdate1) after the funding tx has
 // confirmed. The last arguments can be set if we expect the nodes to advertise
-// custom min_htlc values as part of their ChannelUpdate. We expect Alice to
+// custom min_htlc values as part of their ChannelUpdate1. We expect Alice to
 // advertise the value required by Bob and vice versa. If they are not set the
 // advertised value will be checked against the other node's default min_htlc,
 // base fee and fee rate values.
@@ -1176,9 +1176,9 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 
 	// After the ChannelReady message is sent, Alice and Bob will each send
 	// the following messages to their gossiper:
-	//	1) ChannelAnnouncement
-	//	2) ChannelUpdate
-	// The ChannelAnnouncement is kept locally, while the ChannelUpdate is
+	//	1) ChannelAnnouncement1
+	//	2) ChannelUpdate1
+	// The ChannelAnnouncement1 is kept locally, while the ChannelUpdate1 is
 	// sent directly to the other peer, so the edge policies are known to
 	// both peers.
 	nodes := []*testNode{alice, bob}
@@ -1196,9 +1196,9 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 		gotChannelUpdate := false
 		for _, msg := range announcements {
 			switch m := msg.(type) {
-			case *lnwire.ChannelAnnouncement:
+			case *lnwire.ChannelAnnouncement1:
 				gotChannelAnnouncement = true
-			case *lnwire.ChannelUpdate:
+			case *lnwire.ChannelUpdate1:
 
 				// The channel update sent by the node should
 				// advertise the MinHTLC value required by the
@@ -1245,9 +1245,9 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 
 		require.Truef(
 			t, gotChannelAnnouncement,
-			"ChannelAnnouncement from %d", j,
+			"ChannelAnnouncement1 from %d", j,
 		)
-		require.Truef(t, gotChannelUpdate, "ChannelUpdate from %d", j)
+		require.Truef(t, gotChannelUpdate, "ChannelUpdate1 from %d", j)
 
 		// Make sure no other message is sent.
 		select {
@@ -1267,9 +1267,9 @@ func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 	// by having the nodes exchange announcement signatures.
 	// Two distinct messages will be sent:
 	//	1) AnnouncementSignatures
-	//	2) NodeAnnouncement
+	//	2) NodeAnnouncement1
 	// These may arrive in no particular order.
-	// Note that sending the NodeAnnouncement at this point is an
+	// Note that sending the NodeAnnouncement1 at this point is an
 	// implementation detail, and not something required by the LN spec.
 	for j, node := range []*testNode{alice, bob} {
 		announcements := make([]lnwire.Message, 2)
@@ -1285,15 +1285,15 @@ func assertAnnouncementSignatures(t *testing.T, alice, bob *testNode) {
 		gotNodeAnnouncement := false
 		for _, msg := range announcements {
 			switch msg.(type) {
-			case *lnwire.AnnounceSignatures:
+			case *lnwire.AnnounceSignatures1:
 				gotAnnounceSignatures = true
-			case *lnwire.NodeAnnouncement:
+			case *lnwire.NodeAnnouncement1:
 				gotNodeAnnouncement = true
 			}
 		}
 
 		if !gotAnnounceSignatures {
-			t.Fatalf("did not get AnnounceSignatures from node %d",
+			t.Fatalf("did not get AnnounceSignatures1 from node %d",
 				j)
 		}
 		if !gotNodeAnnouncement {
@@ -1317,7 +1317,7 @@ func assertNodeAnnSent(t *testing.T, alice, bob *testNode) {
 			node.msgChan, time.Second*5,
 		)
 		require.NoError(t, err)
-		assertType[*lnwire.NodeAnnouncement](t, *nodeAnn)
+		assertType[*lnwire.NodeAnnouncement1](t, *nodeAnn)
 	}
 }
 
@@ -2816,7 +2816,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 	// We should however receive each side's node announcement.
 	select {
 	case msg := <-alice.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+		if _, ok := msg.(*lnwire.NodeAnnouncement1); !ok {
 			t.Fatalf("expected to receive node announcement")
 		}
 	case <-time.After(time.Second):
@@ -2825,7 +2825,7 @@ func TestFundingManagerPrivateChannel(t *testing.T) {
 
 	select {
 	case msg := <-bob.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+		if _, ok := msg.(*lnwire.NodeAnnouncement1); !ok {
 			t.Fatalf("expected to receive node announcement")
 		}
 	case <-time.After(time.Second):
@@ -2944,7 +2944,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 	// We should however receive each side's node announcement.
 	select {
 	case msg := <-alice.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+		if _, ok := msg.(*lnwire.NodeAnnouncement1); !ok {
 			t.Fatalf("expected to receive node announcement")
 		}
 	case <-time.After(time.Second):
@@ -2953,7 +2953,7 @@ func TestFundingManagerPrivateRestart(t *testing.T) {
 
 	select {
 	case msg := <-bob.msgChan:
-		if _, ok := msg.(*lnwire.NodeAnnouncement); !ok {
+		if _, ok := msg.(*lnwire.NodeAnnouncement1); !ok {
 			t.Fatalf("expected to receive node announcement")
 		}
 	case <-time.After(time.Second):
@@ -4549,8 +4549,8 @@ func testZeroConf(t *testing.T, chanType *lnwire.ChannelType) {
 	// We'll assert that they both create new links.
 	assertHandleChannelReady(t, alice, bob)
 
-	// We'll now assert that both sides send ChannelAnnouncement and
-	// ChannelUpdate messages.
+	// We'll now assert that both sides send ChannelAnnouncement1 and
+	// ChannelUpdate1 messages.
 	assertChannelAnnouncements(
 		t, alice, bob, fundingAmt, nil, nil, nil, nil,
 	)

@@ -156,7 +156,7 @@ func signDigestCompact(hash []byte) ([]byte, error) {
 	// ecdsa.SignCompact returns a pubkey-recoverable signature
 	sig, err := ecdsa.SignCompact(privKey, hash, isCompressedKey)
 	if err != nil {
-		return nil, fmt.Errorf("can't sign the hash: %v", err)
+		return nil, fmt.Errorf("can't sign the hash: %w", err)
 	}
 
 	return sig, nil

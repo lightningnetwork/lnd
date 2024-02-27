@@ -268,7 +268,7 @@ func TestMuSig2KeyAggTestVectors(t *testing.T) {
 func mustParseHex(str string) []byte {
 	b, err := hex.DecodeString(str)
 	if err != nil {
-		panic(fmt.Errorf("unable to parse hex: %v", err))
+		panic(fmt.Errorf("unable to parse hex: %w", err))
 	}
 
 	return b
@@ -1868,10 +1868,10 @@ func getInfinityBytes() []byte {
 func mustParseHex32(str string) [32]byte {
 	b, err := hex.DecodeString(str)
 	if err != nil {
-		panic(fmt.Errorf("unable to parse hex: %v", err))
+		panic(fmt.Errorf("unable to parse hex: %w", err))
 	}
 	if len(b) != 32 {
-		panic(fmt.Errorf("not a 32 byte slice: %v", err))
+		panic(fmt.Errorf("not a 32 byte slice: %w", err))
 	}
 
 	return to32ByteSlice(b)
@@ -1880,10 +1880,10 @@ func mustParseHex32(str string) [32]byte {
 func mustParsePubNonce(str string) [PubNonceSize]byte {
 	b, err := hex.DecodeString(str)
 	if err != nil {
-		panic(fmt.Errorf("unable to parse hex: %v", err))
+		panic(fmt.Errorf("unable to parse hex: %w", err))
 	}
 	if len(b) != PubNonceSize {
-		panic(fmt.Errorf("not a public nonce: %v", err))
+		panic(fmt.Errorf("not a public nonce: %w", err))
 	}
 	return toPubNonceSlice(b)
 }
@@ -1891,7 +1891,7 @@ func mustParsePubNonce(str string) [PubNonceSize]byte {
 func canParsePubNonce(str string) [PubNonceSize]byte {
 	b, err := hex.DecodeString(str)
 	if err != nil {
-		panic(fmt.Errorf("unable to parse hex: %v", err))
+		panic(fmt.Errorf("unable to parse hex: %w", err))
 	}
 	return toPubNonceSlice(b)
 }

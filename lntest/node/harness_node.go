@@ -327,7 +327,7 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 		return err
 	}, wait.DefaultTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("error reading TLS cert: %v", err)
+		return nil, fmt.Errorf("error reading TLS cert: %w", err)
 	}
 
 	opts := []grpc.DialOption{
@@ -343,7 +343,7 @@ func (hn *HarnessNode) ConnectRPCWithMacaroon(mac *macaroon.Macaroon) (
 	}
 	macCred, err := macaroons.NewMacaroonCredential(mac)
 	if err != nil {
-		return nil, fmt.Errorf("error cloning mac: %v", err)
+		return nil, fmt.Errorf("error cloning mac: %w", err)
 	}
 	opts = append(opts, grpc.WithPerRPCCredentials(macCred))
 
@@ -452,7 +452,7 @@ func (hn *HarnessNode) Start(ctxt context.Context) error {
 
 	// Wait till the server is starting.
 	if err := hn.WaitUntilStarted(); err != nil {
-		return fmt.Errorf("waiting for start got: %v", err)
+		return fmt.Errorf("waiting for start got: %w", err)
 	}
 
 	// Subscribe for topology updates.
@@ -544,7 +544,7 @@ func (hn *HarnessNode) waitTillServerState(
 		case <-time.After(wait.NodeStartTimeout):
 			return fmt.Errorf("timeout waiting for server state")
 		case err := <-errChan:
-			return fmt.Errorf("receive server state err: %v", err)
+			return fmt.Errorf("receive server state err: %w", err)
 
 		case <-done:
 			return nil
@@ -906,7 +906,7 @@ func executePgQuery(query string) error {
 		postgresDatabaseDsn("postgres"),
 	)
 	if err != nil {
-		return fmt.Errorf("unable to connect to database: %v", err)
+		return fmt.Errorf("unable to connect to database: %w", err)
 	}
 	defer pool.Close()
 

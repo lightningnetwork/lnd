@@ -541,7 +541,7 @@ func GetClientMissedBlocks(chainConn ChainConn, clientBestBlock *BlockEpoch,
 		chainConn, startingHeight+1, notifierBestHeight+1,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get missed blocks: %v", err)
+		return nil, fmt.Errorf("unable to get missed blocks: %w", err)
 	}
 
 	return missedBlocks, nil

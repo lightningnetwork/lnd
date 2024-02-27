@@ -376,7 +376,8 @@ func sendPayment(ctx *cli.Context) error {
 		amount, err = strconv.ParseInt(args.First(), 10, 64)
 		args = args.Tail()
 		if err != nil {
-			return fmt.Errorf("unable to decode payment amount: %v", err)
+			return fmt.Errorf("unable to decode payment amount: %w",
+				err)
 		}
 	}
 
@@ -1147,7 +1148,8 @@ func queryRoutes(ctx *cli.Context) error {
 	case args.Present():
 		amt, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			return fmt.Errorf("unable to decode amt argument: %v", err)
+			return fmt.Errorf("unable to decode amt argument: %w",
+				err)
 		}
 	default:
 		return fmt.Errorf("amt argument missing")
@@ -1490,7 +1492,7 @@ func forwardingHistory(ctx *cli.Context) error {
 		startTime = uint64(now.Add(-time.Hour * 24).Unix())
 	}
 	if err != nil {
-		return fmt.Errorf("unable to decode start_time: %v", err)
+		return fmt.Errorf("unable to decode start_time: %w", err)
 	}
 
 	switch {
@@ -1503,7 +1505,7 @@ func forwardingHistory(ctx *cli.Context) error {
 		endTime = uint64(now.Unix())
 	}
 	if err != nil {
-		return fmt.Errorf("unable to decode end_time: %v", err)
+		return fmt.Errorf("unable to decode end_time: %w", err)
 	}
 
 	switch {
@@ -1786,7 +1788,7 @@ func deletePayments(ctx *cli.Context) error {
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("error deleting payments: %v", err)
+			return fmt.Errorf("error deleting payments: %w", err)
 		}
 	}
 

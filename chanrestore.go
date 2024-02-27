@@ -57,31 +57,33 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		backup.LocalChanCfg.MultiSigKey.KeyLocator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to derive multi sig key: %v", err)
+		return nil, fmt.Errorf("unable to derive multi sig key: %w",
+			err)
 	}
 	backup.LocalChanCfg.RevocationBasePoint, err = c.secretKeys.DeriveKey(
 		backup.LocalChanCfg.RevocationBasePoint.KeyLocator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to derive revocation key: %v", err)
+		return nil, fmt.Errorf("unable to derive revocation key: %w",
+			err)
 	}
 	backup.LocalChanCfg.PaymentBasePoint, err = c.secretKeys.DeriveKey(
 		backup.LocalChanCfg.PaymentBasePoint.KeyLocator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to derive payment key: %v", err)
+		return nil, fmt.Errorf("unable to derive payment key: %w", err)
 	}
 	backup.LocalChanCfg.DelayBasePoint, err = c.secretKeys.DeriveKey(
 		backup.LocalChanCfg.DelayBasePoint.KeyLocator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to derive delay key: %v", err)
+		return nil, fmt.Errorf("unable to derive delay key: %w", err)
 	}
 	backup.LocalChanCfg.HtlcBasePoint, err = c.secretKeys.DeriveKey(
 		backup.LocalChanCfg.HtlcBasePoint.KeyLocator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to derive htlc key: %v", err)
+		return nil, fmt.Errorf("unable to derive htlc key: %w", err)
 	}
 
 	// The shachain root that seeds RevocationProducer for this channel.
@@ -161,7 +163,7 @@ func (c *chanDBRestorer) openChannelShell(backup chanbackup.Single) (
 		chanType |= channeldb.SimpleTaprootFeatureBit
 
 	default:
-		return nil, fmt.Errorf("unknown Single version: %v", err)
+		return nil, fmt.Errorf("unknown Single version: %w", err)
 	}
 
 	ltndLog.Infof("SCB Recovery: created channel shell for ChannelPoint"+

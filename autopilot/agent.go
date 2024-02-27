@@ -629,7 +629,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		nodes[nID] = struct{}{}
 		return nil
 	}); err != nil {
-		return fmt.Errorf("unable to get graph nodes: %v", err)
+		return fmt.Errorf("unable to get graph nodes: %w", err)
 	}
 
 	// Use the heuristic to calculate a score for each node in the
@@ -639,7 +639,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 		a.cfg.Graph, totalChans, chanSize, nodes,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to calculate node scores : %v", err)
+		return fmt.Errorf("unable to calculate node scores : %w", err)
 	}
 
 	log.Debugf("Got scores for %d nodes", len(scores))

@@ -67,7 +67,7 @@ func addTower(ctx *cli.Context) error {
 	}
 	pubKey, err := hex.DecodeString(parts[0])
 	if err != nil {
-		return fmt.Errorf("invalid public key: %v", err)
+		return fmt.Errorf("invalid public key: %w", err)
 	}
 	address := parts[1]
 
@@ -160,7 +160,7 @@ func removeTower(ctx *cli.Context) error {
 	}
 	pubKey, err := hex.DecodeString(parts[0])
 	if err != nil {
-		return fmt.Errorf("invalid public key: %v", err)
+		return fmt.Errorf("invalid public key: %w", err)
 	}
 	var address string
 	if len(parts) == 2 {
@@ -264,7 +264,7 @@ func getTower(ctx *cli.Context) error {
 	// about.
 	pubKey, err := hex.DecodeString(ctx.Args().Get(0))
 	if err != nil {
-		return fmt.Errorf("invalid public key: %v", err)
+		return fmt.Errorf("invalid public key: %w", err)
 	}
 
 	client, cleanUp := getWtclient(ctx)

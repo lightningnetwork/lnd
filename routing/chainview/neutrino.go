@@ -247,7 +247,7 @@ func (c *CfFilteredChainView) FilterBlock(blockHash *chainhash.Hash) (*FilteredB
 	// outpoint that have been spent.
 	filter, err := c.p2pNode.GetCFilter(*blockHash, wire.GCSFilterRegular)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch filter: %v", err)
+		return nil, fmt.Errorf("unable to fetch filter: %w", err)
 	}
 
 	// Before we can match the filter, we'll need to map each item in our
@@ -349,7 +349,7 @@ func (c *CfFilteredChainView) UpdateFilter(ops []channeldb.EdgePoint,
 	}
 	err := c.chainView.Update(rescanUpdate...)
 	if err != nil {
-		return fmt.Errorf("unable to update rescan: %v", err)
+		return fmt.Errorf("unable to update rescan: %w", err)
 	}
 	return nil
 }

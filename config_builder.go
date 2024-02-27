@@ -425,7 +425,7 @@ func (d *DefaultWalletImpl) BuildWalletConfig(ctx context.Context,
 		// wallet unlocker.
 		err = macaroonService.CreateUnlock(&privateWalletPw)
 		if err != nil && err != macaroons.ErrAlreadyUnlocked {
-			err := fmt.Errorf("unable to unlock macaroons: %v", err)
+			err := fmt.Errorf("unable to unlock macaroons: %w", err)
 			d.logger.Error(err)
 			return nil, nil, nil, err
 		}
@@ -674,7 +674,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		*walletConfig, partialChainControl.Cfg.BlockCache,
 	)
 	if err != nil {
-		err := fmt.Errorf("unable to create wallet controller: %v", err)
+		err := fmt.Errorf("unable to create wallet controller: %w", err)
 		d.logger.Error(err)
 		return nil, nil, err
 	}
@@ -730,7 +730,7 @@ func (d *DefaultWalletImpl) BuildChainControl(
 		lnWalletConfig, walletController, partialChainControl,
 	)
 	if err != nil {
-		err := fmt.Errorf("unable to create chain control: %v", err)
+		err := fmt.Errorf("unable to create chain control: %w", err)
 		d.logger.Error(err)
 		return nil, nil, err
 	}
@@ -778,7 +778,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 		*walletConfig, partialChainControl.Cfg.BlockCache,
 	)
 	if err != nil {
-		err := fmt.Errorf("unable to create wallet controller: %v", err)
+		err := fmt.Errorf("unable to create wallet controller: %w", err)
 		d.logger.Error(err)
 		return nil, nil, err
 	}
@@ -818,7 +818,7 @@ func (d *RPCSignerWalletImpl) BuildChainControl(
 		lnWalletConfig, rpcKeyRing, partialChainControl,
 	)
 	if err != nil {
-		err := fmt.Errorf("unable to create chain control: %v", err)
+		err := fmt.Errorf("unable to create chain control: %w", err)
 		d.logger.Error(err)
 		return nil, nil, err
 	}
@@ -993,7 +993,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 	case err != nil:
 		cleanUp()
 
-		err := fmt.Errorf("unable to open graph DB: %v", err)
+		err := fmt.Errorf("unable to open graph DB: %w", err)
 		d.logger.Error(err)
 		return nil, nil, err
 	}
@@ -1404,12 +1404,12 @@ func parseHeaderStateAssertion(state string) (*headerfs.FilterHeader, error) {
 
 	height, err := strconv.ParseUint(split[0], 10, 32)
 	if err != nil {
-		return nil, fmt.Errorf("invalid filter header height: %v", err)
+		return nil, fmt.Errorf("invalid filter header height: %w", err)
 	}
 
 	hash, err := chainhash.NewHashFromStr(split[1])
 	if err != nil {
-		return nil, fmt.Errorf("invalid filter header hash: %v", err)
+		return nil, fmt.Errorf("invalid filter header hash: %w", err)
 	}
 
 	return &headerfs.FilterHeader{

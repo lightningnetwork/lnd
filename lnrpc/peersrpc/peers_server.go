@@ -335,7 +335,7 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 	if req.Color != "" {
 		color, err := lncfg.ParseHexColor(req.Color)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse color: %v", err)
+			return nil, fmt.Errorf("unable to parse color: %w", err)
 		}
 
 		if color != currentNodeAnn.RGBColor {
@@ -355,7 +355,7 @@ func (s *Server) UpdateNodeAnnouncement(_ context.Context,
 	if req.Alias != "" {
 		alias, err := lnwire.NewNodeAlias(req.Alias)
 		if err != nil {
-			return nil, fmt.Errorf("invalid alias value: %v", err)
+			return nil, fmt.Errorf("invalid alias value: %w", err)
 		}
 		if alias != currentNodeAnn.Alias {
 			resp.Ops = append(resp.Ops, &lnrpc.Op{

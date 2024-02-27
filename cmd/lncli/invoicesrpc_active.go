@@ -69,7 +69,7 @@ func settleInvoice(ctx *cli.Context) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("unable to parse preimage: %v", err)
+		return fmt.Errorf("unable to parse preimage: %w", err)
 	}
 
 	invoice := &invoicesrpc.SettleInvoiceMsg{
@@ -123,7 +123,7 @@ func cancelInvoice(ctx *cli.Context) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("unable to parse preimage: %v", err)
+		return fmt.Errorf("unable to parse preimage: %w", err)
 	}
 
 	invoice := &invoicesrpc.CancelInvoiceMsg{
@@ -212,7 +212,7 @@ func addHoldInvoice(ctx *cli.Context) error {
 
 	hash, err := hex.DecodeString(args.First())
 	if err != nil {
-		return fmt.Errorf("unable to parse hash: %v", err)
+		return fmt.Errorf("unable to parse hash: %w", err)
 	}
 
 	args = args.Tail()
@@ -223,13 +223,14 @@ func addHoldInvoice(ctx *cli.Context) error {
 	if !ctx.IsSet("amt") && !ctx.IsSet("amt_msat") && args.Present() {
 		amt, err = strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			return fmt.Errorf("unable to decode amt argument: %v", err)
+			return fmt.Errorf("unable to decode amt argument: %w",
+				err)
 		}
 	}
 
 	descHash, err = hex.DecodeString(ctx.String("description_hash"))
 	if err != nil {
-		return fmt.Errorf("unable to parse description_hash: %v", err)
+		return fmt.Errorf("unable to parse description_hash: %w", err)
 	}
 
 	invoice := &invoicesrpc.AddHoldInvoiceRequest{

@@ -115,7 +115,7 @@ func (cmd *compacter) execute() (int64, int64, error) {
 
 	// Run compaction.
 	if err := cmd.compact(dst, src); err != nil {
-		return 0, 0, fmt.Errorf("error running compaction: %v", err)
+		return 0, 0, fmt.Errorf("error running compaction: %w", err)
 	}
 
 	// Report stats on new size.

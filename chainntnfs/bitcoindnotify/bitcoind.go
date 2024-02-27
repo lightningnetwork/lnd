@@ -636,7 +636,7 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 	// clients.
 	rawBlock, err := b.GetBlock(block.Hash)
 	if err != nil {
-		return fmt.Errorf("unable to get block: %v", err)
+		return fmt.Errorf("unable to get block: %w", err)
 	}
 	utilBlock := btcutil.NewBlock(rawBlock)
 
@@ -645,7 +645,7 @@ func (b *BitcoindNotifier) handleBlockConnected(block chainntnfs.BlockEpoch) err
 	// us.
 	err = b.txNotifier.ConnectTip(utilBlock, uint32(block.Height))
 	if err != nil {
-		return fmt.Errorf("unable to connect tip: %v", err)
+		return fmt.Errorf("unable to connect tip: %w", err)
 	}
 
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", block.Height,
@@ -719,7 +719,8 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			pkScript, b.chainParams,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse script: %v", err)
+			return nil, fmt.Errorf("unable to parse script: %w",
+				err)
 		}
 		if err := b.chainConn.NotifyReceived(addrs); err != nil {
 			return nil, err

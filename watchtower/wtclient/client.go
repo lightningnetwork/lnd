@@ -982,7 +982,7 @@ func (c *client) readMessage(peer wtserver.Peer) (wtwire.Message, error) {
 	// received in a timely manner.
 	err := peer.SetReadDeadline(time.Now().Add(c.cfg.ReadTimeout))
 	if err != nil {
-		err = fmt.Errorf("unable to set read deadline: %v", err)
+		err = fmt.Errorf("unable to set read deadline: %w", err)
 		c.log.Errorf("Unable to read msg: %v", err)
 		return nil, err
 	}
@@ -990,7 +990,7 @@ func (c *client) readMessage(peer wtserver.Peer) (wtwire.Message, error) {
 	// Pull the next message off the wire,
 	rawMsg, err := peer.ReadNextMessage()
 	if err != nil {
-		err = fmt.Errorf("unable to read message: %v", err)
+		err = fmt.Errorf("unable to read message: %w", err)
 		c.log.Errorf("Unable to read msg: %v", err)
 		return nil, err
 	}
@@ -1000,7 +1000,7 @@ func (c *client) readMessage(peer wtserver.Peer) (wtwire.Message, error) {
 	msgReader := bytes.NewReader(rawMsg)
 	msg, err := wtwire.ReadMessage(msgReader, 0)
 	if err != nil {
-		err = fmt.Errorf("unable to parse message: %v", err)
+		err = fmt.Errorf("unable to parse message: %w", err)
 		c.log.Errorf("Unable to read msg: %v", err)
 		return nil, err
 	}
@@ -1019,7 +1019,7 @@ func (c *client) sendMessage(peer wtserver.Peer,
 	var b bytes.Buffer
 	_, err := wtwire.WriteMessage(&b, msg, 0)
 	if err != nil {
-		err = fmt.Errorf("Unable to encode msg: %v", err)
+		err = fmt.Errorf("unable to encode msg: %w", err)
 		c.log.Errorf("Unable to send msg: %v", err)
 		return err
 	}
@@ -1028,7 +1028,7 @@ func (c *client) sendMessage(peer wtserver.Peer,
 	// connection if nothing is sent in a timely manner.
 	err = peer.SetWriteDeadline(time.Now().Add(c.cfg.WriteTimeout))
 	if err != nil {
-		err = fmt.Errorf("unable to set write deadline: %v", err)
+		err = fmt.Errorf("unable to set write deadline: %w", err)
 		c.log.Errorf("Unable to send msg: %v", err)
 		return err
 	}

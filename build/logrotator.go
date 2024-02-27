@@ -64,13 +64,13 @@ func (r *RotatingLogWriter) InitLogRotator(logFile string, maxLogFileSize int,
 	logDir, _ := filepath.Split(logFile)
 	err := os.MkdirAll(logDir, 0700)
 	if err != nil {
-		return fmt.Errorf("failed to create log directory: %v", err)
+		return fmt.Errorf("failed to create log directory: %w", err)
 	}
 	r.logRotator, err = rotator.New(
 		logFile, int64(maxLogFileSize*1024), false, maxLogFiles,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create file rotator: %v", err)
+		return fmt.Errorf("failed to create file rotator: %w", err)
 	}
 
 	// Run rotator as a goroutine now but make sure we catch any errors

@@ -630,7 +630,7 @@ func (p *Brontide) Start() error {
 	// Exchange local and global features, the init message should be very
 	// first between two nodes.
 	if err := p.sendInitMsg(haveLegacyChan); err != nil {
-		return fmt.Errorf("unable to send init msg: %v", err)
+		return fmt.Errorf("unable to send init msg: %w", err)
 	}
 
 	// Before we launch any of the helper goroutines off the peer struct,
@@ -660,7 +660,7 @@ func (p *Brontide) Start() error {
 			handshakeTimeout)
 	case err := <-readErr:
 		if err != nil {
-			return fmt.Errorf("unable to read init msg: %v", err)
+			return fmt.Errorf("unable to read init msg: %w", err)
 		}
 	}
 
@@ -696,7 +696,7 @@ func (p *Brontide) Start() error {
 
 	msgs, err := p.loadActiveChannels(activeChans)
 	if err != nil {
-		return fmt.Errorf("unable to load channels: %v", err)
+		return fmt.Errorf("unable to load channels: %w", err)
 	}
 
 	p.startTime = time.Now()
@@ -3332,7 +3332,7 @@ func (p *Brontide) handleInitMsg(msg *lnwire.Init) error {
 	// didn't set any required bits that we don't know of.
 	err = feature.ValidateRequired(p.remoteFeatures)
 	if err != nil {
-		return fmt.Errorf("invalid remote features: %v", err)
+		return fmt.Errorf("invalid remote features: %w", err)
 	}
 
 	// Ensure the remote party's feature vector contains all transitive
@@ -3340,7 +3340,7 @@ func (p *Brontide) handleInitMsg(msg *lnwire.Init) error {
 	// during the feature manager's instantiation.
 	err = feature.ValidateDeps(p.remoteFeatures)
 	if err != nil {
-		return fmt.Errorf("invalid remote features: %v", err)
+		return fmt.Errorf("invalid remote features: %w", err)
 	}
 
 	// Now that we know we understand their requirements, we'll check to

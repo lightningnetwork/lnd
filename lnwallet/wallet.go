@@ -721,7 +721,7 @@ func (l *LightningWallet) PsbtFundingVerify(pendingChanID [32]byte,
 
 	err := psbtIntent.Verify(packet, skipFinalize)
 	if err != nil {
-		return fmt.Errorf("error verifying PSBT: %v", err)
+		return fmt.Errorf("error verifying PSBT: %w", err)
 	}
 
 	// Get the channel reservation for that corresponds to this pending
@@ -773,13 +773,13 @@ func (l *LightningWallet) PsbtFundingFinalize(pid [32]byte, packet *psbt.Packet,
 	case packet != nil && rawTx == nil:
 		err := psbtIntent.Finalize(packet)
 		if err != nil {
-			return fmt.Errorf("error finalizing PSBT: %v", err)
+			return fmt.Errorf("error finalizing PSBT: %w", err)
 		}
 
 	case rawTx != nil && packet == nil:
 		err := psbtIntent.FinalizeRawTX(rawTx)
 		if err != nil {
-			return fmt.Errorf("error finalizing raw TX: %v", err)
+			return fmt.Errorf("error finalizing raw TX: %w", err)
 		}
 
 	default:
@@ -1554,7 +1554,8 @@ func (l *LightningWallet) handleContributionMsg(req *addContributionMsg) {
 	case *chanfunding.ShimIntent:
 		chanPoint, err = fundingIntent.ChanPoint()
 		if err != nil {
-			req.err <- fmt.Errorf("unable to obtain chan point: %v", err)
+			req.err <- fmt.Errorf("unable to obtain chan point: %w",
+				err)
 			return
 		}
 
@@ -1996,7 +1997,8 @@ func (l *LightningWallet) verifyFundingInputs(fundingTx *wire.MsgTx,
 				txin.SignatureScript, txin.Witness,
 			)
 			if err != nil {
-				return fmt.Errorf("cannot create script: %v", err)
+				return fmt.Errorf("cannot create script: %w",
+					err)
 			}
 			output, err := l.Cfg.ChainIO.GetUtxo(
 				&txin.PreviousOutPoint,

@@ -686,7 +686,7 @@ func (f *interceptedForward) FailWithCode(code lnwire.FailCode) error {
 	// of the failure.
 	reason, err := f.packet.obfuscator.EncryptFirstHop(failureMsg)
 	if err != nil {
-		return fmt.Errorf("failed to encrypt failure reason %v", err)
+		return fmt.Errorf("failed to encrypt failure reason %w", err)
 	}
 
 	return f.resolve(&lnwire.UpdateFailHTLC{

@@ -22,13 +22,13 @@ func MigrateNodeAndEdgeUpdateIndex(tx kvdb.RwTx) error {
 	// where these items will be housed.
 	nodes, err := tx.CreateTopLevelBucket(nodeBucket)
 	if err != nil {
-		return fmt.Errorf("unable to create node bucket: %v", err)
+		return fmt.Errorf("unable to create node bucket: %w", err)
 	}
 	nodeUpdateIndex, err := nodes.CreateBucketIfNotExists(
 		nodeUpdateIndexBucket,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to create node update index: %v", err)
+		return fmt.Errorf("unable to create node update index: %w", err)
 	}
 
 	log.Infof("Populating new node update index bucket")
@@ -57,7 +57,7 @@ func MigrateNodeAndEdgeUpdateIndex(tx kvdb.RwTx) error {
 		return nodeUpdateIndex.Put(indexKey[:], nil)
 	})
 	if err != nil {
-		return fmt.Errorf("unable to update node indexes: %v", err)
+		return fmt.Errorf("unable to update node indexes: %w", err)
 	}
 
 	log.Infof("Populating new edge update index bucket")
@@ -66,13 +66,13 @@ func MigrateNodeAndEdgeUpdateIndex(tx kvdb.RwTx) error {
 	// corresponding entry in the edge update index.
 	edges, err := tx.CreateTopLevelBucket(edgeBucket)
 	if err != nil {
-		return fmt.Errorf("unable to create edge bucket: %v", err)
+		return fmt.Errorf("unable to create edge bucket: %w", err)
 	}
 	edgeUpdateIndex, err := edges.CreateBucketIfNotExists(
 		edgeUpdateIndexBucket,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to create edge update index: %v", err)
+		return fmt.Errorf("unable to create edge update index: %w", err)
 	}
 
 	// We'll now run through each edge policy in the database, and update
@@ -109,7 +109,7 @@ func MigrateNodeAndEdgeUpdateIndex(tx kvdb.RwTx) error {
 		return edgeUpdateIndex.Put(indexKey[:], nil)
 	})
 	if err != nil {
-		return fmt.Errorf("unable to update edge indexes: %v", err)
+		return fmt.Errorf("unable to update edge indexes: %w", err)
 	}
 
 	log.Infof("Migration to node and edge update indexes complete!")
@@ -169,7 +169,7 @@ func MigrateInvoiceTimeSeries(tx kvdb.RwTx) error {
 		invoiceReader := bytes.NewReader(invoiceBytesCopy)
 		invoice, err := deserializeInvoiceLegacy(invoiceReader)
 		if err != nil {
-			return fmt.Errorf("unable to decode invoice: %v", err)
+			return fmt.Errorf("unable to decode invoice: %w", err)
 		}
 
 		// Now that we have the fully decoded invoice, we can update
@@ -307,7 +307,8 @@ func MigrateInvoiceTimeSeriesOutgoingPayments(tx kvdb.RwTx) error {
 		paymentReader := bytes.NewReader(paymentCopy)
 		_, err := deserializeOutgoingPayment(paymentReader)
 		if err != nil {
-			return fmt.Errorf("unable to deserialize payment: %v", err)
+			return fmt.Errorf("unable to deserialize payment: %w",
+				err)
 		}
 
 		// Now that we know the modifications was successful, we'll
@@ -400,7 +401,7 @@ func MigrateEdgePolicies(tx kvdb.RwTx) error {
 	})
 
 	if err != nil {
-		return fmt.Errorf("unable to update edge policies: %v", err)
+		return fmt.Errorf("unable to update edge policies: %w", err)
 	}
 
 	log.Infof("Migration of edge policies complete!")
@@ -649,7 +650,7 @@ func MigrateOptionalChannelCloseSummaryFields(tx kvdb.RwTx) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("unable to update closed channels: %v", err)
+		return fmt.Errorf("unable to update closed channels: %w", err)
 	}
 
 	// Now put the new format back into the DB.

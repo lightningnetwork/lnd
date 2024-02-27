@@ -497,7 +497,7 @@ func (s *Switch) GetAttemptResult(attemptID uint64, paymentHash lntypes.Hash,
 			deobfuscator, n, attemptID, paymentHash,
 		)
 		if err != nil {
-			e := fmt.Errorf("unable to extract result: %v", err)
+			e := fmt.Errorf("unable to extract result: %w", err)
 			log.Error(e)
 			resultChan <- &PaymentResult{
 				Error: e,
@@ -709,7 +709,8 @@ func (s *Switch) ForwardPackets(linkQuit chan struct{},
 		default:
 			err := s.routeAsync(packet, fwdChan, linkQuit)
 			if err != nil {
-				return fmt.Errorf("failed to forward packet %v", err)
+				return fmt.Errorf("failed to forward packet %w",
+					err)
 			}
 			numSent++
 		}
@@ -754,7 +755,7 @@ func (s *Switch) ForwardPackets(linkQuit chan struct{},
 	for _, packet := range addedPackets {
 		err := s.routeAsync(packet, fwdChan, linkQuit)
 		if err != nil {
-			return fmt.Errorf("failed to forward packet %v", err)
+			return fmt.Errorf("failed to forward packet %w", err)
 		}
 		numSent++
 	}

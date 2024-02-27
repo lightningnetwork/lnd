@@ -1077,7 +1077,7 @@ func ParseUpfrontShutdownAddress(address string,
 		address, params,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("invalid address: %v", err)
+		return nil, fmt.Errorf("invalid address: %w", err)
 	}
 
 	if !addr.IsForNet(params) {

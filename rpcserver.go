@@ -1612,7 +1612,7 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	// The signature should be zbase32 encoded
 	sig, err := zbase32.DecodeString(in.Signature)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode signature: %v", err)
+		return nil, fmt.Errorf("failed to decode signature: %w", err)
 	}
 
 	// The signature is over the double-sha256 hash of the message.
@@ -1636,7 +1636,7 @@ func (r *rpcServer) VerifyMessage(ctx context.Context,
 	graph := r.server.graphDB
 	_, active, err := graph.HasLightningNode(pub)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query graph: %v", err)
+		return nil, fmt.Errorf("failed to query graph: %w", err)
 	}
 
 	return &lnrpc.VerifyMessageResponse{
@@ -1730,18 +1730,19 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	// public key.
 	pubKeyBytes, err := hex.DecodeString(in.PubKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to decode pubkey bytes: %v", err)
+		return nil, fmt.Errorf("unable to decode pubkey bytes: %w", err)
 	}
 	peerPubKey, err := btcec.ParsePubKey(pubKeyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse pubkey: %v", err)
+		return nil, fmt.Errorf("unable to parse pubkey: %w", err)
 	}
 
 	// Next, we'll fetch the pending/active channels we have with a
 	// particular peer.
 	nodeChannels, err := r.server.chanStateDB.FetchOpenChannels(peerPubKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch channels for peer: %v", err)
+		return nil, fmt.Errorf("unable to fetch channels for peer: %w",
+			err)
 	}
 
 	// In order to avoid erroneously disconnecting from a peer that we have
@@ -1768,7 +1769,7 @@ func (r *rpcServer) DisconnectPeer(ctx context.Context,
 	// server disconnects from the peer.
 	err = r.server.DisconnectPeer(peerPubKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to disconnect peer: %v", err)
+		return nil, fmt.Errorf("unable to disconnect peer: %w", err)
 	}
 
 	return &lnrpc.DisconnectPeerResponse{}, nil
@@ -2458,7 +2459,7 @@ func (r *rpcServer) BatchOpenChannel(ctx context.Context,
 	// a close height, so we'll just use the current best known height.
 	_, bestHeight, err := r.server.cc.ChainIO.GetBestBlock()
 	if err != nil {
-		return nil, fmt.Errorf("error fetching best block: %v", err)
+		return nil, fmt.Errorf("error fetching best block: %w", err)
 	}
 
 	// So far everything looks good and we can now start the heavy lifting
@@ -2482,7 +2483,7 @@ func (r *rpcServer) BatchOpenChannel(ctx context.Context,
 	})
 	rpcPoints, err := batcher.BatchFund(ctx, in)
 	if err != nil {
-		return nil, fmt.Errorf("batch funding failed: %v", err)
+		return nil, fmt.Errorf("batch funding failed: %w", err)
 	}
 
 	// Now all that's left to do is send back the response with the channel
@@ -2972,7 +2973,7 @@ func (r *rpcServer) GetInfo(_ context.Context,
 
 	bestHash, bestHeight, err := r.server.cc.ChainIO.GetBestBlock()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get best block info: %v", err)
+		return nil, fmt.Errorf("unable to get best block info: %w", err)
 	}
 
 	isSynced, bestHeaderTimestamp, err := r.server.cc.Wallet.IsSynced()
@@ -3093,7 +3094,8 @@ func (r *rpcServer) GetRecoveryInfo(ctx context.Context,
 
 	isRecoveryMode, progress, err := r.server.cc.Wallet.GetRecoveryInfo()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get wallet recovery info: %v", err)
+		return nil, fmt.Errorf("unable to get wallet recovery info: %w",
+			err)
 	}
 
 	rpcsLog.Debugf("[getrecoveryinfo] is recovery mode=%v, progress=%v",
@@ -4190,7 +4192,7 @@ func (r *rpcServer) ListChannels(ctx context.Context,
 
 	if len(in.Peer) > 0 && len(in.Peer) != 33 {
 		_, err := route.NewVertexFromBytes(in.Peer)
-		return nil, fmt.Errorf("invalid `peer` key: %v", err)
+		return nil, fmt.Errorf("invalid `peer` key: %w", err)
 	}
 
 	resp := &lnrpc.ListChannelsResponse{}
@@ -5806,7 +5808,7 @@ func (r *rpcServer) ListInvoices(ctx context.Context,
 
 	invoiceSlice, err := r.server.miscDB.QueryInvoices(ctx, q)
 	if err != nil {
-		return nil, fmt.Errorf("unable to query invoices: %v", err)
+		return nil, fmt.Errorf("unable to query invoices: %w", err)
 	}
 
 	// Before returning the response, we'll need to convert each invoice
@@ -6929,7 +6931,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	}
 	dayFees, err := computeFeeSum(dayQuery)
 	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
+		return nil, fmt.Errorf("unable to retrieve day fees: %w", err)
 	}
 
 	weekQuery := channeldb.ForwardingEventQuery{
@@ -6939,7 +6941,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	}
 	weekFees, err := computeFeeSum(weekQuery)
 	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
+		return nil, fmt.Errorf("unable to retrieve day fees: %w", err)
 	}
 
 	monthQuery := channeldb.ForwardingEventQuery{
@@ -6949,7 +6951,7 @@ func (r *rpcServer) FeeReport(ctx context.Context,
 	}
 	monthFees, err := computeFeeSum(monthQuery)
 	if err != nil {
-		return nil, fmt.Errorf("unable to retrieve day fees: %v", err)
+		return nil, fmt.Errorf("unable to retrieve day fees: %w", err)
 	}
 
 	return &lnrpc.FeeReportResponse{
@@ -7273,7 +7275,7 @@ func (r *rpcServer) ExportChannelBackup(ctx context.Context,
 		r.server.cc.KeyRing,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("packing of back ups failed: %v", err)
+		return nil, fmt.Errorf("packing of back ups failed: %w", err)
 	}
 
 	// Before we proceed, we'll ensure that we received a backup for this
@@ -7400,7 +7402,7 @@ func (r *rpcServer) createBackupSnapshot(backups []chanbackup.Single) (
 	}
 	err = unpackedMultiBackup.PackToWriter(&b, r.server.cc.KeyRing)
 	if err != nil {
-		return nil, fmt.Errorf("unable to multi-pack backups: %v", err)
+		return nil, fmt.Errorf("unable to multi-pack backups: %w", err)
 	}
 
 	multiBackupResp := &lnrpc.MultiChanBackup{
@@ -7903,7 +7905,7 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 			bytes.NewReader(in.GetPsbtVerify().FundedPsbt), false,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing psbt: %v", err)
+			return nil, fmt.Errorf("error parsing psbt: %w", err)
 		}
 
 		err = r.server.cc.Wallet.PsbtFundingVerify(
@@ -8070,7 +8072,7 @@ func (r *rpcServer) RegisterRPCMiddleware(
 	// Add the RPC middleware to the interceptor chain and defer its
 	// removal.
 	if err := r.interceptorChain.RegisterMiddleware(middleware); err != nil {
-		return fmt.Errorf("error registering middleware: %v", err)
+		return fmt.Errorf("error registering middleware: %w", err)
 	}
 	defer r.interceptorChain.RemoveMiddleware(registerMsg.MiddlewareName)
 

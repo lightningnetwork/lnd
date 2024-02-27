@@ -196,7 +196,7 @@ func (p *JusticeDescriptor) assembleJusticeTxn(txWeight int64,
 		if err := vm.Execute(); err != nil {
 			log.Debugf("Failed to validate justice transaction: %s",
 				spew.Sdump(justiceTxn))
-			return nil, fmt.Errorf("error validating TX: %v", err)
+			return nil, fmt.Errorf("error validating TX: %w", err)
 		}
 	}
 

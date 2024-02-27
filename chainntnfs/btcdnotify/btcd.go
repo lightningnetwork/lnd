@@ -692,7 +692,7 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 	// clients.
 	rawBlock, err := b.GetBlock(epoch.Hash)
 	if err != nil {
-		return fmt.Errorf("unable to get block: %v", err)
+		return fmt.Errorf("unable to get block: %w", err)
 	}
 	newBlock := &filteredBlock{
 		hash:    *epoch.Hash,
@@ -706,7 +706,7 @@ func (b *BtcdNotifier) handleBlockConnected(epoch chainntnfs.BlockEpoch) error {
 	// us.
 	err = b.txNotifier.ConnectTip(newBlock.block, newBlock.height)
 	if err != nil {
-		return fmt.Errorf("unable to connect tip: %v", err)
+		return fmt.Errorf("unable to connect tip: %w", err)
 	}
 
 	chainntnfs.Log.Infof("New block: height=%v, sha=%v", epoch.Height,
@@ -785,7 +785,8 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			pkScript, b.chainParams,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse script: %v", err)
+			return nil, fmt.Errorf("unable to parse script: %w",
+				err)
 		}
 		if err := b.chainConn.NotifyReceived(addrs); err != nil {
 			return nil, err
@@ -823,7 +824,8 @@ func (b *BtcdNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 			pkScript, b.chainParams,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to parse address: %v", err)
+			return nil, fmt.Errorf("unable to parse address: %w",
+				err)
 		}
 
 		asyncResult := b.chainConn.RescanAsync(startHash, addrs, nil)

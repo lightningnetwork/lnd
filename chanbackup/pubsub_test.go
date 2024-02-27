@@ -36,7 +36,7 @@ func (m *mockSwapper) UpdateAndSwap(newBackup PackedMulti) error {
 
 	swapState, err := newBackup.Unpack(m.keyChain)
 	if err != nil {
-		return fmt.Errorf("unable to decode on disk swaps: %v", err)
+		return fmt.Errorf("unable to decode on disk swaps: %w", err)
 	}
 
 	m.swapState = swapState

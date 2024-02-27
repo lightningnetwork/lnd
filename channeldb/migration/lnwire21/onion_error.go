@@ -1212,7 +1212,7 @@ func DecodeFailure(r io.Reader, pver uint32) (FailureMessage, error) {
 	// is a 2 byte length followed by the payload itself.
 	var failureLength uint16
 	if err := ReadElement(r, &failureLength); err != nil {
-		return nil, fmt.Errorf("unable to read error len: %v", err)
+		return nil, fmt.Errorf("unable to read error len: %w", err)
 	}
 	if failureLength > FailureMessageLength {
 		return nil, fmt.Errorf("failure message is too "+
@@ -1236,7 +1236,7 @@ func DecodeFailureMessage(r io.Reader, pver uint32) (FailureMessage, error) {
 	// the first two bytes of the buffer.
 	var codeBytes [2]byte
 	if _, err := io.ReadFull(r, codeBytes[:]); err != nil {
-		return nil, fmt.Errorf("unable to read failure code: %v", err)
+		return nil, fmt.Errorf("unable to read failure code: %w", err)
 	}
 	failCode := FailCode(binary.BigEndian.Uint16(codeBytes[:]))
 
@@ -1244,7 +1244,7 @@ func DecodeFailureMessage(r io.Reader, pver uint32) (FailureMessage, error) {
 	// additional data if needed.
 	failure, err := makeEmptyOnionError(failCode)
 	if err != nil {
-		return nil, fmt.Errorf("unable to make empty error: %v", err)
+		return nil, fmt.Errorf("unable to make empty error: %w", err)
 	}
 
 	// Finally, if this failure has a payload, then we'll read that now as

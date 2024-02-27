@@ -830,7 +830,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// network so we can properly sign it.
 	nodeAnn, err := selfNode.NodeAnnouncement(false)
 	if err != nil {
-		return nil, fmt.Errorf("unable to gen self node ann: %v", err)
+		return nil, fmt.Errorf("unable to gen self node ann: %w", err)
 	}
 
 	// With the announcement generated, we'll sign it to properly
@@ -853,7 +853,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 	// Finally, we'll update the representation on disk, and update our
 	// cached in-memory version as well.
 	if err := chanGraph.SetSourceNode(selfNode); err != nil {
-		return nil, fmt.Errorf("can't set self node: %v", err)
+		return nil, fmt.Errorf("can't set self node: %w", err)
 	}
 	s.currentNodeAnn = nodeAnn
 
@@ -925,7 +925,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		dbs.ChanStateDB, selfNode.PubKeyBytes, mcCfg,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("can't create mission control: %v", err)
+		return nil, fmt.Errorf("can't create mission control: %w", err)
 	}
 
 	srvrLog.Debugf("Instantiating payment session source with config: "+
@@ -944,7 +944,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 	sourceNode, err := chanGraph.SourceNode()
 	if err != nil {
-		return nil, fmt.Errorf("error getting source node: %v", err)
+		return nil, fmt.Errorf("error getting source node: %w", err)
 	}
 	paymentSessionSource := &routing.SessionSource{
 		Graph:             chanGraph,
@@ -981,7 +981,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		IsAlias:             aliasmgr.IsAlias,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("can't create router: %v", err)
+		return nil, fmt.Errorf("can't create router: %w", err)
 	}
 
 	chanSeries := discovery.NewChanSeries(s.graphDB)
@@ -2905,7 +2905,7 @@ func (s *server) createNewHiddenService() error {
 	}
 	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
 	if err := s.graphDB.SetSourceNode(selfNode); err != nil {
-		return fmt.Errorf("can't set self node: %v", err)
+		return fmt.Errorf("can't set self node: %w", err)
 	}
 
 	return nil
@@ -3005,7 +3005,7 @@ func (s *server) updateAndBrodcastSelfNode(features *lnwire.RawFeatureVector,
 	// don't risk overwriting any existing values.
 	selfNode, err := s.graphDB.SourceNode()
 	if err != nil {
-		return fmt.Errorf("unable to get current source node: %v", err)
+		return fmt.Errorf("unable to get current source node: %w", err)
 	}
 
 	selfNode.HaveNodeAnnouncement = true
@@ -3019,7 +3019,7 @@ func (s *server) updateAndBrodcastSelfNode(features *lnwire.RawFeatureVector,
 	copy(selfNode.PubKeyBytes[:], s.identityECDH.PubKey().SerializeCompressed())
 
 	if err := s.graphDB.SetSourceNode(selfNode); err != nil {
-		return fmt.Errorf("can't set self node: %v", err)
+		return fmt.Errorf("can't set self node: %w", err)
 	}
 
 	// Finally, propagate it to the nodes in the network.
@@ -3967,7 +3967,7 @@ func (s *server) peerInitializer(p *peer.Brontide) {
 		srvrLog.Warnf("Starting peer=%v got error: %v",
 			p.IdentityKey(), err)
 
-		p.Disconnect(fmt.Errorf("unable to start peer: %v", err))
+		p.Disconnect(fmt.Errorf("unable to start peer: %w", err))
 		return
 	}
 

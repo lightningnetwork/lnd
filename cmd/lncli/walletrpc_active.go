@@ -1449,7 +1449,7 @@ func leaseOutput(ctx *cli.Context) error {
 	outpointStr := ctx.String("outpoint")
 	outpoint, err := NewProtoOutPoint(outpointStr)
 	if err != nil {
-		return fmt.Errorf("error parsing outpoint: %v", err)
+		return fmt.Errorf("error parsing outpoint: %w", err)
 	}
 
 	lockIDStr := ctx.String("lockid")
@@ -1458,7 +1458,7 @@ func leaseOutput(ctx *cli.Context) error {
 	}
 	lockID, err := hex.DecodeString(lockIDStr)
 	if err != nil {
-		return fmt.Errorf("error parsing lockid: %v", err)
+		return fmt.Errorf("error parsing lockid: %w", err)
 	}
 
 	expiry := ctx.Uint64("expiry")
@@ -1534,7 +1534,7 @@ func releaseOutput(ctx *cli.Context) error {
 
 	outpoint, err := NewProtoOutPoint(outpointStr)
 	if err != nil {
-		return fmt.Errorf("error parsing outpoint: %v", err)
+		return fmt.Errorf("error parsing outpoint: %w", err)
 	}
 
 	lockID := walletrpc.LndInternalLockID[:]
@@ -1543,7 +1543,7 @@ func releaseOutput(ctx *cli.Context) error {
 		var err error
 		lockID, err = hex.DecodeString(lockIDStr)
 		if err != nil {
-			return fmt.Errorf("error parsing lockid: %v", err)
+			return fmt.Errorf("error parsing lockid: %w", err)
 		}
 	}
 
@@ -2003,7 +2003,8 @@ func importAccount(ctx *cli.Context) error {
 			ctx.String("master_key_fingerprint"),
 		)
 		if err != nil {
-			return fmt.Errorf("invalid master key fingerprint: %v", err)
+			return fmt.Errorf("invalid master key fingerprint: %w",
+				err)
 		}
 	}
 

@@ -274,7 +274,7 @@ func TestWriteMessageChunking(t *testing.T) {
 
 		bytesWritten, err := localConn.Write(largeMessage)
 		if err != nil {
-			errCh <- fmt.Errorf("unable to write message: %v", err)
+			errCh <- fmt.Errorf("unable to write message: %w", err)
 			return
 		}
 

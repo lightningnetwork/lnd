@@ -924,7 +924,7 @@ func (b *BreachArbitrator) cleanupBreach(chanPoint *wire.OutPoint) error {
 	// With the channel closed, mark it in the database as such.
 	err := b.cfg.DB.MarkChanFullyClosed(chanPoint)
 	if err != nil {
-		return fmt.Errorf("unable to mark chan as closed: %v", err)
+		return fmt.Errorf("unable to mark chan as closed: %w", err)
 	}
 
 	// Justice has been carried out; we can safely delete the retribution

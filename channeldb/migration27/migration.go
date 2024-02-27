@@ -65,7 +65,7 @@ func findHistoricalChannels(historicalBucket kvdb.RBucket) ([]*OpenChannel,
 		chanPointBuf := bytes.NewBuffer(cp)
 		err := mig.ReadOutpoint(chanPointBuf, &c.FundingOutpoint)
 		if err != nil {
-			return fmt.Errorf("read funding outpoint got: %v", err)
+			return fmt.Errorf("read funding outpoint got: %w", err)
 		}
 
 		// Read the sub-bucket.
@@ -141,7 +141,7 @@ func migrateBalances(rootBucket kvdb.RwBucket, c *OpenChannel) error {
 
 	// Update the channel info.
 	if err := PutChanInfo(chanBucket, c, false); err != nil {
-		return fmt.Errorf("unable to put chan info: %v", err)
+		return fmt.Errorf("unable to put chan info: %w", err)
 	}
 
 	return nil

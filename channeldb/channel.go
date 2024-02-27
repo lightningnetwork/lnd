@@ -1015,7 +1015,7 @@ func (c *OpenChannel) Refresh() error {
 		// We'll re-populating the in-memory channel with the info
 		// fetched from disk.
 		if err := fetchChanInfo(chanBucket, c); err != nil {
-			return fmt.Errorf("unable to fetch chan info: %v", err)
+			return fmt.Errorf("unable to fetch chan info: %w", err)
 		}
 
 		// Also populate the channel's commitment states for both sides
@@ -1869,13 +1869,13 @@ func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 	// First, we'll write out all the relatively static fields, that are
 	// decided upon initial channel creation.
 	if err := putChanInfo(chanBucket, channel); err != nil {
-		return fmt.Errorf("unable to store chan info: %v", err)
+		return fmt.Errorf("unable to store chan info: %w", err)
 	}
 
 	// With the static channel info written out, we'll now write out the
 	// current commitment state for both parties.
 	if err := putChanCommitments(chanBucket, channel); err != nil {
-		return fmt.Errorf("unable to store chan commitments: %v", err)
+		return fmt.Errorf("unable to store chan commitments: %w", err)
 	}
 
 	// Next, if this is a frozen channel, we'll add in the axillary
@@ -1885,14 +1885,15 @@ func putOpenChannel(chanBucket kvdb.RwBucket, channel *OpenChannel) error {
 			chanBucket, channel.ThawHeight,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to store thaw height: %v", err)
+			return fmt.Errorf("unable to store thaw height: %w",
+				err)
 		}
 	}
 
 	// Finally, we'll write out the revocation state for both parties
 	// within a distinct key space.
 	if err := putChanRevocationState(chanBucket, channel); err != nil {
-		return fmt.Errorf("unable to store chan revocations: %v", err)
+		return fmt.Errorf("unable to store chan revocations: %w", err)
 	}
 
 	return nil
@@ -1910,13 +1911,14 @@ func fetchOpenChannel(chanBucket kvdb.RBucket,
 	// First, we'll read all the static information that changes less
 	// frequently from disk.
 	if err := fetchChanInfo(chanBucket, channel); err != nil {
-		return nil, fmt.Errorf("unable to fetch chan info: %v", err)
+		return nil, fmt.Errorf("unable to fetch chan info: %w", err)
 	}
 
 	// With the static information read, we'll now read the current
 	// commitment state for both sides of the channel.
 	if err := fetchChanCommitments(chanBucket, channel); err != nil {
-		return nil, fmt.Errorf("unable to fetch chan commitments: %v", err)
+		return nil, fmt.Errorf("unable to fetch chan commitments: %w",
+			err)
 	}
 
 	// Next, if this is a frozen channel, we'll add in the axillary
@@ -1934,7 +1936,8 @@ func fetchOpenChannel(chanBucket kvdb.RBucket,
 	// Finally, we'll retrieve the current revocation state so we can
 	// properly
 	if err := fetchChanRevocationState(chanBucket, channel); err != nil {
-		return nil, fmt.Errorf("unable to fetch chan revocations: %v", err)
+		return nil, fmt.Errorf("unable to fetch chan revocations: %w",
+			err)
 	}
 
 	channel.Packager = NewChannelPackager(channel.ShortChannelID)
@@ -2043,7 +2046,7 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 		}
 
 		if err = putChanInfo(chanBucket, c); err != nil {
-			return fmt.Errorf("unable to store chan info: %v", err)
+			return fmt.Errorf("unable to store chan info: %w", err)
 		}
 
 		// With the proper bucket fetched, we'll now write the latest
@@ -2130,12 +2133,14 @@ func (c *OpenChannel) UpdateCommitment(newCommitment *ChannelCommitment,
 		var b3 bytes.Buffer
 		err = serializeLogUpdates(&b3, unsignedUpdates)
 		if err != nil {
-			return fmt.Errorf("unable to serialize log updates: %v", err)
+			return fmt.Errorf("unable to serialize log updates: %w",
+				err)
 		}
 
 		err = chanBucket.Put(remoteUnsignedLocalUpdatesKey, b3.Bytes())
 		if err != nil {
-			return fmt.Errorf("unable to restore chanbucket: %v", err)
+			return fmt.Errorf("unable to restore chanbucket: %w",
+				err)
 		}
 
 		return nil
@@ -3003,12 +3008,14 @@ func (c *OpenChannel) AdvanceCommitChainTail(fwdPkg *FwdPkg,
 		var b bytes.Buffer
 		err = serializeLogUpdates(&b, validUpdates)
 		if err != nil {
-			return fmt.Errorf("unable to serialize log updates: %v", err)
+			return fmt.Errorf("unable to serialize log updates: %w",
+				err)
 		}
 
 		err = chanBucket.Put(unsignedAckedUpdatesKey, b.Bytes())
 		if err != nil {
-			return fmt.Errorf("unable to store under unsignedAckedUpdatesKey: %v", err)
+			return fmt.Errorf("unable to store under "+
+				"unsignedAckedUpdatesKey: %w", err)
 		}
 
 		// Persist the local updates the peer hasn't yet signed so they

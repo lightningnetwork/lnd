@@ -43,7 +43,7 @@ func version(ctx *cli.Context) error {
 	lndVersion, err := client.GetVersion(ctxc, &verrpc.VersionRequest{})
 	if err != nil {
 		printRespJSON(versions)
-		return fmt.Errorf("unable fetch version from lnd: %v", err)
+		return fmt.Errorf("unable fetch version from lnd: %w", err)
 	}
 	versions.Lnd = lndVersion
 

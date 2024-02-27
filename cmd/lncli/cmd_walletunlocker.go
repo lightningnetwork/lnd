@@ -141,7 +141,7 @@ func create(ctx *cli.Context) error {
 
 	// Passed an invalid channel backup file.
 	case err != nil:
-		return fmt.Errorf("unable to parse chan backups: %v", err)
+		return fmt.Errorf("unable to parse chan backups: %w", err)
 
 	// We have an SCB recovery option with a valid backup file.
 	default:
@@ -356,7 +356,7 @@ mnemonicCheck:
 		}
 		seedResp, err := client.GenSeed(ctxc, genSeedReq)
 		if err != nil {
-			return fmt.Errorf("unable to generate seed: %v", err)
+			return fmt.Errorf("unable to generate seed: %w", err)
 		}
 
 		cipherSeedMnemonic = seedResp.CipherSeedMnemonic
@@ -721,7 +721,7 @@ func createWatchOnly(ctx *cli.Context) error {
 	jsonAccts := &walletrpc.ListAccountsResponse{}
 	err = lnrpc.ProtoJSONUnmarshalOpts.Unmarshal(jsonBytes, jsonAccts)
 	if err != nil {
-		return fmt.Errorf("error parsing JSON: %v", err)
+		return fmt.Errorf("error parsing JSON: %w", err)
 	}
 	if len(jsonAccts.Accounts) == 0 {
 		return fmt.Errorf("cannot import empty account list")

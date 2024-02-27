@@ -372,7 +372,7 @@ func printMacaroon(ctx *cli.Context) error {
 	// Decode the macaroon and its protobuf encoded internal identifier.
 	mac := &macaroon.Macaroon{}
 	if err = mac.UnmarshalBinary(macBytes); err != nil {
-		return fmt.Errorf("unable to decode macaroon: %v", err)
+		return fmt.Errorf("unable to decode macaroon: %w", err)
 	}
 	rawID := mac.Id()
 	if rawID[0] != byte(bakery.LatestVersion) {
@@ -382,7 +382,7 @@ func printMacaroon(ctx *cli.Context) error {
 	idProto := rawID[1:]
 	err = proto.Unmarshal(idProto, decodedID)
 	if err != nil {
-		return fmt.Errorf("unable to decode macaroon version: %v", err)
+		return fmt.Errorf("unable to decode macaroon version: %w", err)
 	}
 
 	// Prepare everything to be printed in a more human-readable format.
@@ -550,7 +550,7 @@ func applyMacaroonConstraints(ctx *cli.Context,
 
 	constrainedMac, err := macaroons.AddConstraints(mac, macConstraints...)
 	if err != nil {
-		return nil, fmt.Errorf("error adding constraints: %v", err)
+		return nil, fmt.Errorf("error adding constraints: %w", err)
 	}
 
 	return constrainedMac, nil

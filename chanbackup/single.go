@@ -362,7 +362,7 @@ func (s *Single) PackToWriter(w io.Writer, keyRing keychain.KeyRing) error {
 	// nonce that we used to the passed io.Reader.
 	e, err := lnencrypt.KeyRingEncrypter(keyRing)
 	if err != nil {
-		return fmt.Errorf("unable to generate encrypt key %v", err)
+		return fmt.Errorf("unable to generate encrypt key %w", err)
 	}
 	return e.EncryptPayloadToWriter(rawBytes.Bytes(), w)
 }
@@ -544,7 +544,7 @@ func (s *Single) Deserialize(r io.Reader) error {
 func (s *Single) UnpackFromReader(r io.Reader, keyRing keychain.KeyRing) error {
 	e, err := lnencrypt.KeyRingEncrypter(keyRing)
 	if err != nil {
-		return fmt.Errorf("unable to generate key decrypter %v", err)
+		return fmt.Errorf("unable to generate key decrypter %w", err)
 	}
 	plaintext, err := e.DecryptPayloadFromReader(r)
 	if err != nil {

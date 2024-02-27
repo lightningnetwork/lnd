@@ -263,7 +263,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			db.Etcd.CloneWithSubNamespace(NSChannelDB),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error opening etcd DB: %v", err)
+			return nil, fmt.Errorf("error opening etcd DB: %w", err)
 		}
 		closeFuncs[NSChannelDB] = etcdBackend.Close
 
@@ -545,7 +545,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error opening bolt DB: %v", err)
+		return nil, fmt.Errorf("error opening bolt DB: %w", err)
 	}
 	closeFuncs[NSChannelDB] = boltBackend.Close
 
@@ -558,7 +558,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error opening macaroon DB: %v", err)
+		return nil, fmt.Errorf("error opening macaroon DB: %w", err)
 	}
 	closeFuncs[NSMacaroonDB] = macaroonBackend.Close
 
@@ -571,7 +571,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error opening decayed log DB: %v", err)
+		return nil, fmt.Errorf("error opening decayed log DB: %w", err)
 	}
 	closeFuncs[NSDecayedLogDB] = decayedLogBackend.Close
 

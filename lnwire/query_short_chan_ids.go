@@ -214,7 +214,8 @@ func decodeShortChanIDs(r io.Reader) (QueryEncoding, []ShortChannelID, error) {
 			N: maxZlibBufSize,
 		})
 		if err != nil {
-			return 0, nil, fmt.Errorf("unable to create zlib reader: %v", err)
+			return 0, nil, fmt.Errorf("unable to create zlib "+
+				"reader: %w", err)
 		}
 
 		var (

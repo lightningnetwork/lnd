@@ -272,6 +272,9 @@
   interface](https://github.com/lightningnetwork/lnd/pull/7736) to simplify the
   code. 
 
+* [Correct `fmt.Errorf` error wrapping 
+  instances](https://github.com/lightningnetwork/lnd/pull/8503)
+
 ## Breaking Changes
 ## Performance Improvements
 

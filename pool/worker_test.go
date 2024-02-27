@@ -352,7 +352,7 @@ func submitGeneric(p interface{}, sem <-chan struct{}) error {
 	}
 
 	if err != nil {
-		return fmt.Errorf("unable to submit task: %v", err)
+		return fmt.Errorf("unable to submit task: %w", err)
 	}
 
 	return nil

@@ -16,7 +16,7 @@ import (
 func makeFakePackedMulti() (PackedMulti, error) {
 	newPackedMulti := make([]byte, 50)
 	if _, err := rand.Read(newPackedMulti[:]); err != nil {
-		return nil, fmt.Errorf("unable to make test backup: %v", err)
+		return nil, fmt.Errorf("unable to make test backup: %w", err)
 	}
 
 	return PackedMulti(newPackedMulti), nil

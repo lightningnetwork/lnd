@@ -806,7 +806,7 @@ func createTestCtx(t *testing.T, startHeight uint32) (*testCtx, error) {
 	}, selfKeyDesc)
 
 	if err := gossiper.Start(); err != nil {
-		return nil, fmt.Errorf("unable to start router: %v", err)
+		return nil, fmt.Errorf("unable to start router: %w", err)
 	}
 
 	// Mark the graph as synced in order to allow the announcements to be

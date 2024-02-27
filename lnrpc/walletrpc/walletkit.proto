@@ -288,15 +288,25 @@ service WalletKit {
 
     /* lncli: `wallet psbt fund`
     FundPsbt creates a fully populated PSBT that contains enough inputs to fund
-    the outputs specified in the template. There are two ways of specifying a
-    template: Either by passing in a PSBT with at least one output declared or
-    by passing in a raw TxTemplate message.
+    the outputs specified in the template. There are three ways a user can
+    specify what we call the template (a list of inputs and outputs to use in
+    the PSBT): Either as a PSBT packet directly with no coin selection (using
+    the legacy "psbt" field), a PSBT with advanced coin selection support (using
+    the new "coin_select" field) or as a raw RPC message (using the "raw"
+    field).
+    The legacy "psbt" and "raw" modes, the following restrictions apply:
+          1. If there are no inputs specified in the template, coin selection is
+          performed automatically.
+          2. If the template does contain any inputs, it is assumed that full
+    coin selection happened externally and no additional inputs are added. If
+    the specified inputs aren't enough to fund the outputs with the given fee
+          rate, an error is returned.
 
-    If there are no inputs specified in the template, coin selection is
-    performed automatically. If the template does contain any inputs, it is
-    assumed that full coin selection happened externally and no additional
-    inputs are added. If the specified inputs aren't enough to fund the outputs
-    with the given fee rate, an error is returned.
+    The new "coin_select" mode does not have these restrictions and allows the
+    user to specify a PSBT with inputs and outputs and still perform coin
+    selection on top of that.
+    For all modes this RPC requires any inputs that are specified to be locked
+    by the user (if they belong to this node in the first place).
 
     After either selecting or verifying the inputs, all input UTXOs are locked
     with an internal app ID.
@@ -507,6 +517,13 @@ message AddressProperty {
 
     // The balance of the address.
     int64 balance = 3;
+
+    // The full derivation path of the address. This will be empty for imported
+    // addresses.
+    string derivation_path = 4;
+
+    // The public key of the address. This will be empty for imported addresses.
+    bytes public_key = 5;
 }
 
 message AccountWithAddresses {
@@ -1238,6 +1255,26 @@ message FundPsbtRequest {
         Use the outputs and optional inputs from this raw template.
         */
         TxTemplate raw = 2;
+
+        /*
+        Use an existing PSBT packet as the template for the funded PSBT.
+
+        The difference to the pure PSBT template above is that coin selection is
+        performed even if inputs are specified. The output amounts are summed up
+        and used as the target amount for coin selection. A change output must
+        either already exist in the PSBT and be marked as such, otherwise a new
+        change output of the specified output type will be added. Any inputs
+        already specified in the PSBT must already be locked (if they belong to
+        this node), only newly added inputs will be locked by this RPC.
+
+        In case the sum of the already provided inputs exceeds the required
+        output amount, no new coins are selected. Instead only the fee and
+        change amount calculation is performed (e.g. a change output is added if
+        requested or the change is added to the specified existing change
+        output, given there is any non-dust change). This can be identified by
+        the returned locked UTXOs being empty.
+        */
+        PsbtCoinSelect coin_select = 9;
     }
 
     oneof fees {
@@ -1285,7 +1322,8 @@ message FundPsbtResponse {
 
     /*
     The list of lock leases that were acquired for the inputs in the funded PSBT
-    packet.
+    packet. Only inputs added to the PSBT by this RPC are locked, inputs that
+    were already present in the PSBT are not locked.
     */
     repeated UtxoLease locked_utxos = 3;
 }
@@ -1306,6 +1344,38 @@ message TxTemplate {
     A map of all addresses and the amounts to send to in the funded PSBT.
     */
     map<string, uint64> outputs = 2;
+}
+
+message PsbtCoinSelect {
+    /*
+    The template to use for the funded PSBT. The template must contain at least
+    one non-dust output. The amount to be funded is calculated by summing up the
+    amounts of all outputs in the template, subtracting all the input values of
+    the already specified inputs. The change value is added to the output that
+    is marked as such (or a new change output is added if none is marked). For
+    the input amount calculation to be correct, the template must have the
+    WitnessUtxo field set for all inputs. Any inputs already specified in the
+    PSBT must already be locked (if they belong to this node), only newly added
+    inputs will be locked by this RPC.
+    */
+    bytes psbt = 1;
+
+    oneof change_output {
+        /*
+        Use the existing output within the template PSBT with the specified
+        index as the change output. Any leftover change will be added to the
+        already specified amount of that output. To add a new change output to
+        the PSBT, set the "add" field below instead. The type of change output
+        added is defined by change_type in the parent message.
+        */
+        int32 existing_output_index = 2;
+
+        /*
+        Add a new change output to the PSBT using the change_type specified in
+        the parent message.
+        */
+        bool add = 3;
+    }
 }
 
 message UtxoLease {

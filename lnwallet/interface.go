@@ -96,6 +96,12 @@ type AddressProperty struct {
 
 	// Balance returns the total balance of an address.
 	Balance btcutil.Amount
+
+	// DerivationPath is the derivation path of the address.
+	DerivationPath string
+
+	// PublicKey is the public key of the address.
+	PublicKey *btcec.PublicKey
 }
 
 // AccountIdentifier contains information to uniquely identify an account.
@@ -500,6 +506,12 @@ type WalletController interface {
 	// NOTE: This method does NOT publish the transaction after it's been
 	// finalized successfully.
 	FinalizePsbt(packet *psbt.Packet, account string) error
+
+	// DecorateInputs fetches the UTXO information of all inputs it can
+	// identify and adds the required information to the package's inputs.
+	// The failOnUnknown boolean controls whether the method should return
+	// an error if it cannot identify an input or if it should just skip it.
+	DecorateInputs(packet *psbt.Packet, failOnUnknown bool) error
 
 	// SubscribeTransactions returns a TransactionSubscription client which
 	// is capable of receiving async notifications as new transactions

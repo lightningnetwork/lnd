@@ -2,6 +2,7 @@ package lnwallet
 
 import (
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
@@ -57,4 +58,8 @@ type Config struct {
 	// passively rebroadcast transactions in the background until they're
 	// detected as being confirmed.
 	Rebroadcaster Rebroadcaster
+
+	// CoinSelectionStrategy is the strategy that is used for selecting
+	// coins when funding a transaction.
+	CoinSelectionStrategy wallet.CoinSelectionStrategy
 }

@@ -6,20 +6,20 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 // ErrInsufficientFunds is a type matching the error interface which is
-// returned when coin selection for a new funding transaction fails to due
+// returned when coin selection for a new funding transaction fails due to
 // having an insufficient amount of confirmed funds.
 type ErrInsufficientFunds struct {
 	amountAvailable btcutil.Amount
 	amountSelected  btcutil.Amount
 }
 
-// Error returns a human readable string describing the error.
+// Error returns a human-readable string describing the error.
 func (e *ErrInsufficientFunds) Error() string {
 	return fmt.Sprintf("not enough witness outputs to create funding "+
 		"transaction, need %v only have %v available",
@@ -33,33 +33,55 @@ type errUnsupportedInput struct {
 	PkScript []byte
 }
 
-// Error returns a human readable string describing the error.
+// Error returns a human-readable string describing the error.
 func (e *errUnsupportedInput) Error() string {
 	return fmt.Sprintf("unsupported address type: %x", e.PkScript)
 }
 
-// Coin represents a spendable UTXO which is available for channel funding.
-// This UTXO need not reside in our internal wallet as an example, and instead
-// may be derived from an existing watch-only wallet. It wraps both the output
-// present within the UTXO set, and also the outpoint that generates this coin.
-type Coin struct {
-	wire.TxOut
+// ChangeAddressType is an enum-like type that describes the type of change
+// address that should be generated for a transaction.
+type ChangeAddressType uint8
 
-	wire.OutPoint
-}
+const (
+	// P2WKHChangeAddress indicates that the change output should be a
+	// P2WKH output.
+	P2WKHChangeAddress ChangeAddressType = 0
+
+	// P2TRChangeAddress indicates that the change output should be a
+	// P2TR output.
+	P2TRChangeAddress ChangeAddressType = 1
+
+	// ExistingChangeAddress indicates that the coin selection algorithm
+	// should assume an existing output will be used for any change, meaning
+	// that the change amount calculated will be added to an existing output
+	// and no weight for a new change output should be assumed. The caller
+	// must assert that the output value of the selected existing output
+	// already is above dust when using this change address type.
+	ExistingChangeAddress ChangeAddressType = 2
+)
 
 // selectInputs selects a slice of inputs necessary to meet the specified
 // selection amount. If input selection is unable to succeed due to insufficient
 // funds, a non-nil error is returned. Additionally, the total amount of the
 // selected coins are returned in order for the caller to properly handle
 // change+fees.
-func selectInputs(amt btcutil.Amount, coins []Coin) (btcutil.Amount, []Coin, error) {
+func selectInputs(amt btcutil.Amount, coins []wallet.Coin,
+	strategy wallet.CoinSelectionStrategy,
+	feeRate chainfee.SatPerKWeight) (btcutil.Amount, []wallet.Coin, error) {
+
+	// All coin selection code in the btcwallet library requires sat/KB.
+	feeSatPerKB := btcutil.Amount(feeRate.FeePerKVByte())
+
+	arrangedCoins, err := strategy.ArrangeCoins(coins, feeSatPerKB)
+	if err != nil {
+		return 0, nil, err
+	}
 
 	satSelected := btcutil.Amount(0)
-	for i, coin := range coins {
+	for i, coin := range arrangedCoins {
 		satSelected += btcutil.Amount(coin.Value)
 		if satSelected >= amt {
-			return satSelected, coins[:i+1], nil
+			return satSelected, arrangedCoins[:i+1], nil
 		}
 	}
 
@@ -69,10 +91,11 @@ func selectInputs(amt btcutil.Amount, coins []Coin) (btcutil.Amount, []Coin, err
 // calculateFees returns for the specified utxos and fee rate two fee
 // estimates, one calculated using a change output and one without. The weight
 // added to the estimator from a change output is for a P2WKH output.
-func calculateFees(utxos []Coin, feeRate chainfee.SatPerKWeight) (btcutil.Amount,
-	btcutil.Amount, error) {
+func calculateFees(utxos []wallet.Coin, feeRate chainfee.SatPerKWeight,
+	existingWeight input.TxWeightEstimator,
+	changeType ChangeAddressType) (btcutil.Amount, btcutil.Amount, error) {
 
-	var weightEstimate input.TxWeightEstimator
+	weightEstimate := existingWeight
 	for _, utxo := range utxos {
 		switch {
 		case txscript.IsPayToWitnessPubKeyHash(utxo.PkScript):
@@ -91,17 +114,26 @@ func calculateFees(utxos []Coin, feeRate chainfee.SatPerKWeight) (btcutil.Amount
 		}
 	}
 
-	// Channel funding multisig output is P2WSH.
-	weightEstimate.AddP2WSHOutput()
-
 	// Estimate the fee required for a transaction without a change
 	// output.
 	totalWeight := int64(weightEstimate.Weight())
 	requiredFeeNoChange := feeRate.FeeForWeight(totalWeight)
 
 	// Estimate the fee required for a transaction with a change output.
-	// Assume that change output is a P2TR output.
-	weightEstimate.AddP2TROutput()
+	switch changeType {
+	case P2WKHChangeAddress:
+		weightEstimate.AddP2WKHOutput()
+
+	case P2TRChangeAddress:
+		weightEstimate.AddP2TROutput()
+
+	case ExistingChangeAddress:
+		// Don't add an extra output.
+
+	default:
+		return 0, 0, fmt.Errorf("unknown change address type: %v",
+			changeType)
+	}
 
 	// Now that we have added the change output, redo the fee
 	// estimate.
@@ -129,13 +161,17 @@ func sanityCheckFee(totalOut, fee btcutil.Amount) error {
 // specified fee rate should be expressed in sat/kw for coin selection to
 // function properly.
 func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
-	coins []Coin) ([]Coin, btcutil.Amount, error) {
+	coins []wallet.Coin, strategy wallet.CoinSelectionStrategy,
+	existingWeight input.TxWeightEstimator,
+	changeType ChangeAddressType) ([]wallet.Coin, btcutil.Amount, error) {
 
 	amtNeeded := amt
 	for {
 		// First perform an initial round of coin selection to estimate
 		// the required fee.
-		totalSat, selectedUtxos, err := selectInputs(amtNeeded, coins)
+		totalSat, selectedUtxos, err := selectInputs(
+			amtNeeded, coins, strategy, feeRate,
+		)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -143,67 +179,116 @@ func CoinSelect(feeRate chainfee.SatPerKWeight, amt, dustLimit btcutil.Amount,
 		// Obtain fee estimates both with and without using a change
 		// output.
 		requiredFeeNoChange, requiredFeeWithChange, err := calculateFees(
-			selectedUtxos, feeRate,
+			selectedUtxos, feeRate, existingWeight, changeType,
 		)
 		if err != nil {
 			return nil, 0, err
 		}
 
-		// The difference between the selected amount and the amount
-		// requested will be used to pay fees, and generate a change
-		// output with the remaining.
-		overShootAmt := totalSat - amt
-
-		var changeAmt btcutil.Amount
-
-		switch {
-		// If the excess amount isn't enough to pay for fees based on
-		// fee rate and estimated size without using a change output,
-		// then increase the requested coin amount by the estimate
-		// required fee without using change, performing another round
-		// of coin selection.
-		case overShootAmt < requiredFeeNoChange:
-			amtNeeded = amt + requiredFeeNoChange
-			continue
-
-		// If sufficient funds were selected to cover the fee required
-		// to include a change output, the remainder will be our change
-		// amount.
-		case overShootAmt > requiredFeeWithChange:
-			changeAmt = overShootAmt - requiredFeeWithChange
-
-		// Otherwise we have selected enough to pay for a tx without a
-		// change output.
-		default:
-			changeAmt = 0
-		}
-
-		if changeAmt < dustLimit {
-			changeAmt = 0
-		}
-
-		// Sanity check the resulting output values to make sure we
-		// don't burn a great part to fees.
-		totalOut := amt + changeAmt
-		err = sanityCheckFee(totalOut, totalSat-totalOut)
+		changeAmount, newAmtNeeded, err := CalculateChangeAmount(
+			totalSat, amt, requiredFeeNoChange,
+			requiredFeeWithChange, dustLimit, changeType,
+		)
 		if err != nil {
 			return nil, 0, err
 		}
 
-		return selectedUtxos, changeAmt, nil
+		// Need another round, the selected coins aren't enough to pay
+		// for the fees.
+		if newAmtNeeded != 0 {
+			amtNeeded = newAmtNeeded
+
+			continue
+		}
+
+		// Coin selection was successful.
+		return selectedUtxos, changeAmount, nil
 	}
+}
+
+// CalculateChangeAmount calculates the change amount being left over when the
+// given total amount of sats is provided as inputs for the required output
+// amount. The calculation takes into account that we might not want to add a
+// change output if the change amount is below the dust limit. The first amount
+// returned is the change amount. If that is non-zero, change is left over and
+// should be dealt with. The second amount, if non-zero, indicates that the
+// total input amount was just not enough to pay for the required amount and
+// fees and that more coins need to be selected.
+func CalculateChangeAmount(totalInputAmt, requiredAmt, requiredFeeNoChange,
+	requiredFeeWithChange, dustLimit btcutil.Amount,
+	changeType ChangeAddressType) (btcutil.Amount, btcutil.Amount, error) {
+
+	// This is just a sanity check to make sure the function is used
+	// correctly.
+	if changeType == ExistingChangeAddress &&
+		requiredFeeNoChange != requiredFeeWithChange {
+
+		return 0, 0, fmt.Errorf("when using existing change address, " +
+			"the fees for with or without change must be the same")
+	}
+
+	// The difference between the selected amount and the amount
+	// requested will be used to pay fees, and generate a change
+	// output with the remaining.
+	overShootAmt := totalInputAmt - requiredAmt
+
+	var changeAmt btcutil.Amount
+
+	switch {
+	// If the excess amount isn't enough to pay for fees based on
+	// fee rate and estimated size without using a change output,
+	// then increase the requested coin amount by the estimate
+	// required fee without using change, performing another round
+	// of coin selection.
+	case overShootAmt < requiredFeeNoChange:
+		return 0, requiredAmt + requiredFeeNoChange, nil
+
+	// If sufficient funds were selected to cover the fee required
+	// to include a change output, the remainder will be our change
+	// amount.
+	case overShootAmt > requiredFeeWithChange:
+		changeAmt = overShootAmt - requiredFeeWithChange
+
+	// Otherwise we have selected enough to pay for a tx without a
+	// change output.
+	default:
+		changeAmt = 0
+	}
+
+	// In case we would end up with a dust output if we created a
+	// change output, we instead just let the dust amount go to
+	// fees. Unless we want the change to go to an existing output,
+	// in that case we can increase that output value by any amount.
+	if changeAmt < dustLimit && changeType != ExistingChangeAddress {
+		changeAmt = 0
+	}
+
+	// Sanity check the resulting output values to make sure we
+	// don't burn a great part to fees.
+	totalOut := requiredAmt + changeAmt
+	err := sanityCheckFee(totalOut, totalInputAmt-totalOut)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return changeAmt, 0, nil
 }
 
 // CoinSelectSubtractFees attempts to select coins such that we'll spend up to
 // amt in total after fees, adhering to the specified fee rate. The selected
 // coins, the final output and change values are returned.
 func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
-	dustLimit btcutil.Amount, coins []Coin) ([]Coin, btcutil.Amount,
+	dustLimit btcutil.Amount, coins []wallet.Coin,
+	strategy wallet.CoinSelectionStrategy,
+	existingWeight input.TxWeightEstimator,
+	changeType ChangeAddressType) ([]wallet.Coin, btcutil.Amount,
 	btcutil.Amount, error) {
 
 	// First perform an initial round of coin selection to estimate
 	// the required fee.
-	totalSat, selectedUtxos, err := selectInputs(amt, coins)
+	totalSat, selectedUtxos, err := selectInputs(
+		amt, coins, strategy, feeRate,
+	)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -211,7 +296,7 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	// Obtain fee estimates both with and without using a change
 	// output.
 	requiredFeeNoChange, requiredFeeWithChange, err := calculateFees(
-		selectedUtxos, feeRate,
+		selectedUtxos, feeRate, existingWeight, changeType,
 	)
 	if err != nil {
 		return nil, 0, 0, err
@@ -259,8 +344,11 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 // available. If insufficient funds are available this method selects all
 // available coins.
 func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
-	reserved, dustLimit btcutil.Amount, coins []Coin) ([]Coin,
-	btcutil.Amount, btcutil.Amount, error) {
+	reserved, dustLimit btcutil.Amount, coins []wallet.Coin,
+	strategy wallet.CoinSelectionStrategy,
+	existingWeight input.TxWeightEstimator,
+	changeType ChangeAddressType) ([]wallet.Coin, btcutil.Amount,
+	btcutil.Amount, error) {
 
 	var (
 		// selectSubtractFee is tracking if our coin selection was
@@ -280,7 +368,8 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	// First we try to select coins to create an output of the specified
 	// maxAmount with or without a change output that covers the miner fee.
 	selected, changeAmt, err := CoinSelect(
-		feeRate, maxAmount, dustLimit, coins,
+		feeRate, maxAmount, dustLimit, coins, strategy, existingWeight,
+		changeType,
 	)
 
 	var errInsufficientFunds *ErrInsufficientFunds
@@ -320,6 +409,7 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	if selectSubtractFee {
 		selected, outputAmount, changeAmt, err = CoinSelectSubtractFees(
 			feeRate, totalBalance-reserved, dustLimit, coins,
+			strategy, existingWeight, changeType,
 		)
 		if err != nil {
 			return nil, 0, 0, err
@@ -329,7 +419,7 @@ func CoinSelectUpToAmount(feeRate chainfee.SatPerKWeight, minAmount, maxAmount,
 	// Sanity check the resulting output values to make sure we don't burn a
 	// great part to fees.
 	totalOut := outputAmount + changeAmt
-	sum := func(coins []Coin) btcutil.Amount {
+	sum := func(coins []wallet.Coin) btcutil.Amount {
 		var sum btcutil.Amount
 		for _, coin := range coins {
 			sum += btcutil.Amount(coin.Value)

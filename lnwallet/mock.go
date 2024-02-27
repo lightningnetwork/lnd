@@ -235,6 +235,11 @@ func (w *mockWalletController) FinalizePsbt(_ *psbt.Packet, _ string) error {
 	return nil
 }
 
+// DecorateInputs currently does nothing.
+func (w *mockWalletController) DecorateInputs(*psbt.Packet, bool) error {
+	return nil
+}
+
 // PublishTransaction sends a transaction to the PublishedTransactions chan.
 func (w *mockWalletController) PublishTransaction(tx *wire.MsgTx,
 	_ string) error {

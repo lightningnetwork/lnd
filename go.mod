@@ -10,11 +10,11 @@ require (
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcwallet v0.16.10-0.20240127010340-16b422a2e8bf
-	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.2
-	github.com/btcsuite/btcwallet/wallet/txrules v1.2.0
-	github.com/btcsuite/btcwallet/walletdb v1.4.0
-	github.com/btcsuite/btcwallet/wtxmgr v1.5.0
+	github.com/btcsuite/btcwallet v0.16.10-0.20240206195028-1f3534b00d14
+	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4
+	github.com/btcsuite/btcwallet/wallet/txrules v1.2.1
+	github.com/btcsuite/btcwallet/walletdb v1.4.1
+	github.com/btcsuite/btcwallet/wtxmgr v1.5.1
 	github.com/coreos/go-systemd v0.0.0-20190719114852-fd7a80b32e1f
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1
@@ -77,7 +77,7 @@ require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.3 // indirect
+	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.4 // indirect
 	github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd // indirect
 	github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 // indirect
 	github.com/btcsuite/winsvc v1.0.0 // indirect

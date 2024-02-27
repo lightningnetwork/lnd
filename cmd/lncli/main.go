@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -536,4 +537,28 @@ func readPassword(text string) ([]byte, error) {
 	pw, err := term.ReadPassword(int(syscall.Stdin)) // nolint:unconvert
 	fmt.Println()
 	return pw, err
+}
+
+// networkParams parses the global network flag into a chaincfg.Params.
+func networkParams(ctx *cli.Context) (*chaincfg.Params, error) {
+	network := strings.ToLower(ctx.GlobalString("network"))
+	switch network {
+	case "mainnet":
+		return &chaincfg.MainNetParams, nil
+
+	case "testnet":
+		return &chaincfg.TestNet3Params, nil
+
+	case "regtest":
+		return &chaincfg.RegressionNetParams, nil
+
+	case "simnet":
+		return &chaincfg.SimNetParams, nil
+
+	case "signet":
+		return &chaincfg.SigNetParams, nil
+
+	default:
+		return nil, fmt.Errorf("unknown network: %v", network)
+	}
 }

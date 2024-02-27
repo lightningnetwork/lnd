@@ -440,8 +440,8 @@
     },
     "/v2/wallet/psbt/fund": {
       "post": {
-        "summary": "lncli: `wallet psbt fund`\nFundPsbt creates a fully populated PSBT that contains enough inputs to fund\nthe outputs specified in the template. There are two ways of specifying a\ntemplate: Either by passing in a PSBT with at least one output declared or\nby passing in a raw TxTemplate message.",
-        "description": "If there are no inputs specified in the template, coin selection is\nperformed automatically. If the template does contain any inputs, it is\nassumed that full coin selection happened externally and no additional\ninputs are added. If the specified inputs aren't enough to fund the outputs\nwith the given fee rate, an error is returned.\n\nAfter either selecting or verifying the inputs, all input UTXOs are locked\nwith an internal app ID.\n\nNOTE: If this method returns without an error, it is the caller's\nresponsibility to either spend the locked UTXOs (by finalizing and then\npublishing the transaction) or to unlock/release the locked UTXOs in case of\nan error on the caller's side.",
+        "summary": "lncli: `wallet psbt fund`\nFundPsbt creates a fully populated PSBT that contains enough inputs to fund\nthe outputs specified in the template. There are three ways a user can\nspecify what we call the template (a list of inputs and outputs to use in\nthe PSBT): Either as a PSBT packet directly with no coin selection (using\nthe legacy \"psbt\" field), a PSBT with advanced coin selection support (using\nthe new \"coin_select\" field) or as a raw RPC message (using the \"raw\"\nfield).\nThe legacy \"psbt\" and \"raw\" modes, the following restrictions apply:\n1. If there are no inputs specified in the template, coin selection is\nperformed automatically.\n2. If the template does contain any inputs, it is assumed that full\ncoin selection happened externally and no additional inputs are added. If\nthe specified inputs aren't enough to fund the outputs with the given fee\nrate, an error is returned.",
+        "description": "The new \"coin_select\" mode does not have these restrictions and allows the\nuser to specify a PSBT with inputs and outputs and still perform coin\nselection on top of that.\nFor all modes this RPC requires any inputs that are specified to be locked\nby the user (if they belong to this node in the first place).\n\nAfter either selecting or verifying the inputs, all input UTXOs are locked\nwith an internal app ID.\n\nNOTE: If this method returns without an error, it is the caller's\nresponsibility to either spend the locked UTXOs (by finalizing and then\npublishing the transaction) or to unlock/release the locked UTXOs in case of\nan error on the caller's side.",
         "operationId": "WalletKit_FundPsbt",
         "responses": {
           "200": {
@@ -1317,6 +1317,15 @@
           "type": "string",
           "format": "int64",
           "description": "The balance of the address."
+        },
+        "derivation_path": {
+          "type": "string",
+          "description": "The full derivation path of the address. This will be empty for imported\naddresses."
+        },
+        "public_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The public key of the address. This will be empty for imported addresses."
         }
       }
     },
@@ -1428,6 +1437,10 @@
           "$ref": "#/definitions/walletrpcTxTemplate",
           "description": "Use the outputs and optional inputs from this raw template."
         },
+        "coin_select": {
+          "$ref": "#/definitions/walletrpcPsbtCoinSelect",
+          "description": "Use an existing PSBT packet as the template for the funded PSBT.\n\nThe difference to the pure PSBT template above is that coin selection is\nperformed even if inputs are specified. The output amounts are summed up\nand used as the target amount for coin selection. A change output must\neither already exist in the PSBT and be marked as such, otherwise a new\nchange output of the specified output type will be added. Any inputs\nalready specified in the PSBT must already be locked (if they belong to\nthis node), only newly added inputs will be locked by this RPC.\n\nIn case the sum of the already provided inputs exceeds the required\noutput amount, no new coins are selected. Instead only the fee and\nchange amount calculation is performed (e.g. a change output is added if\nrequested or the change is added to the specified existing change\noutput, given there is any non-dust change). This can be identified by\nthe returned locked UTXOs being empty."
+        },
         "target_conf": {
           "type": "integer",
           "format": "int64",
@@ -1475,7 +1488,7 @@
           "items": {
             "$ref": "#/definitions/walletrpcUtxoLease"
           },
-          "description": "The list of lock leases that were acquired for the inputs in the funded PSBT\npacket."
+          "description": "The list of lock leases that were acquired for the inputs in the funded PSBT\npacket. Only inputs added to the PSBT by this RPC are locked, inputs that\nwere already present in the PSBT are not locked."
         }
       }
     },
@@ -1802,6 +1815,25 @@
             "$ref": "#/definitions/walletrpcPendingSweep"
           },
           "description": "The set of outputs currently being swept by lnd's central batching engine."
+        }
+      }
+    },
+    "walletrpcPsbtCoinSelect": {
+      "type": "object",
+      "properties": {
+        "psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The template to use for the funded PSBT. The template must contain at least\none non-dust output. The amount to be funded is calculated by summing up the\namounts of all outputs in the template, subtracting all the input values of\nthe already specified inputs. The change value is added to the output that\nis marked as such (or a new change output is added if none is marked). For\nthe input amount calculation to be correct, the template must have the\nWitnessUtxo field set for all inputs. Any inputs already specified in the\nPSBT must already be locked (if they belong to this node), only newly added\ninputs will be locked by this RPC."
+        },
+        "existing_output_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Use the existing output within the template PSBT with the specified\nindex as the change output. Any leftover change will be added to the\nalready specified amount of that output. To add a new change output to\nthe PSBT, set the \"add\" field below instead. The type of change output\nadded is defined by change_type in the parent message."
+        },
+        "add": {
+          "type": "boolean",
+          "description": "Add a new change output to the PSBT using the change_type specified in\nthe parent message."
         }
       }
     },

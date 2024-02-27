@@ -11,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/stretchr/testify/require"
 )
 
 type chanFundUtxoSelectionTestCase struct {
@@ -131,8 +132,7 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 			localAmt:        btcutil.Amount(250_000),
 			expectedBalance: btcutil.Amount(250_000),
 			remainingWalletBalance: btcutil.Amount(350_000) -
-				btcutil.Amount(250_000) -
-				fundingFee(2, true),
+				btcutil.Amount(250_000) - fundingFee(2, true),
 		},
 		// We are spending the entirety of two selected coins out of
 		// three available in the wallet and expect no change output and
@@ -147,8 +147,7 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 				200_000, 50_000,
 			},
 			expectedBalance: btcutil.Amount(200_000) +
-				btcutil.Amount(50_000) -
-				fundingFee(2, false),
+				btcutil.Amount(50_000) - fundingFee(2, false),
 			remainingWalletBalance: btcutil.Amount(100_000),
 		},
 		// Select all coins in wallet and use the maximum available
@@ -162,15 +161,14 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 			selectedCoins:  []btcutil.Amount{200_000, 100_000},
 			commitmentType: lnrpc.CommitmentType_ANCHORS,
 			localAmt: btcutil.Amount(300_000) -
-				reserveAmount -
-				fundingFee(2, true),
+				reserveAmount - fundingFee(2, true),
 			expectedBalance: btcutil.Amount(300_000) -
-				reserveAmount -
-				fundingFee(2, true),
+				reserveAmount - fundingFee(2, true),
 			remainingWalletBalance: reserveAmount,
 		},
-		// Select all coins in wallet towards local amount except for a
-		// anchor reserve portion.
+		// Select all coins in wallet towards local amount except for an
+		// anchor reserve portion. Because the UTXOs are sorted by size
+		// by default, the reserve amount is just left in the wallet.
 		{
 			name: "selected, reserve from selected",
 			initialCoins: []btcutil.Amount{
@@ -181,9 +179,9 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 			},
 			commitmentType: lnrpc.CommitmentType_ANCHORS,
 			localAmt: btcutil.Amount(300_000) -
-				fundingFee(3, true),
+				fundingFee(2, true),
 			expectedBalance: btcutil.Amount(300_000) -
-				fundingFee(3, true),
+				fundingFee(2, true),
 			remainingWalletBalance: reserveAmount,
 		},
 		// Select all coins in wallet and use more than the maximum
@@ -197,8 +195,7 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 			selectedCoins:  []btcutil.Amount{200_000, 100_000},
 			commitmentType: lnrpc.CommitmentType_ANCHORS,
 			localAmt: btcutil.Amount(300_000) -
-				reserveAmount + 1 -
-				fundingFee(2, true),
+				reserveAmount + 1 - fundingFee(2, true),
 			chanOpenShouldFail: true,
 			expectedErrStr: "reserved wallet balance " +
 				"invalidated: transaction would leave " +
@@ -229,8 +226,7 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 			selectedCoins:  []btcutil.Amount{200_000},
 			commitmentType: lnrpc.CommitmentType_ANCHORS,
 			expectedBalance: btcutil.Amount(200_000) -
-				reserveAmount -
-				fundingFee(1, true),
+				reserveAmount - fundingFee(1, true),
 			remainingWalletBalance: reserveAmount,
 		},
 		// Confirm that already spent outputs can't be reused to fund
@@ -249,8 +245,7 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 		success := ht.Run(
 			tc.name, func(tt *testing.T) {
 				runUtxoSelectionTestCase(
-					ht, tt, alice, bob, tc,
-					reserveAmount,
+					ht, alice, bob, tc, reserveAmount,
 				)
 			},
 		)
@@ -264,7 +259,7 @@ func testChannelUtxoSelection(ht *lntest.HarnessTest) {
 
 // runUtxoSelectionTestCase runs a single test case asserting that test
 // conditions are met.
-func runUtxoSelectionTestCase(ht *lntest.HarnessTest, t *testing.T, alice,
+func runUtxoSelectionTestCase(ht *lntest.HarnessTest, alice,
 	bob *node.HarnessNode, tc *chanFundUtxoSelectionTestCase,
 	reserveAmount btcutil.Amount) {
 
@@ -366,4 +361,12 @@ func runUtxoSelectionTestCase(ht *lntest.HarnessTest, t *testing.T, alice,
 		int64(tc.remainingWalletBalance),
 		0,
 	)
+
+	// Ensure the anchor channel reserve was carved out.
+	if commitType == lnrpc.CommitmentType_ANCHORS {
+		balance := alice.RPC.WalletBalance()
+		require.EqualValues(
+			ht, reserveAmount, balance.ReservedBalanceAnchorChan,
+		)
+	}
 }

@@ -38,10 +38,20 @@ var (
 	// which is a special case for the BIP49/84 addresses in btcwallet).
 	firstAddress = "bcrt1qgdlgjc5ede7fjv350wcjqat80m0zsmfaswsj9p"
 
+	// firstAddressPubKey is the public key of the first address that we
+	// should get from the wallet.
+	firstAddressPubKey = "02b844aecf8250c29e46894147a7dae02de55a034a533b6" +
+		"0c6a6469294ee356ce4"
+
 	// firstAddressTaproot is the first address that we should get from the
 	// wallet when deriving a taproot address.
 	firstAddressTaproot = "bcrt1ps8c222fgysvnsj2m8hxk8khy6wthcrhv9va9z3t4" +
 		"h3qeyz65sh4qqwvdgc"
+
+	// firstAddressTaprootPubKey is the public key of the first address that
+	// we should get from the wallet when deriving a taproot address.
+	firstAddressTaprootPubKey = "03004113d6185c955d6e8f5922b50cc0ac3b64fa" +
+		"0979402604c5b887f07e3b5388"
 
 	testPubKeyBytes, _ = hex.DecodeString(
 		"037a67771635344641d4b56aac33cd5f7a265b59678dce3aec31b89125e3" +

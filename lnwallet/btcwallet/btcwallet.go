@@ -815,17 +815,35 @@ func (b *BtcWallet) ListAddresses(name string,
 
 			// Hex-encode the compressed public key for custom lnd
 			// keys, addresses don't make a lot of sense.
-			pubKey, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
-			if ok && isLndCustom {
+			var (
+				pubKey         *btcec.PublicKey
+				derivationPath string
+			)
+			pka, ok := managedAddr.(waddrmgr.ManagedPubKeyAddress)
+			if ok {
+				pubKey = pka.PubKey()
+
+				// There can be an error in two cases: Either
+				// the address isn't a managed pubkey address,
+				// which we already checked above, or the
+				// address is imported in which case we don't
+				// know the derivation path, and it will just be
+				// empty anyway.
+				_, _, derivationPath, _ =
+					Bip32DerivationFromAddress(pka)
+			}
+			if pubKey != nil && isLndCustom {
 				addressString = hex.EncodeToString(
-					pubKey.PubKey().SerializeCompressed(),
+					pubKey.SerializeCompressed(),
 				)
 			}
 
 			addressProperties[idx] = lnwallet.AddressProperty{
-				Address:  addressString,
-				Internal: managedAddr.Internal(),
-				Balance:  addressBalance[addressString],
+				Address:        addressString,
+				Internal:       managedAddr.Internal(),
+				Balance:        addressBalance[addressString],
+				PublicKey:      pubKey,
+				DerivationPath: derivationPath,
 			}
 		}
 

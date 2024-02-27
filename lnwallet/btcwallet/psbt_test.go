@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
@@ -16,6 +17,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
 
@@ -341,5 +343,289 @@ func TestSignPsbt(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.NoError(t, vm.Execute())
+	}
+}
+
+// TestEstimateInputWeight tests that we correctly estimate the weight of a
+// PSBT input if it supplies all required information.
+func TestEstimateInputWeight(t *testing.T) {
+	genScript := func(f func([]byte) ([]byte, error)) []byte {
+		pkScript, _ := f([]byte{})
+		return pkScript
+	}
+
+	var (
+		witnessScaleFactor = blockchain.WitnessScaleFactor
+		p2trScript, _      = txscript.PayToTaprootScript(
+			&input.TaprootNUMSKey,
+		)
+		dummyLeaf = txscript.TapLeaf{
+			LeafVersion: txscript.BaseLeafVersion,
+			Script:      []byte("some bitcoin script"),
+		}
+		dummyLeafHash = dummyLeaf.TapHash()
+	)
+
+	testCases := []struct {
+		name string
+		in   *psbt.PInput
+
+		expectedErr       error
+		expectedErrString string
+
+		// expectedWitnessWeight is the expected weight of the content
+		// of the witness of the input (without the base input size that
+		// is constant for all types of inputs).
+		expectedWitnessWeight int
+	}{{
+		name:        "empty input",
+		in:          &psbt.PInput{},
+		expectedErr: ErrInputMissingUTXOInfo,
+	}, {
+		name: "empty pkScript",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{},
+		},
+		expectedErr: ErrUnsupportedScript,
+	}, {
+		name: "nested p2wpkh input",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: genScript(input.GenerateP2SH),
+			},
+		},
+		expectedWitnessWeight: input.P2WKHWitnessSize +
+			input.NestedP2WPKHSize*witnessScaleFactor,
+	}, {
+		name: "p2wpkh input",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: genScript(input.WitnessPubKeyHash),
+			},
+		},
+		expectedWitnessWeight: input.P2WKHWitnessSize,
+	}, {
+		name: "p2wsh input",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: genScript(input.WitnessScriptHash),
+			},
+		},
+		expectedErr: ErrScriptSpendFeeEstimationUnsupported,
+	}, {
+		name: "p2tr with no derivation info",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: p2trScript,
+			},
+		},
+		expectedErrString: "cannot sign for taproot input " +
+			"without taproot BIP0032 derivation info",
+	}, {
+		name: "p2tr key spend",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: p2trScript,
+			},
+			SighashType: txscript.SigHashSingle,
+			TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+				{},
+			},
+		},
+		//nolint:lll
+		expectedWitnessWeight: input.TaprootKeyPathCustomSighashWitnessSize,
+	}, {
+		name: "p2tr script spend",
+		in: &psbt.PInput{
+			WitnessUtxo: &wire.TxOut{
+				PkScript: p2trScript,
+			},
+			TaprootBip32Derivation: []*psbt.TaprootBip32Derivation{
+				{
+					LeafHashes: [][]byte{
+						dummyLeafHash[:],
+					},
+				},
+			},
+			TaprootLeafScript: []*psbt.TaprootTapLeafScript{
+				{
+					LeafVersion: dummyLeaf.LeafVersion,
+					Script:      dummyLeaf.Script,
+				},
+			},
+		},
+		expectedErr: ErrScriptSpendFeeEstimationUnsupported,
+	}}
+
+	// The non-witness weight for a TX with a single input.
+	nonWitnessWeight := input.BaseTxSize + 1 + 1 + input.InputSize
+
+	// The base weight of a witness TX.
+	baseWeight := (nonWitnessWeight * witnessScaleFactor) +
+		input.WitnessHeaderSize
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(tt *testing.T) {
+			estimator := input.TxWeightEstimator{}
+			err := EstimateInputWeight(tc.in, &estimator)
+
+			if tc.expectedErr != nil {
+				require.Error(tt, err)
+				require.ErrorIs(tt, err, tc.expectedErr)
+
+				return
+			}
+
+			if tc.expectedErrString != "" {
+				require.Error(tt, err)
+				require.Contains(
+					tt, err.Error(), tc.expectedErrString,
+				)
+
+				return
+			}
+
+			require.NoError(tt, err)
+
+			require.EqualValues(
+				tt, baseWeight+tc.expectedWitnessWeight,
+				estimator.Weight(),
+			)
+		})
+	}
+}
+
+// TestBip32DerivationFromKeyDesc tests that we can correctly extract a BIP32
+// derivation path from a key descriptor.
+func TestBip32DerivationFromKeyDesc(t *testing.T) {
+	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name              string
+		keyDesc           keychain.KeyDescriptor
+		coinType          uint32
+		expectedPath      string
+		expectedBip32Path []uint32
+	}{
+		{
+			name: "testnet multi-sig family",
+			keyDesc: keychain.KeyDescriptor{
+				PubKey: privKey.PubKey(),
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamilyMultiSig,
+					Index:  123,
+				},
+			},
+			coinType:     chaincfg.TestNet3Params.HDCoinType,
+			expectedPath: "m/1017'/1'/0'/0/123",
+			expectedBip32Path: []uint32{
+				hardenedKey(keychain.BIP0043Purpose),
+				hardenedKey(chaincfg.TestNet3Params.HDCoinType),
+				hardenedKey(uint32(keychain.KeyFamilyMultiSig)),
+				0, 123,
+			},
+		},
+		{
+			name: "mainnet watchtower family",
+			keyDesc: keychain.KeyDescriptor{
+				PubKey: privKey.PubKey(),
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamilyTowerSession,
+					Index:  456,
+				},
+			},
+			coinType:     chaincfg.MainNetParams.HDCoinType,
+			expectedPath: "m/1017'/0'/8'/0/456",
+			expectedBip32Path: []uint32{
+				hardenedKey(keychain.BIP0043Purpose),
+				hardenedKey(chaincfg.MainNetParams.HDCoinType),
+				hardenedKey(
+					uint32(keychain.KeyFamilyTowerSession),
+				),
+				0, 456,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+
+		t.Run(tc.name, func(tt *testing.T) {
+			d, trD, path := Bip32DerivationFromKeyDesc(
+				tc.keyDesc, tc.coinType,
+			)
+			require.NoError(tt, err)
+
+			require.Equal(tt, tc.expectedPath, path)
+			require.Equal(tt, tc.expectedBip32Path, d.Bip32Path)
+			require.Equal(tt, tc.expectedBip32Path, trD.Bip32Path)
+
+			serializedKey := tc.keyDesc.PubKey.SerializeCompressed()
+			require.Equal(tt, serializedKey, d.PubKey)
+			require.Equal(tt, serializedKey[1:], trD.XOnlyPubKey)
+		})
+	}
+}
+
+// TestBip32DerivationFromAddress tests that we can correctly extract a BIP32
+// derivation path from an address.
+func TestBip32DerivationFromAddress(t *testing.T) {
+	testCases := []struct {
+		name              string
+		addrType          lnwallet.AddressType
+		expectedAddr      string
+		expectedPath      string
+		expectedBip32Path []uint32
+		expectedPubKey    string
+	}{
+		{
+			name:         "p2wkh",
+			addrType:     lnwallet.WitnessPubKey,
+			expectedAddr: firstAddress,
+			expectedPath: "m/84'/0'/0'/0/0",
+			expectedBip32Path: []uint32{
+				hardenedKey(waddrmgr.KeyScopeBIP0084.Purpose),
+				hardenedKey(0), hardenedKey(0), 0, 0,
+			},
+			expectedPubKey: firstAddressPubKey,
+		},
+		{
+			name:         "p2tr",
+			addrType:     lnwallet.TaprootPubkey,
+			expectedAddr: firstAddressTaproot,
+			expectedPath: "m/86'/0'/0'/0/0",
+			expectedBip32Path: []uint32{
+				hardenedKey(waddrmgr.KeyScopeBIP0086.Purpose),
+				hardenedKey(0), hardenedKey(0), 0, 0,
+			},
+			expectedPubKey: firstAddressTaprootPubKey,
+		},
+	}
+
+	w, _ := newTestWallet(t, netParams, seedBytes)
+	for _, tc := range testCases {
+		tc := tc
+
+		addr, err := w.NewAddress(
+			tc.addrType, false, lnwallet.DefaultAccountName,
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, tc.expectedAddr, addr.String())
+
+		addrInfo, err := w.AddressInfo(addr)
+		require.NoError(t, err)
+		managedAddr, ok := addrInfo.(waddrmgr.ManagedPubKeyAddress)
+		require.True(t, ok)
+
+		d, trD, path, err := Bip32DerivationFromAddress(managedAddr)
+		require.NoError(t, err)
+
+		require.Equal(t, tc.expectedPath, path)
+		require.Equal(t, tc.expectedBip32Path, d.Bip32Path)
+		require.Equal(t, tc.expectedBip32Path, trD.Bip32Path)
 	}
 }

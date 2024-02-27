@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
@@ -852,7 +853,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 			CoinSelectLocker: l,
 			CoinLocker:       l,
 			Signer:           l.Cfg.Signer,
-			DustLimit:        DustLimitForSize(input.P2WSHSize),
+			DustLimit: DustLimitForSize(
+				input.P2WSHSize,
+			),
+			CoinSelectionStrategy: l.Cfg.CoinSelectionStrategy,
 		}
 		req.ChanFunder = chanfunding.NewWalletAssembler(cfg)
 	} else {
@@ -2527,7 +2531,7 @@ func NewCoinSource(w *LightningWallet) *CoinSource {
 // ListCoins returns all UTXOs from the source that have between
 // minConfs and maxConfs number of confirmations.
 func (c *CoinSource) ListCoins(minConfs int32,
-	maxConfs int32) ([]chanfunding.Coin, error) {
+	maxConfs int32) ([]wallet.Coin, error) {
 
 	utxos, err := c.wallet.ListUnspentWitnessFromDefaultAccount(
 		minConfs, maxConfs,
@@ -2536,9 +2540,9 @@ func (c *CoinSource) ListCoins(minConfs int32,
 		return nil, err
 	}
 
-	var coins []chanfunding.Coin
+	var coins []wallet.Coin
 	for _, utxo := range utxos {
-		coins = append(coins, chanfunding.Coin{
+		coins = append(coins, wallet.Coin{
 			TxOut: wire.TxOut{
 				Value:    int64(utxo.Value),
 				PkScript: utxo.PkScript,
@@ -2553,13 +2557,13 @@ func (c *CoinSource) ListCoins(minConfs int32,
 // CoinFromOutPoint attempts to locate details pertaining to a coin based on
 // its outpoint. If the coin isn't under the control of the backing CoinSource,
 // then an error should be returned.
-func (c *CoinSource) CoinFromOutPoint(op wire.OutPoint) (*chanfunding.Coin, error) {
+func (c *CoinSource) CoinFromOutPoint(op wire.OutPoint) (*wallet.Coin, error) {
 	inputInfo, err := c.wallet.FetchInputInfo(&op)
 	if err != nil {
 		return nil, err
 	}
 
-	return &chanfunding.Coin{
+	return &wallet.Coin{
 		TxOut: wire.TxOut{
 			Value:    int64(inputInfo.Value),
 			PkScript: inputInfo.PkScript,

@@ -49,6 +49,11 @@ const (
 	//      - max-size: 40 bytes
 	UnknownWitnessSize = 1 + 1 + 40
 
+	// BaseOutputSize 9 bytes
+	//     - value: 8 bytes
+	//     - var_int: 1 byte (pkscript_length)
+	BaseOutputSize = 8 + 1
+
 	// P2PKHSize 25 bytes.
 	P2PKHSize = 25
 
@@ -56,19 +61,19 @@ const (
 	//      - value: 8 bytes
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2pkh): 25 bytes
-	P2PKHOutputSize = 8 + 1 + P2PKHSize
+	P2PKHOutputSize = BaseOutputSize + P2PKHSize
 
 	// P2WKHOutputSize 31 bytes
 	//      - value: 8 bytes
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2wpkh): 22 bytes
-	P2WKHOutputSize = 8 + 1 + P2WPKHSize
+	P2WKHOutputSize = BaseOutputSize + P2WPKHSize
 
 	// P2WSHOutputSize 43 bytes
 	//      - value: 8 bytes
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2wsh): 34 bytes
-	P2WSHOutputSize = 8 + 1 + P2WSHSize
+	P2WSHOutputSize = BaseOutputSize + P2WSHSize
 
 	// P2SHSize 23 bytes.
 	P2SHSize = 23
@@ -77,7 +82,7 @@ const (
 	//      - value: 8 bytes
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2sh): 23 bytes
-	P2SHOutputSize = 8 + 1 + P2SHSize
+	P2SHOutputSize = BaseOutputSize + P2SHSize
 
 	// P2TRSize 34 bytes
 	//	- OP_0: 1 byte
@@ -89,7 +94,7 @@ const (
 	//      - value: 8 bytes
 	//      - var_int: 1 byte (pkscript_length)
 	//      - pkscript (p2tr): 34 bytes
-	P2TROutputSize = 8 + 1 + P2TRSize
+	P2TROutputSize = BaseOutputSize + P2TRSize
 
 	// P2PKHScriptSigSize 108 bytes
 	//      - OP_DATA: 1 byte (signature length)
@@ -1008,6 +1013,14 @@ func (twe *TxWeightEstimator) AddP2TROutput() *TxWeightEstimator {
 // output.
 func (twe *TxWeightEstimator) AddP2SHOutput() *TxWeightEstimator {
 	twe.outputSize += P2SHOutputSize
+	twe.outputCount++
+
+	return twe
+}
+
+// AddOutput estimates the weight of an output based on the pkScript.
+func (twe *TxWeightEstimator) AddOutput(pkScript []byte) *TxWeightEstimator {
+	twe.outputSize += BaseOutputSize + len(pkScript)
 	twe.outputCount++
 
 	return twe

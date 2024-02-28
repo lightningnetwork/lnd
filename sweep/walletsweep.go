@@ -174,17 +174,18 @@ type DeliveryAddr struct {
 	Amt btcutil.Amount
 }
 
-// CraftSweepAllTx attempts to craft a WalletSweepPackage which will allow the
+// CraftSweepTx attempts to craft a WalletSweepPackage which will allow the
 // caller to sweep ALL outputs within the wallet to a list of outputs. Any
 // leftover amount after these outputs and transaction fee, is sent to a single
 // output, as specified by the change address. The sweep transaction will be
 // crafted with the target fee rate, and will use the utxoSource and
 // outpointLocker as sources for wallet funds.
-func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
+func CraftSweepTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 	blockHeight uint32, deliveryAddrs []DeliveryAddr,
 	changeAddr btcutil.Address, coinSelectLocker CoinSelectionLocker,
 	utxoSource UtxoSource, outpointLocker OutpointLocker,
-	signer input.Signer, minConfs int32) (*WalletSweepPackage, error) {
+	signer input.Signer, minConfs int32, selectUtxos ...wire.OutPoint) (
+	*WalletSweepPackage, error) {
 
 	// TODO(roasbeef): turn off ATPL as well when available?
 
@@ -235,11 +236,33 @@ func CraftSweepAllTx(feeRate, maxFeeRate chainfee.SatPerKWeight,
 			"utxos: %v", err)
 	}
 
+	mapUtxoToOutpoint := make(map[wire.OutPoint]*lnwallet.Utxo)
+	for _, utxo := range allOutputs {
+		mapUtxoToOutpoint[utxo.OutPoint] = utxo
+	}
+
+	outputsForSweep := allOutputs
+
+	var unSpentSelectUtxos []*lnwallet.Utxo
+	for _, outPoint := range selectUtxos {
+		utxo, ok := mapUtxoToOutpoint[outPoint]
+		if !ok {
+			return nil, fmt.Errorf("outPoint already spent: "+
+				"%v", outPoint)
+		}
+
+		unSpentSelectUtxos = append(unSpentSelectUtxos, utxo)
+	}
+
+	if len(unSpentSelectUtxos) > 0 {
+		outputsForSweep = unSpentSelectUtxos
+	}
+
 	// Now that we've locked all the potential outputs to sweep, we'll
 	// assemble an input for each of them, so we can hand it off to the
 	// sweeper to generate and sign a transaction for us.
 	var inputsToSweep []input.Input
-	for _, output := range allOutputs {
+	for _, output := range outputsForSweep {
 		// As we'll be signing for outputs under control of the wallet,
 		// we only need to populate the output value and output script.
 		// The rest of the items will be populated internally within

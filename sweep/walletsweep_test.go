@@ -296,7 +296,7 @@ func TestCraftSweepAllTxCoinSelectFail(t *testing.T) {
 	}
 	utxoLocker := newMockOutpointLocker()
 
-	_, err := CraftSweepAllTx(
+	_, err := CraftSweepTx(
 		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker,
 		nil, 0,
 	)
@@ -322,7 +322,7 @@ func TestCraftSweepAllTxUnknownWitnessType(t *testing.T) {
 	coinSelectLocker := &mockCoinSelectionLocker{}
 	utxoLocker := newMockOutpointLocker()
 
-	_, err := CraftSweepAllTx(
+	_, err := CraftSweepTx(
 		0, 0, 10, nil, nil, coinSelectLocker, utxoSource, utxoLocker,
 		nil, 0,
 	)
@@ -356,7 +356,7 @@ func TestCraftSweepAllTx(t *testing.T) {
 	coinSelectLocker := &mockCoinSelectionLocker{}
 	utxoLocker := newMockOutpointLocker()
 
-	sweepPkg, err := CraftSweepAllTx(
+	sweepPkg, err := CraftSweepTx(
 		0, 0, 10, nil, deliveryAddr, coinSelectLocker, utxoSource,
 		utxoLocker, signer, 0,
 	)

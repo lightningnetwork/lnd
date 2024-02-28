@@ -272,8 +272,8 @@ var sendCoinsCommand = cli.Command{
 			Name: "sweepall",
 			Usage: "if set, then the amount field will be ignored, " +
 				"and the wallet will attempt to sweep all " +
-				"outputs within the wallet to the target " +
-				"address",
+				"outputs within the wallet or utxo (if supplied)" +
+				" to the target address",
 		},
 		cli.Int64Flag{
 			Name:  "amt",
@@ -311,6 +311,17 @@ var sendCoinsCommand = cli.Command{
 				"terminal avoid breaking existing shell " +
 				"scripts",
 		},
+		cli.StringSliceFlag{
+			Name: "utxo",
+			Usage: "a utxo specified as outpoint(tx:idx) which " +
+				"will be used to fund a channel. This flag " +
+				"can be repeatedly used to fund a channel " +
+				"with a selection of utxos. The selected " +
+				"funds can either be entirely spent by " +
+				"specifying the fundmax flag or partially by " +
+				"selecting a fraction of the sum of the " +
+				"outpoints in local_amt",
+		},
 		txLabelFlag,
 	},
 	Action: actionDecorator(sendCoins),
@@ -318,9 +329,10 @@ var sendCoinsCommand = cli.Command{
 
 func sendCoins(ctx *cli.Context) error {
 	var (
-		addr string
-		amt  int64
-		err  error
+		addr      string
+		amt       int64
+		err       error
+		outpoints []*lnrpc.OutPoint
 	)
 	ctxc := getContext()
 	args := ctx.Args()
@@ -393,6 +405,15 @@ func sendCoins(ctx *cli.Context) error {
 		displayAmt = balanceResponse.GetConfirmedBalance()
 	}
 
+	if ctx.IsSet("utxo") {
+		utxos := ctx.StringSlice("utxo")
+
+		outpoints, err = utxosToOutpoints(utxos)
+		if err != nil {
+			return fmt.Errorf("unable to decode utxos: %w", err)
+		}
+	}
+
 	// Ask for confirmation if we're on an actual terminal and the output is
 	// not being redirected to another command. This prevents existing shell
 	// scripts from breaking.
@@ -415,6 +436,7 @@ func sendCoins(ctx *cli.Context) error {
 		Label:            ctx.String(txLabelFlag.Name),
 		MinConfs:         minConfs,
 		SpendUnconfirmed: minConfs == 0,
+		Outpoints:        outpoints,
 	}
 	txid, err := client.SendCoins(ctxc, req)
 	if err != nil {

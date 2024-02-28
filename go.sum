@@ -90,8 +90,6 @@ github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0/go.mod h1:7SFka0XMvUgj3hfZtyd
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f h1:bAs4lUbRJpnnkd9VhRV3jjAVU7DJVjMaK+IsvSeZvFo=
 github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f/go.mod h1:TdznJufoqS23FtqVCzL0ZqgP5MqXbb4fg/WgDys70nA=
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
-github.com/btcsuite/btcwallet v0.16.10-0.20240206195028-1f3534b00d14 h1:GnTInK5UIkDJw9alXR4JeOmKmodJu/5qYknZWqp1Sk0=
-github.com/btcsuite/btcwallet v0.16.10-0.20240206195028-1f3534b00d14/go.mod h1:3EItwIQcrXGkcQlO1OginQ3Ab8YgE8kxka9hjgFuWxM=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4 h1:poyHFf7+5+RdxNp5r2T6IBRD7RyraUsYARYbp/7t4D8=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4/go.mod h1:GETGDQuyq+VFfH1S/+/7slLM/9aNa4l7P4ejX6dJfb0=
 github.com/btcsuite/btcwallet/wallet/txrules v1.2.1 h1:UZo7YRzdHbwhK7Rhv3PO9bXgTxiOH45edK5qdsdiatk=
@@ -123,6 +121,8 @@ github.com/cespare/xxhash/v2 v2.1.1/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XL
 github.com/cespare/xxhash/v2 v2.2.0 h1:DC2CZ1Ep5Y4k3ZQ899DldepgrayRUGE6BBZ/cd9Cj44=
 github.com/cespare/xxhash/v2 v2.2.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/checkpoint-restore/go-criu/v5 v5.3.0/go.mod h1:E/eQpaFtUKGOOSEBZgmKAcn+zUUwWxqcaKZlF54wK8E=
+github.com/chinwendu20/btcwallet v0.0.0-20240303210542-4687d873ac1d h1:uroc27HuAijxJSGVXSJ2UJEIOi30VG2XHI4kkPYv0Ss=
+github.com/chinwendu20/btcwallet v0.0.0-20240303210542-4687d873ac1d/go.mod h1:3EItwIQcrXGkcQlO1OginQ3Ab8YgE8kxka9hjgFuWxM=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=
 github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e/go.mod h1:nSuG5e5PlCu98SY8svDHJxuZscDgtXS6KTTbou5AhLI=
 github.com/chzyer/test v0.0.0-20180213035817-a1ea475d72b1/go.mod h1:Q3SI9o4m/ZMnBNeIyt5eFwwo7qiLfzFZmjNmxjkiQlU=

@@ -41,4 +41,9 @@ type Wallet interface {
 	// used to ensure that invalid transactions (inputs spent) aren't
 	// retried in the background.
 	CancelRebroadcast(tx chainhash.Hash)
+
+	// CheckMempoolAcceptance checks whether a transaction follows mempool
+	// policies and returns an error if it cannot be accepted into the
+	// mempool.
+	CheckMempoolAcceptance(tx *wire.MsgTx) error
 }

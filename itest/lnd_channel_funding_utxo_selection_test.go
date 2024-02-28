@@ -24,7 +24,7 @@ type chanFundUtxoSelectionTestCase struct {
 	// selectedCoins are the coins alice is selecting for funding a channel.
 	selectedCoins []btcutil.Amount
 
-	// localAmt is the local portion of the channel funding amount.
+	// amt is the local portion of the channel funding amount.
 	localAmt btcutil.Amount
 
 	// pushAmt is the amount to be pushed to Bob.

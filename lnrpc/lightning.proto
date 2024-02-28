@@ -1173,8 +1173,8 @@ message SendCoinsRequest {
 
     /*
     If set, then the amount field will be ignored, and lnd will attempt to
-    send all the coins under control of the internal wallet to the specified
-    address.
+    send all the coins under control of the internal wallet or in the selected
+    utxos if specified to the address given in the command
     */
     bool send_all = 6;
 
@@ -1187,6 +1187,9 @@ message SendCoinsRequest {
 
     // Whether unconfirmed outputs should be used as inputs for the transaction.
     bool spend_unconfirmed = 9;
+
+    // A list of selected outpoints for the transaction input in order.
+    repeated OutPoint outpoints = 10;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction

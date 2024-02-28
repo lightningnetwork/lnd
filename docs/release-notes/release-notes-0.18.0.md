@@ -324,6 +324,9 @@
 * [Update](https://github.com/lightningnetwork/lnd/pull/8419) the embedded
   Postgres version and raise max connections.
 
+* [Refactor UpdateInvoice](https://github.com/lightningnetwork/lnd/pull/8100) to
+  make it simpler to adjust code to also support SQL InvoiceDB implementation.
+
 ## Code Health
 
 * [Remove database pointers](https://github.com/lightningnetwork/lnd/pull/8117) 

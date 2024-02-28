@@ -10,7 +10,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"sync"
 	"testing"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/lightningnetwork/lnd/io"
 )
 
 var (
@@ -256,8 +256,11 @@ func TestMuSig2KeyAggTestVectors(t *testing.T) {
 
 		var formattedJson bytes.Buffer
 		json.Indent(&formattedJson, jsonBytes, "", "\t")
-		err = ioutil.WriteFile(
-			keyAggTestVectorName, formattedJson.Bytes(), 0644,
+		err = io.WriteFileToDisk(
+			keyAggTestVectorName,
+			formattedJson.Bytes(),
+			0644,
+			io.Default,
 		)
 		if err != nil {
 			t.Fatalf("unable to write file: %v", err)
@@ -656,8 +659,11 @@ func TestMuSig2SigningTestVectors(t *testing.T) {
 
 		var formattedJson bytes.Buffer
 		json.Indent(&formattedJson, jsonBytes, "", "\t")
-		err = ioutil.WriteFile(
-			signTestVectorName, formattedJson.Bytes(), 0644,
+		err = io.WriteFileToDisk(
+			signTestVectorName,
+			formattedJson.Bytes(),
+			0644,
+			io.Default,
 		)
 		if err != nil {
 			t.Fatalf("unable to write file: %v", err)
@@ -1540,8 +1546,11 @@ func TestMusig2AggregateNoncesTestVectors(t *testing.T) {
 
 		var formattedJson bytes.Buffer
 		json.Indent(&formattedJson, jsonBytes, "", "\t")
-		err = ioutil.WriteFile(
-			nonceAggTestVectorName, formattedJson.Bytes(), 0644,
+		err = io.WriteFileToDisk(
+			nonceAggTestVectorName,
+			formattedJson.Bytes(),
+			0644,
+			io.Default,
 		)
 		if err != nil {
 			t.Fatalf("unable to write file: %v", err)

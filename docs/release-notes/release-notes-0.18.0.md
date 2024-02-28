@@ -198,6 +198,7 @@
 * [Added](https://github.com/lightningnetwork/lnd/pull/8142) full validation 
   for blinded path payloads to allow fuzzing before LND fully supports 
   blinded payment relay.
+* [File writes use fsync](https://github.com/lightningnetwork/lnd/pull/8305)
 
 ### Logging
 * [Add the htlc amount](https://github.com/lightningnetwork/lnd/pull/8156) to
@@ -343,6 +344,7 @@
 * Keagan McClelland
 * Marcos Fernandez Perez
 * Matt Morehouse
+* Maurice Poirrier
 * Slyghtning
 * Tee8z
 * Turtle

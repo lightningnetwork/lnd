@@ -7,13 +7,13 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/lightningnetwork/lnd/cert"
+	"github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnencrypt"
@@ -279,8 +279,11 @@ func (t *TLSManager) ensureEncryption(keyRing keychain.SecretKeyRing) error {
 		if err != nil {
 			return err
 		}
-		err = ioutil.WriteFile(
-			t.cfg.TLSKeyPath, b.Bytes(), modifyFilePermissions,
+		err = io.WriteFileToDisk(
+			t.cfg.TLSKeyPath,
+			b.Bytes(),
+			modifyFilePermissions,
+			io.Default,
 		)
 		if err != nil {
 			return err

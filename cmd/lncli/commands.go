@@ -18,6 +18,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	lnio "github.com/lightningnetwork/lnd/io"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -2452,10 +2453,11 @@ func exportChanBackup(ctx *cli.Context) error {
 		}
 
 		if outputFileName != "" {
-			return os.WriteFile(
+			return lnio.WriteFileToDisk(
 				outputFileName,
 				chanBackup.ChanBackup,
 				0666,
+				lnio.Default,
 			)
 		}
 
@@ -2481,10 +2483,11 @@ func exportChanBackup(ctx *cli.Context) error {
 	}
 
 	if outputFileName != "" {
-		return os.WriteFile(
+		return lnio.WriteFileToDisk(
 			outputFileName,
 			chanBackup.MultiChanBackup.MultiChanBackup,
 			0666,
+			lnio.Default,
 		)
 	}
 

@@ -1187,6 +1187,9 @@ message SendCoinsRequest {
 
     // Whether unconfirmed outputs should be used as inputs for the transaction.
     bool spend_unconfirmed = 9;
+
+    // A list of selected outpoints that are allocated for channel funding.
+    repeated OutPoint outpoints = 10;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction

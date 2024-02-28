@@ -6886,6 +6886,13 @@
         "spend_unconfirmed": {
           "type": "boolean",
           "description": "Whether unconfirmed outputs should be used as inputs for the transaction."
+        },
+        "outpoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcOutPoint"
+          },
+          "description": "A list of selected outpoints that are allocated for channel funding."
         }
       }
     },

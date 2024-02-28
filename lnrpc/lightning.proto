@@ -1190,9 +1190,8 @@ message SendCoinsRequest {
     int64 sat_per_byte = 5 [deprecated = true];
 
     /*
-    If set, then the amount field will be ignored, and lnd will attempt to
-    send all the coins under control of the internal wallet to the specified
-    address.
+    If set, the amount field should be unset. It indicates lnd will send all
+    wallet coins or all selected coins to the specified address.
     */
     bool send_all = 6;
 
@@ -1208,6 +1207,9 @@ message SendCoinsRequest {
 
     // The strategy to use for selecting coins.
     CoinSelectionStrategy coin_selection_strategy = 10;
+
+    // A list of selected outpoints as inputs for the transaction.
+    repeated OutPoint outpoints = 11;
 }
 message SendCoinsResponse {
     // The transaction ID of the transaction

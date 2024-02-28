@@ -383,7 +383,18 @@ func (h *HarnessRPC) SendCoinsAssertErr(req *lnrpc.SendCoinsRequest) {
 	defer cancel()
 
 	_, err := h.LN.SendCoins(ctxt, req)
+
 	require.Error(h, err, "node %s didn't not return an error", h.Name)
+}
+
+func (h *HarnessRPC) SendCoinsAssertCheckErr(req *lnrpc.SendCoinsRequest,
+	errString string) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.LN.SendCoins(ctxt, req)
+	require.Equal(h, err.Error(), errString)
 }
 
 // GetTransactions makes a RPC call to GetTransactions and asserts.

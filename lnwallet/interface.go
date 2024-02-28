@@ -533,6 +533,11 @@ type WalletController interface {
 	// which could be e.g. btcd, bitcoind, neutrino, or another consensus
 	// service.
 	BackEnd() string
+
+	// CheckMempoolAcceptance checks whether a transaction follows mempool
+	// policies and returns an error if it cannot be accepted into the
+	// mempool.
+	CheckMempoolAcceptance(tx *wire.MsgTx) error
 }
 
 // BlockChainIO is a dedicated source which will be used to obtain queries

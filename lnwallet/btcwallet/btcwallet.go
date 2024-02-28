@@ -1897,3 +1897,51 @@ func (b *BtcWallet) RemoveDescendants(tx *wire.MsgTx) error {
 		return b.wallet.TxStore.RemoveUnminedTx(wtxmgrNs, txRecord)
 	})
 }
+
+// CheckMempoolAcceptance is a wrapper around `TestMempoolAccept` which checks
+// the mempool acceptance of a transaction.
+func (b *BtcWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
+	// Use a max feerate of 0 means the default value will be used when
+	// testing mempool acceptance. The default max feerate is 0.10 BTC/kvb,
+	// or 10,000 sat/vb.
+	results, err := b.chain.TestMempoolAccept([]*wire.MsgTx{tx}, 0)
+	if err != nil {
+		// Print a warning log if the chain backend doesn't support the
+		// mempool acceptance test RPC.
+		if errors.Is(err, rpcclient.ErrBackendVersion) {
+			log.Errorf("TestMempoolAccept not supported by "+
+				"backend, consider upgrading %s to a newer "+
+				"version", b.chain.BackEnd())
+		}
+
+		// We are running on a backend that doesn't implement the RPC
+		// testmempoolaccept, eg, neutrino, so we'll just return nil
+		// here.
+		if errors.Is(err, chain.ErrUnimplemented) {
+			log.Debugf("Skipped mempool acceptance test for "+
+				"backend: %s", b.chain.BackEnd())
+			return nil
+		}
+
+		return err
+	}
+
+	// Sanity check that the expected single result is returned.
+	if len(results) != 1 {
+		return fmt.Errorf("expected 1 result from TestMempoolAccept, "+
+			"instead got %v", len(results))
+	}
+
+	result := results[0]
+	log.Debugf("TestMempoolAccept result: %s", spew.Sdump(result))
+
+	// Mempool check failed, we now map the reject reason to a proper RPC
+	// error and return it.
+	if !result.Allowed {
+		err := rpcclient.MapRPCErr(errors.New(result.RejectReason))
+
+		return fmt.Errorf("mempool rejection: %w", err)
+	}
+
+	return nil
+}

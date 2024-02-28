@@ -280,3 +280,7 @@ func (w *WalletController) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
 func (w *WalletController) RemoveDescendants(*wire.MsgTx) error {
 	return nil
 }
+
+func (w *WalletController) CheckMempoolAcceptance(tx *wire.MsgTx) error {
+	return nil
+}

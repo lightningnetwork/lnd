@@ -46,6 +46,10 @@ func newMockBackend(t *testing.T, notifier *MockNotifier) *mockBackend {
 	}
 }
 
+func (b *mockBackend) CheckMempoolAcceptance(tx *wire.MsgTx) error {
+	return nil
+}
+
 func (b *mockBackend) publishTransaction(tx *wire.MsgTx) error {
 	b.lock.Lock()
 	defer b.lock.Unlock()
@@ -343,6 +347,14 @@ type MockWallet struct {
 
 // Compile-time constraint to ensure MockWallet implements Wallet.
 var _ Wallet = (*MockWallet)(nil)
+
+// CheckMempoolAcceptance checks if the transaction can be accepted to the
+// mempool.
+func (m *MockWallet) CheckMempoolAcceptance(tx *wire.MsgTx) error {
+	args := m.Called(tx)
+
+	return args.Error(0)
+}
 
 // PublishTransaction performs cursory validation (dust checks, etc) and
 // broadcasts the passed transaction to the Bitcoin network.

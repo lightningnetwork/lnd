@@ -4,6 +4,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -67,8 +68,12 @@ type BroadcastTxn struct {
 // daemonSealed indicates that this struct is a DaemonEvent instance.
 func (b *BroadcastTxn) daemonSealed() {}
 
+// SpendMapper is a function that's used to map a spend notification to a
+// custom state machine event.
+type SpendMapper[Event any] func(*chainntnfs.SpendDetail) Event
+
 // RegisterSpend is used to request that a certain event is sent into the state
-// machien once the specified outpoint has been spent.
+// machine once the specified outpoint has been spent.
 type RegisterSpend[Event any] struct {
 	// OutPoint is the outpoint on chain to watch.
 	OutPoint wire.OutPoint
@@ -81,10 +86,9 @@ type RegisterSpend[Event any] struct {
 	// far back it needs to start its search.
 	HeightHint uint32
 
-	// PostSpendEvent is an event that's sent back to the requester once a
-	// transaction spending the outpoint has been confirmed in the main
-	// chain.
-	PostSpendEvent fn.Option[Event]
+	// PostSpendEvent is a special spend mapper, that if present, will be
+	// used to map the protofsm spend event to a custom event.
+	PostSpendEvent fn.Option[SpendMapper[Event]]
 }
 
 // daemonSealed indicates that this struct is a DaemonEvent instance.

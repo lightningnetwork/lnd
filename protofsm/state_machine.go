@@ -465,13 +465,14 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent( //nolint:funlen
 			defer s.wg.Done()
 			for {
 				select {
-				case <-spendEvent.Spend:
+				case spend := <-spendEvent.Spend:
 					// If there's a post-send event, then
 					// we'll send that into the current
 					// state now.
 					postSpend := daemonEvent.PostSpendEvent
-					postSpend.WhenSome(func(e Event) {
-						s.SendEvent(e)
+					postSpend.WhenSome(func(f SpendMapper[Event]) { //nolint:lll
+						customEvent := f(spend)
+						s.SendEvent(customEvent)
 					})
 
 					return

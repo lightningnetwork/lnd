@@ -325,6 +325,10 @@ type server struct {
 
 	customMessageServer *subscribe.Server
 
+	// peerStorageProvider offers a structure for storing peer's backup
+	// data.
+	peerStorageProvider *peer.PeerStorageProducer
+
 	quit chan struct{}
 
 	wg sync.WaitGroup
@@ -1495,6 +1499,12 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
+	s.peerStorageProvider, err = peer.NewPeerStorageProducer(
+		dbs.PeerStorageDB,
+	)
+	if err != nil {
+		return nil, err
+	}
 	// Assemble a peer notifier which will provide clients with subscriptions
 	// to peer online and offline events.
 	s.peerNotifier = peernotifier.New()
@@ -3764,6 +3774,7 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 	brontideConn := conn.(*brontide.Conn)
 	addr := conn.RemoteAddr()
 	pubKey := brontideConn.RemotePub()
+	pubKeyBytes := pubKey.SerializeCompressed()
 
 	srvrLog.Infof("Finalizing connection to %x@%s, inbound=%v",
 		pubKey.SerializeCompressed(), addr, inbound)
@@ -3871,7 +3882,10 @@ func (s *server) peerConnected(conn net.Conn, connReq *connmgr.ConnReq,
 		GetAliases:             s.aliasMgr.GetAliases,
 		RequestAlias:           s.aliasMgr.RequestAlias,
 		AddLocalAlias:          s.aliasMgr.AddLocalAlias,
-		Quit:                   s.quit,
+		PeerDataStore: s.peerStorageProvider.NewPeerStorageDB(
+			pubKeyBytes,
+		),
+		Quit: s.quit,
 	}
 
 	copy(pCfg.PubKeyBytes[:], peerAddr.IdentityKey.SerializeCompressed())

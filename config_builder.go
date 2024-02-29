@@ -42,6 +42,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/rpcwallet"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/rpcperms"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sqldb"
@@ -869,6 +870,10 @@ type DatabaseInstances struct {
 	// configuration.
 	TowerServerDB watchtower.DB
 
+	// PeerStorageDB is the database that stores the data that peers shares
+	// with us for backup.
+	PeerStorageDB kvdb.Backend
+
 	// WalletDB is the configuration for loading the wallet database using
 	// the btcwallet's loader.
 	WalletDB btcwallet.LoaderOption
@@ -936,6 +941,7 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 		DecayedLogDB:   databaseBackends.DecayedLogDB,
 		WalletDB:       databaseBackends.WalletDB,
 		NativeSQLStore: databaseBackends.NativeSQLStore,
+		PeerStorageDB:  databaseBackends.PeerStorageDB,
 	}
 	cleanUp := func() {
 		// We can just close the returned close functions directly. Even
@@ -1062,6 +1068,13 @@ func (d *DefaultDatabaseBuilder) BuildDatabase(
 			err := fmt.Errorf("unable to open %s database: %v",
 				lncfg.NSTowerServerDB, err)
 			d.logger.Error(err)
+			return nil, nil, err
+		}
+	}
+
+	if cfg.ProtocolOptions.OptionPeerStorage {
+		err = peer.InitPeerStorageDB(databaseBackends.PeerStorageDB)
+		if err != nil {
 			return nil, nil, err
 		}
 	}

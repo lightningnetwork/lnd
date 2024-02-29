@@ -751,6 +751,26 @@ func (p *Brontide) Start() error {
 		}
 	}
 
+	// Send this peer its backup data if we have it. This is sent after the
+	// init message and before the channelReestablish message.
+	if p.LocalFeatures().HasFeature(lnwire.ProvideStorageOptional) {
+		data, err := p.cfg.PeerDataStore.Retrieve()
+		if err != nil {
+			return fmt.Errorf("unable to retrieve peer "+
+				"backup data: %v", err)
+		}
+
+		if data != nil {
+			if err := p.writeMessage(
+				lnwire.NewPeerStorageRetrievalMsg(data),
+			); err != nil {
+				return fmt.Errorf("unable to send "+
+					"PeerStorageRetrieval msg to peer on "+
+					"connection: %v", err)
+			}
+		}
+	}
+
 	err = p.pingManager.Start()
 	if err != nil {
 		return fmt.Errorf("could not start ping manager %w", err)

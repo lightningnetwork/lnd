@@ -2,6 +2,7 @@ package peer
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -1654,4 +1655,58 @@ func TestPeerStorageWriter(t *testing.T) {
 
 	// Wait for goroutine to exit(good manners).
 	peer.wg.Wait()
+}
+
+// TestPeerBackupReconnect ensures that a peer sends the backup data,
+// if available upon connection. It verifies the peer's behavior by simulating
+// a reconnection and checking if the expected backup data is sent to the mock
+// connection within a specified timeout.
+func TestPeerBackupReconnect(t *testing.T) {
+	t.Parallel()
+	rt := require.New(t)
+
+	params := createTestPeer(t)
+
+	var (
+		peer     = params.peer
+		mockConn = params.mockConn
+	)
+
+	// Enable option_peer_storage.
+	peer.cfg.Features = lnwire.NewFeatureVector(
+		lnwire.NewRawFeatureVector(
+			lnwire.ProvideStorageOptional,
+		),
+		lnwire.Features,
+	)
+
+	// Create sample backup data.
+	sampleData := []byte{0, 1, 2}
+
+	// Store peer's backup data.
+	rt.NoError(peer.cfg.PeerDataStore.Store(sampleData))
+
+	// Test that we send the data to the peer on startup.
+	donePeer := startPeer(t, mockConn, peer)
+	t.Cleanup(func() {
+		_, err := fn.RecvOrTimeout(donePeer, 2*timeout)
+		require.NoError(t, err)
+		peer.Disconnect(errors.New(""))
+	})
+
+	// Test that we send this peer its backup on startup.
+	select {
+	case rawMsg := <-mockConn.writtenMessages:
+		msgReader := bytes.NewReader(rawMsg)
+		nextMsg, err := lnwire.ReadMessage(msgReader, 0)
+		require.NoError(t, err)
+
+		msg, ok := nextMsg.(*lnwire.PeerStorageRetrieval)
+		require.True(t, ok)
+
+		require.True(t, bytes.Equal(msg.Blob, sampleData))
+
+	case <-time.After(timeout):
+		t.Fatalf("timeout waiting for messsage")
+	}
 }

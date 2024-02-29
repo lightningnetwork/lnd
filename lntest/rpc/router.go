@@ -193,6 +193,26 @@ func (h *HarnessRPC) HtlcInterceptor() (InterceptorClient, context.CancelFunc) {
 	return resp, cancel
 }
 
+// AddAliases adds a list of aliases to the node's alias map.
+func (h *HarnessRPC) XAddLocalChanAliases(req *routerrpc.AddAliasesRequest) {
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.Router.XAddLocalChanAliases(ctxt, req)
+	h.NoError(err, "AddAliases")
+}
+
+// DeleteAliases deleted a set of alias mappings.
+func (h *HarnessRPC) XDeleteLocalChanAliases(
+	req *routerrpc.DeleteAliasesRequest) {
+
+	ctxt, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	_, err := h.Router.XDeleteLocalChanAliases(ctxt, req)
+	h.NoError(err, "AddAliases")
+}
+
 type TrackPaymentsClient routerrpc.Router_TrackPaymentsClient
 
 // TrackPayments makes a RPC call to the node's RouterClient and asserts.

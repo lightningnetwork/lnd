@@ -146,7 +146,7 @@ type OpenChannel struct {
 	// verify the very first commitment transaction signature.  This will
 	// only be populated if the simple taproot channels type was
 	// negotiated.
-	LocalNonce *Musig2Nonce
+	LocalNonce OptMusig2NonceTLV
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -175,9 +175,9 @@ func (o *OpenChannel) Encode(w *bytes.Buffer, pver uint32) error {
 	if o.LeaseExpiry != nil {
 		recordProducers = append(recordProducers, o.LeaseExpiry)
 	}
-	if o.LocalNonce != nil {
-		recordProducers = append(recordProducers, o.LocalNonce)
-	}
+	o.LocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
+		recordProducers = append(recordProducers, &localNonce)
+	})
 	err := EncodeMessageExtraData(&o.ExtraData, recordProducers...)
 	if err != nil {
 		return err
@@ -302,7 +302,7 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 	var (
 		chanType    ChannelType
 		leaseExpiry LeaseExpiry
-		localNonce  Musig2Nonce
+		localNonce  = o.LocalNonce.Zero()
 	)
 	typeMap, err := tlvRecords.ExtractRecords(
 		&o.UpfrontShutdownScript, &chanType, &leaseExpiry,
@@ -319,8 +319,8 @@ func (o *OpenChannel) Decode(r io.Reader, pver uint32) error {
 	if val, ok := typeMap[LeaseExpiryRecordType]; ok && val == nil {
 		o.LeaseExpiry = &leaseExpiry
 	}
-	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
-		o.LocalNonce = &localNonce
+	if val, ok := typeMap[o.LocalNonce.TlvType()]; ok && val == nil {
+		o.LocalNonce = tlv.SomeRecordT(localNonce)
 	}
 
 	o.ExtraData = tlvRecords

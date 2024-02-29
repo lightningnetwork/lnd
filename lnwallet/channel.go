@@ -127,6 +127,13 @@ var (
 	// we've likely lost data ourselves.
 	ErrForceCloseLocalDataLoss = errors.New("cannot force close " +
 		"channel with local data loss")
+
+	// errNoNonce is returned when a nonce is required, but none is found.
+	errNoNonce = errors.New("no nonce found")
+
+	// errNoPartialSig is returned when a partial signature is required,
+	// but none is found.
+	errNoPartialSig = errors.New("no partial signature found")
 )
 
 // ErrCommitSyncLocalDataLoss is returned in the case that we receive a valid
@@ -4128,7 +4135,7 @@ type CommitSigs struct {
 
 	// PartialSig is the musig2 partial signature for taproot commitment
 	// transactions.
-	PartialSig *lnwire.PartialSigWithNonce
+	PartialSig lnwire.OptPartialSigWithNonceTLV
 }
 
 // NewCommitState wraps the various signatures needed to properly
@@ -4341,7 +4348,7 @@ func (lc *LightningChannel) SignNextCommitment() (*NewCommitState, error) {
 		CommitSigs: &CommitSigs{
 			CommitSig:  sig,
 			HtlcSigs:   htlcSigs,
-			PartialSig: partialSig,
+			PartialSig: lnwire.MaybePartialSigWithNonce(partialSig),
 		},
 		PendingHTLCs: commitDiff.Commitment.Htlcs,
 	}, nil
@@ -4416,19 +4423,24 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 	// bail out, otherwise we'll init our local session then continue as
 	// normal.
 	switch {
-	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce == nil:
+	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce.IsNone():
 		return nil, nil, nil, fmt.Errorf("remote verification nonce " +
 			"not sent")
 
-	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce != nil:
+	case lc.channelState.ChanType.IsTaproot() && msg.LocalNonce.IsSome():
 		if lc.opts.skipNonceInit {
 			// Don't call InitRemoteMusigNonces if we have already
 			// done so.
 			break
 		}
 
-		err := lc.InitRemoteMusigNonces(&musig2.Nonces{
-			PubNonce: *msg.LocalNonce,
+		nextNonce, err := msg.LocalNonce.UnwrapOrErrV(errNoNonce)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		err = lc.InitRemoteMusigNonces(&musig2.Nonces{
+			PubNonce: nextNonce,
 		})
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("unable to init "+
@@ -5227,6 +5239,13 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	if lc.channelState.ChanType.IsTaproot() {
 		localSession := lc.musigSessions.LocalSession
 
+		partialSig, err := commitSigs.PartialSig.UnwrapOrErrV(
+			errNoPartialSig,
+		)
+		if err != nil {
+			return err
+		}
+
 		// As we want to ensure we never write nonces to disk, we'll
 		// use the shachain state to generate a nonce for our next
 		// local state. Similar to generateRevocation, we do height + 2
@@ -5236,7 +5255,7 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 			nextHeight+1, lc.taprootNonceProducer,
 		)
 		nextVerificationNonce, err := localSession.VerifyCommitSig(
-			localCommitTx, commitSigs.PartialSig, localCtrNonce,
+			localCommitTx, &partialSig, localCtrNonce,
 		)
 		if err != nil {
 			close(cancelChan)
@@ -5352,9 +5371,16 @@ func (lc *LightningChannel) ReceiveNewCommitment(commitSigs *CommitSigs) error {
 	// serialize the ECDSA sig. For taproot channels, we'll serialize the
 	// partial sig that includes the nonce that was used for signing.
 	if lc.channelState.ChanType.IsTaproot() {
+		partialSig, err := commitSigs.PartialSig.UnwrapOrErrV(
+			errNoPartialSig,
+		)
+		if err != nil {
+			return err
+		}
+
 		var sigBytes [lnwire.PartialSigWithNonceLen]byte
 		b := bytes.NewBuffer(sigBytes[0:0])
-		if err := commitSigs.PartialSig.Encode(b); err != nil {
+		if err := partialSig.Encode(b); err != nil {
 			return err
 		}
 
@@ -5783,19 +5809,21 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	// Now that we have a new verification nonce from them, we can refresh
 	// our remote musig2 session which allows us to create another state.
 	if lc.channelState.ChanType.IsTaproot() {
-		if revMsg.LocalNonce == nil {
-			return nil, nil, nil, nil, fmt.Errorf("next " +
-				"revocation nonce not set")
+		localNonce, err := revMsg.LocalNonce.UnwrapOrErrV(errNoNonce)
+		if err != nil {
+			return nil, nil, nil, nil, err
 		}
-		newRemoteSession, err := lc.musigSessions.RemoteSession.Refresh(
+
+		session, err := lc.musigSessions.RemoteSession.Refresh(
 			&musig2.Nonces{
-				PubNonce: *revMsg.LocalNonce,
+				PubNonce: localNonce,
 			},
 		)
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		lc.musigSessions.RemoteSession = newRemoteSession
+
+		lc.musigSessions.RemoteSession = session
 	}
 
 	// At this point, the revocation has been accepted, and we've rotated
@@ -8506,8 +8534,8 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 		if err != nil {
 			return nil, err
 		}
-		revocationMsg.LocalNonce = (*lnwire.Musig2Nonce)(
-			&nextVerificationNonce.PubNonce,
+		revocationMsg.LocalNonce = lnwire.SomeMusig2Nonce(
+			nextVerificationNonce.PubNonce,
 		)
 	}
 

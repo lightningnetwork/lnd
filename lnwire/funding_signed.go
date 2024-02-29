@@ -24,7 +24,7 @@ type FundingSigned struct {
 	//
 	// NOTE: This field is only populated if a musig2 taproot channel is
 	// being signed for. In this case, the above Sig type MUST be blank.
-	PartialSig *PartialSigWithNonce
+	PartialSig OptPartialSigWithNonceTLV
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -43,9 +43,9 @@ var _ Message = (*FundingSigned)(nil)
 // This is part of the lnwire.Message interface.
 func (f *FundingSigned) Encode(w *bytes.Buffer, pver uint32) error {
 	recordProducers := make([]tlv.RecordProducer, 0, 1)
-	if f.PartialSig != nil {
-		recordProducers = append(recordProducers, f.PartialSig)
-	}
+	f.PartialSig.WhenSome(func(sig PartialSigWithNonceTLV) {
+		recordProducers = append(recordProducers, &sig)
+	})
 	err := EncodeMessageExtraData(&f.ExtraData, recordProducers...)
 	if err != nil {
 		return err
@@ -78,17 +78,15 @@ func (f *FundingSigned) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	var (
-		partialSig PartialSigWithNonce
-	)
+	partialSig := f.PartialSig.Zero()
 	typeMap, err := tlvRecords.ExtractRecords(&partialSig)
 	if err != nil {
 		return err
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[PartialSigWithNonceRecordType]; ok && val == nil {
-		f.PartialSig = &partialSig
+	if val, ok := typeMap[f.PartialSig.TlvType()]; ok && val == nil {
+		f.PartialSig = tlv.SomeRecordT(partialSig)
 	}
 
 	if len(tlvRecords) != 0 {

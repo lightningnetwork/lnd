@@ -2875,10 +2875,10 @@ func assertNoChanSyncNeeded(t *testing.T, aliceChannel *LightningChannel,
 	// nonces.
 	if aliceChannel.channelState.ChanType.IsTaproot() {
 		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *aliceChanSyncMsg.LocalNonce,
+			PubNonce: aliceChanSyncMsg.LocalNonce.UnwrapOrFailV(t),
 		}
 		bobChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *bobChanSyncMsg.LocalNonce,
+			PubNonce: bobChanSyncMsg.LocalNonce.UnwrapOrFailV(t),
 		}
 	}
 
@@ -3486,10 +3486,10 @@ func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 	// nonces.
 	if chanType.IsTaproot() {
 		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *aliceSyncMsg.LocalNonce,
+			PubNonce: aliceSyncMsg.LocalNonce.UnwrapOrFail(t).Val,
 		}
 		bobChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *bobSyncMsg.LocalNonce,
+			PubNonce: bobSyncMsg.LocalNonce.UnwrapOrFail(t).Val,
 		}
 	}
 
@@ -3548,10 +3548,10 @@ func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 	// nonces.
 	if chanType.IsTaproot() {
 		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *aliceSyncMsg.LocalNonce,
+			PubNonce: aliceSyncMsg.LocalNonce.UnwrapOrFailV(t),
 		}
 		bobChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *bobSyncMsg.LocalNonce,
+			PubNonce: bobSyncMsg.LocalNonce.UnwrapOrFailV(t),
 		}
 	}
 
@@ -3671,10 +3671,10 @@ func testChanSyncOweRevocationAndCommit(t *testing.T,
 	// nonces.
 	if chanType.IsTaproot() {
 		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *aliceSyncMsg.LocalNonce,
+			PubNonce: aliceSyncMsg.LocalNonce.UnwrapOrFailV(t),
 		}
 		bobChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *bobSyncMsg.LocalNonce,
+			PubNonce: bobSyncMsg.LocalNonce.UnwrapOrFailV(t),
 		}
 	}
 
@@ -3751,10 +3751,10 @@ func testChanSyncOweRevocationAndCommit(t *testing.T,
 	// nonces.
 	if chanType.IsTaproot() {
 		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *aliceSyncMsg.LocalNonce,
+			PubNonce: aliceSyncMsg.LocalNonce.UnwrapOrFailV(t),
 		}
 		bobChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *bobSyncMsg.LocalNonce,
+			PubNonce: bobSyncMsg.LocalNonce.UnwrapOrFailV(t),
 		}
 	}
 
@@ -3888,10 +3888,10 @@ func testChanSyncOweRevocationAndCommitForceTransition(t *testing.T,
 	// nonces.
 	if chanType.IsTaproot() {
 		aliceChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *aliceSyncMsg.LocalNonce,
+			PubNonce: aliceSyncMsg.LocalNonce.UnwrapOrFailV(t),
 		}
 		bobChannel.pendingVerificationNonce = &musig2.Nonces{
-			PubNonce: *bobSyncMsg.LocalNonce,
+			PubNonce: bobSyncMsg.LocalNonce.UnwrapOrFailV(t),
 		}
 	}
 

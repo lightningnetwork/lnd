@@ -44,7 +44,7 @@ require (
 	github.com/lightningnetwork/lnd/kvdb v1.4.5
 	github.com/lightningnetwork/lnd/queue v1.1.1
 	github.com/lightningnetwork/lnd/ticker v1.1.1
-	github.com/lightningnetwork/lnd/tlv v1.2.1
+	github.com/lightningnetwork/lnd/tlv v1.2.3
 	github.com/lightningnetwork/lnd/tor v1.1.2
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796
 	github.com/miekg/dns v1.1.43

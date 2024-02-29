@@ -44,11 +44,19 @@ var (
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
-func randLocalNonce(r *rand.Rand) *Musig2Nonce {
+func randLocalNonce(r *rand.Rand) Musig2Nonce {
 	var nonce Musig2Nonce
 	_, _ = io.ReadFull(r, nonce[:])
 
-	return &nonce
+	return nonce
+}
+
+func someLocalNonce[T tlv.TlvType](
+	r *rand.Rand) tlv.OptionalRecordT[T, Musig2Nonce] {
+
+	return tlv.SomeRecordT(tlv.NewRecordT[T, Musig2Nonce](
+		randLocalNonce(r),
+	))
 }
 
 func randPartialSig(r *rand.Rand) (*PartialSig, error) {
@@ -65,6 +73,19 @@ func randPartialSig(r *rand.Rand) (*PartialSig, error) {
 	}, nil
 }
 
+func somePartialSig(t *testing.T,
+	r *rand.Rand) tlv.OptionalRecordT[PartialSigType, PartialSig] {
+
+	sig, err := randPartialSig(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return tlv.SomeRecordT(tlv.NewRecordT[PartialSigType, PartialSig](
+		*sig,
+	))
+}
+
 func randPartialSigWithNonce(r *rand.Rand) (*PartialSigWithNonce, error) {
 	var sigBytes [32]byte
 	if _, err := r.Read(sigBytes[:]); err != nil {
@@ -76,8 +97,23 @@ func randPartialSigWithNonce(r *rand.Rand) (*PartialSigWithNonce, error) {
 
 	return &PartialSigWithNonce{
 		PartialSig: NewPartialSig(s),
-		Nonce:      *randLocalNonce(r),
+		Nonce:      randLocalNonce(r),
 	}, nil
+}
+
+func somePartialSigWithNonce(t *testing.T,
+	r *rand.Rand) OptPartialSigWithNonceTLV {
+
+	sig, err := randPartialSigWithNonce(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return tlv.SomeRecordT(
+		tlv.NewRecordT[PartialSigWithNonceType, PartialSigWithNonce](
+			*sig,
+		),
+	)
 }
 
 func randAlias(r *rand.Rand) NodeAlias {
@@ -480,7 +516,8 @@ func TestLightningWireProtocol(t *testing.T) {
 				req.LeaseExpiry = new(LeaseExpiry)
 				*req.LeaseExpiry = LeaseExpiry(1337)
 
-				req.LocalNonce = randLocalNonce(r)
+				//nolint:lll
+				req.LocalNonce = someLocalNonce[NonceRecordTypeT](r)
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}
@@ -554,7 +591,8 @@ func TestLightningWireProtocol(t *testing.T) {
 				req.LeaseExpiry = new(LeaseExpiry)
 				*req.LeaseExpiry = LeaseExpiry(1337)
 
-				req.LocalNonce = randLocalNonce(r)
+				//nolint:lll
+				req.LocalNonce = someLocalNonce[NonceRecordTypeT](r)
 			} else {
 				req.UpfrontShutdownScript = []byte{}
 			}
@@ -591,12 +629,7 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			// 1/2 chance to attach a partial sig.
 			if r.Intn(2) == 0 {
-				req.PartialSig, err = randPartialSigWithNonce(r)
-				if err != nil {
-					t.Fatalf("unable to generate sig: %v",
-						err)
-					return
-				}
+				req.PartialSig = somePartialSigWithNonce(t, r)
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -621,12 +654,7 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			// 1/2 chance to attach a partial sig.
 			if r.Intn(2) == 0 {
-				req.PartialSig, err = randPartialSigWithNonce(r)
-				if err != nil {
-					t.Fatalf("unable to generate sig: %v",
-						err)
-					return
-				}
+				req.PartialSig = somePartialSigWithNonce(t, r)
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -649,7 +677,9 @@ func TestLightningWireProtocol(t *testing.T) {
 			if r.Int31()%2 == 0 {
 				scid := NewShortChanIDFromInt(uint64(r.Int63()))
 				req.AliasScid = &scid
-				req.NextLocalNonce = randLocalNonce(r)
+
+				//nolint:lll
+				req.NextLocalNonce = someLocalNonce[NonceRecordTypeT](r)
 			}
 
 			v[0] = reflect.ValueOf(*req)
@@ -676,9 +706,8 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			if r.Int31()%2 == 0 {
-				req.ShutdownNonce = (*ShutdownNonce)(
-					randLocalNonce(r),
-				)
+				//nolint:lll
+				req.ShutdownNonce = someLocalNonce[ShutdownNonceType](r)
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -701,12 +730,7 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			if r.Int31()%2 == 0 {
-				req.PartialSig, err = randPartialSig(r)
-				if err != nil {
-					t.Fatalf("unable to generate sig: %v",
-						err)
-					return
-				}
+				req.PartialSig = somePartialSig(t, r)
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -854,12 +878,7 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			// 50/50 chance to attach a partial sig.
 			if r.Int31()%2 == 0 {
-				req.PartialSig, err = randPartialSigWithNonce(r)
-				if err != nil {
-					t.Fatalf("unable to generate sig: %v",
-						err)
-					return
-				}
+				req.PartialSig = somePartialSigWithNonce(t, r)
 			}
 
 			v[0] = reflect.ValueOf(*req)
@@ -883,7 +902,8 @@ func TestLightningWireProtocol(t *testing.T) {
 
 			// 50/50 chance to attach a local nonce.
 			if r.Int31()%2 == 0 {
-				req.LocalNonce = randLocalNonce(r)
+				//nolint:lll
+				req.LocalNonce = someLocalNonce[NonceRecordTypeT](r)
 			}
 
 			v[0] = reflect.ValueOf(*req)
@@ -1107,7 +1127,8 @@ func TestLightningWireProtocol(t *testing.T) {
 					return
 				}
 
-				req.LocalNonce = randLocalNonce(r)
+				//nolint:lll
+				req.LocalNonce = someLocalNonce[NonceRecordTypeT](r)
 			}
 
 			v[0] = reflect.ValueOf(req)
@@ -1232,7 +1253,7 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			if r.Intn(2) == 0 {
-				sig := tlv.ZeroRecordT[tlv.TlvType1, Sig]()
+				sig := req.CloserNoClosee.Zero()
 				_, err := r.Read(sig.Val.bytes[:])
 				if err != nil {
 					t.Fatalf("unable to generate sig: %v",
@@ -1243,7 +1264,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				req.CloserNoClosee = tlv.SomeRecordT(sig)
 			}
 			if r.Intn(2) == 0 {
-				sig := tlv.ZeroRecordT[tlv.TlvType2, Sig]()
+				sig := req.NoCloserClosee.Zero()
 				_, err := r.Read(sig.Val.bytes[:])
 				if err != nil {
 					t.Fatalf("unable to generate sig: %v",
@@ -1254,7 +1275,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				req.NoCloserClosee = tlv.SomeRecordT(sig)
 			}
 			if r.Intn(2) == 0 {
-				sig := tlv.ZeroRecordT[tlv.TlvType3, Sig]()
+				sig := req.CloserAndClosee.Zero()
 				_, err := r.Read(sig.Val.bytes[:])
 				if err != nil {
 					t.Fatalf("unable to generate sig: %v",
@@ -1281,7 +1302,7 @@ func TestLightningWireProtocol(t *testing.T) {
 			}
 
 			if r.Intn(2) == 0 {
-				sig := tlv.ZeroRecordT[tlv.TlvType1, Sig]()
+				sig := req.CloserNoClosee.Zero()
 				_, err := r.Read(sig.Val.bytes[:])
 				if err != nil {
 					t.Fatalf("unable to generate sig: %v",
@@ -1292,7 +1313,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				req.CloserNoClosee = tlv.SomeRecordT(sig)
 			}
 			if r.Intn(2) == 0 {
-				sig := tlv.ZeroRecordT[tlv.TlvType2, Sig]()
+				sig := req.NoCloserClosee.Zero()
 				_, err := r.Read(sig.Val.bytes[:])
 				if err != nil {
 					t.Fatalf("unable to generate sig: %v",
@@ -1303,7 +1324,7 @@ func TestLightningWireProtocol(t *testing.T) {
 				req.NoCloserClosee = tlv.SomeRecordT(sig)
 			}
 			if r.Intn(2) == 0 {
-				sig := tlv.ZeroRecordT[tlv.TlvType3, Sig]()
+				sig := req.CloserAndClosee.Zero()
 				_, err := r.Read(sig.Val.bytes[:])
 				if err != nil {
 					t.Fatalf("unable to generate sig: %v",

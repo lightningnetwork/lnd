@@ -36,7 +36,7 @@ type RevokeAndAck struct {
 	// LocalNonce is the next _local_ nonce for the sending party. This
 	// allows the receiving party to propose a new commitment using their
 	// remote nonce and the sender's local nonce.
-	LocalNonce *Musig2Nonce
+	LocalNonce OptMusig2NonceTLV
 
 	// ExtraData is the set of data that was appended to this message to
 	// fill out the full maximum transport message size. These fields can
@@ -74,15 +74,15 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	var musigNonce Musig2Nonce
-	typeMap, err := tlvRecords.ExtractRecords(&musigNonce)
+	localNonce := c.LocalNonce.Zero()
+	typeMap, err := tlvRecords.ExtractRecords(&localNonce)
 	if err != nil {
 		return err
 	}
 
 	// Set the corresponding TLV types if they were included in the stream.
-	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
-		c.LocalNonce = &musigNonce
+	if val, ok := typeMap[c.LocalNonce.TlvType()]; ok && val == nil {
+		c.LocalNonce = tlv.SomeRecordT(localNonce)
 	}
 
 	if len(tlvRecords) != 0 {
@@ -98,9 +98,9 @@ func (c *RevokeAndAck) Decode(r io.Reader, pver uint32) error {
 // This is part of the lnwire.Message interface.
 func (c *RevokeAndAck) Encode(w *bytes.Buffer, pver uint32) error {
 	recordProducers := make([]tlv.RecordProducer, 0, 1)
-	if c.LocalNonce != nil {
-		recordProducers = append(recordProducers, c.LocalNonce)
-	}
+	c.LocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
+		recordProducers = append(recordProducers, &localNonce)
+	})
 	err := EncodeMessageExtraData(&c.ExtraData, recordProducers...)
 	if err != nil {
 		return err

@@ -11,11 +11,20 @@ import (
 const (
 	// PartialSigLen is the length of a musig2 partial signature.
 	PartialSigLen = 32
+)
 
-	// PartialSigRecordType is the type of the tlv record for a musig2
+type (
+	// PartialSigType is the type of the tlv record for a musig2
 	// partial signature. This is an _even_ type, which means it's required
 	// if included.
-	PartialSigRecordType tlv.Type = 6
+	PartialSigType = tlv.TlvType6
+
+	// PartialSigTLV is a tlv record for a musig2 partial signature.
+	PartialSigTLV = tlv.RecordT[PartialSigType, PartialSig]
+
+	// OptPartialSigTLV is a tlv record for a musig2 partial signature.
+	// This is an optional record type.
+	OptPartialSigTLV = tlv.OptionalRecordT[PartialSigType, PartialSig]
 )
 
 // PartialSig is the base partial sig type. This only encodes the 32-byte
@@ -36,7 +45,7 @@ func NewPartialSig(sig btcec.ModNScalar) PartialSig {
 // Record returns the tlv record for the partial sig.
 func (p *PartialSig) Record() tlv.Record {
 	return tlv.MakeStaticRecord(
-		PartialSigRecordType, p, PartialSigLen,
+		(PartialSigType)(nil).TypeVal(), p, PartialSigLen,
 		partialSigTypeEncoder, partialSigTypeDecoder,
 	)
 }
@@ -88,16 +97,35 @@ func (p *PartialSig) Decode(r io.Reader) error {
 	return partialSigTypeDecoder(r, p, nil, PartialSigLen)
 }
 
+// SomePartialSig is a helper function that returns an otional PartialSig.
+func SomePartialSig(sig PartialSig) OptPartialSigTLV {
+	return tlv.SomeRecordT(tlv.NewRecordT[PartialSigType, PartialSig](sig))
+}
+
 const (
 	// PartialSigWithNonceLen is the length of a serialized
 	// PartialSigWithNonce. The sig is encoded as the 32 byte S value
 	// followed by the 66 nonce value.
 	PartialSigWithNonceLen = 98
+)
 
-	// PartialSigWithNonceRecordType is the type of the tlv record for a
-	// musig2 partial signature with nonce. This is an _even_ type, which
-	// means it's required if included.
-	PartialSigWithNonceRecordType tlv.Type = 2
+type (
+	// PartialSigWithNonceType is the type of the tlv record for a musig2
+	// partial signature with nonce. This is an _even_ type, which means
+	// it's required if included.
+	PartialSigWithNonceType = tlv.TlvType2
+
+	// PartialSigWithNonceTLV is a tlv record for a musig2 partial
+	// signature.
+	PartialSigWithNonceTLV = tlv.RecordT[
+		PartialSigWithNonceType, PartialSigWithNonce,
+	]
+
+	// OptPartialSigWithNonceTLV is a tlv record for a musig2 partial
+	// signature.  This is an optional record type.
+	OptPartialSigWithNonceTLV = tlv.OptionalRecordT[
+		PartialSigWithNonceType, PartialSigWithNonce,
+	]
 )
 
 // PartialSigWithNonce is a partial signature with the nonce that was used to
@@ -129,8 +157,9 @@ func NewPartialSigWithNonce(nonce [musig2.PubNonceSize]byte,
 // Record returns the tlv record for the partial sig with nonce.
 func (p *PartialSigWithNonce) Record() tlv.Record {
 	return tlv.MakeStaticRecord(
-		PartialSigWithNonceRecordType, p, PartialSigWithNonceLen,
-		partialSigWithNonceTypeEncoder, partialSigWithNonceTypeDecoder,
+		(PartialSigWithNonceType)(nil).TypeVal(), p,
+		PartialSigWithNonceLen, partialSigWithNonceTypeEncoder,
+		partialSigWithNonceTypeDecoder,
 	)
 }
 
@@ -197,5 +226,22 @@ func partialSigWithNonceTypeDecoder(r io.Reader, val interface{}, buf *[8]byte,
 func (p *PartialSigWithNonce) Decode(r io.Reader) error {
 	return partialSigWithNonceTypeDecoder(
 		r, p, nil, PartialSigWithNonceLen,
+	)
+}
+
+// MaybePartialSigWithNonce is a helper function that returns an optional
+// PartialSigWithNonceTLV.
+func MaybePartialSigWithNonce(sig *PartialSigWithNonce,
+) OptPartialSigWithNonceTLV {
+
+	if sig == nil {
+		var none OptPartialSigWithNonceTLV
+		return none
+	}
+
+	return tlv.SomeRecordT(
+		tlv.NewRecordT[PartialSigWithNonceType, PartialSigWithNonce](
+			*sig,
+		),
 	)
 }

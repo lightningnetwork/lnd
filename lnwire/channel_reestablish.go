@@ -82,8 +82,7 @@ type ChannelReestablish struct {
 	// This will only be populated if the simple taproot channels type was
 	// negotiated.
 	//
-	// TODO(roasbeef): rename to verification nonce
-	LocalNonce *Musig2Nonce
+	LocalNonce OptMusig2NonceTLV
 
 	// DynHeight is an optional field that stores the dynamic commitment
 	// negotiation height that is incremented upon successful completion of
@@ -138,9 +137,9 @@ func (a *ChannelReestablish) Encode(w *bytes.Buffer, pver uint32) error {
 	}
 
 	recordProducers := make([]tlv.RecordProducer, 0, 1)
-	if a.LocalNonce != nil {
-		recordProducers = append(recordProducers, a.LocalNonce)
-	}
+	a.LocalNonce.WhenSome(func(localNonce Musig2NonceTLV) {
+		recordProducers = append(recordProducers, &localNonce)
+	})
 	a.DynHeight.WhenSome(func(h DynHeight) {
 		recordProducers = append(recordProducers, &h)
 	})
@@ -203,8 +202,10 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	var localNonce Musig2Nonce
-	var dynHeight DynHeight
+	var (
+		dynHeight  DynHeight
+		localNonce = a.LocalNonce.Zero()
+	)
 	typeMap, err := tlvRecords.ExtractRecords(
 		&localNonce, &dynHeight,
 	)
@@ -212,8 +213,8 @@ func (a *ChannelReestablish) Decode(r io.Reader, pver uint32) error {
 		return err
 	}
 
-	if val, ok := typeMap[NonceRecordType]; ok && val == nil {
-		a.LocalNonce = &localNonce
+	if val, ok := typeMap[a.LocalNonce.TlvType()]; ok && val == nil {
+		a.LocalNonce = tlv.SomeRecordT(localNonce)
 	}
 	if val, ok := typeMap[CRDynHeight]; ok && val == nil {
 		a.DynHeight = fn.Some(dynHeight)

@@ -7,21 +7,33 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-const (
-	// NonceRecordType is the TLV type used to encode a local musig2 nonce.
-	NonceRecordType tlv.Type = 4
-)
+// NonceRecordTypeT is the TLV type used to encode a local musig2 nonce.
+type NonceRecordTypeT = tlv.TlvType4
 
-// Musig2Nonce represents a musig2 public nonce, which is the concatenation of
-// two EC points serialized in compressed format.
-type Musig2Nonce [musig2.PubNonceSize]byte
+// nonceRecordType is the TLV (integer) type used to encode a local musig2
+// nonce.
+var nonceRecordType tlv.Type = (NonceRecordTypeT)(nil).TypeVal()
+
+type (
+	// Musig2Nonce represents a musig2 public nonce, which is the
+	// concatenation of two EC points serialized in compressed format.
+	Musig2Nonce [musig2.PubNonceSize]byte
+
+	// Musig2NonceTLV is a TLV type that can be used to encode/decode a
+	// musig2 nonce. This is an optional TLV.
+	Musig2NonceTLV = tlv.RecordT[NonceRecordTypeT, Musig2Nonce]
+
+	// OptMusig2NonceTLV is a TLV type that can be used to encode/decode a
+	// musig2 nonce.
+	OptMusig2NonceTLV = tlv.OptionalRecordT[NonceRecordTypeT, Musig2Nonce]
+)
 
 // Record returns a TLV record that can be used to encode/decode the musig2
 // nonce from a given TLV stream.
 func (m *Musig2Nonce) Record() tlv.Record {
 	return tlv.MakeStaticRecord(
-		NonceRecordType, m, musig2.PubNonceSize, nonceTypeEncoder,
-		nonceTypeDecoder,
+		nonceRecordType, m, musig2.PubNonceSize,
+		nonceTypeEncoder, nonceTypeDecoder,
 	)
 }
 
@@ -46,5 +58,12 @@ func nonceTypeDecoder(r io.Reader, val interface{}, _ *[8]byte,
 
 	return tlv.NewTypeForDecodingErr(
 		val, "lnwire.Musig2Nonce", l, musig2.PubNonceSize,
+	)
+}
+
+// SomeMusig2Nonce is a helper function that creates a musig2 nonce TLV.
+func SomeMusig2Nonce(nonce Musig2Nonce) OptMusig2NonceTLV {
+	return tlv.SomeRecordT(
+		tlv.NewRecordT[NonceRecordTypeT, Musig2Nonce](nonce),
 	)
 }

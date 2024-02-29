@@ -49,6 +49,10 @@ var (
 	// ErrInvalidShutdownScript is returned when we receive an address from
 	// a peer that isn't either a p2wsh or p2tr address.
 	ErrInvalidShutdownScript = fmt.Errorf("invalid shutdown script")
+
+	// errNoShutdownNonce is returned when a shutdown message is received
+	// w/o a nonce for a taproot channel.
+	errNoShutdownNonce = fmt.Errorf("shutdown nonce not populated")
 )
 
 // closeState represents all the possible states the channel closer state
@@ -337,8 +341,8 @@ func (c *ChanCloser) initChanShutdown() (*lnwire.Shutdown, error) {
 			return nil, err
 		}
 
-		shutdown.ShutdownNonce = (*lnwire.ShutdownNonce)(
-			&firstClosingNonce.PubNonce,
+		shutdown.ShutdownNonce = lnwire.SomeShutdownNonce(
+			firstClosingNonce.PubNonce,
 		)
 
 		chancloserLog.Infof("Initiating shutdown w/ nonce: %v",
@@ -548,13 +552,15 @@ func (c *ChanCloser) ReceiveShutdown(msg lnwire.Shutdown) (
 		// remote nonces so we can properly create a new musig
 		// session for signing.
 		if c.cfg.Channel.ChanType().IsTaproot() {
-			if msg.ShutdownNonce == nil {
-				return noShutdown, fmt.Errorf("shutdown " +
-					"nonce not populated")
+			shutdownNonce, err := msg.ShutdownNonce.UnwrapOrErrV(
+				errNoShutdownNonce,
+			)
+			if err != nil {
+				return noShutdown, err
 			}
 
 			c.cfg.MusigSession.InitRemoteNonce(&musig2.Nonces{
-				PubNonce: *msg.ShutdownNonce,
+				PubNonce: shutdownNonce,
 			})
 		}
 
@@ -594,13 +600,15 @@ func (c *ChanCloser) ReceiveShutdown(msg lnwire.Shutdown) (
 		// local+remote nonces so we can properly create a new musig
 		// session for signing.
 		if c.cfg.Channel.ChanType().IsTaproot() {
-			if msg.ShutdownNonce == nil {
-				return noShutdown, fmt.Errorf("shutdown " +
-					"nonce not populated")
+			shutdownNonce, err := msg.ShutdownNonce.UnwrapOrErrV(
+				errNoShutdownNonce,
+			)
+			if err != nil {
+				return noShutdown, err
 			}
 
 			c.cfg.MusigSession.InitRemoteNonce(&musig2.Nonces{
-				PubNonce: *msg.ShutdownNonce,
+				PubNonce: shutdownNonce,
 			})
 		}
 
@@ -683,10 +691,10 @@ func (c *ChanCloser) BeginNegotiation() (fn.Option[lnwire.ClosingSigned],
 }
 
 // ReceiveClosingSigned is a method that should be called whenever we receive a
-// ClosingSigned message from the wire. It may or may not return a ClosingSigned
-// of our own to send back to the remote.
-func (c *ChanCloser) ReceiveClosingSigned(msg lnwire.ClosingSigned) (
-	fn.Option[lnwire.ClosingSigned], error) {
+// ClosingSigned message from the wire. It may or may not return a
+// ClosingSigned of our own to send back to the remote.
+func (c *ChanCloser) ReceiveClosingSigned( //nolint:funlen
+	msg lnwire.ClosingSigned) (fn.Option[lnwire.ClosingSigned], error) {
 
 	noClosing := fn.None[lnwire.ClosingSigned]()
 
@@ -702,7 +710,7 @@ func (c *ChanCloser) ReceiveClosingSigned(msg lnwire.ClosingSigned) (
 		// If this is a taproot channel, then it MUST have a partial
 		// signature set at this point.
 		isTaproot := c.cfg.Channel.ChanType().IsTaproot()
-		if isTaproot && msg.PartialSig == nil {
+		if isTaproot && msg.PartialSig.IsNone() {
 			return noClosing,
 				fmt.Errorf("partial sig not set " +
 					"for taproot chan")
@@ -807,12 +815,23 @@ func (c *ChanCloser) ReceiveClosingSigned(msg lnwire.ClosingSigned) (
 		)
 		matchingSig := c.priorFeeOffers[remoteProposedFee]
 		if c.cfg.Channel.ChanType().IsTaproot() {
+			localWireSig, err := matchingSig.PartialSig.UnwrapOrErrV( //nolint:lll
+				fmt.Errorf("none local sig"),
+			)
+			if err != nil {
+				return noClosing, err
+			}
+			remoteWireSig, err := msg.PartialSig.UnwrapOrErrV(
+				fmt.Errorf("none remote sig"),
+			)
+			if err != nil {
+				return noClosing, err
+			}
+
 			muSession := c.cfg.MusigSession
-			localSig, remoteSig, closeOpts, err =
-				muSession.CombineClosingOpts(
-					*matchingSig.PartialSig,
-					*msg.PartialSig,
-				)
+			localSig, remoteSig, closeOpts, err = muSession.CombineClosingOpts( //nolint:lll
+				localWireSig, remoteWireSig,
+			)
 			if err != nil {
 				return noClosing, err
 			}
@@ -952,7 +971,9 @@ func (c *ChanCloser) proposeCloseSigned(fee btcutil.Amount) (
 	// over a partial signature which'll be combined once our offer is
 	// accepted.
 	if partialSig != nil {
-		closeSignedMsg.PartialSig = &partialSig.PartialSig
+		closeSignedMsg.PartialSig = lnwire.SomePartialSig(
+			partialSig.PartialSig,
+		)
 	}
 
 	// We'll also save this close signed, in the case that the remote party

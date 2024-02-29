@@ -1098,6 +1098,7 @@ func TestPeerCustomMessage(t *testing.T) {
 			"stop channel notifier failed")
 	})
 
+	peerDataStore := newMockDataStore()
 	alicePeer := NewBrontide(Config{
 		PubKeyBytes: remoteKey,
 		ChannelDB:   dbAlice.ChannelStateDB(),
@@ -1122,6 +1123,7 @@ func TestPeerCustomMessage(t *testing.T) {
 		},
 		PongBuf:         make([]byte, lnwire.MaxPongBytes),
 		ChannelNotifier: channelNotifier,
+		PeerDataStore:   peerDataStore,
 	})
 
 	// Set up the init sequence.
@@ -1588,4 +1590,53 @@ func TestRemovePendingChannel(t *testing.T) {
 	}, wait.DefaultTimeout)
 
 	require.NoError(t, err)
+}
+
+// TestHandlePeerStorage tests handling peer storage message.
+func TestHandlePeerStorage(t *testing.T) {
+	t.Parallel()
+	rt := require.New(t)
+
+	peerDataStore := newMockDataStore()
+	privkey, err := btcec.NewPrivateKey()
+	rt.NoError(err, "error while generating private key.")
+
+	// Create a test brontide.
+	dummyConfig := Config{
+		PeerDataStore: peerDataStore,
+		Addr: &lnwire.NetAddress{
+			IdentityKey: privkey.PubKey(),
+		},
+	}
+	peer := NewBrontide(dummyConfig)
+	peer.outgoingQueue = make(chan outgoingMsg, 1)
+
+	// Call the method.
+	testBackup := []byte{0x9c, 0x40, 0x1, 0x2, 0x3}
+	err = peer.handlePeerStorageMessage(&lnwire.PeerStorage{
+		Blob: testBackup,
+	})
+	rt.NoError(err)
+
+	select {
+	case receivedMsg := <-peer.outgoingQueue:
+		yourPeerStorageMsg, ok := receivedMsg.msg.(*lnwire.
+			YourPeerStorage)
+		rt.True(ok, "expected message to be of type,"+
+			"YourPeerStorage")
+
+		rt.True(bytes.Equal(yourPeerStorageMsg.Blob,
+			testBackup))
+	case <-time.After(2 * time.Second):
+		t.Fatalf("did not receive your peer storage message as " +
+			"expected.")
+	}
+
+	// Assert that the data was persisted.
+	returnedBackup, err := peerDataStore.Retrieve()
+	rt.NoError(err, "unexpected error while retrieving"+
+		"peer storage")
+
+	// Assert the stored data is same as the data sent
+	rt.True(bytes.Equal(returnedBackup, testBackup))
 }

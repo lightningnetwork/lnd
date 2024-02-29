@@ -391,6 +391,8 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 			"stop channel notifier failed")
 	})
 
+	peerDataStore := newMockDataStore()
+
 	cfg := &Config{
 		Addr:              cfgAddr,
 		PubKeyBytes:       pubKey,
@@ -407,6 +409,7 @@ func createTestPeer(t *testing.T, notifier chainntnfs.ChainNotifier,
 		Features:          lnwire.NewFeatureVector(nil, lnwire.Features),
 		DisconnectPeer:    func(b *btcec.PublicKey) error { return nil },
 		ChannelNotifier:   channelNotifier,
+		PeerDataStore:     peerDataStore,
 	}
 
 	alicePeer := NewBrontide(*cfg)
@@ -617,4 +620,34 @@ func (m *mockMessageConn) LocalAddr() net.Addr {
 
 func (m *mockMessageConn) Close() error {
 	return nil
+}
+
+type mockPeerDataStore struct {
+	data []byte
+}
+
+func newMockDataStore() *mockPeerDataStore {
+	return &mockPeerDataStore{}
+}
+
+// Store persists the backup data given to us by peers.
+func (d *mockPeerDataStore) Store(data []byte) error {
+	d.data = data
+
+	return nil
+}
+
+// Delete deletes the peer with PeerPub public key from the storage layer.
+func (d *mockPeerDataStore) Delete() error {
+	d.data = nil
+
+	return nil
+}
+
+// Retrieve obtains data for peer with peerPub public key from the storage
+// layer.
+func (d *mockPeerDataStore) Retrieve() (
+	[]byte, error) {
+
+	return d.data, nil
 }

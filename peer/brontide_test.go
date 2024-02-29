@@ -2,6 +2,7 @@ package peer
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -1464,4 +1465,80 @@ func TestHandlePeerStorage(t *testing.T) {
 
 	// Assert the stored data is same as the data sent
 	rt.True(bytes.Equal(returnedBackup, testBackup))
+}
+
+// TestPeerBackupReconnect ensures that a peer sends the backup data,
+// if available upon connection. It verifies the peer's behavior by simulating
+// a reconnection and checking if the expected backup data is sent to the mock
+// connection within a specified timeout.
+func TestPeerBackupReconnect(t *testing.T) {
+	t.Parallel()
+	rt := require.New(t)
+
+	params := createTestPeer(t)
+
+	alicePeer := params.peer
+	mockConn := params.mockConn
+
+	// Create sample backup data.
+	sampleData := []byte{0, 1, 2}
+
+	// Store peer's backup data.
+	rt.NoError(alicePeer.cfg.PeerDataStore.Store(sampleData))
+
+	// Read message on startup.
+	errChan := make(chan error)
+	go func() {
+		// setup init sequence.
+		err := setUpInitSequence(mockConn)
+		if err != nil {
+			errChan <- err
+
+			return
+		}
+
+		select {
+		// We expect to be sent the backup data on peer start.
+		case rawMsg := <-mockConn.writtenMessages:
+			msgReader := bytes.NewReader(rawMsg)
+
+			nextMsg, err := lnwire.ReadMessage(msgReader, 0)
+			if err != nil {
+				errChan <- err
+
+				return
+			}
+
+			msg, ok := nextMsg.(*lnwire.YourPeerStorage)
+			if !ok {
+				errChan <- errors.New("expected lnwire." +
+					"YourPeerStorage type, " +
+					"got something else")
+
+				return
+			}
+
+			if !bytes.Equal(msg.Blob, sampleData) {
+				errChan <- fmt.Errorf("backup data "+
+					"received: %v differs from data sent"+
+					": %v", rawMsg, sampleData)
+
+				return
+			}
+		// Fail test if we do not receive it.
+		case <-time.After(timeout):
+			errChan <- errors.New("did not receive peer backup " +
+				"as expected")
+
+			return
+		}
+
+		errChan <- nil
+	}()
+
+	// Start the peer.
+	rt.NoError(alicePeer.Start())
+
+	err := <-errChan
+	rt.NoError(err)
 }

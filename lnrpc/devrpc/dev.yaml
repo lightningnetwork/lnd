@@ -6,3 +6,9 @@ http:
     - selector: devrpc.Dev.ImportGraph
       post: "/v2/dev/importgraph"
       body: "*"
+    - selector: devrpc.Dev.AddAliases
+      post: "/v2/dev/addaliases"
+      body: "*"
+    - selector: devrpc.Dev.DeleteAliases
+      post: "/v2/dev/deletealiases"
+      body: "*"

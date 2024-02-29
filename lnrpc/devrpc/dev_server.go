@@ -342,3 +342,106 @@ func (s *Server) ImportGraph(ctx context.Context,
 
 	return &ImportGraphResponse{}, nil
 }
+
+// AddAliases adds a set of aliases to the scid alias map. This is used to
+// create a set of aliases for a base_scid. The response will contain the
+// successfully created mappings.
+func (s *Server) AddAliases(_ context.Context,
+	in *AddAliasesRequest) (*AddAliasesResponse, error) {
+
+	resp := &AddAliasesResponse{
+		AliasMaps: make([]*lnrpc.AliasMap, 0),
+	}
+
+	// Create a map that will store the successfully created scid mappings.
+	scidMap := make(
+		map[lnwire.ShortChannelID][]lnwire.ShortChannelID,
+	)
+
+	for _, v := range in.AliasMaps {
+		baseScid := lnwire.NewShortChanIDFromInt(v.BaseScid)
+
+		for _, alias := range v.Aliases {
+			aliasScid := lnwire.NewShortChanIDFromInt(alias)
+
+			err := s.cfg.AliasMgr.AddLocalAlias(
+				aliasScid, baseScid, false,
+			)
+			if err != nil {
+				log.Warnf("Could not create scid alias, "+
+					"base_scid=%v, alias_scid=%v", baseScid,
+					aliasScid)
+
+				continue
+			}
+
+			_, exists := scidMap[baseScid]
+
+			// If internal map is nil, initialize it.
+			if !exists {
+				scidMap[baseScid] = make(
+					[]lnwire.ShortChannelID, 0,
+				)
+			}
+
+			scidMap[baseScid] = append(scidMap[baseScid], aliasScid)
+		}
+	}
+
+	// Now we need to parse the created mappings into an rpc response.
+	resp.AliasMaps = lnrpc.MarshalAliasMap(scidMap)
+
+	return resp, nil
+}
+
+// DeleteAliases deletes a set of aliases from the alias manager. The response
+// will contain the successfully deleted mappings.
+func (s *Server) DeleteAliases(_ context.Context,
+	in *DeleteAliasesRequest) (*DeleteAliasesResponse,
+	error) {
+
+	resp := &DeleteAliasesResponse{
+		AliasMaps: make([]*lnrpc.AliasMap, 0),
+	}
+
+	// Create a map that will store the successfully deleted scid alias
+	// mappings.
+	scidMap := make(
+		map[lnwire.ShortChannelID][]lnwire.ShortChannelID,
+	)
+
+	for _, v := range in.AliasMaps {
+		baseScid := lnwire.NewShortChanIDFromInt(v.BaseScid)
+
+		for _, alias := range v.Aliases {
+			aliasScid := lnwire.NewShortChanIDFromInt(alias)
+
+			err := s.cfg.AliasMgr.DeleteLocalAlias(
+				aliasScid, baseScid,
+			)
+			if err != nil {
+				log.Warnf("Could not create scid alias, "+
+					"base_scid=%v, alias_scid=%v", baseScid,
+					aliasScid)
+
+				continue
+			}
+
+			_, exists := scidMap[baseScid]
+
+			// If internal map is nil, initialize it.
+			if !exists {
+				scidMap[baseScid] = make(
+					[]lnwire.ShortChannelID, 0,
+				)
+			}
+
+			scidMap[baseScid] = append(scidMap[baseScid], aliasScid)
+		}
+	}
+
+	// Now we need to parse the created mappings into an rpc response.
+	resp.AliasMaps = lnrpc.MarshalAliasMap(scidMap)
+
+	return resp, nil
+}

@@ -5,6 +5,7 @@ package devrpc
 
 import (
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/channeldb"
 )
 
@@ -16,4 +17,5 @@ import (
 type Config struct {
 	ActiveNetParams *chaincfg.Params
 	GraphDB         *channeldb.ChannelGraph
+	AliasMgr        *aliasmgr.Manager
 }

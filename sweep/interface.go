@@ -46,4 +46,9 @@ type Wallet interface {
 	// policies and returns an error if it cannot be accepted into the
 	// mempool.
 	CheckMempoolAcceptance(tx *wire.MsgTx) error
+
+	// GetTransactionDetails returns a detailed description of a tx given
+	// its transaction hash.
+	GetTransactionDetails(txHash *chainhash.Hash) (
+		*lnwallet.TransactionDetail, error)
 }

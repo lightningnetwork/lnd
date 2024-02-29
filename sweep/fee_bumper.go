@@ -88,6 +88,63 @@ type BumpRequest struct {
 	MaxFeeRate chainfee.SatPerKWeight
 }
 
+// MaxFeeRateAllowed returns the maximum fee rate allowed for the given
+// request. It calculates the feerate using the supplied budget and the weight,
+// compares it with the specified MaxFeeRate, and returns the smaller of the
+// two.
+func (r *BumpRequest) MaxFeeRateAllowed() (chainfee.SatPerKWeight, error) {
+	// Get the size of the sweep tx, which will be used to calculate the
+	// budget fee rate.
+	size, err := calcSweepTxWeight(r.Inputs, r.DeliveryAddress)
+	if err != nil {
+		return 0, err
+	}
+
+	// Use the budget and MaxFeeRate to decide the max allowed fee rate.
+	// This is needed as, when the input has a large value and the user
+	// sets the budget to be proportional to the input value, the fee rate
+	// can be very high and we need to make sure it doesn't exceed the max
+	// fee rate.
+	maxFeeRateAllowed := chainfee.NewSatPerKWeight(r.Budget, size)
+	if maxFeeRateAllowed > r.MaxFeeRate {
+		log.Debugf("Budget feerate %v exceeds MaxFeeRate %v, use "+
+			"MaxFeeRate instead", maxFeeRateAllowed, r.MaxFeeRate)
+
+		return r.MaxFeeRate, nil
+	}
+
+	log.Debugf("Budget feerate %v below MaxFeeRate %v, use budget feerate "+
+		"instead", maxFeeRateAllowed, r.MaxFeeRate)
+
+	return maxFeeRateAllowed, nil
+}
+
+// calcSweepTxWeight calculates the weight of the sweep tx. It assumes a
+// sweeping tx always has a single output(change).
+func calcSweepTxWeight(inputs []input.Input,
+	outputPkScript []byte) (uint64, error) {
+
+	// Use a const fee rate as we only use the weight estimator to
+	// calculate the size.
+	const feeRate = 1
+
+	// Initialize the tx weight estimator with,
+	// - nil outputs as we only have one single change output.
+	// - const fee rate as we don't care about the fees here.
+	// - 0 maxfeerate as we don't care about fees here.
+	//
+	// TODO(yy): we should refactor the weight estimator to not require a
+	// fee rate and max fee rate and make it a pure tx weight calculator.
+	_, estimator, err := getWeightEstimate(
+		inputs, nil, feeRate, 0, outputPkScript,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return uint64(estimator.weight()), nil
+}
+
 // BumpResult is used by the Bumper to send updates about the tx being
 // broadcast.
 type BumpResult struct {

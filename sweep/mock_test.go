@@ -493,3 +493,32 @@ func (m *MockBumper) Broadcast(req *BumpRequest) (<-chan *BumpResult, error) {
 
 	return args.Get(0).(chan *BumpResult), args.Error(1)
 }
+
+// MockFeeFunction is a mock implementation of the FeeFunction interface.
+type MockFeeFunction struct {
+	mock.Mock
+}
+
+// Compile-time constraint to ensure MockFeeFunction implements FeeFunction.
+var _ FeeFunction = (*MockFeeFunction)(nil)
+
+// FeeRate returns the current fee rate calculated by the fee function.
+func (m *MockFeeFunction) FeeRate() chainfee.SatPerKWeight {
+	args := m.Called()
+
+	return args.Get(0).(chainfee.SatPerKWeight)
+}
+
+// Increment adds one delta to the current fee rate.
+func (m *MockFeeFunction) Increment() (bool, error) {
+	args := m.Called()
+
+	return args.Bool(0), args.Error(1)
+}
+
+// IncreaseFeeRate increases the fee rate by one step.
+func (m *MockFeeFunction) IncreaseFeeRate(confTarget uint32) (bool, error) {
+	args := m.Called(confTarget)
+
+	return args.Bool(0), args.Error(1)
+}

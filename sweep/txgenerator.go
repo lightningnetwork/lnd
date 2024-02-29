@@ -205,15 +205,14 @@ func createSweepTx(inputs []input.Input, outputs []*wire.TxOut,
 		}
 	}
 
-	log.Infof("Creating sweep transaction %v for %v inputs (%s) "+
-		"using %v sat/kw, tx_weight=%v, tx_fee=%v, parents_count=%v, "+
-		"parents_fee=%v, parents_weight=%v",
+	log.Debugf("Creating sweep transaction %v for %v inputs (%s) "+
+		"using %v, tx_weight=%v, tx_fee=%v, parents_count=%v, "+
+		"parents_fee=%v, parents_weight=%v, current_height=%v",
 		sweepTx.TxHash(), len(inputs),
 		inputTypeSummary(inputs), feeRate,
 		estimator.weight(), txFee,
 		len(estimator.parents), estimator.parentsFee,
-		estimator.parentsWeight,
-	)
+		estimator.parentsWeight, currentBlockHeight)
 
 	return sweepTx, txFee, nil
 }

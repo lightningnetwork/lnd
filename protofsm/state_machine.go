@@ -144,9 +144,21 @@ type StateMachine[Event any, Env Environment] struct {
 	wg   sync.WaitGroup
 }
 
+// ErrorReporter is an interface that's used to report errors that occur during
+// state machine execution.
+type ErrorReporter interface {
+	// ReportError is a method that's used to report an error that occurred
+	// during state machine execution.
+	ReportError(err error)
+}
+
 // StateMachineCfg is a configuration struct that's used to create a new state
 // machine.
 type StateMachineCfg[Event any, Env Environment] struct {
+	// ErrorReporter is used to report errors that occur during state
+	// transitions.
+	ErrorReporter ErrorReporter
+
 	// Daemon is a set of adapters that will be used to bridge the FSM to
 	// the daemon.
 	Daemon DaemonAdapters
@@ -586,6 +598,11 @@ func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
 				return err
 			}
 
+			log.Infof("FSM(%v): state transition: from_state=%T, "+
+				"to_state=%T",
+				s.cfg.Env.Name(), currentState,
+				transition.NextState)
+
 			// With our events processed, we'll now update our
 			// internal state.
 			currentState = transition.NextState
@@ -638,9 +655,15 @@ func (s *StateMachine[Event, Env]) driveMachine() {
 		case newEvent := <-s.events:
 			newState, err := s.applyEvents(currentState, newEvent)
 			if err != nil {
-				// TODO(roasbeef): hard error?
+				s.cfg.ErrorReporter.ReportError(err)
+
 				log.Errorf("unable to apply event: %v", err)
-				continue
+
+				// An error occurred, so we'll tear down the
+				// entire state machine as we can't proceed.
+				go s.Stop()
+
+				return
 			}
 
 			currentState = newState

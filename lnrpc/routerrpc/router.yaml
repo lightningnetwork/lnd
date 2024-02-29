@@ -48,3 +48,10 @@ http:
     - selector: routerrpc.Router.UpdateChanStatus
       post: "/v2/router/updatechanstatus"
       body: "*"
+    - selector: routerrpc.Router.XAddLocalChanAliases
+      post: "/v2/router/x/addaliases"
+      body: "*"
+    - selector: routerrpc.Router.XDeleteLocalChanAliases
+      post: "/v2/router/x/deletealiases"
+      body: "*"
+

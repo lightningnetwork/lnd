@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btclog"
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/autopilot"
 	"github.com/lightningnetwork/lnd/chainreg"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -121,8 +122,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 	updateNodeAnnouncement func(features *lnwire.RawFeatureVector,
 		modifiers ...netann.NodeAnnModifier) error,
 	parseAddr func(addr string) (net.Addr, error),
-	rpcLogger btclog.Logger,
-	getAlias func(lnwire.ChannelID) (lnwire.ShortChannelID, error)) error {
+	rpcLogger btclog.Logger, aliasMgr *aliasmgr.Manager) error {
 
 	// First, we'll use reflect to obtain a version of the config struct
 	// that allows us to programmatically inspect its fields.
@@ -267,7 +267,7 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 				reflect.ValueOf(genAmpInvoiceFeatures),
 			)
 			subCfgValue.FieldByName("GetAlias").Set(
-				reflect.ValueOf(getAlias),
+				reflect.ValueOf(aliasMgr.GetPeerAlias),
 			)
 
 		case *neutrinorpc.Config:
@@ -280,6 +280,11 @@ func (s *subRPCServerConfigs) PopulateDependencies(cfg *Config,
 		// RouterRPC isn't conditionally compiled and doesn't need to be
 		// populated using reflection.
 		case *routerrpc.Config:
+			subCfgValue := extractReflectValue(subCfg)
+
+			subCfgValue.FieldByName("AliasMgr").Set(
+				reflect.ValueOf(aliasMgr),
+			)
 
 		case *watchtowerrpc.Config:
 			subCfgValue := extractReflectValue(subCfg)

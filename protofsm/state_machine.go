@@ -184,6 +184,10 @@ type StateMachineCfg[Event any, Env Environment] struct {
 	// MsgMapper is an optional message mapper that can be used to map
 	// normal wire messages into FSM events.
 	MsgMapper fn.Option[MsgMapper[Event]]
+
+	// CustomPollInterval is an optional custom poll interval that can be
+	// used to set a quicker interval for tests.
+	CustomPollInterval fn.Option[time.Duration]
 }
 
 // NewStateMachine creates a new state machine given a set of daemon adapters,
@@ -387,7 +391,9 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent( //nolint:funlen
 		go func() {
 			defer s.wg.Done()
 
-			predicateTicker := time.NewTicker(pollInterval)
+			predicateTicker := time.NewTicker(
+				s.cfg.CustomPollInterval.UnwrapOr(pollInterval),
+			)
 			defer predicateTicker.Stop()
 
 			log.Infof("FSM(%v): waiting for send predicate to "+

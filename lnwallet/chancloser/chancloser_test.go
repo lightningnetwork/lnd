@@ -129,7 +129,7 @@ func TestMaybeMatchScript(t *testing.T) {
 			t.Parallel()
 
 			err := validateShutdownScript(
-				func() error { return nil }, test.upfrontScript,
+				test.upfrontScript,
 				test.shutdownScript, &chaincfg.SimNetParams,
 			)
 

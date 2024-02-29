@@ -803,3 +803,33 @@ func startPeer(t *testing.T, mockConn *mockMessageConn,
 	err := <-errChan
 	require.NoError(t, err)
 }
+
+type mockPeerDataStore struct {
+	data []byte
+}
+
+func newMockDataStore() *mockPeerDataStore {
+	return &mockPeerDataStore{}
+}
+
+// Store persists the backup data given to us by peers.
+func (d *mockPeerDataStore) Store(data []byte) error {
+	d.data = data
+
+	return nil
+}
+
+// Delete deletes the peer with PeerPub public key from the storage layer.
+func (d *mockPeerDataStore) Delete() error {
+	d.data = nil
+
+	return nil
+}
+
+// Retrieve obtains data for peer with peerPub public key from the storage
+// layer.
+func (d *mockPeerDataStore) Retrieve() (
+	[]byte, error) {
+
+	return d.data, nil
+}

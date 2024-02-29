@@ -1394,3 +1394,48 @@ func TestRemovePendingChannel(t *testing.T) {
 
 	require.NoError(t, err)
 }
+
+// TestHandlePeerStorage tests handling peer storage message.
+func TestHandlePeerStorage(t *testing.T) {
+	t.Parallel()
+	rt := require.New(t)
+
+	params := createTestPeer(t)
+
+	peer := params.peer
+	peer.cfg.PeerDataStore = newMockDataStore()
+
+	// Buffer outgoingQueue to prevent blocking.
+	peer.outgoingQueue = make(chan outgoingMsg, 1)
+
+	// Create test data.
+	testBackup := []byte{0x9c, 0x40, 0x1, 0x2, 0x3}
+
+	peerStorageMsg, err := lnwire.NewPeerStorageMsg(testBackup)
+	rt.NoError(err)
+
+	// Call the method.
+	err = peer.handlePeerStorageMessage(peerStorageMsg)
+	rt.NoError(err)
+
+	select {
+	case receivedMsg := <-peer.outgoingQueue:
+		yourPeerStorageMsg, ok := receivedMsg.msg.(*lnwire.
+			YourPeerStorage)
+		rt.True(ok)
+
+		rt.True(bytes.Equal(yourPeerStorageMsg.Blob,
+			testBackup))
+
+	case <-time.After(2 * time.Second):
+		t.Fatalf("did not receive your peer storage message as " +
+			"expected.")
+	}
+
+	// Assert that the data was persisted.
+	returnedBackup, err := peer.cfg.PeerDataStore.Retrieve()
+	rt.NoError(err)
+
+	// Assert the stored data is same as the data sent.
+	rt.True(bytes.Equal(returnedBackup, testBackup))
+}

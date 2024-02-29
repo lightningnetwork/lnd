@@ -175,6 +175,14 @@ func (b *mockBackend) FetchTx(chainhash.Hash) (*wire.MsgTx, error) {
 func (b *mockBackend) CancelRebroadcast(tx chainhash.Hash) {
 }
 
+// GetTransactionDetails returns a detailed description of a tx given its
+// transaction hash.
+func (b *mockBackend) GetTransactionDetails(txHash *chainhash.Hash) (
+	*lnwallet.TransactionDetail, error) {
+
+	return nil, nil
+}
+
 // mockFeeEstimator implements a mock fee estimator. It closely resembles
 // lnwallet.StaticFeeEstimator with the addition that fees can be changed for
 // testing purposes in a thread safe manner.
@@ -416,6 +424,20 @@ func (m *MockWallet) FetchTx(txid chainhash.Hash) (*wire.MsgTx, error) {
 // retried in the background.
 func (m *MockWallet) CancelRebroadcast(tx chainhash.Hash) {
 	m.Called(tx)
+}
+
+// GetTransactionDetails returns a detailed description of a tx given its
+// transaction hash.
+func (m *MockWallet) GetTransactionDetails(txHash *chainhash.Hash) (
+	*lnwallet.TransactionDetail, error) {
+
+	args := m.Called(txHash)
+
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+
+	return args.Get(0).(*lnwallet.TransactionDetail), args.Error(1)
 }
 
 // MockInputSet is a mock implementation of the InputSet interface.

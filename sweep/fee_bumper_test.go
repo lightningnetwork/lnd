@@ -612,14 +612,10 @@ func TestTxPublisherBroadcast(t *testing.T) {
 
 	// Create a test tx.
 	tx := &wire.MsgTx{LockTime: 1}
-	txid := tx.TxHash()
 
 	// Create a test feerate and return it from the mock fee function.
 	feerate := chainfee.SatPerKWeight(1000)
 	m.feeFunc.On("FeeRate").Return(feerate)
-
-	// Create a test conf event.
-	confEvent := &chainntnfs.ConfirmationEvent{}
 
 	// Create a testing record and put it in the map.
 	fee := btcutil.Amount(1000)
@@ -631,12 +627,6 @@ func TestTxPublisherBroadcast(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, result)
 
-	// Define params to be used in RegisterConfirmationsNtfn. Not important
-	// for this test.
-	var pkScript []byte
-	confs := uint32(1)
-	height := uint32(tp.currentHeight)
-
 	testCases := []struct {
 		name           string
 		setupMock      func()
@@ -644,28 +634,10 @@ func TestTxPublisherBroadcast(t *testing.T) {
 		expectedResult *BumpResult
 	}{
 		{
-			// When the notifier cannot register this spend, an
-			// error should be returned
-			name: "fail to register nftn",
-			setupMock: func() {
-				// Mock the RegisterConfirmationsNtfn to fail.
-				m.notifier.On("RegisterConfirmationsNtfn",
-					&txid, pkScript, confs, height).Return(
-					nil, errDummy).Once()
-			},
-			expectedErr:    errDummy,
-			expectedResult: nil,
-		},
-		{
 			// When the wallet cannot publish this tx, the error
 			// should be put inside the result.
 			name: "fail to publish",
 			setupMock: func() {
-				// Mock the RegisterConfirmationsNtfn to pass.
-				m.notifier.On("RegisterConfirmationsNtfn",
-					&txid, pkScript, confs, height).Return(
-					confEvent, nil).Once()
-
 				// Mock the wallet to fail to publish.
 				m.wallet.On("PublishTransaction",
 					tx, mock.Anything).Return(
@@ -685,11 +657,6 @@ func TestTxPublisherBroadcast(t *testing.T) {
 			// When nothing goes wrong, the result is returned.
 			name: "publish success",
 			setupMock: func() {
-				// Mock the RegisterConfirmationsNtfn to pass.
-				m.notifier.On("RegisterConfirmationsNtfn",
-					&txid, pkScript, confs, height).Return(
-					confEvent, nil).Once()
-
 				// Mock the wallet to publish successfully.
 				m.wallet.On("PublishTransaction",
 					tx, mock.Anything).Return(nil).Once()
@@ -910,14 +877,6 @@ func TestBroadcastSuccess(t *testing.T) {
 	// Mock the testmempoolaccept to pass.
 	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil).Once()
 
-	// Create a test conf event.
-	confEvent := &chainntnfs.ConfirmationEvent{}
-
-	// Mock the RegisterConfirmationsNtfn to pass.
-	m.notifier.On("RegisterConfirmationsNtfn",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(confEvent, nil).Once()
-
 	// Mock the wallet to publish successfully.
 	m.wallet.On("PublishTransaction",
 		mock.Anything, mock.Anything).Return(nil).Once()
@@ -1007,14 +966,6 @@ func TestBroadcastFail(t *testing.T) {
 	// Mock the testmempoolaccept again, this time it passes.
 	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil).Once()
 
-	// Create a test conf event.
-	confEvent := &chainntnfs.ConfirmationEvent{}
-
-	// Mock the RegisterConfirmationsNtfn to pass.
-	m.notifier.On("RegisterConfirmationsNtfn",
-		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
-	).Return(confEvent, nil).Once()
-
 	// Mock the wallet to fail on publish.
 	m.wallet.On("PublishTransaction",
 		mock.Anything, mock.Anything).Return(errDummy).Once()
@@ -1038,4 +989,419 @@ func TestBroadcastFail(t *testing.T) {
 	// Validate the record was removed.
 	require.Equal(t, 0, tp.records.Len())
 	require.Equal(t, 0, tp.subscriberChans.Len())
+}
+
+// TestCreateAnPublishFail checks all the error cases are handled properly in
+// the method createAndPublish.
+func TestCreateAnPublishFail(t *testing.T) {
+	t.Parallel()
+
+	// Create a publisher using the mocks.
+	tp, m := createTestPublisher(t)
+
+	// Create a test requestID.
+	requestID := uint64(1)
+
+	// Create a test feerate and return it from the mock fee function.
+	feerate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feerate)
+
+	// Create a testing monitor record.
+	req := createTestBumpRequest()
+
+	// Overwrite the budget to make it smaller than the fee.
+	req.Budget = 100
+	record := &monitorRecord{
+		req:         req,
+		feeFunction: m.feeFunc,
+		tx:          &wire.MsgTx{},
+	}
+
+	// Mock the signer to always return a valid script.
+	//
+	// NOTE: we are not testing the utility of creating valid txes here, so
+	// this is fine to be mocked. This behaves essentially as skipping the
+	// Signer check and alaways assume the tx has a valid sig.
+	script := &input.Script{}
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(script, nil)
+
+	// Call the createAndPublish method.
+	result, err := tp.createAndPublishTx(requestID, record)
+	require.NoError(t, err)
+
+	// We expect the result to be TxFailed and the error is set in the
+	// result.
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, ErrNotEnoughBudget)
+	require.Equal(t, requestID, result.requestID)
+
+	// Increase the budget and call it again. This time we will mock an
+	// error to be returned from CheckMempoolAcceptance.
+	req.Budget = 1000
+
+	// Mock the testmempoolaccept to return an error.
+	m.wallet.On("CheckMempoolAcceptance",
+		mock.Anything).Return(lnwallet.ErrMempoolFee).Once()
+
+	// Call the createAndPublish method and expect an error.
+	result, err = tp.createAndPublishTx(requestID, record)
+	require.ErrorIs(t, err, lnwallet.ErrMempoolFee)
+	require.Nil(t, result)
+}
+
+// TestCreateAnPublishSuccess checks the expected result is returned from the
+// method createAndPublish.
+func TestCreateAnPublishSuccess(t *testing.T) {
+	t.Parallel()
+
+	// Create a publisher using the mocks.
+	tp, m := createTestPublisher(t)
+
+	// Create a test requestID.
+	requestID := uint64(1)
+
+	// Create a test feerate and return it from the mock fee function.
+	feerate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feerate)
+
+	// Create a testing monitor record.
+	req := createTestBumpRequest()
+	record := &monitorRecord{
+		req:         req,
+		feeFunction: m.feeFunc,
+		tx:          &wire.MsgTx{},
+	}
+
+	// Mock the signer to always return a valid script.
+	//
+	// NOTE: we are not testing the utility of creating valid txes here, so
+	// this is fine to be mocked. This behaves essentially as skipping the
+	// Signer check and alaways assume the tx has a valid sig.
+	script := &input.Script{}
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(script, nil)
+
+	// Mock the testmempoolaccept to return nil.
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil)
+
+	// Mock the wallet to publish and return an error.
+	m.wallet.On("PublishTransaction",
+		mock.Anything, mock.Anything).Return(errDummy).Once()
+
+	// Call the createAndPublish method and expect a failure result.
+	result, err := tp.createAndPublishTx(requestID, record)
+	require.NoError(t, err)
+
+	// We expect the result to be TxFailed and the error is set.
+	require.Equal(t, TxFailed, result.Event)
+	require.ErrorIs(t, result.Err, errDummy)
+
+	// Although the replacement tx was failed to be published, the record
+	// should be stored.
+	require.NotNil(t, result.Tx)
+	require.NotNil(t, result.ReplacedTx)
+	_, found := tp.records.Load(requestID)
+	require.True(t, found)
+
+	// We now check a successful RBF.
+	//
+	// Mock the wallet to publish successfully.
+	m.wallet.On("PublishTransaction",
+		mock.Anything, mock.Anything).Return(nil).Once()
+
+	// Call the createAndPublish method and expect a success result.
+	result, err = tp.createAndPublishTx(requestID, record)
+	require.NoError(t, err)
+
+	// We expect the result to be TxReplaced and the error is nil.
+	require.Equal(t, TxReplaced, result.Event)
+	require.Nil(t, result.Err)
+
+	// Check the Tx and ReplacedTx are set.
+	require.NotNil(t, result.Tx)
+	require.NotNil(t, result.ReplacedTx)
+
+	// Check the record is stored.
+	_, found = tp.records.Load(requestID)
+	require.True(t, found)
+}
+
+// TestHandleTxConfirmed checks the expected result is returned from the method
+// handleTxConfirmed.
+func TestHandleTxConfirmed(t *testing.T) {
+	t.Parallel()
+
+	// Create a publisher using the mocks.
+	tp, m := createTestPublisher(t)
+
+	// Create a test bump request.
+	req := createTestBumpRequest()
+
+	// Create a test tx.
+	tx := &wire.MsgTx{LockTime: 1}
+
+	// Create a testing record and put it in the map.
+	fee := btcutil.Amount(1000)
+	requestID := tp.storeRecord(tx, req, m.feeFunc, fee)
+	record, ok := tp.records.Load(requestID)
+	require.True(t, ok)
+
+	// Create a subscription to the event.
+	subscriber := make(chan *BumpResult, 1)
+	tp.subscriberChans.Store(requestID, subscriber)
+
+	// Mock the fee function to return a fee rate.
+	feerate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feerate).Once()
+
+	// Call the method and expect a result to be received.
+	//
+	// NOTE: must be called in a goroutine in case it blocks.
+	tp.wg.Add(1)
+	go tp.handleTxConfirmed(record, requestID)
+
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for subscriber to receive result")
+
+	case result := <-subscriber:
+		// We expect the result to be TxConfirmed and the tx is set.
+		require.Equal(t, TxConfirmed, result.Event)
+		require.Equal(t, tx, result.Tx)
+		require.Nil(t, result.Err)
+		require.Equal(t, requestID, result.requestID)
+		require.Equal(t, record.fee, result.Fee)
+		require.Equal(t, feerate, result.FeeRate)
+	}
+
+	// We expect the record to be removed from the maps.
+	_, found := tp.records.Load(requestID)
+	require.False(t, found)
+	_, found = tp.subscriberChans.Load(requestID)
+	require.False(t, found)
+}
+
+// TestHandleFeeBumpTx validates handleFeeBumpTx behaves as expected.
+func TestHandleFeeBumpTx(t *testing.T) {
+	t.Parallel()
+
+	// Create a publisher using the mocks.
+	tp, m := createTestPublisher(t)
+
+	// Create a test tx.
+	tx := &wire.MsgTx{LockTime: 1}
+
+	// Create a test current height.
+	testHeight := int32(800000)
+
+	// Create a testing monitor record.
+	req := createTestBumpRequest()
+	record := &monitorRecord{
+		req:         req,
+		feeFunction: m.feeFunc,
+		tx:          tx,
+	}
+
+	// Create a testing record and put it in the map.
+	fee := btcutil.Amount(1000)
+	requestID := tp.storeRecord(tx, req, m.feeFunc, fee)
+
+	// Create a subscription to the event.
+	subscriber := make(chan *BumpResult, 1)
+	tp.subscriberChans.Store(requestID, subscriber)
+
+	// Create a test feerate and return it from the mock fee function.
+	feerate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feerate)
+
+	// Mock the fee function to skip the bump due to error.
+	m.feeFunc.On("IncreaseFeeRate", mock.Anything).Return(
+		false, errDummy).Once()
+
+	// Call the method and expect no result received.
+	tp.wg.Add(1)
+	go tp.handleFeeBumpTx(requestID, record, testHeight)
+
+	// Check there's no result sent back.
+	select {
+	case <-time.After(time.Second):
+	case result := <-subscriber:
+		t.Fatalf("unexpected result received: %v", result)
+	}
+
+	// Mock the fee function to skip the bump.
+	m.feeFunc.On("IncreaseFeeRate", mock.Anything).Return(false, nil).Once()
+
+	// Call the method and expect no result received.
+	tp.wg.Add(1)
+	go tp.handleFeeBumpTx(requestID, record, testHeight)
+
+	// Check there's no result sent back.
+	select {
+	case <-time.After(time.Second):
+	case result := <-subscriber:
+		t.Fatalf("unexpected result received: %v", result)
+	}
+
+	// Mock the fee function to perform the fee bump.
+	m.feeFunc.On("IncreaseFeeRate", mock.Anything).Return(true, nil)
+
+	// Mock the signer to always return a valid script.
+	//
+	// NOTE: we are not testing the utility of creating valid txes here, so
+	// this is fine to be mocked. This behaves essentially as skipping the
+	// Signer check and alaways assume the tx has a valid sig.
+	script := &input.Script{}
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(script, nil)
+
+	// Mock the testmempoolaccept to return nil.
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil)
+
+	// Mock the wallet to publish successfully.
+	m.wallet.On("PublishTransaction",
+		mock.Anything, mock.Anything).Return(nil).Once()
+
+	// Call the method and expect a result to be received.
+	//
+	// NOTE: must be called in a goroutine in case it blocks.
+	tp.wg.Add(1)
+	go tp.handleFeeBumpTx(requestID, record, testHeight)
+
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for subscriber to receive result")
+
+	case result := <-subscriber:
+		// We expect the result to be TxReplaced.
+		require.Equal(t, TxReplaced, result.Event)
+
+		// The new tx and old tx should be properly set.
+		require.NotEqual(t, tx, result.Tx)
+		require.Equal(t, tx, result.ReplacedTx)
+
+		// No error should be set.
+		require.Nil(t, result.Err)
+		require.Equal(t, requestID, result.requestID)
+	}
+
+	// We expect the record to NOT be removed from the maps.
+	_, found := tp.records.Load(requestID)
+	require.True(t, found)
+	_, found = tp.subscriberChans.Load(requestID)
+	require.True(t, found)
+}
+
+// TestProcessRecords validates processRecords behaves as expected.
+func TestProcessRecords(t *testing.T) {
+	t.Parallel()
+
+	// Create a publisher using the mocks.
+	tp, m := createTestPublisher(t)
+
+	// Create testing objects.
+	requestID1 := uint64(1)
+	req1 := createTestBumpRequest()
+	tx1 := &wire.MsgTx{LockTime: 1}
+	txid1 := tx1.TxHash()
+
+	requestID2 := uint64(2)
+	req2 := createTestBumpRequest()
+	tx2 := &wire.MsgTx{LockTime: 2}
+	txid2 := tx2.TxHash()
+
+	// Create a monitor record that's confirmed.
+	recordConfirmed := &monitorRecord{
+		req:         req1,
+		feeFunction: m.feeFunc,
+		tx:          tx1,
+	}
+	m.wallet.On("GetTransactionDetails", &txid1).Return(
+		&lnwallet.TransactionDetail{
+			NumConfirmations: 1,
+		}, nil,
+	).Once()
+
+	// Create a monitor record that's not confirmed. We know it's not
+	// confirmed because the num of confirms is zero.
+	recordFeeBump := &monitorRecord{
+		req:         req2,
+		feeFunction: m.feeFunc,
+		tx:          tx2,
+	}
+	m.wallet.On("GetTransactionDetails", &txid2).Return(
+		&lnwallet.TransactionDetail{
+			NumConfirmations: 0,
+		}, nil,
+	).Once()
+
+	// Setup the initial publisher state by adding the records to the maps.
+	subscriberConfirmed := make(chan *BumpResult, 1)
+	tp.subscriberChans.Store(requestID1, subscriberConfirmed)
+	tp.records.Store(requestID1, recordConfirmed)
+
+	subscriberReplaced := make(chan *BumpResult, 1)
+	tp.subscriberChans.Store(requestID2, subscriberReplaced)
+	tp.records.Store(requestID2, recordFeeBump)
+
+	// Create a test feerate and return it from the mock fee function.
+	feerate := chainfee.SatPerKWeight(1000)
+	m.feeFunc.On("FeeRate").Return(feerate)
+
+	// The following methods should only be called once when creating the
+	// replacement tx.
+	//
+	// Mock the fee function to NOT skip the fee bump.
+	m.feeFunc.On("IncreaseFeeRate", mock.Anything).Return(true, nil).Once()
+
+	// Mock the signer to always return a valid script.
+	m.signer.On("ComputeInputScript", mock.Anything,
+		mock.Anything).Return(&input.Script{}, nil).Once()
+
+	// Mock the testmempoolaccept to return nil.
+	m.wallet.On("CheckMempoolAcceptance", mock.Anything).Return(nil).Once()
+
+	// Mock the wallet to publish successfully.
+	m.wallet.On("PublishTransaction",
+		mock.Anything, mock.Anything).Return(nil).Once()
+
+	// Call processRecords and expect the results are notified back.
+	tp.processRecords()
+
+	// We expect two results to be received. One for the confirmed tx and
+	// one for the replaced tx.
+	//
+	// Check the confirmed tx result.
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for subscriberConfirmed")
+
+	case result := <-subscriberConfirmed:
+		// We expect the result to be TxConfirmed.
+		require.Equal(t, TxConfirmed, result.Event)
+		require.Equal(t, tx1, result.Tx)
+
+		// No error should be set.
+		require.Nil(t, result.Err)
+		require.Equal(t, requestID1, result.requestID)
+	}
+
+	// Now check the replaced tx result.
+	select {
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for subscriberReplaced")
+
+	case result := <-subscriberReplaced:
+		// We expect the result to be TxReplaced.
+		require.Equal(t, TxReplaced, result.Event)
+
+		// The new tx and old tx should be properly set.
+		require.NotEqual(t, tx2, result.Tx)
+		require.Equal(t, tx2, result.ReplacedTx)
+
+		// No error should be set.
+		require.Nil(t, result.Err)
+		require.Equal(t, requestID2, result.requestID)
+	}
 }

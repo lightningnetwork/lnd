@@ -25,12 +25,14 @@ const (
 	TowerClientDBName = "wtclient.db"
 	TowerServerDBName = "watchtower.db"
 	WalletDBName      = "wallet.db"
+	PeerStorageDBName = "peer_storage.db"
 
-	SqliteChannelDBName  = "channel.sqlite"
-	SqliteChainDBName    = "chain.sqlite"
-	SqliteNeutrinoDBName = "neutrino.sqlite"
-	SqliteTowerDBName    = "watchtower.sqlite"
-	SqliteNativeDBName   = "lnd.sqlite"
+	SqliteChannelDBName     = "channel.sqlite"
+	SqliteChainDBName       = "chain.sqlite"
+	SqliteNeutrinoDBName    = "neutrino.sqlite"
+	SqliteTowerDBName       = "watchtower.sqlite"
+	SqliteNativeDBName      = "lnd.sqlite"
+	SqlitePeerStorageDBName = "peerStorage.sqlite"
 
 	BoltBackend                = "bolt"
 	EtcdBackend                = "etcd"
@@ -67,6 +69,10 @@ const (
 
 	// NSNeutrinoDB is the namespace name that we use for the neutrino DB.
 	NSNeutrinoDB = "neutrinodb"
+
+	// NSPeerStorageDB  is the namespace name that we use for peer storage
+	// DB.
+	NSPeerStorageDB = "peerstoragedb"
 )
 
 // DB holds database configuration for LND.
@@ -227,6 +233,10 @@ type DatabaseBackends struct {
 	// server data. This might be nil if the watchtower server is disabled.
 	TowerServerDB kvdb.Backend
 
+	// PeerStorageDB points to the database backend that stores the backup
+	// data that peers share with us.
+	PeerStorageDB kvdb.Backend
+
 	// WalletDB is an option that instructs the wallet loader where to load
 	// the underlying wallet database from.
 	WalletDB btcwallet.LoaderOption
@@ -349,6 +359,16 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 		closeFuncs[NSTowerServerDB] = etcdTowerServerBackend.Close
 
+		etcdPeerStorageBackend, err := kvdb.Open(
+			kvdb.EtcdBackendName, ctx,
+			db.Etcd.CloneWithSubNamespace(NSPeerStorageDB),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening etcd "+
+				"peer storage DB: %w", err)
+		}
+		closeFuncs[NSPeerStorageDB] = etcdPeerStorageBackend.Close
+
 		etcdWalletBackend, err := kvdb.Open(
 			kvdb.EtcdBackendName, ctx,
 			db.Etcd.
@@ -357,7 +377,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error opening etcd macaroon "+
-				"DB: %v", err)
+				"DB: %w", err)
 		}
 		closeFuncs[NSWalletDB] = etcdWalletBackend.Close
 
@@ -371,6 +391,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			DecayedLogDB:  etcdDecayedLogBackend,
 			TowerClientDB: etcdTowerClientBackend,
 			TowerServerDB: etcdTowerServerBackend,
+			PeerStorageDB: etcdPeerStorageBackend,
 			// The wallet loader will attempt to use/create the
 			// wallet in the replicated remote DB if we're running
 			// in a clustered environment. This will ensure that all
@@ -439,6 +460,16 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 		closeFuncs[NSTowerServerDB] = postgresTowerServerBackend.Close
 
+		postgresPeerStorageBackend, err := kvdb.Open(
+			kvdb.PostgresBackendName, ctx,
+			postgresConfig, NSPeerStorageDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening postgres "+
+				"peer storage server DB: %w", err)
+		}
+		closeFuncs[NSPeerStorageDB] = postgresPeerStorageBackend.Close
+
 		postgresWalletBackend, err := kvdb.Open(
 			kvdb.PostgresBackendName, ctx,
 			postgresConfig, NSWalletDB,
@@ -482,6 +513,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			DecayedLogDB:  postgresDecayedLogBackend,
 			TowerClientDB: postgresTowerClientBackend,
 			TowerServerDB: postgresTowerServerBackend,
+			PeerStorageDB: postgresPeerStorageBackend,
 			// The wallet loader will attempt to use/create the
 			// wallet in the replicated remote DB if we're running
 			// in a clustered environment. This will ensure that all
@@ -561,6 +593,16 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		}
 		closeFuncs[NSTowerServerDB] = sqliteTowerServerBackend.Close
 
+		sqlitePeerStorageBackend, err := kvdb.Open(
+			kvdb.SqliteBackendName, ctx, sqliteConfig, chanDBPath,
+			SqlitePeerStorageDBName, NSPeerStorageDB,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error opening sqlite peer "+
+				"storage server DB: %w", err)
+		}
+		closeFuncs[NSPeerStorageDB] = sqlitePeerStorageBackend.Close
+
 		sqliteWalletBackend, err := kvdb.Open(
 			kvdb.SqliteBackendName, ctx, sqliteConfig, walletDBPath,
 			SqliteChainDBName, NSWalletDB,
@@ -605,6 +647,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 			DecayedLogDB:  sqliteDecayedLogBackend,
 			TowerClientDB: sqliteTowerClientBackend,
 			TowerServerDB: sqliteTowerServerBackend,
+			PeerStorageDB: sqlitePeerStorageBackend,
 			// The wallet loader will attempt to use/create the
 			// wallet in the replicated remote DB if we're running
 			// in a clustered environment. This will ensure that all
@@ -644,6 +687,20 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		return nil, fmt.Errorf("error opening macaroon DB: %w", err)
 	}
 	closeFuncs[NSMacaroonDB] = macaroonBackend.Close
+
+	peerStorageBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
+		DBPath:            chanDBPath,
+		DBFileName:        PeerStorageDBName,
+		DBTimeout:         db.Bolt.DBTimeout,
+		NoFreelistSync:    db.Bolt.NoFreelistSync,
+		AutoCompact:       db.Bolt.AutoCompact,
+		AutoCompactMinAge: db.Bolt.AutoCompactMinAge,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error opening peer storage DB: "+
+			"%w", err)
+	}
+	closeFuncs[NSPeerStorageDB] = peerStorageBackend.Close
 
 	decayedLogBackend, err := kvdb.GetBoltBackend(&kvdb.BoltBackendConfig{
 		DBPath:            chanDBPath,
@@ -710,6 +767,7 @@ func (db *DB) GetBackends(ctx context.Context, chanDBPath,
 		DecayedLogDB:  decayedLogBackend,
 		TowerClientDB: towerClientBackend,
 		TowerServerDB: towerServerBackend,
+		PeerStorageDB: peerStorageBackend,
 		// When "running locally", LND will use the bbolt wallet.db to
 		// store the wallet located in the chain data dir, parametrized
 		// by the active network. The wallet loader has its own cleanup

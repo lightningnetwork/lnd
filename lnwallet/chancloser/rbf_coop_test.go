@@ -1,0 +1,1615 @@
+package chancloser
+
+import (
+	"bytes"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"math/rand"
+	"testing"
+	"time"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/mempool"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/protofsm"
+	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+)
+
+var (
+	localAddr = lnwire.DeliveryAddress(append(
+		[]byte{txscript.OP_1, txscript.OP_DATA_32},
+		bytes.Repeat([]byte{0x01}, 32)...,
+	))
+
+	remoteAddr = lnwire.DeliveryAddress(append(
+		[]byte{txscript.OP_1, txscript.OP_DATA_32},
+		bytes.Repeat([]byte{0x02}, 32)...,
+	))
+
+	localSigBytes = fromHex("3045022100cd496f2ab4fe124f977ffe3caa09f757" +
+		"6d8a34156b4e55d326b4dffc0399a094022013500a0510b5094bff220c7" +
+		"4656879b8ca0369d3da78004004c970790862fc03")
+	localSig     = sigMustParse(localSigBytes)
+	localSigWire = mustWireSig(&localSig)
+
+	remoteSigBytes = fromHex("304502210082235e21a2300022738dabb8e1bbd9d1" +
+		"9cfb1e7ab8c30a23b0afbb8d178abcf3022024bf68e256c534ddfaf966b" +
+		"f908deb944305596f7bdcc38d69acad7f9c868724")
+	remoteSig     = sigMustParse(remoteSigBytes)
+	remoteWireSig = mustWireSig(&remoteSig)
+
+	localTxid  = newChainHash(bytes.Repeat([]byte{0x01}, 32))
+	remoteTxid = newChainHash(bytes.Repeat([]byte{0x02}, 32))
+
+	closeTx = wire.NewMsgTx(2)
+)
+
+func newChainHash(b []byte) chainhash.Hash {
+	var h chainhash.Hash
+	copy(h[:], b)
+	return h
+}
+
+func sigMustParse(sigBytes []byte) ecdsa.Signature {
+	sig, err := ecdsa.ParseSignature(sigBytes)
+	if err != nil {
+		panic(err)
+	}
+
+	return *sig
+}
+
+func mustWireSig(e input.Signature) lnwire.Sig {
+	wireSig, err := lnwire.NewSigFromSignature(e)
+	if err != nil {
+		panic(err)
+	}
+
+	return wireSig
+}
+
+func fromHex(s string) []byte {
+	r, err := hex.DecodeString(s)
+	if err != nil {
+		panic("invalid hex in source file: " + s)
+	}
+
+	return r
+}
+
+func randOutPoint(t *testing.T) wire.OutPoint {
+	var op wire.OutPoint
+	if _, err := rand.Read(op.Hash[:]); err != nil {
+		t.Fatalf("unable to generate random outpoint: %v", err)
+	}
+	op.Index = rand.Uint32()
+
+	return op
+}
+
+func randPubKey(t *testing.T) *btcec.PublicKey {
+	priv, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatalf("unable to generate private key: %v", err)
+	}
+
+	return priv.PubKey()
+}
+
+func assertStateTransitions[Event any, Env protofsm.Environment](
+	t *testing.T, stateSub protofsm.StateSubscriber[Event, Env],
+	expectedStates []protofsm.State[Event, Env]) {
+
+	t.Helper()
+
+	for _, expectedState := range expectedStates {
+		newState := <-stateSub.NewItemCreated.ChanOut()
+
+		require.IsType(t, expectedState, newState)
+	}
+
+	// We should have no more states.
+	select {
+	case newState := <-stateSub.NewItemCreated.ChanOut():
+		t.Fatalf("unexpected state transition: %v", newState)
+	default:
+	}
+}
+
+// unknownEvent is a dummy event that is used to test that the state machine
+// transitions properly fail when an unknown event is received.
+type unknownEvent struct {
+}
+
+func (u *unknownEvent) protocolSealed() {
+}
+
+// assertUnknownEventFail asserts that the state machine fails as expected
+// given an unknown event.
+func assertUnknownEventFail(t *testing.T, startingState ProtocolState) {
+	t.Helper()
+
+	// Any other event should be ignored.
+	t.Run("unknown_event", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some(startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.expectFailure(ErrInvalidStateTransition)
+
+		closeHarness.chanCloser.SendEvent(&unknownEvent{})
+
+		// There should be no further state transitions.
+		closeHarness.assertNoStateTransitions()
+	})
+}
+
+type harnessCfg struct {
+	initialState fn.Option[ProtocolState]
+
+	thawHeight fn.Option[uint32]
+
+	localUpfrontAddr  fn.Option[lnwire.DeliveryAddress]
+	remoteUpfrontAddr fn.Option[lnwire.DeliveryAddress]
+}
+
+// rbfCloserTestHarness is a test harness for the RBF closer.
+type rbfCloserTestHarness struct {
+	*testing.T
+
+	cfg *harnessCfg
+
+	chanCloser *RbfChanCloser
+	env        Environment
+
+	newAddrErr error
+
+	pkScript []byte
+	peerPub  btcec.PublicKey
+
+	startingState RbfState
+
+	feeEstimator   *mockFeeEstimator
+	chanObserver   *mockChanObserver
+	signer         *mockCloseSigner
+	daemonAdapters *dummyAdapters
+	errReporter    *mockErrorReporter
+
+	stateSub protofsm.StateSubscriber[ProtocolEvent, *Environment]
+}
+
+var errfailAddr = fmt.Errorf("fail")
+
+// failNewAddrFunc causes the newAddrFunc to fail.
+func (r *rbfCloserTestHarness) failNewAddrFunc() {
+	r.T.Helper()
+
+	r.newAddrErr = errfailAddr
+}
+
+func (r *rbfCloserTestHarness) newAddrFunc() (
+	lnwire.DeliveryAddress, error) {
+
+	r.T.Helper()
+
+	return lnwire.DeliveryAddress{}, r.newAddrErr
+}
+
+func (r *rbfCloserTestHarness) assertExpectations() {
+	r.T.Helper()
+
+	r.feeEstimator.AssertExpectations(r.T)
+	r.chanObserver.AssertExpectations(r.T)
+	r.daemonAdapters.AssertExpectations(r.T)
+	r.errReporter.AssertExpectations(r.T)
+	r.signer.AssertExpectations(r.T)
+}
+
+func (r *rbfCloserTestHarness) stopAndAssert() {
+	r.T.Helper()
+
+	defer r.chanCloser.RemoveStateSub(r.stateSub)
+	r.chanCloser.Stop()
+
+	r.assertExpectations()
+}
+
+func (r *rbfCloserTestHarness) assertStartupAssertions() {
+	r.T.Helper()
+
+	// When the state machine has started up, we recv a starting state
+	// transition for the initial state.
+	expectedStates := []RbfState{r.startingState}
+	assertStateTransitions(r.T, r.stateSub, expectedStates)
+
+	// Registering the spend transaction should have been called.
+	r.daemonAdapters.AssertCalled(
+		r.T, "RegisterSpendNtfn", &r.env.ChanPoint, r.pkScript,
+		r.env.Scid.BlockHeight,
+	)
+}
+
+func (r *rbfCloserTestHarness) assertNoStateTransitions() {
+	select {
+	case newState := <-r.stateSub.NewItemCreated.ChanOut():
+		r.T.Fatalf("unexpected state transition: %T", newState)
+	case <-time.After(10 * time.Millisecond):
+	}
+}
+
+func (r *rbfCloserTestHarness) assertStateTransitions(states ...RbfState) {
+	assertStateTransitions(r.T, r.stateSub, states)
+}
+
+func (r *rbfCloserTestHarness) currentState() RbfState {
+	state, err := r.chanCloser.CurrentState()
+	require.NoError(r.T, err)
+
+	return state
+}
+
+type shutdownExpect struct {
+	isInitiator   bool
+	allowSend     bool
+	recvShutdown  bool
+	finalBalances fn.Option[ShutdownBalances]
+}
+
+func (r *rbfCloserTestHarness) expectShutdownEvents(expect shutdownExpect) {
+	r.T.Helper()
+
+	r.chanObserver.On("FinalBalances").Return(expect.finalBalances)
+
+	if expect.isInitiator {
+		r.chanObserver.On("NoDanglingUpdates").Return(expect.allowSend)
+	} else {
+		r.chanObserver.On("NoDanglingUpdates").Return(
+			expect.allowSend,
+		).Maybe()
+	}
+
+	// When we're receiving a shutdown, we should also disable incoming
+	// adds.
+	if expect.recvShutdown {
+		r.chanObserver.On("DisableIncomingAdds").Return(nil)
+	}
+
+	// If a close is in progress, this is an RBF iteration, the link has
+	// already been cleaned up, so we don't expect any assertions, other
+	// than to check the closing state.
+	if expect.finalBalances.IsSome() {
+		return
+	}
+
+	r.chanObserver.On("DisableOutgoingAdds").Return(nil)
+
+	r.chanObserver.On(
+		"MarkShutdownSent", mock.Anything, expect.isInitiator,
+	).Return(nil)
+
+	r.chanObserver.On("DisableChannel").Return(nil)
+}
+
+func (r *rbfCloserTestHarness) expectFinalBalances(
+	b fn.Option[ShutdownBalances]) {
+
+	r.chanObserver.On("FinalBalances").Return(b)
+}
+
+func (r *rbfCloserTestHarness) expectIncomingAddsDisabled() {
+	r.T.Helper()
+
+	r.chanObserver.On("DisableIncomingAdds").Return(nil)
+}
+
+type msgMatcher func([]lnwire.Message) bool
+
+func singleMsgMatcher[M lnwire.Message](f func(M) bool) msgMatcher {
+	return func(msgs []lnwire.Message) bool {
+		if len(msgs) != 1 {
+			return false
+		}
+
+		wireMsg := msgs[0]
+
+		msg, ok := wireMsg.(M)
+		if !ok {
+			return false
+		}
+
+		if f == nil {
+			return true
+		}
+
+		return f(msg)
+	}
+}
+
+func (r *rbfCloserTestHarness) expectMsgSent(matcher msgMatcher) {
+	r.T.Helper()
+
+	if matcher == nil {
+		r.daemonAdapters.On(
+			"SendMessages", r.peerPub, mock.Anything,
+		).Return(nil)
+	} else {
+		r.daemonAdapters.On(
+			"SendMessages", r.peerPub, mock.MatchedBy(matcher),
+		).Return(nil)
+	}
+}
+
+func (r *rbfCloserTestHarness) expectFeeEstimate(absoluteFee btcutil.Amount,
+	numTimes int) {
+
+	r.T.Helper()
+
+	// TODO(roasbeef): mo assertions for dust case
+
+	r.feeEstimator.On(
+		"EstimateFee", mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
+	).Return(absoluteFee, nil).Times(numTimes)
+}
+
+func (r *rbfCloserTestHarness) expectFailure(err error) {
+	r.T.Helper()
+
+	errorMatcher := func(e error) bool {
+		return errors.Is(e, err)
+	}
+
+	r.errReporter.On("ReportError", mock.MatchedBy(errorMatcher)).Return()
+}
+
+func (r *rbfCloserTestHarness) expectNewCloseSig(
+	localScript, remoteScript []byte, fee btcutil.Amount,
+	closeBalance btcutil.Amount) {
+
+	r.T.Helper()
+
+	r.signer.On(
+		"CreateCloseProposal", fee, localScript, remoteScript,
+		mock.Anything,
+	).Return(&localSig, &localTxid, closeBalance, nil)
+}
+
+func (r *rbfCloserTestHarness) waitForMsgSent() {
+	r.T.Helper()
+
+	err := wait.Predicate(func() bool {
+		return r.daemonAdapters.msgSent.Load()
+	}, time.Second*3)
+	require.NoError(r.T, err)
+}
+
+func (r *rbfCloserTestHarness) expectRemoteCloseFinalized(
+	localCoopSig, remoteCoopSig input.Signature, localScript,
+	remoteScript []byte, fee btcutil.Amount,
+	balanceAfterClose btcutil.Amount, isLocal bool) {
+
+	r.expectNewCloseSig(
+		localScript, remoteScript, fee, balanceAfterClose,
+	)
+
+	r.expectCloseFinalized(
+		localCoopSig, remoteCoopSig, localScript, remoteScript,
+		fee, balanceAfterClose, isLocal,
+	)
+
+	r.expectMsgSent(singleMsgMatcher[*lnwire.ClosingSig](nil))
+}
+
+func (r *rbfCloserTestHarness) expectCloseFinalized(
+	localCoopSig, remoteCoopSig input.Signature, localScript,
+	remoteScript []byte, fee btcutil.Amount,
+	balanceAfterClose btcutil.Amount, isLocal bool) {
+
+	// The caller should obtain the final signature.
+	r.signer.On("CompleteCooperativeClose",
+		localCoopSig, remoteCoopSig, localScript,
+		remoteScript, fee, mock.Anything,
+	).Return(closeTx, balanceAfterClose, nil)
+
+	// The caller should also mark the transaction as broadcast on disk.
+	r.chanObserver.On("MarkCoopBroadcasted", closeTx, isLocal).Return(nil)
+
+	// Finally, we expect that the daemon executor should broadcast the
+	// above transaction.
+	r.daemonAdapters.On(
+		"BroadcastTransaction", closeTx, mock.Anything,
+	).Return(nil)
+}
+
+func (r *rbfCloserTestHarness) expectChanPendingClose() {
+	var nilTx *wire.MsgTx
+	r.chanObserver.On("MarkCoopBroadcasted", nilTx, true).Return(nil)
+}
+
+func (r *rbfCloserTestHarness) assertLocalClosePending() {
+	// We should then remain in the outer close negotiation state.
+	r.assertStateTransitions(&ClosingNegotiation{})
+
+	// If we examine the final resting state, we should see that the we're
+	// now in the negotiation state still for our local peer state.
+	currentState := assertStateT[*ClosingNegotiation](r)
+
+	// From this, we'll assert the resulting peer state, and that the co-op
+	// close txn is known.
+	closePendingState, ok := currentState.PeerState.GetForParty(
+		lntypes.Local,
+	).(*ClosePending)
+	require.True(r.T, ok)
+
+	require.Equal(r.T, closeTx, closePendingState.CloseTx)
+}
+
+type dustExpectation uint
+
+const (
+	noDustExpect dustExpectation = iota
+
+	localDustExpect
+
+	remoteDustExpect
+)
+
+func (d dustExpectation) String() string {
+	switch d {
+	case noDustExpect:
+		return "no dust"
+	case localDustExpect:
+		return "local dust"
+	case remoteDustExpect:
+		return "remote dust"
+	default:
+		return "unknown"
+	}
+}
+
+// expectHalfSignerIteration asserts that we carry out 1/2 of the locally
+// initiated signer iteration. This constitutes sending a ClosingComplete
+// message to the remote party, and all the other intermediate steps.
+func (r *rbfCloserTestHarness) expectHalfSignerIteration(
+	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
+	dustExpect dustExpectation) {
+
+	numFeeCalls := 2
+
+	// If we're using the SendOfferEvent as a trigger, we only need to call
+	// the few estimation once.
+	if _, ok := initEvent.(*SendOfferEvent); ok {
+		numFeeCalls = 1
+	}
+
+	// We'll now expect that fee estimation is called, and then
+	// send in the flushed event. We expect two calls: one to
+	// figure out if we can pay the fee, and then another when we
+	// actually pay the fee.
+	r.expectFeeEstimate(absoluteFee, numFeeCalls)
+
+	// Next, we'll assert that we receive calls to generate a new
+	// commitment signature, and then send out the commit
+	// ClosingComplete message to the remote peer.
+	r.expectNewCloseSig(
+		localAddr, remoteAddr, absoluteFee, balanceAfterClose,
+	)
+
+	// We expect that only the closer and closee sig is set as both
+	// parties have a balance.
+	msgExpect := singleMsgMatcher(func(m *lnwire.ClosingComplete) bool {
+		r.T.Helper()
+
+		switch {
+		case m.CloserNoClosee.IsSome():
+			r.T.Logf("closer no closee field set, expected: %v",
+				dustExpect)
+
+			return dustExpect == remoteDustExpect
+		case m.NoCloserClosee.IsSome():
+			r.T.Logf("no close closee field set, expected: %v",
+				dustExpect)
+
+			return dustExpect == localDustExpect
+		default:
+			r.T.Logf("no dust field set, expected: %v", dustExpect)
+
+			return (m.CloserAndClosee.IsSome() &&
+				dustExpect == noDustExpect)
+		}
+	})
+	r.expectMsgSent(msgExpect)
+
+	r.chanCloser.SendEvent(initEvent)
+
+	// Based on the init event, we'll either just go to the closing
+	// negotiation state, or go through the channel flushing state first.
+	var expectedStates []RbfState
+	switch initEvent.(type) {
+	case *ShutdownReceived:
+		expectedStates = []RbfState{
+			&ChannelFlushing{}, &ClosingNegotiation{},
+		}
+
+	case *SendOfferEvent:
+		expectedStates = []RbfState{&ClosingNegotiation{}}
+
+	case *ChannelFlushed:
+		// If we're sending a flush event here, then this means that we
+		// also have enough balance to cover the fee so we'll have
+		// another inner transition to the negotiation state.
+		expectedStates = []RbfState{
+			&ClosingNegotiation{}, &ClosingNegotiation{},
+		}
+
+	default:
+		r.T.Fatalf("unknown event type: %T", initEvent)
+	}
+
+	// We should transition from the negotiation state back to
+	// itself.
+	//
+	// TODO(roasbeef): take in expected set of transitions!!!
+	//  * or base off of event, if shutdown recv'd know we're doing a full
+	//  loop
+	r.assertStateTransitions(expectedStates...)
+
+	// If we examine the final resting state, we should see that
+	// the we're now in the LocalOffersSent for our local peer
+	// state.
+	currentState := assertStateT[*ClosingNegotiation](r)
+
+	// From this, we'll assert the resulting peer state.
+	offerSentState, ok := currentState.PeerState.GetForParty(
+		lntypes.Local,
+	).(*LocalOfferSent)
+	require.True(r.T, ok)
+
+	// The proposed fee, as well as our local signature should be
+	// properly stashed in the state.
+	require.Equal(r.T, absoluteFee, offerSentState.ProposedFee)
+	require.Equal(r.T, localSigWire, offerSentState.LocalSig)
+}
+
+func (r *rbfCloserTestHarness) assertSingleRbfIteration(
+	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
+	dustExpect dustExpectation) {
+
+	// We'll now send in the send offer event, which should trigger 1/2 of
+	// the RBF loop, ending us in the LocalOfferSent state.
+	r.expectHalfSignerIteration(
+		initEvent, balanceAfterClose, absoluteFee, noDustExpect,
+	)
+
+	// Now that we're in the local offer sent state, we'll send the
+	// response of the remote party, which completes one iteration
+	localSigEvent := &LocalSigReceived{
+		SigMsg: lnwire.ClosingSig{
+			ClosingSigs: lnwire.ClosingSigs{
+				CloserAndClosee: newSigTlv[tlv.TlvType3](
+					remoteWireSig,
+				),
+			},
+		},
+	}
+
+	// Before we send the event, we expect the close the final signature to
+	// be combined/obtained, and for the close to finalized on disk.
+	r.expectCloseFinalized(
+		&localSig, &remoteSig, localAddr, remoteAddr, absoluteFee,
+		balanceAfterClose, true,
+	)
+
+	r.chanCloser.SendEvent(localSigEvent)
+
+	// We should transition to the pending closing state now.
+	r.assertLocalClosePending()
+}
+
+func (r *rbfCloserTestHarness) assertSingleRemoteRbfIteration(
+	initEvent ProtocolEvent, balanceAfterClose, absoluteFee btcutil.Amount,
+	sequence uint32, iteration bool) {
+
+	// If this is an iteration, then we expect some intermediate states,
+	// before we enter the main RBF/sign loop.
+	if iteration {
+		r.expectFeeEstimate(absoluteFee, 1)
+
+		r.assertStateTransitions(
+			&ChannelActive{}, &ShutdownPending{},
+			&ChannelFlushing{}, &ClosingNegotiation{},
+		)
+	}
+
+	// When we receive the signature below, our local state machine should
+	// move to finalize the close.
+	r.expectRemoteCloseFinalized(
+		&localSig, &remoteSig, localAddr, remoteAddr,
+		absoluteFee, balanceAfterClose, false,
+	)
+
+	r.chanCloser.SendEvent(initEvent)
+
+	// Our outer state should transition to ClosingNegotiation state.
+	r.assertStateTransitions(&ClosingNegotiation{})
+
+	// If we examine the final resting state, we should see that the we're
+	// now in the ClosePending state for the remote peer.
+	currentState := assertStateT[*ClosingNegotiation](r)
+
+	// From this, we'll assert the resulting peer state.
+	pendingState, ok := currentState.PeerState.GetForParty(
+		lntypes.Remote,
+	).(*ClosePending)
+	require.True(r.T, ok)
+
+	// The proposed fee, as well as our local signature should be properly
+	// stashed in the state.
+	require.Equal(r.T, closeTx, pendingState.CloseTx)
+}
+
+func assertStateT[T ProtocolState](h *rbfCloserTestHarness) T {
+	h.T.Helper()
+
+	currentState, ok := h.currentState().(T)
+	require.True(h.T, ok)
+
+	return currentState
+}
+
+// newRbfCloserTestHarness creates a new test harness for the RBF closer.
+func newRbfCloserTestHarness(t *testing.T,
+	cfg *harnessCfg) *rbfCloserTestHarness {
+
+	startingHeight := 200
+
+	chanPoint := randOutPoint(t)
+	chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
+
+	scid := lnwire.NewShortChanIDFromInt(rand.Uint64())
+
+	peerPub := randPubKey(t)
+
+	msgMapper := NewRbfMsgMapper(uint32(startingHeight), chanID)
+
+	initialState := cfg.initialState.UnwrapOr(&ChannelActive{})
+
+	defaultFeeRate := chainfee.FeePerKwFloor
+
+	feeEstimator := &mockFeeEstimator{}
+	mockObserver := &mockChanObserver{}
+	errReporter := &mockErrorReporter{}
+	mockSigner := &mockCloseSigner{}
+
+	harness := &rbfCloserTestHarness{
+		T:             t,
+		cfg:           cfg,
+		startingState: initialState,
+		feeEstimator:  feeEstimator,
+		signer:        mockSigner,
+		chanObserver:  mockObserver,
+		errReporter:   errReporter,
+		peerPub:       *peerPub,
+	}
+
+	env := Environment{
+		ChainParams:           chaincfg.RegressionNetParams,
+		ChanPeer:              *peerPub,
+		ChanPoint:             chanPoint,
+		ChanID:                chanID,
+		Scid:                  scid,
+		DefaultFeeRate:        defaultFeeRate.FeePerVByte(),
+		ThawHeight:            cfg.thawHeight,
+		RemoteUpfrontShutdown: cfg.remoteUpfrontAddr,
+		LocalUpfrontShutdown:  cfg.localUpfrontAddr,
+		NewDeliveryScript:     harness.newAddrFunc,
+		FeeEstimator:          feeEstimator,
+		ChanObserver:          mockObserver,
+		CloseSigner:           mockSigner,
+	}
+	harness.env = env
+
+	var pkScript []byte
+	harness.pkScript = pkScript
+
+	spendEvent := protofsm.RegisterSpend[ProtocolEvent]{
+		OutPoint:       chanPoint,
+		HeightHint:     scid.BlockHeight,
+		PkScript:       pkScript,
+		PostSpendEvent: fn.Some[RbfSpendMapper](SpendMapper),
+	}
+
+	daemonAdapters := newDaemonAdapters()
+	harness.daemonAdapters = daemonAdapters
+
+	protoCfg := RbfChanCloserCfg{
+		ErrorReporter: errReporter,
+		Daemon:        daemonAdapters,
+		InitialState:  initialState,
+		Env:           &env,
+		InitEvent:     fn.Some[protofsm.DaemonEvent](&spendEvent),
+		MsgMapper: fn.Some[protofsm.MsgMapper[ProtocolEvent]](
+			msgMapper,
+		),
+		CustomPollInterval: fn.Some(time.Nanosecond),
+	}
+
+	// Before we start we always expect an initial spend event.
+	daemonAdapters.On(
+		"RegisterSpendNtfn", &chanPoint, pkScript, scid.BlockHeight,
+	).Return(nil)
+
+	chanCloser := protofsm.NewStateMachine(protoCfg)
+	chanCloser.Start()
+
+	harness.stateSub = chanCloser.RegisterStateEvents()
+
+	harness.chanCloser = &chanCloser
+
+	return harness
+}
+
+func newCloser(t *testing.T, cfg *harnessCfg) *rbfCloserTestHarness {
+	chanCloser := newRbfCloserTestHarness(t, cfg)
+
+	// We should start in the active state, and have our spend req
+	// daemon event handled.
+	chanCloser.assertStartupAssertions()
+
+	return chanCloser
+}
+
+// TestRbfChannelActiveTransitions tests the transitions of from the
+// ChannelActive state.
+func TestRbfChannelActiveTransitions(t *testing.T) {
+	localAddr := lnwire.DeliveryAddress(bytes.Repeat([]byte{0x01}, 20))
+	remoteAddr := lnwire.DeliveryAddress(bytes.Repeat([]byte{0x02}, 20))
+
+	feeRate := chainfee.SatPerVByte(1000)
+
+	// Test that if a spend event is received, the FSM transitions to the
+	// CloseFin terminal state.
+	t.Run("spend_event", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.chanCloser.SendEvent(&SpendEvent{})
+
+		closeHarness.assertStateTransitions(&CloseFin{})
+	})
+
+	// If we send in a local shutdown event, but fail to get an addr, the
+	// state machine should terminate.
+	t.Run("local_initiated_close_addr_fail", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{})
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.failNewAddrFunc()
+		closeHarness.expectFailure(errfailAddr)
+
+		// We don't specify an upfront shutdown addr, and don't specify
+		// on here in the vent, so we should call new addr, but then
+		// fail.
+		closeHarness.chanCloser.SendEvent(&SendShutdown{})
+
+		// We shouldn't have transitioned to a new state.
+		closeHarness.assertNoStateTransitions()
+	})
+
+	// Initiating the shutdown should have us transition to the shutdown
+	// pending state. We should also emit events to disable the channel,
+	// and also send a message to our target peer.
+	t.Run("local_initiated_close_ok", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// Once we send the event below, we should get calls to the
+		// chan observer, the msg sender, and the link control.
+		closeHarness.expectShutdownEvents(shutdownExpect{
+			isInitiator: true,
+			allowSend:   true,
+		})
+		closeHarness.expectMsgSent(nil)
+
+		// If we send the shutdown event, we should transition to the
+		// shutdown pending state.
+		closeHarness.chanCloser.SendEvent(&SendShutdown{
+			IdealFeeRate: feeRate,
+		})
+		closeHarness.assertStateTransitions(&ShutdownPending{})
+
+		// If we examine the internal state, it should be consistent
+		// with the fee+addr we sent in.
+		currentState := assertStateT[*ShutdownPending](closeHarness)
+
+		require.Equal(
+			t, feeRate, currentState.IdealFeeRate.UnsafeFromSome(),
+		)
+		require.Equal(
+			t, localAddr,
+			currentState.ShutdownScripts.LocalDeliveryScript,
+		)
+
+		// Wait till the msg has been sent to assert our expectations.
+		//
+		// TODO(roasbeef): can use call.WaitFor here?
+		closeHarness.waitForMsgSent()
+	})
+
+	// TODO(roasbeef): thaw height fail
+
+	// When we receive a shutdown, we should transition to the shutdown
+	// pending state, with the local+remote shutdown addrs known.
+	t.Run("remote_initiated_close_ok", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We assert our shutdown events, and also that we eventually
+		// send a shutdown to the remote party. We'll hold back the
+		// send in this case though, as we should only send once the no
+		// updates are dangling.
+		closeHarness.expectShutdownEvents(shutdownExpect{
+			isInitiator:  false,
+			allowSend:    false,
+			recvShutdown: true,
+		})
+
+		// Next, we'll emit the recv event, with the addr of the remote
+		// party.
+		closeHarness.chanCloser.SendEvent(&ShutdownReceived{
+			ShutdownScript: remoteAddr,
+		})
+
+		// We should transition to the shutdown pending state.
+		closeHarness.assertStateTransitions(&ShutdownPending{})
+
+		currentState := assertStateT[*ShutdownPending](closeHarness)
+
+		// Both the local and remote shutdown scripts should be set.
+		require.Equal(
+			t, localAddr,
+			currentState.ShutdownScripts.LocalDeliveryScript,
+		)
+		require.Equal(
+			t, remoteAddr,
+			currentState.ShutdownScripts.RemoteDeliveryScript,
+		)
+	})
+
+	// Any other event should be ignored.
+	assertUnknownEventFail(t, &ChannelActive{})
+}
+
+// TestRbfShutdownPendingTransitions tests the transitions of the RBF closer
+// once we get to the shutdown pending state. In this state, we wait for either
+// a shutdown to be received, or a notification that we're able to send a
+// shutdown ourselves.
+func TestRbfShutdownPendingTransitions(t *testing.T) {
+	t.Parallel()
+
+	startingState := &ShutdownPending{}
+
+	// Test that if a spend event is received, the FSM transitions to the
+	// CloseFin terminal state.
+	t.Run("spend_event", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				startingState,
+			),
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		closeHarness.chanCloser.SendEvent(&SpendEvent{})
+
+		closeHarness.assertStateTransitions(&CloseFin{})
+	})
+
+	// If the remote party sends us a diff shutdown addr than we expected,
+	// then we'll fail.
+	t.Run("initiator_shutdown_recv_validate_fail", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				startingState,
+			),
+			remoteUpfrontAddr: fn.Some(remoteAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We should fail as the shutdown script isn't what we
+		// expected.
+		closeHarness.expectFailure(ErrUpfrontShutdownScriptMismatch)
+
+		// We'll now send in a ShutdownReceived event, but with a
+		// different address provided in the shutdown message. This
+		// should result in an error.
+		closeHarness.chanCloser.SendEvent(&ShutdownReceived{
+			ShutdownScript: localAddr,
+		})
+
+		// We shouldn't have transitioned to a new state.
+		closeHarness.assertNoStateTransitions()
+	})
+
+	// Otherwise, if the shutdown is well composed, then we should
+	// transition to the ChannelFlushing state.
+	t.Run("initiator_shutdown_recv_ok", func(t *testing.T) {
+		firstState := *startingState
+		firstState.IdealFeeRate = fn.Some(
+			chainfee.FeePerKwFloor.FeePerVByte(),
+		)
+		firstState.ShutdownScripts = ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
+			localUpfrontAddr:  fn.Some(localAddr),
+			remoteUpfrontAddr: fn.Some(remoteAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We should disable the outgoing adds for the channel at this
+		// point as well.
+		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
+		closeHarness.expectIncomingAddsDisabled()
+
+		// We'll send in a shutdown received event, with the expected
+		// co-op close addr.
+		closeHarness.chanCloser.SendEvent(&ShutdownReceived{
+			ShutdownScript: remoteAddr,
+		})
+
+		// We should transition to the channel flushing state.
+		closeHarness.assertStateTransitions(&ChannelFlushing{})
+
+		// Now we'll ensure that the flushing state has the proper
+		// co-op close state.
+		currentState := assertStateT[*ChannelFlushing](closeHarness)
+
+		require.Equal(t, localAddr, currentState.LocalDeliveryScript)
+		require.Equal(t, remoteAddr, currentState.RemoteDeliveryScript)
+		require.Equal(
+			t, firstState.IdealFeeRate, currentState.IdealFeeRate,
+		)
+	})
+
+	// If we received the shutdown event, then we'll rely on the external
+	// signal that we were able to send the message once there were no
+	// updates dangling.
+	t.Run("responder_complete", func(t *testing.T) {
+		firstState := *startingState
+		firstState.IdealFeeRate = fn.Some(
+			chainfee.FeePerKwFloor.FeePerVByte(),
+		)
+		firstState.ShutdownScripts = ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](
+				&firstState,
+			),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// In this case we're doing the shutdown dance for the first
+		// time, so we'll mark the channel as not being flushed.
+		closeHarness.expectFinalBalances(fn.None[ShutdownBalances]())
+
+		// We'll send in a shutdown received event.
+		closeHarness.chanCloser.SendEvent(&ShutdownComplete{})
+
+		// We should transition to the channel flushing state.
+		closeHarness.assertStateTransitions(&ChannelFlushing{})
+	})
+
+	// Any other event should be ignored.
+	assertUnknownEventFail(t, startingState)
+}
+
+// TestRbfChannelFlushingTransitions tests the transitions of the RBF closer
+// for the channel flushing state. Once the coast is clear, we should
+// transition to the negotiation state.
+func TestRbfChannelFlushingTransitions(t *testing.T) {
+	t.Parallel()
+
+	localBalance := lnwire.NewMSatFromSatoshis(10_000)
+	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)
+
+	absoluteFee := btcutil.Amount(10_100)
+
+	startingState := &ChannelFlushing{
+		ShutdownScripts: ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		},
+	}
+
+	flushTemplate := &ChannelFlushed{
+		ShutdownBalances: ShutdownBalances{
+			LocalBalance:  localBalance,
+			RemoteBalance: remoteBalance,
+		},
+	}
+
+	// If send in the channel flushed event, but the local party can't pay
+	// for fees, then we should just head to the negotiation state.
+	for _, isFreshFlush := range []bool{true, false} {
+		chanFlushedEvent := *flushTemplate
+		chanFlushedEvent.FreshFlush = isFreshFlush
+
+		testName := fmt.Sprintf("local_cannot_pay_for_fee/"+
+			"fresh_flush=%v", isFreshFlush)
+
+		t.Run(testName, func(t *testing.T) {
+			firstState := *startingState
+
+			closeHarness := newCloser(t, &harnessCfg{
+				initialState: fn.Some[ProtocolState](
+					&firstState,
+				),
+			})
+			defer closeHarness.stopAndAssert()
+
+			// As part of the set up for this state, we'll have the
+			// final absolute fee required be greater than the
+			// balance of the local party.
+			closeHarness.expectFeeEstimate(absoluteFee, 1)
+
+			// If this is a fresh flush, then we expect the state
+			// to be marked on disk.
+			if isFreshFlush {
+				closeHarness.expectChanPendingClose()
+			}
+
+			// We'll now send in the event which should trigger
+			// this code path.
+			closeHarness.chanCloser.SendEvent(&chanFlushedEvent)
+
+			// With the event sent, we should now transition
+			// straight to the ClosingNegotiation state, with no
+			// further state transitions.
+			closeHarness.assertStateTransitions(
+				&ClosingNegotiation{},
+			)
+		})
+	}
+
+	for _, isFreshFlush := range []bool{true, false} {
+		flushEvent := *flushTemplate
+		flushEvent.FreshFlush = isFreshFlush
+
+		// We'll modify the starting balance to be 3x the required fee
+		// to ensure that we can pay for the fee.
+		flushEvent.ShutdownBalances.LocalBalance = lnwire.NewMSatFromSatoshis( //nolint:ll
+			absoluteFee * 3,
+		)
+
+		testName := fmt.Sprintf("local_can_pay_for_fee/"+
+			"fresh_flush=%v", isFreshFlush)
+
+		// This scenario, we'll have the local party be able to pay for
+		// the fees, which will trigger additional state transitions.
+		t.Run(testName, func(t *testing.T) {
+			firstState := *startingState
+
+			closeHarness := newCloser(t, &harnessCfg{
+				initialState: fn.Some[ProtocolState](
+					&firstState,
+				),
+			})
+			defer closeHarness.stopAndAssert()
+
+			localBalance := flushEvent.ShutdownBalances.LocalBalance
+			balanceAfterClose := localBalance.ToSatoshis() - absoluteFee //nolint:ll
+
+			// If this is a fresh flush, then we expect the state
+			// to be marked on disk.
+			if isFreshFlush {
+				closeHarness.expectChanPendingClose()
+			}
+
+			// From where, we expect the state transition to go
+			// back to closing negotiated, for a ClosingComplete
+			// message to be sent and then for us to terminate at
+			// that state. This is 1/2 of the normal RBF signer
+			// flow.
+			closeHarness.expectHalfSignerIteration(
+				&flushEvent, balanceAfterClose, absoluteFee,
+				noDustExpect,
+			)
+		})
+	}
+
+	// Any other event should be ignored.
+	assertUnknownEventFail(t, startingState)
+}
+
+// TestRbfCloseClosingNegotiationLocal tests the local portion of the primary
+// RBF close loop. We should be able to transition to a close state, get a sig,
+// then restart all over again to re-request a signature of at new higher fee
+// rate.
+func TestRbfCloseClosingNegotiationLocal(t *testing.T) {
+	t.Parallel()
+
+	localBalance := lnwire.NewMSatFromSatoshis(40_000)
+	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)
+
+	absoluteFee := btcutil.Amount(10_100)
+
+	closeTerms := &CloseChannelTerms{
+		ShutdownBalances: ShutdownBalances{
+			LocalBalance:  localBalance,
+			RemoteBalance: remoteBalance,
+		},
+		ShutdownScripts: ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		},
+	}
+	startingState := &ClosingNegotiation{
+		PeerState: lntypes.Dual[AsymmetricPeerState]{
+			Local: &LocalCloseStart{
+				CloseChannelTerms: *closeTerms,
+			},
+		},
+	}
+
+	sendOfferEvent := &SendOfferEvent{
+		TargetFeeRate: chainfee.FeePerKwFloor.FeePerVByte(),
+	}
+
+	balanceAfterClose := localBalance.ToSatoshis() - absoluteFee
+
+	// In this state, we'll simulate deciding that we need to send a new
+	// offer to the remote party.
+	t.Run("send_offer_iteration_no_dust", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We'll now send in the initial sender offer event, which
+		// should then trigger a single RBF iteration, ending at the
+		// pending state.
+		closeHarness.assertSingleRbfIteration(
+			sendOfferEvent, balanceAfterClose, absoluteFee,
+			noDustExpect,
+		)
+	})
+
+	// We'll run a similar test as above, but verify that if more than one
+	// sig field is set, we error out.
+	t.Run("send_offer_too_many_sigs_received", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We'll kick off the test as normal, triggering a send offer
+		// event to advance the state machine.
+		closeHarness.expectHalfSignerIteration(
+			sendOfferEvent, balanceAfterClose, absoluteFee,
+			noDustExpect,
+		)
+
+		// We'll now craft the local sig received event, but this time
+		// we'll specify 2 signature fields.
+		localSigEvent := &LocalSigReceived{
+			SigMsg: lnwire.ClosingSig{
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserNoClosee: newSigTlv[tlv.TlvType1](
+						remoteWireSig,
+					),
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+
+		// We expect that the state machine fails as we received more
+		// than one error.
+		closeHarness.expectFailure(ErrTooManySigs)
+
+		// We should fail as the remote party sent us more than one
+		// signature.
+		closeHarness.chanCloser.SendEvent(localSigEvent)
+	})
+
+	// Next, we'll verify that if the balance of the remote party is dust,
+	// then the proper sig field is set.
+	t.Run("send_offer_iteration_remote_dust", func(t *testing.T) {
+		// We'll modify the starting state to reduce the balance of the
+		// remote party to something that'll be dust.
+		newCloseTerms := *closeTerms
+		newCloseTerms.ShutdownBalances.RemoteBalance = 100
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: newCloseTerms,
+				},
+			},
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](firstState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We'll kick off the half iteration as normal, but this time
+		// we expect that the remote party's output is dust, so the
+		// proper field is set.
+		closeHarness.expectHalfSignerIteration(
+			sendOfferEvent, balanceAfterClose, absoluteFee,
+			remoteDustExpect,
+		)
+	})
+
+	// Similarly, we'll verify that if our final closing balance is dust,
+	// then we send the sig that omits our output.
+	t.Run("send_offer_iteration_local_dust", func(t *testing.T) {
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: *closeTerms,
+				},
+			},
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](firstState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We'll kick off the half iteration as normal, but this time
+		// we'll have our balance after close be dust, so we expect
+		// that the local output is dust in the sig we send.
+		dustBalance := btcutil.Amount(100)
+		closeHarness.expectHalfSignerIteration(
+			sendOfferEvent, dustBalance, absoluteFee,
+			localDustExpect,
+		)
+	})
+
+	// In this test, we'll assert that we're able to restart the RBF loop
+	// to trigger additional signature iterations.
+	t.Run("send_offer_rbf_iteration_loop", func(t *testing.T) {
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: *closeTerms,
+				},
+			},
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState:     fn.Some[ProtocolState](firstState),
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We'll start out by first triggering a routine iteration,
+		// assuming we start in this negotiation state.
+		closeHarness.assertSingleRbfIteration(
+			sendOfferEvent, balanceAfterClose, absoluteFee,
+			noDustExpect,
+		)
+
+		// Next, we'll send in a new SendShutdown event which simulates
+		// the user requesting a RBF fee bump. We'll use 10x the fee we
+		// used in the last iteration.
+		rbfFeeBump := chainfee.FeePerKwFloor.FeePerVByte() * 10
+		sendShutdown := &SendShutdown{
+			IdealFeeRate: rbfFeeBump,
+		}
+
+		// We should send shutdown as normal, but skip some other
+		// checks as we know the close is in progress.
+		closeHarness.expectShutdownEvents(shutdownExpect{
+			allowSend:     true,
+			finalBalances: fn.Some(closeTerms.ShutdownBalances),
+			recvShutdown:  true,
+		})
+		closeHarness.expectMsgSent(
+			singleMsgMatcher[*lnwire.Shutdown](nil),
+		)
+
+		closeHarness.chanCloser.SendEvent(sendShutdown)
+
+		// We should first transition to the Channel Active state
+		// momentarily, before transitioning to the shutdown pending
+		// state.
+		closeHarness.assertStateTransitions(
+			&ChannelActive{}, &ShutdownPending{},
+		)
+
+		// Next, we'll send in the shutdown received event, which
+		// should transition us to the channel flushing state.
+		shutdownEvent := &ShutdownReceived{
+			ShutdownScript: remoteAddr,
+		}
+
+		// Now we expect that aanother full RBF iteration takes place
+		// (we initiatea a new local sig).
+		closeHarness.assertSingleRbfIteration(
+			shutdownEvent, balanceAfterClose, absoluteFee,
+			noDustExpect,
+		)
+
+		// We should terminate in the negotiation state.
+		closeHarness.assertStateTransitions(
+			&ClosingNegotiation{},
+		)
+	})
+}
+
+// TestRbfCloseClosingNegotiationRemote tests that state machine is able to
+// handle RBF iterations to sign for the closing transaction of the remote
+// party.
+func TestRbfCloseClosingNegotiationRemote(t *testing.T) {
+	t.Parallel()
+
+	localBalance := lnwire.NewMSatFromSatoshis(40_000)
+	remoteBalance := lnwire.NewMSatFromSatoshis(50_000)
+
+	absoluteFee := btcutil.Amount(10_100)
+
+	closeTerms := &CloseChannelTerms{
+		ShutdownBalances: ShutdownBalances{
+			LocalBalance:  localBalance,
+			RemoteBalance: remoteBalance,
+		},
+		ShutdownScripts: ShutdownScripts{
+			LocalDeliveryScript:  localAddr,
+			RemoteDeliveryScript: remoteAddr,
+		},
+	}
+	startingState := &ClosingNegotiation{
+		PeerState: lntypes.Dual[AsymmetricPeerState]{
+			Local: &LocalCloseStart{
+				CloseChannelTerms: *closeTerms,
+			},
+			Remote: &RemoteCloseStart{
+				CloseChannelTerms: *closeTerms,
+			},
+		},
+	}
+
+	balanceAfterClose := remoteBalance.ToSatoshis() - absoluteFee
+
+	sequence := uint32(mempool.MaxRBFSequence)
+
+	// This case tests that if we receive a signature from the remote
+	// party, where they can't pay for the fees, we exit.
+	t.Run("recv_offer_cannot_pay_for_fees", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We should fail as they sent a sig, but can't pay for fees.
+		closeHarness.expectFailure(ErrRemoteCannotPay)
+
+		// We'll send in a new fee proposal, but the proposed fee will
+		// be higher than the remote party's balance.
+		feeOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				FeeSatoshis: absoluteFee * 10,
+			},
+		}
+		closeHarness.chanCloser.SendEvent(feeOffer)
+
+		// We shouldn't have transitioned to a new state.
+		closeHarness.assertNoStateTransitions()
+	})
+
+	// If the remote party sends us a signature with a final sequence, then
+	// we'll error out as it can't be RBF'd
+	t.Run("recv_offer_final_sequence", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We should fail as they sent a non final sequence.
+		closeHarness.expectFailure(ErrNonFinalSequence)
+
+		// We'll send an offer with something beyond the max RBF value,
+		// this should fail.
+		feeOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				FeeSatoshis: absoluteFee,
+				Sequence:    mempool.MaxRBFSequence + 1,
+			},
+		}
+		closeHarness.chanCloser.SendEvent(feeOffer)
+
+		// We shouldn't have transitioned to a new state.
+		closeHarness.assertNoStateTransitions()
+	})
+
+	// If our balance, is dust, then the remote party should send a
+	// signature that doesn't include our output.
+	t.Run("recv_offer_err_closer_no_closee", func(t *testing.T) {
+		// We'll modify our local balance to be dust.
+		closingTerms := *closeTerms
+		closingTerms.ShutdownBalances.LocalBalance = 100
+
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: closingTerms,
+				},
+				Remote: &RemoteCloseStart{
+					CloseChannelTerms: closingTerms,
+				},
+			},
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](firstState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We should fail as they included the wrong sig.
+		closeHarness.expectFailure(ErrCloserNoClosee)
+
+		// Our balance is dust, so we should reject this signature that
+		// includes our output.
+		feeOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				FeeSatoshis: absoluteFee,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+		closeHarness.chanCloser.SendEvent(feeOffer)
+
+		// We shouldn't have transitioned to a new state.
+		closeHarness.assertNoStateTransitions()
+	})
+
+	// If no balances are dust, then they should send a sig covering both
+	// outputs.
+	t.Run("recv_offer_err_closer_and_closee", func(t *testing.T) {
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState: fn.Some[ProtocolState](startingState),
+		})
+		defer closeHarness.stopAndAssert()
+
+		// We should fail as they included the wrong sig.
+		closeHarness.expectFailure(ErrCloserAndClosee)
+
+		// Both balances are above dust, we should reject this
+		// signature as it excludes an output.
+		feeOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				FeeSatoshis: absoluteFee,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserNoClosee: newSigTlv[tlv.TlvType1]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+		closeHarness.chanCloser.SendEvent(feeOffer)
+
+		// We shouldn't have transitioned to a new state.
+		closeHarness.assertNoStateTransitions()
+	})
+
+	// If everything lines up, then we should be able to do multiple RBF
+	// loops to enable the remote party to sign.new versions of the co-op
+	// close transaction.
+	t.Run("recv_offer_rbf_loop_iterations", func(t *testing.T) {
+		// We'll modify our s.t we're unable to pay for fees, but
+		// aren't yet dust.
+		closingTerms := *closeTerms
+		closingTerms.ShutdownBalances.LocalBalance = lnwire.NewMSatFromSatoshis( //nolint:ll
+			9000,
+		)
+
+		firstState := &ClosingNegotiation{
+			PeerState: lntypes.Dual[AsymmetricPeerState]{
+				Local: &LocalCloseStart{
+					CloseChannelTerms: closingTerms,
+				},
+				Remote: &RemoteCloseStart{
+					CloseChannelTerms: closingTerms,
+				},
+			},
+		}
+
+		closeHarness := newCloser(t, &harnessCfg{
+			initialState:     fn.Some[ProtocolState](firstState),
+			localUpfrontAddr: fn.Some(localAddr),
+		})
+		defer closeHarness.stopAndAssert()
+
+		feeOffer := &OfferReceivedEvent{
+			SigMsg: lnwire.ClosingComplete{
+				FeeSatoshis: absoluteFee,
+				Sequence:    sequence,
+				ClosingSigs: lnwire.ClosingSigs{
+					CloserAndClosee: newSigTlv[tlv.TlvType3]( //nolint:ll
+						remoteWireSig,
+					),
+				},
+			},
+		}
+
+		// As we're already in the negotiation phase, we'll now trigger
+		// a new iteration by having the remote party send a new offer
+		// sig.
+		closeHarness.assertSingleRemoteRbfIteration(
+			feeOffer, balanceAfterClose, absoluteFee, sequence,
+			false,
+		)
+
+		// At this point, we've completed a single RBF iteration, and
+		// want to test further iterations, so we'll use a shutdown
+		// even tot kick it all off.
+		//
+		// Before we send the shutdown messages below, we'll mark the
+		// balances as so we fast track to the negotiation state.
+		closeHarness.expectShutdownEvents(shutdownExpect{
+			allowSend:     true,
+			finalBalances: fn.Some(closingTerms.ShutdownBalances),
+			recvShutdown:  true,
+		})
+		closeHarness.expectMsgSent(
+			singleMsgMatcher[*lnwire.Shutdown](nil),
+		)
+
+		// We'll now simulate the start of the RBF loop, by receiving a
+		// new Shutdown message from the remote party. This signals
+		// that they want to obtain a new commit sig.
+		closeHarness.chanCloser.SendEvent(&ShutdownReceived{
+			ShutdownScript: remoteAddr,
+		})
+
+		// Next, we'll receive an offer from the remote party, and
+		// drive another RBF iteration. This time, we'll increase the
+		// absolute fee by 1k sats.
+		feeOffer.SigMsg.FeeSatoshis += 1000
+		absoluteFee = feeOffer.SigMsg.FeeSatoshis
+		closeHarness.assertSingleRemoteRbfIteration(
+			feeOffer, balanceAfterClose, absoluteFee, sequence,
+			true,
+		)
+
+		closeHarness.assertNoStateTransitions()
+	})
+
+	// TODO(roasbeef): cross sig case? tested isolation, so wolog?
+}

@@ -176,6 +176,25 @@ service Router {
     */
     rpc UpdateChanStatus (UpdateChanStatusRequest)
         returns (UpdateChanStatusResponse);
+
+    /*
+    XAddLocalChanAliases is an experimental API that creates a set of new
+    channel SCID alias mappings. The final total set of aliases in the manager
+    after the add operation is returned. This is only a locally stored alias,
+    and will not be communicated to the channel peer via any message. Therefore,
+    routing over such an alias will only work if the peer also calls this same
+    RPC on their end. If an alias already exists, an error is returned
+    */
+    rpc XAddLocalChanAliases (AddAliasesRequest) returns (AddAliasesResponse);
+
+    /*
+    XDeleteLocalChanAliases is an experimental API that deletes a set of alias
+    mappings. The final total set of aliases in the manager after the delete
+    operation is returned. The deletion will not be communicated to the channel
+    peer via any message.
+    */
+    rpc XDeleteLocalChanAliases (DeleteAliasesRequest)
+        returns (DeleteAliasesResponse);
 }
 
 message SendPaymentRequest {
@@ -1020,4 +1039,20 @@ enum ChanStatusAction {
 }
 
 message UpdateChanStatusResponse {
+}
+
+message AddAliasesRequest {
+    repeated lnrpc.AliasMap alias_maps = 1;
+}
+
+message AddAliasesResponse {
+    repeated lnrpc.AliasMap alias_maps = 1;
+}
+
+message DeleteAliasesRequest {
+    repeated lnrpc.AliasMap alias_maps = 1;
+}
+
+message DeleteAliasesResponse {
+    repeated lnrpc.AliasMap alias_maps = 1;
 }

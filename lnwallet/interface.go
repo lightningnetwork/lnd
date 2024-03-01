@@ -18,6 +18,7 @@ import (
 	base "github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wtxmgr"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -344,8 +345,8 @@ type WalletController interface {
 	// be used when crafting the transaction.
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
-	SendOutputs(outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
-		minConfs int32, label string,
+	SendOutputs(inputs fn.Set[wire.OutPoint], outputs []*wire.TxOut,
+		feeRate chainfee.SatPerKWeight, minConfs int32, label string,
 		strategy base.CoinSelectionStrategy) (*wire.MsgTx, error)
 
 	// CreateSimpleTx creates a Bitcoin transaction paying to the specified
@@ -360,9 +361,10 @@ type WalletController interface {
 	// SHOULD NOT be broadcasted.
 	//
 	// NOTE: This method requires the global coin selection lock to be held.
-	CreateSimpleTx(outputs []*wire.TxOut, feeRate chainfee.SatPerKWeight,
-		minConfs int32, strategy base.CoinSelectionStrategy,
-		dryRun bool) (*txauthor.AuthoredTx, error)
+	CreateSimpleTx(inputs fn.Set[wire.OutPoint], outputs []*wire.TxOut,
+		feeRate chainfee.SatPerKWeight, minConfs int32,
+		strategy base.CoinSelectionStrategy, dryRun bool) (
+		*txauthor.AuthoredTx, error)
 
 	// GetTransactionDetails returns a detailed description of a transaction
 	// given its transaction hash.

@@ -170,7 +170,7 @@ func sendCoins(t *testing.T, miner *rpctest.Harness,
 
 	tx, err := sender.SendOutputs(
 		[]*wire.TxOut{output}, feeRate, minConf, labels.External,
-		sender.Cfg.CoinSelectionStrategy,
+		sender.Cfg.CoinSelectionStrategy, nil,
 	)
 	require.NoError(t, err, "unable to send transaction")
 
@@ -1190,7 +1190,7 @@ func testListTransactionDetails(miner *rpctest.Harness,
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
 	burnTX, err := alice.SendOutputs(
 		[]*wire.TxOut{burnOutput}, 2500, 1, labels.External,
-		alice.Cfg.CoinSelectionStrategy,
+		alice.Cfg.CoinSelectionStrategy, nil,
 	)
 	require.NoError(t, err, "unable to create burn tx")
 	burnTXID := burnTX.TxHash()
@@ -1450,7 +1450,7 @@ func testTransactionSubscriptions(miner *rpctest.Harness,
 	burnOutput := wire.NewTxOut(outputAmt, outputScript)
 	tx, err := alice.SendOutputs(
 		[]*wire.TxOut{burnOutput}, 2500, 1, labels.External,
-		alice.Cfg.CoinSelectionStrategy,
+		alice.Cfg.CoinSelectionStrategy, nil,
 	)
 	require.NoError(t, err, "unable to create tx")
 	txid := tx.TxHash()
@@ -1639,7 +1639,7 @@ func newTx(t *testing.T, r *rpctest.Harness, pubKey *btcec.PublicKey,
 	}
 	tx, err := alice.SendOutputs(
 		[]*wire.TxOut{newOutput}, 2500, 1, labels.External,
-		alice.Cfg.CoinSelectionStrategy,
+		alice.Cfg.CoinSelectionStrategy, nil,
 	)
 	require.NoError(t, err, "unable to create output")
 
@@ -1955,7 +1955,7 @@ func testSignOutputUsingTweaks(r *rpctest.Harness,
 		}
 		tx, err := alice.SendOutputs(
 			[]*wire.TxOut{newOutput}, 2500, 1, labels.External,
-			alice.Cfg.CoinSelectionStrategy,
+			alice.Cfg.CoinSelectionStrategy, nil,
 		)
 		if err != nil {
 			t.Fatalf("unable to create output: %v", err)
@@ -2074,7 +2074,7 @@ func testReorgWalletBalance(r *rpctest.Harness, w *lnwallet.LightningWallet,
 	}
 	tx, err := w.SendOutputs(
 		[]*wire.TxOut{output}, 2500, 1, labels.External,
-		w.Cfg.CoinSelectionStrategy,
+		w.Cfg.CoinSelectionStrategy, nil,
 	)
 	require.NoError(t, err, "unable to send outputs")
 	txid := tx.TxHash()
@@ -2299,7 +2299,7 @@ func testSpendUnconfirmed(miner *rpctest.Harness,
 	}
 	_, err = bob.SendOutputs(
 		[]*wire.TxOut{output}, txFeeRate, 0, labels.External,
-		bob.Cfg.CoinSelectionStrategy,
+		bob.Cfg.CoinSelectionStrategy, nil,
 	)
 	if err == nil {
 		t.Fatalf("should have not been able to pay due to insufficient balance: %v", err)
@@ -2326,7 +2326,7 @@ func testSpendUnconfirmed(miner *rpctest.Harness,
 	// using confirmed outputs only.
 	_, err = bob.SendOutputs(
 		[]*wire.TxOut{output}, txFeeRate, 1, labels.External,
-		bob.Cfg.CoinSelectionStrategy,
+		bob.Cfg.CoinSelectionStrategy, nil,
 	)
 	if err == nil {
 		t.Fatalf("should have not been able to pay due to insufficient balance: %v", err)
@@ -2587,7 +2587,7 @@ func testCreateSimpleTx(r *rpctest.Harness, w *lnwallet.LightningWallet,
 		// that the change output position might be different.
 		tx, sendErr := w.SendOutputs(
 			outputs, feeRate, minConfs, labels.External,
-			w.Cfg.CoinSelectionStrategy,
+			w.Cfg.CoinSelectionStrategy, nil,
 		)
 		switch {
 		case test.valid && sendErr != nil:

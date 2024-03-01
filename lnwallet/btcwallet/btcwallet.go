@@ -978,8 +978,9 @@ func (b *BtcWallet) ImportTaprootScript(scope waddrmgr.KeyScope,
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight, minConfs int32, label string,
-	strategy base.CoinSelectionStrategy) (*wire.MsgTx, error) {
+	feeRate chainfee.SatPerKWeight, minConfs int32,
+	label string, strategy base.CoinSelectionStrategy,
+	outpoints []wire.OutPoint) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -993,6 +994,14 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 	// Sanity check minConfs.
 	if minConfs < 0 {
 		return nil, lnwallet.ErrInvalidMinconf
+	}
+
+	// Use selected UTXOs if specified, otherwise default selection.
+	if len(outpoints) != 0 {
+		return b.wallet.SendOutputsWithInput(
+			outputs, nil, defaultAccount, minConfs, feeSatPerKB,
+			strategy, label, outpoints,
+		)
 	}
 
 	return b.wallet.SendOutputs(
@@ -1016,8 +1025,9 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 // This is a part of the WalletController interface.
 func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 	feeRate chainfee.SatPerKWeight, minConfs int32,
-	strategy base.CoinSelectionStrategy,
-	dryRun bool) (*txauthor.AuthoredTx, error) {
+	strategy base.CoinSelectionStrategy, dryRun bool,
+	optFuncs ...base.TxCreateOption) (
+	*txauthor.AuthoredTx, error) {
 
 	// The fee rate is passed in using units of sat/kw, so we'll convert
 	// this to sat/KB as the CreateSimpleTx method requires this unit.
@@ -1049,7 +1059,7 @@ func (b *BtcWallet) CreateSimpleTx(outputs []*wire.TxOut,
 
 	return b.wallet.CreateSimpleTx(
 		nil, defaultAccount, outputs, minConfs, feeSatPerKB,
-		strategy, dryRun,
+		strategy, dryRun, optFuncs...,
 	)
 }
 

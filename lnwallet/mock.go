@@ -147,7 +147,7 @@ func (w *mockWalletController) ImportTaprootScript(waddrmgr.KeyScope,
 // SendOutputs currently returns dummy values.
 func (w *mockWalletController) SendOutputs([]*wire.TxOut,
 	chainfee.SatPerKWeight, int32, string,
-	base.CoinSelectionStrategy) (*wire.MsgTx, error) {
+	base.CoinSelectionStrategy, []wire.OutPoint) (*wire.MsgTx, error) {
 
 	return nil, nil
 }
@@ -155,7 +155,7 @@ func (w *mockWalletController) SendOutputs([]*wire.TxOut,
 // CreateSimpleTx currently returns dummy values.
 func (w *mockWalletController) CreateSimpleTx([]*wire.TxOut,
 	chainfee.SatPerKWeight, int32, base.CoinSelectionStrategy,
-	bool) (*txauthor.AuthoredTx, error) {
+	bool, ...base.TxCreateOption) (*txauthor.AuthoredTx, error) {
 
 	return nil, nil
 }

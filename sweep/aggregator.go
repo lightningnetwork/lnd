@@ -29,11 +29,11 @@ type inputCluster struct {
 	inputs       pendingInputs
 }
 
-// GroupInputs goes through the cluster's inputs and constructs sets of inputs
-// that can be used to generate a sensible transaction. Each set contains up to
-// the configured maximum number of inputs. Negative yield inputs are skipped.
-// No input sets with a total value after fees below the dust limit are
-// returned.
+// createInputSets goes through the cluster's inputs and constructs sets of
+// inputs that can be used to generate a sweeping transaction. Each set
+// contains up to the configured maximum number of inputs. Negative yield
+// inputs are skipped.  No input sets with a total value after fees below the
+// dust limit are returned.
 func (c *inputCluster) createInputSets(maxFeeRate chainfee.SatPerKWeight,
 	maxInputs int) []InputSet {
 

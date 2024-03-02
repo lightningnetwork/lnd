@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -78,6 +79,54 @@ func TestBudgetConfigValidate(t *testing.T) {
 			}
 
 			require.ErrorContains(t, err, tc.expectedErrStr)
+		})
+	}
+}
+
+// TestCalculateBudget checks that the budget calculation works as expected.
+func TestCalculateBudget(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		value    btcutil.Amount
+		ratio    float64
+		max      btcutil.Amount
+		expected btcutil.Amount
+	}{
+		{
+			// When the ratio is not specified, the default 0.5
+			// should be used.
+			name:     "use default ratio",
+			value:    btcutil.Amount(1000),
+			ratio:    0,
+			max:      0,
+			expected: btcutil.Amount(500),
+		},
+		{
+			// When the ratio is specified, the default is not
+			// used.
+			name:     "use specified ratio",
+			value:    btcutil.Amount(1000),
+			ratio:    0.1,
+			max:      0,
+			expected: btcutil.Amount(100),
+		},
+		{
+			// When the max is specified, the budget should be
+			// capped at that value.
+			name:     "budget capped at max",
+			value:    btcutil.Amount(1000),
+			ratio:    0.1,
+			max:      btcutil.Amount(1),
+			expected: btcutil.Amount(1),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			budget := calculateBudget(tc.value, tc.ratio, tc.max)
+			require.Equal(t, tc.expected, budget)
 		})
 	}
 }

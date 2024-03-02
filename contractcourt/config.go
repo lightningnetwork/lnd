@@ -111,3 +111,27 @@ func DefaultBudgetConfig() *BudgetConfig {
 		NoDeadlineHTLCRatio: DefaultBudgetRatio,
 	}
 }
+
+// calculateBudget takes an output value, a configured ratio and budget value,
+// and returns the budget to use for sweeping the output. If the budget value
+// is set, it will be used as cap.
+func calculateBudget(value btcutil.Amount, ratio float64,
+	max btcutil.Amount) btcutil.Amount {
+
+	// If ratio is not set, using the default value.
+	if ratio == 0 {
+		ratio = DefaultBudgetRatio
+	}
+
+	budget := value.MulF64(ratio)
+
+	log.Tracef("Calculated budget=%v using value=%v, ratio=%v, cap=%v",
+		budget, value, ratio, max)
+
+	if max != 0 && budget > max {
+		log.Debugf("Calculated budget=%v is capped at %v", budget, max)
+		return max
+	}
+
+	return budget
+}

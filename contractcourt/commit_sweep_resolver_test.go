@@ -129,15 +129,18 @@ func (s *mockSweeper) SweepInput(input input.Input, params sweep.Params) (
 
 	s.sweptInputs <- input
 
-	// TODO(yy): use `mock.Mock` to avoid the conversion.
-	fee, ok := params.Fee.(sweep.FeeEstimateInfo)
-	if !ok {
-		return nil, fmt.Errorf("unexpected fee type: %T", params.Fee)
-	}
+	// TODO(yy): replace mockSweeper with `mock.Mock`.
+	if params.Fee != nil {
+		fee, ok := params.Fee.(sweep.FeeEstimateInfo)
+		if !ok {
+			return nil, fmt.Errorf("unexpected fee type: %T",
+				params.Fee)
+		}
 
-	// Update the deadlines used if it's set.
-	if fee.ConfTarget != 0 {
-		s.deadlines = append(s.deadlines, int(fee.ConfTarget))
+		// Update the deadlines used if it's set.
+		if fee.ConfTarget != 0 {
+			s.deadlines = append(s.deadlines, int(fee.ConfTarget))
+		}
 	}
 
 	result := make(chan sweep.Result, 1)

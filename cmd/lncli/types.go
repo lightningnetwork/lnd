@@ -85,3 +85,22 @@ func NewFailedUpdateFromProto(update *lnrpc.FailedUpdate) *FailedUpdate {
 		UpdateError: update.UpdateError,
 	}
 }
+
+// UtxosToOutpoints converts a slice of UTXO strings into a slice of OutPoint
+// protobuf objects. It returns an error if no UTXOs are specified or if any
+// UTXO string cannot be parsed into an OutPoint.
+func UtxosToOutpoints(utxos []string) ([]*lnrpc.OutPoint, error) {
+	var outpoints []*lnrpc.OutPoint
+	if len(utxos) == 0 {
+		return nil, fmt.Errorf("no utxos specified")
+	}
+	for _, utxo := range utxos {
+		outpoint, err := NewProtoOutPoint(utxo)
+		if err != nil {
+			return nil, err
+		}
+		outpoints = append(outpoints, outpoint)
+	}
+
+	return outpoints, nil
+}

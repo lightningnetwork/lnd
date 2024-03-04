@@ -232,6 +232,9 @@
 * [Allow callers of ListSweeps to specify the start height](
   https://github.com/lightningnetwork/lnd/pull/7372).
 
+* Added `outpoints` to `SendCoinsRequest`[
+* https://github.com/lightningnetwork/lnd/pull/8516]
+
 ## lncli Updates
 
 * [Documented all available lncli commands](https://github.com/lightningnetwork/lnd/pull/8181).
@@ -250,6 +253,10 @@
 * `pendingchannels` now optionally returns the 
   [raw hex of the closing tx](https://github.com/lightningnetwork/lnd/pull/8426)
   in `waiting_close_channels`.
+
+* `sendcoins` now takes in an optional utxo flag[
+ https://github.com/lightningnetwork/lnd/pull/8516]. This allows users to
+specify the coins that they want for the transaction.
 
 ## Code Health
 

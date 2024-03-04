@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/kvdb"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -68,6 +69,10 @@ var (
 	// errNoPeerAlias is returned when the peer's alias for a given
 	// channel is not found.
 	errNoPeerAlias = fmt.Errorf("no peer alias found")
+
+	// ErrAliasNotFound is returned when the alias is not found and can't
+	// be mapped to a base SCID.
+	ErrAliasNotFound = fmt.Errorf("alias not found")
 )
 
 // Manager is a struct that handles aliases for LND. It has an underlying
@@ -336,6 +341,61 @@ func (m *Manager) DeleteSixConfs(baseScid lnwire.ShortChannelID) error {
 			delete(m.aliasToBase, alias)
 		}
 	}
+
+	return nil
+}
+
+// DeleteLocalAlias removes a mapping from the database and the Manager's maps.
+func (m *Manager) DeleteLocalAlias(alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	m.Lock()
+	defer m.Unlock()
+
+	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
+		aliasToBaseBucket, err := tx.CreateTopLevelBucket(aliasBucket)
+		if err != nil {
+			return err
+		}
+
+		var aliasBytes [8]byte
+		byteOrder.PutUint64(aliasBytes[:], alias.ToUint64())
+
+		// If the user attempts to delete an alias that doesn't exist,
+		// we'll want to inform them about it and not just do nothing.
+		if aliasToBaseBucket.Get(aliasBytes[:]) == nil {
+			return ErrAliasNotFound
+		}
+
+		return aliasToBaseBucket.Delete(aliasBytes[:])
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	// Now that the database state has been updated, we'll delete the
+	// mapping from the Manager's maps.
+	aliasSet, ok := m.baseToSet[baseScid]
+	if !ok {
+		return ErrAliasNotFound
+	}
+
+	// We'll filter the alias set and remove the alias from it.
+	aliasSet = fn.Filter(func(a lnwire.ShortChannelID) bool {
+		return a.ToUint64() != alias.ToUint64()
+	}, aliasSet)
+
+	// If the alias set is empty, we'll delete the base SCID from the
+	// baseToSet map.
+	if len(aliasSet) == 0 {
+		delete(m.baseToSet, baseScid)
+	} else {
+		m.baseToSet[baseScid] = aliasSet
+	}
+
+	// Finally, we'll delete the aliasToBase mapping from the Manager's
+	// cache (but this is only set if we gossip the alias).
+	delete(m.aliasToBase, alias)
 
 	return nil
 }

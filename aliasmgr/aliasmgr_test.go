@@ -68,6 +68,74 @@ func TestAliasStoreRequest(t *testing.T) {
 	require.Equal(t, nextAlias, alias2)
 }
 
+// TestAliasLifecycle tests that the aliases can be created and deleted.
+func TestAliasLifecycle(t *testing.T) {
+	t.Parallel()
+
+	// Create the backend database and use this to create the aliasStore.
+	dbPath := filepath.Join(t.TempDir(), "testdb")
+	db, err := kvdb.Create(
+		kvdb.BoltBackendName, dbPath, true, kvdb.DefaultDBTimeout,
+	)
+	require.NoError(t, err)
+	defer db.Close()
+
+	aliasStore, err := NewManager(db)
+	require.NoError(t, err)
+
+	const (
+		base  = uint64(123123123)
+		alias = uint64(456456456)
+	)
+
+	// Parse the aliases and base to short channel ID format.
+	baseScid := lnwire.NewShortChanIDFromInt(base)
+	aliasScid := lnwire.NewShortChanIDFromInt(alias)
+	aliasScid2 := lnwire.NewShortChanIDFromInt(alias + 1)
+
+	// Add the first alias.
+	err = aliasStore.AddLocalAlias(aliasScid, baseScid, false)
+	require.NoError(t, err)
+
+	// Query the aliases and verify the results.
+	aliasList := aliasStore.GetAliases(baseScid)
+	require.Len(t, aliasList, 1)
+	require.Contains(t, aliasList, aliasScid)
+
+	// Add the second alias.
+	err = aliasStore.AddLocalAlias(aliasScid2, baseScid, false)
+	require.NoError(t, err)
+
+	// Query the aliases and verify the results.
+	aliasList = aliasStore.GetAliases(baseScid)
+	require.Len(t, aliasList, 2)
+	require.Contains(t, aliasList, aliasScid)
+	require.Contains(t, aliasList, aliasScid2)
+
+	// Delete the first alias.
+	err = aliasStore.DeleteLocalAlias(aliasScid, baseScid)
+	require.NoError(t, err)
+
+	// We expect to get an error if we attempt to delete the same alias
+	// again.
+	err = aliasStore.DeleteLocalAlias(aliasScid, baseScid)
+	require.ErrorIs(t, err, ErrAliasNotFound)
+
+	// Query the aliases and verify that first one doesn't exist anymore.
+	aliasList = aliasStore.GetAliases(baseScid)
+	require.Len(t, aliasList, 1)
+	require.Contains(t, aliasList, aliasScid2)
+	require.NotContains(t, aliasList, aliasScid)
+
+	// Delete the second alias.
+	err = aliasStore.DeleteLocalAlias(aliasScid2, baseScid)
+	require.NoError(t, err)
+
+	// Query the aliases and verify that none exists.
+	aliasList = aliasStore.GetAliases(baseScid)
+	require.Len(t, aliasList, 0)
+}
+
 // TestGetNextScid tests that given a current lnwire.ShortChannelID,
 // getNextScid returns the expected alias to use next.
 func TestGetNextScid(t *testing.T) {

@@ -340,6 +340,59 @@ func (m *Manager) DeleteSixConfs(baseScid lnwire.ShortChannelID) error {
 	return nil
 }
 
+// DeleteLocalAlias removes a mapping from the database and the Manager's maps.
+func (m *Manager) DeleteLocalAlias(alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	m.Lock()
+	defer m.Unlock()
+
+	err := kvdb.Update(m.backend, func(tx kvdb.RwTx) error {
+		aliasToBaseBucket, err := tx.CreateTopLevelBucket(aliasBucket)
+		if err != nil {
+			return err
+		}
+
+		var aliasBytes [8]byte
+		byteOrder.PutUint64(aliasBytes[:], alias.ToUint64())
+
+		return aliasToBaseBucket.Delete(aliasBytes[:])
+	}, func() {})
+	if err != nil {
+		return err
+	}
+
+	// Now that the database state has been updated, we'll delete the
+	// mapping from the Manager's maps.
+	aliasSet, ok := m.baseToSet[baseScid]
+	if !ok {
+		return nil
+	}
+
+	// We'll iterate through the alias set and remove the alias from the
+	// set.
+	for i, a := range aliasSet {
+		if a.ToUint64() == alias.ToUint64() {
+			aliasSet = append(aliasSet[:i], aliasSet[i+1:]...)
+			break
+		}
+	}
+
+	// If the alias set is empty, we'll delete the base SCID from the
+	// baseToSet map.
+	if len(aliasSet) == 0 {
+		delete(m.baseToSet, baseScid)
+	} else {
+		m.baseToSet[baseScid] = aliasSet
+	}
+
+	// Finally, we'll delete the aliasToBase mapping from the Manager's
+	// cache.
+	delete(m.aliasToBase, alias)
+
+	return nil
+}
+
 // PutPeerAlias stores the peer's alias SCID once we learn of it in the
 // channel_ready message.
 func (m *Manager) PutPeerAlias(chanID lnwire.ChannelID,

@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -10,6 +11,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/stretchr/testify/require"
@@ -22,15 +24,51 @@ import (
 // will have the receiver settle the invoice and observe that the channel gets
 // torn down after settlement.
 func testCoopCloseWithHtlcs(ht *lntest.HarnessTest) {
-	ht.Run("no restart", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		coopCloseWithHTLCs(tt)
-	})
+	rbfCoopFlags := []string{"--protocol.rbf-coop-close"}
 
-	ht.Run("with restart", func(t *testing.T) {
-		tt := ht.Subtest(t)
-		coopCloseWithHTLCsWithRestart(tt)
-	})
+	for _, isRbf := range []bool{true, false} {
+		testName := fmt.Sprintf("no restart is_rbf=%v", isRbf)
+		ht.Run(testName, func(t *testing.T) {
+			tt := ht.Subtest(t)
+
+			var alice, bob *node.HarnessNode
+			if !isRbf {
+				alice, bob = ht.Alice, ht.Bob
+			} else {
+				alice = tt.NewNode("Carol", rbfCoopFlags)
+				defer tt.Shutdown(alice)
+
+				bob = tt.NewNode("Dave", rbfCoopFlags)
+				defer tt.Shutdown(bob)
+
+				ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+			}
+
+			coopCloseWithHTLCs(tt, alice, bob)
+		})
+	}
+
+	for _, isRbf := range []bool{true, false} {
+		testName := fmt.Sprintf("with restart is_rbf=%v", isRbf)
+		ht.Run(testName, func(t *testing.T) {
+			tt := ht.Subtest(t)
+
+			var alice, bob *node.HarnessNode
+			if !isRbf {
+				alice, bob = ht.Alice, ht.Bob
+			} else {
+				alice = tt.NewNode("Carol", rbfCoopFlags)
+				defer tt.Shutdown(alice)
+
+				bob = tt.NewNode("Dave", rbfCoopFlags)
+				defer tt.Shutdown(bob)
+
+				ht.FundCoins(btcutil.SatoshiPerBitcoin, bob)
+			}
+
+			coopCloseWithHTLCsWithRestart(tt, alice, bob)
+		})
+	}
 }
 
 // coopCloseWithHTLCs tests the basic coop close scenario which occurs when one
@@ -215,8 +253,8 @@ func coopCloseWithHTLCsWithRestart(ht *lntest.HarnessTest) {
 	}, defaultTimeout)
 	require.NoError(ht, err)
 
-	// Wait for the close tx to be in the Mempool and then mine 6 blocks
-	// to confirm the close.
+	// Wait for the close tx to be in the Mempool and then mine 6 blocks to
+	// confirm the close.
 	closingTx := ht.AssertClosingTxInMempool(
 		chanPoint, lnrpc.CommitmentType_LEGACY,
 	)

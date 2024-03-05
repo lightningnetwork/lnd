@@ -2199,6 +2199,13 @@ func messageSummary(msg lnwire.Message) string {
 		return fmt.Sprintf("chan_id=%v, script=%x", msg.ChannelID,
 			msg.Address[:])
 
+	case *lnwire.ClosingComplete:
+		return fmt.Sprintf("chan_id=%v, fee_sat=%v, sequence=%v",
+			msg.ChannelID, msg.FeeSatoshis, msg.Sequence)
+
+	case *lnwire.ClosingSig:
+		return fmt.Sprintf("chan_id=%v", msg.ChannelID)
+
 	case *lnwire.ClosingSigned:
 		return fmt.Sprintf("chan_id=%v, fee_sat=%v", msg.ChannelID,
 			msg.FeeSatoshis)

@@ -86,7 +86,9 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 		return &StateTransition[dummyEvents, *dummyEnv]{
 			NextState: &dummyStateStart{},
 			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
-				InternalEvent: fn.Some(dummyEvents(&goToFin{})),
+				InternalEvent: fn.Some(
+					[]dummyEvents{&goToFin{}},
+				),
 			}),
 		}, nil
 
@@ -246,6 +248,9 @@ func TestStateMachineTerminateCleanup(t *testing.T) {
 	stateMachine.Start()
 	defer stateMachine.Stop()
 
+	stateSub := stateMachine.RegisterStateEvents()
+	defer stateMachine.RemoveStateSub(stateSub)
+
 	// Now we'll send in a new dummy event to trigger out state machine.
 	// We'll have the ProcessEvent method take is to our terminal state.
 	//
@@ -253,6 +258,11 @@ func TestStateMachineTerminateCleanup(t *testing.T) {
 	// to be called.
 	env.On("CleanUp").Return(nil)
 	stateMachine.SendEvent(&goToFin{})
+
+	expectedStates := []State[dummyEvents, *dummyEnv]{
+		&dummyStateStart{}, &dummyStateFin{},
+	}
+	assertStateTransitions(t, stateSub, expectedStates)
 
 	// The state machine should now also be on the final terminal state.
 	assertState[dummyEvents, *dummyEnv](t, &stateMachine, &dummyStateFin{})

@@ -709,6 +709,12 @@ func (p *Brontide) Start() error {
 		return err
 	}
 
+	// Register the message router now as we may need to register some
+	// endpoints while loading the channels below.
+	p.msgRouter.WhenSome(func(router MsgRouter) {
+		router.Start()
+	})
+
 	msgs, err := p.loadActiveChannels(activeChans)
 	if err != nil {
 		return fmt.Errorf("unable to load channels: %w", err)
@@ -1274,6 +1280,10 @@ func (p *Brontide) Disconnect(reason error) {
 		p.log.Errorf("couldn't stop pingManager during disconnect: %v",
 			err)
 	}
+
+	p.msgRouter.WhenSome(func(router MsgRouter) {
+		router.Stop()
+	})
 }
 
 // String returns the string representation of this peer.

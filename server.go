@@ -577,6 +577,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			"aux controllers")
 	}
 
+	// For now, the RBF coop close flag and the taproot channel type cannot
+	// be used together.
+	//
+	// TODO(roasbeef): fix
+	if cfg.ProtocolOptions.RbfCoopClose &&
+		cfg.ProtocolOptions.TaprootChans {
+
+		return nil, fmt.Errorf("RBF coop close and taproot " +
+			"channels cannot be used together")
+	}
+
 	//nolint:ll
 	featureMgr, err := feature.NewManager(feature.Config{
 		NoTLVOnion:                cfg.ProtocolOptions.LegacyOnion(),
@@ -594,6 +605,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoRouteBlinding:           cfg.ProtocolOptions.NoRouteBlinding(),
 		NoExperimentalEndorsement: cfg.ProtocolOptions.NoExperimentalEndorsement(),
 		NoQuiescence:              cfg.ProtocolOptions.NoQuiescence(),
+		NoRbfCoopClose:            !cfg.ProtocolOptions.RbfCoopClose,
 	})
 	if err != nil {
 		return nil, err

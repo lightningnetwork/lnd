@@ -27,7 +27,7 @@ type EmittedEvent[Event any] struct {
 	// InternalEvent is an optional internal event that is to be routed
 	// back to the target state. This enables state to trigger one or many
 	// state transitions without a new external event.
-	InternalEvent fn.Option[Event]
+	InternalEvent fn.Option[[]Event]
 
 	// ExternalEvent is an optional external event that is to be sent to
 	// the daemon for dispatch. Usually, this is some form of I/O.
@@ -339,9 +339,9 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent( //nolint:funlen
 	// any preconditions as well as post-send events.
 	case *SendMsgEvent[Event]:
 		sendAndCleanUp := func() error {
-			log.Debugf("FSM(%v): sending message to target(%v): "+
+			log.Debugf("FSM(%v): sending message to target(%x): "+
 				"%v", s.cfg.Env.Name(),
-				daemonEvent.TargetPeer,
+				daemonEvent.TargetPeer.SerializeCompressed(),
 				newLogClosure(func() string {
 					return spew.Sdump(daemonEvent.Msgs)
 				}),
@@ -465,7 +465,11 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent( //nolint:funlen
 			defer s.wg.Done()
 			for {
 				select {
-				case spend := <-spendEvent.Spend:
+				case spend, ok := <-spendEvent.Spend:
+					if !ok {
+						return
+					}
+
 					// If there's a post-send event, then
 					// we'll send that into the current
 					// state now.
@@ -535,12 +539,6 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent( //nolint:funlen
 func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
 	newEvent Event) (State[Event, Env], error) {
 
-	log.Debugf("FSM(%v): applying new event: %v", s.cfg.Env.Name(),
-		newLogClosure(func() string {
-			return spew.Sdump(newEvent)
-		}),
-	)
-
 	eventQueue := fn.NewQueue(newEvent)
 
 	// Given the next event to handle, we'll process the event, then add
@@ -598,18 +596,21 @@ func (s *StateMachine[Event, Env]) applyEvents(currentState State[Event, Env],
 				// our event queue.
 				//
 				//nolint:lll
-				events.InternalEvent.WhenSome(func(inEvent Event) {
-					log.Debugf("FSM(%v): adding new "+
-						"internal event to queue: %v",
-						s.cfg.Env.Name(),
-						newLogClosure(func() string {
-							return spew.Sdump(
-								inEvent,
-							)
-						}),
-					)
+				events.InternalEvent.WhenSome(func(es []Event) {
+					for _, inEvent := range es {
+						log.Debugf("FSM(%v): adding "+
+							"new internal event "+
+							"to queue: %v",
+							s.cfg.Env.Name(),
+							newLogClosure(func() string { //nolint:lll
+								return spew.Sdump(
+									inEvent,
+								)
+							}),
+						)
 
-					eventQueue.Enqueue(inEvent)
+						eventQueue.Enqueue(inEvent)
+					}
 				})
 
 				return nil

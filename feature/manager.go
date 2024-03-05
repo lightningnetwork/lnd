@@ -63,6 +63,10 @@ type Config struct {
 	// NoRouteBlinding unsets route blinding feature bits.
 	NoRouteBlinding bool
 
+	// RbfCoopClose unsets any bits that signal support for using RBF for
+	// coop close.
+	NoRbfCoopClose bool
+
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
@@ -192,6 +196,11 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.Bolt11BlindedPathsOptional)
 			raw.Unset(lnwire.Bolt11BlindedPathsRequired)
 		}
+		if cfg.NoRbfCoopClose {
+			raw.Unset(lnwire.ShutdownAnySegwitOptional)
+			raw.Unset(lnwire.RbfCoopCloseOptionalStaging)
+		}
+
 		for _, custom := range cfg.CustomFeatures[set] {
 			if custom > set.Maximum() {
 				return nil, fmt.Errorf("feature bit: %v "+

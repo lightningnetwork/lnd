@@ -12,7 +12,7 @@ var log btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("PRCL", nil))
+	UseLogger(build.NewSubLogger("PFSM", nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled

@@ -80,7 +80,9 @@ func (d *dummyStateStart) ProcessEvent(event dummyEvents, env *dummyEnv,
 		return &StateTransition[dummyEvents, *dummyEnv]{
 			NextState: &dummyStateStart{},
 			NewEvents: fn.Some(EmittedEvent[dummyEvents]{
-				InternalEvent: fn.Some(dummyEvents(&goToFin{})),
+				InternalEvent: fn.Some(
+					[]dummyEvents{&goToFin{}},
+				),
 			}),
 		}, nil
 

@@ -41,6 +41,9 @@ type RoutingConfig struct {
 
 	// BimodalConfig defines parameters for the bimodal probability.
 	BimodalConfig *BimodalConfig `group:"bimodal" namespace:"bimodal" description:"configuration for the bimodal pathfinding probability estimator"`
+
+	// FeeEstimationTimeout is the maximum time to wait for routing fees to be estimated.
+	FeeEstimationTimeout time.Duration `long:"fee-estimation-timeout" description:"the maximum time to wait for routing fees to be estimated by payment probes"`
 }
 
 // AprioriConfig defines parameters for the apriori probability.

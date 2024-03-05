@@ -89,7 +89,14 @@ func testSendPaymentAMPInvoiceCase(ht *lntest.HarnessTest,
 	// Increase Dave's fee to make the test deterministic. Otherwise it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	expectedPolicy := mts.updateDaveGlobalPolicy()
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      500_000,
+		FeeRateMilliMsat: int64(0.001 * 1_000_000),
+		TimeLockDelta:    40,
+		MinHtlc:          1000, // default value
+		MaxHtlcMsat:      133_650_000,
+	}
+	mts.dave.UpdateGlobalPolicy(expectedPolicy)
 
 	// Make sure Alice has heard it for both Dave's channels.
 	ht.AssertChannelPolicyUpdate(
@@ -382,10 +389,17 @@ func testSendPaymentAMP(ht *lntest.HarnessTest) {
 	mts.openChannels(mppReq)
 	chanPointAliceDave := mts.channelPoints[1]
 
-	// Increase Dave's fee to make the test deterministic. Otherwise it
+	// Increase Dave's fee to make the test deterministic. Otherwise, it
 	// would be unpredictable whether pathfinding would go through Charlie
 	// or Dave for the first shard.
-	expectedPolicy := mts.updateDaveGlobalPolicy()
+	expectedPolicy := &lnrpc.RoutingPolicy{
+		FeeBaseMsat:      500_000,
+		FeeRateMilliMsat: int64(0.001 * 1_000_000),
+		TimeLockDelta:    40,
+		MinHtlc:          1000, // default value
+		MaxHtlcMsat:      133_650_000,
+	}
+	mts.dave.UpdateGlobalPolicy(expectedPolicy)
 
 	// Make sure Alice has heard it.
 	ht.AssertChannelPolicyUpdate(
@@ -493,7 +507,7 @@ func testSendToRouteAMP(ht *lntest.HarnessTest) {
 	// Alice -- Carol ---- Bob
 	//      \              /
 	//       \__ Dave ____/
-	///
+	//
 	mppReq := &mppOpenChannelRequest{
 		// Since the channel Alice-> Carol will have to carry two
 		// shards, we make it larger.

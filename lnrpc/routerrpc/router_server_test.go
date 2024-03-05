@@ -5,10 +5,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/queue"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/lightningnetwork/lnd/zpay32"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 )
@@ -213,4 +216,187 @@ func TestTrackPaymentsNoInflightUpdates(t *testing.T) {
 	// Only the final states should be sent to the client.
 	payment := <-stream.sentFromServer
 	require.Equal(t, lnrpc.Payment_SUCCEEDED, payment.Status)
+}
+
+// TestIsLsp tests the isLSP heuristic. Combinations of different route hints
+// with different fees and cltv deltas are tested to ensure that the heuristic
+// correctly identifies whether a route leads to an LSP or not.
+func TestIsLsp(t *testing.T) {
+	probeAmtMsat := lnwire.MilliSatoshi(1_000_000)
+
+	alicePrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	alicePubKey := alicePrivKey.PubKey()
+
+	bobPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	bobPubKey := bobPrivKey.PubKey()
+
+	carolPrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	carolPubKey := carolPrivKey.PubKey()
+
+	davePrivKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+	davePubKey := davePrivKey.PubKey()
+
+	var (
+		aliceHopHint = zpay32.HopHint{
+			NodeID:                    alicePubKey,
+			FeeBaseMSat:               100,
+			FeeProportionalMillionths: 1_000,
+			ChannelID:                 421337,
+		}
+
+		bobHopHint = zpay32.HopHint{
+			NodeID:                    bobPubKey,
+			FeeBaseMSat:               2_000,
+			FeeProportionalMillionths: 2_000,
+			CLTVExpiryDelta:           288,
+			ChannelID:                 815,
+		}
+
+		carolHopHint = zpay32.HopHint{
+			NodeID:                    carolPubKey,
+			FeeBaseMSat:               2_000,
+			FeeProportionalMillionths: 2_000,
+			ChannelID:                 815,
+		}
+
+		daveHopHint = zpay32.HopHint{
+			NodeID:                    davePubKey,
+			FeeBaseMSat:               2_000,
+			FeeProportionalMillionths: 2_000,
+			ChannelID:                 815,
+		}
+	)
+
+	bobExpensiveCopy := bobHopHint.Copy()
+	bobExpensiveCopy.FeeBaseMSat = 1_000_000
+	bobExpensiveCopy.FeeProportionalMillionths = 1_000_000
+	bobExpensiveCopy.CLTVExpiryDelta = bobHopHint.CLTVExpiryDelta - 1
+
+	//nolint:lll
+	lspTestCases := []struct {
+		name           string
+		routeHints     [][]zpay32.HopHint
+		probeAmtMsat   lnwire.MilliSatoshi
+		isLsp          bool
+		expectedHints  [][]zpay32.HopHint
+		expectedLspHop *zpay32.HopHint
+	}{
+		{
+			name:           "empty route hints",
+			routeHints:     [][]zpay32.HopHint{{}},
+			probeAmtMsat:   probeAmtMsat,
+			isLsp:          false,
+			expectedHints:  [][]zpay32.HopHint{},
+			expectedLspHop: nil,
+		},
+		{
+			name:           "single route hint",
+			routeHints:     [][]zpay32.HopHint{{daveHopHint}},
+			probeAmtMsat:   probeAmtMsat,
+			isLsp:          true,
+			expectedHints:  [][]zpay32.HopHint{},
+			expectedLspHop: &daveHopHint,
+		},
+		{
+			name: "single route, multiple hints",
+			routeHints: [][]zpay32.HopHint{{
+				aliceHopHint, bobHopHint,
+			}},
+			probeAmtMsat:   probeAmtMsat,
+			isLsp:          true,
+			expectedHints:  [][]zpay32.HopHint{{aliceHopHint}},
+			expectedLspHop: &bobHopHint,
+		},
+		{
+			name: "multiple routes, multiple hints",
+			routeHints: [][]zpay32.HopHint{
+				{
+					aliceHopHint, bobHopHint,
+				},
+				{
+					carolHopHint, bobHopHint,
+				},
+			},
+			probeAmtMsat: probeAmtMsat,
+			isLsp:        true,
+			expectedHints: [][]zpay32.HopHint{
+				{aliceHopHint}, {carolHopHint},
+			},
+			expectedLspHop: &bobHopHint,
+		},
+		{
+			name: "multiple routes, multiple hints with min length",
+			routeHints: [][]zpay32.HopHint{
+				{
+					bobHopHint,
+				},
+				{
+					carolHopHint, bobHopHint,
+				},
+			},
+			probeAmtMsat: probeAmtMsat,
+			isLsp:        true,
+			expectedHints: [][]zpay32.HopHint{
+				{carolHopHint},
+			},
+			expectedLspHop: &bobHopHint,
+		},
+		{
+			name: "multiple routes, multiple hints, diff fees+cltv",
+			routeHints: [][]zpay32.HopHint{
+				{
+					bobHopHint,
+				},
+				{
+					carolHopHint, bobExpensiveCopy,
+				},
+			},
+			probeAmtMsat: probeAmtMsat,
+			isLsp:        true,
+			expectedHints: [][]zpay32.HopHint{
+				{carolHopHint},
+			},
+			expectedLspHop: &zpay32.HopHint{
+				NodeID:                    bobHopHint.NodeID,
+				ChannelID:                 bobHopHint.ChannelID,
+				FeeBaseMSat:               bobExpensiveCopy.FeeBaseMSat,
+				FeeProportionalMillionths: bobExpensiveCopy.FeeProportionalMillionths,
+				CLTVExpiryDelta:           bobHopHint.CLTVExpiryDelta,
+			},
+		},
+		{
+			name: "multiple routes, different final hops",
+			routeHints: [][]zpay32.HopHint{
+				{
+					aliceHopHint, bobHopHint,
+				},
+				{
+					carolHopHint, daveHopHint,
+				},
+			},
+			probeAmtMsat:   probeAmtMsat,
+			isLsp:          false,
+			expectedHints:  [][]zpay32.HopHint{},
+			expectedLspHop: nil,
+		},
+	}
+
+	for _, tc := range lspTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.isLsp, isLSP(tc.routeHints))
+			if !tc.isLsp {
+				return
+			}
+
+			adjustedHints, lspHint, _ := prepareLspRouteHints(
+				tc.routeHints, tc.probeAmtMsat,
+			)
+			require.Equal(t, tc.expectedHints, adjustedHints)
+			require.Equal(t, tc.expectedLspHop, lspHint)
+		})
+	}
 }

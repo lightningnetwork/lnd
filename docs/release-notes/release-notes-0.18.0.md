@@ -221,9 +221,15 @@
   error is defined as a routing error found in one of a MPP's HTLC attempts.
   If, however, there's only one HTLC attempt, when it's failed, this payment is
   considered failed, thus there's no such thing as temp error for a non-MPP.
+
 * Support for
   [MinConf](https://github.com/lightningnetwork/lnd/pull/8097)(minimum number
   of confirmations) has been added to the `WalletBalance` RPC call.
+ 
+* [EstimateRouteFee](https://github.com/lightningnetwork/lnd/pull/8136) extends
+  the graph based estimation by a payment probe approach which can lead to more
+  accurate estimates. The new estimation method manually incorporates fees of
+  destinations that lie hidden behind lightning service providers.
 
 * `PendingChannels` now optionally returns the 
   [raw hex of the closing tx](https://github.com/lightningnetwork/lnd/pull/8426)
@@ -250,6 +256,9 @@
 * `pendingchannels` now optionally returns the 
   [raw hex of the closing tx](https://github.com/lightningnetwork/lnd/pull/8426)
   in `waiting_close_channels`.
+ 
+* The [estimateroutefee](https://github.com/lightningnetwork/lnd/pull/8136)
+  subcommand now gives access to graph based and payment probe fee estimation.
 
 ## Code Health
 
@@ -346,10 +355,10 @@
 * Keagan McClelland
 * Marcos Fernandez Perez
 * Matt Morehouse
+* Ononiwu Maureen Chiamaka
 * Slyghtning
 * Tee8z
 * Turtle
-* Ononiwu Maureen Chiamaka
 * w3irdrobot
 * Yong Yu
 * Ziggie

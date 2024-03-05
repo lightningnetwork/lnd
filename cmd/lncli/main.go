@@ -507,6 +507,7 @@ func main() {
 		subscribeCustomCommand,
 		fishCompletionCommand,
 		listAliasesCommand,
+		estimateRouteFeeCommand,
 	}
 
 	// Add any extra commands determined by build flags.

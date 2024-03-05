@@ -353,14 +353,39 @@ message TrackPaymentsRequest {
 
 message RouteFeeRequest {
     /*
-    The destination once wishes to obtain a routing fee quote to.
+    The destination one wishes to obtain a routing fee quote to. If set, this
+    parameter requires the amt_sat parameter also to be set. This parameter
+    combination triggers a graph based routing fee estimation as opposed to a
+    payment probe based estimate in case a payment request is provided. The
+    graph based estimation is an algorithm that is executed on the in memory
+    graph. Hence its runtime is significantly shorter than a payment probe
+    estimation that sends out actual payments to the network.
     */
     bytes dest = 1;
 
     /*
-    The amount one wishes to send to the target destination.
+    The amount one wishes to send to the target destination. It is only to be
+    used in combination with the dest parameter.
     */
     int64 amt_sat = 2;
+
+    /*
+    A payment request of the target node that the route fee request is intended
+    for. Its parameters are input to probe payments that estimate routing fees.
+    The timeout parameter can be specified to set a maximum time on the probing
+    attempt. Cannot be used in combination with dest and amt_sat.
+    */
+    string payment_request = 3;
+
+    /*
+    A user preference of how long a probe payment should maximally be allowed to
+    take, denoted in seconds. The probing payment loop is aborted if this
+    timeout is reached. Note that the probing process itself can take longer
+    than the timeout if the HTLC becomes delayed or stuck. Canceling the context
+    of this call will not cancel the payment loop, the duration is only
+    controlled by the timeout parameter.
+    */
+    uint32 timeout = 4;
 }
 
 message RouteFeeResponse {
@@ -376,6 +401,12 @@ message RouteFeeResponse {
     value.
     */
     int64 time_lock_delay = 2;
+
+    /*
+    An indication whether a probing payment succeeded or whether and why it
+    failed. FAILURE_REASON_NONE indicates success.
+    */
+    lnrpc.PaymentFailureReason failure_reason = 5;
 }
 
 message SendToRouteRequest {

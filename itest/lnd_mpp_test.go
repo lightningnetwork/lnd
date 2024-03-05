@@ -347,33 +347,3 @@ func (m *mppTestScenario) buildRoute(amt btcutil.Amount,
 
 	return routeResp.Route
 }
-
-// updatePolicy updates a Dave's global channel policy and returns the expected
-// policy for further check. It changes Dave's `FeeBaseMsat` from 1000 msat to
-// 500,000 msat, and `FeeProportionalMillonths` from 1 msat to 1000 msat.
-func (m *mppTestScenario) updateDaveGlobalPolicy() *lnrpc.RoutingPolicy {
-	const (
-		baseFeeMsat = 500_000
-		feeRate     = 0.001
-		maxHtlcMsat = 133_650_000
-	)
-
-	expectedPolicy := &lnrpc.RoutingPolicy{
-		FeeBaseMsat:      baseFeeMsat,
-		FeeRateMilliMsat: feeRate * testFeeBase,
-		TimeLockDelta:    40,
-		MinHtlc:          1000, // default value
-		MaxHtlcMsat:      maxHtlcMsat,
-	}
-
-	updateFeeReq := &lnrpc.PolicyUpdateRequest{
-		BaseFeeMsat:   baseFeeMsat,
-		FeeRate:       feeRate,
-		TimeLockDelta: 40,
-		Scope:         &lnrpc.PolicyUpdateRequest_Global{Global: true},
-		MaxHtlcMsat:   maxHtlcMsat,
-	}
-	m.dave.RPC.UpdateChannelPolicy(updateFeeReq)
-
-	return expectedPolicy
-}

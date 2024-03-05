@@ -3429,6 +3429,70 @@ func chooseAddr(addr lnwire.DeliveryAddress) fn.Option[lnwire.DeliveryAddress] {
 	return fn.Some(addr)
 }
 
+// chanErrorReporter is a simple implementation of the
+// chancloser.ErrorReporter. This is bound to a single channel by the channel
+// ID.
+type chanErrorReporter struct {
+	chanID lnwire.ChannelID
+	peer   *Brontide
+}
+
+// newChanErrorReporter creates a new instance of the chanErrorReporter.
+func newChanErrorReporter(chanID lnwire.ChannelID,
+	peer *Brontide) *chanErrorReporter {
+
+	return &chanErrorReporter{
+		chanID: chanID,
+		peer:   peer,
+	}
+}
+
+// ReportError is a method that's used to report an error that occurred during
+// state machine execution. This is used by the RBF close state machine to
+// terminate the state machine and send an error to the remote peer.
+//
+// This is a part of the chancloser.ErrorReporter interface.
+func (c *chanErrorReporter) ReportError(chanErr error) {
+	var errMsg []byte
+	if errors.Is(chanErr, chancloser.ErrInvalidStateTransition) {
+		errMsg = []byte("unexpected protocol message")
+	} else {
+		errMsg = []byte(chanErr.Error())
+	}
+
+	err := c.peer.SendMessageLazy(false, &lnwire.Error{
+		ChanID: c.chanID,
+		Data:   errMsg,
+	})
+	if err != nil {
+		c.peer.log.Warnf("unable to send error message to peer: %v",
+			err)
+	}
+
+	// After we send the error message to the peer, we'll re-initialize the
+	// coop close state machine as they may send a shutdown message to
+	// retry the coop close.
+	lnChan, ok := c.peer.activeChannels.Load(c.chanID)
+	if !ok {
+		return
+	}
+
+	if lnChan == nil {
+		c.peer.log.Debugf("channel %v is pending, not "+
+			"re-initializing coop close state machine",
+			c.chanID)
+
+		return
+	}
+
+	if _, err := c.peer.initRbfChanCloser(lnChan); err != nil {
+		delete(c.peer.activeChanCloses, c.chanID)
+
+		c.peer.log.Errorf("unable to init RBF chan closer after "+
+			"error case: %v", err)
+	}
+}
+
 // initRbfChanCloser initializes the channel closer for a channel that
 // is using the new RBF based co-op close protocol. This only creates the chan
 // closer, but doesn't attempt to trigger any manual state transitions.
@@ -3500,9 +3564,6 @@ func (p *Brontide) initRbfChanCloser(
 		),
 	}
 
-	// TODO(roasbeef): edge case here to re-enable a channel before both
-	// shutdown sent?
-
 	daemonAdapters := NewLndDaemonAdapters(LndAdapterCfg{
 		MsgSender:     newPeerMsgSender(peerPub, p),
 		TxBroadcaster: p.cfg.Wallet,
@@ -3510,10 +3571,11 @@ func (p *Brontide) initRbfChanCloser(
 	})
 
 	protoCfg := chancloser.RbfChanCloserCfg{
-		Daemon:       daemonAdapters,
-		InitialState: &initialState,
-		Env:          &env,
-		InitEvent:    fn.Some[protofsm.DaemonEvent](&spendEvent),
+		Daemon:        daemonAdapters,
+		InitialState:  &initialState,
+		Env:           &env,
+		InitEvent:     fn.Some[protofsm.DaemonEvent](&spendEvent),
+		ErrorReporter: newChanErrorReporter(chanID, p),
 		MsgMapper: fn.Some[protofsm.MsgMapper[chancloser.ProtocolEvent]]( //nolint:ll
 			msgMapper,
 		),

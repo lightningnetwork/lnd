@@ -1,6 +1,7 @@
 package msgmux
 
 import (
+	"context"
 	"testing"
 
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -24,7 +25,7 @@ func (m *mockEndpoint) CanHandle(msg PeerMsg) bool {
 	return args.Bool(0)
 }
 
-func (m *mockEndpoint) SendMessage(msg PeerMsg) bool {
+func (m *mockEndpoint) SendMessage(ctx context.Context, msg PeerMsg) bool {
 	args := m.Called(msg)
 
 	return args.Bool(0)
@@ -33,8 +34,9 @@ func (m *mockEndpoint) SendMessage(msg PeerMsg) bool {
 // TestMessageRouterOperation tests the basic operation of the message router:
 // add new endpoints, route to them, remove, them, etc.
 func TestMessageRouterOperation(t *testing.T) {
+	ctx := context.Background()
 	msgRouter := NewMultiMsgRouter()
-	msgRouter.Start()
+	msgRouter.Start(ctx)
 	defer msgRouter.Stop()
 
 	openChanMsg := PeerMsg{
@@ -57,7 +59,7 @@ func TestMessageRouterOperation(t *testing.T) {
 	fundingEndpoint.On("CanHandle", openChanMsg).Return(true)
 	fundingEndpoint.On("CanHandle", errorMsg).Return(false)
 	fundingEndpoint.On("CanHandle", commitSigMsg).Return(false)
-	fundingEndpoint.On("SendMessage", openChanMsg).Return(true)
+	fundingEndpoint.On("SendMessage", ctx, openChanMsg).Return(true)
 
 	commitEndpoint := &mockEndpoint{}
 	commitEndpointName := "commit"
@@ -65,7 +67,7 @@ func TestMessageRouterOperation(t *testing.T) {
 	commitEndpoint.On("CanHandle", commitSigMsg).Return(true)
 	commitEndpoint.On("CanHandle", openChanMsg).Return(false)
 	commitEndpoint.On("CanHandle", errorMsg).Return(false)
-	commitEndpoint.On("SendMessage", commitSigMsg).Return(true)
+	commitEndpoint.On("SendMessage", ctx, commitSigMsg).Return(true)
 
 	t.Run("add endpoints", func(t *testing.T) {
 		// First, we'll add the funding endpoint to the router.
@@ -113,8 +115,10 @@ func TestMessageRouterOperation(t *testing.T) {
 		fundingEndpoint.AssertCalled(t, "CanHandle", openChanMsg)
 		commitEndpoint.AssertCalled(t, "CanHandle", openChanMsg)
 
-		fundingEndpoint.AssertCalled(t, "SendMessage", openChanMsg)
-		commitEndpoint.AssertNotCalled(t, "SendMessage", openChanMsg)
+		fundingEndpoint.AssertCalled(t, "SendMessage", ctx, openChanMsg)
+		commitEndpoint.AssertNotCalled(
+			t, "SendMessage", ctx, openChanMsg,
+		)
 
 		// We'll do the same for the commit sig message.
 		require.NoError(t, msgRouter.RouteMsg(commitSigMsg))
@@ -122,8 +126,10 @@ func TestMessageRouterOperation(t *testing.T) {
 		fundingEndpoint.AssertCalled(t, "CanHandle", commitSigMsg)
 		commitEndpoint.AssertCalled(t, "CanHandle", commitSigMsg)
 
-		commitEndpoint.AssertCalled(t, "SendMessage", commitSigMsg)
-		fundingEndpoint.AssertNotCalled(t, "SendMessage", commitSigMsg)
+		commitEndpoint.AssertCalled(t, "SendMessage", ctx, commitSigMsg)
+		fundingEndpoint.AssertNotCalled(
+			t, "SendMessage", ctx, commitSigMsg,
+		)
 	})
 
 	t.Run("remove endpoints", func(t *testing.T) {

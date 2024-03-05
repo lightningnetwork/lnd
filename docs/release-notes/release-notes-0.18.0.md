@@ -90,6 +90,9 @@
   precision issue when querying payments and invoices using the start and end
   date filters.
 
+* [Fixed](https://github.com/lightningnetwork/lnd/pull/8519) an issue that
+  `lnd` may refuse to start up due to errors returned from `UtxoNursery`.
+
 # New Features
 ## Functional Enhancements
 

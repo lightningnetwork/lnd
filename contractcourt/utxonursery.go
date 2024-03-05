@@ -284,15 +284,13 @@ func (u *UtxoNursery) Start() error {
 	// point forward, we must close the nursery's quit channel if we detect
 	// any failures during startup to ensure they terminate.
 	if err := u.reloadPreschool(); err != nil {
-		close(u.quit)
-		return err
+		log.Errorf("UtxoNursery unable to reload preschool: %v", err)
 	}
 
 	// 3. Replay all crib and kindergarten outputs up to the current best
 	// height.
 	if err := u.reloadClasses(uint32(bestHeight)); err != nil {
-		close(u.quit)
-		return err
+		log.Errorf("UtxoNursery unable to reload classes: %v", err)
 	}
 
 	// Start watching for new blocks, as this will drive the nursery store's

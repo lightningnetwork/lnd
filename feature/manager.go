@@ -73,6 +73,10 @@ type Config struct {
 	// forwarding experimental endorsement.
 	NoExperimentalEndorsement bool
 
+	// NoRbfCoopClose unsets any bits that signal support for using RBF for
+	// coop close.
+	NoRbfCoopClose bool
+
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
@@ -209,10 +213,13 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 			raw.Unset(lnwire.SimpleTaprootOverlayChansOptional)
 			raw.Unset(lnwire.SimpleTaprootOverlayChansRequired)
 		}
-
 		if cfg.NoExperimentalEndorsement {
 			raw.Unset(lnwire.ExperimentalEndorsementOptional)
 			raw.Unset(lnwire.ExperimentalEndorsementRequired)
+		}
+		if cfg.NoRbfCoopClose {
+			raw.Unset(lnwire.ShutdownAnySegwitOptional)
+			raw.Unset(lnwire.RbfCoopCloseOptionalStaging)
 		}
 
 		for _, custom := range cfg.CustomFeatures[set] {

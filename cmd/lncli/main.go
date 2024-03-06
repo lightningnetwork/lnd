@@ -508,6 +508,7 @@ func main() {
 		fishCompletionCommand,
 		listAliasesCommand,
 		estimateRouteFeeCommand,
+		generateManPageCommand,
 	}
 
 	// Add any extra commands determined by build flags.

@@ -3,6 +3,8 @@ ESCPKG := github.com\/lightningnetwork\/lnd
 MOBILE_PKG := $(PKG)/mobile
 TOOLS_DIR := tools
 
+PREFIX ?= /usr/local
+
 BTCD_PKG := github.com/btcsuite/btcd
 GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
@@ -122,11 +124,19 @@ build-itest-race:
 	@$(call print, "Building itest binary for ${backend} backend.")
 	CGO_ENABLED=0 $(GOTEST) -v ./itest -tags="$(DEV_TAGS) $(RPC_TAGS) integration $(backend)" -c -o itest/itest.test$(EXEC_SUFFIX)
 
-#? install: Build and install lnd and lncli binaries, place them in $GOPATH/bin
-install:
+#? install-binaries: Build and install lnd and lncli binaries, place them in $GOPATH/bin
+install-binaries:
 	@$(call print, "Installing lnd and lncli.")
 	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lnd
 	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/lncli
+
+#? manpages: generate and install man pages
+manpages:
+	@$(call print, "Generating man pages lncli.1 and lnd.1.")
+	./scripts/gen_man_pages.sh $(DESTDIR) $(PREFIX)
+
+#? install: Build and install lnd and lncli binaries, place them in $GOPATH/bin, generate and install man pages
+install: install-binaries manpages
 
 #? release-install: Build and install lnd and lncli release binaries, place them in $GOPATH/bin
 release-install:

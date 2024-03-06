@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
@@ -1262,6 +1263,18 @@ func (b *BtcWallet) PublishTransaction(tx *wire.MsgTx, label string) error {
 	// or 10,000 sat/vb.
 	results, err := b.chain.TestMempoolAccept([]*wire.MsgTx{tx}, 0)
 	if err != nil {
+		// If the chain backend doesn't support the mempool acceptance
+		// test RPC, we'll just attempt to publish the transaction.
+		if errors.Is(err, rpcclient.ErrBackendVersion) {
+			log.Warnf("TestMempoolAccept not supported by "+
+				"backend, consider upgrading %s to a newer "+
+				"version", b.chain.BackEnd())
+
+			err := b.wallet.PublishTransaction(tx, label)
+
+			return handleErr(err)
+		}
+
 		return err
 	}
 

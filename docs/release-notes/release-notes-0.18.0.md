@@ -136,7 +136,10 @@
   through [mempool acceptance
   check](https://github.com/lightningnetwork/lnd/pull/8345) before being
   broadcast. This means when a transaction has failed the `testmempoolaccept`
-  check by bitcoind or btcd, the broadcast won't be attempted.
+  check by bitcoind or btcd, the broadcast won't be attempted. This check will
+  be performed if the version of the chain backend supports it - for bitcoind
+  it's v22.0.0 and above, for btcd it's v0.24.1 and above. Otherwise, the check
+  will be [skipped](https://github.com/lightningnetwork/lnd/pull/8505)
 
 * The `coin-selection-strategy` config option [now also applies to channel
   funding operations and the new `PsbtCoinSelect` option of the `FundPsbt`

@@ -238,6 +238,9 @@
 * [Allow callers of ListSweeps to specify the start height](
   https://github.com/lightningnetwork/lnd/pull/7372).
 
+* Added `outpoints` to `SendCoinsRequest`[
+* https://github.com/lightningnetwork/lnd/pull/8516]
+
 ## lncli Updates
 
 * [Documented all available lncli commands](https://github.com/lightningnetwork/lnd/pull/8181).
@@ -259,6 +262,10 @@
  
 * The [estimateroutefee](https://github.com/lightningnetwork/lnd/pull/8136)
   subcommand now gives access to graph based and payment probe fee estimation.
+
+* `sendcoins` now takes in an optional utxo flag[
+ https://github.com/lightningnetwork/lnd/pull/8516]. This allows users to
+specify the coins that they want for the transaction.
 
 ## Code Health
 

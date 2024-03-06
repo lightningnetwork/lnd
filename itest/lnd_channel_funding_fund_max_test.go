@@ -331,4 +331,5 @@ func sweepNodeWalletAndAssert(ht *lntest.HarnessTest, node *node.HarnessNode) {
 
 	// Ensure that the node's balance is 0
 	checkChannelBalance(ht, node, 0, 0)
+	fmt.Println("swept node")
 }

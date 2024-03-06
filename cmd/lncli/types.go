@@ -85,3 +85,21 @@ func NewFailedUpdateFromProto(update *lnrpc.FailedUpdate) *FailedUpdate {
 		UpdateError: update.UpdateError,
 	}
 }
+
+// parseUtxos parses a comma separated list of utxos into outpoints that are
+// passed to the server.
+func utxosToOutpoints(utxos []string) ([]*lnrpc.OutPoint, error) {
+	var outpoints []*lnrpc.OutPoint
+	if len(utxos) == 0 {
+		return nil, fmt.Errorf("no utxos specified")
+	}
+	for _, utxo := range utxos {
+		outpoint, err := NewProtoOutPoint(utxo)
+		if err != nil {
+			return nil, err
+		}
+		outpoints = append(outpoints, outpoint)
+	}
+
+	return outpoints, nil
+}

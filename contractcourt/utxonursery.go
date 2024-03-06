@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -785,6 +786,15 @@ func (u *UtxoNursery) graduateClass(classHeight uint32) error {
 	utxnLog.Infof("Attempting to graduate height=%v: num_kids=%v, "+
 		"num_babies=%v", classHeight, len(kgtnOutputs), len(cribOutputs))
 
+	// Output crib and kindergarten information for debug purposes.
+	for _, crib := range cribOutputs {
+		utxnLog.Debugf("Crib output: %v", &crib)
+	}
+
+	for _, kid := range kgtnOutputs {
+		utxnLog.Debugf("Kindergarten output: %v", kid)
+	}
+
 	// Offer the outputs to the sweeper and set up notifications that will
 	// transition the swept kindergarten outputs and cltvCrib into graduated
 	// outputs.
@@ -1326,6 +1336,15 @@ func (bo *babyOutput) Decode(r io.Reader) error {
 	return bo.kidOutput.Decode(r)
 }
 
+func (bo *babyOutput) String() string {
+	var b bytes.Buffer
+	bo.timeoutTx.Serialize(&b)
+
+	return fmt.Sprintf("babyOutput: expiry=%d, "+
+		"timeoutTx=%v, kidOutput=%v", bo.expiry,
+		hex.EncodeToString(b.Bytes()), &bo.kidOutput)
+}
+
 // kidOutput represents an output that's waiting for a required blockheight
 // before its funds will be available to be moved into the user's wallet.  The
 // struct includes a WitnessGenerator closure which will be used to generate
@@ -1403,6 +1422,12 @@ func (k *kidOutput) SetConfHeight(height uint32) {
 
 func (k *kidOutput) ConfHeight() uint32 {
 	return k.confHeight
+}
+
+func (k *kidOutput) String() string {
+	return fmt.Sprintf("kidOutput: blocksToMaturity=%d, "+
+		"absoluteMaturity=%d, breachedOutput=%v", k.blocksToMaturity,
+		k.absoluteMaturity, &k.breachedOutput)
 }
 
 // Encode converts a KidOutput struct into a form suitable for on-disk database

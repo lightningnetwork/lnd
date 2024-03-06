@@ -1173,6 +1173,12 @@ func (bo *breachedOutput) UnconfParent() *input.TxInfo {
 	return nil
 }
 
+func (bo *breachedOutput) String() string {
+	return fmt.Sprintf("breachedOutput: witnessType=%v, "+
+		"amt=%d, outpoint=%v, confHeight=%d", bo.witnessType,
+		bo.amt, bo.outpoint, bo.confHeight)
+}
+
 // Add compile-time constraint ensuring breachedOutput implements the Input
 // interface.
 var _ input.Input = (*breachedOutput)(nil)

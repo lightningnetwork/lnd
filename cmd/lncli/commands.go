@@ -994,6 +994,11 @@ var closeAllChannelsCommand = cli.Command{
 				"sat/vbyte that should be used when crafting " +
 				"the closing transactions",
 		},
+		cli.BoolFlag{
+			Name: "s, skip_confirmation",
+			Usage: "Skip the confirmation prompt and close all " +
+				"channels immediately",
+		},
 	},
 	Action: actionDecorator(closeAllChannels),
 }
@@ -1010,6 +1015,11 @@ func closeAllChannels(ctx *cli.Context) error {
 	)
 	if err != nil {
 		return err
+	}
+
+	prompt := "Do you really want to close ALL channels? (yes/no): "
+	if !ctx.Bool("skip_confirmation") && !promptForConfirmation(prompt) {
+		return errors.New("action aborted by user")
 	}
 
 	listReq := &lnrpc.ListChannelsRequest{}

@@ -891,10 +891,22 @@ func (f *mockChannelLink) Start() error {
 	return nil
 }
 
-func (f *mockChannelLink) ChanID() lnwire.ChannelID                     { return f.chanID }
-func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID           { return f.shortChanID }
-func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi               { return 99999999 }
-func (f *mockChannelLink) Peer() lnpeer.Peer                            { return f.peer }
+func (f *mockChannelLink) ChanID() lnwire.ChannelID {
+	return f.chanID
+}
+
+func (f *mockChannelLink) ShortChanID() lnwire.ShortChannelID {
+	return f.shortChanID
+}
+
+func (f *mockChannelLink) Bandwidth() lnwire.MilliSatoshi {
+	return 99999999
+}
+
+func (f *mockChannelLink) PeerPubKey() [33]byte {
+	return f.peer.PubKey()
+}
+
 func (f *mockChannelLink) ChannelPoint() *wire.OutPoint                 { return &wire.OutPoint{} }
 func (f *mockChannelLink) Stop()                                        {}
 func (f *mockChannelLink) EligibleToForward() bool                      { return f.eligible }

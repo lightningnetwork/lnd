@@ -7,7 +7,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
 	"github.com/lightningnetwork/lnd/invoices"
-	"github.com/lightningnetwork/lnd/lnpeer"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -262,9 +261,9 @@ type ChannelLink interface {
 	// total sent/received milli-satoshis.
 	Stats() (uint64, lnwire.MilliSatoshi, lnwire.MilliSatoshi)
 
-	// Peer returns the representation of remote peer with which we have
-	// the channel link opened.
-	Peer() lnpeer.Peer
+	// Peer returns the serialized public key of remote peer with which we
+	// have the channel link opened.
+	PeerPubKey() [33]byte
 
 	// AttachMailBox delivers an active MailBox to the link. The MailBox may
 	// have buffered messages.

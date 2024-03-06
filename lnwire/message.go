@@ -190,6 +190,19 @@ type Message interface {
 	MsgType() MessageType
 }
 
+// LinkUpdater is an interface implemented by most messages in BOLT 2 that are
+// allowed to update the channel state.
+type LinkUpdater interface {
+	// All LinkUpdater messages are messages and so we embed the interface
+	// so that we can treat it as a message if all we know about it is that
+	// it is a LinkUpdater message.
+	Message
+
+	// TargetChanID returns the channel id of the link for which this
+	// message is intended.
+	TargetChanID() ChannelID
+}
+
 // makeEmptyMessage creates a new empty message of the proper concrete type
 // based on the passed message type.
 func makeEmptyMessage(msgType MessageType) (Message, error) {

@@ -1750,7 +1750,7 @@ out:
 		// will consider them as link updates and send them to
 		// chanStream. These messages will be queued inside chanStream
 		// if the channel is not active yet.
-		case LinkUpdater:
+		case lnwire.LinkUpdater:
 			targetChan = msg.TargetChanID()
 			isLinkUpdate = p.hasChannel(targetChan)
 

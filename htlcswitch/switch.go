@@ -1147,7 +1147,7 @@ func (s *Switch) handlePacketForward(packet *htlcPacket) error {
 
 			return s.failAddPacket(packet, linkError)
 		}
-		targetPeerKey := targetLink.Peer().PubKey()
+		targetPeerKey := targetLink.PeerPubKey()
 		interfaceLinks, _ := s.getLinks(targetPeerKey)
 		s.indexMtx.RUnlock()
 
@@ -1810,9 +1810,9 @@ out:
 			}
 			s.indexMtx.RUnlock()
 
-			peerPub := link.Peer().PubKey()
+			peerPub := link.PeerPubKey()
 			log.Debugf("Requesting local channel close: peer=%v, "+
-				"chan_id=%x", link.Peer(), chanID[:])
+				"chan_id=%x", link.PeerPubKey(), chanID[:])
 
 			go s.cfg.LocalChannelClose(peerPub[:], req)
 
@@ -2335,7 +2335,7 @@ func (s *Switch) addLiveLink(link ChannelLink) {
 
 	// Next we'll add the link to the interface index so we can
 	// quickly look up all the channels for a particular node.
-	peerPub := link.Peer().PubKey()
+	peerPub := link.PeerPubKey()
 	if _, ok := s.interfaceIndex[peerPub]; !ok {
 		s.interfaceIndex[peerPub] = make(map[lnwire.ChannelID]ChannelLink)
 	}
@@ -2610,7 +2610,7 @@ func (s *Switch) removeLink(chanID lnwire.ChannelID) ChannelLink {
 
 	// If the link has been added to the peer index, then we'll move to
 	// delete the entry within the index.
-	peerPub := link.Peer().PubKey()
+	peerPub := link.PeerPubKey()
 	if peerIndex, ok := s.interfaceIndex[peerPub]; ok {
 		delete(peerIndex, link.ChanID())
 

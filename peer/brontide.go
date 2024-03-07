@@ -3352,7 +3352,7 @@ func (p *Brontide) handleInitMsg(msg *lnwire.Init) error {
 	// those presented in the local features fields.
 	err := msg.Features.Merge(msg.GlobalFeatures)
 	if err != nil {
-		return fmt.Errorf("unable to merge legacy global features: %v",
+		return fmt.Errorf("unable to merge legacy global features: %w",
 			err)
 	}
 

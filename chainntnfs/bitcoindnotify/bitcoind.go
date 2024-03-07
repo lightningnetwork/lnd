@@ -792,8 +792,8 @@ func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 		// proceed with fallback methods.
 		jsonErr, ok := err.(*btcjson.RPCError)
 		if !ok || jsonErr.Code != btcjson.ErrRPCNoTxInfo {
-			return nil, fmt.Errorf("unable to query for txid %v: %v",
-				outpoint.Hash, err)
+			return nil, fmt.Errorf("unable to query for txid "+
+				"%v: %w", outpoint.Hash, err)
 		}
 	}
 

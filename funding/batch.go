@@ -226,7 +226,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 					"chan ID")
 			}
 		} else if _, err := rand.Read(pendingChanID[:]); err != nil {
-			return nil, fmt.Errorf("error making temp chan ID: %v",
+			return nil, fmt.Errorf("error making temp chan ID: %w",
 				err)
 		}
 
@@ -265,7 +265,7 @@ func (b *Batcher) BatchFund(ctx context.Context,
 			},
 		})
 		if err != nil {
-			return nil, fmt.Errorf("error parsing channel %d: %v",
+			return nil, fmt.Errorf("error parsing channel %d: %w",
 				idx, err)
 		}
 

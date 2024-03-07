@@ -418,7 +418,7 @@ func NewMessageInterceptionRequest(ctx context.Context,
 	case proto.Message:
 		req.ProtoSerialized, err = proto.Marshal(t)
 		if err != nil {
-			return nil, fmt.Errorf("cannot marshal proto msg: %v",
+			return nil, fmt.Errorf("cannot marshal proto msg: %w",
 				err)
 		}
 		req.ProtoTypeName = string(proto.MessageName(t))

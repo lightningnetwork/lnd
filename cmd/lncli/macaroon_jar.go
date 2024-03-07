@@ -67,7 +67,7 @@ func (e *macaroonEntry) loadMacaroon(
 
 		macBytes, err = decryptMacaroon(parts[1], parts[2], pw)
 		if err != nil {
-			return nil, fmt.Errorf("unable to decrypt macaroon: %v",
+			return nil, fmt.Errorf("unable to decrypt macaroon: %w",
 				err)
 		}
 	} else {
@@ -142,7 +142,7 @@ func decryptMacaroon(keyB64, dataB64 string, pw []byte) ([]byte, error) {
 	key := &snacl.SecretKey{}
 	err = key.Unmarshal(keyData)
 	if err != nil {
-		return nil, fmt.Errorf("could not unmarshal encryption key: %v",
+		return nil, fmt.Errorf("could not unmarshal encryption key: %w",
 			err)
 	}
 
@@ -155,7 +155,7 @@ func decryptMacaroon(keyB64, dataB64 string, pw []byte) ([]byte, error) {
 	}
 	macBytes, err := key.Decrypt(encryptedMac)
 	if err != nil {
-		return nil, fmt.Errorf("could not decrypt macaroon data: %v",
+		return nil, fmt.Errorf("could not decrypt macaroon data: %w",
 			err)
 	}
 	return macBytes, nil

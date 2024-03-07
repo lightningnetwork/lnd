@@ -150,7 +150,7 @@ func profileAdd(ctx *cli.Context) error {
 	// All done, store the updated profile file.
 	f.Profiles = append(f.Profiles, profile)
 	if err = saveProfileFile(defaultProfileFile, f); err != nil {
-		return fmt.Errorf("error writing profile file %s: %v",
+		return fmt.Errorf("error writing profile file %s: %w",
 			defaultProfileFile, err)
 	}
 
@@ -443,7 +443,7 @@ func profileAddMacaroon(ctx *cli.Context) error {
 		selectedProfile.Macaroons.Jar, macEntry,
 	)
 	if err = saveProfileFile(defaultProfileFile, f); err != nil {
-		return fmt.Errorf("error writing profile file %s: %v",
+		return fmt.Errorf("error writing profile file %s: %w",
 			defaultProfileFile, err)
 	}
 

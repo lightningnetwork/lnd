@@ -294,14 +294,14 @@ func (hn *HarnessNode) ReadMacaroon(macPath string, timeout time.Duration) (
 	err := wait.NoError(func() error {
 		macBytes, err := ioutil.ReadFile(macPath)
 		if err != nil {
-			return fmt.Errorf("error reading macaroon file: %v",
+			return fmt.Errorf("error reading macaroon file: %w",
 				err)
 		}
 
 		newMac := &macaroon.Macaroon{}
 		if err = newMac.UnmarshalBinary(macBytes); err != nil {
 			return fmt.Errorf("error unmarshalling macaroon "+
-				"file: %v", err)
+				"file: %w", err)
 		}
 		mac = newMac
 
@@ -619,7 +619,7 @@ func (hn *HarnessNode) cleanup() error {
 	if hn.Cfg.backupDBDir != "" {
 		err := os.RemoveAll(hn.Cfg.backupDBDir)
 		if err != nil {
-			return fmt.Errorf("unable to remove backup dir: %v",
+			return fmt.Errorf("unable to remove backup dir: %w",
 				err)
 		}
 	}

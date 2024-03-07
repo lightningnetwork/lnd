@@ -763,11 +763,11 @@ func NewChainControl(walletConfig lnwallet.Config,
 
 	lnWallet, err := lnwallet.NewLightningWallet(walletConfig)
 	if err != nil {
-		return nil, ccCleanup, fmt.Errorf("unable to create wallet: %v",
+		return nil, ccCleanup, fmt.Errorf("unable to create wallet: %w",
 			err)
 	}
 	if err := lnWallet.Startup(); err != nil {
-		return nil, ccCleanup, fmt.Errorf("unable to create wallet: %v",
+		return nil, ccCleanup, fmt.Errorf("unable to create wallet: %w",
 			err)
 	}
 

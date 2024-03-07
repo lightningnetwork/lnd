@@ -208,4 +208,10 @@ go 1.19
 
 replace github.com/lightningnetwork/lnd/kvdb => ./kvdb
 
+replace github.com/btcsuite/btcwallet => github.com/guggero/btcwallet v0.13.1-0.20240307121533-003d89274212
+
+replace github.com/btcsuite/btcwallet/walletdb => github.com/guggero/btcwallet/walletdb v1.4.1-0.20240307121533-003d89274212
+
+replace github.com/btcsuite/btcwallet/wtxmgr => github.com/guggero/btcwallet/wtxmgr v1.3.1-0.20240307121533-003d89274212
+
 retract v0.0.2

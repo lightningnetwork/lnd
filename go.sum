@@ -288,12 +288,6 @@ github.com/grpc-ecosystem/grpc-gateway v1.16.0 h1:gmcG1KaJ57LophUzW0Hy8NmPhnMZb4
 github.com/grpc-ecosystem/grpc-gateway v1.16.0/go.mod h1:BDjrQk3hbvj6Nolgz8mAMFbcEtjT1g+wF4CSlocrBnw=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.5.0 h1:ajue7SzQMywqRjg2fK7dcpc0QhFGpTR2plWfV4EZWR4=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.5.0/go.mod h1:r1hZAcvfFXuYmcKyCJI9wlyOPIZUJl6FCB8Cpca/NLE=
-github.com/guggero/btcwallet v0.13.1-0.20240307121533-003d89274212 h1:8Nu3n5g4FM8fX5rkdyp1lLBgmp843usprdRy7+rdWHs=
-github.com/guggero/btcwallet v0.13.1-0.20240307121533-003d89274212/go.mod h1:q+J5AzV+ymzUaBXkP099uuVh18yzCyHHXPc4rxi55mk=
-github.com/guggero/btcwallet/walletdb v1.4.1-0.20240307121533-003d89274212 h1:LWObxWqOl8ow49C/ms2TTx/p2ykIxLOoz9yielafCd8=
-github.com/guggero/btcwallet/walletdb v1.4.1-0.20240307121533-003d89274212/go.mod h1:7ZQ+BvOEre90YT7eSq8bLoxTsgXidUzA/mqbRS114CQ=
-github.com/guggero/btcwallet/wtxmgr v1.3.1-0.20240307121533-003d89274212 h1:c16XaJHBFc4skEu42fYTs5lqrvBGCoO45kQ6jTjR7ek=
-github.com/guggero/btcwallet/wtxmgr v1.3.1-0.20240307121533-003d89274212/go.mod h1:tO4FBSdann0xg/Jtm0grV7t1DzpQMK8nThYVtvSJo/8=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
 github.com/hashicorp/errwrap v1.1.0 h1:OxrOeh75EUXMY8TBjag2fzXGZ40LB6IKw45YeGUDY2I=
 github.com/hashicorp/errwrap v1.1.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
@@ -530,6 +524,12 @@ github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0 h1:OdAsTTz6O
 github.com/remyoudompheng/bigfft v0.0.0-20200410134404-eec4a21b6bb0/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/rivo/uniseg v0.2.0 h1:S1pD9weZBuJdFmowNwbpi7BJ8TNftyUImj/0WQi72jY=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
+github.com/roasbeef/btcwallet v0.11.1-0.20240307225634-ff180237e5ad h1:wvsow2VwKa/efv0ObcsMpQnw4lypkj21vNkG0cQcCjg=
+github.com/roasbeef/btcwallet v0.11.1-0.20240307225634-ff180237e5ad/go.mod h1:rROXjC/DZcEkGQBaUUBnL6q02lhR7sTgZt7LM9Kiv/4=
+github.com/roasbeef/btcwallet/walletdb v1.1.1-0.20240307225634-ff180237e5ad h1:ZH/8I/jIG84zkHMwOJXsOpCtm748ITS77B4DAKAjSCI=
+github.com/roasbeef/btcwallet/walletdb v1.1.1-0.20240307225634-ff180237e5ad/go.mod h1:7ZQ+BvOEre90YT7eSq8bLoxTsgXidUzA/mqbRS114CQ=
+github.com/roasbeef/btcwallet/wtxmgr v1.0.1-0.20240307225634-ff180237e5ad h1:1eXppv9SmNBe2MbP9DzocbNAcxxA0mHs8hUnL+Tjnpc=
+github.com/roasbeef/btcwallet/wtxmgr v1.0.1-0.20240307225634-ff180237e5ad/go.mod h1:tO4FBSdann0xg/Jtm0grV7t1DzpQMK8nThYVtvSJo/8=
 github.com/rogpeppe/fastuuid v1.2.0 h1:Ppwyp6VYCF1nvBTXL3trRso7mXMlRrw9ooo375wvi2s=
 github.com/rogpeppe/fastuuid v1.2.0/go.mod h1:jVj6XXZzXRy/MSR5jhDC/2q6DgLz+nrA6LYCDYWNEvQ=
 github.com/rogpeppe/go-internal v1.3.0/go.mod h1:M8bDsm7K2OlrFYOpmOWEs/qY81heoFRclV5y23lUDJ4=

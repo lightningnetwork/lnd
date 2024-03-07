@@ -71,6 +71,9 @@ var (
 	dbBackendFlag = flag.String("dbbackend", "bbolt", "Database backend "+
 		"(bbolt, etcd, postgres)")
 
+	nativeSQLFlag = flag.Bool("nativesql", false, "Database backend to "+
+		"use native SQL when applicable (only for sqlite and postgres")
+
 	// lndExecutable is the full path to the lnd binary.
 	lndExecutable = flag.String(
 		"lndexec", itestLndBinary, "full path to lnd binary",
@@ -95,7 +98,7 @@ func TestLightningNetworkDaemon(t *testing.T) {
 	// Get the binary path and setup the harness test.
 	binary := getLndBinary(t)
 	harnessTest := lntest.SetupHarness(
-		t, binary, *dbBackendFlag, feeService,
+		t, binary, *dbBackendFlag, *nativeSQLFlag, feeService,
 	)
 	defer harnessTest.Stop()
 

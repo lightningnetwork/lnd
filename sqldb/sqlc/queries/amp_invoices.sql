@@ -1,79 +1,67 @@
--- name: InsertAMPInvoicePayment :exec
-INSERT INTO amp_invoice_payments (
-    set_id, state, created_at, settled_index, invoice_id
+-- name: UpsertAMPSubInvoice :execresult
+INSERT INTO amp_sub_invoices (
+    set_id, state, created_at, invoice_id
 ) VALUES (
-    $1, $2, $3, $4, $5
-); 
+    $1, $2, $3, $4
+) ON CONFLICT (set_id, invoice_id) DO NOTHING;
 
--- name: SelectAMPInvoicePayments :many
-SELECT aip.*, ip.*
-FROM amp_invoice_payments aip LEFT JOIN invoice_payments ip ON aip.settled_index = ip.id
-WHERE (
-    set_id = sqlc.narg('set_id') OR 
-    sqlc.narg('set_id') IS NULL
-) AND (
-    aip.settled_index = sqlc.narg('settled_index') OR 
-    sqlc.narg('settled_index') IS NULL
-) AND (
-    aip.invoice_id = sqlc.narg('invoice_id') OR 
-    sqlc.narg('invoice_id') IS NULL
-); 
+-- name: GetAMPInvoiceID :one
+SELECT invoice_id FROM amp_sub_invoices WHERE set_id = $1;
 
--- name: UpdateAMPPayment :exec
-UPDATE amp_invoice_payments
-SET state = $1, settled_index = $2
-WHERE state = 0 AND (
-    set_id = sqlc.narg('set_id') OR 
-    sqlc.narg('set_id') IS NULL
-) AND (
-    invoice_id = sqlc.narg('invoice_id') OR 
-    sqlc.narg('invoice_id') IS NULL
-); 
+-- name: UpdateAMPSubInvoiceState :exec
+UPDATE amp_sub_invoices
+SET state = $2, 
+    settle_index = COALESCE(settle_index, $3),
+    settled_at = COALESCE(settled_at, $4)
+WHERE set_id = $1; 
 
--- name: InsertAMPInvoiceHTLC :exec
-INSERT INTO amp_invoice_htlcs (
-    set_id, htlc_id, root_share, child_index, hash, preimage
+-- name: InsertAMPSubInvoiceHTLC :exec
+INSERT INTO amp_sub_invoice_htlcs (
+    invoice_id, set_id, htlc_id, root_share, child_index, hash, preimage
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
+    $1, $2, $3, $4, $5, $6, $7
 );
 
--- name: GetAMPInvoiceHTLCsBySetID :many
+-- name: FetchAMPSubInvoices :many
 SELECT *
-FROM amp_invoice_htlcs
-WHERE set_id = $1;
+FROM amp_sub_invoices
+WHERE invoice_id = $1 
+AND (
+    set_id = sqlc.narg('set_id') OR 
+    sqlc.narg('set_id') IS NULL
+);
 
--- name: GetAMPInvoiceHTLCsByInvoiceID :many
-SELECT *
-FROM amp_invoice_htlcs
-WHERE invoice_id = $1;
+-- name: FetchAMPSubInvoiceHTLCs :many
+SELECT 
+    amp.set_id, amp.root_share, amp.child_index, amp.hash, amp.preimage, 
+    invoice_htlcs.*
+FROM amp_sub_invoice_htlcs amp
+INNER JOIN invoice_htlcs ON amp.htlc_id = invoice_htlcs.id
+WHERE amp.invoice_id = $1
+AND (
+    set_id = sqlc.narg('set_id') OR 
+    sqlc.narg('set_id') IS NULL
+);
 
--- name: GetSetIDHTLCsCustomRecords :many
-SELECT ihcr.htlc_id, key, value
-FROM amp_invoice_htlcs aih JOIN invoice_htlc_custom_records ihcr ON aih.id=ihcr.htlc_id 
-WHERE aih.set_id = $1;
+-- name: FetchSettledAMPSubInvoices :many
+SELECT 
+    a.set_id, 
+    a.settle_index as amp_settle_index, 
+    a.settled_at as amp_settled_at,
+    i.*
+FROM amp_sub_invoices a
+INNER JOIN invoices i ON a.invoice_id = i.id
+WHERE (
+    a.settle_index >= sqlc.narg('settle_index_get') OR
+    sqlc.narg('settle_index_get') IS NULL
+) AND (
+    a.settle_index <= sqlc.narg('settle_index_let') OR
+    sqlc.narg('settle_index_let') IS NULL
+);
 
--- name: UpdateAMPInvoiceHTLC :exec
-UPDATE amp_invoice_htlcs
-SET preimage = $1
-WHERE htlc_id = $2;
-
--- name: DeleteAMPHTLCCustomRecords :exec
-WITH htlc_ids AS (
-    SELECT htlc_id
-    FROM amp_invoice_htlcs 
-    WHERE invoice_id = $1
-)
-DELETE
-FROM invoice_htlc_custom_records
-WHERE htlc_id IN (SELECT id FROM htlc_ids);
-
--- name: DeleteAMPHTLCs :exec
-DELETE 
-FROM amp_invoice_htlcs  
-WHERE invoice_id = $1;
-
--- name: DeleteAMPInvoiceHTLC :exec
-DELETE 
-FROM amp_invoice_htlcs
-WHERE set_id = $1;
-
+-- name: UpdateAMPSubInvoiceHTLCPreimage :execresult
+UPDATE amp_sub_invoice_htlcs AS a
+SET preimage = $4
+WHERE a.invoice_id = $1 AND a.set_id = $2 AND a.htlc_id = (
+    SELECT id FROM invoice_htlcs AS i WHERE i.htlc_id = $3
+);

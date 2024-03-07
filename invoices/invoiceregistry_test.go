@@ -3,6 +3,7 @@ package invoices_test
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"fmt"
 	"math"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
+	"github.com/lightningnetwork/lnd/sqldb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,11 +116,59 @@ func TestInvoiceRegistry(t *testing.T) {
 		return db, testClock
 	}
 
+	// First create a shared Postgres instance so we don't spawn a new
+	// docker container for each test.
+	pgFixture := sqldb.NewTestPgFixture(
+		t, sqldb.DefaultPostgresFixtureLifetime,
+	)
+	t.Cleanup(func() {
+		pgFixture.TearDown(t)
+	})
+
+	makeSQLDB := func(t *testing.T, sqlite bool) (invpkg.InvoiceDB,
+		*clock.TestClock) {
+
+		var db *sqldb.BaseDB
+		if sqlite {
+			db = sqldb.NewTestSqliteDB(t).BaseDB
+		} else {
+			db = sqldb.NewTestPostgresDB(t, pgFixture).BaseDB
+		}
+
+		executor := sqldb.NewTransactionExecutor(
+			db, func(tx *sql.Tx) sqldb.InvoiceQueries {
+				return db.WithTx(tx)
+			},
+		)
+
+		testClock := clock.NewTestClock(testNow)
+
+		return sqldb.NewInvoiceStore(executor, testClock), testClock
+	}
+
 	for _, test := range testList {
 		test := test
 
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(test.name+"_KV", func(t *testing.T) {
 			test.test(t, makeKeyValueDB)
+		})
+
+		t.Run(test.name+"_SQLite", func(t *testing.T) {
+			test.test(t,
+				func(t *testing.T) (
+					invpkg.InvoiceDB, *clock.TestClock) {
+
+					return makeSQLDB(t, true)
+				})
+		})
+
+		t.Run(test.name+"_Postgres", func(t *testing.T) {
+			test.test(t,
+				func(t *testing.T) (
+					invpkg.InvoiceDB, *clock.TestClock) {
+
+					return makeSQLDB(t, false)
+				})
 		})
 	}
 }

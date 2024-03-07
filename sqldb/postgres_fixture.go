@@ -1,8 +1,12 @@
+//go:build !js && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64)) && !(netbsd || openbsd)
+
 package sqldb
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 	"strings"
@@ -55,6 +59,7 @@ func NewTestPgFixture(t *testing.T, expiry time.Duration) *TestPgFixture {
 			"postgres",
 			"-c", "log_statement=all",
 			"-c", "log_destination=stderr",
+			"-c", "max_connections=1000",
 		},
 	}, func(config *docker.HostConfig) {
 		// Set AutoRemove to true so that stopped container goes away
@@ -74,7 +79,7 @@ func NewTestPgFixture(t *testing.T, expiry time.Duration) *TestPgFixture {
 		host: host,
 		port: int(port),
 	}
-	databaseURL := fixture.GetDSN()
+	databaseURL := fixture.GetConfig(testPgDBName).Dsn
 	log.Infof("Connecting to Postgres fixture: %v\n", databaseURL)
 
 	// Tell docker to hard kill the container in "expiry" seconds.
@@ -103,20 +108,13 @@ func NewTestPgFixture(t *testing.T, expiry time.Duration) *TestPgFixture {
 	return fixture
 }
 
-// GetDSN returns the DSN (Data Source Name) for the started Postgres node.
-func (f *TestPgFixture) GetDSN() string {
-	return f.GetConfig().DSN(false)
-}
-
 // GetConfig returns the full config of the Postgres node.
-func (f *TestPgFixture) GetConfig() *PostgresConfig {
+func (f *TestPgFixture) GetConfig(dbName string) *PostgresConfig {
 	return &PostgresConfig{
-		Host:       f.host,
-		Port:       f.port,
-		User:       testPgUser,
-		Password:   testPgPass,
-		DBName:     testPgDBName,
-		RequireSSL: false,
+		Dsn: fmt.Sprintf(
+			"postgres://%v:%v@%v:%v/%v?sslmode=disable",
+			testPgUser, testPgPass, f.host, f.port, dbName,
+		),
 	}
 }
 
@@ -126,15 +124,32 @@ func (f *TestPgFixture) TearDown(t *testing.T) {
 	require.NoError(t, err, "Could not purge resource")
 }
 
-// ClearDB clears the database.
-func (f *TestPgFixture) ClearDB(t *testing.T) {
-	dbConn, err := sql.Open("postgres", f.GetDSN())
+// NewTestPostgresDB is a helper function that creates a Postgres database for
+// testing using the given fixture.
+func NewTestPostgresDB(t *testing.T, fixture *TestPgFixture) *PostgresStore {
+	t.Helper()
+
+	// Create random database name.
+	randBytes := make([]byte, 8)
+	_, err := rand.Read(randBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dbName := "test_" + hex.EncodeToString(randBytes)
+
+	t.Logf("Creating new Postgres DB '%s' for testing", dbName)
+
+	_, err = fixture.db.ExecContext(
+		context.Background(), "CREATE DATABASE "+dbName,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := fixture.GetConfig(dbName)
+	store, err := NewPostgresStore(cfg)
 	require.NoError(t, err)
 
-	_, err = dbConn.ExecContext(
-		context.Background(),
-		`DROP SCHEMA IF EXISTS public CASCADE;
-		 CREATE SCHEMA public;`,
-	)
-	require.NoError(t, err)
+	return store
 }

@@ -103,14 +103,14 @@ type HarnessTest struct {
 // NewHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
 func NewHarnessTest(t *testing.T, lndBinary string, feeService WebFeeService,
-	dbBackend node.DatabaseBackend) *HarnessTest {
+	dbBackend node.DatabaseBackend, nativeSQL bool) *HarnessTest {
 
 	t.Helper()
 
 	// Create the run context.
 	ctxt, cancel := context.WithCancel(context.Background())
 
-	manager := newNodeManager(lndBinary, dbBackend)
+	manager := newNodeManager(lndBinary, dbBackend, nativeSQL)
 
 	return &HarnessTest{
 		T:          t,

@@ -18,7 +18,7 @@ import (
 // 4. connect the miner and the chain backend.
 // 5. start the HarnessTest.
 func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
-	feeService WebFeeService) *HarnessTest {
+	nativeSQL bool, feeService WebFeeService) *HarnessTest {
 
 	t.Log("Setting up HarnessTest...")
 
@@ -30,7 +30,7 @@ func SetupHarness(t *testing.T, binaryPath, dbBackendName string,
 	dbBackend := prepareDBBackend(t, dbBackendName)
 
 	// Create a new HarnessTest.
-	ht := NewHarnessTest(t, binaryPath, feeService, dbBackend)
+	ht := NewHarnessTest(t, binaryPath, feeService, dbBackend, nativeSQL)
 
 	// Init the miner.
 	t.Log("Prepare the miner and mine blocks to activate segwit...")

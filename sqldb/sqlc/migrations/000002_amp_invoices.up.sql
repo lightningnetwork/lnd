@@ -1,5 +1,6 @@
--- amp_invoices_payments  
-CREATE TABLE IF NOT EXISTS amp_invoice_payments (
+-- amp_sub_invoices holds all AMP sub-invoices that belong to a given parent
+-- invoice.
+CREATE TABLE IF NOT EXISTS amp_sub_invoices (
     -- The set id identifying the payment. 
     set_id BLOB PRIMARY KEY,
 
@@ -10,26 +11,35 @@ CREATE TABLE IF NOT EXISTS amp_invoice_payments (
     -- Timestamp of when the first htlc for this payment was accepted.
     created_at TIMESTAMP NOT NULL,
 
-    -- If settled, the invoice payment related to this set id.
-    settled_index INTEGER REFERENCES invoice_payments(id),
+    -- When the invoice was settled.
+    settled_at TIMESTAMP,
 
-    -- The invoice id this set id is related to.
-    invoice_id INTEGER NOT NULL REFERENCES invoices(id)
+    -- If settled, the index is set to the current_value+1 of the settle_index
+    -- seuqence in the invoice_sequences table. If not settled, then it is set
+    -- to NULL.
+    settle_index BIGINT,
+
+    -- The id of the parent invoice this AMP invoice belongs to.
+    invoice_id BIGINT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+
+    -- A unique constraint on the set_id and invoice_id is needed to ensure that
+    -- we don't have two AMP invoices for the same invoice.
+    UNIQUE (set_id, invoice_id)
 );
 
-CREATE INDEX IF NOT EXISTS amp_invoice_payments_invoice_id_idx ON amp_invoice_payments(invoice_id);
+CREATE INDEX IF NOT EXISTS amp_sub_invoices_invoice_id_idx ON amp_sub_invoices(invoice_id);
 
 -- amp_invoice_htlcs contains the complementary information for an htlc related 
 -- to an AMP invoice.
-CREATE TABLE IF NOT EXISTS amp_invoice_htlcs (
+CREATE TABLE IF NOT EXISTS amp_sub_invoice_htlcs (
+    -- The invoice id this entry is related to.
+    invoice_id BIGINT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+
     -- The set id identifying the payment this htlc belongs to.
-    set_id BLOB NOT NULL REFERENCES amp_invoice_payments(set_id),
+    set_id BLOB NOT NULL REFERENCES amp_sub_invoices(set_id) ON DELETE CASCADE,
 
     -- The id of the htlc this entry blongs to.
-    htlc_id BIGINT NOT NULL REFERENCES invoice_htlcs(id),
-
-    -- The invoice id this entry is related to.
-    invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+    htlc_id BIGINT NOT NULL REFERENCES invoice_htlcs(id) ON DELETE CASCADE,
 
     -- The root share for this amp htlc.
     root_share BLOB NOT NULL,
@@ -48,7 +58,7 @@ CREATE TABLE IF NOT EXISTS amp_invoice_htlcs (
     preimage BLOB 
 );
 
-CREATE INDEX IF NOT EXISTS amp_htlcs_set_id_idx ON amp_invoice_htlcs(set_id);
-CREATE INDEX IF NOT EXISTS amp_htlcs_invoice_id_idx ON amp_invoice_htlcs(invoice_id);
-CREATE INDEX IF NOT EXISTS amp_htlcs_htlc_id_idx ON amp_invoice_htlcs(htlc_id);
+CREATE INDEX IF NOT EXISTS amp_htlcs_invoice_id_idx ON amp_sub_invoice_htlcs(invoice_id);
+CREATE INDEX IF NOT EXISTS amp_htlcs_set_id_idx ON amp_sub_invoice_htlcs(set_id);
+CREATE INDEX IF NOT EXISTS amp_htlcs_htlc_id_idx ON amp_sub_invoice_htlcs(htlc_id);
 

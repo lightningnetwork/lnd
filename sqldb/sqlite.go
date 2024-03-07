@@ -1,3 +1,5 @@
+//go:build !js && !(windows && (arm || 386)) && !(linux && (ppc64 || mips || mipsle || mips64))
+
 package sqldb
 
 import (
@@ -6,7 +8,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"testing"
-	"time"
 
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/lightningnetwork/lnd/sqldb/sqlc"
@@ -23,31 +24,7 @@ const (
 	// sqliteTxLockImmediate is a dsn option used to ensure that write
 	// transactions are started immediately.
 	sqliteTxLockImmediate = "_txlock=immediate"
-
-	// defaultMaxConns is the number of permitted active and idle
-	// connections. We want to limit this so it isn't unlimited. We use the
-	// same value for the number of idle connections as, this can speed up
-	// queries given a new connection doesn't need to be established each
-	// time.
-	defaultMaxConns = 25
-
-	// connIdleLifetime is the amount of time a connection can be idle.
-	connIdleLifetime = 5 * time.Minute
 )
-
-// SqliteConfig holds all the config arguments needed to interact with our
-// sqlite DB.
-//
-//nolint:lll
-type SqliteConfig struct {
-	// SkipMigrations if true, then all the tables will be created on start
-	// up if they don't already exist.
-	SkipMigrations bool `long:"skipmigrations" description:"Skip applying migrations on startup."`
-
-	// DatabaseFileName is the full file path where the database file can be
-	// found.
-	DatabaseFileName string `long:"dbfile" description:"The full path to the database."`
-}
 
 // SqliteStore is a database store implementation that uses a sqlite backend.
 type SqliteStore struct {
@@ -58,7 +35,7 @@ type SqliteStore struct {
 
 // NewSqliteStore attempts to open a new sqlite database based on the passed
 // config.
-func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
+func NewSqliteStore(cfg *SqliteConfig, dbPath string) (*SqliteStore, error) {
 	// The set of pragma options are accepted using query options. For now
 	// we only want to ensure that foreign key constraints are properly
 	// enforced.
@@ -107,7 +84,7 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	// details on the formatting here, see the modernc.org/sqlite docs:
 	// https://pkg.go.dev/modernc.org/sqlite#Driver.Open.
 	dsn := fmt.Sprintf(
-		"%v?%v&%v", cfg.DatabaseFileName, sqliteOptions.Encode(),
+		"%v?%v&%v", dbPath, sqliteOptions.Encode(),
 		sqliteTxLockImmediate,
 	)
 	db, err := sql.Open("sqlite", dsn)
@@ -133,8 +110,16 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 			return nil, err
 		}
 
+		// We use INTEGER PRIMARY KEY for sqlite, because it acts as a
+		// ROWID alias which is 8 bytes big and also autoincrements.
+		// It's important to use the ROWID as a primary key because the
+		// key look ups are almost twice as fast
+		sqliteFS := newReplacerFS(sqlSchemas, map[string]string{
+			"BIGINT PRIMARY KEY": "INTEGER PRIMARY KEY",
+		})
+
 		err = applyMigrations(
-			sqlSchemas, driver, "sqlc/migrations", "sqlc",
+			sqliteFS, driver, "sqlc/migrations", "sqlc",
 		)
 		if err != nil {
 			return nil, err
@@ -163,9 +148,8 @@ func NewTestSqliteDB(t *testing.T) *SqliteStore {
 	// an in mem version to speed up tests
 	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
-		DatabaseFileName: dbFileName,
-		SkipMigrations:   false,
-	})
+		SkipMigrations: false,
+	}, dbFileName)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

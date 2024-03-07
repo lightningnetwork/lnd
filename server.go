@@ -246,6 +246,8 @@ type server struct {
 	// channel DB that haven't been separated out yet.
 	miscDB *channeldb.DB
 
+	invoicesDB invoices.InvoiceDB
+
 	aliasMgr *aliasmgr.Manager
 
 	htlcSwitch *htlcswitch.Switch
@@ -564,6 +566,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		chanStateDB:    dbs.ChanStateDB.ChannelStateDB(),
 		addrSource:     dbs.ChanStateDB,
 		miscDB:         dbs.ChanStateDB,
+		invoicesDB:     dbs.InvoiceDB,
 		cc:             cc,
 		sigPool:        lnwallet.NewSigPool(cfg.Workers.Sig, cc.Signer),
 		writePool:      writePool,

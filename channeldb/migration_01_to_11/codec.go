@@ -70,7 +70,7 @@ func WriteElement(w io.Writer, element interface{}) error {
 
 		if e.PubKey != nil {
 			if err := binary.Write(w, byteOrder, true); err != nil {
-				return fmt.Errorf("error writing serialized element: %s", err)
+				return fmt.Errorf("error writing serialized element: %w", err)
 			}
 
 			return WriteElement(w, e.PubKey)

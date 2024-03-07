@@ -192,7 +192,7 @@ func (i *PsbtIntent) FundingParams() (btcutil.Address, int64, *psbt.Packet,
 	// Encode the address in the human-readable bech32 format.
 	addr, err := script.Address(i.netParams)
 	if err != nil {
-		return nil, 0, nil, fmt.Errorf("unable to encode address: %v",
+		return nil, 0, nil, fmt.Errorf("unable to encode address: %w",
 			err)
 	}
 
@@ -204,7 +204,7 @@ func (i *PsbtIntent) FundingParams() (btcutil.Address, int64, *psbt.Packet,
 		packet, err = psbt.New(nil, nil, 2, 0, nil)
 		if err != nil {
 			return nil, 0, nil, fmt.Errorf("unable to create "+
-				"PSBT: %v", err)
+				"PSBT: %w", err)
 		}
 	}
 	packet.UnsignedTx.TxOut = append(packet.UnsignedTx.TxOut, out)

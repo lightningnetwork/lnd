@@ -525,13 +525,13 @@ func sendPaymentRequest(ctx *cli.Context,
 
 			recordID, err := strconv.ParseUint(kv[0], 10, 64)
 			if err != nil {
-				return fmt.Errorf("invalid data format: %v",
+				return fmt.Errorf("invalid data format: %w",
 					err)
 			}
 
 			hexValue, err := hex.DecodeString(kv[1])
 			if err != nil {
-				return fmt.Errorf("invalid data format: %v",
+				return fmt.Errorf("invalid data format: %w",
 					err)
 			}
 
@@ -1514,7 +1514,7 @@ func forwardingHistory(ctx *cli.Context) error {
 	case args.Present():
 		i, err := strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			return fmt.Errorf("unable to decode index_offset: %v",
+			return fmt.Errorf("unable to decode index_offset: %w",
 				err)
 		}
 		indexOffset = uint32(i)
@@ -1527,7 +1527,7 @@ func forwardingHistory(ctx *cli.Context) error {
 	case args.Present():
 		m, err := strconv.ParseInt(args.First(), 10, 64)
 		if err != nil {
-			return fmt.Errorf("unable to decode max_events: %v",
+			return fmt.Errorf("unable to decode max_events: %w",
 				err)
 		}
 		maxEvents = uint32(m)
@@ -1616,7 +1616,7 @@ func buildRoute(ctx *cli.Context) error {
 	for _, k := range hops {
 		pubkey, err := route.NewVertexFromStr(k)
 		if err != nil {
-			return fmt.Errorf("error parsing %v: %v", k, err)
+			return fmt.Errorf("error parsing %v: %w", k, err)
 		}
 		rpcHops = append(rpcHops, pubkey[:])
 	}
@@ -1757,7 +1757,7 @@ func deletePayments(ctx *cli.Context) error {
 	case singlePayment:
 		paymentHash, err = hex.DecodeString(ctx.String("payment_hash"))
 		if err != nil {
-			return fmt.Errorf("error decoding payment_hash: %v",
+			return fmt.Errorf("error decoding payment_hash: %w",
 				err)
 		}
 
@@ -1766,7 +1766,7 @@ func deletePayments(ctx *cli.Context) error {
 			FailedHtlcsOnly: failedHTLCsOnly,
 		})
 		if err != nil {
-			return fmt.Errorf("error deleting single payment: %v",
+			return fmt.Errorf("error deleting single payment: %w",
 				err)
 		}
 

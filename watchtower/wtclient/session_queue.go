@@ -527,7 +527,7 @@ func (q *sessionQueue) nextStateUpdate() (*wtwire.StateUpdate, bool,
 		hint, encBlob, err := task.craftSessionPayload(q.cfg.Signer)
 		if err != nil {
 			// TODO(conner): mark will not send
-			err := fmt.Errorf("unable to craft session payload: %v",
+			err := fmt.Errorf("unable to craft session payload: %w",
 				err)
 			return nil, false, wtdb.BackupID{}, err
 		}
@@ -665,7 +665,7 @@ func (q *sessionQueue) sendStateUpdate(conn wtserver.Peer,
 	switch {
 	case err == wtdb.ErrUnallocatedLastApplied:
 		// TODO(conner): borked watchtower
-		err = fmt.Errorf("unable to ack seqnum=%d: %v",
+		err = fmt.Errorf("unable to ack seqnum=%d: %w",
 			stateUpdate.SeqNum, err)
 		q.log.Errorf("SessionQueue(%v) failed to ack update: %v",
 			q.ID(), err)
@@ -673,14 +673,14 @@ func (q *sessionQueue) sendStateUpdate(conn wtserver.Peer,
 
 	case err == wtdb.ErrLastAppliedReversion:
 		// TODO(conner): borked watchtower
-		err = fmt.Errorf("unable to ack seqnum=%d: %v",
+		err = fmt.Errorf("unable to ack seqnum=%d: %w",
 			stateUpdate.SeqNum, err)
 		q.log.Errorf("SessionQueue(%s) failed to ack update: %v",
 			q.ID(), err)
 		return err
 
 	case err != nil:
-		err = fmt.Errorf("unable to ack seqnum=%d: %v",
+		err = fmt.Errorf("unable to ack seqnum=%d: %w",
 			stateUpdate.SeqNum, err)
 		q.log.Errorf("SessionQueue(%s) failed to ack update: %v",
 			q.ID(), err)

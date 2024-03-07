@@ -1889,7 +1889,7 @@ func newPsbtAssembler(req *lnrpc.OpenChannelRequest, normalizedMinConfs int32,
 			bytes.NewReader(psbtShim.BasePsbt), false,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error parsing base PSBT: %v",
+			return nil, fmt.Errorf("error parsing base PSBT: %w",
 				err)
 		}
 	}
@@ -2114,7 +2114,7 @@ func (r *rpcServer) parseOpenChannelReq(in *lnrpc.OpenChannelRequest,
 		in.CloseAddress, r.cfg.ActiveNetParams.Params,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing upfront shutdown: %v",
+		return nil, fmt.Errorf("error parsing upfront shutdown: %w",
 			err)
 	}
 
@@ -6460,7 +6460,7 @@ func (r *rpcServer) StopDaemon(_ context.Context,
 	// otherwise some funds wouldn't be picked up.
 	isRecoveryMode, progress, err := r.server.cc.Wallet.GetRecoveryInfo()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get wallet recovery info: %v",
+		return nil, fmt.Errorf("unable to get wallet recovery info: %w",
 			err)
 	}
 	if isRecoveryMode && progress < 1 {
@@ -7142,7 +7142,7 @@ func (r *rpcServer) ForwardingHistory(ctx context.Context,
 	}
 	timeSlice, err := r.server.miscDB.ForwardingLog().Query(eventQuery)
 	if err != nil {
-		return nil, fmt.Errorf("unable to query forwarding log: %v",
+		return nil, fmt.Errorf("unable to query forwarding log: %w",
 			err)
 	}
 
@@ -7944,7 +7944,7 @@ func (r *rpcServer) FundingStateStep(ctx context.Context,
 				false,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("error parsing psbt: %v",
+				return nil, fmt.Errorf("error parsing psbt: %w",
 					err)
 			}
 

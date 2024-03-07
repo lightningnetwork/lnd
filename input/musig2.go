@@ -587,7 +587,7 @@ func DeserializePartialSignature(scalarBytes []byte) (*musig2.PartialSignature,
 
 	sig := &musig2.PartialSignature{}
 	if err := sig.Decode(bytes.NewReader(scalarBytes)); err != nil {
-		return nil, fmt.Errorf("error decoding partial signature: %v",
+		return nil, fmt.Errorf("error decoding partial signature: %w",
 			err)
 	}
 

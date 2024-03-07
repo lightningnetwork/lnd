@@ -261,7 +261,7 @@ func GenCertPair(org string, tlsExtraIPs, tlsExtraDomains []string,
 		&template, &priv.PublicKey, priv,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create certificate: %v",
+		return nil, nil, fmt.Errorf("failed to create certificate: %w",
 			err)
 	}
 
@@ -270,13 +270,13 @@ func GenCertPair(org string, tlsExtraIPs, tlsExtraDomains []string,
 		certBuf, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes},
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to encode certificate: %v",
+		return nil, nil, fmt.Errorf("failed to encode certificate: %w",
 			err)
 	}
 
 	keybytes, err := x509.MarshalECPrivateKey(priv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to encode privkey: %v",
+		return nil, nil, fmt.Errorf("unable to encode privkey: %w",
 			err)
 	}
 	keyBuf := &bytes.Buffer{}
@@ -284,7 +284,7 @@ func GenCertPair(org string, tlsExtraIPs, tlsExtraDomains []string,
 		keyBuf, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keybytes},
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to encode private key: %v",
+		return nil, nil, fmt.Errorf("failed to encode private key: %w",
 			err)
 	}
 

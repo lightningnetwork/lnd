@@ -211,7 +211,7 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		fv := lnwire.NewFeatureVector(raw, lnwire.Features)
 		err := ValidateDeps(fv)
 		if err != nil {
-			return nil, fmt.Errorf("invalid feature set %v: %v",
+			return nil, fmt.Errorf("invalid feature set %v: %w",
 				set, err)
 		}
 	}

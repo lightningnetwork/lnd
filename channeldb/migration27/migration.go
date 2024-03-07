@@ -79,7 +79,7 @@ func findHistoricalChannels(historicalBucket kvdb.RBucket) ([]*OpenChannel,
 		// Try to fetch channel info in old format.
 		err = fetchChanInfoCompatible(chanBucket, c, true)
 		if err != nil {
-			return fmt.Errorf("%s: fetch chan info got: %v",
+			return fmt.Errorf("%s: fetch chan info got: %w",
 				c.FundingOutpoint, err)
 		}
 

@@ -90,7 +90,7 @@ func (cmd *compacter) execute() (int64, int64, error) {
 		Timeout:  cmd.dbTimeout,
 	})
 	if err != nil {
-		return 0, 0, fmt.Errorf("error opening source database: %v",
+		return 0, 0, fmt.Errorf("error opening source database: %w",
 			err)
 	}
 	defer func() {
@@ -105,7 +105,7 @@ func (cmd *compacter) execute() (int64, int64, error) {
 	})
 	if err != nil {
 		return 0, 0, fmt.Errorf("error opening destination database: "+
-			"%v", err)
+			"%w", err)
 	}
 	defer func() {
 		if err := dst.Close(); err != nil {
@@ -122,7 +122,7 @@ func (cmd *compacter) execute() (int64, int64, error) {
 	fi, err = os.Stat(cmd.dstPath)
 	if err != nil {
 		return 0, 0, fmt.Errorf("error determining destination "+
-			"database size: %v", err)
+			"database size: %w", err)
 	} else if fi.Size() == 0 {
 		return 0, 0, fmt.Errorf("zero db size")
 	}

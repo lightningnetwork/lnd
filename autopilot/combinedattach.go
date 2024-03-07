@@ -84,7 +84,7 @@ func (c *WeightedCombAttachment) NodeScores(g ChannelGraph, chans []LocalChannel
 			g, chans, chanSize, nodes,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to get sub score: %v",
+			return nil, fmt.Errorf("unable to get sub score: %w",
 				err)
 		}
 

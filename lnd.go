@@ -91,7 +91,7 @@ func AdminAuthOptions(cfg *Config, skipMacaroons bool) ([]grpc.DialOption,
 
 		mac := &macaroon.Macaroon{}
 		if err = mac.UnmarshalBinary(macBytes); err != nil {
-			return nil, fmt.Errorf("unable to decode macaroon: %v",
+			return nil, fmt.Errorf("unable to decode macaroon: %w",
 				err)
 		}
 

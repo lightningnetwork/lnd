@@ -254,7 +254,7 @@ func writeRevocationLogs(openChanBucket kvdb.RwBucket,
 			logEntrykey := mig24.MakeLogKey(entry.commitHeight)
 			err = logBucket.Put(logEntrykey[:], b.Bytes())
 			if err != nil {
-				return fmt.Errorf("putRevocationLog err: %v",
+				return fmt.Errorf("putRevocationLog err: %w",
 					err)
 			}
 		}

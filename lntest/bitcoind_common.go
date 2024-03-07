@@ -192,7 +192,7 @@ func newBackend(miner string, netParams *chaincfg.Params, extraArgs []string,
 	client, err := rpcclient.New(&rpcCfg, nil)
 	if err != nil {
 		_ = cleanUp()
-		return nil, nil, fmt.Errorf("unable to create rpc client: %v",
+		return nil, nil, fmt.Errorf("unable to create rpc client: %w",
 			err)
 	}
 

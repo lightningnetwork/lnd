@@ -341,7 +341,7 @@ func (m *Manager) queryHeuristics(nodes map[NodeID]struct{}, localState bool) (
 			m.cfg.PilotCfg.Graph, totalChans, chanSize, nodes,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to get sub score: %v",
+			return nil, fmt.Errorf("unable to get sub score: %w",
 				err)
 		}
 

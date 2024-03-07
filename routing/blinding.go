@@ -40,9 +40,9 @@ type BlindedPayment struct {
 	// payments made over the blinded path.
 	ProportionalFeeRate uint32
 
-	// CltvExpiryDelta is the total expiry delta for the blinded path. Note
-	// this does not include the final cltv delta for the receiving node
-	// (which should be provided in an invoice).
+	// CltvExpiryDelta is the total expiry delta for the blinded path. This
+	// field includes the CLTV for the blinded hops *and* the final cltv
+	// delta for the receiver.
 	CltvExpiryDelta uint16
 
 	// HtlcMinimum is the highest HLTC minimum supported along the blinded

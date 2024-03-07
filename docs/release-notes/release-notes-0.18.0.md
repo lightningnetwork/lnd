@@ -191,6 +191,9 @@
   [Deprecate bumpclosefee for bumpforceclosefee and add `max_fee_rate` option
    to `closechannel` cmd](https://github.com/lightningnetwork/lnd/pull/8350).
 
+* The [`closeallchannels` command now asks for confirmation before closing 
+  all channels](https://github.com/lightningnetwork/lnd/pull/8526).
+
 # Improvements
 ## Functional Updates
 ### Tlv

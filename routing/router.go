@@ -2442,7 +2442,8 @@ func (r *ChannelRouter) PreparePayment(payment *LightningPayment) (
 	// control.
 	paySession, err := r.cfg.SessionSource.NewPaymentSession(payment)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("error creating payment session: "+
+			"%w", err)
 	}
 
 	// Record this payment hash with the ControlTower, ensuring it is not

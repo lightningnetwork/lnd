@@ -35,7 +35,7 @@ const (
 	DefaultInitialRetryDelay = time.Millisecond * 50
 
 	// DefaultMaxRetryDelay is the default maximum delay between retries.
-	DefaultMaxRetryDelay = time.Second * 5
+	DefaultMaxRetryDelay = time.Second
 )
 
 // Config holds a set of configuration options of a sql database connection.
@@ -345,7 +345,7 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 			}
 		}
 
-		return commitErr
+		return nil
 	}
 
 	// If we get to this point, then we weren't able to successfully commit

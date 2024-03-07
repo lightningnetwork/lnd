@@ -159,7 +159,7 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		prefetchPayment(tx, paymentHash)
 		bucket, err := createPaymentBucket(tx, paymentHash)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't create bucket: %w", err)
 		}
 
 		// Get the existing status of this payment, if any.
@@ -171,14 +171,15 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		// retrying the payment or return a specific error.
 		case err == nil:
 			if err := paymentStatus.initializable(); err != nil {
-				updateErr = err
+				updateErr = fmt.Errorf("initialize: %w", err)
 				return nil
 			}
 
 		// Otherwise, if the error is not `ErrPaymentNotInitiated`,
 		// we'll return the error.
 		case !errors.Is(err, ErrPaymentNotInitiated):
-			return err
+			return fmt.Errorf("couldn't fetch payment status: %w",
+				err)
 		}
 
 		// Before we set our new sequence number, we check whether this
@@ -190,7 +191,8 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		if seqBytes != nil {
 			indexBucket := tx.ReadWriteBucket(paymentsIndexBucket)
 			if err := indexBucket.Delete(seqBytes); err != nil {
-				return err
+				return fmt.Errorf("couldn't delete index "+
+					"bucket: %w", err)
 			}
 		}
 
@@ -201,27 +203,30 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 			tx, sequenceNum, info.PaymentIdentifier,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't create payment index "+
+				"entry: %w", err)
 		}
 
 		err = bucket.Put(paymentSequenceKey, sequenceNum)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't put sequence key: %w", err)
 		}
 
 		// Add the payment info to the bucket, which contains the
 		// static information for this payment
 		err = bucket.Put(paymentCreationInfoKey, infoBytes)
 		if err != nil {
-			return err
+			return fmt.Errorf("couldn't put creation key info: %w",
+				err)
 		}
 
 		// We'll delete any lingering HTLCs to start with, in case we
 		// are initializing a payment that was attempted earlier, but
 		// left in a state where we could retry.
 		err = bucket.DeleteNestedBucket(paymentHtlcsBucket)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
+		if err != nil && !errors.Is(err, kvdb.ErrBucketNotFound) {
+			return fmt.Errorf("couldn't delete nested bucket: %w",
+				err)
 		}
 
 		// Also delete any lingering failure info now that we are
@@ -229,10 +234,14 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		return bucket.Delete(paymentFailInfoKey)
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("error in batch: %w", err)
 	}
 
-	return updateErr
+	if updateErr != nil {
+		return fmt.Errorf("update err: %w", updateErr)
+	}
+
+	return nil
 }
 
 // DeleteFailedAttempts deletes all failed htlcs for a payment if configured
@@ -521,7 +530,7 @@ func (p *PaymentControl) Fail(paymentHash lntypes.Hash,
 
 		prefetchPayment(tx, paymentHash)
 		bucket, err := fetchPaymentBucketUpdate(tx, paymentHash)
-		if err == ErrPaymentNotInitiated {
+		if errors.Is(err, ErrPaymentNotInitiated) {
 			updateErr = ErrPaymentNotInitiated
 			return nil
 		} else if err != nil {

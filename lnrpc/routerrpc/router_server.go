@@ -1265,7 +1265,7 @@ func (s *Server) subscribePayment(identifier lntypes.Hash) (
 	sub, err := router.Tower.SubscribePayment(identifier)
 
 	switch {
-	case err == channeldb.ErrPaymentNotInitiated:
+	case errors.Is(err, channeldb.ErrPaymentNotInitiated):
 		return nil, status.Error(codes.NotFound, err.Error())
 	case err != nil:
 		return nil, err

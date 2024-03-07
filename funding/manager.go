@@ -4825,7 +4825,7 @@ func (f *Manager) handleErrorMsg(peer lnpeer.Peer, msg *lnwire.Error) {
 
 	// If we did indeed find the funding workflow, then we'll return the
 	// error back to the caller (if any), and cancel the workflow itself.
-	fundingErr := fmt.Errorf("received funding error from %x: %w",
+	fundingErr := fmt.Errorf("received funding error from %x: %v",
 		peerKey.SerializeCompressed(), msg.Error(),
 	)
 	log.Errorf(fundingErr.Error())

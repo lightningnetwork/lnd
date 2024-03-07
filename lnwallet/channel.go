@@ -6330,8 +6330,9 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 
 // FailHTLC attempts to fail a targeted HTLC by its payment hash, inserting an
 // entry which will remove the target log entry within the next commitment
-// update. This method is intended to be called in order to cancel in
-// _incoming_ HTLC.
+// update. This method is intended to be called in order to cancel an
+// incoming HTLC. The incoming HTLC's payment descriptor is returned by the
+// function call.
 //
 // The additional arguments correspond to:
 //
@@ -6354,20 +6355,20 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 // testing the wallet.
 func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 	sourceRef *channeldb.AddRef, destRef *channeldb.SettleFailRef,
-	closeKey *models.CircuitKey) error {
+	closeKey *models.CircuitKey) (*PaymentDescriptor, error) {
 
 	lc.Lock()
 	defer lc.Unlock()
 
 	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+		return nil, ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
 	}
 
 	// Now that we know the HTLC exists, we'll ensure that we haven't
 	// already attempted to fail the HTLC.
 	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
-		return ErrHtlcIndexAlreadyFailed(htlcIndex)
+		return nil, ErrHtlcIndexAlreadyFailed(htlcIndex)
 	}
 
 	pd := &PaymentDescriptor{
@@ -6389,7 +6390,7 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 	// duplicate fail.
 	lc.remoteUpdateLog.markHtlcModified(htlcIndex)
 
-	return nil
+	return htlc, nil
 }
 
 // MalformedFailHTLC attempts to fail a targeted HTLC by its payment hash,

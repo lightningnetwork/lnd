@@ -441,7 +441,7 @@ func TestChannelZeroAddLocalHeight(t *testing.T) {
 
 	// Now Bob should fail the htlc back to Alice.
 	// <----fail-----
-	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
 	require.NoError(t, err)
 	err = aliceChannel.ReceiveFailHTLC(0, []byte("bad"))
 	require.NoError(t, err)
@@ -2060,7 +2060,9 @@ func TestCancelHTLC(t *testing.T) {
 
 	// Now, with the HTLC committed on both sides, trigger a cancellation
 	// from Bob to Alice, removing the HTLC.
-	err = bobChannel.FailHTLC(bobHtlcIndex, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		bobHtlcIndex, []byte("failreason"), nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to cancel HTLC")
 	err = aliceChannel.ReceiveFailHTLC(aliceHtlcIndex, []byte("bad"))
 	require.NoError(t, err, "unable to recv htlc cancel")
@@ -4904,7 +4906,9 @@ func TestChanAvailableBandwidth(t *testing.T) {
 	}
 
 	htlcIndex := uint64((numHtlcs * 2) - 1)
-	err = bobChannel.FailHTLC(htlcIndex, []byte("f"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		htlcIndex, []byte("f"), nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to cancel HTLC")
 	err = aliceChannel.ReceiveFailHTLC(htlcIndex, []byte("bad"))
 	require.NoError(t, err, "unable to recv htlc cancel")
@@ -5373,7 +5377,9 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// With both nodes restarted, Bob will now attempt to cancel one of
 	// Alice's HTLC's.
-	err = bobChannel.FailHTLC(htlc.ID, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		htlc.ID, []byte("failreason"), nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to cancel HTLC")
 	err = aliceChannel.ReceiveFailHTLC(htlc.ID, []byte("bad"))
 	require.NoError(t, err, "unable to recv htlc cancel")
@@ -5426,7 +5432,9 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// Failing the HTLC here will cause the update to be included in Alice's
 	// remote log, but it should not be committed by this transition.
-	err = bobChannel.FailHTLC(htlc2.ID, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		htlc2.ID, []byte("failreason"), nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to cancel HTLC")
 	err = aliceChannel.ReceiveFailHTLC(htlc2.ID, []byte("bad"))
 	require.NoError(t, err, "unable to recv htlc cancel")
@@ -5472,7 +5480,9 @@ func TestLockedInHtlcForwardingSkipAfterRestart(t *testing.T) {
 
 	// Re-add the Fail to both Alice and Bob's channels, as the non-committed
 	// update will not have survived the restart.
-	err = bobChannel.FailHTLC(htlc2.ID, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		htlc2.ID, []byte("failreason"), nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to cancel HTLC")
 	err = aliceChannel.ReceiveFailHTLC(htlc2.ID, []byte("bad"))
 	require.NoError(t, err, "unable to recv htlc cancel")
@@ -5924,7 +5934,9 @@ func TestDesyncHTLCs(t *testing.T) {
 	}
 
 	// Now let Bob fail this HTLC.
-	err = bobChannel.FailHTLC(bobIndex, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		bobIndex, []byte("failreason"), nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to cancel HTLC")
 	if err := aliceChannel.ReceiveFailHTLC(aliceIndex, []byte("bad")); err != nil {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
@@ -6021,7 +6033,9 @@ func TestMaxAcceptedHTLCs(t *testing.T) {
 
 	// Bob will fail the htlc specified by htlcID and then force a state
 	// transition.
-	err = bobChannel.FailHTLC(htlcID, []byte{}, nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		htlcID, []byte{}, nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to fail htlc")
 
 	if err := aliceChannel.ReceiveFailHTLC(htlcID, []byte{}); err != nil {
@@ -6142,7 +6156,9 @@ func TestMaxAsynchronousHtlcs(t *testing.T) {
 	}
 
 	// Fail back an HTLC and sign a commitment as in steps 1 & 2.
-	err = bobChannel.FailHTLC(htlcID, []byte{}, nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		htlcID, []byte{}, nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to fail htlc")
 
 	if err := aliceChannel.ReceiveFailHTLC(htlcID, []byte{}); err != nil {
@@ -7000,7 +7016,9 @@ func TestChannelRestoreUpdateLogsFailedHTLC(t *testing.T) {
 	restoreAndAssert(t, aliceChannel, 1, 0, 0, 0)
 
 	// Now we make Bob fail this HTLC.
-	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		0, []byte("failreason"), nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to cancel HTLC")
 
 	err = aliceChannel.ReceiveFailHTLC(0, []byte("failreason"))
@@ -7090,7 +7108,9 @@ func TestDuplicateFailRejection(t *testing.T) {
 
 	// With the HTLC locked in, we'll now have Bob fail the HTLC back to
 	// Alice.
-	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		0, []byte("failreason"), nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to cancel HTLC")
 	if err := aliceChannel.ReceiveFailHTLC(0, []byte("bad")); err != nil {
 		t.Fatalf("unable to recv htlc cancel: %v", err)
@@ -7098,7 +7118,9 @@ func TestDuplicateFailRejection(t *testing.T) {
 
 	// If we attempt to fail it AGAIN, then both sides should reject this
 	// second failure attempt.
-	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		0, []byte("failreason"), nil, nil, nil,
+	)
 	if err == nil {
 		t.Fatalf("duplicate HTLC failure attempt should have failed")
 	}
@@ -7119,7 +7141,9 @@ func TestDuplicateFailRejection(t *testing.T) {
 	require.NoError(t, err, "unable to restart channel")
 
 	// If we try to fail the same HTLC again, then we should get an error.
-	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		0, []byte("failreason"), nil, nil, nil,
+	)
 	if err == nil {
 		t.Fatalf("duplicate HTLC failure attempt should have failed")
 	}
@@ -7399,7 +7423,9 @@ func TestChannelRestoreCommitHeight(t *testing.T) {
 	bobChannel = restoreAndAssertCommitHeights(t, bobChannel, true, 1, 2, 2)
 
 	// Bob now fails back the htlc that was just locked in.
-	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		0, []byte("failreason"), nil, nil, nil,
+	)
 	require.NoError(t, err, "unable to cancel HTLC")
 	err = aliceChannel.ReceiveFailHTLC(0, []byte("bad"))
 	require.NoError(t, err, "unable to recv htlc cancel")
@@ -9270,7 +9296,9 @@ func TestChannelUnsignedAckedFailure(t *testing.T) {
 
 	// Now Bob should fail the htlc back to Alice.
 	// <----fail-----
-	err = bobChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	_, err = bobChannel.FailHTLC(
+		0, []byte("failreason"), nil, nil, nil,
+	)
 	require.NoError(t, err)
 	err = aliceChannel.ReceiveFailHTLC(0, []byte("bad"))
 	require.NoError(t, err)
@@ -9380,7 +9408,9 @@ func TestChannelLocalUnsignedUpdatesFailure(t *testing.T) {
 
 	// Now Alice should fail the htlc back to Bob.
 	// -----fail--->
-	err = aliceChannel.FailHTLC(0, []byte("failreason"), nil, nil, nil)
+	_, err = aliceChannel.FailHTLC(
+		0, []byte("failreason"), nil, nil, nil,
+	)
 	require.NoError(t, err)
 	err = bobChannel.ReceiveFailHTLC(0, []byte("bad"))
 	require.NoError(t, err)
@@ -10795,7 +10825,9 @@ func TestAsynchronousSendingWithFeeBuffer(t *testing.T) {
 	//	<----rev-------	|---------------
 	//	<----sig-------	|---------------
 	//	---------------	|-----rev------>
-	err = aliceChannel.FailHTLC(0, []byte{}, nil, nil, nil)
+	_, err = aliceChannel.FailHTLC(
+		0, []byte{}, nil, nil, nil,
+	)
 	require.NoError(t, err)
 
 	err = bobChannel.ReceiveFailHTLC(0, []byte{})

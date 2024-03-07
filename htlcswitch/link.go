@@ -1749,7 +1749,7 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		// An HTLC cancellation has been triggered somewhere upstream,
 		// we'll remove then HTLC from our local state machine.
 		inKey := pkt.inKey()
-		err := l.channel.FailHTLC(
+		_, err := l.channel.FailHTLC(
 			pkt.incomingHTLCID,
 			htlc.Reason,
 			pkt.sourceRef,
@@ -3715,7 +3715,9 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		return
 	}
 
-	err = l.channel.FailHTLC(pd.HtlcIndex, reason, pd.SourceRef, nil, nil)
+	_, err = l.channel.FailHTLC(
+		pd.HtlcIndex, reason, pd.SourceRef, nil, nil,
+	)
 	if err != nil {
 		l.log.Errorf("unable cancel htlc: %v", err)
 		return

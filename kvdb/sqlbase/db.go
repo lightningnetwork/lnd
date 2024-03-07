@@ -313,9 +313,8 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 
 		fnErr := catchPanic(func() error { return f(tx) })
 		if fnErr != nil {
-			if rollbackErr := tx.Rollback(); rollbackErr != nil {
-				log.Errorf("Error rolling back tx: %v",
-					rollbackErr)
+			if err := attemptRollback(tx); err != nil {
+				return err
 			}
 
 			dbErr := MapSQLError(fnErr)
@@ -332,7 +331,9 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 
 		commitErr := tx.Commit()
 		if commitErr != nil {
-			_ = tx.Rollback()
+			if err := attemptRollback(tx); err != nil {
+				return err
+			}
 
 			dbErr := MapSQLError(fnErr)
 			if IsSerializationError(dbErr) {
@@ -383,4 +384,16 @@ func (db *db) Close() error {
 	log.Infof("Closing database %v", db.prefix)
 
 	return dbConns.Close(db.cfg.Dsn)
+}
+
+// attemptRollback attempts to roll back the transaction, and if it fails, it
+// will return the error. If the transaction was already closed, it will return
+// nil.
+func attemptRollback(tx *readWriteTx) error {
+	rollbackErr := tx.Rollback()
+	if rollbackErr != nil && !errors.Is(rollbackErr, walletdb.ErrTxClosed) {
+		return fmt.Errorf("error rolling back tx: %w", rollbackErr)
+	}
+
+	return nil
 }

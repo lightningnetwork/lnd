@@ -103,7 +103,7 @@ func (e *etcdLeaderElector) Leader(ctx context.Context) (string, error) {
 }
 
 // Campaign will start a new leader election campaign. Campaign will block until
-// the elector context is canceled or the the caller is elected as the leader.
+// the elector context is canceled or the caller is elected as the leader.
 func (e *etcdLeaderElector) Campaign(ctx context.Context) error {
 	return e.election.Campaign(ctx, e.id)
 }

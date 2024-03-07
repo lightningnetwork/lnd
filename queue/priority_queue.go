@@ -29,7 +29,7 @@ func (pq priorityQueue) Swap(i, j int) {
 	pq[i], pq[j] = pq[j], pq[i]
 }
 
-// Push adds a new item the the priorityQueue.
+// Push adds a new item the priorityQueue.
 func (pq *priorityQueue) Push(x interface{}) {
 	item := x.(PriorityQueueItem)
 	*pq = append(*pq, item)

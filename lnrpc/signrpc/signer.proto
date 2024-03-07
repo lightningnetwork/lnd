@@ -487,7 +487,7 @@ message MuSig2CombineKeysRequest {
     repeated bytes all_signer_pubkeys = 1;
 
     /*
-    A series of optional generic tweaks to be applied to the the aggregated
+    A series of optional generic tweaks to be applied to the aggregated
     public key.
     */
     repeated TweakDesc tweaks = 2;
@@ -551,7 +551,7 @@ message MuSig2SessionRequest {
     repeated bytes other_signer_public_nonces = 3;
 
     /*
-    A series of optional generic tweaks to be applied to the the aggregated
+    A series of optional generic tweaks to be applied to the aggregated
     public key.
     */
     repeated TweakDesc tweaks = 4;

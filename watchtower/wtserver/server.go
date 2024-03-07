@@ -33,7 +33,7 @@ type Config struct {
 	// storing state updates.
 	DB DB
 
-	// NodeKeyECDH is the the ECDH capable wrapper of the key to be used in
+	// NodeKeyECDH is the ECDH capable wrapper of the key to be used in
 	// accepting new brontide connections.
 	NodeKeyECDH keychain.SingleKeyECDH
 

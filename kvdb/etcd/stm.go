@@ -1170,7 +1170,7 @@ func (s *stm) Rollback() {
 }
 
 // rollback will reset the read and write sets. If clearReadSet is false we'll
-// only reset the the write set.
+// only reset the write set.
 func (s *stm) rollback(clearReadSet bool) {
 	if clearReadSet {
 		s.rset.clear()

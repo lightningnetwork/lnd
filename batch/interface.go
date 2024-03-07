@@ -48,7 +48,7 @@ func LazyAdd() SchedulerOption {
 // set of Requests, executes them, and returns the error from the operation.
 type Scheduler interface {
 	// Execute schedules a Request for execution with the next available
-	// batch. This method blocks until the the underlying closure has been
+	// batch. This method blocks until the underlying closure has been
 	// run against the database. The resulting error is returned to the
 	// caller.
 	Execute(req *Request) error

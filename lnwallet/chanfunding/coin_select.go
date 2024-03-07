@@ -307,7 +307,7 @@ func CoinSelectSubtractFees(feeRate chainfee.SatPerKWeight, amt,
 	outputAmt := totalSat - requiredFeeNoChange
 	changeAmt := btcutil.Amount(0)
 
-	// If the the output is too small after subtracting the fee, the coin
+	// If the output is too small after subtracting the fee, the coin
 	// selection cannot be performed with an amount this small.
 	if outputAmt < dustLimit {
 		return nil, 0, 0, fmt.Errorf("output amount(%v) after "+

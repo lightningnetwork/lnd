@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -712,7 +711,7 @@ func createWatchOnly(ctx *cli.Context) error {
 	}
 
 	jsonFile := lncfg.CleanAndExpandPath(ctx.Args().First())
-	jsonBytes, err := ioutil.ReadFile(jsonFile)
+	jsonBytes, err := os.ReadFile(jsonFile)
 	if err != nil {
 		return fmt.Errorf("error reading JSON from file %v: %v",
 			jsonFile, err)

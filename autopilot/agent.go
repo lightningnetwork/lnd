@@ -648,7 +648,7 @@ func (a *Agent) openChans(availableFunds btcutil.Amount, numChans uint32,
 	// to open channels to.
 	scores, err = chooseN(numChans, scores)
 	if err != nil {
-		return fmt.Errorf("unable to make weighted choice: %v",
+		return fmt.Errorf("unable to make weighted choice: %w",
 			err)
 	}
 

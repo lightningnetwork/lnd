@@ -615,7 +615,7 @@ func (d *DB) QueryPayments(query PaymentsQuery) (PaymentsResponse, error) {
 				err = indexes.ForEach(countFn)
 			}
 			if err != nil {
-				return fmt.Errorf("error counting payments: %v",
+				return fmt.Errorf("error counting payments: %w",
 					err)
 			}
 

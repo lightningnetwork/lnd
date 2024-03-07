@@ -136,7 +136,7 @@ func encodeAmount(msat lnwire.MilliSatoshi) (string, error) {
 	// Should always be expressible in pico BTC.
 	pico, err := fromMSat['p'](msat)
 	if err != nil {
-		return "", fmt.Errorf("unable to express %d msat as pBTC: %v",
+		return "", fmt.Errorf("unable to express %d msat as pBTC: %w",
 			msat, err)
 	}
 	shortened := strconv.FormatUint(pico, 10) + "p"

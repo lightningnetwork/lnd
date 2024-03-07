@@ -643,7 +643,7 @@ func (c *ChannelStateDB) fetchNodeChannels(chainBucket kvdb.RBucket) (
 		oChannel, err := fetchOpenChannel(chanBucket, &outPoint)
 		if err != nil {
 			return fmt.Errorf("unable to read channel data for "+
-				"chan_point=%v: %v", outPoint, err)
+				"chan_point=%v: %w", outPoint, err)
 		}
 		oChannel.Db = c
 

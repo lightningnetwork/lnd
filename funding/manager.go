@@ -1123,7 +1123,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 	case markedOpen:
 		err := f.sendChannelReady(channel, lnChannel)
 		if err != nil {
-			return fmt.Errorf("failed sending channelReady: %v",
+			return fmt.Errorf("failed sending channelReady: %w",
 				err)
 		}
 
@@ -1137,7 +1137,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		)
 		if err != nil {
 			return fmt.Errorf("error setting channel state to"+
-				" channelReadySent: %v", err)
+				" channelReadySent: %w", err)
 		}
 
 		log.Debugf("Channel(%v) with ShortChanID %v: successfully "+
@@ -1207,7 +1207,7 @@ func (f *Manager) stateStep(channel *channeldb.OpenChannel,
 		// shutdown.
 		err = f.deleteChannelOpeningState(&channel.FundingOutpoint)
 		if err != nil {
-			return fmt.Errorf("error deleting channel state: %v",
+			return fmt.Errorf("error deleting channel state: %w",
 				err)
 		}
 
@@ -2757,7 +2757,7 @@ func (f *Manager) fundingTimeout(c *channeldb.OpenChannel,
 	if err := c.CloseChannel(
 		closeInfo, channeldb.ChanStatusLocalCloseInitiator,
 	); err != nil {
-		return fmt.Errorf("failed closing channel %v: %v",
+		return fmt.Errorf("failed closing channel %v: %w",
 			c.FundingOutpoint, err)
 	}
 
@@ -4784,7 +4784,7 @@ func (f *Manager) handleInitFundingMsg(msg *InitFundingMsg) {
 	}
 
 	if err := msg.Peer.SendMessage(true, &fundingOpen); err != nil {
-		e := fmt.Errorf("unable to send funding request message: %v",
+		e := fmt.Errorf("unable to send funding request message: %w",
 			err)
 		log.Errorf(e.Error())
 

@@ -252,7 +252,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 		}
 
 		if err := graphDB.AddLightningNode(node); err != nil {
-			return nil, fmt.Errorf("unable to add node %v: %v",
+			return nil, fmt.Errorf("unable to add node %v: %w",
 				rpcNode.PubKey, err)
 		}
 
@@ -285,7 +285,7 @@ func (s *Server) ImportGraph(ctx context.Context,
 		edge.ChannelPoint = *channelPoint
 
 		if err := graphDB.AddChannelEdge(edge); err != nil {
-			return nil, fmt.Errorf("unable to add edge %v: %v",
+			return nil, fmt.Errorf("unable to add edge %v: %w",
 				rpcEdge.ChanPoint, err)
 		}
 

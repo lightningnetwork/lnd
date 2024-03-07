@@ -208,7 +208,8 @@ func (c *WatchtowerClient) AddTower(ctx context.Context,
 		c.cfg.Resolver,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("invalid address %v: %v", req.Address, err)
+		return nil, fmt.Errorf("invalid address %v: %w", req.Address,
+			err)
 	}
 
 	towerAddr := &lnwire.NetAddress{

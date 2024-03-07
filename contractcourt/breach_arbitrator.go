@@ -931,7 +931,7 @@ func (b *BreachArbitrator) cleanupBreach(chanPoint *wire.OutPoint) error {
 	// info from the database.
 	err = b.cfg.Store.Remove(chanPoint)
 	if err != nil {
-		return fmt.Errorf("unable to remove retribution from db: %v",
+		return fmt.Errorf("unable to remove retribution from db: %w",
 			err)
 	}
 

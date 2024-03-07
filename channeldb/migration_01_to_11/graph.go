@@ -1140,7 +1140,7 @@ func deserializeChanEdgePolicy(r io.Reader,
 
 	node, err := fetchLightningNode(nodes, pub[:])
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch node: %x, %v",
+		return nil, fmt.Errorf("unable to fetch node: %x, %w",
 			pub[:], err)
 	}
 	edge.Node = &node

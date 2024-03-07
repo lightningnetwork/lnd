@@ -483,13 +483,13 @@ func GetCommonBlockAncestorHeight(chainConn ChainConn, reorgHash,
 	for reorgHash != chainHash {
 		reorgHeader, err := chainConn.GetBlockHeader(&reorgHash)
 		if err != nil {
-			return 0, fmt.Errorf("unable to get header for hash=%v: %v",
-				reorgHash, err)
+			return 0, fmt.Errorf("unable to get header for "+
+				"hash=%v: %w", reorgHash, err)
 		}
 		chainHeader, err := chainConn.GetBlockHeader(&chainHash)
 		if err != nil {
-			return 0, fmt.Errorf("unable to get header for hash=%v: %v",
-				chainHash, err)
+			return 0, fmt.Errorf("unable to get header for "+
+				"hash=%v: %w", chainHash, err)
 		}
 		reorgHash = reorgHeader.PrevBlock
 		chainHash = chainHeader.PrevBlock
@@ -497,8 +497,8 @@ func GetCommonBlockAncestorHeight(chainConn ChainConn, reorgHash,
 
 	verboseHeader, err := chainConn.GetBlockHeaderVerbose(&chainHash)
 	if err != nil {
-		return 0, fmt.Errorf("unable to get verbose header for hash=%v: %v",
-			chainHash, err)
+		return 0, fmt.Errorf("unable to get verbose header for "+
+			"hash=%v: %w", chainHash, err)
 	}
 
 	return verboseHeader.Height, nil
@@ -719,7 +719,7 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 		}
 
 		return nil, TxNotFoundIndex,
-			fmt.Errorf("unable to query for txid %v: %v",
+			fmt.Errorf("unable to query for txid %v: %w",
 				r.TxID, err)
 	}
 
@@ -728,13 +728,13 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 	rawTx, err := hex.DecodeString(rawTxRes.Hex)
 	if err != nil {
 		return nil, TxNotFoundIndex,
-			fmt.Errorf("unable to deserialize tx %v: %v",
+			fmt.Errorf("unable to deserialize tx %v: %w",
 				r.TxID, err)
 	}
 	var tx wire.MsgTx
 	if err := tx.Deserialize(bytes.NewReader(rawTx)); err != nil {
 		return nil, TxNotFoundIndex,
-			fmt.Errorf("unable to deserialize tx %v: %v",
+			fmt.Errorf("unable to deserialize tx %v: %w",
 				r.TxID, err)
 	}
 
@@ -759,13 +759,14 @@ func ConfDetailsFromTxIndex(chainConn TxIndexConn, r ConfRequest,
 	if err != nil {
 		return nil, TxNotFoundIndex,
 			fmt.Errorf("unable to get block hash %v for "+
-				"historical dispatch: %v", rawTxRes.BlockHash, err)
+				"historical dispatch: %w", rawTxRes.BlockHash,
+				err)
 	}
 	block, err := chainConn.GetBlock(blockHash)
 	if err != nil {
 		return nil, TxNotFoundIndex,
 			fmt.Errorf("unable to get block with hash %v for "+
-				"historical dispatch: %v", blockHash, err)
+				"historical dispatch: %w", blockHash, err)
 	}
 
 	// In the modern chain (the only one we really care about for LN), the

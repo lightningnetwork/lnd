@@ -1647,7 +1647,7 @@ func (d *AuthenticatedGossiper) retransmitStaleAnns(now time.Time) error {
 		return nil
 	})
 	if err != nil && err != channeldb.ErrGraphNoEdgesFound {
-		return fmt.Errorf("unable to retrieve outgoing channels: %v",
+		return fmt.Errorf("unable to retrieve outgoing channels: %w",
 			err)
 	}
 
@@ -1873,7 +1873,7 @@ func (d *AuthenticatedGossiper) processRejectedEdge(
 	// to the database.
 	err = d.cfg.Router.AddProof(chanAnnMsg.ShortChannelID, proof)
 	if err != nil {
-		err := fmt.Errorf("unable add proof to shortChanID=%v: %v",
+		err := fmt.Errorf("unable add proof to shortChanID=%v: %w",
 			chanAnnMsg.ShortChannelID, err)
 		log.Error(err)
 		return nil, err
@@ -1910,7 +1910,7 @@ func (d *AuthenticatedGossiper) addNode(msg *lnwire.NodeAnnouncement,
 	op ...batch.SchedulerOption) error {
 
 	if err := routing.ValidateNodeAnn(msg); err != nil {
-		return fmt.Errorf("unable to validate node announcement: %v",
+		return fmt.Errorf("unable to validate node announcement: %w",
 			err)
 	}
 

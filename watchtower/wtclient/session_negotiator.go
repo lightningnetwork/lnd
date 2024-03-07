@@ -475,7 +475,7 @@ func (n *sessionNegotiator) tryAddress(sessionKey keychain.SingleKeyECDH,
 
 		err = n.cfg.DB.CreateClientSession(dbClientSession)
 		if err != nil {
-			return fmt.Errorf("unable to persist ClientSession: %v",
+			return fmt.Errorf("unable to persist ClientSession: %w",
 				err)
 		}
 

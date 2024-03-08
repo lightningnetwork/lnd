@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -57,6 +58,11 @@ var (
 	// maxMsgRecvSize is the largest message our client will receive. We
 	// set this to 200MiB atm.
 	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize)
+
+	// connectionRetryInterval determines the time interval after which a
+	// connection attempt to the lnd gRPC server should be retired in wait
+	// loop.
+	connectionRetryInterval = time.Millisecond * 250
 )
 
 func fatal(err error) {
@@ -561,5 +567,86 @@ func networkParams(ctx *cli.Context) (*chaincfg.Params, error) {
 
 	default:
 		return nil, fmt.Errorf("unknown network: %v", network)
+	}
+}
+
+// waitUntilStatus waits until the lnrpc.WalletState of the lnd reaches the
+// desired state, It continuously subscribes to the state updates using the
+// lnrpc.StateClient.
+func waitUntilStatus(ctxc context.Context, ctx *cli.Context,
+	desiredState lnrpc.WalletState) error {
+
+	connectionRetryTicker := time.NewTicker(connectionRetryInterval)
+
+	fmt.Printf("Waiting for lnd to become ready (want state %v)\n",
+		desiredState)
+
+connectionLoop:
+	for {
+		fmt.Println("Attempting to connect to RPC server")
+		conn := lnrpc.NewStateClient(getClientConn(ctx, true))
+
+		fmt.Println("Attempting to subscribe to the wallet state")
+		statusStream, err := conn.SubscribeState(
+			context.Background(), &lnrpc.SubscribeStateRequest{},
+		)
+
+		if err != nil {
+			fmt.Printf("Status subscription for lnd not "+
+				"successful: %v\n", err)
+
+			select {
+			case <-connectionRetryTicker.C:
+			case <-ctxc.Done():
+				return fmt.Errorf("user aborted")
+			}
+
+			continue
+		}
+
+		for {
+			// Did the user abort the operation?
+			select {
+			case <-ctxc.Done():
+				return fmt.Errorf("user aborted")
+			default:
+			}
+
+			msg, err := statusStream.Recv()
+			if err != nil {
+				fmt.Printf("Error receiving status update: "+
+					"%v\n", err)
+
+				select {
+				case <-connectionRetryTicker.C:
+				case <-ctxc.Done():
+					return fmt.Errorf("user aborted")
+				}
+
+				// Something went wrong, perhaps lnd shut down
+				// before becoming active. Let's retry the whole
+				// connection again.
+				continue connectionLoop
+			}
+
+			fmt.Printf("Received update from lnd, wallet status is"+
+				" now: %v\n", msg.State)
+
+			// We've arrived at the final state!
+			if msg.State == desiredState {
+				return nil
+			}
+
+			// If the state is beyond the desired state or has
+			// already been surpassed, we can safely return without
+			// further action.
+			if msg.State != lnrpc.WalletState_WAITING_TO_START &&
+				msg.State > desiredState {
+
+				return nil
+			}
+
+			// Let's wait for another status message to arrive.
+		}
 	}
 }

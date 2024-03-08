@@ -138,8 +138,22 @@ type closeMsg struct {
 
 // PendingUpdate describes the pending state of a closing channel.
 type PendingUpdate struct {
-	Txid        []byte
+	// Txid is the txid of the closing transaction.
+	Txid []byte
+
+	// OutputIndex is the output index of our output in the closing
+	// transaction.
 	OutputIndex uint32
+
+	// FeePerVByte is an optional field, that is set only when the new RBF
+	// coop close flow is used. This indicates the new closing fee rate on
+	// the closing transaction.
+	FeePerVbyte fn.Option[chainfee.SatPerVByte]
+
+	// IsLocalCloseTx is an optional field that indicates if this update is
+	// sent for our local close txn, or the close txn of the remote party.
+	// This is only set if the new RBF coop close flow is used.
+	IsLocalCloseTx fn.Option[bool]
 }
 
 // ChannelCloseUpdate contains the outcome of the close channel operation.
@@ -3513,7 +3527,10 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 
 	newStateChan := coopCloseStates.NewItemCreated.ChanOut()
 
-	var lastLocalTxid, lastRemoteTxid chainhash.Hash
+	var (
+		lastLocalTxid, lastRemoteTxid chainhash.Hash
+		lastFeeRate                   chainfee.SatPerVByte
+	)
 
 	maybeNotifyTxBroadcast := func(state chancloser.AsymmetricPeerState,
 		local bool) {
@@ -3523,6 +3540,20 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 		// If this isn't the close pending state, we aren't at the
 		// terminal state yet.
 		if !ok {
+			return
+		}
+
+		// Only notify if the fee rate is greater.
+		if closePending.FeeRate <= lastFeeRate {
+			return
+		}
+
+		lastFeeRate = closePending.FeeRate
+
+		// We'll also only notify if the transaction was actually able
+		// to enter the mempool.
+		err := p.cfg.Wallet.PublishTransaction(closePending.CloseTx, "")
+		if err != nil {
 			return
 		}
 
@@ -3537,10 +3568,11 @@ func (p *Brontide) observeRbfCloseUpdates(chanCloser *chancloser.RbfChanCloser,
 		closingTxid := closePending.CloseTx.TxHash()
 		if closeReq != nil && closingTxid != lastTxid {
 			closeReq.Updates <- &PendingUpdate{
-				Txid: closingTxid[:],
+				Txid:           closingTxid[:],
+				FeePerVbyte:    fn.Some(closePending.FeeRate),
+				IsLocalCloseTx: fn.Some(local),
 			}
 		}
-
 	}
 
 	// We'll consume each new incoming state to send out the appropriate

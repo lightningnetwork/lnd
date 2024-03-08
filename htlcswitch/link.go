@@ -2030,6 +2030,19 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			failure = &lnwire.FailInvalidOnionKey{
 				OnionSHA256: msg.ShaOnionBlob,
 			}
+
+		// Handle malformed errors that are part of a blinded route.
+		// This case is slightly different, because we expect every
+		// relaying node in the blinded portion of the route to send
+		// malformed errors. If we're also a relaying node, we're
+		// likely going to switch this error out anyway for our own
+		// malformed error, but we handle the case here for
+		// completeness.
+		case lnwire.CodeInvalidBlinding:
+			failure = &lnwire.FailInvalidBlinding{
+				OnionSHA256: msg.ShaOnionBlob,
+			}
+
 		default:
 			l.log.Warnf("unexpected failure code received in "+
 				"UpdateFailMailformedHTLC: %v", msg.FailureCode)

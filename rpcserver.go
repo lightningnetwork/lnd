@@ -2657,7 +2657,6 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 	// transaction here rather than going to the switch as we don't require
 	// interaction from the peer.
 	if force {
-
 		// As we're force closing this channel, as a precaution, we'll
 		// ensure that the switch doesn't continue to see this channel
 		// as eligible for forwarding HTLC's. If the peer is online,
@@ -2814,6 +2813,7 @@ func (r *rpcServer) CloseChannel(in *lnrpc.CloseChannelRequest,
 			return err
 		}
 	}
+
 out:
 	for {
 		select {
@@ -2821,6 +2821,7 @@ out:
 			rpcsLog.Errorf("[closechannel] unable to close "+
 				"ChannelPoint(%v): %v", chanPoint, err)
 			return err
+
 		case closingUpdate := <-updateChan:
 			rpcClosingUpdate, err := createRPCCloseUpdate(
 				closingUpdate,
@@ -2844,6 +2845,7 @@ out:
 				h, _ := chainhash.NewHash(closeUpdate.ClosingTxid)
 				rpcsLog.Infof("[closechannel] close completed: "+
 					"txid(%v)", h)
+
 				break out
 			}
 		case <-r.quit:
@@ -2868,12 +2870,23 @@ func createRPCCloseUpdate(update interface{}) (
 			},
 		}, nil
 	case *peer.PendingUpdate:
+		upd := &lnrpc.PendingUpdate{
+			Txid:        u.Txid,
+			OutputIndex: u.OutputIndex,
+		}
+
+		// Potentially set the optional fields that are only set for
+		// the new RBF close flow.
+		u.IsLocalCloseTx.WhenSome(func(isLocal bool) {
+			upd.LocalCloseTx = isLocal
+		})
+		u.FeeRatePerVbyte.WhenSome(func(feeRate chainfee.SatPerVByte) {
+			upd.FeeRatePerVbyte = int64(feeRate)
+		})
+
 		return &lnrpc.CloseStatusUpdate{
 			Update: &lnrpc.CloseStatusUpdate_ClosePending{
-				ClosePending: &lnrpc.PendingUpdate{
-					Txid:        u.Txid,
-					OutputIndex: u.OutputIndex,
-				},
+				ClosePending: upd,
 			},
 		}, nil
 	}

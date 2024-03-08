@@ -491,7 +491,7 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	// broadcasting his current channel state. This is actually the
 	// commitment transaction of a prior *revoked* state, so he'll soon
 	// feel the wrath of Dave's retribution.
-	closeUpdates, closeTxID := ht.CloseChannelAssertPending(
+	closeUpdates, pendingClose := ht.CloseChannelAssertPending(
 		carol, chanPoint, true,
 	)
 
@@ -504,7 +504,8 @@ func testRevokedCloseRetributionAltruistWatchtowerCase(ht *lntest.HarnessTest,
 	ht.AssertTxInBlock(block, breachTXID)
 
 	// The breachTXID should match the above closeTxID.
-	require.EqualValues(ht, breachTXID, closeTxID)
+	closeTxID := pendingClose.GetClosePending().Txid
+	require.EqualValues(ht, breachTXID[:], closeTxID)
 
 	// Query the mempool for Dave's justice transaction, this should be
 	// broadcast as Carol's contract breaching transaction gets confirmed

@@ -335,14 +335,16 @@ func (db *db) executeTransaction(f func(tx walletdb.ReadWriteTx) error,
 				return err
 			}
 
-			dbErr := MapSQLError(fnErr)
+			dbErr := MapSQLError(commitErr)
 			if IsSerializationError(dbErr) {
-				// The transaction failed due to a serialization
-				// problem, so we can retry.
+				// The transaction failed due to a
+				// serialization problem, so we can retry.
 				if waitBeforeRetry(i) {
 					continue
 				}
 			}
+
+			return commitErr
 		}
 
 		return nil

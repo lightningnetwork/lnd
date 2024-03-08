@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/wire"
@@ -14,6 +15,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -171,7 +173,7 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 		}
 
 		chancloserLog.Infof("ChannelPoint(%v): sending shutdown msg, "+
-			"delivery_script=%v", env.ChanPoint, shutdownScript)
+			"delivery_script=%x", env.ChanPoint, shutdownScript)
 
 		// From here, we'll transition to the shutdown pending state. In
 		// this state we await their shutdown message (self loop), then
@@ -729,6 +731,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		return &CloseStateTransition{
 			NextState: &LocalOfferSent{
 				ProposedFee:       absoluteFee,
+				ProposedFeeRate:   msg.TargetFeeRate,
 				LocalSig:          wireSig,
 				CloseChannelTerms: l.CloseChannelTerms,
 			},
@@ -838,6 +841,7 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 		return &CloseStateTransition{
 			NextState: &ClosePending{
 				CloseTx: closeTx,
+				FeeRate: l.ProposedFeeRate,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				ExternalEvents: broadcastEvent,
@@ -994,11 +998,20 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 			sendEvent, broadcastEvent,
 		}
 
+		// We'll also compute the final fee rate that the remote party
+		// paid based off the absolute fee and the size of the closing
+		// transaction.
+		vSize := mempool.GetTxVirtualSize(btcutil.NewTx(closeTx))
+		feeRate := chainfee.SatPerVByte(
+			int64(msg.SigMsg.FeeSatoshis) / vSize,
+		)
+
 		// Now that we've extracted the signature, we'll transition to
 		// the next state where we'll sign+broadcast the sig.
 		return &CloseStateTransition{
 			NextState: &ClosePending{
 				CloseTx: closeTx,
+				FeeRate: feeRate,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				ExternalEvents: daemonEvents,

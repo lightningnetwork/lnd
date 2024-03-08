@@ -24,7 +24,7 @@ const (
 	// DefaultNumTxRetries is the default number of times we'll retry a
 	// transaction if it fails with an error that permits transaction
 	// repetition.
-	DefaultNumTxRetries = 10
+	DefaultNumTxRetries = 50
 
 	// DefaultInitialRetryDelay is the default initial delay between
 	// retries. This will be used to generate a random delay between -50%

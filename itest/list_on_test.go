@@ -702,4 +702,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "send to route failed htlc timeout",
 		TestFunc: testSendToRouteFailHTLCTimeout,
 	},
+	{
+		Name:     "rbf coop close",
+		TestFunc: testCoopCloseRbf,
+	},
 }

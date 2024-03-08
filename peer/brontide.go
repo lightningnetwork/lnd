@@ -3624,6 +3624,9 @@ func newChanErrorReporter(chanID lnwire.ChannelID,
 //
 // This is a part of the chancloser.ErrorReporter interface.
 func (c *chanErrorReporter) ReportError(chanErr error) {
+	c.peer.log.Errorf("coop close error for channel %v: %v",
+		c.chanID, chanErr)
+
 	var errMsg []byte
 	if errors.Is(chanErr, chancloser.ErrInvalidStateTransition) {
 		errMsg = []byte("unexpected protocol message")
@@ -3819,6 +3822,8 @@ func (p *Brontide) initRbfChanCloser(
 	// Finally, we'll register this new endpoint with the message router so
 	// future co-op close messages are handled by this state machine.
 	err = fn.MapOptionZ(p.msgRouter, func(r msgmux.Router) error {
+		_ = r.UnregisterEndpoint(chanCloser.Name())
+
 		return r.RegisterEndpoint(&chanCloser)
 	})
 	if err != nil {

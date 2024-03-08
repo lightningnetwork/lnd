@@ -58,5 +58,5 @@ func TestPanic(t *testing.T) {
 		return nil
 	}, func() {})
 
-	require.Contains(t, err.Error(), "terminating connection")
+	require.Contains(t, err.Error(), "conn closed")
 }

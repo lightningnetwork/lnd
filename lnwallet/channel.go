@@ -7796,12 +7796,6 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 	lc.Lock()
 	defer lc.Unlock()
 
-	// If we're already closing the channel, then ignore this request.
-	if lc.isClosed {
-		// TODO(roasbeef): check to ensure no pending payments
-		return nil, nil, 0, ErrChanClosing
-	}
-
 	opts := defaultCloseOpts()
 	for _, optFunc := range closeOpts {
 		optFunc(opts)
@@ -7885,12 +7879,6 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 
 	lc.Lock()
 	defer lc.Unlock()
-
-	// If the channel is already closing, then ignore this request.
-	if lc.isClosed {
-		// TODO(roasbeef): check to ensure no pending payments
-		return nil, 0, ErrChanClosing
-	}
 
 	opts := defaultCloseOpts()
 	for _, optFunc := range closeOpts {

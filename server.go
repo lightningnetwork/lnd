@@ -529,6 +529,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		readBufferPool, cfg.Workers.Read, pool.DefaultWorkerTimeout,
 	)
 
+	// For now, the RBF coop close flag and the taproot channel type cannot
+	// be used together.
+	//
+	// TODO(roasbeef): fix
+	if cfg.ProtocolOptions.RbfCoopClose &&
+		cfg.ProtocolOptions.TaprootChans {
+
+		return nil, fmt.Errorf("RBF coop close and taproot " +
+			"channels cannot be used together")
+	}
+
 	//nolint:lll
 	featureMgr, err := feature.NewManager(feature.Config{
 		NoTLVOnion:               cfg.ProtocolOptions.LegacyOnion(),
@@ -542,6 +553,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		NoAnySegwit:              cfg.ProtocolOptions.NoAnySegwit(),
 		CustomFeatures:           cfg.ProtocolOptions.ExperimentalProtocol.CustomFeatures(),
 		NoTaprootChans:           !cfg.ProtocolOptions.TaprootChans,
+		NoRbfCoopClose:           !cfg.ProtocolOptions.RbfCoopClose,
 	})
 	if err != nil {
 		return nil, err

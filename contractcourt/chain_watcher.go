@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -682,11 +683,18 @@ func (c *chainWatcher) closeObserver(spendNtfn *chainntnfs.SpendEvent) {
 		}
 
 		// Next, we'll check to see if this is a cooperative channel
-		// closure or not. This is characterized by having an input
-		// sequence number that's finalized. This won't happen with
-		// regular commitment transactions due to the state hint
-		// encoding scheme.
-		if commitTxBroadcast.TxIn[0].Sequence == wire.MaxTxInSequenceNum {
+		// closure or not.
+		switch commitTxBroadcast.TxIn[0].Sequence {
+
+		// The new RBF based co-op close protocol will use a non-final
+		// sequence to allow the fee of the closing transaction to be
+		// bumped.
+		case mempool.MaxRBFSequence:
+			fallthrough
+
+		// Otherwise, the legacy coop close protocol will use a final
+		// sequence.
+		case wire.MaxTxInSequenceNum:
 			// TODO(roasbeef): rare but possible, need itest case
 			// for
 			err := c.dispatchCooperativeClose(commitSpend)

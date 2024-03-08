@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/go-errors/errors"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/kvdb/etcd"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -1194,14 +1195,40 @@ func (h *HarnessTest) OpenChannelAssertErr(srcNode, destNode *node.HarnessNode,
 		"error returned, want %v, got %v", expectedErr, err)
 }
 
+// closeChannelOpts holds the options for closing a channel.
+type closeChannelOpts struct {
+	feeRate fn.Option[chainfee.SatPerVByte]
+}
+
+// CloseChanOpt is a functional option to modify the way we close a channel.
+type CloseChanOpt func(*closeChannelOpts)
+
+// WithCoopCloseFeeRate is a functional option to set the fee rate for a coop
+// close attempt.
+func WithCoopCloseFeeRate(rate chainfee.SatPerVByte) CloseChanOpt {
+	return func(o *closeChannelOpts) {
+		o.feeRate = fn.Some(rate)
+	}
+}
+
+// defaultCloseOpts returns the set of default close options.
+func defaultCloseOpts() *closeChannelOpts {
+	return &closeChannelOpts{}
+}
+
 // CloseChannelAssertPending attempts to close the channel indicated by the
 // passed channel point, initiated by the passed node. Once the CloseChannel
 // rpc is called, it will consume one event and assert it's a close pending
 // event. In addition, it will check that the closing tx can be found in the
 // mempool.
 func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
-	cp *lnrpc.ChannelPoint,
-	force bool) (rpc.CloseChanClient, *chainhash.Hash) {
+	cp *lnrpc.ChannelPoint, force bool,
+	opts ...CloseChanOpt) (rpc.CloseChanClient, *lnrpc.CloseStatusUpdate) {
+
+	closeOpts := defaultCloseOpts()
+	for _, optFunc := range opts {
+		optFunc(closeOpts)
+	}
 
 	// Calls the rpc to close the channel.
 	closeReq := &lnrpc.CloseChannelRequest{
@@ -1209,6 +1236,10 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 		Force:        force,
 		NoWait:       true,
 	}
+
+	closeOpts.feeRate.WhenSome(func(feeRate chainfee.SatPerVByte) {
+		closeReq.SatPerVbyte = uint64(feeRate)
+	})
 
 	var (
 		stream rpc.CloseChanClient
@@ -1241,7 +1272,7 @@ func (h *HarnessTest) CloseChannelAssertPending(hn *node.HarnessNode,
 	// Assert the closing tx is in the mempool.
 	h.Miner.AssertTxInMempool(closeTxid)
 
-	return stream, closeTxid
+	return stream, event
 }
 
 // CloseChannel attempts to coop close a non-anchored channel identified by the

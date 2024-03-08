@@ -79,6 +79,9 @@ var deps = depDesc{
 		lnwire.AnchorsZeroFeeHtlcTxOptional: {},
 		lnwire.ExplicitChannelTypeOptional:  {},
 	},
+	lnwire.RbfCoopCloseOptionalStaging: {
+		lnwire.ShutdownAnySegwitOptional: {},
+	},
 }
 
 // ValidateDeps asserts that a feature vector sets all features and their

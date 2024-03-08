@@ -269,7 +269,7 @@ func (s *StateMachine[Event, Env]) SendMessage(msg lnwire.Message) bool {
 		return false
 	}
 
-	log.Debugf("FSM(%v): sending msg: %v", s.cfg.Env.Name(),
+	log.Debugf("FSM(%v): new inbound msg: %v", s.cfg.Env.Name(),
 		newLogClosure(func() string {
 			return spew.Sdump(msg)
 		}),
@@ -457,7 +457,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent( //nolint:funlen
 			daemonEvent.Tx, daemonEvent.Label,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to broadcast txn: %w", err)
+			log.Errorf("unable to broadcast txn: %v", err)
 		}
 
 		return nil

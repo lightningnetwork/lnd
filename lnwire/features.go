@@ -213,6 +213,22 @@ const (
 	// able and willing to accept keysend payments.
 	KeysendOptional = 55
 
+	// RbfCoopCloseOptional is an optional feature bit that signals that
+	// the new RBF-based co-op close protocol is supported.
+	RbfCoopCloseOptional = 60
+
+	// RbfCoopCloseOptional is a required feature bit that signals that the
+	// new RBF-based co-op close protocol is supported.
+	RbfCoopCloseRequired = 61
+
+	// RbfCoopCloseOptionalStaging is an optional feature bit that signals
+	// that the new RBF-based co-op close protocol is supported.
+	RbfCoopCloseOptionalStaging = 160
+
+	// RbfCoopCloseOptionalStaging is a required feature bit that signals
+	// that the new RBF-based co-op close protocol is supported.
+	RbfCoopCloseRequiredStaging = 161
+
 	// ScriptEnforcedLeaseOptional is an optional feature bit that signals
 	// that the node requires channels having zero-fee second-level HTLC
 	// transactions, which also imply anchor commitments, along with an
@@ -319,6 +335,10 @@ var Features = map[FeatureBit]string{
 	SimpleTaprootChannelsOptionalFinal:   "simple-taproot-chans",
 	SimpleTaprootChannelsRequiredStaging: "simple-taproot-chans-x",
 	SimpleTaprootChannelsOptionalStaging: "simple-taproot-chans-x",
+	RbfCoopCloseOptional:                 "rbf-coop-close",
+	RbfCoopCloseRequired:                 "rbf-coop-close",
+	RbfCoopCloseOptionalStaging:          "rbf-coop-close-x",
+	RbfCoopCloseRequiredStaging:          "rbf-coop-close-x",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

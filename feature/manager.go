@@ -60,6 +60,10 @@ type Config struct {
 	// segwit witness versions for co-op closes.
 	NoAnySegwit bool
 
+	// RbfCoopClose unsets any bits that signal support for using RBF for
+	// coop close.
+	NoRbfCoopClose bool
+
 	// CustomFeatures is a set of custom features to advertise in each
 	// set.
 	CustomFeatures map[Set][]lnwire.FeatureBit
@@ -178,6 +182,10 @@ func newManager(cfg Config, desc setDesc) (*Manager, error) {
 		if cfg.NoTaprootChans {
 			raw.Unset(lnwire.SimpleTaprootChannelsOptionalStaging)
 			raw.Unset(lnwire.SimpleTaprootChannelsRequiredStaging)
+		}
+		if cfg.NoRbfCoopClose {
+			raw.Unset(lnwire.ShutdownAnySegwitOptional)
+			raw.Unset(lnwire.RbfCoopCloseOptionalStaging)
 		}
 
 		for _, custom := range cfg.CustomFeatures[set] {

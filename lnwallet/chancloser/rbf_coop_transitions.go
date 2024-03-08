@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/mempool"
 	"github.com/btcsuite/btcd/wire"
@@ -12,6 +13,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -180,7 +182,7 @@ func (c *ChannelActive) ProcessEvent(event ProtocolEvent, env *Environment,
 		](*msg)
 
 		chancloserLog.Infof("ChannelPoint(%v): sending shutdown msg, "+
-			"delivery_script=%v", env.ChanPoint, shutdownScript)
+			"delivery_script=%x", env.ChanPoint, shutdownScript)
 
 		// From here, we'll transition to the closing flushing state.
 		// In this state we await their shutdown message (self loop),
@@ -582,6 +584,12 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 	// we receive a confirmation event, or we receive a signal to restart
 	// the co-op close process.
 	switch msg := event.(type) {
+	// Ignore any potential duplicate channel flushed events.
+	case *ChannelFlushed:
+		return &CloseStateTransition{
+			NextState: c,
+		}, nil
+
 	// If we get a confirmation, then the spend request we issued when we
 	// were leaving the ChannelFlushing state has been confirmed.  We'll
 	// now transition to the StateFin state.
@@ -775,6 +783,7 @@ func (l *LocalCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 				prevState:         l,
 				transitionEvent:   msg,
 				ProposedFee:       absoluteFee,
+				ProposedFeeRate:   msg.TargetFeeRate,
 				LocalSig:          wireSig,
 				CloseChannelTerms: l.CloseChannelTerms,
 			},
@@ -901,6 +910,7 @@ func (l *LocalOfferSent) ProcessEvent(event ProtocolEvent, env *Environment,
 			NextState: &ClosePending{
 				transitionEvents: transitionEvent,
 				CloseTx:          closeTx,
+				FeeRate:          l.ProposedFeeRate,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				ExternalEvents: fn.Some(broadcastEvent),
@@ -1065,11 +1075,20 @@ func (l *RemoteCloseStart) ProcessEvent(event ProtocolEvent, env *Environment,
 		}
 		daemonEvents := protofsm.DaemonEventSet{sendEvent, broadcastEvent}
 
+		// We'll also compute the final fee rate that the remote party
+		// paid based off the absolute fee and the size of the closing
+		// transaction.
+		vSize := mempool.GetTxVirtualSize(btcutil.NewTx(closeTx))
+		feeRate := chainfee.SatPerVByte(
+			int64(msg.SigMsg.FeeSatoshis) / int64(vSize),
+		)
+
 		// Now that we've extracted the signature, we'll transition to
 		// the next state where we'll sign+broadcast the sig.
 		return &CloseStateTransition{
 			NextState: &ClosePending{
 				CloseTx: closeTx,
+				FeeRate: feeRate,
 			},
 			NewEvents: fn.Some(protofsm.EmittedEvent[ProtocolEvent]{
 				ExternalEvents: fn.Some(daemonEvents),

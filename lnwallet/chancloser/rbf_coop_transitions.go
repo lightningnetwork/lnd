@@ -581,6 +581,12 @@ func (c *ClosingNegotiation) ProcessEvent(event ProtocolEvent, env *Environment,
 	// we receive a confirmation event, or we receive a signal to restart
 	// the co-op close process.
 	switch msg := event.(type) {
+	// Ignore any potential duplicate channel flushed events.
+	case *ChannelFlushed:
+		return &CloseStateTransition{
+			NextState: c,
+		}, nil
+
 	// If we get a confirmation, then the spend request we issued when we
 	// were leaving the ChannelFlushing state has been confirmed.  We'll
 	// now transition to the StateFin state.

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/fn/v2"
@@ -1963,8 +1964,8 @@ func testBumpForceCloseFee(ht *lntest.HarnessTest) {
 	ht.FundCoinsP2TR(btcutil.SatoshiPerBitcoin, alice)
 
 	// Alice force closes the channel which has no HTLCs at stake.
-	_, closingTxID := ht.CloseChannelAssertPending(alice, chanPoint, true)
-	require.NotNil(ht, closingTxID)
+	_, closeUpdates := ht.CloseChannelAssertPending(alice, chanPoint, true)
+	require.NotNil(ht, closeUpdates)
 
 	// Alice should see one waiting close channel.
 	ht.AssertNumWaitingClose(alice, 1)
@@ -1974,8 +1975,10 @@ func testBumpForceCloseFee(ht *lntest.HarnessTest) {
 	ht.AssertNumPendingSweeps(alice, 2)
 
 	// Calculate the commitment tx fee rate.
-	closingTx := ht.AssertTxInMempool(closingTxID)
-	require.NotNil(ht, closingTx)
+	pendingClose := closeUpdates.GetClosePending()
+	closeTxid, err := chainhash.NewHash(pendingClose.Txid)
+	require.NoError(ht, err)
+	closingTx := ht.AssertTxInMempool(*closeTxid)
 
 	// The default commitment fee for anchor channels is capped at 2500
 	// sat/kw but there might be some inaccuracies because of the witness

@@ -7750,7 +7750,7 @@ func WithExtraCloseOutputs(extraOutputs []CloseOutput) ChanCloseOpt {
 func WithCustomCoopSort(sorter CloseSortFunc) ChanCloseOpt {
 	return func(opts *chanCloseOpt) {
 		opts.customSort = sorter
-    }
+	}
 }
 
 // WithCustomSequence can be used to specify a custom sequence number for the
@@ -7777,11 +7777,6 @@ func (lc *LightningChannel) CreateCloseProposal(proposedFee btcutil.Amount,
 
 	lc.Lock()
 	defer lc.Unlock()
-
-	// If we're already closing the channel, then ignore this request.
-	if lc.isClosed {
-		return nil, nil, 0, ErrChanClosing
-	}
 
 	opts := defaultCloseOpts()
 	for _, optFunc := range closeOpts {
@@ -7885,12 +7880,6 @@ func (lc *LightningChannel) CompleteCooperativeClose(
 
 	lc.Lock()
 	defer lc.Unlock()
-
-	// If the channel is already closing, then ignore this request.
-	if lc.isClosed {
-		// TODO(roasbeef): check to ensure no pending payments
-		return nil, 0, ErrChanClosing
-	}
 
 	opts := defaultCloseOpts()
 	for _, optFunc := range closeOpts {
@@ -8690,7 +8679,7 @@ func WithExtraTxCloseOutputs(extraOutputs []CloseOutput) CloseTxOpt {
 func WithCustomTxSort(sorter CloseSortFunc) CloseTxOpt {
 	return func(opts *closeTxOpts) {
 		opts.customSort = sorter
-    }
+	}
 }
 
 // WithCustomTxInSequence allows a caller to set a custom sequence on the sole

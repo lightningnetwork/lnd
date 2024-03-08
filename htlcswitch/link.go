@@ -1749,7 +1749,7 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		// An HTLC cancellation has been triggered somewhere upstream,
 		// we'll remove then HTLC from our local state machine.
 		inKey := pkt.inKey()
-		_, err := l.channel.FailHTLC(
+		incomingHTLC, err := l.channel.FailHTLC(
 			pkt.incomingHTLCID,
 			htlc.Reason,
 			pkt.sourceRef,
@@ -1789,8 +1789,13 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		htlc.ID = pkt.incomingHTLCID
 
 		// We send the HTLC message to the peer which initially created
-		// the HTLC.
-		l.cfg.Peer.SendMessage(false, htlc)
+		// the HTLC. If the incoming blinding point is non-nil, we
+		// know that we are a relaying node in a blinded path.
+		// Otherwise, we're either an introduction node or not part of
+		// a blinded path at all.
+		l.sendIncomingHTLCFailureMsg(
+			htlc.ID, incomingHTLC.BlindingPoint != nil, htlc.Reason,
+		)
 
 		// If the packet does not have a link failure set, it failed
 		// further down the route so we notify a forwarding failure.
@@ -3715,7 +3720,7 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		return
 	}
 
-	_, err = l.channel.FailHTLC(
+	incomingHTLC, err := l.channel.FailHTLC(
 		pd.HtlcIndex, reason, pd.SourceRef, nil, nil,
 	)
 	if err != nil {
@@ -3723,11 +3728,11 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		return
 	}
 
-	l.cfg.Peer.SendMessage(false, &lnwire.UpdateFailHTLC{
-		ChanID: l.ChanID(),
-		ID:     pd.HtlcIndex,
-		Reason: reason,
-	})
+	// Send the appropriate failure message depending on whether we're
+	// in a blinded route or not.
+	l.sendIncomingHTLCFailureMsg(
+		pd.HtlcIndex, incomingHTLC.BlindingPoint != nil, reason,
+	)
 
 	// Notify a link failure on our incoming link. Outgoing htlc information
 	// is not available at this point, because we have not decrypted the
@@ -3754,6 +3759,51 @@ func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 		failure,
 		true,
 	)
+}
+
+// sendPeerHTLCFailure handles sending a HTLC failure message back to the
+// peer from which the HTLC was received. This function is primarily used to
+// handle the special requirements of route blinding, specifically:
+// - Forwarding nodes must switch out any errors with MalformedFailHTLC
+// - Introduction nodes should return regular HTLC failure messages.
+//
+// This function expects the correct failure reason to already be set for
+// the introduction node when the failure packet was created.
+//
+// Note: this function does not yet handle special error cases for receiving
+// nodes in blinded paths, as LND does not support blinded receives.
+func (l *channelLink) sendIncomingHTLCFailureMsg(htlcIndex uint64,
+	updateAddBlinding bool,
+	reason lnwire.OpaqueReason) {
+
+	// If a blinding point was populated in update_add_htlc, send a
+	// malformed HTLC error with the route blinding code because we are
+	// not the introduction node.
+	if updateAddBlinding {
+		if err := l.cfg.Peer.SendMessage(
+			false, &lnwire.UpdateFailMalformedHTLC{
+				ChanID:      l.ChanID(),
+				ID:          htlcIndex,
+				FailureCode: lnwire.CodeInvalidBlinding,
+			},
+		); err != nil {
+			l.log.Warnf("Send fail malformed failed: %v", err)
+		}
+
+		return
+	}
+
+	// Otherwise we send a failure message as usual. This case covers both
+	// the introduction point in a blinded path (where we expect our reason
+	// to already have been appropriately set on failure) or just part of a
+	// regular payment path.
+	if err := l.cfg.Peer.SendMessage(false, &lnwire.UpdateFailHTLC{
+		ChanID: l.ChanID(),
+		ID:     htlcIndex,
+		Reason: reason,
+	}); err != nil {
+		l.log.Warnf("Send update fail failed: %v", err)
+	}
 }
 
 // sendMalformedHTLCError helper function which sends the malformed HTLC update

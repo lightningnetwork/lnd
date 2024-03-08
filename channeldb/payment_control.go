@@ -171,7 +171,7 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		// retrying the payment or return a specific error.
 		case err == nil:
 			if err := paymentStatus.initializable(); err != nil {
-				updateErr = fmt.Errorf("initialize: %w", err)
+				updateErr = err
 				return nil
 			}
 
@@ -234,14 +234,10 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		return bucket.Delete(paymentFailInfoKey)
 	})
 	if err != nil {
-		return fmt.Errorf("error in batch: %w", err)
+		return fmt.Errorf("unable to init payment: %w", err)
 	}
 
-	if updateErr != nil {
-		return fmt.Errorf("update err: %w", updateErr)
-	}
-
-	return nil
+	return updateErr
 }
 
 // DeleteFailedAttempts deletes all failed htlcs for a payment if configured

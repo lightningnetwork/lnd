@@ -359,6 +359,10 @@ var allTestCases = []*lntest.TestCase{
 		TestFunc: testInvoiceRoutingHints,
 	},
 	{
+		Name:     "scid alias routing hints",
+		TestFunc: testScidAliasRoutingHints,
+	},
+	{
 		Name:     "multi-hop payments over private channels",
 		TestFunc: testMultiHopOverPrivateChannels,
 	},

@@ -3634,7 +3634,19 @@ func (l *channelLink) forwardBatch(replay bool, packets ...*htlcPacket) {
 func (l *channelLink) sendHTLCError(pd *lnwallet.PaymentDescriptor,
 	failure *LinkError, e hop.ErrorEncrypter, isReceive bool) {
 
-	reason, err := e.EncryptFirstHop(failure.WireMessage())
+	msg := failure.WireMessage()
+	if pd.BlindingPoint != nil {
+		l.log.Debugf("HTLC (ID: %v) in blinded route failed with: %v"+
+			"replaced with %v.",
+			pd.HtlcIndex, failure.WireMessage().Code(),
+			lnwire.CodeInvalidBlinding)
+
+		msg = &lnwire.FailInvalidBlinding{
+			OnionSHA256: pd.ShaOnionBlob,
+		}
+	}
+
+	reason, err := e.EncryptFirstHop(msg)
 	if err != nil {
 		l.log.Errorf("unable to obfuscate error: %v", err)
 		return

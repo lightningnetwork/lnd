@@ -436,7 +436,7 @@ func (s *StateMachine[Event, Env]) executeDaemonEvent(ctx context.Context,
 			daemonEvent.Tx, daemonEvent.Label,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to broadcast txn: %w", err)
+			log.Errorf("unable to broadcast txn: %v", err)
 		}
 
 		return nil

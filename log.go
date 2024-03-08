@@ -47,6 +47,7 @@ import (
 	"github.com/lightningnetwork/lnd/netann"
 	"github.com/lightningnetwork/lnd/peer"
 	"github.com/lightningnetwork/lnd/peernotifier"
+	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/blindedpath"
 	"github.com/lightningnetwork/lnd/routing/localchans"
@@ -178,6 +179,7 @@ func SetupLoggers(root *build.SubLoggerManager, interceptor signal.Interceptor) 
 	AddSubLogger(root, "PEER", interceptor, peer.UseLogger)
 	AddSubLogger(root, "CHCL", interceptor, chancloser.UseLogger)
 	AddSubLogger(root, "LCHN", interceptor, localchans.UseLogger)
+	AddSubLogger(root, "PFSM", interceptor, protofsm.UseLogger)
 
 	AddSubLogger(root, routing.Subsystem, interceptor, routing.UseLogger)
 	AddSubLogger(root, routerrpc.Subsystem, interceptor, routerrpc.UseLogger)

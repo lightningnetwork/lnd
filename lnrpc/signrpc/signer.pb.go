@@ -1231,7 +1231,7 @@ type MuSig2CombineKeysRequest struct {
 	// session. The list will always be sorted lexicographically internally. This
 	// must include the local key which is described by the above key_loc.
 	AllSignerPubkeys [][]byte `protobuf:"bytes,1,rep,name=all_signer_pubkeys,json=allSignerPubkeys,proto3" json:"all_signer_pubkeys,omitempty"`
-	// A series of optional generic tweaks to be applied to the the aggregated
+	// A series of optional generic tweaks to be applied to the aggregated
 	// public key.
 	Tweaks []*TweakDesc `protobuf:"bytes,2,rep,name=tweaks,proto3" json:"tweaks,omitempty"`
 	// An optional taproot specific tweak that must be specified if the MuSig2
@@ -1391,7 +1391,7 @@ type MuSig2SessionRequest struct {
 	// An optional list of all public nonces of other signing participants that
 	// might already be known.
 	OtherSignerPublicNonces [][]byte `protobuf:"bytes,3,rep,name=other_signer_public_nonces,json=otherSignerPublicNonces,proto3" json:"other_signer_public_nonces,omitempty"`
-	// A series of optional generic tweaks to be applied to the the aggregated
+	// A series of optional generic tweaks to be applied to the aggregated
 	// public key.
 	Tweaks []*TweakDesc `protobuf:"bytes,4,rep,name=tweaks,proto3" json:"tweaks,omitempty"`
 	// An optional taproot specific tweak that must be specified if the MuSig2

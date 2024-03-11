@@ -292,7 +292,7 @@ type UtxoSweeperConfig struct {
 	// sweeps, how many blocks to wait before retrying to sweep.
 	NextAttemptDeltaFunc func(int) int32
 
-	// MaxFeeRate is the the maximum fee rate allowed within the
+	// MaxFeeRate is the maximum fee rate allowed within the
 	// UtxoSweeper.
 	MaxFeeRate chainfee.SatPerVByte
 
@@ -794,7 +794,7 @@ func (s *UtxoSweeper) createInputClusters() []inputCluster {
 	// if the locktime is equal.
 	lockTimeClusters, nonLockTimeInputs := s.clusterByLockTime(inputs)
 
-	// Cluster the the remaining inputs by sweep fee rate.
+	// Cluster the remaining inputs by sweep fee rate.
 	feeClusters := s.clusterBySweepFeeRate(nonLockTimeInputs)
 
 	// Since the inputs that we clustered by fee rate don't commit to a
@@ -1481,7 +1481,7 @@ func DefaultNextAttemptDeltaFunc(attempts int) int32 {
 	return 1 + rand.Int31n(1<<uint(attempts-1))
 }
 
-// ListSweeps returns a list of the the sweeps recorded by the sweep store.
+// ListSweeps returns a list of the sweeps recorded by the sweep store.
 func (s *UtxoSweeper) ListSweeps() ([]chainhash.Hash, error) {
 	return s.cfg.Store.ListSweeps()
 }

@@ -129,7 +129,7 @@ func NewInvoiceExpiryWatcher(clock clock.Clock,
 	}
 }
 
-// Start starts the the subscription handler and the main loop. Start() will
+// Start starts the subscription handler and the main loop. Start() will
 // return with error if InvoiceExpiryWatcher is already started. Start()
 // expects a cancellation function passed that will be use to cancel expired
 // invoices by their payment hash.

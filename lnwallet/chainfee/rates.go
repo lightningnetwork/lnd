@@ -13,7 +13,7 @@ const (
 	FeePerKwFloor SatPerKWeight = 253
 
 	// AbsoluteFeePerKwFloor is the lowest fee rate in sat/kw of a
-	// transaction that we should ever _create_. This is the the equivalent
+	// transaction that we should ever _create_. This is the equivalent
 	// of 1 sat/byte in sat/kw.
 	AbsoluteFeePerKwFloor SatPerKWeight = 250
 )

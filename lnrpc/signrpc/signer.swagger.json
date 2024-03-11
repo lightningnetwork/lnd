@@ -509,7 +509,7 @@
           "items": {
             "$ref": "#/definitions/signrpcTweakDesc"
           },
-          "description": "A series of optional generic tweaks to be applied to the the aggregated\npublic key."
+          "description": "A series of optional generic tweaks to be applied to the aggregated\npublic key."
         },
         "taproot_tweak": {
           "$ref": "#/definitions/signrpcTaprootTweakDesc",
@@ -627,7 +627,7 @@
           "items": {
             "$ref": "#/definitions/signrpcTweakDesc"
           },
-          "description": "A series of optional generic tweaks to be applied to the the aggregated\npublic key."
+          "description": "A series of optional generic tweaks to be applied to the aggregated\npublic key."
         },
         "taproot_tweak": {
           "$ref": "#/definitions/signrpcTaprootTweakDesc",

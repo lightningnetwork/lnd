@@ -145,6 +145,9 @@
   funding operations and the new `PsbtCoinSelect` option of the `FundPsbt`
   RPC](https://github.com/lightningnetwork/lnd/pull/8378).
 
+* [Env Variables in lnd.conf](https://github.com/lightningnetwork/lnd/pull/8310)
+  Support utilizing the usage of environment variables in `lnd.conf` for `rpcuser` and `rpcpass` fields to better protect the secrets.
+
 ## RPC Additions
 
 * [Deprecated](https://github.com/lightningnetwork/lnd/pull/7175)

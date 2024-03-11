@@ -695,6 +695,23 @@ func (b *BitcoindNotifier) notifyBlockEpochClient(epochClient *blockEpochRegistr
 func (b *BitcoindNotifier) RegisterSpendNtfn(outpoint *wire.OutPoint,
 	pkScript []byte, heightHint uint32) (*chainntnfs.SpendEvent, error) {
 
+	if heightHint == 0 {
+		currentHeight := b.bestBlock.Height
+		txid := &outpoint.Hash
+		tx, err := b.chainConn.GetRawTransactionVerbose(txid)
+		if err != nil {
+			// Return an error in case we cannot add the necessary
+			// height hint information
+			return nil, fmt.Errorf("unable to query for "+
+				"txid %v: %v, to fix 0 height hint case",
+				txid, err)
+		}
+		heightHint = uint32(currentHeight) - uint32(tx.Confirmations)
+		chainntnfs.Log.Infof("Fixed 0 height hint by querying "+
+			"chain backend, new height hint: %v for crib "+
+			"output: %v", heightHint, txid)
+	}
+
 	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a
 	// manual scan for the confirmation. Otherwise the notifier will begin
@@ -894,6 +911,22 @@ func (b *BitcoindNotifier) historicalSpendDetails(
 func (b *BitcoindNotifier) RegisterConfirmationsNtfn(txid *chainhash.Hash,
 	pkScript []byte, numConfs, heightHint uint32,
 	opts ...chainntnfs.NotifierOption) (*chainntnfs.ConfirmationEvent, error) {
+
+	if heightHint == 0 {
+		currentHeight := b.bestBlock.Height
+		tx, err := b.chainConn.GetRawTransactionVerbose(txid)
+		if err != nil {
+			// Return an error in case we cannot add the necessary
+			// height hint information
+			return nil, fmt.Errorf("unable to query for "+
+				"txid %v: %v, to fix 0 height hint case",
+				txid, err)
+		}
+		heightHint = uint32(currentHeight) - uint32(tx.Confirmations)
+		chainntnfs.Log.Infof("Fixed 0 height hint by querying "+
+			"chain backend, new height hint: %v for crib "+
+			"output: %v", heightHint, txid)
+	}
 
 	// Register the conf notification with the TxNotifier. A non-nil value
 	// for `dispatch` will be returned if we are required to perform a

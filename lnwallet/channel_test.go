@@ -3052,7 +3052,7 @@ func TestChanSyncOweCommitment(t *testing.T) {
 	}
 
 	chanID := lnwire.NewChanIDFromOutPoint(
-		&aliceChannel.channelState.FundingOutpoint,
+		aliceChannel.channelState.FundingOutpoint,
 	)
 
 	// With the HTLC's applied to both update logs, we'll initiate a state
@@ -3419,7 +3419,7 @@ func testChanSyncOweRevocation(t *testing.T, chanType channeldb.ChannelType) {
 	require.NoError(t, err, "unable to create test channels")
 
 	chanID := lnwire.NewChanIDFromOutPoint(
-		&aliceChannel.channelState.FundingOutpoint,
+		aliceChannel.channelState.FundingOutpoint,
 	)
 
 	// We'll start the test with Bob extending a single HTLC to Alice, and
@@ -4682,7 +4682,7 @@ func TestChanSyncUnableToSync(t *testing.T) {
 	// state.
 	badChanSync := &lnwire.ChannelReestablish{
 		ChanID: lnwire.NewChanIDFromOutPoint(
-			&aliceChannel.channelState.FundingOutpoint,
+			aliceChannel.channelState.FundingOutpoint,
 		),
 		NextLocalCommitHeight:  1000,
 		RemoteCommitTailHeight: 9000,

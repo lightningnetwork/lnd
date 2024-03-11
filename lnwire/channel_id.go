@@ -40,7 +40,7 @@ func (c ChannelID) String() string {
 // usable within the network. In order to convert the OutPoint into a ChannelID,
 // we XOR the lower 2-bytes of the txid within the OutPoint with the big-endian
 // serialization of the Index of the OutPoint, truncated to 2-bytes.
-func NewChanIDFromOutPoint(op *wire.OutPoint) ChannelID {
+func NewChanIDFromOutPoint(op wire.OutPoint) ChannelID {
 	// First we'll copy the txid of the outpoint into our channel ID slice.
 	var cid ChannelID
 	copy(cid[:], op.Hash[:])
@@ -85,7 +85,7 @@ func (c *ChannelID) GenPossibleOutPoints() [MaxFundingTxOutputs]wire.OutPoint {
 // IsChanPoint returns true if the OutPoint passed corresponds to the target
 // ChannelID.
 func (c ChannelID) IsChanPoint(op *wire.OutPoint) bool {
-	candidateCid := NewChanIDFromOutPoint(op)
+	candidateCid := NewChanIDFromOutPoint(*op)
 
 	return candidateCid == c
 }

@@ -221,7 +221,7 @@ type ChannelLink interface {
 	IsUnadvertised() bool
 
 	// ChannelPoint returns the channel outpoint for the channel link.
-	ChannelPoint() *wire.OutPoint
+	ChannelPoint() wire.OutPoint
 
 	// ShortChanID returns the short channel ID for the channel link. The
 	// short channel ID encodes the exact location in the main chain that

@@ -1497,7 +1497,7 @@ func TestChannelLinkMultiHopUnknownNextHop(t *testing.T) {
 	// back the payment to Alice since he is unaware of Carol when the
 	// payment comes across.
 	bobChanID := lnwire.NewChanIDFromOutPoint(
-		&channels.bobToCarol.State().FundingOutpoint,
+		channels.bobToCarol.ChannelPoint(),
 	)
 	n.bobServer.htlcSwitch.RemoveLink(bobChanID)
 
@@ -3762,7 +3762,8 @@ func TestChannelRetransmission(t *testing.T) {
 			t.Fatalf("unable to create channel: %v", err)
 		}
 
-		chanID := lnwire.NewChanIDFromOutPoint(channels.aliceToBob.ChannelPoint())
+		chanPoint := channels.aliceToBob.ChannelPoint()
+		chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 		serverErr := make(chan error, 4)
 
 		aliceInterceptor := createInterceptorFunc("[alice] <-- [bob]",

@@ -268,11 +268,12 @@ func NewChanCloser(cfg ChanCloseCfg, deliveryScript []byte,
 	idealFeePerKw chainfee.SatPerKWeight, negotiationHeight uint32,
 	closeReq *htlcswitch.ChanClose, locallyInitiated bool) *ChanCloser {
 
-	cid := lnwire.NewChanIDFromOutPoint(cfg.Channel.ChannelPoint())
+	chanPoint := cfg.Channel.ChannelPoint()
+	cid := lnwire.NewChanIDFromOutPoint(chanPoint)
 	return &ChanCloser{
 		closeReq:            closeReq,
 		state:               closeIdle,
-		chanPoint:           *cfg.Channel.ChannelPoint(),
+		chanPoint:           chanPoint,
 		cid:                 cid,
 		cfg:                 cfg,
 		negotiationHeight:   negotiationHeight,

@@ -1169,7 +1169,7 @@ func (c *OpenChannel) fullSync(tx kvdb.RwTx) error {
 		return ErrChanAlreadyExists
 	}
 
-	cid := lnwire.NewChanIDFromOutPoint(&c.FundingOutpoint)
+	cid := lnwire.NewChanIDFromOutPoint(c.FundingOutpoint)
 	if cidBucket.Get(cid[:]) != nil {
 		return ErrChanAlreadyExists
 	}
@@ -1574,7 +1574,7 @@ func (c *OpenChannel) ChanSyncMsg() (*lnwire.ChannelReestablish, error) {
 
 	return &lnwire.ChannelReestablish{
 		ChanID: lnwire.NewChanIDFromOutPoint(
-			&c.FundingOutpoint,
+			c.FundingOutpoint,
 		),
 		NextLocalCommitHeight:  nextLocalCommitHeight,
 		RemoteCommitTailHeight: remoteChainTipHeight,

@@ -141,7 +141,7 @@ func checkPkgFilterEncodeDecode(t *testing.T, i uint16, f *channeldb.PkgFilter) 
 }
 
 var (
-	chanID = lnwire.NewChanIDFromOutPoint(&wire.OutPoint{})
+	chanID = lnwire.NewChanIDFromOutPoint(wire.OutPoint{})
 
 	adds = []channeldb.LogUpdate{
 		{

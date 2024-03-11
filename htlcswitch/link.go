@@ -1090,8 +1090,8 @@ func (l *channelLink) htlcManager() {
 	// ActiveLinkEvent. We'll also defer an inactive link notification for
 	// when the link exits to ensure that every active notification is
 	// matched by an inactive one.
-	l.cfg.NotifyActiveLink(*l.ChannelPoint())
-	defer l.cfg.NotifyInactiveLinkEvent(*l.ChannelPoint())
+	l.cfg.NotifyActiveLink(l.ChannelPoint())
+	defer l.cfg.NotifyInactiveLinkEvent(l.ChannelPoint())
 
 	// TODO(roasbeef): need to call wipe chan whenever D/C?
 
@@ -1215,8 +1215,8 @@ func (l *channelLink) htlcManager() {
 	// we can go ahead and send the active channel notification. We'll also
 	// defer the inactive notification for when the link exits to ensure
 	// that every active notification is matched by an inactive one.
-	l.cfg.NotifyActiveChannel(*l.ChannelPoint())
-	defer l.cfg.NotifyInactiveChannel(*l.ChannelPoint())
+	l.cfg.NotifyActiveChannel(l.ChannelPoint())
+	defer l.cfg.NotifyInactiveChannel(l.ChannelPoint())
 
 	// With the channel states synced, we now reset the mailbox to ensure
 	// we start processing all unacked packets in order. This is done here
@@ -1371,7 +1371,7 @@ func (l *channelLink) htlcManager() {
 			// TODO(roasbeef): remove all together
 			go func() {
 				chanPoint := l.channel.ChannelPoint()
-				l.cfg.Peer.WipeChannel(chanPoint)
+				l.cfg.Peer.WipeChannel(&chanPoint)
 			}()
 
 			return
@@ -2558,7 +2558,7 @@ func (l *channelLink) PeerPubKey() [33]byte {
 
 // ChannelPoint returns the channel outpoint for the channel link.
 // NOTE: Part of the ChannelLink interface.
-func (l *channelLink) ChannelPoint() *wire.OutPoint {
+func (l *channelLink) ChannelPoint() wire.OutPoint {
 	return l.channel.ChannelPoint()
 }
 

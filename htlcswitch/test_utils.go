@@ -73,7 +73,7 @@ func genID() (lnwire.ChannelID, lnwire.ShortChannelID) {
 	hash1, _ := chainhash.NewHash(bytes.Repeat(scratch[:], 4))
 
 	chanPoint1 := wire.NewOutPoint(hash1, uint32(id))
-	chanID1 := lnwire.NewChanIDFromOutPoint(chanPoint1)
+	chanID1 := lnwire.NewChanIDFromOutPoint(*chanPoint1)
 	aliceChanID := lnwire.NewShortChanIDFromInt(id)
 
 	return chanID1, aliceChanID

@@ -1748,8 +1748,9 @@ func (d *AuthenticatedGossiper) processChanPolicyUpdate(
 			// update with the peer's alias. We do this after
 			// updateChannel so that the alias isn't persisted to
 			// the database.
-			op := &edgeInfo.Info.ChannelPoint
-			chanID := lnwire.NewChanIDFromOutPoint(op)
+			chanID := lnwire.NewChanIDFromOutPoint(
+				edgeInfo.Info.ChannelPoint,
+			)
 
 			var defaultAlias lnwire.ShortChannelID
 			foundAlias, _ := d.cfg.GetAlias(chanID)

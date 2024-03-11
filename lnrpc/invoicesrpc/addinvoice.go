@@ -731,7 +731,7 @@ func shouldIncludeChannel(cfg *SelectHopHintsCfg,
 	}
 
 	chanID := lnwire.NewChanIDFromOutPoint(
-		&channel.FundingOutpoint,
+		channel.FundingOutpoint,
 	)
 
 	hopHintInfo := newHopHintInfo(channel, cfg.IsChannelActive(chanID))

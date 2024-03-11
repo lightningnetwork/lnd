@@ -120,7 +120,7 @@ var shouldIncludeChannelTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{
 			Index: 0,
 		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 		h.Mock.On(
 			"IsChannelActive", chanID,
 		).Once().Return(true)
@@ -137,7 +137,7 @@ var shouldIncludeChannelTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{
 			Index: 0,
 		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 		h.Mock.On(
 			"IsChannelActive", chanID,
 		).Once().Return(false)
@@ -154,7 +154,7 @@ var shouldIncludeChannelTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{
 			Index: 0,
 		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 
 		h.Mock.On(
 			"IsChannelActive", chanID,
@@ -178,7 +178,7 @@ var shouldIncludeChannelTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{
 			Index: 0,
 		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 
 		h.Mock.On(
 			"IsChannelActive", chanID,
@@ -213,7 +213,7 @@ var shouldIncludeChannelTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{
 			Index: 0,
 		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 
 		h.Mock.On(
 			"IsChannelActive", chanID,
@@ -251,7 +251,7 @@ var shouldIncludeChannelTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{
 			Index: 0,
 		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 
 		h.Mock.On(
 			"IsChannelActive", chanID,
@@ -289,7 +289,7 @@ var shouldIncludeChannelTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{
 			Index: 1,
 		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 
 		h.Mock.On(
 			"IsChannelActive", chanID,
@@ -340,7 +340,7 @@ var shouldIncludeChannelTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{
 			Index: 1,
 		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 
 		h.Mock.On(
 			"IsChannelActive", chanID,
@@ -385,7 +385,7 @@ var shouldIncludeChannelTestCases = []struct {
 		fundingOutpoint := wire.OutPoint{
 			Index: 1,
 		}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 
 		h.Mock.On(
 			"IsChannelActive", chanID,
@@ -538,7 +538,7 @@ var populateHopHintsTestCases = []struct {
 		"hop hints allowed",
 	setupMock: func(h *hopHintsConfigMock) {
 		fundingOutpoint := wire.OutPoint{Index: 9}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 		allChannels := []*channeldb.OpenChannel{
 			{
 				FundingOutpoint: fundingOutpoint,
@@ -584,7 +584,7 @@ var populateHopHintsTestCases = []struct {
 	name: "populate hop hints stops when we reached the targeted bandwidth",
 	setupMock: func(h *hopHintsConfigMock) {
 		fundingOutpoint := wire.OutPoint{Index: 9}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 		remoteBalance := lnwire.MilliSatoshi(10_000_000)
 		allChannels := []*channeldb.OpenChannel{
 			{
@@ -635,7 +635,7 @@ var populateHopHintsTestCases = []struct {
 		"remote balance frist",
 	setupMock: func(h *hopHintsConfigMock) {
 		fundingOutpoint := wire.OutPoint{Index: 9}
-		chanID := lnwire.NewChanIDFromOutPoint(&fundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(fundingOutpoint)
 		remoteBalance := lnwire.MilliSatoshi(10_000_000)
 		allChannels := []*channeldb.OpenChannel{
 			// Because the channels with higher remote balance have
@@ -829,11 +829,11 @@ func setupMockTwoChannels(h *hopHintsConfigMock) (lnwire.ChannelID,
 	lnwire.ChannelID) {
 
 	fundingOutpoint1 := wire.OutPoint{Index: 9}
-	chanID1 := lnwire.NewChanIDFromOutPoint(&fundingOutpoint1)
+	chanID1 := lnwire.NewChanIDFromOutPoint(fundingOutpoint1)
 	remoteBalance1 := lnwire.MilliSatoshi(10_000_000)
 
 	fundingOutpoint2 := wire.OutPoint{Index: 2}
-	chanID2 := lnwire.NewChanIDFromOutPoint(&fundingOutpoint2)
+	chanID2 := lnwire.NewChanIDFromOutPoint(fundingOutpoint2)
 	remoteBalance2 := lnwire.MilliSatoshi(1_000_000)
 
 	allChannels := []*channeldb.OpenChannel{

@@ -1010,13 +1010,13 @@ func initBreachedState(t *testing.T) (*BreachArbitrator,
 func TestBreachHandoffSuccess(t *testing.T) {
 	brar, alice, _, bobClose, contractBreaches := initBreachedState(t)
 
-	chanPoint := alice.ChanPoint
+	chanPoint := alice.ChannelPoint()
 
 	// Signal a spend of the funding transaction and wait for the close
 	// observer to exit.
 	processACK := make(chan error)
 	breach := &ContractBreachEvent{
-		ChanPoint: *chanPoint,
+		ChanPoint: chanPoint,
 		ProcessACK: func(brarErr error) {
 			processACK <- brarErr
 		},
@@ -1044,13 +1044,13 @@ func TestBreachHandoffSuccess(t *testing.T) {
 	// After exiting, the breach arbiter should have persisted the
 	// retribution information and the channel should be shown as pending
 	// force closed.
-	assertArbiterBreach(t, brar, chanPoint)
+	assertArbiterBreach(t, brar, &chanPoint)
 
 	// Send another breach event. Since the handoff for this channel was
 	// already ACKed, the breach arbiter should immediately ACK and ignore
 	// this event.
 	breach = &ContractBreachEvent{
-		ChanPoint: *chanPoint,
+		ChanPoint: chanPoint,
 		ProcessACK: func(brarErr error) {
 			processACK <- brarErr
 		},
@@ -1077,7 +1077,7 @@ func TestBreachHandoffSuccess(t *testing.T) {
 	}
 
 	// State should not have changed.
-	assertArbiterBreach(t, brar, chanPoint)
+	assertArbiterBreach(t, brar, &chanPoint)
 }
 
 // TestBreachHandoffFail tests that a channel's close observer properly
@@ -1096,10 +1096,10 @@ func TestBreachHandoffFail(t *testing.T) {
 
 	// Signal the notifier to dispatch spend notifications of the funding
 	// transaction using the transaction from bob's closing summary.
-	chanPoint := alice.ChanPoint
+	chanPoint := alice.ChannelPoint()
 	processACK := make(chan error)
 	breach := &ContractBreachEvent{
-		ChanPoint: *chanPoint,
+		ChanPoint: chanPoint,
 		ProcessACK: func(brarErr error) {
 			processACK <- brarErr
 		},
@@ -1127,7 +1127,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	// Since the handoff failed, the breach arbiter should not show the
 	// channel as breached, and the channel should also not have been marked
 	// pending closed.
-	assertNoArbiterBreach(t, brar, chanPoint)
+	assertNoArbiterBreach(t, brar, &chanPoint)
 	assertNotPendingClosed(t, alice)
 
 	brar, err := createTestArbiter(
@@ -1138,7 +1138,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	// Signal a spend of the funding transaction and wait for the close
 	// observer to exit. This time we are allowing the handoff to succeed.
 	breach = &ContractBreachEvent{
-		ChanPoint: *chanPoint,
+		ChanPoint: chanPoint,
 		ProcessACK: func(brarErr error) {
 			processACK <- brarErr
 		},
@@ -1166,7 +1166,7 @@ func TestBreachHandoffFail(t *testing.T) {
 	// Check that the breach was properly recorded in the breach arbiter,
 	// and that the close observer marked the channel as pending closed
 	// before exiting.
-	assertArbiterBreach(t, brar, chanPoint)
+	assertArbiterBreach(t, brar, &chanPoint)
 }
 
 // TestBreachCreateJusticeTx tests that we create three different variants of
@@ -1560,7 +1560,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	var (
 		height       = bobClose.ChanSnapshot.CommitHeight
 		forceCloseTx = bobClose.CloseTx
-		chanPoint    = alice.ChanPoint
+		chanPoint    = alice.ChannelPoint()
 		publTx       = make(chan *wire.MsgTx)
 		publErr      error
 		publMtx      sync.Mutex
@@ -1590,7 +1590,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 
 	processACK := make(chan error)
 	breach := &ContractBreachEvent{
-		ChanPoint: *chanPoint,
+		ChanPoint: chanPoint,
 		ProcessACK: func(brarErr error) {
 			processACK <- brarErr
 		},
@@ -1630,7 +1630,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	// After exiting, the breach arbiter should have persisted the
 	// retribution information and the channel should be shown as pending
 	// force closed.
-	assertArbiterBreach(t, brar, chanPoint)
+	assertArbiterBreach(t, brar, &chanPoint)
 
 	// Assert that the database sees the channel as pending close, otherwise
 	// the breach arbiter won't be able to fully close it.
@@ -1669,7 +1669,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	htlcOutpoint := retribution.HtlcRetributions[0].OutPoint
 
 	spendTxs, err := getSpendTransactions(
-		brar.cfg.Signer, chanPoint, retribution,
+		brar.cfg.Signer, &chanPoint, retribution,
 	)
 	require.NoError(t, err)
 
@@ -1764,7 +1764,7 @@ func testBreachSpends(t *testing.T, test breachTest) {
 	}
 
 	// Assert that the channel is fully resolved.
-	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
+	assertBrarCleanup(t, brar, &chanPoint, alice.State().Db)
 }
 
 // TestBreachDelayedJusticeConfirmation tests that the breach arbiter will
@@ -1777,7 +1777,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 		height       = bobClose.ChanSnapshot.CommitHeight
 		blockHeight  = int32(10)
 		forceCloseTx = bobClose.CloseTx
-		chanPoint    = alice.ChanPoint
+		chanPoint    = alice.ChannelPoint()
 		publTx       = make(chan *wire.MsgTx)
 	)
 
@@ -1799,7 +1799,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 
 	processACK := make(chan error, 1)
 	breach := &ContractBreachEvent{
-		ChanPoint: *chanPoint,
+		ChanPoint: chanPoint,
 		ProcessACK: func(brarErr error) {
 			processACK <- brarErr
 		},
@@ -1840,7 +1840,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	// After exiting, the breach arbiter should have persisted the
 	// retribution information and the channel should be shown as pending
 	// force closed.
-	assertArbiterBreach(t, brar, chanPoint)
+	assertArbiterBreach(t, brar, &chanPoint)
 
 	// Assert that the database sees the channel as pending close, otherwise
 	// the breach arbiter won't be able to fully close it.
@@ -1965,7 +1965,7 @@ func TestBreachDelayedJusticeConfirmation(t *testing.T) {
 	}
 
 	// Assert that the channel is fully resolved.
-	assertBrarCleanup(t, brar, alice.ChanPoint, alice.State().Db)
+	assertBrarCleanup(t, brar, &chanPoint, alice.State().Db)
 }
 
 // findInputIndex returns the index of the input that spends from the given
@@ -2081,12 +2081,12 @@ func assertPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	require.NoError(t, err, "unable to load pending closed channels")
 
 	for _, chanSummary := range closedChans {
-		if chanSummary.ChanPoint == *c.ChanPoint {
+		if chanSummary.ChanPoint == c.ChannelPoint() {
 			return
 		}
 	}
 
-	t.Fatalf("channel %v was not marked pending closed", c.ChanPoint)
+	t.Fatalf("channel %v was not marked pending closed", c.ChannelPoint())
 }
 
 // assertNotPendingClosed checks that the channel has not been marked pending
@@ -2098,9 +2098,9 @@ func assertNotPendingClosed(t *testing.T, c *lnwallet.LightningChannel) {
 	require.NoError(t, err, "unable to load pending closed channels")
 
 	for _, chanSummary := range closedChans {
-		if chanSummary.ChanPoint == *c.ChanPoint {
+		if chanSummary.ChanPoint == c.ChannelPoint() {
 			t.Fatalf("channel %v was marked pending closed",
-				c.ChanPoint)
+				c.ChannelPoint())
 		}
 	}
 }

@@ -907,7 +907,10 @@ func (f *mockChannelLink) PeerPubKey() [33]byte {
 	return f.peer.PubKey()
 }
 
-func (f *mockChannelLink) ChannelPoint() *wire.OutPoint                 { return &wire.OutPoint{} }
+func (f *mockChannelLink) ChannelPoint() wire.OutPoint {
+	return wire.OutPoint{}
+}
+
 func (f *mockChannelLink) Stop()                                        {}
 func (f *mockChannelLink) EligibleToForward() bool                      { return f.eligible }
 func (f *mockChannelLink) MayAddOutgoingHtlc(lnwire.MilliSatoshi) error { return nil }

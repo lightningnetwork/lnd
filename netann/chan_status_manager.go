@@ -391,7 +391,7 @@ func (m *ChanStatusManager) processEnableRequest(outpoint wire.OutPoint,
 
 	// Quickly check to see if the requested channel is active within the
 	// htlcswitch and return an error if it isn't.
-	chanID := lnwire.NewChanIDFromOutPoint(&outpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(outpoint)
 	if !m.cfg.IsChannelActive(chanID) {
 		return ErrEnableInactiveChan
 	}
@@ -531,7 +531,7 @@ func (m *ChanStatusManager) markPendingInactiveChannels() {
 		// If our bookkeeping shows the channel as active, sample the
 		// htlcswitch to see if it believes the link is also active. If
 		// so, we will skip marking it as ChanStatusPendingDisabled.
-		chanID := lnwire.NewChanIDFromOutPoint(&c.FundingOutpoint)
+		chanID := lnwire.NewChanIDFromOutPoint(c.FundingOutpoint)
 		if m.cfg.IsChannelActive(chanID) {
 			continue
 		}

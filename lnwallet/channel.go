@@ -1260,9 +1260,6 @@ type LightningChannel struct {
 
 	isClosed bool
 
-	// ChanPoint is the funding outpoint of this channel.
-	ChanPoint *wire.OutPoint
-
 	// sigPool is a pool of workers that are capable of signing and
 	// validating signatures in parallel. This is utilized as an
 	// optimization to void serially signing or validating the HTLC
@@ -1412,7 +1409,6 @@ func NewLightningChannel(signer input.Signer,
 		commitBuilder:        NewCommitmentBuilder(state),
 		localUpdateLog:       localUpdateLog,
 		remoteUpdateLog:      remoteUpdateLog,
-		ChanPoint:            &state.FundingOutpoint,
 		Capacity:             state.Capacity,
 		taprootNonceProducer: taprootNonceProducer,
 		log:                  build.NewPrefixLog(logPrefix, walletLog),
@@ -3564,7 +3560,7 @@ func (lc *LightningChannel) createCommitDiff(
 	// used on the wire to identify this channel. We'll use this shortly
 	// when recording the exact CommitSig message that we'll be sending
 	// out.
-	chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(lc.channelState.FundingOutpoint)
 
 	var (
 		logUpdates        []channeldb.LogUpdate
@@ -3684,7 +3680,7 @@ func (lc *LightningChannel) createCommitDiff(
 		Commitment: *diskCommit,
 		CommitSig: &lnwire.CommitSig{
 			ChanID: lnwire.NewChanIDFromOutPoint(
-				&lc.channelState.FundingOutpoint,
+				lc.channelState.FundingOutpoint,
 			),
 			CommitSig: commitSig,
 			HtlcSigs:  htlcSigs,
@@ -3702,7 +3698,7 @@ func (lc *LightningChannel) createCommitDiff(
 func (lc *LightningChannel) getUnsignedAckedUpdates() []channeldb.LogUpdate {
 	// First, we need to convert the funding outpoint into the ID that's
 	// used on the wire to identify this channel.
-	chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(lc.channelState.FundingOutpoint)
 
 	// Fetch the last remote update that we have signed for.
 	lastRemoteCommitted := lc.remoteCommitChain.tail().theirMessageIndex
@@ -4547,7 +4543,7 @@ func (lc *LightningChannel) ProcessChanSyncMsg(
 			case err == nil:
 				commitSig := &lnwire.CommitSig{
 					ChanID: lnwire.NewChanIDFromOutPoint(
-						&lc.channelState.FundingOutpoint,
+						lc.channelState.FundingOutpoint,
 					),
 					CommitSig:  newCommit.CommitSig,
 					HtlcSigs:   newCommit.HtlcSigs,
@@ -5575,7 +5571,7 @@ func (lc *LightningChannel) RevokeCurrentCommitment() (*lnwire.RevokeAndAck,
 		len(unsignedAckedUpdates))
 
 	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(
-		&lc.channelState.FundingOutpoint,
+		lc.channelState.FundingOutpoint,
 	)
 
 	return revocationMsg, newCommitment.Htlcs, finalHtlcs, nil
@@ -5642,7 +5638,7 @@ func (lc *LightningChannel) ReceiveRevocation(revMsg *lnwire.RevokeAndAck) (
 	localChainTail := lc.localCommitChain.tail().height
 
 	source := lc.ShortChanID()
-	chanID := lnwire.NewChanIDFromOutPoint(&lc.channelState.FundingOutpoint)
+	chanID := lnwire.NewChanIDFromOutPoint(lc.channelState.FundingOutpoint)
 
 	// Determine the set of htlcs that can be forwarded as a result of
 	// having received the revocation. We will simultaneously construct the
@@ -6430,8 +6426,8 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 // ChannelPoint returns the outpoint of the original funding transaction which
 // created this active channel. This outpoint is used throughout various
 // subsystems to uniquely identify an open channel.
-func (lc *LightningChannel) ChannelPoint() *wire.OutPoint {
-	return &lc.channelState.FundingOutpoint
+func (lc *LightningChannel) ChannelPoint() wire.OutPoint {
+	return lc.channelState.FundingOutpoint
 }
 
 // ShortChanID returns the short channel ID for the channel. The short channel
@@ -8521,7 +8517,7 @@ func (lc *LightningChannel) generateRevocation(height uint64) (*lnwire.RevokeAnd
 
 	revocationMsg.NextRevocationKey = input.ComputeCommitmentPoint(nextCommitSecret[:])
 	revocationMsg.ChanID = lnwire.NewChanIDFromOutPoint(
-		&lc.channelState.FundingOutpoint,
+		lc.channelState.FundingOutpoint,
 	)
 
 	// If this is a taproot channel, then we also need to generate the

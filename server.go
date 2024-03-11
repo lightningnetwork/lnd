@@ -1164,7 +1164,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		FeeEstimator: cc.FeeEstimator,
 		ChainIO:      cc.ChainIO,
 		MarkLinkInactive: func(chanPoint wire.OutPoint) error {
-			chanID := lnwire.NewChanIDFromOutPoint(&chanPoint)
+			chanID := lnwire.NewChanIDFromOutPoint(chanPoint)
 			s.htlcSwitch.RemoveLink(chanID)
 			return nil
 		},
@@ -1421,7 +1421,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return s.chainArb.WatchNewChannel(channel)
 		},
 		ReportShortChanID: func(chanPoint wire.OutPoint) error {
-			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
+			cid := lnwire.NewChanIDFromOutPoint(chanPoint)
 			return s.htlcSwitch.UpdateShortChanID(cid)
 		},
 		RequiredRemoteChanReserve: func(chanAmt,
@@ -4633,7 +4633,7 @@ func (s *server) applyChannelUpdate(update *lnwire.ChannelUpdate,
 		defaultAlias lnwire.ShortChannelID
 	)
 
-	chanID := lnwire.NewChanIDFromOutPoint(op)
+	chanID := lnwire.NewChanIDFromOutPoint(*op)
 
 	// Fetch the peer's alias from the lnwire.ChannelID so it can be used
 	// in the ChannelUpdate if it hasn't been announced yet.

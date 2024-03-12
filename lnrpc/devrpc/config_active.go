@@ -6,6 +6,7 @@ package devrpc
 import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 )
 
 // Config is the primary configuration struct for the DEV RPC server. It
@@ -16,4 +17,5 @@ import (
 type Config struct {
 	ActiveNetParams *chaincfg.Params
 	GraphDB         *channeldb.ChannelGraph
+	Switch          *htlcswitch.Switch
 }

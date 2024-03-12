@@ -18,7 +18,9 @@ type quiescerTestHarness struct {
 	conn           <-chan lnwire.Stfu
 }
 
-func initQuiescerTestHarness() *quiescerTestHarness {
+func initQuiescerTestHarness(
+	channelInitiator lntypes.ChannelParty) *quiescerTestHarness {
+
 	conn := make(chan lnwire.Stfu, 1)
 	harness := &quiescerTestHarness{
 		pendingUpdates: lntypes.Dual[uint64]{},
@@ -26,7 +28,8 @@ func initQuiescerTestHarness() *quiescerTestHarness {
 	}
 
 	harness.quiescer = newQuiescer(quiescerCfg{
-		chanID: cid,
+		chanID:           cid,
+		channelInitiator: channelInitiator,
 		numPendingUpdates: func(whoseUpdate lntypes.ChannelParty,
 			_ lntypes.ChannelParty) uint64 {
 
@@ -46,7 +49,7 @@ func initQuiescerTestHarness() *quiescerTestHarness {
 func TestQuiescerDoubleRecvInvalid(t *testing.T) {
 	t.Parallel()
 
-	harness := initQuiescerTestHarness()
+	harness := initQuiescerTestHarness(lntypes.Local)
 
 	msg := lnwire.Stfu{
 		ChanID:    cid,
@@ -65,7 +68,7 @@ func TestQuiescerDoubleRecvInvalid(t *testing.T) {
 func TestQuiescerPendingUpdatesRecvInvalid(t *testing.T) {
 	t.Parallel()
 
-	harness := initQuiescerTestHarness()
+	harness := initQuiescerTestHarness(lntypes.Local)
 
 	msg := lnwire.Stfu{
 		ChanID:    cid,
@@ -82,7 +85,7 @@ func TestQuiescerPendingUpdatesRecvInvalid(t *testing.T) {
 func TestQuiescenceRemoteInit(t *testing.T) {
 	t.Parallel()
 
-	harness := initQuiescerTestHarness()
+	harness := initQuiescerTestHarness(lntypes.Local)
 
 	msg := lnwire.Stfu{
 		ChanID:    cid,
@@ -120,7 +123,7 @@ func TestQuiescenceRemoteInit(t *testing.T) {
 func TestQuiescenceInitiator(t *testing.T) {
 	t.Parallel()
 
-	harness := initQuiescerTestHarness()
+	harness := initQuiescerTestHarness(lntypes.Local)
 	require.True(t, harness.quiescer.quiescenceInitiator().IsErr())
 
 	// Receive
@@ -137,4 +140,34 @@ func TestQuiescenceInitiator(t *testing.T) {
 		t, harness.quiescer.quiescenceInitiator(),
 		fn.Ok(lntypes.Remote),
 	)
+}
+
+// TestQuiescerTieBreaker ensures that if both parties attempt to claim the
+// initiator role that the result of the negotiation breaks the tie using the
+// channel initiator.
+func TestQuiescerTieBreaker(t *testing.T) {
+	t.Parallel()
+
+	for _, initiator := range []lntypes.ChannelParty{
+		lntypes.Local, lntypes.Remote,
+	} {
+		harness := initQuiescerTestHarness(initiator)
+
+		msg := lnwire.Stfu{
+			ChanID:    cid,
+			Initiator: true,
+		}
+
+		req, res := fn.NewReq[fn.Unit, fn.Result[lntypes.ChannelParty]](
+			fn.Unit{},
+		)
+
+		harness.quiescer.initStfu(req)
+		require.NoError(t, harness.quiescer.recvStfu(msg))
+		require.NoError(t, harness.quiescer.sendOwedStfu())
+
+		party := <-res
+
+		require.Equal(t, fn.Ok(initiator), party)
+	}
 }

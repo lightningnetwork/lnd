@@ -44,6 +44,8 @@ var (
 	)
 )
 
+type StfuReq = fn.Req[fn.Unit, fn.Result[lntypes.ChannelParty]]
+
 // QuiescerCfg is a config structure used to initialize a quiescer giving it the
 // appropriate functionality to interact with the channel state that the
 // quiescer must syncrhonize with.
@@ -83,6 +85,10 @@ type Quiescer struct {
 
 	// received tracks whether or not we have received Stfu from our peer.
 	received bool
+
+	// activeQuiescenceRequest is a possibly None Request that we should
+	// resolve when we complete quiescence.
+	activeQuiescenceReq fn.Option[StfuReq]
 
 	sync.RWMutex
 }
@@ -135,6 +141,10 @@ func (q *Quiescer) recvStfu(msg lnwire.Stfu,
 	// does not necessarily mean they will get it, though.
 	q.remoteInit = msg.Initiator
 
+	// Since we just received an Stfu, we may have a newly quiesced state.
+	// If so, we will try to resolve any outstanding StfuReqs.
+	q.tryResolveStfuReq()
+
 	return nil
 }
 
@@ -186,7 +196,7 @@ func (q *Quiescer) OweStfu() bool {
 // Stfu when we have received but not yet sent an Stfu, or we are the initiator
 // but have not yet sent an Stfu.
 func (q *Quiescer) oweStfu() bool {
-	return q.received && !q.sent
+	return (q.received || q.localInit) && !q.sent
 }
 
 // NeedStfu returns true if the remote owes us an Stfu. They owe us an Stfu when
@@ -333,7 +343,60 @@ func (q *Quiescer) sendOwedStfu(numPendingLocalUpdates uint64) error {
 
 	if err == nil {
 		q.sent = true
+
+		// Since we just sent an Stfu, we may have a newly quiesced
+		// state. If so, we will try to resolve any outstanding
+		// StfuReqs.
+		q.tryResolveStfuReq()
 	}
 
 	return err
+}
+
+// TryResolveStfuReq attempts to resolve the active quiescence request if the
+// state machine has reached a quiescent state.
+func (q *Quiescer) TryResolveStfuReq() {
+	q.Lock()
+	defer q.Unlock()
+
+	q.tryResolveStfuReq()
+}
+
+// tryResolveStfuReq attempts to resolve the active quiescence request if the
+// state machine has reached a quiescent state.
+func (q *Quiescer) tryResolveStfuReq() {
+	q.activeQuiescenceReq.WhenSome(
+		func(req StfuReq) {
+			if q.isQuiescent() {
+				req.Resolve(q.quiescenceInitiator())
+				q.activeQuiescenceReq = fn.None[StfuReq]()
+			}
+		},
+	)
+}
+
+// InitStfu instructs the quiescer that we intend to begin a quiescence
+// negotiation where we are the initiator. We don't yet send stfu yet because
+// we need to wait for the link to give us a valid opportunity to do so.
+func (q *Quiescer) InitStfu(req StfuReq) {
+	q.Lock()
+	defer q.Unlock()
+
+	q.initStfu(req)
+}
+
+// initStfu instructs the quiescer that we intend to begin a quiescence
+// negotiation where we are the initiator. We don't yet send stfu yet because
+// we need to wait for the link to give us a valid opportunity to do so.
+func (q *Quiescer) initStfu(req StfuReq) {
+	if q.localInit {
+		req.Resolve(fn.Errf[lntypes.ChannelParty](
+			"quiescence already requested",
+		))
+
+		return
+	}
+
+	q.localInit = true
+	q.activeQuiescenceReq = fn.Some(req)
 }

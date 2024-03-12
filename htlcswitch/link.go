@@ -396,6 +396,11 @@ type channelLink struct {
 	// respect to the quiescence protocol.
 	quiescer Quiescer
 
+	// quiescenceReqs is a queue of requests to quiesce this link. The
+	// members of the queue are send-only channels we should call back with
+	// the result.
+	quiescenceReqs chan StfuReq
+
 	// ContextGuard is a helper that encapsulates a wait group and quit
 	// channel and allows contexts that either block or cancel on those
 	// depending on the use case.
@@ -481,6 +486,10 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		},
 	}
 
+	quiescenceReqs := make(
+		chan fn.Req[fn.Unit, fn.Result[lntypes.ChannelParty]], 1,
+	)
+
 	return &channelLink{
 		cfg:                 cfg,
 		channel:             channel,
@@ -491,6 +500,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		outgoingCommitHooks: newHookMap(),
 		incomingCommitHooks: newHookMap(),
 		quiescer:            NewQuiescer(quiescerCfg),
+		quiescenceReqs:      quiescenceReqs,
 		ContextGuard:        fn.NewContextGuard(),
 	}
 }
@@ -745,12 +755,17 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 // may be removed or reworked in the future as RPC initiated quiescence is a
 // holdover until we have downstream protocols that use it.
 func (l *channelLink) InitStfu() <-chan fn.Result[lntypes.ChannelParty] {
-	// TODO(proofofkeags): Implement
-	c := make(chan fn.Result[lntypes.ChannelParty], 1)
+	req, out := fn.NewReq[fn.Unit, fn.Result[lntypes.ChannelParty]](
+		fn.Unit{},
+	)
 
-	c <- fn.Errf[lntypes.ChannelParty]("InitStfu not yet implemented")
+	select {
+	case l.quiescenceReqs <- req:
+	case <-l.Quit:
+		req.Resolve(fn.Err[lntypes.ChannelParty](ErrLinkShuttingDown))
+	}
 
-	return c
+	return out
 }
 
 // isReestablished returns true if the link has successfully completed the
@@ -1496,6 +1511,22 @@ func (l *channelLink) htlcManager() {
 				}, "process hodl queue: unable to update "+
 					"commitment: %v", err,
 				)
+			}
+
+		case qReq := <-l.quiescenceReqs:
+			l.quiescer.InitStfu(qReq)
+
+			pendingOnLocal := l.channel.NumPendingUpdates(
+				lntypes.Local, lntypes.Local,
+			)
+			pendingOnRemote := l.channel.NumPendingUpdates(
+				lntypes.Local, lntypes.Remote,
+			)
+			if err := l.quiescer.SendOwedStfu(
+				pendingOnLocal + pendingOnRemote,
+			); err != nil {
+				l.stfuFailf("%s", err.Error())
+				qReq.Resolve(fn.Err[lntypes.ChannelParty](err))
 			}
 
 		case <-l.Quit:

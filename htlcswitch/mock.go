@@ -947,6 +947,12 @@ func (f *mockChannelLink) OnFlushedOnce(func()) {
 func (f *mockChannelLink) OnCommitOnce(LinkDirection, func()) {
 	// TODO(proofofkeags): Implement
 }
+func (f *mockChannelLink) InitStfu() <-chan fn.Option[lntypes.ChannelParty] {
+	// TODO(proofofkeags): Implement
+	c := make(chan fn.Option[lntypes.ChannelParty])
+	close(c) // This indicates the attempt failed
+	return c
+}
 
 var _ ChannelLink = (*mockChannelLink)(nil)
 

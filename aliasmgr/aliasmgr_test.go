@@ -23,7 +23,11 @@ func TestAliasStorePeerAlias(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	aliasStore, err := NewManager(db)
+	linkUpdater := func(shortID lnwire.ShortChannelID) error {
+		return nil
+	}
+
+	aliasStore, err := NewManager(db, linkUpdater)
 	require.NoError(t, err)
 
 	var chanID1 [32]byte
@@ -52,7 +56,11 @@ func TestAliasStoreRequest(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	aliasStore, err := NewManager(db)
+	linkUpdater := func(shortID lnwire.ShortChannelID) error {
+		return nil
+	}
+
+	aliasStore, err := NewManager(db, linkUpdater)
 	require.NoError(t, err)
 
 	// We'll assert that the very first alias we receive is StartingAlias.
@@ -80,7 +88,14 @@ func TestAliasLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 
-	aliasStore, err := NewManager(db)
+	updateChan := make(chan struct{}, 1)
+
+	linkUpdater := func(shortID lnwire.ShortChannelID) error {
+		updateChan <- struct{}{}
+		return nil
+	}
+
+	aliasStore, err := NewManager(db, linkUpdater)
 	require.NoError(t, err)
 
 	const (
@@ -94,8 +109,11 @@ func TestAliasLifecycle(t *testing.T) {
 	aliasScid2 := lnwire.NewShortChanIDFromInt(alias + 1)
 
 	// Add the first alias.
-	err = aliasStore.AddLocalAlias(aliasScid, baseScid, false)
+	err = aliasStore.AddLocalAlias(aliasScid, baseScid, false, true)
 	require.NoError(t, err)
+
+	// The link updater should be called.
+	<-updateChan
 
 	// Query the aliases and verify the results.
 	aliasList := aliasStore.GetAliases(baseScid)
@@ -103,8 +121,11 @@ func TestAliasLifecycle(t *testing.T) {
 	require.Contains(t, aliasList, aliasScid)
 
 	// Add the second alias.
-	err = aliasStore.AddLocalAlias(aliasScid2, baseScid, false)
+	err = aliasStore.AddLocalAlias(aliasScid2, baseScid, false, true)
 	require.NoError(t, err)
+
+	// The link updater should be called.
+	<-updateChan
 
 	// Query the aliases and verify the results.
 	aliasList = aliasStore.GetAliases(baseScid)
@@ -116,10 +137,20 @@ func TestAliasLifecycle(t *testing.T) {
 	err = aliasStore.DeleteLocalAlias(aliasScid, baseScid)
 	require.NoError(t, err)
 
+	// The link updater should be called.
+	<-updateChan
+
 	// We expect to get an error if we attempt to delete the same alias
 	// again.
 	err = aliasStore.DeleteLocalAlias(aliasScid, baseScid)
 	require.ErrorIs(t, err, ErrAliasNotFound)
+
+	// The link updater should _not_ be called.
+	select {
+	case <-updateChan:
+		t.Fatal("link alias updater should not have been called")
+	default:
+	}
 
 	// Query the aliases and verify that first one doesn't exist anymore.
 	aliasList = aliasStore.GetAliases(baseScid)
@@ -130,6 +161,9 @@ func TestAliasLifecycle(t *testing.T) {
 	// Delete the second alias.
 	err = aliasStore.DeleteLocalAlias(aliasScid2, baseScid)
 	require.NoError(t, err)
+
+	// The link updater should be called.
+	<-updateChan
 
 	// Query the aliases and verify that none exists.
 	aliasList = aliasStore.GetAliases(baseScid)

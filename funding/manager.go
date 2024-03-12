@@ -1263,7 +1263,7 @@ func (f *Manager) advancePendingChannelState(
 		// Persist the alias to the alias database.
 		baseScid := channel.ShortChannelID
 		err := f.cfg.AliasManager.AddLocalAlias(
-			baseScid, baseScid, true,
+			baseScid, baseScid, true, false,
 		)
 		if err != nil {
 			return fmt.Errorf("error adding local alias to "+
@@ -3149,7 +3149,7 @@ func (f *Manager) handleFundingConfirmation(
 		}
 
 		err = f.cfg.AliasManager.AddLocalAlias(
-			aliasScid, confChannel.shortChanID, true,
+			aliasScid, confChannel.shortChanID, true, false,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to request alias: %w", err)
@@ -3315,7 +3315,7 @@ func (f *Manager) sendChannelReady(completeChan *channeldb.OpenChannel,
 
 				err = f.cfg.AliasManager.AddLocalAlias(
 					alias, completeChan.ShortChannelID,
-					false,
+					false, false,
 				)
 				if err != nil {
 					return err
@@ -3892,7 +3892,7 @@ func (f *Manager) handleChannelReady(peer lnpeer.Peer, //nolint:funlen
 			}
 
 			err = f.cfg.AliasManager.AddLocalAlias(
-				alias, channel.ShortChannelID, false,
+				alias, channel.ShortChannelID, false, false,
 			)
 			if err != nil {
 				log.Errorf("unable to add local alias: %v",

@@ -18,8 +18,10 @@ import (
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -60,6 +62,7 @@ type ServerShell struct {
 type Server struct {
 	started  int32 // To be used atomically.
 	shutdown int32 // To be used atomically.
+	quit     chan struct{}
 
 	// Required by the grpc-gateway/v2 library for forward compatibility.
 	// Must be after the atomically used variables to not break struct
@@ -82,7 +85,8 @@ func New(cfg *Config) (*Server, lnrpc.MacaroonPerms, error) {
 	// We don't create any new macaroons for this subserver, instead reuse
 	// existing onchain/offchain permissions.
 	server := &Server{
-		cfg: cfg,
+		quit: make(chan struct{}),
+		cfg:  cfg,
 	}
 
 	return server, macPermissions, nil
@@ -106,6 +110,8 @@ func (s *Server) Stop() error {
 	if atomic.AddInt32(&s.shutdown, 1) != 1 {
 		return nil
 	}
+
+	close(s.quit)
 
 	return nil
 }
@@ -359,12 +365,28 @@ func (s *Server) Quiesce(_ context.Context, in *QuiescenceRequest) (
 
 	op := wire.NewOutPoint(txid, in.ChanId.OutputIndex)
 	cid := lnwire.NewChanIDFromOutPoint(*op)
-	_, err = s.cfg.Switch.GetLink(cid)
+	ln, err := s.cfg.Switch.GetLink(cid)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO(proofofkeags): Add Link operation for initiating quiescence and
-	// implement the rest of this in those terms
-	return nil, fmt.Errorf("TODO(proofofkeags): Implement")
+	select {
+	case result := <-ln.InitStfu():
+		mkResp := func(b lntypes.ChannelParty) *QuiescenceResponse {
+			return &QuiescenceResponse{
+				Initiator: b.IsLocal(),
+			}
+		}
+
+		newEither := fn.MapLeft[lntypes.ChannelParty, error](
+			mkResp,
+		)(result.Either)
+
+		return fn.Result[*QuiescenceResponse]{
+			Either: newEither,
+		}.Unpack()
+
+	case <-s.quit:
+		return nil, fmt.Errorf("server shutting down")
+	}
 }

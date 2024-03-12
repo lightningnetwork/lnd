@@ -464,6 +464,12 @@ func (m *mockUpdateHandler) OnCommitOnce(
 
 	hook()
 }
+func (m *mockUpdateHandler) InitStfu() <-chan fn.Option[bool] {
+	// TODO(proofofkeags): Implement
+	c := make(chan fn.Option[bool])
+	close(c) // This indicates the attempt failed
+	return c
+}
 
 func newMockConn(t *testing.T, expectedMessages int) *mockMessageConn {
 	return &mockMessageConn{

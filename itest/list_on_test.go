@@ -574,4 +574,8 @@ var allTestCases = []*lntest.TestCase{
 		Name:     "coop close with htlcs",
 		TestFunc: testCoopCloseWithHtlcs,
 	},
+	{
+		Name:     "quiescence",
+		TestFunc: testQuiescence,
+	},
 }

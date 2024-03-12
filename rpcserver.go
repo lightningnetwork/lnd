@@ -45,6 +45,7 @@ import (
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/discovery"
 	"github.com/lightningnetwork/lnd/feature"
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -562,6 +563,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 		"/lnrpc.Lightning/ListAliases": {{
 			Entity: "offchain",
 			Action: "read",
+		}},
+		"/lnrpc.Lightning/Quiesce": {{
+			Entity: "offchain",
+			Action: "write",
 		}},
 	}
 }
@@ -8210,4 +8215,30 @@ func rpcInitiator(isInitiator bool) lnrpc.Initiator {
 	}
 
 	return lnrpc.Initiator_INITIATOR_REMOTE
+}
+
+func (r *rpcServer) Quiesce(ctx context.Context, in *lnrpc.QuiescenceRequest) (
+	*lnrpc.QuiescenceResponse, error) {
+
+	txid, err := lnrpc.GetChanPointFundingTxid(in.ChanId)
+	if err != nil {
+		return nil, err
+	}
+
+	op := wire.NewOutPoint(txid, in.ChanId.OutputIndex)
+	cid := lnwire.NewChanIDFromOutPoint(op)
+	ln, err := r.server.htlcSwitch.GetLink(cid)
+	if err != nil {
+		return nil, err
+	}
+
+	select {
+	case opt := <-ln.InitStfu():
+		trans := fn.MapOption(func(b bool) *lnrpc.QuiescenceResponse{
+			return &lnrpc.QuiescenceResponse{Initiator: b}
+		})
+		return trans(opt).UnwrapOrErr(fmt.Errorf("Quiescence Failed"))
+	case <-r.quit:
+		return nil, fmt.Errorf("Server Shutting Down")
+	}
 }

@@ -5509,15 +5509,48 @@ func (lc *LightningChannel) oweCommitment(local bool) bool {
 	return oweCommitment
 }
 
-// PendingLocalUpdateCount returns the number of local updates that still need
-// to be applied to the remote commitment tx.
-func (lc *LightningChannel) PendingLocalUpdateCount() uint64 {
+// NumLocalUpdatesPendingOnRemote returns the number of local updates that still
+// need to be applied to the remote commitment tx.
+func (lc *LightningChannel) NumLocalUpdatesPendingOnRemote() uint64 {
 	lc.RLock()
 	defer lc.RUnlock()
 
 	lastRemoteCommit := lc.remoteCommitChain.tip()
 
 	return lc.localUpdateLog.logIndex - lastRemoteCommit.ourMessageIndex
+}
+
+// NumLocalUpdatesPendingOnLocal returns the number of local updates that still
+// need to be applied to the local commitment tx.
+func (lc *LightningChannel) NumLocalUpdatesPendingOnLocal() uint64 {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	lastLocalCommit := lc.localCommitChain.tip()
+
+	return lc.localUpdateLog.logIndex - lastLocalCommit.ourMessageIndex
+}
+
+// NumRemoteUpdatesPendingOnLocal returns the number of remote updates that
+// still need to be applied to the local commitment tx.
+func (lc *LightningChannel) NumRemoteUpdatesPendingOnLocal() uint64 {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	lastLocalCommit := lc.localCommitChain.tip()
+
+	return lc.remoteUpdateLog.logIndex - lastLocalCommit.theirMessageIndex
+}
+
+// NumRemoteUpdatesPendingOnRemote returns the number of remote updates that
+// still need to be applied to the remote commitment tx.
+func (lc *LightningChannel) NumRemoteUpdatesPendingOnRemote() uint64 {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	lastRemoteCommit := lc.remoteCommitChain.tip()
+
+	return lc.remoteUpdateLog.logIndex - lastRemoteCommit.theirMessageIndex
 }
 
 // RevokeCurrentCommitment revokes the next lowest unrevoked commitment

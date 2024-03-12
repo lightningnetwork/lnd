@@ -375,6 +375,12 @@ type channelLink struct {
 	// our next CommitSig.
 	incomingCommitHooks hookMap
 
+	// quiescer is the state machine that tracks where this channel is with
+	// respect to the quiescence protocol.
+	quiescer
+	activeQuiescenceRequest chan<- fn.Option[bool]
+	newQuiescenceRequests chan chan<- fn.Option[bool]
+
 	wg   sync.WaitGroup
 	quit chan struct{}
 }
@@ -442,16 +448,22 @@ func NewChannelLink(cfg ChannelLinkConfig,
 
 	logPrefix := fmt.Sprintf("ChannelLink(%v):", channel.ChannelPoint())
 
+	qsm := quiescer{
+		chanID: lnwire.NewChanIDFromOutPoint(channel.ChannelPoint()),
+	}
+
 	return &channelLink{
-		cfg:                 cfg,
-		channel:             channel,
-		hodlMap:             make(map[models.CircuitKey]hodlHtlc),
-		hodlQueue:           queue.NewConcurrentQueue(10),
-		log:                 build.NewPrefixLog(logPrefix, log),
-		flushHooks:          newHookMap(),
-		outgoingCommitHooks: newHookMap(),
-		incomingCommitHooks: newHookMap(),
-		quit:                make(chan struct{}),
+		cfg:                    cfg,
+		channel:                channel,
+		hodlMap:                make(map[models.CircuitKey]hodlHtlc),
+		hodlQueue:              queue.NewConcurrentQueue(10),
+		log:                    build.NewPrefixLog(logPrefix, log),
+		flushHooks:             newHookMap(),
+		outgoingCommitHooks:    newHookMap(),
+		incomingCommitHooks:    newHookMap(),
+		quiescer:               qsm,
+		newQuiescenceRequests:  make(chan chan<- fn.Option[bool], 1),
+		quit:                   make(chan struct{}),
 	}
 }
 
@@ -612,7 +624,8 @@ func (l *channelLink) EligibleToForward() bool {
 func (l *channelLink) EligibleToUpdate() bool {
 	return l.channel.RemoteNextRevocation() != nil &&
 		l.ShortChanID() != hop.Source &&
-		l.isReestablished()
+		l.isReestablished() &&
+		l.quiescer.canSendUpdates()
 }
 
 // EnableAdds sets the ChannelUpdateHandler state to allow UpdateAddHtlc's in
@@ -674,6 +687,24 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 	case queue <- hook:
 	case <-l.quit:
 	}
+}
+
+// InitStfu allows us to initiate quiescence on this link. It returns a receive
+// only channel that will block until quiescence has been achieved, or
+// definitively fails.
+//
+// This operation has been added to allow channels to be quiesced via RPC. It
+// may be removed or reworked in the future as RPC initiated quiescence is a
+// holdover until we have downstream protocols that use it.
+func (l *channelLink) InitStfu() <-chan fn.Option[bool] {
+	c := make(chan fn.Option[bool], 1)
+	select {
+	case l.newQuiescenceRequests<-c:
+	case <-l.quit:
+		close(c)
+	}
+
+	return c
 }
 
 // isReestablished returns true if the link has successfully completed the
@@ -939,7 +970,7 @@ func (l *channelLink) resolveFwdPkgs() error {
 
 	// If any of our reprocessing steps require an update to the commitment
 	// txn, we initiate a state transition to capture all relevant changes.
-	if l.channel.PendingLocalUpdateCount() > 0 {
+	if l.channel.NumLocalUpdatesPendingOnRemote() > 0 {
 		return l.updateCommitTx()
 	}
 
@@ -1271,15 +1302,15 @@ func (l *channelLink) htlcManager() {
 		// the batch ticker so that it can be cleared. Otherwise pause
 		// the ticker to prevent waking up the htlcManager while the
 		// batch is empty.
-		if l.channel.PendingLocalUpdateCount() > 0 {
+		if l.channel.NumLocalUpdatesPendingOnRemote() > 0 {
 			l.cfg.BatchTicker.Resume()
 			l.log.Tracef("BatchTicker resumed, "+
-				"PendingLocalUpdateCount=%d",
-				l.channel.PendingLocalUpdateCount())
+				"NumLocalUpdatesPendingOnRemote=%d",
+				l.channel.NumLocalUpdatesPendingOnRemote())
 		} else {
 			l.cfg.BatchTicker.Pause()
 			l.log.Trace("BatchTicker paused due to zero " +
-				"PendingLocalUpdateCount")
+				"NumLocalUpdatesPendingOnRemote")
 		}
 
 		select {
@@ -1434,6 +1465,14 @@ func (l *channelLink) htlcManager() {
 						" %v", err),
 				)
 			}
+		case qReq := <-l.newQuiescenceRequests:
+			l.activeQuiescenceRequest = qReq
+			err := l.quiescer.initStfu()
+			if err != nil {
+				close(qReq)
+				l.log.Errorf("%v", err)
+			}
+			l.drivePendingStfuSends()
 
 		case <-l.quit:
 			return
@@ -1577,6 +1616,17 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 		)
 	}
 
+	// If the channel is quiescent then we issue a temporary channel failure
+	// and bounce it.
+	if !l.quiescer.canSendUpdates() {
+		l.mailBox.FailAdd(pkt)
+
+		return NewDetailedLinkError(
+			&lnwire.FailTemporaryChannelFailure{},
+			OutgoingFailureLinkNotEligible,
+		)
+	}
+
 	// If hodl.AddOutgoing mode is active, we exit early to simulate
 	// arbitrary delays between the switch adding an ADD to the
 	// mailbox, and the HTLC being added to the commitment state.
@@ -1623,7 +1673,7 @@ func (l *channelLink) handleDownstreamUpdateAdd(pkt *htlcPacket) error {
 	l.log.Tracef("received downstream htlc: payment_hash=%x, "+
 		"local_log_index=%v, pend_updates=%v",
 		htlc.PaymentHash[:], index,
-		l.channel.PendingLocalUpdateCount())
+		l.channel.NumLocalUpdatesPendingOnRemote())
 
 	pkt.outgoingChanID = l.ShortChanID()
 	pkt.outgoingHTLCID = index
@@ -1668,6 +1718,14 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		_ = l.handleDownstreamUpdateAdd(pkt)
 
 	case *lnwire.UpdateFulfillHTLC:
+		if !l.quiescer.canSendUpdates() {
+			l.log.Warn(
+				"unable to process channel update. "+
+					"ChannelID=%v is quiescent.", l.chanID,
+			)
+
+			return
+		}
 		// If hodl.SettleOutgoing mode is active, we exit early to
 		// simulate arbitrary delays between the switch adding the
 		// SETTLE to the mailbox, and the HTLC being added to the
@@ -1735,6 +1793,15 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 		l.updateCommitTxOrFail()
 
 	case *lnwire.UpdateFailHTLC:
+		if !l.quiescer.canSendUpdates() {
+			l.log.Warn(
+				"unable to process channel update. "+
+					"ChannelID=%v is quiescent.", l.chanID,
+			)
+
+			return
+		}
+
 		// If hodl.FailOutgoing mode is active, we exit early to
 		// simulate arbitrary delays between the switch adding a FAIL to
 		// the mailbox, and the HTLC being added to the commitment
@@ -1817,7 +1884,8 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 // tryBatchUpdateCommitTx updates the commitment transaction if the batch is
 // full.
 func (l *channelLink) tryBatchUpdateCommitTx() {
-	if l.channel.PendingLocalUpdateCount() < uint64(l.cfg.BatchSize) {
+	pending := l.channel.NumLocalUpdatesPendingOnRemote()
+	if pending < uint64(l.cfg.BatchSize) {
 		return
 	}
 
@@ -1893,7 +1961,6 @@ func (l *channelLink) cleanupSpuriousResponse(pkt *htlcPacket) {
 // direct channel with, updating our respective commitment chains.
 func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 	switch msg := msg.(type) {
-
 	case *lnwire.UpdateAddHTLC:
 		if l.IsFlushing(Incoming) {
 			// This is forbidden by the protocol specification.
@@ -1928,6 +1995,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			return
 		}
 
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu")
+			return
+		}
+
 		// We just received an add request from an upstream peer, so we
 		// add it to our state machine, then add the HTLC to our
 		// "settle" list in the event that we know the preimage.
@@ -1942,6 +2014,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			"assigning index: %v", msg.PaymentHash[:], index)
 
 	case *lnwire.UpdateFulfillHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu")
+			return
+		}
+
 		pre := msg.PaymentPreimage
 		idx := msg.ID
 
@@ -1995,6 +2072,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		go l.forwardBatch(false, settlePacket)
 
 	case *lnwire.UpdateFailMalformedHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu")
+			return
+		}
+
 		// Convert the failure type encoded within the HTLC fail
 		// message to the proper generic lnwire error code.
 		var failure lnwire.FailureMessage
@@ -2049,6 +2131,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		}
 
 	case *lnwire.UpdateFailHTLC:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu")
+			return
+		}
+
 		// Verify that the failure reason is at least 256 bytes plus
 		// overhead.
 		const minimumFailReasonLength = lnwire.FailureMessageLength +
@@ -2233,6 +2320,10 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			}
 		}
 
+		// If we need to send out an Stfu, this would be the time to do
+		// so.
+		l.drivePendingStfuSends()
+
 		// Now that we have finished processing the incoming CommitSig
 		// and sent out our RevokeAndAck, we invoke the flushHooks if
 		// the channel state is clean.
@@ -2332,6 +2423,11 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.RWMutex.Unlock()
 
 	case *lnwire.UpdateFee:
+		if !l.quiescer.canRecvUpdates() {
+			l.stfuFailf("update received after stfu")
+			return
+		}
+
 		// We received fee update from peer. If we are the initiator we
 		// will fail the channel, if not we will apply the update.
 		fee := chainfee.SatPerKWeight(msg.FeePerKw)
@@ -2343,6 +2439,44 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 
 		// Update the mailbox's feerate as well.
 		l.mailBox.SetFeeRate(fee)
+
+	case *lnwire.Stfu:
+		handleErr := func(err error) {
+			l.log.Error(err.Error())
+			l.stfuFailf(err.Error())
+		}
+
+		remoteOnLocal := l.channel.NumRemoteUpdatesPendingOnLocal()
+		remoteOnRemote := l.channel.NumRemoteUpdatesPendingOnRemote()
+		if remoteOnLocal > 0 || remoteOnRemote > 0 {
+			// This is invalid according to the spec, drop the
+			// connection.
+			err := fmt.Errorf(
+				"received stfu while remote updates pending "+
+					"on Local (%d) or Remote (%d)",
+				remoteOnLocal,
+				remoteOnRemote,
+			)
+			handleErr(err)
+
+			return
+		}
+
+		finished, err := l.quiescer.recvStfu()
+		if err != nil {
+			handleErr(err)
+			return
+		}
+
+		if finished {
+			if resp := l.activeQuiescenceRequest; resp != nil {
+				resp<-fn.Some(true)
+			}
+			return
+		}
+
+		// If we can immediately send an Stfu response back , we will.
+		l.drivePendingStfuSends()
 
 	// In the case where we receive a warning message from our peer, just
 	// log it and move on. We choose not to disconnect from our peer,
@@ -2374,6 +2508,47 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		l.log.Warnf("received unknown message of type %T", msg)
 	}
 
+}
+
+func (l *channelLink) drivePendingStfuSends() {
+	if !l.quiescer.oweStfu() {
+		return
+	}
+
+	handleErr := func(err error) {
+		l.log.Error(err.Error())
+		l.stfuFailf(err.Error())
+	}
+
+	localOnRemote := l.channel.NumLocalUpdatesPendingOnRemote()
+	localOnLocal := l.channel.NumLocalUpdatesPendingOnLocal()
+	if localOnRemote == 0 && localOnLocal == 0 {
+		oStfu, err := l.quiescer.sendStfu()
+		if err != nil {
+			handleErr(err)
+			return
+		}
+		oStfu.WhenSome(func(stfu lnwire.Stfu) {
+			l.log.Debugf("sending stfu: %v", stfu)
+			err := l.cfg.Peer.SendMessage(false, &stfu)
+			if err != nil {
+				handleErr(err)
+				return
+			}
+		})
+	}
+}
+
+// stfuFailf fails the link in the case where the requirements of the quiescence
+// protocol are violated. In all cases we opt to drop the connection as only
+// link state (as opposed to channel state) is affected.
+func (l *channelLink) stfuFailf(format string, args ...interface{}) {
+	l.fail(LinkFailureError{
+		code:             ErrInvalidUpdate,
+		FailureAction:    LinkFailureDisconnect,
+		PermanentFailure: false,
+		Warning:          true,
+	}, format, args...)
 }
 
 // ackDownStreamPackets is responsible for removing htlcs from a link's mailbox
@@ -2492,7 +2667,7 @@ func (l *channelLink) updateCommitTx() error {
 
 		l.log.Tracef("revocation window exhausted, unable to send: "+
 			"%v, pend_updates=%v, dangling_closes%v",
-			l.channel.PendingLocalUpdateCount(),
+			l.channel.NumLocalUpdatesPendingOnRemote(),
 			newLogClosure(func() string {
 				return spew.Sdump(l.openedCircuits)
 			}),

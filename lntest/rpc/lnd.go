@@ -728,3 +728,15 @@ func (h *HarnessRPC) LookupHtlcResolutionAssertErr(
 
 	return err
 }
+
+func (h *HarnessRPC) Quiesce(req *lnrpc.QuiescenceRequest) (
+	*lnrpc.QuiescenceResponse, error) {
+
+	ctx, cancel := context.WithTimeout(h.runCtx, DefaultTimeout)
+	defer cancel()
+
+	res, err := h.LN.Quiesce(ctx, req)
+	h.NoError(err, "Quiesce")
+
+	return res, err
+}

@@ -2138,6 +2138,10 @@ func messageSummary(msg lnwire.Message) string {
 			time.Unix(int64(msg.FirstTimestamp), 0),
 			msg.TimestampRange)
 
+	case *lnwire.Stfu:
+		return fmt.Sprintf("chan_id=%v, initiator=%v", msg.ChanID,
+			msg.Initiator)
+
 	case *lnwire.Custom:
 		return fmt.Sprintf("type=%d", msg.Type)
 	}

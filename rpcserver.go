@@ -8446,12 +8446,20 @@ func (r *rpcServer) Quiesce(_ context.Context, in *lnrpc.QuiescenceRequest) (
 
 	op := wire.NewOutPoint(txid, in.ChanId.OutputIndex)
 	cid := lnwire.NewChanIDFromOutPoint(*op)
-	_, err = r.server.htlcSwitch.GetLink(cid)
+	ln, err := r.server.htlcSwitch.GetLink(cid)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO(proofofkeags): Add Link operation for initiating quiescence and
-	// implement the rest of this in those terms
-	return nil, fmt.Errorf("TODO(proofofkeags): Implement")
+	select {
+	case opt := <-ln.InitStfu():
+		trans := fn.MapOption(func(b bool) *lnrpc.QuiescenceResponse {
+			return &lnrpc.QuiescenceResponse{Initiator: b}
+		})
+
+		return trans(opt).UnwrapOrErr(fmt.Errorf("quiescence failed"))
+
+	case <-r.quit:
+		return nil, fmt.Errorf("server shutting down")
+	}
 }

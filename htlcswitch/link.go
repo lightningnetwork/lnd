@@ -391,6 +391,11 @@ type channelLink struct {
 	// respect to the quiescence protocol.
 	quiescer quiescer
 
+	// quiescenceRequests is a queue of requests to quiesce this link.
+	// The members of the queue are send-only channels we should call back
+	// with the result.
+	quiescenceReqs chan StfuReq
+
 	// stateQueries is a channel that is used to query the current state of
 	// the channelLink in a thread-safe manner by delegating the state reads
 	// to the main event loop.
@@ -488,6 +493,10 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		},
 	})
 
+	quiescenceReqs := make(
+		chan fn.Req[fn.Unit, fn.Result[lntypes.ChannelParty]], 1,
+	)
+
 	return &channelLink{
 		cfg:                 cfg,
 		channel:             channel,
@@ -498,6 +507,7 @@ func NewChannelLink(cfg ChannelLinkConfig,
 		outgoingCommitHooks: newHookMap(),
 		incomingCommitHooks: newHookMap(),
 		quiescer:            qsm,
+		quiescenceReqs:      quiescenceReqs,
 		stateQueries:        make(chan func(), 1),
 		quit:                make(chan struct{}),
 	}
@@ -765,12 +775,17 @@ func (l *channelLink) OnCommitOnce(direction LinkDirection, hook func()) {
 // may be removed or reworked in the future as RPC initiated quiescence is a
 // holdover until we have downstream protocols that use it.
 func (l *channelLink) InitStfu() <-chan fn.Result[lntypes.ChannelParty] {
-	// TODO(proofofkeags): Implement
-	c := make(chan fn.Result[lntypes.ChannelParty], 1)
+	req, out := fn.NewReq[fn.Unit, fn.Result[lntypes.ChannelParty]](
+		fn.Unit{},
+	)
 
-	c <- fn.Errf[lntypes.ChannelParty]("InitStfu not yet implemented")
+	select {
+	case l.quiescenceReqs <- req:
+	case <-l.quit:
+		req.Resolve(fn.Err[lntypes.ChannelParty](ErrLinkShuttingDown))
+	}
 
-	return c
+	return out
 }
 
 // isReestablished returns true if the link has successfully completed the
@@ -1514,6 +1529,13 @@ func (l *channelLink) htlcManager() {
 				}, "process hodl queue: unable to update "+
 					"commitment: %v", err,
 				)
+			}
+
+		case qReq := <-l.quiescenceReqs:
+			l.quiescer.initStfu(qReq)
+
+			if err := l.quiescer.drive(); err != nil {
+				l.stfuFailf("%s", err.Error())
 			}
 
 		case runQuery := <-l.stateQueries:

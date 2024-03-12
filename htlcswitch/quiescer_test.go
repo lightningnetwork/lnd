@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,9 @@ type quiescerTestHarness struct {
 	conn           <-chan lnwire.Stfu
 }
 
-func initQuiescerTestHarness() *quiescerTestHarness {
+func initQuiescerTestHarness(
+	channelInitiator lntypes.ChannelParty) *quiescerTestHarness {
+
 	conn := make(chan lnwire.Stfu, 1)
 	harness := &quiescerTestHarness{
 		pendingUpdates: lntypes.Dual[uint64]{},
@@ -25,7 +28,8 @@ func initQuiescerTestHarness() *quiescerTestHarness {
 	}
 
 	harness.quiescer = newQuiescer(quiescerCfg{
-		chanID: cid,
+		chanID:           cid,
+		channelInitiator: channelInitiator,
 		numPendingUpdates: func(whoseUpdate lntypes.ChannelParty,
 			_ lntypes.ChannelParty) uint64 {
 
@@ -41,7 +45,7 @@ func initQuiescerTestHarness() *quiescerTestHarness {
 }
 
 func TestQuiescerDoubleRecvInvalid(t *testing.T) {
-	harness := initQuiescerTestHarness()
+	harness := initQuiescerTestHarness(lntypes.Local)
 
 	msg := lnwire.Stfu{
 		ChanID:    cid,
@@ -55,7 +59,7 @@ func TestQuiescerDoubleRecvInvalid(t *testing.T) {
 }
 
 func TestQuiescerPendingUpdatesRecvInvalid(t *testing.T) {
-	harness := initQuiescerTestHarness()
+	harness := initQuiescerTestHarness(lntypes.Local)
 
 	msg := lnwire.Stfu{
 		ChanID:    cid,
@@ -68,7 +72,7 @@ func TestQuiescerPendingUpdatesRecvInvalid(t *testing.T) {
 }
 
 func TestQuiescenceRemoteInit(t *testing.T) {
-	harness := initQuiescerTestHarness()
+	harness := initQuiescerTestHarness(lntypes.Local)
 
 	msg := lnwire.Stfu{
 		ChanID:    cid,
@@ -98,5 +102,30 @@ func TestQuiescenceRemoteInit(t *testing.T) {
 		require.False(t, msg.Initiator)
 	default:
 		t.Fatalf("stfu not sent when expected")
+	}
+}
+
+func TestQuiescerTieBreaker(t *testing.T) {
+	for _, initiator := range []lntypes.ChannelParty{
+		lntypes.Local, lntypes.Remote,
+	} {
+		harness := initQuiescerTestHarness(initiator)
+
+		msg := lnwire.Stfu{
+			ChanID:    cid,
+			Initiator: true,
+		}
+
+		req, res := fn.NewReq[fn.Unit, fn.Result[lntypes.ChannelParty]](
+			fn.Unit{},
+		)
+
+		harness.quiescer.initStfu(req)
+		require.NoError(t, harness.quiescer.recvStfu(msg))
+		require.NoError(t, harness.quiescer.drive())
+
+		party := <-res
+
+		require.Equal(t, fn.Ok(initiator), party)
 	}
 }
